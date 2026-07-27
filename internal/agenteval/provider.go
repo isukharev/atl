@@ -70,29 +70,8 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 	}
 	switch spec.Provider {
 	case "claude-code":
-		toolNames := claudeToolNames(spec.AllowedTools)
-		allowedTools := append([]string(nil), spec.AllowedTools...)
-		if containsRunString(spec.AllowedTools, "Bash(atl *)") && !containsRunString(allowedTools, "Bash(export ATL_READ_ONLY=1)") {
-			// Shipped read-only skills intentionally establish a block-wide
-			// safety policy before their first atl command. Grant only that exact
-			// inert export; the hook still rejects every other shell command.
-			allowedTools = append(allowedTools, "Bash(export ATL_READ_ONLY=1)")
-		}
-		if containsRunString(spec.AllowedTools, "Bash(atl *)") && !containsRunString(allowedTools, "Bash(command -v atl)") {
-			// The same preflight verifies which executable the benchmark is about
-			// to use. Keep this as an exact inert command rather than broadening
-			// the reviewed atl prefix.
-			allowedTools = append(allowedTools, "Bash(command -v atl)")
-		}
-		if spec.EffectiveBackendMode() == BackendModePrivateLive && spec.ToolTransport == "cli" &&
-			containsRunString(spec.AllowedTools, "Bash(atl *)") && !containsRunString(toolNames, "Read") {
-			// Large reviewed CLI responses are staged by the benchmark command
-			// broker. Expose Claude's reader for that artifact; the PreToolUse hook
-			// still binds it to the exact runner-owned directory, line window, and
-			// read budget. It is never interface or backend evidence.
-			toolNames = append(toolNames, "Read")
-			allowedTools = append(allowedTools, "Read")
-		}
+		toolNames, allowedTools := claudeReviewedToolInventory(spec.AllowedTools,
+			spec.EffectiveBackendMode() == BackendModePrivateLive && spec.ToolTransport == "cli")
 		settingSources := "project"
 		if spec.EffectiveBackendMode() == BackendModePrivateLive {
 			settingSources = ""
@@ -174,15 +153,9 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 		// account-side Apps or browser/computer capabilities may otherwise be
 		// discovered after authentication. The built-in shell and the exact MCP
 		// server configured below remain available and are still hook-guarded.
-		for _, feature := range []string{"apps", "browser_use", "computer_use", "image_generation", "remote_plugin"} {
-			args = append(args, "--disable", feature)
-		}
+		args = append(args, codexDisabledProviderFeatureArgs()...)
 		if privateCLI {
-			// Pin the local execution route instead of relying on feature defaults
-			// that may differ between reviewed Codex binaries. Hooks, the custom
-			// filesystem profile, and the command broker remain the authority over
-			// what that shell can do.
-			args = append(args, "--enable", "shell_tool", "--enable", "unified_exec")
+			args = append(args, codexLocalExecutionRouteArgs()...)
 		}
 		if !confinedCLI {
 			args = append(args, "--sandbox", sandboxMode)
@@ -516,6 +489,56 @@ func validCodexHookReadRoot(value string) bool {
 
 func validCodexHookPath(value string) bool {
 	return value != "" && filepath.IsAbs(value) && filepath.Clean(value) == value && !strings.ContainsAny(value, "\x00\r\n")
+}
+
+// claudeReviewedToolInventory derives the exact built-in inventory and
+// permission rules a reviewed Claude Code launch presents to the model.
+// Backend-free route qualification shares it so the inventory a probe observes
+// cannot come from a weaker alternate launch.
+func claudeReviewedToolInventory(rules []string, privateLiveCLI bool) ([]string, []string) {
+	toolNames := claudeToolNames(rules)
+	allowedTools := append([]string(nil), rules...)
+	if containsRunString(rules, "Bash(atl *)") && !containsRunString(allowedTools, "Bash(export ATL_READ_ONLY=1)") {
+		// Shipped read-only skills intentionally establish a block-wide
+		// safety policy before their first atl command. Grant only that exact
+		// inert export; the hook still rejects every other shell command.
+		allowedTools = append(allowedTools, "Bash(export ATL_READ_ONLY=1)")
+	}
+	if containsRunString(rules, "Bash(atl *)") && !containsRunString(allowedTools, "Bash(command -v atl)") {
+		// The same preflight verifies which executable the benchmark is about
+		// to use. Keep this as an exact inert command rather than broadening
+		// the reviewed atl prefix.
+		allowedTools = append(allowedTools, "Bash(command -v atl)")
+	}
+	if privateLiveCLI && containsRunString(rules, "Bash(atl *)") && !containsRunString(toolNames, "Read") {
+		// Large reviewed CLI responses are staged by the benchmark command
+		// broker. Expose Claude's reader for that artifact; the PreToolUse hook
+		// still binds it to the exact runner-owned directory, line window, and
+		// read budget. It is never interface or backend evidence.
+		toolNames = append(toolNames, "Read")
+		allowedTools = append(allowedTools, "Read")
+	}
+	return toolNames, allowedTools
+}
+
+// codexDisabledProviderFeatureArgs and codexLocalExecutionRouteArgs are the
+// reviewed Codex route flags. Both the benchmark launch and backend-free route
+// qualification use them, so a probe observes the same model-facing inventory
+// the measured run would.
+func codexDisabledProviderFeatureArgs() []string {
+	args := make([]string, 0, 10)
+	for _, feature := range []string{"apps", "browser_use", "computer_use", "image_generation", "remote_plugin"} {
+		args = append(args, "--disable", feature)
+	}
+	return args
+}
+
+// codexLocalExecutionRouteArgs pins the local execution route instead of
+// relying on feature defaults that may differ between reviewed Codex binaries.
+// Hooks, the custom filesystem profile, and the command broker remain the
+// authority over what that shell can do.
+func codexLocalExecutionRouteArgs() []string {
+	return []string{"--enable", "shell_tool", "--enable", "unified_exec"}
 }
 
 func claudeToolNames(rules []string) []string {

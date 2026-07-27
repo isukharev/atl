@@ -516,6 +516,7 @@ func TestLegacyPromptBoundPrivatePlanV2RemainsReadable(t *testing.T) {
 	plan.CostAssurance = ""
 	plan.StudyContract = nil
 	plan.ActivationContract = nil
+	plan.CLIRouteQualification = nil
 	for index := range plan.Items {
 		plan.Items[index].CellID = ""
 		plan.Items[index].MaxEstimatedCostMicroUSD = 0
@@ -546,6 +547,7 @@ func TestLegacyPrivatePlanV1RemainsReadableByWorkspaceLifecycle(t *testing.T) {
 	plan.CostAssurance = ""
 	plan.StudyContract = nil
 	plan.ActivationContract = nil
+	plan.CLIRouteQualification = nil
 	for index := range plan.Items {
 		plan.Items[index].CellID = ""
 		plan.Items[index].MaxEstimatedCostMicroUSD = 0
@@ -1006,9 +1008,31 @@ exit 2
 	wrapper := filepath.Join(binRoot, "fake-wrapper")
 	writeTestFile(t, wrapper, "#!/bin/sh\nexit 0\n", 0o700)
 
+	if includeCLI {
+		stubPrivatePlanCLIRouteQualifier(t, CLIRouteQualificationSupported, "exec_command")
+	}
 	return privatePlanTestFixture{root: root, repository: repository, liveConfig: liveConfig, pluginRoot: pluginRoot,
 		agent: agent, atl: atl, wrapper: wrapper, mutationControl: mutationControl,
 		runSetAlias: "portfolio", now: time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)}
+}
+
+// stubPrivatePlanCLIRouteQualifier replaces the backend-free route qualifier
+// with a deterministic in-process report bound to the same reviewed contract.
+func stubPrivatePlanCLIRouteQualifier(t *testing.T, status CLIRouteQualificationStatus, route string) {
+	t.Helper()
+	original := privatePlanQualifyCLIRoute
+	privatePlanQualifyCLIRoute = func(_ context.Context, options CLIRouteQualificationOptions) (CLIRouteQualificationReport, error) {
+		agent, _, err := inspectPrivateAgentBinary(options.AgentBinary, "")
+		if err != nil {
+			return CLIRouteQualificationReport{}, err
+		}
+		return CLIRouteQualificationReport{
+			SchemaVersion: CLIRouteQualificationSchemaVersion, Provider: options.Provider, Surface: options.Surface,
+			AgentIdentity: agent.identity, ContractSHA256: cliRouteQualificationContractSHA256(agent.identity, options),
+			Status: status, Route: route, RequestObserved: true, SyntheticRequests: 1,
+		}, nil
+	}
+	t.Cleanup(func() { privatePlanQualifyCLIRoute = original })
 }
 
 func setPrivatePlanTestPanel(t *testing.T, fixture privatePlanTestFixture, panel *PrivateQualitativeReviewPanel) {

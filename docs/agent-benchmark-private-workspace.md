@@ -399,10 +399,12 @@ Reviewer ids are terminal-visible filesystem slot names. Keep them generic
 (`reviewer-01`, not a person, team, provider account, or backend identity); they
 are restricted to one lowercase path component. Schema v1 manifests remain
 readable as legacy comparisons. Workspace-manifest v2 activation studies,
-outer private-plan v5/v4 artifacts, outer execution-state v2 artifacts, and
-their nested lifecycle plan/event v1 records remain inspectable, but cannot
-execute, recover, become references, or be promoted. Plan v5 predates the bound
-tool-availability result; v4 also predates calibration and attempt evidence.
+outer private-plan v8/v7/v6/v5/v4 artifacts, outer execution-state v2
+artifacts, and their nested lifecycle plan/event v1 records remain
+inspectable, but cannot
+execute, recover, become references, or be promoted. Plan v8 predates the bound
+CLI-route qualification; v5 predates the bound tool-availability result; v4 also
+predates calibration and attempt evidence.
 Workspace-manifest v3 and plan v6 artifacts remain readable for manual review,
 but new plans require workspace schema v4. Create and review a v4 workspace for
 new measurements.
@@ -461,15 +463,42 @@ credentials, or backend identity. Missing, ambiguous, malformed, repeated, or
 absent inventory fails closed. Activation-study planning repeats this check
 before persisting a plan, and execution repeats it before consuming that plan.
 
+A private-live **comparison** set that contains a `cli-skill` item is qualified
+separately, for both `codex` and `claude-code`. A comparison holds at most one
+such surface, so the plan carries one optional route report rather than a map.
+The qualifier launches the reviewed agent binary with the same
+route-determining flags the measured run uses, binds the remaining launch
+artifacts by digest, points it at a nonce-scoped loopback endpoint, and
+captures only the first exact model-facing request. It then deliberately ends
+the child: it never fabricates a model response and never retries, so a second
+model request is a failure rather than a second chance. Claude Code runs with
+`ANTHROPIC_BASE_URL` and a fixed synthetic key inside an environment allowlist,
+so no ambient provider credential, configuration directory, or proxy setting can
+cross into the probe; one connectivity `HEAD` to the loopback origin root or
+`/api/hello`, or to the nonce-scoped base root or its `/api/hello` path, may
+precede capture and nothing else may. A concurrent `HEAD` after the model
+request starts is refused without changing its qualification. The report is
+content-free and scalar only:
+provider, surface, binary identity, qualification-contract digest, a closed
+status (`supported`, `route_inventory_missing`, `route_inventory_ambiguous`,
+`request_schema_failed`, `process_failed`), the provider-scoped route alias
+(`exec_command`/`shell_command`/`exec` for Codex, `bash` for Claude Code), and
+zero-authority counters. A comparison set without a CLI item carries no report.
+Plan creation captures and binds the supported report, and execution re-proves
+the same route identity and outcome against the execution snapshot's own agent
+binary and plugin/settings inputs before provider authentication, calibration, or any
+benchmark invocation. The descriptive 0/1 connectivity-HEAD count is not route
+drift; route or contract drift refuses without consuming the plan.
+
 ## Review, run, and assess
 
-A v8 plan binds the exact comparison or activation-study contract and execution
+A v9 plan binds the exact comparison or activation-study contract and execution
 identity: case inputs, ordered surfaces, skill activation and private
 prompt-contract digest, ATL and wrapper binaries, plugin/skill tree, agent
-runtime and tool-availability qualification contract/result, repository commit,
-backend-config identity, external profile when used, cost cap, and consent
-expiry. Credential bytes are never hashed into a plan or retained in a
-run/baseline.
+runtime and tool-availability or CLI-route qualification contract/result,
+repository commit, backend-config identity, external profile when used, cost
+cap, and consent expiry. Credential bytes are never hashed into a plan or
+retained in a run/baseline.
 
 Actual Codex execution requires file-backed provider authentication. The
 effective `CODEX_HOME` (or `HOME/.codex` fallback) must be a real directory not
@@ -638,9 +667,10 @@ remaining cells; a safety violation does too. None of those checks can undo
 cost already incurred.
 
 Workspace-manifest v1 comparisons remain readable. Legacy activation
-workspace-manifest v2, outer private-plan v5/v4, outer execution-state v2, and
-nested lifecycle plan/event v1 artifacts remain readable for inspection. Plan
-v5 predates the bound tool-availability result; v4 also predates calibration.
+workspace-manifest v2, outer private-plan v8/v7/v6/v5/v4, outer execution-state
+v2, and nested lifecycle plan/event v1 artifacts remain readable for inspection.
+Plan v8 predates the bound CLI-route qualification; v5 predates the bound
+tool-availability result; v4 also predates calibration.
 Legacy activation artifacts are explicitly
 incomparable and cannot be executed, recovered, captured, or promoted. Four
 treatments collected under separate legacy plans are descriptive compatibility
@@ -756,7 +786,7 @@ plan identity, while `live_writes` and `max_remote_writes` keep their existing
 equivalence and continue to describe mutation authority alone. Ordinary
 `CONSENT`/`RUN` remains sufficient for a query-only plan;
 `CONSENT-WRITES`/`RUN-WRITES` stays exclusive to `allow_live_writes`. Activation
-studies reject query-only transport. The field is additive in current schema 8:
+studies reject query-only transport. The field is additive from schema 8 on:
 existing plans omit it as zero and keep their prior read and execution
 semantics, while older schemas cannot express it.
 
@@ -1697,7 +1727,7 @@ subsystems migrate to this pattern incrementally.
 
 Current manifests use schema v4, run specs use schema v7, observations use
 schema v5, results use schema v8, aggregates use schema v7, private plans use
-schema v8, finding scorecards use schema v3, coverage indexes use legacy schema
+schema v9, finding scorecards use schema v3, coverage indexes use legacy schema
 v1 or typed schema v2, coverage scorecards use schema v2, legacy finding
 ledgers, legacy finding-acceptance indexes, and private-live sampling
 specs/assessments use schema v1; daily checkpoints,
@@ -1710,13 +1740,13 @@ review packets use schema v2. Current study references/reports use schema v2
 and require audit attempt metrics plus separate bounded model-report metrics.
 The decoder still accepts workspace-manifest v1 comparisons;
 workspace-manifest v3 manual-review workspaces, v2 activation studies, outer
-private-plan v6/v5/v4 artifacts,
+private-plan v8/v7/v6/v5/v4 artifacts,
 outer execution-state v2 artifacts, and nested lifecycle plan/event v1 records
 as read-only legacy artifacts; attemptless result schema v6; prompt-bound
 result schema v5; result schema v3/v4; and outer private-plan schema v1/v2/v3
 for earlier comparison lifecycle inspection and retention. Legacy activation
 reference schema v1 remains readable and compare-only, but is never promotable.
-Create a fresh schema v4 run set, v8 plan, and consent for a causal study. Older
+Create a fresh schema v4 run set, v9 plan, and consent for a causal study. Older
 binaries reject the new artifacts rather than accepting them under a misleading
 old version.
 
