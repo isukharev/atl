@@ -30,8 +30,9 @@ atl conf pull --id <id> --into <dir> # long/multi-section spec; then read .md
 For a long or multi-section spec, use the second command and read the generated
 `.md`.
 Ask for the target Jira project key if not given, and confirm the instance's
-issue types before planning (a failed `issue create` names the valid types;
-many instances lack "Story").
+issue types before planning. Use only types already confirmed for that project;
+if the available types are unknown, stop and ask rather than probing with
+`issue create` (many instances lack "Story").
 
 ### 2. Analyze and propose — no writes
 

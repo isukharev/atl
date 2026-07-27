@@ -957,13 +957,76 @@ func allowedATLArgs(args []string, rawAllowed string) bool {
 	if json.Unmarshal([]byte(rawAllowed), &prefixes) != nil || len(prefixes) == 0 {
 		return false
 	}
-	command := "atl " + strings.Join(args, " ")
 	for _, prefix := range prefixes {
-		if command == prefix || strings.HasPrefix(command, prefix+" ") {
+		tokens, ok := splitReviewedATLCommand(prefix)
+		if !ok || len(tokens) == 0 || tokens[0] != "atl" || len(args) < len(tokens)-1 {
+			continue
+		}
+		matched := true
+		for index := 1; index < len(tokens); index++ {
+			if args[index-1] != tokens[index] {
+				matched = false
+				break
+			}
+		}
+		if matched {
 			return true
 		}
 	}
 	return false
+}
+
+// splitReviewedATLCommand converts the already-reviewed shell representation
+// into the argv tokens the proxy receives after the provider shell removes
+// quotes. It deliberately supports only whitespace plus inert single/double
+// quoting; escapes and substitutions fail closed rather than being
+// reinterpreted a second time.
+func splitReviewedATLCommand(command string) ([]string, bool) {
+	if command == "" || strings.ContainsAny(command, "\x00\r\n") {
+		return nil, false
+	}
+	var tokens []string
+	var token strings.Builder
+	var quote byte
+	inToken := false
+	flush := func() {
+		if inToken {
+			tokens = append(tokens, token.String())
+			token.Reset()
+			inToken = false
+		}
+	}
+	for index := 0; index < len(command); index++ {
+		character := command[index]
+		if quote != 0 {
+			if character == quote {
+				quote = 0
+				continue
+			}
+			if quote == '"' && (character == '\\' || character == '$' || character == '`') {
+				return nil, false
+			}
+			token.WriteByte(character)
+			continue
+		}
+		switch character {
+		case ' ', '\t':
+			flush()
+		case '\'', '"':
+			quote = character
+			inToken = true
+		case '\\', '$', '`':
+			return nil, false
+		default:
+			token.WriteByte(character)
+			inToken = true
+		}
+	}
+	if quote != 0 {
+		return nil, false
+	}
+	flush()
+	return tokens, len(tokens) > 0
 }
 
 func syntheticBackendsAreLoopback() bool {

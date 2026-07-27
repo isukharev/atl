@@ -410,3 +410,141 @@ func TestMockBackendMatchesExpectedJSONRequestBody(t *testing.T) {
 		t.Fatalf("status=%d methods=%v unexpected=%d duplicates=%d", response.StatusCode, methods, unexpected, duplicates)
 	}
 }
+
+func TestMockFixtureValidatesRequestSequence(t *testing.T) {
+	valid := MockFixture{
+		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
+		Routes: []MockRoute{
+			{Name: "source.read", Method: "GET", Path: "/wiki/rest/api/content/1", Status: http.StatusOK, Body: []byte(`{}`)},
+			{Name: "item.create", Method: "POST", Path: "/jira/rest/api/2/issue", RequestBody: []byte(`{"fields":{}}`), Status: http.StatusCreated, Body: []byte(`{}`)},
+		},
+		RequestSequence: []string{"source.read", "item.create", "source.read"},
+	}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("valid request sequence rejected: %v", err)
+	}
+
+	for name, mutate := range map[string]func(*MockFixture){
+		"unnamed route": func(fixture *MockFixture) { fixture.Routes[0].Name = "" },
+		"invalid name":  func(fixture *MockFixture) { fixture.Routes[0].Name = "Source Read" },
+		"duplicate name": func(fixture *MockFixture) {
+			fixture.Routes[1].Name = fixture.Routes[0].Name
+		},
+		"unknown reference": func(fixture *MockFixture) { fixture.RequestSequence[0] = "missing" },
+		"too long": func(fixture *MockFixture) {
+			fixture.RequestSequence = make([]string, 4097)
+			for index := range fixture.RequestSequence {
+				fixture.RequestSequence[index] = "source.read"
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fixture := valid
+			fixture.Routes = append([]MockRoute(nil), valid.Routes...)
+			fixture.RequestSequence = append([]string(nil), valid.RequestSequence...)
+			mutate(&fixture)
+			if err := fixture.Validate(); err == nil {
+				t.Fatal("invalid request sequence passed")
+			}
+		})
+	}
+}
+
+func TestMockBackendEnforcesRequestSequence(t *testing.T) {
+	fixture := MockFixture{
+		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
+		Routes: []MockRoute{
+			{Name: "source.read", Method: "GET", Path: "/wiki/rest/api/content/1", Status: http.StatusOK, Body: []byte(`{"source":true}`)},
+			{Name: "item.create", Method: "POST", Path: "/jira/rest/api/2/issue", RequestBody: []byte(`{"fields":{}}`), Status: http.StatusCreated, Body: []byte(`{"key":"SYN-1"}`)},
+		},
+		RequestSequence: []string{"source.read", "item.create", "source.read"},
+	}
+	backend, err := StartMockBackend(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+	if backend.RequestSequenceComplete() {
+		t.Fatal("incomplete request sequence reported complete")
+	}
+
+	post := func() int {
+		response, err := http.Post(backend.Environment()["ATL_JIRA_URL"]+"/rest/api/2/issue", "application/json", strings.NewReader(`{"fields":{}}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = response.Body.Close()
+		return response.StatusCode
+	}
+	get := func() int {
+		response, err := http.Get(backend.Environment()["ATL_CONFLUENCE_URL"] + "/rest/api/content/1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = response.Body.Close()
+		return response.StatusCode
+	}
+
+	if status := post(); status != http.StatusNotFound {
+		t.Fatalf("out-of-order request status=%d", status)
+	}
+	for index, request := range []func() int{get, post, get} {
+		if status := request(); status < 200 || status >= 300 {
+			t.Fatalf("ordered request %d status=%d", index, status)
+		}
+	}
+	if !backend.RequestSequenceComplete() {
+		t.Fatal("completed request sequence reported incomplete")
+	}
+	if status := get(); status != http.StatusNotFound {
+		t.Fatalf("request after completed sequence status=%d", status)
+	}
+	methods, unexpected, _ := backend.Summary()
+	if methods[http.MethodGet] != 3 || methods[http.MethodPost] != 2 || unexpected != 2 {
+		t.Fatalf("methods=%v unexpected=%d", methods, unexpected)
+	}
+}
+
+func TestMockBackendOrderMismatchDoesNotConsumeResponseSequence(t *testing.T) {
+	fixture := MockFixture{
+		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
+		Routes: []MockRoute{
+			{Name: "first", Method: "GET", Path: "/wiki/rest/api/content/first", Status: http.StatusOK, Body: []byte(`{}`)},
+			{Name: "stateful", Method: "GET", Path: "/wiki/rest/api/content/stateful", Responses: []MockResponse{
+				{Status: http.StatusOK, Body: []byte(`{"step":1}`)},
+				{Status: http.StatusOK, Body: []byte(`{"step":2}`)},
+			}},
+		},
+		RequestSequence: []string{"first", "stateful", "stateful"},
+	}
+	backend, err := StartMockBackend(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+
+	get := func(path string) (int, string) {
+		response, err := http.Get(backend.Environment()["ATL_CONFLUENCE_URL"] + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(response.Body)
+		_ = response.Body.Close()
+		return response.StatusCode, string(body)
+	}
+	if status, _ := get("/rest/api/content/stateful"); status != http.StatusNotFound {
+		t.Fatalf("out-of-order stateful status=%d", status)
+	}
+	if status, _ := get("/rest/api/content/first"); status != http.StatusOK {
+		t.Fatalf("first status=%d", status)
+	}
+	for index, want := range []string{`{"step":1}`, `{"step":2}`} {
+		status, body := get("/rest/api/content/stateful")
+		if status != http.StatusOK || body != want {
+			t.Fatalf("stateful response %d status=%d body=%s", index, status, body)
+		}
+	}
+	if !backend.RequestSequenceComplete() {
+		t.Fatal("repeated route sequence did not complete")
+	}
+}
