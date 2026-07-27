@@ -898,6 +898,11 @@ func privateFindingRefKey(ref PrivateFindingRunRef) string {
 	return ref.PlanID + "\x00" + ref.Surface
 }
 
-func privateFindingError(code string) error {
-	return fmt.Errorf("%w: %s", ErrPrivateFindingLedgerRejected, code)
+// privateFindingError classifies a finding-ledger rejection under the shared
+// sentinel and its stable short code while retaining the causes already in
+// hand. The rendered message stays sentinel plus code, so a configured private
+// path, a ledger file name, or ledger content cannot reach a log line through
+// the error string.
+func privateFindingError(code string, causes ...error) error {
+	return codedError(ErrPrivateFindingLedgerRejected, code, causes...)
 }

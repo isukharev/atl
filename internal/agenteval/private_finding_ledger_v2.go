@@ -80,18 +80,24 @@ func loadPrivateFindingLedger(root string) (privateFindingLedgerDocument, error)
 	}
 	switch version {
 	case PrivateFindingLedgerSchemaVersion:
+		// Mixed: decodable but non-canonical bytes are rejected by the byte
+		// comparison alone and leave nil here. The decode or envelope-validation
+		// failure is passed unguarded because codedError drops a nil cause.
 		ledger, canonical, decodeErr := decodePrivateFindingLedger(data)
 		if decodeErr != nil || !bytes.Equal(data, canonical) {
-			return privateFindingLedgerDocument{}, privateFindingError("ledger_contract")
+			return privateFindingLedgerDocument{}, privateFindingError("ledger_contract", decodeErr)
 		}
 		return privateFindingLedgerDocument{Entries: normalizePrivateFindingLedger(ledger), Canonical: canonical}, nil
 	case PrivateFindingLedgerV2SchemaVersion:
+		// Same mixed branch on the schema-v2 side.
 		ledger, canonical, decodeErr := decodePrivateFindingLedgerV2(data)
 		if decodeErr != nil || !bytes.Equal(data, canonical) {
-			return privateFindingLedgerDocument{}, privateFindingError("ledger_contract")
+			return privateFindingLedgerDocument{}, privateFindingError("ledger_contract", decodeErr)
 		}
 		return privateFindingLedgerDocument{Entries: normalizePrivateFindingLedgerV2(ledger), Canonical: canonical}, nil
 	default:
+		// The reader only reports the two known schema versions, so this stays a
+		// defensive classification with nothing in hand.
 		return privateFindingLedgerDocument{}, privateFindingError("ledger_file")
 	}
 }
@@ -102,20 +108,24 @@ func readPrivateFindingLedger(root string) (int, []byte, error) {
 
 func readPrivateFindingLedgerWithHook(root string, afterInventory func()) (int, []byte, error) {
 	directory := filepath.Join(root, "reports")
+	// Mixed: an observed directory type or permission rejects on its own and
+	// leaves nil, while a failed probe keeps the failure it holds.
 	directoryInfo, err := safepath.StatWithin(root, directory)
 	if err != nil || !directoryInfo.IsDir() ||
 		(runtime.GOOS != "windows" && directoryInfo.Mode().Perm() != 0o700) {
-		return 0, nil, privateFindingError("ledger_directory")
+		return 0, nil, privateFindingError("ledger_directory", err)
 	}
 	handle, err := os.OpenRoot(directory)
 	if err != nil {
-		return 0, nil, privateFindingError("ledger_directory")
+		return 0, nil, privateFindingError("ledger_directory", err)
 	}
 	defer func() { _ = handle.Close() }()
+	// Mixed again: only the stat can fail, and the directory-identity
+	// comparisons beside it have nothing to attach.
 	openedDirectory, err := handle.Stat(".")
 	if err != nil || !openedDirectory.IsDir() || !os.SameFile(directoryInfo, openedDirectory) ||
 		!sameSyntheticRootInfo(directoryInfo, openedDirectory) {
-		return 0, nil, privateFindingError("ledger_directory")
+		return 0, nil, privateFindingError("ledger_directory", err)
 	}
 	legacyName := filepath.Base(PrivateFindingLedgerRelativePath)
 	currentName := filepath.Base(PrivateFindingLedgerV2RelativePath)
@@ -128,9 +138,11 @@ func readPrivateFindingLedgerWithHook(root string, afterInventory func()) (int, 
 		return 0, nil, err
 	}
 	if legacyExists && currentExists {
+		// Both candidates probed cleanly; the pair itself is the rejection.
 		return 0, nil, privateFindingError("ledger_ambiguous")
 	}
 	if !legacyExists && !currentExists {
+		// Ordinary absence on both probes, which is not a failure to retain.
 		return 0, nil, privateFindingError("ledger_file")
 	}
 	if afterInventory != nil {
@@ -142,23 +154,27 @@ func readPrivateFindingLedgerWithHook(root string, afterInventory func()) (int, 
 	}
 	file, err := handle.Open(name)
 	if err != nil {
-		return 0, nil, privateFindingError("ledger_read")
+		return 0, nil, privateFindingError("ledger_read", err)
 	}
+	// Mixed: the opened file's type and the identity comparison against the
+	// inventoried candidate reject on their own; only the stat has a cause.
 	opened, statErr := file.Stat()
 	if statErr != nil || !opened.Mode().IsRegular() || !os.SameFile(before, opened) ||
 		!sameSyntheticRootInfo(before, opened) {
 		_ = file.Close()
-		return 0, nil, privateFindingError("ledger_file")
+		return 0, nil, privateFindingError("ledger_file", statErr)
 	}
 	data, readErr := ioReadAllLimit(file, privateFindingLedgerMaxBytes)
 	final, finalErr := file.Stat()
 	closeErr := file.Close()
 	if readErr != nil {
-		return 0, nil, privateFindingError("ledger_read")
+		return 0, nil, privateFindingError("ledger_read", readErr)
 	}
+	// The final stat and the close each hold a failure and are attached in that
+	// fixed order; the identity and size comparisons beside them attach nothing.
 	if finalErr != nil || closeErr != nil || !os.SameFile(opened, final) ||
 		!sameSyntheticRootInfo(opened, final) || final.Size() != int64(len(data)) {
-		return 0, nil, privateFindingError("ledger_file")
+		return 0, nil, privateFindingError("ledger_file", finalErr, closeErr)
 	}
 	legacyAfter, legacyStillExists, err := privateFindingLedgerEntryInfo(handle, legacyName)
 	if err != nil {
@@ -168,32 +184,53 @@ func readPrivateFindingLedgerWithHook(root string, afterInventory func()) (int, 
 	if err != nil {
 		return 0, nil, err
 	}
+	// The entry-inventory comparisons run before the directory probes, preserving
+	// the original short-circuit and observation order. They have nothing to
+	// attach.
 	if legacyExists != legacyStillExists || currentExists != currentStillExists ||
 		legacyExists && (!os.SameFile(legacyBefore, legacyAfter) || !sameSyntheticRootInfo(legacyBefore, legacyAfter)) ||
-		currentExists && (!os.SameFile(currentBefore, currentAfter) || !sameSyntheticRootInfo(currentBefore, currentAfter)) ||
-		!privateFindingLedgerDirectoryStable(root, directory, handle, openedDirectory) {
+		currentExists && (!os.SameFile(currentBefore, currentAfter) || !sameSyntheticRootInfo(currentBefore, currentAfter)) {
 		return 0, nil, privateFindingError("ledger_file")
+	}
+	// The directory recheck observes the retained handle and then the ambient
+	// path in the same order as before. Its two probe failures remain available
+	// to the outer classification in final-then-ambient order.
+	directoryStable, finalDirectoryErr, ambientDirectoryErr :=
+		privateFindingLedgerDirectoryStable(root, directory, handle, openedDirectory)
+	if !directoryStable {
+		return 0, nil, privateFindingError("ledger_file", finalDirectoryErr, ambientDirectoryErr)
 	}
 	return version, data, nil
 }
 
 func privateFindingLedgerEntryInfo(root *os.Root, name string) (os.FileInfo, bool, error) {
 	info, err := root.Lstat(name)
+	// An absent candidate is ordinary absence, not a failure to classify.
 	if os.IsNotExist(err) {
 		return nil, false, nil
 	}
+	// Mixed: an observed file type or mode rejects on its own and leaves nil,
+	// while any other probe failure keeps its cause.
 	if err != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) {
-		return nil, false, privateFindingError("ledger_file")
+		return nil, false, privateFindingError("ledger_file", err)
 	}
 	return info, true, nil
 }
 
-func privateFindingLedgerDirectoryStable(root, directory string, handle *os.Root, opened os.FileInfo) bool {
+// privateFindingLedgerDirectoryStable rechecks that the reports directory read
+// through the retained handle is still the same directory the ambient path
+// resolves to. It reports its final-handle and ambient probe failures beside
+// the verdict so the caller can retain them under its own classification; the
+// identity rules that decide stability are unchanged.
+func privateFindingLedgerDirectoryStable(
+	root, directory string, handle *os.Root, opened os.FileInfo,
+) (bool, error, error) {
 	final, err := handle.Stat(".")
 	ambient, ambientErr := safepath.StatWithin(root, directory)
-	return err == nil && ambientErr == nil &&
+	stable := err == nil && ambientErr == nil &&
 		os.SameFile(opened, final) && sameSyntheticRootInfo(opened, final) &&
 		os.SameFile(opened, ambient) && sameSyntheticRootInfo(opened, ambient)
+	return stable, err, ambientErr
 }
 
 func decodePrivateFindingLedgerV2(data []byte) (PrivateFindingLedgerV2, []byte, error) {

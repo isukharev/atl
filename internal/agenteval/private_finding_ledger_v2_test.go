@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -502,8 +503,11 @@ func TestPrivateFindingLedgerVersionSelectionFailsClosed(t *testing.T) {
 			Decision: PrivateFindingDecisionInvestigate,
 		}},
 	})
-	if _, err := loadPrivateFindingLedger(fixture.root); !errors.Is(err, ErrPrivateFindingLedgerRejected) {
-		t.Fatalf("err=%v", err)
+	_, err := loadPrivateFindingLedger(fixture.root)
+	assertPrivateFindingCode(t, err, "ledger_ambiguous")
+	// Both candidates probed cleanly; the pair itself is the rejection.
+	if causes := privateFindingErrorCauses(t, err); len(causes) != 0 {
+		t.Fatalf("causes=%v, want an ambiguity-only rejection", causes)
 	}
 }
 
@@ -523,8 +527,10 @@ func TestPrivateFindingLedgerV2RejectsConcurrentCreation(t *testing.T) {
 			}},
 		})
 	})
-	if !errors.Is(err, ErrPrivateFindingLedgerRejected) {
-		t.Fatalf("err=%v", err)
+	assertPrivateFindingCode(t, err, "ledger_file")
+	// The window closes on an inventory comparison, not on a failed probe.
+	if causes := privateFindingErrorCauses(t, err); len(causes) != 0 {
+		t.Fatalf("causes=%v, want an inventory-comparison rejection", causes)
 	}
 }
 
@@ -547,6 +553,348 @@ func TestPrivateFindingLedgerV2PublicContract(t *testing.T) {
 	if err != nil || json.Unmarshal(schemaData, &schema) != nil {
 		t.Fatalf("public schema is invalid JSON: %v", err)
 	}
+}
+
+func TestPrivateFindingErrorKeepsCausesInspectableAndOutOfTheMessage(t *testing.T) {
+	privatePath := filepath.Join("private", "reports", "finding-ledger.v2.json")
+	statCause := &fs.PathError{Op: "statat", Path: privatePath, Err: fs.ErrPermission}
+	secondCause := errors.New("synthetic close failure")
+
+	err := privateFindingError("ledger_file", statCause, nil, secondCause)
+	assertPrivateFindingCode(t, err, "ledger_file")
+	if strings.Contains(err.Error(), privatePath) || strings.Contains(err.Error(), secondCause.Error()) {
+		t.Fatalf("message leaked a cause: %q", err.Error())
+	}
+	if !errors.Is(err, fs.ErrPermission) || !errors.Is(err, secondCause) {
+		t.Fatalf("error %v lost a cause", err)
+	}
+	var typed *fs.PathError
+	if !errors.As(err, &typed) || typed.Path != statCause.Path {
+		t.Fatalf("error %v does not expose the concrete stat failure", err)
+	}
+	// The file recheck supplies final-stat then close, and the directory
+	// recheck supplies final-handle then ambient. That fixed order is pinned
+	// here because neither branch can be driven into a both-failed state
+	// without racing the reader.
+	causes := privateFindingErrorCauses(t, err)
+	if len(causes) != 2 || causes[0] != error(statCause) || causes[1] != secondCause {
+		t.Fatalf("causes=%v, want both non-nil causes retained in order", causes)
+	}
+
+	// A rejection with nothing in hand classifies exactly as it did before.
+	assertPrivateFindingCode(t, privateFindingError("ledger_ambiguous"), "ledger_ambiguous")
+	if causes := privateFindingErrorCauses(t, privateFindingError("ledger_file", nil, nil)); len(causes) != 0 {
+		t.Fatalf("causes=%v, want nil causes dropped", causes)
+	}
+
+	// The candidate probe classifies under this same shared constructor and is
+	// returned unchanged by the reader, so a nested classification has to stay
+	// reachable below the outer code.
+	nested := privateFindingError("ledger_file")
+	outer := privateFindingError("ledger_contract", nested)
+	assertPrivateFindingCode(t, outer, "ledger_contract")
+	var classified interface{ Code() string }
+	if !errors.As(outer, &classified) || classified.Code() != "ledger_contract" {
+		t.Fatalf("error %v does not report the outer ledger code", outer)
+	}
+	if inner := privateFindingErrorCauses(t, outer); len(inner) != 1 || inner[0] != nested {
+		t.Fatalf("causes=%v, want the nested classification retained", inner)
+	}
+}
+
+func TestPrivateFindingLedgerAttachesDirectoryProbeCauses(t *testing.T) {
+	t.Run("absent reports directory", func(t *testing.T) {
+		fixture := newPrivateFindingLedgerReadFixture(t)
+		if err := os.RemoveAll(filepath.Join(fixture.root, "reports")); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := readPrivateFindingLedger(fixture.root)
+		assertPrivateFindingCode(t, err, "ledger_directory")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the directory probe failure retained", causes)
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete probe failure", err)
+		}
+		var typed *fs.PathError
+		if !errors.As(err, &typed) {
+			t.Fatalf("error %v does not expose a path failure", err)
+		}
+		if strings.Contains(err.Error(), fixture.root) {
+			t.Fatalf("message leaked the workspace root: %q", err.Error())
+		}
+	})
+
+	t.Run("loose reports permission", func(t *testing.T) {
+		fixture := newPrivateFindingLedgerReadFixture(t)
+		if err := os.Chmod(filepath.Join(fixture.root, "reports"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := readPrivateFindingLedger(fixture.root)
+		assertPrivateFindingCode(t, err, "ledger_directory")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a permission-observation rejection", causes)
+		}
+	})
+
+	t.Run("reports path is not a directory", func(t *testing.T) {
+		fixture := newPrivateFindingLedgerReadFixture(t)
+		reports := filepath.Join(fixture.root, "reports")
+		if err := os.RemoveAll(reports); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(reports, []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := readPrivateFindingLedger(fixture.root)
+		assertPrivateFindingCode(t, err, "ledger_directory")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a file-type-observation rejection", causes)
+		}
+	})
+}
+
+func TestPrivateFindingLedgerCandidateProbeRejectsWithoutCause(t *testing.T) {
+	t.Run("world-readable candidate", func(t *testing.T) {
+		fixture := newPrivateFindingLedgerReadFixture(t)
+		if err := os.Chmod(fixture.currentPath(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := readPrivateFindingLedger(fixture.root)
+		assertPrivateFindingCode(t, err, "ledger_file")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a mode-observation rejection", causes)
+		}
+	})
+
+	t.Run("candidate is a directory", func(t *testing.T) {
+		fixture := newPrivateFindingLedgerReadFixture(t)
+		if err := os.Remove(fixture.currentPath()); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(fixture.currentPath(), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := readPrivateFindingLedger(fixture.root)
+		assertPrivateFindingCode(t, err, "ledger_file")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a file-type-observation rejection", causes)
+		}
+	})
+
+	t.Run("candidate is a symlink", func(t *testing.T) {
+		fixture := newPrivateFindingLedgerReadFixture(t)
+		legacy := filepath.Join(fixture.root, PrivateFindingLedgerRelativePath)
+		if err := os.Symlink(fixture.currentPath(), legacy); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := readPrivateFindingLedger(fixture.root)
+		assertPrivateFindingCode(t, err, "ledger_file")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a file-type-observation rejection", causes)
+		}
+	})
+
+	t.Run("no candidate at all", func(t *testing.T) {
+		fixture := newPrivateFindingLedgerReadFixture(t)
+		if err := os.Remove(fixture.currentPath()); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := readPrivateFindingLedger(fixture.root)
+		assertPrivateFindingCode(t, err, "ledger_file")
+		// Both probes reported ordinary absence, which is not a failure.
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want an absence-only rejection", causes)
+		}
+	})
+}
+
+// TestPrivateFindingLedgerAttachesReadPathCauses drives the read window
+// through the reader's existing post-inventory seam. Four failure paths stay
+// uncovered here because they are reachable only by racing the reader and the
+// production code deliberately grows no hook for them: a directory open or
+// opened-handle stat that fails after the ambient probe already succeeded, a
+// stat or close failure on the already-open ledger descriptor, a final size
+// that no longer matches the bytes just read, and a candidate probe that fails
+// for a reason other than ordinary absence. They attach on the same terms as
+// the branches covered below; the fixed multi-cause order they rely on is
+// pinned directly on the constructor instead.
+func TestPrivateFindingLedgerAttachesReadPathCauses(t *testing.T) {
+	t.Run("candidate removed after inventory", func(t *testing.T) {
+		fixture := newPrivateFindingLedgerReadFixture(t)
+		_, _, err := readPrivateFindingLedgerWithHook(fixture.root, func() {
+			if removeErr := os.Remove(fixture.currentPath()); removeErr != nil {
+				t.Fatal(removeErr)
+			}
+		})
+		assertPrivateFindingCode(t, err, "ledger_read")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the open failure retained", causes)
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete open failure", err)
+		}
+	})
+
+	t.Run("oversized candidate", func(t *testing.T) {
+		fixture := newPrivateFindingLedgerReadFixture(t)
+		oversized := bytes.Repeat([]byte("x"), privateFindingLedgerMaxBytes+1)
+		if err := os.WriteFile(fixture.currentPath(), oversized, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := readPrivateFindingLedger(fixture.root)
+		assertPrivateFindingCode(t, err, "ledger_read")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the bounded-read failure retained", causes)
+		}
+		if strings.Contains(err.Error(), fixture.root) {
+			t.Fatalf("message leaked the workspace root: %q", err.Error())
+		}
+	})
+
+	t.Run("candidate replaced after inventory", func(t *testing.T) {
+		fixture := newPrivateFindingLedgerReadFixture(t)
+		_, _, err := readPrivateFindingLedgerWithHook(fixture.root, func() {
+			replacement := filepath.Join(fixture.root, "reports", "replacement.tmp")
+			if writeErr := os.WriteFile(replacement, []byte("{}\n"), 0o600); writeErr != nil {
+				t.Fatal(writeErr)
+			}
+			if renameErr := os.Rename(replacement, fixture.currentPath()); renameErr != nil {
+				t.Fatal(renameErr)
+			}
+		})
+		assertPrivateFindingCode(t, err, "ledger_file")
+		// The opened handle stats cleanly; only its identity differs.
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want an identity-comparison rejection", causes)
+		}
+	})
+
+	t.Run("reports directory moved after inventory", func(t *testing.T) {
+		fixture := newPrivateFindingLedgerReadFixture(t)
+		_, _, err := readPrivateFindingLedgerWithHook(fixture.root, func() {
+			if renameErr := os.Rename(
+				filepath.Join(fixture.root, "reports"), filepath.Join(fixture.root, "reports-moved"),
+			); renameErr != nil {
+				t.Fatal(renameErr)
+			}
+		})
+		assertPrivateFindingCode(t, err, "ledger_file")
+		// The retained handle still stats, so only the ambient probe fails.
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the ambient directory probe failure retained", causes)
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("error %v does not expose the concrete ambient failure", err)
+		}
+	})
+
+	t.Run("reports directory replaced after inventory", func(t *testing.T) {
+		fixture := newPrivateFindingLedgerReadFixture(t)
+		_, _, err := readPrivateFindingLedgerWithHook(fixture.root, func() {
+			reports := filepath.Join(fixture.root, "reports")
+			if renameErr := os.Rename(reports, filepath.Join(fixture.root, "reports-moved")); renameErr != nil {
+				t.Fatal(renameErr)
+			}
+			if mkdirErr := os.Mkdir(reports, 0o700); mkdirErr != nil {
+				t.Fatal(mkdirErr)
+			}
+		})
+		assertPrivateFindingCode(t, err, "ledger_file")
+		// Both directory probes succeed; the rejection is the identity change.
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a directory-identity rejection", causes)
+		}
+	})
+}
+
+func TestPrivateFindingLedgerAttachesContractCauses(t *testing.T) {
+	t.Run("undecodable schema-v2 bytes", func(t *testing.T) {
+		fixture := newPrivateFindingLedgerReadFixture(t)
+		writePrivateFindingLedgerBytes(t, fixture.currentPath(), []byte("{not json"))
+		_, err := loadPrivateFindingLedger(fixture.root)
+		assertPrivateFindingCode(t, err, "ledger_contract")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the decode failure retained", causes)
+		}
+		var syntax *json.SyntaxError
+		if !errors.As(err, &syntax) {
+			t.Fatalf("error %v does not expose the concrete decode failure", err)
+		}
+	})
+
+	t.Run("rejected schema-v2 envelope", func(t *testing.T) {
+		fixture := newPrivateFindingLedgerReadFixture(t)
+		writePrivateFindingLedgerV2(t, fixture.root, PrivateFindingLedgerV2{
+			SchemaVersion: PrivateFindingLedgerV2SchemaVersion,
+		})
+		_, err := loadPrivateFindingLedger(fixture.root)
+		assertPrivateFindingCode(t, err, "ledger_contract")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the validation failure retained", causes)
+		}
+	})
+
+	t.Run("decodable but non-canonical schema-v2 bytes", func(t *testing.T) {
+		fixture := newPrivateFindingLedgerReadFixture(t)
+		compact, err := json.Marshal(privateFindingLedgerReadFixtureLedger())
+		if err != nil {
+			t.Fatal(err)
+		}
+		writePrivateFindingLedgerBytes(t, fixture.currentPath(), append(compact, '\n'))
+		_, err = loadPrivateFindingLedger(fixture.root)
+		assertPrivateFindingCode(t, err, "ledger_contract")
+		// The bytes decode and validate; only the canonical comparison rejects.
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a canonical-comparison rejection", causes)
+		}
+	})
+
+	t.Run("undecodable legacy bytes", func(t *testing.T) {
+		fixture := newPrivateFindingLedgerReadFixture(t)
+		if err := os.Remove(fixture.currentPath()); err != nil {
+			t.Fatal(err)
+		}
+		writePrivateFindingLedgerBytes(t, filepath.Join(fixture.root, PrivateFindingLedgerRelativePath), []byte("{not json"))
+		_, err := loadPrivateFindingLedger(fixture.root)
+		assertPrivateFindingCode(t, err, "ledger_contract")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 1 {
+			t.Fatalf("causes=%v, want the legacy decode failure retained", causes)
+		}
+		var syntax *json.SyntaxError
+		if !errors.As(err, &syntax) {
+			t.Fatalf("error %v does not expose the concrete legacy decode failure", err)
+		}
+	})
+
+	t.Run("decodable but non-canonical legacy bytes", func(t *testing.T) {
+		fixture := newPrivateFindingLedgerReadFixture(t)
+		if err := os.Remove(fixture.currentPath()); err != nil {
+			t.Fatal(err)
+		}
+		legacy := PrivateFindingLedger{
+			SchemaVersion: PrivateFindingLedgerSchemaVersion,
+			Entries: []PrivateFindingEntry{{
+				FindingID: "finding-legacy-001",
+				Failure: PrivateFindingRunRef{
+					PlanID:  "pln-11111111111111111111111111111111",
+					Surface: SurfaceCLISkill, Baseline: "captured",
+				},
+				FailureClass: PrivateFailureModel, ProductIssue: 101,
+				Decision: PrivateFindingDecisionInvestigate,
+			}},
+		}
+		compact, err := json.Marshal(legacy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writePrivateFindingLedgerBytes(t, filepath.Join(fixture.root, PrivateFindingLedgerRelativePath), append(compact, '\n'))
+		_, err = loadPrivateFindingLedger(fixture.root)
+		assertPrivateFindingCode(t, err, "ledger_contract")
+		if causes := privateFindingErrorCauses(t, err); len(causes) != 0 {
+			t.Fatalf("causes=%v, want a canonical-comparison rejection", causes)
+		}
+	})
 }
 
 func newSyntheticOnlyFindingFixture(
@@ -616,6 +964,70 @@ func newSyntheticOnlyFindingFixture(
 		}},
 	}
 	return fixture, ledger, acceptance
+}
+
+// privateFindingLedgerReadFixture is the smallest workspace the ledger reader
+// accepts: an owner-only reports directory holding one canonical schema-v2
+// ledger. It exercises the read path without building sampling evidence.
+type privateFindingLedgerReadFixture struct{ root string }
+
+func (f privateFindingLedgerReadFixture) currentPath() string {
+	return filepath.Join(f.root, PrivateFindingLedgerV2RelativePath)
+}
+
+func newPrivateFindingLedgerReadFixture(t *testing.T) privateFindingLedgerReadFixture {
+	t.Helper()
+	fixture := privateFindingLedgerReadFixture{root: newPrivateFindingFixture(t).root}
+	writePrivateFindingLedgerV2(t, fixture.root, privateFindingLedgerReadFixtureLedger())
+	return fixture
+}
+
+func privateFindingLedgerReadFixtureLedger() PrivateFindingLedgerV2 {
+	return PrivateFindingLedgerV2{
+		SchemaVersion: PrivateFindingLedgerV2SchemaVersion,
+		Entries: []PrivateFindingEntryV2{{
+			FindingID: "finding-read-001",
+			Failure: PrivateFindingEvidenceRef{
+				Source: PrivateFindingAcceptanceSourceSyntheticRoot, AssessmentSHA256: strings.Repeat("1", 64),
+			},
+			FailureClass:  PrivateFailureHarness,
+			ProductIssues: []int{101},
+			Decision:      PrivateFindingDecisionInvestigate,
+		}},
+	}
+}
+
+func writePrivateFindingLedgerBytes(t *testing.T, path string, data []byte) {
+	t.Helper()
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertPrivateFindingCode(t *testing.T, err error, code string) {
+	t.Helper()
+	if !errors.Is(err, ErrPrivateFindingLedgerRejected) {
+		t.Fatalf("err=%v, want the finding-ledger sentinel", err)
+	}
+	if got, want := err.Error(), ErrPrivateFindingLedgerRejected.Error()+": "+code; got != want {
+		t.Fatalf("message=%q, want %q", got, want)
+	}
+}
+
+func privateFindingErrorCauses(t *testing.T, err error) []error {
+	t.Helper()
+	multi, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		t.Fatalf("%T does not unwrap to multiple errors", err)
+	}
+	tree := multi.Unwrap()
+	if len(tree) == 0 || tree[0] != ErrPrivateFindingLedgerRejected {
+		t.Fatalf("unwrap tree=%v, want the sentinel first", tree)
+	}
+	return tree[1:]
 }
 
 func writePrivateFindingLedgerV2(t *testing.T, root string, ledger PrivateFindingLedgerV2) {

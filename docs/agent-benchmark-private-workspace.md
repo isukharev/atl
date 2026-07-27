@@ -1168,6 +1168,45 @@ Scorecard construction reopens every assessment and receipt-backed root,
 requires exact canonical evidence again after resolution, and rejects alias or
 source reuse. Non-fixed ledgers do not require an index.
 
+A rejected ledger load still reports only the stable finding-ledger sentinel
+and its existing short code. The shared classification constructor and the
+ledger loading path have joined the cause-preserving pattern used by plan
+execution, the live gateway, the daily checkpoint, the workspace migration,
+retention prune, compact baselines, the workspace operations, the coverage
+index, and sampling: a concrete directory or file stat, open, bounded-read,
+close, or decoding failure is now attached to the returned error instead of
+being discarded, so tooling can traverse the standard Go unwrap tree and use
+`errors.Is` or `errors.As` for typed causes while messages and logs stay free
+of the configured private location, the selected ledger file, and ledger
+content. An attached cause without a useful exported match target remains
+reachable by traversing the unwrap tree, and a candidate-probe classification
+raised deeper stays reachable below the unchanged outer code.
+
+Specifically, the reports-directory probe, the directory open and its opened
+handle stat, each candidate probe that fails for a reason other than ordinary
+absence, the selected file's open, opened-handle stat, bounded read, final stat
+and close, the legacy and schema-v2 decode and envelope validation, and the
+directory recheck that closes the read window all retain the failure they hold.
+Where a branch can hold two failures it attaches them in a fixed order: final
+stat before close for the file, and final handle before ambient path for the
+directory recheck.
+
+A rejection decided by validation or comparison alone attaches nothing: an
+ambiguous ledger pair, no ledger at all, an ordinary absent candidate, an
+observed directory permission or file type, an observed candidate file type or
+mode, a file or directory identity comparison, an inventory that changed during
+the read, a size comparison, and decodable but non-canonical bytes. Some
+failure paths — a directory open or opened-handle stat that fails only after a
+clean probe, a stat or close failure on an already-open descriptor, and a
+recheck through a still-valid handle — are reachable only by racing the reader
+and are not covered by a deterministic test; they attach on the same terms as
+their neighbours. No ledger code is added or renamed. Ledger schemas, canonical
+bytes, legacy/schema-v2 selection, file and directory modes, file identity
+gates, command output, exit codes, and fail-closed behavior are unchanged. The
+finding-acceptance and scorecard call sites deliberately still classify without
+causes and migrate in later slices; the ledger frames they call already attach,
+and whatever the loader returns is retained unchanged.
+
 ## Sampling evidence and holdouts
 
 Sampling tiers describe evidence strength; they are not interchangeable:
