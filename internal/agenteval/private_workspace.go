@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -37,8 +36,12 @@ const (
 
 var (
 	ErrPrivateWorkspaceUnhealthy = errors.New("private workspace is unhealthy")
-	privateWorkspaceAliasRE      = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
-	privateWorkspaceEnvRE        = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
+	// ErrPrivateWorkspaceManifestInvalid is the manifest contract family. Its
+	// text is exactly the prefix these rejections already rendered, so the
+	// sentinel becomes matchable without changing a single existing message.
+	ErrPrivateWorkspaceManifestInvalid = errors.New("private workspace manifest is invalid")
+	privateWorkspaceAliasRE            = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
+	privateWorkspaceEnvRE              = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
 )
 
 var privateWorkspaceFixedDirectories = []string{".ephemeral", "baselines", "cases", "plans", "reports", "runs"}
@@ -114,6 +117,9 @@ type PrivateReviewerExecution struct {
 	MaxEstimatedCostMicroUSD int64   `json:"max_estimated_cost_microusd"`
 }
 
+// validate reports panel and reviewer-execution verdicts. Every rejection here
+// is decided by the decoded policy itself, and the qualitative validation
+// details behind it are deliberately not attached.
 func (p PrivateQualitativeReviewPanel) validate() error {
 	policy := QualitativePanelPolicy{SchemaVersion: QualitativePanelSchemaVersion, Method: p.Method,
 		ExpectedReviewers: len(p.Reviewers), MaxCriterionRangeBPS: p.MaxCriterionRangeBPS}
@@ -239,6 +245,10 @@ func DefaultPrivateWorkspaceManifest() PrivateWorkspaceManifest {
 	}
 }
 
+// Validate checks the decoded manifest against the contract. Every rejection
+// is a schema, range, cardinality, identity, or comparison verdict with nothing
+// to attach; a nested panel rejection is already classified and is returned as
+// it stands.
 func (m PrivateWorkspaceManifest) Validate() error {
 	if m.SchemaVersion != PrivateWorkspaceSchemaVersion && m.SchemaVersion != LegacyCalibratedWorkspaceSchemaVersion &&
 		m.SchemaVersion != LegacyActivationWorkspaceSchemaVersion && m.SchemaVersion != LegacyPrivateWorkspaceSchemaVersion {
@@ -358,13 +368,15 @@ func DecodePrivateWorkspaceManifest(r io.Reader) (PrivateWorkspaceManifest, erro
 	limited := &io.LimitedReader{R: r, N: maxPrivateWorkspaceManifestBytes + 1}
 	data, err := io.ReadAll(limited)
 	if err != nil {
-		return PrivateWorkspaceManifest{}, privateWorkspaceContractError("decode")
+		return PrivateWorkspaceManifest{}, privateWorkspaceContractError("decode", err)
 	}
+	// An oversize manifest is rejected by the length comparison alone, so there
+	// is no failure to attach.
 	if len(data) > maxPrivateWorkspaceManifestBytes {
 		return PrivateWorkspaceManifest{}, privateWorkspaceContractError("size")
 	}
 	if err := validateJSONNoDuplicateKeys(data); err != nil {
-		return PrivateWorkspaceManifest{}, privateWorkspaceContractError("decode")
+		return PrivateWorkspaceManifest{}, privateWorkspaceContractError("decode", err)
 	}
 	if err := validatePrivateWorkspaceManifestPresence(data); err != nil {
 		return PrivateWorkspaceManifest{}, err
@@ -373,10 +385,14 @@ func DecodePrivateWorkspaceManifest(r io.Reader) (PrivateWorkspaceManifest, erro
 	decoder.DisallowUnknownFields()
 	var manifest PrivateWorkspaceManifest
 	if err := decoder.Decode(&manifest); err != nil {
-		return PrivateWorkspaceManifest{}, privateWorkspaceContractError("decode")
+		return PrivateWorkspaceManifest{}, privateWorkspaceContractError("decode", err)
 	}
+	// The presence pass above already rejects trailing bytes, so this gate is
+	// defensive. A decodable trailing value leaves nil here and stays cause-free,
+	// while a malformed remainder keeps the decoder failure it holds; the nil is
+	// passed unguarded because codedError drops it.
 	if err := decoder.Decode(new(any)); err != io.EOF {
-		return PrivateWorkspaceManifest{}, privateWorkspaceContractError("trailing_data")
+		return PrivateWorkspaceManifest{}, privateWorkspaceContractError("trailing_data", err)
 	}
 	if err := manifest.Validate(); err != nil {
 		return PrivateWorkspaceManifest{}, err
@@ -385,44 +401,50 @@ func DecodePrivateWorkspaceManifest(r io.Reader) (PrivateWorkspaceManifest, erro
 }
 
 func validatePrivateWorkspaceManifestPresence(data []byte) error {
+	// Mixed throughout this pass: a raw JSON failure is retained, while the
+	// null scan and the key-set verdicts below reject on their own findings and
+	// leave nil. Each raw error is passed unguarded because codedError drops a
+	// nil cause, and the short-circuit order is unchanged.
 	var value any
-	if json.Unmarshal(data, &value) != nil || privateWorkspaceJSONContainsNull(value) {
-		return privateWorkspaceContractError("decode")
+	if err := json.Unmarshal(data, &value); err != nil || privateWorkspaceJSONContainsNull(value) {
+		return privateWorkspaceContractError("decode", err)
 	}
 	var root map[string]json.RawMessage
-	if json.Unmarshal(data, &root) != nil || validatePrivateWorkspaceObjectKeys(root,
+	if err := json.Unmarshal(data, &root); err != nil || validatePrivateWorkspaceObjectKeys(root,
 		[]string{"schema_version", "live_config_env", "execution", "retention", "run_sets"},
 		[]string{"external_mcp_profile_env"}) != nil {
-		return privateWorkspaceContractError("decode")
+		return privateWorkspaceContractError("decode", err)
 	}
 	var execution map[string]json.RawMessage
-	if json.Unmarshal(root["execution"], &execution) != nil || validatePrivateWorkspaceObjectKeys(execution,
+	if err := json.Unmarshal(root["execution"], &execution); err != nil || validatePrivateWorkspaceObjectKeys(execution,
 		[]string{"max_estimated_cost_microusd"}, nil) != nil {
-		return privateWorkspaceContractError("decode")
+		return privateWorkspaceContractError("decode", err)
 	}
 	var retention map[string]json.RawMessage
-	if json.Unmarshal(root["retention"], &retention) != nil || validatePrivateWorkspaceObjectKeys(retention,
+	if err := json.Unmarshal(root["retention"], &retention); err != nil || validatePrivateWorkspaceObjectKeys(retention,
 		[]string{"keep_completed_run_sets_per_alias", "max_candidate_age_days", "max_candidate_bytes", "retain_baseline_transcripts"}, nil) != nil {
-		return privateWorkspaceContractError("decode")
+		return privateWorkspaceContractError("decode", err)
 	}
 	var runSets []map[string]json.RawMessage
-	if json.Unmarshal(root["run_sets"], &runSets) != nil {
-		return privateWorkspaceContractError("decode")
+	if err := json.Unmarshal(root["run_sets"], &runSets); err != nil {
+		return privateWorkspaceContractError("decode", err)
 	}
 	for _, runSet := range runSets {
+		// A key-set verdict already carries this same classification, so it is
+		// reported directly rather than nested below an identical one.
 		if validatePrivateWorkspaceObjectKeys(runSet, []string{"alias", "spec_paths", "qualitative_review_required"},
 			[]string{"kind", "reviewer_reserve_microusd", "calibration_max_estimated_cost_microusd", "qualitative_review_panel"}) != nil {
 			return privateWorkspaceContractError("decode")
 		}
 		if panelData, ok := runSet["qualitative_review_panel"]; ok {
 			var panel map[string]json.RawMessage
-			if json.Unmarshal(panelData, &panel) != nil || validatePrivateWorkspaceObjectKeys(panel,
+			if err := json.Unmarshal(panelData, &panel); err != nil || validatePrivateWorkspaceObjectKeys(panel,
 				[]string{"method", "reviewers", "max_criterion_range_bps"}, []string{"blind_assignment", "executions"}) != nil {
-				return privateWorkspaceContractError("decode")
+				return privateWorkspaceContractError("decode", err)
 			}
 			var reviewers []map[string]json.RawMessage
-			if json.Unmarshal(panel["reviewers"], &reviewers) != nil {
-				return privateWorkspaceContractError("decode")
+			if err := json.Unmarshal(panel["reviewers"], &reviewers); err != nil {
+				return privateWorkspaceContractError("decode", err)
 			}
 			for _, reviewer := range reviewers {
 				if validatePrivateWorkspaceObjectKeys(reviewer, []string{"id", "kind"}, []string{"model"}) != nil {
@@ -431,8 +453,8 @@ func validatePrivateWorkspaceManifestPresence(data []byte) error {
 			}
 			if encoded, ok := panel["executions"]; ok {
 				var executions []map[string]json.RawMessage
-				if json.Unmarshal(encoded, &executions) != nil {
-					return privateWorkspaceContractError("decode")
+				if err := json.Unmarshal(encoded, &executions); err != nil {
+					return privateWorkspaceContractError("decode", err)
 				}
 				for _, execution := range executions {
 					if validatePrivateWorkspaceObjectKeys(execution,
@@ -440,9 +462,9 @@ func validatePrivateWorkspaceManifestPresence(data []byte) error {
 						return privateWorkspaceContractError("decode")
 					}
 					var pricing map[string]json.RawMessage
-					if json.Unmarshal(execution["pricing"], &pricing) != nil || validatePrivateWorkspaceObjectKeys(pricing,
+					if err := json.Unmarshal(execution["pricing"], &pricing); err != nil || validatePrivateWorkspaceObjectKeys(pricing,
 						[]string{"input_microusd_per_million_tokens", "output_microusd_per_million_tokens"}, nil) != nil {
-						return privateWorkspaceContractError("decode")
+						return privateWorkspaceContractError("decode", err)
 					}
 				}
 			}
@@ -455,15 +477,18 @@ func validatePrivateWorkspaceManifestPresence(data []byte) error {
 		RunSets               []map[string]json.RawMessage `json:"run_sets"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return privateWorkspaceContractError("decode")
+		return privateWorkspaceContractError("decode", err)
 	}
+	// A missing key is a presence verdict with nothing to attach.
 	if _, ok := raw.Retention["retain_baseline_transcripts"]; !ok {
 		return privateWorkspaceContractError("retention_presence")
 	}
 	if len(raw.ExternalMCPProfileEnv) != 0 {
 		var value string
-		if json.Unmarshal(raw.ExternalMCPProfileEnv, &value) != nil || value == "" {
-			return privateWorkspaceContractError("external_mcp_profile_env")
+		// Mixed: a wrongly typed value keeps its decoder failure, while a
+		// well-formed empty string is rejected by the comparison alone.
+		if err := json.Unmarshal(raw.ExternalMCPProfileEnv, &value); err != nil || value == "" {
+			return privateWorkspaceContractError("external_mcp_profile_env", err)
 		}
 	}
 	for _, runSet := range raw.RunSets {
@@ -472,8 +497,10 @@ func validatePrivateWorkspaceManifestPresence(data []byte) error {
 		}
 		kind := PrivateRunSetKindComparison
 		if encoded, ok := runSet["kind"]; ok {
-			if json.Unmarshal(encoded, &kind) != nil || kind == "" {
-				return privateWorkspaceContractError("run_set_kind")
+			// Same mixed branch: the decoder failure is retained, an empty kind is
+			// not.
+			if err := json.Unmarshal(encoded, &kind); err != nil || kind == "" {
+				return privateWorkspaceContractError("run_set_kind", err)
 			}
 		}
 		_, reservePresent := runSet["reviewer_reserve_microusd"]
@@ -481,17 +508,21 @@ func validatePrivateWorkspaceManifestPresence(data []byte) error {
 		executionsPresent := false
 		if panelData, ok := runSet["qualitative_review_panel"]; ok {
 			var panel map[string]json.RawMessage
-			if json.Unmarshal(panelData, &panel) != nil {
-				return privateWorkspaceContractError("decode")
+			if err := json.Unmarshal(panelData, &panel); err != nil {
+				return privateWorkspaceContractError("decode", err)
 			}
 			if executionData, ok := panel["executions"]; ok {
 				var executions []json.RawMessage
-				if json.Unmarshal(executionData, &executions) != nil || len(executions) == 0 {
-					return privateWorkspaceContractError("reviewer_execution")
+				// Mixed: an undecodable list keeps its failure, an empty one is
+				// rejected by the cardinality check alone.
+				if err := json.Unmarshal(executionData, &executions); err != nil || len(executions) == 0 {
+					return privateWorkspaceContractError("reviewer_execution", err)
 				}
 				executionsPresent = true
 			}
 		}
+		// Every rejection below is decided by a schema, presence, or cardinality
+		// comparison, so none of them has a cause to retain.
 		if raw.SchemaVersion == LegacyPrivateWorkspaceSchemaVersion && reservePresent {
 			return privateWorkspaceContractError("reviewer_reserve")
 		}
@@ -514,8 +545,8 @@ func validatePrivateWorkspaceManifestPresence(data []byte) error {
 			}
 			if panelData, ok := runSet["qualitative_review_panel"]; ok {
 				var panel map[string]json.RawMessage
-				if json.Unmarshal(panelData, &panel) != nil {
-					return privateWorkspaceContractError("decode")
+				if err := json.Unmarshal(panelData, &panel); err != nil {
+					return privateWorkspaceContractError("decode", err)
 				}
 				if _, executionPresent := panel["executions"]; executionPresent {
 					return privateWorkspaceContractError("reviewer_execution")
@@ -526,6 +557,8 @@ func validatePrivateWorkspaceManifestPresence(data []byte) error {
 	return nil
 }
 
+// validatePrivateWorkspaceObjectKeys compares an already decoded key set
+// against the contract, so both of its rejections are cause-free.
 func validatePrivateWorkspaceObjectKeys(value map[string]json.RawMessage, required, optional []string) error {
 	allowed := make(map[string]struct{}, len(required)+len(optional))
 	for _, key := range required {
@@ -662,9 +695,12 @@ func EncodePrivateWorkspaceManifest(manifest PrivateWorkspaceManifest) ([]byte, 
 	if err := manifest.Validate(); err != nil {
 		return nil, err
 	}
+	// The manifest is a plain struct of JSON-encodable fields that Validate has
+	// just accepted, so this encoding is defensive. Its failure is retained
+	// rather than dropped if the type ever gains a fallible marshaler.
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
-		return nil, privateWorkspaceContractError("encode")
+		return nil, privateWorkspaceContractError("encode", err)
 	}
 	return append(data, '\n'), nil
 }
@@ -1146,8 +1182,15 @@ func privateWorkspaceFileMode(mode os.FileMode) bool {
 	return runtime.GOOS == "windows" || mode.Perm()&0o077 == 0
 }
 
-func privateWorkspaceContractError(code string) error {
-	return fmt.Errorf("private workspace manifest is invalid: %s", code)
+// privateWorkspaceContractError classifies a manifest contract rejection under
+// the manifest sentinel and its unchanged short code while retaining the
+// concrete reader, JSON, or encoding failure already in hand. The rendered
+// message stays sentinel plus code, so manifest content, a configured private
+// path, or a decoder offset never reaches a log line. Pure schema, presence,
+// cardinality, key-set, range, identity, and comparison verdicts have nothing
+// to attach and stay cause-free.
+func privateWorkspaceContractError(code string, causes ...error) error {
+	return codedError(ErrPrivateWorkspaceManifestInvalid, code, causes...)
 }
 
 // privateWorkspaceOperationError classifies a workspace setup, inspection,
