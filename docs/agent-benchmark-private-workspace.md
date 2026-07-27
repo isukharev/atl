@@ -1203,8 +1203,55 @@ and are not covered by a deterministic test; they attach on the same terms as
 their neighbours. No ledger code is added or renamed. Ledger schemas, canonical
 bytes, legacy/schema-v2 selection, file and directory modes, file identity
 gates, command output, exit codes, and fail-closed behavior are unchanged. The
-finding-acceptance and scorecard call sites deliberately still classify without
-causes and migrate in later slices; the ledger frames they call already attach,
+scorecard call sites deliberately still classify without causes and migrate in a
+later slice; the ledger frames they call already attach, and whatever the loader
+returns is retained unchanged.
+
+A rejected acceptance load follows the same pattern under the same sentinel and
+its existing short codes. The reports-directory probe, the directory open and
+its opened handle stat, each candidate probe that fails for a reason other than
+ordinary absence, the selected index's open, opened-handle stat, bounded read,
+final stat and close, the legacy and schema-v2 decode and envelope validation,
+and both directory rechecks that close the read window all retain the failure
+they hold, so tooling can traverse the standard Go unwrap tree and use
+`errors.Is` or `errors.As` for typed causes while messages and logs stay free of
+the configured private location, the selected index file, and acceptance
+content. A candidate-probe classification raised deeper stays reachable below
+the unchanged outer code. Where a branch can hold two failures it attaches them
+in a fixed order: final stat before close for the index file, final handle
+before ambient path for a directory recheck, and the legacy probe before the
+current probe when the no-index window reprobes both candidates.
+
+The no-index window is specific to acceptance, because an index may legitimately
+be absent: both candidates are reprobed before the compound rejection, and the
+directory recheck still runs only once both probes report no failure and every
+existence and info comparison passes. Its rejections keep the outer code they
+had — the file code for the reprobe and its directory recheck, and the directory
+code for the recheck that closes the populated read window.
+
+A rejection decided by validation or comparison alone attaches nothing: an
+ambiguous acceptance pair, a missing index for a fixed finding, unexpected
+acceptance for a ledger with no fixed finding, an observed directory permission
+or file type, an observed candidate file type or mode returned directly, a file
+or directory identity comparison, an inventory or candidate set that changed
+during the read, a size comparison, decodable but non-canonical bytes, an
+unknown schema version, an entry count that does not match the fixed findings,
+a dangling finding, a reused assessment, and a missing binding. A candidate
+type or mode observed during the no-index reprobe still has no raw filesystem
+cause, but the outer file classification retains that already-raised inner
+classification. Some failure paths — a directory open or opened-handle stat
+that fails only after a clean ambient probe, a stat or close failure on the
+already-open index descriptor, a final size that no longer
+matches the bytes just read, a recheck through a still-valid handle, and a
+candidate probe that fails for a reason other than ordinary absence — are
+reachable only by racing the reader and are not covered by a deterministic test;
+they attach on the same terms as their neighbours, and the fixed multi-cause
+order they rely on is pinned directly on the classification constructor. No
+acceptance code is added or renamed. Acceptance schemas, canonical bytes,
+legacy/schema-v2 selection, the no-index result, file and directory modes, file
+identity gates, command output, exit codes, and fail-closed behavior are
+unchanged. The scorecard call sites deliberately still classify without causes
+and migrate in a later slice; the acceptance frames they call already attach,
 and whatever the loader returns is retained unchanged.
 
 ## Sampling evidence and holdouts
