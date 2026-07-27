@@ -147,6 +147,7 @@ func TestGatewayBackedInternalMCPIsolatesSourceCredentialsAndCountsQueryWrites(t
 	spec.AllowedGatewayRoutes["jira"][2].MaxRequests = 2
 	scenario.Budgets.MaxRemoteWrites = 2
 	scenario.Budgets.MaxBackendRequests = 5
+	scenario.Budgets.MaxInterfaceInvocations = 9
 	auditDir := t.TempDir()
 	if err := os.Chmod(auditDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -156,8 +157,8 @@ func TestGatewayBackedInternalMCPIsolatesSourceCredentialsAndCountsQueryWrites(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gateway.state.config.MaxConcurrent != 2 {
-		t.Fatalf("internal MCP gateway concurrency=%d, want reviewed interface budget 2", gateway.state.config.MaxConcurrent)
+	if gateway.state.config.MaxConcurrent != 4 {
+		t.Fatalf("internal MCP gateway concurrency=%d, want hard cap 4", gateway.state.config.MaxConcurrent)
 	}
 
 	// The child sees only the disposable loopback boundary: no upstream origin,

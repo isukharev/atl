@@ -894,8 +894,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			// receives a fixed allowlist instead of the ambient backend environment:
 			// no upstream URL or PAT name, no insecure-transport switch, and no HTTP
 			// guard file. NO_PROXY keeps the loopback ingress off any ambient proxy.
-			mcpEnvironment["NO_PROXY"] = "127.0.0.1,localhost"
-			mcpEnvironment["no_proxy"] = "127.0.0.1,localhost"
+			mcpEnvironment = gatewayMCPEnvironment(atlConfigDir, mirrorRoot)
 			if err := validateGatewayMCPEnvironment(mcpEnvironment); err != nil {
 				return Result{}, err
 			}
@@ -2204,6 +2203,19 @@ var gatewayMCPEnvironmentAllowlist = func() map[string]struct{} {
 	}
 	return allowed
 }()
+
+func gatewayMCPEnvironment(atlConfigDir, mirrorRoot string) map[string]string {
+	values := map[string]string{
+		"ATL_READ_ONLY": "1", "ATL_NO_UPDATE": "1",
+		"ATL_CONFIG_DIR": atlConfigDir, "ATL_MIRROR_ROOT": mirrorRoot,
+		"NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost",
+	}
+	environment := make(map[string]string, len(gatewayMCPEnvironmentNames))
+	for _, name := range gatewayMCPEnvironmentNames {
+		environment[name] = values[name]
+	}
+	return environment
+}
 
 func validateGatewayMCPEnvironment(environment map[string]string) error {
 	for name := range environment {

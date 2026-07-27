@@ -1777,7 +1777,7 @@ func privateLiveQueryOnlyPair() (RunSpec, RunSpec, Scenario) {
 		spec.GatewayMaxResponseBytes = 1 << 20
 		spec.GatewayMaxTotalBytes = 3 << 20
 		spec.GatewayMaxRequestBytes = 1 << 10
-		spec.GatewayMaxTotalRequestBytes = 1 << 10
+		spec.GatewayMaxTotalRequestBytes = 2 << 10
 		spec.Checks = append(append([]RunCheck(nil), spec.Checks...), checks...)
 	}
 	cli := validRunSpec()
@@ -1876,6 +1876,9 @@ func TestPrivateLiveQueryOnlyPOSTRequiresReviewedBoundaries(t *testing.T) {
 		},
 		"route body over gateway budget": func(spec *RunSpec, _ *Scenario) {
 			spec.AllowedGatewayRoutes["jira"][2].MaxRequestBytes = spec.GatewayMaxRequestBytes + 1
+		},
+		"aggregate query body capacity over total budget": func(spec *RunSpec, _ *Scenario) {
+			spec.GatewayMaxTotalRequestBytes = spec.GatewayMaxRequestBytes
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
