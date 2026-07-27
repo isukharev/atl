@@ -15,7 +15,12 @@ type liveGatewayInputs struct {
 	credentials map[string]string
 }
 
-func startPrivateCLIGateway(sourceDir, childDir, auditPath string, spec RunSpec, scenario Scenario) (*LiveGateway, error) {
+// startPrivateLiveGateway builds the disposable loopback credential boundary
+// for any private-live surface bound to explicit gateway routes — the CLI skill
+// and gateway-backed internal ATL MCP. The parent keeps the source config and
+// upstream credentials; the child directory receives only loopback URLs and
+// single-run ingress capabilities.
+func startPrivateLiveGateway(sourceDir, childDir, auditPath string, spec RunSpec, scenario Scenario) (*LiveGateway, error) {
 	inputs, err := loadLiveGatewayInputs(sourceDir)
 	if err != nil {
 		return nil, err

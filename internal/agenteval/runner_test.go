@@ -1040,6 +1040,172 @@ exit 2
 	}
 }
 
+func TestPrivateLiveQueryOnlyMCPRunUsesGatewayCredentialBoundary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executable scripts are Unix-only")
+	}
+	useSyntheticCodexHome(t)
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tempRepository := t.TempDir()
+	if err := exec.Command("git", "-C", tempRepository, "init", "-q").Run(); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(tempRepository, ".gitignore"), "private/\n", 0o600)
+	caseDir := filepath.Join(tempRepository, "private", "query-only-mcp")
+	if err := os.MkdirAll(filepath.Join(caseDir, "workspace"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(caseDir, "workspace", "README.md"), "query-only MCP workspace\n", 0o600)
+
+	_, spec, scenario := privateLiveQueryOnlyPair()
+	scenario.ID = "jira.private-query-only-mcp"
+	scenario.RequiredChecks = []string{"answer_correct", "atl_succeeded", "guard_clean", "http_observed", "no_delegation", "used_atl", "methods"}
+	scenario.RequiredMetrics = []string{"interface_invocations", "backend_requests", "remote_writes", "output_bytes"}
+	scenario.Budgets.MaxAgentTurns = 2
+	scenario.Budgets.MaxToolCalls = 2
+	scenario.Budgets.MaxBackendRequests = 1
+	scenario.Budgets.MaxATLInvocations = 1
+	scenario.Budgets.MaxInterfaceInvocations = 1
+	scenario.Budgets.MaxRemoteWrites = 1
+	scenario.Budgets.MaxInputTokens = 1000
+	scenario.Budgets.MaxOutputTokens = 1000
+	scenario.Budgets.MaxMainThreadInputTokens = 1000
+	scenario.Budgets.MaxMainThreadOutputTokens = 1000
+	scenario.Budgets.MaxDurationMillis = 30_000
+	scenario.Budgets.AllowedHTTPMethods = []string{"POST"}
+	spec.ScenarioFile = "scenario.json"
+	spec.Provider = "codex"
+	spec.Model = "gpt-test-query-only"
+	spec.Variant = "typed-mcp-query-only"
+	spec.PromptFile = "prompt.md"
+	spec.ResponseSchemaFile = "response.json"
+	spec.QualitativeRubricFile = "rubric.json"
+	spec.WorkspaceTemplate = "workspace"
+	spec.AllowedGatewayRoutes = map[string][]LiveGatewayRoute{"jira": {{
+		Name: "value_query", PathPrefix: "/rest/structure/2.0/value", Exact: true,
+		Methods: []string{"POST"}, QueryOnly: true, MaxRequests: 1, MaxRequestBytes: 1 << 10,
+	}}}
+	spec.GatewayMaxResponseBytes = 1 << 20
+	spec.GatewayMaxTotalBytes = 1 << 20
+	spec.GatewayMaxRequestBytes = 1 << 10
+	spec.GatewayMaxTotalRequestBytes = 1 << 10
+	for index := range spec.Checks {
+		if spec.Checks[index].Kind == "http_methods_equal" {
+			spec.Checks[index].Expected = json.RawMessage(`{"POST":1}`)
+		}
+	}
+	writeJSONTestFile(t, filepath.Join(caseDir, "scenario.json"), scenario)
+	writeJSONTestFile(t, filepath.Join(caseDir, "run.json"), spec)
+	writeTestFile(t, filepath.Join(caseDir, "prompt.md"), "Read the configured value matrix.\n", 0o600)
+	writeTestFile(t, filepath.Join(caseDir, "response.json"), `{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"],"additionalProperties":false}`, 0o600)
+	rubric := Rubric{SchemaVersion: 1, ID: "query-only-answer", ScenarioID: scenario.ID, MinimumScoreBPS: 6000,
+		Criteria:          []RubricCriterion{{ID: "usefulness", Description: "The answer is useful.", Maximum: 4, Minimum: 2, Weight: 1}},
+		AllowedFindingIDs: []string{"unclear"}}
+	writeJSONTestFile(t, filepath.Join(caseDir, "rubric.json"), rubric)
+	if _, _, err := ValidateRunSpecFile(filepath.Join(caseDir, "run.json")); err != nil {
+		t.Fatal(err)
+	}
+
+	const sourceCanary = "SYNTHETIC-QUERY-ONLY-SOURCE-CANARY"
+	var upstreamCalls int
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		upstreamCalls++
+		if request.Method != http.MethodPost || request.URL.Path != "/rest/structure/2.0/value" ||
+			request.Header.Get("Authorization") != "Bearer "+sourceCanary {
+			t.Errorf("unexpected upstream request: method=%s path=%s auth=%q", request.Method, request.URL.Path, request.Header.Get("Authorization"))
+			response.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, `{"responses":[{"rows":[1],"data":[]}],"inaccessibleRows":[]}`)
+	}))
+	defer upstream.Close()
+	liveConfig := filepath.Join(t.TempDir(), "config")
+	if err := os.Mkdir(liveConfig, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(liveConfig, "config.json"), `{"jira_url":`+strconv.Quote(upstream.URL)+`}`, 0o600)
+	writeTestFile(t, filepath.Join(liveConfig, "credentials.json"), `{"jira":"`+sourceCanary+`"}`, 0o600)
+
+	pluginRoot := filepath.Join(tempRepository, "plugin")
+	writeTestPluginTrees(t, pluginRoot, "0.4.0", "Query-only MCP skill.")
+	fakeAgent := filepath.Join(tempRepository, "fake-agent")
+	writeTestFile(t, fakeAgent, `#!/bin/sh
+if [ "$1" = "--version" ]; then echo fake-agent-1; exit 0; fi
+if [ -n "$ATL_EVAL_HTTP_GUARD_FILE" ] || [ -n "$ATL_JIRA_URL" ] || [ -n "$ATL_JIRA_PAT" ] || [ -n "$ATL_ALLOW_INSECURE" ]; then exit 31; fi
+case "$ATL_CONFIG_DIR" in */atl-agent-eval-live-config-*) ;; *) exit 32;; esac
+config=$(/bin/cat "$ATL_CONFIG_DIR/config.json") || exit 33
+credentials=$(/bin/cat "$ATL_CONFIG_DIR/credentials.json") || exit 34
+case "$config$credentials" in *SYNTHETIC-QUERY-ONLY-SOURCE-CANARY*) exit 35;; esac
+case "$config$credentials" in *127.0.0.1*) ;; *) exit 36;; esac
+printf '%s\n' "$ATL_CONFIG_DIR" >"${ATL_EVAL_COUNTER}.config-path"
+"$ATL_EVAL_REAL_BINARY" jira structure values 1 --rows 1 --fields summary >/dev/null || exit 37
+final=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--output-last-message" ]; then final="$2"; shift 2; continue; fi
+  shift
+done
+printf '%s\n' '{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_structure_values","status":"completed","result":{"responses":[]}}}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}'
+printf '%s\n' '{"answer":"ok"}' >"$final"
+`, 0o700)
+	altBinary := filepath.Join(tempRepository, "atl")
+	buildATL := exec.Command("go", "build", "-buildvcs=false", "-o", altBinary, "./cmd/atl")
+	buildATL.Dir = repositoryRoot
+	buildATL.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
+	if output, err := buildATL.CombinedOutput(); err != nil {
+		t.Fatalf("build atl: %v\n%s", err, output)
+	}
+	wrapper := filepath.Join(tempRepository, "agent-eval")
+	buildWrapper := exec.Command("go", "build", "-buildvcs=false", "-o", wrapper, "./scripts/agent-eval")
+	buildWrapper.Dir = repositoryRoot
+	buildWrapper.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
+	if output, err := buildWrapper.CombinedOutput(); err != nil {
+		t.Fatalf("build wrapper: %v\n%s", err, output)
+	}
+	scratchRoot := filepath.Join(tempRepository, "private", "scratch")
+	if err := os.MkdirAll(scratchRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	outputRoot := filepath.Join(tempRepository, "private", "runs")
+	output, err := RunHeadless(context.Background(), RunOptions{SpecPath: filepath.Join(caseDir, "run.json"), OutputRoot: outputRoot,
+		RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: altBinary, PluginRoot: pluginRoot,
+		WrapperExecutable: wrapper, LiveConfigDir: liveConfig, ScratchRoot: scratchRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if upstreamCalls != 1 || len(output.Results) != 1 || output.Results[0].Status != "pass" ||
+		output.Results[0].Metrics.BackendRequests != 1 || output.Results[0].Metrics.RemoteWrites != 1 || output.Results[0].HTTPMethods["POST"] != 1 {
+		t.Fatalf("upstream=%d output=%+v", upstreamCalls, output)
+	}
+	runDir := filepath.Join(outputRoot, scenario.ID, "codex", spec.Variant, "run-01")
+	if err := filepath.WalkDir(runDir, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil || entry.IsDir() {
+			return walkErr
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if bytes.Contains(data, []byte(sourceCanary)) || bytes.Contains(data, []byte(upstream.URL)) || bytes.Contains(data, []byte(liveConfig)) {
+			return fmt.Errorf("run artifact retained source backend material")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	configPathRecord, err := os.ReadFile(filepath.Join(runDir, ".atl-eval", "atl-invocations.jsonl.config-path"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(strings.TrimSpace(string(configPathRecord))); !os.IsNotExist(err) {
+		t.Fatalf("ephemeral gateway config was not removed: %v", err)
+	}
+}
+
 func TestPrivateLiveCLIProvidersUseGatewayWithoutSourceCredentials(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake executable scripts are Unix-only")

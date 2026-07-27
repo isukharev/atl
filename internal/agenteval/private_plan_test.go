@@ -1224,3 +1224,157 @@ func removePrivatePlanTestString(values []string, remove string) []string {
 	}
 	return out
 }
+
+func TestPrivatePlanSeparatesQueryOnlyTransportFromMutationAuthority(t *testing.T) {
+	fixture := newPrivatePlanTestFixture(t, true, false)
+	caseRoot := filepath.Join(fixture.root, "cases", "portfolio")
+	var spec RunSpec
+	readPrivatePlanTestJSON(t, filepath.Join(caseRoot, "run.cli.json"), &spec)
+	var scenario Scenario
+	readPrivatePlanTestJSON(t, filepath.Join(caseRoot, "scenario.json"), &scenario)
+	scenario.Budgets.MaxBackendRequests = 3
+	scenario.Budgets.MaxRemoteWrites = 2
+	scenario.Budgets.AllowedHTTPMethods = []string{"GET", "POST"}
+	scenario.RequiredChecks = append(scenario.RequiredChecks, "methods")
+	spec.AllowedCLICommands = []CLICommandRule{{Name: "values", Command: []string{"jira", "structure", "values"}, MaxInvocations: 2}}
+	spec.AllowedGatewayRoutes = map[string][]LiveGatewayRoute{"jira": {
+		{Name: "reads", PathPrefix: "/rest/api/2", Methods: []string{"GET"}, MaxRequests: 1},
+		{Name: "value_query", PathPrefix: "/rest/structure/2.0/value", Exact: true, Methods: []string{"POST"},
+			QueryOnly: true, MaxRequests: 2, MaxRequestBytes: 1 << 10},
+	}}
+	spec.GatewayMaxRequestBytes = 1 << 10
+	spec.GatewayMaxTotalRequestBytes = 2 << 10
+	spec.Checks = append(spec.Checks, RunCheck{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"GET":1,"POST":2}`)})
+	writeJSONTestFile(t, filepath.Join(caseRoot, "scenario.json"), scenario)
+	writeJSONTestFile(t, filepath.Join(caseRoot, "run.cli.json"), spec)
+	manifestPath := filepath.Join(fixture.root, PrivateWorkspaceManifestName)
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := DecodePrivateWorkspaceManifest(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.RunSets[0].SpecPaths = []string{"cases/portfolio/run.cli.json"}
+	manifestData, err := EncodePrivateWorkspaceManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writePrivateFile(manifestPath, manifestData); err != nil {
+		t.Fatal(err)
+	}
+	if report, err := DoctorPrivateWorkspace(fixture.root, fixture.repository); err != nil || !report.Healthy {
+		t.Fatalf("doctor report=%+v err=%v", report, err)
+	}
+
+	// Ordinary consent is sufficient: query-only transport is not mutation
+	// authority, so it must not require or imply the live-write channel.
+	preview, err := CreatePrivatePlan(context.Background(), fixture.createOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.MaxQueryOnlyRequests != 2 || preview.LiveWritesAuthorized || preview.MaxRemoteWrites != 0 {
+		t.Fatalf("preview=%+v", preview)
+	}
+	plan, planData, err := loadPrivatePlan(fixture.root, preview.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.SchemaVersion != PrivatePlanSchemaVersion || len(plan.Items) != 1 {
+		t.Fatalf("plan=%+v", plan)
+	}
+	item := plan.Items[0]
+	if item.MaxQueryOnlyRequests != 2 || item.LiveWrites || item.MaxRemoteWrites != 0 {
+		t.Fatalf("item=%+v", item)
+	}
+	if !bytes.Contains(planData, []byte(`"max_query_only_requests": 2`)) {
+		t.Fatalf("durable plan omitted the query-only budget: %s", planData)
+	}
+	if err := validatePrivatePlan(plan, plan.PlanID); err != nil {
+		t.Fatal(err)
+	}
+
+	// The plan identity must bind the query-only budget: a drifted budget is a
+	// different reviewed plan, not the same one.
+	drifted := append([]privatePlanItem(nil), plan.Items...)
+	drifted[0].MaxQueryOnlyRequests = 1
+	if samePrivatePlanItemsUnordered(plan.Items, drifted) {
+		t.Fatal("plan identity ignored the query-only budget")
+	}
+
+	for name, mutate := range map[string]func(*privatePlan){
+		"legacy schema": func(p *privatePlan) { p.SchemaVersion = LegacyExecutableReviewPrivatePlanSchemaVersion },
+		"with live writes": func(p *privatePlan) {
+			p.Items[0].LiveWrites = true
+			p.Items[0].MaxRemoteWrites = 1
+			p.Consent.LiveWritesApproved = true
+		},
+		"negative budget":  func(p *privatePlan) { p.Items[0].MaxQueryOnlyRequests = -1 },
+		"unbounded budget": func(p *privatePlan) { p.Items[0].MaxQueryOnlyRequests = 1001 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := plan
+			candidate.Items = append([]privatePlanItem(nil), plan.Items...)
+			mutate(&candidate)
+			if err := validatePrivatePlan(candidate, candidate.PlanID); err == nil {
+				t.Fatal("invalid query-only plan accepted")
+			}
+		})
+	}
+
+	// Mutation authority keeps its existing equivalence and consent channel.
+	liveWrite := plan
+	liveWrite.Items = append([]privatePlanItem(nil), plan.Items...)
+	liveWrite.Items[0].MaxQueryOnlyRequests = 0
+	liveWrite.Items[0].LiveWrites = true
+	liveWrite.Items[0].MaxRemoteWrites = 2
+	if err := validatePrivatePlan(liveWrite, liveWrite.PlanID); err == nil {
+		t.Fatal("live-write items passed without live-write consent")
+	}
+	liveWrite.Consent.LiveWritesApproved = true
+	if err := validatePrivatePlan(liveWrite, liveWrite.PlanID); err != nil {
+		t.Fatalf("live-write equivalence regressed: %v", err)
+	}
+	liveWrite.Items[0].MaxRemoteWrites = 0
+	if err := validatePrivatePlan(liveWrite, liveWrite.PlanID); err == nil {
+		t.Fatal("live-write authority without a write budget accepted")
+	}
+}
+
+func TestPrivateActivationStudyRejectsQueryOnlyTransport(t *testing.T) {
+	fixture := newPrivateActivationPlanFixture(t)
+	caseRoot := filepath.Join(fixture.root, "cases", "portfolio")
+	var scenario Scenario
+	readPrivatePlanTestJSON(t, filepath.Join(caseRoot, "scenario.json"), &scenario)
+	scenario.Budgets.MaxRemoteWrites = 1
+	scenario.Budgets.MaxBackendRequests = 3
+	scenario.Budgets.AllowedHTTPMethods = []string{"GET", "POST"}
+	scenario.RequiredChecks = append(scenario.RequiredChecks, "methods")
+	writeJSONTestFile(t, filepath.Join(caseRoot, "scenario.json"), scenario)
+	// Every treatment receives the identical query-only policy, so the study
+	// contract still binds one comparable set and only the activation-study
+	// exclusion can reject the plan.
+	for _, treatment := range PrivateActivationStudyTreatments() {
+		path := filepath.Join(caseRoot, "activation-"+treatment+".json")
+		var spec RunSpec
+		readPrivatePlanTestJSON(t, path, &spec)
+		spec.AllowedGatewayRoutes = map[string][]LiveGatewayRoute{"jira": {
+			{Name: "reads", PathPrefix: "/rest/api/2", Methods: []string{"GET"}, MaxRequests: 2},
+			{Name: "value_query", PathPrefix: "/rest/structure/2.0/value", Exact: true, Methods: []string{"POST"},
+				QueryOnly: true, MaxRequests: 1, MaxRequestBytes: 1 << 10},
+		}}
+		spec.GatewayMaxRequestBytes = 1 << 10
+		spec.GatewayMaxTotalRequestBytes = 1 << 10
+		spec.Checks = append(append([]RunCheck(nil), spec.Checks...),
+			RunCheck{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"GET":2,"POST":1}`)})
+		writeJSONTestFile(t, path, spec)
+		if _, _, err := ValidateRunSpecFile(path); err != nil {
+			t.Fatalf("query-only activation treatment %s: %v", treatment, err)
+		}
+	}
+	options := fixture.createOptions()
+	options.Confirm = PrivatePlanConsentConfirmation
+	_, err := CreatePrivatePlan(context.Background(), options)
+	assertPrivatePlanError(t, err, "spec")
+}

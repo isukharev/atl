@@ -43,7 +43,7 @@ func TestPrivateCLIGatewayKeepsSourceCredentialsOutOfChildConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	audit := filepath.Join(auditDir, "audit.jsonl")
-	gateway, err := startPrivateCLIGateway(source, child, audit, spec, scenario)
+	gateway, err := startPrivateLiveGateway(source, child, audit, spec, scenario)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,131 @@ func TestPrivateCLIGatewayRequiresEveryScopedSourceService(t *testing.T) {
 	if err := os.Chmod(auditDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := startPrivateCLIGateway(source, filepath.Join(t.TempDir(), "child"), filepath.Join(auditDir, "audit"), spec, scenario); err == nil || !strings.Contains(strings.ToLower(err.Error()), "jira") {
+	if _, err := startPrivateLiveGateway(source, filepath.Join(t.TempDir(), "child"), filepath.Join(auditDir, "audit"), spec, scenario); err == nil || !strings.Contains(strings.ToLower(err.Error()), "jira") {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestGatewayBackedInternalMCPIsolatesSourceCredentialsAndCountsQueryWrites(t *testing.T) {
+	var upstreamAuthorizations []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		upstreamAuthorizations = append(upstreamAuthorizations, request.Header.Get("Authorization"))
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{"rows":[]}`))
+	}))
+	defer upstream.Close()
+
+	source := filepath.Join(t.TempDir(), "source")
+	child := filepath.Join(t.TempDir(), "child")
+	if err := os.Mkdir(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const sourceCanary = "SYNTHETIC-SOURCE-CREDENTIAL-CANARY"
+	writeTestFile(t, filepath.Join(source, "config.json"),
+		`{"jira_url":`+quotedJSON(t, upstream.URL+`/jira`)+`,"confluence_url":"https://unused.example.invalid","allow_insecure":true,"render":{"display_time_zone":"UTC"}}`, 0o600)
+	writeTestFile(t, filepath.Join(source, "credentials.json"), `{"jira":"`+sourceCanary+`"}`, 0o600)
+
+	_, spec, scenario := privateLiveQueryOnlyPair()
+	if !gatewayBackedInternalMCP(spec) {
+		t.Fatal("internal MCP spec is not gateway-backed")
+	}
+	if err := spec.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := spec.ValidateAgainstScenario(scenario); err != nil {
+		t.Fatal(err)
+	}
+	spec.AllowedGatewayRoutes["jira"][1].MaxRequests = 2
+	scenario.Budgets.MaxRemoteWrites = 2
+	scenario.Budgets.MaxBackendRequests = 4
+	auditDir := t.TempDir()
+	if err := os.Chmod(auditDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	auditPath := filepath.Join(auditDir, "gateway-audit.jsonl")
+	gateway, err := startPrivateLiveGateway(source, child, auditPath, spec, scenario)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The child sees only the disposable loopback boundary: no upstream origin,
+	// no source credential, and no insecure-transport carry-over that could let
+	// it reach the real backend directly.
+	configData, err := os.ReadFile(filepath.Join(child, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentialData, err := os.ReadFile(filepath.Join(child, "credentials.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined := string(configData) + string(credentialData)
+	for _, forbidden := range []string{sourceCanary, upstream.URL, "unused.example.invalid"} {
+		if strings.Contains(combined, forbidden) {
+			t.Fatalf("child config leaked %q: %s", forbidden, combined)
+		}
+	}
+	endpoint := gateway.Endpoints()["jira"]
+	if !strings.Contains(string(configData), endpoint.BaseURL) || !strings.Contains(string(credentialData), endpoint.Token) {
+		t.Fatalf("child config is not bound to the loopback gateway: %s", combined)
+	}
+
+	// The MCP child environment carries no upstream URL or PAT name, no
+	// insecure-transport switch, and no HTTP guard file: the gateway is the only
+	// audited transport in this path.
+	environment := map[string]string{
+		"ATL_READ_ONLY": "1", "ATL_NO_UPDATE": "1",
+		"ATL_CONFIG_DIR": child, "ATL_MIRROR_ROOT": filepath.Join(child, "mirror"),
+		"NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost",
+	}
+	if err := validateGatewayMCPEnvironment(environment); err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"ATL_EVAL_HTTP_GUARD_FILE", "ATL_JIRA_URL", "ATL_CONFLUENCE_URL", "ATL_JIRA_PAT", "ATL_CONFLUENCE_PAT", "ATL_ALLOW_INSECURE"} {
+		candidate := map[string]string{forbidden: "x"}
+		for name, value := range environment {
+			candidate[name] = value
+		}
+		if err := validateGatewayMCPEnvironment(candidate); err == nil {
+			t.Fatalf("gateway-backed MCP environment accepted %s", forbidden)
+		}
+	}
+
+	for range 2 {
+		request, err := http.NewRequest(http.MethodPost, endpoint.BaseURL+"/rest/structure/2.0/value", strings.NewReader(`{"rows":[1]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer "+endpoint.Token)
+		request.Header.Set("Content-Type", "application/json")
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("query-only POST status=%d", response.StatusCode)
+		}
+	}
+	if len(upstreamAuthorizations) != 2 || upstreamAuthorizations[0] != "Bearer "+sourceCanary {
+		t.Fatalf("upstream authorizations=%v", upstreamAuthorizations)
+	}
+
+	methods, _, observed, err := closeAndReadLiveGatewayRecords(gateway)
+	if err != nil || !observed {
+		t.Fatalf("gateway records observed=%t err=%v", observed, err)
+	}
+	if methods["POST"] != 2 {
+		t.Fatalf("methods=%v", methods)
+	}
+	observation := validObservation()
+	observation.ScenarioID = scenario.ID
+	observation.HTTPMethods = methods
+	result, err := Evaluate(scenario, observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Metrics.RemoteWrites != 2 {
+		t.Fatalf("remote writes=%d, want the conservative transport count", result.Metrics.RemoteWrites)
 	}
 }

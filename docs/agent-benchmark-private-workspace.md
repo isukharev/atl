@@ -505,7 +505,8 @@ closed before model or backend access under `--strict-config`.
 For `cli-skill`, the command explicitly enables Codex's local shell/unified
 execution features and the capsule supplies `/bin/sh` as a fixed shell. Ambient
 shell selection and startup state are never projected. The shell remains inside
-the existing hook, filesystem, command-broker, read-only, and GET/HEAD controls;
+the existing hook, filesystem, command-broker, read-only, and GET/HEAD (plus
+reviewed query-only POST) controls;
 MCP surfaces do not opt into these CLI-only feature flags.
 
 Claude Code private CLI cells use the same parent-side command broker, keeping
@@ -746,7 +747,19 @@ REVIEWED_AGENT_BINARY=/absolute/path/to/reviewed-native-agent
 ```
 
 Read-only plans remain the default and cannot gain write authority at execution
-time. A private-live CLI comparison may opt into reviewed writes only in a
+time. A read-only plan may still declare bounded query-only POST transport for a
+configured read API that answers only to a JSON query payload. That budget is
+durable and separate: the plan preview and each plan item carry
+`max_query_only_requests`, built from the validated route budget and bound into
+plan identity, while `live_writes` and `max_remote_writes` keep their existing
+equivalence and continue to describe mutation authority alone. Ordinary
+`CONSENT`/`RUN` remains sufficient for a query-only plan;
+`CONSENT-WRITES`/`RUN-WRITES` stays exclusive to `allow_live_writes`. Activation
+studies reject query-only transport. The field is additive in current schema 8:
+existing plans omit it as zero and keep their prior read and execution
+semantics, while older schemas cannot express it.
+
+A private-live CLI comparison may opt into reviewed writes only in a
 current run spec with `allow_live_writes:true`, positive scenario write and
 request-body budgets, exact mutating gateway paths and methods, exact structured
 CLI arguments, and an `http_methods_equal` oracle. The child provider still

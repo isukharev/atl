@@ -1740,3 +1740,213 @@ func TestCleanGuardRequirementIsDetected(t *testing.T) {
 		t.Fatal("guard oracle did not enable cancellation")
 	}
 }
+
+// privateLiveQueryOnlyPair builds one reviewed query-only POST scenario shared
+// by a paired private-live CLI-skill and internal ATL MCP run spec.
+func privateLiveQueryOnlyPair() (RunSpec, RunSpec, Scenario) {
+	scenario := validScenario()
+	scenario.DataClass = "private-local"
+	scenario.RequiredChecks = []string{"answer_correct", "used_atl", "http_observed", "guard_clean", "no_delegation", "atl_succeeded", "methods"}
+	scenario.Budgets.MaxRemoteWrites = 1
+	scenario.Budgets.MaxDelegations = 0
+	scenario.Budgets.MaxBackendRequests = 3
+	scenario.Budgets.MaxATLInvocations = 2
+	scenario.Budgets.MaxInterfaceInvocations = 2
+	scenario.Budgets.MaxEstimatedCostMicroUSD = 10_000_000
+	scenario.Budgets.AllowedHTTPMethods = []string{"GET", "POST"}
+
+	routes := map[string][]LiveGatewayRoute{"jira": {
+		{Name: "reads", PathPrefix: "/rest/api/2", Methods: []string{"GET"}, MaxRequests: 2},
+		{Name: "value_query", PathPrefix: "/rest/structure/2.0/value", Exact: true, Methods: []string{"POST"},
+			QueryOnly: true, MaxRequests: 1, MaxRequestBytes: 1 << 10},
+	}}
+	checks := []RunCheck{
+		{Name: "http_observed", Kind: "http_methods_observed"},
+		{Name: "guard_clean", Kind: "guard_no_denials"},
+		{Name: "no_delegation", Kind: "delegations_none"},
+		{Name: "atl_succeeded", Kind: "atl_all_succeeded"},
+		{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"GET":2,"POST":1}`)},
+	}
+	bind := func(spec *RunSpec) {
+		spec.BackendMode = BackendModePrivateLive
+		spec.FixtureFile = ""
+		spec.Repetitions = 1
+		spec.MaxEstimatedCostMicroUSD = scenario.Budgets.MaxEstimatedCostMicroUSD
+		spec.AllowedGatewayRoutes = cloneGatewayRoutes(routes)
+		spec.GatewayMaxResponseBytes = 1 << 20
+		spec.GatewayMaxTotalBytes = 3 << 20
+		spec.GatewayMaxRequestBytes = 1 << 10
+		spec.GatewayMaxTotalRequestBytes = 1 << 10
+		spec.Checks = append(append([]RunCheck(nil), spec.Checks...), checks...)
+	}
+	cli := validRunSpec()
+	cli.Variant = "cli"
+	cli.ToolTransport = "cli"
+	cli.Surface = SurfaceCLISkill
+	cli.AllowedTools = []string{"Bash(atl *)", "Read"}
+	cli.AllowedATLCommands = nil
+	cli.AllowedCLICommands = validCLICommandPolicy().Rules
+	cli.SkillActivation = SkillActivationImplicit
+	bind(&cli)
+
+	mcp := validRunSpec()
+	mcp.Variant = "mcp"
+	mcp.ToolTransport = "mcp"
+	mcp.Surface = SurfaceATLMCP
+	mcp.AllowedTools = nil
+	mcp.AllowedATLCommands = nil
+	mcp.AllowedMCPTools = []string{"jira_structure_values"}
+	bind(&mcp)
+	mcp.Checks = append(mcp.Checks, RunCheck{Name: "used_interface", Kind: "interface_invocations_min", Minimum: 1})
+	return cli, mcp, scenario
+}
+
+func cloneGatewayRoutes(source map[string][]LiveGatewayRoute) map[string][]LiveGatewayRoute {
+	out := make(map[string][]LiveGatewayRoute, len(source))
+	for service, routes := range source {
+		out[service] = append([]LiveGatewayRoute(nil), routes...)
+	}
+	return out
+}
+
+func TestPrivateLiveQueryOnlyPOSTRequiresReviewedBoundaries(t *testing.T) {
+	cli, mcp, scenario := privateLiveQueryOnlyPair()
+	for name, spec := range map[string]RunSpec{"cli-skill": cli, "atl-mcp": mcp} {
+		t.Run(name, func(t *testing.T) {
+			if err := spec.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			if err := spec.ValidateAgainstScenario(scenario); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+
+	external := mcp
+	external.Surface = SurfaceExternalMCP
+	if err := validateRunSpecGatewayPolicy(external); err == nil {
+		t.Fatal("external MCP accepted a reviewed gateway route policy")
+	}
+
+	for name, mutate := range map[string]func(*RunSpec, *Scenario){
+		"unmarked post": func(spec *RunSpec, _ *Scenario) {
+			spec.AllowedGatewayRoutes["jira"][1].QueryOnly = false
+		},
+		"live writes": func(spec *RunSpec, _ *Scenario) { spec.AllowLiveWrites = true },
+		"legacy schema": func(spec *RunSpec, _ *Scenario) {
+			spec.SchemaVersion = LegacyRunSpecSchemaVersion
+		},
+		"external mcp": func(spec *RunSpec, _ *Scenario) {
+			spec.ToolTransport = "mcp"
+			spec.Surface = SurfaceExternalMCP
+			spec.AllowedTools = nil
+			spec.AllowedATLCommands = nil
+			spec.AllowedCLICommands = nil
+			spec.AllowedMCPTools = []string{"jira_structure_values"}
+		},
+		"write budget too low":  func(_ *RunSpec, scenario *Scenario) { scenario.Budgets.MaxRemoteWrites = 0 },
+		"write budget too high": func(_ *RunSpec, scenario *Scenario) { scenario.Budgets.MaxRemoteWrites = 2 },
+		"unreviewed allowed method": func(_ *RunSpec, scenario *Scenario) {
+			scenario.Budgets.AllowedHTTPMethods = []string{"GET", "PUT"}
+		},
+		"missing allowed post": func(_ *RunSpec, scenario *Scenario) {
+			scenario.Budgets.AllowedHTTPMethods = []string{"GET"}
+		},
+		"route budget over backend requests": func(_ *RunSpec, scenario *Scenario) {
+			scenario.Budgets.MaxBackendRequests = 2
+		},
+		"unbounded read route": func(spec *RunSpec, _ *Scenario) {
+			spec.AllowedGatewayRoutes["jira"][0].MaxRequests = 0
+		},
+		"missing exact method oracle": func(spec *RunSpec, scenario *Scenario) {
+			spec.Checks = slices.DeleteFunc(append([]RunCheck(nil), spec.Checks...), func(check RunCheck) bool {
+				return check.Kind == "http_methods_equal"
+			})
+			scenario.RequiredChecks = slices.DeleteFunc(append([]string(nil), scenario.RequiredChecks...), func(name string) bool {
+				return name == "methods"
+			})
+		},
+		"absent request budgets": func(spec *RunSpec, _ *Scenario) {
+			spec.GatewayMaxRequestBytes = 0
+			spec.GatewayMaxTotalRequestBytes = 0
+		},
+		"inconsistent request budgets": func(spec *RunSpec, _ *Scenario) {
+			spec.GatewayMaxTotalRequestBytes = spec.GatewayMaxRequestBytes - 1
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate, _, candidateScenario := privateLiveQueryOnlyPair()
+			mutate(&candidate, &candidateScenario)
+			if candidate.Validate() == nil && candidate.ValidateAgainstScenario(candidateScenario) == nil {
+				t.Fatal("unsafe query-only run spec passed")
+			}
+		})
+	}
+}
+
+func TestPrivateLiveReadOnlyRunsWithoutQueryOnlyStayGETAndHEAD(t *testing.T) {
+	cli, _, scenario := privateLiveQueryOnlyPair()
+	cli.AllowedGatewayRoutes["jira"] = cli.AllowedGatewayRoutes["jira"][:1]
+	cli.GatewayMaxRequestBytes = 0
+	cli.GatewayMaxTotalRequestBytes = 0
+	scenario.Budgets.AllowedHTTPMethods = []string{"GET"}
+	scenario.Budgets.MaxRemoteWrites = 0
+	if err := cli.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cli.ValidateAgainstScenario(scenario); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*RunSpec, *Scenario){
+		"request body budget": func(spec *RunSpec, _ *Scenario) {
+			spec.GatewayMaxRequestBytes = 1 << 10
+			spec.GatewayMaxTotalRequestBytes = 1 << 10
+		},
+		"remote write budget": func(_ *RunSpec, scenario *Scenario) { scenario.Budgets.MaxRemoteWrites = 1 },
+		"post method": func(_ *RunSpec, scenario *Scenario) {
+			scenario.Budgets.AllowedHTTPMethods = []string{"GET", "POST"}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := cli
+			candidate.AllowedGatewayRoutes = cloneGatewayRoutes(cli.AllowedGatewayRoutes)
+			candidateScenario := scenario
+			mutate(&candidate, &candidateScenario)
+			if candidate.Validate() == nil && candidate.ValidateAgainstScenario(candidateScenario) == nil {
+				t.Fatal("read-only private-live spec gained non-safe transport")
+			}
+		})
+	}
+}
+
+func TestInternalMCPWithoutGatewayRoutesKeepsGuardedTransport(t *testing.T) {
+	_, mcp, scenario := privateLiveQueryOnlyPair()
+	mcp.AllowedGatewayRoutes = nil
+	mcp.GatewayMaxResponseBytes = 0
+	mcp.GatewayMaxTotalBytes = 0
+	mcp.GatewayMaxRequestBytes = 0
+	mcp.GatewayMaxTotalRequestBytes = 0
+	mcp.Checks = slices.DeleteFunc(append([]RunCheck(nil), mcp.Checks...), func(check RunCheck) bool {
+		return check.Kind == "http_methods_equal"
+	})
+	scenario.Budgets.AllowedHTTPMethods = []string{"GET"}
+	scenario.Budgets.MaxRemoteWrites = 0
+	scenario.RequiredChecks = slices.DeleteFunc(append([]string(nil), scenario.RequiredChecks...), func(name string) bool {
+		return name == "methods"
+	})
+	if err := mcp.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := mcp.ValidateAgainstScenario(scenario); err != nil {
+		t.Fatal(err)
+	}
+	if gatewayBackedInternalMCP(mcp) {
+		t.Fatal("internal MCP without routes claimed a gateway boundary")
+	}
+	orphaned := mcp
+	orphaned.GatewayMaxResponseBytes = 1 << 20
+	orphaned.GatewayMaxTotalBytes = 1 << 20
+	if err := orphaned.Validate(); err == nil {
+		t.Fatal("internal MCP gateway budgets without routes passed")
+	}
+}
