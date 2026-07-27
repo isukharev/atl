@@ -1747,25 +1747,26 @@ func privateLiveQueryOnlyPair() (RunSpec, RunSpec, Scenario) {
 	scenario := validScenario()
 	scenario.DataClass = "private-local"
 	scenario.RequiredChecks = []string{"answer_correct", "used_atl", "http_observed", "guard_clean", "no_delegation", "atl_succeeded", "methods"}
-	scenario.Budgets.MaxRemoteWrites = 1
+	scenario.Budgets.MaxRemoteWrites = 2
 	scenario.Budgets.MaxDelegations = 0
-	scenario.Budgets.MaxBackendRequests = 3
+	scenario.Budgets.MaxBackendRequests = 5
 	scenario.Budgets.MaxATLInvocations = 2
 	scenario.Budgets.MaxInterfaceInvocations = 2
 	scenario.Budgets.MaxEstimatedCostMicroUSD = 10_000_000
 	scenario.Budgets.AllowedHTTPMethods = []string{"GET", "POST"}
 
 	routes := map[string][]LiveGatewayRoute{"jira": {
-		{Name: "reads", PathPrefix: "/rest/api/2", Methods: []string{"GET"}, MaxRequests: 2},
+		{Name: "structure_reads", PathPrefix: "/rest/structure/2.0", Methods: []string{"GET"}, MaxRequests: 2},
+		{Name: "jira_reads", PathPrefix: "/rest/api/2", Methods: []string{"GET"}, MaxRequests: 1},
 		{Name: "value_query", PathPrefix: "/rest/structure/2.0/value", Exact: true, Methods: []string{"POST"},
-			QueryOnly: true, MaxRequests: 1, MaxRequestBytes: 1 << 10},
+			QueryOnly: true, MaxRequests: 2, MaxRequestBytes: 1 << 10},
 	}}
 	checks := []RunCheck{
 		{Name: "http_observed", Kind: "http_methods_observed"},
 		{Name: "guard_clean", Kind: "guard_no_denials"},
 		{Name: "no_delegation", Kind: "delegations_none"},
 		{Name: "atl_succeeded", Kind: "atl_all_succeeded"},
-		{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"GET":2,"POST":1}`)},
+		{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"GET":3,"POST":2}`)},
 	}
 	bind := func(spec *RunSpec) {
 		spec.BackendMode = BackendModePrivateLive
@@ -1795,7 +1796,7 @@ func privateLiveQueryOnlyPair() (RunSpec, RunSpec, Scenario) {
 	mcp.Surface = SurfaceATLMCP
 	mcp.AllowedTools = nil
 	mcp.AllowedATLCommands = nil
-	mcp.AllowedMCPTools = []string{"jira_structure_values"}
+	mcp.AllowedMCPTools = []string{"jira_structure_view"}
 	bind(&mcp)
 	mcp.Checks = append(mcp.Checks, RunCheck{Name: "used_interface", Kind: "interface_invocations_min", Minimum: 1})
 	return cli, mcp, scenario
@@ -1830,7 +1831,7 @@ func TestPrivateLiveQueryOnlyPOSTRequiresReviewedBoundaries(t *testing.T) {
 
 	for name, mutate := range map[string]func(*RunSpec, *Scenario){
 		"unmarked post": func(spec *RunSpec, _ *Scenario) {
-			spec.AllowedGatewayRoutes["jira"][1].QueryOnly = false
+			spec.AllowedGatewayRoutes["jira"][2].QueryOnly = false
 		},
 		"live writes": func(spec *RunSpec, _ *Scenario) { spec.AllowLiveWrites = true },
 		"legacy schema": func(spec *RunSpec, _ *Scenario) {
@@ -1842,10 +1843,10 @@ func TestPrivateLiveQueryOnlyPOSTRequiresReviewedBoundaries(t *testing.T) {
 			spec.AllowedTools = nil
 			spec.AllowedATLCommands = nil
 			spec.AllowedCLICommands = nil
-			spec.AllowedMCPTools = []string{"jira_structure_values"}
+			spec.AllowedMCPTools = []string{"jira_structure_view"}
 		},
-		"write budget too low":  func(_ *RunSpec, scenario *Scenario) { scenario.Budgets.MaxRemoteWrites = 0 },
-		"write budget too high": func(_ *RunSpec, scenario *Scenario) { scenario.Budgets.MaxRemoteWrites = 2 },
+		"write budget too low":  func(_ *RunSpec, scenario *Scenario) { scenario.Budgets.MaxRemoteWrites = 1 },
+		"write budget too high": func(_ *RunSpec, scenario *Scenario) { scenario.Budgets.MaxRemoteWrites = 3 },
 		"unreviewed allowed method": func(_ *RunSpec, scenario *Scenario) {
 			scenario.Budgets.AllowedHTTPMethods = []string{"GET", "PUT"}
 		},
@@ -1872,6 +1873,9 @@ func TestPrivateLiveQueryOnlyPOSTRequiresReviewedBoundaries(t *testing.T) {
 		},
 		"inconsistent request budgets": func(spec *RunSpec, _ *Scenario) {
 			spec.GatewayMaxTotalRequestBytes = spec.GatewayMaxRequestBytes - 1
+		},
+		"route body over gateway budget": func(spec *RunSpec, _ *Scenario) {
+			spec.AllowedGatewayRoutes["jira"][2].MaxRequestBytes = spec.GatewayMaxRequestBytes + 1
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

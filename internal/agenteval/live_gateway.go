@@ -367,7 +367,7 @@ func (s *liveGatewayService) ServeHTTP(response http.ResponseWriter, request *ht
 	// A query-only route forwards a JSON query and nothing else: multipart
 	// uploads and bodyless posts are never a read query, so they are denied
 	// before any upstream request or budget reservation.
-	if !ok || route.QueryOnly && (len(requestBody) == 0 || !isGatewayJSONMediaType(contentType)) {
+	if !ok || route.QueryOnly && (len(requestBody) == 0 || !json.Valid(requestBody) || !isGatewayJSONMediaType(contentType)) {
 		reject(http.StatusBadRequest, route.Name, "content_type")
 		return
 	}

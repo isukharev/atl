@@ -1554,6 +1554,9 @@ func TestLiveGatewayQueryOnlyPOSTIsBoundedAndAudited(t *testing.T) {
 		"empty json body": func() int {
 			return send(http.MethodPost, queryPath, "application/json", "", nil)
 		},
+		"invalid json body": func() int {
+			return send(http.MethodPost, queryPath, "application/json", "not-json", nil)
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if status := probe(); status < 400 || status > 499 {

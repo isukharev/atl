@@ -225,7 +225,7 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 				// insecure-transport override, or HTTP guard file names at all.
 				mcpEnvVars := `["ATL_READ_ONLY","ATL_NO_UPDATE","ATL_CONFIG_DIR","ATL_MIRROR_ROOT","ATL_JIRA_URL","ATL_CONFLUENCE_URL","ATL_JIRA_PAT","ATL_CONFLUENCE_PAT","ATL_ALLOW_INSECURE","ATL_EVAL_HTTP_GUARD_FILE"]`
 				if gatewayBackedInternalMCP(spec) {
-					mcpEnvVars = `["ATL_READ_ONLY","ATL_NO_UPDATE","ATL_CONFIG_DIR","ATL_MIRROR_ROOT","NO_PROXY","no_proxy"]`
+					mcpEnvVars = quotedStringList(gatewayMCPEnvironmentNames)
 				}
 				args = append(args,
 					"--dangerously-bypass-hook-trust",

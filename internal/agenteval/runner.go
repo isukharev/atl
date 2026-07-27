@@ -2193,10 +2193,17 @@ func syntheticMCPMirrorRoot(workspace, fallback string) (string, error) {
 // child may inherit. Upstream URL and PAT names, the insecure-transport
 // override, and the HTTP guard file are deliberately absent: that child talks
 // only to the disposable loopback gateway, which owns the real credential.
-var gatewayMCPEnvironmentAllowlist = map[string]struct{}{
-	"ATL_READ_ONLY": {}, "ATL_NO_UPDATE": {}, "ATL_CONFIG_DIR": {}, "ATL_MIRROR_ROOT": {},
-	"NO_PROXY": {}, "no_proxy": {},
+var gatewayMCPEnvironmentNames = []string{
+	"ATL_READ_ONLY", "ATL_NO_UPDATE", "ATL_CONFIG_DIR", "ATL_MIRROR_ROOT", "NO_PROXY", "no_proxy",
 }
+
+var gatewayMCPEnvironmentAllowlist = func() map[string]struct{} {
+	allowed := make(map[string]struct{}, len(gatewayMCPEnvironmentNames))
+	for _, name := range gatewayMCPEnvironmentNames {
+		allowed[name] = struct{}{}
+	}
+	return allowed
+}()
 
 func validateGatewayMCPEnvironment(environment map[string]string) error {
 	for name := range environment {

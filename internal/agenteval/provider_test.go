@@ -1174,6 +1174,14 @@ func TestUnknownMCPToolSuppressesCapabilityAttribution(t *testing.T) {
 
 func TestGatewayBackedInternalMCPDropsUpstreamEnvironmentNames(t *testing.T) {
 	_, spec, _ := privateLiveQueryOnlyPair()
+	if len(gatewayMCPEnvironmentNames) != len(gatewayMCPEnvironmentAllowlist) {
+		t.Fatalf("gateway MCP environment sources drifted: names=%v allowlist=%v", gatewayMCPEnvironmentNames, gatewayMCPEnvironmentAllowlist)
+	}
+	for _, name := range gatewayMCPEnvironmentNames {
+		if _, ok := gatewayMCPEnvironmentAllowlist[name]; !ok {
+			t.Fatalf("provider MCP environment name %q is absent from runner allowlist", name)
+		}
+	}
 	spec.Provider = "codex"
 	spec.Reasoning = "high"
 	confinement := privateMCPHookConfinement("atl", spec.AllowedMCPTools...)
@@ -1182,7 +1190,7 @@ func TestGatewayBackedInternalMCPDropsUpstreamEnvironmentNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(command.Args, " ")
-	if !strings.Contains(joined, `mcp_servers.atl.env_vars=["ATL_READ_ONLY","ATL_NO_UPDATE","ATL_CONFIG_DIR","ATL_MIRROR_ROOT","NO_PROXY","no_proxy"]`) {
+	if !strings.Contains(joined, `mcp_servers.atl.env_vars=`+quotedStringList(gatewayMCPEnvironmentNames)) {
 		t.Fatalf("gateway-backed MCP env allowlist missing: %s", joined)
 	}
 	for _, forbidden := range []string{"ATL_JIRA_URL", "ATL_CONFLUENCE_URL", "ATL_JIRA_PAT", "ATL_CONFLUENCE_PAT", "ATL_ALLOW_INSECURE", "ATL_EVAL_HTTP_GUARD_FILE"} {

@@ -716,6 +716,13 @@ func validateRunSpecGatewayPolicy(s RunSpec) error {
 		if s.GatewayMaxRequestBytes < 1 || s.GatewayMaxRequestBytes > 16<<20 || s.GatewayMaxTotalRequestBytes < s.GatewayMaxRequestBytes || s.GatewayMaxTotalRequestBytes > 64<<20 {
 			return fmt.Errorf("private-live gateway request budgets are invalid")
 		}
+		for _, routes := range s.AllowedGatewayRoutes {
+			for _, route := range routes {
+				if route.MaxRequestBytes > s.GatewayMaxRequestBytes {
+					return fmt.Errorf("private-live route request budget exceeds the gateway request budget")
+				}
+			}
+		}
 	} else if s.GatewayMaxRequestBytes != 0 || s.GatewayMaxTotalRequestBytes != 0 {
 		return fmt.Errorf("read-only private-live runs forbid gateway request-body budgets")
 	}

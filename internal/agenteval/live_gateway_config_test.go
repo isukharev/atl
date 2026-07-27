@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestPrivateCLIGatewayKeepsSourceCredentialsOutOfChildConfig(t *testing.T) {
@@ -48,6 +50,9 @@ func TestPrivateCLIGatewayKeepsSourceCredentialsOutOfChildConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = gateway.Close(context.Background()) }()
+	if gateway.state.config.MaxConcurrent != 1 {
+		t.Fatalf("private CLI gateway concurrency=%d, want serialized command boundary", gateway.state.config.MaxConcurrent)
+	}
 	endpoint := gateway.Endpoints()["jira"]
 	request, _ := http.NewRequest(http.MethodGet, endpoint.BaseURL+"/rest/api/2/field", nil)
 	request.Header.Set("Authorization", "Bearer "+endpoint.Token)
@@ -126,7 +131,7 @@ func TestGatewayBackedInternalMCPIsolatesSourceCredentialsAndCountsQueryWrites(t
 	}
 	const sourceCanary = "SYNTHETIC-SOURCE-CREDENTIAL-CANARY"
 	writeTestFile(t, filepath.Join(source, "config.json"),
-		`{"jira_url":`+quotedJSON(t, upstream.URL+`/jira`)+`,"confluence_url":"https://unused.example.invalid","allow_insecure":true,"render":{"display_time_zone":"UTC"}}`, 0o600)
+		`{"jira_url":`+quotedJSON(t, upstream.URL+`/jira`)+`,"confluence_url":"https://unused.example.invalid","render":{"display_time_zone":"UTC"}}`, 0o600)
 	writeTestFile(t, filepath.Join(source, "credentials.json"), `{"jira":"`+sourceCanary+`"}`, 0o600)
 
 	_, spec, scenario := privateLiveQueryOnlyPair()
@@ -139,9 +144,9 @@ func TestGatewayBackedInternalMCPIsolatesSourceCredentialsAndCountsQueryWrites(t
 	if err := spec.ValidateAgainstScenario(scenario); err != nil {
 		t.Fatal(err)
 	}
-	spec.AllowedGatewayRoutes["jira"][1].MaxRequests = 2
+	spec.AllowedGatewayRoutes["jira"][2].MaxRequests = 2
 	scenario.Budgets.MaxRemoteWrites = 2
-	scenario.Budgets.MaxBackendRequests = 4
+	scenario.Budgets.MaxBackendRequests = 5
 	auditDir := t.TempDir()
 	if err := os.Chmod(auditDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -150,6 +155,9 @@ func TestGatewayBackedInternalMCPIsolatesSourceCredentialsAndCountsQueryWrites(t
 	gateway, err := startPrivateLiveGateway(source, child, auditPath, spec, scenario)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if gateway.state.config.MaxConcurrent != 2 {
+		t.Fatalf("internal MCP gateway concurrency=%d, want reviewed interface budget 2", gateway.state.config.MaxConcurrent)
 	}
 
 	// The child sees only the disposable loopback boundary: no upstream origin,
@@ -231,5 +239,74 @@ func TestGatewayBackedInternalMCPIsolatesSourceCredentialsAndCountsQueryWrites(t
 	}
 	if result.Metrics.RemoteWrites != 2 {
 		t.Fatalf("remote writes=%d, want the conservative transport count", result.Metrics.RemoteWrites)
+	}
+}
+
+func TestGatewayBackedInternalMCPRunsProductionStructureViewRoute(t *testing.T) {
+	fixture := loadRepositoryMockFixture(t, filepath.Join("..", "..", "benchmarks", "agent-eval",
+		"jira-structure-folder-selection-recovery-mcp", "fixture.json"))
+	backend, err := StartMockBackend(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(backend.Close)
+	backendEnvironment := backend.Environment()
+
+	source := filepath.Join(t.TempDir(), "source")
+	child := filepath.Join(t.TempDir(), "child")
+	if err := os.Mkdir(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(source, "config.json"),
+		`{"jira_url":`+quotedJSON(t, backendEnvironment["ATL_JIRA_URL"])+`}`, 0o600)
+	writeTestFile(t, filepath.Join(source, "credentials.json"),
+		`{"jira":`+quotedJSON(t, backendEnvironment["ATL_JIRA_PAT"])+`}`, 0o600)
+
+	_, spec, scenario := privateLiveQueryOnlyPair()
+	if spec.AllowedMCPTools[0] != "jira_structure_view" || scenario.Budgets.MaxRemoteWrites != 2 {
+		t.Fatalf("production seam spec drifted: tools=%v budgets=%+v", spec.AllowedMCPTools, scenario.Budgets)
+	}
+	auditDir := t.TempDir()
+	if err := os.Chmod(auditDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	gateway, err := startPrivateLiveGateway(source, child, filepath.Join(auditDir, "gateway-audit.jsonl"), spec, scenario)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// ProductionDependencies must discover only the disposable child config;
+	// ambient direct-backend overlays would bypass the boundary under test.
+	t.Setenv("ATL_CONFIG_DIR", child)
+	for _, name := range []string{"ATL_JIRA_URL", "JIRA_URL", "ATL_JIRA_PAT", "JIRA_PAT", "ATL_ALLOW_INSECURE"} {
+		t.Setenv(name, "")
+	}
+	t.Setenv("ATL_READ_ONLY", "1")
+	t.Setenv("ATL_NO_UPDATE", "1")
+	client := connectRepositoryMCPClient(t)
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "jira_structure_view",
+		Arguments: map[string]any{
+			"structure_id": 95, "fields": []string{"key", "summary", "status"},
+			"folder_row": 714, "expected_forest_signature": 9501, "expected_forest_version": 21,
+			"max_rows": 50, "max_bytes": 65536,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("production jira_structure_view failed through gateway: %+v", result.Content)
+	}
+	methods, duplicates, observed, err := closeAndReadLiveGatewayRecords(gateway)
+	if err != nil || !observed {
+		t.Fatalf("gateway audit observed=%t duplicates=%d err=%v", observed, duplicates, err)
+	}
+	if methods["GET"] != 3 || methods["POST"] != 2 || len(methods) != 2 {
+		t.Fatalf("production MCP route methods=%v, want GET=3 POST=2", methods)
+	}
+	backendMethods, unexpected, _ := backend.Summary()
+	if unexpected != 0 || backendMethods["GET"] != 3 || backendMethods["POST"] != 2 {
+		t.Fatalf("upstream production route methods=%v unexpected=%d", backendMethods, unexpected)
 	}
 }

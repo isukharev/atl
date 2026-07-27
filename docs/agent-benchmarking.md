@@ -1537,7 +1537,9 @@ That MCP child is built from a fixed environment allowlist — read-only,
 no-update, config dir, mirror root, and loopback `NO_PROXY` — so it cannot
 inherit the upstream URL or PAT variable names, the insecure-transport
 override, or the HTTP guard file. Internal MCP runs without routes keep the
-existing copy-and-guard behaviour unchanged.
+existing copy-and-guard behaviour unchanged. Gateway-backed internal MCP
+concurrency is bounded by the scenario's interface-invocation budget and a hard
+cap of four; CLI gateway traffic remains serialized by the command broker.
 
 By default, `ATL_READ_ONLY=1` blocks mutations at the CLI policy, the MCP
 inventory contains only explicit read tools, and the HTTP transport guard rejects
@@ -1630,8 +1632,9 @@ Some configured read APIs answer only to a POST query payload. A read-only run
 may reach one with the explicit `"query_only": true` route exception, whose
 shape is exact: one exact path, exactly the single method `POST`, a positive
 per-route request count, and a positive per-route body budget. A query-only
-route forwards a JSON body and nothing else — multipart uploads, bodyless
-posts, and every other content type are denied before any upstream request —
+route forwards a non-empty, syntactically valid JSON body and nothing else —
+multipart uploads, bodyless posts, malformed JSON, and every other content type
+are denied before any upstream request —
 and it never carries the Atlassian no-check header. It keeps every other
 control: ingress capability, method-override rejection, path and query
 validation, body-byte and total-byte budgets, redirect rejection, and the

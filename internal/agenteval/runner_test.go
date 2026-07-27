@@ -1148,7 +1148,7 @@ while [ "$#" -gt 0 ]; do
   if [ "$1" = "--output-last-message" ]; then final="$2"; shift 2; continue; fi
   shift
 done
-printf '%s\n' '{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_structure_values","status":"completed","result":{"responses":[]}}}'
+printf '%s\n' '{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_structure_view","status":"completed","result":{"rows":[]}}}'
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}'
 printf '%s\n' '{"answer":"ok"}' >"$final"
 `, 0o700)
