@@ -18,6 +18,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserved the underlying causes of private agent-evaluation finding-scorecard
+  reconciliation and immutable-result loading rejections, which completes the
+  finding slice. The reconciliation classifies at forty-two call sites: sixteen
+  can hold a concrete failure and now attach it, and twenty-six are decided by
+  validation, comparison, cardinality, identity, or duplicate detection alone
+  and still carry no cause. The cause-capable sites are the workspace location,
+  the final ledger and acceptance reloads, synthetic snapshot revalidation, the
+  private-live failure source load and its baseline result, the regression
+  source load and its baseline result compatibility check, the private-live and
+  synthetic fixed sampling assessments, the synthetic failure and regression
+  assessments, the baseline manifest load, the reviewed-result probe, the
+  selected result read and digest check, and the result decode and contract
+  check. They now report the same cause-preserving coded error the
+  finding-ledger, finding-acceptance, plan-execution, live-gateway, checkpoint,
+  workspace-migration, retention-prune, compact-baseline, workspace-operation,
+  coverage-index, and sampling paths already use: the message is still only the
+  stable sentinel plus its existing short code, while callers can traverse the
+  standard Go unwrap tree and use `errors.Is` or `errors.As` for typed causes.
+  Failures raised by the neighbouring workspace, baseline, sampling, ledger,
+  or acceptance loaders stay nested with their own sentinel and short code when
+  present, while raw filesystem and decoding failures remain directly reachable
+  below the unchanged outer code. Synthetic snapshot revalidation now
+  reports a reload failure separately from an evidence mismatch: a failed reload
+  hands back its classified sampling failure, while a clean reload that no
+  longer matches stays cause-free. The number, order, and timing of revalidation
+  loads are unchanged. An ordinary absent reviewed result remains normal and
+  unattached. A rejection decided by comparison alone still carries no cause — a
+  duplicate failure or regression reference, a failure result that records a
+  supported pass, a task class outside the public corpus, a mismatched failure
+  class, a contract-transition or changed-contract mismatch, a regression that
+  is the failure's own plan, two results that both loaded and are simply
+  incompatible, a fixed finding without an accepted regression or a distinct
+  contract pair, a missing or mislabelled acceptance binding, an assessment with
+  the wrong tier, acceptance flag, or cardinality, a disagreeing assessment
+  contract or regression membership, non-disjoint synthetic assessments, a
+  mutable or activation-study source, a manifest that binds another plan, an
+  ambiguous or missing surface, a reviewed result observed as a non-regular
+  entry, a selected-path mismatch, a result digest mismatch, and a decoded
+  result whose data class or surface disagrees. The ledger and acceptance reload
+  failures and the snapshot reload failure at its call site are reachable only
+  by racing the reconciliation; the unknown-evidence-source branch is
+  unreachable because the ledger validator admits only the two known sources.
+  The plan loader still classifies its own workspace-contract and
+  activation-study state rejections without causes; that deferred slice is
+  unchanged and whatever it returns is retained here as-is. No finding code is
+  added or renamed. Ledger and acceptance schemas, the scorecard schema and
+  source digest, aggregation, grouping, branch outcomes, decision counts,
+  output, exit codes, and fail-closed gates are unchanged.
 - Preserved the underlying causes of private agent-evaluation
   finding-acceptance loading rejections, which completes the finding slice
   apart from the scorecard call sites. The acceptance loading path — the
@@ -49,8 +97,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   finding, a reused assessment, and a missing binding. A candidate type or mode
   observed during the no-index reprobe still has no raw filesystem cause, but
   the outer file classification retains that already-raised inner
-  classification. The scorecard call sites deliberately
-  still classify without causes and migrate in a later slice; the acceptance
+  classification. The scorecard call sites deliberately still classify without
+  causes at the time of this entry and migrate in a later slice; the acceptance
   frames they call already attach, and whatever the loader returns is retained
   unchanged. No acceptance code is added or renamed. Acceptance schemas,
   canonical bytes, legacy/schema-v2 selection, the no-index result, file and
