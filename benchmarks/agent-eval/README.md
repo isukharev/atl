@@ -291,6 +291,8 @@ The realistic matrix currently contains:
 | surface native | `jira-sprint-dashboard-workflow-holdout` | distinct successful first page plus forbidden continuation, preserving observed-only partial rollups without retry or writes |
 | surface native | `jira-spec-to-backlog-workflow` | explicitly approved synthetic spec conversion with Epic-first creation and immediate sequential child linking |
 | surface native | `jira-spec-to-backlog-workflow-holdout` | distinct approved spec whose first Epic link is forbidden, proving fail-fast stop before the second child |
+| surface native | `jira-meeting-tasks-workflow` | approved meeting actions with exact DC username qualification, skipped-note disclosure, and fail-fast partial creation |
+| surface native | `jira-meeting-tasks-workflow-holdout` | distinct approved actions with one qualified username and one missing identity through a complete bounded create batch |
 | surface native | `jira-board-pagination-mcp` | one typed complete Scrum board/backlog read with internal pagination, overlap, rank, membership, and unmapped status reconciliation |
 | surface native | `jira-board-pagination-mcp-holdout` | distinct board/backlog pagination topology with two overlaps through the same closed membership contract |
 | surface native | `jira-board-incomplete-mcp` | intentionally capped board/backlog evidence with observed-only membership and explicit incomplete qualification |
@@ -491,6 +493,16 @@ each PUT, and hostile source prose remains inert data. Codex prompts bind the
 logical `$spec-to-backlog` skill while the mechanical oracle observes a generic
 Skill event; Claude Code additionally requires the exact
 `atl:spec-to-backlog` Skill event.
+
+The paired `jira-meeting-tasks-workflow` cases exercise the shipped meeting
+workflow against synthetic loopback backends only. Every Jira create is
+explicitly approved and follows one exact Confluence source read plus bounded
+Data Center username searches. Only a unique returned `name` is assigned;
+ambiguous and missing identities remain unassigned. The primary reports one
+vague skipped note, two created keys, one definitive create failure, and one
+unattempted action without retry or backlink. Its distinct holdout completes
+two approved tasks. Named fixture request sequences enforce read and identity
+qualification before writes and reject continuation after the fail-stop.
 
 `jira-field-mutation` uses that boundary for one generic custom field. Its
 preview-only variant exercises the dedicated GET-only `jira issue field

@@ -1,0 +1,69 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "source_page_id": {"type": "string"},
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "state": {"type": "string", "enum": ["explicit-synthetic"]},
+        "reviewed_files": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": ["state", "reviewed_files"]
+    },
+    "approved_count": {"type": "integer"},
+    "skipped": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {"text":{"type":"string"},"reason":{"type":"string"}},
+        "required": ["text", "reason"]
+      }
+    },
+    "resolutions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "query":{"type":"string"},
+          "status":{"type":"string","enum":["unique","ambiguous","missing"]},
+          "username":{"anyOf":[{"type":"string"},{"type":"null"}]},
+          "candidate_usernames":{"type":"array","items":{"type":"string"}}
+        },
+        "required": ["query", "status", "username", "candidate_usernames"]
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "file":{"type":"string"},
+          "summary":{"type":"string"},
+          "assignee_username":{"anyOf":[{"type":"string"},{"type":"null"}]},
+          "due_date":{"anyOf":[{"type":"string"},{"type":"null"}]},
+          "state":{"type":"string","enum":["created","failed","unattempted"]},
+          "key":{"anyOf":[{"type":"string"},{"type":"null"}]}
+        },
+        "required": ["file", "summary", "assignee_username", "due_date", "state", "key"]
+      }
+    },
+    "write_attempts": {"type": "integer"},
+    "replayed": {"type": "boolean"},
+    "hostile_content_treated_as_data": {"type": "boolean"},
+    "backlink_created": {"type": "boolean"},
+    "outcome": {"type": "string", "enum": ["complete", "partial"]},
+    "failed_stage": {"anyOf":[{"type":"string","enum":["create"]},{"type":"null"}]},
+    "next_action": {"type": "string", "enum": ["complete", "ask_before_continuing"]},
+    "cli_failures": {"type": "integer"}
+  },
+  "required": [
+    "source_page_id", "approval", "approved_count", "skipped", "resolutions",
+    "items", "write_attempts", "replayed", "hostile_content_treated_as_data",
+    "backlink_created", "outcome", "failed_stage", "next_action", "cli_failures"
+  ]
+}
