@@ -31,6 +31,56 @@ func TestPrivateWorkspacePublicExampleMatchesStrictManifestContract(t *testing.T
 	}
 }
 
+func TestPrivateWorkspaceRunSetCapacityBoundary(t *testing.T) {
+	manifest := DefaultPrivateWorkspaceManifest()
+	manifest.RunSets = make([]PrivateWorkspaceRunSet, maxPrivateWorkspaceRunSets)
+	for index := range manifest.RunSets {
+		alias := fmt.Sprintf("comparison-%03d", index+1)
+		manifest.RunSets[index] = PrivateWorkspaceRunSet{
+			Alias: alias, SpecPaths: []string{"cases/" + alias + "/run.json"},
+		}
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodePrivateWorkspaceManifest(bytes.NewReader(data)); err != nil {
+		t.Fatalf("maximum run-set inventory rejected: %v", err)
+	}
+	manifest.RunSets = append(manifest.RunSets, PrivateWorkspaceRunSet{
+		Alias: "comparison-overflow", SpecPaths: []string{"cases/comparison-overflow/run.json"},
+	})
+	data, err = json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = DecodePrivateWorkspaceManifest(bytes.NewReader(data))
+	if err == nil {
+		t.Fatal("run-set inventory above the maximum was accepted")
+	}
+	assertPrivateWorkspaceContractCode(t, err, "run_sets")
+}
+
+func TestPrivateWorkspaceRunSetCapacityMatchesPublicSchema(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "benchmarks", "agent-eval", "private-workspace.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		Properties struct {
+			RunSets struct {
+				MaxItems int `json:"maxItems"`
+			} `json:"run_sets"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if schema.Properties.RunSets.MaxItems != maxPrivateWorkspaceRunSets {
+		t.Fatalf("schema run-set maximum=%d, runtime=%d", schema.Properties.RunSets.MaxItems, maxPrivateWorkspaceRunSets)
+	}
+}
+
 func TestActivationStudyManifestRequiresPositiveReviewerReserve(t *testing.T) {
 	manifest := DefaultPrivateWorkspaceManifest()
 	panel := privateReviewTestPanel()
