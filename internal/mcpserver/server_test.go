@@ -5467,3 +5467,350 @@ func (*cancellingConfluenceReader) ExtractTablesWithOptions(context.Context, str
 func (*cancellingConfluenceReader) AttachmentInventory(context.Context, string, app.ConfluenceAttachmentInventoryOpts) (*app.ConfluenceAttachmentInventoryResult, error) {
 	panic("unexpected call")
 }
+
+// The bounded byte resolvers and the bounded JSON output helpers repeat one
+// shape across tools, so the tests below pin what a consolidation must not
+// change: the exact default, minimum, and maximum each resolver applies, the
+// order in which the range check and the minimum check report, the exact
+// message text, which helpers refuse a nil result and which encode it as
+// `null`, and which oversize errors carry domain.ErrOutputLimit.
+func TestBoundedByteResolversPinDefaultsMinimaAndMaxima(t *testing.T) {
+	resolvers := []struct {
+		name                   string
+		resolve                func(int) (int, error)
+		defaultValue, min, max int
+	}{
+		{
+			name:         "confluence_table_summary",
+			resolve:      func(value int) (int, error) { return boundedTableBytes(value, confluenceTableSummaryDefaultMaxBytes) },
+			defaultValue: confluenceTableSummaryDefaultMaxBytes, min: confluenceTableMinMaxBytes, max: confluenceTableMaxMaxBytes,
+		},
+		{
+			name:         "confluence_table_extract",
+			resolve:      func(value int) (int, error) { return boundedTableBytes(value, confluenceTableExtractDefaultMaxBytes) },
+			defaultValue: confluenceTableExtractDefaultMaxBytes, min: confluenceTableMinMaxBytes, max: confluenceTableMaxMaxBytes,
+		},
+		{
+			name:         "confluence_search",
+			resolve:      boundedConfluenceSearchBytes,
+			defaultValue: confluenceSearchDefaultMaxBytes, min: confluenceSearchMinMaxBytes, max: confluenceSearchMaxMaxBytes,
+		},
+		{
+			name:         "confluence_attachment_list",
+			resolve:      boundedConfluenceAttachmentBytes,
+			defaultValue: confluenceAttachmentDefaultMaxBytes, min: confluenceAttachmentMinMaxBytes, max: confluenceAttachmentMaxMaxBytes,
+		},
+		{
+			name:         "jira_evidence",
+			resolve:      boundedJiraEvidenceBytes,
+			defaultValue: jiraEvidenceDefaultMaxBytes, min: jiraEvidenceMinMaxBytes, max: jiraEvidenceMaxMaxBytes,
+		},
+		{
+			name: "jira_structure_view",
+			resolve: func(value int) (int, error) {
+				_, _, maxBytes, _, err := validatedStructureViewInput(JiraStructureViewInput{StructureID: 1, MaxBytes: value})
+				return maxBytes, err
+			},
+			defaultValue: jiraStructureViewDefaultMaxBytes, min: jiraStructureViewMinMaxBytes, max: jiraStructureViewMaxMaxBytes,
+		},
+	}
+	for _, resolver := range resolvers {
+		t.Run(resolver.name, func(t *testing.T) {
+			belowMinimum := fmt.Sprintf("max_bytes must be at least %d", resolver.min)
+			outOfRange := fmt.Sprintf("max_bytes must be between 1 and %d", resolver.max)
+			cases := []struct {
+				name    string
+				value   int
+				want    int
+				wantErr string
+			}{
+				{name: "zero_resolves_the_default", value: 0, want: resolver.defaultValue},
+				// One pins the below-minimum message; the negative case below
+				// proves the range error wins when both checks could reject.
+				{name: "one", value: 1, wantErr: belowMinimum},
+				{name: "minimum_minus_one", value: resolver.min - 1, wantErr: belowMinimum},
+				{name: "minimum", value: resolver.min, want: resolver.min},
+				{name: "maximum", value: resolver.max, want: resolver.max},
+				{name: "maximum_plus_one", value: resolver.max + 1, wantErr: outOfRange},
+				{name: "negative", value: -1, wantErr: outOfRange},
+			}
+			for _, test := range cases {
+				t.Run(test.name, func(t *testing.T) {
+					got, err := resolver.resolve(test.value)
+					if test.wantErr == "" {
+						if err != nil || got != test.want {
+							t.Fatalf("resolve(%d)=%d err=%v want %d", test.value, got, err, test.want)
+						}
+						return
+					}
+					if got != 0 || !errors.Is(err, domain.ErrUsage) ||
+						err.Error() != domain.ErrUsage.Error()+": "+test.wantErr {
+						t.Fatalf("resolve(%d)=%d err=%v want usage error %q", test.value, got, err, test.wantErr)
+					}
+				})
+			}
+		})
+	}
+}
+
+// jira_issue_field_get resolves its own byte bound inline against the
+// application-layer constants, so it is pinned through the tool surface.
+func TestJiraIssueFieldGetByteBoundIsResolvedBeforeTheBackend(t *testing.T) {
+	cases := []struct {
+		name           string
+		value          int
+		want           int
+		wantUsageError bool
+	}{
+		{name: "zero_resolves_the_default", value: 0, want: app.JiraIssueFieldEvidenceDefaultMaxBytes},
+		{name: "one", value: 1, wantUsageError: true},
+		{name: "minimum_minus_one", value: app.JiraIssueFieldEvidenceMinMaxBytes - 1, wantUsageError: true},
+		{name: "minimum", value: app.JiraIssueFieldEvidenceMinMaxBytes, want: app.JiraIssueFieldEvidenceMinMaxBytes},
+		{name: "maximum", value: app.JiraIssueFieldEvidenceMaxMaxBytes, want: app.JiraIssueFieldEvidenceMaxMaxBytes},
+		{name: "maximum_plus_one", value: app.JiraIssueFieldEvidenceMaxMaxBytes + 1, wantUsageError: true},
+		{name: "negative", value: -1, wantUsageError: true},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			reader := &recordingJiraReader{}
+			client, closeSessions := connectTestClient(t, New("test", Dependencies{
+				Jira: func() (JiraReader, error) { return reader, nil },
+			}))
+			defer closeSessions()
+			args := map[string]any{"key": "PROJ-1", "field": "customfield_1", "max_bytes": test.value}
+			if test.wantUsageError {
+				result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: "jira_issue_field_get", Arguments: args})
+				if err != nil {
+					t.Fatal(err)
+				}
+				text, ok := result.Content[0].(*mcp.TextContent)
+				if !result.IsError || len(result.Content) != 1 || !ok {
+					t.Fatalf("result=%+v", result)
+				}
+				var got toolError
+				if err := json.Unmarshal([]byte(text.Text), &got); err != nil ||
+					got.Kind != "usage_error" || got.Remediation != "fix_request" {
+					t.Fatalf("error=%+v decode=%v", got, err)
+				}
+				if reader.fieldEvidenceKey != "" {
+					t.Fatalf("backend reached with key=%q", reader.fieldEvidenceKey)
+				}
+				return
+			}
+			callToolOK(t, client, "jira_issue_field_get", args)
+			if reader.fieldEvidenceOpts.MaxBytes != test.want {
+				t.Fatalf("forwarded max_bytes=%d want %d", reader.fieldEvidenceOpts.MaxBytes, test.want)
+			}
+		})
+	}
+}
+
+func TestBoundedOutputHelpersRefuseUnavailableResults(t *testing.T) {
+	cases := []struct {
+		name string
+		call func() error
+		want string
+	}{
+		{
+			name: "attachment_inventory_nil",
+			call: func() error { return boundedAttachmentInventoryOutput(nil, confluenceAttachmentMinMaxBytes) },
+			want: "Confluence attachment inventory is unavailable",
+		},
+		{
+			name: "confluence_search_nil",
+			call: func() error { return boundedConfluenceSearchOutput(nil, confluenceSearchMinMaxBytes) },
+			want: "Confluence search result is unavailable",
+		},
+		{
+			name: "structure_nil",
+			call: func() error { return boundedStructureOutput(nil, jiraStructureViewMinMaxBytes) },
+			want: "Structure result is unavailable",
+		},
+		{
+			name: "jira_evidence_nil_interface",
+			call: func() error { return boundedJiraEvidenceOutput(nil, jiraEvidenceMinMaxBytes) },
+			want: "Jira evidence result is unavailable",
+		},
+		{
+			name: "jira_evidence_typed_nil_pointer",
+			call: func() error {
+				return boundedJiraEvidenceOutput((*app.JiraHistorySummaryResult)(nil), jiraEvidenceMinMaxBytes)
+			},
+			want: "Jira evidence result is unavailable",
+		},
+		{
+			name: "table_nil_interface",
+			call: func() error { return boundedTableOutput(nil, confluenceTableMinMaxBytes) },
+			want: "table result is unavailable",
+		},
+		{
+			name: "table_typed_nil_pointer",
+			call: func() error {
+				return boundedTableOutput((*app.ConfluenceTableSummary)(nil), confluenceTableMinMaxBytes)
+			},
+			want: "table result is unavailable",
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.call()
+			if !errors.Is(err, domain.ErrCheckFailed) || errors.Is(err, domain.ErrOutputLimit) ||
+				err.Error() != domain.ErrCheckFailed.Error()+": "+test.want {
+				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+}
+
+// Only a nil pointer is an unavailable result. A nil slice or map is real
+// evidence about an empty collection, so it stays on the encoding path.
+func TestBoundedOutputHelpersEncodeNonPointerNilsAsEvidence(t *testing.T) {
+	if err := boundedJiraEvidenceOutput([]string(nil), jiraEvidenceMinMaxBytes); err != nil {
+		t.Fatalf("nil slice err=%v", err)
+	}
+	if err := boundedTableOutput(map[string]string(nil), confluenceTableMinMaxBytes); err != nil {
+		t.Fatalf("nil map err=%v", err)
+	}
+}
+
+func TestBoundedOutputHelpersRefuseUnencodableResults(t *testing.T) {
+	cases := []struct {
+		name string
+		call func() error
+		want string
+	}{
+		{
+			name: "jira_evidence",
+			call: func() error { return boundedJiraEvidenceOutput(make(chan int), jiraEvidenceMinMaxBytes) },
+			want: "encode Jira evidence result",
+		},
+		{
+			name: "table",
+			call: func() error { return boundedTableOutput(make(chan int), confluenceTableMinMaxBytes) },
+			want: "encode table result",
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.call()
+			if !errors.Is(err, domain.ErrCheckFailed) || errors.Is(err, domain.ErrOutputLimit) ||
+				err.Error() != domain.ErrCheckFailed.Error()+": "+test.want {
+				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+}
+
+func TestBoundedOutputHelpersEnforceExactByteBounds(t *testing.T) {
+	inventory := &app.ConfluenceAttachmentInventoryView{
+		SchemaVersion: 1, PageID: "1", PageVersion: 2, Complete: true,
+		Attachments: []app.ConfluenceAttachmentView{},
+	}
+	search := &app.ConfluenceSearchResult{SchemaVersion: 1, Query: "space=DOCS", Results: []domain.PageRef{}}
+	snapshot := &app.StructureSnapshot{SchemaVersion: 1}
+	cases := []struct {
+		name  string
+		value any
+		at    func(int) error
+		want  string
+	}{
+		{
+			name: "attachment_inventory", value: inventory,
+			at:   func(maxBytes int) error { return boundedAttachmentInventoryOutput(inventory, maxBytes) },
+			want: "Confluence attachment inventory exceeds max_bytes; raise the bound",
+		},
+		{
+			name: "confluence_search", value: search,
+			at:   func(maxBytes int) error { return boundedConfluenceSearchOutput(search, maxBytes) },
+			want: "Confluence search result exceeds max_bytes; narrow CQL or lower the row limit before raising the bound",
+		},
+		{
+			name: "structure", value: snapshot,
+			at:   func(maxBytes int) error { return boundedStructureOutput(snapshot, maxBytes) },
+			want: "Structure result exceeds max_bytes; select an exact subtree or raise the bound",
+		},
+		{
+			name: "jira_evidence", value: "evidence",
+			at:   func(maxBytes int) error { return boundedJiraEvidenceOutput("evidence", maxBytes) },
+			want: "Jira evidence result exceeds max_bytes; narrow the selection or raise the bound",
+		},
+		{
+			name: "table", value: "table",
+			at:   func(maxBytes int) error { return boundedTableOutput("table", maxBytes) },
+			want: "table result exceeds max_bytes; select one table or raise the bound",
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			encoded, err := json.Marshal(test.value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			exact := len(encoded)
+			for _, maxBytes := range []int{exact, exact + 1} {
+				if err := test.at(maxBytes); err != nil {
+					t.Fatalf("max_bytes=%d (encoded %d) err=%v", maxBytes, exact, err)
+				}
+			}
+			for _, maxBytes := range []int{0, exact - 1} {
+				err := test.at(maxBytes)
+				if !errors.Is(err, domain.ErrCheckFailed) || !errors.Is(err, domain.ErrOutputLimit) ||
+					err.Error() != domain.ErrCheckFailed.Error()+": "+domain.ErrOutputLimit.Error()+": "+test.want {
+					t.Fatalf("max_bytes=%d (encoded %d) err=%v", maxBytes, exact, err)
+				}
+			}
+		})
+	}
+}
+
+// The two fixed-bound helpers guard no nil: they run only on results a
+// validator already reconciled, and they must keep encoding a nil pointer as
+// `null` rather than growing an availability check. Structure metadata is also
+// the one oversize error that deliberately does not carry
+// domain.ErrOutputLimit.
+func TestFixedBoundOutputHelpersPinNilAndOversizeBehavior(t *testing.T) {
+	t.Run("confluence_page_metadata", func(t *testing.T) {
+		if err := boundedConfluencePageMetadataOutput(nil); err != nil {
+			t.Fatalf("nil err=%v", err)
+		}
+		metadata := &app.ConfluencePageMetadataResult{
+			SchemaVersion: app.ConfluencePageMetadataSchemaVersion, ID: "1", Space: "DOCS",
+			Version: 1, RestrictionState: app.ConfluenceRestrictionUnrestricted,
+		}
+		encoded, err := json.Marshal(metadata)
+		if err != nil {
+			t.Fatal(err)
+		}
+		metadata.Title = strings.Repeat("x", confluencePageMetadataMaxBytes-len(encoded))
+		if err := boundedConfluencePageMetadataOutput(metadata); err != nil {
+			t.Fatalf("exact bound err=%v", err)
+		}
+		metadata.Title += "x"
+		err = boundedConfluencePageMetadataOutput(metadata)
+		if !errors.Is(err, domain.ErrCheckFailed) || !errors.Is(err, domain.ErrOutputLimit) ||
+			err.Error() != domain.ErrCheckFailed.Error()+": "+domain.ErrOutputLimit.Error()+
+				": Confluence page metadata exceeds its output bound" {
+			t.Fatalf("oversize err=%v", err)
+		}
+	})
+	t.Run("structure_metadata", func(t *testing.T) {
+		if err := boundedStructureMetadataOutput(nil); err != nil {
+			t.Fatalf("nil err=%v", err)
+		}
+		metadata := &app.StructureMetadataResult{SchemaVersion: 1, ID: 9}
+		encoded, err := json.Marshal(metadata)
+		if err != nil {
+			t.Fatal(err)
+		}
+		metadata.Name = strings.Repeat("x", jiraStructureMetadataMaxBytes-len(encoded))
+		if err := boundedStructureMetadataOutput(metadata); err != nil {
+			t.Fatalf("exact bound err=%v", err)
+		}
+		metadata.Name += "x"
+		err = boundedStructureMetadataOutput(metadata)
+		if !errors.Is(err, domain.ErrCheckFailed) || errors.Is(err, domain.ErrOutputLimit) ||
+			err.Error() != domain.ErrCheckFailed.Error()+": Structure metadata exceeds the output bound" {
+			t.Fatalf("oversize err=%v", err)
+		}
+	})
+}

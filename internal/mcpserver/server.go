@@ -355,11 +355,9 @@ func registerJiraTools(server *mcp.Server, deps Dependencies) {
 			if strings.TrimSpace(in.Key) == "" || strings.TrimSpace(in.Field) == "" {
 				return nil, nil, classified(fmt.Errorf("%w: key and field are required", domain.ErrUsage))
 			}
-			maxBytes, err := boundedDefault(in.MaxBytes, app.JiraIssueFieldEvidenceDefaultMaxBytes, app.JiraIssueFieldEvidenceMaxMaxBytes, "max_bytes")
-			if err != nil || maxBytes < app.JiraIssueFieldEvidenceMinMaxBytes {
-				if err == nil {
-					err = fmt.Errorf("%w: max_bytes must be at least %d", domain.ErrUsage, app.JiraIssueFieldEvidenceMinMaxBytes)
-				}
+			maxBytes, err := boundedBytes(in.MaxBytes, app.JiraIssueFieldEvidenceDefaultMaxBytes,
+				app.JiraIssueFieldEvidenceMinMaxBytes, app.JiraIssueFieldEvidenceMaxMaxBytes)
+			if err != nil {
 				return nil, nil, classified(err)
 			}
 			jira, err := jiraReader(deps)
@@ -634,6 +632,8 @@ func registerConfluenceTools(server *mcp.Server, deps Dependencies) {
 			if in.ExpectedPageVersion < 0 {
 				return nil, nil, classifiedSectionRead(fmt.Errorf("%w: expected_page_version must be omitted or the positive page version this selection came from", domain.ErrUsage))
 			}
+			// Section reads intentionally allow any positive byte bound; unlike the
+			// structured-result tools, their public contract has no 1 KiB floor.
 			maxBytes, err := boundedDefault(in.MaxBytes, 32<<10, 1<<20, "max_bytes")
 			if err != nil {
 				return nil, nil, classifiedSectionRead(err)
@@ -942,37 +942,31 @@ func boundedDefault(value, defaultValue, maximum int, name string) (int, error) 
 	return value, nil
 }
 
-func boundedTableBytes(value, defaultValue int) (int, error) {
-	bounded, err := boundedDefault(value, defaultValue, confluenceTableMaxMaxBytes, "max_bytes")
+// boundedBytes resolves one positive max_bytes bound. The shared 1..maximum
+// window is checked first and the tool's own minimum second, so a value inside
+// the window but under the minimum is refused with the minimum it missed rather
+// than with the range it satisfied.
+func boundedBytes(value, defaultValue, minimum, maximum int) (int, error) {
+	bounded, err := boundedDefault(value, defaultValue, maximum, "max_bytes")
 	if err != nil {
 		return 0, err
 	}
-	if bounded < confluenceTableMinMaxBytes {
-		return 0, fmt.Errorf("%w: max_bytes must be at least %d", domain.ErrUsage, confluenceTableMinMaxBytes)
+	if bounded < minimum {
+		return 0, fmt.Errorf("%w: max_bytes must be at least %d", domain.ErrUsage, minimum)
 	}
 	return bounded, nil
+}
+
+func boundedTableBytes(value, defaultValue int) (int, error) {
+	return boundedBytes(value, defaultValue, confluenceTableMinMaxBytes, confluenceTableMaxMaxBytes)
 }
 
 func boundedConfluenceSearchBytes(value int) (int, error) {
-	bounded, err := boundedDefault(value, confluenceSearchDefaultMaxBytes, confluenceSearchMaxMaxBytes, "max_bytes")
-	if err != nil {
-		return 0, err
-	}
-	if bounded < confluenceSearchMinMaxBytes {
-		return 0, fmt.Errorf("%w: max_bytes must be at least %d", domain.ErrUsage, confluenceSearchMinMaxBytes)
-	}
-	return bounded, nil
+	return boundedBytes(value, confluenceSearchDefaultMaxBytes, confluenceSearchMinMaxBytes, confluenceSearchMaxMaxBytes)
 }
 
 func boundedConfluenceAttachmentBytes(value int) (int, error) {
-	bounded, err := boundedDefault(value, confluenceAttachmentDefaultMaxBytes, confluenceAttachmentMaxMaxBytes, "max_bytes")
-	if err != nil {
-		return 0, err
-	}
-	if bounded < confluenceAttachmentMinMaxBytes {
-		return 0, fmt.Errorf("%w: max_bytes must be at least %d", domain.ErrUsage, confluenceAttachmentMinMaxBytes)
-	}
-	return bounded, nil
+	return boundedBytes(value, confluenceAttachmentDefaultMaxBytes, confluenceAttachmentMinMaxBytes, confluenceAttachmentMaxMaxBytes)
 }
 
 // validateAttachmentInventory refuses evidence the transport cannot vouch for.
@@ -1055,15 +1049,44 @@ func validateConfluencePageMetadataResult(out *app.ConfluencePageMetadataResult)
 	}
 }
 
-func boundedConfluencePageMetadataOutput(out *app.ConfluencePageMetadataResult) error {
-	encoded, err := json.Marshal(out)
+// boundedOutput encodes one result and refuses it when the encoding exceeds the
+// bound. Callers must supply static subject text rather than backend-controlled
+// values, because an MCP client sees only this message: it has to name the
+// result that was withheld and how to get it. The oversize error carries
+// domain.ErrOutputLimit so a client can tell a bound it may raise from a check
+// that failed.
+func boundedOutput(value any, maxBytes int, encodeMessage, oversizeMessage string) error {
+	encoded, err := json.Marshal(value)
 	if err != nil {
-		return fmt.Errorf("%w: encode Confluence page metadata", domain.ErrCheckFailed)
+		return fmt.Errorf("%w: %s", domain.ErrCheckFailed, encodeMessage)
 	}
-	if len(encoded) > confluencePageMetadataMaxBytes {
-		return fmt.Errorf("%w: %w: Confluence page metadata exceeds its output bound", domain.ErrCheckFailed, domain.ErrOutputLimit)
+	if len(encoded) > maxBytes {
+		return fmt.Errorf("%w: %w: %s", domain.ErrCheckFailed, domain.ErrOutputLimit, oversizeMessage)
 	}
 	return nil
+}
+
+// availableResult refuses an absent result before it is encoded. A typed nil
+// pointer is as absent as a nil interface, and encoding either one would emit
+// `null` as if the backend had reconciled it.
+func availableResult(value any, subject string) error {
+	unavailable := value == nil
+	if !unavailable {
+		reflected := reflect.ValueOf(value)
+		unavailable = reflected.Kind() == reflect.Pointer && reflected.IsNil()
+	}
+	if unavailable {
+		return fmt.Errorf("%w: %s is unavailable", domain.ErrCheckFailed, subject)
+	}
+	return nil
+}
+
+// boundedConfluencePageMetadataOutput runs after the metadata result is already
+// reconciled, so it bounds without an availability check.
+func boundedConfluencePageMetadataOutput(out *app.ConfluencePageMetadataResult) error {
+	return boundedOutput(out, confluencePageMetadataMaxBytes,
+		"encode Confluence page metadata",
+		"Confluence page metadata exceeds its output bound")
 }
 
 func validateConfluenceSectionResult(out *app.ConfluencePageSectionResult, in ConfluenceSectionInput) error {
@@ -1127,34 +1150,24 @@ func validateConfluenceStructuralCompleteness(complete, truncated bool, reason s
 	return nil
 }
 
+// The inventory is never clipped: a partial attachment list would be exactly
+// the false-absence evidence this tool exists to prevent.
 func boundedAttachmentInventoryOutput(value *app.ConfluenceAttachmentInventoryView, maxBytes int) error {
-	if value == nil {
-		return fmt.Errorf("%w: Confluence attachment inventory is unavailable", domain.ErrCheckFailed)
+	if err := availableResult(value, "Confluence attachment inventory"); err != nil {
+		return err
 	}
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return fmt.Errorf("%w: encode Confluence attachment inventory", domain.ErrCheckFailed)
-	}
-	if len(encoded) > maxBytes {
-		// The inventory is never clipped: a partial attachment list would be exactly
-		// the false-absence evidence this tool exists to prevent.
-		return fmt.Errorf("%w: %w: Confluence attachment inventory exceeds max_bytes; raise the bound", domain.ErrCheckFailed, domain.ErrOutputLimit)
-	}
-	return nil
+	return boundedOutput(value, maxBytes,
+		"encode Confluence attachment inventory",
+		"Confluence attachment inventory exceeds max_bytes; raise the bound")
 }
 
 func boundedConfluenceSearchOutput(value *app.ConfluenceSearchResult, maxBytes int) error {
-	if value == nil {
-		return fmt.Errorf("%w: Confluence search result is unavailable", domain.ErrCheckFailed)
+	if err := availableResult(value, "Confluence search result"); err != nil {
+		return err
 	}
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return fmt.Errorf("%w: encode Confluence search result", domain.ErrCheckFailed)
-	}
-	if len(encoded) > maxBytes {
-		return fmt.Errorf("%w: %w: Confluence search result exceeds max_bytes; narrow CQL or lower the row limit before raising the bound", domain.ErrCheckFailed, domain.ErrOutputLimit)
-	}
-	return nil
+	return boundedOutput(value, maxBytes,
+		"encode Confluence search result",
+		"Confluence search result exceeds max_bytes; narrow CQL or lower the row limit before raising the bound")
 }
 
 func validatedStructureViewInput(in JiraStructureViewInput) ([]string, int, int, app.StructureFolderSelector, error) {
@@ -1189,12 +1202,10 @@ func validatedStructureViewInput(in JiraStructureViewInput) ([]string, int, int,
 	if err != nil {
 		return nil, 0, 0, app.StructureFolderSelector{}, err
 	}
-	maxBytes, err := boundedDefault(in.MaxBytes, jiraStructureViewDefaultMaxBytes, jiraStructureViewMaxMaxBytes, "max_bytes")
+	maxBytes, err := boundedBytes(in.MaxBytes, jiraStructureViewDefaultMaxBytes,
+		jiraStructureViewMinMaxBytes, jiraStructureViewMaxMaxBytes)
 	if err != nil {
 		return nil, 0, 0, app.StructureFolderSelector{}, err
-	}
-	if maxBytes < jiraStructureViewMinMaxBytes {
-		return nil, 0, 0, app.StructureFolderSelector{}, fmt.Errorf("%w: max_bytes must be at least %d", domain.ErrUsage, jiraStructureViewMinMaxBytes)
 	}
 	fields := in.Fields
 	if len(fields) == 0 {
@@ -1347,19 +1358,18 @@ func normalizedStructureSelectionPath(parts []string) string {
 }
 
 func boundedStructureOutput(value *app.StructureSnapshot, maxBytes int) error {
-	if value == nil {
-		return fmt.Errorf("%w: Structure result is unavailable", domain.ErrCheckFailed)
+	if err := availableResult(value, "Structure result"); err != nil {
+		return err
 	}
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return fmt.Errorf("%w: encode Structure result", domain.ErrCheckFailed)
-	}
-	if len(encoded) > maxBytes {
-		return fmt.Errorf("%w: %w: Structure result exceeds max_bytes; select an exact subtree or raise the bound", domain.ErrCheckFailed, domain.ErrOutputLimit)
-	}
-	return nil
+	return boundedOutput(value, maxBytes,
+		"encode Structure result",
+		"Structure result exceeds max_bytes; select an exact subtree or raise the bound")
 }
 
+// boundedStructureMetadataOutput stays explicit: its bound is a fixed
+// projection ceiling on a closed metadata record, not a caller-supplied
+// max_bytes, so an oversize result is a failed check with nothing for the
+// client to raise and deliberately does not carry domain.ErrOutputLimit.
 func boundedStructureMetadataOutput(value *app.StructureMetadataResult) error {
 	encoded, err := json.Marshal(value)
 	if err != nil {
@@ -1658,50 +1668,25 @@ func sumSourceClassCounts(summary app.JiraIssueReferenceSummary) int {
 }
 
 func boundedJiraEvidenceBytes(value int) (int, error) {
-	bounded, err := boundedDefault(value, jiraEvidenceDefaultMaxBytes, jiraEvidenceMaxMaxBytes, "max_bytes")
-	if err != nil {
-		return 0, err
-	}
-	if bounded < jiraEvidenceMinMaxBytes {
-		return 0, fmt.Errorf("%w: max_bytes must be at least %d", domain.ErrUsage, jiraEvidenceMinMaxBytes)
-	}
-	return bounded, nil
+	return boundedBytes(value, jiraEvidenceDefaultMaxBytes, jiraEvidenceMinMaxBytes, jiraEvidenceMaxMaxBytes)
 }
 
 func boundedJiraEvidenceOutput(value any, maxBytes int) error {
-	if value == nil {
-		return fmt.Errorf("%w: Jira evidence result is unavailable", domain.ErrCheckFailed)
+	if err := availableResult(value, "Jira evidence result"); err != nil {
+		return err
 	}
-	reflected := reflect.ValueOf(value)
-	if reflected.Kind() == reflect.Pointer && reflected.IsNil() {
-		return fmt.Errorf("%w: Jira evidence result is unavailable", domain.ErrCheckFailed)
-	}
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return fmt.Errorf("%w: encode Jira evidence result", domain.ErrCheckFailed)
-	}
-	if len(encoded) > maxBytes {
-		return fmt.Errorf("%w: %w: Jira evidence result exceeds max_bytes; narrow the selection or raise the bound", domain.ErrCheckFailed, domain.ErrOutputLimit)
-	}
-	return nil
+	return boundedOutput(value, maxBytes,
+		"encode Jira evidence result",
+		"Jira evidence result exceeds max_bytes; narrow the selection or raise the bound")
 }
 
 func boundedTableOutput(value any, maxBytes int) error {
-	if value == nil {
-		return fmt.Errorf("%w: table result is unavailable", domain.ErrCheckFailed)
+	if err := availableResult(value, "table result"); err != nil {
+		return err
 	}
-	reflected := reflect.ValueOf(value)
-	if reflected.Kind() == reflect.Pointer && reflected.IsNil() {
-		return fmt.Errorf("%w: table result is unavailable", domain.ErrCheckFailed)
-	}
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return fmt.Errorf("%w: encode table result", domain.ErrCheckFailed)
-	}
-	if len(encoded) > maxBytes {
-		return fmt.Errorf("%w: %w: table result exceeds max_bytes; select one table or raise the bound", domain.ErrCheckFailed, domain.ErrOutputLimit)
-	}
-	return nil
+	return boundedOutput(value, maxBytes,
+		"encode table result",
+		"table result exceeds max_bytes; select one table or raise the bound")
 }
 
 type toolError struct {
