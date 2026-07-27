@@ -18,6 +18,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserved the underlying causes of private agent-evaluation finding-ledger
+  loading rejections. The shared classification constructor and the ledger
+  loading path — the reports-directory probe, the directory open and its opened
+  handle stat, each candidate probe that fails for a reason other than ordinary
+  absence, the selected file's open, opened-handle stat, bounded read, final
+  stat and close, the legacy and schema-v2 decode and envelope validation, and
+  the directory recheck that closes the read window — previously dropped the
+  concrete filesystem or decoding failure behind their classification code.
+  They now report the same cause-preserving coded error the plan-execution,
+  live-gateway, checkpoint, workspace-migration, retention-prune,
+  compact-baseline, workspace-operation, coverage-index, and sampling paths
+  already use: the message is still only the stable sentinel plus its existing
+  short code, while callers can traverse the standard Go unwrap tree and use
+  `errors.Is` or `errors.As` for typed causes. An attached cause without a
+  useful exported match target remains reachable by traversing the unwrap tree,
+  and a candidate-probe classification raised deeper stays reachable below the
+  unchanged outer code. Where a branch can hold two failures it attaches them in
+  a fixed order: final stat before close for the file, and final handle before
+  ambient path for the directory recheck. A rejection decided by validation or
+  comparison alone still carries no cause — an ambiguous ledger pair, no ledger
+  at all, an ordinary absent candidate, an observed directory permission or file
+  type, an observed candidate file type or mode, a file or directory identity
+  comparison, an inventory that changed during the read, a size comparison, and
+  decodable but non-canonical bytes. The finding-acceptance and scorecard call
+  sites deliberately still classify without causes and migrate in later slices;
+  the ledger frames they call already attach, and whatever the loader returns is
+  retained unchanged. No ledger code is added or renamed. Ledger schemas,
+  canonical bytes, legacy/schema-v2 selection, file and directory modes, file
+  identity gates, output, exit codes, and fail-closed behavior are unchanged.
 - Preserved the underlying causes of private agent-evaluation sampling
   rejections, now including the synthetic-root evidence path, which completes
   this slice. The shared classification constructor and the shared spec-reader
