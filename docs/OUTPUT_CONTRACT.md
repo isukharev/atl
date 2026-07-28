@@ -1716,6 +1716,33 @@ field ids, sources, normalized types, and values; a changed local input fails
 before backend metadata/read/write calls. All proposed fields are sent in one
 request.
 
+`atl jira issue transition preview <KEY>` and the dry-run form of
+`atl jira issue transition <KEY>` emit one state-bound proposal. The result
+contains canonical issue identity, mode/status, reviewed transition identity,
+current status/update evidence, sorted requested-field current/desired values,
+optional reviewed comment evidence, completeness/reconciliation flags, and the
+versioned proposal hash. Exact field and comment values are intentionally
+present in JSON for review and may be private. `-o text` omits them and prints
+only status, issue/transition identity, counts, byte/hash evidence, and the
+proposal hash.
+
+Preview is separately classified GET-only and available under the process-wide
+read-only policy; the parent transition command is always mutating. Apply
+requires `--apply --expected-proposal-hash`, reconstructs the issue, selected
+transition, requested-field, and optional complete comment baseline immediately
+before at most one exact-id POST, and disables transport retries for that POST.
+Every successful or ambiguous attempt gets fresh issue readback and, when a
+comment was requested, a complete comment readback. No POST is automatically
+replayed, and matching the target status before execution is not treated as
+idempotency because a transition is an event.
+
+Status is closed to `would_apply`, `applied`, `not_applied`, `conflict`, and
+`unverifiable`. A definitive rejection is `not_applied`. `applied` requires the
+exact requested end state and unique optional comment attribution. Divergent or
+partially attributable state is `conflict`; failed/incomplete readback is
+`unverifiable`. Unsafe outcomes return non-zero after emitting the result and
+carry `reconcile_write_outcome` recovery with `retry_safe:false`.
+
 `atl jira issue comment preview <KEY>` and the dry-run form of
 `atl jira issue comment add <KEY>` emit one baseline-bound append proposal:
 `{key,mode,status,body,body_bytes,body_sha256,actor,current_count,

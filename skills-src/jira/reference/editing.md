@@ -82,6 +82,13 @@ push.
   complete unique-id baseline, sends at most one POST, and reconciles once.
   Identical existing text is not idempotency; conflict/unverifiable is possibly
   committed and must never be replayed automatically.
+- Transitions: use GET-only `jira issue transition preview` with the exact
+  target, fields, and optional comment. Review its current state, uniquely
+  selected transition, desired/current field evidence, optional comment
+  baseline, and proposal hash; then repeat the exact request once with
+  `transition --apply --expected-proposal-hash`. The command revalidates before
+  one POST and reconciles fresh state. A matching target status, self-transition,
+  conflict, or unverifiable result never makes automatic replay safe.
 - Watchers: preview resolved DC username and complete membership, then apply the
   exact proposal hash. `complete:false` blocks absence claims and writes.
 - Worklogs: `jira.issue.worklog.list` exposes the complete baseline and

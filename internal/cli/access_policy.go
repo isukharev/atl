@@ -196,6 +196,7 @@ jira issue plan apply
 jira issue refs
 jira issue search
 jira issue transition
+jira issue transition preview
 jira issue tree
 jira issue update
 jira issue view

@@ -281,34 +281,6 @@ func jiraIssueCmd() *cobra.Command {
 	edit.Flags().BoolVar(&edAll, "all", false, "replace every match instead of requiring a unique one")
 	edit.Flags().BoolVar(&edDryRun, "dry-run", false, "report the match without updating the issue")
 
-	var to, transComment string
-	var transFieldKV []string
-	transition := &cobra.Command{
-		Use:   "transition <KEY>",
-		Short: "Transition an issue to a status (optionally setting fields)",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if to == "" {
-				return usageErr("--to is required")
-			}
-			kv, err := parseKV(transFieldKV)
-			if err != nil {
-				return err
-			}
-			svc, err := jiraService()
-			if err != nil {
-				return err
-			}
-			if err := svc.Transition(cmd.Context(), args[0], to, transComment, kv); err != nil {
-				return err
-			}
-			return emit(cmd, map[string]string{"key": args[0], "to": to, "status": "transitioned"}, nil)
-		},
-	}
-	transition.Flags().StringVar(&to, "to", "", "target status/transition name")
-	transition.Flags().StringVar(&transComment, "comment", "", "optional comment")
-	transition.Flags().StringArrayVar(&transFieldKV, "field", nil, "field key=value to set on the transition (repeatable), e.g. resolution={\"name\":\"Fixed\"}")
-
 	var checkRequire, checkWarn string
 	check := &cobra.Command{
 		Use:   "check <KEY>",
@@ -585,7 +557,7 @@ func jiraIssueCmd() *cobra.Command {
 	tree.Flags().StringVar(&treeFields, "fields", "", "extra comma-separated fields to fetch")
 	tree.Flags().IntVar(&treeLimit, "limit", 100, "max issues (0 = all)")
 
-	c.AddCommand(get, jiraIssueViewCmd(), jiraIssueFieldsCmd(), search, children, create, update, edit, transition, check, del, assign, labels, jiraIssueWatchersCmd(), jiraIssueWorklogCmd(), history, refs, tree, comment, link, plan, jiraIssueFieldCmd(), linkEpic, attachment, images)
+	c.AddCommand(get, jiraIssueViewCmd(), jiraIssueFieldsCmd(), search, children, create, update, edit, jiraTransitionCmd(), check, del, assign, labels, jiraIssueWatchersCmd(), jiraIssueWorklogCmd(), history, refs, tree, comment, link, plan, jiraIssueFieldCmd(), linkEpic, attachment, images)
 	return c
 }
 

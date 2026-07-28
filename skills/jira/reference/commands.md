@@ -23,7 +23,8 @@ Load this reference only when exact command or flag lookup is useful.
 | `jira issue field set <KEY>` | Apply a reviewed file-backed custom-field proposal | `--from-file FIELD=PATH`, `--from-md FIELD=PATH`, `--allow-fields`, `--expected-updated`, `--expected-proposal-hash`, `--apply` |
 | `jira issue edit <KEY>` | Targeted description replace in one command | `--old`, `--new`, `--old-file`, `--new-file`, `--all`, `--dry-run` |
 | `jira issue assign <KEY>` | Set or clear the assignee | exactly one of `--to USER`, `--me`, `--none` |
-| `jira issue transition <KEY>` | Transition to a status | `--to`, `--comment`, `--field k=v` |
+| `jira issue transition preview <KEY>` | GET-only state-bound transition proposal | `--to`, optional `--comment`, `--field k=v`; inspect selected transition/current state/hash |
+| `jira issue transition <KEY>` | Preview or apply one reviewed transition | `--to`, optional `--comment`, `--field k=v`, `--apply`, `--expected-proposal-hash` |
 | `jira issue check <KEY>` | Audit required/important fields; non-zero exit if required field empty | `--require fields`, `--warn fields` |
 | `jira issue delete <KEY>` | Permanently delete (DC has no trash) | `--force`, `--delete-subtasks` |
 | `jira issue labels <KEY>` | Add/remove labels | `--add labels`, `--remove labels` |

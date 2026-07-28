@@ -382,6 +382,25 @@ type QualifiedIssueSearcher interface {
 	SearchQualified(ctx context.Context, jql string, fields []string, limit int, cursor string) (IssueSearchPage, error)
 }
 
+// JiraTransitionRequest is one already-resolved Jira workflow transition.
+// ID is the exact transition identity returned by the immediately preceding
+// metadata read. Fields are already typed and Comment is native Jira wiki.
+// Implementations must not perform another transition lookup or reinterpret
+// any of these values.
+type JiraTransitionRequest struct {
+	ID      string
+	Fields  map[string]any
+	Comment []byte
+}
+
+// JiraTransitionWriter is the narrow optional capability used by reviewed
+// transition workflows. Keeping it outside Tracker preserves compatibility for
+// other issue trackers and existing test doubles while preventing a guarded
+// apply from resolving a different transition inside the write adapter.
+type JiraTransitionWriter interface {
+	TransitionByID(ctx context.Context, key string, request JiraTransitionRequest) error
+}
+
 // LenientIssueSearcher is an optional Jira-specific capability for generated
 // identity joins. It disables advisory semantic query validation so a deleted
 // or permission-hidden id does not reject the other ids in the same batch.
@@ -643,6 +662,7 @@ type TransitionDef struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	To   string `json:"to"`
+	ToID string `json:"-"`
 }
 
 // Verifier confirms the configured credentials work against the backend and

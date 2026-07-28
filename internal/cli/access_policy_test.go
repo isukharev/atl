@@ -115,6 +115,25 @@ func TestJiraCommentPreviewIsReadOnlyAndAddRemainsMutating(t *testing.T) {
 	}
 }
 
+func TestJiraTransitionPreviewIsReadOnlyAndParentRemainsMutating(t *testing.T) {
+	root := newRoot()
+	preview, _, err := root.Find([]string{"jira", "issue", "transition", "preview"})
+	if err != nil || preview.Annotations[accessAnnotation] != "read-only" {
+		t.Fatalf("preview access=%q err=%v", preview.Annotations[accessAnnotation], err)
+	}
+	transition, _, err := root.Find([]string{"jira", "issue", "transition"})
+	if err != nil || transition.Annotations[accessAnnotation] != "mutating" {
+		t.Fatalf("transition access=%q err=%v", transition.Annotations[accessAnnotation], err)
+	}
+
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
+	defer server.Close()
+	if _, code := runCLI(t, jiraEnv(server), "--read-only", "jira", "issue", "transition", "PROJ-1", "--to", "Done"); code != exitCheckFailed || requests != 0 {
+		t.Fatalf("read-only transition exit=%d requests=%d", code, requests)
+	}
+}
+
 func TestReadOnlyEnvironmentAndConfigCannotBeDowngradedByFalseFlag(t *testing.T) {
 	if _, code := runCLI(t, map[string]string{"ATL_READ_ONLY": "1"}, "jira", "issue", "delete", "PROJ-1", "--force"); code != exitCheckFailed {
 		t.Fatalf("env policy exit=%d", code)

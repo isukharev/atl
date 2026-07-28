@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added reviewed Jira transitions. `jira issue transition preview` is a
+  separately classified GET-only command, while `jira issue transition` now
+  previews by default and requires `--apply` plus the exact proposal hash to
+  write. The proposal binds canonical issue identity, current status/update and
+  requested-field state, the uniquely selected transition, and any exact
+  comment plus its actor and complete comment baseline. Apply reconstructs that
+  state immediately before one exact-id POST and reconciles every committed or
+  ambiguous outcome from fresh issue/comment reads without replay. Transition
+  events, including self-transitions, are never treated as idempotent merely
+  because the target status already matches. Text output omits reviewed field
+  and comment values; existing transition listing is unchanged.
+
 - Added reviewed Jira comment append. `jira issue comment preview` is a
   separately classified GET-only command, while `comment add` now previews by
   default and requires `--apply` plus the exact proposal hash to write. The

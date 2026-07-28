@@ -545,7 +545,9 @@ atl jira issue comment add PROJ-1 --from-md note.md --apply --expected-proposal-
 atl jira issue edit PROJ-1 --old 'timeout = 300' --new 'timeout = 600'
 ATL_READ_ONLY=1 atl jira issue field preview PROJ-1 --from-md customfield_10001=notes.md --allow-fields customfield_10001
 # Review expected_updated and proposal_hash; use field set --apply only after approval.
-atl jira issue transition PROJ-1 --to Done
+ATL_READ_ONLY=1 atl jira issue transition preview PROJ-1 --to Done
+# Review proposal_hash, then repeat the exact request with --apply
+atl jira issue transition PROJ-1 --to Done --apply --expected-proposal-hash <hash>
 # Before editing, re-render views without the current first-line version marker
 atl jira render mirror-jira
 # Edit supported generated sections, stage them, then push (block-level, non-lossy)
