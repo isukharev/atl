@@ -1,0 +1,165 @@
+package mcpserver
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"reflect"
+	"sort"
+	"strings"
+	"sync/atomic"
+	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/isukharev/atl/internal/capability"
+	"github.com/isukharev/atl/internal/domain"
+)
+
+func TestClosedServiceProfilesExposeExactInventories(t *testing.T) {
+	jiraProfileTools := mappedToolsForService(t, "jira")
+	confluenceProfileTools := mappedToolsForService(t, "confluence")
+	if len(jiraProfileTools) != 10 || len(confluenceProfileTools) != 10 {
+		t.Fatalf("shared capability inventories jira=%d confluence=%d want=10/10", len(jiraProfileTools), len(confluenceProfileTools))
+	}
+	tests := []struct {
+		name         string
+		profile      ServiceProfile
+		instructions string
+		tools        []string
+	}{
+		{"default", ServiceDefault, Instructions, append(append([]string(nil), confluenceProfileTools...), jiraProfileTools...)},
+		{"jira", ServiceJira, JiraInstructions, jiraProfileTools},
+		{"confluence", ServiceConfluence, ConfluenceInstructions, confluenceProfileTools},
+		{"offline", ServiceOffline, OfflineInstructions, []string{"confluence_mirror_snapshot", "jira_mirror_snapshot"}},
+	}
+	allTools := append(append([]string(nil), confluenceProfileTools...), jiraProfileTools...)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var jiraCalls, confluenceCalls, mirrorCalls atomic.Int32
+			deps := Dependencies{
+				Jira: func() (JiraReader, error) { jiraCalls.Add(1); return nil, errors.New("unexpected Jira construction") },
+				Confluence: func() (ConfluenceReader, error) {
+					confluenceCalls.Add(1)
+					return nil, errors.New("unexpected Confluence construction")
+				},
+				MirrorRoot: func() (string, error) { mirrorCalls.Add(1); return "", errors.New("unexpected mirror read") },
+			}
+			client, closeSessions := connectTestClient(t, NewForService("test", deps, tt.profile))
+			defer closeSessions()
+
+			initialized := client.InitializeResult()
+			if initialized == nil || initialized.Instructions != tt.instructions {
+				t.Fatalf("instructions=%q want=%q", initialized.Instructions, tt.instructions)
+			}
+			listed, err := client.ListTools(context.Background(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := make([]string, 0, len(listed.Tools))
+			for _, tool := range listed.Tools {
+				got = append(got, tool.Name)
+				assertClosedReadOnlyAnnotations(t, tool)
+			}
+			if !reflect.DeepEqual(got, tt.tools) {
+				t.Fatalf("tools=%v want=%v", got, tt.tools)
+			}
+			if tt.profile != ServiceDefault {
+				for _, name := range allTools {
+					if !containsString(tt.tools, name) && strings.Contains(initialized.Instructions, name) {
+						t.Errorf("instructions mention absent tool %q", name)
+					}
+				}
+			}
+			if jiraCalls.Load() != 0 || confluenceCalls.Load() != 0 || mirrorCalls.Load() != 0 {
+				t.Fatalf("profile inventory constructed dependencies: jira=%d confluence=%d mirror=%d",
+					jiraCalls.Load(), confluenceCalls.Load(), mirrorCalls.Load())
+			}
+		})
+	}
+}
+
+func mappedToolsForService(t *testing.T, service string) []string {
+	t.Helper()
+	unique := map[string]bool{}
+	for _, definition := range capability.Definitions() {
+		if definition.Service == service && definition.MCPTool != "" {
+			unique[definition.MCPTool] = true
+		}
+	}
+	tools := make([]string, 0, len(unique))
+	for name := range unique {
+		tools = append(tools, name)
+	}
+	sort.Strings(tools)
+	return tools
+}
+
+func TestDefaultProfilePreservesNewToolSchemasAndInstructions(t *testing.T) {
+	legacyClient, closeLegacy := connectTestClient(t, New("test", Dependencies{}))
+	defer closeLegacy()
+	profileClient, closeProfile := connectTestClient(t, NewForService("test", Dependencies{}, ServiceDefault))
+	defer closeProfile()
+
+	legacy, err := legacyClient.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := profileClient.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyJSON, err := json.Marshal(legacy.Tools)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profileJSON, err := json.Marshal(profile.Tools)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(legacyJSON) != string(profileJSON) {
+		t.Fatal("default profile changed the legacy tool inventory or schemas")
+	}
+	if got := sha256.Sum256(profileJSON); hex.EncodeToString(got[:]) != "1ce4415408e108db52bf5ba858957c2a7e5f307a986679c5be3c378c3f3d28fd" {
+		t.Fatalf("default tool contract hash=%x", got)
+	}
+	if legacyClient.InitializeResult().Instructions != Instructions ||
+		profileClient.InitializeResult().Instructions != Instructions {
+		t.Fatal("default profile changed the legacy instruction bytes")
+	}
+}
+
+func TestParseServiceProfileIsClosed(t *testing.T) {
+	for _, value := range []string{"jira", "confluence", "offline"} {
+		profile, err := ParseServiceProfile(value)
+		if err != nil || string(profile) != value {
+			t.Errorf("ParseServiceProfile(%q)=(%q,%v)", value, profile, err)
+		}
+	}
+	for _, value := range []string{"", "default", "JIRA", "jira,confluence", "unknown"} {
+		if _, err := ParseServiceProfile(value); !errors.Is(err, domain.ErrUsage) {
+			t.Errorf("ParseServiceProfile(%q) error=%v, want usage", value, err)
+		}
+	}
+}
+
+func assertClosedReadOnlyAnnotations(t *testing.T, tool *mcp.Tool) {
+	t.Helper()
+	annotations := tool.Annotations
+	if annotations == nil || !annotations.ReadOnlyHint || !annotations.IdempotentHint ||
+		annotations.DestructiveHint == nil || *annotations.DestructiveHint ||
+		annotations.OpenWorldHint == nil || *annotations.OpenWorldHint {
+		t.Errorf("tool %q annotations=%+v", tool.Name, annotations)
+	}
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}

@@ -7,24 +7,11 @@ import (
 
 	"github.com/spf13/cobra"
 
+	capabilitydef "github.com/isukharev/atl/internal/capability"
 	"github.com/isukharev/atl/internal/domain"
 )
 
 const capabilityCatalogSchemaVersion = 1
-
-type capabilityDefinition struct {
-	ID           string
-	TaskClass    string
-	Service      string
-	Role         string
-	Priority     int
-	Summary      string
-	Command      string
-	Evidence     string
-	Completeness string
-	Skill        string
-	Reference    string
-}
 
 type capability struct {
 	ID           string   `json:"id"`
@@ -34,6 +21,10 @@ type capability struct {
 	Priority     int      `json:"priority"`
 	Summary      string   `json:"summary"`
 	Command      string   `json:"command"`
+	CLICommand   string   `json:"cli_command"`
+	MCPTool      string   `json:"mcp_tool,omitempty"`
+	MCPScope     string   `json:"mcp_scope,omitempty"`
+	CLIOnly      bool     `json:"cli_only"`
 	Access       string   `json:"access"`
 	OutputModes  []string `json:"output_modes"`
 	Evidence     string   `json:"evidence"`
@@ -61,70 +52,6 @@ type capabilityRouting struct {
 	Match         string `json:"match"`
 	ReferenceLoad string `json:"reference_load"`
 	Stop          string `json:"stop"`
-}
-
-// capabilityDefinitions is intentionally small and curated. It routes exact
-// agent task classes to the shortest reviewed command sequence; it is not a
-// fuzzy natural-language classifier or a second command registry. Access and
-// output facts are derived from the Cobra command tree below, so CI catches
-// drift between this routing layer and the executable contract.
-var capabilityDefinitions = []capabilityDefinition{
-	{ID: "jira.issue.search", TaskClass: "jira/evidence", Service: "jira", Role: "discover", Priority: 5, Summary: "Search Jira for candidate issues before exact evidence expansion", Command: "jira issue search", Evidence: "snapshot", Completeness: "explicit", Skill: "jira", Reference: "reference/evidence-workflow.md"},
-	{ID: "jira.issue.fields", TaskClass: "jira/evidence", Service: "jira", Role: "discover", Priority: 10, Summary: "Discover non-empty issue fields with names and compact values", Command: "jira issue fields", Evidence: "qualified", Completeness: "explicit", Skill: "jira", Reference: "reference/evidence-workflow.md"},
-	{ID: "jira.epic.digest", TaskClass: "jira/evidence", Service: "jira", Role: "primary", Priority: 20, Summary: "Collect bounded multi-source evidence for one epic and period", Command: "jira epic digest", Evidence: "qualified", Completeness: "per-source", Skill: "jira", Reference: "reference/evidence-workflow.md"},
-	{ID: "jira.issue.field.get", TaskClass: "jira/evidence", Service: "jira", Role: "expand", Priority: 30, Summary: "Expand one exact clipped field with a hard byte bound", Command: "jira issue field get", Evidence: "qualified", Completeness: "explicit", Skill: "jira", Reference: "reference/evidence-workflow.md"},
-	{ID: "jira.issue.refs", TaskClass: "jira/evidence", Service: "jira", Role: "expand", Priority: 40, Summary: "Extract provenance-qualified artifact references", Command: "jira issue refs", Evidence: "qualified", Completeness: "per-source", Skill: "jira", Reference: "reference/evidence-workflow.md"},
-	{ID: "jira.issue.history", TaskClass: "jira/evidence", Service: "jira", Role: "expand", Priority: 50, Summary: "Read field-filtered changelog evidence within a period", Command: "jira issue history", Evidence: "qualified", Completeness: "explicit", Skill: "jira", Reference: "reference/evidence-workflow.md"},
-
-	{ID: "jira.board.list", TaskClass: "jira/portfolio", Service: "jira", Role: "discover", Priority: 10, Summary: "Discover Agile boards and stable identifiers", Command: "jira board list", Evidence: "snapshot", Completeness: "pagination", Skill: "jira", Reference: "reference/portfolio-evidence.md"},
-	{ID: "jira.board.view", TaskClass: "jira/portfolio", Service: "jira", Role: "primary", Priority: 20, Summary: "Read normalized board configuration, issues, and backlog", Command: "jira board view", Evidence: "snapshot", Completeness: "explicit", Skill: "jira", Reference: "reference/portfolio-evidence.md"},
-	{ID: "jira.structure.get", TaskClass: "jira/portfolio", Service: "jira", Role: "discover", Priority: 30, Summary: "Qualify metadata for one exact Structure id before selecting a bounded view", Command: "jira structure get", Evidence: "identity", Completeness: "explicit", Skill: "jira", Reference: "reference/portfolio-evidence.md"},
-	{ID: "jira.structure.folders", TaskClass: "jira/portfolio", Service: "jira", Role: "discover", Priority: 40, Summary: "Discover Structure folders before selecting a subtree", Command: "jira structure folders", Evidence: "snapshot", Completeness: "explicit", Skill: "jira", Reference: "reference/portfolio-evidence.md"},
-	{ID: "jira.structure.view", TaskClass: "jira/portfolio", Service: "jira", Role: "primary", Priority: 50, Summary: "Read a normalized Structure hierarchy with selected issue fields", Command: "jira structure view", Evidence: "snapshot", Completeness: "explicit", Skill: "jira", Reference: "reference/portfolio-evidence.md"},
-	{ID: "jira.portfolio.epic.digest", TaskClass: "jira/portfolio", Service: "jira", Role: "expand", Priority: 60, Summary: "Qualify only the evidence sources missing from the portfolio snapshot", Command: "jira epic digest", Evidence: "qualified", Completeness: "per-source", Skill: "jira", Reference: "reference/portfolio-evidence.md"},
-	{ID: "jira.portfolio.confluence.section", TaskClass: "jira/portfolio", Service: "confluence", Role: "expand", Priority: 70, Summary: "Return one bounded linked evidence section instead of a full-page view", Command: "conf page section", Evidence: "derived", Completeness: "explicit", Skill: "confluence", Reference: "reference/commands.md"},
-
-	{ID: "jira.board-portfolio.fields", TaskClass: "jira/board-portfolio", Service: "jira", Role: "discover", Priority: 10, Summary: "Resolve the narrow custom field used by the board evidence", Command: "jira fields", Evidence: "identity", Completeness: "explicit", Skill: "jira", Reference: "reference/portfolio-evidence.md"},
-	{ID: "jira.board-portfolio.view", TaskClass: "jira/board-portfolio", Service: "jira", Role: "primary", Priority: 20, Summary: "Read one normalized board snapshot for portfolio membership and child state", Command: "jira board view", Evidence: "snapshot", Completeness: "explicit", Skill: "jira", Reference: "reference/portfolio-evidence.md"},
-	{ID: "jira.board-portfolio.epic.digest", TaskClass: "jira/board-portfolio", Service: "jira", Role: "expand", Priority: 30, Summary: "Qualify only the per-epic field and history evidence absent from the board", Command: "jira epic digest", Evidence: "qualified", Completeness: "per-source", Skill: "jira", Reference: "reference/portfolio-evidence.md"},
-
-	{ID: "jira.batch.issue.export", TaskClass: "jira/batch-analysis", Service: "jira", Role: "primary", Priority: 10, Summary: "Read an ordered explicit issue selector set without durable artifacts", Command: "jira export", Evidence: "snapshot", Completeness: "explicit", Skill: "jira", Reference: "reference/batch-read.md"},
-
-	{ID: "jira.structure.rows", TaskClass: "jira/structure-planning", Service: "jira", Role: "discover", Priority: 10, Summary: "Read a selected Structure subtree without resolving issue fields", Command: "jira structure rows", Evidence: "snapshot", Completeness: "explicit", Skill: "jira", Reference: "reference/structure-batch.md"},
-	{ID: "jira.structure.values", TaskClass: "jira/structure-planning", Service: "jira", Role: "expand", Priority: 20, Summary: "Read an explicit Structure row and attribute value matrix", Command: "jira structure values", Evidence: "snapshot", Completeness: "per-row", Skill: "jira", Reference: "reference/structure-batch.md"},
-	{ID: "jira.structure.issue.export", TaskClass: "jira/structure-planning", Service: "jira", Role: "expand", Priority: 30, Summary: "Read an ordered explicit issue batch without durable artifacts", Command: "jira export", Evidence: "snapshot", Completeness: "explicit", Skill: "jira", Reference: "reference/structure-batch.md"},
-
-	{ID: "jira.mirror.snapshot", TaskClass: "jira/mirror", Service: "jira", Role: "inspect", Priority: 10, Summary: "Read exact content-free mirror, baseline, raw snapshot, pending, render, and drift cardinalities", Command: "jira snapshot", Evidence: "derived", Completeness: "reconciled", Skill: "jira", Reference: "reference/mirror.md"},
-	{ID: "jira.issue.fields.edit", TaskClass: "jira/edit", Service: "jira", Role: "discover", Priority: 10, Summary: "Resolve editable custom-field names and current values", Command: "jira issue fields", Evidence: "qualified", Completeness: "explicit", Skill: "jira", Reference: "reference/fields.md"},
-	{ID: "jira.issue.field.preview", TaskClass: "jira/edit", Service: "jira", Role: "preview", Priority: 20, Summary: "Build a read-only file-backed custom-field proposal", Command: "jira issue field preview", Evidence: "version-gated", Completeness: "explicit", Skill: "jira", Reference: "reference/fields.md"},
-	{ID: "jira.issue.field.set", TaskClass: "jira/edit", Service: "jira", Role: "write", Priority: 30, Summary: "Apply one reviewed custom-field proposal", Command: "jira issue field set", Evidence: "version-gated", Completeness: "reconciled", Skill: "jira", Reference: "reference/fields.md"},
-	{ID: "jira.issue.worklog.list", TaskClass: "jira/edit", Service: "jira", Role: "discover", Priority: 40, Summary: "Read the complete worklog baseline before a reviewed add", Command: "jira issue worklog list", Evidence: "snapshot", Completeness: "explicit", Skill: "jira", Reference: "reference/editing.md"},
-	{ID: "jira.issue.worklog.add", TaskClass: "jira/edit", Service: "jira", Role: "write", Priority: 50, Summary: "Preview then apply one baseline-bound worklog without replaying an ambiguous write", Command: "jira issue worklog add", Evidence: "hash-bound", Completeness: "reconciled", Skill: "jira", Reference: "reference/editing.md"},
-	{ID: "jira.issue.plan.apply", TaskClass: "jira/edit", Service: "jira", Role: "write", Priority: 60, Summary: "Apply a reviewed guarded multi-issue plan", Command: "jira issue plan apply", Evidence: "version-gated", Completeness: "per-row", Skill: "jira", Reference: "reference/commands.md"},
-
-	{ID: "confluence.page.resolve", TaskClass: "confluence/evidence", Service: "confluence", Role: "discover", Priority: 10, Summary: "Resolve page IDs, full URLs, or short links", Command: "conf page resolve", Evidence: "identity", Completeness: "exact", Skill: "confluence", Reference: "reference/commands.md"},
-	{ID: "confluence.page.meta", TaskClass: "confluence/evidence", Service: "confluence", Role: "discover", Priority: 15, Summary: "Read page identity, revision, update time, and restriction state without page content", Command: "conf page meta", Evidence: "qualified", Completeness: "explicit", Skill: "confluence", Reference: "reference/metadata-comments.md"},
-	{ID: "confluence.page.outline", TaskClass: "confluence/evidence", Service: "confluence", Role: "discover", Priority: 20, Summary: "Return a heading inventory without exposing the full rendered page", Command: "conf page outline", Evidence: "derived", Completeness: "explicit", Skill: "confluence", Reference: "reference/commands.md"},
-	{ID: "confluence.page.section", TaskClass: "confluence/evidence", Service: "confluence", Role: "primary", Priority: 30, Summary: "Read one bounded rendered section by heading", Command: "conf page section", Evidence: "derived", Completeness: "explicit", Skill: "confluence", Reference: "reference/commands.md"},
-	{ID: "confluence.page.sections", TaskClass: "confluence/evidence", Service: "confluence", Role: "primary", Priority: 35, Summary: "Read ordered bounded sections from one reconciled page snapshot", Command: "conf page sections", Evidence: "derived", Completeness: "reconciled", Skill: "confluence", Reference: "reference/commands.md"},
-	{ID: "confluence.page.view", TaskClass: "confluence/evidence", Service: "confluence", Role: "expand", Priority: 40, Summary: "Read a transient full Markdown page view", Command: "conf page view", Evidence: "derived", Completeness: "explicit", Skill: "confluence", Reference: "reference/commands.md"},
-	{ID: "confluence.attachment.list", TaskClass: "confluence/evidence", Service: "confluence", Role: "expand", Priority: 50, Summary: "List page attachment metadata with explicit inventory completeness", Command: "conf attachment list", Evidence: "qualified", Completeness: "explicit", Skill: "confluence", Reference: "reference/tables-attachments.md"},
-	{ID: "confluence.table.summary", TaskClass: "confluence/table-analytics", Service: "confluence", Role: "discover", Priority: 10, Summary: "Inventory table shapes, spans, links, and styles without exposing cell content", Command: "conf table summary", Evidence: "derived", Completeness: "explicit", Skill: "confluence", Reference: "reference/tables-attachments.md"},
-	{ID: "confluence.table.extract", TaskClass: "confluence/table-analytics", Service: "confluence", Role: "primary", Priority: 20, Summary: "Extract one structured table with spans, links, and spreadsheet-safe values", Command: "conf table extract", Evidence: "derived", Completeness: "explicit", Skill: "confluence", Reference: "reference/tables-attachments.md"},
-
-	{ID: "confluence.pull", TaskClass: "confluence/edit", Service: "confluence", Role: "stage", Priority: 10, Summary: "Mirror native CSF and its versioned Markdown view", Command: "conf pull", Evidence: "version-gated", Completeness: "explicit", Skill: "confluence", Reference: "reference/push.md"},
-	{ID: "confluence.mirror.snapshot", TaskClass: "confluence/mirror", Service: "confluence", Role: "inspect", Priority: 15, Summary: "Read exact content-free mirror, baseline, render, validation, and drift cardinalities", Command: "conf snapshot", Evidence: "derived", Completeness: "reconciled", Skill: "confluence", Reference: "reference/sync.md"},
-	{ID: "confluence.diff", TaskClass: "confluence/edit", Service: "confluence", Role: "review", Priority: 20, Summary: "Inspect offline semantic and byte changes", Command: "conf diff", Evidence: "derived", Completeness: "explicit", Skill: "confluence", Reference: "reference/push.md"},
-	{ID: "confluence.plan.create", TaskClass: "confluence/edit", Service: "confluence", Role: "plan", Priority: 30, Summary: "Create a durable review-bound batch update plan", Command: "conf plan create", Evidence: "hash-bound", Completeness: "explicit", Skill: "confluence", Reference: "reference/push.md"},
-	{ID: "confluence.plan.preview", TaskClass: "confluence/edit", Service: "confluence", Role: "review", Priority: 40, Summary: "Preflight a plan locally and remotely without writes", Command: "conf plan preview", Evidence: "hash-bound", Completeness: "per-page", Skill: "confluence", Reference: "reference/push.md"},
-	{ID: "confluence.plan.apply", TaskClass: "confluence/edit", Service: "confluence", Role: "write", Priority: 50, Summary: "Apply an explicitly confirmed reviewed plan", Command: "conf plan apply", Evidence: "version-gated", Completeness: "per-page", Skill: "confluence", Reference: "reference/push.md"},
-
-	{ID: "knowledge.jira.search", TaskClass: "knowledge/search", Service: "jira", Role: "discover", Priority: 10, Summary: "Search Jira for current topic candidates", Command: "jira issue search", Evidence: "snapshot", Completeness: "explicit", Skill: "search-knowledge", Reference: "SKILL.md"},
-	{ID: "knowledge.confluence.search", TaskClass: "knowledge/search", Service: "confluence", Role: "discover", Priority: 20, Summary: "Search Confluence for current topic candidates", Command: "conf search", Evidence: "snapshot", Completeness: "explicit", Skill: "confluence", Reference: "reference/commands.md"},
-	{ID: "knowledge.jira.field", TaskClass: "knowledge/search", Service: "jira", Role: "expand", Priority: 30, Summary: "Expand one exact selected Jira field", Command: "jira issue field get", Evidence: "qualified", Completeness: "explicit", Skill: "jira", Reference: "reference/evidence-workflow.md"},
-	{ID: "knowledge.confluence.outline", TaskClass: "knowledge/search", Service: "confluence", Role: "expand", Priority: 40, Summary: "Inspect selected-page headings without exposing its full body", Command: "conf page outline", Evidence: "derived", Completeness: "explicit", Skill: "confluence", Reference: "reference/commands.md"},
-	{ID: "knowledge.confluence.section", TaskClass: "knowledge/search", Service: "confluence", Role: "expand", Priority: 50, Summary: "Read one bounded selected-page section", Command: "conf page section", Evidence: "derived", Completeness: "explicit", Skill: "confluence", Reference: "reference/commands.md"},
-	{ID: "knowledge.confluence.sections", TaskClass: "knowledge/search", Service: "confluence", Role: "expand", Priority: 55, Summary: "Read several selected sections from one bounded page snapshot", Command: "conf page sections", Evidence: "derived", Completeness: "reconciled", Skill: "confluence", Reference: "reference/commands.md"},
 }
 
 func newCapabilitiesCmd() *cobra.Command {
@@ -169,8 +96,9 @@ func buildCapabilityCatalog(root *cobra.Command, selection capabilitySelection) 
 		return capabilityCatalog{}, usageErr("invalid capability access %q (want read-only|mutating)", selection.Access)
 	}
 
-	items := make([]capability, 0, len(capabilityDefinitions))
-	for _, definition := range capabilityDefinitions {
+	definitions := capabilitydef.Definitions()
+	items := make([]capability, 0, len(definitions))
+	for _, definition := range definitions {
 		if selection.Task != "" && definition.TaskClass != selection.Task {
 			continue
 		}
@@ -180,13 +108,13 @@ func buildCapabilityCatalog(root *cobra.Command, selection capabilitySelection) 
 		if selection.ID != "" && definition.ID != selection.ID {
 			continue
 		}
-		command, remaining, err := root.Find(strings.Fields(definition.Command))
+		command, remaining, err := root.Find(strings.Fields(definition.CLICommand))
 		if err != nil || len(remaining) != 0 || command == nil || (command.Run == nil && command.RunE == nil) {
-			return capabilityCatalog{}, fmt.Errorf("%w: capability %q references unregistered command %q", domain.ErrCheckFailed, definition.ID, definition.Command)
+			return capabilityCatalog{}, fmt.Errorf("%w: capability %q references unregistered command %q", domain.ErrCheckFailed, definition.ID, definition.CLICommand)
 		}
 		commandAccess := command.Annotations[accessAnnotation]
 		if commandAccess != "read-only" && commandAccess != "mutating" {
-			return capabilityCatalog{}, fmt.Errorf("%w: capability %q command %q has invalid access metadata", domain.ErrCheckFailed, definition.ID, definition.Command)
+			return capabilityCatalog{}, fmt.Errorf("%w: capability %q command %q has invalid access metadata", domain.ErrCheckFailed, definition.ID, definition.CLICommand)
 		}
 		if selection.Access != "" && commandAccess != selection.Access {
 			continue
@@ -201,7 +129,9 @@ func buildCapabilityCatalog(root *cobra.Command, selection capabilitySelection) 
 		items = append(items, capability{
 			ID: definition.ID, TaskClass: definition.TaskClass, Service: definition.Service,
 			Role: definition.Role, Priority: definition.Priority, Summary: definition.Summary,
-			Command: definition.Command, Access: commandAccess, OutputModes: modes,
+			Command: definition.CLICommand, CLICommand: definition.CLICommand,
+			MCPTool: definition.MCPTool, MCPScope: definition.MCPScope, CLIOnly: definition.MCPTool == "",
+			Access: commandAccess, OutputModes: modes,
 			Evidence: definition.Evidence, Completeness: definition.Completeness,
 			Skill: definition.Skill, Reference: definition.Reference,
 		})

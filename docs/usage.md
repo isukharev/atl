@@ -98,6 +98,10 @@ JSON uses schema version 1:
     "priority": 20,
     "summary": "Collect bounded multi-source evidence for one epic and period",
     "command": "jira epic digest",
+    "cli_command": "jira epic digest",
+    "mcp_tool": "jira_epic_digest",
+    "mcp_scope": "Bounded digest with explicit include sources; no Confluence expansion.",
+    "cli_only": false,
     "access": "read-only",
     "output_modes": ["json", "text"],
     "evidence": "qualified",
@@ -107,6 +111,12 @@ JSON uses schema version 1:
   }]
 }
 ```
+
+The transport fields are additive within schema version 1. `command` remains a
+compatibility alias for `cli_command`. `mcp_tool` names a reviewed bounded
+typed route only inside `mcp_scope`; it does not promise full CLI output or
+workflow equivalence. CLI-only entries omit `mcp_tool` and `mcp_scope` and
+set `cli_only:true`.
 
 `access` is derived from the CLI's reviewed process-wide policy inventory:
 `mutating` commands are refused by `ATL_READ_ONLY=1`; `read-only` means no
@@ -122,9 +132,12 @@ Run the typed read-only agent tool surface over MCP stdio:
 
 ```bash
 atl mcp serve
+atl mcp serve --service jira
+atl mcp serve --service confluence
+atl mcp serve --service offline
 ```
 
-The process registers twenty explicit Jira/Confluence evidence tools and no
+The default process registers twenty explicit Jira/Confluence evidence tools and no
 mutation, shell, arbitrary-file, mirror-write, or raw-REST tool. Two no-argument
 tools inspect only an explicit valid `ATL_MIRROR_ROOT`, offline, and return
 content-free mirror health counts. Stdout is
@@ -133,6 +146,16 @@ the same stable `kind`/`remediation` classes and closed `recovery` object as CLI
 JSON. Install through the
 Claude Code/Codex plugin or see [mcp.md](mcp.md) for the exact tools, bounds,
 standalone Codex config, and CLI fallback guidance.
+
+Omitting `--service` preserves the complete twenty-tool inventory and existing
+instructions. The closed Jira and Confluence profiles expose their respective
+ten tools; `offline` exposes only the two no-argument mirror snapshots and
+constructs no backend reader. Unknown or repeated service selections fail
+before dependency construction. All profiles also publish one fixed
+`application/json` resource, `atl://capabilities`, containing only static
+capability ids, ordering, CLI routes, bounded MCP mappings/scopes, and CLI-only
+facts. Reading it loads no config, credentials, backend, mirror path, or user
+content.
 
 `confluence_page_meta` is the body-free governance read: it returns only
 schema/page identity, title, space, a positive version, an optional update

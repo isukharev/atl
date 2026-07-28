@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a fixed offline `atl://capabilities` MCP resource and closed
+  `atl mcp serve --service jira|confluence|offline` profiles. The default keeps
+  the existing twenty tools, schemas, instructions, and plugin launch, while
+  the service profiles expose reviewed 10/10/2 subsets without constructing an
+  omitted backend. The additive schema-v1 capability catalog now preserves
+  `command` while exposing `cli_command`, an optional bounded `mcp_tool` and
+  `mcp_scope`, and explicit `cli_only`; mappings describe narrower typed
+  routes, not full CLI equivalence. No profile adds writes, shell execution,
+  arbitrary files, backend probing, or a model-selected allowlist.
+
 - Added reviewed Jira transitions. `jira issue transition preview` is a
   separately classified GET-only command, while `jira issue transition` now
   previews by default and requires `--apply` plus the exact proposal hash to

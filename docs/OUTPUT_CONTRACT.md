@@ -116,6 +116,11 @@ capability ids. The command reads neither config nor credentials and performs
 no self-update or backend request. `routing.reference_load` tells an agent to
 invoke the named skill first and resolve the reference relative to it; a
 filesystem search is deliberately outside the route.
+The additive schema-v1 transport fields preserve `command` as an alias of
+`cli_command`, set `cli_only` as the inverse of a present `mcp_tool`, and
+require a non-empty `mcp_scope` for every mapping. A mapping means the typed
+read is sufficient only within that stated bounded projection; it is not full
+CLI equivalence. Text and id output remain unchanged.
 For `jira/structure-planning`, the ordered catalog exposes hierarchy rows,
 explicit Structure values with `completeness:"per-row"`, and transient issue
 export as separate capabilities.
@@ -133,6 +138,14 @@ typed `structuredContent`; compatible clients may also expose the SDK's text
 projection. Tool failures set the MCP error result and contain a JSON text
 object with stable `kind`, `remediation`, diagnostic `message`, and versioned
 `recovery` fields.
+
+`atl mcp serve --service jira|confluence|offline` selects one closed reviewed
+inventory. Omission preserves the default twenty tools and instruction bytes.
+Every profile exposes the fixed `application/json` resource
+`atl://capabilities`; its static schema-v1 content contains capability
+identity, task class/service/role/priority, CLI command, optional MCP tool/scope, and
+CLI-only state. The resource accepts no parameters and performs no config,
+credential, backend, mirror-path, or content read.
 For transport/API failures, `message` is deliberately coarse and omits backend
 paths, query values, and response bodies.
 

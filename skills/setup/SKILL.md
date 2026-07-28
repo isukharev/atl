@@ -190,6 +190,11 @@ credentials, while the two offline mirror snapshot tools use only an explicit
 surface becomes available after starting a new agent session with `atl` on
 `PATH`. Its absence does not make CLI setup incomplete; use the CLI fallback and
 report a plugin/binary version skew instead of inventing raw REST calls.
+Standalone clients that need only one reviewed boundary may launch
+`atl mcp serve --service jira`, `--service confluence`, or
+`--service offline`. The default plugin launch remains the full read-only
+inventory; do not turn the profile flag into a model-selected arbitrary
+allowlist.
 
 ## Version skew
 
