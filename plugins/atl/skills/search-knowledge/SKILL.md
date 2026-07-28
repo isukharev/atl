@@ -33,7 +33,7 @@ route without shell: call `confluence_search` and `jira_issue_search` once,
 setting both row and byte bounds for each search. An oversize search error is
 not partial evidence: narrow the query or lower the row limit before raising
 the byte cap. Freeze only complete candidate pages, then use `jira_issue_field_get` plus
-`confluence_page_outline` and `confluence_page_section` for the selected
+`confluence_page_outline` and `confluence_page_section`/`confluence_page_sections` for the selected
 evidence. When the selected evidence is tabular, use
 `confluence_table_summary` and then `confluence_table_extract` for one exact
 table instead of reading a broader section. Reuse a numeric Confluence result
@@ -86,10 +86,16 @@ section `heading` as the exact outline `title`, without Markdown `#` prefixes.
 export ATL_READ_ONLY=1
 atl conf page outline '<search-result-id>' -o text
 atl conf page section '<search-result-id>' --heading 'Retries' --max-bytes 32768 -o text
+atl conf page sections '<search-result-id>' --heading 'Retries' --heading 'Limits' \
+  --max-bytes 65536 -o text
 ```
 
 Require `complete:true`. A duplicate heading needs explicit `--occurrence`;
 `truncated:true` means the omitted tail is not evidence of absence.
+When several headings from one page are relevant, prefer `page sections` (or
+`confluence_page_sections`) so they share one version-bound snapshot instead of
+re-downloading and re-parsing the page for every heading. Preserve requested
+order and require reconciled counts before using the result.
 
 ### 4. Read targeted Jira evidence
 

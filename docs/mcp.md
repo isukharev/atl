@@ -31,6 +31,7 @@ The v1 surface is an explicit allowlist:
 | `confluence_page_meta` | Read body-free page governance metadata | fixed 32 KiB result cap; explicit tri-state restriction state; no URL, labels, ancestors, principals, or body |
 | `confluence_page_outline` | Inspect headings before reading content | one page |
 | `confluence_page_section` | Read one exact Markdown section | optional `expected_page_version` binding; default 32 KiB, maximum 1 MiB |
+| `confluence_page_sections` | Read 1..32 ordered Markdown sections from one page snapshot | optional `expected_page_version` binding; default 256 KiB aggregate content, maximum 1 MiB; independent encoded-result ceiling |
 | `confluence_attachment_list` | Qualify one page's attachment inventory | requires a positive `expected_page_version`; metadata only; default 128 KiB, maximum 1 MiB encoded result |
 | `confluence_table_summary` | Inspect content-free table structure | reports page version; default 128 KiB, maximum 1 MiB encoded result |
 | `confluence_table_extract` | Read one exact expanded table | selected table required; summary-derived indexes require its version; default 256 KiB, maximum 1 MiB encoded result |
@@ -155,10 +156,25 @@ results omit page bodies. The MCP tool also rejects an encoded result larger
 than `max_bytes` (default 128 KiB, minimum 1 KiB, maximum 1 MiB) rather than
 clipping titles, excerpts, or pagination evidence. Narrow CQL or lower the row
 limit before raising the byte bound. Reuse a returned numeric id directly with
-`confluence_page_outline` and `confluence_page_section`.
+`confluence_page_outline`, `confluence_page_section`, and
+`confluence_page_sections`.
 Pass `confluence_page_section.heading` as the exact `title` returned by the
 outline, without a Markdown `#` prefix; use `occurrence` when that title
 repeats.
+For several headings on the same page, pass ordered
+`confluence_page_sections.selectors` instead. The tool fetches and parses the
+page once, preserves repeated selectors, resolves every selector before
+returning anything, and emits one entry per selector in request order. Require
+matching requested/returned counts, `reconciled:true`, and aggregate
+`complete:true` before treating the set as complete evidence.
+Each selector is `{heading,occurrence?}`; omission or zero keeps the
+unique-heading rule. The 1..32 selector cap controls metadata amplification.
+The aggregate Markdown budget is divided among remaining selectors in request
+order and unused emitted capacity carries forward. The server additionally
+caps the complete encoded result, so bounded Markdown cannot be amplified into
+unbounded paths or envelope metadata. Any mismatch in selector order, paths,
+counts, completeness, or aggregate/per-section byte accounting rejects the
+whole result as `check_failed`.
 
 Use `confluence_page_meta` when the question needs page governance facts but no
 page content. It resolves the supplied reference through the same exact
@@ -180,8 +196,9 @@ not make the reads atomic. Re-read metadata when freshness itself is the
 question; do not fetch an outline merely to confirm access state, because an
 outline has no restriction field and requires the native page body.
 
-`confluence_page_section` also takes an optional `expected_page_version`, and
-every section result carries the resulting `page_version_gated`. Whether to
+`confluence_page_section` and `confluence_page_sections` also take an optional
+`expected_page_version`, and every result carries the resulting
+`page_version_gated`. Whether to
 supply it follows the provenance of the selection, not the tool. Heading
 `occurrence` and structural `path` are positional, so the same selection can
 resolve to a different section on a different revision, with no observable
@@ -200,7 +217,8 @@ rejected before backend access; omission and `0` are the same ungated read. The
 gate is evaluated against the page response the read already fetched, so it
 costs no extra request and adds no write capability.
 
-Both `confluence_page_outline` and `confluence_page_section` stamp
+`confluence_page_outline`, `confluence_page_section`, and
+`confluence_page_sections` stamp
 `schema_version:1` — they are one selection protocol, so neither result may be
 validated against the other's contract — and the server validates each result
 fail-closed before returning it: schema version, page identity and positive
@@ -221,10 +239,12 @@ remain generic and do not disclose the heading or page reference.
 Unlike the fail-closed encoded-result caps on `confluence_search`, the table
 tools, and `jira_structure_view`, these two page reads can satisfy the call with
 structurally bounded partial output, so both qualify that result explicitly.
-`confluence_page_outline` and
-`confluence_page_section` return `complete`, optional `truncated`, optional
-`partial_reason`, `original_bytes`, and `emitted_bytes`. `partial_reason` is
-absent exactly when `complete:true` and present exactly when `complete:false`.
+`confluence_page_outline` and `confluence_page_section` return `complete`,
+optional `truncated`, optional `partial_reason`, `original_bytes`, and
+`emitted_bytes`. The plural tool returns aggregate completeness and byte totals
+plus the same fields, including optional `partial_reason`, on every section
+entry. Per structural result or section entry, `partial_reason` is absent
+exactly when `complete:true` and present exactly when `complete:false`.
 Its values are a closed static set that never contains a heading, page id,
 title, space, URL, body, or caller value:
 
@@ -234,6 +254,8 @@ title, space, URL, body, or caller value:
 | `confluence_page_outline` | `byte_limit` | the 262144-byte heading cap stopped emission first | no |
 | `confluence_page_section` | `max_bytes` | a whole rendered block did not fit the requested bound | yes, once |
 | `confluence_page_section` | `invalid_utf8` | the rendering was withheld entirely | no |
+| `confluence_page_sections` | `max_bytes` | a whole rendered block did not fit that selector's deterministic share | yes, recover that entry once through the singular tool |
+| `confluence_page_sections` | `invalid_utf8` | one selected rendering was withheld entirely | no |
 
 Treat every partial outline or section as incomplete evidence: a truncated
 section is coherent Markdown, so never read it as the whole section, as evidence
@@ -250,6 +272,13 @@ exceeds either bound, do not retry:
 select a narrower heading from the outline, or qualify the answer as
 incomplete. The other three reasons are terminal; repeating the same call
 cannot change them.
+For a partial plural result, aggregate `original_bytes` is the sum of full
+section sizes, not a promised recovery bound for the order-dependent allocator.
+Recover only a required `max_bytes` entry through one
+`confluence_page_section` call using that entry's heading/occurrence and
+`original_bytes`, bound to the plural result's exact `version`. Do not replay
+the whole plural call until it happens to fit. An `invalid_utf8` entry remains
+terminal.
 
 A complete section can still be evidence-poor when its substance is an
 attachment marker rather than page text. `confluence_attachment_list` answers
@@ -444,6 +473,7 @@ enabled_tools = [
   "confluence_page_meta",
   "confluence_page_outline",
   "confluence_page_section",
+  "confluence_page_sections",
   "confluence_attachment_list",
   "confluence_table_summary",
   "confluence_table_extract",

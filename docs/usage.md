@@ -124,7 +124,7 @@ Run the typed read-only agent tool surface over MCP stdio:
 atl mcp serve
 ```
 
-The process registers nineteen explicit Jira/Confluence evidence tools and no
+The process registers twenty explicit Jira/Confluence evidence tools and no
 mutation, shell, arbitrary-file, mirror-write, or raw-REST tool. Two no-argument
 tools inspect only an explicit valid `ATL_MIRROR_ROOT`, offline, and return
 content-free mirror health counts. Stdout is
@@ -1952,7 +1952,7 @@ get/view/meta/history/open, `pull --id`, `comment list`, `page labels list`,
 attachment list/get, and `table extract`. Mutating page selectors remain
 explicit ids.
 
-### `atl conf page outline` / `atl conf page section`
+### `atl conf page outline` / `atl conf page section` / `atl conf page sections`
 
 Inspect a long page without placing its entire rendered body in agent context:
 
@@ -1963,13 +1963,17 @@ atl conf page section 12345678 --heading 'Delivery Notes' -o text
 # bind an outline-selected heading to the exact version that outline returned
 atl conf page section 12345678 --heading 'Delivery Notes' --occurrence 2 \
   --max-bytes 131072 --expected-version 7
+atl conf page sections 12345678 \
+  --heading 'Summary' --heading 'Delivery Notes' --heading 'Risks' \
+  --occurrence 0 --occurrence 2 --occurrence 0 \
+  --max-bytes 262144 --expected-version 7
 ```
 
 `outline` parses native CSF and walks the same structural block traversal as the
 Markdown renderer. Headings inside code/structured macros, tables, and other
-opaque blocks are not promoted into page sections. Both commands emit
-`schema_version:1` — they are one selection protocol, so neither result should
-be validated against the other's shape — and both reconcile page identity
+opaque blocks are not promoted into page sections. All three commands emit
+`schema_version:1` — they are one selection protocol, so no result should be
+validated against another shape — and all three reconcile page identity
 before parsing any body, failing with exit 8 rather than returning a result
 that cannot be attributed to the resolved page and a positive version.
 JSON includes ordered
@@ -1994,12 +1998,28 @@ selected `heading`, `level`, `path`, `occurrence`, `markdown`, `complete`,
 rendered block, adding a visible marker when it fits. A partial section names
 its limiter in `partial_reason`: `max_bytes` when a whole rendered block did not
 fit, `invalid_utf8` when the rendering was withheld entirely. `-o text` emits
-only the selected Markdown. Both commands accept the safe page references above,
-are read-only, and create no mirror artifacts.
+only the selected Markdown. All three commands accept the safe page references
+above, are read-only, and
+create no mirror artifacts.
 
-`--expected-version N` binds the section to a page revision you already
-observed. A positive value refuses the read with exit 8 unless the page is
-currently at exactly that version, reporting only the expected and current
+`sections` accepts 1..32 repeatable `--heading` selectors. Omit
+`--occurrence` entirely when every heading is unique; when any occurrence is
+given, supply one non-negative value per heading in the same order (`0` keeps
+the unique-heading check). The command resolves every selector against one
+fetched and parsed page snapshot before returning anything, then emits entries
+in request order. JSON adds `requested_count`, `returned_count`, `reconciled`,
+aggregate `complete`/`truncated`, `original_bytes`, `emitted_bytes`,
+`max_bytes`, and ordered `sections` with the same per-section fields. The
+aggregate bound defaults to 262144 and accepts 1..1048576 bytes. Remaining
+capacity is divided among remaining selectors in request order; unused emitted
+capacity carries forward, so output is deterministic and total
+`emitted_bytes` never exceeds `max_bytes`. `-o text` concatenates only the
+selected Markdown in request order. Treat a result as complete evidence only
+when counts match, `reconciled:true`, and aggregate `complete:true`.
+
+`--expected-version N` binds a section or multi-section read to a page revision
+you already observed. A positive value refuses the read with exit 8 unless the
+page is currently at exactly that version, reporting only the expected and current
 version integers, and reports `page_version_gated:true` on a match. `0` (the
 default) or an omitted flag leaves the read ungated and reports
 `page_version_gated:false`; a negative value is a usage error (exit 2). The
@@ -2016,9 +2036,10 @@ it may omit the flag. That ungated result is still exact evidence for the
 revision reported in its own `version`; it simply reconciles no earlier
 selection, which is what `page_version_gated:false` states.
 
-For both commands `partial_reason` is a static identifier that carries no page
-content, and it is present exactly when `complete` is `false`. Treat any partial
-outline or section as incomplete evidence: do not infer that missing content is
+For an outline, one section, or each section entry in a plural result,
+`partial_reason` is a static identifier that carries no page content and is
+present exactly when `complete` is `false`. Treat any partial outline or section
+as incomplete evidence: do not infer that missing content is
 absent and do not settle a decision from it. Only `max_bytes` is recoverable —
 re-read the same reference, heading, and occurrence **once** with `--max-bytes`
 at or above the reported `original_bytes`, which is the exact minimum bound for
@@ -2028,6 +2049,11 @@ re-read, so a page that moved is refused instead of silently answering from a
 body the first result never described, and accept the recovery only when the
 second result also has `complete:true`. Otherwise do not retry the same read;
 use a narrower heading or the full page instead.
+In a plural result the aggregate `original_bytes` is only the sum of full
+section sizes; it is not an exact recovery bound for the request-order
+allocator. Recover a required `max_bytes` entry once with singular
+`page section`, that entry's `original_bytes`, and the plural result's exact
+`version`. Do not retry the entire plural request until it happens to fit.
 
 ### `atl conf page get`
 

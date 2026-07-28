@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "id": "42",
+  "page_title": "Example",
+  "space": "ENG",
+  "version": 3,
+  "page_version_gated": true,
+  "requested_count": 3,
+  "returned_count": 3,
+  "reconciled": true,
+  "complete": true,
+  "original_bytes": 48,
+  "emitted_bytes": 48,
+  "max_bytes": 262144,
+  "sections": [
+    {
+      "heading": "Status",
+      "level": 2,
+      "path": [
+        "Beta",
+        "Status"
+      ],
+      "occurrence": 2,
+      "markdown": "## Status\n\nSecond\n",
+      "complete": true,
+      "original_bytes": 18,
+      "emitted_bytes": 18
+    },
+    {
+      "heading": "Tail",
+      "level": 1,
+      "path": [
+        "Tail"
+      ],
+      "occurrence": 1,
+      "markdown": "# Tail\n\nLast\n",
+      "complete": true,
+      "original_bytes": 13,
+      "emitted_bytes": 13
+    },
+    {
+      "heading": "Status",
+      "level": 2,
+      "path": [
+        "Alpha",
+        "Status"
+      ],
+      "occurrence": 1,
+      "markdown": "## Status\n\nFirst\n",
+      "complete": true,
+      "original_bytes": 17,
+      "emitted_bytes": 17
+    }
+  ]
+}

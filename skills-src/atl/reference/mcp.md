@@ -12,6 +12,7 @@ The exact tools are:
   `jira_mirror_snapshot`;
 - `confluence_search`, `confluence_page_resolve`, `confluence_page_meta`,
   `confluence_page_outline`, `confluence_page_section`, `confluence_attachment_list`,
+  `confluence_page_sections`,
   `confluence_table_summary`, `confluence_table_extract`,
   `confluence_mirror_snapshot`.
 
@@ -137,7 +138,8 @@ separately timed observation, not an atomic snapshot with a later read. On
 `use_cli_conf_page_meta`, use the richer CLI metadata command rather than
 repeating MCP.
 
-`confluence_page_outline` and `confluence_page_section` are one selection
+`confluence_page_outline`, `confluence_page_section`, and
+`confluence_page_sections` are one selection
 protocol: both stamp `schema_version:1`, so never validate one against the
 other's shape, and the server rejects either result fail-closed when its schema,
 page identity/version, completeness, counts, byte accounting, or version gate
@@ -173,6 +175,18 @@ set to the first result's `version`, and accept it only when the second result
 is also `complete:true`; otherwise select a narrower heading or
 report the evidence as incomplete. No partial outline or section is evidence
 of absence or a settled decision.
+
+Use `confluence_page_sections` for 1..32 ordered headings from one page. It
+fetches and parses one snapshot, preserves repeated selectors, resolves all
+selectors before returning, and reports requested/returned counts plus
+`reconciled`. Its aggregate byte budget is allocated deterministically in
+selector order with unused capacity carried forward. Require reconciled counts,
+aggregate `complete:true`, exact per-section order, and the same version gate as
+the outline. A failed or non-reconciled plural call yields no usable subset.
+Aggregate `original_bytes` is a sum, not an exact allocator recovery bound. If
+one required entry is partial for `max_bytes`, recover it once through singular
+`confluence_page_section` with that entry's `original_bytes` and the plural
+result's exact version; never replay the plural call until it happens to fit.
 
 When a complete section's substance is an attachment marker rather than page
 text, call `confluence_attachment_list` with the same `reference` and a positive
@@ -212,6 +226,7 @@ confluence_search + jira_issue_search
   -> jira_issue_field_get (one selected issue field)
   -> confluence_page_outline
   -> confluence_page_section (one selected heading + that outline's version)
+  -> confluence_page_sections (when that page contributes several headings)
 ```
 
 Example attachment-evidence route:

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -249,6 +250,43 @@ func confPageCmd() *cobra.Command {
 	section.Flags().IntVar(&sectionOccurrence, "occurrence", 0, "1-based occurrence when the heading is duplicated")
 	section.Flags().IntVar(&sectionMaxBytes, "max-bytes", 256<<10, "maximum Markdown bytes (1..1048576; truncates at block boundary)")
 	section.Flags().IntVar(&sectionExpectedVersion, "expected-version", 0, "refuse the read unless the page is at this exact version, e.g. the version `conf page outline` returned (0 leaves the read ungated)")
+	var sectionHeadings, sectionOccurrences []string
+	var sectionsMaxBytes, sectionsExpectedVersion int
+	sections := &cobra.Command{
+		Use:   "sections <ID-OR-URL>",
+		Short: "Render ordered page sections from one bounded page read",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			selectors, err := confluencePageSectionSelectors(sectionHeadings, sectionOccurrences)
+			if err != nil {
+				return err
+			}
+			svc, err := confService()
+			if err != nil {
+				return err
+			}
+			result, err := svc.PageSections(cmd.Context(), args[0], app.ConfluencePageSectionsOpts{
+				Selectors: selectors, MaxBytes: sectionsMaxBytes,
+				ExpectedPageVersion: sectionsExpectedVersion,
+			})
+			if err != nil {
+				return err
+			}
+			if outputFormat == "text" {
+				for _, selected := range result.Sections {
+					if _, err := io.WriteString(cmd.OutOrStdout(), selected.Markdown); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+			return emit(cmd, result, nil)
+		},
+	}
+	sections.Flags().StringArrayVar(&sectionHeadings, "heading", nil, "exact heading text in output order (repeatable; maximum 32)")
+	sections.Flags().StringArrayVar(&sectionOccurrences, "occurrence", nil, "matching 1-based occurrence for each --heading (repeatable; 0 selects a unique heading)")
+	sections.Flags().IntVar(&sectionsMaxBytes, "max-bytes", 256<<10, "aggregate maximum Markdown bytes (1..1048576; allocated in request order)")
+	sections.Flags().IntVar(&sectionsExpectedVersion, "expected-version", 0, "refuse the read unless the page is at this exact version, e.g. the version `conf page outline` returned (0 leaves the read ungated)")
 	var id, format string
 	get := &cobra.Command{
 		Use:   "get",
@@ -519,8 +557,30 @@ func confPageCmd() *cobra.Command {
 	cp.Flags().StringVar(&copySpace, "space", "", "target space key (default: same as source)")
 	cp.Flags().StringVar(&copyParent, "parent", "", "target parent page id (default: same as source)")
 
-	c.AddCommand(resolve, outline, section, get, view, titleCmd, labelsCmd, meta, hist, list, open, cp, create, move, del)
+	c.AddCommand(resolve, outline, section, sections, get, view, titleCmd, labelsCmd, meta, hist, list, open, cp, create, move, del)
 	return c
+}
+
+func confluencePageSectionSelectors(headings, occurrences []string) ([]app.ConfluencePageSectionSelector, error) {
+	if len(headings) == 0 {
+		return nil, usageErr("at least one --heading is required")
+	}
+	if len(occurrences) != 0 && len(occurrences) != len(headings) {
+		return nil, usageErr("when --occurrence is used, provide one value for every --heading")
+	}
+	selectors := make([]app.ConfluencePageSectionSelector, len(headings))
+	for index, heading := range headings {
+		selectors[index].Heading = heading
+		if len(occurrences) == 0 {
+			continue
+		}
+		occurrence, err := strconv.Atoi(occurrences[index])
+		if err != nil || occurrence < 0 {
+			return nil, usageErr("--occurrence values must be non-negative integers")
+		}
+		selectors[index].Occurrence = occurrence
+	}
+	return selectors, nil
 }
 
 func confPageViewCmd() *cobra.Command {

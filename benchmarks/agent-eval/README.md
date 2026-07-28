@@ -261,6 +261,8 @@ The realistic matrix currently contains:
 | surface native | `jira-structure-qualification-mcp-holdout` | distinct metadata/read-only state and complete nested hierarchy through the same ordered two-call route |
 | surface native | `confluence-page-evidence-mcp` | outline-first selection of one approved repeated-heading section through three bounded typed calls |
 | surface native | `confluence-page-evidence-holdout` | distinct three-occurrence page topology with different current evidence |
+| surface native | `confluence-multi-section-mcp` | three ordered outline-selected branches reconciled through one version-bound multi-section call |
+| surface native | `confluence-multi-section-mcp-holdout` | distinct selector permutation and heading topology through the same one-fetch treatment route |
 | surface native | `confluence-section-bound-recovery-mcp` | one successful but partial bounded section read recovered by exactly one identical re-read at the reported original byte size |
 | surface native | `confluence-section-bound-recovery-mcp-holdout` | distinct section whose reported original byte size exceeds the authorized ceiling, so the same contract must stop after one read |
 | surface native | `confluence-section-version-bound-mcp` | outline-selected repeated heading whose bounded section read is refused after the page version changes |
@@ -926,6 +928,19 @@ heading topology from two occurrences to three, and all approved values while
 preserving the same response, route, completeness, and safety semantics.
 These sample sizes are regression and generalization gates, not a fine-grained
 provider latency or reliability comparison.
+
+`confluence-multi-section-mcp` is the treatment contract for several required
+headings on one page. The n=3 provider pair is limited to resolve, outline, and
+one ordered multi-section call: three typed calls, two GETs, one intentional
+repeated page target, and zero writes. Its exact oracle binds all three
+selectors, their paths and occurrences, the outline version, per-section and
+aggregate byte totals, complete reconciliation, and exact complete fact
+sentences. One selected section contains instruction-like synthetic prose that
+must remain data. The distinct n=1 holdout changes page identity, topology,
+permutation, facts, and the repeated heading while preserving the same variant
+and route. The committed deterministic test also proves byte-for-byte section
+equivalence against three singular reads and records the current 5-call/4-GET
+versus treatment 3-call/2-GET geometry; provider runs remain separate evidence.
 
 `confluence-paginated-search-evidence` retains the historical neutral CLI/MCP
 comparison. The current surface-native `confluence-paginated-search-evidence-mcp`

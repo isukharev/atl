@@ -45,7 +45,9 @@ write command after explicit approval.
 - Transient bounded discovery/evidence: prefer typed `confluence_search`,
   `confluence_page_resolve`, `confluence_page_meta`,
   `confluence_page_outline`, and
-  `confluence_page_section` when the plugin exposes them. For table evidence,
+  `confluence_page_section`/`confluence_page_sections` when the plugin exposes
+  them. Use the plural tool for several headings on one page so the ordered
+  selectors share one fetched revision. For table evidence,
   use `confluence_table_summary` first and then
   `confluence_table_extract` for one selected 1-based table index. These tools
   cannot write or create mirror artifacts. Copy the summary's exact positive
@@ -94,7 +96,8 @@ write command after explicit approval.
   earlier selection. A negative value is rejected as a usage error; omission
   and `0` are the same ungated read. The gate reuses the page the tool already
   fetched — no extra request, no write capability.
-  If `confluence_page_section` returns `check_failed` or `not_found` with
+  If `confluence_page_section` or `confluence_page_sections` returns
+  `check_failed` or `not_found` with
   `outline_then_select_section`, the occurrence selection is ambiguous or
   stale. Refresh `confluence_page_outline`, choose the exact heading
   occurrence from its content-free metadata, then read that section once; do
@@ -104,7 +107,8 @@ write command after explicit approval.
   Re-read the outline, re-select the occurrence there, then request the section
   once at the new version — never retry the old selection against the new
   revision. Other section failures are generic.
-  `confluence_page_outline` and `confluence_page_section` can also *succeed*
+  `confluence_page_outline`, `confluence_page_section`, and
+  `confluence_page_sections` can also *succeed*
   partially: they carry `complete`, `original_bytes`, `emitted_bytes`, and a
   static `partial_reason` that is present exactly when `complete` is false.
   A truncated section is coherent Markdown, so never treat it as the whole
@@ -143,15 +147,21 @@ write command after explicit approval.
   before inspection; the snapshot creates or changes no file. Use CLI for
   paths, content, status, or diff.
 - CLI one-off read: `page resolve` once for a URL, then `page outline` before an
-  exact bounded `page section`; use `page view -o text` only when the full page
+  exact bounded `page section`, or `page sections` for several headings from
+  one page snapshot; use `page view -o text` only when the full page
   is actually required. Honor `complete` and duplicate-heading `--occurrence`.
-  `outline`/`section` JSON carries the same `partial_reason` contract: only
-  section `max_bytes` is recoverable, by one re-read with `--max-bytes` at or
+  `outline`/`section` JSON and every entry in `sections` carry the same
+  `partial_reason` contract: only section `max_bytes` is recoverable, by one
+  re-read with `--max-bytes` at or
   above `original_bytes`. `--expected-version` is the same binding as the MCP
   field, with the same rule: pass the outline's `version` for an
   outline-selected heading and the first result's `version` on the wider-bound
   re-read, and read `page_version_gated` to see which you got. A mismatch is
   exit 8 with only the two integers; a negative value is exit 2.
+  For a partial plural result, do not use aggregate `original_bytes` as a
+  recovery bound. Recover only a required `max_bytes` entry once through
+  singular `page section`, using that entry's `original_bytes` and the plural
+  result's exact version.
 - Durable pull, complete/incremental sync, render migration, prefetch/rate
   controls: [sync.md](reference/sync.md).
 - Ordinary Markdown body edit, apply/diff, multi-page plan, and push sequence:

@@ -15,6 +15,9 @@ atl conf page resolve <id-or-same-origin-url> -o id
 atl conf page outline <id-or-same-origin-url>
 atl conf page section <id-or-same-origin-url> --heading '<exact>' \
   --expected-version <outline-version> -o text
+atl conf page sections <id-or-same-origin-url> \
+  --heading '<first>' --heading '<second>' \
+  --occurrence 0 --occurrence 2 --expected-version <outline-version> -o text
 atl conf page view <id-or-same-origin-url> --jira-view default -o text
 atl conf page view <id-or-same-origin-url> --jira-macros off -o text # untrusted/heavy page: placeholders only
 ```
@@ -24,13 +27,20 @@ least one of `--space/--title/--label/--type`; paginate with `--cursor`.
 Require top-level `complete:true` before treating missing pages as evidence of
 absence; otherwise continue `next_cursor` or report the partial search. A
 numeric id returned here is already stable, so pass it directly to
-`page outline`/`page section` and reserve `page resolve` for URLs or unknown
+`page outline`/`page section`/`page sections` and reserve `page resolve` for URLs or unknown
 references.
 When a section heading or occurrence came from `page outline`, pass that
 outline's exact `version` through `--expected-version`. On a wider-bound
 section recovery, pass the first section result's version. Omit the flag only
 for a selector fixed outside any earlier read; `page_version_gated:false`
 then records that the result reconciles no earlier selection.
+Use `page sections` when one page contributes several headings. Headings are
+returned in flag order from one fetched and parsed page snapshot. Omit all
+`--occurrence` flags for unique headings; otherwise provide one non-negative
+value per heading (`0` still requires uniqueness). Its aggregate `--max-bytes`
+is divided deterministically in request order and unused capacity carries
+forward. Require `reconciled:true`, matching requested/returned counts, and
+`complete:true`; text output concatenates the selected Markdown in that order.
 
 Use transient `page view` only for one-off readonly work. For a mirror:
 
@@ -184,7 +194,7 @@ identifier per line.
 |---|---|---|
 | `conf search` | Find a qualified bounded page (`complete`/`truncated`) | `--cql` or convenience filters, `--limit`, `--cursor` |
 | `conf space tree` | Space hierarchy | `--space`, `--depth` |
-| `conf page resolve|outline|section|list|get|view|meta|history|open` | Reference resolution and page reads; `history` is qualified (`complete`/`partial_reason`) | outline before long reads; section uses exact heading/occurrence/byte cap and `--expected-version` for outline-derived or recovery reads; view supports `--jira-view`, `--jira-macros`; judge history absence only on `complete:true` |
+| `conf page resolve|outline|section|sections|list|get|view|meta|history|open` | Reference resolution and page reads; `history` is qualified (`complete`/`partial_reason`) | outline before long reads; section uses exact heading/occurrence/byte cap and `--expected-version`; sections preserves ordered selectors from one version-bound snapshot under one aggregate cap; view supports `--jira-view`, `--jira-macros`; judge history absence only on `complete:true` |
 | `conf page labels list <ID>` | Complete page-label read | no write; inspect `complete` |
 | `conf page labels add\|remove <ID> <LABEL>...` | Guarded label preview/apply | `--apply`, `--expected-proposal-hash` |
 | `conf page title set <ID>` | Guarded title preview/apply | `--from-file`, `--apply`, expected gates |

@@ -55,11 +55,11 @@ func TestCapabilityTaskRoutesStaySmallAndOrdered(t *testing.T) {
 		{"jira/structure-planning", []string{"jira.structure.rows", "jira.structure.values", "jira.structure.issue.export"}},
 		{"jira/mirror", []string{"jira.mirror.snapshot"}},
 		{"jira/edit", []string{"jira.issue.fields.edit", "jira.issue.field.preview", "jira.issue.field.set", "jira.issue.worklog.list", "jira.issue.worklog.add", "jira.issue.plan.apply"}},
-		{"confluence/evidence", []string{"confluence.page.resolve", "confluence.page.meta", "confluence.page.outline", "confluence.page.section", "confluence.page.view", "confluence.attachment.list"}},
+		{"confluence/evidence", []string{"confluence.page.resolve", "confluence.page.meta", "confluence.page.outline", "confluence.page.section", "confluence.page.sections", "confluence.page.view", "confluence.attachment.list"}},
 		{"confluence/table-analytics", []string{"confluence.table.summary", "confluence.table.extract"}},
 		{"confluence/mirror", []string{"confluence.mirror.snapshot"}},
 		{"confluence/edit", []string{"confluence.pull", "confluence.diff", "confluence.plan.create", "confluence.plan.preview", "confluence.plan.apply"}},
-		{"knowledge/search", []string{"knowledge.jira.search", "knowledge.confluence.search", "knowledge.jira.field", "knowledge.confluence.outline", "knowledge.confluence.section"}},
+		{"knowledge/search", []string{"knowledge.jira.search", "knowledge.confluence.search", "knowledge.jira.field", "knowledge.confluence.outline", "knowledge.confluence.section", "knowledge.confluence.sections"}},
 	}
 	root := newRoot()
 	for _, tt := range tests {
@@ -76,7 +76,7 @@ func TestCapabilityTaskRoutesStaySmallAndOrdered(t *testing.T) {
 				t.Fatalf("ids=%v want=%v", ids, tt.ids)
 			}
 			maximum := 6
-			if tt.task == "jira/portfolio" {
+			if tt.task == "jira/portfolio" || tt.task == "confluence/evidence" {
 				maximum = 7
 			}
 			if len(ids) > maximum {
@@ -178,6 +178,10 @@ func TestCapabilitiesCommandIsOfflineAndSupportsAllOutputModes(t *testing.T) {
 	out, code = runCLI(t, env, "capabilities", "--id", "confluence.page.section", "-o", "text")
 	if code != exitOK || !strings.Contains(out, "`confluence.page.section`") || !strings.Contains(out, "`atl conf page section`") {
 		t.Fatalf("text exit=%d output=%q", code, out)
+	}
+	out, code = runCLI(t, env, "capabilities", "--id", "confluence.page.sections", "-o", "id")
+	if code != exitOK || out != "confluence.page.sections\n" {
+		t.Fatalf("multi-section id exit=%d output=%q", code, out)
 	}
 
 	out, code = runCLI(t, env, "capabilities", "--task", "jira/edit", "--access", "mutating", "-o", "id")

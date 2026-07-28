@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/isukharev/atl/internal/app"
 )
 
 func TestConfPageOutlineAndSectionContracts(t *testing.T) {
@@ -56,6 +59,58 @@ func TestConfPageOutlineAndSectionContracts(t *testing.T) {
 	outlinePartial, code := runCLI(t, confEnv(cs.srv), "conf", "page", "outline", "42")
 	if code != exitOK || strings.Contains(outlinePartial, "partial_reason") {
 		t.Fatalf("complete outline must omit partial_reason: exit=%d output=%s", code, outlinePartial)
+	}
+}
+
+func TestConfPageSectionsPreservesOrderAndAggregateContract(t *testing.T) {
+	cs := newConfServer(t)
+	cs.page = `{"id":"42","type":"page","title":"Example","space":{"key":"ENG"},"version":{"number":3},"ancestors":[],"body":{"storage":{"value":"<h1>Alpha</h1><h2>Status</h2><p>First</p><h1>Beta</h1><h2>Status</h2><p>Second</p><h1>Tail</h1><p>Last</p>"}}}`
+
+	out, code := runCLI(t, confEnv(cs.srv), "conf", "page", "sections", "42",
+		"--heading", "Status", "--heading", "Tail", "--heading", "Status",
+		"--occurrence", "2", "--occurrence", "0", "--occurrence", "1",
+		"--expected-version", "3")
+	if code != exitOK {
+		t.Fatalf("sections exit=%d output=%s", code, out)
+	}
+	var result app.ConfluencePageSectionsResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.RequestedCount != 3 || result.ReturnedCount != 3 || !result.Reconciled ||
+		!result.Complete || result.Truncated || !result.PageVersionGated || result.Version != 3 {
+		t.Fatalf("result=%+v", result)
+	}
+	if len(result.Sections) != 3 || result.Sections[0].Occurrence != 2 || result.Sections[0].Path[0] != "Beta" ||
+		result.Sections[1].Heading != "Tail" || result.Sections[2].Occurrence != 1 || result.EmittedBytes > result.MaxBytes {
+		t.Fatalf("ordered sections=%+v", result.Sections)
+	}
+	assertGolden(t, "conf_page_sections_gated.json", []byte(out))
+
+	text, code := runCLI(t, confEnv(cs.srv), "-o", "text", "conf", "page", "sections", "42",
+		"--heading", "Status", "--heading", "Tail", "--heading", "Status",
+		"--occurrence", "2", "--occurrence", "0", "--occurrence", "1")
+	second, last, first := strings.Index(text, "Second"), strings.Index(text, "Last"), strings.LastIndex(text, "First")
+	if code != exitOK || second < 0 || last < 0 || first < 0 || second >= last || last >= first {
+		t.Fatalf("text order lost: exit=%d output=%q", code, text)
+	}
+}
+
+func TestConfPageSectionsRejectsMismatchedSelectorsBeforeBackend(t *testing.T) {
+	cs := newConfServer(t)
+	for _, args := range [][]string{
+		{"conf", "page", "sections", "42"},
+		{"conf", "page", "sections", "42", "--heading", "A", "--heading", "B", "--occurrence", "1"},
+		{"conf", "page", "sections", "42", "--heading", "A", "--occurrence", "not-a-number"},
+		{"conf", "page", "sections", "42", "--heading", "A", "--occurrence", "-1"},
+	} {
+		before := len(cs.requests())
+		if out, code := runCLI(t, confEnv(cs.srv), args...); code != exitUsage {
+			t.Fatalf("args=%v exit=%d output=%s", args, code, out)
+		}
+		if got := len(cs.requests()); got != before {
+			t.Fatalf("args=%v backend requests=%d want %d", args, got, before)
+		}
 	}
 }
 
