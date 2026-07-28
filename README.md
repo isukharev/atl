@@ -52,7 +52,7 @@ Confluence durable-view marker checks accept either LF or CRLF line endings.
   and [SECURITY.md](SECURITY.md).
 - **Scripting-friendly** — JSON to stdout, logs/errors to stderr, no interactive prompts,
   well-defined exit codes.
-- **Typed read-only MCP** — `atl mcp serve` gives agents nineteen bounded Jira/Confluence
+- **Typed read-only MCP** — `atl mcp serve` gives agents twenty bounded Jira/Confluence
   evidence tools with no write, shell, raw REST, or arbitrary-file surface; two are
   offline, content-free health snapshots of an owner-configured mirror root.
 - **Single static binary** — `CGO_ENABLED=0`, runs anywhere Go 1.26 runs.
@@ -162,7 +162,7 @@ install/configure the `atl` CLI. Optionally invoke `$onboarding` afterward to bu
 private workflow profile from explicitly approved examples. After setup, Codex can invoke the same
 shared skills when relevant. The plugin also starts the binary's typed read-only MCP surface;
 begin a new session after installing/configuring `atl`. See [docs/mcp.md](docs/mcp.md)
-for its nineteen tools, bounds, and standalone setup.
+for its twenty tools, bounds, and standalone setup.
 
 Shipped skill metadata declares mutually exclusive intended discovery
 boundaries. Focused workflows, cross-service discovery, direct
@@ -490,6 +490,8 @@ atl jira export --keys PROJ-1,PROJ-2 --fields "Delivery Notes" --out - | jq -s '
 atl conf page resolve 'https://confluence.example.test/spaces/ENG/pages/42/Page'
 atl conf page outline 42 # then bind the section to the exact version it returned
 atl conf page section 42 --heading 'Delivery Notes' --expected-version 7 -o text
+atl conf page sections 42 --heading 'Summary' --heading 'Risks' \
+  --occurrence 0 --occurrence 0 --expected-version 7 -o text # one page fetch
 # exit 8 if the page moved; omit --expected-version only for a heading fixed
 # outside any earlier read (page_version_gated:false = reconciles nothing)
 atl jira epic digest PROJ-1 --quarter 2026-Q2 --status-field 'Delivery Notes' --projection compact

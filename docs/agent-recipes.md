@@ -145,6 +145,9 @@ atl --read-only conf page resolve '<same-origin-page-or-short-url>'
 atl --read-only conf page outline '<same-origin-page-or-short-url>'
 atl --read-only conf page section '<same-origin-page-or-short-url>' \
   --heading 'Metrics' --max-bytes 65536 --expected-version <outline-version> -o text
+atl --read-only conf page sections '<same-origin-page-or-short-url>' \
+  --heading 'Metrics' --heading 'Risks' \
+  --max-bytes 131072 --expected-version <outline-version> -o text
 ```
 
 Because the heading was chosen from the outline, bind the section to the exact
@@ -152,6 +155,9 @@ Because the heading was chosen from the outline, bind the section to the exact
 page that moved in between can resolve the same selection to different content.
 A mismatch is exit 8 with only the two version integers — re-read the outline,
 re-select the heading there, and read the section once at the new version.
+Use `page sections` when several outline-selected headings belong to the same
+page. It preserves selector order while sharing one fetched revision; require
+reconciled requested/returned counts and aggregate completeness.
 
 A digest can expand up to a requested small count with
 `--expand-confluence 1 --confluence-heading 'Metrics'`. Honor both digest-source
@@ -170,7 +176,8 @@ run a default epic digest that re-fetches children already present there.
 
 When the plugin-provided MCP tools are available, the transient board path is
 `jira_fields` → one `jira_board_view` → narrow `jira_epic_digest` calls → exact
-`confluence_page_section` calls. This removes shell construction and cannot
+`confluence_page_section` calls, or one `confluence_page_sections` call when a
+linked page contributes several headings. This removes shell construction and cannot
 write or persist content. Structure and durable artifacts still require the CLI
 route below.
 

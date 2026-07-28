@@ -128,7 +128,7 @@ not themselves grant write authority.
 
 `atl mcp serve` is a separate stdio protocol transport, so global CLI output
 flags and process exit envelopes do not apply to individual tool calls. Each of
-the nineteen registered tools has inferred input/output JSON Schema and returns
+the twenty registered tools has inferred input/output JSON Schema and returns
 typed `structuredContent`; compatible clients may also expose the SDK's text
 projection. Tool failures set the MCP error result and contain a JSON text
 object with stable `kind`, `remediation`, and diagnostic `message` fields.
@@ -1902,14 +1902,32 @@ block did not fit the requested bound and `invalid_utf8` when the rendering was
 withheld entirely. `-o text` emits only `markdown`. No mirror artifact or
 writeback base is created.
 
-Both commands stamp the same `schema_version:1`: outline and section are one
-selection protocol, so a consumer must not validate one shape against the
-other's contract. Both also reconcile page identity before parsing or rendering
-any body — a response whose content id does not match the resolved reference, or
+`atl conf page sections <REF> --heading ... [--heading ...]` emits
+`{schema_version:1,id,page_title,space,version,page_version_gated,
+requested_count,returned_count,reconciled,complete,truncated?,original_bytes,
+emitted_bytes,max_bytes,sections:[{heading,level,path,occurrence,markdown,
+complete,truncated?,partial_reason?,original_bytes,emitted_bytes}]}`. It accepts
+1..32 ordered selectors and resolves all of them against one fetched and parsed
+page snapshot before returning a result. When any repeatable `--occurrence` is
+present, exactly one non-negative value must accompany each heading; zero keeps
+the unique-heading rule. The aggregate bound is allocated deterministically in
+request order by dividing remaining bytes among remaining selectors and
+carrying unused emitted capacity forward. Therefore
+`sum(sections[].emitted_bytes) == emitted_bytes <= max_bytes`; aggregate byte
+totals equal the per-section sums. `reconciled` is true only when requested and returned counts match, and
+aggregate `complete` is true only when the counts reconcile and every section
+is complete. `-o text` concatenates section Markdown in request order without
+transport-added separators.
+
+All three structural commands stamp the same `schema_version:1`: outline,
+section, and sections are one selection protocol, so a consumer must not
+validate one shape against another's contract. All three also reconcile page
+identity before parsing or rendering any body — a response whose content id does not match the resolved reference, or
 whose version is not a positive integer, fails closed with exit `8` instead of
 producing an unattributable result.
 
-`--expected-version <N>` on `page section` is an optional provenance binding,
+`--expected-version <N>` on `page section` and `page sections` is an optional
+provenance binding,
 and `page_version_gated` reports the outcome as a member that is always present.
 A positive value refuses the read with exit `8` unless the page is currently at
 exactly that version, reporting only the expected and current integers, and
@@ -1929,10 +1947,11 @@ reconcile, so it may omit the flag: an ungated result is still exact evidence
 for the revision named in its own `version`, but it reconciles no earlier
 selection, and `page_version_gated:false` is the signal that it does not.
 
-Both partial reasons are a closed set of static identifiers that never
+The partial reasons are a closed set of static identifiers that never
 interpolate a heading, page id, title, space, URL, body, or caller value. For
-both commands `partial_reason` is absent exactly when `complete` is `true` and
-present exactly when it is `false`, so a client can branch on the limiter
+an outline, a single section, or each entry in a plural result,
+`partial_reason` is absent exactly when `complete` is `true` and present exactly
+when it is `false`, so a client can branch on the limiter
 without parsing `markdown`. Only `max_bytes` permits a recovery attempt:
 re-read the same reference, heading, and occurrence once with `--max-bytes` at
 or above the reported `original_bytes` (and within the 1048576-byte cap).
@@ -1941,6 +1960,11 @@ that second read with `--expected-version` set to the `version` the first
 section result returned, so a page that moved in between is refused with exit
 `8` rather than answered from a body the first result never described, and
 accept the recovery only when it also reports `complete:true`.
+For `page sections`, aggregate `original_bytes` is a sum, not the exact bound
+that makes the order-dependent allocator complete. Recover a required partial
+entry once with singular `page section`, that entry's exact `original_bytes`,
+and the plural result's `version`; do not retry the plural request until it
+happens to fit.
 `heading_limit`, `byte_limit`, and
 `invalid_utf8` are terminal for these commands. A partial result is never
 evidence of absence and never establishes a decision.

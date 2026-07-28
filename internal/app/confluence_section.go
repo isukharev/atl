@@ -18,6 +18,7 @@ const (
 	confluenceOutlineByteCap      = 256 << 10
 	confluenceSectionDefaultBytes = 256 << 10
 	confluenceSectionMaxBytes     = 1 << 20
+	confluenceSectionSelectorCap  = 32
 )
 
 // ConfluenceStructuralSchemaVersion stamps both bounded structural page reads.
@@ -92,6 +93,54 @@ type ConfluencePageSectionOpts struct {
 	// occurrence or path can never be resolved against a body the caller never
 	// saw. Negative is a caller mistake, not a disabled gate.
 	ExpectedPageVersion int
+}
+
+// ConfluencePageSectionSelector identifies one heading in caller order.
+// Occurrence is 1-based when set; zero retains the single-section ambiguity
+// check and selects the only matching heading when it is unique.
+type ConfluencePageSectionSelector struct {
+	Heading    string `json:"heading"`
+	Occurrence int    `json:"occurrence,omitempty"`
+}
+
+type ConfluencePageSectionsOpts struct {
+	Selectors           []ConfluencePageSectionSelector
+	MaxBytes            int
+	ExpectedPageVersion int
+}
+
+// ConfluencePageSectionEntry contains only selection-local data. Page identity
+// and revision are stated once by ConfluencePageSectionsResult so every entry
+// is attributable to the same fetched body.
+type ConfluencePageSectionEntry struct {
+	Heading       string   `json:"heading"`
+	Level         int      `json:"level"`
+	Path          []string `json:"path"`
+	Occurrence    int      `json:"occurrence"`
+	Markdown      string   `json:"markdown"`
+	Complete      bool     `json:"complete"`
+	Truncated     bool     `json:"truncated,omitempty"`
+	PartialReason string   `json:"partial_reason,omitempty"`
+	OriginalBytes int      `json:"original_bytes"`
+	EmittedBytes  int      `json:"emitted_bytes"`
+}
+
+type ConfluencePageSectionsResult struct {
+	SchemaVersion    int                          `json:"schema_version"`
+	ID               string                       `json:"id"`
+	PageTitle        string                       `json:"page_title"`
+	Space            string                       `json:"space"`
+	Version          int                          `json:"version"`
+	PageVersionGated bool                         `json:"page_version_gated"`
+	RequestedCount   int                          `json:"requested_count"`
+	ReturnedCount    int                          `json:"returned_count"`
+	Reconciled       bool                         `json:"reconciled"`
+	Complete         bool                         `json:"complete"`
+	Truncated        bool                         `json:"truncated,omitempty"`
+	OriginalBytes    int                          `json:"original_bytes"`
+	EmittedBytes     int                          `json:"emitted_bytes"`
+	MaxBytes         int                          `json:"max_bytes"`
+	Sections         []ConfluencePageSectionEntry `json:"sections"`
 }
 
 type ConfluencePageSectionResult struct {
@@ -194,27 +243,112 @@ func (s *ConfluenceService) PageOutline(ctx context.Context, reference string) (
 }
 
 func (s *ConfluenceService) PageSection(ctx context.Context, reference string, opts ConfluencePageSectionOpts) (*ConfluencePageSectionResult, error) {
-	headingSelector := normalizeHeadingSelector(opts.Heading)
-	if headingSelector == "" {
-		return nil, fmt.Errorf("%w: --heading is required", domain.ErrUsage)
-	}
-	if opts.Occurrence < 0 {
-		return nil, fmt.Errorf("%w: --occurrence must be >= 1 when set", domain.ErrUsage)
-	}
-	if opts.ExpectedPageVersion < 0 {
-		return nil, fmt.Errorf("%w: --expected-version must be >= 1 when set", domain.ErrUsage)
-	}
 	maxBytes := opts.MaxBytes
 	if maxBytes == 0 {
 		maxBytes = confluenceSectionDefaultBytes
 	}
-	if maxBytes < 1 || maxBytes > confluenceSectionMaxBytes {
+	result, err := s.PageSections(ctx, reference, ConfluencePageSectionsOpts{
+		Selectors: []ConfluencePageSectionSelector{{Heading: opts.Heading, Occurrence: opts.Occurrence}},
+		MaxBytes:  maxBytes, ExpectedPageVersion: opts.ExpectedPageVersion,
+	})
+	if err != nil {
+		return nil, err
+	}
+	section := result.Sections[0]
+	return &ConfluencePageSectionResult{
+		SchemaVersion: result.SchemaVersion,
+		ID:            result.ID, PageTitle: result.PageTitle, Space: result.Space, Version: result.Version,
+		PageVersionGated: result.PageVersionGated,
+		Heading:          section.Heading, Level: section.Level, Path: section.Path, Occurrence: section.Occurrence,
+		Markdown: section.Markdown,
+		Complete: section.Complete, Truncated: section.Truncated, PartialReason: section.PartialReason,
+		OriginalBytes: section.OriginalBytes, EmittedBytes: section.EmittedBytes,
+	}, nil
+}
+
+type confluenceSectionSelection struct {
+	heading structuralHeading
+	blocks  []mirror.Block
+}
+
+// PageSections returns ordered sections from one reconciled page body. All
+// selectors are resolved before any output is assembled, so one invalid
+// selector fails the request as a unit.
+func (s *ConfluenceService) PageSections(ctx context.Context, reference string, opts ConfluencePageSectionsOpts) (*ConfluencePageSectionsResult, error) {
+	if len(opts.Selectors) == 0 {
+		return nil, fmt.Errorf("%w: at least one heading selector is required", domain.ErrUsage)
+	}
+	if len(opts.Selectors) > confluenceSectionSelectorCap {
+		return nil, fmt.Errorf("%w: no more than %d heading selectors are allowed", domain.ErrUsage, confluenceSectionSelectorCap)
+	}
+	for _, selector := range opts.Selectors {
+		if normalizeHeadingSelector(selector.Heading) == "" {
+			return nil, fmt.Errorf("%w: --heading is required", domain.ErrUsage)
+		}
+		if selector.Occurrence < 0 {
+			return nil, fmt.Errorf("%w: --occurrence must be >= 1 when set", domain.ErrUsage)
+		}
+	}
+	if opts.ExpectedPageVersion < 0 {
+		return nil, fmt.Errorf("%w: --expected-version must be >= 1 when set", domain.ErrUsage)
+	}
+	if opts.MaxBytes < 1 || opts.MaxBytes > confluenceSectionMaxBytes {
 		return nil, fmt.Errorf("%w: --max-bytes must be between 1 and %d", domain.ErrUsage, confluenceSectionMaxBytes)
 	}
+
 	parsed, err := s.loadStructuralConfluencePage(ctx, reference, opts.ExpectedPageVersion)
 	if err != nil {
 		return nil, err
 	}
+	selections := make([]confluenceSectionSelection, 0, len(opts.Selectors))
+	for _, selector := range opts.Selectors {
+		selection, selectionErr := selectConfluenceSection(parsed, selector)
+		if selectionErr != nil {
+			return nil, selectionErr
+		}
+		selections = append(selections, selection)
+	}
+
+	sections := make([]ConfluencePageSectionEntry, 0, len(selections))
+	remainingBytes := opts.MaxBytes
+	originalBytes, emittedBytes := 0, 0
+	allComplete, anyTruncated := true, false
+	for index, selection := range selections {
+		remainingSelectors := len(selections) - index
+		sectionMaxBytes := (remainingBytes + remainingSelectors - 1) / remainingSelectors
+		originalBytesForSection := confluenceSectionMarkdownBytes(selection.blocks)
+		bounded := boundedConfluenceSectionMarkdown(selection.blocks, sectionMaxBytes)
+		entry := ConfluencePageSectionEntry{
+			Heading: selection.heading.Title, Level: selection.heading.Level,
+			Path: selection.heading.Path, Occurrence: selection.heading.Occurrence,
+			Markdown:      bounded.markdown,
+			PartialReason: bounded.partialReason,
+			OriginalBytes: originalBytesForSection, EmittedBytes: len(bounded.markdown),
+		}
+		entry.Complete = entry.OriginalBytes == entry.EmittedBytes
+		entry.Truncated = !entry.Complete
+		sections = append(sections, entry)
+		remainingBytes -= entry.EmittedBytes
+		originalBytes += entry.OriginalBytes
+		emittedBytes += entry.EmittedBytes
+		allComplete = allComplete && entry.Complete
+		anyTruncated = anyTruncated || entry.Truncated
+	}
+	returnedCount := len(sections)
+	reconciled := returnedCount == len(opts.Selectors)
+	return &ConfluencePageSectionsResult{
+		SchemaVersion: ConfluenceStructuralSchemaVersion,
+		ID:            parsed.page.ID, PageTitle: parsed.page.Title, Space: parsed.page.SpaceKey, Version: parsed.page.Version,
+		PageVersionGated: opts.ExpectedPageVersion > 0,
+		RequestedCount:   len(opts.Selectors), ReturnedCount: returnedCount, Reconciled: reconciled,
+		Complete: reconciled && allComplete, Truncated: anyTruncated,
+		OriginalBytes: originalBytes, EmittedBytes: emittedBytes, MaxBytes: opts.MaxBytes,
+		Sections: sections,
+	}, nil
+}
+
+func selectConfluenceSection(parsed *confluenceStructuralPage, selector ConfluencePageSectionSelector) (confluenceSectionSelection, error) {
+	headingSelector := normalizeHeadingSelector(selector.Heading)
 	var matches []int
 	for i, heading := range parsed.headings {
 		if heading.normalized == headingSelector {
@@ -222,19 +356,19 @@ func (s *ConfluenceService) PageSection(ctx context.Context, reference string, o
 		}
 	}
 	if len(matches) == 0 {
-		return nil, fmt.Errorf("%w: Confluence heading %q was not found", domain.ErrNotFound, strings.TrimSpace(opts.Heading))
+		return confluenceSectionSelection{}, fmt.Errorf("%w: Confluence heading %q was not found", domain.ErrNotFound, strings.TrimSpace(selector.Heading))
 	}
 	// The typed selection error carries the machine-readable counts; the
 	// wrapping prose keeps the existing human-facing message byte for byte.
-	if opts.Occurrence == 0 && len(matches) > 1 {
-		return nil, fmt.Errorf("%w: Confluence heading %q occurs %d times; pass --occurrence 1..%d", &ConfluenceSectionSelectionError{Available: len(matches)}, strings.TrimSpace(opts.Heading), len(matches), len(matches))
+	if selector.Occurrence == 0 && len(matches) > 1 {
+		return confluenceSectionSelection{}, fmt.Errorf("%w: Confluence heading %q occurs %d times; pass --occurrence 1..%d", &ConfluenceSectionSelectionError{Available: len(matches)}, strings.TrimSpace(selector.Heading), len(matches), len(matches))
 	}
-	occurrence := opts.Occurrence
+	occurrence := selector.Occurrence
 	if occurrence == 0 {
 		occurrence = 1
 	}
 	if occurrence > len(matches) {
-		return nil, fmt.Errorf("%w: Confluence heading %q has %d occurrence(s), not %d", &ConfluenceSectionSelectionError{Requested: occurrence, Available: len(matches)}, strings.TrimSpace(opts.Heading), len(matches), occurrence)
+		return confluenceSectionSelection{}, fmt.Errorf("%w: Confluence heading %q has %d occurrence(s), not %d", &ConfluenceSectionSelectionError{Requested: occurrence, Available: len(matches)}, strings.TrimSpace(selector.Heading), len(matches), occurrence)
 	}
 	selectedHeadingIndex := matches[occurrence-1]
 	selected := parsed.headings[selectedHeadingIndex]
@@ -245,23 +379,8 @@ func (s *ConfluenceService) PageSection(ctx context.Context, reference string, o
 			break
 		}
 	}
-	selectedBlocks := parsed.blocks[selected.blockIndex:endBlock]
-	originalMarkdown := joinConfluenceSectionBlocks(selectedBlocks)
-	bounded := boundedConfluenceSectionMarkdown(selectedBlocks, maxBytes)
-	return &ConfluencePageSectionResult{
-		SchemaVersion: ConfluenceStructuralSchemaVersion,
-		ID:            parsed.page.ID, PageTitle: parsed.page.Title, Space: parsed.page.SpaceKey, Version: parsed.page.Version,
-		PageVersionGated: opts.ExpectedPageVersion > 0,
-		Heading:          selected.Title, Level: selected.Level, Path: selected.Path, Occurrence: occurrence,
-		Markdown: bounded.markdown,
-		Complete: bounded.partialReason == "", Truncated: bounded.partialReason != "",
-		PartialReason: bounded.partialReason,
-		// OriginalBytes stays the exact minimum max_bytes that can return this
-		// same rendering complete. A caller can therefore make one recovery
-		// attempt without content-derived guessing, then must still verify the
-		// returned version and completeness.
-		OriginalBytes: len(originalMarkdown), EmittedBytes: len(bounded.markdown),
-	}, nil
+	selected.Occurrence = occurrence
+	return confluenceSectionSelection{heading: selected, blocks: parsed.blocks[selected.blockIndex:endBlock]}, nil
 }
 
 func (s *ConfluenceService) loadStructuralConfluencePage(ctx context.Context, reference string, expectedVersion int) (*confluenceStructuralPage, error) {
@@ -333,17 +452,21 @@ func normalizeHeadingSelector(value string) string {
 	return strings.ToLower(strings.Join(strings.Fields(value), " "))
 }
 
-func joinConfluenceSectionBlocks(blocks []mirror.Block) string {
-	parts := make([]string, 0, len(blocks))
+func confluenceSectionMarkdownBytes(blocks []mirror.Block) int {
+	size, parts := 0, 0
 	for _, block := range blocks {
 		if text := strings.TrimSpace(block.MD); text != "" {
-			parts = append(parts, text)
+			if parts > 0 {
+				size += 2
+			}
+			size += len(text)
+			parts++
 		}
 	}
-	if len(parts) == 0 {
-		return ""
+	if parts > 0 {
+		size++
 	}
-	return strings.Join(parts, "\n\n") + "\n"
+	return size
 }
 
 // confluenceSectionBody is the internal result of one bounding pass. Carrying

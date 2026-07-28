@@ -212,6 +212,188 @@ func TestConfluencePageSectionRequiresDuplicateOccurrenceAndPreservesRendering(t
 	}
 }
 
+const sectionMultiTestCSF = `<h1>Alpha</h1><h2>Status</h2><p>alpha status</p>` +
+	`<h1>Beta</h1><h2>Status</h2><p>beta status</p>` +
+	`<h1>Tail</h1><p>tail body</p>`
+
+func TestConfluencePageSectionsUseOnePageReadAndPreserveRequestedOrder(t *testing.T) {
+	store := &driftingSectionStore{pages: []*domain.Resource{{
+		ID: "42", Title: "Example", SpaceKey: "ENG", Version: 7,
+		Body: []byte(sectionMultiTestCSF), BodyPresent: true,
+	}}}
+	result, err := (&ConfluenceService{store: store}).PageSections(context.Background(), "42", ConfluencePageSectionsOpts{
+		Selectors: []ConfluencePageSectionSelector{
+			{Heading: "Status", Occurrence: 2},
+			{Heading: "Tail"},
+			{Heading: "Status", Occurrence: 1},
+		},
+		MaxBytes: 1 << 10, ExpectedPageVersion: 7,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.calls != 1 {
+		t.Fatalf("page reads=%d want 1", store.calls)
+	}
+	if result.RequestedCount != 3 || result.ReturnedCount != 3 || !result.Reconciled || !result.Complete || result.Truncated ||
+		!result.PageVersionGated || result.Version != 7 || result.EmittedBytes > result.MaxBytes {
+		t.Fatalf("result=%+v", result)
+	}
+	for _, section := range result.Sections {
+		if section.Complete != (section.OriginalBytes == section.EmittedBytes) || section.Truncated == section.Complete {
+			t.Fatalf("section accounting is inconsistent: %+v", section)
+		}
+	}
+	if got := []string{result.Sections[0].Heading, result.Sections[1].Heading, result.Sections[2].Heading}; strings.Join(got, ",") != "Status,Tail,Status" {
+		t.Fatalf("caller order lost: %v", got)
+	}
+	if result.Sections[0].Occurrence != 2 || strings.Join(result.Sections[0].Path, "/") != "Beta/Status" ||
+		result.Sections[2].Occurrence != 1 || strings.Join(result.Sections[2].Path, "/") != "Alpha/Status" {
+		t.Fatalf("duplicate selection identity lost: %+v", result.Sections)
+	}
+	if !strings.Contains(result.Sections[0].Markdown, "beta status") ||
+		!strings.Contains(result.Sections[2].Markdown, "alpha status") {
+		t.Fatalf("duplicate sections crossed: %+v", result.Sections)
+	}
+}
+
+func TestConfluencePageSectionsStaleVersionReturnsNoContentAfterOneRead(t *testing.T) {
+	store := &driftingSectionStore{pages: []*domain.Resource{{
+		ID: "42", Version: 8, Body: []byte(sectionMultiTestCSF), BodyPresent: true,
+	}}}
+	result, err := (&ConfluenceService{store: store}).PageSections(context.Background(), "42", ConfluencePageSectionsOpts{
+		Selectors: []ConfluencePageSectionSelector{{Heading: "Alpha"}, {Heading: "Tail"}},
+		MaxBytes:  1 << 10, ExpectedPageVersion: 7,
+	})
+	var mismatch *ConfluencePageVersionMismatchError
+	if !errors.As(err, &mismatch) || mismatch.Expected != 7 || mismatch.Current != 8 {
+		t.Fatalf("err=%v mismatch=%+v", err, mismatch)
+	}
+	if result != nil || store.calls != 1 {
+		t.Fatalf("result=%+v page reads=%d, want nil and one", result, store.calls)
+	}
+}
+
+func TestConfluencePageSectionsResolveEverySelectorBeforeReturning(t *testing.T) {
+	store := &driftingSectionStore{pages: []*domain.Resource{{
+		ID: "42", Version: 7, Body: []byte(sectionMultiTestCSF), BodyPresent: true,
+	}}}
+	result, err := (&ConfluenceService{store: store}).PageSections(context.Background(), "42", ConfluencePageSectionsOpts{
+		Selectors: []ConfluencePageSectionSelector{{Heading: "Alpha"}, {Heading: "Missing"}},
+		MaxBytes:  1 << 10,
+	})
+	if result != nil || !errors.Is(err, domain.ErrNotFound) || store.calls != 1 {
+		t.Fatalf("result=%+v err=%v page reads=%d", result, err, store.calls)
+	}
+}
+
+func TestConfluencePageSectionsAllocateAggregateBytesInCallerOrder(t *testing.T) {
+	store := func() *sectionStore {
+		return &sectionStore{page: &domain.Resource{
+			ID: "42", Version: 1, Body: []byte(`<h1>A</h1><h1>B</h1><h1>CCCC</h1>`), BodyPresent: true,
+		}}
+	}
+	service := &ConfluenceService{store: store()}
+	forward, err := service.PageSections(context.Background(), "42", ConfluencePageSectionsOpts{
+		Selectors: []ConfluencePageSectionSelector{{Heading: "A"}, {Heading: "B"}, {Heading: "CCCC"}},
+		MaxBytes:  15,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !forward.Complete || forward.Truncated || forward.OriginalBytes != 15 || forward.EmittedBytes != 15 {
+		t.Fatalf("unused capacity did not carry forward: %+v", forward)
+	}
+	reversed, err := (&ConfluenceService{store: store()}).PageSections(context.Background(), "42", ConfluencePageSectionsOpts{
+		Selectors: []ConfluencePageSectionSelector{{Heading: "CCCC"}, {Heading: "B"}, {Heading: "A"}},
+		MaxBytes:  15,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reversed.Complete || !reversed.Truncated || reversed.Sections[0].Complete ||
+		reversed.Sections[0].PartialReason != confluencePartialMaxBytes || reversed.EmittedBytes > reversed.MaxBytes {
+		t.Fatalf("caller-order allocation not enforced: %+v", reversed)
+	}
+	again, err := (&ConfluenceService{store: store()}).PageSections(context.Background(), "42", ConfluencePageSectionsOpts{
+		Selectors: []ConfluencePageSectionSelector{{Heading: "CCCC"}, {Heading: "B"}, {Heading: "A"}},
+		MaxBytes:  15,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, _ := json.Marshal(reversed)
+	againEncoded, _ := json.Marshal(again)
+	if string(encoded) != string(againEncoded) {
+		t.Fatalf("allocation is not deterministic:\n%s\n%s", encoded, againEncoded)
+	}
+}
+
+func TestConfluencePageSectionsValidateBeforeBackendWork(t *testing.T) {
+	tooMany := make([]ConfluencePageSectionSelector, confluenceSectionSelectorCap+1)
+	for index := range tooMany {
+		tooMany[index].Heading = "A"
+	}
+	for _, opts := range []ConfluencePageSectionsOpts{
+		{},
+		{Selectors: []ConfluencePageSectionSelector{{Heading: " "}}, MaxBytes: 10},
+		{Selectors: []ConfluencePageSectionSelector{{Heading: "A", Occurrence: -1}}, MaxBytes: 10},
+		{Selectors: []ConfluencePageSectionSelector{{Heading: "A"}}, MaxBytes: 0},
+		{Selectors: []ConfluencePageSectionSelector{{Heading: "A"}}, MaxBytes: confluenceSectionMaxBytes + 1},
+		{Selectors: []ConfluencePageSectionSelector{{Heading: "A"}}, MaxBytes: 10, ExpectedPageVersion: -1},
+		{Selectors: tooMany, MaxBytes: 10},
+	} {
+		store := &driftingSectionStore{pages: []*domain.Resource{{ID: "42", Version: 1, BodyPresent: true}}}
+		if result, err := (&ConfluenceService{store: store}).PageSections(context.Background(), "42", opts); result != nil || !errors.Is(err, domain.ErrUsage) {
+			t.Fatalf("opts=%+v result=%+v err=%v", opts, result, err)
+		}
+		if store.calls != 0 {
+			t.Fatalf("opts=%+v reached backend %d time(s)", opts, store.calls)
+		}
+	}
+}
+
+func TestConfluencePageSectionEqualsOneSelectorPageSections(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		opts ConfluencePageSectionOpts
+	}{
+		{name: "default byte bound", opts: ConfluencePageSectionOpts{Heading: "Overview"}},
+		{name: "explicit bound and gate", opts: ConfluencePageSectionOpts{Heading: "Delivery Notes", Occurrence: 2, MaxBytes: 80, ExpectedPageVersion: 3}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			single, err := sectionService().PageSection(context.Background(), "42", test.opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			maxBytes := test.opts.MaxBytes
+			if maxBytes == 0 {
+				maxBytes = confluenceSectionDefaultBytes
+			}
+			multi, err := sectionService().PageSections(context.Background(), "42", ConfluencePageSectionsOpts{
+				Selectors: []ConfluencePageSectionSelector{{Heading: test.opts.Heading, Occurrence: test.opts.Occurrence}},
+				MaxBytes:  maxBytes, ExpectedPageVersion: test.opts.ExpectedPageVersion,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry := multi.Sections[0]
+			want := &ConfluencePageSectionResult{
+				SchemaVersion: multi.SchemaVersion, ID: multi.ID, PageTitle: multi.PageTitle, Space: multi.Space, Version: multi.Version,
+				PageVersionGated: multi.PageVersionGated,
+				Heading:          entry.Heading, Level: entry.Level, Path: entry.Path, Occurrence: entry.Occurrence,
+				Markdown: entry.Markdown, Complete: entry.Complete, Truncated: entry.Truncated, PartialReason: entry.PartialReason,
+				OriginalBytes: entry.OriginalBytes, EmittedBytes: entry.EmittedBytes,
+			}
+			gotJSON, _ := json.Marshal(single)
+			wantJSON, _ := json.Marshal(want)
+			if string(gotJSON) != string(wantJSON) {
+				t.Fatalf("single=%s\nmulti projection=%s", gotJSON, wantJSON)
+			}
+		})
+	}
+}
+
 func TestConfluencePageSectionTruncatesAtBlockBoundary(t *testing.T) {
 	result, err := sectionService().PageSection(context.Background(), "42", ConfluencePageSectionOpts{Heading: "Overview", MaxBytes: 80})
 	if err != nil {
@@ -248,9 +430,13 @@ func TestConfluencePageSectionTruncatesAtBlockBoundary(t *testing.T) {
 }
 
 func TestBoundedConfluenceSectionMarkdownNamesItsExactLimiter(t *testing.T) {
-	fits := boundedConfluenceSectionMarkdown([]mirror.Block{{MD: "first"}, {MD: "second"}}, 1<<10)
+	blocks := []mirror.Block{{MD: " first "}, {MD: " "}, {MD: "second"}}
+	fits := boundedConfluenceSectionMarkdown(blocks, 1<<10)
 	if fits.partialReason != "" || fits.markdown != "first\n\nsecond\n" {
 		t.Fatalf("complete bound=%+v", fits)
+	}
+	if got := confluenceSectionMarkdownBytes(blocks); got != len(fits.markdown) {
+		t.Fatalf("counted bytes=%d rendered bytes=%d", got, len(fits.markdown))
 	}
 	// A whole rendered block that does not fit is the recoverable byte bound.
 	byteBound := boundedConfluenceSectionMarkdown([]mirror.Block{{MD: "first"}, {MD: strings.Repeat("x", 128)}}, 64)

@@ -69,6 +69,12 @@ func TestCapabilityFamiliesAreGenericAndPrivacySafe(t *testing.T) {
 	if family, ok := CapabilityFamilyForMCP("confluence_page_meta"); !ok || family != "confluence.page.meta" {
 		t.Fatalf("MCP Confluence page metadata family=%q ok=%t", family, ok)
 	}
+	if family, ok := CapabilityFamilyForMCP("confluence_page_sections"); !ok || family != "confluence.page.sections" {
+		t.Fatalf("MCP Confluence multi-section family=%q ok=%t", family, ok)
+	}
+	if family, ok := CapabilityFamilyForCLI([]string{"conf", "page", "sections", private, "--heading", "A"}); !ok || family != "confluence.page.sections" {
+		t.Fatalf("CLI Confluence multi-section family=%q ok=%t", family, ok)
+	}
 	if family, ok := CapabilityFamilyForMCP("confluence_table_summary"); !ok || family != "confluence.table.summary" {
 		t.Fatalf("MCP Confluence table summary family=%q ok=%t", family, ok)
 	}

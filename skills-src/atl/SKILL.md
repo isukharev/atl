@@ -72,7 +72,7 @@ preflight before identity-bearing `jira status` or issue-level repair.
 When the installed plugin exposes `atl` MCP tools, prefer them for transient,
 bounded evidence reads: typed arguments remove shell construction and the
 server registers no mutation or arbitrary-filesystem tool. Load
-[mcp.md](reference/mcp.md) for its exact nineteen-tool route and CLI fallback
+[mcp.md](reference/mcp.md) for its exact twenty-tool route and CLI fallback
 boundary. Use bounded Structure metadata/view through MCP. For content-free
 health counts of an existing durable mirror, use the no-argument mirror snapshot
 tool only when the owner has configured `ATL_MIRROR_ROOT`. Continue using the
@@ -171,7 +171,7 @@ the table index was selected. Re-read the content-free table summary, select
 the table again from that revision, and extract it once with the new exact
 `expected_page_version`; do not retry the old positional selection against the
 new revision.
-For `confluence_page_section`, `check_failed` or `not_found` /
+For `confluence_page_section` or `confluence_page_sections`, `check_failed` or `not_found` /
 `outline_then_select_section` means the occurrence selection is ambiguous or
 stale. Refresh the content-free outline, choose the exact heading occurrence,
 then read that section once; do not report the page or heading as missing.

@@ -48,6 +48,7 @@ conf page open
 conf page outline
 conf page resolve
 conf page section
+conf page sections
 conf page title set
 conf page view
 conf plan apply

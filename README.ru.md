@@ -53,7 +53,7 @@ Help и shell completion остаются доступны в read-only режи
   и [SECURITY.md](SECURITY.md).
 - **Удобен для скриптов** — JSON в stdout, логи и ошибки в stderr, без интерактивных
   запросов, чёткие коды выхода.
-- **Типизированный read-only MCP** — `atl mcp serve` предоставляет агентам девятнадцать
+- **Типизированный read-only MCP** — `atl mcp serve` предоставляет агентам двадцать
   ограниченных Jira/Confluence evidence-tools без записи, shell, raw REST и произвольных файлов;
   два из них офлайн возвращают content-free health snapshot заданного владельцем зеркала.
 - **Один статический бинарник** — `CGO_ENABLED=0`, запускается везде, где работает Go 1.26.
@@ -496,6 +496,8 @@ atl jira export --keys PROJ-1,PROJ-2 --fields "Delivery Notes" --out - | jq -s '
 atl conf page resolve 'https://confluence.example.test/spaces/ENG/pages/42/Page'
 atl conf page outline 42 # затем привяжите секцию к точной версии из outline
 atl conf page section 42 --heading 'Delivery Notes' --expected-version 7 -o text
+atl conf page sections 42 --heading 'Summary' --heading 'Risks' \
+  --occurrence 0 --occurrence 0 --expected-version 7 -o text # одно чтение страницы
 # exit 8, если страница изменилась; опускайте --expected-version только для заголовка,
 # заданного вне предыдущего чтения (page_version_gated:false — ничего не сверяет)
 atl jira epic digest PROJ-1 --quarter 2026-Q2 --status-field 'Delivery Notes' --projection compact

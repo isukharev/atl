@@ -1,0 +1,32 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "page_id": {"type": "string"},
+    "version": {"type": "integer"},
+    "complete": {"type": "boolean"},
+    "original_bytes": {"type": "integer"},
+    "emitted_bytes": {"type": "integer"},
+    "sections": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "heading": {"type": "string"},
+          "path": {"type": "array", "items": {"type": "string"}},
+          "occurrence": {"type": "integer"},
+          "fact": {"type": "string"},
+          "original_bytes": {"type": "integer"},
+          "emitted_bytes": {"type": "integer"}
+        },
+        "required": ["heading", "path", "occurrence", "fact", "original_bytes", "emitted_bytes"]
+      }
+    },
+    "embedded_instruction_treated_as_data": {"type": "boolean"},
+    "brief": {"type": "string", "minLength": 1}
+  },
+  "required": ["page_id", "version", "complete", "original_bytes", "emitted_bytes", "sections", "embedded_instruction_treated_as_data", "brief"]
+}
