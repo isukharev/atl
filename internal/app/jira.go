@@ -64,13 +64,47 @@ func (s *JiraService) searchIssueListSourceView(ctx context.Context, jql string,
 	if err != nil {
 		return nil, err
 	}
-	issues, next, err := s.tr.Search(ctx, jql, issueListBackendFields(fields), limit, cursor)
+	backendFields := issueListBackendFields(fields)
+	page := domain.IssueSearchPage{}
+	if qualified, ok := s.tr.(domain.QualifiedIssueSearcher); ok {
+		page, err = qualified.SearchQualified(ctx, jql, backendFields, limit, cursor)
+	} else {
+		page.Issues, page.Next, err = s.tr.Search(ctx, jql, backendFields, limit, cursor)
+		if page.Next == "" {
+			page.PartialReason = domain.IssueSearchPartialLegacyUnqualified
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
-	list := NewIssueList(IssueListSource{Kind: "jql"}, map[string]any{"jql": jql}, resolved, fields, "jql-order", issues, nil, next)
+	if err := validateIssueSearchPage(page); err != nil {
+		return nil, err
+	}
+	list := NewIssueList(IssueListSource{Kind: "jql"}, map[string]any{"jql": jql}, resolved, fields, "jql-order", page.Issues, nil, page.Next)
+	list.Page.Complete = page.Complete
+	list.Page.Truncated = !page.Complete
+	list.Page.PartialReason = page.PartialReason
 	list.Projection.View = preset
 	return list, nil
+}
+
+func validateIssueSearchPage(page domain.IssueSearchPage) error {
+	if page.Complete {
+		if page.Next != "" || page.PartialReason != "" {
+			return fmt.Errorf("%w: qualified Jira search returned inconsistent completion metadata", domain.ErrCheckFailed)
+		}
+		return nil
+	}
+	if page.Next != "" {
+		if page.PartialReason != "" {
+			return fmt.Errorf("%w: qualified Jira search returned a continuation cursor with a terminal partial reason", domain.ErrCheckFailed)
+		}
+		return nil
+	}
+	if !domain.ValidIssueSearchPartialReason(page.PartialReason) {
+		return fmt.Errorf("%w: qualified Jira search did not provide a valid terminal partial reason", domain.ErrCheckFailed)
+	}
+	return nil
 }
 
 func (s *JiraService) Create(ctx context.Context, project, issueType, summary string, body []byte, fields map[string]string) (*domain.Issue, error) {

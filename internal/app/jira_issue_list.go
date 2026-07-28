@@ -30,10 +30,11 @@ type IssueListRow struct {
 }
 
 type IssueListPage struct {
-	Count      int     `json:"count"`
-	Complete   bool    `json:"complete"`
-	Truncated  bool    `json:"truncated"`
-	NextCursor *string `json:"next_cursor"`
+	Count         int     `json:"count"`
+	Complete      bool    `json:"complete"`
+	Truncated     bool    `json:"truncated"`
+	PartialReason string  `json:"partial_reason,omitempty"`
+	NextCursor    *string `json:"next_cursor"`
 }
 
 type IssueList struct {

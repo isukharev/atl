@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	neturl "net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -508,6 +510,43 @@ func TestSearchEmptyResultNoCursor(t *testing.T) {
 	}
 	if next != "" {
 		t.Errorf("next = %q, want empty (no progress guard)", next)
+	}
+}
+
+func TestSearchQualifiedDistinguishesExhaustionContinuationAndStall(t *testing.T) {
+	tests := []struct {
+		name           string
+		body           string
+		cursor         string
+		wantComplete   bool
+		wantNext       string
+		wantReason     string
+		wantIssueCount int
+	}{
+		{name: "exhausted", body: searchPage(t, 0, 50, 1, "X-1"), wantComplete: true, wantIssueCount: 1},
+		{name: "continuation", body: searchPage(t, 0, 50, 2, "X-1"), wantNext: "1", wantIssueCount: 1},
+		{name: "stalled", body: searchPage(t, 0, 50, 2), wantReason: domain.IssueSearchPartialPaginationStalled},
+		{name: "wrong offset", body: searchPage(t, 0, 50, 2, "X-1"), cursor: "1", wantReason: domain.IssueSearchPartialPaginationUnqualified, wantIssueCount: 1},
+		{name: "missing metadata", body: `{"issues":[]}`, wantReason: domain.IssueSearchPartialPaginationUnqualified},
+		{name: "overflow-sized offset", body: searchPage(t, math.MaxInt, 1, math.MaxInt, "X-1"), cursor: strconv.Itoa(math.MaxInt), wantReason: domain.IssueSearchPartialPaginationUnqualified, wantIssueCount: 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			defer srv.Close()
+
+			page, err := newTestJira(srv).SearchQualified(context.Background(), "x", nil, 50, tc.cursor)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if page.Complete != tc.wantComplete || page.Next != tc.wantNext ||
+				page.PartialReason != tc.wantReason || len(page.Issues) != tc.wantIssueCount {
+				t.Fatalf("page=%+v", page)
+			}
+		})
 	}
 }
 

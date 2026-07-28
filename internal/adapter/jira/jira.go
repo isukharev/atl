@@ -40,6 +40,7 @@ func NewWithScheduler(base, token, version string, scheduler *httpx.Scheduler) *
 }
 
 var _ domain.Tracker = (*Jira)(nil)
+var _ domain.QualifiedIssueSearcher = (*Jira)(nil)
 var _ domain.CompleteChangelogReader = (*Jira)(nil)
 var _ domain.JiraTimeSemanticsReader = (*Jira)(nil)
 var _ domain.Verifier = (*Jira)(nil)
@@ -97,19 +98,27 @@ func parseCursor(cursor string) (int, error) {
 
 // Search runs JQL. cursor is the startAt offset; returns the next offset or "".
 func (j *Jira) Search(ctx context.Context, jql string, fields []string, limit int, cursor string) ([]domain.Issue, string, error) {
-	return j.search(ctx, jql, fields, limit, cursor, false)
+	page, err := j.searchPage(ctx, jql, fields, limit, cursor, false)
+	return page.Issues, page.Next, err
+}
+
+// SearchQualified preserves Jira's pagination coordinates so evidence-facing
+// callers can distinguish proven exhaustion from an empty stalled page.
+func (j *Jira) SearchQualified(ctx context.Context, jql string, fields []string, limit int, cursor string) (domain.IssueSearchPage, error) {
+	return j.searchPage(ctx, jql, fields, limit, cursor, false)
 }
 
 // SearchLenient is reserved for generated identity joins. Ordinary Search
 // keeps Jira's strict semantic validation for user-authored JQL.
 func (j *Jira) SearchLenient(ctx context.Context, jql string, fields []string, limit int, cursor string) ([]domain.Issue, string, error) {
-	return j.search(ctx, jql, fields, limit, cursor, true)
+	page, err := j.searchPage(ctx, jql, fields, limit, cursor, true)
+	return page.Issues, page.Next, err
 }
 
-func (j *Jira) search(ctx context.Context, jql string, fields []string, limit int, cursor string, lenient bool) ([]domain.Issue, string, error) {
+func (j *Jira) searchPage(ctx context.Context, jql string, fields []string, limit int, cursor string, lenient bool) (domain.IssueSearchPage, error) {
 	startAt, err := parseCursor(cursor)
 	if err != nil {
-		return nil, "", err
+		return domain.IssueSearchPage{}, err
 	}
 	if limit <= 0 || limit > jiraSearchMaxResults {
 		limit = jiraSearchDefaultMaxResults
@@ -128,22 +137,43 @@ func (j *Jira) search(ctx context.Context, jql string, fields []string, limit in
 	}
 	var resp struct {
 		Issues     []issueDTO `json:"issues"`
-		StartAt    int        `json:"startAt"`
-		MaxResults int        `json:"maxResults"`
-		Total      int        `json:"total"`
+		StartAt    *int       `json:"startAt"`
+		MaxResults *int       `json:"maxResults"`
+		Total      *int       `json:"total"`
 	}
 	if err := j.c.GetJSON(ctx, "/rest/api/2/search?"+q.Encode(), &resp); err != nil {
-		return nil, "", err
+		return domain.IssueSearchPage{}, err
 	}
 	out := make([]domain.Issue, 0, len(resp.Issues))
 	for _, d := range resp.Issues {
 		out = append(out, *j.mapIssue(d))
 	}
-	next := ""
-	if startAt+len(resp.Issues) < resp.Total && len(resp.Issues) > 0 {
-		next = strconv.Itoa(startAt + len(resp.Issues))
+	page := domain.IssueSearchPage{Issues: out}
+	if resp.StartAt == nil || resp.MaxResults == nil || resp.Total == nil ||
+		*resp.MaxResults <= 0 || len(resp.Issues) > *resp.MaxResults {
+		page.PartialReason = domain.IssueSearchPartialPaginationUnqualified
+		return page, nil
 	}
-	return out, next, nil
+	if *resp.StartAt != startAt || *resp.Total < 0 || startAt > *resp.Total {
+		page.PartialReason = domain.IssueSearchPartialPaginationUnqualified
+		return page, nil
+	}
+	remaining := *resp.Total - startAt
+	if len(resp.Issues) > remaining {
+		page.PartialReason = domain.IssueSearchPartialPaginationUnqualified
+		return page, nil
+	}
+	end := startAt + len(resp.Issues)
+	if end >= *resp.Total {
+		page.Complete = true
+		return page, nil
+	}
+	if len(resp.Issues) == 0 {
+		page.PartialReason = domain.IssueSearchPartialPaginationStalled
+		return page, nil
+	}
+	page.Next = strconv.Itoa(end)
+	return page, nil
 }
 
 // Create creates an issue. Each extra field value that parses as valid JSON is

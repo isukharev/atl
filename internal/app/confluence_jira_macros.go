@@ -149,7 +149,8 @@ func collectConfluenceJiraMacro(ctx context.Context, service *JiraService, jql s
 		}
 		total += len(pageRows)
 		if page.Page.NextCursor == nil || len(pageRows) == 0 {
-			aggregate.Page = IssueListPage{Count: len(aggregate.Rows), Complete: true, Truncated: false, NextCursor: nil}
+			aggregate.Page = page.Page
+			aggregate.Page.Count = len(aggregate.Rows)
 			return aggregate, nil
 		}
 		cursor = *page.Page.NextCursor

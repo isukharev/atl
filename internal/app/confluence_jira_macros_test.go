@@ -15,6 +15,57 @@ import (
 
 const jiraQueryMacroCSF = `<p>Plan</p><p><ac:structured-macro ac:name="jira"><ac:parameter ac:name="jqlQuery">project = PROJ</ac:parameter><ac:parameter ac:name="columns">key,summary,type,status</ac:parameter><ac:parameter ac:name="maximumIssues">20</ac:parameter></ac:structured-macro></p>`
 
+type macroQualifiedTracker struct {
+	*recordingTracker
+	pages   map[string]domain.IssueSearchPage
+	cursors []string
+}
+
+func (t *macroQualifiedTracker) SearchQualified(_ context.Context, _ string, _ []string, _ int, cursor string) (domain.IssueSearchPage, error) {
+	t.cursors = append(t.cursors, cursor)
+	return t.pages[cursor], nil
+}
+
+func TestCollectConfluenceJiraMacroPreservesQualifiedTerminalPage(t *testing.T) {
+	t.Run("stalled terminal page remains incomplete", func(t *testing.T) {
+		tracker := &macroQualifiedTracker{
+			recordingTracker: &recordingTracker{},
+			pages: map[string]domain.IssueSearchPage{
+				"":  {Issues: []domain.Issue{{Key: "PROJ-1"}}, Next: "1"},
+				"1": {Issues: []domain.Issue{}, PartialReason: domain.IssueSearchPartialPaginationStalled},
+			},
+		}
+		list, err := collectConfluenceJiraMacro(context.Background(), &JiraService{tr: tracker, cfg: &config.Config{}},
+			"project = PROJ", []string{"key"}, "", 20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if list.Page.Complete || !list.Page.Truncated || list.Page.Count != 1 || list.Page.NextCursor != nil ||
+			list.Page.PartialReason != domain.IssueSearchPartialPaginationStalled || len(tracker.cursors) != 2 {
+			t.Fatalf("page=%+v", list.Page)
+		}
+	})
+
+	t.Run("proven terminal page completes aggregation", func(t *testing.T) {
+		tracker := &macroQualifiedTracker{
+			recordingTracker: &recordingTracker{},
+			pages: map[string]domain.IssueSearchPage{
+				"":  {Issues: []domain.Issue{{Key: "PROJ-1"}}, Next: "1"},
+				"1": {Issues: []domain.Issue{{Key: "PROJ-2"}}, Complete: true},
+			},
+		}
+		list, err := collectConfluenceJiraMacro(context.Background(), &JiraService{tr: tracker, cfg: &config.Config{}},
+			"project = PROJ", []string{"key"}, "", 20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !list.Page.Complete || list.Page.Truncated || list.Page.Count != 2 || list.Page.NextCursor != nil ||
+			list.Page.PartialReason != "" || len(list.Rows) != 2 || len(tracker.cursors) != 2 {
+			t.Fatalf("list=%+v cursors=%v", list, tracker.cursors)
+		}
+	})
+}
+
 func TestConfluencePageViewEnrichesJiraMacroWithoutPerIssueReads(t *testing.T) {
 	tracker := &recordingTracker{issues: []domain.Issue{{ID: "10001", Key: "PROJ-1", Summary: "First", Type: "Story", Status: "Open", Fields: map[string]any{}}}}
 	service := &ConfluenceService{

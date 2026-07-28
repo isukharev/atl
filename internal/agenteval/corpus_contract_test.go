@@ -2007,44 +2007,9 @@ func containsViolation(violations []Violation, code, subject string) bool {
 	return false
 }
 
-// corpusOutlineDerivedSections counts the confluence_page_section expectations
-// whose page was read by a confluence_page_outline call earlier in the same
-// exact route, and reports the references among them that carry no positive
-// integer expected_page_version. Occurrence and structural path are
-// positional, so an outline-derived section read that is not bound to the
-// observed revision resolves that selection against a page body the route
-// never saw.
-func corpusOutlineDerivedSections(invocations []MCPInvocation) (derived int, ungated []string) {
-	outlined := map[string]bool{}
-	for _, invocation := range invocations {
-		var arguments map[string]any
-		if err := json.Unmarshal(invocation.Arguments, &arguments); err != nil {
-			continue
-		}
-		reference, _ := arguments["reference"].(string)
-		switch invocation.Tool {
-		case "confluence_page_outline":
-			outlined[reference] = true
-		case "confluence_page_section":
-			if !outlined[reference] {
-				continue
-			}
-			derived++
-			version, ok := arguments["expected_page_version"].(float64)
-			if !ok || version < 1 || version != math.Trunc(version) {
-				ungated = append(ungated, reference)
-			}
-		}
-	}
-	return derived, ungated
-}
-
 // TestCorpusExactRoutesBindOutlineDerivedSectionsToPageVersions keeps the
-// strict exact-invocation oracles from accepting the older ungated section
-// read. Both exact kinds are covered: an order-insensitive route still binds
-// every argument, so it carries the same page-version obligation. Only
-// mcp_route_one_of is outside the invariant, because it binds a set of accepted
-// alternatives rather than one exact call list.
+// corpus from accepting an ungated section read in either an exact route or
+// any route-choice alternative.
 func TestCorpusExactRoutesBindOutlineDerivedSectionsToPageVersions(t *testing.T) {
 	outline, outlineOK := newMCPInvocation("confluence_page_outline", map[string]any{"reference": "4242"})
 	gated, gatedOK := newMCPInvocation("confluence_page_section", map[string]any{
@@ -2059,7 +2024,13 @@ func TestCorpusExactRoutesBindOutlineDerivedSectionsToPageVersions(t *testing.T)
 	fixed, fixedOK := newMCPInvocation("confluence_page_section", map[string]any{
 		"reference": "7777", "heading": "Evidence register", "occurrence": 1,
 	})
-	if !outlineOK || !gatedOK || !ungatedOK || !zeroOK || !fixedOK {
+	aliasSingular, aliasSingularOK := newMCPInvocation("confluence_page_section", map[string]any{
+		"reference": "https://docs.example.test/wiki/spaces/ENG/pages/4242/Decision", "heading": "Decision", "occurrence": 2,
+	})
+	aliasPlural, aliasPluralOK := newMCPInvocation("confluence_page_sections", map[string]any{
+		"reference": "/wiki/pages/viewpage.action?pageId=4242", "selectors": []any{map[string]any{"heading": "Decision", "occurrence": 2}},
+	})
+	if !outlineOK || !gatedOK || !ungatedOK || !zeroOK || !fixedOK || !aliasSingularOK || !aliasPluralOK {
 		t.Fatal("invalid synthetic invocation fixture")
 	}
 	for name, test := range map[string]struct {
@@ -2071,12 +2042,76 @@ func TestCorpusExactRoutesBindOutlineDerivedSectionsToPageVersions(t *testing.T)
 		"externally fixed":        {invocations: []MCPInvocation{outline, fixed}},
 		"outline-derived ungated": {invocations: []MCPInvocation{outline, ungated}, wantDerived: 1, wantUngated: []string{"4242"}},
 		"outline-derived zero":    {invocations: []MCPInvocation{outline, zeroGate}, wantDerived: 1, wantUngated: []string{"4242"}},
+		"singular direct alias":   {invocations: []MCPInvocation{outline, aliasSingular}, wantDerived: 1, wantUngated: []string{"https://docs.example.test/wiki/spaces/ENG/pages/4242/Decision"}},
+		"plural direct alias":     {invocations: []MCPInvocation{outline, aliasPlural}, wantDerived: 1, wantUngated: []string{"/wiki/pages/viewpage.action?pageId=4242"}},
 	} {
 		derived, ungated := corpusOutlineDerivedSections(test.invocations)
 		if derived != test.wantDerived || !slices.Equal(ungated, test.wantUngated) {
 			t.Fatalf("%s: derived=%d ungated=%v want derived=%d ungated=%v",
 				name, derived, ungated, test.wantDerived, test.wantUngated)
 		}
+	}
+
+	safeAlternative := RunSpec{Checks: []RunCheck{{
+		Kind: "mcp_route_one_of",
+		Expected: json.RawMessage(`[
+			{"http_methods":{"GET":2},"invocations":[
+				{"tool":"confluence_page_outline","arguments":{"reference":"4242"}},
+				{"tool":"confluence_page_section","arguments":{"reference":"4242","expected_page_version":3,"heading":"Decision","occurrence":2}}
+			]},
+			{"http_methods":{"GET":2},"invocations":[
+				{"tool":"confluence_page_outline","arguments":{"reference":"7777"}},
+				{"tool":"confluence_page_section","arguments":{"reference":"7777","expected_page_version":8,"heading":"Evidence register","occurrence":1}}
+			]}
+		]`),
+	}}}
+	if err := validateCorpusOutlineDerivedSectionBindings(safeAlternative); err != nil {
+		t.Fatalf("safe route alternatives rejected: %v", err)
+	}
+	unsafeAlternative := safeAlternative
+	unsafeAlternative.Checks = slices.Clone(safeAlternative.Checks)
+	unsafeAlternative.Checks[0].Expected = json.RawMessage(`[
+		{"http_methods":{"GET":2},"invocations":[
+			{"tool":"confluence_page_outline","arguments":{"reference":"4242"}},
+			{"tool":"confluence_page_section","arguments":{"reference":"4242","expected_page_version":3,"heading":"Decision","occurrence":2}}
+		]},
+		{"http_methods":{"GET":2},"invocations":[
+			{"tool":"confluence_page_outline","arguments":{"reference":"7777"}},
+			{"tool":"confluence_page_section","arguments":{"reference":"7777","heading":"Evidence register","occurrence":1}}
+		]}
+	]`)
+	if err := validateCorpusOutlineDerivedSectionBindings(unsafeAlternative); err == nil {
+		t.Fatal("unsafe route alternative passed corpus version-binding validation")
+	}
+	unsafePluralAlias := RunSpec{Checks: []RunCheck{{
+		Kind: "mcp_invocations_equal",
+		Expected: json.RawMessage(`[
+			{"tool":"confluence_page_outline","arguments":{"reference":"4242"}},
+			{"tool":"confluence_page_sections","arguments":{"reference":"/wiki/rest/api/content/4242","selectors":[{"heading":"Decision","occurrence":2}]}}
+		]`),
+	}}}
+	if err := validateCorpusOutlineDerivedSectionBindings(unsafePluralAlias); err == nil {
+		t.Fatal("ungated plural direct-reference alias passed corpus version-binding validation")
+	}
+	dotSegmentAlias := RunSpec{Checks: []RunCheck{{
+		Kind: "mcp_invocations_equal",
+		Expected: json.RawMessage(`[
+			{"tool":"confluence_page_outline","arguments":{"reference":"42"}},
+			{"tool":"confluence_page_section","arguments":{"reference":"/wiki/spaces/ENG/pages/99/../42/Page","heading":"Decision","occurrence":1}}
+		]`),
+	}}}
+	if err := validateCorpusOutlineDerivedSectionBindings(dotSegmentAlias); err == nil {
+		t.Fatal("ungated dot-segment direct-reference alias passed corpus version-binding validation")
+	}
+	externallyFixed := RunSpec{Checks: []RunCheck{{
+		Kind: "mcp_invocations_equal",
+		Expected: json.RawMessage(`[
+			{"tool":"confluence_page_outline","arguments":{"reference":"4242"}},
+			{"tool":"confluence_page_sections","arguments":{"reference":"https://docs.example.test/wiki/spaces/ENG/pages/7777/Evidence","selectors":[{"heading":"Evidence","occurrence":1}]}}
+		]`),
+	}}}
+	if err := validateCorpusOutlineDerivedSectionBindings(externallyFixed); err != nil {
+		t.Fatalf("externally fixed different page rejected: %v", err)
 	}
 
 	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
@@ -2091,19 +2126,27 @@ func TestCorpusExactRoutesBindOutlineDerivedSectionsToPageVersions(t *testing.T)
 		}
 		spec := loadRepositoryRunSpec(t, path)
 		for _, check := range spec.Checks {
-			if !exactMCPInvocationCheckKind(check.Kind) {
-				continue
+			routes := [][]MCPInvocation{}
+			if exactMCPInvocationCheckKind(check.Kind) {
+				invocations, ok := expectedMCPInvocations(check.Expected)
+				if ok {
+					routes = append(routes, invocations)
+				}
+			} else if check.Kind == "mcp_route_one_of" {
+				alternatives, ok := expectedMCPRouteAlternatives(check.Expected)
+				if ok {
+					for _, alternative := range alternatives {
+						routes = append(routes, alternative.Invocations)
+					}
+				}
 			}
-			invocations, ok := expectedMCPInvocations(check.Expected)
-			if !ok {
-				t.Errorf("%s exact MCP invocation check %q did not decode", name, check.Name)
-				continue
-			}
-			derived, ungated := corpusOutlineDerivedSections(invocations)
-			outlineDerived += derived
-			if len(ungated) > 0 {
-				t.Errorf("%s check %q reads outline-derived sections without a page-version gate: %v",
-					name, check.Name, ungated)
+			for _, route := range routes {
+				derived, ungated := corpusOutlineDerivedSections(route)
+				outlineDerived += derived
+				if len(ungated) > 0 {
+					t.Errorf("%s check %q reads outline-derived sections without a page-version gate: %v",
+						name, check.Name, ungated)
+				}
 			}
 		}
 		return nil
@@ -2113,6 +2156,34 @@ func TestCorpusExactRoutesBindOutlineDerivedSectionsToPageVersions(t *testing.T)
 	}
 	if outlineDerived == 0 {
 		t.Fatal("repository corpus binds no exact outline-derived confluence_page_section route")
+	}
+}
+
+func TestCorpusConfluenceDirectReferenceID(t *testing.T) {
+	for reference, want := range map[string]string{
+		"42":                                    "42",
+		"00042":                                 "42",
+		"/wiki/pages/viewpage.action?pageId=42": "42",
+		"https://docs.example.test/confluence/pages/viewpage.action?pageId=42#x": "42",
+		"/wiki/spaces/ENG/pages/42/Page+Title":                                   "42",
+		"https://docs.example.test/context/spaces/ENG/pages/42/Page":             "42",
+		"/wiki/spaces/ENG/pages/99/../42/Page":                                   "42",
+		"/context/rest/api/content/42":                                           "42",
+	} {
+		if got, ok := corpusConfluenceDirectReferenceID(reference); !ok || got != want {
+			t.Errorf("reference %q normalized to %q,%v; want %q,true", reference, got, ok, want)
+		}
+	}
+	for _, reference := range []string{
+		"/wiki/display/ENG/Page+Title",
+		"https://docs.example.test/wiki/x/AwAG",
+		"/wiki/pages/viewpage.action?pageId=42&pageId=43",
+		"/wiki/rest/api/content/42/child/page",
+		"0",
+	} {
+		if got, ok := corpusConfluenceDirectReferenceID(reference); ok {
+			t.Errorf("non-direct reference %q normalized to %q", reference, got)
+		}
 	}
 }
 

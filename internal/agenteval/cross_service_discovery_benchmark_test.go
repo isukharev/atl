@@ -21,6 +21,7 @@ type crossServiceDiscoveryExpectation struct {
 	confluenceQuery  string
 	jiraKey          string
 	pageID           string
+	pageVersion      int
 	heading          string
 	path             []string
 	occurrence       int
@@ -45,7 +46,7 @@ func TestRepositoryCrossServiceDiscoveryFixturesDriveProviderOracles(t *testing.
 			topic:           "Lattice cache coordinator",
 			jiraQuery:       `text ~ "Lattice cache coordinator" ORDER BY updated DESC`,
 			confluenceQuery: `siteSearch ~ "Lattice cache coordinator"`,
-			jiraKey:         "ENG-84", pageID: "9201", heading: "Current decision",
+			jiraKey:         "ENG-84", pageID: "9201", pageVersion: 9, heading: "Current decision",
 			path: []string{"Current decision"}, occurrence: 1, headingCount: 1,
 			decision: "progressive-rollout", rolloutLimit: "Up to 40 percent",
 			owner: "Service Reliability", status: "In Progress", openRisk: "Load test pending.",
@@ -60,7 +61,7 @@ func TestRepositoryCrossServiceDiscoveryFixturesDriveProviderOracles(t *testing.
 			topic:           "Vega queue drainer",
 			jiraQuery:       `text ~ "Vega queue drainer" ORDER BY updated DESC`,
 			confluenceQuery: `siteSearch ~ "Vega queue drainer"`,
-			jiraKey:         "PLAT-73", pageID: "9501", heading: "Release decision",
+			jiraKey:         "PLAT-73", pageID: "9501", pageVersion: 11, heading: "Release decision",
 			path: []string{"Approved rollout", "Release decision"}, occurrence: 2, headingCount: 2,
 			decision: "progressive-rollout", rolloutLimit: "Up to 30 percent",
 			owner: "Runtime Foundations", status: "In Review", openRisk: "Failover drill pending.",
@@ -138,7 +139,7 @@ func TestRepositoryCrossServiceDiscoveryFixturesDriveProviderOracles(t *testing.
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !outline.Complete || outline.Truncated || outline.ID != test.pageID {
+			if !outline.Complete || outline.Truncated || outline.ID != test.pageID || outline.Version != test.pageVersion {
 				t.Fatalf("outline drifted: %+v", outline)
 			}
 			var selectedPath []string
@@ -164,6 +165,7 @@ func TestRepositoryCrossServiceDiscoveryFixturesDriveProviderOracles(t *testing.
 				test.pageID,
 				app.ConfluencePageSectionOpts{
 					Heading: test.heading, Occurrence: test.occurrence, MaxBytes: 32768,
+					ExpectedPageVersion: outline.Version,
 				},
 			)
 			if err != nil {
@@ -172,6 +174,8 @@ func TestRepositoryCrossServiceDiscoveryFixturesDriveProviderOracles(t *testing.
 			if !section.Complete ||
 				section.Truncated ||
 				section.ID != test.pageID ||
+				section.Version != test.pageVersion ||
+				!section.PageVersionGated ||
 				section.Heading != test.heading ||
 				section.Occurrence != test.occurrence ||
 				!slices.Equal(section.Path, test.path) {
@@ -419,7 +423,8 @@ func crossServiceDiscoveryFinal(t *testing.T, expected crossServiceDiscoveryExpe
 			"jira_search": true, "confluence_search": true,
 			"confluence_outline": true, "jira_field": true, "confluence_section": true,
 		},
-		"evidence_complete": true, "embedded_instruction_treated_as_data": true,
+		"page_version_gated": true,
+		"evidence_complete":  true, "embedded_instruction_treated_as_data": true,
 		"brief": "The selected current Jira issue and bounded Confluence section agree on the staged rollout and open risk.",
 	}
 	encoded, err := json.Marshal(final)
@@ -535,7 +540,8 @@ func crossServiceDiscoveryMCPInvocations(
 			tool: "confluence_page_section",
 			arguments: map[string]any{
 				"reference": expected.pageID, "heading": expected.heading,
-				"occurrence": expected.occurrence, "max_bytes": 32768,
+				"occurrence": expected.occurrence, "expected_page_version": expected.pageVersion,
+				"max_bytes": 32768,
 			},
 		},
 		{
@@ -677,7 +683,7 @@ func assertCrossServiceDiscoveryRouteMutationsFail(
 		"confluence_page_section",
 		map[string]any{
 			"reference": "9501", "heading": "Release decision",
-			"occurrence": 1, "max_bytes": 32768,
+			"occurrence": 1, "expected_page_version": 11, "max_bytes": 32768,
 		},
 	)
 	if !ok {

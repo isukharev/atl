@@ -30,7 +30,10 @@ before raising `max_bytes`; an oversize failure never contains a clipped
 result. For `jira_issue_search`, prefer `columns`; `fields` is an equivalent
 compatibility alias, as is `projection`. Supply at most one non-empty selector;
 empty arrays are omitted. The returned IssueList carries normalized
-`projection` metadata independently. Use technical Jira field ids after one
+`projection` metadata independently. Require `page.complete:true` for absence;
+an advertised remainder with no returned rows is
+`partial_reason:"pagination_stalled"` with no safe cursor, never exhaustion.
+Use technical Jira field ids after one
 qualified lookup.
 `jira_issue_history` takes one exact issue `key` and always returns the summary
 projection: provenance, `complete` and any `partial_reason`, resolved

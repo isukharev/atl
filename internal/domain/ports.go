@@ -338,6 +338,50 @@ type Tracker interface {
 	LinkTypes(ctx context.Context) ([]string, error)
 }
 
+// Issue-search pages name terminal qualification failures through this closed
+// set of static identifiers. The values never include JQL, issue identities,
+// URLs, or backend response text. LegacyUnqualified is reserved for Tracker
+// implementations that expose only Search and therefore cannot prove terminal
+// exhaustion. PaginationUnqualified covers inconsistent paging coordinates;
+// PaginationStalled means Jira advertised a remainder but returned no rows
+// from which a safe forward cursor could be constructed.
+const (
+	IssueSearchPartialLegacyUnqualified     = "legacy_unqualified"
+	IssueSearchPartialPaginationUnqualified = "pagination_unqualified"
+	IssueSearchPartialPaginationStalled     = "pagination_stalled"
+)
+
+// ValidIssueSearchPartialReason reports whether reason belongs to the closed
+// static set above. App callers validate this before emitting it so a future
+// adapter cannot expose backend-controlled text as a partial reason.
+func ValidIssueSearchPartialReason(reason string) bool {
+	switch reason {
+	case IssueSearchPartialLegacyUnqualified,
+		IssueSearchPartialPaginationUnqualified,
+		IssueSearchPartialPaginationStalled:
+		return true
+	}
+	return false
+}
+
+// IssueSearchPage is one completeness-qualified Jira search page. Complete is
+// true only when the backend pagination coordinates prove exhaustion. Next is
+// present only when at least one returned issue makes safe forward progress.
+// An incomplete terminal page carries a static PartialReason.
+type IssueSearchPage struct {
+	Issues        []Issue
+	Next          string
+	Complete      bool
+	PartialReason string
+}
+
+// QualifiedIssueSearcher is the narrow optional tracker capability used by
+// evidence-facing ordinary JQL search projections. Tracker.Search remains the
+// compatibility surface for other implementations and unrelated Jira paths.
+type QualifiedIssueSearcher interface {
+	SearchQualified(ctx context.Context, jql string, fields []string, limit int, cursor string) (IssueSearchPage, error)
+}
+
 // LenientIssueSearcher is an optional Jira-specific capability for generated
 // identity joins. It disables advisory semantic query validation so a deleted
 // or permission-hidden id does not reject the other ids in the same batch.
