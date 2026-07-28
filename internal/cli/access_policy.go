@@ -22,6 +22,8 @@ func (e *readOnlyPolicyError) Error() string {
 
 func (e *readOnlyPolicyError) Unwrap() error { return domain.ErrCheckFailed }
 
+func (e *readOnlyPolicyError) DiagnosticReadOnlyPolicy() bool { return e != nil }
+
 func readOnlyErrorMetadata(err error) (string, bool) {
 	var policyErr *readOnlyPolicyError
 	if errors.As(err, &policyErr) {

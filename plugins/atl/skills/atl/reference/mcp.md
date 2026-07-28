@@ -5,6 +5,12 @@ Use the plugin-provided `atl` MCP tools for transient evidence when they are
 available. They call atl's application layer directly and cannot mutate Jira,
 Confluence, local mirrors, auth, or config.
 
+On failure, branch on `kind` and the schema-v1 `recovery` object, never on
+`message`. Recovery actions/capabilities are closed and optional facts are
+validated integers. `retry_safe` covers only an exact replay of an explicitly
+modeled read; recovery that reselects, changes a bound/version, reconciles, or
+requests approval is false.
+
 The exact tools are:
 
 - `jira_fields`, `jira_issue_search`, `jira_issue_field_get`,

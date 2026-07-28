@@ -318,6 +318,10 @@ func TestConfluencePlanUnknownStopsWithoutReplay(t *testing.T) {
 	if err == nil || result == nil || result.Status != "partial" || result.Entries[0].Status != "unknown" || result.Entries[1].Status != "not_attempted" || len(store.updateCalls) != 1 {
 		t.Fatalf("result=%+v err=%v calls=%v", result, err, store.updateCalls)
 	}
+	var ambiguous interface{ DiagnosticAmbiguousWrite() bool }
+	if !errors.As(err, &ambiguous) || !ambiguous.DiagnosticAmbiguousWrite() {
+		t.Fatalf("ambiguous write metadata missing: %T %v", err, err)
+	}
 }
 
 func TestConfluencePlanHashGatePrecedesNetwork(t *testing.T) {

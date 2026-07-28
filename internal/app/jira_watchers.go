@@ -48,12 +48,14 @@ type JiraWatcherMutationResult struct {
 }
 
 type jiraWatcherWriteError struct {
-	message string
-	cause   error
+	message   string
+	cause     error
+	ambiguous bool
 }
 
-func (e *jiraWatcherWriteError) Error() string { return e.message }
-func (e *jiraWatcherWriteError) Unwrap() error { return e.cause }
+func (e *jiraWatcherWriteError) Error() string                  { return e.message }
+func (e *jiraWatcherWriteError) Unwrap() error                  { return e.cause }
+func (e *jiraWatcherWriteError) DiagnosticAmbiguousWrite() bool { return e != nil && e.ambiguous }
 
 func (s *JiraService) issueWatcherStore() (domain.IssueWatcherStore, error) {
 	store, ok := s.tr.(domain.IssueWatcherStore)
@@ -174,7 +176,7 @@ func (s *JiraService) MutateWatcherGuarded(ctx context.Context, key string, opts
 		if cause == nil {
 			cause = fmt.Errorf("verification watcher list was incomplete")
 		}
-		return result, &jiraWatcherWriteError{message: "watcher update outcome is unknown; verification read was unavailable or incomplete; do not replay automatically", cause: cause}
+		return result, &jiraWatcherWriteError{message: "watcher update outcome is unknown; verification read was unavailable or incomplete; do not replay automatically", cause: cause, ambiguous: true}
 	}
 	result.Final = sortedIssueWatchers(verifiedState.Watchers)
 	result.Reconciled = writeErr != nil
@@ -191,7 +193,7 @@ func (s *JiraService) MutateWatcherGuarded(ctx context.Context, key string, opts
 	if cause == nil {
 		cause = fmt.Errorf("verified watcher membership differs from the reviewed proposal")
 	}
-	return result, &jiraWatcherWriteError{message: "watcher update outcome is unknown; verified state differs from the reviewed proposal; do not replay automatically", cause: cause}
+	return result, &jiraWatcherWriteError{message: "watcher update outcome is unknown; verified state differs from the reviewed proposal; do not replay automatically", cause: cause, ambiguous: true}
 }
 
 func normalizeJiraWatcherUsername(raw string) (string, error) {

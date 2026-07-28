@@ -6445,6 +6445,9 @@ func TestToolErrorClassifierMatrixIsExact(t *testing.T) {
 					t.Fatalf("got %+v, want kind=%q remediation=%q message=%q",
 						got, category.kind, wantRemediation, want.message)
 				}
+				if !diagnostic.ValidateRecovery(got.Recovery) {
+					t.Fatalf("invalid recovery: %+v", got.Recovery)
+				}
 				for _, forbidden := range []string{
 					classifierMatrixMarker, "/private/", "body ",
 				} {
@@ -6611,6 +6614,9 @@ func TestToolErrorClassifierCompositePrecedence(t *testing.T) {
 			if got.Kind != test.kind || got.Remediation != test.remediation || got.Message != test.message {
 				t.Fatalf("got %+v, want kind=%q remediation=%q message=%q",
 					got, test.kind, test.remediation, test.message)
+			}
+			if !diagnostic.ValidateRecovery(got.Recovery) || got.Recovery.RetrySafe {
+				t.Fatalf("invalid changed-argument recovery: %+v", got.Recovery)
 			}
 			if strings.Contains(got.Error(), marker) {
 				t.Fatalf("composite classification leaked backend prose: %s", got.Error())

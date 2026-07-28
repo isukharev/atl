@@ -52,6 +52,13 @@ func (e *StructureFolderSelectionError) Error() string { return e.detail }
 
 func (e *StructureFolderSelectionError) Unwrap() error { return e.sentinel }
 
+func (e *StructureFolderSelectionError) DiagnosticStructureSelection() (reason string, matches, available int) {
+	if e == nil {
+		return "", 0, 0
+	}
+	return string(e.Reason), e.Matches, e.Available
+}
+
 func newStructureFolderSelectionError(reason StructureFolderSelectionReason, matches, available int, sentinel error, detail string) *StructureFolderSelectionError {
 	return &StructureFolderSelectionError{
 		Reason: reason, Matches: matches, Available: available,

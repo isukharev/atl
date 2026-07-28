@@ -256,6 +256,13 @@ func (e *ConfluenceTableSelectionError) Error() string {
 
 func (e *ConfluenceTableSelectionError) Unwrap() error { return domain.ErrNotFound }
 
+func (e *ConfluenceTableSelectionError) DiagnosticSelection() (requested, available, matches int) {
+	if e == nil {
+		return 0, 0, 0
+	}
+	return e.Requested, e.Available, 0
+}
+
 // ExtractTables fetches a page's native CSF and extracts table data. table is
 // 1-based; table <= 0 returns all tables.
 func (s *ConfluenceService) ExtractTables(ctx context.Context, id string, table int) (*ConfluenceTableExtract, error) {

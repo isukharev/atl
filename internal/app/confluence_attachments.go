@@ -52,6 +52,13 @@ func (e *ConfluencePageVersionMismatchError) Error() string {
 
 func (e *ConfluencePageVersionMismatchError) Unwrap() error { return domain.ErrCheckFailed }
 
+func (e *ConfluencePageVersionMismatchError) DiagnosticVersionMismatch() (expected, observed int) {
+	if e == nil {
+		return 0, 0
+	}
+	return e.Expected, e.Current
+}
+
 // AttachmentInventory resolves one page reference, reads its current metadata,
 // optionally gates on an expected version, and only then lists attachments. The
 // ordering matters: a mismatch must cost no attachment request. This is a

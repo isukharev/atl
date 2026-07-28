@@ -48,12 +48,14 @@ type ConfluenceLabelMutationResult struct {
 }
 
 type confluenceLabelWriteError struct {
-	message string
-	cause   error
+	message   string
+	cause     error
+	ambiguous bool
 }
 
-func (e *confluenceLabelWriteError) Error() string { return e.message }
-func (e *confluenceLabelWriteError) Unwrap() error { return e.cause }
+func (e *confluenceLabelWriteError) Error() string                  { return e.message }
+func (e *confluenceLabelWriteError) Unwrap() error                  { return e.cause }
+func (e *confluenceLabelWriteError) DiagnosticAmbiguousWrite() bool { return e != nil && e.ambiguous }
 
 func (s *ConfluenceService) contentLabelStore() (domain.ContentLabelStore, error) {
 	store, ok := s.store.(domain.ContentLabelStore)
@@ -176,7 +178,7 @@ func (s *ConfluenceService) MutateLabelsGuarded(ctx context.Context, id string, 
 		if cause == nil {
 			cause = fmt.Errorf("verification listing was truncated")
 		}
-		return result, &confluenceLabelWriteError{message: "label update outcome is unknown; verification read was unavailable or incomplete; do not replay automatically", cause: cause}
+		return result, &confluenceLabelWriteError{message: "label update outcome is unknown; verification read was unavailable or incomplete; do not replay automatically", cause: cause, ambiguous: true}
 	}
 	result.Final = sortedContentLabels(verified)
 	result.Reconciled = writeErr != nil
@@ -193,7 +195,7 @@ func (s *ConfluenceService) MutateLabelsGuarded(ctx context.Context, id string, 
 	if cause == nil {
 		cause = fmt.Errorf("verified label state differs from the reviewed proposal")
 	}
-	return result, &confluenceLabelWriteError{message: "label update outcome is unknown; verified state differs from the reviewed proposal; do not replay automatically", cause: cause}
+	return result, &confluenceLabelWriteError{message: "label update outcome is unknown; verified state differs from the reviewed proposal; do not replay automatically", cause: cause, ambiguous: true}
 }
 
 func normalizeConfluenceLabelNames(input []string) ([]string, error) {

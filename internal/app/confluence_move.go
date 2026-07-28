@@ -38,12 +38,14 @@ type ConfluenceMoveResult struct {
 }
 
 type confluenceMoveWriteError struct {
-	message string
-	cause   error
+	message   string
+	cause     error
+	ambiguous bool
 }
 
-func (e *confluenceMoveWriteError) Error() string { return e.message }
-func (e *confluenceMoveWriteError) Unwrap() error { return e.cause }
+func (e *confluenceMoveWriteError) Error() string                  { return e.message }
+func (e *confluenceMoveWriteError) Unwrap() error                  { return e.cause }
+func (e *confluenceMoveWriteError) DiagnosticAmbiguousWrite() bool { return e != nil && e.ambiguous }
 
 func (s *ConfluenceService) MoveGuarded(ctx context.Context, id string, opts ConfluenceMoveOpts) (*ConfluenceMoveResult, error) {
 	id = strings.TrimSpace(id)
@@ -153,7 +155,7 @@ func (s *ConfluenceService) MoveGuarded(ctx context.Context, id string, opts Con
 		if cause == nil {
 			cause = verifyErr
 		}
-		return result, &confluenceMoveWriteError{message: "page move outcome is unknown; verification read failed; do not replay automatically", cause: cause}
+		return result, &confluenceMoveWriteError{message: "page move outcome is unknown; verification read failed; do not replay automatically", cause: cause, ambiguous: true}
 	}
 	result.Reconciled = writeErr != nil
 	result.FinalVersion = verified.Version
@@ -168,7 +170,7 @@ func (s *ConfluenceService) MoveGuarded(ctx context.Context, id string, opts Con
 	if cause == nil {
 		cause = fmt.Errorf("verified page state differs from the reviewed move")
 	}
-	return result, &confluenceMoveWriteError{message: "page move outcome is unknown; verified page state differs from the reviewed proposal; do not replay automatically", cause: cause}
+	return result, &confluenceMoveWriteError{message: "page move outcome is unknown; verified page state differs from the reviewed proposal; do not replay automatically", cause: cause, ambiguous: true}
 }
 
 func validateMovePageRead(page *domain.Resource, expectedID string, requireBody bool) error {

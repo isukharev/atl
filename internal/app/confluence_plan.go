@@ -407,7 +407,7 @@ func (s *ConfluenceService) runConfluencePlan(ctx context.Context, planPath stri
 		switch {
 		case getErr != nil:
 			result.Entries[i].Status, result.Entries[i].Failure = "unknown", "reconciliation-failed"
-			return result, fmt.Errorf("%w: update outcome for page %s is unknown; do not replay automatically", domain.ErrCheckFailed, item.plan.ID)
+			return result, ambiguousWriteFailure(fmt.Sprintf("%v: update outcome for page %s is unknown; do not replay automatically", domain.ErrCheckFailed, item.plan.ID))
 		case confluencePlanRemoteIdentity(final, item.plan) && final.Version == item.plan.ExpectedVersion && mirror.Hash(final.Body) == item.plan.BaselineSHA256:
 			result.Entries[i].Status, result.Entries[i].Failure = "failed", "not-applied"
 			if updateErr != nil {
@@ -416,7 +416,7 @@ func (s *ConfluenceService) runConfluencePlan(ctx context.Context, planPath stri
 			return result, fmt.Errorf("%w: page %s update was not applied", domain.ErrCheckFailed, item.plan.ID)
 		default:
 			result.Entries[i].Status, result.Entries[i].Failure = "unknown", "unexpected-final-state"
-			return result, fmt.Errorf("%w: page %s reached an unexpected state; do not replay automatically", domain.ErrCheckFailed, item.plan.ID)
+			return result, ambiguousWriteFailure(fmt.Sprintf("%v: page %s reached an unexpected state; do not replay automatically", domain.ErrCheckFailed, item.plan.ID))
 		}
 	}
 	if wrote {

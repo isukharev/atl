@@ -330,11 +330,12 @@ func TestSetFieldsGuardedClassifiesRejectedAndUnreconciledWrites(t *testing.T) {
 		reconcileErr   error
 		wantStatus     string
 		wantReconciled bool
+		wantAmbiguous  bool
 	}{
 		{name: "definitive rejection", writeErr: fieldSetHTTPError(400), wantStatus: "failed", wantReconciled: true},
 		{name: "definitive rejection without fresh read", writeErr: fieldSetHTTPError(403), reconcileErr: errors.New("read unavailable"), wantStatus: "failed"},
-		{name: "ambiguous write still not visible", writeErr: errors.New("connection closed"), wantStatus: "unknown", wantReconciled: true},
-		{name: "fresh read unavailable", writeErr: errors.New("connection closed"), reconcileErr: errors.New("read unavailable"), wantStatus: "unknown"},
+		{name: "ambiguous write still not visible", writeErr: errors.New("connection closed"), wantStatus: "unknown", wantReconciled: true, wantAmbiguous: true},
+		{name: "fresh read unavailable", writeErr: errors.New("connection closed"), reconcileErr: errors.New("read unavailable"), wantStatus: "unknown", wantAmbiguous: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tr := fieldSetFixture()
@@ -347,6 +348,10 @@ func TestSetFieldsGuardedClassifiesRejectedAndUnreconciledWrites(t *testing.T) {
 			))
 			if err == nil || res.Status != tc.wantStatus || res.Reconciled != tc.wantReconciled || tr.setCalls != 1 {
 				t.Fatalf("result=%+v err=%v", res, err)
+			}
+			var metadata interface{ DiagnosticAmbiguousWrite() bool }
+			if !errors.As(err, &metadata) || metadata.DiagnosticAmbiguousWrite() != tc.wantAmbiguous {
+				t.Fatalf("ambiguous metadata=%T/%v, want %v", metadata, metadata != nil && metadata.DiagnosticAmbiguousWrite(), tc.wantAmbiguous)
 			}
 		})
 	}

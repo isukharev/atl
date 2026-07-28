@@ -1,6 +1,10 @@
 <!-- Generated from skills-src/jira/reference/errors.md — edit the source and run 'make gen-plugins'. -->
 # Jira error reference
 
+JSON failures include a closed schema-v1 `recovery` object. Use its action and
+optional next capability instead of parsing prose. Exact-repeat `retry_safe`
+never authorizes a write, changed request, approval, or reconciliation step.
+
 | Symptom / Exit | Likely cause | Remedy |
 |---|---|---|
 | Exit 7 | Backend URL or PAT not configured | Run the setup skill |

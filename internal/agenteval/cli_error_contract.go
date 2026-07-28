@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"sort"
+
+	"github.com/isukharev/atl/internal/diagnostic"
 )
 
 const (
@@ -77,12 +79,13 @@ func KnownCLIErrorContracts() []CLIErrorContract {
 // kind, and remediation survive: the message, the policy marker, and the
 // command are read to prove the shape and are then discarded.
 type cliErrorBody struct {
-	Error       string  `json:"error"`
-	Code        int     `json:"code"`
-	Kind        string  `json:"kind"`
-	Remediation string  `json:"remediation"`
-	Policy      *string `json:"policy"`
-	Command     *string `json:"command"`
+	Error       string          `json:"error"`
+	Code        int             `json:"code"`
+	Kind        string          `json:"kind"`
+	Remediation string          `json:"remediation"`
+	Policy      *string         `json:"policy"`
+	Command     *string         `json:"command"`
+	Recovery    json.RawMessage `json:"recovery"`
 }
 
 // ValidateCLIErrorContract admits one already-parsed classification. It is the
@@ -130,6 +133,19 @@ func ParseCLIErrorContract(exitCode int, stderr []byte) (CLIErrorContract, bool)
 	}
 	if body.Error == "" || body.Code != exitCode {
 		return CLIErrorContract{}, false
+	}
+	// Recovery was added to the CLI error line after the frozen three-field
+	// benchmark record. Admit legacy lines that lack it; whenever it is present,
+	// validate the entire closed object before discarding it.
+	if body.Recovery != nil {
+		recoveryDecoder := json.NewDecoder(bytes.NewReader(body.Recovery))
+		recoveryDecoder.DisallowUnknownFields()
+		var recovery diagnostic.Recovery
+		if bytes.Equal(bytes.TrimSpace(body.Recovery), []byte("null")) ||
+			recoveryDecoder.Decode(&recovery) != nil || recoveryDecoder.Decode(new(any)) != io.EOF ||
+			!diagnostic.ValidateRecovery(recovery) {
+			return CLIErrorContract{}, false
+		}
 	}
 	// The read-only policy members travel together with their own kind. A line
 	// that carries one of them in any other combination is not the reviewed CLI
