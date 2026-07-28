@@ -103,6 +103,11 @@ because agent clients and other Jira tools use those spellings. Supply at most
 one non-empty selector; empty arrays are treated as omitted. The returned
 IssueList still carries its normalized `projection` metadata independently.
 Unknown input names and ambiguous requests fail before backend access.
+The IssueList page qualifies Jira search exhaustion. In particular, an empty
+page with an advertised remainder returns `complete:false`,
+`partial_reason:"pagination_stalled"`, and a null cursor rather than presenting
+the query as exhausted. `pagination_unqualified` marks inconsistent paging
+coordinates; these reasons are static and contain no backend text.
 
 Use `jira_structure_get` only when compact identity/read-only metadata is
 enough. Its `structure_id` accepts either a positive JSON integer or the same

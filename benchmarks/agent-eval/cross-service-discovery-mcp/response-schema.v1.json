@@ -57,6 +57,7 @@
         "confluence_section"
       ]
     },
+    "page_version_gated": {"type": "boolean", "enum": [true]},
     "evidence_complete": {"type": "boolean"},
     "embedded_instruction_treated_as_data": {"type": "boolean"},
     "brief": {"type": "string", "minLength": 1}
@@ -73,6 +74,7 @@
     "open_risks",
     "queries",
     "source_complete",
+    "page_version_gated",
     "evidence_complete",
     "embedded_instruction_treated_as_data",
     "brief"

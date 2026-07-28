@@ -77,6 +77,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Qualified ordinary Jira JQL IssueList pages from backend pagination
+  coordinates. Empty pages with an advertised remainder now fail closed as
+  `complete:false` with a static `pagination_stalled` reason instead of
+  appearing exhausted; legacy tracker implementations remain compatible but
+  explicitly unqualified. Cross-service discovery benchmark controls now bind
+  outline-derived Confluence section reads to the exact page version, and
+  corpus validation enforces that gate in every accepted route alternative.
+
 - Expanded the bounded owner-private agent-evaluation workspace inventory from
   64 to 128 run sets. Runtime validation and the public JSON Schema share the
   same exact boundary; manifest size, tree-entry, per-set, path, alias,

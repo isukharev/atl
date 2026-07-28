@@ -2,8 +2,12 @@ package agenteval
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io/fs"
+	"math"
+	"net/url"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -98,6 +102,9 @@ func ValidateBenchmarkCorpus(root string) (CorpusInventory, error) {
 		if err != nil {
 			return fmt.Errorf("benchmark corpus contains an invalid run spec")
 		}
+		if err := validateCorpusOutlineDerivedSectionBindings(loaded.spec); err != nil {
+			return err
+		}
 		byDirectory[loaded.specDir] = append(byDirectory[loaded.specDir], loaded)
 		return nil
 	})
@@ -162,6 +169,118 @@ func ValidateBenchmarkCorpus(root string) (CorpusInventory, error) {
 		result.Classes = append(result.Classes, classes[key])
 	}
 	return result, nil
+}
+
+func validateCorpusOutlineDerivedSectionBindings(spec RunSpec) error {
+	for _, check := range spec.Checks {
+		var routes [][]MCPInvocation
+		switch {
+		case exactMCPInvocationCheckKind(check.Kind):
+			invocations, ok := expectedMCPInvocations(check.Expected)
+			if ok {
+				routes = append(routes, invocations)
+			}
+		case check.Kind == "mcp_route_one_of":
+			alternatives, ok := expectedMCPRouteAlternatives(check.Expected)
+			if ok {
+				for _, alternative := range alternatives {
+					routes = append(routes, alternative.Invocations)
+				}
+			}
+		}
+		for _, route := range routes {
+			if _, ungated := corpusOutlineDerivedSections(route); len(ungated) > 0 {
+				return fmt.Errorf("benchmark corpus contains an outline-derived section route without a positive page-version gate")
+			}
+		}
+	}
+	return nil
+}
+
+// corpusOutlineDerivedSections counts singular and plural section expectations
+// whose page was read by confluence_page_outline earlier in the same route and
+// reports references whose section call lacks a positive integral version
+// gate. Statically resolvable direct-reference aliases share one numeric page
+// identity; display and short links remain opaque and are never collapsed.
+func corpusOutlineDerivedSections(invocations []MCPInvocation) (derived int, ungated []string) {
+	outlined := map[string]bool{}
+	for _, invocation := range invocations {
+		var arguments map[string]any
+		if err := json.Unmarshal(invocation.Arguments, &arguments); err != nil {
+			continue
+		}
+		reference, _ := arguments["reference"].(string)
+		switch invocation.Tool {
+		case "confluence_page_outline":
+			outlined[corpusConfluenceReferenceKey(reference)] = true
+		case "confluence_page_section", "confluence_page_sections":
+			if !outlined[corpusConfluenceReferenceKey(reference)] {
+				continue
+			}
+			derived++
+			version, ok := arguments["expected_page_version"].(float64)
+			if !ok || version < 1 || version != math.Trunc(version) {
+				ungated = append(ungated, reference)
+			}
+		}
+	}
+	return derived, ungated
+}
+
+func corpusConfluenceReferenceKey(reference string) string {
+	if id, ok := corpusConfluenceDirectReferenceID(reference); ok {
+		return "id\x00" + id
+	}
+	return "raw\x00" + reference
+}
+
+func corpusConfluenceDirectReferenceID(reference string) (string, bool) {
+	reference = strings.TrimSpace(reference)
+	if id, ok := corpusCanonicalDecimalID(reference); ok {
+		return id, true
+	}
+	parsed, err := url.Parse(reference)
+	if err != nil {
+		return "", false
+	}
+	cleanedPath := path.Clean("/" + strings.TrimPrefix(parsed.EscapedPath(), "/"))
+	segments := strings.Split(strings.Trim(cleanedPath, "/"), "/")
+	for index := 0; index < len(segments); index++ {
+		if index+2 == len(segments) && segments[index] == "pages" && segments[index+1] == "viewpage.action" {
+			values := parsed.Query()["pageId"]
+			if len(values) == 1 {
+				return corpusCanonicalDecimalID(values[0])
+			}
+			return "", false
+		}
+		if index+4 <= len(segments) && segments[index] == "spaces" && segments[index+1] != "" &&
+			segments[index+2] == "pages" {
+			if id, ok := corpusCanonicalDecimalID(segments[index+3]); ok {
+				return id, true
+			}
+		}
+		if index+4 == len(segments) && segments[index] == "rest" && segments[index+1] == "api" &&
+			segments[index+2] == "content" {
+			return corpusCanonicalDecimalID(segments[index+3])
+		}
+	}
+	return "", false
+}
+
+func corpusCanonicalDecimalID(value string) (string, bool) {
+	if value == "" {
+		return "", false
+	}
+	for _, char := range value {
+		if char < '0' || char > '9' {
+			return "", false
+		}
+	}
+	value = strings.TrimLeft(value, "0")
+	if value == "" {
+		return "", false
+	}
+	return value, true
 }
 
 func corpusMCPToolInventory(byDirectory map[string][]loadedRun) []CorpusMCPToolInventory {

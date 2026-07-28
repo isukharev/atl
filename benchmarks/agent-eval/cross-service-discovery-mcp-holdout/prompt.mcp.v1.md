@@ -15,7 +15,10 @@ current Confluence page.
 After both searches finish, inspect the selected page's heading inventory. The
 page has two leaf headings named `Release decision`; select the exact
 `Release decision` occurrence under the structural parent `Approved rollout`,
-then request only that leaf section with a 32768-byte bound. Do not request its parent.
+then request only that leaf section with a 32768-byte bound, passing the
+outline's exact positive `version` as `expected_page_version`. Accept the
+section as reconciled evidence only when it returns `page_version_gated:true`.
+Do not request its parent.
 Finally expand only the selected issue's standard `Description` field
 with a 16384-byte bound. This five-call order is mandatory: Jira search,
 Confluence search, page outline, page section, Jira field. Do not request a

@@ -2393,6 +2393,45 @@ func TestProductionJiraIssueSearchHonorsPageSizeAboveOneHundred(t *testing.T) {
 	}
 }
 
+func TestProductionJiraIssueSearchKeepsStalledPaginationIncomplete(t *testing.T) {
+	fixture := agenteval.MockFixture{
+		SchemaVersion: agenteval.MockFixtureSchemaVersion,
+		JiraContext:   "/jira", ConfluenceContext: "/wiki",
+		Routes: []agenteval.MockRoute{{
+			Method: "GET", Path: "/jira/rest/api/2/search",
+			QueryEquals: map[string]string{
+				"jql": "project = PROJ", "startAt": "0", "maxResults": "50", "fields": "summary,status",
+			},
+			Status: 200,
+			Body:   json.RawMessage(`{"startAt":0,"maxResults":50,"total":3,"issues":[]}`),
+		}},
+	}
+	backend, err := agenteval.StartMockBackend(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+	for name, value := range backend.Environment() {
+		t.Setenv(name, value)
+	}
+	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
+	t.Setenv("ATL_READ_ONLY", "1")
+	t.Setenv("ATL_NO_UPDATE", "1")
+
+	client, closeSessions := connectTestClient(t, New("test", ProductionDependencies("test")))
+	defer closeSessions()
+	result := callToolOK(t, client, "jira_issue_search", map[string]any{
+		"jql": "project = PROJ", "columns": []string{"key", "summary", "status"},
+	})
+	content, ok := result.StructuredContent.(map[string]any)
+	page, pageOK := content["page"].(map[string]any)
+	if !ok || !pageOK || page["count"] != float64(0) || page["complete"] != false ||
+		page["truncated"] != true || page["partial_reason"] != domain.IssueSearchPartialPaginationStalled ||
+		page["next_cursor"] != nil {
+		t.Fatalf("issue search=%#v", result.StructuredContent)
+	}
+}
+
 func TestSyntheticPaginatedJiraSearchThroughMCPReachesTerminalPage(t *testing.T) {
 	tests := []struct {
 		name, directory, query string

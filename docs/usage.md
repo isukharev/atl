@@ -2595,6 +2595,11 @@ resume from `.page.next_cursor`. Requested page sizes through 1000 are passed
 to Jira unchanged; the backend may still return fewer rows and an explicit
 continuation. `-o text` is a Markdown table in the exact `--columns` order;
 `-o id` prints only keys.
+JQL search exhaustion is qualified from Jira's paging coordinates. An empty
+page with an advertised remainder is `complete:false` with
+`partial_reason:"pagination_stalled"` and no cursor, so it never proves that
+the query has no matches. `pagination_unqualified` reports inconsistent paging
+coordinates. Partial reasons are closed static values and never backend text.
 
 ### `atl jira issue children`
 

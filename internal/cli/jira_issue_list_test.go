@@ -52,6 +52,32 @@ func TestJiraIssueListColumnsDriveBackendProjection(t *testing.T) {
 	}
 }
 
+func TestJiraIssueSearchStalledPageIsExplicitlyIncomplete(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/api/2/search", http.StatusOK,
+		`{"issues":[],"startAt":0,"maxResults":50,"total":3}`)
+
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "search", "--jql", "project = ENG")
+	if code != exitOK {
+		t.Fatalf("search exit=%d output=%q", code, out)
+	}
+	var result struct {
+		Page struct {
+			Complete      bool    `json:"complete"`
+			Truncated     bool    `json:"truncated"`
+			PartialReason string  `json:"partial_reason"`
+			NextCursor    *string `json:"next_cursor"`
+		} `json:"page"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Page.Complete || !result.Page.Truncated ||
+		result.Page.PartialReason != "pagination_stalled" || result.Page.NextCursor != nil {
+		t.Fatalf("page=%+v", result.Page)
+	}
+}
+
 func TestJiraIssueSearchUsesNamedListViewAndExplicitColumnsWin(t *testing.T) {
 	js := newJiraServer(t)
 	js.route(http.MethodGet, "/rest/api/2/search", http.StatusOK, `{"issues":[],"startAt":0,"maxResults":50,"total":0}`)

@@ -2031,6 +2031,17 @@ identity, Jira field ids, and source-specific names such as `board.column` or
 `sprint.id`. Unknown/foreign context columns fail with usage. `-o text` renders
 the same rows as one safe Markdown table (or `_None._`); `-o id` prints keys.
 The page cursor is `null` at exhaustion and resumable only when non-null.
+Ordinary JQL search pages qualify exhaustion from Jira's paging coordinates.
+An empty page is complete only when those coordinates prove that no remainder
+exists. When Jira advertises more results but returns no rows, the page is
+`complete:false`, `truncated:true`, has `next_cursor:null`, and carries
+`partial_reason:"pagination_stalled"`; inconsistent paging coordinates use
+`pagination_unqualified`. Compatibility tracker implementations that do not
+expose qualification use `legacy_unqualified`. These are the only non-empty
+search-page partial reasons, and they never contain backend text. A resumable
+page with a non-null cursor is incomplete but omits `partial_reason` because the
+continuation itself identifies the next safe action. Board, backlog, sprint,
+and epic-child page qualification is unchanged.
 For board pages, top-level `position` is the zero-based position within the
 returned page; ordering is backend rank, but ATL does not expose that index as
 a durable Jira rank value.

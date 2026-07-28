@@ -50,7 +50,11 @@ are sufficient; request full definitions only to discover identities. For
 `jira_issue_search`, prefer
 `columns`; `fields` and `projection` are equivalent compatibility aliases.
 Supply at most one non-empty selector; empty arrays are omitted. The returned
-IssueList carries normalized `projection` metadata independently. For changelog
+IssueList carries normalized `projection` metadata independently. Require
+`page.complete:true` before treating an empty JQL result as absence. An
+advertised remainder with no rows returns the closed static
+`partial_reason:"pagination_stalled"` and no cursor; never retry or infer
+exhaustion from that page. For changelog
 questions, call `jira_issue_history` with the exact `key`: it always returns
 provenance, `filters`, deterministic `summary` facts, and selected-field
 `last_changes` and never the raw history rows. Add repeated exact `fields` for

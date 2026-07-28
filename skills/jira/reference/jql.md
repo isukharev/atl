@@ -38,6 +38,10 @@ Quote multi-word values with double quotes inside the single-quoted shell argume
 - Pagination lives under `page.next_cursor` (a `startAt` offset). Pass it back
   via `--cursor <page.next_cursor>` to get the next page; Jira may return fewer
   rows than the requested page size.
+- Require `page.complete:true` before treating an empty search as absence. If
+  Jira advertises a remainder but returns no rows, ATL emits
+  `partial_reason:"pagination_stalled"` with no cursor; the static
+  `pagination_unqualified` reason marks inconsistent paging coordinates.
 
 ## Picking a query
 
