@@ -13,9 +13,9 @@ import (
 
 func confPageTitleCmd() *cobra.Command {
 	group := &cobra.Command{Use: "title", Short: "Guarded page-title operations"}
-	var fromFile, expectedProposalHash string
+	var fromFile string
 	var expectedVersion int
-	var applyWrite bool
+	guardedWrite := guardedWriteFlags{profile: guardedWriteAggregateProposal}
 	set := &cobra.Command{
 		Use:   "set <ID>",
 		Short: "Preview or apply a bounded file-backed page title",
@@ -27,6 +27,12 @@ func confPageTitleCmd() *cobra.Command {
 			if strings.TrimSpace(fromFile) == "" {
 				return usageErr("--from-file is required (use - for stdin)")
 			}
+			if guardedWrite.apply && expectedVersion <= 0 {
+				return usageErr("--expected-version is required with --apply; run the dry-run first")
+			}
+			if err := guardedWrite.validate(); err != nil {
+				return err
+			}
 			title, err := readConfluenceTitleInput(fromFile)
 			if err != nil {
 				return err
@@ -37,7 +43,7 @@ func confPageTitleCmd() *cobra.Command {
 			}
 			res, setErr := svc.SetTitleGuarded(cmd.Context(), args[0], app.ConfluenceTitleSetOpts{
 				Title: title, ExpectedVersion: expectedVersion,
-				ExpectedProposalHash: expectedProposalHash, Apply: applyWrite,
+				ExpectedProposalHash: guardedWrite.expectedProposalHash, Apply: guardedWrite.apply,
 			})
 			if res != nil {
 				if emitErr := emit(cmd, res, func() string { return confluenceTitleSetText(res) }); emitErr != nil {
@@ -49,8 +55,7 @@ func confPageTitleCmd() *cobra.Command {
 	}
 	set.Flags().StringVar(&fromFile, "from-file", "", "title file or - for stdin (required; bounded to 4096 bytes)")
 	set.Flags().IntVar(&expectedVersion, "expected-version", 0, "reviewed current page version (required with --apply)")
-	set.Flags().StringVar(&expectedProposalHash, "expected-proposal-hash", "", "reviewed aggregate proposal hash (required with --apply)")
-	set.Flags().BoolVar(&applyWrite, "apply", false, "perform the guarded write (default: dry-run)")
+	guardedWrite.register(set)
 	group.AddCommand(set)
 	return group
 }
