@@ -5,17 +5,19 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 # Least privilege: CI only needs to read the repo.
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   test:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -72,6 +74,7 @@ jobs:
         run: CGO_ENABLED=0 go build ./...
 
   lint:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -90,6 +93,7 @@ jobs:
           version: v2.12.2
 
   govulncheck:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -103,3 +107,22 @@ jobs:
           # silently enter CI; bump deliberately.
           go install golang.org/x/vuln/cmd/govulncheck@v1.4.0
           govulncheck ./...
+
+  smoke:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Build
+        run: make build
+      - name: Verify merged build provenance
+        run: |
+          ATL_NO_UPDATE=1 ./atl version > "$RUNNER_TEMP/atl-version.json"
+          grep -F "\"commit\": \"$GITHUB_SHA\"" "$RUNNER_TEMP/atl-version.json"
+          grep -F '"build_state": "clean"' "$RUNNER_TEMP/atl-version.json"
+      - name: CLI startup smoke
+        run: ATL_NO_UPDATE=1 ./atl --help > /dev/null
