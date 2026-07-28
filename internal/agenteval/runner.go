@@ -2114,7 +2114,7 @@ func writeClaudeGuardSettings(path, guardPath, serverName string, reviewedMCPToo
 	if len(reviewedMCPTools) > 0 {
 		// An omitted matcher applies the hook to every tool. This is required
 		// because some built-ins (for example Skill and ToolSearch) do not cross
-		// the ordinary permission prompt that dontAsk can reject.
+		// the ordinary permission-decision path.
 		matchers = []string{""}
 	}
 	for _, matcher := range matchers {
@@ -2134,7 +2134,7 @@ func writeClaudeGuardSettings(path, guardPath, serverName string, reviewedMCPToo
 		},
 	}
 	if len(reviewedMCPTools) > 0 {
-		// Headless dontAsk sessions cannot approve project-like MCP configs
+		// Headless automatic sessions cannot approve project-like MCP configs
 		// interactively. Approve only the single generated server name and grant
 		// only the run spec's exact dynamic tool names. The provider command uses
 		// an empty built-in --tools inventory; MCP names stay in settings because

@@ -395,6 +395,11 @@ must be a native level for the selected client (`minimal` is Codex-only and
 `max` is Claude Code-only); the shared levels are `low`, `medium`, `high`, and
 `xhigh`.
 
+Repository-owned Claude candidate, qualification, and executable-review
+processes use `--permission-mode auto` together with their exact tool
+allowlists, strict MCP configuration, isolated settings, and parent-side
+guards. Legacy non-interactive and bypass permission modes are not allowed.
+
 Reviewer ids are terminal-visible filesystem slot names. Keep them generic
 (`reviewer-01`, not a person, team, provider account, or backend identity); they
 are restricted to one lowercase path component. Schema v1 manifests remain

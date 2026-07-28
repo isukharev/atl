@@ -91,7 +91,7 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 			"-p", "--output-format", "stream-json", "--verbose",
 			"--no-session-persistence", "--model", spec.Model,
 			"--max-budget-usd", formatMicroUSD(spec.MaxEstimatedCostMicroUSD),
-			"--permission-mode", "dontAsk", "--strict-mcp-config", "--no-chrome",
+			"--permission-mode", "auto", "--strict-mcp-config", "--no-chrome",
 			"--setting-sources", settingSources,
 		}
 		args = append(args, "--tools", strings.Join(toolNames, ","))

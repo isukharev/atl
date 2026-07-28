@@ -187,6 +187,21 @@ func TestCLIRouteQualificationContractBindsTheReviewedLaunch(t *testing.T) {
 	}
 }
 
+func TestClaudeRouteProbeUsesAutomaticPermissions(t *testing.T) {
+	args := claudeRouteProbeArgs(CLIRouteQualificationOptions{
+		Model: "synthetic-model", Reasoning: "high", AllowedTools: []string{"Bash(atl *)", "Skill"},
+	})
+	joined := strings.Join(args, "\x00")
+	if !strings.Contains(joined, "--permission-mode\x00auto") {
+		t.Fatalf("Claude route probe does not use automatic permissions: %q", joined)
+	}
+	for _, forbidden := range []string{"dontAsk", "bypassPermissions", "--dangerously-skip-permissions"} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("Claude route probe enables forbidden permission mode %q: %q", forbidden, joined)
+		}
+	}
+}
+
 func TestQualifyCLIRouteRejectsUnboundOptions(t *testing.T) {
 	base := CLIRouteQualificationOptions{Provider: "codex", Surface: SurfaceCLISkill,
 		AgentBinary: "agent", ScratchRoot: "scratch", Model: "synthetic-model", TimeoutSeconds: 10}

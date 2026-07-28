@@ -825,7 +825,10 @@ startup readiness a bounded precondition, and grants the run spec's exact
 qualified tool names through private settings. It passes an empty `--tools`
 inventory to remove built-ins, but does not pass dynamic MCP names through
 `--allowed-tools`; current Claude Code documents `--tools` as a built-in-only
-inventory filter. One matcher-less `PreToolUse` guard covers every model tool:
+inventory filter. Every repository-owned Claude runner selects
+`--permission-mode auto`; legacy non-interactive and bypass modes are forbidden,
+while the exact tool settings and one matcher-less `PreToolUse` guard remain
+independent fail-closed controls. The guard covers every model tool:
 only exact reviewed MCP names and required structured output are allowed, so
 the inventory and runtime enforcement remain independent. A client-side
 missing-tool attempt still counts as a model tool call but not as an `atl`
