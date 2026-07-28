@@ -2,7 +2,6 @@ package cli
 
 import (
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -41,8 +40,8 @@ func jiraIssueWorklogListCmd() *cobra.Command {
 }
 
 func jiraIssueWorklogAddCmd() *cobra.Command {
-	var timeValue, inlineComment, fromFile, started, expectedProposalHash string
-	var applyWrite bool
+	var timeValue, inlineComment, fromFile, started string
+	guardedWrite := guardedWriteFlags{profile: guardedWriteProposal}
 	cmd := &cobra.Command{
 		Use:   "add <KEY>",
 		Short: "Add one worklog through a reviewed dry-run",
@@ -59,8 +58,8 @@ func jiraIssueWorklogAddCmd() *cobra.Command {
 			if cmd.Flags().Changed("comment") && cmd.Flags().Changed("from-file") {
 				return usageErr("--comment and --from-file are mutually exclusive")
 			}
-			if applyWrite && strings.TrimSpace(expectedProposalHash) == "" {
-				return usageErr("--expected-proposal-hash is required with --apply; run the dry-run first")
+			if err := guardedWrite.validate(); err != nil {
+				return err
 			}
 			comment, err := jiraWorklogComment(cmd, inlineComment, fromFile)
 			if err != nil {
@@ -74,8 +73,8 @@ func jiraIssueWorklogAddCmd() *cobra.Command {
 				return err
 			}
 			result, mutationErr := svc.AddWorklogGuarded(cmd.Context(), args[0], app.JiraWorklogAddOpts{
-				Time: timeValue, Comment: comment, Started: started, Apply: applyWrite,
-				ExpectedProposalHash: expectedProposalHash,
+				Time: timeValue, Comment: comment, Started: started, Apply: guardedWrite.apply,
+				ExpectedProposalHash: guardedWrite.expectedProposalHash,
 			})
 			if result != nil {
 				if emitErr := emit(cmd, result, func() string { return app.JiraWorklogAddMarkdown(result) }); emitErr != nil {
@@ -89,8 +88,7 @@ func jiraIssueWorklogAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&inlineComment, "comment", "", "short worklog comment (visible in the process list; prefer --from-file)")
 	cmd.Flags().StringVar(&fromFile, "from-file", "", "bounded worklog comment file, or - for stdin")
 	cmd.Flags().StringVar(&started, "started", "", "work start time in RFC3339 with an explicit timezone (default: Jira current time)")
-	cmd.Flags().StringVar(&expectedProposalHash, "expected-proposal-hash", "", "reviewed proposal hash (required with --apply)")
-	cmd.Flags().BoolVar(&applyWrite, "apply", false, "perform the guarded write (default: dry-run)")
+	guardedWrite.register(cmd)
 	return cmd
 }
 

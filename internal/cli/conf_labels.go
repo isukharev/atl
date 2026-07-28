@@ -41,8 +41,7 @@ func confPageLabelsCmd() *cobra.Command {
 }
 
 func confPageLabelMutationCmd(operation string) *cobra.Command {
-	var applyWrite bool
-	var expectedProposalHash string
+	guardedWrite := guardedWriteFlags{profile: guardedWriteProposal}
 	cmd := &cobra.Command{
 		Use:   operation + " <ID> <LABEL>...",
 		Short: strings.ToUpper(operation[:1]) + operation[1:] + " page labels through a reviewed dry-run",
@@ -51,12 +50,15 @@ func confPageLabelMutationCmd(operation string) *cobra.Command {
 			"and reconciles the result without automatic replay.",
 		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := guardedWrite.validate(); err != nil {
+				return err
+			}
 			svc, err := confService()
 			if err != nil {
 				return err
 			}
 			result, mutationErr := svc.MutateLabelsGuarded(cmd.Context(), args[0], app.ConfluenceLabelMutationOpts{
-				Operation: operation, Labels: args[1:], ExpectedProposalHash: expectedProposalHash, Apply: applyWrite,
+				Operation: operation, Labels: args[1:], ExpectedProposalHash: guardedWrite.expectedProposalHash, Apply: guardedWrite.apply,
 			})
 			if result != nil {
 				if emitErr := emit(cmd, result, func() string {
@@ -68,7 +70,6 @@ func confPageLabelMutationCmd(operation string) *cobra.Command {
 			return mutationErr
 		},
 	}
-	cmd.Flags().StringVar(&expectedProposalHash, "expected-proposal-hash", "", "reviewed proposal hash (required with --apply)")
-	cmd.Flags().BoolVar(&applyWrite, "apply", false, "perform the guarded write (default: dry-run)")
+	guardedWrite.register(cmd)
 	return cmd
 }

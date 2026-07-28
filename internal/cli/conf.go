@@ -402,9 +402,9 @@ func confPageCmd() *cobra.Command {
 	create.Flags().StringVar(&fromFile, "from-file", "-", "CSF body file or - for stdin")
 	create.Flags().StringVar(&fromMD, "from-md", "", "markdown body file or - for stdin (converted to CSF; unsupported constructs are refused)")
 
-	var moveParent, moveExpectedParent, moveExpectedHash string
+	var moveParent, moveExpectedParent string
 	var moveExpectedVersion int
-	var moveApply bool
+	moveGuard := guardedWriteFlags{profile: guardedWriteMove}
 	move := &cobra.Command{
 		Use:   "move <ID>",
 		Short: "Preview or apply a guarded page move",
@@ -413,6 +413,15 @@ func confPageCmd() *cobra.Command {
 			if strings.TrimSpace(moveParent) == "" {
 				return usageErr("--parent is required")
 			}
+			if moveGuard.apply && moveExpectedVersion <= 0 {
+				return usageErr("--expected-version is required with --apply; run the dry-run first")
+			}
+			if moveGuard.apply && !cmd.Flags().Changed("expected-parent") {
+				return usageErr("--expected-parent is required with --apply; use --expected-parent= for a top-level page")
+			}
+			if err := moveGuard.validate(); err != nil {
+				return err
+			}
 			svc, err := confService()
 			if err != nil {
 				return err
@@ -420,7 +429,7 @@ func confPageCmd() *cobra.Command {
 			res, moveErr := svc.MoveGuarded(cmd.Context(), args[0], app.ConfluenceMoveOpts{
 				Parent: moveParent, ExpectedVersion: moveExpectedVersion,
 				ExpectedParent: moveExpectedParent, ExpectedParentSet: cmd.Flags().Changed("expected-parent"),
-				ExpectedProposalHash: moveExpectedHash, Apply: moveApply,
+				ExpectedProposalHash: moveGuard.expectedProposalHash, Apply: moveGuard.apply,
 			})
 			if res != nil {
 				if emitErr := emit(cmd, res, func() string {
@@ -435,8 +444,7 @@ func confPageCmd() *cobra.Command {
 	move.Flags().StringVar(&moveParent, "parent", "", "new parent page id")
 	move.Flags().IntVar(&moveExpectedVersion, "expected-version", 0, "reviewed current page version (required with --apply)")
 	move.Flags().StringVar(&moveExpectedParent, "expected-parent", "", "reviewed current parent id; use --expected-parent= for top-level (required with --apply)")
-	move.Flags().StringVar(&moveExpectedHash, "expected-proposal-hash", "", "reviewed proposal hash (required with --apply)")
-	move.Flags().BoolVar(&moveApply, "apply", false, "perform the guarded move (default: dry-run)")
+	moveGuard.register(move)
 
 	var delID string
 	del := &cobra.Command{

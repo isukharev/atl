@@ -41,8 +41,9 @@ func jiraIssueWatchersCmd() *cobra.Command {
 }
 
 func jiraIssueWatcherMutationCmd(operation string) *cobra.Command {
-	var username, expectedProposalHash string
-	var me, applyWrite bool
+	var username string
+	var me bool
+	guardedWrite := guardedWriteFlags{profile: guardedWriteProposal}
 	cmd := &cobra.Command{
 		Use:   operation + " <KEY>",
 		Short: strings.ToUpper(operation[:1]) + operation[1:] + " one watcher through a reviewed dry-run",
@@ -60,8 +61,8 @@ func jiraIssueWatcherMutationCmd(operation string) *cobra.Command {
 			if identityChoices != 1 {
 				return usageErr("pass exactly one of --username or --me")
 			}
-			if applyWrite && strings.TrimSpace(expectedProposalHash) == "" {
-				return usageErr("--expected-proposal-hash is required with --apply; run the dry-run first")
+			if err := guardedWrite.validate(); err != nil {
+				return err
 			}
 			svc, err := jiraService()
 			if err != nil {
@@ -69,7 +70,7 @@ func jiraIssueWatcherMutationCmd(operation string) *cobra.Command {
 			}
 			result, mutationErr := svc.MutateWatcherGuarded(cmd.Context(), args[0], app.JiraWatcherMutationOpts{
 				Operation: operation, Username: username, Me: me,
-				ExpectedProposalHash: expectedProposalHash, Apply: applyWrite,
+				ExpectedProposalHash: guardedWrite.expectedProposalHash, Apply: guardedWrite.apply,
 			})
 			if result != nil {
 				if emitErr := emit(cmd, result, func() string {
@@ -83,7 +84,6 @@ func jiraIssueWatcherMutationCmd(operation string) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&username, "username", "", "explicit Jira Data Center username")
 	cmd.Flags().BoolVar(&me, "me", false, "resolve the authenticated user's Data Center username")
-	cmd.Flags().StringVar(&expectedProposalHash, "expected-proposal-hash", "", "reviewed proposal hash (required with --apply)")
-	cmd.Flags().BoolVar(&applyWrite, "apply", false, "perform the guarded write (default: dry-run)")
+	guardedWrite.register(cmd)
 	return cmd
 }
