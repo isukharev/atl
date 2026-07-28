@@ -373,13 +373,18 @@ func TestPrivateClaudeReviewArgsDisableToolsWithoutStructuredOutputTool(t *testi
 		Reasoning: "high", MaxEstimatedCostMicroUSD: 10_000,
 	})
 	joined := strings.Join(args, "\x00")
-	for _, required := range []string{"--safe-mode", "--tools\x00", "--allowed-tools\x00", "--prompt-suggestions\x00false"} {
+	for _, required := range []string{"--safe-mode", "--permission-mode\x00auto", "--tools\x00", "--allowed-tools\x00", "--prompt-suggestions\x00false"} {
 		if !strings.Contains(joined, required) {
 			t.Fatalf("missing %q in %q", required, joined)
 		}
 	}
 	if strings.Contains(joined, "--json-schema") {
 		t.Fatalf("Claude structured output would introduce a synthetic tool: %q", joined)
+	}
+	for _, forbidden := range []string{"dontAsk", "bypassPermissions", "--dangerously-skip-permissions"} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("Claude review enables forbidden permission mode %q: %q", forbidden, joined)
+		}
 	}
 }
 

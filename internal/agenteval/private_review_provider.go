@@ -239,7 +239,7 @@ func privateCodexReviewArgs(reviewer Reviewer, execution PrivateReviewerExecutio
 func privateClaudeReviewArgs(reviewer Reviewer, execution PrivateReviewerExecution) []string {
 	return []string{"-p", "--output-format", "stream-json", "--verbose", "--no-session-persistence", "--safe-mode",
 		"--disable-slash-commands", "--model", reviewer.Model, "--max-budget-usd", formatMicroUSD(execution.MaxEstimatedCostMicroUSD),
-		"--permission-mode", "dontAsk", "--strict-mcp-config", "--no-chrome", "--setting-sources", "",
+		"--permission-mode", "auto", "--strict-mcp-config", "--no-chrome", "--setting-sources", "",
 		"--tools", "", "--allowed-tools", "", "--prompt-suggestions", "false", "--effort", execution.Reasoning}
 }
 

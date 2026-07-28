@@ -510,7 +510,7 @@ func claudeRouteProbeArgs(options CLIRouteQualificationOptions) []string {
 	args := []string{
 		"-p", "--output-format", "stream-json", "--verbose", "--no-session-persistence",
 		"--disable-slash-commands", "--model", options.Model,
-		"--permission-mode", "dontAsk", "--strict-mcp-config", "--no-chrome",
+		"--permission-mode", "auto", "--strict-mcp-config", "--no-chrome",
 		"--setting-sources", "",
 		"--tools", strings.Join(toolNames, ","),
 		"--allowed-tools", strings.Join(allowedTools, ","),
