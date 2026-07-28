@@ -1,0 +1,63 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "state": {"type":"string","enum":["explicit-conditional-synthetic"]},
+        "threshold": {"type":"integer"},
+        "authorized_actions": {"type":"array","items":{"type":"string","enum":["create","comment"]}},
+        "max_actions": {"type":"integer"}
+      },
+      "required": ["state","threshold","authorized_actions","max_actions"]
+    },
+    "queries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name":{"type":"string","enum":["specific","broad"]},
+          "jql":{"type":"string"},
+          "complete":{"type":"boolean"},
+          "keys":{"type":"array","items":{"type":"string"}}
+        },
+        "required": ["name","jql","complete","keys"]
+      }
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "key":{"type":"string"},
+          "status":{"type":"string"},
+          "signature_match":{"type":"boolean"},
+          "component_match":{"type":"boolean"},
+          "trigger_match":{"type":"boolean"},
+          "open":{"type":"boolean"},
+          "score":{"type":"integer"}
+        },
+        "required": ["key","status","signature_match","component_match","trigger_match","open","score"]
+      }
+    },
+    "decision": {"type":"string","enum":["create","comment"]},
+    "target_key": {"anyOf":[{"type":"string"},{"type":"null"}]},
+    "created_key": {"anyOf":[{"type":"string"},{"type":"null"}]},
+    "comment_id": {"anyOf":[{"type":"string"},{"type":"null"}]},
+    "comment_reconciled": {"type":"boolean"},
+    "write_attempts": {"type":"integer"},
+    "replayed": {"type":"boolean"},
+    "outcome": {"type":"string","enum":["created","commented_reconciled"]},
+    "cli_failures": {"type":"integer"},
+    "next_action": {"type":"string","enum":["complete"]}
+  },
+  "required": [
+    "approval","queries","candidates","decision","target_key","created_key",
+    "comment_id","comment_reconciled","write_attempts","replayed","outcome",
+    "cli_failures","next_action"
+  ]
+}

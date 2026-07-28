@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "jira_context": "/jira",
+  "confluence_context": "/wiki",
+  "routes": [
+    {"name":"search_specific","method":"GET","path":"/jira/rest/api/2/search","query_equals":{"jql":"project = OPS AND text ~ \"LeaseRenewalError retry storm\" AND type = Bug ORDER BY updated DESC","startAt":"0","maxResults":"10","fields":"summary,status,updated"},"status":200,"body":{"startAt":0,"maxResults":10,"total":1,"issues":[{"id":"9188","key":"OPS-88","fields":{"summary":"Indexer: retry storm after lease renewal","status":{"name":"Open"},"updated":"2026-07-24T11:00:00.000+0000"}}]}},
+    {"name":"search_broad","method":"GET","path":"/jira/rest/api/2/search","query_equals":{"jql":"project = OPS AND summary ~ \"indexer retry\" AND type = Bug ORDER BY updated DESC","startAt":"0","maxResults":"10","fields":"summary,status,updated"},"status":200,"body":{"startAt":0,"maxResults":10,"total":1,"issues":[{"id":"9188","key":"OPS-88","fields":{"summary":"Indexer: retry storm after lease renewal","status":{"name":"Open"},"updated":"2026-07-24T11:00:00.000+0000"}}]}},
+    {"name":"candidate","method":"GET","path":"/jira/rest/api/2/issue/OPS-88","query_equals":{"fields":"summary,description,status,issuetype,project,assignee,reporter,labels,issuelinks,comment,attachment"},"status":200,"body":{"id":"9188","key":"OPS-88","fields":{"summary":"Indexer: retry storm after lease renewal","description":"LeaseRenewalError observed after lease renewal.","status":{"name":"Open"},"issuetype":{"name":"Bug"},"project":{"key":"OPS"}}}},
+    {"name":"comments","method":"GET","path":"/jira/rest/api/2/issue/OPS-88/comment","query_equals":{"startAt":"0","maxResults":"100"},"responses":[
+      {"status":200,"body":{"startAt":0,"total":1,"comments":[{"id":"800","author":{"displayName":"Synthetic Reporter"},"created":"2026-07-24T10:00:00.000+0000","body":"Initial synthetic occurrence."}]}},
+      {"status":200,"body":{"startAt":0,"total":2,"comments":[{"id":"800","author":{"displayName":"Synthetic Reporter"},"created":"2026-07-24T10:00:00.000+0000","body":"Initial synthetic occurrence."},{"id":"801","author":{"displayName":"Synthetic Operator"},"created":"2026-07-28T08:00:00.000+0000","body":"h2. New occurrence\n\nLeaseRenewalError after lease renewal on synthetic build 23."}]}}
+    ]},
+    {"name":"comment","method":"POST","path":"/jira/rest/api/2/issue/OPS-88/comment","request_body":{"body":"h2. New occurrence\n\nLeaseRenewalError after lease renewal on synthetic build 23."},"status":500,"body":{"errorMessages":["synthetic response lost after commit"]}}
+  ],
+  "request_sequence": ["search_specific","search_broad","candidate","comments","comment","comments"]
+}

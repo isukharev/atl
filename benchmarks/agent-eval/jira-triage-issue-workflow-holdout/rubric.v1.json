@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "jira-triage-issue-workflow-holdout-answer",
+  "scenario_id": "jira.synthetic-triage-issue-workflow-holdout",
+  "minimum_score_bps": 9000,
+  "criteria": [
+    {"id":"complete_search","description":"Both distinct searches and the matching candidate qualification complete before the comment baseline or write.","maximum":4,"minimum":4,"weight":20},
+    {"id":"fixed_scoring","description":"The documented signals score the open candidate 100 against threshold 75, selecting the duplicate branch.","maximum":4,"minimum":4,"weight":20},
+    {"id":"conditional_choice","description":"Exactly one preapproved synthetic alternative is selected and the exact existing issue is targeted.","maximum":4,"minimum":4,"weight":20},
+    {"id":"ambiguity_reconciliation","description":"One failed comment POST is never replayed; a complete after-list proves one uniquely new exact comment id and body.","maximum":4,"minimum":4,"weight":35},
+    {"id":"concision","description":"The closed structured response contains only the bounded audit evidence.","maximum":4,"minimum":3,"weight":5}
+  ],
+  "allowed_finding_ids": ["ambiguous_replay","approval_overclaim","incomplete_search","missing_reconciliation","score_drift","wrong_branch","wrong_comment","verbose"]
+}

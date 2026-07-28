@@ -293,6 +293,8 @@ The realistic matrix currently contains:
 | surface native | `jira-spec-to-backlog-workflow-holdout` | distinct approved spec whose first Epic link is forbidden, proving fail-fast stop before the second child |
 | surface native | `jira-meeting-tasks-workflow` | approved meeting actions with exact DC username qualification, skipped-note disclosure, and fail-fast partial creation |
 | surface native | `jira-meeting-tasks-workflow-holdout` | distinct approved actions with one qualified username and one missing identity through a complete bounded create batch |
+| surface native | `jira-triage-issue-workflow` | complete duplicate search and fixed candidate scoring before one conditionally approved synthetic bug create |
+| surface native | `jira-triage-issue-workflow-holdout` | distinct open duplicate with one ambiguous comment response reconciled by a complete before/after id delta without replay |
 | surface native | `jira-board-pagination-mcp` | one typed complete Scrum board/backlog read with internal pagination, overlap, rank, membership, and unmapped status reconciliation |
 | surface native | `jira-board-pagination-mcp-holdout` | distinct board/backlog pagination topology with two overlaps through the same closed membership contract |
 | surface native | `jira-board-incomplete-mcp` | intentionally capped board/backlog evidence with observed-only membership and explicit incomplete qualification |
@@ -503,6 +505,17 @@ vague skipped note, two created keys, one definitive create failure, and one
 unattempted action without retry or backlink. Its distinct holdout completes
 two approved tasks. Named fixture request sequences enforce read and identity
 qualification before writes and reject continuation after the fail-stop.
+
+The paired `jira-triage-issue-workflow` cases exercise the shipped issue-triage
+workflow with an explicit conditional approval that preserves its normal human
+approval boundary. Both exact searches must be complete and every candidate
+must be fetched before a fixed 40/25/20/15 scoring rule selects at most one
+write at threshold 75. The primary creates one bug because all candidates stay
+below threshold. Its distinct holdout comments on one open duplicate and, after
+an ambiguous synthetic response, proves the committed comment through one
+complete before/after id-and-body reconciliation without replay. Both provider
+policies expose the exact create and comment alternatives so policy shape does
+not reveal the expected branch.
 
 `jira-field-mutation` uses that boundary for one generic custom field. Its
 preview-only variant exercises the dedicated GET-only `jira issue field
