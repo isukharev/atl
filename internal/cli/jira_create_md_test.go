@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"github.com/isukharev/atl/internal/app"
 )
 
 // --- jira --from-md: markdown-authored issue bodies -------------------------
@@ -65,24 +67,26 @@ func TestJiraUpdate_FromMD(t *testing.T) {
 	}
 }
 
-// TestJiraCommentAdd_FromMD: comments convert too; the wiki body lands in
-// the comment POST payload.
-func TestJiraCommentAdd_FromMD(t *testing.T) {
+// TestJiraCommentPreview_FromMD: comments convert too; the reviewed proposal
+// contains the exact native wiki bytes without issuing a write.
+func TestJiraCommentPreview_FromMD(t *testing.T) {
 	js := newJiraServer(t)
-	js.route(http.MethodPost, "/rest/api/2/issue/ENG-7/comment", http.StatusCreated,
-		`{"id":"1","body":"x"}`)
+	js.route(http.MethodGet, "/rest/api/2/myself", http.StatusOK,
+		`{"name":"alice","key":"user-1","displayName":"Alice"}`)
+	js.route(http.MethodGet, "/rest/api/2/issue/ENG-7/comment", http.StatusOK,
+		`{"startAt":0,"total":0,"comments":[]}`)
 
-	_, code := runCLI(t, jiraEnv(js.srv),
-		"jira", "issue", "comment", "add", "ENG-7", "--from-md", writeTempMD(t, jiraMD))
+	out, code := runCLI(t, jiraEnv(js.srv),
+		"jira", "issue", "comment", "preview", "ENG-7", "--from-md", writeTempMD(t, jiraMD))
 	if code != exitOK {
-		t.Fatalf("jira comment add --from-md: exit %d", code)
+		t.Fatalf("jira comment preview --from-md: exit %d", code)
 	}
-	writes := js.writeReqsTo("/rest/api/2/issue/ENG-7/comment")
-	if len(writes) != 1 {
-		t.Fatalf("expected 1 write, got %d", len(writes))
+	var result app.JiraCommentAddResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil || result.Body != jiraWiki {
+		t.Fatalf("result=%+v err=%v, want converted wiki %q", result, err, jiraWiki)
 	}
-	if !strings.Contains(writes[0].body, `"h2. Контекст`) {
-		t.Fatalf("comment body = %q, want converted wiki", writes[0].body)
+	if writes := js.writeReqsTo("/rest/api/2/issue/ENG-7/comment"); len(writes) != 0 {
+		t.Fatalf("preview wrote %d comments", len(writes))
 	}
 }
 

@@ -545,7 +545,9 @@ atl jira issue watchers list PROJ-1
 atl jira issue watchers add PROJ-1 --me # dry-run; apply с proposal hash из preview
 atl jira issue worklog add PROJ-1 --time 1h30m --from-file worklog.txt # dry-run
 # Проверьте baseline_sha256 и примените один раз с привязанным к нему proposal hash
-atl jira issue comment add PROJ-1 --from-md note.md
+ATL_READ_ONLY=1 atl jira issue comment preview PROJ-1 --from-md note.md
+# Проверьте body_sha256/baseline_sha256/proposal_hash и один раз примените то же тело
+atl jira issue comment add PROJ-1 --from-md note.md --apply --expected-proposal-hash <hash>
 atl jira issue edit PROJ-1 --old 'timeout = 300' --new 'timeout = 600'
 ATL_READ_ONLY=1 atl jira issue field preview PROJ-1 --from-md customfield_10001=notes.md --allow-fields customfield_10001
 # Проверьте expected_updated и proposal_hash; field set --apply — только после подтверждения.

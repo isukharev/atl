@@ -62,7 +62,10 @@ Stop and wait for the user's choice.
 ### 4a. Comment on an existing issue
 
 ```sh
-printf '%s' "$BODY_MD" | atl jira issue comment add KEY-123 --from-md -
+printf '%s' "$BODY_MD" | ATL_READ_ONLY=1 atl jira issue comment preview KEY-123 --from-md -
+# After explicit approval, repeat the exact body once with:
+printf '%s' "$BODY_MD" | env -u ATL_READ_ONLY atl jira issue comment add KEY-123 \
+  --from-md - --apply --expected-proposal-hash '<reviewed-hash>'
 ```
 
 ### 4b. Create a new bug

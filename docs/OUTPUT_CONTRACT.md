@@ -1716,6 +1716,33 @@ field ids, sources, normalized types, and values; a changed local input fails
 before backend metadata/read/write calls. All proposed fields are sent in one
 request.
 
+`atl jira issue comment preview <KEY>` and the dry-run form of
+`atl jira issue comment add <KEY>` emit one baseline-bound append proposal:
+`{key,mode,status,body,body_bytes,body_sha256,actor,current_count,
+baseline_sha256,proposal_hash,created?,complete,reconciled?}`. Preview is a
+separately classified GET-only command available under the process-wide
+read-only policy; `add` remains classified as mutating even in dry-run mode.
+The reviewed native Jira-wiki body is present in JSON and may be private.
+`-o text` omits body and actor values and emits only status, key, byte count,
+and hashes.
+
+The versioned proposal hash binds the target issue, exact validated native
+body, stable authenticated Data Center identity, and the complete sorted set of
+unique non-empty comment ids. Identical comment text already present is not an
+idempotency condition: append remains a new event. Apply requires
+`--apply --expected-proposal-hash`, reconstructs the reviewed proposal, and
+re-reads the complete baseline immediately before at most one POST. Any local
+body or remote baseline drift blocks before POST. A successful or ambiguous
+POST gets one complete readback; no POST is automatically replayed.
+
+Status is closed to `would_apply`, `applied`, `not_applied`, `conflict`, and
+`unverifiable`. `not_applied` requires a definitive rejection. `applied`
+requires a stable newly observed comment identity matching the reviewed body
+and actor. Concurrent or duplicate-body evidence that prevents unique
+attribution is `conflict`; unavailable/incomplete readback is `unverifiable`.
+Unsafe outcomes return non-zero after emitting the result and carry structured
+`reconcile_write_outcome` recovery with `retry_safe:false`.
+
 `atl jira issue watchers list <KEY>` emits
 `{key,watch_count,is_watching,watchers:[{name,key?,display_name?,active}],
 complete,truncated?}`. Jira DC does not paginate this endpoint: completeness

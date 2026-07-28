@@ -122,7 +122,7 @@ func TestListCommentsMapsFromCommentEndpoint(t *testing.T) {
 		gotPath = r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"comments":[
-			{"id":"1","author":{"displayName":"Bob"},"created":"2026-01-02","body":"hello"},
+			{"id":"1","author":{"name":"bob","key":"user-1","displayName":"Bob"},"created":"2026-01-02","body":"hello"},
 			{"id":"2","author":{"displayName":"Carol"},"created":"2026-01-03","body":"world"}
 		],"total":2}`))
 	}))
@@ -136,7 +136,8 @@ func TestListCommentsMapsFromCommentEndpoint(t *testing.T) {
 	if gotPath != "/rest/api/2/issue/PROJ-1/comment" {
 		t.Errorf("path = %q", gotPath)
 	}
-	if len(cs) != 2 || cs[0].ID != "1" || cs[0].Author != "Bob" || cs[0].Body != "hello" || cs[1].ID != "2" {
+	if len(cs) != 2 || cs[0].ID != "1" || cs[0].Author != "Bob" || cs[0].AuthorName != "bob" ||
+		cs[0].AuthorKey != "user-1" || cs[0].Body != "hello" || cs[1].ID != "2" {
 		t.Fatalf("comments mismatch: %+v", cs)
 	}
 }

@@ -394,6 +394,8 @@ func (j *Jira) AddComment(ctx context.Context, key string, body []byte) (*domain
 		ID      string `json:"id"`
 		Created string `json:"created"`
 		Author  struct {
+			Name        string `json:"name"`
+			Key         string `json:"key"`
 			DisplayName string `json:"displayName"`
 		} `json:"author"`
 	}
@@ -401,7 +403,10 @@ func (j *Jira) AddComment(ctx context.Context, key string, body []byte) (*domain
 		map[string]string{"body": string(body)}, &out); err != nil {
 		return nil, err
 	}
-	return &domain.Comment{ID: out.ID, Author: out.Author.DisplayName, Created: out.Created, Body: string(body)}, nil
+	return &domain.Comment{
+		ID: out.ID, Author: out.Author.DisplayName, AuthorName: out.Author.Name, AuthorKey: out.Author.Key,
+		Created: out.Created, Body: string(body),
+	}, nil
 }
 
 // commentPageGuard bounds the internal comment paging loop so a backend that
@@ -449,7 +454,10 @@ func (j *Jira) ListComments(ctx context.Context, key string) ([]domain.Comment, 
 				domain.ErrCheckFailed, key, expectedTotal, total)
 		}
 		for _, c := range resp.Comments {
-			out = append(out, domain.Comment{ID: c.ID, Author: nestedDisplay(c.Author), Created: c.Created, Body: c.Body})
+			out = append(out, domain.Comment{
+				ID: c.ID, Author: nestedDisplay(c.Author), AuthorName: nestedName(c.Author),
+				AuthorKey: nestedKey(c.Author), Created: c.Created, Body: c.Body,
+			})
 		}
 		next := resp.StartAt + len(resp.Comments)
 		if next > total {

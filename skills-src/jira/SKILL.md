@@ -217,6 +217,10 @@ shell/workspace configuration implicitly.
 - Prefer dedicated one-shot commands for summary, labels, links, comments,
   transitions, watchers, worklogs, and individual custom fields. Resolve valid
   transitions/options/link types/users before writing.
+- For a comment, use the separately read-only `jira issue comment preview` on
+  the final file, review its body/baseline/proposal hashes, then apply that exact
+  file once with `comment add --apply --expected-proposal-hash`. Identical text
+  is still a new append event; conflict/unverifiable is never replay-safe.
 - For a body or opted-in rich-text field, require
   `<!-- atl:document jira-issue v3 -->`, edit only supported `.md` sections,
   run `jira apply`, validate/review `jira push` dry-run, then use explicit

@@ -84,7 +84,9 @@ jira issue attachment get
 jira issue attachment list
 jira issue check
 jira issue children
+jira issue comment add
 jira issue comment list
+jira issue comment preview
 jira issue create
 jira issue edit
 jira issue field get

@@ -780,7 +780,7 @@ func TestAddComment(t *testing.T) {
 		b, _ := io.ReadAll(r.Body)
 		gotBody = string(b)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"id":"9001","created":"2024-05-06T07:08:09.000+0000","author":{"displayName":"Zed Z"}}`)
+		_, _ = io.WriteString(w, `{"id":"9001","created":"2024-05-06T07:08:09.000+0000","author":{"name":"zed","key":"user-9","displayName":"Zed Z"}}`)
 	}))
 	defer srv.Close()
 
@@ -799,11 +799,25 @@ func TestAddComment(t *testing.T) {
 	if sent["body"] != "hello *world*" {
 		t.Errorf("sent body = %q", sent["body"])
 	}
-	if c.ID != "9001" || c.Author != "Zed Z" || c.Created == "" {
+	if c.ID != "9001" || c.Author != "Zed Z" || c.AuthorName != "zed" || c.AuthorKey != "user-9" || c.Created == "" {
 		t.Errorf("returned comment = %+v", c)
 	}
 	if c.Body != "hello *world*" {
 		t.Errorf("returned body = %q, want echo of input", c.Body)
+	}
+}
+
+func TestAddCommentSingleAttemptDoesNotRetryAmbiguousStatus(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		http.Error(w, "try later", http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	_, err := newTestJira(srv).AddComment(domain.WithSingleAttempt(context.Background()), "ABC-1", []byte("reviewed"))
+	if err == nil || calls != 1 {
+		t.Fatalf("err=%v calls=%d, want one failed POST", err, calls)
 	}
 }
 

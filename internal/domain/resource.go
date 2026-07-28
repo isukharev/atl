@@ -102,6 +102,8 @@ type Attachment struct {
 type Comment struct {
 	ID          string `json:"id"`
 	Author      string `json:"author"`
+	AuthorName  string `json:"-"` // stable Jira Data Center username when available
+	AuthorKey   string `json:"-"` // stable Jira Data Center user key when available
 	Created     string `json:"created"`
 	Body        string `json:"body"`
 	BodyStorage string `json:"body_storage,omitempty"` // native CSF when available; Body remains the plain fallback

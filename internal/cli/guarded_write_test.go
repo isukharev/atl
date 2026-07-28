@@ -158,6 +158,13 @@ func TestGuardedWriteRealCommandsPreserveProfilesAndFailBeforeInputOrService(t *
 			applyHelp: "perform the guarded write (default: dry-run)",
 			wantError: "usage error: --expected-proposal-hash is required with --apply; run the dry-run first",
 		},
+		{
+			name:      "Jira comment",
+			path:      []string{"jira", "issue", "comment", "add", "PROJ-1", "--from-file", "/definitely/missing/comment.wiki", "--apply"},
+			hashHelp:  "reviewed proposal hash (required with --apply)",
+			applyHelp: "perform the guarded write (default: dry-run)",
+			wantError: "usage error: --expected-proposal-hash is required with --apply; run the dry-run first",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
