@@ -4,7 +4,7 @@
 
 [![Go](https://img.shields.io/badge/go-1.26-blue?logo=go)](https://go.dev)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
-[![CI](https://img.shields.io/github/actions/workflow/status/isukharev/atl/ci.yml?branch=main&label=CI)](https://github.com/isukharev/atl/actions/workflows/ci.yml)
+[![Main smoke](https://img.shields.io/github/actions/workflow/status/isukharev/atl/ci.yml?branch=main&label=main%20smoke)](https://github.com/isukharev/atl/actions/workflows/ci.yml)
 
 [Roadmap](ROADMAP.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 

@@ -136,7 +136,13 @@ cat > /tmp/atl-protection.json <<'JSON'
 {
   "required_status_checks": {
     "strict": true,
-    "contexts": ["test", "lint", "govulncheck"]
+    "contexts": [
+      "test (ubuntu-latest)",
+      "test (macos-latest)",
+      "lint",
+      "govulncheck",
+      "analyze"
+    ]
   },
   "enforce_admins": true,
   "required_pull_request_reviews": {
@@ -167,6 +173,10 @@ Then in the GitHub UI, double-check:
   pull requests" is **off**; fork-PR workflows require approval.
 - **Settings → Code security:** CodeQL/Dependabot alerts enabled (the workflows
   and `dependabot.yml` are already in the repo).
+- **Settings → Branches → main:** the five pull-request contexts listed above
+  are required in strict mode. The push-only `smoke` job is intentionally not a
+  required pull-request context; it checks merged build provenance and CLI
+  startup without repeating the full matrix.
 - Enable **2FA** on your account if not already.
 
 > Tag pushes trigger releases. Because `main` is protected and releases are built
