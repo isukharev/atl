@@ -21,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   routes, not full CLI equivalence. No profile adds writes, shell execution,
   arbitrary files, backend probing, or a model-selected allowlist.
 
+- Added an optional schema-v7 agent-evaluation `mcp_service_profile` binding
+  for internal typed-MCP runs. `jira`, `confluence`, and `offline` append the
+  matching `--service` selection to both Codex and Claude Code MCP child
+  configurations, and validation requires every allowed MCP tool to belong to
+  that shared closed capability inventory. CLI and external-MCP runs reject the
+  field; omission preserves the existing child arguments and serialized shape.
+  Existing case snapshots, private plan digests, and synthetic execution
+  receipts bind the selection without a durable-format migration.
+
 - Added reviewed Jira transitions. `jira issue transition preview` is a
   separately classified GET-only command, while `jira issue transition` now
   previews by default and requires `--apply` plus the exact proposal hash to

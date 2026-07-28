@@ -907,7 +907,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			if err := writeClaudeExternalMCPConfig(mcpConfigPath, loaded.spec.mcpServerURL, backendEnvironment["ATL_EVAL_EXTERNAL_MCP_TOKEN"]); err != nil {
 				return Result{}, err
 			}
-		} else if err := writeClaudeMCPConfig(mcpConfigPath, options.ATLBinary, mcpEnvironment); err != nil {
+		} else if err := writeClaudeMCPConfig(mcpConfigPath, options.ATLBinary, mcpChildArgs(loaded.spec), mcpEnvironment); err != nil {
 			return Result{}, err
 		}
 	}
@@ -2234,12 +2234,12 @@ func validateGatewayMCPEnvironment(environment map[string]string) error {
 	return nil
 }
 
-func writeClaudeMCPConfig(path, atlBinary string, environment map[string]string) error {
+func writeClaudeMCPConfig(path, atlBinary string, childArgs []string, environment map[string]string) error {
 	config := map[string]any{
 		"mcpServers": map[string]any{
 			"atl": map[string]any{
 				"type": "stdio", "command": atlBinary,
-				"args": []string{"mcp", "serve"}, "env": environment,
+				"args": childArgs, "env": environment,
 				// Current Claude Code starts ordinary servers asynchronously. The
 				// benchmark needs the reviewed tools in the first prompt, so make
 				// readiness a bounded startup precondition rather than a model race.

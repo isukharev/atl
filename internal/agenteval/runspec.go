@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/isukharev/atl/internal/capability"
 	"github.com/isukharev/atl/internal/safepath"
 )
 
@@ -56,6 +57,7 @@ type RunSpec struct {
 	MaxEstimatedCostMicroUSD    int64                         `json:"max_estimated_cost_microusd"`
 	Pricing                     Pricing                       `json:"pricing"`
 	ToolTransport               string                        `json:"tool_transport,omitempty"`
+	MCPServiceProfile           string                        `json:"mcp_service_profile,omitempty"`
 	SkillActivation             string                        `json:"skill_activation,omitempty"`
 	AllowedTools                []string                      `json:"allowed_tools"`
 	AllowedATLCommands          []string                      `json:"allowed_atl_commands"`
@@ -441,6 +443,9 @@ func (s RunSpec) Validate() error {
 		}
 		seenMCPTools[tool] = struct{}{}
 	}
+	if err := validateMCPServiceProfile(s); err != nil {
+		return err
+	}
 	if len(s.Checks) == 0 || len(s.Checks) > maxContractListEntries {
 		return fmt.Errorf("checks must contain 1..%d entries", maxContractListEntries)
 	}
@@ -613,6 +618,50 @@ func (s RunSpec) Validate() error {
 		return fmt.Errorf("named skill_invocations_min requires Claude Code Skill events")
 	}
 	return nil
+}
+
+func validateMCPServiceProfile(s RunSpec) error {
+	if s.MCPServiceProfile == "" {
+		return nil
+	}
+	if s.SchemaVersion != RunSpecSchemaVersion {
+		return fmt.Errorf("mcp_service_profile requires current run spec schema")
+	}
+	if s.EffectiveToolTransport() != "mcp" || s.EffectiveSurface() != SurfaceATLMCP {
+		return fmt.Errorf("mcp_service_profile is valid only for internal atl MCP transport")
+	}
+	allowed, ok := mcpServiceProfileTools(s.MCPServiceProfile)
+	if !ok {
+		return fmt.Errorf("mcp_service_profile must be jira, confluence, or offline")
+	}
+	for _, tool := range s.AllowedMCPTools {
+		if !allowed[tool] {
+			return fmt.Errorf("allowed MCP tool %q is outside mcp_service_profile %q", tool, s.MCPServiceProfile)
+		}
+	}
+	return nil
+}
+
+func mcpServiceProfileTools(profile string) (map[string]bool, bool) {
+	if profile != "jira" && profile != "confluence" && profile != "offline" {
+		return nil, false
+	}
+	allowed := map[string]bool{}
+	for _, definition := range capability.Definitions() {
+		if definition.MCPTool == "" {
+			continue
+		}
+		if profile == "offline" {
+			if definition.ID == "jira.mirror.snapshot" || definition.ID == "confluence.mirror.snapshot" {
+				allowed[definition.MCPTool] = true
+			}
+			continue
+		}
+		if definition.Service == profile {
+			allowed[definition.MCPTool] = true
+		}
+	}
+	return allowed, true
 }
 
 // isCodexSyntheticBrokerCLI selects the executable synthetic CLI route without

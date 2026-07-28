@@ -543,6 +543,40 @@ exit 0
 	}
 }
 
+func TestWriteClaudeMCPConfigBindsClosedServiceProfile(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		spec RunSpec
+		want []string
+	}{
+		{name: "default", spec: RunSpec{}, want: []string{"mcp", "serve"}},
+		{name: "jira", spec: RunSpec{MCPServiceProfile: "jira"}, want: []string{"mcp", "serve", "--service", "jira"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			directory := t.TempDir()
+			if err := os.Chmod(directory, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(directory, "claude-mcp.json")
+			if err := writeClaudeMCPConfig(path, "/opt/atl", mcpChildArgs(test.spec), map[string]string{"ATL_READ_ONLY": "1"}); err != nil {
+				t.Fatal(err)
+			}
+			var config struct {
+				Servers map[string]struct {
+					Args []string `json:"args"`
+				} `json:"mcpServers"`
+			}
+			data, err := os.ReadFile(path)
+			if err != nil || json.Unmarshal(data, &config) != nil {
+				t.Fatalf("read MCP config: %v", err)
+			}
+			if !slices.Equal(config.Servers["atl"].Args, test.want) {
+				t.Fatalf("args=%v want=%v", config.Servers["atl"].Args, test.want)
+			}
+		})
+	}
+}
+
 func readSyntheticRunReceiptTest(t *testing.T, path string) SyntheticRunReceipt {
 	t.Helper()
 	file, err := os.Open(path)

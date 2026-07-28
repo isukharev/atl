@@ -191,6 +191,33 @@ func TestBuildCodexMCPCommandIsCredentialIsolatedAndHookGuarded(t *testing.T) {
 	}
 }
 
+func TestBuildCodexMCPCommandBindsClosedServiceProfile(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		profile string
+		want    string
+	}{
+		{name: "default", want: `mcp_servers.atl.args=["mcp","serve"]`},
+		{name: "jira", profile: "jira", want: `mcp_servers.atl.args=["mcp","serve","--service","jira"]`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			spec := validRunSpec()
+			spec.ToolTransport = "mcp"
+			spec.AllowedTools = nil
+			spec.AllowedATLCommands = nil
+			spec.AllowedMCPTools = []string{"jira_fields"}
+			spec.MCPServiceProfile = test.profile
+			command, err := BuildProviderCommand(spec, "codex", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "", "", "", ProviderConfinement{}, []byte(`{"type":"object"}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Contains(command.Args, test.want) {
+				t.Fatalf("Codex MCP child args=%v want exact %q", command.Args, test.want)
+			}
+		})
+	}
+}
+
 func TestBuildPrivateCodexMCPProjectsOnlyReviewedSkillReadPolicy(t *testing.T) {
 	spec := validRunSpec()
 	spec.Provider = "codex"

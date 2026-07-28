@@ -1,6 +1,7 @@
 package agenteval
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -87,6 +88,108 @@ func TestRunSpecSeparatesCLIAndMCPAllowlists(t *testing.T) {
 				t.Fatal("invalid MCP run spec passed")
 			}
 		})
+	}
+}
+
+func TestRunSpecMCPServiceProfileIsClosedAndToolBound(t *testing.T) {
+	base := validRunSpec()
+	base.ToolTransport = "mcp"
+	base.AllowedTools = nil
+	base.AllowedATLCommands = nil
+
+	for _, test := range []struct {
+		name    string
+		profile string
+		tools   []string
+	}{
+		{name: "jira", profile: "jira", tools: []string{"jira_fields", "jira_mirror_snapshot"}},
+		{name: "confluence", profile: "confluence", tools: []string{"confluence_page_section", "confluence_mirror_snapshot"}},
+		{name: "offline", profile: "offline", tools: []string{"jira_mirror_snapshot", "confluence_mirror_snapshot"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			spec := base
+			spec.MCPServiceProfile = test.profile
+			spec.AllowedMCPTools = test.tools
+			if err := spec.Validate(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+
+	for name, mutate := range map[string]func(*RunSpec){
+		"unknown profile": func(spec *RunSpec) {
+			spec.MCPServiceProfile = "all"
+			spec.AllowedMCPTools = []string{"jira_fields"}
+		},
+		"jira with confluence tool": func(spec *RunSpec) {
+			spec.MCPServiceProfile = "jira"
+			spec.AllowedMCPTools = []string{"confluence_page_section"}
+		},
+		"offline with online tool": func(spec *RunSpec) {
+			spec.MCPServiceProfile = "offline"
+			spec.AllowedMCPTools = []string{"jira_fields"}
+		},
+		"cli": func(spec *RunSpec) {
+			spec.ToolTransport = "cli"
+			spec.MCPServiceProfile = "jira"
+			spec.AllowedMCPTools = nil
+			spec.AllowedTools = []string{"Bash(atl *)"}
+			spec.AllowedATLCommands = []string{"atl jira issue fields"}
+		},
+		"external mcp": func(spec *RunSpec) {
+			spec.BackendMode = BackendModePrivateLive
+			spec.Surface = SurfaceExternalMCP
+			spec.FixtureFile = ""
+			spec.Repetitions = 1
+			spec.MCPServiceProfile = "jira"
+			spec.AllowedMCPTools = []string{"jira_fields"}
+		},
+		"legacy schema": func(spec *RunSpec) {
+			spec.SchemaVersion = LegacyRunSpecSchemaVersion
+			spec.MCPServiceProfile = "jira"
+			spec.AllowedMCPTools = []string{"jira_fields"}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			spec := base
+			mutate(&spec)
+			if err := spec.Validate(); err == nil {
+				t.Fatal("invalid MCP service profile passed")
+			}
+		})
+	}
+	expected := map[string][]string{
+		"jira": {
+			"jira_board_view", "jira_epic_digest", "jira_fields", "jira_issue_field_get", "jira_issue_history",
+			"jira_issue_refs", "jira_issue_search", "jira_mirror_snapshot", "jira_structure_get", "jira_structure_view",
+		},
+		"confluence": {
+			"confluence_attachment_list", "confluence_mirror_snapshot", "confluence_page_meta", "confluence_page_outline",
+			"confluence_page_resolve", "confluence_page_section", "confluence_page_sections", "confluence_search",
+			"confluence_table_extract", "confluence_table_summary",
+		},
+		"offline": {"confluence_mirror_snapshot", "jira_mirror_snapshot"},
+	}
+	for profile, want := range expected {
+		allowed, ok := mcpServiceProfileTools(profile)
+		got := make([]string, 0, len(allowed))
+		for tool := range allowed {
+			got = append(got, tool)
+		}
+		slices.Sort(got)
+		if !ok || !slices.Equal(got, want) {
+			t.Errorf("%s profile inventory=%v want=%v", profile, got, want)
+		}
+	}
+}
+
+func TestRunSpecMCPServiceProfileOmissionPreservesJSON(t *testing.T) {
+	data, err := json.Marshal(validRunSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte("mcp_service_profile")) {
+		t.Fatalf("omitted MCP service profile changed run spec JSON: %s", data)
 	}
 }
 
