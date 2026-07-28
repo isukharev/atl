@@ -219,7 +219,10 @@ Recent additions expand both surfaces — check the focused skills for full flag
 - Shell completion for fixed-value flags (e.g. `--output`, `--format`, `--status`) is registered.
   Help and completion remain usable while global read-only policy is active.
 - `capabilities --task <exact-class>` — offline bounded task routing; JSON by
-  default, Markdown with `-o text`, or stable capability ids with `-o id`.
+  default, Markdown with `-o text`, or stable capability ids with `-o id`; JSON
+  also states any bounded MCP route/scope or an explicit CLI-only boundary.
+- `mcp serve --service jira|confluence|offline` — standalone closed read-only
+  profiles; omission preserves the plugin's complete default inventory.
 
 **Confluence additions:** typed read-only `render.confluence.page_fields` shared
 by mirror and transient views; the `render.confluence.jira_macros=auto|off`

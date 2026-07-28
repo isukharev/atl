@@ -10,6 +10,39 @@ summarize an existing durable mirror without exposing its paths or content.
 Keep the CLI for mirror creation/content/status/diff, raw Structure
 forest/values, exports, offline diff/plan workflows, and all guarded writes.
 
+## Closed service profiles and capability resource
+
+The default command keeps the complete twenty-tool catalog and its existing
+instructions:
+
+```bash
+atl mcp serve
+```
+
+When a session needs only one reviewed service boundary, select a closed
+profile:
+
+```bash
+atl mcp serve --service jira
+atl mcp serve --service confluence
+atl mcp serve --service offline
+```
+
+Jira and Confluence each expose their ten named tools. `offline` exposes only
+`jira_mirror_snapshot` and `confluence_mirror_snapshot` and constructs neither
+backend. The flag is not an arbitrary allowlist: unknown or repeated values
+fail before dependency construction. Scoped instructions retain the common
+read-only, untrusted-evidence, completeness, no-shell, and no-arbitrary-file
+rules while mentioning only tools present in that profile.
+
+Every profile advertises one fixed `application/json` resource at
+`atl://capabilities`. It returns only static capability identity and ordering,
+the CLI command, an optional bounded MCP route and its scope, and the explicit
+CLI-only fact. It accepts no arguments and reads no config, credentials,
+backend, mirror path, or user content. A mapping is not full CLI equivalence:
+for example, Jira reference and history mappings are summary projections and
+do not return raw URLs or changelog rows.
+
 ## Tools
 
 The v1 surface is an explicit allowlist:

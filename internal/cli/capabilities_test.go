@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/isukharev/atl/internal/agenteval"
+	capabilitydef "github.com/isukharev/atl/internal/capability"
 )
 
 func TestCapabilityCatalogDefinitionsAreValidAndUnique(t *testing.T) {
@@ -19,8 +20,8 @@ func TestCapabilityCatalogDefinitionsAreValidAndUnique(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.SchemaVersion != capabilityCatalogSchemaVersion || catalog.Selection.Count != len(capabilityDefinitions) {
-		t.Fatalf("catalog metadata=%+v definitions=%d", catalog, len(capabilityDefinitions))
+	if catalog.SchemaVersion != capabilityCatalogSchemaVersion || catalog.Selection.Count != 48 {
+		t.Fatalf("catalog metadata=%+v definitions want=48", catalog)
 	}
 	if catalog.Routing.Match != "exact" || !strings.Contains(catalog.Routing.ReferenceLoad, "do not search") {
 		t.Fatalf("routing contract=%+v", catalog.Routing)
@@ -40,6 +41,94 @@ func TestCapabilityCatalogDefinitionsAreValidAndUnique(t *testing.T) {
 		if item.Skill == "" || item.Reference == "" || !strings.HasSuffix(item.Reference, ".md") {
 			t.Fatalf("%s skill route=%q/%q", item.ID, item.Skill, item.Reference)
 		}
+	}
+}
+
+func TestCapabilityDefinitionsResolveAllCobraRoutes(t *testing.T) {
+	root := newRoot()
+	definitions := capabilitydef.Definitions()
+	if len(definitions) != 48 {
+		t.Fatalf("definitions=%d want=48", len(definitions))
+	}
+	for _, definition := range definitions {
+		command, remaining, err := root.Find(strings.Fields(definition.CLICommand))
+		if err != nil || command == nil || len(remaining) != 0 {
+			t.Errorf("%s route %q: command=%v remaining=%v err=%v", definition.ID, definition.CLICommand, command, remaining, err)
+			continue
+		}
+		if command.Run == nil && command.RunE == nil {
+			t.Errorf("%s route %q does not resolve to an executable command", definition.ID, definition.CLICommand)
+		}
+	}
+}
+
+func TestCapabilityCatalogPreservesLegacyProjectionAndAddsTransportRouting(t *testing.T) {
+	root := newRoot()
+	catalog, err := buildCapabilityCatalog(root, capabilitySelection{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	definitions := capabilitydef.Definitions()
+	byID := make(map[string]capabilitydef.Definition, len(definitions))
+	for _, definition := range definitions {
+		byID[definition.ID] = definition
+	}
+
+	mapped, cliOnly, mappedMutating := 0, 0, 0
+	for _, item := range catalog.Capabilities {
+		definition, ok := byID[item.ID]
+		if !ok {
+			t.Fatalf("catalog includes unknown capability %q", item.ID)
+		}
+		legacyGot := []any{
+			item.ID, item.TaskClass, item.Service, item.Role, item.Priority, item.Summary,
+			item.Command, item.Access, item.OutputModes, item.Evidence, item.Completeness, item.Skill, item.Reference,
+		}
+		command, _, findErr := root.Find(strings.Fields(definition.CLICommand))
+		if findErr != nil {
+			t.Fatal(findErr)
+		}
+		wantModes := []string{"json"}
+		if command.Annotations[textOutputAnnotation] == "supported" {
+			wantModes = append(wantModes, "text")
+		}
+		if command.Annotations[idOutputAnnotation] == "supported" {
+			wantModes = append(wantModes, "id")
+		}
+		legacyWant := []any{
+			definition.ID, definition.TaskClass, definition.Service, definition.Role, definition.Priority, definition.Summary,
+			definition.CLICommand, command.Annotations[accessAnnotation], wantModes,
+			definition.Evidence, definition.Completeness, definition.Skill, definition.Reference,
+		}
+		if !reflect.DeepEqual(legacyGot, legacyWant) {
+			t.Errorf("%s legacy projection=%v want=%v", item.ID, legacyGot, legacyWant)
+		}
+		if item.Command != item.CLICommand {
+			t.Errorf("%s command alias=%q cli_command=%q", item.ID, item.Command, item.CLICommand)
+		}
+		if item.CLIOnly != (item.MCPTool == "") {
+			t.Errorf("%s cli_only=%v mcp_tool=%q", item.ID, item.CLIOnly, item.MCPTool)
+		}
+		if item.MCPTool == "" {
+			cliOnly++
+			if item.MCPScope != "" {
+				t.Errorf("%s has mcp_scope without mcp_tool", item.ID)
+			}
+			continue
+		}
+		mapped++
+		if item.MCPScope == "" {
+			t.Errorf("%s has mapped MCP tool without scope", item.ID)
+		}
+		if item.Access == "mutating" {
+			mappedMutating++
+		}
+	}
+	if mapped != 29 || cliOnly != 19 {
+		t.Fatalf("mapped=%d cli_only=%d want=29/19", mapped, cliOnly)
+	}
+	if mappedMutating != 0 {
+		t.Fatalf("mapped mutating capabilities=%d want=0", mappedMutating)
 	}
 }
 
@@ -173,6 +262,24 @@ func TestCapabilitiesCommandIsOfflineAndSupportsAllOutputModes(t *testing.T) {
 	}
 	if catalog.Selection.Task != "jira/evidence" || catalog.Selection.Count != 6 {
 		t.Fatalf("selection=%+v", catalog.Selection)
+	}
+	var rawCatalog struct {
+		Capabilities []map[string]any `json:"capabilities"`
+	}
+	if err := json.Unmarshal([]byte(out), &rawCatalog); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range rawCatalog.Capabilities {
+		switch item["id"] {
+		case "jira.issue.search":
+			if item["cli_only"] != false || item["mcp_tool"] == nil || item["mcp_scope"] == nil {
+				t.Fatalf("mapped transport fields=%v", item)
+			}
+		case "jira.issue.fields":
+			if item["cli_only"] != true || item["mcp_tool"] != nil || item["mcp_scope"] != nil {
+				t.Fatalf("CLI-only transport fields=%v", item)
+			}
+		}
 	}
 
 	out, code = runCLI(t, env, "capabilities", "--id", "confluence.page.section", "-o", "text")

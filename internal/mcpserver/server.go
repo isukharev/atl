@@ -123,16 +123,37 @@ func ProductionDependencies(version string) Dependencies {
 // New constructs a protocol server. Every tool is added explicitly: the list
 // itself is the security boundary, not a string filter over CLI commands.
 func New(version string, deps Dependencies) *mcp.Server {
+	return NewForService(version, deps, ServiceDefault)
+}
+
+// NewForService constructs one of the closed MCP service profiles. The
+// explicit switch is the capability boundary: callers cannot turn an arbitrary
+// list of names into registered tools.
+func NewForService(version string, deps Dependencies, profile ServiceProfile) *mcp.Server {
 	if strings.TrimSpace(version) == "" {
 		version = "dev"
 	}
 	server := mcp.NewServer(&mcp.Implementation{Name: "atl", Version: version}, &mcp.ServerOptions{
-		Instructions: Instructions,
+		Instructions: instructionsForService(profile),
 		Capabilities: &mcp.ServerCapabilities{},
 	})
-	registerJiraTools(server, deps)
-	registerConfluenceTools(server, deps)
-	registerMirrorTools(server, deps)
+	registerCapabilitiesResource(server)
+	switch profile {
+	case ServiceDefault:
+		registerJiraTools(server, deps)
+		registerConfluenceTools(server, deps)
+		registerMirrorTools(server, deps)
+	case ServiceJira:
+		registerJiraTools(server, deps)
+		registerJiraMirrorTool(server, deps)
+	case ServiceConfluence:
+		registerConfluenceTools(server, deps)
+		registerConfluenceMirrorTool(server, deps)
+	case ServiceOffline:
+		registerMirrorTools(server, deps)
+	default:
+		panic(fmt.Sprintf("unsupported MCP service profile %q", profile))
+	}
 	return server
 }
 
@@ -140,6 +161,14 @@ func New(version string, deps Dependencies) *mcp.Server {
 // disconnects or ctx is canceled. Protocol bytes are the only stdout output.
 func Serve(ctx context.Context, version string) error {
 	return New(version, ProductionDependencies(version)).Run(ctx, &mcp.StdioTransport{})
+}
+
+// ServeService runs one validated closed service profile over JSONL stdio.
+func ServeService(ctx context.Context, version string, profile ServiceProfile) error {
+	if !profile.valid() {
+		return fmt.Errorf("%w: invalid MCP service %q (want jira|confluence|offline)", domain.ErrUsage, profile)
+	}
+	return NewForService(version, ProductionDependencies(version), profile).Run(ctx, &mcp.StdioTransport{})
 }
 
 type JiraFieldsInput struct {
@@ -792,6 +821,11 @@ func registerConfluenceTools(server *mcp.Server, deps Dependencies) {
 }
 
 func registerMirrorTools(server *mcp.Server, deps Dependencies) {
+	registerJiraMirrorTool(server, deps)
+	registerConfluenceMirrorTool(server, deps)
+}
+
+func registerJiraMirrorTool(server *mcp.Server, deps Dependencies) {
 	addReadOnlyTool(server, readOnlyTool("jira_mirror_snapshot", "Inspect Jira mirror health", "Return fixed-shape, content-free local Jira mirror health counts from the owner-configured root. This tool is offline and accepts no path."),
 		func(_ context.Context, _ *mcp.CallToolRequest, _ MirrorSnapshotInput) (*mcp.CallToolResult, *app.JiraMirrorSnapshot, error) {
 			root, err := mirrorRoot(deps)
@@ -806,7 +840,9 @@ func registerMirrorTools(server *mcp.Server, deps Dependencies) {
 			}
 			return nil, nil, classifiedMirrorRead(snapshotErr)
 		})
+}
 
+func registerConfluenceMirrorTool(server *mcp.Server, deps Dependencies) {
 	addReadOnlyTool(server, readOnlyTool("confluence_mirror_snapshot", "Inspect Confluence mirror health", "Return fixed-shape, content-free local Confluence mirror health counts from the owner-configured root. This tool is offline and accepts no path."),
 		func(_ context.Context, _ *mcp.CallToolRequest, _ MirrorSnapshotInput) (*mcp.CallToolResult, *app.ConfluenceMirrorSnapshot, error) {
 			root, err := mirrorRoot(deps)

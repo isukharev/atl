@@ -200,8 +200,10 @@ atl capabilities --task knowledge/search -o text
 ```
 
 It returns only a small ordered set of real command paths plus their access,
-output, completeness, and focused skill-reference contracts. It loads no
-config/credentials and makes no network request.
+output, completeness, focused skill-reference contracts, and whether a bounded
+typed MCP route exists. An MCP mapping includes its narrower scope; it is not a
+claim that every CLI output or workflow is available through MCP. The command
+loads no config/credentials and makes no network request.
 For `jira/evidence`, broad discovery starts with `jira issue search` before
 exact per-issue field qualification and bounded expansion.
 The `jira/structure-planning` route distinguishes hierarchy discovery,
@@ -216,6 +218,12 @@ identity/version/update/access metadata and keeps unknown restriction state
 distinct from unrestricted. The two no-argument mirror snapshot tools inspect
 only the explicit `ATL_MIRROR_ROOT`, offline, and return content-free health
 counts.
+For sessions that need only one service, start `atl mcp serve --service jira`,
+`--service confluence`, or `--service offline`; these closed profiles publish
+only the reviewed 10, 10, or 2 tool subsets. The default command remains the
+complete twenty-tool surface. MCP clients can read the fixed offline
+`atl://capabilities` resource to inspect the same content-free CLI/MCP routing
+facts.
 Keep raw Structure forest/values, mirror content/status/diff, exports,
 diff/plan, and all guarded writes on the CLI. The MCP v1 surface is read-only by
 construction.
