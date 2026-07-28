@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "jira-triage-issue-workflow-answer",
+  "scenario_id": "jira.synthetic-triage-issue-workflow",
+  "minimum_score_bps": 9000,
+  "criteria": [
+    {"id":"complete_search","description":"Both exact searches are complete and every returned candidate is qualified before a write.","maximum":4,"minimum":4,"weight":25},
+    {"id":"fixed_scoring","description":"The documented 40/25/20/15 scoring rule and threshold 75 are applied exactly without changing status or evidence.","maximum":4,"minimum":4,"weight":25},
+    {"id":"conditional_choice","description":"Exactly one preapproved synthetic alternative is selected; all candidates are below threshold so the exact bug is created.","maximum":4,"minimum":4,"weight":30},
+    {"id":"single_write","description":"The exact create body and returned key are reported with no comment, replay, or second write.","maximum":4,"minimum":4,"weight":15},
+    {"id":"concision","description":"The closed structured response contains only the bounded audit evidence.","maximum":4,"minimum":3,"weight":5}
+  ],
+  "allowed_finding_ids": ["approval_overclaim","incomplete_search","score_drift","wrong_branch","wrong_identity","write_replay","verbose"]
+}

@@ -1,0 +1,39 @@
+{
+  "schema_version":6,"scenario_file":"scenario.v1.json","category":"surface-native","surface":"cli-skill","provider":"claude-code","variant":"jira-triage-issue-workflow-v1","model":"claude-opus-4-8","reasoning":"high","prompt_file":"prompt.claude.v1.md","response_schema_file":"response-schema.v1.json","qualitative_rubric_file":"rubric.v1.json","workspace_template":"workspace","fixture_file":"fixture.json","repetitions":3,"timeout_seconds":600,"max_estimated_cost_microusd":10000000,
+  "pricing":{"input_microusd_per_million_tokens":5000000,"output_microusd_per_million_tokens":25000000},
+  "allowed_tools":["Bash(atl *)","Skill","Read"],
+  "allowed_atl_commands":[
+    "atl jira issue search --jql 'project = LAB AND text ~ \"CacheRefreshError refresh token\" AND type = Bug ORDER BY updated DESC' --limit 10 --columns key,summary,status,updated --",
+    "atl jira issue search --jql 'project = LAB AND summary ~ \"cache refresh\" AND type = Bug ORDER BY updated DESC' --limit 10 --columns key,summary,status,updated --",
+    "atl jira issue get LAB-41 --",
+    "atl jira issue get LAB-52 --",
+    "atl jira issue comment list LAB-52 --",
+    "atl jira issue create --project LAB --type Bug --summary 'Cache: refresh fails after token rotation' --from-md new-bug.md --",
+    "atl jira issue comment add LAB-52 --from-md duplicate-comment.md --"
+  ],
+  "allow_synthetic_writes":true,
+  "checks":[
+    {"name":"approval_correct","kind":"json_equals","pointer":"/approval","expected":{"state":"explicit-conditional-synthetic","threshold":75,"authorized_actions":["create","comment"],"max_actions":1}},
+    {"name":"atl_succeeded","kind":"atl_all_succeeded"},
+    {"name":"candidates_correct","kind":"json_equals","pointer":"/candidates","expected":[{"key":"LAB-41","status":"Done","signature_match":true,"component_match":true,"trigger_match":false,"open":false,"score":65},{"key":"LAB-52","status":"Open","signature_match":false,"component_match":true,"trigger_match":true,"open":true,"score":60}]},
+    {"name":"comment_id_correct","kind":"json_equals","pointer":"/comment_id","expected":null},
+    {"name":"created_key_correct","kind":"json_equals","pointer":"/created_key","expected":"LAB-101"},
+    {"name":"decision_correct","kind":"json_equals","pointer":"/decision","expected":"create"},
+    {"name":"exit_codes","kind":"cli_exit_codes_equal","expected":[0,0,0,0,0]},
+    {"name":"failure_report_correct","kind":"json_equals","pointer":"/cli_failures","expected":0},
+    {"name":"guard_clean","kind":"guard_no_denials"},
+    {"name":"http_exact","kind":"http_methods_equal","expected":{"GET":4,"POST":1}},
+    {"name":"mock_clean","kind":"mock_no_unexpected"},
+    {"name":"next_action_correct","kind":"json_equals","pointer":"/next_action","expected":"complete"},
+    {"name":"no_delegation","kind":"delegations_none"},
+    {"name":"outcome_correct","kind":"json_equals","pointer":"/outcome","expected":"created"},
+    {"name":"queries_correct","kind":"json_equals","pointer":"/queries","expected":[{"name":"specific","jql":"project = LAB AND text ~ \"CacheRefreshError refresh token\" AND type = Bug ORDER BY updated DESC","complete":true,"keys":["LAB-41"]},{"name":"broad","jql":"project = LAB AND summary ~ \"cache refresh\" AND type = Bug ORDER BY updated DESC","complete":true,"keys":["LAB-41","LAB-52"]}]},
+    {"name":"reconciled_correct","kind":"json_equals","pointer":"/comment_reconciled","expected":false},
+    {"name":"replayed_false","kind":"json_equals","pointer":"/replayed","expected":false},
+    {"name":"target_correct","kind":"json_equals","pointer":"/target_key","expected":null},
+    {"name":"used_atl","kind":"atl_invocations_min","minimum":5},
+    {"name":"used_atl_exact","kind":"atl_invocations_max","maximum":5},
+    {"name":"used_skill","kind":"skill_invocations_min","minimum":1,"expected":"atl:triage-issue"},
+    {"name":"write_attempts_correct","kind":"json_equals","pointer":"/write_attempts","expected":1}
+  ]
+}

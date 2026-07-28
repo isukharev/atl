@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "id": "jira.synthetic-triage-issue-workflow",
+  "category": "surface-native",
+  "task_class": "jira/triage",
+  "description": "Search and qualify synthetic duplicate candidates completely before one explicitly approved conditional bug create.",
+  "data_class": "synthetic",
+  "required_capabilities": [],
+  "required_checks": [
+    "approval_correct","atl_succeeded","candidates_correct","comment_id_correct",
+    "created_key_correct","decision_correct","exit_codes","failure_report_correct",
+    "guard_clean","http_exact","mock_clean","next_action_correct","no_delegation",
+    "outcome_correct","queries_correct","reconciled_correct","replayed_false",
+    "target_correct","used_atl","used_atl_exact","used_skill","write_attempts_correct"
+  ],
+  "required_semantic_checks": [
+    "approval_correct","candidates_correct","comment_id_correct","created_key_correct",
+    "decision_correct","failure_report_correct","next_action_correct","outcome_correct",
+    "queries_correct","reconciled_correct","replayed_false","target_correct",
+    "write_attempts_correct"
+  ],
+  "required_metrics": [
+    "agent_turns","tool_calls","atl_invocations","delegations","backend_requests",
+    "duplicate_backend_requests","remote_writes","output_bytes","input_tokens",
+    "output_tokens","main_thread_input_tokens","main_thread_output_tokens",
+    "estimated_cost_microusd","duration_millis"
+  ],
+  "budgets": {
+    "max_agent_turns": 12,
+    "max_tool_calls": 10,
+    "max_atl_invocations": 7,
+    "max_delegations": 0,
+    "max_backend_requests": 7,
+    "max_duplicate_backend_requests": 1,
+    "max_remote_writes": 1,
+    "max_output_bytes": 32768,
+    "max_input_tokens": 300000,
+    "max_output_tokens": 10000,
+    "max_main_thread_input_tokens": 300000,
+    "max_main_thread_output_tokens": 10000,
+    "max_estimated_cost_microusd": 10000000,
+    "max_duration_millis": 600000,
+    "allowed_http_methods": ["GET","POST"]
+  }
+}
