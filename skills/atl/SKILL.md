@@ -269,8 +269,10 @@ commands read metadata, forests, rows, values, issue snapshots, and offline
 exports, with `--root` subtree selection where supported. Breaking command
 groups are `comment preview|add|list|delete` and `link add|list|delete`;
 comment preview is GET-only, while add is dry-run by default and applies only
-with its reviewed baseline-bound proposal hash. Transitions can set
-`--field k=v`.
+with its reviewed baseline-bound proposal hash. `issue transition preview` is
+also GET-only; the parent transition command is dry-run by default and applies
+the exact reviewed target/comment/`--field k=v` proposal only with its hash.
+Conflict or unverifiable transition/comment outcomes are never replay-safe.
 
 **Local manifests:** `atl manifest create --root DIR [--service
 jira|confluence|generic]` omits credentials and raw backend identity, but retains

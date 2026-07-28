@@ -222,6 +222,13 @@ shell/workspace configuration implicitly.
   the final file, review its body/baseline/proposal hashes, then apply that exact
   file once with `comment add --apply --expected-proposal-hash`. Identical text
   is still a new append event; conflict/unverifiable is never replay-safe.
+- For a transition, use separately read-only `jira issue transition preview`
+  with the exact target, fields, and optional native-wiki comment. Review the
+  issue/status/update, selected transition, current/desired field evidence, and
+  proposal hash; then repeat the exact request once with
+  `transition --apply --expected-proposal-hash`. Matching the target status is
+  not idempotency. Conflict/unverifiable is possibly committed and must never be
+  replayed automatically.
 - For a body or opted-in rich-text field, require
   `<!-- atl:document jira-issue v3 -->`, edit only supported `.md` sections,
   run `jira apply`, validate/review `jira push` dry-run, then use explicit

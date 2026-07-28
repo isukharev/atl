@@ -551,7 +551,9 @@ atl jira issue comment add PROJ-1 --from-md note.md --apply --expected-proposal-
 atl jira issue edit PROJ-1 --old 'timeout = 300' --new 'timeout = 600'
 ATL_READ_ONLY=1 atl jira issue field preview PROJ-1 --from-md customfield_10001=notes.md --allow-fields customfield_10001
 # Проверьте expected_updated и proposal_hash; field set --apply — только после подтверждения.
-atl jira issue transition PROJ-1 --to Done
+ATL_READ_ONLY=1 atl jira issue transition preview PROJ-1 --to Done
+# Проверьте proposal_hash, затем повторите точный запрос с --apply
+atl jira issue transition PROJ-1 --to Done --apply --expected-proposal-hash <hash>
 # До правки перерендерьте представление без актуальной версии в первой строке
 atl jira render mirror-jira
 # Правка поддерживаемых generated-разделов, подготовка через apply, затем push

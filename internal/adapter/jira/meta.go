@@ -138,6 +138,7 @@ func (j *Jira) Transitions(ctx context.Context, key string) ([]domain.Transition
 			ID   string `json:"id"`
 			Name string `json:"name"`
 			To   struct {
+				ID   string `json:"id"`
 				Name string `json:"name"`
 			} `json:"to"`
 		} `json:"transitions"`
@@ -147,7 +148,7 @@ func (j *Jira) Transitions(ctx context.Context, key string) ([]domain.Transition
 	}
 	out := make([]domain.TransitionDef, 0, len(resp.Transitions))
 	for _, t := range resp.Transitions {
-		out = append(out, domain.TransitionDef{ID: t.ID, Name: t.Name, To: t.To.Name})
+		out = append(out, domain.TransitionDef{ID: t.ID, Name: t.Name, To: t.To.Name, ToID: t.To.ID})
 	}
 	return out, nil
 }

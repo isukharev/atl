@@ -2801,13 +2801,29 @@ Flags:
 
 ### `atl jira issue transition`
 
-Move an issue through a workflow step. Transition names are matched
-case-insensitively against the live transition list.
+Preview or apply one reviewed workflow transition. The dedicated `preview`
+subcommand is GET-only and works under global read-only policy; the parent
+transition command is classified as mutating even during its default dry-run.
+Transition names are matched case-insensitively against the live transition
+list before target-status matches. A match must be unique.
 
 ```bash
-atl jira issue transition PROJ-1 --to "In Progress"
+ATL_READ_ONLY=1 atl jira issue transition preview PROJ-1 --to "In Progress"
 atl jira issue transition PROJ-1 --to Done --comment "Deployed to staging."
+# Review proposal_hash, then repeat the exact request once:
+atl jira issue transition PROJ-1 --to Done --comment "Deployed to staging." \
+  --apply --expected-proposal-hash <hash>
 ```
+
+The proposal binds the canonical issue identity, current status/update marker,
+the uniquely selected exact transition, and exact current/proposed values for
+every requested field. An optional comment also binds the exact Jira-wiki bytes,
+authenticated actor, and complete comment-id baseline. Apply reconstructs all
+relevant state immediately before at most one POST and then reads it back. A
+definitive rejection is `not_applied`; unsafe committed or ambiguous outcomes
+are `conflict` or `unverifiable` and must never be replayed automatically.
+Already matching the target status is not idempotency because transitions may
+have workflow side effects.
 
 Flags:
 
@@ -2815,8 +2831,10 @@ Flags:
 |---|---|
 | `PROJ-1` | issue key (positional, required) |
 | `--to` | target status or transition name (required) |
-| `--comment` | optional comment to post with the transition |
+| `--comment` | optional non-empty Jira-wiki comment to post with the transition |
 | `--field key=value` | field to set on the transition (repeatable), e.g. `resolution={"name":"Fixed"}` |
+| `--apply` | perform the exact reviewed transition (default: dry-run) |
+| `--expected-proposal-hash` | exact hash emitted by the matching preview/dry-run (required with `--apply`) |
 
 ### `atl jira issue assign`
 
@@ -4187,7 +4205,8 @@ atl jira pull --jql "project=PROJ and status=Open" --into mirror-jira
 # read mirror-jira/PROJ/PROJ-1.md  and  mirror-jira/PROJ/PROJ-1.json
 # make changes via commands:
 atl jira issue update PROJ-1 --summary "Revised title"
-atl jira issue transition PROJ-1 --to "In Review"
+ATL_READ_ONLY=1 atl jira issue transition preview PROJ-1 --to "In Review"
+# Repeat the exact target/fields/comment with transition --apply and the reviewed hash.
 atl jira issue comment preview PROJ-1 --from-file - <<'EOF'
 Updated as discussed in today's meeting.
 EOF

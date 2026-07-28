@@ -15,7 +15,9 @@ csf-authoring reference), or markdown merged through `conf apply`. Never push ra
 atl jira issue get PROJ-123                                   # read scope, links, comments
 atl jira issue assign PROJ-123 --me                           # take it
 atl jira transitions --key PROJ-123                           # discover the workflow…
-atl jira issue transition PROJ-123 --to "In Progress"         # …then move it
+ATL_READ_ONLY=1 atl jira issue transition preview PROJ-123 --to "In Progress"
+env -u ATL_READ_ONLY atl jira issue transition PROJ-123 --to "In Progress" \
+  --apply --expected-proposal-hash '<reviewed-hash>'
 ```
 
 Ground the work locally:
@@ -69,7 +71,9 @@ ambiguous.
 
 ```bash
 atl jira issue link add PROJ-123 --to PROJ-99 --type blocks   # check `atl jira link-types` first
-atl jira issue transition PROJ-123 --to Blocked --comment "Waiting on PROJ-99"
+ATL_READ_ONLY=1 atl jira issue transition preview PROJ-123 --to Blocked --comment "Waiting on PROJ-99"
+env -u ATL_READ_ONLY atl jira issue transition PROJ-123 --to Blocked \
+  --comment "Waiting on PROJ-99" --apply --expected-proposal-hash '<reviewed-hash>'
 ```
 
 ## Phase 3 — finish
@@ -84,7 +88,11 @@ atl jira issue transition PROJ-123 --to Blocked --comment "Waiting on PROJ-99"
    env -u ATL_READ_ONLY atl jira issue comment add PROJ-123 \
      --from-file closing-note.wiki --apply \
      --expected-proposal-hash '<reviewed-hash>'
-   atl jira issue transition PROJ-123 --to Done --field 'resolution={"name":"Fixed"}'
+   ATL_READ_ONLY=1 atl jira issue transition preview PROJ-123 --to Done \
+     --field 'resolution={"name":"Fixed"}'
+   env -u ATL_READ_ONLY atl jira issue transition PROJ-123 --to Done \
+     --field 'resolution={"name":"Fixed"}' --apply \
+     --expected-proposal-hash '<reviewed-hash>'
    ```
 3. **Update the living doc** — the Confluence page that described the design/runbook:
    ```bash
@@ -101,8 +109,8 @@ atl jira issue transition PROJ-123 --to Blocked --comment "Waiting on PROJ-99"
 
 - Re-`get` immediately before every Jira `update` — no version gate, last-writer-wins. Use a
   narrow `--fields` for these routine checks; a bare `get` re-reads the whole comment thread.
-- Discover before writing: `transitions` before `transition`, `field-options` before `--field`,
-  `link-types` before `link add`.
+- Discover before writing: `transitions` before the guarded transition preview,
+  `field-options` before `--field`, and `link-types` before `link add`.
 - Object-typed `--field` values are JSON: `resolution={"name":"Fixed"}` — a bare string fails.
 - Pull fresh right before editing a Confluence page; push the exact bytes you dry-ran.
 - Comment when there is signal (decision, blocker, done), not noise (every commit).

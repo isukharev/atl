@@ -41,6 +41,7 @@ func NewWithScheduler(base, token, version string, scheduler *httpx.Scheduler) *
 
 var _ domain.Tracker = (*Jira)(nil)
 var _ domain.QualifiedIssueSearcher = (*Jira)(nil)
+var _ domain.JiraTransitionWriter = (*Jira)(nil)
 var _ domain.CompleteChangelogReader = (*Jira)(nil)
 var _ domain.JiraTimeSemanticsReader = (*Jira)(nil)
 var _ domain.Verifier = (*Jira)(nil)
@@ -253,16 +254,28 @@ func (j *Jira) Transition(ctx context.Context, key, to, comment string, fields m
 		}
 		return fmt.Errorf("%w: no transition to %q; available: %s", domain.ErrUsage, to, strings.Join(names, ", "))
 	}
-	payload := map[string]any{"transition": map[string]string{"id": id}}
+	typedFields := make(map[string]any, len(fields))
 	if len(fields) > 0 {
-		fl := map[string]any{}
 		for k, v := range fields {
-			fl[k] = coerceField(v)
+			typedFields[k] = coerceField(v)
 		}
-		payload["fields"] = fl
 	}
-	if comment != "" {
-		payload["update"] = map[string]any{"comment": []any{map[string]any{"add": map[string]string{"body": comment}}}}
+	return j.TransitionByID(ctx, key, domain.JiraTransitionRequest{ID: id, Fields: typedFields, Comment: []byte(comment)})
+}
+
+// TransitionByID performs exactly the already-resolved transition requested by
+// the caller. It deliberately does no metadata GET and no value coercion.
+func (j *Jira) TransitionByID(ctx context.Context, key string, request domain.JiraTransitionRequest) error {
+	id := strings.TrimSpace(request.ID)
+	if id == "" || id != request.ID {
+		return fmt.Errorf("%w: transition id is required and must be canonical", domain.ErrUsage)
+	}
+	payload := map[string]any{"transition": map[string]string{"id": id}}
+	if len(request.Fields) > 0 {
+		payload["fields"] = request.Fields
+	}
+	if len(request.Comment) > 0 {
+		payload["update"] = map[string]any{"comment": []any{map[string]any{"add": map[string]string{"body": string(request.Comment)}}}}
 	}
 	return j.c.SendJSON(ctx, "POST", "/rest/api/2/issue/"+url.PathEscape(key)+"/transitions", payload, nil)
 }
