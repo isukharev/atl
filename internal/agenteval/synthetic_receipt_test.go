@@ -89,6 +89,9 @@ func TestSyntheticExecutionContractBindsPolicyRuntimeAndExecutables(t *testing.T
 		"run policy": func(value *syntheticRunAttestation, _ *Runtime, _ *[]byte) {
 			value.spec.TimeoutSeconds++
 		},
+		"mcp service profile": func(value *syntheticRunAttestation, _ *Runtime, _ *[]byte) {
+			value.spec.MCPServiceProfile = "jira"
+		},
 		"model": func(_ *syntheticRunAttestation, value *Runtime, _ *[]byte) { value.Model = "other" },
 		"agent runtime": func(_ *syntheticRunAttestation, value *Runtime, _ *[]byte) {
 			value.AgentVersion = "other"

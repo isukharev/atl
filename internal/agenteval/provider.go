@@ -204,7 +204,7 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 					"--dangerously-bypass-hook-trust",
 					"-c", `web_search="disabled"`,
 					"-c", `mcp_servers.atl.command=`+strconv.Quote(atlBinary),
-					"-c", `mcp_servers.atl.args=["mcp","serve"]`,
+					"-c", `mcp_servers.atl.args=`+quotedStringList(mcpChildArgs(spec)),
 					"-c", `mcp_servers.atl.required=true`,
 					"-c", `mcp_servers.atl.enabled_tools=`+quotedStringList(spec.AllowedMCPTools),
 					"-c", `mcp_servers.atl.default_tools_approval_mode="approve"`,
@@ -251,6 +251,14 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 	default:
 		return ProviderCommand{}, fmt.Errorf("unsupported provider %q", spec.Provider)
 	}
+}
+
+func mcpChildArgs(spec RunSpec) []string {
+	args := []string{"mcp", "serve"}
+	if spec.MCPServiceProfile != "" {
+		args = append(args, "--service", spec.MCPServiceProfile)
+	}
+	return args
 }
 
 func isCodexConfinedCLI(spec RunSpec) bool {

@@ -766,6 +766,19 @@ mock; private-live CLI specs for both providers use the reviewed parent-side
 command broker below. Codex additionally proves its zero-network filesystem
 capsule with a preflight probe. Supported model runs inherit
 `ATL_READ_ONLY=1`, `ATL_NO_UPDATE=1`, and synthetic loopback backend URLs/tokens.
+
+Internal typed-MCP run specs may add `"mcp_service_profile":"jira"`,
+`"confluence"`, or `"offline"`. The runner appends the matching
+`--service` selection to the same reviewed MCP child for both Codex and Claude
+Code. Every `allowed_mcp_tools` entry must belong to the selected closed
+profile; `offline` admits exactly `jira_mirror_snapshot` and
+`confluence_mirror_snapshot`. The field is invalid for CLI and external-MCP
+surfaces. Omitting it preserves the existing complete service and exact child
+arguments. The optional field is additive in run-spec schema 7: case snapshots,
+private plan case digests, and synthetic execution receipts already bind the
+complete run-spec bytes or value, so selecting a profile changes those hashes
+without a durable-format migration.
+
 CLI runs use an `atl` proxy that counts invocations and stdout bytes without retaining
 command arguments; MCP runs count completed typed calls/failures and result bytes
 from the provider event stream. Both paths additionally emit the same fixed
@@ -1139,6 +1152,9 @@ repetition, zero delegations and writes, positive invocation/request limits,
 an explicit `allowed_http_methods` containing only `GET`/`HEAD`, and name
 `complete` in both `required_checks` and `required_semantic_checks`. Start with
 the smallest MCP execution allowlist and response schema that can answer the user task.
+For a single-service or offline internal-MCP cohort, also set
+`mcp_service_profile` to the matching closed value. Leave it absent for the
+complete default inventory or for a deliberately cross-service task.
 Every neutral run also declares a sorted `data_capabilities` set. Built-in CLI
 and typed-MCP routes are reduced to this semantic set during spec validation;
 an external MCP run is bound to the same set through its owner-reviewed profile.
