@@ -52,15 +52,17 @@ type JiraFieldSetPreview struct {
 }
 
 type jiraFieldWriteError struct {
-	message string
-	cause   error
+	message   string
+	cause     error
+	ambiguous bool
 }
 
-func (e *jiraFieldWriteError) Error() string { return e.message }
-func (e *jiraFieldWriteError) Unwrap() error { return e.cause }
+func (e *jiraFieldWriteError) Error() string                  { return e.message }
+func (e *jiraFieldWriteError) Unwrap() error                  { return e.cause }
+func (e *jiraFieldWriteError) DiagnosticAmbiguousWrite() bool { return e != nil && e.ambiguous }
 
-func sanitizedFieldWriteError(message string, cause error) error {
-	return &jiraFieldWriteError{message: message, cause: cause}
+func sanitizedFieldWriteError(message string, cause error, ambiguous bool) error {
+	return &jiraFieldWriteError{message: message, cause: cause, ambiguous: ambiguous}
 }
 
 // SetFieldsGuarded previews or applies one atomic custom-field update. Apply
@@ -160,10 +162,10 @@ func (s *JiraService) SetFieldsGuarded(ctx context.Context, key string, opts Jir
 		if reconcileErr != nil || fresh == nil {
 			if definitive {
 				result.Status = "failed"
-				return result, sanitizedFieldWriteError("Jira rejected the custom-field update", err)
+				return result, sanitizedFieldWriteError("Jira rejected the custom-field update", err, false)
 			}
 			result.Status = "unknown"
-			return result, sanitizedFieldWriteError("custom-field update outcome is unknown; reconciliation read failed", err)
+			return result, sanitizedFieldWriteError("custom-field update outcome is unknown; reconciliation read failed", err, true)
 		}
 		result.Reconciled = true
 		result.ActualUpdated = fieldString(fresh.Fields["updated"])
@@ -179,10 +181,10 @@ func (s *JiraService) SetFieldsGuarded(ctx context.Context, key string, opts Jir
 		}
 		if definitive {
 			result.Status = "failed"
-			return result, sanitizedFieldWriteError("Jira rejected the custom-field update", err)
+			return result, sanitizedFieldWriteError("Jira rejected the custom-field update", err, false)
 		}
 		result.Status = "unknown"
-		return result, sanitizedFieldWriteError("custom-field update outcome remains unknown; proposal is not yet visible", err)
+		return result, sanitizedFieldWriteError("custom-field update outcome remains unknown; proposal is not yet visible", err, true)
 	}
 	result.Status = "applied"
 	return result, nil

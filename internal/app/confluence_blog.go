@@ -33,13 +33,13 @@ func (s *ConfluenceService) CreateBlogPost(ctx context.Context, space, title str
 	created, err := creator.CreateBlogPost(ctx, space, title, body)
 	if err != nil {
 		if !definitiveWriteRejection(err) {
-			return nil, fmt.Errorf("%w: blog post creation outcome is unknown; the post may already exist, so do not retry automatically: %v", domain.ErrCheckFailed, err)
+			return nil, ambiguousWriteFailure(fmt.Sprintf("%v: blog post creation outcome is unknown; the post may already exist, so do not retry automatically: %v", domain.ErrCheckFailed, err))
 		}
 		return nil, err
 	}
 	if created == nil || created.ID == "" || created.Type != "blogpost" || created.SpaceKey != space ||
 		created.Title != title || created.Version <= 0 || !created.BodyPresent {
-		return nil, fmt.Errorf("%w: blog post creation response did not prove id/type/space/title/version/body; the post may have been created, so do not retry automatically", domain.ErrCheckFailed)
+		return nil, ambiguousWriteFailure(fmt.Sprintf("%v: blog post creation response did not prove id/type/space/title/version/body; the post may have been created, so do not retry automatically", domain.ErrCheckFailed))
 	}
 	return created, nil
 }

@@ -133,6 +133,13 @@ func (e *StructureForestVersionMismatchError) Error() string {
 
 func (e *StructureForestVersionMismatchError) Unwrap() error { return domain.ErrCheckFailed }
 
+func (e *StructureForestVersionMismatchError) DiagnosticForestVersionMismatch() (expectedSignature, expectedVersion, observedSignature, observedVersion int64) {
+	if e == nil {
+		return 0, 0, 0, 0
+	}
+	return e.Expected.Signature, e.Expected.Version, e.Current.Signature, e.Current.Version
+}
+
 func newStructureForestVersionMismatch(expected, current domain.StructureVersion) *StructureForestVersionMismatchError {
 	return &StructureForestVersionMismatchError{Expected: expected, Current: current}
 }

@@ -29,7 +29,9 @@ link, upload, log work, push, or delete. Route other failures by stable JSON
 `kind`, numeric `code`, and `remediation`, never backend prose. For
 `rate_limited` / `wait_before_retry`, wait before a later read instead of
 immediately repeating the command or tool call; never retry a write
-automatically.
+automatically. Prefer the closed schema-v1 `recovery` action and optional
+`next_capability` when present. `retry_safe` covers only the exact same modeled
+read, never a write, changed request, approval, or reconciliation workflow.
 
 `ATL_READ_ONLY=1 atl ...` protects only one process and is not a substitute for
 the block-level export. Remove the exported policy only for the exact reviewed

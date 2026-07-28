@@ -39,12 +39,14 @@ type ConfluenceTitleSetResult struct {
 }
 
 type confluenceTitleWriteError struct {
-	message string
-	cause   error
+	message   string
+	cause     error
+	ambiguous bool
 }
 
-func (e *confluenceTitleWriteError) Error() string { return e.message }
-func (e *confluenceTitleWriteError) Unwrap() error { return e.cause }
+func (e *confluenceTitleWriteError) Error() string                  { return e.message }
+func (e *confluenceTitleWriteError) Unwrap() error                  { return e.cause }
+func (e *confluenceTitleWriteError) DiagnosticAmbiguousWrite() bool { return e != nil && e.ambiguous }
 
 func (s *ConfluenceService) SetTitleGuarded(ctx context.Context, id string, opts ConfluenceTitleSetOpts) (*ConfluenceTitleSetResult, error) {
 	id = strings.TrimSpace(id)
@@ -117,7 +119,7 @@ func (s *ConfluenceService) SetTitleGuarded(ctx context.Context, id string, opts
 		if cause == nil {
 			cause = verifyErr
 		}
-		return result, &confluenceTitleWriteError{message: "title update outcome is unknown; verification read failed; do not replay automatically", cause: cause}
+		return result, &confluenceTitleWriteError{message: "title update outcome is unknown; verification read failed; do not replay automatically", cause: cause, ambiguous: true}
 	}
 	result.Reconciled = writeErr != nil
 	result.FinalVersion = verified.Version
@@ -130,7 +132,7 @@ func (s *ConfluenceService) SetTitleGuarded(ctx context.Context, id string, opts
 	if cause == nil {
 		cause = fmt.Errorf("verified page state differs from the reviewed title/body/version")
 	}
-	return result, &confluenceTitleWriteError{message: "title update outcome is unknown; verified page state differs from the reviewed proposal; do not replay automatically", cause: cause}
+	return result, &confluenceTitleWriteError{message: "title update outcome is unknown; verified page state differs from the reviewed proposal; do not replay automatically", cause: cause, ambiguous: true}
 }
 
 func normalizeConfluenceTitle(raw []byte) (string, error) {

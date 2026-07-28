@@ -17,7 +17,9 @@ last step. Explain that persistent mode intentionally blocks later `config set`
 until a human edits/removes `read_only` in the owner-only global config file.
 
 When setup commands fail, use JSON `kind` and `remediation` rather than parsing
-the backend message. `configuration_error` means complete local setup;
+the backend message. The schema-v1 `recovery` action is typed routing guidance,
+not permission to mutate configuration; its `retry_safe` flag concerns only an
+exact replay. `configuration_error` means complete local setup;
 `authentication_failed` means replace/re-enter the rejected credential.
 If `config.json` itself is malformed, `atl version`, help/completion, and
 offline profile/auth diagnostics still work; use their evidence, then have the

@@ -131,9 +131,19 @@ flags and process exit envelopes do not apply to individual tool calls. Each of
 the twenty registered tools has inferred input/output JSON Schema and returns
 typed `structuredContent`; compatible clients may also expose the SDK's text
 projection. Tool failures set the MCP error result and contain a JSON text
-object with stable `kind`, `remediation`, and diagnostic `message` fields.
+object with stable `kind`, `remediation`, diagnostic `message`, and versioned
+`recovery` fields.
 For transport/API failures, `message` is deliberately coarse and omits backend
 paths, query values, and response bodies.
+
+The recovery object is shared with CLI JSON and has
+`{schema_version:1,action,retry_safe,next_capability?,requested?,available?,matches?,expected_version?,observed_version?,expected_forest?,observed_forest?}`.
+Actions and capability ids are closed local vocabularies. Optional facts are
+validated integers from typed application errors; no message, backend path,
+identifier, heading, label, query, or arbitrary map can enter the object.
+`retry_safe:true` means the exact same read invocation is safe after its stated
+wait or transport repair. It is false for writes and whenever recovery requires
+fresh evidence, a changed bound/selector/version, reconciliation, or approval.
 
 `confluence_page_meta` returns
 `{schema_version,id,title,space,version,updated?,restriction_state}`.
@@ -304,7 +314,7 @@ through the protocol rather than mixed into successful tool content.
 On failure `atl` writes to **stderr**, never stdout, so a piped JSON result on stdout is never
 contaminated. The format follows `-o`:
 
-- **`-o json` (default):** `{"error":"<message>","code":N,"kind":"<stable-kind>","remediation":"<stable-action>"}` (one JSON object, newline-terminated).
+- **`-o json` (default):** `{"error":"<message>","code":N,"kind":"<stable-kind>","remediation":"<stable-action>","recovery":{...}}` (one JSON object, newline-terminated).
 - **`-o text`:** `error: <message>`.
 
 The existing `error` and `code` fields remain compatible. `kind` is always
@@ -315,6 +325,11 @@ parsing backend prose. Current exit classes map to `unexpected_error`,
 `forbidden`, `configuration_error`, and `check_failed`. Typed specializations
 include `read_only_policy`, `transport_error`, `rate_limited`,
 `output_limit_exceeded`, and `api_error` without changing their exit code.
+`recovery` is an additive schema-v1 object shared with MCP. Its closed `action`
+may be more precise than the compatibility `remediation`; `retry_safe` refers
+only to replaying the exact same invocation, not to the safety of an entire
+multi-step recovery workflow. Selection/version facts are emitted only after
+their numeric invariants validate, otherwise recovery falls back without facts.
 `rate_limited` uses
 `remediation:"wait_before_retry"` after the bounded replay-safe read retry
 policy is exhausted; it never authorizes an immediate repeated request or a
@@ -359,7 +374,12 @@ maps them via `errors.Is`:
 When read-only policy blocks a mutation, the normal JSON error envelope keeps
 `error` and `code:8` and adds stable `policy:"read_only"` plus the full
 `command` path. The values come from typed local policy metadata, never backend
-text. Text output remains one concise `error:` line.
+text. Its recovery action requires human approval and is never retry-safe. Text
+output remains one concise `error:` line.
+
+This additive stderr/MCP error schema does not change a successful result or
+any Confluence/Jira mirror-derived document. No durable document-format marker
+is bumped.
 
 - Codes `3` vs `7` are distinct: `7` = "you haven't set me up" (no URL/token configured);
   `3` = "the token you gave me was refused." React differently: `7` → run `/atl:setup`;

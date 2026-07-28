@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added one schema-v1 structured recovery object to CLI JSON and MCP failures.
+  It preserves all existing exit codes, kinds, remediations, messages, and text
+  output while exposing a closed action, exact-repeat safety, an optional next
+  capability, and validated numeric selection/version facts. CLI and MCP share
+  the classifier and semantic operation context; ambiguous writes require
+  reconciliation, read-only refusals require human approval, and changed-bound,
+  changed-selector, or stale-version recovery is never mislabeled as an exact
+  safe retry. Recovery never parses error prose or admits backend paths,
+  identifiers, queries, content, or arbitrary fields. The strict private-run
+  CLI error parser validates and discards the additive object while retaining
+  its existing stored classification contract. Successful outputs and durable
+  mirror document formats are unchanged.
+
 - Bound private live agent-evaluation comparison plans that contain a CLI item
   to a backend-free qualification of the exact model-facing CLI route, for both
   Codex and Claude Code. A comparison set holds at most one such surface, so the

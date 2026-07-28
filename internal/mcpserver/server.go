@@ -1881,9 +1881,10 @@ func boundedTableOutput(value any, maxBytes int) error {
 }
 
 type toolError struct {
-	Kind        string `json:"kind"`
-	Remediation string `json:"remediation,omitempty"`
-	Message     string `json:"message"`
+	Kind        string              `json:"kind"`
+	Remediation string              `json:"remediation,omitempty"`
+	Message     string              `json:"message"`
+	Recovery    diagnostic.Recovery `json:"recovery"`
 }
 
 func (e toolError) Error() string {
@@ -1917,6 +1918,7 @@ type toolErrorPolicy struct {
 	fallback  toolErrorRule
 	kinds     map[string]toolErrorRule
 	overrides []toolErrorOverride
+	operation diagnostic.OperationContext
 }
 
 func (p toolErrorPolicy) classify(err error) error {
@@ -1943,7 +1945,11 @@ func (p toolErrorPolicy) classify(err error) error {
 			remediation, message = overrideRemediation, overrideMessage
 		}
 	}
-	return toolError{Kind: kind, Remediation: remediation, Message: message}
+	operation := p.operation
+	if operation == diagnostic.OperationUnknown {
+		operation = diagnostic.OperationRead
+	}
+	return toolError{Kind: kind, Remediation: remediation, Message: message, Recovery: diagnostic.Recover(err, operation)}
 }
 
 func staticMessage(message string) toolErrorRule { return toolErrorRule{message: message} }
@@ -2136,7 +2142,8 @@ var jiraIssueRefsReadPolicy = toolErrorPolicy{
 }
 
 var confluenceTableReadPolicy = toolErrorPolicy{
-	fallback: staticMessage("Confluence table read failed"),
+	operation: diagnostic.OperationConfluenceTableRead,
+	fallback:  staticMessage("Confluence table read failed"),
 	kinds: map[string]toolErrorRule{
 		"usage_error":           staticMessage("invalid Confluence table request"),
 		"configuration_error":   staticMessage("Confluence table service is not configured"),
@@ -2158,7 +2165,8 @@ var confluenceTableReadPolicy = toolErrorPolicy{
 }
 
 var confluenceSectionReadPolicy = toolErrorPolicy{
-	fallback: staticMessage("Confluence page section read failed"),
+	operation: diagnostic.OperationConfluenceSectionRead,
+	fallback:  staticMessage("Confluence page section read failed"),
 	kinds: map[string]toolErrorRule{
 		"usage_error":           staticMessage("invalid Confluence page section request"),
 		"configuration_error":   staticMessage("Confluence page section service is not configured"),
@@ -2186,7 +2194,8 @@ var confluenceSectionReadPolicy = toolErrorPolicy{
 // can reach the client through a failure path. The only dynamic content is the
 // typed page-version mismatch, which carries two integers and nothing else.
 var confluenceAttachmentInventoryReadPolicy = toolErrorPolicy{
-	fallback: staticMessage("Confluence attachment inventory read failed"),
+	operation: diagnostic.OperationConfluenceAttachmentRead,
+	fallback:  staticMessage("Confluence attachment inventory read failed"),
 	kinds: map[string]toolErrorRule{
 		"usage_error":           staticMessage("invalid Confluence attachment inventory request"),
 		"configuration_error":   staticMessage("Confluence attachment inventory service is not configured"),
@@ -2202,7 +2211,8 @@ var confluenceAttachmentInventoryReadPolicy = toolErrorPolicy{
 }
 
 var jiraStructureReadPolicy = toolErrorPolicy{
-	fallback: staticMessage("Jira Structure read failed"),
+	operation: diagnostic.OperationJiraStructureRead,
+	fallback:  staticMessage("Jira Structure read failed"),
 	kinds: map[string]toolErrorRule{
 		"usage_error":           staticMessage("invalid Jira Structure request"),
 		"configuration_error":   staticMessage("Jira Structure service is not configured"),

@@ -374,7 +374,7 @@ func (s *JiraService) jiraPushOne(ctx context.Context, m *mirror.Mirror, path st
 		// untouched; it must not become ErrVersionConflict.
 		if typedWrite {
 			item.Failed = "Jira field update failed"
-			return item, sanitizedFieldWriteError("Jira field update failed; pending values were not cleared", writeErr)
+			return item, sanitizedFieldWriteError("Jira field update failed; pending values were not cleared", writeErr, !definitiveWriteRejection(writeErr))
 		}
 		item.Failed = failReason(writeErr)
 		return item, writeErr

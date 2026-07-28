@@ -52,12 +52,14 @@ type JiraWorklogAddResult struct {
 }
 
 type jiraWorklogWriteError struct {
-	message string
-	cause   error
+	message   string
+	cause     error
+	ambiguous bool
 }
 
-func (e *jiraWorklogWriteError) Error() string { return e.message }
-func (e *jiraWorklogWriteError) Unwrap() error { return e.cause }
+func (e *jiraWorklogWriteError) Error() string                  { return e.message }
+func (e *jiraWorklogWriteError) Unwrap() error                  { return e.cause }
+func (e *jiraWorklogWriteError) DiagnosticAmbiguousWrite() bool { return e != nil && e.ambiguous }
 
 func (s *JiraService) issueWorklogStore() (domain.IssueWorklogStore, error) {
 	store, ok := s.tr.(domain.IssueWorklogStore)
@@ -169,7 +171,7 @@ func (s *JiraService) AddWorklogGuarded(ctx context.Context, key string, opts Ji
 		if cause == nil {
 			cause = fmt.Errorf("verification worklog list was incomplete")
 		}
-		return result, &jiraWorklogWriteError{message: "worklog add outcome is unknown; verification was unavailable or incomplete; do not replay automatically", cause: cause}
+		return result, &jiraWorklogWriteError{message: "worklog add outcome is unknown; verification was unavailable or incomplete; do not replay automatically", cause: cause, ambiguous: true}
 	}
 	baselineIDs := make(map[string]bool, len(current.Worklogs))
 	for _, worklog := range current.Worklogs {
@@ -192,7 +194,7 @@ func (s *JiraService) AddWorklogGuarded(ctx context.Context, key string, opts Ji
 	if cause == nil {
 		cause = fmt.Errorf("worklog response omitted a stable id")
 	}
-	return result, &jiraWorklogWriteError{message: fmt.Sprintf("worklog add outcome is unknown; reconciliation found %d exact new matches; do not replay automatically", len(matches)), cause: cause}
+	return result, &jiraWorklogWriteError{message: fmt.Sprintf("worklog add outcome is unknown; reconciliation found %d exact new matches; do not replay automatically", len(matches)), cause: cause, ambiguous: true}
 }
 
 // NormalizeJiraWorklogDuration accepts positive integer h/m/s segments such as

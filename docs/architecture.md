@@ -45,7 +45,7 @@ cross-cutting (no import of adapters or CLI):
   internal/fragment — opaque-fragment extraction + resolution
   internal/jiramap  — pure Jira snapshot → domain mapping
   internal/mirror   — on-disk layout + dirty/drift detection
-  internal/diagnostic — stable transport-neutral error classes
+  internal/diagnostic — stable transport-neutral error classes and recovery
   internal/selfupdate, internal/version
 ```
 
@@ -445,6 +445,15 @@ The cobra command tree. Commands are thin:
    `-o text` and a `textFn` is provided.
 4. Return an error; `codeFor(err)` maps it to the process exit code via
    `errors.Is` against the domain sentinels.
+
+JSON failure rendering also calls the shared diagnostic recovery classifier
+with a closed semantic operation context. CLI and MCP therefore emit the same
+schema-v1 recovery object for the same typed application error and operation,
+while retaining their existing human message policies. The classifier never
+parses error prose: only type/sentinel identity, closed context, and validated
+numeric facts may cross the recovery boundary. Exact-repeat safety is true only
+for explicitly modeled reads; writes and changed-argument workflows fail
+closed.
 
 `PersistentPreRun` on the root command calls `runSelfUpdate` before every
 subcommand. The cobra `SilenceUsage` and `SilenceErrors` flags are set so the

@@ -129,7 +129,8 @@ mutation, shell, arbitrary-file, mirror-write, or raw-REST tool. Two no-argument
 tools inspect only an explicit valid `ATL_MIRROR_ROOT`, offline, and return
 content-free mirror health counts. Stdout is
 reserved for protocol frames, startup skips self-update, and tool errors expose
-the same stable `kind`/`remediation` classes as CLI JSON. Install through the
+the same stable `kind`/`remediation` classes and closed `recovery` object as CLI
+JSON. Install through the
 Claude Code/Codex plugin or see [mcp.md](mcp.md) for the exact tools, bounds,
 standalone Codex config, and CLI fallback guidance.
 
@@ -288,8 +289,9 @@ Notes for scripts:
 
 - **Errors are JSON too.** On success `atl` prints a JSON result to stdout; on
   failure it prints `error`, the unchanged numeric `code`, stable `kind`, and
-  deterministic `remediation` to **stderr** (use `-o text` for a plain
-  `error: <msg>` line). Branch on `kind`/exit code; remediation is guidance for
+  deterministic `remediation` and schema-v1 `recovery` to **stderr** (use
+  `-o text` for a plain `error: <msg>` line). Branch on `kind`/exit code;
+  remediation/recovery are guidance for
   the agent to present, never permission to retry or mutate automatically.
   `rate_limited` / `wait_before_retry` means the bounded replay-safe read retry
   policy was exhausted; wait before a later read instead of immediately

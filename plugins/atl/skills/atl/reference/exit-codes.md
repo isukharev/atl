@@ -17,6 +17,11 @@ stdout for detail, and branch on the exit code:
 | `8` | Check failed (`jira issue check`) | A field listed in `--require` is empty. Populate the missing fields (the JSON report names them), then re-run `check` before transitioning. |
 
 Notes:
+- JSON failures include a schema-v1 `recovery` object. Follow its closed action
+  and optional `next_capability` instead of parsing prose. `retry_safe:true`
+  means only that the exact same explicitly modeled read may be replayed after
+  the stated wait/transport repair; it never grants write authority. Fresh-read,
+  changed-argument, approval, and reconciliation workflows remain false.
 - Codes `3` vs `7` are distinct: `7` = "you haven't set me up" (no URL/token), `3` = "the token you
   gave me was refused". `7` → finish setup; `3` → replace the token.
 - Codes `3` vs `6` are distinct: `3` = "who are you?" (re-auth), `6` = "you may not" (permissions).

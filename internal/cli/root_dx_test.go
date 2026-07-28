@@ -7,14 +7,22 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/isukharev/atl/internal/agenteval"
 	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/diagnostic"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/httpx"
 )
+
+type cliAmbiguousWriteTestError struct{}
+
+func (*cliAmbiguousWriteTestError) Error() string                  { return "write outcome is unknown" }
+func (*cliAmbiguousWriteTestError) Unwrap() error                  { return domain.ErrCheckFailed }
+func (*cliAmbiguousWriteTestError) DiagnosticAmbiguousWrite() bool { return true }
 
 // TestWriteErrorJSON locks the machine-readable error contract: with JSON output
 // (the default) a failed command prints a single {"error","code"} object so a
@@ -124,6 +132,96 @@ func TestWriteErrorRateLimitedJSONPreservesExitCode(t *testing.T) {
 	}
 	if got.Code != exitGeneric || got.Kind != "rate_limited" || got.Remediation != "wait_before_retry" {
 		t.Fatalf("error contract=%+v", got)
+	}
+}
+
+func TestWriteErrorWithContextUsesSharedTypedRecovery(t *testing.T) {
+	const privateMarker = "PRIVATE-PAGE-MARKER"
+	err := fmt.Errorf("%s: %w", privateMarker, &app.ConfluencePageVersionMismatchError{Expected: 7, Current: 9})
+	var buf bytes.Buffer
+	writeErrorWithContext(&buf, "json", err, codeFor(err), diagnostic.OperationConfluenceSectionRead)
+
+	var got struct {
+		Kind        string              `json:"kind"`
+		Remediation string              `json:"remediation"`
+		Recovery    diagnostic.Recovery `json:"recovery"`
+	}
+	if decodeErr := json.Unmarshal(buf.Bytes(), &got); decodeErr != nil {
+		t.Fatalf("decode CLI error: %v", decodeErr)
+	}
+	want := diagnostic.Recover(err, diagnostic.OperationConfluenceSectionRead)
+	if got.Kind != "check_failed" || got.Remediation != "review_failed_check" || !reflect.DeepEqual(got.Recovery, want) || !diagnostic.ValidateRecovery(got.Recovery) {
+		t.Fatalf("CLI recovery=%+v kind=%q remediation=%q, want %+v", got.Recovery, got.Kind, got.Remediation, want)
+	}
+	encoded, marshalErr := json.Marshal(got.Recovery)
+	if marshalErr != nil || bytes.Contains(encoded, []byte(privateMarker)) {
+		t.Fatalf("recovery leaked private prose: %s (marshal=%v)", encoded, marshalErr)
+	}
+}
+
+func TestWriteErrorExactRetrySafetyUsesSemanticOperation(t *testing.T) {
+	err := &httpx.TransportError{Method: "POST", Category: "timeout"}
+	for _, test := range []struct {
+		name      string
+		operation diagnostic.OperationContext
+		action    diagnostic.RecoveryAction
+		retrySafe bool
+	}{
+		{"modeled read", diagnostic.OperationRead, diagnostic.RecoveryRestoreTransport, true},
+		{"write", diagnostic.OperationWrite, diagnostic.RecoveryReconcileWriteOutcome, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			writeErrorWithContext(&buf, "json", err, codeFor(err), test.operation)
+			var body struct {
+				Recovery diagnostic.Recovery `json:"recovery"`
+			}
+			if decodeErr := json.Unmarshal(buf.Bytes(), &body); decodeErr != nil {
+				t.Fatal(decodeErr)
+			}
+			if body.Recovery.Action != test.action || body.Recovery.RetrySafe != test.retrySafe || !diagnostic.ValidateRecovery(body.Recovery) {
+				t.Fatalf("recovery=%+v", body.Recovery)
+			}
+		})
+	}
+}
+
+func TestWriteErrorAmbiguousWriteRequiresReconciliation(t *testing.T) {
+	var buf bytes.Buffer
+	err := &cliAmbiguousWriteTestError{}
+	writeErrorWithContext(&buf, "json", err, codeFor(err), diagnostic.OperationWrite)
+	var body struct {
+		Recovery diagnostic.Recovery `json:"recovery"`
+	}
+	if decodeErr := json.Unmarshal(buf.Bytes(), &body); decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	if body.Recovery.Action != diagnostic.RecoveryReconcileWriteOutcome || body.Recovery.RetrySafe || !diagnostic.ValidateRecovery(body.Recovery) {
+		t.Fatalf("recovery=%+v", body.Recovery)
+	}
+}
+
+func TestRecoveryOperationUsesClosedCommandSemantics(t *testing.T) {
+	root := newRoot()
+	for _, test := range []struct {
+		args []string
+		want diagnostic.OperationContext
+	}{
+		{[]string{"conf", "page", "section"}, diagnostic.OperationConfluenceSectionRead},
+		{[]string{"conf", "table", "summary"}, diagnostic.OperationConfluenceTableRead},
+		{[]string{"conf", "attachment", "list"}, diagnostic.OperationConfluenceAttachmentRead},
+		{[]string{"jira", "structure", "rows"}, diagnostic.OperationJiraStructureRead},
+		{[]string{"jira", "structure", "pull-issues"}, diagnostic.OperationJiraStructureRead},
+		{[]string{"jira", "issue", "get"}, diagnostic.OperationRead},
+		{[]string{"jira", "issue", "update"}, diagnostic.OperationWrite},
+	} {
+		cmd, _, err := root.Find(test.args)
+		if err != nil {
+			t.Fatalf("find %v: %v", test.args, err)
+		}
+		if got := recoveryOperation(cmd); got != test.want {
+			t.Errorf("%v recovery operation=%q, want %q", test.args, got, test.want)
+		}
 	}
 }
 

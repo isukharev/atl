@@ -48,9 +48,10 @@ func Execute() {
 	defer stop()
 
 	root := newRoot()
-	if err := root.ExecuteContext(ctx); err != nil {
+	cmd, err := root.ExecuteContextC(ctx)
+	if err != nil {
 		code := codeFor(err)
-		writeError(os.Stderr, outputFormat, err, code)
+		writeErrorWithContext(os.Stderr, outputFormat, err, code, recoveryOperation(cmd))
 		os.Exit(code)
 	}
 }
@@ -62,6 +63,10 @@ func Execute() {
 // prints the familiar `error: <msg>` line. The exit code is echoed in the JSON
 // so a caller that only captured stderr still learns the classification.
 func writeError(w io.Writer, format string, err error, code int) {
+	writeErrorWithContext(w, format, err, code, diagnostic.OperationUnknown)
+}
+
+func writeErrorWithContext(w io.Writer, format string, err error, code int, operation diagnostic.OperationContext) {
 	if format == "text" {
 		fmt.Fprintln(w, "error:", err)
 		return
@@ -74,12 +79,39 @@ func writeError(w io.Writer, format string, err error, code int) {
 	if remediation != "" {
 		body["remediation"] = remediation
 	}
+	body["recovery"] = diagnostic.Recover(err, operation)
 	if command, ok := readOnlyErrorMetadata(err); ok {
 		body["policy"] = "read_only"
 		body["command"] = command
 	}
 	// Encode never fails for these plain types; ignore its error.
 	_ = enc.Encode(body)
+}
+
+func recoveryOperation(cmd *cobra.Command) diagnostic.OperationContext {
+	if cmd == nil {
+		return diagnostic.OperationUnknown
+	}
+	path := strings.TrimPrefix(cmd.CommandPath(), cmd.Root().Name()+" ")
+	switch path {
+	case "conf page section", "conf page sections":
+		return diagnostic.OperationConfluenceSectionRead
+	case "conf table extract", "conf table summary":
+		return diagnostic.OperationConfluenceTableRead
+	case "conf attachment list":
+		return diagnostic.OperationConfluenceAttachmentRead
+	case "jira structure folders", "jira structure view", "jira structure rows",
+		"jira structure pull-issues", "jira structure export":
+		return diagnostic.OperationJiraStructureRead
+	}
+	switch cmd.Annotations[accessAnnotation] {
+	case "read-only":
+		return diagnostic.OperationRead
+	case "mutating":
+		return diagnostic.OperationWrite
+	default:
+		return diagnostic.OperationUnknown
+	}
 }
 
 func classifyError(err error) (kind, remediation string) {

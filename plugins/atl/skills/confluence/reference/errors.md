@@ -1,6 +1,12 @@
 <!-- Generated from skills-src/confluence/reference/errors.md — edit the source and run 'make gen-plugins'. -->
 # Confluence error recovery
 
+JSON failures include a closed schema-v1 `recovery` object. Use its action and
+optional next capability instead of parsing prose. `retry_safe:true` applies
+only to the exact same modeled read after the stated prerequisite; any changed
+selector/bound/version, approval boundary, reconciliation, or write remains
+false.
+
 | Symptom / exit | Meaning | Recovery |
 |---|---|---|
 | Exit 7 | Backend URL/PAT missing | Run `$setup` |

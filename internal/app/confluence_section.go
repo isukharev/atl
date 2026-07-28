@@ -190,6 +190,17 @@ func (e *ConfluenceSectionSelectionError) Unwrap() error {
 	return domain.ErrNotFound
 }
 
+func (e *ConfluenceSectionSelectionError) DiagnosticSelection() (requested, available, matches int) {
+	if e == nil {
+		return 0, 0, 0
+	}
+	matches = 0
+	if e.Requested == 0 {
+		matches = e.Available
+	}
+	return e.Requested, e.Available, matches
+}
+
 type confluenceStructuralPage struct {
 	page     *domain.Resource
 	blocks   []mirror.Block

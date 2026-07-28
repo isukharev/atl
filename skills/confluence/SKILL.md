@@ -34,7 +34,10 @@ human-decision boundary; never disable it to apply, push, create, move, or
 delete. Route other failures on stable JSON `kind`, numeric `code`, and
 `remediation`, not backend prose. For `rate_limited` /
 `wait_before_retry`, wait before a later read instead of immediately repeating
-the command or tool call; never retry a write automatically.
+the command or tool call; never retry a write automatically. Prefer the closed
+schema-v1 `recovery` action and `next_capability` when present. `retry_safe`
+applies only to the exact same read invocation, never to a changed selector,
+bound, version, approval, or write.
 
 `ATL_READ_ONLY=1 atl ...` protects only one process and is not a substitute for
 the block-level export. Remove the exported policy only for the exact reviewed

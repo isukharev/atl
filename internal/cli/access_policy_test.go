@@ -168,6 +168,10 @@ func TestReadOnlyRefusalHasStableJSONMetadata(t *testing.T) {
 	if body["policy"] != "read_only" || body["command"] != "atl jira push" || body["code"] != float64(exitCheckFailed) || body["kind"] != "read_only_policy" || body["remediation"] != "request_human_approval" {
 		t.Fatalf("body=%v", body)
 	}
+	recovery, ok := body["recovery"].(map[string]any)
+	if !ok || recovery["schema_version"] != float64(1) || recovery["action"] != "request_human_approval" || recovery["retry_safe"] != false {
+		t.Fatalf("recovery=%v", body["recovery"])
+	}
 }
 
 func TestMalformedConfigKeepsOfflineDiagnosticsButBlocksWritesAndOnlineReads(t *testing.T) {

@@ -48,6 +48,10 @@ func TestCreateBlogPostRequiresVerifiedNativeResponse(t *testing.T) {
 		if !errors.Is(err, domain.ErrCheckFailed) || store.calls != 1 {
 			t.Errorf("case %d response=%+v calls=%d err=%v", i, response, store.calls, err)
 		}
+		var ambiguous interface{ DiagnosticAmbiguousWrite() bool }
+		if !errors.As(err, &ambiguous) || !ambiguous.DiagnosticAmbiguousWrite() {
+			t.Errorf("case %d ambiguous metadata missing: %T %v", i, err, err)
+		}
 	}
 	normalized := &blogPostStoreStub{created: &domain.Resource{
 		ID: "900", Type: "blogpost", Title: "Cafe\u0301", SpaceKey: "DOC", Version: 1, BodyPresent: true,
@@ -95,6 +99,10 @@ func TestCreateBlogPostClassifiesAmbiguousWriteWithoutReplay(t *testing.T) {
 	_, err := (&ConfluenceService{store: store}).CreateBlogPost(context.Background(), "DOC", "T", []byte("<p>x</p>"))
 	if !errors.Is(err, domain.ErrCheckFailed) || store.calls != 1 {
 		t.Fatalf("ambiguous calls=%d err=%v", store.calls, err)
+	}
+	var ambiguous interface{ DiagnosticAmbiguousWrite() bool }
+	if !errors.As(err, &ambiguous) || !ambiguous.DiagnosticAmbiguousWrite() {
+		t.Fatalf("ambiguous write metadata missing: %T %v", err, err)
 	}
 
 	store = &blogPostStoreStub{err: blogStatusError(403)}

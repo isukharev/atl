@@ -22,6 +22,7 @@ import (
 
 func TestParseCLIErrorContractAdmitsOnlyTypedFailedCLIErrors(t *testing.T) {
 	typed := `{"error":"page not found: private-page-title","code":4,"kind":"not_found","remediation":"verify_identifier_or_access"}`
+	typedWithRecovery := `{"error":"page not found: private-page-title","code":4,"kind":"not_found","remediation":"verify_identifier_or_access","recovery":{"schema_version":1,"action":"adjust_request","retry_safe":false}}`
 	policy := `{"error":"blocked by read-only policy","code":8,"kind":"read_only_policy","remediation":"request_human_approval","policy":"read_only","command":"atl jira push"}`
 	tests := []struct {
 		name     string
@@ -33,6 +34,10 @@ func TestParseCLIErrorContractAdmitsOnlyTypedFailedCLIErrors(t *testing.T) {
 			name: "typed failure after unrelated stderr", exitCode: 4,
 			stderr: "warning: mirror view not regenerated\n" + typed + "\n",
 			want:   CLIErrorContract{ExitCode: 4, Kind: "not_found", Remediation: "verify_identifier_or_access"},
+		},
+		{
+			name: "typed failure with validated recovery", exitCode: 4, stderr: typedWithRecovery,
+			want: CLIErrorContract{ExitCode: 4, Kind: "not_found", Remediation: "verify_identifier_or_access"},
 		},
 		{
 			name: "read-only policy refusal", exitCode: 8, stderr: policy,
@@ -59,6 +64,22 @@ func TestParseCLIErrorContractAdmitsOnlyTypedFailedCLIErrors(t *testing.T) {
 		{
 			name: "unknown member", exitCode: 4,
 			stderr: `{"error":"x","code":4,"kind":"not_found","remediation":"verify_identifier_or_access","hint":"private-page-title"}`,
+		},
+		{
+			name: "unknown recovery member", exitCode: 4,
+			stderr: `{"error":"x","code":4,"kind":"not_found","remediation":"verify_identifier_or_access","recovery":{"schema_version":1,"action":"adjust_request","retry_safe":false,"private_hint":7}}`,
+		},
+		{
+			name: "null recovery is present but invalid", exitCode: 4,
+			stderr: `{"error":"x","code":4,"kind":"not_found","remediation":"verify_identifier_or_access","recovery":null}`,
+		},
+		{
+			name: "unknown recovery action", exitCode: 4,
+			stderr: `{"error":"x","code":4,"kind":"not_found","remediation":"verify_identifier_or_access","recovery":{"schema_version":1,"action":"retry_private_target","retry_safe":false}}`,
+		},
+		{
+			name: "unsafe exact retry", exitCode: 4,
+			stderr: `{"error":"x","code":4,"kind":"not_found","remediation":"verify_identifier_or_access","recovery":{"schema_version":1,"action":"adjust_request","retry_safe":true}}`,
 		},
 		{
 			name: "policy member without its kind", exitCode: 4,

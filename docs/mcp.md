@@ -366,7 +366,12 @@ Tool failures retain the same stable classification as CLI JSON errors:
 {
   "kind": "not_found",
   "remediation": "verify_identifier_or_access",
-  "message": "Confluence page was not found"
+  "message": "Confluence page was not found",
+  "recovery": {
+    "schema_version": 1,
+    "action": "adjust_request",
+    "retry_safe": false
+  }
 }
 ```
 
@@ -374,7 +379,12 @@ Branch on `kind`, not `message`. A remediation is guidance, never authorization
 to weaken policy or retry a write. Explicitly typed and tool-specific failures
 may use a fixed content-free message; all other failure details use a coarse
 static message. Backend hostnames, URLs, paths, query strings, and response
-bodies are not repeated in MCP error content. An exhausted HTTP 429 is
+bodies are not repeated in MCP error content. The shared schema-v1 `recovery`
+object uses closed actions/capabilities and validated numeric facts only.
+`retry_safe:true` means only that the exact same explicitly modeled read may be
+replayed after the stated wait or transport repair; it is false for writes and
+for any recovery that changes a bound, selector, version, or approval state.
+An exhausted HTTP 429 is
 `rate_limited` with
 `wait_before_retry`; do not amplify the server-side limit by immediately
 repeating the tool call. A valid result rejected by caller-selected

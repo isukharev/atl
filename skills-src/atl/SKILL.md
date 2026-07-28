@@ -153,7 +153,8 @@ CQL remains `unknown` unless a backend can prove it, and the Markdown display
 zone is `configured` or `default`.
 
 For any JSON failure, branch on stable `kind` and numeric `code`, not words in
-`error`. Treat `remediation` as safe guidance to present, never authorization to
+`error`. Treat `remediation` and the closed schema-v1 `recovery` object as safe
+guidance to present, never authorization to
 retry a write or change policy automatically. Backend/API prose cannot set
 these classification fields. `rate_limited` / `wait_before_retry` means bounded
 replay-safe read retries were exhausted: do not immediately repeat the command
