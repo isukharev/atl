@@ -33,7 +33,8 @@ Load this reference only when exact command or flag lookup is useful.
 | `jira issue history <KEY>` | Qualified changelog with deterministic `summary`; inspect `complete`, separate missing/non-empty-id identity facts, summary consistency, and `last_changes` | repeat `--field`; `--since`, `--until`; `--summary-only` omits raw history and rejects explicit false |
 | `jira issue refs [KEY]` | Extract provenance-qualified artifact references with reconciled per-issue/top-level aggregates; field ids or exact names; JQL adds one complete comment listing per issue | `--jql`, `--fields`, `--limit` |
 | `jira issue tree` | Build read-only epic-to-child grouping | `--jql`, `--epic-field`, `--fields`, `--limit` |
-| `jira issue comment add <KEY>` | Add a comment | `--from-md`, `--from-file` |
+| `jira issue comment preview <KEY>` | GET-only baseline-bound append proposal | `--from-md`, `--from-file`; inspect body/baseline/proposal hashes |
+| `jira issue comment add <KEY>` | Preview or apply one reviewed comment append | `--from-md`, `--from-file`, `--apply`, `--expected-proposal-hash` |
 | `jira issue comment list <KEY>` | List comments | — |
 | `jira issue comment delete <KEY> <ID>` | Delete a comment | — |
 | `jira issue link add <KEY>` | Link an issue to another | `--to KEY2`, `--type blocks` |

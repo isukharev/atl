@@ -38,7 +38,10 @@ cat > /tmp/progress.wiki <<'EOF'
 Implemented the retry path in [PR #42|https://github.com/org/repo/pull/42].
 Open question: do we cap retries per host or globally? Leaning per-host.
 EOF
-atl jira issue comment add PROJ-123 --from-file /tmp/progress.wiki
+ATL_READ_ONLY=1 atl jira issue comment preview PROJ-123 --from-file /tmp/progress.wiki
+env -u ATL_READ_ONLY atl jira issue comment add PROJ-123 \
+  --from-file /tmp/progress.wiki --apply \
+  --expected-proposal-hash '<reviewed-hash>'
 ```
 
 **Description stays truthful.** If scope changed, update it — re-`get` first (Jira has **no
@@ -77,7 +80,10 @@ atl jira issue transition PROJ-123 --to Blocked --comment "Waiting on PROJ-99"
    ```
 2. **Close the ticket** with the evidence attached:
    ```bash
-   atl jira issue comment add PROJ-123 --from-file closing-note.wiki   # what shipped + PR link
+   ATL_READ_ONLY=1 atl jira issue comment preview PROJ-123 --from-file closing-note.wiki
+   env -u ATL_READ_ONLY atl jira issue comment add PROJ-123 \
+     --from-file closing-note.wiki --apply \
+     --expected-proposal-hash '<reviewed-hash>'
    atl jira issue transition PROJ-123 --to Done --field 'resolution={"name":"Fixed"}'
    ```
 3. **Update the living doc** — the Confluence page that described the design/runbook:

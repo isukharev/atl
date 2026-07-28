@@ -77,8 +77,12 @@ push.
 
 ## Other guarded writes
 
-- Comments: require a complete existing listing before POST; on ambiguity list
-  again and reconcile content/author/time. Never retry from a partial listing.
+- Comments: use GET-only `jira issue comment preview` with the final file,
+  review body/baseline/proposal hashes, then pass the exact proposal hash to one
+  `comment add --apply` using unchanged bytes. The command revalidates the
+  complete unique-id baseline, sends at most one POST, and reconciles once.
+  Identical existing text is not idempotency; conflict/unverifiable is possibly
+  committed and must never be replayed automatically.
 - Watchers: preview resolved DC username and complete membership, then apply the
   exact proposal hash. `complete:false` blocks absence claims and writes.
 - Worklogs: `jira.issue.worklog.list` exposes the complete baseline and

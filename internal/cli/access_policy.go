@@ -175,6 +175,7 @@ jira issue children
 jira issue comment add
 jira issue comment delete
 jira issue comment list
+jira issue comment preview
 jira issue create
 jira issue delete
 jira issue edit

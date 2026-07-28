@@ -87,6 +87,34 @@ func TestReadOnlyPolicyAllowsBackendRead(t *testing.T) {
 	}
 }
 
+func TestJiraCommentPreviewIsReadOnlyAndAddRemainsMutating(t *testing.T) {
+	root := newRoot()
+	preview, _, err := root.Find([]string{"jira", "issue", "comment", "preview"})
+	if err != nil || preview.Annotations[accessAnnotation] != "read-only" {
+		t.Fatalf("preview access=%q err=%v", preview.Annotations[accessAnnotation], err)
+	}
+	add, _, err := root.Find([]string{"jira", "issue", "comment", "add"})
+	if err != nil || add.Annotations[accessAnnotation] != "mutating" {
+		t.Fatalf("add access=%q err=%v", add.Annotations[accessAnnotation], err)
+	}
+
+	server := newJiraCommentCLIServer(t)
+	previewOut, previewCode := runCLI(t, jiraEnv(server.srv), "--read-only", "jira", "issue", "comment", "preview", "PROJ-1",
+		"--from-file", writeCommentBody(t, "reviewed body"))
+	if previewCode != exitOK || !strings.Contains(previewOut, `"status": "would_apply"`) || server.post != 0 || server.list != 1 || server.myself != 1 {
+		t.Fatalf("read-only preview exit=%d requests=myself:%d list:%d post:%d out=%q",
+			previewCode, server.myself, server.list, server.post, previewOut)
+	}
+
+	requests := 0
+	blockedServer := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
+	defer blockedServer.Close()
+	if _, code := runCLI(t, jiraEnv(blockedServer), "--read-only", "jira", "issue", "comment", "add", "PROJ-1",
+		"--from-file", "/definitely/missing/comment.wiki"); code != exitCheckFailed || requests != 0 {
+		t.Fatalf("read-only add exit=%d requests=%d", code, requests)
+	}
+}
+
 func TestReadOnlyEnvironmentAndConfigCannotBeDowngradedByFalseFlag(t *testing.T) {
 	if _, code := runCLI(t, map[string]string{"ATL_READ_ONLY": "1"}, "jira", "issue", "delete", "PROJ-1", "--force"); code != exitCheckFailed {
 		t.Fatalf("env policy exit=%d", code)

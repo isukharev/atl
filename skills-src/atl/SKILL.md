@@ -266,8 +266,10 @@ selectors/fields verbatim and may still be private. Explicit key/id exports pres
 selector order and omit missing identities; JQL exports retain backend order. Boards/sprints use the Jira Software Agile API. Structure
 commands read metadata, forests, rows, values, issue snapshots, and offline
 exports, with `--root` subtree selection where supported. Breaking command
-groups are `comment add|list|delete` and `link add|list|delete`; transitions can
-set `--field k=v`.
+groups are `comment preview|add|list|delete` and `link add|list|delete`;
+comment preview is GET-only, while add is dry-run by default and applies only
+with its reviewed baseline-bound proposal hash. Transitions can set
+`--field k=v`.
 
 **Local manifests:** `atl manifest create --root DIR [--service
 jira|confluence|generic]` omits credentials and raw backend identity, but retains

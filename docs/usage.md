@@ -165,7 +165,7 @@ echo '<p>Hello</p>' | atl conf page create --space DOCS --title "New page" \
 
 The defaults follow one rule: commands whose body is **required** default
 `--from-file` to `-` (stdin) — `conf page create`, `conf blog create`, `conf comment add`,
-`jira issue comment add`; commands whose body is **optional** default to no
+`jira issue comment preview`, `jira issue comment add`; commands whose body is **optional** default to no
 body — `jira issue create`, `jira issue update`, and the worklog comment on
 `jira issue worklog add`. When stdin is an
 interactive terminal (nothing piped), reading a body from it is refused with
@@ -2846,14 +2846,18 @@ Find usernames with `atl jira user search '<name>'`; `--field assignee=<name>`
 on `update` does **not** work (Jira DC expects an object there — use `assign`,
 or `--field 'assignee={"name":"jdoe"}'`).
 
-### `atl jira issue comment {add,list,delete}`
+### `atl jira issue comment {preview,add,list,delete}`
 
-Manage Jira wiki comments. `comment` is a subcommand group.
+Read or safely append Jira wiki comments. `preview` is a GET-only command that
+works under the process-wide read-only policy. `add` uses the same proposal but
+is dry-run by default; it writes only with both `--apply` and the exact reviewed
+`--expected-proposal-hash`.
 
 ```bash
-echo "Checked on staging — confirmed fixed." \
-  | atl jira issue comment add PROJ-1 --from-file -
-atl jira issue comment add PROJ-1 --from-md note.md  # markdown, converted to wiki
+ATL_READ_ONLY=1 atl jira issue comment preview PROJ-1 --from-md note.md
+atl jira issue comment add PROJ-1 --from-md note.md  # same dry-run, classified as mutating
+atl jira issue comment add PROJ-1 --from-md note.md --apply \
+  --expected-proposal-hash <hash-from-preview>
 atl jira issue comment list PROJ-1                 # {key, comments:[{id,author,created,body}]}; -o id → ids
 atl jira issue comment delete PROJ-1 <COMMENT-ID>  # see the id from `comment list`
 ```
@@ -2861,16 +2865,29 @@ atl jira issue comment delete PROJ-1 <COMMENT-ID>  # see the id from `comment li
 Comment listing fails closed (exit 8) whenever a complete, stable listing
 cannot be proven: for example, after the defensive page guard, a changed total,
 an unexpected offset, inconsistent metadata, or a no-progress page. No partial
-list is emitted or used for an idempotency preflight, so an incomplete read
-cannot authorize a duplicate comment write.
+list is emitted or used for a proposal baseline. Preview validates unique,
+non-empty comment ids and binds their sorted set, the exact normalized native
+body, target, and authenticated Data Center identity into the proposal hash.
+An existing identical body does not make append idempotent.
 
-Flags (`add`):
+Apply reconstructs the proposal and re-reads the complete baseline immediately
+before one non-retried POST. A changed body, identity, or baseline blocks before
+the write. Successful or transport-ambiguous outcomes get one complete
+readback. The closed statuses are `would_apply`, `applied`, `not_applied`,
+`conflict`, and `unverifiable`; the latter two are non-zero where replay safety
+is not proven. Never automatically replay an ambiguous comment POST. Default
+JSON includes the reviewed body and may therefore be private; `-o text` emits
+only hashes and byte counts.
+
+Flags (`preview` and `add`):
 
 | flag | description |
 |---|---|
 | `PROJ-1` | issue key (positional, required) |
 | `--from-file` | comment body file (wiki markup) or `-` for stdin (default stdin) |
 | `--from-md` | markdown comment file or `-` for stdin; converted to wiki, fail-closed (exit 8) |
+| `--apply` | `add` only: send one guarded POST (default is dry-run) |
+| `--expected-proposal-hash` | `add` only: exact reviewed hash, required with `--apply` |
 
 ### `atl jira issue link {add,list,delete,suggest}`
 
@@ -4171,7 +4188,8 @@ atl jira pull --jql "project=PROJ and status=Open" --into mirror-jira
 # make changes via commands:
 atl jira issue update PROJ-1 --summary "Revised title"
 atl jira issue transition PROJ-1 --to "In Review"
-atl jira issue comment add PROJ-1 --from-file - <<'EOF'
+atl jira issue comment preview PROJ-1 --from-file - <<'EOF'
 Updated as discussed in today's meeting.
 EOF
+# Repeat the exact body with `comment add --apply --expected-proposal-hash ...`
 ```
