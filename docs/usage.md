@@ -553,10 +553,11 @@ corrected preset, or remove the bad custom preset with
 invalid, repeat that deletion for each one: each narrow repair is persisted,
 but runtime commands stay at exit 7 until the whole catalog validates. Invalid JSON syntax in
 `config.json` cannot be repaired safely as a dotted update; fix the file itself
-and rerun `config show`. `atl version`, help/completion, and classified
-read-only auth/config/profile diagnostics remain available because they are
-offline and already skip self-update. `config show` still returns exit 7 with
-the parse error; all mutations and online reads remain blocked until valid.
+and rerun `config show`. `atl version`, help/completion, classified read-only
+auth/config/profile diagnostics, and local-only `conf status` / `jira status`
+remain available because they are offline and skip self-update. `config show`
+still returns exit 7 with the parse error; `status --remote`, all other online
+reads, and all mutations remain blocked until valid.
 
 ---
 

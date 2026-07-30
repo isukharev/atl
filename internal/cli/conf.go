@@ -950,9 +950,13 @@ func confStatusCmd() *cobra.Command {
 			if len(args) == 1 {
 				dir = args[0]
 			}
-			svc, err := confService()
-			if err != nil {
-				return err
+			svc := &app.ConfluenceService{}
+			if remote {
+				var err error
+				svc, err = confService()
+				if err != nil {
+					return err
+				}
 			}
 			entries, err := svc.Status(cmd.Context(), dir, remote)
 			if err != nil {

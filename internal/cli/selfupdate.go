@@ -29,6 +29,9 @@ func runSelfUpdate(cmd *cobra.Command) {
 // the explicitly bounded environment diagnostic, where an unrelated update
 // request would violate the reviewed request inventory.
 func skipSelfUpdate(cmd *cobra.Command) bool {
+	if localMirrorStatus(cmd) {
+		return true
+	}
 	for c := cmd; c != nil; c = c.Parent() {
 		switch c.Name() {
 		case "version", "capabilities", "auth", "config", "profile", "environment", "mcp", "help", "completion", cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd:
@@ -36,4 +39,20 @@ func skipSelfUpdate(cmd *cobra.Command) bool {
 		}
 	}
 	return false
+}
+
+// localMirrorStatus reports whether a status command is limited to local
+// mirror inspection. The --remote form remains an online read and therefore
+// keeps the normal config, policy, and self-update behavior.
+func localMirrorStatus(cmd *cobra.Command) bool {
+	if cmd == nil || cmd.Name() != "status" || cmd.Parent() == nil {
+		return false
+	}
+	switch cmd.Parent().Name() {
+	case "conf", "jira":
+	default:
+		return false
+	}
+	remote, err := cmd.Flags().GetBool("remote")
+	return err == nil && !remote
 }

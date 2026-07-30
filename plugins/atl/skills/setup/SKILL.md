@@ -2,7 +2,7 @@
 name: setup
 description: Install and configure atl authentication, backends, and mirror defaults. USE WHEN the user explicitly requests install, authentication, setup repair, or $setup. DO NOT USE WHEN handling normal Jira, Confluence, search, reporting, or mirror work; explicit-only.
 disable-model-invocation: true
-allowed-tools: Bash(command -v atl) Bash(atl version) Bash(brew install *) Bash(brew upgrade *) Bash(curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | sh) Bash(go install *) Bash(go env *) Bash(echo *) Bash(atl config show) Bash(atl config set *) Bash(atl auth status) Bash(atl auth login *) Bash(atl conf search *) Bash(atl jira fields)
+allowed-tools: Bash(command -v atl) Bash(atl version) Bash(brew install *) Bash(brew upgrade *) Bash(curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | sh) Bash(go install *) Bash(go env *) Bash(echo *) Bash(atl config show) Bash(atl config set *) Bash(atl auth status) Bash(atl auth login *) Bash(atl conf search *) Bash(atl conf status *) Bash(atl jira fields) Bash(atl jira status *)
 ---
 <!-- Generated from skills-src/setup/SKILL.md — edit the source and run 'make gen-plugins'. -->
 
@@ -22,9 +22,10 @@ the backend message. The schema-v1 `recovery` action is typed routing guidance,
 not permission to mutate configuration; its `retry_safe` flag concerns only an
 exact replay. `configuration_error` means complete local setup;
 `authentication_failed` means replace/re-enter the rejected credential.
-If `config.json` itself is malformed, `atl version`, help/completion, and
-offline profile/auth diagnostics still work; use their evidence, then have the
-human repair the owner-only file. Do not attempt online reads or mutations.
+If `config.json` itself is malformed, `atl version`, help/completion, offline
+profile/auth diagnostics, and local-only `conf status` / `jira status` still
+work; use their evidence, then have the human repair the owner-only file. Do not
+add `--remote`, attempt other online reads, or perform mutations.
 
 Invocation: install/enable the atl plugin in Codex, then run this skill from `/skills` or with `$setup`.
 

@@ -37,3 +37,22 @@ func TestCobraDiagnosticBuiltinsSkipSelfUpdate(t *testing.T) {
 		t.Error("hidden completion request must skip self-update")
 	}
 }
+
+func TestLocalMirrorStatusSkipsSelfUpdateButRemoteStatusDoesNot(t *testing.T) {
+	for _, service := range []string{"conf", "jira"} {
+		root := newRoot()
+		cmd, _, err := root.Find([]string{service, "status"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !skipSelfUpdate(cmd) {
+			t.Errorf("%s local status must skip self-update", service)
+		}
+		if err := cmd.Flags().Set("remote", "true"); err != nil {
+			t.Fatal(err)
+		}
+		if skipSelfUpdate(cmd) {
+			t.Errorf("%s remote status must keep self-update enabled", service)
+		}
+	}
+}

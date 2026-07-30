@@ -1134,9 +1134,13 @@ func jiraStatusCmd() *cobra.Command {
 			if len(args) == 1 {
 				dir = args[0]
 			}
-			svc, err := jiraService()
-			if err != nil {
-				return err
+			svc := &app.JiraService{}
+			if remote {
+				var err error
+				svc, err = jiraService()
+				if err != nil {
+					return err
+				}
 			}
 			entries, err := svc.Status(cmd.Context(), dir, remote)
 			if err != nil {
