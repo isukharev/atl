@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Kept local-only `conf status` and `jira status` fully offline and usable without valid backend configuration; `--remote` still requires configured access.
 
+- Updated the MCP Go SDK to v1.6.1 and adopted its schema-validation tool-error
+  semantics without exposing raw validator diagnostics. Schema-invalid tool
+  arguments now return one static, value-free `usage_error` JSON text block and
+  construct no backend; unknown tools and malformed outer requests remain
+  JSON-RPC protocol errors, while schema-valid application errors are unchanged.
+
 ## [0.5.0] - 2026-07-30
 
 ### Added
