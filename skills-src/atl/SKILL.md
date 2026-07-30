@@ -302,8 +302,11 @@ plugin's version. Also retain the full `commit` and `build_state` in diagnostics
 checkout, a different commit or `dirty` build can explain behavior that the release version alone
 cannot. `unknown` provenance is valid for an unstamped build and is not proof of tampering. An older
 binary catches up on its next run (self-update applies on the following
-invocation); an older plugin updates with `{{atl.plugin_update_cmd}}`. Re-check the exact syntax
-with `--help` before retrying.
+invocation). Refresh the lagging plugin with the platform-specific flow:
+
+{{atl.plugin_update_instructions}}
+
+Re-check the exact syntax with `--help` before retrying.
 
 ## When something went wrong
 

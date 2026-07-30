@@ -93,6 +93,33 @@ func TestPlatformVarSetsAreComplete(t *testing.T) {
 	}
 }
 
+func TestPlatformPluginUpdateCommands(t *testing.T) {
+	updates := map[string]string{}
+	for _, pl := range platforms {
+		updates[pl.name] = pl.vars["plugin_update_instructions"]
+	}
+
+	if got, want := updates["claude"], "Use Claude Code's `/plugin update atl` command."; got != want {
+		t.Fatalf("Claude plugin update instructions = %q, want %q", got, want)
+	}
+	const oldCodexCommand = "codex plugin update atl"
+	if strings.Contains(updates["codex"], oldCodexCommand) {
+		t.Fatalf("Codex plugin refresh must not use unsupported command %q", oldCodexCommand)
+	}
+	for _, want := range []string{
+		"Run `codex plugin marketplace upgrade atl --json`.",
+		"If it succeeds, run `codex plugin add atl@atl --json`.",
+		"Then start a new Codex chat or CLI session before retrying.",
+	} {
+		if !strings.Contains(updates["codex"], want) {
+			t.Fatalf("Codex plugin refresh instructions %q do not contain %q", updates["codex"], want)
+		}
+	}
+	if strings.Contains(updates["claude"], "```sh") || strings.Contains(updates["codex"], "```sh") {
+		t.Fatal("interactive plugin refresh instructions must not be mislabeled as a shell block")
+	}
+}
+
 func TestRenderStrayPlaceholderTyposAreErrors(t *testing.T) {
 	vars := map[string]string{"setup_cmd": "/atl:setup"}
 	for _, src := range []string{
