@@ -303,8 +303,11 @@ plugin's version. Also retain the full `commit` and `build_state` in diagnostics
 checkout, a different commit or `dirty` build can explain behavior that the release version alone
 cannot. `unknown` provenance is valid for an unstamped build and is not proof of tampering. An older
 binary catches up on its next run (self-update applies on the following
-invocation); an older plugin updates with `codex plugin update atl`. Re-check the exact syntax
-with `--help` before retrying.
+invocation). Refresh the lagging plugin with the platform-specific flow:
+
+Run `codex plugin marketplace upgrade atl --json`. If it succeeds, run `codex plugin add atl@atl --json`. Then start a new Codex chat or CLI session before retrying.
+
+Re-check the exact syntax with `--help` before retrying.
 
 ## When something went wrong
 

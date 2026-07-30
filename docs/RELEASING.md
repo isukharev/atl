@@ -286,7 +286,7 @@ git -C <homebrew-tap> commit -am "atl ${TAG#v}" && git -C <homebrew-tap> push
 Verify the published release:
 
 ```bash
-gh attestation verify <(curl -fsSL https://github.com/isukharev/atl/releases/download/v0.1.0/atl-linux-amd64) \
+gh attestation verify <(curl -fsSL "https://github.com/isukharev/atl/releases/download/$TAG/atl-linux-amd64") \
   --repo isukharev/atl \
   --signer-workflow isukharev/atl/.github/workflows/release.yml
 curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | sh

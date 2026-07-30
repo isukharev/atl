@@ -200,8 +200,10 @@ allowlist.
 
 Plugin and binary release under one version number. If a command documented by the skills is
 rejected as unknown (exit 2), compare `atl version` with the plugin version and update the lagging
-side: a direct-install binary self-updates on its next run, a Homebrew binary
-uses `brew upgrade atl`, and the plugin uses `/plugin update atl`.
+side: a direct-install binary self-updates on its next run, while a Homebrew binary
+uses `brew upgrade atl`. Refresh the lagging plugin with the platform-specific flow:
+
+Use Claude Code's `/plugin update atl` command.
 
 ## Exit codes (so you can react)
 
