@@ -32,11 +32,16 @@ Recent beta work established the contracts the next wave builds on:
 - a versioned offline capability catalog that maps exact agent task classes to
   bounded command/reference routes and derives access/output facts from the
   executable CLI contract;
-- a typed read-only MCP stdio server with nineteen bounded evidence tools,
+- a typed read-only MCP stdio server with twenty bounded evidence tools,
   including two offline content-free mirror health snapshots, stable error
   classes, a body-free Confluence page governance projection with explicit
-  tri-state access state, plugin distribution, and a synthetic Codex route that
-  proves the same fifteen-GET quarterly portfolio result with zero writes;
+  tri-state access state, a fixed offline capability resource, closed
+  Jira/Confluence/offline service profiles, plugin distribution, and a
+  synthetic Codex route that proves the same fifteen-GET quarterly portfolio
+  result with zero writes;
+- shared structured recovery for CLI and MCP failures, plus reviewed Jira
+  comment and transition proposals that bind exact state before at-most-once
+  apply and reconcile ambiguous outcomes without replay;
 - a same-runtime Claude Code CLI/MCP portfolio comparison whose three-run MCP
   median preserves correctness and backend traffic while materially reducing
   turns, context, cost, and duration.
@@ -89,10 +94,11 @@ Recent beta work established the contracts the next wave builds on:
 
 ## Now
 
-The daily-operation, Confluence review/sync and bounded scheduling,
-first agent-evaluation sequence, package ownership, and complete historical
-bootstrap are shipped. Current work selects the next evidence-backed agent or
-migration gap rather than adding unmeasured breadth.
+The v0.5.0 foundation is release-ready: daily Jira/Confluence operations,
+review-bound mutations, Confluence review/sync and bounded scheduling, typed
+MCP service profiles, structured recovery, package ownership, and the initial
+agent-evaluation sequence are shipped. Current work is release verification and
+adoption feedback; new surface area remains evidence- or demand-gated.
 
 ## Next
 
@@ -101,10 +107,9 @@ Work likely to follow once the current sequence is stable.
 - Extend read-only MCP only when benchmark evidence justifies another bounded
   app-level tool; Structure, mirror writes, pull/status, and full page bodies
   remain CLI-only for now.
-- Sync at scale after incremental correctness:
-  - bounded concurrency and rate-limit controls;
-  - standalone fragment inventory/check commands when diff/plan evidence shows
-    that a separate surface is useful.
+- Revisit the MCP Go SDK schema-error wire contract as an explicit compatibility
+  migration with boundary tests and documentation, not as an incidental
+  dependency update.
 - Migration readiness beyond the shipped advisory `conf validate --cloud-compat`
   rule pack: later packs as Atlassian's documentation moves, and — only if
   demand justifies it — space-level reporting and third-party app assessment,
