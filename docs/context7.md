@@ -122,9 +122,9 @@ Release tags listed under `previousVersions` provide immutable version-specific
 ids:
 
 ```text
+/isukharev/atl/v0.5.1
 /isukharev/atl/v0.5.0
 /isukharev/atl/v0.4.0
-/isukharev/atl/v0.3.0
 ```
 
 Context7 supports at most 20 configured tag/branch versions. Release prep puts

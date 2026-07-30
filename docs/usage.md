@@ -4161,7 +4161,7 @@ the default:
 
 ```json
 {
-  "version": "0.5.0",
+  "version": "0.5.1",
   "commit": "0123456789abcdef0123456789abcdef01234567",
   "build_state": "clean"
 }
