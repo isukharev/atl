@@ -417,6 +417,14 @@ object uses closed actions/capabilities and validated numeric facts only.
 `retry_safe:true` means only that the exact same explicitly modeled read may be
 replayed after the stated wait or transport repair; it is false for writes and
 for any recovery that changes a bound, selector, version, or approval state.
+Arguments rejected by a tool's declared JSON Schema are MCP tool errors, not
+JSON-RPC protocol errors. They return `isError:true`, no `structuredContent`,
+and exactly one JSON text block with the static `usage_error` envelope; raw SDK
+validator diagnostics and caller-supplied property names or values are removed
+before the result is sent. Schema validation completes before any backend is
+constructed. An unknown tool or a malformed outer `tools/call` request remains
+a JSON-RPC error and does not use this envelope. Schema-valid semantic failures
+continue through the tool-specific policies described below.
 An exhausted HTTP 429 is
 `rate_limited` with
 `wait_before_retry`; do not amplify the server-side limit by immediately

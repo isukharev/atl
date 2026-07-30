@@ -138,6 +138,13 @@ typed `structuredContent`; compatible clients may also expose the SDK's text
 projection. Tool failures set the MCP error result and contain a JSON text
 object with stable `kind`, `remediation`, diagnostic `message`, and versioned
 `recovery` fields.
+Input rejected by a registered tool's JSON Schema is a tool failure with
+`isError:true`, absent `structuredContent`, and one JSON text block containing
+the static, value-free `usage_error` envelope. SDK validator prose and
+caller-supplied property names or values are never returned, and validation
+constructs no backend. Unknown tools and malformed outer requests remain
+JSON-RPC protocol errors. Schema-valid application failures retain their
+existing tool-specific envelopes.
 
 `atl mcp serve --service jira|confluence|offline` selects one closed reviewed
 inventory. Omission preserves the default twenty tools and instruction bytes.

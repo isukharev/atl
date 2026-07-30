@@ -137,6 +137,7 @@ func NewForService(version string, deps Dependencies, profile ServiceProfile) *m
 		Instructions: instructionsForService(profile),
 		Capabilities: &mcp.ServerCapabilities{},
 	})
+	server.AddReceivingMiddleware(normalizeSDKSchemaValidationErrors)
 	registerCapabilitiesResource(server)
 	switch profile {
 	case ServiceDefault:
@@ -965,6 +966,46 @@ func normalizeBooleanPropertySchemas(value any) {
 		for _, child := range current {
 			normalizeBooleanPropertySchemas(child)
 		}
+	}
+}
+
+var sdkSchemaValidationToolError = toolError{
+	Kind:        "usage_error",
+	Remediation: "fix_request",
+	Message:     "MCP tool arguments do not match the declared schema",
+	Recovery:    diagnostic.Recover(domain.ErrUsage, diagnostic.OperationRead),
+}
+
+// normalizeSDKSchemaValidationErrors adapts the SDK's tool-result validation
+// semantics to atl's privacy boundary. SDK 1.6 records schema and argument
+// decoding errors for receiving middleware, so their caller-derived prose can
+// be replaced before the result crosses the wire. ATL handlers return the
+// closed toolError type; protocol errors return through the separate error
+// channel. This type allowlist avoids coupling the boundary to SDK error text.
+func normalizeSDKSchemaValidationErrors(next mcp.MethodHandler) mcp.MethodHandler {
+	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		result, err := next(ctx, method, req)
+		if err != nil || method != "tools/call" {
+			return result, err
+		}
+		callResult, ok := result.(*mcp.CallToolResult)
+		if !ok || !callResult.IsError {
+			return result, nil
+		}
+		sdkErr := callResult.GetError()
+		if sdkErr == nil {
+			return result, nil
+		}
+		var atlErr toolError
+		if errors.As(sdkErr, &atlErr) {
+			return result, nil
+		}
+
+		// Construct a fresh result so validator content, structured output, and
+		// metadata cannot survive even if a future SDK release adds them.
+		normalized := &mcp.CallToolResult{}
+		normalized.SetError(sdkSchemaValidationToolError)
+		return normalized, nil
 	}
 }
 

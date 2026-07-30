@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/isukharev/atl/internal/agenteval"
@@ -34,6 +35,9 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 	initialized := client.InitializeResult()
 	if initialized == nil || initialized.Instructions != Instructions || initialized.ServerInfo.Name != "atl" {
 		t.Fatalf("initialize=%+v", initialized)
+	}
+	if initialized.ProtocolVersion != "2025-11-25" {
+		t.Fatalf("protocol version=%q want 2025-11-25", initialized.ProtocolVersion)
 	}
 	if !strings.Contains(initialized.Instructions, "columns (preferred), fields, or projection") {
 		t.Fatalf("initialize instructions do not disambiguate Jira search field selection: %q", initialized.Instructions)
@@ -492,6 +496,168 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 	}
 }
 
+func TestSDKSchemaValidationErrorsAreRedactedBeforeBackendConstruction(t *testing.T) {
+	var jiraConstructed, confluenceConstructed, mirrorConstructed int
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Jira: func() (JiraReader, error) {
+			jiraConstructed++
+			return nil, errors.New("unexpected Jira construction")
+		},
+		Confluence: func() (ConfluenceReader, error) {
+			confluenceConstructed++
+			return nil, errors.New("unexpected Confluence construction")
+		},
+		MirrorRoot: func() (string, error) {
+			mirrorConstructed++
+			return "", errors.New("unexpected mirror construction")
+		},
+	}))
+	defer closeSessions()
+
+	const callerValue = "CALLER_VALUE_MUST_BE_REDACTED"
+	wantSchemaError := toolError{
+		Kind:        "usage_error",
+		Remediation: "fix_request",
+		Message:     "MCP tool arguments do not match the declared schema",
+		Recovery:    diagnostic.Recover(domain.ErrUsage, diagnostic.OperationRead),
+	}.Error()
+	tests := []struct {
+		name string
+		tool string
+		args map[string]any
+	}{
+		{name: "missing required field", tool: "jira_issue_search", args: map[string]any{}},
+		{name: "unknown property", tool: "jira_fields", args: map[string]any{"caller_secret_property": callerValue}},
+		{name: "wrong type", tool: "jira_issue_search", args: map[string]any{"jql": "project = DEMO", "limit": callerValue}},
+		{name: "SDK unmarshal range", tool: "jira_issue_search", args: map[string]any{"jql": "project = DEMO", "limit": 1e100}},
+		{name: "custom schema range", tool: "jira_structure_get", args: map[string]any{"structure_id": 0}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: test.tool, Arguments: test.args})
+			if err != nil {
+				t.Fatalf("CallTool: %v", err)
+			}
+			if !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
+				t.Fatalf("result=%+v", result)
+			}
+			text, ok := result.Content[0].(*mcp.TextContent)
+			if !ok {
+				t.Fatalf("content type=%T", result.Content[0])
+			}
+			if text.Text != wantSchemaError {
+				t.Fatalf("text=%q want %q", text.Text, wantSchemaError)
+			}
+			for _, leaked := range []string{callerValue, "caller_secret_property", `validating "arguments":`, "additional properties", "cannot unmarshal"} {
+				if strings.Contains(text.Text, leaked) {
+					t.Fatalf("redacted result contains %q: %q", leaked, text.Text)
+				}
+			}
+			if jiraConstructed != 0 || confluenceConstructed != 0 || mirrorConstructed != 0 {
+				t.Fatalf("backend constructed: jira=%d confluence=%d mirror=%d", jiraConstructed, confluenceConstructed, mirrorConstructed)
+			}
+		})
+	}
+}
+
+func TestSchemaValidHandlerToolErrorIsUnchanged(t *testing.T) {
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{}))
+	defer closeSessions()
+
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "confluence_table_extract",
+		Arguments: map[string]any{
+			"reference": "42",
+			"table":     confluenceTableMaxIndex + 1,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+	text, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("content type=%T", result.Content[0])
+	}
+	want := toolError{
+		Kind:        "usage_error",
+		Remediation: "fix_request",
+		Message:     "invalid Confluence table request",
+		Recovery:    diagnostic.Recover(domain.ErrUsage, diagnostic.OperationConfluenceTableRead),
+	}.Error()
+	if text.Text != want {
+		t.Fatalf("semantic error=%q want %q", text.Text, want)
+	}
+}
+
+func TestProtocolErrorsBypassSchemaValidationMiddleware(t *testing.T) {
+	t.Run("unknown tool", func(t *testing.T) {
+		client, closeSessions := connectTestClient(t, New("test", Dependencies{}))
+		defer closeSessions()
+
+		result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: "not_a_registered_tool", Arguments: map[string]any{}})
+		if result != nil || err == nil {
+			t.Fatalf("result=%+v err=%v", result, err)
+		}
+		var rpcErr *jsonrpc.Error
+		if !errors.As(err, &rpcErr) || rpcErr.Code != jsonrpc.CodeInvalidParams {
+			t.Fatalf("error=%T %v", err, err)
+		}
+	})
+
+	t.Run("malformed outer request", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		serverTransport, peerTransport := mcp.NewInMemoryTransports()
+		serverSession, err := New("test", Dependencies{}).Connect(ctx, serverTransport, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer serverSession.Close()
+		peer, err := peerTransport.Connect(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer peer.Close()
+
+		write := func(raw string) {
+			t.Helper()
+			message, err := jsonrpc.DecodeMessage([]byte(raw))
+			if err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			if err := peer.Write(ctx, message); err != nil {
+				t.Fatalf("write request: %v", err)
+			}
+		}
+		readResponse := func() *jsonrpc.Response {
+			t.Helper()
+			message, err := peer.Read(ctx)
+			if err != nil {
+				t.Fatalf("read response: %v", err)
+			}
+			response, ok := message.(*jsonrpc.Response)
+			if !ok {
+				t.Fatalf("response type=%T", message)
+			}
+			return response
+		}
+
+		write(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"raw-test","version":"1"}}}`)
+		if response := readResponse(); response.Error != nil {
+			t.Fatalf("initialize error: %v", response.Error)
+		}
+		write(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":7,"arguments":{}}}`)
+		response := readResponse()
+		var rpcErr *jsonrpc.Error
+		if !errors.As(response.Error, &rpcErr) {
+			t.Fatalf("error=%T %v", response.Error, response.Error)
+		}
+	})
+}
+
 func TestMirrorSnapshotToolsAreOfflineContentFreeAndPathless(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, ".atl"), 0o700); err != nil {
@@ -604,8 +770,12 @@ func TestMirrorSnapshotToolsRejectModelSuppliedProperties(t *testing.T) {
 	defer closeSessions()
 	for _, args := range []map[string]any{{"path": root}, {"remote": true}} {
 		result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: "jira_mirror_snapshot", Arguments: args})
-		if err == nil || result != nil || strings.Contains(err.Error(), root) {
+		if err != nil || result == nil || !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
 			t.Fatalf("model-controlled mirror arguments were not rejected safely: args=%v result=%+v err=%v", args, result, err)
+		}
+		text, ok := result.Content[0].(*mcp.TextContent)
+		if !ok || text.Text != sdkSchemaValidationToolError.Error() || strings.Contains(text.Text, root) {
+			t.Fatalf("model-controlled mirror arguments were not redacted: args=%v content=%+v", args, result.Content)
 		}
 	}
 }
@@ -1548,8 +1718,12 @@ func TestJiraIssueSearchRejectsUnknownInputBeforeBackend(t *testing.T) {
 			"projection_mode": []string{"key", "status"},
 		},
 	})
-	if err == nil {
-		t.Fatalf("unknown input succeeded: %+v", result)
+	if err != nil || result == nil || !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
+		t.Fatalf("unknown input was not rejected as a tool error: result=%+v err=%v", result, err)
+	}
+	text, ok := result.Content[0].(*mcp.TextContent)
+	if !ok || text.Text != sdkSchemaValidationToolError.Error() || strings.Contains(text.Text, "projection_mode") {
+		t.Fatalf("unknown input was not redacted: content=%+v", result.Content)
 	}
 	if jira.searchJQL != "" || jira.searchColumns != nil {
 		t.Fatalf("unknown input reached backend: jql=%q columns=%v", jira.searchJQL, jira.searchColumns)
@@ -3323,8 +3497,12 @@ func TestConfluencePageMetadataRejectsUnknownInputBeforeReaderConstruction(t *te
 			"include":   []string{"labels"},
 		},
 	})
-	if err == nil {
-		t.Fatalf("unknown input succeeded: %+v", result)
+	if err != nil || result == nil || !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
+		t.Fatalf("unknown input was not rejected as a tool error: result=%+v err=%v", result, err)
+	}
+	text, ok := result.Content[0].(*mcp.TextContent)
+	if !ok || text.Text != sdkSchemaValidationToolError.Error() || strings.Contains(text.Text, "include") {
+		t.Fatalf("unknown input was not redacted: content=%+v", result.Content)
 	}
 	if reader.metadataCalls != 0 || reader.metadataReference != "" {
 		t.Fatalf("unknown input reached reader: calls=%d reference=%q", reader.metadataCalls, reader.metadataReference)
@@ -3570,10 +3748,15 @@ func TestConfluenceAttachmentListSurfacesStaticPartialReason(t *testing.T) {
 func TestConfluenceAttachmentListRequiresPositiveExpectedVersion(t *testing.T) {
 	reader := &recordingConfluenceReader{}
 	client := attachmentInventoryClient(t, reader)
-	if _, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
 		Name: "confluence_attachment_list", Arguments: map[string]any{"reference": "42"},
-	}); err == nil {
-		t.Fatal("an omitted expected_page_version must be rejected by the input schema")
+	})
+	if err != nil || result == nil || !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
+		t.Fatalf("omitted expected_page_version was not rejected as a tool error: result=%+v err=%v", result, err)
+	}
+	text, ok := result.Content[0].(*mcp.TextContent)
+	if !ok || text.Text != sdkSchemaValidationToolError.Error() || strings.Contains(text.Text, "expected_page_version") {
+		t.Fatalf("omitted expected_page_version was not redacted: content=%+v", result.Content)
 	}
 	for _, args := range []map[string]any{
 		{"reference": "42", "expected_page_version": 0},
