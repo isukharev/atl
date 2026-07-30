@@ -65,6 +65,26 @@ func TestJiraStatusGolden(t *testing.T) {
 	assertGolden(t, "jira_status.json", []byte(normalizeRoot(out, root)))
 }
 
+func TestJiraStatusLocalDoesNotRequireBackendConfig(t *testing.T) {
+	root := t.TempDir()
+	scaffoldJiraMirror(t, root, "PROJ-1", "offline body")
+
+	out, code := runCLI(t, nil, "jira", "status", root)
+	if code != exitOK || !strings.Contains(out, `"entries"`) {
+		t.Fatalf("local jira status exit=%d out=%q", code, out)
+	}
+	cfgDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(`{"jira_url":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := runCLI(t, map[string]string{"ATL_CONFIG_DIR": cfgDir}, "jira", "status", root); code != exitOK || !strings.Contains(out, `"entries"`) {
+		t.Fatalf("local jira status with malformed config exit=%d out=%q", code, out)
+	}
+	if out, code := runCLI(t, nil, "jira", "status", root, "--remote"); code != exitConfig || out != "" {
+		t.Fatalf("remote jira status without config exit=%d out=%q, want %d and empty stdout", code, out, exitConfig)
+	}
+}
+
 // TestJiraPushDryRunGolden locks the JSON shape of `jira push` in its default
 // dry-run mode: the remote description matches the base (no drift), so the item
 // carries the unified diff of the local edit and pushes nothing.

@@ -25,6 +25,31 @@ func TestConfStatusCorruptMirrorMetadataMapsToExitEight(t *testing.T) {
 	}
 }
 
+func TestConfStatusLocalDoesNotRequireBackendConfig(t *testing.T) {
+	root := t.TempDir()
+	m := mirror.New(root)
+	page := &domain.Resource{ID: "123", Title: "Offline", SpaceKey: "DOCS", Version: 1, Body: []byte("<p>x</p>")}
+	dir, slug := m.PageDir(page.SpaceKey, nil, page.Title)
+	if err := m.Write(dir, slug, page, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	out, code := runCLI(t, nil, "conf", "status", root)
+	if code != exitOK || !strings.Contains(out, `"entries"`) {
+		t.Fatalf("local conf status exit=%d out=%q", code, out)
+	}
+	cfgDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(`{"confluence_url":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := runCLI(t, map[string]string{"ATL_CONFIG_DIR": cfgDir}, "conf", "status", root); code != exitOK || !strings.Contains(out, `"entries"`) {
+		t.Fatalf("local conf status with malformed config exit=%d out=%q", code, out)
+	}
+	if out, code := runCLI(t, nil, "conf", "status", root, "--remote"); code != exitConfig || out != "" {
+		t.Fatalf("remote conf status without config exit=%d out=%q, want %d and empty stdout", code, out, exitConfig)
+	}
+}
+
 func TestConfStatusIdentifiesNonCanonicalRelocationCopy(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	t.Cleanup(srv.Close)

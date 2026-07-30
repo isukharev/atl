@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Kept local-only `conf status` and `jira status` fully offline and usable without valid backend configuration; `--remote` still requires configured access.
+
 ## [0.5.0] - 2026-07-30
 
 ### Added
