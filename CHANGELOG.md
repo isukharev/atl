@@ -9,7 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-07-30
+
 ### Fixed
+
+- Corrected the documented Codex plugin refresh workflow so installed plugin
+  snapshots can be upgraded explicitly and new sessions load the refreshed
+  skills.
 
 - Kept local-only `conf status` and `jira status` fully offline and usable without valid backend configuration; `--remote` still requires configured access.
 
@@ -2522,7 +2528,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- link references -->
 
-[Unreleased]: https://github.com/isukharev/atl/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/isukharev/atl/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/isukharev/atl/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/isukharev/atl/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/isukharev/atl/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/isukharev/atl/compare/v0.2.0...v0.3.0
