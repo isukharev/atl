@@ -41,11 +41,15 @@ type ConfluenceService struct {
 // as tr, mirroring how ConfluenceService composes one adapter across several
 // capability fields.
 type JiraService struct {
-	tr        domain.Tracker
-	agile     domain.Agile
-	structure domain.StructureReader
-	baseURL   string
-	cfg       *config.Config
+	tr                     domain.Tracker
+	agile                  domain.Agile
+	structure              domain.StructureReader
+	baseURL                string
+	cfg                    *config.Config
+	graphConfluence        domain.ConfluenceGraphPageMetadataReader
+	graphConfluenceFactory func() (domain.ConfluenceGraphPageMetadataReader, string)
+	graphConfluenceOnce    sync.Once
+	graphConfluenceReason  string
 }
 
 // EnvironmentService composes the bounded metadata readers used by
@@ -130,6 +134,23 @@ func optionalJiraReadScheduled(cfg *config.Config, version string, scheduler *ht
 	return jira.NewWithScheduler(cfg.JiraURL, token, version, scheduler), ""
 }
 
+func optionalConfluenceGraphRead(cfg *config.Config, version string) (domain.ConfluenceGraphPageMetadataReader, string) {
+	if cfg == nil || cfg.ConfluenceURL == "" {
+		return nil, "not_configured"
+	}
+	if err := config.CheckSecureURL(cfg.ConfluenceURL); err != nil {
+		return nil, "invalid_configuration"
+	}
+	token, err := auth.Token(auth.Confluence)
+	if err != nil {
+		if errors.Is(err, auth.ErrNoToken) {
+			return nil, "credentials_missing"
+		}
+		return nil, "credentials_unavailable"
+	}
+	return confluence.New(cfg.ConfluenceURL, token, version), ""
+}
+
 // NewConfluenceRenderer builds a ConfluenceService for the offline `conf render`
 // use-case. It carries only the global config (for profile resolution) and never
 // constructs a DocStore, so it needs no backend URL or PAT — Render walks the
@@ -156,7 +177,27 @@ func NewJira(cfg *config.Config, version string) (*JiraService, error) {
 		return nil, err
 	}
 	j := jira.New(cfg.JiraURL, tok, version)
-	return &JiraService{tr: j, agile: j, structure: j, baseURL: cfg.JiraURL, cfg: cfg}, nil
+	service := &JiraService{tr: j, agile: j, structure: j, baseURL: cfg.JiraURL, cfg: cfg}
+	service.graphConfluenceFactory = func() (domain.ConfluenceGraphPageMetadataReader, string) {
+		return optionalConfluenceGraphRead(cfg, version)
+	}
+	return service, nil
+}
+
+func (s *JiraService) confluenceGraphMetadataReader() (domain.ConfluenceGraphPageMetadataReader, string) {
+	if s == nil {
+		return nil, "not_configured"
+	}
+	s.graphConfluenceOnce.Do(func() {
+		if s.graphConfluence != nil || s.graphConfluenceFactory == nil {
+			return
+		}
+		s.graphConfluence, s.graphConfluenceReason = s.graphConfluenceFactory()
+	})
+	if s.graphConfluence == nil && s.graphConfluenceReason == "" {
+		return nil, "not_configured"
+	}
+	return s.graphConfluence, s.graphConfluenceReason
 }
 
 // NewJiraRenderer builds a JiraService for the offline `jira render` use-case. It

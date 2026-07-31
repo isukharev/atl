@@ -167,15 +167,31 @@ func NewWithScheduler(base, token, version string, scheduler *Scheduler) *Client
 		ver:        version,
 		scheduler:  scheduler,
 		hc: &http.Client{
-			Transport:     scheduleTransport(http.DefaultTransport, scheduler),
+			Transport:     scheduleTransport(readBudgetTransport{base: http.DefaultTransport}, scheduler),
 			Timeout:       defaultTimeout,
 			CheckRedirect: checkRedirect,
 		},
 		dl: &http.Client{
-			Transport:     scheduleTransport(dlTransport, scheduler),
+			Transport:     scheduleTransport(readBudgetTransport{base: dlTransport}, scheduler),
 			CheckRedirect: checkRedirect,
 		},
 	}
+}
+
+// readBudgetTransport charges immediately before the underlying RoundTrip, so
+// retries and redirects are physical attempts while scheduler waits are not.
+// An absent context budget leaves transport behavior unchanged.
+type readBudgetTransport struct {
+	base http.RoundTripper
+}
+
+func (t readBudgetTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if budget := domain.ReadBudgetFromContext(req.Context()); budget != nil {
+		if err := budget.TakeAttempt(); err != nil {
+			return nil, err
+		}
+	}
+	return t.base.RoundTrip(req)
 }
 
 // Base returns the backend base URL.
@@ -341,6 +357,9 @@ func (c *Client) ResolveGET(ctx context.Context, path string) (string, error) {
 		if resp != nil && resp.Body != nil {
 			_ = resp.Body.Close()
 		}
+		if budgetErr := readBudgetExhaustion(err); budgetErr != nil {
+			return "", budgetErr
+		}
 		return "", transportError(http.MethodGet, req.URL, err)
 	}
 	defer resp.Body.Close()
@@ -352,7 +371,7 @@ func (c *Client) ResolveGET(ctx context.Context, path string) (string, error) {
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return finalURL.String(), nil
 	}
-	data, readErr := readBody(resp.Body, jsonBodyCap)
+	data, readErr := readResponseBody(ctx, resp.Body, jsonBodyCap)
 	if readErr != nil {
 		return "", readErr
 	}
@@ -389,10 +408,13 @@ func (c *Client) DoStreamSized(ctx context.Context, method, path string, r io.Re
 	resp, err := c.dl.Do(req)
 	if err != nil {
 		tracef("× %s %s (transport error: %s)\n", method, traceRequestURL(ctx, req.URL), transportErrorCategory(err))
+		if budgetErr := readBudgetExhaustion(err); budgetErr != nil {
+			return nil, budgetErr
+		}
 		return nil, transportError(method, req.URL, err)
 	}
 	tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, req.URL.Path))
-	data, err := readBody(resp.Body, jsonBodyCap)
+	data, err := readResponseBody(ctx, resp.Body, jsonBodyCap)
 	resp.Body.Close()
 	if err != nil {
 		return nil, err
@@ -436,6 +458,9 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 		resp, err := c.hc.Do(req)
 		if err != nil {
 			tracef("× %s %s (transport error: %s)\n", method, traceRequestURL(ctx, req.URL), transportErrorCategory(err))
+			if budgetErr := readBudgetExhaustion(err); budgetErr != nil {
+				return nil, budgetErr
+			}
 			safeErr := transportError(method, req.URL, err)
 			// A committed-but-lost write can double-execute or turn success into a
 			// misleading conflict/not-found; only replay-safe reads retry here.
@@ -451,7 +476,7 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 		if retryable {
 			retryDelay = retryAfter(resp)
 		}
-		data, err := readBody(resp.Body, maxBytes)
+		data, err := readResponseBody(ctx, resp.Body, maxBytes)
 		resp.Body.Close()
 		if err != nil {
 			return nil, err
@@ -591,6 +616,52 @@ func readBody(r io.Reader, max int64) ([]byte, error) {
 	return data, nil
 }
 
+// readResponseBody applies the ordinary per-response cap and, when present,
+// the command-scoped aggregate cap. Budgeted reads are serialized so two
+// concurrent bodies cannot both buffer against the same remaining allowance.
+func readResponseBody(ctx context.Context, r io.Reader, max int64) ([]byte, error) {
+	budget := domain.ReadBudgetFromContext(ctx)
+	if budget == nil {
+		return readBody(r, max)
+	}
+
+	remaining, finish, err := budget.BeginResponse(ctx)
+	if err != nil {
+		return nil, err
+	}
+	consumed := int64(0)
+	defer func() { finish(consumed) }()
+
+	limit := max
+	if remaining < limit {
+		limit = remaining
+	}
+	data, readErr := io.ReadAll(io.LimitReader(r, limit+1))
+	consumed = int64(len(data))
+	if consumed > remaining {
+		consumed = remaining
+		return nil, domain.ErrReadResponseBudgetExhausted
+	}
+	if readErr != nil {
+		return nil, fmt.Errorf("read response body: %w", readErr)
+	}
+	if int64(len(data)) > max {
+		return nil, fmt.Errorf("response body exceeds %d bytes", max)
+	}
+	return data, nil
+}
+
+func readBudgetExhaustion(err error) error {
+	switch {
+	case errors.Is(err, domain.ErrReadAttemptBudgetExhausted):
+		return domain.ErrReadAttemptBudgetExhausted
+	case errors.Is(err, domain.ErrReadResponseBudgetExhausted):
+		return domain.ErrReadResponseBudgetExhausted
+	default:
+		return nil
+	}
+}
+
 // GetJSON GETs path and unmarshals into out.
 func (c *Client) GetJSON(ctx context.Context, path string, out any) error {
 	data, err := c.Do(ctx, http.MethodGet, path, nil, nil)
@@ -687,6 +758,9 @@ func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, err
 		if err != nil {
 			cancel()
 			tracef("× GET %s (transport error: %s)\n", traceRequestURL(ctx, req.URL), transportErrorCategory(err))
+			if budgetErr := readBudgetExhaustion(err); budgetErr != nil {
+				return nil, budgetErr
+			}
 			lastErr = transportError(http.MethodGet, req.URL, err)
 			continue // GET is idempotent → retry
 		}
@@ -699,7 +773,7 @@ func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, err
 		if retryable {
 			retryDelay = retryAfter(resp)
 		}
-		data, rerr := readBody(resp.Body, jsonBodyCap)
+		data, rerr := readResponseBody(ctx, resp.Body, jsonBodyCap)
 		resp.Body.Close()
 		cancel()
 		if rerr != nil {

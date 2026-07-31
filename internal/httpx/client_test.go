@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -156,6 +157,259 @@ func TestRetryOn5xxThenSuccess(t *testing.T) {
 	if atomic.LoadInt32(&hits) < 3 {
 		t.Errorf("expected >=3 attempts, got %d", atomic.LoadInt32(&hits))
 	}
+}
+
+func TestReadBudgetResponseBytesNMinusOneNAndNPlusOne(t *testing.T) {
+	const limit = int64(5)
+	tests := []struct {
+		name      string
+		bodyBytes int64
+		exhausted bool
+	}{
+		{name: "n-minus-one", bodyBytes: limit - 1},
+		{name: "n", bodyBytes: limit},
+		{name: "n-plus-one", bodyBytes: limit + 1, exhausted: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = io.WriteString(w, strings.Repeat("x", int(tt.bodyBytes)))
+			}))
+			defer srv.Close()
+
+			budget := mustReadBudget(t, 1, limit)
+			ctx := domain.WithReadBudget(context.Background(), budget)
+			data, err := New(srv.URL, "tok", "test").Do(ctx, http.MethodGet, "/x", nil, nil)
+			if tt.exhausted {
+				if err != domain.ErrReadResponseBudgetExhausted {
+					t.Fatalf("error = %v, want response-byte exhaustion", err)
+				}
+				if data != nil {
+					t.Fatalf("over-budget data = %q, want nil", data)
+				}
+			} else if err != nil || int64(len(data)) != tt.bodyBytes {
+				t.Fatalf("len(data) = %d, error = %v", len(data), err)
+			}
+			usage := budget.Usage()
+			wantBytes := tt.bodyBytes
+			if wantBytes > limit {
+				wantBytes = limit
+			}
+			if usage.Attempts != 1 || usage.ResponseBytes != wantBytes {
+				t.Fatalf("usage = %+v, want attempts=1 response_bytes=%d", usage, wantBytes)
+			}
+		})
+	}
+}
+
+func TestReadBudgetRefusesAttemptBeforeTransport(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	budget := mustReadBudget(t, 2, 0)
+	ctx := domain.WithReadBudget(context.Background(), budget)
+	client := New(srv.URL, "tok", "test")
+	for i := range 3 {
+		_, err := client.Do(ctx, http.MethodGet, "/x", nil, nil)
+		if i < 2 && err != nil {
+			t.Fatalf("request %d error = %v", i+1, err)
+		}
+		if i == 2 && !errors.Is(err, domain.ErrReadAttemptBudgetExhausted) {
+			t.Fatalf("request %d error = %v, want attempt exhaustion", i+1, err)
+		}
+	}
+	if got := hits.Load(); got != 2 {
+		t.Fatalf("transport hits = %d, want 2", got)
+	}
+	if usage := budget.Usage(); usage.Attempts != 2 || usage.ResponseBytes != 0 {
+		t.Fatalf("usage = %+v, want attempts=2 response_bytes=0", usage)
+	}
+}
+
+func TestReadBudgetChargesRetryAttempt(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	budget := mustReadBudget(t, 1, 0)
+	ctx := domain.WithReadBudget(context.Background(), budget)
+	_, err := New(srv.URL, "tok", "test").Do(ctx, http.MethodGet, "/x", nil, nil)
+	if !errors.Is(err, domain.ErrReadAttemptBudgetExhausted) {
+		t.Fatalf("error = %v, want attempt exhaustion before retry", err)
+	}
+	if got := hits.Load(); got != 1 {
+		t.Fatalf("transport hits = %d, want 1", got)
+	}
+	if usage := budget.Usage(); usage.Attempts != 1 {
+		t.Fatalf("usage = %+v, want attempts=1", usage)
+	}
+}
+
+func TestReadBudgetChargesRedirectAttempt(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if r.URL.Path == "/first" {
+			http.Redirect(w, r, "/second", http.StatusFound)
+			return
+		}
+		_, _ = io.WriteString(w, "ok")
+	}))
+	defer srv.Close()
+
+	budget := mustReadBudget(t, 1, 1024)
+	ctx := domain.WithReadBudget(context.Background(), budget)
+	_, err := New(srv.URL, "tok", "test").Do(ctx, http.MethodGet, "/first", nil, nil)
+	if !errors.Is(err, domain.ErrReadAttemptBudgetExhausted) {
+		t.Fatalf("error = %v, want attempt exhaustion before redirect", err)
+	}
+	if got := hits.Load(); got != 1 {
+		t.Fatalf("transport hits = %d, want 1", got)
+	}
+	if usage := budget.Usage(); usage.Attempts != 1 {
+		t.Fatalf("usage = %+v, want attempts=1", usage)
+	}
+}
+
+func TestReadBudgetChargesErrorBodiesAcrossRetries(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if hits.Add(1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = io.WriteString(w, "bad")
+			return
+		}
+		_, _ = io.WriteString(w, "ok")
+	}))
+	defer srv.Close()
+
+	budget := mustReadBudget(t, 2, 4)
+	ctx := domain.WithReadBudget(context.Background(), budget)
+	_, err := New(srv.URL, "tok", "test").Do(ctx, http.MethodGet, "/x", nil, nil)
+	if !errors.Is(err, domain.ErrReadResponseBudgetExhausted) {
+		t.Fatalf("error = %v, want response-byte exhaustion", err)
+	}
+	if got := hits.Load(); got != 2 {
+		t.Fatalf("transport hits = %d, want 2", got)
+	}
+	if usage := budget.Usage(); usage.Attempts != 2 || usage.ResponseBytes != 4 {
+		t.Fatalf("usage = %+v, want attempts=2 response_bytes=4", usage)
+	}
+}
+
+func TestReadBudgetChargesPermanentErrorBodyBeforeClassification(t *testing.T) {
+	tests := []struct {
+		name      string
+		body      string
+		wantError error
+	}{
+		{name: "within-budget", body: "gone", wantError: domain.ErrNotFound},
+		{name: "over-budget", body: "gone!", wantError: domain.ErrReadResponseBudgetExhausted},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = io.WriteString(w, tt.body)
+			}))
+			defer srv.Close()
+
+			budget := mustReadBudget(t, 1, 4)
+			ctx := domain.WithReadBudget(context.Background(), budget)
+			_, err := New(srv.URL, "tok", "test").Do(ctx, http.MethodGet, "/x", nil, nil)
+			if !errors.Is(err, tt.wantError) {
+				t.Fatalf("error = %v, want %v", err, tt.wantError)
+			}
+			if usage := budget.Usage(); usage.Attempts != 1 || usage.ResponseBytes != 4 {
+				t.Fatalf("usage = %+v, want attempts=1 response_bytes=4", usage)
+			}
+		})
+	}
+}
+
+func TestAbsentReadBudgetPreservesRetries(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if hits.Add(1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = io.WriteString(w, "temporary")
+			return
+		}
+		_, _ = io.WriteString(w, "ok")
+	}))
+	defer srv.Close()
+
+	data, err := New(srv.URL, "tok", "test").Do(context.Background(), http.MethodGet, "/x", nil, nil)
+	if err != nil || string(data) != "ok" {
+		t.Fatalf("data = %q, error = %v", data, err)
+	}
+	if got := hits.Load(); got != 2 {
+		t.Fatalf("transport hits = %d, want 2", got)
+	}
+}
+
+func TestReadBudgetConcurrentRequestsNeverExceedLimits(t *testing.T) {
+	const (
+		limit = 16
+		calls = 64
+	)
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		_, _ = io.WriteString(w, "x")
+	}))
+	defer srv.Close()
+
+	budget := mustReadBudget(t, limit, limit)
+	ctx := domain.WithReadBudget(context.Background(), budget)
+	client := New(srv.URL, "tok", "test")
+	var successes atomic.Int32
+	var wg sync.WaitGroup
+	errCh := make(chan error, calls)
+	for range calls {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			data, err := client.Do(ctx, http.MethodGet, "/x", nil, nil)
+			switch {
+			case err == nil && string(data) == "x":
+				successes.Add(1)
+			case errors.Is(err, domain.ErrReadAttemptBudgetExhausted):
+			default:
+				errCh <- fmt.Errorf("data=%q: %w", data, err)
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Error(err)
+	}
+	if got := int(successes.Load()); got != limit {
+		t.Fatalf("successful requests = %d, want %d", got, limit)
+	}
+	if got := int(hits.Load()); got != limit {
+		t.Fatalf("transport hits = %d, want %d", got, limit)
+	}
+	if usage := budget.Usage(); usage.Attempts != limit || usage.ResponseBytes != limit {
+		t.Fatalf("usage = %+v, want attempts=%d response_bytes=%d", usage, limit, limit)
+	}
+}
+
+func mustReadBudget(t *testing.T, attempts int, responseBytes int64) *domain.ReadBudget {
+	t.Helper()
+	budget, err := domain.NewReadBudget(attempts, responseBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return budget
 }
 
 func TestSingleAttemptContextDisablesReplaySafeRetries(t *testing.T) {

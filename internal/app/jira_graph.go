@@ -35,13 +35,22 @@ var jiraGraphSourceOrder = []string{
 // JiraIssueGraphBounds records the fixed direct-only contract. There is no
 // traversal flag in schema v1; discovered nodes remain unexpanded stubs.
 type JiraIssueGraphBounds struct {
-	RequestedDepth int `json:"requested_depth"`
-	MaxNodes       int `json:"max_nodes"`
-	MaxEdges       int `json:"max_edges"`
-	MaxEvidence    int `json:"max_evidence"`
-	MaxSourceBytes int `json:"max_source_bytes"`
-	ExpandedNodes  int `json:"expanded_node_count"`
-	FollowedNodes  int `json:"followed_node_count"`
+	RequestedDepth    int  `json:"requested_depth"`
+	MaxNodes          int  `json:"max_nodes"`
+	MaxEdges          int  `json:"max_edges"`
+	MaxEvidence       int  `json:"max_evidence"`
+	MaxSourceBytes    int  `json:"max_source_bytes"`
+	ExpandedNodes     int  `json:"expanded_node_count"`
+	FollowedNodes     int  `json:"followed_node_count"`
+	AttemptedNodes    int  `json:"attempted_node_count,omitempty"`
+	MaxRequests       int  `json:"max_requests,omitempty"`
+	RequestsUsed      int  `json:"requests_used,omitempty"`
+	MaxResponseBytes  int  `json:"max_response_bytes,omitempty"`
+	ResponseBytesUsed int  `json:"response_bytes_used,omitempty"`
+	MaxSources        int  `json:"max_sources,omitempty"`
+	MaxFrontier       int  `json:"max_frontier,omitempty"`
+	FrontierCount     int  `json:"frontier_count,omitempty"`
+	FrontierTruncated bool `json:"frontier_truncated,omitempty"`
 }
 
 // JiraIssueGraphSummary mechanically reconciles the final graph projection.
@@ -73,6 +82,7 @@ type JiraIssueGraphResult struct {
 	Nodes         []domain.ArtifactGraphNode   `json:"nodes"`
 	Edges         []domain.ArtifactGraphEdge   `json:"edges"`
 	Sources       []domain.ArtifactGraphSource `json:"sources"`
+	Frontier      []JiraIssueGraphFrontierItem `json:"frontier,omitempty"`
 	Warnings      []string                     `json:"warnings,omitempty"`
 }
 
@@ -681,6 +691,14 @@ func (b *jiraGraphBuilder) qualifyAuxiliaryError(ctx context.Context, source *do
 	}
 	source.Complete = false
 	switch {
+	case errors.Is(err, domain.ErrReadAttemptBudgetExhausted):
+		source.Status = domain.ArtifactSourcePartial
+		source.Truncated = true
+		source.PartialReason = domain.ArtifactPartialRequestLimit
+	case errors.Is(err, domain.ErrReadResponseBudgetExhausted):
+		source.Status = domain.ArtifactSourcePartial
+		source.Truncated = true
+		source.PartialReason = domain.ArtifactPartialByteLimit
 	case errors.Is(err, domain.ErrAuth), errors.Is(err, domain.ErrForbidden):
 		source.Status = domain.ArtifactSourceForbidden
 	case notFoundUnsupported && errors.Is(err, domain.ErrNotFound):
@@ -952,7 +970,9 @@ func validateJiraGraphResult(result *JiraIssueGraphResult) error {
 		case domain.ArtifactSourcePartial:
 			if !domain.ValidArtifactPartialReason(source.PartialReason) ||
 				source.Truncated != (source.PartialReason == domain.ArtifactPartialInspectionLimit ||
-					source.PartialReason == domain.ArtifactPartialOutputLimit) {
+					source.PartialReason == domain.ArtifactPartialOutputLimit ||
+					source.PartialReason == domain.ArtifactPartialRequestLimit ||
+					source.PartialReason == domain.ArtifactPartialByteLimit) {
 				return fmt.Errorf("%w: Jira graph partial source contract is invalid", domain.ErrCheckFailed)
 			}
 		case domain.ArtifactSourceSkipped:
@@ -1017,22 +1037,44 @@ func JiraIssueGraphMarkdown(result *JiraIssueGraphResult) string {
 	fmt.Fprintf(&out, "- Root: `%s`\n", result.RootID)
 	fmt.Fprintf(&out, "- Complete: `%t`\n", result.Complete)
 	fmt.Fprintf(&out, "- Depth: `%d` (expanded `%d`, followed `%d`)\n", result.Bounds.RequestedDepth, result.Bounds.ExpandedNodes, result.Bounds.FollowedNodes)
+	if result.SchemaVersion >= jiraIssueGraphSchemaVersionV2 {
+		fmt.Fprintf(&out, "- Transport: `%d/%d` attempts; `%d/%d` buffered response bytes\n",
+			result.Bounds.RequestsUsed, result.Bounds.MaxRequests,
+			result.Bounds.ResponseBytesUsed, result.Bounds.MaxResponseBytes)
+	}
 	fmt.Fprintf(&out, "- Nodes: `%d`; edges: `%d`; evidence: `%d`; sources: `%d`\n\n",
 		result.Summary.NodeCount, result.Summary.EdgeCount, result.Summary.EvidenceCount, result.Summary.SourceCount)
 
 	sourceRows := make([][]string, 0, len(result.Sources))
 	for _, source := range result.Sources {
-		sourceRows = append(sourceRows, []string{
+		row := []string{
 			source.Kind, string(source.Status), fmt.Sprint(source.Complete),
 			fmt.Sprint(source.Count), fmt.Sprint(source.Truncated),
 			string(source.Stability), source.PartialReason,
-		})
+		}
+		if result.SchemaVersion >= jiraIssueGraphSchemaVersionV2 {
+			depth := ""
+			if source.NodeDepth != nil {
+				depth = fmt.Sprint(*source.NodeDepth)
+			}
+			row = append([]string{source.NodeID, depth}, row...)
+		}
+		sourceRows = append(sourceRows, row)
 	}
 	out.WriteString("## Sources\n\n")
-	out.WriteString(MarkdownTable(
-		[]string{"Source", "Status", "Complete", "Count", "Truncated", "Stability", "Reason"},
-		sourceRows,
-	))
+	sourceHeader := []string{"Source", "Status", "Complete", "Count", "Truncated", "Stability", "Reason"}
+	if result.SchemaVersion >= jiraIssueGraphSchemaVersionV2 {
+		sourceHeader = append([]string{"Node", "Depth"}, sourceHeader...)
+	}
+	out.WriteString(MarkdownTable(sourceHeader, sourceRows))
+	if len(result.Frontier) > 0 {
+		frontierRows := make([][]string, 0, len(result.Frontier))
+		for _, item := range result.Frontier {
+			frontierRows = append(frontierRows, []string{item.NodeID, fmt.Sprint(item.Depth), item.Reason})
+		}
+		out.WriteString("\n## Frontier\n\n")
+		out.WriteString(MarkdownTable([]string{"Node", "Depth", "Reason"}, frontierRows))
+	}
 	out.WriteString("\n## Nodes\n\n")
 	nodeRows := make([][]string, 0, len(result.Nodes))
 	for _, node := range result.Nodes {

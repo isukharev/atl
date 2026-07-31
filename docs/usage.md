@@ -3330,20 +3330,65 @@ atl jira issue check PROJ-1 --require assignee,fixVersions [--warn priority]
 
 ### `atl jira issue graph`
 
-Build one deterministic direct work-artifact graph from an exact Jira issue:
+Build one deterministic bounded work-artifact graph from an exact Jira issue:
 
 ```bash
 export ATL_READ_ONLY=1
 atl jira issue graph PROJ-1
+atl jira issue graph PROJ-1 --depth 2 --strict
+atl jira issue graph PROJ-1 --resolve confluence
 atl jira issue graph PROJ-1 -o text
 ```
 
-Schema v1 has no command-specific flags. It always expands only the seed at
-depth 0. Jira issues, Confluence page identities, attachments, and safe URL
-targets discovered from the seed remain depth-1 stubs; atl does not fetch a
-linked issue, resolve a page, download an attachment, or dereference an
-external URL. `-o id` is unsupported because a graph has no single primary
-identifier class.
+With no traversal, resolution, or custom-limit option, the command preserves
+schema v1 byte-for-byte. It expands only the seed at depth 0. Explicit
+`--depth 0` or `--resolve none` alone also stays on v1. Jira issues, Confluence
+page identities, attachments, and safe URL targets discovered from the seed
+remain depth-1 stubs; atl does not fetch a linked issue, resolve a page,
+download an attachment, or dereference an external URL.
+
+`--depth 1..3`, `--resolve confluence`, or any explicit limit opts into schema
+v2. Traversal is a globally canonical breadth-first walk and follows only exact
+`jira_issue` stubs discovered through structured Jira links or hierarchy.
+Heuristic narrative mentions are never followed. Cycles, diamonds, and moved
+keys are reconciled deterministically. Schema v2 records each source against
+its expanded node, adds `source_node_id` to evidence, and reports attempted,
+followed, expanded, transport, response-byte, and bounded-frontier accounting.
+
+Schema-v2 defaults and hard maxima are:
+
+| Limit | Default | Maximum |
+|---|---:|---:|
+| `--max-nodes` | 100 | 2048 |
+| `--max-edges` | 500 | 4096 |
+| `--max-evidence` | 500 | 4096 |
+| `--max-requests` | 100 | 128 |
+| `--max-bytes` | 16777216 | 67108864 |
+
+`--max-requests` counts actual physical HTTP attempts. Graph reads are
+single-attempt, so retries and redirect following are disabled; a redirect
+response still consumes its one attempt. `--max-bytes` is the aggregate number
+of buffered backend response bytes, including buffered error responses, not
+the size of graph output. Refused work is exposed through the closed
+`request_limit`, `byte_limit`, or `output_limit` reasons and a bounded sorted
+`frontier`; no bound is silently exceeded. If the seed response itself exceeds
+the byte budget, schema v2 emits a minimal unresolved root, qualifies every
+requested source with `byte_limit`, and records the root in the frontier
+instead of discarding the budget evidence.
+
+`--resolve confluence` runs after Jira traversal and only for already discovered
+canonical numeric page ids. It uses the independently configured Confluence
+origin and host-scoped PAT, performs at most one single-attempt GET per
+candidate, requests no expansions, and retains only exact id/title metadata.
+It never reads page bodies, ancestors, labels, restrictions, users, assets, or
+foreign URLs. Missing configuration is a static
+`dependency_unavailable` skipped source rather than a leaked setup detail.
+
+`--strict` still emits the graph, then exits **8** (`ErrCheckFailed`) when any
+requested source is incomplete. Without `--strict`, a usable reconciled graph
+may exit 0 with `complete:false`; consumers must inspect qualification.
+`-o id` is unsupported because a graph has no single primary identifier class,
+and invalid flags are rejected before configuration, credentials, or network.
 
 The root uses one single-attempt issue request with all returned applicable
 fields, field names/schema, and issue properties. Stable collectors then add
@@ -3374,8 +3419,9 @@ Edges distinguish structured relations (`jira_link`, hierarchy,
 `attached`, `remote_link`) from heuristic `mentions`. The same target may
 therefore have both a strong typed edge and a separate mention edge. Every edge
 has content-minimized evidence naming its collector and JSON pointer but never
-copies a source snippet. Text output preserves source qualification and renders
-escaped node/edge tables; JSON remains the canonical contract.
+copies a source snippet. Text output preserves per-node source qualification,
+transport accounting, and any bounded frontier, then renders escaped node/edge
+tables. JSON remains the canonical contract.
 
 This command is additive. `jira issue refs` retains its existing URL-focused
 schema, flags, output bytes, and JQL behavior.
