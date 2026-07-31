@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   binaries now read one sentinel byte and reject oversized bodies instead of
   accepting a silently truncated prefix.
 
+- Published bounded `Retry-After` cooldowns from transient write responses to
+  every client sharing the HTTP scheduler, while keeping the write itself
+  single-attempt and free of automatic retry.
+
 ## [0.5.1] - 2026-07-30
 
 ### Fixed

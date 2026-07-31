@@ -446,12 +446,10 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 			continue // network error → retry
 		}
 		tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, req.URL.Path))
-		retryable := replaySafe(method) &&
-			(resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500)
+		retryable := replaySafe(method) && transientRetryStatus(resp.StatusCode)
 		retryDelay := time.Duration(0)
 		if retryable {
 			retryDelay = retryAfter(resp)
-			c.scheduler.deferFor(retryDelay)
 		}
 		data, err := readBody(resp.Body, maxBytes)
 		resp.Body.Close()
@@ -696,11 +694,10 @@ func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, err
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return newIdleReader(resp.Body, downloadIdleTimeout, cancel), nil
 		}
-		retryable := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
+		retryable := transientRetryStatus(resp.StatusCode)
 		retryDelay := time.Duration(0)
 		if retryable {
 			retryDelay = retryAfter(resp)
-			c.scheduler.deferFor(retryDelay)
 		}
 		data, rerr := readBody(resp.Body, jsonBodyCap)
 		resp.Body.Close()

@@ -2,9 +2,11 @@ package httpx
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -240,6 +242,134 @@ func TestRetryAfterDefersOtherClientSharingScheduler(t *testing.T) {
 	}
 	if err := <-firstDone; err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWriteRetryAfterDefersSharedSchedulerWithoutRetry(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		status int
+		call   func(context.Context, *Client) error
+	}{
+		{
+			name:   "buffered_429",
+			status: http.StatusTooManyRequests,
+			call: func(ctx context.Context, client *Client) error {
+				_, err := client.Do(ctx, http.MethodPost, "/write", []byte(`{}`), nil)
+				return err
+			},
+		},
+		{
+			name:   "buffered_503",
+			status: http.StatusServiceUnavailable,
+			call: func(ctx context.Context, client *Client) error {
+				_, err := client.Do(ctx, http.MethodPost, "/write", []byte(`{}`), nil)
+				return err
+			},
+		},
+		{
+			name:   "streamed_429",
+			status: http.StatusTooManyRequests,
+			call: func(ctx context.Context, client *Client) error {
+				_, err := client.DoStream(ctx, http.MethodPost, "/write", strings.NewReader(`{}`), nil)
+				return err
+			},
+		},
+		{
+			name:   "streamed_503",
+			status: http.StatusServiceUnavailable,
+			call: func(ctx context.Context, client *Client) error {
+				_, err := client.DoStream(ctx, http.MethodPost, "/write", strings.NewReader(`{}`), nil)
+				return err
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			scheduler, err := NewScheduler(1, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var writeCalls, otherCalls atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/write":
+					writeCalls.Add(1)
+					w.Header().Set("Retry-After", "1")
+					w.WriteHeader(test.status)
+				default:
+					otherCalls.Add(1)
+					_, _ = io.WriteString(w, `{}`)
+				}
+			}))
+			defer srv.Close()
+			first := NewWithScheduler(srv.URL, "a", "test", scheduler)
+			second := NewWithScheduler(srv.URL, "b", "test", scheduler)
+
+			started := time.Now()
+			if err := test.call(context.Background(), first); err == nil {
+				t.Fatal("transient write unexpectedly succeeded")
+			}
+			if elapsed := time.Since(started); elapsed > 500*time.Millisecond {
+				t.Fatalf("single-attempt write waited %s for its own Retry-After", elapsed)
+			}
+			if writeCalls.Load() != 1 {
+				t.Fatalf("write calls=%d, want exactly one", writeCalls.Load())
+			}
+			scheduler.mu.Lock()
+			published := scheduler.cooldown.After(time.Now())
+			scheduler.mu.Unlock()
+			if !published {
+				t.Fatal("write Retry-After was not published to the shared scheduler")
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+			defer cancel()
+			if _, err := second.Do(ctx, http.MethodGet, "/other", nil, nil); !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("shared client error=%v, want cooldown cancellation", err)
+			}
+			if otherCalls.Load() != 0 {
+				t.Fatalf("shared client reached upstream %d times during cooldown", otherCalls.Load())
+			}
+		})
+	}
+}
+
+func TestPermanentWriteRetryAfterDoesNotDeferScheduler(t *testing.T) {
+	scheduler, err := NewScheduler(1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var writeCalls, otherCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/write" {
+			writeCalls.Add(1)
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		otherCalls.Add(1)
+		_, _ = io.WriteString(w, `{}`)
+	}))
+	defer srv.Close()
+	first := NewWithScheduler(srv.URL, "a", "test", scheduler)
+	second := NewWithScheduler(srv.URL, "b", "test", scheduler)
+	if _, err := first.Do(context.Background(), http.MethodPost, "/write", []byte(`{}`), nil); err == nil {
+		t.Fatal("permanent write unexpectedly succeeded")
+	}
+	if writeCalls.Load() != 1 {
+		t.Fatalf("write calls=%d, want exactly one", writeCalls.Load())
+	}
+	scheduler.mu.Lock()
+	published := scheduler.cooldown.After(time.Now())
+	scheduler.mu.Unlock()
+	if published {
+		t.Fatal("permanent response published Retry-After")
+	}
+	if _, err := second.Do(context.Background(), http.MethodGet, "/other", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if otherCalls.Load() != 1 {
+		t.Fatalf("shared client calls=%d, want one immediate request", otherCalls.Load())
 	}
 }
 
