@@ -9,12 +9,70 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+var errProbeRead = errors.New("probe read failed")
+
+type selfUpdateRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f selfUpdateRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
+type selfUpdateProbeBody struct {
+	total     int
+	failAfter int
+	read      int
+	closed    bool
+}
+
+func (b *selfUpdateProbeBody) Read(p []byte) (int, error) {
+	if b.failAfter >= 0 && b.read >= b.failAfter {
+		return 0, errProbeRead
+	}
+	remaining := b.total - b.read
+	if remaining <= 0 {
+		return 0, io.EOF
+	}
+	n := min(len(p), remaining)
+	if b.failAfter >= 0 && b.read+n > b.failAfter {
+		n = b.failAfter - b.read
+	}
+	for index := 0; index < n; index++ {
+		p[index] = 'x'
+	}
+	b.read += n
+	if b.failAfter >= 0 && b.read == b.failAfter {
+		return n, errProbeRead
+	}
+	return n, nil
+}
+
+func (b *selfUpdateProbeBody) Close() error {
+	b.closed = true
+	return nil
+}
+
+func useSelfUpdateProbeClient(t *testing.T, body io.ReadCloser, contentLength int64) {
+	t.Helper()
+	previous := httpClient
+	httpClient = &http.Client{Transport: selfUpdateRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode:    http.StatusOK,
+			Body:          body,
+			ContentLength: contentLength,
+			Request:       request,
+		}, nil
+	})}
+	t.Cleanup(func() { httpClient = previous })
+}
 
 // rawManifestServer serves arbitrary manifest + signature bytes, so a test can
 // feed malformed/truncated/missing payloads through the trust boundary.
@@ -179,6 +237,131 @@ func TestDownloadBadURL(t *testing.T) {
 	// A malformed URL fails at request construction / dial.
 	if _, err := download(context.Background(), "http://%zz", maxBinaryBytes, downloadTimeout); err == nil {
 		t.Error("download of an invalid URL should error")
+	}
+}
+
+func TestDownloadSizeBoundary(t *testing.T) {
+	const limit = int64(8)
+	for _, test := range []struct {
+		name    string
+		size    int
+		wantErr bool
+	}{
+		{name: "N-1", size: int(limit - 1)},
+		{name: "N", size: int(limit)},
+		{name: "N+1", size: int(limit + 1), wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := bytes.Repeat([]byte("x"), test.size)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write(body)
+			}))
+			defer srv.Close()
+
+			got, err := download(context.Background(), srv.URL, limit, downloadTimeout)
+			if test.wantErr {
+				if err == nil || got != nil {
+					t.Fatalf("oversized download returned bytes=%d err=%v", len(got), err)
+				}
+				return
+			}
+			if err != nil || !bytes.Equal(got, body) {
+				t.Fatalf("download bytes=%d err=%v, want %d bytes", len(got), err, len(body))
+			}
+		})
+	}
+
+	const privateBody = "PRIVATE-UPDATE-CANARY"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(privateBody))
+	}))
+	defer srv.Close()
+	if data, err := download(context.Background(), srv.URL, 1, downloadTimeout); err == nil || data != nil {
+		t.Fatalf("oversized private body returned bytes=%d err=%v", len(data), err)
+	} else if bytes.Contains([]byte(err.Error()), []byte(privateBody)) {
+		t.Fatalf("oversize error exposed response content: %v", err)
+	}
+
+	t.Run("reads only one sentinel and closes", func(t *testing.T) {
+		body := &selfUpdateProbeBody{total: 1024, failAfter: -1}
+		useSelfUpdateProbeClient(t, body, -1)
+		data, err := download(context.Background(), "https://example.invalid/update", limit, downloadTimeout)
+		if err == nil || data != nil || body.read != int(limit+1) || !body.closed {
+			t.Fatalf("data=%d err=%v read=%d closed=%t", len(data), err, body.read, body.closed)
+		}
+	})
+
+	t.Run("partial read error returns no bytes and closes", func(t *testing.T) {
+		body := &selfUpdateProbeBody{total: 1024, failAfter: 3}
+		useSelfUpdateProbeClient(t, body, -1)
+		data, err := download(context.Background(), "https://example.invalid/update", limit, downloadTimeout)
+		if !errors.Is(err, errProbeRead) || data != nil || body.read != body.failAfter || !body.closed {
+			t.Fatalf("data=%d err=%v read=%d closed=%t", len(data), err, body.read, body.closed)
+		}
+	})
+
+	t.Run("negative limit is rejected before transport", func(t *testing.T) {
+		called := false
+		previous := httpClient
+		httpClient = &http.Client{Transport: selfUpdateRoundTripFunc(func(*http.Request) (*http.Response, error) {
+			called = true
+			return nil, nil
+		})}
+		t.Cleanup(func() { httpClient = previous })
+		if data, err := download(context.Background(), "https://example.invalid/update", -1, downloadTimeout); err == nil || data != nil || called {
+			t.Fatalf("data=%d err=%v transport called=%t", len(data), err, called)
+		}
+	})
+}
+
+func TestFetchSignedManifestRejectsOversizedInputs(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := json.Marshal(Manifest{Version: "1.2.3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exactManifest := append([]byte(nil), manifest...)
+	exactManifest = append(exactManifest, bytes.Repeat([]byte(" "), maxManifestBytes-len(exactManifest))...)
+	exactManifestSignature := []byte(base64.StdEncoding.EncodeToString(ed25519.Sign(priv, exactManifest)))
+	exactSignature := []byte(base64.StdEncoding.EncodeToString(ed25519.Sign(priv, manifest)))
+	exactSignature = append(exactSignature, bytes.Repeat([]byte(" "), maxSigBytes-len(exactSignature))...)
+
+	for _, test := range []struct {
+		name      string
+		manifest  []byte
+		signature []byte
+	}{
+		{
+			name:      "manifest",
+			manifest:  append(exactManifest, 'x'),
+			signature: exactManifestSignature,
+		},
+		{
+			name:      "signature",
+			manifest:  manifest,
+			signature: append(exactSignature, 'x'),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			srv := rawManifestServer(t, test.manifest, test.signature)
+			defer srv.Close()
+			got, err := fetchSignedManifest(context.Background(), srv.URL, pub)
+			if err == nil || got != nil {
+				t.Fatalf("oversized %s returned manifest=%v err=%v", test.name, got, err)
+			}
+		})
+	}
+}
+
+func TestDownloadBinaryUsesBinaryResponseCap(t *testing.T) {
+	body := &selfUpdateProbeBody{total: 0, failAfter: -1}
+	useSelfUpdateProbeClient(t, body, maxBinaryBytes+1)
+	data, err := downloadBinary(context.Background(), "https://example.invalid/atl")
+	if err == nil || data != nil || body.read != 0 || !body.closed {
+		t.Fatalf("data=%d err=%v read=%d closed=%t", len(data), err, body.read, body.closed)
 	}
 }
 

@@ -132,7 +132,7 @@ func Run(ctx context.Context, baseURL, current, configDir string) {
 	if !ok {
 		return
 	}
-	data, err := download(ctx, baseURL+"/"+strings.TrimPrefix(build.Path, "/"), maxBinaryBytes, downloadTimeout)
+	data, err := downloadBinary(ctx, baseURL+"/"+strings.TrimPrefix(build.Path, "/"))
 	if err != nil {
 		debugf("download failed: %v", err)
 		return
@@ -269,6 +269,9 @@ func fetchSignedManifest(ctx context.Context, baseURL string, pub ed25519.Public
 }
 
 func download(ctx context.Context, url string, maxBytes int64, timeout time.Duration) ([]byte, error) {
+	if maxBytes < 0 {
+		return nil, fmt.Errorf("self-update response limit is invalid")
+	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -283,7 +286,25 @@ func download(ctx context.Context, url string, maxBytes int64, timeout time.Dura
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("status %d", resp.StatusCode)
 	}
-	return io.ReadAll(io.LimitReader(resp.Body, maxBytes))
+	if resp.ContentLength > maxBytes {
+		return nil, fmt.Errorf("self-update response exceeds %d bytes", maxBytes)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes))
+	if err != nil {
+		return nil, err
+	}
+	sentinel, err := io.ReadAll(io.LimitReader(resp.Body, 1))
+	if err != nil {
+		return nil, err
+	}
+	if len(sentinel) != 0 {
+		return nil, fmt.Errorf("self-update response exceeds %d bytes", maxBytes)
+	}
+	return data, nil
+}
+
+func downloadBinary(ctx context.Context, url string) ([]byte, error) {
+	return download(ctx, url, maxBinaryBytes, downloadTimeout)
 }
 
 func pickBuild(mf *Manifest, goos, goarch string) (Build, bool) {
