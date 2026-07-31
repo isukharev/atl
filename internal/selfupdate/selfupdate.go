@@ -54,9 +54,14 @@ type Manifest struct {
 
 const (
 	checkInterval = 6 * time.Hour
+	// A due self-update runs synchronously before the requested command. Bound
+	// all remote work and the decision to begin the atomic local commit so a
+	// slow source cannot make startup wait for the sum of the request timeouts.
+	startupBudget = 5 * time.Second
 	// The manifest check must be snappy so it never noticeably delays a command.
 	// The binary download can take longer: once we've decided to update we'd
-	// rather finish than abort a multi-megabyte transfer on a slow link.
+	// rather finish than abort a multi-megabyte transfer on a slow link, within
+	// the overall startup budget.
 	checkTimeout    = 4 * time.Second
 	downloadTimeout = 90 * time.Second
 
@@ -106,6 +111,21 @@ func Run(ctx context.Context, baseURL, current, configDir string) {
 		debugf("no trusted signing key embedded; auto-update disabled")
 		return
 	}
+	runWithBudget(ctx, baseURL, current, configDir, startupBudget, pub, replaceBinary)
+}
+
+// runWithBudget performs the due update acquisition and decision with one
+// shared deadline. A local commit admitted before that deadline finishes
+// atomically with its version stamp.
+// Its explicit dependencies let tests use short budgets and a non-process
+// replacer without mutating package globals.
+func runWithBudget(
+	ctx context.Context,
+	baseURL, current, configDir string,
+	budget time.Duration,
+	pub ed25519.PublicKey,
+	replace func(context.Context, []byte) error,
+) {
 	// Supply-chain guard: a self-replacing binary must only fetch over TLS.
 	// Plaintext is allowed solely against loopback for tests.
 	if !secureBase(baseURL) {
@@ -116,6 +136,9 @@ func Run(ctx context.Context, baseURL, current, configDir string) {
 		return
 	}
 	stampCheck(configDir) // record now, even if the rest fails, to throttle
+
+	ctx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
 
 	mf, err := fetchSignedManifest(ctx, baseURL, pub)
 	if err != nil || mf.Version == "" {
@@ -141,7 +164,14 @@ func Run(ctx context.Context, baseURL, current, configDir string) {
 		debugf("checksum mismatch for %s", build.Path)
 		return
 	}
-	if err := replaceBinary(data); err != nil {
+	// Do not begin the atomic local swap after the shared deadline. Once the
+	// swap starts, let it finish so cancellation cannot leave replacement and
+	// the persisted anti-rollback version out of sync.
+	if err := ctx.Err(); err != nil {
+		debugf("update budget exhausted: %v", err)
+		return
+	}
+	if err := replace(ctx, data); err != nil {
 		debugf("self-replace failed: %v", err)
 		return
 	}
@@ -327,7 +357,10 @@ func checksumOK(data []byte, want string) bool {
 // executable. Replacing a running executable via rename is safe on Linux/macOS
 // (the running image keeps the old inode); the new bytes take effect on the
 // next invocation.
-func replaceBinary(data []byte) error {
+func replaceBinary(ctx context.Context, data []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return err

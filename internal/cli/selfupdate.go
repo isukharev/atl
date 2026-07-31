@@ -10,10 +10,11 @@ import (
 
 // runSelfUpdate performs a best-effort, signature-verified, throttled
 // self-replacement before a command runs. It resolves the distribution server
-// from config/env, falling back to the build-time default. It never blocks or
-// errors a command, honors the command's (signal-aware) context so Ctrl-C can
-// cancel an in-flight download, and applies any update for the NEXT invocation
-// rather than re-execing the current one. Offline/trivial commands skip it.
+// from config/env, falling back to the build-time default. It runs
+// synchronously within selfupdate's total startup budget, never errors a
+// command, honors the command's (signal-aware) context so Ctrl-C can cancel an
+// in-flight download, and applies any update for the NEXT invocation rather
+// than re-execing the current one. Offline/trivial commands skip it.
 func runSelfUpdate(cmd *cobra.Command) {
 	if skipSelfUpdate(cmd) {
 		return

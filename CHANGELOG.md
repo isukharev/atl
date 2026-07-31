@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Published bounded `Retry-After` cooldowns from transient write responses to
   every client sharing the HTTP scheduler, while keeping the write itself
   single-attempt and free of automatic retry.
+- Bound all remote work in a due synchronous self-update to one five-second
+  startup budget instead of allowing its manifest and binary phases to consume
+  independent timeouts before the requested command starts; an admitted atomic
+  local commit still finishes together with its version stamp.
 
 ## [0.5.1] - 2026-07-30
 

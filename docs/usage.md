@@ -576,8 +576,9 @@ deliberately separate sections:
 
 The profile may contain private field names and selectors even though it contains
 no credentials. Never commit or publish it.
-All `profile` commands are local/offline and skip the background self-update
-check, so preview performs no network or unrelated filesystem mutation.
+All `profile` commands are local/offline and skip the synchronous bounded
+self-update check, so preview performs no network or unrelated filesystem
+mutation.
 
 ### Preview and apply
 

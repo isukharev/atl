@@ -642,7 +642,8 @@ handling the `--cql` page cap), see [docs/usage.md → Scripting & CI](docs/usag
 The binary checks for a new release at most once every 6 hours. Each update is
 verified by SHA-256 checksum **and** ed25519 signature against a public key compiled
 into the binary. The update fails closed if the release is unsigned or the signature
-does not match.
+does not match. Remote work for a due check has one five-second total startup
+budget.
 
 - Disable auto-update: `ATL_NO_UPDATE=1`
 - Homebrew installs update only through `brew upgrade atl`.

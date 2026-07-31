@@ -655,6 +655,8 @@ atl jira field-options --project PROJ --field <field-id>
 - Отключить автообновление: `ATL_NO_UPDATE=1`
 - Установки Homebrew обновляются только через `brew upgrade atl`.
 - Dev-сборки никогда не обновляются автоматически.
+- Для сетевой части просроченной проверки действует общий пятисекундный бюджет
+  запуска.
 - Полная модель доверия: [docs/self-update.md](docs/self-update.md)
 - Сетевые назначения и air-gap рецепт: [docs/network-egress.md](docs/network-egress.md)
 - Политика безопасности: [SECURITY.md](SECURITY.md)

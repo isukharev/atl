@@ -143,7 +143,7 @@ func newRoot() *cobra.Command {
 	})
 	root.AddCommand(newConfCmd(), newJiraCmd(), newCapabilitiesCmd(), newEnvironmentCmd(), newMCPCommand(), newAuthCmd(), newConfigCmd(), newProfileCmd(), newManifestCmd(), newVersionCmd())
 	// Validate the global output format, then run a best-effort self-update check
-	// (never blocks/fails the command).
+	// within its total startup budget. Update failures never fail the command.
 	root.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
 		switch outputFormat {
 		case "json", "text", "id":
