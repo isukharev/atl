@@ -667,9 +667,10 @@ atl jira field-options --project PROJ --field <field-id>
 
 ```sh
 make build   # собирает ./atl
-make test    # go test ./...
+make test    # основные продуктовые тесты
+make agent-eval-contract # полный детерминированный контур evaluator
 make lint    # golangci-lint run
-# или напрямую:
+# либо запустите весь репозиторий напрямую (включая evaluator):
 go build ./...
 go test  ./...
 ```

@@ -40,6 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added content-free aggregate entry and logical-byte counts to private
   evaluation workspace status/doctor output; the bounded inspection remains
   read-only and grants no cleanup authority.
+- Split ordinary product verification from the heavy deterministic
+  agent-evaluation suite with a fail-closed package/dependency classifier,
+  explicit compatibility and full evaluation gates, and a shared lightweight
+  synthetic backend contract.
 
 ## [0.5.1] - 2026-07-30
 

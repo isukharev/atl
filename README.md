@@ -658,9 +658,10 @@ budget.
 
 ```sh
 make build   # produces ./atl
-make test    # go test ./...
+make test    # core product tests
+make agent-eval-contract # complete deterministic evaluator contract
 make lint    # golangci-lint run
-# or directly:
+# or run the complete repository directly (including the evaluator):
 go build ./...
 go test  ./...
 ```

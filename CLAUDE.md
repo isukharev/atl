@@ -37,8 +37,9 @@ assigns that subordinate role. In that case:
 
 ```sh
 make build    # CGO_ENABLED=0 build -> ./atl (version-stamped via -ldflags)
-make test     # go test ./...
-make race     # go test -race ./...
+make test     # core product test packages
+make agent-eval-contract # complete deterministic evaluator contract
+make race     # core product test packages with the race detector
 make lint     # golangci-lint run (v2 config in .golangci.yml)
 make vet      # go vet ./...
 go test ./internal/csf/ -run TestParse   # single package / single test
@@ -65,7 +66,7 @@ For CLI changes, run focused tests first (`go test ./internal/app ./internal/cli
 touched packages), then `make test`.
 
 Or pass the env inline for a one-off (no file): `ATL_INTEGRATION=1 CONFLUENCE_URL=… TEST_CONFLUENCE_PAT=…
-ATL_TEST_PAGE_ID=<throwaway-page-id> go test ./... -run Integration`. Jira `field-options` coverage
+  ATL_TEST_PAGE_ID=<throwaway-page-id> make integration`. Jira `field-options` coverage
 also needs `ATL_TEST_JIRA_PROJECT` + `ATL_TEST_JIRA_FIELD` (e.g. `priority`).
 
 Requires Go 1.26.5+. CI enforces `gofmt` and `goimports` (`local-prefixes = github.com/isukharev/atl`)

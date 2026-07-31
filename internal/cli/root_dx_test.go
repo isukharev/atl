@@ -11,11 +11,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isukharev/atl/internal/agenteval"
 	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/diagnostic"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/httpx"
+	"github.com/isukharev/atl/internal/testbackend"
 )
 
 type cliAmbiguousWriteTestError struct{}
@@ -74,7 +74,6 @@ func TestErrorKindAndRemediationMatrix(t *testing.T) {
 		{"rate_limited", "rate_limited", "wait_before_retry", exitGeneric, &httpx.APIError{Status: 429, Method: "GET", Path: "/safe", Body: "slow down"}},
 		{"api", "api_error", "inspect_backend_error", exitGeneric, &httpx.APIError{Status: 500, Method: "GET", Path: "/safe", Body: "failure"}},
 	}
-	covered := map[agenteval.CLIErrorContract]struct{}{}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			kind, remediation := classifyError(tt.err)
@@ -85,21 +84,7 @@ func TestErrorKindAndRemediationMatrix(t *testing.T) {
 			if code != tt.exitCode {
 				t.Fatalf("code=%d, want %d", code, tt.exitCode)
 			}
-			contract, ok := agenteval.ValidateCLIErrorContract(code, kind, remediation)
-			if !ok {
-				t.Fatalf("reachable CLI triplet %d/%q/%q is absent from the harness vocabulary", code, kind, remediation)
-			}
-			covered[contract] = struct{}{}
 		})
-	}
-	known := agenteval.KnownCLIErrorContracts()
-	if len(covered) != len(known) {
-		t.Fatalf("runtime matrix covers %d triplets, harness accepts %d", len(covered), len(known))
-	}
-	for _, contract := range known {
-		if _, exists := covered[contract]; !exists {
-			t.Fatalf("harness triplet %+v has no reachable CLI runtime example", contract)
-		}
 	}
 }
 
@@ -310,7 +295,7 @@ func TestConfluenceSelectionCompletenessFixtureWarning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture, decodeErr := agenteval.DecodeMockFixture(file)
+	fixture, decodeErr := testbackend.DecodeMockFixture(file)
 	closeErr := file.Close()
 	if decodeErr != nil {
 		t.Fatal(decodeErr)
@@ -318,7 +303,7 @@ func TestConfluenceSelectionCompletenessFixtureWarning(t *testing.T) {
 	if closeErr != nil {
 		t.Fatal(closeErr)
 	}
-	backend, err := agenteval.StartMockBackend(fixture)
+	backend, err := testbackend.StartMockBackend(fixture)
 	if err != nil {
 		t.Fatal(err)
 	}

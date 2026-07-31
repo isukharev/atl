@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/isukharev/atl/internal/agenteval"
 	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/testbackend"
 )
 
 func TestSyntheticQuarterPortfolioRouteUsesOneSnapshotAndNarrowExpansions(t *testing.T) {
@@ -16,12 +16,12 @@ func TestSyntheticQuarterPortfolioRouteUsesOneSnapshotAndNarrowExpansions(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture, err := agenteval.DecodeMockFixture(file)
+	fixture, err := testbackend.DecodeMockFixture(file)
 	_ = file.Close()
 	if err != nil {
 		t.Fatal(err)
 	}
-	backend, err := agenteval.StartMockBackend(fixture)
+	backend, err := testbackend.StartMockBackend(fixture)
 	if err != nil {
 		t.Fatal(err)
 	}

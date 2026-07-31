@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isukharev/atl/internal/agenteval"
 	capabilitydef "github.com/isukharev/atl/internal/capability"
 )
 
@@ -196,45 +195,6 @@ func TestCapabilityRoutesPointToTheirFocusedWorkflow(t *testing.T) {
 	}
 	if len(knowledge.Capabilities) == 0 || knowledge.Capabilities[0].Skill != "search-knowledge" || knowledge.Capabilities[0].Reference != "SKILL.md" {
 		t.Fatalf("knowledge discovery route=%+v", knowledge.Capabilities)
-	}
-}
-
-func TestAgentEvalScenariosUseCatalogCapabilitiesForTheirTask(t *testing.T) {
-	paths, err := filepath.Glob(filepath.Join("..", "..", "benchmarks", "agent-eval", "*", "scenario.v1.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(paths) == 0 {
-		t.Fatal("no public agent-eval scenarios found")
-	}
-	catalog, err := buildCapabilityCatalog(newRoot(), capabilitySelection{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	byID := map[string]capability{}
-	for _, item := range catalog.Capabilities {
-		byID[item.ID] = item
-	}
-	for _, path := range paths {
-		file, openErr := os.Open(path)
-		if openErr != nil {
-			t.Fatal(openErr)
-		}
-		scenario, decodeErr := agenteval.DecodeScenario(file)
-		_ = file.Close()
-		if decodeErr != nil {
-			t.Fatalf("%s: %v", path, decodeErr)
-		}
-		for _, id := range scenario.RequiredCapabilities {
-			item, ok := byID[id]
-			if !ok {
-				t.Errorf("%s requires capability %q absent from catalog", path, id)
-				continue
-			}
-			if item.TaskClass != scenario.TaskClass {
-				t.Errorf("%s capability %q task=%q want=%q", path, id, item.TaskClass, scenario.TaskClass)
-			}
-		}
 	}
 }
 

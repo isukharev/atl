@@ -7,28 +7,28 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isukharev/atl/internal/agenteval"
 	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/testbackend"
 )
 
-func startAgentEvalFixture(t *testing.T, scenario string) *agenteval.MockBackend {
+func startAgentEvalFixture(t *testing.T, scenario string) *testbackend.MockBackend {
 	t.Helper()
 	path := filepath.Join("..", "..", "benchmarks", "agent-eval", scenario, "fixture.json")
 	return startAgentEvalFixturePath(t, path)
 }
 
-func startAgentEvalFixturePath(t *testing.T, path string) *agenteval.MockBackend {
+func startAgentEvalFixturePath(t *testing.T, path string) *testbackend.MockBackend {
 	t.Helper()
 	file, err := os.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture, decodeErr := agenteval.DecodeMockFixture(file)
+	fixture, decodeErr := testbackend.DecodeMockFixture(file)
 	_ = file.Close()
 	if decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
-	backend, err := agenteval.StartMockBackend(fixture)
+	backend, err := testbackend.StartMockBackend(fixture)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -185,9 +185,18 @@ from aggregate output. Validate the committed scenarios and deterministic
 workflows with:
 
 ```sh
+make agent-eval-compat
 make agent-eval-contract
 go run ./scripts/agent-eval inventory benchmarks/agent-eval
 ```
+
+`agent-eval-compat` is the small uncached product/evaluator boundary: it checks
+the exact capability and CLI-error vocabularies and validates every supported
+versioned scenario and run contract. `agent-eval-contract` includes that gate,
+then runs the complete evaluator and runner test suites uncached. Ordinary
+`make test` and `make race` use a fail-closed package classifier and do not
+execute the heavy evaluator; release tags retain a separate Linux evaluator
+race gate.
 
 The inventory command validates the whole corpus before returning only
 aggregate category/task-class counts. Its success and error outputs never emit

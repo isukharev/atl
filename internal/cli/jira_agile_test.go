@@ -98,18 +98,18 @@ func TestJiraBoardConfigAndKanbanViewNeverCallSprintOrBacklog(t *testing.T) {
 			t.Fatalf("view missing %q:\n%s", want, viewOut)
 		}
 	}
-	for _, request := range js.requests() {
+	requests := js.requests()
+	if len(requests) != 3 || len(configOut)+len(viewOut) > 8192 {
+		t.Fatalf("Kanban budget requests=%d output_bytes=%d", len(requests), len(configOut)+len(viewOut))
+	}
+	for _, request := range requests {
+		if request.method != http.MethodGet {
+			t.Fatalf("Kanban view used non-read method: %+v", request)
+		}
 		if strings.Contains(request.path, "/sprint") || strings.Contains(request.path, "/backlog") {
 			t.Fatalf("Kanban view called incompatible endpoint: %+v", request)
 		}
 	}
-	evaluateAgentWorkflow(t, "jira-kanban-view.v1.json", deterministicObservation(
-		"jira.kanban-view", 2, int64(len(configOut)+len(viewOut)), js.requests(),
-		map[string]bool{
-			"columns_mapped":        strings.Contains(viewOut, "| To Do |") && strings.Contains(viewOut, "| Unmapped |"),
-			"kanban_endpoints_safe": true,
-		},
-	))
 }
 
 func TestJiraBoardViewEpicRollup(t *testing.T) {

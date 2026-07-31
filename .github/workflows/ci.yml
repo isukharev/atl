@@ -46,16 +46,19 @@ jobs:
       # non-atomic coverage counters would themselves be a data race. -count=1
       # defeats the test cache so a stale pass can't masquerade as green; -timeout
       # dumps goroutine stacks instead of hanging the job on a deadlock.
-      # -coverpkg=./internal/... attributes coverage across package boundaries, so
-      # the CLI/app tests that exercise the adapters count toward them; the summary
-      # below reports the true cross-package total, not each package in isolation
-      # (cmd/scripts are excluded — they are thin mains/build tooling).
+      # Core-internal coverage attributes calls across product package
+      # boundaries without instrumenting the separately gated evaluator.
       - name: Test
-        run: go test -race -covermode=atomic -coverprofile=cover.out -coverpkg=./internal/... -count=1 -timeout=10m ./...
+        run: |
+          core_packages="$(go run ./scripts/list-go-packages --class core)"
+          core_cover="$(go run ./scripts/list-go-packages --class core --scope internal --format csv)"
+          test -n "$core_packages"
+          test -n "$core_cover"
+          go test -race -covermode=atomic -coverprofile=cover.out -coverpkg="$core_cover" -count=1 -timeout=10m $core_packages
       - name: Coverage summary
         run: |
           {
-            echo "### Coverage — cross-package (${{ matrix.os }})"
+            echo "### Core/product coverage — cross-package (${{ matrix.os }})"
             echo '```'
             go tool cover -func=cover.out | tail -1
             echo '```'
@@ -73,6 +76,41 @@ jobs:
       - name: Static CGO-free build
         run: CGO_ENABLED=0 go build ./...
 
+  agent-eval:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Classify evaluation impact
+        id: impact
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "heavy=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$BASE_SHA" "$GITHUB_SHA" -- \
+            go.mod go.sum Makefile .github/workflows/ci.yml .github/workflows/release.yml \
+            .claude-plugin .mcp.json skills skills-src plugins/atl \
+            internal/agenteval internal/capability internal/diagnostic internal/safepath \
+            internal/skillmeta internal/testbackend scripts/agent-eval scripts/list-go-packages \
+            benchmarks/agent-eval internal/cli/testdata/agent-eval; then
+            echo "heavy=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "heavy=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Product compatibility contract
+        if: steps.impact.outputs.heavy != 'true'
+        run: make agent-eval-compat
+      - name: Complete evaluation contract
+        if: steps.impact.outputs.heavy == 'true'
+        run: make agent-eval-race
+
   lint:
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -84,6 +122,8 @@ jobs:
           check-latest: true
       - name: Maintainer toolchain contract
         run: make check-maintainer-contract
+      - name: Core/heavy package boundary
+        run: make check-package-boundary
       - name: Generated plugin trees are current
         run: make check-plugins
       - name: golangci-lint
