@@ -88,14 +88,13 @@ Hexagonal (ports & adapters). The dependency rule is strict — internalize it b
   from the `domain` port method it calls (e.g. `JiraService.Comment` → `Tracker.AddComment`),
   so grepping one name won't always reveal the full service→port→adapter chain.
 - **`internal/cli`** — thin cobra layer: parse flags → call one use-case → `emit()` → return
-  error. Command tree:
-  - `conf` — search, space tree, page {get,meta,history,create,move,delete,list,open,copy},
-    attachment {list,get,upload,delete}, pull, render, status, validate, push, comment {list,add}, me.
-  - `jira` — issue {get,search,create,update,transition,comment {add,list,delete},
-    link {add,list,delete},link-epic,images,check,delete,labels,history},
-    board {list,get}, sprint {list,get,current,issues,add,remove}, pull, render, apply, status, push,
-    fields, field-options, transitions, link-types, me, user {search,get}.
-  - `auth` (login,status,logout), `config` (show,set), `version`.
+  error. Do not maintain a copied command tree here: inspect the exact current
+  surface with `atl --help`, the relevant parent `--help`, or
+  `docs/usage.md`; use `atl capabilities` for the versioned task-oriented
+  routes. The facts that are not visible in help are the native write
+  substrate, read-only Markdown views, JSON-default output, stable exit
+  classes, bounded read contracts, and review-bound write gates documented
+  below.
 - **`internal/csf`** — read-only DOM parser + validator for Confluence Storage Format.
 - **`internal/fragment`** — extracts/resolves opaque fragments (drawio, image, user,
   page-link, attachment) from a CSF DOM.
