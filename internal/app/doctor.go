@@ -431,9 +431,10 @@ func runOneDoctorRemote(
 		out.Remote.Reason = "version_not_returned_or_invalid"
 		addDoctorProblem(result, "remote."+service+".version", "advisory", out.Remote.Reason, "report_compatibility_result")
 	}
-	if out.Compatibility.Status == "unsupported" {
+	switch out.Compatibility.Status {
+	case "unsupported":
 		addDoctorProblem(result, "remote."+service+".compatibility", "error", out.Compatibility.Reason, "use_supported_data_center_backend")
-	} else if out.Compatibility.Status == "unverified" {
+	case "unverified":
 		addDoctorProblem(result, "remote."+service+".compatibility", "advisory", out.Compatibility.Reason, "report_compatibility_result")
 	}
 }
