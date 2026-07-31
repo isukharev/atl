@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/isukharev/atl/internal/csf"
+	"github.com/isukharev/atl/internal/domain"
 )
 
 func confBlogCmd() *cobra.Command {
@@ -37,7 +38,7 @@ func confBlogCreateCmd() *cobra.Command {
 			}
 			if problems := csf.Validate(body); csf.HasErrors(problems) {
 				_ = emit(cmd, map[string]any{"problems": problems}, nil)
-				return usageErr("CSF not well-formed (see problems); blog post not created")
+				return fmt.Errorf("%w: CSF not well-formed (see problems); blog post not created", domain.ErrCheckFailed)
 			}
 			svc, err := confService()
 			if err != nil {

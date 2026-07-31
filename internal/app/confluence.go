@@ -824,6 +824,66 @@ type PushResult struct {
 	Items []PushItem `json:"items"`
 }
 
+// PreflightConfluencePushCSF performs the narrow, filesystem-only part of a
+// push that can be decided before backend configuration: error-severity CSF
+// validation for otherwise readable, canonical push targets. A nil result and
+// nil error means the caller must continue through the normal configured Push;
+// it can mean either that every selected body passed or that target/mirror
+// resolution must be left to Push so existing non-CSF error precedence is
+// preserved. Push always repeats validation while holding the mutation lock.
+func PreflightConfluencePushCSF(target string, o PushOpts) (*PushResult, error) {
+	root := o.Into
+	if root == "" {
+		root = mirrorRootOf(target)
+	}
+	guard, err := beginMirrorSnapshotLock(root, filepath.Join(root, ".atl", confluenceMutationLockName))
+	if err != nil {
+		// Preserve the configured Push path's lock/config error precedence.
+		return nil, nil
+	}
+	m := mirror.New(root)
+	files, err := pushTargets(m, target)
+	if err != nil {
+		_, _ = guard.finish()
+		return nil, nil
+	}
+	locals, bodies, err := m.LoadCSFMany(files)
+	if err != nil {
+		_, _ = guard.finish()
+		return nil, nil
+	}
+
+	res := &PushResult{}
+	for i, body := range bodies {
+		// The locked push has a stronger, path-specific refusal for stale
+		// relocation copies. Do not let body validation replace that error.
+		if locals[i].TrackedElsewhere {
+			continue
+		}
+		problems := csf.Validate(body)
+		if !csf.HasErrors(problems) {
+			continue
+		}
+		res.Items = append(res.Items, PushItem{
+			Path: files[i], ID: locals[i].Meta.ID, Problems: problems, DryRun: o.DryRun,
+		})
+	}
+	retry, finishErr := guard.finish()
+	if retry || finishErr != nil {
+		// A legacy mirror may create its persistent lock while this read-only
+		// inspection is running. Discard that snapshot and let locked Push
+		// resolve the authoritative error instead.
+		return nil, nil
+	}
+	if len(res.Items) == 0 {
+		return nil, nil
+	}
+	if len(res.Items) == 1 {
+		return res, fmt.Errorf("%w: %s: malformed CSF (see problems)", domain.ErrCheckFailed, res.Items[0].Path)
+	}
+	return res, fmt.Errorf("%w: malformed CSF in %d push targets (see problems)", domain.ErrCheckFailed, len(res.Items))
+}
+
 // Push validates and pushes one .csf file or every dirty file under a dir. The
 // optimistic version gate refuses on drift (exit 5) unless Force.
 func (s *ConfluenceService) Push(ctx context.Context, target string, o PushOpts) (*PushResult, error) {
@@ -840,7 +900,7 @@ func (s *ConfluenceService) Push(ctx context.Context, target string, o PushOpts)
 		return nil, err
 	}
 	defer func() { _ = lock.Unlock() }()
-	files, err := s.pushTargets(m, target)
+	files, err := pushTargets(m, target)
 	if err != nil {
 		return nil, err
 	}
@@ -849,26 +909,25 @@ func (s *ConfluenceService) Push(ctx context.Context, target string, o PushOpts)
 	for _, f := range files {
 		item, ferr := s.pushOne(ctx, m, f, o)
 		res.Items = append(res.Items, item)
-		// Keep the most actionable failure so a batch push surfaces a version
-		// conflict (exit 5) rather than whichever file happens to sort first.
+		// Keep the most actionable failure according to errRank rather than
+		// whichever file happens to sort first.
 		worst = moreSevereErr(worst, ferr)
 	}
 	return res, worst
 }
 
 // errRank orders push failures by actionability so the aggregate exit code
-// reflects the most useful one (version-conflict highest: it tells an agent to
-// re-pull and retry). The rank is NOT the exit code: forbidden ranks below
-// version-conflict here yet maps to exit 6, while version-conflict maps to 5 —
-// the rank only decides which error wins; codeFor then maps the winner.
+// reflects the most useful one. Local check failures rank highest because the
+// batch is unsafe to continue; among backend failures, version conflict remains
+// the highest. The rank is NOT the exit code: it only decides which error wins;
+// codeFor then maps the winner.
 func errRank(err error) int {
 	switch {
 	case err == nil:
 		return -1
 	case errors.Is(err, domain.ErrCheckFailed):
-		// Jira push's drift refusal (exit 8): "re-pull or --force" is the most
-		// actionable outcome, so it wins a batch aggregate. Confluence push never
-		// produces this per-file (a corrupt sidecar aborts before the loop).
+		// A failed local safety check (including malformed CSF) is the most
+		// actionable outcome, so it wins a batch aggregate.
 		return 6
 	case errors.Is(err, domain.ErrVersionConflict):
 		return 5
@@ -922,7 +981,7 @@ func (s *ConfluenceService) pushOne(ctx context.Context, m *mirror.Mirror, path 
 	problems := csf.Validate(body)
 	item.Problems = problems
 	if csf.HasErrors(problems) {
-		return item, fmt.Errorf("%s: malformed CSF (see problems)", path)
+		return item, fmt.Errorf("%w: %s: malformed CSF (see problems)", domain.ErrCheckFailed, path)
 	}
 	// Nothing to push if the file still matches its last-synced state (unless
 	// forced): pushing an unchanged body would create a no-op remote revision.
@@ -1048,7 +1107,7 @@ func (s *ConfluenceService) refreshConfluenceMirror(ctx context.Context, m *mirr
 	return warning
 }
 
-func (s *ConfluenceService) pushTargets(m *mirror.Mirror, target string) ([]string, error) {
+func pushTargets(m *mirror.Mirror, target string) ([]string, error) {
 	info, err := os.Stat(target)
 	if err != nil {
 		return nil, localConfluenceTargetError("push", target, err)

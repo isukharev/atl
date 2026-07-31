@@ -383,7 +383,7 @@ func confPageCmd() *cobra.Command {
 				// Emit the problems, but exit non-zero so an agent learns the page
 				// was NOT created (previously this returned exit 0 — a silent no-op).
 				_ = emit(cmd, map[string]any{"problems": probs}, nil)
-				return usageErr("CSF not well-formed (see problems); page not created")
+				return fmt.Errorf("%w: CSF not well-formed (see problems); page not created", domain.ErrCheckFailed)
 			}
 			svc, err := confService()
 			if err != nil {
@@ -1163,7 +1163,7 @@ func confValidateCmd() *cobra.Command {
 			problems := csf.ValidateWithOptions(body, csf.Options{CloudCompat: cloudCompat})
 			err = nil
 			if csf.HasErrors(problems) {
-				err = fmt.Errorf("%s: not well-formed", args[0])
+				err = fmt.Errorf("%w: %s: not well-formed", domain.ErrCheckFailed, args[0])
 			}
 			out := map[string]any{"file": args[0], "ok": !csf.HasErrors(problems), "problems": problems}
 			if cloudCompat {
@@ -1190,6 +1190,10 @@ func confPushCmd() *cobra.Command {
 		Short: "Validate + push under the version gate; --dry-run prints consequences",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if res, perr := app.PreflightConfluencePushCSF(args[0], o); perr != nil {
+				_ = emit(cmd, res, func() string { return pushText(res) })
+				return perr
+			}
 			svc, err := confService()
 			if err != nil {
 				return err

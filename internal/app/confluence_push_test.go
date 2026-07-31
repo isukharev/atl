@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/mirror"
 )
@@ -71,6 +72,57 @@ func syncedMirror(t *testing.T, version int) (root, csfPath string) {
 	return root, filepath.Join(dir, slug+".csf")
 }
 
+func TestPreflightConfluencePushCSFBlocksOnlyInvalidBodies(t *testing.T) {
+	overDepth := strings.Repeat("<p>", csf.MaxNestingDepth+1) + "x" + strings.Repeat("</p>", csf.MaxNestingDepth+1)
+	validations := []struct {
+		name string
+		body string
+		rule string
+	}{
+		{name: "malformed_xml", body: "<p>broken", rule: "well-formedness"},
+		{name: "max_depth", body: overDepth, rule: "max-depth"},
+	}
+	for _, validation := range validations {
+		for _, directory := range []bool{false, true} {
+			name := "single"
+			if directory {
+				name = "directory"
+			}
+			t.Run(validation.name+"/"+name, func(t *testing.T) {
+				root, path := syncedMirror(t, 3)
+				if err := os.WriteFile(path, []byte(validation.body), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				target := path
+				if directory {
+					target = root
+				}
+				res, err := PreflightConfluencePushCSF(target, PushOpts{Into: root})
+				if !errors.Is(err, domain.ErrCheckFailed) {
+					t.Fatalf("result=%+v err=%v, want ErrCheckFailed", res, err)
+				}
+				if res == nil || len(res.Items) != 1 || !csf.HasErrors(res.Items[0].Problems) || res.Items[0].Problems[0].Rule != validation.rule {
+					t.Fatalf("result=%+v, want one %s problem", res, validation.rule)
+				}
+			})
+		}
+	}
+
+	root, path := syncedMirror(t, 3)
+	if err := os.WriteFile(path, []byte("<p>valid edit</p>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{path, root} {
+		if res, err := PreflightConfluencePushCSF(target, PushOpts{Into: root}); res != nil || err != nil {
+			t.Fatalf("valid target %q preflight result=%+v err=%v, want fallthrough", target, res, err)
+		}
+	}
+	missing := filepath.Join(t.TempDir(), "missing.csf")
+	if res, err := PreflightConfluencePushCSF(missing, PushOpts{}); res != nil || err != nil {
+		t.Fatalf("missing target preflight result=%+v err=%v, want existing push precedence", res, err)
+	}
+}
+
 func TestPushSkipsUnchangedFile(t *testing.T) {
 	root, csfPath := syncedMirror(t, 3)
 	stub := &stubStore{newVer: 4}
@@ -84,6 +136,49 @@ func TestPushSkipsUnchangedFile(t *testing.T) {
 	}
 	if stub.updateCalled {
 		t.Error("UpdatePage must not be called for an unchanged file (no no-op revision)")
+	}
+}
+
+func TestPushRevalidatesAfterOfflinePreflight(t *testing.T) {
+	root, path := syncedMirror(t, 3)
+	if err := os.WriteFile(path, []byte("<p>valid edit</p>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := PreflightConfluencePushCSF(path, PushOpts{Into: root}); res != nil || err != nil {
+		t.Fatalf("initial preflight result=%+v err=%v", res, err)
+	}
+	if err := os.WriteFile(path, []byte("<p>changed after preflight"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := &stubStore{}
+	res, err := (&ConfluenceService{store: store}).Push(context.Background(), path, PushOpts{Into: root})
+	if !errors.Is(err, domain.ErrCheckFailed) || store.updateCalled {
+		t.Fatalf("locked push result=%+v err=%v update=%v, want revalidation refusal", res, err, store.updateCalled)
+	}
+	if res == nil || len(res.Items) != 1 || !csf.HasErrors(res.Items[0].Problems) {
+		t.Fatalf("locked push omitted validation problems: %+v", res)
+	}
+}
+
+func TestPreflightConfluencePushCSFDefersWhileMutationIsActive(t *testing.T) {
+	root, path := syncedMirror(t, 3)
+	if err := os.WriteFile(path, []byte("<p>broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := lockConfluenceMutations(root, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := PreflightConfluencePushCSF(path, PushOpts{Into: root})
+	if res != nil || err != nil {
+		t.Fatalf("contended preflight result=%+v err=%v, want configured push fallthrough", res, err)
+	}
+	if err := lock.Unlock(); err != nil {
+		t.Fatal(err)
+	}
+	res, err = PreflightConfluencePushCSF(path, PushOpts{Into: root})
+	if !errors.Is(err, domain.ErrCheckFailed) || res == nil {
+		t.Fatalf("uncontended preflight result=%+v err=%v, want ErrCheckFailed", res, err)
 	}
 }
 

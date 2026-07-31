@@ -81,8 +81,8 @@ func TestConfValidateCloudCompatKeepsWellFormednessGate(t *testing.T) {
 	path := writeCSF(t, `<ac:structured-macro ac:name="chart"><p>oops`)
 	plainOut, plainCode := runCLI(t, nil, "conf", "validate", path)
 	cloudOut, cloudCode := runCLI(t, nil, "conf", "validate", path, "--cloud-compat")
-	if plainCode == exitOK {
-		t.Fatalf("malformed body should fail: %s", plainOut)
+	if plainCode != exitCheckFailed {
+		t.Fatalf("malformed body exit=%d, want %d: %s", plainCode, exitCheckFailed, plainOut)
 	}
 	if cloudCode != plainCode {
 		t.Fatalf("exit code changed under --cloud-compat: %d vs %d", cloudCode, plainCode)

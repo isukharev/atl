@@ -246,6 +246,10 @@ or discard the output, and do not publish until the baseline is repaired.
 - Validate, review dry-runs, and write the exact bytes/hash reviewed. Never
   auto-force, auto-replay `unknown`, or retry a non-idempotent comment, upload,
   create, or blog POST without reconciliation.
+- A malformed or over-depth CSF body is a local `check_failed` / exit-8 gate
+  for validate, push, page create, and blog create. Repair the emitted
+  `problems[]`; the invalid body was not sent, so do not treat this as an
+  ambiguous write or retry it unchanged.
 - `conf validate --cloud-compat` is an opt-in advisory inventory, not a gate.
   Default validation output is unchanged without it; with it, `cloud-compat/*`
   entries are warnings only and never block a push or change an exit code.
