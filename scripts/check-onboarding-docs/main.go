@@ -71,16 +71,18 @@ var commandPaths = [][]string{
 // commandHelpRequirements binds documented flags that a path-only --help
 // check would otherwise miss. Keep this list focused on first-use examples.
 var commandHelpRequirements = map[string][]string{
-	"auth login":        {"--service"},
-	"config set":        {"--confluence-url", "--jira-url"},
-	"conf search":       {"--cql", "--limit"},
-	"conf pull":         {"--id", "--into"},
-	"conf push":         {"--dry-run"},
-	"jira fields":       {"--summary-only"},
-	"jira issue search": {"--jql", "--limit"},
-	"jira pull":         {"--jql", "--into"},
-	"jira push":         {"--apply"},
-	"mcp serve":         {"--service"},
+	"auth login":                 {"--service"},
+	"config set":                 {"--confluence-url", "--jira-url"},
+	"conf search":                {"--cql", "--limit"},
+	"conf pull":                  {"--id", "--into"},
+	"conf push":                  {"--dry-run"},
+	"jira fields":                {"--summary-only"},
+	"jira issue search":          {"--jql", "--limit"},
+	"jira issue comment preview": {"--from-md"},
+	"jira issue comment add":     {"--from-md", "--apply", "--expected-proposal-hash"},
+	"jira pull":                  {"--jql", "--into"},
+	"jira push":                  {"--apply"},
+	"mcp serve":                  {"--service"},
 }
 
 type report struct {
