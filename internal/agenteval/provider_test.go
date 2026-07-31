@@ -171,13 +171,15 @@ func TestBuildCodexMCPCommandIsCredentialIsolatedAndHookGuarded(t *testing.T) {
 		"--dangerously-bypass-hook-trust", `web_search="disabled"`,
 		`mcp_servers.atl.command="/opt/atl"`, `mcp_servers.atl.args=["mcp","serve"]`,
 		`mcp_servers.atl.required=true`, `mcp_servers.atl.enabled_tools=["jira_fields","jira_epic_digest","confluence_page_section"]`,
-		`"ATL_EVAL_HTTP_GUARD_FILE"`,
 		`default_tools_approval_mode="approve"`, "hooks.PreToolUse=", "/opt/guard",
 		`shell_environment_policy.include_only=["PATH","LANG","LC_ALL","TERM"]`,
 	} {
 		if !strings.Contains(joined, value) {
 			t.Errorf("MCP command misses %q: %s", value, joined)
 		}
+	}
+	if strings.Contains(joined, "ATL_EVAL_HTTP_GUARD_FILE") {
+		t.Fatalf("MCP provider command retained the legacy product HTTP hook: %s", joined)
 	}
 	for _, secretName := range []string{"ATL_JIRA_PAT", "ATL_CONFLUENCE_PAT", "ATL_CONFIG_DIR"} {
 		if strings.Contains(joined, `shell_environment_policy.include_only=["PATH","LANG","LC_ALL","TERM","`+secretName) {
@@ -1236,20 +1238,24 @@ func TestGatewayBackedInternalMCPDropsUpstreamEnvironmentNames(t *testing.T) {
 		}
 	}
 
-	guarded := spec
-	guarded.AllowedGatewayRoutes = nil
-	guarded.GatewayMaxResponseBytes = 0
-	guarded.GatewayMaxTotalBytes = 0
-	guarded.GatewayMaxRequestBytes = 0
-	guarded.GatewayMaxTotalRequestBytes = 0
-	guarded.Checks = slices.DeleteFunc(append([]RunCheck(nil), guarded.Checks...), func(check RunCheck) bool {
+	compatible := spec
+	compatible.AllowedGatewayRoutes = nil
+	compatible.GatewayMaxResponseBytes = 0
+	compatible.GatewayMaxTotalBytes = 0
+	compatible.GatewayMaxRequestBytes = 0
+	compatible.GatewayMaxTotalRequestBytes = 0
+	compatible.Checks = slices.DeleteFunc(append([]RunCheck(nil), compatible.Checks...), func(check RunCheck) bool {
 		return check.Kind == "http_methods_equal"
 	})
-	guardedCommand, err := BuildProviderCommand(guarded, "codex", "/atl", "/guard", "/workspace", "/schema", "/final", "", "", "/mcp.json", confinement, []byte(`{"type":"object"}`))
+	compatibleCommand, err := BuildProviderCommand(compatible, "codex", "/atl", "/guard", "/workspace", "/schema", "/final", "", "", "/mcp.json", confinement, []byte(`{"type":"object"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(strings.Join(guardedCommand.Args, " "), "ATL_EVAL_HTTP_GUARD_FILE") {
-		t.Fatal("guarded internal MCP lost its HTTP guard channel")
+	compatibleJoined := strings.Join(compatibleCommand.Args, " ")
+	if !strings.Contains(compatibleJoined, `mcp_servers.atl.env_vars=`+quotedStringList(gatewayMCPEnvironmentNames)) {
+		t.Fatalf("route-less internal MCP lost the gateway environment: %s", compatibleJoined)
+	}
+	if strings.Contains(compatibleJoined, "ATL_EVAL_HTTP_GUARD_FILE") {
+		t.Fatal("route-less internal MCP retained the legacy product HTTP hook")
 	}
 }

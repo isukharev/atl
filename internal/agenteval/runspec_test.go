@@ -2029,7 +2029,7 @@ func TestPrivateLiveReadOnlyRunsWithoutQueryOnlyStayGETAndHEAD(t *testing.T) {
 	}
 }
 
-func TestInternalMCPWithoutGatewayRoutesKeepsGuardedTransport(t *testing.T) {
+func TestInternalMCPWithoutGatewayRoutesUsesCompatibilityGateway(t *testing.T) {
 	_, mcp, scenario := privateLiveQueryOnlyPair()
 	mcp.AllowedGatewayRoutes = nil
 	mcp.GatewayMaxResponseBytes = 0
@@ -2050,8 +2050,8 @@ func TestInternalMCPWithoutGatewayRoutesKeepsGuardedTransport(t *testing.T) {
 	if err := mcp.ValidateAgainstScenario(scenario); err != nil {
 		t.Fatal(err)
 	}
-	if gatewayBackedInternalMCP(mcp) {
-		t.Fatal("internal MCP without routes claimed a gateway boundary")
+	if !gatewayBackedInternalMCP(mcp) {
+		t.Fatal("internal MCP without routes did not claim the gateway boundary")
 	}
 	orphaned := mcp
 	orphaned.GatewayMaxResponseBytes = 1 << 20

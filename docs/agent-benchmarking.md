@@ -1564,43 +1564,43 @@ go build -o /tmp/agent-eval ./scripts/agent-eval
   --live-config-dir "$HOME/.config/atl-private"
 ```
 
-For internal MCP without gateway routes, the runner copies only `config.json`
-and `credentials.json` into an ephemeral owner-only directory used by the MCP
-child, removes that copy after the session, and audits the transport with the
-GET/HEAD HTTP guard. The model-facing process has no general native tool capable
-of reading it, and the confined skill readers cannot resolve paths outside the
-generated workspace/public skill roots. CLI runs do not copy source
-credentials at all: the parent reads them, starts the gateway, and writes a
-separate child config containing only disposable ingress capabilities. Claude
-Code uses parent-loopback ingress. For Codex, the child config and gateway stay
-parent-side behind a command broker; the model receives neither the upstream
-origin/PAT nor the disposable gateway credential.
+Every private-live internal MCP run uses the same loopback credential boundary
+as CLI evaluation. The parent reads the source config and credentials, starts
+the gateway, and writes a separate owner-only child config containing only
+disposable loopback ingress capabilities. The MCP child never receives upstream
+URL or PAT variables, the insecure-transport override, or an evaluation audit
+file. Its fixed environment allowlist contains only read-only, no-update, config
+dir, mirror root, and loopback `NO_PROXY` settings.
 
-An internal MCP run that declares explicit gateway routes uses that same
-credential boundary instead of the copy: the parent reads the source
-credentials, the child receives only the disposable loopback config, and no
-HTTP guard file is injected because the gateway audit is the transport record.
-That MCP child is built from a fixed environment allowlist — read-only,
-no-update, config dir, mirror root, and loopback `NO_PROXY` — so it cannot
-inherit the upstream URL or PAT variable names, the insecure-transport
-override, or the HTTP guard file. Internal MCP runs without routes keep the
-existing copy-and-guard behaviour unchanged. Gateway-backed internal MCP
-concurrency is bounded by the scenario's interface-invocation budget and a hard
-cap of four; CLI gateway traffic remains serialized by the command broker.
+Specs with explicit gateway routes retain those exact path, method, request, and
+byte policies. For historical internal MCP specs without routes, the harness
+generates a compatibility policy for each configured Jira or Confluence service:
+any clean path on that pinned origin may use only GET or HEAD, the scenario's
+backend-request budget remains the global request cap, and responses are bounded
+to 1 MiB each and 4 MiB in total. It grants no request body, POST, query-only, or
+write authority. Internal MCP concurrency is bounded by the scenario's
+interface-invocation budget and a hard cap of four; CLI gateway traffic remains
+serialized by the command broker.
 
-By default, `ATL_READ_ONLY=1` blocks mutations at the CLI policy, the MCP
-inventory contains only explicit read tools, and the HTTP transport guard rejects
-every method except GET/HEAD before network I/O; the only read-only exception is
-the explicit query-only POST route described below, which the gateway — not the
-guard — bounds. A reviewed-write CLI child still
+The gateway is the only private-live backend transport and audit boundary.
+Before forwarding, it rejects unreviewed methods, bodies, overrides, paths,
+redirects, credentials, and exhausted budgets. It retains content-minimized
+method and HMAC request identities plus bounded completion metadata, never
+URLs, selectors, ids, headers, bodies, or response content. The model-facing
+process has no general native tool capable of reading parent-side state, and
+confined skill readers cannot resolve paths outside the generated
+workspace/public skill roots.
+
+By default, `ATL_READ_ONLY=1` blocks mutations at the CLI policy and the MCP
+inventory contains only explicit read tools. The only read-only transport
+exception is an explicit query-only POST route described below, which the
+gateway binds to the reviewed request and write budgets. A reviewed-write CLI child still
 inherits `ATL_READ_ONLY=1`; only the literal
 `env -u ATL_READ_ONLY atl ...` form can request write intent from the broker.
 The broker revalidates exact argv and the gateway independently binds exact
 mutating paths, explicit methods, request counts, body-byte budgets, and total
-write count. That guard records only method plus a
-SHA-256 request identity, allowing exact request and duplicate-read counts
-without retaining URLs, JQL/CQL, ids, headers, or bodies. The body digest is
-included in the private request HMAC but body bytes are not retained.
+write count. Request bodies contribute only to the private request HMAC; their
+bytes are not retained.
 
 One repetition and concurrency one are mandatory. A failed or denied MCP call,
 missing HTTP audit, attempted native tool, unobserved required metric, or method

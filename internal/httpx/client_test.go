@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	neturl "net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -22,6 +24,49 @@ import (
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestLegacyEvaluationHTTPGuardEnvironmentCannotChangeClientBehavior(t *testing.T) {
+	guardPath := filepath.Join(t.TempDir(), "legacy-audit.jsonl")
+	t.Setenv("ATL_EVAL_HTTP_GUARD_FILE", guardPath)
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
+		if request.Method != http.MethodPost {
+			t.Errorf("method=%s, want POST", request.Method)
+		}
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client := New(server.URL, "token", "test")
+	_, err := client.Do(context.Background(), http.MethodPost, "/rest", []byte("body"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("calls=%d", calls.Load())
+	}
+	if _, err := os.Stat(guardPath); !os.IsNotExist(err) {
+		t.Fatalf("legacy evaluation environment created or changed a file: %v", err)
+	}
+
+	existingPath := filepath.Join(t.TempDir(), "existing-audit.jsonl")
+	const existing = "do-not-append\n"
+	if err := os.WriteFile(existingPath, []byte(existing), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ATL_EVAL_HTTP_GUARD_FILE", existingPath)
+	if _, err := New(server.URL, "token", "test").Do(context.Background(), http.MethodPost, "/rest", []byte("body"), nil); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(existingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != existing || calls.Load() != 2 {
+		t.Fatalf("legacy evaluation environment changed existing data=%q calls=%d", data, calls.Load())
+	}
+}
 
 func TestClassifyToSentinels(t *testing.T) {
 	cases := map[int]error{

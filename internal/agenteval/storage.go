@@ -1,8 +1,6 @@
 package agenteval
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -213,27 +211,6 @@ func requireOwnerOnly(name, path string, directory bool) error {
 	}
 	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
 		return fmt.Errorf("%s must not be accessible by group or other users", name)
-	}
-	return nil
-}
-
-func copyLiveConfig(source, target string) error {
-	if err := mkdirPrivate(target); err != nil {
-		return err
-	}
-	for _, name := range []string{"config.json", "credentials.json"} {
-		data, err := readBoundedFile(filepath.Join(source, name), 4<<20)
-		if err != nil {
-			return fmt.Errorf("copy private-live %s: %w", name, err)
-		}
-		var object map[string]json.RawMessage
-		decoder := json.NewDecoder(bytes.NewReader(data))
-		if err := decoder.Decode(&object); err != nil || object == nil || decoder.Decode(new(any)) != io.EOF {
-			return fmt.Errorf("private-live %s must contain one JSON object", name)
-		}
-		if err := writePrivateFile(filepath.Join(target, name), data); err != nil {
-			return err
-		}
 	}
 	return nil
 }

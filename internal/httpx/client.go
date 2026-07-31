@@ -167,12 +167,12 @@ func NewWithScheduler(base, token, version string, scheduler *Scheduler) *Client
 		ver:        version,
 		scheduler:  scheduler,
 		hc: &http.Client{
-			Transport:     scheduleTransport(withEvaluationHTTPGuard(http.DefaultTransport), scheduler),
+			Transport:     scheduleTransport(http.DefaultTransport, scheduler),
 			Timeout:       defaultTimeout,
 			CheckRedirect: checkRedirect,
 		},
 		dl: &http.Client{
-			Transport:     scheduleTransport(withEvaluationHTTPGuard(dlTransport), scheduler),
+			Transport:     scheduleTransport(dlTransport, scheduler),
 			CheckRedirect: checkRedirect,
 		},
 	}

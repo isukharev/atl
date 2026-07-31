@@ -6,8 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"path/filepath"
 	"time"
+)
+
+const (
+	compatibilityGatewayMaxResponseBytes      = 1 << 20
+	compatibilityGatewayMaxTotalResponseBytes = 4 << 20
 )
 
 type liveGatewayInputs struct {
@@ -16,17 +22,20 @@ type liveGatewayInputs struct {
 }
 
 // startPrivateLiveGateway builds the disposable loopback credential boundary
-// for any private-live surface bound to explicit gateway routes — the CLI skill
-// and gateway-backed internal ATL MCP. The parent keeps the source config and
-// upstream credentials; the child directory receives only loopback URLs and
-// single-run ingress capabilities.
+// for private-live CLI and internal ATL MCP surfaces. The parent keeps the
+// source config and upstream credentials; the child directory receives only
+// loopback URLs and single-run ingress capabilities.
 func startPrivateLiveGateway(sourceDir, childDir, auditPath string, spec RunSpec, scenario Scenario) (*LiveGateway, error) {
 	inputs, err := loadLiveGatewayInputs(sourceDir)
 	if err != nil {
 		return nil, err
 	}
-	services := make(map[string]LiveGatewayServiceConfig, len(spec.AllowedGatewayRoutes))
-	for service, routes := range spec.AllowedGatewayRoutes {
+	routes, maxResponseBytes, maxTotalResponseBytes, err := effectiveLiveGatewayPolicy(inputs, spec)
+	if err != nil {
+		return nil, err
+	}
+	services := make(map[string]LiveGatewayServiceConfig, len(routes))
+	for service, serviceRoutes := range routes {
 		urlKey := service + "_url"
 		var baseURL string
 		if err := json.Unmarshal(inputs.config[urlKey], &baseURL); err != nil || baseURL == "" {
@@ -36,7 +45,7 @@ func startPrivateLiveGateway(sourceDir, childDir, auditPath string, spec RunSpec
 		if token == "" {
 			return nil, fmt.Errorf("private-live %s credential is missing", service)
 		}
-		services[service] = LiveGatewayServiceConfig{BaseURL: baseURL, Token: token, Routes: append([]LiveGatewayRoute(nil), routes...)}
+		services[service] = LiveGatewayServiceConfig{BaseURL: baseURL, Token: token, Routes: append([]LiveGatewayRoute(nil), serviceRoutes...)}
 	}
 	timeout := time.Duration(spec.TimeoutSeconds) * time.Second
 	if timeout > 2*time.Minute {
@@ -53,7 +62,7 @@ func startPrivateLiveGateway(sourceDir, childDir, auditPath string, spec RunSpec
 	gateway, err := StartLiveGateway(LiveGatewayConfig{
 		AuditPath: auditPath, Services: services,
 		MaxRequests: scenario.Budgets.MaxBackendRequests, MaxConcurrent: maxConcurrent,
-		MaxResponseBytes: spec.GatewayMaxResponseBytes, MaxTotalResponseBytes: spec.GatewayMaxTotalBytes,
+		MaxResponseBytes: maxResponseBytes, MaxTotalResponseBytes: maxTotalResponseBytes,
 		MaxRequestBytes: spec.GatewayMaxRequestBytes, MaxTotalRequestBytes: spec.GatewayMaxTotalRequestBytes,
 		MaxWrites:      scenario.Budgets.MaxRemoteWrites,
 		RequestTimeout: timeout,
@@ -66,6 +75,37 @@ func startPrivateLiveGateway(sourceDir, childDir, auditPath string, spec RunSpec
 		return nil, err
 	}
 	return gateway, nil
+}
+
+func effectiveLiveGatewayPolicy(inputs liveGatewayInputs, spec RunSpec) (map[string][]LiveGatewayRoute, int64, int64, error) {
+	if len(spec.AllowedGatewayRoutes) != 0 {
+		return spec.AllowedGatewayRoutes, spec.GatewayMaxResponseBytes, spec.GatewayMaxTotalBytes, nil
+	}
+	if !gatewayBackedInternalMCP(spec) {
+		return nil, 0, 0, fmt.Errorf("private-live gateway routes are missing")
+	}
+	routes := map[string][]LiveGatewayRoute{}
+	for _, service := range []string{"jira", "confluence"} {
+		var baseURL string
+		raw, configured := inputs.config[service+"_url"]
+		if !configured {
+			continue
+		}
+		if err := json.Unmarshal(raw, &baseURL); err != nil || baseURL == "" {
+			return nil, 0, 0, fmt.Errorf("private-live %s URL is missing or invalid", service)
+		}
+		if inputs.credentials[service] == "" {
+			return nil, 0, 0, fmt.Errorf("private-live %s credential is missing", service)
+		}
+		routes[service] = []LiveGatewayRoute{{
+			Name: "compatibility_read_only", PathPrefix: "/",
+			Methods: []string{http.MethodGet, http.MethodHead}, compatibilityRoot: true,
+		}}
+	}
+	if len(routes) == 0 {
+		return nil, 0, 0, fmt.Errorf("private-live internal MCP has no configured Jira or Confluence service")
+	}
+	return routes, compatibilityGatewayMaxResponseBytes, compatibilityGatewayMaxTotalResponseBytes, nil
 }
 
 func loadLiveGatewayInputs(sourceDir string) (liveGatewayInputs, error) {
