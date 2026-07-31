@@ -185,6 +185,7 @@ jira issue field preview
 jira issue field set
 jira issue fields
 jira issue get
+jira issue graph
 jira issue history
 jira issue images
 jira issue labels

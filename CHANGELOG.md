@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `atl jira issue graph <KEY>`, a deterministic read-only depth-zero
+  work-artifact graph over the exact issue snapshot, typed links/hierarchy,
+  attachments, complete comments/worklogs, remote links, properties, and
+  bounded path-aware references. Every source is qualified, discovered targets
+  are never fetched, URL query values are never emitted, sensitive paths and
+  dynamic evidence tokens stay opaque, and the existing `jira issue refs`
+  contract is unchanged.
+
 - Added `atl doctor`, a privacy-safe offline setup report for build, config,
   credential, safety, and content-free mirror health. Explicit `--remote`
   performs one single-attempt product/version metadata GET per ready Jira or
