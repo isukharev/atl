@@ -22,7 +22,7 @@ const (
 	jiraGraphMaxDepth             = 3
 )
 
-// Exported schema-v2 option bounds let transport frontends reject explicitly
+// Exported graph option bounds let transport frontends reject explicitly
 // supplied zero/out-of-range values before constructing backend services.
 const (
 	JiraIssueGraphMaxDepth             = jiraGraphMaxDepth
@@ -38,7 +38,7 @@ const (
 	JiraIssueGraphMaxResponseBytes     = jiraGraphMaxResponseBytes
 )
 
-// JiraIssueGraphOptions opts into the schema-v2 bounded traversal contract.
+// JiraIssueGraphOptions configures the schema-v2 bounded traversal contract.
 // A zero limit selects its documented default. Transport request and response
 // byte enforcement is performed by the caller's read-budget context.
 type JiraIssueGraphOptions struct {
@@ -79,8 +79,7 @@ type jiraGraphQueueItem struct {
 	Depth int
 }
 
-// IssueGraphWithOptions builds the opt-in schema-v2 graph. IssueGraph remains
-// the stable schema-v1 direct-only entry point.
+// IssueGraphWithOptions builds the bounded schema-v2 graph.
 func (s *JiraService) IssueGraphWithOptions(ctx context.Context, key string, opts JiraIssueGraphOptions) (*JiraIssueGraphResult, error) {
 	limits, err := NormalizeJiraIssueGraphOptions(opts)
 	if err != nil {

@@ -97,11 +97,16 @@ func TestJiraIssueGraphRejectsIDAndArityBeforeNetwork(t *testing.T) {
 	}
 }
 
-func TestJiraIssueGraphExplicitDepthZeroAndNoResolutionPreserveV1(t *testing.T) {
+func TestJiraIssueGraphDepthZeroFormsAreByteIdenticalSchemaV2(t *testing.T) {
 	server, requests := jiraGraphServer(t)
+	baseline, code := runCLI(t, jiraEnv(server), "jira", "issue", "graph", "PROJ-1")
+	if code != exitOK {
+		t.Fatalf("baseline exit=%d output=%s", code, baseline)
+	}
 	for _, args := range [][]string{
 		{"jira", "issue", "graph", "PROJ-1", "--depth", "0"},
 		{"jira", "issue", "graph", "PROJ-1", "--resolve", "none"},
+		{"jira", "issue", "graph", "PROJ-1", "--depth", "0", "--resolve", "none"},
 	} {
 		output, code := runCLI(t, jiraEnv(server), args...)
 		if code != exitOK {
@@ -113,16 +118,19 @@ func TestJiraIssueGraphExplicitDepthZeroAndNoResolutionPreserveV1(t *testing.T) 
 		if err := json.Unmarshal([]byte(output), &envelope); err != nil {
 			t.Fatal(err)
 		}
-		if envelope.SchemaVersion != 1 {
+		if envelope.SchemaVersion != 2 {
 			t.Fatalf("args=%v schema=%d", args, envelope.SchemaVersion)
 		}
+		if output != baseline {
+			t.Fatalf("args=%v output differs from default\ndefault=%s\nexplicit=%s", args, baseline, output)
+		}
 	}
-	if len(*requests) != 8 {
+	if len(*requests) != 16 {
 		t.Fatalf("requests = %#v", *requests)
 	}
 }
 
-func TestJiraIssueGraphCustomBoundOptsIntoV2(t *testing.T) {
+func TestJiraIssueGraphCustomBoundUsesSchemaV2(t *testing.T) {
 	server, requests := jiraGraphServer(t)
 	output, code := runCLI(t, jiraEnv(server), "jira", "issue", "graph", "PROJ-1", "--max-nodes", "100")
 	if code != exitOK {

@@ -14,11 +14,10 @@ import (
 )
 
 const (
-	jiraIssueGraphSchemaVersion = 1
-	jiraGraphMaxNodes           = 2_048
-	jiraGraphMaxEdges           = 4_096
-	jiraGraphMaxEvidence        = 4_096
-	jiraGraphMaxSourceBytes     = 1 << 20
+	jiraGraphMaxNodes       = 2_048
+	jiraGraphMaxEdges       = 4_096
+	jiraGraphMaxEvidence    = 4_096
+	jiraGraphMaxSourceBytes = 1 << 20
 )
 
 var jiraGraphSourceOrder = []string{
@@ -32,8 +31,7 @@ var jiraGraphSourceOrder = []string{
 	"remote_links",
 }
 
-// JiraIssueGraphBounds records the fixed direct-only contract. There is no
-// traversal flag in schema v1; discovered nodes remain unexpanded stubs.
+// JiraIssueGraphBounds records the requested limits and reconciled usage.
 type JiraIssueGraphBounds struct {
 	RequestedDepth    int  `json:"requested_depth"`
 	MaxNodes          int  `json:"max_nodes"`
@@ -71,7 +69,7 @@ type JiraIssueGraphSummary struct {
 	CompleteMatchesSources    bool           `json:"complete_matches_sources"`
 }
 
-// JiraIssueGraphResult is the authoritative transient schema-v1 graph.
+// JiraIssueGraphResult is the authoritative transient bounded graph.
 type JiraIssueGraphResult struct {
 	SchemaVersion int                          `json:"schema_version"`
 	RootID        string                       `json:"root_id"`
@@ -94,69 +92,9 @@ type jiraGraphBuilder struct {
 	evidenceCount int
 }
 
-// IssueGraph builds one direct graph. Only the seed is fetched as an issue;
-// discovered Jira, Confluence, and external targets are never followed.
-func (s *JiraService) IssueGraph(ctx context.Context, key string) (*JiraIssueGraphResult, error) {
-	key = strings.TrimSpace(key)
-	if !jiraGraphExactKey(key) {
-		return nil, fmt.Errorf("%w: issue key must use the canonical PROJECT-123 form", domain.ErrUsage)
-	}
-	reader, ok := s.tr.(domain.QualifiedIssueSnapshotReader)
-	if !ok {
-		return nil, fmt.Errorf("%w: Jira graph snapshot capability is unavailable", domain.ErrCheckFailed)
-	}
-	snapshot, err := reader.ReadIssueSnapshot(ctx, key)
-	if err != nil {
-		return nil, err
-	}
-	if snapshot == nil || snapshot.ID == "" || !jiraGraphExactKey(snapshot.Key) ||
-		!strings.EqualFold(snapshot.RequestedKey, key) ||
-		!strings.EqualFold(snapshot.Key, key) ||
-		snapshot.Issue.ID != snapshot.ID ||
-		!strings.EqualFold(snapshot.Issue.Key, snapshot.Key) ||
-		snapshot.Fields == nil || snapshot.Names == nil ||
-		snapshot.Schema == nil || snapshot.Properties == nil {
-		return nil, fmt.Errorf("%w: Jira graph snapshot has no usable identity", domain.ErrCheckFailed)
-	}
-
-	rootID := "jira:issue:" + strings.ToUpper(snapshot.Key)
-	builder := newJiraGraphBuilder(rootID)
-	builder.addNode(domain.ArtifactGraphNode{
-		ID: rootID, Kind: "jira_issue", Service: "jira",
-		ExternalID: strings.ToUpper(snapshot.Key),
-		Label:      graphBoundedLabel(snapshot.Issue.Summary),
-		State:      domain.ArtifactNodeResolved,
-		Expanded:   true,
-		Depth:      0,
-		Stability:  domain.ArtifactStabilityPublicAPI,
-	}, nil)
-
-	builder.collectIssueLinks(snapshot)
-	builder.collectHierarchy(snapshot)
-	builder.collectAttachments(snapshot)
-	builder.collectSnapshotText(snapshot, s.baseURL, jiraGraphConfluenceBase(s))
-	if err := builder.collectComments(ctx, s.tr, snapshot.Key, s.baseURL, jiraGraphConfluenceBase(s)); err != nil {
-		return nil, err
-	}
-	if err := builder.collectWorklogs(ctx, s.tr, snapshot.Key, s.baseURL, jiraGraphConfluenceBase(s)); err != nil {
-		return nil, err
-	}
-	if err := builder.collectRemoteLinks(ctx, s.tr, snapshot.Key, s.baseURL, jiraGraphConfluenceBase(s)); err != nil {
-		return nil, err
-	}
-	return builder.finish()
-}
-
 func newJiraGraphBuilder(rootID string) *jiraGraphBuilder {
 	result := &JiraIssueGraphResult{
-		SchemaVersion: jiraIssueGraphSchemaVersion,
-		RootID:        rootID,
-		Bounds: JiraIssueGraphBounds{
-			RequestedDepth: 0, MaxNodes: jiraGraphMaxNodes, MaxEdges: jiraGraphMaxEdges,
-			MaxEvidence: jiraGraphMaxEvidence, MaxSourceBytes: jiraGraphMaxSourceBytes,
-		},
-		Nodes: []domain.ArtifactGraphNode{}, Edges: []domain.ArtifactGraphEdge{},
-		Sources: []domain.ArtifactGraphSource{},
+		RootID: rootID,
 	}
 	builder := &jiraGraphBuilder{
 		result: result, nodes: map[string]domain.ArtifactGraphNode{},
@@ -753,115 +691,6 @@ func (b *jiraGraphBuilder) completeSource(source *domain.ArtifactGraphSource) {
 	}
 }
 
-func (b *jiraGraphBuilder) finish() (*JiraIssueGraphResult, error) {
-	builderExpanded := 0
-	for _, node := range b.nodes {
-		if node.Expanded {
-			builderExpanded++
-		}
-	}
-	builderIncomplete := 0
-	builderComplete := true
-	for _, source := range b.sources {
-		if !source.Complete {
-			builderComplete = false
-			builderIncomplete++
-		}
-	}
-	b.result.Bounds.ExpandedNodes = builderExpanded
-	b.result.Bounds.FollowedNodes = 0
-	b.result.Complete = builderComplete
-
-	for _, node := range b.nodes {
-		b.result.Nodes = append(b.result.Nodes, node)
-	}
-	sort.Slice(b.result.Nodes, func(i, j int) bool {
-		if b.result.Nodes[i].Depth != b.result.Nodes[j].Depth {
-			return b.result.Nodes[i].Depth < b.result.Nodes[j].Depth
-		}
-		if b.result.Nodes[i].Kind != b.result.Nodes[j].Kind {
-			return b.result.Nodes[i].Kind < b.result.Nodes[j].Kind
-		}
-		return b.result.Nodes[i].ID < b.result.Nodes[j].ID
-	})
-	for _, edge := range b.edges {
-		sort.Slice(edge.Evidence, func(i, j int) bool {
-			return graphEvidenceKey(edge.Evidence[i]) < graphEvidenceKey(edge.Evidence[j])
-		})
-		b.result.Edges = append(b.result.Edges, edge)
-	}
-	sort.Slice(b.result.Edges, func(i, j int) bool {
-		left, right := b.result.Edges[i], b.result.Edges[j]
-		return graphEdgeSortKey(left) < graphEdgeSortKey(right)
-	})
-	for _, kind := range jiraGraphSourceOrder {
-		source, ok := b.sources[kind]
-		if !ok || source == nil {
-			return nil, fmt.Errorf("%w: Jira graph source inventory is incomplete", domain.ErrCheckFailed)
-		}
-		b.result.Sources = append(b.result.Sources, *source)
-	}
-
-	summary := JiraIssueGraphSummary{
-		NodeCount: len(b.nodes), EdgeCount: len(b.edges), EvidenceCount: b.evidenceCount,
-		SourceCount: len(b.sources), IncompleteSourceCount: builderIncomplete,
-		SourceStatusCounts: map[string]int{
-			"complete": 0, "empty": 0, "partial": 0,
-			"forbidden": 0, "unsupported": 0, "skipped": 0,
-		},
-	}
-	finalExpanded := 0
-	finalEvidence := 0
-	for _, node := range b.result.Nodes {
-		if node.Expanded {
-			finalExpanded++
-		}
-	}
-	for _, edge := range b.result.Edges {
-		finalEvidence += len(edge.Evidence)
-	}
-	finalIncomplete := 0
-	finalComplete := true
-	for _, source := range b.result.Sources {
-		summary.SourceStatusCounts[string(source.Status)]++
-		if !source.Complete {
-			finalComplete = false
-			finalIncomplete++
-		}
-		if source.Truncated {
-			b.result.Truncated = true
-		}
-	}
-	statusTotal := 0
-	for _, count := range summary.SourceStatusCounts {
-		statusTotal += count
-	}
-	summary.NodeCountMatchesNodes = summary.NodeCount == len(b.result.Nodes)
-	summary.EdgeCountMatchesEdges = summary.EdgeCount == len(b.result.Edges)
-	summary.EvidenceCountMatchesEdges = summary.EvidenceCount == finalEvidence
-	summary.SourceCountMatchesSources = summary.SourceCount == len(b.result.Sources) &&
-		summary.SourceCount == len(jiraGraphSourceOrder)
-	summary.SourceStatusCountsMatch = statusTotal == summary.SourceCount
-	summary.IncompleteCountMatches = summary.IncompleteSourceCount == finalIncomplete
-	summary.ExpandedCountMatchesNodes = b.result.Bounds.ExpandedNodes == finalExpanded &&
-		finalExpanded == 1 && b.result.Bounds.FollowedNodes == 0
-	summary.CompleteMatchesSources = b.result.Complete == finalComplete
-	b.result.Summary = summary
-	if summary.IncompleteSourceCount > 0 {
-		b.result.Warnings = []string{"one or more requested graph sources are incomplete"}
-	}
-	if !summary.NodeCountMatchesNodes || !summary.EdgeCountMatchesEdges ||
-		!summary.EvidenceCountMatchesEdges || !summary.SourceCountMatchesSources ||
-		!summary.SourceStatusCountsMatch || !summary.IncompleteCountMatches ||
-		!summary.ExpandedCountMatchesNodes || !summary.CompleteMatchesSources {
-		return nil, fmt.Errorf("%w: Jira graph reconciliation failed", domain.ErrCheckFailed)
-	}
-	if err := validateJiraGraphResult(b.result); err != nil {
-		return nil, err
-	}
-	return b.result, nil
-}
-
 func graphFieldAllowsBareReferences(fieldID, name string, schema domain.IssueFieldSchema) bool {
 	switch strings.ToLower(fieldID) {
 	case "summary", "description", "environment":
@@ -912,99 +741,6 @@ func graphEdgeSortKey(edge domain.ArtifactGraphEdge) string {
 	}, "\x00")
 }
 
-func validateJiraGraphResult(result *JiraIssueGraphResult) error {
-	if result == nil || result.SchemaVersion != jiraIssueGraphSchemaVersion {
-		return fmt.Errorf("%w: Jira graph schema is invalid", domain.ErrCheckFailed)
-	}
-	nodes := make(map[string]bool, len(result.Nodes))
-	expanded := 0
-	for _, node := range result.Nodes {
-		if node.ID == "" || nodes[node.ID] || !oneOf(node.Kind, "jira_issue", "confluence_page", "attachment", "url") ||
-			!oneOf(node.Service, "jira", "confluence", "external") ||
-			!oneOf(string(node.State), "resolved", "stub", "unresolved", "forbidden", "missing") ||
-			!oneOf(string(node.Stability), "public_api", "experimental_api", "heuristic") ||
-			node.Depth < 0 || node.Depth > 1 {
-			return fmt.Errorf("%w: Jira graph node contract is invalid", domain.ErrCheckFailed)
-		}
-		nodes[node.ID] = true
-		if node.Expanded {
-			expanded++
-		}
-	}
-	if !nodes[result.RootID] || expanded != 1 {
-		return fmt.Errorf("%w: Jira graph root contract is invalid", domain.ErrCheckFailed)
-	}
-	evidenceCount := 0
-	for _, edge := range result.Edges {
-		if edge.ID != graphEdgeID(edge) || !nodes[edge.From] || !nodes[edge.To] ||
-			!oneOf(edge.Kind, "jira_link", "parent_of", "child_of", "epic_of", "attached", "mentions", "remote_link") ||
-			!oneOf(edge.Direction, "inward", "outward", "outbound") ||
-			!oneOf(edge.Confidence, "exact", "high", "candidate") ||
-			!oneOf(string(edge.Stability), "public_api", "experimental_api", "heuristic") ||
-			len(edge.Evidence) == 0 {
-			return fmt.Errorf("%w: Jira graph edge contract is invalid", domain.ErrCheckFailed)
-		}
-		for _, evidence := range edge.Evidence {
-			if !oneOf(evidence.Collector, jiraGraphSourceOrder...) ||
-				!oneOf(evidence.SourceKind, "field", "property", "comment", "worklog", "remote_link") ||
-				!oneOf(evidence.Extraction, "structured", "absolute_url", "jira_key", "confluence_page_id", "service_url") {
-				return fmt.Errorf("%w: Jira graph evidence contract is invalid", domain.ErrCheckFailed)
-			}
-			evidenceCount++
-		}
-	}
-	statusCounts := map[string]int{
-		"complete": 0, "empty": 0, "partial": 0,
-		"forbidden": 0, "unsupported": 0, "skipped": 0,
-	}
-	incomplete := 0
-	for index, source := range result.Sources {
-		if index >= len(jiraGraphSourceOrder) || source.Kind != jiraGraphSourceOrder[index] ||
-			source.NodeID != result.RootID || !source.Requested ||
-			!oneOf(string(source.Status), "complete", "empty", "partial", "forbidden", "unsupported", "skipped") ||
-			source.Stability != domain.ArtifactStabilityPublicAPI ||
-			source.Count < 0 || source.Complete != (source.Status == domain.ArtifactSourceComplete || source.Status == domain.ArtifactSourceEmpty) {
-			return fmt.Errorf("%w: Jira graph source contract is invalid", domain.ErrCheckFailed)
-		}
-		switch source.Status {
-		case domain.ArtifactSourcePartial:
-			if !domain.ValidArtifactPartialReason(source.PartialReason) ||
-				source.Truncated != (source.PartialReason == domain.ArtifactPartialInspectionLimit ||
-					source.PartialReason == domain.ArtifactPartialOutputLimit ||
-					source.PartialReason == domain.ArtifactPartialRequestLimit ||
-					source.PartialReason == domain.ArtifactPartialByteLimit) {
-				return fmt.Errorf("%w: Jira graph partial source contract is invalid", domain.ErrCheckFailed)
-			}
-		case domain.ArtifactSourceSkipped:
-			if source.PartialReason != domain.ArtifactPartialPolicy || source.Truncated {
-				return fmt.Errorf("%w: Jira graph skipped source contract is invalid", domain.ErrCheckFailed)
-			}
-		default:
-			if source.PartialReason != "" || source.Truncated {
-				return fmt.Errorf("%w: Jira graph qualified source contract is invalid", domain.ErrCheckFailed)
-			}
-		}
-		statusCounts[string(source.Status)]++
-		if !source.Complete {
-			incomplete++
-		}
-	}
-	if len(result.Sources) != len(jiraGraphSourceOrder) ||
-		result.Summary.NodeCount != len(result.Nodes) ||
-		result.Summary.EdgeCount != len(result.Edges) ||
-		result.Summary.EvidenceCount != evidenceCount ||
-		result.Summary.SourceCount != len(result.Sources) ||
-		result.Summary.IncompleteSourceCount != incomplete ||
-		!equalStringIntMap(result.Summary.SourceStatusCounts, statusCounts) ||
-		!result.Summary.NodeCountMatchesNodes || !result.Summary.EdgeCountMatchesEdges ||
-		!result.Summary.EvidenceCountMatchesEdges || !result.Summary.SourceCountMatchesSources ||
-		!result.Summary.SourceStatusCountsMatch || !result.Summary.IncompleteCountMatches ||
-		!result.Summary.ExpandedCountMatchesNodes || !result.Summary.CompleteMatchesSources {
-		return fmt.Errorf("%w: Jira graph summary contract is invalid", domain.ErrCheckFailed)
-	}
-	return nil
-}
-
 func oneOf(value string, allowed ...string) bool {
 	for _, candidate := range allowed {
 		if value == candidate {
@@ -1037,11 +773,9 @@ func JiraIssueGraphMarkdown(result *JiraIssueGraphResult) string {
 	fmt.Fprintf(&out, "- Root: `%s`\n", result.RootID)
 	fmt.Fprintf(&out, "- Complete: `%t`\n", result.Complete)
 	fmt.Fprintf(&out, "- Depth: `%d` (expanded `%d`, followed `%d`)\n", result.Bounds.RequestedDepth, result.Bounds.ExpandedNodes, result.Bounds.FollowedNodes)
-	if result.SchemaVersion >= jiraIssueGraphSchemaVersionV2 {
-		fmt.Fprintf(&out, "- Transport: `%d/%d` attempts; `%d/%d` buffered response bytes\n",
-			result.Bounds.RequestsUsed, result.Bounds.MaxRequests,
-			result.Bounds.ResponseBytesUsed, result.Bounds.MaxResponseBytes)
-	}
+	fmt.Fprintf(&out, "- Transport: `%d/%d` attempts; `%d/%d` buffered response bytes\n",
+		result.Bounds.RequestsUsed, result.Bounds.MaxRequests,
+		result.Bounds.ResponseBytesUsed, result.Bounds.MaxResponseBytes)
 	fmt.Fprintf(&out, "- Nodes: `%d`; edges: `%d`; evidence: `%d`; sources: `%d`\n\n",
 		result.Summary.NodeCount, result.Summary.EdgeCount, result.Summary.EvidenceCount, result.Summary.SourceCount)
 
@@ -1052,20 +786,16 @@ func JiraIssueGraphMarkdown(result *JiraIssueGraphResult) string {
 			fmt.Sprint(source.Count), fmt.Sprint(source.Truncated),
 			string(source.Stability), source.PartialReason,
 		}
-		if result.SchemaVersion >= jiraIssueGraphSchemaVersionV2 {
-			depth := ""
-			if source.NodeDepth != nil {
-				depth = fmt.Sprint(*source.NodeDepth)
-			}
-			row = append([]string{source.NodeID, depth}, row...)
+		depth := ""
+		if source.NodeDepth != nil {
+			depth = fmt.Sprint(*source.NodeDepth)
 		}
+		row = append([]string{source.NodeID, depth}, row...)
 		sourceRows = append(sourceRows, row)
 	}
 	out.WriteString("## Sources\n\n")
 	sourceHeader := []string{"Source", "Status", "Complete", "Count", "Truncated", "Stability", "Reason"}
-	if result.SchemaVersion >= jiraIssueGraphSchemaVersionV2 {
-		sourceHeader = append([]string{"Node", "Depth"}, sourceHeader...)
-	}
+	sourceHeader = append([]string{"Node", "Depth"}, sourceHeader...)
 	out.WriteString(MarkdownTable(sourceHeader, sourceRows))
 	if len(result.Frontier) > 0 {
 		frontierRows := make([][]string, 0, len(result.Frontier))
