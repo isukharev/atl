@@ -62,10 +62,13 @@ atl auth login --service confluence
 atl auth login --service jira
 
 atl auth status
+atl doctor
 ```
 
 `auth status` reports only where a credential resolves from; it never prints
-the value. CI may instead use `ATL_CONFLUENCE_PAT` or `ATL_JIRA_PAT`.
+the value. CI may instead use `ATL_CONFLUENCE_PAT` or `ATL_JIRA_PAT`. `doctor`
+is the share-safe setup report: it is offline by default and omits URLs,
+hostnames, paths, identities, tokens, and mirror content.
 
 ## 4. Make the first read
 
@@ -74,16 +77,21 @@ Export the read-only policy for the whole shell before an investigation:
 ```sh
 export ATL_READ_ONLY=1
 
+atl doctor --remote
 atl conf search --cql 'type = page' --limit 1
 atl jira issue search --jql 'order by updated DESC' --limit 1
 ```
 
-Run only the command for the configured service. JSON is the default output.
-A successful, complete result proves the binary, URL, credential, transport,
-and basic API path work together.
+Run only the search command for the configured service. `doctor --remote`
+makes one single-attempt product/version metadata GET for each ready service;
+it reads no page, issue, search result, or user identity. A healthy remote
+report proves build/config/credential policy and the metadata route. The
+bounded search remains the first useful permission-and-data read.
 
 Common setup exits:
 
+- `8` from `doctor`: inspect its emitted `problems[]`; a local or requested
+  remote preflight is unhealthy;
 - `7`: URL or PAT is missing or config is invalid;
 - `3`: the backend rejected the PAT;
 - `6`: authentication succeeded but the account lacks permission.

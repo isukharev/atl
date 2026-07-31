@@ -27,6 +27,12 @@ This skill orients you. For the actual command flows, use the focused skills:
   with `atl config show` before relying on either.
 
 If `atl` is not installed (`command -v atl` fails), tell the user to run `/atl:setup` first.
+If setup or mirror health is uncertain, run offline `atl doctor` before
+identity-bearing status output. Use `atl doctor --remote` only when backend
+metadata access is intended; it makes one single-attempt metadata GET per ready
+service and never reads content or identities. Treat emitted error-severity
+`problems[]` as a stop signal even though the qualified report remains on
+stdout.
 
 For an unfamiliar Jira/Confluence task, query the exact offline route before
 loading broad command references:

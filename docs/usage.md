@@ -484,6 +484,41 @@ comma-separated list, while `field_views` and `page_fields` take JSON descriptor
 backends; it defaults to deterministic `UTC` and never changes JQL/CQL
 interpretation or exact timestamps in JSON/native snapshots.
 
+### `atl doctor`
+
+Run one privacy-safe setup diagnostic:
+
+```bash
+atl doctor
+atl doctor --remote
+atl doctor -o text
+```
+
+The default is fully offline and always skips self-update. It reports schema-v1
+build provenance, OS/architecture, config source/parse/owner-only state, URL
+policy without URL values, credential presence/coarse source, global read-only
+policy, optional content-free mirror health, and the fact that plugin version
+is not observable from the CLI. It emits no backend URL or hostname,
+filesystem path, token, environment-variable name, identity, object id, mirror
+content, or raw parser/backend error.
+
+`--remote` requires a parseable global configuration, then evaluates each
+service independently. A URL or credential sourced from a file whose
+owner-only permissions fail is not used; an independently ready environment
+override or sibling service may still be qualified. Mirror problems do not
+suppress product metadata checks. The command makes at most one sequential,
+single-attempt metadata GET to each eligible service: Jira `serverInfo`, then
+Confluence `server-information`. Redirects and retries are disabled, verbose
+request identity is redacted, and no current-user, search, page, or issue route
+is called. Product is adapter-owned; backend version and deployment strings
+cross a strict numeric release-version grammar before output. A sibling service
+is still qualified when the other local setup or metadata request fails.
+
+Warnings such as an absent mirror or unobservable plugin version keep exit `0`.
+Any error-severity `problems[]` entry makes `healthy:false`; the complete result
+is emitted before the command returns check-failed exit `8`. `-o id` is not
+supported.
+
 ### `atl environment inspect`
 
 Use one explicit diagnostic when a workflow depends on date boundaries or when

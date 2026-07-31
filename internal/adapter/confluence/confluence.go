@@ -38,6 +38,7 @@ var _ domain.Verifier = (*Confluence)(nil)
 var _ domain.PageShortLinkResolver = (*Confluence)(nil)
 var _ domain.CompletePageSearcher = (*Confluence)(nil)
 var _ domain.ConfluenceTimeSemanticsReader = (*Confluence)(nil)
+var _ domain.ServerMetadataReader = (*Confluence)(nil)
 
 func (cf *Confluence) ResolveShortPageLink(ctx context.Context, path string) (string, error) {
 	return cf.c.ResolveGET(ctx, path)

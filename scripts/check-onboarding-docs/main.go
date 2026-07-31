@@ -42,6 +42,7 @@ var commandPaths = [][]string{
 	{"config", "set"},
 	{"config", "show"},
 	{"capabilities"},
+	{"doctor"},
 	{"environment", "inspect"},
 	{"conf"},
 	{"conf", "search"},
@@ -73,6 +74,7 @@ var commandPaths = [][]string{
 var commandHelpRequirements = map[string][]string{
 	"auth login":                 {"--service"},
 	"config set":                 {"--confluence-url", "--jira-url"},
+	"doctor":                     {"--remote"},
 	"conf search":                {"--cql", "--limit"},
 	"conf pull":                  {"--id", "--into"},
 	"conf push":                  {"--dry-run"},

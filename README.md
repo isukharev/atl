@@ -86,23 +86,29 @@ atl auth login --service confluence
 atl auth login --service jira
 
 atl auth status
+atl doctor
 ```
 
 `auth login` reads the bearer PAT from a no-echo prompt, stdin, or a file—never
-from argv. `auth status` reports only the credential source.
+from argv. `auth status` reports only the credential source. `doctor` checks
+build, config permissions, URL policy, credential presence, and optional mirror
+health without printing URLs, hostnames, paths, identities, tokens, or content.
 
 Then make one bounded read:
 
 ```sh
 export ATL_READ_ONLY=1
 
+atl doctor --remote
 atl conf search --cql 'type = page' --limit 1
 # or:
 atl jira issue search --jql 'order by updated DESC' --limit 1
 ```
 
-JSON is the default output. Exit `7` means setup/config is incomplete; exit `3`
-means the backend rejected the PAT. Continue with the
+`doctor` is offline unless `--remote` is explicit; remote mode makes one
+single-attempt product/version metadata GET per ready backend and reads no
+pages, issues, searches, or identities. Blocking findings still emit the
+qualified report and exit `8`. JSON is the default output. Continue with the
 [five-minute guide](docs/getting-started.md).
 
 ## Three primary workflows
