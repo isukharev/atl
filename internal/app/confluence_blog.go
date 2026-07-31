@@ -24,7 +24,7 @@ func (s *ConfluenceService) CreateBlogPost(ctx context.Context, space, title str
 		return nil, fmt.Errorf("%w: blog post body must not be empty", domain.ErrUsage)
 	}
 	if problems := csf.Validate(body); csf.HasErrors(problems) {
-		return nil, fmt.Errorf("%w: blog post body is not well-formed Confluence Storage Format", domain.ErrUsage)
+		return nil, fmt.Errorf("%w: blog post body is not well-formed Confluence Storage Format", domain.ErrCheckFailed)
 	}
 	creator, ok := s.store.(domain.BlogPostCreator)
 	if !ok || creator == nil {

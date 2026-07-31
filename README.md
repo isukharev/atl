@@ -600,7 +600,7 @@ atl jira field-options --project PROJ --field <field-id>
 | 5 | Version conflict (optimistic lock) |
 | 6 | Forbidden (token lacks permission) |
 | 7 | Invalid/incomplete configuration — for example a missing URL/PAT or invalid named view |
-| 8 | Safety/check refusal — incomplete evidence, stale/drifted state, invalid derived view, active lock, or required-field failure |
+| 8 | Safety/check refusal — malformed CSF, incomplete evidence, stale/drifted state, invalid derived view, active lock, or required-field failure |
 
 `7` vs `3`: `7` means "finish setup" (no URL/token); `3` means "replace the token" (it was refused).
 JSON errors also include stable `kind` and `remediation` fields derived from

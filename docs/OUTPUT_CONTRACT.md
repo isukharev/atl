@@ -415,10 +415,17 @@ is bumped.
   compare-and-swap instead: a drift refusal is exit `8` (`ErrCheckFailed`), not `5`. A server-side
   HTTP 409 on a Jira write (locked issue, workflow veto) stays a generic conflict (exit `1`), also
   distinct from `5` (#66).
-- `conf validate` exits non-zero (exit 1) when the CSF is not well-formed or
-  exceeds the supported nesting depth. Treat any `"error"`-severity problem in
-  its `problems[]` array as a hard blocker before pushing. `--cloud-compat`
-  adds only `"warning"`-severity findings, so it never changes this exit status.
+- Error-severity CSF validation failures are one gate contract across
+  `conf validate`, `conf push`, `conf page create`, and `conf blog create`:
+  `ErrCheckFailed` / exit `8`, `kind:"check_failed"`,
+  `remediation:"review_failed_check"`, and the established closed recovery
+  `{action:"inspect_failure",retry_safe:false}`. Existing command result
+  objects and `problems[]` remain on stdout. An uncontended local push snapshot
+  rejects invalid content before backend construction; an active mirror
+  mutation retains the existing lock/config error precedence. Invalid content
+  never reaches the network. This covers malformed XML and unsupported nesting
+  depth. `--cloud-compat` adds only `"warning"`-severity findings, so it never
+  changes this exit status.
 - `jira issue check` exits `8` (`ErrCheckFailed`) when a field listed in `--require` is empty — a
   distinct code so a CI gate can tell "fields missing" from a transport/auth error. The full result
   (including `missing_required` and `missing_warn`) is still emitted to stdout before the exit.

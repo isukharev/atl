@@ -190,7 +190,7 @@ func TestConfPageCreate_ValidVerbatim(t *testing.T) {
 // TestConfPageCreate_InvalidCSFGate locks the create-time validation gate: an
 // invalid CSF (unbalanced tags) must fail BEFORE any network write, mirroring
 // the push gate. The stateful server must record ZERO POST, and the output must
-// report the problems with a non-zero exit (usage error → exit 2).
+// report the problems with a check-failed exit.
 func TestConfPageCreate_InvalidCSFGate(t *testing.T) {
 	cs := newConfServer(t)
 
@@ -202,8 +202,8 @@ func TestConfPageCreate_InvalidCSFGate(t *testing.T) {
 
 	out, code := runCLI(t, confEnv(cs.srv),
 		"conf", "page", "create", "--space", "ENG", "--title", "Oops", "--from-file", csfPath)
-	if code != exitUsage {
-		t.Fatalf("invalid CSF create: exit %d, want %d (stdout=%q)", code, exitUsage, out)
+	if code != exitCheckFailed {
+		t.Fatalf("invalid CSF create: exit %d, want %d (stdout=%q)", code, exitCheckFailed, out)
 	}
 
 	// The headline assertion: the validation gate ran before any HTTP write.
@@ -216,7 +216,7 @@ func TestConfPageCreate_InvalidCSFGate(t *testing.T) {
 		t.Fatalf("expected zero requests on invalid CSF, got %d: %+v", len(reqs), reqs)
 	}
 
-	// The problems are emitted on stdout before the usage error.
+	// The problems are emitted on stdout before the check-failed error.
 	var res struct {
 		Problems []csfProblem `json:"problems"`
 	}

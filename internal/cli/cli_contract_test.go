@@ -36,6 +36,17 @@ func runCLI(t *testing.T, env map[string]string, args ...string) (stdout string,
 // t.Parallel). ATL_NO_UPDATE and ATL_CONFIG_DIR are always set first; caller env
 // overlays them.
 func runCLIFull(t *testing.T, env map[string]string, args ...string) (stdout, stderr string, code int) {
+	stdout, stderr, err := executeCLIRaw(t, env, args...)
+	if err != nil {
+		return stdout, stderr, codeFor(err)
+	}
+	return stdout, stderr, exitOK
+}
+
+// executeCLIRaw runs one command with the same isolation as runCLIFull while
+// retaining the returned error. Focused contract tests use the error to verify
+// the production JSON error envelope without changing Cobra's captured stderr.
+func executeCLIRaw(t *testing.T, env map[string]string, args ...string) (stdout, stderr string, execErr error) {
 	t.Helper()
 	t.Setenv("ATL_NO_UPDATE", "1")
 	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
@@ -58,13 +69,8 @@ func runCLIFull(t *testing.T, env map[string]string, args ...string) (stdout, st
 	root.SetArgs(args)
 	root.SetOut(&outBuf)
 	root.SetErr(&errBuf)
-	// Mirror production Execute(): codeFor is only consulted on a non-nil error.
-	// codeFor(nil) would fall through to the generic exit (1), so map a nil error
-	// to exitOK here.
-	if err := root.ExecuteContext(context.Background()); err != nil {
-		return outBuf.String(), errBuf.String(), codeFor(err)
-	}
-	return outBuf.String(), errBuf.String(), exitOK
+	execErr = root.ExecuteContext(context.Background())
+	return outBuf.String(), errBuf.String(), execErr
 }
 
 // confEnv points the Confluence backend at srv with a dummy PAT.

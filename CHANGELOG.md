@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   startup budget instead of allowing its manifest and binary phases to consume
   independent timeouts before the requested command starts; an admitted atomic
   local commit still finishes together with its version stamp.
+- Unified error-severity CSF validation across offline validation, push, page
+  creation, and blog creation as `check_failed` / exit 8 while retaining the
+  detailed problem list and pre-network refusal.
 
 ## [0.5.1] - 2026-07-30
 

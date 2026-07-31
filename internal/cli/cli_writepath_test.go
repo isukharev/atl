@@ -412,8 +412,8 @@ func TestConfPush_InvalidCSFGate(t *testing.T) {
 	}
 
 	out, code := runCLI(t, confEnv(cs.srv), "conf", "push", csfPath, "--into", root)
-	if code != exitGeneric {
-		t.Fatalf("invalid CSF push: exit %d, want %d (stdout=%q)", code, exitGeneric, out)
+	if code != exitCheckFailed {
+		t.Fatalf("invalid CSF push: exit %d, want %d (stdout=%q)", code, exitCheckFailed, out)
 	}
 
 	// No write must have reached the server.
@@ -537,8 +537,8 @@ func TestConfPush_TextInvalid(t *testing.T) {
 	}
 
 	out, _, code := runCLIFull(t, confEnv(cs.srv), "conf", "push", csfPath, "--into", root, "-o", "text")
-	if code != exitGeneric {
-		t.Fatalf("conf push -o text (invalid): exit %d, want %d (stdout=%q)", code, exitGeneric, out)
+	if code != exitCheckFailed {
+		t.Fatalf("conf push -o text (invalid): exit %d, want %d (stdout=%q)", code, exitCheckFailed, out)
 	}
 	if !strings.HasPrefix(out, "INVALID\t") {
 		t.Fatalf("text output = %q, want prefix %q", out, "INVALID\t")

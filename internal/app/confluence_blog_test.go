@@ -73,11 +73,13 @@ func TestCreateBlogPostRejectsInputAndUnsupportedBackendBeforeWrite(t *testing.T
 		{"DOC", "", []byte("<p>x</p>")},
 		{"DOC", "T", nil},
 		{"DOC", "T", []byte(" \n\t")},
-		{"DOC", "T", []byte("<p>broken")},
 	} {
 		if _, err := service.CreateBlogPost(context.Background(), input.space, input.title, input.body); !errors.Is(err, domain.ErrUsage) {
 			t.Errorf("input=%+v err=%v", input, err)
 		}
+	}
+	if _, err := service.CreateBlogPost(context.Background(), "DOC", "T", []byte("<p>broken")); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Errorf("malformed CSF err=%v, want ErrCheckFailed", err)
 	}
 	if store.calls != 0 {
 		t.Fatalf("invalid input reached creator %d times", store.calls)

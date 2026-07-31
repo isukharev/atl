@@ -1682,7 +1682,8 @@ Output (JSON):
 }
 ```
 
-Exits 1 when any error-severity problem is found; 0 otherwise.
+Exits 8 (`check_failed`) when any error-severity problem is found; the result
+and `problems[]` are still emitted. Exits 0 when there is no blocking problem.
 
 `max-depth` rejects CSF nested beyond 1024 elements before recursive rendering
 or inspection. The diagnostic contains only the observed depth and limit, not
@@ -1947,6 +1948,11 @@ atl conf push --force mirror/DOCS/guide/guide.csf
 
 Push output lists each file's outcome and any removed/added fragments so you
 can confirm that a macro or diagram was not accidentally deleted from the CSF.
+An error-severity CSF problem returns the item and its `problems[]` with
+`check_failed` / exit 8 before any write and, on an uncontended local mirror
+snapshot, before backend configuration. An active mirror mutation keeps its
+existing error precedence. Repair the file and re-run validation rather than
+retrying the unchanged push.
 
 Flags:
 
@@ -2281,7 +2287,9 @@ issue links). Conversion is fail-closed: the first construct outside the
 subset aborts with exit 8 naming the offending block, and the page is **not**
 created — write those bodies as CSF via `--from-file` instead. An empty
 markdown document is refused the same way. The converted body still passes
-the CSF validation gate before the API call.
+the CSF validation gate before the API call. Malformed or over-depth raw CSF is
+also a `check_failed` / exit-8 refusal with its `problems[]`; no backend request
+is made.
 
 Flags:
 
@@ -2306,9 +2314,10 @@ atl conf blog create --space DOCS --title "Release notes" --from-file release.cs
 
 Raw CSF is sent byte-for-byte after validation. `--from-md` uses the same strict
 whole-document subset as `conf page create`; unsupported or empty Markdown is
-exit 8 before credentials/network, while malformed or empty CSF is exit 2
-before the POST. The flags are mutually exclusive and `--from-file -` remains
-the stdin default.
+exit 8 before credentials/network. Malformed or over-depth CSF is likewise
+`check_failed` / exit 8 with its `problems[]`, while an empty raw CSF body
+remains a usage error (exit 2); neither reaches the POST. The flags are mutually
+exclusive and `--from-file -` remains the stdin default.
 
 The adapter closes the request to `type:blogpost`, storage representation, and
 the selected space; no `ancestors` field is sent. It requests an expanded write
