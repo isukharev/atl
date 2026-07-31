@@ -111,9 +111,11 @@ atl conf search --cql 'type = page' --limit 1
 atl jira issue search --jql 'order by updated DESC' --limit 1
 ```
 
-`doctor` is offline unless `--remote` is explicit; remote mode makes one
-single-attempt product/version metadata GET per ready backend and reads no
-pages, issues, searches, or identities. Blocking findings still emit the
+`doctor` is offline unless `--remote` is explicit. Remote mode makes one
+single-attempt product/version GET per ready backend; only when the Confluence
+version route is absent may it add one bodyless reachability HEAD. It reads no
+page/issue body, search result, or identity. Reachability without a version is
+reported as unverified compatibility. Blocking findings still emit the
 qualified report and exit `8`. JSON is the default output. Continue with the
 [five-minute guide](docs/getting-started.md).
 

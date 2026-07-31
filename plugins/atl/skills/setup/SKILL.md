@@ -187,9 +187,12 @@ atl conf search --cql 'type = page' --limit 1   # if they use Confluence
 atl jira fields --summary-only                   # if they use Jira
 ```
 
-`doctor --remote` makes one single-attempt product/version metadata GET per
-ready service; it performs no search, page/issue read, identity read, or write.
-The following bounded service read proves a useful permission/data route.
+`doctor --remote` makes one single-attempt product/version GET per ready
+service. Only when the Confluence version route returns `404` may it add one
+bodyless reachability HEAD; that proves REST availability but leaves
+compatibility unverified. It performs no search, page/issue body read, identity
+read, or write. The following bounded service read proves a useful
+permission/data route.
 `atl` prints JSON by default. A healthy doctor result plus a clean, complete
 service result means technical setup is complete. Offer one concrete next route
 instead of loading the full command reference: a bounded focused read, a pull

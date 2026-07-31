@@ -42,9 +42,10 @@ atl doctor --remote
 `doctor` is offline by default, survives malformed setup, and never prints
 configured URLs/hostnames, paths, identities, token values, mirrored content,
 or raw backend errors. `--remote` is explicit and adds one single-attempt
-product/version metadata GET per ready service. A blocking result is still
-written to stdout before exit `8`; branch on `problems[].id` and
-`problems[].remediation`.
+product/version GET per ready service. If the Confluence version route returns
+`404`, it adds one bodyless reachability HEAD; success is reported as available
+with unverified compatibility. A blocking result is still written to stdout
+before exit `8`; branch on `problems[].id` and `problems[].remediation`.
 
 For local interactive repair, `atl config show` and `atl auth status` expose
 more detail: the former includes configured URLs and local paths, while the

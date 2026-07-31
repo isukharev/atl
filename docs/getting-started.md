@@ -83,9 +83,10 @@ atl jira issue search --jql 'order by updated DESC' --limit 1
 ```
 
 Run only the search command for the configured service. `doctor --remote`
-makes one single-attempt product/version metadata GET for each ready service;
-it reads no page, issue, search result, or user identity. A healthy remote
-report proves build/config/credential policy and the metadata route. The
+makes one single-attempt product/version GET for each ready service. If the
+Confluence version route is absent, it may add one bodyless reachability HEAD;
+it reads no page/issue body, search result, or user identity. A versionless
+success proves REST reachability but reports compatibility as unverified. The
 bounded search remains the first useful permission-and-data read.
 
 Common setup exits:
