@@ -2,9 +2,9 @@
 
 Official release binaries can silently replace themselves with a newer binary
 before most command runs. The mechanism is opt-out, throttled, and
-signature-verified. It never blocks a command; every failure path is swallowed.
-The Homebrew launcher disables this path so the package manager remains the
-single owner of that installation.
+signature-verified. A due check gives all remote work one five-second startup
+budget; every failure path is swallowed. The Homebrew launcher disables this
+path so the package manager remains the single owner of that installation.
 
 See also: [../README.md](../README.md) · [../SECURITY.md](../SECURITY.md) ·
 [usage.md](usage.md) · [architecture.md](architecture.md) ·
@@ -17,10 +17,14 @@ See also: [../README.md](../README.md) · [../SECURITY.md](../SECURITY.md) ·
 ### 1. Triggered before most commands
 
 `PersistentPreRun` on the cobra root command calls `runSelfUpdate` before any
-subcommand executes (`internal/cli/selfupdate.go`). The call is fire-and-forget;
-it returns before the subcommand runs regardless of outcome. Offline routing
-and setup families (`version`, `capabilities`, `auth`, `config`, `profile`,
-`environment`, `mcp`, help, and completion) skip it by construction.
+subcommand executes (`internal/cli/selfupdate.go`). The call is synchronous, but
+manifest/signature and binary acquisition plus the decision to start the local
+commit share one five-second startup deadline. Once an already verified update
+starts its atomic local replacement, that short local commit and version stamp
+are allowed to finish together even if the deadline expires. The requested
+command then runs regardless of update outcome. Offline routing and setup
+families (`version`, `capabilities`, `auth`, `config`, `profile`, `environment`,
+`mcp`, help, and completion) skip it by construction.
 
 ### 2. Fail-closed early exits
 
@@ -67,7 +71,8 @@ The distribution server URL is resolved in priority order:
 
 ### 6. Downloading and verifying the signed manifest
 
-Two files are fetched (4-second timeout each):
+Two files are fetched concurrently (4-second per-request timeout each, also
+subject to the shared five-second startup deadline):
 
 - `<baseURL>/manifest.json` — the release manifest.
 - `<baseURL>/manifest.json.sig` — a base64-encoded ed25519 signature over the
@@ -99,9 +104,10 @@ the manifest version, `Run` returns with no action.
 ### 8. Downloading and verifying the binary
 
 The binary for the current `runtime.GOOS`/`runtime.GOARCH` is selected from
-the manifest. It is downloaded with a 90-second timeout. Its sha256 is checked
-against the value in the (already-verified) manifest. A mismatch causes `Run`
-to return with no update.
+the manifest. Its download retains a 90-second per-request defense-in-depth
+timeout, but the shared five-second startup deadline is always earlier. Its
+sha256 is checked against the value in the (already-verified) manifest. A
+mismatch causes `Run` to return with no update.
 
 ### 9. Atomic replacement (applied on the next invocation)
 

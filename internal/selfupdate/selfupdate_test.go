@@ -4,12 +4,15 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -235,5 +238,237 @@ func TestPickBuild(t *testing.T) {
 	}
 	if _, ok := pickBuild(mf, "windows", "amd64"); ok {
 		t.Error("unexpected windows build")
+	}
+}
+
+func TestRunWithBudgetStalledManifest(t *testing.T) {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestStarted := make(chan struct{}, 2)
+	requestCanceled := make(chan struct{}, 2)
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		requestStarted <- struct{}{}
+		<-r.Context().Done()
+		requestCanceled <- struct{}{}
+	}))
+	defer srv.Close()
+
+	replaced := make(chan struct{}, 1)
+	returned := make(chan struct{})
+	dir := t.TempDir()
+	go func() {
+		runWithBudget(
+			context.Background(), srv.URL, "1.0.0", dir,
+			time.Second, pub,
+			func(context.Context, []byte) error {
+				replaced <- struct{}{}
+				return nil
+			},
+		)
+		close(returned)
+	}()
+
+	waitForSignal(t, requestStarted, time.Second, "manifest request to start")
+	waitForSignal(t, returned, 3*time.Second, "stalled manifest update to respect its startup budget")
+	waitForSignal(t, requestCanceled, time.Second, "stalled manifest request to be canceled")
+	select {
+	case <-replaced:
+		t.Fatal("replacer called after the manifest request exhausted the budget")
+	default:
+	}
+}
+
+func TestRunWithBudgetStalledBinary(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary := []byte("new atl binary")
+	sum := sha256.Sum256(binary)
+	mf := Manifest{
+		Version: "2.0.0",
+		Builds: []Build{{
+			OS: runtime.GOOS, Arch: runtime.GOARCH,
+			SHA256: hex.EncodeToString(sum[:]), Path: "atl",
+		}},
+	}
+	manifest, err := json.Marshal(mf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signature := base64.StdEncoding.EncodeToString(ed25519.Sign(priv, manifest))
+	binaryStarted := make(chan struct{}, 1)
+	binaryCanceled := make(chan struct{}, 1)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/manifest.json", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(manifest)
+	})
+	mux.HandleFunc("/manifest.json.sig", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(signature))
+	})
+	mux.HandleFunc("/atl", func(_ http.ResponseWriter, r *http.Request) {
+		binaryStarted <- struct{}{}
+		<-r.Context().Done()
+		binaryCanceled <- struct{}{}
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	replaced := make(chan struct{}, 1)
+	returned := make(chan struct{})
+	dir := t.TempDir()
+	go func() {
+		runWithBudget(
+			context.Background(), srv.URL, "1.0.0", dir,
+			time.Second, pub,
+			func(context.Context, []byte) error {
+				replaced <- struct{}{}
+				return nil
+			},
+		)
+		close(returned)
+	}()
+
+	waitForSignal(t, binaryStarted, time.Second, "binary request to start")
+	waitForSignal(t, returned, 3*time.Second, "stalled binary update to respect the shared startup budget")
+	waitForSignal(t, binaryCanceled, time.Second, "stalled binary request to be canceled")
+	select {
+	case <-replaced:
+		t.Fatal("replacer called after the binary request exhausted the budget")
+	default:
+	}
+	if _, err := os.Stat(versionStampPath(dir)); !os.IsNotExist(err) {
+		t.Fatal("version recorded after the binary request exhausted the budget")
+	}
+}
+
+func TestRunWithBudgetPreservesShorterCallerDeadline(t *testing.T) {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestStarted := make(chan struct{}, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		requestStarted <- struct{}{}
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	returned := make(chan struct{})
+	dir := t.TempDir()
+	go func() {
+		runWithBudget(
+			ctx, srv.URL, "1.0.0", dir, 2*time.Second, pub,
+			func(context.Context, []byte) error {
+				t.Error("replacer called after caller deadline")
+				return nil
+			},
+		)
+		close(returned)
+	}()
+
+	waitForSignal(t, requestStarted, time.Second, "manifest request to start")
+	waitForSignal(t, returned, 3*time.Second, "update to preserve the shorter caller deadline")
+}
+
+func TestRunWithBudgetSuccessfulUpdate(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary := []byte("verified replacement bytes")
+	sum := sha256.Sum256(binary)
+	mf := Manifest{
+		Version: "2.0.0",
+		Builds: []Build{{
+			OS: runtime.GOOS, Arch: runtime.GOARCH,
+			SHA256: hex.EncodeToString(sum[:]), Path: "atl",
+		}},
+	}
+	manifest, err := json.Marshal(mf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signature := base64.StdEncoding.EncodeToString(ed25519.Sign(priv, manifest))
+	mux := http.NewServeMux()
+	mux.HandleFunc("/manifest.json", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(manifest)
+	})
+	mux.HandleFunc("/manifest.json.sig", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(signature))
+	})
+	mux.HandleFunc("/atl", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(binary)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	replaced := make(chan []byte, 1)
+	dir := t.TempDir()
+	runWithBudget(
+		context.Background(), srv.URL, "1.0.0", dir, time.Second, pub,
+		func(ctx context.Context, data []byte) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			replaced <- append([]byte(nil), data...)
+			return nil
+		},
+	)
+
+	select {
+	case got := <-replaced:
+		if string(got) != string(binary) {
+			t.Fatalf("replacement bytes = %q, want %q", got, binary)
+		}
+	default:
+		t.Fatal("valid update did not invoke the safe test replacer")
+	}
+	gotVersion, err := os.ReadFile(versionStampPath(dir))
+	if err != nil {
+		t.Fatalf("read applied version stamp: %v", err)
+	}
+	if string(gotVersion) != mf.Version {
+		t.Fatalf("applied version stamp = %q, want %q", gotVersion, mf.Version)
+	}
+
+	// Once the verified local commit is admitted before the deadline, it must
+	// finish coherently with the anti-rollback stamp even if the deadline
+	// expires during that commit.
+	lateDir := t.TempDir()
+	admitted := false
+	runWithBudget(
+		context.Background(), srv.URL, "1.0.0", lateDir, time.Second, pub,
+		func(ctx context.Context, data []byte) error {
+			admitted = true
+			<-ctx.Done()
+			if string(data) != string(binary) {
+				t.Fatalf("late replacement bytes = %q, want %q", data, binary)
+			}
+			return nil
+		},
+	)
+	if !admitted {
+		t.Fatal("verified local commit was not admitted before the deadline")
+	}
+	lateVersion, err := os.ReadFile(versionStampPath(lateDir))
+	if err != nil {
+		t.Fatalf("read late applied version stamp: %v", err)
+	}
+	if string(lateVersion) != mf.Version {
+		t.Fatalf("late applied version stamp = %q, want %q", lateVersion, mf.Version)
+	}
+}
+
+func waitForSignal(t *testing.T, signal <-chan struct{}, timeout time.Duration, description string) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(timeout):
+		t.Fatalf("timed out waiting for %s", description)
 	}
 }

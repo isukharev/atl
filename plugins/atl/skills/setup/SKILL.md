@@ -54,7 +54,8 @@ brew install isukharev/tap/atl
 The Homebrew launcher sets `ATL_NO_UPDATE=1`: Homebrew is the only owner of
 that installation, so later upgrades use `brew upgrade atl`. Direct
 installer/release binaries retain signed self-update unless their environment
-sets `ATL_NO_UPDATE`.
+sets `ATL_NO_UPDATE`. Remote work for a due check has one five-second total
+startup budget.
 
 **Linux, or macOS without Homebrew** — prebuilt, SHA-256 verified, installs to `~/.local/bin/atl`:
 
