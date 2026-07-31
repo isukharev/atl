@@ -49,6 +49,9 @@ func seedCSF(f *testing.F) {
 	for _, s := range csfSeeds {
 		f.Add(s)
 	}
+	// Exercise the structural guard under ordinary `go test` as well as fuzzing.
+	// The seed is generated deterministically to avoid a large opaque literal.
+	f.Add(nestedCSF(MaxNestingDepth + 1))
 }
 
 // FuzzParse asserts Parse never panics on any input, returns a non-nil node on

@@ -9,7 +9,8 @@ Markdown conversion would silently drop macros and structure.
 
 Edit the XML/macro bytes directly. Keep tags balanced and entities well-formed; `atl conf validate`
 checks well-formedness and reports problems as `{severity, line, col, rule, message}` (treat any
-`severity: "error"` as a hard block).
+`severity: "error"` as a hard block). CSF nested beyond 1024 elements is rejected as
+`max-depth` before rendering or inspection.
 
 ## Editing existing CSF — pick the technique by situation
 

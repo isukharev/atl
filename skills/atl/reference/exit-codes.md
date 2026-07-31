@@ -30,5 +30,6 @@ Notes:
 - `8` is a *gate* signal, not a command failure — either `jira issue check` ran fine and is telling
   you the issue is not ready (fix the fields), or `jira push` refused a write because the remote
   description drifted since pull (re-pull and re-apply, or `push --apply --force`). Don't retry blindly.
-- `conf validate` exits non-zero when the CSF is not well-formed; treat `error`-severity problems
-  in its JSON `problems[]` as a hard block before pushing.
+- `conf validate` exits non-zero when the CSF is not well-formed or exceeds the
+  supported nesting depth; treat `error`-severity problems in its JSON
+  `problems[]` as a hard block before pushing.
