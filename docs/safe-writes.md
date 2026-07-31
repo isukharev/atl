@@ -58,15 +58,15 @@ Edit a supported section in the generated `.md` view, then stage it into the
 guarded local write set:
 
 ```sh
-atl jira apply "$HOME/.atl/example-workspace/EXAMPLE-1.md"
+atl jira apply "$HOME/.atl/example-workspace/EXAMPLE/EXAMPLE-1.md"
 atl jira status "$HOME/.atl/example-workspace"
 atl jira push "$HOME/.atl/example-workspace"
 ```
 
-`jira push` is a dry-run by default. Review the baseline and proposal evidence,
-then repeat with the exact apply arguments emitted by the preview. Jira does not
-provide the same server-side page version gate as Confluence, so `atl`
-revalidates its stored baseline before writing.
+`jira push` is a dry-run by default. Review its item/diff and baseline
+evidence, then repeat the same target with `--apply`. Jira does not provide the
+same server-side page version gate as Confluence, so `atl` revalidates its
+stored baseline before writing.
 
 ## Jira: reviewed comment
 

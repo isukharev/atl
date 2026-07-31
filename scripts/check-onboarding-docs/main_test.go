@@ -45,6 +45,13 @@ func fakeATLMain() {
 		_, _ = fmt.Fprintln(os.Stderr, "unknown command path: "+path)
 		os.Exit(9)
 	}
+	omitted := ""
+	if content, err := os.ReadFile(base + ".omit"); err == nil {
+		parts := strings.SplitN(strings.TrimSpace(string(content)), "\t", 2)
+		if len(parts) == 2 && parts[0] == path {
+			omitted = parts[1]
+		}
+	}
 	log, err := os.OpenFile(base+".log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		fail(err.Error())
@@ -52,12 +59,17 @@ func fakeATLMain() {
 	_, _ = fmt.Fprintln(log, strings.Join(arguments, " "))
 	_ = log.Close()
 	_, _ = fmt.Fprintln(os.Stdout, "offline fake help")
+	for _, required := range commandHelpRequirements[path] {
+		if required != omitted {
+			_, _ = fmt.Fprintln(os.Stdout, required)
+		}
+	}
 	os.Exit(0)
 }
 
 func TestValidateRepositoryAcceptsLocalLinksAndOfflineHelp(t *testing.T) {
 	root := validRepository(t)
-	binary := fakeATL(t, "")
+	binary := fakeATL(t, "", "", "")
 	t.Setenv("ATL_JIRA_PAT", "must-not-leak")
 	t.Setenv("ATL_CONFLUENCE_URL", "https://must-not-leak.invalid")
 
@@ -137,10 +149,20 @@ func TestValidateDocumentationReportsMissingRequiredGuide(t *testing.T) {
 
 func TestValidateCommandsRejectsStalePath(t *testing.T) {
 	root := validRepository(t)
-	binary := fakeATL(t, "jira apply")
+	binary := fakeATL(t, "jira apply", "", "")
 
 	checked, err := validateCommands(root, binary)
 	if err == nil || !strings.Contains(err.Error(), `path "atl jira apply" failed offline help validation`) {
+		t.Fatalf("checked=%d validation error=%v", checked, err)
+	}
+}
+
+func TestValidateCommandsRejectsMissingDocumentedFlag(t *testing.T) {
+	root := validRepository(t)
+	binary := fakeATL(t, "", "jira fields", "--summary-only")
+
+	checked, err := validateCommands(root, binary)
+	if err == nil || !strings.Contains(err.Error(), `path "atl jira fields" help is missing documented flag "--summary-only"`) {
 		t.Fatalf("checked=%d validation error=%v", checked, err)
 	}
 }
@@ -177,7 +199,7 @@ func writeFile(t *testing.T, root, relative, contents string) {
 	}
 }
 
-func fakeATL(t *testing.T, stalePath string) string {
+func fakeATL(t *testing.T, stalePath, omitPath, omitFlag string) string {
 	t.Helper()
 	executable, err := os.Executable()
 	if err != nil {
@@ -206,6 +228,14 @@ func fakeATL(t *testing.T, stalePath string) string {
 	}
 	if stalePath != "" {
 		if err := os.WriteFile(target+".fail", []byte(stalePath+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if omitPath != "" || omitFlag != "" {
+		if omitPath == "" || omitFlag == "" {
+			t.Fatal("omit path and flag must be provided together")
+		}
+		if err := os.WriteFile(target+".omit", []byte(omitPath+"\t"+omitFlag+"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -19,7 +19,7 @@ atl auth status
 | Confluence | Server/Data Center REST API | Bearer PAT | Supported | Supported, native `.csf` | Supported with validation and page version gate | Automated adapter/CLI contracts on Linux and macOS plus bounded maintainer live checks; no public per-version certification yet |
 | Jira | Server/Data Center REST API v2 plus Agile API where required | Bearer PAT | Supported | Supported, native `.wiki` | Supported with fresh baseline/proposal gates | Automated adapter/CLI contracts on Linux and macOS plus bounded maintainer live checks; fields, workflows, and installed apps vary by deployment |
 | Jira Structure | Tempo Structure endpoints present on the configured Jira | Same Jira PAT | Read/export supported | No persistent graph/store | No Structure mutation surface | Capability depends on the installed Structure version and endpoint availability; qualify metadata before larger reads |
-| Atlassian Cloud | Cloud REST APIs | Cloud OAuth or email/API-token models | Not supported | Not supported | Not supported | Cloud URL/auth refusal is intentional; `atl` does not silently map Server/DC native formats to ADF |
+| Atlassian Cloud | Cloud REST APIs | Cloud OAuth or email/API-token models | Not supported | Not supported | Not supported | An HTTPS Cloud URL is not rejected at config time, but Cloud API/auth behavior is outside the contract; `atl` does not map Server/DC native formats to ADF |
 
 Exact tested private deployment versions and content are not published. Until a
 public version-family fixture is contributed, treat unlisted vendor versions
@@ -29,8 +29,9 @@ as compatibility reports to validate, not as certified targets.
 
 | Surface | Status | Evidence |
 |---|---|---|
-| Linux amd64/arm64 | Supported | Release artifacts and hosted tests |
-| macOS amd64/arm64 | Supported | Release artifacts and hosted tests |
+| Linux amd64 | Supported | Release artifact and hosted Linux test job |
+| Linux arm64 | Supported release target | Release artifact is cross-compiled; no hosted arm64 runtime certification |
+| macOS amd64/arm64 | Supported release targets | Release artifacts for both; hosted macOS tests exercise the runner architecture, not a guaranteed per-architecture matrix |
 | Windows | Not currently supported | No release artifact or hosted compatibility matrix |
 | Homebrew | Supported | Release-owned formula and checksum |
 | Release installer | Supported on Linux/macOS | SHA-256 verification; signed update trust documented separately |

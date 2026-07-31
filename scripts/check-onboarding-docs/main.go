@@ -34,13 +34,17 @@ var requiredDocuments = []string{
 // CLI reference. Every path is checked using --help only.
 var commandPaths = [][]string{
 	{},
+	{"version"},
 	{"auth"},
 	{"auth", "login"},
+	{"auth", "status"},
 	{"config"},
 	{"config", "set"},
+	{"config", "show"},
 	{"capabilities"},
 	{"environment", "inspect"},
 	{"conf"},
+	{"conf", "search"},
 	{"conf", "page", "get"},
 	{"conf", "pull"},
 	{"conf", "status"},
@@ -49,6 +53,7 @@ var commandPaths = [][]string{
 	{"conf", "apply"},
 	{"conf", "push"},
 	{"jira"},
+	{"jira", "fields"},
 	{"jira", "issue", "get"},
 	{"jira", "issue", "search"},
 	{"jira", "issue", "comment", "preview"},
@@ -61,6 +66,21 @@ var commandPaths = [][]string{
 	{"profile", "show"},
 	{"profile", "apply"},
 	{"mcp", "serve"},
+}
+
+// commandHelpRequirements binds documented flags that a path-only --help
+// check would otherwise miss. Keep this list focused on first-use examples.
+var commandHelpRequirements = map[string][]string{
+	"auth login":        {"--service"},
+	"config set":        {"--confluence-url", "--jira-url"},
+	"conf search":       {"--cql", "--limit"},
+	"conf pull":         {"--id", "--into"},
+	"conf push":         {"--dry-run"},
+	"jira fields":       {"--summary-only"},
+	"jira issue search": {"--jql", "--limit"},
+	"jira pull":         {"--jql", "--into"},
+	"jira push":         {"--apply"},
+	"mcp serve":         {"--service"},
 }
 
 type report struct {
@@ -380,6 +400,10 @@ func validateCommands(root, atlBinary string) (int, error) {
 	}
 
 	for index, path := range commandPaths {
+		name := "atl"
+		if len(path) != 0 {
+			name += " " + strings.Join(path, " ")
+		}
 		arguments := append(append([]string{}, path...), "--help")
 		command := exec.Command(binary, arguments...)
 		command.Dir = root
@@ -388,10 +412,6 @@ func validateCommands(root, atlBinary string) (int, error) {
 		command.Stdout = &output
 		command.Stderr = &output
 		if err := command.Run(); err != nil {
-			name := "atl"
-			if len(path) != 0 {
-				name += " " + strings.Join(path, " ")
-			}
 			detail := strings.TrimSpace(output.String())
 			if len(detail) > 2048 {
 				detail = detail[:2048] + "..."
@@ -400,6 +420,15 @@ func validateCommands(root, atlBinary string) (int, error) {
 				return index, fmt.Errorf("command manifest v%d path %q failed offline help validation: %w: %s", commandManifestVersion, name, err, detail)
 			}
 			return index, fmt.Errorf("command manifest v%d path %q failed offline help validation: %w", commandManifestVersion, name, err)
+		}
+		pathName := strings.Join(path, " ")
+		for _, required := range commandHelpRequirements[pathName] {
+			if !strings.Contains(output.String(), required) {
+				return index, fmt.Errorf(
+					"command manifest v%d path %q help is missing documented flag %q",
+					commandManifestVersion, name, required,
+				)
+			}
 		}
 	}
 	return len(commandPaths), nil

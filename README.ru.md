@@ -35,11 +35,11 @@ read-only policy только после проверки конкретного
 
 | Цель | Руководство | Результат |
 |---|---|---|
-| Установить и проверить один backend | [Getting started](docs/getting-started.md) | Первое ограниченное чтение и локальное зеркало |
-| Дать кодинг-агенту безопасный доступ | [Agent setup](docs/agent-setup.md) | Узкие skills и типизированный read-only MCP |
-| Зеркалировать, править и публиковать | [Safe writes](docs/safe-writes.md) | Native local diff и одна guarded-запись |
-| Проверить подходящую среду | [Compatibility](docs/compatibility.md) | Supported, unverified и unsupported границы |
-| Разобраться с ошибкой | [Troubleshooting](docs/troubleshooting.md) | Восстановление от кода выхода |
+| Установить и проверить один backend | [Первое чтение](#первое-чтение) | Первое ограниченное чтение и локальное зеркало |
+| Дать кодинг-агенту безопасный доступ | [Кодинг-агенты](#кодинг-агенты) | Узкие skills и типизированный read-only MCP |
+| Зеркалировать, править и публиковать | [Три основных workflow](#три-основных-workflow) | Native local diff и одна guarded-запись |
+| Проверить подходящую среду | [Совместимость](#совместимость) | Supported, unverified и unsupported границы |
+| Разобраться с ошибкой | [Быстрое восстановление](#быстрое-восстановление) | Действие по стабильному коду выхода |
 
 Полный [справочник команд](docs/usage.md) и
 [контракт вывода](docs/OUTPUT_CONTRACT.md) сохранены, но для первого успешного
@@ -182,6 +182,34 @@ codex plugin add atl@atl
 После установки начните новую сессию агента и вызовите явный setup skill.
 [Agent setup](docs/agent-setup.md) описывает version skew, размещение зеркала,
 read-only policy и выбор CLI/MCP.
+
+## Совместимость
+
+`atl` поддерживает Jira и Confluence Server/Data Center с bearer PAT. Runtime
+Atlassian Cloud, Cloud OAuth и email/API-token auth не поддерживаются; HTTPS
+Cloud URL при сохранении конфигурации специально не распознаётся и не
+блокируется, поэтому корректный deployment type нужно проверить до setup.
+
+Release targets: Linux и macOS на amd64/arm64. Linux amd64 и один hosted macOS
+runner проходят runtime CI; arm64 artifacts cross-compile-ятся, но отдельной
+hosted arm64 certification пока нет. Windows artifact отсутствует. Полная
+матрица evidence и ограничения находятся в
+[docs/compatibility.md](docs/compatibility.md).
+
+## Быстрое восстановление
+
+| Код | Что означает | Первое действие |
+|---:|---|---|
+| `2` | Неверная команда/flag/input | Запустите точный parent route с `--help` |
+| `3` | Backend отклонил PAT | Обновите или заново введите token |
+| `4` | Объект не найден | Проверьте selector и permission |
+| `5` | Remote version conflict | Re-pull и reapply; не включайте force автоматически |
+| `6` | Пользователь аутентифицирован, но доступ запрещён | Запросите минимальный permission |
+| `7` | URL/PAT/config отсутствует или некорректен | Завершите или исправьте setup |
+| `8` | Safety/check gate отказал | Следуйте structured recovery, не обходите gate |
+
+Подробное руководство пока доступно на английском:
+[docs/troubleshooting.md](docs/troubleshooting.md).
 
 ## Почему `atl`
 
