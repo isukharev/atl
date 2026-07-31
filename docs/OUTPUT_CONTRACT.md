@@ -1693,6 +1693,64 @@ deterministic opaque tokens rather than source content. Text output
 contains the same qualification plus escaped source/node/edge tables. `-o id`
 is rejected before configuration or network access.
 
+Schema v2 is opt-in. It is selected by `--depth 1..3`,
+`--resolve confluence`, or any explicitly supplied graph limit. No opt-in
+option, explicit `--depth 0`, and explicit `--resolve none` preserve the exact
+schema-v1 projection above. Schema v2 keeps the same top-level arrays and
+reconciliation summary, with these additions:
+
+- `bounds.attempted_node_count` counts Jira snapshot calls that were actually
+  attempted; `followed_node_count` is the non-root subset and
+  `expanded_node_count` counts successfully expanded Jira nodes.
+- `bounds.max_requests` / `requests_used` count physical HTTP attempts across
+  Jira and optional Confluence reads. `bounds.max_response_bytes` /
+  `response_bytes_used` count aggregate buffered successful and error response
+  bytes. Reads are single-attempt: no retry or followed redirect can bypass the
+  shared bounds.
+- `bounds.max_sources`, `max_frontier`, `frontier_count`, and optional
+  `frontier_truncated` qualify the remaining inventories. The optional
+  top-level `frontier` is sorted by depth, node id, and reason and contains only
+  `{node_id, depth, reason}`.
+- Every source has `node_depth` and remains keyed by `(node_id, kind)`. Every
+  edge evidence record has `source_node_id`, which identifies the expanded Jira
+  node whose collector observed that fact.
+
+Traversal is deterministic breadth-first order across the entire current
+depth. Only canonical `jira_issue` nodes in `state:"stub"` that came from exact
+structured issue-link or hierarchy evidence are eligible. Narrative
+`mentions`, URLs, attachments, and Confluence pages are never traversal inputs.
+Cycles and diamonds are read once. A Jira response whose canonical key differs
+from the requested moved key is reconciled into one node and one semantic edge
+inventory before the summary is computed.
+
+The schema-v2 defaults are 100 nodes, 500 edges, 500 evidence records, 100
+physical requests, and 16777216 buffered response bytes. Hard maxima are 2048,
+4096, 4096, 128, and 67108864 respectively; depth is capped at 3. Admission of
+a new node, edge, and its evidence is atomic. Work refused by an output,
+physical-request, or response-byte bound is statically classified as
+`output_limit`, `request_limit`, or `byte_limit`; dynamic backend details and
+live counters never enter a reason string. When the seed response itself
+exceeds the response-byte bound, schema v2 still emits one
+`state:"unresolved"` root with no edges, zero expanded nodes, a root frontier
+item, and all requested sources qualified by the same budget reason. Optional
+Confluence resolution, when requested, is represented by an equally qualified
+`confluence_metadata` source rather than being silently omitted.
+
+`--resolve confluence` adds one aggregate `confluence_metadata` source after
+Jira traversal. It considers only already discovered canonical numeric page
+ids and performs at most one same-origin, single-attempt, id/title-only GET for
+each candidate. It does not request page body, ancestors, labels, restrictions,
+principals, assets, or arbitrary URLs. Unavailable optional configuration is
+`status:"skipped"` with `partial_reason:"dependency_unavailable"`. Missing
+pages remain `state:"missing"` while a fully attempted inventory can still be
+complete; forbidden or malformed responses remain explicitly incomplete.
+
+Top-level `complete` continues to be derived from every requested source.
+`--strict` does not alter the document: it emits the reconciled JSON or text
+first, then returns `ErrCheckFailed` (exit 8) when `complete:false`. Schema-v2
+text adds transport usage, per-node source columns, and a frontier table when
+one exists.
+
 This additive contract does not change `jira issue refs`; its exact JSON/text
 compatibility goldens remain independent.
 

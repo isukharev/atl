@@ -260,8 +260,10 @@ without raw changelog rows (explicit false is rejected), and last-field-change
 metadata;
 transient multi-key export to artifact-only stdout; deterministic epic evidence
 digest and standalone refs with reconciled per-kind/per-source aggregates;
-depth-zero CLI work-artifact graph with typed edges, mentions, and qualified
-sources; check/attachments/refs/tree. For a report
+default-direct and opt-in bounded CLI work-artifact graph with exact
+structured Jira traversal, optional Confluence id/title resolution, typed
+edges, mentions, budgets, frontier, and qualified per-node sources;
+check/attachments/refs/tree. For a report
 or quarter review, route through the Jira skill's one-hop
 `reference/evidence-workflow.md` and stop once sufficient complete evidence is
 available;

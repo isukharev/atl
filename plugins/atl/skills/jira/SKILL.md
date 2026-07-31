@@ -71,10 +71,13 @@ before treating absence as evidence. Use the CLI `jira issue history` only
 when individual changes are themselves the required evidence. For a
 direct relationship question starting from one exact issue, use the CLI
 `jira issue graph <KEY>` once under inherited read-only policy. It is
-depth-zero and CLI-only in schema v1: inspect reconciliation and every source
-status, distinguish structured edges from heuristic mentions, and never imply
-that a discovered depth-1 stub was fetched. Select only a question-relevant
-exact target for a later narrow read. For a
+CLI-only: the default schema v1 is depth-zero, while `--depth 1..3` opts into a
+bounded schema-v2 breadth-first walk that follows only exact structured Jira
+relations. Use the smallest sufficient depth, inspect reconciliation, budgets,
+frontier, and every per-node source status, and never imply that a heuristic
+mention was fetched. Use `--resolve confluence` only when id/title metadata for
+already discovered canonical pages is necessary; it does not read page bodies.
+Prefer `--strict` when incomplete evidence must fail the workflow. For a
 reference-inventory question, call `jira_issue_refs` with exactly one issue
 `key`, or bounded `jql` plus `limit` from 1 through 25, and at most eight exact
 technical field ids. Use its per-issue and top-level reconciled summaries; raw

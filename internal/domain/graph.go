@@ -52,11 +52,12 @@ type ArtifactGraphNode struct {
 // ArtifactGraphEvidence explains why an edge exists without copying source
 // narrative, identities, or backend errors into the graph.
 type ArtifactGraphEvidence struct {
-	Collector   string `json:"collector"`
-	SourceKind  string `json:"source_kind"`
-	SourceID    string `json:"source_id,omitempty"`
-	JSONPointer string `json:"json_pointer,omitempty"`
-	Extraction  string `json:"extraction"`
+	Collector    string `json:"collector"`
+	SourceNodeID string `json:"source_node_id,omitempty"`
+	SourceKind   string `json:"source_kind"`
+	SourceID     string `json:"source_id,omitempty"`
+	JSONPointer  string `json:"json_pointer,omitempty"`
+	Extraction   string `json:"extraction"`
 }
 
 // ArtifactGraphEdge is one directed semantic relation. ID is derived from the
@@ -76,11 +77,14 @@ type ArtifactGraphEdge struct {
 }
 
 const (
-	ArtifactPartialInspectionLimit = "inspection_limit"
-	ArtifactPartialOutputLimit     = "output_limit"
-	ArtifactPartialRequestFailed   = "request_failed"
-	ArtifactPartialMalformed       = "malformed_response"
-	ArtifactPartialPolicy          = "policy"
+	ArtifactPartialInspectionLimit       = "inspection_limit"
+	ArtifactPartialOutputLimit           = "output_limit"
+	ArtifactPartialRequestFailed         = "request_failed"
+	ArtifactPartialRequestLimit          = "request_limit"
+	ArtifactPartialByteLimit             = "byte_limit"
+	ArtifactPartialDependencyUnavailable = "dependency_unavailable"
+	ArtifactPartialMalformed             = "malformed_response"
+	ArtifactPartialPolicy                = "policy"
 )
 
 // ValidArtifactPartialReason reports whether a source reason belongs to the
@@ -88,7 +92,9 @@ const (
 func ValidArtifactPartialReason(reason string) bool {
 	switch reason {
 	case ArtifactPartialInspectionLimit, ArtifactPartialOutputLimit,
-		ArtifactPartialRequestFailed, ArtifactPartialMalformed,
+		ArtifactPartialRequestFailed, ArtifactPartialRequestLimit,
+		ArtifactPartialByteLimit, ArtifactPartialDependencyUnavailable,
+		ArtifactPartialMalformed,
 		ArtifactPartialPolicy:
 		return true
 	}
@@ -98,6 +104,7 @@ func ValidArtifactPartialReason(reason string) bool {
 // ArtifactGraphSource qualifies one requested collector for one expanded node.
 type ArtifactGraphSource struct {
 	NodeID        string                    `json:"node_id"`
+	NodeDepth     *int                      `json:"node_depth,omitempty"`
 	Kind          string                    `json:"kind"`
 	Requested     bool                      `json:"requested"`
 	Status        ArtifactGraphSourceStatus `json:"status"`
