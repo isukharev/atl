@@ -24,6 +24,12 @@ func (t scheduledRoundTripper) RoundTrip(req *http.Request) (*http.Response, err
 		release()
 		return nil, err
 	}
+	if transientRetryStatus(resp.StatusCode) {
+		// Publish the backend cooldown while this attempt still owns its permit.
+		// The caller may decide that the current method is not replay-safe, but
+		// other clients sharing the scheduler must still honor Retry-After.
+		t.scheduler.deferFor(retryAfter(resp))
+	}
 	if resp.Body == nil {
 		release()
 		return resp, nil
@@ -60,6 +66,10 @@ func scheduleTransport(base http.RoundTripper, scheduler *Scheduler) http.RoundT
 		return base
 	}
 	return scheduledRoundTripper{base: base, scheduler: scheduler}
+}
+
+func transientRetryStatus(status int) bool {
+	return status == http.StatusTooManyRequests || status >= 500
 }
 
 // Scheduler bounds all HTTP attempts that share it. It deliberately schedules
