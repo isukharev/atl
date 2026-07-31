@@ -9,6 +9,7 @@
 #   make check-plugins    verify the generated plugin trees are current
 #   make check-skill-safety validate designated read-only skill shell blocks
 #   make check-context7-docs validate the public Context7 parsing/snippet boundary
+#   make check-onboarding-docs validate first-use links and offline command paths
 #   make check-maintainer-contract verify the exact Go maintainer toolchain
 #   make check-package-boundary verify the core/heavy dependency split
 #   make agent-eval-compat run the small product/evaluation compatibility gate
@@ -98,6 +99,10 @@ check-skill-routing:
 .PHONY: check-context7-docs
 check-context7-docs:
 	go run ./scripts/check-context7-docs
+
+.PHONY: check-onboarding-docs
+check-onboarding-docs: build
+	go run ./scripts/check-onboarding-docs -root . -atl ./atl
 
 .PHONY: check-maintainer-contract
 check-maintainer-contract:

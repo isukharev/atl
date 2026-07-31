@@ -1,0 +1,120 @@
+# Set up `atl` for coding agents
+
+`atl` ships the same focused Jira, Confluence, setup, and workflow skills for
+Claude Code and Codex. The plugin adds guidance plus a typed read-only MCP
+surface; the CLI remains the path for durable mirrors and every write.
+
+Complete [CLI setup](getting-started.md) first, or let the explicit setup skill
+guide those same steps.
+
+## Claude Code
+
+Add this repository as a marketplace, install the plugin, then run setup:
+
+```text
+/plugin marketplace add isukharev/atl
+/plugin install atl@atl
+/atl:setup
+```
+
+Enable marketplace auto-update if you want plugin skills to follow CLI
+releases, and start a new Claude Code session after installing or refreshing
+the plugin.
+
+## Codex
+
+Install from the repository marketplace:
+
+```sh
+codex plugin marketplace add isukharev/atl
+codex plugin add atl@atl
+```
+
+Start a new Codex session and invoke the explicit `setup` skill from `/skills`
+or with `$setup`. Optional workflow personalization is separate and
+consent-gated through `$onboarding`; setup is complete without it.
+
+## Choose the execution surface
+
+| Need | Preferred surface | Why |
+|---|---|---|
+| Narrow transient Jira/Confluence evidence | Typed MCP tool | Bounded arguments and typed result |
+| Repeatable offline analysis or editing | CLI mirror | Native bytes, baselines, local tools |
+| Raw Structure forest/values or exports | CLI | Full explicit projection and file output |
+| Any create, update, transition, comment, or push | CLI | Review-bound write gates |
+| Capability discovery | `atl capabilities` | Offline, versioned route catalog |
+
+The MCP server is read-only by construction. It exposes no shell, raw REST,
+arbitrary filesystem, or mutation tool.
+
+Inspect the offline catalog before loading a broad reference:
+
+```sh
+ATL_NO_UPDATE=1 atl capabilities --task jira/evidence
+ATL_NO_UPDATE=1 atl capabilities --task confluence/edit -o text
+```
+
+Standalone clients may start a closed service profile:
+
+```sh
+ATL_NO_UPDATE=1 atl mcp serve --service jira
+ATL_NO_UPDATE=1 atl mcp serve --service confluence
+ATL_NO_UPDATE=1 atl mcp serve --service offline
+```
+
+The default `atl mcp serve` inventory is still read-only. See [mcp.md](mcp.md)
+for exact tools and output limits.
+
+## Keep the mirror out of the code repository
+
+Agree on one explicit mirror directory and persist it in the agent's private
+environment, not in committed project config:
+
+```sh
+export ATL_MIRROR_ROOT="$HOME/.atl/example-workspace"
+```
+
+Without that variable or `--into`, Confluence and Jira use different built-in
+fallback directories. An explicit root removes ambiguity across sessions.
+
+## Read-only investigations
+
+The guard must be exported before a multi-command investigation so every child
+process inherits it:
+
+```sh
+export ATL_READ_ONLY=1
+
+atl jira issue search --jql 'assignee = currentUser()' --limit 20
+atl conf search --cql 'type = page' --limit 20
+```
+
+Do not remove the guard inside the workflow. Exit `8` with
+`policy:"read_only"` is a deliberate refusal, not permission to retry with the
+policy disabled.
+
+## Version skew and fallback
+
+Plugin skills and the CLI release under the same version. If a documented
+command is unknown:
+
+1. run `atl version`;
+2. inspect the installed plugin version;
+3. update the older side;
+4. start a new agent session.
+
+The CLI remains usable if MCP registration is unavailable. Do not replace a
+missing typed tool with an improvised raw REST call; use the documented CLI
+route or report the gap.
+
+## Agent safety contract
+
+- Search broadly, then read narrowly.
+- Check `complete`, truncation, and cursor fields before claiming absence.
+- Keep content and credentials inside the configured environment.
+- Use Markdown views for orientation; preserve native write substrates.
+- Preview and review every write, and never auto-retry a write.
+- Branch on stable `kind` and numeric exit `code`, not backend prose.
+
+For concrete workflows see [agent-recipes.md](agent-recipes.md). For edits see
+[safe-writes.md](safe-writes.md).

@@ -2,7 +2,7 @@
 name: setup
 description: Install and configure atl authentication, backends, and mirror defaults. USE WHEN the user explicitly requests install, authentication, setup repair, or /atl:setup. DO NOT USE WHEN handling normal Jira, Confluence, search, reporting, or mirror work; explicit-only.
 disable-model-invocation: true
-allowed-tools: Bash(command -v atl) Bash(atl version) Bash(brew install *) Bash(brew upgrade *) Bash(curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | sh) Bash(go install *) Bash(go env *) Bash(echo *) Bash(atl config show) Bash(atl config set *) Bash(atl auth status) Bash(atl auth login *) Bash(atl conf search *) Bash(atl conf status *) Bash(atl jira fields) Bash(atl jira status *)
+allowed-tools: Bash(command -v atl) Bash(atl version) Bash(brew install *) Bash(brew upgrade *) Bash(curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | sh) Bash(go install *) Bash(go env *) Bash(echo *) Bash(atl config show) Bash(atl config set *) Bash(atl auth status) Bash(atl auth login *) Bash(atl conf search *) Bash(atl conf status *) Bash(atl jira fields *) Bash(atl jira status *)
 ---
 <!-- Generated from skills-src/setup/SKILL.md — edit the source and run 'make gen-plugins'. -->
 
@@ -175,15 +175,20 @@ Confirm auth + connectivity with a cheap read:
 
 ```bash
 atl conf search --cql 'type = page' --limit 1   # if they use Confluence
-atl jira fields                                   # if they use Jira
+atl jira fields --summary-only                   # if they use Jira
 ```
 
-`atl` prints JSON by default. A clean result means setup is complete — tell the user they can now
-ask Claude to work with Confluence pages or Jira issues (the `confluence` and `jira` skills engage
-automatically). Offer the separate explicit `onboarding` skill if they want atl to learn their
-recurring workflow, approved field/schema facts, render defaults, and common selectors. Do not run
-that interview or inspect sample content unless they opt in; technical setup remains complete
-without it.
+`atl` prints JSON by default. A clean, complete result means technical setup is
+complete. Offer one concrete next route instead of loading the full command
+reference: a bounded focused read, a pull into the agreed mirror followed by
+local status/diff, or a non-writing preview for a user-selected change. Use the
+`confluence` or `jira` skill for that route. Do not perform a write merely to
+prove setup.
+
+Offer the separate explicit `onboarding` skill if they want atl to learn their
+recurring workflow, approved field/schema facts, render defaults, and common
+selectors. Do not run that interview or inspect sample content unless they opt
+in; technical setup remains complete without it.
 
 The installed Claude Code/Codex plugin also bundles `atl mcp serve`, a typed
 read-only evidence surface. Remote tools use the same configured host-scoped

@@ -1,0 +1,48 @@
+name: Question or support
+description: Ask about setup, compatibility, workflows, or tool choice.
+title: "question: "
+labels:
+  - question
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Questions are welcome. Keep the report public-safe: do not include credentials, private hosts or URLs, object IDs, titles/content, usernames, company data, or private local paths.
+  - type: dropdown
+    id: topic
+    attributes:
+      label: Topic
+      options:
+        - Installation or authentication
+        - Jira workflow
+        - Confluence workflow
+        - Agent plugin or MCP
+        - Compatibility
+        - Safety or write workflow
+        - Choosing between tools
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to do?
+      description: Describe the desired outcome using generic or synthetic examples.
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you tried?
+      description: Include the command shape and stable exit code/kind when relevant. Sanitize all environment-specific values.
+  - type: input
+    id: version
+    attributes:
+      label: atl version
+      description: Output of `atl version`, if installed.
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS/architecture and generic product/version family; never include the backend URL.
+      placeholder: "Linux amd64, Jira Data Center 10.x"

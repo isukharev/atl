@@ -162,6 +162,8 @@ round-trip ADF tests, JSON hashing/canonicalization, and endpoint format checks.
 
 - Open a feature request for concrete user-facing needs.
 - Open a roadmap task when the work already maps to a roadmap area.
-- Use Discussions for broad product questions, alternatives, and design feedback.
+- Open a question/support issue for product questions, alternatives, and design
+  feedback.
 - Link real examples whenever possible: page shape, macro type, Jira workflow,
-  Data Center version, and the command you wanted to run.
+  Data Center version, and the command you wanted to run. Sanitize private
+  hosts, object identifiers, content, and user/company data first.

@@ -6,731 +6,245 @@
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Main smoke](https://img.shields.io/github/actions/workflow/status/isukharev/atl/ci.yml?branch=main&label=main%20smoke)](https://github.com/isukharev/atl/actions/workflows/ci.yml)
 
-**Git-style CLI для Confluence и Jira — создан для кодинг-агентов.**
+[Документация](docs/README.md) · [Совместимость](docs/compatibility.md) ·
+[Roadmap](ROADMAP.md) · [Участие](CONTRIBUTING.md) ·
+[Безопасность](SECURITY.md)
 
-`atl` позволяет кодинг-агенту (например, Claude Code или Codex) работать с Confluence и Jira
-так же, как с кодом: зеркалировать документы на диск, искать с помощью `ripgrep`,
-редактировать **нативный формат хранения** (Confluence Storage Format, `.csf`),
-работать с диффами и публиковать изменения под **оптимистичным version gate**, который
-не позволяет молча затереть параллельные правки.
+**Lossless local-first workflows для Jira и Confluence Server/Data Center.**
 
-Для сессий только на чтение задайте `ATL_READ_ONLY=1` (или глобальный
-`--read-only`). Мутирующие команды отклоняются до credentials, body-файлов,
-self-update и сети; чтение, pull, status и export остаются доступны. Постоянный
-guard: `atl config set safety.read_only true`.
-Help и shell completion остаются доступны в read-only режиме.
-Маркеры durable-view Confluence принимают окончания строк LF и CRLF.
+`atl` позволяет людям и кодинг-агентам читать, зеркалировать, сравнивать и
+обновлять Atlassian-контент обычными локальными инструментами. Байты
+Confluence `.csf` и Jira `.wiki` остаются write-substrate; Markdown — только
+производный staging-view. Удалённые изменения проходят явные version,
+baseline или proposal gates и не затирают параллельные правки молча.
 
-> **Отказ от аффилиации:** этот проект является независимым инструментом с открытым
-> исходным кодом и НЕ связан с Atlassian Pty Ltd, не одобрен и не спонсирован ею.
-> Подробнее — в разделе [Товарные знаки и отказ от ответственности](#товарные-знаки-и-отказ-от-ответственности).
+```sh
+export ATL_READ_ONLY=1
+atl conf search --cql 'type = page' --limit 1
+atl conf pull --id 123456 --into "$HOME/.atl/example-workspace"
+atl conf diff "$HOME/.atl/example-workspace" -o text
+```
 
----
+Pull создаёт локальные файлы, но не меняет Jira или Confluence. Снимайте
+read-only policy только после проверки конкретного предложения записи.
 
-## Возможности
+> `atl` — независимый open-source проект. Он не связан с Atlassian Pty Ltd, не
+> одобрен и не спонсирован ею.
 
-- **Зеркало на диске** — скачивает страницы (вместе с ресурсами) в локальную директорию,
-  воспроизводящую иерархию страниц Confluence; ищите любым текстовым инструментом.
-- **Редактирование в нативном формате** — работа напрямую с байтами `.csf` (Confluence
-  Storage Format); без потерь при Markdown-конвертации: макросы, панели, шаблоны и
-  диаграммы не теряются молча.
-- **Оптимистичный version gate** — `push` завершается с кодом 5 при расхождении версий
-  и заранее показывает последствия через `--dry-run`; `--force` разрешает конфликт, когда
-  вы отдаёте себе отчёт в происходящем.
-- **Работа с диаграммами** — draw.io-макросы разрешаются в PNG нужной ревизии, чтобы
-  агент с поддержкой vision мог их изучить.
-- **Интеграция с Jira** — запросы, комментарии, переходы статусов; зеркалирование задач на диск
-  как нативный `.wiki` + отрендеренный `.md`, затем правка `# Description` или явно разрешённых
-  rich-text полей в `.md`-виде и подготовка через `jira apply` (или правка `.wiki` напрямую), и отправка через
-  `jira status` / `jira push` (по умолчанию dry-run; защита от дрейфа отклоняет устаревшую запись,
-  так как в Jira нет серверного version gate).
-- **Bearer PAT, per-request** — токены отправляются только на настроенный хост и никогда
-  не записываются в репозиторий или зеркало.
-- **Самообновление с подписью** — бинарник обновляется из GitHub Releases не чаще одного
-  раза в 6 часов, с проверкой SHA-256 и ed25519-подписи. Установки Homebrew
-  обновляются только через `brew upgrade atl`. Подробнее — в
-  [docs/self-update.md](docs/self-update.md), [сетевом контракте](docs/network-egress.md)
-  и [SECURITY.md](SECURITY.md).
-- **Удобен для скриптов** — JSON в stdout, логи и ошибки в stderr, без интерактивных
-  запросов, чёткие коды выхода.
-- **Типизированный read-only MCP** — `atl mcp serve` предоставляет агентам двадцать
-  ограниченных Jira/Confluence evidence-tools без записи, shell, raw REST и произвольных файлов;
-  два из них офлайн возвращают content-free health snapshot заданного владельцем зеркала.
-- **Один статический бинарник** — `CGO_ENABLED=0`, запускается везде, где работает Go 1.26.
+## Начните с задачи
 
----
+| Цель | Руководство | Результат |
+|---|---|---|
+| Установить и проверить один backend | [Getting started](docs/getting-started.md) | Первое ограниченное чтение и локальное зеркало |
+| Дать кодинг-агенту безопасный доступ | [Agent setup](docs/agent-setup.md) | Узкие skills и типизированный read-only MCP |
+| Зеркалировать, править и публиковать | [Safe writes](docs/safe-writes.md) | Native local diff и одна guarded-запись |
+| Проверить подходящую среду | [Compatibility](docs/compatibility.md) | Supported, unverified и unsupported границы |
+| Разобраться с ошибкой | [Troubleshooting](docs/troubleshooting.md) | Восстановление от кода выхода |
+
+Полный [справочник команд](docs/usage.md) и
+[контракт вывода](docs/OUTPUT_CONTRACT.md) сохранены, но для первого успешного
+workflow читать их целиком не нужно.
 
 ## Установка
 
-### Быстрая установка (Linux / macOS)
+Статические release-бинарники для Linux и macOS доступны на amd64 и arm64.
 
 ```sh
 curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | sh
 ```
 
-Устанавливает в `~/.local/bin/atl` и проверяет SHA-256 контрольную сумму. С каждым
-релизом публикуется SLSA build provenance для опциональной проверки out-of-band
-(см. [docs/RELEASING.md](docs/RELEASING.md)); сам установщик не требует `gh`.
+Установщик проверяет SHA-256. Релизы также публикуют checksums, подписи и SLSA
+provenance.
 
-### go install
-
-```sh
-go install github.com/isukharev/atl/cmd/atl@latest
-```
-
-### Скачать бинарник
-
-Скачайте готовый бинарник со страницы
-[GitHub Releases](https://github.com/isukharev/atl/releases). Рядом с каждым релизом
-публикуются контрольные суммы и подписи.
-
-### Homebrew
+Homebrew:
 
 ```sh
 brew install isukharev/tap/atl
 ```
 
-> Формула (`atl.rb`, с привязкой к SHA-256 каждого бинарника) публикуется с каждым релизом. Если
-> tap ещё недоступен, используйте быструю установку или `go install` выше. Launcher формулы
-> отключает самообновление бинарника; используйте `brew upgrade atl`.
-
-**Требования:** Linux или macOS (amd64/arm64). Для сборки из исходников нужен Go 1.26.5+; у готового
-бинарника нет зависимостей времени выполнения.
-
----
-
-## Быстрый старт
-
-От нуля до первого результата напрямую через CLI (для агентских плагинов — см. следующий раздел):
+Из исходников (Go 1.26.5+):
 
 ```sh
-# 1. Установка (Linux/macOS) — затем добавьте ~/.local/bin в PATH, если установщик попросит
-curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | sh
+go install github.com/isukharev/atl/cmd/atl@latest
+```
 
-# 2. Укажите atl на ваш(и) инстанс(ы) — Server/Data Center, обязателен https
-atl config set --confluence-url https://confluence.example.com \
-               --jira-url       https://jira.example.com
+Прямые загрузки находятся в [GitHub Releases](https://github.com/isukharev/atl/releases).
+Windows пока не поддерживается; полное platform/backend evidence находится в
+[compatibility.md](docs/compatibility.md).
 
-# 3. Добавьте Personal Access Token (скрытый ввод; никогда в argv)
+## Первое чтение
+
+Настройте только нужный сервис:
+
+```sh
+atl config set --confluence-url https://confluence.example.com
+# или:
+atl config set --jira-url https://jira.example.com
+
 atl auth login --service confluence
+# или:
+atl auth login --service jira
 
-# 4. Проверьте и сделайте дешёвое чтение
 atl auth status
+```
+
+`auth login` читает bearer PAT из скрытого prompt, stdin или файла — никогда из
+argv. `auth status` показывает только источник credential.
+
+Затем выполните одно ограниченное чтение:
+
+```sh
+export ATL_READ_ONLY=1
+
 atl conf search --cql 'type = page' --limit 1
+# или:
+atl jira issue search --jql 'order by updated DESC' --limit 1
 ```
 
-Чистый JSON-результат на шаге 4 означает, что всё готово. Код выхода **7** — URL или PAT ещё не
-настроены (завершите шаги 2–3); **3** — PAT передан, но сервер его отклонил. Автоматизируете в CI?
-См. [docs/usage.md → Scripting & CI](docs/usage.md#scripting--ci).
+JSON — формат по умолчанию. Код `7` означает незавершённую/некорректную
+конфигурацию; код `3` — backend отклонил PAT. Продолжение —
+[пятиминутное руководство](docs/getting-started.md).
 
----
+## Три основных workflow
 
-## Использование с кодинг-агентами
+### 1. Узкое чтение
 
-`atl` поставляет устанавливаемые workflow для Claude Code и Codex, так что агент может сам
-установить CLI и работать с ним за вас.
+Начинайте с CQL/JQL discovery, затем читайте только выбранный объект или поля.
+До утверждения об отсутствии проверяйте completeness и truncation.
 
-### Claude Code
-
-Этот репозиторий одновременно является marketplace плагинов для
-[Claude Code](https://claude.com/claude-code). Добавьте marketplace и установите плагин:
-
+```sh
+export ATL_READ_ONLY=1
+atl jira issue search \
+  --jql 'assignee = currentUser() order by updated DESC' \
+  --limit 20
+atl conf search --cql 'type = page' --limit 20
 ```
+
+### 2. Зеркало и diff
+
+Храните зеркало вне source repository:
+
+```sh
+export ATL_READ_ONLY=1
+export ATL_MIRROR_ROOT="$HOME/.atl/example-workspace"
+
+atl conf pull --id 123456
+atl conf status "$ATL_MIRROR_ROOT"
+atl conf diff "$ATL_MIRROR_ROOT" -o text
+
+# Маршрут Jira:
+atl jira pull --jql 'project = EXAMPLE order by key' --limit 20
+atl jira status "$ATL_MIRROR_ROOT"
+```
+
+Используйте `.md` для чтения и поддерживаемых staging-правок. Нативные `.csf` /
+`.wiki` сохраняют конструкции, которые Markdown не может представить.
+
+### 3. Проверяемая запись
+
+Write-loop: свежее чтение → candidate → diff/preview → проверенные
+version/baseline/hash → один apply → reconciliation.
+
+```sh
+atl conf apply "$ATL_MIRROR_ROOT/SPACE/page/page.md"
+atl conf validate "$ATL_MIRROR_ROOT/SPACE/page/page.csf"
+atl conf diff "$ATL_MIRROR_ROOT/SPACE/page/page.csf" -o text
+atl conf push "$ATL_MIRROR_ROOT/SPACE/page/page.csf" --dry-run
+```
+
+После проверки повторите точную guarded-команду без `--dry-run`. Confluence
+version conflict даёт код `5`: сделайте re-pull и reapply, не включайте
+`--force` автоматически. Jira-команды записи аналогично привязываются к свежим
+baseline/proposal hash и не повторяют неоднозначную запись. Подробнее —
+[safe-write guide](docs/safe-writes.md).
+
+## Кодинг-агенты
+
+Репозиторий поставляет одинаковые focused skills для Claude Code и Codex, а
+также типизированный read-only MCP server. CLI остаётся маршрутом для durable
+mirrors, export, raw Structure data и любой записи.
+
+Claude Code:
+
+```text
 /plugin marketplace add isukharev/atl
 /plugin install atl@atl
 /atl:setup
 ```
 
-`/atl:setup` устанавливает бинарник `atl`, если его нет, настраивает аутентификацию и базовые URL
-Confluence/Jira и согласовывает локальную директорию зеркала. После этого Claude Code автоматически
-использует общие скиллы ниже по мере необходимости. Версии плагина следуют релизам CLI —
-включите автообновление atl-marketplace (`/plugin` → Marketplaces → Enable auto-update; для
-сторонних marketplace оно по умолчанию выключено), чтобы каждый релиз обновлял скиллы вместе с
-самообновляющимся бинарником. Плагин также содержит ту же типизированную
-read-only MCP-поверхность, что описана ниже для Codex; после настройки бинарника
-перезапустите Claude Code.
-
-### Codex
-
-В репозитории также есть metadata Codex-плагина и repo-local marketplace. Добавьте marketplace и
-установите тот же набор workflow:
+Codex:
 
 ```sh
 codex plugin marketplace add isukharev/atl
 codex plugin add atl@atl
 ```
 
-Затем начните новую сессию Codex, вызовите skill `setup` через `/skills` или `$setup` и дайте ему
-установить/настроить CLI `atl`. После этого можно отдельно вызвать `$onboarding`: он сформирует
-проверяемый приватный профиль только по явно разрешённым примерам. После setup Codex сможет
-использовать те же встроенные скиллы по мере необходимости. Плагин также запускает
-типизированную read-only MCP-поверхность бинарника; после установки и настройки `atl`
-начните новую сессию. Восемнадцать tools, их лимиты и standalone setup описаны в
-[docs/mcp.md](docs/mcp.md).
+После установки начните новую сессию агента и вызовите явный setup skill.
+[Agent setup](docs/agent-setup.md) описывает version skew, размещение зеркала,
+read-only policy и выбор CLI/MCP.
 
-Метаданные скиллов декларируют взаимоисключающие discovery-границы: для
-специализированного workflow, кросс-сервисного поиска, прямой работы с
-Jira/Confluence и ориентации или зеркала `atl` предусмотрен один целевой
-маршрут. Setup и onboarding вызываются только явно, а упоминания Atlassian в
-работе с кодом объявлены no-activation cases. Офлайн-корпус проверяет эту
-policy; фактический выбор провайдера измеряется отдельно model-in-the-loop
-прогонами.
+## Почему `atl`
 
-Основные скиллы:
+Проект объединяет четыре контракта:
 
-- **`atl`** — ориентация и действительно смешанная работа с локальным зеркалом:
-  когда использовать `atl` (а когда live Atlassian MCP), workflow «сначала
-  поиск» и где живёт зеркало.
-- **`confluence`** — pull, правка `.csf`, валидация и публикация страниц под version gate.
-- **`jira`** — поиск/выгрузка задач, проверка точных метаданных Structure, обнаружение папок и нормализованные срезы Structure и Kanban/Scrum-досок,
-  а также create/update/transition/comment/link через guarded-команды.
-- **`onboarding`** — опциональное consent-gated изучение workflow, явные командные defaults и
-  проверяемый приватный профиль; дальнейшие наблюдения превращаются в deterministic
-  review/apply/reject suggestions, schema facts ревалидируются явно, а сохранённые настройки
-  рендера/зеркала синхронизируются с runtime только после отдельного подтверждения.
+- lossless native local storage вместо Markdown-only write path;
+- обычные offline search, diff, status и review workflows;
+- optimistic/baseline-bound записи без слепых retry;
+- bounded JSON/typed MCP evidence для automation и agents.
 
-Для незнакомой задачи агент может не загружать широкий help и все справочники,
-а воспользоваться версионированным офлайн-роутером:
+`atl` намеренно Server/Data Center и local-first. Atlassian CLI и Rovo MCP
+обслуживают Atlassian Cloud, а community MCP servers ориентированы на широкую
+live tool inventory. Выбирайте `atl`, когда важны нативные локальные байты,
+offline diff и явные write gates. Ссылки на источники и сравнение без рейтинга —
+в [compatibility.md](docs/compatibility.md#choosing-a-different-tool).
 
-```sh
-atl capabilities --task jira/evidence
-atl capabilities --task confluence/edit -o text
-atl capabilities --task jira/board-portfolio -o text
-atl capabilities --task jira/batch-analysis -o text
-atl capabilities --task jira/structure-planning -o text
-atl capabilities --task jira/mirror -o text
-atl capabilities --task confluence/table-analytics -o text
-atl capabilities --task confluence/mirror -o text
-atl capabilities --task knowledge/search -o text
-```
+## Безопасность и вывод
 
-Он возвращает небольшой упорядоченный набор реальных команд с контрактами
-доступа, форматов вывода, полноты, одной точечной ссылкой на skill и наличием
-ограниченного typed MCP route. Для MCP-маршрута явно указана более узкая область;
-это не обещание полной эквивалентности всем CLI-форматам и workflow. Команда не
-читает конфиг/credentials и не делает сетевых запросов.
-В маршруте `jira/evidence` широкое обнаружение начинается с
-`jira issue search`, после чего выполняются точная квалификация полей задачи и
-ограниченное раскрытие выбранного поля.
-Маршрут `jira/structure-planning` отдельно описывает чтение иерархии, явную
-проекцию значений строк Structure и временный экспорт задач; проекция значений
-остаётся read-only, хотя Tempo передаёт тело такого запроса методом POST.
+- `ATL_READ_ONLY=1` / `--read-only` блокирует мутации до credentials,
+  body-файлов, self-update и сети.
+- PAT host-scoped; cross-host и HTTPS-downgrade redirects запрещены.
+- JSON идёт в stdout по умолчанию; логи/ошибки — в stderr.
+- Стабильные коды выхода классифицируют usage, auth, not-found, version
+  conflict, forbidden, config и safety failures.
+- Reads ограничены и квалифицируют incomplete/truncated результаты.
+- Generic retry применяется только к replay-safe reads, никогда к writes.
+- Подписанный self-update имеет пятисекундный remote startup budget и
+  отключается через `ATL_NO_UPDATE=1`.
 
-Для transient evidence из Jira/Confluence установленные плагины могут вызывать
-те же application services через типизированные MCP tools без конструирования
-shell-команд. Для bounded transient-анализа Structure используйте typed tools
-metadata/view. Два no-argument mirror snapshot tools офлайн читают только явно
-заданный `ATL_MIRROR_ROOT` и возвращают content-free health counts.
-`confluence_page_meta` читает без body идентичность, версию, время обновления и
-состояние доступа страницы, не смешивая неизвестное состояние ограничений с
-отсутствием ограничений.
-Для сессии, которой нужен только один сервис, запустите
-`atl mcp serve --service jira`, `--service confluence` или
-`--service offline`: эти закрытые профили публикуют только проверенные наборы
-из 10, 10 или 2 tools. Команда без флага сохраняет полный набор из двадцати
-tools. MCP-клиент может прочитать фиксированный офлайн-ресурс
-`atl://capabilities` с теми же content-free фактами маршрутизации CLI/MCP.
-Raw
-forest/values Structure, содержимое/status/diff зеркала, export, diff/plan и все
-guarded writes остаются в CLI. MCP v1 по конструкции допускает только read-only
-операции.
+Подробнее: [контракт вывода](docs/OUTPUT_CONTRACT.md),
+[network egress](docs/network-egress.md),
+[self-update trust](docs/self-update.md) и [SECURITY.md](SECURITY.md).
 
-Поверх справочных скиллов плагин включает workflow-рецепты — сквозные процессы со встроенным
-подтверждением перед созданием чего-либо:
+## Документация
 
-- **`search-knowledge`** — ответы на вопросы по Confluence + Jira с цитированием источников.
-- **`triage-issue`** — поиск дублей и прошлых фиксов перед заведением структурированного бага.
-- **`status-report`** — статус-отчёт из Jira с опциональной публикацией в Confluence.
-- **`spec-to-backlog`** — превращает спецификацию из Confluence в Epic со связанными задачами.
-- **`sprint-dashboard`** — read-only визуальный срез текущего спринта.
-- **`meeting-tasks`** — action items из заметок встречи в задачи Jira с исполнителями.
+- [Task-first index](docs/README.md)
+- [Готовые agent recipes](docs/agent-recipes.md)
+- [Полный command reference](docs/usage.md)
+- [Confluence storage и fragments](docs/csf-and-fragments.md)
+- [Typed read-only MCP](docs/mcp.md)
+- [Архитектура](docs/architecture.md)
 
-Обе платформы получают одни и те же скиллы, генерируемые из единого источника
-[`skills-src/`](skills-src/) (устройство пайплайна: [docs/plugins.md](docs/plugins.md)). Упаковка
-Claude Code находится в [`.claude-plugin/`](.claude-plugin/); упаковка Codex — в
-[`plugins/atl`](plugins/atl), а repo marketplace — в
-[`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json).
+Вопросы, compatibility reports и обезличенные дефекты отправляйте через
+[GitHub Issues](https://github.com/isukharev/atl/issues/new/choose). Никогда не
+публикуйте credentials, private hosts, object IDs, titles/content, user
+identity, company data или private local paths. Security vulnerabilities
+следуют [SECURITY.md](SECURITY.md).
 
----
-
-## Аутентификация
+## Сборка и участие
 
 ```sh
-# 1. Укажите базовые URL ваших инстансов Confluence и Jira
-atl config set \
-  --confluence-url https://confluence.example.com \
-  --jira-url       https://jira.example.com
-
-# 2. Передайте Personal Access Token (PAT) — только Server/Data Center.
-#    Токен читается из скрытого ввода, stdin или --from-file — никогда из argv.
-atl auth login --service confluence   # запросит ввод без эха
-atl auth login --service jira         # запросит ввод без эха
-
-# Или используйте переменные окружения (рекомендуется для CI / агентских сессий):
-export ATL_CONFLUENCE_PAT=<PAT>
-export ATL_JIRA_PAT=<PAT>
-
-# 3. Проверьте
-atl auth status
-atl config show
-
-# Опциональная явная GET-only диагностика временной семантики.
-# Без JQL/CQL/search/page reads, URL и данных пользователя в выводе.
-export ATL_READ_ONLY=1
-atl environment inspect
+make build
+make test
+make lint
 ```
 
-Токены хранятся в файле `0600` в директории `~/.config/atl` (или берутся из
-переменных окружения выше). Они никогда не записываются в зеркало или репозиторий.
-
-> **Только Server / Data Center.** `atl` аутентифицируется через **bearer Personal Access Token** —
-> это модель токенов Confluence/Jira **Server & Data Center**. Atlassian **Cloud**
-> (`*.atlassian.net`) использует Basic-аутентификацию email + API-token и **не поддерживается**.
->
-> - **Базовый URL** — то, что вы вводите в браузере для доступа к инстансу, например
->   `https://confluence.example.com` (без `/wiki`, `/display/…` или пути к странице). Обязателен
->   `https` (для внутреннего http-инстанса нужен `ATL_ALLOW_INSECURE=1`).
-> - **PAT** — создаётся в веб-интерфейсе: ваш профиль → **Personal Access Tokens** → *Create token*.
->   Используйте токен с минимальными правами под задачу; для Confluence и Jira нужны отдельные токены.
-
----
-
-## Работа с Confluence
-
-### 1. Скачать страницы на диск
-
-```sh
-atl conf pull \
-  --cql 'space=DOCS and title~"Acme"' \
-  --assets \
-  --into mirror
-
-# Полная историческая загрузка сверх обычных лимитов выборки. Набор страниц
-# проверяется дважды до body GET; для продолжения повторите точную команду.
-atl conf pull --complete --cql 'space=DOCS and type=page' --into mirror
-
-# Опциональные проверенные лимиты нагрузки: запись/checkpoint остаются
-# последовательными, а все Confluence/Jira запросы делят темп 8 стартов/с.
-atl conf pull --complete --cql 'space=DOCS and type=page' \
-  --page-prefetch 4 --requests-per-second 8 --into mirror
-
-# Повторное обновление большой выборки без загрузки неизменившихся страниц.
-# Первый запуск требует одну абсолютную границу с явным смещением. Безопасное
-# окно 48 часов не даёт неизвестной CQL-зоне бэкенда пропустить страницы.
-atl conf pull --incremental --cql 'space=DOCS and type=page' \
-  --since '2026-07-01T00:00:00+03:00' --into mirror
-# Последующие запуски используют UTC-watermark; --since не нужен.
-atl conf pull --incremental --cql 'space=DOCS and type=page' --into mirror
-```
-
-Incremental preflight автоматически мигрирует старый поддерживаемый `.md` только
-при точном совпадении его байтов с pristine legacy-видом. Изменённые и неизвестные
-форматы блокируются до чтения body страниц.
-
-`atl environment inspect` раздельно показывает наблюдаемый offset сервера Jira
-и timezone текущего пользователя, предположение для JQL, доступное поле
-пользователя Confluence, честный `unknown` для CQL parser timezone,
-настроенную/default зону Markdown и фиксированное overlap-окно 48 часов. Команда
-запускается только явно и выполняет не более трёх последовательных metadata
-GET; incremental pull не вызывает её и не делает calibration-запросов.
-
-По умолчанию большие pull остаются последовательными. `--page-prefetch` (1–8)
-явно задаёт ограниченное окно чтения native body; `--requests-per-second`
-применяется общим scheduler ко всем фактическим Confluence и опциональным Jira
-macro-запросам и общему `Retry-After`. Path claim, assets/sidecars, запись в
-зеркало и checkpoint всегда выполняются последовательно в каноническом порядке.
-
-### 2. Изучить зеркало
-
-```
-mirror/
-  DOCS/                         # ключ пространства
-    acme-adr/
-      acme-adr.csf              # источник правды (нативный формат хранения)
-      acme-adr.md               # производное staging-представление; изменения через conf apply
-      acme-adr.meta.json        # id, версия, хэш содержимого, разрешённые фрагменты, comment_count
-      acme-adr.comments.json    # [{id,author,created,body,body_storage?}] (при --comments)
-      acme-adr.comments.md      # производное представление для чтения (при --comments)
-      acme-adr.assets/*.png     # рендеры draw.io + изображения страницы (при --assets)
-      child-page/…              # дерево папок воспроизводит иерархию страниц
-  .atl/                         # sidecar: синхронизированное состояние + база
-    incremental.json            # watermarks завершённых обновлений по выборкам
-    complete-pulls/*.json       # приватные возобновляемые snapshot точных id
-  .gitignore
-```
-
-Ищите по зеркалу любым текстовым инструментом:
-
-```sh
-rg "decision" mirror/
-```
-
-### 3. Редактирование, валидация и публикация
-
-```sh
-# Проще всего: проверьте marker v4, правьте markdown-представление и слейте правки в .csf.
-# Нетронутые блоки сохраняют байты в точности; неконвертируемые правки отклоняются.
-$EDITOR mirror/DOCS/acme-adr/acme-adr.md
-atl conf apply mirror/DOCS/acme-adr/acme-adr.md --dry-run
-atl conf apply mirror/DOCS/acme-adr/acme-adr.md
-
-# Или редактируйте нативный формат напрямую
-$EDITOR mirror/DOCS/acme-adr/acme-adr.csf
-
-# Валидация перед публикацией (блокирует при невалидном XML, предупреждает о проблемах)
-atl conf validate mirror/DOCS/acme-adr/acme-adr.csf
-
-# Опциональная справочная проверка совместимости с Confluence Cloud (только warning, не блокирует).
-# Добавляет находки cloud-compat/* и cloud_compat.rule_pack / source_date; не предсказывает
-# результат миграции и не делает выводов о неуказанных marketplace-, пользовательских
-# или неизвестных макросах.
-atl conf validate mirror/DOCS/acme-adr/acme-adr.csf --cloud-compat
-
-# Офлайн-проверка изменений native baseline → candidate (по умолчанию JSON)
-ATL_READ_ONLY=1 atl conf diff mirror/DOCS/acme-adr/acme-adr.csf -o text
-# Text использует пути относительно корня и явные метки semantic/byte-only/none;
-# JSON нужен для детальных block/hash/validation evidence.
-# baseline_mismatch означает повреждение sync-evidence: сохраните правки и сделайте re-pull
-
-# Dry-run — посмотрите, что сделает удалённая запись
-atl conf push mirror/DOCS/acme-adr/acme-adr.csf --dry-run
-
-# Публикация (выходит с кодом 5 при расхождении версий; для восстановления: re-pull + reapply)
-atl conf push mirror/DOCS/acme-adr/acme-adr.csf
-
-# Статус синхронизации
-atl conf status mirror --remote
-
-# Точные счётчики mirror/baseline/validation/render без содержимого (по умолчанию офлайн)
-# При конкурентном изменении mirror команда завершается до inspection и не пишет файлы.
-ATL_READ_ONLY=1 atl conf snapshot mirror
-ATL_READ_ONLY=1 atl conf snapshot mirror --remote # один single-attempt metadata probe на tracked-страницу
-
-# Для нескольких страниц: зафиксируйте набор, сделайте preview и примените точный план.
-atl conf plan create mirror/DOCS/ --out .atl-private/docs-plan.json
-ATL_READ_ONLY=1 atl conf plan preview .atl-private/docs-plan.json
-atl conf plan apply .atl-private/docs-plan.json \
-  --expected-proposal-hash <HASH-ИЗ-PREVIEW> --confirm APPLY
-```
-
-### Другие команды Confluence
-
-```sh
-atl conf search --cql 'space=DOCS and label="adr"'
-# JSON квалифицирует выборку через complete/truncated/partial_reason;
-# -o text даёт Markdown-таблицу кандидатов с тем же сигналом полноты.
-atl conf space tree --space DOCS
-# Идентификаторы страниц берутся из вывода atl conf pull (meta.json → поле "id") или URL страницы.
-atl conf page view 123456 -o text   # настроенный Markdown без артефактов mirror
-atl conf page view 123456 --jira-view full -o text # read-only таблицы Jira-макросов
-atl conf page view 123456 --jira-macros off -o text # только placeholders; без Jira credentials/search
-atl conf page get     --id 123456
-atl conf page get     --id 123456 --format csf
-atl conf page meta    --id 123456  # если restricted отсутствует, состояние неизвестно
-atl conf page history --id 123456 # полнота: complete + partial_reason; пустой успех: "versions":[]
-atl conf attachment list --id 123456 # qualified: complete + partial_reason; пустой успех: "attachments":[]
-atl conf attachment list --id 123456 --expected-version 7 # отказ, если страница уже не на v7
-# Guarded-обновление title: значение берётся из файла/stdin, а не argv
-atl conf page title set 123456 --from-file title.txt
-# Затем --apply с --expected-version и --expected-proposal-hash из preview
-atl conf page labels list 123456
-atl conf page labels add 123456 reviewed-label # dry-run; apply с proposal hash из preview
-# Типизированные read-only метаданные страницы (см. docs/usage.md)
-atl config set render.display_time_zone Europe/Moscow # только Markdown; JSON/native timestamp остаются точными
-atl config set render.confluence.include page_fields
-atl config set render.confluence.page_fields '[{"id":"title"},{"id":"updated","format":"date"}]'
-atl config set render.confluence.jira_macros off # default auto; отключить JQL со страниц глобально
-# View v4 разделяет # Metadata / # Content / Jira-запросы / # Comments; нативное
-# форматирование комментариев и target ссылок на страницы сохраняются.
-atl conf table summary --id 123456 # точные счётчики без текста + независимая сверка span
-atl conf table extract --id 123456 --format json # ячейки + явные returned/reconciled-счётчики
-atl conf table extract --id 123456 --table 2 --expected-version 7 --format json # привязать индекс из summary к ревизии
-atl conf table extract --id 123456 --table 2 --format csv # формулы нейтрализуются по умолчанию
-atl conf table extract --id 123456 --table 2 --format csv --raw-csv # небезопасно открывать в таблицах
-atl conf table extract --id 123456 --format xlsx --out tables.xlsx
-atl conf page create  --space DOCS --parent 123456 --title "My Page" --from-file body.csf
-atl conf page create  --space DOCS --title "From markdown" --from-md body.md
-atl conf blog create  --space DOCS --title "Еженедельный отчёт" --from-md update.md
-# Непроверяемый или нормализованный результат имеет статус unknown; не повторяйте POST.
-# Guarded-перенос: сначала preview, затем apply с полученными source-state gates
-atl conf page move    123456 --parent 654321
-atl conf page delete  --id 123456
-atl conf comment list --id 123456
-atl conf comment add  --id 123456 --from-file comment.csf
-```
-
-В JSON-схеме таблиц v3 используется компактный устойчивый provenance: исходные
-ячейки не имеют маркера, повторения span указывают координаты источника, а
-прямоугольное заполнение имеет `synthetic:true`. Результаты summary и extract
-содержат точный marker `cell_contract:"confluence-table-cells/compact-v3"`.
-
----
-
-## Модель редактирования и защитные механизмы
-
-Байты `.csf` являются **субстратом** — то, что вы записываете, то и публикуется.
-Нет потерь при Markdown-конвертации: макросы, панели, шаблоны и диаграммы никогда не
-теряются молча.
-
-| Защита | Поведение |
-|--------|-----------|
-| `atl conf validate` | Блокирует невалидный или чрезмерно вложенный CSF (с указанием строки/колонки); предупреждает о структурных проблемах |
-| `atl conf validate --cloud-compat` | Опциональная справочная проверка совместимости с Cloud (предупреждения `cloud-compat/*`, версионированный rule pack); не блокирует и не предсказывает результат миграции |
-| `atl conf plan create/preview/apply` | Фиксирует набор страниц; полный read-only preview, точный hash + подтверждение, без force/replay |
-| `atl conf push --dry-run` | Показывает все последствия без записи |
-| Version gate | `push` завершается с кодом **5**, если удалённая версия опередила последнюю синхронизацию |
-| `--force` | Обходит version gate; безопасное восстановление — re-pull + reapply |
-| Диаграммы | draw.io-макросы разрешаются в PNG нужной ревизии для визуального осмотра |
-
----
-
-## Jira
-
-```sh
-# Чтение
-atl jira issue get  PROJ-1
-atl jira issue fields PROJ-1 # compact non-empty поля с именами по умолчанию
-atl jira issue fields PROJ-1 --metadata-only # каталог без значений + детерминированная сводка
-atl jira issue fields PROJ-1 --field "Delivery Notes"
-atl jira issue field get PROJ-1 --field "Delivery Notes" --max-bytes 16384 # точечное bounded-чтение
-atl jira issue history PROJ-1 --field "Delivery Notes" --since 2026-04-01 # summary различает пропущенные и повторные id
-atl jira issue history PROJ-1 --summary-only # детерминированные факты без сырых строк changelog
-# Чтобы получить сырые строки, опустите --summary-only; явное false запрещено.
-atl jira issue refs PROJ-1 --fields "Delivery Notes" # ссылки и согласованные агрегаты
-# Календарные даты/кварталы используют timezone текущего пользователя Jira;
-# RFC3339 с явным offset остаётся точным и не требует этого metadata GET.
-# Пропуски/повторы полуночи охватывают весь civil day; пропущенная дата — exit 8.
-# --keys/--ids сохраняют порядок селекторов после дедупликации; отсутствующие задачи пропускаются
-atl jira export --keys PROJ-1,PROJ-2 --fields "Delivery Notes" --out - | jq -s '.'
-atl conf page resolve 'https://confluence.example.test/spaces/ENG/pages/42/Page'
-atl conf page outline 42 # затем привяжите секцию к точной версии из outline
-atl conf page section 42 --heading 'Delivery Notes' --expected-version 7 -o text
-atl conf page sections 42 --heading 'Summary' --heading 'Risks' \
-  --occurrence 0 --occurrence 0 --expected-version 7 -o text # одно чтение страницы
-# exit 8, если страница изменилась; опускайте --expected-version только для заголовка,
-# заданного вне предыдущего чтения (page_version_gated:false — ничего не сверяет)
-atl jira epic digest PROJ-1 --quarter 2026-Q2 --status-field 'Delivery Notes' --projection compact
-atl jira issue view PROJ-1 -o text   # настроенный Markdown без записи файлов
-atl jira issue search --jql 'project = PROJ AND status = "In Progress"' --columns key,summary,status,assignee
-atl jira issue search --jql 'project = PROJ' --view full
-# --limit запрашивает maxResults 1..1000 (по умолчанию 50); Jira может вернуть меньше; проверяйте page.complete/partial_reason и продолжайте только по ненулевому page.next_cursor
-atl jira issue children PROJ-100 --columns key,summary,status,assignee
-atl capabilities --task jira/portfolio            # bounded-маршрут квартального плана
-atl capabilities --task jira/edit                 # guarded-запись полей, worklog и планов
-atl jira board view 5 -o text                  # нормализованный вид Kanban/Scrum
-atl jira board view 5 --columns key,status,updated,customfield_10001 --epic-field customfield_10001 --done-status Done # детерминированный epic rollup
-atl jira sprint current --board 5              # активный спринт
-atl jira structure get 123                     # метаданные одного точного Structure
-atl jira structure folders 123                 # точные поддеревья; пустые labels остаются явными
-atl jira structure view 123 --folder-id 100 -o text
-atl jira structure view 123 --folder-id 100 --expected-forest-signature 55 --expected-forest-version 7 # привязать селектор из view к одной версии forest
-atl jira structure export 123 --folder-id 100 --format md --out plan.md --expected-forest-signature 55 --expected-forest-version 7 # ту же пару принимают rows, pull-issues и export; устаревшая пара — выход 8 до создания файла
-atl jira planning report --jql 'project = PROJ' --limit 100
-atl jira quality-report --jql 'project = PROJ' # compatibility alias
-atl jira issue link suggest --csv links.csv     # read-only анализ кандидатов
-atl profile show --section render_defaults --service jira
-atl jira issue worklog list PROJ-1 -o text
-atl jira issue attachment list PROJ-1
-atl jira issue attachment get PROJ-1 --id spec.xlsx --into ./attachments
-
-# Зеркалировать набор задач на диск (добавьте --assets, чтобы также зеркалировать вложения-изображения)
-atl jira pull --jql 'project = PROJ' --into mirror-jira
-atl jira pull --jql 'project = PROJ AND status = Open' --assets
-# Выберите объём .md-представления: minimal | default | full (см. docs/usage.md)
-atl jira pull --jql 'project = PROJ' --render-profile full
-atl jira render mirror-jira --render-profile default   # перерендер офлайн, без повторного pull
-# Snapshot координирует чтение с изменениями mirror, не создавая lock-файл.
-ATL_READ_ONLY=1 atl jira snapshot mirror-jira          # точные счётчики состояния без содержимого
-ATL_READ_ONLY=1 atl jira snapshot mirror-jira --remote # один single-attempt GET на подходящую задачу
-atl manifest create --root mirror-jira --service jira --selector 'jql=project = PROJ'
-# Pull/render не затирают будущие форматы .md; render предупреждает о каждом нечитаемом snapshot.
-# Типизированные custom fields (читаемые metadata/date/list) и проверяемые задачи эпика
-# настраиваются для зеркала; см. docs/usage.md
-
-# Запись
-atl jira issue attachment upload PROJ-1 --file ./spec.xlsx
-atl jira issue assign PROJ-1 --me
-atl jira issue watchers list PROJ-1
-atl jira issue watchers add PROJ-1 --me # dry-run; apply с proposal hash из preview
-atl jira issue worklog add PROJ-1 --time 1h30m --from-file worklog.txt # dry-run
-# Проверьте baseline_sha256 и примените один раз с привязанным к нему proposal hash
-ATL_READ_ONLY=1 atl jira issue comment preview PROJ-1 --from-md note.md
-# Проверьте body_sha256/baseline_sha256/proposal_hash и один раз примените то же тело
-atl jira issue comment add PROJ-1 --from-md note.md --apply --expected-proposal-hash <hash>
-atl jira issue edit PROJ-1 --old 'timeout = 300' --new 'timeout = 600'
-ATL_READ_ONLY=1 atl jira issue field preview PROJ-1 --from-md customfield_10001=notes.md --allow-fields customfield_10001
-# Проверьте expected_updated и proposal_hash; field set --apply — только после подтверждения.
-ATL_READ_ONLY=1 atl jira issue transition preview PROJ-1 --to Done
-# Проверьте proposal_hash, затем повторите точный запрос с --apply
-atl jira issue transition PROJ-1 --to Done --apply --expected-proposal-hash <hash>
-# До правки перерендерьте представление без актуальной версии в первой строке
-atl jira render mirror-jira
-# Правка поддерживаемых generated-разделов, подготовка через apply, затем push
-atl jira apply mirror-jira/PROJ/PROJ-1.md --dry-run
-
-# Метаданные
-atl jira fields --summary-only # компактная квалификация и согласованные счётчики без значений
-atl jira transitions --key PROJ-1
-atl jira link-types
-atl jira field-options --project PROJ --field <field-id>
-```
-
----
-
-## Соглашения и коды выхода
-
-- JSON в **stdout** по умолчанию; `-o text` только для команд с явным
-  человекочитаемым представлением (иначе exit 2, без подмены на JSON).
-- Логи и ошибки в **stderr** — при сбое по умолчанию JSON `{"error": "...", "code": N}`
-  (или строка `error: <msg>` при `-o text`).
-- Тела запросов передаются через `--from-file <path>` или `--from-file -` (stdin, лимит 64 MiB;
-  больший ввод отклоняется с ошибкой, а не усекается).
-- Никаких интерактивных запросов.
-- Confluence pull/render/apply/push и локальный `conf edit` сериализуются для каждого mirror; при
-  конфликте дождитесь активной операции и не удаляйте постоянный lock в `.atl`.
-- Если re-pull меняет путь отслеживаемой страницы Confluence, локальные правки
-  или коллизия блокируют перенос; после записи нового пути удаляются только
-  старые основные файлы страницы, без рекурсивного удаления дочерних каталогов.
-  Если все три старых основных файла были удалены намеренно, pull исправляет
-  устаревший путь; частичное удаление остаётся ошибкой согласования с кодом 8.
-- Обновления общего `state.json` из Jira и Confluence объединяются под одним
-  нейтральным lock; краткий конфликт повторяется в ограниченном окне, затем
-  операция завершается безопасно, не теряя записи.
-
-| Код | Значение |
-|-----|----------|
-| 0 | Успех |
-| 1 | Общая ошибка |
-| 2 | Неверное использование / неверные аргументы (в т.ч. небезопасный non-https URL) |
-| 3 | Ошибка аутентификации — PAT **был** передан, но сервер его отклонил |
-| 4 | Не найдено |
-| 5 | Конфликт версий (оптимистичная блокировка) |
-| 6 | Доступ запрещён (у токена нет прав) |
-| 7 | Некорректная/неполная конфигурация — например, нет URL/PAT или ошибочен named view |
-| 8 | Защитный отказ — некорректный CSF, неполные данные, stale/drift, неверный derived view, активный lock или пустое обязательное поле |
-
-`7` против `3`: `7` означает «завершите настройку» (нет URL/токена); `3` — «замените токен» (он был
-отклонён). JSON-ошибки также содержат стабильные `kind` и `remediation`,
-вычисленные из локальных типов ошибок: агенту не нужно разбирать backend prose,
-а существующие `error` и `code` не меняются. Версионированный объект `recovery`
-добавляет закрытое действие, решение `retry_safe` о точном повторе, необязательную
-следующую capability и проверенные числовые факты выбора/версии. Это только
-маршрутизация, а не полномочие на запись; если нужны новые данные или аргументы,
-точный повтор небезопасен. После исчерпания ограниченных
-повторов безопасного чтения HTTP 429 классифицируется как `rate_limited` /
-`wait_before_retry`: не повторяйте запрос немедленно и не повторяйте запись
-автоматически. Отказ по выбранному вызывающей стороной `max_bytes`
-классифицируется как `output_limit_exceeded` / `narrow_or_raise_bound`;
-частичный результат при этом не возвращается. Паттерны для скриптов и CI (конфигурация только через env, отключение самообновления,
-изоляция учётных данных, обработка лимита страниц `--cql`) — в
-[docs/usage.md → Scripting & CI](docs/usage.md#scripting--ci).
-
----
-
-## Решение проблем
-
-| Симптом | Вероятная причина и решение |
-|---------|------------------------------|
-| `command not found: atl` после установки | `~/.local/bin` (или `$(go env GOBIN)`) не в `PATH` — добавьте в профиль шелла и переоткройте терминал. |
-| Код **7** / «URL not set» / «no PAT found» | Настройка не завершена — выполните `atl config set --confluence-url …` и `atl auth login --service …` (или задайте `ATL_*_URL` / `ATL_*_PAT`). |
-| Код **7** упоминает `jira_list_views` | Выполните `atl config show`, изучите `jira_list_views_error`, затем замените или удалите некорректные presets через `atl config set jira.list_views.<name> …`; если ошибочных записей несколько, удаляйте их по одной. Runtime-чтения заблокированы до исправления всего каталога. |
-| Некорректный JSON в `config.json` блокирует обычные команды | `atl version`, `atl help`, completion, offline-диагностика profile/auth и локальные `conf status` / `jira status` остаются доступны. Исправьте owner-only файл; `status --remote`, остальные online-чтения и все мутации остаются заблокированы. |
-| Код **3** на каждый вызов | PAT отклонён (истёк/отозван или принадлежит другому инстансу) — создайте новый токен и заново `auth login`. |
-| «refusing to send the PAT over http…» | Базовый URL non-https на non-loopback хосте. Используйте `https` или `export ATL_ALLOW_INSECURE=1` для доверенного внутреннего http-инстанса. |
-| Код **5** при push | Удалённая страница изменилась с момента последнего pull (ожидаемо) — сделайте re-pull, заново примените правку и снова push; `--force` — только после решения человека. |
-| Pull по `--cql` будто теряет страницы | Обычный режим ограничен 1000 (`"truncated": true` + `warning:` в stderr). Сузьте CQL или используйте явный возобновляемый `--complete`, если нужно полное историческое зеркало. |
-| Для прямого REST-запроса нужен PAT | Не кладите токен в argv/логи; используйте env-переменные и передавайте curl header через stdin (см. `docs/usage.md`). |
-| Structure API сообщает, что forest spec/body отсутствует | Проверьте, что request body реально отправлен как файл или stdin payload; избегайте shell-расширений, которые дают пустой body. |
-| Cloud (`*.atlassian.net`) не аутентифицируется | Не поддерживается — `atl` использует bearer-PAT Server/Data Center, а не Cloud API-токены. |
-
----
-
-## Безопасность и самообновление
-
-Бинарник проверяет наличие новых релизов не чаще одного раза в 6 часов. Каждое
-обновление верифицируется SHA-256 контрольной суммой **и** ed25519-подписью по
-публичному ключу, скомпилированному в бинарник. Если релиз не подписан или подпись
-не проходит проверку — обновление не применяется.
-
-- Отключить автообновление: `ATL_NO_UPDATE=1`
-- Установки Homebrew обновляются только через `brew upgrade atl`.
-- Dev-сборки никогда не обновляются автоматически.
-- Для сетевой части просроченной проверки действует общий пятисекундный бюджет
-  запуска.
-- Полная модель доверия: [docs/self-update.md](docs/self-update.md)
-- Сетевые назначения и air-gap рецепт: [docs/network-egress.md](docs/network-egress.md)
-- Политика безопасности: [SECURITY.md](SECURITY.md)
-
----
-
-## Сборка и архитектура
-
-```sh
-make build   # собирает ./atl
-make test    # основные продуктовые тесты
-make agent-eval-contract # полный детерминированный контур evaluator
-make lint    # golangci-lint run
-# либо запустите весь репозиторий напрямую (включая evaluator):
-go build ./...
-go test  ./...
-```
-
-Поддерживаемые сборки через `make build`/`make install` и релизный процесс
-записывают полный commit исходников и состояние checkout (`clean` или `dirty`).
-Идентичность можно проверить через `atl version`; прямые сборки без штампа
-используют Go VCS metadata и возвращают `unknown`, если provenance недоступен.
-Timestamp сборки не добавляется, поэтому одинаковые входы остаются
-воспроизводимыми.
-
-Кодовая база следует **гексагональной архитектуре (ports & adapters)**:
-
-| Пакет | Роль |
-|-------|------|
-| `internal/domain` | Порты (интерфейсы) + модель `Resource` |
-| `internal/adapter/confluence` | REST-адаптер Confluence |
-| `internal/adapter/jira` | REST-адаптер Jira |
-| `internal/csf` | Парсер/сериализатор Confluence Storage Format |
-| `internal/fragment` | Реестр фрагментов |
-| `internal/mirror` | Структура зеркала, sidecar, синхронизация |
-| `internal/app` | Transport-agnostic use-cases |
-| `internal/cli` | Тонкий слой команд Cobra |
-
-Дополнительно: [docs/architecture.md](docs/architecture.md) · [docs/usage.md](docs/usage.md) ·
-[рецепты для агентов](docs/agent-recipes.md) · [docs/self-update.md](docs/self-update.md) ·
-[сетевой контракт](docs/network-egress.md) ·
-[оценка работы агентов](docs/agent-benchmarking.md) ·
-[интеграция Context7](docs/context7.md)
-
-Библиотека Context7 `/isukharev/atl` следует за последним опубликованным
-релизом через ветку `stable`. Документация разработки в `main` может описывать
-ещё не выпущенное поведение; для точного релиза используйте id `/vX.Y.Z`.
-
----
-
-## Участие в разработке
-
-Руководство по участию, соглашения и инструкции по созданию pull request — в файле
+Код следует hexagonal ports-and-adapters architecture. См.
+[architecture.md](docs/architecture.md) и
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
----
+Apache License 2.0 — [LICENSE](LICENSE). Сторонние уведомления:
+[NOTICE](NOTICE).
 
-## Лицензия
-
-Apache License 2.0 — см. [LICENSE](LICENSE).  
-Уведомления о сторонних компонентах: [NOTICE](NOTICE).
-
----
-
-## Товарные знаки и отказ от ответственности
-
-Этот проект является **независимым инструментом с открытым исходным кодом** и **НЕ**
-связан с **Atlassian Pty Ltd**, не одобрен и не спонсирован ею.
-
-«Atlassian», «Confluence» и «Jira» являются зарегистрированными товарными знаками
-Atlassian Pty Ltd. Эти названия используются здесь исключительно в **номинативном,
-описательном смысле** — для идентификации программных продуктов, с которыми
-взаимодействует `atl`, — и не подразумевают никакой связи с Atlassian или её одобрения.
-
-Использование данного программного обеспечения регулируется [лицензией Apache 2.0](LICENSE).
-Авторы и участники проекта не предоставляют никаких гарантий. Уведомления о сторонних
-компонентах — в файле [NOTICE](NOTICE).
+«Atlassian», «Confluence» и «Jira» — зарегистрированные товарные знаки
+Atlassian Pty Ltd и используются только для обозначения продуктов, с которыми
+работает `atl`. Проект не даёт гарантий; см. [NOTICE](NOTICE).
