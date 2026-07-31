@@ -82,6 +82,8 @@ jobs:
         with:
           go-version-file: go.mod
           check-latest: true
+      - name: Maintainer toolchain contract
+        run: make check-maintainer-contract
       - name: Generated plugin trees are current
         run: make check-plugins
       - name: golangci-lint

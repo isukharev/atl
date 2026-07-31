@@ -376,7 +376,7 @@ func validatePrivateWorkspaceMigrationHealth(root, repository string, manifest P
 	if boundaryErr := privateWorkspaceGitBoundary(root, repository, true); boundaryErr != nil || !privateWorkspaceLayoutOK(root) {
 		return PrivateWorkspaceCounts{}, privateWorkspaceMigrationError("workspace_unhealthy", boundaryErr)
 	}
-	modeOK, symlinkOK := inspectPrivateWorkspaceTree(root)
+	modeOK, symlinkOK, workspaceEntries, workspaceBytes := inspectPrivateWorkspaceTree(root)
 	contained, specsOK, validSpecs := inspectPrivateWorkspaceSpecs(root, manifest)
 	if !modeOK || !symlinkOK || !contained || !specsOK || !inspectPrivateWorkspaceMigrationScratch(root, allowStage) {
 		return PrivateWorkspaceCounts{}, privateWorkspaceMigrationError("workspace_unhealthy")
@@ -388,7 +388,8 @@ func validatePrivateWorkspaceMigrationHealth(root, repository string, manifest P
 	if lifecycle.pendingPlans != 0 || lifecycle.activeRuns != 0 {
 		return PrivateWorkspaceCounts{}, privateWorkspaceMigrationError("lifecycle_busy")
 	}
-	counts := PrivateWorkspaceCounts{RunSets: len(manifest.RunSets), ValidSpecs: validSpecs,
+	counts := PrivateWorkspaceCounts{WorkspaceEntries: workspaceEntries, WorkspaceBytes: workspaceBytes,
+		RunSets: len(manifest.RunSets), ValidSpecs: validSpecs,
 		PendingPlans: lifecycle.pendingPlans, ActiveRuns: lifecycle.activeRuns, IncompleteRuns: lifecycle.incompleteRuns,
 		CompletedRuns: lifecycle.completedRuns, PrunedRuns: lifecycle.prunedRuns}
 	for _, runSet := range manifest.RunSets {

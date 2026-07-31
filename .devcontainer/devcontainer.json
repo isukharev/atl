@@ -1,8 +1,11 @@
 {
   "name": "atl dev",
-  "image": "mcr.microsoft.com/devcontainers/go:1.26-bookworm",
+  "image": "mcr.microsoft.com/devcontainers/base:bookworm@sha256:73d85a96694a2cadca1ba3fcb5721f2312a64f1d571dd86f6c77e10a708931dc",
 
   "features": {
+    "ghcr.io/devcontainers/features/go:1": {
+      "version": "1.26.5"
+    },
     "ghcr.io/devcontainers/features/node:1": {
       "version": "lts"
     },
@@ -18,7 +21,8 @@
 
   "containerEnv": {
     "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
-    "CODEX_HOME": "/home/vscode/.codex"
+    "CODEX_HOME": "/home/vscode/.codex",
+    "GOTOOLCHAIN": "local"
   },
 
   "postCreateCommand": "bash ${containerWorkspaceFolder}/.devcontainer/post-create.sh",

@@ -32,6 +32,7 @@ const (
 	maxPrivateWorkspaceRunSets       = 128
 	maxPrivateWorkspaceSpecsPerSet   = 4
 	maxPrivateWorkspaceTreeEntries   = 100_000
+	maxPrivateWorkspaceGitInputBytes = 64 << 20
 )
 
 var (
@@ -183,16 +184,18 @@ func validPrivateReviewerReasoning(kind, reasoning string) bool {
 }
 
 type PrivateWorkspaceCounts struct {
-	FixedDirectories  int `json:"fixed_directories"`
-	RunSets           int `json:"run_sets"`
-	ActivationStudies int `json:"activation_studies"`
-	SpecReferences    int `json:"spec_references"`
-	ValidSpecs        int `json:"valid_specs"`
-	PendingPlans      int `json:"pending_plans"`
-	ActiveRuns        int `json:"active_runs"`
-	IncompleteRuns    int `json:"incomplete_runs"`
-	CompletedRuns     int `json:"completed_runs"`
-	PrunedRuns        int `json:"pruned_runs"`
+	FixedDirectories  int   `json:"fixed_directories"`
+	WorkspaceEntries  int   `json:"workspace_entries"`
+	WorkspaceBytes    int64 `json:"workspace_logical_bytes"`
+	RunSets           int   `json:"run_sets"`
+	ActivationStudies int   `json:"activation_studies"`
+	SpecReferences    int   `json:"spec_references"`
+	ValidSpecs        int   `json:"valid_specs"`
+	PendingPlans      int   `json:"pending_plans"`
+	ActiveRuns        int   `json:"active_runs"`
+	IncompleteRuns    int   `json:"incomplete_runs"`
+	CompletedRuns     int   `json:"completed_runs"`
+	PrunedRuns        int   `json:"pruned_runs"`
 }
 
 type PrivateWorkspaceCheck struct {
@@ -834,7 +837,11 @@ func InspectPrivateWorkspace(root, repositoryRoot string) PrivateWorkspaceReport
 
 	treeModeOK, treeSymlinkOK := false, false
 	if rootOK {
-		treeModeOK, treeSymlinkOK = inspectPrivateWorkspaceTree(absRoot)
+		var entries int
+		var bytes int64
+		treeModeOK, treeSymlinkOK, entries, bytes = inspectPrivateWorkspaceTree(absRoot)
+		report.Counts.WorkspaceEntries = entries
+		report.Counts.WorkspaceBytes = bytes
 	}
 	report = appendPrivateWorkspaceCheck(report, PrivateWorkspaceCheckTreeOwnerOnly, treeModeOK)
 	report = appendPrivateWorkspaceCheck(report, PrivateWorkspaceCheckTreeNoSymlinks, treeSymlinkOK)
@@ -942,6 +949,11 @@ func privateWorkspaceLocations(root, repositoryRoot string, allowMissingRoot boo
 }
 
 func privateWorkspaceGitBoundary(root, repository string, inspectTree bool) error {
+	return privateWorkspaceGitBoundaryWithLimits(root, repository, inspectTree,
+		maxPrivateWorkspaceTreeEntries, maxPrivateWorkspaceGitInputBytes)
+}
+
+func privateWorkspaceGitBoundaryWithLimits(root, repository string, inspectTree bool, maxEntries, maxInputBytes int) error {
 	inside, err := pathWithin(repository, root)
 	if err != nil {
 		return privateWorkspaceOperationError("git_boundary", err)
@@ -963,8 +975,8 @@ func privateWorkspaceGitBoundary(root, repository string, inspectTree bool) erro
 		return privateWorkspaceOperationError("git_boundary")
 	}
 	tracked := exec.Command("git", "-C", repository, "ls-files", "--cached", "--", relative)
-	trackedOutput, err := tracked.Output()
-	if err != nil || len(bytes.TrimSpace(trackedOutput)) != 0 {
+	trackedOutput, err := commandHasOutput(tracked)
+	if err != nil || trackedOutput {
 		// A successful listing that reports tracked content attaches nothing.
 		return privateWorkspaceOperationError("git_boundary", err)
 	}
@@ -973,15 +985,23 @@ func privateWorkspaceGitBoundary(root, repository string, inspectTree bool) erro
 	}
 	var ignoredInput bytes.Buffer
 	expected := map[string]struct{}{}
+	entries := 0
 	walkErr := filepath.WalkDir(root, func(path string, _ os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
+		}
+		entries++
+		if entries > maxEntries {
+			return ErrPrivateWorkspaceUnhealthy
 		}
 		entryRelative, err := filepath.Rel(repository, path)
 		if err != nil {
 			return ErrPrivateWorkspaceUnhealthy
 		}
 		entryRelative = filepath.ToSlash(entryRelative)
+		if maxInputBytes < 0 || len(entryRelative)+1 > maxInputBytes-ignoredInput.Len() {
+			return ErrPrivateWorkspaceUnhealthy
+		}
 		expected[entryRelative] = struct{}{}
 		ignoredInput.WriteString(entryRelative)
 		ignoredInput.WriteByte(0)
@@ -1011,6 +1031,31 @@ func privateWorkspaceGitBoundary(root, repository string, inspectTree bool) erro
 		return privateWorkspaceOperationError("git_boundary")
 	}
 	return nil
+}
+
+// commandHasOutput observes at most one byte, terminates a producer once
+// non-empty output is proven, and always reaps it. Callers that only need an
+// emptiness predicate must not retain an unbounded command response.
+func commandHasOutput(command *exec.Cmd) (bool, error) {
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		return false, err
+	}
+	if err := command.Start(); err != nil {
+		return false, err
+	}
+	var prefix [1]byte
+	n, readErr := stdout.Read(prefix[:])
+	if n > 0 {
+		_ = command.Process.Kill()
+		_ = command.Wait()
+		return true, nil
+	}
+	waitErr := command.Wait()
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		return false, errors.Join(readErr, waitErr)
+	}
+	return false, waitErr
 }
 
 func gitPathIgnored(repository, relative string) bool {
@@ -1065,15 +1110,18 @@ func privateWorkspaceLayoutOK(root string) bool {
 	return true
 }
 
-func inspectPrivateWorkspaceTree(root string) (modeOK, symlinkOK bool) {
+func inspectPrivateWorkspaceTree(root string) (modeOK, symlinkOK bool, entries int, bytes int64) {
+	return inspectPrivateWorkspaceTreeBounded(root, maxPrivateWorkspaceTreeEntries)
+}
+
+func inspectPrivateWorkspaceTreeBounded(root string, maxEntries int) (modeOK, symlinkOK bool, entries int, bytes int64) {
 	modeOK, symlinkOK = true, true
-	entries := 0
 	err := filepath.WalkDir(root, func(_ string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 		entries++
-		if entries > maxPrivateWorkspaceTreeEntries {
+		if entries > maxEntries {
 			return ErrPrivateWorkspaceUnhealthy
 		}
 		info, err := entry.Info()
@@ -1089,12 +1137,19 @@ func inspectPrivateWorkspaceTree(root string) (modeOK, symlinkOK bool) {
 			return nil
 		}
 		modeOK = modeOK && info.Mode().IsRegular() && privateWorkspaceFileMode(info.Mode())
+		if info.Mode().IsRegular() {
+			next := bytes + info.Size()
+			if next < bytes {
+				return ErrPrivateWorkspaceUnhealthy
+			}
+			bytes = next
+		}
 		return nil
 	})
 	if err != nil {
-		return false, false
+		return false, false, 0, 0
 	}
-	return modeOK, symlinkOK
+	return modeOK, symlinkOK, entries, bytes
 }
 
 func inspectPrivateWorkspaceScratch(root string) bool {

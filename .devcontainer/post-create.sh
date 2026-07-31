@@ -7,6 +7,10 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "${here}/.." && pwd)"
+
+# Fail before installing tools if the container and repository contract drift.
+(cd "${repo_root}" && go run ./scripts/check-maintainer-contract)
 
 # Make the mounted config volumes writable by the non-root user.
 sudo chown -R vscode:vscode /home/vscode/.claude /home/vscode/.codex /home/vscode/.agents /home/vscode/.config/gh

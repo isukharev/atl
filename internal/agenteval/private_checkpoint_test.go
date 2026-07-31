@@ -17,6 +17,8 @@ import (
 
 func TestPrivateCheckpointPreviewIsDeterministicContentFreeAndReadOnly(t *testing.T) {
 	fixture := newPrivateCheckpointFixture(t)
+	fixture.report.Counts.WorkspaceEntries = 42
+	fixture.report.Counts.WorkspaceBytes = 1 << 20
 	before := privateCheckpointTree(t, fixture.root)
 	preview, err := previewPrivateCheckpoint(fixture.options(), fixture.dependencies())
 	if err != nil {
@@ -44,6 +46,11 @@ func TestPrivateCheckpointPreviewIsDeterministicContentFreeAndReadOnly(t *testin
 	for _, marker := range []string{"private-run-set", "pln-", "run-", "customer-page", fixture.root} {
 		if bytes.Contains(encoded, []byte(marker)) {
 			t.Fatalf("private marker %q leaked in %s", marker, encoded)
+		}
+	}
+	for _, operationalField := range []string{"workspace_entries", "workspace_logical_bytes"} {
+		if bytes.Contains(encoded, []byte(operationalField)) {
+			t.Fatalf("schema-v2 checkpoint absorbed status-only field %q: %s", operationalField, encoded)
 		}
 	}
 	second, err := previewPrivateCheckpoint(fixture.options(), fixture.dependencies())

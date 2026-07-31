@@ -34,6 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unified error-severity CSF validation across offline validation, push, page
   creation, and blog creation as `check_failed` / exit 8 while retaining the
   detailed problem list and pre-network refusal.
+- Aligned the development container and hosted workflows with the exact Go
+  patch declared by `go.mod`, with a locked Go feature and an offline drift
+  checker instead of a hidden automatic toolchain repair.
+- Added content-free aggregate entry and logical-byte counts to private
+  evaluation workspace status/doctor output; the bounded inspection remains
+  read-only and grants no cleanup authority.
 
 ## [0.5.1] - 2026-07-30
 

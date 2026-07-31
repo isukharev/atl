@@ -636,6 +636,48 @@ func TestPrivateWorkspaceReportGuidesTheNextSafeAction(t *testing.T) {
 	}
 }
 
+func TestPrivateWorkspaceReportIncludesOnlyBoundedAggregateSize(t *testing.T) {
+	repository := t.TempDir()
+	root := filepath.Join(t.TempDir(), "private")
+	before, err := InitPrivateWorkspace(root, repository, DefaultPrivateWorkspaceManifest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const content = "private-content-marker"
+	privatePath := filepath.Join(root, "cases", "sensitive-name.json")
+	if err := os.WriteFile(privatePath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	after, err := DoctorPrivateWorkspace(root, repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Counts.WorkspaceEntries != before.Counts.WorkspaceEntries+1 ||
+		after.Counts.WorkspaceBytes != before.Counts.WorkspaceBytes+int64(len(content)) {
+		t.Fatalf("before=%+v after=%+v", before.Counts, after.Counts)
+	}
+	encoded, err := json.Marshal(after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, private := range []string{root, privatePath, "sensitive-name", content} {
+		if bytes.Contains(encoded, []byte(private)) {
+			t.Fatalf("aggregate report leaked private input %q: %s", private, encoded)
+		}
+	}
+}
+
+func TestPrivateWorkspaceAggregateSizeFailsClosedAtEntryLimit(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "one"), []byte("content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	modeOK, symlinkOK, entries, bytes := inspectPrivateWorkspaceTreeBounded(root, 1)
+	if modeOK || symlinkOK || entries != 0 || bytes != 0 {
+		t.Fatalf("mode=%t symlinks=%t entries=%d bytes=%d, want content-free limit failure", modeOK, symlinkOK, entries, bytes)
+	}
+}
+
 func TestPrivateWorkspaceDoctorDetectsModeAndSymlinkControls(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix permission and symlink controls")
@@ -1129,6 +1171,24 @@ func TestPrivateWorkspaceGitBoundaryAttachesCommandAndTraversalCauses(t *testing
 			t.Fatalf("error %v does not expose the concrete traversal failure", err)
 		}
 	})
+
+	for _, limit := range []struct {
+		name       string
+		maxEntries int
+		maxBytes   int
+	}{
+		{name: "entry limit", maxEntries: 1, maxBytes: 1 << 20},
+		{name: "input byte limit", maxEntries: maxPrivateWorkspaceTreeEntries, maxBytes: 1},
+	} {
+		t.Run(limit.name, func(t *testing.T) {
+			root, repository := newIgnoredWorkspace(t)
+			err := privateWorkspaceGitBoundaryWithLimits(root, repository, true, limit.maxEntries, limit.maxBytes)
+			assertPrivateWorkspaceOperationCode(t, err, "git_boundary")
+			if !errors.Is(err, ErrPrivateWorkspaceUnhealthy) {
+				t.Fatalf("error %v does not retain bounded traversal cause", err)
+			}
+		})
+	}
 
 	t.Run("workspace is the repository", func(t *testing.T) {
 		repository := newPrivateWorkspaceGitRepository(t)

@@ -43,8 +43,25 @@ type PrivateCheckpointRepository struct {
 }
 
 type PrivateCheckpointWorkspace struct {
-	State  string                 `json:"state"`
-	Counts PrivateWorkspaceCounts `json:"counts"`
+	State  string                           `json:"state"`
+	Counts PrivateCheckpointWorkspaceCounts `json:"counts"`
+}
+
+// PrivateCheckpointWorkspaceCounts intentionally retains the schema-v2 field
+// set and order. Workspace status may add content-free operational counters,
+// but those additions must not silently rewrite canonical historical
+// checkpoint bytes or domain-separated digests.
+type PrivateCheckpointWorkspaceCounts struct {
+	FixedDirectories  int `json:"fixed_directories"`
+	RunSets           int `json:"run_sets"`
+	ActivationStudies int `json:"activation_studies"`
+	SpecReferences    int `json:"spec_references"`
+	ValidSpecs        int `json:"valid_specs"`
+	PendingPlans      int `json:"pending_plans"`
+	ActiveRuns        int `json:"active_runs"`
+	IncompleteRuns    int `json:"incomplete_runs"`
+	CompletedRuns     int `json:"completed_runs"`
+	PrunedRuns        int `json:"pruned_runs"`
 }
 
 type PrivateCheckpointScorecard struct {
@@ -138,7 +155,9 @@ func previewPrivateCheckpoint(options PrivateCheckpointOptions, dependencies pri
 		SchemaVersion: PrivateCheckpointSchemaVersion,
 		UTCDate:       now.Format(time.DateOnly),
 		Repository:    PrivateCheckpointRepository{Commit: commit, Dirty: dirty},
-		Workspace:     PrivateCheckpointWorkspace{State: report.State, Counts: report.Counts},
+		Workspace: PrivateCheckpointWorkspace{
+			State: report.State, Counts: privateCheckpointWorkspaceCounts(report.Counts),
+		},
 		Scorecard: PrivateCheckpointScorecard{SourceSHA256: scorecard.SourceSHA256, Findings: scorecard.Findings,
 			LinkedIssues: scorecard.LinkedIssues, LinkedPullRequests: scorecard.LinkedPullRequests,
 			Regressions: scorecard.Regressions, Decisions: scorecard.Decisions},
@@ -157,6 +176,16 @@ func previewPrivateCheckpoint(options PrivateCheckpointOptions, dependencies pri
 	}
 	digest := sha256HexBytes(append([]byte("atl-private-daily-checkpoint-v2\x00"), data...))
 	return PrivateCheckpointPreview{SchemaVersion: PrivateCheckpointSchemaVersion, CheckpointSHA256: digest, Checkpoint: checkpoint}, nil
+}
+
+func privateCheckpointWorkspaceCounts(counts PrivateWorkspaceCounts) PrivateCheckpointWorkspaceCounts {
+	return PrivateCheckpointWorkspaceCounts{
+		FixedDirectories: counts.FixedDirectories, RunSets: counts.RunSets,
+		ActivationStudies: counts.ActivationStudies, SpecReferences: counts.SpecReferences,
+		ValidSpecs: counts.ValidSpecs, PendingPlans: counts.PendingPlans,
+		ActiveRuns: counts.ActiveRuns, IncompleteRuns: counts.IncompleteRuns,
+		CompletedRuns: counts.CompletedRuns, PrunedRuns: counts.PrunedRuns,
+	}
 }
 
 func ApplyPrivateCheckpoint(options PrivateCheckpointOptions) (PrivateCheckpointSummary, error) {
