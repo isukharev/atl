@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rendering, returning a stable `max-depth` validation problem for anomalously
   deep documents while preserving accepted document bytes.
 
+- Removed the evaluation-only environment and audit-file hook from production
+  HTTP transports. Private-live internal MCP evaluation now enforces and records
+  read-only compatibility traffic at the harness-owned bounded loopback gateway
+  instead of changing release-binary behavior.
+
 ## [0.5.1] - 2026-07-30
 
 ### Fixed

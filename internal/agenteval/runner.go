@@ -791,9 +791,9 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			}
 			defer func() { _ = liveGateway.Close(context.Background()) }()
 		} else if gatewayBackedMCP {
-			// Gateway-backed internal MCP uses the same credential boundary as the
-			// private CLI: no source config or credential copy, and no HTTP guard
-			// file, because the gateway itself is the audited transport.
+			// Every private-live internal MCP uses the same credential boundary as
+			// the private CLI. Route-less historical specs receive a harness-owned
+			// GET/HEAD-only compatibility policy when this gateway starts.
 			httpGuardPath = filepath.Join(evalDir, "gateway-audit.jsonl")
 			liveGateway, err = startPrivateLiveGateway(options.LiveConfigDir, atlConfigDir, httpGuardPath, loaded.spec, loaded.scenario)
 			if err != nil {
@@ -816,18 +816,6 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			loaded.spec.mcpServerURL = endpoint
 			loaded.spec.mcpBearerTokenEnv = "ATL_EVAL_EXTERNAL_MCP_TOKEN"
 			backendEnvironment["ATL_EVAL_EXTERNAL_MCP_TOKEN"] = capability
-		} else {
-			if err := copyLiveConfig(options.LiveConfigDir, atlConfigDir); err != nil {
-				return Result{}, err
-			}
-			httpGuardPath = filepath.Join(evalDir, "http-methods.jsonl")
-			// Create the audit channel before starting the MCP server. The guarded
-			// transport appends before forwarding any request, so an empty file is
-			// durable evidence that the configured route observed zero requests.
-			if err := writePrivateFile(httpGuardPath, nil); err != nil {
-				return Result{}, err
-			}
-			backendEnvironment["ATL_EVAL_HTTP_GUARD_FILE"] = httpGuardPath
 		}
 	}
 	if brokerCLI {

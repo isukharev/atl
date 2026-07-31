@@ -1074,11 +1074,24 @@ func TestCommittedHeadlessRunSpecs(t *testing.T) {
 	}
 }
 
-func TestPrivateLiveRunUsesCopiedCredentialsAndObservedReadMethods(t *testing.T) {
+func TestRouteLessPrivateLiveMCPUsesGatewayAndObservedReadMethods(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake executable scripts are Unix-only")
 	}
 	useSyntheticCodexHome(t)
+	var upstreamRequests int
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		upstreamRequests++
+		if request.Method != http.MethodGet || request.URL.Path != "/jira/rest/api/2/field" ||
+			request.Header.Get("Authorization") != "Bearer private-test-token" {
+			t.Errorf("unexpected upstream request: method=%s path=%s auth=%q", request.Method, request.URL.Path, request.Header.Get("Authorization"))
+			response.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, `[]`)
+	}))
+	defer upstream.Close()
 	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -1111,18 +1124,22 @@ func TestPrivateLiveRunUsesCopiedCredentialsAndObservedReadMethods(t *testing.T)
 	if err := os.Mkdir(liveConfig, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	writeTestFile(t, filepath.Join(liveConfig, "config.json"), `{"jira_url":"https://private.invalid"}`, 0o600)
+	writeTestFile(t, filepath.Join(liveConfig, "config.json"), `{"jira_url":`+quotedJSON(t, upstream.URL+"/jira")+`}`, 0o600)
 	writeTestFile(t, filepath.Join(liveConfig, "credentials.json"), `{"jira":"private-test-token"}`, 0o600)
 	pluginRoot := filepath.Join(tempRepository, "plugin")
 	writeTestPluginTrees(t, pluginRoot, "0.4.0", "Private live skill.")
 	fakeAgent := filepath.Join(tempRepository, "fake-agent")
 	writeTestFile(t, fakeAgent, `#!/bin/sh
 if [ "$1" = "--version" ]; then echo fake-agent-1; exit 0; fi
-if [ -z "$ATL_EVAL_HTTP_GUARD_FILE" ]; then echo missing HTTP guard >&2; exit 31; fi
+if [ -n "$ATL_EVAL_HTTP_GUARD_FILE" ] || [ -n "$ATL_JIRA_URL" ] || [ -n "$ATL_JIRA_PAT" ] || [ -n "$ATL_ALLOW_INSECURE" ]; then echo unsafe MCP environment >&2; exit 31; fi
 if [ -z "$ATL_EVAL_WORKSPACE_ROOT" ] || [ "$ATL_EVAL_WORKSPACE_ROOT" != "$PWD" ]; then echo missing workspace read root >&2; exit 34; fi
 case "$ATL_EVAL_ALLOWED_READ_ROOTS" in *"$ATL_EVAL_WORKSPACE_ROOT"*) ;; *) echo workspace outside read roots >&2; exit 35;; esac
 case "$ATL_CONFIG_DIR" in */atl-agent-eval-live-config-*) ;; *) echo source config exposed directly >&2; exit 32;; esac
-if [ ! -s "$ATL_CONFIG_DIR/config.json" ] || [ ! -s "$ATL_CONFIG_DIR/credentials.json" ]; then echo copied config missing >&2; exit 33; fi
+if [ ! -s "$ATL_CONFIG_DIR/config.json" ] || [ ! -s "$ATL_CONFIG_DIR/credentials.json" ]; then echo gateway config missing >&2; exit 33; fi
+config=$(/bin/cat "$ATL_CONFIG_DIR/config.json") || exit 36
+credentials=$(/bin/cat "$ATL_CONFIG_DIR/credentials.json") || exit 37
+case "$config$credentials" in *private-test-token*) echo source credential leaked >&2; exit 38;; esac
+case "$config$credentials" in *127.0.0.1*) ;; *) echo loopback gateway missing >&2; exit 39;; esac
 printf '%s\n' "$ATL_CONFIG_DIR" >"${ATL_EVAL_COUNTER}.config-path"
 final=""
 no_evidence=""
@@ -1139,16 +1156,18 @@ if [ -n "$no_evidence" ]; then
   printf '%s\n' '{"answer":"missing"}' >"$final"
   exit 0
 fi
-printf '%s\n' '{"method":"GET","request_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}' >"$ATL_EVAL_HTTP_GUARD_FILE"
+"$ATL_EVAL_REAL_BINARY" jira fields >/dev/null || exit 40
 printf '%s\n' '{"type":"item.completed","item":{"id":"mcp-1","type":"mcp_tool_call","server":"atl","tool":"jira_fields","status":"completed","result":{"fields":[]}}}'
 printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}'
 printf '%s\n' '{"answer":"ok"}' >"$final"
 `, 0o700)
 	fakeATL := filepath.Join(tempRepository, "fake-atl")
-	writeTestFile(t, fakeATL, `#!/bin/sh
-if [ "$1" = "version" ]; then printf '%s\n' '{"version":"0.4.0","commit":"test","build_state":"clean"}'; exit 0; fi
-exit 2
-`, 0o700)
+	buildATL := exec.Command("go", "build", "-buildvcs=false", "-o", fakeATL, "./cmd/atl")
+	buildATL.Dir = repositoryRoot
+	buildATL.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
+	if output, err := buildATL.CombinedOutput(); err != nil {
+		t.Fatalf("build atl: %v\n%s", err, output)
+	}
 	wrapper := filepath.Join(tempRepository, "agent-eval")
 	build := exec.Command("go", "build", "-buildvcs=false", "-o", wrapper, "./scripts/agent-eval")
 	build.Dir = repositoryRoot
@@ -1164,11 +1183,14 @@ exit 2
 	if len(output.Results) != 1 || output.Results[0].Status != "pass" || output.Results[0].Metrics.BackendRequests != 1 || output.Results[0].Metrics.RemoteWrites != 0 || output.Results[0].HTTPMethods["GET"] != 1 {
 		t.Fatalf("output=%+v", output)
 	}
+	if upstreamRequests != 1 {
+		t.Fatalf("upstream requests=%d, want 1", upstreamRequests)
+	}
 	encoded, err := json.Marshal(output)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Contains(encoded, []byte("private.invalid")) || bytes.Contains(encoded, []byte("private-test-token")) || bytes.Contains(encoded, []byte(liveConfig)) {
+	if bytes.Contains(encoded, []byte(upstream.URL)) || bytes.Contains(encoded, []byte("private-test-token")) || bytes.Contains(encoded, []byte(liveConfig)) {
 		t.Fatalf("public-safe result leaked live configuration: %s", encoded)
 	}
 	configPathRecord, err := os.ReadFile(filepath.Join(outputRoot, scenario.ID, "codex", spec.Variant, "run-01", ".atl-eval", "atl-invocations.jsonl.config-path"))

@@ -193,10 +193,11 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 				if err != nil {
 					return ProviderCommand{}, err
 				}
-				// A gateway-backed internal MCP child is bound to the disposable
-				// loopback config alone: it must not inherit the upstream URL, PAT,
-				// insecure-transport override, or HTTP guard file names at all.
-				mcpEnvVars := `["ATL_READ_ONLY","ATL_NO_UPDATE","ATL_CONFIG_DIR","ATL_MIRROR_ROOT","ATL_JIRA_URL","ATL_CONFLUENCE_URL","ATL_JIRA_PAT","ATL_CONFLUENCE_PAT","ATL_ALLOW_INSECURE","ATL_EVAL_HTTP_GUARD_FILE"]`
+				// A private-live internal MCP child is bound to the disposable
+				// loopback config alone: it must not inherit upstream URL, PAT, or
+				// insecure-transport names. The legacy product HTTP hook is not
+				// projected into any MCP child.
+				mcpEnvVars := `["ATL_READ_ONLY","ATL_NO_UPDATE","ATL_CONFIG_DIR","ATL_MIRROR_ROOT","ATL_JIRA_URL","ATL_CONFLUENCE_URL","ATL_JIRA_PAT","ATL_CONFLUENCE_PAT","ATL_ALLOW_INSECURE"]`
 				if gatewayBackedInternalMCP(spec) {
 					mcpEnvVars = quotedStringList(gatewayMCPEnvironmentNames)
 				}

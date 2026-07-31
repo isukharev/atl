@@ -84,6 +84,10 @@ type LiveGatewayRoute struct {
 	QueryOnly       bool     `json:"query_only,omitempty"`
 	MaxRequests     int      `json:"max_requests,omitempty"`
 	MaxRequestBytes int64    `json:"max_request_bytes,omitempty"`
+	// compatibilityRoot is set only by the harness for route-less historical
+	// internal MCP specs. It admits any clean path, but the ordinary method and
+	// global request budgets still apply.
+	compatibilityRoot bool
 }
 
 type LiveGatewayEndpoint struct {
@@ -719,7 +723,13 @@ func validateLiveGatewayRoutes(routes []LiveGatewayRoute) error {
 	seenPrefixExact := map[string]bool{}
 	seenPrefixMethods := map[string]map[string]struct{}{}
 	for _, route := range routes {
-		if !identifierRE.MatchString(route.Name) || len(route.Name) > 64 || route.PathPrefix == "/" || route.PathPrefix == "" || route.PathPrefix[0] != '/' || path.Clean(route.PathPrefix) != route.PathPrefix || strings.Contains(route.PathPrefix, "//") || strings.HasPrefix(route.PathPrefix, gatewayOriginRootPrefix) {
+		compatibilityRoot := route.compatibilityRoot && route.PathPrefix == "/" && !route.Exact &&
+			len(route.Methods) == 2 && route.Methods[0] == http.MethodGet && route.Methods[1] == http.MethodHead &&
+			!route.QueryOnly && route.MaxRequests == 0 && route.MaxRequestBytes == 0
+		if !identifierRE.MatchString(route.Name) || len(route.Name) > 64 || route.PathPrefix == "" ||
+			route.PathPrefix[0] != '/' || path.Clean(route.PathPrefix) != route.PathPrefix ||
+			strings.Contains(route.PathPrefix, "//") || strings.HasPrefix(route.PathPrefix, gatewayOriginRootPrefix) ||
+			(route.PathPrefix == "/" && !compatibilityRoot) || (route.compatibilityRoot && !compatibilityRoot) {
 			return fmt.Errorf("live gateway route is invalid")
 		}
 		if _, exists := seenRoutes[route.Name]; exists {
@@ -941,7 +951,10 @@ func matchLiveGatewayRoute(requestURL *url.URL, method string, routes []LiveGate
 	bestLength := -1
 	for _, route := range routes {
 		prefix := route.PathPrefix
-		matches := requestURL.Path == prefix
+		matches := route.compatibilityRoot && prefix == "/"
+		if !matches {
+			matches = requestURL.Path == prefix
+		}
 		if !route.Exact {
 			matches = matches || strings.HasSuffix(prefix, "/") && strings.HasPrefix(requestURL.Path, prefix) || strings.HasPrefix(requestURL.Path, prefix+"/")
 		}

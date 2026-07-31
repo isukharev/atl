@@ -1,17 +1,149 @@
 package agenteval
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+func TestRouteLessInternalMCPUsesReadOnlyCompatibilityGateway(t *testing.T) {
+	var upstreamCalls int
+	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		upstreamCalls++
+		if request.Method != http.MethodGet || request.URL.RequestURI() != "/jira/rest/api/2/field?selector=PRIVATE-SELECTOR" {
+			t.Errorf("unexpected upstream request: %s %s", request.Method, request.URL.RequestURI())
+		}
+		if request.Header.Get("Authorization") != "Bearer jira-upstream-secret" {
+			t.Errorf("unexpected upstream authorization")
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, `{"private":"PRIVATE-RESPONSE"}`)
+	}))
+	defer upstream.Close()
+
+	source := filepath.Join(t.TempDir(), "source")
+	child := filepath.Join(t.TempDir(), "child")
+	if err := os.Mkdir(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(source, "config.json"),
+		`{"jira_url":`+quotedJSON(t, upstream.URL+`/jira`)+`,"confluence_url":`+quotedJSON(t, upstream.URL+`/confluence`)+`}`, 0o600)
+	writeTestFile(t, filepath.Join(source, "credentials.json"),
+		`{"jira":"jira-upstream-secret","confluence":"confluence-upstream-secret"}`, 0o600)
+	_, spec, scenario := privateLiveQueryOnlyPair()
+	spec.AllowedGatewayRoutes = nil
+	spec.GatewayMaxResponseBytes = 0
+	spec.GatewayMaxTotalBytes = 0
+	spec.GatewayMaxRequestBytes = 0
+	spec.GatewayMaxTotalRequestBytes = 0
+	scenario.Budgets.MaxBackendRequests = 3
+	scenario.Budgets.MaxRemoteWrites = 0
+	scenario.Budgets.AllowedHTTPMethods = []string{http.MethodGet, http.MethodHead}
+	auditDir := t.TempDir()
+	if err := os.Chmod(auditDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	auditPath := filepath.Join(auditDir, "gateway-audit.jsonl")
+
+	gateway, err := startPrivateLiveGateway(source, child, auditPath, spec, scenario)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gateway.state.config.MaxRequests != scenario.Budgets.MaxBackendRequests ||
+		gateway.state.config.MaxResponseBytes != compatibilityGatewayMaxResponseBytes ||
+		gateway.state.config.MaxTotalResponseBytes != compatibilityGatewayMaxTotalResponseBytes {
+		t.Fatalf("compatibility budgets=%+v", gateway.state.config)
+	}
+	for _, service := range []string{"jira", "confluence"} {
+		routes := gateway.state.config.Services[service].Routes
+		if len(routes) != 1 || !routes[0].compatibilityRoot ||
+			!reflect.DeepEqual(routes[0].Methods, []string{http.MethodGet, http.MethodHead}) ||
+			routes[0].MaxRequests != 0 {
+			t.Fatalf("%s compatibility routes=%+v", service, routes)
+		}
+	}
+	configData, err := os.ReadFile(filepath.Join(child, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentialData, err := os.ReadFile(filepath.Join(child, "credentials.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	childData := append(configData, credentialData...)
+	for _, forbidden := range []string{upstream.URL, "jira-upstream-secret", "confluence-upstream-secret", "ATL_EVAL_HTTP_GUARD_FILE"} {
+		if bytes.Contains(childData, []byte(forbidden)) {
+			t.Fatalf("child config leaked %q: %s", forbidden, childData)
+		}
+	}
+	endpoint := gateway.Endpoints()["jira"]
+	post, err := http.NewRequest(http.MethodPost, endpoint.BaseURL+"/rest/api/2/field", strings.NewReader(`{"private":"PRIVATE-BODY"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	post.Header.Set("Authorization", "Bearer "+endpoint.Token)
+	postResponse, err := http.DefaultClient.Do(post)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = postResponse.Body.Close()
+	if postResponse.StatusCode != http.StatusMethodNotAllowed || upstreamCalls != 0 {
+		t.Fatalf("POST status=%d upstream calls=%d", postResponse.StatusCode, upstreamCalls)
+	}
+
+	get, err := http.NewRequest(http.MethodGet, endpoint.BaseURL+"/rest/api/2/field?selector=PRIVATE-SELECTOR", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	get.Header.Set("Authorization", "Bearer "+endpoint.Token)
+	getResponse, err := http.DefaultClient.Do(get)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, readErr := io.ReadAll(getResponse.Body)
+	closeErr := getResponse.Body.Close()
+	if readErr != nil || closeErr != nil || getResponse.StatusCode != http.StatusOK || upstreamCalls != 1 {
+		t.Fatalf("GET status=%d upstream calls=%d read=%v close=%v", getResponse.StatusCode, upstreamCalls, readErr, closeErr)
+	}
+	if err := gateway.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	auditData, err := os.ReadFile(auditPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, privateValue := range []string{
+		"PRIVATE-SELECTOR", "PRIVATE-BODY", "PRIVATE-RESPONSE", upstream.URL,
+		"jira-upstream-secret", "confluence-upstream-secret", endpoint.Token,
+	} {
+		if bytes.Contains(auditData, []byte(privateValue)) {
+			t.Fatalf("gateway audit leaked %q: %s", privateValue, auditData)
+		}
+	}
+}
+
+func TestExplicitGatewayPolicyPassesThroughUnchanged(t *testing.T) {
+	_, spec, _ := privateLiveQueryOnlyPair()
+	inputs := liveGatewayInputs{}
+	routes, maxResponse, maxTotal, err := effectiveLiveGatewayPolicy(inputs, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(routes, spec.AllowedGatewayRoutes) ||
+		maxResponse != spec.GatewayMaxResponseBytes || maxTotal != spec.GatewayMaxTotalBytes {
+		t.Fatalf("effective policy routes=%+v response=%d total=%d", routes, maxResponse, maxTotal)
+	}
+}
 
 func TestPrivateCLIGatewayKeepsSourceCredentialsOutOfChildConfig(t *testing.T) {
 	var upstreamAuth string

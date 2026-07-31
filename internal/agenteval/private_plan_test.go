@@ -961,7 +961,7 @@ func newPrivatePlanTestFixture(t *testing.T, includeCLI, failAgent bool) private
 	if err := os.Mkdir(liveConfig, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	writeTestFile(t, filepath.Join(liveConfig, "config.json"), `{"synthetic_marker":"`+privatePlanTestSecret+`"}`+"\n", 0o600)
+	writeTestFile(t, filepath.Join(liveConfig, "config.json"), `{"jira_url":"https://example.invalid","synthetic_marker":"`+privatePlanTestSecret+`"}`+"\n", 0o600)
 	writeTestFile(t, filepath.Join(liveConfig, "credentials.json"), `{"jira":"synthetic-token"}`+"\n", 0o600)
 	t.Setenv(manifest.LiveConfigEnv, liveConfig)
 
@@ -986,8 +986,7 @@ func main() {
   if len(os.Args) > 2 && os.Args[1] == "sandbox" { command := exec.Command(os.Args[len(os.Args)-1]); command.Stdout = os.Stdout; command.Stderr = os.Stderr; command.Env = os.Environ(); if err := command.Run(); err != nil { os.Exit(43) }; return }
   appendFile(calls, "x\n")
   if fail { os.Exit(41) }
-  guard := os.Getenv("ATL_EVAL_HTTP_GUARD_FILE"); if guard == "" { os.Exit(42) }
-  _ = os.WriteFile(guard, []byte("{\"method\":\"GET\",\"request_hash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}\n"), 0600)
+  if os.Getenv("ATL_EVAL_HTTP_GUARD_FILE") != "" { os.Exit(42) }
   final := ""; for index := 1; index < len(os.Args); index++ { if os.Args[index] == "--output-last-message" && index+1 < len(os.Args) { final = os.Args[index+1]; index++ } }
   if os.Getenv("ATL_EVAL_CLI_POLICY_FILE") != "" { _ = exec.Command("atl", "jira", "fields").Run(); fmt.Println("{\"type\":\"item.completed\",\"item\":{\"type\":\"command_execution\"}}") } else { fmt.Println("{\"type\":\"item.completed\",\"item\":{\"id\":\"mcp-1\",\"type\":\"mcp_tool_call\",\"server\":\"atl\",\"tool\":\"jira_fields\",\"status\":\"completed\",\"result\":{\"fields\":[]}}}") }
   fmt.Println("{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":100,\"output_tokens\":20}}")

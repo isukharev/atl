@@ -693,12 +693,12 @@ func containsRunString(values []string, candidate string) bool {
 }
 
 // gatewayBackedInternalMCP reports whether an internal ATL MCP private-live run
-// is bound to the disposable loopback gateway. Internal MCP opts in by
-// declaring explicit routes; without them it keeps the copied-config guarded
-// transport that admits only GET and HEAD.
+// is bound to the disposable loopback gateway. Route-less historical specs get
+// a harness-owned compatibility policy when the run starts; the product
+// transport never participates in evaluation enforcement.
 func gatewayBackedInternalMCP(s RunSpec) bool {
 	return s.EffectiveBackendMode() == BackendModePrivateLive && s.EffectiveToolTransport() == "mcp" &&
-		s.EffectiveSurface() == SurfaceATLMCP && len(s.AllowedGatewayRoutes) != 0
+		s.EffectiveSurface() == SurfaceATLMCP
 }
 
 // runSpecQueryOnlyRequests is the reviewed transport-write budget: the total
@@ -717,9 +717,11 @@ func runSpecQueryOnlyRequests(services map[string][]LiveGatewayRoute) int {
 }
 
 // validateRunSpecGatewayPolicy binds the disposable loopback gateway policy to
-// the surfaces that may use it. The private-live CLI skill always runs behind
-// the gateway; internal ATL MCP may opt in with explicit routes. Every other
-// surface — external MCP, synthetic, and provider calibration — forbids it.
+// the surfaces that may use it. The private-live CLI skill and internal ATL MCP
+// always run behind the gateway; explicit internal-MCP routes remain optional
+// because route-less historical specs receive a harness-owned compatibility
+// policy at execution time. Every other surface — external MCP, synthetic, and
+// provider calibration — forbids gateway policy fields.
 func validateRunSpecGatewayPolicy(s RunSpec) error {
 	privateLive := s.EffectiveBackendMode() == BackendModePrivateLive
 	transport := s.EffectiveToolTransport()
