@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   read-only compatibility traffic at the harness-owned bounded loopback gateway
   instead of changing release-binary behavior.
 
+- Made self-update response limits explicit: manifests, detached signatures, and
+  binaries now read one sentinel byte and reject oversized bodies instead of
+  accepting a silently truncated prefix.
+
 ## [0.5.1] - 2026-07-30
 
 ### Fixed
