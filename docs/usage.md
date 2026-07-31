@@ -3328,6 +3328,58 @@ atl jira issue check PROJ-1 --require assignee,fixVersions [--warn priority]
 `--warn ""` to opt out of warnings. A check that would audit nothing (no
 `--require` and `--warn ""`) is a usage error (exit 2).
 
+### `atl jira issue graph`
+
+Build one deterministic direct work-artifact graph from an exact Jira issue:
+
+```bash
+export ATL_READ_ONLY=1
+atl jira issue graph PROJ-1
+atl jira issue graph PROJ-1 -o text
+```
+
+Schema v1 has no command-specific flags. It always expands only the seed at
+depth 0. Jira issues, Confluence page identities, attachments, and safe URL
+targets discovered from the seed remain depth-1 stubs; atl does not fetch a
+linked issue, resolve a page, download an attachment, or dereference an
+external URL. `-o id` is unsupported because a graph has no single primary
+identifier class.
+
+The root uses one single-attempt issue request with all returned applicable
+fields, field names/schema, and issue properties. Stable collectors then add
+typed issue links, parent/subtask/epic relations, attachment identities,
+complete paginated comments and worklogs, and supported remote links. A bounded
+path-aware walker extracts Jira keys, explicit Confluence page ids, and
+absolute HTTP(S) URLs while excluding user, avatar/icon, transport, and
+attachment-download subtrees. Graph output never emits URL query values,
+userinfo, or fragments. Sensitive or credential-like path segments make the
+URL an opaque identity without a raw URL. Dynamic property and nested-object
+tokens in evidence pointers are deterministic opaque tokens, and no discovered
+URL is requested.
+
+`sources` is authoritative for absence claims. Each requested source is
+`complete`, `empty`, `partial`, `forbidden`, `unsupported`, or `skipped`, with
+static content-free reasons. Malformed, request-failed, inspection-limited, and
+output-limited sources remain visibly incomplete. `empty` proves absence only
+for that named source. `issue_properties` is stable and ordered; its count is
+the returned property count, while completeness means that set was processed
+under the fixed privacy exclusions and bounds. Auxiliary failures keep the
+usable stable graph and exit 0 with `complete:false`; an unusable seed snapshot,
+invalid graph invariant, or failed reconciliation exits non-zero. The top-level
+summary proves that node, edge, evidence, source, status-bucket,
+incomplete-source, expanded-node, and completeness counts match the final
+arrays.
+
+Edges distinguish structured relations (`jira_link`, hierarchy,
+`attached`, `remote_link`) from heuristic `mentions`. The same target may
+therefore have both a strong typed edge and a separate mention edge. Every edge
+has content-minimized evidence naming its collector and JSON pointer but never
+copies a source snippet. Text output preserves source qualification and renders
+escaped node/edge tables; JSON remains the canonical contract.
+
+This command is additive. `jira issue refs` retains its existing URL-focused
+schema, flags, output bytes, and JQL behavior.
+
 ### `atl jira issue refs`
 
 Extract artifact references from one issue or from a JQL selection. This reuses

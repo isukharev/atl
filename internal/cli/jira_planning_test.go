@@ -121,6 +121,12 @@ func TestJiraIssueRefsCLIForKeyAndJQL(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("issue refs key: exit %d, want 0 (stdout=%q)", code, out)
 	}
+	assertGolden(t, "jira_issue_refs_compat.json", []byte(out))
+	refsText, textCode := runCLI(t, jiraEnv(js.srv), "-o", "text", "jira", "issue", "refs", "PROJ-1")
+	if textCode != exitOK {
+		t.Fatalf("issue refs key text: exit %d, want 0 (stdout=%q)", textCode, refsText)
+	}
+	assertGolden(t, "jira_issue_refs_compat.md", []byte(refsText))
 	var one struct {
 		Count    int  `json:"count"`
 		Complete bool `json:"complete"`

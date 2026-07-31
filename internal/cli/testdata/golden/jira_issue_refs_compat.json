@@ -1,0 +1,80 @@
+{
+  "key": "PROJ-1",
+  "count": 1,
+  "complete": true,
+  "selection": {
+    "mode": "key",
+    "count": 1,
+    "complete": true
+  },
+  "summary": {
+    "issue_count": 1,
+    "complete_issue_count": 1,
+    "incomplete_issue_count": 0,
+    "reference_count": 2,
+    "reference_kind_counts": {
+      "design": 1,
+      "doc": 1
+    },
+    "source_count": 2,
+    "source_value_counts": {
+      "comments": 1,
+      "description": 1
+    },
+    "complete_source_count": 2,
+    "incomplete_source_count": 0,
+    "truncated_source_count": 0,
+    "count_matches_issues": true,
+    "selection_count_matches_issues": true,
+    "reference_count_matches_kinds": true,
+    "issue_summaries_reconciled": true,
+    "complete_matches_inputs": true,
+    "truncated_matches_inputs": true
+  },
+  "issues": [
+    {
+      "key": "PROJ-1",
+      "summary": "First",
+      "type": "Story",
+      "complete": true,
+      "sources": {
+        "comments": {
+          "complete": true,
+          "count": 1
+        },
+        "description": {
+          "complete": true,
+          "count": 1
+        }
+      },
+      "reference_summary": {
+        "reference_count": 2,
+        "reference_kind_counts": {
+          "design": 1,
+          "doc": 1
+        },
+        "source_count": 2,
+        "source_value_counts": {
+          "comments": 1,
+          "description": 1
+        },
+        "complete_source_count": 2,
+        "incomplete_source_count": 0,
+        "truncated_source_count": 0,
+        "reference_count_matches_kinds": true,
+        "complete_matches_sources": true,
+        "truncated_matches_sources": true
+      },
+      "refs": [
+        {
+          "url": "https://docs.example.com/spec",
+          "kind": "doc"
+        },
+        {
+          "url": "https://figma.com/file/abc",
+          "kind": "design"
+        }
+      ]
+    }
+  ]
+}

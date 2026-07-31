@@ -508,11 +508,16 @@ type IssueWorklogCreate struct {
 	Started          string
 }
 
+// IssueWorklogReader is the narrow read-only complete worklog capability.
+type IssueWorklogReader interface {
+	ListIssueWorklogs(ctx context.Context, key string) (*IssueWorklogList, error)
+}
+
 // IssueWorklogStore is an optional Jira capability. Add sends exactly one POST
 // with adjustEstimate=leave; ambiguous outcomes are reconciled by the app layer
 // through a fresh complete ListIssueWorklogs call and are never replayed.
 type IssueWorklogStore interface {
-	ListIssueWorklogs(ctx context.Context, key string) (*IssueWorklogList, error)
+	IssueWorklogReader
 	AddIssueWorklog(ctx context.Context, key string, input IssueWorklogCreate) (*IssueWorklog, error)
 }
 

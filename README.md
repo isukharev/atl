@@ -45,6 +45,10 @@ The exhaustive [command reference](docs/usage.md) and
 [output contract](docs/OUTPUT_CONTRACT.md) remain available, but neither is
 required before the first successful workflow.
 
+Given one exact Jira issue, `atl jira issue graph PROJ-123` returns its
+provenance-qualified direct work-artifact graph without following any
+discovered issue, page, or URL.
+
 ## Install
 
 Linux and macOS release binaries are static and available for amd64 and arm64.

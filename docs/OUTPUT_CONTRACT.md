@@ -1490,6 +1490,212 @@ summary text projection adds `projection=summary`, `custom`, and `system` on a
 second line and no field records; the full projection keeps the existing
 tab-separated field records.
 
+`atl jira issue graph <KEY>` emits one transient, deterministic depth-zero
+work-artifact graph:
+
+```json
+{
+  "schema_version": 1,
+  "root_id": "jira:issue:PROJ-1",
+  "complete": true,
+  "bounds": {
+    "requested_depth": 0,
+    "max_nodes": 2048,
+    "max_edges": 4096,
+    "max_evidence": 4096,
+    "max_source_bytes": 1048576,
+    "expanded_node_count": 1,
+    "followed_node_count": 0
+  },
+  "summary": {
+    "node_count": 2,
+    "edge_count": 1,
+    "evidence_count": 1,
+    "source_count": 8,
+    "incomplete_source_count": 0,
+    "source_status_counts": {
+      "complete": 2,
+      "empty": 6,
+      "partial": 0,
+      "forbidden": 0,
+      "unsupported": 0,
+      "skipped": 0
+    },
+    "node_count_matches_nodes": true,
+    "edge_count_matches_edges": true,
+    "evidence_count_matches_edges": true,
+    "source_count_matches_sources": true,
+    "source_status_count_matches_sources": true,
+    "incomplete_source_count_matches_sources": true,
+    "expanded_count_matches_nodes": true,
+    "complete_matches_sources": true
+  },
+  "nodes": [
+    {
+      "id": "jira:issue:PROJ-1",
+      "kind": "jira_issue",
+      "service": "jira",
+      "external_id": "PROJ-1",
+      "label": "Graph seed",
+      "state": "resolved",
+      "expanded": true,
+      "depth": 0,
+      "stability": "public_api"
+    },
+    {
+      "id": "jira:issue:PROJ-2",
+      "kind": "jira_issue",
+      "service": "jira",
+      "external_id": "PROJ-2",
+      "state": "stub",
+      "expanded": false,
+      "depth": 1,
+      "stability": "public_api"
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:<sha256>",
+      "from": "jira:issue:PROJ-1",
+      "to": "jira:issue:PROJ-2",
+      "kind": "jira_link",
+      "relation_type": "Blocks",
+      "relation": "blocks",
+      "direction": "outward",
+      "current": true,
+      "confidence": "exact",
+      "stability": "public_api",
+      "evidence": [
+        {
+          "collector": "issue_links",
+          "source_kind": "field",
+          "source_id": "7",
+          "json_pointer": "/fields/issuelinks/0",
+          "extraction": "structured"
+        }
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "kind": "issue_fields",
+      "requested": true,
+      "status": "complete",
+      "complete": true,
+      "count": 4,
+      "stability": "public_api"
+    },
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "kind": "issue_links",
+      "requested": true,
+      "status": "complete",
+      "complete": true,
+      "count": 1,
+      "stability": "public_api"
+    },
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "kind": "hierarchy",
+      "requested": true,
+      "status": "empty",
+      "complete": true,
+      "count": 0,
+      "stability": "public_api"
+    },
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "kind": "attachments",
+      "requested": true,
+      "status": "empty",
+      "complete": true,
+      "count": 0,
+      "stability": "public_api"
+    },
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "kind": "issue_properties",
+      "requested": true,
+      "status": "empty",
+      "complete": true,
+      "count": 0,
+      "stability": "public_api"
+    },
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "kind": "comments",
+      "requested": true,
+      "status": "empty",
+      "complete": true,
+      "count": 0,
+      "stability": "public_api"
+    },
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "kind": "worklogs",
+      "requested": true,
+      "status": "empty",
+      "complete": true,
+      "count": 0,
+      "stability": "public_api"
+    },
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "kind": "remote_links",
+      "requested": true,
+      "status": "empty",
+      "complete": true,
+      "count": 0,
+      "stability": "public_api"
+    }
+  ]
+}
+```
+
+The canonical node kinds in schema v1 are `jira_issue`, `confluence_page`,
+`attachment`, and `url`. The seed is the only `expanded:true` node. All
+discovered targets have depth 1 and are never requested by this command.
+Candidate Jira keys found only in narrative use the canonical Jira node id with
+`state:"unresolved"` until a structured fact supplies exact identity. Edge
+kinds are `jira_link`, `parent_of`, `child_of`, `epic_of`, `attached`,
+`remote_link`, and `mentions`; a typed relation and a mention to the same node
+remain distinct edges. Every edge has at least one content-minimized evidence
+record, and duplicate semantic edges merge sorted evidence.
+
+The fixed source order is `issue_fields`, `issue_links`, `hierarchy`,
+`attachments`, `issue_properties`, `comments`, `worklogs`, and `remote_links`.
+Their closed statuses are `complete`, `empty`, `partial`, `forbidden`,
+`unsupported`, and `skipped`.
+Only `complete` and `empty` have `complete:true`. Optional
+`partial_reason` is one of `inspection_limit`, `output_limit`,
+`request_failed`, `malformed_response`, or `policy`; it never contains a backend
+error.
+Malformed or request-limited sources are `partial`; a source that cannot be
+started by policy is `skipped`. `issue_properties` is a stable ordered source:
+its count is the number of returned properties inspected, and completeness
+means the returned property set was processed under the fixed privacy
+exclusions and bounds, not that every property produced graph evidence.
+Top-level `complete` is derived from all requested sources. Auxiliary source
+failure returns a reconciled graph with exit 0 and `complete:false`; seed,
+schema, or reconciliation failure returns the corresponding non-zero sentinel.
+
+The one root snapshot requests `fields=*all`, `properties=*all`, and
+`expand=names,schema` together and is single-attempt. Comments and worklogs use
+their complete paginated readers; remote links use Jira's supported direct
+endpoint. The walker accounts for container, key, scalar, pointer, depth, item,
+and source-byte limits, excludes user/avatar/icon/transport/download subtrees,
+and never dereferences discovered URLs. HTTP(S) URLs reject userinfo, remove
+fragments and default ports, and never emit query values. Sensitive or
+credential-like path segments make the URL an opaque identity without a raw
+URL. Dynamic property and nested-object tokens in evidence pointers are
+deterministic opaque tokens rather than source content. Text output
+contains the same qualification plus escaped source/node/edge tables. `-o id`
+is rejected before configuration or network access.
+
+This additive contract does not change `jira issue refs`; its exact JSON/text
+compatibility goldens remain independent.
+
 `atl jira issue refs <KEY>` and `atl jira issue refs --jql ...` return
 deterministic, provenance-qualified artifact references per issue:
 

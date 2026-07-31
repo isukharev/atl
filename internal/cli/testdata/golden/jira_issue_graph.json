@@ -1,0 +1,214 @@
+{
+  "schema_version": 1,
+  "root_id": "jira:issue:PROJ-1",
+  "complete": true,
+  "bounds": {
+    "requested_depth": 0,
+    "max_nodes": 2048,
+    "max_edges": 4096,
+    "max_evidence": 4096,
+    "max_source_bytes": 1048576,
+    "expanded_node_count": 1,
+    "followed_node_count": 0
+  },
+  "summary": {
+    "node_count": 4,
+    "edge_count": 3,
+    "evidence_count": 3,
+    "source_count": 8,
+    "incomplete_source_count": 0,
+    "source_status_counts": {
+      "complete": 2,
+      "empty": 6,
+      "forbidden": 0,
+      "partial": 0,
+      "skipped": 0,
+      "unsupported": 0
+    },
+    "node_count_matches_nodes": true,
+    "edge_count_matches_edges": true,
+    "evidence_count_matches_edges": true,
+    "source_count_matches_sources": true,
+    "source_status_count_matches_sources": true,
+    "incomplete_source_count_matches_sources": true,
+    "expanded_count_matches_nodes": true,
+    "complete_matches_sources": true
+  },
+  "nodes": [
+    {
+      "id": "jira:issue:PROJ-1",
+      "kind": "jira_issue",
+      "service": "jira",
+      "external_id": "PROJ-1",
+      "label": "Graph seed",
+      "state": "resolved",
+      "expanded": true,
+      "depth": 0,
+      "stability": "public_api"
+    },
+    {
+      "id": "jira:attachment:4",
+      "kind": "attachment",
+      "service": "jira",
+      "external_id": "4",
+      "label": "design.txt",
+      "state": "resolved",
+      "expanded": false,
+      "depth": 1,
+      "stability": "public_api"
+    },
+    {
+      "id": "confluence:page:7",
+      "kind": "confluence_page",
+      "service": "confluence",
+      "external_id": "7",
+      "state": "stub",
+      "expanded": false,
+      "depth": 1,
+      "stability": "heuristic"
+    },
+    {
+      "id": "jira:issue:PROJ-2",
+      "kind": "jira_issue",
+      "service": "jira",
+      "external_id": "PROJ-2",
+      "state": "unresolved",
+      "expanded": false,
+      "depth": 1,
+      "stability": "heuristic"
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:94681a64ac82ca4c500b2329d2a5e0989f96d08a72e3f80e5f9121519eac9201",
+      "from": "jira:issue:PROJ-1",
+      "to": "jira:attachment:4",
+      "kind": "attached",
+      "direction": "outbound",
+      "current": true,
+      "confidence": "exact",
+      "stability": "public_api",
+      "evidence": [
+        {
+          "collector": "attachments",
+          "source_kind": "field",
+          "source_id": "attachment",
+          "json_pointer": "/fields/attachment/0",
+          "extraction": "structured"
+        }
+      ]
+    },
+    {
+      "id": "edge:fd5df0e953114629a62b0a64f811c6b11ea1b95fd952a0217cfe834220f0a799",
+      "from": "jira:issue:PROJ-1",
+      "to": "confluence:page:7",
+      "kind": "mentions",
+      "direction": "outbound",
+      "current": true,
+      "confidence": "high",
+      "stability": "heuristic",
+      "evidence": [
+        {
+          "collector": "issue_fields",
+          "source_kind": "field",
+          "source_id": "description",
+          "json_pointer": "/fields/description",
+          "extraction": "confluence_page_id"
+        }
+      ]
+    },
+    {
+      "id": "edge:25d9d548341b82347cfc263b1c4bb424d80939ee31fa0bef989e221d67379bf3",
+      "from": "jira:issue:PROJ-1",
+      "to": "jira:issue:PROJ-2",
+      "kind": "mentions",
+      "direction": "outbound",
+      "current": true,
+      "confidence": "candidate",
+      "stability": "heuristic",
+      "evidence": [
+        {
+          "collector": "issue_fields",
+          "source_kind": "field",
+          "source_id": "description",
+          "json_pointer": "/fields/description",
+          "extraction": "jira_key"
+        }
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "kind": "issue_fields",
+      "requested": true,
+      "status": "complete",
+      "complete": true,
+      "count": 6,
+      "stability": "public_api"
+    },
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "kind": "issue_links",
+      "requested": true,
+      "status": "empty",
+      "complete": true,
+      "count": 0,
+      "stability": "public_api"
+    },
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "kind": "hierarchy",
+      "requested": true,
+      "status": "empty",
+      "complete": true,
+      "count": 0,
+      "stability": "public_api"
+    },
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "kind": "attachments",
+      "requested": true,
+      "status": "complete",
+      "complete": true,
+      "count": 1,
+      "stability": "public_api"
+    },
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "kind": "issue_properties",
+      "requested": true,
+      "status": "empty",
+      "complete": true,
+      "count": 0,
+      "stability": "public_api"
+    },
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "kind": "comments",
+      "requested": true,
+      "status": "empty",
+      "complete": true,
+      "count": 0,
+      "stability": "public_api"
+    },
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "kind": "worklogs",
+      "requested": true,
+      "status": "empty",
+      "complete": true,
+      "count": 0,
+      "stability": "public_api"
+    },
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "kind": "remote_links",
+      "requested": true,
+      "status": "empty",
+      "complete": true,
+      "count": 0,
+      "stability": "public_api"
+    }
+  ]
+}
