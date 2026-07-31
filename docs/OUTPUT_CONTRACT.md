@@ -104,6 +104,10 @@ well-formedness error but carries no `cloud-compat/*` entry, which is not
 evidence of Cloud compatibility. The command converts nothing, calls no backend,
 and writes no files.
 
+Default validation can also return one blocking `max-depth` problem when CSF
+nesting exceeds 1024 elements. This structural guard runs before recursive
+consumers and reports only the observed depth and limit.
+
 ### Capability catalog
 
 `atl capabilities` is an offline, deterministic routing contract. JSON is
@@ -411,8 +415,9 @@ is bumped.
   compare-and-swap instead: a drift refusal is exit `8` (`ErrCheckFailed`), not `5`. A server-side
   HTTP 409 on a Jira write (locked issue, workflow veto) stays a generic conflict (exit `1`), also
   distinct from `5` (#66).
-- `conf validate` exits non-zero (exit 1) when the CSF is not well-formed. Treat any `"error"`-
-  severity problem in its `problems[]` array as a hard blocker before pushing. `--cloud-compat`
+- `conf validate` exits non-zero (exit 1) when the CSF is not well-formed or
+  exceeds the supported nesting depth. Treat any `"error"`-severity problem in
+  its `problems[]` array as a hard blocker before pushing. `--cloud-compat`
   adds only `"warning"`-severity findings, so it never changes this exit status.
 - `jira issue check` exits `8` (`ErrCheckFailed`) when a field listed in `--require` is empty — a
   distinct code so a CI gate can tell "fields missing" from a transport/auth error. The full result

@@ -98,7 +98,7 @@ skips the subtree (used to avoid descending into draw.io macro internals).
 `csf.ValidateWithOptions(raw, csf.Options{...})` preserves those diagnostics
 exactly and may append explicitly selected advisory rule packs.
 
-### Pass 1: well-formedness
+### Pass 1: well-formedness and structural depth
 
 Streams all XML tokens. On any error, records a single `Problem` with
 `Severity: "error"` and an accurate line/col position mapped back to the
@@ -106,7 +106,9 @@ original bytes (the 6-byte `<root>` prefix offset is subtracted before the
 line/col computation).
 
 A well-formedness error **blocks a push** (`csf.HasErrors` returns true).
-Sending malformed XML to the Confluence API would silently corrupt the page.
+Nesting beyond 1024 elements is likewise rejected as `max-depth` before the DOM
+can reach recursive renderers or inspectors. Sending malformed XML to the
+Confluence API would silently corrupt the page.
 
 ### Pass 2: sanity and invisible-character checks (warnings only)
 

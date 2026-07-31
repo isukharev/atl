@@ -1647,9 +1647,9 @@ Apply flags:
 
 ### `atl conf validate`
 
-Validate a `.csf` file for XML well-formedness and common sanity issues.
-Well-formedness errors (severity `"error"`) block a push. Sanity problems
-(severity `"warning"`) are advisory.
+Validate a `.csf` file for XML well-formedness, supported structural depth, and
+common sanity issues. Well-formedness and `max-depth` errors (severity
+`"error"`) block a push. Sanity problems (severity `"warning"`) are advisory.
 
 ```bash
 atl conf validate mirror/DOCS/guide/guide.csf
@@ -1682,6 +1682,10 @@ Output (JSON):
 ```
 
 Exits 1 when any error-severity problem is found; 0 otherwise.
+
+`max-depth` rejects CSF nested beyond 1024 elements before recursive rendering
+or inspection. The diagnostic contains only the observed depth and limit, not
+document content.
 
 Advisory `invisible-chars` warnings flag characters that render invisibly but
 defeat exact-string editing — non-breaking spaces (`U+00A0`), zero-width

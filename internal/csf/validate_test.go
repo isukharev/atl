@@ -2,6 +2,9 @@ package csf
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -112,4 +115,68 @@ func TestParseByteStableSource(t *testing.T) {
 	if !bytes.Equal(raw, orig) {
 		t.Fatal("Parse mutated its input; the mirror relies on a byte-stable source")
 	}
+}
+
+func TestNestingDepthBoundary(t *testing.T) {
+	t.Parallel()
+
+	for _, depth := range []int{MaxNestingDepth - 1, MaxNestingDepth} {
+		t.Run(fmt.Sprintf("accepts_%d", depth), func(t *testing.T) {
+			raw := nestedCSF(depth)
+			original := append([]byte(nil), raw...)
+
+			root, err := Parse(raw)
+			if err != nil {
+				t.Fatalf("Parse depth %d: %v", depth, err)
+			}
+			if root == nil {
+				t.Fatalf("Parse depth %d returned nil root", depth)
+			}
+			if !bytes.Equal(raw, original) {
+				t.Fatalf("Parse depth %d mutated its input", depth)
+			}
+			if problems := Validate(raw); HasErrors(problems) {
+				t.Fatalf("Validate depth %d returned blocking problems: %+v", depth, problems)
+			}
+		})
+	}
+
+	t.Run("rejects_limit_plus_one", func(t *testing.T) {
+		raw := nestedCSF(MaxNestingDepth + 1)
+		original := append([]byte(nil), raw...)
+
+		root, err := Parse(raw)
+		if root != nil {
+			t.Fatal("Parse returned a partial root for over-depth input")
+		}
+		if !errors.Is(err, ErrMaxNestingDepth) {
+			t.Fatalf("Parse error = %v, want ErrMaxNestingDepth", err)
+		}
+		var depthErr *MaxNestingDepthError
+		if !errors.As(err, &depthErr) {
+			t.Fatalf("Parse error type = %T, want *MaxNestingDepthError", err)
+		}
+		if depthErr.Depth != MaxNestingDepth+1 || depthErr.Limit != MaxNestingDepth {
+			t.Fatalf("depth error = %+v", depthErr)
+		}
+		if !bytes.Equal(raw, original) {
+			t.Fatal("Parse mutated over-depth input")
+		}
+
+		problems := Validate(raw)
+		if len(problems) != 1 {
+			t.Fatalf("Validate returned %d problems, want 1: %+v", len(problems), problems)
+		}
+		got := problems[0]
+		if got.Severity != "error" || got.Rule != "max-depth" {
+			t.Fatalf("Validate problem = %+v, want error/max-depth", got)
+		}
+		if got.Message != err.Error() {
+			t.Fatalf("Validate message = %q, want %q", got.Message, err.Error())
+		}
+	})
+}
+
+func nestedCSF(depth int) []byte {
+	return []byte(strings.Repeat("<x>", depth) + strings.Repeat("</x>", depth))
 }

@@ -467,7 +467,7 @@ never silently discarded.
 
 | Safeguard | Behaviour |
 |-----------|-----------|
-| `atl conf validate` | Blocks on malformed XML (reports line/col); warns on structural issues |
+| `atl conf validate` | Blocks on malformed or over-depth CSF (reports line/col); warns on structural issues |
 | `atl conf validate --cloud-compat` | Opt-in advisory Cloud-compatibility inventory (`cloud-compat/*` warnings, versioned rule pack); never blocks and predicts no migration outcome |
 | `atl conf plan create/preview/apply` | Freezes a multi-page set; read-only complete preview, exact hash + confirmation, no force/replay |
 | `atl conf push --dry-run` | Reports all consequences without writing anything |

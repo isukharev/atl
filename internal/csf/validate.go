@@ -2,6 +2,7 @@ package csf
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 )
@@ -53,6 +54,9 @@ func ValidateWithOptions(raw []byte, opts Options) []Problem {
 	root, err := Parse(raw)
 	if err != nil {
 		// Should not happen if wellFormed passed, but be safe.
+		if errors.Is(err, ErrMaxNestingDepth) {
+			return []Problem{maxDepthProblem(err, 0, 0)}
+		}
 		return []Problem{{Severity: "error", Rule: "well-formedness", Message: err.Error()}}
 	}
 	ps := append(sanity(root), invisibles(raw)...)
@@ -118,7 +122,10 @@ func invisibles(raw []byte) []Problem {
 // wellFormed streams tokens and, on failure, reports an accurate line/col.
 func wellFormed(raw []byte) (Problem, bool) {
 	d := decoder(raw)
+	wrapperSeen := false
+	depth := 0
 	for {
+		start := int(d.InputOffset()) - len("<root>")
 		tok, err := d.Token()
 		if err == io.EOF {
 			return Problem{}, true
@@ -148,6 +155,24 @@ func wellFormed(raw []byte) (Problem, bool) {
 		// rejects these in storage-format body content (in any position), so flag
 		// them here regardless of where they appear.
 		switch tok.(type) {
+		case xml.StartElement:
+			if !wrapperSeen {
+				wrapperSeen = true
+				continue
+			}
+			nextDepth := depth + 1
+			if err := checkNestingDepth(nextDepth); err != nil {
+				line, col := 0, 0
+				if start >= 0 && start <= len(raw) {
+					line, col = lineCol(raw, start)
+				}
+				return maxDepthProblem(err, line, col), false
+			}
+			depth = nextDepth
+		case xml.EndElement:
+			if depth > 0 {
+				depth--
+			}
 		case xml.ProcInst, xml.Directive:
 			line, col := 0, 0
 			off := int(d.InputOffset()) - len("<root>")
@@ -162,6 +187,16 @@ func wellFormed(raw []byte) (Problem, bool) {
 				Message:  "xml declaration, processing instruction, or doctype not allowed in storage-format body",
 			}, false
 		}
+	}
+}
+
+func maxDepthProblem(err error, line, col int) Problem {
+	return Problem{
+		Severity: "error",
+		Line:     line,
+		Col:      col,
+		Rule:     "max-depth",
+		Message:  err.Error(),
 	}
 }
 

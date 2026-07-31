@@ -9,9 +9,43 @@ package csf
 import (
 	"bytes"
 	"encoding/xml"
+	"errors"
+	"fmt"
 	"io"
 	"strings"
 )
+
+// MaxNestingDepth is the greatest number of nested CSF elements Parse accepts.
+// The synthetic root used internally is not counted.
+const MaxNestingDepth = 1024
+
+// ErrMaxNestingDepth identifies CSF rejected before an over-depth DOM node is
+// allocated or linked into the tree.
+var ErrMaxNestingDepth = errors.New("maximum CSF nesting depth exceeded")
+
+// MaxNestingDepthError reports an input whose element nesting exceeds
+// MaxNestingDepth. It intentionally carries no source content.
+type MaxNestingDepthError struct {
+	Depth int
+	Limit int
+}
+
+func (e *MaxNestingDepthError) Error() string {
+	return fmt.Sprintf("CSF nesting depth %d exceeds maximum %d", e.Depth, e.Limit)
+}
+
+// Unwrap makes errors.Is(err, ErrMaxNestingDepth) a stable classification
+// contract while errors.As can recover the observed depth and configured limit.
+func (e *MaxNestingDepthError) Unwrap() error {
+	return ErrMaxNestingDepth
+}
+
+func checkNestingDepth(depth int) error {
+	if depth > MaxNestingDepth {
+		return &MaxNestingDepthError{Depth: depth, Limit: MaxNestingDepth}
+	}
+	return nil
+}
 
 // NodeType classifies a DOM node.
 type NodeType int
@@ -136,6 +170,12 @@ func Parse(raw []byte) (*Node, error) {
 				// the existing root node rather than nesting a duplicate layer.
 				wrapperSeen = true
 				continue
+			}
+			// stack includes the synthetic root, so its current length is the
+			// depth of the element about to be added. Enforce the bound before
+			// allocating or appending that node.
+			if err := checkNestingDepth(len(stack)); err != nil {
+				return nil, err
 			}
 			el := &Node{Type: Element, Name: Name{Space: t.Name.Space, Local: t.Name.Local}, Start: start}
 			for _, a := range t.Attr {
