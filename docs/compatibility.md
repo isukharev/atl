@@ -14,7 +14,9 @@ atl doctor --remote
 ```
 
 `doctor --remote` emits no configured URL/hostname, identity, path, token, or
-raw backend error. It qualifies only the product/version metadata route; a
+raw backend error. It normally qualifies the product/version metadata route.
+When an older Confluence lacks that route, one bodyless HEAD may qualify REST
+reachability only; compatibility remains unverified without a version. A
 healthy result does not certify every product feature or Marketplace app.
 
 ## Atlassian products

@@ -384,14 +384,19 @@ environment-variable names, credentials, identities, object ids, mirrored
 content, and raw parser/backend errors are never fields or interpolated text.
 
 Offline mode performs no network request and skips self-update. Explicit
-`--remote` adds no more than one single-attempt metadata GET per ready backend;
-the projection contains only static product, sanitized version/deployment
-metadata, and closed outcome values. Redirects/retries are disabled and verbose
-trace omits request identity. Malformed global configuration blocks all remote
-probes; otherwise services qualify independently. A file-sourced URL or
-credential with failed owner-only evidence is not used, while an independently
-ready environment source or sibling service may proceed. Mirror findings do
-not suppress the unrelated product metadata probe.
+`--remote` adds no more than one single-attempt metadata GET for Jira. For
+Confluence it makes one version GET and, only when that route returns `404`, one
+bodyless reachability HEAD under the same deadline. Fallback success projects
+static product with an empty version: `remote.status` is `available`, while
+compatibility is `unverified` / `metadata_only` / `version_unavailable`. The
+projection contains only static product, sanitized version/deployment metadata,
+and closed outcome values. Redirects/retries are disabled and verbose trace
+omits request identity. No content GET or identity-bearing route is used.
+Malformed global configuration blocks all remote probes; otherwise services
+qualify independently. A file-sourced URL or credential with failed owner-only
+evidence is not used, while an independently ready environment source or
+sibling service may proceed. Mirror findings do not suppress the unrelated
+product metadata probe.
 
 Advisories keep `healthy:true` and exit `0`. An error-severity problem sets
 `healthy:false`; the aggregate is still written to stdout before the command

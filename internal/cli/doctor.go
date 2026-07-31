@@ -16,8 +16,9 @@ func newDoctorCmd() *cobra.Command {
 		Short: "Diagnose setup safely (offline by default)",
 		Long: "Report build, configuration, credential, safety, and mirror health without\n" +
 			"printing URLs, hostnames, paths, identities, tokens, or mirrored content.\n" +
-			"The default is fully offline. --remote adds one single-attempt metadata\n" +
-			"request per ready backend; it never reads pages, issues, or search results.",
+			"The default is fully offline. --remote adds one single-attempt version probe\n" +
+			"per ready backend; legacy Confluence may add one bodyless reachability probe.\n" +
+			"It never reads page/issue bodies, identities, or search results.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			result, doctorErr := app.RunDoctor(cmd.Context(), app.DoctorOptions{
 				Remote: remote, ReadOnlyPolicy: readOnly || envReadOnly(),
@@ -26,7 +27,7 @@ func newDoctorCmd() *cobra.Command {
 			return snapshotResultErr(doctorErr, emitErr)
 		},
 	}
-	cmd.Flags().BoolVar(&remote, "remote", false, "make one bounded metadata request per ready backend")
+	cmd.Flags().BoolVar(&remote, "remote", false, "make bounded version/reachability probes for ready backends")
 	return cmd
 }
 

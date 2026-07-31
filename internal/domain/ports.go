@@ -20,9 +20,11 @@ type ServerMetadata struct {
 	Version        string
 }
 
-// ServerMetadataReader is the optional backend capability for a single
-// metadata request. Callers that require a strict request budget pass a
-// single-attempt context; implementations must preserve it on the HTTP call.
+// ServerMetadataReader is the optional backend capability for a bounded
+// product/version probe. An adapter may use a documented fallback request when
+// its primary metadata route is absent. A single-attempt context applies to
+// every HTTP call in that sequence: implementations must preserve it so no call
+// retries or follows a redirect.
 type ServerMetadataReader interface {
 	ServerMetadata(ctx context.Context) (ServerMetadata, error)
 }

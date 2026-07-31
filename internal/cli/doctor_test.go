@@ -104,6 +104,68 @@ func TestDoctorRemoteIsExactlyOneMetadataGETPerServiceAndPrivacySafe(t *testing.
 	}
 }
 
+func TestDoctorRemoteRecognizesLegacyConfluenceReachabilityWithoutClaimingCompatibility(t *testing.T) {
+	var mu sync.Mutex
+	var requests []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests = append(requests, r.Method+" "+r.URL.RequestURI())
+		mu.Unlock()
+		if r.Body != nil && r.ContentLength > 0 {
+			t.Errorf("%s %s sent a request body", r.Method, r.URL.RequestURI())
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/rest/api/2/serverInfo":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"version":"9.12.7","deploymentType":"Data Center"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/rest/api/server-information":
+			http.Error(w, "private legacy route detail", http.StatusNotFound)
+		case r.Method == http.MethodHead && r.URL.Path == "/rest/api/content":
+			w.Header().Set("X-Private-Backend", "private legacy header")
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(w, "private unexpected response", http.StatusTeapot)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	out, stderr, code := runCLIFull(t, map[string]string{
+		"ATL_JIRA_URL": srv.URL, "ATL_JIRA_PAT": "jira-secret",
+		"ATL_CONFLUENCE_URL": srv.URL, "ATL_CONFLUENCE_PAT": "conf-secret",
+	}, "--verbose", "doctor", "--remote")
+	if code != exitOK {
+		t.Fatalf("exit=%d stdout=%s stderr=%s", code, out, stderr)
+	}
+	var got app.DoctorResult
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatal(err)
+	}
+	confluence := got.Services.Confluence
+	if !got.Healthy || confluence.Remote.Status != "available" ||
+		confluence.Remote.Product != "confluence" || confluence.Remote.Version != "" ||
+		confluence.Compatibility.Status != "unverified" ||
+		confluence.Compatibility.Evidence != "metadata_only" ||
+		confluence.Compatibility.Reason != "version_unavailable" {
+		t.Fatalf("result=%+v", got)
+	}
+	mu.Lock()
+	gotRequests := strings.Join(requests, "\n")
+	mu.Unlock()
+	wantRequests := "GET /rest/api/2/serverInfo\nGET /rest/api/server-information\nHEAD /rest/api/content"
+	if gotRequests != wantRequests {
+		t.Fatalf("requests=%q want=%q", gotRequests, wantRequests)
+	}
+	for _, private := range []string{
+		srv.URL, "jira-secret", "conf-secret", "private legacy route detail",
+		"private legacy header", "/rest/api/2/serverInfo", "/rest/api/server-information",
+		"/rest/api/content",
+	} {
+		if strings.Contains(out, private) || strings.Contains(stderr, private) {
+			t.Fatalf("doctor output/trace leaked %q\nstdout=%s\nstderr=%s", private, out, stderr)
+		}
+	}
+}
+
 func TestDoctorMalformedConfigBlocksRemoteButStillEmits(t *testing.T) {
 	requests := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {

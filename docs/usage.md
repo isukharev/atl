@@ -506,13 +506,17 @@ content, or raw parser/backend error.
 service independently. A URL or credential sourced from a file whose
 owner-only permissions fail is not used; an independently ready environment
 override or sibling service may still be qualified. Mirror problems do not
-suppress product metadata checks. The command makes at most one sequential,
-single-attempt metadata GET to each eligible service: Jira `serverInfo`, then
-Confluence `server-information`. Redirects and retries are disabled, verbose
-request identity is redacted, and no current-user, search, page, or issue route
-is called. Product is adapter-owned; backend version and deployment strings
-cross a strict numeric release-version grammar before output. A sibling service
-is still qualified when the other local setup or metadata request fails.
+suppress product metadata checks. Jira makes at most one single-attempt
+`serverInfo` GET. Confluence first makes one single-attempt
+`server-information` GET; only when that route returns `404` does it add one
+bodyless HEAD to the content collection under the same five-second deadline.
+That fallback proves REST reachability only: the remote service is available,
+but compatibility remains `unverified` with `version_unavailable`. Redirects
+and retries are disabled, verbose request identity is redacted, and no content
+GET, current-user, search, page-body, or issue-body read is performed. Product
+is adapter-owned; backend version and deployment strings cross a strict numeric
+release-version grammar before output. A sibling service is still qualified
+when the other local setup or metadata request fails.
 
 Warnings such as an absent mirror or unobservable plugin version keep exit `0`.
 Any error-severity `problems[]` entry makes `healthy:false`; the complete result

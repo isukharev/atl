@@ -113,9 +113,11 @@ atl jira issue search --jql 'order by updated DESC' --limit 1
 ```
 
 Без `--remote` команда полностью offline. Remote-режим делает по одному
-single-attempt metadata GET на готовый backend и не читает страницы, задачи,
-поиск или identity. При blocking findings `doctor` всё равно выводит полный
-отчёт и завершает работу с кодом `8`. Продолжение —
+single-attempt product/version GET на готовый backend; только при отсутствии
+version route Confluence он может добавить один bodyless reachability HEAD. Он
+не читает body страниц/задач, результаты поиска или identity. Доступность без
+версии отмечается как unverified compatibility. При blocking findings `doctor`
+всё равно выводит полный отчёт и завершает работу с кодом `8`. Продолжение —
 [пятиминутное руководство](docs/getting-started.md).
 
 ## Три основных workflow

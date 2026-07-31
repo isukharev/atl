@@ -52,6 +52,17 @@ func TestDoctorRemoteFailureNeverReturnsBackendText(t *testing.T) {
 	}
 }
 
+func TestDoctorCompatibilityRequiresObservedVersion(t *testing.T) {
+	got := doctorCompatibility(domain.ServerProductConfluence, DoctorRemote{
+		Status:  "available",
+		Product: domain.ServerProductConfluence,
+	})
+	want := (DoctorCompatibility{Status: "unverified", Evidence: "metadata_only", Reason: "version_unavailable"})
+	if got != want {
+		t.Fatalf("doctorCompatibility(version unavailable) = %+v, want %+v", got, want)
+	}
+}
+
 func TestFinalizeDoctorWarningsStayHealthy(t *testing.T) {
 	result := &DoctorResult{}
 	addDoctorProblem(result, "plugin.version", "advisory", "plugin_version_not_observable", "verify_manually")
