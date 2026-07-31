@@ -10,7 +10,9 @@
 #   make check-skill-safety validate designated read-only skill shell blocks
 #   make check-context7-docs validate the public Context7 parsing/snippet boundary
 #   make check-maintainer-contract verify the exact Go maintainer toolchain
-#   make agent-eval-contract run deterministic agent workflow contracts
+#   make check-package-boundary verify the core/heavy dependency split
+#   make agent-eval-compat run the small product/evaluation compatibility gate
+#   make agent-eval-contract run the complete deterministic evaluation gate
 #   make live-smoke       run opt-in live CLI smoke checks
 #   make dist             cross-compile release binaries into ./dist
 #   make manifest         generate dist/manifest.json from ./dist binaries
@@ -38,11 +40,13 @@ install:
 
 .PHONY: test
 test:
-	go test ./...
+	@packages="$$(go run ./scripts/list-go-packages --class core)" && \
+		test -n "$$packages" && go test $$packages
 
 .PHONY: race
 race:
-	go test -race ./...
+	@packages="$$(go run ./scripts/list-go-packages --class core)" && \
+		test -n "$$packages" && go test -race $$packages
 
 # Live integration tests against a REAL Confluence/Jira Data Center. Opt-in only —
 # never part of `make test` and never run in CI. Reads local-only ./.env.integration
@@ -51,8 +55,9 @@ race:
 .PHONY: integration
 integration:
 	@test -f .env.integration || { echo "missing .env.integration — run: cp .env.integration.example .env.integration && edit it"; exit 1; }
-	set -a; . ./.env.integration; set +a; \
-	ATL_INTEGRATION=1 go test ./... -run Integration -count=1 -v
+	@set -e; packages="$$(go run ./scripts/list-go-packages --class core)"; \
+		test -n "$$packages"; set -a; . ./.env.integration; set +a; \
+		ATL_INTEGRATION=1 go test $$packages -run Integration -count=1 -v
 
 # CLI-level live smoke against locally configured fixtures. This complements
 # `make integration`: it exercises the built binary and optional fixture-specific
@@ -98,12 +103,25 @@ check-context7-docs:
 check-maintainer-contract:
 	GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract
 
-.PHONY: agent-eval-contract
-agent-eval-contract: check-skill-routing
-	go test ./internal/agenteval ./scripts/agent-eval
+.PHONY: check-package-boundary
+check-package-boundary:
+	@core="$$(go run ./scripts/list-go-packages --class core)" && \
+		heavy="$$(go run ./scripts/list-go-packages --class heavy)" && \
+		test -n "$$core" && test -n "$$heavy"
+
+.PHONY: agent-eval-compat
+agent-eval-compat: check-skill-routing
+	go test ./internal/agenteval -run '^(TestRepositoryBenchmarkCorpusContract|TestRepositoryScenarioCapabilitiesMatchCatalog|TestCLIErrorContractVocabularyMatchesCLIClassification|TestCLIErrorContractVocabularyCoversEverySourceClassification)$$' -count=1
 	go run ./scripts/agent-eval validate internal/cli/testdata/agent-eval/*.json benchmarks/agent-eval/*/scenario.v*.json >/dev/null
 	go run ./scripts/agent-eval validate-run benchmarks/agent-eval/*/run.*.json >/dev/null
-	go test ./internal/cli -count=1
+
+.PHONY: agent-eval-contract
+agent-eval-contract: agent-eval-compat
+	go test ./internal/agenteval ./scripts/agent-eval -count=1 -timeout=10m
+
+.PHONY: agent-eval-race
+agent-eval-race: agent-eval-compat
+	go test -race ./internal/agenteval ./scripts/agent-eval -count=1 -timeout=10m
 
 .PHONY: tidy
 tidy:

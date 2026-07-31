@@ -27,15 +27,15 @@ func TestConfPageOutlineAndSectionContracts(t *testing.T) {
 	if !sectionCorrect {
 		t.Fatalf("section exit=%d output=%q", code, section)
 	}
-	evaluateAgentWorkflow(t, "confluence-section-recovery.v1.json", deterministicObservation(
-		"confluence.section-recovery", 3, int64(len(outline)+len(section)), cs.requests(),
-		map[string]bool{
-			"ambiguity_fail_closed":    true,
-			"outline_present":          strings.Contains(outline, `"headings"`),
-			"selected_section_correct": sectionCorrect,
-		},
-	))
-
+	requests := cs.requests()
+	if len(requests) != 3 || len(outline)+len(section) > 4096 {
+		t.Fatalf("recovery budget requests=%d output_bytes=%d", len(requests), len(outline)+len(section))
+	}
+	for _, request := range requests {
+		if request.method != "GET" {
+			t.Fatalf("recovery used non-read method %q", request.method)
+		}
+	}
 	truncated, code := runCLI(t, confEnv(cs.srv), "conf", "page", "section", "42", "--heading", "Overview", "--max-bytes", "40")
 	if code != exitOK || !strings.Contains(truncated, `"complete": false`) || !strings.Contains(truncated, `"truncated": true`) {
 		t.Fatalf("truncated exit=%d output=%s", code, truncated)

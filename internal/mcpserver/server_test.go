@@ -19,13 +19,13 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/isukharev/atl/internal/agenteval"
 	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/diagnostic"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/httpx"
 	"github.com/isukharev/atl/internal/mirror"
+	"github.com/isukharev/atl/internal/testbackend"
 )
 
 func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
@@ -97,9 +97,6 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 	got := make([]string, 0, len(listed.Tools))
 	for _, tool := range listed.Tools {
 		got = append(got, tool.Name)
-		if _, ok := agenteval.CapabilityFamilyForMCP(tool.Name); !ok {
-			t.Errorf("tool %s has no evaluation capability-family mapping", tool.Name)
-		}
 		if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint || !tool.Annotations.IdempotentHint {
 			t.Errorf("tool %s annotations=%+v", tool.Name, tool.Annotations)
 		}
@@ -477,23 +474,6 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("tools=%v want=%v", got, want)
 	}
-	if known := agenteval.KnownMCPToolNames(); !slices.Equal(got, known) {
-		t.Fatalf("production and evaluation MCP inventories diverge: production=%v evaluation=%v", got, known)
-	}
-	inventory, err := agenteval.ValidateBenchmarkCorpus(filepath.Join("..", "..", "benchmarks", "agent-eval"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	covered := make([]string, len(inventory.MCPTools))
-	for index, tool := range inventory.MCPTools {
-		covered[index] = tool.Tool
-	}
-	// Every advertised read-only tool must carry exact model-in-the-loop
-	// benchmark coverage, and a benchmark that names an unregistered tool must
-	// fail: the two sets are compared for equality with no exceptions.
-	if !slices.Equal(covered, want) {
-		t.Fatalf("advertised tools lack exact benchmark coverage: covered=%v want=%v", covered, want)
-	}
 }
 
 func TestSDKSchemaValidationErrorsAreRedactedBeforeBackendConstruction(t *testing.T) {
@@ -855,12 +835,12 @@ func TestSyntheticPortfolioThroughMCPUsesExactGETOnlyRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture, decodeErr := agenteval.DecodeMockFixture(fixtureFile)
+	fixture, decodeErr := testbackend.DecodeMockFixture(fixtureFile)
 	closeErr := fixtureFile.Close()
 	if decodeErr != nil || closeErr != nil {
 		t.Fatalf("fixture decode=%v close=%v", decodeErr, closeErr)
 	}
-	backend, err := agenteval.StartMockBackend(fixture)
+	backend, err := testbackend.StartMockBackend(fixture)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -954,12 +934,12 @@ func TestSyntheticJiraReferenceSummaryThroughMCPUsesExactClosedRoute(t *testing.
 			if err != nil {
 				t.Fatal(err)
 			}
-			fixture, decodeErr := agenteval.DecodeMockFixture(fixtureFile)
+			fixture, decodeErr := testbackend.DecodeMockFixture(fixtureFile)
 			closeErr := fixtureFile.Close()
 			if decodeErr != nil || closeErr != nil {
 				t.Fatalf("fixture decode=%v close=%v", decodeErr, closeErr)
 			}
-			backend, err := agenteval.StartMockBackend(fixture)
+			backend, err := testbackend.StartMockBackend(fixture)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1075,12 +1055,12 @@ func TestSyntheticPaginatedBoardThroughMCPReconcilesMembership(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			fixture, decodeErr := agenteval.DecodeMockFixture(fixtureFile)
+			fixture, decodeErr := testbackend.DecodeMockFixture(fixtureFile)
 			closeErr := fixtureFile.Close()
 			if decodeErr != nil || closeErr != nil {
 				t.Fatalf("fixture decode=%v close=%v", decodeErr, closeErr)
 			}
-			backend, err := agenteval.StartMockBackend(fixture)
+			backend, err := testbackend.StartMockBackend(fixture)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1183,12 +1163,12 @@ func TestSyntheticStructureQualificationThroughMCPProjectsMetadataAndObservedRou
 			if err != nil {
 				t.Fatal(err)
 			}
-			fixture, decodeErr := agenteval.DecodeMockFixture(fixtureFile)
+			fixture, decodeErr := testbackend.DecodeMockFixture(fixtureFile)
 			closeErr := fixtureFile.Close()
 			if decodeErr != nil || closeErr != nil {
 				t.Fatalf("fixture decode=%v close=%v", decodeErr, closeErr)
 			}
-			backend, err := agenteval.StartMockBackend(fixture)
+			backend, err := testbackend.StartMockBackend(fixture)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1264,12 +1244,12 @@ func TestSyntheticClippedDigestExpandsOnlyExactField(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture, decodeErr := agenteval.DecodeMockFixture(fixtureFile)
+	fixture, decodeErr := testbackend.DecodeMockFixture(fixtureFile)
 	closeErr := fixtureFile.Close()
 	if decodeErr != nil || closeErr != nil {
 		t.Fatalf("fixture decode=%v close=%v", decodeErr, closeErr)
 	}
-	backend, err := agenteval.StartMockBackend(fixture)
+	backend, err := testbackend.StartMockBackend(fixture)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1318,12 +1298,12 @@ func TestSyntheticTopicDiscoveryThroughMCPUsesExactGETOnlyRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture, decodeErr := agenteval.DecodeMockFixture(fixtureFile)
+	fixture, decodeErr := testbackend.DecodeMockFixture(fixtureFile)
 	closeErr := fixtureFile.Close()
 	if decodeErr != nil || closeErr != nil {
 		t.Fatalf("fixture decode=%v close=%v", decodeErr, closeErr)
 	}
-	backend, err := agenteval.StartMockBackend(fixture)
+	backend, err := testbackend.StartMockBackend(fixture)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1409,12 +1389,12 @@ func TestSyntheticPartialAuthorizationThroughMCPStopsAtForbiddenSection(t *testi
 			if err != nil {
 				t.Fatal(err)
 			}
-			fixture, decodeErr := agenteval.DecodeMockFixture(fixtureFile)
+			fixture, decodeErr := testbackend.DecodeMockFixture(fixtureFile)
 			closeErr := fixtureFile.Close()
 			if decodeErr != nil || closeErr != nil {
 				t.Fatalf("fixture decode=%v close=%v", decodeErr, closeErr)
 			}
-			backend, err := agenteval.StartMockBackend(fixture)
+			backend, err := testbackend.StartMockBackend(fixture)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1516,12 +1496,12 @@ func TestSyntheticStaleCandidateThroughMCPStopsAtNotFoundSection(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			fixture, decodeErr := agenteval.DecodeMockFixture(fixtureFile)
+			fixture, decodeErr := testbackend.DecodeMockFixture(fixtureFile)
 			closeErr := fixtureFile.Close()
 			if decodeErr != nil || closeErr != nil {
 				t.Fatalf("fixture decode=%v close=%v", decodeErr, closeErr)
 			}
-			backend, err := agenteval.StartMockBackend(fixture)
+			backend, err := testbackend.StartMockBackend(fixture)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -2229,12 +2209,12 @@ func TestConfluenceSearchRateLimitIsClassifiedAfterBoundedReadRetries(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			fixture, decodeErr := agenteval.DecodeMockFixture(fixtureFile)
+			fixture, decodeErr := testbackend.DecodeMockFixture(fixtureFile)
 			closeErr := fixtureFile.Close()
 			if decodeErr != nil || closeErr != nil {
 				t.Fatalf("fixture decode=%v close=%v", decodeErr, closeErr)
 			}
-			backend, err := agenteval.StartMockBackend(fixture)
+			backend, err := testbackend.StartMockBackend(fixture)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -2297,12 +2277,12 @@ func TestConfluenceOutputLimitUsesBenchmarkFixturesWithoutLeakingContent(t *test
 			if err != nil {
 				t.Fatal(err)
 			}
-			fixture, decodeErr := agenteval.DecodeMockFixture(fixtureFile)
+			fixture, decodeErr := testbackend.DecodeMockFixture(fixtureFile)
 			closeErr := fixtureFile.Close()
 			if decodeErr != nil || closeErr != nil {
 				t.Fatalf("fixture decode=%v close=%v", decodeErr, closeErr)
 			}
-			backend, err := agenteval.StartMockBackend(fixture)
+			backend, err := testbackend.StartMockBackend(fixture)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -2526,10 +2506,10 @@ func TestProductionDependenciesRedactSecureBackendURLs(t *testing.T) {
 }
 
 func TestProductionJiraIssueSearchHonorsPageSizeAboveOneHundred(t *testing.T) {
-	fixture := agenteval.MockFixture{
-		SchemaVersion: agenteval.MockFixtureSchemaVersion,
+	fixture := testbackend.MockFixture{
+		SchemaVersion: testbackend.MockFixtureSchemaVersion,
 		JiraContext:   "/jira", ConfluenceContext: "/wiki",
-		Routes: []agenteval.MockRoute{{
+		Routes: []testbackend.MockRoute{{
 			Method: "GET", Path: "/jira/rest/api/2/search",
 			QueryEquals: map[string]string{
 				"jql":     "project = PROJ ORDER BY key",
@@ -2539,7 +2519,7 @@ func TestProductionJiraIssueSearchHonorsPageSizeAboveOneHundred(t *testing.T) {
 			Body:   json.RawMessage(`{"startAt":0,"maxResults":250,"total":0,"issues":[]}`),
 		}},
 	}
-	backend, err := agenteval.StartMockBackend(fixture)
+	backend, err := testbackend.StartMockBackend(fixture)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2568,10 +2548,10 @@ func TestProductionJiraIssueSearchHonorsPageSizeAboveOneHundred(t *testing.T) {
 }
 
 func TestProductionJiraIssueSearchKeepsStalledPaginationIncomplete(t *testing.T) {
-	fixture := agenteval.MockFixture{
-		SchemaVersion: agenteval.MockFixtureSchemaVersion,
+	fixture := testbackend.MockFixture{
+		SchemaVersion: testbackend.MockFixtureSchemaVersion,
 		JiraContext:   "/jira", ConfluenceContext: "/wiki",
-		Routes: []agenteval.MockRoute{{
+		Routes: []testbackend.MockRoute{{
 			Method: "GET", Path: "/jira/rest/api/2/search",
 			QueryEquals: map[string]string{
 				"jql": "project = PROJ", "startAt": "0", "maxResults": "50", "fields": "summary,status",
@@ -2580,7 +2560,7 @@ func TestProductionJiraIssueSearchKeepsStalledPaginationIncomplete(t *testing.T)
 			Body:   json.RawMessage(`{"startAt":0,"maxResults":50,"total":3,"issues":[]}`),
 		}},
 	}
-	backend, err := agenteval.StartMockBackend(fixture)
+	backend, err := testbackend.StartMockBackend(fixture)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2634,12 +2614,12 @@ func TestSyntheticPaginatedJiraSearchThroughMCPReachesTerminalPage(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			fixture, decodeErr := agenteval.DecodeMockFixture(fixtureFile)
+			fixture, decodeErr := testbackend.DecodeMockFixture(fixtureFile)
 			closeErr := fixtureFile.Close()
 			if decodeErr != nil || closeErr != nil {
 				t.Fatalf("fixture decode=%v close=%v", decodeErr, closeErr)
 			}
-			backend, err := agenteval.StartMockBackend(fixture)
+			backend, err := testbackend.StartMockBackend(fixture)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -3035,16 +3015,16 @@ func TestProductionConfluenceSearchOutputBoundFailsWithoutLeakingContent(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture := agenteval.MockFixture{
-		SchemaVersion: agenteval.MockFixtureSchemaVersion,
+	fixture := testbackend.MockFixture{
+		SchemaVersion: testbackend.MockFixtureSchemaVersion,
 		JiraContext:   "/jira", ConfluenceContext: "/wiki",
-		Routes: []agenteval.MockRoute{{
+		Routes: []testbackend.MockRoute{{
 			Method: http.MethodGet, Path: "/wiki/rest/api/search",
 			QueryEquals: map[string]string{"cql": `siteSearch ~ "bounded topic"`},
 			Status:      http.StatusOK, Body: body,
 		}},
 	}
-	backend, err := agenteval.StartMockBackend(fixture)
+	backend, err := testbackend.StartMockBackend(fixture)
 	if err != nil {
 		t.Fatal(err)
 	}

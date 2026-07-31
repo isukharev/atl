@@ -13,17 +13,19 @@ started and what to expect when opening a pull request.
 git clone https://github.com/isukharev/atl.git
 cd atl
 go build ./...          # build everything
-go test ./...           # run unit tests
+make test               # run core product tests
+make agent-eval-contract # run the complete deterministic evaluator contract
 ```
 
 Or, using the Makefile targets:
 
 ```bash
 make build   # builds ./atl binary
-make test    # unit tests
-make race    # unit tests with the race detector
+make test    # core product tests
+make race    # core product tests with the race detector
 make lint    # golangci-lint run
 make check-maintainer-contract # verifies the local Go/tooling contract
+make check-package-boundary # verifies the core/heavy dependency split
 ```
 
 ### Devcontainer
@@ -55,11 +57,17 @@ different Go toolchain automatically.
   unintentionally:
 
   ```bash
-  ATL_INTEGRATION=1 ATL_TEST_PAGE_ID=<your-throwaway-page-id> go test ./... -run Integration
+  ATL_TEST_PAGE_ID=<your-throwaway-page-id> make integration
   ```
 
   Use a page you own and can safely overwrite; do not hard-code real page IDs in
   test files.
+
+- **Agent-evaluation tests** have a separate deterministic gate. Product
+  changes run the small compatibility contract in CI; evaluator/corpus changes
+  run `make agent-eval-contract`. Release tags additionally run the evaluator
+  race gate on Linux. Generic synthetic backend fixtures live outside the
+  evaluator so product tests cannot acquire a hidden heavy dependency.
 
 ---
 

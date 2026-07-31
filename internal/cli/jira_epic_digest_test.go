@@ -56,8 +56,8 @@ func TestJiraEpicDigestRejectsProjectionBeforeConfig(t *testing.T) {
 	}
 }
 
-// TestEvidenceFirstEpicWorkflowBudget is a deterministic agent-contract
-// benchmark, not a wall-clock microbenchmark. It pins the first-use workflow
+// TestEvidenceFirstEpicWorkflowBudget is a deterministic product contract,
+// not a wall-clock microbenchmark. It pins the first-use workflow
 // (discover non-empty fields, then request the aggregate digest) to a bounded
 // number of read-only backend calls and a bounded context payload.
 func TestEvidenceFirstEpicWorkflowBudget(t *testing.T) {
@@ -71,6 +71,9 @@ func TestEvidenceFirstEpicWorkflowBudget(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("digest exit=%d output=%s", code, digest)
 	}
+	if !strings.Contains(digest, `"key": "PROJ-1"`) || len(fields)+len(digest) > 8192 {
+		t.Fatalf("evidence result or output budget drifted: output_bytes=%d", len(fields)+len(digest))
+	}
 	var decoded struct {
 		Sources map[string]struct {
 			Complete bool `json:"complete"`
@@ -79,20 +82,20 @@ func TestEvidenceFirstEpicWorkflowBudget(t *testing.T) {
 	if err := json.Unmarshal([]byte(digest), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	sourcesComplete := true
 	for _, source := range []string{"identity", "status-field", "children", "comments", "links", "history", "refs"} {
-		value, ok := decoded.Sources[source]
-		if !ok || !value.Complete {
-			sourcesComplete = false
+		if value, ok := decoded.Sources[source]; !ok || !value.Complete {
+			t.Fatalf("source %q is incomplete", source)
 		}
 	}
-	evaluateAgentWorkflow(t, "jira-epic-evidence.v1.json", deterministicObservation(
-		"jira.epic-evidence", 2, int64(len(fields)+len(digest)), js.requests(),
-		map[string]bool{
-			"answer_correct":   strings.Contains(digest, `"key": "PROJ-1"`),
-			"sources_complete": sourcesComplete,
-		},
-	))
+	requests := js.requests()
+	if len(requests) > 8 {
+		t.Fatalf("backend request budget exceeded: %d", len(requests))
+	}
+	for _, request := range requests {
+		if request.method != http.MethodGet {
+			t.Fatalf("evidence workflow used non-read method: %+v", request)
+		}
+	}
 }
 
 func TestJiraEpicDigestTextIsEvidenceNotNarrative(t *testing.T) {

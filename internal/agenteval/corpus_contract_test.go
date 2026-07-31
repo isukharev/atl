@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -19,6 +20,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/capability"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/mcpserver"
 )
@@ -33,12 +35,14 @@ func TestRepositoryBenchmarkCorpusContract(t *testing.T) {
 		t.Fatalf("inventory=%+v", inventory)
 	}
 	previous := ""
+	coveredTools := make([]string, 0, len(inventory.MCPTools))
 	for _, tool := range inventory.MCPTools {
 		if tool.Tool <= previous || tool.Specs < 2 || tool.Repetitions < tool.Specs ||
 			tool.ExactInvocationSpecs < 2 || len(tool.Providers) != 2 {
 			t.Fatalf("MCP tool inventory drifted: previous=%q tool=%+v", previous, tool)
 		}
 		previous = tool.Tool
+		coveredTools = append(coveredTools, tool.Tool)
 		if !slices.Equal(
 			[]string{tool.Providers[0].Provider, tool.Providers[1].Provider},
 			[]string{"claude-code", "codex"},
@@ -52,6 +56,60 @@ func TestRepositoryBenchmarkCorpusContract(t *testing.T) {
 				provider.ExactN3PlusSpecs < 1 || provider.ExactDistinctHoldoutSpecs < 1 ||
 				provider.ExactPrimaryScenarios < 1 || provider.ExactHoldoutScenarios < 1 {
 				t.Fatalf("MCP sampling inventory drifted: tool=%s provider=%+v", tool.Tool, provider)
+			}
+		}
+	}
+	definedTools := make([]string, 0)
+	seenTools := map[string]struct{}{}
+	for _, definition := range capability.Definitions() {
+		if definition.MCPTool == "" {
+			continue
+		}
+		seenTools[definition.MCPTool] = struct{}{}
+	}
+	for tool := range seenTools {
+		definedTools = append(definedTools, tool)
+	}
+	sort.Strings(definedTools)
+	knownTools := KnownMCPToolNames()
+	if !slices.Equal(definedTools, knownTools) || !slices.Equal(coveredTools, knownTools) {
+		t.Fatalf("MCP inventories diverged: definitions=%v evaluator=%v corpus=%v", definedTools, knownTools, coveredTools)
+	}
+}
+
+func TestRepositoryScenarioCapabilitiesMatchCatalog(t *testing.T) {
+	paths, err := filepath.Glob(filepath.Join("..", "..", "benchmarks", "agent-eval", "*", "scenario.v*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) == 0 {
+		t.Fatal("no versioned agent-evaluation scenarios found")
+	}
+	definitions := map[string]capability.Definition{}
+	for _, definition := range capability.Definitions() {
+		definitions[definition.ID] = definition
+	}
+	for _, path := range paths {
+		file, openErr := os.Open(path)
+		if openErr != nil {
+			t.Fatal(openErr)
+		}
+		scenario, decodeErr := DecodeScenario(file)
+		closeErr := file.Close()
+		if decodeErr != nil {
+			t.Fatalf("decode versioned scenario: %v", decodeErr)
+		}
+		if closeErr != nil {
+			t.Fatal(closeErr)
+		}
+		for _, capabilityID := range scenario.RequiredCapabilities {
+			definition, ok := definitions[capabilityID]
+			if !ok {
+				t.Errorf("scenario requires capability %q absent from the product catalog", capabilityID)
+				continue
+			}
+			if definition.TaskClass != scenario.TaskClass {
+				t.Errorf("capability %q task=%q want scenario task=%q", capabilityID, definition.TaskClass, scenario.TaskClass)
 			}
 		}
 	}
