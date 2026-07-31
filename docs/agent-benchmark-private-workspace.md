@@ -436,8 +436,15 @@ Run doctor after every manifest or case change:
 
 Doctor validates the marker, owner-only tree, Git boundary, strict manifest,
 case containment, run-spec contracts, comparison equivalence, and lifecycle
-state. Runtime bindings and their owner-only modes are validated while creating
-the reviewed plan. Stdout does not enumerate case aliases or private paths.
+state. Status and doctor also report only aggregate workspace entry and logical
+regular-file byte counts from a bounded tree walk. Every supporting workspace
+traversal stops at 100,000 entries; the ignored-path proof is additionally
+capped at 64 MiB of path input. These counts are quota evidence, not cleanup
+authority: neither command deletes or prunes an artifact, and the size walk
+uses metadata without reading file content. Existing contract validation still
+reads its bounded files. Runtime bindings and their owner-only modes are
+validated while creating the reviewed plan. Stdout does not enumerate case
+aliases or private paths.
 
 Before creating a Codex activation-study plan, inspect the exact model-facing
 local-execution inventory without provider authentication or backend authority:

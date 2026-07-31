@@ -9,6 +9,7 @@
 #   make check-plugins    verify the generated plugin trees are current
 #   make check-skill-safety validate designated read-only skill shell blocks
 #   make check-context7-docs validate the public Context7 parsing/snippet boundary
+#   make check-maintainer-contract verify the exact Go maintainer toolchain
 #   make agent-eval-contract run deterministic agent workflow contracts
 #   make live-smoke       run opt-in live CLI smoke checks
 #   make dist             cross-compile release binaries into ./dist
@@ -92,6 +93,10 @@ check-skill-routing:
 .PHONY: check-context7-docs
 check-context7-docs:
 	go run ./scripts/check-context7-docs
+
+.PHONY: check-maintainer-contract
+check-maintainer-contract:
+	GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract
 
 .PHONY: agent-eval-contract
 agent-eval-contract: check-skill-routing

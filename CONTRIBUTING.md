@@ -7,7 +7,7 @@ started and what to expect when opening a pull request.
 
 ## Dev setup
 
-**Requirements:** Go 1.26 or later, `make`, `git`.
+**Requirements:** the exact Go patch declared by `go.mod`, `make`, `git`.
 
 ```bash
 git clone https://github.com/isukharev/atl.git
@@ -20,14 +20,19 @@ Or, using the Makefile targets:
 
 ```bash
 make build   # builds ./atl binary
-make test    # unit tests with -race
+make test    # unit tests
+make race    # unit tests with the race detector
 make lint    # golangci-lint run
+make check-maintainer-contract # verifies the local Go/tooling contract
 ```
 
 ### Devcontainer
 
 A `.devcontainer/devcontainer.json` is provided. Open the repo in VS Code and
-choose **Reopen in Container** — Go, gopls, and golangci-lint are pre-installed.
+choose **Reopen in Container** — the exact Go patch from `go.mod`, gopls, and
+golangci-lint are pre-installed. The container uses `GOTOOLCHAIN=local`, so a
+stale image fails the maintainer-contract check instead of downloading a
+different Go toolchain automatically.
 
 ---
 
