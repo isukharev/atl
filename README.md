@@ -46,9 +46,9 @@ The exhaustive [command reference](docs/usage.md) and
 required before the first successful workflow.
 
 Given one exact Jira issue, `atl jira issue graph PROJ-123` returns its
-provenance-qualified direct work-artifact graph without following any
-discovered issue, page, or URL. Opt-in `--depth 1..3` follows only exact
-structured Jira relations under hard request/output budgets; optional
+provenance-qualified, schema-v2 direct work-artifact graph without following
+any discovered issue, page, or URL. `--depth 1..3` follows only exact structured
+Jira relations under hard request/output budgets; optional
 `--resolve confluence` reads only page id/title metadata.
 
 ## Install

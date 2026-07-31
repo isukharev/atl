@@ -3340,16 +3340,18 @@ atl jira issue graph PROJ-1 --resolve confluence
 atl jira issue graph PROJ-1 -o text
 ```
 
-With no traversal, resolution, or custom-limit option, the command preserves
-schema v1 byte-for-byte. It expands only the seed at depth 0. Explicit
-`--depth 0` or `--resolve none` alone also stays on v1. Jira issues, Confluence
-page identities, attachments, and safe URL targets discovered from the seed
-remain depth-1 stubs; atl does not fetch a linked issue, resolve a page,
-download an attachment, or dereference an external URL.
+The command always emits schema v2. With the default `--depth 0` and
+`--resolve none`, it expands only the seed. Jira issues, Confluence page
+identities, attachments, and safe URL targets discovered from the seed remain
+depth-1 stubs; atl does not fetch a linked issue, resolve a page, download an
+attachment, or dereference an external URL. Omitting both flags, supplying
+`--depth 0`, supplying `--resolve none`, or supplying both explicitly produces
+the same output contract.
 
-`--depth 1..3`, `--resolve confluence`, or any explicit limit opts into schema
-v2. Traversal is a globally canonical breadth-first walk and follows only exact
-`jira_issue` stubs discovered through structured Jira links or hierarchy.
+`--depth 1..3` enables traversal, while `--resolve confluence` adds the narrow
+metadata resolution phase. Traversal is a globally canonical breadth-first
+walk and follows only exact `jira_issue` stubs discovered through structured
+Jira links or hierarchy.
 Heuristic narrative mentions are never followed. Cycles, diamonds, and moved
 keys are reconciled deterministically. Schema v2 records each source against
 its expanded node, adds `source_node_id` to evidence, and reports attempted,

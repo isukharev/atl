@@ -1490,22 +1490,29 @@ summary text projection adds `projection=summary`, `custom`, and `system` on a
 second line and no field records; the full projection keeps the existing
 tab-separated field records.
 
-`atl jira issue graph <KEY>` emits one transient, deterministic depth-zero
-work-artifact graph:
+`atl jira issue graph <KEY>` emits one transient, deterministic schema-v2
+work-artifact graph. Depth defaults to zero:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "root_id": "jira:issue:PROJ-1",
   "complete": true,
   "bounds": {
     "requested_depth": 0,
-    "max_nodes": 2048,
-    "max_edges": 4096,
-    "max_evidence": 4096,
+    "max_nodes": 100,
+    "max_edges": 500,
+    "max_evidence": 500,
     "max_source_bytes": 1048576,
     "expanded_node_count": 1,
-    "followed_node_count": 0
+    "followed_node_count": 0,
+    "attempted_node_count": 1,
+    "max_requests": 100,
+    "requests_used": 4,
+    "max_response_bytes": 16777216,
+    "response_bytes_used": 4096,
+    "max_sources": 801,
+    "max_frontier": 100
   },
   "summary": {
     "node_count": 2,
@@ -1516,10 +1523,10 @@ work-artifact graph:
     "source_status_counts": {
       "complete": 2,
       "empty": 6,
-      "partial": 0,
       "forbidden": 0,
-      "unsupported": 0,
-      "skipped": 0
+      "partial": 0,
+      "skipped": 0,
+      "unsupported": 0
     },
     "node_count_matches_nodes": true,
     "edge_count_matches_edges": true,
@@ -1568,6 +1575,7 @@ work-artifact graph:
       "evidence": [
         {
           "collector": "issue_links",
+          "source_node_id": "jira:issue:PROJ-1",
           "source_kind": "field",
           "source_id": "7",
           "json_pointer": "/fields/issuelinks/0",
@@ -1579,6 +1587,7 @@ work-artifact graph:
   "sources": [
     {
       "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
       "kind": "issue_fields",
       "requested": true,
       "status": "complete",
@@ -1588,6 +1597,7 @@ work-artifact graph:
     },
     {
       "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
       "kind": "issue_links",
       "requested": true,
       "status": "complete",
@@ -1597,6 +1607,7 @@ work-artifact graph:
     },
     {
       "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
       "kind": "hierarchy",
       "requested": true,
       "status": "empty",
@@ -1606,6 +1617,7 @@ work-artifact graph:
     },
     {
       "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
       "kind": "attachments",
       "requested": true,
       "status": "empty",
@@ -1615,6 +1627,7 @@ work-artifact graph:
     },
     {
       "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
       "kind": "issue_properties",
       "requested": true,
       "status": "empty",
@@ -1624,6 +1637,7 @@ work-artifact graph:
     },
     {
       "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
       "kind": "comments",
       "requested": true,
       "status": "empty",
@@ -1633,6 +1647,7 @@ work-artifact graph:
     },
     {
       "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
       "kind": "worklogs",
       "requested": true,
       "status": "empty",
@@ -1642,6 +1657,7 @@ work-artifact graph:
     },
     {
       "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
       "kind": "remote_links",
       "requested": true,
       "status": "empty",
@@ -1653,9 +1669,9 @@ work-artifact graph:
 }
 ```
 
-The canonical node kinds in schema v1 are `jira_issue`, `confluence_page`,
-`attachment`, and `url`. The seed is the only `expanded:true` node. All
-discovered targets have depth 1 and are never requested by this command.
+The canonical node kinds in schema v2 are `jira_issue`, `confluence_page`,
+`attachment`, and `url`. At depth zero, as shown above, the seed is the only
+`expanded:true` node. All discovered targets have depth 1 and are not requested.
 Candidate Jira keys found only in narrative use the canonical Jira node id with
 `state:"unresolved"` until a structured fact supplies exact identity. Edge
 kinds are `jira_link`, `parent_of`, `child_of`, `epic_of`, `attached`,
@@ -1669,8 +1685,8 @@ Their closed statuses are `complete`, `empty`, `partial`, `forbidden`,
 `unsupported`, and `skipped`.
 Only `complete` and `empty` have `complete:true`. Optional
 `partial_reason` is one of `inspection_limit`, `output_limit`,
-`request_failed`, `malformed_response`, or `policy`; it never contains a backend
-error.
+`request_failed`, `malformed_response`, `request_limit`, `byte_limit`,
+`dependency_unavailable`, or `policy`; it never contains a backend error.
 Malformed or request-limited sources are `partial`; a source that cannot be
 started by policy is `skipped`. `issue_properties` is a stable ordered source:
 its count is the number of returned properties inspected, and completeness
@@ -1693,11 +1709,12 @@ deterministic opaque tokens rather than source content. Text output
 contains the same qualification plus escaped source/node/edge tables. `-o id`
 is rejected before configuration or network access.
 
-Schema v2 is opt-in. It is selected by `--depth 1..3`,
-`--resolve confluence`, or any explicitly supplied graph limit. No opt-in
-option, explicit `--depth 0`, and explicit `--resolve none` preserve the exact
-schema-v1 projection above. Schema v2 keeps the same top-level arrays and
-reconciliation summary, with these additions:
+Every graph invocation uses schema v2. Omitting traversal and resolution flags,
+explicit `--depth 0`, explicit `--resolve none`, or both explicit values keeps
+the same direct depth-zero contract. `--depth 1..3` adds structured Jira
+traversal and `--resolve confluence` adds the narrow metadata phase. Schema v2
+uses the same top-level arrays and reconciliation summary at every depth, with
+these transport and provenance fields:
 
 - `bounds.attempted_node_count` counts Jira snapshot calls that were actually
   attempted; `followed_node_count` is the non-root subset and
@@ -1751,7 +1768,7 @@ first, then returns `ErrCheckFailed` (exit 8) when `complete:false`. Schema-v2
 text adds transport usage, per-node source columns, and a frontier table when
 one exists.
 
-This additive contract does not change `jira issue refs`; its exact JSON/text
+This contract change does not change `jira issue refs`; its exact JSON/text
 compatibility goldens remain independent.
 
 `atl jira issue refs <KEY>` and `atl jira issue refs --jql ...` return

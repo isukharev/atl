@@ -259,7 +259,7 @@ without raw changelog rows (explicit false is rejected), and last-field-change
 metadata;
 transient multi-key export to artifact-only stdout; deterministic epic evidence
 digest and standalone refs with reconciled per-kind/per-source aggregates;
-default-direct and opt-in bounded CLI work-artifact graph with exact
+schema-v2 bounded CLI work-artifact graph with exact
 structured Jira traversal, optional Confluence id/title resolution, typed
 edges, mentions, budgets, frontier, and qualified per-node sources;
 check/attachments/refs/tree. For a report

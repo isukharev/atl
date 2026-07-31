@@ -106,11 +106,11 @@ func TestIssueGraphBuildsDeterministicQualifiedDirectGraph(t *testing.T) {
 	service := &JiraService{
 		tr: tracker, baseURL: "https://jira.example.test",
 	}
-	first, err := service.IssueGraph(context.Background(), "PROJ-1")
+	first, err := service.IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := service.IssueGraph(context.Background(), "PROJ-1")
+	second, err := service.IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestIssueGraphQualifiesAuxiliaryFailuresWithoutDiscardingSeed(t *testing.T)
 	tracker.remote = domain.JiraRemoteLinkInventory{}
 	tracker.remoteErr = domain.ErrNotFound
 
-	result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraph(context.Background(), "PROJ-1")
+	result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestIssueGraphQualifiesAuxiliaryFailuresWithoutDiscardingSeed(t *testing.T)
 
 func TestIssueGraphRejectsInvalidKeyBeforeSnapshot(t *testing.T) {
 	tracker := completeGraphFixture()
-	_, err := (&JiraService{tr: tracker}).IssueGraph(context.Background(), "not a key")
+	_, err := (&JiraService{tr: tracker}).IssueGraphWithOptions(context.Background(), "not a key", JiraIssueGraphOptions{})
 	if !errors.Is(err, domain.ErrUsage) {
 		t.Fatalf("error = %v", err)
 	}
@@ -204,10 +204,9 @@ func TestIssueGraphRejectsInvalidKeyBeforeSnapshot(t *testing.T) {
 
 func TestIssueGraphRejectsMismatchedSnapshotIdentity(t *testing.T) {
 	tracker := completeGraphFixture()
-	tracker.snapshot.Key = "PROJ-2"
-	tracker.snapshot.Issue.Key = "PROJ-2"
+	tracker.snapshot.RequestedKey = "PROJ-2"
 
-	_, err := (&JiraService{tr: tracker}).IssueGraph(context.Background(), "PROJ-1")
+	_, err := (&JiraService{tr: tracker}).IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
 	if !errors.Is(err, domain.ErrCheckFailed) {
 		t.Fatalf("error = %v", err)
 	}
@@ -338,7 +337,7 @@ func TestIssueGraphQualifiesMalformedStructuredRows(t *testing.T) {
 		},
 	}
 
-	result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraph(context.Background(), "PROJ-1")
+	result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,7 +369,7 @@ func TestIssueGraphTreatsOmittedOptionalHierarchyAsEmpty(t *testing.T) {
 			tracker := completeGraphFixture()
 			mutate(tracker.snapshot.Fields)
 
-			result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraph(context.Background(), "PROJ-1")
+			result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -387,7 +386,7 @@ func TestIssueGraphKeepsPresentMalformedHierarchyPartial(t *testing.T) {
 	tracker.snapshot.Fields["parent"] = "PROJ-4"
 	tracker.snapshot.Fields["subtasks"] = map[string]any{"key": "PROJ-5"}
 
-	result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraph(context.Background(), "PROJ-1")
+	result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +410,7 @@ func TestIssueGraphSanitizesIdentitySubtreesAndPropertyKeys(t *testing.T) {
 	}
 	tracker.snapshot.Schema["customfield_99"] = domain.IssueFieldSchema{Type: "user"}
 
-	result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraph(context.Background(), "PROJ-1")
+	result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,7 +432,7 @@ func TestIssueGraphRejectsNonCanonicalStructuredPageID(t *testing.T) {
 	tracker := completeGraphFixture()
 	tracker.snapshot.Properties["invalid"] = map[string]any{"pageId": json.Number("1e3")}
 
-	result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraph(context.Background(), "PROJ-1")
+	result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -458,7 +457,7 @@ func TestIssueGraphReconcilesBareAndStructuredJiraIdentityRegardlessOfSourceOrde
 		Total: 1,
 	}
 
-	result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraph(context.Background(), "PROJ-1")
+	result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -486,7 +485,9 @@ func TestIssueGraphNeverExceedsFixedNodeOrEdgeBounds(t *testing.T) {
 	tracker.snapshot.Fields["description"] = description.String()
 	tracker.snapshot.Issue.Fields["description"] = description.String()
 
-	result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraph(context.Background(), "PROJ-1")
+	result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{
+		MaxNodes: jiraGraphMaxNodes, MaxEdges: jiraGraphMaxEdges, MaxEvidence: jiraGraphMaxEvidence,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

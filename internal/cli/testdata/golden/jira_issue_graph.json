@@ -1,15 +1,22 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "root_id": "jira:issue:PROJ-1",
   "complete": true,
   "bounds": {
     "requested_depth": 0,
-    "max_nodes": 2048,
-    "max_edges": 4096,
-    "max_evidence": 4096,
+    "max_nodes": 100,
+    "max_edges": 500,
+    "max_evidence": 500,
     "max_source_bytes": 1048576,
     "expanded_node_count": 1,
-    "followed_node_count": 0
+    "followed_node_count": 0,
+    "attempted_node_count": 1,
+    "max_requests": 100,
+    "requests_used": 4,
+    "max_response_bytes": 16777216,
+    "response_bytes_used": 575,
+    "max_sources": 801,
+    "max_frontier": 100
   },
   "summary": {
     "node_count": 4,
@@ -91,6 +98,7 @@
       "evidence": [
         {
           "collector": "attachments",
+          "source_node_id": "jira:issue:PROJ-1",
           "source_kind": "field",
           "source_id": "attachment",
           "json_pointer": "/fields/attachment/0",
@@ -110,6 +118,7 @@
       "evidence": [
         {
           "collector": "issue_fields",
+          "source_node_id": "jira:issue:PROJ-1",
           "source_kind": "field",
           "source_id": "description",
           "json_pointer": "/fields/description",
@@ -129,6 +138,7 @@
       "evidence": [
         {
           "collector": "issue_fields",
+          "source_node_id": "jira:issue:PROJ-1",
           "source_kind": "field",
           "source_id": "description",
           "json_pointer": "/fields/description",
@@ -140,6 +150,7 @@
   "sources": [
     {
       "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
       "kind": "issue_fields",
       "requested": true,
       "status": "complete",
@@ -149,6 +160,7 @@
     },
     {
       "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
       "kind": "issue_links",
       "requested": true,
       "status": "empty",
@@ -158,6 +170,7 @@
     },
     {
       "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
       "kind": "hierarchy",
       "requested": true,
       "status": "empty",
@@ -167,6 +180,7 @@
     },
     {
       "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
       "kind": "attachments",
       "requested": true,
       "status": "complete",
@@ -176,6 +190,7 @@
     },
     {
       "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
       "kind": "issue_properties",
       "requested": true,
       "status": "empty",
@@ -185,6 +200,7 @@
     },
     {
       "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
       "kind": "comments",
       "requested": true,
       "status": "empty",
@@ -194,6 +210,7 @@
     },
     {
       "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
       "kind": "worklogs",
       "requested": true,
       "status": "empty",
@@ -203,6 +220,7 @@
     },
     {
       "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
       "kind": "remote_links",
       "requested": true,
       "status": "empty",

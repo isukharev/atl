@@ -23,11 +23,11 @@ discovery step, followed by exact per-issue qualification and bounded
 expansion. Skip that search when the task already supplies one exact issue key.
 
 The graph command is currently CLI-only. For one exact issue and a
-relationship/discovery question, begin with the default direct schema-v1 read
-under `ATL_READ_ONLY=1`. Verify top-level reconciliation and every requested
+relationship/discovery question, begin with the default direct schema-v2 read
+at depth zero under `ATL_READ_ONLY=1`. Verify top-level reconciliation and every requested
 source, and distinguish structured relations from heuristic `mentions`. When
-the question truly spans linked Jira work, opt into the smallest sufficient
-`--depth 1..3`; schema v2 follows only exact structured Jira stubs in canonical
+the question truly spans linked Jira work, use the smallest sufficient
+`--depth 1..3`; traversal follows only exact structured Jira stubs in canonical
 breadth-first order. It never follows narrative mentions. Add
 `--resolve confluence` only when id/title metadata for already discovered
 canonical page ids is enough; page bodies and arbitrary URLs are not read.

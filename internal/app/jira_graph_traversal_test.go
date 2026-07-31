@@ -182,6 +182,28 @@ func TestIssueGraphWithOptionsDoesNotFollowNarrativeMentions(t *testing.T) {
 	}
 }
 
+func TestIssueGraphWithOptionsDepthZeroDoesNotFollowExactRelation(t *testing.T) {
+	service, tracker := traversalService(map[string]*domain.QualifiedIssueSnapshot{
+		"PROJ-1": traversalSnapshot("PROJ-1", []string{"PROJ-2"}, ""),
+	})
+	result, err := service.IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tracker.reads["PROJ-2"] != 0 || result.Bounds.ExpandedNodes != 1 || result.Bounds.FollowedNodes != 0 {
+		t.Fatalf("depth-zero traversal reads=%#v bounds=%#v", tracker.reads, result.Bounds)
+	}
+	foundStub := false
+	for _, node := range result.Nodes {
+		if node.ID == "jira:issue:PROJ-2" {
+			foundStub = node.State == domain.ArtifactNodeStub && !node.Expanded && node.Depth == 1
+		}
+	}
+	if !foundStub {
+		t.Fatalf("exact depth-one stub missing: %#v", result.Nodes)
+	}
+}
+
 func TestIssueGraphWithOptionsDoesNotFollowSameOriginNarrativeURL(t *testing.T) {
 	service, tracker := traversalService(map[string]*domain.QualifiedIssueSnapshot{
 		"PROJ-1": traversalSnapshot("PROJ-1", nil, "https://jira.example.test/browse/PROJ-9"),
@@ -628,31 +650,6 @@ func TestIssueGraphWithOptionsQualifiesRootByteBudgetExhaustion(t *testing.T) {
 		source.PartialReason != domain.ArtifactPartialByteLimit {
 		t.Fatalf("root budget resolution source = %#v", source)
 	}
-}
-
-func TestIssueGraphV1SerializationOmitsV2Fields(t *testing.T) {
-	result, err := (&JiraService{tr: completeGraphFixture(), baseURL: "https://jira.example.test"}).IssueGraph(context.Background(), "PROJ-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	encoded, err := json.Marshal(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, v2Field := range []string{
-		"attempted_node_count", "max_requests", "requests_used", "max_response_bytes",
-		"response_bytes_used", "max_sources", "max_frontier", "frontier_count",
-		"frontier_truncated", "frontier", "node_depth", "source_node_id",
-	} {
-		if jsonContainsField(encoded, v2Field) {
-			t.Fatalf("schema v1 unexpectedly contains %q: %s", v2Field, encoded)
-		}
-	}
-}
-
-func jsonContainsField(encoded []byte, field string) bool {
-	needle, _ := json.Marshal(field)
-	return len(needle) > 0 && strings.Contains(string(encoded), string(needle)+":")
 }
 
 func graphV2Source(t *testing.T, result *JiraIssueGraphResult, nodeID, kind string) domain.ArtifactGraphSource {

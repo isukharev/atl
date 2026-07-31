@@ -3,20 +3,21 @@
 - Root: `jira:issue:PROJ-1`
 - Complete: `true`
 - Depth: `0` (expanded `1`, followed `0`)
+- Transport: `4/100` attempts; `575/16777216` buffered response bytes
 - Nodes: `4`; edges: `3`; evidence: `3`; sources: `8`
 
 ## Sources
 
-| Source | Status | Complete | Count | Truncated | Stability | Reason |
-| --- | --- | --- | --- | --- | --- | --- |
-| issue_fields | complete | true | 6 | false | public_api |  |
-| issue_links | empty | true | 0 | false | public_api |  |
-| hierarchy | empty | true | 0 | false | public_api |  |
-| attachments | complete | true | 1 | false | public_api |  |
-| issue_properties | empty | true | 0 | false | public_api |  |
-| comments | empty | true | 0 | false | public_api |  |
-| worklogs | empty | true | 0 | false | public_api |  |
-| remote_links | empty | true | 0 | false | public_api |  |
+| Node | Depth | Source | Status | Complete | Count | Truncated | Stability | Reason |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| jira:issue:PROJ-1 | 0 | issue_fields | complete | true | 6 | false | public_api |  |
+| jira:issue:PROJ-1 | 0 | issue_links | empty | true | 0 | false | public_api |  |
+| jira:issue:PROJ-1 | 0 | hierarchy | empty | true | 0 | false | public_api |  |
+| jira:issue:PROJ-1 | 0 | attachments | complete | true | 1 | false | public_api |  |
+| jira:issue:PROJ-1 | 0 | issue_properties | empty | true | 0 | false | public_api |  |
+| jira:issue:PROJ-1 | 0 | comments | empty | true | 0 | false | public_api |  |
+| jira:issue:PROJ-1 | 0 | worklogs | empty | true | 0 | false | public_api |  |
+| jira:issue:PROJ-1 | 0 | remote_links | empty | true | 0 | false | public_api |  |
 
 ## Nodes
 
