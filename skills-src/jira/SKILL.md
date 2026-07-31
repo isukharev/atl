@@ -77,6 +77,9 @@ reconciliation, budgets, frontier, and every per-node source status, and never
 imply that a heuristic
 mention was fetched. Use `--resolve confluence` only when id/title metadata for
 already discovered canonical pages is necessary; it does not read page bodies.
+Treat `issue_fields:partial` as uninspected field evidence when Jira omits or
+malforms essential names/schema, and treat `issue_properties` as an
+`experimental_api` source even when its inventory is complete.
 Prefer `--strict` when incomplete evidence must fail the workflow. For a
 reference-inventory question, call `jira_issue_refs` with exactly one issue
 `key`, or bounded `jql` plus `limit` from 1 through 25, and at most eight exact

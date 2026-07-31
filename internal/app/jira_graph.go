@@ -105,10 +105,17 @@ func newJiraGraphBuilder(rootID string) *jiraGraphBuilder {
 		builder.sources[kind] = &domain.ArtifactGraphSource{
 			NodeID: rootID, Kind: kind, Requested: true,
 			Status: domain.ArtifactSourceEmpty, Complete: true,
-			Stability: domain.ArtifactStabilityPublicAPI,
+			Stability: jiraGraphSourceStability(kind),
 		}
 	}
 	return builder
+}
+
+func jiraGraphSourceStability(kind string) domain.ArtifactGraphStability {
+	if kind == "issue_properties" {
+		return domain.ArtifactStabilityExperimentalAPI
+	}
+	return domain.ArtifactStabilityPublicAPI
 }
 
 func (b *jiraGraphBuilder) collectIssueLinks(snapshot *domain.QualifiedIssueSnapshot) {
@@ -310,10 +317,12 @@ func (b *jiraGraphBuilder) collectSnapshotText(snapshot *domain.QualifiedIssueSn
 	propertiesSource.Count = len(snapshot.Properties)
 	fieldsBudget := &graphExtractBudget{MaxBytes: jiraGraphMaxSourceBytes}
 	fieldIDs := graphSortedSourceKeys(snapshot.Fields, fieldsBudget, graphWalkMaxFields)
+	type fieldInspection struct {
+		id        string
+		allowBare bool
+	}
+	inspections := make([]fieldInspection, 0, len(fieldIDs))
 	for _, fieldID := range fieldIDs {
-		if fieldsBudget.Clipped {
-			break
-		}
 		if graphSkippedPathKeys[strings.ToLower(fieldID)] {
 			continue
 		}
@@ -321,13 +330,53 @@ func (b *jiraGraphBuilder) collectSnapshotText(snapshot *domain.QualifiedIssueSn
 		case "issuelinks", "parent", "subtasks", "attachment", "comment", "worklog":
 			continue
 		}
-		schema := snapshot.Schema[fieldID]
+		if !graphValueMayContainReferences(snapshot.Fields[fieldID]) {
+			continue
+		}
+		schema, schemaPresent := snapshot.Schema[fieldID]
+		if !schemaPresent {
+			b.markMalformed(fieldsSource)
+			continue
+		}
+		custom := graphCustomFieldIDPattern.MatchString(fieldID)
+		schema, schemaValid := graphNormalizeFieldSchema(schema, custom)
+		if !schemaValid {
+			b.markMalformed(fieldsSource)
+			continue
+		}
+		knownSystem := graphKnownSystemFieldID(fieldID) || schema.System != "" && strings.EqualFold(schema.System, fieldID)
+		if custom && schema.System != "" || knownSystem && schema.Custom != "" {
+			b.markMalformed(fieldsSource)
+			continue
+		}
+		if !custom && !knownSystem {
+			b.markMalformed(fieldsSource)
+		}
+		if knownSystem && schema.System != "" && !strings.EqualFold(schema.System, fieldID) {
+			b.markMalformed(fieldsSource)
+			continue
+		}
 		if graphSchemaIsIdentity(schema) {
 			continue
 		}
-		allowBare := graphFieldAllowsBareReferences(fieldID, snapshot.Names[fieldID], schema)
+		name, namePresent := snapshot.Names[fieldID]
+		allowBare := false
+		if custom || knownSystem {
+			allowBare = graphFieldAllowsBareReferences(fieldID, name, schema)
+		}
+		if custom && (!namePresent || strings.TrimSpace(name) == "") {
+			b.markMalformed(fieldsSource)
+			allowBare = false
+		}
+		inspections = append(inspections, fieldInspection{id: fieldID, allowBare: allowBare})
+	}
+	for _, inspection := range inspections {
+		if fieldsBudget.Clipped {
+			break
+		}
+		fieldID := inspection.id
 		safeFieldID := graphSafeFieldToken(fieldID)
-		walkGraphValue(snapshot.Fields[fieldID], "/fields/"+escapeJSONPointer(safeFieldID), allowBare, fieldsBudget,
+		walkGraphValue(snapshot.Fields[fieldID], "/fields/"+escapeJSONPointer(safeFieldID), inspection.allowBare, fieldsBudget,
 			func(value any, pointer string, bare bool) {
 				b.addValueReferences(value, pointer, "issue_fields", "field", safeFieldID, bare, jiraBase, confluenceBase, fieldsSource)
 			})
@@ -546,6 +595,72 @@ func graphSchemaIsIdentity(schema domain.IssueFieldSchema) bool {
 	return false
 }
 
+func graphValueMayContainReferences(value any) bool {
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed) != ""
+	case []any:
+		return len(typed) > 0
+	case map[string]any:
+		return len(typed) > 0
+	case nil, json.Number, float64, bool:
+		return false
+	default:
+		return true
+	}
+}
+
+func graphNormalizeFieldSchema(schema domain.IssueFieldSchema, allowTopLevelAny bool) (domain.IssueFieldSchema, bool) {
+	schema.Type = strings.ToLower(strings.TrimSpace(schema.Type))
+	schema.Items = strings.ToLower(strings.TrimSpace(schema.Items))
+	schema.System = strings.TrimSpace(schema.System)
+	schema.Custom = strings.TrimSpace(schema.Custom)
+	if schema.Type == "any" {
+		if !allowTopLevelAny || schema.Items != "" {
+			return domain.IssueFieldSchema{}, false
+		}
+		return schema, true
+	}
+	if !graphKnownSchemaType(schema.Type) {
+		return domain.IssueFieldSchema{}, false
+	}
+	if schema.Type == "array" {
+		if schema.Items == "" || schema.Items == "array" || !graphKnownSchemaType(schema.Items) {
+			return domain.IssueFieldSchema{}, false
+		}
+	} else if schema.Items != "" {
+		return domain.IssueFieldSchema{}, false
+	}
+	return schema, true
+}
+
+func graphKnownSchemaType(value string) bool {
+	switch value {
+	case "array", "string", "number", "integer", "boolean", "date", "datetime",
+		"option", "option-with-child", "component", "version", "user", "users",
+		"group", "groups", "project", "issuetype", "priority", "resolution",
+		"status", "securitylevel", "progress", "votes", "watches", "timetracking",
+		"attachment", "issuelink", "comment", "worklog":
+		return true
+	default:
+		return false
+	}
+}
+
+func graphKnownSystemFieldID(fieldID string) bool {
+	switch strings.ToLower(fieldID) {
+	case "summary", "description", "environment", "labels", "status", "issuetype",
+		"project", "priority", "resolution", "components", "fixversions", "versions",
+		"created", "updated", "duedate", "resolutiondate", "lastviewed", "security",
+		"progress", "aggregateprogress", "votes", "watches", "timetracking",
+		"timeestimate", "timeoriginalestimate", "timespent", "aggregatetimeestimate",
+		"aggregatetimeoriginalestimate", "aggregatetimespent", "workratio":
+		return true
+	default:
+		return false
+	}
+}
+
 func graphStrictPositiveID(value any) (string, bool) {
 	var text string
 	switch typed := value.(type) {
@@ -692,6 +807,10 @@ func (b *jiraGraphBuilder) completeSource(source *domain.ArtifactGraphSource) {
 }
 
 func graphFieldAllowsBareReferences(fieldID, name string, schema domain.IssueFieldSchema) bool {
+	narrativeShape := schema.Type == "string" || schema.Type == "array" && schema.Items == "string"
+	if !narrativeShape {
+		return false
+	}
 	switch strings.ToLower(fieldID) {
 	case "summary", "description", "environment":
 		return true
@@ -699,7 +818,10 @@ func graphFieldAllowsBareReferences(fieldID, name string, schema domain.IssueFie
 		"assignee", "reporter", "creator", "components", "fixversions", "versions":
 		return false
 	}
-	if strings.EqualFold(schema.Type, "string") && strings.HasPrefix(strings.ToLower(fieldID), "customfield_") {
+	if !graphCustomFieldIDPattern.MatchString(fieldID) {
+		return false
+	}
+	if schema.Type == "string" {
 		return true
 	}
 	lowerName := strings.ToLower(name)
@@ -708,8 +830,8 @@ func graphFieldAllowsBareReferences(fieldID, name string, schema domain.IssueFie
 }
 
 func jiraGraphExactKey(key string) bool {
-	return len(graphJiraKeyPattern.FindStringSubmatch(key)) == 2 &&
-		graphJiraKeyPattern.FindStringSubmatch(key)[0] == key
+	span := graphJiraKeyPattern.FindStringIndex(key)
+	return span != nil && span[0] == 0 && span[1] == len(key)
 }
 
 func jiraGraphConfluenceBase(service *JiraService) string {

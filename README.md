@@ -49,7 +49,9 @@ Given one exact Jira issue, `atl jira issue graph PROJ-123` returns its
 provenance-qualified, schema-v2 direct work-artifact graph without following
 any discovered issue, page, or URL. `--depth 1..3` follows only exact structured
 Jira relations under hard request/output budgets; optional
-`--resolve confluence` reads only page id/title metadata.
+`--resolve confluence` reads only page id/title metadata. Every returned field
+is reconciled with its inspection metadata: missing or invalid metadata makes
+the named source partial, while issue properties are explicitly experimental.
 
 ## Install
 

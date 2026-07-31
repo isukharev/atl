@@ -3397,7 +3397,21 @@ may exit 0 with `complete:false`; consumers must inspect qualification.
 and invalid flags are rejected before configuration, credentials, or network.
 
 The root uses one single-attempt issue request with all returned applicable
-fields, field names/schema, and issue properties. Stable collectors then add
+fields, field names/schema, and issue properties. Before recursive inspection,
+returned fields are reconciled against schema metadata. A recursively eligible
+field with missing, blank, unknown, or structurally invalid type/item metadata
+is not inspected and makes `issue_fields` partial with `malformed_response`.
+Structured and privacy-excluded fields do not require walker metadata. A custom
+narrative field missing its necessary name metadata is inspected conservatively
+without bare Jira-key inference and receives the same qualification. An unknown
+noncanonical field id is also partial and cannot enable bare inference, though a
+valid non-identity schema may still permit URL-only inspection. Extra names or
+schemas for fields not returned are ignored. Jira's literal top-level
+`type:any` is accepted only for a canonical custom field and remains
+path-filtered, URL-only, and ineligible for bare Jira-key inference. Nulls,
+scalar numbers/booleans, and empty strings or containers cannot contain graph
+references and require no walker metadata.
+Collectors then add
 typed issue links, parent/subtask/epic relations, attachment identities,
 complete paginated comments and worklogs, and supported remote links. A bounded
 path-aware walker extracts Jira keys, explicit Confluence page ids, and
@@ -3412,9 +3426,11 @@ URL is requested.
 `complete`, `empty`, `partial`, `forbidden`, `unsupported`, or `skipped`, with
 static content-free reasons. Malformed, request-failed, inspection-limited, and
 output-limited sources remain visibly incomplete. `empty` proves absence only
-for that named source. `issue_properties` is stable and ordered; its count is
-the returned property count, while completeness means that set was processed
-under the fixed privacy exclusions and bounds. Auxiliary failures keep the
+for that named source. Source stability is fixed per kind: `issue_properties`
+is `experimental_api`; every other current source kind is `public_api`.
+`issue_properties` remains ordered; its count is the returned property count,
+while completeness means that set was processed under the fixed privacy
+exclusions and bounds. Auxiliary failures keep the
 usable stable graph and exit 0 with `complete:false`; an unusable seed snapshot,
 invalid graph invariant, or failed reconciliation exits non-zero. The top-level
 summary proves that node, edge, evidence, source, status-bucket,

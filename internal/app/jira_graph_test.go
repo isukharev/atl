@@ -78,6 +78,9 @@ func completeGraphFixture() *jiraGraphTracker {
 			Fields: fields,
 			Names:  map[string]string{"customfield_10": "Related notes"},
 			Schema: map[string]domain.IssueFieldSchema{
+				"summary":        {Type: "string", System: "summary"},
+				"description":    {Type: "string", System: "description"},
+				"labels":         {Type: "array", Items: "string", System: "labels"},
 				"customfield_10": {Type: "string", Custom: "example:notes"},
 			},
 			Properties: map[string]any{
@@ -137,8 +140,10 @@ func TestIssueGraphBuildsDeterministicQualifiedDirectGraph(t *testing.T) {
 		!first.Summary.IncompleteCountMatches {
 		t.Fatalf("summary = %#v", first.Summary)
 	}
-	if source := graphSourceByKind(t, first, "issue_properties"); source.Stability != domain.ArtifactStabilityPublicAPI {
-		t.Fatalf("properties source = %#v", source)
+	for _, source := range first.Sources {
+		if want := jiraGraphSourceStability(source.Kind); source.Stability != want {
+			t.Fatalf("source %q stability = %q, want %q", source.Kind, source.Stability, want)
+		}
 	}
 	output := string(firstJSON)
 	for _, forbidden := range []string{"private.invalid", "token-value", "avatar", "signature=secret", "token=secret"} {
@@ -224,6 +229,70 @@ func TestExtractGraphReferencesRedactsQueriesAndDoesNotDuplicateURLKey(t *testin
 		strings.Contains(refs[0].Node.URL, "#") {
 		t.Fatalf("ref = %#v", refs[0])
 	}
+}
+
+func TestExtractGraphReferencesFindsAdjacentBareJiraKeysWithoutEmbeddedFalsePositives(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want []string
+	}{
+		{name: "spaces", text: "PROJ-1 PROJ-2", want: []string{"jira:issue:PROJ-1", "jira:issue:PROJ-2"}},
+		{name: "comma", text: "PROJ-1,PROJ-2", want: []string{"jira:issue:PROJ-1", "jira:issue:PROJ-2"}},
+		{name: "parentheses", text: "(PROJ-1)(PROJ-2)", want: []string{"jira:issue:PROJ-1", "jira:issue:PROJ-2"}},
+		{name: "embedded", text: "xPROJ-1 PROJ-2x _PROJ-3 PROJ-4_ 9PROJ-5 PROJ-6z", want: nil},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			refs := extractGraphReferences(test.text, "", "", true)
+			got := make([]string, 0, len(refs))
+			for _, ref := range refs {
+				if ref.Extraction == "jira_key" {
+					got = append(got, ref.Node.ID)
+				}
+			}
+			if fmt.Sprint(got) != fmt.Sprint(test.want) {
+				t.Fatalf("keys = %#v, want %#v", got, test.want)
+			}
+		})
+	}
+}
+
+func FuzzExtractGraphReferencesBareJiraKeyBoundaries(f *testing.F) {
+	for _, seed := range [][2]byte{{' ', ' '}, {',', ')'}, {'(', '('}, {'x', ' '}, {'_', ','}, {'9', 'x'}} {
+		f.Add(seed[0], seed[1])
+	}
+	f.Fuzz(func(t *testing.T, left, right byte) {
+		text := string([]byte{left}) + "PROJ-1" + string([]byte{right})
+		refs := extractGraphReferences(text, "", "", true)
+		found := false
+		for _, ref := range refs {
+			found = found || ref.Extraction == "jira_key" && ref.Node.ID == "jira:issue:PROJ-1"
+		}
+		want := !graphASCIIWordByte(left) && !graphASCIIWordByte(right)
+		if found != want {
+			t.Fatalf("boundaries (%q, %q): found=%t want=%t refs=%#v", left, right, found, want, refs)
+		}
+	})
+}
+
+func FuzzExtractGraphReferencesAdjacentBareJiraKeys(f *testing.F) {
+	for _, separator := range []byte{' ', ',', ')', '(', '-', '\n', 'x', '_', '9'} {
+		f.Add(separator)
+	}
+	f.Fuzz(func(t *testing.T, separator byte) {
+		refs := extractGraphReferences("PROJ-1"+string([]byte{separator})+"PROJ-2", "", "", true)
+		found := map[string]bool{}
+		for _, ref := range refs {
+			if ref.Extraction == "jira_key" {
+				found[ref.Node.ID] = true
+			}
+		}
+		wantBoth := !graphASCIIWordByte(separator)
+		if found["jira:issue:PROJ-1"] != wantBoth || found["jira:issue:PROJ-2"] != wantBoth {
+			t.Fatalf("separator %q: keys=%#v wantBoth=%t", separator, found, wantBoth)
+		}
+	})
 }
 
 func TestExtractGraphReferencesRemovesUnknownQueryValuesAndSensitivePaths(t *testing.T) {
@@ -394,6 +463,240 @@ func TestIssueGraphKeepsPresentMalformedHierarchyPartial(t *testing.T) {
 	if source.Status != domain.ArtifactSourcePartial ||
 		source.PartialReason != domain.ArtifactPartialMalformed || source.Complete {
 		t.Fatalf("source = %#v", source)
+	}
+}
+
+func TestIssueGraphInvalidFieldSchemaSkipsInspectionAndQualifiesSource(t *testing.T) {
+	tests := []struct {
+		name   string
+		schema *domain.IssueFieldSchema
+	}{
+		{name: "missing"},
+		{name: "zero", schema: &domain.IssueFieldSchema{}},
+		{name: "blank type", schema: &domain.IssueFieldSchema{Type: "  "}},
+		{name: "unknown type", schema: &domain.IssueFieldSchema{Type: "opaque"}},
+		{name: "system any", schema: &domain.IssueFieldSchema{Type: "any", System: "description"}},
+		{name: "array missing items", schema: &domain.IssueFieldSchema{Type: "array"}},
+		{name: "array wildcard items", schema: &domain.IssueFieldSchema{Type: "array", Items: "any"}},
+		{name: "array unknown items", schema: &domain.IssueFieldSchema{Type: "array", Items: "opaque"}},
+		{name: "mismatched system", schema: &domain.IssueFieldSchema{Type: "string", System: "summary"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tracker := completeGraphFixture()
+			tracker.snapshot.Fields["description"] = []any{"PROJ-90", "https://docs.example.test/reference/schema-canary"}
+			if test.schema == nil {
+				delete(tracker.snapshot.Schema, "description")
+			} else {
+				tracker.snapshot.Schema["description"] = *test.schema
+			}
+
+			result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := graphSourceByKind(t, result, "issue_fields")
+			if source.Status != domain.ArtifactSourcePartial || source.PartialReason != domain.ArtifactPartialMalformed || source.Complete {
+				t.Fatalf("source = %#v", source)
+			}
+			encoded, _ := json.Marshal(result)
+			if strings.Contains(string(encoded), "PROJ-90") || strings.Contains(string(encoded), "schema-canary") {
+				t.Fatalf("field with invalid schema was inspected: %s", encoded)
+			}
+		})
+	}
+}
+
+func TestIssueGraphEmptyFieldNeedsNoWalkerMetadata(t *testing.T) {
+	for _, value := range []any{nil, "", "  ", []any{}, map[string]any{}, json.Number("7"), float64(7), true} {
+		tracker := completeGraphFixture()
+		tracker.snapshot.Fields["customfield_11"] = value
+		delete(tracker.snapshot.Names, "customfield_11")
+		delete(tracker.snapshot.Schema, "customfield_11")
+
+		result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		source := graphSourceByKind(t, result, "issue_fields")
+		if !source.Complete || source.Status != domain.ArtifactSourceComplete || source.Count != len(tracker.snapshot.Fields) {
+			t.Fatalf("value %#v source = %#v", value, source)
+		}
+	}
+}
+
+func TestIssueGraphReferenceBearingFieldRequiresWalkerMetadata(t *testing.T) {
+	for _, value := range []any{
+		"PROJ-97 https://docs.example.test/reference/string",
+		[]any{"PROJ-97", "https://docs.example.test/reference/array"},
+		map[string]any{"note": "PROJ-97 https://docs.example.test/reference/object"},
+		struct{ Text string }{Text: "PROJ-97"},
+	} {
+		tracker := completeGraphFixture()
+		tracker.snapshot.Fields["customfield_11"] = value
+		delete(tracker.snapshot.Names, "customfield_11")
+		delete(tracker.snapshot.Schema, "customfield_11")
+
+		result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		source := graphSourceByKind(t, result, "issue_fields")
+		if source.Status != domain.ArtifactSourcePartial || source.PartialReason != domain.ArtifactPartialMalformed {
+			t.Fatalf("value %#v source = %#v", value, source)
+		}
+		encoded, _ := json.Marshal(result)
+		if strings.Contains(string(encoded), "PROJ-97") || strings.Contains(string(encoded), "reference/") {
+			t.Fatalf("unqualified value %#v was inspected: %s", value, encoded)
+		}
+	}
+}
+
+func TestIssueGraphMissingCustomFieldNameDisablesBareKeysAndQualifiesSource(t *testing.T) {
+	tracker := completeGraphFixture()
+	tracker.snapshot.Fields["customfield_10"] = "PROJ-91 https://docs.example.test/reference/custom-field"
+	delete(tracker.snapshot.Names, "customfield_10")
+
+	result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := graphSourceByKind(t, result, "issue_fields")
+	if source.Status != domain.ArtifactSourcePartial || source.PartialReason != domain.ArtifactPartialMalformed || source.Complete {
+		t.Fatalf("source = %#v", source)
+	}
+	encoded, _ := json.Marshal(result)
+	if strings.Contains(string(encoded), "PROJ-91") || !strings.Contains(string(encoded), "https://docs.example.test/reference/custom-field") {
+		t.Fatalf("custom-field qualification = %s", encoded)
+	}
+}
+
+func TestIssueGraphKnownAnySchemaAllowsURLsWithoutBareKeyInference(t *testing.T) {
+	tracker := completeGraphFixture()
+	tracker.snapshot.Fields["customfield_10"] = "PROJ-94 https://docs.example.test/reference/any-field"
+	tracker.snapshot.Schema["customfield_10"] = domain.IssueFieldSchema{Type: "any", Custom: "example:any"}
+
+	result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := graphSourceByKind(t, result, "issue_fields")
+	if !source.Complete || source.Status != domain.ArtifactSourceComplete {
+		t.Fatalf("source = %#v", source)
+	}
+	encoded, _ := json.Marshal(result)
+	if strings.Contains(string(encoded), "PROJ-94") || !strings.Contains(string(encoded), "https://docs.example.test/reference/any-field") {
+		t.Fatalf("any-schema qualification = %s", encoded)
+	}
+}
+
+func TestIssueGraphKnownAnySchemaStillSuppressesIdentitySubtrees(t *testing.T) {
+	tracker := completeGraphFixture()
+	tracker.snapshot.Fields["customfield_10"] = map[string]any{
+		"owner": "PROJ-95 https://identity.example.test/owner",
+		"note":  "https://docs.example.test/reference/visible",
+	}
+	tracker.snapshot.Schema["customfield_10"] = domain.IssueFieldSchema{Type: "any", Custom: "example:any"}
+
+	result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, _ := json.Marshal(result)
+	if strings.Contains(string(encoded), "PROJ-95") || strings.Contains(string(encoded), "identity.example.test") ||
+		!strings.Contains(string(encoded), "https://docs.example.test/reference/visible") {
+		t.Fatalf("any-schema identity suppression = %s", encoded)
+	}
+}
+
+func TestIssueGraphRejectsContradictoryFieldSchemaDiscriminators(t *testing.T) {
+	tests := []struct {
+		name    string
+		fieldID string
+		schema  domain.IssueFieldSchema
+	}{
+		{name: "custom id with system discriminator", fieldID: "customfield_10", schema: domain.IssueFieldSchema{Type: "string", System: "summary"}},
+		{name: "system id with custom discriminator", fieldID: "description", schema: domain.IssueFieldSchema{Type: "string", System: "description", Custom: "example:description"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tracker := completeGraphFixture()
+			tracker.snapshot.Fields[test.fieldID] = "PROJ-96 https://docs.example.test/reference/contradictory"
+			tracker.snapshot.Schema[test.fieldID] = test.schema
+
+			result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := graphSourceByKind(t, result, "issue_fields")
+			if source.Status != domain.ArtifactSourcePartial || source.PartialReason != domain.ArtifactPartialMalformed {
+				t.Fatalf("source = %#v", source)
+			}
+			encoded, _ := json.Marshal(result)
+			if strings.Contains(string(encoded), "PROJ-96") || strings.Contains(string(encoded), "contradictory") {
+				t.Fatalf("contradictory field schema was inspected: %s", encoded)
+			}
+		})
+	}
+}
+
+func TestIssueGraphIgnoresExtraFieldMetadata(t *testing.T) {
+	baselineTracker := completeGraphFixture()
+	baseline, err := (&JiraService{tr: baselineTracker, baseURL: "https://jira.example.test"}).IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	extraTracker := completeGraphFixture()
+	extraTracker.snapshot.Names["customfield_999"] = "Unused notes"
+	extraTracker.snapshot.Schema["customfield_999"] = domain.IssueFieldSchema{Type: "string", Custom: "example:unused"}
+	extra, err := (&JiraService{tr: extraTracker, baseURL: "https://jira.example.test"}).IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	baselineJSON, _ := json.Marshal(baseline)
+	extraJSON, _ := json.Marshal(extra)
+	if string(baselineJSON) != string(extraJSON) {
+		t.Fatalf("extra metadata changed graph:\n%s\n%s", baselineJSON, extraJSON)
+	}
+}
+
+func TestIssueGraphUnknownFieldIDIsPartialAndCannotEnableBareScanning(t *testing.T) {
+	tracker := completeGraphFixture()
+	tracker.snapshot.Fields["narrative_alias"] = "PROJ-92 https://docs.example.test/reference/unknown-field"
+	tracker.snapshot.Names["narrative_alias"] = "Delivery notes"
+	tracker.snapshot.Schema["narrative_alias"] = domain.IssueFieldSchema{Type: "string"}
+
+	result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := graphSourceByKind(t, result, "issue_fields")
+	if source.Status != domain.ArtifactSourcePartial || source.PartialReason != domain.ArtifactPartialMalformed {
+		t.Fatalf("source = %#v", source)
+	}
+	encoded, _ := json.Marshal(result)
+	if strings.Contains(string(encoded), "PROJ-92") || !strings.Contains(string(encoded), "https://docs.example.test/reference/unknown-field") {
+		t.Fatalf("unknown field qualification = %s", encoded)
+	}
+}
+
+func TestIssueGraphAcceptsSystemFieldIdentityFromSchemaWithoutBareInference(t *testing.T) {
+	tracker := completeGraphFixture()
+	tracker.snapshot.Fields["systemnotes"] = "PROJ-93 https://docs.example.test/reference/system-field"
+	tracker.snapshot.Names["systemnotes"] = "Delivery notes"
+	tracker.snapshot.Schema["systemnotes"] = domain.IssueFieldSchema{Type: "string", System: "systemnotes"}
+
+	result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := graphSourceByKind(t, result, "issue_fields")
+	if !source.Complete || source.Status != domain.ArtifactSourceComplete {
+		t.Fatalf("source = %#v", source)
+	}
+	encoded, _ := json.Marshal(result)
+	if strings.Contains(string(encoded), "PROJ-93") || !strings.Contains(string(encoded), "https://docs.example.test/reference/system-field") {
+		t.Fatalf("system field qualification = %s", encoded)
 	}
 }
 

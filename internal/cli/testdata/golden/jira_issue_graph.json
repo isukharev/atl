@@ -196,7 +196,7 @@
       "status": "empty",
       "complete": true,
       "count": 0,
-      "stability": "public_api"
+      "stability": "experimental_api"
     },
     {
       "node_id": "jira:issue:PROJ-1",

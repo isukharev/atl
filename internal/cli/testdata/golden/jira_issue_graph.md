@@ -14,7 +14,7 @@
 | jira:issue:PROJ-1 | 0 | issue_links | empty | true | 0 | false | public_api |  |
 | jira:issue:PROJ-1 | 0 | hierarchy | empty | true | 0 | false | public_api |  |
 | jira:issue:PROJ-1 | 0 | attachments | complete | true | 1 | false | public_api |  |
-| jira:issue:PROJ-1 | 0 | issue_properties | empty | true | 0 | false | public_api |  |
+| jira:issue:PROJ-1 | 0 | issue_properties | empty | true | 0 | false | experimental_api |  |
 | jira:issue:PROJ-1 | 0 | comments | empty | true | 0 | false | public_api |  |
 | jira:issue:PROJ-1 | 0 | worklogs | empty | true | 0 | false | public_api |  |
 | jira:issue:PROJ-1 | 0 | remote_links | empty | true | 0 | false | public_api |  |
