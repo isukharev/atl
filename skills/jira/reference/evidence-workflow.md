@@ -38,6 +38,9 @@ reasons include `malformed_response`, `request_failed`, `inspection_limit`,
 `output_limit`, `request_limit`, `byte_limit`, `dependency_unavailable`, and
 `policy`. Never convert an incomplete source to zero. Source status qualifies
 completeness, while edge stability and confidence qualify each graph fact.
+Missing or invalid field names/schema makes `issue_fields` partial before the
+affected values are inspected; `issue_properties` uses `experimental_api`
+stability independently of whether its returned inventory is complete.
 
 ## First-use epic flow
 

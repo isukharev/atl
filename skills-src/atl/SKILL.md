@@ -262,7 +262,8 @@ transient multi-key export to artifact-only stdout; deterministic epic evidence
 digest and standalone refs with reconciled per-kind/per-source aggregates;
 schema-v2 bounded CLI work-artifact graph with exact
 structured Jira traversal, optional Confluence id/title resolution, typed
-edges, mentions, budgets, frontier, and qualified per-node sources;
+edges, mentions, budgets, frontier, metadata-reconciled fields, and qualified
+per-node sources (including experimental issue properties);
 check/attachments/refs/tree. For a report
 or quarter review, route through the Jira skill's one-hop
 `reference/evidence-workflow.md` and stop once sufficient complete evidence is

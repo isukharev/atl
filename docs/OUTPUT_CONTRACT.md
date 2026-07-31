@@ -1638,7 +1638,7 @@ work-artifact graph. Depth defaults to zero:
       "status": "empty",
       "complete": true,
       "count": 0,
-      "stability": "public_api"
+      "stability": "experimental_api"
     },
     {
       "node_id": "jira:issue:PROJ-1",
@@ -1693,10 +1693,12 @@ Only `complete` and `empty` have `complete:true`. Optional
 `request_failed`, `malformed_response`, `request_limit`, `byte_limit`,
 `dependency_unavailable`, or `policy`; it never contains a backend error.
 Malformed or request-limited sources are `partial`; a source that cannot be
-started by policy is `skipped`. `issue_properties` is a stable ordered source:
-its count is the number of returned properties inspected, and completeness
-means the returned property set was processed under the fixed privacy
-exclusions and bounds, not that every property produced graph evidence.
+started by policy is `skipped`. Stability is fixed per source kind:
+`issue_properties` is `experimental_api`; every other current kind is
+`public_api`. `issue_properties` remains ordered: its count is the number of
+returned properties inspected, and completeness means the returned property
+set was processed under the fixed privacy exclusions and bounds, not that every
+property produced graph evidence.
 Top-level `complete` is derived from all requested sources. Auxiliary source
 failure returns a reconciled graph with exit 0 and `complete:false`; seed,
 schema, or reconciliation failure returns the corresponding non-zero sentinel.
@@ -1704,7 +1706,20 @@ schema, or reconciliation failure returns the corresponding non-zero sentinel.
 The one root snapshot requests `fields=*all`, `properties=*all`, and
 `expand=names,schema` together and is single-attempt. Comments and worklogs use
 their complete paginated readers; remote links use Jira's supported direct
-endpoint. The walker accounts for container, key, scalar, pointer, depth, item,
+endpoint. Returned fields are reconciled against names/schema before recursive
+inspection. A recursively eligible field with missing, blank, unknown, or
+structurally invalid type/item metadata is skipped and qualifies `issue_fields`
+as `partial` / `malformed_response`; structured and privacy-excluded fields do
+not require walker metadata. A custom narrative field without necessary name
+metadata disables bare Jira-key inference and receives the same qualification.
+An unknown noncanonical field id is also partial and cannot enable bare
+inference, though a valid non-identity schema may still permit URL-only
+inspection. Jira's literal top-level `type:any` is accepted only for a canonical
+custom field; it remains path-filtered and URL-only and never enables bare-key
+inference. Nulls, scalar numbers/booleans, and empty strings or containers cannot
+contain graph references and therefore require no walker metadata. Extra
+metadata for fields that were not returned is ignored.
+The walker accounts for container, key, scalar, pointer, depth, item,
 and source-byte limits, excludes user/avatar/icon/transport/download subtrees,
 and never dereferences discovered URLs. HTTP(S) URLs reject userinfo, remove
 fragments and default ports, and never emit query values. Sensitive or

@@ -472,7 +472,7 @@ func (b *jiraGraphV2Builder) qualifyFailedNode(item jiraGraphQueueItem, err erro
 		b.sources[graphV2SourceKey(item.ID, kind)] = domain.ArtifactGraphSource{
 			NodeID: item.ID, NodeDepth: &d, Kind: kind, Requested: true,
 			Status: status, Complete: false, Truncated: isJiraGraphBudgetError(err), PartialReason: reason,
-			Stability: domain.ArtifactStabilityPublicAPI,
+			Stability: jiraGraphSourceStability(kind),
 		}
 	}
 }
@@ -489,7 +489,7 @@ func (b *jiraGraphV2Builder) qualifyBudgetLimitedRoot(item jiraGraphQueueItem, e
 		b.sources[graphV2SourceKey(item.ID, kind)] = domain.ArtifactGraphSource{
 			NodeID: item.ID, NodeDepth: &depth, Kind: kind, Requested: true,
 			Status: domain.ArtifactSourcePartial, Complete: false, Truncated: true,
-			PartialReason: reason, Stability: domain.ArtifactStabilityPublicAPI,
+			PartialReason: reason, Stability: jiraGraphSourceStability(kind),
 		}
 	}
 	if b.requestConfluenceResolution {
@@ -917,7 +917,7 @@ func validateJiraGraphV2Result(result *JiraIssueGraphResult) error {
 		if source.Status != domain.ArtifactSourcePartial && source.Truncated {
 			return invalid("non-partial source is truncated")
 		}
-		if source.Stability != domain.ArtifactStabilityPublicAPI {
+		if source.Stability != jiraGraphSourceStability(source.Kind) {
 			return invalid("source stability is invalid")
 		}
 		if source.Kind == "confluence_metadata" && source.NodeID != result.RootID {

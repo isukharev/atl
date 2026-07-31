@@ -367,8 +367,10 @@ func TestIssueGraphWithOptionsQualifiesNeighborFailure(t *testing.T) {
 		}
 	}
 	for _, source := range result.Sources {
-		if source.NodeID == "jira:issue:PROJ-2" && source.Status != domain.ArtifactSourceForbidden {
-			t.Fatalf("failed source = %#v", source)
+		if source.NodeID == "jira:issue:PROJ-2" {
+			if source.Status != domain.ArtifactSourceForbidden || source.Stability != jiraGraphSourceStability(source.Kind) {
+				t.Fatalf("failed source = %#v", source)
+			}
 		}
 	}
 }
@@ -548,6 +550,14 @@ func TestIssueGraphWithOptionsValidatorIsLoadBearing(t *testing.T) {
 		{name: "source stability", mutate: func(r *JiraIssueGraphResult) {
 			r.Sources[0].Stability = domain.ArtifactStabilityHeuristic
 		}},
+		{name: "properties source stability", mutate: func(r *JiraIssueGraphResult) {
+			for index := range r.Sources {
+				if r.Sources[index].Kind == "issue_properties" {
+					r.Sources[index].Stability = domain.ArtifactStabilityPublicAPI
+					return
+				}
+			}
+		}},
 		{name: "unexpected warning", mutate: func(r *JiraIssueGraphResult) {
 			r.Warnings = []string{"dynamic"}
 		}},
@@ -636,7 +646,8 @@ func TestIssueGraphWithOptionsQualifiesRootByteBudgetExhaustion(t *testing.T) {
 	}
 	for _, source := range result.Sources {
 		if source.Status != domain.ArtifactSourcePartial || !source.Truncated ||
-			source.PartialReason != domain.ArtifactPartialByteLimit {
+			source.PartialReason != domain.ArtifactPartialByteLimit ||
+			source.Stability != jiraGraphSourceStability(source.Kind) {
 			t.Fatalf("root budget source = %#v", source)
 		}
 	}

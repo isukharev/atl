@@ -29,7 +29,7 @@ const (
 
 var (
 	graphURLPattern                = regexp.MustCompile(`https?://[^\s<>"')\]]+`)
-	graphJiraKeyPattern            = regexp.MustCompile(`(?:^|[^A-Z0-9_])([A-Z][A-Z0-9_]{1,31}-[1-9][0-9]*)(?:$|[^A-Z0-9_])`)
+	graphJiraKeyPattern            = regexp.MustCompile(`[A-Z][A-Z0-9_]{1,31}-[1-9][0-9]*`)
 	graphPageIDPattern             = regexp.MustCompile(`(?i)\bpageId(?:=|\s+)([1-9][0-9]*)\b`)
 	graphBrowsePathPattern         = regexp.MustCompile(`(?i)(?:^|/)browse/([A-Z][A-Z0-9_]{1,31}-[1-9][0-9]*)(?:$|/)`)
 	graphConfluencePagePathPattern = regexp.MustCompile(`(?i)(?:^|/)(?:pages|content)/([1-9][0-9]*)(?:$|/)`)
@@ -192,8 +192,12 @@ func extractGraphReferences(text, jiraBase, confluenceBase string, allowBare boo
 		}
 	}
 	if allowBare {
-		for _, match := range graphJiraKeyPattern.FindAllStringSubmatch(string(bareText), -1) {
-			key := strings.ToUpper(match[1])
+		for _, span := range graphJiraKeyPattern.FindAllIndex(bareText, -1) {
+			if (span[0] > 0 && graphASCIIWordByte(bareText[span[0]-1])) ||
+				(span[1] < len(bareText) && graphASCIIWordByte(bareText[span[1]])) {
+				continue
+			}
+			key := strings.ToUpper(string(bareText[span[0]:span[1]]))
 			add(graphReference{
 				Node: domain.ArtifactGraphNode{
 					ID:         "jira:issue:" + key,
@@ -232,6 +236,11 @@ func extractGraphReferences(text, jiraBase, confluenceBase string, allowBare boo
 		return out[i].Extraction < out[j].Extraction
 	})
 	return out
+}
+
+func graphASCIIWordByte(value byte) bool {
+	return value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z' ||
+		value >= '0' && value <= '9' || value == '_'
 }
 
 func normalizeGraphURL(raw, jiraBase, confluenceBase string) (graphReference, bool) {
