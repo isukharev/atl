@@ -5,6 +5,28 @@ import (
 	"io"
 )
 
+const (
+	ServerProductJira       = "jira"
+	ServerProductConfluence = "confluence"
+)
+
+// ServerMetadata is the narrow product/version projection used by remote
+// environment diagnostics. Product is an adapter-owned constant rather than
+// backend-controlled. Version and DeploymentType are raw backend metadata and
+// callers must validate or normalize them before exposing them.
+type ServerMetadata struct {
+	Product        string
+	DeploymentType string
+	Version        string
+}
+
+// ServerMetadataReader is the optional backend capability for a single
+// metadata request. Callers that require a strict request budget pass a
+// single-attempt context; implementations must preserve it on the HTTP call.
+type ServerMetadataReader interface {
+	ServerMetadata(ctx context.Context) (ServerMetadata, error)
+}
+
 // PullOpts narrows what a DocStore.Pull returns.
 type PullOpts struct {
 	Format              string // "csf" (default, native) | "view"

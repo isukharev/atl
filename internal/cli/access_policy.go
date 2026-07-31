@@ -151,6 +151,7 @@ completion powershell
 completion zsh
 config set
 config show
+doctor
 environment inspect
 help
 jira apply

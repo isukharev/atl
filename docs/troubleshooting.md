@@ -35,14 +35,21 @@ Homebrew ownership with binary self-update.
 Inspect non-secret configuration and credential sources:
 
 ```sh
-atl config show
-atl auth status
+atl doctor
+atl doctor --remote
 ```
 
-`auth status` never prints token values. A malformed global config blocks
-online work and mutations, but `atl version`, help/completion, auth/profile
-diagnostics, and local-only mirror status remain available so the file can be
-repaired safely.
+`doctor` is offline by default, survives malformed setup, and never prints
+configured URLs/hostnames, paths, identities, token values, mirrored content,
+or raw backend errors. `--remote` is explicit and adds one single-attempt
+product/version metadata GET per ready service. A blocking result is still
+written to stdout before exit `8`; branch on `problems[].id` and
+`problems[].remediation`.
+
+For local interactive repair, `atl config show` and `atl auth status` expose
+more detail: the former includes configured URLs and local paths, while the
+latter reports credential sources but never token values. Do not paste
+`config show` into a public issue.
 
 Common cases:
 

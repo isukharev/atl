@@ -59,6 +59,17 @@ type EnvironmentService struct {
 	confluenceSetup string
 }
 
+func newDoctorServerMetadataReader(service, rawURL, token, clientVersion string) domain.ServerMetadataReader {
+	switch service {
+	case domain.ServerProductJira:
+		return jira.New(rawURL, token, clientVersion)
+	case domain.ServerProductConfluence:
+		return confluence.New(rawURL, token, clientVersion)
+	default:
+		return nil
+	}
+}
+
 // NewConfluence wires the Confluence adapter from config + PAT.
 func NewConfluence(cfg *config.Config, version string) (*ConfluenceService, error) {
 	return NewConfluenceScheduled(cfg, version, 0, 0)

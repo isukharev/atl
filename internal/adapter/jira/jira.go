@@ -44,6 +44,7 @@ var _ domain.QualifiedIssueSearcher = (*Jira)(nil)
 var _ domain.JiraTransitionWriter = (*Jira)(nil)
 var _ domain.CompleteChangelogReader = (*Jira)(nil)
 var _ domain.JiraTimeSemanticsReader = (*Jira)(nil)
+var _ domain.ServerMetadataReader = (*Jira)(nil)
 var _ domain.Verifier = (*Jira)(nil)
 
 const (

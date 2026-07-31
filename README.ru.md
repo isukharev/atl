@@ -86,23 +86,29 @@ atl auth login --service confluence
 atl auth login --service jira
 
 atl auth status
+atl doctor
 ```
 
 `auth login` читает bearer PAT из скрытого prompt, stdin или файла — никогда из
-argv. `auth status` показывает только источник credential.
+argv. `auth status` показывает только источник credential. `doctor` проверяет
+build, права config-файлов, URL policy, наличие credentials и необязательное
+локальное зеркало, не выводя URL, hostname, пути, identity, token или content.
 
 Затем выполните одно ограниченное чтение:
 
 ```sh
 export ATL_READ_ONLY=1
 
+atl doctor --remote
 atl conf search --cql 'type = page' --limit 1
 # или:
 atl jira issue search --jql 'order by updated DESC' --limit 1
 ```
 
-JSON — формат по умолчанию. Код `7` означает незавершённую/некорректную
-конфигурацию; код `3` — backend отклонил PAT. Продолжение —
+Без `--remote` команда полностью offline. Remote-режим делает по одному
+single-attempt metadata GET на готовый backend и не читает страницы, задачи,
+поиск или identity. При blocking findings `doctor` всё равно выводит полный
+отчёт и завершает работу с кодом `8`. Продолжение —
 [пятиминутное руководство](docs/getting-started.md).
 
 ## Три основных workflow

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added `atl doctor`, a privacy-safe offline setup report for build, config,
+  credential, safety, and content-free mirror health. Explicit `--remote`
+  performs one single-attempt product/version metadata GET per ready Jira or
+  Confluence backend, with no content/identity reads, retries, redirects,
+  self-update, or raw backend diagnostics in output.
+
 ### Fixed
 
 - Bounded Confluence Storage Format nesting before recursive parsing and

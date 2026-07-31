@@ -147,7 +147,13 @@ Verify (this never prints the token, only where it resolves from):
 
 ```bash
 atl auth status
+atl doctor
 ```
+
+`atl doctor` is the preferred share-safe setup report. It is offline by default
+and emits no configured URL/hostname, path, identity, token, or mirror content.
+If it exits `8`, inspect its emitted `problems[]`; do not paste `config show`
+into public chat or an issue.
 
 ## 5. Agree on the mirror directory
 
@@ -175,16 +181,20 @@ scratch alternatives.)
 Confirm auth + connectivity with a cheap read:
 
 ```bash
+atl doctor --remote
 atl conf search --cql 'type = page' --limit 1   # if they use Confluence
 atl jira fields --summary-only                   # if they use Jira
 ```
 
-`atl` prints JSON by default. A clean, complete result means technical setup is
-complete. Offer one concrete next route instead of loading the full command
-reference: a bounded focused read, a pull into the agreed mirror followed by
-local status/diff, or a non-writing preview for a user-selected change. Use the
-`confluence` or `jira` skill for that route. Do not perform a write merely to
-prove setup.
+`doctor --remote` makes one single-attempt product/version metadata GET per
+ready service; it performs no search, page/issue read, identity read, or write.
+The following bounded service read proves a useful permission/data route.
+`atl` prints JSON by default. A healthy doctor result plus a clean, complete
+service result means technical setup is complete. Offer one concrete next route
+instead of loading the full command reference: a bounded focused read, a pull
+into the agreed mirror followed by local status/diff, or a non-writing preview
+for a user-selected change. Use the `confluence` or `jira` skill for that route.
+Do not perform a write merely to prove setup.
 
 Offer the separate explicit `onboarding` skill if they want atl to learn their
 recurring workflow, approved field/schema facts, render defaults, and common

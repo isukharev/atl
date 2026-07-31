@@ -64,6 +64,7 @@ conf status
 conf table extract
 conf table summary
 config show
+doctor
 environment inspect
 help
 jira apply

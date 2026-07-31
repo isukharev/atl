@@ -10,7 +10,12 @@ credentials:
 ```sh
 atl version
 atl auth status
+atl doctor --remote
 ```
+
+`doctor --remote` emits no configured URL/hostname, identity, path, token, or
+raw backend error. It qualifies only the product/version metadata route; a
+healthy result does not certify every product feature or Marketplace app.
 
 ## Atlassian products
 

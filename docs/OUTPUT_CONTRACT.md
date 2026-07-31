@@ -374,6 +374,32 @@ informational only: it is not an input to self-update or signature trust.
 `atl version -o text` remains the bare version, and `atl --version` retains its
 existing one-line Cobra form.
 
+### Setup doctor
+
+`atl doctor` returns a schema-v1, content-free aggregate with
+`{schema_version,mode,complete,healthy,status,cli,runtime,config,credentials,
+safety,services,mirror,plugin,problems}`. Closed status/reason/remediation
+values are safe for automation; configured URLs/hostnames, local paths,
+environment-variable names, credentials, identities, object ids, mirrored
+content, and raw parser/backend errors are never fields or interpolated text.
+
+Offline mode performs no network request and skips self-update. Explicit
+`--remote` adds no more than one single-attempt metadata GET per ready backend;
+the projection contains only static product, sanitized version/deployment
+metadata, and closed outcome values. Redirects/retries are disabled and verbose
+trace omits request identity. Malformed global configuration blocks all remote
+probes; otherwise services qualify independently. A file-sourced URL or
+credential with failed owner-only evidence is not used, while an independently
+ready environment source or sibling service may proceed. Mirror findings do
+not suppress the unrelated product metadata probe.
+
+Advisories keep `healthy:true` and exit `0`. An error-severity problem sets
+`healthy:false`; the aggregate is still written to stdout before the command
+returns `ErrCheckFailed` / exit `8`. Consumers of doctor therefore must retain
+and parse stdout even when the process exits non-zero. A stdout write failure
+is joined with the check failure so neither cause is hidden. `-o text` preserves
+the same facts; `-o id` is rejected in root preflight.
+
 ---
 
 ## Sentinel → exit-code matrix

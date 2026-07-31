@@ -1,0 +1,82 @@
+package cli
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/spf13/cobra"
+
+	"github.com/isukharev/atl/internal/app"
+)
+
+func newDoctorCmd() *cobra.Command {
+	var remote bool
+	cmd := &cobra.Command{
+		Use:   "doctor",
+		Short: "Diagnose setup safely (offline by default)",
+		Long: "Report build, configuration, credential, safety, and mirror health without\n" +
+			"printing URLs, hostnames, paths, identities, tokens, or mirrored content.\n" +
+			"The default is fully offline. --remote adds one single-attempt metadata\n" +
+			"request per ready backend; it never reads pages, issues, or search results.",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			result, doctorErr := app.RunDoctor(cmd.Context(), app.DoctorOptions{
+				Remote: remote, ReadOnlyPolicy: readOnly || envReadOnly(),
+			})
+			emitErr := emitSnapshot(cmd, result, func() string { return doctorText(result) })
+			return snapshotResultErr(doctorErr, emitErr)
+		},
+	}
+	cmd.Flags().BoolVar(&remote, "remote", false, "make one bounded metadata request per ready backend")
+	return cmd
+}
+
+func doctorText(result *app.DoctorResult) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "schema_version: %d\nstatus: %s\nhealthy: %t\ncomplete: %t\nmode: %s\n",
+		result.SchemaVersion, result.Status, result.Healthy, result.Complete, result.Mode)
+	fmt.Fprintf(&b, "cli: version=%s commit=%s build_state=%s\n", result.CLI.Version, result.CLI.Commit, result.CLI.BuildState)
+	fmt.Fprintf(&b, "runtime: os=%s arch=%s\n", result.Runtime.OS, result.Runtime.Arch)
+	fmt.Fprintf(&b, "config: status=%s reason=%s source=%s confluence_url_source=%s jira_url_source=%s\n",
+		result.Config.Status, orNone(result.Config.Reason), result.Config.DirectorySource,
+		result.Config.ConfluenceURLSource, result.Config.JiraURLSource)
+	fmt.Fprintf(&b, "config_file: present=%t status=%s owner_only=%t permission_known=%t\n",
+		result.Config.File.Present, result.Config.File.Status,
+		result.Config.File.OwnerOnly, result.Config.File.PermissionKnown)
+	fmt.Fprintf(&b, "credential_store: present=%t status=%s owner_only=%t permission_known=%t\n",
+		result.Credentials.Store.Present, result.Credentials.Store.Status,
+		result.Credentials.Store.OwnerOnly, result.Credentials.Store.PermissionKnown)
+	fmt.Fprintf(&b, "credentials_jira: present=%t status=%s source=%s\n",
+		result.Credentials.Jira.Present, result.Credentials.Jira.Status, result.Credentials.Jira.Source)
+	fmt.Fprintf(&b, "credentials_confluence: present=%t status=%s source=%s\n",
+		result.Credentials.Confluence.Present, result.Credentials.Confluence.Status, result.Credentials.Confluence.Source)
+	fmt.Fprintf(&b, "safety: read_only=%t status=%s\n", result.Safety.ReadOnly, result.Safety.Status)
+	writeDoctorServiceText(&b, "jira", result.Services.Jira)
+	writeDoctorServiceText(&b, "confluence", result.Services.Confluence)
+	fmt.Fprintf(&b, "mirror: status=%s source=%s\n", result.Mirror.Status, result.Mirror.Source)
+	writeDoctorMirrorText(&b, "jira", result.Mirror.Jira)
+	writeDoctorMirrorText(&b, "confluence", result.Mirror.Confluence)
+	fmt.Fprintf(&b, "plugin: status=%s expected_version=%s reason=%s",
+		result.Plugin.Status, orNone(result.Plugin.ExpectedVersion), result.Plugin.Reason)
+	for _, problem := range result.Problems {
+		fmt.Fprintf(&b, "\nproblem: severity=%s id=%s reason=%s remediation=%s",
+			problem.Severity, problem.ID, problem.Reason, problem.Remediation)
+	}
+	return b.String()
+}
+
+func writeDoctorServiceText(b *strings.Builder, name string, service app.DoctorService) {
+	fmt.Fprintf(b, "%s: status=%s url_status=%s url_source=%s credential_status=%s credential_source=%s\n",
+		name, service.Status, service.URLStatus, service.URLSource,
+		service.CredentialStatus, service.CredentialSource)
+	fmt.Fprintf(b, "%s_remote: requested=%t status=%s reason=%s product=%s version=%s deployment_type=%s\n",
+		name, service.Remote.Requested, service.Remote.Status, orNone(service.Remote.Reason),
+		orNone(service.Remote.Product), orNone(service.Remote.Version), orNone(service.Remote.DeploymentType))
+	fmt.Fprintf(b, "%s_compatibility: status=%s evidence=%s reason=%s\n",
+		name, service.Compatibility.Status, service.Compatibility.Evidence,
+		orNone(service.Compatibility.Reason))
+}
+
+func writeDoctorMirrorText(b *strings.Builder, name string, service app.DoctorMirrorService) {
+	fmt.Fprintf(b, "mirror_%s: status=%s items=%d complete=%t reconciled=%t\n",
+		name, service.Status, service.Items, service.Complete, service.Reconciled)
+}
