@@ -355,6 +355,49 @@ func TestIssueGraphQualifiesMalformedStructuredRows(t *testing.T) {
 	}
 }
 
+func TestIssueGraphTreatsOmittedOptionalHierarchyAsEmpty(t *testing.T) {
+	for name, mutate := range map[string]func(map[string]any){
+		"omitted": func(fields map[string]any) {
+			delete(fields, "parent")
+			delete(fields, "subtasks")
+		},
+		"null": func(fields map[string]any) {
+			fields["parent"] = nil
+			fields["subtasks"] = nil
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			tracker := completeGraphFixture()
+			mutate(tracker.snapshot.Fields)
+
+			result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraph(context.Background(), "PROJ-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := graphSourceByKind(t, result, "hierarchy")
+			if source.Status != domain.ArtifactSourceEmpty || !source.Complete || source.Count != 0 {
+				t.Fatalf("source = %#v", source)
+			}
+		})
+	}
+}
+
+func TestIssueGraphKeepsPresentMalformedHierarchyPartial(t *testing.T) {
+	tracker := completeGraphFixture()
+	tracker.snapshot.Fields["parent"] = "PROJ-4"
+	tracker.snapshot.Fields["subtasks"] = map[string]any{"key": "PROJ-5"}
+
+	result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraph(context.Background(), "PROJ-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := graphSourceByKind(t, result, "hierarchy")
+	if source.Status != domain.ArtifactSourcePartial ||
+		source.PartialReason != domain.ArtifactPartialMalformed || source.Complete {
+		t.Fatalf("source = %#v", source)
+	}
+}
+
 func TestIssueGraphSanitizesIdentitySubtreesAndPropertyKeys(t *testing.T) {
 	tracker := completeGraphFixture()
 	tracker.snapshot.Properties["private-property-key-canary"] = map[string]any{

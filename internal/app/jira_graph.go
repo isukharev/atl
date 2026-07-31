@@ -260,9 +260,7 @@ func (b *jiraGraphBuilder) collectHierarchy(snapshot *domain.QualifiedIssueSnaps
 	}
 	parentRaw, parentPresent := snapshot.Fields["parent"]
 	switch {
-	case !parentPresent:
-		b.markMalformed(source)
-	case parentRaw == nil:
+	case !parentPresent || parentRaw == nil:
 	default:
 		parent, ok := parentRaw.(map[string]any)
 		parentID, idOK := graphStrictPositiveID(parent["id"])
@@ -276,7 +274,8 @@ func (b *jiraGraphBuilder) collectHierarchy(snapshot *domain.QualifiedIssueSnaps
 	}
 	subtasksRaw, subtasksPresent := snapshot.Fields["subtasks"]
 	if !subtasksPresent || subtasksRaw == nil {
-		b.markMalformed(source)
+		// Jira omits unset optional fields from an otherwise qualified
+		// fields=*all snapshot. Omission therefore proves no relation.
 	} else if subtasks, ok := subtasksRaw.([]any); ok {
 		for index, raw := range subtasks {
 			child, rowOK := raw.(map[string]any)
