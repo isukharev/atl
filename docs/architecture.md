@@ -561,8 +561,9 @@ mirror-writing tool. See [mcp.md](mcp.md) for the public inventory and bounds.
 
 ## Confluence comment mutation provider boundary
 
-Qualified comment reads and guarded footer-comment creation remain core `atl`
-capabilities over documented Confluence Data Center REST resources. Full inline
+Qualified comment reads and single-attempt footer-comment creation remain core
+`atl` capabilities over documented Confluence Data Center REST resources.
+Footer creation is a non-idempotent POST and is not retry-safe. Full inline
 creation, reply, and resolve/reopen are provider-gated: core does not call the
 undocumented inline-comments resource and does not reconstruct product-internal
 mutation workflows.
@@ -577,12 +578,14 @@ decision:
   inline workflow that validates selection context, updates page storage,
   creates the comment, and reconciles collaborative editing;
 - those inventories also have no dedicated resolve/reopen command;
-  mutable `Comment`/`CommentStatus` models and lower-level managers are not a
-  stable external mutation contract;
-- a separately deployed Data Center app additionally needs owned pre-9 and 9+
-  compatibility lines, secure endpoint/XSRF controls, cluster-safe idempotency,
-  database coverage, signing, and install/upgrade validation on a non-production
-  fixture.
+  mutable `Comment` setters and status metadata alone do not document a
+  supported end-to-end mutation workflow;
+- project policy for a separately deployed Data Center app would additionally
+  require owned pre-9 and 9+ compatibility lines, secure endpoint/XSRF controls,
+  cluster-safe idempotency, database coverage, signing, and install/upgrade
+  validation on a non-production fixture. The cited platform and security
+  documentation establishes the API split and endpoint security constraints;
+  the remaining items are project release and safety requirements.
 
 Relevant primary documentation:
 
