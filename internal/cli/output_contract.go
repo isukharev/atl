@@ -33,6 +33,7 @@ conf attachment get
 conf attachment list
 conf blog create
 conf comment list
+conf comment preview
 conf comment thread
 conf diff
 conf edit

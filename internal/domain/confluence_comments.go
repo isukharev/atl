@@ -191,6 +191,23 @@ type ConfluenceCommentReadOptions struct {
 	DepthAll  bool
 }
 
+// ConfluenceUserIdentity is the minimal stable identity of the authenticated
+// Confluence user. ID is the backend user key (or the documented legacy
+// username fallback); email is deliberately not part of this capability.
+type ConfluenceUserIdentity struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
+}
+
+// ValidateConfluenceUserIdentity rejects an identity that cannot safely bind a
+// guarded comment write to the authenticated backend actor.
+func ValidateConfluenceUserIdentity(identity ConfluenceUserIdentity) error {
+	if strings.TrimSpace(identity.ID) == "" || strings.TrimSpace(identity.DisplayName) == "" {
+		return fmt.Errorf("%w: Confluence current user omitted stable identity", ErrCheckFailed)
+	}
+	return nil
+}
+
 // ConfluenceCommentRecord is the lossless-enough read model shared by the
 // Confluence adapter and app. ParentID and RootID are pointers so unknown is not
 // confused with a proven root. BodyStorage is native CSF and is never rewritten.
@@ -250,6 +267,12 @@ type ConfluenceCommentInventory struct {
 // extend DocStore. Legacy callers keep DocStore.ListComments unchanged.
 type QualifiedConfluenceCommentReader interface {
 	ListConfluenceComments(context.Context, string, ConfluenceCommentReadOptions) (ConfluenceCommentInventory, error)
+}
+
+// ConfluenceCurrentUserReader is optional and intentionally separate from
+// DocStore. It exposes only the stable backend identifier and display name.
+type ConfluenceCurrentUserReader interface {
+	CurrentConfluenceUser(context.Context) (ConfluenceUserIdentity, error)
 }
 
 // ValidateConfluenceCommentInventory prevents a malformed adapter snapshot from

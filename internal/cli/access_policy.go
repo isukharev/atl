@@ -111,6 +111,7 @@ conf attachment upload
 conf blog create
 conf comment add
 conf comment list
+conf comment preview
 conf comment thread
 conf diff
 conf edit

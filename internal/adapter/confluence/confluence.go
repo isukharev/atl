@@ -39,6 +39,7 @@ var _ domain.PageShortLinkResolver = (*Confluence)(nil)
 var _ domain.CompletePageSearcher = (*Confluence)(nil)
 var _ domain.ConfluenceTimeSemanticsReader = (*Confluence)(nil)
 var _ domain.ServerMetadataReader = (*Confluence)(nil)
+var _ domain.ConfluenceCurrentUserReader = (*Confluence)(nil)
 
 func (cf *Confluence) ResolveShortPageLink(ctx context.Context, path string) (string, error) {
 	return cf.c.ResolveGET(ctx, path)
@@ -181,7 +182,7 @@ func (cf *Confluence) GetMeta(ctx context.Context, id string) (*domain.PageMeta,
 		"restrictions.read.restrictions.user,restrictions.read.restrictions.group", &ct); err != nil {
 		return nil, err
 	}
-	m := &domain.PageMeta{ID: ct.ID, Title: ct.Title, Space: ct.Space.Key, Version: ct.Version.Number, Updated: ct.Version.When}
+	m := &domain.PageMeta{ID: ct.ID, Type: ct.Type, Title: ct.Title, Space: ct.Space.Key, Version: ct.Version.Number, Updated: ct.Version.When}
 	if ct.Ancestors != nil {
 		for _, a := range *ct.Ancestors {
 			m.Ancestors = append(m.Ancestors, a.Title)
@@ -208,6 +209,29 @@ func (cf *Confluence) Whoami(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return u.DisplayName, nil
+}
+
+// CurrentConfluenceUser returns the authenticated user's stable backend
+// identity without requesting or retaining email. Data Center userKey is
+// preferred; username is the documented compatibility fallback.
+func (cf *Confluence) CurrentConfluenceUser(ctx context.Context) (domain.ConfluenceUserIdentity, error) {
+	var u struct {
+		UserKey     string `json:"userKey"`
+		Username    string `json:"username"`
+		DisplayName string `json:"displayName"`
+	}
+	if err := cf.c.GetJSON(ctx, "/rest/api/user/current", &u); err != nil {
+		return domain.ConfluenceUserIdentity{}, err
+	}
+	id := u.UserKey
+	if id == "" {
+		id = u.Username
+	}
+	identity := domain.ConfluenceUserIdentity{ID: id, DisplayName: u.DisplayName}
+	if err := domain.ValidateConfluenceUserIdentity(identity); err != nil {
+		return domain.ConfluenceUserIdentity{}, err
+	}
+	return identity, nil
 }
 
 // CurrentUserTimeZone returns only the current user's observed timezone
