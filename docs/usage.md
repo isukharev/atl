@@ -2447,7 +2447,9 @@ Flags:
 
 ### `atl conf page delete`
 
-Trash a page. May return exit 6 if per-space permissions forbid deletion.
+Trash a page. May return exit 6 if per-space permissions forbid deletion. The
+request uses one transport attempt and refuses redirects; after an ambiguous
+result, inspect the exact target instead of retrying the command automatically.
 
 ```
 atl conf page delete --id 12345678
@@ -2483,7 +2485,9 @@ atl conf page copy --id 12345678 --title 'Copy of Design Doc' [--space ENG] [--p
 
 ### `atl conf attachment {list,get,upload,delete}`
 
-Manage page attachments. `delete` requires `--force`.
+Manage page attachments. `delete` requires `--force`, uses one transport
+attempt, and refuses redirects. After an ambiguous result, inspect the exact
+attachment instead of retrying automatically.
 
 ```bash
 atl conf attachment list --id 12345678                       # qualified inventory; -o id → ids
