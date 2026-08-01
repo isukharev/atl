@@ -129,10 +129,6 @@ func (s *ConfluenceService) Comments(ctx context.Context, id string) ([]domain.C
 	return s.store.ListComments(ctx, id)
 }
 
-func (s *ConfluenceService) AddComment(ctx context.Context, id string, body []byte) (*domain.Comment, error) {
-	return s.store.AddComment(ctx, id, body)
-}
-
 func (s *ConfluenceService) Attachments(ctx context.Context, id string) ([]domain.Attachment, error) {
 	resolved, err := s.ResolvePageReference(ctx, id)
 	if err != nil {

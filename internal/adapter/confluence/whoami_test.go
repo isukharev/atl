@@ -60,7 +60,7 @@ func TestCurrentConfluenceUserUsesStableKeyWithoutEmail(t *testing.T) {
 			t.Errorf("unexpected path %q", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"userKey":"stable-key","username":"legacy-name","displayName":"Jane Doe","email":"not-modelled@example.invalid"}`))
+		_, _ = w.Write([]byte(`{"userKey":"stable-key","username":"legacy-name","displayName":"Jane Doe","email":"not-modeled@example.invalid"}`))
 	}))
 	defer srv.Close()
 
