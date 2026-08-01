@@ -199,14 +199,21 @@ write command after explicit approval.
   capability, and complete footer-root baseline. Accept only `applied` or
   `recovered` as proven success; never replay `outcome_unknown`. Creation is
   footer-root only.
-- Guarded inline thread mutation: first activate and remotely qualify the exact
+- Guarded inline comment mutation: first activate and remotely qualify the exact
   compatibility pin. Use read-only `conf comment mutation preview` with an
   exact page/root thread id and `--operation reply|resolve|reopen`; reply also
-  requires a private native-CSF `--from-file`. After explicit approval, repeat
+  requires a private native-CSF `--from-file`. To create a root, use
+  `--operation inline-create` without `--thread-id`, with private native-CSF
+  `--from-file`, a bounded UTF-8 `--selection-file`, and zero-based
+  `--occurrence`. The raw selection bytes are proposal-bound, while lookup uses
+  the exact pinned-client normalization and exclusion masks; a masked,
+  footer-fallback, unsupported, or layout-dependent selection fails closed.
+  Review its content-free hashes/counts, provider `match_index`, and stable
+  derived geometry; never edit inline-marker CSF directly. After explicit approval, repeat
   the exact inputs once through `mutation apply --apply
   --expected-proposal-hash <reviewed-hash>`. Accept only reconciled `applied` or
-  `recovered`; never replay `outcome_unknown`. This surface cannot create a new
-  inline anchor and remains absent from MCP.
+  `recovered`; never replay `outcome_unknown`. This surface remains absent from
+  MCP.
 - Durable pull, complete/incremental sync, render migration, prefetch/rate
   controls: [sync.md](reference/sync.md).
 - Ordinary Markdown body edit, apply/diff, multi-page plan, and push sequence:

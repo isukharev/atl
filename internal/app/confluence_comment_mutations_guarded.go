@@ -18,12 +18,14 @@ import (
 
 const confluenceCommentMutationProposalSchemaVersion = 1
 
-// ConfluenceCommentMutationOpts is the closed guarded input shared by reply,
-// resolve, and reopen. Body is accepted only for reply and is never emitted.
+// ConfluenceCommentMutationOpts is the closed guarded input shared by inline
+// create, reply, resolve, and reopen. Bodies and selections are never emitted.
 type ConfluenceCommentMutationOpts struct {
 	Operation            domain.ConfluenceCommentMutationOperation
 	ThreadID             string
 	Body                 []byte
+	Selection            []byte
+	Occurrence           int
 	Apply                bool
 	ExpectedProposalHash string
 }
@@ -39,32 +41,44 @@ type ConfluenceCommentMutationActor struct {
 	DisplayName string `json:"display_name"`
 }
 
-// ConfluenceCommentMutationGuardedResult is deliberately body-free. The exact
-// native reply bytes participate in BodySHA256 and ProposalHash but never cross
-// the output boundary.
+// ConfluenceCommentMutationGuardedResult is deliberately content-free. Exact
+// native body and selection bytes participate in hashes but never cross the
+// output boundary.
 type ConfluenceCommentMutationGuardedResult struct {
-	SchemaVersion  int                                       `json:"schema_version"`
-	PageID         string                                    `json:"page_id"`
-	ThreadID       string                                    `json:"thread_id"`
-	Operation      domain.ConfluenceCommentMutationOperation `json:"operation"`
-	Mode           string                                    `json:"mode"`
-	Status         string                                    `json:"status"`
-	PageVersion    int                                       `json:"page_version"`
-	ThreadVersion  int                                       `json:"thread_version"`
-	SourceState    domain.ConfluenceCommentResolution        `json:"source_state"`
-	TargetState    domain.ConfluenceCommentResolution        `json:"target_state,omitempty"`
-	BodySHA256     string                                    `json:"body_sha256,omitempty"`
-	BodyBytes      int                                       `json:"body_bytes,omitempty"`
-	Actor          ConfluenceCommentMutationActor            `json:"actor"`
-	Provider       ConfluenceCommentMutationProviderEvidence `json:"provider"`
-	CurrentCount   int                                       `json:"current_count"`
-	BaselineSHA256 string                                    `json:"baseline_sha256"`
-	BackendSHA256  string                                    `json:"backend_sha256"`
-	ProposalHash   string                                    `json:"proposal_hash"`
-	CommentID      string                                    `json:"comment_id,omitempty"`
-	Complete       bool                                      `json:"complete"`
-	Reconciled     bool                                      `json:"reconciled,omitempty"`
-	Warning        string                                    `json:"warning"`
+	SchemaVersion     int                                       `json:"schema_version"`
+	PageID            string                                    `json:"page_id"`
+	ThreadID          string                                    `json:"thread_id"`
+	Operation         domain.ConfluenceCommentMutationOperation `json:"operation"`
+	Mode              string                                    `json:"mode"`
+	Status            string                                    `json:"status"`
+	PageVersion       int                                       `json:"page_version"`
+	ThreadVersion     int                                       `json:"thread_version"`
+	SourceState       domain.ConfluenceCommentResolution        `json:"source_state"`
+	TargetState       domain.ConfluenceCommentResolution        `json:"target_state,omitempty"`
+	BodySHA256        string                                    `json:"body_sha256,omitempty"`
+	BodyBytes         int                                       `json:"body_bytes,omitempty"`
+	SelectionSHA256   string                                    `json:"selection_sha256,omitempty"`
+	SelectionBytes    int                                       `json:"selection_bytes,omitempty"`
+	Occurrence        *int                                      `json:"occurrence,omitempty"`
+	NumMatches        int                                       `json:"num_matches,omitempty"`
+	MatchIndex        *int                                      `json:"match_index,omitempty"`
+	HighlightCount    int                                       `json:"highlight_count,omitempty"`
+	GeometrySHA256    string                                    `json:"geometry_sha256,omitempty"`
+	PageBodySHA256    string                                    `json:"page_body_sha256,omitempty"`
+	MarkerCount       *int                                      `json:"marker_count,omitempty"`
+	MarkerSHA256      string                                    `json:"marker_sha256,omitempty"`
+	Actor             ConfluenceCommentMutationActor            `json:"actor"`
+	Provider          ConfluenceCommentMutationProviderEvidence `json:"provider"`
+	CurrentCount      int                                       `json:"current_count"`
+	BaselineSHA256    string                                    `json:"baseline_sha256"`
+	BackendSHA256     string                                    `json:"backend_sha256"`
+	ProposalHash      string                                    `json:"proposal_hash"`
+	CommentID         string                                    `json:"comment_id,omitempty"`
+	MarkerRef         string                                    `json:"marker_ref,omitempty"`
+	ResultPageVersion int                                       `json:"result_page_version,omitempty"`
+	Complete          bool                                      `json:"complete"`
+	Reconciled        bool                                      `json:"reconciled,omitempty"`
+	Warning           string                                    `json:"warning"`
 }
 
 type confluenceCommentMutationSnapshot struct {
@@ -119,6 +133,9 @@ func (s *ConfluenceService) MutateCommentGuarded(ctx context.Context, reference 
 	}
 	if opts.Apply && strings.TrimSpace(opts.ExpectedProposalHash) == "" {
 		return nil, fmt.Errorf("%w: --expected-proposal-hash is required with apply; run the preview first", domain.ErrUsage)
+	}
+	if opts.Operation == domain.ConfluenceCommentMutationInlineCreate {
+		return s.createInlineCommentGuarded(ctx, reference, opts, body)
 	}
 
 	snapshot, err := s.confluenceCommentMutationSnapshot(ctx, reference, opts.Operation, opts.ThreadID)
@@ -234,6 +251,24 @@ func validateConfluenceCommentMutationOpts(opts ConfluenceCommentMutationOpts) (
 	if !domain.ValidConfluenceCommentMutationOperation(opts.Operation) {
 		return nil, fmt.Errorf("%w: unsupported Confluence comment mutation", domain.ErrUsage)
 	}
+	if opts.Occurrence < 0 {
+		return nil, fmt.Errorf("%w: Confluence selection occurrence must be zero or positive", domain.ErrUsage)
+	}
+	if opts.Operation == domain.ConfluenceCommentMutationInlineCreate {
+		if opts.ThreadID != "" {
+			return nil, fmt.Errorf("%w: Confluence inline create must not target an existing thread", domain.ErrUsage)
+		}
+		if len(opts.Selection) == 0 || !utf8.Valid(opts.Selection) {
+			return nil, fmt.Errorf("%w: Confluence inline selection must be non-empty UTF-8", domain.ErrUsage)
+		}
+		if len(opts.Selection) > ConfluenceFooterCommentBodyMaxBytes {
+			return nil, fmt.Errorf("%w: Confluence inline selection exceeds the %d MiB limit", domain.ErrUsage, ConfluenceFooterCommentBodyMaxBytes>>20)
+		}
+		return validateConfluenceCommentMutationBody(opts.Body, "inline comment")
+	}
+	if len(opts.Selection) != 0 || opts.Occurrence != 0 {
+		return nil, fmt.Errorf("%w: Confluence selection fields are accepted only for inline create", domain.ErrUsage)
+	}
 	if err := ValidateConfluenceCommentID(opts.ThreadID); err != nil {
 		return nil, fmt.Errorf("%w: Confluence thread id is invalid", domain.ErrUsage)
 	}
@@ -243,19 +278,23 @@ func validateConfluenceCommentMutationOpts(opts ConfluenceCommentMutationOpts) (
 		}
 		return nil, nil
 	}
-	if len(opts.Body) == 0 || strings.TrimSpace(string(opts.Body)) == "" {
-		return nil, fmt.Errorf("%w: Confluence reply body must not be empty", domain.ErrUsage)
+	return validateConfluenceCommentMutationBody(opts.Body, "reply")
+}
+
+func validateConfluenceCommentMutationBody(body []byte, kind string) ([]byte, error) {
+	if len(body) == 0 || strings.TrimSpace(string(body)) == "" {
+		return nil, fmt.Errorf("%w: Confluence %s body must not be empty", domain.ErrUsage, kind)
 	}
-	if len(opts.Body) > ConfluenceFooterCommentBodyMaxBytes {
-		return nil, fmt.Errorf("%w: Confluence reply body exceeds the %d MiB limit", domain.ErrUsage, ConfluenceFooterCommentBodyMaxBytes>>20)
+	if len(body) > ConfluenceFooterCommentBodyMaxBytes {
+		return nil, fmt.Errorf("%w: Confluence %s body exceeds the %d MiB limit", domain.ErrUsage, kind, ConfluenceFooterCommentBodyMaxBytes>>20)
 	}
-	if !utf8.Valid(opts.Body) {
-		return nil, fmt.Errorf("%w: Confluence reply body is not valid UTF-8", domain.ErrUsage)
+	if !utf8.Valid(body) {
+		return nil, fmt.Errorf("%w: Confluence %s body is not valid UTF-8", domain.ErrUsage, kind)
 	}
-	if csf.HasErrors(csf.Validate(opts.Body)) {
-		return nil, fmt.Errorf("%w: Confluence reply body is invalid Confluence Storage Format", domain.ErrCheckFailed)
+	if csf.HasErrors(csf.Validate(body)) {
+		return nil, fmt.Errorf("%w: Confluence %s body is invalid Confluence Storage Format", domain.ErrCheckFailed, kind)
 	}
-	return append([]byte(nil), opts.Body...), nil
+	return append([]byte(nil), body...), nil
 }
 
 func (s *ConfluenceService) confluenceCommentMutationSnapshot(ctx context.Context, reference string, operation domain.ConfluenceCommentMutationOperation, threadID string) (confluenceCommentMutationSnapshot, error) {

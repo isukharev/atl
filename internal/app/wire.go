@@ -36,6 +36,7 @@ type ConfluenceService struct {
 	requestMaxInFlight        int
 	requestsPerSecond         int
 	commentMutator            domain.ConfluenceCommentMutator
+	commentPreparer           domain.ConfluenceInlineCommentPreparer
 	commentMutationActivation *compatibility.Activation
 }
 
@@ -122,6 +123,7 @@ func NewConfluenceCommentMutations(cfg *config.Config, version string, activatio
 		return nil, err
 	}
 	service.commentMutator = provider
+	service.commentPreparer = provider
 	activationCopy := activation
 	service.commentMutationActivation = &activationCopy
 	return service, nil

@@ -2663,11 +2663,15 @@ threads.
 
 ### `atl conf comment mutation preview|apply`
 
-Reply to an existing open inline thread, resolve it, or reopen it through an
+Create a new inline anchor, reply to an existing open inline thread, resolve it,
+or reopen it through an
 explicitly activated Data Center compatibility profile. The read-only preview
-binds the exact page version, root thread and resolution, stable actor, complete
-qualified comment inventory, private exact product activation, and (for reply)
-the native-CSF body hash and length:
+binds the exact page version, stable actor, complete qualified comment inventory,
+private exact product activation, and operation inputs. Existing-thread
+operations bind the exact root and resolution. `inline-create` additionally
+binds the native page bytes, current server-owned marker inventory, canonical
+server-rendered `wiki-content` fingerprint, exact file-backed UTF-8 selection,
+zero-based occurrence, derived browser highlight geometry, and native-CSF body:
 
 ```bash
 atl conf comment mutation preview --id 12345678 --thread-id 87654321 \
@@ -2675,15 +2679,53 @@ atl conf comment mutation preview --id 12345678 --thread-id 87654321 \
 atl conf comment mutation apply --id 12345678 --thread-id 87654321 \
   --operation reply --from-file reply.csf --apply \
   --expected-proposal-hash <hash-from-preview>
+
+atl conf comment mutation preview --id 12345678 \
+  --operation inline-create --from-file comment.csf \
+  --selection-file selection.txt --occurrence 0
+atl conf comment mutation apply --id 12345678 \
+  --operation inline-create --from-file comment.csf \
+  --selection-file selection.txt --occurrence 0 --apply \
+  --expected-proposal-hash <hash-from-preview>
 ```
 
-`resolve` and `reopen` omit `--from-file`. Apply revalidates the entire proposal,
+`resolve` and `reopen` omit `--from-file`; `inline-create` omits `--thread-id`.
+ATL hashes and binds the selection file bytes exactly, then reproduces the
+pinned browser client's search normalization: non-breaking spaces become ASCII
+spaces and only that client's edge-whitespace set is trimmed. Line feeds are
+removed from the provider's `originalSelection`, while raw DOM text and UTF-16
+geometry remain unchanged. The occurrence is zero-based in the normalized
+rendered root before native exclusion masks are applied; ATL rejects an
+occurrence hidden by those masks or inside a native footer-fallback region,
+then reports the resulting provider `match_index`. This fail-closed behavior
+also rejects layout-dependent floating table headers and DOM shapes the pinned
+highlighter cannot traverse.
+
+ATL reads the same server-rendered page shape used by the pinned client plugin,
+but excludes volatile request-time and page chrome from reviewed proposal
+evidence. Apply revalidates the entire proposal,
 then the provider requalifies the owner-pinned exact product identity immediately
-before one fixed write. It never follows a redirect, retries, or falls back to an
-arbitrary endpoint. Complete readback must prove the exact new reply or state
-transition; retain and inspect any `outcome_unknown` without replay. Resolving an
+before one fixed write. For create, an immediate second preparation must preserve
+the stable DOM/geometry evidence; only its fresh server request-time enters the
+single POST. ATL never writes an inline marker into page CSF: Confluence owns the
+marker, and complete readback must prove that the native body changed only by one
+matching marker wrapper plus one exact root comment. The provider never follows
+a redirect, retries, or falls back to an arbitrary endpoint. Complete readback
+must prove the exact new root, reply, or state transition; retain and inspect any
+`outcome_unknown` without replay. Resolving an
 already resolved thread and reopening an open thread are explicit no-op previews.
 The commands are JSON-only and are intentionally absent from MCP.
+
+| flag | operation | description |
+|---|---|---|
+| `--id` | all | page id or supported same-origin URL (required) |
+| `--operation` | all | `inline-create`, `reply`, `resolve`, or `reopen` |
+| `--thread-id` | reply/resolve/reopen | exact root inline-thread id |
+| `--from-file` | inline-create/reply | exact native-CSF comment body file or `-` |
+| `--selection-file` | inline-create | bounded UTF-8 browser selection input or `-`; raw bytes are proposal-bound, search text is pinned-client normalized |
+| `--occurrence` | inline-create | zero-based normalized occurrence before native masks (default `0`) |
+| `--apply` | apply command | permit its single guarded write attempt |
+| `--expected-proposal-hash` | apply command | exact reviewed preview hash |
 
 ---
 

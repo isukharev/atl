@@ -138,9 +138,13 @@ version gate.
    preview` → review the complete footer-root baseline-bound proposal → after
    explicit approval, one guarded `conf comment add` with `--apply` and its
    `--expected-proposal-hash`. Although `add` defaults to dry-run, it remains
-   mutating-classified. Existing inline threads use the separate exact-pinned
-   `conf comment mutation preview|apply` loop for reply/resolve/reopen. Never
-   replay `outcome_unknown`; new inline-anchor creation is not supported here.
+   mutating-classified. Inline create/reply/resolve/reopen use the separate
+   exact-pinned `conf comment mutation preview|apply` loop. Inline create takes
+   exact native-CSF body and bounded UTF-8 selection files plus a zero-based
+   occurrence; ATL binds the raw selection, applies the pinned-client
+   normalization/masks fail-closed, derives raw-DOM geometry, and never edits
+   marker CSF. Never replay
+   `outcome_unknown`; the mutation surface remains CLI-only.
 
 For every agent-created Bash block that must not mutate Jira, Confluence,
 auth/config, or profile state, make this export its first statement:

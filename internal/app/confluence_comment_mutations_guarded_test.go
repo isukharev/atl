@@ -31,7 +31,8 @@ func (s *confluenceCommentMutationStore) ListConfluenceComments(_ context.Contex
 	if s.beforeList != nil {
 		s.beforeList(s.listCalls)
 	}
-	if pageID != "42" || opts.ParentVersion != 7 || !opts.DepthAll || len(opts.Locations) != 0 {
+	wantVersion := s.page.Version
+	if pageID != "42" || opts.ParentVersion != wantVersion || !opts.DepthAll || len(opts.Locations) != 0 {
 		return domain.ConfluenceCommentInventory{}, errors.New("unexpected qualified read")
 	}
 	inventory := completeQualifiedComments(append([]domain.ConfluenceCommentRecord(nil), s.comments...)...)

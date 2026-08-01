@@ -1291,16 +1291,39 @@ sends at most one single-attempt POST, then reconciles from a complete bounded
 root-only footer read. It cannot create replies or inline comments or change
 resolution; duplicate body text is not an idempotency key.
 
-`atl conf comment mutation preview|apply` uses a separate body-free schema-v1
+`atl conf comment mutation preview|apply` uses a separate content-free schema-v1
 result with `page_id`, `thread_id`, `operation`, `mode`, `status`,
 `page_version`, `thread_version`, `source_state`, optional `target_state`,
 optional `body_sha256`/`body_bytes`, `actor`, `provider.id`, `current_count`,
 `baseline_sha256`, `backend_sha256`, `proposal_hash`, optional `comment_id`,
 `complete`, optional `reconciled`, and `warning`. Exact configured
-version/build values and reply bytes are never emitted. Operations are exactly
-`reply|resolve|reopen`; statuses additionally include `no_op`. Only
+version/build values, body bytes, selection text, DOM bytes, request-time, and
+highlight paths are never emitted. Operations are exactly
+`inline_create|reply|resolve|reopen`; statuses additionally include `no_op`.
+`inline_create` also emits selection/body length and hashes, zero-based input
+`occurrence`, derived provider `match_index`, surviving `num_matches`,
+`highlight_count`, `geometry_sha256`, native
+`page_body_sha256`, marker count/hash, and after proven apply optional
+`marker_ref`/`result_page_version`. Its empty `thread_id`, zero
+`thread_version`, and empty `source_state` retain the common schema shape until
+readback supplies `comment_id`. Only
 `--apply --expected-proposal-hash` may write. `outcome_unknown` is never
 replay-safe. These commands are JSON-only and have no MCP route.
+
+The inline-create proposal binds the exact native page revision, stable
+canonical rendered-content fingerprint, raw selection/body hashes and lengths,
+pinned-client-normalized search and wire selections, selected input occurrence,
+surviving match count/provider index, derived raw-DOM UTF-16 geometry, complete
+comment and native-marker baselines, actor, backend, and exact private provider
+activation. Normalized or raw selection content is hash input only and is never
+emitted. Native exclusion masks and footer-fallback regions are reproduced
+fail-closed; ambiguous browser-layout constructs are rejected before POST.
+Volatile server request-time is deliberately not part of the proposal or
+output. Apply repeats preparation immediately before the sole POST, requires
+all stable evidence to match, and uses only that fresh request-time. Success
+requires a complete readback proving one exact new root and that the server
+changed native page CSF only by inserting its one matching inline marker
+wrapper. ATL never synthesizes or applies marker CSF.
 
 With `--comments`, `<slug>.comments.json` is the authoritative versioned source
 evidence, using the same qualified comment records, completeness dimensions, capabilities,

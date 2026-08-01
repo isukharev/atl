@@ -38,6 +38,156 @@ func writeTestExactMetadata(w http.ResponseWriter) {
 	_, _ = io.WriteString(w, `{"version":"9.5.2","buildNumber":"12345"}`)
 }
 
+func testInlineCreateMutationRequest() domain.ConfluenceCommentMutationRequest {
+	return domain.ConfluenceCommentMutationRequest{
+		Operation: domain.ConfluenceCommentMutationInlineCreate, PageID: "10", PageVersion: 7,
+		BodyStorage: []byte("<p>comment</p>"), SearchSelection: "beta gamma", OriginalSelection: "beta gamma",
+		NumMatches: 2, MatchIndex: 1, LastFetchTime: 1700000000123,
+		SerializedHighlights: []domain.ConfluenceInlineHighlightGeometry{
+			{Text: "beta ", ChildIndexPath: []int{0, 1}, PreviousTextSiblingOffset: 6, Length: 5},
+			{Text: "gamma", ChildIndexPath: []int{0, 2, 0}, PreviousTextSiblingOffset: 0, Length: 5},
+		},
+	}
+}
+
+func TestCommentMutationProviderInlineCreateExactContract(t *testing.T) {
+	events := []string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		events = append(events, r.Method+" "+r.URL.RequestURI())
+		switch r.URL.Path {
+		case "/wiki/rest/api/server-information":
+			writeTestExactMetadata(w)
+		case "/wiki/rest/inlinecomments/1.0/comments":
+			if r.Method != http.MethodPost || r.URL.RawQuery != "" {
+				t.Errorf("create request = %s %s", r.Method, r.URL.RequestURI())
+			}
+			if r.Header.Get("X-Atlassian-Token") != "no-check" || r.Header.Get("Content-Type") != "application/json" {
+				t.Errorf("create headers = %#v", r.Header)
+			}
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			want := map[string]any{
+				"containerId": "10", "containerVersion": float64(7), "parentCommentId": float64(0),
+				"body": "<p>comment</p>", "originalSelection": "beta gamma", "numMatches": float64(2),
+				"matchIndex": float64(1), "lastFetchTime": float64(1700000000123),
+				"serializedHighlights": `[["beta ","0:1",6,5],["gamma","0:2:0",0,5]]`,
+			}
+			if !reflect.DeepEqual(body, want) {
+				t.Errorf("create body = %#v, want %#v", body, want)
+			}
+			_, _ = io.WriteString(w, `{"id":40,"markerRef":"ref-40","originalSelection":"beta gamma","parentCommentId":0,"containerVersion":8,"body":"not-projected"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	provider := mustCommentMutationProvider(t, srv.URL+"/wiki")
+	result, err := provider.MutateConfluenceComment(context.Background(), testInlineCreateMutationRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantResult := domain.ConfluenceCommentMutationResult{
+		Operation: domain.ConfluenceCommentMutationInlineCreate, ThreadID: "40", CommentID: "40",
+		MarkerRef: "ref-40", OriginalSelection: "beta gamma", PageVersion: 8,
+	}
+	if result != wantResult {
+		t.Fatalf("result = %+v, want %+v", result, wantResult)
+	}
+	wantEvents := []string{"GET /wiki/rest/api/server-information", "POST /wiki/rest/inlinecomments/1.0/comments"}
+	if !reflect.DeepEqual(events, wantEvents) {
+		t.Fatalf("events = %#v, want %#v", events, wantEvents)
+	}
+}
+
+func TestCommentMutationProviderInlineCreateRejectsMalformedResponse(t *testing.T) {
+	responses := map[string]string{
+		"missing id":        `{"markerRef":"ref","originalSelection":"beta gamma","parentCommentId":0,"containerVersion":8}`,
+		"missing marker":    `{"id":40,"originalSelection":"beta gamma","parentCommentId":0,"containerVersion":8}`,
+		"wrong selection":   `{"id":40,"markerRef":"ref","originalSelection":"other","parentCommentId":0,"containerVersion":8}`,
+		"non-root":          `{"id":40,"markerRef":"ref","originalSelection":"beta gamma","parentCommentId":2,"containerVersion":8}`,
+		"missing version":   `{"id":40,"markerRef":"ref","originalSelection":"beta gamma","parentCommentId":0}`,
+		"trailing response": `{"id":40,"markerRef":"ref","originalSelection":"beta gamma","parentCommentId":0,"containerVersion":8}{}`,
+	}
+	for name, response := range responses {
+		t.Run(name, func(t *testing.T) {
+			var writes int
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/rest/api/server-information" {
+					writeTestExactMetadata(w)
+					return
+				}
+				writes++
+				_, _ = io.WriteString(w, response)
+			}))
+			defer srv.Close()
+			provider := mustCommentMutationProvider(t, srv.URL)
+			_, err := provider.MutateConfluenceComment(context.Background(), testInlineCreateMutationRequest())
+			if !errors.Is(err, domain.ErrCheckFailed) || writes != 1 {
+				t.Fatalf("error=%v writes=%d", err, writes)
+			}
+			var attempted interface{ DiagnosticWriteAttempted() bool }
+			if !errors.As(err, &attempted) || !attempted.DiagnosticWriteAttempted() {
+				t.Fatalf("attempted evidence = %T/%v", attempted, attempted != nil && attempted.DiagnosticWriteAttempted())
+			}
+		})
+	}
+}
+
+func TestCommentMutationProviderInlineCreateDoesNotReplayRedirect(t *testing.T) {
+	var writes, redirects int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/api/server-information":
+			writeTestExactMetadata(w)
+		case "/rest/inlinecomments/1.0/comments":
+			writes++
+			http.Redirect(w, r, "/redirected", http.StatusTemporaryRedirect)
+		case "/redirected":
+			redirects++
+		}
+	}))
+	defer srv.Close()
+	provider := mustCommentMutationProvider(t, srv.URL)
+	_, err := provider.MutateConfluenceComment(context.Background(), testInlineCreateMutationRequest())
+	if err == nil || writes != 1 || redirects != 0 {
+		t.Fatalf("error=%v writes=%d redirects=%d", err, writes, redirects)
+	}
+	var attempted interface{ DiagnosticWriteAttempted() bool }
+	if !errors.As(err, &attempted) || !attempted.DiagnosticWriteAttempted() {
+		t.Fatalf("attempted evidence = %T/%v", attempted, attempted != nil && attempted.DiagnosticWriteAttempted())
+	}
+}
+
+func TestCommentMutationProviderInlineCreatePreservesAttemptedHTTPStatusWithoutBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/rest/api/server-information" {
+			writeTestExactMetadata(w)
+			return
+		}
+		w.WriteHeader(http.StatusConflict)
+		_, _ = io.WriteString(w, "backend-conflict-canary")
+	}))
+	defer srv.Close()
+	provider := mustCommentMutationProvider(t, srv.URL)
+	_, err := provider.MutateConfluenceComment(context.Background(), testInlineCreateMutationRequest())
+	if !errors.Is(err, domain.ErrVersionConflict) || strings.Contains(err.Error(), "backend-conflict-canary") {
+		t.Fatalf("error = %v", err)
+	}
+	var attempted interface{ DiagnosticWriteAttempted() bool }
+	var status interface{ HTTPStatus() int }
+	hasAttempted := errors.As(err, &attempted)
+	hasStatus := errors.As(err, &status)
+	statusCode := 0
+	if status != nil {
+		statusCode = status.HTTPStatus()
+	}
+	if !hasAttempted || !attempted.DiagnosticWriteAttempted() || !hasStatus || statusCode != http.StatusConflict {
+		t.Fatalf("attempted/status = %T/%v %T/%d", attempted, attempted != nil && attempted.DiagnosticWriteAttempted(), status, statusCode)
+	}
+}
+
 func TestCommentMutationProviderFixedOperationMatrixAndRequalification(t *testing.T) {
 	var mu sync.Mutex
 	events := []string{}

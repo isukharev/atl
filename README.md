@@ -213,8 +213,10 @@ preview`, then run `conf comment add` on the exact native-CSF body with `--apply
 and `--expected-proposal-hash`; `add` is dry-run by default but remains a
 mutating-classified command. It creates footer roots only and never replays an
 ambiguous POST. Existing inline threads can be replied to, resolved, or reopened
-through the exact-pinned `conf comment mutation preview|apply` loop; new inline
-anchor creation remains separate. Jira writes follow the same reviewed-baseline rule. Follow the
+through the exact-pinned `conf comment mutation preview|apply` loop. The same
+loop creates a new server-owned inline anchor from an exact file-backed text
+selection and zero-based occurrence; ATL derives the version-specific browser
+geometry and never edits marker CSF itself. Jira writes follow the same reviewed-baseline rule. Follow the
 [safe-write guide](docs/safe-writes.md).
 
 ## Coding agents
