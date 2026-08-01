@@ -387,7 +387,7 @@ func buildConfluenceCommentInventoryResult(page *domain.Resource, inventory doma
 	commentsComplete := inventory.CommentsComplete
 	for _, comment := range inventory.Comments {
 		location := publicConfluenceCommentLocation(comment.Location)
-		if comment.MarkerRef != "" {
+		if comment.MarkerRef != "" && comment.Relation != domain.ConfluenceCommentRelationReply {
 			// State filtering must not turn the marker of an intentionally omitted
 			// or not-yet-qualified inline comment into an orphan diagnostic.
 			seenMarkerRefs[comment.MarkerRef] = struct{}{}
@@ -406,7 +406,8 @@ func buildConfluenceCommentInventoryResult(page *domain.Resource, inventory doma
 			Author:    ConfluenceCommentAuthor{ID: comment.AuthorID, DisplayName: comment.AuthorDisplayName},
 			CreatedAt: comment.CreatedAt, UpdatedAt: comment.UpdatedAt, Body: comment.Body, BodyStorage: comment.BodyStorage,
 		}
-		if comment.MarkerRef != "" || location == domain.ConfluenceCommentLocationInline {
+		if comment.Relation != domain.ConfluenceCommentRelationReply &&
+			(comment.MarkerRef != "" || location == domain.ConfluenceCommentLocationInline) {
 			anchor := &ConfluenceInlineAnchor{MarkerRef: comment.MarkerRef, OriginalSelection: comment.OriginalSelection}
 			switch {
 			case !markersAvailable || comment.MarkerRef == "":
@@ -974,6 +975,9 @@ func validateConfluenceCommentInventoryResult(result *ConfluenceCommentInventory
 		if err := validateConfluenceCommentRelationship(comment.ID, comment.Relation, comment.ParentID, comment.RootID); err != nil {
 			return err
 		}
+		if err := validateConfluenceCommentAnchorOwnership(comment.Relation, comment.Location, comment.Anchor != nil); err != nil {
+			return err
+		}
 		if comment.Relation == domain.ConfluenceCommentRelationRoot {
 			rootCount++
 		}
@@ -1097,6 +1101,16 @@ func validateConfluenceCommentViewAnchor(anchor *ConfluenceCommentViewAnchor) er
 		(anchor.MarkerRef == "" && anchor.Status != domain.ConfluenceAnchorUnavailable) ||
 		(anchor.MarkerRef != "" && !validConfluenceCommentMarkerRef(anchor.MarkerRef)) {
 		return fmt.Errorf("%w: Confluence comment anchor is not reconciled", domain.ErrCheckFailed)
+	}
+	return nil
+}
+
+func validateConfluenceCommentAnchorOwnership(relation domain.ConfluenceCommentRelation, location domain.ConfluenceCommentLocation, present bool) error {
+	if relation == domain.ConfluenceCommentRelationReply && present {
+		return fmt.Errorf("%w: Confluence comment reply carries root-owned anchor evidence", domain.ErrCheckFailed)
+	}
+	if relation != domain.ConfluenceCommentRelationReply && location == domain.ConfluenceCommentLocationInline && !present {
+		return fmt.Errorf("%w: Confluence inline comment root anchor is unavailable", domain.ErrCheckFailed)
 	}
 	return nil
 }
@@ -1244,6 +1258,9 @@ func ValidateConfluenceCommentListView(view *ConfluenceCommentListView) error {
 		if err := validateConfluenceCommentRelationship(comment.ID, comment.Relation, comment.ParentID, comment.RootID); err != nil {
 			return err
 		}
+		if err := validateConfluenceCommentAnchorOwnership(comment.Relation, comment.Location, comment.Anchor != nil); err != nil {
+			return err
+		}
 		if comment.Relation == domain.ConfluenceCommentRelationRoot {
 			rootCount++
 		}
@@ -1303,6 +1320,9 @@ func ValidateConfluenceCommentThreadView(view *ConfluenceCommentThreadView) erro
 		}
 		seen[comment.ID] = struct{}{}
 		if err := validateConfluenceCommentRelationship(comment.ID, comment.Relation, comment.ParentID, comment.RootID); err != nil {
+			return err
+		}
+		if err := validateConfluenceCommentAnchorOwnership(comment.Relation, comment.Location, comment.Anchor != nil); err != nil {
 			return err
 		}
 		if comment.Relation == domain.ConfluenceCommentRelationRoot {

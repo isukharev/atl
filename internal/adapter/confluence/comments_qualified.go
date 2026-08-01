@@ -86,13 +86,15 @@ type commentInlinePropertiesJSON struct {
 }
 
 type commentInventoryBuilder struct {
-	inventory   domain.ConfluenceCommentInventory
-	byID        map[string]domain.ConfluenceCommentRecord
-	conflicted  map[string]struct{}
-	reasons     map[string]struct{}
-	diagnostics map[string]struct{}
-	pages       int
-	items       int
+	inventory                      domain.ConfluenceCommentInventory
+	byID                           map[string]domain.ConfluenceCommentRecord
+	conflicted                     map[string]struct{}
+	replyInlineProperties          map[string]commentInlinePropertiesJSON
+	replyInlinePropertiesConflicts map[string]struct{}
+	reasons                        map[string]struct{}
+	diagnostics                    map[string]struct{}
+	pages                          int
+	items                          int
 }
 
 func newCommentInventoryBuilder(depthAll bool) *commentInventoryBuilder {
@@ -114,6 +116,7 @@ func newCommentInventoryBuilder(depthAll bool) *commentInventoryBuilder {
 			},
 		},
 		byID: make(map[string]domain.ConfluenceCommentRecord), conflicted: make(map[string]struct{}),
+		replyInlineProperties: make(map[string]commentInlinePropertiesJSON), replyInlinePropertiesConflicts: make(map[string]struct{}),
 		reasons: make(map[string]struct{}), diagnostics: make(map[string]struct{}),
 	}
 }
@@ -142,12 +145,34 @@ func (b *commentInventoryBuilder) finish() (domain.ConfluenceCommentInventory, e
 		if _, conflict := b.conflicted[id]; conflict {
 			continue
 		}
+		demotedReply := false
 		if comment.Relation == domain.ConfluenceCommentRelationReply {
 			if !commentAncestryObjectsPresent(comment, b.byID, b.conflicted) {
 				b.partial(domain.ConfluenceCommentPartialBackendOmittedChildren, comment.ID, "", false, true)
 			} else if !consistentCommentAncestry(comment, b.byID) {
 				comment.Relation, comment.ParentID, comment.RootID = domain.ConfluenceCommentRelationUnknown, nil, nil
+				demotedReply = true
 				b.partial(domain.ConfluenceCommentPartialMalformedAncestry, comment.ID, "", false, true)
+			}
+		}
+		if comment.Relation == domain.ConfluenceCommentRelationReply {
+			// Some backend shapes copy the root's inline properties onto replies.
+			// Replies are ancestry evidence, not independent anchor owners.
+			comment.MarkerRef, comment.OriginalSelection = "", ""
+		} else if demotedReply {
+			properties, present := b.replyInlineProperties[comment.ID]
+			_, conflicting := b.replyInlinePropertiesConflicts[comment.ID]
+			if present && !conflicting {
+				comment.MarkerRef, comment.OriginalSelection = properties.MarkerRef, properties.OriginalSelection
+				if b.inventory.Capabilities.InlineProperties != domain.ConfluenceCapabilityUnknown {
+					b.inventory.Capabilities.InlineProperties = domain.ConfluenceCapabilityObserved
+				}
+			} else if comment.Location == domain.ConfluenceCommentLocationInline {
+				// A provisional reply can become unknown only after the whole ancestry
+				// graph is available. Qualify its root-like anchor evidence now rather
+				// than silently accepting the earlier provisional exemption.
+				b.partial(domain.ConfluenceCommentPartialInlineExpansionUnavailable, comment.ID, "", false, false)
+				b.inventory.Capabilities.InlineProperties = domain.ConfluenceCapabilityUnknown
 			}
 		}
 		comments = append(comments, comment)
@@ -432,15 +457,6 @@ func (b *commentInventoryBuilder) mapComment(pageID string, querySelector domain
 		b.partial(domain.ConfluenceCommentPartialResolutionUnavailable, raw.ID, querySelector, true, false)
 		b.inventory.Capabilities.Resolution = domain.ConfluenceCapabilityUnknown
 	}
-	if properties, ok := decodeInlineProperties(raw.Extensions["inlineProperties"]); ok && strings.TrimSpace(properties.MarkerRef) != "" {
-		record.MarkerRef = properties.MarkerRef
-		record.OriginalSelection = properties.OriginalSelection
-		b.inventory.Capabilities.InlineProperties = domain.ConfluenceCapabilityObserved
-	} else if record.Location == domain.ConfluenceCommentLocationInline ||
-		querySelector == domain.ConfluenceCommentSelectorInline || querySelector == domain.ConfluenceCommentSelectorResolved {
-		b.partial(domain.ConfluenceCommentPartialInlineExpansionUnavailable, raw.ID, querySelector, false, false)
-		b.inventory.Capabilities.InlineProperties = domain.ConfluenceCapabilityUnknown
-	}
 	relation, parent, root, relationStatus := commentRelationship(raw.ID, raw.Ancestors)
 	record.Relation, record.ParentID, record.RootID = relation, parent, root
 	switch relationStatus {
@@ -452,7 +468,48 @@ func (b *commentInventoryBuilder) mapComment(pageID string, querySelector domain
 		b.inventory.Capabilities.ThreadAncestry = domain.ConfluenceCapabilityObserved
 		b.inventory.Capabilities.DepthAll = domain.ConfluenceCapabilityObserved
 	}
+	// Inline marker metadata belongs to the root discussion. Proven replies are
+	// qualified by explicit ancestry and do not need or expose a synthetic copy
+	// of their root's inline properties. Unknown ancestry stays fail-closed
+	// because the record may still be an unqualified root.
+	properties, inlinePropertiesPresent := decodeInlineProperties(raw.Extensions["inlineProperties"])
+	inlinePropertiesPresent = inlinePropertiesPresent && strings.TrimSpace(properties.MarkerRef) != ""
+	if inlinePropertiesPresent && relation != domain.ConfluenceCommentRelationReply {
+		record.MarkerRef = properties.MarkerRef
+		record.OriginalSelection = properties.OriginalSelection
+	}
+	if relation == domain.ConfluenceCommentRelationReply {
+		b.observeReplyInlineProperties(raw.ID, properties, inlinePropertiesPresent)
+	} else {
+		if inlinePropertiesPresent {
+			if b.inventory.Capabilities.InlineProperties != domain.ConfluenceCapabilityUnknown {
+				b.inventory.Capabilities.InlineProperties = domain.ConfluenceCapabilityObserved
+			}
+		} else if record.Location == domain.ConfluenceCommentLocationInline ||
+			querySelector == domain.ConfluenceCommentSelectorInline || querySelector == domain.ConfluenceCommentSelectorResolved {
+			b.partial(domain.ConfluenceCommentPartialInlineExpansionUnavailable, raw.ID, querySelector, false, false)
+			b.inventory.Capabilities.InlineProperties = domain.ConfluenceCapabilityUnknown
+		}
+	}
 	return record, locationSelector, nil
+}
+
+func (b *commentInventoryBuilder) observeReplyInlineProperties(id string, properties commentInlinePropertiesJSON, present bool) {
+	if !present {
+		return
+	}
+	if _, conflicting := b.replyInlinePropertiesConflicts[id]; conflicting {
+		return
+	}
+	prior, exists := b.replyInlineProperties[id]
+	if !exists {
+		b.replyInlineProperties[id] = properties
+		return
+	}
+	if prior != properties {
+		delete(b.replyInlineProperties, id)
+		b.replyInlinePropertiesConflicts[id] = struct{}{}
+	}
 }
 
 func (b *commentInventoryBuilder) merge(record domain.ConfluenceCommentRecord, querySelector domain.ConfluenceCommentSelector) {

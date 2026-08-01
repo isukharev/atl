@@ -110,6 +110,52 @@ func TestConfluenceCommentsSidecarV2DeterministicRoundTrip(t *testing.T) {
 	}
 }
 
+func TestConfluenceCommentsSidecarV2RoundTripsRootOwnedAnchorAndReplyWithoutAnchor(t *testing.T) {
+	rootID, replyID := "comment-1", "comment-2"
+	value := ConfluenceCommentsSidecarV2{
+		SchemaVersion: ConfluenceCommentsSidecarSchemaVersion,
+		PageID:        "page-1", PageVersion: 7,
+		Complete: true, CommentsComplete: true, ThreadsComplete: true, AnchorsComplete: true,
+		Count: 2, RootCount: 1, PartialReasons: []string{},
+		Capabilities: qualifiedCommentsSidecarFixture().Capabilities,
+		Comments: []ConfluenceCommentsSidecarComment{
+			{
+				ID: rootID, PageID: "page-1", RootID: &rootID,
+				Relation: domain.ConfluenceCommentRelationRoot, Location: domain.ConfluenceCommentLocationInline,
+				Resolution: domain.ConfluenceCommentResolutionOpen, Version: 1,
+				Author:    ConfluenceCommentsSidecarAuthor{ID: "user-1", DisplayName: "Author"},
+				CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-01T00:00:00Z",
+				Body: "root", BodyStorage: "<p>root</p>",
+				Anchor: &ConfluenceCommentsSidecarAnchor{MarkerRef: "marker-1", ObservedSelection: "selected", Status: domain.ConfluenceAnchorMatched},
+			},
+			{
+				ID: replyID, PageID: "page-1", ParentID: &rootID, RootID: &rootID,
+				Relation: domain.ConfluenceCommentRelationReply, Location: domain.ConfluenceCommentLocationInline,
+				Resolution: domain.ConfluenceCommentResolutionOpen, Version: 1,
+				Author:    ConfluenceCommentsSidecarAuthor{ID: "user-2", DisplayName: "Reviewer"},
+				CreatedAt: "2026-01-02T00:00:00Z", UpdatedAt: "2026-01-02T00:00:00Z",
+				Body: "reply", BodyStorage: "<p>reply</p>", Anchor: nil,
+			},
+		},
+		Diagnostics: []ConfluenceCommentsSidecarDiagnostic{},
+	}
+	encoded, err := EncodeConfluenceCommentsSidecarV2(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeConfluenceCommentsSidecar(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.V2 == nil || decoded.V2.Comments[0].Anchor == nil || decoded.V2.Comments[1].Anchor != nil {
+		t.Fatalf("decoded root/reply anchors = %+v", decoded.V2)
+	}
+	rendered := string(RenderConfluenceCommentsMarkdown(decoded.V2))
+	if strings.Count(rendered, "**Current inline selection:**") != 1 || strings.Contains(rendered, "**Anchor:** unavailable") {
+		t.Fatalf("reply rendered a synthetic anchor:\n%s", rendered)
+	}
+}
+
 func TestDecodeConfluenceCommentsSidecarLegacyStrictAndExplicit(t *testing.T) {
 	data := []byte(`[
   {"id":"2","author":"Reviewer","created":"later","body":"plain","body_storage":"<p>  exact </p>"},
@@ -172,7 +218,7 @@ func TestConfluenceCommentsSidecarRejectsInvalidQualifiedInventoryAndAssertions(
 			value.Comments[1].Anchor.Status = domain.ConfluenceAnchorStatus("backend-value")
 		},
 		"inline without anchor": func(value *ConfluenceCommentsSidecarV2) {
-			value.Comments[1].Anchor = nil
+			value.Comments[0].Location = domain.ConfluenceCommentLocationInline
 		},
 		"matched anchor without marker": func(value *ConfluenceCommentsSidecarV2) {
 			value.Comments[1].Anchor.Status = domain.ConfluenceAnchorMatched

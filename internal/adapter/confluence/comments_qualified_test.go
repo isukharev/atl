@@ -59,6 +59,190 @@ func TestListConfluenceCommentsMapsExactShapesAndResolvedSemantics(t *testing.T)
 	}
 }
 
+func TestListConfluenceCommentsQualifiesInlineReplyWithoutRootAnchorProperties(t *testing.T) {
+	root := qualifiedCommentJSON("20", "inline", "open", `[{"id":"1","type":"page"}]`, "<p>root</p>")
+	reply := qualifiedCommentJSON("21", "inline", "open", `[{"id":"1","type":"page"},{"id":"20","type":"comment"}]`, "<p>reply</p>")
+	reply = strings.Replace(reply, `,"inlineProperties":{"markerRef":"ref-21","originalSelection":"selection"}`, "", 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(qualifiedCommentPage(root, reply)))
+	}))
+	defer srv.Close()
+
+	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{
+		ParentVersion: 1, Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorInline}, DepthAll: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !inventory.CommentsComplete || !inventory.ThreadsComplete || len(inventory.PartialReasons) != 0 || len(inventory.Comments) != 2 ||
+		inventory.Capabilities.InlineProperties != domain.ConfluenceCapabilityObserved {
+		t.Fatalf("inventory = %+v", inventory)
+	}
+	byID := map[string]domain.ConfluenceCommentRecord{}
+	for _, comment := range inventory.Comments {
+		byID[comment.ID] = comment
+	}
+	if byID["20"].MarkerRef != "ref-20" || byID["21"].Relation != domain.ConfluenceCommentRelationReply ||
+		byID["21"].ParentID == nil || *byID["21"].ParentID != "20" || byID["21"].MarkerRef != "" || byID["21"].OriginalSelection != "" {
+		t.Fatalf("comments = %+v", byID)
+	}
+}
+
+func TestListConfluenceCommentsSuppressesCopiedInlineReplyProperties(t *testing.T) {
+	root := qualifiedCommentJSON("20", "inline", "open", `[{"id":"1","type":"page"}]`, "<p>root</p>")
+	reply := qualifiedCommentJSON("21", "inline", "open", `[{"id":"1","type":"page"},{"id":"20","type":"comment"}]`, "<p>reply</p>")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(qualifiedCommentPage(root, reply)))
+	}))
+	defer srv.Close()
+
+	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{
+		ParentVersion: 1, Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorInline}, DepthAll: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inventory.Comments) != 2 || inventory.Comments[1].Relation != domain.ConfluenceCommentRelationReply ||
+		inventory.Comments[1].MarkerRef != "" || inventory.Comments[1].OriginalSelection != "" || len(inventory.PartialReasons) != 0 {
+		t.Fatalf("inventory = %+v", inventory)
+	}
+}
+
+func TestListConfluenceCommentsReplyPropertyShapeDoesNotConflictDuplicate(t *testing.T) {
+	requests := 0
+	root := qualifiedCommentJSON("20", "inline", "open", `[{"id":"1","type":"page"}]`, "<p>root</p>")
+	replyWithProperties := qualifiedCommentJSON("21", "inline", "open", `[{"id":"1","type":"page"},{"id":"20","type":"comment"}]`, "<p>reply</p>")
+	replyWithoutProperties := strings.Replace(replyWithProperties, `,"inlineProperties":{"markerRef":"ref-21","originalSelection":"selection"}`, "", 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.URL.Query().Get("start") == "0" {
+			_, _ = fmt.Fprintf(w, `{"results":[%s,%s],"start":0,"limit":100,"size":2,"_links":{"next":"/ignored"}}`, root, replyWithProperties)
+			return
+		}
+		_, _ = fmt.Fprintf(w, `{"results":[%s],"start":2,"limit":100,"size":1,"_links":{}}`, replyWithoutProperties)
+	}))
+	defer srv.Close()
+
+	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{
+		ParentVersion: 1,
+		Locations:     []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorInline},
+		DepthAll:      true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 || len(inventory.Comments) != 2 || !inventory.CommentsComplete || !inventory.ThreadsComplete ||
+		containsString(inventory.PartialReasons, domain.ConfluenceCommentPartialConflictingDuplicates) || inventory.Comments[1].MarkerRef != "" {
+		t.Fatalf("requests=%d inventory=%+v", requests, inventory)
+	}
+}
+
+func TestListConfluenceCommentsDemotedInlineReplyWithoutPropertiesIsAnchorPartial(t *testing.T) {
+	rootA := qualifiedCommentJSON("10", "inline", "open", `[{"id":"1","type":"page"}]`, "<p>a</p>")
+	rootB := qualifiedCommentJSON("20", "inline", "open", `[{"id":"1","type":"page"}]`, "<p>b</p>")
+	reply := qualifiedCommentJSON("30", "inline", "open", `[{"id":"1","type":"page"},{"id":"10","type":"comment"},{"id":"20","type":"comment"}]`, "<p>reply</p>")
+	reply = strings.Replace(reply, `,"inlineProperties":{"markerRef":"ref-30","originalSelection":"selection"}`, "", 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(qualifiedCommentPage(rootA, rootB, reply)))
+	}))
+	defer srv.Close()
+
+	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{
+		ParentVersion: 1, Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorInline}, DepthAll: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]domain.ConfluenceCommentRecord{}
+	for _, comment := range inventory.Comments {
+		byID[comment.ID] = comment
+	}
+	if byID["30"].Relation != domain.ConfluenceCommentRelationUnknown || inventory.ThreadsComplete ||
+		!containsString(inventory.PartialReasons, domain.ConfluenceCommentPartialMalformedAncestry) ||
+		!containsString(inventory.PartialReasons, domain.ConfluenceCommentPartialInlineExpansionUnavailable) {
+		t.Fatalf("inventory = %+v", inventory)
+	}
+}
+
+func TestListConfluenceCommentsDemotedInlineReplyPreservesUnambiguousProperties(t *testing.T) {
+	rootA := qualifiedCommentJSON("10", "inline", "open", `[{"id":"1","type":"page"}]`, "<p>a</p>")
+	rootB := qualifiedCommentJSON("20", "inline", "open", `[{"id":"1","type":"page"}]`, "<p>b</p>")
+	reply := qualifiedCommentJSON("30", "inline", "open", `[{"id":"1","type":"page"},{"id":"10","type":"comment"},{"id":"20","type":"comment"}]`, "<p>reply</p>")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(qualifiedCommentPage(rootA, rootB, reply)))
+	}))
+	defer srv.Close()
+
+	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{
+		ParentVersion: 1, Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorInline}, DepthAll: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]domain.ConfluenceCommentRecord{}
+	for _, comment := range inventory.Comments {
+		byID[comment.ID] = comment
+	}
+	if byID["30"].Relation != domain.ConfluenceCommentRelationUnknown || byID["30"].MarkerRef != "ref-30" ||
+		byID["30"].OriginalSelection != "selection" ||
+		containsString(inventory.PartialReasons, domain.ConfluenceCommentPartialInlineExpansionUnavailable) {
+		t.Fatalf("inventory = %+v", inventory)
+	}
+}
+
+func TestListConfluenceCommentsDemotedReplyConflictingPrivatePropertiesIsAnchorPartial(t *testing.T) {
+	rootA := qualifiedCommentJSON("10", "inline", "open", `[{"id":"1","type":"page"}]`, "<p>a</p>")
+	rootB := qualifiedCommentJSON("20", "inline", "open", `[{"id":"1","type":"page"}]`, "<p>b</p>")
+	reply := qualifiedCommentJSON("30", "inline", "open", `[{"id":"1","type":"page"},{"id":"10","type":"comment"},{"id":"20","type":"comment"}]`, "<p>reply</p>")
+	conflictingReply := strings.Replace(reply, `"markerRef":"ref-30"`, `"markerRef":"different-ref"`, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("start") == "0" {
+			_, _ = fmt.Fprintf(w, `{"results":[%s,%s,%s],"start":0,"limit":100,"size":3,"_links":{"next":"/ignored"}}`, rootA, rootB, reply)
+			return
+		}
+		_, _ = fmt.Fprintf(w, `{"results":[%s],"start":3,"limit":100,"size":1,"_links":{}}`, conflictingReply)
+	}))
+	defer srv.Close()
+
+	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{
+		ParentVersion: 1, Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorInline}, DepthAll: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]domain.ConfluenceCommentRecord{}
+	for _, comment := range inventory.Comments {
+		byID[comment.ID] = comment
+	}
+	if byID["30"].Relation != domain.ConfluenceCommentRelationUnknown || byID["30"].MarkerRef != "" ||
+		containsString(inventory.PartialReasons, domain.ConfluenceCommentPartialConflictingDuplicates) ||
+		!containsString(inventory.PartialReasons, domain.ConfluenceCommentPartialInlineExpansionUnavailable) ||
+		inventory.Capabilities.InlineProperties != domain.ConfluenceCapabilityUnknown {
+		t.Fatalf("inventory = %+v", inventory)
+	}
+}
+
+func TestListConfluenceCommentsUnknownInlineRelationStillRequiresAnchorProperties(t *testing.T) {
+	row := qualifiedCommentJSON("20", "inline", "open", `[{"id":"1","type":"page"}]`, "<p>x</p>")
+	row = strings.Replace(row, `"ancestors":[{"id":"1","type":"page"}],`, "", 1)
+	row = strings.Replace(row, `,"inlineProperties":{"markerRef":"ref-20","originalSelection":"selection"}`, "", 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(qualifiedCommentPage(row)))
+	}))
+	defer srv.Close()
+
+	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{
+		ParentVersion: 1, Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorInline}, DepthAll: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inventory.ThreadsComplete || !containsString(inventory.PartialReasons, domain.ConfluenceCommentPartialParentUnavailable) ||
+		!containsString(inventory.PartialReasons, domain.ConfluenceCommentPartialInlineExpansionUnavailable) {
+		t.Fatalf("inventory = %+v", inventory)
+	}
+}
+
 func TestListConfluenceCommentsBindsParentVersionAcrossSelectorsAndPagination(t *testing.T) {
 	starts := map[string][]string{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

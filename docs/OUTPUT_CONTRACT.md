@@ -1213,8 +1213,16 @@ closed `relation` (`root|reply|unknown`), semantic `location`
 (`open|resolved|unknown`), exact native `body_storage`, plain `body`, author,
 version/timestamps, and a nullable anchor. Anchor status is
 `matched|missing|ambiguous|unavailable`; original and observed selections are
-kept separately. A backend `resolved` location is represented as
+kept separately. Inline anchors belong to root discussions; proven replies have
+a null anchor and remain qualified by their explicit ancestry. A backend
+`resolved` location is represented as
 `location:inline` plus `resolution:resolved`.
+
+Current schema-v2 projections never emit reply-level anchors. The sidecar
+decoder and renderer still preserve historical schema-v2 reply anchors without
+normalizing them, so existing pristine v5 derived views remain byte-stable; a
+fresh pull writes the root-owned shape. This compatibility exception does not
+apply to transient result, list, or thread validators.
 
 `complete` is the conjunction of the dimensions relevant to the selected
 query. Closed `partial_reasons` and content-free diagnostics cover pagination,

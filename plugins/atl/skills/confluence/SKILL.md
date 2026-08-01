@@ -180,7 +180,9 @@ write command after explicit approval.
   evidence. The main v5 `.md` contains the deterministic qualified read-only
   tree; `.comments.md` remains flat compatibility. Never edit either generated
   comment view or infer current anchor text unless a matched observed selection
-  is explicitly labelled current. Unattached entries are not proven replies;
+  is explicitly labelled current. Anchors belong to root discussions; a proven
+  reply has no separate anchor and is qualified by explicit ancestry.
+  Unattached entries are not proven replies;
   inspect closed diagnostics in the JSON sidecar when needed.
   For a transient MCP read, start with body-free `confluence_comment_list` and
   expand only one exact id through `confluence_comment_thread`. Use positive
