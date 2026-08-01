@@ -131,7 +131,9 @@ rollout section above to match.</p>
 ```
 
 ```bash
-atl conf comment add --id <page-id> --from-file comment.csf
+ATL_READ_ONLY=1 atl conf comment preview --id <page-id> --from-file comment.csf
+atl conf comment add --id <page-id> --from-file comment.csf \
+  --apply --expected-proposal-hash <reviewed-hash>
 ```
 
 ## Gotchas

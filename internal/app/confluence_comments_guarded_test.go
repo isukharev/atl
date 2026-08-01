@@ -94,6 +94,14 @@ func previewConfluenceFooterComment(t *testing.T, store *confluenceFooterComment
 	return result
 }
 
+func applyConfluenceFooterComment(store *confluenceFooterCommentStoreStub, baseURL, body, proposalHash string) (*ConfluenceFooterCommentAddResult, error) {
+	return (&ConfluenceService{store: store, baseURL: baseURL}).AddFooterCommentGuarded(
+		context.Background(), "42", ConfluenceFooterCommentAddOpts{
+			Body: []byte(body), Apply: true, ExpectedProposalHash: proposalHash,
+		},
+	)
+}
+
 func TestConfluenceFooterCommentPreviewBindsTargetActorCapabilityAndSortedBaseline(t *testing.T) {
 	store := confluenceFooterCommentFixture()
 	store.comments = append(store.comments, confluenceFooterCommentRecord("2", "user-3", "<p>other</p>"))
@@ -241,6 +249,140 @@ func TestConfluenceFooterCommentRejectsDriftAndPartialEvidenceBeforePOST(t *test
 			t.Fatalf("err=%v add=%d", err, store.addCalls)
 		}
 	})
+}
+
+func TestConfluenceFooterCommentProposalBindingRejectsEveryChangedInputBeforePOST(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*confluenceFooterCommentStoreStub) string
+	}{
+		{name: "backend", mutate: func(*confluenceFooterCommentStoreStub) string { return "https://other.example.test" }},
+		{name: "page version", mutate: func(store *confluenceFooterCommentStoreStub) string {
+			store.pageVersion = 8
+			return "https://confluence.example.test"
+		}},
+		{name: "actor", mutate: func(store *confluenceFooterCommentStoreStub) string {
+			store.user.ID = "user-9"
+			return "https://confluence.example.test"
+		}},
+		{name: "capability", mutate: func(store *confluenceFooterCommentStoreStub) string {
+			store.listFn = func(int) (domain.ConfluenceCommentInventory, error) {
+				inventory := completeQualifiedComments(store.comments...)
+				inventory.Capabilities.Footer = domain.ConfluenceCapabilityDocumented
+				return inventory, nil
+			}
+			return "https://confluence.example.test"
+		}},
+		{name: "baseline ids", mutate: func(store *confluenceFooterCommentStoreStub) string {
+			store.comments = append(store.comments, confluenceFooterCommentRecord("11", "user-3", "<p>new</p>"))
+			return "https://confluence.example.test"
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := confluenceFooterCommentFixture()
+			preview := previewConfluenceFooterComment(t, store, "<p>x</p>")
+			baseURL := test.mutate(store)
+			result, err := applyConfluenceFooterComment(store, baseURL, "<p>x</p>", preview.ProposalHash)
+			if result == nil || result.Status != "conflict" || !errors.Is(err, domain.ErrCheckFailed) || store.addCalls != 0 {
+				t.Fatalf("result=%+v err=%v add=%d", result, err, store.addCalls)
+			}
+		})
+	}
+
+	t.Run("target identity and type", func(t *testing.T) {
+		for name, meta := range map[string]*domain.PageMeta{
+			"wrong id":   {ID: "43", Type: "page", Version: 7},
+			"wrong type": {ID: "42", Type: "comment", Version: 7},
+			"no version": {ID: "42", Type: "page"},
+		} {
+			t.Run(name, func(t *testing.T) {
+				store := confluenceFooterCommentFixture()
+				store.metaFn = func(int) (*domain.PageMeta, error) { return meta, nil }
+				if _, err := (&ConfluenceService{store: store, baseURL: "https://confluence.example.test"}).AddFooterCommentGuarded(
+					context.Background(), "42", ConfluenceFooterCommentAddOpts{Body: []byte("<p>x</p>")},
+				); !errors.Is(err, domain.ErrCheckFailed) || store.addCalls != 0 || store.listCalls != 0 {
+					t.Fatalf("err=%v add=%d lists=%d", err, store.addCalls, store.listCalls)
+				}
+			})
+		}
+	})
+}
+
+func TestConfluenceFooterCommentReadbackFailuresRemainUnknownWithoutReplay(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*confluenceFooterCommentStoreStub)
+	}{
+		{name: "readback error", mutate: func(store *confluenceFooterCommentStoreStub) {
+			store.listFn = func(call int) (domain.ConfluenceCommentInventory, error) {
+				if call == 4 {
+					return domain.ConfluenceCommentInventory{}, errors.New("sensitive readback failure")
+				}
+				return completeQualifiedComments(store.comments...), nil
+			}
+		}},
+		{name: "readback partial", mutate: func(store *confluenceFooterCommentStoreStub) {
+			store.listFn = func(call int) (domain.ConfluenceCommentInventory, error) {
+				inventory := completeQualifiedComments(store.comments...)
+				if call == 4 {
+					inventory.CommentsComplete = false
+					inventory.PartialReasons = []string{domain.ConfluenceCommentPartialPageLimit}
+				}
+				return inventory, nil
+			}
+		}},
+		{name: "baseline edited after POST", mutate: func(store *confluenceFooterCommentStoreStub) {
+			store.listFn = func(call int) (domain.ConfluenceCommentInventory, error) {
+				comments := append([]domain.ConfluenceCommentRecord(nil), store.comments...)
+				if call == 4 {
+					comments[0].Body, comments[0].BodyStorage, comments[0].Version = "edited", "<p>edited</p>", 2
+				}
+				return completeQualifiedComments(comments...), nil
+			}
+		}},
+		{name: "baseline deleted after POST", mutate: func(store *confluenceFooterCommentStoreStub) {
+			store.listFn = func(call int) (domain.ConfluenceCommentInventory, error) {
+				comments := append([]domain.ConfluenceCommentRecord(nil), store.comments...)
+				if call == 4 {
+					comments = comments[1:]
+				}
+				return completeQualifiedComments(comments...), nil
+			}
+		}},
+		{name: "page version changed after POST", mutate: func(store *confluenceFooterCommentStoreStub) {
+			store.metaFn = func(call int) (*domain.PageMeta, error) {
+				version := 7
+				if call == 4 {
+					version = 8
+				}
+				return &domain.PageMeta{ID: "42", Type: "page", Version: version}, nil
+			}
+		}},
+		{name: "returned id mismatch", mutate: func(store *confluenceFooterCommentStoreStub) {
+			store.addResult = &domain.Comment{ID: "21"}
+		}},
+		{name: "returned record wrong actor", mutate: func(store *confluenceFooterCommentStoreStub) {
+			store.commit = []domain.ConfluenceCommentRecord{confluenceFooterCommentRecord("20", "user-9", "<p>x</p>")}
+		}},
+		{name: "returned record wrong body", mutate: func(store *confluenceFooterCommentStoreStub) {
+			store.commit = []domain.ConfluenceCommentRecord{confluenceFooterCommentRecord("20", "user-1", "<p>other</p>")}
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := confluenceFooterCommentFixture()
+			preview := previewConfluenceFooterComment(t, store, "<p>x</p>")
+			store.commit = []domain.ConfluenceCommentRecord{confluenceFooterCommentRecord("20", "user-1", "<p>x</p>")}
+			store.addResult = &domain.Comment{ID: "20"}
+			test.mutate(store)
+			result, err := applyConfluenceFooterComment(store, "https://confluence.example.test", "<p>x</p>", preview.ProposalHash)
+			var ambiguous interface{ DiagnosticAmbiguousWrite() bool }
+			if result == nil || result.Status != "outcome_unknown" || !errors.Is(err, domain.ErrCheckFailed) ||
+				!errors.As(err, &ambiguous) || !ambiguous.DiagnosticAmbiguousWrite() || store.addCalls != 1 || !store.singleAttempt {
+				t.Fatalf("result=%+v err=%v ambiguous=%T add=%d single=%t", result, err, ambiguous, store.addCalls, store.singleAttempt)
+			}
+		})
+	}
 }
 
 func TestValidateConfluenceFooterCommentBodyIsBoundedValidAndByteStable(t *testing.T) {
