@@ -1323,7 +1323,13 @@ output. Apply repeats preparation immediately before the sole POST, requires
 all stable evidence to match, and uses only that fresh request-time. Success
 requires a complete readback proving one exact new root and that the server
 changed native page CSF only by inserting its one matching inline marker
-wrapper. ATL never synthesizes or applies marker CSF.
+wrapper. The pinned profile accepts only the two observed public-version
+semantics: the page version may remain unchanged or advance by exactly one;
+every other transition remains `outcome_unknown`. In either case the provider
+response version, when the response is successfully decoded, must agree with
+the reconciled readback. An unusable response can produce `recovered` only from
+the same strict complete readback proof. ATL never synthesizes or applies
+marker CSF.
 
 With `--comments`, `<slug>.comments.json` is the authoritative versioned source
 evidence, using the same qualified comment records, completeness dimensions, capabilities,

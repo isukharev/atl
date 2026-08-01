@@ -387,8 +387,8 @@ func reconcileConfluenceInlineCreate(result *ConfluenceCommentMutationGuardedRes
 		return result, confluenceCommentMutationAmbiguousError(message, sanitizeConfluenceCommentWriteCause(writeErr))
 	}
 	if before.pageID != after.pageID || before.backend != after.backend || before.configuredIdentity != after.configuredIdentity ||
-		before.actor != after.actor || before.provider != after.provider || after.pageVersion != before.pageVersion+1 {
-		return unknown("Confluence inline comment outcome is unknown because page, actor, provider, or expected page-version evidence changed; do not replay automatically")
+		before.actor != after.actor || before.provider != after.provider || !qualifiedConfluenceInlineCreateVersionTransition(before.pageVersion, after.pageVersion) {
+		return unknown("Confluence inline comment outcome is unknown because page, actor, provider, or qualified page-version evidence changed; do not replay automatically")
 	}
 	if len(after.comments) != len(before.comments)+1 || !confluenceCommentMutationBaselineMembersUnchanged(before.comments, after.comments, "") {
 		return unknown("Confluence inline comment outcome is unknown because the complete comment baseline changed unexpectedly; do not replay automatically")
@@ -429,6 +429,16 @@ func reconcileConfluenceInlineCreate(result *ConfluenceCommentMutationGuardedRes
 		result.Status = "recovered"
 	}
 	return result, nil
+}
+
+// qualifiedConfluenceInlineCreateVersionTransition accepts only the two exact
+// semantics exposed by the pinned compatibility profile. Some Data Center
+// builds persist the server-owned marker without advancing the page's public
+// content version, while others expose that insertion as the next version. The
+// surrounding reconciliation still proves the complete comment-baseline delta
+// and the exact native marker-only body transformation.
+func qualifiedConfluenceInlineCreateVersionTransition(before, after int) bool {
+	return before > 0 && (after == before || after == before+1)
 }
 
 func confluenceInlineCreatedRootMatches(comment ConfluenceCommentResultRecord, pageID string, body []byte, originalSelection, observedSelection string, actor ConfluenceCommentMutationActor) bool {
