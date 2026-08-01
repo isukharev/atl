@@ -4,8 +4,8 @@ import "testing"
 
 func TestDefinitionsReturnsDefensiveCopy(t *testing.T) {
 	first := Definitions()
-	if len(first) != 49 {
-		t.Fatalf("definitions=%d want=49", len(first))
+	if len(first) != 53 {
+		t.Fatalf("definitions=%d want=53", len(first))
 	}
 	want := first[0]
 	first[0] = Definition{ID: "changed"}
@@ -34,11 +34,36 @@ func TestDefinitionsTransportMappings(t *testing.T) {
 			mappedMutating++
 		}
 	}
-	if mapped != 30 || cliOnly != 19 {
-		t.Fatalf("mapped=%d cli_only=%d want=30/19", mapped, cliOnly)
+	if mapped != 32 || cliOnly != 21 {
+		t.Fatalf("mapped=%d cli_only=%d want=32/21", mapped, cliOnly)
 	}
 	if mappedMutating != 0 {
 		t.Fatalf("mapped mutating definitions=%d want=0", mappedMutating)
+	}
+}
+
+func TestConfluenceCommentsHasFourClosedRoutesAndOnlyReadsMapToMCP(t *testing.T) {
+	want := []Definition{
+		{ID: "confluence.comment.list", Role: "discover", CLICommand: "conf comment list", MCPTool: "confluence_comment_list"},
+		{ID: "confluence.comment.thread", Role: "expand", CLICommand: "conf comment thread", MCPTool: "confluence_comment_thread"},
+		{ID: "confluence.comment.preview", Role: "preview", CLICommand: "conf comment preview"},
+		{ID: "confluence.comment.add", Role: "write", CLICommand: "conf comment add"},
+	}
+	var got []Definition
+	for _, definition := range Definitions() {
+		if definition.TaskClass == "confluence/comments" {
+			got = append(got, definition)
+		}
+	}
+	if len(got) != len(want) {
+		t.Fatalf("comment routes=%d want=%d: %+v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i].ID != want[i].ID || got[i].Service != "confluence" || got[i].Role != want[i].Role ||
+			got[i].CLICommand != want[i].CLICommand || got[i].MCPTool != want[i].MCPTool ||
+			(got[i].MCPTool != "" && got[i].MCPScope == "") {
+			t.Fatalf("comment route[%d]=%+v want=%+v", i, got[i], want[i])
+		}
 	}
 }
 

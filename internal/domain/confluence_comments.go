@@ -189,6 +189,27 @@ type ConfluenceCommentReadOptions struct {
 	// historical field name is retained to keep call sites concise.
 	Locations []ConfluenceCommentSelector
 	DepthAll  bool
+	// MaxPages and MaxItems are optional aggregate safety bounds across every
+	// selected location. Zero preserves the adapter's historical defaults;
+	// positive values are enforced exactly and negative values are invalid.
+	MaxPages int
+	MaxItems int
+}
+
+// ValidateConfluenceCommentReadOptions rejects malformed explicit bounds and
+// selectors before an adapter performs any backend work. Upper bounds belong
+// to the transport that grants the read; the domain only distinguishes the
+// legacy zero default from a positive explicit limit.
+func ValidateConfluenceCommentReadOptions(options ConfluenceCommentReadOptions) error {
+	if options.MaxPages < 0 || options.MaxItems < 0 {
+		return fmt.Errorf("%w: Confluence comment page and item bounds must be zero or positive", ErrUsage)
+	}
+	for _, selector := range options.Locations {
+		if !ValidConfluenceCommentSelector(selector) {
+			return fmt.Errorf("%w: invalid Confluence comment location", ErrUsage)
+		}
+	}
+	return nil
 }
 
 // ConfluenceUserIdentity is the minimal stable identity of the authenticated

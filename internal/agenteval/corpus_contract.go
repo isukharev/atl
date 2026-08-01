@@ -16,7 +16,7 @@ import (
 const maxCorpusRunSpecs = 4096
 
 var publicCorpusTaskClasses = map[string]struct{}{
-	"confluence/edit": {}, "confluence/evidence": {}, "confluence/mirror": {}, "confluence/selection-completeness": {}, "confluence/table-analytics": {},
+	"confluence/comments": {}, "confluence/edit": {}, "confluence/evidence": {}, "confluence/mirror": {}, "confluence/selection-completeness": {}, "confluence/table-analytics": {},
 	"cross-service/meeting-tasks": {}, "cross-service/spec-backlog": {},
 	"jira/batch-analysis": {}, "jira/board-portfolio": {}, "jira/edit": {}, "jira/triage": {},
 	"jira/evidence": {}, "jira/graph-evidence": {}, "jira/mirror": {}, "jira/portfolio": {}, "jira/structure-planning": {},

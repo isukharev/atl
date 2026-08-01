@@ -39,12 +39,13 @@ loading broad command references:
 
 ```bash
 atl capabilities --task jira/evidence
+atl capabilities --task confluence/comments
 ```
 
 The closed task classes are `jira/evidence`, `jira/portfolio`,
 `jira/board-portfolio`, `jira/batch-analysis`, `jira/structure-planning`,
 `jira/edit`, `jira/mirror`, `confluence/evidence`,
-`confluence/table-analytics`, `confluence/edit`, `confluence/mirror`, and
+`confluence/table-analytics`, `confluence/comments`, `confluence/edit`, `confluence/mirror`, and
 `knowledge/search`. The result is a small ordered set
 of stable capability ids with the real command path, backend access class,
 supported output modes, evidence/completeness semantics, and one focused skill
@@ -52,6 +53,10 @@ reference. Load only the named focused skill/reference, then stop expanding the
 route once sufficient complete evidence is available. Use exact filters only;
 an unknown task/id is a loud not-found result, not a prompt for fuzzy guessing.
 `capabilities` is local/offline and works without valid config or credentials.
+The additive `confluence/comments` route keeps qualified list, exact thread,
+guarded preview, and guarded add separate. Its list/thread entries have narrower
+read-only MCP mappings; preview/add are CLI-only and do not become plugin
+mutations.
 For an exact Jira Structure id in the `jira/portfolio` route, use
 `jira structure get` for metadata qualification before a bounded view. Retain
 only id, name, and read-only state for the decision; do not propagate owner,
@@ -79,7 +84,7 @@ preflight before identity-bearing `jira status` or issue-level repair.
 When the installed plugin exposes `atl` MCP tools, prefer them for transient,
 bounded evidence reads: typed arguments remove shell construction and the
 server registers no mutation or arbitrary-filesystem tool. Load
-[mcp.md](reference/mcp.md) for its exact twenty-one-tool route and CLI fallback
+[mcp.md](reference/mcp.md) for its exact twenty-three-tool route and CLI fallback
 boundary. Use bounded Structure metadata/view through MCP. For content-free
 health counts of an existing durable mirror, use the no-argument mirror snapshot
 tool only when the owner has configured `ATL_MIRROR_ROOT`. Continue using the

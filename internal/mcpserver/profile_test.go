@@ -21,8 +21,8 @@ import (
 func TestClosedServiceProfilesExposeExactInventories(t *testing.T) {
 	jiraProfileTools := mappedToolsForService(t, "jira")
 	confluenceProfileTools := mappedToolsForService(t, "confluence")
-	if len(jiraProfileTools) != 11 || len(confluenceProfileTools) != 10 {
-		t.Fatalf("shared capability inventories jira=%d confluence=%d want=11/10", len(jiraProfileTools), len(confluenceProfileTools))
+	if len(jiraProfileTools) != 11 || len(confluenceProfileTools) != 12 {
+		t.Fatalf("shared capability inventories jira=%d confluence=%d want=11/12", len(jiraProfileTools), len(confluenceProfileTools))
 	}
 	tests := []struct {
 		name         string
@@ -122,7 +122,7 @@ func TestDefaultProfilePreservesNewToolSchemasAndInstructions(t *testing.T) {
 	if string(legacyJSON) != string(profileJSON) {
 		t.Fatal("default profile changed the legacy tool inventory or schemas")
 	}
-	if got := sha256.Sum256(profileJSON); hex.EncodeToString(got[:]) != "a7bede53d6662873df4c7ac9ecfcf4547927fcf6724b32d5a7297e41988601e8" {
+	if got := sha256.Sum256(profileJSON); hex.EncodeToString(got[:]) != "7ca1d409395837484606ebef76d4c0a5f20296a7bfddfc6cc5cd556387bc0e02" {
 		t.Fatalf("default tool contract hash=%x", got)
 	}
 	if legacyClient.InitializeResult().Instructions != Instructions ||

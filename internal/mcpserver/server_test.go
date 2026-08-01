@@ -88,7 +88,7 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"confluence_attachment_list", "confluence_mirror_snapshot",
+		"confluence_attachment_list", "confluence_comment_list", "confluence_comment_thread", "confluence_mirror_snapshot",
 		"confluence_page_meta", "confluence_page_outline", "confluence_page_resolve", "confluence_page_section", "confluence_page_sections", "confluence_search",
 		"confluence_table_extract", "confluence_table_summary",
 		"jira_board_view", "jira_epic_digest", "jira_fields", "jira_issue_field_get", "jira_issue_graph",
@@ -351,6 +351,45 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 			}
 			if !strings.Contains(tool.Description, "untrusted evidence") {
 				t.Errorf("tool %s must mark attachment titles untrusted: %q", tool.Name, tool.Description)
+			}
+		}
+		if tool.Name == "confluence_comment_list" || tool.Name == "confluence_comment_thread" {
+			properties, _ := input["properties"].(map[string]any)
+			if !schemaRequired(input, "page_id") || schemaRequired(input, "expected_page_version") {
+				t.Errorf("tool %s must require page_id and keep its provenance gate optional: %#v", tool.Name, tool.InputSchema)
+			}
+			if _, exists := properties["max_comment_pages"]; exists {
+				t.Errorf("tool %s must keep its request cap server-controlled: %#v", tool.Name, tool.InputSchema)
+			}
+			for _, expected := range []string{"max_items", "max_bytes"} {
+				if _, exists := properties[expected]; !exists {
+					t.Errorf("tool %s input must expose %s: %#v", tool.Name, expected, tool.InputSchema)
+				}
+			}
+			if tool.Name == "confluence_comment_thread" && !schemaRequired(input, "comment_id") {
+				t.Errorf("tool %s must require one exact comment_id: %#v", tool.Name, tool.InputSchema)
+			}
+			output, _ := tool.OutputSchema.(map[string]any)
+			for _, required := range []string{"schema_version", "page_id", "page_version", "page_version_gated", "query", "bounds", "complete", "comments_complete", "threads_complete", "anchors_complete", "count", "root_count", "partial_reasons", "capabilities", "comments", "diagnostics"} {
+				if !schemaRequired(output, required) {
+					t.Errorf("tool %s output must require %s: %#v", tool.Name, required, tool.OutputSchema)
+				}
+			}
+			encoded, marshalErr := json.Marshal(tool.OutputSchema)
+			if marshalErr != nil {
+				t.Fatal(marshalErr)
+			}
+			for _, forbidden := range []string{`"body_storage"`, `"original_selection"`, `"observed_selection"`, `"url"`, `"email"`, `"page_title"`} {
+				if bytes.Contains(encoded, []byte(forbidden)) {
+					t.Errorf("tool %s output schema advertises %s: %s", tool.Name, forbidden, encoded)
+				}
+			}
+			bodyToken := `"body_text"`
+			if tool.Name == "confluence_comment_list" && bytes.Contains(encoded, []byte(bodyToken)) {
+				t.Errorf("tool %s must be body-free: %s", tool.Name, encoded)
+			}
+			if tool.Name == "confluence_comment_thread" && !bytes.Contains(encoded, []byte(bodyToken)) {
+				t.Errorf("tool %s must expose only plain body_text: %s", tool.Name, encoded)
 			}
 		}
 		if tool.Name == "confluence_table_extract" && (!schemaRequired(input, "reference") || !schemaRequired(input, "table")) {
@@ -3377,6 +3416,237 @@ func TestConfluenceTableVersionGateRejectsNegativeBeforeReader(t *testing.T) {
 }
 
 // attachmentInventoryClient wires one recording reader into a live session.
+func commentClient(t *testing.T, reader *recordingConfluenceReader) *mcp.ClientSession {
+	t.Helper()
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Confluence: func() (ConfluenceReader, error) { return reader, nil },
+	}))
+	t.Cleanup(closeSessions)
+	return client
+}
+
+func TestConfluenceCommentToolsForwardClosedBoundsAndProvenance(t *testing.T) {
+	reader := &recordingConfluenceReader{}
+	client := commentClient(t, reader)
+
+	listed := callToolOK(t, client, "confluence_comment_list", map[string]any{
+		"page_id": "42", "location": "inline", "state": "open", "depth": "root",
+		"expected_page_version": 7, "max_items": 17, "max_bytes": 4096,
+	})
+	if reader.commentListPageID != "42" || reader.commentListOpts.Location != "inline" ||
+		reader.commentListOpts.State != "open" || reader.commentListOpts.Depth != "root" ||
+		reader.commentListOpts.ExpectedPageVersion != 7 || reader.commentListOpts.MaxPages != 32 ||
+		reader.commentListOpts.MaxItems != 17 {
+		t.Fatalf("list page=%q opts=%+v", reader.commentListPageID, reader.commentListOpts)
+	}
+	listContent, _ := listed.StructuredContent.(map[string]any)
+	listBounds, _ := listContent["bounds"].(map[string]any)
+	if listContent["page_id"] != "42" || listContent["page_version"] != float64(7) ||
+		listContent["page_version_gated"] != true || listContent["complete"] != true ||
+		listContent["count"] != float64(0) || listBounds["max_comment_pages"] != float64(32) ||
+		listBounds["max_items"] != float64(17) || listBounds["max_bytes"] != float64(4096) {
+		t.Fatalf("list content=%#v", listContent)
+	}
+
+	thread := callToolOK(t, client, "confluence_comment_thread", map[string]any{
+		"page_id": "42", "comment_id": "91", "expected_page_version": 7,
+		"max_items": 11, "max_bytes": 4096,
+	})
+	if reader.commentThreadPageID != "42" || reader.commentThreadID != "91" ||
+		reader.commentThreadOpts.ExpectedPageVersion != 7 || reader.commentThreadOpts.MaxPages != 32 ||
+		reader.commentThreadOpts.MaxItems != 11 {
+		t.Fatalf("thread page=%q comment=%q opts=%+v", reader.commentThreadPageID, reader.commentThreadID, reader.commentThreadOpts)
+	}
+	threadContent, _ := thread.StructuredContent.(map[string]any)
+	rows, _ := threadContent["comments"].([]any)
+	row, _ := rows[0].(map[string]any)
+	threadBounds, _ := threadContent["bounds"].(map[string]any)
+	if row["id"] != "91" || row["body_text"] != "hello" ||
+		threadBounds["max_comment_pages"] != float64(32) || threadBounds["max_items"] != float64(11) ||
+		threadBounds["max_bytes"] != float64(4096) {
+		t.Fatalf("thread content=%#v", threadContent)
+	}
+}
+
+func TestConfluenceCommentToolsRejectNonCanonicalIDsAndOutOfRangeBoundsBeforeRead(t *testing.T) {
+	tests := []struct {
+		name, tool string
+		args       map[string]any
+	}{
+		{name: "zero page", tool: "confluence_comment_list", args: map[string]any{"page_id": "0"}},
+		{name: "leading zero page", tool: "confluence_comment_list", args: map[string]any{"page_id": "042"}},
+		{name: "page URL", tool: "confluence_comment_list", args: map[string]any{"page_id": "/pages/viewpage.action?pageId=42"}},
+		{name: "overflow page", tool: "confluence_comment_list", args: map[string]any{"page_id": "18446744073709551616"}},
+		{name: "negative version", tool: "confluence_comment_list", args: map[string]any{"page_id": "42", "expected_page_version": -1}},
+		{name: "excess items", tool: "confluence_comment_list", args: map[string]any{"page_id": "42", "max_items": 1001}},
+		{name: "small output", tool: "confluence_comment_list", args: map[string]any{"page_id": "42", "max_bytes": 1023}},
+		{name: "leading zero comment", tool: "confluence_comment_thread", args: map[string]any{"page_id": "42", "comment_id": "091"}},
+		{name: "signed comment", tool: "confluence_comment_thread", args: map[string]any{"page_id": "42", "comment_id": "+91"}},
+		{name: "spaced comment", tool: "confluence_comment_thread", args: map[string]any{"page_id": "42", "comment_id": "91 "}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reader := &recordingConfluenceReader{}
+			result, err := commentClient(t, reader).CallTool(context.Background(), &mcp.CallToolParams{
+				Name: test.tool, Arguments: test.args,
+			})
+			if err != nil || result == nil || !result.IsError || result.StructuredContent != nil {
+				t.Fatalf("result=%+v err=%v", result, err)
+			}
+			text, _ := result.Content[0].(*mcp.TextContent)
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil || got.Kind != "usage_error" ||
+				got.Message != "invalid Confluence comment request" {
+				t.Fatalf("error=%+v decode=%v", got, err)
+			}
+			if reader.commentListCalls != 0 || reader.commentThreadCalls != 0 {
+				t.Fatalf("invalid request reached reader: list=%d thread=%d", reader.commentListCalls, reader.commentThreadCalls)
+			}
+		})
+	}
+
+	reader := &recordingConfluenceReader{}
+	result, err := commentClient(t, reader).CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "confluence_comment_list", Arguments: map[string]any{"page_id": "42", "max_comment_pages": 1},
+	})
+	if err != nil || result == nil || !result.IsError || reader.commentListCalls != 0 {
+		t.Fatalf("model-controlled request cap was not refused: result=%+v err=%v calls=%d", result, err, reader.commentListCalls)
+	}
+}
+
+func TestConfluenceCommentProjectionsKeepListBodyFreeAndThreadPlainTextOnly(t *testing.T) {
+	const marker = "SYNTHETIC-COMMENT-PRIVATE-MARKER"
+	listResult := completeMCPCommentResult("list", "42", "", 7)
+	rootID := "91"
+	listResult.Count, listResult.RootCount = 1, 1
+	listResult.Comments = []app.ConfluenceCommentResultRecord{{
+		ID: "91", PageID: "42", RootID: &rootID, Relation: domain.ConfluenceCommentRelationRoot,
+		Location: domain.ConfluenceCommentLocationInline, Resolution: domain.ConfluenceCommentResolutionOpen,
+		Version: 2, Body: marker, BodyStorage: "<p>" + marker + "</p>",
+		Anchor: &app.ConfluenceInlineAnchor{MarkerRef: "marker-1", OriginalSelection: marker, ObservedSelection: marker, Status: domain.ConfluenceAnchorMatched},
+	}}
+	reader := &recordingConfluenceReader{commentListResult: listResult}
+	listed := callToolOK(t, commentClient(t, reader), "confluence_comment_list", map[string]any{
+		"page_id": "42", "expected_page_version": 7,
+	})
+	encoded, err := json.Marshal(listed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{marker, "body_storage", "body_text", "original_selection", "observed_selection"} {
+		if bytes.Contains(encoded, []byte(forbidden)) {
+			t.Fatalf("list projection leaked %q: %s", forbidden, encoded)
+		}
+	}
+
+	threadResult := completeMCPCommentResult("thread", "42", "91", 7)
+	threadResult.Comments[0].Body = marker
+	threadResult.Comments[0].BodyStorage = "<p>Hello <strong>world</strong></p>"
+	reader = &recordingConfluenceReader{commentThreadResult: threadResult}
+	thread := callToolOK(t, commentClient(t, reader), "confluence_comment_thread", map[string]any{
+		"page_id": "42", "comment_id": "91", "expected_page_version": 7,
+	})
+	encoded, err = json.Marshal(thread)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte(marker)) || bytes.Contains(encoded, []byte("body_storage")) ||
+		bytes.Contains(encoded, []byte("<strong>")) || !bytes.Contains(encoded, []byte("Hello world")) {
+		t.Fatalf("thread projection is not exact plain text: %s", encoded)
+	}
+}
+
+func TestConfluenceCommentToolsRejectUnreconciledRequestBindings(t *testing.T) {
+	const marker = "SYNTHETIC-UNRECONCILED-COMMENT-SECRET"
+	tests := []struct {
+		name, tool string
+		args       map[string]any
+		reader     *recordingConfluenceReader
+	}{
+		{
+			name: "wrong page", tool: "confluence_comment_list", args: map[string]any{"page_id": "42"},
+			reader: &recordingConfluenceReader{commentListResult: func() *app.ConfluenceCommentInventoryResult {
+				result := completeMCPCommentResult("list", marker, "", 0)
+				return result
+			}()},
+		},
+		{
+			name: "invented gate", tool: "confluence_comment_list", args: map[string]any{"page_id": "42"},
+			reader: &recordingConfluenceReader{commentListResult: func() *app.ConfluenceCommentInventoryResult {
+				result := completeMCPCommentResult("list", "42", "", 7)
+				return result
+			}()},
+		},
+		{
+			name: "wrong selected query", tool: "confluence_comment_list", args: map[string]any{"page_id": "42", "location": "footer"},
+			reader: &recordingConfluenceReader{commentListResult: completeMCPCommentResult("list", "42", "", 0)},
+		},
+		{
+			name: "thread omits selected id", tool: "confluence_comment_thread", args: map[string]any{"page_id": "42", "comment_id": "91"},
+			reader: &recordingConfluenceReader{commentThreadResult: func() *app.ConfluenceCommentInventoryResult {
+				result := completeMCPCommentResult("thread", "42", "92", 0)
+				result.Query.CommentID = "91"
+				return result
+			}()},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := commentClient(t, test.reader).CallTool(context.Background(), &mcp.CallToolParams{
+				Name: test.tool, Arguments: test.args,
+			})
+			if err != nil || result == nil || !result.IsError || result.StructuredContent != nil {
+				t.Fatalf("result=%+v err=%v", result, err)
+			}
+			encoded, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bytes.Contains(encoded, []byte(marker)) {
+				t.Fatalf("binding failure leaked source identity: %s", encoded)
+			}
+			text, _ := result.Content[0].(*mcp.TextContent)
+			var got toolError
+			if err := json.Unmarshal([]byte(text.Text), &got); err != nil || got.Kind != "check_failed" ||
+				got.Message != "Confluence comment result failed validation" {
+				t.Fatalf("error=%+v decode=%v", got, err)
+			}
+		})
+	}
+}
+
+func TestConfluenceCommentOversizeIsRefusedWithoutLeakingRows(t *testing.T) {
+	const marker = "SYNTHETIC-OVERSIZE-COMMENT-SECRET"
+	result := completeMCPCommentResult("list", "42", "", 0)
+	rootID := "91"
+	result.Count, result.RootCount = 1, 1
+	result.Comments = []app.ConfluenceCommentResultRecord{{
+		ID: "91", PageID: "42", RootID: &rootID, Relation: domain.ConfluenceCommentRelationRoot,
+		Location: domain.ConfluenceCommentLocationFooter, Resolution: domain.ConfluenceCommentResolutionOpen,
+		Version: 1, Author: app.ConfluenceCommentAuthor{ID: "user-1", DisplayName: marker + strings.Repeat("x", 4<<10)},
+	}}
+	reader := &recordingConfluenceReader{commentListResult: result}
+	toolResult, err := commentClient(t, reader).CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "confluence_comment_list", Arguments: map[string]any{"page_id": "42", "max_bytes": 1024},
+	})
+	if err != nil || toolResult == nil || !toolResult.IsError || toolResult.StructuredContent != nil {
+		t.Fatalf("result=%+v err=%v", toolResult, err)
+	}
+	encoded, err := json.Marshal(toolResult)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte(marker)) {
+		t.Fatalf("oversize error leaked a withheld row: %s", encoded)
+	}
+	text, _ := toolResult.Content[0].(*mcp.TextContent)
+	var got toolError
+	if err := json.Unmarshal([]byte(text.Text), &got); err != nil || got.Kind != "output_limit_exceeded" ||
+		got.Remediation != "narrow_selection_or_raise_bound" || got.Message != "Confluence comment result exceeds the selected output bound" {
+		t.Fatalf("error=%+v decode=%v", got, err)
+	}
+}
+
 func attachmentInventoryClient(t *testing.T, reader *recordingConfluenceReader) *mcp.ClientSession {
 	t.Helper()
 	client, closeSessions := connectTestClient(t, New("test", Dependencies{
@@ -5689,6 +5959,13 @@ type recordingConfluenceReader struct {
 	attachmentResult                             *app.ConfluenceAttachmentInventoryResult
 	attachmentErr                                error
 	attachmentCalls                              int
+	commentListPageID, commentThreadPageID       string
+	commentThreadID                              string
+	commentListOpts                              app.ConfluenceCommentInventoryOpts
+	commentThreadOpts                            app.ConfluenceCommentThreadOpts
+	commentListResult, commentThreadResult       *app.ConfluenceCommentInventoryResult
+	commentErr                                   error
+	commentListCalls, commentThreadCalls         int
 }
 
 // partialOriginalBytes reports the configured original byte bound of whichever
@@ -5829,6 +6106,73 @@ func (r *recordingConfluenceReader) AttachmentInventory(_ context.Context, refer
 		SchemaVersion: 1, PageID: "42", PageVersion: opts.ExpectedPageVersion,
 		Complete: true, Attachments: []domain.Attachment{},
 	}, nil
+}
+
+func (r *recordingConfluenceReader) CommentInventory(_ context.Context, pageID string, opts app.ConfluenceCommentInventoryOpts) (*app.ConfluenceCommentInventoryResult, error) {
+	r.commentListPageID, r.commentListOpts = pageID, opts
+	r.commentListCalls++
+	if r.commentErr != nil {
+		return nil, r.commentErr
+	}
+	if r.commentListResult != nil {
+		return r.commentListResult, nil
+	}
+	result := completeMCPCommentResult("list", pageID, "", opts.ExpectedPageVersion)
+	result.Query.Location = defaultString(opts.Location, "all")
+	result.Query.State = defaultString(opts.State, "all")
+	result.Query.Depth = defaultString(opts.Depth, "all")
+	return result, nil
+}
+
+func (r *recordingConfluenceReader) CommentThreadWithOptions(_ context.Context, pageID, commentID string, opts app.ConfluenceCommentThreadOpts) (*app.ConfluenceCommentInventoryResult, error) {
+	r.commentThreadPageID, r.commentThreadID, r.commentThreadOpts = pageID, commentID, opts
+	r.commentThreadCalls++
+	if r.commentErr != nil {
+		return nil, r.commentErr
+	}
+	if r.commentThreadResult != nil {
+		return r.commentThreadResult, nil
+	}
+	return completeMCPCommentResult("thread", pageID, commentID, opts.ExpectedPageVersion), nil
+}
+
+func completeMCPCommentResult(mode, pageID, commentID string, expectedPageVersion int) *app.ConfluenceCommentInventoryResult {
+	pageVersion := expectedPageVersion
+	if pageVersion == 0 {
+		pageVersion = 3
+	}
+	documented := domain.ConfluenceCapabilityDocumented
+	result := &app.ConfluenceCommentInventoryResult{
+		SchemaVersion: 2, PageID: pageID, PageVersion: pageVersion,
+		PageVersionGated: expectedPageVersion > 0,
+		Query:            app.ConfluenceCommentQuery{Mode: mode, Location: "all", State: "all", Depth: "all", CommentID: commentID},
+		Complete:         true, CommentsComplete: true, ThreadsComplete: true, AnchorsComplete: true,
+		PartialReasons: []string{}, Comments: []app.ConfluenceCommentResultRecord{},
+		Diagnostics: []app.ConfluenceCommentResultDiagnostic{},
+		Capabilities: domain.ConfluenceCommentCapabilities{
+			Footer: documented, Inline: documented, Resolved: documented, DepthAll: documented,
+			ThreadAncestry: documented, InlineProperties: documented, Resolution: documented,
+		},
+	}
+	if mode == "thread" {
+		rootID := commentID
+		result.Comments = []app.ConfluenceCommentResultRecord{{
+			ID: commentID, PageID: pageID, RootID: &rootID,
+			Relation: domain.ConfluenceCommentRelationRoot, Location: domain.ConfluenceCommentLocationFooter,
+			Resolution: domain.ConfluenceCommentResolutionOpen, Version: 1,
+			Author: app.ConfluenceCommentAuthor{ID: "user-1", DisplayName: "Synthetic User"},
+			Body:   "hello", BodyStorage: "<p>hello</p>",
+		}}
+		result.Count, result.RootCount = 1, 1
+	}
+	return result
+}
+
+func defaultString(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func (r *recordingConfluenceReader) SummarizeTablesWithOptions(_ context.Context, reference string, table int, opts app.ConfluenceTableReadOpts) (*app.ConfluenceTableSummary, error) {
@@ -6016,6 +6360,14 @@ func (*cancellingConfluenceReader) ExtractTablesWithOptions(context.Context, str
 }
 
 func (*cancellingConfluenceReader) AttachmentInventory(context.Context, string, app.ConfluenceAttachmentInventoryOpts) (*app.ConfluenceAttachmentInventoryResult, error) {
+	panic("unexpected call")
+}
+
+func (*cancellingConfluenceReader) CommentInventory(context.Context, string, app.ConfluenceCommentInventoryOpts) (*app.ConfluenceCommentInventoryResult, error) {
+	panic("unexpected call")
+}
+
+func (*cancellingConfluenceReader) CommentThreadWithOptions(context.Context, string, string, app.ConfluenceCommentThreadOpts) (*app.ConfluenceCommentInventoryResult, error) {
 	panic("unexpected call")
 }
 
@@ -6564,6 +6916,23 @@ func TestToolErrorClassifierMatrixIsExact(t *testing.T) {
 			},
 		},
 		{
+			name: "confluence_comments", classify: classifiedConfluenceCommentRead,
+			want: []classifierExpectation{
+				{message: "invalid Confluence comment request"},
+				{message: "Confluence comment service is not configured"},
+				{message: "Confluence comment authentication failed"},
+				{message: "Confluence comment access is forbidden"},
+				{message: "Confluence page or comment was not found"},
+				{message: "Confluence page version changed", remediation: "reread_page_then_retry_expected_version"},
+				{message: "Confluence comment result failed validation"},
+				{message: "Confluence comment result exceeds the selected output bound", remediation: "narrow_selection_or_raise_bound"},
+				{message: "Confluence comment rate limit was exhausted"},
+				{message: "Confluence comment API request failed"},
+				{message: "Confluence comment transport failed"},
+				{message: "Confluence comment read failed"},
+			},
+		},
+		{
 			name: "structure", classify: classifiedStructureRead,
 			want: []classifierExpectation{
 				{message: "invalid Jira Structure request"},
@@ -6598,8 +6967,8 @@ func TestToolErrorClassifierMatrixIsExact(t *testing.T) {
 			},
 		},
 	}
-	if len(matrix) != 10 {
-		t.Fatalf("classifier matrix has %d rows, want 10 current families", len(matrix))
+	if len(matrix) != 11 {
+		t.Fatalf("classifier matrix has %d rows, want 11 current families", len(matrix))
 	}
 
 	for _, entry := range matrix {
@@ -6652,6 +7021,7 @@ func TestToolErrorPoliciesAlwaysHaveClientMessages(t *testing.T) {
 		{name: "table", policy: confluenceTableReadPolicy},
 		{name: "section", policy: confluenceSectionReadPolicy},
 		{name: "attachment_inventory", policy: confluenceAttachmentInventoryReadPolicy},
+		{name: "confluence_comments", policy: confluenceCommentReadPolicy},
 		{name: "structure", policy: jiraStructureReadPolicy},
 		{name: "mirror", policy: mirrorReadPolicy},
 	}

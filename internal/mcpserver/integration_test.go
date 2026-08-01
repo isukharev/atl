@@ -24,6 +24,7 @@ func TestIntegrationProductionReadOnlyFixtures(t *testing.T) {
 	t.Run("jira issue references", testIntegrationMCPJiraIssueRefs)
 	t.Run("jira structure", testIntegrationMCPJiraStructure)
 	t.Run("confluence page metadata", testIntegrationMCPConfluencePageMetadata)
+	t.Run("confluence comments", testIntegrationMCPConfluenceComments)
 	t.Run("confluence tables", testIntegrationMCPConfluenceTables)
 }
 
@@ -169,6 +170,52 @@ func testIntegrationMCPConfluencePageMetadata(t *testing.T) {
 	case app.ConfluenceRestrictionUnknown, app.ConfluenceRestrictionRestricted, app.ConfluenceRestrictionUnrestricted:
 	default:
 		t.Fatal("live Confluence restriction state did not reconcile")
+	}
+}
+
+func testIntegrationMCPConfluenceComments(t *testing.T) {
+	pageID := strings.TrimSpace(os.Getenv("ATL_TEST_PAGE_ID"))
+	if pageID == "" {
+		pageID = strings.TrimSpace(os.Getenv("ATL_TEST_CONFLUENCE_TABLE_PAGE_ID"))
+	}
+	if pageID == "" {
+		t.Skip("set ATL_TEST_PAGE_ID or ATL_TEST_CONFLUENCE_TABLE_PAGE_ID to run the live comment MCP test")
+	}
+	client, closeSessions := connectIntegrationMCPClient(t)
+	defer closeSessions()
+
+	metadata := callIntegrationMCPTool[app.ConfluencePageMetadataResult](
+		t, client, "confluence_page_meta", map[string]any{"reference": pageID},
+	)
+	list := callIntegrationMCPTool[app.ConfluenceCommentListView](
+		t, client, "confluence_comment_list", map[string]any{
+			"page_id": pageID, "expected_page_version": metadata.Version,
+			"max_items": 1000, "max_bytes": 1 << 20,
+		},
+	)
+	if err := app.ValidateConfluenceCommentListView(&list); err != nil ||
+		list.PageID != pageID || list.PageVersion != metadata.Version || !list.PageVersionGated ||
+		list.Bounds.MaxCommentPages != 32 || list.Bounds.MaxItems != 1000 || list.Bounds.MaxBytes != 1<<20 {
+		t.Fatal("live Confluence comment list did not reconcile")
+	}
+	if len(list.Comments) == 0 {
+		if !list.Complete {
+			t.Fatal("live empty Confluence comment list was not complete")
+		}
+		return
+	}
+
+	thread := callIntegrationMCPTool[app.ConfluenceCommentThreadView](
+		t, client, "confluence_comment_thread", map[string]any{
+			"page_id": pageID, "comment_id": list.Comments[0].ID,
+			"expected_page_version": list.PageVersion,
+			"max_items":             1000, "max_bytes": 1 << 20,
+		},
+	)
+	if err := app.ValidateConfluenceCommentThreadView(&thread); err != nil ||
+		thread.PageID != pageID || thread.PageVersion != list.PageVersion || !thread.PageVersionGated ||
+		thread.Query.CommentID != list.Comments[0].ID || len(thread.Comments) == 0 {
+		t.Fatal("live Confluence comment thread did not reconcile")
 	}
 }
 

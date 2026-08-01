@@ -73,6 +73,11 @@ location/state, полнотой, безопасно квалифицирова�
 записями. Schema-v2 `.comments.json` остаётся исходным evidence, включая
 закрытые diagnostics, а `.comments.md` — плоским compatibility view; старые
 плоские sidecar читаются, и comments не влияют на drift страницы.
+Offline capability route `confluence/comments` разделяет list, точный thread,
+preview и add. MCP предоставляет только первые два как ограниченные read-only
+tools: body-free `confluence_comment_list` для discovery и
+`confluence_comment_thread` для одного точного plain-text expansion. Partial
+результат не доказывает отсутствие, а preview/add остаются guarded CLI-only.
 
 ## Установка
 

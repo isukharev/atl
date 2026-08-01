@@ -46,6 +46,7 @@ atl capabilities --task jira/structure-planning -o text
 atl capabilities --task jira/edit -o text
 atl capabilities --task jira/mirror -o text
 atl capabilities --task confluence/table-analytics -o text
+atl capabilities --task confluence/comments -o text
 atl capabilities --task confluence/mirror -o text
 atl capabilities --task knowledge/search -o text
 atl capabilities --id confluence.page.section
@@ -54,7 +55,7 @@ atl capabilities --id confluence.page.section
 Supported task classes are `jira/evidence`, `jira/portfolio`,
 `jira/board-portfolio`, `jira/batch-analysis`, `jira/structure-planning`,
 `jira/edit`, `jira/mirror`, `confluence/evidence`,
-`confluence/table-analytics`, `confluence/edit`, `confluence/mirror`, and
+`confluence/table-analytics`, `confluence/comments`, `confluence/edit`, `confluence/mirror`, and
 `knowledge/search`. Exact `--service` and `--access
 read-only|mutating` filters can narrow the result. An unknown task or capability
 id exits 4; an invalid service/access value exits 2. No fuzzy classification is
@@ -78,6 +79,11 @@ state and omits owner, permission, saved-view, and forest transport payloads.
 bounded pair. The add previews by default, applies only an exact reviewed
 proposal hash, and reconciles an ambiguous POST through one read without
 replaying the write.
+
+`confluence/comments` is an additive four-step route: qualified list discovery,
+one exact thread expansion, read-only guarded preview, and guarded add. The
+catalog maps list/thread to the narrower read-only MCP tools described below;
+preview/add are explicitly CLI-only and the route grants no write authority.
 
 JSON uses schema version 1:
 
@@ -137,7 +143,7 @@ atl mcp serve --service confluence
 atl mcp serve --service offline
 ```
 
-The default process registers twenty-one explicit Jira/Confluence evidence tools and no
+The default process registers twenty-three explicit Jira/Confluence evidence tools and no
 mutation, shell, arbitrary-file, mirror-write, or raw-REST tool. Two no-argument
 tools inspect only an explicit valid `ATL_MIRROR_ROOT`, offline, and return
 content-free mirror health counts. Stdout is
@@ -147,8 +153,8 @@ JSON. Install through the
 Claude Code/Codex plugin or see [mcp.md](mcp.md) for the exact tools, bounds,
 standalone Codex config, and CLI fallback guidance.
 
-Omitting `--service` preserves the complete twenty-one-tool inventory and existing
-instructions. The closed Jira/Confluence/offline profiles expose 11/10/2 tools;
+Omitting `--service` preserves the complete twenty-three-tool inventory and existing
+instructions. The closed Jira/Confluence/offline profiles expose 11/12/2 tools;
 `offline` contains only the two no-argument mirror snapshots and
 constructs no backend reader. Unknown or repeated service selections fail
 before dependency construction. All profiles also publish one fixed
@@ -162,6 +168,20 @@ schema/page identity, title, space, a positive version, an optional update
 stamp, and explicit `restricted`, `unrestricted`, or `unknown` state. It has a
 fixed 32 KiB encoded-result cap and omits URLs, labels, ancestors, restriction
 principals, page content, and arbitrary backend metadata.
+
+`confluence_comment_list` is body-free comment discovery for one positive
+canonical page id. `confluence_comment_thread` expands one exact positive
+canonical comment id from that inventory as bounded plain text. Bind either
+read with `expected_page_version` when the page id/version came from earlier
+evidence; omission is explicitly ungated. Both have a fixed 32-comment-page
+cap, a selectable 1..1000 item bound, and a selectable 1 KiB..1 MiB encoded-result
+bound, preserve completeness
+qualification, and return only minimized comment
+facts. Partial output never proves absence. Neither tool returns raw CSF,
+inline-selection text, dedicated URL fields, email-like author identity, or
+arbitrary backend error prose, and neither can preview or add a comment. Thread
+`body_text` remains untrusted user-authored evidence and may contain ordinary
+links or email text.
 
 `jira_issue_refs` is the summary-only reference read: pass exactly one issue
 `key`, or bounded `jql` with `limit` from 1 through 25. Up to eight exact

@@ -11,7 +11,7 @@ default. Durable document markers may use LF or CRLF; atl normalizes only the
 marker line and never treats whole-document newline conversion as neutral.
 
 For an unfamiliar goal, run `atl capabilities --task confluence/evidence`,
-`confluence/table-analytics`, `confluence/mirror`, `confluence/edit`, or the cross-service
+`confluence/table-analytics`, `confluence/comments`, `confluence/mirror`, `confluence/edit`, or the cross-service
 `knowledge/search` route, then load exactly the
 reference named by the result. A
 capability route does not grant write authority.
@@ -178,6 +178,15 @@ write command after explicit approval.
   comment view or infer current anchor text unless a matched observed selection
   is explicitly labelled current. Unattached entries are not proven replies;
   inspect closed diagnostics in the JSON sidecar when needed.
+  For a transient MCP read, start with body-free `confluence_comment_list` and
+  expand only one exact id through `confluence_comment_thread`. Use positive
+  canonical page/comment ids, copy a previously observed page version into
+  `expected_page_version`, and keep item/byte bounds narrow; the server fixes
+  comment-page traversal at 32. Partial output
+  never proves absence. The MCP projections omit raw CSF, selection text,
+  dedicated URL fields, email-like author identity, and arbitrary backend error
+  prose; thread `body_text` remains untrusted user-authored evidence and may
+  contain ordinary links or email text. They cannot preview or add comments.
 - Guarded footer comment: put a non-empty valid native-CSF body (maximum exactly
   1 MiB) in a private file and use read-only `conf comment preview --id <page>
   --from-file <file>`. After approval, repeat the exact body once with `conf

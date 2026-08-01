@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "jira_context": "/jira",
+  "confluence_context": "/wiki",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/wiki/rest/api/content/9101",
+      "query_equals": {"expand": "body.storage,version,space,ancestors,metadata.labels"},
+      "responses": [
+        {"status": 200, "body": {"id": "9101", "type": "page", "title": "Synthetic review notes", "space": {"key": "DEMO"}, "version": {"number": 7}, "body": {"storage": {"representation": "storage", "value": "<p>Synthetic page.</p>"}}}},
+        {"status": 200, "body": {"id": "9101", "type": "page", "title": "Synthetic review notes", "space": {"key": "DEMO"}, "version": {"number": 7}, "body": {"storage": {"representation": "storage", "value": "<p>Synthetic page.</p>"}}}}
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/wiki/rest/api/content/9101/child/comment",
+      "query_equals": {"expand": "body.storage,history,version,ancestors,extensions.inlineProperties,extensions.resolution", "limit": "100", "location": "footer", "start": "0"},
+      "responses": [
+        {"status": 200, "body": {"results": [{"id": "5101", "type": "comment", "status": "current", "history": {"createdDate": "2026-06-01T10:00:00Z", "createdBy": {"userKey": "synthetic-user", "displayName": "Synthetic Reviewer"}}, "version": {"number": 1, "when": "2026-06-01T10:01:00Z"}, "ancestors": [{"id": "9101", "type": "page"}], "body": {"storage": {"value": "<p>Synthetic approval remains pending.</p>", "representation": "storage"}}, "extensions": {"location": "footer", "resolution": {"status": "open"}}}], "start": 0, "limit": 100, "size": 1, "_links": {}}},
+        {"status": 200, "body": {"results": [{"id": "5101", "type": "comment", "status": "current", "history": {"createdDate": "2026-06-01T10:00:00Z", "createdBy": {"userKey": "synthetic-user", "displayName": "Synthetic Reviewer"}}, "version": {"number": 1, "when": "2026-06-01T10:01:00Z"}, "ancestors": [{"id": "9101", "type": "page"}], "body": {"storage": {"value": "<p>Synthetic approval remains pending.</p>", "representation": "storage"}}, "extensions": {"location": "footer", "resolution": {"status": "open"}}}], "start": 0, "limit": 100, "size": 1, "_links": {}}}
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/wiki/rest/api/content/9101/child/comment",
+      "query_equals": {"depth": "all", "expand": "body.storage,history,version,ancestors,extensions.inlineProperties,extensions.resolution", "limit": "100", "location": "inline", "start": "0"},
+      "status": 200,
+      "body": {"results": [], "start": 0, "limit": 100, "size": 0, "_links": {}}
+    },
+    {
+      "method": "GET",
+      "path": "/wiki/rest/api/content/9101/child/comment",
+      "query_equals": {"depth": "all", "expand": "body.storage,history,version,ancestors,extensions.inlineProperties,extensions.resolution", "limit": "100", "location": "resolved", "start": "0"},
+      "status": 200,
+      "body": {"results": [], "start": 0, "limit": 100, "size": 0, "_links": {}}
+    }
+  ]
+}

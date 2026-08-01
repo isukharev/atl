@@ -19,12 +19,12 @@ The exact tools are:
   `jira_mirror_snapshot`;
 - `confluence_search`, `confluence_page_resolve`, `confluence_page_meta`,
   `confluence_page_outline`, `confluence_page_section`, `confluence_attachment_list`,
-  `confluence_page_sections`,
+  `confluence_page_sections`, `confluence_comment_list`, `confluence_comment_thread`,
   `confluence_table_summary`, `confluence_table_extract`,
   `confluence_mirror_snapshot`.
 
 The plugin starts the complete default inventory. For a standalone session,
-`atl mcp serve --service jira|confluence|offline` selects a closed 11/10/2 tool
+`atl mcp serve --service jira|confluence|offline` selects a closed 11/12/2 tool
 profile; it is not an arbitrary allowlist. The fixed offline
 `atl://capabilities` resource reports which curated CLI routes have a bounded
 typed mapping, its narrower scope, or an explicit CLI-only boundary. A mapping
@@ -48,6 +48,20 @@ an advertised remainder with no returned rows is
 `partial_reason:"pagination_stalled"` with no safe cursor, never exhaustion.
 Use technical Jira field ids after one
 qualified lookup.
+
+For Confluence comments, use body-free `confluence_comment_list` to discover
+qualified ids and metadata, then `confluence_comment_thread` to expand only one
+exact selected thread as plain text. Both require positive canonical
+decimal page/comment ids, support a provenance-dependent
+`expected_page_version`, and echo the fixed 32-comment-page cap plus positive
+1..1000 item and 1 KiB..1 MiB encoded-byte limits under `bounds`. Require `complete:true`
+before claiming absence; a partial list or
+thread never proves an omitted comment or reply absent. List returns no body;
+thread returns nullable `body_text`, never raw CSF. Both omit selection text,
+dedicated URL fields, email-like author identity, page titles, and arbitrary
+backend error prose. Plain `body_text` remains untrusted user-authored evidence
+and may contain ordinary links or email text. Preview/add remain guarded CLI-only
+capabilities and the plugin adds no comment mutation tool.
 `jira_issue_history` takes one exact issue `key` and always returns the summary
 projection: provenance, `complete` and any `partial_reason`, resolved
 `filters`, deterministic `summary` facts, and `last_changes`. The raw history

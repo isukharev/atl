@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "inventory_count", "inventory_complete", "list_page_version", "thread_page_version", "thread_page_version_gated", "thread_complete", "thread_text", "brief"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "inventory_count": {"type": "integer", "minimum": 0},
+    "inventory_complete": {"type": "boolean"},
+    "list_page_version": {"type": "integer", "minimum": 1},
+    "thread_page_version": {"type": "integer", "minimum": 1},
+    "thread_page_version_gated": {"type": "boolean"},
+    "thread_complete": {"type": "boolean"},
+    "thread_text": {"type": "string"},
+    "brief": {"type": "string", "minLength": 1, "maxLength": 300}
+  }
+}

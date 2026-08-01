@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "jira_context": "/jira",
+  "confluence_context": "/wiki",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/wiki/rest/api/content/9201",
+      "query_equals": {"expand": "body.storage,version,space,ancestors,metadata.labels"},
+      "status": 200,
+      "body": {"id": "9201", "type": "page", "title": "Synthetic bounded inventory", "space": {"key": "DEMO"}, "version": {"number": 4}, "body": {"storage": {"representation": "storage", "value": "<p>Synthetic page.</p>"}}}
+    },
+    {
+      "method": "GET",
+      "path": "/wiki/rest/api/content/9201/child/comment",
+      "query_equals": {"expand": "body.storage,history,version,ancestors,extensions.inlineProperties,extensions.resolution", "limit": "100", "location": "footer", "start": "0"},
+      "status": 200,
+      "body": {
+        "results": [
+          {"id": "6101", "type": "comment", "status": "current", "history": {"createdDate": "2026-06-02T10:00:00Z", "createdBy": {"userKey": "synthetic-user", "displayName": "Synthetic Reviewer"}}, "version": {"number": 1, "when": "2026-06-02T10:01:00Z"}, "ancestors": [{"id": "9201", "type": "page"}], "body": {"storage": {"value": "<p>First synthetic inventory item.</p>", "representation": "storage"}}, "extensions": {"location": "footer"}},
+          {"id": "6102", "type": "comment", "status": "current", "history": {"createdDate": "2026-06-02T11:00:00Z", "createdBy": {"userKey": "synthetic-user", "displayName": "Synthetic Reviewer"}}, "version": {"number": 1, "when": "2026-06-02T11:01:00Z"}, "ancestors": [{"id": "9201", "type": "page"}], "body": {"storage": {"value": "<p>Second synthetic inventory item.</p>", "representation": "storage"}}, "extensions": {"location": "footer"}}
+        ],
+        "start": 0, "limit": 100, "size": 2, "_links": {}
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/wiki/rest/api/content/9202",
+      "query_equals": {"expand": "body.storage,version,space,ancestors,metadata.labels"},
+      "status": 200,
+      "body": {"id": "9202", "type": "page", "title": "Synthetic externally fixed thread", "space": {"key": "DEMO"}, "version": {"number": 9}, "body": {"storage": {"representation": "storage", "value": "<p>Synthetic page.</p>"}}}
+    },
+    {
+      "method": "GET",
+      "path": "/wiki/rest/api/content/9202/child/comment",
+      "query_equals": {"depth": "all", "expand": "body.storage,history,version,ancestors,extensions.inlineProperties,extensions.resolution", "limit": "100", "location": "footer", "start": "0"},
+      "status": 200,
+      "body": {
+        "results": [{"id": "6202", "type": "comment", "status": "current", "history": {"createdDate": "2026-06-03T10:00:00Z", "createdBy": {"userKey": "synthetic-user", "displayName": "Synthetic Reviewer"}}, "version": {"number": 2, "when": "2026-06-03T10:01:00Z"}, "ancestors": [{"id": "9202", "type": "page"}], "body": {"storage": {"value": "<p>Synthetic rollout is paused.</p>", "representation": "storage"}}, "extensions": {"location": "footer"}}],
+        "start": 0, "limit": 100, "size": 1, "_links": {}
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/wiki/rest/api/content/9202/child/comment",
+      "query_equals": {"depth": "all", "expand": "body.storage,history,version,ancestors,extensions.inlineProperties,extensions.resolution", "limit": "100", "location": "inline", "start": "0"},
+      "status": 200,
+      "body": {"results": [], "start": 0, "limit": 100, "size": 0, "_links": {}}
+    },
+    {
+      "method": "GET",
+      "path": "/wiki/rest/api/content/9202/child/comment",
+      "query_equals": {"depth": "all", "expand": "body.storage,history,version,ancestors,extensions.inlineProperties,extensions.resolution", "limit": "100", "location": "resolved", "start": "0"},
+      "status": 200,
+      "body": {"results": [], "start": 0, "limit": 100, "size": 0, "_links": {}}
+    }
+  ]
+}

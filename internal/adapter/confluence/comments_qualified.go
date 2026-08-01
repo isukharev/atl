@@ -184,9 +184,19 @@ func (cf *Confluence) ListConfluenceComments(ctx context.Context, id string, opt
 	if strings.TrimSpace(id) == "" {
 		return domain.ConfluenceCommentInventory{}, fmt.Errorf("%w: Confluence page id is required", domain.ErrUsage)
 	}
+	if err := domain.ValidateConfluenceCommentReadOptions(options); err != nil {
+		return domain.ConfluenceCommentInventory{}, err
+	}
 	selectors, err := selectedCommentSelectors(options.Locations)
 	if err != nil {
 		return domain.ConfluenceCommentInventory{}, err
+	}
+	pageLimit, itemLimit := maxPages, maxItems
+	if options.MaxPages > 0 {
+		pageLimit = options.MaxPages
+	}
+	if options.MaxItems > 0 {
+		itemLimit = options.MaxItems
 	}
 	builder := newCommentInventoryBuilder(options.DepthAll)
 	stop := false
@@ -198,12 +208,12 @@ func (cf *Confluence) ListConfluenceComments(ctx context.Context, id string, opt
 		locationRows := 0
 		locationObserved := false
 		for {
-			if builder.pages >= maxPages {
+			if builder.pages >= pageLimit {
 				builder.partial(domain.ConfluenceCommentPartialPageLimit, "", selector, true, true)
 				stop = true
 				break
 			}
-			if builder.items >= maxItems {
+			if builder.items >= itemLimit {
 				builder.partial(domain.ConfluenceCommentPartialItemLimit, "", selector, true, true)
 				stop = true
 				break
@@ -235,7 +245,7 @@ func (cf *Confluence) ListConfluenceComments(ctx context.Context, id string, opt
 				response.Size != nil && *response.Size == len(rows) &&
 				response.Limit != nil && *response.Limit > 0 && response.Links != nil
 			for _, raw := range rows {
-				if builder.items >= maxItems {
+				if builder.items >= itemLimit {
 					builder.partial(domain.ConfluenceCommentPartialItemLimit, "", selector, true, true)
 					stop = true
 					break

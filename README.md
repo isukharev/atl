@@ -69,6 +69,11 @@ location/state, completeness, safely qualified anchors, and unattached records.
 The schema-v2 `.comments.json` remains the source evidence (including closed
 diagnostics), while `.comments.md` remains a flat compatibility view;
 historical flat sidecars stay readable and comments never affect page drift.
+The offline `confluence/comments` capability route separates list, exact-thread,
+preview, and add. MCP exposes only the first two as bounded read-only tools:
+body-free `confluence_comment_list` for discovery and
+`confluence_comment_thread` for one exact plain-text expansion. Partial results
+never prove absence, and preview/add remain guarded CLI-only operations.
 
 ## Install
 
