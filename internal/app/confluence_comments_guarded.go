@@ -304,7 +304,7 @@ func (s *ConfluenceService) confluenceFooterCommentInventorySnapshot(ctx context
 		return confluenceFooterCommentSnapshot{}, fmt.Errorf("%w: Confluence backend does not expose qualified footer comments", domain.ErrCheckFailed)
 	}
 	inventory, err := reader.ListConfluenceComments(ctx, resolved.ID, domain.ConfluenceCommentReadOptions{
-		DepthAll: false, Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter},
+		ParentVersion: meta.Version, DepthAll: false, Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter},
 	})
 	if err != nil {
 		return confluenceFooterCommentSnapshot{}, err

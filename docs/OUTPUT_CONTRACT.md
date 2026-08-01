@@ -210,7 +210,10 @@ Both tools require positive canonical decimal page ids, and thread also
 requires a positive canonical decimal comment id. Optional
 `expected_page_version` is a positive conditional provenance gate; supplying
 it makes `page_version_gated:true`, while omission is an explicitly ungated
-read. `max_comment_pages` is fixed at 32; `max_items` accepts 1..1000 and
+caller read. Independently, the qualified backend inventory is always bound to
+the reconciled `page_version` for every selector and pagination request, so the
+page body and comment evidence cannot silently come from different revisions.
+`max_comment_pages` is fixed at 32; `max_items` accepts 1..1000 and
 defaults to 100; `max_bytes` accepts 1 KiB..1 MiB and defaults to
 128 KiB for list or 256 KiB for thread. These resolved positive limits are
 echoed in `bounds`.
@@ -1190,7 +1193,10 @@ duplicate/ancestry/metadata gaps, unavailable page/comment bodies and inline
 expansions, and missing or ambiguous anchors. A successful partial result stays
 on stdout. `comment thread` uses the same envelope with `query.mode:"thread"`
 and exact `comment_id`; proven absence is exit 4, while unprovable absence is
-exit 8. Explicit `--legacy-flat` retains the prior list shape temporarily and
+exit 8. Its diagnostics, partial reasons, and completeness are scoped to the
+selected root subtree: global enumeration/transport qualification remains,
+but unrelated comment ids and orphan page markers are excluded. Explicit
+`--legacy-flat` retains the prior list shape temporarily and
 cannot be combined with schema-v2 filters or a page-version gate.
 
 `atl conf comment preview` is the read-only proposal surface. `atl conf comment

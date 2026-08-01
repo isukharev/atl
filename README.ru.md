@@ -65,8 +65,10 @@ workflow читать их целиком не нужно.
 возвращает квалифицированный schema-v2 inventory footer-, inline- и resolved-
 комментариев с доказанными связями треда, независимыми измерениями полноты и
 точным сопоставлением anchors с native CSF. `conf comment thread` выбирает один
-точный корневой тред; недостающие ancestry или markers остаются явным partial
-evidence.
+точный корневой тред и ограничивает diagnostics/completeness этим тредом;
+недостающие ancestry или markers остаются явным partial evidence. Каждый
+qualified backend read, включая pagination, внутренне привязан к согласованной
+ревизии страницы.
 `conf pull --comments` сохраняет эту квалификацию в versioned sidecar зеркала;
 основной `.md` страницы показывает детерминированное read-only дерево с явными
 location/state, полнотой, безопасно квалифицированными anchors и непривязанными

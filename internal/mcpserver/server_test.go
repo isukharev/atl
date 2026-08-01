@@ -3589,6 +3589,29 @@ func TestConfluenceCommentToolsRejectUnreconciledRequestBindings(t *testing.T) {
 				return result
 			}()},
 		},
+		{
+			name: "thread contains unrelated diagnostic", tool: "confluence_comment_thread", args: map[string]any{"page_id": "42", "comment_id": "91"},
+			reader: &recordingConfluenceReader{commentThreadResult: func() *app.ConfluenceCommentInventoryResult {
+				result := completeMCPCommentResult("thread", "42", "91", 0)
+				result.Complete = false
+				result.ThreadsComplete = false
+				result.PartialReasons = []string{domain.ConfluenceCommentPartialBackendOmittedChildren}
+				result.Diagnostics = []app.ConfluenceCommentResultDiagnostic{{
+					Code: domain.ConfluenceCommentPartialBackendOmittedChildren, CommentID: "92",
+				}}
+				return result
+			}()},
+		},
+		{
+			name: "thread contains orphan marker", tool: "confluence_comment_thread", args: map[string]any{"page_id": "42", "comment_id": "91"},
+			reader: &recordingConfluenceReader{commentThreadResult: func() *app.ConfluenceCommentInventoryResult {
+				result := completeMCPCommentResult("thread", "42", "91", 0)
+				result.Diagnostics = []app.ConfluenceCommentResultDiagnostic{{
+					Code: domain.ConfluenceCommentDiagnosticOrphanMarker, MarkerRef: "unrelated-marker",
+				}}
+				return result
+			}()},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -222,6 +222,7 @@ func (cf *Confluence) ListConfluenceComments(ctx context.Context, id string, opt
 			q.Set("expand", confluenceCommentExpand)
 			q.Set("limit", "100")
 			q.Set("location", string(selector))
+			q.Set("parentVersion", strconv.Itoa(options.ParentVersion))
 			q.Set("start", strconv.Itoa(start))
 			if options.DepthAll {
 				q.Set("depth", "all")

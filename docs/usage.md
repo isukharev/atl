@@ -2543,7 +2543,9 @@ atl conf comment list --id 12345678 --expected-version 7
 `--location` is `all|footer|inline|resolved`, `--state` is
 `all|open|resolved|unknown`, and `--depth` is `root|all`. A positive
 `--expected-version` refuses before comment reads when the page revision has
-changed. Inspect `comments_complete`, `threads_complete`, `anchors_complete`,
+changed. Regardless of that optional caller gate, every qualified selector and
+pagination request is internally bound to the reconciled `page_version`.
+Inspect `comments_complete`, `threads_complete`, `anchors_complete`,
 `partial_reasons`, and per-comment `relation`, `location`, `resolution`, and
 `anchor.status`. An empty list proves absence only when `complete:true`.
 
@@ -2566,6 +2568,10 @@ If a complete inventory proves the id absent, the command exits 4. If the
 inventory is partial and cannot prove absence, it exits 8 instead. A selected
 comment whose root is unavailable is returned alone with
 `threads_complete:false`; the relationship is not guessed.
+Thread diagnostics, partial reasons, and completeness are projected again for
+the selected root subtree. Global enumeration/transport failures remain, while
+diagnostics and orphan markers proven to belong elsewhere on the page are
+excluded.
 
 To persist comments alongside the mirrored page instead of printing them, use
 `conf pull --comments`. The schema-v2 `.comments.json` is the source evidence,

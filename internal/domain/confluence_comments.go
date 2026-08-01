@@ -185,6 +185,10 @@ func ValidConfluenceCommentDiagnosticCode(code string) bool {
 // ConfluenceCommentReadOptions selects the fixed documented location queries.
 // An empty Locations slice means all three locations in canonical order.
 type ConfluenceCommentReadOptions struct {
+	// ParentVersion binds every selector and pagination request to the exact
+	// reconciled parent content revision. Qualified reads fail closed when it is
+	// absent rather than silently reading the backend's current revision.
+	ParentVersion int
 	// Locations contains REST selectors, not emitted semantic locations. The
 	// historical field name is retained to keep call sites concise.
 	Locations []ConfluenceCommentSelector
@@ -201,6 +205,9 @@ type ConfluenceCommentReadOptions struct {
 // to the transport that grants the read; the domain only distinguishes the
 // legacy zero default from a positive explicit limit.
 func ValidateConfluenceCommentReadOptions(options ConfluenceCommentReadOptions) error {
+	if options.ParentVersion <= 0 {
+		return fmt.Errorf("%w: Confluence comment parent version must be positive", ErrUsage)
+	}
 	if options.MaxPages < 0 || options.MaxItems < 0 {
 		return fmt.Errorf("%w: Confluence comment page and item bounds must be zero or positive", ErrUsage)
 	}

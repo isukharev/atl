@@ -168,8 +168,11 @@ write command after explicit approval.
   schema-v2 footer/inline/resolved inventory and inspect all three completeness
   dimensions before treating absence or a relationship as proven. Narrow with
   `--location`, `--state`, or `--depth`; bind a prior page revision with
-  `--expected-version`. Use `conf comment thread --comment-id <id>` for one
-  exact proven subtree. Missing ancestry or marker evidence stays partial;
+  `--expected-version`. Qualified backend reads are also internally bound to
+  the reconciled page revision across selectors and pagination. Use `conf
+  comment thread --comment-id <id>` for one exact proven subtree. Its
+  qualification is subtree-scoped; unrelated diagnostics and orphan markers
+  are excluded. Missing ancestry or marker evidence stays partial;
   never infer it from response order or prose. `--legacy-flat` is temporary
   compatibility only, not a route for new automation.
   With `conf pull --comments`, treat `.comments.json` as schema-v2 source
