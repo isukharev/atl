@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -46,7 +47,7 @@ func TestListConfluenceCommentsMapsExactShapesAndResolvedSemantics(t *testing.T)
 		}
 	}))
 	defer srv.Close()
-	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{DepthAll: true})
+	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{ParentVersion: 1, DepthAll: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,13 +59,49 @@ func TestListConfluenceCommentsMapsExactShapesAndResolvedSemantics(t *testing.T)
 	}
 }
 
+func TestListConfluenceCommentsBindsParentVersionAcrossSelectorsAndPagination(t *testing.T) {
+	starts := map[string][]string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		selector := r.URL.Query().Get("location")
+		if r.URL.Query().Get("parentVersion") != "37" {
+			t.Errorf("parentVersion=%q for selector %q, want 37", r.URL.Query().Get("parentVersion"), selector)
+		}
+		starts[selector] = append(starts[selector], r.URL.Query().Get("start"))
+		if r.URL.Query().Get("start") == "0" {
+			id := map[string]string{"footer": "10", "inline": "20", "resolved": "30"}[selector]
+			resolution := ""
+			if selector == "resolved" {
+				resolution = "resolved"
+			}
+			row := qualifiedCommentJSON(id, selector, resolution, `[{"id":"1","type":"page"}]`, "<p>x</p>")
+			_, _ = fmt.Fprintf(w, `{"results":[%s],"start":0,"limit":100,"size":1,"_links":{"next":"/ignored"}}`, row)
+			return
+		}
+		_, _ = w.Write([]byte(`{"results":[],"start":1,"limit":100,"size":0,"_links":{}}`))
+	}))
+	defer srv.Close()
+
+	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{ParentVersion: 37, DepthAll: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, selector := range []string{"footer", "inline", "resolved"} {
+		if !reflect.DeepEqual(starts[selector], []string{"0", "1"}) {
+			t.Errorf("selector %s starts=%v, want [0 1]", selector, starts[selector])
+		}
+	}
+	if len(inventory.Comments) != 3 || !inventory.ThreadsComplete {
+		t.Fatalf("inventory=%+v", inventory)
+	}
+}
+
 func TestListConfluenceCommentsMapsExactFooterReadbackEvidence(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(qualifiedCommentPage(qualifiedCommentJSON("10", "footer", "", `[{"id":"1","type":"page"}]`, "<p>footer</p>"))))
 	}))
 	defer srv.Close()
 
-	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{
+	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{ParentVersion: 1,
 		Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter}, DepthAll: true,
 	})
 	if err != nil {
@@ -90,7 +127,7 @@ func TestListConfluenceCommentsDoesNotInferMissingLocationOrAncestry(t *testing.
 		_, _ = w.Write([]byte(qualifiedCommentPage(row)))
 	}))
 	defer srv.Close()
-	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorInline}, DepthAll: true})
+	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{ParentVersion: 1, Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorInline}, DepthAll: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +142,7 @@ func TestListConfluenceCommentsSelectorMismatchIsPartial(t *testing.T) {
 		_, _ = w.Write([]byte(qualifiedCommentPage(qualifiedCommentJSON("20", "inline", "open", `[{"id":"1","type":"page"}]`, "<p>x</p>"))))
 	}))
 	defer srv.Close()
-	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter}})
+	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{ParentVersion: 1, Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +161,7 @@ func TestListConfluenceCommentsConflictingDuplicateIsOmitted(t *testing.T) {
 		_, _ = w.Write([]byte(qualifiedCommentPage(qualifiedCommentJSON("20", "inline", "open", `[{"id":"1","type":"page"}]`, body))))
 	}))
 	defer srv.Close()
-	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorInline, domain.ConfluenceCommentSelectorResolved}})
+	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{ParentVersion: 1, Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorInline, domain.ConfluenceCommentSelectorResolved}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +182,7 @@ func TestListConfluenceCommentsAggregatePageCapStopsLaterSelectors(t *testing.T)
 		_, _ = fmt.Fprintf(w, `{"results":[%s],"start":%s,"limit":100,"size":1,"_links":{"next":"/ignored"}}`, row, start)
 	}))
 	defer srv.Close()
-	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{})
+	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{ParentVersion: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +203,7 @@ func TestListConfluenceCommentsEnforcesExplicitAggregateBounds(t *testing.T) {
 			_, _ = fmt.Fprintf(w, `{"results":[%s],"start":%s,"limit":100,"size":1,"_links":{"next":"/ignored"}}`, row, r.URL.Query().Get("start"))
 		}))
 		defer srv.Close()
-		inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{
+		inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{ParentVersion: 1,
 			Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter}, MaxPages: 2,
 		})
 		if err != nil {
@@ -190,7 +227,7 @@ func TestListConfluenceCommentsEnforcesExplicitAggregateBounds(t *testing.T) {
 			_, _ = fmt.Fprintf(w, `{"results":[%s],"start":0,"limit":100,"size":3,"_links":{}}`, strings.Join(rows, ","))
 		}))
 		defer srv.Close()
-		inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{
+		inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{ParentVersion: 1,
 			Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter}, MaxItems: 2,
 		})
 		if err != nil {
@@ -207,7 +244,10 @@ func TestListConfluenceCommentsRejectsInvalidBoundsBeforeRequest(t *testing.T) {
 	requests := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
 	defer srv.Close()
-	for _, options := range []domain.ConfluenceCommentReadOptions{{MaxPages: -1}, {MaxItems: -1}} {
+	for _, options := range []domain.ConfluenceCommentReadOptions{
+		{}, {ParentVersion: -1},
+		{ParentVersion: 1, MaxPages: -1}, {ParentVersion: 1, MaxItems: -1},
+	} {
 		_, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", options)
 		if !errors.Is(err, domain.ErrUsage) {
 			t.Fatalf("options=%+v error=%v, want ErrUsage", options, err)
@@ -224,7 +264,7 @@ func TestListConfluenceCommentsPropagatesSentinelErrors(t *testing.T) {
 		want   error
 	}{{http.StatusUnauthorized, domain.ErrAuth}, {http.StatusNotFound, domain.ErrNotFound}, {http.StatusForbidden, domain.ErrForbidden}} {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(test.status) }))
-		_, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter}})
+		_, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{ParentVersion: 1, Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter}})
 		srv.Close()
 		if !errors.Is(err, test.want) {
 			t.Errorf("status %d error=%v want %v", test.status, err, test.want)
@@ -241,7 +281,7 @@ func TestListConfluenceCommentsReportsUnsupportedSelectorAsPartial(t *testing.T)
 		_, _ = w.Write([]byte(qualifiedCommentPage()))
 	}))
 	defer srv.Close()
-	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{})
+	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{ParentVersion: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +296,7 @@ func TestListConfluenceCommentsDoesNotCallGenericBadRequestUnsupported(t *testin
 		w.WriteHeader(http.StatusBadRequest)
 	}))
 	defer srv.Close()
-	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorInline}, DepthAll: true})
+	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{ParentVersion: 1, Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorInline}, DepthAll: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +312,7 @@ func TestListConfluenceCommentsPaginationStallAndMissingResultsFailClosed(t *tes
 			_, _ = w.Write([]byte(`{"results":[],"start":0,"limit":100,"size":0,"_links":{"next":"/ignored"}}`))
 		}))
 		defer srv.Close()
-		inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter}})
+		inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{ParentVersion: 1, Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -286,7 +326,7 @@ func TestListConfluenceCommentsPaginationStallAndMissingResultsFailClosed(t *tes
 			_, _ = w.Write([]byte(`{"start":0,"limit":100,"size":0,"_links":{}}`))
 		}))
 		defer srv.Close()
-		_, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter}})
+		_, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{ParentVersion: 1, Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter}})
 		if !errors.Is(err, domain.ErrCheckFailed) {
 			t.Fatalf("error = %v, want ErrCheckFailed", err)
 		}
@@ -297,7 +337,7 @@ func TestListConfluenceCommentsPaginationStallAndMissingResultsFailClosed(t *tes
 			_, _ = w.Write([]byte(`{"results":[],"_links":{}}`))
 		}))
 		defer srv.Close()
-		inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter}})
+		inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{ParentVersion: 1, Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -315,7 +355,7 @@ func TestListConfluenceCommentsProvesNestedReplyChain(t *testing.T) {
 		_, _ = w.Write([]byte(qualifiedCommentPage(nested, root, reply)))
 	}))
 	defer srv.Close()
-	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter}, DepthAll: true})
+	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{ParentVersion: 1, Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter}, DepthAll: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +380,7 @@ func TestListConfluenceCommentsRejectsInconsistentReplyChain(t *testing.T) {
 		_, _ = w.Write([]byte(qualifiedCommentPage(rootA, rootB, reply)))
 	}))
 	defer srv.Close()
-	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter}, DepthAll: true})
+	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{ParentVersion: 1, Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter}, DepthAll: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -362,7 +402,7 @@ func TestListConfluenceCommentsRejectsReplyCycle(t *testing.T) {
 		_, _ = w.Write([]byte(qualifiedCommentPage(root, first, second)))
 	}))
 	defer srv.Close()
-	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter}, DepthAll: true})
+	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{ParentVersion: 1, Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter}, DepthAll: true})
 	if err != nil {
 		t.Fatal(err)
 	}

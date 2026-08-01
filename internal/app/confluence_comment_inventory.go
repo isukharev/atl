@@ -266,7 +266,7 @@ func (s *ConfluenceService) commentInventoryForPage(ctx context.Context, page *d
 		return nil, fmt.Errorf("%w: Confluence comment page metadata is not reconciled", domain.ErrCheckFailed)
 	}
 	readOpts := domain.ConfluenceCommentReadOptions{
-		DepthAll: opts.Depth == "all", MaxPages: opts.MaxPages, MaxItems: opts.MaxItems,
+		ParentVersion: page.Version, DepthAll: opts.Depth == "all", MaxPages: opts.MaxPages, MaxItems: opts.MaxItems,
 	}
 	readOpts.Locations = confluenceCommentReadLocations(opts.Location)
 	qualified, ok := s.store.(domain.QualifiedConfluenceCommentReader)
@@ -587,11 +587,12 @@ func (s *ConfluenceService) CommentThreadWithOptions(ctx context.Context, refere
 		}
 	}
 	if selected == nil {
-		if result.CommentsComplete {
+		if confluenceCommentInventoryProvesAbsence(result, commentID) {
 			return nil, fmt.Errorf("%w: Confluence comment %s was not found", domain.ErrNotFound, commentID)
 		}
 		return nil, fmt.Errorf("%w: partial Confluence inventory cannot prove comment absence", domain.ErrCheckFailed)
 	}
+	allComments := result.Comments
 	rootID := selected.ID
 	if selected.RootID != nil {
 		rootID = *selected.RootID
@@ -617,8 +618,210 @@ func (s *ConfluenceService) CommentThreadWithOptions(ctx context.Context, refere
 			result.RootCount++
 		}
 	}
+	projectConfluenceCommentThreadQualification(result, allComments, rootID)
 	result.Query = ConfluenceCommentQuery{Mode: "thread", Location: "all", State: "all", Depth: "all", CommentID: commentID}
 	return result, nil
+}
+
+// projectConfluenceCommentThreadQualification narrows page-wide qualification
+// evidence to the selected subtree. Aggregate read failures remain visible,
+// but row and anchor diagnostics from other discussions cannot affect or cross
+// an exact-thread boundary.
+func confluenceCommentInventoryProvesAbsence(result *ConfluenceCommentInventoryResult, commentID string) bool {
+	for _, reason := range result.PartialReasons {
+		if globalConfluenceCommentThreadPartialReason(reason) ||
+			reason == domain.ConfluenceCommentPartialBackendOmittedChildren {
+			return false
+		}
+	}
+	for _, diagnostic := range result.Diagnostics {
+		if diagnostic.CommentID == commentID ||
+			(diagnostic.Code == domain.ConfluenceCommentPartialConflictingDuplicates && diagnostic.CommentID == "") {
+			return false
+		}
+	}
+	return true
+}
+
+func projectConfluenceCommentThreadQualification(result *ConfluenceCommentInventoryResult, allComments []ConfluenceCommentResultRecord, rootID string) {
+	selected := make(map[string]ConfluenceCommentResultRecord, len(result.Comments))
+	for _, comment := range result.Comments {
+		selected[comment.ID] = comment
+	}
+
+	reasons := make(map[string]struct{})
+	for _, reason := range result.PartialReasons {
+		if globalConfluenceCommentThreadPartialReason(reason) {
+			reasons[reason] = struct{}{}
+		}
+	}
+	allByID := make(map[string]ConfluenceCommentResultRecord, len(allComments))
+	for _, comment := range allComments {
+		allByID[comment.ID] = comment
+	}
+	diagnostics := make([]ConfluenceCommentResultDiagnostic, 0, len(result.Diagnostics))
+	seenDiagnostics := make(map[string]struct{}, len(result.Diagnostics))
+	for _, diagnostic := range result.Diagnostics {
+		keep := false
+		projected := diagnostic
+		switch {
+		case diagnostic.Code == domain.ConfluenceCommentDiagnosticOrphanMarker:
+			// An orphan page marker cannot belong to the selected comment subtree.
+		case diagnostic.CommentID != "":
+			if selectedRow, present := selected[diagnostic.CommentID]; present {
+				if projected.MarkerRef != "" &&
+					(selectedRow.Anchor == nil || selectedRow.Anchor.MarkerRef != projected.MarkerRef) {
+					projected.MarkerRef = ""
+				}
+				keep = true
+			} else if !confluenceCommentDiagnosticIsProvenOutsideThread(diagnostic.CommentID, rootID, allByID) &&
+				domain.ValidConfluenceCommentPartialReason(diagnostic.Code) {
+				// Some malformed/conflicting rows have no trustworthy root. Preserve
+				// the qualification failure, but strip identities and marker refs.
+				projected.CommentID = ""
+				projected.MarkerRef = ""
+				keep = true
+			}
+		case diagnostic.Code == domain.ConfluenceCommentPartialPageBodyUnavailable:
+			keep = selectedConfluenceCommentThreadHasAnchor(result.Comments)
+		default:
+			keep = globalConfluenceCommentThreadPartialReason(diagnostic.Code)
+		}
+		if !keep {
+			continue
+		}
+		key := projected.Code + "\x00" + projected.CommentID + "\x00" + projected.MarkerRef + "\x00" + string(projected.Selector) + "\x00" + string(projected.Location)
+		if _, duplicate := seenDiagnostics[key]; !duplicate {
+			seenDiagnostics[key] = struct{}{}
+			diagnostics = append(diagnostics, projected)
+		}
+		if domain.ValidConfluenceCommentPartialReason(projected.Code) {
+			reasons[projected.Code] = struct{}{}
+		}
+	}
+	for _, comment := range result.Comments {
+		if comment.Relation == domain.ConfluenceCommentRelationUnknown {
+			reasons[domain.ConfluenceCommentPartialParentUnavailable] = struct{}{}
+		}
+		if comment.Anchor == nil {
+			continue
+		}
+		switch comment.Anchor.Status {
+		case domain.ConfluenceAnchorUnavailable:
+			reasons[domain.ConfluenceCommentPartialInlineExpansionUnavailable] = struct{}{}
+		case domain.ConfluenceAnchorMissing:
+			reasons[domain.ConfluenceCommentPartialAnchorMissing] = struct{}{}
+		case domain.ConfluenceAnchorAmbiguous:
+			reasons[domain.ConfluenceCommentPartialAnchorAmbiguous] = struct{}{}
+		}
+	}
+
+	result.PartialReasons = make([]string, 0, len(reasons))
+	for reason := range reasons {
+		result.PartialReasons = append(result.PartialReasons, reason)
+	}
+	sort.Strings(result.PartialReasons)
+	result.Diagnostics = diagnostics
+	result.CommentsComplete = true
+	result.ThreadsComplete = true
+	result.AnchorsComplete = true
+	for _, reason := range result.PartialReasons {
+		if confluenceCommentPartialAffectsComments(reason) {
+			result.CommentsComplete = false
+		}
+		if confluenceCommentPartialAffectsThreads(reason) {
+			result.ThreadsComplete = false
+		}
+		if confluenceCommentPartialAffectsAnchors(reason) {
+			result.AnchorsComplete = false
+		}
+	}
+	result.Complete = len(result.PartialReasons) == 0 &&
+		result.CommentsComplete && result.ThreadsComplete && result.AnchorsComplete
+}
+
+func confluenceCommentDiagnosticIsProvenOutsideThread(commentID, rootID string, allByID map[string]ConfluenceCommentResultRecord) bool {
+	comment, present := allByID[commentID]
+	if !present {
+		return false
+	}
+	switch comment.Relation {
+	case domain.ConfluenceCommentRelationRoot:
+		return comment.ID != rootID
+	case domain.ConfluenceCommentRelationReply:
+		return comment.RootID != nil && *comment.RootID != rootID
+	}
+	return false
+}
+
+func selectedConfluenceCommentThreadHasAnchor(comments []ConfluenceCommentResultRecord) bool {
+	for _, comment := range comments {
+		if comment.Anchor != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func globalConfluenceCommentThreadPartialReason(reason string) bool {
+	switch reason {
+	case domain.ConfluenceCommentPartialPageLimit,
+		domain.ConfluenceCommentPartialItemLimit,
+		domain.ConfluenceCommentPartialPaginationStalled,
+		domain.ConfluenceCommentPartialPaginationUnqualified,
+		domain.ConfluenceCommentPartialEndpointUnavailable,
+		domain.ConfluenceCommentPartialLegacyUnqualified:
+		return true
+	}
+	return false
+}
+
+func confluenceCommentPartialAffectsComments(reason string) bool {
+	switch reason {
+	case domain.ConfluenceCommentPartialPageLimit,
+		domain.ConfluenceCommentPartialItemLimit,
+		domain.ConfluenceCommentPartialPaginationStalled,
+		domain.ConfluenceCommentPartialPaginationUnqualified,
+		domain.ConfluenceCommentPartialConflictingDuplicates,
+		domain.ConfluenceCommentPartialLocationUnavailable,
+		domain.ConfluenceCommentPartialResolutionUnavailable,
+		domain.ConfluenceCommentPartialMetadataUnavailable,
+		domain.ConfluenceCommentPartialBodyUnavailable,
+		domain.ConfluenceCommentPartialEndpointUnavailable,
+		domain.ConfluenceCommentPartialLegacyUnqualified:
+		return true
+	}
+	return false
+}
+
+func confluenceCommentPartialAffectsThreads(reason string) bool {
+	switch reason {
+	case domain.ConfluenceCommentPartialPageLimit,
+		domain.ConfluenceCommentPartialItemLimit,
+		domain.ConfluenceCommentPartialPaginationStalled,
+		domain.ConfluenceCommentPartialPaginationUnqualified,
+		domain.ConfluenceCommentPartialConflictingDuplicates,
+		domain.ConfluenceCommentPartialBackendOmittedChildren,
+		domain.ConfluenceCommentPartialParentUnavailable,
+		domain.ConfluenceCommentPartialMalformedAncestry,
+		domain.ConfluenceCommentPartialEndpointUnavailable,
+		domain.ConfluenceCommentPartialLegacyUnqualified:
+		return true
+	}
+	return false
+}
+
+func confluenceCommentPartialAffectsAnchors(reason string) bool {
+	switch reason {
+	case domain.ConfluenceCommentPartialLocationUnavailable,
+		domain.ConfluenceCommentPartialInlineExpansionUnavailable,
+		domain.ConfluenceCommentPartialPageBodyUnavailable,
+		domain.ConfluenceCommentPartialAnchorMissing,
+		domain.ConfluenceCommentPartialAnchorAmbiguous,
+		domain.ConfluenceCommentPartialLegacyUnqualified:
+		return true
+	}
+	return false
 }
 
 // ProjectConfluenceCommentListView copies one qualified inventory into a
@@ -786,7 +989,28 @@ func validateConfluenceCommentInventoryResult(result *ConfluenceCommentInventory
 			return err
 		}
 	}
-	return validateConfluenceCommentResultDiagnostics(result.Diagnostics)
+	if err := validateConfluenceCommentResultDiagnostics(result.Diagnostics); err != nil {
+		return err
+	}
+	if mode == "thread" {
+		for _, diagnostic := range result.Diagnostics {
+			if diagnostic.Code == domain.ConfluenceCommentDiagnosticOrphanMarker {
+				return fmt.Errorf("%w: exact Confluence thread contains an unrelated page marker diagnostic", domain.ErrCheckFailed)
+			}
+			if diagnostic.CommentID != "" {
+				if _, present := seen[diagnostic.CommentID]; !present {
+					return fmt.Errorf("%w: exact Confluence thread contains an unrelated comment diagnostic", domain.ErrCheckFailed)
+				}
+			}
+			if diagnostic.MarkerRef != "" {
+				comment, present := byID[diagnostic.CommentID]
+				if !present || comment.Anchor == nil || comment.Anchor.MarkerRef != diagnostic.MarkerRef {
+					return fmt.Errorf("%w: exact Confluence thread contains an unrelated marker diagnostic", domain.ErrCheckFailed)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func validateConfluenceCommentQuery(query ConfluenceCommentQuery, mode string) error {
@@ -1056,6 +1280,7 @@ func ValidateConfluenceCommentThreadView(view *ConfluenceCommentThreadView) erro
 	rootCount := 0
 	seen := make(map[string]struct{}, len(view.Comments))
 	byID := make(map[string]ConfluenceCommentResultRecord, len(view.Comments))
+	anchorsByID := make(map[string]*ConfluenceCommentViewAnchor, len(view.Comments))
 	for _, comment := range view.Comments {
 		if !canonicalConfluenceContentID(comment.ID) ||
 			!optionalCanonicalConfluenceContentID(comment.ParentID) || !optionalCanonicalConfluenceContentID(comment.RootID) ||
@@ -1089,6 +1314,7 @@ func ValidateConfluenceCommentThreadView(view *ConfluenceCommentThreadView) erro
 		byID[comment.ID] = ConfluenceCommentResultRecord{
 			ID: comment.ID, ParentID: comment.ParentID, RootID: comment.RootID, Relation: comment.Relation,
 		}
+		anchorsByID[comment.ID] = comment.Anchor
 	}
 	if rootCount != view.RootCount {
 		return fmt.Errorf("%w: Confluence comment thread root count is not reconciled", domain.ErrCheckFailed)
@@ -1098,7 +1324,26 @@ func ValidateConfluenceCommentThreadView(view *ConfluenceCommentThreadView) erro
 			return err
 		}
 	}
-	return validateConfluenceCommentViewDiagnostics(view.Diagnostics)
+	if err := validateConfluenceCommentViewDiagnostics(view.Diagnostics); err != nil {
+		return err
+	}
+	for _, diagnostic := range view.Diagnostics {
+		if diagnostic.Code == domain.ConfluenceCommentDiagnosticOrphanMarker {
+			return fmt.Errorf("%w: exact Confluence thread view contains an unrelated page marker diagnostic", domain.ErrCheckFailed)
+		}
+		if diagnostic.CommentID != "" {
+			if _, present := seen[diagnostic.CommentID]; !present {
+				return fmt.Errorf("%w: exact Confluence thread view contains an unrelated comment diagnostic", domain.ErrCheckFailed)
+			}
+		}
+		if diagnostic.MarkerRef != "" {
+			anchor, present := anchorsByID[diagnostic.CommentID]
+			if !present || anchor == nil || anchor.MarkerRef != diagnostic.MarkerRef {
+				return fmt.Errorf("%w: exact Confluence thread view contains an unrelated marker diagnostic", domain.ErrCheckFailed)
+			}
+		}
+	}
+	return nil
 }
 
 func hasResultPartialReason(reasons []string, want string) bool {

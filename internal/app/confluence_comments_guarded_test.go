@@ -46,7 +46,7 @@ func (s *confluenceFooterCommentStoreStub) GetMeta(_ context.Context, id string)
 
 func (s *confluenceFooterCommentStoreStub) ListConfluenceComments(_ context.Context, _ string, opts domain.ConfluenceCommentReadOptions) (domain.ConfluenceCommentInventory, error) {
 	s.listCalls++
-	if opts.DepthAll || len(opts.Locations) != 1 || opts.Locations[0] != domain.ConfluenceCommentSelectorFooter {
+	if opts.ParentVersion != s.pageVersion || opts.DepthAll || len(opts.Locations) != 1 || opts.Locations[0] != domain.ConfluenceCommentSelectorFooter {
 		return domain.ConfluenceCommentInventory{}, errors.New("unexpected read options")
 	}
 	if s.listFn != nil {

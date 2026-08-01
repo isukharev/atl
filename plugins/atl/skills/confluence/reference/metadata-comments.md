@@ -116,7 +116,11 @@ through separate bounded page-scoped queries. Inspect `comments_complete`,
 independent `relation`, `location`, `resolution`, and `anchor.status`. An empty
 array proves absence only when `complete:true`. Use `--expected-version` with a
 previously observed page version when evidence must remain revision-bound.
-`thread` returns one exact proven root subtree; partial absence is not reported
+Every qualified selector and pagination request is internally bound to the
+reconciled page version even when that optional caller gate is omitted.
+`thread` returns one exact proven root subtree and scopes its qualification to
+that subtree while retaining global enumeration/transport failures; unrelated
+diagnostics and orphan markers are excluded. Partial absence is not reported
 as not-found. `-o text` prints the qualification header and an indented tree;
 JSON remains the machine contract and retains native `body_storage`.
 

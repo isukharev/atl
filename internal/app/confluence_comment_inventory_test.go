@@ -91,7 +91,7 @@ func TestConfluenceCommentInventoryQualifiesThreadsAndAnchors(t *testing.T) {
 	if result.Comments[0].Author.ID != "user-key" || result.Comments[1].Anchor != nil {
 		t.Fatalf("comment projection = %+v", result.Comments)
 	}
-	if !store.readOpts.DepthAll || len(store.readOpts.Locations) != 0 {
+	if store.readOpts.ParentVersion != 7 || !store.readOpts.DepthAll || len(store.readOpts.Locations) != 0 {
 		t.Fatalf("read options = %+v", store.readOpts)
 	}
 }
@@ -346,6 +346,115 @@ func TestConfluenceCommentThreadExactSelection(t *testing.T) {
 	}
 }
 
+func TestConfluenceCommentThreadScopesQualificationToSelectedSubtree(t *testing.T) {
+	rootA, rootB := "101", "201"
+	store := &qualifiedCommentStore{
+		recordingStore: &recordingStore{page: &domain.Resource{
+			ID: "42", Version: 7, BodyPresent: true,
+			Body: []byte(`<ac:inline-comment-marker ac:ref="ref-a">a</ac:inline-comment-marker><ac:inline-comment-marker ac:ref="orphan">orphan</ac:inline-comment-marker>`),
+		}},
+		inventory: completeQualifiedComments(
+			domain.ConfluenceCommentRecord{
+				ID: rootA, PageID: "42", RootID: &rootA, Relation: domain.ConfluenceCommentRelationRoot,
+				Location: domain.ConfluenceCommentLocationInline, Resolution: domain.ConfluenceCommentResolutionOpen,
+				MarkerRef: "ref-a", Version: 1,
+			},
+			domain.ConfluenceCommentRecord{
+				ID: rootB, PageID: "42", RootID: &rootB, Relation: domain.ConfluenceCommentRelationRoot,
+				Location: domain.ConfluenceCommentLocationInline, Resolution: domain.ConfluenceCommentResolutionOpen,
+				MarkerRef: "ref-b", Version: 1,
+			},
+		),
+	}
+	store.inventory.ThreadsComplete = false
+	store.inventory.PartialReasons = []string{domain.ConfluenceCommentPartialBackendOmittedChildren}
+	store.inventory.Diagnostics = []domain.ConfluenceCommentDiagnostic{{
+		Code: domain.ConfluenceCommentPartialBackendOmittedChildren, CommentID: rootB,
+	}}
+
+	selectedA, err := (&ConfluenceService{store: store}).CommentThread(context.Background(), "42", rootA, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !selectedA.Complete || !selectedA.CommentsComplete || !selectedA.ThreadsComplete || !selectedA.AnchorsComplete ||
+		len(selectedA.PartialReasons) != 0 || len(selectedA.Diagnostics) != 0 || selectedA.Count != 1 {
+		t.Fatalf("selected thread A qualification = %+v", selectedA)
+	}
+
+	selectedB, err := (&ConfluenceService{store: store}).CommentThread(context.Background(), "42", rootB, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selectedB.Complete || !selectedB.CommentsComplete || selectedB.ThreadsComplete || selectedB.AnchorsComplete ||
+		!reflect.DeepEqual(selectedB.PartialReasons, []string{domain.ConfluenceCommentPartialAnchorMissing, domain.ConfluenceCommentPartialBackendOmittedChildren}) {
+		t.Fatalf("selected thread B qualification = %+v", selectedB)
+	}
+	for _, diagnostic := range selectedB.Diagnostics {
+		if diagnostic.CommentID != rootB || diagnostic.MarkerRef == "orphan" || diagnostic.Code == domain.ConfluenceCommentDiagnosticOrphanMarker {
+			t.Fatalf("selected thread B leaked unrelated diagnostic: %+v", diagnostic)
+		}
+	}
+}
+
+func TestConfluenceCommentThreadSanitizesUnassignableQualification(t *testing.T) {
+	rootID := "101"
+	store := &qualifiedCommentStore{
+		recordingStore: &recordingStore{page: &domain.Resource{ID: "42", Version: 7, BodyPresent: true, Body: []byte("<p>x</p>")}},
+		inventory: completeQualifiedComments(
+			domain.ConfluenceCommentRecord{
+				ID: rootID, PageID: "42", RootID: &rootID, Relation: domain.ConfluenceCommentRelationRoot,
+				Location: domain.ConfluenceCommentLocationFooter, Resolution: domain.ConfluenceCommentResolutionOpen, Version: 1,
+			},
+			domain.ConfluenceCommentRecord{
+				ID: "999", PageID: "42", Relation: domain.ConfluenceCommentRelationUnknown,
+				Location: domain.ConfluenceCommentLocationUnknown, Resolution: domain.ConfluenceCommentResolutionUnknown, Version: 1,
+			},
+		),
+	}
+	store.inventory.ThreadsComplete = false
+	store.inventory.PartialReasons = []string{domain.ConfluenceCommentPartialMalformedAncestry}
+	store.inventory.Diagnostics = []domain.ConfluenceCommentDiagnostic{{
+		Code: domain.ConfluenceCommentPartialMalformedAncestry, CommentID: "999", Selector: domain.ConfluenceCommentSelectorInline,
+	}}
+
+	result, err := (&ConfluenceService{store: store}).CommentThread(context.Background(), "42", rootID, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Complete || !result.CommentsComplete || result.ThreadsComplete || !result.AnchorsComplete ||
+		!reflect.DeepEqual(result.PartialReasons, []string{domain.ConfluenceCommentPartialMalformedAncestry}) ||
+		!reflect.DeepEqual(result.Diagnostics, []ConfluenceCommentResultDiagnostic{{
+			Code: domain.ConfluenceCommentPartialMalformedAncestry, Selector: domain.ConfluenceCommentSelectorInline,
+		}}) {
+		t.Fatalf("sanitized qualification = %+v", result)
+	}
+}
+
+func TestConfluenceCommentThreadRetainsGlobalReadQualification(t *testing.T) {
+	rootID := "101"
+	store := &qualifiedCommentStore{
+		recordingStore: &recordingStore{page: &domain.Resource{ID: "42", Version: 7, BodyPresent: true, Body: []byte("<p>x</p>")}},
+		inventory: completeQualifiedComments(domain.ConfluenceCommentRecord{
+			ID: rootID, PageID: "42", RootID: &rootID, Relation: domain.ConfluenceCommentRelationRoot,
+			Location: domain.ConfluenceCommentLocationFooter, Resolution: domain.ConfluenceCommentResolutionOpen, Version: 1,
+		}),
+	}
+	store.inventory.CommentsComplete = false
+	store.inventory.ThreadsComplete = false
+	store.inventory.PartialReasons = []string{domain.ConfluenceCommentPartialPageLimit}
+	store.inventory.Diagnostics = []domain.ConfluenceCommentDiagnostic{{Code: domain.ConfluenceCommentPartialPageLimit}}
+
+	result, err := (&ConfluenceService{store: store}).CommentThread(context.Background(), "42", rootID, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Complete || result.CommentsComplete || result.ThreadsComplete || !result.AnchorsComplete ||
+		!reflect.DeepEqual(result.PartialReasons, []string{domain.ConfluenceCommentPartialPageLimit}) ||
+		!reflect.DeepEqual(result.Diagnostics, []ConfluenceCommentResultDiagnostic{{Code: domain.ConfluenceCommentPartialPageLimit}}) {
+		t.Fatalf("global qualification = %+v", result)
+	}
+}
+
 func TestConfluenceCommentThreadWithOptionsPropagatesExplicitBounds(t *testing.T) {
 	rootID := "101"
 	store := &qualifiedCommentStore{
@@ -362,7 +471,7 @@ func TestConfluenceCommentThreadWithOptionsPropagatesExplicitBounds(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if store.readOpts.MaxPages != 4 || store.readOpts.MaxItems != 23 {
+	if store.readOpts.ParentVersion != 7 || store.readOpts.MaxPages != 4 || store.readOpts.MaxItems != 23 {
 		t.Fatalf("read options = %+v", store.readOpts)
 	}
 }
@@ -381,6 +490,66 @@ func TestConfluenceCommentThreadAbsenceRequiresCompleteInventory(t *testing.T) {
 	_, err = (&ConfluenceService{store: store}).CommentThread(context.Background(), "42", "999", 0)
 	if !errors.Is(err, domain.ErrCheckFailed) {
 		t.Fatalf("partial absence error = %v, want ErrCheckFailed", err)
+	}
+}
+
+func TestConfluenceCommentThreadAbsenceIgnoresUnrelatedRowQualification(t *testing.T) {
+	rootID := "101"
+	store := &qualifiedCommentStore{
+		recordingStore: &recordingStore{page: &domain.Resource{ID: "42", Version: 7, BodyPresent: true, Body: []byte("<p>x</p>")}},
+		inventory: completeQualifiedComments(domain.ConfluenceCommentRecord{
+			ID: rootID, PageID: "42", RootID: &rootID, Relation: domain.ConfluenceCommentRelationRoot,
+			Location: domain.ConfluenceCommentLocationFooter, Resolution: domain.ConfluenceCommentResolutionOpen, Version: 1,
+		}),
+	}
+	store.inventory.CommentsComplete = false
+	store.inventory.PartialReasons = []string{domain.ConfluenceCommentPartialMetadataUnavailable}
+	store.inventory.Diagnostics = []domain.ConfluenceCommentDiagnostic{{
+		Code: domain.ConfluenceCommentPartialMetadataUnavailable, CommentID: rootID,
+	}}
+
+	_, err := (&ConfluenceService{store: store}).CommentThread(context.Background(), "42", "999", 0)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("unrelated row qualification error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestConfluenceCommentThreadAbsenceRejectsTargetConflict(t *testing.T) {
+	store := &qualifiedCommentStore{
+		recordingStore: &recordingStore{page: &domain.Resource{ID: "42", Version: 7, BodyPresent: true, Body: []byte("<p>x</p>")}},
+		inventory:      completeQualifiedComments(),
+	}
+	store.inventory.CommentsComplete = false
+	store.inventory.ThreadsComplete = false
+	store.inventory.PartialReasons = []string{domain.ConfluenceCommentPartialConflictingDuplicates}
+	store.inventory.Diagnostics = []domain.ConfluenceCommentDiagnostic{{
+		Code: domain.ConfluenceCommentPartialConflictingDuplicates, CommentID: "999",
+	}}
+
+	_, err := (&ConfluenceService{store: store}).CommentThread(context.Background(), "42", "999", 0)
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("target conflict error = %v, want ErrCheckFailed", err)
+	}
+}
+
+func TestConfluenceCommentThreadAbsenceRejectsOmittedChildren(t *testing.T) {
+	rootID := "101"
+	store := &qualifiedCommentStore{
+		recordingStore: &recordingStore{page: &domain.Resource{ID: "42", Version: 7, BodyPresent: true, Body: []byte("<p>x</p>")}},
+		inventory: completeQualifiedComments(domain.ConfluenceCommentRecord{
+			ID: rootID, PageID: "42", RootID: &rootID, Relation: domain.ConfluenceCommentRelationRoot,
+			Location: domain.ConfluenceCommentLocationFooter, Resolution: domain.ConfluenceCommentResolutionOpen, Version: 1,
+		}),
+	}
+	store.inventory.ThreadsComplete = false
+	store.inventory.PartialReasons = []string{domain.ConfluenceCommentPartialBackendOmittedChildren}
+	store.inventory.Diagnostics = []domain.ConfluenceCommentDiagnostic{{
+		Code: domain.ConfluenceCommentPartialBackendOmittedChildren, CommentID: rootID,
+	}}
+
+	_, err := (&ConfluenceService{store: store}).CommentThread(context.Background(), "42", "999", 0)
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("omitted child absence error = %v, want ErrCheckFailed", err)
 	}
 }
 
@@ -513,6 +682,23 @@ func TestConfluenceCommentViewValidatorsRejectUnreconciledEvidence(t *testing.T)
 			}
 		})
 	}
+	for name, diagnostic := range map[string]ConfluenceCommentResultDiagnostic{
+		"unrelated thread comment": {
+			Code: domain.ConfluenceCommentDiagnosticOriginalSelectionChanged, CommentID: "999", MarkerRef: "other-ref",
+		},
+		"orphan thread marker": {Code: domain.ConfluenceCommentDiagnosticOrphanMarker, MarkerRef: "orphan-ref"},
+		"mismatched thread marker": {
+			Code: domain.ConfluenceCommentDiagnosticOriginalSelectionChanged, CommentID: "101", MarkerRef: "other-ref",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			bad := completeCommentProjectionResult("thread")
+			bad.Diagnostics = []ConfluenceCommentResultDiagnostic{diagnostic}
+			if projected, err := ProjectConfluenceCommentThreadView(bad, ConfluenceCommentViewBounds{MaxCommentPages: 1, MaxItems: 1, MaxBytes: 1024}); projected != nil || !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("unscoped thread source projected=%+v error=%v", projected, err)
+			}
+		})
+	}
 
 	list, err := ProjectConfluenceCommentListView(completeCommentProjectionResult("list"), ConfluenceCommentViewBounds{MaxCommentPages: 1, MaxItems: 1, MaxBytes: 1024})
 	if err != nil {
@@ -572,6 +758,23 @@ func TestConfluenceCommentViewValidatorsRejectUnreconciledEvidence(t *testing.T)
 	badThread.Diagnostics = []ConfluenceCommentViewDiagnostic{{Code: domain.ConfluenceCommentDiagnosticOrphanMarker, CommentID: "not-an-id"}}
 	if err := ValidateConfluenceCommentThreadView(&badThread); !errors.Is(err, domain.ErrCheckFailed) {
 		t.Fatalf("non-canonical diagnostic identity error = %v", err)
+	}
+	for name, diagnostic := range map[string]ConfluenceCommentViewDiagnostic{
+		"unrelated comment": {
+			Code: domain.ConfluenceCommentDiagnosticOriginalSelectionChanged, CommentID: "999", MarkerRef: "marker-1",
+		},
+		"orphan marker": {Code: domain.ConfluenceCommentDiagnosticOrphanMarker, MarkerRef: "marker-1"},
+		"mismatched marker": {
+			Code: domain.ConfluenceCommentDiagnosticOriginalSelectionChanged, CommentID: "101", MarkerRef: "other-ref",
+		},
+	} {
+		t.Run("thread view "+name, func(t *testing.T) {
+			bad := *thread
+			bad.Diagnostics = []ConfluenceCommentViewDiagnostic{diagnostic}
+			if err := ValidateConfluenceCommentThreadView(&bad); !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("unscoped diagnostic error = %v", err)
+			}
+		})
 	}
 	replyRoot, missingParent := "101", "999"
 	if err := validateConfluenceCommentThreadAncestry(map[string]ConfluenceCommentResultRecord{
