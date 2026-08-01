@@ -454,6 +454,13 @@ func protectedInlineInventory(root *csf.Node) map[string]protectedInlineItem {
 				item.ref = domain.Ref{Kind: "color", Key: color, Display: color}
 				items[signature] = item
 			}
+		case n.Name.Space == "ac" && n.Name.Local == "inline-comment-marker":
+			ref := n.Attrv("ac", "ref")
+			signature := "inline-comment-marker\x00" + protectedNodeHash(n)
+			item := items[signature]
+			item.count++
+			item.ref = domain.Ref{Kind: "inline-comment-marker", Key: ref, Display: csf.TextContent(n)}
+			items[signature] = item
 		}
 		return true
 	})

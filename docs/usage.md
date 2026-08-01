@@ -821,10 +821,11 @@ contain. Supported body edits become real only after `conf apply` / `jira
 apply`; generated metadata sections remain read-only, and pull/render may
 replace the view. Profiles never affect substrate hashes or dirty/drift state.
 
-Confluence views begin with `<!-- atl:document confluence-page v4 -->` and use
-reserved metadata/body/comments/Jira-query boundaries. Before editing an older or
-unmarked view, render the exact file/root again. Since render replaces `.md`,
-preserve existing edits as a private reviewed patch and reapply them afterward.
+Confluence views begin with `<!-- atl:document confluence-page v5 -->` and use
+reserved metadata/body/comments/Jira-query boundaries. Pristine v4 views
+migrate only when exact reconstruction proves every byte. Dirty v4, older
+historical, unversioned, and unknown/future views are preserved and refused;
+preserve any edits separately before rendering a supported pristine v4 view.
 
 | profile | Jira `.md` | Confluence `.md` |
 |---|---|---|
@@ -1229,7 +1230,7 @@ Flags:
 | `--space` | space key (mirrors the whole space) |
 | `--depth` | depth limit when using `--space` (0 = unlimited) |
 | `--assets` | download draw.io PNG renders and inline images |
-| `--comments` | mirror a qualified schema-v2 comment inventory to `<slug>.comments.json` plus a derived `.comments.md` compatibility view |
+| `--comments` | mirror schema-v2 comment evidence to `<slug>.comments.json`, render its qualified read-only tree in the main `.md`, and refresh the flat `.comments.md` compatibility view |
 | `--complete` | build and consume an exact resumable two-pass selector snapshot; requires `--cql` or `--space` and does not support `--depth` |
 | `--restart-complete` | explicitly replace an unfinished complete snapshot after a fresh stable selection and local preflight |
 | `--incremental` | exhaustively select changes since a persisted selector watermark; requires `--cql` or `--space` |
@@ -1305,12 +1306,12 @@ unchanged. `ORDER BY` in user CQL is rejected because atl appends
 
 Before the first page body fetch/write, the entire selected local set is
 preflighted. Native CSF edits, unapplied Markdown edits, partial page artifacts,
-or corrupt state block the batch. A supported legacy `.md` is accepted only if
+or corrupt state block the batch. A supported v4 legacy `.md` is accepted only if
 replacing the current document marker with its exact legacy marker reproduces
 every byte; `view_migrations` counts those proven views, and each is rewritten
 to the current format only when its page pull succeeds. A changed legacy view
-gets a legacy-specific reconciliation error, while an unknown/future marker is
-never downgraded. A network/permission failure may leave pages
+gets a legacy-specific reconciliation error, while unversioned and
+unknown/future views are preserved and never downgraded. A network/permission failure may leave pages
 already mirrored through the ordinary atomic path, but never advances
 `.atl/incremental.json`; rerunning replays the same inclusive range safely.
 Empty deltas still commit a valid first watermark. Absence from a delta is
@@ -1376,7 +1377,7 @@ mirror/
     parent-page/
       child-page/
         child-page.csf           ← edit this
-        child-page.md            ← derived staging view; supported edits go through conf apply
+        child-page.md            ← derived staging view; with schema-v2 comments, includes the qualified read-only tree
         child-page.meta.json     ← id, version, hierarchy, labels, updated, optional restricted, content_hash, fragments, comment state
         child-page.comments.json ← only with --comments: qualified schema-v2 envelope (legacy arrays remain readable)
         child-page.comments.md   ← only with --comments: best-effort flat compatibility view
@@ -1407,10 +1408,10 @@ empty page.
 
 Missing local targets for `conf render`, `conf apply`, and `conf push` all map
 to exit `4` (`not found`). Malformed target kinds or incompatible flag
-combinations remain exit `2` (`usage`). Offline render may migrate legacy or
-unversioned local views, but refuses to overwrite an explicit unknown/future
-document version. Directory renders inspect every selected view first and make
-no view changes if any selected marker is from an unsupported future format.
+combinations remain exit `2` (`usage`). Offline render may migrate pristine v4
+views after exact reconstruction, but refuses to overwrite dirty v4, older
+historical, unversioned, or unknown/future views. Directory renders inspect every selected
+view first and make no view changes if any selected marker is unsupported.
 
 ### `atl conf table extract`
 
@@ -1904,14 +1905,15 @@ atl conf apply guide.md --allow-fragment-loss  # intentional macro/mention remov
 | `--allow-fragment-loss` | proceed when the edit drops opaque fragments |
 | `--into` | mirror root (defaults to nearest `.atl`) |
 
-The first line must be `<!-- atl:document confluence-page v4 -->`. V3 predates
-the recorded display-timezone contract. Apply rejects missing/legacy/unknown
+The first line must be `<!-- atl:document confluence-page v5 -->`. V4 predates
+the qualified main-view comment tree, and v3 predates the recorded
+display-timezone contract. Apply rejects missing/legacy/unknown
 versions and additions, removals, renames, or reordering of reserved
 `<!-- atl:... -->` marker text in the editable body before writing. Marker prose
 that already came from native page content is allowed when left unchanged.
-Re-render pristine unmarked old views before
-editing; for an already edited old view, preserve a private patch, render, then
-reapply. An unknown/future version requires a newer `atl`; do not downgrade it.
+Pristine v4 views migrate only after exact reconstruction. Dirty v4, older
+historical, and unversioned views are preserved and refused; an unknown/future
+version requires a newer `atl` and is never downgraded.
 
 All views carry generated document/body boundaries. When the page was pulled
 under every profile the body starts at visible `# Content`; `full` also carries
@@ -2271,8 +2273,9 @@ so another page with the old slug is diverted instead of inheriting them.
 If all old `.csf`, `.md`, and `.meta.json` primary files were deliberately
 removed, re-pull repairs the stale sidecar path. A partial removal remains
 ambiguous and exits `8`; restore the complete old page or remove all three
-primary files, then re-pull. A legacy v1 view receives an explicit `conf render`
-migration instruction instead of the generic local-edit diagnostic.
+primary files, then re-pull. A supported v4 view receives explicit
+`conf render` migration guidance instead of the generic local-edit diagnostic;
+only an exact pristine reconstruction can migrate.
 If interrupted cleanup leaves an old copy, `conf status` marks it
 `non_canonical` and names `canonical_path`; `conf push` refuses the old path
 even with `--force`.
@@ -2540,8 +2543,13 @@ comment whose root is unavailable is returned alone with
 `threads_complete:false`; the relationship is not guessed.
 
 To persist comments alongside the mirrored page instead of printing them, use
-`conf pull --comments`. Stage-1 qualified reads do not yet change that legacy
-flat sidecar or the current derived-document marker.
+`conf pull --comments`. The schema-v2 `.comments.json` is the source evidence,
+including completeness and closed diagnostics. The main v5 `.md` renders a
+deterministic read-only thread tree with author/time, location/state, qualified
+anchors, and an explicit unattached section when ancestry is unavailable or
+inconsistent. Only a matched observed selection is labelled current; other
+anchor states may show the original selection only as reported. The separate
+`.comments.md` remains a best-effort flat compatibility projection.
 
 ### `atl conf comment add`
 

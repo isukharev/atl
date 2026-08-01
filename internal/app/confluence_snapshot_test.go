@@ -118,7 +118,7 @@ func TestConfluenceMirrorSnapshotReconcilesContentFreeHealthBuckets(t *testing.T
 	if err := os.WriteFile(paths["102"], []byte(`<p>Changed body</p>`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(strings.TrimSuffix(paths["102"], ".csf")+".md", []byte("<!-- atl:document confluence-page v3 -->\nlegacy\n"), 0o644); err != nil {
+	if err := os.WriteFile(strings.TrimSuffix(paths["102"], ".csf")+".md", []byte(mirror.ConfluenceDocumentMarkerV4+"\nlegacy\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(paths["103"]); err != nil {
@@ -383,7 +383,8 @@ func TestConfluenceViewMarkerClass(t *testing.T) {
 		body, want string
 	}{
 		"current CRLF": {mirror.ConfluenceDocumentMarker + "\r\nbody", "current"},
-		"legacy":       {"<!-- atl:document confluence-page v1 -->\nbody", "legacy"},
+		"legacy":       {mirror.ConfluenceDocumentMarkerV4 + "\nbody", "legacy"},
+		"old":          {"<!-- atl:document confluence-page v1 -->\nbody", "unsupported"},
 		"unsupported":  {"<!-- atl:document confluence-page v88 -->\nbody", "unsupported"},
 		"missing":      {"# plain\n", "missing"},
 	} {

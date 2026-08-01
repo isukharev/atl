@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -437,6 +438,11 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 		res.Truncated = true
 		res.TruncatedAt = len(ids)
 	}
+	if incremental == nil && complete == nil {
+		if preflightErr := preflightConfluencePullViewMigrations(m, ids); preflightErr != nil {
+			return nil, preflightErr
+		}
+	}
 	// One sidecar load for the whole pull; one save at the end. The deferred
 	// flush persists the pages already written when an error aborts the loop,
 	// so a partial pull is not reported as never-synced (Flush is a no-op after
@@ -517,6 +523,7 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 		// listing is surfaced, never silently clipped.
 		var comments []domain.Comment
 		var commentInventory *ConfluenceCommentInventoryResult
+		var commentSidecar *mirror.ConfluenceCommentsSidecarV2
 		var commentsTruncated bool
 		if o.Comments {
 			commentInventory, err = s.commentInventoryForPage(ctx, page, ConfluenceCommentInventoryOpts{
@@ -526,6 +533,8 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 				return res, fmt.Errorf("pull comments %s: %w", id, err)
 			}
 			comments = confluenceQualifiedCommentsForDisplay(commentInventory, "")
+			sidecar := confluenceCommentsSidecarV2(commentInventory)
+			commentSidecar = &sidecar
 			commentsTruncated = confluenceCommentInventoryTruncated(commentInventory)
 			if !commentInventory.CommentsComplete || !commentInventory.ThreadsComplete {
 				commentSelectionIncomplete = true
@@ -537,7 +546,8 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 				res.CommentsTruncated = true
 			}
 		}
-		mdOpts := confMDViewOpts(rs, page, comments)
+		commentView := confluenceCommentsView{flat: comments, qualified: commentSidecar}
+		mdOpts := confMDViewOptsForCommentsView(rs, page, commentView)
 		var jiraMacros *confluenceJiraMacroSidecar
 		if pageNode != nil && rs.ExpandJiraMacros {
 			var macroWarnings []string
@@ -549,7 +559,7 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 			macroOptOutWarned = true
 		}
 		if o.Comments {
-			if err := batch.WriteConfluenceComments(dir, slug, page, refs, confluenceCommentsSidecarV2(commentInventory), comments, commentsTruncated, mdOpts); err != nil {
+			if err := batch.WriteConfluenceComments(dir, slug, page, refs, *commentSidecar, comments, commentsTruncated, mdOpts); err != nil {
 				return res, fmt.Errorf("write %s: %w", id, err)
 			}
 		} else if err := batch.WriteView(dir, slug, page, refs, mdOpts); err != nil {
@@ -630,6 +640,36 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 	return res, nil
 }
 
+// preflightConfluencePullViewMigrations preserves ordinary pull's established
+// ability to regenerate a current derived view while applying the strict dual
+// reconstruction proof to any older format before it can be migrated.
+func preflightConfluencePullViewMigrations(m *mirror.Mirror, ids []string) error {
+	for _, id := range ids {
+		state, ok, err := m.SyncStateOf(id)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		mdPath := strings.TrimSuffix(filepath.Join(m.Root, filepath.FromSlash(state.Path)), ".csf") + ".md"
+		actual, err := safepath.ReadFileWithin(m.Root, mdPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				_, err = preflightConfluenceOverwrite(m, []string{id})
+			}
+			return err
+		}
+		if mirror.ConfluenceDocumentMarkerLine(string(actual)) == mirror.ConfluenceDocumentMarker {
+			continue
+		}
+		if _, err := preflightConfluenceOverwrite(m, []string{id}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // planConfluencePageRelocation reconstructs the exact recorded pristine view
 // at a page's old tracked path. This keeps mirror's filesystem primitive
 // backend-neutral while letting it reject both native and unapplied Markdown
@@ -664,25 +704,30 @@ func planConfluencePageRelocation(m *mirror.Mirror, id, newRel string) (*mirror.
 	dir := filepath.Dir(oldCSF)
 	slug := strings.TrimSuffix(filepath.Base(oldCSF), ".csf")
 	md := []byte(mirror.MDUnavailableStub)
+	legacyMD := bytes.Replace(md, []byte(mirror.ConfluenceDocumentMarker), []byte(mirror.ConfluenceDocumentMarkerV4), 1)
 	if node, parseErr := csf.Parse(base); parseErr == nil {
 		opts := mirror.MDViewOpts{}
+		legacyOpts := opts
 		if hasView {
 			comments, commentErr := readCommentsSidecar(m.Root, dir, slug, lc.Meta.ID, lc.Meta.Version)
 			if commentErr != nil {
 				return nil, fmt.Errorf("%w: Confluence comments sidecar cannot reproduce relocation source: %v", domain.ErrCheckFailed, commentErr)
 			}
-			opts, err = confMDViewOptsFromSidecars(settingsFromViewState(view), confPageFromMeta(lc.Meta), comments, m.Root, dir, slug, lc.Meta.ID, node)
+			renderSettings := settingsFromViewState(view)
+			opts, err = confMDViewOptsFromSidecars(renderSettings, confPageFromMeta(lc.Meta), comments, m.Root, dir, slug, lc.Meta.ID, node)
 			if err != nil {
 				return nil, fmt.Errorf("%w: Jira macro enrichment sidecar cannot reproduce relocation source: %v; remove only the generated .jira-macros.json sidecar, then run `conf pull`", domain.ErrCheckFailed, err)
 			}
+			legacyOpts = legacyConfluenceCommentMDViewOpts(opts, renderSettings, comments)
 		}
 		md = mirror.RenderMarkdownOpts(node, lc.Meta.Refs, opts)
+		legacyMD = renderLegacyConfluenceMarkdown(node, lc.Meta.Refs, legacyOpts)
 	}
 	actualMD, err := safepath.ReadFileWithin(m.Root, oldBase+".md")
 	if err != nil {
 		return nil, fmt.Errorf("%w: inspect tracked relocation Markdown %s: %v", domain.ErrCheckFailed, oldBase+".md", err)
 	}
-	migrates, matchErr := matchConfluencePristineView(actualMD, md)
+	migrates, matchErr := matchConfluencePristineView(actualMD, md, legacyMD)
 	if matchErr != nil {
 		return nil, fmt.Errorf("%w: tracked relocation page %s %v", domain.ErrCheckFailed, id, matchErr)
 	}
@@ -1088,9 +1133,9 @@ func (s *ConfluenceService) refreshConfluenceMirror(ctx context.Context, m *mirr
 	comments, commentErr := readCommentsSidecar(m.Root, dir, slug, page.ID, page.Version)
 	if commentErr != nil {
 		warning = appendWarning(warning, verb+"; existing comment view is stale or unreadable and was omitted — re-pull with --comments to refresh it")
-		comments = nil
+		comments = confluenceCommentsView{}
 	}
-	mdOpts := confMDViewOpts(refreshRS, page, comments)
+	mdOpts := confMDViewOptsForCommentsView(refreshRS, page, comments)
 	if pageNode != nil {
 		if len(mirror.JiraMacroDescriptors(pageNode)) == 0 {
 			sidecarPath := confluenceJiraMacroPath(dir, slug)
@@ -1110,7 +1155,7 @@ func (s *ConfluenceService) refreshConfluenceMirror(ctx context.Context, m *mirr
 				if removeErr := writeConfluenceJiraMacroSidecar(m.Root, dir, slug, nil); removeErr != nil {
 					return appendWarning(warning, verb+" but obsolete Jira macro view state could not be retired; local files were preserved (remove only the generated .jira-macros.json sidecar, then run `conf pull`): "+removeErr.Error())
 				}
-				mdOpts = confMDViewOpts(refreshRS, page, comments)
+				mdOpts = confMDViewOptsForCommentsView(refreshRS, page, comments)
 				warning = appendWarning(warning, verb+"; Jira query results were retired because the native macro set changed — re-pull to resolve current macros")
 			} else {
 				return appendWarning(warning, verb+" but Jira macro view state could not be reproduced; local files were preserved (remove only the generated .jira-macros.json sidecar, then run `conf pull`): "+sidecarErr.Error())

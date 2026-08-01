@@ -119,8 +119,9 @@ func TestPageRelocationClassifiesCRLFMarkerWithoutChangingBodySemantics(t *testi
 		name, marker, want string
 	}{
 		{"current", ConfluenceDocumentMarker, "unapplied Markdown edits"},
-		{"legacy", "<!-- atl:document confluence-page v2 -->", "legacy document format"},
-		{"future", "<!-- atl:document confluence-page v99 -->", "unsupported format marker"},
+		{"legacy", ConfluenceDocumentMarkerV4, "legacy document format"},
+		{"unsupported historical", "<!-- atl:document confluence-page v2 -->", "unsupported historical format marker"},
+		{"future", "<!-- atl:document confluence-page v99 -->", "unsupported future format marker"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

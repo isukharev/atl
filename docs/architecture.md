@@ -101,9 +101,10 @@ the same adapter instance across several capability fields (as
 - `QualifiedConfluenceCommentReader` — returns the Confluence-specific,
   source-qualified footer/inline/resolved inventory without changing the
   generic flat `DocStore.ListComments` compatibility. Comment-enabled pulls
-  persist the qualified read model through a strict versioned mirror codec;
-  historical flat sidecars remain read-compatible and comment bytes stay out
-  of page hashes and writeback baselines.
+  persist the qualified read model through a strict versioned mirror codec and
+  render a deterministic read-only tree in the main page view. Historical flat
+  sidecars remain read-compatible and comment bytes stay out of page hashes and
+  writeback baselines.
 - `Agile` (`Boards`/`Board`/`Sprints`/`Sprint`/`SprintIssues`/
   `MoveIssuesToSprint`/`MoveIssuesToBacklog`) — Jira Software boards & sprints
   over the Data Center Agile API `/rest/agile/1.0/`. Requires GreenHopper, so a
@@ -276,8 +277,10 @@ mirror/
     ancestor-title/
       page-title/
         page-title.csf        ← source of truth (verbatim CSF bytes)
-        page-title.md         ← read-view (best-effort; lossy by design)
+        page-title.md         ← v5 read-view; may include a qualified comment tree
         page-title.meta.json  ← id, title, version, content_hash, fragments
+        page-title.comments.json ← schema-v2 qualified comment evidence
+        page-title.comments.md   ← flat compatibility projection
         page-title.assets/
           diagram-name.png    ← resolved draw.io PNG (with --assets)
           photo.jpg           ← resolved inline image (with --assets)
@@ -313,6 +316,14 @@ mirror/
   failed `.md` write falls back to removing the stale file. How the
   CSF→Markdown view is tested and how to extend its coverage:
   [docs/csf-markdown-testing.md](csf-markdown-testing.md).
+- Qualified schema-v2 comments render into the main `.md` as a deterministic
+  tree with explicit location/state, completeness, safe anchor labels, and an
+  unattached section for unproven ancestry. Safe generic diagnostics may be
+  projected without identifiers; authoritative structured evidence stays in
+  `.comments.json`, while `.comments.md` remains flat compatibility.
+  The v5 format migrates pristine v4 views only after exact reconstruction;
+  dirty v4, older historical, unversioned, and future views are preserved and
+  refused.
 - `LoadCSF(path)` — reads a `.csf` file, its `.meta.json`, and the sidecar
   entry; computes `Dirty = currentHash != syncedHash`.
 - `ListCSF()` — walks the tree (skipping `.atl/`), loads every `.csf`, sorts

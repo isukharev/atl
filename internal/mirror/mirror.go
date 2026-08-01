@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -25,7 +26,8 @@ import (
 // silently contradicting the source of truth. Exported so apply can uphold
 // the same invariant after a merge.
 const (
-	ConfluenceDocumentMarker     = "<!-- atl:document confluence-page v4 -->"
+	ConfluenceDocumentMarkerV4   = "<!-- atl:document confluence-page v4 -->"
+	ConfluenceDocumentMarker     = "<!-- atl:document confluence-page v5 -->"
 	ConfluencePageFieldsMarker   = "<!-- atl:section page-fields readonly -->"
 	ConfluenceBodyMarker         = "<!-- atl:section body editable -->"
 	ConfluenceBodyReadOnlyMarker = "<!-- atl:section body readonly -->"
@@ -34,6 +36,34 @@ const (
 	ConfluenceReservedPrefix     = "<!-- atl:"
 	MDUnavailableStub            = ConfluenceDocumentMarker + "\n" + ConfluenceBodyReadOnlyMarker + "\n# Content\n\n<!-- atl: markdown view unavailable for this revision (the .csf did not parse); the .csf file is the source of truth -->\n"
 )
+
+// IsSupportedLegacyConfluenceDocumentMarker reports the exact historical
+// derived-view markers that this binary can reconstruct before a guarded
+// migration to the current format.
+func IsSupportedLegacyConfluenceDocumentMarker(marker string) bool {
+	return marker == ConfluenceDocumentMarkerV4
+}
+
+// IsFutureConfluenceDocumentMarker distinguishes a marker produced by a newer
+// atl from historical formats this binary intentionally refuses to guess.
+func IsFutureConfluenceDocumentMarker(marker string) bool {
+	version := confluenceDocumentMarkerVersion(marker)
+	current := confluenceDocumentMarkerVersion(ConfluenceDocumentMarker)
+	return version > 0 && current > 0 && version > current
+}
+
+func confluenceDocumentMarkerVersion(marker string) int {
+	const prefix = "<!-- atl:document confluence-page v"
+	const suffix = " -->"
+	if !strings.HasPrefix(marker, prefix) || !strings.HasSuffix(marker, suffix) {
+		return 0
+	}
+	version, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(marker, prefix), suffix))
+	if err != nil {
+		return 0
+	}
+	return version
+}
 
 // ConfluenceDocumentMarkerLine returns only the first marker line and removes
 // a CR attached to its line ending. All remaining Markdown bytes stay
@@ -432,9 +462,43 @@ func (b *SyncBatch) WriteConfluenceComments(dir, slug string, page *domain.Resou
 	display = orderCommentProjection(canonical.Comments, display)
 	mdOpts.Comments = orderCommentProjection(canonical.Comments, mdOpts.Comments)
 	mdOpts.CommentView = orderCommentProjection(canonical.Comments, mdOpts.CommentView)
+	if mdOpts.QualifiedComments != nil {
+		displayCanonical, displayErr := qualifiedCommentsDisplayTimes(canonical, *mdOpts.QualifiedComments)
+		if displayErr != nil {
+			return displayErr
+		}
+		mdOpts.Comments = nil
+		mdOpts.QualifiedComments = &displayCanonical
+	}
 	return b.write(dir, slug, page, refs, &commentSidecar{
 		encoded: encoded, display: display, v2: &canonical, truncated: truncated,
 	}, mdOpts)
+}
+
+// qualifiedCommentsDisplayTimes retains canonical sidecar ordering and content
+// while applying the app-layer display timezone to temporal labels in the
+// derived Markdown view. The authoritative JSON bytes stay untouched.
+func qualifiedCommentsDisplayTimes(canonical, display ConfluenceCommentsSidecarV2) (ConfluenceCommentsSidecarV2, error) {
+	if display.PageID != canonical.PageID || display.PageVersion != canonical.PageVersion || len(display.Comments) != len(canonical.Comments) {
+		return ConfluenceCommentsSidecarV2{}, fmt.Errorf("%w: qualified Confluence comment view does not match its canonical sidecar", domain.ErrCheckFailed)
+	}
+	times := make(map[string][2]string, len(display.Comments))
+	for _, comment := range display.Comments {
+		if _, duplicate := times[comment.ID]; duplicate {
+			return ConfluenceCommentsSidecarV2{}, fmt.Errorf("%w: qualified Confluence comment view contains duplicate identities", domain.ErrCheckFailed)
+		}
+		times[comment.ID] = [2]string{comment.CreatedAt, comment.UpdatedAt}
+	}
+	out := canonicalConfluenceCommentsSidecarV2(canonical)
+	for i := range out.Comments {
+		displayTimes, ok := times[out.Comments[i].ID]
+		if !ok {
+			return ConfluenceCommentsSidecarV2{}, fmt.Errorf("%w: qualified Confluence comment view identity does not match its canonical sidecar", domain.ErrCheckFailed)
+		}
+		out.Comments[i].CreatedAt = displayTimes[0]
+		out.Comments[i].UpdatedAt = displayTimes[1]
+	}
+	return out, nil
 }
 
 func orderCommentProjection(order []ConfluenceCommentsSidecarComment, comments []domain.Comment) []domain.Comment {

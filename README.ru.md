@@ -68,7 +68,11 @@ workflow читать их целиком не нужно.
 точный корневой тред; недостающие ancestry или markers остаются явным partial
 evidence.
 `conf pull --comments` сохраняет эту квалификацию в versioned sidecar зеркала;
-старые плоские sidecar читаются, а comments не влияют на drift страницы.
+основной `.md` страницы показывает детерминированное read-only дерево с явными
+location/state, полнотой, безопасно квалифицированными anchors и непривязанными
+записями. Schema-v2 `.comments.json` остаётся исходным evidence, включая
+закрытые diagnostics, а `.comments.md` — плоским compatibility view; старые
+плоские sidecar читаются, и comments не влияют на drift страницы.
 
 ## Установка
 

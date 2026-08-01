@@ -173,6 +173,12 @@ write command after explicit approval.
   exact proven subtree. Missing ancestry or marker evidence stays partial;
   never infer it from response order or prose. `--legacy-flat` is temporary
   compatibility only, not a route for new automation.
+  With `conf pull --comments`, treat `.comments.json` as schema-v2 source
+  evidence. The main v5 `.md` contains the deterministic qualified read-only
+  tree; `.comments.md` remains flat compatibility. Never edit either generated
+  comment view or infer current anchor text unless a matched observed selection
+  is explicitly labelled current. Unattached entries are not proven replies;
+  inspect closed diagnostics in the JSON sidecar when needed.
 - Durable pull, complete/incremental sync, render migration, prefetch/rate
   controls: [sync.md](reference/sync.md).
 - Ordinary Markdown body edit, apply/diff, multi-page plan, and push sequence:
@@ -247,9 +253,10 @@ or discard the output, and do not publish until the baseline is repaired.
 
 - Keep one mirror root and one body surface for the complete cycle. Never mix
   unapplied `.md` edits with direct `.csf` edits.
-- Require the current `<!-- atl:document confluence-page v4 -->` marker before
-  Markdown apply. Preserve edited legacy/future views outside `.md` before any
-  render; update atl for a future marker, never downgrade it.
+- Require the current `<!-- atl:document confluence-page v5 -->` marker before
+  Markdown apply. Only pristine v4 views migrate by exact reconstruction;
+  preserve and refuse dirty v4, older historical, unversioned, and future
+  views. Update atl for a future marker; never downgrade it.
 - Generated metadata, comments, Jira query tables, `.meta.json`, and `.atl`
   state are readonly. Use dedicated operations or re-pull.
 - Validate, review dry-runs, and write the exact bytes/hash reviewed. Never

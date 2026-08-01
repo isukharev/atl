@@ -31,6 +31,16 @@ func renderMarkdownHeadingOffset(root *csf.Node, refs []domain.Ref, headingOffse
 
 func renderCommentMarkdown(root *csf.Node) string {
 	r := newMDRendererOffset(nil, 2)
+	return renderCommentMarkdownWithRenderer(root, r)
+}
+
+func renderQualifiedCommentMarkdown(root *csf.Node, parentHeading int) string {
+	r := newMDRendererOffset(nil, parentHeading)
+	r.headingOverflowAsStrong = true
+	return renderCommentMarkdownWithRenderer(root, r)
+}
+
+func renderCommentMarkdownWithRenderer(root *csf.Node, r *mdRenderer) string {
 	var b strings.Builder
 	forEachBlockNode(root, func(n *csf.Node) {
 		if code, ok := commentCodeTable(n); ok {
@@ -147,11 +157,12 @@ func markdownFence(content string) string {
 // layer assembles these from the page metadata and, for Comments, the
 // `<slug>.comments.json` sidecar (absent → nil → the section is skipped).
 type MDViewOpts struct {
-	PageFields  []PageField
-	Comments    []domain.Comment
-	CommentView []domain.Comment
-	JiraMacros  []JiraMacroView
-	ReadOnly    bool
+	PageFields        []PageField
+	Comments          []domain.Comment
+	QualifiedComments *ConfluenceCommentsSidecarV2
+	CommentView       []domain.Comment
+	JiraMacros        []JiraMacroView
+	ReadOnly          bool
 }
 
 // PageField is one already-resolved, read-only Confluence metadata value. The
@@ -201,7 +212,9 @@ func RenderMarkdownViewParts(root *csf.Node, refs []domain.Ref, opts MDViewOpts)
 		}
 		suffix = generated.String()
 	}
-	if len(opts.Comments) > 0 {
+	if opts.QualifiedComments != nil {
+		suffix += "\n" + ConfluenceCommentsMarker + "\n" + string(RenderQualifiedCommentsMarkdown(opts.QualifiedComments))
+	} else if len(opts.Comments) > 0 {
 		suffix += "\n" + ConfluenceCommentsMarker + "\n" + string(RenderCommentsMarkdown(opts.Comments))
 	}
 	// RenderMarkdownOpts applies TrimRight(whole, "\n")+"\n" to the concatenation.
@@ -315,9 +328,10 @@ func safeMarkerID(s string) string {
 }
 
 type mdRenderer struct {
-	refs           map[string]domain.Ref
-	headingOffset  int
-	escapeHTMLText bool
+	refs                    map[string]domain.Ref
+	headingOffset           int
+	headingOverflowAsStrong bool
+	escapeHTMLText          bool
 }
 
 func newMDRenderer(refs []domain.Ref) *mdRenderer {
@@ -351,7 +365,12 @@ func (r *mdRenderer) block(b *strings.Builder, n *csf.Node) {
 	}
 	switch {
 	case isHeading(n.Name):
-		level := min(6, int(n.Name.Local[1]-'0')+r.headingOffset)
+		level := int(n.Name.Local[1]-'0') + r.headingOffset
+		if level > 6 && r.headingOverflowAsStrong {
+			fmt.Fprintf(b, "**%s**\n\n", r.inline(n))
+			return
+		}
+		level = min(6, level)
 		fmt.Fprintf(b, "%s %s\n\n", strings.Repeat("#", level), r.inline(n))
 	case n.Name.Local == "p" && n.Name.Space == "":
 		// Confluence routinely wraps a single block macro in <p>; route it to

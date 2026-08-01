@@ -72,7 +72,7 @@ func isOpaqueInline(n *csf.Node) bool {
 	switch {
 	case n.Name.Space == "ac":
 		switch n.Name.Local {
-		case "link", "image", "structured-macro", "macro":
+		case "link", "image", "structured-macro", "macro", "inline-comment-marker":
 			return true
 		}
 	case n.Name.Space == "ri" && n.Name.Local == "user":

@@ -268,8 +268,8 @@ func addConfluenceJiraMacrosFromSidecar(opts *mirror.MDViewOpts, root, dir, slug
 // fields, and Jira-query snapshots together prevents one writer path from
 // accidentally emitting a different pristine prefix/suffix than apply later
 // reconstructs.
-func confMDViewOptsFromSidecars(rs RenderSettings, page *domain.Resource, comments []domain.Comment, root, dir, slug, pageID string, node *csf.Node) (mirror.MDViewOpts, error) {
-	opts := confMDViewOpts(rs, page, comments)
+func confMDViewOptsFromSidecars(rs RenderSettings, page *domain.Resource, comments confluenceCommentsView, root, dir, slug, pageID string, node *csf.Node) (mirror.MDViewOpts, error) {
+	opts := confMDViewOptsForCommentsView(rs, page, comments)
 	if len(mirror.JiraMacroDescriptors(node)) == 0 {
 		// A sidecar cannot be meaningful once the native page contains no Jira
 		// query macro. Ignore that generated orphan without mutating here: this
