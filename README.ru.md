@@ -216,7 +216,10 @@ version conflict даёт код `5`: сделайте re-pull и reapply, не 
 read-only команду `conf comment preview`, затем повторите точное native-CSF body
 через `conf comment add --apply --expected-proposal-hash ...`. Команда `add` по
 умолчанию выполняет dry-run, но остаётся mutating-classified; она создаёт только
-footer root и не повторяет неоднозначный POST. Jira-команды записи используют
+footer root и не повторяет неоднозначный POST. Для существующих inline threads
+есть exact-pinned цикл `conf comment mutation preview|apply` для reply,
+resolve и reopen; создание нового inline anchor остаётся отдельной функцией.
+Jira-команды записи используют
 тот же принцип проверенного baseline. Подробнее —
 [safe-write guide](docs/safe-writes.md).
 

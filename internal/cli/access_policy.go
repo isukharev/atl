@@ -56,6 +56,7 @@ conf attachment delete
 conf attachment upload
 conf blog create
 conf comment add
+conf comment mutation apply
 conf edit
 conf page copy
 conf page create
@@ -113,6 +114,8 @@ conf attachment upload
 conf blog create
 conf comment add
 conf comment list
+conf comment mutation apply
+conf comment mutation preview
 conf comment preview
 conf comment thread
 conf diff

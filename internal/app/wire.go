@@ -32,9 +32,11 @@ type ConfluenceService struct {
 	jiraReadFactory func() (domain.Tracker, string)
 	jiraReadOnce    sync.Once
 	// jiraReadReason is deliberately coarse and URL-free for render warnings.
-	jiraReadReason     string
-	requestMaxInFlight int
-	requestsPerSecond  int
+	jiraReadReason            string
+	requestMaxInFlight        int
+	requestsPerSecond         int
+	commentMutator            domain.ConfluenceCommentMutator
+	commentMutationActivation *compatibility.Activation
 }
 
 // JiraService bundles the Jira use-cases over a Tracker. agile and structure are
@@ -101,6 +103,28 @@ func newDoctorServerMetadataReader(service, rawURL, token, clientVersion string)
 // NewConfluence wires the Confluence adapter from config + PAT.
 func NewConfluence(cfg *config.Config, version string) (*ConfluenceService, error) {
 	return NewConfluenceScheduled(cfg, version, 0, 0)
+}
+
+// NewConfluenceCommentMutations constructs the explicitly activated mutation
+// surface without making ordinary Confluence commands load compatibility
+// settings or fail because those optional owner-private settings are invalid.
+func NewConfluenceCommentMutations(cfg *config.Config, version string, activation compatibility.Activation) (*ConfluenceService, error) {
+	service, err := NewConfluence(cfg, version)
+	if err != nil {
+		return nil, err
+	}
+	cf, ok := service.store.(*confluence.Confluence)
+	if !ok {
+		return nil, fmt.Errorf("%w: Confluence compatibility adapter is unavailable", domain.ErrConfig)
+	}
+	provider, err := confluence.NewCommentMutationProvider(cf, activation)
+	if err != nil {
+		return nil, err
+	}
+	service.commentMutator = provider
+	activationCopy := activation
+	service.commentMutationActivation = &activationCopy
+	return service, nil
 }
 
 // NewConfluenceScheduled wires one request scheduler through Confluence and

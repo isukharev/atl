@@ -152,13 +152,15 @@ func TestCapabilitiesResourceKeepsCommentRoutesClosedAndSchemaV1(t *testing.T) {
 			got = append(got, entry)
 		}
 	}
-	if len(got) != 4 {
-		t.Fatalf("comment routes=%d want=4: %+v", len(got), got)
+	if len(got) != 6 {
+		t.Fatalf("comment routes=%d want=6: %+v", len(got), got)
 	}
 	if got[0].ID != "confluence.comment.list" || got[0].MCPTool != "confluence_comment_list" || got[0].CLIOnly ||
 		got[1].ID != "confluence.comment.thread" || got[1].MCPTool != "confluence_comment_thread" || got[1].CLIOnly ||
 		got[2].ID != "confluence.comment.preview" || !got[2].CLIOnly || got[2].MCPTool != "" ||
-		got[3].ID != "confluence.comment.add" || !got[3].CLIOnly || got[3].MCPTool != "" {
+		got[3].ID != "confluence.comment.add" || !got[3].CLIOnly || got[3].MCPTool != "" ||
+		got[4].ID != "confluence.comment.mutation.preview" || !got[4].CLIOnly || got[4].MCPTool != "" ||
+		got[5].ID != "confluence.comment.mutation.apply" || !got[5].CLIOnly || got[5].MCPTool != "" {
 		t.Fatalf("comment routes are not closed: %+v", got)
 	}
 }
