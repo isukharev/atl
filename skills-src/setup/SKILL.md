@@ -2,7 +2,7 @@
 name: setup
 description: Install and configure atl authentication, backends, and mirror defaults. USE WHEN the user explicitly requests install, authentication, setup repair, or {{atl.setup_cmd}}. DO NOT USE WHEN handling normal Jira, Confluence, search, reporting, or mirror work; explicit-only.
 disable-model-invocation: true
-allowed-tools: Bash(command -v atl) Bash(atl version) Bash(brew install *) Bash(brew upgrade *) Bash(curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | sh) Bash(go install *) Bash(go env *) Bash(echo *) Bash(atl config show) Bash(atl config set *) Bash(atl auth status) Bash(atl auth login *) Bash(atl conf search *) Bash(atl conf status *) Bash(atl jira fields *) Bash(atl jira status *)
+allowed-tools: Bash(command -v atl) Bash(atl version) Bash(brew install *) Bash(brew upgrade *) Bash(curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | sh) Bash(go install *) Bash(go env *) Bash(echo *) Bash(atl config show) Bash(atl config set *) Bash(atl compatibility status *) Bash(atl compatibility pin *) Bash(atl compatibility clear *) Bash(atl auth status) Bash(atl auth login *) Bash(atl conf search *) Bash(atl conf status *) Bash(atl jira fields *) Bash(atl jira status *)
 ---
 
 # Set up the atl CLI
@@ -154,6 +154,14 @@ atl doctor
 and emits no configured URL/hostname, path, identity, token, or mirror content.
 If it exits `8`, inspect its emitted `problems[]`; do not paste `config show`
 into public chat or an issue.
+
+**Optional exact compatibility provider.** Do not enable one during ordinary
+setup. When the owner explicitly needs a provider-specific Data Center
+workflow, inspect `atl compatibility status`, review the exact owner-pinned
+version/build, then run `compatibility pin` and `compatibility status --remote`.
+A nearby patch is unsupported; never substitute a version range or arbitrary
+REST fallback. `pin` and `clear` are persistent local mutations and require
+explicit write authority.
 
 ## 5. Agree on the mirror directory
 

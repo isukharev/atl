@@ -544,6 +544,37 @@ Any error-severity `problems[]` entry makes `healthy:false`; the complete result
 is emitted before the command returns check-failed exit `8`. `-o id` is not
 supported.
 
+### `atl compatibility status|pin|clear`
+
+Manage the opt-in exact-build activation used by client-side Data Center
+compatibility providers. This state is separate from `config.json`, so an older
+binary or unrelated `config set` cannot erase or rewrite it:
+
+```sh
+atl compatibility status
+atl compatibility pin confluence \
+  --version "$ATL_CONFLUENCE_VERSION" \
+  --build-number "$ATL_CONFLUENCE_BUILD_NUMBER"
+atl compatibility status --remote
+atl compatibility clear confluence
+```
+
+`status` is offline by default. With `--remote`, it makes one single-attempt
+exact identity probe. A legacy Confluence whose modern metadata route returns a
+typed 404 uses one bounded same-origin HTML-head read and projects only numeric
+version/build metadata. Redirects and retries are disabled and verbose request
+identity is redacted.
+
+`pin` explicitly binds a compiled protocol profile to an exact three-component
+version and decimal build. It writes owner-only `compatibility.json`; there is
+no version range, arbitrary provider id, URL, endpoint, header, auth override,
+payload template, or downloaded manifest. `clear` disables the provider.
+
+Closed status values are `disabled`, `configured`, `unsupported`,
+`unavailable`, `mismatch`, and `matched`. Only `matched` sets `qualified:true`.
+This qualifies provider identity only; it does not alter ordinary product
+compatibility and does not imply that a mutation command exists.
+
 ### `atl environment inspect`
 
 Use one explicit diagnostic when a workflow depends on date boundaries or when

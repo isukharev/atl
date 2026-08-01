@@ -19,18 +19,35 @@ When an older Confluence lacks that route, one bodyless HEAD may qualify REST
 reachability only; compatibility remains unverified without a version. A
 healthy result does not certify every product feature or Marketplace app.
 
+Version-pinned compatibility providers are a separate opt-in boundary for
+reviewed product-UI protocols that are not part of the documented public REST
+surface. Inspect them independently:
+
+```sh
+atl compatibility status
+atl compatibility status --remote
+```
+
+The provider settings live in owner-only `compatibility.json`, separate from
+ordinary `config.json`. Enabling a provider explicitly binds a compiled protocol
+profile to one exact version and build; every remote use must match that private
+pin. Nearby patches are never inferred. The status probe accepts no custom
+endpoint, header, payload template, or provider download.
+
 ## Atlassian products
 
 | Product | Deployment/API | Authentication | Read | Mirror/diff | Reviewed write | Evidence and limits |
 |---|---|---|---|---|---|---|
 | Confluence | Server/Data Center REST API | Bearer PAT | Supported | Supported, native `.csf` | Supported with validation and page version gate | Automated adapter/CLI contracts on Linux and macOS plus bounded maintainer live checks; no public per-version certification yet |
+| Confluence inline-comment Data Center profile 1 | One owner-pinned exact build | Same host-scoped PAT | Qualification only in the identity/pin phase | No additional mirror format | Mutation commands are delivered separately | Explicit owner-only activation; fail-closed on exact identity mismatch, with no range or arbitrary REST escape hatch |
 | Jira | Server/Data Center REST API v2 plus Agile API where required | Bearer PAT | Supported | Supported, native `.wiki` | Supported with fresh baseline/proposal gates | Automated adapter/CLI contracts on Linux and macOS plus bounded maintainer live checks; fields, workflows, and installed apps vary by deployment |
 | Jira Structure | Tempo Structure endpoints present on the configured Jira | Same Jira PAT | Read/export supported | No persistent graph/store | No Structure mutation surface | Capability depends on the installed Structure version and endpoint availability; qualify metadata before larger reads |
 | Atlassian Cloud | Cloud REST APIs | Cloud OAuth or email/API-token models | Not supported | Not supported | Not supported | An HTTPS Cloud URL is not rejected at config time, but Cloud API/auth behavior is outside the contract; `atl` does not map Server/DC native formats to ADF |
 
-Exact tested private deployment versions and content are not published. Until a
-public version-family fixture is contributed, treat unlisted vendor versions
-as compatibility reports to validate, not as certified targets.
+Private deployment identity and content are not published. A protocol profile
+does not imply support for adjacent vendor builds: its owner-only activation is
+bound to exactly one observed identity and must be requalified explicitly after
+an upgrade.
 
 ## Operating systems and distribution
 

@@ -449,6 +449,35 @@ and parse stdout even when the process exits non-zero. A stdout write failure
 is joined with the check failure so neither cause is hidden. `-o text` preserves
 the same facts; `-o id` is rejected in root preflight.
 
+### Exact compatibility-provider status
+
+`atl compatibility status` returns schema v1:
+
+```json
+{
+  "schema_version": 1,
+  "service": "confluence",
+  "remote_requested": false,
+  "status": "disabled",
+  "reason": "not_configured",
+  "qualified": false
+}
+```
+
+`configured` is present when a syntactically valid pin exists. `observed` is
+present only after a remote response passes the closed product/version/build
+grammar. `provider_id` and `provider_family` are compile-time literals and are
+present only when an owner-only exact activation names a compiled profile.
+`status` is one of `disabled`,
+`configured`, `unsupported`, `unavailable`, `mismatch`, or `matched`; `reason`
+is a closed content-free classifier. Only exact configured/observed equality
+sets `status:"matched"` and `qualified:true`.
+
+The report never contains a configured URL/hostname, endpoint path, token,
+response body, title, object identity, or raw transport error. Ordinary product
+compatibility remains independent. `pin` and `clear` return the same offline
+shape after owner-only local persistence; neither contacts a backend.
+
 ---
 
 ## Sentinel → exit-code matrix

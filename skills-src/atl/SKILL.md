@@ -33,6 +33,11 @@ service, with one additional bodyless Confluence reachability HEAD only after a
 missing version route, and never reads content or identities. Treat emitted error-severity
 `problems[]` as a stop signal even though the qualified report remains on
 stdout.
+For an explicitly requested version-pinned Data Center workflow, qualify its
+separate fail-closed boundary with `atl compatibility status --remote`; never
+infer support from ordinary `doctor`, a nearby patch, or an HTTP error shape.
+Compatibility providers accept no arbitrary endpoint/header/payload overrides
+and are not MCP routes.
 
 For an unfamiliar Jira/Confluence task, query the exact offline route before
 loading broad command references:

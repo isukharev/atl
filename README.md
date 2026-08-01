@@ -145,6 +145,20 @@ reported as unverified compatibility. Blocking findings still emit the
 qualified report and exit `8`. JSON is the default output. Continue with the
 [five-minute guide](docs/getting-started.md).
 
+Experimental Data Center compatibility providers are disabled separately and
+never selected by version range:
+
+```sh
+atl compatibility status
+atl compatibility pin confluence \
+  --version "$ATL_CONFLUENCE_VERSION" \
+  --build-number "$ATL_CONFLUENCE_BUILD_NUMBER"
+atl compatibility status --remote
+```
+
+The owner-only pin is separate from ordinary `config.json` and cannot provide
+custom endpoints, headers, payloads, or a fallback REST route.
+
 ## Three primary workflows
 
 ### 1. Read narrow

@@ -11,6 +11,7 @@ import (
 	"github.com/isukharev/atl/internal/adapter/confluence"
 	"github.com/isukharev/atl/internal/adapter/jira"
 	"github.com/isukharev/atl/internal/auth"
+	"github.com/isukharev/atl/internal/compatibility"
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/httpx"
@@ -61,6 +62,29 @@ type EnvironmentService struct {
 	confluenceTime  domain.ConfluenceTimeSemanticsReader
 	jiraSetup       string
 	confluenceSetup string
+}
+
+// NewCompatibility wires the optional exact product-identity reader lazily so
+// offline status and disabled settings need neither credentials nor network.
+func NewCompatibility(cfg *config.Config, settings compatibility.Settings, version string) *CompatibilityService {
+	service := &CompatibilityService{settings: settings}
+	service.confluenceFactory = func() (domain.ExactServerMetadataReader, string) {
+		if cfg == nil || cfg.ConfluenceURL == "" {
+			return nil, "backend_not_configured"
+		}
+		if err := config.CheckSecureURL(cfg.ConfluenceURL); err != nil {
+			return nil, "invalid_configuration"
+		}
+		token, err := auth.Token(auth.Confluence)
+		if err != nil {
+			if errors.Is(err, auth.ErrNoToken) {
+				return nil, "credentials_missing"
+			}
+			return nil, "credentials_unavailable"
+		}
+		return confluence.New(cfg.ConfluenceURL, token, version), ""
+	}
+	return service
 }
 
 func newDoctorServerMetadataReader(service, rawURL, token, clientVersion string) domain.ServerMetadataReader {

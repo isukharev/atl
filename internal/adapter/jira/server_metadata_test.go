@@ -86,6 +86,43 @@ func TestServerMetadataMalformedJSONFails(t *testing.T) {
 	}
 }
 
+func TestServerMetadataProjectsNumericAndQuotedBuildNumbers(t *testing.T) {
+	for name, raw := range map[string]string{"numeric": `812000`, "quoted": `"812001"`} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(`{"deploymentType":"Data Center","version":"9.12.1","buildNumber":` + raw + `}`))
+			}))
+			defer srv.Close()
+			got, err := newTestJira(srv).ExactServerMetadata(domain.WithSingleAttempt(context.Background()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.BuildNumber != strings.Trim(raw, `"`) {
+				t.Fatalf("build = %q, raw %s", got.BuildNumber, raw)
+			}
+		})
+	}
+}
+
+func TestOrdinaryServerMetadataIgnoresMalformedBuildButExactPathRejectsIt(t *testing.T) {
+	for _, raw := range []string{`1.5`, `-1`, `"12x"`, `"123456789012345678901"`} {
+		t.Run(raw, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(`{"version":"9.12.1","buildNumber":` + raw + `}`))
+			}))
+			defer srv.Close()
+			adapter := newTestJira(srv)
+			metadata, err := adapter.ServerMetadata(domain.WithSingleAttempt(context.Background()))
+			if err != nil || metadata.BuildNumber != "" {
+				t.Fatalf("ordinary metadata = %+v, error = %v; want empty build without error", metadata, err)
+			}
+			if _, err := adapter.ExactServerMetadata(domain.WithSingleAttempt(context.Background())); !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("exact error = %v, want ErrCheckFailed", err)
+			}
+		})
+	}
+}
+
 func TestServerMetadataPreservesHTTPErrorMapping(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

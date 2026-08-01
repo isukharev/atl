@@ -66,6 +66,8 @@ conf page move
 conf page title set
 conf plan apply
 conf push
+compatibility clear
+compatibility pin
 config set
 jira apply
 jira issue assign
@@ -147,6 +149,9 @@ conf status
 conf table extract
 conf table summary
 conf validate
+compatibility clear
+compatibility pin
+compatibility status
 completion bash
 completion fish
 completion powershell
