@@ -1152,6 +1152,69 @@ and exact `comment_id`; proven absence is exit 4, while unprovable absence is
 exit 8. Explicit `--legacy-flat` retains the prior list shape temporarily and
 cannot be combined with schema-v2 filters or a page-version gate.
 
+`atl conf comment preview` is the read-only proposal surface. `atl conf comment
+add` emits the same dry-run by default but remains mutating-classified; only
+`--apply --expected-proposal-hash <hash>` can send one POST. Both use this exact
+top-level result shape (fields with `omitempty` are noted below):
+
+```json
+{
+  "schema_version": 1,
+  "page_id": "123",
+  "mode": "dry-run",
+  "status": "would_apply",
+  "comment_type": "footer",
+  "page_version": 7,
+  "body_sha256": "<sha256>",
+  "body_bytes": 18,
+  "actor": {"id":"<stable-actor-id>","display_name":"Example User"},
+  "capability": {
+    "provider": "public_rest",
+    "operation": "footer_root_create",
+    "write": "documented",
+    "readback": "documented",
+    "depth": "root"
+  },
+  "current_count": 2,
+  "baseline_sha256": "<sha256>",
+  "backend_sha256": "<sha256>",
+  "proposal_hash": "<sha256>",
+  "complete": true,
+  "warning": "non_idempotent_write_requires_single_attempt_and_reconciliation"
+}
+```
+
+The exact fields are `schema_version`, `page_id`, `mode`, `status`,
+`comment_type`, `page_version`, `body_sha256`, `body_bytes`, `actor`,
+`capability`, `current_count`, `baseline_sha256`, `backend_sha256`,
+`proposal_hash`, optional `created`, `complete`, optional `reconciled`, and
+`warning`. `actor` is exactly `{id,display_name}`; `capability` is exactly
+`{provider,operation,write,readback,depth}`. `created`, present only when a
+record is proven, uses the qualified comment record fields `id`, `page_id`,
+nullable `parent_id`/`root_id`, `relation`, `location`, `resolution`, `version`,
+`author`, `created_at`, `updated_at`, `body`, `body_storage`, and nullable
+`anchor`. `reconciled:true` is present only after complete readback succeeds. Text output is
+exactly `status`, `page_id`, `proposal_hash`, `body_sha256`, and `body_bytes`,
+one `key: value` line each.
+
+`mode` is `dry-run|apply`. The closed statuses are `would_apply`, `conflict`,
+`not_applied`, `applied`, `recovered`, and `outcome_unknown`. `applied` matches
+the returned identity to one exact new root; `recovered` proves exactly one new
+actor/body match after an unusable write response. `outcome_unknown` is an
+ambiguous-write exit: the POST may have committed, so it is never replay-safe.
+The `complete` and `reconciled` fields qualify the evidence available for that
+classification.
+
+The schema-v1 proposal hashes the configured backend identity, page id/version,
+comment type, exact body bytes plus SHA-256 and length, stable actor id,
+capability record, complete sorted footer-root baseline SHA-256, and current
+count. Stdout exposes only `backend_sha256`, never the backend identity. Input
+is non-empty valid UTF-8/native CSF and is accepted byte-exactly through 1 MiB
+(1,048,576 bytes). Apply recomputes and immediately revalidates the proposal,
+sends at most one single-attempt POST, then reconciles from a complete bounded
+root-only footer read. It cannot create replies or inline comments or change
+resolution; duplicate body text is not an idempotency key.
+
 With `--comments`, `<slug>.comments.json` is the authoritative versioned source
 evidence, using the same qualified comment records, completeness dimensions, capabilities,
 closed partial reasons, and diagnostics as the schema-v2 list contract. It also

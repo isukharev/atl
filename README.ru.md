@@ -191,8 +191,12 @@ atl conf push "$ATL_MIRROR_ROOT/SPACE/page/page.csf" --dry-run
 
 После проверки повторите точную guarded-команду без `--dry-run`. Confluence
 version conflict даёт код `5`: сделайте re-pull и reapply, не включайте
-`--force` автоматически. Jira-команды записи аналогично привязываются к свежим
-baseline/proposal hash и не повторяют неоднозначную запись. Подробнее —
+`--force` автоматически. Для нового комментария Confluence сначала используйте
+read-only команду `conf comment preview`, затем повторите точное native-CSF body
+через `conf comment add --apply --expected-proposal-hash ...`. Команда `add` по
+умолчанию выполняет dry-run, но остаётся mutating-classified; она создаёт только
+footer root и не повторяет неоднозначный POST. Jira-команды записи используют
+тот же принцип проверенного baseline. Подробнее —
 [safe-write guide](docs/safe-writes.md).
 
 ## Кодинг-агенты

@@ -187,8 +187,9 @@ echo '<p>Hello</p>' | atl conf page create --space DOCS --title "New page" \
 ```
 
 The defaults follow one rule: commands whose body is **required** default
-`--from-file` to `-` (stdin) — `conf page create`, `conf blog create`, `conf comment add`,
-`jira issue comment preview`, `jira issue comment add`; commands whose body is **optional** default to no
+`--from-file` to `-` (stdin) — `conf page create`, `conf blog create`, `conf comment
+preview`, `conf comment add`, `jira issue comment preview`, and `jira issue
+comment add`; commands whose body is **optional** default to no
 body — `jira issue create`, `jira issue update`, and the worklog comment on
 `jira issue worklog add`. When stdin is an
 interactive terminal (nothing piped), reading a body from it is refused with
@@ -2551,13 +2552,52 @@ inconsistent. Only a matched observed selection is labelled current; other
 anchor states may show the original selection only as reported. The separate
 `.comments.md` remains a best-effort flat compatibility projection.
 
-### `atl conf comment add`
+### `atl conf comment preview|add`
 
-Add a comment. Body is CSF.
+Safely create one root footer comment from exact native CSF. `preview` is a
+read-only command and works under `ATL_READ_ONLY=1`. `add` reconstructs the same
+proposal but remains classified as mutating even when its default dry-run sends
+no POST. Apply requires both `--apply` and the exact reviewed
+`--expected-proposal-hash`:
 
 ```bash
-echo '<p>LGTM.</p>' | atl conf comment add --id 12345678 --from-file -
+ATL_READ_ONLY=1 atl conf comment preview --id 12345678 --from-file comment.csf
+atl conf comment add --id 12345678 --from-file comment.csf # dry-run; mutating-classified
+atl conf comment add --id 12345678 --from-file comment.csf \
+  --apply --expected-proposal-hash <hash-from-preview>
 ```
+
+This replaces the former immediate-write behavior: existing automation must
+review a preview and pass both apply gates; invoking `add` without `--apply`
+never writes.
+
+The body must be non-empty valid UTF-8 and valid Confluence Storage Format,
+with a maximum size of exactly 1 MiB (1,048,576 bytes). Accepted bytes are
+preserved exactly; there is no Markdown conversion. The proposal binds the
+backend, resolved page id and version, stable current-user id, exact body and
+its length/hash, public-REST capability evidence, and a complete sorted
+root-only footer-comment baseline and count. It fails closed if current-user
+identity, page metadata, capability, comment completeness, thread completeness,
+or unique root identities cannot be proven.
+
+Apply rebuilds the proposal, checks the reviewed hash, revalidates it immediately
+before one non-retried POST, then performs complete readback reconciliation.
+`applied` means the returned identity matches one exact new record; `recovered`
+means one exact new actor/body match proves a commit despite an unusable write
+response. `conflict` and `not_applied` prove no accepted write from this attempt.
+`outcome_unknown` means the POST may have committed: retain the result, inspect
+fresh state, and never replay automatically. An identical existing body never
+makes append idempotent.
+
+This create surface supports footer root comments only. It cannot create a
+reply or inline comment, or set/change resolution.
+
+| flag | description |
+|---|---|
+| `--id` | page id or supported same-origin URL (required) |
+| `--from-file` | exact native-CSF body file or `-` for stdin (default stdin) |
+| `--apply` | `add` only: send one guarded POST (default is dry-run) |
+| `--expected-proposal-hash` | `add` only: exact reviewed hash, required with `--apply` |
 
 ---
 

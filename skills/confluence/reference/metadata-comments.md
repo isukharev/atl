@@ -101,7 +101,9 @@ atl conf validate <private-comment.csf>
 atl conf comment list --id <page-id>
 atl conf comment list --id <page-id> --location inline --state open --depth all
 atl conf comment thread --id <page-id> --comment-id <comment-id>
-atl conf comment add --id <page-id> --from-file <private-comment.csf>
+ATL_READ_ONLY=1 atl conf comment preview --id <page-id> --from-file <private-comment.csf>
+atl conf comment add --id <page-id> --from-file <private-comment.csf> --apply \
+  --expected-proposal-hash <reviewed-hash>
 ```
 
 The default list is schema v2 and reads footer, inline, and resolved comments
@@ -117,18 +119,20 @@ JSON remains the machine contract and retains native `body_storage`.
 `--legacy-flat` is only a temporary compatibility route for the old list
 shape. Do not use it for new automation or combine it with v2 filters.
 
-Before POST, inspect a complete qualified inventory for the intended content so retries do
-not duplicate an earlier attempt. Also inspect stderr: if listing warns that it
-hit the fetch cap, absence is unproven. Do not POST; use a complete live
-inspection/narrower approved method or ask the user. Add comments last, after
-body and metadata writes, so their text can refer to final state.
+For creation, the body must be non-empty valid UTF-8/native CSF and no larger
+than exactly 1 MiB; accepted bytes are preserved without Markdown conversion.
+`preview` is read-only. `add` uses the same proposal and defaults to dry-run but
+remains mutating-classified; it sends one POST only with `--apply` and the exact
+reviewed hash. The proposal binds backend/page/version, stable actor, body,
+capability, and a complete root-only footer baseline. Any partial inventory or
+unavailable identity/capability fails before write.
 
-If POST fails ambiguously (transport error, timeout, throttling, or server
-error), do not immediately retry. List qualified comments again and reconcile by exact
-normalized content plus author and creation window. If that listing is
-truncated, reconciliation remains `unknown`. If a match exists in a complete
-listing, report success/already present. If state remains uncertain, report
-`unknown` and ask the user to inspect; never automate a replay.
+After explicit approval, apply revalidates immediately, sends no more than one
+POST, and reconciles from a complete root-only readback. Treat `applied` and
+`recovered` as proven;
+`outcome_unknown` may have committed and must never be replayed. Duplicate text
+is not idempotent. Add comments last, after body and metadata writes. Creation
+supports footer roots only—not replies, inline comments, or resolution changes.
 
 Mirrored `.comments.json` is a strict schema-v2 qualified inventory; historical
 flat arrays remain readable and migrate on the next successful comment pull.

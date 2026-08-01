@@ -179,6 +179,15 @@ write command after explicit approval.
   comment view or infer current anchor text unless a matched observed selection
   is explicitly labelled current. Unattached entries are not proven replies;
   inspect closed diagnostics in the JSON sidecar when needed.
+- Guarded footer comment: put a non-empty valid native-CSF body (maximum exactly
+  1 MiB) in a private file and use read-only `conf comment preview --id <page>
+  --from-file <file>`. After approval, repeat the exact body once with `conf
+  comment add ... --apply --expected-proposal-hash <reviewed-hash>`. `add` is
+  dry-run by default but remains mutating-classified, so do not use it under a
+  read-only policy. The proposal binds backend/page/version, stable actor, body,
+  capability, and complete footer-root baseline. Accept only `applied` or
+  `recovered` as proven success; never replay `outcome_unknown`. Creation is
+  footer-root only—no replies, inline comments, or resolution changes.
 - Durable pull, complete/incremental sync, render migration, prefetch/rate
   controls: [sync.md](reference/sync.md).
 - Ordinary Markdown body edit, apply/diff, multi-page plan, and push sequence:

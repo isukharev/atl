@@ -187,8 +187,11 @@ atl conf push "$ATL_MIRROR_ROOT/SPACE/page/page.csf" --dry-run
 
 After review, repeat the exact guarded command without `--dry-run`. A
 Confluence version conflict exits `5`; re-pull and reapply instead of
-auto-forcing. Jira write commands similarly bind fresh baselines and proposal
-hashes and never replay ambiguous writes. Follow the
+auto-forcing. For a new Confluence comment, use the read-only `conf comment
+preview`, then run `conf comment add` on the exact native-CSF body with `--apply`
+and `--expected-proposal-hash`; `add` is dry-run by default but remains a
+mutating-classified command. It creates footer roots only and never replays an
+ambiguous POST. Jira writes follow the same reviewed-baseline rule. Follow the
 [safe-write guide](docs/safe-writes.md).
 
 ## Coding agents
