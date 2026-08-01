@@ -13,6 +13,11 @@ Every remote change in `atl` is deliberate. A normal flow is:
 investigations; remove it only after the target and proposed change have been
 reviewed.
 
+Direct Confluence content deletion uses one transport attempt and refuses
+redirects. After an ambiguous result, inspect the exact target before deciding
+whether a separately reviewed command is justified; never wrap deletion in a
+retry loop.
+
 ## Confluence: edit without losing native content
 
 Pull one page into a dedicated mirror:

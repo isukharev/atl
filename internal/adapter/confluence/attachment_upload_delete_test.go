@@ -283,3 +283,32 @@ func TestDeleteAttachment(t *testing.T) {
 		t.Errorf("path = %q, want /rest/api/content/att99", gotPath)
 	}
 }
+
+func TestDeleteAttachmentRefusesRedirectReplay(t *testing.T) {
+	for _, status := range []int{http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			var original, redirected int
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/rest/api/content/att99":
+					original++
+					http.Redirect(w, r, "/rest/api/content/replayed", status)
+				case "/rest/api/content/replayed":
+					redirected++
+					w.WriteHeader(http.StatusNoContent)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer srv.Close()
+
+			cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
+			if err := cf.DeleteAttachment(context.Background(), "att99"); err == nil {
+				t.Fatal("DeleteAttachment redirect: expected refusal")
+			}
+			if original != 1 || redirected != 0 {
+				t.Fatalf("DELETE attempts: original=%d redirected=%d, want 1 and 0", original, redirected)
+			}
+		})
+	}
+}

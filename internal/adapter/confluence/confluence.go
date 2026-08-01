@@ -415,6 +415,6 @@ func (cf *Confluence) MovePage(ctx context.Context, id, newParent string, expect
 
 // DeletePage trashes a page. Per-space permissions may yield ErrForbidden.
 func (cf *Confluence) DeletePage(ctx context.Context, id string) error {
-	_, err := cf.c.Do(ctx, "DELETE", "/rest/api/content/"+url.PathEscape(id), nil, nil)
+	_, err := cf.c.Do(domain.WithSingleAttempt(ctx), "DELETE", "/rest/api/content/"+url.PathEscape(id), nil, nil)
 	return err
 }

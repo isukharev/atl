@@ -83,6 +83,9 @@ version integers. Use it whenever the inventory must correspond to a specific
 page read.
 
 Attachment deletion is permanent and the explicit `--force` confirms it.
+It sends one transport attempt and refuses redirects. After an ambiguous
+result, read the exact attachment inventory before considering a separately
+reviewed new command; never retry deletion automatically.
 Downloads and uploads stream bytes. Treat upload as non-idempotent. Before the
 first upload, list attachments and retain a private baseline of matching
 filename, id, version, size, and comment. After an ambiguous response, list

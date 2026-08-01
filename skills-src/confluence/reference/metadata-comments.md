@@ -49,6 +49,10 @@ atl conf page copy --id <id> --title '<title>' [--space <KEY>] [--parent <id>]
 atl conf page delete --id <id>
 ```
 
+`page delete` sends one transport attempt and refuses redirects. After an
+ambiguous result, read the exact target before considering a separately reviewed
+new command; never retry deletion automatically.
+
 Add `-o text` for compact metadata/version records. Unknown restriction state
 is printed as `restricted unknown`, not as unrestricted.
 

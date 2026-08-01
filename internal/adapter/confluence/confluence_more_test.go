@@ -902,6 +902,35 @@ func TestDeletePage(t *testing.T) {
 	}
 }
 
+func TestDeletePageRefusesRedirectReplay(t *testing.T) {
+	for _, status := range []int{http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			var original, redirected int
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/rest/api/content/55":
+					original++
+					http.Redirect(w, r, "/rest/api/content/replayed", status)
+				case "/rest/api/content/replayed":
+					redirected++
+					w.WriteHeader(http.StatusNoContent)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer srv.Close()
+
+			cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
+			if err := cf.DeletePage(context.Background(), "55"); err == nil {
+				t.Fatal("DeletePage redirect: expected refusal")
+			}
+			if original != 1 || redirected != 0 {
+				t.Fatalf("DELETE attempts: original=%d redirected=%d, want 1 and 0", original, redirected)
+			}
+		})
+	}
+}
+
 // TestDeletePageForbidden verifies a 403 (per-space permission) maps to
 // ErrForbidden.
 func TestDeletePageForbidden(t *testing.T) {

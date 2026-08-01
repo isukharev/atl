@@ -326,7 +326,7 @@ func (cf *Confluence) UploadAttachment(ctx context.Context, pageID, filename str
 // DeleteAttachment deletes an attachment by its content id.
 // DC endpoint: DELETE /rest/api/content/{attachmentId}
 func (cf *Confluence) DeleteAttachment(ctx context.Context, attachmentID string) error {
-	_, err := cf.c.Do(ctx, "DELETE", "/rest/api/content/"+url.PathEscape(attachmentID), nil, nil)
+	_, err := cf.c.Do(domain.WithSingleAttempt(ctx), "DELETE", "/rest/api/content/"+url.PathEscape(attachmentID), nil, nil)
 	return err
 }
 
