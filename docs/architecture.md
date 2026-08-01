@@ -559,6 +559,52 @@ mirror-writing tool. See [mcp.md](mcp.md) for the public inventory and bounds.
 
 ---
 
+## Confluence comment mutation provider boundary
+
+Qualified comment reads and single-attempt footer-comment creation remain core
+`atl` capabilities over documented Confluence Data Center REST resources.
+Footer creation is a non-idempotent POST and is not retry-safe. Full inline
+creation, reply, and resolve/reopen are provider-gated: core does not call the
+undocumented inline-comments resource and does not reconstruct product-internal
+mutation workflows.
+
+The companion-provider evidence gate is currently closed with a **no-change**
+decision:
+
+- the public `CommentService` exposes root and child-comment creation commands
+  with UUID submission tokens across the checked API lines, so a
+  reply-only provider is technically plausible;
+- the checked public method inventories do not expose one atomic exact-anchor
+  inline workflow that validates selection context, updates page storage,
+  creates the comment, and reconciles collaborative editing;
+- those inventories also have no dedicated resolve/reopen command;
+  mutable `Comment` setters and status metadata alone do not document a
+  supported end-to-end mutation workflow;
+- project policy for a separately deployed Data Center app would additionally
+  require owned pre-9 and 9+ compatibility lines, secure endpoint/XSRF controls,
+  cluster-safe idempotency, database coverage, signing, and install/upgrade
+  validation on a non-production fixture. The cited platform and security
+  documentation establishes the API split and endpoint security constraints;
+  the remaining items are project release and safety requirements.
+
+Relevant primary documentation:
+
+- [`CommentService` 9.5.2](https://docs.atlassian.com/ConfluenceServer/javadoc/9.5.2/com/atlassian/confluence/content/service/CommentService.html)
+  and the [10.0 milestone API](https://docs.atlassian.com/ConfluenceServer/javadoc/10.0.0-m58/com/atlassian/confluence/content/service/CommentService.html);
+- [`Comment` and inline properties](https://docs.atlassian.com/ConfluenceServer/javadoc/9.5.2/com/atlassian/confluence/pages/Comment.html)
+  plus [`CommentStatus`](https://docs.atlassian.com/ConfluenceServer/javadoc/9.5.2/com/atlassian/confluence/pages/CommentStatus.html);
+- [Data Center Platform 7 migration](https://developer.atlassian.com/platform/marketplace/dc-apps-platform-7/)
+  and [Data Center app security requirements](https://developer.atlassian.com/platform/marketplace/security-requirements-dc/).
+
+The gate can reopen if Atlassian publishes supported atomic inline/resolution
+services, or when the project owns a separate provider repository and release
+lifecycle, representative compatibility matrix, and installable non-production
+test environment. Reply-only value must be prioritized independently before
+creating that server component. Until then capability negotiation must report
+full inline mutations as unsupported; no unstable fallback is attempted.
+
+---
+
 ## Extension points
 
 | extension | what to do |
