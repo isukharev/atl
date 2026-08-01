@@ -209,7 +209,7 @@ func testIntegrationMCPConfluenceComments(t *testing.T) {
 		t, client, "confluence_comment_thread", map[string]any{
 			"page_id": pageID, "comment_id": list.Comments[0].ID,
 			"expected_page_version": list.PageVersion,
-			"max_items": 1000, "max_bytes": 1 << 20,
+			"max_items":             1000, "max_bytes": 1 << 20,
 		},
 	)
 	if err := app.ValidateConfluenceCommentThreadView(&thread); err != nil ||

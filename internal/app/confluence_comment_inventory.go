@@ -709,10 +709,7 @@ func projectConfluenceCommentViewAnchor(anchor *ConfluenceInlineAnchor) *Conflue
 func projectConfluenceCommentViewDiagnostics(in []ConfluenceCommentResultDiagnostic) []ConfluenceCommentViewDiagnostic {
 	out := make([]ConfluenceCommentViewDiagnostic, 0, len(in))
 	for _, diagnostic := range in {
-		out = append(out, ConfluenceCommentViewDiagnostic{
-			Code: diagnostic.Code, CommentID: diagnostic.CommentID, MarkerRef: diagnostic.MarkerRef,
-			Selector: diagnostic.Selector, Location: diagnostic.Location,
-		})
+		out = append(out, ConfluenceCommentViewDiagnostic(diagnostic))
 	}
 	return out
 }
