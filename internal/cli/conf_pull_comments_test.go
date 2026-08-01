@@ -9,16 +9,21 @@ import (
 // commentsJSON is a deterministic two-comment listing for the /child/comment
 // endpoint (no host data, no volatile fields).
 const commentsJSON = `{"results":[
-	{"id":"c1","history":{"createdDate":"2026-01-01T00:00:00.000Z","createdBy":{"displayName":"Alice"}},"body":{"storage":{"value":"<p>first</p>"}}},
-	{"id":"c2","history":{"createdDate":"2026-01-02T00:00:00.000Z","createdBy":{"displayName":"Bob"}},"body":{"storage":{"value":"<p>second</p>"}}}
-],"_links":{}}`
+	{"id":"c1","type":"comment","history":{"createdDate":"2026-01-01T00:00:00.000Z","createdBy":{"userKey":"u1","displayName":"Alice"}},"version":{"number":1,"when":"2026-01-01T00:00:00.000Z"},"ancestors":[{"id":"100","type":"page"}],"body":{"storage":{"value":"<p>first</p>","representation":"storage"}},"extensions":{"location":"footer"}},
+	{"id":"c2","type":"comment","history":{"createdDate":"2026-01-02T00:00:00.000Z","createdBy":{"userKey":"u2","displayName":"Bob"}},"version":{"number":1,"when":"2026-01-02T00:00:00.000Z"},"ancestors":[{"id":"100","type":"page"}],"body":{"storage":{"value":"<p>second</p>","representation":"storage"}},"extensions":{"location":"footer"}}
+],"start":0,"limit":100,"size":2,"_links":{}}`
+
+func qualifiedCommentResponses() map[string]string {
+	empty := `{"results":[],"start":0,"limit":100,"size":0,"_links":{}}`
+	return map[string]string{"footer": commentsJSON, "inline": empty, "resolved": empty}
+}
 
 // TestConfPullComments_Golden pins the `conf pull --comments` JSON result shape
 // (per-page comment count). The volatile mirror root is masked.
 func TestConfPullComments_Golden(t *testing.T) {
 	cs := newConfServer(t)
 	cs.page = pageJSON("100", "Alpha", 3, sampleCSF)
-	cs.comments = commentsJSON
+	cs.commentsByLocation = qualifiedCommentResponses()
 
 	into := t.TempDir()
 	out, code := runCLI(t, confEnv(cs.srv), "conf", "pull", "--id", "100", "--into", into, "--comments")
@@ -33,7 +38,7 @@ func TestConfPullComments_Golden(t *testing.T) {
 func TestConfPull_NoCommentsNoCommentRequest(t *testing.T) {
 	cs := newConfServer(t)
 	cs.page = pageJSON("100", "Alpha", 3, sampleCSF)
-	cs.comments = commentsJSON
+	cs.commentsByLocation = qualifiedCommentResponses()
 
 	into := t.TempDir()
 	out, code := runCLI(t, confEnv(cs.srv), "conf", "pull", "--id", "100", "--into", into)
@@ -47,12 +52,12 @@ func TestConfPull_NoCommentsNoCommentRequest(t *testing.T) {
 	}
 }
 
-// With --comments the CLI fetches the comment endpoint exactly once for a
+// With --comments the CLI exhausts the three fixed qualified selectors for a
 // single-page pull.
 func TestConfPull_CommentsHitsCommentEndpoint(t *testing.T) {
 	cs := newConfServer(t)
 	cs.page = pageJSON("100", "Alpha", 3, sampleCSF)
-	cs.comments = commentsJSON
+	cs.commentsByLocation = qualifiedCommentResponses()
 
 	into := t.TempDir()
 	if _, code := runCLI(t, confEnv(cs.srv), "conf", "pull", "--id", "100", "--into", into, "--comments"); code != exitOK {
@@ -64,7 +69,7 @@ func TestConfPull_CommentsHitsCommentEndpoint(t *testing.T) {
 			n++
 		}
 	}
-	if n != 1 {
-		t.Errorf("expected exactly 1 comment fetch, got %d", n)
+	if n != 3 {
+		t.Errorf("expected exactly 3 qualified comment fetches, got %d", n)
 	}
 }

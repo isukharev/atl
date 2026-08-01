@@ -129,7 +129,9 @@ truncated, reconciliation remains `unknown`. If a match exists in a complete
 listing, report success/already present. If state remains uncertain, report
 `unknown` and ask the user to inspect; never automate a replay.
 
-Mirrored `comments.json/.md` remain legacy readonly context in this stage. The JSON keeps a plain `body`
+Mirrored `.comments.json` is a strict schema-v2 qualified inventory; historical
+flat arrays remain readable and migrate on the next successful comment pull.
+The `.comments.md` file remains a flat readonly compatibility view in this stage. The JSON keeps a plain `body`
 fallback and optional native `body_storage`; Markdown renders native paragraphs,
 lists, links, emphasis, and headings beneath each comment. Editing either file
 never changes the server and must not be used as a write path. A fresh pull with

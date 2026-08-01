@@ -22,6 +22,15 @@ type incrementalPullStore struct {
 	getCalls       int
 }
 
+type qualifiedIncrementalPullStore struct {
+	*incrementalPullStore
+	inventory domain.ConfluenceCommentInventory
+}
+
+func (s *qualifiedIncrementalPullStore) ListConfluenceComments(_ context.Context, _ string, _ domain.ConfluenceCommentReadOptions) (domain.ConfluenceCommentInventory, error) {
+	return s.inventory, nil
+}
+
 func (s *incrementalPullStore) Search(_ context.Context, query string, limit int, cursor string) ([]domain.PageRef, string, error) {
 	page, err := s.SearchComplete(context.Background(), query, limit, cursor)
 	return page.Results, page.Next, err
@@ -287,6 +296,55 @@ func TestIncrementalPullRejectsPartialSelectionWithoutWatermark(t *testing.T) {
 	if _, statErr := os.Stat(filepath.Join(root, ".atl", "incremental.json")); !os.IsNotExist(statErr) {
 		t.Fatalf("incremental state unexpectedly exists: %v", statErr)
 	}
+}
+
+func TestIncrementalPullCommentQualificationControlsWatermark(t *testing.T) {
+	newStore := func(t *testing.T) (*incrementalPullStore, string) {
+		t.Helper()
+		page, hit := incrementalPage("10", 1, "2026-07-13T12:01:00Z")
+		return &incrementalPullStore{
+			pullStore:   &pullStore{pages: map[string]*domain.Resource{"10": page}},
+			searchPages: map[string]domain.PageSearchPage{"": {Results: []domain.PageRef{hit}, Complete: true}},
+		}, t.TempDir()
+	}
+
+	t.Run("unqualified comments do not advance", func(t *testing.T) {
+		store, root := newStore(t)
+		_, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{
+			CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T12:00:00Z", Comments: true,
+		})
+		if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "watermark unchanged") {
+			t.Fatalf("error=%v", err)
+		}
+		if _, ok, loadErr := mirror.New(root).IncrementalWatermark(confluenceIncrementalService, selectorHash("type=page")); loadErr != nil || ok {
+			t.Fatalf("watermark ok=%v err=%v", ok, loadErr)
+		}
+	})
+
+	t.Run("anchor-only partial advances", func(t *testing.T) {
+		store, root := newStore(t)
+		rootID := "c1"
+		inventory := completeQualifiedComments(domain.ConfluenceCommentRecord{
+			ID: rootID, PageID: "10", RootID: &rootID,
+			Relation: domain.ConfluenceCommentRelationRoot, Location: domain.ConfluenceCommentLocationInline,
+			Resolution: domain.ConfluenceCommentResolutionOpen, Version: 1,
+			Body: "comment", BodyStorage: "<p>comment</p>", MarkerRef: "missing-marker",
+		})
+		result, err := (&ConfluenceService{store: &qualifiedIncrementalPullStore{incrementalPullStore: store, inventory: inventory}}).Pull(
+			context.Background(), PullOpts{
+				CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T12:00:00Z", Comments: true,
+			},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Incremental == nil || !result.Incremental.WatermarkAdvanced || len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "anchors") {
+			t.Fatalf("result=%+v warnings=%v", result.Incremental, result.Warnings)
+		}
+		if _, ok, loadErr := mirror.New(root).IncrementalWatermark(confluenceIncrementalService, result.Incremental.SelectorSHA256); loadErr != nil || !ok {
+			t.Fatalf("watermark ok=%v err=%v", ok, loadErr)
+		}
+	})
 }
 
 func TestIncrementalPullRejectsSelectionThatMovesBetweenPasses(t *testing.T) {

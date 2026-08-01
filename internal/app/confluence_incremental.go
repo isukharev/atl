@@ -427,7 +427,11 @@ func preflightConfluenceOverwrite(m *mirror.Mirror, ids []string) (int, error) {
 		if hasView {
 			dir := filepath.Dir(csfPath)
 			slug := strings.TrimSuffix(filepath.Base(csfPath), ".csf")
-			opts, err = confMDViewOptsFromSidecars(settingsFromViewState(view), confPageFromMeta(lc.Meta), readCommentsSidecar(m.Root, dir, slug), m.Root, dir, slug, id, node)
+			comments, commentErr := readCommentsSidecar(m.Root, dir, slug, id, lc.Meta.Version)
+			if commentErr != nil {
+				return 0, fmt.Errorf("%w: cannot reproduce page %s comment view: %v", domain.ErrCheckFailed, id, commentErr)
+			}
+			opts, err = confMDViewOptsFromSidecars(settingsFromViewState(view), confPageFromMeta(lc.Meta), comments, m.Root, dir, slug, id, node)
 			if err != nil {
 				return 0, fmt.Errorf("%w: cannot reproduce page %s derived view: %v", domain.ErrCheckFailed, id, err)
 			}

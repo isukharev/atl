@@ -106,7 +106,7 @@ timestamp alone, are recorded. Absence never proves deletion.
     <page-slug>.csf           native write substrate
     <page-slug>.md            derived staging view
     <page-slug>.meta.json     auto-managed metadata/fragments
-    <page-slug>.comments.json optional readonly sidecar
+    <page-slug>.comments.json optional qualified schema-v2 readonly sidecar
     <page-slug>.comments.md   optional derived comment view
     <page-slug>.jira-macros.json optional readonly Jira IssueList snapshots
     <page-slug>.assets/       optional diagram/image renders

@@ -67,6 +67,8 @@ workflow читать их целиком не нужно.
 точным сопоставлением anchors с native CSF. `conf comment thread` выбирает один
 точный корневой тред; недостающие ancestry или markers остаются явным partial
 evidence.
+`conf pull --comments` сохраняет эту квалификацию в versioned sidecar зеркала;
+старые плоские sidecar читаются, а comments не влияют на drift страницы.
 
 ## Установка
 

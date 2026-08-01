@@ -110,7 +110,11 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 		return nil, fmt.Errorf("%w: pristine CSF for page %s no longer parses; re-pull before applying Markdown edits: %v", domain.ErrCheckFailed, lc.Meta.ID, perr)
 	}
 	page := confPageFromMeta(lc.Meta)
-	mdOpts, sidecarErr := confMDViewOptsFromSidecars(rsView, page, readCommentsSidecar(m.Root, dir, slug), m.Root, dir, slug, lc.Meta.ID, node)
+	comments, commentErr := readCommentsSidecar(m.Root, dir, slug, lc.Meta.ID, lc.Meta.Version)
+	if commentErr != nil {
+		return nil, fmt.Errorf("%w: Confluence comments sidecar cannot reproduce the generated view: %v; re-pull with --comments", domain.ErrCheckFailed, commentErr)
+	}
+	mdOpts, sidecarErr := confMDViewOptsFromSidecars(rsView, page, comments, m.Root, dir, slug, lc.Meta.ID, node)
 	if sidecarErr != nil {
 		return nil, fmt.Errorf("%w: Jira macro enrichment sidecar cannot reproduce the generated view: %v; remove only the generated .jira-macros.json sidecar, then run `conf pull`", domain.ErrCheckFailed, sidecarErr)
 	}
@@ -158,11 +162,11 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 					res.Warning = appendWarning(res.Warning, "applied; Jira query results were retired because the native macro set changed — re-pull to resolve remaining macros")
 				}
 			}
-			opts, sidecarErr := confMDViewOptsFromSidecars(rsView, confPageFromMeta(lc.Meta), readCommentsSidecar(m.Root, dir, slug), m.Root, dir, slug, lc.Meta.ID, root2)
+			opts, sidecarErr := confMDViewOptsFromSidecars(rsView, confPageFromMeta(lc.Meta), comments, m.Root, dir, slug, lc.Meta.ID, root2)
 			if sidecarErr == nil {
 				md = mirror.RenderMarkdownOpts(root2, lc.Meta.Refs, opts)
 			} else {
-				md = mirror.RenderMarkdownOpts(root2, lc.Meta.Refs, confMDViewOpts(rsView, confPageFromMeta(lc.Meta), readCommentsSidecar(m.Root, dir, slug)))
+				md = mirror.RenderMarkdownOpts(root2, lc.Meta.Refs, confMDViewOpts(rsView, confPageFromMeta(lc.Meta), comments))
 				res.Warning = appendWarning(res.Warning, "applied, but Jira macro enrichment could not be refreshed; re-pull the page")
 			}
 		} else {

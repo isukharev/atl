@@ -64,7 +64,7 @@ type Meta struct {
 	Restricted *bool        `json:"restricted,omitempty"`
 	URL        string       `json:"url,omitempty"`
 	Refs       []domain.Ref `json:"fragments,omitempty"`
-	// CommentsPulled / CommentCount / CommentsTruncated are populated only by a
+	// Comment summary fields are populated only by a
 	// `pull --comments` (they surface comment presence to a slim .meta.json
 	// read). CommentsPulled is the explicit "comments were fetched" marker, so a
 	// page whose fetch returned zero comments (comment_count omitted at 0) is
@@ -72,9 +72,16 @@ type Meta struct {
 	// are auxiliary read-only data and never enter the content hash or the
 	// version gate. All omitempty so a pull without --comments leaves the shape
 	// unchanged.
-	CommentsPulled    bool `json:"comments_pulled,omitempty"`
-	CommentCount      int  `json:"comment_count,omitempty"`
-	CommentsTruncated bool `json:"comments_truncated,omitempty"`
+	CommentsPulled         bool     `json:"comments_pulled,omitempty"`
+	CommentCount           int      `json:"comment_count,omitempty"`
+	CommentsTruncated      bool     `json:"comments_truncated,omitempty"`
+	CommentSidecarVersion  int      `json:"comment_sidecar_version,omitempty"`
+	CommentRootCount       int      `json:"comment_root_count,omitempty"`
+	CommentsComplete       *bool    `json:"comments_complete,omitempty"`
+	CommentThreadsComplete *bool    `json:"comment_threads_complete,omitempty"`
+	CommentAnchorsComplete *bool    `json:"comment_anchors_complete,omitempty"`
+	CommentPartialReasons  []string `json:"comment_partial_reasons,omitempty"`
+	OpenInlineCommentCount int      `json:"open_inline_comment_count,omitempty"`
 }
 
 // Hash returns the canonical content hash of a body (sha256 hex of raw bytes).
@@ -230,9 +237,11 @@ func (m *Mirror) WriteView(dir, slug string, page *domain.Resource, refs []domai
 // commentSidecar carries a page's comments for a pull that requested them (nil
 // when --comments was off). It is auxiliary read-only data: the comment bytes
 // never enter the content hash, are never copied to .atl/base/, and never affect
-// dirty/drift/push gating — only the two sidecar files and the two Meta counters.
+// dirty/drift/push gating — only the two sidecar files and Meta summaries.
 type commentSidecar struct {
-	comments  []domain.Comment
+	encoded   []byte
+	display   []domain.Comment
+	v2        *ConfluenceCommentsSidecarV2
 	truncated bool
 }
 
@@ -272,12 +281,26 @@ func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []
 	// are pure read-view data: Hash above is over page.Body alone, so drift/push
 	// gating is unaffected.
 	if cs != nil {
-		if err := m.writeCommentSidecar(dir, slug, cs.comments, mdOpts.CommentView); err != nil {
+		if err := m.writeCommentSidecar(dir, slug, cs.encoded, cs.display, mdOpts.CommentView); err != nil {
 			return "", err
 		}
 		meta.CommentsPulled = true
-		meta.CommentCount = len(cs.comments)
+		meta.CommentCount = len(cs.display)
 		meta.CommentsTruncated = cs.truncated
+		if cs.v2 != nil {
+			meta.CommentSidecarVersion = cs.v2.SchemaVersion
+			meta.CommentCount = cs.v2.Count
+			meta.CommentRootCount = cs.v2.RootCount
+			meta.CommentsComplete = boolPointer(cs.v2.CommentsComplete)
+			meta.CommentThreadsComplete = boolPointer(cs.v2.ThreadsComplete)
+			meta.CommentAnchorsComplete = boolPointer(cs.v2.AnchorsComplete)
+			meta.CommentPartialReasons = append([]string(nil), cs.v2.PartialReasons...)
+			for _, comment := range cs.v2.Comments {
+				if comment.Location == domain.ConfluenceCommentLocationInline && comment.Resolution == domain.ConfluenceCommentResolutionOpen {
+					meta.OpenInlineCommentCount++
+				}
+			}
+		}
 	}
 	mb, _ := json.MarshalIndent(meta, "", "  ")
 	if err := safepath.WriteFileWithin(m.Root, filepath.Join(dir, slug+".meta.json"), append(mb, '\n'), 0o644); err != nil {
@@ -291,30 +314,29 @@ func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []
 }
 
 // writeCommentSidecar writes the two per-page comment artifacts next to the page
-// files: <slug>.comments.json (primary, the domain.Comment array, pretty-printed
-// with a trailing newline like .meta.json) and <slug>.comments.md (a derived
-// human read view). The .md is purely derived from the JSON and is not part of
-// any parity contract. Neither file feeds the content hash or .atl/base/.
-func (m *Mirror) writeCommentSidecar(dir, slug string, comments, displayComments []domain.Comment) error {
+// files: <slug>.comments.json (primary; schema v2 for current pulls, with the
+// legacy flat array retained only by the compatibility helper) and
+// <slug>.comments.md (a derived human read view). The .md is purely derived
+// from the JSON and is not part of any parity contract. Neither file feeds the
+// content hash or .atl/base/.
+func (m *Mirror) writeCommentSidecar(dir, slug string, encoded []byte, comments, displayComments []domain.Comment) error {
 	if err := safepath.MkdirAllWithin(m.Root, dir, 0o755); err != nil {
 		return err
 	}
-	list := comments
-	if list == nil {
-		list = []domain.Comment{} // marshal an empty array, never JSON null
-	}
-	jb, err := json.MarshalIndent(list, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := safepath.WriteFileWithin(m.Root, filepath.Join(dir, slug+".comments.json"), append(jb, '\n'), 0o644); err != nil {
+	if err := safepath.WriteFileWithin(m.Root, filepath.Join(dir, slug+".comments.json"), encoded, 0o644); err != nil {
 		return err
 	}
 	if displayComments == nil {
 		displayComments = comments
 	}
-	return safepath.WriteFileWithin(m.Root, filepath.Join(dir, slug+".comments.md"), RenderCommentsMarkdown(displayComments), 0o644)
+	mdPath := filepath.Join(dir, slug+".comments.md")
+	if err := safepath.WriteFileWithin(m.Root, mdPath, RenderCommentsMarkdown(displayComments), 0o644); err != nil {
+		_ = safepath.RemoveWithin(m.Root, mdPath)
+	}
+	return nil
 }
+
+func boolPointer(value bool) *bool { return &value }
 
 // RenderCommentsMarkdown renders a complete readonly comments view. Native
 // Confluence storage bodies retain paragraphs, lists, links and headings; the
@@ -382,7 +404,62 @@ func (b *SyncBatch) WriteView(dir, slug string, page *domain.Resource, refs []do
 // mdOpts drives whether the .md view embeds a "# Comments" section (full
 // profile) or leaves comments in the sidecar only (default profile).
 func (b *SyncBatch) WriteComments(dir, slug string, page *domain.Resource, refs []domain.Ref, comments []domain.Comment, truncated bool, mdOpts MDViewOpts) error {
-	return b.write(dir, slug, page, refs, &commentSidecar{comments: comments, truncated: truncated}, mdOpts)
+	list := comments
+	if list == nil {
+		list = []domain.Comment{}
+	}
+	encoded, err := json.MarshalIndent(list, "", "  ")
+	if err != nil {
+		return err
+	}
+	return b.write(dir, slug, page, refs, &commentSidecar{encoded: append(encoded, '\n'), display: comments, truncated: truncated}, mdOpts)
+}
+
+// WriteConfluenceComments persists a page with the authoritative qualified
+// schema-v2 comment sidecar. Encoding and validation happen before any page
+// artifact is overwritten. display is only the temporary flat derived-view
+// projection and never replaces the v2 source of truth.
+func (b *SyncBatch) WriteConfluenceComments(dir, slug string, page *domain.Resource, refs []domain.Ref, sidecar ConfluenceCommentsSidecarV2, display []domain.Comment, truncated bool, mdOpts MDViewOpts) error {
+	encoded, err := EncodeConfluenceCommentsSidecarV2(sidecar)
+	if err != nil {
+		return err
+	}
+	decoded, err := DecodeConfluenceCommentsSidecar(encoded)
+	if err != nil || decoded.V2 == nil {
+		return fmt.Errorf("%w: canonical Confluence comments sidecar could not be decoded", domain.ErrCheckFailed)
+	}
+	canonical := *decoded.V2
+	display = orderCommentProjection(canonical.Comments, display)
+	mdOpts.Comments = orderCommentProjection(canonical.Comments, mdOpts.Comments)
+	mdOpts.CommentView = orderCommentProjection(canonical.Comments, mdOpts.CommentView)
+	return b.write(dir, slug, page, refs, &commentSidecar{
+		encoded: encoded, display: display, v2: &canonical, truncated: truncated,
+	}, mdOpts)
+}
+
+func orderCommentProjection(order []ConfluenceCommentsSidecarComment, comments []domain.Comment) []domain.Comment {
+	if comments == nil {
+		return nil
+	}
+	byID := make(map[string]domain.Comment, len(comments))
+	for _, comment := range comments {
+		byID[comment.ID] = comment
+	}
+	out := make([]domain.Comment, 0, len(comments))
+	for _, record := range order {
+		if comment, exists := byID[record.ID]; exists {
+			out = append(out, comment)
+			delete(byID, record.ID)
+		}
+	}
+	// Validation normally makes this empty. Preserve any compatibility-only
+	// projection rows deterministically instead of silently dropping them.
+	remaining := make([]domain.Comment, 0, len(byID))
+	for _, comment := range byID {
+		remaining = append(remaining, comment)
+	}
+	sort.Slice(remaining, func(i, j int) bool { return remaining[i].ID < remaining[j].ID })
+	return append(out, remaining...)
 }
 
 func (b *SyncBatch) write(dir, slug string, page *domain.Resource, refs []domain.Ref, cs *commentSidecar, mdOpts MDViewOpts) error {
