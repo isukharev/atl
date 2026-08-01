@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"flag"
 	"fmt"
@@ -184,9 +185,56 @@ func filterPackagePrefix(packages []string, prefix string) []string {
 func goOutput(root string, arguments ...string) (string, error) {
 	command := exec.Command("go", arguments...)
 	command.Dir = root
-	output, err := command.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("go %s: %w: %s", strings.Join(arguments, " "), err, strings.TrimSpace(string(output)))
+	return separatedCommandOutput(command, "go "+strings.Join(arguments, " "))
+}
+
+const commandStderrMaxBytes = 64 << 10
+
+type boundedStderr struct {
+	tail      []byte
+	truncated bool
+}
+
+func (writer *boundedStderr) Write(data []byte) (int, error) {
+	originalLength := len(data)
+	if len(data) >= commandStderrMaxBytes {
+		writer.tail = append(writer.tail[:0], data[len(data)-commandStderrMaxBytes:]...)
+		writer.truncated = true
+		return originalLength, nil
 	}
-	return string(output), nil
+	overflow := len(writer.tail) + len(data) - commandStderrMaxBytes
+	if overflow > 0 {
+		copy(writer.tail, writer.tail[overflow:])
+		writer.tail = writer.tail[:len(writer.tail)-overflow]
+		writer.truncated = true
+	}
+	writer.tail = append(writer.tail, data...)
+	return originalLength, nil
+}
+
+func (writer *boundedStderr) String() string {
+	tail := strings.ToValidUTF8(string(writer.tail), "?")
+	if writer.truncated {
+		return "[... stderr truncated to final 64 KiB ...]\n" + tail
+	}
+	return tail
+}
+
+func separatedCommandOutput(command *exec.Cmd, description string) (string, error) {
+	var stdout bytes.Buffer
+	var stderr boundedStderr
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	err := command.Run()
+	if err != nil {
+		diagnostic := strings.TrimSpace(stderr.String())
+		if diagnostic == "" {
+			diagnostic = strings.TrimSpace(stdout.String())
+		}
+		if diagnostic == "" {
+			return "", fmt.Errorf("%s: %w", description, err)
+		}
+		return "", fmt.Errorf("%s: %w: %s", description, err, diagnostic)
+	}
+	return stdout.String(), nil
 }
