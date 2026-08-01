@@ -494,6 +494,25 @@ func TestConfluenceCommentViewValidatorsRejectUnreconciledEvidence(t *testing.T)
 	if projected, err := ProjectConfluenceCommentListView(badSource, ConfluenceCommentViewBounds{MaxCommentPages: 1, MaxItems: 1, MaxBytes: 1024}); projected != nil || !errors.Is(err, domain.ErrCheckFailed) {
 		t.Fatalf("email-like source author projected=%+v error=%v", projected, err)
 	}
+	for name, mutate := range map[string]func(*ConfluenceCommentInventoryResult){
+		"URL timestamp": func(result *ConfluenceCommentInventoryResult) {
+			result.Comments[0].UpdatedAt = "https://private.invalid/value"
+		},
+		"email marker": func(result *ConfluenceCommentInventoryResult) {
+			result.Comments[0].Anchor.MarkerRef = "owner@example.invalid"
+		},
+		"URL diagnostic marker": func(result *ConfluenceCommentInventoryResult) {
+			result.Diagnostics = []ConfluenceCommentResultDiagnostic{{Code: domain.ConfluenceCommentDiagnosticOrphanMarker, MarkerRef: "https://private.invalid"}}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			bad := completeCommentProjectionResult("list")
+			mutate(bad)
+			if projected, err := ProjectConfluenceCommentListView(bad, ConfluenceCommentViewBounds{MaxCommentPages: 1, MaxItems: 1, MaxBytes: 1024}); projected != nil || !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("privacy-unsafe source projected=%+v error=%v", projected, err)
+			}
+		})
+	}
 
 	list, err := ProjectConfluenceCommentListView(completeCommentProjectionResult("list"), ConfluenceCommentViewBounds{MaxCommentPages: 1, MaxItems: 1, MaxBytes: 1024})
 	if err != nil {
@@ -579,7 +598,7 @@ func completeCommentProjectionResult(mode string) *ConfluenceCommentInventoryRes
 			ID: rootID, PageID: "42", RootID: &rootID, Relation: domain.ConfluenceCommentRelationRoot,
 			Location: domain.ConfluenceCommentLocationInline, Resolution: domain.ConfluenceCommentResolutionOpen,
 			Version: 1, Author: ConfluenceCommentAuthor{ID: "user-1", DisplayName: "Reader"},
-			CreatedAt: "2026-01-01", UpdatedAt: "2026-01-02", Body: "PRIVATE-NATIVE",
+			CreatedAt: "2026-01-01T00:00:00Z", UpdatedAt: "2026-01-02T00:00:00+0000", Body: "PRIVATE-NATIVE",
 			BodyStorage: `<p>PRIVATE-NATIVE</p>`, Anchor: &ConfluenceInlineAnchor{
 				MarkerRef: "marker-1", OriginalSelection: "PRIVATE-ORIGINAL", ObservedSelection: "PRIVATE-OBSERVED",
 				Status: domain.ConfluenceAnchorMatched,

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/isukharev/atl/internal/csf"
@@ -759,6 +760,9 @@ func validateConfluenceCommentInventoryResult(result *ConfluenceCommentInventory
 		if err := validateConfluenceCommentViewAuthor(comment.Author); err != nil {
 			return err
 		}
+		if !validConfluenceCommentTimestamp(comment.CreatedAt) || !validConfluenceCommentTimestamp(comment.UpdatedAt) {
+			return fmt.Errorf("%w: Confluence comment timestamps are not reconciled", domain.ErrCheckFailed)
+		}
 		if _, duplicate := seen[comment.ID]; duplicate {
 			return fmt.Errorf("%w: Confluence comment result repeats an identity", domain.ErrCheckFailed)
 		}
@@ -866,7 +870,8 @@ func validateConfluenceCommentViewAnchor(anchor *ConfluenceCommentViewAnchor) er
 		return nil
 	}
 	if !domain.ValidConfluenceAnchorStatus(anchor.Status) ||
-		(anchor.MarkerRef == "" && anchor.Status != domain.ConfluenceAnchorUnavailable) {
+		(anchor.MarkerRef == "" && anchor.Status != domain.ConfluenceAnchorUnavailable) ||
+		(anchor.MarkerRef != "" && !validConfluenceCommentMarkerRef(anchor.MarkerRef)) {
 		return fmt.Errorf("%w: Confluence comment anchor is not reconciled", domain.ErrCheckFailed)
 	}
 	return nil
@@ -874,16 +879,44 @@ func validateConfluenceCommentViewAnchor(anchor *ConfluenceCommentViewAnchor) er
 
 func validateConfluenceCommentViewAuthor(author ConfluenceCommentAuthor) error {
 	if !utf8.ValidString(author.ID) || !utf8.ValidString(author.DisplayName) ||
-		strings.Contains(author.ID, "@") || strings.Contains(author.DisplayName, "@") {
+		strings.Contains(author.ID, "@") || strings.Contains(author.DisplayName, "@") ||
+		strings.Contains(author.ID, "://") || strings.Contains(author.DisplayName, "://") {
 		return fmt.Errorf("%w: Confluence comment author is not privacy-safe", domain.ErrCheckFailed)
 	}
 	return nil
+}
+
+func validConfluenceCommentTimestamp(value string) bool {
+	if value == "" {
+		return true
+	}
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02T15:04:05.999999999Z0700"} {
+		if _, err := time.Parse(layout, value); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func validConfluenceCommentMarkerRef(value string) bool {
+	if len(value) < 1 || len(value) > 256 || !utf8.ValidString(value) {
+		return false
+	}
+	for _, char := range value {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') || char == '-' || char == '_' || char == '.' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func validateConfluenceCommentResultDiagnostics(diagnostics []ConfluenceCommentResultDiagnostic) error {
 	for _, diagnostic := range diagnostics {
 		if !domain.ValidConfluenceCommentDiagnosticCode(diagnostic.Code) ||
 			(diagnostic.CommentID != "" && !canonicalConfluenceContentID(diagnostic.CommentID)) ||
+			(diagnostic.MarkerRef != "" && !validConfluenceCommentMarkerRef(diagnostic.MarkerRef)) ||
 			(diagnostic.Selector != "" && !domain.ValidConfluenceCommentSelector(diagnostic.Selector)) ||
 			(diagnostic.Location != "" && !domain.ValidConfluenceCommentLocation(diagnostic.Location)) {
 			return fmt.Errorf("%w: Confluence comment diagnostic is not reconciled", domain.ErrCheckFailed)
@@ -896,6 +929,7 @@ func validateConfluenceCommentViewDiagnostics(diagnostics []ConfluenceCommentVie
 	for _, diagnostic := range diagnostics {
 		if !domain.ValidConfluenceCommentDiagnosticCode(diagnostic.Code) ||
 			(diagnostic.CommentID != "" && !canonicalConfluenceContentID(diagnostic.CommentID)) ||
+			(diagnostic.MarkerRef != "" && !validConfluenceCommentMarkerRef(diagnostic.MarkerRef)) ||
 			(diagnostic.Selector != "" && !domain.ValidConfluenceCommentSelector(diagnostic.Selector)) ||
 			(diagnostic.Location != "" && !domain.ValidConfluenceCommentLocation(diagnostic.Location)) {
 			return fmt.Errorf("%w: Confluence comment view diagnostic is not reconciled", domain.ErrCheckFailed)
@@ -976,6 +1010,9 @@ func ValidateConfluenceCommentListView(view *ConfluenceCommentListView) error {
 		if err := validateConfluenceCommentViewAuthor(comment.Author); err != nil {
 			return err
 		}
+		if !validConfluenceCommentTimestamp(comment.CreatedAt) || !validConfluenceCommentTimestamp(comment.UpdatedAt) {
+			return fmt.Errorf("%w: Confluence comment list timestamps are not reconciled", domain.ErrCheckFailed)
+		}
 		if _, duplicate := seen[comment.ID]; duplicate {
 			return fmt.Errorf("%w: Confluence comment list repeats an identity", domain.ErrCheckFailed)
 		}
@@ -1029,6 +1066,9 @@ func ValidateConfluenceCommentThreadView(view *ConfluenceCommentThreadView) erro
 		}
 		if err := validateConfluenceCommentViewAuthor(comment.Author); err != nil {
 			return err
+		}
+		if !validConfluenceCommentTimestamp(comment.CreatedAt) || !validConfluenceCommentTimestamp(comment.UpdatedAt) {
+			return fmt.Errorf("%w: Confluence comment thread timestamps are not reconciled", domain.ErrCheckFailed)
 		}
 		if comment.BodyText == nil && !hasResultPartialReason(view.PartialReasons, domain.ConfluenceCommentPartialBodyUnavailable) {
 			return fmt.Errorf("%w: Confluence comment thread omits body text without qualification", domain.ErrCheckFailed)

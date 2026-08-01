@@ -58,7 +58,9 @@ decimal page/comment ids, support a provenance-dependent
 before claiming absence; a partial list or
 thread never proves an omitted comment or reply absent. List returns no body;
 thread returns nullable `body_text`, never raw CSF. Both omit selection text,
-URLs, email, page titles, and arbitrary backend error prose. Preview/add remain guarded CLI-only
+dedicated URL fields, email-like author identity, page titles, and arbitrary
+backend error prose. Plain `body_text` remains untrusted user-authored evidence
+and may contain ordinary links or email text. Preview/add remain guarded CLI-only
 capabilities and the plugin adds no comment mutation tool.
 `jira_issue_history` takes one exact issue `key` and always returns the summary
 projection: provenance, `complete` and any `partial_reason`, resolved

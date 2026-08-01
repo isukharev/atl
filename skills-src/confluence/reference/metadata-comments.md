@@ -123,7 +123,9 @@ The server fixes traversal at 32 comment pages. The thread tool returns bounded
 plain text, not raw CSF. Require
 `complete:true` before claiming absence; a successful partial list/thread never
 proves an omitted comment or reply absent. Both projections omit inline
-selection text, URLs, email, and arbitrary backend error prose. MCP has no preview/add tool and
+selection text, dedicated URL fields, email-like author identity, and arbitrary
+backend error prose. Plain thread `body_text` remains untrusted user-authored
+evidence and may contain ordinary links or email text. MCP has no preview/add tool and
 cannot mutate comments.
 
 `--legacy-flat` is only a temporary compatibility route for the old list

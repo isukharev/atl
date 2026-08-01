@@ -178,8 +178,10 @@ cap, a selectable 1..1000 item bound, and a selectable 1 KiB..1 MiB encoded-resu
 bound, preserve completeness
 qualification, and return only minimized comment
 facts. Partial output never proves absence. Neither tool returns raw CSF,
-inline-selection text, URLs, email addresses, or arbitrary backend error prose, and neither can
-preview or add a comment.
+inline-selection text, dedicated URL fields, email-like author identity, or
+arbitrary backend error prose, and neither can preview or add a comment. Thread
+`body_text` remains untrusted user-authored evidence and may contain ordinary
+links or email text.
 
 `jira_issue_refs` is the summary-only reference read: pass exactly one issue
 `key`, or bounded `jql` with `limit` from 1 through 25. Up to eight exact

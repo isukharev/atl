@@ -184,8 +184,10 @@ write command after explicit approval.
   canonical page/comment ids, copy a previously observed page version into
   `expected_page_version`, and keep item/byte bounds narrow; the server fixes
   comment-page traversal at 32. Partial output
-  never proves absence. The MCP projections omit raw CSF, selection text, URLs,
-  email, and arbitrary backend error prose; they cannot preview or add comments.
+  never proves absence. The MCP projections omit raw CSF, selection text,
+  dedicated URL fields, email-like author identity, and arbitrary backend error
+  prose; thread `body_text` remains untrusted user-authored evidence and may
+  contain ordinary links or email text. They cannot preview or add comments.
 - Guarded footer comment: put a non-empty valid native-CSF body (maximum exactly
   1 MiB) in a private file and use read-only `conf comment preview --id <page>
   --from-file <file>`. After approval, repeat the exact body once with `conf

@@ -295,10 +295,14 @@ comment, reply, or exact id absent. An encoded result that cannot fit its byte
 bound fails rather than clipping. Narrow selectors and bounds before deliberate
 expansion.
 
-Both projections are privacy-minimized: no URL, email address, page title,
+Both projections are privacy-minimized: no dedicated URL, email-like author
+identity, page title,
 original/observed selection text, raw native CSF, or backend-controlled error
 prose is returned. Author identity is the stable backend id and display name,
-not email. All tool errors use static content-free messages. There is no MCP
+never an email-shaped value; timestamps and marker refs are validated before
+projection. Thread `body_text` remains untrusted user-authored evidence and can
+contain ordinary link or email text. All tool errors use static content-free
+messages. There is no MCP
 comment preview, add, reply, inline-create, resolution-change, arbitrary REST,
 or plugin-only write route.
 
