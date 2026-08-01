@@ -1,9 +1,12 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -168,6 +171,30 @@ func TestConfluenceCommentInventoryVersionGatePrecedesCommentRead(t *testing.T) 
 	}
 }
 
+func TestConfluenceCommentInventoryPropagatesExplicitBounds(t *testing.T) {
+	store := &qualifiedCommentStore{
+		recordingStore: &recordingStore{page: &domain.Resource{ID: "42", Version: 7, BodyPresent: true, Body: []byte("<p>x</p>")}},
+		inventory:      completeQualifiedComments(),
+	}
+	_, err := (&ConfluenceService{store: store}).CommentInventory(context.Background(), "42", ConfluenceCommentInventoryOpts{
+		Location: "footer", MaxPages: 3, MaxItems: 17,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.readOpts.MaxPages != 3 || store.readOpts.MaxItems != 17 {
+		t.Fatalf("read options = %+v", store.readOpts)
+	}
+}
+
+func TestConfluenceCommentInventoryRejectsExplicitBoundsOnLegacyReader(t *testing.T) {
+	store := &recordingStore{page: &domain.Resource{ID: "42", Version: 7, BodyPresent: true, Body: []byte("<p>x</p>")}}
+	_, err := (&ConfluenceService{store: store}).CommentInventory(context.Background(), "42", ConfluenceCommentInventoryOpts{MaxPages: 1})
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("error = %v, want ErrCheckFailed", err)
+	}
+}
+
 func TestConfluenceCommentInventoryResolvedSelectorNormalizesLocation(t *testing.T) {
 	rootID := "201"
 	store := &qualifiedCommentStore{
@@ -319,6 +346,27 @@ func TestConfluenceCommentThreadExactSelection(t *testing.T) {
 	}
 }
 
+func TestConfluenceCommentThreadWithOptionsPropagatesExplicitBounds(t *testing.T) {
+	rootID := "101"
+	store := &qualifiedCommentStore{
+		recordingStore: &recordingStore{page: &domain.Resource{ID: "42", Version: 7, BodyPresent: true, Body: []byte("<p>x</p>")}},
+		inventory: completeQualifiedComments(domain.ConfluenceCommentRecord{
+			ID: rootID, PageID: "42", RootID: &rootID, Relation: domain.ConfluenceCommentRelationRoot,
+			Location: domain.ConfluenceCommentLocationFooter, Resolution: domain.ConfluenceCommentResolutionOpen,
+			Version: 1, BodyStorage: "<p>body</p>",
+		}),
+	}
+	_, err := (&ConfluenceService{store: store}).CommentThreadWithOptions(context.Background(), "42", rootID, ConfluenceCommentThreadOpts{
+		ExpectedPageVersion: 7, MaxPages: 4, MaxItems: 23,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.readOpts.MaxPages != 4 || store.readOpts.MaxItems != 23 {
+		t.Fatalf("read options = %+v", store.readOpts)
+	}
+}
+
 func TestConfluenceCommentThreadAbsenceRequiresCompleteInventory(t *testing.T) {
 	store := &qualifiedCommentStore{
 		recordingStore: &recordingStore{page: &domain.Resource{ID: "42", Version: 7, Body: []byte("<p>x</p>")}},
@@ -369,10 +417,175 @@ func TestConfluenceCommentInventoryLegacyFallbackIsExplicitlyPartial(t *testing.
 func TestValidateConfluenceCommentInventoryOpts(t *testing.T) {
 	for _, opts := range []ConfluenceCommentInventoryOpts{
 		{Location: "else"}, {State: "else"}, {Depth: "else"}, {ExpectedPageVersion: -1},
+		{MaxPages: -1}, {MaxItems: -1},
 	} {
 		if err := ValidateConfluenceCommentInventoryOpts(opts); !errors.Is(err, domain.ErrUsage) {
 			t.Fatalf("ValidateConfluenceCommentInventoryOpts(%+v) = %v, want ErrUsage", opts, err)
 		}
+	}
+}
+
+func TestProjectConfluenceCommentListViewIsBodyAndSelectionFree(t *testing.T) {
+	result := completeCommentProjectionResult("list")
+	view, err := ProjectConfluenceCommentListView(result, ConfluenceCommentViewBounds{MaxCommentPages: 32, MaxItems: 100, MaxBytes: 128 << 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.SchemaVersion != ConfluenceCommentViewSchemaVersion || view.Count != 1 || view.Comments[0].ID != "101" ||
+		view.Comments[0].Anchor == nil || view.Comments[0].Anchor.Status != domain.ConfluenceAnchorMatched {
+		t.Fatalf("view = %+v", view)
+	}
+	encoded, err := json.Marshal(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range [][]byte{
+		[]byte(`"body"`), []byte(`"body_text"`), []byte(`"body_storage"`),
+		[]byte("PRIVATE-NATIVE"), []byte("PRIVATE-ORIGINAL"), []byte("PRIVATE-OBSERVED"),
+	} {
+		if bytes.Contains(encoded, forbidden) {
+			t.Fatalf("list projection leaked %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+func TestProjectConfluenceCommentThreadViewDerivesPlainTextFromNativeStorage(t *testing.T) {
+	result := completeCommentProjectionResult("thread")
+	result.Comments[0].Body = "PRIVATE-UNTRUSTED-CONVENIENCE-FIELD"
+	result.Comments[0].BodyStorage = `<p>Hello <strong>thread</strong></p>`
+	view, err := ProjectConfluenceCommentThreadView(result, ConfluenceCommentViewBounds{MaxCommentPages: 32, MaxItems: 100, MaxBytes: 256 << 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Comments[0].BodyText == nil || *view.Comments[0].BodyText != "Hello thread" {
+		t.Fatalf("body text = %+v", view.Comments[0].BodyText)
+	}
+	encoded, err := json.Marshal(view)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{
+		"PRIVATE-UNTRUSTED-CONVENIENCE-FIELD", "<strong>", "body_storage", "PRIVATE-ORIGINAL", "PRIVATE-OBSERVED",
+	} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("thread projection leaked %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+func TestProjectConfluenceCommentThreadViewFailsClosedOnMalformedNativeStorage(t *testing.T) {
+	result := completeCommentProjectionResult("thread")
+	result.Comments[0].Body = "raw fallback"
+	result.Comments[0].BodyStorage = `<p><broken></p>`
+	view, err := ProjectConfluenceCommentThreadView(result, ConfluenceCommentViewBounds{MaxCommentPages: 1, MaxItems: 1, MaxBytes: 1024})
+	if view != nil || !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("view=%+v error=%v, want fail-closed projection", view, err)
+	}
+}
+
+func TestConfluenceCommentViewValidatorsRejectUnreconciledEvidence(t *testing.T) {
+	badSource := completeCommentProjectionResult("list")
+	badSource.Comments[0].ID = "0101"
+	if projected, err := ProjectConfluenceCommentListView(badSource, ConfluenceCommentViewBounds{MaxCommentPages: 1, MaxItems: 1, MaxBytes: 1024}); projected != nil || !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("non-canonical source identity projected=%+v error=%v", projected, err)
+	}
+	badSource = completeCommentProjectionResult("list")
+	badSource.Comments[0].Author.ID = "reader@example.invalid"
+	if projected, err := ProjectConfluenceCommentListView(badSource, ConfluenceCommentViewBounds{MaxCommentPages: 1, MaxItems: 1, MaxBytes: 1024}); projected != nil || !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("email-like source author projected=%+v error=%v", projected, err)
+	}
+
+	list, err := ProjectConfluenceCommentListView(completeCommentProjectionResult("list"), ConfluenceCommentViewBounds{MaxCommentPages: 1, MaxItems: 1, MaxBytes: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	thread, err := ProjectConfluenceCommentThreadView(completeCommentProjectionResult("thread"), ConfluenceCommentViewBounds{MaxCommentPages: 1, MaxItems: 1, MaxBytes: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	badList := *list
+	badList.Comments = nil
+	if err := ValidateConfluenceCommentListView(&badList); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("nil list collection error = %v", err)
+	}
+	badList = *list
+	badList.Bounds.MaxItems = 0
+	if err := ValidateConfluenceCommentListView(&badList); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("invalid list bounds error = %v", err)
+	}
+	badList = *list
+	badList.RootCount = 0
+	if err := ValidateConfluenceCommentListView(&badList); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("invalid list root count error = %v", err)
+	}
+	badList = *list
+	badList.Comments = append([]ConfluenceCommentListViewRecord(nil), list.Comments...)
+	badList.Comments[0].Relation = domain.ConfluenceCommentRelation("invented")
+	if err := ValidateConfluenceCommentListView(&badList); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("invalid list relation error = %v", err)
+	}
+	badList = *list
+	badList.Comments = append([]ConfluenceCommentListViewRecord(nil), list.Comments...)
+	badList.Comments[0].ID = "0101"
+	if err := ValidateConfluenceCommentListView(&badList); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("non-canonical list identity error = %v", err)
+	}
+	badList = *list
+	badList.Comments = append([]ConfluenceCommentListViewRecord(nil), list.Comments...)
+	badList.Comments[0].Anchor = &ConfluenceCommentViewAnchor{Status: domain.ConfluenceAnchorMatched}
+	if err := ValidateConfluenceCommentListView(&badList); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("invalid list anchor error = %v", err)
+	}
+
+	badThread := *thread
+	badThread.Comments = append([]ConfluenceCommentThreadViewRecord(nil), thread.Comments...)
+	badThread.Comments[0].BodyText = nil
+	if err := ValidateConfluenceCommentThreadView(&badThread); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("unqualified missing body error = %v", err)
+	}
+	badThread = *thread
+	badThread.Diagnostics = []ConfluenceCommentViewDiagnostic{{Code: "backend prose"}}
+	if err := ValidateConfluenceCommentThreadView(&badThread); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("invalid diagnostic error = %v", err)
+	}
+	badThread = *thread
+	badThread.Diagnostics = []ConfluenceCommentViewDiagnostic{{Code: domain.ConfluenceCommentDiagnosticOrphanMarker, CommentID: "not-an-id"}}
+	if err := ValidateConfluenceCommentThreadView(&badThread); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("non-canonical diagnostic identity error = %v", err)
+	}
+	replyRoot, missingParent := "101", "999"
+	if err := validateConfluenceCommentThreadAncestry(map[string]ConfluenceCommentResultRecord{
+		"101": {ID: "101", RootID: &replyRoot, Relation: domain.ConfluenceCommentRelationRoot},
+		"102": {ID: "102", ParentID: &missingParent, RootID: &replyRoot, Relation: domain.ConfluenceCommentRelationReply},
+	}); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("missing ancestry error = %v", err)
+	}
+}
+
+func completeCommentProjectionResult(mode string) *ConfluenceCommentInventoryResult {
+	rootID := "101"
+	commentID := ""
+	if mode == "thread" {
+		commentID = rootID
+	}
+	return &ConfluenceCommentInventoryResult{
+		SchemaVersion: confluenceCommentInventorySchemaVersion,
+		PageID:        "42", PageVersion: 7, PageVersionGated: true,
+		Query:    ConfluenceCommentQuery{Mode: mode, Location: "all", State: "all", Depth: "all", CommentID: commentID},
+		Complete: true, CommentsComplete: true, ThreadsComplete: true, AnchorsComplete: true,
+		Count: 1, RootCount: 1, PartialReasons: []string{}, Capabilities: completeCommentCapabilities(),
+		Comments: []ConfluenceCommentResultRecord{{
+			ID: rootID, PageID: "42", RootID: &rootID, Relation: domain.ConfluenceCommentRelationRoot,
+			Location: domain.ConfluenceCommentLocationInline, Resolution: domain.ConfluenceCommentResolutionOpen,
+			Version: 1, Author: ConfluenceCommentAuthor{ID: "user-1", DisplayName: "Reader"},
+			CreatedAt: "2026-01-01", UpdatedAt: "2026-01-02", Body: "PRIVATE-NATIVE",
+			BodyStorage: `<p>PRIVATE-NATIVE</p>`, Anchor: &ConfluenceInlineAnchor{
+				MarkerRef: "marker-1", OriginalSelection: "PRIVATE-ORIGINAL", ObservedSelection: "PRIVATE-OBSERVED",
+				Status: domain.ConfluenceAnchorMatched,
+			},
+		}},
+		Diagnostics: []ConfluenceCommentResultDiagnostic{},
 	}
 }
 

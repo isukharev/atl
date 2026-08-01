@@ -164,7 +164,7 @@ func TestRunSpecMCPServiceProfileIsClosedAndToolBound(t *testing.T) {
 			"jira_issue_history", "jira_issue_refs", "jira_issue_search", "jira_mirror_snapshot", "jira_structure_get", "jira_structure_view",
 		},
 		"confluence": {
-			"confluence_attachment_list", "confluence_mirror_snapshot", "confluence_page_meta", "confluence_page_outline",
+			"confluence_attachment_list", "confluence_comment_list", "confluence_comment_thread", "confluence_mirror_snapshot", "confluence_page_meta", "confluence_page_outline",
 			"confluence_page_resolve", "confluence_page_section", "confluence_page_sections", "confluence_search",
 			"confluence_table_extract", "confluence_table_summary",
 		},

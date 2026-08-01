@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "page_version", "inventory_complete", "selected_comment_id", "thread_complete", "thread_text", "brief"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "page_version": {"type": "integer", "minimum": 1},
+    "inventory_complete": {"type": "boolean"},
+    "selected_comment_id": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+    "thread_complete": {"type": "boolean"},
+    "thread_text": {"type": "string"},
+    "brief": {"type": "string", "minLength": 1, "maxLength": 300}
+  }
+}

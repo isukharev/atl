@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
@@ -13,11 +14,23 @@ import (
 
 const confluenceCommentInventorySchemaVersion = 2
 
+const ConfluenceCommentViewSchemaVersion = 1
+
 type ConfluenceCommentInventoryOpts struct {
 	Location            string
 	State               string
 	Depth               string
 	ExpectedPageVersion int
+	// MaxPages and MaxItems are optional aggregate bounds for qualified reads.
+	// Zero preserves the historical CLI defaults.
+	MaxPages int
+	MaxItems int
+}
+
+type ConfluenceCommentThreadOpts struct {
+	ExpectedPageVersion int
+	MaxPages            int
+	MaxItems            int
 }
 
 type ConfluenceCommentQuery struct {
@@ -83,6 +96,103 @@ type ConfluenceCommentInventoryResult struct {
 	Diagnostics      []ConfluenceCommentResultDiagnostic  `json:"diagnostics"`
 }
 
+// ConfluenceCommentViewBounds records the resolved transport limits that
+// qualified one transient comment read. Values are positive in every emitted
+// view; zero remains reserved for the service's legacy-default input contract.
+type ConfluenceCommentViewBounds struct {
+	MaxCommentPages int `json:"max_comment_pages"`
+	MaxItems        int `json:"max_items"`
+	MaxBytes        int `json:"max_bytes"`
+}
+
+// ConfluenceCommentViewAnchor is deliberately selection-free. Marker identity
+// and qualification status are sufficient for routing; original and observed
+// page text stay outside the typed transport.
+type ConfluenceCommentViewAnchor struct {
+	MarkerRef string                        `json:"marker_ref"`
+	Status    domain.ConfluenceAnchorStatus `json:"status"`
+}
+
+type ConfluenceCommentViewDiagnostic struct {
+	Code      string                           `json:"code"`
+	CommentID string                           `json:"comment_id,omitempty"`
+	MarkerRef string                           `json:"marker_ref,omitempty"`
+	Selector  domain.ConfluenceCommentSelector `json:"selector,omitempty"`
+	Location  domain.ConfluenceCommentLocation `json:"location,omitempty"`
+}
+
+// ConfluenceCommentListViewRecord is a body-free discovery projection. It has
+// no native-storage, rendered-body, URL, page-title, or anchor-selection field.
+type ConfluenceCommentListViewRecord struct {
+	ID         string                             `json:"id"`
+	ParentID   *string                            `json:"parent_id"`
+	RootID     *string                            `json:"root_id"`
+	Relation   domain.ConfluenceCommentRelation   `json:"relation"`
+	Location   domain.ConfluenceCommentLocation   `json:"location"`
+	Resolution domain.ConfluenceCommentResolution `json:"resolution"`
+	Version    int                                `json:"version"`
+	Author     ConfluenceCommentAuthor            `json:"author"`
+	CreatedAt  string                             `json:"created_at"`
+	UpdatedAt  string                             `json:"updated_at"`
+	Anchor     *ConfluenceCommentViewAnchor       `json:"anchor"`
+}
+
+// ConfluenceCommentThreadViewRecord adds only reconciled plain text. A nil
+// BodyText is explicit partial evidence that native storage was unavailable;
+// a non-nil empty string is a successfully parsed comment with no text.
+type ConfluenceCommentThreadViewRecord struct {
+	ID         string                             `json:"id"`
+	ParentID   *string                            `json:"parent_id"`
+	RootID     *string                            `json:"root_id"`
+	Relation   domain.ConfluenceCommentRelation   `json:"relation"`
+	Location   domain.ConfluenceCommentLocation   `json:"location"`
+	Resolution domain.ConfluenceCommentResolution `json:"resolution"`
+	Version    int                                `json:"version"`
+	Author     ConfluenceCommentAuthor            `json:"author"`
+	CreatedAt  string                             `json:"created_at"`
+	UpdatedAt  string                             `json:"updated_at"`
+	BodyText   *string                            `json:"body_text"`
+	Anchor     *ConfluenceCommentViewAnchor       `json:"anchor"`
+}
+
+type ConfluenceCommentListView struct {
+	SchemaVersion    int                                  `json:"schema_version"`
+	PageID           string                               `json:"page_id"`
+	PageVersion      int                                  `json:"page_version"`
+	PageVersionGated bool                                 `json:"page_version_gated"`
+	Query            ConfluenceCommentQuery               `json:"query"`
+	Bounds           ConfluenceCommentViewBounds          `json:"bounds"`
+	Complete         bool                                 `json:"complete"`
+	CommentsComplete bool                                 `json:"comments_complete"`
+	ThreadsComplete  bool                                 `json:"threads_complete"`
+	AnchorsComplete  bool                                 `json:"anchors_complete"`
+	Count            int                                  `json:"count"`
+	RootCount        int                                  `json:"root_count"`
+	PartialReasons   []string                             `json:"partial_reasons"`
+	Capabilities     domain.ConfluenceCommentCapabilities `json:"capabilities"`
+	Comments         []ConfluenceCommentListViewRecord    `json:"comments"`
+	Diagnostics      []ConfluenceCommentViewDiagnostic    `json:"diagnostics"`
+}
+
+type ConfluenceCommentThreadView struct {
+	SchemaVersion    int                                  `json:"schema_version"`
+	PageID           string                               `json:"page_id"`
+	PageVersion      int                                  `json:"page_version"`
+	PageVersionGated bool                                 `json:"page_version_gated"`
+	Query            ConfluenceCommentQuery               `json:"query"`
+	Bounds           ConfluenceCommentViewBounds          `json:"bounds"`
+	Complete         bool                                 `json:"complete"`
+	CommentsComplete bool                                 `json:"comments_complete"`
+	ThreadsComplete  bool                                 `json:"threads_complete"`
+	AnchorsComplete  bool                                 `json:"anchors_complete"`
+	Count            int                                  `json:"count"`
+	RootCount        int                                  `json:"root_count"`
+	PartialReasons   []string                             `json:"partial_reasons"`
+	Capabilities     domain.ConfluenceCommentCapabilities `json:"capabilities"`
+	Comments         []ConfluenceCommentThreadViewRecord  `json:"comments"`
+	Diagnostics      []ConfluenceCommentViewDiagnostic    `json:"diagnostics"`
+}
+
 func ValidateConfluenceCommentInventoryOpts(opts ConfluenceCommentInventoryOpts) error {
 	switch opts.Location {
 	case "", "all", "footer", "inline", "resolved":
@@ -101,6 +211,9 @@ func ValidateConfluenceCommentInventoryOpts(opts ConfluenceCommentInventoryOpts)
 	}
 	if opts.ExpectedPageVersion < 0 {
 		return fmt.Errorf("%w: --expected-version must be positive (0 disables the gate)", domain.ErrUsage)
+	}
+	if opts.MaxPages < 0 || opts.MaxItems < 0 {
+		return fmt.Errorf("%w: Confluence comment page and item bounds must be zero or positive", domain.ErrUsage)
 	}
 	return nil
 }
@@ -151,13 +264,17 @@ func (s *ConfluenceService) commentInventoryForPage(ctx context.Context, page *d
 	if page == nil || strings.TrimSpace(page.ID) == "" || page.Version <= 0 {
 		return nil, fmt.Errorf("%w: Confluence comment page metadata is not reconciled", domain.ErrCheckFailed)
 	}
-	readOpts := domain.ConfluenceCommentReadOptions{DepthAll: opts.Depth == "all"}
+	readOpts := domain.ConfluenceCommentReadOptions{
+		DepthAll: opts.Depth == "all", MaxPages: opts.MaxPages, MaxItems: opts.MaxItems,
+	}
 	readOpts.Locations = confluenceCommentReadLocations(opts.Location)
 	qualified, ok := s.store.(domain.QualifiedConfluenceCommentReader)
 	var inventory domain.ConfluenceCommentInventory
 	var err error
 	if ok {
 		inventory, err = qualified.ListConfluenceComments(ctx, page.ID, readOpts)
+	} else if opts.MaxPages > 0 || opts.MaxItems > 0 {
+		return nil, fmt.Errorf("%w: legacy Confluence comment reader cannot enforce explicit bounds", domain.ErrCheckFailed)
 	} else {
 		inventory, err = s.legacyConfluenceCommentInventory(ctx, page.ID)
 	}
@@ -444,11 +561,19 @@ func sortConfluenceCommentResults(comments []ConfluenceCommentResultRecord) []Co
 }
 
 func (s *ConfluenceService) CommentThread(ctx context.Context, reference, commentID string, expectedVersion int) (*ConfluenceCommentInventoryResult, error) {
+	return s.CommentThreadWithOptions(ctx, reference, commentID, ConfluenceCommentThreadOpts{ExpectedPageVersion: expectedVersion})
+}
+
+// CommentThreadWithOptions preserves the exact thread-selection semantics while
+// allowing a typed transport to impose stricter aggregate read bounds. The
+// historical CommentThread method delegates with zero legacy-default bounds.
+func (s *ConfluenceService) CommentThreadWithOptions(ctx context.Context, reference, commentID string, opts ConfluenceCommentThreadOpts) (*ConfluenceCommentInventoryResult, error) {
 	if err := ValidateConfluenceCommentID(commentID); err != nil {
 		return nil, err
 	}
 	result, err := s.CommentInventory(ctx, reference, ConfluenceCommentInventoryOpts{
-		Location: "all", State: "all", Depth: "all", ExpectedPageVersion: expectedVersion,
+		Location: "all", State: "all", Depth: "all", ExpectedPageVersion: opts.ExpectedPageVersion,
+		MaxPages: opts.MaxPages, MaxItems: opts.MaxItems,
 	})
 	if err != nil {
 		return nil, err
@@ -493,6 +618,471 @@ func (s *ConfluenceService) CommentThread(ctx context.Context, reference, commen
 	}
 	result.Query = ConfluenceCommentQuery{Mode: "thread", Location: "all", State: "all", Depth: "all", CommentID: commentID}
 	return result, nil
+}
+
+// ProjectConfluenceCommentListView copies one qualified inventory into a
+// closed, body-free transport projection. Validation happens on both sides of
+// the copy so malformed source evidence and future accidental view widening
+// fail before emission.
+func ProjectConfluenceCommentListView(result *ConfluenceCommentInventoryResult, bounds ConfluenceCommentViewBounds) (*ConfluenceCommentListView, error) {
+	if err := validateConfluenceCommentInventoryResult(result, "list"); err != nil {
+		return nil, err
+	}
+	if err := validateConfluenceCommentViewBounds(bounds); err != nil {
+		return nil, err
+	}
+	comments := make([]ConfluenceCommentListViewRecord, 0, len(result.Comments))
+	for _, comment := range result.Comments {
+		comments = append(comments, ConfluenceCommentListViewRecord{
+			ID: comment.ID, ParentID: cloneStringPointer(comment.ParentID), RootID: cloneStringPointer(comment.RootID),
+			Relation: comment.Relation, Location: comment.Location, Resolution: comment.Resolution,
+			Version: comment.Version, Author: comment.Author, CreatedAt: comment.CreatedAt, UpdatedAt: comment.UpdatedAt,
+			Anchor: projectConfluenceCommentViewAnchor(comment.Anchor),
+		})
+	}
+	view := &ConfluenceCommentListView{
+		SchemaVersion: ConfluenceCommentViewSchemaVersion, PageID: result.PageID, PageVersion: result.PageVersion,
+		PageVersionGated: result.PageVersionGated, Query: result.Query, Bounds: bounds,
+		Complete: result.Complete, CommentsComplete: result.CommentsComplete,
+		ThreadsComplete: result.ThreadsComplete, AnchorsComplete: result.AnchorsComplete,
+		Count: result.Count, RootCount: result.RootCount,
+		PartialReasons: cloneStringsNonNil(result.PartialReasons), Capabilities: result.Capabilities,
+		Comments: comments, Diagnostics: projectConfluenceCommentViewDiagnostics(result.Diagnostics),
+	}
+	if err := ValidateConfluenceCommentListView(view); err != nil {
+		return nil, err
+	}
+	return view, nil
+}
+
+// ProjectConfluenceCommentThreadView projects only plain text derived directly
+// from successfully parsed native storage. It never trusts the source Body
+// convenience field because that field intentionally falls back to raw CSF for
+// the legacy CLI contract when parsing fails.
+func ProjectConfluenceCommentThreadView(result *ConfluenceCommentInventoryResult, bounds ConfluenceCommentViewBounds) (*ConfluenceCommentThreadView, error) {
+	if err := validateConfluenceCommentInventoryResult(result, "thread"); err != nil {
+		return nil, err
+	}
+	if err := validateConfluenceCommentViewBounds(bounds); err != nil {
+		return nil, err
+	}
+	comments := make([]ConfluenceCommentThreadViewRecord, 0, len(result.Comments))
+	for _, comment := range result.Comments {
+		var bodyText *string
+		if comment.BodyStorage != "" {
+			root, err := csf.Parse([]byte(comment.BodyStorage))
+			if err != nil {
+				return nil, fmt.Errorf("%w: Confluence comment body cannot be projected as reconciled plain text", domain.ErrCheckFailed)
+			}
+			plain := csf.TextContent(root)
+			bodyText = &plain
+		}
+		comments = append(comments, ConfluenceCommentThreadViewRecord{
+			ID: comment.ID, ParentID: cloneStringPointer(comment.ParentID), RootID: cloneStringPointer(comment.RootID),
+			Relation: comment.Relation, Location: comment.Location, Resolution: comment.Resolution,
+			Version: comment.Version, Author: comment.Author, CreatedAt: comment.CreatedAt, UpdatedAt: comment.UpdatedAt,
+			BodyText: bodyText, Anchor: projectConfluenceCommentViewAnchor(comment.Anchor),
+		})
+	}
+	view := &ConfluenceCommentThreadView{
+		SchemaVersion: ConfluenceCommentViewSchemaVersion, PageID: result.PageID, PageVersion: result.PageVersion,
+		PageVersionGated: result.PageVersionGated, Query: result.Query, Bounds: bounds,
+		Complete: result.Complete, CommentsComplete: result.CommentsComplete,
+		ThreadsComplete: result.ThreadsComplete, AnchorsComplete: result.AnchorsComplete,
+		Count: result.Count, RootCount: result.RootCount,
+		PartialReasons: cloneStringsNonNil(result.PartialReasons), Capabilities: result.Capabilities,
+		Comments: comments, Diagnostics: projectConfluenceCommentViewDiagnostics(result.Diagnostics),
+	}
+	if err := ValidateConfluenceCommentThreadView(view); err != nil {
+		return nil, err
+	}
+	return view, nil
+}
+
+func projectConfluenceCommentViewAnchor(anchor *ConfluenceInlineAnchor) *ConfluenceCommentViewAnchor {
+	if anchor == nil {
+		return nil
+	}
+	return &ConfluenceCommentViewAnchor{MarkerRef: anchor.MarkerRef, Status: anchor.Status}
+}
+
+func projectConfluenceCommentViewDiagnostics(in []ConfluenceCommentResultDiagnostic) []ConfluenceCommentViewDiagnostic {
+	out := make([]ConfluenceCommentViewDiagnostic, 0, len(in))
+	for _, diagnostic := range in {
+		out = append(out, ConfluenceCommentViewDiagnostic{
+			Code: diagnostic.Code, CommentID: diagnostic.CommentID, MarkerRef: diagnostic.MarkerRef,
+			Selector: diagnostic.Selector, Location: diagnostic.Location,
+		})
+	}
+	return out
+}
+
+func cloneStringsNonNil(in []string) []string {
+	out := make([]string, len(in))
+	copy(out, in)
+	return out
+}
+
+func validateConfluenceCommentViewBounds(bounds ConfluenceCommentViewBounds) error {
+	if bounds.MaxCommentPages < 1 || bounds.MaxItems < 1 || bounds.MaxBytes < 1 {
+		return fmt.Errorf("%w: Confluence comment view bounds must be positive", domain.ErrCheckFailed)
+	}
+	return nil
+}
+
+func validateConfluenceCommentInventoryResult(result *ConfluenceCommentInventoryResult, mode string) error {
+	if result == nil || result.SchemaVersion != confluenceCommentInventorySchemaVersion ||
+		!canonicalConfluenceContentID(result.PageID) || result.PageVersion < 1 ||
+		result.PartialReasons == nil || result.Comments == nil || result.Diagnostics == nil {
+		return fmt.Errorf("%w: Confluence comment result provenance is not reconciled", domain.ErrCheckFailed)
+	}
+	if err := validateConfluenceCommentQuery(result.Query, mode); err != nil {
+		return err
+	}
+	if result.Complete != (result.CommentsComplete && result.ThreadsComplete && result.AnchorsComplete) ||
+		result.Complete != (len(result.PartialReasons) == 0) ||
+		result.Count != len(result.Comments) || result.RootCount < 0 || result.RootCount > result.Count {
+		return fmt.Errorf("%w: Confluence comment result accounting is not reconciled", domain.ErrCheckFailed)
+	}
+	if err := validateConfluenceCommentQualification(result.PartialReasons, result.Capabilities); err != nil {
+		return err
+	}
+	rootCount := 0
+	seen := make(map[string]struct{}, len(result.Comments))
+	byID := make(map[string]ConfluenceCommentResultRecord, len(result.Comments))
+	for _, comment := range result.Comments {
+		if comment.PageID != result.PageID || !canonicalConfluenceContentID(comment.ID) ||
+			!optionalCanonicalConfluenceContentID(comment.ParentID) || !optionalCanonicalConfluenceContentID(comment.RootID) ||
+			comment.Version < 0 ||
+			!domain.ValidConfluenceCommentRelation(comment.Relation) ||
+			!domain.ValidConfluenceCommentLocation(comment.Location) ||
+			!domain.ValidConfluenceCommentResolution(comment.Resolution) {
+			return fmt.Errorf("%w: Confluence comment result record is not reconciled", domain.ErrCheckFailed)
+		}
+		if err := validateConfluenceCommentViewAuthor(comment.Author); err != nil {
+			return err
+		}
+		if _, duplicate := seen[comment.ID]; duplicate {
+			return fmt.Errorf("%w: Confluence comment result repeats an identity", domain.ErrCheckFailed)
+		}
+		seen[comment.ID] = struct{}{}
+		byID[comment.ID] = comment
+		if err := validateConfluenceCommentRelationship(comment.ID, comment.Relation, comment.ParentID, comment.RootID); err != nil {
+			return err
+		}
+		if comment.Relation == domain.ConfluenceCommentRelationRoot {
+			rootCount++
+		}
+		if err := validateConfluenceCommentViewAnchor(projectConfluenceCommentViewAnchor(comment.Anchor)); err != nil {
+			return err
+		}
+	}
+	if rootCount != result.RootCount {
+		return fmt.Errorf("%w: Confluence comment root count is not reconciled", domain.ErrCheckFailed)
+	}
+	if mode == "thread" && result.ThreadsComplete {
+		if err := validateConfluenceCommentThreadAncestry(byID); err != nil {
+			return err
+		}
+	}
+	return validateConfluenceCommentResultDiagnostics(result.Diagnostics)
+}
+
+func validateConfluenceCommentQuery(query ConfluenceCommentQuery, mode string) error {
+	if query.Mode != mode {
+		return fmt.Errorf("%w: Confluence comment query mode is not reconciled", domain.ErrCheckFailed)
+	}
+	switch query.Location {
+	case "all", "footer", "inline", "resolved":
+	default:
+		return fmt.Errorf("%w: Confluence comment query location is not reconciled", domain.ErrCheckFailed)
+	}
+	switch query.State {
+	case "all", "open", "resolved", "unknown":
+	default:
+		return fmt.Errorf("%w: Confluence comment query state is not reconciled", domain.ErrCheckFailed)
+	}
+	switch query.Depth {
+	case "all", "root":
+	default:
+		return fmt.Errorf("%w: Confluence comment query depth is not reconciled", domain.ErrCheckFailed)
+	}
+	if mode == "list" && query.CommentID != "" {
+		return fmt.Errorf("%w: Confluence comment list unexpectedly selects an identity", domain.ErrCheckFailed)
+	}
+	if mode == "thread" {
+		if err := ValidateConfluenceCommentID(query.CommentID); err != nil {
+			return fmt.Errorf("%w: Confluence comment thread identity is not reconciled", domain.ErrCheckFailed)
+		}
+		if query.Location != "all" || query.State != "all" || query.Depth != "all" {
+			return fmt.Errorf("%w: Confluence comment thread query is not canonical", domain.ErrCheckFailed)
+		}
+	}
+	return nil
+}
+
+func validateConfluenceCommentQualification(reasons []string, capabilities domain.ConfluenceCommentCapabilities) error {
+	if !sort.StringsAreSorted(reasons) {
+		return fmt.Errorf("%w: Confluence comment partial reasons are not canonical", domain.ErrCheckFailed)
+	}
+	seen := make(map[string]struct{}, len(reasons))
+	for _, reason := range reasons {
+		if !domain.ValidConfluenceCommentPartialReason(reason) {
+			return fmt.Errorf("%w: Confluence comment result has an unknown partial reason", domain.ErrCheckFailed)
+		}
+		if _, duplicate := seen[reason]; duplicate {
+			return fmt.Errorf("%w: Confluence comment result repeats a partial reason", domain.ErrCheckFailed)
+		}
+		seen[reason] = struct{}{}
+	}
+	for _, status := range []domain.ConfluenceCapabilityStatus{
+		capabilities.Footer, capabilities.Inline, capabilities.Resolved, capabilities.DepthAll,
+		capabilities.ThreadAncestry, capabilities.InlineProperties, capabilities.Resolution,
+	} {
+		if !domain.ValidConfluenceCapabilityStatus(status) {
+			return fmt.Errorf("%w: Confluence comment capabilities are not reconciled", domain.ErrCheckFailed)
+		}
+	}
+	return nil
+}
+
+func validateConfluenceCommentRelationship(id string, relation domain.ConfluenceCommentRelation, parentID, rootID *string) error {
+	switch relation {
+	case domain.ConfluenceCommentRelationRoot:
+		if parentID != nil || rootID == nil || *rootID != id {
+			return fmt.Errorf("%w: Confluence comment root relationship is not reconciled", domain.ErrCheckFailed)
+		}
+	case domain.ConfluenceCommentRelationReply:
+		if parentID == nil || rootID == nil || *parentID == "" || *rootID == "" || *parentID == id || *rootID == id {
+			return fmt.Errorf("%w: Confluence comment reply relationship is not reconciled", domain.ErrCheckFailed)
+		}
+	case domain.ConfluenceCommentRelationUnknown:
+		if parentID != nil || rootID != nil {
+			return fmt.Errorf("%w: unknown Confluence comment relationship carries inferred ancestry", domain.ErrCheckFailed)
+		}
+	}
+	return nil
+}
+
+func validateConfluenceCommentViewAnchor(anchor *ConfluenceCommentViewAnchor) error {
+	if anchor == nil {
+		return nil
+	}
+	if !domain.ValidConfluenceAnchorStatus(anchor.Status) ||
+		(anchor.MarkerRef == "" && anchor.Status != domain.ConfluenceAnchorUnavailable) {
+		return fmt.Errorf("%w: Confluence comment anchor is not reconciled", domain.ErrCheckFailed)
+	}
+	return nil
+}
+
+func validateConfluenceCommentViewAuthor(author ConfluenceCommentAuthor) error {
+	if !utf8.ValidString(author.ID) || !utf8.ValidString(author.DisplayName) ||
+		strings.Contains(author.ID, "@") || strings.Contains(author.DisplayName, "@") {
+		return fmt.Errorf("%w: Confluence comment author is not privacy-safe", domain.ErrCheckFailed)
+	}
+	return nil
+}
+
+func validateConfluenceCommentResultDiagnostics(diagnostics []ConfluenceCommentResultDiagnostic) error {
+	for _, diagnostic := range diagnostics {
+		if !domain.ValidConfluenceCommentDiagnosticCode(diagnostic.Code) ||
+			(diagnostic.CommentID != "" && !canonicalConfluenceContentID(diagnostic.CommentID)) ||
+			(diagnostic.Selector != "" && !domain.ValidConfluenceCommentSelector(diagnostic.Selector)) ||
+			(diagnostic.Location != "" && !domain.ValidConfluenceCommentLocation(diagnostic.Location)) {
+			return fmt.Errorf("%w: Confluence comment diagnostic is not reconciled", domain.ErrCheckFailed)
+		}
+	}
+	return nil
+}
+
+func validateConfluenceCommentViewDiagnostics(diagnostics []ConfluenceCommentViewDiagnostic) error {
+	for _, diagnostic := range diagnostics {
+		if !domain.ValidConfluenceCommentDiagnosticCode(diagnostic.Code) ||
+			(diagnostic.CommentID != "" && !canonicalConfluenceContentID(diagnostic.CommentID)) ||
+			(diagnostic.Selector != "" && !domain.ValidConfluenceCommentSelector(diagnostic.Selector)) ||
+			(diagnostic.Location != "" && !domain.ValidConfluenceCommentLocation(diagnostic.Location)) {
+			return fmt.Errorf("%w: Confluence comment view diagnostic is not reconciled", domain.ErrCheckFailed)
+		}
+	}
+	return nil
+}
+
+func validateConfluenceCommentThreadAncestry(byID map[string]ConfluenceCommentResultRecord) error {
+	for _, comment := range byID {
+		if comment.Relation == domain.ConfluenceCommentRelationRoot {
+			continue
+		}
+		if comment.Relation != domain.ConfluenceCommentRelationReply || comment.ParentID == nil || comment.RootID == nil {
+			return fmt.Errorf("%w: complete Confluence comment thread has unknown ancestry", domain.ErrCheckFailed)
+		}
+		rootID := *comment.RootID
+		root, rootOK := byID[rootID]
+		if !rootOK || root.Relation != domain.ConfluenceCommentRelationRoot || root.RootID == nil || *root.RootID != rootID {
+			return fmt.Errorf("%w: complete Confluence comment thread omits ancestry", domain.ErrCheckFailed)
+		}
+		seen := map[string]struct{}{comment.ID: {}}
+		current := comment
+		for current.Relation == domain.ConfluenceCommentRelationReply && current.ParentID != nil {
+			parentID := *current.ParentID
+			if _, duplicate := seen[parentID]; duplicate {
+				return fmt.Errorf("%w: complete Confluence comment thread has cyclic ancestry", domain.ErrCheckFailed)
+			}
+			seen[parentID] = struct{}{}
+			parent, present := byID[parentID]
+			if !present {
+				return fmt.Errorf("%w: complete Confluence comment thread omits ancestry", domain.ErrCheckFailed)
+			}
+			if parentID == rootID {
+				if parent.Relation != domain.ConfluenceCommentRelationRoot {
+					return fmt.Errorf("%w: complete Confluence comment thread has inconsistent ancestry", domain.ErrCheckFailed)
+				}
+				break
+			}
+			if parent.Relation != domain.ConfluenceCommentRelationReply || parent.RootID == nil || *parent.RootID != rootID {
+				return fmt.Errorf("%w: complete Confluence comment thread has inconsistent ancestry", domain.ErrCheckFailed)
+			}
+			current = parent
+		}
+	}
+	return nil
+}
+
+// ValidateConfluenceCommentListView validates the closed body-free projection
+// independently of its source result.
+func ValidateConfluenceCommentListView(view *ConfluenceCommentListView) error {
+	if view == nil || view.SchemaVersion != ConfluenceCommentViewSchemaVersion || !canonicalConfluenceContentID(view.PageID) ||
+		view.PageVersion < 1 || view.PartialReasons == nil || view.Comments == nil || view.Diagnostics == nil {
+		return fmt.Errorf("%w: Confluence comment list view provenance is not reconciled", domain.ErrCheckFailed)
+	}
+	if err := validateConfluenceCommentQuery(view.Query, "list"); err != nil {
+		return err
+	}
+	if err := validateConfluenceCommentViewBounds(view.Bounds); err != nil {
+		return err
+	}
+	if view.Complete != (view.CommentsComplete && view.ThreadsComplete && view.AnchorsComplete) ||
+		view.Complete != (len(view.PartialReasons) == 0) || view.Count != len(view.Comments) {
+		return fmt.Errorf("%w: Confluence comment list view accounting is not reconciled", domain.ErrCheckFailed)
+	}
+	if err := validateConfluenceCommentQualification(view.PartialReasons, view.Capabilities); err != nil {
+		return err
+	}
+	rootCount := 0
+	seen := make(map[string]struct{}, len(view.Comments))
+	for _, comment := range view.Comments {
+		if !canonicalConfluenceContentID(comment.ID) ||
+			!optionalCanonicalConfluenceContentID(comment.ParentID) || !optionalCanonicalConfluenceContentID(comment.RootID) ||
+			comment.Version < 0 || !domain.ValidConfluenceCommentRelation(comment.Relation) ||
+			!domain.ValidConfluenceCommentLocation(comment.Location) || !domain.ValidConfluenceCommentResolution(comment.Resolution) {
+			return fmt.Errorf("%w: Confluence comment list record is not reconciled", domain.ErrCheckFailed)
+		}
+		if err := validateConfluenceCommentViewAuthor(comment.Author); err != nil {
+			return err
+		}
+		if _, duplicate := seen[comment.ID]; duplicate {
+			return fmt.Errorf("%w: Confluence comment list repeats an identity", domain.ErrCheckFailed)
+		}
+		seen[comment.ID] = struct{}{}
+		if err := validateConfluenceCommentRelationship(comment.ID, comment.Relation, comment.ParentID, comment.RootID); err != nil {
+			return err
+		}
+		if comment.Relation == domain.ConfluenceCommentRelationRoot {
+			rootCount++
+		}
+		if err := validateConfluenceCommentViewAnchor(comment.Anchor); err != nil {
+			return err
+		}
+	}
+	if rootCount != view.RootCount {
+		return fmt.Errorf("%w: Confluence comment list root count is not reconciled", domain.ErrCheckFailed)
+	}
+	return validateConfluenceCommentViewDiagnostics(view.Diagnostics)
+}
+
+// ValidateConfluenceCommentThreadView additionally validates self-contained
+// complete ancestry and the nullable reconciled body projection.
+func ValidateConfluenceCommentThreadView(view *ConfluenceCommentThreadView) error {
+	if view == nil || view.SchemaVersion != ConfluenceCommentViewSchemaVersion || !canonicalConfluenceContentID(view.PageID) ||
+		view.PageVersion < 1 || view.PartialReasons == nil || view.Comments == nil || view.Diagnostics == nil {
+		return fmt.Errorf("%w: Confluence comment thread view provenance is not reconciled", domain.ErrCheckFailed)
+	}
+	if err := validateConfluenceCommentQuery(view.Query, "thread"); err != nil {
+		return err
+	}
+	if err := validateConfluenceCommentViewBounds(view.Bounds); err != nil {
+		return err
+	}
+	if view.Complete != (view.CommentsComplete && view.ThreadsComplete && view.AnchorsComplete) ||
+		view.Complete != (len(view.PartialReasons) == 0) || view.Count != len(view.Comments) {
+		return fmt.Errorf("%w: Confluence comment thread view accounting is not reconciled", domain.ErrCheckFailed)
+	}
+	if err := validateConfluenceCommentQualification(view.PartialReasons, view.Capabilities); err != nil {
+		return err
+	}
+	rootCount := 0
+	seen := make(map[string]struct{}, len(view.Comments))
+	byID := make(map[string]ConfluenceCommentResultRecord, len(view.Comments))
+	for _, comment := range view.Comments {
+		if !canonicalConfluenceContentID(comment.ID) ||
+			!optionalCanonicalConfluenceContentID(comment.ParentID) || !optionalCanonicalConfluenceContentID(comment.RootID) ||
+			comment.Version < 0 || !domain.ValidConfluenceCommentRelation(comment.Relation) ||
+			!domain.ValidConfluenceCommentLocation(comment.Location) || !domain.ValidConfluenceCommentResolution(comment.Resolution) ||
+			(comment.BodyText != nil && !utf8.ValidString(*comment.BodyText)) {
+			return fmt.Errorf("%w: Confluence comment thread record is not reconciled", domain.ErrCheckFailed)
+		}
+		if err := validateConfluenceCommentViewAuthor(comment.Author); err != nil {
+			return err
+		}
+		if comment.BodyText == nil && !hasResultPartialReason(view.PartialReasons, domain.ConfluenceCommentPartialBodyUnavailable) {
+			return fmt.Errorf("%w: Confluence comment thread omits body text without qualification", domain.ErrCheckFailed)
+		}
+		if _, duplicate := seen[comment.ID]; duplicate {
+			return fmt.Errorf("%w: Confluence comment thread repeats an identity", domain.ErrCheckFailed)
+		}
+		seen[comment.ID] = struct{}{}
+		if err := validateConfluenceCommentRelationship(comment.ID, comment.Relation, comment.ParentID, comment.RootID); err != nil {
+			return err
+		}
+		if comment.Relation == domain.ConfluenceCommentRelationRoot {
+			rootCount++
+		}
+		if err := validateConfluenceCommentViewAnchor(comment.Anchor); err != nil {
+			return err
+		}
+		byID[comment.ID] = ConfluenceCommentResultRecord{
+			ID: comment.ID, ParentID: comment.ParentID, RootID: comment.RootID, Relation: comment.Relation,
+		}
+	}
+	if rootCount != view.RootCount {
+		return fmt.Errorf("%w: Confluence comment thread root count is not reconciled", domain.ErrCheckFailed)
+	}
+	if view.ThreadsComplete {
+		if err := validateConfluenceCommentThreadAncestry(byID); err != nil {
+			return err
+		}
+	}
+	return validateConfluenceCommentViewDiagnostics(view.Diagnostics)
+}
+
+func hasResultPartialReason(reasons []string, want string) bool {
+	for _, reason := range reasons {
+		if reason == want {
+			return true
+		}
+	}
+	return false
+}
+
+func canonicalConfluenceContentID(value string) bool {
+	if value == "" || value[0] == '0' || strings.TrimSpace(value) != value {
+		return false
+	}
+	_, err := strconv.ParseUint(value, 10, 64)
+	return err == nil
+}
+
+func optionalCanonicalConfluenceContentID(value *string) bool {
+	return value == nil || canonicalConfluenceContentID(*value)
 }
 
 func ValidateConfluenceCommentID(value string) error {

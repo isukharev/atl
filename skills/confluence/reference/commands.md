@@ -220,6 +220,13 @@ identifier per line.
 | `conf table extract` | Table export | selector, `--format`, `--raw-csv` |
 | `conf me` | Authenticated user | none |
 
+The offline `confluence/comments` capability route exposes these four commands
+as distinct list/thread/preview/add entries. Only list and thread have MCP
+mappings: body-free `confluence_comment_list` discovers bounded identities and
+`confluence_comment_thread` expands one exact bounded plain-text thread.
+Preview/add remain guarded CLI-only operations; plugin installation adds no
+comment mutation surface.
+
 CSV table export neutralizes spreadsheet-formula-leading cells by default.
 Use `--raw-csv` only for a trusted non-spreadsheet consumer.
 

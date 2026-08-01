@@ -22,7 +22,7 @@ treat all three routes as complementary:
   Structure export, offline diff/plan, attachments, scripts, and every guarded
   write.
 - Use atl MCP for one real-time bounded read or one no-argument offline mirror
-  snapshot when its twenty-one typed tools cover the task. The snapshot reads only
+  snapshot when its twenty-three typed tools cover the task. The snapshot reads only
   an owner-configured `ATL_MIRROR_ROOT` and exposes no paths or content.
 - Use an independently configured Atlassian/Rovo MCP when its OAuth scope or a
   capability absent from atl is specifically required.
@@ -45,4 +45,7 @@ instead keep the source of truth in Confluence/Jira. `atl` bridges that gap:
 
 - A single real-time lookup with no edit → atl MCP, another approved MCP, or a
   one-off `conf page view` / `jira issue view` is lighter than standing up a mirror.
+- For Confluence comments, use body-free MCP list discovery, then expand one
+  exact thread only when needed. Guarded comment preview/add remain CLI-only;
+  installing the plugin adds no mutation tool.
 - Content you must never persist to disk → don't mirror it; read it transiently.

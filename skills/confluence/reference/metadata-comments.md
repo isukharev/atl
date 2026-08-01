@@ -116,6 +116,17 @@ previously observed page version when evidence must remain revision-bound.
 as not-found. `-o text` prints the qualification header and an indented tree;
 JSON remains the machine contract and retains native `body_storage`.
 
+For transient MCP evidence, call body-free `confluence_comment_list` with one
+positive canonical page id, narrow item/encoded-byte bounds, and an
+`expected_page_version` copied from prior evidence when applicable. Expand only
+one returned positive canonical comment id with `confluence_comment_thread`.
+The server fixes traversal at 32 comment pages. The thread tool returns bounded
+plain text, not raw CSF. Require
+`complete:true` before claiming absence; a successful partial list/thread never
+proves an omitted comment or reply absent. Both projections omit inline
+selection text, URLs, email, and arbitrary backend error prose. MCP has no preview/add tool and
+cannot mutate comments.
+
 `--legacy-flat` is only a temporary compatibility route for the old list
 shape. Do not use it for new automation or combine it with v2 filters.
 

@@ -136,7 +136,29 @@ func TestCapabilityMappingsReconcileWithRegisteredToolInventory(t *testing.T) {
 			t.Errorf("registered MCP tool %q has no curated capability mapping", name)
 		}
 	}
-	if len(registered) != 21 || len(covered) != len(registered) {
-		t.Fatalf("registered=%d covered=%d want=21/21", len(registered), len(covered))
+	if len(registered) != 23 || len(covered) != len(registered) {
+		t.Fatalf("registered=%d covered=%d want=23/23", len(registered), len(covered))
+	}
+}
+
+func TestCapabilitiesResourceKeepsCommentRoutesClosedAndSchemaV1(t *testing.T) {
+	resource := staticCapabilitiesResource()
+	if resource.SchemaVersion != 1 {
+		t.Fatalf("schema_version=%d want=1", resource.SchemaVersion)
+	}
+	var got []capabilityResourceEntry
+	for _, entry := range resource.Capabilities {
+		if entry.TaskClass == "confluence/comments" {
+			got = append(got, entry)
+		}
+	}
+	if len(got) != 4 {
+		t.Fatalf("comment routes=%d want=4: %+v", len(got), got)
+	}
+	if got[0].ID != "confluence.comment.list" || got[0].MCPTool != "confluence_comment_list" || got[0].CLIOnly ||
+		got[1].ID != "confluence.comment.thread" || got[1].MCPTool != "confluence_comment_thread" || got[1].CLIOnly ||
+		got[2].ID != "confluence.comment.preview" || !got[2].CLIOnly || got[2].MCPTool != "" ||
+		got[3].ID != "confluence.comment.add" || !got[3].CLIOnly || got[3].MCPTool != "" {
+		t.Fatalf("comment routes are not closed: %+v", got)
 	}
 }

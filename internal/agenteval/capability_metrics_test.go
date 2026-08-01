@@ -90,6 +90,12 @@ func TestCapabilityFamiliesAreGenericAndPrivacySafe(t *testing.T) {
 	if family, ok := CapabilityFamilyForMCP("confluence_mirror_snapshot"); !ok || family != "confluence.mirror.snapshot" {
 		t.Fatalf("MCP Confluence mirror snapshot family=%q ok=%t", family, ok)
 	}
+	if family, ok := CapabilityFamilyForMCP("confluence_comment_list"); !ok || family != "confluence.comment.list" {
+		t.Fatalf("MCP Confluence comment list family=%q ok=%t", family, ok)
+	}
+	if family, ok := CapabilityFamilyForMCP("confluence_comment_thread"); !ok || family != "confluence.comment.thread" {
+		t.Fatalf("MCP Confluence comment thread family=%q ok=%t", family, ok)
+	}
 	if family, ok := CapabilityFamilyForCLI([]string{"conf", "diff", private, "--into", "mirror"}); !ok || family != "confluence.diff" {
 		t.Fatalf("CLI Confluence diff family=%q ok=%t", family, ok)
 	}
@@ -210,6 +216,30 @@ func TestJiraIssueGraphCLIAndMCPShareNeutralDataCapability(t *testing.T) {
 		}
 		if !slices.Equal(capabilities, []string{"jira.issue.graph"}) {
 			t.Fatalf("capabilities=%v", capabilities)
+		}
+	}
+}
+
+func TestConfluenceCommentCLIAndMCPShareNeutralDataCapabilities(t *testing.T) {
+	for _, test := range []struct {
+		command string
+		tool    string
+		want    string
+	}{
+		{"atl conf comment list --id 123", "confluence_comment_list", "confluence.comment.list"},
+		{"atl conf comment thread --id 123 --comment 456", "confluence_comment_thread", "confluence.comment.thread"},
+	} {
+		for _, spec := range []RunSpec{
+			{AllowedATLCommands: []string{test.command}},
+			{AllowedMCPTools: []string{test.tool}},
+		} {
+			capabilities, err := deriveRunDataCapabilities(spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(capabilities, []string{test.want}) {
+				t.Fatalf("command=%q tool=%q capabilities=%v", test.command, test.tool, capabilities)
+			}
 		}
 	}
 }
@@ -382,6 +412,7 @@ func TestRemainingReadCapabilityFamiliesClassifyAndNormalize(t *testing.T) {
 		{[]string{"jira", "issue", "watchers", "list", "DEMO-1"}, "jira.issue.watchers.list"},
 		{[]string{"conf", "attachment", "get", "--id", "123", "--name", "file.bin"}, "confluence.attachment.get"},
 		{[]string{"conf", "comment", "list", "--id", "123"}, "confluence.comment.list"},
+		{[]string{"conf", "comment", "thread", "--id", "123", "--comment", "456"}, "confluence.comment.thread"},
 		{[]string{"conf", "me"}, "confluence.me"},
 		{[]string{"conf", "page", "get", "--id", "123"}, "confluence.page.get"},
 		{[]string{"conf", "page", "labels", "list", "--id", "123"}, "confluence.page.labels.list"},

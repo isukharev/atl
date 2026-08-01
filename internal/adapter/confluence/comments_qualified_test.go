@@ -157,6 +157,67 @@ func TestListConfluenceCommentsAggregatePageCapStopsLaterSelectors(t *testing.T)
 	}
 }
 
+func TestListConfluenceCommentsEnforcesExplicitAggregateBounds(t *testing.T) {
+	t.Run("pages", func(t *testing.T) {
+		requests := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requests++
+			row := qualifiedCommentJSON(fmt.Sprintf("comment-%03d", requests), "footer", "", `[{"id":"1","type":"page"}]`, "<p>x</p>")
+			_, _ = fmt.Fprintf(w, `{"results":[%s],"start":%s,"limit":100,"size":1,"_links":{"next":"/ignored"}}`, row, r.URL.Query().Get("start"))
+		}))
+		defer srv.Close()
+		inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{
+			Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter}, MaxPages: 2,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if requests != 2 || len(inventory.Comments) != 2 || inventory.CommentsComplete || inventory.ThreadsComplete ||
+			!containsString(inventory.PartialReasons, domain.ConfluenceCommentPartialPageLimit) {
+			t.Fatalf("requests=%d inventory=%+v", requests, inventory)
+		}
+	})
+
+	t.Run("items", func(t *testing.T) {
+		requests := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			requests++
+			rows := []string{
+				qualifiedCommentJSON("10", "footer", "", `[{"id":"1","type":"page"}]`, "<p>a</p>"),
+				qualifiedCommentJSON("11", "footer", "", `[{"id":"1","type":"page"}]`, "<p>b</p>"),
+				qualifiedCommentJSON("12", "footer", "", `[{"id":"1","type":"page"}]`, "<p>c</p>"),
+			}
+			_, _ = fmt.Fprintf(w, `{"results":[%s],"start":0,"limit":100,"size":3,"_links":{}}`, strings.Join(rows, ","))
+		}))
+		defer srv.Close()
+		inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{
+			Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter}, MaxItems: 2,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if requests != 1 || len(inventory.Comments) != 2 || inventory.CommentsComplete || inventory.ThreadsComplete ||
+			!containsString(inventory.PartialReasons, domain.ConfluenceCommentPartialItemLimit) {
+			t.Fatalf("requests=%d inventory=%+v", requests, inventory)
+		}
+	})
+}
+
+func TestListConfluenceCommentsRejectsInvalidBoundsBeforeRequest(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
+	defer srv.Close()
+	for _, options := range []domain.ConfluenceCommentReadOptions{{MaxPages: -1}, {MaxItems: -1}} {
+		_, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", options)
+		if !errors.Is(err, domain.ErrUsage) {
+			t.Fatalf("options=%+v error=%v, want ErrUsage", options, err)
+		}
+	}
+	if requests != 0 {
+		t.Fatalf("invalid bounds made %d requests", requests)
+	}
+}
+
 func TestListConfluenceCommentsPropagatesSentinelErrors(t *testing.T) {
 	for _, test := range []struct {
 		status int

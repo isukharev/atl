@@ -48,6 +48,26 @@ func TestValidateConfluenceUserIdentity(t *testing.T) {
 	}
 }
 
+func TestValidateConfluenceCommentReadOptions(t *testing.T) {
+	for _, options := range []ConfluenceCommentReadOptions{
+		{},
+		{Locations: []ConfluenceCommentSelector{ConfluenceCommentSelectorFooter}, MaxPages: 1, MaxItems: 2},
+	} {
+		if err := ValidateConfluenceCommentReadOptions(options); err != nil {
+			t.Fatalf("valid options %+v rejected: %v", options, err)
+		}
+	}
+	for _, options := range []ConfluenceCommentReadOptions{
+		{MaxPages: -1},
+		{MaxItems: -1},
+		{Locations: []ConfluenceCommentSelector{"other"}},
+	} {
+		if err := ValidateConfluenceCommentReadOptions(options); !errors.Is(err, ErrUsage) {
+			t.Fatalf("options %+v error = %v, want ErrUsage", options, err)
+		}
+	}
+}
+
 func TestValidateConfluenceCommentInventoryRejectsInvalidRelationshipsAndCollections(t *testing.T) {
 	rootID := "10"
 	valid := ConfluenceCommentInventory{

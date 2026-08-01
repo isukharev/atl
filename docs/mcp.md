@@ -12,7 +12,7 @@ forest/values, exports, offline diff/plan workflows, and all guarded writes.
 
 ## Closed service profiles and capability resource
 
-The default command keeps the complete twenty-one-tool catalog and its existing
+The default command keeps the complete twenty-three-tool catalog and its existing
 instructions:
 
 ```bash
@@ -28,7 +28,7 @@ atl mcp serve --service confluence
 atl mcp serve --service offline
 ```
 
-The closed profiles expose 11/10/2 tools for Jira/Confluence/offline
+The closed profiles expose 11/12/2 tools for Jira/Confluence/offline
 respectively. `offline` exposes only
 `jira_mirror_snapshot` and `confluence_mirror_snapshot` and constructs neither
 backend. The flag is not an arbitrary allowlist: unknown or repeated values
@@ -64,6 +64,8 @@ The v1 surface is an explicit allowlist:
 | `confluence_search` | Search one qualified bounded CQL candidate page | default 25/maximum 100 rows; default 128 KiB/maximum 1 MiB encoded result |
 | `confluence_page_resolve` | Resolve an id or same-origin URL/path | exact resolution only |
 | `confluence_page_meta` | Read body-free page governance metadata | fixed 32 KiB result cap; explicit tri-state restriction state; no URL, labels, ancestors, principals, or body |
+| `confluence_comment_list` | Discover qualified comments without returning bodies | positive canonical page id; optional provenance version gate; fixed 32-comment-page cap; default/maximum 100/1000 items and 128 KiB/1 MiB encoded result |
+| `confluence_comment_thread` | Expand one exact qualified thread as plain text | positive canonical page/comment ids; optional provenance version gate; fixed 32-comment-page cap; default/maximum 100/1000 items and 256 KiB/1 MiB encoded result |
 | `confluence_page_outline` | Inspect headings before reading content | one page |
 | `confluence_page_section` | Read one exact Markdown section | optional `expected_page_version` binding; default 32 KiB, maximum 1 MiB |
 | `confluence_page_sections` | Read 1..32 ordered Markdown sections from one page snapshot | optional `expected_page_version` binding; default 256 KiB aggregate content, maximum 1 MiB; independent encoded-result ceiling |
@@ -211,6 +213,13 @@ remain generic.
 Raw formulas, arbitrary value matrices, issue pull, file export, and mutations
 remain unavailable through MCP.
 
+The offline capability catalog exposes the additive `confluence/comments` task
+as four dedicated entries in order: `confluence.comment.list`,
+`confluence.comment.thread`, `confluence.comment.preview`, and
+`confluence.comment.add`. Only list/thread map to MCP. Preview/add remain
+guarded CLI-only commands; neither plugin installation nor a capability mapping
+creates a mutation tool.
+
 `confluence_search` requires explicit CQL and returns the same qualified
 schema-v1 page as `conf search`: `query`, bounded candidate metadata, `count`,
 `complete`, `truncated`, optional `partial_reason`, and `next_cursor`. Search
@@ -257,6 +266,41 @@ as an optional gate for a later section, table, or attachment operation does
 not make the reads atomic. Re-read metadata when freshness itself is the
 question; do not fetch an outline merely to confirm access state, because an
 outline has no restriction field and requires the native page body.
+
+Use `confluence_comment_list` as body-free discovery before expanding comment
+content. It accepts one positive canonical decimal `page_id`; signed,
+whitespace-padded, zero, leading-zero, URL, and non-decimal values fail before
+backend construction. Closed location/state/depth selectors narrow the
+qualified inventory. The result preserves schema/page/version, version-gate,
+query, bounds, completeness dimensions, counts, closed partial reasons,
+capabilities, selection-free anchor status/marker identity, content-free
+diagnostics, and comment metadata. Comment bodies and native storage are absent
+by construction.
+
+Use `confluence_comment_thread` only after choosing one exact positive canonical
+decimal `comment_id`. It retains the same qualification and adds nullable
+`body_text` for the selected root/subtree; text is derived from native storage,
+UTF-8-valid plain text under the encoded-result cap. It never emits
+raw CSF or anchor selection text. A null body is explicit partial evidence, not
+an empty comment.
+
+For either tool, pass `expected_page_version` when the page/version came from an
+earlier observation and require `page_version_gated:true`; omission is an
+explicitly ungated read. The server fixes `max_comment_pages` at 32;
+`max_items` permits 1..1000 and defaults to 100; `max_bytes` permits
+1 KiB..1 MiB and defaults to 128 KiB for list or 256 KiB for thread. The
+resolved limits are echoed under `bounds`. A bound hit yields a successful but
+partial qualified result when structurally safe; it never proves an omitted
+comment, reply, or exact id absent. An encoded result that cannot fit its byte
+bound fails rather than clipping. Narrow selectors and bounds before deliberate
+expansion.
+
+Both projections are privacy-minimized: no URL, email address, page title,
+original/observed selection text, raw native CSF, or backend-controlled error
+prose is returned. Author identity is the stable backend id and display name,
+not email. All tool errors use static content-free messages. There is no MCP
+comment preview, add, reply, inline-create, resolution-change, arbitrary REST,
+or plugin-only write route.
 
 `confluence_page_section` and `confluence_page_sections` also take an optional
 `expected_page_version`, and every result carries the resulting
@@ -551,6 +595,8 @@ enabled_tools = [
   "confluence_search",
   "confluence_page_resolve",
   "confluence_page_meta",
+  "confluence_comment_list",
+  "confluence_comment_thread",
   "confluence_page_outline",
   "confluence_page_section",
   "confluence_page_sections",
