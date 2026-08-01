@@ -137,15 +137,29 @@ func (s *ConfluenceService) CommentInventory(ctx context.Context, reference stri
 	if opts.ExpectedPageVersion > 0 && page.Version != opts.ExpectedPageVersion {
 		return nil, fmt.Errorf("%w: Confluence page version changed from %d to %d", domain.ErrVersionConflict, opts.ExpectedPageVersion, page.Version)
 	}
+	return s.commentInventoryForPage(ctx, page, opts)
+}
 
+// commentInventoryForPage qualifies comments against an already fetched native
+// page snapshot. Pull uses this form so --comments never performs a second page
+// GET whose version or CSF bytes could differ from the mirrored substrate.
+func (s *ConfluenceService) commentInventoryForPage(ctx context.Context, page *domain.Resource, opts ConfluenceCommentInventoryOpts) (*ConfluenceCommentInventoryResult, error) {
+	opts = normalizeConfluenceCommentOpts(opts)
+	if err := ValidateConfluenceCommentInventoryOpts(opts); err != nil {
+		return nil, err
+	}
+	if page == nil || strings.TrimSpace(page.ID) == "" || page.Version <= 0 {
+		return nil, fmt.Errorf("%w: Confluence comment page metadata is not reconciled", domain.ErrCheckFailed)
+	}
 	readOpts := domain.ConfluenceCommentReadOptions{DepthAll: opts.Depth == "all"}
 	readOpts.Locations = confluenceCommentReadLocations(opts.Location)
 	qualified, ok := s.store.(domain.QualifiedConfluenceCommentReader)
 	var inventory domain.ConfluenceCommentInventory
+	var err error
 	if ok {
-		inventory, err = qualified.ListConfluenceComments(ctx, resolved.ID, readOpts)
+		inventory, err = qualified.ListConfluenceComments(ctx, page.ID, readOpts)
 	} else {
-		inventory, err = s.legacyConfluenceCommentInventory(ctx, resolved.ID)
+		inventory, err = s.legacyConfluenceCommentInventory(ctx, page.ID)
 	}
 	if err != nil {
 		return nil, err
@@ -170,7 +184,7 @@ func confluenceCommentReadLocations(location string) []domain.ConfluenceCommentS
 }
 
 func (s *ConfluenceService) legacyConfluenceCommentInventory(ctx context.Context, pageID string) (domain.ConfluenceCommentInventory, error) {
-	comments, _, err := s.store.ListComments(ctx, pageID)
+	comments, truncated, err := s.store.ListComments(ctx, pageID)
 	if err != nil {
 		return domain.ConfluenceCommentInventory{}, err
 	}
@@ -187,14 +201,21 @@ func (s *ConfluenceService) legacyConfluenceCommentInventory(ctx context.Context
 		})
 	}
 	unknown := domain.ConfluenceCapabilityUnknown
+	reasons := []string{domain.ConfluenceCommentPartialLegacyUnqualified}
+	diagnostics := []domain.ConfluenceCommentDiagnostic{{Code: domain.ConfluenceCommentPartialLegacyUnqualified}}
+	if truncated {
+		reasons = append(reasons, domain.ConfluenceCommentPartialPageLimit)
+		sort.Strings(reasons)
+		diagnostics = append(diagnostics, domain.ConfluenceCommentDiagnostic{Code: domain.ConfluenceCommentPartialPageLimit})
+	}
 	return domain.ConfluenceCommentInventory{
 		Comments: records, CommentsComplete: false, ThreadsComplete: false,
-		PartialReasons: []string{domain.ConfluenceCommentPartialLegacyUnqualified},
+		PartialReasons: reasons,
 		Capabilities: domain.ConfluenceCommentCapabilities{
 			Footer: unknown, Inline: unknown, Resolved: unknown, DepthAll: unknown,
 			ThreadAncestry: unknown, InlineProperties: unknown, Resolution: unknown,
 		},
-		Diagnostics: []domain.ConfluenceCommentDiagnostic{{Code: domain.ConfluenceCommentPartialLegacyUnqualified}},
+		Diagnostics: diagnostics,
 	}, nil
 }
 
@@ -499,4 +520,21 @@ func appendUniqueSorted(values []string, value string) []string {
 func hasStringKey(values map[string]struct{}, value string) bool {
 	_, exists := values[value]
 	return exists
+}
+
+func confluenceCommentInventoryTruncated(result *ConfluenceCommentInventoryResult) bool {
+	if result == nil {
+		return false
+	}
+	for _, reason := range result.PartialReasons {
+		switch reason {
+		case domain.ConfluenceCommentPartialPageLimit,
+			domain.ConfluenceCommentPartialItemLimit,
+			domain.ConfluenceCommentPartialPaginationStalled,
+			domain.ConfluenceCommentPartialPaginationUnqualified,
+			domain.ConfluenceCommentPartialBackendOmittedChildren:
+			return true
+		}
+	}
+	return false
 }

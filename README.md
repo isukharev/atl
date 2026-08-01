@@ -63,6 +63,8 @@ schema-v2 qualified inventory across footer, inline, and resolved comments,
 with proven thread relationships, independent completeness dimensions, and
 exact native-CSF anchor matching. `conf comment thread` selects one exact root
 subtree; missing ancestry or markers remain explicit partial evidence.
+`conf pull --comments` stores that qualification in a versioned mirror sidecar;
+historical flat sidecars remain readable and comments never affect page drift.
 
 ## Install
 

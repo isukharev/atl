@@ -93,6 +93,28 @@ func TestApplyFullProfileUntouchedNoInjection(t *testing.T) {
 	}
 }
 
+func TestApplyFullProfileRejectsFutureCommentSidecarBeforeWrite(t *testing.T) {
+	rootDir, mdPath, _ := scaffoldFullPage(t, applyPage)
+	csfPath := strings.TrimSuffix(mdPath, ".md") + ".csf"
+	before, err := os.ReadFile(csfPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(strings.TrimSuffix(mdPath, ".md")+".comments.json", []byte(`{"schema_version":99}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(mdPath, ApplyOpts{Into: rootDir}); !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "comments sidecar") {
+		t.Fatalf("apply error=%v, want comment-sidecar check failure", err)
+	}
+	after, err := os.ReadFile(csfPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("apply changed CSF after future sidecar refusal")
+	}
+}
+
 // A body edit under the full profile merges into the .csf and the refreshed .md
 // keeps its full decorations (metadata + Comments).
 func TestApplyFullProfileBodyEditMergesAndRefreshesFull(t *testing.T) {

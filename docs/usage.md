@@ -1229,7 +1229,7 @@ Flags:
 | `--space` | space key (mirrors the whole space) |
 | `--depth` | depth limit when using `--space` (0 = unlimited) |
 | `--assets` | download draw.io PNG renders and inline images |
-| `--comments` | mirror page comments to `<slug>.comments.json` (+ `.comments.md`) sidecars |
+| `--comments` | mirror a qualified schema-v2 comment inventory to `<slug>.comments.json` plus a derived `.comments.md` compatibility view |
 | `--complete` | build and consume an exact resumable two-pass selector snapshot; requires `--cql` or `--space` and does not support `--depth` |
 | `--restart-complete` | explicitly replace an unfinished complete snapshot after a fresh stable selection and local preflight |
 | `--incremental` | exhaustively select changes since a persisted selector watermark; requires `--cql` or `--space` |
@@ -1363,7 +1363,10 @@ part of the page write substrate. A re-pull **with**
 `--comments` rewrites the sidecars; a re-pull **without** `--comments` leaves any
 existing comment files untouched (they are never auto-deleted). If a page's
 comment listing hits the fetch safety cap, the sidecar is incomplete, the meta
-carries `comments_truncated: true`, and a stderr warning fires.
+carries `comments_truncated: true`, and a stderr warning fires. Comment-enabled
+complete/incremental pulls do not advance their checkpoint when comment or
+thread completeness is false; anchor-only partiality remains durable but does
+not block selection progress.
 
 **Mirror layout after pull**
 
@@ -1375,8 +1378,8 @@ mirror/
         child-page.csf           ← edit this
         child-page.md            ← derived staging view; supported edits go through conf apply
         child-page.meta.json     ← id, version, hierarchy, labels, updated, optional restricted, content_hash, fragments, comment state
-        child-page.comments.json ← only with --comments: [{id, author, created, body, body_storage?}]
-        child-page.comments.md   ← only with --comments: derived human read view
+        child-page.comments.json ← only with --comments: qualified schema-v2 envelope (legacy arrays remain readable)
+        child-page.comments.md   ← only with --comments: best-effort flat compatibility view
         child-page.assets/
           diagram.png
   .atl/

@@ -8,9 +8,23 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/mirror"
 )
+
+type qualifiedPullStore struct {
+	*pullStore
+	inventory domain.ConfluenceCommentInventory
+	readCalls int
+	readOpts  domain.ConfluenceCommentReadOptions
+}
+
+func (s *qualifiedPullStore) ListConfluenceComments(_ context.Context, _ string, opts domain.ConfluenceCommentReadOptions) (domain.ConfluenceCommentInventory, error) {
+	s.readCalls++
+	s.readOpts = opts
+	return s.inventory, nil
+}
 
 // pageDirFrom derives the on-disk page directory from a PulledPage.Path (which
 // is relative to the mirror root).
@@ -78,15 +92,21 @@ func TestPullCommentsMirrorsSidecars(t *testing.T) {
 	}
 	dir, slug := pageDirFrom(into, res.Pages[0].Path)
 
-	// .comments.json is the domain.Comment array, pretty-printed with trailing NL.
-	wantJSON, _ := json.MarshalIndent(comments, "", "  ")
-	wantJSON = append(wantJSON, '\n')
+	// .comments.json is now an explicit schema-v2 envelope. This legacy-only
+	// test store is preserved honestly as an unqualified migration source.
 	gotJSON, err := os.ReadFile(filepath.Join(dir, slug+".comments.json"))
 	if err != nil {
 		t.Fatalf("read comments.json: %v", err)
 	}
-	if string(gotJSON) != string(wantJSON) {
-		t.Errorf("comments.json mismatch:\n got %q\nwant %q", gotJSON, wantJSON)
+	decoded, err := mirror.DecodeConfluenceCommentsSidecar(gotJSON)
+	if err != nil {
+		t.Fatalf("decode comments.json: %v", err)
+	}
+	if decoded.Format != mirror.ConfluenceCommentsSidecarFormatV2 || decoded.V2 == nil || decoded.V2.SchemaVersion != 2 ||
+		decoded.V2.PageID != "100" || decoded.V2.Count != 2 || decoded.V2.CommentsComplete || decoded.V2.ThreadsComplete ||
+		!containsAppString(decoded.V2.PartialReasons, domain.ConfluenceCommentPartialLegacyUnqualified) ||
+		decoded.V2.Comments[0].BodyStorage != comments[0].BodyStorage {
+		t.Fatalf("comments.json qualification = %+v", decoded)
 	}
 
 	// .comments.md is the derived read view.
@@ -105,8 +125,9 @@ func TestPullCommentsMirrorsSidecars(t *testing.T) {
 	if err := json.Unmarshal(mb, &meta); err != nil {
 		t.Fatalf("decode meta: %v", err)
 	}
-	if meta.CommentCount != 2 || meta.CommentsTruncated {
-		t.Errorf("meta comment fields = {count:%d truncated:%v}, want {2 false}", meta.CommentCount, meta.CommentsTruncated)
+	if meta.CommentCount != 2 || meta.CommentsTruncated || meta.CommentSidecarVersion != 2 ||
+		meta.CommentsComplete == nil || *meta.CommentsComplete || meta.CommentThreadsComplete == nil || *meta.CommentThreadsComplete {
+		t.Errorf("meta comment fields = %+v", meta)
 	}
 
 	// .csf is byte-identical to a pull without --comments (comments never touch it).
@@ -139,6 +160,94 @@ func TestPullCommentsMirrorsSidecars(t *testing.T) {
 	gotMD2, _ := os.ReadFile(filepath.Join(dir, slug+".comments.md"))
 	if !strings.Contains(string(gotMD2), "Carol") || strings.Contains(string(gotMD2), "Alice") {
 		t.Errorf("re-pull did not refresh comments.md: %q", gotMD2)
+	}
+}
+
+func TestPullCommentsPersistsQualifiedV2WithoutSecondPageRead(t *testing.T) {
+	rootID, otherRootID := "20", "10"
+	base := &pullStore{pages: map[string]*domain.Resource{
+		"100": {
+			ID: "100", Title: "Alpha", SpaceKey: "SP", Version: 2,
+			Body: []byte(`<p><ac:inline-comment-marker ac:ref="ref-10">selected</ac:inline-comment-marker></p>`),
+		},
+	}}
+	store := &qualifiedPullStore{
+		pullStore: base,
+		inventory: completeQualifiedComments(domain.ConfluenceCommentRecord{
+			ID: rootID, PageID: "100", RootID: &rootID,
+			Relation: domain.ConfluenceCommentRelationRoot, Location: domain.ConfluenceCommentLocationInline,
+			Resolution: domain.ConfluenceCommentResolutionOpen, Version: 1,
+			MarkerRef: "ref-10", OriginalSelection: "selected", BodyStorage: "<p>comment</p>", CreatedAt: "2026-01-01",
+		}, domain.ConfluenceCommentRecord{
+			ID: otherRootID, PageID: "100", RootID: &otherRootID,
+			Relation: domain.ConfluenceCommentRelationRoot, Location: domain.ConfluenceCommentLocationFooter,
+			Resolution: domain.ConfluenceCommentResolutionUnknown, Version: 1,
+			BodyStorage: "<p>footer</p>", CreatedAt: "2026-01-02",
+		}),
+	}
+	svc := &ConfluenceService{store: store}
+	result, err := svc.Pull(context.Background(), PullOpts{
+		ID: "100", Into: t.TempDir(), Comments: true, Render: config.RenderService{Profile: "full"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base.getPageCalls != 1 || base.listCommentsCalls != 0 || store.readCalls != 1 || !store.readOpts.DepthAll || len(store.readOpts.Locations) != 0 {
+		t.Fatalf("reads page=%d legacy=%d qualified=%d opts=%+v", base.getPageCalls, base.listCommentsCalls, store.readCalls, store.readOpts)
+	}
+	dir, slug := pageDirFrom(result.Root, result.Pages[0].Path)
+	data, err := os.ReadFile(filepath.Join(dir, slug+".comments.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := mirror.DecodeConfluenceCommentsSidecar(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.V2 == nil || !decoded.V2.Complete || decoded.V2.RootCount != 2 || len(decoded.V2.Comments) != 2 {
+		t.Fatalf("qualified sidecar = %+v", decoded.V2)
+	}
+	var inline *mirror.ConfluenceCommentsSidecarComment
+	for i := range decoded.V2.Comments {
+		if decoded.V2.Comments[i].ID == rootID {
+			inline = &decoded.V2.Comments[i]
+		}
+	}
+	if inline == nil || inline.Anchor == nil || inline.Anchor.Status != domain.ConfluenceAnchorMatched || inline.Anchor.ObservedSelection != "selected" {
+		t.Fatalf("qualified inline sidecar = %+v", inline)
+	}
+	mdPath := filepath.Join(dir, slug+".md")
+	if _, err := Apply(mdPath, ApplyOpts{Into: result.Root}); err != nil {
+		t.Fatalf("untouched qualified view could not reproduce sidecar order: %v", err)
+	}
+}
+
+func TestPullCommentsMigratesLegacySidecarToV2(t *testing.T) {
+	into := t.TempDir()
+	rootID := "10"
+	base := &pullStore{pages: map[string]*domain.Resource{
+		"100": {ID: "100", Title: "Alpha", SpaceKey: "SP", Version: 2, Body: []byte("<p>alpha</p>")},
+	}}
+	store := &qualifiedPullStore{pullStore: base, inventory: completeQualifiedComments(domain.ConfluenceCommentRecord{
+		ID: rootID, PageID: "100", RootID: &rootID, Relation: domain.ConfluenceCommentRelationRoot,
+		Location: domain.ConfluenceCommentLocationFooter, Resolution: domain.ConfluenceCommentResolutionUnknown, Version: 1,
+	})}
+	first, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{ID: "100", Into: into})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, slug := pageDirFrom(into, first.Pages[0].Path)
+	legacy, _ := json.Marshal([]domain.Comment{{ID: "old", Author: "Legacy", Body: "old"}})
+	if err := os.WriteFile(filepath.Join(dir, slug+".comments.json"), legacy, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{ID: "100", Into: into, Comments: true}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, slug+".comments.json"))
+	decoded, err := mirror.DecodeConfluenceCommentsSidecar(data)
+	if err != nil || decoded.Format != mirror.ConfluenceCommentsSidecarFormatV2 || decoded.V2 == nil || decoded.V2.Comments[0].ID != rootID {
+		t.Fatalf("migrated sidecar=%+v error=%v", decoded, err)
 	}
 }
 

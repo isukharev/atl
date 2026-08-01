@@ -44,6 +44,9 @@ type confServer struct {
 	// comments is the JSON served on GET /rest/api/content/<id>/child/comment (the
 	// `pull --comments` / `comment list` path). Empty means an empty listing.
 	comments string
+	// commentsByLocation optionally serves one qualified response per fixed
+	// footer/inline/resolved selector used by the schema-v2 reader.
+	commentsByLocation map[string]string
 
 	// captured requests, in arrival order.
 	reqs []capturedReq
@@ -79,9 +82,12 @@ func (cs *confServer) handle(w http.ResponseWriter, r *http.Request) {
 		// Comment listing (pull --comments / comment list). Checked before the
 		// generic content GET below, which would otherwise serve the page body.
 		body := cs.comments
+		if cs.commentsByLocation != nil {
+			body = cs.commentsByLocation[r.URL.Query().Get("location")]
+		}
 		cs.mu.Unlock()
 		if body == "" {
-			body = `{"results":[],"_links":{}}`
+			body = `{"results":[],"start":0,"limit":100,"size":0,"_links":{}}`
 		}
 		writeJSON(w, http.StatusOK, body)
 		return

@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   diagnostics, optional page-version gates, and a temporary explicit legacy
   projection.
 
+- Versioned mirrored Confluence comment inventories as strict schema-v2
+  sidecars with legacy-array reads, qualified metadata summaries, deterministic
+  migration on comment pull, and unchanged page hash/dirty semantics.
+
 - Added `atl jira issue graph <KEY>`, a deterministic read-only depth-zero
   work-artifact graph over the exact issue snapshot, typed links/hierarchy,
   attachments, complete comments/worklogs, remote links, properties, and

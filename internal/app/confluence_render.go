@@ -1,7 +1,6 @@
 package app
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -117,6 +116,57 @@ func confluenceCommentsForDisplay(comments []domain.Comment, displayTimeZone str
 	return out
 }
 
+// confluenceQualifiedCommentsForDisplay is the Stage-2 compatibility
+// projection used until the qualified tree renderer replaces the flat derived
+// view. The versioned JSON sidecar remains authoritative and retains every
+// thread, anchor, resolution, and completeness field omitted here.
+func confluenceQualifiedCommentsForDisplay(result *ConfluenceCommentInventoryResult, displayTimeZone string) []domain.Comment {
+	if result == nil || len(result.Comments) == 0 {
+		return nil
+	}
+	comments := make([]domain.Comment, 0, len(result.Comments))
+	for _, comment := range result.Comments {
+		comments = append(comments, domain.Comment{
+			ID: comment.ID, AuthorKey: comment.Author.ID, Author: comment.Author.DisplayName,
+			Created: comment.CreatedAt, Body: comment.Body, BodyStorage: comment.BodyStorage,
+		})
+	}
+	return confluenceCommentsForDisplay(comments, displayTimeZone)
+}
+
+func confluenceCommentsSidecarV2(result *ConfluenceCommentInventoryResult) mirror.ConfluenceCommentsSidecarV2 {
+	sidecar := mirror.ConfluenceCommentsSidecarV2{
+		SchemaVersion: result.SchemaVersion, PageID: result.PageID, PageVersion: result.PageVersion,
+		Complete: result.Complete, CommentsComplete: result.CommentsComplete,
+		ThreadsComplete: result.ThreadsComplete, AnchorsComplete: result.AnchorsComplete,
+		Count: result.Count, RootCount: result.RootCount,
+		PartialReasons: append([]string{}, result.PartialReasons...), Capabilities: result.Capabilities,
+		Comments: []mirror.ConfluenceCommentsSidecarComment{}, Diagnostics: []mirror.ConfluenceCommentsSidecarDiagnostic{},
+	}
+	for _, comment := range result.Comments {
+		row := mirror.ConfluenceCommentsSidecarComment{
+			ID: comment.ID, PageID: comment.PageID, ParentID: cloneStringPointer(comment.ParentID), RootID: cloneStringPointer(comment.RootID),
+			Relation: comment.Relation, Location: comment.Location, Resolution: comment.Resolution, Version: comment.Version,
+			Author:    mirror.ConfluenceCommentsSidecarAuthor{ID: comment.Author.ID, DisplayName: comment.Author.DisplayName},
+			CreatedAt: comment.CreatedAt, UpdatedAt: comment.UpdatedAt, Body: comment.Body, BodyStorage: comment.BodyStorage,
+		}
+		if comment.Anchor != nil {
+			row.Anchor = &mirror.ConfluenceCommentsSidecarAnchor{
+				MarkerRef: comment.Anchor.MarkerRef, OriginalSelection: comment.Anchor.OriginalSelection,
+				ObservedSelection: comment.Anchor.ObservedSelection, Status: comment.Anchor.Status,
+			}
+		}
+		sidecar.Comments = append(sidecar.Comments, row)
+	}
+	for _, diagnostic := range result.Diagnostics {
+		sidecar.Diagnostics = append(sidecar.Diagnostics, mirror.ConfluenceCommentsSidecarDiagnostic{
+			Code: diagnostic.Code, CommentID: diagnostic.CommentID, MarkerRef: diagnostic.MarkerRef,
+			Selector: diagnostic.Selector, Location: diagnostic.Location,
+		})
+	}
+	return sidecar
+}
+
 func scalarPageField(value string) []string {
 	if strings.TrimSpace(value) == "" {
 		return nil
@@ -136,19 +186,36 @@ func confluenceNeedsRestrictions(rs RenderSettings) bool {
 	return false
 }
 
-// readCommentsSidecar loads a page's `<slug>.comments.json` sidecar into a comment
-// slice. A missing or unreadable sidecar yields nil so the "# Comments" section
-// is silently skipped rather than failing the render (its contract).
-func readCommentsSidecar(root, dir, slug string) []domain.Comment {
+// readCommentsSidecar loads either the strict schema-v2 envelope or the
+// historical flat array. A missing sidecar is normal; malformed, future, or
+// page-mismatched bytes stay distinguishable so mutation preflights can fail
+// closed and offline render can surface a warning.
+func readCommentsSidecar(root, dir, slug, pageID string, pageVersion int) ([]domain.Comment, error) {
 	b, err := safepath.ReadFileWithin(root, filepath.Join(dir, slug+".comments.json"))
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	var comments []domain.Comment
-	if err := json.Unmarshal(b, &comments); err != nil {
-		return nil
+	decoded, err := mirror.DecodeConfluenceCommentsSidecar(b)
+	if err != nil {
+		return nil, err
 	}
-	return comments
+	if decoded.Format == mirror.ConfluenceCommentsSidecarFormatLegacy {
+		return append([]domain.Comment(nil), decoded.Legacy...), nil
+	}
+	if decoded.V2 == nil || decoded.V2.PageID != pageID || decoded.V2.PageVersion != pageVersion {
+		return nil, fmt.Errorf("%w: Confluence comments sidecar does not match the page snapshot", domain.ErrCheckFailed)
+	}
+	comments := make([]domain.Comment, 0, len(decoded.V2.Comments))
+	for _, comment := range decoded.V2.Comments {
+		comments = append(comments, domain.Comment{
+			ID: comment.ID, AuthorKey: comment.Author.ID, Author: comment.Author.DisplayName,
+			Created: comment.CreatedAt, Body: comment.Body, BodyStorage: comment.BodyStorage,
+		})
+	}
+	return comments, nil
 }
 
 // ConfRendered is one re-rendered page view.
@@ -221,6 +288,7 @@ func (s *ConfluenceService) Render(target string, override config.RenderService)
 		md := []byte(mirror.MDUnavailableStub)
 		if node, perr := csf.Parse(body); perr == nil {
 			page := &domain.Resource{
+				ID:         lc.Meta.ID,
 				Title:      lc.Meta.Title,
 				SpaceKey:   lc.Meta.Space,
 				Version:    lc.Meta.Version,
@@ -233,7 +301,12 @@ func (s *ConfluenceService) Render(target string, override config.RenderService)
 			if confluenceNeedsRestrictions(rs) && page.Restricted == nil {
 				res.Warnings = append(res.Warnings, fmt.Sprintf("render: restriction state for page %s was not mirrored; re-pull before relying on that field", lc.Meta.ID))
 			}
-			mdOpts, sidecarErr := confMDViewOptsFromSidecars(rs, page, readCommentsSidecar(root, dir, slug), root, dir, slug, lc.Meta.ID, node)
+			comments, commentErr := readCommentsSidecar(root, dir, slug, lc.Meta.ID, lc.Meta.Version)
+			if commentErr != nil {
+				res.Warnings = append(res.Warnings, fmt.Sprintf("render: comments for page %s are unavailable (%v); re-pull with --comments", lc.Meta.ID, commentErr))
+				comments = nil
+			}
+			mdOpts, sidecarErr := confMDViewOptsFromSidecars(rs, page, comments, root, dir, slug, lc.Meta.ID, node)
 			if sidecarErr != nil {
 				res.Warnings = append(res.Warnings, fmt.Sprintf("render: Jira macro enrichment for page %s is unavailable (%v); re-pull to refresh it", lc.Meta.ID, sidecarErr))
 			}

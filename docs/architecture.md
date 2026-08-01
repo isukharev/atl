@@ -100,7 +100,10 @@ the same adapter instance across several capability fields (as
 - `Verifier` (`Whoami`) — confirms a PAT before `auth login` persists it.
 - `QualifiedConfluenceCommentReader` — returns the Confluence-specific,
   source-qualified footer/inline/resolved inventory without changing the
-  generic flat `DocStore.ListComments` compatibility and mirror contracts.
+  generic flat `DocStore.ListComments` compatibility. Comment-enabled pulls
+  persist the qualified read model through a strict versioned mirror codec;
+  historical flat sidecars remain read-compatible and comment bytes stay out
+  of page hashes and writeback baselines.
 - `Agile` (`Boards`/`Board`/`Sprints`/`Sprint`/`SprintIssues`/
   `MoveIssuesToSprint`/`MoveIssuesToBacklog`) — Jira Software boards & sprints
   over the Data Center Agile API `/rest/agile/1.0/`. Requires GreenHopper, so a

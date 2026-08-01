@@ -22,6 +22,18 @@ type completePullStore struct {
 	bodyBeforeSelectionComplete bool
 }
 
+type qualifiedCompletePullStore struct {
+	*completePullStore
+	inventory *domain.ConfluenceCommentInventory
+}
+
+func (s *qualifiedCompletePullStore) ListConfluenceComments(_ context.Context, _ string, _ domain.ConfluenceCommentReadOptions) (domain.ConfluenceCommentInventory, error) {
+	if s.inventory != nil {
+		return *s.inventory, nil
+	}
+	return completeQualifiedComments(), nil
+}
+
 func (s *completePullStore) Search(ctx context.Context, query string, limit int, cursor string) ([]domain.PageRef, string, error) {
 	page, err := s.SearchComplete(ctx, query, limit, cursor)
 	return page.Results, page.Next, err
@@ -137,6 +149,7 @@ func TestCompletePullOptionDriftFailsClosedAndExplicitRestartReplacesSnapshot(t 
 	}
 	delete(store.getErrs, "20")
 	store.searchSequence = []domain.PageSearchPage{completeSearchPage("10", "20"), completeSearchPage("10", "20")}
+	svc = &ConfluenceService{store: &qualifiedCompletePullStore{completePullStore: store}}
 	restarted, err := svc.Pull(context.Background(), PullOpts{CQL: base.CQL, Into: root, Complete: true, Comments: true, RestartComplete: true})
 	if err != nil {
 		t.Fatal(err)
@@ -264,6 +277,39 @@ func TestCompletePullTruncatedCommentsDoNotAdvanceCheckpoint(t *testing.T) {
 	checkpoint, ok, loadErr := mirror.New(root).CompletePullCheckpoint(selectorHash("space = DOC"))
 	if loadErr != nil || !ok || checkpoint.NextIndex != 0 {
 		t.Fatalf("checkpoint=%+v ok=%v err=%v", checkpoint, ok, loadErr)
+	}
+}
+
+func TestCompletePullAnchorPartialStillCompletesSelection(t *testing.T) {
+	root := t.TempDir()
+	rootID := "c1"
+	inventory := completeQualifiedComments(domain.ConfluenceCommentRecord{
+		ID: rootID, PageID: "10", RootID: &rootID,
+		Relation: domain.ConfluenceCommentRelationRoot, Location: domain.ConfluenceCommentLocationInline,
+		Resolution: domain.ConfluenceCommentResolutionOpen, Version: 1,
+		Body: "comment", BodyStorage: "<p>comment</p>", MarkerRef: "missing-marker",
+	})
+	store := &qualifiedCompletePullStore{
+		completePullStore: &completePullStore{
+			pullStore:      &pullStore{pages: map[string]*domain.Resource{"10": completeTestPage("10")}},
+			searchSequence: []domain.PageSearchPage{completeSearchPage("10"), completeSearchPage("10")},
+		},
+		inventory: &inventory,
+	}
+	result, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{
+		CQL: "space = DOC", Into: root, Complete: true, Comments: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Complete == nil || !result.Complete.Complete || result.Complete.CheckpointActive {
+		t.Fatalf("complete result=%+v", result.Complete)
+	}
+	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "anchors") {
+		t.Fatalf("warnings=%v", result.Warnings)
+	}
+	if _, ok, loadErr := mirror.New(root).CompletePullCheckpoint(result.Complete.SelectorSHA256); loadErr != nil || ok {
+		t.Fatalf("completed checkpoint ok=%v err=%v", ok, loadErr)
 	}
 }
 

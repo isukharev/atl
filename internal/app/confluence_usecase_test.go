@@ -615,6 +615,7 @@ type pullStore struct {
 	getErr       error
 	getErrs      map[string]error
 	lastPullOpts domain.PullOpts
+	getPageCalls int
 
 	// comment plumbing for `pull --comments` tests.
 	comments          map[string][]domain.Comment // per-id comments to serve
@@ -637,6 +638,7 @@ func (s *pullStore) ListComments(_ context.Context, id string) ([]domain.Comment
 }
 
 func (s *pullStore) GetPage(_ context.Context, id string, opts domain.PullOpts) (*domain.Resource, error) {
+	s.getPageCalls++
 	s.lastPullOpts = opts
 	if s.getErrs != nil {
 		if err, ok := s.getErrs[id]; ok {

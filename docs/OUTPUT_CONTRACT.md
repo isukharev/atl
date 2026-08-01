@@ -1151,18 +1151,26 @@ and exact `comment_id`; proven absence is exit 4, while unprovable absence is
 exit 8. Explicit `--legacy-flat` retains the prior list shape temporarily and
 cannot be combined with schema-v2 filters or a page-version gate.
 
-This command contract is separate from the mirror sidecar. With `--comments`,
-two legacy sidecar files are still written next to the page:
-`<slug>.comments.json` (a `[{id, author, created, body, body_storage?}]` array, pretty-printed
-with a trailing newline) and `<slug>.comments.md` (a derived read view). The
-page's `.meta.json` gains `comments_pulled: true` (the explicit "comments were
-fetched" marker — present even when the count is zero) plus `comment_count` (and
-`comments_truncated: true` when the listing hit the fetch cap) — all omitted
-without the flag. Comment bytes
-never enter `content_hash` or `.atl/base/`, so they never affect dirty/drift/push
-gating. When any page's comment listing is truncated, the result carries
-`comments_truncated: true` and the CLI writes a stderr warning; the JSON on
-stdout stays clean.
+With `--comments`, `<slug>.comments.json` is an authoritative versioned envelope
+using the same qualified comment records, completeness dimensions, capabilities,
+closed partial reasons, and diagnostics as the schema-v2 list contract. It also
+binds `page_id` and `page_version`; `count` and `root_count` are validated
+assertions. Arrays are never `null`, native `body_storage` values are preserved,
+and the file is deterministic, indented JSON with one trailing newline. The
+reader also accepts the historical flat `[{id,author,created,body,...}]` array,
+but a successful `pull --comments` always writes v2. Malformed, future, or
+page-version-mismatched v2 bytes never fall back to the legacy decoder.
+
+`<slug>.comments.md` remains a best-effort flat compatibility projection in this
+stage; the qualified tree renderer has its own document-format migration. The
+page's `.meta.json` gains `comments_pulled:true`, `comment_sidecar_version:2`,
+counts, explicit comment/thread/anchor completeness booleans, and content-free
+partial reason codes. `comments_truncated:true` remains limited to bounded
+pagination/cap loss rather than all forms of partial anchor qualification.
+These fields and all comment bytes stay outside `content_hash`, `.atl/base/`,
+and dirty/drift/push gates. Complete and incremental pulls advance their durable
+checkpoint only when both comment enumeration and thread geometry are complete;
+anchor-only partiality remains recorded without blocking progress.
 
 ### Environment time diagnostics
 
