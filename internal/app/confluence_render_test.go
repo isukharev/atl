@@ -76,7 +76,7 @@ func TestReadCommentsSidecarDistinguishesLegacyFutureAndStaleV2(t *testing.T) {
 		t.Fatal(err)
 	}
 	comments, err := readCommentsSidecar(root, dir, "page", "100", 3)
-	if err != nil || len(comments) != 1 || comments[0].ID != "1" {
+	if err != nil || len(comments.flat) != 1 || comments.flat[0].ID != "1" || comments.qualified != nil {
 		t.Fatalf("legacy comments=%+v error=%v", comments, err)
 	}
 	if err := os.WriteFile(path, []byte(`{"schema_version":99}`), 0o644); err != nil {
@@ -194,12 +194,7 @@ func TestConfRenderPreflightsWholeBatchBeforeSiblingRewrite(t *testing.T) {
 }
 
 func TestConfRenderMigratesKnownLegacyViewMarkers(t *testing.T) {
-	for _, marker := range []string{
-		"<!-- atl:document confluence-page v3 -->",
-		"<!-- atl:document confluence-page v2 -->",
-		"<!-- atl:document confluence-page v1 -->",
-		"<!-- atl:document confluence-page -->",
-	} {
+	for _, marker := range []string{mirror.ConfluenceDocumentMarkerV4} {
 		t.Run(marker, func(t *testing.T) {
 			root, dir, slug := seedConfMirror(t, nil)
 			mdPath := filepath.Join(dir, slug+".md")
@@ -215,6 +210,36 @@ func TestConfRenderMigratesKnownLegacyViewMarkers(t *testing.T) {
 				t.Fatalf("legacy marker was not upgraded: %q", got)
 			}
 		})
+	}
+}
+
+func TestConfRenderPreservesUnsupportedHistoricalViewMarkers(t *testing.T) {
+	for _, marker := range []string{"<!-- atl:document confluence-page v3 -->", "<!-- atl:document confluence-page v2 -->", "<!-- atl:document confluence-page v1 -->"} {
+		t.Run(marker, func(t *testing.T) {
+			root, dir, slug := seedConfMirror(t, nil)
+			mdPath := filepath.Join(dir, slug+".md")
+			old := strings.Replace(mustReadFile(t, mdPath), mirror.ConfluenceDocumentMarker, marker, 1)
+			mustWriteFile(t, mdPath, old)
+			if _, err := NewConfluenceRenderer(&config.Config{}).Render(root, config.RenderService{}); !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("historical render error=%v", err)
+			}
+			if got := mustReadFile(t, mdPath); got != old {
+				t.Fatal("unsupported historical view was overwritten")
+			}
+		})
+	}
+}
+
+func TestConfRenderPreservesUnversionedView(t *testing.T) {
+	root, dir, slug := seedConfMirror(t, nil)
+	mdPath := filepath.Join(dir, slug+".md")
+	unversioned := strings.Replace(mustReadFile(t, mdPath), mirror.ConfluenceDocumentMarker, "<!-- atl:document confluence-page -->", 1)
+	mustWriteFile(t, mdPath, unversioned)
+	if _, err := NewConfluenceRenderer(&config.Config{}).Render(root, config.RenderService{}); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("unversioned render error=%v", err)
+	}
+	if got := mustReadFile(t, mdPath); got != unversioned {
+		t.Fatal("unversioned view was overwritten")
 	}
 }
 

@@ -572,14 +572,14 @@ unchanged before and after. Render-resolution warnings go to **stderr**, never
 stdout.
 
 Every Confluence derived page view begins with
-`<!-- atl:document confluence-page v4 -->` and has reserved generated
+`<!-- atl:document confluence-page v5 -->` and has reserved generated
 metadata/body/comments/Jira-query boundaries. `conf apply` rejects missing, legacy, or
 unknown versions and additions/removals/renames/reordering in the reserved marker sequence inside
 the editable body before any substrate write. Marker-looking prose already
-present in the native page remains valid when unchanged. Legacy/unmarked
-migration uses `conf render` or a fresh pull;
-callers preserve and reapply existing edits because render replaces `.md`.
-Unknown/future versions require an updated binary and must not be downgraded.
+present in the native page remains valid when unchanged. Pristine v4 views
+migrate only when their complete bytes match exact reconstruction. Dirty v4,
+older historical, unversioned, and unknown/future views are preserved and
+refused; future versions require an updated binary and must not be downgraded.
 The marker line may end in LF or CRLF. Atl strips only the CR attached to that
 first line for version classification; remaining Markdown bytes stay
 significant for dirty/edit/relocation checks.
@@ -846,8 +846,9 @@ is never overwritten.
 When all three old primary artifacts are absent, pull treats the old copy as
 deliberately abandoned and replaces its stale sidecar path with the new
 canonical path. Partial absence remains exit `8` because ownership and local
-edits cannot be proven. A legacy v1 view produces migration-specific guidance;
-an unknown/future view is preserved and requires a newer binary.
+edits cannot be proven. A supported v4 view produces migration-specific
+guidance and migrates only after exact pristine reconstruction; older
+historical, unversioned, and unknown/future views are preserved and refused.
 If cleanup is interrupted, path-aware state lookup keeps an old copy
 untracked/dirty rather than presenting it as current.
 Such a copy is reported by status with `non_canonical:true` and
@@ -1151,8 +1152,8 @@ and exact `comment_id`; proven absence is exit 4, while unprovable absence is
 exit 8. Explicit `--legacy-flat` retains the prior list shape temporarily and
 cannot be combined with schema-v2 filters or a page-version gate.
 
-With `--comments`, `<slug>.comments.json` is an authoritative versioned envelope
-using the same qualified comment records, completeness dimensions, capabilities,
+With `--comments`, `<slug>.comments.json` is the authoritative versioned source
+evidence, using the same qualified comment records, completeness dimensions, capabilities,
 closed partial reasons, and diagnostics as the schema-v2 list contract. It also
 binds `page_id` and `page_version`; `count` and `root_count` are validated
 assertions. Arrays are never `null`, native `body_storage` values are preserved,
@@ -1161,8 +1162,18 @@ reader also accepts the historical flat `[{id,author,created,body,...}]` array,
 but a successful `pull --comments` always writes v2. Malformed, future, or
 page-version-mismatched v2 bytes never fall back to the legacy decoder.
 
-`<slug>.comments.md` remains a best-effort flat compatibility projection in this
-stage; the qualified tree renderer has its own document-format migration. The
+The main v5 page `.md` renders schema-v2 comments as a deterministic read-only
+tree: roots are level-two headings, replies nest through level six with a stable
+deeper-depth indicator, and each entry shows author/time plus explicit
+location/state. Matched anchors label only the observed selection as current;
+missing, ambiguous, and unavailable anchors remain qualified and may show an
+original selection only as reported. Incomplete or malformed ancestry never
+drops a record: it appears deterministically under an unattached section.
+Completeness and closed partial reasons are visible in the view. Safe generic
+orphan/selection diagnostics may also be shown without record identifiers or
+backend text; the structured evidence remains in `.comments.json`.
+`<slug>.comments.md` remains a
+best-effort flat compatibility projection. The
 page's `.meta.json` gains `comments_pulled:true`, `comment_sidecar_version:2`,
 counts, explicit comment/thread/anchor completeness booleans, and content-free
 partial reason codes. `comments_truncated:true` remains limited to bounded

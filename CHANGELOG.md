@@ -21,6 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sidecars with legacy-array reads, qualified metadata summaries, deterministic
   migration on comment pull, and unchanged page hash/dirty semantics.
 
+- Advanced Confluence derived views to v5 and render schema-v2 comments as a
+  deterministic read-only tree with explicit location/state, completeness,
+  safely qualified anchors, and unattached records. The JSON sidecar remains
+  authoritative evidence with closed diagnostics, while `.comments.md` remains
+  flat compatibility. Pristine v4 views migrate by exact reconstruction;
+  dirty v4, older historical, unversioned, and future views are preserved and
+  refused when their historical bytes cannot be reconstructed exactly.
+
 - Added `atl jira issue graph <KEY>`, a deterministic read-only depth-zero
   work-artifact graph over the exact issue snapshot, typed links/hierarchy,
   attachments, complete comments/worklogs, remote links, properties, and

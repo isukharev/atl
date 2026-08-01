@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,11 @@ import (
 	"github.com/isukharev/atl/internal/mirror"
 	"github.com/isukharev/atl/internal/safepath"
 )
+
+func renderLegacyConfluenceMarkdown(root *csf.Node, refs []domain.Ref, opts mirror.MDViewOpts) []byte {
+	current := mirror.RenderMarkdownOpts(root, refs, opts)
+	return bytes.Replace(current, []byte(mirror.ConfluenceDocumentMarker), []byte(mirror.ConfluenceDocumentMarkerV4), 1)
+}
 
 // confMDViewOpts assembles the profile-driven markdown-view additions for a
 // Confluence page from the resolved settings: typed read-only page fields and a
@@ -45,6 +51,50 @@ func confMDViewOpts(rs RenderSettings, page *domain.Resource, comments []domain.
 		opts.Comments = displayComments
 	}
 	return opts
+}
+
+type confluenceCommentsView struct {
+	flat      []domain.Comment
+	qualified *mirror.ConfluenceCommentsSidecarV2
+}
+
+func confMDViewOptsForCommentsView(rs RenderSettings, page *domain.Resource, view confluenceCommentsView) mirror.MDViewOpts {
+	display := view.forDisplay(rs.DisplayTimeZone)
+	opts := confMDViewOpts(rs, page, display.flat)
+	if rs.On(SecComments) && display.qualified != nil {
+		opts.Comments = nil
+		opts.QualifiedComments = display.qualified
+	}
+	return opts
+}
+
+func legacyConfluenceCommentMDViewOpts(current mirror.MDViewOpts, rs RenderSettings, view confluenceCommentsView) mirror.MDViewOpts {
+	legacy := current
+	legacy.QualifiedComments = nil
+	legacy.Comments = nil
+	if rs.On(SecComments) {
+		legacy.Comments = view.forDisplay(rs.DisplayTimeZone).flat
+	}
+	return legacy
+}
+
+func (view confluenceCommentsView) forDisplay(displayTimeZone string) confluenceCommentsView {
+	view.flat = confluenceCommentsForDisplay(view.flat, displayTimeZone)
+	if view.qualified == nil {
+		return view
+	}
+	qualified := *view.qualified
+	qualified.PartialReasons = append([]string{}, view.qualified.PartialReasons...)
+	qualified.Diagnostics = append([]mirror.ConfluenceCommentsSidecarDiagnostic{}, view.qualified.Diagnostics...)
+	qualified.Comments = append([]mirror.ConfluenceCommentsSidecarComment{}, view.qualified.Comments...)
+	if displayTimeZone != "" {
+		for i := range qualified.Comments {
+			qualified.Comments[i].CreatedAt = renderTemporalFieldIn(qualified.Comments[i].CreatedAt, "datetime", displayTimeZone)
+			qualified.Comments[i].UpdatedAt = renderTemporalFieldIn(qualified.Comments[i].UpdatedAt, "datetime", displayTimeZone)
+		}
+	}
+	view.qualified = &qualified
+	return view
 }
 
 func defaultConfluencePageFields() []config.ConfluenceFieldView {
@@ -190,23 +240,23 @@ func confluenceNeedsRestrictions(rs RenderSettings) bool {
 // historical flat array. A missing sidecar is normal; malformed, future, or
 // page-mismatched bytes stay distinguishable so mutation preflights can fail
 // closed and offline render can surface a warning.
-func readCommentsSidecar(root, dir, slug, pageID string, pageVersion int) ([]domain.Comment, error) {
+func readCommentsSidecar(root, dir, slug, pageID string, pageVersion int) (confluenceCommentsView, error) {
 	b, err := safepath.ReadFileWithin(root, filepath.Join(dir, slug+".comments.json"))
 	if os.IsNotExist(err) {
-		return nil, nil
+		return confluenceCommentsView{}, nil
 	}
 	if err != nil {
-		return nil, err
+		return confluenceCommentsView{}, err
 	}
 	decoded, err := mirror.DecodeConfluenceCommentsSidecar(b)
 	if err != nil {
-		return nil, err
+		return confluenceCommentsView{}, err
 	}
 	if decoded.Format == mirror.ConfluenceCommentsSidecarFormatLegacy {
-		return append([]domain.Comment(nil), decoded.Legacy...), nil
+		return confluenceCommentsView{flat: append([]domain.Comment(nil), decoded.Legacy...)}, nil
 	}
 	if decoded.V2 == nil || decoded.V2.PageID != pageID || decoded.V2.PageVersion != pageVersion {
-		return nil, fmt.Errorf("%w: Confluence comments sidecar does not match the page snapshot", domain.ErrCheckFailed)
+		return confluenceCommentsView{}, fmt.Errorf("%w: Confluence comments sidecar does not match the page snapshot", domain.ErrCheckFailed)
 	}
 	comments := make([]domain.Comment, 0, len(decoded.V2.Comments))
 	for _, comment := range decoded.V2.Comments {
@@ -215,7 +265,7 @@ func readCommentsSidecar(root, dir, slug, pageID string, pageVersion int) ([]dom
 			Created: comment.CreatedAt, Body: comment.Body, BodyStorage: comment.BodyStorage,
 		})
 	}
-	return comments, nil
+	return confluenceCommentsView{flat: comments, qualified: decoded.V2}, nil
 }
 
 // ConfRendered is one re-rendered page view.
@@ -271,9 +321,7 @@ func (s *ConfluenceService) Render(target string, override config.RenderService)
 	// Inspect every existing target before rewriting any sibling so one future
 	// view version cannot leave a directory render half-migrated.
 	for _, csfPath := range paths {
-		dir := filepath.Dir(csfPath)
-		slug := strings.TrimSuffix(filepath.Base(csfPath), ".csf")
-		if err := preflightConfluenceRenderView(root, filepath.Join(dir, slug+".md")); err != nil {
+		if err := preflightConfluenceRenderView(m, csfPath); err != nil {
 			return res, err
 		}
 	}
@@ -304,7 +352,7 @@ func (s *ConfluenceService) Render(target string, override config.RenderService)
 			comments, commentErr := readCommentsSidecar(root, dir, slug, lc.Meta.ID, lc.Meta.Version)
 			if commentErr != nil {
 				res.Warnings = append(res.Warnings, fmt.Sprintf("render: comments for page %s are unavailable (%v); re-pull with --comments", lc.Meta.ID, commentErr))
-				comments = nil
+				comments = confluenceCommentsView{}
 			}
 			mdOpts, sidecarErr := confMDViewOptsFromSidecars(rs, page, comments, root, dir, slug, lc.Meta.ID, node)
 			if sidecarErr != nil {
@@ -368,26 +416,68 @@ func confRenderTargets(m *mirror.Mirror, target string) ([]string, error) {
 	return out, nil
 }
 
-// preflightConfluenceRenderView prevents an older binary from destroying an
-// existing view whose document format it does not understand. Legacy v1 and
-// unversioned views remain intentionally render-migratable to the current
-// format; only an explicit different version marker is a downgrade hazard.
-func preflightConfluenceRenderView(root, mdPath string) error {
-	b, err := safepath.ReadFileWithin(root, mdPath)
+// preflightConfluenceRenderView proves the existing derived view byte-for-byte
+// before an explicit render rewrites it. This prevents a format migration from
+// treating edited v4 bytes as pristine and preserves the whole-batch guarantee.
+func preflightConfluenceRenderView(m *mirror.Mirror, csfPath string) error {
+	dir := filepath.Dir(csfPath)
+	slug := strings.TrimSuffix(filepath.Base(csfPath), ".csf")
+	mdPath := filepath.Join(dir, slug+".md")
+	actual, err := safepath.ReadFileWithin(m.Root, mdPath)
 	if os.IsNotExist(err) {
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("%w: inspect existing render target %s: %v", domain.ErrCheckFailed, mdPath, err)
 	}
-	first := mirror.ConfluenceDocumentMarkerLine(string(b))
-	if strings.HasPrefix(first, "<!-- atl:document confluence-page") &&
-		first != mirror.ConfluenceDocumentMarker &&
-		first != "<!-- atl:document confluence-page v3 -->" &&
-		first != "<!-- atl:document confluence-page v2 -->" &&
-		first != "<!-- atl:document confluence-page v1 -->" &&
-		first != "<!-- atl:document confluence-page -->" {
-		return fmt.Errorf("%w: existing view %s uses unsupported format marker %q; preserve it and update atl before rendering — do not downgrade it with this binary", domain.ErrCheckFailed, mdPath, first)
+	marker := mirror.ConfluenceDocumentMarkerLine(string(actual))
+	if marker == mirror.ConfluenceDocumentMarker {
+		// Explicit offline render retains its established regeneration contract
+		// for the format this binary owns. The strict byte proof below is for
+		// migration only, where old generated bytes could otherwise be mistaken
+		// for a locally edited v4 view.
+		return nil
+	}
+	if !mirror.IsSupportedLegacyConfluenceDocumentMarker(marker) {
+		if strings.HasPrefix(marker, "<!-- atl:document confluence-page") {
+			if mirror.IsFutureConfluenceDocumentMarker(marker) {
+				return fmt.Errorf("%w: existing view %s uses future format marker %q; preserve it and update atl before rendering — do not downgrade it with this binary", domain.ErrCheckFailed, mdPath, marker)
+			}
+			return fmt.Errorf("%w: existing view %s uses unsupported historical format marker %q; preserve it because this binary cannot reconstruct its exact generated bytes", domain.ErrCheckFailed, mdPath, marker)
+		}
+		return fmt.Errorf("%w: existing view %s has an unrecognized or missing document marker; preserve it before rendering", domain.ErrCheckFailed, mdPath)
+	}
+	lc, body, err := m.LoadCSF(csfPath)
+	if err != nil {
+		return fmt.Errorf("%w: reconstruct existing render target %s: %v", domain.ErrCheckFailed, mdPath, err)
+	}
+	current := []byte(mirror.MDUnavailableStub)
+	legacy := bytes.Replace(current, []byte(mirror.ConfluenceDocumentMarker), []byte(mirror.ConfluenceDocumentMarkerV4), 1)
+	if node, parseErr := csf.Parse(body); parseErr == nil {
+		viewState, hasView, stateErr := m.ViewStateOf(lc.Meta.ID)
+		if stateErr != nil {
+			return stateErr
+		}
+		renderSettings := RenderSettings{Sections: map[string]bool{}}
+		if hasView {
+			renderSettings = settingsFromViewState(viewState)
+		}
+		comments, commentErr := readCommentsSidecar(m.Root, dir, slug, lc.Meta.ID, lc.Meta.Version)
+		if commentErr != nil {
+			// Offline render may warn and omit an invalid auxiliary sidecar, but it
+			// still cannot overwrite a view that depended on those unreadable bytes.
+			comments = confluenceCommentsView{}
+		}
+		opts, sidecarErr := confMDViewOptsFromSidecars(renderSettings, confPageFromMeta(lc.Meta), comments, m.Root, dir, slug, lc.Meta.ID, node)
+		if sidecarErr != nil {
+			opts = confMDViewOptsForCommentsView(renderSettings, confPageFromMeta(lc.Meta), comments)
+		}
+		legacyOpts := legacyConfluenceCommentMDViewOpts(opts, renderSettings, comments)
+		current = mirror.RenderMarkdownOpts(node, lc.Meta.Refs, opts)
+		legacy = renderLegacyConfluenceMarkdown(node, lc.Meta.Refs, legacyOpts)
+	}
+	if _, matchErr := matchConfluencePristineView(actual, current, legacy); matchErr != nil {
+		return fmt.Errorf("%w: existing view %s %v", domain.ErrCheckFailed, mdPath, matchErr)
 	}
 	return nil
 }

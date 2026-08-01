@@ -8,8 +8,9 @@ the main skill instead of mixing surfaces.
 ## Gate the edit
 
 1. Fix one mirror root for the cycle and confirm local/remote status.
-2. Require `<!-- atl:document confluence-page v4 -->`. Preserve edited legacy
-   views outside `.md` before render; update atl for future markers.
+2. Require `<!-- atl:document confluence-page v5 -->`. Only pristine v4 views
+   migrate by exact reconstruction. Preserve and refuse dirty v4, older
+   historical, unversioned, and future views; update atl for future markers.
 3. Treat generated metadata/comments/Jira query regions as readonly.
 4. Use `.md` only for supported prose, headings, lists, code, and simple tables.
    Choose direct CSF for opaque wrappers, ambiguous mentions, spans/nested

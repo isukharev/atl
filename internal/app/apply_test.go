@@ -168,16 +168,19 @@ func TestApplyRejectsUnsupportedConfluenceViewFormatsBeforeWrite(t *testing.T) {
 		}, want: "update atl"},
 		{name: "legacy v1", edit: func(md string) string {
 			return strings.Replace(md, mirror.ConfluenceDocumentMarker, "<!-- atl:document confluence-page v1 -->", 1)
-		}, want: "conf render"},
+		}, want: "historical"},
 		{name: "legacy v2", edit: func(md string) string {
 			return strings.Replace(md, mirror.ConfluenceDocumentMarker, "<!-- atl:document confluence-page v2 -->", 1)
-		}, want: "conf render"},
+		}, want: "historical"},
 		{name: "legacy v3", edit: func(md string) string {
 			return strings.Replace(md, mirror.ConfluenceDocumentMarker, "<!-- atl:document confluence-page v3 -->", 1)
+		}, want: "historical"},
+		{name: "legacy v4", edit: func(md string) string {
+			return strings.Replace(md, mirror.ConfluenceDocumentMarker, mirror.ConfluenceDocumentMarkerV4, 1)
 		}, want: "conf render"},
-		{name: "legacy unversioned marker", edit: func(md string) string {
+		{name: "unversioned marker", edit: func(md string) string {
 			return strings.Replace(md, mirror.ConfluenceDocumentMarker, "<!-- atl:document confluence-page -->", 1)
-		}, want: "conf render"},
+		}, want: "historical"},
 		{name: "legacy yaml", edit: func(md string) string {
 			return "---\ntitle: old\n---\n\n" + md
 		}, want: "conf render"},

@@ -1,14 +1,17 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/isukharev/atl/internal/config"
+	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/mirror"
 )
@@ -177,7 +180,7 @@ func TestPullCommentsPersistsQualifiedV2WithoutSecondPageRead(t *testing.T) {
 			ID: rootID, PageID: "100", RootID: &rootID,
 			Relation: domain.ConfluenceCommentRelationRoot, Location: domain.ConfluenceCommentLocationInline,
 			Resolution: domain.ConfluenceCommentResolutionOpen, Version: 1,
-			MarkerRef: "ref-10", OriginalSelection: "selected", BodyStorage: "<p>comment</p>", CreatedAt: "2026-01-01",
+			MarkerRef: "ref-10", OriginalSelection: "selected", BodyStorage: "<p>comment</p>", CreatedAt: "2026-01-01T02:03:04Z",
 		}, domain.ConfluenceCommentRecord{
 			ID: otherRootID, PageID: "100", RootID: &otherRootID,
 			Relation: domain.ConfluenceCommentRelationRoot, Location: domain.ConfluenceCommentLocationFooter,
@@ -217,8 +220,146 @@ func TestPullCommentsPersistsQualifiedV2WithoutSecondPageRead(t *testing.T) {
 		t.Fatalf("qualified inline sidecar = %+v", inline)
 	}
 	mdPath := filepath.Join(dir, slug+".md")
+	md, err := os.ReadFile(mdPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(md), mirror.ConfluenceDocumentMarker+"\n") ||
+		!strings.Contains(string(md), "**Completeness:** comments complete · threads complete · anchors complete") ||
+		!strings.Contains(string(md), "2026-01-01 02:03 UTC") ||
+		!strings.Contains(string(md), "**Current inline selection:** selected") ||
+		!strings.Contains(string(md), "**Location:** inline · **State:** open") {
+		t.Fatalf("qualified v5 comment tree missing:\n%s", md)
+	}
 	if _, err := Apply(mdPath, ApplyOpts{Into: result.Root}); err != nil {
 		t.Fatalf("untouched qualified view could not reproduce sidecar order: %v", err)
+	}
+	pristineCSF, err := os.ReadFile(strings.TrimSuffix(mdPath, ".md") + ".csf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentMD, err := os.ReadFile(mdPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	editedMD := strings.Replace(string(currentMD), "selected", "changed selection", 1)
+	if editedMD == string(currentMD) {
+		t.Fatal("inline selection edit anchor not found")
+	}
+	if err := os.WriteFile(mdPath, []byte(editedMD), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(mdPath, ApplyOpts{Into: result.Root}); err == nil || !strings.Contains(err.Error(), "inline-comment-marker") {
+		t.Fatalf("inline marker loss was not refused: %v", err)
+	}
+	if got, err := os.ReadFile(strings.TrimSuffix(mdPath, ".md") + ".csf"); err != nil || !bytes.Equal(got, pristineCSF) {
+		t.Fatalf("refused inline marker loss changed CSF: err=%v\n%s", err, got)
+	}
+	applied, err := Apply(mdPath, ApplyOpts{Into: result.Root, AllowFragmentLoss: true})
+	if err != nil {
+		t.Fatalf("approved inline marker loss: %v", err)
+	}
+	if !strings.Contains(applied.Warning, "qualified comment view was omitted") {
+		t.Fatalf("marker-loss warning = %q", applied.Warning)
+	}
+	refreshedMD, err := os.ReadFile(mdPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(refreshedMD), "**Current inline selection:**") || strings.Contains(string(refreshedMD), mirror.ConfluenceCommentsMarker) {
+		t.Fatalf("stale qualified anchor survived marker loss:\n%s", refreshedMD)
+	}
+	m := mirror.New(result.Root)
+	view, ok, err := m.ViewStateOf("100")
+	if err != nil || !ok || settingsFromViewState(view).On(SecComments) {
+		t.Fatalf("marker-loss view state still enables comments: view=%+v ok=%t err=%v", view, ok, err)
+	}
+	lc, localBody, err := m.LoadCSF(strings.TrimSuffix(mdPath, ".md") + ".csf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	localNode, err := csf.Parse(localBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localComments, err := readCommentsSidecar(result.Root, dir, slug, lc.Meta.ID, lc.Meta.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconstructedOpts, err := confMDViewOptsFromSidecars(settingsFromViewState(view), confPageFromMeta(lc.Meta), localComments, result.Root, dir, slug, lc.Meta.ID, localNode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reconstructed := mirror.RenderMarkdownOpts(localNode, lc.Meta.Refs, reconstructedOpts); !bytes.Equal(reconstructed, refreshedMD) {
+		t.Fatalf("atl-generated marker-loss view was not exactly reproducible:\n%s", reconstructed)
+	}
+}
+
+func TestPullCommentsMigratesPristineFlatV4ToQualifiedV5(t *testing.T) {
+	rootID := "10"
+	page := &domain.Resource{ID: "100", Title: "Alpha", SpaceKey: "SP", Version: 2, Body: []byte("<p>alpha</p>")}
+	base := &pullStore{pages: map[string]*domain.Resource{"100": page}}
+	store := &qualifiedPullStore{pullStore: base, inventory: completeQualifiedComments(domain.ConfluenceCommentRecord{
+		ID: rootID, PageID: "100", RootID: &rootID, Relation: domain.ConfluenceCommentRelationRoot,
+		Location: domain.ConfluenceCommentLocationFooter, Resolution: domain.ConfluenceCommentResolutionResolved,
+		Version: 1, AuthorDisplayName: "Reviewer", CreatedAt: "2026-01-01", BodyStorage: "<p>done</p>",
+	})}
+	root := t.TempDir()
+	svc := &ConfluenceService{store: store}
+	first, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: root, Comments: true, Render: config.RenderService{Profile: "full"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, slug := pageDirFrom(root, first.Pages[0].Path)
+	mdPath := filepath.Join(dir, slug+".md")
+	lc, body, err := mirror.New(root).LoadCSF(filepath.Join(dir, slug+".csf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	node, err := csf.Parse(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	comments, err := readCommentsSidecar(root, dir, slug, page.ID, page.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs, _ := computeSettings("confluence", config.RenderService{Profile: "full"})
+	currentOpts := confMDViewOptsForCommentsView(rs, confPageFromMeta(lc.Meta), comments)
+	legacyOpts := legacyConfluenceCommentMDViewOpts(currentOpts, rs, comments)
+	legacy := renderLegacyConfluenceMarkdown(node, lc.Meta.Refs, legacyOpts)
+	if !strings.Contains(string(legacy), "## Comment by Reviewer") || strings.Contains(string(legacy), "**Completeness:**") {
+		t.Fatalf("legacy fixture is not the frozen flat v4 view:\n%s", legacy)
+	}
+	if err := os.WriteFile(mdPath, legacy, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: root, Comments: true, Render: config.RenderService{Profile: "full"}}); err != nil {
+		t.Fatalf("v4 migration: %v", err)
+	}
+	migrated, err := os.ReadFile(mdPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(migrated), mirror.ConfluenceDocumentMarker+"\n") ||
+		!strings.Contains(string(migrated), "**Completeness:**") ||
+		!strings.Contains(string(migrated), "**Location:** footer · **State:** resolved") {
+		t.Fatalf("migrated view is not qualified v5:\n%s", migrated)
+	}
+
+	dirtyLegacy := append(append([]byte(nil), legacy...), []byte("\nlocal note\n")...)
+	if err := os.WriteFile(mdPath, dirtyLegacy, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	base.getPageCalls = 0
+	if _, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: root, Comments: true, Render: config.RenderService{Profile: "full"}}); !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "differs from its pristine reconstruction") {
+		t.Fatalf("dirty v4 pull error = %v", err)
+	}
+	if base.getPageCalls != 0 {
+		t.Fatalf("dirty v4 pull performed %d page reads before refusal", base.getPageCalls)
+	}
+	if got, err := os.ReadFile(mdPath); err != nil || !bytes.Equal(got, dirtyLegacy) {
+		t.Fatalf("dirty v4 view changed: err=%v\n%s", err, got)
 	}
 }
 

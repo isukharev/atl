@@ -64,7 +64,11 @@ with proven thread relationships, independent completeness dimensions, and
 exact native-CSF anchor matching. `conf comment thread` selects one exact root
 subtree; missing ancestry or markers remain explicit partial evidence.
 `conf pull --comments` stores that qualification in a versioned mirror sidecar;
-historical flat sidecars remain readable and comments never affect page drift.
+the page's main `.md` renders a deterministic read-only tree with explicit
+location/state, completeness, safely qualified anchors, and unattached records.
+The schema-v2 `.comments.json` remains the source evidence (including closed
+diagnostics), while `.comments.md` remains a flat compatibility view;
+historical flat sidecars stay readable and comments never affect page drift.
 
 ## Install
 

@@ -348,12 +348,12 @@ func confluenceViewMarkerClass(body []byte) string {
 	switch marker {
 	case mirror.ConfluenceDocumentMarker:
 		return "current"
-	case "<!-- atl:document confluence-page v3 -->",
-		"<!-- atl:document confluence-page v2 -->",
-		"<!-- atl:document confluence-page v1 -->",
-		"<!-- atl:document confluence-page -->":
+	case mirror.ConfluenceDocumentMarkerV4:
 		return "legacy"
 	default:
+		if mirror.IsSupportedLegacyConfluenceDocumentMarker(marker) {
+			return "legacy"
+		}
 		if strings.HasPrefix(marker, "<!-- atl:document confluence-page") {
 			return "unsupported"
 		}
