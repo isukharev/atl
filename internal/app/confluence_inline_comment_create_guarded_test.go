@@ -70,6 +70,11 @@ func commitConfluenceInlineCreate(store *confluenceCommentMutationStore, request
 	})
 }
 
+func commitConfluenceInlineCreateWithoutVersionBump(store *confluenceCommentMutationStore, request domain.ConfluenceCommentMutationRequest) {
+	commitConfluenceInlineCreate(store, request)
+	store.page.Version = request.PageVersion
+}
+
 func TestConfluenceInlineCreatePreviewAndApply(t *testing.T) {
 	service, _, mutator, preparer := newConfluenceInlineCreateFixture()
 	opts := confluenceInlineCreateOpts()
@@ -104,6 +109,45 @@ func TestConfluenceInlineCreatePreviewAndApply(t *testing.T) {
 		!mutator.singleAttempt || preparer.calls != 3 || mutator.request.LastFetchTime != 1700000000003 ||
 		mutator.request.PageVersion != 7 || mutator.request.MatchIndex != 0 || mutator.request.NumMatches != 1 {
 		t.Fatalf("result=%+v err=%v writes=%d preparations=%d request=%+v", result, err, mutator.calls, preparer.calls, mutator.request)
+	}
+}
+
+func TestConfluenceInlineCreateReconcilesExactMarkerInsertionWithoutPageVersionBump(t *testing.T) {
+	service, _, mutator, _ := newConfluenceInlineCreateFixture()
+	opts := confluenceInlineCreateOpts()
+	preview := previewConfluenceCommentMutation(t, service, opts)
+	mutator.result = domain.ConfluenceCommentMutationResult{
+		Operation: domain.ConfluenceCommentMutationInlineCreate,
+		ThreadID:  "303", CommentID: "303", MarkerRef: "ref-303",
+		OriginalSelection: "choose this", PageVersion: 7,
+	}
+	mutator.commit = commitConfluenceInlineCreateWithoutVersionBump
+	opts.Apply = true
+	opts.ExpectedProposalHash = preview.ProposalHash
+	result, err := service.MutateCommentGuarded(context.Background(), "42", opts)
+	if err != nil || result == nil || result.Status != "applied" || result.CommentID != "303" ||
+		result.ResultPageVersion != 7 || !result.Reconciled || mutator.calls != 1 {
+		t.Fatalf("result=%+v err=%v writes=%d", result, err, mutator.calls)
+	}
+}
+
+func TestQualifiedConfluenceInlineCreateVersionTransition(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		before, after int
+		want          bool
+	}{
+		{name: "invalid before", before: 0, after: 0},
+		{name: "decrease", before: 7, after: 6},
+		{name: "unchanged", before: 7, after: 7, want: true},
+		{name: "next", before: 7, after: 8, want: true},
+		{name: "skipped", before: 7, after: 9},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := qualifiedConfluenceInlineCreateVersionTransition(test.before, test.after); got != test.want {
+				t.Fatalf("qualifiedConfluenceInlineCreateVersionTransition(%d, %d) = %t, want %t", test.before, test.after, got, test.want)
+			}
+		})
 	}
 }
 
@@ -269,6 +313,21 @@ func TestConfluenceInlineCreateAmbiguousAttemptReconcilesWithoutReplay(t *testin
 		}
 	})
 
+	t.Run("committed timeout without page version bump", func(t *testing.T) {
+		service, _, mutator, _ := newConfluenceInlineCreateFixture()
+		opts := confluenceInlineCreateOpts()
+		preview := previewConfluenceCommentMutation(t, service, opts)
+		mutator.err = context.DeadlineExceeded
+		mutator.commit = commitConfluenceInlineCreateWithoutVersionBump
+		opts.Apply = true
+		opts.ExpectedProposalHash = preview.ProposalHash
+		result, err := service.MutateCommentGuarded(context.Background(), "42", opts)
+		if err != nil || result.Status != "recovered" || result.CommentID != "303" ||
+			result.ResultPageVersion != 7 || mutator.calls != 1 {
+			t.Fatalf("result=%+v err=%v writes=%d", result, err, mutator.calls)
+		}
+	})
+
 	t.Run("uncommitted failure", func(t *testing.T) {
 		service, _, mutator, _ := newConfluenceInlineCreateFixture()
 		opts := confluenceInlineCreateOpts()
@@ -292,6 +351,40 @@ func TestConfluenceInlineCreateAmbiguousAttemptReconcilesWithoutReplay(t *testin
 			commitConfluenceInlineCreate(store, request)
 			store.page.Body = append(store.page.Body, []byte(`<p>other change</p>`)...)
 		}
+		opts.Apply = true
+		opts.ExpectedProposalHash = preview.ProposalHash
+		result, err := service.MutateCommentGuarded(context.Background(), "42", opts)
+		if result == nil || result.Status != "outcome_unknown" || err == nil || mutator.calls != 1 {
+			t.Fatalf("result=%+v err=%v writes=%d", result, err, mutator.calls)
+		}
+	})
+
+	t.Run("unsupported page version transition", func(t *testing.T) {
+		service, _, mutator, _ := newConfluenceInlineCreateFixture()
+		opts := confluenceInlineCreateOpts()
+		preview := previewConfluenceCommentMutation(t, service, opts)
+		mutator.commit = func(store *confluenceCommentMutationStore, request domain.ConfluenceCommentMutationRequest) {
+			commitConfluenceInlineCreate(store, request)
+			store.page.Version = request.PageVersion + 2
+		}
+		opts.Apply = true
+		opts.ExpectedProposalHash = preview.ProposalHash
+		result, err := service.MutateCommentGuarded(context.Background(), "42", opts)
+		if result == nil || result.Status != "outcome_unknown" || err == nil || mutator.calls != 1 {
+			t.Fatalf("result=%+v err=%v writes=%d", result, err, mutator.calls)
+		}
+	})
+
+	t.Run("provider version conflicts with unchanged page version", func(t *testing.T) {
+		service, _, mutator, _ := newConfluenceInlineCreateFixture()
+		opts := confluenceInlineCreateOpts()
+		preview := previewConfluenceCommentMutation(t, service, opts)
+		mutator.result = domain.ConfluenceCommentMutationResult{
+			Operation: domain.ConfluenceCommentMutationInlineCreate,
+			ThreadID:  "303", CommentID: "303", MarkerRef: "ref-303",
+			OriginalSelection: "choose this", PageVersion: 8,
+		}
+		mutator.commit = commitConfluenceInlineCreateWithoutVersionBump
 		opts.Apply = true
 		opts.ExpectedProposalHash = preview.ProposalHash
 		result, err := service.MutateCommentGuarded(context.Background(), "42", opts)

@@ -2709,10 +2709,14 @@ before one fixed write. For create, an immediate second preparation must preserv
 the stable DOM/geometry evidence; only its fresh server request-time enters the
 single POST. ATL never writes an inline marker into page CSF: Confluence owns the
 marker, and complete readback must prove that the native body changed only by one
-matching marker wrapper plus one exact root comment. The provider never follows
-a redirect, retries, or falls back to an arbitrary endpoint. Complete readback
-must prove the exact new root, reply, or state transition; retain and inspect any
-`outcome_unknown` without replay. Resolving an
+matching marker wrapper plus one exact root comment. The backend may retain the
+page's public content version or advance it by exactly one; ATL accepts only
+those two transitions and still requires any successfully decoded provider
+response to agree with the observed version. An unusable response can become
+`recovered` only when the same strict readback proves the exact result. The
+provider never follows a redirect, retries, or falls back to an arbitrary
+endpoint. Complete readback must prove the exact new root, reply, or state
+transition; retain and inspect any `outcome_unknown` without replay. Resolving an
 already resolved thread and reopening an open thread are explicit no-op previews.
 The commands are JSON-only and are intentionally absent from MCP.
 
