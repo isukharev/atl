@@ -2650,8 +2650,9 @@ response. `conflict` and `not_applied` prove no accepted write from this attempt
 fresh state, and never replay automatically. An identical existing body never
 makes append idempotent.
 
-This create surface supports footer root comments only. It cannot create a
-reply or inline comment, or set/change resolution.
+This public-REST create surface supports footer root comments only. The
+separate version-qualified mutation surface below handles existing inline
+threads.
 
 | flag | description |
 |---|---|
@@ -2659,6 +2660,30 @@ reply or inline comment, or set/change resolution.
 | `--from-file` | exact native-CSF body file or `-` for stdin (default stdin) |
 | `--apply` | `add` only: send one guarded POST (default is dry-run) |
 | `--expected-proposal-hash` | `add` only: exact reviewed hash, required with `--apply` |
+
+### `atl conf comment mutation preview|apply`
+
+Reply to an existing open inline thread, resolve it, or reopen it through an
+explicitly activated Data Center compatibility profile. The read-only preview
+binds the exact page version, root thread and resolution, stable actor, complete
+qualified comment inventory, private exact product activation, and (for reply)
+the native-CSF body hash and length:
+
+```bash
+atl conf comment mutation preview --id 12345678 --thread-id 87654321 \
+  --operation reply --from-file reply.csf
+atl conf comment mutation apply --id 12345678 --thread-id 87654321 \
+  --operation reply --from-file reply.csf --apply \
+  --expected-proposal-hash <hash-from-preview>
+```
+
+`resolve` and `reopen` omit `--from-file`. Apply revalidates the entire proposal,
+then the provider requalifies the owner-pinned exact product identity immediately
+before one fixed write. It never follows a redirect, retries, or falls back to an
+arbitrary endpoint. Complete readback must prove the exact new reply or state
+transition; retain and inspect any `outcome_unknown` without replay. Resolving an
+already resolved thread and reopening an open thread are explicit no-op previews.
+The commands are JSON-only and are intentionally absent from MCP.
 
 ---
 

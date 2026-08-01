@@ -139,8 +139,9 @@ version gate.
    preview` → review the complete footer-root baseline-bound proposal → after
    explicit approval, one guarded `conf comment add` with `--apply` and its
    `--expected-proposal-hash`. Although `add` defaults to dry-run, it remains
-   mutating-classified. Never replay `outcome_unknown`; only root footer creation
-   is supported.
+   mutating-classified. Existing inline threads use the separate exact-pinned
+   `conf comment mutation preview|apply` loop for reply/resolve/reopen. Never
+   replay `outcome_unknown`; new inline-anchor creation is not supported here.
 
 For every agent-created Bash block that must not mutate Jira, Confluence,
 auth/config, or profile state, make this export its first statement:

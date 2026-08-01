@@ -198,7 +198,15 @@ write command after explicit approval.
   read-only policy. The proposal binds backend/page/version, stable actor, body,
   capability, and complete footer-root baseline. Accept only `applied` or
   `recovered` as proven success; never replay `outcome_unknown`. Creation is
-  footer-root only—no replies, inline comments, or resolution changes.
+  footer-root only.
+- Guarded inline thread mutation: first activate and remotely qualify the exact
+  compatibility pin. Use read-only `conf comment mutation preview` with an
+  exact page/root thread id and `--operation reply|resolve|reopen`; reply also
+  requires a private native-CSF `--from-file`. After explicit approval, repeat
+  the exact inputs once through `mutation apply --apply
+  --expected-proposal-hash <reviewed-hash>`. Accept only reconciled `applied` or
+  `recovered`; never replay `outcome_unknown`. This surface cannot create a new
+  inline anchor and remains absent from MCP.
 - Durable pull, complete/incremental sync, render migration, prefetch/rate
   controls: [sync.md](reference/sync.md).
 - Ordinary Markdown body edit, apply/diff, multi-page plan, and push sequence:

@@ -1291,6 +1291,17 @@ sends at most one single-attempt POST, then reconciles from a complete bounded
 root-only footer read. It cannot create replies or inline comments or change
 resolution; duplicate body text is not an idempotency key.
 
+`atl conf comment mutation preview|apply` uses a separate body-free schema-v1
+result with `page_id`, `thread_id`, `operation`, `mode`, `status`,
+`page_version`, `thread_version`, `source_state`, optional `target_state`,
+optional `body_sha256`/`body_bytes`, `actor`, `provider.id`, `current_count`,
+`baseline_sha256`, `backend_sha256`, `proposal_hash`, optional `comment_id`,
+`complete`, optional `reconciled`, and `warning`. Exact configured
+version/build values and reply bytes are never emitted. Operations are exactly
+`reply|resolve|reopen`; statuses additionally include `no_op`. Only
+`--apply --expected-proposal-hash` may write. `outcome_unknown` is never
+replay-safe. These commands are JSON-only and have no MCP route.
+
 With `--comments`, `<slug>.comments.json` is the authoritative versioned source
 evidence, using the same qualified comment records, completeness dimensions, capabilities,
 closed partial reasons, and diagnostics as the schema-v2 list contract. It also

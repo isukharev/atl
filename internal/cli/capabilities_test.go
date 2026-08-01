@@ -19,8 +19,8 @@ func TestCapabilityCatalogDefinitionsAreValidAndUnique(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.SchemaVersion != capabilityCatalogSchemaVersion || catalog.Selection.Count != 53 {
-		t.Fatalf("catalog metadata=%+v definitions want=53", catalog)
+	if catalog.SchemaVersion != capabilityCatalogSchemaVersion || catalog.Selection.Count != 55 {
+		t.Fatalf("catalog metadata=%+v definitions want=55", catalog)
 	}
 	if catalog.Routing.Match != "exact" || !strings.Contains(catalog.Routing.ReferenceLoad, "do not search") {
 		t.Fatalf("routing contract=%+v", catalog.Routing)
@@ -46,8 +46,8 @@ func TestCapabilityCatalogDefinitionsAreValidAndUnique(t *testing.T) {
 func TestCapabilityDefinitionsResolveAllCobraRoutes(t *testing.T) {
 	root := newRoot()
 	definitions := capabilitydef.Definitions()
-	if len(definitions) != 53 {
-		t.Fatalf("definitions=%d want=53", len(definitions))
+	if len(definitions) != 55 {
+		t.Fatalf("definitions=%d want=55", len(definitions))
 	}
 	for _, definition := range definitions {
 		command, remaining, err := root.Find(strings.Fields(definition.CLICommand))
@@ -123,8 +123,8 @@ func TestCapabilityCatalogPreservesLegacyProjectionAndAddsTransportRouting(t *te
 			mappedMutating++
 		}
 	}
-	if mapped != 32 || cliOnly != 21 {
-		t.Fatalf("mapped=%d cli_only=%d want=32/21", mapped, cliOnly)
+	if mapped != 32 || cliOnly != 23 {
+		t.Fatalf("mapped=%d cli_only=%d want=32/23", mapped, cliOnly)
 	}
 	if mappedMutating != 0 {
 		t.Fatalf("mapped mutating capabilities=%d want=0", mappedMutating)
@@ -145,7 +145,7 @@ func TestCapabilityTaskRoutesStaySmallAndOrdered(t *testing.T) {
 		{"jira/mirror", []string{"jira.mirror.snapshot"}},
 		{"jira/edit", []string{"jira.issue.fields.edit", "jira.issue.field.preview", "jira.issue.field.set", "jira.issue.worklog.list", "jira.issue.worklog.add", "jira.issue.plan.apply"}},
 		{"confluence/evidence", []string{"confluence.page.resolve", "confluence.page.meta", "confluence.page.outline", "confluence.page.section", "confluence.page.sections", "confluence.page.view", "confluence.attachment.list"}},
-		{"confluence/comments", []string{"confluence.comment.list", "confluence.comment.thread", "confluence.comment.preview", "confluence.comment.add"}},
+		{"confluence/comments", []string{"confluence.comment.list", "confluence.comment.thread", "confluence.comment.preview", "confluence.comment.add", "confluence.comment.mutation.preview", "confluence.comment.mutation.apply"}},
 		{"confluence/table-analytics", []string{"confluence.table.summary", "confluence.table.extract"}},
 		{"confluence/mirror", []string{"confluence.mirror.snapshot"}},
 		{"confluence/edit", []string{"confluence.pull", "confluence.diff", "confluence.plan.create", "confluence.plan.preview", "confluence.plan.apply"}},

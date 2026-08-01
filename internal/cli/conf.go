@@ -13,6 +13,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/compatibility"
+	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/mdcsf"
@@ -71,6 +73,21 @@ func confService() (*app.ConfluenceService, error) {
 		return nil, err
 	}
 	return app.NewConfluence(cfg, version.Version)
+}
+
+func confCommentMutationService() (*app.ConfluenceService, error) {
+	cfg, err := loadConfig()
+	if err != nil {
+		return nil, err
+	}
+	settings, err := compatibility.Load(config.Dir())
+	if err != nil {
+		return nil, err
+	}
+	if settings.Confluence == nil {
+		return nil, fmt.Errorf("%w: Confluence comment compatibility is not activated; run compatibility pin first", domain.ErrConfig)
+	}
+	return app.NewConfluenceCommentMutations(cfg, version.Version, *settings.Confluence)
 }
 
 func confScheduledService(pagePrefetch, requestsPerSecond int) (*app.ConfluenceService, error) {
@@ -1339,9 +1356,80 @@ func confCommentCmd() *cobra.Command {
 
 	preview := confFooterCommentMutationCmd(false)
 	add := confFooterCommentMutationCmd(true)
+	mutation := confInlineCommentMutationCmd()
 
-	c.AddCommand(list, thread, preview, add)
+	c.AddCommand(list, thread, preview, add, mutation)
 	return c
+}
+
+func confInlineCommentMutationCmd() *cobra.Command {
+	command := &cobra.Command{Use: "mutation", Short: "Guarded inline-comment thread mutations"}
+	command.AddCommand(confInlineCommentMutationLeaf(false), confInlineCommentMutationLeaf(true))
+	return command
+}
+
+func confInlineCommentMutationLeaf(applyCapable bool) *cobra.Command {
+	var id, operation, threadID, fromFile string
+	guardedWrite := guardedWriteFlags{profile: guardedWriteProposal}
+	use, short := "preview", "Preview an inline-comment thread mutation"
+	if applyCapable {
+		use, short = "apply", "Preview or apply an inline-comment thread mutation"
+	}
+	cmd := &cobra.Command{
+		Use: use, Short: short,
+		Long: "Bind reply, resolve, or reopen to the exact page version, complete thread inventory, actor, and activated provider. " +
+			"Apply requires the reviewed proposal hash, performs one provider write attempt, and reconciles without replay.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if id == "" || threadID == "" {
+				return usageErr("--id and --thread-id are required")
+			}
+			op := domain.ConfluenceCommentMutationOperation(operation)
+			if !domain.ValidConfluenceCommentMutationOperation(op) {
+				return usageErr("--operation must be reply, resolve, or reopen")
+			}
+			if applyCapable {
+				if err := guardedWrite.validate(); err != nil {
+					return err
+				}
+			}
+			var body []byte
+			if op == domain.ConfluenceCommentMutationReply {
+				if fromFile == "" {
+					return usageErr("--from-file is required for reply")
+				}
+				var err error
+				body, err = readConfluenceFooterCommentBody(fromFile)
+				if err != nil {
+					return err
+				}
+			} else if cmd.Flags().Changed("from-file") {
+				return usageErr("--from-file is only valid for reply")
+			}
+			svc, err := confCommentMutationService()
+			if err != nil {
+				return err
+			}
+			result, mutationErr := svc.MutateCommentGuarded(cmd.Context(), id, app.ConfluenceCommentMutationOpts{
+				Operation: op, ThreadID: threadID, Body: body,
+				Apply: applyCapable && guardedWrite.apply, ExpectedProposalHash: guardedWrite.expectedProposalHash,
+			})
+			if result != nil {
+				if emitErr := emit(cmd, result, nil); emitErr != nil {
+					return emitErr
+				}
+			}
+			return mutationErr
+		},
+	}
+	cmd.Flags().StringVar(&id, "id", "", "page id or supported same-origin URL")
+	cmd.Flags().StringVar(&operation, "operation", "", "reply, resolve, or reopen")
+	cmd.Flags().StringVar(&threadID, "thread-id", "", "exact numeric root thread id")
+	cmd.Flags().StringVar(&fromFile, "from-file", "", "bounded native-CSF reply body file or - for stdin")
+	if applyCapable {
+		guardedWrite.register(cmd)
+	}
+	return cmd
 }
 
 func confFooterCommentMutationCmd(applyCapable bool) *cobra.Command {
