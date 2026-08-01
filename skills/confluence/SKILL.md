@@ -165,6 +165,14 @@ write command after explicit approval.
   recovery bound. Recover only a required `max_bytes` entry once through
   singular `page section`, using that entry's `original_bytes` and the plural
   result's exact version.
+- Qualified comment read: use `conf comment list --id <page-id>` for the
+  schema-v2 footer/inline/resolved inventory and inspect all three completeness
+  dimensions before treating absence or a relationship as proven. Narrow with
+  `--location`, `--state`, or `--depth`; bind a prior page revision with
+  `--expected-version`. Use `conf comment thread --comment-id <id>` for one
+  exact proven subtree. Missing ancestry or marker evidence stays partial;
+  never infer it from response order or prose. `--legacy-flat` is temporary
+  compatibility only, not a route for new automation.
 - Durable pull, complete/incremental sync, render migration, prefetch/rate
   controls: [sync.md](reference/sync.md).
 - Ordinary Markdown body edit, apply/diff, multi-page plan, and push sequence:

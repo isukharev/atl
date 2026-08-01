@@ -2496,17 +2496,49 @@ atl conf me
 
 ### `atl conf comment list`
 
-List page comments. Bodies are returned as plain text (CSF stripped). If the
-listing hits the fetch safety cap, a warning is written to stderr (the returned
-set is incomplete) — the JSON result on stdout stays clean. `-o text` prints
-stable comment id, author/time, and the plain body for each comment.
+List a schema-v2, evidence-qualified page comment inventory. The default makes
+separate bounded page-scoped reads for footer, inline, and resolved comments at
+all thread depths, then joins inline metadata to exact markers in the page's
+native CSF. Location, resolution, root/reply relation, and anchor status remain
+independent; missing backend evidence becomes `unknown` or a partial reason,
+never an inferred value.
 
-```
+```sh
 atl conf comment list --id 12345678
+atl conf comment list --id 12345678 --location inline --state open --depth all
+atl conf comment list --id 12345678 --expected-version 7
 ```
+
+`--location` is `all|footer|inline|resolved`, `--state` is
+`all|open|resolved|unknown`, and `--depth` is `root|all`. A positive
+`--expected-version` refuses before comment reads when the page revision has
+changed. Inspect `comments_complete`, `threads_complete`, `anchors_complete`,
+`partial_reasons`, and per-comment `relation`, `location`, `resolution`, and
+`anchor.status`. An empty list proves absence only when `complete:true`.
+
+`-o text` emits the same qualification header followed by a deterministic
+indented thread view. Native `body_storage` remains available only in JSON.
+During the mirror-schema migration window, explicit `--legacy-flat` preserves
+the old `{comments:[...]}` response; it cannot be combined with v2 filters or
+the version gate.
+
+### `atl conf comment thread`
+
+Read the proven root subtree containing one exact numeric comment id:
+
+```sh
+atl conf comment thread --id 12345678 --comment-id 87654321
+atl conf comment thread --id 12345678 --comment-id 87654321 --expected-version 7
+```
+
+If a complete inventory proves the id absent, the command exits 4. If the
+inventory is partial and cannot prove absence, it exits 8 instead. A selected
+comment whose root is unavailable is returned alone with
+`threads_complete:false`; the relationship is not guessed.
 
 To persist comments alongside the mirrored page instead of printing them, use
-`conf pull --comments`.
+`conf pull --comments`. Stage-1 qualified reads do not yet change that legacy
+flat sidecar or the current derived-document marker.
 
 ### `atl conf comment add`
 

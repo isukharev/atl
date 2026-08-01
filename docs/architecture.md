@@ -98,6 +98,9 @@ the same adapter instance across several capability fields (as
 `ConfluenceService` does with `store`/`users`/`assets`/`verifier`):
 
 - `Verifier` (`Whoami`) — confirms a PAT before `auth login` persists it.
+- `QualifiedConfluenceCommentReader` — returns the Confluence-specific,
+  source-qualified footer/inline/resolved inventory without changing the
+  generic flat `DocStore.ListComments` compatibility and mirror contracts.
 - `Agile` (`Boards`/`Board`/`Sprints`/`Sprint`/`SprintIssues`/
   `MoveIssuesToSprint`/`MoveIssuesToBacklog`) — Jira Software boards & sprints
   over the Data Center Agile API `/rest/agile/1.0/`. Requires GreenHopper, so a

@@ -33,6 +33,7 @@ conf attachment get
 conf attachment list
 conf blog create
 conf comment list
+conf comment thread
 conf diff
 conf edit
 conf me
@@ -264,6 +265,55 @@ func commentsText(comments []domain.Comment) string {
 	var b strings.Builder
 	for _, comment := range comments {
 		fmt.Fprintf(&b, "%s\t%s (%s):\n%s\n\n", textCell(comment.ID), textCell(comment.Author), textCell(comment.Created), comment.Body)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func confluenceCommentInventoryText(result *app.ConfluenceCommentInventoryResult) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "page=%s\tversion=%d\tgated=%t\tcomplete=%t\tcomments_complete=%t\tthreads_complete=%t\tanchors_complete=%t\tcount=%d\troots=%d\n",
+		textCell(result.PageID), result.PageVersion, result.PageVersionGated, result.Complete,
+		result.CommentsComplete, result.ThreadsComplete, result.AnchorsComplete, result.Count, result.RootCount)
+	if len(result.PartialReasons) > 0 {
+		fmt.Fprintf(&b, "partial_reasons=%s\n", textCell(strings.Join(result.PartialReasons, ",")))
+	}
+	byID := make(map[string]app.ConfluenceCommentResultRecord, len(result.Comments))
+	for _, comment := range result.Comments {
+		byID[comment.ID] = comment
+	}
+	for _, comment := range result.Comments {
+		depth := 0
+		seen := map[string]struct{}{comment.ID: {}}
+		parent := comment.ParentID
+		for parent != nil && depth < len(result.Comments) {
+			if _, duplicate := seen[*parent]; duplicate {
+				break
+			}
+			seen[*parent] = struct{}{}
+			ancestor, ok := byID[*parent]
+			if !ok {
+				break
+			}
+			depth++
+			parent = ancestor.ParentID
+		}
+		indent := strings.Repeat("  ", depth)
+		fmt.Fprintf(&b, "%s%s\t%s/%s\t%s", indent, textCell(comment.ID), comment.Location, comment.Resolution, comment.Relation)
+		if comment.Anchor != nil {
+			fmt.Fprintf(&b, "\tanchor=%s", comment.Anchor.Status)
+		}
+		if comment.Author.DisplayName != "" {
+			fmt.Fprintf(&b, "\t%s", textCell(comment.Author.DisplayName))
+		}
+		if comment.CreatedAt != "" {
+			fmt.Fprintf(&b, "\t%s", textCell(comment.CreatedAt))
+		}
+		b.WriteByte('\n')
+		if comment.Body != "" {
+			for _, line := range strings.Split(comment.Body, "\n") {
+				fmt.Fprintf(&b, "%s  %s\n", indent, line)
+			}
+		}
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

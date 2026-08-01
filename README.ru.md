@@ -61,6 +61,13 @@ workflow читать их целиком не нужно.
 фиксированный лимит ответов backend от настраиваемого лимита закодированного
 результата.
 
+Для обсуждений Confluence команда `atl conf comment list --id 123456`
+возвращает квалифицированный schema-v2 inventory footer-, inline- и resolved-
+комментариев с доказанными связями треда, независимыми измерениями полноты и
+точным сопоставлением anchors с native CSF. `conf comment thread` выбирает один
+точный корневой тред; недостающие ancestry или markers остаются явным partial
+evidence.
+
 ## Установка
 
 Статические release-бинарники для Linux и macOS доступны на amd64 и arm64.

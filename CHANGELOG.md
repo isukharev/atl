@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a schema-v2 `conf comment list` inventory and exact `conf comment
+  thread` lookup with independently qualified comment, thread, and inline-anchor
+  completeness, bounded backend pagination, native storage bodies, closed
+  diagnostics, optional page-version gates, and a temporary explicit legacy
+  projection.
+
 - Added `atl jira issue graph <KEY>`, a deterministic read-only depth-zero
   work-artifact graph over the exact issue snapshot, typed links/hierarchy,
   attachments, complete comments/worklogs, remote links, properties, and
