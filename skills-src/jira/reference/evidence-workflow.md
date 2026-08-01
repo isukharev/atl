@@ -9,7 +9,7 @@ step mechanically.
 
 | Situation | First command | Expand only when needed |
 |---|---|---|
-| One exact issue and the task asks what work, dependencies, code, or documentation is connected | `jira issue graph <KEY>` | opt into the smallest sufficient `--depth` only for exact structured Jira relations; use `--resolve confluence` only for discovered page id/title metadata |
+| One exact issue and the task asks what work, dependencies, code, or documentation is connected | typed `jira_issue_graph`, or `jira issue graph <KEY>` when MCP is unavailable | opt into the smallest sufficient depth only for exact structured Jira relations; MCP v1 is Jira-only, while CLI `--resolve confluence` may read discovered page id/title metadata |
 | One exact standard field named by the task | `jira issue field get <KEY> --field <NAME>` | nothing when the bounded result is complete |
 | One unfamiliar issue | `jira issue fields <KEY> --metadata-only` | exact bounded field get, selected history/refs, then a linked page section |
 | One epic and known evidence-field names | `jira epic digest <KEY>` plus only a task-supplied period | bounded Confluence section expansion |
@@ -21,17 +21,25 @@ The offline `jira/evidence` capability route exposes broad search as its first
 discovery step, followed by exact per-issue qualification and bounded
 expansion. Skip that search when the task already supplies one exact issue key.
 
-The graph command is currently CLI-only. For one exact issue and a
-relationship/discovery question, begin with the default direct schema-v2 read
-at depth zero under `ATL_READ_ONLY=1`. Verify top-level reconciliation and every requested
+For one exact issue and a relationship/discovery question, begin with one typed
+`jira_issue_graph` call when available, or the CLI under `ATL_READ_ONLY=1`.
+Start with the default direct schema-v2 read at depth zero. Verify top-level reconciliation and every requested
 source, and distinguish structured relations from heuristic `mentions`. When
-the question truly spans linked Jira work, use the smallest sufficient
-`--depth 1..3`; traversal follows only exact structured Jira stubs in canonical
-breadth-first order. It never follows narrative mentions. Add
-`--resolve confluence` only when id/title metadata for already discovered
+the question truly spans linked Jira work, use the smallest sufficient MCP
+depth from 1 through 2 or CLI `--depth 1..3`; traversal follows only exact
+structured Jira stubs in canonical breadth-first order. It never follows
+narrative mentions. Add
+CLI `--resolve confluence` only when id/title metadata for already discovered
 canonical page ids is enough; page bodies and arbitrary URLs are not read.
+MCP v1 accepts no Confluence-resolution input, so those pages remain qualified
+stubs. Its stable projection also omits the deferred Development source without
+proving zero development activity. For MCP, reported `bounds.max_response_bytes`
+is a fixed aggregate buffered Jira response budget, while the separate
+`max_bytes` input bounds the final encoded result. An output-limit
+error contains no clipped graph; a successful `complete:false` graph remains
+qualified evidence. MCP has no `strict` input.
 Inspect physical request/response-byte usage and every bounded frontier item,
-and use `--strict` when incomplete evidence must return exit 8. A `forbidden`,
+and use CLI `--strict` when incomplete evidence must return exit 8. A `forbidden`,
 `unsupported`, `partial`, or `skipped` source makes absence unproven; static
 reasons include `malformed_response`, `request_failed`, `inspection_limit`,
 `output_limit`, `request_limit`, `byte_limit`, `dependency_unavailable`, and

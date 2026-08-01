@@ -13,7 +13,7 @@ requests approval is false.
 The exact tools are:
 
 - `jira_fields`, `jira_issue_search`, `jira_issue_field_get`,
-  `jira_issue_history`, `jira_issue_refs`, `jira_epic_digest`,
+  `jira_issue_history`, `jira_issue_graph`, `jira_issue_refs`, `jira_epic_digest`,
   `jira_board_view`, `jira_structure_get`, `jira_structure_view`,
   `jira_mirror_snapshot`;
 - `confluence_search`, `confluence_page_resolve`, `confluence_page_meta`,
@@ -23,7 +23,7 @@ The exact tools are:
   `confluence_mirror_snapshot`.
 
 The plugin starts the complete default inventory. For a standalone session,
-`atl mcp serve --service jira|confluence|offline` selects a closed 10/10/2 tool
+`atl mcp serve --service jira|confluence|offline` selects a closed 11/10/2 tool
 profile; it is not an arbitrary allowlist. The fixed offline
 `atl://capabilities` resource reports which curated CLI routes have a bounded
 typed mapping, its narrower scope, or an explicit CLI-only boundary. A mapping
@@ -35,7 +35,7 @@ fields or exact sections. `jira_fields` explicitly qualifies the catalog; an
 empty match is absence only when `complete:true`. Use `summary_only:true` for
 compact qualification and reconciled custom/system counts without field
 definitions. `jira_fields`,
-`jira_issue_search`, `jira_issue_history`, `jira_issue_refs`, `jira_epic_digest`, and
+`jira_issue_search`, `jira_issue_history`, `jira_issue_graph`, `jira_issue_refs`, `jira_epic_digest`, and
 `jira_board_view` default to a
 256 KiB encoded-result bound and permit 1 KiB through 1 MiB. Narrow selection
 before raising `max_bytes`; an oversize failure never contains a clipped
@@ -60,6 +60,19 @@ current-user timezone request, while explicit timestamps need no calendar
 lookup; display-name and civil-date metadata requests are independent. Use the
 returned counts instead of recomputing changelog arithmetic, and fall back to
 the CLI when individual changes are themselves the required evidence.
+`jira_issue_graph` takes one canonical issue `key` and returns a
+provenance-qualified schema-v2 graph. Start at depth zero; use the smallest
+sufficient `depth` from 1 through 2 only for exact structured Jira relations.
+MCP v1 is Jira-only: it has no Confluence-resolution input, does not fetch page
+metadata, and leaves discovered pages as qualified stubs. Its stable projection
+omits the deferred Development source without implying a zero. It also has no
+`strict` input, so inspect `complete`, reconciliation, every source, transport
+usage, and the bounded frontier. Reported `bounds.max_response_bytes` is the
+fixed aggregate buffered Jira response budget; the separate `max_bytes` input
+limits the final encoded result. An output-limit error contains no clipped
+graph, while a successful `complete:false` graph remains qualified evidence.
+Use the CLI graph only when
+MCP is unavailable or id/title-only Confluence resolution is explicitly needed.
 `jira_issue_refs` accepts exactly one issue `key`, or bounded `jql` with a
 required `limit` from 1 through 25, plus at most eight exact technical field
 ids. Use its selection, source qualification, per-issue `reference_summary`,

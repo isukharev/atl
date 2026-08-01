@@ -207,6 +207,17 @@ func TestIssueGraphRejectsInvalidKeyBeforeSnapshot(t *testing.T) {
 	}
 }
 
+func TestIssueGraphPreservesTrimmedCLIKeyCompatibility(t *testing.T) {
+	tracker := completeGraphFixture()
+	result, err := (&JiraService{tr: tracker}).IssueGraphWithOptions(context.Background(), "  PROJ-1  ", JiraIssueGraphOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.RootID != "jira:issue:PROJ-1" || tracker.snapshots != 1 {
+		t.Fatalf("result=%+v snapshots=%d", result, tracker.snapshots)
+	}
+}
+
 func TestIssueGraphRejectsMismatchedSnapshotIdentity(t *testing.T) {
 	tracker := completeGraphFixture()
 	tracker.snapshot.RequestedKey = "PROJ-2"

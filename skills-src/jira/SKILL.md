@@ -37,7 +37,7 @@ the block-level export. Remove the exported policy only for the exact reviewed
 write command after explicit approval.
 
 If the plugin exposes typed MCP, prefer `jira_fields`, `jira_issue_search`,
-`jira_issue_history`, `jira_issue_refs`, `jira_epic_digest`, `jira_board_view`,
+`jira_issue_history`, `jira_issue_graph`, `jira_issue_refs`, `jira_epic_digest`, `jira_board_view`,
 `jira_structure_get`, and
 `jira_structure_view` for bounded transient reads. Use `jira_mirror_snapshot`
 with no arguments only for offline content-free health counts of the exact
@@ -67,20 +67,31 @@ field-catalog request inside the history call. Civil dates add one current-user
 timezone request, while explicit timestamps need no calendar lookup; the two
 metadata requests are independent. Read `complete` and any `partial_reason`
 before treating absence as evidence. Use the CLI `jira issue history` only
-when individual changes are themselves the required evidence. For a
-direct relationship question starting from one exact issue, use the CLI
-`jira issue graph <KEY>` once under inherited read-only policy. It is
-CLI-only and always emits schema v2: the default depth is zero, while
-`--depth 1..3` performs a bounded breadth-first walk that follows only exact
-structured Jira relations. Use the smallest sufficient depth, inspect
+when individual changes are themselves the required evidence. For a direct
+relationship question starting from one exact issue, prefer one typed
+`jira_issue_graph` call. It always emits schema v2: the default depth is zero,
+while `depth` 1..2 performs a bounded breadth-first walk that follows only exact
+structured Jira relations. MCP v1 is Jira-only and has no Confluence-resolution
+input; discovered page identities remain qualified stubs, and the stable
+projection omits the deferred Development source without implying a zero. Use
+the CLI
+`jira issue graph <KEY>` under inherited read-only policy when MCP is
+unavailable or when id/title-only Confluence metadata is explicitly required.
+Use the smallest sufficient depth, inspect
 reconciliation, budgets, frontier, and every per-node source status, and never
 imply that a heuristic
-mention was fetched. Use `--resolve confluence` only when id/title metadata for
-already discovered canonical pages is necessary; it does not read page bodies.
+mention was fetched. On the CLI, use `--resolve confluence` only when id/title
+metadata for already discovered canonical pages is necessary; it does not read
+page bodies.
+For MCP, keep reported `bounds.max_response_bytes` (the fixed aggregate
+buffered Jira response budget) distinct from the `max_bytes` encoded-result
+input. An encoded-result overflow returns
+no clipped graph; a successful `complete:false` graph remains qualified
+evidence and has no `strict` input.
 Treat `issue_fields:partial` as uninspected field evidence when Jira omits or
 malforms essential names/schema, and treat `issue_properties` as an
 `experimental_api` source even when its inventory is complete.
-Prefer `--strict` when incomplete evidence must fail the workflow. For a
+Prefer CLI `--strict` when incomplete evidence must fail the workflow. For a
 reference-inventory question, call `jira_issue_refs` with exactly one issue
 `key`, or bounded `jql` plus `limit` from 1 through 25, and at most eight exact
 technical field ids. Use its per-issue and top-level reconciled summaries; raw

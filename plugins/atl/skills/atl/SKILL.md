@@ -80,7 +80,7 @@ preflight before identity-bearing `jira status` or issue-level repair.
 When the installed plugin exposes `atl` MCP tools, prefer them for transient,
 bounded evidence reads: typed arguments remove shell construction and the
 server registers no mutation or arbitrary-filesystem tool. Load
-[mcp.md](reference/mcp.md) for its exact twenty-tool route and CLI fallback
+[mcp.md](reference/mcp.md) for its exact twenty-one-tool route and CLI fallback
 boundary. Use bounded Structure metadata/view through MCP. For content-free
 health counts of an existing durable mirror, use the no-argument mirror snapshot
 tool only when the owner has configured `ATL_MIRROR_ROOT`. Continue using the
@@ -261,8 +261,8 @@ without raw changelog rows (explicit false is rejected), and last-field-change
 metadata;
 transient multi-key export to artifact-only stdout; deterministic epic evidence
 digest and standalone refs with reconciled per-kind/per-source aggregates;
-schema-v2 bounded CLI work-artifact graph with exact
-structured Jira traversal, optional Confluence id/title resolution, typed
+schema-v2 bounded CLI and typed MCP work-artifact graph with exact
+structured Jira traversal, optional CLI-only Confluence id/title resolution, typed
 edges, mentions, budgets, frontier, metadata-reconciled fields, and qualified
 per-node sources (including experimental issue properties);
 check/attachments/refs/tree. For a report

@@ -137,7 +137,7 @@ not themselves grant write authority.
 
 `atl mcp serve` is a separate stdio protocol transport, so global CLI output
 flags and process exit envelopes do not apply to individual tool calls. Each of
-the twenty registered tools has inferred input/output JSON Schema and returns
+the twenty-one registered tools has inferred input/output JSON Schema and returns
 typed `structuredContent`; compatible clients may also expose the SDK's text
 projection. Tool failures set the MCP error result and contain a JSON text
 object with stable `kind`, `remediation`, diagnostic `message`, and versioned
@@ -151,7 +151,7 @@ JSON-RPC protocol errors. Schema-valid application failures retain their
 existing tool-specific envelopes.
 
 `atl mcp serve --service jira|confluence|offline` selects one closed reviewed
-inventory. Omission preserves the default twenty tools and instruction bytes.
+inventory. Omission preserves the default twenty-one tools and instruction bytes.
 Every profile exposes the fixed `application/json` resource
 `atl://capabilities`; its static schema-v1 content contains capability
 identity, task class/service/role/priority, CLI command, optional MCP tool/scope, and
@@ -1494,6 +1494,29 @@ the backward-compatible `complete`, `source`, `count`, and `total` line. The
 summary text projection adds `projection=summary`, `custom`, and `system` on a
 second line and no field records; the full projection keeps the existing
 tab-separated field records.
+
+Typed MCP `jira_issue_graph` returns the same schema-v2 graph through a
+Jira-only read. Its schema requires one canonical issue `key` and accepts
+optional `depth` from 0 through 2, `max_nodes`, `max_edges`, `max_requests`,
+and `max_bytes`. It deliberately accepts neither
+`resolve`/`resolve_confluence` nor `strict`: Confluence identities remain
+qualified stubs, and callers inspect `complete`, sources, reconciliation, and
+the frontier in the successful result.
+
+The backend and result byte bounds are independent. MCP fixes evidence at 500
+records and the aggregate Jira response budget at 16777216 bytes; reported
+`bounds.max_response_bytes` and `response_bytes_used` expose that backend
+budget, but `max_response_bytes` is not a v1 input. The separate `max_bytes`
+input caps the final encoded MCP result (default 256 KiB, minimum 1 KiB,
+maximum 1 MiB). `max_nodes` defaults to 50 and caps at 100, `max_edges`
+defaults to 200 and caps at 500, and `max_requests` defaults to 50 and caps at
+100. Exhausting an
+application traversal bound can therefore return a valid schema-v2 graph with
+`complete:false` and static qualification. Exceeding the final `max_bytes`
+instead returns an MCP output-limit error with no clipped graph. Neither case
+proves that an omitted relationship is absent. The MCP projection contains no
+Development source; its absence must never be reported as zero development
+activity.
 
 `atl jira issue graph <KEY>` emits one transient, deterministic schema-v2
 work-artifact graph. Depth defaults to zero:

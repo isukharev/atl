@@ -52,6 +52,11 @@ Jira relations under hard request/output budgets; optional
 `--resolve confluence` reads only page id/title metadata. Every returned field
 is reconciled with its inspection metadata: missing or invalid metadata makes
 the named source partial, while issue properties are explicitly experimental.
+The typed `jira_issue_graph` MCP tool exposes the same schema-v2 graph under
+Jira-only traversal: it accepts no Confluence-resolution input, leaves page
+identities as qualified stubs, omits the deferred Development source without
+implying zero activity, and keeps the fixed backend-response bound separate
+from the configurable encoded-result bound.
 
 ## Install
 

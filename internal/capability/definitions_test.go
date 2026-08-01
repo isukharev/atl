@@ -4,8 +4,8 @@ import "testing"
 
 func TestDefinitionsReturnsDefensiveCopy(t *testing.T) {
 	first := Definitions()
-	if len(first) != 48 {
-		t.Fatalf("definitions=%d want=48", len(first))
+	if len(first) != 49 {
+		t.Fatalf("definitions=%d want=49", len(first))
 	}
 	want := first[0]
 	first[0] = Definition{ID: "changed"}
@@ -34,10 +34,37 @@ func TestDefinitionsTransportMappings(t *testing.T) {
 			mappedMutating++
 		}
 	}
-	if mapped != 29 || cliOnly != 19 {
-		t.Fatalf("mapped=%d cli_only=%d want=29/19", mapped, cliOnly)
+	if mapped != 30 || cliOnly != 19 {
+		t.Fatalf("mapped=%d cli_only=%d want=30/19", mapped, cliOnly)
 	}
 	if mappedMutating != 0 {
 		t.Fatalf("mapped mutating definitions=%d want=0", mappedMutating)
+	}
+}
+
+func TestJiraIssueGraphHasOneJiraOnlyTypedRoute(t *testing.T) {
+	graphCount := 0
+	for _, definition := range Definitions() {
+		if definition.ID == "knowledge.jira.graph" {
+			t.Fatal("graph must not have a second knowledge alias")
+		}
+		if definition.ID != "jira.issue.graph" {
+			continue
+		}
+		graphCount++
+		if definition.CLICommand != "jira issue graph" || definition.MCPTool != "jira_issue_graph" {
+			t.Fatalf("graph transports=%+v", definition)
+		}
+		if definition.Service != "jira" || definition.TaskClass != "jira/graph-evidence" ||
+			definition.Completeness != "per-source-and-traversal" {
+			t.Fatalf("graph route=%+v", definition)
+		}
+		const scope = "Jira-only stable-source schema-v2 graph with structural traversal, qualified sources, fixed request/response bounds, and an encoded-result bound; no Confluence resolution or Development source."
+		if definition.MCPScope != scope {
+			t.Fatalf("graph MCP scope=%q want=%q", definition.MCPScope, scope)
+		}
+	}
+	if graphCount != 1 {
+		t.Fatalf("jira.issue.graph definitions=%d want=1", graphCount)
 	}
 }

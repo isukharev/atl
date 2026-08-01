@@ -18,8 +18,8 @@ type CapabilityFamilyMetric struct {
 var mcpCapabilityFamilies = map[string]string{
 	"jira_fields": "jira.fields", "jira_issue_search": "jira.issue.search",
 	"jira_issue_field_get": "jira.issue.field", "jira_issue_refs": "jira.issue.refs",
-	"jira_issue_history": "jira.issue.history",
-	"jira_epic_digest":   "jira.epic.digest", "jira_board_view": "jira.board.view",
+	"jira_issue_history": "jira.issue.history", "jira_issue_graph": "jira.issue.graph",
+	"jira_epic_digest": "jira.epic.digest", "jira_board_view": "jira.board.view",
 	"jira_structure_get": "jira.structure.get", "jira_structure_view": "jira.structure.view",
 	"jira_mirror_snapshot":    "jira.mirror.snapshot",
 	"confluence_page_resolve": "confluence.page.resolve", "confluence_page_meta": "confluence.page.meta",
@@ -45,7 +45,7 @@ func KnownMCPToolNames() []string {
 
 var allowedCapabilityFamilies = map[string]struct{}{
 	"atl.config": {}, "atl.capabilities": {}, "jira.fields": {}, "jira.issue.fields": {},
-	"jira.issue.field": {}, "jira.issue.field.preview": {}, "jira.issue.field.set": {}, "jira.issue.refs": {}, "jira.issue.worklog.list": {}, "jira.issue.worklog.add": {}, "jira.issue.search": {}, "jira.issue.batch-read": {}, "jira.epic.digest": {},
+	"jira.issue.field": {}, "jira.issue.field.preview": {}, "jira.issue.field.set": {}, "jira.issue.graph": {}, "jira.issue.refs": {}, "jira.issue.worklog.list": {}, "jira.issue.worklog.add": {}, "jira.issue.search": {}, "jira.issue.batch-read": {}, "jira.epic.digest": {},
 	"jira.board.list": {}, "jira.board.get": {}, "jira.board.config": {}, "jira.board.issues": {}, "jira.board.backlog": {}, "jira.board.view": {}, "jira.board.export": {},
 	"jira.pull": {}, "jira.status": {}, "jira.mirror.snapshot": {},
 	"jira.issue.history": {},
@@ -76,6 +76,7 @@ var neutralDataCapability = map[string]string{
 	"jira.fields":                "jira.fields",
 	"jira.issue.fields":          "jira.issue.fields",
 	"jira.issue.field":           "jira.issue.field",
+	"jira.issue.graph":           "jira.issue.graph",
 	"jira.issue.refs":            "jira.issue.refs",
 	"jira.issue.search":          "jira.issue.list",
 	"jira.issue.batch-read":      "jira.issue.list",
@@ -227,6 +228,7 @@ matched:
 		{[]string{"jira", "issue", "worklog", "list"}, "jira.issue.worklog.list"},
 		{[]string{"jira", "issue", "worklog", "add"}, "jira.issue.worklog.add"},
 		{[]string{"jira", "issue", "history"}, "jira.issue.history"},
+		{[]string{"jira", "issue", "graph"}, "jira.issue.graph"},
 		{[]string{"jira", "issue", "attachment", "get"}, "jira.issue.attachment.get"}, {[]string{"jira", "issue", "attachment", "list"}, "jira.issue.attachment.list"},
 		{[]string{"jira", "issue", "comment", "list"}, "jira.issue.comment.list"}, {[]string{"jira", "issue", "link", "list"}, "jira.issue.link.list"},
 		{[]string{"jira", "issue", "watchers", "list"}, "jira.issue.watchers.list"},
