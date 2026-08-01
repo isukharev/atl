@@ -149,6 +149,20 @@ version route Confluence он может добавить один bodyless reac
 всё равно выводит полный отчёт и завершает работу с кодом `8`. Продолжение —
 [пятиминутное руководство](docs/getting-started.md).
 
+Экспериментальные compatibility providers для Data Center включаются отдельно
+и никогда не выбираются по диапазону версий:
+
+```sh
+atl compatibility status
+atl compatibility pin confluence \
+  --version "$ATL_CONFLUENCE_VERSION" \
+  --build-number "$ATL_CONFLUENCE_BUILD_NUMBER"
+atl compatibility status --remote
+```
+
+Owner-only pin хранится отдельно от обычного `config.json` и не позволяет
+задавать произвольные endpoints, headers, payloads или fallback REST route.
+
 ## Три основных workflow
 
 ### 1. Узкое чтение

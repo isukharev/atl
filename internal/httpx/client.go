@@ -338,6 +338,18 @@ func (c *Client) Do(ctx context.Context, method, path string, body []byte, heade
 	return c.do(ctx, method, path, body, headers, jsonBodyCap)
 }
 
+// DoWithBodyLimit is the bounded raw-body variant for narrowly reviewed
+// endpoints whose successful response is not JSON (for example a legacy
+// product identity page). It retains the normal auth, origin, retry, redirect,
+// trace-redaction, status, and aggregate read-budget policies. Callers must use
+// a positive limit no larger than the ordinary JSON cap.
+func (c *Client) DoWithBodyLimit(ctx context.Context, method, path string, body []byte, headers map[string]string, maxBytes int64) ([]byte, error) {
+	if maxBytes <= 0 || maxBytes > jsonBodyCap {
+		return nil, fmt.Errorf("invalid response body limit")
+	}
+	return c.do(ctx, method, path, body, headers, maxBytes)
+}
+
 // ResolveGET follows the client's normal redirect policy for one GET and
 // returns the final response URL without reading the success body. It is for
 // same-origin short-link resolution; callers must still validate the returned

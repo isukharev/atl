@@ -25,6 +25,7 @@ func TestServerMetadataProjectsOnlyStaticProductAndVersion(t *testing.T) {
 			"product":"untrusted-product",
 			"deploymentType":"untrusted-deployment",
 			"version":"9.5.2",
+			"buildNumber":"12345",
 			"baseUrl":"https://private.example.invalid/wiki",
 			"serverTitle":"Private Confluence",
 			"buildDate":"2026-07-01"
@@ -40,7 +41,7 @@ func TestServerMetadataProjectsOnlyStaticProductAndVersion(t *testing.T) {
 	if len(requests) != 1 {
 		t.Fatalf("requests = %v, want one modern metadata GET", requests)
 	}
-	want := (domain.ServerMetadata{Product: domain.ServerProductConfluence, Version: "9.5.2"})
+	want := (domain.ServerMetadata{Product: domain.ServerProductConfluence, Version: "9.5.2", BuildNumber: "12345"})
 	if got != want {
 		t.Fatalf("metadata = %#v, want %#v", got, want)
 	}
@@ -52,6 +53,153 @@ func TestServerMetadataProjectsOnlyStaticProductAndVersion(t *testing.T) {
 		if strings.Contains(string(projected), sensitive) {
 			t.Fatalf("sensitive response field %q crossed adapter boundary: %s", sensitive, projected)
 		}
+	}
+}
+
+func TestExactServerMetadataFallsBackToBoundedLegacyHTML(t *testing.T) {
+	requests := []string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.Method+" "+r.URL.RequestURI())
+		switch len(requests) {
+		case 1:
+			http.NotFound(w, r)
+		case 2:
+			if r.Method != http.MethodGet || r.URL.RequestURI() != "/" {
+				t.Errorf("legacy request = %s %s, want GET /", r.Method, r.URL.RequestURI())
+			}
+			if got := r.Header.Get("Accept"); got != "text/html" {
+				t.Errorf("Accept = %q, want text/html", got)
+			}
+			_, _ = w.Write([]byte(`<!doctype html><html><head>
+				<meta content='9.5.2' data-private='private-title' name='ajs-version-number'>
+				<meta name="ajs-build-number" content="12345">
+			</head><body>private-page-content-canary</body></html>`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.RequestURI())
+		}
+	}))
+	defer srv.Close()
+
+	got, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ExactServerMetadata(domain.WithSingleAttempt(context.Background()))
+	if err != nil {
+		t.Fatalf("ExactServerMetadata: %v", err)
+	}
+	want := domain.ServerMetadata{Product: domain.ServerProductConfluence, Version: "9.5.2", BuildNumber: "12345"}
+	if got != want {
+		t.Fatalf("metadata = %#v, want %#v", got, want)
+	}
+	projected, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, private := range []string{"private-title", "private-page-content-canary"} {
+		if strings.Contains(string(projected), private) {
+			t.Fatalf("private HTML %q crossed adapter boundary", private)
+		}
+	}
+}
+
+func TestServerMetadataProjectsNumericBuildNumber(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"version":"9.5.2","buildNumber":12345}`))
+	}))
+	defer srv.Close()
+	got, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ExactServerMetadata(domain.WithSingleAttempt(context.Background()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.BuildNumber != "12345" {
+		t.Fatalf("build=%q", got.BuildNumber)
+	}
+}
+
+func TestOrdinaryServerMetadataIgnoresMalformedBuildButExactPathRejectsIt(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"version":"9.5.2","buildNumber":"malformed"}`))
+	}))
+	defer srv.Close()
+	adapter := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
+	metadata, err := adapter.ServerMetadata(domain.WithSingleAttempt(context.Background()))
+	if err != nil || metadata.BuildNumber != "" {
+		t.Fatalf("ordinary metadata=%+v error=%v", metadata, err)
+	}
+	if _, err := adapter.ExactServerMetadata(domain.WithSingleAttempt(context.Background())); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("exact error=%v, want ErrCheckFailed", err)
+	}
+}
+
+func TestExactServerMetadataLegacyHTMLFailsClosed(t *testing.T) {
+	for name, body := range map[string]string{
+		"missing build":       `<head><meta name="ajs-version-number" content="9.5.2"></head>`,
+		"missing head start":  `<html><meta name="ajs-version-number" content="9.5.2"><meta name="ajs-build-number" content="12345"></head></html>`,
+		"missing head end":    `<head><meta name="ajs-version-number" content="9.5.2"><meta name="ajs-build-number" content="12345">`,
+		"duplicate head":      `<head><head><meta name="ajs-version-number" content="9.5.2"><meta name="ajs-build-number" content="12345"></head>`,
+		"duplicate version":   `<head><meta name="ajs-version-number" content="9.5.2"><meta name="ajs-version-number" content="9.5.1"><meta name="ajs-build-number" content="12345"></head>`,
+		"duplicate attribute": `<head><meta name="ajs-version-number" name="ajs-build-number" content="9.5.2"><meta name="ajs-build-number" content="12345"></head>`,
+		"oversized tag":       `<head><meta name="ajs-version-number" ` + strings.Repeat("x", 1100) + ` content="9.5.2"><meta name="ajs-build-number" content="12345"></head>`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/rest/api/server-information" {
+					http.NotFound(w, r)
+					return
+				}
+				_, _ = w.Write([]byte(body))
+			}))
+			defer srv.Close()
+			_, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ExactServerMetadata(domain.WithSingleAttempt(context.Background()))
+			if !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("error = %v, want ErrCheckFailed", err)
+			}
+		})
+	}
+}
+
+func TestExactServerMetadataPreservesConfiguredContextPath(t *testing.T) {
+	requests := []string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.Method+" "+r.URL.RequestURI())
+		switch r.URL.Path {
+		case "/wiki/rest/api/server-information":
+			http.NotFound(w, r)
+		case "/wiki/":
+			_, _ = w.Write([]byte(`<html><head><meta name="ajs-version-number" content="9.5.2"><meta name="ajs-build-number" content="12345"></head></html>`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.RequestURI())
+		}
+	}))
+	defer srv.Close()
+
+	base := srv.URL + "/wiki"
+	got, err := (&Confluence{c: newTestClient(base), base: base}).ExactServerMetadata(domain.WithSingleAttempt(context.Background()))
+	if err != nil || got.Version != "9.5.2" || got.BuildNumber != "12345" {
+		t.Fatalf("metadata=%+v error=%v", got, err)
+	}
+	if strings.Join(requests, ",") != "GET /wiki/rest/api/server-information,GET /wiki/" {
+		t.Fatalf("requests=%v", requests)
+	}
+}
+
+func TestLegacyConfluenceIdentityIgnoresBodyMetadataSpoof(t *testing.T) {
+	body := []byte(`<html><head><meta name="ajs-version-number" content="9.5.2"><meta name="ajs-build-number" content="12345"></head><body><meta name="ajs-version-number" content="99.99.99"><meta name="ajs-build-number" content="99999"></body></html>`)
+	version, build := legacyConfluenceIdentity(body)
+	if version != "9.5.2" || build != "12345" {
+		t.Fatalf("identity=(%q,%q)", version, build)
+	}
+}
+
+func TestExactServerMetadataLegacyHTMLIsBounded(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/rest/api/server-information" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(make([]byte, legacyIdentityBodyCap+1))
+	}))
+	defer srv.Close()
+	_, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ExactServerMetadata(domain.WithSingleAttempt(context.Background()))
+	if err == nil || errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("error = %v, want bounded transport error", err)
 	}
 }
 

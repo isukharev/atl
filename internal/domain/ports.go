@@ -18,6 +18,7 @@ type ServerMetadata struct {
 	Product        string
 	DeploymentType string
 	Version        string
+	BuildNumber    string
 }
 
 // ServerMetadataReader is the optional backend capability for a bounded
@@ -27,6 +28,15 @@ type ServerMetadata struct {
 // retries or follows a redirect.
 type ServerMetadataReader interface {
 	ServerMetadata(ctx context.Context) (ServerMetadata, error)
+}
+
+// ExactServerMetadataReader is the opt-in identity probe used by compatibility
+// providers. Unlike ordinary product diagnostics, an implementation must
+// either return both an exact release and build identity or fail. Legacy
+// products may use one bounded same-origin HTML metadata read when their
+// documented JSON endpoint is absent; no response content may cross this port.
+type ExactServerMetadataReader interface {
+	ExactServerMetadata(ctx context.Context) (ServerMetadata, error)
 }
 
 // PullOpts narrows what a DocStore.Pull returns.

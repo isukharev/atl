@@ -24,6 +24,7 @@ var textOutputCommandPaths = stringSetFromLines(`
 auth login
 auth status
 capabilities
+compatibility status
 completion bash
 completion fish
 completion powershell
