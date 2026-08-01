@@ -1,0 +1,123 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "root_id": {"type": "string", "minLength": 1},
+    "complete": {"type": "boolean"},
+    "truncated": {"type": "boolean"},
+    "topology": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "node_count": {"type": "integer"},
+        "edge_count": {"type": "integer"},
+        "evidence_count": {"type": "integer"},
+        "source_count": {"type": "integer"},
+        "incomplete_source_count": {"type": "integer"},
+        "node_kind_counts": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {"name": {"type": "string"}, "count": {"type": "integer"}},
+            "required": ["name", "count"]
+          }
+        },
+        "edge_kind_counts": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {"name": {"type": "string"}, "count": {"type": "integer"}},
+            "required": ["name", "count"]
+          }
+        },
+        "source_status_counts": {
+          "type": "array",
+          "maxItems": 6,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {"name": {"type": "string"}, "count": {"type": "integer"}},
+            "required": ["name", "count"]
+          }
+        }
+      },
+      "required": ["node_count", "edge_count", "evidence_count", "source_count", "incomplete_source_count", "node_kind_counts", "edge_kind_counts", "source_status_counts"]
+    },
+    "bounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requested_depth": {"type": "integer"},
+        "max_nodes": {"type": "integer"},
+        "max_edges": {"type": "integer"},
+        "max_evidence": {"type": "integer"},
+        "expanded_node_count": {"type": "integer"},
+        "followed_node_count": {"type": "integer"},
+        "attempted_node_count": {"type": "integer"},
+        "max_requests": {"type": "integer"},
+        "requests_used": {"type": "integer"},
+        "max_response_bytes": {"type": "integer"},
+        "frontier_count": {"type": "integer"}
+      },
+      "required": ["requested_depth", "max_nodes", "max_edges", "max_evidence", "expanded_node_count", "followed_node_count", "attempted_node_count", "max_requests", "requests_used", "max_response_bytes", "frontier_count"]
+    },
+    "reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "node_count_matches_nodes": {"type": "boolean"},
+        "edge_count_matches_edges": {"type": "boolean"},
+        "evidence_count_matches_edges": {"type": "boolean"},
+        "source_count_matches_sources": {"type": "boolean"},
+        "source_status_count_matches_sources": {"type": "boolean"},
+        "incomplete_source_count_matches_sources": {"type": "boolean"},
+        "expanded_count_matches_nodes": {"type": "boolean"},
+        "complete_matches_sources": {"type": "boolean"}
+      },
+      "required": ["node_count_matches_nodes", "edge_count_matches_edges", "evidence_count_matches_edges", "source_count_matches_sources", "source_status_count_matches_sources", "incomplete_source_count_matches_sources", "expanded_count_matches_nodes", "complete_matches_sources"]
+    },
+    "sources": {
+      "type": "array",
+      "maxItems": 72,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "node_id": {"type": "string"},
+          "node_depth": {"type": "integer"},
+          "kind": {"type": "string"},
+          "status": {"type": "string"},
+          "complete": {"type": "boolean"},
+          "count": {"type": "integer"},
+          "truncated": {"type": "boolean"},
+          "partial_reason": {"type": "string"}
+        },
+        "required": ["node_id", "node_depth", "kind", "status", "complete", "count", "truncated", "partial_reason"]
+      }
+    },
+    "frontier": {
+      "type": "array",
+      "maxItems": 9,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "node_id": {"type": "string"},
+          "depth": {"type": "integer"},
+          "reason": {"type": "string"}
+        },
+        "required": ["node_id", "depth", "reason"]
+      }
+    },
+    "labels_present": {"type": "boolean"},
+    "narrative_present": {"type": "boolean"},
+    "development_present": {"type": "boolean"},
+    "content_mutated": {"type": "boolean"},
+    "brief": {"type": "string", "minLength": 1}
+  },
+  "required": ["root_id", "complete", "truncated", "topology", "bounds", "reconciliation", "sources", "frontier", "labels_present", "narrative_present", "development_present", "content_mutated", "brief"]
+}

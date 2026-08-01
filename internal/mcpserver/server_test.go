@@ -91,8 +91,8 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 		"confluence_attachment_list", "confluence_mirror_snapshot",
 		"confluence_page_meta", "confluence_page_outline", "confluence_page_resolve", "confluence_page_section", "confluence_page_sections", "confluence_search",
 		"confluence_table_extract", "confluence_table_summary",
-		"jira_board_view", "jira_epic_digest", "jira_fields", "jira_issue_field_get", "jira_issue_history",
-		"jira_issue_refs", "jira_issue_search", "jira_mirror_snapshot", "jira_structure_get", "jira_structure_view",
+		"jira_board_view", "jira_epic_digest", "jira_fields", "jira_issue_field_get", "jira_issue_graph",
+		"jira_issue_history", "jira_issue_refs", "jira_issue_search", "jira_mirror_snapshot", "jira_structure_get", "jira_structure_view",
 	}
 	got := make([]string, 0, len(listed.Tools))
 	for _, tool := range listed.Tools {
@@ -5358,6 +5358,10 @@ type recordingJiraReader struct {
 	fieldOpts                           app.JiraFieldCatalogOpts
 	fieldEvidenceKey                    string
 	fieldEvidenceOpts                   app.JiraIssueFieldEvidenceOpts
+	graphKey                            string
+	graphOpts                           app.JiraIssueGraphOptions
+	graphResult                         *app.JiraIssueGraphResult
+	graphErr                            error
 	searchJQL, searchView, searchCursor string
 	searchColumns                       []string
 	searchLimit                         int
@@ -5461,6 +5465,11 @@ func (r *recordingJiraReader) IssueFieldEvidence(_ context.Context, key string, 
 		Field:      app.JiraIssueFieldEvidenceField{ID: "customfield_1", Name: "Delivery Notes", Present: true, ValueType: "string"},
 		Projection: "compact", MaxValueBytes: opts.MaxBytes, OriginalValueBytes: 7, EmittedValueBytes: 7, Complete: true, Value: "value",
 	}, nil
+}
+
+func (r *recordingJiraReader) IssueGraphWithOptions(_ context.Context, key string, opts app.JiraIssueGraphOptions) (*app.JiraIssueGraphResult, error) {
+	r.graphKey, r.graphOpts = key, opts
+	return r.graphResult, r.graphErr
 }
 
 func (r *recordingJiraReader) FieldCatalog(_ context.Context, opts app.JiraFieldCatalogOpts) (*app.JiraFieldCatalogResult, error) {
@@ -5928,6 +5937,13 @@ func (r *cancellingJiraReader) FieldCatalog(ctx context.Context, _ app.JiraField
 
 func (*cancellingJiraReader) IssueFieldEvidence(context.Context, string, app.JiraIssueFieldEvidenceOpts) (*app.JiraIssueFieldEvidenceResult, error) {
 	panic("unexpected call")
+}
+
+func (r *cancellingJiraReader) IssueGraphWithOptions(ctx context.Context, _ string, _ app.JiraIssueGraphOptions) (*app.JiraIssueGraphResult, error) {
+	close(r.started)
+	<-ctx.Done()
+	close(r.canceled)
+	return nil, ctx.Err()
 }
 
 func (r *cancellingJiraReader) HistoryFiltered(ctx context.Context, _ string, _ app.JiraHistoryOpts) (*app.JiraHistoryResult, error) {

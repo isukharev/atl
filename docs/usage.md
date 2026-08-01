@@ -137,7 +137,7 @@ atl mcp serve --service confluence
 atl mcp serve --service offline
 ```
 
-The default process registers twenty explicit Jira/Confluence evidence tools and no
+The default process registers twenty-one explicit Jira/Confluence evidence tools and no
 mutation, shell, arbitrary-file, mirror-write, or raw-REST tool. Two no-argument
 tools inspect only an explicit valid `ATL_MIRROR_ROOT`, offline, and return
 content-free mirror health counts. Stdout is
@@ -147,9 +147,9 @@ JSON. Install through the
 Claude Code/Codex plugin or see [mcp.md](mcp.md) for the exact tools, bounds,
 standalone Codex config, and CLI fallback guidance.
 
-Omitting `--service` preserves the complete twenty-tool inventory and existing
-instructions. The closed Jira and Confluence profiles expose their respective
-ten tools; `offline` exposes only the two no-argument mirror snapshots and
+Omitting `--service` preserves the complete twenty-one-tool inventory and existing
+instructions. The closed Jira/Confluence/offline profiles expose 11/10/2 tools;
+`offline` contains only the two no-argument mirror snapshots and
 constructs no backend reader. Unknown or repeated service selections fail
 before dependency construction. All profiles also publish one fixed
 `application/json` resource, `atl://capabilities`, containing only static
@@ -3343,6 +3343,22 @@ atl jira issue graph PROJ-1 --depth 2 --strict
 atl jira issue graph PROJ-1 --resolve confluence
 atl jira issue graph PROJ-1 -o text
 ```
+
+For a typed transient read, `jira_issue_graph` returns the same schema-v2 graph
+without a shell command. MCP v1 is deliberately Jira-only: it has no
+Confluence resolution input, always leaves discovered page identities as
+qualified stubs, omits the deferred Development source, and has no `strict`
+option. Supply `key`, optional `depth` from 0 through 2, and optional
+`max_nodes`, `max_edges`, `max_requests`, and `max_bytes`. Nodes default to 50
+and cap at 100; edges default to 200 and cap at 500; physical requests default
+to 50 and cap at 100. Evidence is fixed at 500 records and the aggregate
+buffered Jira response budget is fixed at 16777216 bytes; both appear in
+`bounds`, including `max_response_bytes`, but are not v1 inputs. The separate
+`max_bytes` input limits the final encoded MCP result. A valid graph with
+`complete:false` remains structured evidence to inspect, while an
+encoded-result overflow fails the entire tool call rather than returning a
+clipped graph. Absence of Development evidence in this stable projection is
+not evidence that no development work exists.
 
 The command always emits schema v2. With the default `--depth 0` and
 `--resolve none`, it expands only the seed. Jira issues, Confluence page

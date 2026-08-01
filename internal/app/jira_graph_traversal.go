@@ -85,9 +85,12 @@ func (s *JiraService) IssueGraphWithOptions(ctx context.Context, key string, opt
 	if err != nil {
 		return nil, err
 	}
+	// Preserve the established CLI/application compatibility that accepts
+	// surrounding whitespace. Typed transports can call the exported validator
+	// before service construction when they require an exact canonical token.
 	key = strings.TrimSpace(key)
-	if !jiraGraphExactKey(key) {
-		return nil, fmt.Errorf("%w: issue key must use the canonical PROJECT-123 form", domain.ErrUsage)
+	if err := ValidateJiraIssueGraphKey(key); err != nil {
+		return nil, err
 	}
 	reader, ok := s.tr.(domain.QualifiedIssueSnapshotReader)
 	if !ok {
@@ -194,6 +197,17 @@ func (s *JiraService) IssueGraphWithOptions(ctx context.Context, key string, opt
 	b.result.Bounds.RequestsUsed = usage.Attempts
 	b.result.Bounds.ResponseBytesUsed = int(usage.ResponseBytes)
 	return b.finish()
+}
+
+// ValidateJiraIssueGraphKey validates the exact canonical seed identity shared
+// by the CLI and typed transports. Whitespace and lowercase aliases are refused
+// so a caller can reconcile the returned root without transport-specific
+// normalization.
+func ValidateJiraIssueGraphKey(key string) error {
+	if key != strings.TrimSpace(key) || !jiraGraphExactKey(key) {
+		return fmt.Errorf("%w: issue key must use the canonical PROJECT-123 form", domain.ErrUsage)
+	}
+	return nil
 }
 
 func NormalizeJiraIssueGraphOptions(opts JiraIssueGraphOptions) (JiraIssueGraphOptions, error) {
@@ -1016,6 +1030,12 @@ func validateJiraGraphV2Result(result *JiraIssueGraphResult) error {
 		return invalid("summary reconciliation failed")
 	}
 	return nil
+}
+
+// ValidateJiraIssueGraphResult exposes the load-bearing schema-v2 reconciliation
+// check to typed transports. It never rewrites or repairs an invalid result.
+func ValidateJiraIssueGraphResult(result *JiraIssueGraphResult) error {
+	return validateJiraGraphV2Result(result)
 }
 
 func jiraGraphV2FrontierID(id string) bool {

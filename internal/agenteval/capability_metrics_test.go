@@ -51,6 +51,12 @@ func TestCapabilityFamiliesAreGenericAndPrivacySafe(t *testing.T) {
 	if family, ok := CapabilityFamilyForMCP("jira_issue_refs"); !ok || family != "jira.issue.refs" {
 		t.Fatalf("MCP refs family=%q ok=%t", family, ok)
 	}
+	if family, ok := CapabilityFamilyForCLI([]string{"jira", "issue", "graph", private, "--depth", "1"}); !ok || family != "jira.issue.graph" || strings.Contains(family, private) {
+		t.Fatalf("CLI graph family=%q ok=%t", family, ok)
+	}
+	if family, ok := CapabilityFamilyForMCP("jira_issue_graph"); !ok || family != "jira.issue.graph" {
+		t.Fatalf("MCP graph family=%q ok=%t", family, ok)
+	}
 	if family, ok := CapabilityFamilyForCLI([]string{"jira", "issue", "field", "preview", private, "--from-file", "customfield_1=value.txt"}); !ok || family != "jira.issue.field.preview" {
 		t.Fatalf("CLI field preview family=%q ok=%t", family, ok)
 	}
@@ -178,6 +184,33 @@ func TestJiraIssueRefsCapabilityFamilyNormalizes(t *testing.T) {
 	}
 	if len(metrics) != 1 || metrics[0].Family != "jira.issue.refs" {
 		t.Fatalf("metrics=%+v", metrics)
+	}
+}
+
+func TestJiraIssueGraphCapabilityFamilyNormalizes(t *testing.T) {
+	metrics, err := normalizeCapabilityFamilies([]CapabilityFamilyMetric{{
+		Family: "jira.issue.graph", Invocations: 1, Successes: 1, OutputBytes: 42,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(metrics) != 1 || metrics[0].Family != "jira.issue.graph" {
+		t.Fatalf("metrics=%+v", metrics)
+	}
+}
+
+func TestJiraIssueGraphCLIAndMCPShareNeutralDataCapability(t *testing.T) {
+	for _, spec := range []RunSpec{
+		{AllowedATLCommands: []string{"atl jira issue graph DEMO-1"}},
+		{AllowedMCPTools: []string{"jira_issue_graph"}},
+	} {
+		capabilities, err := deriveRunDataCapabilities(spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(capabilities, []string{"jira.issue.graph"}) {
+			t.Fatalf("capabilities=%v", capabilities)
+		}
 	}
 }
 

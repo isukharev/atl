@@ -36,7 +36,12 @@ the byte cap. Freeze only complete candidate pages, then use `jira_issue_field_g
 evidence. When the selected evidence is tabular, use
 `confluence_table_summary` and then `confluence_table_extract` for one exact
 table instead of reading a broader section. Reuse a numeric Confluence result
-id directly. Do not mix MCP and CLI
+id directly. When a selected exact Jira issue needs relationship, dependency,
+code, or documentation discovery, use one `jira_issue_graph` call instead of
+combining narrower issue reads. MCP v1 is Jira-only: page identities remain
+qualified stubs, the deferred Development source is absent rather than zero,
+and reported `bounds.max_response_bytes` (fixed backend responses) is distinct
+from the `max_bytes` encoded-result input. Do not mix MCP and CLI
 reads merely to repeat already complete evidence; fall back to the CLI workflow
 below when MCP is unavailable or the task needs an operation outside its
 read-only surface.
@@ -100,7 +105,12 @@ order and require reconciled counts before using the result.
 
 Discover non-empty field metadata before reading custom values. Request only
 selected fields and qualified references; fetch history only when chronology
-matters.
+matters. If the question instead asks what is connected to the selected exact
+issue, prefer one typed `jira_issue_graph` call. Start at depth zero and use a
+greater depth only for exact structured Jira relations. Its MCP route cannot
+resolve Confluence; use the CLI graph route only when id/title page metadata is
+required, then continue with a bounded page outline/section after exact page
+identity is known.
 
 <!-- atl:read-only-shell -->
 ```sh

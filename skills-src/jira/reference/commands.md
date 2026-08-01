@@ -6,6 +6,13 @@ every read primitive.
 
 Load this reference only when exact command or flag lookup is useful.
 
+The typed `jira_issue_graph` counterpart is Jira-only, caps depth at 2, and
+takes no Confluence-resolution or strictness input. Its reported
+`bounds.max_response_bytes` is a fixed aggregate Jira response bound, while the
+`max_bytes` input separately bounds the encoded MCP result. The projection
+omits the deferred Development source without treating it as zero. Use the CLI
+graph route for optional id/title-only Confluence resolution.
+
 | Command | What it does | Key flags |
 |---|---|---|
 | `jira issue get <KEY>` | Get an issue | `--fields` |

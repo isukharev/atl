@@ -1,0 +1,321 @@
+{
+  "schema_version": 7,
+  "category": "surface-native",
+  "surface": "atl-mcp",
+  "scenario_file": "scenario.v1.json",
+  "provider": "claude-code",
+  "variant": "jira-artifact-graph-mcp-v1",
+  "model": "claude-opus-4-8",
+  "reasoning": "high",
+  "prompt_file": "prompt.mcp.v1.md",
+  "response_schema_file": "response-schema.v1.json",
+  "qualitative_rubric_file": "rubric.v1.json",
+  "workspace_template": "workspace",
+  "fixture_file": "fixture.json",
+  "repetitions": 3,
+  "timeout_seconds": 600,
+  "max_estimated_cost_microusd": 6000000,
+  "pricing": {
+    "input_microusd_per_million_tokens": 5000000,
+    "output_microusd_per_million_tokens": 25000000
+  },
+  "tool_transport": "mcp",
+  "mcp_service_profile": "jira",
+  "allowed_tools": [],
+  "allowed_atl_commands": [],
+  "allowed_mcp_tools": [
+    "jira_issue_graph"
+  ],
+  "checks": [
+    {
+      "name": "bounded_interface",
+      "kind": "interface_invocations_max",
+      "maximum": 1
+    },
+    {
+      "name": "brief_present",
+      "kind": "json_present",
+      "pointer": "/brief"
+    },
+    {
+      "name": "complete_correct",
+      "kind": "json_equals",
+      "pointer": "/complete",
+      "expected": true
+    },
+    {
+      "name": "content_not_mutated",
+      "kind": "json_equals",
+      "pointer": "/content_mutated",
+      "expected": false
+    },
+    {
+      "name": "development_absent",
+      "kind": "json_equals",
+      "pointer": "/development_present",
+      "expected": false
+    },
+    {
+      "name": "frontier_correct",
+      "kind": "json_equals",
+      "pointer": "/frontier",
+      "expected": []
+    },
+    {
+      "name": "guard_clean",
+      "kind": "guard_no_denials"
+    },
+    {
+      "name": "http_exact",
+      "kind": "http_methods_equal",
+      "expected": {
+        "GET": 4
+      }
+    },
+    {
+      "name": "interface_succeeded",
+      "kind": "interface_all_succeeded"
+    },
+    {
+      "name": "labels_absent",
+      "kind": "json_equals",
+      "pointer": "/labels_present",
+      "expected": false
+    },
+    {
+      "name": "mock_clean",
+      "kind": "mock_no_unexpected"
+    },
+    {
+      "name": "narrative_absent",
+      "kind": "json_equals",
+      "pointer": "/narrative_present",
+      "expected": false
+    },
+    {
+      "name": "no_delegation",
+      "kind": "delegations_none"
+    },
+    {
+      "name": "reconciliation_correct",
+      "kind": "json_equals",
+      "pointer": "/reconciliation",
+      "expected": {
+        "node_count_matches_nodes": true,
+        "edge_count_matches_edges": true,
+        "evidence_count_matches_edges": true,
+        "source_count_matches_sources": true,
+        "source_status_count_matches_sources": true,
+        "incomplete_source_count_matches_sources": true,
+        "expanded_count_matches_nodes": true,
+        "complete_matches_sources": true
+      }
+    },
+    {
+      "name": "root_correct",
+      "kind": "json_equals",
+      "pointer": "/root_id",
+      "expected": "jira:issue:AG-41"
+    },
+    {
+      "name": "route_arguments",
+      "kind": "mcp_invocations_equal",
+      "expected": [
+        {
+          "tool": "jira_issue_graph",
+          "arguments": {
+            "key": "AG-41",
+            "depth": 0,
+            "max_nodes": 12,
+            "max_edges": 16,
+            "max_requests": 8,
+            "max_bytes": 65536
+          }
+        }
+      ]
+    },
+    {
+      "name": "route_exact",
+      "kind": "capability_families_equal",
+      "expected": [
+        {
+          "family": "jira.issue.graph",
+          "invocations": 1,
+          "successes": 1,
+          "failures": 0
+        }
+      ]
+    },
+    {
+      "name": "route_ordered",
+      "kind": "capability_sequence_equal",
+      "expected": [
+        "jira.issue.graph"
+      ]
+    },
+    {
+      "name": "sources_correct",
+      "kind": "json_equals",
+      "pointer": "/sources",
+      "expected": [
+        {
+          "node_id": "jira:issue:AG-41",
+          "node_depth": 0,
+          "kind": "issue_fields",
+          "status": "complete",
+          "complete": true,
+          "count": 6,
+          "truncated": false,
+          "partial_reason": ""
+        },
+        {
+          "node_id": "jira:issue:AG-41",
+          "node_depth": 0,
+          "kind": "issue_links",
+          "status": "complete",
+          "complete": true,
+          "count": 1,
+          "truncated": false,
+          "partial_reason": ""
+        },
+        {
+          "node_id": "jira:issue:AG-41",
+          "node_depth": 0,
+          "kind": "hierarchy",
+          "status": "empty",
+          "complete": true,
+          "count": 0,
+          "truncated": false,
+          "partial_reason": ""
+        },
+        {
+          "node_id": "jira:issue:AG-41",
+          "node_depth": 0,
+          "kind": "attachments",
+          "status": "empty",
+          "complete": true,
+          "count": 0,
+          "truncated": false,
+          "partial_reason": ""
+        },
+        {
+          "node_id": "jira:issue:AG-41",
+          "node_depth": 0,
+          "kind": "issue_properties",
+          "status": "complete",
+          "complete": true,
+          "count": 1,
+          "truncated": false,
+          "partial_reason": ""
+        },
+        {
+          "node_id": "jira:issue:AG-41",
+          "node_depth": 0,
+          "kind": "comments",
+          "status": "complete",
+          "complete": true,
+          "count": 1,
+          "truncated": false,
+          "partial_reason": ""
+        },
+        {
+          "node_id": "jira:issue:AG-41",
+          "node_depth": 0,
+          "kind": "worklogs",
+          "status": "empty",
+          "complete": true,
+          "count": 0,
+          "truncated": false,
+          "partial_reason": ""
+        },
+        {
+          "node_id": "jira:issue:AG-41",
+          "node_depth": 0,
+          "kind": "remote_links",
+          "status": "complete",
+          "complete": true,
+          "count": 1,
+          "truncated": false,
+          "partial_reason": ""
+        }
+      ]
+    },
+    {
+      "name": "topology_correct",
+      "kind": "json_equals",
+      "pointer": "/topology",
+      "expected": {
+        "node_count": 6,
+        "edge_count": 5,
+        "evidence_count": 5,
+        "source_count": 8,
+        "incomplete_source_count": 0,
+        "node_kind_counts": [
+          {
+            "name": "confluence_page",
+            "count": 1
+          },
+          {
+            "name": "jira_issue",
+            "count": 2
+          },
+          {
+            "name": "url",
+            "count": 3
+          }
+        ],
+        "edge_kind_counts": [
+          {
+            "name": "jira_link",
+            "count": 1
+          },
+          {
+            "name": "mentions",
+            "count": 3
+          },
+          {
+            "name": "remote_link",
+            "count": 1
+          }
+        ],
+        "source_status_counts": [
+          {
+            "name": "complete",
+            "count": 5
+          },
+          {
+            "name": "empty",
+            "count": 3
+          },
+          {
+            "name": "forbidden",
+            "count": 0
+          },
+          {
+            "name": "partial",
+            "count": 0
+          },
+          {
+            "name": "skipped",
+            "count": 0
+          },
+          {
+            "name": "unsupported",
+            "count": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "truncated_correct",
+      "kind": "json_equals",
+      "pointer": "/truncated",
+      "expected": false
+    },
+    {
+      "name": "used_interface",
+      "kind": "interface_invocations_min",
+      "minimum": 1
+    }
+  ]
+}

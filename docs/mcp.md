@@ -12,7 +12,7 @@ forest/values, exports, offline diff/plan workflows, and all guarded writes.
 
 ## Closed service profiles and capability resource
 
-The default command keeps the complete twenty-tool catalog and its existing
+The default command keeps the complete twenty-one-tool catalog and its existing
 instructions:
 
 ```bash
@@ -28,7 +28,8 @@ atl mcp serve --service confluence
 atl mcp serve --service offline
 ```
 
-Jira and Confluence each expose their ten named tools. `offline` exposes only
+The closed profiles expose 11/10/2 tools for Jira/Confluence/offline
+respectively. `offline` exposes only
 `jira_mirror_snapshot` and `confluence_mirror_snapshot` and constructs neither
 backend. The flag is not an arbitrary allowlist: unknown or repeated values
 fail before dependency construction. Scoped instructions retain the common
@@ -53,6 +54,7 @@ The v1 surface is an explicit allowlist:
 | `jira_issue_search` | Read one compact IssueList page | default 50/maximum 1000 rows; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_issue_field_get` | Expand one exact compact field with issue/update provenance | default 16 KiB, maximum 128 KiB encoded value |
 | `jira_issue_history` | Summarize one issue's changelog without raw history rows | summary projection only; default 256 KiB/maximum 1 MiB encoded result |
+| `jira_issue_graph` | Build one stable-source schema-v2 work-artifact graph from an exact issue | Jira-only depth 0..2; fixed 16 MiB backend-response bound; default 256 KiB/maximum 1 MiB encoded result; no Confluence resolution or Development source |
 | `jira_issue_refs` | Summarize qualified issue references without raw URLs or narrative | one key or JQL limited to 25 issues; at most 8 technical field ids; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_epic_digest` | Aggregate selected qualified epic evidence | `projection:compact`; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_board_view` | Freeze one board/backlog membership snapshot | default 200/maximum 1000 rows per scope; default 256 KiB/maximum 1 MiB encoded result |
@@ -110,6 +112,28 @@ add both metadata requests. There is no raw-history selector and no projection
 mode: when individual changes are themselves the required evidence, use
 `atl jira issue history` in the CLI.
 
+`jira_issue_graph` builds the same provenance-qualified schema-v2 graph as the
+CLI's direct Jira route. It requires one canonical `key`; optional `depth`
+from 0 through 2 follows only exact structured Jira relations. MCP v1 is
+Jira-only and intentionally has no `resolve` or `resolve_confluence` input:
+discovered Confluence page identities remain qualified stubs, and resolving
+their id/title metadata requires the CLI. There is also no `strict` input;
+inspect top-level `complete`, every requested source, the reconciliation
+summary, transport usage, and the bounded `frontier` directly.
+
+`max_nodes` defaults to 50 and caps at 100, `max_edges` defaults to 200 and caps
+at 500, and `max_requests` defaults to 50 and caps at 100. Evidence is fixed at
+500 records. The reported `bounds.max_response_bytes` is the fixed 16 MiB
+aggregate buffered Jira backend-response budget, not an input and not the
+output size. The separate `max_bytes` input is the final encoded MCP-result
+bound (default 256 KiB, minimum 1 KiB, maximum 1 MiB). A graph may succeed with
+`complete:false` and static source/frontier reasons when traversal cannot be
+completed inside its bounds. If the otherwise valid encoded graph exceeds
+`max_bytes`, the whole call fails with output-limit recovery and returns no
+clipped graph. The stable projection omits the deferred Development source;
+its absence is not evidence of zero development activity. Do not reinterpret
+either condition as proved absence.
+
 `jira_issue_refs` answers reference-inventory questions without shipping the
 references. Supply exactly one `key`, or `jql` with a required `limit` from 1
 through 25, plus at most eight exact technical field ids. The schema-v1 result
@@ -123,7 +147,7 @@ recounting sources. JQL mode performs one paginated comment listing per emitted
 issue, so backend traffic scales linearly with the selected limit. Use `atl
 jira issue refs` when individual URLs are the required evidence.
 
-`jira_fields`, `jira_issue_search`, `jira_issue_history`, `jira_issue_refs`,
+`jira_fields`, `jira_issue_search`, `jira_issue_history`, `jira_issue_graph`, `jira_issue_refs`,
 `jira_epic_digest`, and `jira_board_view` also enforce the final encoded result through `max_bytes`
 (default 256 KiB, minimum 1 KiB, maximum 1 MiB). They fail explicitly instead of
 clipping field definitions, rows, summary facts, digest evidence, or board
