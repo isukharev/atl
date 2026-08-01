@@ -58,6 +58,12 @@ identities as qualified stubs, omits the deferred Development source without
 implying zero activity, and keeps the fixed backend-response bound separate
 from the configurable encoded-result bound.
 
+For Confluence discussions, `atl conf comment list --id 123456` returns a
+schema-v2 qualified inventory across footer, inline, and resolved comments,
+with proven thread relationships, independent completeness dimensions, and
+exact native-CSF anchor matching. `conf comment thread` selects one exact root
+subtree; missing ancestry or markers remain explicit partial evidence.
+
 ## Install
 
 Linux and macOS release binaries are static and available for amd64 and arm64.

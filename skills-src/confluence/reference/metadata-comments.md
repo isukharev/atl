@@ -98,26 +98,38 @@ file, not argv or a public workspace file:
 ```bash
 atl conf validate <private-comment.csf>
 atl conf comment list --id <page-id>
+atl conf comment list --id <page-id> --location inline --state open --depth all
+atl conf comment thread --id <page-id> --comment-id <comment-id>
 atl conf comment add --id <page-id> --from-file <private-comment.csf>
 ```
 
-For review, `-o text` prints each stable comment id, author/time, and plain
-body; JSON remains the machine contract.
+The default list is schema v2 and reads footer, inline, and resolved comments
+through separate bounded page-scoped queries. Inspect `comments_complete`,
+`threads_complete`, `anchors_complete`, `partial_reasons`, and each comment's
+independent `relation`, `location`, `resolution`, and `anchor.status`. An empty
+array proves absence only when `complete:true`. Use `--expected-version` with a
+previously observed page version when evidence must remain revision-bound.
+`thread` returns one exact proven root subtree; partial absence is not reported
+as not-found. `-o text` prints the qualification header and an indented tree;
+JSON remains the machine contract and retains native `body_storage`.
 
-Before POST, inspect current comments for the intended content so retries do
+`--legacy-flat` is only a temporary compatibility route for the old list
+shape. Do not use it for new automation or combine it with v2 filters.
+
+Before POST, inspect a complete qualified inventory for the intended content so retries do
 not duplicate an earlier attempt. Also inspect stderr: if listing warns that it
 hit the fetch cap, absence is unproven. Do not POST; use a complete live
 inspection/narrower approved method or ask the user. Add comments last, after
 body and metadata writes, so their text can refer to final state.
 
 If POST fails ambiguously (transport error, timeout, throttling, or server
-error), do not immediately retry. List comments again and reconcile by exact
+error), do not immediately retry. List qualified comments again and reconcile by exact
 normalized content plus author and creation window. If that listing is
 truncated, reconciliation remains `unknown`. If a match exists in a complete
 listing, report success/already present. If state remains uncertain, report
 `unknown` and ask the user to inspect; never automate a replay.
 
-Mirrored `comments.json/.md` are readonly context. The JSON keeps a plain `body`
+Mirrored `comments.json/.md` remain legacy readonly context in this stage. The JSON keeps a plain `body`
 fallback and optional native `body_storage`; Markdown renders native paragraphs,
 lists, links, emphasis, and headings beneath each comment. Editing either file
 never changes the server and must not be used as a write path. A fresh pull with

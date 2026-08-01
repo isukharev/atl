@@ -1103,7 +1103,56 @@ only after every selected page and the final mirror sidecar are durable.
 recognized during preflight. No missing page or retired checkpoint proves a
 remote deletion.
 
-With `--comments`, two sidecar files are written next to the page:
+`atl conf comment list` now emits a schema-v2 qualified inventory:
+
+```json
+{
+  "schema_version": 2,
+  "page_id": "123",
+  "page_version": 7,
+  "page_version_gated": false,
+  "query": {"mode":"list","location":"all","state":"all","depth":"all"},
+  "complete": true,
+  "comments_complete": true,
+  "threads_complete": true,
+  "anchors_complete": true,
+  "count": 0,
+  "root_count": 0,
+  "partial_reasons": [],
+  "capabilities": {
+    "footer": "documented",
+    "inline": "documented",
+    "resolved": "documented",
+    "depth_all": "documented",
+    "thread_ancestry": "documented",
+    "inline_properties": "documented",
+    "resolution": "documented"
+  },
+  "comments": [],
+  "diagnostics": []
+}
+```
+
+All arrays are non-null. Comment records carry nullable `parent_id`/`root_id`,
+closed `relation` (`root|reply|unknown`), semantic `location`
+(`footer|inline|unknown`), independent `resolution`
+(`open|resolved|unknown`), exact native `body_storage`, plain `body`, author,
+version/timestamps, and a nullable anchor. Anchor status is
+`matched|missing|ambiguous|unavailable`; original and observed selections are
+kept separately. A backend `resolved` location is represented as
+`location:inline` plus `resolution:resolved`.
+
+`complete` is the conjunction of the dimensions relevant to the selected
+query. Closed `partial_reasons` and content-free diagnostics cover pagination,
+duplicate/ancestry/metadata gaps, unavailable page/comment bodies and inline
+expansions, and missing or ambiguous anchors. A successful partial result stays
+on stdout. `comment thread` uses the same envelope with `query.mode:"thread"`
+and exact `comment_id`; proven absence is exit 4, while unprovable absence is
+exit 8. Explicit `--legacy-flat` retains the prior list shape temporarily and
+cannot be combined with schema-v2 filters or a page-version gate.
+
+This command contract is separate from the mirror sidecar. With `--comments`,
+two legacy sidecar files are still written next to the page:
 `<slug>.comments.json` (a `[{id, author, created, body, body_storage?}]` array, pretty-printed
 with a trailing newline) and `<slug>.comments.md` (a derived read view). The
 page's `.meta.json` gains `comments_pulled: true` (the explicit "comments were

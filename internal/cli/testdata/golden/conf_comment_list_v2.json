@@ -1,0 +1,50 @@
+{
+  "schema_version": 2,
+  "page_id": "12345",
+  "page_version": 7,
+  "page_version_gated": false,
+  "query": {
+    "mode": "list",
+    "location": "all",
+    "state": "all",
+    "depth": "all"
+  },
+  "complete": true,
+  "comments_complete": true,
+  "threads_complete": true,
+  "anchors_complete": true,
+  "count": 1,
+  "root_count": 1,
+  "partial_reasons": [],
+  "capabilities": {
+    "footer": "observed",
+    "inline": "documented",
+    "resolved": "documented",
+    "depth_all": "documented",
+    "thread_ancestry": "documented",
+    "inline_properties": "documented",
+    "resolution": "documented"
+  },
+  "comments": [
+    {
+      "id": "101",
+      "page_id": "12345",
+      "parent_id": null,
+      "root_id": "101",
+      "relation": "root",
+      "location": "footer",
+      "resolution": "unknown",
+      "version": 2,
+      "author": {
+        "id": "user-1",
+        "display_name": "Example User"
+      },
+      "created_at": "2026-08-01T01:02:03.000Z",
+      "updated_at": "2026-08-01T01:03:04.000Z",
+      "body": "Footer note",
+      "body_storage": "<p>Footer note</p>",
+      "anchor": null
+    }
+  ],
+  "diagnostics": []
+}

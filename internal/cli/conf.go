@@ -1250,30 +1250,90 @@ func csfHasErr(ps []csf.Problem) bool { return csf.HasErrors(ps) }
 
 func confCommentCmd() *cobra.Command {
 	c := &cobra.Command{Use: "comment", Short: "Page comments"}
-	var id string
+	var id, location, state, depth string
+	var expectedVersion int
+	var legacyFlat bool
 	list := &cobra.Command{
 		Use:   "list",
-		Short: "List comments",
+		Short: "List qualified footer and inline comment threads",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if id == "" {
 				return usageErr("--id is required")
+			}
+			if legacyFlat {
+				for _, flag := range []string{"location", "state", "depth", "expected-version"} {
+					if cmd.Flags().Changed(flag) {
+						return usageErr("--legacy-flat cannot be combined with v2 filters or --expected-version")
+					}
+				}
+			} else if err := app.ValidateConfluenceCommentInventoryOpts(app.ConfluenceCommentInventoryOpts{
+				Location: location, State: state, Depth: depth, ExpectedPageVersion: expectedVersion,
+			}); err != nil {
+				return err
 			}
 			svc, err := confService()
 			if err != nil {
 				return err
 			}
-			cs, truncated, err := svc.Comments(cmd.Context(), id)
+			if legacyFlat {
+				cs, truncated, err := svc.Comments(cmd.Context(), id)
+				if err != nil {
+					return err
+				}
+				if truncated {
+					fmt.Fprint(cmd.ErrOrStderr(),
+						"warning: comment listing hit the fetch cap — some comments were not returned\n")
+				}
+				return emit(cmd, map[string]any{"comments": cs}, func() string { return commentsText(cs) })
+			}
+			result, err := svc.CommentInventory(cmd.Context(), id, app.ConfluenceCommentInventoryOpts{
+				Location: location, State: state, Depth: depth, ExpectedPageVersion: expectedVersion,
+			})
 			if err != nil {
 				return err
 			}
-			if truncated {
-				fmt.Fprint(cmd.ErrOrStderr(),
-					"warning: comment listing hit the fetch cap — some comments were not returned\n")
-			}
-			return emit(cmd, map[string]any{"comments": cs}, func() string { return commentsText(cs) })
+			return emit(cmd, result, func() string { return confluenceCommentInventoryText(result) })
 		},
 	}
 	list.Flags().StringVar(&id, "id", "", "page id or supported same-origin URL")
+	list.Flags().StringVar(&location, "location", "all", "comment location: all|footer|inline|resolved")
+	list.Flags().StringVar(&state, "state", "all", "resolution state: all|open|resolved|unknown")
+	list.Flags().StringVar(&depth, "depth", "all", "thread depth: root|all")
+	list.Flags().IntVar(&expectedVersion, "expected-version", 0, "require this exact page version (0 disables the gate)")
+	list.Flags().BoolVar(&legacyFlat, "legacy-flat", false, "emit the temporary legacy flat comment shape")
+
+	var threadID, commentID string
+	var threadExpectedVersion int
+	thread := &cobra.Command{
+		Use:   "thread",
+		Short: "Read one exact qualified comment thread",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if threadID == "" {
+				return usageErr("--id is required")
+			}
+			if commentID == "" {
+				return usageErr("--comment-id is required")
+			}
+			if err := app.ValidateConfluenceCommentID(commentID); err != nil {
+				return err
+			}
+			if threadExpectedVersion < 0 {
+				return usageErr("--expected-version must be positive (0 disables the gate)")
+			}
+			svc, err := confService()
+			if err != nil {
+				return err
+			}
+			result, err := svc.CommentThread(cmd.Context(), threadID, commentID, threadExpectedVersion)
+			if err != nil {
+				return err
+			}
+			return emit(cmd, result, func() string { return confluenceCommentInventoryText(result) })
+		},
+	}
+	thread.Flags().StringVar(&threadID, "id", "", "page id or supported same-origin URL")
+	thread.Flags().StringVar(&commentID, "comment-id", "", "exact numeric comment id")
+	thread.Flags().IntVar(&threadExpectedVersion, "expected-version", 0, "require this exact page version (0 disables the gate)")
 
 	var addID, fromFile string
 	add := &cobra.Command{
@@ -1301,7 +1361,7 @@ func confCommentCmd() *cobra.Command {
 	add.Flags().StringVar(&addID, "id", "", "page id")
 	add.Flags().StringVar(&fromFile, "from-file", "-", "comment body file or - for stdin")
 
-	c.AddCommand(list, add)
+	c.AddCommand(list, thread, add)
 	return c
 }
 
