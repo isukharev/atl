@@ -71,5 +71,7 @@ anything and never replay the reviewed command.
 Pull/render/apply/push and mirror-local edit share a persistent mutation lock;
 wait rather than deleting or bypassing it. Local writes/checkpoints stay
 serial. Finish the body cycle before title/move operations, re-pull after a
-successful relocation, and add comments last after duplicate/reconciliation
-checks. Never infer clean state from a partial scan or missing sidecar/body.
+successful relocation, and add comments last through read-only `conf comment
+preview` followed, only after explicit approval, by one hash-gated `comment add
+--apply`. Treat `outcome_unknown` as possibly committed and never replay it.
+Never infer clean state from a partial scan or missing sidecar/body.

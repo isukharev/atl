@@ -113,6 +113,24 @@ func TestGetMetaOmittedRestrictionsRemainUnknown(t *testing.T) {
 	}
 }
 
+func TestGetMetaPreservesExactTargetIdentityAndVersion(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rest/api/content/104" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"id":"104","type":"page","title":"Target","space":{"key":"DOC"},"version":{"number":9,"when":"2026-08-01T10:00:00Z"}}`))
+	}))
+	defer srv.Close()
+
+	meta, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).GetMeta(context.Background(), "104")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.ID != "104" || meta.Type != "page" || meta.Version != 9 || meta.Updated != "2026-08-01T10:00:00Z" {
+		t.Fatalf("metadata = %+v", meta)
+	}
+}
+
 func TestPartialRestrictionsRemainUnknown(t *testing.T) {
 	tests := []struct {
 		name         string

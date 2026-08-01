@@ -77,6 +77,7 @@ type PageSearchPage struct {
 // PageMeta is the non-body metadata of a Confluence page.
 type PageMeta struct {
 	ID           string   `json:"id"`
+	Type         string   `json:"-"` // backend content type for exact non-body target validation
 	Title        string   `json:"title"`
 	Space        string   `json:"space"`
 	Version      int      `json:"version"`

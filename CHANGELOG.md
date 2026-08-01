@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   diagnostics, optional page-version gates, and a temporary explicit legacy
   projection.
 
+- Added reviewed Confluence footer-comment creation. `conf comment preview` is
+  read-only; mutating-classified `conf comment add` is dry-run by default and
+  requires `--apply` plus its exact proposal hash for one non-retried POST. The
+  schema-v1 proposal binds backend/page/version, stable actor, byte-exact valid
+  native CSF up to 1 MiB, public-REST capability, and a complete root-only
+  footer baseline. Apply revalidates immediately and reports
+  `applied|recovered|outcome_unknown` from complete readback without replay.
+  Replies, inline creation, and resolution mutation remain unsupported. This
+  replaces the former immediate-write behavior of `conf comment add`.
+
 - Versioned mirrored Confluence comment inventories as strict schema-v2
   sidecars with legacy-array reads, qualified metadata summaries, deterministic
   migration on comment pull, and unchanged page hash/dirty semantics.

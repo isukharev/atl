@@ -942,7 +942,7 @@ func TestAddComment(t *testing.T) {
 		b, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(b, &payload)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"comment-77"}`))
+		_, _ = w.Write([]byte(`{"id":"comment-77","history":{"createdDate":"2026-08-01T10:00:00Z","createdBy":{"userKey":"stable-user","username":"legacy-user","displayName":"Reviewer"}},"body":{"storage":{"value":"<p>hi</p>","representation":"storage"}}}`))
 	}))
 	defer srv.Close()
 
@@ -960,8 +960,38 @@ func TestAddComment(t *testing.T) {
 	if payload.Body.Storage.Value != "<p>hi</p>" || payload.Body.Storage.Representation != "storage" {
 		t.Errorf("payload body wrong: %+v", payload.Body.Storage)
 	}
-	if c.ID != "comment-77" || c.Body != "<p>hi</p>" {
+	if c.ID != "comment-77" || c.AuthorKey != "stable-user" || c.Author != "Reviewer" ||
+		c.Created != "2026-08-01T10:00:00Z" || c.Body != "hi" || c.BodyStorage != "<p>hi</p>" {
 		t.Errorf("returned comment = %+v", c)
+	}
+}
+
+func TestAddCommentRejectsMissingResponseID(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"history":{"createdBy":{"userKey":"stable-user","displayName":"Reviewer"}}}`))
+	}))
+	defer srv.Close()
+
+	_, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).AddComment(context.Background(), "55", []byte("<p>hi</p>"))
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("error = %v, want ErrCheckFailed", err)
+	}
+}
+
+func TestAddCommentPOSTIsNotRetried(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	_, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).AddComment(context.Background(), "55", []byte("<p>hi</p>"))
+	if err == nil {
+		t.Fatal("transient POST unexpectedly succeeded")
+	}
+	if requests != 1 {
+		t.Fatalf("POST requests = %d, want exactly one", requests)
 	}
 }
 

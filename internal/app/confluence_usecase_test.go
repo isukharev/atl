@@ -223,18 +223,6 @@ func TestConfluenceWrappersPassThrough(t *testing.T) {
 		}
 	})
 
-	t.Run("AddComment", func(t *testing.T) {
-		st := &recordingStore{comment: &domain.Comment{ID: "new"}}
-		svc := &ConfluenceService{store: st}
-		got, err := svc.AddComment(ctx, "p1", []byte("hi"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if st.addCommentID != "p1" || string(st.addBody) != "hi" || got.ID != "new" {
-			t.Errorf("addcomment mismatch: id=%q body=%q ret=%+v", st.addCommentID, st.addBody, got)
-		}
-	})
-
 	t.Run("Create", func(t *testing.T) {
 		st := &recordingStore{page: &domain.Resource{ID: "created"}}
 		svc := &ConfluenceService{store: st}
@@ -286,9 +274,6 @@ func TestConfluenceWrappersPropagateSentinel(t *testing.T) {
 	}
 	if _, _, err := svc.Comments(ctx, "x"); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("Comments did not propagate sentinel: %v", err)
-	}
-	if _, err := svc.AddComment(ctx, "x", nil); !errors.Is(err, domain.ErrNotFound) {
-		t.Errorf("AddComment did not propagate sentinel: %v", err)
 	}
 	if _, err := svc.Create(ctx, "x", "", "t", nil); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("Create did not propagate sentinel: %v", err)

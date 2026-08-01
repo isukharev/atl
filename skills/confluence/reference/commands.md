@@ -213,7 +213,8 @@ identifier per line.
 | `conf edit` | Tolerant local byte splice | `--old/--new`, file variants, `--all`, `--dry-run` |
 | `conf validate` | Validate CSF; optional advisory Cloud compatibility inventory | file, `--cloud-compat` |
 | `conf push` | Version-gated write | file/dir, `--dry-run`, `--force`, `--into` |
-| `conf comment list|thread|add` | Qualified schema-v2 thread/anchor reads (`list` filters location/state/depth and supports an expected page version; `thread` selects an exact comment), plus the existing footer write | page id, comment id, CSF file |
+| `conf comment list|thread` | Qualified schema-v2 thread/anchor reads; `list` filters location/state/depth and supports an expected page version, while `thread` selects one exact comment | page id, comment id, read filters |
+| `conf comment preview|add` | Reviewed root-footer creation; `preview` is read-only, `add` is mutating-classified and dry-run by default | page id, exact native-CSF file (≤1 MiB); `add --apply --expected-proposal-hash` for one POST |
 | `conf attachment list|get|upload|delete` | Attachments; `list` is qualified (`complete`/`partial_reason`) | page/id/name/version/file/into, `list --expected-version` |
 | `conf table summary` | Content-free table inventory with exact structural/style cardinalities and reconciliation | selector, `--table` |
 | `conf table extract` | Table export | selector, `--format`, `--raw-csv` |

@@ -124,6 +124,12 @@ version gate.
 2. **`push` is the one deliberate checkpoint.** The Confluence safe loop is: pull fresh → edit → validate →
    inspect offline semantics with `conf diff` → review `conf push --dry-run` against current remote state → push under the version gate. On a conflict, a human decides whether to
    re-pull or force — never auto-force.
+   Confluence comment append uses its own guarded loop: read-only `conf comment
+   preview` → review the complete footer-root baseline-bound proposal → after
+   explicit approval, one guarded `conf comment add` with `--apply` and its
+   `--expected-proposal-hash`. Although `add` defaults to dry-run, it remains
+   mutating-classified. Never replay `outcome_unknown`; only root footer creation
+   is supported.
 
 For every agent-created Bash block that must not mutate Jira, Confluence,
 auth/config, or profile state, make this export its first statement:

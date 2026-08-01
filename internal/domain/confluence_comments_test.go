@@ -31,6 +31,23 @@ func TestConfluenceCommentEnumsSeparateResolvedSelectorFromLocation(t *testing.T
 	}
 }
 
+func TestValidateConfluenceUserIdentity(t *testing.T) {
+	valid := ConfluenceUserIdentity{ID: "stable-user-key", DisplayName: "Current User"}
+	if err := ValidateConfluenceUserIdentity(valid); err != nil {
+		t.Fatalf("valid identity rejected: %v", err)
+	}
+	for _, identity := range []ConfluenceUserIdentity{
+		{DisplayName: "Current User"},
+		{ID: "stable-user-key"},
+		{ID: " ", DisplayName: "Current User"},
+		{ID: "stable-user-key", DisplayName: "\t"},
+	} {
+		if err := ValidateConfluenceUserIdentity(identity); !errors.Is(err, ErrCheckFailed) {
+			t.Fatalf("identity %+v error = %v, want ErrCheckFailed", identity, err)
+		}
+	}
+}
+
 func TestValidateConfluenceCommentInventoryRejectsInvalidRelationshipsAndCollections(t *testing.T) {
 	rootID := "10"
 	valid := ConfluenceCommentInventory{

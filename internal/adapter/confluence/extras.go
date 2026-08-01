@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/isukharev/atl/internal/csf"
@@ -104,12 +105,40 @@ func (cf *Confluence) AddComment(ctx context.Context, id string, body []byte) (*
 		},
 	}
 	var out struct {
-		ID string `json:"id"`
+		ID      string `json:"id"`
+		History *struct {
+			CreatedDate string             `json:"createdDate"`
+			CreatedBy   *commentPersonJSON `json:"createdBy"`
+		} `json:"history"`
+		Body *struct {
+			Storage *commentBodyJSON `json:"storage"`
+		} `json:"body"`
 	}
 	if err := cf.c.SendJSON(ctx, "POST", "/rest/api/content", payload, &out); err != nil {
 		return nil, err
 	}
-	return &domain.Comment{ID: out.ID, Body: string(body)}, nil
+	if strings.TrimSpace(out.ID) == "" {
+		return nil, fmt.Errorf("%w: created Confluence comment response omitted id", domain.ErrCheckFailed)
+	}
+	comment := &domain.Comment{ID: out.ID, Body: string(body)}
+	if out.History != nil {
+		comment.Created = out.History.CreatedDate
+		if out.History.CreatedBy != nil {
+			comment.Author = out.History.CreatedBy.DisplayName
+			actorID := firstNonEmpty(out.History.CreatedBy.UserKey, out.History.CreatedBy.Username)
+			if strings.TrimSpace(actorID) != "" {
+				comment.AuthorKey = actorID
+			}
+		}
+	}
+	if out.Body != nil && out.Body.Storage != nil && out.Body.Storage.Representation != nil && *out.Body.Storage.Representation == "storage" {
+		comment.BodyStorage = out.Body.Storage.Value
+		comment.Body = comment.BodyStorage
+		if root, err := csf.Parse([]byte(comment.BodyStorage)); err == nil {
+			comment.Body = csf.TextContent(root)
+		}
+	}
+	return comment, nil
 }
 
 // ListAttachments returns a page's attachments. It is the compatibility

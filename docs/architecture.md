@@ -105,6 +105,10 @@ the same adapter instance across several capability fields (as
   render a deterministic read-only tree in the main page view. Historical flat
   sidecars remain read-compatible and comment bytes stay out of page hashes and
   writeback baselines.
+- `ConfluenceCurrentUserReader` — supplies the stable actor identity required by
+  guarded footer-comment proposals. The application combines it with exact
+  page metadata, documented public-REST capability, and a complete root-only
+  footer inventory; missing or partial evidence fails closed before POST.
 - `Agile` (`Boards`/`Board`/`Sprints`/`Sprint`/`SprintIssues`/
   `MoveIssuesToSprint`/`MoveIssuesToBacklog`) — Jira Software boards & sprints
   over the Data Center Agile API `/rest/agile/1.0/`. Requires GreenHopper, so a
@@ -380,6 +384,12 @@ Notable behaviors:
 - `Push` validates CSF (`csf.HasErrors` → refuse), computes a fragment diff
   against the pristine base, then calls `store.UpdatePage` under the version
   gate; on success it re-fetches and refreshes the mirror entry.
+- `AddFooterCommentGuarded` validates at most 1 MiB of exact native CSF and
+  hashes backend/page/version, stable actor, body, capability, and the complete
+  footer-root baseline into a proposal. The dedicated preview is read-only;
+  apply revalidates immediately before one single-attempt POST and reconciles
+  `applied|recovered|outcome_unknown` without replay. Only root footer creation
+  is supported—no reply, inline, or resolution mutation.
 - `Status` walks the mirror's `.csf` files, compares hashes, and optionally
   fires one `GetMeta` per page to detect remote drift.
 - `JiraService.Images` downloads only `image/*`-typed attachments; the others

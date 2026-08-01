@@ -44,6 +44,26 @@ After review, repeat without `--dry-run`. A remote version change exits `5`;
 pull fresh state and reapply the candidate. Never add `--force`
 automatically—overriding concurrent changes is a human decision.
 
+## Confluence: reviewed footer comment
+
+Keep the exact native-CSF body in a bounded file. The dedicated preview command
+is read-only; `comment add` is dry-run by default but remains mutating-classified:
+
+```sh
+ATL_READ_ONLY=1 atl conf comment preview --id 123456 --from-file comment.csf
+atl conf comment add --id 123456 --from-file comment.csf \
+  --apply \
+  --expected-proposal-hash <reviewed-hash>
+```
+
+The body is validated and preserved exactly up to 1 MiB. The proposal binds the
+backend, page/version, stable actor, body, capability evidence, and complete
+root-only footer baseline. Apply revalidates immediately before at most one
+POST and reconciles by complete readback. Retain `applied` or `recovered` as
+proven success; `outcome_unknown` may have committed and must never be replayed.
+This workflow creates footer roots only—not replies, inline comments, or
+resolution changes.
+
 ## Jira: mirror description edits
 
 Pull a bounded issue set:

@@ -2,8 +2,10 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -1335,15 +1337,40 @@ func confCommentCmd() *cobra.Command {
 	thread.Flags().StringVar(&commentID, "comment-id", "", "exact numeric comment id")
 	thread.Flags().IntVar(&threadExpectedVersion, "expected-version", 0, "require this exact page version (0 disables the gate)")
 
-	var addID, fromFile string
-	add := &cobra.Command{
-		Use:   "add",
-		Short: "Add a comment (body = CSF via --from-file -)",
+	preview := confFooterCommentMutationCmd(false)
+	add := confFooterCommentMutationCmd(true)
+
+	c.AddCommand(list, thread, preview, add)
+	return c
+}
+
+func confFooterCommentMutationCmd(applyCapable bool) *cobra.Command {
+	var id, fromFile string
+	guardedWrite := guardedWriteFlags{profile: guardedWriteProposal}
+	use, short := "preview", "Preview a bounded footer comment"
+	if applyCapable {
+		use, short = "add", "Preview or apply a bounded footer comment"
+	}
+	cmd := &cobra.Command{
+		Use:   use,
+		Short: short,
+		Long: "Preview by default against the exact page version, actor, capability, and complete footer-comment baseline. " +
+			"Apply requires the reviewed proposal hash, sends at most one POST, and reconciles without replay.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if addID == "" {
+			if id == "" {
 				return usageErr("--id is required")
 			}
-			body, err := readBody(fromFile)
+			if applyCapable {
+				if err := guardedWrite.validate(); err != nil {
+					return err
+				}
+			}
+			body, err := readConfluenceFooterCommentBody(fromFile)
+			if err != nil {
+				return err
+			}
+			body, err = app.ValidateConfluenceFooterCommentBody(body)
 			if err != nil {
 				return err
 			}
@@ -1351,18 +1378,46 @@ func confCommentCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cm, err := svc.AddComment(cmd.Context(), addID, body)
-			if err != nil {
-				return err
+			result, mutationErr := svc.AddFooterCommentGuarded(cmd.Context(), id, app.ConfluenceFooterCommentAddOpts{
+				Body: body, Apply: applyCapable && guardedWrite.apply,
+				ExpectedProposalHash: guardedWrite.expectedProposalHash,
+			})
+			if result != nil {
+				if emitErr := emit(cmd, result, func() string { return app.ConfluenceFooterCommentAddText(result) }); emitErr != nil {
+					return emitErr
+				}
 			}
-			return emit(cmd, cm, nil)
+			return mutationErr
 		},
 	}
-	add.Flags().StringVar(&addID, "id", "", "page id")
-	add.Flags().StringVar(&fromFile, "from-file", "-", "comment body file or - for stdin")
+	cmd.Flags().StringVar(&id, "id", "", "page id or supported same-origin URL")
+	cmd.Flags().StringVar(&fromFile, "from-file", "-", "bounded native-CSF footer comment body file or - for stdin")
+	if applyCapable {
+		guardedWrite.register(cmd)
+	}
+	return cmd
+}
 
-	c.AddCommand(list, thread, add)
-	return c
+func readConfluenceFooterCommentBody(path string) ([]byte, error) {
+	switch path {
+	case "", "-":
+		if stdinIsTerminal() {
+			return nil, usageErr("stdin is a terminal and no body was piped; pass --from-file FILE or pipe the body")
+		}
+		return readBounded(os.Stdin, app.ConfluenceFooterCommentBodyMaxBytes)
+	default:
+		body, err := readFileBounded(path, app.ConfluenceFooterCommentBodyMaxBytes)
+		if err == nil {
+			return body, nil
+		}
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("%w: body file %q does not exist", domain.ErrNotFound, path)
+		}
+		if errors.Is(err, domain.ErrUsage) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("%w: read body file %q: %v", domain.ErrCheckFailed, path, err)
+	}
 }
 
 func confAttachmentCmd() *cobra.Command {

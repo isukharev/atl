@@ -68,14 +68,18 @@ not blind-retry either).
 ### 6. Summarize and backlink
 
 List created keys grouped by assignee. Offer to leave a "created tasks"
-comment on the source Confluence page — note the comment body is **CSF**, not
-markdown:
+comment on the source Confluence page. Put the exact body in a local **CSF**
+file, preview its complete baseline-bound proposal, and apply that same file
+once with the reviewed hash:
 
 ```sh
-printf '<p>Follow-ups: KEY-1, KEY-2, KEY-3</p>' | atl conf comment add --id <pageId> --from-file -
+ATL_READ_ONLY=1 atl conf comment preview --id <pageId> --from-file follow-ups.csf
+atl conf comment add --id <pageId> --from-file follow-ups.csf \
+  --apply --expected-proposal-hash <reviewed-hash>
 ```
 
-Only with explicit approval — it writes to a shared page.
+Only the second command writes, and only with explicit approval. Never replay
+`outcome_unknown`; it may already have created the comment.
 
 ## Pitfalls
 

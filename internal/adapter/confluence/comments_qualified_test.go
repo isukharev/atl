@@ -58,6 +58,30 @@ func TestListConfluenceCommentsMapsExactShapesAndResolvedSemantics(t *testing.T)
 	}
 }
 
+func TestListConfluenceCommentsMapsExactFooterReadbackEvidence(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(qualifiedCommentPage(qualifiedCommentJSON("10", "footer", "", `[{"id":"1","type":"page"}]`, "<p>footer</p>"))))
+	}))
+	defer srv.Close()
+
+	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{
+		Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorFooter}, DepthAll: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inventory.Comments) != 1 || !inventory.CommentsComplete || !inventory.ThreadsComplete {
+		t.Fatalf("inventory = %+v", inventory)
+	}
+	comment := inventory.Comments[0]
+	if comment.ID != "10" || comment.PageID != "1" || comment.Location != domain.ConfluenceCommentLocationFooter ||
+		comment.Relation != domain.ConfluenceCommentRelationRoot || comment.ParentID != nil || comment.RootID == nil || *comment.RootID != "10" ||
+		comment.AuthorID != "u1" || comment.AuthorDisplayName != "User" || comment.BodyStorage != "<p>footer</p>" || comment.Body != "footer" ||
+		comment.Version != 1 || comment.CreatedAt != "2026-01-01T00:00:00Z" || comment.UpdatedAt != "2026-01-02T00:00:00Z" {
+		t.Fatalf("comment = %+v", comment)
+	}
+}
+
 func TestListConfluenceCommentsDoesNotInferMissingLocationOrAncestry(t *testing.T) {
 	row := qualifiedCommentJSON("20", "inline", "open", `[{"id":"1","type":"page"}]`, "<p>x</p>")
 	row = strings.Replace(row, `"ancestors":[{"id":"1","type":"page"}],`, "", 1)
