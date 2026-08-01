@@ -152,8 +152,17 @@ After explicit approval, apply revalidates immediately, sends no more than one
 POST, and reconciles from a complete root-only readback. Treat `applied` and
 `recovered` as proven;
 `outcome_unknown` may have committed and must never be replayed. Duplicate text
-is not idempotent. Add comments last, after body and metadata writes. Creation
-supports footer roots only—not replies, inline comments, or resolution changes.
+is not idempotent. Add comments last, after body and metadata writes. That
+documented-REST creation surface supports footer roots only. Inline
+create/reply/resolve/reopen use the separate exact-pinned `conf comment mutation
+preview|apply` loop. Inline create takes an exact native-CSF body, bounded UTF-8
+selection file, and zero-based occurrence. Its reviewed proposal binds the raw
+selection bytes, pinned-client-normalized search/wire forms, native exclusion
+masks, stable raw-DOM geometry, and complete comment/native-marker evidence
+while excluding volatile request-time. Masked, footer-fallback, unsupported, or
+layout-dependent selections fail closed. ATL never writes marker CSF. Apply performs
+one non-replayed provider write and requires complete reconciliation. The
+mutation surface is JSON-only and absent from MCP.
 
 Mirrored `.comments.json` is a strict schema-v2 qualified inventory; historical
 flat arrays remain readable and migrate on the next successful comment pull.

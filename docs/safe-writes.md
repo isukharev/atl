@@ -67,7 +67,38 @@ root-only footer baseline. Apply revalidates immediately before at most one
 POST and reconciles by complete readback. Retain `applied` or `recovered` as
 proven success; `outcome_unknown` may have committed and must never be replayed.
 This workflow creates footer roots only—not replies, inline comments, or
-resolution changes.
+resolution changes. Those operations use the separately activated provider
+below.
+
+## Confluence: reviewed inline comment mutation
+
+Activate and remotely qualify an exact compiled Data Center compatibility
+profile first. Preview is read-only. Existing-thread operations bind a root
+thread; inline create instead binds exact private body and selection files plus
+a zero-based occurrence:
+
+```sh
+ATL_READ_ONLY=1 atl conf comment mutation preview --id 123456 \
+  --operation inline-create --from-file comment.csf \
+  --selection-file selection.txt --occurrence 0
+atl conf comment mutation apply --id 123456 \
+  --operation inline-create --from-file comment.csf \
+  --selection-file selection.txt --occurrence 0 --apply \
+  --expected-proposal-hash <reviewed-hash>
+```
+
+For reply, pass `--thread-id`, `--operation reply`, and a native-CSF body.
+Resolve/reopen pass the exact root id and omit the body. For inline create, ATL
+binds the raw selection bytes but searches using the pinned client's exact
+NBSP/edge-whitespace normalization, native exclusion masks, and overlapping
+match indexing. It rejects masked occurrences, footer-fallback regions,
+unsupported highlighter subtrees, and layout-dependent floating headers before
+any POST. Apply requalifies the exact product pin and stable page/DOM/comment
+evidence immediately before one fixed write. Inline create uses only a fresh server request-time in that attempt;
+ATL never writes marker CSF. Complete readback must prove the exact new root,
+reply, or state transition and, for create, only one server-owned marker wrapper
+in native page storage. Accept only reconciled `applied` or `recovered`; never
+replay `outcome_unknown`. The surface is CLI-only and absent from MCP.
 
 ## Jira: mirror description edits
 

@@ -1369,7 +1369,8 @@ func confInlineCommentMutationCmd() *cobra.Command {
 }
 
 func confInlineCommentMutationLeaf(applyCapable bool) *cobra.Command {
-	var id, operation, threadID, fromFile string
+	var id, operation, threadID, fromFile, selectionFile string
+	var occurrence int
 	guardedWrite := guardedWriteFlags{profile: guardedWriteProposal}
 	use, short := "preview", "Preview an inline-comment thread mutation"
 	if applyCapable {
@@ -1377,24 +1378,62 @@ func confInlineCommentMutationLeaf(applyCapable bool) *cobra.Command {
 	}
 	cmd := &cobra.Command{
 		Use: use, Short: short,
-		Long: "Bind reply, resolve, or reopen to the exact page version, complete thread inventory, actor, and activated provider. " +
+		Long: "Bind inline-create, reply, resolve, or reopen to the exact page version, complete comment inventory, actor, and activated provider. " +
 			"Apply requires the reviewed proposal hash, performs one provider write attempt, and reconciles without replay.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if id == "" || threadID == "" {
-				return usageErr("--id and --thread-id are required")
+			if id == "" {
+				return usageErr("--id is required")
 			}
-			op := domain.ConfluenceCommentMutationOperation(operation)
-			if !domain.ValidConfluenceCommentMutationOperation(op) {
-				return usageErr("--operation must be reply, resolve, or reopen")
+			var op domain.ConfluenceCommentMutationOperation
+			switch operation {
+			case "inline-create":
+				op = domain.ConfluenceCommentMutationInlineCreate
+			case "reply":
+				op = domain.ConfluenceCommentMutationReply
+			case "resolve":
+				op = domain.ConfluenceCommentMutationResolve
+			case "reopen":
+				op = domain.ConfluenceCommentMutationReopen
+			default:
+				return usageErr("--operation must be inline-create, reply, resolve, or reopen")
 			}
 			if applyCapable {
 				if err := guardedWrite.validate(); err != nil {
 					return err
 				}
 			}
-			var body []byte
-			if op == domain.ConfluenceCommentMutationReply {
+			if op != domain.ConfluenceCommentMutationInlineCreate && (cmd.Flags().Changed("selection-file") || cmd.Flags().Changed("occurrence")) {
+				return usageErr("--selection-file and --occurrence are only valid for inline-create")
+			}
+			var body, selection []byte
+			switch op {
+			case domain.ConfluenceCommentMutationInlineCreate:
+				if threadID != "" {
+					return usageErr("--thread-id is not valid for inline-create")
+				}
+				if fromFile == "" || selectionFile == "" {
+					return usageErr("--from-file and --selection-file are required for inline-create")
+				}
+				if occurrence < 0 {
+					return usageErr("--occurrence must be zero or positive")
+				}
+				if fromFile == "-" && selectionFile == "-" {
+					return usageErr("--from-file and --selection-file cannot both read stdin")
+				}
+				var err error
+				body, err = readConfluenceFooterCommentBody(fromFile)
+				if err != nil {
+					return err
+				}
+				selection, err = readConfluenceInlineSelection(selectionFile)
+				if err != nil {
+					return err
+				}
+			case domain.ConfluenceCommentMutationReply:
+				if threadID == "" {
+					return usageErr("--thread-id is required for reply")
+				}
 				if fromFile == "" {
 					return usageErr("--from-file is required for reply")
 				}
@@ -1403,15 +1442,20 @@ func confInlineCommentMutationLeaf(applyCapable bool) *cobra.Command {
 				if err != nil {
 					return err
 				}
-			} else if cmd.Flags().Changed("from-file") {
-				return usageErr("--from-file is only valid for reply")
+			default:
+				if threadID == "" {
+					return usageErr("--thread-id is required for resolve or reopen")
+				}
+				if cmd.Flags().Changed("from-file") {
+					return usageErr("--from-file is only valid for inline-create or reply")
+				}
 			}
 			svc, err := confCommentMutationService()
 			if err != nil {
 				return err
 			}
 			result, mutationErr := svc.MutateCommentGuarded(cmd.Context(), id, app.ConfluenceCommentMutationOpts{
-				Operation: op, ThreadID: threadID, Body: body,
+				Operation: op, ThreadID: threadID, Body: body, Selection: selection, Occurrence: occurrence,
 				Apply: applyCapable && guardedWrite.apply, ExpectedProposalHash: guardedWrite.expectedProposalHash,
 			})
 			if result != nil {
@@ -1423,13 +1467,38 @@ func confInlineCommentMutationLeaf(applyCapable bool) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&id, "id", "", "page id or supported same-origin URL")
-	cmd.Flags().StringVar(&operation, "operation", "", "reply, resolve, or reopen")
+	cmd.Flags().StringVar(&operation, "operation", "", "inline-create, reply, resolve, or reopen")
 	cmd.Flags().StringVar(&threadID, "thread-id", "", "exact numeric root thread id")
-	cmd.Flags().StringVar(&fromFile, "from-file", "", "bounded native-CSF reply body file or - for stdin")
+	cmd.Flags().StringVar(&fromFile, "from-file", "", "bounded native-CSF comment body file or - for stdin")
+	cmd.Flags().StringVar(&selectionFile, "selection-file", "", "exact UTF-8 inline selection file or - for stdin")
+	cmd.Flags().IntVar(&occurrence, "occurrence", 0, "zero-based exact selection occurrence")
 	if applyCapable {
 		guardedWrite.register(cmd)
 	}
 	return cmd
+}
+
+func readConfluenceInlineSelection(path string) ([]byte, error) {
+	if path == "" {
+		return nil, usageErr("--selection-file is required for inline-create")
+	}
+	if path == "-" {
+		if stdinIsTerminal() {
+			return nil, usageErr("stdin is a terminal and no selection was piped; pass --selection-file FILE or pipe the selection")
+		}
+		return readBounded(os.Stdin, app.ConfluenceFooterCommentBodyMaxBytes)
+	}
+	selection, err := readFileBounded(path, app.ConfluenceFooterCommentBodyMaxBytes)
+	if err == nil {
+		return selection, nil
+	}
+	if os.IsNotExist(err) {
+		return nil, fmt.Errorf("%w: selection file %q does not exist", domain.ErrNotFound, path)
+	}
+	if errors.Is(err, domain.ErrUsage) {
+		return nil, err
+	}
+	return nil, fmt.Errorf("%w: read selection file %q: %v", domain.ErrCheckFailed, path, err)
 }
 
 func confFooterCommentMutationCmd(applyCapable bool) *cobra.Command {

@@ -218,7 +218,9 @@ read-only команду `conf comment preview`, затем повторите �
 умолчанию выполняет dry-run, но остаётся mutating-classified; она создаёт только
 footer root и не повторяет неоднозначный POST. Для существующих inline threads
 есть exact-pinned цикл `conf comment mutation preview|apply` для reply,
-resolve и reopen; создание нового inline anchor остаётся отдельной функцией.
+resolve и reopen. Тот же цикл создаёт новый server-owned inline anchor по
+точному тексту из файла и номеру вхождения; ATL получает геометрию из
+версионированного серверного DOM и сам не меняет marker CSF.
 Jira-команды записи используют
 тот же принцип проверенного baseline. Подробнее —
 [safe-write guide](docs/safe-writes.md).

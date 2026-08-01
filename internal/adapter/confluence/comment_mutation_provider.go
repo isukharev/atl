@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/isukharev/atl/internal/compatibility"
 	"github.com/isukharev/atl/internal/domain"
@@ -71,11 +73,50 @@ func (provider *CommentMutationProvider) MutateConfluenceComment(ctx context.Con
 		return provider.setResolved(writeContext, request, true)
 	case domain.ConfluenceCommentMutationReopen:
 		return provider.setResolved(writeContext, request, false)
+	case domain.ConfluenceCommentMutationInlineCreate:
+		return provider.createInline(writeContext, request)
 	default:
 		// Domain validation above makes this unreachable and preserves a fixed
 		// operation-to-endpoint mapping even if this method changes later.
 		return domain.ConfluenceCommentMutationResult{}, fmt.Errorf("%w: unsupported Confluence comment mutation", domain.ErrUsage)
 	}
+}
+
+func (provider *CommentMutationProvider) createInline(ctx context.Context, request domain.ConfluenceCommentMutationRequest) (domain.ConfluenceCommentMutationResult, error) {
+	serializedHighlights, err := serializeInlineHighlights(request.SerializedHighlights)
+	if err != nil {
+		return domain.ConfluenceCommentMutationResult{}, fmt.Errorf("%w: Confluence inline highlights could not be encoded", domain.ErrCheckFailed)
+	}
+	payload := struct {
+		ContainerID          string `json:"containerId"`
+		ContainerVersion     int    `json:"containerVersion"`
+		ParentCommentID      int    `json:"parentCommentId"`
+		Body                 string `json:"body"`
+		OriginalSelection    string `json:"originalSelection"`
+		NumMatches           int    `json:"numMatches"`
+		MatchIndex           int    `json:"matchIndex"`
+		LastFetchTime        int64  `json:"lastFetchTime"`
+		SerializedHighlights string `json:"serializedHighlights"`
+	}{
+		ContainerID: request.PageID, ContainerVersion: request.PageVersion, ParentCommentID: 0,
+		Body: string(request.BodyStorage), OriginalSelection: request.OriginalSelection,
+		NumMatches: request.NumMatches, MatchIndex: request.MatchIndex, LastFetchTime: request.LastFetchTime,
+		SerializedHighlights: serializedHighlights,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return domain.ConfluenceCommentMutationResult{}, fmt.Errorf("%w: Confluence inline create request could not be encoded", domain.ErrCheckFailed)
+	}
+	response, err := provider.confluence.c.DoWithBodyLimit(ctx, http.MethodPost,
+		"/rest/inlinecomments/1.0/comments", body, commentMutationHeaders(), commentMutationResponseMaxBytes)
+	if err != nil {
+		return domain.ConfluenceCommentMutationResult{}, sanitizedCommentMutationError("write", err, true)
+	}
+	created, err := decodeInlineCreateResponse(response, request)
+	if err != nil {
+		return domain.ConfluenceCommentMutationResult{}, sanitizedCommentMutationError("response", err, true)
+	}
+	return created, nil
 }
 
 func (provider *CommentMutationProvider) reply(ctx context.Context, request domain.ConfluenceCommentMutationRequest) (domain.ConfluenceCommentMutationResult, error) {
@@ -160,6 +201,36 @@ func decodeReplyID(data []byte, expectedThreadID string) (string, error) {
 	return id, nil
 }
 
+func decodeInlineCreateResponse(data []byte, request domain.ConfluenceCommentMutationRequest) (domain.ConfluenceCommentMutationResult, error) {
+	var response struct {
+		ID                json.RawMessage `json:"id"`
+		MarkerRef         string          `json:"markerRef"`
+		OriginalSelection string          `json:"originalSelection"`
+		ParentCommentID   json.RawMessage `json:"parentCommentId"`
+		ContainerVersion  *int            `json:"containerVersion"`
+	}
+	if err := decodeOneJSON(data, &response); err != nil {
+		return domain.ConfluenceCommentMutationResult{}, fmt.Errorf("%w: Confluence inline create response was not qualified", domain.ErrCheckFailed)
+	}
+	id, idOK := positiveJSONContentID(response.ID)
+	parentID, parentOK := nonNegativeJSONContentID(response.ParentCommentID)
+	if !idOK || !parentOK || parentID != "0" || response.ContainerVersion == nil || *response.ContainerVersion <= 0 ||
+		!validInlineMarkerRef(response.MarkerRef) ||
+		response.OriginalSelection != request.OriginalSelection {
+		return domain.ConfluenceCommentMutationResult{}, fmt.Errorf("%w: Confluence inline create response was not qualified", domain.ErrCheckFailed)
+	}
+	return domain.ConfluenceCommentMutationResult{
+		Operation: domain.ConfluenceCommentMutationInlineCreate,
+		ThreadID:  id, CommentID: id, MarkerRef: response.MarkerRef,
+		OriginalSelection: response.OriginalSelection, PageVersion: *response.ContainerVersion,
+	}, nil
+}
+
+func validInlineMarkerRef(value string) bool {
+	return value != "" && len(value) <= 512 && utf8.ValidString(value) && strings.TrimSpace(value) == value &&
+		strings.IndexFunc(value, func(r rune) bool { return r < 0x20 || r == 0x7f }) < 0
+}
+
 func decodeOneJSON(data []byte, out any) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	if err := decoder.Decode(out); err != nil {
@@ -183,6 +254,23 @@ func positiveJSONContentID(raw json.RawMessage) (string, bool) {
 		}
 	}
 	if value == "" || value[0] == '0' {
+		return "", false
+	}
+	_, err := strconv.ParseUint(value, 10, 64)
+	return value, err == nil
+}
+
+func nonNegativeJSONContentID(raw json.RawMessage) (string, bool) {
+	if len(raw) == 0 {
+		return "", false
+	}
+	value := string(raw)
+	if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return "", false
+		}
+	}
+	if value == "" || (len(value) > 1 && value[0] == '0') {
 		return "", false
 	}
 	_, err := strconv.ParseUint(value, 10, 64)
