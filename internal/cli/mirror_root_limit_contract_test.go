@@ -232,8 +232,15 @@ func TestResolveInspectionMirrorRootPrecedence(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got != tt.want {
-				t.Fatalf("root = %q, want %q", got, tt.want)
+			want := tt.want
+			if tt.name == "nearest initialized wins" {
+				want, err = filepath.EvalSymlinks(want)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got != want {
+				t.Fatalf("root = %q, want %q", got, want)
 			}
 		})
 	}
