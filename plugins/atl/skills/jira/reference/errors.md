@@ -19,7 +19,7 @@ never authorizes a write, changed request, approval, or reconciliation step.
 | `issue edit` exit 8 | Match crosses an omitted line break | Copy exact text including newlines |
 | `jira push` exit 8 | Description/pending field drift | Pull, compare, and explicitly rebase fields; `--force` never overrides field drift |
 | `jira push` exit 2 | No mirror baseline | Pull before mirror edit/apply/push |
-| `jira apply` exit 8 | Stale view, lossy/unconvertible edit, read-only section, or diverged wiki | Migrate stale markers before editing; otherwise follow the named recovery and use `--allow-loss` only intentionally |
+| `jira apply` exit 8 | Stale view, lossy/unconvertible edit, read-only section, or wiki outside exact staged/pending lineage | Migrate stale markers before editing; preserve direct wiki edits, explicitly rebase reviewed pending fields when appropriate, and use `--allow-loss` only intentionally |
 | `attachment upload` exit 8 after a successful response | Backend response was malformed or carried no attachment | Treat the write outcome as unknown, inspect attachments, and do not retry blindly |
 
 Legacy `comment <KEY>` and `link <KEY>` forms were restructured; use

@@ -404,10 +404,11 @@ func renderCommentsMarkdownVersion(comments []domain.Comment, format confluenceM
 // performs one sidecar load (BeginSync) and one save (Flush) instead of a
 // full load+rewrite per page.
 type SyncBatch struct {
-	m          *Mirror
-	sc         sidecarFile
-	dirtyPages map[string]SyncState
-	dirtyViews map[string]ViewState
+	m           *Mirror
+	sc          sidecarFile
+	dirtyPages  map[string]SyncState
+	dirtyViews  map[string]ViewState
+	dirtyStaged map[string]*StagedState
 }
 
 // BeginSync loads the sidecar once for a batch of page writes. See saveSidecar
@@ -418,7 +419,7 @@ func (m *Mirror) BeginSync() (*SyncBatch, error) {
 		return nil, err
 	}
 	return &SyncBatch{
-		m: m, sc: sc, dirtyPages: map[string]SyncState{}, dirtyViews: map[string]ViewState{},
+		m: m, sc: sc, dirtyPages: map[string]SyncState{}, dirtyViews: map[string]ViewState{}, dirtyStaged: map[string]*StagedState{},
 	}, nil
 }
 
@@ -540,6 +541,7 @@ func (b *SyncBatch) write(dir, slug string, page *domain.Resource, refs []domain
 	state := SyncState{ID: page.ID, Version: page.Version, Hash: Hash(page.Body), Path: rel}
 	b.sc.Pages[page.ID] = state
 	b.dirtyPages[page.ID] = state
+	b.dirtyStaged[page.ID] = nil
 	return nil
 }
 
@@ -550,6 +552,7 @@ func (b *SyncBatch) write(dir, slug string, page *domain.Resource, refs []domain
 func (b *SyncBatch) Record(st SyncState) {
 	b.sc.Pages[st.ID] = st
 	b.dirtyPages[st.ID] = st
+	b.dirtyStaged[st.ID] = nil
 }
 
 // RecordView records the render settings a resource's .md view was written with,
@@ -566,14 +569,15 @@ func (b *SyncBatch) RecordView(id string, vs ViewState) {
 // Flush saves the accumulated sidecar state; a no-op when nothing was written,
 // so it is safe to call again on error paths after a successful flush.
 func (b *SyncBatch) Flush() error {
-	if len(b.dirtyPages) == 0 && len(b.dirtyViews) == 0 {
+	if len(b.dirtyPages) == 0 && len(b.dirtyViews) == 0 && len(b.dirtyStaged) == 0 {
 		return nil
 	}
-	if err := b.m.mergeSidecarPatch(b.dirtyPages, b.dirtyViews); err != nil {
+	if err := b.m.mergeSidecarPatch(b.dirtyPages, b.dirtyViews, b.dirtyStaged); err != nil {
 		return err
 	}
 	clear(b.dirtyPages)
 	clear(b.dirtyViews)
+	clear(b.dirtyStaged)
 	return nil
 }
 
@@ -735,11 +739,13 @@ func (m *Mirror) ListCSFPaths() ([]string, error) {
 // by the issue key, which is the file's basename — there is no neighboring
 // meta.json, so Key is derived from the path rather than read from disk.
 type LocalWiki struct {
-	Path    string     // absolute path to the .wiki
-	Key     string     // issue key (basename minus ".wiki") = sidecar key
-	Synced  *SyncState // last-synced state from the sidecar (nil if untracked)
-	Current string     // current on-disk content hash
-	Dirty   bool       // current != synced (untracked reads as dirty)
+	Path             string     // absolute path to the .wiki
+	Key              string     // issue key (basename minus ".wiki") = sidecar key
+	Synced           *SyncState // last-synced state at this exact path (nil if untracked)
+	Current          string     // current on-disk content hash
+	Dirty            bool       // current != synced (untracked reads as dirty)
+	TrackedElsewhere bool       // same key has a different canonical sidecar path
+	CanonicalPath    string     // canonical path relative to mirror root
 }
 
 // LoadWiki reads a `.wiki` path and its sidecar sync state. A corrupt sidecar is
@@ -763,9 +769,15 @@ func loadWikiWith(root string, sc sidecarFile, wikiPath string) (*LocalWiki, []b
 	key := strings.TrimSuffix(filepath.Base(wikiPath), ".wiki")
 	lw := &LocalWiki{Path: wikiPath, Key: key, Current: Hash(body)}
 	if st, ok := sc.Pages[key]; ok {
-		s := st
-		lw.Synced = &s
-		lw.Dirty = s.Hash != lw.Current
+		if sameTrackedPath(root, wikiPath, st.Path) {
+			s := st
+			lw.Synced = &s
+			lw.Dirty = s.Hash != lw.Current
+		} else {
+			lw.TrackedElsewhere = true
+			lw.CanonicalPath = st.Path
+			lw.Dirty = true
+		}
 	} else {
 		lw.Dirty = true // untracked / never synced
 	}

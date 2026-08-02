@@ -56,7 +56,8 @@ type JiraAppliedField struct {
 // path to the server. Field edits never mutate the raw JSON snapshot.
 // Preconditions mirror conf apply: the issue was pulled through
 // the sidecar (base + snapshot exist) and the local `.wiki` still matches the
-// base (direct wiki edits win over the md surface; push or re-pull first).
+// remote base, ATL's exact staged lineage, or a validated pending transaction
+// preserved across pull (direct wiki edits win over the md surface).
 //
 // The pristine view the edit is diffed against is reproduced from the render
 // settings recorded when the .md was last written (pull/render/apply), not the
@@ -109,25 +110,9 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 	}
 	// A pristine base is required so the merge has a three-way anchor and the
 	// divergence check has a baseline.
-	baseWiki, ok := m.BaseBodyExt(keySeg, wikiExt)
+	remoteBaseWiki, ok := m.BaseBodyExt(keySeg, wikiExt)
 	if !ok {
 		return nil, fmt.Errorf("%w: no pristine base for %s — re-pull it (older mirrors lack .atl/base)", domain.ErrNotFound, keySeg)
-	}
-	// A direct wiki edit normally wins over the md surface. The explicit
-	// --rebase-pending recovery path is the exception: it does not merge the md
-	// Description, it binds reviewed pending fields to the exact current wiki.
-	wikiDiverged := mirror.Hash(curWiki) != mirror.Hash(baseWiki)
-	if wikiDiverged && !o.RebasePending {
-		return nil, fmt.Errorf("%w: %s has diverged from the last-synced base (the .wiki was edited directly) — push or re-pull before applying .md edits",
-			domain.ErrCheckFailed, keySeg+wikiExt)
-	}
-	// The `<KEY>.json` snapshot supplies the metadata/section fields needed to
-	// reproduce the pristine view. Field edits live separately under .atl and
-	// are overlaid only for the derived view; the raw snapshot remains the last
-	// remote representation until a successful push refreshes it.
-	is, snapOK := loadIssueSnapshot(root, filepath.Join(dir, keySeg+".json"))
-	if !snapOK {
-		return nil, fmt.Errorf("%w: no %s.json snapshot for %s — re-pull it", domain.ErrNotFound, keySeg, keySeg)
 	}
 	rawEdited, err := safepath.ReadFileWithin(root, mdPath)
 	if err != nil {
@@ -140,10 +125,44 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 	if err := validateJiraIssueDocumentMarker(edited); err != nil {
 		return nil, err
 	}
-
 	pending, _, err := loadJiraPendingFieldsLocked(root, keySeg)
 	if err != nil {
 		return nil, err
+	}
+	// A direct wiki edit normally wins over the md surface. The explicit
+	// --rebase-pending recovery path is the exception: it does not merge the md
+	// Description, it binds reviewed pending fields to the exact current wiki.
+	baseWiki, relWiki, lineageErr := stagedApplyBase(m, keySeg, wikiPath, wikiExt, curWiki, remoteBaseWiki)
+	_, hasStaged, stagedErr := m.StagedStateOf(keySeg)
+	if stagedErr != nil {
+		return nil, stagedErr
+	}
+	remoteDiverged := mirror.Hash(curWiki) != mirror.Hash(remoteBaseWiki)
+	if lineageErr != nil && !hasStaged && pending != nil && filepath.Clean(pending.WikiPath) == filepath.Clean(relWiki) && pending.WikiHash == mirror.Hash(curWiki) {
+		// A pull may advance the remote base while intentionally preserving an
+		// already reviewed pending-field wiki. SyncBatch clears generic staging
+		// in that case, so the validated pending transaction is the continuing
+		// exact local lineage.
+		baseWiki = curWiki
+		relWiki = filepath.ToSlash(filepath.Clean(pending.WikiPath))
+		lineageErr = nil
+	}
+	unexplainedDiverged := lineageErr != nil
+	if unexplainedDiverged {
+		// --rebase-pending is the explicit, reviewed escape hatch that adopts a
+		// direct wiki edit. Corrupt sidecar state was already rejected above;
+		// mismatched staged bytes are intentionally superseded only on this path.
+		if !o.RebasePending || !remoteDiverged {
+			return nil, lineageErr
+		}
+	}
+	// The `<KEY>.json` snapshot supplies the metadata/section fields needed to
+	// reproduce the pristine view. Field edits live separately under .atl and
+	// are overlaid only for the derived view; the raw snapshot remains the last
+	// remote representation until a successful push refreshes it.
+	is, snapOK := loadIssueSnapshot(root, filepath.Join(dir, keySeg+".json"))
+	if !snapOK {
+		return nil, fmt.Errorf("%w: no %s.json snapshot for %s — re-pull it", domain.ErrNotFound, keySeg, keySeg)
 	}
 	displayIssue := issueWithPendingFields(is, pending)
 	if o.RebasePending && pending == nil {
@@ -188,7 +207,7 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 	if related != nil && (rs.EpicField == "" || !isDirectEpicFieldID(rs.EpicField)) {
 		rs.EpicField = related.EpicField
 	}
-	if wikiDiverged && o.RebasePending {
+	if unexplainedDiverged && o.RebasePending {
 		rebindIssue := issueWithPendingFields(is, pending)
 		rebindIssue.Body = pending.WikiBody
 		oldPrefix, oldDesc, oldSuffix, oldFieldRegions := renderIssueMarkdownLayout(rebindIssue, assets, related, rs, true, true)
@@ -234,9 +253,11 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 		if o.DryRun {
 			return res, nil
 		}
-		matches, readErr := jiraWikiHasHash(root, wikiPath, next.WikiHash)
-		if readErr != nil || !matches {
-			return res, fmt.Errorf("%w: %s changed while rebasing pending fields; review the latest wiki and retry", domain.ErrCheckFailed, keySeg+wikiExt)
+		if err := revalidateApplyInput(root, mdPath, rawEdited, "Markdown view"); err != nil {
+			return res, err
+		}
+		if err := revalidateApplyInput(root, wikiPath, curWiki, "native file"); err != nil {
+			return res, err
 		}
 		if err := stageJiraPendingTransaction(root, next); err != nil {
 			return res, err
@@ -245,9 +266,20 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 			return res, err
 		}
 		res.Wrote = true
+		if err := m.RecordStaged([]mirror.StagedContent{{ID: keySeg, Path: filepath.ToSlash(filepath.Clean(relWiki)), Body: curWiki, BaseHash: mirror.Hash(remoteBaseWiki)}}); err != nil {
+			return res, fmt.Errorf("%w: rebound pending fields but could not record the exact staged wiki lineage; the reviewed native bytes and pending state were preserved: %v", domain.ErrCheckFailed, err)
+		}
+		if err := revalidateApplyInput(root, wikiPath, curWiki, "native file"); err != nil {
+			return res, err
+		}
 		displayIssue = issueWithPendingFields(is, next)
 		displayIssue.Body = string(curWiki)
-		if werr := safepath.WriteFileWithin(root, mdPath, renderIssueMarkdownWithRelated(displayIssue, assets, related, rs), 0o644); werr != nil {
+		refreshedMD := renderIssueMarkdownWithRelated(displayIssue, assets, related, rs)
+		if err := revalidateApplyInput(root, mdPath, rawEdited, "Markdown view"); err != nil {
+			res.Warning = "rebased pending fields, but the .md view changed concurrently and was preserved instead of refreshed"
+			return res, nil
+		}
+		if werr := safepath.WriteFileWithin(root, mdPath, refreshedMD, 0o644); werr != nil {
 			res.Warning = "rebased pending fields, but the .md view could not be refreshed: " + werr.Error()
 		} else if verr := m.SaveViewStates(map[string]mirror.ViewState{keySeg: viewStateOf(rs)}); verr != nil {
 			res.Warning = "rebased pending fields, but the view state could not be recorded: " + verr.Error()
@@ -317,10 +349,6 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 		res.Fields[len(res.Fields)-1].Pending = value != base
 	}
 	sort.Slice(res.Fields, func(i, j int) bool { return res.Fields[i].ID < res.Fields[j].ID })
-	relWiki, relErr := filepath.Rel(root, wikiPath)
-	if relErr != nil || relWiki == ".." || strings.HasPrefix(relWiki, ".."+string(filepath.Separator)) {
-		return res, fmt.Errorf("%w: wiki path %q is outside mirror root %q", domain.ErrUsage, wikiPath, root)
-	}
 	nextPending := &JiraPendingFields{Key: keySeg, WikiPath: relWiki}
 	for _, field := range nextFields {
 		nextPending.Fields = append(nextPending.Fields, field)
@@ -346,11 +374,18 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 		if err := stageJiraPendingTransaction(root, nextPending); err != nil {
 			return res, err
 		}
-		matches, readErr := jiraWikiHasHash(root, wikiPath, nextPending.BeforeWikiHash)
-		if readErr != nil || !matches {
+	}
+	if err := revalidateApplyInput(root, mdPath, rawEdited, "Markdown view"); err != nil {
+		if hasFieldTransaction {
 			_ = safepath.RemoveWithin(root, jiraPendingFieldsTxnPath(root, keySeg))
-			return res, fmt.Errorf("%w: %s changed during jira apply; retry from the refreshed view", domain.ErrCheckFailed, keySeg+wikiExt)
 		}
+		return res, err
+	}
+	if err := revalidateApplyInput(root, wikiPath, curWiki, "native file"); err != nil {
+		if hasFieldTransaction {
+			_ = safepath.RemoveWithin(root, jiraPendingFieldsTxnPath(root, keySeg))
+		}
+		return res, err
 	}
 	// Write only the `.wiki`; do NOT touch the sidecar or pristine base, so the
 	// issue reads locally_edited (and still synced) afterwards and `jira push`
@@ -361,12 +396,18 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 		}
 		return res, err
 	}
+	res.Wrote = true
+	if err := m.RecordStaged([]mirror.StagedContent{{ID: keySeg, Path: relWiki, Body: merged, BaseHash: mirror.Hash(remoteBaseWiki)}}); err != nil {
+		return res, fmt.Errorf("%w: wrote %s but could not record its exact staged lineage; the native bytes were preserved and no repeat apply is authorized: %v", domain.ErrCheckFailed, wikiPath, err)
+	}
+	if err := revalidateApplyInput(root, wikiPath, merged, "native file"); err != nil {
+		return res, err
+	}
 	if hasFieldTransaction {
 		if err := commitJiraPendingTransaction(root, nextPending); err != nil {
 			return res, fmt.Errorf("%w: applied wiki but could not publish its pending-field transaction; rerun status/apply to recover: %v", domain.ErrCheckFailed, err)
 		}
 	}
-	res.Wrote = true
 	// Refresh the .md view from the merged body so the two surfaces agree —
 	// best-effort, same contract as pull: renderIssueMarkdown is total, so this
 	// only fails on a write error, which is a warning (the .wiki write already
@@ -374,7 +415,12 @@ func (s *JiraService) Apply(mdPath string, o JiraApplyOpts) (*JiraApplyResult, e
 	// would refuse on base divergence).
 	displayIssue = issueWithPendingFields(is, nextPending)
 	displayIssue.Body = string(merged)
-	if werr := safepath.WriteFileWithin(root, mdPath, renderIssueMarkdownWithRelated(displayIssue, assets, related, rs), 0o644); werr != nil {
+	refreshedMD := renderIssueMarkdownWithRelated(displayIssue, assets, related, rs)
+	if err := revalidateApplyInput(root, mdPath, rawEdited, "Markdown view"); err != nil {
+		res.Warning = "applied, but the .md view changed concurrently and was preserved instead of refreshed"
+		return res, nil
+	}
+	if werr := safepath.WriteFileWithin(root, mdPath, refreshedMD, 0o644); werr != nil {
 		res.Warning = "applied, but the .md view could not be refreshed and may be stale: " + werr.Error()
 	} else if verr := m.SaveViewStates(map[string]mirror.ViewState{keySeg: viewStateOf(rs)}); verr != nil {
 		// Record the settings the refreshed view was written with (best-effort,

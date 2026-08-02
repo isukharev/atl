@@ -1,11 +1,14 @@
 package mirror
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -18,6 +21,29 @@ type SyncState struct {
 	Version int    `json:"version"`
 	Hash    string `json:"hash"`
 	Path    string `json:"path"` // rel to mirror root
+}
+
+// StagedState binds ATL-produced local substrate bytes to their resource
+// identity, mirror-relative path, and exact remote base digest. It is
+// deliberately separate from SyncState: recording a staged result does not
+// claim that the bytes exist on the remote, advance a remote version, or
+// replace the pristine base.
+type StagedState struct {
+	ID       string `json:"id"`
+	Hash     string `json:"hash"`
+	BaseHash string `json:"base_hash"`
+	Path     string `json:"path"` // canonical slash-separated path rel to mirror root
+}
+
+// StagedContent is one ATL-produced native body and its exact remote base
+// digest to bind as staged lineage. RecordStaged hashes Body inside the mirror
+// package so callers cannot accidentally bind the lineage to a transformed or
+// separately hashed view.
+type StagedContent struct {
+	ID       string
+	Path     string
+	Body     []byte
+	BaseHash string
 }
 
 // ViewState records the render settings a resource's .md view was last written
@@ -51,6 +77,10 @@ type sidecarFile struct {
 	// written with (keyed by the same page id / issue key as Pages). It lets
 	// apply reproduce the exact pristine view regardless of the ambient config.
 	Views map[string]ViewState `json:"views,omitempty"`
+	// Staged records local ATL-produced native bytes that have not been
+	// established as the remote baseline. Old sidecars omit this map and decode
+	// conservatively as having no staged lineage.
+	Staged map[string]StagedState `json:"staged,omitempty"`
 }
 
 func (m *Mirror) sidecarPath() string     { return filepath.Join(m.Root, ".atl", "state.json") }
@@ -83,7 +113,7 @@ func (m *Mirror) lockSidecar() (*safepath.FileLock, error) {
 // mirror); an unparseable one is a loud error — silently treating it as empty
 // would reset every page to never-synced and quietly disable drift detection.
 func (m *Mirror) loadSidecar() (sidecarFile, error) {
-	sc := sidecarFile{Pages: map[string]SyncState{}, Views: map[string]ViewState{}}
+	sc := sidecarFile{Pages: map[string]SyncState{}, Views: map[string]ViewState{}, Staged: map[string]StagedState{}}
 	b, err := safepath.ReadFileWithin(m.Root, m.sidecarPath())
 	if os.IsNotExist(err) {
 		return sc, nil
@@ -101,6 +131,14 @@ func (m *Mirror) loadSidecar() (sidecarFile, error) {
 	}
 	if sc.Views == nil {
 		sc.Views = map[string]ViewState{}
+	}
+	if sc.Staged == nil {
+		sc.Staged = map[string]StagedState{}
+	}
+	for id, state := range sc.Staged {
+		if err := validateStagedState(id, state); err != nil {
+			return sc, fmt.Errorf("%w: corrupt mirror sidecar %s: invalid staged lineage: %v — fix the JSON or delete the staged entry", domain.ErrCheckFailed, m.sidecarPath(), err)
+		}
 	}
 	return sc, nil
 }
@@ -120,8 +158,8 @@ func (m *Mirror) saveSidecar(sc sidecarFile) error {
 // latest state under a backend-neutral lock. Re-reading after lock acquisition
 // is essential: Jira and Confluence may share one mirror root and batches can
 // have been opened from the same old snapshot.
-func (m *Mirror) mergeSidecarPatch(pages map[string]SyncState, views map[string]ViewState) error {
-	if len(pages) == 0 && len(views) == 0 {
+func (m *Mirror) mergeSidecarPatch(pages map[string]SyncState, views map[string]ViewState, staged map[string]*StagedState) error {
+	if len(pages) == 0 && len(views) == 0 && len(staged) == 0 {
 		return nil
 	}
 	lock, err := m.lockSidecar()
@@ -139,7 +177,50 @@ func (m *Mirror) mergeSidecarPatch(pages map[string]SyncState, views map[string]
 	for id, state := range views {
 		sc.Views[id] = state
 	}
+	for id, state := range staged {
+		if state == nil {
+			delete(sc.Staged, id)
+			continue
+		}
+		if err := validateStagedState(id, *state); err != nil {
+			return fmt.Errorf("%w: invalid staged lineage: %v", domain.ErrCheckFailed, err)
+		}
+		sc.Staged[id] = *state
+	}
 	return m.saveSidecar(sc)
+}
+
+func validateStagedState(key string, state StagedState) error {
+	if key == "" || state.ID == "" || key != state.ID {
+		return fmt.Errorf("map identity %q does not match resource id %q", key, state.ID)
+	}
+	if err := validateStagedPath(state.Path); err != nil {
+		return fmt.Errorf("resource %q path %q: %w", key, state.Path, err)
+	}
+	if len(state.Hash) != 64 {
+		return fmt.Errorf("resource %q has invalid SHA-256 digest", key)
+	}
+	if _, err := hex.DecodeString(state.Hash); err != nil {
+		return fmt.Errorf("resource %q has invalid SHA-256 digest", key)
+	}
+	if len(state.BaseHash) != 64 {
+		return fmt.Errorf("resource %q has invalid base SHA-256 digest", key)
+	}
+	if _, err := hex.DecodeString(state.BaseHash); err != nil {
+		return fmt.Errorf("resource %q has invalid base SHA-256 digest", key)
+	}
+	return nil
+}
+
+func validateStagedPath(relative string) error {
+	if relative == "" || relative == "." || strings.ContainsAny(relative, "\\:") || strings.ContainsRune(relative, 0) {
+		return fmt.Errorf("must be a non-empty canonical slash-separated relative path")
+	}
+	clean := path.Clean(relative)
+	if clean != relative || path.IsAbs(relative) || clean == ".." || strings.HasPrefix(clean, "../") {
+		return fmt.Errorf("must be a canonical path contained by the mirror root")
+	}
+	return nil
 }
 
 // SyncedVersion returns the last-synced version for an id (0 if untracked).
@@ -194,11 +275,74 @@ func (m *Mirror) ViewStatesOf(ids []string) (map[string]ViewState, error) {
 	return out, nil
 }
 
+// StagedStateOf returns the staged-local lineage for one resource. ok is false
+// for an old sidecar, a never-staged resource, or lineage cleared by a later
+// successful sync. The remote SyncState and pristine base are not consulted or
+// changed by this API.
+func (m *Mirror) StagedStateOf(id string) (StagedState, bool, error) {
+	sc, err := m.loadSidecar()
+	if err != nil {
+		return StagedState{}, false, err
+	}
+	state, ok := sc.Staged[id]
+	return state, ok, nil
+}
+
+// StagedStatesOf reads one sidecar snapshot and returns the requested staged
+// lineage entries. Missing ids are omitted from the result.
+func (m *Mirror) StagedStatesOf(ids []string) (map[string]StagedState, error) {
+	sc, err := m.loadSidecar()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]StagedState, len(ids))
+	for _, id := range ids {
+		if state, ok := sc.Staged[id]; ok {
+			out[id] = state
+		}
+	}
+	return out, nil
+}
+
+// RecordStaged atomically records or updates staged-local lineage for a
+// batch. Staged hashes are computed directly from the supplied native bytes;
+// callers must supply the exact remote base hash. Entries for other resources
+// and services are merge-preserved under the sidecar lock.
+func (m *Mirror) RecordStaged(contents []StagedContent) error {
+	patch := make(map[string]*StagedState, len(contents))
+	for _, content := range contents {
+		state := StagedState{ID: content.ID, Hash: Hash(content.Body), BaseHash: content.BaseHash, Path: content.Path}
+		if err := validateStagedState(content.ID, state); err != nil {
+			return fmt.Errorf("%w: invalid staged lineage: %v", domain.ErrCheckFailed, err)
+		}
+		if _, duplicate := patch[content.ID]; duplicate {
+			return fmt.Errorf("%w: duplicate staged lineage for resource %q", domain.ErrCheckFailed, content.ID)
+		}
+		copy := state
+		patch[content.ID] = &copy
+	}
+	return m.mergeSidecarPatch(nil, nil, patch)
+}
+
+// ClearStaged atomically clears staged-local lineage for the supplied resource
+// identities. Unknown ids are harmless. Other resources and sidecar maps are
+// merge-preserved.
+func (m *Mirror) ClearStaged(ids ...string) error {
+	patch := make(map[string]*StagedState, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			return fmt.Errorf("%w: staged lineage resource id is empty", domain.ErrCheckFailed)
+		}
+		patch[id] = nil
+	}
+	return m.mergeSidecarPatch(nil, nil, patch)
+}
+
 // SaveViewStates merges a batch of view states into the sidecar in one
 // load-modify-save (for the render commands, which rewrite many .md views but
 // touch no sync state). Existing entries for other ids are preserved.
 func (m *Mirror) SaveViewStates(views map[string]ViewState) error {
-	return m.mergeSidecarPatch(nil, views)
+	return m.mergeSidecarPatch(nil, views, nil)
 }
 
 // saveBaseExt stores a pristine copy of the last-synced body under a

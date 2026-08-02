@@ -1460,7 +1460,7 @@ mirror/
         child-page.assets/
           diagram.png
   .atl/
-    state.json                 ← last-synced version + hash
+    state.json                 ← remote sync, render, and staged-local lineage
     incremental.json           ← completed selector-bound lower boundaries (0600)
     base/
       12345678.csf             ← pristine copy for diff
@@ -2037,6 +2037,14 @@ body so both surfaces agree (keeping the `full` decorations when they were
 present); if that refresh cannot be written the apply still succeeds and
 `warning` reports that the `.md` may be stale.
 
+Success also records an internal staged-local binding to the exact page id,
+relative `.csf` path, native hash, and unchanged remote-base hash. You may edit
+the refreshed `.md` and apply again before pushing: the next merge uses those
+exact ATL-produced bytes while status/diff/push remain anchored to the original
+remote baseline. A direct `.csf` edit, path mismatch, changed base, or corrupt
+binding exits `8`; pull and successful post-push refresh clear the binding when
+they establish a new remote baseline.
+
 Pass `-o text` for a compact human loss-review — block counts, each removed
 fragment, validation problems, and a contextual next-step hint:
 
@@ -2057,8 +2065,9 @@ with prose); a table edit crosses what the row/cell mapping can carry
 row a rowspan passes through, adding/removing columns, editing inside a nested
 table, copying a macro-bearing cell) — make that edit in the `.csf` directly
 (`conf edit`); the edit drops opaque fragments and `--allow-fragment-loss`
-was not given; or the local `.csf` has diverged from the last-synced base
-(direct `.csf` edits win — push or re-pull first).
+was not given; or the local `.csf` matches neither the last-synced base nor the
+exact staged output of the preceding `conf apply` (direct `.csf` edits win —
+preserve and push them, or use pull's explicit stash/overwrite policy).
 Exit `4`: the page was never pulled (no meta/base). The merged body is always
 validated; `conf push --dry-run` remains the final gate before the server.
 
@@ -4073,6 +4082,14 @@ view boundaries. If either appears inside an editable Description or field
 value, apply fails closed before changing `.wiki`, snapshot, or pending state;
 remove it or edit the native `.wiki` substrate deliberately.
 
+Each successful apply binds the exact issue key, relative `.wiki` path, native
+hash, and unchanged remote-base hash in internal mirror state. Consecutive
+Markdown edits can therefore be applied before push without moving the remote
+baseline. A pull clears that generic binding when it advances remote state; if
+it intentionally preserves a validated pending-field transaction, that exact
+pending wiki hash remains the local lineage. Manual native edits still require
+the explicit reviewed `--rebase-pending` path when fields are pending.
+
 The merge is **fail-closed** (exit `8`, nothing written) when: an edited block
 cannot be converted to wiki (a construct outside the subset) — make that edit in
 the `.wiki` directly; a wiki-only construct present in the base is dropped by the
@@ -4081,8 +4098,9 @@ was not given (the dropped constructs are listed in `removed_constructs`); an ed
 touches any section other than generated `# Description` or an opt-in editable field (Metadata, Comments,
 Links, Image Attachments) — the refusal names the section and the dedicated
 command (`jira issue update`, `jira issue comment add`, `jira issue link add`,
-`jira issue attachment upload`); or the local `.wiki` has diverged from the
-last-synced base (a direct `.wiki` edit wins — push or re-pull first). Exit `4`:
+`jira issue attachment upload`); or the local `.wiki` matches neither the
+last-synced base nor exact ATL-staged/pending lineage (a direct `.wiki` edit
+wins — preserve and push it, or explicitly rebase pending fields). Exit `4`:
 the issue was never pulled (no base or snapshot).
 
 ### `atl jira push`
@@ -4095,6 +4113,10 @@ writing nothing. The diff shows what the write changes **on the server**
 to be overwritten are visible in the preview. No field outside the explicit
 pending set is written. Description and fields are sent in one typed update when
 both changed. This is the Jira analog of `conf push`, but deliberately stricter:
+
+A `.wiki` whose issue key is tracked at another sidecar path is a stale copy:
+preview and apply both fail closed with `skipped:"non-canonical-path"`, including
+under `--force`, before any Jira read or write. Use the canonical mirror path.
 
 ```bash
 # preview one file (dry-run: shows the diff, writes nothing)

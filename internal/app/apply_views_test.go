@@ -69,7 +69,13 @@ func scaffoldFullPage(t *testing.T, body string) (rootDir, mdPath, fullMD string
 		t.Fatal(err)
 	}
 	m := mirror.New(rootDir)
-	if err := m.SaveViewStates(map[string]mirror.ViewState{"4242": viewStateOf(rsFull)}); err != nil {
+	batch, err := m.BeginSync()
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch.Record(mirror.SyncState{ID: "4242", Version: 3, Hash: mirror.Hash([]byte(body)), Path: "SP/page/page.csf"})
+	batch.RecordView("4242", viewStateOf(rsFull))
+	if err := batch.Flush(); err != nil {
 		t.Fatal(err)
 	}
 	return rootDir, filepath.Join(dir, "page.md"), fullMD

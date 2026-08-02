@@ -48,6 +48,15 @@ func scaffoldPage(t *testing.T, body string) (rootDir, mdPath string) {
 	if err := os.WriteFile(filepath.Join(baseDir, "4242.csf"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	m := mirror.New(rootDir)
+	batch, err := m.BeginSync()
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch.Record(mirror.SyncState{ID: "4242", Version: 3, Hash: mirror.Hash([]byte(body)), Path: "SP/page/page.csf"})
+	if err := batch.Flush(); err != nil {
+		t.Fatal(err)
+	}
 	return rootDir, filepath.Join(dir, "page.md")
 }
 
@@ -132,6 +141,104 @@ func TestApplyEndToEnd(t *testing.T) {
 	mdNow, _ := os.ReadFile(mdPath)
 	if !strings.Contains(string(mdNow), "Hello edited world.") {
 		t.Fatalf("md not regenerated: %s", mdNow)
+	}
+}
+
+func TestApplyCanStageConsecutiveMarkdownEditsWithoutMovingRemoteBase(t *testing.T) {
+	root, mdPath := scaffoldPage(t, applyPage)
+	md := mustReadFile(t, mdPath)
+	mustWriteFile(t, mdPath, strings.Replace(md, "Hello world.", "Hello first edit.", 1))
+	first, err := Apply(mdPath, ApplyOpts{Into: root})
+	if err != nil {
+		t.Fatalf("first apply: %v", err)
+	}
+
+	md = mustReadFile(t, mdPath)
+	mustWriteFile(t, mdPath, strings.Replace(md, "Hello first edit.", "Hello second edit.", 1))
+	second, err := Apply(mdPath, ApplyOpts{Into: root})
+	if err != nil {
+		t.Fatalf("second apply: %v", err)
+	}
+	got := mustReadFile(t, second.CSFPath)
+	if !strings.Contains(got, "Hello second edit.") {
+		t.Fatalf("second edit missing from staged CSF: %q", got)
+	}
+	if base, ok := mirror.New(root).BaseBody("4242"); !ok || string(base) != applyPage {
+		t.Fatalf("remote base moved during local apply: ok=%t body=%q", ok, base)
+	}
+	staged, ok, err := mirror.New(root).StagedStateOf("4242")
+	if err != nil || !ok || staged.Hash != mirror.Hash([]byte(got)) {
+		t.Fatalf("staged lineage = %+v, ok=%t err=%v", staged, ok, err)
+	}
+	if !first.Wrote || !second.Wrote {
+		t.Fatalf("apply results = first %+v second %+v", first, second)
+	}
+}
+
+func TestApplyRejectsDirectNativeEditAfterStaging(t *testing.T) {
+	root, mdPath := scaffoldPage(t, applyPage)
+	md := mustReadFile(t, mdPath)
+	mustWriteFile(t, mdPath, strings.Replace(md, "Hello world.", "Hello staged.", 1))
+	res, err := Apply(mdPath, ApplyOpts{Into: root})
+	if err != nil {
+		t.Fatalf("first apply: %v", err)
+	}
+	mustWriteFile(t, res.CSFPath, strings.Replace(mustReadFile(t, res.CSFPath), "Hello staged.", "direct native edit", 1))
+	_, err = Apply(mdPath, ApplyOpts{Into: root})
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "recorded staged") {
+		t.Fatalf("direct edit error = %v, want staged-lineage check failure", err)
+	}
+}
+
+func TestApplyRejectsStagedLineageAfterRemoteBaseChanges(t *testing.T) {
+	root, mdPath := scaffoldPage(t, applyPage)
+	md := mustReadFile(t, mdPath)
+	mustWriteFile(t, mdPath, strings.Replace(md, "Hello world.", "Hello staged.", 1))
+	if _, err := Apply(mdPath, ApplyOpts{Into: root}); err != nil {
+		t.Fatalf("first apply: %v", err)
+	}
+	mustWriteFile(t, filepath.Join(root, ".atl", "base", "4242.csf"), "<p>different remote generation</p>")
+	_, err := Apply(mdPath, ApplyOpts{Into: root})
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "recorded remote path/base lineage") {
+		t.Fatalf("changed-base error = %v, want remote-lineage check failure", err)
+	}
+}
+
+func TestApplyRejectsNonCanonicalTrackedPath(t *testing.T) {
+	root, mdPath := scaffoldPage(t, applyPage)
+	m := mirror.New(root)
+	batch, err := m.BeginSync()
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch.Record(mirror.SyncState{ID: "4242", Version: 3, Hash: mirror.Hash([]byte(applyPage)), Path: "SP/canonical/page.csf"})
+	if err := batch.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Apply(mdPath, ApplyOpts{Into: root})
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "recorded remote path/base lineage") {
+		t.Fatalf("non-canonical apply error = %v", err)
+	}
+}
+
+func TestApplyRejectsBaseWithoutRemoteSyncLineage(t *testing.T) {
+	root, mdPath := scaffoldPage(t, applyPage)
+	mustWriteFile(t, filepath.Join(root, ".atl", "state.json"), "{\"pages\":{}}\n")
+	_, err := Apply(mdPath, ApplyOpts{Into: root})
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "no recorded remote sync lineage") {
+		t.Fatalf("untracked apply error = %v", err)
+	}
+}
+
+func TestRevalidateApplyInputRejectsConcurrentEditorSave(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "page.md")
+	qualified := []byte("reviewed Markdown\n")
+	mustWriteFile(t, path, string(qualified))
+	mustWriteFile(t, path, "new editor save\n")
+	err := revalidateApplyInput(root, path, qualified, "Markdown view")
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "changed during apply") {
+		t.Fatalf("editor-save revalidation error = %v", err)
 	}
 }
 
@@ -275,7 +382,16 @@ func TestApplyFailsClosedWhenPristineCSFNoLongerParses(t *testing.T) {
 	if err := os.WriteFile(csfPath, []byte(broken), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := Apply(mdPath, ApplyOpts{Into: root})
+	m := mirror.New(root)
+	batch, err := m.BeginSync()
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch.Record(mirror.SyncState{ID: "4242", Version: 3, Hash: mirror.Hash([]byte(broken)), Path: "SP/page/page.csf"})
+	if err := batch.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Apply(mdPath, ApplyOpts{Into: root})
 	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "no longer parses") {
 		t.Fatalf("parse refusal = %v", err)
 	}

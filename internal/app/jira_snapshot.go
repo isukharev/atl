@@ -285,7 +285,7 @@ func inspectJiraMirrorUnlocked(dir string) (*JiraMirrorSnapshot, []*jiraMirrorLo
 		case canonical:
 			result.Local.Tracked++
 			canonicalByKey[local.Key] = item
-		case local.Synced != nil:
+		case local.TrackedElsewhere:
 			result.Local.Untracked++
 			result.Local.NonCanonical++
 			result.Native.NonCanonical++

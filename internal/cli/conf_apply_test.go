@@ -48,6 +48,15 @@ func scaffoldApplyPage(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(root, ".atl", "base", "777.csf"), []byte(applyFixtureCSF), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	m := mirror.New(root)
+	batch, err := m.BeginSync()
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch.Record(mirror.SyncState{ID: "777", Version: 1, Hash: mirror.Hash([]byte(applyFixtureCSF)), Path: "SP/page/page.csf"})
+	if err := batch.Flush(); err != nil {
+		t.Fatal(err)
+	}
 	return filepath.Join(dir, "page.md")
 }
 
