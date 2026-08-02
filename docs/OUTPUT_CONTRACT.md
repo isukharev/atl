@@ -1595,7 +1595,9 @@ origins, `repeated_cell_count` counts span-covered copies, and
 reconstructs every source-cell placement and declared rowspan/colspan rectangle
 from the source DOM, rejects overlapping claims or coverage outside the source
 row domain, and requires that ledger to agree cell-for-cell with the expanded
-grid.
+grid. A syntactically valid native span above 100 returns a check failure before
+expansion; no schema-v3 result can claim reconciled geometry for a clamped
+table.
 
 Direct `rowspan_metadata_cell_count` / `colspan_metadata_cell_count` count every
 expanded cell carrying that span metadata, including covered copies; the

@@ -131,10 +131,38 @@ func (ct *content) toResource(base, body string) *domain.Resource {
 	for _, l := range ct.Metadata.Labels.Results {
 		r.Labels = append(r.Labels, l.Name)
 	}
-	if ct.Links.WebUI != "" {
-		r.URL = base + ct.Links.WebUI
-	}
+	r.URL = confluenceWebURL(base, ct.Links.WebUI)
 	return r
+}
+
+// confluenceWebURL converts the backend-provided webui path to a same-origin
+// browser target. The REST field is untrusted: parse it before joining and
+// never allow an absolute/network-path reference, userinfo, or scheme change
+// to reach an OS browser opener.
+func confluenceWebURL(base, webUI string) string {
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	webUI = strings.TrimSpace(webUI)
+	if base == "" || webUI == "" {
+		return ""
+	}
+	baseURL, err := url.Parse(base)
+	if err != nil || baseURL.User != nil || baseURL.Host == "" || baseURL.RawQuery != "" || baseURL.Fragment != "" || (baseURL.Scheme != "https" && baseURL.Scheme != "http") {
+		return ""
+	}
+	ref, err := url.Parse(webUI)
+	if err != nil || ref.IsAbs() || ref.Host != "" || ref.User != nil {
+		return ""
+	}
+	for _, segment := range strings.Split(ref.Path, "/") {
+		if segment == "." || segment == ".." {
+			return ""
+		}
+	}
+	joined, err := url.Parse(base + "/" + strings.TrimLeft(webUI, "/"))
+	if err != nil || joined.User != nil || !strings.EqualFold(joined.Host, baseURL.Host) || joined.Scheme != baseURL.Scheme {
+		return ""
+	}
+	return joined.String()
 }
 
 func (ct *content) storageBody() (string, bool) {
@@ -192,9 +220,7 @@ func (cf *Confluence) GetMeta(ctx context.Context, id string) (*domain.PageMeta,
 		m.Labels = append(m.Labels, l.Name)
 	}
 	m.Restrictions = ct.restrictionState()
-	if ct.Links.WebUI != "" {
-		m.URL = cf.base + ct.Links.WebUI
-	}
+	m.URL = confluenceWebURL(cf.base, ct.Links.WebUI)
 	return m, nil
 }
 

@@ -41,9 +41,14 @@ one command-scoped scheduler bounds every Confluence and optional Jira-macro
 transport hop and shares a server `Retry-After` cooldown.
 
 `conf page open` asks the operating system to open a browser URL. The `atl`
-process does not fetch that page, but the browser may make its own network
-requests. Model providers, coding-agent hosts, shell commands, proxies, package
-managers, and Context7 are also outside the `atl` runtime boundary.
+process does not fetch that page. It accepts only a parsed HTTP(S) target under
+the configured Confluence origin and context path; an absolute, network-path,
+userinfo-bearing, cross-origin, or alternate-scheme backend value is never
+passed to the browser. HTTPS is the default; HTTP remains possible only when
+the configured backend has already passed ATL's loopback or explicit
+insecure-transport policy. The browser may then make its own same-origin
+network requests. Model providers, coding-agent hosts, shell commands, proxies,
+package managers, and Context7 are also outside the `atl` runtime boundary.
 
 ## The two independent safety controls
 

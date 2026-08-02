@@ -145,7 +145,10 @@ func mergeTable(base []byte, tableNode *csf.Node, refs []domain.Ref, editedTxt s
 	for i, cells := range editRows {
 		editKeys[i] = strings.Join(cells, "\x00")
 	}
-	baseMatch, _ := lcs(baseKeys, editKeys)
+	baseMatch, _, aligned := lcs(baseKeys, editKeys)
+	if !aligned {
+		return nil, fmt.Errorf("table row alignment exceeds the bounded safety budget")
+	}
 
 	// Turn the alignment into per-row operations. Inside a gap run, base and
 	// edited rows pair positionally (a modification); leftover base rows are

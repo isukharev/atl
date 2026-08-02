@@ -967,6 +967,94 @@ func TestDoStreamSizedSetsContentLength(t *testing.T) {
 	}
 }
 
+func TestDoStreamSizedStalledResponseIsIdleBounded(t *testing.T) {
+	shrinkIdle(t, 120*time.Millisecond)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		_, _ = io.WriteString(w, "prefix")
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "secret-pat", "test")
+	_, err := c.DoStreamSized(context.Background(), http.MethodPost, "/upload", strings.NewReader("streamed"), int64(len("streamed")), nil)
+	if err == nil || !strings.Contains(err.Error(), "download stalled") {
+		t.Fatalf("stalled upload response error = %v, want inactivity classification", err)
+	}
+}
+
+func TestDoStreamSizedStartsIdleWindowAfterResponseBudgetAdmission(t *testing.T) {
+	const idle = 80 * time.Millisecond
+	shrinkIdle(t, idle)
+	requestReachedBackend := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		close(requestReachedBackend)
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	}))
+	defer srv.Close()
+
+	budget := mustReadBudget(t, 1, 1024)
+	_, release, err := budget.BeginResponse(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := false
+	defer func() {
+		if !released {
+			release(0)
+		}
+	}()
+
+	ctx := domain.WithReadBudget(context.Background(), budget)
+	done := make(chan error, 1)
+	go func() {
+		_, callErr := New(srv.URL, "secret-pat", "test").DoStreamSized(ctx, http.MethodPost, "/upload", strings.NewReader("streamed"), int64(len("streamed")), nil)
+		done <- callErr
+	}()
+	<-requestReachedBackend
+	select {
+	case callErr := <-done:
+		t.Fatalf("request completed while response budget was reserved: %v", callErr)
+	case <-time.After(2 * idle):
+	}
+	release(0)
+	released = true
+	if callErr := <-done; callErr != nil {
+		t.Fatalf("request after response-budget admission: %v", callErr)
+	}
+}
+
+func TestDoStreamSizedHonorsCallerCancellationWhileReadingResponse(t *testing.T) {
+	responseStarted := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		_, _ = io.WriteString(w, "prefix")
+		w.(http.Flusher).Flush()
+		close(responseStarted)
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, callErr := New(srv.URL, "secret-pat", "test").DoStreamSized(ctx, http.MethodPost, "/upload", strings.NewReader("streamed"), int64(len("streamed")), nil)
+		done <- callErr
+	}()
+	<-responseStarted
+	cancel()
+	select {
+	case callErr := <-done:
+		if !errors.Is(callErr, context.Canceled) {
+			t.Fatalf("caller cancellation error = %v, want context.Canceled", callErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("caller cancellation did not stop upload response read")
+	}
+}
+
 func TestDoStreamMapsStatusToSentinel(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "gone", http.StatusNotFound)

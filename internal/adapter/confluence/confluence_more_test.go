@@ -140,6 +140,36 @@ func TestToResourceNoAncestorsNoWebUI(t *testing.T) {
 	}
 }
 
+func TestConfluenceWebURLIsSameOriginAndContextRelative(t *testing.T) {
+	const base = "https://wiki.example/confluence"
+	if got := confluenceWebURL(base, "/display/DOC/Page?x=1"); got != "https://wiki.example/confluence/display/DOC/Page?x=1" {
+		t.Fatalf("same-origin URL = %q", got)
+	}
+	if got := confluenceWebURL("http://127.0.0.1:8090/confluence", "/display/DOC/Page"); got != "http://127.0.0.1:8090/confluence/display/DOC/Page" {
+		t.Fatalf("configured loopback HTTP URL = %q", got)
+	}
+	for _, invalidBase := range []string{
+		"https://wiki.example/confluence?next=https://other.example",
+		"https://wiki.example/confluence#fragment",
+	} {
+		if got := confluenceWebURL(invalidBase, "/display/DOC/Page"); got != "" {
+			t.Errorf("confluenceWebURL(base %q) = %q, want refusal", invalidBase, got)
+		}
+	}
+	for _, hostile := range []string{
+		"https://other.example/page",
+		"//other.example/page",
+		"https://wiki.example@other.example/page",
+		"javascript:alert(1)",
+		"../outside-context",
+		"%2e%2e/outside-context",
+	} {
+		if got := confluenceWebURL(base, hostile); got != "" {
+			t.Errorf("confluenceWebURL(%q) = %q, want refusal", hostile, got)
+		}
+	}
+}
+
 func TestToResourcePreservesAncestorProjectionPresence(t *testing.T) {
 	for _, tt := range []struct {
 		name    string

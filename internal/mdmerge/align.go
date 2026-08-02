@@ -1,16 +1,27 @@
 package mdmerge
 
+const (
+	maxLCSCells = 1_000_000
+	maxLCSItems = 100_000
+)
+
 // lcs computes a longest-common-subsequence matching between two string
 // slices. It returns, for each side, the matched index on the other side (-1
-// when unmatched). Matched pairs are strictly increasing on both sides, so
-// kept content preserves document order. Sizes are page-scale (hundreds of
-// blocks), well within O(n·m) dynamic programming.
-func lcs(a, b []string) (matchA, matchB []int) {
+// when unmatched), plus whether exact alignment stayed within the fixed
+// dynamic-programming budget. Matched pairs are strictly increasing on both
+// sides, so kept content preserves document order.
+func lcs(a, b []string) (matchA, matchB []int, complete bool) {
 	n, m := len(a), len(b)
+	// Refuse before allocating even the linear match vectors. The matrix uses
+	// the extra zero row/column, so the exact allocation is (n+1)*(m+1), not
+	// n*m. The independent item cap also covers one empty or one tiny side.
+	if n > maxLCSItems || m > maxLCSItems || n+1 > maxLCSCells/(m+1) {
+		return nil, nil, false
+	}
 	matchA = fill(n)
 	matchB = fill(m)
 	if n == 0 || m == 0 {
-		return matchA, matchB
+		return matchA, matchB, true
 	}
 	// dp[i][j] = LCS length of a[i:], b[j:].
 	dp := make([][]int32, n+1)
@@ -40,7 +51,7 @@ func lcs(a, b []string) (matchA, matchB []int) {
 			j++
 		}
 	}
-	return matchA, matchB
+	return matchA, matchB, true
 }
 
 func fill(n int) []int {

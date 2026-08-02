@@ -67,6 +67,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Unified the hard cap for server-controlled Confluence table spans across
+  mirror rendering and exact table projections. Exact extract/summary reads now
+  fail closed before expansion when native geometry exceeds the supported cap,
+  and Markdown block/table alignment refuses inputs beyond its fixed
+  quadratic-work budget instead of allocating an unbounded matrix.
+
+- Constrained `conf page open` to a parsed same-origin HTTP(S) URL derived from
+  the configured Confluence context path, and applied the existing streaming
+  inactivity bound to attachment-upload response bodies without imposing a
+  whole-upload wall-clock timeout.
+
 - Bounded Confluence Storage Format nesting before recursive parsing and
   rendering, returning a stable `max-depth` validation problem for anomalously
   deep documents while preserving accepted document bytes.
