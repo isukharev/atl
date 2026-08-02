@@ -119,7 +119,7 @@ func TestMutationRegistryPreservesReviewedAccessSet(t *testing.T) {
 local-direct auth login
 local-direct auth logout
 local-direct conf apply
-remote-direct conf attachment delete
+preview-apply conf attachment delete
 remote-direct conf attachment upload
 remote-direct conf blog create
 preview-apply conf comment add

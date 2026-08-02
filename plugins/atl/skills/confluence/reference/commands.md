@@ -217,7 +217,7 @@ identifier per line.
 | `conf push` | Version-gated write | file/dir, `--dry-run`, `--force`, `--into` |
 | `conf comment list|thread` | Qualified schema-v2 thread/anchor reads; `list` filters location/state/depth and supports an expected page version, while `thread` selects one exact comment | page id, comment id, read filters |
 | `conf comment preview|add` | Reviewed root-footer creation; `preview` is read-only, `add` is mutating-classified and dry-run by default | page id, exact native-CSF file (≤1 MiB); `add --apply --expected-proposal-hash` for one POST |
-| `conf attachment list|get|upload|delete` | Attachments; `list` is qualified (`complete`/`partial_reason`) | page/id/name/version/file/into, `list --expected-version` |
+| `conf attachment list|get|upload|delete` | Attachments; `list` is qualified and permanent delete is guarded preview/apply | page/id/name/version/file/into; delete uses `--page-id`, `--id`, then `--apply --confirm DELETE --expected-version --expected-proposal-hash` |
 | `conf table summary` | Content-free table inventory with exact structural/style cardinalities and reconciliation | selector, `--table` |
 | `conf table extract` | Table export | selector, `--format`, `--raw-csv` |
 | `conf me` | Authenticated user | none |

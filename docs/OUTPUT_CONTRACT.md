@@ -988,6 +988,50 @@ before any attachment request is issued, and reports only the expected and
 current integers. `0` (the default) disables the gate; a negative value is a
 usage error (exit `2`).
 
+`atl conf attachment delete --page-id <PAGE-ID> --id <ATTACHMENT-ID>` emits the
+guarded schema-v1 proposal:
+
+```json
+{
+  "schema_version": 1,
+  "page_id": "12345",
+  "attachment_id": "67890",
+  "mode": "dry-run",
+  "status": "would_apply",
+  "operation": "delete",
+  "observed_state": "present",
+  "current_page_version": 7,
+  "expected_page_version": 7,
+  "page_body_sha256": "<sha256>",
+  "page_body_bytes": 128,
+  "page_title_sha256": "<sha256>",
+  "page_hierarchy_sha256": "<sha256>",
+  "attachment_title_sha256": "<sha256>",
+  "media_type_sha256": "<sha256>",
+  "attachment_file_size": 4096,
+  "attachment_version": 2,
+  "inventory_count": 3,
+  "inventory_sha256": "<sha256>",
+  "expected_final_count": 2,
+  "expected_final_sha256": "<sha256>",
+  "backend_sha256": "<sha256>",
+  "proposal_hash": "<sha256>",
+  "write_attempted": false,
+  "complete": true,
+  "warning": "..."
+}
+```
+
+Apply adds `final_page_version`, `final_count`, and `final_sha256` when exact
+readback is available. `status` is `would_apply`, `blocked`, `not_applied`,
+`applied`, `recovered`, or `outcome_unknown`; `write_attempted` records whether
+the single DELETE began and `reconciled:true` means two independently complete
+final inventories agreed. Success/recovery requires unchanged exact page
+evidence and that reconciled inventory to equal the entire reviewed inventory
+minus the selected attachment. Absence alone is insufficient when the page or
+a sibling changed. Attachment comments participate only through the aggregate
+inventory/proposal hashes and are never emitted by this result.
+
 Confluence pull/render/apply/push and mirror-local `conf edit` acquire one persistent mirror-internal
 advisory lock for their complete mutation/preview critical section. Contention
 is exit `8` before page/state writes. The file persists so every process locks
