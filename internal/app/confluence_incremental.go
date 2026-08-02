@@ -362,16 +362,32 @@ func sameIncrementalHitSet(a, b map[string]domain.PageRef) bool {
 	return true
 }
 
-// preflightIncrementalOverwrite rejects both native edits and unapplied edits
-// to the derived Markdown view before the first remote body read or local write.
-func preflightIncrementalOverwrite(m *mirror.Mirror, ids []string) (int, error) {
-	return preflightConfluenceOverwrite(m, ids)
+type confluenceLocalPage struct {
+	id         string
+	path       string
+	current    []byte
+	derived    []byte
+	metadata   []byte
+	baseline   []byte
+	dirty      bool
+	migrates   bool
+	action     *PullLocalAction
+	blockedErr error
 }
 
-func preflightConfluenceOverwrite(m *mirror.Mirror, ids []string) (int, error) {
+type confluenceLocalQualification struct {
+	byID       map[string]*confluenceLocalPage
+	migrations int
+}
+
+// qualifyConfluenceLocal inspects every selected identity. Native edits are a
+// recoverable condition only after every stronger artifact/view gate has been
+// proven; overwrite/stash must never turn a corrupt or unreconstructable page
+// into an allowed target.
+func qualifyConfluenceLocal(m *mirror.Mirror, ids []string, o PullOpts) (*confluenceLocalQualification, error) {
 	states, err := m.SyncStates()
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	byID := map[string]mirror.SyncState{}
 	for _, state := range states {
@@ -379,12 +395,18 @@ func preflightConfluenceOverwrite(m *mirror.Mirror, ids []string) (int, error) {
 			byID[state.ID] = state
 		}
 	}
-	migrations := 0
+	viewsByID, err := m.ViewStatesOf(ids)
+	if err != nil {
+		return nil, err
+	}
+	result := &confluenceLocalQualification{byID: map[string]*confluenceLocalPage{}}
 	for _, id := range ids {
 		state, ok := byID[id]
 		if !ok {
 			continue
 		}
+		local := &confluenceLocalPage{id: id, path: filepath.ToSlash(state.Path)}
+		result.byID[id] = local
 		csfPath := filepath.Join(m.Root, filepath.FromSlash(state.Path))
 		primary := []string{csfPath, strings.TrimSuffix(csfPath, ".csf") + ".md", strings.TrimSuffix(csfPath, ".csf") + ".meta.json"}
 		present := 0
@@ -392,67 +414,114 @@ func preflightConfluenceOverwrite(m *mirror.Mirror, ids []string) (int, error) {
 			if _, readErr := safepath.ReadFileWithin(m.Root, path); readErr == nil {
 				present++
 			} else if !os.IsNotExist(readErr) {
-				return 0, fmt.Errorf("%w: inspect incremental target %s: %v", domain.ErrCheckFailed, path, readErr)
+				local.blockedErr = fmt.Errorf("%w: inspect pull target %s: %v", domain.ErrCheckFailed, path, readErr)
+				break
 			}
 		}
+		if local.blockedErr != nil {
+			continue
+		}
 		if present == 0 {
+			// A deliberate complete removal contains no native bytes to preserve;
+			// relocation may safely reconstruct it. Keep inspecting later ids: the
+			// former ordinary preflight returned here and skipped their checks.
+			delete(result.byID, id)
 			continue
 		}
 		if present != len(primary) {
-			return 0, fmt.Errorf("%w: tracked incremental target for page %s is only partially present; preserve or restore its .csf/.md/.meta.json files", domain.ErrCheckFailed, id)
+			local.action = &PullLocalAction{ID: id, Path: local.path, Status: pullLocalBlocked, Reason: "local_artifacts_partial"}
+			local.blockedErr = fmt.Errorf("%w: tracked pull target for page %s is only partially present; preserve or restore its .csf/.md/.meta.json files", domain.ErrCheckFailed, id)
+			continue
 		}
-		lc, _, err := m.LoadCSF(csfPath)
+		nativeAction, qualifiedCurrent, nativeErr := qualifyPullNative(m, id, csfPath, ".csf", o.OverwriteLocal, o.StashLocal, &state)
+		if nativeErr != nil {
+			local.blockedErr = nativeErr
+			continue
+		}
+		local.action = nativeAction
+		if nativeAction != nil && nativeAction.Status == pullLocalBlocked {
+			local.current = append([]byte(nil), qualifiedCurrent...)
+			if nativeAction.Reason == "local_native_modified" {
+				local.blockedErr = fmt.Errorf("%w: page %s has local native edits; apply/push, stash, or explicitly overwrite them before pull", domain.ErrCheckFailed, id)
+			} else {
+				local.blockedErr = fmt.Errorf("%w: page %s native substrate is not qualified for replacement (%s)", domain.ErrCheckFailed, id, nativeAction.Reason)
+			}
+			continue
+		}
+		lc, current, err := m.LoadCSF(csfPath)
 		if err != nil {
-			return 0, err
+			local.blockedErr = fmt.Errorf("%w: inspect tracked pull target for page %s: %v", domain.ErrCheckFailed, id, err)
+			continue
 		}
-		if lc.Dirty {
-			return 0, fmt.Errorf("%w: page %s has local native edits; apply/push or preserve them before incremental pull", domain.ErrCheckFailed, id)
-		}
+		local.current = append([]byte(nil), current...)
+		local.dirty = nativeAction != nil
 		if lc.Meta.Hash != state.Hash || lc.Meta.Version != state.Version {
-			return 0, fmt.Errorf("%w: page %s metadata diverges from its tracked version/hash; preserve and reconcile it before incremental pull", domain.ErrCheckFailed, id)
+			local.blockedErr = fmt.Errorf("%w: page %s metadata diverges from its tracked version/hash; preserve and reconcile it before pull", domain.ErrCheckFailed, id)
+			continue
 		}
 		base, ok := m.BaseBody(id)
 		if !ok {
-			return 0, fmt.Errorf("%w: page %s has no pristine base; re-pull it explicitly before incremental refresh", domain.ErrCheckFailed, id)
+			local.blockedErr = fmt.Errorf("%w: page %s has no pristine base; preserve its files and repair the mirror state before refresh", domain.ErrCheckFailed, id)
+			continue
 		}
+		local.baseline = append([]byte(nil), base...)
 		node, parseErr := csf.Parse(base)
-		if parseErr != nil {
-			return 0, fmt.Errorf("%w: page %s pristine CSF cannot reproduce its Markdown view; preserve local files and re-pull the page explicitly", domain.ErrCheckFailed, id)
-		}
-		view, hasView, err := m.ViewStateOf(id)
-		if err != nil {
-			return 0, err
-		}
+		view, hasView := viewsByID[id]
 		opts := mirror.MDViewOpts{}
 		legacyOpts := opts
-		if hasView {
+		views := confluencePristineViews{current: []byte(mirror.MDUnavailableStub), legacy: map[string][]byte{
+			mirror.ConfluenceDocumentMarkerV5: bytes.Replace([]byte(mirror.MDUnavailableStub), []byte(mirror.ConfluenceDocumentMarker), []byte(mirror.ConfluenceDocumentMarkerV5), 1),
+			mirror.ConfluenceDocumentMarkerV4: bytes.Replace([]byte(mirror.MDUnavailableStub), []byte(mirror.ConfluenceDocumentMarker), []byte(mirror.ConfluenceDocumentMarkerV4), 1),
+		}}
+		if parseErr == nil && hasView {
 			dir := filepath.Dir(csfPath)
 			slug := strings.TrimSuffix(filepath.Base(csfPath), ".csf")
 			comments, commentErr := readCommentsSidecar(m.Root, dir, slug, id, lc.Meta.Version)
 			if commentErr != nil {
-				return 0, fmt.Errorf("%w: cannot reproduce page %s comment view: %v", domain.ErrCheckFailed, id, commentErr)
+				local.blockedErr = fmt.Errorf("%w: cannot reproduce page %s comment view: %v", domain.ErrCheckFailed, id, commentErr)
+				continue
 			}
 			renderSettings := settingsFromViewState(view)
 			opts, err = confMDViewOptsFromSidecars(renderSettings, confPageFromMeta(lc.Meta), comments, m.Root, dir, slug, id, node)
 			if err != nil {
-				return 0, fmt.Errorf("%w: cannot reproduce page %s derived view: %v", domain.ErrCheckFailed, id, err)
+				local.blockedErr = fmt.Errorf("%w: cannot reproduce page %s derived view: %v", domain.ErrCheckFailed, id, err)
+				continue
 			}
 			legacyOpts = legacyConfluenceCommentMDViewOpts(opts, renderSettings, comments)
 		}
+		if parseErr == nil {
+			views = renderConfluencePristineViews(node, lc.Meta.Refs, opts, legacyOpts)
+		}
 		actual, err := safepath.ReadFileWithin(m.Root, primary[1])
 		if err != nil {
-			return 0, err
+			local.blockedErr = err
+			continue
 		}
-		migrates, matchErr := matchConfluencePristineView(actual,
-			renderConfluencePristineViews(node, lc.Meta.Refs, opts, legacyOpts))
+		local.derived = append([]byte(nil), actual...)
+		metadata, err := safepath.ReadFileWithin(m.Root, primary[2])
+		if err != nil {
+			local.blockedErr = err
+			continue
+		}
+		local.metadata = append([]byte(nil), metadata...)
+		migrates, matchErr := matchConfluencePristineView(actual, views)
 		if matchErr != nil {
-			return 0, fmt.Errorf("%w: page %s %v", domain.ErrCheckFailed, id, matchErr)
+			local.action = &PullLocalAction{
+				ID: id, Path: local.path, Status: pullLocalBlocked, Reason: "local_artifacts_unqualified",
+				CurrentSHA256: mirror.Hash(local.current), BaselineSHA256: mirror.Hash(local.baseline),
+			}
+			local.blockedErr = fmt.Errorf("%w: page %s %v", domain.ErrCheckFailed, id, matchErr)
+			continue
 		}
 		if migrates {
-			migrations++
+			local.migrates = true
+			result.migrations++
+		}
+		if local.dirty && local.action != nil && local.action.Status == pullLocalBlocked {
+			local.blockedErr = fmt.Errorf("%w: page %s has local native edits; apply/push, stash, or explicitly overwrite them before pull", domain.ErrCheckFailed, id)
 		}
 	}
-	return migrations, nil
+	return result, nil
 }
 
 // matchConfluencePristineView proves whether an existing derived view is either

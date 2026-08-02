@@ -213,6 +213,13 @@ Confluence-view v6 используются безопасные code fence, о�
 параграфов, явные inline-разрывы и table merge с сохранением структуры;
 непредставимая нативная форма отклоняется до изменения `.csf`.
 
+Pull никогда молча не перезаписывает локальные правки нативного файла или
+derived view. Он обновляет чистые соседние объекты, сообщает блокировки через
+content-free `local_safety` и завершается с кодом `8`. Для проверки используйте
+`pull --dry-run`; перед намеренным сбросом сохраните точные нативные байты через
+`--stash-local` либо явно отбросьте их через `--overwrite-local`. Эти флаги не
+обходят правки Markdown и нарушения baseline.
+
 ### 3. Проверяемая запись
 
 Write-loop: свежее чтение → candidate → diff/preview → проверенные
@@ -226,8 +233,9 @@ atl conf push "$ATL_MIRROR_ROOT/SPACE/page/page.csf" --dry-run
 ```
 
 После проверки повторите точную guarded-команду без `--dry-run`. Confluence
-version conflict даёт код `5`: сделайте re-pull и reapply, не включайте
-`--force` автоматически. Для нового комментария Confluence сначала используйте
+version conflict даёт код `5`: сохраните и повторно примените локальный
+candidate (проверенный `pull --stash-local` сохранит точные нативные байты), не
+включая `--force` автоматически. Для нового комментария Confluence сначала используйте
 read-only команду `conf comment preview`, затем повторите точное native-CSF body
 через `conf comment add --apply --expected-proposal-hash ...`. Команда `add` по
 умолчанию выполняет dry-run, но остаётся mutating-classified; она создаёт только

@@ -590,7 +590,9 @@ stable identity at the top level and raw Jira fields under `fields`:
 `--fields` on `jira pull` adds requested fields to that `fields` map; the command still includes the
 core fields needed to render the markdown view and choose the project/key path.
 
-The `jira pull` stdout summary is `{ "into": <root>, "issues": [ { "key", "path", "wiki_path", "assets", "epic_children" }, ... ] }`.
+The `jira pull` stdout summary is `{ "into": <root>, "issues": [ { "key", "path", "wiki_path", "status", "assets", "epic_children" }, ... ] }`.
+`status` is omitted on an ordinary successful pull; pull previews use
+`would_pull`, while a preserved item uses `blocked`.
 With `--assets`, each issue object gains an `assets` count of image attachments mirrored into
 `<KEY>.assets/`, and the top-level result gains `assets_skipped` when some images could not be
 downloaded. Both `assets` and `assets_skipped` are `omitempty`: a default (no `--assets`) pull, and a
@@ -1070,6 +1072,36 @@ found none, distinguishable from "not fetched"):
   ]
 }
 ```
+
+Both pull families add `local_safety` only for `--dry-run`, an explicit native
+recovery, or a refusal. Its stable shape is:
+
+```json
+{
+  "dry_run": true,
+  "complete": false,
+  "blocked": 1,
+  "action_count": 1,
+  "actions": [{
+    "id": "EXAMPLE-1",
+    "path": "EXAMPLE/EXAMPLE-1.wiki",
+    "status": "blocked",
+    "reason": "local_native_modified",
+    "current_sha256": "<sha256>",
+    "baseline_sha256": "<sha256>"
+  }]
+}
+```
+
+Closed action statuses are `blocked`, `would_overwrite`, `would_stash`,
+`overwritten`, and `stashed`. `stash_path` appears only after an exact native
+copy was durably preserved. Hashes are content evidence; bodies are never
+included. A blocked multi-object pull emits this qualified result and then
+returns `ErrCheckFailed` (exit `8`). Safe ordinary/incremental siblings may have
+been refreshed, but a blocked incremental watermark is unchanged and a
+complete-pull checkpoint never advances beyond the blocked identity. Recovery
+flags never qualify derived-view edits, missing/corrupt baselines, or tracked
+path drift.
 
 With `--incremental`, the same result additionally carries `incremental`:
 

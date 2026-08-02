@@ -177,6 +177,13 @@ write command after explicit approval.
   are excluded. Missing ancestry or marker evidence stays partial;
   never infer it from response order or prose. `--legacy-flat` is temporary
   compatibility only, not a route for new automation.
+- Mirror refresh is non-destructive by default. `conf pull --dry-run` performs
+  selection and qualification without changing files, state, watermarks,
+  checkpoints, or stashes. A local `.csf` or `.md` edit is preserved and makes
+  the aggregate exit 8 after safe siblings; inspect `local_safety`. Only an
+  intact, qualified native edit can use `--stash-local` (preferred when
+  intentionally resetting) or `--overwrite-local`; these flags never bypass
+  derived-view, future-marker, path, metadata, or baseline failures.
   With `conf pull --comments`, treat `.comments.json` as schema-v2 source
   evidence. The main v6 `.md` contains the deterministic qualified read-only
   tree; `.comments.md` remains flat compatibility. Never edit either generated

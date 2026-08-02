@@ -207,6 +207,13 @@ use content-safe code fences, reversible paragraph escapes, explicit inline
 break markers, and structure-preserving table merges; unsupported native shape
 is refused before `.csf` changes.
 
+Pull never silently overwrites local native or derived-view edits. It refreshes
+clean siblings, reports blocked items as content-free `local_safety` evidence,
+and exits `8`. Use `pull --dry-run` to qualify a refresh; use
+`--stash-local` to retain exact native bytes before an intentional reset, or
+`--overwrite-local` only to discard them. Neither recovery flag bypasses an
+edited Markdown view or broken baseline evidence.
+
 ### 3. Review a write
 
 The write loop is fresh read → candidate → diff/preview → reviewed
@@ -220,7 +227,8 @@ atl conf push "$ATL_MIRROR_ROOT/SPACE/page/page.csf" --dry-run
 ```
 
 After review, repeat the exact guarded command without `--dry-run`. A
-Confluence version conflict exits `5`; re-pull and reapply instead of
+Confluence version conflict exits `5`; preserve/reapply the local candidate
+(a reviewed `pull --stash-local` can retain its exact native bytes) instead of
 auto-forcing. For a new Confluence comment, use the read-only `conf comment
 preview`, then run `conf comment add` on the exact native-CSF body with `--apply`
 and `--expected-proposal-hash`; `add` is dry-run by default but remains a

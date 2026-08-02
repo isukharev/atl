@@ -677,6 +677,9 @@ func confPullCmd() *cobra.Command {
 			if o.Incremental && o.Complete {
 				return usageErr("--incremental and --complete are mutually exclusive")
 			}
+			if o.OverwriteLocal && o.StashLocal {
+				return usageErr("--overwrite-local and --stash-local are mutually exclusive")
+			}
 			if o.PagePrefetch < 1 || o.PagePrefetch > 8 {
 				return usageErr("--page-prefetch must be between 1 and 8")
 			}
@@ -730,15 +733,16 @@ func confPullCmd() *cobra.Command {
 				return err
 			}
 			res, err := svc.Pull(cmd.Context(), o)
-			if err != nil {
+			if err != nil && (res == nil || res.LocalSafety == nil || !errors.Is(err, domain.ErrCheckFailed)) {
 				return err
 			}
 			// Warn on stderr (never stdout — that would corrupt the JSON result).
 			warnIfTruncated(cmd.ErrOrStderr(), res)
 			warnRender(cmd.ErrOrStderr(), res.Warnings)
-			return emit(cmd, res, func() string {
+			emitErr := emit(cmd, res, func() string {
 				var b strings.Builder
 				fmt.Fprintf(&b, "mirror: %s (%d pages)\n", res.Root, len(res.Pages))
+				appendPullLocalSafetyText(&b, res.LocalSafety)
 				if res.Incremental != nil {
 					inc := res.Incremental
 					fmt.Fprintf(&b, "incremental: complete=%t source=%s watermark_instant=%s query_literal=%s query_literal_basis=%s backend_query_time_zone=%s safety_overlap_hours=%d next=%s matched=%d selected=%d overlap_skipped=%d boundary_skipped=%d view_migrations=%d watermark_advanced=%t\n", inc.Complete, inc.WatermarkSource, inc.WatermarkInstant, inc.QueryLiteral, inc.QueryLiteralBasis, inc.BackendQueryTimeZone, inc.SafetyOverlapHours, inc.NextInstant, inc.Matched, inc.Selected, inc.OverlapSkipped, inc.BoundarySkipped, inc.ViewMigrations, inc.WatermarkAdvanced)
@@ -752,13 +756,21 @@ func confPullCmd() *cobra.Command {
 				}
 				for _, p := range res.Pages {
 					if o.Comments && p.Comments != nil {
-						fmt.Fprintf(&b, "  %s  v%d  %s  [assets:%d comments:%d]\n", p.ID, p.Version, p.Path, p.Assets, *p.Comments)
+						fmt.Fprintf(&b, "  %s  v%d  %s  [assets:%d comments:%d]", p.ID, p.Version, p.Path, p.Assets, *p.Comments)
 					} else {
-						fmt.Fprintf(&b, "  %s  v%d  %s  [assets:%d]\n", p.ID, p.Version, p.Path, p.Assets)
+						fmt.Fprintf(&b, "  %s  v%d  %s  [assets:%d]", p.ID, p.Version, p.Path, p.Assets)
 					}
+					if p.Status != "" {
+						fmt.Fprintf(&b, "  %s", p.Status)
+					}
+					b.WriteByte('\n')
 				}
 				return strings.TrimRight(b.String(), "\n")
 			})
+			if emitErr != nil {
+				return emitErr
+			}
+			return err
 		},
 	}
 	cmd.Flags().StringVar(&o.ID, "id", "", "page id or supported same-origin URL")
@@ -767,6 +779,9 @@ func confPullCmd() *cobra.Command {
 	cmd.Flags().IntVar(&o.Depth, "depth", 0, "space depth limit")
 	cmd.Flags().BoolVar(&o.Assets, "assets", false, "download diagram/image renders")
 	cmd.Flags().BoolVar(&o.Comments, "comments", false, "mirror page comments into <slug>.comments.json/.md sidecars")
+	cmd.Flags().BoolVar(&o.DryRun, "dry-run", false, "qualify the pull without writing mirror files, state, watermarks, or checkpoints")
+	cmd.Flags().BoolVar(&o.OverwriteLocal, "overwrite-local", false, "explicitly replace qualified locally edited native .csf bytes")
+	cmd.Flags().BoolVar(&o.StashLocal, "stash-local", false, "preserve qualified locally edited native .csf bytes under .atl/stash before replacing them")
 	cmd.Flags().StringVar(&o.Into, "into", mirrorRootDefault("mirror"), "mirror root dir (default: $ATL_MIRROR_ROOT or \"mirror\")")
 	cmd.Flags().StringVar(&o.JiraView, "jira-view", "", "named Jira list view for JQL macros (default: default; macro columns win)")
 	cmd.Flags().BoolVar(&o.Incremental, "incremental", false, "pull a complete changed-page delta using a selector-bound watermark")

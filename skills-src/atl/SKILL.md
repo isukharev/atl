@@ -132,6 +132,12 @@ version gate.
    projection when only a few values are needed — include Jira `attachment` when you need the
    presence/names of files, but avoid a bare `issue get` because it drags the whole comment thread
    into context.
+   Pull is non-destructive: local native or derived-view edits are preserved,
+   clean siblings continue, and a blocked selection exits 8 with content-free
+   `local_safety` evidence. Use `pull --dry-run` to inspect a refresh. Use
+   `--stash-local` only for an intentional native reset that first retains exact
+   bytes; `--overwrite-local` is the explicit discard path. Neither bypasses
+   Markdown or baseline-integrity failures.
 2. **`push` is the one deliberate checkpoint.** The Confluence safe loop is: pull fresh → edit → validate →
    inspect offline semantics with `conf diff` → review `conf push --dry-run` against current remote state → push under the version gate. On a conflict, a human decides whether to
    re-pull or force — never auto-force.

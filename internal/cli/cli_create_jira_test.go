@@ -510,6 +510,45 @@ func TestJiraPull_MirrorLayoutAndByteStable(t *testing.T) {
 	}
 }
 
+func TestJiraPull_LocalSafetyResultPrecedesExitEight(t *testing.T) {
+	js := newJiraServer(t)
+	searchBody, _ := json.Marshal(map[string]any{
+		"issues": []map[string]any{{
+			"id": "1042", "key": "ENG-42",
+			"fields": map[string]any{
+				"summary": "Pulled issue", "description": pullWikiBody,
+				"status": map[string]any{"name": "Open"}, "issuetype": map[string]any{"name": "Story"},
+				"project": map[string]any{"key": "ENG"},
+			},
+		}},
+		"startAt": 0, "maxResults": 50, "total": 1,
+	})
+	js.route(http.MethodGet, "/rest/api/2/search", http.StatusOK, string(searchBody))
+	root := t.TempDir()
+	if _, code := runCLI(t, jiraEnv(js.srv), "jira", "pull", "--jql", "project=ENG", "--into", root); code != exitOK {
+		t.Fatalf("initial pull exit=%d", code)
+	}
+	wiki := filepath.Join(root, "ENG", "ENG-42.wiki")
+	if err := os.WriteFile(wiki, []byte("local edit"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, stderr, code := runCLIFull(t, jiraEnv(js.srv), "jira", "pull", "--jql", "project=ENG", "--into", root)
+	if code != exitCheckFailed {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, out, stderr)
+	}
+	var result app.JiraPullResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("decode qualified stdout: %v\n%s", err, out)
+	}
+	if result.LocalSafety == nil || result.LocalSafety.Blocked != 1 || result.Issues[0].Status != "blocked" {
+		t.Fatalf("result=%+v", result)
+	}
+	if got, err := os.ReadFile(wiki); err != nil || string(got) != "local edit" {
+		t.Fatalf("wiki=%q err=%v", got, err)
+	}
+}
+
 // --- 5. opportunistic breadth on thin emit-only paths ---
 
 // TestJiraTransitions_EmitAndPath asserts the transitions list is emitted and
