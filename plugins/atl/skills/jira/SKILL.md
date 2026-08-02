@@ -228,6 +228,18 @@ root applies, with `mirror-jira` as fallback. An existing mirror file's nearest
 `.atl` is authoritative for edit/apply/push. Do not redirect it to profile
 memory; pull a fresh copy into a newly approved root instead.
 
+Inspect `atl mirror backend status <existing-root>` before remote mirror work.
+A fresh Jira-empty pull and registered issue create bind Jira automatically. An
+unbound legacy root with Jira evidence must use
+`mirror backend bind <root> --service jira`: first preview, then after human
+approval apply the exact emitted `backend_sha256` with
+`--apply --expected-backend-sha256 <hash> --confirm BIND`. The whole bind leaf,
+including preview, is blocked by
+`ATL_READ_ONLY=1`; it uses no PAT or network. Never edit
+`.atl/backend-bindings.json` or replace a mismatch—use the original backend or
+a new mirror. Offline mirror inspection/editing remains available while remote
+status/snapshot/push/reconcile fails closed before network on missing/mismatch.
+
 Run `jira snapshot <existing-root> --remote` first for exact content-free
 baseline/raw-snapshot/pending/render/drift cardinalities. Require reconciled
 output and treat `complete:false`, unavailable probes, invalid binding, or exit

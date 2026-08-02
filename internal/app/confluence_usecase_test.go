@@ -537,7 +537,7 @@ func TestCollectSearchNotTruncatedWhenExhausted(t *testing.T) {
 // Pull surfaces the cap and its truncation flag through the public entrypoint.
 func TestPullCQLSilent1000Cap(t *testing.T) {
 	st := &pullCapStore{}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 	res, err := svc.Pull(context.Background(), PullOpts{CQL: "type = page", Into: t.TempDir()})
 	if err != nil {
 		t.Fatalf("Pull with capped CQL must not error: %v", err)
@@ -656,7 +656,7 @@ func TestPullProjectsAndPersistsConfiguredPageFields(t *testing.T) {
 			Updated: "2026-07-10T12:00:00Z", Restricted: &restricted, Body: []byte("<p>alpha</p>"),
 		},
 	}}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 	view := config.RenderService{
 		Profile: "minimal", Include: []string{SecPageFields},
 		PageFields: []config.ConfluenceFieldView{{ID: "restricted"}, {ID: "ancestors"}, {ID: "updated"}},
@@ -703,7 +703,7 @@ func TestPullMirrorsPages(t *testing.T) {
 	st := &pullStore{pages: map[string]*domain.Resource{
 		"100": {ID: "100", Title: "Alpha", SpaceKey: "SP", Version: 2, Body: []byte("<p>alpha</p>")},
 	}}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 	res, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
 	if err != nil {
 		t.Fatalf("pull: %v", err)
@@ -732,7 +732,7 @@ func TestPullRelocatesChangedPagePathWithoutDeletingDescendants(t *testing.T) {
 	into := t.TempDir()
 	page := &domain.Resource{ID: "100", Title: "Old", SpaceKey: "SP", Version: 1, Body: []byte("<p>body</p>")}
 	st := &pullStore{pages: map[string]*domain.Resource{"100": page}}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 	first, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
 	if err != nil {
 		t.Fatal(err)
@@ -772,7 +772,7 @@ func TestPullRelocationRefusesUnappliedMarkdownEdit(t *testing.T) {
 	into := t.TempDir()
 	page := &domain.Resource{ID: "100", Title: "Old", SpaceKey: "SP", Version: 1, Body: []byte("<p>body</p>")}
 	st := &pullStore{pages: map[string]*domain.Resource{"100": page}}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 	first, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
 	if err != nil {
 		t.Fatal(err)
@@ -801,7 +801,7 @@ func TestPullRelocationRecoversWhenOldPrimaryArtifactsWereRemoved(t *testing.T) 
 	into := t.TempDir()
 	page := &domain.Resource{ID: "100", Title: "Old", SpaceKey: "SP", Version: 1, Body: []byte("<p>body</p>")}
 	st := &pullStore{pages: map[string]*domain.Resource{"100": page}}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 	first, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
 	if err != nil {
 		t.Fatal(err)
@@ -849,7 +849,7 @@ func TestPullRelocationRecoversWhenWholeOldLeafDirectoryWasRemoved(t *testing.T)
 	into := t.TempDir()
 	page := &domain.Resource{ID: "100", Title: "Old", SpaceKey: "SP", Version: 1, Body: []byte("<p>body</p>")}
 	st := &pullStore{pages: map[string]*domain.Resource{"100": page}}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 	first, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
 	if err != nil {
 		t.Fatal(err)
@@ -880,7 +880,7 @@ func TestPullRelocationRejectsPartiallyRemovedOldPrimaryArtifacts(t *testing.T) 
 			into := t.TempDir()
 			page := &domain.Resource{ID: "100", Title: "Old", SpaceKey: "SP", Version: 1, Body: []byte("<p>body</p>")}
 			st := &pullStore{pages: map[string]*domain.Resource{"100": page}}
-			svc := &ConfluenceService{store: st}
+			svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 			first, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
 			if err != nil {
 				t.Fatal(err)
@@ -904,7 +904,7 @@ func TestPullRelocationMigratesByteCleanLegacyView(t *testing.T) {
 			into := t.TempDir()
 			page := &domain.Resource{ID: "100", Title: "Old", SpaceKey: "SP", Version: 1, Body: []byte("<p>body</p>")}
 			st := &pullStore{pages: map[string]*domain.Resource{"100": page}}
-			svc := &ConfluenceService{store: st}
+			svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 			first, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
 			if err != nil {
 				t.Fatal(err)
@@ -943,7 +943,7 @@ func TestPullRejectsMissingNativeBodyBeforeWritingArtifacts(t *testing.T) {
 			"100": {ID: "100", Title: "Partial", SpaceKey: "SP", Version: 2},
 		},
 	}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 	_, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
 	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "native body") {
 		t.Fatalf("partial projection error = %v, want check failure", err)
@@ -970,7 +970,7 @@ func TestPullAcceptsExplicitlyEmptyNativeBody(t *testing.T) {
 	st := &pullStore{pages: map[string]*domain.Resource{
 		"100": {ID: "100", Title: "Empty", SpaceKey: "SP", Version: 2, Body: []byte{}},
 	}}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 	res, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
 	if err != nil {
 		t.Fatalf("explicit empty body: %v", err)
@@ -993,7 +993,7 @@ func TestPullSwallowsParseFailure(t *testing.T) {
 	st := &pullStore{pages: map[string]*domain.Resource{
 		"200": {ID: "200", Title: "Broken", SpaceKey: "SP", Version: 1, Body: []byte("<p>unterminated")},
 	}}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 	res, err := svc.Pull(context.Background(), PullOpts{ID: "200", Into: into})
 	if err != nil {
 		t.Fatalf("a parse/render failure must not fail the pull, got %v", err)
@@ -1049,7 +1049,7 @@ func TestPullMidFailureFlushesSidecar(t *testing.T) {
 		},
 		getErrs: map[string]error{"2": domain.ErrForbidden},
 	}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 	res, err := svc.Pull(context.Background(), PullOpts{Space: "SP", Into: into})
 	if !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("expected the page-2 failure to propagate, got %v", err)
@@ -1082,7 +1082,7 @@ func TestPullCorruptSidecarFailsLoudly(t *testing.T) {
 	st := &pullStore{pages: map[string]*domain.Resource{
 		"1": {ID: "1", Title: "One", SpaceKey: "SP", Version: 1, Body: []byte("<p>1</p>")},
 	}}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 	_, err := svc.Pull(context.Background(), PullOpts{ID: "1", Into: into})
 	if err == nil || !strings.Contains(err.Error(), "corrupt mirror sidecar") {
 		t.Fatalf("corrupt sidecar must fail the pull loudly, got %v", err)
@@ -1097,7 +1097,7 @@ func TestPullCollidingTitlesDoNotOverwrite(t *testing.T) {
 		"100": {ID: "100", Title: "Foo Bar", SpaceKey: "SP", Version: 1, Body: []byte("<p>A</p>")},
 		"200": {ID: "200", Title: "Foo-Bar?", SpaceKey: "SP", Version: 1, Body: []byte("<p>B</p>")},
 	}}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 	res1, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
 	if err != nil {
 		t.Fatalf("pull 100: %v", err)
@@ -1133,7 +1133,7 @@ func TestPullCollidingTitlesDoNotOverwrite(t *testing.T) {
 // map the sentinel to an exit code); pages mirrored so far are still reported.
 func TestPullGetPageErrorAborts(t *testing.T) {
 	st := &pullStore{getErr: domain.ErrForbidden}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 	res, err := svc.Pull(context.Background(), PullOpts{ID: "1", Into: t.TempDir()})
 	if !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("GetPage error should propagate as ErrForbidden, got %v", err)
@@ -1180,7 +1180,7 @@ func TestCopyPagePassesBodyUnchanged(t *testing.T) {
 		Body: []byte(body), Parent: "par0",
 	}
 	st := &recordingStore{page: src}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 	_, err := svc.CopyPage(ctx, "100", "New Title", "SP2", "par1")
 	if err != nil {
 		t.Fatal(err)
@@ -1209,7 +1209,7 @@ func TestCopyPageDefaultsSpaceAndParent(t *testing.T) {
 		Body: []byte("<p/>"), Parent: "origpar",
 	}
 	st := &recordingStore{page: src}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 	// Pass empty space and parent → should use source page's SpaceKey and Parent
 	_, err := svc.CopyPage(ctx, "100", "Copy", "", "")
 	if err != nil {
@@ -1228,7 +1228,7 @@ func TestCopyPageRejectsProjectionWithoutNativeBody(t *testing.T) {
 		page:     &domain.Resource{ID: "100", SpaceKey: "SRC", Version: 1},
 		omitBody: true,
 	}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 	_, err := svc.CopyPage(context.Background(), "100", "Copy", "", "")
 	if !errors.Is(err, domain.ErrCheckFailed) {
 		t.Fatalf("copy error = %v, want check failure", err)
@@ -1279,7 +1279,7 @@ func TestUploadAttachmentServiceReadFile(t *testing.T) {
 
 	att := &domain.Attachment{ID: "a1", Title: "test.txt"}
 	st := &attachmentStore{recordingStore: &recordingStore{}, uploadReturn: att}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 
 	got, err := svc.UploadAttachment(context.Background(), "pg1", p, "my comment")
 	if err != nil {
@@ -1307,7 +1307,7 @@ func TestUploadAttachmentServiceReadFile(t *testing.T) {
 
 func TestDeleteAttachmentServicePassThrough(t *testing.T) {
 	st := &attachmentStore{recordingStore: &recordingStore{}}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 	if err := svc.DeleteAttachment(context.Background(), "att99"); err != nil {
 		t.Fatal(err)
 	}
@@ -1343,7 +1343,7 @@ func TestConfluenceWhoami(t *testing.T) {
 	})
 
 	t.Run("nil verifier returns error", func(t *testing.T) {
-		svc := &ConfluenceService{store: &recordingStore{}}
+		svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: &recordingStore{}}
 		_, err := svc.Whoami(ctx)
 		if err == nil {
 			t.Error("nil verifier should return error")
@@ -1355,7 +1355,7 @@ func TestConfluenceWhoami(t *testing.T) {
 // reports the cap instead of silently mirroring a partial space.
 func TestResolveIDsPropagatesSpaceTruncation(t *testing.T) {
 	st := &recordingStore{pageRefs: []domain.PageRef{{ID: "1"}, {ID: "2"}}, treeTruncated: true}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 	ids, truncated, err := svc.resolveIDs(context.Background(), PullOpts{Space: "DOC"})
 	if err != nil {
 		t.Fatal(err)

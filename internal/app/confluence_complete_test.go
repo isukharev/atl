@@ -74,7 +74,7 @@ func TestCompletePullQualifiesCanonicalSelectionBeforeBodies(t *testing.T) {
 		pullStore:      &pullStore{pages: map[string]*domain.Resource{"10": completeTestPage("10"), "20": completeTestPage("20")}},
 		searchSequence: []domain.PageSearchPage{completeSearchPage("20", "10"), completeSearchPage("10", "20")},
 	}
-	result, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: "space = DOC", Into: root, Complete: true})
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{CQL: "space = DOC", Into: root, Complete: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestCompletePullResumesDurablePrefixWithoutSearchOrRefetch(t *testing.T) {
 		searchSequence: []domain.PageSearchPage{completeSearchPage("10", "20", "30"), completeSearchPage("10", "20", "30")},
 	}
 	opts := PullOpts{CQL: "space = DOC", Into: root, Complete: true}
-	if _, err := (&ConfluenceService{store: store}).Pull(context.Background(), opts); !errors.Is(err, domain.ErrForbidden) || !strings.Contains(err.Error(), "checkpoint is at 2/3") {
+	if _, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), opts); !errors.Is(err, domain.ErrForbidden) || !strings.Contains(err.Error(), "checkpoint is at 2/3") {
 		t.Fatalf("first pull error=%v", err)
 	}
 	selectorSHA256 := selectorHash("space = DOC")
@@ -116,7 +116,7 @@ func TestCompletePullResumesDurablePrefixWithoutSearchOrRefetch(t *testing.T) {
 	delete(store.getErrs, "30")
 	store.getIDs = nil
 	store.queries = nil
-	result, err := (&ConfluenceService{store: store}).Pull(context.Background(), opts)
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestCompletePullOptionDriftFailsClosedAndExplicitRestartReplacesSnapshot(t 
 		},
 		searchSequence: []domain.PageSearchPage{completeSearchPage("10", "20"), completeSearchPage("10", "20")},
 	}
-	svc := &ConfluenceService{store: store}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store}
 	base := PullOpts{CQL: "space = DOC", Into: root, Complete: true}
 	if _, err := svc.Pull(context.Background(), base); !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("seed error=%v", err)
@@ -148,7 +148,7 @@ func TestCompletePullOptionDriftFailsClosedAndExplicitRestartReplacesSnapshot(t 
 	}
 	delete(store.getErrs, "20")
 	store.searchSequence = []domain.PageSearchPage{completeSearchPage("10", "20"), completeSearchPage("10", "20")}
-	svc = &ConfluenceService{store: &qualifiedCompletePullStore{completePullStore: store}}
+	svc = &ConfluenceService{baseURL: confluenceTestBackendURL, store: &qualifiedCompletePullStore{completePullStore: store}}
 	restarted, err := svc.Pull(context.Background(), PullOpts{CQL: base.CQL, Into: root, Complete: true, Comments: true, RestartComplete: true})
 	if err != nil {
 		t.Fatal(err)
@@ -167,7 +167,7 @@ func TestCompletePullFailedRestartPreservesPreviousCheckpoint(t *testing.T) {
 		},
 		searchSequence: []domain.PageSearchPage{completeSearchPage("10", "20"), completeSearchPage("10", "20")},
 	}
-	svc := &ConfluenceService{store: store}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store}
 	opts := PullOpts{CQL: "space = DOC", Into: root, Complete: true}
 	if _, err := svc.Pull(context.Background(), opts); !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("seed error=%v", err)
@@ -193,7 +193,7 @@ func TestCompletePullFailedRestartPreservesPreviousCheckpoint(t *testing.T) {
 }
 
 func TestCompletePullRejectsNegativeCapAtAppBoundary(t *testing.T) {
-	_, err := (&ConfluenceService{store: &completePullStore{pullStore: &pullStore{}}}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: t.TempDir(), Complete: true, MaxPages: -1})
+	_, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: &completePullStore{pullStore: &pullStore{}}}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: t.TempDir(), Complete: true, MaxPages: -1})
 	if !errors.Is(err, domain.ErrUsage) {
 		t.Fatalf("error=%v", err)
 	}
@@ -216,7 +216,7 @@ func TestCompletePullSelectionAnomaliesFailBeforeBodiesOrCheckpoint(t *testing.T
 		t.Run(tt.name, func(t *testing.T) {
 			root := t.TempDir()
 			store := &completePullStore{pullStore: &pullStore{}, searchSequence: tt.pages}
-			_, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: "space = DOC", Into: root, Complete: true})
+			_, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{CQL: "space = DOC", Into: root, Complete: true})
 			if !errors.Is(err, domain.ErrCheckFailed) {
 				t.Fatalf("error=%v", err)
 			}
@@ -269,7 +269,7 @@ func TestCompletePullTruncatedCommentsDoNotAdvanceCheckpoint(t *testing.T) {
 		},
 		searchSequence: []domain.PageSearchPage{completeSearchPage("10"), completeSearchPage("10")},
 	}
-	_, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: "space = DOC", Into: root, Complete: true, Comments: true})
+	_, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{CQL: "space = DOC", Into: root, Complete: true, Comments: true})
 	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "comments") {
 		t.Fatalf("error=%v", err)
 	}
@@ -295,7 +295,7 @@ func TestCompletePullAnchorPartialStillCompletesSelection(t *testing.T) {
 		},
 		inventory: &inventory,
 	}
-	result, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{
 		CQL: "space = DOC", Into: root, Complete: true, Comments: true,
 	})
 	if err != nil {
@@ -356,7 +356,7 @@ func TestCompletePullLocalEditStopsAtBlockedCheckpoint(t *testing.T) {
 		pullStore:      &pullStore{pages: map[string]*domain.Resource{"10": completeTestPage("10"), "20": completeTestPage("20")}},
 		searchSequence: []domain.PageSearchPage{completeSearchPage("10", "20"), completeSearchPage("10", "20")},
 	}
-	result, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: "space = DOC", Into: root, Complete: true})
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{CQL: "space = DOC", Into: root, Complete: true})
 	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "local native edits") {
 		t.Fatalf("error=%v", err)
 	}

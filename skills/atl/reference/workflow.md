@@ -24,6 +24,38 @@ Why outside the repo:
 Pass `--into ~/.atl/<workspace>/` to `conf pull` / `jira pull` and the same root
 to `conf status`, or export it once as `ATL_MIRROR_ROOT`.
 
+## Bind the mirror to its backend
+
+Each durable root stores a separate content-minimized binding for Jira and
+Confluence. Inspect it locally before remote mirror work:
+
+```bash
+atl mirror backend status <ROOT>
+```
+
+Fresh service-empty non-dry-run pulls and explicit `--register --into <ROOT>`
+creates bind their service automatically. A legacy root that already contains
+native or service state is never inferred: preview and apply it explicitly.
+Both calls require deliberate removal of an active read-only guard because the
+whole bind leaf is mutation-classified, including its write-free preview:
+
+```bash
+env -u ATL_READ_ONLY atl mirror backend bind <ROOT> --service confluence
+env -u ATL_READ_ONLY atl mirror backend bind <ROOT> --service confluence \
+  --apply --expected-backend-sha256 '<exact backend_sha256 from preview>' \
+  --confirm BIND
+```
+
+Bind is a local compare-and-set. It loads no PAT, performs no backend request,
+stores no URL or hostname, and never replaces a different binding. Do not edit
+the owner-only strict-v1 `.atl/backend-bindings.json`; on mismatch, select the
+original backend or create a new mirror. Persisted Jira macro expansion during
+a Confluence pull requires its own Jira binding.
+
+Remote status/snapshot/push/reconcile/plan phases refuse missing or mismatched
+bindings before network access. Local status/snapshot/diff/validate/render/apply
+and plan creation remain usable under their ordinary offline safety rules.
+
 ### Overrides (use only when they apply)
 
 - **Committed in-tree** (`<repo>/atl/`, tracked in git): only when the repo is private, the org

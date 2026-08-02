@@ -143,6 +143,8 @@ jira transitions
 jira user get
 jira user search
 manifest create
+mirror backend bind
+mirror backend status
 profile apply
 profile guidance
 profile preview

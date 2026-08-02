@@ -856,6 +856,34 @@ printf '{"page_id":"7201","proposal_hash":"%s","expected_version":7,"outcome":"u
 	if _, err := os.Stat(filepath.Join(runDir, "workspace", "plan.json")); err != nil {
 		t.Fatalf("broker did not execute from the candidate workspace: %v", err)
 	}
+	bindingPath := filepath.Join(runDir, "workspace", "mirror", ".atl", "backend-bindings.json")
+	bindingData, err := os.ReadFile(bindingPath)
+	if err != nil {
+		t.Fatalf("synthetic mirror was not bound: %v", err)
+	}
+	bindingInfo, err := os.Stat(bindingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bindingInfo.Mode().Perm() != 0o600 {
+		t.Fatalf("synthetic binding mode=%v", bindingInfo.Mode().Perm())
+	}
+	var bindingState struct {
+		SchemaVersion int               `json:"schema_version"`
+		Services      map[string]string `json:"services"`
+	}
+	if json.Unmarshal(bindingData, &bindingState) != nil || bindingState.SchemaVersion != 1 || len(bindingState.Services) != 2 {
+		t.Fatalf("invalid synthetic backend binding state")
+	}
+	for _, service := range []string{"confluence", "jira"} {
+		digest := strings.TrimPrefix(bindingState.Services[service], "sha256:")
+		if !validSHA256(digest) {
+			t.Fatalf("invalid %s synthetic backend binding", service)
+		}
+	}
+	if bytes.Contains(bindingData, []byte("127.0.0.1")) || bytes.Contains(bindingData, []byte("http://")) {
+		t.Fatal("synthetic backend binding persisted a raw backend URL")
+	}
 	for _, directory := range []string{"command-broker-requests", "command-broker-responses"} {
 		entries, err := os.ReadDir(filepath.Join(runDir, ".atl-eval", directory))
 		if err != nil {
@@ -936,6 +964,32 @@ printf '{"page_id":"7201","proposal_hash":"%s","expected_version":7,"outcome":"u
 	if len(plainOutput.Results) != 1 || plainOutput.Results[0].Status != "fail" || plainOutput.Results[0].Checks["http_exact"] ||
 		plainOutput.Results[0].Metrics.RemoteWrites != 0 || plainOutput.Results[0].HTTPMethods["PUT"] != 0 {
 		t.Fatalf("plain apply crossed the synthetic write boundary: %+v", plainOutput)
+	}
+}
+
+func TestBindSyntheticWorkspaceMirrorsDoesNotFollowSymlinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink setup is platform-specific")
+	}
+	workspace := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Mkdir(filepath.Join(outside, ".atl"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	contained := filepath.Join(workspace, "contained")
+	if err := os.Mkdir(contained, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, ".atl"), filepath.Join(contained, ".atl")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(workspace, "linked-mirror")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	err := bindSyntheticWorkspaceMirrors(context.Background(), filepath.Join(workspace, "must-not-run"), workspace,
+		t.TempDir(), map[string]string{"ATL_CONFLUENCE_URL": "http://127.0.0.1:1/wiki", "ATL_JIRA_URL": "http://127.0.0.1:1/jira"})
+	if err != nil {
+		t.Fatalf("symlink-only roots triggered binding: %v", err)
 	}
 }
 

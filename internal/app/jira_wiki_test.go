@@ -35,7 +35,7 @@ func TestJiraPullWritesVerbatimWiki(t *testing.T) {
 			into := t.TempDir()
 			iss := domain.Issue{Key: "PROJ-1", Project: "PROJ", Summary: "S", Status: "Open", Type: "Task", Body: c.body}
 			tr := &assetPullTracker{t: t, issues: []domain.Issue{iss}}
-			svc := &JiraService{tr: tr}
+			svc := &JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL}
 			if _, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: into, Limit: 1}); err != nil {
 				t.Fatalf("pull: %v", err)
 			}
@@ -60,7 +60,7 @@ func TestJiraPullMarkdownIsRenderedView(t *testing.T) {
 		Body: "h2. Foo\n\n{code:go}\nfmt.Println(x)\n{code}\n\nsee [docs|https://x/y].",
 	}
 	tr := &assetPullTracker{t: t, issues: []domain.Issue{iss}}
-	svc := &JiraService{tr: tr}
+	svc := &JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL}
 	if _, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: into, Limit: 1}); err != nil {
 		t.Fatalf("pull: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestJiraPullRefusesToDowngradeFutureMarkdownView(t *testing.T) {
 	tr := &assetPullTracker{t: t, issues: []domain.Issue{{
 		Key: "PROJ-2", Project: "PROJ", Summary: "S", Status: "Open", Type: "Task", Body: "original body",
 	}}}
-	svc := &JiraService{tr: tr}
+	svc := &JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL}
 	if _, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: into, Limit: 1}); err != nil {
 		t.Fatalf("initial pull: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestJiraPullInlineImageResolution(t *testing.T) {
 		iss := issueWithAttachments("PROJ-3", "PROJ", att("55", "screenshot.png", "image/png", "/c/55"))
 		iss.Body = "before !screenshot.png! after"
 		tr := &assetPullTracker{t: t, issues: []domain.Issue{iss}, blobs: map[string][]byte{"/c/55": []byte("PNG")}}
-		svc := &JiraService{tr: tr}
+		svc := &JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL}
 		if _, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: into, Limit: 1, Assets: true}); err != nil {
 			t.Fatalf("pull: %v", err)
 		}
@@ -135,7 +135,7 @@ func TestJiraPullInlineImageResolution(t *testing.T) {
 		iss := issueWithAttachments("PROJ-4", "PROJ", att("55", "screenshot.png", "image/png", "/c/55"))
 		iss.Body = "before !screenshot.png! after"
 		tr := &assetPullTracker{t: t, issues: []domain.Issue{iss}, blobs: map[string][]byte{"/c/55": []byte("PNG")}}
-		svc := &JiraService{tr: tr}
+		svc := &JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL}
 		if _, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: into, Limit: 1}); err != nil {
 			t.Fatalf("pull: %v", err)
 		}

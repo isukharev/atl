@@ -763,6 +763,7 @@ func TestJiraPushDriftExit8(t *testing.T) {
 	}
 	// Remote reports a different description than the base → drift.
 	srv := jsonServer(t, http.StatusOK, issueJSON("PROJ-1", "remote moved on"))
+	bindCLIMirrorBackend(t, "mirror-jira", "jira", srv.URL)
 	out, code := runCLI(t, jiraEnv(srv), "jira", "push", "--apply", "mirror-jira/PROJ/PROJ-1.wiki")
 	if code != exitCheckFailed {
 		t.Fatalf("drift push: exit %d, want %d (stdout=%q)", code, exitCheckFailed, out)

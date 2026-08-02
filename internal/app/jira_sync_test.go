@@ -12,6 +12,8 @@ import (
 	"github.com/isukharev/atl/internal/mirror"
 )
 
+const jiraMirrorTestBackendURL = "https://jira.example.test"
+
 // syncTracker is a fake Tracker for the pull→status→push cycle. It models a
 // single mutable server issue: Search seeds the pull, GetIssue returns the
 // current server description, and Update mutates it (last-writer-wins, as Jira
@@ -77,7 +79,7 @@ func setupPulled(t *testing.T, body string) (*JiraService, *syncTracker, string,
 	into := t.TempDir()
 	iss := domain.Issue{Key: "PROJ-1", Project: "PROJ", Summary: "S", Status: "Open", Type: "Task", Body: body}
 	tr := &syncTracker{searchIssues: []domain.Issue{iss}, serverBody: body}
-	svc := &JiraService{tr: tr}
+	svc := &JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL}
 	if _, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: into, Limit: 1}); err != nil {
 		t.Fatalf("pull: %v", err)
 	}
@@ -185,7 +187,7 @@ func TestJiraStatusStates(t *testing.T) {
 			t.Fatal(err)
 		}
 		editWiki(t, filepath.Join(dir, "PROJ-9.wiki"), "orphan")
-		svc := &JiraService{tr: &syncTracker{}}
+		svc := &JiraService{tr: &syncTracker{}, baseURL: jiraMirrorTestBackendURL}
 		entries, err := svc.Status(context.Background(), into, false)
 		if err != nil {
 			t.Fatalf("status: %v", err)
@@ -394,7 +396,7 @@ func TestJiraPushNotPulledRefused(t *testing.T) {
 	}
 	wikiPath := filepath.Join(dir, "PROJ-9.wiki")
 	editWiki(t, wikiPath, "never pulled")
-	svc := &JiraService{tr: &syncTracker{}}
+	svc := &JiraService{tr: &syncTracker{}, baseURL: jiraMirrorTestBackendURL}
 
 	_, err := svc.Push(context.Background(), wikiPath, JiraPushOpts{Apply: true, Into: into})
 	if !errors.Is(err, domain.ErrUsage) {
@@ -409,7 +411,7 @@ func TestJiraPushDirOnlyDirty(t *testing.T) {
 		{Key: "PROJ-2", Project: "PROJ", Summary: "S", Status: "Open", Type: "Task", Body: "two"},
 	}
 	tr := &syncTracker{searchIssues: issues, serverBodies: map[string]string{"PROJ-1": "one", "PROJ-2": "two"}}
-	svc := &JiraService{tr: tr}
+	svc := &JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL}
 	if _, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "x", Into: into, Limit: 0}); err != nil {
 		t.Fatalf("pull: %v", err)
 	}
@@ -439,7 +441,7 @@ func TestJiraPullFailedArtifactWriteNotRecordedSynced(t *testing.T) {
 	}
 	iss := domain.Issue{Key: "PROJ-1", Project: "PROJ", Summary: "S", Status: "Open", Type: "Task", Body: "body"}
 	tr := &syncTracker{searchIssues: []domain.Issue{iss}, serverBody: "body"}
-	svc := &JiraService{tr: tr}
+	svc := &JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL}
 	if _, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: into, Limit: 1}); err == nil {
 		t.Fatal("pull must fail when the snapshot cannot be written")
 	}

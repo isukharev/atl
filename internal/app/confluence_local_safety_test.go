@@ -39,7 +39,7 @@ func seedConfluenceSafetyPages(t *testing.T, root string, ids ...string) (*pullS
 		store.pages[id] = &domain.Resource{ID: id, Title: "Page " + id, SpaceKey: "DOC", Version: 1, Body: []byte("<p>old " + id + "</p>")}
 		store.refs = append(store.refs, domain.PageRef{ID: id})
 	}
-	result, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{Space: "DOC", Into: root})
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{Space: "DOC", Into: root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestConfluencePullPreservesDirtyPageAndContinuesCleanSibling(t *testing.T) 
 	store.pages["20"].Body = []byte("<p>remote 20</p>")
 	store.getPageCalls = 0
 
-	result, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{Space: "DOC", Into: root})
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{Space: "DOC", Into: root})
 	if !errors.Is(err, domain.ErrCheckFailed) || result == nil || len(result.Pages) != 1 || result.Pages[0].ID != "20" || store.getPageCalls != 1 {
 		t.Fatalf("result=%+v err=%v body calls=%d", result, err, store.getPageCalls)
 	}
@@ -96,7 +96,7 @@ func TestConfluencePullRecoveryDoesNotOverrideUnappliedMarkdown(t *testing.T) {
 		t.Fatal(err)
 	}
 	store.getPageCalls = 0
-	result, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{ID: "10", Into: root, OverwriteLocal: true})
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{ID: "10", Into: root, OverwriteLocal: true})
 	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "unapplied Markdown") || store.getPageCalls != 0 || result.LocalSafety.Blocked != 1 {
 		t.Fatalf("result=%+v err=%v calls=%d", result, err, store.getPageCalls)
 	}
@@ -117,7 +117,7 @@ func TestConfluencePullOverwriteAndStashDirtyNative(t *testing.T) {
 			opts := PullOpts{ID: "10", Into: root, OverwriteLocal: recovery == "overwrite", StashLocal: recovery == "stash"}
 			previewOpts := opts
 			previewOpts.DryRun = true
-			preview, previewErr := (&ConfluenceService{store: store}).Pull(context.Background(), previewOpts)
+			preview, previewErr := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), previewOpts)
 			wantPreview := pullLocalWouldOverwrite
 			if recovery == "stash" {
 				wantPreview = pullLocalWouldStash
@@ -131,7 +131,7 @@ func TestConfluencePullOverwriteAndStashDirtyNative(t *testing.T) {
 			if _, statErr := os.Stat(filepath.Join(root, ".atl", "stash")); !os.IsNotExist(statErr) {
 				t.Fatalf("preview created stash: %v", statErr)
 			}
-			result, err := (&ConfluenceService{store: store}).Pull(context.Background(), opts)
+			result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), opts)
 			if err != nil || len(result.Pages) != 1 || result.LocalSafety == nil || len(result.LocalSafety.Actions) != 1 {
 				t.Fatalf("result=%+v err=%v", result, err)
 			}
@@ -154,7 +154,7 @@ func TestConfluencePullOverwriteAndStashDirtyNative(t *testing.T) {
 func TestConfluencePullDryRunDoesNotCreateAbsentRoot(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "absent")
 	store := &pullStore{pages: map[string]*domain.Resource{"10": {ID: "10", Title: "Page 10", SpaceKey: "DOC", Version: 1, Body: []byte("<p>body</p>")}}}
-	result, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{ID: "10", Into: root, DryRun: true})
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{ID: "10", Into: root, DryRun: true})
 	if err != nil || len(result.Pages) != 1 || result.Pages[0].Status != "would_pull" || result.LocalSafety == nil || !result.LocalSafety.DryRun {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
@@ -177,14 +177,14 @@ func TestConfluencePullMissingArtifactsDoNotShortCircuitLaterSafety(t *testing.T
 		t.Fatal(err)
 	}
 	store.getPageCalls = 0
-	result, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{Space: "DOC", Into: root})
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{Space: "DOC", Into: root})
 	if !errors.Is(err, domain.ErrCheckFailed) || len(result.Pages) != 1 || result.Pages[0].ID != "10" || store.getPageCalls != 1 || result.LocalSafety.Blocked != 1 || result.LocalSafety.Actions[0].ID != "20" {
 		t.Fatalf("result=%+v err=%v calls=%d", result, err, store.getPageCalls)
 	}
 }
 
 func TestConfluencePullRejectsConflictingRecoveryFlags(t *testing.T) {
-	_, err := (&ConfluenceService{store: &pullStore{}}).Pull(context.Background(), PullOpts{ID: "10", Into: t.TempDir(), OverwriteLocal: true, StashLocal: true})
+	_, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: &pullStore{}}).Pull(context.Background(), PullOpts{ID: "10", Into: t.TempDir(), OverwriteLocal: true, StashLocal: true})
 	if !errors.Is(err, domain.ErrUsage) {
 		t.Fatalf("error=%v", err)
 	}
@@ -203,7 +203,7 @@ func TestConfluencePullPreservesUntrackedClaimedMarkdown(t *testing.T) {
 				t.Fatal(err)
 			}
 			store := &pullStore{pages: map[string]*domain.Resource{"10": {ID: "10", Title: "Page 10", SpaceKey: "DOC", Version: 1, Body: []byte("<p>remote</p>")}}}
-			result, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{
+			result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{
 				ID: "10", Into: root, OverwriteLocal: recovery == "overwrite", StashLocal: recovery == "stash",
 			})
 			if !errors.Is(err, domain.ErrCheckFailed) || result.LocalSafety == nil || result.LocalSafety.Actions[0].Reason != "target_artifacts_unqualified" {
@@ -224,7 +224,7 @@ func TestConfluencePullAllowsChildScaffoldInClaimedDirectory(t *testing.T) {
 				t.Fatal(err)
 			}
 			store := &pullStore{pages: map[string]*domain.Resource{"10": {ID: "10", Title: "Page 10", SpaceKey: "DOC", Version: 1, Body: []byte("<p>remote</p>")}}}
-			result, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{ID: "10", Into: root, DryRun: dryRun})
+			result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{ID: "10", Into: root, DryRun: dryRun})
 			if err != nil || len(result.Pages) != 1 {
 				t.Fatalf("result=%+v err=%v", result, err)
 			}
@@ -243,7 +243,7 @@ func TestConfluencePullRevalidatesArtifactsAfterRemoteRead(t *testing.T) {
 			t.Fatal(err)
 		}
 	}}
-	result, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{ID: "10", Into: root})
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{ID: "10", Into: root})
 	if !errors.Is(err, domain.ErrCheckFailed) || result == nil || result.LocalSafety == nil || result.LocalSafety.Blocked != 1 {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
@@ -259,7 +259,7 @@ func TestConfluencePullStagesNewPageAssetsBeforeTargetWrite(t *testing.T) {
 	root := t.TempDir()
 	body := []byte(`<p>image</p><ac:image><ri:attachment ri:filename="image.png"/></ac:image>`)
 	store := &pullStore{pages: map[string]*domain.Resource{"10": {ID: "10", Title: "Page 10", SpaceKey: "DOC", Version: 1, Body: body}}}
-	result, err := (&ConfluenceService{store: store, assets: staticConfluenceAssetResolver{}}).Pull(context.Background(), PullOpts{ID: "10", Into: root, Assets: true})
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store, assets: staticConfluenceAssetResolver{}}).Pull(context.Background(), PullOpts{ID: "10", Into: root, Assets: true})
 	if err != nil || len(result.Pages) != 1 || result.Pages[0].Assets != 1 {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
@@ -276,7 +276,7 @@ func TestConfluencePullStagesNewPageAssetsBeforeTargetWrite(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(blockedDir, "page-10.md"), []byte("local"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	blocked, blockErr := (&ConfluenceService{store: store, assets: staticConfluenceAssetResolver{}}).Pull(context.Background(), PullOpts{ID: "10", Into: blockedRoot, Assets: true})
+	blocked, blockErr := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store, assets: staticConfluenceAssetResolver{}}).Pull(context.Background(), PullOpts{ID: "10", Into: blockedRoot, Assets: true})
 	if !errors.Is(blockErr, domain.ErrCheckFailed) || blocked.LocalSafety == nil {
 		t.Fatalf("result=%+v err=%v", blocked, blockErr)
 	}
@@ -307,7 +307,7 @@ func TestConfluenceIncrementalBlockKeepsWatermarkUnchanged(t *testing.T) {
 	}
 	page, hit := incrementalPage("10", 2, "2026-07-13T12:00:00Z")
 	store := &incrementalPullStore{pullStore: &pullStore{pages: map[string]*domain.Resource{"10": page}}, searchPages: map[string]domain.PageSearchPage{"": {Results: []domain.PageRef{hit}, Complete: true}}}
-	result, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T11:00:00Z"})
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T11:00:00Z"})
 	if !errors.Is(err, domain.ErrCheckFailed) || result.Incremental.WatermarkAdvanced || store.getCalls != 0 {
 		t.Fatalf("result=%+v err=%v calls=%d", result, err, store.getCalls)
 	}

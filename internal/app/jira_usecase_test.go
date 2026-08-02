@@ -406,7 +406,7 @@ func TestJiraPullWritesMarkdownAndJSON(t *testing.T) {
 	tr := partialTracker{issues: []domain.Issue{
 		{ID: "10001", Key: "PROJ-1", Project: "PROJ", Summary: "S", Status: "Open", Type: "Task", Body: "wiki body here", Fields: map[string]any{"customfield_1": "x"}},
 	}}
-	svc := &JiraService{tr: tr}
+	svc := &JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL}
 	res, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project = PROJ", Into: into, Limit: 1, Fields: []string{"customfield_1"}})
 	if err != nil {
 		t.Fatalf("pull: %v", err)
@@ -460,7 +460,7 @@ func TestJiraPullDoesNotRefetchPerIssue(t *testing.T) {
 		{ID: "1", Key: "PROJ-1", Project: "PROJ", Summary: "a", Body: "body one"},
 		{ID: "2", Key: "PROJ-2", Project: "PROJ", Summary: "b", Body: "body two"},
 	}}
-	svc := &JiraService{tr: tr}
+	svc := &JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL}
 	res, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project = PROJ", Into: into, Limit: 0})
 	if err != nil {
 		t.Fatalf("pull: %v", err)
@@ -483,6 +483,10 @@ func TestJiraPullDoesNotRefetchPerIssue(t *testing.T) {
 // must not report issues as pulled with missing/stale snapshots.
 func TestJiraPullSnapshotWriteFailureAborts(t *testing.T) {
 	into := t.TempDir()
+	// This fixture intentionally pre-plants a Jira-looking artifact before the
+	// pull. Bind it explicitly so the test continues to isolate the snapshot
+	// write failure rather than the legacy-mirror migration gate.
+	bindJiraTestMirror(t, into)
 	dir := filepath.Join(into, "PROJ")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -499,7 +503,7 @@ func TestJiraPullSnapshotWriteFailureAborts(t *testing.T) {
 	tr := &countingPullTracker{issues: []domain.Issue{
 		{ID: "1", Key: "PROJ-1", Project: "PROJ", Summary: "a", Body: "b"},
 	}}
-	svc := &JiraService{tr: tr}
+	svc := &JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL}
 	_, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project = PROJ", Into: into, Limit: 0})
 	if err == nil || !strings.Contains(err.Error(), "snapshot PROJ-1") {
 		t.Fatalf("snapshot write failure must abort the pull, got err=%v", err)

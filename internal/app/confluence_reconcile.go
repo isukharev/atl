@@ -109,6 +109,9 @@ func (s *ConfluenceService) reconcileConfluence(ctx context.Context, target, int
 	if err := checkNativeReconcileLocalAlignment(uint64(len(baseBlocks)), uint64(len(oursBlocks))); err != nil {
 		return nil, err
 	}
+	if err := requireMirrorBackend(root, "confluence", s.baseURL); err != nil {
+		return nil, err
+	}
 
 	budget, err := domain.NewReadBudget(1, nativeReconcileResponseBytes)
 	if err != nil {

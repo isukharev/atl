@@ -61,6 +61,7 @@ func createPlanFixture(t *testing.T, count int) (root, planPath string, plan *Co
 	if err := m.EnsureScaffold(); err != nil {
 		t.Fatal(err)
 	}
+	bindConfluenceTestMirror(t, root)
 	oldBodies, newBodies = map[string][]byte{}, map[string][]byte{}
 	for i := 1; i <= count; i++ {
 		id := string(rune('0' + i))
@@ -216,7 +217,7 @@ func TestLoadConfluencePlanRejectsReformattingWithSameHash(t *testing.T) {
 func TestConfluencePlanPreviewAndApplySuccess(t *testing.T) {
 	root, path, plan, oldBodies, newBodies := createPlanFixture(t, 2)
 	store := &confluencePlanStore{pages: planRemotePages(plan, oldBodies, 3), candidates: newBodies}
-	svc := &ConfluenceService{store: store, cfg: &config.Config{}}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store, cfg: &config.Config{}}
 	preview, err := svc.PreviewConfluencePlan(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
@@ -245,7 +246,7 @@ func TestConfluencePlanStaleBatchDoesNoWrites(t *testing.T) {
 	pages := planRemotePages(plan, oldBodies, 3)
 	pages[plan.Entries[1].ID].Version = 9
 	store := &confluencePlanStore{pages: pages, candidates: newBodies}
-	svc := &ConfluenceService{store: store, cfg: &config.Config{}}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store, cfg: &config.Config{}}
 	result, err := svc.ApplyConfluencePlan(context.Background(), path, ConfluencePlanApplyOpts{Confirm: "APPLY", ExpectedProposalHash: plan.ProposalHash})
 	if err == nil || result == nil || result.Status != "blocked" || result.Entries[1].Failure != "remote-version-drift" || len(store.updateCalls) != 0 {
 		t.Fatalf("result=%+v err=%v calls=%v", result, err, store.updateCalls)
@@ -254,7 +255,7 @@ func TestConfluencePlanStaleBatchDoesNoWrites(t *testing.T) {
 
 func TestConfluencePlanApplyRequiresExecutionGates(t *testing.T) {
 	_, path, _, _, _ := createPlanFixture(t, 1)
-	svc := &ConfluenceService{store: &confluencePlanStore{}}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: &confluencePlanStore{}}
 	for _, opts := range []ConfluencePlanApplyOpts{{}, {Confirm: "YES"}, {Confirm: "APPLY"}, {ExpectedProposalHash: strings.Repeat("a", 64)}} {
 		result, err := svc.ApplyConfluencePlan(context.Background(), path, opts)
 		if !errors.Is(err, domain.ErrUsage) || result != nil {
@@ -270,7 +271,7 @@ func TestConfluencePlanLockFailureIsBlockedAndIncomplete(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = lock.Unlock() }()
-	svc := &ConfluenceService{store: &confluencePlanStore{pages: planRemotePages(plan, oldBodies, 3), candidates: newBodies}}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: &confluencePlanStore{pages: planRemotePages(plan, oldBodies, 3), candidates: newBodies}}
 	result, err := svc.PreviewConfluencePlan(context.Background(), path)
 	if !errors.Is(err, domain.ErrCheckFailed) || result == nil || result.Status != "blocked" || result.Complete || len(result.Entries) != 1 || result.Entries[0].Status != "not_checked" {
 		t.Fatalf("result=%+v err=%v", result, err)
@@ -282,7 +283,7 @@ func TestConfluencePlanRejectsNonPageRemoteType(t *testing.T) {
 	pages := planRemotePages(plan, oldBodies, 3)
 	pages[plan.Entries[0].ID].Type = "blogpost"
 	store := &confluencePlanStore{pages: pages, candidates: newBodies}
-	svc := &ConfluenceService{store: store, cfg: &config.Config{}}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store, cfg: &config.Config{}}
 	result, err := svc.ApplyConfluencePlan(context.Background(), path, ConfluencePlanApplyOpts{Confirm: "APPLY", ExpectedProposalHash: plan.ProposalHash})
 	if err == nil || result == nil || result.Status != "blocked" || len(store.updateCalls) != 0 {
 		t.Fatalf("result=%+v err=%v calls=%v", result, err, store.updateCalls)
@@ -292,7 +293,7 @@ func TestConfluencePlanRejectsNonPageRemoteType(t *testing.T) {
 func TestConfluencePlanReconcilesAmbiguousSuccessAndResumes(t *testing.T) {
 	_, path, plan, oldBodies, newBodies := createPlanFixture(t, 1)
 	store := &confluencePlanStore{pages: planRemotePages(plan, oldBodies, 3), candidates: newBodies, updateErr: errors.New("ambiguous transport")}
-	svc := &ConfluenceService{store: store, cfg: &config.Config{}}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store, cfg: &config.Config{}}
 	result, err := svc.ApplyConfluencePlan(context.Background(), path, ConfluencePlanApplyOpts{Confirm: "APPLY", ExpectedProposalHash: plan.ProposalHash})
 	if err != nil {
 		t.Fatal(err)
@@ -313,7 +314,7 @@ func TestConfluencePlanReconcilesAmbiguousSuccessAndResumes(t *testing.T) {
 func TestConfluencePlanUnknownStopsWithoutReplay(t *testing.T) {
 	_, path, plan, oldBodies, newBodies := createPlanFixture(t, 2)
 	store := &confluencePlanStore{pages: planRemotePages(plan, oldBodies, 3), candidates: newBodies, updateErr: errors.New("ambiguous"), failGetAfterUpdate: true}
-	svc := &ConfluenceService{store: store, cfg: &config.Config{}}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store, cfg: &config.Config{}}
 	result, err := svc.ApplyConfluencePlan(context.Background(), path, ConfluencePlanApplyOpts{Confirm: "APPLY", ExpectedProposalHash: plan.ProposalHash})
 	if err == nil || result == nil || result.Status != "partial" || result.Entries[0].Status != "unknown" || result.Entries[1].Status != "not_attempted" || len(store.updateCalls) != 1 {
 		t.Fatalf("result=%+v err=%v calls=%v", result, err, store.updateCalls)
@@ -328,7 +329,7 @@ func TestConfluencePlanHashGatePrecedesNetwork(t *testing.T) {
 	_, path, _, oldBodies, newBodies := createPlanFixture(t, 1)
 	store := &confluencePlanStore{pages: map[string]*domain.Resource{}, candidates: newBodies}
 	_ = oldBodies
-	svc := &ConfluenceService{store: store, cfg: &config.Config{}}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store, cfg: &config.Config{}}
 	if result, err := svc.ApplyConfluencePlan(context.Background(), path, ConfluencePlanApplyOpts{Confirm: "APPLY", ExpectedProposalHash: "wrong"}); err == nil || result != nil {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
@@ -344,7 +345,7 @@ func TestConfluencePlanLocalDriftPrecedesNetwork(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := &confluencePlanStore{pages: planRemotePages(plan, oldBodies, 3), candidates: newBodies}
-	svc := &ConfluenceService{store: store, cfg: &config.Config{}}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store, cfg: &config.Config{}}
 	result, err := svc.PreviewConfluencePlan(context.Background(), path)
 	if err == nil || result == nil || result.Status != "blocked" || len(store.getCalls) != 0 || len(store.updateCalls) != 0 {
 		t.Fatalf("result=%+v err=%v gets=%v updates=%v", result, err, store.getCalls, store.updateCalls)

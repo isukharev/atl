@@ -96,7 +96,7 @@ func (s *failingCompletePrefetchStore) GetPage(ctx context.Context, id string, _
 func TestCompletePullPrefetchFailureCheckpointsOnlyCommittedPrefix(t *testing.T) {
 	root := t.TempDir()
 	store := &failingCompletePrefetchStore{}
-	result, err := (&ConfluenceService{store: store, requestMaxInFlight: 3}).Pull(context.Background(), PullOpts{
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store, requestMaxInFlight: 3}).Pull(context.Background(), PullOpts{
 		CQL: "space = DOC", Into: root, Complete: true, PagePrefetch: 3,
 	})
 	if !errors.Is(err, domain.ErrForbidden) {

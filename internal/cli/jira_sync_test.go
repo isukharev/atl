@@ -96,6 +96,7 @@ func TestJiraPushDryRunGolden(t *testing.T) {
 		t.Fatal(err)
 	}
 	srv := jsonServer(t, http.StatusOK, issueJSON("PROJ-1", base))
+	bindCLIMirrorBackend(t, root, "jira", srv.URL)
 	out, code := runCLI(t, jiraEnv(srv), "jira", "push", wiki, "--into", root)
 	if code != exitOK {
 		t.Fatalf("jira push (dry-run): exit %d (stdout=%q)", code, out)
@@ -157,6 +158,7 @@ func TestJiraPushApplyWiring(t *testing.T) {
 	t.Run("dry-run does not write", func(t *testing.T) {
 		t.Chdir(t.TempDir())
 		wiki := scaffoldJiraMirror(t, "mirror-jira", "PROJ-1", base)
+		bindCLIMirrorBackend(t, "mirror-jira", "jira", srv.URL)
 		_ = os.WriteFile(wiki, []byte(newBody), 0o644)
 		mu.Lock()
 		methods = nil
@@ -174,6 +176,7 @@ func TestJiraPushApplyWiring(t *testing.T) {
 	t.Run("apply writes", func(t *testing.T) {
 		t.Chdir(t.TempDir())
 		wiki := scaffoldJiraMirror(t, "mirror-jira", "PROJ-1", base)
+		bindCLIMirrorBackend(t, "mirror-jira", "jira", srv.URL)
 		_ = os.WriteFile(wiki, []byte(newBody), 0o644)
 		mu.Lock()
 		methods = nil

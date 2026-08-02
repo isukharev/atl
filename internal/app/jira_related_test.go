@@ -87,7 +87,7 @@ func TestPullEpicChildrenSidecarAndOfflineRender(t *testing.T) {
 		Profile: "full", Include: []string{SecEpicChildren},
 	}}}
 	tr := &epicPullTracker{}
-	svc := &JiraService{tr: tr, cfg: cfg}
+	svc := &JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL, cfg: cfg}
 	res, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "key = PROJ-1", Into: root, Limit: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -135,7 +135,7 @@ func TestPullConfiguredEpicDisplayNameSurvivesOfflineRender(t *testing.T) {
 	cfg := &config.Config{Render: &config.RenderConfig{Jira: &config.RenderService{
 		Profile: "full", Include: []string{SecEpicChildren}, EpicField: "Epic Link",
 	}}}
-	svc := &JiraService{tr: &epicPullTracker{}, cfg: cfg}
+	svc := &JiraService{tr: &epicPullTracker{}, baseURL: jiraMirrorTestBackendURL, cfg: cfg}
 	if _, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "key = PROJ-1", Into: root, Limit: 1}); err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestPullCanonicalizesDirectEpicField(t *testing.T) {
 	cfg := &config.Config{Render: &config.RenderConfig{Jira: &config.RenderService{
 		Profile: "full", Include: []string{SecEpicChildren}, EpicField: "CUSTOMFIELD_10010",
 	}}}
-	if _, err := (&JiraService{tr: tr, cfg: cfg}).Pull(context.Background(), JiraPullOpts{
+	if _, err := (&JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL, cfg: cfg}).Pull(context.Background(), JiraPullOpts{
 		JQL: "key = PROJ-1", Into: root, Limit: 1,
 	}); err != nil {
 		t.Fatal(err)
@@ -226,7 +226,7 @@ func TestPullDefersEpicFieldResolutionForNonEpicResults(t *testing.T) {
 	cfg := &config.Config{Render: &config.RenderConfig{Jira: &config.RenderService{
 		Profile: "full", Include: []string{SecEpicChildren},
 	}}}
-	res, err := (&JiraService{tr: tr, cfg: cfg}).Pull(context.Background(), JiraPullOpts{
+	res, err := (&JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL, cfg: cfg}).Pull(context.Background(), JiraPullOpts{
 		JQL: "project = PROJ", Into: root, Limit: 1,
 	})
 	if err != nil {

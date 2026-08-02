@@ -123,6 +123,12 @@ func (s *JiraService) reconcileJira(ctx context.Context, target, into string, st
 			}
 		}
 	}
+	if err := requireMirrorBackend(root, "jira", s.baseURL); err != nil {
+		return nil, err
+	}
+	if s.tr == nil {
+		return nil, fmt.Errorf("%w: Jira reconcile requires a configured backend", domain.ErrConfig)
+	}
 
 	fields := []string{"description", "updated"}
 	fields = append(fields, jiraPendingFieldIDs(pending)...)

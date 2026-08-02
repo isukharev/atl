@@ -132,6 +132,7 @@ func TestJiraSnapshotRemoteMakesOneIssueRequest(t *testing.T) {
 		_, _ = w.Write([]byte(issueJSON("PROJ-1", "base")))
 	}))
 	t.Cleanup(srv.Close)
+	bindCLIMirrorBackend(t, root, "jira", srv.URL)
 
 	out, code := runCLI(t, jiraEnv(srv), "--read-only", "jira", "snapshot", root, "--remote")
 	if code != exitOK {
@@ -155,6 +156,7 @@ func TestJiraSnapshotVerboseRemoteTraceIsContentFree(t *testing.T) {
 		_, _ = w.Write([]byte(issueJSON("PROJ-1", "private body")))
 	}))
 	t.Cleanup(srv.Close)
+	bindCLIMirrorBackend(t, root, "jira", srv.URL)
 
 	stdout, stderr, code := runCLIFull(t, jiraEnv(srv), "--verbose", "--read-only", "jira", "snapshot", root, "--remote")
 	if code != exitOK {
@@ -180,6 +182,7 @@ func TestJiraSnapshotRemoteDisablesAutomaticGETRetries(t *testing.T) {
 		_, _ = w.Write([]byte(`{"errorMessages":["retryable"]}`))
 	}))
 	t.Cleanup(srv.Close)
+	bindCLIMirrorBackend(t, root, "jira", srv.URL)
 
 	out, code := runCLI(t, jiraEnv(srv), "--read-only", "jira", "snapshot", root, "--remote")
 	if code != exitOK {

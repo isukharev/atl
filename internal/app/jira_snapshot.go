@@ -180,6 +180,16 @@ func (s *JiraService) SnapshotMirror(ctx context.Context, dir string, checkRemot
 		}
 		return result, fmt.Errorf("%w: remote mirror snapshot requires a configured Jira backend", domain.ErrConfig)
 	}
+	if err := requireMirrorBackend(root, "jira", s.baseURL); err != nil {
+		retry, finishErr := guard.finish()
+		if finishErr != nil {
+			return nil, contentFreeJiraSnapshotError(finishErr)
+		}
+		if retry {
+			return s.SnapshotMirror(ctx, root, true)
+		}
+		return result, err
+	}
 	probeContext := domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(ctx))
 	for _, evidence := range locals {
 		if !evidence.eligible {

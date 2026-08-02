@@ -38,7 +38,7 @@ func TestJiraReconcileClassifiesAndStagesWithoutChangingWorkingBody(t *testing.T
 	tracker := &reconcileTracker{issue: &domain.Issue{ID: "10001", Key: "PROJ-1", Body: "remote", Fields: map[string]any{
 		"description": "remote", "updated": "2026-08-02T12:34:56.000+0000",
 	}}}
-	svc := &JiraService{tr: tracker}
+	svc := &JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}
 	result, err := svc.PreviewJiraReconcile(context.Background(), path, root)
 	if err != nil {
 		t.Fatal(err)

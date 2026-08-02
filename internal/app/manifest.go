@@ -1,8 +1,6 @@
 package app
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -12,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/isukharev/atl/internal/backendid"
 	"github.com/isukharev/atl/internal/domain"
 )
 
@@ -83,6 +82,10 @@ func CreateManifest(opts ManifestOpts) (*ManifestResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	backends, err := manifestBackend(opts.Service, opts.BackendURLs)
+	if err != nil {
+		return nil, err
+	}
 	m := MirrorManifest{
 		CreatedAt:  start.UTC().Format(time.RFC3339),
 		Command:    strings.TrimSpace(opts.Command),
@@ -92,7 +95,7 @@ func CreateManifest(opts ManifestOpts) (*ManifestResult, error) {
 		Fields:     cleanList(opts.Fields),
 		Include:    cleanList(opts.Include),
 		Counts:     counts,
-		Backend:    manifestBackend(opts.Service, opts.BackendURLs),
+		Backend:    backends,
 		ATLVersion: opts.Version,
 	}
 	m.ElapsedMS = time.Since(start).Milliseconds()
@@ -139,7 +142,7 @@ func manifestCounts(root, out string) (ManifestCounts, error) {
 	return counts, nil
 }
 
-func manifestBackend(service string, urls map[string]string) []ManifestBackend {
+func manifestBackend(service string, urls map[string]string) ([]ManifestBackend, error) {
 	var services []string
 	if strings.TrimSpace(service) != "" {
 		services = []string{strings.TrimSpace(service)}
@@ -151,12 +154,15 @@ func manifestBackend(service string, urls map[string]string) []ManifestBackend {
 	}
 	var out []ManifestBackend
 	for _, svc := range services {
-		url := strings.TrimRight(strings.TrimSpace(urls[svc]), "/")
-		if url == "" {
+		raw := strings.TrimSpace(urls[svc])
+		if raw == "" {
 			continue
 		}
-		sum := sha256.Sum256([]byte(url))
-		out = append(out, ManifestBackend{Service: svc, URLHash: "sha256:" + hex.EncodeToString(sum[:])})
+		digest, err := backendid.OriginSHA256(raw)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid %s backend origin for manifest", domain.ErrUsage, svc)
+		}
+		out = append(out, ManifestBackend{Service: svc, URLHash: digest})
 	}
-	return out
+	return out, nil
 }
