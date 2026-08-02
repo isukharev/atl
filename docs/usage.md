@@ -618,6 +618,11 @@ them.
 
 `safety.read_only` accepts `true|false` and is global-only. Set it to `true` as
 the last configuration step for an investigation-only agent or CI profile.
+Independently of that policy, the shared transport refuses every redirect from
+a mutating POST, PUT, PATCH, or DELETE request. An otherwise allowed
+same-origin 3xx is returned as the original HTTP error; origin and scheme
+violations remain transport-policy errors. The method and body are never sent
+to any redirect target.
 
 **Local config layer (security boundary).** `--local` writes a per-mirror
 `.atl/config.json` that may carry **render keys only** — it is presentation-only.

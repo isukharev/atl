@@ -13,10 +13,13 @@ Every remote change in `atl` is deliberate. A normal flow is:
 investigations; remove it only after the target and proposed change have been
 reviewed.
 
-Direct Confluence content deletion uses one transport attempt and refuses
-redirects. After an ambiguous result, inspect the exact target before deciding
-whether a separately reviewed command is justified; never wrap deletion in a
-retry loop.
+The shared transport never follows a redirect from a mutating HTTP request.
+This applies to every Jira and Confluence POST, PUT, PATCH, and DELETE: a 3xx is
+reported as an error for endpoint-aware reconciliation, and its method or body
+is never replayed at a server-selected path. Explicit single-attempt operations
+also refuse redirects for reads. After an ambiguous result, inspect the exact
+target before deciding whether a separately reviewed command is justified;
+never wrap a write in a retry loop.
 
 ## Confluence: edit without losing native content
 

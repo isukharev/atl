@@ -299,7 +299,8 @@ offline diff и явные write gates. Ссылки на источники и 
 
 - `ATL_READ_ONLY=1` / `--read-only` блокирует мутации до credentials,
   body-файлов, self-update и сети.
-- PAT host-scoped; cross-host и HTTPS-downgrade redirects запрещены.
+- PAT host-scoped; cross-host и HTTPS-downgrade redirects запрещены, а
+  mutating requests никогда не следуют redirects.
 - JSON идёт в stdout по умолчанию; логи/ошибки — в stderr.
 - Стабильные коды выхода классифицируют usage, auth, not-found, version
   conflict, forbidden, config и safety failures.

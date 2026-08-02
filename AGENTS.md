@@ -133,8 +133,9 @@ patterns over introducing cross-layer shortcuts.
 - Confluence updates use an optimistic version gate. `--force` re-reads current
   state and targets `current+1`; post-push mirror refresh failures are warnings,
   not hard failures.
-- PATs are host-scoped. `httpx` only sends bearer tokens to the configured host
-  and refuses cross-host or scheme-downgrade redirects.
+- PATs are host-scoped. `httpx` only sends bearer tokens to the configured host,
+  refuses cross-host or scheme-downgrade redirects, and never follows a
+  redirect from a mutating request.
 - Backend URLs must be https except loopback or trusted internal runs with
   `ATL_ALLOW_INSECURE=1`.
 - CSF parsing must be byte-stable and read-only. Validation errors gate pushes;

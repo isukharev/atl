@@ -265,7 +265,8 @@ and explicit write gates matter. The sourced, non-ranking comparison is in
 
 - `ATL_READ_ONLY=1` / `--read-only` blocks mutations before credentials, body
   files, self-update, or network access.
-- PATs are host-scoped; cross-host and HTTPS-downgrade redirects are refused.
+- PATs are host-scoped; cross-host and HTTPS-downgrade redirects are refused,
+  and mutating requests never follow redirects.
 - JSON goes to stdout by default; logs/errors go to stderr.
 - Stable exit codes classify usage, auth, not-found, version conflict,
   forbidden, config, and safety failures.

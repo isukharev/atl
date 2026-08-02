@@ -188,6 +188,9 @@ retry a write or change policy automatically. Backend/API prose cannot set
 these classification fields. `rate_limited` / `wait_before_retry` means bounded
 replay-safe read retries were exhausted: do not immediately repeat the command
 or tool call, and never retry a write automatically.
+The shared transport never follows redirects for POST, PUT, PATCH, or DELETE;
+a mutating 3xx is an error to reconcile at the original target, not permission
+to replay the method or body at a server-selected path.
 `output_limit_exceeded` / `narrow_or_raise_bound` means caller-selected
 `max_bytes` rejected the complete encoded result; treat it as no evidence and
 narrow the selection or deliberately choose a larger allowed bound.
