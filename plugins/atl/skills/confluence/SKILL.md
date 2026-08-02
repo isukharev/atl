@@ -226,6 +226,15 @@ write command after explicit approval.
   --expected-proposal-hash <reviewed-hash>`. Accept only reconciled `applied` or
   `recovered`; never replay `outcome_unknown`. This surface remains absent from
   MCP.
+- Guarded page trash: run `conf page delete --id <id>` as a GET-only preview,
+  review its version and proposal hash, then apply once with `--apply`,
+  `--confirm TRASH`, `--expected-version <version>`, and
+  `--expected-proposal-hash <hash>`. The
+  operation performs a fresh exact prewrite read and explicit current/trashed
+  reconciliation, and its DELETE is explicitly `status=current`, never purge.
+  Never replay `outcome_unknown`; unsupported exact status
+  reads fail closed before DELETE. The destructive leaf remains
+  mutating-classified, so read-only policy blocks preview as well as apply.
 - Durable pull, complete/incremental sync, render migration, prefetch/rate
   controls: [sync.md](reference/sync.md).
 - Ordinary Markdown body edit, apply/diff, multi-page plan, and push sequence:

@@ -144,10 +144,6 @@ func (s *ConfluenceService) Create(ctx context.Context, space, parent, title str
 	return s.store.CreatePage(ctx, space, parent, title, body)
 }
 
-func (s *ConfluenceService) Delete(ctx context.Context, id string) error {
-	return s.store.DeletePage(ctx, id)
-}
-
 // CopyPage fetches the source page's native CSF body and creates a new page
 // with the same body bytes under the target space/parent with a new title.
 // If space or parent are empty, the source page's values are used as defaults.

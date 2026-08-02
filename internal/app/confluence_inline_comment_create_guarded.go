@@ -88,7 +88,7 @@ func (s *ConfluenceService) createInlineCommentGuarded(ctx context.Context, refe
 		result.Complete = false
 		return result, &confluenceCommentMutationWriteError{
 			message: "Confluence inline comment could not be revalidated immediately before the write",
-			cause:   sanitizeConfluenceCommentWriteCause(err), closed: true,
+			cause:   sanitizeConfluenceWriteCause(err), closed: true,
 		}
 	}
 	if confluenceInlineCreateProposalHash(prewrite, bodySHA256, len(body), selectionSHA256, len(opts.Selection), opts.Occurrence) != proposalHash {
@@ -113,7 +113,7 @@ func (s *ConfluenceService) createInlineCommentGuarded(ctx context.Context, refe
 		result.Status = "not_applied"
 		return result, &confluenceCommentMutationWriteError{
 			message: "Confluence rejected the inline comment; it was not applied",
-			cause:   sanitizeConfluenceCommentWriteCause(writeErr),
+			cause:   sanitizeConfluenceWriteCause(writeErr),
 		}
 	}
 
@@ -123,7 +123,7 @@ func (s *ConfluenceService) createInlineCommentGuarded(ctx context.Context, refe
 		result.Complete = false
 		return result, confluenceCommentMutationAmbiguousError(
 			"Confluence inline comment outcome is unknown; complete readback failed; do not replay automatically",
-			errors.Join(sanitizeConfluenceCommentWriteCause(writeErr), sanitizeConfluenceCommentWriteCause(readbackErr)),
+			errors.Join(sanitizeConfluenceWriteCause(writeErr), sanitizeConfluenceWriteCause(readbackErr)),
 		)
 	}
 	result.Reconciled = true
@@ -145,7 +145,7 @@ func (s *ConfluenceService) confluenceInlineCreateSnapshot(ctx context.Context, 
 	if err != nil {
 		return confluenceInlineCreateSnapshot{}, &confluenceCommentMutationWriteError{
 			message: "Confluence inline selection could not be prepared from the current page view",
-			cause:   sanitizeConfluenceCommentWriteCause(err), closed: true,
+			cause:   sanitizeConfluenceWriteCause(err), closed: true,
 		}
 	}
 	prepared, geometryHash, highlightedSelection, err := validateConfluenceInlinePreparation(prepared, snapshot)
@@ -384,7 +384,7 @@ func confluenceInlineCreateProposalHash(snapshot confluenceInlineCreateSnapshot,
 func reconcileConfluenceInlineCreate(result *ConfluenceCommentMutationGuardedResult, before, after confluenceInlineCreateSnapshot, body []byte, providerResult domain.ConfluenceCommentMutationResult, writeErr error) (*ConfluenceCommentMutationGuardedResult, error) {
 	unknown := func(message string) (*ConfluenceCommentMutationGuardedResult, error) {
 		result.Status = "outcome_unknown"
-		return result, confluenceCommentMutationAmbiguousError(message, sanitizeConfluenceCommentWriteCause(writeErr))
+		return result, confluenceCommentMutationAmbiguousError(message, sanitizeConfluenceWriteCause(writeErr))
 	}
 	if before.pageID != after.pageID || before.backend != after.backend || before.configuredIdentity != after.configuredIdentity ||
 		before.actor != after.actor || before.provider != after.provider || !qualifiedConfluenceInlineCreateVersionTransition(before.pageVersion, after.pageVersion) {

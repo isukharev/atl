@@ -186,7 +186,7 @@ func (s *ConfluenceService) MutateCommentGuarded(ctx context.Context, reference 
 		result.Complete = false
 		return result, &confluenceCommentMutationWriteError{
 			message: "Confluence comment mutation could not be revalidated immediately before the write",
-			cause:   sanitizeConfluenceCommentWriteCause(err), closed: true,
+			cause:   sanitizeConfluenceWriteCause(err), closed: true,
 		}
 	}
 	if prewrite.noOp || confluenceCommentMutationProposalHash(prewrite, opts.Operation, bodySHA256, len(body)) != proposalHash {
@@ -207,7 +207,7 @@ func (s *ConfluenceService) MutateCommentGuarded(ctx context.Context, reference 
 			result.Status = "not_applied"
 			return result, &confluenceCommentMutationWriteError{
 				message: "Confluence comment mutation stopped before a write was attempted",
-				cause:   sanitizeConfluenceCommentWriteCause(writeErr), closed: true,
+				cause:   sanitizeConfluenceWriteCause(writeErr), closed: true,
 			}
 		}
 	}
@@ -215,7 +215,7 @@ func (s *ConfluenceService) MutateCommentGuarded(ctx context.Context, reference 
 		result.Status = "not_applied"
 		return result, &confluenceCommentMutationWriteError{
 			message: "Confluence rejected the comment mutation; it was not applied",
-			cause:   sanitizeConfluenceCommentWriteCause(writeErr),
+			cause:   sanitizeConfluenceWriteCause(writeErr),
 		}
 	}
 
@@ -225,7 +225,7 @@ func (s *ConfluenceService) MutateCommentGuarded(ctx context.Context, reference 
 		result.Complete = false
 		return result, confluenceCommentMutationAmbiguousError(
 			"Confluence comment mutation outcome is unknown; complete readback failed; do not replay automatically",
-			errors.Join(sanitizeConfluenceCommentWriteCause(writeErr), sanitizeConfluenceCommentWriteCause(readbackErr)),
+			errors.Join(sanitizeConfluenceWriteCause(writeErr), sanitizeConfluenceWriteCause(readbackErr)),
 		)
 	}
 	result.Reconciled = true
@@ -233,7 +233,7 @@ func (s *ConfluenceService) MutateCommentGuarded(ctx context.Context, reference 
 		result.Status = "outcome_unknown"
 		return result, confluenceCommentMutationAmbiguousError(
 			"Confluence comment mutation outcome is unknown because its page, actor, or provider identity changed; do not replay automatically",
-			sanitizeConfluenceCommentWriteCause(writeErr),
+			sanitizeConfluenceWriteCause(writeErr),
 		)
 	}
 
@@ -445,7 +445,7 @@ func reconcileConfluenceCommentReply(result *ConfluenceCommentMutationGuardedRes
 		result.Status = "outcome_unknown"
 		return result, confluenceCommentMutationAmbiguousError(
 			"Confluence reply outcome is unknown because the reviewed baseline changed; do not replay automatically",
-			sanitizeConfluenceCommentWriteCause(writeErr),
+			sanitizeConfluenceWriteCause(writeErr),
 		)
 	}
 	beforeIDs := make(map[string]struct{}, len(before.comments))
@@ -482,7 +482,7 @@ func reconcileConfluenceCommentReply(result *ConfluenceCommentMutationGuardedRes
 	result.Status = "outcome_unknown"
 	return result, confluenceCommentMutationAmbiguousError(
 		"Confluence reply outcome is unknown because complete readback did not find one exact new candidate; do not replay automatically",
-		sanitizeConfluenceCommentWriteCause(writeErr),
+		sanitizeConfluenceWriteCause(writeErr),
 	)
 }
 
@@ -491,7 +491,7 @@ func reconcileConfluenceCommentResolution(result *ConfluenceCommentMutationGuard
 		result.Status = "outcome_unknown"
 		return result, confluenceCommentMutationAmbiguousError(
 			"Confluence resolution outcome is unknown because the reviewed baseline changed; do not replay automatically",
-			sanitizeConfluenceCommentWriteCause(writeErr),
+			sanitizeConfluenceWriteCause(writeErr),
 		)
 	}
 	want := confluenceCommentMutationTargetState(result.Operation)
@@ -499,7 +499,7 @@ func reconcileConfluenceCommentResolution(result *ConfluenceCommentMutationGuard
 		result.Status = "outcome_unknown"
 		return result, confluenceCommentMutationAmbiguousError(
 			"Confluence resolution outcome is unknown because the exact target state was not reconciled; do not replay automatically",
-			sanitizeConfluenceCommentWriteCause(writeErr),
+			sanitizeConfluenceWriteCause(writeErr),
 		)
 	}
 	providerQualified := writeErr == nil && providerResult.Operation == result.Operation &&

@@ -238,16 +238,6 @@ func TestConfluenceWrappersPassThrough(t *testing.T) {
 		}
 	})
 
-	t.Run("Delete", func(t *testing.T) {
-		st := &recordingStore{}
-		svc := &ConfluenceService{store: st}
-		if err := svc.Delete(ctx, "id9"); err != nil {
-			t.Fatal(err)
-		}
-		if st.deleteID != "id9" {
-			t.Errorf("delete id not forwarded: %q", st.deleteID)
-		}
-	})
 }
 
 // A sentinel error from the port must propagate unchanged through the thin
@@ -277,9 +267,6 @@ func TestConfluenceWrappersPropagateSentinel(t *testing.T) {
 	}
 	if _, err := svc.Create(ctx, "x", "", "t", nil); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("Create did not propagate sentinel: %v", err)
-	}
-	if err := svc.Delete(ctx, "x"); !errors.Is(err, domain.ErrNotFound) {
-		t.Errorf("Delete did not propagate sentinel: %v", err)
 	}
 }
 

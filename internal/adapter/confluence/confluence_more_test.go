@@ -224,6 +224,44 @@ func TestGetPageStorage(t *testing.T) {
 	}
 }
 
+func TestGetPageByStatusUsesExactStatusNamespace(t *testing.T) {
+	var requests int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.Method != http.MethodGet || r.URL.Path != "/rest/api/content/55" || r.URL.Query().Get("status") != "trashed" {
+			t.Fatalf("request = %s %s", r.Method, r.URL.RequestURI())
+		}
+		if expand := r.URL.Query().Get("expand"); !strings.Contains(expand, "body.storage") || !strings.Contains(expand, "version") || !strings.Contains(expand, "ancestors") {
+			t.Fatalf("expand = %q", expand)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"55","type":"page","status":"trashed","title":"Doc","space":{"key":"DOC"},"version":{"number":4},"ancestors":[],"body":{"storage":{"value":"<p>native</p>"}}}`))
+	}))
+	defer srv.Close()
+
+	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
+	page, err := cf.GetPageByStatus(context.Background(), "55", "trashed", domain.PullOpts{Format: "csf"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 1 || page.ID != "55" || page.Type != "page" || page.Status != "trashed" || page.Version != 4 || !page.BodyPresent || string(page.Body) != "<p>native</p>" || !page.AncestorsPresent {
+		t.Fatalf("page=%+v requests=%d", page, requests)
+	}
+}
+
+func TestGetPageByStatusRejectsUnknownStatusBeforeRequest(t *testing.T) {
+	var requests int
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
+	defer srv.Close()
+	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
+	if _, err := cf.GetPageByStatus(context.Background(), "55", "draft", domain.PullOpts{}); !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("error = %v, want ErrUsage", err)
+	}
+	if requests != 0 {
+		t.Fatalf("requests = %d, want 0", requests)
+	}
+}
+
 func TestGetPageRestrictionsAreExplicitlyProjected(t *testing.T) {
 	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -942,9 +980,9 @@ func TestMovePageWriteNotFound(t *testing.T) {
 
 // TestDeletePage verifies the DELETE method and path.
 func TestDeletePage(t *testing.T) {
-	var method, path string
+	var method, path, status string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		method, path = r.Method, r.URL.Path
+		method, path, status = r.Method, r.URL.Path, r.URL.Query().Get("status")
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer srv.Close()
@@ -953,8 +991,8 @@ func TestDeletePage(t *testing.T) {
 	if err := cf.DeletePage(context.Background(), "55"); err != nil {
 		t.Fatalf("DeletePage: %v", err)
 	}
-	if method != http.MethodDelete || path != "/rest/api/content/55" {
-		t.Errorf("method/path = %s %s, want DELETE /rest/api/content/55", method, path)
+	if method != http.MethodDelete || path != "/rest/api/content/55" || status != "current" {
+		t.Errorf("method/path/status = %s %s %q, want DELETE /rest/api/content/55 status=current", method, path, status)
 	}
 }
 
@@ -966,6 +1004,9 @@ func TestDeletePageRefusesRedirectReplay(t *testing.T) {
 				switch r.URL.Path {
 				case "/rest/api/content/55":
 					original++
+					if r.URL.Query().Get("status") != "current" {
+						t.Errorf("DELETE status = %q, want current", r.URL.Query().Get("status"))
+					}
 					http.Redirect(w, r, "/rest/api/content/replayed", status)
 				case "/rest/api/content/replayed":
 					redirected++

@@ -2664,13 +2664,34 @@ Flags:
 
 ### `atl conf page delete`
 
-Trash a page. May return exit 6 if per-space permissions forbid deletion. The
-request uses one transport attempt and refuses redirects; after an ambiguous
-result, inspect the exact target instead of retrying the command automatically.
+Preview or apply one reviewed current-to-trashed transition. The command is
+dry-run by default: preview performs exact `current`/`trashed` reads and emits a
+content-minimized proposal, but sends no DELETE.
 
-```
+```bash
 atl conf page delete --id 12345678
+atl conf page delete --id 12345678 \
+  --apply \
+  --confirm TRASH \
+  --expected-version 7 \
+  --expected-proposal-hash '<hash-from-preview>'
 ```
+
+Apply requires all three review gates. The proposal binds the normalized
+backend identity, exact page id/type/status/version, native-body hash and byte
+count, title hash, space, parent, operation, and schema. ATL then repeats the
+exact read immediately before one non-replayed DELETE. Confluence has no
+delete-time version compare-and-set, so the second read narrows but cannot
+eliminate the final race. The DELETE explicitly carries `status=current`; this
+command never requests permanent purge of an already trashed page.
+
+After a success or any possibly committed failure, ATL reads the explicit
+`current` and `trashed` status namespaces. Only an exact trashed page whose
+identity and native bytes match the reviewed state is `applied` or `recovered`.
+A definitive permission rejection is `not_applied` (normally exit 6). Missing,
+unavailable, current, or mismatched readback is `outcome_unknown` and exit 8;
+never replay it automatically. A backend that cannot provide exact status
+reads fails closed before DELETE. `already_satisfied` sends no DELETE.
 
 ### `atl conf page list`
 

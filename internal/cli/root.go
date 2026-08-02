@@ -343,6 +343,28 @@ func createdRegistrationResultErr(registrationErr, emitErr error) error {
 	}
 }
 
+// guardedMutationResultErr preserves a guarded write's typed result/error pair.
+// If stdout fails after the remote attempt began, the closed check failure makes
+// it explicit that missing output is not permission to replay the mutation.
+func guardedMutationResultErr(mutationErr, emitErr error, attempted bool, operation string) error {
+	if emitErr == nil {
+		return mutationErr
+	}
+	emitCause := fmt.Errorf("write %s result: %w", operation, emitErr)
+	if !attempted {
+		if mutationErr == nil {
+			return emitCause
+		}
+		return errors.Join(mutationErr, emitCause)
+	}
+	closed := fmt.Errorf("%w: the remote %s was attempted, but the result could not be written; do not replay the operation", domain.ErrCheckFailed, operation)
+	// Once result emission fails, the no-replay check failure is the only safe
+	// machine classification. Retaining a joined mutation sentinel (for example
+	// ErrForbidden) would take precedence in codeFor/diagnostic.Classify and
+	// incorrectly hide the attempted-write boundary.
+	return errors.Join(closed, emitCause)
+}
+
 // emitID is emit plus an `-o id` projection: when the output format is `id` it
 // prints just the primary identifier(s), one per line, for safe piping
 // (`atl jira issue search --jql … -o id | xargs …`). For json/text it defers to

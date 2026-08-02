@@ -882,6 +882,45 @@ they changed. This narrows but cannot eliminate the backend's two-page TOCTOU.
 An already-satisfied parent still requires the reviewed source version, current
 parent, and proposal hash before it can return success.
 
+`atl conf page delete --id <ID>` is dry-run by default and emits the guarded
+page-trash schema:
+
+```json
+{
+  "schema_version": 1,
+  "id": "12345678",
+  "mode": "dry-run",
+  "status": "would_apply",
+  "operation": "trash",
+  "current_status": "current",
+  "target_status": "trashed",
+  "observed_state": "current",
+  "current_version": 7,
+  "expected_version": 7,
+  "body_sha256": "<sha256>",
+  "body_bytes": 42,
+  "title_sha256": "<sha256>",
+  "backend_sha256": "sha256:<digest>",
+  "proposal_hash": "<sha256>",
+  "complete": true,
+  "write_attempted": false,
+  "warning": "Confluence has no delete-time version CAS; apply revalidates immediately before one status=current DELETE and never replays it"
+}
+```
+
+Apply requires `--apply --confirm TRASH`, `--expected-version N`, and
+`--expected-proposal-hash SHA256`. The hash binds schema/operation, normalized
+backend identity, page identity/type/status/version, native-body hash and byte
+count, title hash, space, and parent. Before one DELETE, ATL repeats that exact
+snapshot; the DELETE is explicitly limited to `status=current`. Readback must
+match the reviewed version exactly. `status` is `would_apply`, `already_satisfied`, `blocked`,
+`not_applied`, `applied`, `recovered`, or `outcome_unknown`. A write-attempted
+result sets `write_attempted:true`; an exact post-attempt state read sets
+`reconciled:true` and may add `final_version`. `complete` qualifies the state
+evidence, not write success. `outcome_unknown` is exit 8 and must not be
+replayed; failure to emit stdout after a write attempt is also exit 8 with the
+same no-replay rule.
+
 `atl conf page view <ID>` is the non-persistent counterpart. Its JSON is
 `{"id","title","space","version","markdown"}`; text output is the exact
 Markdown string. It uses the same versioned renderer, but marks the body

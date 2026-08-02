@@ -198,7 +198,8 @@ identifier per line.
 | `conf page labels add\|remove <ID> <LABEL>...` | Guarded label preview/apply | `--apply`, `--expected-proposal-hash` |
 | `conf page title set <ID>` | Guarded title preview/apply | `--from-file`, `--apply`, expected gates |
 | `conf page move <ID>` | Guarded move preview/apply | `--parent`, `--apply`, expected gates |
-| `conf page create|copy|delete` | Page lifecycle; create/copy can explicitly register one authoritative readback | command-specific title/space/parent/file flags; create/copy `--register --into <ROOT>` |
+| `conf page create|copy` | Page lifecycle; optionally register one authoritative readback | command-specific title/space/parent/file flags; `--register --into <ROOT>` |
+| `conf page delete` | Guarded page-trash preview/apply; never replay an unknown outcome | `--id`; apply requires `--apply --confirm TRASH --expected-version --expected-proposal-hash` |
 | `conf blog create` | Create one native blog post | `--space`, `--title`, one body source; `-o text/id` |
 | `conf pull` | Mirror pages | selector; complete delta via `--incremental`, first-run RFC3339 `--since`, `--max-pages`; assets/comments/Jira macros/render flags |
 | `conf render` | Regenerate Markdown offline | path, render flags, `--into` |

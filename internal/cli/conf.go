@@ -486,25 +486,48 @@ func confPageCmd() *cobra.Command {
 	move.Flags().StringVar(&moveExpectedParent, "expected-parent", "", "reviewed current parent id; use --expected-parent= for top-level (required with --apply)")
 	moveGuard.register(move)
 
-	var delID string
+	var delID, delConfirm string
+	var delExpectedVersion int
+	delGuard := guardedWriteFlags{profile: guardedWriteProposal}
 	del := &cobra.Command{
 		Use:   "delete",
-		Short: "Trash a page (may be 403 by per-space perms → exit 6)",
+		Short: "Preview or apply one reviewed page trash operation",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if delID == "" {
+			if strings.TrimSpace(delID) == "" {
 				return usageErr("--id is required")
+			}
+			if !delGuard.apply && (delConfirm != "" || delExpectedVersion != 0 || strings.TrimSpace(delGuard.expectedProposalHash) != "") {
+				return usageErr("--confirm, --expected-version, and --expected-proposal-hash require --apply")
+			}
+			if delGuard.apply && delConfirm != "TRASH" {
+				return usageErr("--confirm must be exactly TRASH with --apply")
+			}
+			if delGuard.apply && delExpectedVersion <= 0 {
+				return usageErr("--expected-version is required with --apply; run the dry-run first")
+			}
+			if err := delGuard.validate(); err != nil {
+				return err
 			}
 			svc, err := confService()
 			if err != nil {
 				return err
 			}
-			if err := svc.Delete(cmd.Context(), delID); err != nil {
-				return err
+			result, trashErr := svc.TrashPageGuarded(cmd.Context(), delID, app.ConfluencePageTrashOpts{
+				Apply: delGuard.apply, Confirm: delConfirm, ExpectedVersion: delExpectedVersion,
+				ExpectedProposalHash: delGuard.expectedProposalHash,
+			})
+			if result == nil {
+				return trashErr
 			}
-			return emit(cmd, map[string]string{"id": delID, "status": "trashed"}, nil)
+			emitErr := emit(cmd, result, func() string { return app.ConfluencePageTrashText(result) })
+			return guardedMutationResultErr(trashErr, emitErr, result.WriteAttempted, "page trash")
 		},
 	}
 	del.Flags().StringVar(&delID, "id", "", "page id")
+	del.Flags().IntVar(&delExpectedVersion, "expected-version", 0, "reviewed current page version (required with --apply)")
+	del.Flags().StringVar(&delConfirm, "confirm", "", "must be exactly TRASH with --apply")
+	delGuard.register(del)
 
 	var listSpace, listStatus, listCursor string
 	var listLimit int

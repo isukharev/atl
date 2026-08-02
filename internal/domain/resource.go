@@ -9,6 +9,7 @@ package domain
 type Resource struct {
 	ID          string // backend id (Confluence content id, Jira issue key)
 	Type        string `json:"-"` // backend resource type when safety checks require an explicit projection
+	Status      string `json:"-"` // backend content state when an exact status projection is required
 	Title       string
 	SpaceKey    string   // Confluence space key / Jira project key
 	Version     int      // backend version number used for the optimistic gate
