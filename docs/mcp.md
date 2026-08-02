@@ -132,7 +132,7 @@ bound (default 256 KiB, minimum 1 KiB, maximum 1 MiB). A graph may succeed with
 `complete:false` and static source/frontier reasons when traversal cannot be
 completed inside its bounds. If the otherwise valid encoded graph exceeds
 `max_bytes`, the whole call fails with output-limit recovery and returns no
-clipped graph. The stable projection omits the deferred Development source;
+clipped graph. The stable projection omits the CLI-only Development source;
 its absence is not evidence of zero development activity. Do not reinterpret
 either condition as proved absence.
 

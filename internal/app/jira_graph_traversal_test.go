@@ -24,6 +24,21 @@ type jiraGraphTraversalTracker struct {
 	remoteLinks domain.JiraRemoteLinkInventory
 }
 
+type jiraGraphDevelopmentTraversalTracker struct {
+	*jiraGraphTraversalTracker
+	inventory   domain.JiraDevelopmentInventory
+	inventories map[string]domain.JiraDevelopmentInventory
+	reads       []string
+}
+
+func (t *jiraGraphDevelopmentTraversalTracker) ReadIssueDevelopment(_ context.Context, numericIssueID string) (domain.JiraDevelopmentInventory, error) {
+	t.reads = append(t.reads, numericIssueID)
+	if inventory, ok := t.inventories[numericIssueID]; ok {
+		return inventory, nil
+	}
+	return t.inventory, nil
+}
+
 func (t *jiraGraphTraversalTracker) ReadIssueSnapshot(_ context.Context, key string) (*domain.QualifiedIssueSnapshot, error) {
 	t.reads[key]++
 	t.readOrder = append(t.readOrder, key)
@@ -136,6 +151,89 @@ func TestIssueGraphWithOptionsTraversesCyclesAndDiamondsOnce(t *testing.T) {
 			if evidence.SourceNodeID != edge.From {
 				t.Fatalf("edge/evidence provenance = %#v / %#v", edge, evidence)
 			}
+		}
+	}
+}
+
+func TestIssueGraphWithOptionsCollectsDevelopmentPerExpandedIssueWithoutTraversal(t *testing.T) {
+	service, base := traversalService(map[string]*domain.QualifiedIssueSnapshot{
+		"PROJ-1": traversalSnapshot("PROJ-1", []string{"PROJ-2"}, ""),
+		"PROJ-2": traversalSnapshot("PROJ-2", nil, ""),
+	})
+	tracker := &jiraGraphDevelopmentTraversalTracker{
+		jiraGraphTraversalTracker: base,
+		inventory: domain.JiraDevelopmentInventory{
+			Projects: []domain.JiraDevelopmentProject{{Host: "git.example.test", ProjectPath: "platform/widget"}},
+			Commits: []domain.JiraDevelopmentCommit{{
+				Host: "git.example.test", ProjectPath: "platform/widget",
+				SHA: "0123456789abcdef0123456789abcdef01234567",
+			}},
+		},
+	}
+	service.tr = tracker
+	result, err := service.IssueGraphWithOptions(t.Context(), "PROJ-1", JiraIssueGraphOptions{Depth: 1, IncludeDevelopment: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tracker.reads) != 2 || tracker.reads[0] != "id-PROJ-1" || tracker.reads[1] != "id-PROJ-2" {
+		t.Fatalf("development reads = %#v", tracker.reads)
+	}
+	if result.Bounds.MaxSources != result.Bounds.MaxNodes*9+1 || len(result.Sources) != 18 {
+		t.Fatalf("bounds=%+v sources=%d", result.Bounds, len(result.Sources))
+	}
+	developmentSources := 0
+	for _, source := range result.Sources {
+		if source.Kind == "development" {
+			developmentSources++
+			if !source.Complete || source.Count != 1 {
+				t.Fatalf("development source = %+v", source)
+			}
+		}
+	}
+	if developmentSources != 2 {
+		t.Fatalf("development sources = %d", developmentSources)
+	}
+	for _, item := range result.Frontier {
+		if strings.HasPrefix(item.NodeID, "gitlab:") {
+			t.Fatalf("Development node entered traversal: %+v", item)
+		}
+	}
+}
+
+func TestIssueGraphWithOptionsQualifiesSharedMergeRequestStateConflictPerSource(t *testing.T) {
+	service, base := traversalService(map[string]*domain.QualifiedIssueSnapshot{
+		"PROJ-1": traversalSnapshot("PROJ-1", []string{"PROJ-2"}, ""),
+		"PROJ-2": traversalSnapshot("PROJ-2", nil, ""),
+	})
+	inventory := func(state string) domain.JiraDevelopmentInventory {
+		return domain.JiraDevelopmentInventory{
+			Projects: []domain.JiraDevelopmentProject{{Host: "git.example.test", ProjectPath: "platform/widget"}},
+			MergeRequests: []domain.JiraDevelopmentMergeRequest{{
+				Host: "git.example.test", ProjectPath: "platform/widget", IID: "42", State: state,
+			}},
+		}
+	}
+	tracker := &jiraGraphDevelopmentTraversalTracker{
+		jiraGraphTraversalTracker: base,
+		inventories: map[string]domain.JiraDevelopmentInventory{
+			"id-PROJ-1": inventory("open"),
+			"id-PROJ-2": inventory("closed"),
+		},
+	}
+	service.tr = tracker
+	result, err := service.IssueGraphWithOptions(t.Context(), "PROJ-1", JiraIssueGraphOptions{Depth: 1, IncludeDevelopment: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootSource := graphV2Source(t, result, "jira:issue:PROJ-1", "development")
+	childSource := graphV2Source(t, result, "jira:issue:PROJ-2", "development")
+	if !rootSource.Complete || rootSource.Count != 1 || childSource.Complete ||
+		childSource.Status != domain.ArtifactSourcePartial || childSource.PartialReason != domain.ArtifactPartialMalformed || childSource.Truncated {
+		t.Fatalf("root=%+v child=%+v", rootSource, childSource)
+	}
+	for _, edge := range result.Edges {
+		if strings.HasPrefix(edge.Kind, "development_") && edge.From == "jira:issue:PROJ-2" {
+			t.Fatalf("conflicting source emitted Development edge: %+v", edge)
 		}
 	}
 }

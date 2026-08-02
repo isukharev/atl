@@ -51,6 +51,26 @@ func jiraGraphServer(t *testing.T) (*httptest.Server, *[]string) {
 			_, _ = io.WriteString(w, `{"startAt":0,"total":0,"worklogs":[]}`)
 		case "/rest/api/2/issue/PROJ-1/remotelink":
 			_, _ = io.WriteString(w, `[]`)
+		case "/rest/dev-status/1.0/issue/summary":
+			_, _ = io.WriteString(w, `{
+				"errors":[],"configErrors":[],"summary":{
+					"repository":{"overall":{"count":1},"byInstanceType":{"GitLab":{"count":1}}},
+					"branch":{"overall":{"count":1},"byInstanceType":{"GitLab":{"count":1}}},
+					"pullrequest":{"overall":{"count":1},"byInstanceType":{"GitLab":{"count":1}}}
+				}
+			}`)
+		case "/rest/dev-status/1.0/issue/detail":
+			project := "https://git.example.test/platform/widget"
+			switch request.URL.Query().Get("dataType") {
+			case "repository":
+				_, _ = io.WriteString(w, `{"errors":[],"configErrors":[],"detail":[{"repositories":[{"url":"`+project+`","commits":[{"id":"0123456789abcdef0123456789abcdef01234567","url":"`+project+`/-/commit/0123456789abcdef0123456789abcdef01234567"}]}]}]}`)
+			case "branch":
+				_, _ = io.WriteString(w, `{"errors":[],"detail":[{"branches":[{"name":"feature/graph-proof","url":"`+project+`/-/tree/feature%2Fgraph-proof","repository":{"url":"`+project+`"}}]}]}`)
+			case "pullrequest":
+				_, _ = io.WriteString(w, `{"errors":[],"configErrors":[],"detail":[{"pullRequests":[{"id":"42","url":"`+project+`/-/merge_requests/42","status":"OPEN","repository":{"url":"`+project+`"}}]}]}`)
+			default:
+				t.Fatalf("unexpected Development selector %s", request.URL.RawQuery)
+			}
 		default:
 			t.Fatalf("unexpected request %s %s", request.Method, request.URL.RequestURI())
 		}
@@ -78,6 +98,29 @@ func TestJiraIssueGraphJSONAndTextGoldens(t *testing.T) {
 		t.Fatalf("text exit=%d output=%s", code, text)
 	}
 	assertGolden(t, "jira_issue_graph.md", []byte(text))
+}
+
+func TestJiraIssueGraphDevelopmentJSONAndTextGoldens(t *testing.T) {
+	server, requests := jiraGraphServer(t)
+	output, code := runCLI(t, jiraEnv(server), "jira", "issue", "graph", "PROJ-1", "--include-development")
+	if code != exitOK {
+		t.Fatalf("json exit=%d output=%s", code, output)
+	}
+	assertGolden(t, "jira_issue_graph_development.json", []byte(output))
+	if len(*requests) != 8 {
+		t.Fatalf("requests = %#v", *requests)
+	}
+	for _, request := range (*requests)[4:] {
+		if strings.Contains(request, "git.example.test") {
+			t.Fatalf("artifact URL was requested: %s", request)
+		}
+	}
+
+	text, code := runCLI(t, jiraEnv(server), "-o", "text", "jira", "issue", "graph", "PROJ-1", "--include-development")
+	if code != exitOK {
+		t.Fatalf("text exit=%d output=%s", code, text)
+	}
+	assertGolden(t, "jira_issue_graph_development.md", []byte(text))
 }
 
 func TestJiraIssueGraphRejectsIDAndArityBeforeNetwork(t *testing.T) {

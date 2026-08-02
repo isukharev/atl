@@ -3565,13 +3565,14 @@ export ATL_READ_ONLY=1
 atl jira issue graph PROJ-1
 atl jira issue graph PROJ-1 --depth 2 --strict
 atl jira issue graph PROJ-1 --resolve confluence
+atl jira issue graph PROJ-1 --include-development
 atl jira issue graph PROJ-1 -o text
 ```
 
 For a typed transient read, `jira_issue_graph` returns the same schema-v2 graph
 without a shell command. MCP v1 is deliberately Jira-only: it has no
 Confluence resolution input, always leaves discovered page identities as
-qualified stubs, omits the deferred Development source, and has no `strict`
+qualified stubs, omits the CLI-only Development source, and has no `strict`
 option. Supply `key`, optional `depth` from 0 through 2, and optional
 `max_nodes`, `max_edges`, `max_requests`, and `max_bytes`. Nodes default to 50
 and cap at 100; edges default to 200 and cap at 500; physical requests default
@@ -3583,6 +3584,26 @@ buffered Jira response budget is fixed at 16777216 bytes; both appear in
 encoded-result overflow fails the entire tool call rather than returning a
 clipped graph. Absence of Development evidence in this stable projection is
 not evidence that no development work exists.
+
+`--include-development` is an explicit CLI-only opt-in to Jira's experimental
+Development surface. For every successfully expanded Jira issue, atl reads one
+summary and zero to 24 non-zero detail selectors after the stable collectors.
+It emits only normalized GitLab project paths, full 40/64-hex commit SHAs,
+exact bounded branch names, and positive merge-request IIDs with normalized
+`open|merged|closed|unknown` state. Non-GitLab provider selectors are rejected.
+Messages, people,
+emails, files, timestamps, plugin envelopes, and backend error text are never
+projected. ATL does not contact GitLab, clone a repository, fetch an artifact
+URL, or reuse Jira credentials for GitLab. GitLab nodes remain unexpanded
+`experimental_api` stubs and never enter graph traversal.
+
+The requested `development` source is `complete` only after every non-zero
+repository/branch/pullrequest selector and identity reconciles. Any malformed,
+unsafe, conflicting, unsupported, forbidden, failed, or bounded response makes
+that source incomplete and emits no Development nodes or edges for that Jira
+issue. Its `count` is commits + branches + merge requests; supporting project
+containers are excluded. With `--strict`, the graph is still emitted before
+exit 8. Omitting the flag preserves the prior request sequence and output bytes.
 
 The command always emits schema v2. With the default `--depth 0` and
 `--resolve none`, it expands only the seed. Jira issues, Confluence page

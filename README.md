@@ -49,12 +49,16 @@ Given one exact Jira issue, `atl jira issue graph PROJ-123` returns its
 provenance-qualified, schema-v2 direct work-artifact graph without following
 any discovered issue, page, or URL. `--depth 1..3` follows only exact structured
 Jira relations under hard request/output budgets; optional
-`--resolve confluence` reads only page id/title metadata. Every returned field
+`--resolve confluence` reads only page id/title metadata. The explicit
+`--include-development` flag adds content-minimized GitLab project, full commit,
+exact branch, and merge-request coordinates from Jira's experimental
+Development surface. It never contacts GitLab or fetches a returned artifact
+URL, and an incomplete Development source emits no Development facts. Every returned field
 is reconciled with its inspection metadata: missing or invalid metadata makes
 the named source partial, while issue properties are explicitly experimental.
 The typed `jira_issue_graph` MCP tool exposes the same schema-v2 graph under
 Jira-only traversal: it accepts no Confluence-resolution input, leaves page
-identities as qualified stubs, omits the deferred Development source without
+identities as qualified stubs, omits the CLI-only Development source without
 implying zero activity, and keeps the fixed backend-response bound separate
 from the configurable encoded-result bound.
 

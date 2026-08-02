@@ -42,13 +42,14 @@ const (
 // A zero limit selects its documented default. Transport request and response
 // byte enforcement is performed by the caller's read-budget context.
 type JiraIssueGraphOptions struct {
-	Depth             int  `json:"depth"`
-	MaxNodes          int  `json:"max_nodes,omitempty"`
-	MaxEdges          int  `json:"max_edges,omitempty"`
-	MaxEvidence       int  `json:"max_evidence,omitempty"`
-	MaxRequests       int  `json:"max_requests,omitempty"`
-	MaxResponseBytes  int  `json:"max_response_bytes,omitempty"`
-	ResolveConfluence bool `json:"resolve_confluence,omitempty"`
+	Depth              int  `json:"depth"`
+	MaxNodes           int  `json:"max_nodes,omitempty"`
+	MaxEdges           int  `json:"max_edges,omitempty"`
+	MaxEvidence        int  `json:"max_evidence,omitempty"`
+	MaxRequests        int  `json:"max_requests,omitempty"`
+	MaxResponseBytes   int  `json:"max_response_bytes,omitempty"`
+	ResolveConfluence  bool `json:"resolve_confluence,omitempty"`
+	IncludeDevelopment bool `json:"include_development,omitempty"`
 }
 
 // JiraIssueGraphFrontierItem records a canonical Jira node that was eligible
@@ -71,6 +72,7 @@ type jiraGraphV2Builder struct {
 	frontierSeen                map[string]bool
 	aliases                     map[string]string
 	requestConfluenceResolution bool
+	sourceKinds                 []string
 }
 
 type jiraGraphQueueItem struct {
@@ -169,7 +171,7 @@ func (s *JiraService) IssueGraphWithOptions(ctx context.Context, key string, opt
 			}
 		}
 
-		projection, collectErr := s.collectJiraGraphV2Node(ctx, snapshot, item.ID, item.Depth)
+		projection, collectErr := s.collectJiraGraphV2Node(ctx, snapshot, item.ID, item.Depth, limits.IncludeDevelopment)
 		if collectErr != nil {
 			return nil, collectErr
 		}
@@ -244,6 +246,7 @@ func NormalizeJiraIssueGraphOptions(opts JiraIssueGraphOptions) (JiraIssueGraphO
 
 func newJiraGraphV2Builder(rootKey string, opts JiraIssueGraphOptions) *jiraGraphV2Builder {
 	rootID := "jira:issue:" + rootKey
+	sourceKinds := jiraGraphSourceKinds(opts.IncludeDevelopment)
 	return &jiraGraphV2Builder{
 		result: &JiraIssueGraphResult{
 			SchemaVersion: jiraIssueGraphSchemaVersionV2,
@@ -252,7 +255,8 @@ func newJiraGraphV2Builder(rootKey string, opts JiraIssueGraphOptions) *jiraGrap
 				RequestedDepth: opts.Depth, MaxNodes: opts.MaxNodes, MaxEdges: opts.MaxEdges,
 				MaxEvidence: opts.MaxEvidence, MaxSourceBytes: jiraGraphMaxSourceBytes,
 				MaxRequests: opts.MaxRequests, MaxResponseBytes: opts.MaxResponseBytes,
-				MaxSources: opts.MaxNodes*len(jiraGraphSourceOrder) + 1, MaxFrontier: opts.MaxNodes,
+				MaxSources: opts.MaxNodes*len(sourceKinds) + 1, MaxFrontier: opts.MaxNodes,
+				IncludeDevelopment: opts.IncludeDevelopment,
 			},
 			Nodes: []domain.ArtifactGraphNode{}, Edges: []domain.ArtifactGraphEdge{},
 			Sources: []domain.ArtifactGraphSource{}, Frontier: []JiraIssueGraphFrontierItem{},
@@ -261,6 +265,7 @@ func newJiraGraphV2Builder(rootKey string, opts JiraIssueGraphOptions) *jiraGrap
 		sources: map[string]domain.ArtifactGraphSource{}, maxNodes: opts.MaxNodes,
 		maxEdges: opts.MaxEdges, maxEvidence: opts.MaxEvidence, frontierSeen: map[string]bool{},
 		aliases: map[string]string{}, requestConfluenceResolution: opts.ResolveConfluence,
+		sourceKinds: sourceKinds,
 	}
 }
 
@@ -274,8 +279,8 @@ func validateJiraGraphV2Snapshot(snapshot *domain.QualifiedIssueSnapshot, reques
 	return strings.ToUpper(snapshot.Key), nil
 }
 
-func (s *JiraService) collectJiraGraphV2Node(ctx context.Context, snapshot *domain.QualifiedIssueSnapshot, nodeID string, depth int) (*jiraGraphBuilder, error) {
-	temp := newJiraGraphBuilder(nodeID)
+func (s *JiraService) collectJiraGraphV2Node(ctx context.Context, snapshot *domain.QualifiedIssueSnapshot, nodeID string, depth int, includeDevelopment bool) (*jiraGraphBuilder, error) {
+	temp := newJiraGraphBuilderWithSources(nodeID, includeDevelopment)
 	temp.addNode(domain.ArtifactGraphNode{
 		ID: nodeID, Kind: "jira_issue", Service: "jira", ExternalID: strings.ToUpper(snapshot.Key),
 		Label: graphBoundedLabel(snapshot.Issue.Summary), State: domain.ArtifactNodeResolved,
@@ -293,6 +298,11 @@ func (s *JiraService) collectJiraGraphV2Node(ctx context.Context, snapshot *doma
 	}
 	if err := temp.collectRemoteLinks(ctx, s.tr, snapshot.Key, s.baseURL, jiraGraphConfluenceBase(s)); err != nil {
 		return nil, err
+	}
+	if includeDevelopment {
+		if err := temp.collectDevelopment(ctx, s.tr, snapshot.ID); err != nil {
+			return nil, err
+		}
 	}
 	for id, node := range temp.nodes {
 		if id != nodeID {
@@ -323,7 +333,12 @@ func (b *jiraGraphV2Builder) mergeProjection(p *jiraGraphBuilder, sourceNodeID s
 		edges = append(edges, edge)
 	}
 	sort.Slice(edges, func(i, j int) bool { return graphEdgeSortKey(edges[i]) < graphEdgeSortKey(edges[j]) })
+	developmentEdges := make([]domain.ArtifactGraphEdge, 0)
 	for _, edge := range edges {
+		if strings.HasPrefix(edge.Kind, "development_") {
+			developmentEdges = append(developmentEdges, edge)
+			continue
+		}
 		target := p.nodes[edge.To]
 		if admitted, dropped := b.admitEdgeWithTarget(edge, target); !admitted {
 			for _, evidence := range dropped {
@@ -337,7 +352,14 @@ func (b *jiraGraphV2Builder) mergeProjection(p *jiraGraphBuilder, sourceNodeID s
 			}
 		}
 	}
-	for _, kind := range jiraGraphSourceOrder {
+	if reason := b.admitDevelopmentProjection(p, developmentEdges); reason != "" {
+		source := p.sources["development"]
+		source.Status, source.Complete = domain.ArtifactSourcePartial, false
+		source.Truncated = reason == domain.ArtifactPartialOutputLimit
+		source.PartialReason = reason
+		p.sources[source.Kind] = source
+	}
+	for _, kind := range p.sourceKinds {
 		source := *p.sources[kind]
 		b.sources[graphV2SourceKey(sourceNodeID, kind)] = source
 	}
@@ -345,6 +367,66 @@ func (b *jiraGraphV2Builder) mergeProjection(p *jiraGraphBuilder, sourceNodeID s
 		node.Expanded, node.State, node.Depth = true, domain.ArtifactNodeResolved, depth
 		b.nodes[sourceNodeID] = node
 	}
+}
+
+func (b *jiraGraphV2Builder) admitDevelopmentProjection(p *jiraGraphBuilder, edges []domain.ArtifactGraphEdge) string {
+	if len(edges) == 0 {
+		return ""
+	}
+	trial := *b
+	trial.nodes = make(map[string]domain.ArtifactGraphNode, len(b.nodes))
+	for key, node := range b.nodes {
+		trial.nodes[key] = node
+	}
+	trial.edges = make(map[string]domain.ArtifactGraphEdge, len(b.edges))
+	for key, edge := range b.edges {
+		edge.Evidence = append([]domain.ArtifactGraphEvidence(nil), edge.Evidence...)
+		trial.edges[key] = edge
+	}
+	for _, edge := range edges {
+		target := p.nodes[edge.To]
+		if existing, found := trial.nodes[target.ID]; found {
+			merged, ok := reconcileDevelopmentGraphNode(existing, target)
+			if !ok {
+				return domain.ArtifactPartialMalformed
+			}
+			trial.nodes[target.ID] = merged
+			target = merged
+		}
+		if admitted, _ := trial.admitEdgeWithTarget(edge, target); !admitted {
+			return domain.ArtifactPartialOutputLimit
+		}
+	}
+	b.nodes, b.edges, b.evidenceCount = trial.nodes, trial.edges, trial.evidenceCount
+	return ""
+}
+
+func reconcileDevelopmentGraphNode(existing, candidate domain.ArtifactGraphNode) (domain.ArtifactGraphNode, bool) {
+	if existing.Kind != candidate.Kind || existing.SCM == nil || candidate.SCM == nil {
+		return domain.ArtifactGraphNode{}, false
+	}
+	left, right := *existing.SCM, *candidate.SCM
+	if existing.Kind != "gitlab_merge_request" {
+		return existing, left == right
+	}
+	leftState, rightState := left.MergeRequestState, right.MergeRequestState
+	left.MergeRequestState, right.MergeRequestState = "", ""
+	if left != right {
+		return domain.ArtifactGraphNode{}, false
+	}
+	mergedState := leftState
+	switch {
+	case leftState == rightState:
+	case leftState == "unknown":
+		mergedState = rightState
+	case rightState == "unknown":
+	default:
+		return domain.ArtifactGraphNode{}, false
+	}
+	scm := *existing.SCM
+	scm.MergeRequestState = mergedState
+	existing.SCM = &scm
+	return existing, true
 }
 
 func (b *jiraGraphV2Builder) upsertNode(node domain.ArtifactGraphNode) bool {
@@ -481,7 +563,7 @@ func (b *jiraGraphV2Builder) qualifyFailedNode(item jiraGraphQueueItem, err erro
 		reason = domain.ArtifactPartialMalformed
 	}
 	b.nodes[item.ID] = node
-	for _, kind := range jiraGraphSourceOrder {
+	for _, kind := range b.sourceKinds {
 		d := item.Depth
 		b.sources[graphV2SourceKey(item.ID, kind)] = domain.ArtifactGraphSource{
 			NodeID: item.ID, NodeDepth: &d, Kind: kind, Requested: true,
@@ -498,7 +580,7 @@ func (b *jiraGraphV2Builder) qualifyBudgetLimitedRoot(item jiraGraphQueueItem, e
 		Stability: domain.ArtifactStabilityPublicAPI,
 	}
 	reason := jiraGraphBudgetReason(err)
-	for _, kind := range jiraGraphSourceOrder {
+	for _, kind := range b.sourceKinds {
 		depth := 0
 		b.sources[graphV2SourceKey(item.ID, kind)] = domain.ArtifactGraphSource{
 			NodeID: item.ID, NodeDepth: &depth, Kind: kind, Requested: true,
@@ -529,7 +611,7 @@ func jiraGraphBudgetReason(err error) string {
 }
 
 func projectionBudgetReason(p *jiraGraphBuilder) string {
-	for _, kind := range jiraGraphSourceOrder {
+	for _, kind := range p.sourceKinds {
 		source := p.sources[kind]
 		if source.PartialReason == domain.ArtifactPartialRequestLimit || source.PartialReason == domain.ArtifactPartialByteLimit {
 			return source.PartialReason
@@ -717,10 +799,10 @@ func (b *jiraGraphV2Builder) finish() (*JiraIssueGraphResult, error) {
 		b.result.Sources = append(b.result.Sources, source)
 	}
 	rank := map[string]int{}
-	for index, kind := range jiraGraphSourceOrder {
+	for index, kind := range b.sourceKinds {
 		rank[kind] = index
 	}
-	rank["confluence_metadata"] = len(jiraGraphSourceOrder)
+	rank["confluence_metadata"] = len(b.sourceKinds)
 	sort.Slice(b.result.Sources, func(i, j int) bool {
 		left, right := b.result.Sources[i], b.result.Sources[j]
 		if *left.NodeDepth != *right.NodeDepth {
@@ -796,7 +878,11 @@ func validateJiraGraphV2Result(result *JiraIssueGraphResult) error {
 	invalid := func(detail string) error {
 		return fmt.Errorf("%w: Jira graph v2 %s", domain.ErrCheckFailed, detail)
 	}
-	if result == nil || result.SchemaVersion != jiraIssueGraphSchemaVersionV2 ||
+	if result == nil {
+		return invalid("result is nil")
+	}
+	activeSourceKinds := jiraGraphSourceKinds(result.Bounds.IncludeDevelopment)
+	if result.SchemaVersion != jiraIssueGraphSchemaVersionV2 ||
 		result.Bounds.RequestedDepth < 0 || result.Bounds.RequestedDepth > jiraGraphMaxDepth ||
 		result.Bounds.MaxNodes < 1 || result.Bounds.MaxNodes > jiraGraphMaxNodes ||
 		result.Bounds.MaxEdges < 1 || result.Bounds.MaxEdges > jiraGraphMaxEdges ||
@@ -804,7 +890,7 @@ func validateJiraGraphV2Result(result *JiraIssueGraphResult) error {
 		result.Bounds.MaxRequests < 1 || result.Bounds.MaxRequests > jiraGraphMaxRequests ||
 		result.Bounds.MaxResponseBytes < 1 || result.Bounds.MaxResponseBytes > jiraGraphMaxResponseBytes ||
 		result.Bounds.MaxSourceBytes != jiraGraphMaxSourceBytes ||
-		result.Bounds.MaxSources != result.Bounds.MaxNodes*len(jiraGraphSourceOrder)+1 ||
+		result.Bounds.MaxSources != result.Bounds.MaxNodes*len(activeSourceKinds)+1 ||
 		result.Bounds.MaxFrontier != result.Bounds.MaxNodes {
 		return invalid("bounds are invalid")
 	}
@@ -823,8 +909,9 @@ func validateJiraGraphV2Result(result *JiraIssueGraphResult) error {
 	expanded := 0
 	for index, node := range result.Nodes {
 		if node.ID == "" || node.Depth < 0 || node.Depth > result.Bounds.RequestedDepth+1 ||
-			!oneOf(node.Kind, "jira_issue", "confluence_page", "attachment", "url") ||
-			!oneOf(node.Service, "jira", "confluence", "external") ||
+			!oneOf(node.Kind, "jira_issue", "confluence_page", "attachment", "url",
+				"gitlab_project", "gitlab_commit", "gitlab_branch", "gitlab_merge_request") ||
+			!oneOf(node.Service, "jira", "confluence", "external", "gitlab") ||
 			!oneOf(string(node.State), "resolved", "stub", "unresolved", "forbidden", "missing") ||
 			!oneOf(string(node.Stability), "public_api", "experimental_api", "heuristic") ||
 			(index > 0 && graphV2NodeSortKey(result.Nodes[index-1]) >= graphV2NodeSortKey(node)) {
@@ -851,9 +938,16 @@ func validateJiraGraphV2Result(result *JiraIssueGraphResult) error {
 				!graphNumericIDPattern.MatchString(id) || node.ExternalID != id {
 				return invalid("attachment node identity is not canonical")
 			}
+		} else if strings.HasPrefix(node.Kind, "gitlab_") {
+			if !result.Bounds.IncludeDevelopment || !validateJiraDevelopmentGraphNode(node) {
+				return invalid("GitLab node identity is not canonical")
+			}
 		} else if node.Service != "external" ||
 			(!strings.HasPrefix(node.ID, "url:") && !strings.HasPrefix(node.ID, "candidate:url:")) {
 			return invalid("URL node service is invalid")
+		}
+		if !strings.HasPrefix(node.Kind, "gitlab_") && node.SCM != nil {
+			return invalid("non-GitLab node contains SCM coordinates")
 		}
 		if node.Expanded {
 			if node.Kind != "jira_issue" || node.State != domain.ArtifactNodeResolved || node.Depth > result.Bounds.RequestedDepth {
@@ -871,36 +965,97 @@ func validateJiraGraphV2Result(result *JiraIssueGraphResult) error {
 	}
 	rootBudgetLimited := !root.Expanded
 	evidenceCount := 0
+	developmentArtifactEdges := map[string]int{}
+	developmentEdgesBySource := map[string]int{}
+	developmentTargetEdges := map[string]int{}
+	developmentTargetDepth := map[string]int{}
+	developmentArtifactProjects := map[string]bool{}
+	developmentProjectEdges := map[string]bool{}
 	for index, edge := range result.Edges {
 		if edge.ID != graphEdgeID(edge) || edge.From == edge.To ||
 			nodes[edge.From].ID == "" || nodes[edge.To].ID == "" || len(edge.Evidence) == 0 ||
+			strings.HasPrefix(nodes[edge.From].Kind, "gitlab_") ||
 			!edge.Current ||
-			!oneOf(edge.Kind, "jira_link", "parent_of", "child_of", "epic_of", "attached", "mentions", "remote_link") ||
+			!oneOf(edge.Kind, "jira_link", "parent_of", "child_of", "epic_of", "attached", "mentions", "remote_link",
+				"development_project", "development_commit", "development_branch", "development_merge_request") ||
 			!oneOf(edge.Direction, "inward", "outward", "outbound") ||
 			!oneOf(edge.Confidence, "exact", "high", "candidate") ||
 			!oneOf(string(edge.Stability), "public_api", "experimental_api", "heuristic") ||
 			(index > 0 && graphEdgeSortKey(result.Edges[index-1]) >= graphEdgeSortKey(edge)) {
 			return invalid("edge inventory is invalid or unordered")
 		}
+		developmentEdge := strings.HasPrefix(edge.Kind, "development_")
+		if strings.HasPrefix(nodes[edge.To].Kind, "gitlab_") != developmentEdge {
+			return invalid("Development target boundary is invalid")
+		}
+		if developmentEdge && (!result.Bounds.IncludeDevelopment || edge.Stability != domain.ArtifactStabilityExperimentalAPI ||
+			edge.Direction != "outbound" || edge.Confidence != "exact" || nodes[edge.From].Kind != "jira_issue" ||
+			nodes[edge.To].Kind != "gitlab_"+strings.TrimPrefix(edge.Kind, "development_") ||
+			nodes[edge.To].Depth > nodes[edge.From].Depth+1 || len(edge.Evidence) != 1 ||
+			edge.RelationType != "" || edge.Relation != "") {
+			return invalid("Development edge is invalid")
+		}
+		if developmentEdge {
+			developmentEdgesBySource[edge.From]++
+			developmentTargetEdges[edge.To]++
+			candidateDepth := nodes[edge.From].Depth + 1
+			if current, found := developmentTargetDepth[edge.To]; !found || candidateDepth < current {
+				developmentTargetDepth[edge.To] = candidateDepth
+			}
+			if edge.Kind != "development_project" {
+				developmentArtifactEdges[edge.From]++
+				scm := nodes[edge.To].SCM
+				developmentArtifactProjects[edge.From+"\x00"+scm.Host+"\x00"+scm.ProjectPath] = true
+			} else {
+				scm := nodes[edge.To].SCM
+				developmentProjectEdges[edge.From+"\x00"+scm.Host+"\x00"+scm.ProjectPath] = true
+			}
+		}
 		for evidenceIndex, evidence := range edge.Evidence {
-			if evidence.SourceNodeID != edge.From || !oneOf(evidence.Collector, jiraGraphSourceOrder...) ||
-				!oneOf(evidence.SourceKind, "field", "property", "comment", "worklog", "remote_link") ||
+			if evidence.SourceNodeID != edge.From || !oneOf(evidence.Collector, activeSourceKinds...) ||
+				!oneOf(evidence.SourceKind, "field", "property", "comment", "worklog", "remote_link", "development_detail") ||
 				!oneOf(evidence.Extraction, "structured", "absolute_url", "jira_key", "confluence_page_id", "service_url") ||
 				(evidenceIndex > 0 && graphEvidenceKey(edge.Evidence[evidenceIndex-1]) >= graphEvidenceKey(evidence)) {
 				return invalid("evidence provenance is invalid or unordered")
 			}
+			validDevelopmentEvidence := evidence.Collector == "development" && evidence.SourceKind == "development_detail" &&
+				evidence.Extraction == "structured" && evidence.JSONPointer == "" && jiraDevelopmentSourceID.MatchString(evidence.SourceID) &&
+				evidence.SourceID == jiraDevelopmentEvidenceSourceID(edge.Kind, nodes[edge.To].SCM)
+			if developmentEdge != validDevelopmentEvidence ||
+				(!developmentEdge && (evidence.Collector == "development" || evidence.SourceKind == "development_detail")) {
+				return invalid("Development evidence provenance is invalid")
+			}
 			evidenceCount++
 		}
 	}
+	for _, node := range result.Nodes {
+		if strings.HasPrefix(node.Kind, "gitlab_") &&
+			(developmentTargetEdges[node.ID] == 0 || node.Depth != developmentTargetDepth[node.ID]) {
+			return invalid("GitLab node has no valid Development edge depth")
+		}
+	}
+	for _, edge := range result.Edges {
+		if edge.Kind == "development_project" {
+			scm := nodes[edge.To].SCM
+			if !developmentArtifactProjects[edge.From+"\x00"+scm.Host+"\x00"+scm.ProjectPath] {
+				return invalid("Development project has no artifact identity")
+			}
+		}
+	}
+	for identity := range developmentArtifactProjects {
+		if !developmentProjectEdges[identity] {
+			return invalid("Development artifact has no project edge")
+		}
+	}
 	rank := map[string]int{}
-	for index, kind := range jiraGraphSourceOrder {
+	for index, kind := range activeSourceKinds {
 		rank[kind] = index
 	}
-	rank["confluence_metadata"] = len(jiraGraphSourceOrder)
+	rank["confluence_metadata"] = len(activeSourceKinds)
 	statusCounts := map[string]int{"complete": 0, "empty": 0, "partial": 0, "forbidden": 0, "unsupported": 0, "skipped": 0}
 	incomplete := 0
 	truncated := false
-	sourceKinds := map[string]map[string]bool{}
+	sourcesByNode := map[string]map[string]bool{}
 	for index, source := range result.Sources {
 		node, nodeOK := nodes[source.NodeID]
 		kindRank, kindOK := rank[source.Kind]
@@ -934,19 +1089,29 @@ func validateJiraGraphV2Result(result *JiraIssueGraphResult) error {
 		if source.Stability != jiraGraphSourceStability(source.Kind) {
 			return invalid("source stability is invalid")
 		}
+		if source.Kind == "development" && source.Complete && source.Count != developmentArtifactEdges[source.NodeID] {
+			return invalid("Development source count is invalid")
+		}
+		if source.Kind == "development" && source.Complete &&
+			(source.Status == domain.ArtifactSourceEmpty) != (source.Count == 0) {
+			return invalid("Development source status does not match count")
+		}
+		if source.Kind == "development" && !source.Complete && developmentEdgesBySource[source.NodeID] != 0 {
+			return invalid("incomplete Development source contains facts")
+		}
 		if source.Kind == "confluence_metadata" && source.NodeID != result.RootID {
 			return invalid("Confluence metadata source is not rooted")
 		}
 		if source.Kind != "confluence_metadata" && node.Kind != "jira_issue" {
 			return invalid("Jira collector is attached to a non-Jira node")
 		}
-		if sourceKinds[source.NodeID] == nil {
-			sourceKinds[source.NodeID] = map[string]bool{}
+		if sourcesByNode[source.NodeID] == nil {
+			sourcesByNode[source.NodeID] = map[string]bool{}
 		}
-		if sourceKinds[source.NodeID][source.Kind] {
+		if sourcesByNode[source.NodeID][source.Kind] {
 			return invalid("source inventory contains a duplicate")
 		}
-		sourceKinds[source.NodeID][source.Kind] = true
+		sourcesByNode[source.NodeID][source.Kind] = true
 		statusCounts[string(source.Status)]++
 		if !source.Complete {
 			incomplete++
@@ -955,21 +1120,21 @@ func validateJiraGraphV2Result(result *JiraIssueGraphResult) error {
 		_ = kindRank
 	}
 	for _, node := range result.Nodes {
-		kinds := sourceKinds[node.ID]
+		kinds := sourcesByNode[node.ID]
 		hasJiraInventory := false
-		for _, kind := range jiraGraphSourceOrder {
+		for _, kind := range activeSourceKinds {
 			hasJiraInventory = hasJiraInventory || kinds[kind]
 		}
 		if !node.Expanded && !hasJiraInventory {
 			continue
 		}
-		for _, kind := range jiraGraphSourceOrder {
+		for _, kind := range activeSourceKinds {
 			if !kinds[kind] {
 				return invalid("attempted Jira node source inventory is incomplete")
 			}
 		}
 	}
-	if kinds := sourceKinds[result.RootID]; kinds["confluence_metadata"] {
+	if kinds := sourcesByNode[result.RootID]; kinds["confluence_metadata"] {
 		confluenceCount := 0
 		for _, node := range result.Nodes {
 			if node.Kind == "confluence_page" {
@@ -999,13 +1164,13 @@ func validateJiraGraphV2Result(result *JiraIssueGraphResult) error {
 			len(result.Frontier) != 1 || result.Frontier[0].NodeID != result.RootID ||
 			result.Frontier[0].Depth != 0 ||
 			!oneOf(result.Frontier[0].Reason, domain.ArtifactPartialRequestLimit, domain.ArtifactPartialByteLimit) ||
-			(len(result.Sources) != len(jiraGraphSourceOrder) &&
-				len(result.Sources) != len(jiraGraphSourceOrder)+1) {
+			(len(result.Sources) != len(activeSourceKinds) &&
+				len(result.Sources) != len(activeSourceKinds)+1) {
 			return invalid("root budget qualification is invalid")
 		}
 		for _, source := range result.Sources {
 			if source.NodeID != result.RootID ||
-				(!oneOf(source.Kind, jiraGraphSourceOrder...) && source.Kind != "confluence_metadata") ||
+				(!oneOf(source.Kind, activeSourceKinds...) && source.Kind != "confluence_metadata") ||
 				source.Status != domain.ArtifactSourcePartial || !source.Truncated ||
 				source.PartialReason != result.Frontier[0].Reason {
 				return invalid("root budget source qualification is invalid")

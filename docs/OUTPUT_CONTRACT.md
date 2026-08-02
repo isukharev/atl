@@ -1778,6 +1778,18 @@ activity.
 `atl jira issue graph <KEY>` emits one transient, deterministic schema-v2
 work-artifact graph. Depth defaults to zero:
 
+The CLI-only `--include-development` option adds
+`bounds.include_development:true`, one `development` source per expanded Jira
+node, and four closed GitLab node/edge kinds: project, commit, branch, and
+merge request. Each GitLab node has an `scm` object containing `host` and
+`project_path`, plus exactly one applicable artifact selector (`commit_sha`,
+`branch_name`, or `merge_request_iid` with `merge_request_state`). All such sources, nodes, edges, and
+evidence are `experimental_api`; nodes are unexpanded stubs and are never
+traversed. Development source `count` excludes project containers. Any failure
+or reconciliation mismatch is fail-closed for that source: stable graph facts
+remain, but no partial Development projection survives. Omitting the option
+preserves the schema-v2 bytes shown below.
+
 ```json
 {
   "schema_version": 2,
