@@ -556,10 +556,7 @@ func validateJiraIssueDeleteInvocation(cmd *cobra.Command, applyRequested bool) 
 	if updatedErr != nil || hashErr != nil {
 		return usageErr("invalid reviewed deletion markers")
 	}
-	if err := app.ValidateJiraIssueDeleteReviewMarkers(expectedUpdated, expectedProposalHash); err != nil {
-		return err
-	}
-	return nil
+	return app.ValidateJiraIssueDeleteReviewMarkers(expectedUpdated, expectedProposalHash)
 }
 
 func canonicalJiraCLIIssueKey(value string) bool {
