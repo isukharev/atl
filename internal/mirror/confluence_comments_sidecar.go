@@ -255,7 +255,12 @@ func validateConfluenceCommentsSidecarV2(value ConfluenceCommentsSidecarV2) erro
 		if comment.Relation == domain.ConfluenceCommentRelationRoot {
 			rootCount++
 		}
-		if comment.Location == domain.ConfluenceCommentLocationInline && comment.Anchor == nil {
+		// Schema-v2 historically allowed reply-level anchor copies. Keep accepting
+		// and preserving those legacy bytes so pristine v5 views reconstruct
+		// identically, while current app validators prevent new projections from
+		// emitting them. A proven reply with a nil anchor is the current shape.
+		if comment.Relation != domain.ConfluenceCommentRelationReply &&
+			comment.Location == domain.ConfluenceCommentLocationInline && comment.Anchor == nil {
 			return confluenceCommentsSidecarError("inline comment has no anchor projection")
 		}
 		if comment.Anchor != nil {

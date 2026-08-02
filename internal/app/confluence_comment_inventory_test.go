@@ -56,9 +56,10 @@ func TestConfluenceCommentInventoryQualifiesThreadsAndAnchors(t *testing.T) {
 			domain.ConfluenceCommentRecord{
 				ID: "102", PageID: "42", ParentID: &rootID, RootID: &rootID,
 				Relation:   domain.ConfluenceCommentRelationReply,
-				Location:   domain.ConfluenceCommentLocationUnknown,
-				Resolution: domain.ConfluenceCommentResolutionUnknown,
+				Location:   domain.ConfluenceCommentLocationInline,
+				Resolution: domain.ConfluenceCommentResolutionOpen,
 				Version:    1, CreatedAt: "2026-01-02", Body: "reply", BodyStorage: "<p>reply</p>",
+				MarkerRef: "ref-1", OriginalSelection: "copied root selection",
 			},
 			domain.ConfluenceCommentRecord{
 				ID: rootID, PageID: "42", RootID: &rootID,
@@ -663,6 +664,19 @@ func TestConfluenceCommentViewValidatorsRejectUnreconciledEvidence(t *testing.T)
 	if projected, err := ProjectConfluenceCommentListView(badSource, ConfluenceCommentViewBounds{MaxCommentPages: 1, MaxItems: 1, MaxBytes: 1024}); projected != nil || !errors.Is(err, domain.ErrCheckFailed) {
 		t.Fatalf("email-like source author projected=%+v error=%v", projected, err)
 	}
+	badSource = completeCommentProjectionResult("list")
+	badSource.Comments[0].Anchor = nil
+	if projected, err := ProjectConfluenceCommentListView(badSource, ConfluenceCommentViewBounds{MaxCommentPages: 1, MaxItems: 1, MaxBytes: 1024}); projected != nil || !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("anchorless inline root projected=%+v error=%v", projected, err)
+	}
+	badSource = completeCommentProjectionResult("list")
+	parentID, replyRootID := "100", "100"
+	badSource.Comments[0].Relation = domain.ConfluenceCommentRelationReply
+	badSource.Comments[0].ParentID, badSource.Comments[0].RootID = &parentID, &replyRootID
+	badSource.RootCount = 0
+	if projected, err := ProjectConfluenceCommentListView(badSource, ConfluenceCommentViewBounds{MaxCommentPages: 1, MaxItems: 1, MaxBytes: 1024}); projected != nil || !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("reply-owned anchor projected=%+v error=%v", projected, err)
+	}
 	for name, mutate := range map[string]func(*ConfluenceCommentInventoryResult){
 		"URL timestamp": func(result *ConfluenceCommentInventoryResult) {
 			result.Comments[0].UpdatedAt = "https://private.invalid/value"
@@ -742,12 +756,40 @@ func TestConfluenceCommentViewValidatorsRejectUnreconciledEvidence(t *testing.T)
 	if err := ValidateConfluenceCommentListView(&badList); !errors.Is(err, domain.ErrCheckFailed) {
 		t.Fatalf("invalid list anchor error = %v", err)
 	}
+	badList = *list
+	badList.Comments = append([]ConfluenceCommentListViewRecord(nil), list.Comments...)
+	badList.Comments[0].Anchor = nil
+	if err := ValidateConfluenceCommentListView(&badList); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("anchorless list root error = %v", err)
+	}
+	badList = *list
+	badList.Comments = append([]ConfluenceCommentListViewRecord(nil), list.Comments...)
+	badList.Comments[0].Relation = domain.ConfluenceCommentRelationReply
+	badList.Comments[0].ParentID, badList.Comments[0].RootID = &parentID, &replyRootID
+	badList.RootCount = 0
+	if err := ValidateConfluenceCommentListView(&badList); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("reply-owned list anchor error = %v", err)
+	}
 
 	badThread := *thread
 	badThread.Comments = append([]ConfluenceCommentThreadViewRecord(nil), thread.Comments...)
 	badThread.Comments[0].BodyText = nil
 	if err := ValidateConfluenceCommentThreadView(&badThread); !errors.Is(err, domain.ErrCheckFailed) {
 		t.Fatalf("unqualified missing body error = %v", err)
+	}
+	badThread = *thread
+	badThread.Comments = append([]ConfluenceCommentThreadViewRecord(nil), thread.Comments...)
+	badThread.Comments[0].Anchor = nil
+	if err := ValidateConfluenceCommentThreadView(&badThread); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("anchorless thread root error = %v", err)
+	}
+	badThread = *thread
+	badThread.Comments = append([]ConfluenceCommentThreadViewRecord(nil), thread.Comments...)
+	badThread.Comments[0].Relation = domain.ConfluenceCommentRelationReply
+	badThread.Comments[0].ParentID, badThread.Comments[0].RootID = &parentID, &replyRootID
+	badThread.RootCount = 0
+	if err := ValidateConfluenceCommentThreadView(&badThread); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("reply-owned thread anchor error = %v", err)
 	}
 	badThread = *thread
 	badThread.Diagnostics = []ConfluenceCommentViewDiagnostic{{Code: "backend prose"}}

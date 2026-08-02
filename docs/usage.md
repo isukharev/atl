@@ -2578,7 +2578,9 @@ changed. Regardless of that optional caller gate, every qualified selector and
 pagination request is internally bound to the reconciled `page_version`.
 Inspect `comments_complete`, `threads_complete`, `anchors_complete`,
 `partial_reasons`, and per-comment `relation`, `location`, `resolution`, and
-`anchor.status`. An empty list proves absence only when `complete:true`.
+`anchor.status`. Anchors are root-thread evidence; a proven reply has a null
+anchor and is qualified by explicit ancestry instead. An empty list proves
+absence only when `complete:true`.
 
 `-o text` emits the same qualification header followed by a deterministic
 indented thread view. Native `body_storage` remains available only in JSON.

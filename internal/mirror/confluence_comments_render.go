@@ -287,7 +287,8 @@ func renderConfluenceComment(b *strings.Builder, comment ConfluenceCommentsSidec
 
 func renderConfluenceCommentAnchor(b *strings.Builder, comment ConfluenceCommentsSidecarComment) {
 	if comment.Anchor == nil {
-		if comment.Location == domain.ConfluenceCommentLocationInline {
+		if comment.Relation != domain.ConfluenceCommentRelationReply &&
+			comment.Location == domain.ConfluenceCommentLocationInline {
 			b.WriteString("**Anchor:** unavailable\n\n")
 		}
 		return

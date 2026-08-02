@@ -167,7 +167,7 @@ func TestPullCommentsMirrorsSidecars(t *testing.T) {
 }
 
 func TestPullCommentsPersistsQualifiedV2WithoutSecondPageRead(t *testing.T) {
-	rootID, otherRootID := "20", "10"
+	rootID, otherRootID, replyID := "20", "10", "21"
 	base := &pullStore{pages: map[string]*domain.Resource{
 		"100": {
 			ID: "100", Title: "Alpha", SpaceKey: "SP", Version: 2,
@@ -181,6 +181,11 @@ func TestPullCommentsPersistsQualifiedV2WithoutSecondPageRead(t *testing.T) {
 			Relation: domain.ConfluenceCommentRelationRoot, Location: domain.ConfluenceCommentLocationInline,
 			Resolution: domain.ConfluenceCommentResolutionOpen, Version: 1,
 			MarkerRef: "ref-10", OriginalSelection: "selected", BodyStorage: "<p>comment</p>", CreatedAt: "2026-01-01T02:03:04Z",
+		}, domain.ConfluenceCommentRecord{
+			ID: replyID, PageID: "100", ParentID: &rootID, RootID: &rootID,
+			Relation: domain.ConfluenceCommentRelationReply, Location: domain.ConfluenceCommentLocationInline,
+			Resolution: domain.ConfluenceCommentResolutionOpen, Version: 1,
+			BodyStorage: "<p>reply body</p>", CreatedAt: "2026-01-01T03:04:05Z",
 		}, domain.ConfluenceCommentRecord{
 			ID: otherRootID, PageID: "100", RootID: &otherRootID,
 			Relation: domain.ConfluenceCommentRelationRoot, Location: domain.ConfluenceCommentLocationFooter,
@@ -207,17 +212,23 @@ func TestPullCommentsPersistsQualifiedV2WithoutSecondPageRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if decoded.V2 == nil || !decoded.V2.Complete || decoded.V2.RootCount != 2 || len(decoded.V2.Comments) != 2 {
+	if decoded.V2 == nil || !decoded.V2.Complete || decoded.V2.RootCount != 2 || len(decoded.V2.Comments) != 3 {
 		t.Fatalf("qualified sidecar = %+v", decoded.V2)
 	}
-	var inline *mirror.ConfluenceCommentsSidecarComment
+	var inline, reply *mirror.ConfluenceCommentsSidecarComment
 	for i := range decoded.V2.Comments {
 		if decoded.V2.Comments[i].ID == rootID {
 			inline = &decoded.V2.Comments[i]
 		}
+		if decoded.V2.Comments[i].ID == replyID {
+			reply = &decoded.V2.Comments[i]
+		}
 	}
 	if inline == nil || inline.Anchor == nil || inline.Anchor.Status != domain.ConfluenceAnchorMatched || inline.Anchor.ObservedSelection != "selected" {
 		t.Fatalf("qualified inline sidecar = %+v", inline)
+	}
+	if reply == nil || reply.Relation != domain.ConfluenceCommentRelationReply || reply.Anchor != nil {
+		t.Fatalf("qualified reply sidecar = %+v", reply)
 	}
 	mdPath := filepath.Join(dir, slug+".md")
 	md, err := os.ReadFile(mdPath)
@@ -228,7 +239,9 @@ func TestPullCommentsPersistsQualifiedV2WithoutSecondPageRead(t *testing.T) {
 		!strings.Contains(string(md), "**Completeness:** comments complete · threads complete · anchors complete") ||
 		!strings.Contains(string(md), "2026-01-01 02:03 UTC") ||
 		!strings.Contains(string(md), "**Current inline selection:** selected") ||
-		!strings.Contains(string(md), "**Location:** inline · **State:** open") {
+		strings.Count(string(md), "**Current inline selection:**") != 1 ||
+		strings.Contains(string(md), "**Anchor:** unavailable") ||
+		!strings.Contains(string(md), "reply body") || !strings.Contains(string(md), "**Location:** inline · **State:** open") {
 		t.Fatalf("qualified v5 comment tree missing:\n%s", md)
 	}
 	if _, err := Apply(mdPath, ApplyOpts{Into: result.Root}); err != nil {
