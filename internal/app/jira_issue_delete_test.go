@@ -239,6 +239,8 @@ func TestJiraIssueDeleteGuardedValidatesInvocationBeforeRead(t *testing.T) {
 		{"bad confirm", "PROJ-1", JiraIssueDeleteOpts{Apply: true, Confirm: "yes", ExpectedUpdated: "x", ExpectedProposalHash: "x"}},
 		{"missing updated", "PROJ-1", JiraIssueDeleteOpts{Apply: true, Confirm: "DELETE", ExpectedProposalHash: "x"}},
 		{"missing hash", "PROJ-1", JiraIssueDeleteOpts{Apply: true, Confirm: "DELETE", ExpectedUpdated: "x"}},
+		{"malformed updated", "PROJ-1", JiraIssueDeleteOpts{Apply: true, Confirm: "DELETE", ExpectedUpdated: "not-a-time", ExpectedProposalHash: strings.Repeat("a", 64)}},
+		{"malformed hash", "PROJ-1", JiraIssueDeleteOpts{Apply: true, Confirm: "DELETE", ExpectedUpdated: "2026-08-02T20:00:00.000+0000", ExpectedProposalHash: strings.Repeat("A", 64)}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

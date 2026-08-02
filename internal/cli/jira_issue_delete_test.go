@@ -60,15 +60,21 @@ func TestJiraIssueDeleteOutputFailureAfterAttemptIsNoReplay(t *testing.T) {
 }
 
 func TestJiraIssueDeleteInvocationFailsBeforeConfiguration(t *testing.T) {
-	tests := [][]string{
-		{"jira", "issue", "delete", "proj-1"},
-		{"jira", "issue", "delete", "PROJ-1", "--confirm", "DELETE"},
-		{"jira", "issue", "delete", "PROJ-1", "--apply"},
-		{"jira", "issue", "delete", "PROJ-1", "--force"},
+	tests := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"jira", "issue", "delete", "proj-1"}, "issue key must be canonical"},
+		{[]string{"jira", "issue", "delete", "PROJ-1", "--confirm", "DELETE"}, "require --apply"},
+		{[]string{"jira", "issue", "delete", "PROJ-1", "--apply"}, "--confirm is required"},
+		{[]string{"jira", "issue", "delete", "PROJ-1", "--force"}, "unknown flag"},
+		{[]string{"jira", "issue", "delete", "PROJ-1", "--apply", "--confirm", "DELETE", "--expected-updated", "not-a-time", "--expected-proposal-hash", strings.Repeat("a", 64)}, "exact supported Jira timestamp"},
+		{[]string{"jira", "issue", "delete", "PROJ-1", "--apply", "--confirm", "DELETE", "--expected-updated", "2026-08-02T20:00:00.000+0000", "--expected-proposal-hash", strings.Repeat("A", 64)}, "lowercase 64-character SHA-256"},
 	}
-	for _, args := range tests {
-		if out, code := runCLI(t, map[string]string{"ATL_JIRA_URL": "not a URL"}, args...); code != exitUsage || out != "" {
-			t.Fatalf("args=%v exit=%d stdout=%q", args, code, out)
+	for _, test := range tests {
+		out, _, err := executeCLIRaw(t, map[string]string{"ATL_JIRA_URL": "not a URL"}, test.args...)
+		if codeFor(err) != exitUsage || out != "" || !strings.Contains(err.Error(), test.want) {
+			t.Fatalf("args=%v error=%v stdout=%q", test.args, err, out)
 		}
 	}
 }

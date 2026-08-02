@@ -110,6 +110,11 @@ func (s *JiraService) DeleteIssueGuarded(ctx context.Context, requestedKey strin
 	if opts.Apply && !canonicalJiraTransitionIdentity(opts.ExpectedProposalHash) {
 		return nil, fmt.Errorf("%w: --expected-proposal-hash is required with --apply; run the dry-run first", domain.ErrUsage)
 	}
+	if opts.Apply {
+		if err := ValidateJiraIssueDeleteReviewMarkers(opts.ExpectedUpdated, opts.ExpectedProposalHash); err != nil {
+			return nil, err
+		}
+	}
 
 	initial, err := s.jiraIssueDeleteSnapshot(ctx, requestedKey, requestedKey, "")
 	if err != nil {
@@ -284,6 +289,27 @@ func canonicalPositiveNumericString(value string) bool {
 func canonicalJiraIssueDeleteKey(key string) bool {
 	span := graphJiraKeyPattern.FindStringIndex(key)
 	return span != nil && span[0] == 0 && span[1] == len(key)
+}
+
+// ValidateJiraIssueDeleteReviewMarkers rejects malformed complete-looking
+// apply invocations before configuration or network access. It is exported so
+// the CLI preflight and app boundary enforce one exact grammar.
+func ValidateJiraIssueDeleteReviewMarkers(updated, proposalHash string) error {
+	if !canonicalJiraTransitionIdentity(updated) {
+		return fmt.Errorf("%w: --expected-updated must be an exact supported Jira timestamp", domain.ErrUsage)
+	}
+	if _, err := parseJiraUpdatedTime(updated); err != nil {
+		return fmt.Errorf("%w: --expected-updated must be an exact supported Jira timestamp", domain.ErrUsage)
+	}
+	if len(proposalHash) != sha256.Size*2 {
+		return fmt.Errorf("%w: --expected-proposal-hash must be a lowercase 64-character SHA-256", domain.ErrUsage)
+	}
+	for _, char := range proposalHash {
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
+			return fmt.Errorf("%w: --expected-proposal-hash must be a lowercase 64-character SHA-256", domain.ErrUsage)
+		}
+	}
+	return nil
 }
 
 func jiraIssueDeleteProposalHash(snapshot jiraIssueDeleteSnapshot, deleteSubtasks bool) string {

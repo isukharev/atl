@@ -4080,6 +4080,12 @@ only an acknowledged DELETE followed by exact numeric-id `404` is reported as
 permission-relative absent. Never retry it automatically. The old `--force`
 direct-write form is no longer supported.
 
+The whole destructive `jira issue delete` leaf is mutation-classified, including
+its GET-only preview, so `ATL_READ_ONLY=1` blocks both forms before credentials
+or network. Enter an explicitly approved deletion workflow before removing that
+policy for the preview; keep the reviewed output, run at most the one exact apply,
+then restore the policy immediately.
+
 ### `atl jira pull`
 
 Export issues matching a JQL query to disk. Each issue becomes three files:

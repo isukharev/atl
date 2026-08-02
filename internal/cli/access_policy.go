@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
 )
@@ -549,6 +550,14 @@ func validateJiraIssueDeleteInvocation(cmd *cobra.Command, applyRequested bool) 
 	confirm, err := cmd.Flags().GetString("confirm")
 	if err != nil || confirm != "DELETE" {
 		return usageErr("--confirm must be exactly DELETE with --apply")
+	}
+	expectedUpdated, updatedErr := cmd.Flags().GetString("expected-updated")
+	expectedProposalHash, hashErr := cmd.Flags().GetString("expected-proposal-hash")
+	if updatedErr != nil || hashErr != nil {
+		return usageErr("invalid reviewed deletion markers")
+	}
+	if err := app.ValidateJiraIssueDeleteReviewMarkers(expectedUpdated, expectedProposalHash); err != nil {
+		return err
 	}
 	return nil
 }
