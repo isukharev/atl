@@ -94,6 +94,36 @@ func TestConfPullCompleteTextGolden(t *testing.T) {
 	assertGolden(t, "conf_pull_complete.txt", normalizeIncrementalCLI(out, root))
 }
 
+func TestConfPullOrdinarySchedulingAndExplicitDefaults(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		flags          []string
+		wantScheduling string
+	}{
+		{name: "prefetch", flags: []string{"--page-prefetch", "2"}, wantScheduling: `"page_prefetch": 2`},
+		{name: "rate only", flags: []string{"--requests-per-second", "1000"}, wantScheduling: `"max_in_flight": 1`},
+		{name: "explicit defaults", flags: []string{"--page-prefetch", "1", "--requests-per-second", "0"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, _ := incrementalConfServer(t)
+			defer srv.Close()
+			args := []string{"conf", "pull", "--cql", "space=ENG and type=page", "--into", t.TempDir()}
+			args = append(args, tc.flags...)
+			out, code := runCLI(t, confEnv(srv), args...)
+			if code != exitOK {
+				t.Fatalf("exit=%d out=%q", code, out)
+			}
+			if tc.wantScheduling == "" {
+				if strings.Contains(out, `"scheduling"`) {
+					t.Fatalf("explicit default flags installed/reported a scheduler: %s", out)
+				}
+			} else if !strings.Contains(out, `"scheduling"`) || !strings.Contains(out, tc.wantScheduling) {
+				t.Fatalf("scheduled ordinary pull omitted policy %q: %s", tc.wantScheduling, out)
+			}
+		})
+	}
+}
+
 func TestConfPullIncrementalFlagsFailBeforeConfig(t *testing.T) {
 	for _, args := range [][]string{
 		{"conf", "pull", "--incremental", "--id", "100"},
@@ -111,7 +141,7 @@ func TestConfPullIncrementalFlagsFailBeforeConfig(t *testing.T) {
 		{"conf", "pull", "--complete", "--cql", "type=page", "--max-pages", "-1"},
 		{"conf", "pull", "--complete", "--cql", "type=page", "--since", "2026-07-13T12:00:00Z"},
 		{"conf", "pull", "--complete", "--space", "ENG", "--depth", "2"},
-		{"conf", "pull", "--cql", "type=page", "--page-prefetch", "2"},
+		{"conf", "pull", "--id", "100", "--page-prefetch", "2"},
 		{"conf", "pull", "--complete", "--cql", "type=page", "--page-prefetch", "0"},
 		{"conf", "pull", "--complete", "--cql", "type=page", "--page-prefetch", "9"},
 		{"conf", "pull", "--complete", "--cql", "type=page", "--requests-per-second", "-1"},

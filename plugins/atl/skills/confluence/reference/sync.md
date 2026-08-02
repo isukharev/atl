@@ -21,6 +21,19 @@ On an existing root, run remote status before pulling. Preserve local edits;
 refresh only a clean remote-drifted mirror. Mirror identity and view state live
 under the nearest `.atl`; never edit or copy that state by hand.
 
+For an ordinary multi-page CQL/space pull, opt into bounded scheduling only
+after reviewing backend capacity:
+
+```bash
+atl conf pull --space <KEY> --page-prefetch 2 --requests-per-second 10 \
+  --into <absolute-root>
+```
+
+Prefetch `2..8` overlaps native body GETs while the canonical consumer and all
+mirror writes stay serial. A positive rate with prefetch `1` is a rate-only,
+one-in-flight schedule. Omitting the flags, or explicitly passing their `1/0`
+defaults, retains the ordinary unscheduled path. Never add shell parallelism.
+
 When the question asks for health counts rather than page identities, start
 with the aggregate snapshot instead of recounting status/diff rows:
 
@@ -60,7 +73,7 @@ drift, duplicate ids, or local edits fail closed. Use `--restart-complete` only
 after preserving edits and explicitly replacing the unfinished snapshot.
 Absence from a snapshot never proves deletion.
 
-After reviewing backend capacity, `--page-prefetch 2..8` and optionally
+After reviewing backend capacity, the same `--page-prefetch 2..8` and optionally
 `--requests-per-second N` may bound parallel reads. Prefer the smallest useful
 values. The shared scheduler covers Confluence and optional Jira-macro reads,
 redirects, retries, streams, and `Retry-After`; never add shell parallelism.

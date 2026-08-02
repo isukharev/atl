@@ -1381,8 +1381,8 @@ Flags:
 | `--incremental` | exhaustively select changes since a persisted selector watermark; requires `--cql` or `--space` |
 | `--since` | first-run lower boundary as an exact RFC3339 minute with explicit `Z` or numeric offset |
 | `--max-pages` | selection cap: incremental defaults to 10000; complete mode uses `0` as no configured cap (the local one-million-identity / 64 MiB checkpoint guards still apply) |
-| `--page-prefetch` | ordered native-page-body read window for incremental/complete mode (`1` default, max `8`); mirror writes/checkpoints remain serial |
-| `--requests-per-second` | shared request-start pace across Confluence plus optional Jira-macro traffic (`0` default means no proactive delay; max `1000`) |
+| `--page-prefetch` | ordered native-page-body read window for CQL/space, incremental, and complete pulls (`1` default, max `8`); mirror writes/checkpoints remain serial |
+| `--requests-per-second` | shared request-start pace across Confluence plus optional Jira-macro traffic for a scheduled pull (`0` default means no proactive delay; max `1000`) |
 | `--jira-view` | named `jira_list_views` projection for Jira JQL macros whose macro configuration does not specify columns |
 | `--jira-macros` | `auto` (default) or `off`; `off` keeps placeholders and performs no Jira credential read/search |
 | `--into` | mirror root directory (default `mirror`) |
@@ -1403,6 +1403,14 @@ future/unsupported views, missing artifacts, path drift, or corrupt state.
 Stashes contain the exact previous native bytes and are named by their SHA-256.
 Incremental watermarks and complete-pull checkpoints never advance past a
 blocked page.
+
+Ordinary `--cql` and `--space` pulls remain on the unscheduled service path by
+default. Explicit `--page-prefetch 2..8` overlaps only their native body reads;
+`--requests-per-second N` may instead install a rate-only schedule with one
+request in flight. Selection order, ordinary caps and truncation reporting,
+local qualification, and every mirror write remain unchanged and serial.
+Explicit default values `--page-prefetch 1 --requests-per-second 0` do not
+install or report a scheduler.
 
 Complete mode is the explicit historical bootstrap for a selector larger than
 the ordinary CQL/space caps. It exhausts qualified search pagination twice,
@@ -1478,16 +1486,17 @@ but not body GETs. Opt-in prefetch has the same sequential write/watermark
 boundary as complete mode. `--comments` truncation also prevents watermark
 advancement.
 
-Both large modes expose a `scheduling` result with `page_prefetch`,
-`max_in_flight`, and `requests_per_second`. The command-scoped scheduler is
+Both large modes, plus any ordinary pull with an effective scheduling opt-in,
+expose a `scheduling` result with `page_prefetch`, `max_in_flight`, and
+`requests_per_second`. The command-scoped scheduler is
 shared by Confluence and optional Jira-macro clients and wraps each actual
 transport hop, including retries, redirects, comments, and streamed assets. It
 holds an in-flight permit until the response body reaches EOF or closes, paces
 request starts, and publishes a bounded server `Retry-After` cooldown to all
 clients. Existing requests may finish, but no newly admitted attempt bypasses
-that cooldown. Defaults are `1/1/0`, so installing this feature does not
-increase backend load. The limits are proactive safety bounds, not an adaptive
-throughput promise.
+that cooldown. Defaults are `1/1/0`, so incremental and complete pulls do not
+increase backend load. Unscheduled ordinary pulls omit `scheduling`. The
+limits are proactive safety bounds, not an adaptive throughput promise.
 
 The `--render-*` flags override the configured profile for this run; the pull
 result JSON is unchanged by the profile (they affect only the `.md` view).

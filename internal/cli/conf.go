@@ -770,8 +770,8 @@ func confPullCmd() *cobra.Command {
 			if o.RequestsPerSecond < 0 || o.RequestsPerSecond > 1000 {
 				return usageErr("--requests-per-second must be between 0 and 1000")
 			}
-			if !o.Incremental && !o.Complete && (cmd.Flags().Changed("page-prefetch") || cmd.Flags().Changed("requests-per-second")) {
-				return usageErr("--page-prefetch and --requests-per-second require --incremental or --complete")
+			if o.ID != "" && (o.PagePrefetch > 1 || o.RequestsPerSecond > 0) {
+				return usageErr("--page-prefetch and --requests-per-second scheduling requires --cql or --space")
 			}
 			if o.Incremental {
 				if o.ID != "" || (o.CQL == "" && o.Space == "") {
@@ -808,7 +808,7 @@ func confPullCmd() *cobra.Command {
 			}
 			o.Render = override
 			var svc *app.ConfluenceService
-			if o.Incremental || o.Complete {
+			if o.Incremental || o.Complete || o.PagePrefetch > 1 || o.RequestsPerSecond > 0 {
 				svc, err = confScheduledService(o.PagePrefetch, o.RequestsPerSecond)
 			} else {
 				svc, err = confService()
@@ -875,8 +875,8 @@ func confPullCmd() *cobra.Command {
 	cmd.Flags().StringVar(&o.TimeZone, "time-zone", "", "removed: put the explicit offset in --since")
 	_ = cmd.Flags().MarkHidden("time-zone")
 	cmd.Flags().IntVar(&o.MaxPages, "max-pages", 0, "selection cap (incremental default 10000; complete 0 means no configured cap)")
-	cmd.Flags().IntVar(&o.PagePrefetch, "page-prefetch", 1, "ordered native-body prefetch window for incremental/complete pulls (1-8; mirror writes remain serial)")
-	cmd.Flags().IntVar(&o.RequestsPerSecond, "requests-per-second", 0, "shared Confluence/Jira request-start rate for incremental/complete pulls (0 disables proactive pacing)")
+	cmd.Flags().IntVar(&o.PagePrefetch, "page-prefetch", 1, "ordered native-body prefetch window for multi-page pulls (1-8; mirror writes remain serial)")
+	cmd.Flags().IntVar(&o.RequestsPerSecond, "requests-per-second", 0, "shared Confluence/Jira request-start rate for scheduled pulls (0 disables proactive pacing)")
 	rf.register(cmd)
 	rf.registerConfluenceJiraMacros(cmd)
 	return cmd

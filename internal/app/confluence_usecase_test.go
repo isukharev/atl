@@ -524,8 +524,8 @@ func TestCollectSearchNotTruncatedWhenExhausted(t *testing.T) {
 // Pull surfaces the cap and its truncation flag through the public entrypoint.
 func TestPullCQLSilent1000Cap(t *testing.T) {
 	st := &pullCapStore{}
-	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
-	res, err := svc.Pull(context.Background(), PullOpts{CQL: "type = page", Into: t.TempDir()})
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st, requestMaxInFlight: 2}
+	res, err := svc.Pull(context.Background(), PullOpts{CQL: "type = page", Into: t.TempDir(), PagePrefetch: 2})
 	if err != nil {
 		t.Fatalf("Pull with capped CQL must not error: %v", err)
 	}
@@ -534,6 +534,9 @@ func TestPullCQLSilent1000Cap(t *testing.T) {
 	}
 	if !res.Truncated || res.TruncatedAt != 1000 {
 		t.Errorf("Pull result truncated=%v at=%d, want true at 1000", res.Truncated, res.TruncatedAt)
+	}
+	if res.Scheduling == nil || res.Scheduling.PagePrefetch != 2 || res.Scheduling.MaxInFlight != 2 {
+		t.Errorf("scheduled capped pull omitted its exact policy: %+v", res.Scheduling)
 	}
 }
 
