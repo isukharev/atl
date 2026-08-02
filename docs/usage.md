@@ -13,6 +13,22 @@ See also: [../README.md](../README.md) · [architecture.md](architecture.md) ·
 
 ## Global conventions
 
+### Pagination limits
+
+One-page reads require a positive explicit `--limit`: `conf search` and
+`conf page list` accept `1..100`; Jira issue search/children/user search accept
+`1..1000`; board list/issues/backlog and sprint list/issues accept `1..50`.
+Omission keeps the documented positive default. Explicit zero, a negative
+value, or a value above that command's cap is a usage error (exit 2) before
+configuration or network access.
+
+Aggregate Jira reads use a different, explicit contract: `--limit 0` means
+paginate to exhaustion subject to their existing safety caps, a positive value
+is the documented aggregate cap, and a negative value is a usage error before
+network or filesystem effects. This applies to issue refs/tree, pull, export,
+planning/quality reports, board view/export (per requested scope), and
+Structure pull-issues.
+
 ### Output format
 
 By default every command writes JSON to stdout. Pass `-o text` (or
@@ -258,7 +274,7 @@ usage error (`2`) — fix the input rather than re-running setup.
 
 | variable | effect |
 |---|---|
-| `ATL_MIRROR_ROOT` | default mirror root for `conf pull`, `conf status`, `conf diff`, and `jira pull`; required by the no-argument MCP mirror snapshot tools, which validate an existing `.atl` directory and never accept a model-supplied path (an explicit CLI `--into` still overrides it) |
+| `ATL_MIRROR_ROOT` | default mirror root for Confluence/Jira pull plus status/snapshot inspection (and `conf diff`); required by the no-argument MCP mirror snapshot tools, which validate an existing `.atl` directory and never accept a model-supplied path (an explicit CLI path or `--into` still overrides it) |
 
 Mirror writes are contained beneath the selected root even when a checkout
 contains descendant symlinks. Mirror listings used by `status` and directory
@@ -516,7 +532,7 @@ JSON output:
 ```
 
 `mirror.active_root` is present only when `ATL_MIRROR_ROOT` is set. Explicit
-`--into` flags still override the default for each pull/status command.
+`--into` flags still override the default for each pull or inspection command.
 
 `render` is the **effective** (merged) render configuration; `render_provenance`
 maps each dotted render key that is *not* a built-in default to its source
@@ -1286,7 +1302,7 @@ Flags:
 | `--title` | convenience substring filter by title |
 | `--label` | convenience filter by label |
 | `--type` | convenience filter by content type |
-| `--limit` | max results (default 25) |
+| `--limit` | max results, `1..100` (default 25; explicit 0 is invalid) |
 | `--cursor` | pagination cursor (start offset returned by the previous call) |
 
 ### `atl conf space tree`
@@ -1656,6 +1672,7 @@ remote since the last pull.
 ```bash
 atl conf status
 atl conf status my-mirror
+atl conf status --into my-mirror
 atl conf status --remote          # also checks remote version (one request per page)
 ```
 
@@ -1667,8 +1684,14 @@ Flags:
 
 | flag | description |
 |---|---|
-| `[DIR]` | mirror root directory (default `mirror`) |
+| `[DIR]` | initialized mirror root directory |
+| `--into` | initialized mirror root directory (mutually exclusive with `[DIR]`) |
 | `--remote` | also check remote for drift (one API call per page) |
+
+With neither explicit form, inspection uses `ATL_MIRROR_ROOT`, then the nearest
+initialized `.atl` walking up from the current directory, then `mirror`.
+An absent or uninitialized selected root returns not-found exit 4 before config
+or network access.
 
 ### `atl conf snapshot`
 
@@ -1682,6 +1705,7 @@ current writer creates the lock during the first read.
 ```bash
 ATL_READ_ONLY=1 atl conf snapshot
 ATL_READ_ONLY=1 atl conf snapshot my-mirror
+ATL_READ_ONLY=1 atl conf snapshot --into my-mirror
 ATL_READ_ONLY=1 atl conf snapshot my-mirror --remote
 ```
 
@@ -1710,6 +1734,8 @@ exceed the one-attempt bound. Untracked/non-canonical pages remain `not_attempte
 failures increment `unavailable` and never `in_sync`. The output never includes
 page ids, titles, paths, hashes, validation text, or native/derived content. Use
 `conf diff` only when page-level identity or exact change evidence is required.
+Snapshot accepts the same mutually exclusive `[DIR]`/`--into` forms, root
+precedence, and pre-network exit-4 initialized-root check as `conf status`.
 
 ### `atl conf diff`
 
@@ -2655,7 +2681,8 @@ atl conf page list --space ENG [--status current|archived|trashed] [--limit 100]
 ```
 
 `--space` is required. The output carries a `next_cursor` for pagination; `-o id`
-prints the page ids.
+prints the page ids. `--limit` accepts `1..100`; explicit 0, negatives, and
+values above 100 are usage errors before backend access.
 
 ### `atl conf page open`
 
@@ -3054,7 +3081,7 @@ Flags:
 | `--jql` | JQL query (required) |
 | `--view` | named configured list view (`default` when omitted) |
 | `--columns` | ordered metadata, Jira-field, and source-context columns |
-| `--limit` | page size from 1 to 1000 (default 50) |
+| `--limit` | page size from 1 to 1000 (default 50; explicit 0 is invalid) |
 | `--cursor` | pagination cursor (startAt offset) |
 
 JSON uses the common IssueList contract documented below under boards and
@@ -3089,7 +3116,8 @@ row's namespaced context. Defaults are
 `key,summary,status,issuetype,assignee`; `--limit`, `--cursor`, `-o text`, and
 `-o id` have the same meaning as `issue search`. `--view NAME` selects the
 configured `epic_children` projection; explicit `--columns` wins. This is
-read-only.
+read-only. The shared `--limit` range is `1..1000`; explicit 0, negatives, and
+larger values fail before backend access.
 
 ### `atl jira issue create`
 
@@ -4090,8 +4118,9 @@ were captured. Content-hash based, the
 Jira analog of `conf status`.
 
 ```bash
-atl jira status                     # default root: mirror-jira (or $ATL_MIRROR_ROOT)
+atl jira status                     # env, nearest .atl, then mirror-jira fallback
 atl jira status my-jira-mirror
+atl jira status --into my-jira-mirror
 atl jira status --remote            # also check remote drift (one request per issue)
 ```
 
@@ -4103,6 +4132,11 @@ sidecar, so `locally_edited` + `synced:false` means "never-synced"), and, with
 from its stored base), optional `field_drifted`, or `remote_error` (the remote could not be checked — an uncheckable issue
 is never reported in-sync). Drift needs a baseline: an issue with no base copy is
 never reported drifted.
+
+Status accepts either positional `[DIR]` or `--into`, never both. With neither,
+it uses `ATL_MIRROR_ROOT`, the nearest initialized `.atl` from the current
+directory, then `mirror-jira`. An absent or uninitialized root returns exit 4
+before config or network access.
 
 ### `atl jira snapshot`
 
@@ -4116,6 +4150,7 @@ that lock is re-inspected if a current writer creates it during the first read.
 ```bash
 ATL_READ_ONLY=1 atl jira snapshot
 ATL_READ_ONLY=1 atl jira snapshot my-jira-mirror
+ATL_READ_ONLY=1 atl jira snapshot --into my-jira-mirror
 ATL_READ_ONLY=1 atl jira snapshot my-jira-mirror --remote
 ```
 
@@ -4146,6 +4181,8 @@ followed. Remote `attempted = checked + unavailable`, `checked = in_sync +
 drifted`, and local `present = attempted + not_attempted`. A redirect or other
 unavailable probe sets `complete:false` and never counts as in-sync. The command
 never writes or repairs mirror state.
+Snapshot shares the status `[DIR]`/`--into` exclusivity, root precedence, and
+pre-network initialized-root exit-4 contract.
 
 ### `atl jira reconcile preview` / `atl jira reconcile stage`
 
@@ -4742,6 +4779,10 @@ resource. The output preserves the raw response under `raw`, exposes
 the matching Jira issues via generated `id in (...)` JQL batches. Its default
 field set comes from `jira.list_views.default.structure`; use `--view` for a
 named projection or explicit `--fields` to override it. It emits:
+
+Its aggregate `--limit` is non-negative: `0` means no configured issue cap,
+positive values cap collected issues, and negatives fail before hierarchy
+reads or output-file creation.
 
 ```json
 {

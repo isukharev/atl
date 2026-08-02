@@ -28,10 +28,16 @@ atl jira pull --jql '<narrow JQL>' --into <absolute-root> --limit 0
 # add --assets, --fields, or --render-profile full only when needed
 ```
 
-Do not pull over local edits. Re-pull only a clean remote-drifted mirror. An
-explicit root wins; otherwise use `ATL_MIRROR_ROOT`, nearest `.atl`, then the
-`mirror-jira` fallback. Existing file identity always follows its nearest
-`.atl` root.
+Status/snapshot accept positional `[DIR]` or `--into`, never both. With neither
+they use `ATL_MIRROR_ROOT`, nearest initialized `.atl`, then `mirror-jira`; an
+absent or uninitialized selected root is exit 4 before config/network. Pull's
+aggregate limit is non-negative: 0 means exhaustive pagination under safety
+caps.
+
+Do not pull over local edits. Re-pull only a clean remote-drifted mirror. For
+pull, an explicit root wins; otherwise use `ATL_MIRROR_ROOT`, then the
+`mirror-jira` fallback. Existing file identity follows its nearest `.atl` root,
+and inspection commands add that nearest-root discovery before their fallback.
 
 ## Durable layout
 
@@ -48,7 +54,7 @@ derived staging view regenerated on pull/render. `.json` is a raw snapshot,
 never an edit surface. Sidecars/bases under `.atl` establish dirty/drift
 evidence. A pre-sidecar mirror is never-synced until re-pulled.
 
-Use `jira snapshot [ROOT] [--remote]` for the first health decision. It emits
+Use `jira snapshot [ROOT | --into ROOT] [--remote]` for the first health decision. It emits
 only exact reconciled counts for local/native baselines, raw snapshots, pending
 records, render markers/view state, and optional drift. It never locks,
 recovers, repairs, or writes. Offline mode needs no config or PAT. Remote mode

@@ -246,10 +246,11 @@ do not preload every runbook or follow reference chains speculatively.
 
 ## Fix mirror identity before durable work
 
-An explicit `--into` wins; otherwise `ATL_MIRROR_ROOT` or the nearest `.atl`
-root applies, with `mirror` as fallback. An existing mirror file's nearest
-`.atl` is authoritative. Do not pull merely because profile memory names
-another root.
+For status/snapshot, explicit positional `[DIR]` or `--into` wins (never both),
+then `ATL_MIRROR_ROOT`, the nearest initialized `.atl`, and `mirror`. A selected
+root without a real `.atl` directory exits 4 before config/network. An existing
+mirror file's nearest `.atl` remains authoritative for file-targeted work. Do
+not pull merely because profile memory names another root.
 
 Inspect `atl mirror backend status <existing-root>` before remote mirror work.
 A fresh Confluence-empty pull and registered page create/copy bind Confluence

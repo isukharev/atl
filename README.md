@@ -196,6 +196,7 @@ export ATL_MIRROR_ROOT="$HOME/.atl/example-workspace"
 
 atl conf pull --id 123456
 atl conf status "$ATL_MIRROR_ROOT"
+atl conf snapshot --into "$ATL_MIRROR_ROOT"
 atl conf diff "$ATL_MIRROR_ROOT" -o text
 
 # Jira lane:
@@ -206,6 +207,9 @@ atl jira status "$ATL_MIRROR_ROOT"
 atl conf reconcile preview "$ATL_MIRROR_ROOT/SPACE/page/page.csf" -o text
 atl jira reconcile preview "$ATL_MIRROR_ROOT/EXAMPLE/EXAMPLE-1.wiki" -o text
 ```
+
+Status and snapshot accept either positional `[DIR]` or `--into` and require an
+initialized `.atl` mirror; combining both explicit forms is a usage error.
 
 Use `.md` for reading and supported staging edits. Native `.csf` / `.wiki`
 files preserve constructs that Markdown cannot represent. Confluence v6 views

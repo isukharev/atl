@@ -86,6 +86,8 @@ coordinates through a shared advisory lock without creating or changing files.
 For durable Jira mirror health, use the same content-free pattern with
 `jira snapshot`; its exact baseline/raw-snapshot/pending/render buckets are the
 preflight before identity-bearing `jira status` or issue-level repair.
+Both services' status/snapshot accept `[DIR]` or `--into`, never both, and fail
+with exit 4 before config/network unless the resolved root contains `.atl`.
 For a single conflicted native object, route to `conf reconcile preview` or
 `jira reconcile preview`; use the separately mutation-classified `stage` leaf
 only when an external tool needs exact private base/theirs artifacts.

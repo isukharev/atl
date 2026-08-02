@@ -9,7 +9,7 @@ never authorizes a write, changed request, approval, or reconciliation step.
 |---|---|---|
 | Exit 7 | Backend URL or PAT not configured | Run the setup skill |
 | Exit 3 | Token rejected | Re-run `atl auth login --service jira` |
-| Exit 4 | Issue is absent/invisible | Verify the key and permissions |
+| Exit 4 | Issue absent/invisible or inspection mirror missing/uninitialized | Verify key/permissions, or select/pull an initialized mirror |
 | Exit 6 | Token lacks permission | Ask for the required permission |
 | Required-field check fails | A required field is empty | Populate it, then retry |
 | Transition rejected | Status is unavailable | Run `jira transitions --key <KEY>` |

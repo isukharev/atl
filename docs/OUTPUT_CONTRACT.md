@@ -935,7 +935,7 @@ sidecar patches under the shared `.atl/state.lock`; cross-service state
 contention is retried for a brief fixed window, then fails closed and cannot
 lose unrelated entries.
 
-`atl conf snapshot [DIR]` emits the content-free aggregate contract
+`atl conf snapshot [DIR | --into ROOT]` emits the content-free aggregate contract
 `{schema_version:1,service:"confluence",remote_requested,complete,reconciled,
 local,native,validation,render,remote}`. It intentionally omits root/target,
 page identity, title, path, hashes, validation messages, and body/view bytes.
@@ -944,6 +944,12 @@ or filesystem writes. Local inspection shares the persistent mutation lock when
 it exists. Contention returns a content-free exit `8` before inspection. If a
 legacy mirror has no lock yet, the command verifies that no current writer
 created it during the read and discards/retries the first result if one did.
+
+`conf status` and `conf snapshot` accept either positional `[DIR]` or
+`--into ROOT`, not both. Selection order is the explicit form,
+`ATL_MIRROR_ROOT`, the nearest initialized `.atl` from the current directory,
+then `mirror`. A missing or non-directory marker is `ErrNotFound`/exit 4 before
+remote setup and produces no result object.
 
 `local` partitions `present` into `clean|locally_edited` and
 `tracked|untracked`, with `non_canonical` as an explicit untracked subset.
@@ -1107,7 +1113,7 @@ Missing local page targets for Confluence render/apply/push use
 `unreachable`, `canceled`, or `network`) alongside a query-redacted URL. The
 raw cause remains non-unwrappable and no category includes cause text.
 
-`atl jira status [DIR] [--remote]` emits `{ "entries": [ { "path", "key", "locally_edited",
+`atl jira status [DIR | --into ROOT] [--remote]` emits `{ "entries": [ { "path", "key", "locally_edited",
 "synced", "pending_fields"?, "local_error"?, "remote_drifted"?, "field_drifted"?, "remote_error"? }, ... ] }`.
 `locally_edited` is true when the `.wiki` differs from the pulled base or a configured field is
 pending; `synced` is false for a `.wiki` with no sidecar entry (never-synced — it also reads
@@ -1116,7 +1122,7 @@ identifies the latter. They and `remote_error` appear only with `--remote` and a
 `omitempty`. `local_error` is independent of `--remote` and reports a broken
 pending-to-mirror binding such as a missing or moved `.wiki`.
 
-`atl jira snapshot [DIR] [--remote]` emits the content-free aggregate contract
+`atl jira snapshot [DIR | --into ROOT] [--remote]` emits the content-free aggregate contract
 `{schema_version:1,service:"jira",remote_requested,complete,reconciled,local,
 native,snapshot,pending,render,remote}`. It intentionally omits root/target,
 issue identity, path, hashes, field identity, diagnostic text, and native/raw/
@@ -1126,6 +1132,10 @@ inspection shares the persistent mutation lock when it exists. Contention
 returns a content-free exit `8` before inspection. If a legacy mirror has no
 lock yet, the command verifies that no current writer created it during the
 read and discards/retries the first result if one did.
+
+Jira status/snapshot use the same mutually exclusive explicit forms and
+pre-network initialized-root check as Confluence, with `mirror-jira` as the
+final fallback. Root-selection errors produce no result object.
 
 `local` partitions every `.wiki` as clean/edited and canonical
 tracked/untracked, with non-canonical copies counted inside untracked. `native`
@@ -3103,7 +3113,8 @@ Unknown status ids use `column:"Unmapped"`, `column_index:-1`, and
 
 `--limit 0` follows pagination to exhaustion. A positive limit applies per
 requested scope; when more rows exist the output sets `complete:false` and
-`truncated:true`. Repeated issues across pages, a non-advancing cursor, or the
+`truncated:true`. Negative aggregate limits are usage exit 2 before any request
+or output-file creation. Repeated issues across pages, a non-advancing cursor, or the
 pagination safety cap return check-failed (exit 8). There is no board snapshot
 version in Jira's API, so `complete` means all reported pages were consumed,
 not that concurrent board changes were transactionally excluded.

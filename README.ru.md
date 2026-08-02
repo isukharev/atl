@@ -202,6 +202,7 @@ export ATL_MIRROR_ROOT="$HOME/.atl/example-workspace"
 
 atl conf pull --id 123456
 atl conf status "$ATL_MIRROR_ROOT"
+atl conf snapshot --into "$ATL_MIRROR_ROOT"
 atl conf diff "$ATL_MIRROR_ROOT" -o text
 
 # Маршрут Jira:
@@ -212,6 +213,9 @@ atl jira status "$ATL_MIRROR_ROOT"
 atl conf reconcile preview "$ATL_MIRROR_ROOT/SPACE/page/page.csf" -o text
 atl jira reconcile preview "$ATL_MIRROR_ROOT/EXAMPLE/EXAMPLE-1.wiki" -o text
 ```
+
+Status и snapshot принимают либо позиционный `[DIR]`, либо `--into` и требуют
+инициализированное зеркало с `.atl`; сочетание обеих форм — usage error.
 
 Используйте `.md` для чтения и поддерживаемых staging-правок. Нативные `.csf` /
 `.wiki` сохраняют конструкции, которые Markdown не может представить. В

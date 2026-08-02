@@ -131,7 +131,9 @@ field plus `updated`, use `--epic-field` and repeatable `--done-status`, require
 `epic_rollup.complete:true`, and consume its counts/latest child timestamp
 without regrouping raw rows. Use `--jql 'statusCategory != Done'` or another user-approved
 refinement when an old board has a very large history. `--limit 0` reads all;
-positive limits are explicit truncation per scope. For repeated filters, export
+positive limits are explicit truncation per scope and negatives fail before
+requests/output. One-page board list/issues/backlog and sprint list/issues use
+`1..50`; explicit zero is invalid there. For repeated filters, export
 JSONL and use `jq -c`; CSV is formula-safe by default; Markdown is for review.
 The epic rollup is view-only; board exports retain their existing row formats.
 Markdown follows the requested field projection, while retaining explicit
@@ -168,6 +170,8 @@ Calculated grouping rows intentionally keep technical identities because their
 row ids can be regenerated. The default Jira-field projection is
 `key,summary,status,assignee`; use `--fields` for the PM's
 planning columns or a confirmed named `--view` for repeated projections.
+Structure `pull-issues --limit` is aggregate: zero means no configured issue
+cap and negative values fail before hierarchy reads or output creation.
 The snapshot reports `projection.source:list-view` for built-in/custom presets
 and `projection.source:explicit` only when `--fields` wins.
 Do not claim this matches the browser's selected saved view:

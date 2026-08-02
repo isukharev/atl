@@ -5,7 +5,8 @@
 
 - `atl jira issue search --jql '<JQL>'` returns a lightweight list to stdout — use it to find the
   right issues without writing anything to disk. `--limit` requests Jira
-  `maxResults` from 1 to 1000 (default 50); Jira may return fewer rows.
+  `maxResults` from 1 to 1000 (default 50); explicit 0, negatives, and larger
+  values are usage errors before backend access. Jira may return fewer rows.
 - `atl jira issue children <EPIC-KEY>` is the narrower path for one epic: it
   resolves the Epic Link field and returns a paginated IssueList without
   per-child reads or project-wide JQL.
@@ -13,7 +14,7 @@
   `<KEY>.md`, and `<KEY>.json` per issue — use it once you know which issues you'll work with.
   The `.wiki` is the native substrate; `.md` is a derived staging view whose supported body edits
   require `jira apply`. Default `--limit 100`; **`--limit 0`
-  means all**. Ordinary Confluence `conf pull --cql` instead caps at 1000 and
+  means all**; negative values fail before requests or mirror writes. Ordinary Confluence `conf pull --cql` instead caps at 1000 and
   reports `"truncated": true` plus a stderr warning; its explicit
   `--complete` mode is the resumable historical-selector path.
 
