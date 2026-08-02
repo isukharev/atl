@@ -314,6 +314,11 @@ func (s *ConfluenceService) runConfluencePlan(ctx context.Context, planPath stri
 		result.Status = "blocked"
 		return result, err
 	}
+	if err := requireMirrorBackend(plan.Root, "confluence", s.baseURL); err != nil {
+		result.Complete = false
+		result.Status = "blocked"
+		return result, err
+	}
 	for i, item := range prepared {
 		outcome := &result.Entries[i]
 		remote, remoteErr := s.store.GetPage(ctx, item.plan.ID, domain.PullOpts{Format: "csf", IncludeRestrictions: confluenceNeedsRestrictions(item.refresh)})

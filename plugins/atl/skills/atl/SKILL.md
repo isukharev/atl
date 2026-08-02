@@ -245,6 +245,29 @@ committed. The CLI uses that path only when the workspace exports
 (Confluence) and `mirror-jira` (Jira). Full rules are in
 [workflow.md](reference/workflow.md).
 
+Before remote work against an existing durable root, inspect its
+content-minimized service bindings with `atl mirror backend status <ROOT>`.
+Fresh service-empty pulls and explicitly registered creates bind automatically;
+an unbound legacy root with service evidence requires the explicit local
+preview/apply workflow. After human approval to cross the read-only policy
+boundary, copy only the exact preview digest:
+
+```bash
+env -u ATL_READ_ONLY atl mirror backend bind <ROOT> --service jira
+env -u ATL_READ_ONLY atl mirror backend bind <ROOT> --service jira \
+  --apply --expected-backend-sha256 '<exact backend_sha256 from preview>' \
+  --confirm BIND
+```
+
+The entire bind leaf, including write-free preview, is blocked by
+`ATL_READ_ONLY=1`. Bind loads no PAT, makes no backend request, stores only a
+tagged digest in private strict-v1 `.atl/backend-bindings.json`, and never
+replaces a different binding. A mismatch means use the original backend or a
+new mirror. Remote mirror status/snapshot/push/reconcile/plan phases fail before
+network access when a required binding is missing or mismatched; offline mirror
+work remains available. Persisted Confluence Jira-macro expansion requires a
+separate Jira binding.
+
 When creating a Confluence page, copying a page, or creating a Jira issue that
 must immediately join a durable mirror, opt in explicitly with both `--register`
 and `--into <ROOT>`. Omit both for legacy remote-only creation. Registration

@@ -218,6 +218,28 @@ and exits `8`. Use `pull --dry-run` to qualify a refresh; use
 `--overwrite-local` only to discard them. Neither recovery flag bypasses an
 edited Markdown view or broken baseline evidence.
 
+Every durable mirror is also bound to the configured backend by a
+content-minimized digest. Fresh service-empty pulls and explicitly registered
+creates establish that service binding automatically. For a legacy root that
+already contains service evidence, review and bind it explicitly:
+
+```sh
+atl mirror backend status "$ATL_MIRROR_ROOT"
+env -u ATL_READ_ONLY atl mirror backend bind "$ATL_MIRROR_ROOT" --service confluence
+env -u ATL_READ_ONLY atl mirror backend bind "$ATL_MIRROR_ROOT" --service confluence \
+  --apply --expected-backend-sha256 '<exact backend_sha256 from preview>' \
+  --confirm BIND
+```
+
+Bind is local compare-and-set: it performs no backend request or PAT access and
+never replaces a different binding. `ATL_READ_ONLY=1` blocks the entire bind
+leaf, including preview. Remote mirror status/snapshot/push/reconcile/plan
+operations refuse a missing or mismatched binding before network access;
+offline mirror inspection and editing remain available. Only tagged hashes are
+stored in the private `.atl/backend-bindings.json`, never URLs or hostnames.
+Persisted Jira macro expansion during a Confluence pull also requires its own
+Jira binding.
+
 Creation remains remote-only unless mirror registration is explicitly requested
 with both `--register` and `--into`:
 

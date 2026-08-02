@@ -59,7 +59,7 @@ func TestConfluenceMutatorsFailBeforeWorkOnLockContention(t *testing.T) {
 	csfBefore := mustReadFile(t, csfPath)
 	mdBefore := mustReadFile(t, mdPath)
 
-	svc := &ConfluenceService{store: panicOnPageReadStore{}, cfg: &config.Config{}}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: panicOnPageReadStore{}, cfg: &config.Config{}}
 	if _, err := svc.Status(context.Background(), root, false); err != nil {
 		t.Fatalf("read-only status was blocked by mutation lock: %v", err)
 	}
@@ -107,8 +107,9 @@ func TestConfluenceMutationLockReleasesOnErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := &ConfluenceService{
-		store: &pullStore{getErr: errors.New("backend failed")},
-		cfg:   &config.Config{},
+		baseURL: confluenceTestBackendURL,
+		store:   &pullStore{getErr: errors.New("backend failed")},
+		cfg:     &config.Config{},
 	}
 	checks := []struct {
 		name string

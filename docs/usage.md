@@ -364,6 +364,66 @@ Notes for scripts:
 
 ---
 
+## `atl mirror backend`
+
+Durable mirror state is bound separately for Jira and Confluence to a
+content-minimized digest of the configured backend origin. The binding prevents
+a mirror created from one backend from being read or written remotely through
+another configuration. Raw URLs and hostnames are never persisted.
+
+Inspect an initialized mirror without loading config or credentials or making a
+network request:
+
+```bash
+atl mirror backend status [DIR]
+# Equivalent explicit-root form:
+atl mirror backend status --into DIR
+```
+
+Preview the configured service binding, then apply only the exact reviewed
+`backend_sha256`:
+
+```bash
+atl mirror backend bind DIR --service jira
+atl mirror backend bind DIR --service jira \
+  --apply \
+  --expected-backend-sha256 'sha256:<64 lowercase hex characters>' \
+  --confirm BIND
+```
+
+Omit `DIR` to use `ATL_MIRROR_ROOT` or the `mirror` fallback; `--into DIR` is
+also accepted. Do not pass both positional `DIR` and
+`--into`. Bind preview is the default and writes nothing. It reads the selected
+configured URL only long enough to derive the digest; neither preview nor apply
+loads a PAT or contacts the backend. Apply requires both exact guards and is a
+local compare-and-set: a matching binding is an idempotent `already_bound`, and
+a different binding is never replaced. Preview reports `would_bind` or
+`already_bound`; see [OUTPUT_CONTRACT.md](OUTPUT_CONTRACT.md#mirror-backend-binding)
+for the JSON shapes.
+
+`mirror backend bind` is intentionally mutation-classified as one leaf.
+`ATL_READ_ONLY=1`, global `--read-only`, or persistent read-only policy therefore
+blocks even its write-free preview before configuration or network access.
+`mirror backend status` remains available under read-only policy.
+
+The first non-dry-run pull into a root with no evidence for that service binds
+it automatically. `conf page create|copy --register --into ROOT` and
+`jira issue create --register --into ROOT` do the same before registering the
+new object. An unbound legacy root that already contains native or service state
+must use the explicit reviewed bind workflow above. A Confluence pull that
+persists expanded Jira macros requires a separate Jira binding as well as the
+Confluence binding; `--jira-macros off` performs no Jira request or binding.
+
+Remote mirror status/snapshot/push/reconcile and remote plan preflight/apply
+fail closed on a missing or mismatched service binding before network access.
+Local status, snapshot, diff, validate, render, apply, and plan creation
+remain usable according to their ordinary local safety rules. Bindings are kept
+in strict schema-v1 `.atl/backend-bindings.json`, a private regular file with
+mode `0600`; malformed, unknown-version, empty, permissive, or symlinked state
+is rejected.
+
+---
+
 ## `atl config`
 
 Manage non-secret settings (backend URLs). PATs are managed separately via

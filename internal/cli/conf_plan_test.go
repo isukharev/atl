@@ -74,6 +74,7 @@ func TestConfPlanPreviewGoldenAndGETOnly(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
+	bindCLIMirrorBackend(t, root, "confluence", srv.URL)
 	stdout, code := runCLI(t, confEnv(srv), "--read-only", "conf", "plan", "preview", path)
 	if code != exitOK || gets != 1 || puts != 0 {
 		t.Fatalf("exit=%d gets=%d puts=%d out=%q", code, gets, puts, stdout)

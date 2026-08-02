@@ -64,6 +64,7 @@ func syncedMirror(t *testing.T, version int) (root, csfPath string) {
 	if err := m.EnsureScaffold(); err != nil {
 		t.Fatal(err)
 	}
+	bindConfluenceTestMirror(t, root)
 	page := &domain.Resource{ID: "123", Title: "T", SpaceKey: "SP", Version: version, Body: []byte("<p>x</p>")}
 	dir, slug := m.PageDir(page.SpaceKey, page.Ancestors, page.Title)
 	if err := m.Write(dir, slug, page, nil); err != nil {
@@ -126,7 +127,7 @@ func TestPreflightConfluencePushCSFBlocksOnlyInvalidBodies(t *testing.T) {
 func TestPushSkipsUnchangedFile(t *testing.T) {
 	root, csfPath := syncedMirror(t, 3)
 	stub := &stubStore{newVer: 4}
-	svc := &ConfluenceService{store: stub}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: stub}
 	res, err := svc.Push(context.Background(), csfPath, PushOpts{Into: root})
 	if err != nil {
 		t.Fatalf("push: %v", err)
@@ -151,7 +152,7 @@ func TestPushRevalidatesAfterOfflinePreflight(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := &stubStore{}
-	res, err := (&ConfluenceService{store: store}).Push(context.Background(), path, PushOpts{Into: root})
+	res, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Push(context.Background(), path, PushOpts{Into: root})
 	if !errors.Is(err, domain.ErrCheckFailed) || store.updateCalled {
 		t.Fatalf("locked push result=%+v err=%v update=%v, want revalidation refusal", res, err, store.updateCalled)
 	}
@@ -189,7 +190,7 @@ func TestPushDryRunReportsDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	stub := &stubStore{meta: &domain.PageMeta{ID: "123", Version: 5}} // remote moved past synced v3
-	svc := &ConfluenceService{store: stub}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: stub}
 	res, err := svc.Push(context.Background(), csfPath, PushOpts{DryRun: true, Into: root})
 	if err != nil {
 		t.Fatalf("dry-run push: %v", err)
@@ -214,7 +215,7 @@ func TestPushPreservesLocalMirrorWhenRefreshOmitsNativeBody(t *testing.T) {
 		omitBody: true,
 		page:     &domain.Resource{ID: "123", Title: "T", SpaceKey: "SP", Version: 4},
 	}
-	svc := &ConfluenceService{store: stub}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: stub}
 	res, err := svc.Push(context.Background(), csfPath, PushOpts{Into: root})
 	if err != nil {
 		t.Fatalf("push: %v", err)
@@ -260,7 +261,7 @@ func TestPushRefusesStaleRelocationCopyEvenWithForce(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			stub := &stubStore{}
-			res, err := (&ConfluenceService{store: stub}).Push(context.Background(), tt.target, PushOpts{Into: root, Force: true, DryRun: tt.dryRun})
+			res, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: stub}).Push(context.Background(), tt.target, PushOpts{Into: root, Force: true, DryRun: tt.dryRun})
 			if !errors.Is(err, domain.ErrCheckFailed) || stub.updateCalled {
 				t.Fatalf("res=%+v err=%v update=%v", res, err, stub.updateCalled)
 			}
@@ -274,7 +275,7 @@ func TestPushRefusesStaleRelocationCopyEvenWithForce(t *testing.T) {
 func TestStatusReportsRemoteCheckError(t *testing.T) {
 	root, _ := syncedMirror(t, 3)
 	stub := &stubStore{metaErr: domain.ErrForbidden}
-	svc := &ConfluenceService{store: stub}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: stub}
 	entries, err := svc.Status(context.Background(), root, true)
 	if err != nil {
 		t.Fatalf("status: %v", err)
@@ -363,6 +364,7 @@ func TestPushBatchSurfacesVersionConflict(t *testing.T) {
 	if err := m.EnsureScaffold(); err != nil {
 		t.Fatal(err)
 	}
+	bindConfluenceTestMirror(t, root)
 	// "aaa" sorts before "zzz", so the version-conflict page is processed LAST: a
 	// regression to "first error wins" would surface forbidden (exit 6) instead.
 	mkDirty(t, m, "1", "aaa")
@@ -371,7 +373,7 @@ func TestPushBatchSurfacesVersionConflict(t *testing.T) {
 		"1": fmt.Errorf("%w: nope", domain.ErrForbidden),
 		"2": fmt.Errorf("%w: stale", domain.ErrVersionConflict),
 	}}
-	svc := &ConfluenceService{store: stub}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: stub}
 	res, err := svc.Push(context.Background(), root, PushOpts{Into: root})
 	if len(res.Items) != 2 {
 		t.Fatalf("expected 2 items, got %d", len(res.Items))
@@ -382,7 +384,7 @@ func TestPushBatchSurfacesVersionConflict(t *testing.T) {
 }
 
 func TestPushMissingTargetIsUsageError(t *testing.T) {
-	svc := &ConfluenceService{store: &stubStore{}}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: &stubStore{}}
 	res, err := svc.Push(context.Background(), filepath.Join(t.TempDir(), "nope.csf"), PushOpts{Into: t.TempDir()})
 	if res != nil {
 		t.Fatalf("expected nil result for unresolvable target, got %+v", res)

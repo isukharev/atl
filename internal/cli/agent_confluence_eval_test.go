@@ -56,12 +56,14 @@ func TestSyntheticConfluencePlanMutationBoundaries(t *testing.T) {
 			if err := os.CopyFS(root, os.DirFS(source)); err != nil {
 				t.Fatal(err)
 			}
+			env := backend.Environment()
+			bindCLIMirrorBackend(t, root, "confluence", env["ATL_CONFLUENCE_URL"])
 			plan := filepath.Join(t.TempDir(), "plan.json")
 			createArgs := []string{"conf", "plan", "create", root, "--out", plan}
 			if test.readOnly {
 				createArgs = append([]string{"--read-only"}, createArgs...)
 			}
-			created, code := runCLI(t, backend.Environment(), createArgs...)
+			created, code := runCLI(t, env, createArgs...)
 			if code != exitOK {
 				t.Fatalf("create exit=%d output=%s", code, created)
 			}
@@ -73,13 +75,13 @@ func TestSyntheticConfluencePlanMutationBoundaries(t *testing.T) {
 			if test.readOnly {
 				previewArgs = append([]string{"--read-only"}, previewArgs...)
 			}
-			previewed, code := runCLI(t, backend.Environment(), previewArgs...)
+			previewed, code := runCLI(t, env, previewArgs...)
 			if code != exitOK {
 				t.Fatalf("preview exit=%d output=%s", code, previewed)
 			}
 			out := previewed
 			if test.applyExit >= 0 {
-				out, code = runCLI(t, backend.Environment(), "conf", "plan", "apply", plan, "--expected-proposal-hash", createResult.ProposalHash, "--confirm", "APPLY")
+				out, code = runCLI(t, env, "conf", "plan", "apply", plan, "--expected-proposal-hash", createResult.ProposalHash, "--confirm", "APPLY")
 				if code != test.applyExit {
 					t.Fatalf("apply exit=%d want=%d output=%s", code, test.applyExit, out)
 				}

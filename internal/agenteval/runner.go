@@ -767,8 +767,17 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		}
 		defer backend.Close()
 		backendEnvironment = backend.Environment()
-		if codexSyntheticBrokerCLI {
+		// Backend bindings are harness-owned setup, like installed benchmark
+		// skills: they are injected only into the disposable copied workspace
+		// after its task contract has been hashed. This keeps existing synthetic
+		// mirror fixtures compatible with the product's explicit legacy-mirror
+		// migration gate without changing the agent-visible command contract or
+		// counting setup as an interface invocation.
+		if loaded.spec.EffectiveSurface() == SurfaceCLISkill {
 			if err := mkdirPrivate(atlConfigDir); err != nil {
+				return Result{}, err
+			}
+			if err := bindSyntheticWorkspaceMirrors(parent, options.ATLBinary, workspace, atlConfigDir, backendEnvironment); err != nil {
 				return Result{}, err
 			}
 		}
@@ -1422,6 +1431,87 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		}
 	}
 	return result, nil
+}
+
+func bindSyntheticWorkspaceMirrors(ctx context.Context, atlBinary, workspace, configDir string, backendEnvironment map[string]string) error {
+	roots := make([]string, 0)
+	err := filepath.WalkDir(workspace, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			if entry.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !entry.IsDir() {
+			return nil
+		}
+		if entry.Name() == ".git" {
+			return fs.SkipDir
+		}
+		if entry.Name() == ".atl" {
+			roots = append(roots, filepath.Dir(path))
+			return fs.SkipDir
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("discover synthetic mirror roots: %w", err)
+	}
+	sort.Strings(roots)
+	environment := map[string]string{
+		"ATL_NO_UPDATE":  "1",
+		"ATL_CONFIG_DIR": configDir,
+	}
+	for name, value := range backendEnvironment {
+		environment[name] = value
+	}
+	for _, root := range roots {
+		for _, service := range []struct {
+			name   string
+			urlEnv string
+		}{
+			{name: "confluence", urlEnv: "ATL_CONFLUENCE_URL"},
+			{name: "jira", urlEnv: "ATL_JIRA_URL"},
+		} {
+			if strings.TrimSpace(environment[service.urlEnv]) == "" {
+				continue
+			}
+			preview, err := runSyntheticMirrorBind(ctx, atlBinary, workspace, environment,
+				"mirror", "backend", "bind", root, "--service", service.name)
+			if err != nil {
+				return err
+			}
+			var result struct {
+				BackendSHA256 string `json:"backend_sha256"`
+			}
+			if json.Unmarshal(preview, &result) != nil || result.BackendSHA256 == "" {
+				return fmt.Errorf("preview synthetic %s mirror binding: invalid output", service.name)
+			}
+			if _, err := runSyntheticMirrorBind(ctx, atlBinary, workspace, environment,
+				"mirror", "backend", "bind", root, "--service", service.name,
+				"--apply", "--expected-backend-sha256", result.BackendSHA256, "--confirm", "BIND"); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func runSyntheticMirrorBind(ctx context.Context, atlBinary, workspace string, environment map[string]string, args ...string) ([]byte, error) {
+	stdout := &cappedCommandOutput{limit: 64 << 10}
+	stderr := &cappedCommandOutput{limit: 64 << 10}
+	command := exec.CommandContext(ctx, atlBinary, args...)
+	command.Dir = workspace
+	command.Env = flattenEnvironment(environment)
+	command.Stdout = stdout
+	command.Stderr = stderr
+	if err := command.Run(); err != nil || stdout.overflow || stderr.overflow {
+		return nil, fmt.Errorf("prepare synthetic mirror backend binding")
+	}
+	return append([]byte(nil), stdout.data.Bytes()...), nil
 }
 
 func deriveRunnerEvidenceAttempt(proxyRecords []atlProxyRecord, admittedTools, failedTools, guardDenials int) (EvidenceAttemptTelemetry, error) {

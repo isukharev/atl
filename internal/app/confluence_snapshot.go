@@ -148,6 +148,16 @@ func (s *ConfluenceService) SnapshotMirror(ctx context.Context, dir string, chec
 		finalizeConfluenceMirrorSnapshot(result)
 		return finishBeforeRemote()
 	}
+	if err := requireMirrorBackend(root, "confluence", s.baseURL); err != nil {
+		retry, finishErr := guard.finish()
+		if finishErr != nil {
+			return nil, contentFreeConfluenceSnapshotError(finishErr)
+		}
+		if retry {
+			return s.SnapshotMirror(ctx, root, true)
+		}
+		return result, contentFreeConfluenceSnapshotError(err)
+	}
 	if s.store == nil {
 		retry, finishErr := guard.finish()
 		if finishErr != nil {

@@ -301,7 +301,7 @@ func setupEditablePulled(t *testing.T) (*JiraService, *editableSyncTracker, stri
 	is.Body = applyBody
 	is.Fields = fields
 	tr := &editableSyncTracker{issue: is}
-	svc := &JiraService{tr: tr}
+	svc := &JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL}
 	rs := editableFieldRender(t)
 	view := config.RenderService{Profile: "full", FieldViews: rs.FieldViews}
 	if _, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: root, Limit: 1, Render: view}); err != nil {

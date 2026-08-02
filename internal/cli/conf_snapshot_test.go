@@ -149,6 +149,7 @@ func TestConfSnapshotRemoteMakesOneMetadataRequest(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":"903","title":"Remote","space":{"key":"DOC"},"version":{"number":3}}`))
 	}))
 	t.Cleanup(srv.Close)
+	bindCLIMirrorBackend(t, root, "confluence", srv.URL)
 
 	out, code := runCLI(t, confEnv(srv), "--read-only", "conf", "snapshot", root, "--remote")
 	if code != exitOK {
@@ -173,6 +174,7 @@ func TestConfSnapshotRemoteDisablesAutomaticGETRetries(t *testing.T) {
 		_, _ = w.Write([]byte(`{"message":"retryable"}`))
 	}))
 	t.Cleanup(srv.Close)
+	bindCLIMirrorBackend(t, root, "confluence", srv.URL)
 
 	out, code := runCLI(t, confEnv(srv), "--read-only", "conf", "snapshot", root, "--remote")
 	if code != exitOK {

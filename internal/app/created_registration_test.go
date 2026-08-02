@@ -15,6 +15,11 @@ import (
 	"github.com/isukharev/atl/internal/mirror"
 )
 
+const (
+	testConfluenceBackendURL = "https://confluence.example.test/wiki"
+	testJiraBackendURL       = "https://jira.example.test"
+)
+
 type createdConfluenceStore struct {
 	domain.DocStore
 	created          *domain.Resource
@@ -55,7 +60,7 @@ func TestConfluenceCreateRegistrationUsesAuthoritativeReadback(t *testing.T) {
 			AncestorsPresent: true,
 		},
 	}
-	svc := &ConfluenceService{store: store}
+	svc := &ConfluenceService{store: store, baseURL: testConfluenceBackendURL}
 	page, registration, err := svc.CreateAndRegister(context.Background(), "DOC", "", "New", []byte("<p>submitted</p>"), root)
 	if err != nil {
 		t.Fatal(err)
@@ -65,6 +70,9 @@ func TestConfluenceCreateRegistrationUsesAuthoritativeReadback(t *testing.T) {
 	}
 	if store.createCalls != 1 || store.readbackCalls != 1 || string(store.createdBody) != "<p>submitted</p>" {
 		t.Fatalf("calls create=%d readback=%d submitted=%q", store.createCalls, store.readbackCalls, store.createdBody)
+	}
+	if err := requireMirrorBackend(root, "confluence", testConfluenceBackendURL); err != nil {
+		t.Fatalf("created Confluence registration did not bind mirror: %v", err)
 	}
 	if !store.createSingle || !store.createRedacted || !store.readbackSingle || !store.readbackRedacted {
 		t.Fatalf("request policies create=%t/%t readback=%t/%t", store.createSingle, store.createRedacted, store.readbackSingle, store.readbackRedacted)
@@ -90,7 +98,7 @@ func TestConfluenceCreateRegistrationKeepsMalformedAuthoritativeCSF(t *testing.T
 			Body: malformed, BodyPresent: true, AncestorsPresent: true,
 		},
 	}
-	page, registration, err := (&ConfluenceService{store: store}).CreateAndRegister(context.Background(), "DOC", "", "New", []byte(`<p>submitted</p>`), root)
+	page, registration, err := (&ConfluenceService{store: store, baseURL: testConfluenceBackendURL}).CreateAndRegister(context.Background(), "DOC", "", "New", []byte(`<p>submitted</p>`), root)
 	if err != nil || page != store.readback || registration == nil || registration.Status != "registered" || !registration.ReadbackReconciled {
 		t.Fatalf("page=%+v registration=%+v err=%v", page, registration, err)
 	}
@@ -121,7 +129,7 @@ func TestCreatedRegistrationCarriesNonSerializedRenderWarnings(t *testing.T) {
 				Body: []byte(jiraQueryMacroCSF), BodyPresent: true, AncestorsPresent: true,
 			},
 		}
-		registrationService := &ConfluenceService{store: store, jiraReadReason: "Jira read access is unavailable for this test"}
+		registrationService := &ConfluenceService{store: store, baseURL: testConfluenceBackendURL, jiraReadReason: "Jira read access is unavailable for this test"}
 		_, registration, err := registrationService.CreateAndRegister(context.Background(), "DOC", "", "New", []byte(`<p>submitted</p>`), root)
 		if err != nil {
 			t.Fatal(err)
@@ -141,7 +149,7 @@ func TestCreatedRegistrationCarriesNonSerializedRenderWarnings(t *testing.T) {
 				Body: "remote", Fields: completeCreatedIssueFields("remote"),
 			},
 		}
-		_, registration, err := (&JiraService{tr: tracker}).CreateAndRegister(context.Background(), "PROJ", "Task", "S", nil, nil, root)
+		_, registration, err := (&JiraService{tr: tracker, baseURL: testJiraBackendURL}).CreateAndRegister(context.Background(), "PROJ", "Task", "S", nil, nil, root)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -209,7 +217,7 @@ func TestCreatedRegistrationRejectsUnsupportedPlatformBeforeRemoteAccessOrLocalS
 	t.Run("Confluence create", func(t *testing.T) {
 		root := filepath.Join(t.TempDir(), "mirror")
 		store := &createdConfluenceStore{}
-		page, registration, err := (&ConfluenceService{store: store}).createAndRegisterConfluence(
+		page, registration, err := (&ConfluenceService{store: store, baseURL: testConfluenceBackendURL}).createAndRegisterConfluence(
 			context.Background(), "DOC", "", "New", nil, root, "create", "windows",
 		)
 		if page != nil || registration != nil || !errors.Is(err, domain.ErrCheckFailed) {
@@ -224,7 +232,7 @@ func TestCreatedRegistrationRejectsUnsupportedPlatformBeforeRemoteAccessOrLocalS
 	t.Run("Confluence copy", func(t *testing.T) {
 		root := filepath.Join(t.TempDir(), "mirror")
 		store := &copiedConfluenceStore{}
-		page, registration, err := (&ConfluenceService{store: store}).copyPageAndRegister(
+		page, registration, err := (&ConfluenceService{store: store, baseURL: testConfluenceBackendURL}).copyPageAndRegister(
 			context.Background(), "10", "Copied", "", "", root, "windows",
 		)
 		if page != nil || registration != nil || !errors.Is(err, domain.ErrCheckFailed) {
@@ -239,7 +247,7 @@ func TestCreatedRegistrationRejectsUnsupportedPlatformBeforeRemoteAccessOrLocalS
 	t.Run("Jira create", func(t *testing.T) {
 		root := filepath.Join(t.TempDir(), "mirror")
 		tracker := &createdJiraTracker{}
-		issue, registration, err := (&JiraService{tr: tracker}).createAndRegister(
+		issue, registration, err := (&JiraService{tr: tracker, baseURL: testJiraBackendURL}).createAndRegister(
 			context.Background(), "PROJ", "Task", "New", nil, nil, root, "windows",
 		)
 		if issue != nil || registration != nil || !errors.Is(err, domain.ErrCheckFailed) {
@@ -276,7 +284,7 @@ func TestConfluenceCreateRegistrationFailureKeepsKnownCreatedResult(t *testing.T
 		created:  &domain.Resource{ID: "42", Title: "POST value"},
 		readback: &domain.Resource{ID: "other", Type: "page", BodyPresent: true, AncestorsPresent: true, Version: 1},
 	}
-	page, registration, err := (&ConfluenceService{store: store}).CreateAndRegister(context.Background(), "DOC", "", "New", []byte("<p>x</p>"), root)
+	page, registration, err := (&ConfluenceService{store: store, baseURL: testConfluenceBackendURL}).CreateAndRegister(context.Background(), "DOC", "", "New", []byte("<p>x</p>"), root)
 	if !errors.Is(err, domain.ErrCheckFailed) || page == nil || page.ID != "42" || registration == nil || registration.Status != "not_registered" {
 		t.Fatalf("page=%+v registration=%+v err=%v", page, registration, err)
 	}
@@ -388,7 +396,7 @@ func TestConfluenceCopyRegistrationUsesAuthoritativeCreatedReadback(t *testing.T
 		},
 	}
 
-	page, registration, err := (&ConfluenceService{store: store}).CopyPageAndRegister(context.Background(), "10", "Copied", "", "", root)
+	page, registration, err := (&ConfluenceService{store: store, baseURL: testConfluenceBackendURL}).CopyPageAndRegister(context.Background(), "10", "Copied", "", "", root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,12 +467,15 @@ func TestJiraCreateRegistrationUsesAuthoritativeReadback(t *testing.T) {
 			Body: "server normalized", Fields: fields,
 		},
 	}
-	issue, registration, err := (&JiraService{tr: tracker}).CreateAndRegister(context.Background(), "PROJ", "Task", "submitted", []byte("submitted"), nil, root)
+	issue, registration, err := (&JiraService{tr: tracker, baseURL: testJiraBackendURL}).CreateAndRegister(context.Background(), "PROJ", "Task", "submitted", []byte("submitted"), nil, root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if issue != tracker.readback || registration.Status != "registered" || tracker.createCalls != 1 || tracker.readbackCalls != 1 {
 		t.Fatalf("issue=%+v registration=%+v calls=%d/%d", issue, registration, tracker.createCalls, tracker.readbackCalls)
+	}
+	if err := requireMirrorBackend(root, "jira", testJiraBackendURL); err != nil {
+		t.Fatalf("created Jira registration did not bind mirror: %v", err)
 	}
 	if !tracker.createSingle || !tracker.createRedacted || !tracker.readbackSingle || !tracker.readbackRedacted {
 		t.Fatalf("request policies create=%t/%t readback=%t/%t", tracker.createSingle, tracker.createRedacted, tracker.readbackSingle, tracker.readbackRedacted)
@@ -488,8 +499,94 @@ func TestJiraCreateRegistrationUsesAuthoritativeReadback(t *testing.T) {
 	}
 }
 
+func TestCreatedRegistrationBackendMismatchStopsBeforeCreate(t *testing.T) {
+	t.Run("Confluence", func(t *testing.T) {
+		root := t.TempDir()
+		bindTestMirrorBackend(t, root, "confluence", confluenceOtherBackendURL)
+		store := &createdConfluenceStore{}
+		page, registration, err := (&ConfluenceService{store: store, baseURL: testConfluenceBackendURL}).CreateAndRegister(
+			context.Background(), "DOC", "", "New", []byte(`<p>submitted</p>`), root,
+		)
+		if page != nil || registration != nil || !errors.Is(err, domain.ErrCheckFailed) || store.createCalls != 0 || store.readbackCalls != 0 {
+			t.Fatalf("page=%+v registration=%+v calls=%d/%d err=%v", page, registration, store.createCalls, store.readbackCalls, err)
+		}
+	})
+
+	t.Run("Jira", func(t *testing.T) {
+		root := t.TempDir()
+		bindTestMirrorBackend(t, root, "jira", jiraOtherBackendURL)
+		tracker := &createdJiraTracker{}
+		issue, registration, err := (&JiraService{tr: tracker, baseURL: testJiraBackendURL}).CreateAndRegister(
+			context.Background(), "PROJ", "Task", "New", nil, nil, root,
+		)
+		if issue != nil || registration != nil || !errors.Is(err, domain.ErrCheckFailed) || tracker.createCalls != 0 || tracker.readbackCalls != 0 {
+			t.Fatalf("issue=%+v registration=%+v calls=%d/%d err=%v", issue, registration, tracker.createCalls, tracker.readbackCalls, err)
+		}
+	})
+}
+
+func TestConfluenceRegistrationJiraBindingIsMacroScoped(t *testing.T) {
+	t.Run("no macro does not require Jira binding", func(t *testing.T) {
+		root := t.TempDir()
+		bindTestMirrorBackend(t, root, "jira", jiraOtherBackendURL)
+		store := &createdConfluenceStore{
+			created: &domain.Resource{ID: "42"},
+			readback: &domain.Resource{
+				ID: "42", Type: "page", Title: "New", SpaceKey: "DOC", Version: 1,
+				Body: []byte(`<p>plain</p>`), BodyPresent: true, AncestorsPresent: true,
+			},
+		}
+		page, registration, err := (&ConfluenceService{
+			store: store, baseURL: testConfluenceBackendURL,
+			cfg: &config.Config{JiraURL: testJiraBackendURL},
+		}).CreateAndRegister(context.Background(), "DOC", "", "New", []byte(`<p>plain</p>`), root)
+		if err != nil || page == nil || registration == nil || registration.Status != "registered" || store.createCalls != 1 {
+			t.Fatalf("page=%+v registration=%+v calls=%d err=%v", page, registration, store.createCalls, err)
+		}
+	})
+
+	t.Run("submitted macro mismatch stops before create", func(t *testing.T) {
+		root := t.TempDir()
+		bindTestMirrorBackend(t, root, "jira", jiraOtherBackendURL)
+		store := &createdConfluenceStore{}
+		page, registration, err := (&ConfluenceService{
+			store: store, baseURL: testConfluenceBackendURL, jiraRead: &recordingTracker{},
+			cfg: &config.Config{JiraURL: testJiraBackendURL},
+		}).CreateAndRegister(context.Background(), "DOC", "", "New", []byte(jiraQueryMacroCSF), root)
+		if page != nil || registration != nil || !errors.Is(err, domain.ErrCheckFailed) || store.createCalls != 0 {
+			t.Fatalf("page=%+v registration=%+v calls=%d err=%v", page, registration, store.createCalls, err)
+		}
+	})
+
+	t.Run("unexpected readback macro never strands created page", func(t *testing.T) {
+		root := t.TempDir()
+		bindTestMirrorBackend(t, root, "jira", jiraOtherBackendURL)
+		tracker := &recordingTracker{}
+		store := &createdConfluenceStore{
+			created: &domain.Resource{ID: "42"},
+			readback: &domain.Resource{
+				ID: "42", Type: "page", Title: "New", SpaceKey: "DOC", Version: 1,
+				Body: []byte(jiraQueryMacroCSF), BodyPresent: true, AncestorsPresent: true,
+			},
+		}
+		page, registration, err := (&ConfluenceService{
+			store: store, baseURL: testConfluenceBackendURL, jiraRead: tracker,
+			cfg: &config.Config{JiraURL: testJiraBackendURL},
+		}).CreateAndRegister(context.Background(), "DOC", "", "New", []byte(`<p>plain</p>`), root)
+		if err != nil || page == nil || registration == nil || registration.Status != "registered" || len(registration.Warnings) == 0 {
+			t.Fatalf("page=%+v registration=%+v err=%v", page, registration, err)
+		}
+		if tracker.searchJQL != "" {
+			t.Fatalf("Jira adapter reached after binding mismatch: %q", tracker.searchJQL)
+		}
+	})
+}
+
 func TestJiraCreateRegistrationCollisionPreservesExistingBytes(t *testing.T) {
 	root := t.TempDir()
+	if err := prepareMirrorBackendPopulation(root, "jira", testJiraBackendURL, ".wiki", false); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(root, "PROJ"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -501,7 +598,7 @@ func TestJiraCreateRegistrationCollisionPreservesExistingBytes(t *testing.T) {
 		created:  &domain.Issue{Key: "PROJ-7"},
 		readback: &domain.Issue{ID: "10007", Key: "PROJ-7", Project: "PROJ", Type: "Task", Summary: "S", Body: "remote", Fields: completeCreatedIssueFields("remote")},
 	}
-	issue, registration, err := (&JiraService{tr: tracker}).CreateAndRegister(context.Background(), "PROJ", "Task", "S", nil, nil, root)
+	issue, registration, err := (&JiraService{tr: tracker, baseURL: testJiraBackendURL}).CreateAndRegister(context.Background(), "PROJ", "Task", "S", nil, nil, root)
 	if !errors.Is(err, domain.ErrCheckFailed) || issue == nil || registration == nil || registration.Reason != "target_collision" {
 		t.Fatalf("issue=%+v registration=%+v err=%v", issue, registration, err)
 	}
@@ -514,7 +611,7 @@ func TestCreatedRegistrationAmbiguousCreateStopsWithoutReadbackOrState(t *testin
 	t.Run("Confluence", func(t *testing.T) {
 		root := t.TempDir()
 		store := &createdConfluenceStore{createErr: errors.New("TRANSPORT_MARKER\r\n\x1b[31m")}
-		page, registration, err := (&ConfluenceService{store: store}).CreateAndRegister(
+		page, registration, err := (&ConfluenceService{store: store, baseURL: testConfluenceBackendURL}).CreateAndRegister(
 			context.Background(), "DOC", "", "New", []byte(`<p>submitted</p>`), root,
 		)
 		assertAmbiguousRegistrationCreate(t, root, page != nil, registration, err, store.createCalls, store.readbackCalls)
@@ -526,7 +623,7 @@ func TestCreatedRegistrationAmbiguousCreateStopsWithoutReadbackOrState(t *testin
 	t.Run("Jira", func(t *testing.T) {
 		root := t.TempDir()
 		tracker := &createdJiraTracker{createErr: errors.New("TRANSPORT_MARKER\r\n\x1b[31m")}
-		issue, registration, err := (&JiraService{tr: tracker}).CreateAndRegister(
+		issue, registration, err := (&JiraService{tr: tracker, baseURL: testJiraBackendURL}).CreateAndRegister(
 			context.Background(), "PROJ", "Task", "New", nil, nil, root,
 		)
 		assertAmbiguousRegistrationCreate(t, root, issue != nil, registration, err, tracker.createCalls, tracker.readbackCalls)

@@ -416,6 +416,9 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 			return nil, err
 		}
 	}
+	if err := prepareMirrorBackendPopulation(root, "confluence", s.baseURL, ".csf", o.DryRun); err != nil {
+		return nil, err
+	}
 	var incremental *confluenceIncrementalSelection
 	var complete *confluenceCompleteSelection
 	var ids []string
@@ -639,7 +642,16 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 		var jiraMacros *confluenceJiraMacroSidecar
 		if pageNode != nil && rs.ExpandJiraMacros {
 			var macroWarnings []string
-			jiraMacros, macroWarnings = s.resolveConfluenceJiraMacros(ctx, page.ID, pageNode, o.JiraView)
+			hasJiraMacros := len(mirror.JiraMacroDescriptors(pageNode)) > 0
+			jiraReady, bindErr := s.prepareConfluenceJiraMacroPopulation(root, hasJiraMacros, o.DryRun)
+			if bindErr != nil {
+				return res, bindErr
+			}
+			if hasJiraMacros && !jiraReady {
+				macroWarnings = append(macroWarnings, "render: Jira query macro(s) kept as placeholders because qualified Jira read access is unavailable")
+			} else {
+				jiraMacros, macroWarnings = s.resolveConfluenceJiraMacros(ctx, page.ID, pageNode, o.JiraView)
+			}
 			res.Warnings = append(res.Warnings, macroWarnings...)
 			mdOpts.JiraMacros = confluenceJiraMacroViews(jiraMacros)
 		} else if pageNode != nil && len(mirror.JiraMacroDescriptors(pageNode)) > 0 && !macroOptOutWarned {
@@ -1166,6 +1178,11 @@ func (s *ConfluenceService) Status(ctx context.Context, dir string, checkRemote 
 	if err != nil {
 		return nil, err
 	}
+	if checkRemote {
+		if err := requireMirrorBackend(dir, "confluence", s.baseURL); err != nil {
+			return nil, err
+		}
+	}
 	var out []StatusEntry
 	for _, lc := range locals {
 		e := StatusEntry{Path: lc.Path, ID: lc.Meta.ID, Title: lc.Meta.Title, LocallyEdited: lc.Dirty}
@@ -1300,6 +1317,9 @@ func (s *ConfluenceService) Push(ctx context.Context, target string, o PushOpts)
 	defer func() { _ = lock.Unlock() }()
 	files, err := pushTargets(m, target)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireMirrorBackend(root, "confluence", s.baseURL); err != nil {
 		return nil, err
 	}
 	res := &PushResult{}

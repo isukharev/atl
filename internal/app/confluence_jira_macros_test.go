@@ -35,7 +35,7 @@ func TestCollectConfluenceJiraMacroPreservesQualifiedTerminalPage(t *testing.T) 
 				"1": {Issues: []domain.Issue{}, PartialReason: domain.IssueSearchPartialPaginationStalled},
 			},
 		}
-		list, err := collectConfluenceJiraMacro(context.Background(), &JiraService{tr: tracker, cfg: &config.Config{}},
+		list, err := collectConfluenceJiraMacro(context.Background(), &JiraService{tr: tracker, cfg: &config.Config{JiraURL: jiraTestBackendURL}},
 			"project = PROJ", []string{"key"}, "", 20)
 		if err != nil {
 			t.Fatal(err)
@@ -54,7 +54,7 @@ func TestCollectConfluenceJiraMacroPreservesQualifiedTerminalPage(t *testing.T) 
 				"1": {Issues: []domain.Issue{{Key: "PROJ-2"}}, Complete: true},
 			},
 		}
-		list, err := collectConfluenceJiraMacro(context.Background(), &JiraService{tr: tracker, cfg: &config.Config{}},
+		list, err := collectConfluenceJiraMacro(context.Background(), &JiraService{tr: tracker, cfg: &config.Config{JiraURL: jiraTestBackendURL}},
 			"project = PROJ", []string{"key"}, "", 20)
 		if err != nil {
 			t.Fatal(err)
@@ -70,7 +70,7 @@ func TestConfluencePageViewEnrichesJiraMacroWithoutPerIssueReads(t *testing.T) {
 	tracker := &recordingTracker{issues: []domain.Issue{{ID: "10001", Key: "PROJ-1", Summary: "First", Type: "Story", Status: "Open", Fields: map[string]any{}}}}
 	service := &ConfluenceService{
 		store:    &recordingStore{page: &domain.Resource{ID: "42", Title: "Plan", SpaceKey: "DOC", Version: 1, Body: []byte(jiraQueryMacroCSF)}},
-		jiraRead: tracker, cfg: &config.Config{},
+		jiraRead: tracker, cfg: &config.Config{JiraURL: jiraTestBackendURL},
 	}
 	result, err := service.ViewPage(context.Background(), "42", ConfluencePageViewOpts{Root: t.TempDir()})
 	if err != nil {
@@ -92,7 +92,7 @@ func TestConfluenceJiraMacroUsesNamedConfluenceProjection(t *testing.T) {
 		"planning": {ConfluenceMacro: []string{"key", "priority"}},
 	}}
 	body := `<ac:structured-macro ac:name="jira"><ac:parameter ac:name="jqlQuery">project = PROJ</ac:parameter></ac:structured-macro>`
-	service := &ConfluenceService{store: &recordingStore{page: &domain.Resource{ID: "42", Body: []byte(body)}}, jiraRead: tracker, cfg: cfg}
+	service := &ConfluenceService{baseURL: confluenceTestBackendURL, store: &recordingStore{page: &domain.Resource{ID: "42", Body: []byte(body)}}, jiraRead: tracker, cfg: cfg}
 	result, err := service.ViewPage(context.Background(), "42", ConfluencePageViewOpts{Root: t.TempDir(), JiraView: "planning"})
 	if err != nil {
 		t.Fatal(err)
@@ -107,7 +107,7 @@ func TestConfluenceJiraMacroUsesNamedConfluenceProjection(t *testing.T) {
 
 func TestConfluenceJiraMacroUnknownViewFailsBeforePageRead(t *testing.T) {
 	store := &recordingStore{page: &domain.Resource{ID: "42", Body: []byte(jiraQueryMacroCSF)}}
-	service := &ConfluenceService{store: store, cfg: &config.Config{}}
+	service := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store, cfg: &config.Config{JiraURL: jiraTestBackendURL}}
 	_, err := service.ViewPage(context.Background(), "42", ConfluencePageViewOpts{JiraView: "missing"})
 	if !errors.Is(err, domain.ErrUsage) || store.getID != "" {
 		t.Fatalf("error=%v get_id=%q", err, store.getID)
@@ -116,7 +116,7 @@ func TestConfluenceJiraMacroUnknownViewFailsBeforePageRead(t *testing.T) {
 
 func TestConfluencePullUnknownJiraViewWritesNothing(t *testing.T) {
 	store := &recordingStore{page: &domain.Resource{ID: "42", Body: []byte(jiraQueryMacroCSF)}}
-	service := &ConfluenceService{store: store, cfg: &config.Config{}}
+	service := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store, cfg: &config.Config{JiraURL: jiraTestBackendURL}}
 	root := filepath.Join(t.TempDir(), "mirror")
 	_, err := service.Pull(context.Background(), PullOpts{ID: "42", Into: root, JiraView: "missing"})
 	if !errors.Is(err, domain.ErrUsage) || store.getID != "" {
@@ -131,7 +131,7 @@ func TestConfluenceJiraMacroPullSidecarKeepsOfflineRenderAndApplyStable(t *testi
 	tracker := &recordingTracker{issues: []domain.Issue{{ID: "10001", Key: "PROJ-1", Summary: "First", Status: "Open", Fields: map[string]any{}}}}
 	page := &domain.Resource{ID: "42", Title: "Plan", SpaceKey: "DOC", Version: 1, Body: []byte(jiraQueryMacroCSF)}
 	root := t.TempDir()
-	service := &ConfluenceService{store: &recordingStore{page: page}, jiraRead: tracker, cfg: &config.Config{}}
+	service := &ConfluenceService{baseURL: confluenceTestBackendURL, store: &recordingStore{page: page}, jiraRead: tracker, cfg: &config.Config{JiraURL: jiraTestBackendURL}}
 	result, err := service.Pull(context.Background(), PullOpts{ID: "42", Into: root})
 	if err != nil {
 		t.Fatal(err)
@@ -164,7 +164,7 @@ func TestConfluenceJiraMacroPushRefreshKeepsNextApplyStable(t *testing.T) {
 	tracker := &recordingTracker{issues: []domain.Issue{{ID: "10001", Key: "PROJ-1", Summary: "First", Status: "Open", Fields: map[string]any{}}}}
 	page := &domain.Resource{ID: "42", Title: "Plan", SpaceKey: "DOC", Version: 1, Body: []byte(jiraQueryMacroCSF)}
 	root := t.TempDir()
-	pull, err := (&ConfluenceService{store: &recordingStore{page: page}, jiraRead: tracker, cfg: &config.Config{}}).Pull(context.Background(), PullOpts{ID: "42", Into: root})
+	pull, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: &recordingStore{page: page}, jiraRead: tracker, cfg: &config.Config{JiraURL: jiraTestBackendURL}}).Pull(context.Background(), PullOpts{ID: "42", Into: root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestConfluenceJiraMacroPushRefreshKeepsNextApplyStable(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := &stubStore{newVer: 2, page: &domain.Resource{ID: "42", Title: "Plan", SpaceKey: "DOC", Version: 2, Body: []byte(editedBody)}}
-	result, err := (&ConfluenceService{store: store, cfg: &config.Config{}}).Push(context.Background(), csfPath, PushOpts{Into: root})
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store, cfg: &config.Config{JiraURL: jiraTestBackendURL}}).Push(context.Background(), csfPath, PushOpts{Into: root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestConfluenceJiraMacroPushRetiresSidecarWhenMacroSetChanged(t *testing.T) 
 	tracker := &recordingTracker{issues: []domain.Issue{{ID: "10001", Key: "PROJ-1", Summary: "First", Status: "Open", Fields: map[string]any{}}}}
 	page := &domain.Resource{ID: "42", Title: "Plan", SpaceKey: "DOC", Version: 1, Body: []byte(jiraQueryMacroCSF)}
 	root := t.TempDir()
-	pull, err := (&ConfluenceService{store: &recordingStore{page: page}, jiraRead: tracker, cfg: &config.Config{}}).Pull(context.Background(), PullOpts{ID: "42", Into: root})
+	pull, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: &recordingStore{page: page}, jiraRead: tracker, cfg: &config.Config{JiraURL: jiraTestBackendURL}}).Pull(context.Background(), PullOpts{ID: "42", Into: root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestConfluenceJiraMacroPushRetiresSidecarWhenMacroSetChanged(t *testing.T) 
 		t.Fatal(err)
 	}
 	store := &stubStore{newVer: 2, page: &domain.Resource{ID: "42", Title: "Plan", SpaceKey: "DOC", Version: 2, Body: []byte(editedBody)}}
-	result, err := (&ConfluenceService{store: store, cfg: &config.Config{}}).Push(context.Background(), csfPath, PushOpts{Into: root})
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store, cfg: &config.Config{JiraURL: jiraTestBackendURL}}).Push(context.Background(), csfPath, PushOpts{Into: root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +229,7 @@ func TestConfluenceJiraMacroPushRetiresSidecarWhenQueryChanges(t *testing.T) {
 	tracker := &recordingTracker{issues: []domain.Issue{{ID: "10001", Key: "PROJ-1", Summary: "First", Status: "Open", Fields: map[string]any{}}}}
 	page := &domain.Resource{ID: "42", Title: "Plan", SpaceKey: "DOC", Version: 1, Body: []byte(jiraQueryMacroCSF)}
 	root := t.TempDir()
-	pull, err := (&ConfluenceService{store: &recordingStore{page: page}, jiraRead: tracker, cfg: &config.Config{}}).Pull(context.Background(), PullOpts{ID: "42", Into: root})
+	pull, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: &recordingStore{page: page}, jiraRead: tracker, cfg: &config.Config{JiraURL: jiraTestBackendURL}}).Pull(context.Background(), PullOpts{ID: "42", Into: root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestConfluenceJiraMacroPushRetiresSidecarWhenQueryChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := &stubStore{newVer: 2, page: &domain.Resource{ID: "42", Title: "Plan", SpaceKey: "DOC", Version: 2, Body: []byte(editedBody)}}
-	result, err := (&ConfluenceService{store: store, cfg: &config.Config{}}).Push(context.Background(), csfPath, PushOpts{Into: root})
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store, cfg: &config.Config{JiraURL: jiraTestBackendURL}}).Push(context.Background(), csfPath, PushOpts{Into: root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +260,7 @@ func TestConfluenceJiraMacroEditNamesJiraQueriesSection(t *testing.T) {
 	tracker := &recordingTracker{issues: []domain.Issue{{ID: "10001", Key: "PROJ-1", Summary: "First", Status: "Open", Fields: map[string]any{}}}}
 	page := &domain.Resource{ID: "42", Title: "Plan", SpaceKey: "DOC", Version: 1, Body: []byte(jiraQueryMacroCSF)}
 	root := t.TempDir()
-	pull, err := (&ConfluenceService{store: &recordingStore{page: page}, jiraRead: tracker, cfg: &config.Config{}}).Pull(context.Background(), PullOpts{ID: "42", Into: root})
+	pull, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: &recordingStore{page: page}, jiraRead: tracker, cfg: &config.Config{JiraURL: jiraTestBackendURL}}).Pull(context.Background(), PullOpts{ID: "42", Into: root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func TestConfluenceJiraMacroIntentionalRemovalRetiresSidecar(t *testing.T) {
 	tracker := &recordingTracker{issues: []domain.Issue{{ID: "10001", Key: "PROJ-1", Summary: "First", Status: "Open", Fields: map[string]any{}}}}
 	page := &domain.Resource{ID: "42", Title: "Plan", SpaceKey: "DOC", Version: 1, Body: []byte(jiraQueryMacroCSF)}
 	root := t.TempDir()
-	pull, err := (&ConfluenceService{store: &recordingStore{page: page}, jiraRead: tracker, cfg: &config.Config{}}).Pull(context.Background(), PullOpts{ID: "42", Into: root})
+	pull, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: &recordingStore{page: page}, jiraRead: tracker, cfg: &config.Config{JiraURL: jiraTestBackendURL}}).Pull(context.Background(), PullOpts{ID: "42", Into: root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +318,7 @@ func TestConfluenceJiraMacroTamperedSidecarFailsApplyClosed(t *testing.T) {
 	tracker := &recordingTracker{issues: []domain.Issue{{ID: "10001", Key: "PROJ-1", Summary: "First", Status: "Open", Fields: map[string]any{}}}}
 	page := &domain.Resource{ID: "42", Title: "Plan", SpaceKey: "DOC", Version: 1, Body: []byte(jiraQueryMacroCSF)}
 	root := t.TempDir()
-	result, err := (&ConfluenceService{store: &recordingStore{page: page}, jiraRead: tracker, cfg: &config.Config{}}).Pull(context.Background(), PullOpts{ID: "42", Into: root})
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: &recordingStore{page: page}, jiraRead: tracker, cfg: &config.Config{JiraURL: jiraTestBackendURL}}).Pull(context.Background(), PullOpts{ID: "42", Into: root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,8 +372,9 @@ func TestConfluenceJiraMacroOptOutNeverLoadsJiraCredentials(t *testing.T) {
 		t.Run(operation, func(t *testing.T) {
 			factoryCalls := 0
 			service := &ConfluenceService{
-				store: &recordingStore{page: &domain.Resource{ID: "42", Title: "Plan", SpaceKey: "DOC", Version: 1, Body: []byte(jiraQueryMacroCSF)}},
-				cfg:   &config.Config{},
+				baseURL: confluenceTestBackendURL,
+				store:   &recordingStore{page: &domain.Resource{ID: "42", Title: "Plan", SpaceKey: "DOC", Version: 1, Body: []byte(jiraQueryMacroCSF)}},
+				cfg:     &config.Config{},
 				jiraReadFactory: func() (domain.Tracker, string) {
 					factoryCalls++
 					return &recordingTracker{}, ""

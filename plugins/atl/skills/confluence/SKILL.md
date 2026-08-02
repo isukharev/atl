@@ -251,6 +251,17 @@ root applies, with `mirror` as fallback. An existing mirror file's nearest
 `.atl` is authoritative. Do not pull merely because profile memory names
 another root.
 
+Inspect `atl mirror backend status <existing-root>` before remote mirror work.
+A fresh Confluence-empty pull and registered page create/copy bind Confluence
+automatically. An unbound legacy root with Confluence evidence must use
+`mirror backend bind <root> --service confluence`: first preview, then after
+human approval apply the exact emitted `backend_sha256` with
+`--apply --expected-backend-sha256 <hash> --confirm BIND`. The whole bind leaf,
+including preview, is blocked by `ATL_READ_ONLY=1`; it uses no PAT or network.
+Never edit `.atl/backend-bindings.json` or replace a mismatch—use the original
+backend or a new mirror. Persisted Jira macro expansion requires a separate
+Jira binding; choose `--jira-macros off` when no Jira binding/request is wanted.
+
 Run `atl conf status <existing-root> --remote` first. Preserve and reconcile a
 locally edited mirror before any pull. Re-pull a clean remote-drifted mirror
 before editing; a clean non-drifted mirror is already a valid base. A transient

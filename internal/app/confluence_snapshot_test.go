@@ -37,6 +37,7 @@ func (s *snapshotMetaStore) GetMeta(ctx context.Context, id string) (*domain.Pag
 func TestConfluenceMirrorRemoteSnapshotHoldsMutationLockThroughProbe(t *testing.T) {
 	root := t.TempDir()
 	writeDiffPage(t, root, "301", "stable", `<p>body</p>`)
+	bindConfluenceTestMirror(t, root)
 	lock, err := lockConfluenceMutations(root, false)
 	if err != nil {
 		t.Fatal(err)
@@ -55,7 +56,7 @@ func TestConfluenceMirrorRemoteSnapshotHoldsMutationLockThroughProbe(t *testing.
 			}
 		},
 	}
-	got, err := (&ConfluenceService{store: store}).SnapshotMirror(context.Background(), root, true)
+	got, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).SnapshotMirror(context.Background(), root, true)
 	if err != nil || got == nil || !got.Complete || !mutationBlocked {
 		t.Fatalf("snapshot=%+v mutation_blocked=%t err=%v", got, mutationBlocked, err)
 	}
@@ -71,6 +72,7 @@ func TestConfluenceMirrorRemoteSnapshotHoldsMutationLockThroughProbe(t *testing.
 func TestConfluenceMirrorRemoteSnapshotDiscardsLegacyRaceWithoutRetry(t *testing.T) {
 	root := t.TempDir()
 	writeDiffPage(t, root, "302", "stable", `<p>body</p>`)
+	bindConfluenceTestMirror(t, root)
 	lockPath := filepath.Join(root, ".atl", confluenceMutationLockName)
 	if err := os.Remove(lockPath); err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
@@ -86,7 +88,7 @@ func TestConfluenceMirrorRemoteSnapshotDiscardsLegacyRaceWithoutRetry(t *testing
 			_ = lock.Unlock()
 		},
 	}
-	got, err := (&ConfluenceService{store: store}).SnapshotMirror(context.Background(), root, true)
+	got, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).SnapshotMirror(context.Background(), root, true)
 	if !errors.Is(err, domain.ErrCheckFailed) || got != nil || len(store.calls) != 1 {
 		t.Fatalf("snapshot=%+v calls=%v err=%v", got, store.calls, err)
 	}
@@ -191,7 +193,7 @@ func TestConfluenceMirrorSnapshotStopsBeforeRemoteOnBaselineMismatch(t *testing.
 		t.Fatal(err)
 	}
 	store := &snapshotMetaStore{meta: map[string]*domain.PageMeta{"201": {ID: "201", Version: 3}}}
-	svc := &ConfluenceService{store: store}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store}
 	got, err := svc.SnapshotMirror(context.Background(), root, true)
 	if !errors.Is(err, domain.ErrCheckFailed) || got == nil {
 		t.Fatalf("snapshot=%+v err=%v", got, err)
@@ -229,7 +231,7 @@ func TestConfluenceMirrorSnapshotCoordinatesWithoutCreatingMutationLock(t *testi
 	}
 	defer func() { _ = lock.Unlock() }()
 	store := &snapshotMetaStore{meta: map[string]*domain.PageMeta{"201": {ID: "201", Version: 3}}}
-	got, err = (&ConfluenceService{store: store}).SnapshotMirror(context.Background(), root, true)
+	got, err = (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).SnapshotMirror(context.Background(), root, true)
 	if !errors.Is(err, domain.ErrCheckFailed) || got != nil || len(store.calls) != 0 {
 		t.Fatalf("busy snapshot=%+v calls=%v err=%v", got, store.calls, err)
 	}
@@ -278,7 +280,7 @@ func TestConfluenceMirrorSnapshotIncompleteLocalEvidenceStopsRemote(t *testing.T
 			path := writeDiffPage(t, root, "211", "local-block", `<p>body</p>`)
 			test.mutate(t, root, path)
 			store := &snapshotMetaStore{meta: map[string]*domain.PageMeta{"211": {ID: "211", Version: 3}}}
-			got, err := (&ConfluenceService{store: store}).SnapshotMirror(context.Background(), root, true)
+			got, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).SnapshotMirror(context.Background(), root, true)
 			if errors.Is(err, domain.ErrCheckFailed) != test.wantCheckErr {
 				t.Fatalf("snapshot err=%v want_check_failed=%t", err, test.wantCheckErr)
 			}
@@ -305,6 +307,7 @@ func TestConfluenceMirrorSnapshotRemoteUsesOneProbePerTrackedPage(t *testing.T) 
 	for _, page := range []struct{ id, slug string }{{"301", "one"}, {"302", "two"}, {"303", "three"}} {
 		writeDiffPage(t, root, page.id, page.slug, `<p>body</p>`)
 	}
+	bindConfluenceTestMirror(t, root)
 	store := &snapshotMetaStore{
 		meta: map[string]*domain.PageMeta{
 			"301": {ID: "301", Version: 3},
@@ -312,7 +315,7 @@ func TestConfluenceMirrorSnapshotRemoteUsesOneProbePerTrackedPage(t *testing.T) 
 		},
 		errs: map[string]error{"303": errors.New("offline")},
 	}
-	svc := &ConfluenceService{store: store}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store}
 	got, err := svc.SnapshotMirror(context.Background(), root, true)
 	if err != nil {
 		t.Fatal(err)
@@ -350,8 +353,9 @@ func TestConfluenceMirrorSnapshotSkipsNonCanonicalCopyRemotely(t *testing.T) {
 	if err := m.SaveViewStates(map[string]mirror.ViewState{"401": {Sections: []string{"content"}}}); err != nil {
 		t.Fatal(err)
 	}
+	bindConfluenceTestMirror(t, root)
 	store := &snapshotMetaStore{meta: map[string]*domain.PageMeta{"401": {ID: "401", Version: 3}}}
-	got, err := (&ConfluenceService{store: store}).SnapshotMirror(context.Background(), root, true)
+	got, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).SnapshotMirror(context.Background(), root, true)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,10 +2,14 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/isukharev/atl/internal/domain"
 )
 
 func TestCreateManifestWritesCountsAndHashesBackend(t *testing.T) {
@@ -47,5 +51,28 @@ func TestCreateManifestWritesCountsAndHashesBackend(t *testing.T) {
 	}
 	if decoded.Command != "atl test" || decoded.ATLVersion != "test" {
 		t.Fatalf("decoded = %+v, want command/version", decoded)
+	}
+}
+
+func TestCreateManifestCanonicalizesBackendIdentity(t *testing.T) {
+	root := t.TempDir()
+	first, err := CreateManifest(ManifestOpts{Root: root, Out: filepath.Join(root, "one.json"), Service: "jira", BackendURLs: map[string]string{"jira": "HTTPS://EXAMPLE.test:443/jira/"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := CreateManifest(ManifestOpts{Root: root, Out: filepath.Join(root, "two.json"), Service: "jira", BackendURLs: map[string]string{"jira": "https://example.test/jira"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Manifest.Backend) != 1 || len(second.Manifest.Backend) != 1 || first.Manifest.Backend[0].URLHash != second.Manifest.Backend[0].URLHash {
+		t.Fatalf("canonical backend hashes differ: %+v %+v", first.Manifest.Backend, second.Manifest.Backend)
+	}
+}
+
+func TestCreateManifestRejectsAmbiguousBackendIdentity(t *testing.T) {
+	root := t.TempDir()
+	_, err := CreateManifest(ManifestOpts{Root: root, Out: filepath.Join(root, "manifest.json"), Service: "jira", BackendURLs: map[string]string{"jira": "https://example.test/jira?tenant=private"}})
+	if !errors.Is(err, domain.ErrUsage) || strings.Contains(fmt.Sprint(err), "tenant") || strings.Contains(fmt.Sprint(err), "example.test") {
+		t.Fatalf("error = %v", err)
 	}
 }

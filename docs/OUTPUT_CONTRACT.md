@@ -75,6 +75,83 @@ prints the identifier before that non-zero exit; Jira `-o text` still prints
 Preserve local files and use the reported narrow `conf pull --id ... --into ...`
 or `jira pull --jql 'key = ...' --limit 1 --into ...` recovery.
 
+### Mirror backend binding
+
+`atl mirror backend status [DIR]` is a local, content-minimized inspection of an
+initialized mirror. It does not load config or credentials and performs no
+network access. Default JSON is deterministic by service:
+
+```json
+{
+  "schema_version": 1,
+  "root": "mirror",
+  "bindings": [
+    {
+      "service": "confluence",
+      "origin_sha256": "sha256:<64 lowercase hex characters>"
+    }
+  ]
+}
+```
+
+An unbound mirror emits `"bindings":[]`. Text output is `no backend bindings`
+when empty; otherwise it prints one `service origin_sha256` pair per line.
+
+`atl mirror backend bind [DIR] --service confluence|jira` previews a binding by
+default and writes nothing:
+
+```json
+{
+  "schema_version": 1,
+  "root": "mirror",
+  "service": "confluence",
+  "mode": "preview",
+  "status": "would_bind",
+  "backend_sha256": "sha256:<64 lowercase hex characters>"
+}
+```
+
+A matching existing binding changes preview `status` to `already_bound`.
+Applying the reviewed value requires the exact preview digest plus both guards:
+
+```text
+--apply --expected-backend-sha256 <exact backend_sha256> --confirm BIND
+```
+
+Apply emits the same shape with `mode:"apply"` and `status:"bound"`, or
+`status:"already_bound"` for an idempotent match. A mismatched reviewed digest
+or an existing different binding exits `8`; a binding is compare-and-set and is
+never replaced. Bind text output is `service status (root)`.
+
+The bind operation reads only the configured service URL in memory to derive
+the digest. It loads no PAT and performs no backend request. The complete
+`mirror backend bind` leaf is mutation-classified, so `ATL_READ_ONLY=1` and the
+equivalent global or persisted policy reject even preview before configuration
+or network access. `mirror backend status` remains read-only.
+
+The durable file is strict schema-v1 `.atl/backend-bindings.json`:
+
+```json
+{
+  "schema_version": 1,
+  "services": {
+    "confluence": "sha256:<64 lowercase hex characters>"
+  }
+}
+```
+
+It is an owner-only regular file with mode `0600`. Unknown or duplicate fields,
+future versions, empty service maps, invalid tagged hashes, permissive modes,
+and symlinks fail closed. Raw URLs and hostnames never enter this file or the
+command output.
+
+Fresh service-empty non-dry-run pulls and explicit created-object registration
+establish a missing service binding automatically. Existing unbound roots with
+service evidence require the explicit reviewed bind workflow. Persisted Jira
+macro expansion on a Confluence pull establishes or requires a separate Jira
+binding. Remote mirror status/snapshot/push/reconcile/plan phases require an
+exact match before network access; offline mirror operations remain available.
+
 The reviewed text/id inventories annotate the command tree before execution.
 They are also the source of truth for `atl capabilities`; the catalog cannot
 advertise an output mode that the root preflight would refuse.

@@ -31,6 +31,7 @@ func TestConfluenceReconcileCLIJSONTextAndIDContract(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":"42","type":"page","title":"Page","space":{"key":"EX"},"version":{"number":2},"body":{"storage":{"value":"<p>base</p>"}}}`))
 	}))
 	defer server.Close()
+	bindCLIMirrorBackend(t, root, "confluence", server.URL)
 
 	out, code := runCLI(t, confEnv(server), "--read-only", "conf", "reconcile", "preview", path, "--into", root)
 	if code != exitOK || requests != 1 || !strings.Contains(out, `"service": "confluence"`) || !strings.Contains(out, `"state": "unchanged"`) || strings.Contains(out, "<p>base</p>") {
@@ -79,6 +80,7 @@ func TestJiraReconcileCLIReadsOnceWithoutContent(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":"10001","key":"EX-1","fields":{"description":"private base text","updated":"2026-08-02T12:34:56.000+0000"}}`))
 	}))
 	defer server.Close()
+	bindCLIMirrorBackend(t, root, "jira", server.URL)
 	out, code := runCLI(t, jiraEnv(server), "--read-only", "jira", "reconcile", "preview", path, "--into", root)
 	if code != exitOK || requests != 1 || !strings.Contains(out, `"service": "jira"`) || strings.Contains(out, "private base text") {
 		t.Fatalf("exit=%d requests=%d out=%q", code, requests, out)

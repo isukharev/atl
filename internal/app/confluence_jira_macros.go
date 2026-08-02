@@ -71,13 +71,7 @@ func (s *ConfluenceService) resolveConfluenceJiraMacros(ctx context.Context, pag
 	if len(descriptors) == 0 {
 		return nil, nil
 	}
-	s.jiraReadOnce.Do(func() {
-		if s.jiraRead == nil && s.jiraReadFactory != nil {
-			s.jiraRead, s.jiraReadReason = s.jiraReadFactory()
-			s.jiraReadFactory = nil
-		}
-	})
-	if s.jiraRead == nil {
+	if !s.ensureConfluenceJiraReader() {
 		reason := s.jiraReadReason
 		if reason == "" {
 			reason = "Jira read access is not configured"
@@ -127,6 +121,19 @@ func (s *ConfluenceService) resolveConfluenceJiraMacros(ctx context.Context, pag
 		return nil, warnings
 	}
 	return sidecar, warnings
+}
+
+func (s *ConfluenceService) ensureConfluenceJiraReader() bool {
+	if s == nil {
+		return false
+	}
+	s.jiraReadOnce.Do(func() {
+		if s.jiraRead == nil && s.jiraReadFactory != nil {
+			s.jiraRead, s.jiraReadReason = s.jiraReadFactory()
+			s.jiraReadFactory = nil
+		}
+	})
+	return s.jiraRead != nil
 }
 
 func collectConfluenceJiraMacro(ctx context.Context, service *JiraService, jql string, columns []string, view string, limit int) (*IssueList, error) {

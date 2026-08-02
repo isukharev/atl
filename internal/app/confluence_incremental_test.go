@@ -91,7 +91,7 @@ func TestConfluenceIncrementalQueryIsIndependentOfProcessTimeZone(t *testing.T) 
 		t.Setenv("TZ", zone)
 		root := t.TempDir()
 		store := &incrementalPullStore{pullStore: &pullStore{}, searchPages: map[string]domain.PageSearchPage{"": {Complete: true}}}
-		_, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{
+		_, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{
 			CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T12:00:00+03:00",
 		})
 		if err != nil {
@@ -115,7 +115,7 @@ func TestIncrementalPullPaginatesPersistsAndSkipsKnownBoundary(t *testing.T) {
 			"1": {Results: []domain.PageRef{h2}, Complete: true},
 		},
 	}
-	svc := &ConfluenceService{store: store}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store}
 	opts := PullOpts{CQL: `space = "DOC" and type = page`, Into: root, Incremental: true, Since: "2026-07-13T11:59:00Z"}
 	res, err := svc.Pull(context.Background(), opts)
 	if err != nil {
@@ -183,7 +183,7 @@ func TestIncrementalPullFiltersSafetyOverlapLocally(t *testing.T) {
 		pullStore:   &pullStore{pages: map[string]*domain.Resource{"10": oldPage, "20": newPage}},
 		searchPages: map[string]domain.PageSearchPage{"": {Results: []domain.PageRef{oldHit, newHit}, Complete: true}},
 	}
-	res, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T12:00:00Z"})
+	res, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T12:00:00Z"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestIncrementalRecordedAbsoluteBoundarySurvivesDSTFold(t *testing.T) {
 		pullStore:   &pullStore{pages: map[string]*domain.Resource{"10": firstPage, "20": secondPage}},
 		searchPages: map[string]domain.PageSearchPage{"": {Results: []domain.PageRef{firstHit, secondHit}, Complete: true}},
 	}
-	svc := &ConfluenceService{store: store}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store}
 	opts := PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-11-01T04:30:00Z"}
 	res, err := svc.Pull(context.Background(), opts)
 	if err != nil {
@@ -249,8 +249,9 @@ func TestIncrementalPullRejectsLegacyUnprovenWatermark(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	bindConfluenceTestMirror(t, root)
 	store := &incrementalPullStore{pullStore: &pullStore{}}
-	_, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: selector, Into: root, Incremental: true})
+	_, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{CQL: selector, Into: root, Incremental: true})
 	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "fail-safe absolute-boundary protocol") || len(store.queries) != 0 {
 		t.Fatalf("err=%v queries=%v", err, store.queries)
 	}
@@ -266,8 +267,9 @@ func TestIncrementalPullMigratesProvenV1WatermarkToCanonicalUTC(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	bindConfluenceTestMirror(t, root)
 	store := &incrementalPullStore{pullStore: &pullStore{}, searchPages: map[string]domain.PageSearchPage{"": {Complete: true}}}
-	res, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: selector, Into: root, Incremental: true})
+	res, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{CQL: selector, Into: root, Incremental: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +292,7 @@ func TestIncrementalPullRejectsPartialSelectionWithoutWatermark(t *testing.T) {
 		pullStore:   &pullStore{pages: map[string]*domain.Resource{}},
 		searchPages: map[string]domain.PageSearchPage{"": {Results: []domain.PageRef{hit}, Complete: false, PartialReason: "missing continuation"}},
 	}
-	svc := &ConfluenceService{store: store}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store}
 	_, err := svc.Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T11:00:00Z"})
 	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "watermark unchanged") {
 		t.Fatalf("err=%v", err)
@@ -312,7 +314,7 @@ func TestIncrementalPullCommentQualificationControlsWatermark(t *testing.T) {
 
 	t.Run("unqualified comments do not advance", func(t *testing.T) {
 		store, root := newStore(t)
-		_, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{
+		_, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{
 			CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T12:00:00Z", Comments: true,
 		})
 		if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "watermark unchanged") {
@@ -332,7 +334,7 @@ func TestIncrementalPullCommentQualificationControlsWatermark(t *testing.T) {
 			Resolution: domain.ConfluenceCommentResolutionOpen, Version: 1,
 			Body: "comment", BodyStorage: "<p>comment</p>", MarkerRef: "missing-marker",
 		})
-		result, err := (&ConfluenceService{store: &qualifiedIncrementalPullStore{incrementalPullStore: store, inventory: inventory}}).Pull(
+		result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: &qualifiedIncrementalPullStore{incrementalPullStore: store, inventory: inventory}}).Pull(
 			context.Background(), PullOpts{
 				CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T12:00:00Z", Comments: true,
 			},
@@ -360,7 +362,7 @@ func TestIncrementalPullRejectsSelectionThatMovesBetweenPasses(t *testing.T) {
 			{Results: []domain.PageRef{h1, h2}, Complete: true},
 		},
 	}
-	_, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T11:00:00Z"})
+	_, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T11:00:00Z"})
 	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "changed during pagination") || store.getCalls != 0 {
 		t.Fatalf("err=%v getCalls=%d", err, store.getCalls)
 	}
@@ -370,7 +372,7 @@ func TestIncrementalPullRejectsDirtyTargetBeforeRemoteReads(t *testing.T) {
 	root := t.TempDir()
 	old, _ := incrementalPage("10", 1, "2026-07-13T11:00:00Z")
 	seed := &pullStore{pages: map[string]*domain.Resource{"10": old}}
-	if _, err := (&ConfluenceService{store: seed}).Pull(context.Background(), PullOpts{ID: "10", Into: root}); err != nil {
+	if _, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: seed}).Pull(context.Background(), PullOpts{ID: "10", Into: root}); err != nil {
 		t.Fatal(err)
 	}
 	states, err := mirror.New(root).SyncStates()
@@ -385,7 +387,7 @@ func TestIncrementalPullRejectsDirtyTargetBeforeRemoteReads(t *testing.T) {
 		pullStore:   &pullStore{pages: map[string]*domain.Resource{"10": newPage}},
 		searchPages: map[string]domain.PageSearchPage{"": {Results: []domain.PageRef{hit}, Complete: true}},
 	}
-	_, err = (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T11:00:00Z"})
+	_, err = (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T11:00:00Z"})
 	if !errors.Is(err, domain.ErrCheckFailed) || store.getCalls != 0 {
 		t.Fatalf("err=%v getCalls=%d", err, store.getCalls)
 	}
@@ -394,7 +396,7 @@ func TestIncrementalPullRejectsDirtyTargetBeforeRemoteReads(t *testing.T) {
 func TestIncrementalPullRejectsUnappliedMarkdownBeforeRemoteReads(t *testing.T) {
 	root := t.TempDir()
 	old, _ := incrementalPage("10", 1, "2026-07-13T11:00:00Z")
-	seed := &ConfluenceService{store: &pullStore{pages: map[string]*domain.Resource{"10": old}}}
+	seed := &ConfluenceService{baseURL: confluenceTestBackendURL, store: &pullStore{pages: map[string]*domain.Resource{"10": old}}}
 	if _, err := seed.Pull(context.Background(), PullOpts{ID: "10", Into: root}); err != nil {
 		t.Fatal(err)
 	}
@@ -415,7 +417,7 @@ func TestIncrementalPullRejectsUnappliedMarkdownBeforeRemoteReads(t *testing.T) 
 		pullStore:   &pullStore{pages: map[string]*domain.Resource{"10": newPage}},
 		searchPages: map[string]domain.PageSearchPage{"": {Results: []domain.PageRef{hit}, Complete: true}},
 	}
-	_, err = (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T11:00:00Z"})
+	_, err = (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T11:00:00Z"})
 	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "unapplied Markdown") || store.getCalls != 0 {
 		t.Fatalf("err=%v getCalls=%d", err, store.getCalls)
 	}
@@ -428,7 +430,7 @@ func TestIncrementalPullMigratesByteCleanLegacyMarkdownView(t *testing.T) {
 			oldPage, _ := incrementalPage("10", 1, "2026-07-13T10:00:00Z")
 			oldPage.Body = []byte("<p>```literal<br/>tail</p><table><tbody><tr><td>data</td></tr><tr><th>late</th></tr></tbody></table>")
 			store := &incrementalPullStore{pullStore: &pullStore{pages: map[string]*domain.Resource{"10": oldPage}}}
-			svc := &ConfluenceService{store: store}
+			svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store}
 			first, err := svc.Pull(context.Background(), PullOpts{ID: "10", Into: root})
 			if err != nil {
 				t.Fatal(err)
@@ -475,7 +477,7 @@ func TestIncrementalPullRefusesEditedLegacyMarkdownBeforeBodyRead(t *testing.T) 
 			root := t.TempDir()
 			oldPage, _ := incrementalPage("10", 1, "2026-07-13T10:00:00Z")
 			store := &incrementalPullStore{pullStore: &pullStore{pages: map[string]*domain.Resource{"10": oldPage}}}
-			svc := &ConfluenceService{store: store}
+			svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store}
 			first, err := svc.Pull(context.Background(), PullOpts{ID: "10", Into: root})
 			if err != nil {
 				t.Fatal(err)
@@ -554,7 +556,7 @@ func TestIncrementalPullInterruptedRunKeepsOldBoundaryAndResumes(t *testing.T) {
 		pullStore:   &pullStore{pages: map[string]*domain.Resource{"10": p1, "20": p2}, getErrs: map[string]error{"20": domain.ErrForbidden}},
 		searchPages: map[string]domain.PageSearchPage{"": {Results: []domain.PageRef{h1, h2}, Complete: true}},
 	}
-	svc := &ConfluenceService{store: store}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store}
 	opts := PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T11:00:00Z"}
 	if _, err := svc.Pull(context.Background(), opts); !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("err=%v", err)
@@ -579,7 +581,7 @@ func TestIncrementalPullExplicitCapFailsClosed(t *testing.T) {
 	_, h1 := incrementalPage("10", 1, "2026-07-13T12:00:00Z")
 	_, h2 := incrementalPage("20", 1, "2026-07-13T12:01:00Z")
 	store := &incrementalPullStore{pullStore: &pullStore{}, searchPages: map[string]domain.PageSearchPage{"": {Results: []domain.PageRef{h1, h2}, Complete: true}}}
-	_, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T11:00:00Z", MaxPages: 1})
+	_, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T11:00:00Z", MaxPages: 1})
 	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "--max-pages=1") {
 		t.Fatalf("err=%v", err)
 	}

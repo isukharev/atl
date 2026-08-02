@@ -46,7 +46,7 @@ func TestConfluenceReconcileClassifiesAndStagesWithoutChangingWorkingBody(t *tes
 				remoteVersion = 4
 			}
 			store := &reconcileDocStore{page: &domain.Resource{ID: "123", Type: "page", Version: remoteVersion, Body: []byte(tc.theirs), BodyPresent: true}}
-			svc := &ConfluenceService{store: store}
+			svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store}
 			result, err := svc.PreviewConfluenceReconcile(context.Background(), path, root)
 			if err != nil {
 				t.Fatal(err)
@@ -76,7 +76,7 @@ func TestConfluenceReconcileRejectsLocalIntegrityBeforeRemoteRead(t *testing.T) 
 		t.Fatal(err)
 	}
 	store := &reconcileDocStore{page: &domain.Resource{ID: "123", Type: "page", Version: 3, Body: []byte("<p>x</p>"), BodyPresent: true}}
-	_, err := (&ConfluenceService{store: store}).PreviewConfluenceReconcile(context.Background(), path, root)
+	_, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).PreviewConfluenceReconcile(context.Background(), path, root)
 	if err == nil || store.calls != 0 {
 		t.Fatalf("err=%v calls=%d", err, store.calls)
 	}
@@ -88,7 +88,7 @@ func TestConfluenceReconcileBoundsLocalBlocksBeforeRemoteRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := &reconcileDocStore{page: &domain.Resource{ID: "123", Type: "page", Version: 3, Body: []byte("<p>x</p>"), BodyPresent: true}}
-	_, err := (&ConfluenceService{store: store}).PreviewConfluenceReconcile(context.Background(), path, root)
+	_, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).PreviewConfluenceReconcile(context.Background(), path, root)
 	if err == nil || store.calls != 0 {
 		t.Fatalf("err=%v calls=%d", err, store.calls)
 	}

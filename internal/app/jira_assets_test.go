@@ -142,7 +142,7 @@ func TestJiraPullAssetsDownloadsOnlyImages(t *testing.T) {
 			"/secure/att/10003": []byte("JPGBYTES"),
 		},
 	}
-	svc := &JiraService{tr: tr}
+	svc := &JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL}
 	res, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: into, Limit: 1, Assets: true})
 	if err != nil {
 		t.Fatalf("pull: %v", err)
@@ -185,7 +185,7 @@ func TestJiraPullAssetsSkipsEmptyAndOctetStream(t *testing.T) {
 		att("2", "blob.png", "application/octet-stream", "/c/2"),
 	)
 	tr := &assetPullTracker{t: t, issues: []domain.Issue{iss}, blobs: map[string][]byte{"/c/1": []byte("x"), "/c/2": []byte("y")}}
-	svc := &JiraService{tr: tr}
+	svc := &JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL}
 	res, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: into, Limit: 1, Assets: true})
 	if err != nil {
 		t.Fatalf("pull: %v", err)
@@ -211,7 +211,7 @@ func TestJiraPullAssetsDuplicateFilenames(t *testing.T) {
 		att("200", "screen.png", "image/png", "/c/200"),
 	)
 	tr := &assetPullTracker{t: t, issues: []domain.Issue{iss}, blobs: map[string][]byte{"/c/100": []byte("first"), "/c/200": []byte("second")}}
-	svc := &JiraService{tr: tr}
+	svc := &JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL}
 	res, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: into, Limit: 1, Assets: true})
 	if err != nil {
 		t.Fatalf("pull: %v", err)
@@ -241,7 +241,7 @@ func TestJiraPullAssetsUnsafeNamesCannotEscape(t *testing.T) {
 		att("../../evil-id", "ok.png", "image/png", "/c/11"),
 	)
 	tr := &assetPullTracker{t: t, issues: []domain.Issue{iss}, blobs: map[string][]byte{"/c/10": []byte("evil"), "/c/11": []byte("ok")}}
-	svc := &JiraService{tr: tr}
+	svc := &JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL}
 	res, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: into, Limit: 1, Assets: true})
 	if err != nil {
 		t.Fatalf("pull: %v", err)
@@ -277,7 +277,7 @@ func TestJiraPullAssetsBestEffortOnStreamError(t *testing.T) {
 		blobs:   map[string][]byte{"/c/1": []byte("good"), "/c/2": []byte("bad")},
 		failURL: map[string]bool{"/c/2": true},
 	}
-	svc := &JiraService{tr: tr}
+	svc := &JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL}
 	res, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: into, Limit: 1, Assets: true})
 	if err != nil {
 		t.Fatalf("a failing image must not abort the pull, got err=%v", err)
@@ -306,7 +306,7 @@ func TestJiraPullAssetsMarkdownPlacementBetweenDescriptionAndLinks(t *testing.T)
 	iss.Links = []domain.IssueLink{{Type: "blocks", Key: "PROJ-9"}}
 	iss.Comments = []domain.Comment{{Author: "bob", Created: "2026-01-01", Body: "hi"}}
 	tr := &assetPullTracker{t: t, issues: []domain.Issue{iss}, blobs: map[string][]byte{"/c/7": []byte("img")}}
-	svc := &JiraService{tr: tr}
+	svc := &JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL}
 	if _, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: into, Limit: 1, Assets: true}); err != nil {
 		t.Fatalf("pull: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestJiraPullAssetsJSONSnapshotUnchanged(t *testing.T) {
 		att("2", "b.pdf", "application/pdf", "/c/2"),
 	)
 	tr := &assetPullTracker{t: t, issues: []domain.Issue{iss}, blobs: map[string][]byte{"/c/1": []byte("a"), "/c/2": []byte("b")}}
-	svc := &JiraService{tr: tr}
+	svc := &JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL}
 	if _, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: into, Limit: 1, Assets: true}); err != nil {
 		t.Fatalf("pull: %v", err)
 	}
@@ -360,7 +360,7 @@ func TestJiraPullWithoutAssetsSkipsImages(t *testing.T) {
 	into := t.TempDir()
 	iss := issueWithAttachments("PROJ-8", "PROJ", att("1", "a.png", "image/png", "/c/1"))
 	tr := &assetPullTracker{t: t, issues: []domain.Issue{iss}, blobs: map[string][]byte{"/c/1": []byte("a")}}
-	svc := &JiraService{tr: tr}
+	svc := &JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL}
 	res, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: into, Limit: 1})
 	if err != nil {
 		t.Fatalf("pull: %v", err)
@@ -383,7 +383,7 @@ func TestJiraPullAssetsMarkdownSignificantFilename(t *testing.T) {
 		att("42", "shot (v1) [final].png", "image/png", "/c/42"),
 	)
 	tr := &assetPullTracker{t: t, issues: []domain.Issue{iss}, blobs: map[string][]byte{"/c/42": []byte("img")}}
-	svc := &JiraService{tr: tr}
+	svc := &JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL}
 	res, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: into, Limit: 1, Assets: true})
 	if err != nil {
 		t.Fatalf("pull: %v", err)

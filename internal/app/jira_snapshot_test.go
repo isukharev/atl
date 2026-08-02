@@ -72,7 +72,7 @@ func TestJiraMirrorSnapshotCoordinatesWithoutCreatingMutationLock(t *testing.T) 
 	}
 	defer func() { _ = lock.Unlock() }()
 	tracker.getCalls = 0
-	got, err = (&JiraService{tr: tracker}).SnapshotMirror(context.Background(), root, true)
+	got, err = (&JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}).SnapshotMirror(context.Background(), root, true)
 	if !errors.Is(err, domain.ErrCheckFailed) || got != nil || tracker.getCalls != 0 {
 		t.Fatalf("busy snapshot=%+v calls=%d err=%v", got, tracker.getCalls, err)
 	}
@@ -332,7 +332,7 @@ func TestJiraMirrorRemoteSnapshotHoldsMutationLockThroughProbe(t *testing.T) {
 			}
 		},
 	}
-	got, err := (&JiraService{tr: tracker}).SnapshotMirror(context.Background(), root, true)
+	got, err := (&JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}).SnapshotMirror(context.Background(), root, true)
 	if err != nil || got == nil || !got.Complete || !mutationBlocked {
 		t.Fatalf("snapshot=%+v mutation_blocked=%t err=%v", got, mutationBlocked, err)
 	}
@@ -361,7 +361,7 @@ func TestJiraMirrorRemoteSnapshotDiscardsLegacyRaceWithoutRetry(t *testing.T) {
 			_ = lock.Unlock()
 		},
 	}
-	got, err := (&JiraService{tr: tracker}).SnapshotMirror(context.Background(), root, true)
+	got, err := (&JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}).SnapshotMirror(context.Background(), root, true)
 	if !errors.Is(err, domain.ErrCheckFailed) || got != nil || tracker.calls != 1 {
 		t.Fatalf("snapshot=%+v calls=%d err=%v", got, tracker.calls, err)
 	}
@@ -375,7 +375,7 @@ func TestJiraMirrorRemoteSnapshotDiscardsLegacyRaceWithoutRetry(t *testing.T) {
 func TestJiraMirrorRemoteSnapshotRejectsMismatchedIssueIdentity(t *testing.T) {
 	_, _, root, _ := setupPulled(t, "base")
 	tracker := &jiraSnapshotTracker{body: "base", key: "OTHER-9"}
-	result, err := (&JiraService{tr: tracker}).SnapshotMirror(context.Background(), root, true)
+	result, err := (&JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}).SnapshotMirror(context.Background(), root, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -403,7 +403,7 @@ func TestJiraMirrorRemoteSnapshotUsesOneSingleAttemptProbe(t *testing.T) {
 				}
 			}
 			tracker := &jiraSnapshotTracker{body: test.remoteBody}
-			result, err := (&JiraService{tr: tracker}).SnapshotMirror(context.Background(), root, true)
+			result, err := (&JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}).SnapshotMirror(context.Background(), root, true)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -421,7 +421,7 @@ func TestJiraMirrorRemoteSnapshotStopsAtFailedLocalPreflight(t *testing.T) {
 		t.Fatal(err)
 	}
 	tracker := &jiraSnapshotTracker{body: "base"}
-	result, snapshotErr := (&JiraService{tr: tracker}).SnapshotMirror(context.Background(), root, true)
+	result, snapshotErr := (&JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}).SnapshotMirror(context.Background(), root, true)
 	if !errors.Is(snapshotErr, domain.ErrCheckFailed) || tracker.calls != 0 || result.Remote.Attempted != 0 || !result.Remote.Requested {
 		t.Fatalf("calls=%d err=%v snapshot=%+v", tracker.calls, snapshotErr, result)
 	}

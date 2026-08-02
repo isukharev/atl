@@ -90,6 +90,11 @@ func (s *ConfluenceService) copyPageAndRegister(ctx context.Context, srcID, newT
 	if src.ID != srcID || src.Type != "page" || strings.TrimSpace(src.SpaceKey) == "" || !src.AncestorsPresent {
 		return nil, nil, fmt.Errorf("%w: copy source response did not prove exact page identity, space, and ancestry", domain.ErrCheckFailed)
 	}
+	if node, parseErr := csf.Parse(src.Body); parseErr == nil && rs.ExpandJiraMacros {
+		if _, err := s.prepareConfluenceJiraMacroPopulation(m.Root, len(mirror.JiraMacroDescriptors(node)) > 0, false); err != nil {
+			return nil, nil, err
+		}
+	}
 	if space == "" {
 		space = src.SpaceKey
 	}
@@ -112,6 +117,11 @@ func (s *ConfluenceService) createAndRegisterConfluence(ctx context.Context, spa
 		return nil, nil, err
 	}
 	defer func() { _ = release() }()
+	if node, parseErr := csf.Parse(body); parseErr == nil && rs.ExpandJiraMacros {
+		if _, err := s.prepareConfluenceJiraMacroPopulation(m.Root, len(mirror.JiraMacroDescriptors(node)) > 0, false); err != nil {
+			return nil, nil, err
+		}
+	}
 	created, err := s.store.CreatePage(domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(ctx)), space, parent, title, body)
 	if err != nil {
 		return nil, nil, classifyCreateWriteError("page "+operation, err)
@@ -141,6 +151,10 @@ func (s *ConfluenceService) prepareConfluenceRegistration(root string) (*Created
 		_ = lock.Unlock()
 		return nil, nil, RenderSettings{}, nil, err
 	}
+	if err := prepareMirrorBackendPopulation(root, "confluence", s.baseURL, ".csf", false); err != nil {
+		_ = lock.Unlock()
+		return nil, nil, RenderSettings{}, nil, err
+	}
 	return registration, m, rs, lock.Unlock, nil
 }
 
@@ -165,9 +179,18 @@ func (s *ConfluenceService) finishConfluenceRegistration(ctx context.Context, m 
 		refs = fragment.Resolve(ctx, readback, refs, fragment.Deps{Users: s.users})
 		mdOpts := confMDViewOptsForCommentsView(rs, readback, confluenceCommentsView{})
 		if rs.ExpandJiraMacros {
-			var macroWarnings []string
-			macroSidecar, macroWarnings = s.resolveConfluenceJiraMacros(ctx, readback.ID, node, "")
-			registration.Warnings = append(registration.Warnings, macroWarnings...)
+			hasJiraMacros := len(mirror.JiraMacroDescriptors(node)) > 0
+			jiraReady, bindErr := s.prepareConfluenceJiraMacroPopulation(m.Root, hasJiraMacros, false)
+			switch {
+			case bindErr != nil:
+				registration.Warnings = append(registration.Warnings, "render: Jira query macro(s) kept as placeholders because the mirror backend binding was not qualified")
+			case hasJiraMacros && !jiraReady:
+				registration.Warnings = append(registration.Warnings, "render: Jira query macro(s) kept as placeholders because qualified Jira read access is unavailable")
+			default:
+				var macroWarnings []string
+				macroSidecar, macroWarnings = s.resolveConfluenceJiraMacros(ctx, readback.ID, node, "")
+				registration.Warnings = append(registration.Warnings, macroWarnings...)
+			}
 			mdOpts.JiraMacros = confluenceJiraMacroViews(macroSidecar)
 		}
 		md = mirror.RenderMarkdownOpts(node, refs, mdOpts)
@@ -260,6 +283,9 @@ func (s *JiraService) createAndRegister(ctx context.Context, project, issueType,
 	}
 	defer func() { _ = lock.Unlock() }()
 	if _, err := m.SyncStates(); err != nil {
+		return nil, nil, err
+	}
+	if err := prepareMirrorBackendPopulation(root, "jira", s.baseURL, wikiExt, false); err != nil {
 		return nil, nil, err
 	}
 	rs, err = s.resolveRenderFieldSelectors(ctx, rs)

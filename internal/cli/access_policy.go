@@ -94,6 +94,7 @@ jira push
 jira reconcile stage
 jira sprint add
 jira sprint remove
+mirror backend bind
 profile apply
 profile revalidate
 profile suggest
@@ -251,6 +252,8 @@ jira user get
 jira user search
 manifest create
 mcp serve
+mirror backend bind
+mirror backend status
 profile apply
 profile guidance
 profile preview

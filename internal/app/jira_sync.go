@@ -62,6 +62,11 @@ func (s *JiraService) Status(ctx context.Context, dir string, checkRemote bool) 
 	for _, pending := range pendings {
 		pendingByKey[pending.Key] = pending
 	}
+	if checkRemote {
+		if err := requireMirrorBackend(dir, "jira", s.baseURL); err != nil {
+			return nil, err
+		}
+	}
 	out := make([]JiraStatusEntry, 0, len(locals))
 	seenPending := make(map[string]bool, len(pendingByKey))
 	for _, lw := range locals {
@@ -186,6 +191,11 @@ func (s *JiraService) Push(ctx context.Context, target string, o JiraPushOpts) (
 	if err != nil {
 		return nil, err
 	}
+	if len(files) == 0 {
+		if err := requireMirrorBackend(root, "jira", s.baseURL); err != nil {
+			return nil, err
+		}
+	}
 	// Refresh-after-push rewrites the .md view; resolve the mirror's effective
 	// render settings (no per-run override on push) so a `full`-profile mirror
 	// keeps its rich view after a push instead of silently reverting to default.
@@ -290,6 +300,9 @@ func (s *JiraService) jiraPushOne(ctx context.Context, m *mirror.Mirror, path st
 		return item, fmt.Errorf("%w: %s was not pulled through the mirror (no sidecar/base entry); run `jira pull` first", domain.ErrUsage, path)
 	}
 	if err := validatePendingMirrorBinding(m.Root, pending, lw, body); err != nil {
+		return item, err
+	}
+	if err := requireMirrorBackend(m.Root, "jira", s.baseURL); err != nil {
 		return item, err
 	}
 	// Nothing to push if unchanged and not forced: writing an identical body would

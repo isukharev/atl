@@ -40,7 +40,7 @@ func TestJiraPullPreservesDirtyNativeAndContinuesCleanSiblings(t *testing.T) {
 	root := t.TempDir()
 	issues := []domain.Issue{pullLocalIssue("PROJ-1", "remote one"), pullLocalIssue("PROJ-2", "remote two")}
 	tracker := &assetPullTracker{t: t, issues: issues}
-	svc := &JiraService{tr: tracker}
+	svc := &JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}
 	if _, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: root}); err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestJiraPullPreservesDirtyNativeAndContinuesCleanSiblings(t *testing.T) {
 func TestJiraPullStashesDirtyNativeBeforeOverwrite(t *testing.T) {
 	root := t.TempDir()
 	tracker := &assetPullTracker{t: t, issues: []domain.Issue{pullLocalIssue("PROJ-1", "remote")}}
-	svc := &JiraService{tr: tracker}
+	svc := &JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}
 	if _, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "key=PROJ-1", Into: root}); err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestJiraPullDryRunWritesNothing(t *testing.T) {
 	parent := t.TempDir()
 	root := filepath.Join(parent, "absent")
 	tracker := &assetPullTracker{t: t, issues: []domain.Issue{pullLocalIssue("PROJ-1", "remote")}}
-	result, err := (&JiraService{tr: tracker}).Pull(context.Background(), JiraPullOpts{JQL: "key=PROJ-1", Into: root, DryRun: true})
+	result, err := (&JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}).Pull(context.Background(), JiraPullOpts{JQL: "key=PROJ-1", Into: root, DryRun: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestJiraPullDryRunWritesNothing(t *testing.T) {
 func TestJiraPullPreservesEditedDerivedViewEvenWithNativeOverride(t *testing.T) {
 	root := t.TempDir()
 	tracker := &assetPullTracker{t: t, issues: []domain.Issue{pullLocalIssue("PROJ-1", "remote")}}
-	svc := &JiraService{tr: tracker}
+	svc := &JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}
 	if _, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "key=PROJ-1", Into: root}); err != nil {
 		t.Fatal(err)
 	}
@@ -161,10 +161,17 @@ func TestJiraPullDryRunDoesNotRecoverPendingTransaction(t *testing.T) {
 	if err := stageJiraPendingTransaction(root, pending); err != nil {
 		t.Fatal(err)
 	}
+	binding, err := backendBinding("jira", jiraMirrorTestBackendURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mirror.New(root).BindBackend(binding); err != nil {
+		t.Fatal(err)
+	}
 	txnPath := jiraPendingFieldsTxnPath(root, "PROJ-1")
 	txnBefore := mustReadBytes(t, txnPath)
 	tracker := &assetPullTracker{t: t, issues: []domain.Issue{pullLocalIssue("PROJ-1", "remote")}}
-	_, err := (&JiraService{tr: tracker}).Pull(context.Background(), JiraPullOpts{JQL: "key=PROJ-1", Into: root, DryRun: true})
+	_, err = (&JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}).Pull(context.Background(), JiraPullOpts{JQL: "key=PROJ-1", Into: root, DryRun: true})
 	if !errors.Is(err, domain.ErrCheckFailed) {
 		t.Fatalf("error=%v", err)
 	}
@@ -183,7 +190,7 @@ func TestJiraPullRevalidatesDerivedViewAfterAssetFetch(t *testing.T) {
 	root := t.TempDir()
 	issue := pullLocalIssue("PROJ-1", "remote")
 	tracker := &assetPullTracker{t: t, issues: []domain.Issue{issue}}
-	svc := &JiraService{tr: tracker}
+	svc := &JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}
 	if _, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "key=PROJ-1", Into: root}); err != nil {
 		t.Fatal(err)
 	}

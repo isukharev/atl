@@ -45,7 +45,7 @@ func TestPullCommentsFlagOffNoCallNoFiles(t *testing.T) {
 	}, comments: map[string][]domain.Comment{
 		"100": {{ID: "c1", Author: "Alice", Created: "2026-01-01", Body: "hi"}},
 	}}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 	res, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into})
 	if err != nil {
 		t.Fatalf("pull: %v", err)
@@ -82,7 +82,7 @@ func TestPullCommentsMirrorsSidecars(t *testing.T) {
 	}
 
 	into := t.TempDir()
-	svc := &ConfluenceService{store: newStore()}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: newStore()}
 	res, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into, Comments: true})
 	if err != nil {
 		t.Fatalf("pull --comments: %v", err)
@@ -135,7 +135,7 @@ func TestPullCommentsMirrorsSidecars(t *testing.T) {
 
 	// .csf is byte-identical to a pull without --comments (comments never touch it).
 	plainInto := t.TempDir()
-	plainSvc := &ConfluenceService{store: newStore()}
+	plainSvc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: newStore()}
 	plainRes, err := plainSvc.Pull(context.Background(), PullOpts{ID: "100", Into: plainInto})
 	if err != nil {
 		t.Fatalf("plain pull: %v", err)
@@ -193,7 +193,7 @@ func TestPullCommentsPersistsQualifiedV2WithoutSecondPageRead(t *testing.T) {
 			BodyStorage: "<p>footer</p>", CreatedAt: "2026-01-02",
 		}),
 	}
-	svc := &ConfluenceService{store: store}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store}
 	result, err := svc.Pull(context.Background(), PullOpts{
 		ID: "100", Into: t.TempDir(), Comments: true, Render: config.RenderService{Profile: "full"},
 	})
@@ -318,7 +318,7 @@ func TestPullCommentsMigratesPristineFlatV4ToQualifiedV6(t *testing.T) {
 		Version: 1, AuthorDisplayName: "Reviewer", CreatedAt: "2026-01-01", BodyStorage: "<p>done</p>",
 	})}
 	root := t.TempDir()
-	svc := &ConfluenceService{store: store}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store}
 	first, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: root, Comments: true, Render: config.RenderService{Profile: "full"}})
 	if err != nil {
 		t.Fatal(err)
@@ -387,7 +387,7 @@ func TestPullCommentsMigratesPristineQualifiedV5ToV6(t *testing.T) {
 		BodyStorage: "<ac:structured-macro ac:name=\"code\"><ac:plain-text-body><![CDATA[before\n```\nafter]]></ac:plain-text-body></ac:structured-macro>",
 	})}
 	root := t.TempDir()
-	svc := &ConfluenceService{store: store}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store}
 	first, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: root, Comments: true, Render: config.RenderService{Profile: "full"}})
 	if err != nil {
 		t.Fatal(err)
@@ -438,7 +438,7 @@ func TestPullCommentsMigratesLegacySidecarToV2(t *testing.T) {
 		ID: rootID, PageID: "100", RootID: &rootID, Relation: domain.ConfluenceCommentRelationRoot,
 		Location: domain.ConfluenceCommentLocationFooter, Resolution: domain.ConfluenceCommentResolutionUnknown, Version: 1,
 	})}
-	first, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{ID: "100", Into: into})
+	first, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{ID: "100", Into: into})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -447,7 +447,7 @@ func TestPullCommentsMigratesLegacySidecarToV2(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, slug+".comments.json"), legacy, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{ID: "100", Into: into, Comments: true}); err != nil {
+	if _, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{ID: "100", Into: into, Comments: true}); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(filepath.Join(dir, slug+".comments.json"))
@@ -476,7 +476,7 @@ func TestPullCommentsTruncationSurfaced(t *testing.T) {
 	}, comments: map[string][]domain.Comment{
 		"100": {{ID: "c1", Author: "Alice", Created: "t", Body: "hi"}},
 	}, commentsTruncated: map[string]bool{"100": true}}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 	res, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into, Comments: true})
 	if err != nil {
 		t.Fatalf("pull: %v", err)
@@ -499,7 +499,7 @@ func TestPullCommentsFetchErrorAborts(t *testing.T) {
 	st := &pullStore{pages: map[string]*domain.Resource{
 		"100": {ID: "100", Title: "Alpha", SpaceKey: "SP", Version: 2, Body: []byte("<p>alpha</p>")},
 	}, commentsErr: domain.ErrForbidden}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 	if _, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into, Comments: true}); err == nil {
 		t.Fatalf("expected the pull to fail when comment fetch fails")
 	}
@@ -514,7 +514,7 @@ func TestPullCommentsZeroCommentsStillMarked(t *testing.T) {
 	st := &pullStore{pages: map[string]*domain.Resource{
 		"100": {ID: "100", Title: "Alpha", SpaceKey: "SP", Version: 2, Body: []byte("<p>alpha</p>")},
 	}}
-	svc := &ConfluenceService{store: st}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
 	res, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: into, Comments: true})
 	if err != nil {
 		t.Fatalf("pull: %v", err)

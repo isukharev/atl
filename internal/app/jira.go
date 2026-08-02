@@ -565,6 +565,13 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 	limit := opts.Limit
 	res := &JiraPullResult{Into: into, Issues: []JiraPulled{}}
 	cursor := ""
+	// Bind a service-fresh mirror before any field discovery or search request.
+	// Dry-runs perform the same qualification without creating the root or
+	// binding file. Existing Jira evidence must be migrated through the explicit
+	// reviewed bind workflow; pull never guesses its origin.
+	if err := prepareMirrorBackendPopulation(into, "jira", s.baseURL, wikiExt, opts.DryRun); err != nil {
+		return res, err
+	}
 	// Resolve the effective render settings for THIS mirror (local config lives
 	// under the pull root) so the API field projection covers every enabled
 	// section — `full` never needs a second fetch per issue. The projection only

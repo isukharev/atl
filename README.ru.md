@@ -224,6 +224,27 @@ content-free `local_safety` и завершается с кодом `8`. Для 
 `--stash-local` либо явно отбросьте их через `--overwrite-local`. Эти флаги не
 обходят правки Markdown и нарушения baseline.
 
+Каждое долговременное зеркало также привязано к настроенному backend через
+content-minimized digest. Первый pull в пустой для сервиса root и явно
+зарегистрированный create создают такую привязку автоматически. Legacy-root,
+в котором уже есть данные сервиса, привязывайте только после явной проверки:
+
+```sh
+atl mirror backend status "$ATL_MIRROR_ROOT"
+env -u ATL_READ_ONLY atl mirror backend bind "$ATL_MIRROR_ROOT" --service confluence
+env -u ATL_READ_ONLY atl mirror backend bind "$ATL_MIRROR_ROOT" --service confluence \
+  --apply --expected-backend-sha256 '<точный backend_sha256 из preview>' \
+  --confirm BIND
+```
+
+Bind — локальный compare-and-set: он не обращается к backend и PAT и никогда не
+заменяет другую привязку. `ATL_READ_ONLY=1` блокирует весь leaf `bind`, включая
+preview. Remote status/snapshot/push/reconcile/plan для зеркала отклоняет
+отсутствующую или несовпадающую привязку до сетевого запроса; offline-операции
+зеркала остаются доступны. В приватном `.atl/backend-bindings.json` хранятся
+только tagged hashes, но не URL или hostnames. Сохраняемое раскрытие Jira-макросов
+при Confluence pull требует отдельной привязки Jira.
+
 По умолчанию create-команды создают объект только на backend. Регистрация в
 зеркале включается явно только парой `--register` и `--into`:
 

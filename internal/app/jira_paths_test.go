@@ -278,7 +278,7 @@ func TestJiraPullRejectsTraversalKey(t *testing.T) {
 	into := filepath.Join(root, "mirror")
 	s := &JiraService{tr: partialTracker{
 		issues: []domain.Issue{{Key: "../../../../tmp/atl-evil", Project: "PROJ"}},
-	}}
+	}, baseURL: jiraMirrorTestBackendURL}
 	res, err := s.Pull(context.Background(), JiraPullOpts{JQL: "project = PROJ", Into: into, Limit: 1})
 	if err != nil {
 		t.Logf("Pull returned %v (acceptable: rejected)", err)
@@ -306,7 +306,7 @@ func TestJiraPullRefusesEscapingProjectSymlink(t *testing.T) {
 	}
 	s := &JiraService{tr: partialTracker{issues: []domain.Issue{{
 		ID: "1", Key: "PROJ-1", Project: "PROJ", Summary: "issue", Body: "body",
-	}}}}
+	}}}, baseURL: jiraMirrorTestBackendURL}
 	if _, err := s.Pull(context.Background(), JiraPullOpts{JQL: "project = PROJ", Into: into, Limit: 1}); err == nil {
 		t.Fatal("pull followed an escaping project-directory symlink")
 	}
