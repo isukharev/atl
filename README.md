@@ -246,22 +246,35 @@ stored in the private `.atl/backend-bindings.json`, never URLs or hostnames.
 Persisted Jira macro expansion during a Confluence pull also requires its own
 Jira binding.
 
-Creation remains remote-only unless mirror registration is explicitly requested
-with both `--register` and `--into`:
+Page and issue creation remains remote-only unless mirror registration is
+explicitly requested with both `--register` and `--into`. Page copy is
+preview-first and uses the same optional registration intent:
 
 ```sh
 atl conf page create --space EXAMPLE --title "New page" --from-md body.md \
   --register --into "$ATL_MIRROR_ROOT"
 atl conf page copy --id 123456 --title "Copied page" \
   --register --into "$ATL_MIRROR_ROOT"
+atl conf page copy --id 123456 --title "Copied page" \
+  --register --into "$ATL_MIRROR_ROOT" --apply \
+  --expected-version 7 --expected-proposal-hash '<preview hash>'
 atl jira issue create --project EXAMPLE --type Task --summary "New task" \
   --register --into "$ATL_MIRROR_ROOT"
 ```
 
-Registration performs one authoritative post-write readback and records those
-remote bytes through the normal native/base/view mirror contract, with sync
-state committed last. If the remote create succeeds but local registration
-fails, stdout still identifies the new page or issue and the command exits `8`.
+The entire `conf page copy` leaf is mutating-classified, so
+`ATL_READ_ONLY=1` blocks its read-only preview as well as apply. Remove that
+policy only for an explicitly reviewed copy workflow, then restore it.
+
+The copy preview binds the backend, exact current source bytes/version and
+hierarchy, destination title/space/parent, and registration-root identity. Apply
+revalidates source and parent immediately before one non-replayed POST and
+requires an exact version-1 readback. Registration records that same readback;
+other registered creates likewise use one authoritative post-write readback and
+record those remote bytes through the normal native/base/view mirror contract,
+with sync state committed last. If the remote create succeeds but local
+registration fails, stdout still identifies the new page or issue and the
+command exits `8`.
 Never replay the create/copy; preserve local files and recover with a narrow
 `conf pull --id ... --into ...` or `jira pull --jql 'key = ...' --limit 1 --into ...`.
 

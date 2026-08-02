@@ -232,8 +232,12 @@ func TestConfPageCreateExplicitRegistrationUsesReadback(t *testing.T) {
 func TestConfPageCopyExplicitRegistrationUsesCreatedReadback(t *testing.T) {
 	cs := newConfServer(t)
 	source := strings.Replace(pageJSON("10", "Source", 3, "<p>source body</p>"), `"body":`, `"ancestors":[],"body":`, 1)
-	readback := strings.Replace(pageJSON("99", "Copied", 1, "<p>server normalized copy</p>"), `"body":`, `"ancestors":[],"body":`, 1)
+	readback := strings.Replace(pageJSON("99", "Copied", 1, "<p>source body</p>"), `"body":`, `"ancestors":[],"body":`, 1)
+	source = strings.Replace(source, `"title":`, `"status":"current","title":`, 1)
+	readback = strings.Replace(readback, `"title":`, `"status":"current","title":`, 1)
 	cs.gets = []cannedResp{
+		{status: http.StatusOK, body: source},
+		{status: http.StatusOK, body: source},
 		{status: http.StatusOK, body: source},
 		{status: http.StatusOK, body: readback},
 	}
@@ -241,6 +245,15 @@ func TestConfPageCopyExplicitRegistrationUsesCreatedReadback(t *testing.T) {
 	into := filepath.Join(t.TempDir(), "mirror")
 
 	out, code := runCLI(t, confEnv(cs.srv), "conf", "page", "copy", "--id", "10", "--title", "Copied", "--register", "--into", into)
+	if code != exitOK {
+		t.Fatalf("preview copy exit=%d stdout=%s", code, out)
+	}
+	var preview app.ConfluencePageCopyResult
+	if err := json.Unmarshal([]byte(out), &preview); err != nil || preview.ProposalHash == "" || preview.Status != "would_apply" {
+		t.Fatalf("preview=%+v err=%v output=%s", preview, err, out)
+	}
+	out, code = runCLI(t, confEnv(cs.srv), "conf", "page", "copy", "--id", "10", "--title", "Copied", "--register", "--into", into,
+		"--apply", "--expected-version", "3", "--expected-proposal-hash", preview.ProposalHash)
 	if code != exitOK {
 		t.Fatalf("registered copy exit=%d stdout=%s", code, out)
 	}
@@ -252,7 +265,7 @@ func TestConfPageCopyExplicitRegistrationUsesCreatedReadback(t *testing.T) {
 		t.Fatalf("result=%+v err=%v output=%s", result, err, out)
 	}
 	native, err := os.ReadFile(filepath.Join(into, filepath.FromSlash(result.Registration.Path)))
-	if err != nil || string(native) != "<p>server normalized copy</p>" {
+	if err != nil || string(native) != "<p>source body</p>" {
 		t.Fatalf("native=%q err=%v", native, err)
 	}
 
@@ -271,7 +284,7 @@ func TestConfPageCopyExplicitRegistrationUsesCreatedReadback(t *testing.T) {
 			readbackGets++
 		}
 	}
-	if sourceGets != 1 || posts != 1 || readbackGets != 1 {
+	if sourceGets != 3 || posts != 1 || readbackGets != 1 {
 		t.Fatalf("requests source GET=%d POST=%d readback GET=%d: %+v", sourceGets, posts, readbackGets, requests)
 	}
 }
@@ -280,14 +293,27 @@ func TestConfPageCopyRegistrationFailureEmitsKnownCreatedIDEvidence(t *testing.T
 	cs := newConfServer(t)
 	source := strings.Replace(pageJSON("10", "Source", 3, "<p>source body</p>"), `"body":`, `"ancestors":[],"body":`, 1)
 	wrongReadback := strings.Replace(pageJSON("other", "Copied", 1, "<p>wrong object</p>"), `"body":`, `"ancestors":[],"body":`, 1)
+	source = strings.Replace(source, `"title":`, `"status":"current","title":`, 1)
+	wrongReadback = strings.Replace(wrongReadback, `"title":`, `"status":"current","title":`, 1)
 	cs.gets = []cannedResp{
+		{status: http.StatusOK, body: source},
+		{status: http.StatusOK, body: source},
 		{status: http.StatusOK, body: source},
 		{status: http.StatusOK, body: wrongReadback},
 	}
 	cs.writes = []cannedResp{{status: http.StatusCreated, body: `{"id":"99"}`}}
 	into := filepath.Join(t.TempDir(), "mirror")
 
-	out, code := runCLI(t, confEnv(cs.srv), "-o", "id", "conf", "page", "copy", "--id", "10", "--title", "Copied", "--register", "--into", into)
+	previewOut, previewCode := runCLI(t, confEnv(cs.srv), "conf", "page", "copy", "--id", "10", "--title", "Copied", "--register", "--into", into)
+	if previewCode != exitOK {
+		t.Fatalf("preview exit=%d output=%s", previewCode, previewOut)
+	}
+	var preview app.ConfluencePageCopyResult
+	if err := json.Unmarshal([]byte(previewOut), &preview); err != nil {
+		t.Fatal(err)
+	}
+	out, code := runCLI(t, confEnv(cs.srv), "-o", "id", "conf", "page", "copy", "--id", "10", "--title", "Copied", "--register", "--into", into,
+		"--apply", "--expected-version", "3", "--expected-proposal-hash", preview.ProposalHash)
 	if code != exitCheckFailed || out != "99\n" {
 		t.Fatalf("exit=%d stdout=%q, want exit=%d stdout=%q", code, out, exitCheckFailed, "99\n")
 	}
@@ -302,7 +328,7 @@ func TestConfPageCopyRegistrationFailureEmitsKnownCreatedIDEvidence(t *testing.T
 			readbackGets++
 		}
 	}
-	if sourceGets != 1 || posts != 1 || readbackGets != 1 {
+	if sourceGets != 3 || posts != 1 || readbackGets != 1 {
 		t.Fatalf("requests source GET=%d POST=%d readback GET=%d: %+v", sourceGets, posts, readbackGets, cs.requests())
 	}
 	if states, err := mirror.New(into).SyncStates(); err != nil || len(states) != 0 {

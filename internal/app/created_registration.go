@@ -66,48 +66,6 @@ func (s *ConfluenceService) CreateAndRegister(ctx context.Context, space, parent
 	return s.createAndRegisterConfluence(ctx, space, parent, title, body, root, "create", runtime.GOOS)
 }
 
-func (s *ConfluenceService) CopyPageAndRegister(ctx context.Context, srcID, newTitle, space, parent, root string) (*domain.Resource, *CreatedMirrorRegistration, error) {
-	return s.copyPageAndRegister(ctx, srcID, newTitle, space, parent, root, runtime.GOOS)
-}
-
-func (s *ConfluenceService) copyPageAndRegister(ctx context.Context, srcID, newTitle, space, parent, root, goos string) (*domain.Resource, *CreatedMirrorRegistration, error) {
-	if err := validateCreatedRegistrationPlatform(goos); err != nil {
-		return nil, nil, err
-	}
-	registration, m, rs, release, err := s.prepareConfluenceRegistration(root)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer func() { _ = release() }()
-
-	src, err := s.store.GetPage(domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(ctx)), srcID, domain.PullOpts{Format: "csf"})
-	if err != nil {
-		return nil, nil, err
-	}
-	if err := requireConfluenceNativeBody(src, srcID, "copy"); err != nil {
-		return nil, nil, err
-	}
-	if src.ID != srcID || src.Type != "page" || strings.TrimSpace(src.SpaceKey) == "" || !src.AncestorsPresent {
-		return nil, nil, fmt.Errorf("%w: copy source response did not prove exact page identity, space, and ancestry", domain.ErrCheckFailed)
-	}
-	if node, parseErr := csf.Parse(src.Body); parseErr == nil && rs.ExpandJiraMacros {
-		if _, err := s.prepareConfluenceJiraMacroPopulation(m.Root, len(mirror.JiraMacroDescriptors(node)) > 0, false); err != nil {
-			return nil, nil, err
-		}
-	}
-	if space == "" {
-		space = src.SpaceKey
-	}
-	if parent == "" {
-		parent = src.Parent
-	}
-	created, err := s.store.CreatePage(domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(ctx)), space, parent, newTitle, src.Body)
-	if err != nil {
-		return nil, nil, classifyCreateWriteError("page copy", err)
-	}
-	return s.finishConfluenceRegistration(ctx, m, rs, registration, created, space, parent, newTitle)
-}
-
 func (s *ConfluenceService) createAndRegisterConfluence(ctx context.Context, space, parent, title string, body []byte, root, operation, goos string) (*domain.Resource, *CreatedMirrorRegistration, error) {
 	if err := validateCreatedRegistrationPlatform(goos); err != nil {
 		return nil, nil, err
@@ -171,6 +129,11 @@ func (s *ConfluenceService) finishConfluenceRegistration(ctx context.Context, m 
 	}
 	registration.ReadbackReconciled = true
 	created = readback
+	return s.registerConfluenceReadback(ctx, m, rs, registration, created)
+}
+
+func (s *ConfluenceService) registerConfluenceReadback(ctx context.Context, m *mirror.Mirror, rs RenderSettings, registration *CreatedMirrorRegistration, created *domain.Resource) (*domain.Resource, *CreatedMirrorRegistration, error) {
+	readback := created
 	refs := []domain.Ref{}
 	md := []byte(mirror.MDUnavailableStub)
 	var macroSidecar *confluenceJiraMacroSidecar

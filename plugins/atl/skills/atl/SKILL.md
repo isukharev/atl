@@ -308,13 +308,15 @@ review-bound `conf page move`; complete/guarded `conf page labels
 list|add|remove`; safe same-origin page-reference/short-link resolution and
 structural outline/bounded-section reads;
 dedicated native `conf blog create` with strict CSF/Markdown validation;
-explicit post-create `conf page create|copy --register --into <ROOT>` from one
-authoritative readback, with legacy remote-only behavior when omitted;
+explicit post-create `conf page create --register --into <ROOT>` and guarded
+preview/apply `conf page copy [--register --into <ROOT>]` from one authoritative
+readback;
 opt-in ordered `conf pull --page-prefetch` plus a shared
 `--requests-per-second` transport boundary for complete/incremental mirrors
 while every local write/checkpoint remains serial;
 `conf page list --space [--status]`, `conf page
-open --id`, `conf page copy --id --title [--space] [--parent]`, `conf attachment
+open --id`, guarded `conf page copy --id --title [--space] [--parent]
+[--register --into] [--apply --expected-version --expected-proposal-hash]`, `conf attachment
 {list,get,upload,delete}`, `conf me`, `conf search --space/--title/--label/--type`
 convenience filters (no `--cql` needed), `.md` view renders internal links as `[[Title]]`.
 

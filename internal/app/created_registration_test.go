@@ -229,21 +229,6 @@ func TestCreatedRegistrationRejectsUnsupportedPlatformBeforeRemoteAccessOrLocalS
 		assertRegistrationRootAbsent(t, root)
 	})
 
-	t.Run("Confluence copy", func(t *testing.T) {
-		root := filepath.Join(t.TempDir(), "mirror")
-		store := &copiedConfluenceStore{}
-		page, registration, err := (&ConfluenceService{store: store, baseURL: testConfluenceBackendURL}).copyPageAndRegister(
-			context.Background(), "10", "Copied", "", "", root, "windows",
-		)
-		if page != nil || registration != nil || !errors.Is(err, domain.ErrCheckFailed) {
-			t.Fatalf("page=%+v registration=%+v err=%v", page, registration, err)
-		}
-		if len(store.getIDs) != 0 || store.createCalls != 0 {
-			t.Fatalf("read ids=%v create calls=%d, want no remote access", store.getIDs, store.createCalls)
-		}
-		assertRegistrationRootAbsent(t, root)
-	})
-
 	t.Run("Jira create", func(t *testing.T) {
 		root := filepath.Join(t.TempDir(), "mirror")
 		tracker := &createdJiraTracker{}
@@ -348,70 +333,6 @@ func TestCreatedRegistrationRecoveryDoesNotInterpolateIdentifiersOrRoot(t *testi
 				}
 			}
 		}
-	}
-}
-
-type copiedConfluenceStore struct {
-	domain.DocStore
-	source        *domain.Resource
-	created       *domain.Resource
-	readback      *domain.Resource
-	getIDs        []string
-	createCalls   int
-	createdBody   []byte
-	createdSpace  string
-	createdParent string
-	createdTitle  string
-}
-
-func (s *copiedConfluenceStore) GetPage(_ context.Context, id string, _ domain.PullOpts) (*domain.Resource, error) {
-	s.getIDs = append(s.getIDs, id)
-	if id == s.source.ID {
-		return s.source, nil
-	}
-	return s.readback, nil
-}
-
-func (s *copiedConfluenceStore) CreatePage(_ context.Context, space, parent, title string, body []byte) (*domain.Resource, error) {
-	s.createCalls++
-	s.createdSpace = space
-	s.createdParent = parent
-	s.createdTitle = title
-	s.createdBody = append([]byte(nil), body...)
-	return s.created, nil
-}
-
-func TestConfluenceCopyRegistrationUsesAuthoritativeCreatedReadback(t *testing.T) {
-	root := t.TempDir()
-	store := &copiedConfluenceStore{
-		source: &domain.Resource{
-			ID: "10", Type: "page", Title: "Source", SpaceKey: "DOC", Version: 3,
-			Body: []byte("<p>source body</p>"), BodyPresent: true, AncestorsPresent: true,
-		},
-		created: &domain.Resource{ID: "42"},
-		readback: &domain.Resource{
-			ID: "42", Type: "page", Title: "Copied", SpaceKey: "DOC", Version: 1,
-			Body: []byte("<p>server normalized copy</p>"), BodyPresent: true,
-			AncestorsPresent: true,
-		},
-	}
-
-	page, registration, err := (&ConfluenceService{store: store, baseURL: testConfluenceBackendURL}).CopyPageAndRegister(context.Background(), "10", "Copied", "", "", root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if page != store.readback || registration == nil || registration.Status != "registered" || !registration.ReadbackReconciled {
-		t.Fatalf("page=%+v registration=%+v", page, registration)
-	}
-	if store.createCalls != 1 || !slices.Equal(store.getIDs, []string{"10", "42"}) {
-		t.Fatalf("create calls=%d get ids=%v", store.createCalls, store.getIDs)
-	}
-	if store.createdSpace != "DOC" || store.createdParent != "" || store.createdTitle != "Copied" || string(store.createdBody) != "<p>source body</p>" {
-		t.Fatalf("create space=%q parent=%q title=%q body=%q", store.createdSpace, store.createdParent, store.createdTitle, store.createdBody)
-	}
-	local, body, err := mirror.New(root).LoadCSF(filepath.Join(root, filepath.FromSlash(registration.Path)))
-	if err != nil || local.Synced == nil || local.Dirty || string(body) != "<p>server normalized copy</p>" {
-		t.Fatalf("local=%+v body=%q err=%v", local, body, err)
 	}
 }
 

@@ -144,26 +144,6 @@ func (s *ConfluenceService) Create(ctx context.Context, space, parent, title str
 	return s.store.CreatePage(ctx, space, parent, title, body)
 }
 
-// CopyPage fetches the source page's native CSF body and creates a new page
-// with the same body bytes under the target space/parent with a new title.
-// If space or parent are empty, the source page's values are used as defaults.
-func (s *ConfluenceService) CopyPage(ctx context.Context, srcID, newTitle, space, parent string) (*domain.Resource, error) {
-	src, err := s.store.GetPage(ctx, srcID, domain.PullOpts{Format: "csf"})
-	if err != nil {
-		return nil, err
-	}
-	if err := requireConfluenceNativeBody(src, srcID, "copy"); err != nil {
-		return nil, err
-	}
-	if space == "" {
-		space = src.SpaceKey
-	}
-	if parent == "" {
-		parent = src.Parent
-	}
-	return s.store.CreatePage(ctx, space, parent, newTitle, src.Body)
-}
-
 func requireConfluenceNativeBody(page *domain.Resource, id, operation string) error {
 	return requireConfluenceBodyProjection(page, id, operation, "body.storage.value", "native body")
 }

@@ -37,11 +37,11 @@ Shell completion for the three values is registered on the root flag.
 
 ### Explicit created-object registration
 
-`conf page create`, `conf page copy`, and `jira issue create` preserve their
-legacy output and remote-only behavior when `--register` and `--into` are
-omitted. The two flags must be supplied together. In default JSON mode, an
-explicit registration adds this object to the ordinary created page/issue
-result:
+`conf page create` and `jira issue create` preserve their remote-only behavior
+when `--register` and `--into` are omitted. `conf page copy` is independently
+preview-first; the two registration flags are part of its reviewed proposal and
+must also be supplied together. In default JSON mode, an explicit registration
+adds this object to the created page/issue result:
 
 ```json
 {
@@ -74,6 +74,29 @@ prints the identifier before that non-zero exit; Jira `-o text` still prints
 `created <KEY>`. This is not authorization to replay the non-idempotent create.
 Preserve local files and use the reported narrow `conf pull --id ... --into ...`
 or `jira pull --jql 'key = ...' --limit 1 --into ...` recovery.
+
+### Guarded Confluence page copy
+
+`conf page copy` emits schema version 1. Dry-run status is `would_apply` and
+contains no created `id`. Its content-minimized evidence includes
+`source_id`, `current_version`, source body/title/hierarchy hashes and byte count,
+target title/space/parent and complete hierarchy evidence, target-parent
+version/body/hierarchy evidence when applicable,
+`backend_sha256`, optional `registration_root_sha256`, and `proposal_hash`.
+`complete:true` means the exact current source and destination-parent
+projections were qualified; it does not mean a write occurred.
+
+Apply requires `--apply --expected-version --expected-proposal-hash`. After one
+POST, `write_attempted:true` always turns stdout failure into exit 8 with a
+no-replay instruction. Proven results are `applied` or `recovered`; both include
+the authoritative created `id`, `version:1`, and `reconciled:true`.
+`not_applied` is reserved for a definitive rejection. Missing IDs, ambiguous
+writes without a usable ID, and incomplete or mismatched readback use
+`outcome_unknown`, `complete:false`, exit 8, and must never trigger a retry or
+title search. A local registration failure uses `applied_not_registered`, keeps
+the known ID and registration recovery object, and exits 8. `-o id` is rejected
+for preview and prints the known created ID on apply, including a post-write
+failure path.
 
 ### Mirror backend binding
 

@@ -22,6 +22,7 @@ false.
 | Exit 8: legacy relocation view | The old path has an edited v5/v4, older historical, unversioned, or otherwise unsupported derived view that cannot safely migrate to current v6 | Preserve edits; render only a byte-clean supported legacy view, or update atl for a future marker, then re-pull |
 | Exit 8 on `create --from-md` | Block outside Markdown subset | Use validated CSF `--from-file` |
 | `unknown` guarded write | Verification could not prove outcome | Inspect/re-read; never auto-replay |
+| `outcome_unknown` page copy | The single create POST may have committed but its id/readback is not exact | Preserve any emitted id, never retry or search by title; use a narrow pull only when the id is known |
 | Search says query required | No CQL/filter | Supply CQL or `--space/--title/--label/--type` |
 
 For apply fragment loss, restore the opaque marker unless the user explicitly

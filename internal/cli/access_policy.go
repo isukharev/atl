@@ -108,7 +108,7 @@ R conf comment thread
 R conf diff
 M local-direct - conf edit
 R conf me
-M remote-direct - conf page copy
+M preview-apply apply,expected-proposal-hash,expected-version conf page copy
 M remote-direct - conf page create
 M preview-apply apply,confirm,expected-proposal-hash,expected-version conf page delete
 R conf page get
@@ -473,10 +473,13 @@ func validateMutationInvocation(cmd *cobra.Command) error {
 		applyRequested = value
 	}
 	preflightRequired := profile == mutationDedicatedApply
-	if path == "mirror backend bind" || path == "conf page delete" {
+	if path == "mirror backend bind" || path == "conf page copy" || path == "conf page delete" {
 		preflightRequired = applyRequested
 	}
 	if !preflightRequired {
+		if path == "conf page copy" {
+			return validateConfluencePageCopyInvocation(cmd, false)
+		}
 		if path == "conf page delete" {
 			return validateConfluencePageDeleteInvocation(cmd, false)
 		}
@@ -506,6 +509,38 @@ func validateMutationInvocation(cmd *cobra.Command) error {
 	}
 	if path == "conf page delete" {
 		return validateConfluencePageDeleteInvocation(cmd, applyRequested)
+	}
+	if path == "conf page copy" {
+		return validateConfluencePageCopyInvocation(cmd, applyRequested)
+	}
+	return nil
+}
+
+func validateConfluencePageCopyInvocation(cmd *cobra.Command, applyRequested bool) error {
+	id, idErr := cmd.Flags().GetString("id")
+	title, titleErr := cmd.Flags().GetString("title")
+	if idErr != nil || titleErr != nil || strings.TrimSpace(id) == "" || strings.TrimSpace(title) == "" {
+		return usageErr("--id and --title are required")
+	}
+	register, registerErr := cmd.Flags().GetBool("register")
+	into, intoErr := cmd.Flags().GetString("into")
+	if registerErr != nil || intoErr != nil || register != (strings.TrimSpace(into) != "") {
+		return usageErr("--register and a non-empty --into must be used together")
+	}
+	if !applyRequested {
+		for _, name := range []string{"expected-version", "expected-proposal-hash"} {
+			if flag := cmd.Flags().Lookup(name); flag != nil && flag.Changed {
+				return usageErr("--expected-version and --expected-proposal-hash require --apply")
+			}
+		}
+		if outputFormat == "id" {
+			return usageErr("-o id is available only with --apply after the created page id is known")
+		}
+		return nil
+	}
+	expectedVersion, err := cmd.Flags().GetInt("expected-version")
+	if err != nil || expectedVersion <= 0 {
+		return usageErr("--expected-version is required with --apply; run the dry-run first")
 	}
 	return nil
 }

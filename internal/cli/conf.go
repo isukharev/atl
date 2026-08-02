@@ -606,40 +606,57 @@ func confPageCmd() *cobra.Command {
 	open.Flags().StringVar(&openID, "id", "", "page id or supported same-origin URL")
 
 	var copyID, copyTitle, copySpace, copyParent, copyInto string
+	var copyExpectedVersion int
 	var copyRegister bool
+	copyGuard := guardedWriteFlags{profile: guardedWriteProposal}
 	cp := &cobra.Command{
 		Use:   "copy",
-		Short: "Copy a page (same CSF body, new title/space/parent)",
+		Short: "Preview or apply one reviewed page copy",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if copyID == "" || copyTitle == "" {
+			if strings.TrimSpace(copyID) == "" || strings.TrimSpace(copyTitle) == "" {
 				return usageErr("--id and --title are required")
 			}
 			if copyRegister != (strings.TrimSpace(copyInto) != "") {
 				return usageErr("--register and a non-empty --into must be used together")
 			}
+			if !copyGuard.apply && (copyExpectedVersion != 0 || strings.TrimSpace(copyGuard.expectedProposalHash) != "") {
+				return usageErr("--expected-version and --expected-proposal-hash require --apply")
+			}
+			if copyGuard.apply && copyExpectedVersion <= 0 {
+				return usageErr("--expected-version is required with --apply; run the dry-run first")
+			}
+			if err := copyGuard.validate(); err != nil {
+				return err
+			}
 			svc, err := confService()
 			if err != nil {
 				return err
 			}
-			if !copyRegister {
-				page, err := svc.CopyPage(cmd.Context(), copyID, copyTitle, copySpace, copyParent)
-				if err != nil {
-					return err
-				}
-				return emitID(cmd, map[string]any{"id": page.ID, "title": page.Title, "version": page.Version, "url": page.URL},
-					nil, func() []string { return []string{page.ID} })
+			result, copyErr := svc.CopyPageGuarded(cmd.Context(), copyID, app.ConfluencePageCopyOpts{
+				Title: copyTitle, Space: copySpace, Parent: copyParent,
+				Register: copyRegister, Root: copyInto, Apply: copyGuard.apply,
+				ExpectedVersion: copyExpectedVersion, ExpectedProposalHash: copyGuard.expectedProposalHash,
+			})
+			if result == nil {
+				return copyErr
 			}
-			page, registration, copyErr := svc.CopyPageAndRegister(cmd.Context(), copyID, copyTitle, copySpace, copyParent, copyInto)
-			if registration != nil {
-				warnRender(cmd.ErrOrStderr(), registration.Warnings)
+			if result.Registration != nil {
+				warnRender(cmd.ErrOrStderr(), result.Registration.Warnings)
 			}
 			var emitErr error
-			if page != nil {
-				out := map[string]any{"id": page.ID, "title": page.Title, "version": page.Version, "url": page.URL, "registration": registration}
-				emitErr = emitID(cmd, out, nil, func() []string { return []string{page.ID} })
+			if outputFormat == "id" {
+				if result.ID == "" {
+					if copyErr != nil {
+						return copyErr
+					}
+					return usageErr("-o id is available only with --apply after the created page id is known")
+				}
+				emitErr = emitID(cmd, result, nil, func() []string { return []string{result.ID} })
+			} else {
+				emitErr = emit(cmd, result, func() string { return app.ConfluencePageCopyText(result) })
 			}
-			return createdRegistrationResultErr(copyErr, emitErr)
+			return guardedMutationResultErr(copyErr, emitErr, result.WriteAttempted, "page copy")
 		},
 	}
 	cp.Flags().StringVar(&copyID, "id", "", "source page id")
@@ -648,6 +665,8 @@ func confPageCmd() *cobra.Command {
 	cp.Flags().StringVar(&copyParent, "parent", "", "target parent page id (default: same as source)")
 	cp.Flags().BoolVar(&copyRegister, "register", false, "register the copied page in the mirror named by --into from an authoritative readback")
 	cp.Flags().StringVar(&copyInto, "into", "", "mirror root for explicit post-copy registration (requires --register)")
+	cp.Flags().IntVar(&copyExpectedVersion, "expected-version", 0, "reviewed source page version (required with --apply)")
+	copyGuard.register(cp)
 
 	c.AddCommand(resolve, outline, section, sections, get, view, titleCmd, labelsCmd, meta, hist, list, open, cp, create, move, del)
 	return c
