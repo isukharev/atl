@@ -1,0 +1,132 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "root_id": {"type": "string", "minLength": 1},
+    "complete": {"type": "boolean"},
+    "truncated": {"type": "boolean"},
+    "include_development": {"type": "boolean"},
+    "topology": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "node_count": {"type": "integer"},
+        "edge_count": {"type": "integer"},
+        "evidence_count": {"type": "integer"},
+        "source_count": {"type": "integer"},
+        "incomplete_source_count": {"type": "integer"},
+        "node_kind_counts": {"type": "array", "maxItems": 8, "items": {"$ref": "#/$defs/named_count"}},
+        "edge_kind_counts": {"type": "array", "maxItems": 12, "items": {"$ref": "#/$defs/named_count"}},
+        "source_status_counts": {"type": "array", "maxItems": 6, "items": {"$ref": "#/$defs/named_count"}}
+      },
+      "required": ["node_count", "edge_count", "evidence_count", "source_count", "incomplete_source_count", "node_kind_counts", "edge_kind_counts", "source_status_counts"]
+    },
+    "reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "node_count_matches_nodes": {"type": "boolean"},
+        "edge_count_matches_edges": {"type": "boolean"},
+        "evidence_count_matches_edges": {"type": "boolean"},
+        "source_count_matches_sources": {"type": "boolean"},
+        "source_status_count_matches_sources": {"type": "boolean"},
+        "incomplete_source_count_matches_sources": {"type": "boolean"},
+        "expanded_count_matches_nodes": {"type": "boolean"},
+        "complete_matches_sources": {"type": "boolean"}
+      },
+      "required": ["node_count_matches_nodes", "edge_count_matches_edges", "evidence_count_matches_edges", "source_count_matches_sources", "source_status_count_matches_sources", "incomplete_source_count_matches_sources", "expanded_count_matches_nodes", "complete_matches_sources"]
+    },
+    "development_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "node_id": {"type": "string"},
+        "node_depth": {"type": "integer"},
+        "kind": {"type": "string"},
+        "status": {"type": "string"},
+        "complete": {"type": "boolean"},
+        "count": {"type": "integer"},
+        "truncated": {"type": "boolean"},
+        "partial_reason": {"type": "string"},
+        "stability": {"type": "string"}
+      },
+      "required": ["node_id", "node_depth", "kind", "status", "complete", "count", "truncated", "partial_reason", "stability"]
+    },
+    "development_reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project_count": {"type": "integer"},
+        "commit_count": {"type": "integer"},
+        "branch_count": {"type": "integer"},
+        "merge_request_count": {"type": "integer"},
+        "node_count": {"type": "integer"},
+        "edge_count": {"type": "integer"},
+        "source_count_matches_artifacts": {"type": "boolean"},
+        "nodes_match_coordinates": {"type": "boolean"},
+        "edges_match_coordinates": {"type": "boolean"},
+        "all_experimental": {"type": "boolean"},
+        "all_unexpanded_stubs": {"type": "boolean"}
+      },
+      "required": ["project_count", "commit_count", "branch_count", "merge_request_count", "node_count", "edge_count", "source_count_matches_artifacts", "nodes_match_coordinates", "edges_match_coordinates", "all_experimental", "all_unexpanded_stubs"]
+    },
+    "coordinates": {
+      "type": "array",
+      "maxItems": 24,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {"type": "string", "enum": ["project", "commit", "branch", "merge_request"]},
+          "host": {"type": "string"},
+          "project_path": {"type": "string"},
+          "value": {"type": "string"},
+          "state": {"type": "string"}
+        },
+        "required": ["kind", "host", "project_path", "value", "state"]
+      }
+    },
+    "handoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "authorized_host": {"type": "string"},
+        "target_kind": {"type": "string", "enum": ["commit", "merge_request"]},
+        "host_match": {"type": "boolean"},
+        "host": {"type": "string"},
+        "project_path": {"type": "string"},
+        "selector_value": {"type": "string"},
+        "authentication": {"type": "string", "enum": ["separate_gitlab_credentials"]},
+        "access": {"type": "string", "enum": ["read_only"]},
+        "execution": {"type": "string", "enum": ["not_performed"]},
+        "eligible_artifact_count": {"type": "integer"},
+        "blocked_artifact_count": {"type": "integer"},
+        "jira_credentials_reused": {"type": "boolean"},
+        "returned_url_fetched": {"type": "boolean"}
+      },
+      "required": ["authorized_host", "target_kind", "host_match", "host", "project_path", "selector_value", "authentication", "access", "execution", "eligible_artifact_count", "blocked_artifact_count", "jira_credentials_reused", "returned_url_fetched"]
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "labels_present": {"type": "boolean"},
+        "narrative_present": {"type": "boolean"},
+        "hostile_marker_present": {"type": "boolean"},
+        "unsafe_fields_present": {"type": "boolean"}
+      },
+      "required": ["labels_present", "narrative_present", "hostile_marker_present", "unsafe_fields_present"]
+    },
+    "content_mutated": {"type": "boolean"},
+    "brief": {"type": "string", "minLength": 1}
+  },
+  "required": ["root_id", "complete", "truncated", "include_development", "topology", "reconciliation", "development_source", "development_reconciliation", "coordinates", "handoff", "privacy", "content_mutated", "brief"],
+  "$defs": {
+    "named_count": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"name": {"type": "string"}, "count": {"type": "integer"}},
+      "required": ["name", "count"]
+    }
+  }
+}

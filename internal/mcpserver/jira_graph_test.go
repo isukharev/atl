@@ -2,6 +2,8 @@ package mcpserver
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,7 +35,9 @@ func TestJiraIssueGraphToolUsesClosedDefaultsAndOmitsNarrativeLabels(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(encoded), marker) || strings.Contains(string(encoded), `"label"`) {
+	if strings.Contains(string(encoded), marker) || strings.Contains(string(encoded), `"label"`) ||
+		strings.Contains(string(encoded), `"include_development"`) || strings.Contains(string(encoded), `"scm"`) ||
+		strings.Contains(string(encoded), `"development"`) {
 		t.Fatalf("narrative graph label crossed MCP projection: %s", encoded)
 	}
 	var out JiraIssueGraphOutput
@@ -69,7 +73,6 @@ func TestJiraIssueGraphToolRejectsInvalidInputBeforeJiraConstruction(t *testing.
 		{"key": "PROJ-1", "max_bytes": 1023},
 		{"key": "PROJ-1", "max_bytes": (1 << 20) + 1},
 		{"key": "PROJ-1", "resolve_confluence": true},
-		{"key": "PROJ-1", "include_development": false},
 	}
 	for _, args := range tests {
 		result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: "jira_issue_graph", Arguments: args})
@@ -82,6 +85,37 @@ func TestJiraIssueGraphToolRejectsInvalidInputBeforeJiraConstruction(t *testing.
 	}
 	if constructed != 0 {
 		t.Fatalf("invalid graph inputs constructed Jira %d times", constructed)
+	}
+}
+
+func TestJiraIssueGraphInputOmittedAndFalseAreEquivalent(t *testing.T) {
+	_, omitted, omittedBytes, err := validatedJiraIssueGraphInput(JiraIssueGraphInput{Key: "PROJ-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, explicit, explicitBytes, err := validatedJiraIssueGraphInput(JiraIssueGraphInput{Key: "PROJ-1", IncludeDevelopment: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(omitted, explicit) || omittedBytes != explicitBytes || omitted.IncludeDevelopment {
+		t.Fatalf("omitted=%+v/%d explicit=%+v/%d", omitted, omittedBytes, explicit, explicitBytes)
+	}
+	var encoded [][]byte
+	for _, args := range []map[string]any{{"key": "PROJ-1"}, {"key": "PROJ-1", "include_development": false}} {
+		reader := &recordingJiraReader{graphResult: validMCPGraphResult("PROJ-1", omitted, "discarded label")}
+		client, closeSessions := connectTestClient(t, New("test", Dependencies{
+			Jira: func() (JiraReader, error) { return reader, nil },
+		}))
+		result := callToolOK(t, client, "jira_issue_graph", args)
+		value, marshalErr := json.Marshal(result.StructuredContent)
+		closeSessions()
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		encoded = append(encoded, value)
+	}
+	if string(encoded[0]) != string(encoded[1]) {
+		t.Fatalf("omitted and explicit false outputs differ:\nomitted=%s\nfalse=%s", encoded[0], encoded[1])
 	}
 }
 
@@ -122,7 +156,7 @@ func TestJiraIssueGraphToolForwardsCustomBoundsAndReturnsIncompleteGraph(t *test
 	}
 }
 
-func TestJiraIssueGraphToolRejectsFutureDevelopmentAndOversizeOutput(t *testing.T) {
+func TestJiraIssueGraphToolGatesDevelopmentAndOversizeOutput(t *testing.T) {
 	t.Run("development", func(t *testing.T) {
 		opts := defaultMCPGraphOptions(0)
 		graph := validMCPGraphResult("PROJ-1", opts, "private")
@@ -141,6 +175,31 @@ func TestJiraIssueGraphToolRejectsFutureDevelopmentAndOversizeOutput(t *testing.
 		text := result.Content[0].(*mcp.TextContent).Text
 		if strings.Contains(text, "development") || !strings.Contains(text, "failed validation") {
 			t.Fatalf("error=%q", text)
+		}
+	})
+
+	t.Run("opted in", func(t *testing.T) {
+		opts := defaultMCPGraphOptions(0)
+		opts.IncludeDevelopment = true
+		reader := &recordingJiraReader{graphResult: validMCPDevelopmentGraphResult("PROJ-1", opts)}
+		client, closeSessions := connectTestClient(t, New("test", Dependencies{
+			Jira: func() (JiraReader, error) { return reader, nil },
+		}))
+		defer closeSessions()
+		result := callToolOK(t, client, "jira_issue_graph", map[string]any{"key": "PROJ-1", "include_development": true})
+		encoded, err := json.Marshal(result.StructuredContent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(encoded), `"url":"https://git.`) || !strings.Contains(string(encoded), `"scm"`) {
+			t.Fatalf("Development projection crossed URL boundary or omitted SCM: %s", encoded)
+		}
+		var out JiraIssueGraphOutput
+		if err := json.Unmarshal(encoded, &out); err != nil {
+			t.Fatal(err)
+		}
+		if !out.Bounds.IncludeDevelopment || !reader.graphOpts.IncludeDevelopment || len(out.Nodes) != 3 || out.Nodes[1].SCM == nil {
+			t.Fatalf("output=%+v opts=%+v", out, reader.graphOpts)
 		}
 	})
 
@@ -167,7 +226,7 @@ func TestJiraIssueGraphToolRejectsFutureDevelopmentAndOversizeOutput(t *testing.
 func TestJiraIssueGraphToolSchemaHasNoExpansionOrNarrativeFields(t *testing.T) {
 	client, closeSessions := connectTestClient(t, New("test", Dependencies{}))
 	defer closeSessions()
-	for _, guidance := range []string{"jira_issue_graph", "depth 0..2", "performs no Confluence reads", "omits labels", "Development", "never infer zero"} {
+	for _, guidance := range []string{"jira_issue_graph", "depth 0..2", "performs no Confluence reads", "omits labels", "Development", "owner-approved host", "separately authenticated"} {
 		if !strings.Contains(client.InitializeResult().Instructions, guidance) {
 			t.Errorf("instructions omit %q", guidance)
 		}
@@ -182,12 +241,18 @@ func TestJiraIssueGraphToolSchemaHasNoExpansionOrNarrativeFields(t *testing.T) {
 		}
 		input, _ := json.Marshal(tool.InputSchema)
 		output, _ := json.Marshal(tool.OutputSchema)
-		for _, forbidden := range []string{"resolve_confluence", "include_development", "development", "snippet", "raw"} {
+		if !strings.Contains(string(input), `"include_development"`) {
+			t.Errorf("input schema omits include_development: %s", input)
+		}
+		for _, forbidden := range []string{"resolve_confluence", "snippet", "raw"} {
 			if strings.Contains(string(input), forbidden) {
 				t.Errorf("input schema contains %q: %s", forbidden, input)
 			}
 		}
-		for _, forbidden := range []string{`"label"`, "snippet", "narrative", "development"} {
+		if !strings.Contains(string(output), `"scm"`) || !strings.Contains(string(output), `"merge_request_state"`) {
+			t.Errorf("output schema omits closed SCM projection: %s", output)
+		}
+		for _, forbidden := range []string{`"label"`, "snippet", "narrative", `"message"`, `"email"`, `"avatar"`, `"file"`, `"diff"`, `"timestamp"`, `"raw"`} {
 			if strings.Contains(string(output), forbidden) {
 				t.Errorf("output schema contains %q: %s", forbidden, output)
 			}
@@ -228,6 +293,63 @@ func TestJiraIssueGraphEvidenceProjectionRejectsNarrativeIdentityTokens(t *testi
 	}
 }
 
+func TestJiraIssueGraphSCMProjectionIsClosed(t *testing.T) {
+	base := domain.ArtifactGraphNode{
+		Kind: "gitlab_project", Service: "gitlab", State: domain.ArtifactNodeStub,
+		Depth: 1, Stability: domain.ArtifactStabilityExperimentalAPI,
+		SCM: &domain.ArtifactGraphSCMIdentity{Host: "git.example.test", ProjectPath: "group/project"},
+	}
+	if out, ok := projectJiraIssueGraphSCM(base, true); !ok || out.Host != "git.example.test" || out.ProjectPath != "group/project" {
+		t.Fatalf("project projection=%+v ok=%v", out, ok)
+	}
+
+	commit := base
+	commit.Kind = "gitlab_commit"
+	commit.SCM = &domain.ArtifactGraphSCMIdentity{Host: "git.example.test", ProjectPath: "group/project", CommitSHA: strings.Repeat("a", 40)}
+	if out, ok := projectJiraIssueGraphSCM(commit, true); !ok || out.CommitSHA != strings.Repeat("a", 40) {
+		t.Fatalf("commit projection=%+v ok=%v", out, ok)
+	}
+	branch := base
+	branch.Kind = "gitlab_branch"
+	branch.SCM = &domain.ArtifactGraphSCMIdentity{Host: "git.example.test", ProjectPath: "group/project", BranchName: "feature/ветка"}
+	if out, ok := projectJiraIssueGraphSCM(branch, true); !ok || out.BranchName != "feature/ветка" {
+		t.Fatalf("branch projection=%+v ok=%v", out, ok)
+	}
+	mr := base
+	mr.Kind = "gitlab_merge_request"
+	mr.SCM = &domain.ArtifactGraphSCMIdentity{Host: "git.example.test", ProjectPath: "group/project", MergeRequestIID: "17", MergeRequestState: "merged"}
+	if out, ok := projectJiraIssueGraphSCM(mr, true); !ok || out.MergeRequestIID != "17" || out.MergeRequestState != "merged" {
+		t.Fatalf("merge request projection=%+v ok=%v", out, ok)
+	}
+
+	tests := map[string]domain.ArtifactGraphNode{
+		"not opted in":          base,
+		"mixed case host":       mutateSCMNode(base, func(scm *domain.ArtifactGraphSCMIdentity) { scm.Host = "Git.example.test" }),
+		"unsafe project path":   mutateSCMNode(base, func(scm *domain.ArtifactGraphSCMIdentity) { scm.ProjectPath = "group/../project" }),
+		"canonical port":        mutateSCMNode(base, func(scm *domain.ArtifactGraphSCMIdentity) { scm.Host = "git.example.test:443" }),
+		"short commit":          mutateSCMNode(commit, func(scm *domain.ArtifactGraphSCMIdentity) { scm.CommitSHA = "abc123" }),
+		"commit selector clash": mutateSCMNode(commit, func(scm *domain.ArtifactGraphSCMIdentity) { scm.BranchName = "main" }),
+		"control branch":        mutateSCMNode(branch, func(scm *domain.ArtifactGraphSCMIdentity) { scm.BranchName = "feature\nunsafe" }),
+		"zero IID":              mutateSCMNode(mr, func(scm *domain.ArtifactGraphSCMIdentity) { scm.MergeRequestIID = "0" }),
+		"missing MR state":      mutateSCMNode(mr, func(scm *domain.ArtifactGraphSCMIdentity) { scm.MergeRequestState = "" }),
+		"wrong stability":       func() domain.ArtifactGraphNode { n := base; n.Stability = domain.ArtifactStabilityPublicAPI; return n }(),
+		"expanded GitLab node":  func() domain.ArtifactGraphNode { n := base; n.Expanded = true; return n }(),
+	}
+	for name, node := range tests {
+		include := name != "not opted in"
+		if out, ok := projectJiraIssueGraphSCM(node, include); ok || out != nil {
+			t.Errorf("%s projection=%+v ok=%v", name, out, ok)
+		}
+	}
+}
+
+func mutateSCMNode(node domain.ArtifactGraphNode, mutate func(*domain.ArtifactGraphSCMIdentity)) domain.ArtifactGraphNode {
+	copySCM := *node.SCM
+	node.SCM = &copySCM
+	mutate(node.SCM)
+	return node
+}
+
 func defaultMCPGraphOptions(depth int) app.JiraIssueGraphOptions {
 	return app.JiraIssueGraphOptions{
 		Depth: depth, MaxNodes: 50, MaxEdges: 200, MaxEvidence: 500,
@@ -238,10 +360,16 @@ func defaultMCPGraphOptions(depth int) app.JiraIssueGraphOptions {
 func validMCPGraphResult(key string, opts app.JiraIssueGraphOptions, label string) *app.JiraIssueGraphResult {
 	depth := 0
 	kinds := []string{"issue_fields", "issue_links", "hierarchy", "attachments", "issue_properties", "comments", "worklogs", "remote_links"}
+	if opts.IncludeDevelopment {
+		kinds = append(kinds, "development")
+	}
 	sources := make([]domain.ArtifactGraphSource, 0, len(kinds))
 	for _, kind := range kinds {
 		stability := domain.ArtifactStabilityPublicAPI
 		if kind == "issue_properties" {
+			stability = domain.ArtifactStabilityExperimentalAPI
+		}
+		if kind == "development" {
 			stability = domain.ArtifactStabilityExperimentalAPI
 		}
 		sources = append(sources, domain.ArtifactGraphSource{
@@ -255,12 +383,13 @@ func validMCPGraphResult(key string, opts app.JiraIssueGraphOptions, label strin
 			RequestedDepth: opts.Depth, MaxNodes: opts.MaxNodes, MaxEdges: opts.MaxEdges,
 			MaxEvidence: opts.MaxEvidence, MaxSourceBytes: 1 << 20,
 			ExpandedNodes: 1, AttemptedNodes: 1, MaxRequests: opts.MaxRequests,
-			MaxResponseBytes: opts.MaxResponseBytes, MaxSources: opts.MaxNodes*8 + 1,
-			MaxFrontier: opts.MaxNodes,
+			MaxResponseBytes: opts.MaxResponseBytes, MaxSources: opts.MaxNodes*len(kinds) + 1,
+			MaxFrontier:        opts.MaxNodes,
+			IncludeDevelopment: opts.IncludeDevelopment,
 		},
 		Summary: app.JiraIssueGraphSummary{
-			NodeCount: 1, SourceCount: 8,
-			SourceStatusCounts:    map[string]int{"complete": 0, "empty": 8, "partial": 0, "forbidden": 0, "unsupported": 0, "skipped": 0},
+			NodeCount: 1, SourceCount: len(kinds),
+			SourceStatusCounts:    map[string]int{"complete": 0, "empty": len(kinds), "partial": 0, "forbidden": 0, "unsupported": 0, "skipped": 0},
 			NodeCountMatchesNodes: true, EdgeCountMatchesEdges: true,
 			EvidenceCountMatchesEdges: true, SourceCountMatchesSources: true,
 			SourceStatusCountsMatch: true, IncompleteCountMatches: true,
@@ -274,4 +403,60 @@ func validMCPGraphResult(key string, opts app.JiraIssueGraphOptions, label strin
 		Edges: []domain.ArtifactGraphEdge{}, Sources: sources,
 		Frontier: []app.JiraIssueGraphFrontierItem{}, Warnings: []string{},
 	}
+}
+
+func validMCPDevelopmentGraphResult(key string, opts app.JiraIssueGraphOptions) *app.JiraIssueGraphResult {
+	result := validMCPGraphResult(key, opts, "discarded issue label")
+	const (
+		host        = "git.example.test"
+		projectPath = "group/project"
+		commitSHA   = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	)
+	rootID := "jira:issue:" + key
+	projectHash := testJiraGraphHash("https://" + host + "\x00" + projectPath)
+	projectID := "gitlab:project:" + projectHash
+	commitID := "gitlab:commit:" + projectHash + ":" + commitSHA
+	commitSCM := &domain.ArtifactGraphSCMIdentity{Host: host, ProjectPath: projectPath, CommitSHA: commitSHA}
+	projectSCM := &domain.ArtifactGraphSCMIdentity{Host: host, ProjectPath: projectPath}
+	result.Nodes = append(result.Nodes,
+		domain.ArtifactGraphNode{ID: commitID, Kind: "gitlab_commit", Service: "gitlab", URL: "https://" + host + "/" + projectPath + "/-/commit/" + commitSHA, State: domain.ArtifactNodeStub, Depth: 1, Stability: domain.ArtifactStabilityExperimentalAPI, SCM: commitSCM},
+		domain.ArtifactGraphNode{ID: projectID, Kind: "gitlab_project", Service: "gitlab", URL: "https://" + host + "/" + projectPath, State: domain.ArtifactNodeStub, Depth: 1, Stability: domain.ArtifactStabilityExperimentalAPI, SCM: projectSCM},
+	)
+	makeEdge := func(kind, target string, scm *domain.ArtifactGraphSCMIdentity) domain.ArtifactGraphEdge {
+		edge := domain.ArtifactGraphEdge{
+			From: rootID, To: target, Kind: kind, Direction: "outbound", Current: true,
+			Confidence: "exact", Stability: domain.ArtifactStabilityExperimentalAPI,
+			Evidence: []domain.ArtifactGraphEvidence{{
+				Collector: "development", SourceNodeID: rootID, SourceKind: "development_detail",
+				SourceID:   testJiraGraphHash(strings.Join([]string{kind, scm.Host, scm.ProjectPath, scm.CommitSHA, scm.BranchName, scm.MergeRequestIID}, "\x00")),
+				Extraction: "structured",
+			}},
+		}
+		edge.ID = testJiraGraphEdgeID(edge)
+		return edge
+	}
+	result.Edges = []domain.ArtifactGraphEdge{
+		makeEdge("development_commit", commitID, commitSCM),
+		makeEdge("development_project", projectID, projectSCM),
+	}
+	result.Sources[len(result.Sources)-1].Status = domain.ArtifactSourceComplete
+	result.Sources[len(result.Sources)-1].Count = 1
+	result.Summary.NodeCount = 3
+	result.Summary.EdgeCount = 2
+	result.Summary.EvidenceCount = 2
+	result.Summary.SourceStatusCounts["empty"]--
+	result.Summary.SourceStatusCounts["complete"]++
+	return result
+}
+
+func testJiraGraphHash(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
+}
+
+func testJiraGraphEdgeID(edge domain.ArtifactGraphEdge) string {
+	return "edge:" + testJiraGraphHash(strings.Join([]string{
+		"atl-jira-graph-edge-v1", edge.From, edge.To, edge.Kind,
+		edge.RelationType, edge.Relation, edge.Direction,
+	}, "\x00"))
 }

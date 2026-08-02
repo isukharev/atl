@@ -86,7 +86,7 @@ func TestJiraIssueGraphHasOneJiraOnlyTypedRoute(t *testing.T) {
 			definition.Completeness != "per-source-and-traversal" {
 			t.Fatalf("graph route=%+v", definition)
 		}
-		const scope = "Jira-only stable-source schema-v2 graph with structural traversal, qualified sources, fixed request/response bounds, and an encoded-result bound; no Confluence resolution or Development source."
+		const scope = "Jira-only schema-v2 graph with structural traversal, qualified sources, fixed request/response/result bounds, and optional bounded experimental SCM identities; no Confluence or GitLab reads."
 		if definition.MCPScope != scope {
 			t.Fatalf("graph MCP scope=%q want=%q", definition.MCPScope, scope)
 		}

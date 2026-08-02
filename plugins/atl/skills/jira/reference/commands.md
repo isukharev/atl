@@ -10,9 +10,13 @@ Load this reference only when exact command or flag lookup is useful.
 The typed `jira_issue_graph` counterpart is Jira-only, caps depth at 2, and
 takes no Confluence-resolution or strictness input. Its reported
 `bounds.max_response_bytes` is a fixed aggregate Jira response bound, while the
-`max_bytes` input separately bounds the encoded MCP result. The projection
-omits the CLI-only Development source without treating it as zero. Use the CLI
-graph route for optional id/title-only Confluence resolution.
+`max_bytes` input separately bounds the encoded MCP result. Omitted or false
+`include_development` preserves the stable projection without treating absent
+Development as zero; true returns closed experimental SCM coordinates and omits
+Development-node URLs. ATL makes no GitLab request. A downstream read requires
+exact owner-approved lowercase host equality and a separately authenticated
+read-only client, never Jira credentials. Use the CLI graph route for optional
+id/title-only Confluence resolution.
 
 | Command | What it does | Key flags |
 |---|---|---|

@@ -11,13 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added explicit CLI-only `jira issue graph --include-development` collection
-  of fail-closed GitLab project, full commit, exact branch, and merge-request
-  identity/state coordinates from Jira's experimental Development surface.
+- Added explicit `jira issue graph --include-development` and typed MCP
+  `jira_issue_graph` `include_development:true` collection of fail-closed GitLab
+  project, full commit, exact branch, and merge-request identity/state
+  coordinates from Jira's experimental Development surface.
   The bounded reader reconciles every non-zero selector after global semantic
   deduplication, rejects non-GitLab providers and unsafe identities, emits no
   partial Development facts, never contacts GitLab, and preserves the default
-  graph request sequence and bytes when omitted.
+  graph request sequence and bytes when omitted or false. The MCP projection
+  omits Development-node URLs and requires an exact owner-approved lowercase
+  host plus a separately authenticated read-only downstream client; Jira
+  credentials are never reused.
 
 - Added a schema-v2 `conf comment list` inventory and exact `conf comment
   thread` lookup with independently qualified comment, thread, and inline-anchor

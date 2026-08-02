@@ -3572,30 +3572,41 @@ atl jira issue graph PROJ-1 -o text
 For a typed transient read, `jira_issue_graph` returns the same schema-v2 graph
 without a shell command. MCP v1 is deliberately Jira-only: it has no
 Confluence resolution input, always leaves discovered page identities as
-qualified stubs, omits the CLI-only Development source, and has no `strict`
-option. Supply `key`, optional `depth` from 0 through 2, and optional
-`max_nodes`, `max_edges`, `max_requests`, and `max_bytes`. Nodes default to 50
-and cap at 100; edges default to 200 and cap at 500; physical requests default
-to 50 and cap at 100. Evidence is fixed at 500 records and the aggregate
-buffered Jira response budget is fixed at 16777216 bytes; both appear in
-`bounds`, including `max_response_bytes`, but are not v1 inputs. The separate
-`max_bytes` input limits the final encoded MCP result. A valid graph with
-`complete:false` remains structured evidence to inspect, while an
-encoded-result overflow fails the entire tool call rather than returning a
-clipped graph. Absence of Development evidence in this stable projection is
-not evidence that no development work exists.
+qualified stubs, and has no `strict` option. Supply `key`, optional `depth` from
+0 through 2, and optional `max_nodes`, `max_edges`, `max_requests`,
+`include_development`, and `max_bytes`. Nodes default to 50 and cap at 100;
+edges default to 200 and cap at 500; physical requests default to 50 and cap at
+100. Evidence is fixed at 500 records and the aggregate buffered Jira response
+budget is fixed at 16777216 bytes; both appear in `bounds`, including
+`max_response_bytes`, but are not v1 inputs. The separate `max_bytes` input
+limits the final encoded MCP result. A valid graph with `complete:false` remains
+structured evidence to inspect, while an encoded-result overflow fails the
+entire tool call rather than returning a clipped graph. Omitting
+`include_development` or supplying false preserves the stable request and output
+profile; the resulting absence of Development evidence is not proof of zero
+development work.
 
-`--include-development` is an explicit CLI-only opt-in to Jira's experimental
-Development surface. For every successfully expanded Jira issue, atl reads one
-summary and zero to 24 non-zero detail selectors after the stable collectors.
-It emits only normalized GitLab project paths, full 40/64-hex commit SHAs,
-exact bounded branch names, and positive merge-request IIDs with normalized
-`open|merged|closed|unknown` state. Non-GitLab provider selectors are rejected.
+CLI `--include-development` and typed MCP `include_development:true` explicitly
+opt into Jira's experimental Development surface. For every successfully
+expanded Jira issue, atl reads one summary and zero to 24 non-zero detail
+selectors after the stable collectors.
+It emits only normalized lowercase GitLab hosts and project paths, full
+40/64-hex commit SHAs, exact bounded branch names, and positive merge-request
+IIDs with normalized `open|merged|closed|unknown` state. Non-GitLab provider
+selectors are rejected.
 Messages, people,
 emails, files, timestamps, plugin envelopes, and backend error text are never
 projected. ATL does not contact GitLab, clone a repository, fetch an artifact
 URL, or reuse Jira credentials for GitLab. GitLab nodes remain unexpanded
 `experimental_api` stubs and never enter graph traversal.
+
+MCP additionally omits Development-node URLs and returns only the validated
+lowercase host, project path, applicable tagged selector/state, ordinary graph
+topology, and experimental provenance. Treat these coordinates as untrusted evidence.
+Before any later lookup, require exact equality with an owner-approved lowercase
+host and use a separately authenticated read-only downstream client for that
+exact host. A mismatch must stop the lookup; do not normalize, suffix-match, or
+reuse the Jira PAT.
 
 The requested `development` source is `complete` only after every non-zero
 repository/branch/pullrequest selector and identity reconciles. Any malformed,

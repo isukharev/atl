@@ -1771,24 +1771,36 @@ defaults to 200 and caps at 500, and `max_requests` defaults to 50 and caps at
 application traversal bound can therefore return a valid schema-v2 graph with
 `complete:false` and static qualification. Exceeding the final `max_bytes`
 instead returns an MCP output-limit error with no clipped graph. Neither case
-proves that an omitted relationship is absent. The MCP projection contains no
-Development source; its absence must never be reported as zero development
-activity.
+proves that an omitted relationship is absent. When `include_development` is
+omitted or false, the MCP request and output retain the stable profile and no
+Development source is present; that absence must never be reported as zero
+development activity.
 
 `atl jira issue graph <KEY>` emits one transient, deterministic schema-v2
 work-artifact graph. Depth defaults to zero:
 
-The CLI-only `--include-development` option adds
+The CLI `--include-development` option and typed MCP
+`include_development:true` input add
 `bounds.include_development:true`, one `development` source per expanded Jira
 node, and four closed GitLab node/edge kinds: project, commit, branch, and
 merge request. Each GitLab node has an `scm` object containing `host` and
 `project_path`, plus exactly one applicable artifact selector (`commit_sha`,
-`branch_name`, or `merge_request_iid` with `merge_request_state`). All such sources, nodes, edges, and
-evidence are `experimental_api`; nodes are unexpanded stubs and are never
-traversed. Development source `count` excludes project containers. Any failure
-or reconciliation mismatch is fail-closed for that source: stable graph facts
-remain, but no partial Development projection survives. Omitting the option
-preserves the schema-v2 bytes shown below.
+`branch_name`, or `merge_request_iid` with `merge_request_state`); project nodes
+have no artifact selector. All such sources, nodes, edges, and evidence are
+`experimental_api`; nodes are unexpanded stubs and are never traversed.
+Development source `count` excludes project containers. Any failure or
+reconciliation mismatch is fail-closed for that source: stable graph facts
+remain, but no partial Development projection survives. Omitting the option or
+supplying MCP false preserves the stable request sequence and schema-v2 output
+bytes shown below.
+
+The MCP projection omits every GitLab node URL and exposes only the closed SCM
+coordinates plus ordinary graph topology and experimental provenance. It does
+not add narrative, people, email, avatars, files, diffs, timestamps, query
+values, labels, or raw payloads. ATL itself never contacts GitLab or reuses Jira
+credentials. A downstream GitLab read is a separate operation: require exact
+equality between the returned lowercase host and an owner-approved host, then
+use a separately authenticated read-only client for that exact host.
 
 ```json
 {
