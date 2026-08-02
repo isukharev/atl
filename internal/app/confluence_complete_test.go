@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -346,29 +345,29 @@ func TestCompletePullBindingCoversPullAffectingOptions(t *testing.T) {
 	}
 }
 
-func TestCompletePullLocalEditFailsBeforeBodyReadsOrCheckpoint(t *testing.T) {
+func TestCompletePullLocalEditStopsAtBlockedCheckpoint(t *testing.T) {
 	root := t.TempDir()
-	seedStore := &pullStore{pages: map[string]*domain.Resource{"10": completeTestPage("10")}}
-	seed, err := (&ConfluenceService{store: seedStore}).Pull(context.Background(), PullOpts{ID: "10", Into: root})
-	if err != nil {
-		t.Fatal(err)
-	}
-	csfPath := filepath.Join(root, filepath.FromSlash(seed.Pages[0].Path))
+	_, seed := seedConfluenceSafetyPages(t, root, "10", "20")
+	csfPath := pulledPathForID(t, root, seed, "20")
 	if err := os.WriteFile(csfPath, []byte("<p>local edit</p>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	store := &completePullStore{
-		pullStore:      &pullStore{pages: map[string]*domain.Resource{"10": completeTestPage("10")}},
-		searchSequence: []domain.PageSearchPage{completeSearchPage("10"), completeSearchPage("10")},
+		pullStore:      &pullStore{pages: map[string]*domain.Resource{"10": completeTestPage("10"), "20": completeTestPage("20")}},
+		searchSequence: []domain.PageSearchPage{completeSearchPage("10", "20"), completeSearchPage("10", "20")},
 	}
-	_, err = (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: "space = DOC", Into: root, Complete: true})
+	result, err := (&ConfluenceService{store: store}).Pull(context.Background(), PullOpts{CQL: "space = DOC", Into: root, Complete: true})
 	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "local native edits") {
 		t.Fatalf("error=%v", err)
 	}
-	if len(store.getIDs) != 0 {
+	if result == nil || result.Complete == nil || result.Complete.Completed != 1 || result.LocalSafety == nil || result.LocalSafety.Blocked != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+	if !reflect.DeepEqual(store.getIDs, []string{"10"}) {
 		t.Fatalf("body reads=%v", store.getIDs)
 	}
-	if _, ok, loadErr := mirror.New(root).CompletePullCheckpoint(selectorHash("space = DOC")); loadErr != nil || ok {
-		t.Fatalf("checkpoint ok=%v err=%v", ok, loadErr)
+	checkpoint, ok, loadErr := mirror.New(root).CompletePullCheckpoint(selectorHash("space = DOC"))
+	if loadErr != nil || !ok || checkpoint.NextIndex != 1 {
+		t.Fatalf("checkpoint=%+v ok=%v err=%v", checkpoint, ok, loadErr)
 	}
 }

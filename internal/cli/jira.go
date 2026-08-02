@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -1023,7 +1024,7 @@ func jiraPullCmd() *cobra.Command {
 	var jql, into string
 	var fields string
 	var limit int
-	var assets bool
+	var assets, dryRun, overwriteLocal, stashLocal bool
 	var rf renderFlags
 	cmd := &cobra.Command{
 		Use:   "pull",
@@ -1031,6 +1032,9 @@ func jiraPullCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if jql == "" {
 				return usageErr("--jql is required")
+			}
+			if overwriteLocal && stashLocal {
+				return usageErr("--overwrite-local and --stash-local are mutually exclusive")
 			}
 			override, err := rf.override()
 			if err != nil {
@@ -1041,14 +1045,10 @@ func jiraPullCmd() *cobra.Command {
 				return err
 			}
 			res, err := svc.Pull(cmd.Context(), app.JiraPullOpts{
-				JQL:    jql,
-				Into:   into,
-				Limit:  limit,
-				Fields: splitFields(fields),
-				Assets: assets,
-				Render: override,
+				JQL: jql, Into: into, Limit: limit, Fields: splitFields(fields), Assets: assets,
+				DryRun: dryRun, OverwriteLocal: overwriteLocal, StashLocal: stashLocal, Render: override,
 			})
-			if err != nil {
+			if err != nil && (res == nil || res.LocalSafety == nil || !errors.Is(err, domain.ErrCheckFailed)) {
 				return err
 			}
 			// Warn on stderr (never stdout — that would corrupt the JSON result)
@@ -1065,13 +1065,22 @@ func jiraPullCmd() *cobra.Command {
 					res.EpicChildrenTruncatedAt)
 			}
 			warnRender(cmd.ErrOrStderr(), res.Warnings)
-			return emit(cmd, res, func() string {
+			emitErr := emit(cmd, res, func() string {
 				var b strings.Builder
+				appendPullLocalSafetyText(&b, res.LocalSafety)
 				for _, p := range res.Issues {
-					fmt.Fprintf(&b, "%s\t%s\n", p.Key, p.Path)
+					fmt.Fprintf(&b, "%s\t%s", p.Key, p.Path)
+					if p.Status != "" {
+						fmt.Fprintf(&b, "\t%s", p.Status)
+					}
+					b.WriteByte('\n')
 				}
 				return strings.TrimRight(b.String(), "\n")
 			})
+			if emitErr != nil {
+				return emitErr
+			}
+			return err
 		},
 	}
 	cmd.Flags().StringVar(&jql, "jql", "", "JQL selecting issues")
@@ -1079,6 +1088,9 @@ func jiraPullCmd() *cobra.Command {
 	cmd.Flags().IntVar(&limit, "limit", 100, "max issues (0 = all)")
 	cmd.Flags().StringVar(&fields, "fields", "", "extra comma-separated field list to include in JSON snapshots")
 	cmd.Flags().BoolVar(&assets, "assets", false, "also mirror each issue's image attachments into a per-issue <KEY>.assets/ dir and link them from the .md")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "qualify the pull without writing mirror files or state")
+	cmd.Flags().BoolVar(&overwriteLocal, "overwrite-local", false, "explicitly replace qualified locally edited native .wiki bytes")
+	cmd.Flags().BoolVar(&stashLocal, "stash-local", false, "preserve qualified locally edited native .wiki bytes under .atl/stash before replacing them")
 	rf.register(cmd)
 	return cmd
 }

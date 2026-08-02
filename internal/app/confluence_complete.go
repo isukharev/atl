@@ -119,12 +119,7 @@ func (s *ConfluenceService) prepareCompletePull(ctx context.Context, m *mirror.M
 		if hashErr != nil || selectionSHA256 != checkpoint.SelectionSHA256 || !sort.StringsAreSorted(checkpoint.IDs) {
 			return nil, fmt.Errorf("%w: complete-pull checkpoint selection identity is invalid", domain.ErrCheckFailed)
 		}
-		remaining := checkpoint.IDs[checkpoint.NextIndex:]
-		migrations, preflightErr := preflightConfluenceOverwrite(m, remaining)
-		if preflightErr != nil {
-			return nil, preflightErr
-		}
-		return newCompleteSelection(checkpoint, "resumed", migrations), nil
+		return newCompleteSelection(checkpoint, "resumed", 0), nil
 	}
 
 	searcher, ok := s.store.(domain.CompletePageSearcher)
@@ -142,10 +137,6 @@ func (s *ConfluenceService) prepareCompletePull(ctx context.Context, m *mirror.M
 	if !reflect.DeepEqual(first, second) {
 		return nil, fmt.Errorf("%w: complete-pull selection changed during pagination; retry after the backend settles (no checkpoint was replaced)", domain.ErrCheckFailed)
 	}
-	migrations, err := preflightConfluenceOverwrite(m, second)
-	if err != nil {
-		return nil, err
-	}
 	selectionSHA256, err := confluenceCompleteHashJSON(second)
 	if err != nil {
 		return nil, err
@@ -154,14 +145,11 @@ func (s *ConfluenceService) prepareCompletePull(ctx context.Context, m *mirror.M
 		Service: confluenceCompletePullService, SelectorSHA256: selectorSHA256,
 		OptionsSHA256: optionsSHA256, SelectionSHA256: selectionSHA256, IDs: second,
 	}
-	if err := m.SaveCompletePullCheckpoint(checkpoint); err != nil {
-		return nil, err
-	}
 	source := "new"
 	if found {
 		source = "restarted"
 	}
-	return newCompleteSelection(checkpoint, source, migrations), nil
+	return newCompleteSelection(checkpoint, source, 0), nil
 }
 
 func newCompleteSelection(checkpoint mirror.CompletePullCheckpoint, source string, migrations int) *confluenceCompleteSelection {
@@ -169,7 +157,7 @@ func newCompleteSelection(checkpoint mirror.CompletePullCheckpoint, source strin
 	result := &CompletePullResult{
 		SelectorSHA256: checkpoint.SelectorSHA256, SelectionSHA256: checkpoint.SelectionSHA256,
 		Source: source, Total: total, Completed: checkpoint.NextIndex,
-		Remaining: total - checkpoint.NextIndex, CheckpointActive: true, ViewMigrations: migrations,
+		Remaining: total - checkpoint.NextIndex, CheckpointActive: source == "resumed", ViewMigrations: migrations,
 	}
 	return &confluenceCompleteSelection{checkpoint: checkpoint, nextIndex: checkpoint.NextIndex, savedIndex: checkpoint.NextIndex, result: result}
 }

@@ -1277,6 +1277,9 @@ atl conf pull --incremental --cql 'space=DOCS and type=page' \
 
 # later runs reuse the watermark bound to this exact selector
 atl conf pull --incremental --cql 'space=DOCS and type=page' --into my-mirror
+
+# inspect the selected refresh without changing files, state, or checkpoints
+atl conf pull --space DOCS --into my-mirror --dry-run
 ```
 
 Flags:
@@ -1289,6 +1292,9 @@ Flags:
 | `--depth` | depth limit when using `--space` (0 = unlimited) |
 | `--assets` | download draw.io PNG renders and inline images |
 | `--comments` | mirror schema-v2 comment evidence to `<slug>.comments.json`, render its qualified read-only tree in the main `.md`, and refresh the flat `.comments.md` compatibility view |
+| `--dry-run` | perform selection and local qualification without writing mirror files, state, watermarks, checkpoints, or stashes |
+| `--overwrite-local` | explicitly replace a qualified locally edited native `.csf`; never bypasses derived-view or baseline-integrity failures |
+| `--stash-local` | before replacement, preserve a qualified locally edited `.csf` in the immutable content-addressed `.atl/stash/` store; mutually exclusive with `--overwrite-local` |
 | `--complete` | build and consume an exact resumable two-pass selector snapshot; requires `--cql` or `--space` and does not support `--depth` |
 | `--restart-complete` | explicitly replace an unfinished complete snapshot after a fresh stable selection and local preflight |
 | `--incremental` | exhaustively select changes since a persisted selector watermark; requires `--cql` or `--space` |
@@ -1304,6 +1310,18 @@ Flags:
 | `--render-exclude` | comma-separated sections to remove from the profile |
 
 At most one of `--id`, `--cql`, `--space` may be given.
+
+Pull is non-destructive by default. Before each page-body GET, atl reconciles
+the tracked path, sidecar hash, pristine base, native `.csf`, metadata, and
+derived Markdown view. A local native edit or unqualified artifact is preserved,
+reported under `local_safety`, and skipped while safe siblings continue. The
+command then exits `8`, so automation cannot mistake a partial refresh for a
+complete one. `--overwrite-local` and `--stash-local` apply only to a native
+edit whose baseline is fully qualified; they do not discard unapplied Markdown,
+future/unsupported views, missing artifacts, path drift, or corrupt state.
+Stashes contain the exact previous native bytes and are named by their SHA-256.
+Incremental watermarks and complete-pull checkpoints never advance past a
+blocked page.
 
 Complete mode is the explicit historical bootstrap for a selector larger than
 the ordinary CQL/space caps. It exhausts qualified search pagination twice,
@@ -3827,6 +3845,8 @@ atl jira pull --jql "project=PROJ and sprint in openSprints()" \
 atl jira pull --jql "project=PROJ" --fields customfield_10001,customfield_10002
 # also mirror each issue's image attachments and link them from the .md
 atl jira pull --jql "project=PROJ and status=Open" --assets
+# inspect what a refresh would do without changing the mirror
+atl jira pull --jql "project=PROJ" --into my-jira-mirror --dry-run
 ```
 
 Flags:
@@ -3838,6 +3858,9 @@ Flags:
 | `--limit` | max issues (0 = all; default 100) |
 | `--fields` | extra comma-separated fields to include in JSON snapshots; core fields needed for rendering are always included |
 | `--assets` | also download each issue's image attachments into a per-issue `<KEY>.assets/` directory and link them from the `.md` (opt-in; off by default) |
+| `--dry-run` | select and qualify issues without writing mirror files, state, or stashes |
+| `--overwrite-local` | explicitly replace a qualified locally edited native `.wiki`; never bypasses derived-view or baseline-integrity failures |
+| `--stash-local` | preserve qualified local `.wiki` bytes in immutable `.atl/stash/` storage before replacement; mutually exclusive with `--overwrite-local` |
 | `--render-profile` | `.md` view profile: `minimal` \| `default` \| `full` (see [Render profiles](#render-profiles)) |
 | `--render-include` | comma-separated sections to add to the profile |
 | `--render-exclude` | comma-separated sections to remove from the profile |
@@ -3855,6 +3878,14 @@ and reported via a single stderr warning), the issue is still written, and only
 images that landed on disk are linked. Attachments with an empty or
 `application/octet-stream` media type are skipped (same as `jira issue images`).
 The raw `<KEY>.json` snapshot is unchanged — it never carries local paths.
+
+Like Confluence pull, Jira pull is non-destructive by default. It preserves and
+reports local `.wiki` edits and unapplied/unsupported `.md` views, continues
+refreshing clean siblings, then exits `8` when anything was blocked. Explicit
+overwrite/stash recovery is limited to a native edit with intact sidecar/base
+evidence. Use `jira apply` or `jira push` for intentional work; use
+`--stash-local` when discarding the working native bytes only after retaining an
+exact content-addressed copy.
 
 Output layout:
 

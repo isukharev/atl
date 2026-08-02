@@ -1,9 +1,14 @@
 package cli
 
 import (
+	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/isukharev/atl/internal/app"
 )
 
 // commentsJSON is a deterministic two-comment listing for the /child/comment
@@ -49,6 +54,48 @@ func TestConfPull_NoCommentsNoCommentRequest(t *testing.T) {
 		if r.method == http.MethodGet && strings.HasSuffix(r.path, "/child/comment") {
 			t.Errorf("pull without --comments hit the comment endpoint: %+v", r)
 		}
+	}
+}
+
+func TestConfPull_LocalSafetyResultPrecedesExitEight(t *testing.T) {
+	cs := newConfServer(t)
+	cs.page = pageJSON("100", "Alpha", 3, sampleCSF)
+	root := t.TempDir()
+	out, code := runCLI(t, confEnv(cs.srv), "conf", "pull", "--id", "100", "--into", root)
+	if code != exitOK {
+		t.Fatalf("initial pull exit=%d stdout=%q", code, out)
+	}
+	var initial app.PullResult
+	if err := json.Unmarshal([]byte(out), &initial); err != nil || len(initial.Pages) != 1 {
+		t.Fatalf("initial result=%+v err=%v", initial, err)
+	}
+	csfPath := filepath.Join(root, filepath.FromSlash(initial.Pages[0].Path))
+	if err := os.WriteFile(csfPath, []byte("<p>local edit</p>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, stderr, code := runCLIFull(t, confEnv(cs.srv), "conf", "pull", "--id", "100", "--into", root)
+	if code != exitCheckFailed {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, out, stderr)
+	}
+	var result app.PullResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("decode qualified stdout: %v\n%s", err, out)
+	}
+	if result.LocalSafety == nil || result.LocalSafety.Blocked != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+	if got, err := os.ReadFile(csfPath); err != nil || string(got) != "<p>local edit</p>" {
+		t.Fatalf("csf=%q err=%v", got, err)
+	}
+}
+
+func TestConfPullDryRunTextIncludesPageStatus(t *testing.T) {
+	cs := newConfServer(t)
+	cs.page = pageJSON("100", "Alpha", 3, sampleCSF)
+	out, code := runCLI(t, confEnv(cs.srv), "conf", "pull", "--id", "100", "--into", filepath.Join(t.TempDir(), "absent"), "--dry-run", "-o", "text")
+	if code != exitOK || !strings.Contains(out, "would_pull") || !strings.Contains(out, "local-safety: complete=true dry_run=true") {
+		t.Fatalf("exit=%d output=%q", code, out)
 	}
 }
 

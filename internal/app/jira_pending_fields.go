@@ -72,6 +72,23 @@ func loadJiraPendingFieldsLocked(root, key string) (*JiraPendingFields, bool, er
 	if err := recoverJiraPendingTransaction(root, key); err != nil {
 		return nil, false, err
 	}
+	return readJiraPendingFields(root, key)
+}
+
+// loadJiraPendingFieldsReadOnly never performs transaction recovery. Pull
+// dry-runs use it without a mutation lock, so an interrupted apply is a loud
+// diagnostic rather than an implicit rename/removal of coordination state.
+func loadJiraPendingFieldsReadOnly(root, key string) (*JiraPendingFields, bool, error) {
+	txnPath := jiraPendingFieldsTxnPath(root, key)
+	if _, err := safepath.ReadFileWithin(root, txnPath); err == nil {
+		return nil, false, fmt.Errorf("%w: pending Jira transaction %s requires recovery by a non-dry-run mirror command", domain.ErrCheckFailed, key)
+	} else if !os.IsNotExist(err) {
+		return nil, false, err
+	}
+	return readJiraPendingFields(root, key)
+}
+
+func readJiraPendingFields(root, key string) (*JiraPendingFields, bool, error) {
 	path := jiraPendingFieldsPath(root, key)
 	b, err := safepath.ReadFileWithin(root, path)
 	if os.IsNotExist(err) {

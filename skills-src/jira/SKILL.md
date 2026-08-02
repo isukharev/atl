@@ -267,6 +267,12 @@ shell/workspace configuration implicitly.
   run `jira apply`, validate/review `jira push` dry-run, then use explicit
   `jira push --apply`. Preserve edited legacy/future views before render; update
   atl for a future marker, never downgrade it.
+- `jira pull` preserves locally edited `.wiki` and unapplied/unsupported `.md`
+  views by default, continues clean siblings, emits content-free `local_safety`,
+  and exits 8 for a blocked selection. Use `--dry-run` to qualify without any
+  mirror write. If intentionally resetting only qualified native bytes, prefer
+  `--stash-local` for an immutable exact copy; `--overwrite-local` discards
+  them. Neither flag overrides derived-view or baseline-integrity failures.
 - Keep one mirror root and one body surface for the complete cycle. Never mix
   unapplied `.md` edits with direct `.wiki` edits. `.json`, generated metadata,
   comments/links/attachments, sidecars, and `.atl` state are readonly.
