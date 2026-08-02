@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/isukharev/atl/internal/domain"
 )
@@ -25,6 +26,7 @@ type orderedPagePrefetch struct {
 	nextJob int
 	next    int
 	pending map[int]pagePrefetchResult
+	wg      sync.WaitGroup
 }
 
 func newOrderedPagePrefetch(ctx context.Context, store domain.DocStore, ids []string, workers int, includeRestrictions bool) *orderedPagePrefetch {
@@ -34,8 +36,13 @@ func newOrderedPagePrefetch(ctx context.Context, store domain.DocStore, ids []st
 		ids: ids, pending: make(map[int]pagePrefetchResult, workers),
 	}
 	for range workers {
+		p.wg.Add(1)
 		go func() {
+			defer p.wg.Done()
 			for index := range p.jobs {
+				if workerCtx.Err() != nil {
+					return
+				}
 				page, err := store.GetPage(workerCtx, ids[index], domain.PullOpts{Format: "csf", IncludeRestrictions: includeRestrictions})
 				select {
 				case p.results <- pagePrefetchResult{index: index, page: page, err: err}:
@@ -86,4 +93,5 @@ func (p *orderedPagePrefetch) close() {
 	}
 	p.cancel()
 	close(p.jobs)
+	p.wg.Wait()
 }

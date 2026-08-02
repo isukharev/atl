@@ -115,6 +115,31 @@ type pullOutcome struct {
 	err    error
 }
 
+type cancellationJoinStore struct {
+	domain.DocStore
+	refs         []domain.PageRef
+	started      chan string
+	canceled     chan string
+	failFirst    chan struct{}
+	releaseTails chan struct{}
+}
+
+func (s *cancellationJoinStore) Search(_ context.Context, _ string, _ int, _ string) ([]domain.PageRef, string, error) {
+	return append([]domain.PageRef(nil), s.refs...), "", nil
+}
+
+func (s *cancellationJoinStore) GetPage(ctx context.Context, id string, _ domain.PullOpts) (*domain.Resource, error) {
+	s.started <- id
+	if id == "10" {
+		<-s.failFirst
+		return nil, domain.ErrForbidden
+	}
+	<-ctx.Done()
+	s.canceled <- id
+	<-s.releaseTails
+	return nil, ctx.Err()
+}
+
 func TestOrderedPagePrefetchBoundsWindowAndReturnsCanonicalOrder(t *testing.T) {
 	store := &prefetchStore{delays: map[string]time.Duration{"10": 40 * time.Millisecond, "20": time.Millisecond, "30": time.Millisecond}}
 	p := newOrderedPagePrefetch(context.Background(), store, []string{"10", "20", "30"}, 2, false)
@@ -232,6 +257,42 @@ func TestOrdinaryPullPrefetchFailureCommitsOnlyCanonicalPrefix(t *testing.T) {
 		if _, exists, stateErr := mirror.New(root).SyncStateOf(id); stateErr != nil || exists {
 			t.Fatalf("prefetched page %s after the failure was committed: exists=%t err=%v", id, exists, stateErr)
 		}
+	}
+}
+
+func TestOrdinaryPullWaitsForCanceledPrefetchWorkers(t *testing.T) {
+	store := &cancellationJoinStore{
+		refs:         []domain.PageRef{{ID: "10"}, {ID: "20"}, {ID: "30"}},
+		started:      make(chan string, 3),
+		canceled:     make(chan string, 2),
+		failFirst:    make(chan struct{}),
+		releaseTails: make(chan struct{}),
+	}
+	var firstOnce, tailsOnce sync.Once
+	defer firstOnce.Do(func() { close(store.failFirst) })
+	defer tailsOnce.Do(func() { close(store.releaseTails) })
+
+	root := t.TempDir()
+	done := make(chan pullOutcome, 1)
+	go func() {
+		result, err := (&ConfluenceService{
+			baseURL: confluenceTestBackendURL, store: store, requestMaxInFlight: 3,
+		}).Pull(context.Background(), PullOpts{CQL: "space = DOC", Into: root, PagePrefetch: 3})
+		done <- pullOutcome{result: result, err: err}
+	}()
+	awaitPrefetchIDs(t, store.started, 3)
+	firstOnce.Do(func() { close(store.failFirst) })
+	awaitPrefetchIDs(t, store.canceled, 2)
+
+	select {
+	case outcome := <-done:
+		t.Fatalf("pull returned before canceled tail reads exited: %v", outcome.err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	tailsOnce.Do(func() { close(store.releaseTails) })
+	outcome := <-done
+	if !errors.Is(outcome.err, domain.ErrForbidden) {
+		t.Fatalf("err=%v, want forbidden", outcome.err)
 	}
 }
 
