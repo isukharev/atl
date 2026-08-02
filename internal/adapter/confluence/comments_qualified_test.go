@@ -43,7 +43,9 @@ func TestListConfluenceCommentsMapsExactShapesAndResolvedSemantics(t *testing.T)
 		case "inline":
 			_, _ = w.Write([]byte(qualifiedCommentPage(qualifiedCommentJSON("20", "inline", "open", `[{"id":"1","type":"page"}]`, "<p>inline</p>"))))
 		case "resolved":
-			_, _ = w.Write([]byte(qualifiedCommentPage(qualifiedCommentJSON("30", "resolved", "resolved", `[{"id":"1","type":"page"}]`, "<p>resolved</p>"))))
+			// Some Data Center versions keep the semantic response location
+			// inline while reporting the resolved state separately.
+			_, _ = w.Write([]byte(qualifiedCommentPage(qualifiedCommentJSON("30", "inline", "resolved", `[{"id":"1","type":"page"}]`, "<p>resolved</p>"))))
 		}
 	}))
 	defer srv.Close()
@@ -56,6 +58,35 @@ func TestListConfluenceCommentsMapsExactShapesAndResolvedSemantics(t *testing.T)
 	}
 	if got := inventory.Comments[2]; got.ID != "30" || got.Location != domain.ConfluenceCommentLocationInline || got.Resolution != domain.ConfluenceCommentResolutionResolved {
 		t.Fatalf("resolved selector projection = %+v", got)
+	}
+}
+
+func TestListConfluenceCommentsResolvedSelectorRequiresExplicitResolvedState(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		resolution string
+	}{
+		{name: "open", resolution: "open"},
+		{name: "missing"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(qualifiedCommentPage(qualifiedCommentJSON("30", "inline", test.resolution, `[{"id":"1","type":"page"}]`, "<p>x</p>"))))
+			}))
+			defer srv.Close()
+
+			inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{
+				ParentVersion: 1,
+				Locations:     []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorResolved},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if inventory.CommentsComplete || inventory.Capabilities.Resolved != domain.ConfluenceCapabilityUnknown ||
+				!containsString(inventory.PartialReasons, domain.ConfluenceCommentPartialLocationUnavailable) {
+				t.Fatalf("resolved selector accepted %s state: %+v", test.name, inventory)
+			}
+		})
 	}
 }
 

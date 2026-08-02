@@ -282,7 +282,7 @@ func (cf *Confluence) ListConfluenceComments(ctx context.Context, id string, opt
 				if mapErr != nil {
 					return domain.ConfluenceCommentInventory{}, mapErr
 				}
-				if mappedSelector == selector {
+				if commentSelectorMatchesRecord(selector, mappedSelector, record) {
 					locationObserved = true
 				} else {
 					builder.partial(domain.ConfluenceCommentPartialLocationUnavailable, record.ID, selector, true, false)
@@ -315,6 +315,27 @@ func (cf *Confluence) ListConfluenceComments(ctx context.Context, id string, opt
 		}
 	}
 	return builder.finish()
+}
+
+// commentSelectorMatchesRecord qualifies the requested selector from response
+// evidence rather than assuming that the response repeats the query value.
+// Some Confluence Data Center versions return resolved discussions with the
+// semantic location "inline" and a separate explicit resolved state. That is
+// sufficient for the resolved selector, while missing or contradictory state
+// remains fail-closed.
+func commentSelectorMatchesRecord(requested, mapped domain.ConfluenceCommentSelector, record domain.ConfluenceCommentRecord) bool {
+	switch requested {
+	case domain.ConfluenceCommentSelectorFooter:
+		return mapped == domain.ConfluenceCommentSelectorFooter && record.Location == domain.ConfluenceCommentLocationFooter
+	case domain.ConfluenceCommentSelectorInline:
+		return mapped == domain.ConfluenceCommentSelectorInline && record.Location == domain.ConfluenceCommentLocationInline
+	case domain.ConfluenceCommentSelectorResolved:
+		return (mapped == domain.ConfluenceCommentSelectorInline || mapped == domain.ConfluenceCommentSelectorResolved) &&
+			record.Location == domain.ConfluenceCommentLocationInline &&
+			record.Resolution == domain.ConfluenceCommentResolutionResolved
+	default:
+		return false
+	}
 }
 
 func commentAncestryObjectsPresent(comment domain.ConfluenceCommentRecord, byID map[string]domain.ConfluenceCommentRecord, conflicted map[string]struct{}) bool {
