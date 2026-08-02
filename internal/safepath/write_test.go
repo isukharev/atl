@@ -462,6 +462,48 @@ func TestWriteFileWithinReplacesFinalSymlink(t *testing.T) {
 	}
 }
 
+func TestWriteFileOwnedAtomicWithinUsesOnlyDeclaredSibling(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "nested")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dir, "state.json")
+	for _, invalid := range []string{".", "..", "state.json", "nested/temp", "drive:temp", "control\ntemp"} {
+		if err := WriteFileOwnedAtomicWithin(root, target, invalid, []byte("x"), 0o600); err == nil {
+			t.Fatalf("accepted invalid owned temp name %q", invalid)
+		}
+	}
+	temp := ".atl-cp-0123456789abcdef0123456789abcdef-sidecar.tmp"
+	if err := os.WriteFile(filepath.Join(dir, temp), []byte("surviving residue"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFileOwnedAtomicWithin(root, target, temp, []byte("new"), 0o600); !os.IsExist(err) {
+		t.Fatalf("declared residue was reused implicitly: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(dir, temp)); err != nil || string(got) != "surviving residue" {
+		t.Fatalf("declared residue changed: %q err=%v", got, err)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("target appeared after O_EXCL refusal: %v", err)
+	}
+	if err := os.Remove(filepath.Join(dir, temp)); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFileOwnedAtomicWithin(root, target, temp, []byte("new"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(target); err != nil || string(got) != "new" {
+		t.Fatalf("target=%q err=%v", got, err)
+	}
+	if info, err := os.Stat(target); err != nil || info.Mode().Perm() != 0o640 {
+		t.Fatalf("target mode=%v err=%v", info, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, temp)); !os.IsNotExist(err) {
+		t.Fatalf("owned temp survived rename: %v", err)
+	}
+}
+
 func TestWriteFileExclusiveWithinNeverReplacesExistingTarget(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(root, "private", "plan.json")

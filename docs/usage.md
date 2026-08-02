@@ -1421,22 +1421,29 @@ explicit cap fail with exit `8` before any body request or new checkpoint.
 User CQL containing `ORDER BY` is rejected; atl does not depend on an
 undocumented id-order guarantee from the backend.
 
-The exact identity snapshot and its durable prefix live in a private,
-schema-versioned, mode-0600 pair under `.atl/complete-pulls/`: an immutable
-`<selector-sha256>.json` id manifest plus a small
-`<selector-sha256>.progress.json`. They contain ids, hashes, and the next index,
-never credentials, backend URLs, titles, or page bodies. Progress updates do
-not rewrite the large manifest. Repeating the same command resumes the
-remaining prefix without repeating completed body GETs. Assets,
+The exact identity snapshot and its durable prefix live in private,
+schema-versioned state under `.atl/complete-pulls/`: an immutable mode-0600
+`<selector-sha256>.json` id manifest, a small progress file, a bounded accepted
+page journal, and at most one mode-0700 publication directory. Control files
+contain only ids, hashes, paths, render state, bounded content-free write
+tokens, and progress — never credentials, backend URLs, titles, or page bodies.
+The transient publication directory holds one page's exact private payloads
+until its canonical artifact set is durable. Progress updates do not rewrite
+the large manifest. Repeating the same command resumes the remaining prefix
+without repeating accepted body GETs. Assets,
 comments, effective render settings, and the resolved Jira-macro list view are
 hash-bound; option drift fails closed. `--restart-complete` replaces an old
 snapshot only after a fresh two-pass selection and local overwrite preflight
 succeed, so a failed restart leaves the previous resume point intact.
 
 Before body reads, native/Markdown local edits and partial/corrupt tracked
-artifacts block the exact remaining set. Progress is committed after each
-25-page batch and on a graceful failure. A hard process crash can therefore
-re-fetch at most the uncheckpointed tail, but never skip it. Page downloads
+artifacts block the exact remaining set. Every destination-side atomic write
+uses an exact temp name owned beforehand by the surviving publication intent or
+journal. Recovery removes or reuses only that exact bounded regular-file
+residue, accepts only reviewed pre/post images, and preserves anything else for
+inspection. Accepted pages enter the bounded journal before batch sidecar and
+progress commits, so a hard crash does not repeat their body GETs and cannot
+skip them. Page downloads
 are serial by default. `--page-prefetch N` may overlap up to `N` native body
 GETs and can therefore read a bounded tail beyond the first page that later
 fails; only the canonical sequential consumer claims paths, resolves/writes

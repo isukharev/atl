@@ -9,17 +9,22 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/safepath"
 )
 
 const (
-	completePullCheckpointSchema   = 1
-	maxCompletePullCheckpointBytes = 64 << 20
-	maxCompletePullProgressBytes   = 4 << 10
-	maxCompletePullCheckpointIDs   = 1_000_000
-	maxCompletePullIDBytes         = 256
+	completePullCheckpointSchema    = 1
+	maxCompletePullCheckpointBytes  = 64 << 20
+	maxCompletePullProgressBytes    = 4 << 10
+	maxCompletePullCheckpointIDs    = 1_000_000
+	maxCompletePullIDBytes          = 256
+	completePullJournalSchema       = 2
+	maxCompletePullJournalEntries   = 25
+	maxCompletePullJournalBytes     = 256 << 10
+	maxCompletePullJournalPathBytes = 4096
 )
 
 // CompletePullCheckpoint is a private, backend-neutral snapshot of one exact
@@ -44,6 +49,26 @@ type completePullProgress struct {
 	NextIndex       int    `json:"next_index"`
 }
 
+// CompletePullJournalEntry is the content-minimized durable commit evidence
+// for one accepted page. The native body, metadata, title, backend identity,
+// and credentials remain in their existing private artifacts; recovery needs
+// only the exact sidecar state and view policy that were pending in memory.
+type CompletePullJournalEntry struct {
+	State SyncState `json:"state"`
+	View  ViewState `json:"view"`
+}
+
+type completePullJournal struct {
+	SchemaVersion   int                        `json:"schema_version"`
+	Service         string                     `json:"service"`
+	SelectorSHA256  string                     `json:"selector_sha256"`
+	OptionsSHA256   string                     `json:"options_sha256"`
+	SelectionSHA256 string                     `json:"selection_sha256"`
+	StartIndex      int                        `json:"start_index"`
+	Entries         []CompletePullJournalEntry `json:"entries"`
+	WriteToken      string                     `json:"write_token"`
+}
+
 func validSHA256(value string) bool {
 	if len(value) != 64 {
 		return false
@@ -65,6 +90,14 @@ func (m *Mirror) completePullProgressPath(selectorSHA256 string) (string, error)
 		return "", err
 	}
 	return checkpoint[:len(checkpoint)-len(".json")] + ".progress.json", nil
+}
+
+func (m *Mirror) completePullJournalPath(selectorSHA256 string) (string, error) {
+	checkpoint, err := m.completePullCheckpointPath(selectorSHA256)
+	if err != nil {
+		return "", err
+	}
+	return checkpoint[:len(checkpoint)-len(".json")] + ".journal.json", nil
 }
 
 func validateCompletePullCheckpoint(value CompletePullCheckpoint, expectedSelectorSHA256 string) error {
@@ -92,6 +125,55 @@ func validateCompletePullCheckpoint(value CompletePullCheckpoint, expectedSelect
 			return fmt.Errorf("%w: complete-pull checkpoint contains duplicate identity %q", domain.ErrCheckFailed, id)
 		}
 		seen[id] = struct{}{}
+	}
+	return nil
+}
+
+func validateCompletePullJournalEntry(entry CompletePullJournalEntry) error {
+	state := entry.State
+	if state.ID == "" || len(state.ID) > maxCompletePullIDBytes {
+		return fmt.Errorf("%w: complete-pull journal contains an invalid identity", domain.ErrCheckFailed)
+	}
+	if state.Version <= 0 || !validSHA256(state.Hash) {
+		return fmt.Errorf("%w: complete-pull journal state for %q has an invalid version or hash", domain.ErrCheckFailed, state.ID)
+	}
+	pathForOS := filepath.FromSlash(state.Path)
+	if state.Path == "" || len(state.Path) > maxCompletePullJournalPathBytes || strings.ContainsAny(state.Path, "\\:\x00") || filepath.IsAbs(pathForOS) {
+		return fmt.Errorf("%w: complete-pull journal state for %q has an invalid path", domain.ErrCheckFailed, state.ID)
+	}
+	clean := filepath.ToSlash(filepath.Clean(pathForOS))
+	if clean != state.Path || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || !strings.HasSuffix(clean, ".csf") {
+		return fmt.Errorf("%w: complete-pull journal state for %q has a non-canonical path", domain.ErrCheckFailed, state.ID)
+	}
+	return nil
+}
+
+func validateCompletePullJournal(journal completePullJournal, checkpoint CompletePullCheckpoint) error {
+	if journal.SchemaVersion != completePullJournalSchema {
+		return fmt.Errorf("%w: unsupported complete-pull journal schema %d", domain.ErrCheckFailed, journal.SchemaVersion)
+	}
+	if journal.Service != checkpoint.Service || journal.SelectorSHA256 != checkpoint.SelectorSHA256 || journal.OptionsSHA256 != checkpoint.OptionsSHA256 || journal.SelectionSHA256 != checkpoint.SelectionSHA256 {
+		return fmt.Errorf("%w: complete-pull journal binding does not match its immutable selection", domain.ErrCheckFailed)
+	}
+	if !validCompletePullWriteToken(journal.WriteToken) || !validCompletePullTempName(completePullJournalTemp(journal.WriteToken)) || !validCompletePullTempName(completePullSidecarTemp(journal.WriteToken)) || !validCompletePullTempName(completePullProgressTemp(journal.WriteToken)) {
+		return fmt.Errorf("%w: complete-pull journal write ownership is invalid", domain.ErrCheckFailed)
+	}
+	if len(journal.Entries) == 0 || len(journal.Entries) > maxCompletePullJournalEntries || journal.StartIndex < 0 || journal.StartIndex+len(journal.Entries) > len(checkpoint.IDs) {
+		return fmt.Errorf("%w: complete-pull journal range is outside its bounded selection", domain.ErrCheckFailed)
+	}
+	seen := make(map[string]struct{}, len(journal.Entries))
+	for i, entry := range journal.Entries {
+		if err := validateCompletePullJournalEntry(entry); err != nil {
+			return err
+		}
+		expected := checkpoint.IDs[journal.StartIndex+i]
+		if entry.State.ID != expected {
+			return fmt.Errorf("%w: complete-pull journal contains a gap or unrequested identity at index %d", domain.ErrCheckFailed, journal.StartIndex+i)
+		}
+		if _, duplicate := seen[entry.State.ID]; duplicate {
+			return fmt.Errorf("%w: complete-pull journal contains duplicate identity %q", domain.ErrCheckFailed, entry.State.ID)
+		}
+		seen[entry.State.ID] = struct{}{}
 	}
 	return nil
 }
@@ -149,6 +231,193 @@ func (m *Mirror) loadCompletePullSelection(selectorSHA256 string) (CompletePullC
 		return CompletePullCheckpoint{}, false, fmt.Errorf("%w: complete-pull selection manifest %s contains mutable progress", domain.ErrCheckFailed, path)
 	}
 	return value, true, nil
+}
+
+func (m *Mirror) loadCompletePullJournal(selectorSHA256 string) (completePullJournal, bool, error) {
+	path, err := m.completePullJournalPath(selectorSHA256)
+	if err != nil {
+		return completePullJournal{}, false, err
+	}
+	b, found, err := readCompletePullFile(m.Root, path, maxCompletePullJournalBytes)
+	if err != nil || !found {
+		return completePullJournal{}, found, err
+	}
+	var journal completePullJournal
+	if err := decodeCompletePullJSON(path, b, &journal); err != nil {
+		return completePullJournal{}, false, err
+	}
+	return journal, true, nil
+}
+
+// appendCompletePullJournalOwned durably records one consecutive accepted page.
+// ownerToken must already be present in the surviving publication intent when
+// the journal is first created; later appends inherit the durable journal owner.
+func (m *Mirror) appendCompletePullJournalOwned(checkpoint CompletePullCheckpoint, index int, entry CompletePullJournalEntry, ownerToken string) error {
+	if checkpoint.SchemaVersion == 0 {
+		checkpoint.SchemaVersion = completePullCheckpointSchema
+	}
+	if err := validateCompletePullCheckpoint(checkpoint, checkpoint.SelectorSHA256); err != nil {
+		return err
+	}
+	if index < checkpoint.NextIndex || index >= len(checkpoint.IDs) || checkpoint.IDs[index] != entry.State.ID {
+		return fmt.Errorf("%w: complete-pull journal append is not the next requested identity", domain.ErrCheckFailed)
+	}
+	journal, found, err := m.loadCompletePullJournal(checkpoint.SelectorSHA256)
+	if err != nil {
+		return err
+	}
+	if !found {
+		intent, _, intentFound, err := m.readPublicationIntent(checkpoint.SelectorSHA256, checkpoint, true)
+		if err != nil {
+			return err
+		}
+		if !intentFound || intent.Index != index || intent.WriteToken != ownerToken || !reflect.DeepEqual(intent.Entry, entry) {
+			return fmt.Errorf("%w: first complete-pull journal write has no matching durable publication intent", domain.ErrCheckFailed)
+		}
+		if index != checkpoint.NextIndex {
+			return fmt.Errorf("%w: complete-pull journal must begin at durable checkpoint progress", domain.ErrCheckFailed)
+		}
+		journal = completePullJournal{
+			SchemaVersion: completePullJournalSchema, Service: checkpoint.Service,
+			SelectorSHA256: checkpoint.SelectorSHA256, OptionsSHA256: checkpoint.OptionsSHA256,
+			SelectionSHA256: checkpoint.SelectionSHA256, StartIndex: index,
+			Entries: []CompletePullJournalEntry{}, WriteToken: ownerToken,
+		}
+	} else if err := validateCompletePullJournal(journal, checkpoint); err != nil {
+		return err
+	}
+	if journal.StartIndex+len(journal.Entries) != index {
+		return fmt.Errorf("%w: complete-pull journal append would create a gap or duplicate", domain.ErrCheckFailed)
+	}
+	journal.Entries = append(journal.Entries, entry)
+	if err := validateCompletePullJournal(journal, checkpoint); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(journal, "", "  ")
+	if err != nil {
+		return err
+	}
+	if len(b)+1 > maxCompletePullJournalBytes {
+		return fmt.Errorf("%w: complete-pull journal would exceed %d bytes", domain.ErrCheckFailed, maxCompletePullJournalBytes)
+	}
+	path, err := m.completePullJournalPath(checkpoint.SelectorSHA256)
+	if err != nil {
+		return err
+	}
+	if err := safepath.MkdirAllWithin(m.Root, filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	if err := m.writeCompletePullOwned(path, completePullJournalTemp(journal.WriteToken), append(b, '\n'), 0o600); err != nil {
+		return err
+	}
+	return syncPublicationPath(m.Root, path, defaultCompletePullPublicationOps())
+}
+
+func (m *Mirror) verifyCompletePullJournalArtifacts(journal completePullJournal) error {
+	for _, entry := range journal.Entries {
+		state := entry.State
+		csfPath := filepath.Join(m.Root, filepath.FromSlash(state.Path))
+		body, err := safepath.ReadFileWithin(m.Root, csfPath)
+		if err != nil || Hash(body) != state.Hash {
+			return fmt.Errorf("%w: complete-pull journal native artifact for %q is missing or changed", domain.ErrCheckFailed, state.ID)
+		}
+		metaPath := strings.TrimSuffix(csfPath, ".csf") + ".meta.json"
+		metaBytes, err := safepath.ReadFileWithin(m.Root, metaPath)
+		var meta Meta
+		if err != nil || json.Unmarshal(metaBytes, &meta) != nil || meta.ID != state.ID || meta.Version != state.Version || meta.Hash != state.Hash {
+			return fmt.Errorf("%w: complete-pull journal metadata for %q does not prove the landed state", domain.ErrCheckFailed, state.ID)
+		}
+		base, present, err := m.ReadBaseBody(state.ID)
+		if err != nil || !present || Hash(base) != state.Hash {
+			return fmt.Errorf("%w: complete-pull journal baseline for %q is missing or changed", domain.ErrCheckFailed, state.ID)
+		}
+	}
+	return nil
+}
+
+func (m *Mirror) mergeCompletePullJournal(journal completePullJournal) error {
+	pages := make(map[string]SyncState, len(journal.Entries))
+	views := make(map[string]ViewState, len(journal.Entries))
+	staged := make(map[string]*StagedState, len(journal.Entries))
+	for _, entry := range journal.Entries {
+		pages[entry.State.ID] = entry.State
+		views[entry.State.ID] = entry.View
+		staged[entry.State.ID] = nil
+	}
+	if err := m.mergeSidecarPatchOwned(pages, views, staged, completePullSidecarTemp(journal.WriteToken)); err != nil {
+		return err
+	}
+	return syncPublicationPath(m.Root, m.sidecarPath(), defaultCompletePullPublicationOps())
+}
+
+func (m *Mirror) removeCompletePullJournal(selectorSHA256 string) error {
+	path, err := m.completePullJournalPath(selectorSHA256)
+	if err != nil {
+		return err
+	}
+	if err := safepath.RemoveWithin(m.Root, path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return syncPublicationPath(m.Root, path, defaultCompletePullPublicationOps())
+}
+
+// RecoverCompletePullJournal reconciles the only accepted-but-not-checkpointed
+// prefix before local qualification. Each cross-file step is idempotent:
+// artifact proof, shared sidecar merge, progress advance, then journal retire.
+func (m *Mirror) RecoverCompletePullJournal(selectorSHA256 string, checkpoint CompletePullCheckpoint, checkpointFound bool) (CompletePullCheckpoint, error) {
+	journal, found, err := m.loadCompletePullJournal(selectorSHA256)
+	if err != nil || !found {
+		return checkpoint, err
+	}
+	if !checkpointFound {
+		return checkpoint, fmt.Errorf("%w: orphan complete-pull journal has no immutable selection", domain.ErrCheckFailed)
+	}
+	if checkpoint.SchemaVersion == 0 {
+		checkpoint.SchemaVersion = completePullCheckpointSchema
+	}
+	if err := validateCompletePullCheckpoint(checkpoint, selectorSHA256); err != nil {
+		return checkpoint, err
+	}
+	if err := validateCompletePullJournal(journal, checkpoint); err != nil {
+		return checkpoint, err
+	}
+	end := journal.StartIndex + len(journal.Entries)
+	if checkpoint.NextIndex != journal.StartIndex && checkpoint.NextIndex != end {
+		return checkpoint, fmt.Errorf("%w: complete-pull journal does not begin at or end on durable progress", domain.ErrCheckFailed)
+	}
+	if err := m.verifyCompletePullJournalArtifacts(journal); err != nil {
+		return checkpoint, err
+	}
+	if err := m.mergeCompletePullJournal(journal); err != nil {
+		return checkpoint, err
+	}
+	if checkpoint.NextIndex == journal.StartIndex {
+		checkpoint.NextIndex = end
+		if err := m.SaveCompletePullCheckpoint(checkpoint); err != nil {
+			return checkpoint, err
+		}
+	}
+	if err := m.removeCompletePullJournal(selectorSHA256); err != nil {
+		return checkpoint, err
+	}
+	return checkpoint, nil
+}
+
+// RetireCompletePullJournal removes only a valid journal fully covered by the
+// supplied durable checkpoint. Corrupt, mismatched, or ahead-of-progress state
+// is preserved and fails closed.
+func (m *Mirror) RetireCompletePullJournal(checkpoint CompletePullCheckpoint) error {
+	journal, found, err := m.loadCompletePullJournal(checkpoint.SelectorSHA256)
+	if err != nil || !found {
+		return err
+	}
+	if err := validateCompletePullJournal(journal, checkpoint); err != nil {
+		return err
+	}
+	if journal.StartIndex+len(journal.Entries) != checkpoint.NextIndex {
+		return fmt.Errorf("%w: complete-pull journal is not covered by durable progress", domain.ErrCheckFailed)
+	}
+	return m.removeCompletePullJournal(checkpoint.SelectorSHA256)
 }
 
 // CompletePullCheckpoint loads the active snapshot for one selector. Missing
@@ -211,7 +480,21 @@ func (m *Mirror) SaveCompletePullCheckpoint(value CompletePullCheckpoint) error 
 		return err
 	}
 	selectionChanged := !found || existing.Service != value.Service || existing.OptionsSHA256 != value.OptionsSHA256 || existing.SelectionSHA256 != value.SelectionSHA256 || !reflect.DeepEqual(existing.IDs, value.IDs)
+	publicationFound, publicationErr := m.hasCompletePullPublicationStage(value.SelectorSHA256)
+	if publicationErr != nil {
+		return publicationErr
+	}
+	journal, journalFound, journalErr := m.loadCompletePullJournal(value.SelectorSHA256)
+	if journalErr != nil {
+		return journalErr
+	}
 	if selectionChanged {
+		if publicationFound {
+			return fmt.Errorf("%w: recover the existing complete-pull publication before replacing its immutable selection", domain.ErrCheckFailed)
+		}
+		if journalFound {
+			return fmt.Errorf("%w: recover the existing complete-pull journal before replacing its immutable selection", domain.ErrCheckFailed)
+		}
 		manifest := value
 		manifest.NextIndex = 0
 		b, err := json.MarshalIndent(manifest, "", "  ")
@@ -223,6 +506,17 @@ func (m *Mirror) SaveCompletePullCheckpoint(value CompletePullCheckpoint) error 
 		}
 		if err := safepath.WriteFileWithin(m.Root, path, append(b, '\n'), 0o600); err != nil {
 			return err
+		}
+		if err := syncPublicationPath(m.Root, path, defaultCompletePullPublicationOps()); err != nil {
+			return err
+		}
+	} else if journalFound {
+		if err := validateCompletePullJournal(journal, value); err != nil {
+			return err
+		}
+		journalEnd := journal.StartIndex + len(journal.Entries)
+		if value.NextIndex != journal.StartIndex && value.NextIndex != journalEnd {
+			return fmt.Errorf("%w: complete-pull progress must remain at the journal start or advance to its exact end", domain.ErrCheckFailed)
 		}
 	}
 	progress := completePullProgress{
@@ -237,11 +531,28 @@ func (m *Mirror) SaveCompletePullCheckpoint(value CompletePullCheckpoint) error 
 	if err != nil {
 		return err
 	}
-	return safepath.WriteFileWithin(m.Root, progressPath, append(b, '\n'), 0o600)
+	if journalFound {
+		if err := m.writeCompletePullOwned(progressPath, completePullProgressTemp(journal.WriteToken), append(b, '\n'), 0o600); err != nil {
+			return err
+		}
+	} else if err := safepath.WriteFileWithin(m.Root, progressPath, append(b, '\n'), 0o600); err != nil {
+		return err
+	}
+	return syncPublicationPath(m.Root, progressPath, defaultCompletePullPublicationOps())
 }
 
 // RemoveCompletePullCheckpoint retires a fully consumed selector snapshot.
 func (m *Mirror) RemoveCompletePullCheckpoint(selectorSHA256 string) error {
+	if found, err := m.hasCompletePullPublicationStage(selectorSHA256); err != nil {
+		return err
+	} else if found {
+		return fmt.Errorf("%w: retire the complete-pull publication before removing its checkpoint", domain.ErrCheckFailed)
+	}
+	if _, journalFound, journalErr := m.loadCompletePullJournal(selectorSHA256); journalErr != nil {
+		return journalErr
+	} else if journalFound {
+		return fmt.Errorf("%w: retire the covered complete-pull journal before removing its checkpoint", domain.ErrCheckFailed)
+	}
 	path, err := m.completePullCheckpointPath(selectorSHA256)
 	if err != nil {
 		return err
@@ -256,5 +567,5 @@ func (m *Mirror) RemoveCompletePullCheckpoint(selectorSHA256 string) error {
 	if err := safepath.RemoveWithin(m.Root, progressPath); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return nil
+	return syncPublicationPath(m.Root, progressPath, defaultCompletePullPublicationOps())
 }

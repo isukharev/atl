@@ -321,6 +321,19 @@ func (s *stagedConfluenceAssetSink) Put(name string, data []byte) (string, error
 		s.err = fmt.Errorf("refusing unsafe asset name")
 		return "", s.err
 	}
+	for i := range s.assets {
+		if s.assets[i].name != safe {
+			continue
+		}
+		nextBytes := s.bytes - int64(len(s.assets[i].data)) + int64(len(data))
+		if nextBytes > confluenceStagedAssetBytesMax {
+			s.err = fmt.Errorf("staged page assets exceed %d bytes", confluenceStagedAssetBytesMax)
+			return "", s.err
+		}
+		s.assets[i].data = append([]byte(nil), data...)
+		s.bytes = nextBytes
+		return s.slug + ".assets/" + safe, nil
+	}
 	if int64(len(data)) > confluenceStagedAssetBytesMax-s.bytes {
 		s.err = fmt.Errorf("staged page assets exceed %d bytes", confluenceStagedAssetBytesMax)
 		return "", s.err
@@ -484,22 +497,23 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 	if complete != nil {
 		complete.result.ViewMigrations = 0
 	}
-	// One sidecar load for the whole pull; one save at the end. The deferred
-	// flush persists the pages already written when an error aborts the loop,
-	// so a partial pull is not reported as never-synced (Flush is a no-op after
-	// the explicit success-path call below).
+	// One sidecar load feeds the whole pull. Ordinary/incremental mode saves at
+	// the end; complete mode saves at bounded 25-page journal boundaries. The
+	// deferred flush persists pages already written when an error aborts a
+	// non-complete loop and is a no-op after an explicit successful flush.
 	batch, err := m.BeginSync()
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = batch.Flush() }()
+	if complete == nil {
+		defer func() { _ = batch.Flush() }()
+	}
 	completeFinished := false
 	completeRetireStarted := false
 	commentSelectionIncomplete := false
 	if complete != nil {
-		// Graceful failures durably record every page whose mirror sidecar commit
-		// succeeds. A hard process crash may replay at most the small batch since
-		// the last checkpoint, but can never skip an uncommitted page.
+		// Graceful failures commit the accepted journal prefix in the same order as
+		// a normal 25-page boundary: shared sidecar, progress, journal retirement.
 		defer func() {
 			if completeFinished {
 				return
@@ -508,12 +522,8 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 				retErr = fmt.Errorf("%w; complete-pull completion cleanup was interrupted — rerun the exact command to reconcile private resume state", retErr)
 				return
 			}
-			if err := batch.Flush(); err != nil {
+			if err := complete.commit(m, batch); err != nil {
 				retErr = errors.Join(retErr, fmt.Errorf("save complete-pull mirror progress: %w", err))
-			} else if complete.nextIndex > complete.savedIndex {
-				if err := complete.save(m); err != nil {
-					retErr = errors.Join(retErr, fmt.Errorf("save complete-pull checkpoint: %w", err))
-				}
 			}
 			retErr = fmt.Errorf("%w; complete-pull checkpoint is at %d/%d — rerun the exact command to resume", retErr, complete.savedIndex, complete.result.Total)
 		}()
@@ -646,13 +656,15 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 			qualificationErrs = append(qualificationErrs, revalidateErr)
 			continue
 		}
-		if err := assetStage.publish(m, dir, slug); err != nil {
-			return res, fmt.Errorf("write staged assets %s: %w", id, err)
-		}
-		if _, revalidateErr := revalidateConfluencePullLocal(m, local); revalidateErr != nil {
-			action := PullLocalAction{ID: id, Path: filepath.ToSlash(rel), Status: pullLocalBlocked, Reason: "local_artifacts_changed"}
-			appendPullLocalBlocked(&res.LocalSafety, o.DryRun, action)
-			return res, errors.Join(pullLocalSafetyError("confluence", res.LocalSafety), revalidateErr)
+		if complete == nil {
+			if err := assetStage.publish(m, dir, slug); err != nil {
+				return res, fmt.Errorf("write staged assets %s: %w", id, err)
+			}
+			if _, revalidateErr := revalidateConfluencePullLocal(m, local); revalidateErr != nil {
+				action := PullLocalAction{ID: id, Path: filepath.ToSlash(rel), Status: pullLocalBlocked, Reason: "local_artifacts_changed"}
+				appendPullLocalBlocked(&res.LocalSafety, o.DryRun, action)
+				return res, errors.Join(pullLocalSafetyError("confluence", res.LocalSafety), revalidateErr)
+			}
 		}
 		if local != nil && local.dirty {
 			if o.StashLocal {
@@ -667,24 +679,72 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 				pageStatus = pullLocalOverwritten
 			}
 		}
-		if o.Comments {
-			if err := batch.WriteConfluenceComments(dir, slug, page, refs, *commentSidecar, comments, commentsTruncated, mdOpts); err != nil {
+		viewState := viewStateOf(rs)
+		completeEligible := !o.Comments || (commentInventory.CommentsComplete && commentInventory.ThreadsComplete)
+		if complete != nil {
+			var state mirror.SyncState
+			var artifacts []mirror.CompletePullArtifact
+			if o.Comments {
+				state, artifacts, err = m.PrepareCompletePullConfluenceComments(dir, slug, page, refs, *commentSidecar, comments, commentsTruncated, mdOpts)
+			} else {
+				state, artifacts, err = m.PrepareCompletePullView(dir, slug, page, refs, mdOpts)
+			}
+			if err != nil {
+				return res, fmt.Errorf("prepare complete-pull page %s: %w", id, err)
+			}
+			for _, asset := range assetStage.assets {
+				assetPath := filepath.Join(dir, slug+".assets", asset.name)
+				assetRel, relErr := filepath.Rel(root, assetPath)
+				if relErr != nil {
+					return res, fmt.Errorf("prepare staged asset %s: %w", id, relErr)
+				}
+				artifacts = append(artifacts, mirror.CompletePullArtifact{Path: filepath.ToSlash(assetRel), Data: asset.data, Mode: 0o644})
+			}
+			macroPath := confluenceJiraMacroPath(dir, slug)
+			macroRel, relErr := filepath.Rel(root, macroPath)
+			if relErr != nil {
+				return res, fmt.Errorf("prepare Jira macro sidecar %s: %w", id, relErr)
+			}
+			if jiraMacros == nil {
+				artifacts = append(artifacts, mirror.CompletePullArtifact{Path: filepath.ToSlash(macroRel), Remove: true})
+			} else {
+				macroBytes, encodeErr := encodeConfluenceJiraMacroSidecar(jiraMacros)
+				if encodeErr != nil {
+					return res, fmt.Errorf("prepare Jira macro sidecar %s: %w", id, encodeErr)
+				}
+				artifacts = append(artifacts, mirror.CompletePullArtifact{Path: filepath.ToSlash(macroRel), Data: macroBytes, Mode: 0o600})
+			}
+			entry := mirror.CompletePullJournalEntry{State: state, View: viewState}
+			if err := m.PrepareCompletePullPublication(complete.checkpoint, complete.nextIndex, entry, completeEligible, artifacts, relocation); err != nil {
+				return res, fmt.Errorf("stage complete-pull page %s: %w", id, err)
+			}
+			if err := m.RecoverCompletePullPublication(complete.checkpoint.SelectorSHA256, complete.checkpoint, true); err != nil {
+				return res, fmt.Errorf("publish complete-pull page %s: %w", id, err)
+			}
+			if completeEligible {
+				batch.Record(state)
+				batch.RecordView(page.ID, viewState)
+			}
+		} else {
+			if o.Comments {
+				if err := batch.WriteConfluenceComments(dir, slug, page, refs, *commentSidecar, comments, commentsTruncated, mdOpts); err != nil {
+					return res, fmt.Errorf("write %s: %w", id, err)
+				}
+			} else if err := batch.WriteView(dir, slug, page, refs, mdOpts); err != nil {
 				return res, fmt.Errorf("write %s: %w", id, err)
 			}
-		} else if err := batch.WriteView(dir, slug, page, refs, mdOpts); err != nil {
-			return res, fmt.Errorf("write %s: %w", id, err)
+			if err := writeConfluenceJiraMacroSidecar(root, dir, slug, jiraMacros); err != nil {
+				return res, fmt.Errorf("write Jira macro sidecar %s: %w", id, err)
+			}
+			// Record the render settings this .md view was written with so `conf
+			// apply` can reproduce the exact pristine view (metadata + comments
+			// stay read-only) instead of guessing from the ambient config.
+			batch.RecordView(page.ID, viewState)
 		}
 		if pageStatus != "" {
 			setPullLocalActionResult(res.LocalSafety, id, pageStatus, pendingStashPath)
 		}
-		if err := writeConfluenceJiraMacroSidecar(root, dir, slug, jiraMacros); err != nil {
-			return res, fmt.Errorf("write Jira macro sidecar %s: %w", id, err)
-		}
-		// Record the render settings this .md view was written with so `conf
-		// apply` can reproduce the exact pristine view (metadata + comments
-		// stay read-only) instead of guessing from the ambient config.
-		batch.RecordView(page.ID, viewStateOf(rs))
-		if relocation != nil {
+		if complete == nil && relocation != nil {
 			// Publish the new canonical state before retiring the old exact page
 			// artifacts. A crash can therefore leave only an untracked stale copy,
 			// never a sidecar that calls the stale path current.
@@ -716,26 +776,21 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 			}
 		}
 		if complete != nil {
-			if o.Comments && (!commentInventory.CommentsComplete || !commentInventory.ThreadsComplete) {
+			if !completeEligible {
 				return res, fmt.Errorf("%w: complete-pull comments for page %s were not fully qualified; checkpoint remains before this page", domain.ErrCheckFailed, id)
 			}
 			complete.advance()
-			// Publish the page's sync/view state before leaving its iteration.
-			// The durable checkpoint may intentionally lag, but a hard-crash replay
-			// must see the landed artifacts as tracked-clean rather than as an
-			// unqualified target that blocks resume.
-			if err := batch.Flush(); err != nil {
-				return res, err
-			}
 			if complete.shouldCheckpoint() {
-				if err := complete.save(m); err != nil {
+				if err := complete.commit(m, batch); err != nil {
 					return res, err
 				}
 			}
 		}
 	}
-	if err := batch.Flush(); err != nil {
-		return res, err
+	if complete == nil {
+		if err := batch.Flush(); err != nil {
+			return res, err
+		}
 	}
 	if incremental != nil {
 		if len(qualificationErrs) > 0 {
@@ -756,7 +811,7 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 		if complete.nextIndex != len(complete.checkpoint.IDs) {
 			return res, fmt.Errorf("%w: complete-pull progress ended before the exact selection was consumed", domain.ErrCheckFailed)
 		}
-		if err := complete.save(m); err != nil {
+		if err := complete.commit(m, batch); err != nil {
 			return res, err
 		}
 		completeRetireStarted = true

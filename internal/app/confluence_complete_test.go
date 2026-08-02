@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -19,6 +21,7 @@ type completePullStore struct {
 	queries                     []string
 	getIDs                      []string
 	bodyBeforeSelectionComplete bool
+	onGet                       func(string)
 }
 
 type qualifiedCompletePullStore struct {
@@ -49,11 +52,64 @@ func (s *completePullStore) SearchComplete(_ context.Context, query string, _ in
 }
 
 func (s *completePullStore) GetPage(ctx context.Context, id string, opts domain.PullOpts) (*domain.Resource, error) {
+	if s.onGet != nil {
+		s.onGet(id)
+	}
 	if len(s.searchSequence) > 0 {
 		s.bodyBeforeSelectionComplete = true
 	}
 	s.getIDs = append(s.getIDs, id)
 	return s.pullStore.GetPage(ctx, id, opts)
+}
+
+func seedCompletePullJournal(t *testing.T, root string, opts PullOpts, ids []string, accepted string) {
+	t.Helper()
+	m := mirror.New(root)
+	if err := m.EnsureScaffold(); err != nil {
+		t.Fatal(err)
+	}
+	bindConfluenceTestMirror(t, root)
+	rs, _ := ResolveRender(nil, root, opts.Render, "confluence")
+	optionsSHA256, err := completePullOptionsHash(nil, opts, rs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selectionSHA256, err := confluenceCompleteHashJSON(ids)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint := mirror.CompletePullCheckpoint{
+		Service: confluenceCompletePullService, SelectorSHA256: selectorHash(opts.CQL),
+		OptionsSHA256: optionsSHA256, SelectionSHA256: selectionSHA256, IDs: append([]string(nil), ids...),
+	}
+	if err := m.SaveCompletePullCheckpoint(checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	batch, err := m.BeginSync()
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := completeTestPage(accepted)
+	dir, slug, err := m.ClaimPageDir(page.SpaceKey, nil, page.Title, page.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := batch.WriteView(dir, slug, page, nil, mirror.MDViewOpts{}); err != nil {
+		t.Fatal(err)
+	}
+	path, err := filepath.Rel(root, filepath.Join(dir, slug+".csf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := mirror.SyncState{ID: page.ID, Version: page.Version, Hash: mirror.Hash(page.Body), Path: filepath.ToSlash(path)}
+	entry := mirror.CompletePullJournalEntry{State: state, View: viewStateOf(rs)}
+	if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, []mirror.CompletePullArtifact{{Path: state.Path, Data: page.Body, Mode: 0o644}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RecoverCompletePullPublication(checkpoint.SelectorSHA256, checkpoint, true); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a hard crash: discard the batch without flushing state.json.
 }
 
 func completeTestPage(id string) *domain.Resource {
@@ -92,6 +148,28 @@ func TestCompletePullQualifiesCanonicalSelectionBeforeBodies(t *testing.T) {
 	}
 }
 
+func TestCompletePullExactBatchSizeFinalizationIsIdempotent(t *testing.T) {
+	root := t.TempDir()
+	ids := make([]string, confluenceCompletePullBatch)
+	pages := make(map[string]*domain.Resource, len(ids))
+	for i := range ids {
+		ids[i] = fmt.Sprintf("%03d", i+1)
+		pages[ids[i]] = completeTestPage(ids[i])
+	}
+	selection := completeSearchPage(ids...)
+	store := &completePullStore{
+		pullStore:      &pullStore{pages: pages},
+		searchSequence: []domain.PageSearchPage{selection, selection},
+	}
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{CQL: "space = DOC", Into: root, Complete: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Complete == nil || !result.Complete.Complete || result.Complete.Completed != len(ids) || result.Complete.CheckpointActive {
+		t.Fatalf("complete result=%+v", result.Complete)
+	}
+}
+
 func TestCompletePullResumesDurablePrefixWithoutSearchOrRefetch(t *testing.T) {
 	root := t.TempDir()
 	store := &completePullStore{
@@ -122,6 +200,108 @@ func TestCompletePullResumesDurablePrefixWithoutSearchOrRefetch(t *testing.T) {
 	}
 	if result.Complete.Source != "resumed" || len(result.Pages) != 1 || result.Pages[0].ID != "30" || !reflect.DeepEqual(store.getIDs, []string{"30"}) || len(store.queries) != 0 {
 		t.Fatalf("result=%+v pages=%+v queries=%v getIDs=%v", result.Complete, result.Pages, store.queries, store.getIDs)
+	}
+}
+
+func TestCompletePullRecoversJournalBeforeQualificationWithoutSearchOrRefetch(t *testing.T) {
+	root := t.TempDir()
+	opts := PullOpts{CQL: "space = DOC", Into: root, Complete: true}
+	seedCompletePullJournal(t, root, opts, []string{"10", "20"}, "10")
+	store := &completePullStore{pullStore: &pullStore{pages: map[string]*domain.Resource{"20": completeTestPage("20")}}}
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Complete == nil || result.Complete.Source != "resumed" || !result.Complete.Complete || result.Complete.Completed != 2 || !reflect.DeepEqual(store.getIDs, []string{"20"}) || len(store.queries) != 0 {
+		t.Fatalf("complete=%+v queries=%v getIDs=%v", result.Complete, store.queries, store.getIDs)
+	}
+}
+
+func TestCompletePullRecoversStagedPublicationBeforeQualificationWithoutSearchOrRefetch(t *testing.T) {
+	root := t.TempDir()
+	opts := PullOpts{CQL: "space = DOC", Into: root, Complete: true}
+	m := mirror.New(root)
+	if err := m.EnsureScaffold(); err != nil {
+		t.Fatal(err)
+	}
+	bindConfluenceTestMirror(t, root)
+	rs, _ := ResolveRender(nil, root, opts.Render, "confluence")
+	optionsSHA256, err := completePullOptionsHash(nil, opts, rs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := []string{"10", "20"}
+	selectionSHA256, err := confluenceCompleteHashJSON(ids)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint := mirror.CompletePullCheckpoint{
+		Service: confluenceCompletePullService, SelectorSHA256: selectorHash(opts.CQL),
+		OptionsSHA256: optionsSHA256, SelectionSHA256: selectionSHA256, IDs: ids,
+	}
+	if err := m.SaveCompletePullCheckpoint(checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	page := completeTestPage("10")
+	dir, slug, err := m.ClaimPageDir(page.SpaceKey, nil, page.Title, page.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, artifacts, err := m.PrepareCompletePullView(dir, slug, page, nil, mirror.MDViewOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	macroRel, err := filepath.Rel(root, confluenceJiraMacroPath(dir, slug))
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifacts = append(artifacts, mirror.CompletePullArtifact{Path: filepath.ToSlash(macroRel), Remove: true})
+	entry := mirror.CompletePullJournalEntry{State: state, View: viewStateOf(rs)}
+	if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, artifacts, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	store := &completePullStore{pullStore: &pullStore{pages: map[string]*domain.Resource{"20": completeTestPage("20")}}}
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Complete == nil || result.Complete.Source != "resumed" || !result.Complete.Complete || !reflect.DeepEqual(store.getIDs, []string{"20"}) || len(store.queries) != 0 {
+		t.Fatalf("complete=%+v queries=%v getIDs=%v", result.Complete, store.queries, store.getIDs)
+	}
+}
+
+func TestCompletePullFlushesSharedStateOnlyAtBoundedBatchBoundary(t *testing.T) {
+	root := t.TempDir()
+	ids := make([]string, confluenceCompletePullBatch+1)
+	pages := make(map[string]*domain.Resource, len(ids))
+	for i := range ids {
+		ids[i] = fmt.Sprintf("%03d", i+1)
+		pages[ids[i]] = completeTestPage(ids[i])
+	}
+	m := mirror.New(root)
+	getCount := 0
+	store := &completePullStore{
+		pullStore:      &pullStore{pages: pages},
+		searchSequence: []domain.PageSearchPage{completeSearchPage(ids...), completeSearchPage(ids...)},
+		onGet: func(_ string) {
+			getCount++
+			states, err := m.SyncStates()
+			switch {
+			case getCount <= confluenceCompletePullBatch && err == nil && len(states) != 0:
+				t.Errorf("state flushed before batch boundary at body %d: %d entries", getCount, len(states))
+			case getCount == confluenceCompletePullBatch+1 && (err != nil || len(states) != confluenceCompletePullBatch):
+				t.Errorf("boundary state entries=%d err=%v", len(states), err)
+			}
+		},
+	}
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{CQL: "space = DOC", Into: root, Complete: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	states, err := m.SyncStates()
+	if err != nil || len(states) != len(ids) || result.Complete == nil || !result.Complete.Complete {
+		t.Fatalf("states=%d complete=%+v err=%v", len(states), result.Complete, err)
 	}
 }
 
@@ -276,6 +456,43 @@ func TestCompletePullTruncatedCommentsDoNotAdvanceCheckpoint(t *testing.T) {
 	checkpoint, ok, loadErr := mirror.New(root).CompletePullCheckpoint(selectorHash("space = DOC"))
 	if loadErr != nil || !ok || checkpoint.NextIndex != 0 {
 		t.Fatalf("checkpoint=%+v ok=%v err=%v", checkpoint, ok, loadErr)
+	}
+	journalPath := filepath.Join(root, ".atl", "complete-pulls", selectorHash("space = DOC")+".journal.json")
+	if _, statErr := os.Stat(journalPath); !os.IsNotExist(statErr) {
+		t.Fatalf("incomplete comments left journal: %v", statErr)
+	}
+}
+
+func TestCompletePullRelocationCapturesJournalStateBeforeRequiredFlush(t *testing.T) {
+	root := t.TempDir()
+	m := mirror.New(root)
+	old := &domain.Resource{ID: "10", Type: "page", Title: "Old title", SpaceKey: "DOC", Version: 1, Body: []byte("<p>old</p>")}
+	dir, slug := m.PageDir(old.SpaceKey, nil, old.Title)
+	if err := m.Write(dir, slug, old, nil); err != nil {
+		t.Fatal(err)
+	}
+	bindConfluenceTestMirror(t, root)
+	updated := completeTestPage("10")
+	updated.Title = "New title"
+	updated.Version = 2
+	store := &completePullStore{
+		pullStore: &pullStore{
+			pages:   map[string]*domain.Resource{"10": updated, "20": completeTestPage("20")},
+			getErrs: map[string]error{"20": domain.ErrForbidden},
+		},
+		searchSequence: []domain.PageSearchPage{completeSearchPage("10", "20"), completeSearchPage("10", "20")},
+	}
+	_, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), PullOpts{CQL: "space = DOC", Into: root, Complete: true})
+	if !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("pull error=%v", err)
+	}
+	checkpoint, ok, loadErr := m.CompletePullCheckpoint(selectorHash("space = DOC"))
+	if loadErr != nil || !ok || checkpoint.NextIndex != 1 {
+		t.Fatalf("checkpoint=%+v ok=%t err=%v", checkpoint, ok, loadErr)
+	}
+	state, ok, stateErr := m.SyncStateOf("10")
+	if stateErr != nil || !ok || !strings.Contains(filepath.ToSlash(state.Path), "new-title") {
+		t.Fatalf("state=%+v ok=%t err=%v", state, ok, stateErr)
 	}
 }
 

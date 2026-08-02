@@ -1479,13 +1479,18 @@ checkpoint. Before the first body GET for a new/restarted snapshot, two
 complete metadata passes must produce the same unique id set and the remaining
 local artifacts must pass overwrite preflight. Under the mode-0600
 `.atl/complete-pulls/` state, immutable `<selector-sha256>.json` stores only
-schema/service hashes and canonical ids; a small
-`<selector-sha256>.progress.json` stores the matching hashes and `next_index`.
-Neither contains credentials, URL, title, or body, and progress writes do not
-rewrite the large manifest. Pull-affecting options are hash-bound. Graceful
-failures flush mirror state before advancing `next_index`; a hard crash may
-replay the current 25-page batch but cannot skip an uncommitted page. Both are removed
-only after every selected page and the final mirror sidecar are durable.
+schema/service hashes and canonical ids; a small progress file stores the
+matching hashes and `next_index`; a bounded journal records accepted pages; and
+one private publication directory may retain an exact page payload until all
+of its canonical artifacts are durable. Control files contain no credentials,
+backend URL, title, or body. Pull-affecting options are hash-bound. A surviving
+publication intent or journal owns every exact destination-side atomic temp
+name before that temp can exist. Recovery removes only the exact declared,
+bounded regular residue, accepts only exact pre/post images, and preserves
+unexpected evidence with exit `8`. Accepted journal entries are reconciled to
+the sidecar and progress before journal retirement, so a hard crash neither
+repeats their body GETs nor skips an uncommitted page. All state is removed only
+after every selected page and the final mirror sidecar are durable.
 `view_migrations` is present only when supported pristine legacy views were
 recognized during preflight. No missing page or retired checkpoint proves a
 remote deletion.
