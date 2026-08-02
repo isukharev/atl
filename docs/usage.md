@@ -2716,21 +2716,31 @@ atl conf page open --id 12345678
 ### `atl conf page copy`
 
 Client-side copy that preserves the native CSF bytes verbatim (no Markdown
-round-trip). Reads the source page and creates a new one with the same body.
+round-trip). It is dry-run by default.
 
 ```
 atl conf page copy --id 12345678 --title 'Copy of Design Doc' [--space ENG] [--parent 999]
 atl conf page copy --id 12345678 --title 'Tracked copy' \
   --register --into ./mirror
+atl conf page copy --id 12345678 --title 'Tracked copy' \
+  --register --into ./mirror --apply \
+  --expected-version 7 --expected-proposal-hash '<preview hash>'
 ```
 
 `--register` and a non-empty `--into ROOT` must be supplied together. Omit both
-for the legacy remote-only copy. Registration uses one authoritative readback of
-the new page, never the source body or create response, and commits mirror state
-last after the exact local artifact set is verified. A known-created but
-unregistered copy is still emitted on stdout and exits 8; never replay `page
-copy`. Recover the returned page id with a narrow
-`atl conf pull --id <new-id> --into ROOT`.
+for a remote-only copy. Preview performs exact `status=current` reads and binds
+the backend, complete source state, resolved destination, optional parent state,
+and canonical registration-root digest into `proposal_hash`; it performs no POST
+or local write. Apply requires the previewed source version and hash, repeats the
+exact source/parent reads immediately before one POST, and never retries or
+searches by title. Only an exact version-1 current readback with the reviewed
+native bytes/title/space/parent proves `applied` or `recovered`.
+
+Registration consumes that same authoritative readback and commits mirror state
+last. A known-created but unregistered copy emits the page id and exits 8. Any
+`outcome_unknown` must not be replayed; if an id was emitted, preserve it and use
+a narrow `atl conf pull --id <new-id> --into ROOT`. `-o id` is apply-only because
+preview has no created identifier.
 
 ### `atl conf attachment {list,get,upload,delete}`
 

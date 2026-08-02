@@ -617,6 +617,16 @@ version promise; additional community versions require a reviewed compiled
 profile and their own evidence. Mutation commands remain JSON-only CLI routes
 and are never exposed through the read-only MCP server.
 
+### Guarded page copy boundary
+
+Page copy is a preview/apply create boundary. A canonical proposal binds the
+backend identity, complete exact-current source state, resolved target and
+optional target-parent state, and optional mirror-registration root identity.
+Apply revalidates all remote inputs immediately before one non-replayed POST.
+Success requires one exact current readback with version 1 and byte-identical
+native body; registration consumes that same readback and commits state last.
+There is no title-search reconciliation because titles are not idempotency keys.
+
 ### Guarded page trash boundary
 
 Page trashing is a separate destructive boundary. The CLI is preview-first and

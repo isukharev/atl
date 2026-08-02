@@ -252,23 +252,31 @@ preview. Remote status/snapshot/push/reconcile/plan для зеркала отк
 при Confluence pull требует отдельной привязки Jira.
 
 По умолчанию create-команды создают объект только на backend. Регистрация в
-зеркале включается явно только парой `--register` и `--into`:
+зеркале включается явно только парой `--register` и `--into`. Копирование
+страницы сначала выполняет preview и использует ту же опциональную регистрацию:
 
 ```sh
 atl conf page create --space EXAMPLE --title "Новая страница" --from-md body.md \
   --register --into "$ATL_MIRROR_ROOT"
 atl conf page copy --id 123456 --title "Копия страницы" \
   --register --into "$ATL_MIRROR_ROOT"
+atl conf page copy --id 123456 --title "Копия страницы" \
+  --register --into "$ATL_MIRROR_ROOT" --apply \
+  --expected-version 7 --expected-proposal-hash '<хеш из preview>'
 atl jira issue create --project EXAMPLE --type Task --summary "Новая задача" \
   --register --into "$ATL_MIRROR_ROOT"
 ```
 
-Регистрация делает одно authoritative post-write readback и записывает именно
-эти удалённые байты как native/base/view зеркало; sync state фиксируется
-последним. Если remote create завершился успешно, а локальная регистрация — нет,
-stdout всё равно содержит id страницы или key задачи, а команда завершается с
-кодом `8`. Никогда не повторяйте create/copy: сохраните локальные файлы и
-восстановите один объект через `conf pull --id ... --into ...` либо
+Preview копирования связывает backend, точные байты/версию/иерархию исходной
+страницы, title/space/parent назначения и identity корня регистрации. Apply ещё
+раз проверяет source и parent перед одним неповторяемым POST и требует точный
+readback новой страницы с version 1. Регистрация использует этот же readback;
+остальные registered create делают одно authoritative post-write readback и
+записывают именно эти удалённые байты как native/base/view зеркало; sync state
+фиксируется последним. Если remote create завершился успешно, а локальная
+регистрация — нет, stdout всё равно содержит id страницы или key задачи, а
+команда завершается с кодом `8`. Никогда не повторяйте create/copy: сохраните
+локальные файлы и восстановите один объект через `conf pull --id ... --into ...` либо
 `jira pull --jql 'key = ...' --limit 1 --into ...`.
 
 ### 3. Проверяемая запись

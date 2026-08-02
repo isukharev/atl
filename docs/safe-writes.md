@@ -103,6 +103,23 @@ reply, or state transition and, for create, only one server-owned marker wrapper
 in native page storage. Accept only reconciled `applied` or `recovered`; never
 replay `outcome_unknown`. The surface is CLI-only and absent from MCP.
 
+## Confluence: reviewed page copy
+
+Page copy is a non-idempotent create and is dry-run by default:
+
+```sh
+atl conf page copy --id 123456 --title 'Copied page'
+atl conf page copy --id 123456 --title 'Copied page' --apply \
+  --expected-version 7 --expected-proposal-hash '<preview hash>'
+```
+
+The proposal binds the backend, exact current source bytes/version/hierarchy,
+resolved target title/space/parent and parent state, plus optional registration
+intent and canonical root identity. Apply repeats exact source/parent reads,
+sends one POST without redirects or transport retries, and requires an exact
+current version-1 readback. It never searches by title. Treat
+`outcome_unknown` as terminal evidence to investigate, not permission to replay.
+
 ## Confluence: reviewed page trash
 
 Page deletion means moving one current page to the Confluence trash. Preview is

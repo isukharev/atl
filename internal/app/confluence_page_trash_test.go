@@ -197,6 +197,7 @@ func TestValidateConfluencePageTrashReadFailsClosed(t *testing.T) {
 	tests := map[string]func(*domain.Resource) *domain.Resource{
 		"nil":               func(*domain.Resource) *domain.Resource { return nil },
 		"id":                func(v *domain.Resource) *domain.Resource { v.ID = "43"; return v },
+		"non-numeric id":    func(v *domain.Resource) *domain.Resource { v.ID = "page"; return v },
 		"type":              func(v *domain.Resource) *domain.Resource { v.Type = "blogpost"; return v },
 		"status":            func(v *domain.Resource) *domain.Resource { v.Status = "trashed"; return v },
 		"version":           func(v *domain.Resource) *domain.Resource { v.Version = 0; return v },
@@ -206,6 +207,7 @@ func TestValidateConfluencePageTrashReadFailsClosed(t *testing.T) {
 		"ancestors omitted": func(v *domain.Resource) *domain.Resource { v.AncestorsPresent = false; return v },
 		"ancestor mismatch": func(v *domain.Resource) *domain.Resource { v.AncestorIDs = nil; return v },
 		"empty ancestor id": func(v *domain.Resource) *domain.Resource { v.AncestorIDs[0] = ""; return v },
+		"invalid ancestor":  func(v *domain.Resource) *domain.Resource { v.AncestorIDs[0] = "home"; return v },
 		"parent mismatch":   func(v *domain.Resource) *domain.Resource { v.Parent = "11"; return v },
 		"top level parent": func(v *domain.Resource) *domain.Resource {
 			v.Ancestors = nil
@@ -219,7 +221,7 @@ func TestValidateConfluencePageTrashReadFailsClosed(t *testing.T) {
 			page := *valid
 			page.Ancestors = append([]string(nil), valid.Ancestors...)
 			page.AncestorIDs = append([]string(nil), valid.AncestorIDs...)
-			if err := validateConfluencePageTrashRead(mutate(&page), "42", "current"); !errors.Is(err, domain.ErrCheckFailed) {
+			if err := validateExactConfluencePageRead(mutate(&page), "42", "current"); !errors.Is(err, domain.ErrCheckFailed) {
 				t.Fatalf("error = %v, want ErrCheckFailed", err)
 			}
 		})

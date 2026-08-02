@@ -226,6 +226,12 @@ write command after explicit approval.
   --expected-proposal-hash <reviewed-hash>`. Accept only reconciled `applied` or
   `recovered`; never replay `outcome_unknown`. This surface remains absent from
   MCP.
+- Guarded page copy: run `conf page copy --id <id> --title <title>` as a GET-only
+  preview, then pass its exact source version and proposal hash with `--apply`.
+  Optional `--register --into <ROOT>` is proposal-bound. Apply revalidates the
+  source and destination parent, sends one POST, requires an exact version-1
+  readback, and never retries or searches by title. Treat `outcome_unknown` as
+  terminal evidence; `-o id` is apply-only.
 - Guarded page trash: run `conf page delete --id <id>` as a GET-only preview,
   review its version and proposal hash, then apply once with `--apply`,
   `--confirm TRASH`, `--expected-version <version>`, and
@@ -325,9 +331,9 @@ or discard the output, and do not publish until the baseline is repaired.
 
 ## Common mutation invariants
 
-- Use `conf page create|copy --register --into <ROOT>` only when the newly
-  created page must immediately join that exact mirror. Omit both flags for
-  legacy remote-only creation. Registration uses one authoritative readback,
+- Use `conf page create --register --into <ROOT>` or guarded `conf page copy
+  --register --into <ROOT>` only when the newly created page must immediately
+  join that exact mirror. Registration uses one authoritative readback,
   never the submitted/source body as baseline, and commits sync state last. If
   stdout identifies a created page but registration exits 8, never replay
   create/copy; preserve local files and recover that id with

@@ -125,7 +125,7 @@ remote-direct conf blog create
 preview-apply conf comment add
 dedicated-apply conf comment mutation apply
 local-direct conf edit
-remote-direct conf page copy
+preview-apply conf page copy
 remote-direct conf page create
 preview-apply conf page delete
 preview-apply conf page labels add

@@ -231,7 +231,7 @@ func (s *ConfluenceService) confluencePageTrashSnapshot(ctx context.Context, id 
 			return confluencePageTrashSnapshot{}, err
 		}
 	}
-	if err := validateConfluencePageTrashRead(page, id, status); err != nil {
+	if err := validateExactConfluencePageRead(page, id, status); err != nil {
 		return confluencePageTrashSnapshot{}, err
 	}
 	titleSum := sha256.Sum256([]byte(page.Title))
@@ -243,8 +243,8 @@ func (s *ConfluenceService) confluencePageTrashSnapshot(ctx context.Context, id 
 	}, nil
 }
 
-func validateConfluencePageTrashRead(page *domain.Resource, id, status string) error {
-	if page == nil || page.ID != id || page.Type != "page" || page.Status != status || page.Version <= 0 || !page.BodyPresent {
+func validateExactConfluencePageRead(page *domain.Resource, id, status string) error {
+	if page == nil || !canonicalConfluenceContentID(id) || page.ID != id || !canonicalConfluenceContentID(page.ID) || page.Type != "page" || page.Status != status || page.Version <= 0 || !page.BodyPresent {
 		return fmt.Errorf("%w: exact %s page read omitted required identity, type, status, version, or native body", domain.ErrCheckFailed, status)
 	}
 	if strings.TrimSpace(page.Title) == "" || strings.TrimSpace(page.SpaceKey) == "" {
@@ -254,7 +254,7 @@ func validateConfluencePageTrashRead(page *domain.Resource, id, status string) e
 		return fmt.Errorf("%w: exact %s page read omitted ancestor identity", domain.ErrCheckFailed, status)
 	}
 	for _, ancestorID := range page.AncestorIDs {
-		if strings.TrimSpace(ancestorID) == "" {
+		if !canonicalConfluenceContentID(ancestorID) {
 			return fmt.Errorf("%w: exact %s page read contains an empty ancestor identity", domain.ErrCheckFailed, status)
 		}
 	}
