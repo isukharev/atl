@@ -114,6 +114,8 @@ The default list is schema v2 and reads footer, inline, and resolved comments
 through separate bounded page-scoped queries. Inspect `comments_complete`,
 `threads_complete`, `anchors_complete`, `partial_reasons`, and each comment's
 independent `relation`, `location`, `resolution`, and nullable `anchor.status`.
+An explicit backend `reopened` state is normalized to semantic `open`; any
+other unrecognized state remains `unknown` and partial.
 Anchor evidence belongs to the root discussion; a proven reply has a null
 anchor and is qualified by explicit ancestry. An empty array proves absence
 only when `complete:true`. Use `--expected-version` with a

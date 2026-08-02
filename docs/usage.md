@@ -2563,7 +2563,9 @@ separate bounded page-scoped reads for footer, inline, and resolved comments at
 all thread depths, then joins inline metadata to exact markers in the page's
 native CSF. Location, resolution, root/reply relation, and anchor status remain
 independent; missing backend evidence becomes `unknown` or a partial reason,
-never an inferred value.
+never an inferred value. An explicit backend `reopened` state is the semantic
+open state and is emitted as `resolution:"open"`; unrecognized states remain
+fail-closed as `unknown`.
 
 ```sh
 atl conf comment list --id 12345678

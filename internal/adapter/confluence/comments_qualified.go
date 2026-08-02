@@ -459,7 +459,8 @@ func (b *commentInventoryBuilder) mapComment(pageID string, querySelector domain
 	} else {
 		record.Location = location
 	}
-	if resolution, resolutionOK := decodeCommentResolution(raw.Extensions["resolution"]); resolutionOK {
+	resolution, resolutionPresent, resolutionOK := decodeCommentResolution(raw.Extensions["resolution"])
+	if resolutionOK {
 		if impliedResolution != "" && resolution != impliedResolution {
 			record.Resolution = domain.ConfluenceCommentResolutionUnknown
 			b.partial(domain.ConfluenceCommentPartialResolutionUnavailable, raw.ID, querySelector, true, false)
@@ -468,6 +469,10 @@ func (b *commentInventoryBuilder) mapComment(pageID string, querySelector domain
 			record.Resolution = resolution
 			b.inventory.Capabilities.Resolution = domain.ConfluenceCapabilityObserved
 		}
+	} else if resolutionPresent {
+		record.Resolution = domain.ConfluenceCommentResolutionUnknown
+		b.partial(domain.ConfluenceCommentPartialResolutionUnavailable, raw.ID, querySelector, true, false)
+		b.inventory.Capabilities.Resolution = domain.ConfluenceCapabilityUnknown
 	} else if impliedResolution != "" {
 		// A literal backend location of "resolved" is exact response evidence
 		// for a resolved inline discussion, not an inference from the query selector.
@@ -566,16 +571,23 @@ func decodeCommentLocation(raw json.RawMessage) (domain.ConfluenceCommentLocatio
 	return domain.ConfluenceCommentLocationUnknown, "", "", false
 }
 
-func decodeCommentResolution(raw json.RawMessage) (domain.ConfluenceCommentResolution, bool) {
+func decodeCommentResolution(raw json.RawMessage) (domain.ConfluenceCommentResolution, bool, bool) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return domain.ConfluenceCommentResolutionUnknown, false, false
+	}
 	var value commentResolutionJSON
-	if !decodeCommentExtension(raw, &value) {
-		return domain.ConfluenceCommentResolutionUnknown, false
+	if bytes.Equal(trimmed, []byte("null")) || json.Unmarshal(trimmed, &value) != nil {
+		return domain.ConfluenceCommentResolutionUnknown, true, false
 	}
-	resolution := domain.ConfluenceCommentResolution(value.Status)
-	if resolution == domain.ConfluenceCommentResolutionUnknown || !domain.ValidConfluenceCommentResolution(resolution) {
-		return domain.ConfluenceCommentResolutionUnknown, false
+	switch value.Status {
+	case string(domain.ConfluenceCommentResolutionOpen), "reopened":
+		return domain.ConfluenceCommentResolutionOpen, true, true
+	case string(domain.ConfluenceCommentResolutionResolved):
+		return domain.ConfluenceCommentResolutionResolved, true, true
+	default:
+		return domain.ConfluenceCommentResolutionUnknown, true, false
 	}
-	return resolution, true
 }
 
 func decodeInlineProperties(raw json.RawMessage) (commentInlinePropertiesJSON, bool) {

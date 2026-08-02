@@ -1216,7 +1216,9 @@ version/timestamps, and a nullable anchor. Anchor status is
 kept separately. Inline anchors belong to root discussions; proven replies have
 a null anchor and remain qualified by their explicit ancestry. A backend
 `resolved` location is represented as
-`location:inline` plus `resolution:resolved`.
+`location:inline` plus `resolution:resolved`. The explicit backend wire state
+`reopened` is normalized to semantic `resolution:open`; every other unknown
+wire state remains `unknown` and makes the inventory partial.
 
 Current schema-v2 projections never emit reply-level anchors. The sidecar
 decoder and renderer still preserve historical schema-v2 reply anchors without

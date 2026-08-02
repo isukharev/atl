@@ -66,7 +66,9 @@ workflow читать их целиком не нужно.
 комментариев с доказанными связями треда, независимыми измерениями полноты и
 точным сопоставлением anchors с native CSF. `conf comment thread` выбирает один
 точный корневой тред и ограничивает diagnostics/completeness этим тредом;
-недостающие ancestry или markers остаются явным partial evidence. Каждый
+недостающие ancestry или markers остаются явным partial evidence. Явный
+backend-статус `reopened` нормализуется в семантический `open`, а неизвестные
+статусы остаются partial. Каждый
 qualified backend read, включая pagination, внутренне привязан к согласованной
 ревизии страницы.
 `conf pull --comments` сохраняет эту квалификацию в versioned sidecar зеркала;
