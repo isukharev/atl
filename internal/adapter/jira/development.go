@@ -202,12 +202,12 @@ func (j *Jira) ReadIssueDevelopment(ctx context.Context, numericIssueID string) 
 		if decodeErr != nil {
 			return domain.JiraDevelopmentInventory{}, fmt.Errorf("%w: %s detail", decodeErr, selector.DataType)
 		}
-		if uint64(actual) != selector.Expected {
+		if actual != selector.Expected {
 			return domain.JiraDevelopmentInventory{}, developmentMalformed()
 		}
 	}
-	if uint64(len(inv.commits)) != expected["repository"] || uint64(len(inv.branches)) != expected["branch"] ||
-		uint64(len(inv.mrs)) != expected["pullrequest"] {
+	if developmentMapCount(inv.commits) != expected["repository"] || developmentMapCount(inv.branches) != expected["branch"] ||
+		developmentMapCount(inv.mrs) != expected["pullrequest"] {
 		return domain.JiraDevelopmentInventory{}, developmentMalformed()
 	}
 	return inv.normalized(), nil
@@ -338,7 +338,7 @@ func developmentCountValue(number json.Number) (uint64, bool) {
 	return value, err == nil
 }
 
-func (i *developmentInventory) addDetail(raw []byte, selectedType string) (int, error) {
+func (i *developmentInventory) addDetail(raw []byte, selectedType string) (uint64, error) {
 	var envelope developmentDetailEnvelope
 	if err := decodeDevelopmentJSON(raw, &envelope); err != nil || !envelope.Errors.required() ||
 		!envelope.Detail.required() || !envelope.ConfigErrors.optional() {
@@ -351,7 +351,15 @@ func (i *developmentInventory) addDetail(raw []byte, selectedType string) (int, 
 		return 0, developmentLimit()
 	}
 	i.groups += len(envelope.Detail.Values)
-	matched := map[string]bool{}
+	matched := map[string]struct{}{}
+	var matchedCount uint64
+	markMatched := func(key string) {
+		if _, found := matched[key]; found {
+			return
+		}
+		matched[key] = struct{}{}
+		matchedCount++
+	}
 	for _, group := range envelope.Detail.Values {
 		for _, repository := range group.Repositories.Values {
 			project, ok := parseDevelopmentProject(repository.URL)
@@ -364,7 +372,7 @@ func (i *developmentInventory) addDetail(raw []byte, selectedType string) (int, 
 					return 0, fmt.Errorf("%w: nested commit", err)
 				}
 				if selectedType == "repository" {
-					matched[developmentCommitString(key)] = true
+					markMatched(developmentCommitString(key))
 				}
 			}
 			for _, branch := range repository.Branches.Values {
@@ -373,7 +381,7 @@ func (i *developmentInventory) addDetail(raw []byte, selectedType string) (int, 
 					return 0, fmt.Errorf("%w: nested branch", err)
 				}
 				if selectedType == "branch" {
-					matched[developmentBranchString(key)] = true
+					markMatched(developmentBranchString(key))
 				}
 			}
 			for _, mr := range repository.PullRequests.Values {
@@ -382,7 +390,7 @@ func (i *developmentInventory) addDetail(raw []byte, selectedType string) (int, 
 					return 0, fmt.Errorf("%w: nested merge request", err)
 				}
 				if selectedType == "pullrequest" {
-					matched[developmentMRString(key)] = true
+					markMatched(developmentMRString(key))
 				}
 			}
 		}
@@ -392,7 +400,7 @@ func (i *developmentInventory) addDetail(raw []byte, selectedType string) (int, 
 				return 0, fmt.Errorf("%w: top-level commit", err)
 			}
 			if selectedType == "repository" {
-				matched[developmentCommitString(key)] = true
+				markMatched(developmentCommitString(key))
 			}
 		}
 		for _, branch := range group.Branches.Values {
@@ -401,7 +409,7 @@ func (i *developmentInventory) addDetail(raw []byte, selectedType string) (int, 
 				return 0, fmt.Errorf("%w: top-level branch", err)
 			}
 			if selectedType == "branch" {
-				matched[developmentBranchString(key)] = true
+				markMatched(developmentBranchString(key))
 			}
 		}
 		for _, mr := range group.PullRequests.Values {
@@ -410,11 +418,19 @@ func (i *developmentInventory) addDetail(raw []byte, selectedType string) (int, 
 				return 0, fmt.Errorf("%w: top-level merge request", err)
 			}
 			if selectedType == "pullrequest" {
-				matched[developmentMRString(key)] = true
+				markMatched(developmentMRString(key))
 			}
 		}
 	}
-	return len(matched), nil
+	return matchedCount, nil
+}
+
+func developmentMapCount[K comparable, V any](values map[K]V) uint64 {
+	var count uint64
+	for range values {
+		count++
+	}
+	return count
 }
 
 func (i *developmentInventory) inspectArtifact() error {
