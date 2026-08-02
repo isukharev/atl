@@ -27,6 +27,8 @@ atl conf diff "$HOME/.atl/example-workspace" -o text
 
 Pull writes local mirror files but never mutates Jira or Confluence. Remove the
 read-only policy only after reviewing a concrete write proposal.
+Unknown commands and stray subcommand arguments fail as structured usage errors
+(exit 2); they never return successful help output.
 
 > `atl` is an independent open-source project. It is not affiliated with,
 > endorsed by, or sponsored by Atlassian Pty Ltd.

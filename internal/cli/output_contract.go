@@ -18,7 +18,7 @@ const (
 // textOutputCommandPaths is the reviewed inventory of executable commands that
 // intentionally support -o text. Commands absent from this set are JSON/id
 // only and are rejected by the root preflight before config, stdin, or network
-// access. Adding a command to knownCommandPaths therefore cannot accidentally
+// access. Adding a command to the command registry therefore cannot accidentally
 // inherit the old JSON fallback.
 var textOutputCommandPaths = stringSetFromLines(`
 auth login

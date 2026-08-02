@@ -125,6 +125,7 @@ func classifyError(err error) (kind, remediation string) {
 }
 
 func newRoot() *cobra.Command {
+	var topologyErr error
 	root := &cobra.Command{
 		Use:           "atl",
 		Short:         "Agent-native CLI for Confluence/Jira (mirror, diff-edit, validate, push)",
@@ -145,12 +146,35 @@ func newRoot() *cobra.Command {
 	// Validate the global output format, then run a best-effort self-update check
 	// within its total startup budget. Update failures never fail the command.
 	root.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
+		if topologyErr != nil {
+			return &accessPolicyInvariantError{Command: topologyErr.Error()}
+		}
 		switch outputFormat {
 		case "json", "text", "id":
 		default:
 			return usageErr("invalid --output %q (want json|text|id)", outputFormat)
 		}
+		// Pure groups get a generated help-only RunE so Cobra cannot silently
+		// accept an unknown token through its legacy group argument behavior.
+		// Their zero-argument help path remains config/network/self-update-free,
+		// while global flag syntax is still validated above.
+		if cmd.Annotations[commandRoleAnnotation] == commandRoleGroup {
+			return nil
+		}
 		if err := enforceOutputContract(cmd); err != nil {
+			return err
+		}
+		// An explicit process policy is itself a pre-config safety boundary and
+		// keeps its established precedence over malformed mutation inputs.
+		if readOnly || envReadOnly() {
+			if err := enforceAccessPolicy(cmd, true); err != nil {
+				return err
+			}
+		}
+		// Dedicated-apply and backend-binding prerequisites take precedence over
+		// local configuration. Invalid invocations fail as usage before config,
+		// credentials, stdin, self-update, or network access.
+		if err := validateMutationInvocation(cmd); err != nil {
 			return err
 		}
 		policyEnabled, err := resolveReadOnlyPolicy(cmd, readOnly)
@@ -186,7 +210,7 @@ func newRoot() *cobra.Command {
 		}
 	}
 	normalizeArgs(root)
-	classifyCommandTree(root)
+	topologyErr = finalizeCommandTree(root)
 	return root
 }
 
@@ -202,6 +226,8 @@ func normalizeArgs(c *cobra.Command) {
 	for _, sub := range c.Commands() {
 		if len(sub.Commands()) > 0 {
 			normalizeArgs(sub)
+		}
+		if sub.Run == nil && sub.RunE == nil {
 			continue
 		}
 		policy := sub.Args

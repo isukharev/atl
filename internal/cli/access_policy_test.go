@@ -4,32 +4,51 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 
 	"github.com/isukharev/atl/internal/config"
+	"github.com/isukharev/atl/internal/domain"
 )
 
-func TestEveryExecutableCommandHasExplicitAccessPolicy(t *testing.T) {
+func TestCommandRegistryExactlyMatchesTree(t *testing.T) {
+	if commandRegistryErr != nil {
+		t.Fatal(commandRegistryErr)
+	}
 	root := newRoot()
 	seen := map[string]bool{}
 	var walk func(*cobra.Command)
 	walk = func(cmd *cobra.Command) {
-		if cmd.Run != nil || cmd.RunE != nil {
-			path := cmd.CommandPath()[len(root.Name())+1:]
+		path := commandRegistryPath(root, cmd)
+		registration, registered := commandRegistry.nodes[path]
+		if !registered {
+			t.Errorf("constructed command %q is absent from registry", cmd.CommandPath())
+		} else {
 			seen[path] = true
+			wantRole := map[commandTrait]string{
+				commandGroup: commandRoleGroup, commandLeaf: commandRoleLeaf,
+				commandGroup | commandLeaf: commandRoleHybrid,
+			}[registration.traits&(commandGroup|commandLeaf)]
+			if got := cmd.Annotations[commandRoleAnnotation]; got != wantRole {
+				t.Errorf("%s role=%q want=%q", cmd.CommandPath(), got, wantRole)
+			}
+		}
+		if registered && registration.traits&commandLeaf != 0 {
 			access := cmd.Annotations[accessAnnotation]
 			if access != "read-only" && access != "mutating" {
 				t.Errorf("%s access=%q", cmd.CommandPath(), access)
 			}
-			if (access == "mutating") != mutatingCommandPaths[path] {
+			if (access == "mutating") != (registration.traits&commandMutating != 0) {
 				t.Errorf("%s mutation classification drift", cmd.CommandPath())
 			}
 			textSupport := cmd.Annotations[textOutputAnnotation]
@@ -46,15 +65,25 @@ func TestEveryExecutableCommandHasExplicitAccessPolicy(t *testing.T) {
 			if (idSupport == "supported") != idOutputCommandPaths[path] {
 				t.Errorf("%s id-output classification drift", cmd.CommandPath())
 			}
+			if registration.traits&commandMutating != 0 {
+				if got := mutationProfile(cmd.Annotations[mutationProfileAnnotation]); got != registration.profile || !validMutationProfile(got) {
+					t.Errorf("%s mutation profile=%q want=%q", cmd.CommandPath(), got, registration.profile)
+				}
+				for _, flag := range registration.requiredFlags {
+					if cmd.Flags().Lookup(flag) == nil {
+						t.Errorf("%s profile=%q missing structural --%s", cmd.CommandPath(), registration.profile, flag)
+					}
+				}
+			}
 		}
 		for _, child := range cmd.Commands() {
 			walk(child)
 		}
 	}
 	walk(root)
-	for path := range knownCommandPaths {
+	for path := range commandRegistry.nodes {
 		if !seen[path] {
-			t.Errorf("classified command %q is no longer registered", path)
+			t.Errorf("registry command %q is no longer constructed", path)
 		}
 	}
 	for path := range textOutputCommandPaths {
@@ -66,6 +95,185 @@ func TestEveryExecutableCommandHasExplicitAccessPolicy(t *testing.T) {
 		if !seen[path] {
 			t.Errorf("id-output command %q is no longer registered", path)
 		}
+	}
+}
+
+func TestMutationProfileShapesAreEnforced(t *testing.T) {
+	for name, row := range map[string]string{
+		"preview without apply":   "M preview-apply expected-proposal-hash unsafe",
+		"dedicated without guard": "M dedicated-apply - unsafe",
+		"plan without guard":      "M plan - unsafe",
+		"direct with guard":       "M remote-direct confirm unsafe",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseCommandRegistry(row); err == nil {
+				t.Fatalf("parseCommandRegistry(%q) succeeded", row)
+			}
+		})
+	}
+}
+
+func TestMutationRegistryPreservesReviewedAccessSet(t *testing.T) {
+	want := map[string]mutationProfile{}
+	for _, line := range strings.Split(`
+local-direct auth login
+local-direct auth logout
+local-direct conf apply
+remote-direct conf attachment delete
+remote-direct conf attachment upload
+remote-direct conf blog create
+preview-apply conf comment add
+dedicated-apply conf comment mutation apply
+local-direct conf edit
+remote-direct conf page copy
+remote-direct conf page create
+remote-direct conf page delete
+preview-apply conf page labels add
+preview-apply conf page labels remove
+preview-apply conf page move
+preview-apply conf page title set
+plan conf plan apply
+remote-direct conf push
+local-direct conf reconcile stage
+local-direct compatibility clear
+local-direct compatibility pin
+local-direct config set
+local-direct jira apply
+remote-direct jira issue assign
+remote-direct jira issue attachment upload
+preview-apply jira issue comment add
+remote-direct jira issue comment delete
+remote-direct jira issue create
+remote-direct jira issue delete
+remote-direct jira issue edit
+preview-apply jira issue field set
+remote-direct jira issue labels
+remote-direct jira issue link add
+remote-direct jira issue link delete
+remote-direct jira issue link-epic
+plan jira issue plan apply
+preview-apply jira issue transition
+remote-direct jira issue update
+preview-apply jira issue watchers add
+preview-apply jira issue watchers remove
+preview-apply jira issue worklog add
+preview-apply jira push
+local-direct jira reconcile stage
+remote-direct jira sprint add
+remote-direct jira sprint remove
+preview-apply mirror backend bind
+dedicated-apply profile apply
+local-direct profile revalidate
+local-direct profile suggest
+dedicated-apply profile suggestion apply
+local-direct profile suggestion reject
+`, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) > 1 {
+			want[strings.Join(fields[1:], " ")] = mutationProfile(fields[0])
+		}
+	}
+	for path, profile := range want {
+		registration, ok := commandRegistry.nodes[path]
+		if !ok || registration.traits&commandMutating == 0 {
+			t.Errorf("reviewed mutating command %q lost its classification", path)
+		} else if registration.profile != profile {
+			t.Errorf("reviewed mutating command %q profile=%q want=%q", path, registration.profile, profile)
+		}
+	}
+	for path, registration := range commandRegistry.nodes {
+		if _, expected := want[path]; registration.traits&commandMutating != 0 && !expected {
+			t.Errorf("command %q unexpectedly became mutating", path)
+		}
+	}
+}
+
+func TestPureGroupsHelpAndRejectUnknownTokens(t *testing.T) {
+	var groups []string
+	for path, registration := range commandRegistry.nodes {
+		if registration.traits&(commandGroup|commandLeaf) == commandGroup {
+			groups = append(groups, path)
+		}
+	}
+	sort.Strings(groups)
+	for index, path := range groups {
+		name := path
+		if name == "" {
+			name = "root"
+		}
+		t.Run(strings.ReplaceAll(name, " ", "_"), func(t *testing.T) {
+			args := strings.Fields(path)
+			stdout, _, err := executeCLIRaw(t, nil, args...)
+			if err != nil || !strings.Contains(stdout, "Usage:") {
+				t.Fatalf("zero-arg group help err=%v stdout=%q", err, stdout)
+			}
+
+			unknown := fmt.Sprintf("__atl_unknown_%d__", index)
+			unknownArgs := append(append([]string(nil), args...), unknown)
+			stdout, _, err = executeCLIRaw(t, nil, unknownArgs...)
+			if !errors.Is(err, domain.ErrUsage) || codeFor(err) != exitUsage || stdout != "" {
+				t.Fatalf("unknown group token err=%v code=%d stdout=%q", err, codeFor(err), stdout)
+			}
+			var rendered bytes.Buffer
+			writeError(&rendered, "json", err, codeFor(err))
+			var body map[string]any
+			if decodeErr := json.Unmarshal(rendered.Bytes(), &body); decodeErr != nil || body["code"] != float64(exitUsage) || body["kind"] != "usage_error" {
+				t.Fatalf("unknown JSON=%s decodeErr=%v", rendered.String(), decodeErr)
+			}
+		})
+	}
+}
+
+func TestPureGroupHelpBypassesConfigAndAccessSetup(t *testing.T) {
+	cfgDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(`{"read_only":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout, code := runCLI(t, map[string]string{"ATL_CONFIG_DIR": cfgDir}, "conf", "page")
+	if code != exitOK || !strings.Contains(stdout, "Usage:") {
+		t.Fatalf("group help exit=%d stdout=%q", code, stdout)
+	}
+	if _, code = runCLI(t, nil, "--output", "invalid", "conf", "page"); code != exitUsage {
+		t.Fatalf("invalid global output on group exit=%d, want %d", code, exitUsage)
+	}
+}
+
+func TestDedicatedApplyAndBackendBindMissingEvidenceAreUsageErrors(t *testing.T) {
+	cfgDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(`{"read_only":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	brokenConfig := map[string]string{"ATL_CONFIG_DIR": cfgDir}
+	for name, args := range map[string][]string{
+		"dedicated route without apply": {"conf", "comment", "mutation", "apply", "--id", "1", "--thread-id", "2", "--operation", "resolve"},
+		"dedicated route without hash":  {"conf", "comment", "mutation", "apply", "--id", "1", "--thread-id", "2", "--operation", "resolve", "--apply"},
+		"profile apply without inputs":  {"profile", "apply"},
+		"suggestion apply without inputs": {
+			"profile", "suggestion", "apply",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, _, err := executeCLIRaw(t, brokenConfig, args...)
+			if !errors.Is(err, domain.ErrUsage) || codeFor(err) != exitUsage {
+				t.Fatalf("err=%v code=%d", err, codeFor(err))
+			}
+		})
+	}
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".atl"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	brokenBindConfig := map[string]string{"ATL_CONFIG_DIR": cfgDir, "ATL_JIRA_URL": "https://jira.example.test"}
+	_, _, err := executeCLIRaw(t, brokenBindConfig, "mirror", "backend", "bind", root, "--service", "jira", "--apply", "--confirm", "BIND")
+	if !errors.Is(err, domain.ErrUsage) || codeFor(err) != exitUsage {
+		t.Fatalf("missing bind hash err=%v code=%d", err, codeFor(err))
+	}
+	env := map[string]string{"ATL_JIRA_URL": "https://jira.example.test"}
+	_, _, err = executeCLIRaw(t, env, "mirror", "backend", "bind", root, "--service", "jira", "--apply",
+		"--expected-backend-sha256", "sha256:"+strings.Repeat("0", 64), "--confirm", "BIND")
+	if !errors.Is(err, domain.ErrCheckFailed) || codeFor(err) != exitCheckFailed {
+		t.Fatalf("supplied stale bind evidence err=%v code=%d", err, codeFor(err))
 	}
 }
 
