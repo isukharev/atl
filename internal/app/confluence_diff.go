@@ -97,14 +97,26 @@ type confluenceDiffTarget struct {
 // DiffConfluenceMirror compares one page or a directory subtree without config,
 // credentials, or backend access.
 func DiffConfluenceMirror(target, into string) (*ConfluenceDiffResult, error) {
+	result, _, _, err := diffConfluenceMirrorSnapshot(target, into)
+	return result, err
+}
+
+// diffConfluenceMirrorSnapshot returns the immutable sidecar snapshot used by
+// the diff so a larger offline inspection can reuse that exact state without
+// retaining every native body.
+func diffConfluenceMirrorSnapshot(target, into string) (*ConfluenceDiffResult, *mirror.Mirror, *mirror.ReadSnapshot, error) {
 	root, target, err := canonicalConfluenceDiffPaths(target, into)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	m := mirror.New(root)
-	targets, err := confluenceDiffTargets(m, target)
+	snapshot, err := m.BeginReadSnapshot()
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
+	}
+	targets, err := confluenceDiffTargets(m, snapshot, target)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	res := &ConfluenceDiffResult{
 		SchemaVersion: confluenceDiffSchemaVersion,
@@ -112,7 +124,7 @@ func DiffConfluenceMirror(target, into string) (*ConfluenceDiffResult, error) {
 	}
 	var worst error
 	for _, target := range targets {
-		page, pageErr := confluenceDiffPage(m, target)
+		page, pageErr := confluenceDiffPage(m, snapshot, target)
 		res.Pages = append(res.Pages, page)
 		if pageErr != nil {
 			res.Complete = false
@@ -124,7 +136,7 @@ func DiffConfluenceMirror(target, into string) (*ConfluenceDiffResult, error) {
 		}
 	}
 	res.Summary.Total = len(res.Pages)
-	return res, worst
+	return res, m, snapshot, worst
 }
 
 func mirrorRootDefaultForApp(into string) string {
@@ -155,14 +167,11 @@ func (s *ConfluenceDiffSummary) add(state string) {
 	}
 }
 
-func confluenceDiffTargets(m *mirror.Mirror, target string) ([]confluenceDiffTarget, error) {
+func confluenceDiffTargets(m *mirror.Mirror, snapshot *mirror.ReadSnapshot, target string) ([]confluenceDiffTarget, error) {
 	if !within(m.Root, target) {
 		return nil, fmt.Errorf("%w: diff target %q is outside mirror root %q", domain.ErrUsage, target, m.Root)
 	}
-	states, err := m.SyncStates()
-	if err != nil {
-		return nil, err
-	}
+	states := snapshot.SyncStates()
 	byPath := map[string]mirror.SyncState{}
 	for _, state := range states {
 		if strings.HasSuffix(filepath.ToSlash(state.Path), ".csf") {
@@ -234,13 +243,13 @@ func confluenceDiffTargets(m *mirror.Mirror, target string) ([]confluenceDiffTar
 	return out, nil
 }
 
-func confluenceDiffPage(m *mirror.Mirror, target confluenceDiffTarget) (ConfluencePageDiff, error) {
+func confluenceDiffPage(m *mirror.Mirror, snapshot *mirror.ReadSnapshot, target confluenceDiffTarget) (ConfluencePageDiff, error) {
 	page := ConfluencePageDiff{Path: target.path, State: "unreadable", tracked: target.state != nil}
 	if target.state != nil {
 		page.ID = target.state.ID
 	}
 	var candidate []byte
-	lc, body, err := m.LoadCSF(target.path)
+	lc, body, err := snapshot.LoadCSF(target.path)
 	if os.IsNotExist(err) {
 		page.Candidate.Present = false
 	} else if err != nil {
