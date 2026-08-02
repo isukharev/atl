@@ -169,7 +169,9 @@ write command after explicit approval.
   dimensions before treating absence or a relationship as proven. Narrow with
   `--location`, `--state`, or `--depth`; bind a prior page revision with
   `--expected-version`. Qualified backend reads are also internally bound to
-  the reconciled page revision across selectors and pagination. Use `conf
+  the reconciled page revision across selectors and pagination. Treat an
+  explicit backend `reopened` state as semantic `open`; any unrecognized state
+  remains `unknown` and partial. Use `conf
   comment thread --comment-id <id>` for one exact proven subtree. Its
   qualification is subtree-scoped; unrelated diagnostics and orphan markers
   are excluded. Missing ancestry or marker evidence stays partial;

@@ -63,8 +63,10 @@ schema-v2 qualified inventory across footer, inline, and resolved comments,
 with proven thread relationships, independent completeness dimensions, and
 exact native-CSF anchor matching. `conf comment thread` selects one exact root
 subtree and scopes diagnostics/completeness to it; missing ancestry or markers
-remain explicit partial evidence. Qualified backend reads are bound internally
-to the reconciled page revision, including every pagination request.
+remain explicit partial evidence. The explicit backend `reopened` state is
+normalized to semantic `open`; unknown states remain partial. Qualified backend
+reads are bound internally to the reconciled page revision, including every
+pagination request.
 `conf pull --comments` stores that qualification in a versioned mirror sidecar;
 the page's main `.md` renders a deterministic read-only tree with explicit
 location/state, completeness, safely qualified anchors, and unattached records.

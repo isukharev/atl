@@ -2,11 +2,13 @@ package confluence
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -67,6 +69,7 @@ func TestListConfluenceCommentsResolvedSelectorRequiresExplicitResolvedState(t *
 		resolution string
 	}{
 		{name: "open", resolution: "open"},
+		{name: "reopened", resolution: "reopened"},
 		{name: "missing"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -87,6 +90,63 @@ func TestListConfluenceCommentsResolvedSelectorRequiresExplicitResolvedState(t *
 				t.Fatalf("resolved selector accepted %s state: %+v", test.name, inventory)
 			}
 		})
+	}
+}
+
+func TestListConfluenceCommentsMapsExplicitReopenedStateToOpen(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(qualifiedCommentPage(qualifiedCommentJSON("20", "inline", "reopened", `[{"id":"1","type":"page"}]`, "<p>x</p>"))))
+	}))
+	defer srv.Close()
+
+	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{
+		ParentVersion: 1, Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorInline}, DepthAll: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !inventory.CommentsComplete || len(inventory.PartialReasons) != 0 || len(inventory.Diagnostics) != 0 ||
+		len(inventory.Comments) != 1 || inventory.Comments[0].Resolution != domain.ConfluenceCommentResolutionOpen ||
+		inventory.Capabilities.Resolution != domain.ConfluenceCapabilityObserved {
+		t.Fatalf("inventory=%+v", inventory)
+	}
+}
+
+func TestDecodeCommentResolutionRejectsUnknownWireStates(t *testing.T) {
+	for _, status := range []string{"", "unknown", "closed", "OPEN", "reopened "} {
+		raw := json.RawMessage(`{"status":` + strconv.Quote(status) + `}`)
+		if resolution, present, ok := decodeCommentResolution(raw); !present || ok || resolution != domain.ConfluenceCommentResolutionUnknown {
+			t.Errorf("status=%q resolution=%q present=%v ok=%v", status, resolution, present, ok)
+		}
+	}
+	if resolution, present, ok := decodeCommentResolution(nil); present || ok || resolution != domain.ConfluenceCommentResolutionUnknown {
+		t.Errorf("absent resolution=%q present=%v ok=%v", resolution, present, ok)
+	}
+	for _, raw := range []json.RawMessage{json.RawMessage("null"), json.RawMessage("[]"), json.RawMessage(`{"status":3}`)} {
+		if resolution, present, ok := decodeCommentResolution(raw); !present || ok || resolution != domain.ConfluenceCommentResolutionUnknown {
+			t.Errorf("raw=%s resolution=%q present=%v ok=%v", raw, resolution, present, ok)
+		}
+	}
+}
+
+func TestListConfluenceCommentsRejectsExplicitUnknownStateAtResolvedLocation(t *testing.T) {
+	row := qualifiedCommentJSON("30", "resolved", "future-state", `[{"id":"1","type":"page"}]`, "<p>x</p>")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(qualifiedCommentPage(row)))
+	}))
+	defer srv.Close()
+
+	inventory, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListConfluenceComments(context.Background(), "1", domain.ConfluenceCommentReadOptions{
+		ParentVersion: 1, Locations: []domain.ConfluenceCommentSelector{domain.ConfluenceCommentSelectorResolved}, DepthAll: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inventory.CommentsComplete || len(inventory.Comments) != 1 ||
+		inventory.Comments[0].Resolution != domain.ConfluenceCommentResolutionUnknown ||
+		!containsString(inventory.PartialReasons, domain.ConfluenceCommentPartialResolutionUnavailable) ||
+		inventory.Capabilities.Resolution != domain.ConfluenceCapabilityUnknown {
+		t.Fatalf("inventory=%+v", inventory)
 	}
 }
 
