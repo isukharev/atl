@@ -33,8 +33,17 @@ automatically. Prefer the closed schema-v1 `recovery` action and optional
 read, never a write, changed request, approval, or reconciliation workflow.
 
 `ATL_READ_ONLY=1 atl ...` protects only one process and is not a substitute for
-the block-level export. Remove the exported policy only for the exact reviewed
-write command after explicit approval.
+the block-level export. Remove the exported policy only for an explicitly
+approved write workflow, and restore it immediately afterward. Most mutating
+leaves remain mutation-classified during preview as well as apply.
+
+Permanent issue deletion has no trash and is preview-first. Review the exact
+`updated`, proposal hash, subtask count/hash, and cascade intent, then use the
+returned apply flags once. `write_attempted:true` or `outcome_unknown` always
+means stop and reconcile manually; never replay the DELETE. The whole
+`jira issue delete` leaf is mutation-classified, so the inherited read-only
+policy must be removed only after explicit approval and before its preview;
+restore it immediately after the single workflow.
 
 If the plugin exposes typed MCP, prefer `jira_fields`, `jira_issue_search`,
 `jira_issue_history`, `jira_issue_graph`, `jira_issue_refs`, `jira_epic_digest`, `jira_board_view`,

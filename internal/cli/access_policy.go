@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
 )
@@ -178,7 +179,7 @@ M remote-direct - jira issue comment delete
 R jira issue comment list
 R jira issue comment preview
 M remote-direct - jira issue create
-M remote-direct - jira issue delete
+M preview-apply apply,confirm,expected-proposal-hash,expected-updated jira issue delete
 M remote-direct - jira issue edit
 R jira issue field get
 R jira issue field preview
@@ -474,7 +475,7 @@ func validateMutationInvocation(cmd *cobra.Command) error {
 		applyRequested = value
 	}
 	preflightRequired := profile == mutationDedicatedApply
-	if path == "mirror backend bind" || path == "conf attachment delete" || path == "conf page copy" || path == "conf page delete" {
+	if path == "mirror backend bind" || path == "conf attachment delete" || path == "conf page copy" || path == "conf page delete" || path == "jira issue delete" {
 		preflightRequired = applyRequested
 	}
 	if !preflightRequired {
@@ -486,6 +487,9 @@ func validateMutationInvocation(cmd *cobra.Command) error {
 		}
 		if path == "conf page delete" {
 			return validateConfluencePageDeleteInvocation(cmd, false)
+		}
+		if path == "jira issue delete" {
+			return validateJiraIssueDeleteInvocation(cmd, false)
 		}
 		return nil
 	}
@@ -520,7 +524,57 @@ func validateMutationInvocation(cmd *cobra.Command) error {
 	if path == "conf page copy" {
 		return validateConfluencePageCopyInvocation(cmd, applyRequested)
 	}
+	if path == "jira issue delete" {
+		return validateJiraIssueDeleteInvocation(cmd, applyRequested)
+	}
 	return nil
+}
+
+func validateJiraIssueDeleteInvocation(cmd *cobra.Command, applyRequested bool) error {
+	key := cmd.Flags().Arg(0)
+	if !canonicalJiraCLIIssueKey(key) {
+		return usageErr("issue key must be canonical (for example PROJ-1)")
+	}
+	if outputFormat == "id" {
+		return usageErr("-o id is not supported for this command")
+	}
+	guardNames := []string{"confirm", "expected-updated", "expected-proposal-hash"}
+	if !applyRequested {
+		for _, name := range guardNames {
+			if flag := cmd.Flags().Lookup(name); flag != nil && flag.Changed {
+				return usageErr("--confirm, --expected-updated, and --expected-proposal-hash require --apply")
+			}
+		}
+		return nil
+	}
+	confirm, err := cmd.Flags().GetString("confirm")
+	if err != nil || confirm != "DELETE" {
+		return usageErr("--confirm must be exactly DELETE with --apply")
+	}
+	expectedUpdated, updatedErr := cmd.Flags().GetString("expected-updated")
+	expectedProposalHash, hashErr := cmd.Flags().GetString("expected-proposal-hash")
+	if updatedErr != nil || hashErr != nil {
+		return usageErr("invalid reviewed deletion markers")
+	}
+	return app.ValidateJiraIssueDeleteReviewMarkers(expectedUpdated, expectedProposalHash)
+}
+
+func canonicalJiraCLIIssueKey(value string) bool {
+	dash := strings.LastIndexByte(value, '-')
+	if dash < 2 || dash > 32 || dash == len(value)-1 || value[0] < 'A' || value[0] > 'Z' || value[dash+1] == '0' {
+		return false
+	}
+	for _, char := range value[:dash] {
+		if (char < 'A' || char > 'Z') && (char < '0' || char > '9') && char != '_' {
+			return false
+		}
+	}
+	for _, char := range value[dash+1:] {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func validateConfluenceAttachmentDeleteInvocation(cmd *cobra.Command, applyRequested bool) error {

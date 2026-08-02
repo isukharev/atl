@@ -167,10 +167,6 @@ func (s *JiraService) Transition(ctx context.Context, key, to, comment string, f
 	return s.tr.Transition(ctx, key, to, comment, fields)
 }
 
-func (s *JiraService) DeleteIssue(ctx context.Context, key string, deleteSubtasks bool) error {
-	return s.tr.DeleteIssue(ctx, key, deleteSubtasks)
-}
-
 func (s *JiraService) UpdateLabels(ctx context.Context, key string, add, remove []string) error {
 	return s.tr.UpdateLabels(ctx, key, add, remove)
 }

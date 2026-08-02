@@ -2718,6 +2718,51 @@ partially attributable state is `conflict`; failed/incomplete readback is
 `unverifiable`. Unsafe outcomes return non-zero after emitting the result and
 carry `reconcile_write_outcome` recovery with `retry_safe:false`.
 
+`atl jira issue delete <KEY>` is dry-run by default and emits one permanent
+deletion proposal:
+
+```json
+{
+  "schema_version": 1,
+  "requested_key": "PROJ-1",
+  "key": "PROJ-1",
+  "issue_id": "10001",
+  "issue_id_sha256": "<sha256>",
+  "mode": "dry-run",
+  "status": "would_apply",
+  "operation": "delete",
+  "observed_state": "present",
+  "current_updated": "2026-08-02T20:00:00.000+0000",
+  "expected_updated": "2026-08-02T20:00:00.000+0000",
+  "subtask_count": 0,
+  "subtasks": [],
+  "subtasks_sha256": "<sha256>",
+  "delete_subtasks": false,
+  "backend_sha256": "sha256:<digest>",
+  "proposal_hash": "<sha256>",
+  "write_attempted": false,
+  "permission_relative": true,
+  "complete": true,
+  "warning": "..."
+}
+```
+
+Apply requires `--apply --confirm DELETE`, `--expected-updated`, and
+`--expected-proposal-hash`. The proposal binds the backend, exact key and
+immutable numeric id, `updated`, the canonical complete permission-relative
+subtask inventory, and cascade intent. A non-empty inventory blocks unless
+`--delete-subtasks` was included in both the reviewed preview and apply.
+Immediately before one non-replayed DELETE by numeric id, ATL repeats the exact
+snapshot and blocks any proposal drift.
+
+Statuses are `would_apply`, `blocked`, `not_applied`, `applied`, and
+`outcome_unknown`. Only an acknowledged DELETE followed by an exact numeric-id
+not-found readback is `applied`. A definitive rejection is `not_applied`.
+Transport, throttling, server, or response ambiguity remains `outcome_unknown`
+even when the permission-relative readback is not found, because Jira exposes
+neither a tombstone nor a physical-deletion receipt. `write_attempted:true`
+always forbids automatic replay; stdout failure after that boundary is exit 8.
+
 `atl jira issue comment preview <KEY>` and the dry-run form of
 `atl jira issue comment add <KEY>` emit one baseline-bound append proposal:
 `{key,mode,status,body,body_bytes,body_sha256,actor,current_count,

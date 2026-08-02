@@ -32,3 +32,33 @@ func definitiveWriteRejection(err error) bool {
 	status := statusErr.HTTPStatus()
 	return status >= 400 && status < 500 && status != 408 && status != 425 && status != 429
 }
+
+// sanitizeRemoteWriteCause preserves only typed classification and HTTP status
+// while dropping response bodies, request paths, and backend-derived detail.
+func sanitizeRemoteWriteCause(err error) error {
+	if err == nil {
+		return nil
+	}
+	var causes []error
+	for _, sentinel := range []error{
+		domain.ErrUsage, domain.ErrAuth, domain.ErrNotFound, domain.ErrVersionConflict,
+		domain.ErrForbidden, domain.ErrConfig, domain.ErrCheckFailed,
+	} {
+		if errors.Is(err, sentinel) {
+			causes = append(causes, sentinel)
+		}
+	}
+	var statusErr interface{ HTTPStatus() int }
+	if errors.As(err, &statusErr) {
+		causes = append(causes, remoteWriteHTTPStatus(statusErr.HTTPStatus()))
+	}
+	if len(causes) == 0 {
+		return errors.New("request failed")
+	}
+	return errors.Join(causes...)
+}
+
+type remoteWriteHTTPStatus int
+
+func (e remoteWriteHTTPStatus) Error() string   { return "request failed" }
+func (e remoteWriteHTTPStatus) HTTPStatus() int { return int(e) }

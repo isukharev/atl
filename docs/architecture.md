@@ -446,6 +446,12 @@ recursively.
   `.wiki`/`.md`/`.json`/base/sidecar and clears pending state. Transport/local
   refresh failures are warnings; a successful verification read whose values
   mismatch the full proposal retains pending and returns `ErrCheckFailed`.
+- Permanent Jira issue deletion is a separate preview/apply boundary. It binds
+  the canonical key, immutable numeric id, exact `updated`, backend identity,
+  complete permission-relative subtask identities, and cascade intent. Apply
+  revalidates immediately before one DELETE by numeric id; only acknowledged
+  DELETE plus exact-id not-found readback is success, and ambiguous attempts
+  remain non-replayable even when permission-relative absence is observed.
 
 ---
 
