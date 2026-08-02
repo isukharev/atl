@@ -218,6 +218,25 @@ and exits `8`. Use `pull --dry-run` to qualify a refresh; use
 `--overwrite-local` only to discard them. Neither recovery flag bypasses an
 edited Markdown view or broken baseline evidence.
 
+Creation remains remote-only unless mirror registration is explicitly requested
+with both `--register` and `--into`:
+
+```sh
+atl conf page create --space EXAMPLE --title "New page" --from-md body.md \
+  --register --into "$ATL_MIRROR_ROOT"
+atl conf page copy --id 123456 --title "Copied page" \
+  --register --into "$ATL_MIRROR_ROOT"
+atl jira issue create --project EXAMPLE --type Task --summary "New task" \
+  --register --into "$ATL_MIRROR_ROOT"
+```
+
+Registration performs one authoritative post-write readback and records those
+remote bytes through the normal native/base/view mirror contract, with sync
+state committed last. If the remote create succeeds but local registration
+fails, stdout still identifies the new page or issue and the command exits `8`.
+Never replay the create/copy; preserve local files and recover with a narrow
+`conf pull --id ... --into ...` or `jira pull --jql 'key = ...' --limit 1 --into ...`.
+
 ### 3. Review a write
 
 The write loop is fresh read → candidate → diff/preview → reviewed

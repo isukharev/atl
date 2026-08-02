@@ -251,8 +251,8 @@ func emit(cmd *cobra.Command, v any, text func() string) error {
 	switch outputFormat {
 	case "text":
 		if text != nil {
-			fmt.Fprintln(w, text())
-			return nil
+			_, err := fmt.Fprintln(w, text())
+			return err
 		}
 		return usageErr("-o text is not supported for this command; use -o json")
 	case "id":
@@ -295,6 +295,27 @@ func snapshotResultErr(snapshotErr, emitErr error) error {
 	}
 }
 
+// createdRegistrationResultErr combines a known-created registration failure
+// with a failure to emit the result that proves the remote object's identity.
+// A write failure after successful registration is also a check failure: the
+// non-idempotent remote create completed, so callers must not replay it merely
+// because its stdout evidence was unavailable. The output error remains
+// independently discoverable so missing or truncated stdout cannot be mistaken
+// for complete evidence.
+func createdRegistrationResultErr(registrationErr, emitErr error) error {
+	switch {
+	case emitErr == nil:
+		return registrationErr
+	case registrationErr == nil:
+		return errors.Join(
+			fmt.Errorf("%w: the remote create and mirror registration completed, but the result could not be written; do not replay the create operation", domain.ErrCheckFailed),
+			fmt.Errorf("write created-object registration result: %w", emitErr),
+		)
+	default:
+		return errors.Join(registrationErr, fmt.Errorf("write created-object registration result: %w", emitErr))
+	}
+}
+
 // emitID is emit plus an `-o id` projection: when the output format is `id` it
 // prints just the primary identifier(s), one per line, for safe piping
 // (`atl jira issue search --jql … -o id | xargs …`). For json/text it defers to
@@ -306,7 +327,9 @@ func emitID(cmd *cobra.Command, v any, text func() string, ids func() []string) 
 		}
 		w := cmd.OutOrStdout()
 		for _, id := range ids() {
-			fmt.Fprintln(w, id)
+			if _, err := fmt.Fprintln(w, id); err != nil {
+				return err
+			}
 		}
 		return nil
 	}

@@ -386,13 +386,17 @@ func confPageCmd() *cobra.Command {
 	}
 	hist.Flags().StringVar(&histID, "id", "", "page id or supported same-origin URL")
 
-	var space, parent, title, fromFile, fromMD string
+	var space, parent, title, fromFile, fromMD, createInto string
+	var createRegister bool
 	create := &cobra.Command{
 		Use:   "create",
 		Short: "Create a page (body = CSF via --from-file -, or markdown via --from-md)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if space == "" || title == "" {
 				return usageErr("--space and --title are required")
+			}
+			if createRegister != (strings.TrimSpace(createInto) != "") {
+				return usageErr("--register and a non-empty --into must be used together")
 			}
 			body, err := createBody(cmd, fromFile, fromMD)
 			if err != nil {
@@ -408,11 +412,23 @@ func confPageCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			page, err := svc.Create(cmd.Context(), space, parent, title, body)
-			if err != nil {
-				return err
+			if !createRegister {
+				page, err := svc.Create(cmd.Context(), space, parent, title, body)
+				if err != nil {
+					return err
+				}
+				return emit(cmd, map[string]any{"id": page.ID, "title": page.Title, "version": page.Version, "url": page.URL}, nil)
 			}
-			return emit(cmd, map[string]any{"id": page.ID, "title": page.Title, "version": page.Version, "url": page.URL}, nil)
+			page, registration, createErr := svc.CreateAndRegister(cmd.Context(), space, parent, title, body, createInto)
+			if registration != nil {
+				warnRender(cmd.ErrOrStderr(), registration.Warnings)
+			}
+			var emitErr error
+			if page != nil {
+				out := map[string]any{"id": page.ID, "title": page.Title, "version": page.Version, "url": page.URL, "registration": registration}
+				emitErr = emit(cmd, out, nil)
+			}
+			return createdRegistrationResultErr(createErr, emitErr)
 		},
 	}
 	create.Flags().StringVar(&space, "space", "", "space key")
@@ -420,6 +436,8 @@ func confPageCmd() *cobra.Command {
 	create.Flags().StringVar(&title, "title", "", "page title")
 	create.Flags().StringVar(&fromFile, "from-file", "-", "CSF body file or - for stdin")
 	create.Flags().StringVar(&fromMD, "from-md", "", "markdown body file or - for stdin (converted to CSF; unsupported constructs are refused)")
+	create.Flags().BoolVar(&createRegister, "register", false, "register the created page in the mirror named by --into from an authoritative readback")
+	create.Flags().StringVar(&createInto, "into", "", "mirror root for explicit post-create registration (requires --register)")
 
 	var moveParent, moveExpectedParent string
 	var moveExpectedVersion int
@@ -558,7 +576,8 @@ func confPageCmd() *cobra.Command {
 	}
 	open.Flags().StringVar(&openID, "id", "", "page id or supported same-origin URL")
 
-	var copyID, copyTitle, copySpace, copyParent string
+	var copyID, copyTitle, copySpace, copyParent, copyInto string
+	var copyRegister bool
 	cp := &cobra.Command{
 		Use:   "copy",
 		Short: "Copy a page (same CSF body, new title/space/parent)",
@@ -567,22 +586,39 @@ func confPageCmd() *cobra.Command {
 			if copyID == "" || copyTitle == "" {
 				return usageErr("--id and --title are required")
 			}
+			if copyRegister != (strings.TrimSpace(copyInto) != "") {
+				return usageErr("--register and a non-empty --into must be used together")
+			}
 			svc, err := confService()
 			if err != nil {
 				return err
 			}
-			page, err := svc.CopyPage(cmd.Context(), copyID, copyTitle, copySpace, copyParent)
-			if err != nil {
-				return err
+			if !copyRegister {
+				page, err := svc.CopyPage(cmd.Context(), copyID, copyTitle, copySpace, copyParent)
+				if err != nil {
+					return err
+				}
+				return emitID(cmd, map[string]any{"id": page.ID, "title": page.Title, "version": page.Version, "url": page.URL},
+					nil, func() []string { return []string{page.ID} })
 			}
-			return emitID(cmd, map[string]any{"id": page.ID, "title": page.Title, "version": page.Version, "url": page.URL},
-				nil, func() []string { return []string{page.ID} })
+			page, registration, copyErr := svc.CopyPageAndRegister(cmd.Context(), copyID, copyTitle, copySpace, copyParent, copyInto)
+			if registration != nil {
+				warnRender(cmd.ErrOrStderr(), registration.Warnings)
+			}
+			var emitErr error
+			if page != nil {
+				out := map[string]any{"id": page.ID, "title": page.Title, "version": page.Version, "url": page.URL, "registration": registration}
+				emitErr = emitID(cmd, out, nil, func() []string { return []string{page.ID} })
+			}
+			return createdRegistrationResultErr(copyErr, emitErr)
 		},
 	}
 	cp.Flags().StringVar(&copyID, "id", "", "source page id")
 	cp.Flags().StringVar(&copyTitle, "title", "", "new page title")
 	cp.Flags().StringVar(&copySpace, "space", "", "target space key (default: same as source)")
 	cp.Flags().StringVar(&copyParent, "parent", "", "target parent page id (default: same as source)")
+	cp.Flags().BoolVar(&copyRegister, "register", false, "register the copied page in the mirror named by --into from an authoritative readback")
+	cp.Flags().StringVar(&copyInto, "into", "", "mirror root for explicit post-copy registration (requires --register)")
 
 	c.AddCommand(resolve, outline, section, sections, get, view, titleCmd, labelsCmd, meta, hist, list, open, cp, create, move, del)
 	return c

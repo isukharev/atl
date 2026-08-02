@@ -25,6 +25,10 @@ func (w errWriter) Write([]byte) (int, error) { return 0, w.cause }
 // isolation as runCLIFull but with a stdout writer that always fails, and
 // returns the command's error for exit-code and cause assertions.
 func runCLIWithFailingStdout(t *testing.T, cause error, args ...string) error {
+	return runCLIWithFailingStdoutEnv(t, nil, cause, args...)
+}
+
+func runCLIWithFailingStdoutEnv(t *testing.T, env map[string]string, cause error, args ...string) error {
 	t.Helper()
 	t.Setenv("ATL_NO_UPDATE", "1")
 	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
@@ -34,6 +38,9 @@ func runCLIWithFailingStdout(t *testing.T, cause error, args ...string) error {
 		"ATL_MIRROR_ROOT", "ATL_ALLOW_INSECURE", "ATL_READ_ONLY",
 	} {
 		t.Setenv(k, "")
+	}
+	for key, value := range env {
+		t.Setenv(key, value)
 	}
 	root := newRoot()
 	root.SetArgs(args)
@@ -83,6 +90,30 @@ func TestEmitID_FallsBackToJSONWhenNotIDFormat(t *testing.T) {
 	}
 }
 
+func TestEmitIDPropagatesWriterFailure(t *testing.T) {
+	withFormat(t, "id")
+	cause := errors.New("id stdout unavailable")
+	cmd := &cobra.Command{}
+	cmd.SetOut(errWriter{cause: cause})
+
+	err := emitID(cmd, map[string]any{"ignored": true}, nil, func() []string { return []string{"ML-1"} })
+	if !errors.Is(err, cause) {
+		t.Fatalf("emitID error=%v, want writer cause", err)
+	}
+}
+
+func TestEmitTextPropagatesWriterFailure(t *testing.T) {
+	withFormat(t, "text")
+	cause := errors.New("text stdout unavailable")
+	cmd := &cobra.Command{}
+	cmd.SetOut(errWriter{cause: cause})
+
+	err := emit(cmd, map[string]any{"ignored": true}, func() string { return "result" })
+	if !errors.Is(err, cause) {
+		t.Fatalf("emit error=%v, want writer cause", err)
+	}
+}
+
 func TestEmit_RejectsIDFormatWhenUnsupported(t *testing.T) {
 	withFormat(t, "id")
 	cmd := &cobra.Command{}
@@ -127,6 +158,29 @@ func TestSnapshotResultErrKeepsBothCauses(t *testing.T) {
 	}
 	both := snapshotResultErr(snapshotErr, emitErr)
 	if !errors.Is(both, domain.ErrCheckFailed) || !errors.Is(both, emitErr) {
+		t.Fatalf("both: %v", both)
+	}
+	if code := codeFor(both); code != exitCheckFailed {
+		t.Fatalf("both: code=%d err=%v", code, both)
+	}
+}
+
+func TestCreatedRegistrationResultErrKeepsBothCauses(t *testing.T) {
+	if got := createdRegistrationResultErr(nil, nil); got != nil {
+		t.Fatalf("no failure: got %v", got)
+	}
+	emitErr := errors.New("stdout unavailable")
+	if got := createdRegistrationResultErr(nil, emitErr); !errors.Is(got, domain.ErrCheckFailed) || !errors.Is(got, emitErr) || !strings.Contains(got.Error(), "do not replay") {
+		t.Fatalf("emit-only: got %v", got)
+	} else if codeFor(got) != exitCheckFailed {
+		t.Fatalf("emit-only: code=%d err=%v", codeFor(got), got)
+	}
+	registrationErr := fmt.Errorf("%w: page 42 was created; do not replay", domain.ErrCheckFailed)
+	if got := createdRegistrationResultErr(registrationErr, nil); got != registrationErr {
+		t.Fatalf("registration-only: got %v", got)
+	}
+	both := createdRegistrationResultErr(registrationErr, emitErr)
+	if !errors.Is(both, domain.ErrCheckFailed) || !errors.Is(both, emitErr) || !strings.Contains(both.Error(), "do not replay") {
 		t.Fatalf("both: %v", both)
 	}
 	if code := codeFor(both); code != exitCheckFailed {

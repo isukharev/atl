@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/mirror"
 )
 
 // --- stateful Jira server (method+path routing, body capture) ---
@@ -187,6 +189,180 @@ func TestConfPageCreate_ValidVerbatim(t *testing.T) {
 	}
 }
 
+func TestConfPageCreateExplicitRegistrationUsesReadback(t *testing.T) {
+	cs := newConfServer(t)
+	cs.writes = []cannedResp{{status: http.StatusOK, body: `{"id":"99"}`}}
+	readback := pageJSON("99", "Brand New", 1, "<p>server normalized</p>")
+	cs.page = strings.Replace(readback, `"body":`, `"ancestors":[],"body":`, 1)
+	dir := t.TempDir()
+	csfPath := filepath.Join(dir, "body.csf")
+	if err := os.WriteFile(csfPath, []byte(createCSF), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	into := filepath.Join(dir, "mirror")
+	out, code := runCLI(t, confEnv(cs.srv), "conf", "page", "create", "--space", "ENG", "--title", "Brand New", "--from-file", csfPath, "--register", "--into", into)
+	if code != exitOK {
+		t.Fatalf("registered create exit=%d stdout=%s", code, out)
+	}
+	var result struct {
+		ID           string                        `json:"id"`
+		Registration app.CreatedMirrorRegistration `json:"registration"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil || result.ID != "99" || result.Registration.Status != "registered" || !result.Registration.ReadbackReconciled {
+		t.Fatalf("result=%+v err=%v output=%s", result, err, out)
+	}
+	native, err := os.ReadFile(filepath.Join(into, filepath.FromSlash(result.Registration.Path)))
+	if err != nil || string(native) != "<p>server normalized</p>" {
+		t.Fatalf("native=%q err=%v", native, err)
+	}
+	var posts, gets int
+	for _, request := range cs.requests() {
+		if request.method == http.MethodPost {
+			posts++
+		}
+		if request.method == http.MethodGet && strings.HasPrefix(request.path, "/rest/api/content/99") {
+			gets++
+		}
+	}
+	if posts != 1 || gets != 1 {
+		t.Fatalf("requests POST=%d GET=%d: %+v", posts, gets, cs.requests())
+	}
+}
+
+func TestConfPageCopyExplicitRegistrationUsesCreatedReadback(t *testing.T) {
+	cs := newConfServer(t)
+	source := strings.Replace(pageJSON("10", "Source", 3, "<p>source body</p>"), `"body":`, `"ancestors":[],"body":`, 1)
+	readback := strings.Replace(pageJSON("99", "Copied", 1, "<p>server normalized copy</p>"), `"body":`, `"ancestors":[],"body":`, 1)
+	cs.gets = []cannedResp{
+		{status: http.StatusOK, body: source},
+		{status: http.StatusOK, body: readback},
+	}
+	cs.writes = []cannedResp{{status: http.StatusOK, body: `{"id":"99"}`}}
+	into := filepath.Join(t.TempDir(), "mirror")
+
+	out, code := runCLI(t, confEnv(cs.srv), "conf", "page", "copy", "--id", "10", "--title", "Copied", "--register", "--into", into)
+	if code != exitOK {
+		t.Fatalf("registered copy exit=%d stdout=%s", code, out)
+	}
+	var result struct {
+		ID           string                        `json:"id"`
+		Registration app.CreatedMirrorRegistration `json:"registration"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil || result.ID != "99" || result.Registration.Status != "registered" || !result.Registration.ReadbackReconciled {
+		t.Fatalf("result=%+v err=%v output=%s", result, err, out)
+	}
+	native, err := os.ReadFile(filepath.Join(into, filepath.FromSlash(result.Registration.Path)))
+	if err != nil || string(native) != "<p>server normalized copy</p>" {
+		t.Fatalf("native=%q err=%v", native, err)
+	}
+
+	requests := cs.requests()
+	var sourceGets, posts, readbackGets int
+	for _, request := range requests {
+		switch {
+		case request.method == http.MethodGet && request.path == "/rest/api/content/10":
+			sourceGets++
+		case request.method == http.MethodPost && request.path == "/rest/api/content":
+			posts++
+			if got := putStorageValue(t, request.body); got != "<p>source body</p>" {
+				t.Fatalf("copied POST body=%q", got)
+			}
+		case request.method == http.MethodGet && request.path == "/rest/api/content/99":
+			readbackGets++
+		}
+	}
+	if sourceGets != 1 || posts != 1 || readbackGets != 1 {
+		t.Fatalf("requests source GET=%d POST=%d readback GET=%d: %+v", sourceGets, posts, readbackGets, requests)
+	}
+}
+
+func TestConfPageCopyRegistrationFailureEmitsKnownCreatedIDEvidence(t *testing.T) {
+	cs := newConfServer(t)
+	source := strings.Replace(pageJSON("10", "Source", 3, "<p>source body</p>"), `"body":`, `"ancestors":[],"body":`, 1)
+	wrongReadback := strings.Replace(pageJSON("other", "Copied", 1, "<p>wrong object</p>"), `"body":`, `"ancestors":[],"body":`, 1)
+	cs.gets = []cannedResp{
+		{status: http.StatusOK, body: source},
+		{status: http.StatusOK, body: wrongReadback},
+	}
+	cs.writes = []cannedResp{{status: http.StatusCreated, body: `{"id":"99"}`}}
+	into := filepath.Join(t.TempDir(), "mirror")
+
+	out, code := runCLI(t, confEnv(cs.srv), "-o", "id", "conf", "page", "copy", "--id", "10", "--title", "Copied", "--register", "--into", into)
+	if code != exitCheckFailed || out != "99\n" {
+		t.Fatalf("exit=%d stdout=%q, want exit=%d stdout=%q", code, out, exitCheckFailed, "99\n")
+	}
+	var sourceGets, posts, readbackGets int
+	for _, request := range cs.requests() {
+		switch {
+		case request.method == http.MethodGet && request.path == "/rest/api/content/10":
+			sourceGets++
+		case request.method == http.MethodPost && request.path == "/rest/api/content":
+			posts++
+		case request.method == http.MethodGet && request.path == "/rest/api/content/99":
+			readbackGets++
+		}
+	}
+	if sourceGets != 1 || posts != 1 || readbackGets != 1 {
+		t.Fatalf("requests source GET=%d POST=%d readback GET=%d: %+v", sourceGets, posts, readbackGets, cs.requests())
+	}
+	if states, err := mirror.New(into).SyncStates(); err != nil || len(states) != 0 {
+		t.Fatalf("tracked states=%v err=%v", states, err)
+	}
+}
+
+func TestConfPageCreateRegistrationFailureEmitsKnownCreatedIDWithoutReplay(t *testing.T) {
+	cs := newConfServer(t)
+	cs.writes = []cannedResp{{status: http.StatusCreated, body: `{"id":"99"}`}}
+	cs.page = strings.Replace(pageJSON("other", "Brand New", 1, "<p>wrong object</p>"), `"body":`, `"ancestors":[],"body":`, 1)
+	into := filepath.Join(t.TempDir(), "mirror")
+
+	out, code := runCLI(t, confEnv(cs.srv), "conf", "page", "create", "--space", "ENG", "--title", "Brand New", "--register", "--into", into)
+	if code != exitCheckFailed {
+		t.Fatalf("registration failure exit=%d want=%d stdout=%s", code, exitCheckFailed, out)
+	}
+	var result struct {
+		ID           string                        `json:"id"`
+		Registration app.CreatedMirrorRegistration `json:"registration"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil || result.ID != "99" || result.Registration.Status != "not_registered" || result.Registration.ReadbackReconciled {
+		t.Fatalf("result=%+v err=%v output=%s", result, err, out)
+	}
+	if result.Registration.Reason != "readback_unqualified" {
+		t.Fatalf("registration reason=%q", result.Registration.Reason)
+	}
+	var posts, readbacks int
+	for _, request := range cs.requests() {
+		if request.method == http.MethodPost && request.path == "/rest/api/content" {
+			posts++
+		}
+		if request.method == http.MethodGet && request.path == "/rest/api/content/99" {
+			readbacks++
+		}
+	}
+	if posts != 1 || readbacks != 1 {
+		t.Fatalf("requests POST=%d readback GET=%d: %+v", posts, readbacks, cs.requests())
+	}
+	if states, err := mirror.New(into).SyncStates(); err != nil || len(states) != 0 {
+		t.Fatalf("tracked states=%v err=%v", states, err)
+	}
+}
+
+func TestCreateRegistrationFlagsRequireEachOther(t *testing.T) {
+	for _, args := range [][]string{
+		{"conf", "page", "create", "--space", "ENG", "--title", "New", "--register"},
+		{"conf", "page", "create", "--space", "ENG", "--title", "New", "--into", t.TempDir()},
+		{"conf", "page", "copy", "--id", "10", "--title", "Copy", "--register"},
+		{"conf", "page", "copy", "--id", "10", "--title", "Copy", "--into", t.TempDir()},
+		{"jira", "issue", "create", "--project", "PROJ", "--type", "Task", "--summary", "New", "--register"},
+		{"jira", "issue", "create", "--project", "PROJ", "--type", "Task", "--summary", "New", "--into", t.TempDir()},
+	} {
+		out, code := runCLI(t, nil, args...)
+		if code != exitUsage || out != "" {
+			t.Fatalf("args=%v exit=%d stdout=%q", args, code, out)
+		}
+	}
+}
+
 // TestConfPageCreate_InvalidCSFGate locks the create-time validation gate: an
 // invalid CSF (unbalanced tags) must fail BEFORE any network write, mirroring
 // the push gate. The stateful server must record ZERO POST, and the output must
@@ -335,6 +511,221 @@ func TestJiraIssueCreate_WireFields(t *testing.T) {
 	}
 	if it, ok := f["issuetype"].(map[string]any); !ok || it["name"] != "Bug" {
 		t.Errorf("issuetype = %v, want {name: Bug}", f["issuetype"])
+	}
+}
+
+func TestJiraIssueCreateExplicitRegistrationUsesReadback(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodPost, "/rest/api/2/issue", http.StatusCreated, `{"key":"ENG-7"}`)
+	fields := map[string]any{
+		"summary": "Server summary", "description": "server normalized",
+		"status": map[string]any{"name": "Open"}, "issuetype": map[string]any{"name": "Task"},
+		"project": map[string]any{"key": "ENG"}, "assignee": nil, "reporter": nil,
+		"labels": []any{}, "issuelinks": []any{}, "comment": map[string]any{"comments": []any{}}, "attachment": []any{},
+		"priority": nil, "parent": nil, "created": "2026-08-02T14:00:00.000+0000", "updated": "2026-08-02T14:00:00.000+0000",
+		"resolution": nil, "duedate": nil, "components": []any{}, "fixVersions": []any{}, "subtasks": []any{},
+	}
+	readback, _ := json.Marshal(map[string]any{"id": "10007", "key": "ENG-7", "fields": fields})
+	js.route(http.MethodGet, "/rest/api/2/issue/ENG-7", http.StatusOK, string(readback))
+	into := filepath.Join(t.TempDir(), "mirror")
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "create", "--project", "ENG", "--type", "Task", "--summary", "Submitted", "--register", "--into", into)
+	if code != exitOK {
+		t.Fatalf("registered Jira create exit=%d stdout=%s", code, out)
+	}
+	var result struct {
+		Key          string                        `json:"key"`
+		Registration app.CreatedMirrorRegistration `json:"registration"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil || result.Key != "ENG-7" || result.Registration.Status != "registered" {
+		t.Fatalf("result=%+v err=%v output=%s", result, err, out)
+	}
+	native, err := os.ReadFile(filepath.Join(into, filepath.FromSlash(result.Registration.Path)))
+	if err != nil || string(native) != "server normalized" {
+		t.Fatalf("native=%q err=%v", native, err)
+	}
+	var posts, gets int
+	for _, request := range js.requests() {
+		if request.method == http.MethodPost && request.path == "/rest/api/2/issue" {
+			posts++
+		}
+		if request.method == http.MethodGet && request.path == "/rest/api/2/issue/ENG-7" {
+			gets++
+		}
+	}
+	if posts != 1 || gets != 1 {
+		t.Fatalf("requests POST=%d GET=%d: %+v", posts, gets, js.requests())
+	}
+}
+
+func TestJiraIssueCreateRegistrationFailureEmitsKnownCreatedKeyWithoutReplay(t *testing.T) {
+	js := newJiraRegistrationMismatchServer(t)
+	into := filepath.Join(t.TempDir(), "mirror")
+
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "create", "--project", "ENG", "--type", "Task", "--summary", "Submitted", "--register", "--into", into)
+	if code != exitCheckFailed {
+		t.Fatalf("registration failure exit=%d want=%d stdout=%s", code, exitCheckFailed, out)
+	}
+	var result struct {
+		Key          string                        `json:"key"`
+		Registration app.CreatedMirrorRegistration `json:"registration"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil || result.Key != "ENG-7" || result.Registration.Status != "not_registered" || result.Registration.ReadbackReconciled {
+		t.Fatalf("result=%+v err=%v output=%s", result, err, out)
+	}
+	if result.Registration.Reason != "readback_unqualified" {
+		t.Fatalf("registration reason=%q", result.Registration.Reason)
+	}
+	assertJiraCreateRegistrationRequestCounts(t, js)
+	if states, err := mirror.New(into).SyncStates(); err != nil || len(states) != 0 {
+		t.Fatalf("tracked states=%v err=%v", states, err)
+	}
+}
+
+func TestJiraIssueCreateRegistrationFailureEmitsIDEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		format string
+		want   string
+	}{
+		{format: "id", want: "ENG-7\n"},
+		{format: "text", want: "created ENG-7\n"},
+	} {
+		t.Run(tc.format, func(t *testing.T) {
+			js := newJiraRegistrationMismatchServer(t)
+			into := filepath.Join(t.TempDir(), "mirror")
+			out, code := runCLI(t, jiraEnv(js.srv), "-o", tc.format, "jira", "issue", "create", "--project", "ENG", "--type", "Task", "--summary", "Submitted", "--register", "--into", into)
+			if code != exitCheckFailed || out != tc.want {
+				t.Fatalf("format=%s exit=%d stdout=%q, want exit=%d stdout=%q", tc.format, code, out, exitCheckFailed, tc.want)
+			}
+			assertJiraCreateRegistrationRequestCounts(t, js)
+			if states, err := mirror.New(into).SyncStates(); err != nil || len(states) != 0 {
+				t.Fatalf("tracked states=%v err=%v", states, err)
+			}
+		})
+	}
+}
+
+func TestJiraIssueCreateRegistrationFailureAndStdoutFailureKeepBothCauses(t *testing.T) {
+	for _, format := range []string{"json", "id", "text"} {
+		t.Run(format, func(t *testing.T) {
+			js := newJiraRegistrationMismatchServer(t)
+			cause := errors.New(format + " stdout unavailable")
+			err := runCLIWithFailingStdoutEnv(t, jiraEnv(js.srv), cause,
+				"-o", format, "jira", "issue", "create", "--project", "ENG", "--type", "Task", "--summary", "Submitted",
+				"--register", "--into", filepath.Join(t.TempDir(), "mirror"))
+			if !errors.Is(err, domain.ErrCheckFailed) || !errors.Is(err, cause) || codeFor(err) != exitCheckFailed {
+				t.Fatalf("error=%v code=%d", err, codeFor(err))
+			}
+			if !strings.Contains(err.Error(), "do not replay") {
+				t.Fatalf("error lost do-not-replay evidence: %v", err)
+			}
+			assertJiraCreateRegistrationRequestCounts(t, js)
+		})
+	}
+}
+
+func TestJiraIssueCreateSuccessfulRegistrationAndStdoutFailureForbidsReplay(t *testing.T) {
+	for _, format := range []string{"json", "id", "text"} {
+		t.Run(format, func(t *testing.T) {
+			js := newJiraRegistrationSuccessServer(t)
+			cause := errors.New(format + " stdout unavailable")
+			into := filepath.Join(t.TempDir(), "mirror")
+			err := runCLIWithFailingStdoutEnv(t, jiraEnv(js.srv), cause,
+				"-o", format, "jira", "issue", "create", "--project", "ENG", "--type", "Task", "--summary", "Submitted",
+				"--register", "--into", into)
+			if !errors.Is(err, domain.ErrCheckFailed) || !errors.Is(err, cause) || codeFor(err) != exitCheckFailed {
+				t.Fatalf("error=%v code=%d", err, codeFor(err))
+			}
+			if !strings.Contains(err.Error(), "do not replay") {
+				t.Fatalf("error lost do-not-replay evidence: %v", err)
+			}
+			assertJiraCreateRegistrationRequestCounts(t, js)
+			if states, stateErr := mirror.New(into).SyncStates(); stateErr != nil || len(states) != 1 {
+				t.Fatalf("tracked states=%v err=%v", states, stateErr)
+			}
+		})
+	}
+}
+
+func TestJiraIssueCreateRegistrationWarningsUseStderrNotJSON(t *testing.T) {
+	js := newJiraRegistrationSuccessServer(t)
+	into := filepath.Join(t.TempDir(), "mirror")
+	if err := os.MkdirAll(filepath.Join(into, ".atl"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const warningCanary = "registration_unknown_section"
+	localConfig := `{"render":{"jira":{"include":["` + warningCanary + `"]}}}`
+	if err := os.WriteFile(filepath.Join(into, ".atl", "config.json"), []byte(localConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, code := runCLIFull(t, jiraEnv(js.srv), "jira", "issue", "create", "--project", "ENG", "--type", "Task", "--summary", "Submitted", "--register", "--into", into)
+	if code != exitOK {
+		t.Fatalf("exit=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v: %q", err, stdout)
+	}
+	registration, ok := result["registration"].(map[string]any)
+	if !ok || registration["status"] != "registered" {
+		t.Fatalf("registration=%v stdout=%s", result["registration"], stdout)
+	}
+	if _, exposed := registration["warnings"]; exposed || strings.Contains(stdout, warningCanary) {
+		t.Fatalf("registration warnings leaked into JSON: %s", stdout)
+	}
+	if !strings.Contains(stderr, "warning:") || !strings.Contains(stderr, warningCanary) {
+		t.Fatalf("warning missing from stderr: %q", stderr)
+	}
+	assertJiraCreateRegistrationRequestCounts(t, js)
+}
+
+func newJiraRegistrationMismatchServer(t *testing.T) *jiraServer {
+	t.Helper()
+	js := newJiraServer(t)
+	js.route(http.MethodPost, "/rest/api/2/issue", http.StatusCreated, `{"key":"ENG-7"}`)
+	fields := map[string]any{
+		"summary": "Server summary", "description": "wrong object",
+		"status": map[string]any{"name": "Open"}, "issuetype": map[string]any{"name": "Task"},
+		"project": map[string]any{"key": "ENG"}, "assignee": nil, "reporter": nil,
+		"labels": []any{}, "issuelinks": []any{}, "comment": map[string]any{"comments": []any{}}, "attachment": []any{},
+		"priority": nil, "parent": nil, "created": "2026-08-02T14:00:00.000+0000", "updated": "2026-08-02T14:00:00.000+0000",
+		"resolution": nil, "duedate": nil, "components": []any{}, "fixVersions": []any{}, "subtasks": []any{},
+	}
+	readback, _ := json.Marshal(map[string]any{"id": "10008", "key": "ENG-8", "fields": fields})
+	js.route(http.MethodGet, "/rest/api/2/issue/ENG-7", http.StatusOK, string(readback))
+	return js
+}
+
+func newJiraRegistrationSuccessServer(t *testing.T) *jiraServer {
+	t.Helper()
+	js := newJiraServer(t)
+	js.route(http.MethodPost, "/rest/api/2/issue", http.StatusCreated, `{"key":"ENG-7"}`)
+	fields := map[string]any{
+		"summary": "Server summary", "description": "server normalized",
+		"status": map[string]any{"name": "Open"}, "issuetype": map[string]any{"name": "Task"},
+		"project": map[string]any{"key": "ENG"}, "assignee": nil, "reporter": nil,
+		"labels": []any{}, "issuelinks": []any{}, "comment": map[string]any{"comments": []any{}}, "attachment": []any{},
+		"priority": nil, "parent": nil, "created": "2026-08-02T14:00:00.000+0000", "updated": "2026-08-02T14:00:00.000+0000",
+		"resolution": nil, "duedate": nil, "components": []any{}, "fixVersions": []any{}, "subtasks": []any{},
+	}
+	readback, _ := json.Marshal(map[string]any{"id": "10007", "key": "ENG-7", "fields": fields})
+	js.route(http.MethodGet, "/rest/api/2/issue/ENG-7", http.StatusOK, string(readback))
+	return js
+}
+
+func assertJiraCreateRegistrationRequestCounts(t *testing.T, js *jiraServer) {
+	t.Helper()
+	var posts, readbacks int
+	for _, request := range js.requests() {
+		if request.method == http.MethodPost && request.path == "/rest/api/2/issue" {
+			posts++
+		}
+		if request.method == http.MethodGet && request.path == "/rest/api/2/issue/ENG-7" {
+			readbacks++
+		}
+	}
+	if posts != 1 || readbacks != 1 {
+		t.Fatalf("requests POST=%d readback GET=%d: %+v", posts, readbacks, js.requests())
 	}
 }
 
