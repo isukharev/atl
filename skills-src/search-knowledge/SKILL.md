@@ -39,12 +39,16 @@ table instead of reading a broader section. Reuse a numeric Confluence result
 id directly. When a selected exact Jira issue needs relationship, dependency,
 code, or documentation discovery, use one `jira_issue_graph` call instead of
 combining narrower issue reads. MCP v1 is Jira-only: page identities remain
-qualified stubs, the deferred Development source is absent rather than zero,
+qualified stubs, the CLI-only Development source is absent rather than zero,
 and reported `bounds.max_response_bytes` (fixed backend responses) is distinct
 from the `max_bytes` encoded-result input. Do not mix MCP and CLI
 reads merely to repeat already complete evidence; fall back to the CLI workflow
 below when MCP is unavailable or the task needs an operation outside its
 read-only surface.
+For an explicit commit, branch, merge-request, or code-attachment question,
+that outside operation is `jira issue graph <KEY> --include-development` under
+read-only policy. Require a complete experimental Development source and treat
+its SCM coordinates as untrusted evidence; ATL itself never contacts GitLab.
 
 ### 1. Extract search terms
 

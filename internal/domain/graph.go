@@ -34,19 +34,31 @@ const (
 	ArtifactSourceSkipped     ArtifactGraphSourceStatus = "skipped"
 )
 
+// ArtifactGraphSCMIdentity is one closed, content-minimized source-control
+// coordinate. Exactly one artifact selector is set outside project nodes.
+type ArtifactGraphSCMIdentity struct {
+	Host              string `json:"host"`
+	ProjectPath       string `json:"project_path"`
+	CommitSHA         string `json:"commit_sha,omitempty"`
+	BranchName        string `json:"branch_name,omitempty"`
+	MergeRequestIID   string `json:"merge_request_iid,omitempty"`
+	MergeRequestState string `json:"merge_request_state,omitempty"`
+}
+
 // ArtifactGraphNode is one content-minimized work artifact. ExternalID and URL
 // are omitted when an untrusted candidate cannot be projected safely.
 type ArtifactGraphNode struct {
-	ID         string                 `json:"id"`
-	Kind       string                 `json:"kind"`
-	Service    string                 `json:"service"`
-	ExternalID string                 `json:"external_id,omitempty"`
-	URL        string                 `json:"url,omitempty"`
-	Label      string                 `json:"label,omitempty"`
-	State      ArtifactGraphNodeState `json:"state"`
-	Expanded   bool                   `json:"expanded"`
-	Depth      int                    `json:"depth"`
-	Stability  ArtifactGraphStability `json:"stability"`
+	ID         string                    `json:"id"`
+	Kind       string                    `json:"kind"`
+	Service    string                    `json:"service"`
+	ExternalID string                    `json:"external_id,omitempty"`
+	URL        string                    `json:"url,omitempty"`
+	Label      string                    `json:"label,omitempty"`
+	State      ArtifactGraphNodeState    `json:"state"`
+	Expanded   bool                      `json:"expanded"`
+	Depth      int                       `json:"depth"`
+	Stability  ArtifactGraphStability    `json:"stability"`
+	SCM        *ArtifactGraphSCMIdentity `json:"scm,omitempty"`
 }
 
 // ArtifactGraphEvidence explains why an edge exists without copying source

@@ -287,7 +287,9 @@ digest and standalone refs with reconciled per-kind/per-source aggregates;
 schema-v2 bounded CLI and typed MCP work-artifact graph with exact
 structured Jira traversal, optional CLI-only Confluence id/title resolution, typed
 edges, mentions, budgets, frontier, metadata-reconciled fields, and qualified
-per-node sources (including experimental issue properties);
+per-node sources (including experimental issue properties), plus explicit
+CLI-only fail-closed Jira Development project/commit/branch/MR identities that
+never trigger GitLab requests;
 check/attachments/refs/tree. For a report
 or quarter review, route through the Jira skill's one-hop
 `reference/evidence-workflow.md` and stop once sufficient complete evidence is

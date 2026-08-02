@@ -11,20 +11,22 @@ import (
 
 func jiraIssueGraphCmd() *cobra.Command {
 	var (
-		depth       int
-		resolve     string
-		maxNodes    int
-		maxEdges    int
-		maxEvidence int
-		maxRequests int
-		maxBytes    int
-		strict      bool
+		depth              int
+		resolve            string
+		maxNodes           int
+		maxEdges           int
+		maxEvidence        int
+		maxRequests        int
+		maxBytes           int
+		strict             bool
+		includeDevelopment bool
 	)
 	graphOptions := func(cmd *cobra.Command) (app.JiraIssueGraphOptions, error) {
 		opts := app.JiraIssueGraphOptions{
 			Depth: depth, MaxNodes: maxNodes, MaxEdges: maxEdges,
 			MaxEvidence: maxEvidence, MaxRequests: maxRequests,
 			MaxResponseBytes: maxBytes, ResolveConfluence: resolve == "confluence",
+			IncludeDevelopment: includeDevelopment,
 		}
 		if resolve != "none" && resolve != "confluence" {
 			return opts, usageErr("--resolve must be none or confluence")
@@ -48,8 +50,8 @@ func jiraIssueGraphCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "graph <KEY>",
 		Short: "Build a bounded qualified work-artifact graph for one issue",
-		Long: "Build a deterministic read-only work-artifact graph from one Jira issue and its requested stable evidence sources. " +
-			"The bounded schema-v2 contract applies at every depth; custom budgets and optional Confluence metadata resolution remain explicit.",
+		Long: "Build a deterministic read-only work-artifact graph from one Jira issue and its requested evidence sources. " +
+			"The bounded schema-v2 contract applies at every depth; custom budgets, optional Confluence metadata resolution, and experimental Development identities remain explicit.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if err := cobra.ExactArgs(1)(cmd, args); err != nil {
 				return err
@@ -87,6 +89,7 @@ func jiraIssueGraphCmd() *cobra.Command {
 	cmd.Flags().IntVar(&maxRequests, "max-requests", 0, fmt.Sprintf("physical HTTP attempt limit (default %d, max %d)", app.JiraIssueGraphDefaultMaxRequests, app.JiraIssueGraphMaxRequests))
 	cmd.Flags().IntVar(&maxBytes, "max-bytes", 0, fmt.Sprintf("buffered response byte limit (default %d, max %d)", app.JiraIssueGraphDefaultResponseBytes, app.JiraIssueGraphMaxResponseBytes))
 	cmd.Flags().BoolVar(&strict, "strict", false, "emit the graph, then fail when any requested source is incomplete")
+	cmd.Flags().BoolVar(&includeDevelopment, "include-development", false, "include experimental Jira Development project/commit/branch/MR identities")
 	_ = cmd.RegisterFlagCompletionFunc("resolve", fixedComp("none", "confluence"))
 	return cmd
 }

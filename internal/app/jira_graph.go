@@ -31,24 +31,33 @@ var jiraGraphSourceOrder = []string{
 	"remote_links",
 }
 
+func jiraGraphSourceKinds(includeDevelopment bool) []string {
+	kinds := append([]string(nil), jiraGraphSourceOrder...)
+	if includeDevelopment {
+		kinds = append(kinds, "development")
+	}
+	return kinds
+}
+
 // JiraIssueGraphBounds records the requested limits and reconciled usage.
 type JiraIssueGraphBounds struct {
-	RequestedDepth    int  `json:"requested_depth"`
-	MaxNodes          int  `json:"max_nodes"`
-	MaxEdges          int  `json:"max_edges"`
-	MaxEvidence       int  `json:"max_evidence"`
-	MaxSourceBytes    int  `json:"max_source_bytes"`
-	ExpandedNodes     int  `json:"expanded_node_count"`
-	FollowedNodes     int  `json:"followed_node_count"`
-	AttemptedNodes    int  `json:"attempted_node_count,omitempty"`
-	MaxRequests       int  `json:"max_requests,omitempty"`
-	RequestsUsed      int  `json:"requests_used,omitempty"`
-	MaxResponseBytes  int  `json:"max_response_bytes,omitempty"`
-	ResponseBytesUsed int  `json:"response_bytes_used,omitempty"`
-	MaxSources        int  `json:"max_sources,omitempty"`
-	MaxFrontier       int  `json:"max_frontier,omitempty"`
-	FrontierCount     int  `json:"frontier_count,omitempty"`
-	FrontierTruncated bool `json:"frontier_truncated,omitempty"`
+	RequestedDepth     int  `json:"requested_depth"`
+	MaxNodes           int  `json:"max_nodes"`
+	MaxEdges           int  `json:"max_edges"`
+	MaxEvidence        int  `json:"max_evidence"`
+	MaxSourceBytes     int  `json:"max_source_bytes"`
+	ExpandedNodes      int  `json:"expanded_node_count"`
+	FollowedNodes      int  `json:"followed_node_count"`
+	AttemptedNodes     int  `json:"attempted_node_count,omitempty"`
+	MaxRequests        int  `json:"max_requests,omitempty"`
+	RequestsUsed       int  `json:"requests_used,omitempty"`
+	MaxResponseBytes   int  `json:"max_response_bytes,omitempty"`
+	ResponseBytesUsed  int  `json:"response_bytes_used,omitempty"`
+	MaxSources         int  `json:"max_sources,omitempty"`
+	MaxFrontier        int  `json:"max_frontier,omitempty"`
+	FrontierCount      int  `json:"frontier_count,omitempty"`
+	FrontierTruncated  bool `json:"frontier_truncated,omitempty"`
+	IncludeDevelopment bool `json:"include_development,omitempty"`
 }
 
 // JiraIssueGraphSummary mechanically reconciles the final graph projection.
@@ -90,18 +99,21 @@ type jiraGraphBuilder struct {
 	edges         map[string]domain.ArtifactGraphEdge
 	sources       map[string]*domain.ArtifactGraphSource
 	evidenceCount int
+	sourceKinds   []string
 }
 
-func newJiraGraphBuilder(rootID string) *jiraGraphBuilder {
+func newJiraGraphBuilderWithSources(rootID string, includeDevelopment bool) *jiraGraphBuilder {
+	sourceKinds := jiraGraphSourceKinds(includeDevelopment)
 	result := &JiraIssueGraphResult{
 		RootID: rootID,
 	}
 	builder := &jiraGraphBuilder{
 		result: result, nodes: map[string]domain.ArtifactGraphNode{},
-		edges:   map[string]domain.ArtifactGraphEdge{},
-		sources: map[string]*domain.ArtifactGraphSource{},
+		edges:       map[string]domain.ArtifactGraphEdge{},
+		sources:     map[string]*domain.ArtifactGraphSource{},
+		sourceKinds: sourceKinds,
 	}
-	for _, kind := range jiraGraphSourceOrder {
+	for _, kind := range sourceKinds {
 		builder.sources[kind] = &domain.ArtifactGraphSource{
 			NodeID: rootID, Kind: kind, Requested: true,
 			Status: domain.ArtifactSourceEmpty, Complete: true,
@@ -112,7 +124,7 @@ func newJiraGraphBuilder(rootID string) *jiraGraphBuilder {
 }
 
 func jiraGraphSourceStability(kind string) domain.ArtifactGraphStability {
-	if kind == "issue_properties" {
+	if kind == "issue_properties" || kind == "development" {
 		return domain.ArtifactStabilityExperimentalAPI
 	}
 	return domain.ArtifactStabilityPublicAPI
@@ -693,6 +705,10 @@ func (b *jiraGraphBuilder) addNode(node domain.ArtifactGraphNode, source *domain
 		if existing.URL == "" && node.URL != "" {
 			existing.URL = node.URL
 		}
+		if existing.SCM == nil && node.SCM != nil {
+			scm := *node.SCM
+			existing.SCM = &scm
+		}
 		if node.State == domain.ArtifactNodeResolved || (node.State == domain.ArtifactNodeStub && existing.State == domain.ArtifactNodeUnresolved) {
 			existing.State = node.State
 			existing.Stability = node.Stability
@@ -752,6 +768,10 @@ func (b *jiraGraphBuilder) qualifyAuxiliaryError(ctx context.Context, source *do
 		source.Status = domain.ArtifactSourcePartial
 		source.Truncated = true
 		source.PartialReason = domain.ArtifactPartialByteLimit
+	case errors.Is(err, domain.ErrOutputLimit):
+		source.Status = domain.ArtifactSourcePartial
+		source.Truncated = true
+		source.PartialReason = domain.ArtifactPartialOutputLimit
 	case errors.Is(err, domain.ErrAuth), errors.Is(err, domain.ErrForbidden):
 		source.Status = domain.ArtifactSourceForbidden
 	case notFoundUnsupported && errors.Is(err, domain.ErrNotFound):
@@ -928,14 +948,44 @@ func JiraIssueGraphMarkdown(result *JiraIssueGraphResult) string {
 		out.WriteString(MarkdownTable([]string{"Node", "Depth", "Reason"}, frontierRows))
 	}
 	out.WriteString("\n## Nodes\n\n")
+	includeSCM := false
+	for _, node := range result.Nodes {
+		if node.SCM != nil {
+			includeSCM = true
+			break
+		}
+	}
 	nodeRows := make([][]string, 0, len(result.Nodes))
 	for _, node := range result.Nodes {
-		nodeRows = append(nodeRows, []string{
+		row := []string{
 			node.ID, node.Kind, string(node.State), fmt.Sprint(node.Depth),
 			fmt.Sprint(node.Expanded), node.Label,
-		})
+		}
+		if includeSCM {
+			host, project, selector, artifactState := "", "", "", ""
+			if node.SCM != nil {
+				host, project = node.SCM.Host, node.SCM.ProjectPath
+				switch {
+				case node.SCM.CommitSHA != "":
+					selector = "commit:" + node.SCM.CommitSHA
+				case node.SCM.BranchName != "":
+					selector = "branch:" + node.SCM.BranchName
+				case node.SCM.MergeRequestIID != "":
+					selector = "merge_request:" + node.SCM.MergeRequestIID
+					artifactState = node.SCM.MergeRequestState
+				case node.Kind == "gitlab_project":
+					selector = "project"
+				}
+			}
+			row = append(row, host, project, selector, artifactState)
+		}
+		nodeRows = append(nodeRows, row)
 	}
-	out.WriteString(MarkdownTable([]string{"ID", "Kind", "State", "Depth", "Expanded", "Label"}, nodeRows))
+	nodeHeader := []string{"ID", "Kind", "State", "Depth", "Expanded", "Label"}
+	if includeSCM {
+		nodeHeader = append(nodeHeader, "Host", "Project", "Selector", "Artifact State")
+	}
+	out.WriteString(MarkdownTable(nodeHeader, nodeRows))
 	out.WriteString("\n## Edges\n\n")
 	edgeRows := make([][]string, 0, len(result.Edges))
 	for _, edge := range result.Edges {

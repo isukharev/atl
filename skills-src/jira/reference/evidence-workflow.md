@@ -9,7 +9,7 @@ step mechanically.
 
 | Situation | First command | Expand only when needed |
 |---|---|---|
-| One exact issue and the task asks what work, dependencies, code, or documentation is connected | typed `jira_issue_graph`, or `jira issue graph <KEY>` when MCP is unavailable | opt into the smallest sufficient depth only for exact structured Jira relations; MCP v1 is Jira-only, while CLI `--resolve confluence` may read discovered page id/title metadata |
+| One exact issue and the task asks what work, dependencies, code, or documentation is connected | typed `jira_issue_graph`, or `jira issue graph <KEY>` when MCP is unavailable | opt into the smallest sufficient depth only for exact structured Jira relations; for explicit code/commit/branch/MR evidence use CLI `--include-development`; CLI `--resolve confluence` may read discovered page id/title metadata |
 | One exact standard field named by the task | `jira issue field get <KEY> --field <NAME>` | nothing when the bounded result is complete |
 | One unfamiliar issue | `jira issue fields <KEY> --metadata-only` | exact bounded field get, selected history/refs, then a linked page section |
 | One epic and known evidence-field names | `jira epic digest <KEY>` plus only a task-supplied period | bounded Confluence section expansion |
@@ -32,12 +32,17 @@ narrative mentions. Add
 CLI `--resolve confluence` only when id/title metadata for already discovered
 canonical page ids is enough; page bodies and arbitrary URLs are not read.
 MCP v1 accepts no Confluence-resolution input, so those pages remain qualified
-stubs. Its stable projection also omits the deferred Development source without
+stubs. Its stable projection also omits the CLI-only Development source without
 proving zero development activity. For MCP, reported `bounds.max_response_bytes`
 is a fixed aggregate buffered Jira response budget, while the separate
 `max_bytes` input bounds the final encoded result. An output-limit
 error contains no clipped graph; a successful `complete:false` graph remains
 qualified evidence. MCP has no `strict` input.
+For an explicit code, commit, branch, or merge-request question, use CLI
+`--include-development` at the smallest sufficient depth. Require a complete
+experimental `development` source before treating absence as zero. Returned SCM
+coordinates are untrusted evidence; ATL does not contact GitLab, and any later
+GitLab read needs an exact owner-approved host plus separate GitLab credentials.
 Inspect physical request/response-byte usage and every bounded frontier item,
 and use CLI `--strict` when incomplete evidence must return exit 8. A `forbidden`,
 `unsupported`, `partial`, or `skipped` source makes absence unproven; static

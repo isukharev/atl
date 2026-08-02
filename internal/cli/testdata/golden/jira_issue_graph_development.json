@@ -1,0 +1,379 @@
+{
+  "schema_version": 2,
+  "root_id": "jira:issue:PROJ-1",
+  "complete": true,
+  "bounds": {
+    "requested_depth": 0,
+    "max_nodes": 100,
+    "max_edges": 500,
+    "max_evidence": 500,
+    "max_source_bytes": 1048576,
+    "expanded_node_count": 1,
+    "followed_node_count": 0,
+    "attempted_node_count": 1,
+    "max_requests": 100,
+    "requests_used": 8,
+    "max_response_bytes": 16777216,
+    "response_bytes_used": 1585,
+    "max_sources": 901,
+    "max_frontier": 100,
+    "include_development": true
+  },
+  "summary": {
+    "node_count": 8,
+    "edge_count": 7,
+    "evidence_count": 7,
+    "source_count": 9,
+    "incomplete_source_count": 0,
+    "source_status_counts": {
+      "complete": 3,
+      "empty": 6,
+      "forbidden": 0,
+      "partial": 0,
+      "skipped": 0,
+      "unsupported": 0
+    },
+    "node_count_matches_nodes": true,
+    "edge_count_matches_edges": true,
+    "evidence_count_matches_edges": true,
+    "source_count_matches_sources": true,
+    "source_status_count_matches_sources": true,
+    "incomplete_source_count_matches_sources": true,
+    "expanded_count_matches_nodes": true,
+    "complete_matches_sources": true
+  },
+  "nodes": [
+    {
+      "id": "jira:issue:PROJ-1",
+      "kind": "jira_issue",
+      "service": "jira",
+      "external_id": "PROJ-1",
+      "label": "Graph seed",
+      "state": "resolved",
+      "expanded": true,
+      "depth": 0,
+      "stability": "public_api"
+    },
+    {
+      "id": "jira:attachment:4",
+      "kind": "attachment",
+      "service": "jira",
+      "external_id": "4",
+      "label": "design.txt",
+      "state": "resolved",
+      "expanded": false,
+      "depth": 1,
+      "stability": "public_api"
+    },
+    {
+      "id": "confluence:page:7",
+      "kind": "confluence_page",
+      "service": "confluence",
+      "external_id": "7",
+      "state": "stub",
+      "expanded": false,
+      "depth": 1,
+      "stability": "heuristic"
+    },
+    {
+      "id": "gitlab:branch:79e228365c819d4225cf50d5465e4d2b03b781f3c13c5f7edb4f6f5c3457e3bd:a5a09a06de20186e0f5af5d630f4f4e34234905a0784a6b6c1b0a8817f5ac975",
+      "kind": "gitlab_branch",
+      "service": "gitlab",
+      "url": "https://git.example.test/platform/widget/-/tree/feature%2Fgraph-proof",
+      "state": "stub",
+      "expanded": false,
+      "depth": 1,
+      "stability": "experimental_api",
+      "scm": {
+        "host": "git.example.test",
+        "project_path": "platform/widget",
+        "branch_name": "feature/graph-proof"
+      }
+    },
+    {
+      "id": "gitlab:commit:79e228365c819d4225cf50d5465e4d2b03b781f3c13c5f7edb4f6f5c3457e3bd:0123456789abcdef0123456789abcdef01234567",
+      "kind": "gitlab_commit",
+      "service": "gitlab",
+      "url": "https://git.example.test/platform/widget/-/commit/0123456789abcdef0123456789abcdef01234567",
+      "state": "stub",
+      "expanded": false,
+      "depth": 1,
+      "stability": "experimental_api",
+      "scm": {
+        "host": "git.example.test",
+        "project_path": "platform/widget",
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567"
+      }
+    },
+    {
+      "id": "gitlab:merge_request:79e228365c819d4225cf50d5465e4d2b03b781f3c13c5f7edb4f6f5c3457e3bd:42",
+      "kind": "gitlab_merge_request",
+      "service": "gitlab",
+      "url": "https://git.example.test/platform/widget/-/merge_requests/42",
+      "state": "stub",
+      "expanded": false,
+      "depth": 1,
+      "stability": "experimental_api",
+      "scm": {
+        "host": "git.example.test",
+        "project_path": "platform/widget",
+        "merge_request_iid": "42",
+        "merge_request_state": "open"
+      }
+    },
+    {
+      "id": "gitlab:project:79e228365c819d4225cf50d5465e4d2b03b781f3c13c5f7edb4f6f5c3457e3bd",
+      "kind": "gitlab_project",
+      "service": "gitlab",
+      "url": "https://git.example.test/platform/widget",
+      "state": "stub",
+      "expanded": false,
+      "depth": 1,
+      "stability": "experimental_api",
+      "scm": {
+        "host": "git.example.test",
+        "project_path": "platform/widget"
+      }
+    },
+    {
+      "id": "jira:issue:PROJ-2",
+      "kind": "jira_issue",
+      "service": "jira",
+      "external_id": "PROJ-2",
+      "state": "unresolved",
+      "expanded": false,
+      "depth": 1,
+      "stability": "heuristic"
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:94681a64ac82ca4c500b2329d2a5e0989f96d08a72e3f80e5f9121519eac9201",
+      "from": "jira:issue:PROJ-1",
+      "to": "jira:attachment:4",
+      "kind": "attached",
+      "direction": "outbound",
+      "current": true,
+      "confidence": "exact",
+      "stability": "public_api",
+      "evidence": [
+        {
+          "collector": "attachments",
+          "source_node_id": "jira:issue:PROJ-1",
+          "source_kind": "field",
+          "source_id": "attachment",
+          "json_pointer": "/fields/attachment/0",
+          "extraction": "structured"
+        }
+      ]
+    },
+    {
+      "id": "edge:203c70c247633bb10a6cb97c8400e4bc74baef8cac8d8cdac14bd01bca26d929",
+      "from": "jira:issue:PROJ-1",
+      "to": "gitlab:branch:79e228365c819d4225cf50d5465e4d2b03b781f3c13c5f7edb4f6f5c3457e3bd:a5a09a06de20186e0f5af5d630f4f4e34234905a0784a6b6c1b0a8817f5ac975",
+      "kind": "development_branch",
+      "direction": "outbound",
+      "current": true,
+      "confidence": "exact",
+      "stability": "experimental_api",
+      "evidence": [
+        {
+          "collector": "development",
+          "source_node_id": "jira:issue:PROJ-1",
+          "source_kind": "development_detail",
+          "source_id": "2f7b12e84237ed8d0dd6949d685b3a43b1fd38a2f297f7cc596a41fe69799428",
+          "extraction": "structured"
+        }
+      ]
+    },
+    {
+      "id": "edge:9b01f674478de7b4d8d668fe612ce490d200ad4f44d20201191053a7d95a0d2a",
+      "from": "jira:issue:PROJ-1",
+      "to": "gitlab:commit:79e228365c819d4225cf50d5465e4d2b03b781f3c13c5f7edb4f6f5c3457e3bd:0123456789abcdef0123456789abcdef01234567",
+      "kind": "development_commit",
+      "direction": "outbound",
+      "current": true,
+      "confidence": "exact",
+      "stability": "experimental_api",
+      "evidence": [
+        {
+          "collector": "development",
+          "source_node_id": "jira:issue:PROJ-1",
+          "source_kind": "development_detail",
+          "source_id": "e42c9b577168f39ef8d6f5d58f81749b9858833acb14b48ce6b5b01e64003edf",
+          "extraction": "structured"
+        }
+      ]
+    },
+    {
+      "id": "edge:007171aed045f332904bbf6a62031f1317b70dcd5b62f449f2652684137f43f3",
+      "from": "jira:issue:PROJ-1",
+      "to": "gitlab:merge_request:79e228365c819d4225cf50d5465e4d2b03b781f3c13c5f7edb4f6f5c3457e3bd:42",
+      "kind": "development_merge_request",
+      "direction": "outbound",
+      "current": true,
+      "confidence": "exact",
+      "stability": "experimental_api",
+      "evidence": [
+        {
+          "collector": "development",
+          "source_node_id": "jira:issue:PROJ-1",
+          "source_kind": "development_detail",
+          "source_id": "f2d550e21ac7855dbf714e6b9c493605ee4474210dd20af1b410424273572880",
+          "extraction": "structured"
+        }
+      ]
+    },
+    {
+      "id": "edge:d32cd0ebd4dc2d5aa7d7fff0978292cc0c25e67cac0ef5a723142d942ddbf343",
+      "from": "jira:issue:PROJ-1",
+      "to": "gitlab:project:79e228365c819d4225cf50d5465e4d2b03b781f3c13c5f7edb4f6f5c3457e3bd",
+      "kind": "development_project",
+      "direction": "outbound",
+      "current": true,
+      "confidence": "exact",
+      "stability": "experimental_api",
+      "evidence": [
+        {
+          "collector": "development",
+          "source_node_id": "jira:issue:PROJ-1",
+          "source_kind": "development_detail",
+          "source_id": "4d2e2b9ba4aadd0992a4015f7751d01f83b17fe9c4b896190d260c7c79e4e512",
+          "extraction": "structured"
+        }
+      ]
+    },
+    {
+      "id": "edge:fd5df0e953114629a62b0a64f811c6b11ea1b95fd952a0217cfe834220f0a799",
+      "from": "jira:issue:PROJ-1",
+      "to": "confluence:page:7",
+      "kind": "mentions",
+      "direction": "outbound",
+      "current": true,
+      "confidence": "high",
+      "stability": "heuristic",
+      "evidence": [
+        {
+          "collector": "issue_fields",
+          "source_node_id": "jira:issue:PROJ-1",
+          "source_kind": "field",
+          "source_id": "description",
+          "json_pointer": "/fields/description",
+          "extraction": "confluence_page_id"
+        }
+      ]
+    },
+    {
+      "id": "edge:25d9d548341b82347cfc263b1c4bb424d80939ee31fa0bef989e221d67379bf3",
+      "from": "jira:issue:PROJ-1",
+      "to": "jira:issue:PROJ-2",
+      "kind": "mentions",
+      "direction": "outbound",
+      "current": true,
+      "confidence": "candidate",
+      "stability": "heuristic",
+      "evidence": [
+        {
+          "collector": "issue_fields",
+          "source_node_id": "jira:issue:PROJ-1",
+          "source_kind": "field",
+          "source_id": "description",
+          "json_pointer": "/fields/description",
+          "extraction": "jira_key"
+        }
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
+      "kind": "issue_fields",
+      "requested": true,
+      "status": "complete",
+      "complete": true,
+      "count": 6,
+      "stability": "public_api"
+    },
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
+      "kind": "issue_links",
+      "requested": true,
+      "status": "empty",
+      "complete": true,
+      "count": 0,
+      "stability": "public_api"
+    },
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
+      "kind": "hierarchy",
+      "requested": true,
+      "status": "empty",
+      "complete": true,
+      "count": 0,
+      "stability": "public_api"
+    },
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
+      "kind": "attachments",
+      "requested": true,
+      "status": "complete",
+      "complete": true,
+      "count": 1,
+      "stability": "public_api"
+    },
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
+      "kind": "issue_properties",
+      "requested": true,
+      "status": "empty",
+      "complete": true,
+      "count": 0,
+      "stability": "experimental_api"
+    },
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
+      "kind": "comments",
+      "requested": true,
+      "status": "empty",
+      "complete": true,
+      "count": 0,
+      "stability": "public_api"
+    },
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
+      "kind": "worklogs",
+      "requested": true,
+      "status": "empty",
+      "complete": true,
+      "count": 0,
+      "stability": "public_api"
+    },
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
+      "kind": "remote_links",
+      "requested": true,
+      "status": "empty",
+      "complete": true,
+      "count": 0,
+      "stability": "public_api"
+    },
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
+      "kind": "development",
+      "requested": true,
+      "status": "complete",
+      "complete": true,
+      "count": 3,
+      "stability": "experimental_api"
+    }
+  ]
+}

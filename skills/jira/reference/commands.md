@@ -11,7 +11,7 @@ The typed `jira_issue_graph` counterpart is Jira-only, caps depth at 2, and
 takes no Confluence-resolution or strictness input. Its reported
 `bounds.max_response_bytes` is a fixed aggregate Jira response bound, while the
 `max_bytes` input separately bounds the encoded MCP result. The projection
-omits the deferred Development source without treating it as zero. Use the CLI
+omits the CLI-only Development source without treating it as zero. Use the CLI
 graph route for optional id/title-only Confluence resolution.
 
 | Command | What it does | Key flags |
@@ -40,7 +40,7 @@ graph route for optional id/title-only Confluence resolution.
 | `jira issue worklog list <KEY>` | Read complete time entries | `-o text/id`; inspect `complete` |
 | `jira issue worklog add <KEY>` | Baseline-bound one-entry time preview/apply | `--time`, optional `--started`, `--from-file`; review `baseline_sha256`; `--apply`, `--expected-proposal-hash` |
 | `jira issue history <KEY>` | Qualified changelog with deterministic `summary`; inspect `complete`, separate missing/non-empty-id identity facts, summary consistency, and `last_changes` | repeat `--field`; `--since`, `--until`; `--summary-only` omits raw history and rejects explicit false |
-| `jira issue graph <KEY>` | Schema-v2 bounded graph with metadata-reconciled fields; depth zero is direct, while greater depths follow only exact structured Jira relations and optional resolution reads discovered Confluence id/title metadata | `--depth` 0..3, `--resolve none|confluence`, node/edge/evidence/request/byte limits, `--strict`, JSON or `-o text`; inspect `complete`, bounds, frontier, every per-node source, and experimental source stability |
+| `jira issue graph <KEY>` | Schema-v2 bounded graph with metadata-reconciled fields; depth zero is direct, while greater depths follow only exact structured Jira relations; optional phases resolve discovered Confluence id/title metadata or collect fail-closed Jira Development coordinates | `--depth` 0..3, `--resolve none|confluence`, `--include-development`, node/edge/evidence/request/byte limits, `--strict`, JSON or `-o text`; Development is experimental, never fetched from GitLab, and requires complete source qualification |
 | `jira issue refs [KEY]` | Extract provenance-qualified artifact references with reconciled per-issue/top-level aggregates; field ids or exact names; JQL adds one complete comment listing per issue | `--jql`, `--fields`, `--limit` |
 | `jira issue tree` | Build read-only epic-to-child grouping | `--jql`, `--epic-field`, `--fields`, `--limit` |
 | `jira issue comment preview <KEY>` | GET-only baseline-bound append proposal | `--from-md`, `--from-file`; inspect body/baseline/proposal hashes |

@@ -80,7 +80,7 @@ provenance-qualified schema-v2 graph. Start at depth zero; use the smallest
 sufficient `depth` from 1 through 2 only for exact structured Jira relations.
 MCP v1 is Jira-only: it has no Confluence-resolution input, does not fetch page
 metadata, and leaves discovered pages as qualified stubs. Its stable projection
-omits the deferred Development source without implying a zero. It also has no
+omits the CLI-only Development source without implying a zero. It also has no
 `strict` input, so inspect `complete`, reconciliation, every source, transport
 usage, and the bounded frontier. Reported `bounds.max_response_bytes` is the
 fixed aggregate buffered Jira response budget; the separate `max_bytes` input
