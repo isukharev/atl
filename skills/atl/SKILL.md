@@ -312,7 +312,8 @@ explicit post-create `conf page create --register --into <ROOT>` and guarded
 preview/apply `conf page copy [--register --into <ROOT>]` from one authoritative
 readback;
 opt-in ordered `conf pull --page-prefetch` plus a shared
-`--requests-per-second` transport boundary for complete/incremental mirrors
+`--requests-per-second` transport boundary for ordinary CQL/space and
+complete/incremental mirrors
 while every local write/checkpoint remains serial;
 `conf page list --space [--status]`, `conf page
 open --id`, guarded `conf page copy --id --title [--space] [--parent]

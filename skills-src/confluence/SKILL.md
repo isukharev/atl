@@ -184,6 +184,10 @@ write command after explicit approval.
   intact, qualified native edit can use `--stash-local` (preferred when
   intentionally resetting) or `--overwrite-local`; these flags never bypass
   derived-view, future-marker, path, metadata, or baseline failures.
+  Ordinary CQL/space pulls may opt into ordered `--page-prefetch 2..8` and a
+  positive `--requests-per-second`; response completion may overlap, but
+  result order and every mirror write stay serial. Defaults `1/0` keep the
+  ordinary unscheduled path. Never add shell-level concurrency.
   With `conf pull --comments`, treat `.comments.json` as schema-v2 source
   evidence. The main v6 `.md` contains the deterministic qualified read-only
   tree; `.comments.md` remains flat compatibility. Never edit either generated

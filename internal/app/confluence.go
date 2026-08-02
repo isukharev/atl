@@ -351,13 +351,18 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 	if o.RequestsPerSecond < 0 || o.RequestsPerSecond > 1000 {
 		return nil, fmt.Errorf("%w: --requests-per-second must be between 0 and 1000", domain.ErrUsage)
 	}
-	if !o.Incremental && !o.Complete && (o.PagePrefetch > 1 || o.RequestsPerSecond > 0) {
-		return nil, fmt.Errorf("%w: request scheduling requires --incremental or --complete", domain.ErrUsage)
+	pagePrefetch := o.PagePrefetch
+	if pagePrefetch == 0 {
+		pagePrefetch = 1
 	}
-	if (o.PagePrefetch > 1 || o.RequestsPerSecond > 0) &&
-		(s.requestMaxInFlight != o.PagePrefetch || s.requestsPerSecond != o.RequestsPerSecond) {
+	optInSchedule := pagePrefetch > 1 || o.RequestsPerSecond > 0
+	if optInSchedule && o.ID != "" {
+		return nil, fmt.Errorf("%w: request scheduling requires a multi-page --cql or --space selector", domain.ErrUsage)
+	}
+	if optInSchedule && (s.requestMaxInFlight != pagePrefetch || s.requestsPerSecond != o.RequestsPerSecond) {
 		return nil, fmt.Errorf("%w: pull request schedule was not installed in the service transport", domain.ErrCheckFailed)
 	}
+	scheduled := o.Incremental || o.Complete || optInSchedule
 	if o.Incremental && o.Complete {
 		return nil, fmt.Errorf("%w: --incremental and --complete are mutually exclusive", domain.ErrUsage)
 	}
@@ -438,16 +443,12 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 	// lives under it). Default/minimal keep the body-only view byte-identical to
 	// today; only `full` (or an explicit include) adds metadata/comments.
 	res := &PullResult{Root: root, Warnings: warns}
-	if o.Incremental || o.Complete {
-		prefetch := o.PagePrefetch
-		if prefetch == 0 {
-			prefetch = 1
-		}
+	if scheduled {
 		maxInFlight := s.requestMaxInFlight
 		if maxInFlight == 0 {
 			maxInFlight = 1
 		}
-		res.Scheduling = &PullScheduling{PagePrefetch: prefetch, MaxInFlight: maxInFlight, RequestsPerSecond: s.requestsPerSecond}
+		res.Scheduling = &PullScheduling{PagePrefetch: pagePrefetch, MaxInFlight: maxInFlight, RequestsPerSecond: s.requestsPerSecond}
 	}
 	if incremental != nil {
 		res.Incremental = incremental.result
@@ -519,8 +520,8 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 	}
 	macroOptOutWarned := false
 	var prefetch *orderedPagePrefetch
-	if o.PagePrefetch > 1 {
-		prefetch = newOrderedPagePrefetch(ctx, s.store, processIDs, o.PagePrefetch, confluenceNeedsRestrictions(rs))
+	if pagePrefetch > 1 {
+		prefetch = newOrderedPagePrefetch(ctx, s.store, processIDs, pagePrefetch, confluenceNeedsRestrictions(rs))
 		defer prefetch.close()
 	}
 	for _, id := range processIDs {

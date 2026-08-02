@@ -46,6 +46,8 @@ Use transient `page view` only for one-off readonly work. For a mirror:
 ```bash
 atl conf pull --id <id> --assets --comments --jira-view default --into <root>
 # alternatives: --cql '<CQL>' or --space <KEY> [--depth N]
+# optional bounded multi-page reads; mirror publication stays serial
+atl conf pull --space <KEY> --page-prefetch 2 --requests-per-second 10 --into <root>
 
 # complete historical bootstrap beyond ordinary caps; repeat exactly to resume
 atl conf pull --complete --cql '<stable CQL without ORDER BY>' --into <root>
@@ -202,7 +204,7 @@ identifier per line.
 | `conf page copy` | Guarded copy preview/apply; optionally register the exact readback | `--id --title`; optional space/parent and paired `--register --into`; apply requires `--apply --expected-version --expected-proposal-hash` |
 | `conf page delete` | Guarded page-trash preview/apply; never replay an unknown outcome | `--id`; apply requires `--apply --confirm TRASH --expected-version --expected-proposal-hash` |
 | `conf blog create` | Create one native blog post | `--space`, `--title`, one body source; `-o text/id` |
-| `conf pull` | Mirror pages | selector; complete delta via `--incremental`, first-run RFC3339 `--since`, `--max-pages`; assets/comments/Jira macros/render flags |
+| `conf pull` | Mirror pages | selector; bounded multi-page `--page-prefetch`/`--requests-per-second`; complete delta via `--incremental`, first-run RFC3339 `--since`, `--max-pages`; assets/comments/Jira macros/render flags |
 | `conf render` | Regenerate Markdown offline | path, render flags, `--into` |
 | `conf status` | Dirty/drift state | `[DIR]` or `--into`, `--remote` |
 | `conf snapshot` | Exact content-free mirror/baseline/validation/render/drift cardinalities | `[DIR]` or `--into`, `--remote` |
