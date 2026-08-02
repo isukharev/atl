@@ -162,7 +162,7 @@ func (s *ConfluenceService) DeleteAttachmentGuarded(ctx context.Context, pageID,
 		InventoryCount: len(initial.inventory), InventorySHA256: initial.inventorySHA256,
 		ExpectedFinalCount: len(expectedFinal), ExpectedFinalSHA256: expectedFinalSHA256,
 		BackendSHA256: initial.backendSHA256, ProposalHash: proposalHash, Complete: true,
-		Warning: "permanent attachment deletion has no server-side version CAS; apply revalidates a complete inventory before one DELETE and never replays it",
+		Warning: "permanent attachment deletion has no server-side version CAS; apply reconciles two complete inventories before one DELETE and never replays it",
 	}
 	if opts.Apply && expectedVersion != initial.page.Version {
 		result.Status = "blocked"
@@ -206,7 +206,8 @@ func (s *ConfluenceService) DeleteAttachmentGuarded(ctx context.Context, pageID,
 	} else {
 		result.ObservedState = "absent"
 	}
-	if readback.backendSHA256 == initial.backendSHA256 && !readback.targetPresent &&
+	if confluenceAttachmentDeletePageMatches(initial.page, readback.page) &&
+		readback.backendSHA256 == initial.backendSHA256 && !readback.targetPresent &&
 		len(readback.inventory) == len(expectedFinal) && readback.inventorySHA256 == expectedFinalSHA256 {
 		if writeErr == nil {
 			result.Status = "applied"
@@ -237,12 +238,24 @@ func (s *ConfluenceService) confluenceAttachmentDeleteSnapshot(ctx context.Conte
 	}
 	beforeEvidence := confluenceAttachmentDeletePageEvidenceFromResource(before)
 	readCtx := domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(ctx))
-	inventory, err := lister.ListAttachmentsQualified(readCtx, pageID)
+	firstInventory, err := lister.ListAttachmentsQualified(readCtx, pageID)
 	if err != nil {
 		return confluenceAttachmentDeleteSnapshot{}, err
 	}
-	if err := validateConfluenceAttachmentDeleteInventory(inventory); err != nil {
+	firstEvidence, firstSelected, firstFound, err := confluenceAttachmentDeleteInventoryEvidence(firstInventory, attachmentID)
+	if err != nil {
 		return confluenceAttachmentDeleteSnapshot{}, err
+	}
+	secondInventory, err := lister.ListAttachmentsQualified(readCtx, pageID)
+	if err != nil {
+		return confluenceAttachmentDeleteSnapshot{}, err
+	}
+	secondEvidence, secondSelected, secondFound, err := confluenceAttachmentDeleteInventoryEvidence(secondInventory, attachmentID)
+	if err != nil {
+		return confluenceAttachmentDeleteSnapshot{}, err
+	}
+	if !confluenceAttachmentDeleteInventoriesEqual(firstEvidence, secondEvidence) || firstFound != secondFound || firstSelected != secondSelected {
+		return confluenceAttachmentDeleteSnapshot{}, fmt.Errorf("%w: consecutive complete attachment inventories did not reconcile", domain.ErrCheckFailed)
 	}
 	after, err := s.readExactCurrentConfluencePage(ctx, pageID)
 	if err != nil {
@@ -253,6 +266,19 @@ func (s *ConfluenceService) confluenceAttachmentDeleteSnapshot(ctx context.Conte
 		return confluenceAttachmentDeleteSnapshot{}, fmt.Errorf("%w: page changed while the attachment inventory was being read", domain.ErrCheckFailed)
 	}
 
+	if requireTarget && !firstFound {
+		return confluenceAttachmentDeleteSnapshot{}, fmt.Errorf("%w: attachment is absent from the complete page inventory", domain.ErrNotFound)
+	}
+	return confluenceAttachmentDeleteSnapshot{
+		page: beforeEvidence, backendSHA256: backendSHA256, attachment: firstSelected,
+		targetPresent: firstFound, inventory: firstEvidence, inventorySHA256: confluenceAttachmentInventoryHash(firstEvidence),
+	}, nil
+}
+
+func confluenceAttachmentDeleteInventoryEvidence(inventory domain.AttachmentInventory, attachmentID string) ([]confluenceAttachmentDeleteEvidence, confluenceAttachmentDeleteEvidence, bool, error) {
+	if err := validateConfluenceAttachmentDeleteInventory(inventory); err != nil {
+		return nil, confluenceAttachmentDeleteEvidence{}, false, err
+	}
 	evidence := make([]confluenceAttachmentDeleteEvidence, 0, len(inventory.Attachments))
 	var selected confluenceAttachmentDeleteEvidence
 	found := false
@@ -265,13 +291,19 @@ func (s *ConfluenceService) confluenceAttachmentDeleteSnapshot(ctx context.Conte
 		}
 	}
 	sort.Slice(evidence, func(i, j int) bool { return evidence[i].ID < evidence[j].ID })
-	if requireTarget && !found {
-		return confluenceAttachmentDeleteSnapshot{}, fmt.Errorf("%w: attachment is absent from the complete page inventory", domain.ErrNotFound)
+	return evidence, selected, found, nil
+}
+
+func confluenceAttachmentDeleteInventoriesEqual(a, b []confluenceAttachmentDeleteEvidence) bool {
+	if len(a) != len(b) {
+		return false
 	}
-	return confluenceAttachmentDeleteSnapshot{
-		page: beforeEvidence, backendSHA256: backendSHA256, attachment: selected,
-		targetPresent: found, inventory: evidence, inventorySHA256: confluenceAttachmentInventoryHash(evidence),
-	}, nil
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func validateConfluenceAttachmentDeleteInventory(inventory domain.AttachmentInventory) error {

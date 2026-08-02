@@ -2749,8 +2749,8 @@ reviewed copy workflow; do not weaken it globally.
 ### `atl conf attachment {list,get,upload,delete}`
 
 Manage page attachments. Permanent `delete` is preview-first, binds one exact
-page revision and complete qualified inventory, uses one transport attempt on
-apply, and refuses redirects.
+page revision and two independently complete qualified inventories that agree,
+uses one transport attempt on apply, and refuses redirects.
 
 ```bash
 atl conf attachment list --id 12345678                       # qualified inventory; -o id → ids
@@ -2783,18 +2783,20 @@ A caller size fault (a negative size or a multipart body that would overflow the
 length) exits `2`; a successful backend response that is malformed JSON or carries
 no attachment exits `8`.
 
-Attachment deletion is permanent and preview-first. Preview brackets one
-complete qualified inventory with exact current-page reads, binds the backend,
+Attachment deletion is permanent and preview-first. Preview brackets two
+consecutive complete qualified inventories with exact current-page reads,
+requires their canonical agreement, and binds the backend,
 page version/native identity, selected attachment metadata, and the complete
 canonical inventory into `proposal_hash`, and performs no DELETE. Partial or
 legacy inventory, an absent target, malformed metadata, or a page that changes
 during inventory pagination fails closed.
 
 Apply requires `--confirm DELETE`, the previewed positive page version, and the
-exact proposal hash. It re-reads the complete proposal state before one
-non-replayed DELETE. Only an exact current-page read and complete final
-inventory equal to the reviewed inventory with that attachment removed proves
-`applied` or `recovered`; a retained target, unrelated inventory drift, or
+exact proposal hash. It re-reads the independently reconciled proposal state
+before one non-replayed DELETE. Only unchanged exact page evidence and two
+agreeing complete final inventories equal to the reviewed inventory with that
+attachment removed prove `applied` or `recovered`; a retained target, page or
+inventory drift, or
 unavailable/partial readback is `outcome_unknown` (exit `8`) and must not be
 replayed. The entire delete leaf is mutating-classified, so `ATL_READ_ONLY=1`
 blocks its GET-only preview as well as apply.

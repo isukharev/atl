@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -528,6 +529,12 @@ func validateConfluenceAttachmentDeleteInvocation(cmd *cobra.Command, applyReque
 	if pageErr != nil || attachmentErr != nil || strings.TrimSpace(pageID) == "" || strings.TrimSpace(attachmentID) == "" {
 		return usageErr("--page-id and --id are required")
 	}
+	if !canonicalConfluenceCLIContentID(pageID) {
+		return usageErr("--page-id must be a positive numeric content id")
+	}
+	if !canonicalConfluenceCLIContentID(attachmentID) {
+		return usageErr("--id must be a positive numeric attachment id")
+	}
 	if outputFormat == "id" {
 		return usageErr("-o id is not supported for this command")
 	}
@@ -549,6 +556,14 @@ func validateConfluenceAttachmentDeleteInvocation(cmd *cobra.Command, applyReque
 		return usageErr("--expected-version is required with --apply; run the dry-run first")
 	}
 	return nil
+}
+
+func canonicalConfluenceCLIContentID(value string) bool {
+	if value == "" || value[0] == '0' || strings.TrimSpace(value) != value {
+		return false
+	}
+	_, err := strconv.ParseUint(value, 10, 64)
+	return err == nil
 }
 
 func validateConfluencePageCopyInvocation(cmd *cobra.Command, applyRequested bool) error {

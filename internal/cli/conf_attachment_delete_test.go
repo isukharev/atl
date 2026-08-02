@@ -112,6 +112,8 @@ func TestConfAttachmentDeleteGuardsPrecedeConfigAndNetwork(t *testing.T) {
 	}
 	for _, args := range [][]string{
 		{"conf", "attachment", "delete"},
+		{"conf", "attachment", "delete", "--page-id", "page", "--id", "99"},
+		{"conf", "attachment", "delete", "--page-id", "42", "--id", "attachment"},
 		{"conf", "attachment", "delete", "--page-id", "42", "--id", "99", "-o", "id"},
 		{"conf", "attachment", "delete", "--page-id", "42", "--id", "99", "--confirm", "DELETE"},
 		{"conf", "attachment", "delete", "--page-id", "42", "--id", "99", "--apply", "--confirm", "WRONG", "--expected-version", "7", "--expected-proposal-hash", "hash"},

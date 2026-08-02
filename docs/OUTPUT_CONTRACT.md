@@ -1025,10 +1025,11 @@ guarded schema-v1 proposal:
 Apply adds `final_page_version`, `final_count`, and `final_sha256` when exact
 readback is available. `status` is `would_apply`, `blocked`, `not_applied`,
 `applied`, `recovered`, or `outcome_unknown`; `write_attempted` records whether
-the single DELETE began and `reconciled:true` means a complete final inventory
-was read. Success/recovery requires that inventory to equal the entire reviewed
-inventory minus the selected attachment. Absence alone is insufficient when a
-sibling changed. Attachment comments participate only through the aggregate
+the single DELETE began and `reconciled:true` means two independently complete
+final inventories agreed. Success/recovery requires unchanged exact page
+evidence and that reconciled inventory to equal the entire reviewed inventory
+minus the selected attachment. Absence alone is insufficient when the page or
+a sibling changed. Attachment comments participate only through the aggregate
 inventory/proposal hashes and are never emitted by this result.
 
 Confluence pull/render/apply/push and mirror-local `conf edit` acquire one persistent mirror-internal

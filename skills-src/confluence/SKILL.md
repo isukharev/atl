@@ -246,9 +246,10 @@ write command after explicit approval.
   <page-id> --id <attachment-id>` as a GET-only preview. Review the complete
   inventory proposal, then apply once with `--apply`, `--confirm DELETE`,
   `--expected-version <page-version>`, and `--expected-proposal-hash <hash>`.
-  The proposal and prewrite read require the same exact current page and
-  complete canonical inventory. Accept only `applied` or `recovered` after the
-  exact expected inventory-minus-target readback; never replay
+  The proposal and prewrite read require the same exact current page and two
+  independently complete canonical inventories that agree. Accept only
+  `applied` or `recovered` after unchanged page evidence and the same
+  double-reconciled expected inventory-minus-target readback; never replay
   `outcome_unknown`. The whole leaf is mutating-classified, so read-only policy
   blocks preview too.
 - Durable pull, complete/incremental sync, render migration, prefetch/rate

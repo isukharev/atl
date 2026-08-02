@@ -1824,6 +1824,12 @@ func confAttachmentCmd() *cobra.Command {
 			if strings.TrimSpace(delAttPageID) == "" || strings.TrimSpace(delAttID) == "" {
 				return usageErr("--page-id and --id are required")
 			}
+			if !canonicalConfluenceCLIContentID(delAttPageID) {
+				return usageErr("--page-id must be a positive numeric content id")
+			}
+			if !canonicalConfluenceCLIContentID(delAttID) {
+				return usageErr("--id must be a positive numeric attachment id")
+			}
 			if outputFormat == "id" {
 				return usageErr("-o id is not supported for this command")
 			}

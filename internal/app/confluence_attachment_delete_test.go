@@ -120,15 +120,24 @@ func confluenceAttachmentDeletePageQueue(page *domain.Resource, count int) []con
 	return reads
 }
 
+func confluenceAttachmentDeleteInventoryQueue(inventory domain.AttachmentInventory, count int) []confluenceAttachmentDeleteInventoryRead {
+	reads := make([]confluenceAttachmentDeleteInventoryRead, count)
+	for i := range reads {
+		reads[i].inventory = inventory
+	}
+	return reads
+}
+
 func previewConfluenceAttachmentDelete(t *testing.T, inventory domain.AttachmentInventory) *ConfluenceAttachmentDeleteResult {
 	t.Helper()
 	store := &confluenceAttachmentDeleteStore{
 		pageReads:      confluenceAttachmentDeletePageQueue(confluenceAttachmentDeletePage(7), 2),
-		inventoryReads: []confluenceAttachmentDeleteInventoryRead{{inventory: inventory}},
+		inventoryReads: confluenceAttachmentDeleteInventoryQueue(inventory, 2),
 	}
 	result, err := (&ConfluenceService{store: store, baseURL: confluenceAttachmentDeleteTestBackend}).DeleteAttachmentGuarded(
 		context.Background(), "42", "100", ConfluenceAttachmentDeleteOpts{})
-	if err != nil || result == nil || result.Status != "would_apply" || result.ProposalHash == "" || result.WriteAttempted || store.deleteCalls != 0 {
+	if err != nil || result == nil || result.Status != "would_apply" || result.ProposalHash == "" || result.WriteAttempted ||
+		store.inventoryIndex != 2 || store.deleteCalls != 0 {
 		t.Fatalf("preview=%+v err=%v deletes=%d", result, err, store.deleteCalls)
 	}
 	return result
@@ -270,12 +279,31 @@ func TestConfluenceAttachmentDeleteRejectsPageDriftAcrossInventory(t *testing.T)
 			{page: confluenceAttachmentDeletePage(7)},
 			{page: confluenceAttachmentDeletePage(8)},
 		},
-		inventoryReads: []confluenceAttachmentDeleteInventoryRead{{inventory: confluenceAttachmentDeleteBaseInventory()}},
+		inventoryReads: confluenceAttachmentDeleteInventoryQueue(confluenceAttachmentDeleteBaseInventory(), 2),
 	}
 	result, err := (&ConfluenceService{store: store, baseURL: confluenceAttachmentDeleteTestBackend}).DeleteAttachmentGuarded(
 		context.Background(), "42", "100", ConfluenceAttachmentDeleteOpts{})
 	if result != nil || !errors.Is(err, domain.ErrCheckFailed) || store.deleteCalls != 0 {
 		t.Fatalf("result=%+v err=%v deletes=%d", result, err, store.deleteCalls)
+	}
+}
+
+func TestConfluenceAttachmentDeleteRejectsConsecutiveCompleteInventoryDrift(t *testing.T) {
+	shifted := confluenceAttachmentDeleteBaseInventory()
+	shifted.Attachments[1] = domain.Attachment{
+		ID: "201", Title: "new-sibling.png", MediaType: "image/png", FileSize: 35, Version: 1, Comment: "concurrent child",
+	}
+	store := &confluenceAttachmentDeleteStore{
+		pageReads: confluenceAttachmentDeletePageQueue(confluenceAttachmentDeletePage(7), 1),
+		inventoryReads: []confluenceAttachmentDeleteInventoryRead{
+			{inventory: confluenceAttachmentDeleteBaseInventory()},
+			{inventory: shifted},
+		},
+	}
+	result, err := (&ConfluenceService{store: store, baseURL: confluenceAttachmentDeleteTestBackend}).DeleteAttachmentGuarded(
+		context.Background(), "42", "100", ConfluenceAttachmentDeleteOpts{})
+	if result != nil || !errors.Is(err, domain.ErrCheckFailed) || store.inventoryIndex != 2 || store.pageIndex != 1 || store.deleteCalls != 0 {
+		t.Fatalf("result=%+v err=%v pages=%d inventories=%d deletes=%d", result, err, store.pageIndex, store.inventoryIndex, store.deleteCalls)
 	}
 }
 
@@ -289,7 +317,7 @@ func TestConfluenceAttachmentDeleteReviewedVersionAndHashMismatchBlockWrite(t *t
 		t.Run(name, func(t *testing.T) {
 			store := &confluenceAttachmentDeleteStore{
 				pageReads:      confluenceAttachmentDeletePageQueue(confluenceAttachmentDeletePage(7), 2),
-				inventoryReads: []confluenceAttachmentDeleteInventoryRead{{inventory: confluenceAttachmentDeleteBaseInventory()}},
+				inventoryReads: confluenceAttachmentDeleteInventoryQueue(confluenceAttachmentDeleteBaseInventory(), 2),
 			}
 			result, err := (&ConfluenceService{store: store, baseURL: confluenceAttachmentDeleteTestBackend}).DeleteAttachmentGuarded(
 				context.Background(), "42", "100", opts)
@@ -306,7 +334,7 @@ func TestConfluenceAttachmentDeleteFullInventoryDriftBlocksBeforeWrite(t *testin
 	drifted.Attachments[1].Comment = "changed sibling comment"
 	store := &confluenceAttachmentDeleteStore{
 		pageReads:      confluenceAttachmentDeletePageQueue(confluenceAttachmentDeletePage(7), 2),
-		inventoryReads: []confluenceAttachmentDeleteInventoryRead{{inventory: drifted}},
+		inventoryReads: confluenceAttachmentDeleteInventoryQueue(drifted, 2),
 	}
 	result, err := (&ConfluenceService{store: store, baseURL: confluenceAttachmentDeleteTestBackend}).DeleteAttachmentGuarded(
 		context.Background(), "42", "100", ConfluenceAttachmentDeleteOpts{
@@ -328,6 +356,8 @@ func TestConfluenceAttachmentDeleteApplySuccessAndAmbiguousRecovery(t *testing.T
 				pageReads: confluenceAttachmentDeletePageQueue(confluenceAttachmentDeletePage(7), 4),
 				inventoryReads: []confluenceAttachmentDeleteInventoryRead{
 					{inventory: confluenceAttachmentDeleteBaseInventory()},
+					{inventory: confluenceAttachmentDeleteBaseInventory()},
+					{inventory: confluenceAttachmentDeleteExpectedInventory()},
 					{inventory: confluenceAttachmentDeleteExpectedInventory()},
 				},
 				deleteErr: writeErr,
@@ -345,7 +375,8 @@ func TestConfluenceAttachmentDeleteApplySuccessAndAmbiguousRecovery(t *testing.T
 				store.deleteCalls != 1 || store.deleteID != "100" || !store.deleteSingle {
 				t.Fatalf("result=%+v err=%v store=%+v", result, err, store)
 			}
-			if len(store.listSingle) != 2 || !store.listSingle[0] || !store.listSingle[1] || !store.listRedacted[0] || !store.listRedacted[1] {
+			if len(store.listSingle) != 4 || !store.listSingle[0] || !store.listSingle[1] || !store.listSingle[2] || !store.listSingle[3] ||
+				!store.listRedacted[0] || !store.listRedacted[1] || !store.listRedacted[2] || !store.listRedacted[3] {
 				t.Fatalf("inventory request policies: single=%v redacted=%v", store.listSingle, store.listRedacted)
 			}
 		})
@@ -359,25 +390,25 @@ func TestConfluenceAttachmentDeleteUnexpectedReadbacksAreOutcomeUnknown(t *testi
 	siblingDrift.Attachments[0].Version++
 	tests := []struct {
 		name           string
-		post           confluenceAttachmentDeleteInventoryRead
+		post           []confluenceAttachmentDeleteInventoryRead
 		wantComplete   bool
 		wantReconciled bool
 		wantState      string
 	}{
-		{name: "target retained", post: confluenceAttachmentDeleteInventoryRead{inventory: retained}, wantComplete: true, wantReconciled: true, wantState: "present"},
-		{name: "sibling drift", post: confluenceAttachmentDeleteInventoryRead{inventory: siblingDrift}, wantComplete: true, wantReconciled: true, wantState: "absent"},
-		{name: "post read failure", post: confluenceAttachmentDeleteInventoryRead{err: errors.New("private backend detail")}, wantState: "unavailable"},
-		{name: "post partial", post: confluenceAttachmentDeleteInventoryRead{inventory: domain.AttachmentInventory{
+		{name: "target retained", post: confluenceAttachmentDeleteInventoryQueue(retained, 2), wantComplete: true, wantReconciled: true, wantState: "present"},
+		{name: "sibling drift", post: confluenceAttachmentDeleteInventoryQueue(siblingDrift, 2), wantComplete: true, wantReconciled: true, wantState: "absent"},
+		{name: "post read failure", post: []confluenceAttachmentDeleteInventoryRead{{err: errors.New("private backend detail")}}, wantState: "unavailable"},
+		{name: "post partial", post: []confluenceAttachmentDeleteInventoryRead{{inventory: domain.AttachmentInventory{
 			PartialReason: domain.AttachmentPartialPageLimit, Attachments: siblingDrift.Attachments,
-		}}, wantState: "unavailable"},
+		}}}, wantState: "unavailable"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			inventoryReads := confluenceAttachmentDeleteInventoryQueue(confluenceAttachmentDeleteBaseInventory(), 2)
+			inventoryReads = append(inventoryReads, test.post...)
 			store := &confluenceAttachmentDeleteStore{
-				pageReads: confluenceAttachmentDeletePageQueue(confluenceAttachmentDeletePage(7), 4),
-				inventoryReads: []confluenceAttachmentDeleteInventoryRead{
-					{inventory: confluenceAttachmentDeleteBaseInventory()}, test.post,
-				},
+				pageReads:      confluenceAttachmentDeletePageQueue(confluenceAttachmentDeletePage(7), 4),
+				inventoryReads: inventoryReads,
 			}
 			result, err := (&ConfluenceService{store: store, baseURL: confluenceAttachmentDeleteTestBackend}).DeleteAttachmentGuarded(
 				context.Background(), "42", "100", ConfluenceAttachmentDeleteOpts{
@@ -396,11 +427,37 @@ func TestConfluenceAttachmentDeleteUnexpectedReadbacksAreOutcomeUnknown(t *testi
 	}
 }
 
+func TestConfluenceAttachmentDeleteFinalPageEvidenceDriftIsOutcomeUnknown(t *testing.T) {
+	preview := previewConfluenceAttachmentDelete(t, confluenceAttachmentDeleteBaseInventory())
+	store := &confluenceAttachmentDeleteStore{
+		pageReads: []confluenceAttachmentDeletePageRead{
+			{page: confluenceAttachmentDeletePage(7)},
+			{page: confluenceAttachmentDeletePage(7)},
+			{page: confluenceAttachmentDeletePage(8)},
+			{page: confluenceAttachmentDeletePage(8)},
+		},
+		inventoryReads: append(
+			confluenceAttachmentDeleteInventoryQueue(confluenceAttachmentDeleteBaseInventory(), 2),
+			confluenceAttachmentDeleteInventoryQueue(confluenceAttachmentDeleteExpectedInventory(), 2)...,
+		),
+	}
+	result, err := (&ConfluenceService{store: store, baseURL: confluenceAttachmentDeleteTestBackend}).DeleteAttachmentGuarded(
+		context.Background(), "42", "100", ConfluenceAttachmentDeleteOpts{
+			Apply: true, Confirm: "DELETE", ExpectedPageVersion: 7, ExpectedProposalHash: preview.ProposalHash,
+		})
+	var ambiguous interface{ DiagnosticAmbiguousWrite() bool }
+	if result == nil || result.Status != "outcome_unknown" || !result.Complete || !result.Reconciled || result.ObservedState != "absent" ||
+		result.FinalSHA256 != result.ExpectedFinalSHA256 || result.FinalPageVersion != 8 || !errors.Is(err, domain.ErrCheckFailed) ||
+		!errors.As(err, &ambiguous) || !ambiguous.DiagnosticAmbiguousWrite() || store.deleteCalls != 1 {
+		t.Fatalf("result=%+v err=%v deletes=%d", result, err, store.deleteCalls)
+	}
+}
+
 func TestConfluenceAttachmentDeleteDefinitiveRejectionIsNotAppliedAndContentFree(t *testing.T) {
 	preview := previewConfluenceAttachmentDelete(t, confluenceAttachmentDeleteBaseInventory())
 	store := &confluenceAttachmentDeleteStore{
 		pageReads:      confluenceAttachmentDeletePageQueue(confluenceAttachmentDeletePage(7), 2),
-		inventoryReads: []confluenceAttachmentDeleteInventoryRead{{inventory: confluenceAttachmentDeleteBaseInventory()}},
+		inventoryReads: confluenceAttachmentDeleteInventoryQueue(confluenceAttachmentDeleteBaseInventory(), 2),
 		deleteErr:      confluenceAttachmentDeleteHTTPError{status: 403, sentinel: domain.ErrForbidden, detail: "private backend rejection"},
 	}
 	result, err := (&ConfluenceService{store: store, baseURL: confluenceAttachmentDeleteTestBackend}).DeleteAttachmentGuarded(
@@ -427,7 +484,7 @@ func TestConfluenceAttachmentDeleteResultsAndErrorsDoNotExposeAttachmentContent(
 
 	store := &confluenceAttachmentDeleteStore{
 		pageReads:      confluenceAttachmentDeletePageQueue(confluenceAttachmentDeletePage(7), 2),
-		inventoryReads: []confluenceAttachmentDeleteInventoryRead{{inventory: inventory}},
+		inventoryReads: confluenceAttachmentDeleteInventoryQueue(inventory, 2),
 	}
 	result, err := (&ConfluenceService{store: store, baseURL: confluenceAttachmentDeleteTestBackend}).DeleteAttachmentGuarded(
 		context.Background(), "42", "100", ConfluenceAttachmentDeleteOpts{

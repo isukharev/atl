@@ -87,14 +87,16 @@ version integers. Use it whenever the inventory must correspond to a specific
 page read.
 
 Attachment deletion is permanent and preview-first. Preview requires an exact
-current page plus a complete qualified attachment inventory and emits a
+current page plus two independently complete qualified attachment inventories
+that agree and emits a
 content-minimized proposal binding the backend, page version, selected
 attachment, and every sibling. Partial/legacy inventory and an absent target
 fail closed. Apply requires exact `DELETE` confirmation, the reviewed page
 version and proposal hash, then sends one transport attempt and refuses
-redirects. Accept only `applied` or `recovered` after the complete final
-inventory exactly equals the reviewed inventory minus the target. A retained
-target, sibling drift, or partial/unavailable readback is `outcome_unknown`;
+redirects. Accept only `applied` or `recovered` after unchanged exact page
+evidence and two agreeing complete final inventories exactly equal the reviewed
+inventory minus the target. A retained target, page/sibling drift, or
+partial/unavailable readback is `outcome_unknown`;
 never replay it. The leaf is mutating-classified, so `ATL_READ_ONLY=1` blocks
 preview as well as apply.
 Downloads and uploads stream bytes. Treat upload as non-idempotent. Before the
