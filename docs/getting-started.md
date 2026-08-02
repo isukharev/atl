@@ -122,10 +122,14 @@ Local health and diffs do not need credentials:
 
 ```sh
 ATL_NO_UPDATE=1 atl conf status "$ATL_MIRROR_ROOT"
+ATL_NO_UPDATE=1 atl conf snapshot --into "$ATL_MIRROR_ROOT"
 ATL_NO_UPDATE=1 atl conf diff "$ATL_MIRROR_ROOT" -o text
 
 ATL_NO_UPDATE=1 atl jira status "$ATL_MIRROR_ROOT"
 ```
+
+Status/snapshot require an initialized `.atl` root. Positional `[DIR]` and
+`--into` are equivalent explicit forms and cannot be combined.
 
 ## What to do next
 

@@ -170,14 +170,20 @@ fully greppable by the agent and never committed into their project's git histor
 
 - **Recommended convention:** `~/.atl/<workspace>/`, where `<workspace>` is a
   meaningful name (the code repo's basename or the Confluence space key).
-  Example: `~/.atl/payments-service/`. This is not the CLI's implicit default:
-  without `ATL_MIRROR_ROOT` or `--into`, Confluence uses `mirror` and Jira uses
-  `mirror-jira`.
-- **Fix it once with `ATL_MIRROR_ROOT`** so `conf pull` / `conf status` / `jira pull` default to the
-  same place without re-passing `--into` every time. Record it where later sessions will pick it up —
+  Example: `~/.atl/payments-service/`. This is not the pull/write fallback:
+  without `ATL_MIRROR_ROOT` or `--into`, Confluence pull uses `mirror` and Jira
+  pull uses `mirror-jira`; status/snapshot first detect a nearest initialized
+  `.atl` as described below.
+- **Fix it once with `ATL_MIRROR_ROOT`** so Confluence/Jira pull plus
+  status/snapshot inspection default to the same place without re-passing the
+  root every time. Status/snapshot also accept positional `[DIR]` or `--into`
+  (never both), then try the nearest initialized `.atl` before the service
+  fallback. Record the environment setting where later sessions will pick it up —
   either export it in the shell profile, or add a line to the project's `{{atl.guidance_file}}`:
   `atl mirror lives at ~/.atl/<workspace>/ (export ATL_MIRROR_ROOT=~/.atl/<workspace>/)`.
-- An explicit `--into <dir>` still overrides `ATL_MIRROR_ROOT`. `conf push` does not read the env
+- An explicit `--into <dir>` still overrides `ATL_MIRROR_ROOT`. Inspection
+  requires an initialized `.atl` root and returns exit 4 before config/network
+  when it is absent. `conf push` does not read the env
   var — it finds the mirror root by walking up from the target file to the nearest `.atl`, so as long
   as you push files from inside that same root it lines up automatically.
 

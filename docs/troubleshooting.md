@@ -94,6 +94,11 @@ ATL_NO_UPDATE=1 atl conf status /path/to/mirror
 ATL_NO_UPDATE=1 atl jira status /path/to/mirror
 ```
 
+`status` and `snapshot` also accept `--into /path/to/mirror`; do not combine it
+with positional `[DIR]`. With neither form they use `ATL_MIRROR_ROOT`, the
+nearest initialized `.atl`, then the service fallback. Exit 4 means the selected
+root is absent or not initialized; pull it first or select the intended mirror.
+
 Add `--remote` only when you intentionally want one bounded remote drift check
 per eligible object.
 

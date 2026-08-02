@@ -10,7 +10,7 @@ false.
 |---|---|---|
 | Exit 7 | Backend URL/PAT missing | Run `{{atl.setup_cmd}}` |
 | Exit 3 | Token rejected | `atl auth login --service confluence` with a valid PAT |
-| Exit 4 | Page/attachment not found or invisible | Verify identity and permissions; do not guess another write target |
+| Exit 4 | Page/attachment absent or inspection mirror missing/uninitialized | Verify identity/permissions, or select/pull an initialized mirror; do not guess another write target |
 | Exit 5 on push | Remote version advanced | Re-pull, reconcile, validate/dry-run/push; human-only force |
 | Exit 6 | Forbidden | Surface missing access to the user |
 | Exit 8 on apply | Stale marker, reserved edit, fragment loss, divergence, or unconvertible block | Follow the named refusal; migrate pristine old view or choose direct CSF |

@@ -191,7 +191,7 @@ identifier per line.
 
 | Command | Purpose | Key flags |
 |---|---|---|
-| `conf search` | Find a qualified bounded page (`complete`/`truncated`) | `--cql` or convenience filters, `--limit`, `--cursor` |
+| `conf search` | Find a qualified bounded page (`complete`/`truncated`) | `--cql` or convenience filters, `--limit 1..100` (0 invalid), `--cursor` |
 | `conf space tree` | Space hierarchy | `--space`, `--depth` |
 | `conf page resolve|outline|section|sections|list|get|view|meta|history|open` | Reference resolution and page reads; `history` is qualified (`complete`/`partial_reason`) | outline before long reads; section uses exact heading/occurrence/byte cap and `--expected-version`; sections preserves ordered selectors from one version-bound snapshot under one aggregate cap; view supports `--jira-view`, `--jira-macros`; judge history absence only on `complete:true` |
 | `conf page labels list <ID>` | Complete page-label read | no write; inspect `complete` |
@@ -202,8 +202,8 @@ identifier per line.
 | `conf blog create` | Create one native blog post | `--space`, `--title`, one body source; `-o text/id` |
 | `conf pull` | Mirror pages | selector; complete delta via `--incremental`, first-run RFC3339 `--since`, `--max-pages`; assets/comments/Jira macros/render flags |
 | `conf render` | Regenerate Markdown offline | path, render flags, `--into` |
-| `conf status` | Dirty/drift state | path, `--remote` |
-| `conf snapshot` | Exact content-free mirror/baseline/validation/render/drift cardinalities | path, `--remote` |
+| `conf status` | Dirty/drift state | `[DIR]` or `--into`, `--remote` |
+| `conf snapshot` | Exact content-free mirror/baseline/validation/render/drift cardinalities | `[DIR]` or `--into`, `--remote` |
 | `conf diff` | Offline baseline → candidate semantics; `baseline_mismatch` is corrupt sync evidence | file/dir, `--into`; JSON for evidence |
 | `conf plan create` | Freeze a private deterministic batch | file/dir, `--into`, required `--out` |
 | `conf plan preview` | Complete read-only local/remote preflight | plan; works under `ATL_READ_ONLY` |

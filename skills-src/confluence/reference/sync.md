@@ -28,6 +28,10 @@ atl conf snapshot <absolute-root>
 # add --remote only when current drift evidence is required
 ```
 
+Status/snapshot accept positional `[DIR]` or `--into`, never both. With neither
+they use `ATL_MIRROR_ROOT`, nearest initialized `.atl`, then `mirror`; an absent
+or uninitialized root is exit 4 before config/network.
+
 The default is offline and content-free. Require top-level and nested
 `reconciled:true`; treat `complete:false` as unavailable evidence, not as an
 arithmetic failure. A qualified exit 8 for corrupt baseline evidence remains

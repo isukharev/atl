@@ -222,10 +222,12 @@ rejects an explicit false value before backend access.
 
 ## Fix mirror identity before durable work
 
-An explicit `--into` wins; otherwise `ATL_MIRROR_ROOT` or the nearest `.atl`
-root applies, with `mirror-jira` as fallback. An existing mirror file's nearest
-`.atl` is authoritative for edit/apply/push. Do not redirect it to profile
-memory; pull a fresh copy into a newly approved root instead.
+For status/snapshot, explicit positional `[DIR]` or `--into` wins (never both),
+then `ATL_MIRROR_ROOT`, the nearest initialized `.atl`, and `mirror-jira`. A
+selected root without a real `.atl` directory exits 4 before config/network.
+An existing mirror file's nearest `.atl` remains authoritative for
+edit/apply/push. Do not redirect it to profile memory; pull a fresh copy into a
+newly approved root instead.
 
 Inspect `atl mirror backend status <existing-root>` before remote mirror work.
 A fresh Jira-empty pull and registered issue create bind Jira automatically. An

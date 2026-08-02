@@ -27,7 +27,7 @@ id/title-only Confluence resolution.
 | `jira issue view <KEY>` | Render one configured Markdown view without writing files | `-o text`, `--render-root`, `--render-profile`, `--render-include`, `--render-exclude` |
 | `jira issue search` | Search as a paginated common IssueList / Markdown table | `--jql`, `--view`, `--columns`, `--limit` 1..1000, `--cursor` |
 | `jira issue search -o id` | Print matching issue keys one per line | `-o id` |
-| `jira issue children <EPIC-KEY>` | Read direct epic children as a common IssueList without per-child reads | `--view`, `--columns`, `--limit`, `--cursor`, `--epic-field`, `-o text/id` |
+| `jira issue children <EPIC-KEY>` | Read direct epic children as a common IssueList without per-child reads | `--view`, `--columns`, `--limit 1..1000` (0 invalid), `--cursor`, `--epic-field`, `-o text/id` |
 | `jira epic digest <EPIC-KEY>` | Deterministic multi-source epic evidence with per-source completeness | `--projection compact|full`, period, includes, fields, caps, optional bounded Confluence heading expansion |
 | `jira issue create` | Create an issue; optionally register one authoritative readback in a mirror | `--project`, `--type`, `--summary`, `--from-md`, `--from-file`, `--field k=v`; `--register --into <ROOT>` |
 | `jira issue update <KEY>` | Update summary/description/fields (whole body) | `--summary`, `--from-md`, `--from-file`, `--field k=v` |
@@ -45,8 +45,8 @@ id/title-only Confluence resolution.
 | `jira issue worklog add <KEY>` | Baseline-bound one-entry time preview/apply | `--time`, optional `--started`, `--from-file`; review `baseline_sha256`; `--apply`, `--expected-proposal-hash` |
 | `jira issue history <KEY>` | Qualified changelog with deterministic `summary`; inspect `complete`, separate missing/non-empty-id identity facts, summary consistency, and `last_changes` | repeat `--field`; `--since`, `--until`; `--summary-only` omits raw history and rejects explicit false |
 | `jira issue graph <KEY>` | Schema-v2 bounded graph with metadata-reconciled fields; depth zero is direct, while greater depths follow only exact structured Jira relations; optional phases resolve discovered Confluence id/title metadata or collect fail-closed Jira Development coordinates | `--depth` 0..3, `--resolve none|confluence`, `--include-development`, node/edge/evidence/request/byte limits, `--strict`, JSON or `-o text`; Development is experimental, never fetched from GitLab, and requires complete source qualification |
-| `jira issue refs [KEY]` | Extract provenance-qualified artifact references with reconciled per-issue/top-level aggregates; field ids or exact names; JQL adds one complete comment listing per issue | `--jql`, `--fields`, `--limit` |
-| `jira issue tree` | Build read-only epic-to-child grouping | `--jql`, `--epic-field`, `--fields`, `--limit` |
+| `jira issue refs [KEY]` | Extract provenance-qualified artifact references with reconciled per-issue/top-level aggregates; field ids or exact names; JQL adds one complete comment listing per issue | `--jql`, `--fields`, aggregate `--limit` (0 all, negative invalid) |
+| `jira issue tree` | Build read-only epic-to-child grouping | `--jql`, `--epic-field`, `--fields`, aggregate `--limit` (0 all, negative invalid) |
 | `jira issue comment preview <KEY>` | GET-only baseline-bound append proposal | `--from-md`, `--from-file`; inspect body/baseline/proposal hashes |
 | `jira issue comment add <KEY>` | Preview or apply one reviewed comment append | `--from-md`, `--from-file`, `--apply`, `--expected-proposal-hash` |
 | `jira issue comment list <KEY>` | List comments | — |
@@ -61,36 +61,36 @@ id/title-only Confluence resolution.
 | `jira issue attachment get <KEY>` | Download an attachment | `--id ID-or-filename`, `--into DIR` |
 | `jira issue attachment upload <KEY>` | Upload an attachment | `--file PATH` |
 | `jira issue images <KEY>` | Download image attachments | `--into DIR` |
-| `jira pull` | Export `.wiki` + `.md` + `.json` per issue | `--jql`, `--into`, `--limit`, `--fields`, `--assets`, `--render-profile`, `--render-include`, `--render-exclude` |
+| `jira pull` | Export `.wiki` + `.md` + `.json` per issue | `--jql`, `--into`, aggregate `--limit` (0 all, negative invalid), `--fields`, `--assets`, `--render-profile`, `--render-include`, `--render-exclude` |
 | `jira render [DIR\|FILE]` | Regenerate `.md` views offline | `--render-profile`, `--render-include`, `--render-exclude`, `--into` |
 | `jira apply <FILE.md>` | Merge/stage supported generated edits | `--dry-run`, `--allow-loss`, `--rebase-pending`, `--into`, `--render-profile`, `--render-include`, `--render-exclude` |
-| `jira snapshot [DIR]` | Exact content-free mirror health cardinalities | `--remote` |
-| `jira status [DIR]` | Show local edits and optional remote drift | `--remote` |
+| `jira snapshot [DIR]` | Exact content-free mirror health cardinalities | `[DIR]` or `--into`, `--remote` |
+| `jira status [DIR]` | Show local edits and optional remote drift | `[DIR]` or `--into`, `--remote` |
 | `jira push <file.wiki\|DIR>` | Preview or apply guarded write-back | `--apply`, `--force`, `--into` |
-| `jira export` | Write compact JSONL/JSON/CSV plus manifest, or artifact-only stdout with `--out -`; explicit ids/keys keep selector order and omit missing rows | `--jql`/`--ids`/`--keys`, `--out`, `--format`, `--limit`, `--fields` ids/names, `--batch-size`, `--raw-csv` |
+| `jira export` | Write compact JSONL/JSON/CSV plus manifest, or artifact-only stdout with `--out -`; explicit ids/keys keep selector order and omit missing rows | `--jql`/`--ids`/`--keys`, `--out`, `--format`, aggregate `--limit` (0 all, negative invalid), `--fields` ids/names, `--batch-size`, `--raw-csv` |
 | `jira export diff <OLD> <NEW>` | Compare compact exports | — |
-| `jira planning report` | Deterministic planning quality report | `--jql`, `--require`, `--estimate-field`, `--epic-field`, `--limit`, `--csv`, `--raw-csv` |
+| `jira planning report` | Deterministic planning quality report | `--jql`, `--require`, `--estimate-field`, `--epic-field`, aggregate `--limit` (0 all, negative invalid), `--csv`, `--raw-csv` |
 | `jira quality-report` | Compatibility alias | same flags as `planning report` |
 | `jira fields` | List or compactly summarize a qualified value-free Jira field catalog | `--name-like`, `--id`, `--id-like`, `--schema`, `--custom true|false`, `--summary-only`, `-o text` |
 | `jira field-options` | List allowed field values | `--project`, `--type`, `--field`, `-o text` |
 | `jira transitions` | List available transitions | `--key`, `-o text` |
 | `jira link-types` | List issue link types | `-o text` |
 | `jira me` | Show the authenticated Jira user | — |
-| `jira user search <Q>` | Search users | `--limit` |
+| `jira user search <Q>` | Search users | `--limit 1..1000` (0 invalid) |
 | `jira user get <USERNAME>` | Get a user | — |
-| `jira board list` | Discover Agile boards | `--project`, `--limit`, `--cursor`, `-o id` |
+| `jira board list` | Discover Agile boards | `--project`, `--limit 1..50` (0 invalid), `--cursor`, `-o id` |
 | `jira board get <ID>` | Get board identity | `-o id` |
 | `jira board config <ID>` | Get filter, ordered columns/statuses, constraints, estimation, rank | `-o text/id` |
-| `jira board issues <ID>` | Read one backend-ranked IssueList page | `--view`, `--columns`, `--jql`, `--limit`, `--cursor`, `-o text/id` |
-| `jira board backlog <ID>` | Read one Scrum backlog IssueList page | `--view`, `--columns`, `--jql`, `--limit`, `--cursor`, `-o text/id` |
-| `jira board view <ID>` | Read normalized config/issues/backlog snapshot with optional deterministic epic rollup | `--scope all/board/backlog`, `--view`, `--columns`, `--jql`, `--limit`, `--epic-field`, repeatable `--done-status`, `-o text/id` |
-| `jira board export <ID>` | Write normalized board artifact | `--scope`, `--view`, `--columns`, `--jql`, `--limit`, `--format json/jsonl/csv/md`, `--out`, `--raw-csv` |
-| `jira sprint issues <ID>` | Read one sprint IssueList page | `--view`, `--columns`, `--limit`, `--cursor`, `-o text/id` |
+| `jira board issues <ID>` | Read one backend-ranked IssueList page | `--view`, `--columns`, `--jql`, `--limit 1..50` (0 invalid), `--cursor`, `-o text/id` |
+| `jira board backlog <ID>` | Read one Scrum backlog IssueList page | `--view`, `--columns`, `--jql`, `--limit 1..50` (0 invalid), `--cursor`, `-o text/id` |
+| `jira board view <ID>` | Read normalized config/issues/backlog snapshot with optional deterministic epic rollup | `--scope all/board/backlog`, `--view`, `--columns`, `--jql`, aggregate `--limit` (0 all, negative invalid), `--epic-field`, repeatable `--done-status`, `-o text/id` |
+| `jira board export <ID>` | Write normalized board artifact | `--scope`, `--view`, `--columns`, `--jql`, aggregate `--limit` (0 all, negative invalid), `--format json/jsonl/csv/md`, `--out`, `--raw-csv` |
+| `jira sprint issues <ID>` | Read one sprint IssueList page | `--view`, `--columns`, `--limit 1..50` (0 invalid), `--cursor`, `-o text/id` |
 | `jira structure get <ID>` | Get Structure metadata | `-o id` |
 | `jira structure view <ID>` | Read normalized hierarchy + Jira fields, optionally bound to one forest version | exact folder selector or fuzzy `--root`, paired `--expected-forest-signature`/`--expected-forest-version`, `--view`, `--fields`, `--batch-size`, `-o text/id` |
 | `jira structure forest <ID>` | Get raw latest Structure forest formula | — |
 | `jira structure rows <ID>` | Parse Structure forest rows, optionally bound to one forest version | exact folder selector or fuzzy `--root`, `--root-fields`, paired `--expected-forest-signature`/`--expected-forest-version`, `-o id` |
 | `jira structure folders <ID>` | Discover stable stored folders, paths, and subtree statistics without Jira issue reads | `-o text/id` |
 | `jira structure values <ID>` | Get row values | `--rows`, `--fields` |
-| `jira structure pull-issues <ID>` | Fetch snapshots from Structure rows, optionally bound to one forest version | exact folder selector or fuzzy `--root`, paired `--expected-forest-signature`/`--expected-forest-version`, `--view`, `--fields`, `--batch-size`, `--limit`, `--out`, `-o id` |
+| `jira structure pull-issues <ID>` | Fetch snapshots from Structure rows, optionally bound to one forest version | exact folder selector or fuzzy `--root`, paired `--expected-forest-signature`/`--expected-forest-version`, `--view`, `--fields`, `--batch-size`, aggregate `--limit` (0 all, negative invalid), `--out`, `-o id` |
 | `jira structure export <ID>` | Write a normalized offline Structure artifact, optionally bound to one forest version | exact folder selector or fuzzy `--root`, paired `--expected-forest-signature`/`--expected-forest-version`, `--view`, `--fields`, `--format json/jsonl/csv/md`, `--out`, `--raw-csv`, `-o text` |

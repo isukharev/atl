@@ -32,6 +32,9 @@ func jiraBoardCmd() *cobra.Command {
 		Short: "List agile boards (optionally for one project)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := validatePageLimit(limit, 50); err != nil {
+				return err
+			}
 			svc, err := jiraService()
 			if err != nil {
 				return err
@@ -56,7 +59,7 @@ func jiraBoardCmd() *cobra.Command {
 		},
 	}
 	list.Flags().StringVar(&project, "project", "", "filter to a project (key or id)")
-	list.Flags().IntVar(&limit, "limit", 50, "max results (capped at 50 by the Agile API)")
+	list.Flags().IntVar(&limit, "limit", 50, "max results (1..50; Agile API cap)")
 	list.Flags().StringVar(&cursor, "cursor", "", "pagination cursor (startAt)")
 
 	get := &cobra.Command{
@@ -202,6 +205,9 @@ func boardIssuePageCmd(use, scope string, columns, view, jql, cursor *string, li
 			if err != nil {
 				return err
 			}
+			if err := validatePageLimit(*limit, 50); err != nil {
+				return err
+			}
 			svc, err := jiraService()
 			if err != nil {
 				return err
@@ -216,7 +222,7 @@ func boardIssuePageCmd(use, scope string, columns, view, jql, cursor *string, li
 	cmd.Flags().StringVar(columns, "columns", "", "ordered list columns (default: position,key,summary,status,assignee)")
 	cmd.Flags().StringVar(view, "view", "", "named Jira list view from config (default: default; explicit --columns wins)")
 	cmd.Flags().StringVar(jql, "jql", "", "optional JQL refinement")
-	cmd.Flags().IntVar(limit, "limit", 50, "page size (capped at 50 by the Agile API)")
+	cmd.Flags().IntVar(limit, "limit", 50, "page size (1..50; Agile API cap)")
 	cmd.Flags().StringVar(cursor, "cursor", "", "pagination cursor (startAt)")
 	return cmd
 }
@@ -252,6 +258,9 @@ func jiraSprintCmd() *cobra.Command {
 			if boardID <= 0 {
 				return usageErr("--board must be a positive board id")
 			}
+			if err := validatePageLimit(limit, 50); err != nil {
+				return err
+			}
 			svc, err := jiraService()
 			if err != nil {
 				return err
@@ -269,7 +278,7 @@ func jiraSprintCmd() *cobra.Command {
 	}
 	list.Flags().IntVar(&boardID, "board", 0, "board id (required)")
 	list.Flags().StringVar(&state, "state", "", "filter by state: active|closed|future")
-	list.Flags().IntVar(&limit, "limit", 50, "max results (capped at 50 by the Agile API)")
+	list.Flags().IntVar(&limit, "limit", 50, "max results (1..50; Agile API cap)")
 	list.Flags().StringVar(&cursor, "cursor", "", "pagination cursor (startAt)")
 	_ = list.RegisterFlagCompletionFunc("state", fixedComp("active", "closed", "future"))
 
@@ -331,6 +340,9 @@ func jiraSprintCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := validatePageLimit(issuesLimit, 50); err != nil {
+				return err
+			}
 			svc, err := jiraService()
 			if err != nil {
 				return err
@@ -344,7 +356,7 @@ func jiraSprintCmd() *cobra.Command {
 	}
 	issues.Flags().StringVar(&issuesColumns, "columns", "", "ordered list columns (default: position,key,summary,status,assignee)")
 	issues.Flags().StringVar(&issuesView, "view", "", "named Jira list view from config (default: default; explicit --columns wins)")
-	issues.Flags().IntVar(&issuesLimit, "limit", 50, "max results (capped at 50 by the Agile API)")
+	issues.Flags().IntVar(&issuesLimit, "limit", 50, "max results (1..50; Agile API cap)")
 	issues.Flags().StringVar(&issuesCursor, "cursor", "", "pagination cursor (startAt)")
 
 	add := &cobra.Command{

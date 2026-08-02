@@ -118,6 +118,9 @@ func jiraIssueCmd() *cobra.Command {
 			if jql == "" {
 				return usageErr("--jql is required")
 			}
+			if err := validatePageLimit(limit, 1000); err != nil {
+				return err
+			}
 			svc, err := jiraService()
 			if err != nil {
 				return err
@@ -132,7 +135,7 @@ func jiraIssueCmd() *cobra.Command {
 	search.Flags().StringVar(&jql, "jql", "", "JQL query")
 	search.Flags().StringVar(&searchColumns, "columns", "", "ordered list columns (default: key,summary,status,assignee)")
 	search.Flags().StringVar(&searchView, "view", "", "named Jira list view from config (default: default; explicit --columns wins)")
-	search.Flags().IntVar(&limit, "limit", 50, "max results")
+	search.Flags().IntVar(&limit, "limit", 50, "max results (1..1000)")
 	search.Flags().StringVar(&cursor, "cursor", "", "pagination cursor (startAt)")
 
 	var childrenColumns, childrenView, childrenCursor, childrenEpicField string
@@ -142,6 +145,9 @@ func jiraIssueCmd() *cobra.Command {
 		Short: "List direct epic children through the common IssueList projection",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validatePageLimit(childrenLimit, 1000); err != nil {
+				return err
+			}
 			svc, err := jiraService()
 			if err != nil {
 				return err
@@ -157,7 +163,7 @@ func jiraIssueCmd() *cobra.Command {
 	}
 	children.Flags().StringVar(&childrenColumns, "columns", "", "ordered list columns (default: key,summary,status,issuetype,assignee)")
 	children.Flags().StringVar(&childrenView, "view", "", "named Jira list view from config (default: default; explicit --columns wins)")
-	children.Flags().IntVar(&childrenLimit, "limit", 50, "max results")
+	children.Flags().IntVar(&childrenLimit, "limit", 50, "max results (1..1000)")
 	children.Flags().StringVar(&childrenCursor, "cursor", "", "pagination cursor (startAt)")
 	children.Flags().StringVar(&childrenEpicField, "epic-field", "", "Epic Link field id or display name (auto-detected when omitted)")
 
@@ -558,6 +564,9 @@ func jiraIssueCmd() *cobra.Command {
 		Use:   "tree",
 		Short: "Build a read-only epic-to-child tree from a JQL selection",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := validateAggregateLimit(treeLimit); err != nil {
+				return err
+			}
 			svc, err := jiraService()
 			if err != nil {
 				return err
@@ -577,7 +586,7 @@ func jiraIssueCmd() *cobra.Command {
 	tree.Flags().StringVar(&treeJQL, "jql", "", "JQL selecting issues")
 	tree.Flags().StringVar(&treeEpicField, "epic-field", "", "field id/name containing parent epic key")
 	tree.Flags().StringVar(&treeFields, "fields", "", "extra comma-separated fields to fetch")
-	tree.Flags().IntVar(&treeLimit, "limit", 100, "max issues (0 = all)")
+	tree.Flags().IntVar(&treeLimit, "limit", 100, "max issues (0 = all; must be non-negative)")
 
 	c.AddCommand(get, jiraIssueViewCmd(), jiraIssueFieldsCmd(), jiraIssueGraphCmd(), search, children, create, update, edit, jiraTransitionCmd(), check, del, assign, labels, jiraIssueWatchersCmd(), jiraIssueWorklogCmd(), history, refs, tree, comment, link, plan, jiraIssueFieldCmd(), linkEpic, attachment, images)
 	return c
@@ -831,6 +840,9 @@ func jiraUserCmd() *cobra.Command {
 		Short: "Search users by name/username",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validatePageLimit(limit, 1000); err != nil {
+				return err
+			}
 			svc, err := jiraService()
 			if err != nil {
 				return err
@@ -854,7 +866,7 @@ func jiraUserCmd() *cobra.Command {
 			})
 		},
 	}
-	search.Flags().IntVar(&limit, "limit", 50, "max results")
+	search.Flags().IntVar(&limit, "limit", 50, "max results (1..1000)")
 
 	get := &cobra.Command{
 		Use:   "get <USERNAME>",
@@ -1057,6 +1069,9 @@ func jiraPullCmd() *cobra.Command {
 			if overwriteLocal && stashLocal {
 				return usageErr("--overwrite-local and --stash-local are mutually exclusive")
 			}
+			if err := validateAggregateLimit(limit); err != nil {
+				return err
+			}
 			override, err := rf.override()
 			if err != nil {
 				return err
@@ -1106,7 +1121,7 @@ func jiraPullCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&jql, "jql", "", "JQL selecting issues")
 	cmd.Flags().StringVar(&into, "into", mirrorRootDefault("mirror-jira"), "output root dir (default: $ATL_MIRROR_ROOT or \"mirror-jira\")")
-	cmd.Flags().IntVar(&limit, "limit", 100, "max issues (0 = all)")
+	cmd.Flags().IntVar(&limit, "limit", 100, "max issues (0 = all; must be non-negative)")
 	cmd.Flags().StringVar(&fields, "fields", "", "extra comma-separated field list to include in JSON snapshots")
 	cmd.Flags().BoolVar(&assets, "assets", false, "also mirror each issue's image attachments into a per-issue <KEY>.assets/ dir and link them from the .md")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "qualify the pull without writing mirror files or state")
@@ -1158,14 +1173,15 @@ func jiraRenderCmd() *cobra.Command {
 
 func jiraStatusCmd() *cobra.Command {
 	var remote bool
+	var into string
 	cmd := &cobra.Command{
 		Use:   "status [DIR]",
 		Short: "Show locally-edited (and optionally remote-drifted) mirrored issues",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir := mirrorRootDefault("mirror-jira")
-			if len(args) == 1 {
-				dir = args[0]
+			dir, err := resolveInspectionMirrorRoot(args, into, cmd.Flags().Changed("into"), "mirror-jira")
+			if err != nil {
+				return err
 			}
 			svc := &app.JiraService{}
 			if remote {
@@ -1215,19 +1231,21 @@ func jiraStatusCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&remote, "remote", false, "also check remote drift (one request per issue)")
+	cmd.Flags().StringVar(&into, "into", "", "mirror root (or pass [DIR])")
 	return cmd
 }
 
 func jiraSnapshotCmd() *cobra.Command {
 	var remote bool
+	var into string
 	cmd := &cobra.Command{
 		Use:   "snapshot [DIR]",
 		Short: "Summarize Jira mirror, baseline, raw snapshot, pending, render, and drift health without content",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir := mirrorRootDefault("mirror-jira")
-			if len(args) == 1 {
-				dir = args[0]
+			dir, err := resolveInspectionMirrorRoot(args, into, cmd.Flags().Changed("into"), "mirror-jira")
+			if err != nil {
+				return err
 			}
 			var (
 				result      *app.JiraMirrorSnapshot
@@ -1262,6 +1280,7 @@ func jiraSnapshotCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&remote, "remote", false, "also check remote drift (one single-attempt issue probe per eligible tracked issue)")
+	cmd.Flags().StringVar(&into, "into", "", "mirror root (or pass [DIR])")
 	return cmd
 }
 
@@ -1427,7 +1446,7 @@ func jiraExportCmd() *cobra.Command {
 	cmd.Flags().IntVar(&batchSize, "batch-size", 100, "max ids/keys per generated JQL batch")
 	cmd.Flags().StringVar(&out, "out", "", "artifact path, or - for artifact-only stdout (no manifest)")
 	cmd.Flags().StringVar(&format, "format", "jsonl", "export format: jsonl, json, or csv")
-	cmd.Flags().IntVar(&limit, "limit", 100, "max issues (0 = all)")
+	cmd.Flags().IntVar(&limit, "limit", 100, "max issues (0 = all; must be non-negative)")
 	cmd.Flags().StringVar(&fields, "fields", "", "extra comma-separated exact field ids or display names")
 	cmd.Flags().BoolVar(&rawCSV, "raw-csv", false, "write formula-leading CSV cells verbatim (unsafe in spreadsheets)")
 	_ = cmd.RegisterFlagCompletionFunc("format", fixedComp("jsonl", "json", "csv"))
@@ -1476,6 +1495,9 @@ func jiraPlanningReportCommand(use string) *cobra.Command {
 			if jql == "" {
 				return usageErr("--jql is required")
 			}
+			if err := validateAggregateLimit(limit); err != nil {
+				return err
+			}
 			svc, err := jiraService()
 			if err != nil {
 				return err
@@ -1502,7 +1524,7 @@ func jiraPlanningReportCommand(use string) *cobra.Command {
 	cmd.Flags().StringVar(&require, "require", "", "comma-separated fields that must be populated")
 	cmd.Flags().StringVar(&estimateField, "estimate-field", "", "field id/name used as the estimate check")
 	cmd.Flags().StringVar(&epicField, "epic-field", "", "field id/name containing parent epic key")
-	cmd.Flags().IntVar(&limit, "limit", 100, "max issues (0 = all)")
+	cmd.Flags().IntVar(&limit, "limit", 100, "max issues (0 = all; must be non-negative)")
 	cmd.Flags().StringVar(&csvPath, "csv", "", "optional CSV report path")
 	cmd.Flags().BoolVar(&rawCSV, "raw-csv", false, "write formula-leading CSV cells verbatim (unsafe in spreadsheets; requires --csv)")
 	return cmd

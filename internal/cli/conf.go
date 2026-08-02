@@ -126,6 +126,9 @@ func confSearchCmd() *cobra.Command {
 			if cql == "" {
 				return usageErr("--cql or at least one of --space/--title/--label/--type is required")
 			}
+			if err := validatePageLimit(limit, 100); err != nil {
+				return err
+			}
 			svc, err := confService()
 			if err != nil {
 				return err
@@ -157,7 +160,7 @@ func confSearchCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&cql, "cql", "", "Confluence CQL query")
-	cmd.Flags().IntVar(&limit, "limit", 25, "max results")
+	cmd.Flags().IntVar(&limit, "limit", 25, "max results (1..100)")
 	cmd.Flags().StringVar(&cursor, "cursor", "", "pagination cursor (start offset)")
 	cmd.Flags().StringVar(&srchSpace, "space", "", "filter by space key")
 	cmd.Flags().StringVar(&srchTitle, "title", "", "filter by title (substring match)")
@@ -513,6 +516,9 @@ func confPageCmd() *cobra.Command {
 			if listSpace == "" {
 				return usageErr("--space is required")
 			}
+			if err := validatePageLimit(listLimit, 100); err != nil {
+				return err
+			}
 			q := buildSearchCQL(listSpace, "", "", "") + ` AND type = page`
 			if listStatus != "" {
 				q += ` AND status = ` + cqlEscape(listStatus)
@@ -543,7 +549,7 @@ func confPageCmd() *cobra.Command {
 	list.Flags().StringVar(&listSpace, "space", "", "space key")
 	list.Flags().StringVar(&listStatus, "status", "", "current|archived|trashed")
 	_ = list.RegisterFlagCompletionFunc("status", fixedComp("current", "archived", "trashed"))
-	list.Flags().IntVar(&listLimit, "limit", 25, "max results")
+	list.Flags().IntVar(&listLimit, "limit", 25, "max results (1..100)")
 	list.Flags().StringVar(&listCursor, "cursor", "", "pagination cursor (start offset)")
 
 	var openID string
@@ -1011,14 +1017,15 @@ func confTableCmd() *cobra.Command {
 
 func confStatusCmd() *cobra.Command {
 	var remote bool
+	var into string
 	cmd := &cobra.Command{
 		Use:   "status [DIR]",
 		Short: "Show locally-edited and remote-drifted pages",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir := mirrorRootDefault("mirror")
-			if len(args) == 1 {
-				dir = args[0]
+			dir, err := resolveInspectionMirrorRoot(args, into, cmd.Flags().Changed("into"), "mirror")
+			if err != nil {
+				return err
 			}
 			svc := &app.ConfluenceService{}
 			if remote {
@@ -1066,19 +1073,21 @@ func confStatusCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&remote, "remote", false, "also check remote drift (one request per page)")
+	cmd.Flags().StringVar(&into, "into", "", "mirror root (or pass [DIR])")
 	return cmd
 }
 
 func confSnapshotCmd() *cobra.Command {
 	var remote bool
+	var into string
 	cmd := &cobra.Command{
 		Use:   "snapshot [DIR]",
 		Short: "Summarize mirror, baseline, validation, render, and drift health without content",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir := mirrorRootDefault("mirror")
-			if len(args) == 1 {
-				dir = args[0]
+			dir, err := resolveInspectionMirrorRoot(args, into, cmd.Flags().Changed("into"), "mirror")
+			if err != nil {
+				return err
 			}
 			var (
 				result      *app.ConfluenceMirrorSnapshot
@@ -1113,6 +1122,7 @@ func confSnapshotCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&remote, "remote", false, "also check remote drift (one single-attempt metadata probe per eligible tracked page)")
+	cmd.Flags().StringVar(&into, "into", "", "mirror root (or pass [DIR])")
 	return cmd
 }
 

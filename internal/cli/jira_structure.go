@@ -257,6 +257,9 @@ func jiraStructureCmd() *cobra.Command {
 		Short: "Fetch Jira issue snapshots referenced by Structure rows",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateAggregateLimit(pullLimit); err != nil {
+				return err
+			}
 			selector, err := structureFolderSelector(cmd, pullFolderID, pullFolderRow, pullFolderPath)
 			if err != nil {
 				return err
@@ -297,7 +300,7 @@ func jiraStructureCmd() *cobra.Command {
 	pullIssues.Flags().StringVar(&pullFields, "fields", "", "comma-separated Jira fields to include")
 	pullIssues.Flags().StringVar(&pullView, "view", "", "named Jira list view from config (default: default; explicit --fields wins)")
 	pullIssues.Flags().IntVar(&pullBatchSize, "batch-size", 100, "issue id batch size for generated JQL")
-	pullIssues.Flags().IntVar(&pullLimit, "limit", 0, "maximum Jira issues to fetch (0 means no limit)")
+	pullIssues.Flags().IntVar(&pullLimit, "limit", 0, "maximum Jira issues to fetch (0 means no limit; must be non-negative)")
 	pullIssues.Flags().StringVar(&pullOut, "out", "", "optional JSON file path for the pulled snapshot")
 	addStructureForestGateFlags(pullIssues, &pullExpectedSignature, &pullExpectedVersion, "pulled hierarchy")
 	addStructureFolderSelectorFlags(pullIssues, &pullFolderID, &pullFolderRow, &pullFolderPath)

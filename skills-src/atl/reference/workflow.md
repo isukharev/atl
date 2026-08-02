@@ -4,8 +4,13 @@
 
 **Recommended convention: `~/.atl/<workspace>/`** — outside the user's code
 repository, where `<workspace>` is meaningful (for example,
-`~/.atl/payments/`). Export it as `ATL_MIRROR_ROOT` or pass `--into`; otherwise
-the CLI falls back to `mirror` for Confluence and `mirror-jira` for Jira.
+`~/.atl/payments/`). Export it as `ATL_MIRROR_ROOT` or pass `--into`. Pull uses
+`mirror` for Confluence and `mirror-jira` for Jira when neither is set.
+
+For `conf|jira status|snapshot`, positional `[DIR]` and `--into` are mutually
+exclusive explicit forms. With neither, resolution is environment, nearest
+initialized `.atl`, then service fallback. Missing initialization is exit 4
+before config/network.
 
 Mirror I/O is rooted at the selected directory: descendant symlinks cannot
 redirect writes outside it. `status` and directory `push` fail if a substrate
@@ -20,8 +25,9 @@ Why outside the repo:
   copies for diffing). That state is **essential, not a cache** — losing it resets the version gate
   and drift detection — so it stays co-located with the mirror, never in `~/.cache`.
 
-Pass `--into ~/.atl/<workspace>/` to `conf pull` / `jira pull` and the same root
-to `conf status`, or export it once as `ATL_MIRROR_ROOT`.
+Pass `--into ~/.atl/<workspace>/` to `conf pull` / `jira pull` and either root
+form to both services' status/snapshot, or export it once as
+`ATL_MIRROR_ROOT`.
 
 ## Bind the mirror to its backend
 

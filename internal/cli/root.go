@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -367,9 +368,10 @@ func loadConfig() (*config.Config, error) {
 	return config.Load()
 }
 
-// mirrorRootDefault resolves the default mirror root for pull/status commands.
+// mirrorRootDefault resolves the flag default for commands that do not perform
+// nearest-initialized-mirror inspection themselves.
 // ATL_MIRROR_ROOT lets a workspace fix one mirror location (per the setup
-// skill's `~/.atl/<workspace>/` convention) so pull and a later push/status
+// skill's `~/.atl/<workspace>/` convention) so pull and a later push
 // agree without the caller re-passing --into every time; when it is unset the
 // command's own fallback ("mirror" / "mirror-jira") is used. An explicit --into
 // flag still wins, since cobra only applies this default when the flag is
@@ -379,6 +381,106 @@ func mirrorRootDefault(fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// resolveInspectionMirrorRoot applies the common status/snapshot root
+// precedence and refuses to inspect a path that has not been initialized as a
+// mirror. Keeping this at the CLI boundary ensures --remote cannot load config
+// or make a request for an absent mirror.
+func resolveInspectionMirrorRoot(args []string, into string, intoSet bool, fallback string) (string, error) {
+	if len(args) == 1 && intoSet {
+		return "", usageErr("use either [DIR] or --into, not both")
+	}
+
+	root := ""
+	if len(args) == 1 {
+		root = strings.TrimSpace(args[0])
+		if root == "" {
+			return "", usageErr("[DIR] must not be empty")
+		}
+	} else if intoSet {
+		root = strings.TrimSpace(into)
+		if root == "" {
+			return "", usageErr("--into must not be empty")
+		}
+	}
+	if root == "" {
+		root = strings.TrimSpace(os.Getenv("ATL_MIRROR_ROOT"))
+	}
+	if root == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("resolve current directory: %w", err)
+		}
+		detected, ok, err := nearestInitializedMirrorRoot(cwd)
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			root = detected
+		}
+	}
+	if root == "" {
+		root = fallback
+	}
+	root = filepath.Clean(root)
+
+	rootInfo, err := os.Lstat(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("%w: mirror is not initialized at %s", domain.ErrNotFound, root)
+		}
+		return "", fmt.Errorf("inspect mirror root %s: %w", root, err)
+	}
+	if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
+		return "", fmt.Errorf("%w: mirror is not initialized at %s", domain.ErrNotFound, root)
+	}
+	marker := filepath.Join(root, ".atl")
+	info, err := os.Lstat(marker)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("%w: mirror is not initialized at %s", domain.ErrNotFound, root)
+		}
+		return "", fmt.Errorf("inspect mirror marker %s: %w", marker, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return "", fmt.Errorf("%w: mirror is not initialized at %s", domain.ErrNotFound, root)
+	}
+	return root, nil
+}
+
+func nearestInitializedMirrorRoot(start string) (string, bool, error) {
+	dir := filepath.Clean(start)
+	for i := 0; i < 12; i++ {
+		marker := filepath.Join(dir, ".atl")
+		info, err := os.Lstat(marker)
+		if err == nil && info.Mode()&os.ModeSymlink == 0 && info.IsDir() {
+			return dir, true, nil
+		}
+		if err != nil && !os.IsNotExist(err) {
+			return "", false, fmt.Errorf("inspect mirror marker %s: %w", marker, err)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir || dir == "." || dir == "" {
+			break
+		}
+		dir = parent
+	}
+	return "", false, nil
+}
+
+func validatePageLimit(limit, max int) error {
+	if limit < 1 || limit > max {
+		return usageErr("--limit must be between 1 and %d", max)
+	}
+	return nil
+}
+
+func validateAggregateLimit(limit int) error {
+	if limit < 0 {
+		return usageErr("--limit must be non-negative (0 means no limit)")
+	}
+	return nil
 }
 
 // stdinBodyCap bounds a stdin body so a stray binary/firehose can't exhaust
