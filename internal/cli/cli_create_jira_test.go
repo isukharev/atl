@@ -1094,26 +1094,3 @@ func TestJiraLinkTypes_Emit(t *testing.T) {
 		t.Errorf("link types = %v, want [Blocks Relates]", res.LinkTypes)
 	}
 }
-
-// TestConfPageDelete_WireMethod covers `conf page delete`: a DELETE is sent to
-// /rest/api/content/<id> and the command reports status "trashed".
-func TestConfPageDelete_WireMethod(t *testing.T) {
-	cs := newConfServer(t)
-
-	out, code := runCLI(t, confEnv(cs.srv), "conf", "page", "delete", "--id", "12345")
-	if code != exitOK {
-		t.Fatalf("conf page delete: exit %d, want 0 (stdout=%q)", code, out)
-	}
-	if !strings.Contains(out, `"status": "trashed"`) {
-		t.Errorf("delete output = %q, want status trashed", out)
-	}
-	var saw bool
-	for _, r := range cs.requests() {
-		if r.method == http.MethodDelete && r.path == "/rest/api/content/12345" {
-			saw = true
-		}
-	}
-	if !saw {
-		t.Errorf("expected DELETE /rest/api/content/12345, got %+v", cs.requests())
-	}
-}

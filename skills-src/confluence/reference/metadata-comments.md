@@ -48,11 +48,18 @@ atl conf page open --id <id>
 atl conf page copy --id <id> --title '<title>' [--space <KEY>] [--parent <id>]
 atl conf page copy --id <id> --title '<title>' --register --into <ROOT>
 atl conf page delete --id <id>
+atl conf page delete --id <id> --apply --confirm TRASH \
+  --expected-version <preview-version> \
+  --expected-proposal-hash <preview-hash>
 ```
 
-`page delete` sends one transport attempt and refuses redirects. After an
-ambiguous result, read the exact target before considering a separately reviewed
-new command; never retry deletion automatically.
+`page delete` is dry-run by default. Review its content-minimized version and
+proposal hash before apply. The hash binds backend/page/status/version, native
+body, title, space, and parent; apply revalidates the exact state immediately
+before one `status=current` DELETE and never requests purge. Accept only
+`applied`, `recovered`, or `already_satisfied` as
+proven success. `outcome_unknown` is non-zero and must never be replayed; a
+backend without exact current/trashed reads fails closed before DELETE.
 
 Add `-o text` for compact metadata/version records. Unknown restriction state
 is printed as `restricted unknown`, not as unrestricted.

@@ -617,6 +617,25 @@ version promise; additional community versions require a reviewed compiled
 profile and their own evidence. Mutation commands remain JSON-only CLI routes
 and are never exposed through the read-only MCP server.
 
+### Guarded page trash boundary
+
+Page trashing is a separate destructive boundary. The CLI is preview-first and
+requires an exact reviewed version, canonical proposal hash, and `TRASH`
+confirmation before apply. The proposal binds the normalized backend identity
+and the page's exact status, hierarchy identity, native bytes, and title without
+emitting content. Because Confluence exposes no version compare-and-set on
+DELETE, the app repeats the complete snapshot immediately before dispatch,
+sends exactly one non-redirected and non-retried DELETE explicitly qualified as
+`status=current`, and never treats an ambiguous transport result as permission
+to replay. It never requests permanent purge of trashed content.
+
+Reconciliation uses a narrow domain port for explicit `current` and `trashed`
+status namespaces. Only an exact trashed projection matching the reviewed
+identity and native bytes proves application. Any unavailable, missing,
+current, or mismatched readback remains `outcome_unknown`; unsupported exact
+status reads fail closed before the destructive request. The route is CLI-only
+and remains absent from the read-only MCP surface.
+
 ---
 
 ## Extension points

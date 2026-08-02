@@ -110,7 +110,7 @@ M local-direct - conf edit
 R conf me
 M remote-direct - conf page copy
 M remote-direct - conf page create
-M remote-direct - conf page delete
+M preview-apply apply,confirm,expected-proposal-hash,expected-version conf page delete
 R conf page get
 R conf page history
 M preview-apply apply,expected-proposal-hash conf page labels add
@@ -473,10 +473,13 @@ func validateMutationInvocation(cmd *cobra.Command) error {
 		applyRequested = value
 	}
 	preflightRequired := profile == mutationDedicatedApply
-	if path == "mirror backend bind" {
+	if path == "mirror backend bind" || path == "conf page delete" {
 		preflightRequired = applyRequested
 	}
 	if !preflightRequired {
+		if path == "conf page delete" {
+			return validateConfluencePageDeleteInvocation(cmd, false)
+		}
 		return nil
 	}
 	for _, name := range registration.requiredFlags {
@@ -500,6 +503,34 @@ func validateMutationInvocation(cmd *cobra.Command) error {
 			}
 			return usageErr("--%s is required for this apply command", name)
 		}
+	}
+	if path == "conf page delete" {
+		return validateConfluencePageDeleteInvocation(cmd, applyRequested)
+	}
+	return nil
+}
+
+func validateConfluencePageDeleteInvocation(cmd *cobra.Command, applyRequested bool) error {
+	id, err := cmd.Flags().GetString("id")
+	if err != nil || strings.TrimSpace(id) == "" {
+		return usageErr("--id is required")
+	}
+	guardNames := []string{"confirm", "expected-version", "expected-proposal-hash"}
+	if !applyRequested {
+		for _, name := range guardNames {
+			if flag := cmd.Flags().Lookup(name); flag != nil && flag.Changed {
+				return usageErr("--confirm, --expected-version, and --expected-proposal-hash require --apply")
+			}
+		}
+		return nil
+	}
+	confirm, err := cmd.Flags().GetString("confirm")
+	if err != nil || confirm != "TRASH" {
+		return usageErr("--confirm must be exactly TRASH with --apply")
+	}
+	expectedVersion, err := cmd.Flags().GetInt("expected-version")
+	if err != nil || expectedVersion <= 0 {
+		return usageErr("--expected-version is required with --apply; run the dry-run first")
 	}
 	return nil
 }

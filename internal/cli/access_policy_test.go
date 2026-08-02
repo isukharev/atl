@@ -127,7 +127,7 @@ dedicated-apply conf comment mutation apply
 local-direct conf edit
 remote-direct conf page copy
 remote-direct conf page create
-remote-direct conf page delete
+preview-apply conf page delete
 preview-apply conf page labels add
 preview-apply conf page labels remove
 preview-apply conf page move

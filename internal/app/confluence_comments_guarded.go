@@ -145,7 +145,7 @@ func (s *ConfluenceService) AddFooterCommentGuarded(ctx context.Context, referen
 		result.Complete = false
 		return result, &confluenceFooterCommentWriteError{
 			message: "footer comment proposal could not be revalidated immediately before the write",
-			cause:   sanitizeConfluenceCommentWriteCause(err), closed: true,
+			cause:   sanitizeConfluenceWriteCause(err), closed: true,
 		}
 	}
 	if confluenceFooterCommentProposalHash(prewrite, body, bodySHA256) != proposalHash {
@@ -162,7 +162,7 @@ func (s *ConfluenceService) AddFooterCommentGuarded(ctx context.Context, referen
 		result.Status = "not_applied"
 		return result, &confluenceFooterCommentWriteError{
 			message: "Confluence rejected the footer comment; it was not applied",
-			cause:   sanitizeConfluenceCommentWriteCause(writeErr),
+			cause:   sanitizeConfluenceWriteCause(writeErr),
 		}
 	}
 
@@ -172,7 +172,7 @@ func (s *ConfluenceService) AddFooterCommentGuarded(ctx context.Context, referen
 		result.Complete = false
 		return result, confluenceFooterCommentAmbiguousError(
 			"footer comment outcome is unknown; complete readback failed; do not replay automatically",
-			errors.Join(sanitizeConfluenceCommentWriteCause(writeErr), sanitizeConfluenceCommentWriteCause(readbackErr)),
+			errors.Join(sanitizeConfluenceWriteCause(writeErr), sanitizeConfluenceWriteCause(readbackErr)),
 		)
 	}
 	result.Reconciled = true
@@ -180,14 +180,14 @@ func (s *ConfluenceService) AddFooterCommentGuarded(ctx context.Context, referen
 		result.Status = "outcome_unknown"
 		return result, confluenceFooterCommentAmbiguousError(
 			"footer comment outcome is unknown because the page version changed during reconciliation; do not replay automatically",
-			sanitizeConfluenceCommentWriteCause(writeErr),
+			sanitizeConfluenceWriteCause(writeErr),
 		)
 	}
 	if !confluenceFooterBaselineMembersUnchanged(prewrite.comments, readback.comments) {
 		result.Status = "outcome_unknown"
 		return result, confluenceFooterCommentAmbiguousError(
 			"footer comment outcome is unknown because the reviewed comment baseline changed during reconciliation; do not replay automatically",
-			sanitizeConfluenceCommentWriteCause(writeErr),
+			sanitizeConfluenceWriteCause(writeErr),
 		)
 	}
 
@@ -218,13 +218,13 @@ func (s *ConfluenceService) AddFooterCommentGuarded(ctx context.Context, referen
 			result.Status = "outcome_unknown"
 			return result, confluenceFooterCommentAmbiguousError(
 				"footer comment outcome is unknown because the returned comment does not match the reviewed proposal; do not replay automatically",
-				sanitizeConfluenceCommentWriteCause(writeErr),
+				sanitizeConfluenceWriteCause(writeErr),
 			)
 		}
 		result.Status = "outcome_unknown"
 		return result, confluenceFooterCommentAmbiguousError(
 			"footer comment outcome is unknown because the returned comment identity is absent from complete readback; do not replay automatically",
-			sanitizeConfluenceCommentWriteCause(writeErr),
+			sanitizeConfluenceWriteCause(writeErr),
 		)
 	}
 
@@ -242,7 +242,7 @@ func (s *ConfluenceService) AddFooterCommentGuarded(ctx context.Context, referen
 	result.Status = "outcome_unknown"
 	return result, confluenceFooterCommentAmbiguousError(
 		fmt.Sprintf("footer comment outcome is unknown because complete readback found %d exact new candidates; do not replay automatically", len(matches)),
-		sanitizeConfluenceCommentWriteCause(writeErr),
+		sanitizeConfluenceWriteCause(writeErr),
 	)
 }
 
@@ -432,7 +432,7 @@ func confluenceFooterCommentAmbiguousError(message string, cause error) error {
 	return &confluenceFooterCommentWriteError{message: message, cause: cause, closed: true, ambiguous: true}
 }
 
-func sanitizeConfluenceCommentWriteCause(err error) error {
+func sanitizeConfluenceWriteCause(err error) error {
 	if err == nil {
 		return nil
 	}
@@ -447,7 +447,7 @@ func sanitizeConfluenceCommentWriteCause(err error) error {
 	}
 	var statusErr interface{ HTTPStatus() int }
 	if errors.As(err, &statusErr) {
-		causes = append(causes, confluenceCommentHTTPStatus(statusErr.HTTPStatus()))
+		causes = append(causes, confluenceWriteHTTPStatus(statusErr.HTTPStatus()))
 	}
 	if len(causes) == 0 {
 		return errors.New("request failed")
@@ -455,10 +455,10 @@ func sanitizeConfluenceCommentWriteCause(err error) error {
 	return errors.Join(causes...)
 }
 
-type confluenceCommentHTTPStatus int
+type confluenceWriteHTTPStatus int
 
-func (e confluenceCommentHTTPStatus) Error() string   { return "request failed" }
-func (e confluenceCommentHTTPStatus) HTTPStatus() int { return int(e) }
+func (e confluenceWriteHTTPStatus) Error() string   { return "request failed" }
+func (e confluenceWriteHTTPStatus) HTTPStatus() int { return int(e) }
 
 func ConfluenceFooterCommentAddText(result *ConfluenceFooterCommentAddResult) string {
 	if result == nil {

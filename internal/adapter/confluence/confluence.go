@@ -48,10 +48,11 @@ func (cf *Confluence) ResolveShortPageLink(ctx context.Context, path string) (st
 // --- REST DTOs (only the fields we use) ---
 
 type content struct {
-	ID    string `json:"id"`
-	Type  string `json:"type"`
-	Title string `json:"title"`
-	Space struct {
+	ID     string `json:"id"`
+	Type   string `json:"type"`
+	Status string `json:"status"`
+	Title  string `json:"title"`
+	Space  struct {
 		Key string `json:"key"`
 	} `json:"space"`
 	Version struct {
@@ -115,7 +116,7 @@ func (ct *content) restrictionState() *bool {
 
 func (ct *content) toResource(base, body string) *domain.Resource {
 	r := &domain.Resource{
-		ID: ct.ID, Type: ct.Type, Title: ct.Title, SpaceKey: ct.Space.Key,
+		ID: ct.ID, Type: ct.Type, Status: ct.Status, Title: ct.Title, SpaceKey: ct.Space.Key,
 		Version: ct.Version.Number, Body: []byte(body), Updated: ct.Version.When,
 		AncestorsPresent: ct.Ancestors != nil,
 	}
@@ -174,6 +175,20 @@ func (ct *content) storageBody() (string, bool) {
 
 // GetPage fetches a page; Body is native CSF unless opts.Format=="view".
 func (cf *Confluence) GetPage(ctx context.Context, id string, opts domain.PullOpts) (*domain.Resource, error) {
+	return cf.getPage(ctx, id, "", opts)
+}
+
+// GetPageByStatus fetches content from one explicit status namespace. The
+// response status is retained for app-layer exact-state reconciliation.
+func (cf *Confluence) GetPageByStatus(ctx context.Context, id, status string, opts domain.PullOpts) (*domain.Resource, error) {
+	status = strings.TrimSpace(status)
+	if status != "current" && status != "trashed" {
+		return nil, fmt.Errorf("%w: Confluence page status must be current or trashed", domain.ErrUsage)
+	}
+	return cf.getPage(ctx, id, status, opts)
+}
+
+func (cf *Confluence) getPage(ctx context.Context, id, status string, opts domain.PullOpts) (*domain.Resource, error) {
 	expand := "body.storage,version,space,ancestors,metadata.labels"
 	if opts.Format == "view" {
 		expand = "body.view,version,space,ancestors,metadata.labels"
@@ -181,8 +196,12 @@ func (cf *Confluence) GetPage(ctx context.Context, id string, opts domain.PullOp
 	if opts.IncludeRestrictions {
 		expand += ",restrictions.read.restrictions.user,restrictions.read.restrictions.group"
 	}
+	requestPath := "/rest/api/content/" + url.PathEscape(id) + "?expand=" + expand
+	if status != "" {
+		requestPath = "/rest/api/content/" + url.PathEscape(id) + "?status=" + url.QueryEscape(status) + "&expand=" + expand
+	}
 	var ct content
-	if err := cf.c.GetJSON(ctx, "/rest/api/content/"+url.PathEscape(id)+"?expand="+expand, &ct); err != nil {
+	if err := cf.c.GetJSON(ctx, requestPath, &ct); err != nil {
 		return nil, err
 	}
 	body, present := ct.storageBody()
@@ -441,6 +460,6 @@ func (cf *Confluence) MovePage(ctx context.Context, id, newParent string, expect
 
 // DeletePage trashes a page. Per-space permissions may yield ErrForbidden.
 func (cf *Confluence) DeletePage(ctx context.Context, id string) error {
-	_, err := cf.c.Do(domain.WithSingleAttempt(ctx), "DELETE", "/rest/api/content/"+url.PathEscape(id), nil, nil)
+	_, err := cf.c.Do(domain.WithSingleAttempt(ctx), "DELETE", "/rest/api/content/"+url.PathEscape(id)+"?status=current", nil, nil)
 	return err
 }

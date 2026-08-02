@@ -45,6 +45,13 @@ type PullOpts struct {
 	IncludeRestrictions bool   // Confluence: request read-restriction metadata
 }
 
+// ConfluencePageStatusReader performs an exact page read within one explicit
+// content-status namespace. Destructive reconciliation uses this narrow port
+// so current and trashed objects cannot be confused by a default-status GET.
+type ConfluencePageStatusReader interface {
+	GetPageByStatus(ctx context.Context, id, status string, opts PullOpts) (*Resource, error)
+}
+
 // DocStore is the port for a document backend (Confluence today; Notion/etc.
 // later). Bodies flow in the backend's native storage format.
 type DocStore interface {

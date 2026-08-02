@@ -103,6 +103,31 @@ reply, or state transition and, for create, only one server-owned marker wrapper
 in native page storage. Accept only reconciled `applied` or `recovered`; never
 replay `outcome_unknown`. The surface is CLI-only and absent from MCP.
 
+## Confluence: reviewed page trash
+
+Page deletion means moving one current page to the Confluence trash. Preview is
+read-only and emits the exact version and content-minimized proposal hash:
+
+```sh
+atl conf page delete --id 123456
+atl conf page delete --id 123456 \
+  --apply --confirm TRASH \
+  --expected-version <reviewed-version> \
+  --expected-proposal-hash <reviewed-hash>
+```
+
+The preview sends no write, but the destructive leaf remains
+mutating-classified, so `ATL_READ_ONLY=1` blocks both preview and apply before
+credentials or network access.
+
+The proposal binds backend, page status/version, hierarchy, title, and native
+body identity. Apply repeats that complete read immediately before one DELETE.
+Confluence supplies no delete-time version compare-and-set, so ATL then checks
+both explicit current and trashed views. DELETE is qualified as
+`status=current`, never as permanent purge. Only an exact trashed match proves
+`applied` or `recovered`; never replay `outcome_unknown`. Restoring or purging a
+trashed page is outside this command.
+
 ## Jira: mirror description edits
 
 Pull a bounded issue set:

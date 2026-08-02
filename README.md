@@ -292,6 +292,12 @@ selection and zero-based occurrence; ATL derives the version-specific browser
 geometry and never edits marker CSF itself. Jira writes follow the same reviewed-baseline rule. Follow the
 [safe-write guide](docs/safe-writes.md).
 
+Page trashing uses the same review boundary and is dry-run by default. Review
+`atl conf page delete --id <ID>`, then apply only the emitted version and
+proposal hash with `--apply --confirm TRASH`. ATL re-reads the exact current
+page immediately before one non-replayed DELETE and qualifies the outcome from
+explicit current/trashed reads; `outcome_unknown` must never be replayed.
+
 ## Coding agents
 
 The repository ships the same focused skills for Claude Code and Codex plus a
