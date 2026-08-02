@@ -267,6 +267,10 @@ atl jira issue create --project EXAMPLE --type Task --summary "Новая зад
   --register --into "$ATL_MIRROR_ROOT"
 ```
 
+Весь leaf `conf page copy` классифицирован как mutating, поэтому
+`ATL_READ_ONLY=1` блокирует и его read-only preview, и apply. Убирайте policy
+только для явно проверенного copy workflow, после чего восстанавливайте её.
+
 Preview копирования связывает backend, точные байты/версию/иерархию исходной
 страницы, title/space/parent назначения и identity корня регистрации. Apply ещё
 раз проверяет source и parent перед одним неповторяемым POST и требует точный

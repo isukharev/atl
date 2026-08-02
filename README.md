@@ -262,6 +262,10 @@ atl jira issue create --project EXAMPLE --type Task --summary "New task" \
   --register --into "$ATL_MIRROR_ROOT"
 ```
 
+The entire `conf page copy` leaf is mutating-classified, so
+`ATL_READ_ONLY=1` blocks its read-only preview as well as apply. Remove that
+policy only for an explicitly reviewed copy workflow, then restore it.
+
 The copy preview binds the backend, exact current source bytes/version and
 hierarchy, destination title/space/parent, and registration-root identity. Apply
 revalidates source and parent immediately before one non-replayed POST and
