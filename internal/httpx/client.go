@@ -1,8 +1,8 @@
 // Package httpx is the shared HTTP infrastructure: a thin client with bearer
 // auth, bounded replay-safe retries for reads (with jittered backoff + capped
 // Retry-After), JSON helpers, and status→domain-error mapping. Direct URLs and
-// redirects are confined to the configured backend origin policy. Adapters use
-// it so they hold no transport policy.
+// redirects are confined to replay-safe reads at the configured backend
+// origin. Adapters use it so they hold no transport policy.
 package httpx
 
 import (
@@ -143,6 +143,14 @@ func NewWithScheduler(base, token, version string, scheduler *Scheduler) *Client
 		}
 		if len(via) > 0 && via[0].URL.Scheme == "https" && req.URL.Scheme == "http" {
 			return fmt.Errorf("refusing https→http redirect to %q", req.URL.Host)
+		}
+		// Redirect handling is another physical request. A same-origin 307/308
+		// preserves the method and body, while 301/302/303 can turn a write into
+		// a server-selected read. Neither behavior is safe for a mutation: the
+		// endpoint-aware write path must classify and reconcile the original 3xx
+		// instead of allowing the shared client to issue a second request.
+		if len(via) > 0 && !replaySafe(via[0].Method) {
+			return http.ErrUseLastResponse
 		}
 		// A caller that requested one transport attempt must never turn one
 		// logical probe into a second request by following even a safe redirect.

@@ -704,6 +704,32 @@ func TestUpdatePageConflictFromServer(t *testing.T) {
 	}
 }
 
+func TestUpdatePageRefusesRedirectReplay(t *testing.T) {
+	var original, redirected int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/api/content/55":
+			original++
+			w.Header().Set("Location", "/rest/api/content/redirected")
+			w.WriteHeader(http.StatusPermanentRedirect)
+		case "/rest/api/content/redirected":
+			redirected++
+			_, _ = w.Write([]byte(`{"version":{"number":6}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
+	if _, err := cf.UpdatePage(context.Background(), "55", 5, "Title", []byte("<p>x</p>"), false); err == nil {
+		t.Fatal("UpdatePage redirect: expected refusal")
+	}
+	if original != 1 || redirected != 0 {
+		t.Fatalf("PUT attempts: original=%d redirected=%d, want 1 and 0", original, redirected)
+	}
+}
+
 // TestUpdatePageForceGetError verifies a failure fetching the current version
 // in the force path propagates (the sentinel is preserved).
 func TestUpdatePageForceGetError(t *testing.T) {

@@ -442,11 +442,124 @@ func TestSingleAttemptContextDoesNotFollowRedirect(t *testing.T) {
 	defer srv.Close()
 	c := New(srv.URL, "tok", "test")
 	_, err := c.Do(domain.WithSingleAttempt(context.Background()), http.MethodGet, "/first", nil, nil)
-	if err == nil {
-		t.Fatal("single-attempt redirect unexpectedly succeeded")
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusFound {
+		t.Fatalf("error = %v, want APIError status %d", err, http.StatusFound)
 	}
 	if got := atomic.LoadInt32(&hits); got != 1 {
 		t.Fatalf("single-attempt redirect used %d HTTP attempts, want 1", got)
+	}
+}
+
+func TestMutatingMethodsNeverFollowRedirects(t *testing.T) {
+	methods := []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete}
+	statuses := []int{
+		http.StatusMovedPermanently,
+		http.StatusFound,
+		http.StatusSeeOther,
+		http.StatusTemporaryRedirect,
+		http.StatusPermanentRedirect,
+	}
+	for _, method := range methods {
+		for _, status := range statuses {
+			t.Run(fmt.Sprintf("%s_%d", method, status), func(t *testing.T) {
+				var original, redirected int32
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch r.URL.Path {
+					case "/original":
+						atomic.AddInt32(&original, 1)
+						w.Header().Set("Location", "/redirected")
+						w.WriteHeader(status)
+					case "/redirected":
+						atomic.AddInt32(&redirected, 1)
+						_, _ = io.WriteString(w, `{"ok":true}`)
+					default:
+						http.NotFound(w, r)
+					}
+				}))
+				defer srv.Close()
+
+				c := New(srv.URL, "tok", "test")
+				_, err := c.Do(context.Background(), method, "/original", []byte(`{"mutation":true}`), nil)
+				var apiErr *APIError
+				if !errors.As(err, &apiErr) || apiErr.Status != status {
+					t.Fatalf("error = %v, want APIError status %d", err, status)
+				}
+				if got := atomic.LoadInt32(&original); got != 1 {
+					t.Fatalf("original attempts = %d, want 1", got)
+				}
+				if got := atomic.LoadInt32(&redirected); got != 0 {
+					t.Fatalf("redirected attempts = %d, want 0", got)
+				}
+			})
+		}
+	}
+}
+
+func TestStreamingMutationNeverFollowsRedirect(t *testing.T) {
+	var original, redirected int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/original":
+			atomic.AddInt32(&original, 1)
+			w.Header().Set("Location", "/redirected")
+			w.WriteHeader(http.StatusTemporaryRedirect)
+		case "/redirected":
+			atomic.AddInt32(&redirected, 1)
+			_, _ = io.WriteString(w, `{"ok":true}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "tok", "test")
+	_, err := c.DoStream(context.Background(), http.MethodPost, "/original", strings.NewReader("mutation"), nil)
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusTemporaryRedirect {
+		t.Fatalf("error = %v, want APIError status %d", err, http.StatusTemporaryRedirect)
+	}
+	if got := atomic.LoadInt32(&original); got != 1 {
+		t.Fatalf("original attempts = %d, want 1", got)
+	}
+	if got := atomic.LoadInt32(&redirected); got != 0 {
+		t.Fatalf("redirected attempts = %d, want 0", got)
+	}
+}
+
+func TestReplaySafeMethodsFollowSameOriginRedirects(t *testing.T) {
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		t.Run(method, func(t *testing.T) {
+			var original, redirected int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/original":
+					atomic.AddInt32(&original, 1)
+					w.Header().Set("Location", "/redirected")
+					w.WriteHeader(http.StatusTemporaryRedirect)
+				case "/redirected":
+					atomic.AddInt32(&redirected, 1)
+					if r.Method != method {
+						t.Errorf("redirected method = %s, want %s", r.Method, method)
+					}
+					w.WriteHeader(http.StatusOK)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer srv.Close()
+
+			c := New(srv.URL, "tok", "test")
+			if _, err := c.Do(context.Background(), method, "/original", nil, nil); err != nil {
+				t.Fatalf("redirected %s failed: %v", method, err)
+			}
+			if got := atomic.LoadInt32(&original); got != 1 {
+				t.Fatalf("original attempts = %d, want 1", got)
+			}
+			if got := atomic.LoadInt32(&redirected); got != 1 {
+				t.Fatalf("redirected attempts = %d, want 1", got)
+			}
+		})
 	}
 }
 
@@ -1047,13 +1160,13 @@ func TestSchemeDowngradeRedirectRefused(t *testing.T) {
 		t.Fatal("CheckRedirect not configured")
 	}
 	// Same host but https→http downgrade must be refused.
-	via := []*http.Request{{URL: mustParse(t, "https://backend.invalid/a")}}
+	via := []*http.Request{{Method: http.MethodGet, URL: mustParse(t, "https://backend.invalid/a")}}
 	req := &http.Request{URL: mustParse(t, "http://backend.invalid/b")}
 	if err := cr(req, via); err == nil {
 		t.Error("expected https→http downgrade redirect to be refused")
 	}
 	// Same host, same scheme is allowed.
-	via2 := []*http.Request{{URL: mustParse(t, "https://backend.invalid/a")}}
+	via2 := []*http.Request{{Method: http.MethodGet, URL: mustParse(t, "https://backend.invalid/a")}}
 	req2 := &http.Request{URL: mustParse(t, "https://backend.invalid/c")}
 	if err := cr(req2, via2); err != nil {
 		t.Errorf("same-host https redirect should be allowed, got %v", err)
