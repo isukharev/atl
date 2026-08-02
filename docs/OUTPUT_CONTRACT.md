@@ -79,8 +79,9 @@ or `jira pull --jql 'key = ...' --limit 1 --into ...` recovery.
 
 `conf page copy` emits schema version 1. Dry-run status is `would_apply` and
 contains no created `id`. Its content-minimized evidence includes
-`source_id`, `current_version`, `source_body_sha256`, `source_body_bytes`,
-target title/space/parent evidence, target-parent version when applicable,
+`source_id`, `current_version`, source body/title/hierarchy hashes and byte count,
+target title/space/parent and complete hierarchy evidence, target-parent
+version/body/hierarchy evidence when applicable,
 `backend_sha256`, optional `registration_root_sha256`, and `proposal_hash`.
 `complete:true` means the exact current source and destination-parent
 projections were qualified; it does not mean a write occurred.

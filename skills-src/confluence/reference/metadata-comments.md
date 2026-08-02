@@ -60,7 +60,8 @@ atl conf page delete --id <id> --apply --confirm TRASH \
 resolved destination and parent, backend, and optional canonical registration
 root. Apply repeats the exact reads before one POST and accepts only an exact
 version-1 readback with the reviewed native bytes and target metadata. Never
-retry or title-search an `outcome_unknown`; `-o id` is apply-only.
+retry or title-search an `outcome_unknown`; `-o id` is apply-only. Because the
+leaf is mutating-classified, `ATL_READ_ONLY=1` blocks preview and apply alike.
 
 `page delete` is dry-run by default. Review its content-minimized version and
 proposal hash before apply. The hash binds backend/page/status/version, native

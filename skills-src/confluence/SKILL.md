@@ -230,7 +230,9 @@ write command after explicit approval.
   Optional `--register --into <ROOT>` is proposal-bound. Apply revalidates the
   source and destination parent, sends one POST, requires an exact version-1
   readback, and never retries or searches by title. Treat `outcome_unknown` as
-  terminal evidence; `-o id` is apply-only.
+  terminal evidence; `-o id` is apply-only. The leaf is mutating-classified, so
+  `ATL_READ_ONLY=1` blocks preview too; remove it only inside an explicitly
+  approved copy workflow, then restore it for ordinary read blocks.
 - Guarded page trash: run `conf page delete --id <id>` as a GET-only preview,
   review its version and proposal hash, then apply once with `--apply`,
   `--confirm TRASH`, `--expected-version <version>`, and

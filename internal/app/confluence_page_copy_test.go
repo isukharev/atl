@@ -116,7 +116,8 @@ func TestConfluencePageCopyProposalBindsInputs(t *testing.T) {
 		source: source, sourceTitleSHA256: "source-title", sourceHierarchyHash: "source-hierarchy",
 		backendSHA256: "backend", title: "Copy", titleSHA256: "title",
 		space: "DOC", parent: "20", parentVersion: 2, parentBodySHA256: "parent",
-		parentHierarchyHash: "hierarchy", register: true, rootSHA256: "root",
+		parentHierarchyHash: "hierarchy", targetHierarchyHash: "target-hierarchy",
+		register: true, rootSHA256: "root",
 	}
 	mutations := map[string]func(*confluencePageCopySnapshot){
 		"backend":          func(v *confluencePageCopySnapshot) { v.backendSHA256 = "other" },
@@ -131,6 +132,7 @@ func TestConfluencePageCopyProposalBindsInputs(t *testing.T) {
 		"parent version":   func(v *confluencePageCopySnapshot) { v.parentVersion++ },
 		"parent body":      func(v *confluencePageCopySnapshot) { v.parentBodySHA256 = "other" },
 		"parent hierarchy": func(v *confluencePageCopySnapshot) { v.parentHierarchyHash = "other" },
+		"target hierarchy": func(v *confluencePageCopySnapshot) { v.targetHierarchyHash = "other" },
 		"registration":     func(v *confluencePageCopySnapshot) { v.register = false },
 		"root":             func(v *confluencePageCopySnapshot) { v.rootSHA256 = "other" },
 	}
@@ -172,6 +174,7 @@ func TestConfluencePageCopyOutcomes(t *testing.T) {
 	}{
 		{name: "definitive rejection", createErr: confluenceTrashHTTPError{status: 403, sentinel: domain.ErrForbidden}, wantStatus: "not_applied", wantError: true},
 		{name: "missing id", created: &domain.Resource{}, wantStatus: "outcome_unknown", wantError: true},
+		{name: "source id reused", created: &domain.Resource{ID: "10"}, wantStatus: "outcome_unknown", wantError: true},
 		{name: "ambiguous with id recovered", created: &domain.Resource{ID: "42"}, createErr: errors.New("connection closed"), readback: confluenceCopyRead{page: confluenceCopyPage("42", "Copied", 1, "body")}, wantStatus: "recovered", wantKnown: true},
 		{name: "normalized body mismatch", created: &domain.Resource{ID: "42"}, readback: confluenceCopyRead{page: confluenceCopyPage("42", "Copied", 1, "normalized")}, wantStatus: "outcome_unknown", wantKnown: true, wantError: true},
 		{name: "intervening version", created: &domain.Resource{ID: "42"}, readback: confluenceCopyRead{page: confluenceCopyPage("42", "Copied", 2, "body")}, wantStatus: "outcome_unknown", wantKnown: true, wantError: true},
@@ -179,7 +182,7 @@ func TestConfluencePageCopyOutcomes(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			reads := map[string][]confluenceCopyRead{"10": {{page: source}, {page: source}}}
-			if test.created != nil && test.created.ID != "" {
+			if test.created != nil && test.created.ID != "" && test.created.ID != "10" {
 				reads[test.created.ID] = []confluenceCopyRead{test.readback}
 			}
 			store := &confluenceCopyStore{reads: reads, created: test.created, createErr: test.createErr}
@@ -190,6 +193,51 @@ func TestConfluencePageCopyOutcomes(t *testing.T) {
 				t.Fatalf("result=%+v err=%v creates=%d", result, err, store.createCalls)
 			}
 		})
+	}
+}
+
+func TestConfluencePageCopyRejectsParentIdentityAndHierarchyDrift(t *testing.T) {
+	source := confluenceCopyPage("10", "Source", 7, "body")
+	parent := confluenceCopyPage("20", "Parent", 4, "parent")
+	parent.Parent = "5"
+	parent.Ancestors = []string{"Home"}
+	parent.AncestorIDs = []string{"5"}
+	created := confluenceCopyPage("42", "Copied", 1, "body")
+	created.Parent = "20"
+	created.Ancestors = []string{"Renamed home", "Parent"}
+	created.AncestorIDs = []string{"5", "20"}
+	previewStore := &confluenceCopyStore{reads: map[string][]confluenceCopyRead{
+		"10": {{page: source}}, "20": {{page: parent}},
+	}}
+	preview, err := (&ConfluenceService{store: previewStore, baseURL: confluenceCopyTestBackend}).CopyPageGuarded(context.Background(), "10", ConfluencePageCopyOpts{Title: "Copied", Parent: "20"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &confluenceCopyStore{
+		reads: map[string][]confluenceCopyRead{
+			"10": {{page: source}, {page: source}},
+			"20": {{page: parent}, {page: parent}},
+			"42": {{page: created}},
+		},
+		created: &domain.Resource{ID: "42"},
+	}
+	result, err := (&ConfluenceService{store: store, baseURL: confluenceCopyTestBackend}).CopyPageGuarded(context.Background(), "10", ConfluencePageCopyOpts{
+		Title: "Copied", Parent: "20", Apply: true, ExpectedVersion: 7, ExpectedProposalHash: preview.ProposalHash,
+	})
+	if result == nil || result.Status != "outcome_unknown" || result.ID != "42" || !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+
+	parentPreview := previewConfluenceCopy(t, source, ConfluencePageCopyOpts{Title: "Child copy", Parent: "10"})
+	parentIdentityStore := &confluenceCopyStore{
+		reads:   map[string][]confluenceCopyRead{"10": {{page: source}, {page: source}}},
+		created: &domain.Resource{ID: "10"},
+	}
+	result, err = (&ConfluenceService{store: parentIdentityStore, baseURL: confluenceCopyTestBackend}).CopyPageGuarded(context.Background(), "10", ConfluencePageCopyOpts{
+		Title: "Child copy", Parent: "10", Apply: true, ExpectedVersion: 7, ExpectedProposalHash: parentPreview.ProposalHash,
+	})
+	if result == nil || result.Status != "outcome_unknown" || result.ID != "" || !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("parent identity result=%+v err=%v", result, err)
 	}
 }
 

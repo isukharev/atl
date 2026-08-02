@@ -2742,6 +2742,10 @@ last. A known-created but unregistered copy emits the page id and exits 8. Any
 a narrow `atl conf pull --id <new-id> --into ROOT`. `-o id` is apply-only because
 preview has no created identifier.
 
+The entire copy leaf is mutating-classified, so `ATL_READ_ONLY=1` blocks its
+GET-only preview as well as apply. Remove the policy only within an explicitly
+reviewed copy workflow; do not weaken it globally.
+
 ### `atl conf attachment {list,get,upload,delete}`
 
 Manage page attachments. `delete` requires `--force`, uses one transport

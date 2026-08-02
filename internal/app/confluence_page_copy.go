@@ -32,31 +32,36 @@ type ConfluencePageCopyOpts struct {
 }
 
 type ConfluencePageCopyResult struct {
-	SchemaVersion          int                        `json:"schema_version"`
-	SourceID               string                     `json:"source_id"`
-	Mode                   string                     `json:"mode"`
-	Status                 string                     `json:"status"`
-	CurrentVersion         int                        `json:"current_version"`
-	ExpectedVersion        int                        `json:"expected_version"`
-	SourceBodySHA256       string                     `json:"source_body_sha256"`
-	SourceBodyBytes        int                        `json:"source_body_bytes"`
-	TargetTitleSHA256      string                     `json:"target_title_sha256"`
-	TargetSpace            string                     `json:"target_space"`
-	TargetParent           string                     `json:"target_parent"`
-	TargetParentVersion    int                        `json:"target_parent_version,omitempty"`
-	BackendSHA256          string                     `json:"backend_sha256"`
-	Register               bool                       `json:"register"`
-	RegistrationRootSHA256 string                     `json:"registration_root_sha256,omitempty"`
-	ProposalHash           string                     `json:"proposal_hash"`
-	WriteAttempted         bool                       `json:"write_attempted"`
-	Reconciled             bool                       `json:"reconciled,omitempty"`
-	Complete               bool                       `json:"complete"`
-	ID                     string                     `json:"id,omitempty"`
-	Title                  string                     `json:"title,omitempty"`
-	Version                int                        `json:"version,omitempty"`
-	URL                    string                     `json:"url,omitempty"`
-	Registration           *CreatedMirrorRegistration `json:"registration,omitempty"`
-	Warning                string                     `json:"warning"`
+	SchemaVersion               int                        `json:"schema_version"`
+	SourceID                    string                     `json:"source_id"`
+	Mode                        string                     `json:"mode"`
+	Status                      string                     `json:"status"`
+	CurrentVersion              int                        `json:"current_version"`
+	ExpectedVersion             int                        `json:"expected_version"`
+	SourceBodySHA256            string                     `json:"source_body_sha256"`
+	SourceBodyBytes             int                        `json:"source_body_bytes"`
+	SourceTitleSHA256           string                     `json:"source_title_sha256"`
+	SourceHierarchySHA256       string                     `json:"source_hierarchy_sha256"`
+	TargetTitleSHA256           string                     `json:"target_title_sha256"`
+	TargetSpace                 string                     `json:"target_space"`
+	TargetParent                string                     `json:"target_parent"`
+	TargetParentVersion         int                        `json:"target_parent_version,omitempty"`
+	TargetParentBodySHA256      string                     `json:"target_parent_body_sha256,omitempty"`
+	TargetParentHierarchySHA256 string                     `json:"target_parent_hierarchy_sha256,omitempty"`
+	TargetHierarchySHA256       string                     `json:"target_hierarchy_sha256"`
+	BackendSHA256               string                     `json:"backend_sha256"`
+	Register                    bool                       `json:"register"`
+	RegistrationRootSHA256      string                     `json:"registration_root_sha256,omitempty"`
+	ProposalHash                string                     `json:"proposal_hash"`
+	WriteAttempted              bool                       `json:"write_attempted"`
+	Reconciled                  bool                       `json:"reconciled,omitempty"`
+	Complete                    bool                       `json:"complete"`
+	ID                          string                     `json:"id,omitempty"`
+	Title                       string                     `json:"title,omitempty"`
+	Version                     int                        `json:"version,omitempty"`
+	URL                         string                     `json:"url,omitempty"`
+	Registration                *CreatedMirrorRegistration `json:"registration,omitempty"`
+	Warning                     string                     `json:"warning"`
 }
 
 type confluencePageCopySnapshot struct {
@@ -71,6 +76,7 @@ type confluencePageCopySnapshot struct {
 	parentVersion       int
 	parentBodySHA256    string
 	parentHierarchyHash string
+	targetHierarchyHash string
 	rootSHA256          string
 	register            bool
 }
@@ -165,9 +171,12 @@ func (s *ConfluenceService) CopyPageGuarded(ctx context.Context, sourceID string
 		SchemaVersion: confluencePageCopySchemaVersion, SourceID: sourceID, Mode: mode,
 		Status: "would_apply", CurrentVersion: initial.source.Version, ExpectedVersion: expectedVersion,
 		SourceBodySHA256: mirror.Hash(initial.source.Body), SourceBodyBytes: len(initial.source.Body),
+		SourceTitleSHA256: initial.sourceTitleSHA256, SourceHierarchySHA256: initial.sourceHierarchyHash,
 		TargetTitleSHA256: initial.titleSHA256, TargetSpace: initial.space, TargetParent: initial.parent,
-		TargetParentVersion: initial.parentVersion, BackendSHA256: initial.backendSHA256,
-		Register: initial.register, RegistrationRootSHA256: initial.rootSHA256,
+		TargetParentVersion: initial.parentVersion, TargetParentBodySHA256: initial.parentBodySHA256,
+		TargetParentHierarchySHA256: initial.parentHierarchyHash, TargetHierarchySHA256: initial.targetHierarchyHash,
+		BackendSHA256: initial.backendSHA256,
+		Register:      initial.register, RegistrationRootSHA256: initial.rootSHA256,
 		ProposalHash: proposalHash, Complete: true,
 		Warning: "page creation has no server-side idempotency key; apply sends one POST, never searches by title, and never replays an uncertain write",
 	}
@@ -219,6 +228,11 @@ func (s *ConfluenceService) CopyPageGuarded(ctx context.Context, sourceID string
 		result.Status = "outcome_unknown"
 		result.Complete = false
 		return result, confluencePageCopyAmbiguousError("page copy outcome is unknown because the create response did not prove the new page id; do not retry or search by title", writeErr)
+	}
+	if created.ID == sourceID || created.ID == prewrite.parent {
+		result.Status = "outcome_unknown"
+		result.Complete = false
+		return result, confluencePageCopyAmbiguousError("page copy outcome is unknown because the create response reused the source or target-parent identity; do not retry or search by title", writeErr)
 	}
 	result.ID = created.ID
 
@@ -284,13 +298,11 @@ func (s *ConfluenceService) confluencePageCopySnapshot(ctx context.Context, sour
 	}
 	titleSum := sha256.Sum256([]byte(opts.Title))
 	sourceTitleSum := sha256.Sum256([]byte(source.Title))
-	sourceHierarchy, _ := json.Marshal(source.AncestorIDs)
-	sourceHierarchySum := sha256.Sum256(sourceHierarchy)
 	snapshot := confluencePageCopySnapshot{
 		source: source, backendSHA256: backendSHA256, title: opts.Title,
 		titleSHA256: hex.EncodeToString(titleSum[:]), space: space, parent: parent,
 		sourceTitleSHA256:   hex.EncodeToString(sourceTitleSum[:]),
-		sourceHierarchyHash: hex.EncodeToString(sourceHierarchySum[:]),
+		sourceHierarchyHash: confluencePageHierarchyHash(source.AncestorIDs, source.Ancestors),
 		register:            opts.Register,
 	}
 	if opts.Register {
@@ -298,6 +310,7 @@ func (s *ConfluenceService) confluencePageCopySnapshot(ctx context.Context, sour
 		snapshot.rootSHA256 = hex.EncodeToString(sum[:])
 	}
 	if parent == "" {
+		snapshot.targetHierarchyHash = confluencePageHierarchyHash(nil, nil)
 		return snapshot, nil
 	}
 	parentPage := source
@@ -312,9 +325,10 @@ func (s *ConfluenceService) confluencePageCopySnapshot(ctx context.Context, sour
 	}
 	snapshot.parentVersion = parentPage.Version
 	snapshot.parentBodySHA256 = mirror.Hash(parentPage.Body)
-	hierarchy, _ := json.Marshal(parentPage.AncestorIDs)
-	sum := sha256.Sum256(hierarchy)
-	snapshot.parentHierarchyHash = hex.EncodeToString(sum[:])
+	snapshot.parentHierarchyHash = confluencePageHierarchyHash(parentPage.AncestorIDs, parentPage.Ancestors)
+	targetIDs := append(append([]string(nil), parentPage.AncestorIDs...), parentPage.ID)
+	targetTitles := append(append([]string(nil), parentPage.Ancestors...), parentPage.Title)
+	snapshot.targetHierarchyHash = confluencePageHierarchyHash(targetIDs, targetTitles)
 	return snapshot, nil
 }
 
@@ -358,6 +372,7 @@ func confluencePageCopyProposalHash(snapshot confluencePageCopySnapshot) string 
 		ParentVersion       int    `json:"parent_version"`
 		ParentBodySHA256    string `json:"parent_body_sha256"`
 		ParentHierarchyHash string `json:"parent_hierarchy_hash"`
+		TargetHierarchyHash string `json:"target_hierarchy_hash"`
 		Register            bool   `json:"register"`
 		RootSHA256          string `json:"root_sha256"`
 	}{
@@ -372,17 +387,27 @@ func confluencePageCopyProposalHash(snapshot confluencePageCopySnapshot) string 
 		TargetSpace:         snapshot.space, TargetParent: snapshot.parent,
 		ParentVersion: snapshot.parentVersion, ParentBodySHA256: snapshot.parentBodySHA256,
 		ParentHierarchyHash: snapshot.parentHierarchyHash, Register: snapshot.register,
-		RootSHA256: snapshot.rootSHA256,
+		TargetHierarchyHash: snapshot.targetHierarchyHash, RootSHA256: snapshot.rootSHA256,
 	})
 	sum := sha256.Sum256(canonical)
 	return hex.EncodeToString(sum[:])
 }
 
 func confluencePageCopyReadbackMatches(snapshot confluencePageCopySnapshot, page *domain.Resource) bool {
-	if page == nil || page.Version != 1 || page.Title != snapshot.title || page.SpaceKey != snapshot.space || page.Parent != snapshot.parent {
+	if page == nil || page.Version != 1 || page.Title != snapshot.title || page.SpaceKey != snapshot.space || page.Parent != snapshot.parent ||
+		confluencePageHierarchyHash(page.AncestorIDs, page.Ancestors) != snapshot.targetHierarchyHash {
 		return false
 	}
 	return len(page.Body) == len(snapshot.source.Body) && mirror.Hash(page.Body) == mirror.Hash(snapshot.source.Body)
+}
+
+func confluencePageHierarchyHash(ids, titles []string) string {
+	canonical, _ := json.Marshal(struct {
+		IDs    []string `json:"ids"`
+		Titles []string `json:"titles"`
+	}{IDs: ids, Titles: titles})
+	sum := sha256.Sum256(canonical)
+	return hex.EncodeToString(sum[:])
 }
 
 func confluencePageCopyAmbiguousError(message string, cause error) error {

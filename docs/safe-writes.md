@@ -113,6 +113,10 @@ atl conf page copy --id 123456 --title 'Copied page' --apply \
   --expected-version 7 --expected-proposal-hash '<preview hash>'
 ```
 
+The leaf remains mutating-classified even in preview mode, so
+`ATL_READ_ONLY=1` blocks both forms. Temporarily remove that policy only for the
+reviewed preview/apply workflow; preview itself performs reads only.
+
 The proposal binds the backend, exact current source bytes/version/hierarchy,
 resolved target title/space/parent and parent state, plus optional registration
 intent and canonical root identity. Apply repeats exact source/parent reads,
