@@ -199,6 +199,10 @@ atl conf diff "$ATL_MIRROR_ROOT" -o text
 # Jira lane:
 atl jira pull --jql 'project = EXAMPLE order by key' --limit 20
 atl jira status "$ATL_MIRROR_ROOT"
+
+# If local and remote both changed, inspect one exact three-way snapshot.
+atl conf reconcile preview "$ATL_MIRROR_ROOT/SPACE/page/page.csf" -o text
+atl jira reconcile preview "$ATL_MIRROR_ROOT/EXAMPLE/EXAMPLE-1.wiki" -o text
 ```
 
 Use `.md` for reading and supported staging edits. Native `.csf` / `.wiki`
@@ -223,6 +227,7 @@ version/baseline/hash → one apply → reconciliation.
 atl conf apply "$ATL_MIRROR_ROOT/SPACE/page/page.md"
 atl conf validate "$ATL_MIRROR_ROOT/SPACE/page/page.csf"
 atl conf diff "$ATL_MIRROR_ROOT/SPACE/page/page.csf" -o text
+atl conf reconcile preview "$ATL_MIRROR_ROOT/SPACE/page/page.csf" -o text
 atl conf push "$ATL_MIRROR_ROOT/SPACE/page/page.csf" --dry-run
 ```
 

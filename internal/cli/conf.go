@@ -102,7 +102,7 @@ func newConfCmd() *cobra.Command {
 	c := &cobra.Command{Use: "conf", Short: "Confluence: mirror, read, validate, push (native storage format)"}
 	c.AddCommand(
 		confSearchCmd(), confSpaceCmd(), confPageCmd(), confBlogCmd(),
-		confPullCmd(), confRenderCmd(), confStatusCmd(), confSnapshotCmd(), confDiffCmd(), confPlanCmd(), confValidateCmd(), confEditCmd(), confApplyCmd(), confPushCmd(), confTableCmd(), confCommentCmd(),
+		confPullCmd(), confRenderCmd(), confStatusCmd(), confSnapshotCmd(), confDiffCmd(), confReconcileCmd(), confPlanCmd(), confValidateCmd(), confEditCmd(), confApplyCmd(), confPushCmd(), confTableCmd(), confCommentCmd(),
 		confAttachmentCmd(), confMeCmd(),
 	)
 	return c
@@ -1105,6 +1105,42 @@ func confDiffCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&into, "into", "", "mirror root (defaults to nearest .atl, or configured mirror when no target is given)")
 	return cmd
+}
+
+func confReconcileCmd() *cobra.Command {
+	group := &cobra.Command{Use: "reconcile", Short: "Compare base/local/remote native bodies and optionally stage exact review artifacts"}
+	newLeaf := func(stage bool) *cobra.Command {
+		var into string
+		mode := "preview"
+		if stage {
+			mode = "stage"
+		}
+		cmd := &cobra.Command{
+			Use:   mode + " <page.csf|page.md>",
+			Short: map[bool]string{false: "Read one page and classify base/local/remote divergence", true: "Stage exact base/remote artifacts without changing the working page"}[stage],
+			Args:  cobra.ExactArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				svc, err := confService()
+				if err != nil {
+					return err
+				}
+				var result *app.ConfluenceReconcileResult
+				if stage {
+					result, err = svc.StageConfluenceReconcile(cmd.Context(), args[0], into)
+				} else {
+					result, err = svc.PreviewConfluenceReconcile(cmd.Context(), args[0], into)
+				}
+				if err != nil {
+					return err
+				}
+				return emit(cmd, result, func() string { return app.ConfluenceReconcileMarkdown(result) })
+			},
+		}
+		cmd.Flags().StringVar(&into, "into", "", "mirror root (defaults to nearest .atl)")
+		return cmd
+	}
+	group.AddCommand(newLeaf(false), newLeaf(true))
+	return group
 }
 
 func confPlanCmd() *cobra.Command {

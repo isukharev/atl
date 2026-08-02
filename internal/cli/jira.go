@@ -53,7 +53,7 @@ func wikiBody(cmd *cobra.Command, fromFile, fromMD string) ([]byte, error) {
 
 func newJiraCmd() *cobra.Command {
 	c := &cobra.Command{Use: "jira", Short: "Jira: read/search/pull issues, edit via commands (native wiki)"}
-	cmds := []*cobra.Command{jiraIssueCmd(), jiraEpicCmd(), jiraPullCmd(), jiraRenderCmd(), jiraApplyCmd(), jiraStatusCmd(), jiraSnapshotCmd(), jiraPushCmd(), jiraExportCmd(), jiraPlanningCmd(), jiraQualityReportCmd(), jiraMeCmd(), jiraUserCmd(), jiraBoardCmd(), jiraSprintCmd(), jiraStructureCmd()}
+	cmds := []*cobra.Command{jiraIssueCmd(), jiraEpicCmd(), jiraPullCmd(), jiraRenderCmd(), jiraApplyCmd(), jiraStatusCmd(), jiraSnapshotCmd(), jiraReconcileCmd(), jiraPushCmd(), jiraExportCmd(), jiraPlanningCmd(), jiraQualityReportCmd(), jiraMeCmd(), jiraUserCmd(), jiraBoardCmd(), jiraSprintCmd(), jiraStructureCmd()}
 	cmds = append(cmds, jiraMetaCmds()...)
 	c.AddCommand(cmds...)
 	return c
@@ -1242,6 +1242,42 @@ func jiraSnapshotCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&remote, "remote", false, "also check remote drift (one single-attempt issue probe per eligible tracked issue)")
 	return cmd
+}
+
+func jiraReconcileCmd() *cobra.Command {
+	group := &cobra.Command{Use: "reconcile", Short: "Compare base/local/remote native values and optionally stage exact review artifacts"}
+	newLeaf := func(stage bool) *cobra.Command {
+		var into string
+		mode := "preview"
+		if stage {
+			mode = "stage"
+		}
+		cmd := &cobra.Command{
+			Use:   mode + " <issue.wiki|issue.md>",
+			Short: map[bool]string{false: "Read one issue and classify base/local/remote divergence", true: "Stage exact base/remote description artifacts without changing the working issue"}[stage],
+			Args:  cobra.ExactArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				svc, err := jiraService()
+				if err != nil {
+					return err
+				}
+				var result *app.JiraReconcileResult
+				if stage {
+					result, err = svc.StageJiraReconcile(cmd.Context(), args[0], into)
+				} else {
+					result, err = svc.PreviewJiraReconcile(cmd.Context(), args[0], into)
+				}
+				if err != nil {
+					return err
+				}
+				return emit(cmd, result, func() string { return app.JiraReconcileMarkdown(result) })
+			},
+		}
+		cmd.Flags().StringVar(&into, "into", "", "mirror root (defaults to nearest .atl)")
+		return cmd
+	}
+	group.AddCommand(newLeaf(false), newLeaf(true))
+	return group
 }
 
 func jiraPushCmd() *cobra.Command {

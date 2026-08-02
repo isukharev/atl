@@ -880,6 +880,39 @@ mirror state as an empty/clean subtree. `baseline_mismatch` distinguishes a
 pristine base whose bytes disagree with its tracked sync hash from filesystem
 unreadability.
 
+`conf reconcile preview <page.csf|page.md>` and `conf reconcile stage ...`
+emit schema-v1 content-free three-way evidence:
+`{schema_version,service,mode,complete,reconciled,id,path,base_version,
+remote_version,proposal_hash,base,ours,theirs,classification,block_summary,
+blocks,local_changes?,remote_changes?,bounds,artifacts?}`.
+`classification.state` is the closed set
+`unchanged|local_only|remote_only|diverged`; exact equal concurrent changes use
+`unchanged` with `converged:true`. `reconciled:false` means the exact whole-body
+comparison diverged. Each side exposes only bytes/SHA-256/validity. Stage-only
+artifact paths are mirror-relative and point beneath `.atl/reconcile`; stage
+never changes the working substrate or pristine baseline. Both modes use one
+single-attempt GET after local qualification. Bound or evidence failures emit
+no success contract and return exit `8`.
+The stage-only artifact object includes explicit manual cleanup guidance; ATL
+never removes either file automatically.
+
+Each block row classifies one deterministically aligned semantic region with
+base/ours/theirs start, count, and hash evidence but no content. Region state
+uses the same closed set; `block_summary` reconciles its cardinalities. The two
+base-to-side change lists remain a compact pairwise projection. Aggregate LCS
+allocation is capped before construction.
+
+`jira reconcile preview <issue.wiki|issue.md>` and `jira reconcile stage ...`
+use the same base/ours/theirs and classification contract, with
+`{id,key,updated}` instead of page versions and an optional sorted `fields`
+array for pending native-wiki fields. Every field repeats three content-free
+sides plus its exact classification. The proposal hash binds Description,
+fields, local path, and fresh remote identity/updated marker. Stage materializes
+only Description base/theirs artifacts and never rewrites pending fields.
+Jira `bounds` additionally declares the 64 MiB serialized pending-record and
+256-field aggregate caps; these are distinct from the 16 MiB per-native-value
+cap.
+
 `conf plan create` writes a private `atl.confluence.plan/v1` artifact with
 `{schema,root,target,summary,entries,proposal_hash}`. Entries are strictly
 path-ordered `update` records bound to `{id,type,title,space,path,expected_version,

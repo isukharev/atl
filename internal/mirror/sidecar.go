@@ -403,6 +403,11 @@ func (m *Mirror) ReadBaseBody(id string) ([]byte, bool, error) {
 	return m.ReadBaseBodyExt(id, ".csf")
 }
 
+// ReadBaseBodyWithinLimit is the bounded Confluence-base reader.
+func (m *Mirror) ReadBaseBodyWithinLimit(id string, max int64) ([]byte, bool, error) {
+	return m.ReadBaseBodyExtWithinLimit(id, ".csf", max)
+}
+
 // ReadBaseBodyExt reads a pristine last-synced body under a caller-selected
 // extension while preserving missing versus unreadable evidence. It is the
 // integrity-sensitive counterpart to BaseBodyExt.
@@ -413,6 +418,24 @@ func (m *Mirror) ReadBaseBodyExt(id, ext string) ([]byte, bool, error) {
 		return nil, false, fmt.Errorf("refusing unsafe base path for id %q", id)
 	}
 	b, err := safepath.ReadFileWithin(m.Root, target)
+	if os.IsNotExist(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return b, true, nil
+}
+
+// ReadBaseBodyExtWithinLimit preserves missing/unreadable evidence while
+// bounding allocation for integrity-sensitive native comparisons.
+func (m *Mirror) ReadBaseBodyExtWithinLimit(id, ext string, max int64) ([]byte, bool, error) {
+	dir := filepath.Join(m.Root, ".atl", "base")
+	target := filepath.Join(dir, safepath.Segment(id)+ext)
+	if !safepath.Within(dir, target) {
+		return nil, false, fmt.Errorf("refusing unsafe base path for id %q", id)
+	}
+	b, err := safepath.ReadFileWithinLimit(m.Root, target, max)
 	if os.IsNotExist(err) {
 		return nil, false, nil
 	}

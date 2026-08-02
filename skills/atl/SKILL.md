@@ -87,6 +87,9 @@ coordinates through a shared advisory lock without creating or changing files.
 For durable Jira mirror health, use the same content-free pattern with
 `jira snapshot`; its exact baseline/raw-snapshot/pending/render buckets are the
 preflight before identity-bearing `jira status` or issue-level repair.
+For a single conflicted native object, route to `conf reconcile preview` or
+`jira reconcile preview`; use the separately mutation-classified `stage` leaf
+only when an external tool needs exact private base/theirs artifacts.
 
 When the installed plugin exposes `atl` MCP tools, prefer them for transient,
 bounded evidence reads: typed arguments remove shell construction and the

@@ -67,6 +67,7 @@ conf page move
 conf page title set
 conf plan apply
 conf push
+conf reconcile stage
 compatibility clear
 compatibility pin
 config set
@@ -90,6 +91,7 @@ jira issue watchers add
 jira issue watchers remove
 jira issue worklog add
 jira push
+jira reconcile stage
 jira sprint add
 jira sprint remove
 profile apply
@@ -144,6 +146,8 @@ conf plan create
 conf plan preview
 conf pull
 conf push
+conf reconcile preview
+conf reconcile stage
 conf render
 conf search
 conf snapshot
@@ -222,6 +226,8 @@ jira me
 jira planning report
 jira pull
 jira push
+jira reconcile preview
+jira reconcile stage
 jira quality-report
 jira render
 jira sprint add
