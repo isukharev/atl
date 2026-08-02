@@ -106,7 +106,10 @@ func Merge(base []byte, refs []domain.Ref, editedMD string, opts Options) ([]byt
 	for i, u := range units {
 		baseTexts[i] = u.text
 	}
-	baseMatch, editMatch := lcs(baseTexts, edited)
+	baseMatch, editMatch, aligned := lcs(baseTexts, edited)
+	if !aligned {
+		return nil, nil, fmt.Errorf("%w: Markdown alignment exceeds the bounded safety budget; edit the native .csf directly", domain.ErrCheckFailed)
+	}
 	for i := range units {
 		units[i].matched = baseMatch[i]
 	}

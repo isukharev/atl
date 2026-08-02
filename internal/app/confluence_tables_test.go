@@ -169,6 +169,14 @@ func TestExtractTablesFromCSFMultipleTablesAndCellMetadata(t *testing.T) {
 	}
 }
 
+func TestExtractTablesCapsServerControlledSpanBeforeExpansion(t *testing.T) {
+	body := []byte(`<table><tbody><tr><th colspan="2000000">bounded</th></tr></tbody></table>`)
+	_, err := ExtractTablesFromCSF("123", "Doc", body, 0)
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "supported maximum") {
+		t.Fatalf("oversized span error = %v, want bounded check failure", err)
+	}
+}
+
 func TestExtractTablesKeepsUnsafeColorAndLiteralHTMLInert(t *testing.T) {
 	body := `<table><tbody><tr><td><span data-color="url(https://attacker.invalid/x)">&lt;img src="https://attacker.invalid/pixel"&gt;</span></td></tr></tbody></table>`
 	res, err := ExtractTablesFromCSF("123", "Doc", []byte(body), 0)

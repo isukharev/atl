@@ -1553,7 +1553,9 @@ shape. `cell_count_reconciled` additionally requires an independent
 source-placement ledger: declared span rectangles may not overlap or leave the
 source row domain, and every claim must agree with the expanded grid. Rowspan and
 colspan source cells remain separate from coordinate-covered positions, avoiding
-an ambiguous combined span count.
+an ambiguous combined span count. Native `rowspan` and `colspan` values above
+100 are refused with exit `8` before the rectangular grid is expanded; the
+command never reports a silently clamped shape as reconciled.
 The result reports `schema_version:3`, the exact
 `cell_contract:"confluence-table-cells/compact-v3"` marker, the positive page
 `version`, and `page_version_gated`. `--expected-version` optionally binds this read to an

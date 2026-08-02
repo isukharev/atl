@@ -417,7 +417,13 @@ func (c *Client) DoStreamSized(ctx context.Context, method, path string, r io.Re
 	if err != nil {
 		return nil, err
 	}
-	req, err := c.newRequestReader(ctx, method, url, r, headers)
+	// The upload itself may legitimately take a long time, so keep the caller's
+	// wall-clock semantics. A child cancellation context lets the shared idle
+	// reader stop a backend that accepted the upload and then stalled while
+	// streaming its response body.
+	rctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	req, err := c.newRequestReader(rctx, method, url, r, headers)
 	if err != nil {
 		return nil, err
 	}
@@ -433,9 +439,9 @@ func (c *Client) DoStreamSized(ctx context.Context, method, path string, r io.Re
 		}
 		return nil, transportError(method, req.URL, err)
 	}
+	defer func() { _ = resp.Body.Close() }()
 	tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, req.URL.Path))
-	data, err := readResponseBody(ctx, resp.Body, jsonBodyCap)
-	resp.Body.Close()
+	data, err := readIdleResponseBody(ctx, resp.Body, jsonBodyCap, downloadIdleTimeout, cancel)
 	if err != nil {
 		return nil, err
 	}
@@ -640,9 +646,40 @@ func readBody(r io.Reader, max int64) ([]byte, error) {
 // the command-scoped aggregate cap. Budgeted reads are serialized so two
 // concurrent bodies cannot both buffer against the same remaining allowance.
 func readResponseBody(ctx context.Context, r io.Reader, max int64) ([]byte, error) {
+	return readResponseBodyWith(ctx, max, func(limit int64) ([]byte, error) {
+		return io.ReadAll(io.LimitReader(r, limit))
+	})
+}
+
+// readIdleResponseBody waits for any shared response-budget reservation before
+// starting the inactivity watchdog. Time queued behind another bounded reader
+// is not backend inactivity and must not cancel an otherwise healthy request.
+func readIdleResponseBody(ctx context.Context, rc io.ReadCloser, max int64, idle time.Duration, cancel context.CancelFunc) ([]byte, error) {
+	return readResponseBodyWith(ctx, max, func(limit int64) (data []byte, err error) {
+		idleBody := newIdleReader(rc, idle, cancel)
+		data, err = io.ReadAll(io.LimitReader(idleBody, limit))
+		if closeErr := idleBody.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("close response body: %w", closeErr)
+		}
+		return data, err
+	})
+}
+
+// readResponseBodyWith centralizes the per-response and aggregate-budget
+// accounting while allowing streaming callers to install a watchdog only once
+// their turn to consume the response begins. read receives an inclusive
+// detection limit (the accepted maximum plus one byte).
+func readResponseBodyWith(ctx context.Context, max int64, read func(limit int64) ([]byte, error)) ([]byte, error) {
 	budget := domain.ReadBudgetFromContext(ctx)
 	if budget == nil {
-		return readBody(r, max)
+		data, err := read(max + 1)
+		if err != nil {
+			return nil, fmt.Errorf("read response body: %w", err)
+		}
+		if int64(len(data)) > max {
+			return nil, fmt.Errorf("response body exceeds %d bytes", max)
+		}
+		return data, nil
 	}
 
 	remaining, finish, err := budget.BeginResponse(ctx)
@@ -656,7 +693,7 @@ func readResponseBody(ctx context.Context, r io.Reader, max int64) ([]byte, erro
 	if remaining < limit {
 		limit = remaining
 	}
-	data, readErr := io.ReadAll(io.LimitReader(r, limit+1))
+	data, readErr := read(limit + 1)
 	consumed = int64(len(data))
 	if consumed > remaining {
 		consumed = remaining

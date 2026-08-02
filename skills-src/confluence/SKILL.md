@@ -271,7 +271,8 @@ supplies the index for a later CLI extraction, copy its page `version` into
 and current integers; a negative value is a usage error and exits 2.
 Treat `cell_count_reconciled:false` as a hard evidence failure: source-cell
 placement or declared span coverage did not independently agree with the
-expanded grid.
+expanded grid. A native row/column span above the supported cap fails the read
+with exit 8 before expansion; never interpret that refusal as an empty table.
 
 For an offline directory review, start with:
 

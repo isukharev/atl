@@ -535,6 +535,9 @@ func ExtractTablesFromCSF(pageID, title string, body []byte, table int) (*Conflu
 	if err != nil {
 		return nil, fmt.Errorf("parse CSF: %w", err)
 	}
+	if confluenceTableSpanExceedsLimit(root) {
+		return nil, fmt.Errorf("%w: table span exceeds the supported maximum of %d", domain.ErrCheckFailed, csf.MaxTableSpan)
+	}
 	nodes := topLevelTables(root)
 	all := make([]ConfluenceTable, 0, len(nodes))
 	for i, node := range nodes {
@@ -561,6 +564,22 @@ func ExtractTablesFromCSF(pageID, title string, body []byte, table int) (*Conflu
 		return nil, err
 	}
 	return res, nil
+}
+
+func confluenceTableSpanExceedsLimit(root *csf.Node) bool {
+	exceeds := false
+	csf.Walk(root, func(n *csf.Node) bool {
+		if exceeds {
+			return false
+		}
+		if n.Type == csf.Element && n.Name.Space == "" && (n.Name.Local == "td" || n.Name.Local == "th") &&
+			(csf.TableSpanExceedsMax(n, "rowspan") || csf.TableSpanExceedsMax(n, "colspan")) {
+			exceeds = true
+			return false
+		}
+		return true
+	})
+	return exceeds
 }
 
 func confluenceTableSelectionReconciled(table, tableCount int, tables []ConfluenceTable) bool {
@@ -800,11 +819,7 @@ func repeatedCell(src ConfluenceTableCell, row, col int) ConfluenceTableCell {
 }
 
 func spanOf(n *csf.Node, name string) int {
-	v, err := strconv.Atoi(strings.TrimSpace(n.Attrv("", name)))
-	if err != nil || v < 1 {
-		return 1
-	}
-	return v
+	return csf.TableSpan(n, name)
 }
 
 func omitOne(v int) int {
