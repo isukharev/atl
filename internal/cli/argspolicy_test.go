@@ -7,26 +7,51 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// TestEveryLeafDeclaresArgsPolicy locks issue #67: after defaultNoArgs, no
-// leaf command may be left with a nil Args policy — either it is flag-only
-// (NoArgs, applied by the walk) or it declares its positional arity
-// explicitly next to a `<KEY>`-style Use line. A nil here means a new
-// command slipped in with placeholders in Use but no arity declared.
-func TestEveryLeafDeclaresArgsPolicy(t *testing.T) {
+// TestEveryExecutableDeclaresArgsPolicy covers ordinary leaves, generated pure
+// group fallbacks, and intentional group/leaf hybrids. A nil policy can let a
+// hybrid such as `jira export` silently consume an unknown token.
+func TestEveryExecutableDeclaresArgsPolicy(t *testing.T) {
 	var walk func(c *cobra.Command, path string)
 	walk = func(c *cobra.Command, path string) {
 		for _, sub := range c.Commands() {
 			p := path + " " + strings.Fields(sub.Use)[0]
 			if len(sub.Commands()) > 0 {
 				walk(sub, p)
-				continue
 			}
-			if sub.Args == nil {
-				t.Errorf("leaf command %q (use %q) has no Args policy: declare its arity", p, sub.Use)
+			if (sub.Run != nil || sub.RunE != nil) && sub.Args == nil {
+				t.Errorf("executable command %q (use %q) has no Args policy: declare its arity", p, sub.Use)
 			}
 		}
 	}
-	walk(newRoot(), "atl")
+	root := newRoot()
+	if root.Args == nil {
+		t.Error("root command has no Args policy")
+	}
+	walk(root, "atl")
+}
+
+func TestHybridCommandArgsPolicies(t *testing.T) {
+	root := newRoot()
+	transition, _, err := root.Find([]string{"jira", "issue", "transition"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := transition.Args(transition, []string{"PROJ-1"}); err != nil {
+		t.Fatalf("transition rejected its one key: %v", err)
+	}
+	if err := transition.Args(transition, []string{"PROJ-1", "STRAY"}); err == nil {
+		t.Fatal("transition accepted more than its declared key")
+	}
+
+	export, _, err := root.Find([]string{"jira", "export"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := export.Args(export, []string{"STRAY"}); err == nil {
+		t.Fatal("jira export silently accepted an unknown positional token")
+	} else if !strings.Contains(err.Error(), "unknown command") {
+		t.Fatalf("jira export error=%v, want Cobra unknown-command usage", err)
+	}
 }
 
 // TestStrayPositionalArgExits2 pins the behavior change: a stray positional

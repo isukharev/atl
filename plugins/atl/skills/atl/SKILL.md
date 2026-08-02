@@ -382,6 +382,9 @@ PAT).
 
 ## Version skew (plugin vs binary)
 
+Treat a group name by itself as a help request; any unknown child or stray
+positional token is a usage failure (exit 2), never successful help output.
+
 The plugin and the `atl` binary version together: each release ships both under one number, the
 binary self-updates within ~6h of a release, and the plugin updates when its version changes. If a
 command **documented by these skills** fails as `unknown command`/`unknown flag` (exit 2), don't

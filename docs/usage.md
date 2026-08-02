@@ -25,6 +25,11 @@ falls back to JSON.
 identifiers, one per line. Unsupported id output now fails at the same root
 preflight, before config, stdin, self-update, or network access.
 
+Every public command-tree node is registered explicitly. A group invoked with
+no arguments prints help and exits 0; an unknown child or stray positional
+argument is a structured usage error (exit 2) before configuration, self-update,
+stdin, or network access.
+
 ```
 atl conf search --cql "space=DOCS" -o text
 atl jira issue view PROJ-1 -o text

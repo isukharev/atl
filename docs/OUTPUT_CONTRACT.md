@@ -652,6 +652,11 @@ is bumped.
   (including `missing_required` and `missing_warn`) is still emitted to stdout before the exit.
 - Flag-parse failures (unknown flag, bad value) are wrapped as `ErrUsage` → exit 2.
   This is enforced by a `SetFlagErrorFunc` on the root command, so it applies to every subcommand.
+- Every public group, leaf, and intentional group/leaf hybrid is part of one
+  exhaustive command registry. A pure group with no arguments prints help and
+  exits 0; an unknown child or stray positional token is `ErrUsage` → exit 2
+  before configuration, stdin, self-update, or network access. Every mutating
+  leaf also declares its mutation profile and any profile-specific guard flags.
 
 ---
 
