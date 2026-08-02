@@ -111,6 +111,71 @@ func TestJiraApply_ParagraphEditMerges(t *testing.T) {
 	}
 }
 
+func TestJiraApply_ConsecutiveMarkdownEditsPreserveRemoteBase(t *testing.T) {
+	svc, root, mdPath, wikiPath := scaffoldApplyIssue(t, applyBody)
+	md := mustReadFile(t, mdPath)
+	mustWriteFile(t, mdPath, strings.Replace(md, "Intro paragraph.", "First staged paragraph.", 1))
+	if _, err := svc.Apply(mdPath, JiraApplyOpts{Into: root}); err != nil {
+		t.Fatalf("first apply: %v", err)
+	}
+
+	md = mustReadFile(t, mdPath)
+	mustWriteFile(t, mdPath, strings.Replace(md, "First staged paragraph.", "Second staged paragraph.", 1))
+	if _, err := svc.Apply(mdPath, JiraApplyOpts{Into: root}); err != nil {
+		t.Fatalf("second apply: %v", err)
+	}
+	got := mustReadFile(t, wikiPath)
+	if !strings.Contains(got, "Second staged paragraph.") {
+		t.Fatalf("second edit missing from staged wiki: %q", got)
+	}
+	m := mirror.New(root)
+	if base, ok := m.BaseBodyExt("PROJ-42", wikiExt); !ok || string(base) != applyBody {
+		t.Fatalf("remote base moved during local apply: ok=%t body=%q", ok, base)
+	}
+	staged, ok, err := m.StagedStateOf("PROJ-42")
+	if err != nil || !ok || staged.Hash != mirror.Hash([]byte(got)) {
+		t.Fatalf("staged lineage = %+v, ok=%t err=%v", staged, ok, err)
+	}
+}
+
+func TestJiraApply_RejectsDirectNativeEditAfterStaging(t *testing.T) {
+	svc, root, mdPath, wikiPath := scaffoldApplyIssue(t, applyBody)
+	md := mustReadFile(t, mdPath)
+	mustWriteFile(t, mdPath, strings.Replace(md, "Intro paragraph.", "Staged paragraph.", 1))
+	if _, err := svc.Apply(mdPath, JiraApplyOpts{Into: root}); err != nil {
+		t.Fatalf("first apply: %v", err)
+	}
+	mustWriteFile(t, wikiPath, strings.Replace(mustReadFile(t, wikiPath), "Staged paragraph.", "direct native edit", 1))
+	_, err := svc.Apply(mdPath, JiraApplyOpts{Into: root})
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "recorded staged") {
+		t.Fatalf("direct edit error = %v, want staged-lineage check failure", err)
+	}
+}
+
+func TestJiraApply_RejectsCopiedNonCanonicalPath(t *testing.T) {
+	svc, root, mdPath, wikiPath := scaffoldApplyIssue(t, applyBody)
+	other := filepath.Join(root, "OTHER")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range []string{mdPath, wikiPath, strings.TrimSuffix(wikiPath, wikiExt) + ".json"} {
+		mustWriteFile(t, filepath.Join(other, filepath.Base(source)), mustReadFile(t, source))
+	}
+	_, err := svc.Apply(filepath.Join(other, filepath.Base(mdPath)), JiraApplyOpts{Into: root})
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "recorded remote path/base lineage") {
+		t.Fatalf("copied-path apply error = %v", err)
+	}
+}
+
+func TestJiraApply_RejectsBaseWithoutRemoteSyncLineage(t *testing.T) {
+	svc, root, mdPath, _ := scaffoldApplyIssue(t, applyBody)
+	mustWriteFile(t, filepath.Join(root, ".atl", "state.json"), "{\"pages\":{}}\n")
+	_, err := svc.Apply(mdPath, JiraApplyOpts{Into: root})
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "no recorded remote sync lineage") {
+		t.Fatalf("untracked apply error = %v", err)
+	}
+}
+
 // TestJiraApply_MultilineParagraphKeepsLineBreaks pins issue #164 end-to-end:
 // a description with an intra-paragraph line break, edited one word on one line
 // through the .md view, merges back with the `\n` line structure preserved

@@ -124,6 +124,30 @@ func TestJiraPullRecordsSidecarAndBase(t *testing.T) {
 	}
 }
 
+func TestJiraCopiedPathIsNonCanonicalAndCannotPush(t *testing.T) {
+	svc, tr, into, wikiPath := setupPulled(t, "remote body")
+	copyDir := filepath.Join(into, "COPY")
+	if err := os.MkdirAll(copyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	copyPath := filepath.Join(copyDir, filepath.Base(wikiPath))
+	editWiki(t, copyPath, "copied local edit")
+	lw, _, err := mirror.New(into).LoadWiki(copyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !lw.TrackedElsewhere || lw.Synced != nil || lw.CanonicalPath != filepath.ToSlash(filepath.Join("PROJ", "PROJ-1.wiki")) {
+		t.Fatalf("copied wiki classification = %+v", lw)
+	}
+	res, err := svc.Push(context.Background(), copyPath, JiraPushOpts{Into: into, Apply: true, Force: true})
+	if !errors.Is(err, domain.ErrCheckFailed) || len(res.Items) != 1 || res.Items[0].Skipped != "non-canonical-path" {
+		t.Fatalf("copied push result=%+v err=%v", res, err)
+	}
+	if tr.getCalls != 0 || tr.updateCalls != 0 {
+		t.Fatalf("copied path reached backend: gets=%d updates=%d", tr.getCalls, tr.updateCalls)
+	}
+}
+
 // ---- S4: status ----
 
 func TestJiraStatusStates(t *testing.T) {

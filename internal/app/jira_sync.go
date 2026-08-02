@@ -71,6 +71,9 @@ func (s *JiraService) Status(ctx context.Context, dir string, checkRemote bool) 
 		}
 		fieldIDs := jiraPendingFieldIDs(&pending)
 		e := JiraStatusEntry{Path: lw.Path, Key: lw.Key, LocallyEdited: lw.Dirty || len(fieldIDs) > 0, Synced: lw.Synced != nil, PendingFields: fieldIDs}
+		if lw.TrackedElsewhere {
+			e.LocalError = "non-canonical copy; canonical mirror path is " + filepath.Join(dir, filepath.FromSlash(lw.CanonicalPath))
+		}
 		if len(fieldIDs) > 0 {
 			wiki, readErr := safepath.ReadFileWithin(dir, lw.Path)
 			if readErr != nil {
@@ -79,7 +82,7 @@ func (s *JiraService) Status(ctx context.Context, dir string, checkRemote bool) 
 				e.LocalError = failReason(bindErr)
 			}
 		}
-		if checkRemote && lw.Key != "" {
+		if checkRemote && lw.Key != "" && !lw.TrackedElsewhere {
 			if base, ok := m.BaseBodyExt(lw.Key, wikiExt); ok {
 				fields := append([]string{"description"}, fieldIDs...)
 				if is, gerr := s.tr.GetIssue(ctx, lw.Key, fields); gerr == nil {
@@ -255,6 +258,10 @@ func (s *JiraService) jiraPushOne(ctx context.Context, m *mirror.Mirror, path st
 		return item, err
 	}
 	item.Key = lw.Key
+	if lw.TrackedElsewhere {
+		item.Skipped = "non-canonical-path"
+		return item, fmt.Errorf("%w: %s is a stale copy for issue %s; canonical mirror path is %s — never push this copy, including with --force", domain.ErrCheckFailed, path, lw.Key, filepath.Join(m.Root, filepath.FromSlash(lw.CanonicalPath)))
+	}
 	pending, _, pendingErr := loadJiraPendingFieldsLocked(m.Root, lw.Key)
 	if pendingErr != nil {
 		return item, pendingErr

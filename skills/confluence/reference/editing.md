@@ -41,6 +41,12 @@ and JSON only for hashes/features/byte windows/validation. Preserve a
 `baseline_mismatch` candidate and repair/re-pull its baseline before planning or
 pushing.
 
+After a successful apply, further edits to the refreshed `.md` may be applied
+again before push. ATL accepts only the exact staged id/path/native hash bound
+to the unchanged remote base; it does not make status clean or move the push
+baseline. A direct `.csf` edit breaks that lineage and must be preserved and
+pushed directly, or handled through pull's explicit stash/overwrite policy.
+
 Review push dry-run `removed_fragments`, `remote_drifted`, exact candidate
 hash, and expected version. Exit 5 means remote drift: re-pull and reconcile.
 Never auto-force. After an ambiguous write, reconcile by fresh state and never

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -35,8 +36,8 @@ type ApplyResult struct {
 // non-lossy: untouched blocks keep their exact base bytes). It is a local
 // operation — no backend access; `conf push` stays the write path to the
 // server. Preconditions: the page was pulled (meta + pristine base exist) and
-// the local .csf still matches the base (direct CSF edits win over the md
-// surface; push or re-pull first).
+// the local .csf still matches either the remote base or ATL's exact staged
+// lineage from a preceding apply (direct CSF edits win over the md surface).
 func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 	if !strings.HasSuffix(mdPath, ".md") {
 		return nil, fmt.Errorf("%w: conf apply takes the page's .md view (got %q)", domain.ErrUsage, mdPath)
@@ -71,13 +72,13 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 	if lc.Meta.ID == "" {
 		return nil, fmt.Errorf("%w: %s has no .meta.json — pull the page first", domain.ErrNotFound, csfPath)
 	}
-	base, ok := m.BaseBody(lc.Meta.ID)
+	remoteBase, ok := m.BaseBody(lc.Meta.ID)
 	if !ok {
 		return nil, fmt.Errorf("%w: no pristine base for page %s — re-pull it (older mirrors lack .atl/base)", domain.ErrNotFound, lc.Meta.ID)
 	}
-	if mirror.Hash(cur) != mirror.Hash(base) {
-		return nil, fmt.Errorf("%w: %s has diverged from the last-synced base (the .csf was edited directly) — push or re-pull before applying .md edits",
-			domain.ErrCheckFailed, csfPath)
+	base, relCSF, err := stagedApplyBase(m, lc.Meta.ID, csfPath, ".csf", cur, remoteBase)
+	if err != nil {
+		return nil, err
 	}
 	rawEdited, err := safepath.ReadFileWithin(m.Root, mdPath)
 	if err != nil {
@@ -138,10 +139,22 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 	if o.DryRun {
 		return res, nil
 	}
+	if err := revalidateApplyInput(m.Root, mdPath, rawEdited, "Markdown view"); err != nil {
+		return res, err
+	}
+	if err := revalidateApplyInput(m.Root, csfPath, cur, "native file"); err != nil {
+		return res, err
+	}
 	if err := safepath.WriteFileWithin(m.Root, csfPath, out, 0o644); err != nil {
 		return res, err
 	}
 	res.Wrote = true
+	if err := m.RecordStaged([]mirror.StagedContent{{ID: lc.Meta.ID, Path: relCSF, Body: out, BaseHash: mirror.Hash(remoteBase)}}); err != nil {
+		return res, fmt.Errorf("%w: wrote %s but could not record its exact staged lineage; the native bytes were preserved and no repeat apply is authorized: %v", domain.ErrCheckFailed, csfPath, err)
+	}
+	if err := revalidateApplyInput(m.Root, csfPath, out, "native file"); err != nil {
+		return res, err
+	}
 	// Renormalize the md view from the merged body so the two surfaces agree —
 	// best-effort, same contract as pull: the read-view must never silently
 	// contradict the .csf, so an unparseable merge result gets the explicit
@@ -184,6 +197,10 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 			md = mirror.RenderMarkdownOpts(root2, lc.Meta.Refs, mirror.MDViewOpts{})
 		}
 	}
+	if err := revalidateApplyInput(m.Root, mdPath, rawEdited, "Markdown view"); err != nil {
+		res.Warning = appendWarning(res.Warning, "applied, but the .md view changed concurrently and was preserved instead of refreshed")
+		return res, nil
+	}
 	if werr := safepath.WriteFileWithin(m.Root, mdPath, md, 0o644); werr != nil {
 		res.Warning = appendWarning(res.Warning, "applied, but the .md view could not be refreshed and may be stale: "+werr.Error())
 	} else if !stub {
@@ -199,6 +216,53 @@ func Apply(mdPath string, o ApplyOpts) (*ApplyResult, error) {
 		}
 	}
 	return res, nil
+}
+
+func revalidateApplyInput(root, path string, qualified []byte, kind string) error {
+	current, err := safepath.ReadFileWithin(root, path)
+	if err != nil || !bytes.Equal(current, qualified) {
+		return fmt.Errorf("%w: %s %s changed during apply; review the latest file and retry", domain.ErrCheckFailed, kind, path)
+	}
+	return nil
+}
+
+// stagedApplyBase selects the native body that generated the current Markdown
+// view without weakening the remote baseline. The first apply is anchored to
+// .atl/base; later applies may use the exact body written by an earlier apply,
+// but only while id, path, and hash all still match the staged sidecar entry.
+// A direct native edit therefore continues to win and fails closed.
+func stagedApplyBase(m *mirror.Mirror, id, nativePath, ext string, current, remote []byte) ([]byte, string, error) {
+	rel, err := filepath.Rel(m.Root, nativePath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil, "", fmt.Errorf("%w: native path %q is outside mirror root %q", domain.ErrUsage, nativePath, m.Root)
+	}
+	rel = filepath.ToSlash(filepath.Clean(rel))
+	staged, stagedOK, err := m.StagedStateOf(id)
+	if err != nil {
+		return nil, "", err
+	}
+	currentHash := mirror.Hash(current)
+	remoteHash := mirror.Hash(remote)
+	if synced, tracked, syncErr := m.SyncStateOf(id); syncErr != nil {
+		return nil, "", syncErr
+	} else if !tracked {
+		return nil, rel, fmt.Errorf("%w: %s has a native/base pair but no recorded remote sync lineage; pull it again before applying Markdown", domain.ErrCheckFailed, nativePath)
+	} else {
+		syncedPath := filepath.ToSlash(filepath.Clean(synced.Path))
+		if syncedPath != rel || synced.Hash != remoteHash {
+			return nil, rel, fmt.Errorf("%w: %s does not match its recorded remote path/base lineage; preserve the native file and repair or refresh the mirror before applying Markdown", domain.ErrCheckFailed, nativePath)
+		}
+	}
+	if stagedOK {
+		if staged.Path != rel || staged.BaseHash != remoteHash || staged.Hash != currentHash {
+			return nil, rel, fmt.Errorf("%w: %s has diverged from atl's recorded staged %s lineage; preserve the native file, then push it or explicitly stash/overwrite it during pull before applying Markdown again", domain.ErrCheckFailed, nativePath, ext)
+		}
+		return current, rel, nil
+	}
+	if currentHash != remoteHash {
+		return nil, rel, fmt.Errorf("%w: %s has diverged from the last-synced base (the %s was edited directly) — preserve it, then push it or explicitly stash/overwrite it during pull before applying Markdown edits", domain.ErrCheckFailed, nativePath, ext)
+	}
+	return remote, rel, nil
 }
 
 func sameConfluenceInlineCommentMarkers(before, after []byte) bool {

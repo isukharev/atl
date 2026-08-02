@@ -56,6 +56,16 @@ candidate hashes, expected timestamps, drift, and every per-field outcome.
 `jira apply` changes/stages local state only; the raw snapshot stays unchanged.
 Description plus fields are sent as one typed write.
 
+Never push a copied same-key `.wiki` from another directory. ATL binds each key
+to its canonical sidecar path and refuses stale copies, even with `--force`,
+before contacting Jira.
+
+Further edits to the refreshed `.md` may be applied before push. ATL binds the
+exact issue/path/native hash to the unchanged remote base, while a validated
+pending-field transaction can carry that lineage across a pull that preserves
+the local wiki. Any other native mismatch fails closed; only an explicit
+reviewed `--rebase-pending` may adopt a direct wiki edit with pending fields.
+
 Untouched blocks preserve exact base bytes. Dropped wiki-only constructs or an
 unconvertible block fail closed unless the user explicitly accepts the named
 loss. Generated metadata, comments, links, image attachments, readonly fields,

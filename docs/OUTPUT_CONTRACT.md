@@ -1041,7 +1041,9 @@ written) on: an unconvertible edited block; a wiki-only construct dropped withou
 (the report still carries `removed_constructs` so the caller can see what would go); an edit to any
 section other than generated `# Description` or an explicitly editable rich-text field (the error
 names the section and its dedicated command); or a
-local `.wiki` diverged from the last-synced base. Exit `4` (`ErrNotFound`) when the issue was never
+local `.wiki` matches neither the last-synced base nor exact ATL-produced
+staged/pending lineage. Consecutive local applies retain the remote baseline;
+id/path/native/base-hash mismatches fail closed. Exit `4` (`ErrNotFound`) when the issue was never
 pulled (no base/snapshot). Editable field values are stored under `.atl/pending/jira/` and do not
 mutate `<KEY>.json`; `pull`/`render` overlay them in the derived view. On a successful write
 `wrote:true`; a failed `.md`-view refresh sets `warning` and is not an error.

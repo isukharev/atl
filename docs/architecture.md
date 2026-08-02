@@ -289,7 +289,7 @@ mirror/
           diagram-name.png    ← resolved draw.io PNG (with --assets)
           photo.jpg           ← resolved inline image (with --assets)
   .atl/
-    state.json                ← sidecar: last-synced version + hash per id
+    state.json                ← remote sync, render, and staged-local lineage
     base/
       <id>.csf                ← pristine copy of body at last sync
   .gitignore                  ← auto-created; excludes .atl/, *.pat, etc.
@@ -342,7 +342,12 @@ mirror/
   records its pristine base under `.atl/base/<KEY>.wiki`. `SyncBatch.Record`
   lets a backend that writes its own substrate files (Jira's `.wiki`) share the
   batch's single sidecar load/save without going through `writePageFiles`.
-- Sidecar (`state.json`) tracks `{id, version, hash, path}` per page. Mirror
+- Sidecar (`state.json`) tracks remote `{id, version, hash, path}` per page,
+  render settings per derived view, and optional staged-local
+  `{id, path, hash, base_hash}` lineage written by `apply`. Staged lineage never
+  advances the remote baseline: it only proves that a later `apply` is merging
+  from exact ATL-produced native bytes. A successful pull or post-push refresh
+  clears it atomically with the new remote sync state. Mirror
   directories and files are accessed through Go's root-scoped filesystem API.
   Intermediate descendant symlinks are rejected; reads reject a final symlink,
   while atomic writes replace it without following it. The selected root itself

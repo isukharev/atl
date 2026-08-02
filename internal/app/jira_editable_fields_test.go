@@ -636,6 +636,46 @@ func TestJiraPendingDriftPullPreservesCombinedDescriptionProposal(t *testing.T) 
 	}
 }
 
+func TestJiraApplyContinuesReviewedPendingLineageAfterPullRefresh(t *testing.T) {
+	svc, tr, root, mdPath, wikiPath := setupEditablePulled(t)
+	md := strings.Replace(mustReadFile(t, mdPath), "Intro paragraph.", "First local Description.", 1)
+	md = strings.Replace(md, "first", "first local field", 1)
+	mustWriteFile(t, mdPath, md)
+	if _, err := svc.Apply(mdPath, JiraApplyOpts{Into: root}); err != nil {
+		t.Fatalf("first apply: %v", err)
+	}
+
+	// An authoritative pull advances remote state and clears generic staged
+	// lineage, but intentionally preserves the reviewed combined local wiki and
+	// pending-field transaction.
+	tr.issue.Fields[editableFieldID] = "remote field change"
+	view := config.RenderService{Profile: "full", FieldViews: editableFieldRender(t).FieldViews}
+	if _, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: root, Limit: 1, Render: view}); err != nil {
+		t.Fatalf("refresh pull: %v", err)
+	}
+	if _, ok, err := mirror.New(root).StagedStateOf("PROJ-42"); err != nil || ok {
+		t.Fatalf("authoritative pull must clear generic staged lineage: ok=%t err=%v", ok, err)
+	}
+	if !strings.Contains(mustReadFile(t, wikiPath), "First local Description.") {
+		t.Fatal("refresh pull did not preserve reviewed local wiki")
+	}
+
+	md = mustReadFile(t, mdPath)
+	md = strings.Replace(md, "First local Description.", "Second local Description.", 1)
+	md = strings.Replace(md, "first local field", "second local field", 1)
+	mustWriteFile(t, mdPath, md)
+	if _, err := svc.Apply(mdPath, JiraApplyOpts{Into: root}); err != nil {
+		t.Fatalf("second apply from pending lineage: %v", err)
+	}
+	if !strings.Contains(mustReadFile(t, wikiPath), "Second local Description.") {
+		t.Fatal("second Description edit was not staged")
+	}
+	pending, ok, err := loadJiraPendingFields(root, "PROJ-42")
+	if err != nil || !ok || len(pending.Fields) != 1 || !strings.Contains(pending.Fields[0].Value, "second local field") {
+		t.Fatalf("pending field after second apply = %+v, ok=%t err=%v", pending, ok, err)
+	}
+}
+
 func TestJiraRenderPreservesCombinedPendingDescription(t *testing.T) {
 	svc, _, root, mdPath, _ := setupEditablePulled(t)
 	md := strings.Replace(mustReadFile(t, mdPath), "Intro paragraph.", "Local Description.", 1)
@@ -700,6 +740,10 @@ func TestJiraPendingCanBeExplicitlyReboundToReviewedDirectWikiEdit(t *testing.T)
 	res, err := svc.Apply(mdPath, JiraApplyOpts{Into: root, RebasePending: true})
 	if err != nil || !res.Rebased {
 		t.Fatalf("explicit direct-wiki rebind: err=%v result=%+v", err, res)
+	}
+	staged, ok, err := mirror.New(root).StagedStateOf("PROJ-42")
+	if err != nil || !ok || staged.Hash != mirror.Hash([]byte(mustReadFile(t, wikiPath))) {
+		t.Fatalf("rebound staged lineage = %+v, ok=%t err=%v", staged, ok, err)
 	}
 	if _, err := svc.Push(context.Background(), root, JiraPushOpts{Into: root, Apply: true}); err != nil {
 		t.Fatalf("push rebound combined edit: %v", err)
