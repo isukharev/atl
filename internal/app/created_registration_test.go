@@ -336,36 +336,6 @@ func TestCreatedRegistrationRecoveryDoesNotInterpolateIdentifiersOrRoot(t *testi
 	}
 }
 
-type copiedConfluenceStore struct {
-	domain.DocStore
-	source        *domain.Resource
-	created       *domain.Resource
-	readback      *domain.Resource
-	getIDs        []string
-	createCalls   int
-	createdBody   []byte
-	createdSpace  string
-	createdParent string
-	createdTitle  string
-}
-
-func (s *copiedConfluenceStore) GetPage(_ context.Context, id string, _ domain.PullOpts) (*domain.Resource, error) {
-	s.getIDs = append(s.getIDs, id)
-	if id == s.source.ID {
-		return s.source, nil
-	}
-	return s.readback, nil
-}
-
-func (s *copiedConfluenceStore) CreatePage(_ context.Context, space, parent, title string, body []byte) (*domain.Resource, error) {
-	s.createCalls++
-	s.createdSpace = space
-	s.createdParent = parent
-	s.createdTitle = title
-	s.createdBody = append([]byte(nil), body...)
-	return s.created, nil
-}
-
 type createdJiraTracker struct {
 	domain.Tracker
 	created          *domain.Issue
