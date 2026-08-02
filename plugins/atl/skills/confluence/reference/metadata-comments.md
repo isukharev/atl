@@ -47,6 +47,7 @@ atl conf page meta --id <id-or-same-origin-url>
 atl conf page history --id <id>
 atl conf page open --id <id>
 atl conf page copy --id <id> --title '<title>' [--space <KEY>] [--parent <id>]
+atl conf page copy --id <id> --title '<title>' --register --into <ROOT>
 atl conf page delete --id <id>
 ```
 
@@ -74,11 +75,20 @@ Create a page from the Markdown subset when possible:
 
 ```bash
 atl conf page create --space <KEY> --title '<title>' [--parent <id>] --from-md body.md
+atl conf page create --space <KEY> --title '<title>' --from-md body.md --register --into <ROOT>
 ```
 
 Exit 8 names the first unconvertible block and creates nothing. Use a validated
 CSF file via `--from-file` for constructs outside the subset. Markdown and CSF
 inputs are mutually exclusive.
+
+`--register` and a non-empty `--into` must be supplied together; omit both for
+legacy remote-only create/copy behavior. Registration reads the new page once
+and uses that authoritative body and metadata for the native file, pristine
+base, derived view, and state-last mirror commit. It never adopts an occupied
+target or treats the submitted/source body as the remote baseline. If stdout
+identifies the created page but registration exits 8, do not replay create/copy.
+Preserve local files and pull only that returned id into the same root.
 
 Create a native blog post through the dedicated content-type-safe command:
 

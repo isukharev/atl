@@ -304,6 +304,13 @@ or discard the output, and do not publish until the baseline is repaired.
 
 ## Common mutation invariants
 
+- Use `conf page create|copy --register --into <ROOT>` only when the newly
+  created page must immediately join that exact mirror. Omit both flags for
+  legacy remote-only creation. Registration uses one authoritative readback,
+  never the submitted/source body as baseline, and commits sync state last. If
+  stdout identifies a created page but registration exits 8, never replay
+  create/copy; preserve local files and recover that id with
+  `conf pull --id <ID> --into <ROOT>`.
 - Keep one mirror root and one body surface for the complete cycle. Never mix
   unapplied `.md` edits with direct `.csf` edits.
 - Require the current `<!-- atl:document confluence-page v6 -->` marker before

@@ -2449,6 +2449,10 @@ atl conf page create --space DOCS --parent 12345678 \
 
 # Author the body in markdown; atl converts it block-by-block:
 atl conf page create --space DOCS --title "From markdown" --from-md body.md
+
+# Opt in to immediate mirror registration from the authoritative readback:
+atl conf page create --space DOCS --title "Tracked page" --from-md body.md \
+  --register --into ./mirror
 ```
 
 `--from-md` accepts the same markdown subset as `conf apply` (headings,
@@ -2472,6 +2476,22 @@ Flags:
 | `--parent` | parent page id |
 | `--from-file` | CSF body file or `-` for stdin (default stdin) |
 | `--from-md` | markdown body file or `-` for stdin; converted to CSF, fail-closed (exit 8) |
+| `--register` | explicitly register the created page in a mirror; requires non-empty `--into` |
+| `--into` | mirror root for registration; requires `--register` |
+
+Without `--register`, creation and output retain their legacy remote-only
+behavior. With `--register --into ROOT`, atl creates the page once, performs one
+authoritative page readback, and derives the canonical `.csf`, pristine base,
+`.md`, metadata, and sync/view state from that readback rather than the input
+file or create response. Existing target artifacts are never adopted or
+overwritten; sync state is committed only after the local artifacts and base
+have been written and verified.
+
+If the page is known to have been created but readback or local registration
+fails, stdout still identifies the page and includes
+`registration.status:"not_registered"`; the command exits 8. Do not repeat
+`page create`. Preserve local files, resolve the reported obstruction, and
+recover only that page with `atl conf pull --id <new-id> --into ROOT`.
 
 ### `atl conf blog create`
 
@@ -2587,7 +2607,17 @@ round-trip). Reads the source page and creates a new one with the same body.
 
 ```
 atl conf page copy --id 12345678 --title 'Copy of Design Doc' [--space ENG] [--parent 999]
+atl conf page copy --id 12345678 --title 'Tracked copy' \
+  --register --into ./mirror
 ```
+
+`--register` and a non-empty `--into ROOT` must be supplied together. Omit both
+for the legacy remote-only copy. Registration uses one authoritative readback of
+the new page, never the source body or create response, and commits mirror state
+last after the exact local artifact set is verified. A known-created but
+unregistered copy is still emitted on stdout and exits 8; never replay `page
+copy`. Recover the returned page id with a narrow
+`atl conf pull --id <new-id> --into ROOT`.
 
 ### `atl conf attachment {list,get,upload,delete}`
 
@@ -3032,7 +3062,25 @@ atl jira issue create \
   --field 'priority={"name":"High"}' \
   --field 'labels=["docs","infra"]' \
   --field customfield_10001=foo
+
+# Opt in to immediate mirror registration from the authoritative readback:
+atl jira issue create \
+  --project PROJ --type Task --summary "Tracked task" \
+  --register --into ./mirror-jira
 ```
+
+Without `--register`, issue creation and output retain their legacy remote-only
+behavior. `--register --into ROOT` performs one create and one authoritative
+readback of the returned key, then writes the exact readback description,
+pristine base, JSON snapshot, Markdown view, and sync/view state. Registration
+never treats the submitted description as the remote baseline and never adopts
+or overwrites an occupied target; sync state is committed last.
+
+If Jira is known to have created the issue but readback or local registration
+fails, stdout still identifies the issue and includes
+`registration.status:"not_registered"`; the command exits 8. Never repeat
+`issue create`. Preserve local files and recover only the returned key with
+`atl jira pull --jql 'key = NEW-1' --into ROOT --limit 1`.
 
 Flags:
 
@@ -3044,6 +3092,8 @@ Flags:
 | `--from-file` | description body file (wiki markup) or `-` for stdin |
 | `--from-md` | markdown description file or `-` for stdin; converted to wiki, fail-closed (exit 8) |
 | `--field key=value` | extra field (repeatable) |
+| `--register` | explicitly register the created issue in a mirror; requires non-empty `--into` |
+| `--into` | mirror root for registration; requires `--register` |
 
 ### `atl jira issue update`
 

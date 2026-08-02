@@ -35,6 +35,46 @@ Shell completion for the three values is registered on the root flag.
 - With `-o json` or supported `-o text`: delegates to `emit` (same rules as above).
 - Commands that have no meaningful identifier set `ids = nil`; `emitID` then returns exit 2 for `-o id`.
 
+### Explicit created-object registration
+
+`conf page create`, `conf page copy`, and `jira issue create` preserve their
+legacy output and remote-only behavior when `--register` and `--into` are
+omitted. The two flags must be supplied together. In default JSON mode, an
+explicit registration adds this object to the ordinary created page/issue
+result:
+
+```json
+{
+  "registration": {
+    "status": "registered",
+    "root": "mirror",
+    "path": "SPACE/page/page.csf",
+    "version": 1,
+    "sha256": "<sha256>",
+    "readback_reconciled": true
+  }
+}
+```
+
+The envelope above shows only the additive member; the existing page fields
+(`id`, `title`, `version`, `url`) or Jira issue fields remain alongside it.
+`version` is present for Confluence and omitted for Jira. `path` is relative to
+`root`. The digest, version, path, native file, pristine base, derived view, and
+sync/view state are derived from one authoritative post-create readback, never
+from the submitted body or the create response. Local artifacts and the base
+are written and verified before sync state is saved.
+
+After a known remote success followed by a readback, collision, or local commit
+failure, stdout still identifies the created object. JSON uses
+`registration.status:"not_registered"`, `readback_reconciled:false` until a
+readback has qualified the object, a stable `reason`, and recovery text when an
+identifier is available. The command then emits its normal structured error on
+stderr and exits `8`. `-o id` for `conf page copy` and `jira issue create` still
+prints the identifier before that non-zero exit; Jira `-o text` still prints
+`created <KEY>`. This is not authorization to replay the non-idempotent create.
+Preserve local files and use the reported narrow `conf pull --id ... --into ...`
+or `jira pull --jql 'key = ...' --limit 1 --into ...` recovery.
+
 The reviewed text/id inventories annotate the command tree before execution.
 They are also the source of truth for `atl capabilities`; the catalog cannot
 advertise an output mode that the root preflight would refuse.

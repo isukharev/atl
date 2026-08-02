@@ -244,6 +244,16 @@ committed. The CLI uses that path only when the workspace exports
 (Confluence) and `mirror-jira` (Jira). Full rules are in
 [workflow.md](reference/workflow.md).
 
+When creating a Confluence page, copying a page, or creating a Jira issue that
+must immediately join a durable mirror, opt in explicitly with both `--register`
+and `--into <ROOT>`. Omit both for legacy remote-only creation. Registration
+performs one authoritative readback and saves mirror sync state only after the exact
+native/base/view artifacts are present. If the remote object was created but
+registration fails, retain its stdout id/key and exit 8 as evidence; never replay
+the create/copy. Preserve local files and recover only that identity with
+`conf pull --id <ID> --into <ROOT>` or
+`jira pull --jql 'key = <KEY>' --limit 1 --into <ROOT>`.
+
 ## New capabilities (cloud-CLI parity)
 
 Recent additions expand both surfaces — check the focused skills for full flag details:
@@ -272,6 +282,8 @@ review-bound `conf page move`; complete/guarded `conf page labels
 list|add|remove`; safe same-origin page-reference/short-link resolution and
 structural outline/bounded-section reads;
 dedicated native `conf blog create` with strict CSF/Markdown validation;
+explicit post-create `conf page create|copy --register --into <ROOT>` from one
+authoritative readback, with legacy remote-only behavior when omitted;
 opt-in ordered `conf pull --page-prefetch` plus a shared
 `--requests-per-second` transport boundary for complete/incremental mirrors
 while every local write/checkpoint remains serial;
@@ -287,6 +299,9 @@ deterministic offline render/apply.
 
 **Jira additions:** typed `render.jira.field_views` (including opt-in editable
 rich-text sections with explicit pending state) and opt-in `epic_children` views;
+explicit post-create `jira issue create --register --into <ROOT>` from one
+authoritative readback, with state committed last and no create replay on local
+registration failure;
 value-free metadata and compact named issue-field inspection; qualified, filterable issue
 history with explicit completeness, deterministic cardinality/consistency summary
 including separate missing/duplicate identity facts, a summary-only projection

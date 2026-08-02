@@ -251,6 +251,13 @@ shell/workspace configuration implicitly.
 
 ## Common mutation invariants
 
+- Use `jira issue create --register --into <ROOT>` only when the new issue must
+  immediately join that exact mirror. Omit both flags for legacy remote-only
+  creation. Registration uses one authoritative readback, never the submitted
+  description as baseline, and commits sync state last. If stdout identifies a
+  created issue but registration exits 8, never replay create; preserve local
+  files and recover only that key with
+  `jira pull --jql 'key = <KEY>' --limit 1 --into <ROOT>`.
 - Jira has no general server-side version gate. Use the command-specific
   current-state/CAS/proposal-hash guard and never convert it into blind retry.
 - Prefer dedicated one-shot commands for summary, labels, links, comments,

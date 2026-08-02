@@ -224,6 +224,26 @@ content-free `local_safety` и завершается с кодом `8`. Для 
 `--stash-local` либо явно отбросьте их через `--overwrite-local`. Эти флаги не
 обходят правки Markdown и нарушения baseline.
 
+По умолчанию create-команды создают объект только на backend. Регистрация в
+зеркале включается явно только парой `--register` и `--into`:
+
+```sh
+atl conf page create --space EXAMPLE --title "Новая страница" --from-md body.md \
+  --register --into "$ATL_MIRROR_ROOT"
+atl conf page copy --id 123456 --title "Копия страницы" \
+  --register --into "$ATL_MIRROR_ROOT"
+atl jira issue create --project EXAMPLE --type Task --summary "Новая задача" \
+  --register --into "$ATL_MIRROR_ROOT"
+```
+
+Регистрация делает одно authoritative post-write readback и записывает именно
+эти удалённые байты как native/base/view зеркало; sync state фиксируется
+последним. Если remote create завершился успешно, а локальная регистрация — нет,
+stdout всё равно содержит id страницы или key задачи, а команда завершается с
+кодом `8`. Никогда не повторяйте create/copy: сохраните локальные файлы и
+восстановите один объект через `conf pull --id ... --into ...` либо
+`jira pull --jql 'key = ...' --limit 1 --into ...`.
+
 ### 3. Проверяемая запись
 
 Write-loop: свежее чтение → candidate → diff/preview → проверенные

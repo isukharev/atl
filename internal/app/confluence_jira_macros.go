@@ -193,14 +193,22 @@ func writeConfluenceJiraMacroSidecar(root, dir, slug string, sidecar *confluence
 		}
 		return nil
 	}
-	b, err := json.MarshalIndent(sidecar, "", "  ")
+	b, err := encodeConfluenceJiraMacroSidecar(sidecar)
 	if err != nil {
 		return err
 	}
-	if len(b)+1 > confluenceJiraMacroSidecarMax {
-		return fmt.Errorf("jira macro sidecar exceeds %d-byte safety cap", confluenceJiraMacroSidecarMax)
+	return safepath.WriteFileWithin(root, path, b, 0o600)
+}
+
+func encodeConfluenceJiraMacroSidecar(sidecar *confluenceJiraMacroSidecar) ([]byte, error) {
+	b, err := json.MarshalIndent(sidecar, "", "  ")
+	if err != nil {
+		return nil, err
 	}
-	return safepath.WriteFileWithin(root, path, append(b, '\n'), 0o600)
+	if len(b)+1 > confluenceJiraMacroSidecarMax {
+		return nil, fmt.Errorf("jira macro sidecar exceeds %d-byte safety cap", confluenceJiraMacroSidecarMax)
+	}
+	return append(b, '\n'), nil
 }
 
 func readConfluenceJiraMacroSidecar(root, dir, slug, pageID string, node *csf.Node) (*confluenceJiraMacroSidecar, error) {
