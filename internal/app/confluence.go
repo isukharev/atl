@@ -211,11 +211,6 @@ func (s *ConfluenceService) UploadAttachment(ctx context.Context, pageID, filePa
 	return s.store.UploadAttachment(ctx, pageID, filename, f, info.Size(), comment)
 }
 
-// DeleteAttachment removes an attachment by its content id.
-func (s *ConfluenceService) DeleteAttachment(ctx context.Context, attachmentID string) error {
-	return s.store.DeleteAttachment(ctx, attachmentID)
-}
-
 // Whoami returns the display name of the authenticated Confluence user.
 func (s *ConfluenceService) Whoami(ctx context.Context) (string, error) {
 	if s.verifier == nil {

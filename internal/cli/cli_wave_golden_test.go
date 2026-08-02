@@ -76,27 +76,6 @@ func TestJiraIssueDelete_RequiresForceAndWiresDelete(t *testing.T) {
 	}
 }
 
-// conf attachment delete refuses without --force and DELETEs the content id.
-func TestConfAttachmentDelete_RequiresForceAndWiresDelete(t *testing.T) {
-	cs := newConfServer(t)
-
-	_, code := runCLI(t, confEnv(cs.srv), "conf", "attachment", "delete", "--id", "att123")
-	if code != exitUsage {
-		t.Fatalf("attachment delete without --force: exit %d, want %d", code, exitUsage)
-	}
-	if n := len(cs.requests()); n != 0 {
-		t.Fatalf("attachment delete without --force must not contact the server, got %d requests", n)
-	}
-
-	out, code := runCLI(t, confEnv(cs.srv), "conf", "attachment", "delete", "--id", "att123", "--force")
-	if code != exitOK {
-		t.Fatalf("attachment delete --force: exit %d, want 0 (stdout=%q)", code, out)
-	}
-	if !sawReq(cs.requests(), http.MethodDelete, "/rest/api/content/att123") {
-		t.Errorf("expected DELETE /rest/api/content/att123, got %+v", cs.requests())
-	}
-}
-
 func sawReq(reqs []capturedReq, method, path string) bool {
 	for _, r := range reqs {
 		if r.method == method && r.path == path {

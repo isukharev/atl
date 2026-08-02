@@ -1224,17 +1224,6 @@ func TestUploadAttachmentServiceReadFile(t *testing.T) {
 	}
 }
 
-func TestDeleteAttachmentServicePassThrough(t *testing.T) {
-	st := &attachmentStore{recordingStore: &recordingStore{}}
-	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
-	if err := svc.DeleteAttachment(context.Background(), "att99"); err != nil {
-		t.Fatal(err)
-	}
-	if st.deleteID != "att99" {
-		t.Errorf("deleteID = %q, want att99", st.deleteID)
-	}
-}
-
 // ---- Feature 7: Whoami ----
 
 type fakeVerifier struct {

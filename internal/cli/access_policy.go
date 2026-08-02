@@ -94,7 +94,7 @@ M local-direct - auth logout
 R auth status
 R capabilities
 M local-direct - conf apply
-M remote-direct - conf attachment delete
+M preview-apply apply,confirm,expected-proposal-hash,expected-version conf attachment delete
 R conf attachment get
 R conf attachment list
 M remote-direct - conf attachment upload
@@ -473,10 +473,13 @@ func validateMutationInvocation(cmd *cobra.Command) error {
 		applyRequested = value
 	}
 	preflightRequired := profile == mutationDedicatedApply
-	if path == "mirror backend bind" || path == "conf page copy" || path == "conf page delete" {
+	if path == "mirror backend bind" || path == "conf attachment delete" || path == "conf page copy" || path == "conf page delete" {
 		preflightRequired = applyRequested
 	}
 	if !preflightRequired {
+		if path == "conf attachment delete" {
+			return validateConfluenceAttachmentDeleteInvocation(cmd, false)
+		}
 		if path == "conf page copy" {
 			return validateConfluencePageCopyInvocation(cmd, false)
 		}
@@ -510,8 +513,40 @@ func validateMutationInvocation(cmd *cobra.Command) error {
 	if path == "conf page delete" {
 		return validateConfluencePageDeleteInvocation(cmd, applyRequested)
 	}
+	if path == "conf attachment delete" {
+		return validateConfluenceAttachmentDeleteInvocation(cmd, applyRequested)
+	}
 	if path == "conf page copy" {
 		return validateConfluencePageCopyInvocation(cmd, applyRequested)
+	}
+	return nil
+}
+
+func validateConfluenceAttachmentDeleteInvocation(cmd *cobra.Command, applyRequested bool) error {
+	pageID, pageErr := cmd.Flags().GetString("page-id")
+	attachmentID, attachmentErr := cmd.Flags().GetString("id")
+	if pageErr != nil || attachmentErr != nil || strings.TrimSpace(pageID) == "" || strings.TrimSpace(attachmentID) == "" {
+		return usageErr("--page-id and --id are required")
+	}
+	if outputFormat == "id" {
+		return usageErr("-o id is not supported for this command")
+	}
+	guardNames := []string{"confirm", "expected-version", "expected-proposal-hash"}
+	if !applyRequested {
+		for _, name := range guardNames {
+			if flag := cmd.Flags().Lookup(name); flag != nil && flag.Changed {
+				return usageErr("--confirm, --expected-version, and --expected-proposal-hash require --apply")
+			}
+		}
+		return nil
+	}
+	confirm, err := cmd.Flags().GetString("confirm")
+	if err != nil || confirm != "DELETE" {
+		return usageErr("--confirm must be exactly DELETE with --apply")
+	}
+	expectedVersion, err := cmd.Flags().GetInt("expected-version")
+	if err != nil || expectedVersion <= 0 {
+		return usageErr("--expected-version is required with --apply; run the dry-run first")
 	}
 	return nil
 }

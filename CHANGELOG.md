@@ -67,6 +67,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Replaced direct Confluence attachment deletion with a preview-first guarded
+  workflow. The proposal binds the backend, exact current page revision, the
+  selected attachment, and a complete canonical inventory; apply requires the
+  reviewed page version, proposal hash, and `DELETE` confirmation before one
+  non-replayed request. Only a complete exact post-inventory equal to the
+  reviewed inventory minus the target proves success or recovery.
+
 - Closed the Confluence Markdown staging round trip for server-controlled code
   fences, paragraph block collisions, inline breaks, and native table
   structure. Derived views now use the v6 marker; byte-clean v5 and v4 views

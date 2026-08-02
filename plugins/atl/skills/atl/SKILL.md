@@ -317,7 +317,8 @@ while every local write/checkpoint remains serial;
 `conf page list --space [--status]`, `conf page
 open --id`, guarded `conf page copy --id --title [--space] [--parent]
 [--register --into] [--apply --expected-version --expected-proposal-hash]`, `conf attachment
-{list,get,upload,delete}`, `conf me`, `conf search --space/--title/--label/--type`
+{list,get,upload}`, guarded permanent `conf attachment delete --page-id --id
+[--apply --confirm DELETE --expected-version --expected-proposal-hash]`, `conf me`, `conf search --space/--title/--label/--type`
 convenience filters (no `--cql` needed), `.md` view renders internal links as `[[Title]]`.
 
 **Presentation time:** `render.display_time_zone` is one IANA zone for human

@@ -64,7 +64,10 @@ atl conf attachment list --id <page-id>
 atl conf attachment list --id <page-id> --expected-version <N>
 atl conf attachment get --id <page-id> --name <filename> [--version N] --into <dir>
 atl conf attachment upload --id <page-id> --file <path> [--comment <text>]
-atl conf attachment delete --id <attachment-id> --force
+atl conf attachment delete --page-id <page-id> --id <attachment-id>
+atl conf attachment delete --page-id <page-id> --id <attachment-id> \
+  --apply --confirm DELETE --expected-version <N> \
+  --expected-proposal-hash <reviewed-hash>
 ```
 
 `list` returns the qualified inventory `{schema_version, page_id, page_version,
@@ -82,10 +85,17 @@ moved, before any attachment request, and reports only the expected and current
 version integers. Use it whenever the inventory must correspond to a specific
 page read.
 
-Attachment deletion is permanent and the explicit `--force` confirms it.
-It sends one transport attempt and refuses redirects. After an ambiguous
-result, read the exact attachment inventory before considering a separately
-reviewed new command; never retry deletion automatically.
+Attachment deletion is permanent and preview-first. Preview requires an exact
+current page plus a complete qualified attachment inventory and emits a
+content-minimized proposal binding the backend, page version, selected
+attachment, and every sibling. Partial/legacy inventory and an absent target
+fail closed. Apply requires exact `DELETE` confirmation, the reviewed page
+version and proposal hash, then sends one transport attempt and refuses
+redirects. Accept only `applied` or `recovered` after the complete final
+inventory exactly equals the reviewed inventory minus the target. A retained
+target, sibling drift, or partial/unavailable readback is `outcome_unknown`;
+never replay it. The leaf is mutating-classified, so `ATL_READ_ONLY=1` blocks
+preview as well as apply.
 Downloads and uploads stream bytes. Treat upload as non-idempotent. Before the
 first upload, list attachments and retain a private baseline of matching
 filename, id, version, size, and comment. After an ambiguous response, list

@@ -1813,31 +1813,52 @@ func confAttachmentCmd() *cobra.Command {
 	upload.Flags().StringVar(&uploadFile, "file", "", "local file path to upload")
 	upload.Flags().StringVar(&uploadComment, "comment", "", "optional attachment comment")
 
-	var delAttID string
-	var delAttForce bool
+	var delAttPageID, delAttID, delAttConfirm string
+	var delAttExpectedVersion int
+	delAttGuard := guardedWriteFlags{profile: guardedWriteProposal}
 	del := &cobra.Command{
 		Use:   "delete",
-		Short: "Delete an attachment by id (requires --force; deletion is permanent)",
+		Short: "Preview or apply one reviewed permanent attachment deletion",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if delAttID == "" {
-				return usageErr("--id is required")
+			if strings.TrimSpace(delAttPageID) == "" || strings.TrimSpace(delAttID) == "" {
+				return usageErr("--page-id and --id are required")
 			}
-			if !delAttForce {
-				return usageErr("refusing to delete attachment %s without --force (deletion is permanent)", delAttID)
+			if outputFormat == "id" {
+				return usageErr("-o id is not supported for this command")
+			}
+			if !delAttGuard.apply && (delAttConfirm != "" || delAttExpectedVersion != 0 || strings.TrimSpace(delAttGuard.expectedProposalHash) != "") {
+				return usageErr("--confirm, --expected-version, and --expected-proposal-hash require --apply")
+			}
+			if delAttGuard.apply && delAttConfirm != "DELETE" {
+				return usageErr("--confirm must be exactly DELETE with --apply")
+			}
+			if delAttGuard.apply && delAttExpectedVersion <= 0 {
+				return usageErr("--expected-version is required with --apply; run the dry-run first")
+			}
+			if err := delAttGuard.validate(); err != nil {
+				return err
 			}
 			svc, err := confService()
 			if err != nil {
 				return err
 			}
-			if err := svc.DeleteAttachment(cmd.Context(), delAttID); err != nil {
-				return err
+			result, deleteErr := svc.DeleteAttachmentGuarded(cmd.Context(), delAttPageID, delAttID, app.ConfluenceAttachmentDeleteOpts{
+				Apply: delAttGuard.apply, Confirm: delAttConfirm, ExpectedPageVersion: delAttExpectedVersion,
+				ExpectedProposalHash: delAttGuard.expectedProposalHash,
+			})
+			if result == nil {
+				return deleteErr
 			}
-			return emit(cmd, map[string]string{"id": delAttID, "status": "deleted"}, nil)
+			emitErr := emit(cmd, result, func() string { return app.ConfluenceAttachmentDeleteText(result) })
+			return guardedMutationResultErr(deleteErr, emitErr, result.WriteAttempted, "attachment deletion")
 		},
 	}
+	del.Flags().StringVar(&delAttPageID, "page-id", "", "containing page id")
 	del.Flags().StringVar(&delAttID, "id", "", "attachment id")
-	del.Flags().BoolVar(&delAttForce, "force", false, "confirm permanent deletion")
+	del.Flags().IntVar(&delAttExpectedVersion, "expected-version", 0, "reviewed current page version (required with --apply)")
+	del.Flags().StringVar(&delAttConfirm, "confirm", "", "must be exactly DELETE with --apply")
+	delAttGuard.register(del)
 
 	c.AddCommand(list, get, upload, del)
 	return c

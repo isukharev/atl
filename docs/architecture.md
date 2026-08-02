@@ -646,6 +646,23 @@ current, or mismatched readback remains `outcome_unknown`; unsupported exact
 status reads fail closed before the destructive request. The route is CLI-only
 and remains absent from the read-only MCP surface.
 
+### Guarded attachment deletion boundary
+
+Permanent attachment deletion is also preview-first, but its authorization and
+reconciliation unit is a complete attachment inventory rather than a single
+content record. The app brackets naturally exhausted qualified pagination with
+exact current-page reads and canonicalizes every attachment by id and hashed
+metadata. The proposal binds that full inventory, the selected target, exact
+page revision/native identity, and normalized backend identity.
+
+Apply re-reads the same complete proposal state before exactly one
+non-redirected and non-retried DELETE. Only a complete final inventory exactly
+equal to the reviewed inventory minus that target proves `applied` or
+`recovered`; target absence with sibling drift is insufficient. Partial,
+legacy, malformed, or unavailable inventory fails closed, and every ambiguous
+post-attempt state remains `outcome_unknown`. The guarded route is CLI-only and
+is absent from the read-only MCP surface.
+
 ---
 
 ## Extension points
