@@ -34,6 +34,9 @@ var mdSeeds = []string{
 	"\\|\\`\\#\\~",
 	"> \n> \n> ",
 	"```lang`\nx\n```",
+	"`````go\nshorter ``` run\n```\n\nstill body\n``````  ",
+	"\\```literal\n\\````longer **bold**\n\\---\n\\\\```slash prefix",
+	"raw <br> and <br/> markers",
 	"[x](jira:X-1)",
 	"⟦macro toc⟧",
 	"![i](a.png)",
@@ -71,6 +74,7 @@ func FuzzSplitBlocks(f *testing.F) {
 		f.Add(s)
 	}
 	f.Add("para\n\n```\ninner\n\nstill\n```\n\ntail")
+	f.Add("`````\n```\n\nshort run stays inside\n``````\n\ntail")
 	f.Fuzz(func(t *testing.T, md string) {
 		blocks := SplitBlocks(md)
 		for _, b := range blocks {

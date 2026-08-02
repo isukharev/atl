@@ -67,7 +67,7 @@ func collectOpaque(n *csf.Node, base []byte, refs []domain.Ref, out *[]*marker) 
 
 // isOpaqueInline reports elements that render to markers or resolved display
 // text: links (page/user/attachment), images, macros, bare mentions, colored
-// spans.
+// spans, and the explicit <br> marker emitted by the current renderer.
 func isOpaqueInline(n *csf.Node) bool {
 	switch {
 	case n.Name.Space == "ac":
@@ -76,6 +76,8 @@ func isOpaqueInline(n *csf.Node) bool {
 			return true
 		}
 	case n.Name.Space == "ri" && n.Name.Local == "user":
+		return true
+	case n.Name.Space == "" && n.Name.Local == "br":
 		return true
 	case n.Name.Space == "" && n.Name.Local == "span":
 		// A colored span renders as protected readable HTML.
@@ -188,7 +190,7 @@ func convertBlock(txt string, markers []*marker) ([]byte, error) {
 // isPlainMarker reports a marker with no marker syntax — bare resolved text
 // (mention display names). Bracketed markers cannot collide with prose.
 func isPlainMarker(md string) bool {
-	return !strings.ContainsAny(md, "[]⟦!(")
+	return !strings.ContainsAny(md, "[]⟦!(<")
 }
 
 // distinctBytesFor counts distinct byte payloads among unused markers that

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/isukharev/atl/internal/csf"
 )
 
 // stylePage mimics what the Confluence editor saves: styled cells, a
@@ -29,6 +31,90 @@ func TestTableMergeStyledCellEdit(t *testing.T) {
 	}
 }
 
+func TestHasComplexTableOnlyAllowsCanonicalConverterShape(t *testing.T) {
+	for name, tc := range map[string]struct {
+		table   string
+		complex bool
+	}{
+		"canonical":            {`<table><tbody><tr><th>A</th><th>B</th></tr><tr><td>x</td><td>y</td></tr></tbody></table>`, false},
+		"table attribute":      {`<table data-layout="wide"><tbody><tr><th>A</th></tr></tbody></table>`, true},
+		"caption":              {`<table><caption>Title</caption><tbody><tr><th>A</th></tr></tbody></table>`, true},
+		"colgroup":             {`<table><colgroup><col/></colgroup><tbody><tr><th>A</th></tr></tbody></table>`, true},
+		"thead":                {`<table><thead><tr><th>A</th></tr></thead><tbody><tr><td>x</td></tr></tbody></table>`, true},
+		"tfoot":                {`<table><tbody><tr><th>A</th></tr></tbody><tfoot><tr><td>x</td></tr></tfoot></table>`, true},
+		"missing tbody":        {`<table><tr><th>A</th></tr></table>`, true},
+		"multiple tbody":       {`<table><tbody><tr><th>A</th></tr></tbody><tbody><tr><td>x</td></tr></tbody></table>`, true},
+		"tbody attribute":      {`<table><tbody class="body"><tr><th>A</th></tr></tbody></table>`, true},
+		"row attribute":        {`<table><tbody><tr class="head"><th>A</th></tr></tbody></table>`, true},
+		"cell attribute":       {`<table><tbody><tr><th data-cell="a">A</th></tr></tbody></table>`, true},
+		"explicit unit span":   {`<table><tbody><tr><th>A</th></tr><tr><td colspan="1">x</td></tr></tbody></table>`, true},
+		"nested table":         {`<table><tbody><tr><th>A</th></tr><tr><td><table><tbody><tr><th>N</th></tr></tbody></table></td></tr></tbody></table>`, true},
+		"headerless":           {`<table><tbody><tr><td>A</td></tr><tr><td>x</td></tr></tbody></table>`, true},
+		"partial first header": {`<table><tbody><tr><th>A</th><td>B</td></tr><tr><td>x</td><td>y</td></tr></tbody></table>`, true},
+		"later header":         {`<table><tbody><tr><th>A</th></tr><tr><th>x</th></tr></tbody></table>`, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root, err := csf.Parse([]byte(tc.table))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := hasComplexTable(root.Children[0]); got != tc.complex {
+				t.Fatalf("hasComplexTable() = %v, want %v", got, tc.complex)
+			}
+		})
+	}
+}
+
+func TestTableMergePreservesTableAttributesAndInvisibleSections(t *testing.T) {
+	page := `<table data-layout="wide"><caption>Hidden title</caption>` +
+		`<colgroup><col style="width: 25%;"/><col/></colgroup><tbody>` +
+		`<tr><th>A</th><th>B</th></tr><tr><td>x</td><td>y</td></tr></tbody></table>`
+	md := renderOf(t, page, nil)
+	edited := strings.Replace(md, "| x | y |", "| x | changed |", 1)
+	out, rep := mustMerge(t, page, edited, nil, Options{})
+	want := strings.Replace(page, "<td>y</td>", "<td>changed</td>", 1)
+	if string(out) != want {
+		t.Fatalf("table structure changed:\n got %s\nwant %s", out, want)
+	}
+	if rep.MergedTables != 1 || len(rep.RemovedFragments) != 0 {
+		t.Fatalf("report = %+v", rep)
+	}
+}
+
+func TestTableMergePreservesNoncanonicalHeaderTopology(t *testing.T) {
+	for name, tc := range map[string]struct {
+		page string
+		old  string
+		new  string
+	}{
+		"headerless": {
+			page: `<table><tbody><tr><td>A</td><td>B</td></tr><tr><td>x</td><td>y</td></tr></tbody></table>`,
+			old:  `<td>y</td>`, new: `<td>changed</td>`,
+		},
+		"partial first row": {
+			page: `<table><tbody><tr><th>A</th><td>B</td></tr><tr><td>x</td><td>y</td></tr></tbody></table>`,
+			old:  `<td>y</td>`, new: `<td>changed</td>`,
+		},
+		"header in later row": {
+			page: `<table><tbody><tr><td>A</td><td>B</td></tr><tr><th>x</th><th>y</th></tr></tbody></table>`,
+			old:  `<th>y</th>`, new: `<th>changed</th>`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			md := renderOf(t, tc.page, nil)
+			edited := strings.Replace(md, "y", "changed", 1)
+			out, rep := mustMerge(t, tc.page, edited, nil, Options{})
+			want := strings.Replace(tc.page, tc.old, tc.new, 1)
+			if string(out) != want {
+				t.Fatalf("header topology changed:\n got %s\nwant %s", out, want)
+			}
+			if rep.MergedTables != 1 || len(rep.RemovedFragments) != 0 {
+				t.Fatalf("report = %+v", rep)
+			}
+		})
+	}
+}
+
 func TestTableMergeWrapperChainPreserved(t *testing.T) {
 	md := renderOf(t, stylePage, nil)
 	edited := strings.Replace(md, "| beta |", "| gamma |", 1)
@@ -38,6 +124,55 @@ func TestTableMergeWrapperChainPreserved(t *testing.T) {
 	}
 	if strings.Contains(string(out), "beta") {
 		t.Fatalf("old cell text still present: %s", out)
+	}
+}
+
+func TestAttributeFreeTableWrapperChainRoutesThroughMerge(t *testing.T) {
+	page := `<table><tbody><tr><th><p>A</p></th></tr><tr><td><div><p>x</p></div></td></tr></tbody></table>`
+	md := renderOf(t, page, nil)
+	edited := strings.Replace(md, "| x |", "| changed |", 1)
+	out, rep := mustMerge(t, page, edited, nil, Options{})
+	want := strings.Replace(page, "<p>x</p>", "<p>changed</p>", 1)
+	if string(out) != want {
+		t.Fatalf("attribute-free wrapper chain changed:\n got %s\nwant %s", out, want)
+	}
+	if rep.MergedTables != 1 || len(rep.RemovedFragments) != 0 {
+		t.Fatalf("report = %+v", rep)
+	}
+}
+
+func TestTableMergeRefusesFlatteningMultipleCellWrappers(t *testing.T) {
+	page := `<table><tbody><tr><th>A</th></tr><tr><td><p>x</p><p>y</p></td></tr></tbody></table>`
+	md := renderOf(t, page, nil)
+	edited := strings.Replace(md, "| x y |", "| changed y |", 1)
+	_, rep, err := Merge([]byte(page), nil, edited, Options{})
+	var loss *LossError
+	if !errors.As(err, &loss) {
+		t.Fatalf("multi-wrapper loss error = %v, report=%+v", err, rep)
+	}
+	if len(rep.RemovedFragments) == 0 || rep.RemovedFragments[0].Kind != "structure" {
+		t.Fatalf("multi-wrapper loss evidence = %+v", rep.RemovedFragments)
+	}
+}
+
+func TestTableMergeRefusesUnknownCellWrapperLoss(t *testing.T) {
+	for _, wrapper := range []string{"section", "u"} {
+		t.Run(wrapper, func(t *testing.T) {
+			page := `<table><tbody><tr><th>A</th></tr><tr><td><` + wrapper + `>x</` + wrapper + `></td></tr></tbody></table>`
+			root, err := csf.Parse([]byte(page))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !hasComplexTable(root.Children[0]) {
+				t.Fatalf("unknown wrapper %q classified reproducible", wrapper)
+			}
+			edited := strings.Replace(renderOf(t, page, nil), "| x |", "| changed |", 1)
+			_, rep, err := Merge([]byte(page), nil, edited, Options{})
+			var loss *LossError
+			if !errors.As(err, &loss) {
+				t.Fatalf("unknown-wrapper loss error = %v, report=%+v", err, rep)
+			}
+		})
 	}
 }
 
@@ -92,9 +227,14 @@ func TestTableMergeRowDeleteAndLossGate(t *testing.T) {
 	if len(rep.RemovedFragments) == 0 {
 		t.Errorf("report misses removed fragments: %+v", rep)
 	}
-	// Deleting a plain row needs no override.
+	// Even a prose-only row can carry invisible style/class structure. Its
+	// deletion therefore uses the same explicit loss override.
 	edited2 := strings.Replace(renderOf(t, stylePage, nil), "| 2 | beta | yes |\n", "", 1)
-	out2, _ := mustMerge(t, stylePage, edited2, nil, Options{})
+	_, _, err = Merge([]byte(stylePage), nil, edited2, Options{})
+	if !errors.As(err, &le) {
+		t.Fatalf("deleting an attributed row: want LossError, got %v", err)
+	}
+	out2, _ := mustMerge(t, stylePage, edited2, nil, Options{AllowFragmentLoss: true})
 	if strings.Contains(string(out2), "beta") {
 		t.Fatalf("plain row not deleted: %s", out2)
 	}

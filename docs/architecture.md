@@ -281,7 +281,7 @@ mirror/
     ancestor-title/
       page-title/
         page-title.csf        ← source of truth (verbatim CSF bytes)
-        page-title.md         ← v5 read-view; may include a qualified comment tree
+        page-title.md         ← v6 read-view; may include a qualified comment tree
         page-title.meta.json  ← id, title, version, content_hash, fragments
         page-title.comments.json ← schema-v2 qualified comment evidence
         page-title.comments.md   ← flat compatibility projection
@@ -325,9 +325,9 @@ mirror/
   unattached section for unproven ancestry. Safe generic diagnostics may be
   projected without identifiers; authoritative structured evidence stays in
   `.comments.json`, while `.comments.md` remains flat compatibility.
-  The v5 format migrates pristine v4 views only after exact reconstruction;
-  dirty v4, older historical, unversioned, and future views are preserved and
-  refused.
+  The v6 format migrates pristine v5/v4 views only after exact
+  version-specific reconstruction; edited legacy, older historical,
+  unversioned, and future views are preserved and refused.
 - `LoadCSF(path)` — reads a `.csf` file, its `.meta.json`, and the sidecar
   entry; computes `Dirty = currentHash != syncedHash`.
 - `ListCSF()` — walks the tree (skipping `.atl/`), loads every `.csf`, sorts

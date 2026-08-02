@@ -645,14 +645,19 @@ unchanged before and after. Render-resolution warnings go to **stderr**, never
 stdout.
 
 Every Confluence derived page view begins with
-`<!-- atl:document confluence-page v5 -->` and has reserved generated
+`<!-- atl:document confluence-page v6 -->` and has reserved generated
 metadata/body/comments/Jira-query boundaries. `conf apply` rejects missing, legacy, or
 unknown versions and additions/removals/renames/reordering in the reserved marker sequence inside
 the editable body before any substrate write. Marker-looking prose already
-present in the native page remains valid when unchanged. Pristine v4 views
-migrate only when their complete bytes match exact reconstruction. Dirty v4,
-older historical, unversioned, and unknown/future views are preserved and
-refused; future versions require an updated binary and must not be downgraded.
+present in the native page remains valid when unchanged. Pristine v5 and v4
+views migrate only when their complete bytes match the exact renderer for that
+marker. Dirty v5/v4, older historical, unversioned, and unknown/future views
+are preserved and refused; future versions require an updated binary and must
+not be downgraded.
+V6 edits also treat unrepresentable native element attributes, table-cell
+wrappers, inline breaks, and code-macro metadata as protected structure. Their
+removal is reported through the existing fragment-loss contract; raw values
+are represented only by content-free hashes.
 The marker line may end in LF or CRLF. Atl strips only the CR attached to that
 first line for version classification; remaining Markdown bytes stay
 significant for dirty/edit/relocation checks.
@@ -919,7 +924,7 @@ is never overwritten.
 When all three old primary artifacts are absent, pull treats the old copy as
 deliberately abandoned and replaces its stale sidecar path with the new
 canonical path. Partial absence remains exit `8` because ownership and local
-edits cannot be proven. A supported v4 view produces migration-specific
+edits cannot be proven. A supported v5/v4 view produces migration-specific
 guidance and migrates only after exact pristine reconstruction; older
 historical, unversioned, and unknown/future views are preserved and refused.
 If cleanup is interrupted, path-aware state lookup keeps an old copy
@@ -1222,8 +1227,8 @@ wire state remains `unknown` and makes the inventory partial.
 
 Current schema-v2 projections never emit reply-level anchors. The sidecar
 decoder and renderer still preserve historical schema-v2 reply anchors without
-normalizing them, so existing pristine v5 derived views remain byte-stable; a
-fresh pull writes the root-owned shape. This compatibility exception does not
+normalizing them, so the v5 reconstruction used by migration remains
+byte-stable; a fresh v6 pull writes the root-owned shape. This compatibility exception does not
 apply to transient result, list, or thread validators.
 
 `complete` is the conjunction of the dimensions relevant to the selected
@@ -1351,7 +1356,7 @@ reader also accepts the historical flat `[{id,author,created,body,...}]` array,
 but a successful `pull --comments` always writes v2. Malformed, future, or
 page-version-mismatched v2 bytes never fall back to the legacy decoder.
 
-The main v5 page `.md` renders schema-v2 comments as a deterministic read-only
+The main v6 page `.md` renders schema-v2 comments as a deterministic read-only
 tree: roots are level-two headings, replies nest through level six with a stable
 deeper-depth indicator, and each entry shows author/time plus explicit
 location/state. Matched anchors label only the observed selection as current;

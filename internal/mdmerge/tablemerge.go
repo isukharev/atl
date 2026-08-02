@@ -105,12 +105,9 @@ func mergeTable(base []byte, tableNode *csf.Node, refs []domain.Ref, editedTxt s
 		editRows = append(editRows, cells)
 	}
 
-	grid, trs, hdr := mirror.TableGrid(tableNode, refs)
+	grid, trs, _ := mirror.TableGrid(tableNode, refs)
 	if len(grid) == 0 {
 		return nil, fmt.Errorf("base table renders no rows")
-	}
-	if hdr > 0 {
-		return nil, fmt.Errorf("base table's header is not its first row — edit the .csf directly")
 	}
 	if len(grid[0]) != width {
 		return nil, fmt.Errorf("table column count changed (%d → %d) — add or remove columns in the .csf directly", len(grid[0]), width)

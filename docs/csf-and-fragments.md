@@ -209,7 +209,9 @@ during `Extract` and is not changed by `Resolve`.
 
 `mirror.RenderMarkdown(root *csf.Node, refs []domain.Ref) []byte` produces the
 human-readable and grep-friendly `.md` file. It is intentionally lossy: the
-`.csf` file is always the authoritative source for edits and pushes.
+`.csf` file is always the authoritative write substrate. `conf apply` supports
+a strict staged subset and preserves or refuses native structure it cannot
+reproduce; the Markdown file is never pushed directly.
 
 ### Block-level rendering
 
@@ -218,7 +220,8 @@ human-readable and grep-friendly `.md` file. It is intentionally lossy: the
 | `<h1>`–`<h6>` | `#`–`######` heading |
 | `<p>` | paragraph with trailing blank line |
 | `<ul>` / `<ol>` | unordered / ordered list (nested) |
-| `<table>` | pipe-table (first `<th>` row becomes the header row; `colspan` pads columns, `rowspan` repeats covered values) |
+| `<table>` | pipe-table with its separator after physical row zero; native header topology, attributes, columns, captions, and spans route edits through structure-preserving merge |
+| `<br>` | protected literal `<br>` marker whose original native bytes are reused on adjacent prose edits |
 | `<hr>` | `---` |
 | `<ac:layout>`, `<ac:layout-section>`, `<ac:layout-cell>` | contents rendered recursively (layout structure discarded) |
 | `<ac:structured-macro ac:name="code">` | fenced code block with language hint |

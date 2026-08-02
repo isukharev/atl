@@ -10,6 +10,12 @@ directly and may be regenerated.
 
 This document describes how we verify the renderer and how to grow its coverage.
 
+The current Confluence view marker is v6. Any renderer byte change requires an
+exact historical renderer and tests for current, pristine/edited supported
+legacy, unversioned, unsupported historical, and future markers. Never
+reconstruct an older view by running the current renderer and swapping only the
+marker.
+
 ## Three layers of tests
 
 1. **Per-construct unit tests — the contract.**
@@ -73,6 +79,10 @@ For table fidelity regressions, add synthetic unit tests first. Real corpus page
 can guide the case, but committed tests should use small snippets that cover the
 CSF shape: `rowspan`, `colspan`, ordinary links inside cells, and semantic inline
 styles such as colored spans.
+
+Round-trip regressions must edit text adjacent to the construct under test;
+unchanged blocks deliberately reuse native bytes and cannot prove that the
+conversion path preserves a fence, break, attribute, or table wrapper.
 
 ### Frequency analysis by hand
 

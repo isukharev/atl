@@ -10,6 +10,14 @@ import (
 
 	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/wikiscanner"
+)
+
+type confluenceMarkdownFormat uint8
+
+const (
+	confluenceMarkdownCurrent confluenceMarkdownFormat = iota
+	confluenceMarkdownV5
 )
 
 // RenderMarkdown produces the read-only markdown view of a CSF body: legible
@@ -17,11 +25,11 @@ import (
 // (⟦…⟧) and images/diagrams as ![](assets/…) links. It is intentionally lossy —
 // the .csf file remains the editable source of truth.
 func RenderMarkdown(root *csf.Node, refs []domain.Ref) []byte {
-	return []byte(renderMarkdownHeadingOffset(root, refs, 0))
+	return []byte(renderMarkdownHeadingOffsetVersion(root, refs, 0, confluenceMarkdownCurrent))
 }
 
-func renderMarkdownHeadingOffset(root *csf.Node, refs []domain.Ref, headingOffset int) string {
-	r := newMDRendererOffset(refs, headingOffset)
+func renderMarkdownHeadingOffsetVersion(root *csf.Node, refs []domain.Ref, headingOffset int, format confluenceMarkdownFormat) string {
+	r := newMDRendererOffsetVersion(refs, headingOffset, format)
 	var b strings.Builder
 	forEachBlockNode(root, func(n *csf.Node) {
 		r.block(&b, n)
@@ -29,13 +37,8 @@ func renderMarkdownHeadingOffset(root *csf.Node, refs []domain.Ref, headingOffse
 	return normalizeBlankLines(b.String())
 }
 
-func renderCommentMarkdown(root *csf.Node) string {
-	r := newMDRendererOffset(nil, 2)
-	return renderCommentMarkdownWithRenderer(root, r)
-}
-
-func renderQualifiedCommentMarkdown(root *csf.Node, parentHeading int) string {
-	r := newMDRendererOffset(nil, parentHeading)
+func renderQualifiedCommentMarkdownVersion(root *csf.Node, parentHeading int, format confluenceMarkdownFormat) string {
+	r := newMDRendererOffsetVersion(nil, parentHeading, format)
 	r.headingOverflowAsStrong = true
 	return renderCommentMarkdownWithRenderer(root, r)
 }
@@ -150,6 +153,11 @@ func markdownFence(content string) string {
 	return strings.Repeat(string(rune(0x60)), max(3, longest+1))
 }
 
+func safeMarkdownFenceInfo(info string) string {
+	info, _ = wikiscanner.NormalizeMarkdownFenceInfo(info)
+	return info
+}
+
 // MDViewOpts carries the profile-driven additions to a Confluence markdown view.
 // Metadata/comments are optional; ReadOnly switches the body boundary for a
 // transient document that has no writeback baseline. A zero value renders the
@@ -178,7 +186,15 @@ type PageField struct {
 // RenderMarkdownOpts renders a versioned derived view with stable generated
 // boundaries, optional YAML metadata, and a trailing Comments section.
 func RenderMarkdownOpts(root *csf.Node, refs []domain.Ref, opts MDViewOpts) []byte {
-	prefix, body, suffix := RenderMarkdownViewParts(root, refs, opts)
+	prefix, body, suffix := renderMarkdownViewPartsVersion(root, refs, opts, confluenceMarkdownCurrent)
+	return []byte(prefix + body + suffix)
+}
+
+// RenderMarkdownOptsV5 reconstructs the exact previously supported derived
+// view. It exists only for guarded migration: new writes must use
+// RenderMarkdownOpts and the current document marker.
+func RenderMarkdownOptsV5(root *csf.Node, refs []domain.Ref, opts MDViewOpts) []byte {
+	prefix, body, suffix := renderMarkdownViewPartsVersion(root, refs, opts, confluenceMarkdownV5)
 	return []byte(prefix + body + suffix)
 }
 
@@ -190,8 +206,16 @@ func RenderMarkdownOpts(root *csf.Node, refs []domain.Ref, opts MDViewOpts) []by
 // read-only in the view), NOT by re-parsing headings — a body heading renders
 // as a top-level `## ` line and would be misread as a generated section.
 func RenderMarkdownViewParts(root *csf.Node, refs []domain.Ref, opts MDViewOpts) (prefix, body, suffix string) {
-	body = string(RenderMarkdown(root, refs))
-	prefix = ConfluenceDocumentMarker + "\n"
+	return renderMarkdownViewPartsVersion(root, refs, opts, confluenceMarkdownCurrent)
+}
+
+func renderMarkdownViewPartsVersion(root *csf.Node, refs []domain.Ref, opts MDViewOpts, format confluenceMarkdownFormat) (prefix, body, suffix string) {
+	body = renderMarkdownHeadingOffsetVersion(root, refs, 0, format)
+	marker := ConfluenceDocumentMarker
+	if format == confluenceMarkdownV5 {
+		marker = ConfluenceDocumentMarkerV5
+	}
+	prefix = marker + "\n"
 	if fields := renderPageFields(opts.PageFields); fields != "" {
 		prefix += fields + "\n\n"
 	}
@@ -213,9 +237,9 @@ func RenderMarkdownViewParts(root *csf.Node, refs []domain.Ref, opts MDViewOpts)
 		suffix = generated.String()
 	}
 	if opts.QualifiedComments != nil {
-		suffix += "\n" + ConfluenceCommentsMarker + "\n" + string(RenderQualifiedCommentsMarkdown(opts.QualifiedComments))
+		suffix += "\n" + ConfluenceCommentsMarker + "\n" + string(renderQualifiedCommentsMarkdownVersion(opts.QualifiedComments, format))
 	} else if len(opts.Comments) > 0 {
-		suffix += "\n" + ConfluenceCommentsMarker + "\n" + string(RenderCommentsMarkdown(opts.Comments))
+		suffix += "\n" + ConfluenceCommentsMarker + "\n" + string(renderCommentsMarkdownVersion(opts.Comments, format))
 	}
 	// RenderMarkdownOpts applies TrimRight(whole, "\n")+"\n" to the concatenation.
 	// Reproduce it by trimming the assembled whole, then re-slicing at the raw
@@ -332,6 +356,7 @@ type mdRenderer struct {
 	headingOffset           int
 	headingOverflowAsStrong bool
 	escapeHTMLText          bool
+	format                  confluenceMarkdownFormat
 }
 
 func newMDRenderer(refs []domain.Ref) *mdRenderer {
@@ -339,11 +364,15 @@ func newMDRenderer(refs []domain.Ref) *mdRenderer {
 }
 
 func newMDRendererOffset(refs []domain.Ref, headingOffset int) *mdRenderer {
+	return newMDRendererOffsetVersion(refs, headingOffset, confluenceMarkdownCurrent)
+}
+
+func newMDRendererOffsetVersion(refs []domain.Ref, headingOffset int, format confluenceMarkdownFormat) *mdRenderer {
 	byKey := map[string]domain.Ref{}
 	for _, r := range refs {
 		byKey[string(r.Kind)+"\x00"+r.Key] = r
 	}
-	return &mdRenderer{refs: byKey, headingOffset: headingOffset}
+	return &mdRenderer{refs: byKey, headingOffset: headingOffset, format: format}
 }
 
 func (r *mdRenderer) ref(kind domain.RefKind, key string) (domain.Ref, bool) {
@@ -380,6 +409,9 @@ func (r *mdRenderer) block(b *strings.Builder, n *csf.Node) {
 			return
 		}
 		if s := strings.TrimSpace(r.inline(n)); s != "" {
+			if r.format == confluenceMarkdownCurrent {
+				s = wikiscanner.EscapeMarkdownBlockCollision(s)
+			}
 			b.WriteString(s)
 			b.WriteString("\n\n")
 		}
@@ -393,7 +425,12 @@ func (r *mdRenderer) block(b *strings.Builder, n *csf.Node) {
 			b.WriteString("\n\n")
 		}
 	case n.Name.Local == "pre" && n.Name.Space == "":
-		fmt.Fprintf(b, "```\n%s\n```\n\n", csf.TextContent(n))
+		body := csf.TextContent(n)
+		fence := "```"
+		if r.format == confluenceMarkdownCurrent {
+			fence = markdownFence(body)
+		}
+		fmt.Fprintf(b, "%s\n%s\n%s\n\n", fence, body, fence)
 	case n.Name.Space == "ac" && n.Name.Local == "task-list":
 		r.taskList(b, n, 0)
 		b.WriteString("\n")
@@ -428,9 +465,19 @@ func (r *mdRenderer) macro(b *strings.Builder, n *csf.Node) {
 	case "code":
 		lang := macroParam(n, "language")
 		body := plainBody(n)
-		fmt.Fprintf(b, "```%s\n%s\n```\n\n", lang, body)
+		fence := "```"
+		if r.format == confluenceMarkdownCurrent {
+			fence = markdownFence(body)
+			lang = safeMarkdownFenceInfo(lang)
+		}
+		fmt.Fprintf(b, "%s%s\n%s\n%s\n\n", fence, lang, body, fence)
 	case "noformat":
-		fmt.Fprintf(b, "```\n%s\n```\n\n", plainBody(n))
+		body := plainBody(n)
+		fence := "```"
+		if r.format == confluenceMarkdownCurrent {
+			fence = markdownFence(body)
+		}
+		fmt.Fprintf(b, "%s\n%s\n%s\n\n", fence, body, fence)
 	case "expand":
 		title := macroParam(n, "title")
 		if title == "" {
@@ -532,7 +579,8 @@ func (r *mdRenderer) table(b *strings.Builder, n *csf.Node) {
 			cells[i] = strings.ReplaceAll(c.Text, "|", "\\|")
 		}
 		b.WriteString("| " + strings.Join(cells, " | ") + " |\n")
-		if ri == header || (header < 0 && ri == 0) {
+		if (r.format == confluenceMarkdownCurrent && ri == 0) ||
+			(r.format == confluenceMarkdownV5 && (ri == header || (header < 0 && ri == 0))) {
 			seps := make([]string, width)
 			for i := range seps {
 				seps[i] = "---"
@@ -592,8 +640,8 @@ func (r *mdRenderer) tableGrid(n *csf.Node) ([][]TableCell, []*csf.Node, int) {
 				isHeader = true
 			}
 			text := strings.TrimSpace(r.inline(c))
-			colspan := colspanOf(c)
-			rowspan := rowspanOf(c)
+			colspan := colspanOfVersion(c, r.format)
+			rowspan := rowspanOfVersion(c, r.format)
 			for spanCol := 0; spanCol < colspan; spanCol++ {
 				cellText := text
 				if spanCol > 0 {
@@ -735,7 +783,11 @@ func (r *mdRenderer) inlineNode(b *strings.Builder, n *csf.Node) {
 			b.WriteString(":" + n.Attrv("ac", "name") + ":")
 		}
 	case n.Name.Local == "br":
-		b.WriteString(" ")
+		if r.format == confluenceMarkdownCurrent {
+			b.WriteString("<br>")
+		} else {
+			b.WriteString(" ")
+		}
 	case n.Name.Local == "a":
 		href := n.Attrv("", "href")
 		b.WriteString("[" + r.inline(n) + "](" + href + ")")
@@ -1034,17 +1086,20 @@ func (r *mdRenderer) inlineTaskBody(body *csf.Node) string {
 	return strings.TrimSpace(squeezeSpaces(b.String()))
 }
 
-func colspanOf(cell *csf.Node) int {
-	// Preserve the v5 derived-view byte contract: its historical parser did not
-	// trim attribute whitespace. A later explicit marker migration may normalize
-	// parsing; this bounds fix changes only the shared expansion cap.
+func colspanOfVersion(cell *csf.Node, format confluenceMarkdownFormat) int {
+	if format == confluenceMarkdownCurrent {
+		return csf.TableSpan(cell, "colspan")
+	}
 	if n, err := strconv.Atoi(cell.Attrv("", "colspan")); err == nil && n > 1 {
 		return min(n, csf.MaxTableSpan)
 	}
 	return 1
 }
 
-func rowspanOf(cell *csf.Node) int {
+func rowspanOfVersion(cell *csf.Node, format confluenceMarkdownFormat) int {
+	if format == confluenceMarkdownCurrent {
+		return csf.TableSpan(cell, "rowspan")
+	}
 	if n, err := strconv.Atoi(cell.Attrv("", "rowspan")); err == nil && n > 1 {
 		return min(n, csf.MaxTableSpan)
 	}

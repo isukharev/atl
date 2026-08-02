@@ -443,11 +443,8 @@ func preflightConfluenceOverwrite(m *mirror.Mirror, ids []string) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		migrates, matchErr := matchConfluencePristineView(
-			actual,
-			mirror.RenderMarkdownOpts(node, lc.Meta.Refs, opts),
-			renderLegacyConfluenceMarkdown(node, lc.Meta.Refs, legacyOpts),
-		)
+		migrates, matchErr := matchConfluencePristineView(actual,
+			renderConfluencePristineViews(node, lc.Meta.Refs, opts, legacyOpts))
 		if matchErr != nil {
 			return 0, fmt.Errorf("%w: page %s %v", domain.ErrCheckFailed, id, matchErr)
 		}
@@ -459,13 +456,17 @@ func preflightConfluenceOverwrite(m *mirror.Mirror, ids []string) (int, error) {
 }
 
 // matchConfluencePristineView proves whether an existing derived view is either
-// current or a byte-clean supported legacy format. Legacy views
-// are accepted only when replacing the current first-line marker with their
-// exact marker makes every byte match; this never guesses across renderer
-// changes. The successful pull then writes and records the current format.
-func matchConfluencePristineView(actual, current, legacyFlat []byte) (bool, error) {
+// current or a byte-clean supported legacy format. Each legacy marker selects
+// its own exact renderer; this never guesses across renderer changes. The
+// successful pull then writes and records the current format.
+type confluencePristineViews struct {
+	current []byte
+	legacy  map[string][]byte
+}
+
+func matchConfluencePristineView(actual []byte, views confluencePristineViews) (bool, error) {
 	comparisonActual := canonicalConfluenceMarkerLineEnding(actual)
-	if bytes.Equal(comparisonActual, current) {
+	if bytes.Equal(comparisonActual, views.current) {
 		return false, nil
 	}
 	marker := mirror.ConfluenceDocumentMarkerLine(string(actual))
@@ -473,13 +474,11 @@ func matchConfluencePristineView(actual, current, legacyFlat []byte) (bool, erro
 		return false, fmt.Errorf("has unapplied Markdown edits; apply or preserve them before replacing this derived view")
 	}
 	if isSupportedLegacyConfluenceMarker(marker) {
-		legacyMarker := []byte(mirror.ConfluenceDocumentMarkerV4)
-		if !bytes.HasPrefix(legacyFlat, legacyMarker) {
+		legacy, ok := views.legacy[marker]
+		legacyMarker := []byte(marker)
+		if !ok || !bytes.HasPrefix(legacy, legacyMarker) {
 			return false, fmt.Errorf("legacy pristine renderer omitted its document marker")
 		}
-		legacy := make([]byte, 0, len(legacyFlat)-len(legacyMarker)+len(marker))
-		legacy = append(legacy, marker...)
-		legacy = append(legacy, legacyFlat[len(legacyMarker):]...)
 		if bytes.Equal(comparisonActual, legacy) {
 			return true, nil
 		}

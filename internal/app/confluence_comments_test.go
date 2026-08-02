@@ -242,7 +242,7 @@ func TestPullCommentsPersistsQualifiedV2WithoutSecondPageRead(t *testing.T) {
 		strings.Count(string(md), "**Current inline selection:**") != 1 ||
 		strings.Contains(string(md), "**Anchor:** unavailable") ||
 		!strings.Contains(string(md), "reply body") || !strings.Contains(string(md), "**Location:** inline · **State:** open") {
-		t.Fatalf("qualified v5 comment tree missing:\n%s", md)
+		t.Fatalf("qualified v6 comment tree missing:\n%s", md)
 	}
 	if _, err := Apply(mdPath, ApplyOpts{Into: result.Root}); err != nil {
 		t.Fatalf("untouched qualified view could not reproduce sidecar order: %v", err)
@@ -308,7 +308,7 @@ func TestPullCommentsPersistsQualifiedV2WithoutSecondPageRead(t *testing.T) {
 	}
 }
 
-func TestPullCommentsMigratesPristineFlatV4ToQualifiedV5(t *testing.T) {
+func TestPullCommentsMigratesPristineFlatV4ToQualifiedV6(t *testing.T) {
 	rootID := "10"
 	page := &domain.Resource{ID: "100", Title: "Alpha", SpaceKey: "SP", Version: 2, Body: []byte("<p>alpha</p>")}
 	base := &pullStore{pages: map[string]*domain.Resource{"100": page}}
@@ -340,7 +340,7 @@ func TestPullCommentsMigratesPristineFlatV4ToQualifiedV5(t *testing.T) {
 	rs, _ := computeSettings("confluence", config.RenderService{Profile: "full"})
 	currentOpts := confMDViewOptsForCommentsView(rs, confPageFromMeta(lc.Meta), comments)
 	legacyOpts := legacyConfluenceCommentMDViewOpts(currentOpts, rs, comments)
-	legacy := renderLegacyConfluenceMarkdown(node, lc.Meta.Refs, legacyOpts)
+	legacy := renderConfluenceMarkdownV4(node, lc.Meta.Refs, legacyOpts)
 	if !strings.Contains(string(legacy), "## Comment by Reviewer") || strings.Contains(string(legacy), "**Completeness:**") {
 		t.Fatalf("legacy fixture is not the frozen flat v4 view:\n%s", legacy)
 	}
@@ -357,7 +357,7 @@ func TestPullCommentsMigratesPristineFlatV4ToQualifiedV5(t *testing.T) {
 	if !strings.HasPrefix(string(migrated), mirror.ConfluenceDocumentMarker+"\n") ||
 		!strings.Contains(string(migrated), "**Completeness:**") ||
 		!strings.Contains(string(migrated), "**Location:** footer · **State:** resolved") {
-		t.Fatalf("migrated view is not qualified v5:\n%s", migrated)
+		t.Fatalf("migrated view is not qualified v6:\n%s", migrated)
 	}
 
 	dirtyLegacy := append(append([]byte(nil), legacy...), []byte("\nlocal note\n")...)
@@ -373,6 +373,58 @@ func TestPullCommentsMigratesPristineFlatV4ToQualifiedV5(t *testing.T) {
 	}
 	if got, err := os.ReadFile(mdPath); err != nil || !bytes.Equal(got, dirtyLegacy) {
 		t.Fatalf("dirty v4 view changed: err=%v\n%s", err, got)
+	}
+}
+
+func TestPullCommentsMigratesPristineQualifiedV5ToV6(t *testing.T) {
+	rootID := "10"
+	page := &domain.Resource{ID: "100", Title: "Alpha", SpaceKey: "SP", Version: 2, Body: []byte("<p>alpha</p>")}
+	base := &pullStore{pages: map[string]*domain.Resource{"100": page}}
+	store := &qualifiedPullStore{pullStore: base, inventory: completeQualifiedComments(domain.ConfluenceCommentRecord{
+		ID: rootID, PageID: "100", RootID: &rootID, Relation: domain.ConfluenceCommentRelationRoot,
+		Location: domain.ConfluenceCommentLocationFooter, Resolution: domain.ConfluenceCommentResolutionResolved,
+		Version: 1, AuthorDisplayName: "Reviewer", CreatedAt: "2026-01-01",
+		BodyStorage: "<ac:structured-macro ac:name=\"code\"><ac:plain-text-body><![CDATA[before\n```\nafter]]></ac:plain-text-body></ac:structured-macro>",
+	})}
+	root := t.TempDir()
+	svc := &ConfluenceService{store: store}
+	first, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: root, Comments: true, Render: config.RenderService{Profile: "full"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, slug := pageDirFrom(root, first.Pages[0].Path)
+	mdPath := filepath.Join(dir, slug+".md")
+	lc, body, err := mirror.New(root).LoadCSF(filepath.Join(dir, slug+".csf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	node, err := csf.Parse(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	comments, err := readCommentsSidecar(root, dir, slug, page.ID, page.Version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs, _ := computeSettings("confluence", config.RenderService{Profile: "full"})
+	currentOpts := confMDViewOptsForCommentsView(rs, confPageFromMeta(lc.Meta), comments)
+	legacy := mirror.RenderMarkdownOptsV5(node, lc.Meta.Refs, currentOpts)
+	if !bytes.Contains(legacy, []byte("```\nbefore\n```\nafter\n```")) {
+		t.Fatalf("fixture is not an exact fixed-fence v5 comment view:\n%s", legacy)
+	}
+	if err := os.WriteFile(mdPath, legacy, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Pull(context.Background(), PullOpts{ID: "100", Into: root, Comments: true, Render: config.RenderService{Profile: "full"}}); err != nil {
+		t.Fatalf("v5 migration: %v", err)
+	}
+	migrated, err := os.ReadFile(mdPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(migrated), mirror.ConfluenceDocumentMarker+"\n") ||
+		!bytes.Contains(migrated, []byte("````\nbefore\n```\nafter\n````")) {
+		t.Fatalf("migrated view is not exact qualified v6:\n%s", migrated)
 	}
 }
 

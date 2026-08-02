@@ -194,7 +194,7 @@ func TestConfRenderPreflightsWholeBatchBeforeSiblingRewrite(t *testing.T) {
 }
 
 func TestConfRenderMigratesKnownLegacyViewMarkers(t *testing.T) {
-	for _, marker := range []string{mirror.ConfluenceDocumentMarkerV4} {
+	for _, marker := range []string{mirror.ConfluenceDocumentMarkerV5, mirror.ConfluenceDocumentMarkerV4} {
 		t.Run(marker, func(t *testing.T) {
 			root, dir, slug := seedConfMirror(t, nil)
 			mdPath := filepath.Join(dir, slug+".md")

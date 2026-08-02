@@ -5,8 +5,9 @@
 
 `.csf` holds the page body in **Confluence Storage Format** — an XHTML-derived format with macros.
 `atl` treats it as **byte-stable**: it parses CSF read-only and never re-serializes your bytes, so
-editing the `.csf` directly is safe and lossless. This is why there is no Markdown round-trip — a
-Markdown conversion would silently drop macros and structure.
+editing the `.csf` directly is safe and lossless. The Markdown staging surface is deliberately
+not a general round-trip compiler: supported edits reuse or merge native bytes, and unsupported
+macro/structure changes fail closed.
 
 Edit the XML/macro bytes directly. Keep tags balanced and entities well-formed; `atl conf validate`
 checks well-formedness and reports problems as `{severity, line, col, rule, message}` (treat any
@@ -15,8 +16,9 @@ checks well-formedness and reports problems as `{severity, line, col, rule, mess
 
 ## Editing existing CSF — pick the technique by situation
 
-**Prefer the md surface**: edit the page's `.md` and run `atl conf apply` (see the skill's
-canonical loop). Styled tables are covered there too — apply merges them row/cell-wise. The
+**Prefer the md surface**: edit the page's v6 `.md` and run `atl conf apply` (see the skill's
+canonical loop). Dynamic fences, paragraph collisions, inline breaks, and styled/native table
+structure are protected there; apply merges complex tables row/cell-wise. The
 techniques below are for what apply refuses or md cannot express — rowspan/colspan
 restructuring, column add/remove, nested tables, unrecognized wrappers, ambiguous mentions,
 surgical byte-level fixes.

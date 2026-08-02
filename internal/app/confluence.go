@@ -700,7 +700,10 @@ func planConfluencePageRelocation(m *mirror.Mirror, id, newRel string) (*mirror.
 	dir := filepath.Dir(oldCSF)
 	slug := strings.TrimSuffix(filepath.Base(oldCSF), ".csf")
 	md := []byte(mirror.MDUnavailableStub)
-	legacyMD := bytes.Replace(md, []byte(mirror.ConfluenceDocumentMarker), []byte(mirror.ConfluenceDocumentMarkerV4), 1)
+	views := confluencePristineViews{current: md, legacy: map[string][]byte{
+		mirror.ConfluenceDocumentMarkerV5: bytes.Replace(md, []byte(mirror.ConfluenceDocumentMarker), []byte(mirror.ConfluenceDocumentMarkerV5), 1),
+		mirror.ConfluenceDocumentMarkerV4: bytes.Replace(md, []byte(mirror.ConfluenceDocumentMarker), []byte(mirror.ConfluenceDocumentMarkerV4), 1),
+	}}
 	if node, parseErr := csf.Parse(base); parseErr == nil {
 		opts := mirror.MDViewOpts{}
 		legacyOpts := opts
@@ -716,14 +719,14 @@ func planConfluencePageRelocation(m *mirror.Mirror, id, newRel string) (*mirror.
 			}
 			legacyOpts = legacyConfluenceCommentMDViewOpts(opts, renderSettings, comments)
 		}
-		md = mirror.RenderMarkdownOpts(node, lc.Meta.Refs, opts)
-		legacyMD = renderLegacyConfluenceMarkdown(node, lc.Meta.Refs, legacyOpts)
+		views = renderConfluencePristineViews(node, lc.Meta.Refs, opts, legacyOpts)
+		md = views.current
 	}
 	actualMD, err := safepath.ReadFileWithin(m.Root, oldBase+".md")
 	if err != nil {
 		return nil, fmt.Errorf("%w: inspect tracked relocation Markdown %s: %v", domain.ErrCheckFailed, oldBase+".md", err)
 	}
-	migrates, matchErr := matchConfluencePristineView(actualMD, md, legacyMD)
+	migrates, matchErr := matchConfluencePristineView(actualMD, views)
 	if matchErr != nil {
 		return nil, fmt.Errorf("%w: tracked relocation page %s %v", domain.ErrCheckFailed, id, matchErr)
 	}

@@ -899,7 +899,7 @@ func TestPullRelocationRejectsPartiallyRemovedOldPrimaryArtifacts(t *testing.T) 
 }
 
 func TestPullRelocationMigratesByteCleanLegacyView(t *testing.T) {
-	for _, marker := range []string{mirror.ConfluenceDocumentMarkerV4} {
+	for _, marker := range []string{mirror.ConfluenceDocumentMarkerV5, mirror.ConfluenceDocumentMarkerV4} {
 		t.Run(marker, func(t *testing.T) {
 			into := t.TempDir()
 			page := &domain.Resource{ID: "100", Title: "Old", SpaceKey: "SP", Version: 1, Body: []byte("<p>body</p>")}

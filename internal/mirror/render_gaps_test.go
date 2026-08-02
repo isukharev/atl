@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
 )
 
@@ -184,6 +185,68 @@ func TestRenderNoformatBody(t *testing.T) {
 func TestRenderPreBlock(t *testing.T) {
 	md := render(t, `<pre>sample-text</pre>`, nil)
 	mustContain(t, md, "```", "sample-text")
+}
+
+func TestRenderUsesContentSafeFencesAndPreservesV5Bytes(t *testing.T) {
+	root, err := csf.Parse([]byte("<ac:structured-macro ac:name=\"code\"><ac:parameter ac:name=\"language\">go</ac:parameter><ac:plain-text-body><![CDATA[before\n" +
+		"```\nafter]]></ac:plain-text-body></ac:structured-macro><ac:structured-macro ac:name=\"noformat\"><ac:plain-text-body><![CDATA[x ```` y]]></ac:plain-text-body></ac:structured-macro><pre>p ``` q</pre>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := string(RenderMarkdownOpts(root, nil, MDViewOpts{}))
+	mustContain(t, current,
+		"````go\nbefore\n```\nafter\n````",
+		"`````\nx ```` y\n`````",
+		"````\np ``` q\n````",
+	)
+	legacy := string(RenderMarkdownOptsV5(root, nil, MDViewOpts{}))
+	if !strings.HasPrefix(legacy, ConfluenceDocumentMarkerV5+"\n") {
+		t.Fatalf("v5 marker missing:\n%s", legacy)
+	}
+	mustContain(t, legacy, "```go\nbefore\n```\nafter\n```", "```\nx ```` y\n```", "```\np ``` q\n```")
+}
+
+func TestRenderEscapesParagraphBlockCollisionsAndKeepsLegacyReconstruction(t *testing.T) {
+	root, err := csf.Parse([]byte("<p>```literal</p><p>---</p><p>\\---</p>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := string(RenderMarkdownOpts(root, nil, MDViewOpts{}))
+	mustContain(t, current, "\\```literal", "\\---", "\\\\---")
+	legacy := string(RenderMarkdownOptsV5(root, nil, MDViewOpts{}))
+	if strings.Contains(legacy, "\n\\```literal\n") || !strings.Contains(legacy, "\n---\n") || !strings.Contains(legacy, "\n\\---\n") {
+		t.Fatalf("v5 reconstruction adopted v6 collision escapes:\n%s", legacy)
+	}
+}
+
+func TestRenderPreservesInlineBreakMarkerAndLegacySpace(t *testing.T) {
+	root, err := csf.Parse([]byte(`<p>line one<br class="kept"/>line two</p>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := string(RenderMarkdownOpts(root, nil, MDViewOpts{}))
+	if !strings.Contains(current, "line one<br>line two") {
+		t.Fatalf("current break marker missing:\n%s", current)
+	}
+	legacy := string(RenderMarkdownOptsV5(root, nil, MDViewOpts{}))
+	if !strings.Contains(legacy, "line one line two") || strings.Contains(legacy, "<br>") {
+		t.Fatalf("v5 break bytes changed:\n%s", legacy)
+	}
+}
+
+func TestRenderTableSeparatorIsAlwaysSecondPhysicalLine(t *testing.T) {
+	root, err := csf.Parse([]byte(`<table><tbody><tr><td>data</td></tr><tr><th>late</th></tr></tbody></table>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := string(RenderMarkdownOpts(root, nil, MDViewOpts{}))
+	if !strings.Contains(current, "| data |\n| --- |\n| late |") {
+		t.Fatalf("current table separator is not second:\n%s", current)
+	}
+	legacy := string(RenderMarkdownOptsV5(root, nil, MDViewOpts{}))
+	if !strings.Contains(legacy, "| data |\n| late |\n| --- |") {
+		t.Fatalf("v5 table separator bytes changed:\n%s", legacy)
+	}
 }
 
 // Gap: <time> carries its value in an attribute; it must not vanish.

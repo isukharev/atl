@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/mirror"
 )
@@ -420,111 +422,127 @@ func TestIncrementalPullRejectsUnappliedMarkdownBeforeRemoteReads(t *testing.T) 
 }
 
 func TestIncrementalPullMigratesByteCleanLegacyMarkdownView(t *testing.T) {
-	root := t.TempDir()
-	oldPage, _ := incrementalPage("10", 1, "2026-07-13T10:00:00Z")
-	store := &incrementalPullStore{pullStore: &pullStore{pages: map[string]*domain.Resource{"10": oldPage}}}
-	svc := &ConfluenceService{store: store}
-	first, err := svc.Pull(context.Background(), PullOpts{ID: "10", Into: root})
-	if err != nil {
-		t.Fatal(err)
-	}
-	mdPath := strings.TrimSuffix(filepath.Join(root, filepath.FromSlash(first.Pages[0].Path)), ".csf") + ".md"
-	md, err := os.ReadFile(mdPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacy := strings.Replace(string(md), mirror.ConfluenceDocumentMarker, mirror.ConfluenceDocumentMarkerV4, 1)
-	if err := os.WriteFile(mdPath, []byte(legacy), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	newPage, hit := incrementalPage("10", 2, "2026-07-13T12:00:00Z")
-	newPage.Title, hit.Title = "Renamed", "Renamed"
-	store.pages["10"] = newPage
-	store.searchPages = map[string]domain.PageSearchPage{"": {Results: []domain.PageRef{hit}, Complete: true}}
-	store.getCalls = 0
-	res, err := svc.Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T11:00:00Z"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Incremental.ViewMigrations != 1 || store.getCalls != 1 {
-		t.Fatalf("incremental=%+v getCalls=%d", res.Incremental, store.getCalls)
-	}
-	newMDPath := strings.TrimSuffix(filepath.Join(root, filepath.FromSlash(res.Pages[0].Path)), ".csf") + ".md"
-	migrated, err := os.ReadFile(newMDPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if marker := mirror.ConfluenceDocumentMarkerLine(string(migrated)); marker != mirror.ConfluenceDocumentMarker {
-		t.Fatalf("marker after pull=%q", marker)
+	for _, marker := range []string{mirror.ConfluenceDocumentMarkerV5, mirror.ConfluenceDocumentMarkerV4} {
+		t.Run(marker, func(t *testing.T) {
+			root := t.TempDir()
+			oldPage, _ := incrementalPage("10", 1, "2026-07-13T10:00:00Z")
+			oldPage.Body = []byte("<p>```literal<br/>tail</p><table><tbody><tr><td>data</td></tr><tr><th>late</th></tr></tbody></table>")
+			store := &incrementalPullStore{pullStore: &pullStore{pages: map[string]*domain.Resource{"10": oldPage}}}
+			svc := &ConfluenceService{store: store}
+			first, err := svc.Pull(context.Background(), PullOpts{ID: "10", Into: root})
+			if err != nil {
+				t.Fatal(err)
+			}
+			mdPath := strings.TrimSuffix(filepath.Join(root, filepath.FromSlash(first.Pages[0].Path)), ".csf") + ".md"
+			node, err := csf.Parse(oldPage.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			legacy := mirror.RenderMarkdownOptsV5(node, nil, mirror.MDViewOpts{})
+			if marker == mirror.ConfluenceDocumentMarkerV4 {
+				legacy = bytes.Replace(legacy, []byte(mirror.ConfluenceDocumentMarkerV5), []byte(marker), 1)
+			}
+			if err := os.WriteFile(mdPath, legacy, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			newPage, hit := incrementalPage("10", 2, "2026-07-13T12:00:00Z")
+			newPage.Body = append(append([]byte(nil), oldPage.Body...), []byte("<p>new</p>")...)
+			store.pages["10"] = newPage
+			store.searchPages = map[string]domain.PageSearchPage{"": {Results: []domain.PageRef{hit}, Complete: true}}
+			store.getCalls = 0
+			res, err := svc.Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T11:00:00Z"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.Incremental.ViewMigrations != 1 || store.getCalls != 1 {
+				t.Fatalf("incremental=%+v getCalls=%d", res.Incremental, store.getCalls)
+			}
+			newMDPath := strings.TrimSuffix(filepath.Join(root, filepath.FromSlash(res.Pages[0].Path)), ".csf") + ".md"
+			migrated, err := os.ReadFile(newMDPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := mirror.ConfluenceDocumentMarkerLine(string(migrated)); got != mirror.ConfluenceDocumentMarker {
+				t.Fatalf("marker after pull=%q", got)
+			}
+		})
 	}
 }
 
 func TestIncrementalPullRefusesEditedLegacyMarkdownBeforeBodyRead(t *testing.T) {
-	root := t.TempDir()
-	oldPage, _ := incrementalPage("10", 1, "2026-07-13T10:00:00Z")
-	store := &incrementalPullStore{pullStore: &pullStore{pages: map[string]*domain.Resource{"10": oldPage}}}
-	svc := &ConfluenceService{store: store}
-	first, err := svc.Pull(context.Background(), PullOpts{ID: "10", Into: root})
-	if err != nil {
-		t.Fatal(err)
-	}
-	mdPath := strings.TrimSuffix(filepath.Join(root, filepath.FromSlash(first.Pages[0].Path)), ".csf") + ".md"
-	md, err := os.ReadFile(mdPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	edited := strings.Replace(string(md), mirror.ConfluenceDocumentMarker, mirror.ConfluenceDocumentMarkerV4, 1) + "\nlocal edit\n"
-	if err := os.WriteFile(mdPath, []byte(edited), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	newPage, hit := incrementalPage("10", 2, "2026-07-13T12:00:00Z")
-	store.pages["10"] = newPage
-	store.searchPages = map[string]domain.PageSearchPage{"": {Results: []domain.PageRef{hit}, Complete: true}}
-	store.getCalls = 0
-	_, err = svc.Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T11:00:00Z"})
-	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "supported legacy Markdown format") || store.getCalls != 0 {
-		t.Fatalf("err=%v getCalls=%d", err, store.getCalls)
+	for _, marker := range []string{mirror.ConfluenceDocumentMarkerV5, mirror.ConfluenceDocumentMarkerV4} {
+		t.Run(marker, func(t *testing.T) {
+			root := t.TempDir()
+			oldPage, _ := incrementalPage("10", 1, "2026-07-13T10:00:00Z")
+			store := &incrementalPullStore{pullStore: &pullStore{pages: map[string]*domain.Resource{"10": oldPage}}}
+			svc := &ConfluenceService{store: store}
+			first, err := svc.Pull(context.Background(), PullOpts{ID: "10", Into: root})
+			if err != nil {
+				t.Fatal(err)
+			}
+			mdPath := strings.TrimSuffix(filepath.Join(root, filepath.FromSlash(first.Pages[0].Path)), ".csf") + ".md"
+			md, err := os.ReadFile(mdPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			edited := strings.Replace(string(md), mirror.ConfluenceDocumentMarker, marker, 1) + "\nlocal edit\n"
+			if err := os.WriteFile(mdPath, []byte(edited), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			newPage, hit := incrementalPage("10", 2, "2026-07-13T12:00:00Z")
+			store.pages["10"] = newPage
+			store.searchPages = map[string]domain.PageSearchPage{"": {Results: []domain.PageRef{hit}, Complete: true}}
+			store.getCalls = 0
+			_, err = svc.Pull(context.Background(), PullOpts{CQL: "type=page", Into: root, Incremental: true, Since: "2026-07-13T11:00:00Z"})
+			if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "supported legacy Markdown format") || store.getCalls != 0 {
+				t.Fatalf("err=%v getCalls=%d", err, store.getCalls)
+			}
+		})
 	}
 }
 
 func TestMatchConfluencePristineViewMarkerMatrix(t *testing.T) {
 	current := []byte(mirror.ConfluenceDocumentMarker + "\ntree body\n")
-	legacy := []byte(mirror.ConfluenceDocumentMarkerV4 + "\nflat body\n")
-	for _, marker := range []string{mirror.ConfluenceDocumentMarkerV4} {
-		actual := []byte(strings.Replace(string(legacy), mirror.ConfluenceDocumentMarkerV4, marker, 1))
-		migrates, err := matchConfluencePristineView(actual, current, legacy)
+	v5 := []byte(mirror.ConfluenceDocumentMarkerV5 + "\nintermediate body\n")
+	v4 := []byte(mirror.ConfluenceDocumentMarkerV4 + "\nflat body\n")
+	views := confluencePristineViews{current: current, legacy: map[string][]byte{
+		mirror.ConfluenceDocumentMarkerV5: v5,
+		mirror.ConfluenceDocumentMarkerV4: v4,
+	}}
+	for marker, actual := range views.legacy {
+		migrates, err := matchConfluencePristineView(actual, views)
 		if err != nil || !migrates {
 			t.Fatalf("marker=%q migrates=%t err=%v", marker, migrates, err)
 		}
+		legacyCRLF := []byte(strings.Replace(string(actual), "\n", "\r\n", 1))
+		if migrates, err := matchConfluencePristineView(legacyCRLF, views); err != nil || !migrates {
+			t.Fatalf("legacy CRLF marker=%q migrates=%t err=%v", marker, migrates, err)
+		}
+		legacyEdit := append(append([]byte(nil), actual...), []byte("edit")...)
+		if _, err := matchConfluencePristineView(legacyEdit, views); err == nil || !strings.Contains(err.Error(), "differs from its pristine reconstruction") {
+			t.Fatalf("legacy edit marker=%q err=%v", marker, err)
+		}
 	}
-	if migrates, err := matchConfluencePristineView(current, current, legacy); err != nil || migrates {
+	if migrates, err := matchConfluencePristineView(current, views); err != nil || migrates {
 		t.Fatalf("current migrates=%t err=%v", migrates, err)
 	}
 	currentCRLF := []byte(strings.Replace(string(current), "\n", "\r\n", 1))
-	if migrates, err := matchConfluencePristineView(currentCRLF, current, legacy); err != nil || migrates {
+	if migrates, err := matchConfluencePristineView(currentCRLF, views); err != nil || migrates {
 		t.Fatalf("current CRLF migrates=%t err=%v", migrates, err)
 	}
-	legacyCRLF := []byte(strings.Replace(string(legacy), "\n", "\r\n", 1))
-	if migrates, err := matchConfluencePristineView(legacyCRLF, current, legacy); err != nil || !migrates {
-		t.Fatalf("legacy CRLF migrates=%t err=%v", migrates, err)
-	}
 	future := []byte(strings.Replace(string(current), mirror.ConfluenceDocumentMarker, "<!-- atl:document confluence-page v99 -->", 1))
-	if _, err := matchConfluencePristineView(future, current, legacy); err == nil || !strings.Contains(err.Error(), "unsupported Markdown format") {
+	if _, err := matchConfluencePristineView(future, views); err == nil || !strings.Contains(err.Error(), "unsupported Markdown format") {
 		t.Fatalf("future err=%v", err)
 	}
-	unversioned := []byte(strings.Replace(string(legacy), mirror.ConfluenceDocumentMarkerV4, "<!-- atl:document confluence-page -->", 1))
-	if _, err := matchConfluencePristineView(unversioned, current, legacy); err == nil || !strings.Contains(err.Error(), "unsupported Markdown format") {
+	unversioned := []byte(strings.Replace(string(v4), mirror.ConfluenceDocumentMarkerV4, "<!-- atl:document confluence-page -->", 1))
+	if _, err := matchConfluencePristineView(unversioned, views); err == nil || !strings.Contains(err.Error(), "unsupported Markdown format") {
 		t.Fatalf("unversioned err=%v", err)
 	}
 	for _, oldMarker := range []string{"<!-- atl:document confluence-page v3 -->", "<!-- atl:document confluence-page v2 -->", "<!-- atl:document confluence-page v1 -->"} {
-		old := []byte(strings.Replace(string(legacy), mirror.ConfluenceDocumentMarkerV4, oldMarker, 1))
-		if _, err := matchConfluencePristineView(old, current, legacy); err == nil || !strings.Contains(err.Error(), "unsupported Markdown format") {
+		old := []byte(strings.Replace(string(v4), mirror.ConfluenceDocumentMarkerV4, oldMarker, 1))
+		if _, err := matchConfluencePristineView(old, views); err == nil || !strings.Contains(err.Error(), "unsupported Markdown format") {
 			t.Fatalf("old marker %q err=%v", oldMarker, err)
 		}
-	}
-	legacyEdit := append(append([]byte(nil), legacy...), []byte("edit")...)
-	if _, err := matchConfluencePristineView(legacyEdit, current, legacy); err == nil || !strings.Contains(err.Error(), "differs from its pristine reconstruction") {
-		t.Fatalf("legacy edit err=%v", err)
 	}
 }
 

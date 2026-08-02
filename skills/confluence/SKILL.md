@@ -179,7 +179,7 @@ write command after explicit approval.
   never infer it from response order or prose. `--legacy-flat` is temporary
   compatibility only, not a route for new automation.
   With `conf pull --comments`, treat `.comments.json` as schema-v2 source
-  evidence. The main v5 `.md` contains the deterministic qualified read-only
+  evidence. The main v6 `.md` contains the deterministic qualified read-only
   tree; `.comments.md` remains flat compatibility. Never edit either generated
   comment view or infer current anchor text unless a matched observed selection
   is explicitly labelled current. Anchors belong to root discussions; a proven
@@ -294,10 +294,11 @@ or discard the output, and do not publish until the baseline is repaired.
 
 - Keep one mirror root and one body surface for the complete cycle. Never mix
   unapplied `.md` edits with direct `.csf` edits.
-- Require the current `<!-- atl:document confluence-page v5 -->` marker before
-  Markdown apply. Only pristine v4 views migrate by exact reconstruction;
-  preserve and refuse dirty v4, older historical, unversioned, and future
-  views. Update atl for a future marker; never downgrade it.
+- Require the current `<!-- atl:document confluence-page v6 -->` marker before
+  Markdown apply. Only byte-clean v5/v4 views migrate through exact
+  version-specific reconstruction; preserve and refuse edited legacy, older
+  historical, unversioned, and future views. Update atl for a future marker;
+  never downgrade it.
 - Generated metadata, comments, Jira query tables, `.meta.json`, and `.atl`
   state are readonly. Use dedicated operations or re-pull.
 - Validate, review dry-runs, and write the exact bytes/hash reviewed. Never

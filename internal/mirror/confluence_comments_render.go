@@ -14,6 +14,10 @@ import (
 // consistent ancestry is presented as a thread; every other record remains
 // visible in the unattached section.
 func RenderQualifiedCommentsMarkdown(sidecar *ConfluenceCommentsSidecarV2) []byte {
+	return renderQualifiedCommentsMarkdownVersion(sidecar, confluenceMarkdownCurrent)
+}
+
+func renderQualifiedCommentsMarkdownVersion(sidecar *ConfluenceCommentsSidecarV2, format confluenceMarkdownFormat) []byte {
 	var b strings.Builder
 	b.WriteString("# Comments\n\n")
 	if sidecar == nil {
@@ -52,6 +56,7 @@ func RenderQualifiedCommentsMarkdown(sidecar *ConfluenceCommentsSidecarV2) []byt
 	}
 
 	forest := newConfluenceCommentRenderForest(sidecar.Comments)
+	forest.format = format
 	for _, root := range forest.roots {
 		forest.renderThread(&b, root, 0)
 	}
@@ -59,7 +64,7 @@ func RenderQualifiedCommentsMarkdown(sidecar *ConfluenceCommentsSidecarV2) []byt
 		b.WriteString("## Unattached comments\n\n")
 		b.WriteString("These records have unavailable or inconsistent ancestry and are not presented as a thread.\n\n")
 		for _, index := range forest.unattached {
-			renderConfluenceComment(&b, forest.records[index].comment, 3, 0, true)
+			renderConfluenceComment(&b, forest.records[index].comment, 3, 0, true, format)
 		}
 	}
 	renderConfluenceCommentDiagnostics(&b, sidecar.Diagnostics)
@@ -141,6 +146,7 @@ type confluenceCommentRenderForest struct {
 	children   map[int][]int
 	roots      []int
 	unattached []int
+	format     confluenceMarkdownFormat
 }
 
 func newConfluenceCommentRenderForest(comments []ConfluenceCommentsSidecarComment) *confluenceCommentRenderForest {
@@ -231,13 +237,13 @@ func (f *confluenceCommentRenderForest) renderThread(b *strings.Builder, index, 
 	if heading > 6 {
 		heading = 6
 	}
-	renderConfluenceComment(b, f.records[index].comment, heading, depth, false)
+	renderConfluenceComment(b, f.records[index].comment, heading, depth, false, f.format)
 	for _, child := range f.children[index] {
 		f.renderThread(b, child, depth+1)
 	}
 }
 
-func renderConfluenceComment(b *strings.Builder, comment ConfluenceCommentsSidecarComment, heading, depth int, unattached bool) {
+func renderConfluenceComment(b *strings.Builder, comment ConfluenceCommentsSidecarComment, heading, depth int, unattached bool, format confluenceMarkdownFormat) {
 	author := pageSectionValue(comment.Author.DisplayName)
 	if author == "" {
 		author = "Unknown author"
@@ -276,7 +282,7 @@ func renderConfluenceComment(b *strings.Builder, comment ConfluenceCommentsSidec
 	body := strings.TrimSpace(comment.Body)
 	if comment.BodyStorage != "" {
 		if root, err := csf.Parse([]byte(comment.BodyStorage)); err == nil {
-			body = strings.TrimSpace(renderQualifiedCommentMarkdown(root, heading))
+			body = strings.TrimSpace(renderQualifiedCommentMarkdownVersion(root, heading, format))
 		}
 	}
 	if body != "" {

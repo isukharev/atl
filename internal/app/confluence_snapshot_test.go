@@ -383,7 +383,8 @@ func TestConfluenceViewMarkerClass(t *testing.T) {
 		body, want string
 	}{
 		"current CRLF": {mirror.ConfluenceDocumentMarker + "\r\nbody", "current"},
-		"legacy":       {mirror.ConfluenceDocumentMarkerV4 + "\nbody", "legacy"},
+		"legacy v5":    {mirror.ConfluenceDocumentMarkerV5 + "\nbody", "legacy"},
+		"legacy v4":    {mirror.ConfluenceDocumentMarkerV4 + "\nbody", "legacy"},
 		"old":          {"<!-- atl:document confluence-page v1 -->\nbody", "unsupported"},
 		"unsupported":  {"<!-- atl:document confluence-page v88 -->\nbody", "unsupported"},
 		"missing":      {"# plain\n", "missing"},
