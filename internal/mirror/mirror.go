@@ -604,15 +604,91 @@ type LocalCSF struct {
 	CanonicalPath    string     // canonical path relative to mirror root
 }
 
+// ReadSnapshot is an immutable view of one decoded mirror sidecar. Native
+// bodies and neighboring metadata are deliberately not retained: LoadCSF
+// reads one selected page on demand, keeping whole-mirror inspections bounded
+// by the size of one page rather than the sum of every page body.
+//
+// Callers that cross a mutation or final-validation boundary must open a new
+// snapshot so they observe the latest committed sidecar state.
+type ReadSnapshot struct {
+	root string
+	sc   sidecarFile
+}
+
+// BeginReadSnapshot decodes state.json exactly once for a streaming read
+// phase. The returned snapshot exposes no mutable sidecar maps.
+func (m *Mirror) BeginReadSnapshot() (*ReadSnapshot, error) {
+	sc, err := m.loadSidecar()
+	if err != nil {
+		return nil, err
+	}
+	return &ReadSnapshot{root: m.Root, sc: sc}, nil
+}
+
+// LoadCSF reads one native page and its metadata against the captured sidecar.
+func (s *ReadSnapshot) LoadCSF(csfPath string) (*LocalCSF, []byte, error) {
+	return loadCSFWith(s.root, s.sc, csfPath)
+}
+
+// ViewStateOf returns a defensive copy of one captured render state.
+func (s *ReadSnapshot) ViewStateOf(id string) (ViewState, bool) {
+	state, ok := s.sc.Views[id]
+	if !ok {
+		return ViewState{}, false
+	}
+	state.Sections = append([]string(nil), state.Sections...)
+	state.CustomFields = append([]string(nil), state.CustomFields...)
+	state.FieldViews = append([]FieldViewState(nil), state.FieldViews...)
+	state.PageFields = append([]FieldViewState(nil), state.PageFields...)
+	return state, true
+}
+
+// SyncStates returns deterministic copies of every state captured by this
+// snapshot. Consumers must still filter by substrate extension.
+func (s *ReadSnapshot) SyncStates() []SyncState {
+	out := make([]SyncState, 0, len(s.sc.Pages))
+	for _, state := range s.sc.Pages {
+		out = append(out, state)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Path != out[j].Path {
+			return out[i].Path < out[j].Path
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
+// ListCSF streams every securely inventoried native page against the captured
+// sidecar and retains metadata only. It preserves ListCSF's deterministic order
+// and fail-on-first-unreadable contract without repeatedly decoding state.json.
+func (s *ReadSnapshot) ListCSF() ([]*LocalCSF, error) {
+	m := New(s.root)
+	paths, err := m.ListCSFPaths()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*LocalCSF, 0, len(paths))
+	for _, path := range paths {
+		local, _, loadErr := s.LoadCSF(path)
+		if loadErr != nil {
+			return nil, fmt.Errorf("load mirror page %s: %w", path, loadErr)
+		}
+		out = append(out, local)
+	}
+	return out, nil
+}
+
 // LoadCSF reads a .csf path and its neighboring meta + sidecar state. A
 // corrupt sidecar is an error — reporting the page as never-synced instead
 // would silently disable the version gate and drift detection.
 func (m *Mirror) LoadCSF(csfPath string) (*LocalCSF, []byte, error) {
-	sc, err := m.loadSidecar()
+	snapshot, err := m.BeginReadSnapshot()
 	if err != nil {
 		return nil, nil, err
 	}
-	return loadCSFWith(m.Root, sc, csfPath)
+	return snapshot.LoadCSF(csfPath)
 }
 
 // LoadCSFWithinLimit is the allocation-bounded form used by safety-sensitive
@@ -633,14 +709,14 @@ func (m *Mirror) LoadCSFWithinLimit(csfPath string, max int64) (*LocalCSF, []byt
 // preflights use it to avoid repeatedly decoding a large shared state.json
 // while still inspecting no file outside their reviewed set.
 func (m *Mirror) LoadCSFMany(paths []string) ([]*LocalCSF, [][]byte, error) {
-	sc, err := m.loadSidecar()
+	snapshot, err := m.BeginReadSnapshot()
 	if err != nil {
 		return nil, nil, err
 	}
 	locals := make([]*LocalCSF, 0, len(paths))
 	bodies := make([][]byte, 0, len(paths))
 	for _, path := range paths {
-		local, body, err := loadCSFWith(m.Root, sc, path)
+		local, body, err := snapshot.LoadCSF(path)
 		if err != nil {
 			return nil, nil, fmt.Errorf("load mirror page %s: %w", path, err)
 		}
@@ -696,23 +772,11 @@ func sameTrackedPath(root, absolute, trackedRel string) bool {
 
 // ListCSF walks the mirror returning every tracked .csf with dirty status.
 func (m *Mirror) ListCSF() ([]*LocalCSF, error) {
-	sc, err := m.loadSidecar()
+	snapshot, err := m.BeginReadSnapshot()
 	if err != nil {
 		return nil, err
 	}
-	paths, err := m.ListCSFPaths()
-	if err != nil {
-		return nil, err
-	}
-	out := make([]*LocalCSF, 0, len(paths))
-	for _, path := range paths {
-		lc, _, loadErr := loadCSFWith(m.Root, sc, path)
-		if loadErr != nil {
-			return nil, fmt.Errorf("load mirror page %s: %w", path, loadErr)
-		}
-		out = append(out, lc)
-	}
-	return out, nil
+	return snapshot.ListCSF()
 }
 
 // ListCSFPaths securely inventories native Confluence substrate paths without

@@ -225,12 +225,11 @@ func beginConfluenceMirrorSnapshot(dir string) (string, *mirrorSnapshotLock, *Co
 }
 
 func inspectConfluenceMirrorUnlocked(dir string) (*ConfluenceMirrorSnapshot, []*mirror.LocalCSF, error) {
-	diff, diffErr := DiffConfluenceMirror("", dir)
+	diff, m, snapshot, diffErr := diffConfluenceMirrorSnapshot("", dir)
 	if diff == nil {
 		return nil, nil, contentFreeConfluenceSnapshotError(diffErr)
 	}
-	m := mirror.New(diff.Root)
-	locals, err := m.ListCSF()
+	locals, err := snapshot.ListCSF()
 	if err != nil {
 		return nil, nil, contentFreeConfluenceSnapshotError(err)
 	}
@@ -280,7 +279,6 @@ func inspectConfluenceMirrorUnlocked(dir string) (*ConfluenceMirrorSnapshot, []*
 			result.Validation.Absent++
 		}
 	}
-	ids := make([]string, 0, len(locals))
 	for _, local := range locals {
 		result.Local.Present++
 		if local.Dirty {
@@ -298,14 +296,9 @@ func inspectConfluenceMirrorUnlocked(dir string) (*ConfluenceMirrorSnapshot, []*
 		} else if local.Meta.ID != "" && local.Synced != nil {
 			result.Remote.Eligible++
 		}
-		ids = append(ids, local.Meta.ID)
-	}
-	views, err := m.ViewStatesOf(ids)
-	if err != nil {
-		return nil, nil, contentFreeConfluenceSnapshotError(err)
 	}
 	for _, local := range locals {
-		if _, ok := views[local.Meta.ID]; ok && !local.TrackedElsewhere {
+		if _, ok := snapshot.ViewStateOf(local.Meta.ID); ok && !local.TrackedElsewhere {
 			result.Render.StateRecorded++
 		} else {
 			result.Render.StateMissing++

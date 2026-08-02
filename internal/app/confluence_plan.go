@@ -89,6 +89,10 @@ func CreateConfluencePlan(target, into, out string) (*ConfluencePlanCreateResult
 		return nil, err
 	}
 	m := mirror.New(root)
+	enrichmentSnapshot, err := m.BeginReadSnapshot()
+	if err != nil {
+		return nil, err
+	}
 	plan := &ConfluencePlan{
 		Schema: confluencePlanSchema, Root: root, Target: canonicalTarget,
 		Summary: diff.Summary, Entries: []ConfluencePlanEntry{},
@@ -102,7 +106,7 @@ func CreateConfluencePlan(target, into, out string) (*ConfluencePlanCreateResult
 		default:
 			return nil, fmt.Errorf("%w: cannot plan page %s in state %s; reconcile the mirror first", domain.ErrCheckFailed, page.Path, page.State)
 		}
-		lc, body, loadErr := m.LoadCSF(page.Path)
+		lc, body, loadErr := enrichmentSnapshot.LoadCSF(page.Path)
 		if loadErr != nil {
 			return nil, loadErr
 		}
@@ -159,16 +163,16 @@ func CreateConfluencePlan(target, into, out string) (*ConfluencePlanCreateResult
 }
 
 func validateConfluencePlanBuildSnapshot(m *mirror.Mirror, plan *ConfluencePlan) error {
-	paths := make([]string, len(plan.Entries))
-	for i, entry := range plan.Entries {
-		paths[i] = filepath.Join(plan.Root, filepath.FromSlash(entry.Path))
-	}
-	locals, bodies, err := m.LoadCSFMany(paths)
+	snapshot, err := m.BeginReadSnapshot()
 	if err != nil {
 		return err
 	}
-	for i, entry := range plan.Entries {
-		lc, body := locals[i], bodies[i]
+	for _, entry := range plan.Entries {
+		path := filepath.Join(plan.Root, filepath.FromSlash(entry.Path))
+		lc, body, err := snapshot.LoadCSF(path)
+		if err != nil {
+			return fmt.Errorf("load mirror page %s: %w", path, err)
+		}
 		if lc.Synced == nil || lc.TrackedElsewhere || lc.Meta.ID != entry.ID || lc.Meta.Title != entry.Title || lc.Meta.Space != entry.Space || lc.Meta.Version != entry.ExpectedVersion || lc.Synced.Version != entry.ExpectedVersion || lc.Synced.Hash != entry.BaselineSHA256 || mirror.Hash(body) != entry.CandidateSHA256 {
 			return fmt.Errorf("%w: page %s changed while its complete plan was being finalized", domain.ErrCheckFailed, entry.ID)
 		}

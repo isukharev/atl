@@ -323,7 +323,11 @@ func (s *ConfluenceService) Render(target string, override config.RenderService)
 	}
 	defer func() { _ = lock.Unlock() }()
 	m := mirror.New(root)
-	paths, err := confRenderTargets(m, target)
+	snapshot, err := m.BeginReadSnapshot()
+	if err != nil {
+		return nil, err
+	}
+	paths, err := confRenderTargets(snapshot, target)
 	if err != nil {
 		return nil, err
 	}
@@ -332,12 +336,12 @@ func (s *ConfluenceService) Render(target string, override config.RenderService)
 	// Inspect every existing target before rewriting any sibling so one future
 	// view version cannot leave a directory render half-migrated.
 	for _, csfPath := range paths {
-		if err := preflightConfluenceRenderView(m, csfPath); err != nil {
+		if err := preflightConfluenceRenderView(m, snapshot, csfPath); err != nil {
 			return res, err
 		}
 	}
 	for _, csfPath := range paths {
-		lc, body, err := m.LoadCSF(csfPath)
+		lc, body, err := snapshot.LoadCSF(csfPath)
 		if err != nil {
 			continue // unreadable page: skip, never fail the batch
 		}
@@ -391,7 +395,7 @@ func (s *ConfluenceService) Render(target string, override config.RenderService)
 // confRenderTargets resolves a render target to the `.csf` paths to rewrite. A
 // file target maps to its sibling `.csf`; a directory target lists every tracked
 // `.csf` under it.
-func confRenderTargets(m *mirror.Mirror, target string) ([]string, error) {
+func confRenderTargets(snapshot *mirror.ReadSnapshot, target string) ([]string, error) {
 	info, err := os.Stat(target)
 	if err != nil {
 		return nil, localConfluenceTargetError("render", target, err)
@@ -414,7 +418,7 @@ func confRenderTargets(m *mirror.Mirror, target string) ([]string, error) {
 		}
 		return []string{csfPath}, nil
 	}
-	locals, err := m.ListCSF()
+	locals, err := snapshot.ListCSF()
 	if err != nil {
 		return nil, err
 	}
@@ -430,7 +434,7 @@ func confRenderTargets(m *mirror.Mirror, target string) ([]string, error) {
 // preflightConfluenceRenderView proves the existing derived view byte-for-byte
 // before an explicit render rewrites it. This prevents a format migration from
 // treating edited legacy bytes as pristine and preserves the whole-batch guarantee.
-func preflightConfluenceRenderView(m *mirror.Mirror, csfPath string) error {
+func preflightConfluenceRenderView(m *mirror.Mirror, snapshot *mirror.ReadSnapshot, csfPath string) error {
 	dir := filepath.Dir(csfPath)
 	slug := strings.TrimSuffix(filepath.Base(csfPath), ".csf")
 	mdPath := filepath.Join(dir, slug+".md")
@@ -458,7 +462,7 @@ func preflightConfluenceRenderView(m *mirror.Mirror, csfPath string) error {
 		}
 		return fmt.Errorf("%w: existing view %s has an unrecognized or missing document marker; preserve it before rendering", domain.ErrCheckFailed, mdPath)
 	}
-	lc, body, err := m.LoadCSF(csfPath)
+	lc, body, err := snapshot.LoadCSF(csfPath)
 	if err != nil {
 		return fmt.Errorf("%w: reconstruct existing render target %s: %v", domain.ErrCheckFailed, mdPath, err)
 	}
@@ -468,10 +472,7 @@ func preflightConfluenceRenderView(m *mirror.Mirror, csfPath string) error {
 		mirror.ConfluenceDocumentMarkerV4: bytes.Replace(current, []byte(mirror.ConfluenceDocumentMarker), []byte(mirror.ConfluenceDocumentMarkerV4), 1),
 	}}
 	if node, parseErr := csf.Parse(body); parseErr == nil {
-		viewState, hasView, stateErr := m.ViewStateOf(lc.Meta.ID)
-		if stateErr != nil {
-			return stateErr
-		}
+		viewState, hasView := snapshot.ViewStateOf(lc.Meta.ID)
 		renderSettings := RenderSettings{Sections: map[string]bool{}}
 		if hasView {
 			renderSettings = settingsFromViewState(viewState)
