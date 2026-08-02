@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -26,23 +28,29 @@ const (
 	jiraIssueGraphFixedResponseBytes = 16 << 20
 	jiraIssueGraphMaxLabelRunes      = 160
 	jiraIssueGraphMaxURLBytes        = 2 << 10
+	jiraIssueGraphMaxProjectBytes    = 2 << 10
+	jiraIssueGraphMaxBranchBytes     = 512
 )
 
 var (
-	jiraIssueGraphSafeID      = regexp.MustCompile(`^[A-Za-z0-9._:/~-]{1,256}$`)
-	jiraIssueGraphSafePointer = regexp.MustCompile(`^/(?:[A-Za-z0-9._~-]+)(?:/[A-Za-z0-9._~-]+)*$`)
+	jiraIssueGraphSafeID         = regexp.MustCompile(`^[A-Za-z0-9._:/~-]{1,256}$`)
+	jiraIssueGraphSafePointer    = regexp.MustCompile(`^/(?:[A-Za-z0-9._~-]+)(?:/[A-Za-z0-9._~-]+)*$`)
+	jiraIssueGraphProjectSegment = regexp.MustCompile(`^[A-Za-z0-9._-]{1,255}$`)
+	jiraIssueGraphCommitSHA      = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
+	jiraIssueGraphMergeRequestID = regexp.MustCompile(`^[1-9][0-9]{0,19}$`)
 )
 
 // JiraIssueGraphInput is deliberately smaller than the CLI graph surface. It
-// exposes only the stable Jira collectors and never enables Confluence reads or
-// the deferred Development source.
+// never enables Confluence reads. Development identities require an explicit
+// opt-in and remain a closed experimental projection.
 type JiraIssueGraphInput struct {
-	Key         string `json:"key" jsonschema:"exact canonical uppercase Jira issue key; required"`
-	Depth       int    `json:"depth,omitempty" jsonschema:"exact structured Jira traversal depth from 0 to 2; default 0"`
-	MaxNodes    int    `json:"max_nodes,omitempty" jsonschema:"node bound from 1 to 100; default 50"`
-	MaxEdges    int    `json:"max_edges,omitempty" jsonschema:"edge bound from 1 to 500; default 200"`
-	MaxRequests int    `json:"max_requests,omitempty" jsonschema:"physical HTTP attempt bound from 1 to 100; default 50"`
-	MaxBytes    int    `json:"max_bytes,omitempty" jsonschema:"maximum encoded result bytes from 1024 to 1048576; default 262144"`
+	Key                string `json:"key" jsonschema:"exact canonical uppercase Jira issue key; required"`
+	Depth              int    `json:"depth,omitempty" jsonschema:"exact structured Jira traversal depth from 0 to 2; default 0"`
+	IncludeDevelopment bool   `json:"include_development,omitempty" jsonschema:"include bounded experimental Jira Development SCM identities; default false"`
+	MaxNodes           int    `json:"max_nodes,omitempty" jsonschema:"node bound from 1 to 100; default 50"`
+	MaxEdges           int    `json:"max_edges,omitempty" jsonschema:"edge bound from 1 to 500; default 200"`
+	MaxRequests        int    `json:"max_requests,omitempty" jsonschema:"physical HTTP attempt bound from 1 to 100; default 50"`
+	MaxBytes           int    `json:"max_bytes,omitempty" jsonschema:"maximum encoded result bytes from 1024 to 1048576; default 262144"`
 }
 
 type JiraIssueGraphOutput struct {
@@ -60,22 +68,23 @@ type JiraIssueGraphOutput struct {
 }
 
 type JiraIssueGraphBoundsOutput struct {
-	RequestedDepth    int  `json:"requested_depth"`
-	MaxNodes          int  `json:"max_nodes"`
-	MaxEdges          int  `json:"max_edges"`
-	MaxEvidence       int  `json:"max_evidence"`
-	MaxSourceBytes    int  `json:"max_source_bytes"`
-	ExpandedNodes     int  `json:"expanded_node_count"`
-	FollowedNodes     int  `json:"followed_node_count"`
-	AttemptedNodes    int  `json:"attempted_node_count"`
-	MaxRequests       int  `json:"max_requests"`
-	RequestsUsed      int  `json:"requests_used"`
-	MaxResponseBytes  int  `json:"max_response_bytes"`
-	ResponseBytesUsed int  `json:"response_bytes_used"`
-	MaxSources        int  `json:"max_sources"`
-	MaxFrontier       int  `json:"max_frontier"`
-	FrontierCount     int  `json:"frontier_count"`
-	FrontierTruncated bool `json:"frontier_truncated"`
+	RequestedDepth     int  `json:"requested_depth"`
+	IncludeDevelopment bool `json:"include_development,omitempty"`
+	MaxNodes           int  `json:"max_nodes"`
+	MaxEdges           int  `json:"max_edges"`
+	MaxEvidence        int  `json:"max_evidence"`
+	MaxSourceBytes     int  `json:"max_source_bytes"`
+	ExpandedNodes      int  `json:"expanded_node_count"`
+	FollowedNodes      int  `json:"followed_node_count"`
+	AttemptedNodes     int  `json:"attempted_node_count"`
+	MaxRequests        int  `json:"max_requests"`
+	RequestsUsed       int  `json:"requests_used"`
+	MaxResponseBytes   int  `json:"max_response_bytes"`
+	ResponseBytesUsed  int  `json:"response_bytes_used"`
+	MaxSources         int  `json:"max_sources"`
+	MaxFrontier        int  `json:"max_frontier"`
+	FrontierCount      int  `json:"frontier_count"`
+	FrontierTruncated  bool `json:"frontier_truncated"`
 }
 
 type JiraIssueGraphSummaryOutput struct {
@@ -105,6 +114,16 @@ type JiraIssueGraphNodeOutput struct {
 	Expanded   bool                          `json:"expanded"`
 	Depth      int                           `json:"depth"`
 	Stability  domain.ArtifactGraphStability `json:"stability"`
+	SCM        *JiraIssueGraphSCMOutput      `json:"scm,omitempty"`
+}
+
+type JiraIssueGraphSCMOutput struct {
+	Host              string `json:"host"`
+	ProjectPath       string `json:"project_path"`
+	CommitSHA         string `json:"commit_sha,omitempty"`
+	BranchName        string `json:"branch_name,omitempty"`
+	MergeRequestIID   string `json:"merge_request_iid,omitempty"`
+	MergeRequestState string `json:"merge_request_state,omitempty"`
 }
 
 type JiraIssueGraphEvidenceOutput struct {
@@ -150,7 +169,7 @@ type JiraIssueGraphFrontier struct {
 }
 
 func registerJiraIssueGraphTool(server *mcp.Server, deps Dependencies) {
-	addReadOnlyTool(server, readOnlyTool("jira_issue_graph", "Build a bounded Jira issue graph", "Return one provenance-qualified schema-v2 graph from an exact canonical Jira key. Depth is limited to 0..2 and follows only exact structured Jira relations. The tool uses stable Jira sources only: it performs no Confluence reads, exposes no Development source, and never treats absent Development evidence as zero. External and Confluence nodes are unfetched stubs."),
+	addReadOnlyTool(server, readOnlyTool("jira_issue_graph", "Build a bounded Jira issue graph", "Return one provenance-qualified schema-v2 graph from an exact canonical Jira key. Depth is limited to 0..2 and follows only exact structured Jira relations. The default uses stable Jira sources only. include_development explicitly adds bounded experimental GitLab SCM identities from Jira; those nodes remain unfetched stubs, and ATL never contacts GitLab or follows artifact URLs. The tool performs no Confluence reads."),
 		func(ctx context.Context, _ *mcp.CallToolRequest, in JiraIssueGraphInput) (*mcp.CallToolResult, *JiraIssueGraphOutput, error) {
 			key, opts, maxBytes, err := validatedJiraIssueGraphInput(in)
 			if err != nil {
@@ -199,6 +218,7 @@ func validatedJiraIssueGraphInput(in JiraIssueGraphInput) (string, app.JiraIssue
 		Depth: in.Depth, MaxNodes: maxNodes, MaxEdges: maxEdges,
 		MaxEvidence: jiraIssueGraphFixedMaxEvidence, MaxRequests: maxRequests,
 		MaxResponseBytes: jiraIssueGraphFixedResponseBytes, ResolveConfluence: false,
+		IncludeDevelopment: in.IncludeDevelopment,
 	}
 	return in.Key, opts, maxBytes, nil
 }
@@ -211,16 +231,22 @@ func projectJiraIssueGraph(result *app.JiraIssueGraphResult, key string, opts ap
 		return invalid()
 	}
 	bounds := result.Bounds
+	sourceKinds := 8
+	if opts.IncludeDevelopment {
+		sourceKinds++
+	}
 	if bounds.RequestedDepth != opts.Depth || bounds.MaxNodes != opts.MaxNodes || bounds.MaxEdges != opts.MaxEdges ||
 		bounds.MaxEvidence != jiraIssueGraphFixedMaxEvidence || bounds.MaxRequests != opts.MaxRequests ||
-		bounds.MaxResponseBytes != jiraIssueGraphFixedResponseBytes || bounds.MaxSources != opts.MaxNodes*8+1 ||
+		bounds.MaxResponseBytes != jiraIssueGraphFixedResponseBytes || bounds.IncludeDevelopment != opts.IncludeDevelopment ||
+		bounds.MaxSources != opts.MaxNodes*sourceKinds+1 ||
 		bounds.MaxFrontier != opts.MaxNodes {
 		return invalid()
 	}
 	out := &JiraIssueGraphOutput{
 		SchemaVersion: result.SchemaVersion, RootID: result.RootID, Complete: result.Complete, Truncated: result.Truncated,
 		Bounds: JiraIssueGraphBoundsOutput{
-			RequestedDepth: bounds.RequestedDepth, MaxNodes: bounds.MaxNodes, MaxEdges: bounds.MaxEdges,
+			RequestedDepth: bounds.RequestedDepth, IncludeDevelopment: bounds.IncludeDevelopment,
+			MaxNodes: bounds.MaxNodes, MaxEdges: bounds.MaxEdges,
 			MaxEvidence: bounds.MaxEvidence, MaxSourceBytes: bounds.MaxSourceBytes,
 			ExpandedNodes: bounds.ExpandedNodes, FollowedNodes: bounds.FollowedNodes, AttemptedNodes: bounds.AttemptedNodes,
 			MaxRequests: bounds.MaxRequests, RequestsUsed: bounds.RequestsUsed,
@@ -247,17 +273,28 @@ func projectJiraIssueGraph(result *app.JiraIssueGraphResult, key string, opts ap
 		Warnings: append([]string(nil), result.Warnings...),
 	}
 	for _, node := range result.Nodes {
-		if !oneOfString(node.Kind, "jira_issue", "confluence_page", "attachment", "url") || !safeJiraIssueGraphURL(node.URL) {
-			return invalid()
-		}
-		out.Nodes = append(out.Nodes, JiraIssueGraphNodeOutput{
+		projected := JiraIssueGraphNodeOutput{
 			ID: node.ID, Kind: node.Kind, Service: node.Service, ExternalID: node.ExternalID,
-			URL: node.URL, State: node.State, Expanded: node.Expanded,
-			Depth: node.Depth, Stability: node.Stability,
-		})
+			State: node.State, Expanded: node.Expanded, Depth: node.Depth, Stability: node.Stability,
+		}
+		if strings.HasPrefix(node.Kind, "gitlab_") {
+			var ok bool
+			projected.SCM, ok = projectJiraIssueGraphSCM(node, opts.IncludeDevelopment)
+			if !ok {
+				return invalid()
+			}
+		} else if !oneOfString(node.Kind, "jira_issue", "confluence_page", "attachment", "url") ||
+			node.SCM != nil || !safeJiraIssueGraphURL(node.URL) {
+			return invalid()
+		} else {
+			projected.URL = node.URL
+		}
+		out.Nodes = append(out.Nodes, projected)
 	}
 	for _, edge := range result.Edges {
-		if !oneOfString(edge.Kind, "jira_link", "parent_of", "child_of", "epic_of", "attached", "mentions", "remote_link") ||
+		developmentEdge := strings.HasPrefix(edge.Kind, "development_")
+		if !jiraIssueGraphEdgeKind(edge.Kind, opts.IncludeDevelopment) ||
+			(developmentEdge && edge.Stability != domain.ArtifactStabilityExperimentalAPI) ||
 			!safeJiraIssueGraphText(edge.RelationType) || !safeJiraIssueGraphText(edge.Relation) {
 			return invalid()
 		}
@@ -268,7 +305,9 @@ func projectJiraIssueGraph(result *app.JiraIssueGraphResult, key string, opts ap
 			Evidence: []JiraIssueGraphEvidenceOutput{},
 		}
 		for _, evidence := range edge.Evidence {
-			if !stableJiraIssueGraphSource(evidence.Collector) || !safeJiraIssueGraphEvidence(evidence) {
+			if !jiraIssueGraphSource(evidence.Collector, opts.IncludeDevelopment) ||
+				(evidence.Collector == "development" && (evidence.SourceKind != "development_detail" || evidence.Extraction != "structured")) ||
+				!safeJiraIssueGraphEvidence(evidence) {
 				return invalid()
 			}
 			projected.Evidence = append(projected.Evidence, JiraIssueGraphEvidenceOutput{
@@ -280,7 +319,8 @@ func projectJiraIssueGraph(result *app.JiraIssueGraphResult, key string, opts ap
 		out.Edges = append(out.Edges, projected)
 	}
 	for _, source := range result.Sources {
-		if source.NodeDepth == nil || !stableJiraIssueGraphSource(source.Kind) {
+		if source.NodeDepth == nil || !jiraIssueGraphSource(source.Kind, opts.IncludeDevelopment) ||
+			source.Kind == "development" && source.Stability != domain.ArtifactStabilityExperimentalAPI {
 			return invalid()
 		}
 		out.Sources = append(out.Sources, JiraIssueGraphSourceOutput{
@@ -296,9 +336,89 @@ func projectJiraIssueGraph(result *app.JiraIssueGraphResult, key string, opts ap
 	return out, nil
 }
 
-func stableJiraIssueGraphSource(value string) bool {
+func jiraIssueGraphSource(value string, includeDevelopment bool) bool {
 	return oneOfString(value, "issue_fields", "issue_links", "hierarchy", "attachments",
-		"issue_properties", "comments", "worklogs", "remote_links")
+		"issue_properties", "comments", "worklogs", "remote_links") || includeDevelopment && value == "development"
+}
+
+func jiraIssueGraphEdgeKind(value string, includeDevelopment bool) bool {
+	return oneOfString(value, "jira_link", "parent_of", "child_of", "epic_of", "attached", "mentions", "remote_link") ||
+		includeDevelopment && oneOfString(value, "development_project", "development_commit", "development_branch", "development_merge_request")
+}
+
+func projectJiraIssueGraphSCM(node domain.ArtifactGraphNode, includeDevelopment bool) (*JiraIssueGraphSCMOutput, bool) {
+	if !includeDevelopment || node.SCM == nil || node.Service != "gitlab" || node.ExternalID != "" || node.Label != "" ||
+		node.State != domain.ArtifactNodeStub || node.Expanded || node.Stability != domain.ArtifactStabilityExperimentalAPI ||
+		!safeJiraIssueGraphProject(node.SCM.Host, node.SCM.ProjectPath) {
+		return nil, false
+	}
+	scm := node.SCM
+	out := &JiraIssueGraphSCMOutput{Host: scm.Host, ProjectPath: scm.ProjectPath}
+	switch node.Kind {
+	case "gitlab_project":
+		if scm.CommitSHA != "" || scm.BranchName != "" || scm.MergeRequestIID != "" || scm.MergeRequestState != "" {
+			return nil, false
+		}
+	case "gitlab_commit":
+		if !jiraIssueGraphCommitSHA.MatchString(scm.CommitSHA) || scm.BranchName != "" || scm.MergeRequestIID != "" || scm.MergeRequestState != "" {
+			return nil, false
+		}
+		out.CommitSHA = scm.CommitSHA
+	case "gitlab_branch":
+		if scm.CommitSHA != "" || !safeJiraIssueGraphBranch(scm.BranchName) || scm.MergeRequestIID != "" || scm.MergeRequestState != "" {
+			return nil, false
+		}
+		out.BranchName = scm.BranchName
+	case "gitlab_merge_request":
+		if scm.CommitSHA != "" || scm.BranchName != "" || !jiraIssueGraphMergeRequestID.MatchString(scm.MergeRequestIID) ||
+			!oneOfString(scm.MergeRequestState, "open", "merged", "closed", "unknown") {
+			return nil, false
+		}
+		out.MergeRequestIID, out.MergeRequestState = scm.MergeRequestIID, scm.MergeRequestState
+	default:
+		return nil, false
+	}
+	return out, true
+}
+
+func safeJiraIssueGraphProject(host, projectPath string) bool {
+	if host == "" || host != strings.ToLower(host) || len(projectPath) == 0 || len(projectPath) > jiraIssueGraphMaxProjectBytes ||
+		!utf8.ValidString(host) || !utf8.ValidString(projectPath) || len("https://"+host+"/"+projectPath) > jiraIssueGraphMaxURLBytes {
+		return false
+	}
+	parsed, err := url.Parse("https://" + host + "/")
+	if err != nil || parsed.Scheme != "https" || parsed.Host != host || parsed.Hostname() == "" || parsed.User != nil ||
+		parsed.RawQuery != "" || parsed.Fragment != "" {
+		return false
+	}
+	if port := parsed.Port(); port != "" {
+		portNumber, err := strconv.Atoi(port)
+		if err != nil || portNumber < 1 || portNumber > 65535 || portNumber == 443 || port != strconv.Itoa(portNumber) {
+			return false
+		}
+	}
+	parts := strings.Split(projectPath, "/")
+	if len(parts) < 2 || len(parts) > 32 || strings.HasSuffix(parts[len(parts)-1], ".git") {
+		return false
+	}
+	for _, part := range parts {
+		if !jiraIssueGraphProjectSegment.MatchString(part) || part == "." || part == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+func safeJiraIssueGraphBranch(value string) bool {
+	if value == "" || len(value) > jiraIssueGraphMaxBranchBytes || !utf8.ValidString(value) {
+		return false
+	}
+	for _, current := range value {
+		if current == 0 || unicode.IsControl(current) {
+			return false
+		}
+	}
+	return true
 }
 
 func safeJiraIssueGraphEvidence(value domain.ArtifactGraphEvidence) bool {

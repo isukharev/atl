@@ -58,9 +58,13 @@ is reconciled with its inspection metadata: missing or invalid metadata makes
 the named source partial, while issue properties are explicitly experimental.
 The typed `jira_issue_graph` MCP tool exposes the same schema-v2 graph under
 Jira-only traversal: it accepts no Confluence-resolution input, leaves page
-identities as qualified stubs, omits the CLI-only Development source without
-implying zero activity, and keeps the fixed backend-response bound separate
-from the configurable encoded-result bound.
+identities as qualified stubs, and keeps the fixed backend-response bound
+separate from the configurable encoded-result bound. Development remains absent
+when `include_development` is omitted or false; explicit true adds only the
+closed experimental SCM coordinates and omits Development-node URLs. ATL makes
+no GitLab request. Any later lookup must require exact equality with an
+owner-approved lowercase host and use a separately authenticated read-only
+client, never Jira credentials.
 
 For Confluence discussions, `atl conf comment list --id 123456` returns a
 schema-v2 qualified inventory across footer, inline, and resolved comments,

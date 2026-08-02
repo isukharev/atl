@@ -122,7 +122,7 @@ func TestDefaultProfilePreservesNewToolSchemasAndInstructions(t *testing.T) {
 	if string(legacyJSON) != string(profileJSON) {
 		t.Fatal("default profile changed the legacy tool inventory or schemas")
 	}
-	if got := sha256.Sum256(profileJSON); hex.EncodeToString(got[:]) != "7ca1d409395837484606ebef76d4c0a5f20296a7bfddfc6cc5cd556387bc0e02" {
+	if got := sha256.Sum256(profileJSON); hex.EncodeToString(got[:]) != "2bbde0b1ca5e46af6b7eef0bed867db0295e665b3534ce7c688a057872f1fee0" {
 		t.Fatalf("default tool contract hash=%x", got)
 	}
 	if legacyClient.InitializeResult().Instructions != Instructions ||

@@ -54,7 +54,7 @@ The v1 surface is an explicit allowlist:
 | `jira_issue_search` | Read one compact IssueList page | default 50/maximum 1000 rows; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_issue_field_get` | Expand one exact compact field with issue/update provenance | default 16 KiB, maximum 128 KiB encoded value |
 | `jira_issue_history` | Summarize one issue's changelog without raw history rows | summary projection only; default 256 KiB/maximum 1 MiB encoded result |
-| `jira_issue_graph` | Build one stable-source schema-v2 work-artifact graph from an exact issue | Jira-only depth 0..2; fixed 16 MiB backend-response bound; default 256 KiB/maximum 1 MiB encoded result; no Confluence resolution or Development source |
+| `jira_issue_graph` | Build one schema-v2 work-artifact graph from an exact issue | Jira-only depth 0..2; fixed 16 MiB backend-response bound; default 256 KiB/maximum 1 MiB encoded result; no Confluence resolution; optional experimental Development SCM coordinates |
 | `jira_issue_refs` | Summarize qualified issue references without raw URLs or narrative | one key or JQL limited to 25 issues; at most 8 technical field ids; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_epic_digest` | Aggregate selected qualified epic evidence | `projection:compact`; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_board_view` | Freeze one board/backlog membership snapshot | default 200/maximum 1000 rows per scope; default 256 KiB/maximum 1 MiB encoded result |
@@ -123,6 +123,18 @@ their id/title metadata requires the CLI. There is also no `strict` input;
 inspect top-level `complete`, every requested source, the reconciliation
 summary, transport usage, and the bounded `frontier` directly.
 
+Development remains absent, without implying zero activity, when
+`include_development` is omitted or false. Set `include_development:true` only
+when exact project, commit, branch, or merge-request identity is required. The
+additional source, nodes, edges, and evidence retain `experimental_api`
+stability. The closed SCM object contains a validated lowercase `host`,
+`project_path`, and exactly the selector appropriate to the node kind: full
+`commit_sha`, exact `branch_name`, or `merge_request_iid` together with its
+closed `merge_request_state`. Project nodes carry no artifact selector. GitLab
+nodes are unexpanded stubs, do not enter traversal, and their URLs are omitted
+from MCP output. Narrative, people, email, avatars, files, diffs, timestamps,
+query values, labels, and raw plugin payloads are not part of the projection.
+
 `max_nodes` defaults to 50 and caps at 100, `max_edges` defaults to 200 and caps
 at 500, and `max_requests` defaults to 50 and caps at 100. Evidence is fixed at
 500 records. The reported `bounds.max_response_bytes` is the fixed 16 MiB
@@ -132,9 +144,18 @@ bound (default 256 KiB, minimum 1 KiB, maximum 1 MiB). A graph may succeed with
 `complete:false` and static source/frontier reasons when traversal cannot be
 completed inside its bounds. If the otherwise valid encoded graph exceeds
 `max_bytes`, the whole call fails with output-limit recovery and returns no
-clipped graph. The stable projection omits the CLI-only Development source;
-its absence is not evidence of zero development activity. Do not reinterpret
-either condition as proved absence.
+clipped graph. A requested Development source proves absence only when it is
+complete; an omitted or false opt-in provides no Development source and is not
+evidence of zero development activity. Do not reinterpret either condition as
+proved absence.
+
+ATL makes only bounded requests to its configured Jira origin and never
+contacts GitLab, fetches a returned artifact URL, clones a repository, or
+forwards Jira credentials. Treat every SCM coordinate as untrusted evidence.
+Before a later GitLab read, require the returned lowercase host to equal an
+owner-approved host exactly, then use a separately authenticated read-only
+downstream client for that same host. Do not normalize, suffix-match, redirect,
+or search around a host mismatch.
 
 `jira_issue_refs` answers reference-inventory questions without shipping the
 references. Supply exactly one `key`, or `jql` with a required `limit` from 1

@@ -79,13 +79,20 @@ the CLI when individual changes are themselves the required evidence.
 provenance-qualified schema-v2 graph. Start at depth zero; use the smallest
 sufficient `depth` from 1 through 2 only for exact structured Jira relations.
 MCP v1 is Jira-only: it has no Confluence-resolution input, does not fetch page
-metadata, and leaves discovered pages as qualified stubs. Its stable projection
-omits the CLI-only Development source without implying a zero. It also has no
-`strict` input, so inspect `complete`, reconciliation, every source, transport
-usage, and the bounded frontier. Reported `bounds.max_response_bytes` is the
-fixed aggregate buffered Jira response budget; the separate `max_bytes` input
-limits the final encoded result. An output-limit error contains no clipped
-graph, while a successful `complete:false` graph remains qualified evidence.
+metadata, and leaves discovered pages as qualified stubs. Omitted or false
+`include_development` preserves the stable projection without implying zero
+Development activity. True adds only closed experimental SCM coordinates to the
+Development projection and omits Development-node URLs. Require a complete
+Development source before treating absence as zero. ATL makes no GitLab request;
+any later read requires exact equality between the returned lowercase host and an
+owner-approved host plus a separately authenticated read-only client for that
+exact host, never Jira credentials. The tool also has no `strict` input, so
+inspect `complete`, reconciliation, every
+source, transport usage, and the bounded frontier. Reported
+`bounds.max_response_bytes` is the fixed aggregate buffered Jira response
+budget; the separate `max_bytes` input limits the final encoded result. An
+output-limit error contains no clipped graph, while a successful
+`complete:false` graph remains qualified evidence.
 Use the CLI graph only when
 MCP is unavailable or id/title-only Confluence resolution is explicitly needed.
 `jira_issue_refs` accepts exactly one issue `key`, or bounded `jql` with a

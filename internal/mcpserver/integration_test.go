@@ -13,6 +13,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/domain"
 )
 
 func TestIntegrationProductionReadOnlyFixtures(t *testing.T) {
@@ -22,10 +23,64 @@ func TestIntegrationProductionReadOnlyFixtures(t *testing.T) {
 
 	t.Run("jira fields", testIntegrationMCPJiraFields)
 	t.Run("jira issue references", testIntegrationMCPJiraIssueRefs)
+	t.Run("jira issue development graph", testIntegrationMCPJiraIssueDevelopmentGraph)
 	t.Run("jira structure", testIntegrationMCPJiraStructure)
 	t.Run("confluence page metadata", testIntegrationMCPConfluencePageMetadata)
 	t.Run("confluence comments", testIntegrationMCPConfluenceComments)
 	t.Run("confluence tables", testIntegrationMCPConfluenceTables)
+}
+
+func testIntegrationMCPJiraIssueDevelopmentGraph(t *testing.T) {
+	key := strings.TrimSpace(os.Getenv("ATL_TEST_JIRA_GRAPH_KEY"))
+	if key == "" {
+		t.Skip("set ATL_TEST_JIRA_GRAPH_KEY to run the live Jira Development graph MCP test")
+	}
+	client, closeSessions := connectIntegrationMCPClient(t)
+	defer closeSessions()
+
+	stable := callIntegrationMCPTool[JiraIssueGraphOutput](
+		t, client, "jira_issue_graph", map[string]any{"key": key, "depth": 0, "max_bytes": 1 << 20},
+	)
+	if stable.Bounds.IncludeDevelopment || stable.Bounds.RequestsUsed != 4 || len(stable.Sources) != 8 {
+		t.Fatal("live default Jira graph request profile changed")
+	}
+	for _, node := range stable.Nodes {
+		if node.SCM != nil || strings.HasPrefix(node.Kind, "gitlab_") {
+			t.Fatal("live default Jira graph exposed Development evidence")
+		}
+	}
+
+	development := callIntegrationMCPTool[JiraIssueGraphOutput](
+		t, client, "jira_issue_graph", map[string]any{
+			"key": key, "depth": 0, "include_development": true, "max_bytes": 1 << 20,
+		},
+	)
+	if !development.Bounds.IncludeDevelopment || development.Bounds.RequestsUsed <= stable.Bounds.RequestsUsed || len(development.Sources) != 9 {
+		t.Fatal("live opt-in Jira graph request profile did not reconcile")
+	}
+	developmentComplete := false
+	for _, source := range development.Sources {
+		if source.Kind == "development" {
+			developmentComplete = source.Complete && source.Stability == domain.ArtifactStabilityExperimentalAPI
+		}
+	}
+	if !developmentComplete {
+		t.Fatal("live Development source was not complete and experimental")
+	}
+	developmentNodes := 0
+	for _, node := range development.Nodes {
+		if !strings.HasPrefix(node.Kind, "gitlab_") {
+			continue
+		}
+		developmentNodes++
+		if node.SCM == nil || node.URL != "" || node.Expanded || node.State != domain.ArtifactNodeStub ||
+			node.Stability != domain.ArtifactStabilityExperimentalAPI || !safeJiraIssueGraphProject(node.SCM.Host, node.SCM.ProjectPath) {
+			t.Fatal("live Development node crossed the closed MCP projection")
+		}
+	}
+	if developmentNodes == 0 {
+		t.Fatal("live opt-in Jira graph returned no Development identities")
+	}
 }
 
 func testIntegrationMCPJiraFields(t *testing.T) {
