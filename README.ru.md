@@ -398,6 +398,9 @@ offline diff и явные write gates. Ссылки на источники и 
   conflict, forbidden, config и safety failures.
 - Reads ограничены и квалифицируют incomplete/truncated результаты.
 - Generic retry применяется только к replay-safe reads, никогда к writes.
+- Безвозвратное удаление Jira issue сначала создаёт preview, связывает его с
+  immutable issue id, freshness и полной permission-relative выборкой subtasks
+  и никогда не повторяет DELETE автоматически.
 - Подписанный self-update имеет пятисекундный remote startup budget и
   отключается через `ATL_NO_UPDATE=1`.
 

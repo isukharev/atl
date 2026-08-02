@@ -330,6 +330,8 @@ rich-text sections with explicit pending state) and opt-in `epic_children` views
 explicit post-create `jira issue create --register --into <ROOT>` from one
 authoritative readback, with state committed last and no create replay on local
 registration failure;
+preview-first permanent issue deletion bound to immutable id, freshness,
+complete permission-relative subtask evidence, and explicit cascade intent;
 value-free metadata and compact named issue-field inspection; qualified, filterable issue
 history with explicit completeness, deterministic cardinality/consistency summary
 including separate missing/duplicate identity facts, a summary-only projection

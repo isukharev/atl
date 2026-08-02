@@ -144,7 +144,7 @@ remote-direct jira issue attachment upload
 preview-apply jira issue comment add
 remote-direct jira issue comment delete
 remote-direct jira issue create
-remote-direct jira issue delete
+preview-apply jira issue delete
 remote-direct jira issue edit
 preview-apply jira issue field set
 remote-direct jira issue labels
@@ -360,7 +360,8 @@ func TestJiraTransitionPreviewIsReadOnlyAndParentRemainsMutating(t *testing.T) {
 }
 
 func TestReadOnlyEnvironmentAndConfigCannotBeDowngradedByFalseFlag(t *testing.T) {
-	if _, code := runCLI(t, map[string]string{"ATL_READ_ONLY": "1"}, "jira", "issue", "delete", "PROJ-1", "--force"); code != exitCheckFailed {
+	if _, code := runCLI(t, map[string]string{"ATL_READ_ONLY": "1"}, "jira", "issue", "delete", "PROJ-1",
+		"--apply", "--confirm", "DELETE", "--expected-updated", "2026-08-02T20:00:00.000+0000", "--expected-proposal-hash", strings.Repeat("a", 64)); code != exitCheckFailed {
 		t.Fatalf("env policy exit=%d", code)
 	}
 

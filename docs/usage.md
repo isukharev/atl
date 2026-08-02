@@ -4055,12 +4055,30 @@ Flags:
 
 ### `atl jira issue delete`
 
-Permanently delete an issue. Jira Data Center has **no trash** for issues, so this
-is irreversible and requires `--force`.
+Preview or apply one permanent issue deletion. Jira Data Center has **no trash**
+for issues, so preview is the default and apply requires the exact reviewed
+freshness marker and proposal hash.
 
 ```bash
-atl jira issue delete PROJ-1 --force [--delete-subtasks]
+atl jira issue delete PROJ-1
+atl jira issue delete PROJ-1 \
+  --apply --confirm DELETE \
+  --expected-updated '2026-08-02T20:00:00.000+0000' \
+  --expected-proposal-hash '<hash from preview>'
 ```
+
+The proposal binds the normalized backend identity, canonical requested/current
+key, immutable numeric issue id, exact `updated` value, the complete
+permission-relative direct-subtask id/key array, and `--delete-subtasks` intent.
+If subtasks exist, a preview without `--delete-subtasks` is blocked; rerun the
+preview with that flag only when permanent cascade deletion is intended. Apply
+repeats the exact read immediately before one DELETE addressed by numeric id.
+
+Jira has no delete-time CAS, tombstone, or positive readback resource. Therefore
+only an acknowledged DELETE followed by exact numeric-id `404` is reported as
+`applied`. Any ambiguous response remains `outcome_unknown` even if readback is
+permission-relative absent. Never retry it automatically. The old `--force`
+direct-write form is no longer supported.
 
 ### `atl jira pull`
 

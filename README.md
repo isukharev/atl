@@ -362,6 +362,8 @@ and explicit write gates matter. The sourced, non-ranking comparison is in
   forbidden, config, and safety failures.
 - Reads are bounded and qualify incomplete/truncated results.
 - Generic retries apply only to replay-safe reads, never writes.
+- Permanent Jira issue deletion is preview-first, bound to the immutable issue
+  id, freshness and complete permission-relative subtask evidence, and never replayed.
 - Signed self-update has a five-second remote startup budget and can be
   disabled with `ATL_NO_UPDATE=1`.
 

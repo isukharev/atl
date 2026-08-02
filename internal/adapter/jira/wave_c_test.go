@@ -75,7 +75,9 @@ func TestTransitionOmitsEmptyFields(t *testing.T) {
 
 func TestDeleteIssueHitsRightPath(t *testing.T) {
 	var method, path, subtasks string
+	calls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
 		method, path, subtasks = r.Method, r.URL.Path, r.URL.Query().Get("deleteSubtasks")
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -85,8 +87,8 @@ func TestDeleteIssueHitsRightPath(t *testing.T) {
 	if err := j.DeleteIssue(context.Background(), "ABC-1", true); err != nil {
 		t.Fatalf("DeleteIssue: %v", err)
 	}
-	if method != http.MethodDelete || path != "/rest/api/2/issue/ABC-1" || subtasks != "true" {
-		t.Errorf("got %s %s deleteSubtasks=%s", method, path, subtasks)
+	if calls != 1 || method != http.MethodDelete || path != "/rest/api/2/issue/ABC-1" || subtasks != "true" {
+		t.Errorf("calls=%d got %s %s deleteSubtasks=%s", calls, method, path, subtasks)
 	}
 }
 

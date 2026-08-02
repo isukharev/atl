@@ -36,6 +36,11 @@ read, never a write, changed request, approval, or reconciliation workflow.
 the block-level export. Remove the exported policy only for the exact reviewed
 write command after explicit approval.
 
+Permanent issue deletion has no trash and is preview-first. Review the exact
+`updated`, proposal hash, subtask count/hash, and cascade intent, then use the
+returned apply flags once. `write_attempted:true` or `outcome_unknown` always
+means stop and reconcile manually; never replay the DELETE.
+
 If the plugin exposes typed MCP, prefer `jira_fields`, `jira_issue_search`,
 `jira_issue_history`, `jira_issue_graph`, `jira_issue_refs`, `jira_epic_digest`, `jira_board_view`,
 `jira_structure_get`, and

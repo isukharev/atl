@@ -54,25 +54,30 @@ func TestJiraIssueCheck_NoFieldsIsUsageError(t *testing.T) {
 	}
 }
 
-// jira issue delete refuses without --force (exit 2, no request) and DELETEs the
-// right path with --force.
-func TestJiraIssueDelete_RequiresForceAndWiresDelete(t *testing.T) {
+// jira issue delete is preview-first. Legacy direct-write flags and incomplete
+// apply invocations fail before configuration/network.
+func TestJiraIssueDelete_PreviewsAndRejectsLegacyOrIncompleteApply(t *testing.T) {
 	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/api/2/issue/ENG-9", http.StatusOK,
+		`{"id":"10009","key":"ENG-9","fields":{"updated":"2026-08-02T20:00:00.000+0000","subtasks":[]}}`)
 
-	_, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "delete", "ENG-9")
-	if code != exitUsage {
-		t.Fatalf("delete without --force: exit %d, want %d", code, exitUsage)
+	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "delete", "ENG-9")
+	if code != exitOK || !strings.Contains(out, `"status": "would_apply"`) || !strings.Contains(out, `"write_attempted": false`) {
+		t.Fatalf("delete preview: exit=%d stdout=%q", code, out)
 	}
-	if n := len(js.requests()); n != 0 {
-		t.Fatalf("delete without --force must not contact the server, got %d requests", n)
+	if reqs := js.requests(); len(reqs) != 1 || reqs[0].method != http.MethodGet || reqs[0].path != "/rest/api/2/issue/ENG-9" {
+		t.Fatalf("preview requests: %+v", reqs)
 	}
 
-	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "delete", "ENG-9", "--force")
-	if code != exitOK {
-		t.Fatalf("delete --force: exit %d, want 0 (stdout=%q)", code, out)
+	before := len(js.requests())
+	_, code = runCLI(t, jiraEnv(js.srv), "jira", "issue", "delete", "ENG-9", "--force")
+	if code != exitUsage || len(js.requests()) != before {
+		t.Fatalf("legacy --force: exit=%d requests=%d want=%d", code, len(js.requests()), before)
 	}
-	if !sawReq(js.requests(), http.MethodDelete, "/rest/api/2/issue/ENG-9") {
-		t.Errorf("expected DELETE /rest/api/2/issue/ENG-9, got %+v", js.requests())
+
+	_, code = runCLI(t, jiraEnv(js.srv), "jira", "issue", "delete", "ENG-9", "--apply")
+	if code != exitUsage || len(js.requests()) != before {
+		t.Fatalf("incomplete apply: exit=%d requests=%d want=%d", code, len(js.requests()), before)
 	}
 }
 

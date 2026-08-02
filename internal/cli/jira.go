@@ -360,27 +360,33 @@ func jiraIssueCmd() *cobra.Command {
 	check.Flags().StringVar(&checkRequire, "require", "", "comma-separated fields that must be set (non-zero exit if any empty)")
 	check.Flags().StringVar(&checkWarn, "warn", "", "comma-separated fields to warn about (default: assignee,priority,components,fixVersions,description)")
 
-	var delForce, delSubtasks bool
+	var delApply, delSubtasks bool
+	var delConfirm, delExpectedUpdated, delExpectedProposalHash string
 	del := &cobra.Command{
 		Use:   "delete <KEY>",
-		Short: "Permanently delete an issue (requires --force; Jira DC has no trash)",
+		Short: "Preview or apply one reviewed permanent issue deletion",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !delForce {
-				return usageErr("refusing to delete %s without --force (deletion is permanent on Jira DC)", args[0])
-			}
 			svc, err := jiraService()
 			if err != nil {
 				return err
 			}
-			if err := svc.DeleteIssue(cmd.Context(), args[0], delSubtasks); err != nil {
-				return err
+			result, deleteErr := svc.DeleteIssueGuarded(cmd.Context(), args[0], app.JiraIssueDeleteOpts{
+				Apply: delApply, Confirm: delConfirm, DeleteSubtasks: delSubtasks,
+				ExpectedUpdated: delExpectedUpdated, ExpectedProposalHash: delExpectedProposalHash,
+			})
+			if result == nil {
+				return deleteErr
 			}
-			return emit(cmd, map[string]string{"key": args[0], "status": "deleted"}, nil)
+			emitErr := emit(cmd, result, func() string { return app.JiraIssueDeleteText(result) })
+			return guardedMutationResultErr(deleteErr, emitErr, result.WriteAttempted, "Jira issue deletion")
 		},
 	}
-	del.Flags().BoolVar(&delForce, "force", false, "confirm permanent deletion")
-	del.Flags().BoolVar(&delSubtasks, "delete-subtasks", false, "also delete the issue's subtasks")
+	del.Flags().BoolVar(&delApply, "apply", false, "apply the reviewed permanent deletion (default: preview only)")
+	del.Flags().StringVar(&delConfirm, "confirm", "", "exact confirmation token DELETE (required with --apply)")
+	del.Flags().BoolVar(&delSubtasks, "delete-subtasks", false, "include explicit cascade intent in the reviewed proposal")
+	del.Flags().StringVar(&delExpectedUpdated, "expected-updated", "", "reviewed Jira updated marker (required with --apply)")
+	del.Flags().StringVar(&delExpectedProposalHash, "expected-proposal-hash", "", "reviewed proposal hash (required with --apply)")
 
 	var labelsAdd, labelsRemove string
 	labels := &cobra.Command{

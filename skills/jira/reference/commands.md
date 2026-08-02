@@ -37,7 +37,7 @@ id/title-only Confluence resolution.
 | `jira issue transition preview <KEY>` | GET-only state-bound transition proposal | `--to`, optional `--comment`, `--field k=v`; inspect selected transition/current state/hash |
 | `jira issue transition <KEY>` | Preview or apply one reviewed transition | `--to`, optional `--comment`, `--field k=v`, `--apply`, `--expected-proposal-hash` |
 | `jira issue check <KEY>` | Audit required/important fields; non-zero exit if required field empty | `--require fields`, `--warn fields` |
-| `jira issue delete <KEY>` | Permanently delete (DC has no trash) | `--force`, `--delete-subtasks` |
+| `jira issue delete <KEY>` | Preview/apply one immutable-id-bound permanent deletion | preview first; apply: `--apply --confirm DELETE --expected-updated --expected-proposal-hash`; optional reviewed `--delete-subtasks` |
 | `jira issue labels <KEY>` | Add/remove labels | `--add labels`, `--remove labels` |
 | `jira issue watchers list <KEY>` | Read watcher membership | inspect `complete` |
 | `jira issue watchers add\|remove <KEY>` | Guarded watcher preview/apply | exactly one of `--username`, `--me`; `--apply`, `--expected-proposal-hash` |

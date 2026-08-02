@@ -433,32 +433,8 @@ func confluenceFooterCommentAmbiguousError(message string, cause error) error {
 }
 
 func sanitizeConfluenceWriteCause(err error) error {
-	if err == nil {
-		return nil
-	}
-	var causes []error
-	for _, sentinel := range []error{
-		domain.ErrUsage, domain.ErrAuth, domain.ErrNotFound, domain.ErrVersionConflict,
-		domain.ErrForbidden, domain.ErrConfig, domain.ErrCheckFailed,
-	} {
-		if errors.Is(err, sentinel) {
-			causes = append(causes, sentinel)
-		}
-	}
-	var statusErr interface{ HTTPStatus() int }
-	if errors.As(err, &statusErr) {
-		causes = append(causes, confluenceWriteHTTPStatus(statusErr.HTTPStatus()))
-	}
-	if len(causes) == 0 {
-		return errors.New("request failed")
-	}
-	return errors.Join(causes...)
+	return sanitizeRemoteWriteCause(err)
 }
-
-type confluenceWriteHTTPStatus int
-
-func (e confluenceWriteHTTPStatus) Error() string   { return "request failed" }
-func (e confluenceWriteHTTPStatus) HTTPStatus() int { return int(e) }
 
 func ConfluenceFooterCommentAddText(result *ConfluenceFooterCommentAddResult) string {
 	if result == nil {
