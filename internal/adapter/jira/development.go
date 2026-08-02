@@ -131,7 +131,7 @@ type developmentSelector struct {
 	RawApplication       string
 	CanonicalApplication string
 	DataType             string
-	Expected             int
+	Expected             uint64
 }
 
 type developmentProjectKey struct{ host, path string }
@@ -184,7 +184,7 @@ func (j *Jira) ReadIssueDevelopment(ctx context.Context, numericIssueID string) 
 		return domain.JiraDevelopmentInventory{}, err
 	}
 	inv := newDevelopmentInventory()
-	expected := map[string]int{}
+	expected := map[string]uint64{}
 	for _, selector := range selectors {
 		expected[selector.DataType] += selector.Expected
 	}
@@ -202,12 +202,12 @@ func (j *Jira) ReadIssueDevelopment(ctx context.Context, numericIssueID string) 
 		if decodeErr != nil {
 			return domain.JiraDevelopmentInventory{}, fmt.Errorf("%w: %s detail", decodeErr, selector.DataType)
 		}
-		if actual != selector.Expected {
+		if uint64(actual) != selector.Expected {
 			return domain.JiraDevelopmentInventory{}, developmentMalformed()
 		}
 	}
-	if len(inv.commits) != expected["repository"] || len(inv.branches) != expected["branch"] ||
-		len(inv.mrs) != expected["pullrequest"] {
+	if uint64(len(inv.commits)) != expected["repository"] || uint64(len(inv.branches)) != expected["branch"] ||
+		uint64(len(inv.mrs)) != expected["pullrequest"] {
 		return domain.JiraDevelopmentInventory{}, developmentMalformed()
 	}
 	return inv.normalized(), nil
@@ -272,12 +272,9 @@ func decodeDevelopmentSummary(raw []byte) ([]developmentSelector, error) {
 				if count > classLimit {
 					return nil, developmentLimit()
 				}
-				// count is bounded by the largest class cap (256) immediately
-				// above, so conversion to the platform int is exact.
-				expected := int(count) // #nosec G115 -- proven bounded by classLimit
 				selectors = append(selectors, developmentSelector{
 					RawApplication: rawApplication, CanonicalApplication: canonical,
-					DataType: dataType, Expected: expected,
+					DataType: dataType, Expected: count,
 				})
 			}
 		}
