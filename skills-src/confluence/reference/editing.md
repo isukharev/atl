@@ -8,13 +8,15 @@ the main skill instead of mixing surfaces.
 ## Gate the edit
 
 1. Fix one mirror root for the cycle and confirm local/remote status.
-2. Require `<!-- atl:document confluence-page v5 -->`. Only pristine v4 views
-   migrate by exact reconstruction. Preserve and refuse dirty v4, older
-   historical, unversioned, and future views; update atl for future markers.
+2. Require `<!-- atl:document confluence-page v6 -->`. Only byte-clean v5/v4
+   views migrate through exact version-specific reconstruction. Preserve and
+   refuse edited legacy, older historical, unversioned, and future views;
+   update atl for future markers.
 3. Treat generated metadata/comments/Jira query regions as readonly.
-4. Use `.md` only for supported prose, headings, lists, code, and simple tables.
-   Choose direct CSF for opaque wrappers, ambiguous mentions, spans/nested
-   tables, or byte surgery.
+4. Use `.md` only for supported prose, headings, lists, code, and guarded table
+   edits. V6 protects dynamic fences, paragraph collisions, inline breaks, and
+   native table structure. Choose direct CSF when apply reports an opaque or
+   unrepresentable wrapper/topology or code-macro metadata, or for byte surgery.
 5. Never edit `.md` and `.csf` concurrently or expect one to preserve unapplied
    changes from the other.
 

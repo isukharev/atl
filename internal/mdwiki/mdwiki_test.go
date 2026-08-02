@@ -168,6 +168,11 @@ func TestConvertCodeFence(t *testing.T) {
 	if _, err := ConvertDocument("```weird lang!\nx\n```"); err == nil {
 		t.Error("non-identifier info string must be refused")
 	}
+	got = convertOK(t, "`````go\nbefore\n```\nafter\n``````   ")
+	want = "{code:go}\nbefore\n```\nafter\n{code}"
+	if got != want {
+		t.Errorf("dynamic fence got %q, want %q", got, want)
+	}
 }
 
 func TestConvertTable(t *testing.T) {
@@ -300,6 +305,8 @@ func TestConvertUnescapesBlockCollisions(t *testing.T) {
 		{"intro\n\\````\ntail", "intro\n````\ntail"},
 		// The remainder after the run still converts: md **bold** → wiki *bold*.
 		{"intro\n\\```lang **bold**\ntail", "intro\n```lang *bold*\ntail"},
+		// Preserve collision escapes already emitted in Jira v3 views, even
+		// though these indented lines are not actual fences under the parser.
 		{"intro\n\\    ```lang **bold**\ntail", "intro\n    ```lang *bold*\ntail"},
 		{"intro\n\\\t```lang **bold**\ntail", "intro\n\t```lang *bold*\ntail"},
 		// Thematic-break-collision lines: emitted as the bare run.
@@ -312,6 +319,7 @@ func TestConvertUnescapesBlockCollisions(t *testing.T) {
 		{"\\```yaml", "```yaml"},
 		{"\\---", "---"},
 		{"intro\n\\\\```json\ntail", "intro\n\\```json\ntail"},
+		{"intro\n\\\\\\````json\ntail", "intro\n\\\\````json\ntail"},
 		{"intro\n\\\\---\ntail", "intro\n\\---\ntail"},
 		// NOT our escape: wikimd never escapes a 4+-dash line (that IS a wiki hr,
 		// caught before the paragraph branch), so `\----` must stay literal — a

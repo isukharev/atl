@@ -113,6 +113,7 @@ func convertBlock(block string, opts Options) (string, error) {
 	}
 	lines := strings.Split(block, "\n")
 	first := strings.TrimSpace(lines[0])
+	_, _, firstIsFence := wikiscanner.ParseMarkdownFenceOpen(lines[0])
 	markedHeading := jiraHeadingSuffixRe.MatchString(lines[0])
 	if strings.Contains(block, "<!-- atl:jira-heading") && !markedHeading {
 		return "", unsupported("malformed reserved atl heading marker", block)
@@ -120,7 +121,7 @@ func convertBlock(block string, opts Options) (string, error) {
 	switch {
 	case markedHeading:
 		return convertMarkedHeading(lines, opts)
-	case strings.HasPrefix(first, "```"):
+	case firstIsFence:
 		return convertFence(lines)
 	case headingRe.MatchString(lines[0]):
 		return convertHeading(lines, opts)
@@ -239,16 +240,21 @@ func unescapeBlockLine(ln string) (out string, ok bool, err error) {
 	}
 	switch kind {
 	case wikiscanner.MarkdownFence:
-		body := strings.TrimLeft(original, " \t\r\n")
-		n := 0
-		for n < len(body) && body[n] == '`' {
-			n++
+		prefix := 0
+		for prefix < len(original) && original[prefix] == '\\' {
+			prefix++
 		}
-		conv, e := inline(body[n:])
+		for prefix < len(original) && strings.ContainsRune(" \t\r\n", rune(original[prefix])) {
+			prefix++
+		}
+		for prefix < len(original) && original[prefix] == '`' {
+			prefix++
+		}
+		conv, e := inline(original[prefix:])
 		if e != nil {
 			return "", true, e
 		}
-		return original[:len(original)-len(body)+n] + conv, true, nil
+		return original[:prefix] + conv, true, nil
 	case wikiscanner.MarkdownThematicBreak:
 		return original, true, nil
 	default:
@@ -261,13 +267,17 @@ func unescapeBlockLine(ln string) (out string, ok bool, err error) {
 var codeLangRe = regexp.MustCompile(`^[A-Za-z0-9#+.-]*$`)
 
 func convertFence(lines []string) (string, error) {
+	run, info, ok := wikiscanner.ParseMarkdownFenceOpen(lines[0])
 	open := strings.TrimSpace(lines[0])
-	lang := strings.TrimSpace(strings.TrimPrefix(open, "```"))
+	if !ok {
+		return "", unsupported("code fence info string", open)
+	}
+	lang := strings.TrimSpace(info)
 	if !codeLangRe.MatchString(lang) {
 		return "", unsupported("code fence info string", open)
 	}
 	last := len(lines) - 1
-	if last == 0 || strings.TrimSpace(lines[last]) != "```" {
+	if last == 0 || !wikiscanner.IsMarkdownFenceClose(lines[last], run) {
 		return "", unsupported("unterminated code fence", lines[0])
 	}
 	body := strings.ReplaceAll(strings.Join(lines[1:last], "\n"), "\r\n", "\n")

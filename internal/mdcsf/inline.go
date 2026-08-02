@@ -33,6 +33,11 @@ func inline(s string) (string, error) {
 			// accepting an unmatched copy would turn identity-bearing markup
 			// into escaped text and make the view lie about the result.
 			return "", unsupported("protected color span", clip(s[i:]))
+		case strings.HasPrefix(s[i:], "<br>"), strings.HasPrefix(s[i:], "<br/>"):
+			// Renderer-owned line-break markers are substituted with their exact
+			// base bytes before conversion. A raw copy reaching this layer is new
+			// or unmatched markup and must not be flattened into escaped text.
+			return "", unsupported("raw br element", clip(s[i:]))
 		case strings.HasPrefix(s[i:], "!["):
 			return "", unsupported("image", clip(s[i:]))
 		case strings.HasPrefix(s[i:], "[["):

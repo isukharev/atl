@@ -53,7 +53,7 @@ func TestTableRowEnd(t *testing.T) {
 }
 
 func TestMarkdownBlockCollision(t *testing.T) {
-	for _, line := range []string{"```", "   ```go", "    ```", "\t```go", "---", "---   ", "*****", "___"} {
+	for _, line := range []string{"```", "````go", "   ```go", "    ```", "\t```go", "```go`bad", "```x``", "---", "---   ", "*****", "___"} {
 		if !MarkdownBlockCollision(line) {
 			t.Errorf("MarkdownBlockCollision(%q) = false", line)
 		}
@@ -65,8 +65,55 @@ func TestMarkdownBlockCollision(t *testing.T) {
 	}
 }
 
+func TestMarkdownFenceGrammar(t *testing.T) {
+	openers := []struct {
+		line string
+		run  int
+		info string
+	}{
+		{"```", 3, ""},
+		{"````go", 4, "go"},
+		{"   ````` go lang\r", 5, " go lang\r"},
+	}
+	for _, tt := range openers {
+		run, info, ok := ParseMarkdownFenceOpen(tt.line)
+		if !ok || run != tt.run || info != tt.info {
+			t.Errorf("ParseMarkdownFenceOpen(%q) = %d, %q, %v", tt.line, run, info, ok)
+		}
+	}
+	for _, line := range []string{"``", "    ```", "\t```", "```go`bad"} {
+		if _, _, ok := ParseMarkdownFenceOpen(line); ok {
+			t.Errorf("ParseMarkdownFenceOpen(%q) accepted invalid opener", line)
+		}
+	}
+
+	for _, line := range []string{"````", "`````", "  ````` \t\r"} {
+		if !IsMarkdownFenceClose(line, 4) {
+			t.Errorf("IsMarkdownFenceClose(%q, 4) = false", line)
+		}
+	}
+	for _, line := range []string{"```", "```` tail", "    ````", "\t````"} {
+		if IsMarkdownFenceClose(line, 4) {
+			t.Errorf("IsMarkdownFenceClose(%q, 4) = true", line)
+		}
+	}
+}
+
+func TestNormalizeMarkdownFenceInfo(t *testing.T) {
+	for input, want := range map[string]string{"": "", " go ": "go", "C++": "C++"} {
+		if got, ok := NormalizeMarkdownFenceInfo(input); !ok || got != want {
+			t.Errorf("NormalizeMarkdownFenceInfo(%q) = %q, %v; want %q, true", input, got, ok, want)
+		}
+	}
+	for _, input := range []string{"go`bad", "go\ntext", "go\rtext"} {
+		if got, ok := NormalizeMarkdownFenceInfo(input); ok || got != "" {
+			t.Errorf("NormalizeMarkdownFenceInfo(%q) = %q, %v; want empty, false", input, got, ok)
+		}
+	}
+}
+
 func TestMarkdownBlockCollisionEscapeIsReversible(t *testing.T) {
-	for _, original := range []string{"```json", "\\```json", "\\\\```json", "---", "\\---", "\t***   "} {
+	for _, original := range []string{"```json", "````json", "   ```json", "\\```json", "\\\\```json", "---", "\\---", "\t***   "} {
 		encoded := EscapeMarkdownBlockCollision(original)
 		decoded, _, ok := UnescapeMarkdownBlockCollision(encoded)
 		if !ok || decoded != original {
@@ -75,5 +122,10 @@ func TestMarkdownBlockCollisionEscapeIsReversible(t *testing.T) {
 	}
 	if _, _, ok := UnescapeMarkdownBlockCollision(`\----`); ok {
 		t.Fatal("single-slash 4-dash line treated as a synthetic escape")
+	}
+	for _, line := range []string{"\\``", "\\text ```"} {
+		if _, _, ok := UnescapeMarkdownBlockCollision(line); ok {
+			t.Errorf("UnescapeMarkdownBlockCollision(%q) accepted invalid fence escape", line)
+		}
 	}
 }

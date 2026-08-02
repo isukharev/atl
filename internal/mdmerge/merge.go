@@ -18,6 +18,7 @@ import (
 	"github.com/isukharev/atl/internal/fragment"
 	"github.com/isukharev/atl/internal/mdcsf"
 	"github.com/isukharev/atl/internal/mirror"
+	"github.com/isukharev/atl/internal/wikiscanner"
 )
 
 // Options tune a merge.
@@ -352,36 +353,70 @@ func removedFragments(baseRoot *csf.Node, result []byte) []domain.Ref {
 	return removed
 }
 
-// hasComplexTable reports a table whose structure the md surface cannot
-// carry: row/col spans, styled or classed cells, or nested tables.
+// hasComplexTable reports a table whose native shape the md→CSF table
+// converter cannot reproduce. A wholesale conversion is safe only for the
+// converter's canonical shape: an attribute-free table containing exactly one
+// attribute-free tbody, an all-th first row, and all-td later rows. Everything
+// else is routed through the byte-preserving row/cell merge.
 func hasComplexTable(n *csf.Node) bool {
-	complexTable := false
-	tables := 0
-	csf.Walk(n, func(x *csf.Node) bool {
-		if complexTable {
+	return !hasReproducibleTableShape(n)
+}
+
+func hasReproducibleTableShape(table *csf.Node) bool {
+	if table == nil || table.Type != csf.Element || table.Name.Space != "" || table.Name.Local != "table" || len(table.Attr) != 0 {
+		return false
+	}
+	var tbody *csf.Node
+	for _, child := range table.Children {
+		if child.Type != csf.Element {
+			continue
+		}
+		if child.Name.Space != "" || child.Name.Local != "tbody" || tbody != nil || len(child.Attr) != 0 {
 			return false
 		}
-		if x.Name.Space != "" {
-			return true
+		tbody = child
+	}
+	if tbody == nil {
+		return false
+	}
+	var rows []*csf.Node
+	for _, child := range tbody.Children {
+		if child.Type != csf.Element {
+			continue
 		}
-		switch x.Name.Local {
-		case "table":
-			tables++
-			if tables > 1 {
-				complexTable = true
+		if child.Name.Space != "" || child.Name.Local != "tr" || len(child.Attr) != 0 {
+			return false
+		}
+		rows = append(rows, child)
+	}
+	if len(rows) == 0 {
+		return false
+	}
+	for ri, row := range rows {
+		cells := 0
+		for _, child := range row.Children {
+			if child.Type != csf.Element {
+				continue
+			}
+			if child.Name.Space != "" || (child.Name.Local != "td" && child.Name.Local != "th") || len(child.Attr) != 0 {
 				return false
 			}
-		case "td", "th":
-			for _, a := range []string{"rowspan", "colspan", "class", "style"} {
-				if v := x.Attrv("", a); v != "" && v != "1" {
-					complexTable = true
-					return false
-				}
+			if ri == 0 && child.Name.Local != "th" || ri > 0 && child.Name.Local != "td" {
+				return false
 			}
+			if nodeHasTable(child) {
+				return false
+			}
+			if cellHasNonCanonicalTableContent(child) {
+				return false
+			}
+			cells++
 		}
-		return true
-	})
-	return complexTable
+		if cells == 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // removeFromPool drops one specific block from a byte-reuse queue (it was
@@ -419,6 +454,8 @@ type protectedInlineItem struct {
 func protectedInlineInventory(root *csf.Node) map[string]protectedInlineItem {
 	items := map[string]protectedInlineItem{}
 	csf.Walk(root, func(n *csf.Node) bool {
+		collectProtectedMacroMetadata(items, n)
+		collectProtectedStructure(items, n)
 		switch {
 		case n.Name.Space == "ac" && n.Name.Local == "link":
 			var title, space, label string
@@ -468,6 +505,210 @@ func protectedInlineInventory(root *csf.Node) map[string]protectedInlineItem {
 		return true
 	})
 	return items
+}
+
+// collectProtectedMacroMetadata inventories only macro bytes that the
+// Markdown representation cannot reproduce. The common structured code
+// language parameter is representable when it is a safe fence info string;
+// macro ids, other parameters, legacy macro tags, and unsafe language values
+// remain explicitly loss-gated. Values are hashed and never exposed.
+func collectProtectedMacroMetadata(items map[string]protectedInlineItem, n *csf.Node) {
+	if n.Type != csf.Element || n.Name.Space != "ac" ||
+		(n.Name.Local != "structured-macro" && n.Name.Local != "macro") {
+		return
+	}
+	macroName := n.Attrv("ac", "name")
+	parts := make([]string, 0, len(n.Attr)+4)
+	if n.Name.Local != "structured-macro" {
+		parts = append(parts, "element="+n.Name.String())
+	}
+	for _, attr := range n.Attr {
+		if attr.Name.Space == "ac" && attr.Name.Local == "name" {
+			continue
+		}
+		parts = append(parts, "attr:"+attr.Name.String()+"="+attr.Value)
+	}
+	for _, child := range n.Children {
+		if child.Type != csf.Element || child.Name.Space != "ac" || child.Name.Local != "parameter" {
+			continue
+		}
+		name := child.Attrv("ac", "name")
+		value := csf.TextContent(child)
+		if macroName == "code" && name == "language" && canonicalCodeLanguageParameter(child, value) {
+			continue
+		}
+		parts = append(parts, "parameter:"+name+"="+value)
+	}
+	if len(parts) == 0 {
+		return
+	}
+	sort.Strings(parts)
+	shape := protectedHashParts(append([]string{macroName}, parts...)...)
+	signature := "structure\x00macro-metadata\x00" + shape
+	item := items[signature]
+	item.count++
+	item.ref = domain.Ref{Kind: "structure", Key: "macro-metadata:" + shape, Display: "macro metadata"}
+	items[signature] = item
+}
+
+func canonicalCodeLanguageParameter(parameter *csf.Node, value string) bool {
+	if len(parameter.Attr) != 1 || parameter.Attr[0].Name.Space != "ac" || parameter.Attr[0].Name.Local != "name" ||
+		len(parameter.Children) != 1 || parameter.Children[0].Type != csf.Text {
+		return false
+	}
+	normalized, ok := wikiscanner.NormalizeMarkdownFenceInfo(value)
+	return ok && normalized == value && parameter.Children[0].Data == value
+}
+
+// collectProtectedStructure inventories structure that the Markdown surface
+// cannot express. Signatures contain element names and attributes, never cell
+// or caption prose, so an edit spliced into a preserved wrapper does not look
+// like structural loss.
+func collectProtectedStructure(items map[string]protectedInlineItem, n *csf.Node) {
+	if n.Type != csf.Element || n.Name.Space != "" {
+		return
+	}
+	add := func(kind, display, shape string) {
+		signature := "structure\x00" + kind + "\x00" + shape
+		item := items[signature]
+		item.count++
+		item.ref = domain.Ref{Kind: "structure", Key: kind + ":" + shape, Display: display}
+		items[signature] = item
+	}
+	switch n.Name.Local {
+	case "br":
+		add("br", "<br>", protectedElementShapeHash(n))
+	case "caption", "colgroup", "col", "thead", "tbody", "tfoot":
+		add(n.Name.Local, "<"+n.Name.Local+">", protectedElementShapeHash(n))
+	}
+	// Attributes on ordinary HTML elements are native structure unless the
+	// Markdown conversion reproduces them. Inventorying all of them keeps a
+	// prose edit from silently dropping, for example, <p style>, <div class>,
+	// or non-href link metadata. Opaque substitution and table splicing retain
+	// the same signature, so only an actual loss reaches the gate.
+	if len(n.Attr) > 0 {
+		add(n.Name.Local+"-attributes", "<"+n.Name.Local+"> attributes", protectedElementShapeHash(n))
+	}
+	if n.Name.Local == "table" {
+		for _, topology := range protectedTableTopologies(n) {
+			add("table-topology", "table topology", protectedHashParts(topology))
+		}
+	}
+}
+
+// protectedElementShapeHash hashes only an element's qualified name and
+// attributes. Attribute order is not structural, so attributes are sorted.
+func protectedElementShapeHash(n *csf.Node) string {
+	parts := make([]string, 0, len(n.Attr))
+	for _, attr := range n.Attr {
+		parts = append(parts, attr.Name.String()+"="+attr.Value)
+	}
+	sort.Strings(parts)
+	return protectedHashParts(append([]string{n.Name.String()}, parts...)...)
+}
+
+// protectedTableTopologies returns only the noncanonical topology that a GFM
+// table cannot encode. Ordinary data-row insertion/deletion is intentionally
+// absent: it is visible in Markdown and is supported by the row merge.
+func protectedTableTopologies(table *csf.Node) []string {
+	var topologies []string
+	for _, child := range table.Children {
+		if child.Type != csf.Element || child.Name.Space != "" {
+			continue
+		}
+		switch child.Name.Local {
+		case "tr":
+			if len(topologies) == 0 || topologies[len(topologies)-1] != "direct-rows" {
+				topologies = append(topologies, "direct-rows")
+			}
+		case "caption", "colgroup", "thead", "tbody", "tfoot":
+			// These have their own inventory entries.
+		default:
+			topologies = append(topologies, "table-child:"+child.Name.Local)
+		}
+	}
+	var rows []*csf.Node
+	csf.Walk(table, func(n *csf.Node) bool {
+		if n != table && n.Name.Space == "" && n.Name.Local == "table" {
+			return false
+		}
+		if n.Name.Space == "" && n.Name.Local == "tr" {
+			rows = append(rows, n)
+			return false
+		}
+		return true
+	})
+	for ri, row := range rows {
+		var cellTypes []string
+		allTH, hasTH := true, false
+		for _, child := range row.Children {
+			if child.Type != csf.Element || child.Name.Space != "" ||
+				(child.Name.Local != "td" && child.Name.Local != "th") {
+				continue
+			}
+			cellTypes = append(cellTypes, child.Name.Local)
+			hasTH = hasTH || child.Name.Local == "th"
+			allTH = allTH && child.Name.Local == "th"
+		}
+		shape := strings.Join(cellTypes, ",")
+		if ri == 0 && (len(cellTypes) == 0 || !allTH) {
+			topologies = append(topologies, "first-row:"+shape)
+		}
+		if ri > 0 && hasTH {
+			topologies = append(topologies, "later-row:"+shape)
+		}
+		for _, child := range row.Children {
+			if child.Type != csf.Element || child.Name.Space != "" ||
+				(child.Name.Local != "td" && child.Name.Local != "th") {
+				continue
+			}
+			for _, wrapper := range tableCellWrapperShapes(child) {
+				topologies = append(topologies, "cell-wrapper:"+wrapper)
+			}
+		}
+	}
+	return topologies
+}
+
+func cellHasNonCanonicalTableContent(cell *csf.Node) bool {
+	return len(tableCellWrapperShapes(cell)) != 0
+}
+
+// tableCellWrapperShapes records native element kinds the Markdown table
+// converter cannot reproduce, never prose or attribute values. Each wrapper
+// is an independent multiset item: adding or moving opaque content does not
+// make a retained p/div look removed, while flattening any wrapper still does.
+func tableCellWrapperShapes(cell *csf.Node) []string {
+	var shapes []string
+	csf.Walk(cell, func(n *csf.Node) bool {
+		if n != cell && n.Type == csf.Element && !isCanonicalTableInlineElement(n) {
+			shapes = append(shapes, n.Name.String())
+		}
+		return true
+	})
+	return shapes
+}
+
+func isCanonicalTableInlineElement(n *csf.Node) bool {
+	if n.Name.Space != "" {
+		return false
+	}
+	switch n.Name.Local {
+	case "strong", "em", "s", "code":
+		return len(n.Attr) == 0
+	case "a":
+		return len(n.Attr) == 1 && n.Attr[0].Name.Space == "" && n.Attr[0].Name.Local == "href"
+	}
+	return false
+}
+
+func protectedHashParts(parts ...string) string {
+	var b strings.Builder
+	for _, part := range parts {
+		fmt.Fprintf(&b, "%d:", len(part))
+		b.WriteString(part)
+	}
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(b.String())))
 }
 
 func protectedNodeHash(root *csf.Node) string {

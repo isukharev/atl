@@ -119,7 +119,8 @@ func TestPageRelocationClassifiesCRLFMarkerWithoutChangingBodySemantics(t *testi
 		name, marker, want string
 	}{
 		{"current", ConfluenceDocumentMarker, "unapplied Markdown edits"},
-		{"legacy", ConfluenceDocumentMarkerV4, "legacy document format"},
+		{"legacy v5", ConfluenceDocumentMarkerV5, "legacy document format"},
+		{"legacy v4", ConfluenceDocumentMarkerV4, "legacy document format"},
 		{"unsupported historical", "<!-- atl:document confluence-page v2 -->", "unsupported historical format marker"},
 		{"future", "<!-- atl:document confluence-page v99 -->", "unsupported future format marker"},
 	}

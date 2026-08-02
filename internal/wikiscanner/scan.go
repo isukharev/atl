@@ -87,9 +87,14 @@ func MarkdownBlockCollision(line string) bool {
 	return MarkdownBlockType(line) != MarkdownParagraph
 }
 
-// MarkdownBlockType mirrors the block classifier used by mdcsf.SplitBlocks.
+// MarkdownBlockType classifies lines for reversible paragraph-collision
+// escaping. It intentionally preserves the broad legacy fence classification;
+// actual fence scanners use ParseMarkdownFenceOpen and IsMarkdownFenceClose.
 func MarkdownBlockType(line string) MarkdownBlockKind {
 	body := strings.TrimSpace(line)
+	// Keep collision recognition deliberately broader than the actual fence
+	// grammar. Existing generated Jira views escaped indented and backtick-in-info
+	// lines this way, so apply must continue to reverse those sentinel slashes.
 	if strings.HasPrefix(body, "```") {
 		return MarkdownFence
 	}
@@ -97,6 +102,54 @@ func MarkdownBlockType(line string) MarkdownBlockKind {
 		return MarkdownThematicBreak
 	}
 	return MarkdownParagraph
+}
+
+// ParseMarkdownFenceOpen recognizes a backtick fence opener. Markdown permits
+// at most three leading spaces, requires a run of at least three backticks,
+// and forbids backticks in the info string. The returned run length lets a
+// scanner distinguish a real closer from a shorter run inside the body.
+func ParseMarkdownFenceOpen(line string) (run int, info string, ok bool) {
+	i := 0
+	for i < len(line) && i < 3 && line[i] == ' ' {
+		i++
+	}
+	start := i
+	for i < len(line) && line[i] == '`' {
+		i++
+	}
+	if i-start < 3 || strings.ContainsRune(line[i:], '`') {
+		return 0, "", false
+	}
+	return i - start, line[i:], true
+}
+
+// IsMarkdownFenceClose reports whether line closes a backtick fence of the
+// given opener length. A closer may be longer than its opener, but after the
+// run it may contain whitespace only.
+func IsMarkdownFenceClose(line string, openerRun int) bool {
+	if openerRun < 3 {
+		return false
+	}
+	i := 0
+	for i < len(line) && i < 3 && line[i] == ' ' {
+		i++
+	}
+	start := i
+	for i < len(line) && line[i] == '`' {
+		i++
+	}
+	return i-start >= openerRun && strings.TrimSpace(line[i:]) == ""
+}
+
+// NormalizeMarkdownFenceInfo returns the trimmed form of an inert backtick
+// fence info string. Backticks or line breaks could change fence structure and
+// therefore cannot be represented in a generated opener.
+func NormalizeMarkdownFenceInfo(info string) (string, bool) {
+	info = strings.TrimSpace(info)
+	if strings.ContainsAny(info, "`\r\n") {
+		return "", false
+	}
+	return info, true
 }
 
 // EscapeMarkdownBlockCollision adds one reversible sentinel slash whenever the

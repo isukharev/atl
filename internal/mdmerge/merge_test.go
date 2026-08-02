@@ -85,6 +85,106 @@ func TestMergeMentionSurvivesEdit(t *testing.T) {
 	}
 }
 
+func TestMergeAdjacentProseEditPreservesExactBreakBytes(t *testing.T) {
+	page := `<p>alpha<br class="legacy"/>omega</p>`
+	md := renderOf(t, page, nil)
+	if !strings.Contains(md, "alpha<br>omega") {
+		t.Fatalf("fixture md misses protected break marker: %s", md)
+	}
+	edited := strings.Replace(md, "alpha", "beta", 1)
+	out, rep := mustMerge(t, page, edited, nil, Options{})
+	if string(out) != `<p>beta<br class="legacy"/>omega</p>` {
+		t.Fatalf("break bytes changed: %s", out)
+	}
+	if len(rep.RemovedFragments) != 0 {
+		t.Fatalf("preserved break reported lost: %+v", rep.RemovedFragments)
+	}
+}
+
+func TestMergeBreakAndTableStructureLossUsesExplicitGate(t *testing.T) {
+	page := `<p>alpha<br/>omega</p>` +
+		`<table data-layout="wide"><caption>Hidden</caption><tbody>` +
+		`<tr><th>A</th></tr><tr><td>x</td></tr></tbody></table>`
+	md := renderOf(t, page, nil)
+	edited := strings.Replace(md, "<br>", " ", 1)
+	tableAt := strings.Index(edited, "| A |")
+	if tableAt < 0 {
+		t.Fatalf("fixture md misses table: %s", md)
+	}
+	edited = strings.TrimSpace(edited[:tableAt])
+	_, rep, err := Merge([]byte(page), nil, edited, Options{})
+	var loss *LossError
+	if !errors.As(err, &loss) {
+		t.Fatalf("structural loss error = %v, report=%+v", err, rep)
+	}
+	var sawBreak, sawTable bool
+	for _, removed := range rep.RemovedFragments {
+		if removed.Kind != "structure" {
+			continue
+		}
+		sawBreak = sawBreak || removed.Display == "<br>"
+		sawTable = sawTable || removed.Display == "<caption>" || removed.Display == "table topology"
+	}
+	if !sawBreak || !sawTable {
+		t.Fatalf("structural inventory incomplete: %+v", rep.RemovedFragments)
+	}
+	out, allowed := mustMerge(t, page, edited, nil, Options{AllowFragmentLoss: true})
+	if strings.Contains(string(out), "<br") || strings.Contains(string(out), "<table") {
+		t.Fatalf("explicit structural deletion not applied: %s", out)
+	}
+	if len(allowed.RemovedFragments) == 0 {
+		t.Fatal("allowed loss must remain reported")
+	}
+}
+
+func TestMergeAttributedParagraphLossUsesExplicitGate(t *testing.T) {
+	page := `<p style="letter-spacing: 0.1em" data-layout="kept">alpha</p>`
+	edited := strings.Replace(renderOf(t, page, nil), "alpha", "beta", 1)
+	_, rep, err := Merge([]byte(page), nil, edited, Options{})
+	var loss *LossError
+	if !errors.As(err, &loss) {
+		t.Fatalf("attributed paragraph loss error = %v, report=%+v", err, rep)
+	}
+	if len(rep.RemovedFragments) == 0 || rep.RemovedFragments[0].Kind != "structure" ||
+		strings.Contains(rep.RemovedFragments[0].Key, "letter-spacing") {
+		t.Fatalf("safe attributed paragraph evidence missing: %+v", rep.RemovedFragments)
+	}
+	out, _ := mustMerge(t, page, edited, nil, Options{AllowFragmentLoss: true})
+	if string(out) != "<p>beta</p>" {
+		t.Fatalf("explicit attributed paragraph loss result = %s", out)
+	}
+}
+
+func TestMergeCodeMacroMetadataIsLossGated(t *testing.T) {
+	for name, page := range map[string]string{
+		"unsafe language":      `<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">go` + "`" + `bad</ac:parameter><ac:plain-text-body><![CDATA[alpha]]></ac:plain-text-body></ac:structured-macro>`,
+		"macro id":             `<ac:structured-macro ac:name="code" ac:macro-id="kept"><ac:parameter ac:name="language">go</ac:parameter><ac:plain-text-body><![CDATA[alpha]]></ac:plain-text-body></ac:structured-macro>`,
+		"language extra attr":  `<ac:structured-macro ac:name="code"><ac:parameter ac:name="language" data-x="kept">go</ac:parameter><ac:plain-text-body><![CDATA[alpha]]></ac:plain-text-body></ac:structured-macro>`,
+		"language nested node": `<ac:structured-macro ac:name="code"><ac:parameter ac:name="language"><strong>go</strong></ac:parameter><ac:plain-text-body><![CDATA[alpha]]></ac:plain-text-body></ac:structured-macro>`,
+		"language whitespace":  `<ac:structured-macro ac:name="code"><ac:parameter ac:name="language"> go </ac:parameter><ac:plain-text-body><![CDATA[alpha]]></ac:plain-text-body></ac:structured-macro>`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			edited := strings.Replace(renderOf(t, page, nil), "alpha", "beta", 1)
+			_, rep, err := Merge([]byte(page), nil, edited, Options{})
+			var loss *LossError
+			if !errors.As(err, &loss) {
+				t.Fatalf("macro metadata loss error = %v, report=%+v", err, rep)
+			}
+			if len(rep.RemovedFragments) == 0 || rep.RemovedFragments[0].Kind != "structure" ||
+				strings.Contains(rep.RemovedFragments[0].Key, "bad") || strings.Contains(rep.RemovedFragments[0].Key, "kept") {
+				t.Fatalf("safe macro metadata evidence missing: %+v", rep.RemovedFragments)
+			}
+		})
+	}
+
+	safe := `<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">go</ac:parameter><ac:plain-text-body><![CDATA[alpha]]></ac:plain-text-body></ac:structured-macro>`
+	edited := strings.Replace(renderOf(t, safe, nil), "alpha", "beta", 1)
+	out, _ := mustMerge(t, safe, edited, nil, Options{})
+	if !strings.Contains(string(out), `<ac:parameter ac:name="language">go</ac:parameter>`) || !strings.Contains(string(out), "beta") {
+		t.Fatalf("representable code language did not survive: %s", out)
+	}
+}
+
 func TestMergeInsertAndAppend(t *testing.T) {
 	md := renderOf(t, samplePage, nil)
 	edited := strings.Replace(md, "# Intro", "# Intro\n\nNew opening paragraph.", 1) +

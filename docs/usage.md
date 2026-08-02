@@ -878,11 +878,12 @@ contain. Supported body edits become real only after `conf apply` / `jira
 apply`; generated metadata sections remain read-only, and pull/render may
 replace the view. Profiles never affect substrate hashes or dirty/drift state.
 
-Confluence views begin with `<!-- atl:document confluence-page v5 -->` and use
-reserved metadata/body/comments/Jira-query boundaries. Pristine v4 views
-migrate only when exact reconstruction proves every byte. Dirty v4, older
-historical, unversioned, and unknown/future views are preserved and refused;
-preserve any edits separately before rendering a supported pristine v4 view.
+Confluence views begin with `<!-- atl:document confluence-page v6 -->` and use
+reserved metadata/body/comments/Jira-query boundaries. Pristine v5 and v4
+views migrate only when the renderer for that exact marker reconstructs every
+byte. Dirty v5/v4, older historical, unversioned, and unknown/future views are
+preserved and refused; preserve any edits separately before rendering a
+supported pristine legacy view.
 
 | profile | Jira `.md` | Confluence `.md` |
 |---|---|---|
@@ -1363,9 +1364,9 @@ unchanged. `ORDER BY` in user CQL is rejected because atl appends
 
 Before the first page body fetch/write, the entire selected local set is
 preflighted. Native CSF edits, unapplied Markdown edits, partial page artifacts,
-or corrupt state block the batch. A supported v4 legacy `.md` is accepted only if
-replacing the current document marker with its exact legacy marker reproduces
-every byte; `view_migrations` counts those proven views, and each is rewritten
+or corrupt state block the batch. A supported v5/v4 legacy `.md` is accepted
+only if its version-specific renderer reproduces every byte;
+`view_migrations` counts those proven views, and each is rewritten
 to the current format only when its page pull succeeds. A changed legacy view
 gets a legacy-specific reconciliation error, while unversioned and
 unknown/future views are preserved and never downgraded. A network/permission failure may leave pages
@@ -1465,9 +1466,10 @@ empty page.
 
 Missing local targets for `conf render`, `conf apply`, and `conf push` all map
 to exit `4` (`not found`). Malformed target kinds or incompatible flag
-combinations remain exit `2` (`usage`). Offline render may migrate pristine v4
-views after exact reconstruction, but refuses to overwrite dirty v4, older
-historical, unversioned, or unknown/future views. Directory renders inspect every selected
+combinations remain exit `2` (`usage`). Offline render may migrate pristine
+v5/v4 views after exact version-specific reconstruction, but refuses to
+overwrite edited legacy, older historical, unversioned, or unknown/future
+views. Directory renders inspect every selected
 view first and make no view changes if any selected marker is unsupported.
 
 ### `atl conf table extract`
@@ -1941,8 +1943,9 @@ tables, fenced code, blockquotes/admonitions, links, legacy `[[Page Links]]`
 links, images) keep their original bytes. Local only — `conf push` remains
 the write path to the server.
 
-Tables with editor styling (cell `style`/`class` attributes, wrapper divs,
-spans) are merged **row/cell-wise** rather than converted: untouched rows keep
+Tables with editor styling or native structure (table/row/cell attributes,
+caption/column metadata, header topology, wrapper divs, or spans) are merged
+**row/cell-wise** rather than converted: untouched rows keep
 their exact bytes; an edited cell has its converted content spliced into the
 existing cell wrapper (styles and classes survive); a deleted row drops its
 byte range (the fragment-loss gate still applies to macros/mentions it held);
@@ -1964,15 +1967,26 @@ atl conf apply guide.md --allow-fragment-loss  # intentional macro/mention remov
 | `--allow-fragment-loss` | proceed when the edit drops opaque fragments |
 | `--into` | mirror root (defaults to nearest `.atl`) |
 
-The first line must be `<!-- atl:document confluence-page v5 -->`. V4 predates
+The first line must be `<!-- atl:document confluence-page v6 -->`. V5 predates
+the closed fence/break/table staging contract, while v4 predates
 the qualified main-view comment tree, and v3 predates the recorded
 display-timezone contract. Apply rejects missing/legacy/unknown
 versions and additions, removals, renames, or reordering of reserved
 `<!-- atl:... -->` marker text in the editable body before writing. Marker prose
 that already came from native page content is allowed when left unchanged.
-Pristine v4 views migrate only after exact reconstruction. Dirty v4, older
-historical, and unversioned views are preserved and refused; an unknown/future
-version requires a newer `atl` and is never downgraded.
+Pristine v5/v4 views migrate only after exact version-specific reconstruction.
+Dirty v5/v4, older historical, and unversioned views are preserved and refused;
+an unknown/future version requires a newer `atl` and is never downgraded.
+
+The v6 body renderer chooses a code fence longer than any backtick run in the
+native body, reversibly escapes paragraph text that would otherwise parse as a
+fence or thematic break, and renders native `<br>` nodes as protected `<br>`
+markers. Editing adjacent prose preserves the exact original break bytes.
+Deleting protected break/structural markers participates in the explicit
+fragment-loss gate; unrepresentable structural rewrites fail before `.csf`
+changes. Code-macro metadata that cannot be expressed by a safe Markdown fence
+(including unsafe language text, macro ids, or extra parameters) is likewise
+loss-gated instead of being silently discarded by a body edit.
 
 All views carry generated document/body boundaries. When the page was pulled
 under every profile the body starts at visible `# Content`; `full` also carries
@@ -2332,7 +2346,7 @@ so another page with the old slug is diverted instead of inheriting them.
 If all old `.csf`, `.md`, and `.meta.json` primary files were deliberately
 removed, re-pull repairs the stale sidecar path. A partial removal remains
 ambiguous and exits `8`; restore the complete old page or remove all three
-primary files, then re-pull. A supported v4 view receives explicit
+primary files, then re-pull. A supported v5/v4 view receives explicit
 `conf render` migration guidance instead of the generic local-edit diagnostic;
 only an exact pristine reconstruction can migrate.
 If interrupted cleanup leaves an old copy, `conf status` marks it
@@ -2617,7 +2631,7 @@ excluded.
 
 To persist comments alongside the mirrored page instead of printing them, use
 `conf pull --comments`. The schema-v2 `.comments.json` is the source evidence,
-including completeness and closed diagnostics. The main v5 `.md` renders a
+including completeness and closed diagnostics. The main v6 `.md` renders a
 deterministic read-only thread tree with author/time, location/state, qualified
 anchors, and an explicit unattached section when ancestry is unavailable or
 inconsistent. Only a matched observed selection is labelled current; other

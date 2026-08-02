@@ -202,7 +202,10 @@ atl jira status "$ATL_MIRROR_ROOT"
 ```
 
 Use `.md` for reading and supported staging edits. Native `.csf` / `.wiki`
-files preserve constructs that Markdown cannot represent.
+files preserve constructs that Markdown cannot represent. Confluence v6 views
+use content-safe code fences, reversible paragraph escapes, explicit inline
+break markers, and structure-preserving table merges; unsupported native shape
+is refused before `.csf` changes.
 
 ### 3. Review a write
 

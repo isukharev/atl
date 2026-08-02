@@ -44,7 +44,7 @@ func SplitBlocks(md string) []string {
 	lines := strings.Split(md, "\n")
 	var blocks []string
 	var cur []string
-	inFence := false
+	fenceRun := 0
 	flush := func() {
 		if len(cur) > 0 {
 			blocks = append(blocks, strings.Join(cur, "\n"))
@@ -52,10 +52,10 @@ func SplitBlocks(md string) []string {
 		}
 	}
 	for _, line := range lines {
-		if inFence {
+		if fenceRun > 0 {
 			cur = append(cur, line)
-			if wikiscanner.MarkdownBlockType(line) == wikiscanner.MarkdownFence {
-				inFence = false
+			if wikiscanner.IsMarkdownFenceClose(line, fenceRun) {
+				fenceRun = 0
 				flush()
 			}
 			continue
@@ -64,10 +64,10 @@ func SplitBlocks(md string) []string {
 			flush()
 			continue
 		}
-		if wikiscanner.MarkdownBlockType(line) == wikiscanner.MarkdownFence {
+		if run, _, ok := wikiscanner.ParseMarkdownFenceOpen(line); ok {
 			flush()
 			cur = append(cur, line)
-			inFence = true
+			fenceRun = run
 			continue
 		}
 		if headingRe.MatchString(line) || wikiscanner.MarkdownBlockType(line) == wikiscanner.MarkdownThematicBreak {
@@ -103,8 +103,9 @@ func Convert(block string) ([]byte, error) {
 	}
 	lines := strings.Split(block, "\n")
 	first := strings.TrimSpace(lines[0])
+	_, _, firstIsFence := wikiscanner.ParseMarkdownFenceOpen(lines[0])
 	switch {
-	case strings.HasPrefix(first, "```"):
+	case firstIsFence:
 		return convertFence(lines)
 	case headingRe.MatchString(lines[0]):
 		return convertHeading(lines)
@@ -135,21 +136,54 @@ func convertHeading(lines []string) ([]byte, error) {
 }
 
 func convertParagraph(lines []string) ([]byte, error) {
-	body, err := inline(strings.Join(trimAll(lines), " "))
-	if err != nil {
-		return nil, err
+	parts := make([]string, len(lines))
+	for i, line := range trimAll(lines) {
+		original, kind, ok := wikiscanner.UnescapeMarkdownBlockCollision(line)
+		if !ok {
+			body, err := inline(line)
+			if err != nil {
+				return nil, err
+			}
+			parts[i] = body
+			continue
+		}
+		switch kind {
+		case wikiscanner.MarkdownFence:
+			// Keep the leading run out of inline(): feeding it to the code-span
+			// parser could turn paragraph text into a <code> element.
+			prefix := 0
+			for prefix < len(original) && original[prefix] == '\\' {
+				prefix++
+			}
+			for prefix < len(original) && strings.ContainsRune(" \t\r\n", rune(original[prefix])) {
+				prefix++
+			}
+			for prefix < len(original) && original[prefix] == '`' {
+				prefix++
+			}
+			rest, err := inline(original[prefix:])
+			if err != nil {
+				return nil, err
+			}
+			parts[i] = escapeText(original[:prefix]) + rest
+		case wikiscanner.MarkdownThematicBreak:
+			parts[i] = escapeText(original)
+		default:
+			return nil, unsupported("markdown block collision", line)
+		}
 	}
-	return fmt.Appendf(nil, "<p>%s</p>", body), nil
+	return fmt.Appendf(nil, "<p>%s</p>", strings.Join(parts, " ")), nil
 }
 
 func convertFence(lines []string) ([]byte, error) {
+	run, info, ok := wikiscanner.ParseMarkdownFenceOpen(lines[0])
 	open := strings.TrimSpace(lines[0])
-	lang := strings.TrimSpace(strings.TrimPrefix(open, "```"))
-	if strings.ContainsAny(lang, "`") {
+	if !ok {
 		return nil, unsupported("code fence info string", open)
 	}
+	lang := strings.TrimSpace(info)
 	last := len(lines) - 1
-	if last == 0 || strings.TrimSpace(lines[last]) != "```" {
+	if last == 0 || !wikiscanner.IsMarkdownFenceClose(lines[last], run) {
 		return nil, unsupported("unterminated code fence", lines[0])
 	}
 	// CRLF input reaches here verbatim (every other block type sheds \r via

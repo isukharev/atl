@@ -41,6 +41,8 @@ func FuzzConvertDocument(f *testing.F) {
 		// guards; a real fence / break (no backslash) must stay a fence / hr.
 		"intro\n\\```json\n\\---\n\\***\n\\___\ntail",
 		"\\```lang **bold** rest\n\\*****",
+		"`````go\nshorter ``` run\n```\n\nstill body\n``````  ",
+		"\\````literal\n\\\\```slash prefix",
 	}
 	for _, s := range seeds {
 		f.Add(s)

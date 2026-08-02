@@ -27,7 +27,8 @@ import (
 // the same invariant after a merge.
 const (
 	ConfluenceDocumentMarkerV4   = "<!-- atl:document confluence-page v4 -->"
-	ConfluenceDocumentMarker     = "<!-- atl:document confluence-page v5 -->"
+	ConfluenceDocumentMarkerV5   = "<!-- atl:document confluence-page v5 -->"
+	ConfluenceDocumentMarker     = "<!-- atl:document confluence-page v6 -->"
 	ConfluencePageFieldsMarker   = "<!-- atl:section page-fields readonly -->"
 	ConfluenceBodyMarker         = "<!-- atl:section body editable -->"
 	ConfluenceBodyReadOnlyMarker = "<!-- atl:section body readonly -->"
@@ -41,7 +42,7 @@ const (
 // derived-view markers that this binary can reconstruct before a guarded
 // migration to the current format.
 func IsSupportedLegacyConfluenceDocumentMarker(marker string) bool {
-	return marker == ConfluenceDocumentMarkerV4
+	return marker == ConfluenceDocumentMarkerV4 || marker == ConfluenceDocumentMarkerV5
 }
 
 // IsFutureConfluenceDocumentMarker distinguishes a marker produced by a newer
@@ -372,6 +373,10 @@ func boolPointer(value bool) *bool { return &value }
 // Confluence storage bodies retain paragraphs, lists, links and headings; the
 // plain Body field remains a fallback for legacy sidecars and other backends.
 func RenderCommentsMarkdown(comments []domain.Comment) []byte {
+	return renderCommentsMarkdownVersion(comments, confluenceMarkdownCurrent)
+}
+
+func renderCommentsMarkdownVersion(comments []domain.Comment, format confluenceMarkdownFormat) []byte {
 	var b strings.Builder
 	b.WriteString("# Comments\n\n")
 	for _, c := range comments {
@@ -383,7 +388,8 @@ func RenderCommentsMarkdown(comments []domain.Comment) []byte {
 		body := strings.TrimSpace(c.Body)
 		if c.BodyStorage != "" {
 			if root, err := csf.Parse([]byte(c.BodyStorage)); err == nil {
-				body = strings.TrimSpace(renderCommentMarkdown(root))
+				r := newMDRendererOffsetVersion(nil, 2, format)
+				body = strings.TrimSpace(renderCommentMarkdownWithRenderer(root, r))
 			}
 		}
 		if body != "" {

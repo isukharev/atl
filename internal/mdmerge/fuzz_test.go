@@ -28,6 +28,9 @@ func FuzzMerge(f *testing.F) {
 	bases := []string{
 		samplePage,
 		stylePage,
+		`<p>before<br class="legacy"/>after</p>`,
+		`<table data-layout="wide"><caption>Hidden</caption><colgroup><col/><col/></colgroup><tbody><tr><th>A</th><th>B</th></tr><tr><td>x</td><td>y</td></tr></tbody></table>`,
+		`<table><tbody><tr><td>A</td><td>B</td></tr><tr><th>x</th><td>y</td></tr></tbody></table>`,
 		`<table><tbody><tr><th>A</th><th>B</th></tr><tr><td colspan="2">wide</td></tr><tr><td rowspan="2">x</td><td>y</td></tr><tr><td>z</td></tr></tbody></table>`,
 		`<p>one</p>`,
 		`<ac:layout><ac:layout-section><ac:layout-cell><p>x</p></ac:layout-cell></ac:layout-section></ac:layout>`,

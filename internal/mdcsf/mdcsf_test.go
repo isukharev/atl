@@ -60,6 +60,43 @@ func TestConvertCodeFence(t *testing.T) {
 	}
 	// A CDATA terminator inside the body must not break well-formedness.
 	convertOK(t, "```\npayload ]]> more\n```")
+
+	got = convertOK(t, "`````go\nbefore\n```\nafter\n``````   ")
+	want = `<ac:structured-macro ac:name="code"><ac:parameter ac:name="language">go</ac:parameter>` +
+		"<ac:plain-text-body><![CDATA[before\n```\nafter]]></ac:plain-text-body></ac:structured-macro>"
+	if got != want {
+		t.Errorf("dynamic fence got %q, want %q", got, want)
+	}
+}
+
+func TestConvertParagraphUnescapesBlockCollisions(t *testing.T) {
+	cases := []struct{ md, want string }{
+		{"intro\n\\```json\ntail", "<p>intro ```json tail</p>"},
+		{"intro\n\\````lang **bold**\ntail", "<p>intro ````lang <strong>bold</strong> tail</p>"},
+		{"intro\n\\   `````lang **bold**\ntail", "<p>intro    `````lang <strong>bold</strong> tail</p>"},
+		{"intro\n\\    ```lang **bold**\ntail", "<p>intro     ```lang <strong>bold</strong> tail</p>"},
+		{"intro\n\\\t```lang **bold**\ntail", "<p>intro \t```lang <strong>bold</strong> tail</p>"},
+		{"intro\n\\---\ntail", "<p>intro --- tail</p>"},
+		{"intro\n\\\\```json\ntail", "<p>intro \\```json tail</p>"},
+		{"intro\n\\\\\\````json\ntail", "<p>intro \\\\````json tail</p>"},
+		{"intro\n\\\\---\ntail", "<p>intro \\--- tail</p>"},
+	}
+	for _, tc := range cases {
+		if got := convertOK(t, tc.md); got != tc.want {
+			t.Errorf("Convert(%q) = %q, want %q", tc.md, got, tc.want)
+		}
+	}
+	if got := convertOK(t, "\\```x``"); got != "<p>```x``</p>" || strings.Contains(got, "<code>") {
+		t.Errorf("escaped backtick run became markup: %q", got)
+	}
+}
+
+func TestConvertRefusesRawBreakElements(t *testing.T) {
+	for _, md := range []string{"before <br> after", "before <br/> after"} {
+		if out, err := Convert(md); err == nil || out != nil {
+			t.Errorf("Convert(%q) = %q, %v; want unsupported error", md, out, err)
+		}
+	}
 }
 
 func TestConvertTable(t *testing.T) {
@@ -172,6 +209,12 @@ func TestSplitBlocks(t *testing.T) {
 	got = SplitBlocks("text\n# H\nmore")
 	if len(got) != 3 || got[1] != "# H" {
 		t.Errorf("tight heading split = %q", got)
+	}
+
+	got = SplitBlocks("`````go\nbefore\n```\n\nstill fenced\n``````  \nafter")
+	want = []string{"`````go\nbefore\n```\n\nstill fenced\n``````  ", "after"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("dynamic fence split = %q, want %q", got, want)
 	}
 }
 

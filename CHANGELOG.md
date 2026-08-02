@@ -67,6 +67,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Closed the Confluence Markdown staging round trip for server-controlled code
+  fences, paragraph block collisions, inline breaks, and native table
+  structure. Derived views now use the v6 marker; byte-clean v5 and v4 views
+  migrate only after exact version-specific reconstruction, while edited or
+  unsupported legacy views remain untouched and fail closed.
+
 - Unified the hard cap for server-controlled Confluence table spans across
   mirror rendering and exact table projections. Exact extract/summary reads now
   fail closed before expansion when native geometry exceeds the supported cap,
