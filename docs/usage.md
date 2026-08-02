@@ -1693,6 +1693,33 @@ Flags:
 | `[file.csf\|DIR]` | page or subtree; omitted uses the configured mirror root |
 | `--into` | explicit mirror root (otherwise nearest `.atl`) |
 
+### `atl conf reconcile preview` / `atl conf reconcile stage`
+
+Use reconcile after a version conflict or before deciding how to preserve
+independent local and remote edits to one tracked page:
+
+```bash
+ATL_READ_ONLY=1 atl conf reconcile preview mirror/DOCS/guide/guide.csf
+atl conf reconcile stage mirror/DOCS/guide/guide.csf
+```
+
+Both modes perform exactly one single-attempt remote page read after the local
+canonical path, sidecar, metadata, and pristine baseline have been qualified.
+They compare exact `base`, `ours`, and `theirs` native bytes and report the
+closed state `unchanged|local_only|remote_only|diverged`; `converged:true`
+means local and remote made the same byte-exact change. Output contains hashes,
+sizes, versions, content-free block deltas, explicit bounds, and a proposal
+hash, never page bodies. Invalid CSF, inconsistent same-version bytes, more
+than 16 MiB per body, more than 4096 semantic blocks, or more than one million
+alignment cells fails closed with exit `8`.
+
+`preview` is read-only and never creates files. `stage` is separately
+mutation-classified and writes exact immutable review artifacts beneath
+`.atl/reconcile/confluence/`; it never changes the working `.csf`, `.md`,
+metadata, baseline, or sidecar. Repeating the same stage is idempotent; a
+different pre-existing artifact is preserved and blocks the operation. ATL
+does not delete these artifacts automatically.
+
 ### `atl conf plan create` / `atl conf plan preview` / `atl conf plan apply`
 
 Use a durable plan when several native page updates must be reviewed as one
@@ -4004,6 +4031,33 @@ followed. Remote `attempted = checked + unavailable`, `checked = in_sync +
 drifted`, and local `present = attempted + not_attempted`. A redirect or other
 unavailable probe sets `complete:false` and never counts as in-sync. The command
 never writes or repairs mirror state.
+
+### `atl jira reconcile preview` / `atl jira reconcile stage`
+
+Use one tracked `.wiki` (or its neighboring `.md`) to compare the exact
+last-synced Description, current local Description, and one fresh remote
+Description:
+
+```bash
+ATL_READ_ONLY=1 atl jira reconcile preview mirror-jira/EXAMPLE/EXAMPLE-1.wiki
+atl jira reconcile stage mirror-jira/EXAMPLE/EXAMPLE-1.wiki
+```
+
+The result uses `unchanged|local_only|remote_only|diverged` and binds the
+remote issue id, key, canonical `updated` marker, all three hashes, and any
+pending editable wiki fields into one proposal hash. Pending fields are
+classified but never rewritten or materialized as misleading Description
+files. A pending transaction, noncanonical copy, broken baseline, structured
+remote field, missing projection, or body above 16 MiB fails before a claim is
+made. Pending state additionally has a 64 MiB serialized-record and 256-field
+aggregate bound; every individual base/proposed/remote wiki value keeps the
+16 MiB body bound. The single-attempt remote request projects Description, `updated`, and
+the exact pending field ids together.
+
+`preview` is read-only. `stage` writes only exact Description base/theirs files
+under `.atl/reconcile/jira/`; it does not recover transactions, change the
+working `.wiki`/`.md`/snapshot/pending state, update the baseline, or contact a
+write endpoint. Existing differing artifacts are never overwritten or deleted.
 
 ### `atl jira apply`
 

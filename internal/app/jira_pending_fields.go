@@ -79,18 +79,35 @@ func loadJiraPendingFieldsLocked(root, key string) (*JiraPendingFields, bool, er
 // dry-runs use it without a mutation lock, so an interrupted apply is a loud
 // diagnostic rather than an implicit rename/removal of coordination state.
 func loadJiraPendingFieldsReadOnly(root, key string) (*JiraPendingFields, bool, error) {
+	return loadJiraPendingFieldsReadOnlyWithinLimit(root, key, -1)
+}
+
+func loadJiraPendingFieldsReadOnlyWithinLimit(root, key string, max int64) (*JiraPendingFields, bool, error) {
 	txnPath := jiraPendingFieldsTxnPath(root, key)
-	if _, err := safepath.ReadFileWithin(root, txnPath); err == nil {
+	if _, err := safepath.StatWithin(root, txnPath); err == nil {
 		return nil, false, fmt.Errorf("%w: pending Jira transaction %s requires recovery by a non-dry-run mirror command", domain.ErrCheckFailed, key)
 	} else if !os.IsNotExist(err) {
 		return nil, false, err
 	}
-	return readJiraPendingFields(root, key)
+	if max < 0 {
+		return readJiraPendingFields(root, key)
+	}
+	return readJiraPendingFieldsWithinLimit(root, key, max)
 }
 
 func readJiraPendingFields(root, key string) (*JiraPendingFields, bool, error) {
 	path := jiraPendingFieldsPath(root, key)
 	b, err := safepath.ReadFileWithin(root, path)
+	return decodeJiraPendingFields(root, key, path, b, err)
+}
+
+func readJiraPendingFieldsWithinLimit(root, key string, max int64) (*JiraPendingFields, bool, error) {
+	path := jiraPendingFieldsPath(root, key)
+	b, err := safepath.ReadFileWithinLimit(root, path, max)
+	return decodeJiraPendingFields(root, key, path, b, err)
+}
+
+func decodeJiraPendingFields(root, key, path string, b []byte, err error) (*JiraPendingFields, bool, error) {
 	if os.IsNotExist(err) {
 		return nil, false, nil
 	}

@@ -205,6 +205,10 @@ atl conf diff "$ATL_MIRROR_ROOT" -o text
 # Маршрут Jira:
 atl jira pull --jql 'project = EXAMPLE order by key' --limit 20
 atl jira status "$ATL_MIRROR_ROOT"
+
+# Если изменились и локальная, и удалённая версии, проверьте exact three-way snapshot.
+atl conf reconcile preview "$ATL_MIRROR_ROOT/SPACE/page/page.csf" -o text
+atl jira reconcile preview "$ATL_MIRROR_ROOT/EXAMPLE/EXAMPLE-1.wiki" -o text
 ```
 
 Используйте `.md` для чтения и поддерживаемых staging-правок. Нативные `.csf` /
@@ -229,6 +233,7 @@ version/baseline/hash → один apply → reconciliation.
 atl conf apply "$ATL_MIRROR_ROOT/SPACE/page/page.md"
 atl conf validate "$ATL_MIRROR_ROOT/SPACE/page/page.csf"
 atl conf diff "$ATL_MIRROR_ROOT/SPACE/page/page.csf" -o text
+atl conf reconcile preview "$ATL_MIRROR_ROOT/SPACE/page/page.csf" -o text
 atl conf push "$ATL_MIRROR_ROOT/SPACE/page/page.csf" --dry-run
 ```
 

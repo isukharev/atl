@@ -615,6 +615,19 @@ func (m *Mirror) LoadCSF(csfPath string) (*LocalCSF, []byte, error) {
 	return loadCSFWith(m.Root, sc, csfPath)
 }
 
+// LoadCSFWithinLimit is the allocation-bounded form used by safety-sensitive
+// local preflights. It reads one byte past max and fails rather than accepting
+// a truncated native body.
+func (m *Mirror) LoadCSFWithinLimit(csfPath string, max int64) (*LocalCSF, []byte, error) {
+	sc, err := m.loadSidecar()
+	if err != nil {
+		return nil, nil, err
+	}
+	return loadCSFWithReader(m.Root, sc, csfPath, func(root, path string) ([]byte, error) {
+		return safepath.ReadFileWithinLimit(root, path, max)
+	})
+}
+
 // LoadCSFMany loads an exact caller-selected set against one sidecar snapshot.
 // It preserves input order and fails on the first unreadable entry. Batch
 // preflights use it to avoid repeatedly decoding a large shared state.json
@@ -640,7 +653,11 @@ func (m *Mirror) LoadCSFMany(paths []string) ([]*LocalCSF, [][]byte, error) {
 // loadCSFWith is LoadCSF against an already-loaded sidecar, so ListCSF can
 // load the sidecar once instead of once per file.
 func loadCSFWith(root string, sc sidecarFile, csfPath string) (*LocalCSF, []byte, error) {
-	body, err := safepath.ReadFileWithin(root, csfPath)
+	return loadCSFWithReader(root, sc, csfPath, safepath.ReadFileWithin)
+}
+
+func loadCSFWithReader(root string, sc sidecarFile, csfPath string, read func(string, string) ([]byte, error)) (*LocalCSF, []byte, error) {
+	body, err := read(root, csfPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -759,10 +776,26 @@ func (m *Mirror) LoadWiki(wikiPath string) (*LocalWiki, []byte, error) {
 	return loadWikiWith(m.Root, sc, wikiPath)
 }
 
+// LoadWikiWithinLimit is the allocation-bounded form used by reconcile and
+// other integrity-sensitive local inspections.
+func (m *Mirror) LoadWikiWithinLimit(wikiPath string, max int64) (*LocalWiki, []byte, error) {
+	sc, err := m.loadSidecar()
+	if err != nil {
+		return nil, nil, err
+	}
+	return loadWikiWithReader(m.Root, sc, wikiPath, func(root, path string) ([]byte, error) {
+		return safepath.ReadFileWithinLimit(root, path, max)
+	})
+}
+
 // loadWikiWith is LoadWiki against an already-loaded sidecar, so ListWiki can
 // load the sidecar once instead of once per file.
 func loadWikiWith(root string, sc sidecarFile, wikiPath string) (*LocalWiki, []byte, error) {
-	body, err := safepath.ReadFileWithin(root, wikiPath)
+	return loadWikiWithReader(root, sc, wikiPath, safepath.ReadFileWithin)
+}
+
+func loadWikiWithReader(root string, sc sidecarFile, wikiPath string, read func(string, string) ([]byte, error)) (*LocalWiki, []byte, error) {
+	body, err := read(root, wikiPath)
 	if err != nil {
 		return nil, nil, err
 	}

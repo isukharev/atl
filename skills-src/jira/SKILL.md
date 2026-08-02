@@ -238,6 +238,11 @@ needs it.
 Preserve locally edited work. Re-pull a clean remote-drifted mirror; a clean
 non-drifted mirror is already a valid base. A transient view that becomes an
 edit request must be discarded in favor of a fresh pull.
+If both local and remote values may have changed, use
+`jira reconcile preview <issue.wiki>` for one content-free base/ours/theirs
+classification of Description and pending wiki fields. Use `jira reconcile
+stage` only to create exact private Description artifacts under
+`.atl/reconcile`; it never changes Jira or the working mirror substrate.
 
 Profile root/render values are memory, not runtime. Load only relevant Jira
 preferences/render defaults and active config. Present conflicts and obtain

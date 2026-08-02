@@ -60,6 +60,8 @@ conf plan create
 conf plan preview
 conf pull
 conf push
+conf reconcile preview
+conf reconcile stage
 conf render
 conf search
 conf snapshot
@@ -120,6 +122,8 @@ jira me
 jira planning report
 jira pull
 jira push
+jira reconcile preview
+jira reconcile stage
 jira quality-report
 jira render
 jira sprint current

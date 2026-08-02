@@ -258,6 +258,11 @@ view that becomes an edit request must be discarded in favor of a fresh pull.
 For aggregate mirror-health questions, prefer `conf snapshot` so atl supplies
 the exact local/baseline/validation/render/drift counts and reconciliation;
 expand with `conf diff` only when page identities or detailed deltas are needed.
+When local and remote native bytes may both have changed, run
+`conf reconcile preview <page.csf>` for one bounded base/ours/theirs decision.
+Use the separately mutation-classified `conf reconcile stage` only when exact
+private `.atl/reconcile` artifacts are needed by an external merge tool; it
+never changes the working page and never writes to Confluence.
 
 If a workflow profile exists, load only preferences, Confluence render defaults,
 and active config. Profile root/render values are memory, not runtime. Present

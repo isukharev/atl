@@ -87,6 +87,23 @@ func TestReadOnlyPolicyAllowsBackendRead(t *testing.T) {
 	}
 }
 
+func TestReconcilePreviewAndStageHaveDistinctAccessPolicies(t *testing.T) {
+	root := newRoot()
+	for _, service := range []string{"conf", "jira"} {
+		preview, _, err := root.Find([]string{service, "reconcile", "preview"})
+		if err != nil || preview.Annotations[accessAnnotation] != "read-only" {
+			t.Fatalf("%s preview access=%q err=%v", service, preview.Annotations[accessAnnotation], err)
+		}
+		stage, _, err := root.Find([]string{service, "reconcile", "stage"})
+		if err != nil || stage.Annotations[accessAnnotation] != "mutating" {
+			t.Fatalf("%s stage access=%q err=%v", service, stage.Annotations[accessAnnotation], err)
+		}
+		if _, code := runCLI(t, map[string]string{"ATL_READ_ONLY": "1"}, service, "reconcile", "stage", "/definitely/missing.native"); code != exitCheckFailed {
+			t.Fatalf("%s stage under read-only policy exit=%d", service, code)
+		}
+	}
+}
+
 func TestJiraCommentPreviewIsReadOnlyAndAddRemainsMutating(t *testing.T) {
 	root := newRoot()
 	preview, _, err := root.Find([]string{"jira", "issue", "comment", "preview"})
