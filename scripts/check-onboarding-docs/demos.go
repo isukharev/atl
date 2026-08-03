@@ -17,6 +17,7 @@ import (
 
 	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/safepath"
 	"github.com/isukharev/atl/internal/testbackend"
 )
 
@@ -435,7 +436,7 @@ func demoTreeDigest(root string) ([sha256.Size]byte, error) {
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("local demo artifact is not a regular file: %s", path)
 		}
-		body, err := os.ReadFile(path)
+		body, err := safepath.ReadFileWithin(root, path)
 		if err != nil {
 			return err
 		}
