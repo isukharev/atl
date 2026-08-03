@@ -1263,8 +1263,14 @@ it does not claim the view is unedited or safe to overwrite.
 
 With `--remote`, local preflight runs before backend setup. Any qualified local
 integrity failure emits the aggregate, returns exit `8`, and performs no request.
-Eligible canonical issues with valid baselines then receive at most one
-single-attempt GET each; redirect responses are not followed and count as
+One eligible canonical issue with a valid baseline keeps its exact GET. Larger
+selections use qualified batches of at most 100 keys and 16 KiB of escaped
+selector input, with one single-attempt request per batch and generic
+replay-safe retries disabled. A batch is credited only after terminal
+pagination, exact case-insensitive key coverage, unique canonical positive
+numeric ids, and an explicit Description projection; typed, partial, omitted, duplicate,
+unexpected, or malformed evidence makes the whole batch unavailable without
+per-issue fallback. Redirect responses are not followed and count as
 unavailable. `attempted = checked + unavailable`, `checked = in_sync + drifted`,
 and local `present = attempted + not_attempted`; unavailable never means in-sync
 and makes `complete:false`. No form of this command mutates the mirror or backend.

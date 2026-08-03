@@ -433,6 +433,24 @@ type QualifiedIssueSearcher interface {
 	SearchQualified(ctx context.Context, jql string, fields []string, limit int, cursor string) (IssueSearchPage, error)
 }
 
+// JiraIssueMetadataBatch is one completeness-qualified response for an exact,
+// caller-supplied set of issue keys. PartialReason belongs to the closed issue
+// search reason set and never contains JQL or backend-controlled text.
+type JiraIssueMetadataBatch struct {
+	Issues        []Issue
+	Complete      bool
+	PartialReason string
+}
+
+// QualifiedJiraIssueMetadataBatchReader is the optional read-only capability
+// used by mirror inspection to replace per-issue probes with bounded batches.
+// Planning is pure and preserves caller order so selector escaping and byte
+// limits remain owned by the adapter rather than the app layer.
+type QualifiedJiraIssueMetadataBatchReader interface {
+	PlanIssueMetadataBatches(keys []string) ([][]string, error)
+	ReadIssueMetadataBatch(ctx context.Context, keys, fields []string) (JiraIssueMetadataBatch, error)
+}
+
 // JiraTransitionRequest is one already-resolved Jira workflow transition.
 // ID is the exact transition identity returned by the immediately preceding
 // metadata read. Fields are already typed and Comment is native Jira wiki.

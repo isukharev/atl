@@ -4222,7 +4222,7 @@ Jira analog of `conf status`.
 atl jira status                     # env, nearest .atl, then mirror-jira fallback
 atl jira status my-jira-mirror
 atl jira status --into my-jira-mirror
-atl jira status --remote            # also check remote drift (one request per issue)
+atl jira status --remote            # remote drift via bounded qualified batches
 ```
 
 Each entry carries `locally_edited` (the `.wiki` differs from the pulled base or
@@ -4233,6 +4233,16 @@ sidecar, so `locally_edited` + `synced:false` means "never-synced"), and, with
 from its stored base), optional `field_drifted`, or `remote_error` (the remote could not be checked — an uncheckable issue
 is never reported in-sync). Drift needs a baseline: an issue with no base copy is
 never reported drifted.
+
+With one eligible issue, `--remote` keeps the exact issue endpoint. Larger
+selections use completeness-qualified batches of at most 100 keys and 16 KiB
+of escaped selector input. Each batch gets one transport attempt and must
+return every requested key exactly once, case-insensitively, with a unique
+canonical positive numeric issue id and an explicit Description projection. A
+typed
+error, partial page, omitted/duplicate/unexpected row, or malformed projection
+makes that whole batch unavailable without per-issue fallback or permission
+inference. Accepted rows are projected back to canonical local order.
 
 Status accepts either positional `[DIR]` or `--into`, never both. With neither,
 it uses `ATL_MIRROR_ROOT`, the nearest initialized `.atl` from the current
@@ -4275,10 +4285,12 @@ failure and the exit code stays the inspection code. If inspection otherwise
 succeeds, the write failure is returned on its own with generic exit `1`.
 
 `--remote` first completes that local preflight before loading backend config or
-credentials. A failed preflight makes zero requests. Otherwise each eligible
-canonical tracked issue with a valid baseline receives at most one GET attempt;
-generic replay-safe retries are disabled and redirect responses are not
-followed. Remote `attempted = checked + unavailable`, `checked = in_sync +
+credentials. A failed preflight makes zero requests. Otherwise one eligible
+canonical tracked issue keeps its exact GET. Larger selections use the same
+qualified 100-key / 16 KiB batches as remote status, with one single-attempt
+request per batch and no per-issue fallback. Generic replay-safe retries are
+disabled and redirect responses are not followed. Remote `attempted = checked +
+unavailable`, `checked = in_sync +
 drifted`, and local `present = attempted + not_attempted`. A redirect or other
 unavailable probe sets `complete:false` and never counts as in-sync. The command
 never writes or repairs mirror state.

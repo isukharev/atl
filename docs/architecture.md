@@ -430,9 +430,12 @@ recursively.
   A stable mirror-global advisory lock inode serializes Jira mirror mutations
   through sidecar flush; atomically replacing `.wiki` cannot bypass that lock.
 - `JiraService.Status` walks the mirror's `.wiki` files and pending-field state,
-  compares hashes (`locally_edited`), and with `--remote` fires one `GetIssue` per issue,
-  comparing the remote description/fields to stored bases (`remote_drifted`); a file
-  with no sidecar entry reads never-synced (`synced:false`).
+  compares hashes (`locally_edited`), and with `--remote` keeps an exact
+  `GetIssue` for one eligible issue or uses qualified 100-key / 16 KiB metadata
+  batches for larger selections. Whole-batch identity/projection reconciliation
+  precedes comparison of remote description/fields to stored bases
+  (`remote_drifted`); a file with no sidecar entry reads never-synced
+  (`synced:false`).
 - `JiraService.Push` is the guarded write-back. It is **dry-run by default**
   (`--apply` to write) because Jira has **no server-side version gate**: the
   staleness guard is an app-layer compare-and-swap — a fresh remote read is

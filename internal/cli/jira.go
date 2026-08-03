@@ -1236,7 +1236,7 @@ func jiraStatusCmd() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().BoolVar(&remote, "remote", false, "also check remote drift (one request per issue)")
+	cmd.Flags().BoolVar(&remote, "remote", false, "also check remote drift (exact for one issue; otherwise qualified batches)")
 	cmd.Flags().StringVar(&into, "into", "", "mirror root (or pass [DIR])")
 	return cmd
 }
@@ -1285,7 +1285,7 @@ func jiraSnapshotCmd() *cobra.Command {
 			return snapshotErr
 		},
 	}
-	cmd.Flags().BoolVar(&remote, "remote", false, "also check remote drift (one single-attempt issue probe per eligible tracked issue)")
+	cmd.Flags().BoolVar(&remote, "remote", false, "also check remote drift (exact for one issue; otherwise qualified batches)")
 	cmd.Flags().StringVar(&into, "into", "", "mirror root (or pass [DIR])")
 	return cmd
 }
