@@ -14,270 +14,167 @@
 
 `atl` lets people and coding agents inspect, mirror, diff, and update
 Atlassian content with ordinary local tools. Confluence `.csf` and Jira
-`.wiki` bytes remain the write substrate; Markdown is a derived staging view.
-Remote changes pass explicit version, baseline, or proposal gates instead of
-silently overwriting concurrent work.
+`.wiki` bytes remain the write substrate; Markdown is a readable staging view,
+not a lossy replacement. Remote changes pass explicit version, baseline, or
+proposal gates instead of silently overwriting concurrent work.
 
 ```sh
 export ATL_READ_ONLY=1
-atl conf search --cql 'type = page' --limit 1
-atl conf pull --id 123456 --into "$HOME/.atl/example-workspace"
-atl conf diff "$HOME/.atl/example-workspace" -o text
+atl jira issue search --jql 'order by updated DESC' --limit 5
+atl conf search --cql 'type = page' --limit 5
 ```
 
-Pull writes local mirror files but never mutates Jira or Confluence. Remove the
-read-only policy only after reviewing a concrete write proposal.
-Unknown commands and stray subcommand arguments fail as structured usage errors
-(exit 2); they never return successful help output.
+Pulling writes local mirror files but never mutates Jira or Confluence. Keep the
+read-only policy until one exact write proposal has been reviewed.
 
 > `atl` is an independent open-source project. It is not affiliated with,
 > endorsed by, or sponsored by Atlassian Pty Ltd.
 
-## Start with a task
+## Start with your task
 
-| Goal | Guide | Outcome |
-|---|---|---|
-| Install and prove one backend works | [Getting started](docs/getting-started.md) | First bounded read and local mirror |
-| Give a coding agent safe access | [Agent setup](docs/agent-setup.md) | Focused skills plus typed read-only MCP |
-| Mirror, edit, review, and publish | [Safe writes](docs/safe-writes.md) | Native local diff and one guarded write |
-| Check whether an environment fits | [Compatibility](docs/compatibility.md) | Supported, unverified, and unsupported boundaries |
-| Recover from an error | [Troubleshooting](docs/troubleshooting.md) | Exit-code-first recovery |
+| Goal | Short guide |
+|---|---|
+| Install and prove one backend works | [Five-minute setup](docs/getting-started.md) |
+| Give a coding agent safe access | [Agent setup](docs/agent-setup.md) |
+| Mirror, edit, and publish safely | [Safe writes](docs/safe-writes.md) |
+| Trace Jira links, docs, and code identities | [Jira artifact graph](docs/jira-artifact-graph.md) |
+| Read or change Confluence discussions | [Qualified comments](docs/confluence-comments.md) |
+| See the core guarantees without credentials | [Reproducible demos](docs/demos/README.md) |
+| Diagnose setup, access, or conflict errors | [Troubleshooting](docs/troubleshooting.md) |
 
+The [task-first documentation index](docs/README.md) leads to focused workflows.
 The exhaustive [command reference](docs/usage.md) and
-[output contract](docs/OUTPUT_CONTRACT.md) remain available, but neither is
-required before the first successful workflow.
-
-Advanced graph and qualified-comment workflows are documented in the
-[command reference](docs/usage.md), [agent recipes](docs/agent-recipes.md), and
-[typed MCP guide](docs/mcp.md); they do not delay the install path below.
+[output contract](docs/OUTPUT_CONTRACT.md) are available when exact flags or
+wire fields matter; neither is required before the first useful read.
 
 ## Install
 
-Linux and macOS release binaries are static and available for amd64 and arm64.
+Linux and macOS release binaries are available for amd64 and arm64.
 
 ```sh
 curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | sh
 ```
 
 The installer verifies SHA-256. Releases also publish checksums, signatures,
-and SLSA provenance.
-
-Homebrew:
+and SLSA provenance. Alternatives:
 
 ```sh
 brew install isukharev/tap/atl
 ```
 
-From source (Go 1.26.5+):
+Direct downloads are on [GitHub Releases](https://github.com/isukharev/atl/releases).
+Source contributors should clone the repository and use `make install`, which
+stamps the repository version and build identity.
+Windows and Atlassian Cloud are not currently supported; review the
+[compatibility matrix](docs/compatibility.md) before deployment.
+
+## Five-minute first read
+
+Configure only the service you need. This example uses Jira; substitute the
+Confluence flags and service name for Confluence.
 
 ```sh
-go install github.com/isukharev/atl/cmd/atl@latest
-```
-
-See [GitHub Releases](https://github.com/isukharev/atl/releases) for direct
-downloads. Windows is not currently supported; the complete platform and
-backend evidence is in [compatibility.md](docs/compatibility.md).
-
-## First read
-
-Configure only the service you need:
-
-```sh
-atl config set --confluence-url https://confluence.example.com
-# or:
 atl config set --jira-url https://jira.example.com
-
-atl auth login --service confluence
-# or:
 atl auth login --service jira
-
 atl auth status
-atl doctor
+atl doctor --remote
+
+export ATL_READ_ONLY=1
+atl jira issue search --jql 'order by updated DESC' --limit 5
 ```
 
 `auth login` reads the bearer PAT from a no-echo prompt, stdin, or a file—never
-from argv. `auth status` reports only the credential source. `doctor` checks
-build, config permissions, URL policy, credential presence, and optional mirror
-health without printing URLs, hostnames, paths, identities, tokens, or content.
+from argv. `doctor` is offline unless `--remote` is explicit. Remote mode makes
+bounded product/version probes without reading page or issue bodies. JSON is
+the default output; logs and errors stay on stderr.
 
-Then make one bounded read:
+For Confluence:
+
+```sh
+atl config set --confluence-url https://confluence.example.com
+atl auth login --service confluence
+export ATL_READ_ONLY=1
+atl conf search --cql 'type = page' --limit 5
+```
+
+An empty result proves absence only when its completeness/truncation fields say
+the selection is complete.
+
+## Three working loops
+
+### 1. Read narrowly
+
+Start with CQL/JQL discovery, then read only the selected object or fields.
+Use `atl jira issue graph KEY --depth 0` when the question spans structured
+links, hierarchy, documentation, attachments, or Development identities. Use
+`atl conf comment list --id ID` before expanding one exact thread. Both
+surfaces qualify incomplete evidence instead of treating a failed or bounded
+collector as an empty answer.
+
+Typed MCP offers smaller, read-only projections for agents. The CLI remains the
+route for native bodies, durable mirrors, large bounded traversals, exports,
+and every write.
+
+### 2. Mirror and review locally
+
+Keep a mirror outside a source repository and pass its root explicitly:
 
 ```sh
 export ATL_READ_ONLY=1
+export ATL_WORKSPACE_ROOT=/absolute/path/to/atl-workspace
 
-atl doctor --remote
-atl conf search --cql 'type = page' --limit 1
-# or:
-atl jira issue search --jql 'order by updated DESC' --limit 1
+atl conf pull --id 123456 --into "$ATL_WORKSPACE_ROOT"
+atl conf status --into "$ATL_WORKSPACE_ROOT"
+atl conf diff "$ATL_WORKSPACE_ROOT" -o text
 ```
 
-`doctor` is offline unless `--remote` is explicit. Remote mode makes one
-single-attempt product/version GET per ready backend; only when the Confluence
-version route is absent may it add one bodyless reachability HEAD. It reads no
-page/issue body, search result, or identity. Reachability without a version is
-reported as unverified compatibility. Blocking findings still emit the
-qualified report and exit `8`. JSON is the default output. Continue with the
-[five-minute guide](docs/getting-started.md).
-
-Experimental Data Center compatibility providers are disabled separately and
-never selected by version range:
+The `.csf` file contains the exact native Confluence body. Its `.md` sibling is
+a derived view for reading and supported staging edits. After editing Markdown:
 
 ```sh
-atl compatibility status
-atl compatibility pin confluence \
-  --version "$ATL_CONFLUENCE_VERSION" \
-  --build-number "$ATL_CONFLUENCE_BUILD_NUMBER"
-atl compatibility status --remote
+env -u ATL_READ_ONLY atl conf apply \
+  "$ATL_WORKSPACE_ROOT/SPACE/page/page.md" --dry-run
+env -u ATL_READ_ONLY atl conf apply \
+  "$ATL_WORKSPACE_ROOT/SPACE/page/page.md"
+atl conf validate "$ATL_WORKSPACE_ROOT/SPACE/page/page.csf"
+atl conf diff "$ATL_WORKSPACE_ROOT/SPACE/page/page.csf" -o text
 ```
 
-The owner-only pin is separate from ordinary `config.json` and cannot provide
-custom endpoints, headers, payloads, or a fallback REST route.
+Untouched native blocks remain byte-identical. Unsupported Markdown changes,
+fragment loss, malformed CSF, or a changed baseline fail before publication.
+`conf apply` changes local native bytes, so it is mutation-classified even
+during dry-run; the scoped `env -u` leaves the shell-wide policy intact.
+Pull refuses to overwrite local native or derived-view edits; use its dry-run,
+stash, or explicit overwrite recovery rather than losing work. Durable mirrors
+are also bound to a content-minimized backend identity so a staging mirror
+cannot be pushed accidentally to another configured instance.
 
-## Three primary workflows
+Jira follows the same local pattern with native `.wiki` files, `jira pull`,
+`jira status`, `jira apply`, `jira reconcile preview`, and `jira push`.
 
-### 1. Read narrow
-
-Use CQL/JQL discovery, then fetch only the selected object or fields. Check
-completeness and truncation before claiming something is absent.
-
-```sh
-export ATL_READ_ONLY=1
-atl jira issue search \
-  --jql 'assignee = currentUser() order by updated DESC' \
-  --limit 20
-atl conf search --cql 'type = page' --limit 20
-```
-
-### 2. Mirror and diff
-
-Keep mirrors outside a source repository:
-
-```sh
-export ATL_READ_ONLY=1
-export ATL_MIRROR_ROOT="$HOME/.atl/example-workspace"
-
-atl conf pull --id 123456
-atl conf status "$ATL_MIRROR_ROOT"
-atl conf snapshot --into "$ATL_MIRROR_ROOT"
-atl conf diff "$ATL_MIRROR_ROOT" -o text
-
-# Jira lane:
-atl jira pull --jql 'project = EXAMPLE order by key' --limit 20
-atl jira status "$ATL_MIRROR_ROOT"
-
-# If local and remote both changed, inspect one exact three-way snapshot.
-atl conf reconcile preview "$ATL_MIRROR_ROOT/SPACE/page/page.csf" -o text
-atl jira reconcile preview "$ATL_MIRROR_ROOT/EXAMPLE/EXAMPLE-1.wiki" -o text
-```
-
-Status and snapshot accept either positional `[DIR]` or `--into` and require an
-initialized `.atl` mirror; combining both explicit forms is a usage error.
-
-Use `.md` for reading and supported staging edits. Native `.csf` / `.wiki`
-files preserve constructs that Markdown cannot represent. Confluence v6 views
-use content-safe code fences, reversible paragraph escapes, explicit inline
-break markers, and structure-preserving table merges; unsupported native shape
-is refused before `.csf` changes.
-
-Pull never silently overwrites local native or derived-view edits. It refreshes
-clean siblings, reports blocked items as content-free `local_safety` evidence,
-and exits `8`. Use `pull --dry-run` to qualify a refresh; use
-`--stash-local` to retain exact native bytes before an intentional reset, or
-`--overwrite-local` only to discard them. Neither recovery flag bypasses an
-edited Markdown view or broken baseline evidence.
-
-Every durable mirror is also bound to the configured backend by a
-content-minimized digest. Fresh service-empty pulls and explicitly registered
-creates establish that service binding automatically. For a legacy root that
-already contains service evidence, review and bind it explicitly:
-
-```sh
-atl mirror backend status "$ATL_MIRROR_ROOT"
-env -u ATL_READ_ONLY atl mirror backend bind "$ATL_MIRROR_ROOT" --service confluence
-env -u ATL_READ_ONLY atl mirror backend bind "$ATL_MIRROR_ROOT" --service confluence \
-  --apply --expected-backend-sha256 '<exact backend_sha256 from preview>' \
-  --confirm BIND
-```
-
-Bind is local compare-and-set: it performs no backend request or PAT access and
-never replaces a different binding. `ATL_READ_ONLY=1` blocks the entire bind
-leaf, including preview. Remote mirror status/snapshot/push/reconcile/plan
-operations refuse a missing or mismatched binding before network access;
-offline mirror inspection and editing remain available. Only tagged hashes are
-stored in the private `.atl/backend-bindings.json`, never URLs or hostnames.
-Persisted Jira macro expansion during a Confluence pull also requires its own
-Jira binding.
-
-Page and issue creation remains remote-only unless mirror registration is
-explicitly requested with both `--register` and `--into`. Page copy is
-preview-first and uses the same optional registration intent:
-
-```sh
-atl conf page create --space EXAMPLE --title "New page" --from-md body.md \
-  --register --into "$ATL_MIRROR_ROOT"
-atl conf page copy --id 123456 --title "Copied page" \
-  --register --into "$ATL_MIRROR_ROOT"
-atl conf page copy --id 123456 --title "Copied page" \
-  --register --into "$ATL_MIRROR_ROOT" --apply \
-  --expected-version 7 --expected-proposal-hash '<preview hash>'
-atl jira issue create --project EXAMPLE --type Task --summary "New task" \
-  --register --into "$ATL_MIRROR_ROOT"
-```
-
-The entire `conf page copy` leaf is mutating-classified, so
-`ATL_READ_ONLY=1` blocks its read-only preview as well as apply. Remove that
-policy only for an explicitly reviewed copy workflow, then restore it.
-
-The copy preview binds the backend, exact current source bytes/version and
-hierarchy, destination title/space/parent, and registration-root identity. Apply
-revalidates source and parent immediately before one non-replayed POST and
-requires an exact version-1 readback. Registration records that same readback;
-other registered creates likewise use one authoritative post-write readback and
-record those remote bytes through the normal native/base/view mirror contract,
-with sync state committed last. If the remote create succeeds but local
-registration fails, stdout still identifies the new page or issue and the
-command exits `8`.
-Never replay the create/copy; preserve local files and recover with a narrow
-`conf pull --id ... --into ...` or `jira pull --jql 'key = ...' --limit 1 --into ...`.
-
-### 3. Review a write
+### 3. Preview, apply once, reconcile
 
 The write loop is fresh read → candidate → diff/preview → reviewed
-version/baseline/hash → one apply → reconciliation.
+version/baseline/hash → one apply → reconciliation. A push preview is still a
+mutating-classified command, so remove the read-only policy only for that exact
+process while leaving it set in the shell:
 
 ```sh
-atl conf apply "$ATL_MIRROR_ROOT/SPACE/page/page.md"
-atl conf validate "$ATL_MIRROR_ROOT/SPACE/page/page.csf"
-atl conf diff "$ATL_MIRROR_ROOT/SPACE/page/page.csf" -o text
-atl conf reconcile preview "$ATL_MIRROR_ROOT/SPACE/page/page.csf" -o text
-atl conf push "$ATL_MIRROR_ROOT/SPACE/page/page.csf" --dry-run
+env -u ATL_READ_ONLY atl conf push \
+  "$ATL_WORKSPACE_ROOT/SPACE/page/page.csf" --dry-run
 ```
 
-After review, repeat the exact guarded command without `--dry-run`. A
-Confluence version conflict exits `5`; preserve/reapply the local candidate
-(a reviewed `pull --stash-local` can retain its exact native bytes) instead of
-auto-forcing. For a new Confluence comment, use the read-only `conf comment
-preview`, then run `conf comment add` on the exact native-CSF body with `--apply`
-and `--expected-proposal-hash`; `add` is dry-run by default but remains a
-mutating-classified command. It creates footer roots only and never replays an
-ambiguous POST. Existing inline threads can be replied to, resolved, or reopened
-through the exact-pinned `conf comment mutation preview|apply` loop. The same
-loop creates a new server-owned inline anchor from an exact file-backed text
-selection and zero-based occurrence; ATL derives the version-specific browser
-geometry and never edits marker CSF itself. Jira writes follow the same reviewed-baseline rule. Follow the
-[safe-write guide](docs/safe-writes.md).
-
-Page trashing uses the same review boundary and is dry-run by default. Review
-`atl conf page delete --id <ID>`, then apply only the emitted version and
-proposal hash with `--apply --confirm TRASH`. ATL re-reads the exact current
-page immediately before one non-replayed DELETE and qualifies the outcome from
-explicit current/trashed reads; `outcome_unknown` must never be replayed.
+After reviewing the complete result, run the same command without `--dry-run`.
+A Confluence version conflict exits `5`; preserve the local candidate and use
+`conf reconcile preview` instead of auto-forcing. Proposal-bound comment,
+create/copy, trash, Jira field, transition, and deletion workflows require the
+emitted expected values and never retry ambiguous writes. Follow the
+[safe-write guide](docs/safe-writes.md) for exact apply and recovery commands.
 
 ## Coding agents
 
-The repository ships the same focused skills for Claude Code and Codex plus a
-typed read-only MCP server. The CLI remains the route for durable mirrors,
-exports, raw Structure data, and every write.
+The repository ships matching Claude Code and Codex plugins plus a typed
+read-only MCP server.
 
 Claude Code:
 
@@ -294,61 +191,39 @@ codex plugin marketplace add isukharev/atl
 codex plugin add atl@atl
 ```
 
-Start a new agent session after installation, then invoke the explicit setup
-skill. See [agent setup](docs/agent-setup.md) for version-skew recovery, mirror
-placement, read-only policy, and CLI/MCP selection.
+Start a new agent session after installation. The [agent setup guide](docs/agent-setup.md)
+covers focused skills, MCP/CLI routing, read-only policy, mirror placement, and
+version-skew recovery.
 
-## Why `atl`
+## Safety and compatibility
 
-The project combines four contracts:
+- `ATL_READ_ONLY=1` / `--read-only` blocks remote mutations before credentials,
+  body files, self-update, or network access.
+- PATs are host-scoped; cross-host and HTTPS-downgrade redirects are refused.
+  Mutating requests never follow redirects or use generic retries.
+- Stable exit codes distinguish usage, authentication, not-found, version
+  conflict, forbidden, configuration, and failed safety checks.
+- Reads are bounded and report incomplete or truncated evidence explicitly.
+- Signed self-update verifies the manifest and binary before replacement and
+  can be disabled with `ATL_NO_UPDATE=1`.
 
-- lossless native local storage rather than a Markdown-only write path;
-- ordinary offline search, diff, status, and review workflows;
-- optimistic or baseline-bound writes with no blind retries;
-- bounded JSON/typed MCP evidence designed for automation and agents.
-
-`atl` is deliberately Server/Data Center and local-first. Atlassian CLI and
-Rovo MCP serve Atlassian Cloud use cases; community MCP servers prioritize a
-broad live tool inventory. Choose `atl` when native local bytes, offline diffs,
-and explicit write gates matter. The sourced, non-ranking comparison is in
-[compatibility.md](docs/compatibility.md#choosing-a-different-tool).
-
-## Safety and output
-
-- `ATL_READ_ONLY=1` / `--read-only` blocks mutations before credentials, body
-  files, self-update, or network access.
-- PATs are host-scoped; cross-host and HTTPS-downgrade redirects are refused,
-  and mutating requests never follow redirects.
-- JSON goes to stdout by default; logs/errors go to stderr.
-- Stable exit codes classify usage, auth, not-found, version conflict,
-  forbidden, config, and safety failures.
-- Reads are bounded and qualify incomplete/truncated results.
-- Generic retries apply only to replay-safe reads, never writes.
-- Permanent Jira issue deletion is preview-first, bound to the immutable issue
-  id, freshness and complete permission-relative subtask evidence, and never replayed.
-- Signed self-update has a five-second remote startup budget and can be
-  disabled with `ATL_NO_UPDATE=1`.
-
-Details: [output contract](docs/OUTPUT_CONTRACT.md),
-[network egress](docs/network-egress.md),
+`atl` targets Jira and Confluence Server/Data Center with bearer PATs. See
+[compatibility](docs/compatibility.md), [network egress](docs/network-egress.md),
 [self-update trust](docs/self-update.md), and [SECURITY.md](SECURITY.md).
 
-## Documentation
+## Documentation and contributing
 
-- [Task-first index](docs/README.md)
+- [Task-first documentation index](docs/README.md)
 - [Runnable agent recipes](docs/agent-recipes.md)
-- [Full command reference](docs/usage.md)
-- [Confluence storage and fragments](docs/csf-and-fragments.md)
+- [Confluence native storage and fragments](docs/csf-and-fragments.md)
 - [Typed read-only MCP](docs/mcp.md)
 - [Architecture](docs/architecture.md)
 
-Questions, compatibility reports, and sanitized defects use
+Questions and sanitized compatibility reports belong in
 [GitHub Issues](https://github.com/isukharev/atl/issues/new/choose). Never
 publish credentials, private hosts, object identifiers, titles/content, user
 identity, company data, or private local paths. Security vulnerabilities follow
 [SECURITY.md](SECURITY.md).
-
-## Build and contribute
 
 ```sh
 make build
@@ -357,12 +232,6 @@ make lint
 ```
 
 The code follows a hexagonal ports-and-adapters architecture. See
-[architecture.md](docs/architecture.md) and
-[CONTRIBUTING.md](CONTRIBUTING.md).
-
-Apache License 2.0 — [LICENSE](LICENSE). Third-party notices:
+[CONTRIBUTING.md](CONTRIBUTING.md). Apache License 2.0 — [LICENSE](LICENSE).
+Third-party notices and the Atlassian trademark disclaimer are in
 [NOTICE](NOTICE).
-
-“Atlassian”, “Confluence”, and “Jira” are registered trademarks of Atlassian
-Pty Ltd and are used only to identify the products with which `atl`
-interoperates. The project makes no warranty; see [NOTICE](NOTICE).
