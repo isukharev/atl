@@ -2,6 +2,7 @@ package mirror
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -130,6 +131,27 @@ func TestBackendBindingsConcurrentServicesSurvive(t *testing.T) {
 	got, err := m.BackendBindings()
 	if err != nil || len(got) != 2 || got[0].Service != "confluence" || got[1].Service != "jira" {
 		t.Fatalf("bindings = %+v, %v", got, err)
+	}
+}
+
+func TestBackendBindingLockRetriesOnlyTransientMissingPath(t *testing.T) {
+	tests := []struct {
+		name    string
+		err     error
+		attempt int
+		retry   bool
+	}{
+		{name: "first missing", err: &os.PathError{Op: "openat", Path: ".atl/backend-bindings.lock", Err: fs.ErrNotExist}, retry: true},
+		{name: "last missing", err: fs.ErrNotExist, attempt: backendBindingsLockAttempts - 1},
+		{name: "permission", err: fs.ErrPermission},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := shouldRetryBackendBindingLock(tc.err, tc.attempt)
+			if got != tc.retry {
+				t.Fatalf("retry = %t, want %t", got, tc.retry)
+			}
+		})
 	}
 }
 
