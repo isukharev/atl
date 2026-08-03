@@ -779,6 +779,37 @@ decoder treats an absent `family` as valid through `omitempty`. Consolidating
 those non-identical records would change old JSONL rendering or compatibility
 and is outside this ABI refactor.
 
+### Evaluator stable-read families
+
+Stable filesystem reads are not one interchangeable helper contract. The
+production inventory currently contains 73 `os.SameFile` calls across 18
+files, and an AST-based contract test requires every addition, removal, or move
+to be classified deliberately.
+
+Synthetic aggregate-root marker, result, and receipt reads share one
+evaluator-owned primitive. It opens only relative to a retained `os.Root`,
+binds the descriptor to the inventoried identity, size, modification time, and
+mode, performs a `limit+1` bounded read, revalidates the descriptor, and closes
+it with the historical read/stat/close error precedence. The aggregate owner
+still enforces owner-only permissions, root identity, complete inventories,
+exact-byte rereads and digests, closed error codes, and Windows fail-closed
+behavior.
+
+The primitive deliberately does not claim snapshot semantics. A same-inode
+hardlink with matching metadata remains equivalent at this layer, and an
+ambient path replaced after the descriptor opens is reconciled by the final
+aggregate inventory rather than by reopening the path. Content-only changes
+that preserve the compared metadata require the aggregate's exact-byte reread;
+transient mutations fully restored between observation points cannot be
+observed.
+
+Credential projection and clearing, version-pair ledgers and sampling,
+activation and workspace lifecycle, tree and executable digests, audit
+capture, external profiles, skill generation, safe-path containment, and CLI
+input/output alias checks retain their specialized readers. Their permission,
+ambiguity, durability, hash-domain, or path-following semantics differ, so this
+consolidation is an explicit no-change decision for those families.
+
 The runner creates a fresh private workspace per repetition. Synthetic typed-MCP
 runs expose only the reviewed MCP inventory: they neither install the Codex
 client skills into the workspace nor load the Claude Code plugin. This keeps the
