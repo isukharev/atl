@@ -60,6 +60,8 @@ jobs:
         run: make check-plugins
       - name: Documentation catalog
         run: make check-docs-catalog
+      - name: Documentation freshness
+        run: make check-docs-freshness
       - name: Repository maintainer skills
         run: make check-repository-skills
       - name: Reference split compatibility

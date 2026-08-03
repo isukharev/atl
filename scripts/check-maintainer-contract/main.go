@@ -64,6 +64,11 @@ check-docs-catalog:
 	go run ./scripts/check-docs-catalog -root .
 `
 
+const docsFreshnessMakeContract = `.PHONY: check-docs-freshness
+check-docs-freshness:
+	go run ./scripts/check-docs-freshness -root .
+`
+
 const repositorySkillsMakeContract = `.PHONY: check-repository-skills
 check-repository-skills:
 	go run ./scripts/check-repository-skills -root .
@@ -85,8 +90,11 @@ agent-eval-race: agent-eval-compat
 `
 
 const (
-	checkoutStepContract = `      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1`
-	setupGoStepContract  = `      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+	checkoutStepContract     = `      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1`
+	lintCheckoutStepContract = `      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0`
+	setupGoStepContract = `      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version-file: go.mod
           check-latest: true`
@@ -110,6 +118,13 @@ const (
         run: make check-plugins`
 	docsCatalogStepContract = `      - name: Documentation catalog
         run: make check-docs-catalog`
+	docsFreshnessStepContract = `      - name: Documentation freshness
+        env:
+          ATL_DOCS_BASE: ${{ github.event.pull_request.base.sha }}
+          ATL_DOCS_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: make check-docs-freshness`
+	releaseDocsFreshnessStepContract = `      - name: Documentation freshness
+        run: make check-docs-freshness`
 	repositorySkillsStepContract = `      - name: Repository maintainer skills
         run: make check-repository-skills`
 	referenceSplitStepContract = `      - name: Reference split compatibility
@@ -312,6 +327,7 @@ func validateBootstrap(root string) error {
 		{"check-package-boundary", packageBoundaryMakeContract, "makefile must retain the exact package-boundary gate"},
 		{"check-plugins", pluginsMakeContract, "makefile must retain the exact generated-plugin gate"},
 		{"check-docs-catalog", docsCatalogMakeContract, "makefile must retain the exact documentation-catalog gate"},
+		{"check-docs-freshness", docsFreshnessMakeContract, "makefile must retain the exact documentation-freshness gate"},
 		{"check-repository-skills", repositorySkillsMakeContract, "makefile must retain the exact repository-skills gate"},
 		{"check-reference-split", referenceSplitMakeContract, "makefile must retain the exact reference-split compatibility gate"},
 		{"check-context7-docs", context7MakeContract, "makefile must retain the exact indexed-documentation gate"},
@@ -372,8 +388,8 @@ func validateBootstrap(root string) error {
 		return err
 	}
 	if err := requireWorkflowStepPrefix(lintJob, "ci lint",
-		checkoutStepContract, setupGoStepContract, maintainerStepContract,
-		packageBoundaryStepContract, pluginsStepContract, docsCatalogStepContract, repositorySkillsStepContract, referenceSplitStepContract, context7StepContract,
+		lintCheckoutStepContract, setupGoStepContract, maintainerStepContract,
+		packageBoundaryStepContract, pluginsStepContract, docsCatalogStepContract, docsFreshnessStepContract, repositorySkillsStepContract, referenceSplitStepContract, context7StepContract,
 		onboardingStepContract, lintStepContract,
 	); err != nil {
 		return err
@@ -385,6 +401,7 @@ func validateBootstrap(root string) error {
 		{"Core/heavy package boundary", packageBoundaryStepContract},
 		{"Generated plugin trees are current", pluginsStepContract},
 		{"Documentation catalog", docsCatalogStepContract},
+		{"Documentation freshness", docsFreshnessStepContract},
 		{"Repository maintainer skills", repositorySkillsStepContract},
 		{"Reference split compatibility", referenceSplitStepContract},
 		{"Indexed documentation contract", context7StepContract},
@@ -563,7 +580,7 @@ func validateDeliveryContracts(root string) error {
 	}
 	if err := requireWorkflowStepPrefix(qualityJob, "release quality",
 		checkoutStepContract, setupGoStepContract, maintainerStepContract,
-		packageBoundaryStepContract, pluginsStepContract, docsCatalogStepContract, repositorySkillsStepContract, referenceSplitStepContract, context7StepContract,
+		packageBoundaryStepContract, pluginsStepContract, docsCatalogStepContract, releaseDocsFreshnessStepContract, repositorySkillsStepContract, referenceSplitStepContract, context7StepContract,
 		onboardingStepContract, vetStepContract, lintStepContract, govulncheckStepContract,
 	); err != nil {
 		return err
@@ -575,6 +592,7 @@ func validateDeliveryContracts(root string) error {
 		{"Core/heavy package boundary", packageBoundaryStepContract},
 		{"Generated plugin trees are current", pluginsStepContract},
 		{"Documentation catalog", docsCatalogStepContract},
+		{"Documentation freshness", releaseDocsFreshnessStepContract},
 		{"Repository maintainer skills", repositorySkillsStepContract},
 		{"Reference split compatibility", referenceSplitStepContract},
 		{"Indexed documentation contract", context7StepContract},

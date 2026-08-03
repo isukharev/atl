@@ -150,6 +150,12 @@ separate from shipped client skills and must never enter generated plugin trees.
 indexes. Edit focused owners, update the split map for a destination move, and
 run `make check-reference-split`. Historical headings are immutable.
 
+`docs/command-coverage.v1.json` binds every executable CLI leaf to one exact
+reference section and every mutator to safety guidance.
+`docs/maintainer-impact.v1.json` maps changed paths to existing Make gates. Run
+`ATL_DOCS_BASE=origin/main make check-docs-freshness` after changing CLI,
+documentation, repository guidance, generators, or gate wiring.
+
 Every maintained public Markdown file is registered in `docs/catalog.v1.json`.
 Context7-selected runtime docs require a real named fenced example. Run the
 documentation checks named in the maintainer runbook; regenerate navigation

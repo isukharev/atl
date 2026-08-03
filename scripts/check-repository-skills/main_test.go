@@ -147,6 +147,13 @@ func TestRepositoryGuidanceRejectsRegressions(t *testing.T) {
 			},
 			wantError: "exact repository-skill check block",
 		},
+		{
+			name: "source ownership direction reversed",
+			mutate: func(t *testing.T, root string) {
+				replaceFile(t, filepath.Join(root, "docs/plugins.md"), "SOURCE OF TRUTH: edit here, and only here", "generated copy")
+			},
+			wantError: "client-skill ownership is missing semantic boundary",
+		},
 	}
 
 	for _, test := range tests {
@@ -176,7 +183,7 @@ func copyFixture(t *testing.T) string {
 	target := t.TempDir()
 	for _, relative := range []string{
 		"AGENTS.md", "CLAUDE.md", "Makefile", ".github/workflows/ci.yml", ".github/workflows/release.yml",
-		"docs/README.md", "docs/catalog.v1.json",
+		"docs/README.md", "docs/catalog.v1.json", "docs/plugins.md",
 		"docs/maintainers", ".agents/skills",
 	} {
 		if err := copyPath(filepath.Join(source, filepath.FromSlash(relative)), filepath.Join(target, filepath.FromSlash(relative))); err != nil {
