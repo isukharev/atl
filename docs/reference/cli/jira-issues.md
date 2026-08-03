@@ -774,6 +774,10 @@ requires an exact heading; it scans at most 50 refs, accepts only the safe same-
 references supported by `conf page resolve`, and reuses bounded `page section`.
 `-o text` is a compact evidence overview, not a management summary.
 
+`--child-limit`, `--comment-limit`, and `--history-limit` override the first
+three collection bounds respectively. Zero keeps the documented default,
+positive values are capped at 1000/50/500, and negative values are rejected.
+
 ## `atl jira issue labels`
 
 Add and/or remove labels without clobbering labels set by others (uses the

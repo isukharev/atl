@@ -47,6 +47,15 @@ check-package-boundary:
 		test -n "$$core" && test -n "$$heavy"
 `
 
+const maintainabilityMakeContract = `.PHONY: check-maintainability
+check-maintainability:
+	go run ./scripts/check-maintainability
+`
+
+const generatedAttributesContract = `/skills/** linguist-generated=true
+/plugins/atl/skills/** linguist-generated=true
+`
+
 const pluginsMakeContract = `.PHONY: check-plugins
 check-plugins: gen-plugins check-skill-safety check-skill-routing
 	@test -z "$$(git status --porcelain -- skills plugins/atl/skills plugins/atl/.mcp.json)" || { \
@@ -114,6 +123,8 @@ const (
         run: GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract`
 	packageBoundaryStepContract = `      - name: Core/heavy package boundary
         run: make check-package-boundary`
+	maintainabilityStepContract = `      - name: Maintainability ratchets
+        run: make check-maintainability`
 	pluginsStepContract = `      - name: Generated plugin trees are current
         run: make check-plugins`
 	docsCatalogStepContract = `      - name: Documentation catalog
@@ -301,6 +312,14 @@ func validateDevcontainer(root, goVersion string) error {
 }
 
 func validateBootstrap(root string) error {
+	attributes, err := os.ReadFile(filepath.Join(root, ".gitattributes"))
+	if err != nil {
+		return fmt.Errorf("read .gitattributes: %w", err)
+	}
+	if string(attributes) != generatedAttributesContract {
+		return errors.New(".gitattributes must mark exactly the two generated skill output trees")
+	}
+
 	makefile, err := os.ReadFile(filepath.Join(root, "Makefile"))
 	if err != nil {
 		return fmt.Errorf("read Makefile: %w", err)
@@ -325,6 +344,7 @@ func validateBootstrap(root string) error {
 		target, contract, diagnostic string
 	}{
 		{"check-package-boundary", packageBoundaryMakeContract, "makefile must retain the exact package-boundary gate"},
+		{"check-maintainability", maintainabilityMakeContract, "makefile must retain the exact maintainability-ratchet gate"},
 		{"check-plugins", pluginsMakeContract, "makefile must retain the exact generated-plugin gate"},
 		{"check-docs-catalog", docsCatalogMakeContract, "makefile must retain the exact documentation-catalog gate"},
 		{"check-docs-freshness", docsFreshnessMakeContract, "makefile must retain the exact documentation-freshness gate"},
@@ -389,7 +409,7 @@ func validateBootstrap(root string) error {
 	}
 	if err := requireWorkflowStepPrefix(lintJob, "ci lint",
 		lintCheckoutStepContract, setupGoStepContract, maintainerStepContract,
-		packageBoundaryStepContract, pluginsStepContract, docsCatalogStepContract, docsFreshnessStepContract, repositorySkillsStepContract, referenceSplitStepContract, context7StepContract,
+		packageBoundaryStepContract, maintainabilityStepContract, pluginsStepContract, docsCatalogStepContract, docsFreshnessStepContract, repositorySkillsStepContract, referenceSplitStepContract, context7StepContract,
 		onboardingStepContract, lintStepContract,
 	); err != nil {
 		return err
@@ -399,6 +419,7 @@ func validateBootstrap(root string) error {
 	}{
 		{"Maintainer toolchain contract", maintainerStepContract},
 		{"Core/heavy package boundary", packageBoundaryStepContract},
+		{"Maintainability ratchets", maintainabilityStepContract},
 		{"Generated plugin trees are current", pluginsStepContract},
 		{"Documentation catalog", docsCatalogStepContract},
 		{"Documentation freshness", docsFreshnessStepContract},
@@ -580,7 +601,7 @@ func validateDeliveryContracts(root string) error {
 	}
 	if err := requireWorkflowStepPrefix(qualityJob, "release quality",
 		checkoutStepContract, setupGoStepContract, maintainerStepContract,
-		packageBoundaryStepContract, pluginsStepContract, docsCatalogStepContract, releaseDocsFreshnessStepContract, repositorySkillsStepContract, referenceSplitStepContract, context7StepContract,
+		packageBoundaryStepContract, maintainabilityStepContract, pluginsStepContract, docsCatalogStepContract, releaseDocsFreshnessStepContract, repositorySkillsStepContract, referenceSplitStepContract, context7StepContract,
 		onboardingStepContract, vetStepContract, lintStepContract, govulncheckStepContract,
 	); err != nil {
 		return err
@@ -590,6 +611,7 @@ func validateDeliveryContracts(root string) error {
 	}{
 		{"Maintainer toolchain contract", maintainerStepContract},
 		{"Core/heavy package boundary", packageBoundaryStepContract},
+		{"Maintainability ratchets", maintainabilityStepContract},
 		{"Generated plugin trees are current", pluginsStepContract},
 		{"Documentation catalog", docsCatalogStepContract},
 		{"Documentation freshness", releaseDocsFreshnessStepContract},

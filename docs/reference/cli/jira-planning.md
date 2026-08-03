@@ -12,21 +12,24 @@ instance the Agile endpoints 404 (exit 4). Boards and sprints are addressed by
 **numeric id** — use `board list --project` to discover the id `--board` wants.
 
 ```bash
-atl jira board list --project PROJ          # {boards:[{id,name,type,project_key}]}; -o id → board ids
+atl jira board list --project PROJ --cursor 50 # one page; -o id → board ids
 atl jira board get 5
 atl jira board config 5                     # filter, ordered columns/status ids, limits, estimation, rank field
-atl jira board issues 5 --columns position,key,summary,status,assignee # one ranked page; -o id → keys
+atl jira board issues 5 --cursor 50 \
+  --columns position,key,summary,status,assignee # one ranked page; -o id → keys
 atl jira board issues 5 --view full                  # reusable configured projection
-atl jira board backlog 5 --columns position,key,summary,status          # Scrum only; explicit pagination
+atl jira board backlog 5 --cursor 50 \
+  --columns position,key,summary,status       # Scrum only; explicit pagination
 atl jira board view 5 -o text               # normalized config + status-to-column mapping
 atl jira board view 5 --jql 'statusCategory != Done' --limit 500
 atl jira board view 5 --columns key,status,updated,customfield_10001 \
   --epic-field customfield_10001 --done-status Done
 atl jira board export 5 --format jsonl --out board.jsonl
-atl jira sprint list --board 5 [--state active|closed|future]   # {sprints:[...]}; -o id → sprint ids
+atl jira sprint list --board 5 --state active --cursor 50 # one page; -o id → sprint ids
 atl jira sprint get 7                       # one sprint by numeric id; -o text/id supported
 atl jira sprint current --board 5           # the active sprint (exit 4 if none)
-atl jira sprint issues 7 --columns position,key,summary,status  # issues in sprint 7; -o id → keys
+atl jira sprint issues 7 --cursor 50 \
+  --columns position,key,summary,status # issues in sprint 7; -o id → keys
 atl jira sprint add 7 PROJ-1 PROJ-2         # move issues into sprint 7
 atl jira sprint remove PROJ-1               # move issue(s) back to the backlog
 ```
@@ -41,6 +44,10 @@ and `page.next_cursor`; page size is capped at 50. `board view` follows all page
 default (`--limit 0`) and preserves backend rank order. A positive view/export
 limit applies per requested scope and sets `complete:false`, `truncated:true`
 when more rows exist.
+
+`board list`, `board issues`, `board backlog`, `sprint list`, and `sprint
+issues` accept `--cursor` as the Agile API `startAt` cursor. Omit it for the
+first page, then pass the exact returned `next_cursor` to read the next page.
 
 The normalized view maps each issue's `status_id` to the first configured board
 column and preserves unknown statuses as `column:"Unmapped"` with

@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "owners": [
+    {"id":"app","path_prefixes":["internal/app/"]},
+    {"id":"cli","path_prefixes":["internal/cli/"]},
+    {"id":"evaluator","path_prefixes":["internal/agenteval/","scripts/agent-eval/"]},
+    {"id":"mcp","path_prefixes":["internal/mcpserver/"]}
+  ],
+  "hotspots": [
+    {"owner":"app","path":"internal/app/confluence.go","max_lines":1850,"rationale":"Keep the Confluence pull and push orchestration owner visible until responsibility-based splits land."},
+    {"owner":"app","path":"internal/app/confluence.go","function":"(*ConfluenceService).Pull","max_lines":525,"rationale":"Keep local qualification, fetch scheduling, and checkpoint orchestration from growing silently before they are separated."},
+    {"owner":"app","path":"internal/app/jira.go","max_lines":1900,"rationale":"Keep the Jira mirror orchestration and rendering owner visible until responsibility-based splits land."},
+    {"owner":"app","path":"internal/app/jira.go","function":"(*JiraService).Pull","max_lines":420,"rationale":"Keep selection, local preflight, fetching, and mirror commit orchestration within a reviewed allowance."},
+    {"owner":"cli","path":"internal/cli/conf.go","max_lines":2100,"rationale":"Keep the Confluence command assembly owner visible until page, mirror, comment, and attachment surfaces are split."},
+    {"owner":"cli","path":"internal/cli/conf.go","function":"confPageCmd","max_lines":520,"rationale":"Keep the largest Confluence command family within a reviewed growth allowance."},
+    {"owner":"cli","path":"internal/cli/jira.go","max_lines":1800,"rationale":"Keep the Jira command assembly owner visible until issue, mirror, graph, and project surfaces are split."},
+    {"owner":"cli","path":"internal/cli/jira.go","function":"jiraIssueCmd","max_lines":575,"rationale":"Keep the largest Jira command family within a reviewed growth allowance."},
+    {"owner":"evaluator","path":"internal/agenteval/runner.go","max_lines":2650,"rationale":"Keep the evaluator execution owner visible while provider launch, workspace binding, and evidence collection are separated."},
+    {"owner":"evaluator","path":"internal/agenteval/runner.go","function":"runHeadlessOnce","max_lines":950,"rationale":"Keep the evaluator run transaction within a reviewed allowance until its phase boundaries become independent owners."},
+    {"owner":"mcp","path":"internal/mcpserver/server.go","max_lines":2850,"rationale":"Keep MCP registration, validation, and error-policy assembly visible until those responsibilities are split."},
+    {"owner":"mcp","path":"internal/mcpserver/server.go","function":"registerConfluenceTools","max_lines":320,"rationale":"Keep Confluence MCP tool registration within a reviewed allowance."},
+    {"owner":"mcp","path":"internal/mcpserver/server.go","function":"registerJiraTools","max_lines":300,"rationale":"Keep Jira MCP tool registration within a reviewed allowance."}
+  ],
+  "timing": {
+    "mode": "observe",
+    "observations": [
+      {"make_target":"agent-eval-race","source":"github_actions_ubuntu_step","workflow_run_id":30836265462,"revision":"69eb51e027c585add6e216ad006e6a4b608706fd","observed_at":"2026-08-03T17:20:14Z","duration_seconds":341,"rationale":"One hosted heavy evaluator sample is evidence for future budgeting, not an enforcement threshold."},
+      {"make_target":"check-core-race-coverage","source":"github_actions_ubuntu_step","workflow_run_id":30836265462,"revision":"69eb51e027c585add6e216ad006e6a4b608706fd","observed_at":"2026-08-03T17:20:43Z","duration_seconds":258,"rationale":"One hosted core race and coverage sample is evidence for future budgeting, not an enforcement threshold."}
+    ]
+  }
+}

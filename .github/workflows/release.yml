@@ -56,6 +56,8 @@ jobs:
         run: GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract
       - name: Core/heavy package boundary
         run: make check-package-boundary
+      - name: Maintainability ratchets
+        run: make check-maintainability
       - name: Generated plugin trees are current
         run: make check-plugins
       - name: Documentation catalog

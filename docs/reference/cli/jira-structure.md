@@ -54,6 +54,10 @@ accept Jira field ids only because hierarchy columns remain fixed and honest.
 The JSON projection records `source:"list-view"` for named/default presets and
 `source:"explicit"` only when `--fields` supplied the projection.
 
+`view`, `pull-issues`, and `export` accept `--batch-size N` to control the
+number of collected issue ids placed in each generated Jira `id in (...)` JQL
+batch. The default is 100; non-positive values normalize to that default.
+
 Tempo's browser saved views and per-user column adjustments are a separate UI
 configuration surface and are not reproduced by the documented integration
 API. Every snapshot therefore includes an explicit `projection` object with

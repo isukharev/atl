@@ -101,6 +101,7 @@ full gate only after a material fix that can affect it.
 | Large reference headings | `make update-reference-navigation && make check-context7-docs` |
 | CLI/output reference moves | `make check-reference-split` |
 | Toolchain/build contract | `make check-maintainer-contract` |
+| Production hotspot allowances or timing observations | `make check-maintainability` |
 | Package ownership | `make check-package-boundary` |
 
 Stable non-trivial diffs normally finish with:
@@ -125,6 +126,12 @@ current index and working tree. An owner may also set
 then scans added diff lines and untracked public files. A match emits only a
 generic failure, never a marker, path, line, or content. Keep that registry
 outside tracked files.
+
+Selected production file and function spans are reviewed in
+`docs/maintainability-ratchets.v1.json`. The allowances are growth tripwires,
+not quality scores: add headroom only with a rationale, and lower a limit after
+a responsibility-based split lands. Timing rows record hosted observations in
+`observe` mode; they do not impose runtime thresholds.
 
 Use `make agent-eval-contract` only for evaluator/corpus changes, and the live
 targets only when the change and authority require them. Run a privacy scan over

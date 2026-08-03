@@ -1,5 +1,15 @@
 {
   "schema_version": 1,
+  "global_flag_routes": [
+    {"flag":"output","document":"docs/reference/cli/common.md","evidence":"## Output format"},
+    {"flag":"read-only","document":"docs/reference/cli/configuration.md","evidence":"## Global read-only policy"},
+    {"flag":"verbose","document":"docs/reference/cli/common.md","evidence":"## Global conventions"},
+    {"flag":"version","document":"docs/reference/cli/common.md","evidence":"## `atl version`"}
+  ],
+  "flag_exclusions": [
+    {"command":"*","flag":"help","class":"framework","reason":"Cobra adds the same framework help flag to the root and every executable leaf."},
+    {"command":"conf pull","flag":"time-zone","class":"hidden","reason":"Hidden compatibility input retained for existing render profiles; it is not a public help surface."}
+  ],
   "routes": [
     {"id":"agent-capabilities","document":"docs/reference/cli/agent-interfaces.md","evidence":"## Offline agent capability catalog","commands":["capabilities"]},
     {"id":"agent-mcp","document":"docs/reference/cli/agent-interfaces.md","evidence":"## `atl mcp serve`","commands":["mcp serve"]},

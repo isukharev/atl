@@ -17,7 +17,7 @@ func TestRepositoryDocumentationFreshness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Commands == 0 || result.Routes == 0 || result.MutationProfiles == 0 || result.ImpactRules == 0 {
+	if result.Commands == 0 || result.Flags == 0 || result.Routes == 0 || result.MutationProfiles == 0 || result.ImpactRules == 0 {
 		t.Fatalf("incomplete report: %+v", result)
 	}
 }
@@ -32,6 +32,10 @@ func TestRepositoryDocumentationFreshnessRejectsHeadWithoutBase(t *testing.T) {
 func TestCommandCoverageRejectsRegressions(t *testing.T) {
 	root := freshnessRepositoryRoot(t)
 	commands, err := cli.RepositoryCommandInventory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	flags, err := cli.RepositoryFlagInventory()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,16 +104,119 @@ func TestCommandCoverageRejectsRegressions(t *testing.T) {
 			edit: func(value *commandManifest) { value.MutationProfiles = value.MutationProfiles[1:] },
 			want: "has no documented safety route",
 		},
+		{
+			name: "visible global flag loses route",
+			edit: func(value *commandManifest) { value.GlobalFlagRoutes = value.GlobalFlagRoutes[1:] },
+			want: "visible global flag --output has no documentation route",
+		},
+		{
+			name: "stale global flag route",
+			edit: func(value *commandManifest) { value.GlobalFlagRoutes[0].Flag = "missing" },
+			want: "global flag route --missing is stale or non-visible",
+		},
+		{
+			name: "hidden flag loses exclusion",
+			edit: func(value *commandManifest) { value.FlagExclusions = value.FlagExclusions[:1] },
+			want: "class \"hidden\" has no explicit exclusion",
+		},
+		{
+			name: "visible flag is excluded",
+			edit: func(value *commandManifest) {
+				value.FlagExclusions = append([]flagExclusion{{Command: "", Flag: "output", Class: cli.RepositoryFlagHidden, Reason: "invalid visible exclusion"}}, value.FlagExclusions...)
+			},
+			want: "must be documented, not excluded",
+		},
+		{
+			name: "exclusion class drifts",
+			edit: func(value *commandManifest) { value.FlagExclusions[1].Class = cli.RepositoryFlagDeprecated },
+			want: "inventory requires \"hidden\"",
+		},
+		{
+			name: "stale exclusion",
+			edit: func(value *commandManifest) {
+				value.FlagExclusions = append(value.FlagExclusions, flagExclusion{Command: "zzzz", Flag: "removed", Class: cli.RepositoryFlagHidden, Reason: "stale fixture"})
+			},
+			want: "is stale",
+		},
+		{
+			name: "wildcard is reserved for framework help",
+			edit: func(value *commandManifest) { value.FlagExclusions[0].Flag = "version" },
+			want: "only the framework --help flag may use a wildcard exclusion",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			manifest := load(t)
 			test.edit(&manifest)
-			err := validateCommandCoverage(root, manifest, commands, documents)
+			err := validateCommandCoverage(root, manifest, commands, flags, documents)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want substring %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestValidateFlagCoverageRequiresExactTokensAndExplicitExclusions(t *testing.T) {
+	root := t.TempDir()
+	document := "docs/reference.md"
+	path := filepath.Join(root, filepath.FromSlash(document))
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("# Reference\n\n## Global\n\n`--output`\n\n## Demo\n\n`--alpha`\n")
+	manifest := commandManifest{
+		GlobalFlagRoutes: []flagRoute{{Flag: "output", Document: document, Evidence: "## Global"}},
+		FlagExclusions: []flagExclusion{
+			{Command: "*", Flag: "help", Class: cli.RepositoryFlagFramework, Reason: "framework flag"},
+			{Command: "demo", Flag: "legacy", Class: cli.RepositoryFlagHidden, Reason: "hidden compatibility flag"},
+			{Command: "demo", Flag: "old", Class: cli.RepositoryFlagDeprecated, Reason: "deprecated compatibility flag"},
+		},
+	}
+	flags := []cli.RepositoryFlag{
+		{Command: "", Name: "help", Class: cli.RepositoryFlagFramework},
+		{Command: "", Name: "output", Class: cli.RepositoryFlagVisible},
+		{Command: "demo", Name: "alpha", Class: cli.RepositoryFlagVisible},
+		{Command: "demo", Name: "help", Class: cli.RepositoryFlagFramework},
+		{Command: "demo", Name: "legacy", Class: cli.RepositoryFlagHidden},
+		{Command: "demo", Name: "old", Class: cli.RepositoryFlagDeprecated},
+	}
+	documents := map[string]docsEntry{document: {Path: document, Lane: "reference"}}
+	commandDocuments := map[string]string{"demo": document}
+	if err := validateFlagCoverage(root, manifest, flags, commandDocuments, documents); err != nil {
+		t.Fatal(err)
+	}
+
+	write("# Reference\n\n## Global\n\n`--output`\n\n## Demo\n\n`--alphabet`\n")
+	if err := validateFlagCoverage(root, manifest, flags, commandDocuments, documents); err == nil || !strings.Contains(err.Error(), "demo --alpha") {
+		t.Fatalf("prefix-only flag documentation passed: %v", err)
+	}
+
+	manifest.FlagExclusions = manifest.FlagExclusions[:1]
+	if err := validateFlagCoverage(root, manifest, flags, commandDocuments, documents); err == nil || !strings.Contains(err.Error(), "no explicit exclusion") {
+		t.Fatalf("hidden flag without exclusion passed: %v", err)
+	}
+}
+
+func TestContainsExactFlagToken(t *testing.T) {
+	for _, test := range []struct {
+		body string
+		want bool
+	}{
+		{"use `--limit`", true},
+		{"use --limit=10", true},
+		{"use --limit-extra", false},
+		{"use x--limit", false},
+		{"use ---limit", false},
+	} {
+		if got := containsExactFlagToken([]byte(test.body), "limit"); got != test.want {
+			t.Errorf("containsExactFlagToken(%q)=%t, want %t", test.body, got, test.want)
+		}
 	}
 }
 
@@ -344,7 +451,7 @@ func TestAddedDiffContentContainsOnlyAddedLines(t *testing.T) {
 
 func TestStrictManifestDecodeRejectsUnknownFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "manifest.json")
-	if err := os.WriteFile(path, []byte(`{"schema_version":1,"routes":[],"mutation_profiles":[],"extra":true}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"schema_version":1,"global_flag_routes":[],"flag_exclusions":[],"routes":[],"mutation_profiles":[],"extra":true}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := loadCommandManifest(path); err == nil || !strings.Contains(err.Error(), "unknown field") {
