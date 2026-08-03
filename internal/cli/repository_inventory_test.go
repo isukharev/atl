@@ -27,9 +27,13 @@ func TestRepositoryCommandInventory(t *testing.T) {
 		if command.Access == "mutating" && !validMutationProfile(mutationProfile(command.MutationProfile)) {
 			t.Fatalf("mutating command %q has invalid profile %q", command.Path, command.MutationProfile)
 		}
+		if want := reviewedOutputModes(command.Path); !reflect.DeepEqual(command.OutputModes, want) {
+			t.Fatalf("command %q output modes=%v want=%v", command.Path, command.OutputModes, want)
+		}
 	}
 
 	commands[0].RequiredFlags = append(commands[0].RequiredFlags, "mutated")
+	commands[0].OutputModes = append(commands[0].OutputModes, "mutated")
 	again, err := RepositoryCommandInventory()
 	if err != nil {
 		t.Fatal(err)
@@ -39,6 +43,23 @@ func TestRepositoryCommandInventory(t *testing.T) {
 			t.Fatal("inventory exposes registry-owned flag storage")
 		}
 	}
+	for _, mode := range again[0].OutputModes {
+		if mode == "mutated" {
+			t.Fatal("inventory exposes registry-owned output mode storage")
+		}
+	}
+	if !reflect.DeepEqual(again, mustRepositoryCommandInventory(t)) {
+		t.Fatal("repository command inventory is not deterministic")
+	}
+}
+
+func mustRepositoryCommandInventory(t *testing.T) []RepositoryCommand {
+	t.Helper()
+	commands, err := RepositoryCommandInventory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return commands
 }
 
 func TestRepositoryFlagInventory(t *testing.T) {

@@ -16,6 +16,7 @@ type RepositoryCommand struct {
 	Access          string
 	MutationProfile string
 	RequiredFlags   []string
+	OutputModes     []string
 }
 
 const (
@@ -56,6 +57,7 @@ func RepositoryCommandInventory() ([]RepositoryCommand, error) {
 			Access:          access,
 			MutationProfile: string(registration.profile),
 			RequiredFlags:   append([]string(nil), registration.requiredFlags...),
+			OutputModes:     commandOutputModeNames(registration.outputModes),
 		})
 	}
 	sort.Slice(commands, func(i, j int) bool { return commands[i].Path < commands[j].Path })

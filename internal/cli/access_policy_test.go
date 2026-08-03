@@ -55,15 +55,9 @@ func TestCommandRegistryExactlyMatchesTree(t *testing.T) {
 			if textSupport != "supported" && textSupport != "unsupported" {
 				t.Errorf("%s text output=%q", cmd.CommandPath(), textSupport)
 			}
-			if (textSupport == "supported") != textOutputCommandPaths[path] {
-				t.Errorf("%s text-output classification drift", cmd.CommandPath())
-			}
 			idSupport := cmd.Annotations[idOutputAnnotation]
 			if idSupport != "supported" && idSupport != "unsupported" {
 				t.Errorf("%s id output=%q", cmd.CommandPath(), idSupport)
-			}
-			if (idSupport == "supported") != idOutputCommandPaths[path] {
-				t.Errorf("%s id-output classification drift", cmd.CommandPath())
 			}
 			if registration.traits&commandMutating != 0 {
 				if got := mutationProfile(cmd.Annotations[mutationProfileAnnotation]); got != registration.profile || !validMutationProfile(got) {
@@ -86,24 +80,14 @@ func TestCommandRegistryExactlyMatchesTree(t *testing.T) {
 			t.Errorf("registry command %q is no longer constructed", path)
 		}
 	}
-	for path := range textOutputCommandPaths {
-		if !seen[path] {
-			t.Errorf("text-output command %q is no longer registered", path)
-		}
-	}
-	for path := range idOutputCommandPaths {
-		if !seen[path] {
-			t.Errorf("id-output command %q is no longer registered", path)
-		}
-	}
 }
 
 func TestMutationProfileShapesAreEnforced(t *testing.T) {
 	for name, row := range map[string]string{
-		"preview without apply":   "M preview-apply expected-proposal-hash unsafe",
-		"dedicated without guard": "M dedicated-apply - unsafe",
-		"plan without guard":      "M plan - unsafe",
-		"direct with guard":       "M remote-direct confirm unsafe",
+		"preview without apply":   "M preview-apply expected-proposal-hash json unsafe",
+		"dedicated without guard": "M dedicated-apply - json unsafe",
+		"plan without guard":      "M plan - json unsafe",
+		"direct with guard":       "M remote-direct confirm json unsafe",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := parseCommandRegistry(row); err == nil {
