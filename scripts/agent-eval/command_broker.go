@@ -12,7 +12,7 @@ import (
 )
 
 func runCommandBrokerProbe(errorOutput io.Writer) int {
-	forbiddenAddress := os.Getenv("ATL_EVAL_FORBIDDEN_NETWORK_ADDRESS")
+	forbiddenAddress := os.Getenv(agenteval.WrapperEnvForbiddenNetworkAddress)
 	if forbiddenAddress == "" {
 		fmt.Fprintln(errorOutput, "atl evaluation confinement probe has no network sentinel")
 		return 1
@@ -31,7 +31,7 @@ func runCommandBrokerProbe(errorOutput io.Writer) int {
 		fmt.Fprintln(errorOutput, "atl evaluation confinement probe reached a forbidden network sentinel")
 		return 1
 	}
-	manifestPath := os.Getenv("ATL_EVAL_COMMAND_BROKER_FILE")
+	manifestPath := os.Getenv(agenteval.WrapperEnvCommandBrokerFile)
 	response, err := agenteval.CallCommandBroker(manifestPath, nil, true)
 	if err != nil || response.Status != "ready" {
 		fmt.Fprintln(errorOutput, "atl evaluation confinement probe could not reach its command broker")

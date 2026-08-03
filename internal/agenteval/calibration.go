@@ -259,11 +259,11 @@ func buildLegacyToolQualifiedCalibrationProviderCommand(model, reasoning string,
 	if err != nil {
 		return ProviderCommand{}, err
 	}
-	hookCommand := "ATL_EVAL_GUARD_MODE=" + shellSingleQuote(confinement.GuardMode) +
-		" ATL_EVAL_GUARD_COUNTER=" + shellSingleQuote(confinement.GuardCounterPath) +
-		" ATL_EVAL_ALLOWED_MCP_TOOLS=" + shellSingleQuote(string(tools)) +
-		" ATL_EVAL_WORKSPACE_ROOT=" + shellSingleQuote(confinement.WorkspaceReadRoot) +
-		" ATL_EVAL_ALLOWED_READ_ROOTS=" + shellSingleQuote(string(roots)) +
+	hookCommand := WrapperEnvGuardMode + "=" + shellSingleQuote(confinement.GuardMode) +
+		" " + WrapperEnvGuardCounter + "=" + shellSingleQuote(confinement.GuardCounterPath) +
+		" " + WrapperEnvAllowedMCPTools + "=" + shellSingleQuote(string(tools)) +
+		" " + WrapperEnvWorkspaceRoot + "=" + shellSingleQuote(confinement.WorkspaceReadRoot) +
+		" " + WrapperEnvAllowedReadRoots + "=" + shellSingleQuote(string(roots)) +
 		" " + shellSingleQuote("/private/guard")
 	hookConfig := `hooks.PreToolUse=[{matcher="^(Bash|apply_patch|Edit|Write|Read|Agent)$",hooks=[{type="command",command=` + strconv.Quote(hookCommand) + `,timeout=5}]}]`
 	args := []string{
@@ -277,7 +277,7 @@ func buildLegacyToolQualifiedCalibrationProviderCommand(model, reasoning string,
 		"-C", "/private/workspace", "--output-schema", "/private/response-schema.json", "--output-last-message", "/private/final.json",
 		"-c", `project_doc_max_bytes=0`,
 		"-c", `shell_environment_policy.inherit="all"`,
-		"-c", `shell_environment_policy.include_only=["PATH","SHELL","LANG","LC_ALL","TERM","ATL_READ_ONLY","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_COMMAND_BROKER_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`,
+		"-c", `shell_environment_policy.include_only=`+renderWrapperEnvironmentProjection(wrapperProjectionLegacyCalibration),
 		"--ignore-rules", "--dangerously-bypass-hook-trust",
 		"-c", `approval_policy="never"`,
 		"-c", `web_search="disabled"`,
@@ -462,16 +462,16 @@ func RunCodexCLICalibration(parent context.Context, options CodexCLICalibrationO
 	environment := providerRuntime.Environment()
 	environment["PATH"] = binDir
 	environment["ATL_READ_ONLY"] = "1"
-	environment["ATL_EVAL_COUNTER"] = counterPath
-	environment["ATL_EVAL_GUARD_COUNTER"] = guardCounterPath
-	environment["ATL_EVAL_CLI_POLICY_FILE"] = policyPath
-	environment["ATL_EVAL_COMMAND_BROKER_FILE"] = manifestPath
-	environment["ATL_EVAL_GUARD_MODE"] = "provider-calibration"
+	environment[WrapperEnvCounter] = counterPath
+	environment[WrapperEnvGuardCounter] = guardCounterPath
+	environment[WrapperEnvCLIPolicyFile] = policyPath
+	environment[WrapperEnvCommandBrokerFile] = manifestPath
+	environment[WrapperEnvGuardMode] = "provider-calibration"
 	allowedRoots, _ := json.Marshal(confinement.AllowedReadRoots)
-	environment["ATL_EVAL_ALLOWED_READ_ROOTS"] = string(allowedRoots)
+	environment[WrapperEnvAllowedReadRoots] = string(allowedRoots)
 	skillRoots, _ := json.Marshal(confinement.SkillReadRoots)
-	environment["ATL_EVAL_SKILL_READ_ROOTS"] = string(skillRoots)
-	environment["ATL_EVAL_WORKSPACE_ROOT"] = canonicalWorkspace
+	environment[WrapperEnvSkillReadRoots] = string(skillRoots)
+	environment[WrapperEnvWorkspaceRoot] = canonicalWorkspace
 	command.Env = flattenEnvironment(environment)
 
 	started := time.Now()

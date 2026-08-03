@@ -68,33 +68,6 @@ type RunOutput struct {
 	BudgetExhausted            bool       `json:"budget_exhausted"`
 }
 
-type atlProxyRecord struct {
-	CommandFamily                string `json:"command_family,omitempty"`
-	CalibrationObservationSHA256 string `json:"calibration_observation_sha256,omitempty"`
-	ErrorKind                    string `json:"error_kind,omitempty"`
-	ErrorRemediation             string `json:"error_remediation,omitempty"`
-	Denied                       bool   `json:"denied,omitempty"`
-	StdoutBytes                  int64  `json:"stdout_bytes"`
-	StderrBytes                  int64  `json:"stderr_bytes"`
-	ExitCode                     int    `json:"exit_code"`
-}
-
-// errorContract revalidates a recorded classification against this record's own
-// audited exit code and the closed CLI vocabulary before it can reach an
-// oracle. An absent classification is ordinary: a successful, denied, or
-// unclassified invocation simply contributes nothing. A present but
-// inconsistent one is a corrupt audit and fails the run closed.
-func (r atlProxyRecord) errorContract() (CLIErrorContract, bool, error) {
-	if r.ErrorKind == "" && r.ErrorRemediation == "" {
-		return CLIErrorContract{}, false, nil
-	}
-	contract, ok := ValidateCLIErrorContract(r.ExitCode, r.ErrorKind, r.ErrorRemediation)
-	if !ok || r.Denied {
-		return CLIErrorContract{}, false, fmt.Errorf("atl proxy record carries an invalid CLI error contract")
-	}
-	return contract, true, nil
-}
-
 type guardDecisionRecord struct {
 	Decision string `json:"decision"`
 	Family   string `json:"family,omitempty"`
@@ -173,7 +146,7 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 	invocationSpec.MaxEstimatedCostMicroUSD = perRepetitionCostCap(loaded.spec)
 	if invocationSpec.EffectiveSurface() == SurfaceExternalMCP {
 		invocationSpec.mcpServerURL = "http://127.0.0.1:<private>/mcp"
-		invocationSpec.mcpBearerTokenEnv = "ATL_EVAL_EXTERNAL_MCP_TOKEN"
+		invocationSpec.mcpBearerTokenEnv = WrapperEnvExternalMCPToken
 		invocationSpec.AllowedMCPTools = []string{"reviewed_tool"}
 	}
 	previewConfinement := ProviderConfinement{}
@@ -823,8 +796,8 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			defer func() { _ = externalProxy.closeBounded() }()
 			endpoint, capability := externalProxy.Endpoint()
 			loaded.spec.mcpServerURL = endpoint
-			loaded.spec.mcpBearerTokenEnv = "ATL_EVAL_EXTERNAL_MCP_TOKEN"
-			backendEnvironment["ATL_EVAL_EXTERNAL_MCP_TOKEN"] = capability
+			loaded.spec.mcpBearerTokenEnv = WrapperEnvExternalMCPToken
+			backendEnvironment[WrapperEnvExternalMCPToken] = capability
 		}
 	}
 	if brokerCLI {
@@ -849,7 +822,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			brokerEnvironment["ATL_CONFIG_DIR"] = atlConfigDir
 			brokerEnvironment["ATL_MIRROR_ROOT"] = mirrorRoot
 			if codexSyntheticWriteCLI {
-				brokerEnvironment["ATL_EVAL_ALLOW_SYNTHETIC_WRITES"] = "1"
+				brokerEnvironment[WrapperEnvAllowSyntheticWrites] = "1"
 			} else {
 				brokerEnvironment["ATL_READ_ONLY"] = "1"
 			}
@@ -901,7 +874,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			}
 		}
 		if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
-			if err := writeClaudeExternalMCPConfig(mcpConfigPath, loaded.spec.mcpServerURL, backendEnvironment["ATL_EVAL_EXTERNAL_MCP_TOKEN"]); err != nil {
+			if err := writeClaudeExternalMCPConfig(mcpConfigPath, loaded.spec.mcpServerURL, backendEnvironment[WrapperEnvExternalMCPToken]); err != nil {
 				return Result{}, err
 			}
 		} else if err := writeClaudeMCPConfig(mcpConfigPath, options.ATLBinary, mcpChildArgs(loaded.spec), mcpEnvironment); err != nil {
@@ -1023,53 +996,53 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	environment["ATL_NO_UPDATE"] = "1"
 	environment["ATL_CONFIG_DIR"] = atlConfigDir
 	environment["ATL_MIRROR_ROOT"] = mirrorRoot
-	environment["ATL_EVAL_REAL_BINARY"] = options.ATLBinary
-	environment["ATL_EVAL_COUNTER"] = counterPath
-	environment["ATL_EVAL_GUARD_COUNTER"] = guardCounterPath
+	environment[WrapperEnvRealBinary] = options.ATLBinary
+	environment[WrapperEnvCounter] = counterPath
+	environment[WrapperEnvGuardCounter] = guardCounterPath
 	if cliResultDirectory != "" {
-		environment["ATL_EVAL_CLI_RESULT_DIR"] = cliResultDirectory
+		environment[WrapperEnvCLIResultDir] = cliResultDirectory
 	}
 	if loaded.spec.AllowSyntheticWrites {
-		environment["ATL_EVAL_ALLOW_SYNTHETIC_WRITES"] = "1"
+		environment[WrapperEnvAllowSyntheticWrites] = "1"
 	}
 	if reviewedWriteCLI {
-		environment["ATL_EVAL_ALLOW_REVIEWED_WRITES"] = "1"
+		environment[WrapperEnvAllowReviewedWrites] = "1"
 	}
 	if cliPolicyPath != "" {
-		environment["ATL_EVAL_CLI_POLICY_FILE"] = cliPolicyPath
+		environment[WrapperEnvCLIPolicyFile] = cliPolicyPath
 		if brokerManifestPath != "" {
-			environment["ATL_EVAL_COMMAND_BROKER_FILE"] = brokerManifestPath
+			environment[WrapperEnvCommandBrokerFile] = brokerManifestPath
 			delete(environment, "ATL_NO_UPDATE")
 			delete(environment, "ATL_CONFIG_DIR")
 			delete(environment, "ATL_MIRROR_ROOT")
-			delete(environment, "ATL_EVAL_REAL_BINARY")
+			delete(environment, WrapperEnvRealBinary)
 		}
-		environment["ATL_EVAL_GUARD_MODE"] = "private-cli"
+		environment[WrapperEnvGuardMode] = "private-cli"
 		environment["NO_PROXY"] = "127.0.0.1,localhost"
 		environment["no_proxy"] = "127.0.0.1,localhost"
 	}
 	if loaded.spec.ToolTransport == "mcp" {
-		environment["ATL_EVAL_GUARD_MODE"] = "mcp-only"
+		environment[WrapperEnvGuardMode] = "mcp-only"
 		if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive {
-			environment["ATL_EVAL_GUARD_MODE"] = "mcp-with-skill-read"
+			environment[WrapperEnvGuardMode] = "mcp-with-skill-read"
 		}
 	}
 	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP && loaded.spec.Provider == "codex" {
-		environment["ATL_EVAL_EXTERNAL_MCP_TOKEN"] = backendEnvironment["ATL_EVAL_EXTERNAL_MCP_TOKEN"]
+		environment[WrapperEnvExternalMCPToken] = backendEnvironment[WrapperEnvExternalMCPToken]
 	}
 	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP || gatewayBackedMCP {
 		environment["NO_PROXY"] = "127.0.0.1,localhost"
 		environment["no_proxy"] = "127.0.0.1,localhost"
 	}
-	environment["ATL_EVAL_MAX_DELEGATIONS"] = fmt.Sprintf("%d", loaded.scenario.Budgets.MaxDelegations)
+	environment[WrapperEnvMaxDelegations] = fmt.Sprintf("%d", loaded.scenario.Budgets.MaxDelegations)
 	allowedCommands, _ := json.Marshal(loaded.spec.AllowedATLCommands)
-	environment["ATL_EVAL_ALLOWED_COMMANDS"] = string(allowedCommands)
+	environment[WrapperEnvAllowedCommands] = string(allowedCommands)
 	allowedMCPTools, _ := json.Marshal(claudeMCPToolNamesForServer(mcpServerName(loaded.spec), loaded.spec.AllowedMCPTools))
-	environment["ATL_EVAL_ALLOWED_MCP_TOOLS"] = string(allowedMCPTools)
-	environment["ATL_EVAL_ALLOWED_READ_ROOTS"] = string(allowedReadRoots)
-	environment["ATL_EVAL_SKILL_READ_ROOTS"] = string(allowedSkillReadRoots)
+	environment[WrapperEnvAllowedMCPTools] = string(allowedMCPTools)
+	environment[WrapperEnvAllowedReadRoots] = string(allowedReadRoots)
+	environment[WrapperEnvSkillReadRoots] = string(allowedSkillReadRoots)
 	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive || codexSyntheticBrokerCLI {
-		environment["ATL_EVAL_WORKSPACE_ROOT"] = canonicalWorkspace
+		environment[WrapperEnvWorkspaceRoot] = canonicalWorkspace
 	}
 	environment["PATH"] = wrapperDir
 	if (loaded.spec.Provider != "claude-code" || loaded.spec.EffectiveToolTransport() != "mcp") && !codexSyntheticBrokerCLI {
@@ -1620,8 +1593,8 @@ func runCodexConfinementPreflight(parent context.Context, agentBinary, workspace
 	if pathValue := os.Getenv("PATH"); pathValue != "" {
 		environment["PATH"] = pathValue
 	}
-	environment["ATL_EVAL_COMMAND_BROKER_FILE"] = brokerManifestPath
-	environment["ATL_EVAL_FORBIDDEN_NETWORK_ADDRESS"] = listener.Addr().String()
+	environment[WrapperEnvCommandBrokerFile] = brokerManifestPath
+	environment[WrapperEnvForbiddenNetworkAddress] = listener.Addr().String()
 	command.Env = flattenEnvironment(environment)
 	if err := command.Run(); err != nil {
 		return fmt.Errorf("codex cli confinement preflight failed before model and backend access")

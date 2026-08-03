@@ -18,15 +18,8 @@ import (
 type evaluatorBehaviorContract struct {
 	SchemaVersion int `json:"schema_version"`
 	Environment   struct {
-		Variables []struct {
-			Name        string   `json:"name"`
-			Producers   []string `json:"producers"`
-			Consumers   []string `json:"consumers"`
-			ValueType   string   `json:"value_type"`
-			Modes       []string `json:"modes"`
-			Sensitivity string   `json:"sensitivity"`
-		} `json:"variables"`
-		TestOnlyVariables []string `json:"test_only_variables"`
+		Variables         []evaluatorEnvironmentVariableContract `json:"variables"`
+		TestOnlyVariables []string                               `json:"test_only_variables"`
 	} `json:"environment"`
 	Schemas []struct {
 		Name       string `json:"name"`
@@ -52,6 +45,15 @@ type evaluatorBehaviorContract struct {
 	} `json:"artifacts"`
 }
 
+type evaluatorEnvironmentVariableContract struct {
+	Name        string   `json:"name"`
+	Producers   []string `json:"producers"`
+	Consumers   []string `json:"consumers"`
+	ValueType   string   `json:"value_type"`
+	Modes       []string `json:"modes"`
+	Sensitivity string   `json:"sensitivity"`
+}
+
 type evaluatorRunFileSetContract struct {
 	Name    string   `json:"name"`
 	Primary []string `json:"primary"`
@@ -68,6 +70,27 @@ type evaluatorSamplingPairContract struct {
 type evaluatorArtifactClass struct {
 	Name    string `json:"name"`
 	Pattern string `json:"pattern"`
+}
+
+var evaluatorEnvironmentSymbols = map[string]string{
+	"ATL_EVAL_ALLOWED_COMMANDS":          "WrapperEnvAllowedCommands",
+	"ATL_EVAL_ALLOWED_MCP_TOOLS":         "WrapperEnvAllowedMCPTools",
+	"ATL_EVAL_ALLOWED_READ_ROOTS":        "WrapperEnvAllowedReadRoots",
+	"ATL_EVAL_ALLOW_REVIEWED_WRITES":     "WrapperEnvAllowReviewedWrites",
+	"ATL_EVAL_ALLOW_SYNTHETIC_WRITES":    "WrapperEnvAllowSyntheticWrites",
+	"ATL_EVAL_CLI_POLICY_FILE":           "WrapperEnvCLIPolicyFile",
+	"ATL_EVAL_CLI_RESULT_DIR":            "WrapperEnvCLIResultDir",
+	"ATL_EVAL_COMMAND_BROKER_FILE":       "WrapperEnvCommandBrokerFile",
+	"ATL_EVAL_COUNTER":                   "WrapperEnvCounter",
+	"ATL_EVAL_EXTERNAL_MCP_TOKEN":        "WrapperEnvExternalMCPToken",
+	"ATL_EVAL_FORBIDDEN_NETWORK_ADDRESS": "WrapperEnvForbiddenNetworkAddress",
+	"ATL_EVAL_GUARD_COUNTER":             "WrapperEnvGuardCounter",
+	"ATL_EVAL_GUARD_MODE":                "WrapperEnvGuardMode",
+	"ATL_EVAL_HTTP_GUARD_FILE":           "WrapperEnvHTTPGuardFile",
+	"ATL_EVAL_MAX_DELEGATIONS":           "WrapperEnvMaxDelegations",
+	"ATL_EVAL_REAL_BINARY":               "WrapperEnvRealBinary",
+	"ATL_EVAL_SKILL_READ_ROOTS":          "WrapperEnvSkillReadRoots",
+	"ATL_EVAL_WORKSPACE_ROOT":            "WrapperEnvWorkspaceRoot",
 }
 
 func loadEvaluatorBehaviorContract(t *testing.T) evaluatorBehaviorContract {
@@ -88,11 +111,44 @@ func loadEvaluatorBehaviorContract(t *testing.T) evaluatorBehaviorContract {
 	return contract
 }
 
+func TestEvaluatorEnvironmentRegistryMatchesBehaviorContract(t *testing.T) {
+	contract := loadEvaluatorBehaviorContract(t)
+	registry := wrapperEnvironmentVariables()
+	got := make([]evaluatorEnvironmentVariableContract, len(registry))
+	for i, variable := range registry {
+		modes := make([]string, len(variable.Modes))
+		for j, mode := range variable.Modes {
+			modes[j] = string(mode)
+		}
+		got[i] = evaluatorEnvironmentVariableContract{
+			Name:        variable.Name,
+			Producers:   slices.Clone(variable.Producers),
+			Consumers:   slices.Clone(variable.Consumers),
+			ValueType:   string(variable.ValueKind),
+			Modes:       modes,
+			Sensitivity: string(variable.Sensitivity),
+		}
+	}
+	if !reflect.DeepEqual(got, contract.Environment.Variables) {
+		t.Fatalf("typed environment registry drifted from behavior contract:\n got: %#v\nwant: %#v", got, contract.Environment.Variables)
+	}
+
+	registry[0].Producers[0] = "mutated"
+	registry[0].Consumers[0] = "mutated"
+	registry[0].Modes[0] = "mutated"
+	fresh := wrapperEnvironmentVariables()[0]
+	want := contract.Environment.Variables[0]
+	if !slices.Equal(fresh.Producers, want.Producers) || !slices.Equal(fresh.Consumers, want.Consumers) || string(fresh.Modes[0]) != want.Modes[0] {
+		t.Fatal("environment registry exposed mutable canonical slices")
+	}
+}
+
 func TestEvaluatorEnvironmentABIContract(t *testing.T) {
 	contract := loadEvaluatorBehaviorContract(t)
 	repository := filepath.Join("..", "..")
 	variableRE := regexp.MustCompile(`ATL_EVAL_[A-Z0-9_]+`)
 	production := map[string]bool{}
+	productionSymbolOwners := map[string][]string{}
 	testOnlyOccurrences := map[string]bool{}
 	for _, root := range []string{"internal/agenteval", "scripts/agent-eval"} {
 		err := filepath.WalkDir(filepath.Join(repository, root), func(path string, entry fs.DirEntry, walkErr error) error {
@@ -113,6 +169,18 @@ func TestEvaluatorEnvironmentABIContract(t *testing.T) {
 					production[name] = true
 				}
 			}
+			if !strings.HasSuffix(path, "_test.go") {
+				relative, err := filepath.Rel(repository, path)
+				if err != nil {
+					return err
+				}
+				relative = filepath.ToSlash(relative)
+				for _, symbol := range evaluatorEnvironmentSymbols {
+					if bytes.Contains(data, []byte(symbol)) {
+						productionSymbolOwners[symbol] = append(productionSymbolOwners[symbol], relative)
+					}
+				}
+			}
 			return nil
 		})
 		if err != nil {
@@ -123,12 +191,22 @@ func TestEvaluatorEnvironmentABIContract(t *testing.T) {
 	contractNames := make([]string, 0, len(contract.Environment.Variables))
 	for _, variable := range contract.Environment.Variables {
 		contractNames = append(contractNames, variable.Name)
+		symbol, declared := evaluatorEnvironmentSymbols[variable.Name]
+		if !declared {
+			t.Errorf("%s has no canonical Go symbol oracle", variable.Name)
+		}
 		if variable.ValueType == "" || len(variable.Modes) == 0 || variable.Sensitivity == "" {
 			t.Errorf("%s has an incomplete semantic contract", variable.Name)
 		}
 		if variable.Name == "ATL_EVAL_HTTP_GUARD_FILE" {
 			if len(variable.Producers) != 0 || len(variable.Consumers) != 0 || production[variable.Name] {
 				t.Errorf("forbidden ambient variable became an active ABI member: %+v", variable)
+			}
+			if providerProjectionContains(variable.Name) {
+				t.Errorf("forbidden ambient variable entered a runtime provider projection")
+			}
+			if got := productionSymbolOwners[symbol]; !slices.Equal(got, []string{"internal/agenteval/wrapper_contract.go"}) {
+				t.Errorf("forbidden ambient symbol escaped its registry declaration: %v", got)
 			}
 			continue
 		}
@@ -138,16 +216,31 @@ func TestEvaluatorEnvironmentABIContract(t *testing.T) {
 		if len(variable.Producers) == 0 || len(variable.Consumers) == 0 {
 			t.Errorf("%s must name producer and consumer owners", variable.Name)
 		}
-		for _, owner := range append(slices.Clone(variable.Producers), variable.Consumers...) {
+		declaredOwners := append(slices.Clone(variable.Producers), variable.Consumers...)
+		if providerProjectionContains(variable.Name) && !slices.Contains(declaredOwners, "internal/agenteval/provider.go") {
+			t.Errorf("%s enters a runtime provider projection without declaring provider ownership", variable.Name)
+		}
+		for _, owner := range declaredOwners {
 			data, err := os.ReadFile(filepath.Join(repository, filepath.FromSlash(owner)))
 			if err != nil {
 				t.Errorf("%s owner %s: %v", variable.Name, owner, err)
 				continue
 			}
-			if !bytes.Contains(data, []byte(variable.Name)) {
-				t.Errorf("%s no longer occurs in declared owner %s", variable.Name, owner)
+			usesCanonicalSymbol := bytes.Contains(data, []byte(symbol))
+			usesCentralProjection := owner == "internal/agenteval/provider.go" &&
+				bytes.Contains(data, []byte("renderWrapperEnvironmentProjection")) && providerProjectionContains(variable.Name)
+			if !usesCanonicalSymbol && !usesCentralProjection {
+				t.Errorf("%s canonical symbol no longer occurs in declared owner %s", variable.Name, owner)
 			}
 		}
+		for _, owner := range productionSymbolOwners[symbol] {
+			if owner != "internal/agenteval/wrapper_contract.go" && !slices.Contains(declaredOwners, owner) {
+				t.Errorf("%s canonical symbol has undeclared production owner %s", variable.Name, owner)
+			}
+		}
+	}
+	if len(evaluatorEnvironmentSymbols) != len(contract.Environment.Variables) {
+		t.Fatalf("canonical Go symbol oracle has stale entries: symbols=%d contract=%d", len(evaluatorEnvironmentSymbols), len(contract.Environment.Variables))
 	}
 	sort.Strings(contractNames)
 	productionNames := make([]string, 0, len(production)+1)
@@ -180,6 +273,24 @@ func TestEvaluatorEnvironmentABIContract(t *testing.T) {
 	if !slices.Equal(onlyInTests, wantOnlyInTests) {
 		t.Fatalf("test-only evaluator environment inventory drifted: got=%v want=%v", onlyInTests, wantOnlyInTests)
 	}
+}
+
+func providerProjectionContains(name string) bool {
+	for _, id := range []wrapperEnvironmentProjectionID{
+		wrapperProjectionSyntheticCLI,
+		wrapperProjectionMCP,
+		wrapperProjectionExternalMCP,
+		wrapperProjectionPrivateMCP,
+		wrapperProjectionPrivateExternalMCP,
+		wrapperProjectionConfinedCLI,
+		wrapperProjectionPrivateReviewedWriteCLI,
+		wrapperProjectionSyntheticWriteCLI,
+	} {
+		if slices.Contains(wrapperEnvironmentProjection(id), name) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestEvaluatorSchemaCompatibilityAndCorpusDistribution(t *testing.T) {

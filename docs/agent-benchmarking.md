@@ -740,6 +740,45 @@ cohort with reviewed standard token pricing. Model, effort, or pricing changes
 create a new cohort; existing aggregates and baselines remain historical and
 must not be rewritten or pooled across that boundary.
 
+### Internal evaluator wrapper ABI
+
+The evaluator runner, provider launchers, calibration path, command broker, and
+wrapper executable share a typed internal environment registry. Each of its 17
+active `ATL_EVAL_*` names records producer and consumer owners, value kind,
+applicable modes, and sensitivity. `ATL_EVAL_HTTP_GUARD_FILE` is recorded beside
+them only as a forbidden ambient privileged control: it has no producer or
+consumer and must not become an active environment input. This registry is an
+internal harness ABI, not a public CLI, MCP, corpus, schema, or durable artifact
+contract.
+
+Codex provider launch owns nine exact, ordered `include_only` projections: the
+eight current synthetic/private CLI, internal/external MCP, and write-authorized
+variants, plus the legacy calibration projection. Rendering centralizes those
+existing arrays without sorting, deduplicating, or otherwise changing their
+bytes. The separate environment list passed to the internal MCP child is not
+one of these nine projections and retains its own product/gateway boundary.
+Provider argument order, hook command bytes, model settings, permissions,
+write authority, provider/calibration receipts, attempt accounting, and retry
+semantics are unchanged.
+
+Typed value helpers deliberately do not impose one new caller policy. Only the
+exact string `"1"` grants either reviewed-write capability. A malformed or
+empty command array is an immediate hook configuration error but an ordinary
+proxy denial; a malformed or empty MCP tool array admits no tool; and malformed
+or empty read-root arrays remain enforcement errors when a read policy is
+required. Empty target paths and missing workspace roots keep their existing
+caller-specific denial behavior. Delegation parsing retains its historical
+integer syntax and the exact 0..3 bound. Mode dispatch and all other
+malformed, empty, or unknown-value failure paths remain local to their current
+callers.
+
+Only audit records with identical fields, tags, field order, and decoding
+semantics may share a Go representation. Guard decision records remain
+separate: the wrapper writer always emits `family`, while the historical runner
+decoder treats an absent `family` as valid through `omitempty`. Consolidating
+those non-identical records would change old JSONL rendering or compatibility
+and is outside this ABI refactor.
+
 The runner creates a fresh private workspace per repetition. Synthetic typed-MCP
 runs expose only the reviewed MCP inventory: they neither install the Codex
 client skills into the workspace nor load the Claude Code plugin. This keeps the
