@@ -58,8 +58,11 @@ Use `jira snapshot [ROOT | --into ROOT] [--remote]` for the first health decisio
 only exact reconciled counts for local/native baselines, raw snapshots, pending
 records, render markers/view state, and optional drift. It never locks,
 recovers, repairs, or writes. Offline mode needs no config or PAT. Remote mode
-preflights locally, then performs at most one single-attempt GET per eligible
-canonical issue. Stop on exit `8`, `complete:false`, `reconciled:false`, or any
+preflights locally, keeps the exact GET for one eligible issue, and otherwise
+uses qualified batches of at most 100 keys / 16 KiB escaped selector input with
+one single-attempt request per batch. Any incomplete batch is wholly unavailable
+without per-issue fallback. Stop on exit `8`, `complete:false`,
+`reconciled:false`, or any
 unavailable probe; use `jira status` only to identify entries for repair. A
 failed write of the aggregate is reported with the inspection failure and keeps
 the inspection exit code; after an otherwise clean inspection, it returns the

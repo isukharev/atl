@@ -85,6 +85,18 @@ func TestJiraStatusLocalDoesNotRequireBackendConfig(t *testing.T) {
 	}
 }
 
+func TestJiraRemoteMirrorHelpDescribesQualifiedBatches(t *testing.T) {
+	for _, leaf := range []string{"status", "snapshot"} {
+		t.Run(leaf, func(t *testing.T) {
+			out, code := runCLI(t, nil, "jira", leaf, "--help")
+			if code != exitOK || !strings.Contains(out, "exact for one issue; otherwise qualified batches") ||
+				strings.Contains(out, "one request per issue") || strings.Contains(out, "one single-attempt issue probe per eligible") {
+				t.Fatalf("jira %s --help exit=%d output=%q", leaf, code, out)
+			}
+		})
+	}
+}
+
 // TestJiraPushDryRunGolden locks the JSON shape of `jira push` in its default
 // dry-run mode: the remote description matches the base (no drift), so the item
 // carries the unified diff of the local edit and pushes nothing.

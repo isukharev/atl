@@ -67,6 +67,26 @@ func (s *JiraService) Status(ctx context.Context, dir string, checkRemote bool) 
 			return nil, err
 		}
 	}
+	var bulkMetadata map[string]jiraRemoteMetadataEvidence
+	if checkRemote {
+		keys := make([]string, 0, len(locals))
+		fieldsByKey := make(map[string][]string, len(locals))
+		for _, lw := range locals {
+			if lw.Key == "" || lw.TrackedElsewhere {
+				continue
+			}
+			if _, ok := m.BaseBodyExt(lw.Key, wikiExt); !ok {
+				continue
+			}
+			keys = append(keys, lw.Key)
+			pending := pendingByKey[lw.Key]
+			fieldsByKey[canonicalJiraMirrorKey(lw.Key)] = jiraPendingFieldIDs(&pending)
+		}
+		if reader, ok := s.tr.(domain.QualifiedJiraIssueMetadataBatchReader); ok && len(keys) > 1 {
+			probeContext := domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(ctx))
+			bulkMetadata = readJiraRemoteMetadataBatches(probeContext, reader, keys, fieldsByKey)
+		}
+	}
 	out := make([]JiraStatusEntry, 0, len(locals))
 	seenPending := make(map[string]bool, len(pendingByKey))
 	for _, lw := range locals {
@@ -89,22 +109,42 @@ func (s *JiraService) Status(ctx context.Context, dir string, checkRemote bool) 
 		}
 		if checkRemote && lw.Key != "" && !lw.TrackedElsewhere {
 			if base, ok := m.BaseBodyExt(lw.Key, wikiExt); ok {
-				fields := append([]string{"description"}, fieldIDs...)
-				if is, gerr := s.tr.GetIssue(ctx, lw.Key, fields); gerr == nil {
-					remoteHash := mirror.Hash([]byte(is.Body))
+				var issue *domain.Issue
+				batchRead := bulkMetadata != nil
+				if bulkMetadata != nil {
+					evidence, found := bulkMetadata[canonicalJiraMirrorKey(lw.Key)]
+					if found && evidence.available {
+						issue = evidence.issue
+					} else {
+						e.RemoteError = jiraRemoteEvidenceIncomplete
+						if found && evidence.reason != "" {
+							e.RemoteError = evidence.reason
+						}
+					}
+				} else {
+					fields := append([]string{"description"}, fieldIDs...)
+					var getErr error
+					issue, getErr = s.tr.GetIssue(ctx, lw.Key, fields)
+					if getErr != nil {
+						e.RemoteError = failReason(getErr)
+					}
+				}
+				if issue != nil {
+					remoteHash := mirror.Hash([]byte(issue.Body))
 					baseHash := mirror.Hash(base)
 					// A previous push may have committed remotely but failed its local
 					// refresh. Remote == current local is already applied, not drift.
 					e.RemoteDrifted = remoteHash != baseHash && remoteHash != lw.Current
 					for _, field := range pending.Fields {
-						remote, valid := jiraSnapshotStringField(is.Fields, field.ID)
+						remote, valid := jiraSnapshotStringField(issue.Fields, field.ID)
+						if batchRead {
+							remote, valid = jiraBatchPendingStringField(issue.Fields, field.ID)
+						}
 						if !valid || (remote != field.Base && remote != field.Value) {
 							e.FieldDrifted = true
 							e.RemoteDrifted = true
 						}
 					}
-				} else {
-					e.RemoteError = failReason(gerr)
 				}
 			}
 		}

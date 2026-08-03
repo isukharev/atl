@@ -41,6 +41,7 @@ func NewWithScheduler(base, token, version string, scheduler *httpx.Scheduler) *
 
 var _ domain.Tracker = (*Jira)(nil)
 var _ domain.QualifiedIssueSearcher = (*Jira)(nil)
+var _ domain.QualifiedJiraIssueMetadataBatchReader = (*Jira)(nil)
 var _ domain.JiraTransitionWriter = (*Jira)(nil)
 var _ domain.CompleteChangelogReader = (*Jira)(nil)
 var _ domain.JiraTimeSemanticsReader = (*Jira)(nil)

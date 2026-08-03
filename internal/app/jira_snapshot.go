@@ -140,8 +140,9 @@ func PreflightJiraMirrorRemoteSnapshot(dir string) (*JiraMirrorSnapshot, error) 
 	return result, err
 }
 
-// SnapshotMirror optionally adds one single-attempt remote issue read per
-// eligible canonical substrate. Local integrity failures stop before network.
+// SnapshotMirror optionally adds completeness-qualified, bounded remote issue
+// batches. A zero/one-issue selection retains the exact issue read. Local
+// integrity failures stop before network.
 func (s *JiraService) SnapshotMirror(ctx context.Context, dir string, checkRemote bool) (*JiraMirrorSnapshot, error) {
 	if !checkRemote {
 		result, _, err := inspectJiraMirror(dir)
@@ -191,19 +192,46 @@ func (s *JiraService) SnapshotMirror(ctx context.Context, dir string, checkRemot
 		return result, err
 	}
 	probeContext := domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(ctx))
+	keys := make([]string, 0, result.Remote.Eligible)
+	fieldsByKey := make(map[string][]string, result.Remote.Eligible)
+	for _, evidence := range locals {
+		if !evidence.eligible {
+			continue
+		}
+		keys = append(keys, evidence.local.Key)
+		if evidence.pending != nil {
+			fieldsByKey[canonicalJiraMirrorKey(evidence.local.Key)] = jiraPendingFieldIDs(evidence.pending)
+		}
+	}
+	var bulkMetadata map[string]jiraRemoteMetadataEvidence
+	if reader, ok := s.tr.(domain.QualifiedJiraIssueMetadataBatchReader); ok && len(keys) > 1 {
+		bulkMetadata = readJiraRemoteMetadataBatches(probeContext, reader, keys, fieldsByKey)
+	}
 	for _, evidence := range locals {
 		if !evidence.eligible {
 			continue
 		}
 		result.Remote.Attempted++
-		fields := []string{"description"}
-		if evidence.pending != nil {
-			fields = append(fields, jiraPendingFieldIDs(evidence.pending)...)
-		}
-		issue, err := s.tr.GetIssue(probeContext, evidence.local.Key, fields)
-		if err != nil || issue == nil || issue.Key != evidence.local.Key {
-			result.Remote.Unavailable++
-			continue
+		var issue *domain.Issue
+		batchRead := bulkMetadata != nil
+		if bulkMetadata != nil {
+			remote, found := bulkMetadata[canonicalJiraMirrorKey(evidence.local.Key)]
+			if !found || !remote.available {
+				result.Remote.Unavailable++
+				continue
+			}
+			issue = remote.issue
+		} else {
+			fields := []string{"description"}
+			if evidence.pending != nil {
+				fields = append(fields, jiraPendingFieldIDs(evidence.pending)...)
+			}
+			var err error
+			issue, err = s.tr.GetIssue(probeContext, evidence.local.Key, fields)
+			if err != nil || issue == nil || issue.Key != evidence.local.Key {
+				result.Remote.Unavailable++
+				continue
+			}
 		}
 		result.Remote.Checked++
 		remoteBodySHA256 := mirror.Hash([]byte(issue.Body))
@@ -211,6 +239,9 @@ func (s *JiraService) SnapshotMirror(ctx context.Context, dir string, checkRemot
 		if evidence.pending != nil {
 			for _, field := range evidence.pending.Fields {
 				remote, valid := jiraSnapshotStringField(issue.Fields, field.ID)
+				if batchRead {
+					remote, valid = jiraBatchPendingStringField(issue.Fields, field.ID)
+				}
 				if !valid || (remote != field.Base && remote != field.Value) {
 					drifted = true
 					break
