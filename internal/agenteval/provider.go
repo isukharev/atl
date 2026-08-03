@@ -17,6 +17,11 @@ type ProviderCommand struct {
 	Args []string `json:"args"`
 }
 
+type providerCommandBindings struct {
+	externalMCPServerURL      string
+	externalMCPBearerTokenEnv string
+}
+
 type ProviderConfinement struct {
 	RequestDirectory  string
 	ResponseDirectory string
@@ -61,6 +66,10 @@ type ProviderMetrics struct {
 }
 
 func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, workspace, schemaPath, finalPath, pluginRoot, settingsPath, mcpConfigPath string, confinement ProviderConfinement, responseSchema []byte) (ProviderCommand, error) {
+	return buildProviderCommand(spec, agentBinary, atlBinary, guardPath, workspace, schemaPath, finalPath, pluginRoot, settingsPath, mcpConfigPath, confinement, responseSchema, providerCommandBindings{})
+}
+
+func buildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, workspace, schemaPath, finalPath, pluginRoot, settingsPath, mcpConfigPath string, confinement ProviderConfinement, responseSchema []byte, bindings providerCommandBindings) (ProviderCommand, error) {
 	if err := spec.Validate(); err != nil {
 		return ProviderCommand{}, err
 	}
@@ -173,7 +182,7 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 				return ProviderCommand{}, fmt.Errorf("codex mcp transport requires atl and guard executables")
 			}
 			if spec.EffectiveSurface() == SurfaceExternalMCP {
-				if spec.mcpServerURL == "" || spec.mcpBearerTokenEnv == "" {
+				if bindings.externalMCPServerURL == "" || bindings.externalMCPBearerTokenEnv == "" {
 					return ProviderCommand{}, fmt.Errorf("codex external MCP requires a local proxy")
 				}
 				hookConfig, err := codexDenyNonMCPHook(guardPath, spec, confinement)
@@ -182,8 +191,8 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 				}
 				args = append(args,
 					"--dangerously-bypass-hook-trust", "-c", `web_search="disabled"`,
-					"-c", `mcp_servers.external_ro.url=`+strconv.Quote(spec.mcpServerURL),
-					"-c", `mcp_servers.external_ro.bearer_token_env_var=`+strconv.Quote(spec.mcpBearerTokenEnv),
+					"-c", `mcp_servers.external_ro.url=`+strconv.Quote(bindings.externalMCPServerURL),
+					"-c", `mcp_servers.external_ro.bearer_token_env_var=`+strconv.Quote(bindings.externalMCPBearerTokenEnv),
 					"-c", `mcp_servers.external_ro.required=true`,
 					"-c", `mcp_servers.external_ro.enabled_tools=`+quotedStringList(spec.AllowedMCPTools),
 					"-c", `mcp_servers.external_ro.default_tools_approval_mode="approve"`,

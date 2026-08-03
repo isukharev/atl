@@ -110,7 +110,7 @@ func SetPrivateActivationReference(options PrivateActivationReferenceSetOptions)
 				if !privateActivationResultMatchesPlan(raw, plan, item) {
 					return PrivateActivationReferenceSummary{}, privatePlanError("reference_result_identity")
 				}
-				loaded, loadErr := loadRunInputs(RunOptions{SpecPath: filepath.Join(root, filepath.FromSlash(item.SpecPath))})
+				loaded, loadErr := resolveRunContract(filepath.Join(root, filepath.FromSlash(item.SpecPath)))
 				if loadErr != nil {
 					return PrivateActivationReferenceSummary{}, privatePlanError("reference_spec")
 				}

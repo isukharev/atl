@@ -97,7 +97,7 @@ func validatePrivateActivationStudySpecs(requireCurrent bool, paths ...string) (
 	specs := make([]RunSpec, 0, len(paths))
 	commonDirectory := ""
 	for index, path := range paths {
-		loaded, err := loadRunInputs(RunOptions{SpecPath: path})
+		loaded, err := resolveRunContract(path)
 		if err != nil {
 			return PrivateActivationStudyContract{}, fmt.Errorf("private activation study run %d is invalid", index+1)
 		}

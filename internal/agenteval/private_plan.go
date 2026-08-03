@@ -669,7 +669,7 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), privatePlanExecutionSurfaces(plan), privatePlanCompletedCount(state), state.EstimatedCostMicroUSD), privatePlanError("snapshot_drift", snapshotErr, stopErr)
 		}
 		specPath := filepath.Join(snapshot.root, filepath.FromSlash(item.SpecPath))
-		loadedCell, loadCellErr := loadRunInputs(RunOptions{SpecPath: specPath})
+		loadedCell, loadCellErr := resolveRunContract(specPath)
 		if loadCellErr != nil {
 			stopErr := stopAndPersistPrivateActivationState(statePath, plan, &state, activationLifecycle, PrivateActivationStopCellContract)
 			return privatePlanSummary(plan.PlanID, runID, privateActivationDurableSummaryStatus(state), privatePlanExecutionSurfaces(plan), privatePlanCompletedCount(state), state.EstimatedCostMicroUSD), privatePlanError("study_contract", loadCellErr, stopErr)
@@ -1027,7 +1027,7 @@ func buildPrivatePlanMaterial(_ context.Context, root, repository, trustedWorksp
 	for _, rel := range runSet.SpecPaths {
 		path := filepath.Join(root, filepath.FromSlash(rel))
 		paths = append(paths, path)
-		loaded, err := loadRunInputs(RunOptions{SpecPath: path})
+		loaded, err := resolveRunContract(path)
 		if err != nil {
 			return nil, material, "", "", 0, false, privatePlanError("spec")
 		}

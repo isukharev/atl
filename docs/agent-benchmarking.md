@@ -848,6 +848,21 @@ implementation sharing. They deliberately do not change provider arguments,
 environment bytes, root-marker behavior, authentication, capsules, probes,
 retries, failure ordering, or retention of committed failed attempts.
 
+The headless path separates three internal ownership layers without changing
+the run-spec or preview schemas. `RunSpec` remains the serializable durable
+contract. A resolved run contract owns the exact scenario, fixture, prompt,
+response schema, rubric, and workspace-template inputs loaded from that spec;
+model and repetition overrides, and the per-attempt cost partition, are applied
+to copies. Provider command bindings contain only ephemeral command-construction
+values such as the loopback external-MCP endpoint and its token environment
+name. Per-attempt bindings contain the repetition's paths, runtime capsule,
+attestation, durable-attempt callback, and receipt destination. Runtime values
+therefore cannot enter durable run-spec JSON or hashes accidentally. Exact
+preview bytes, failure precedence, and the commitment/revalidation/spawn order
+are characterization-tested. Calibration, review, aggregate, and probe
+lifecycles remain separate because their admission, commitment, and cleanup
+contracts differ.
+
 The runner creates a fresh private workspace per repetition. Synthetic typed-MCP
 runs expose only the reviewed MCP inventory: they neither install the Codex
 client skills into the workspace nor load the Claude Code plugin. This keeps the

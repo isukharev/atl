@@ -72,8 +72,6 @@ type RunSpec struct {
 	AllowSyntheticWrites        bool                          `json:"allow_synthetic_writes,omitempty"`
 	AllowLiveWrites             bool                          `json:"allow_live_writes,omitempty"`
 	Checks                      []RunCheck                    `json:"checks"`
-	mcpServerURL                string
-	mcpBearerTokenEnv           string
 }
 
 const (

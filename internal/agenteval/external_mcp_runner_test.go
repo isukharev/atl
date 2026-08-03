@@ -76,6 +76,10 @@ func TestExternalMCPDryRunValidatesProfileWithoutCredentialsOrNetwork(t *testing
 		t.Fatalf("dry-run created a provider runtime: %v", err)
 	}
 	encoded, _ := json.Marshal(output.Preview)
+	const wantPreviewSHA256 = "cc7c1ba446f9c456b5b10e3daf1ed5562c70dfa708a2c61d1f9c2fe67077c7ba"
+	if got := sha256HexBytes(encoded); got != wantPreviewSHA256 {
+		t.Fatalf("external MCP preview bytes changed: sha256=%s preview=%s", got, encoded)
+	}
 	if bytes.Contains(encoded, []byte(profile.UpstreamURL)) || bytes.Contains(encoded, []byte(profile.CatalogSHA256)) || bytes.Contains(encoded, []byte("safe_lookup")) {
 		t.Fatalf("preview leaked private profile: %s", encoded)
 	}
@@ -105,13 +109,17 @@ func TestExternalMCPProviderConfigurationContainsOnlyProxyIdentity(t *testing.T)
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(path)
+	const wantConfig = `{"mcpServers":{"external_ro":{"alwaysLoad":true,"headers":{"Authorization":"Bearer disposable"},"type":"http","url":"http://127.0.0.1:1234/mcp"}}}` + "\n"
+	if string(data) != wantConfig {
+		t.Fatalf("external MCP config bytes changed\n got: %s\nwant: %s", data, wantConfig)
+	}
 	for _, forbidden := range []string{"upstream.example", "real-pat"} {
 		if bytes.Contains(data, []byte(forbidden)) {
 			t.Fatal("source secret leaked")
 		}
 	}
-	spec := RunSpec{SchemaVersion: RunSpecSchemaVersion, BackendMode: BackendModePrivateLive, Surface: SurfaceExternalMCP, ScenarioFile: "a", Provider: "codex", Variant: "external", Model: "test", PromptFile: "b", ResponseSchemaFile: "c", QualitativeRubricFile: "d", WorkspaceTemplate: "e", Repetitions: 1, TimeoutSeconds: 1, MaxEstimatedCostMicroUSD: 1, Pricing: Pricing{InputMicroUSDPerMillionTokens: 1, OutputMicroUSDPerMillionTokens: 1}, ToolTransport: "mcp", AllowedMCPTools: []string{"safe_lookup"}, Checks: []RunCheck{{Name: "x", Kind: "interface_all_succeeded"}}, mcpServerURL: "http://127.0.0.1:1234/mcp", mcpBearerTokenEnv: "ATL_EVAL_EXTERNAL_MCP_TOKEN"}
-	plan, err := BuildProviderCommand(spec, "codex", "/bin/atl", "/bin/guard", "/tmp/work", "/tmp/schema", "/tmp/final", "", "", "", ProviderConfinement{GuardMode: "mcp-with-skill-read", GuardCounterPath: "/tmp/guard.jsonl", WorkspaceReadRoot: "/tmp/work", AllowedReadRoots: []string{"/tmp/skills", "/tmp/work"}, SkillReadRoots: []string{"/tmp/skills"}, AllowedMCPTools: []string{"mcp__external_ro__safe_lookup"}}, json.RawMessage(`{}`))
+	spec := RunSpec{SchemaVersion: RunSpecSchemaVersion, BackendMode: BackendModePrivateLive, Surface: SurfaceExternalMCP, ScenarioFile: "a", Provider: "codex", Variant: "external", Model: "test", PromptFile: "b", ResponseSchemaFile: "c", QualitativeRubricFile: "d", WorkspaceTemplate: "e", Repetitions: 1, TimeoutSeconds: 1, MaxEstimatedCostMicroUSD: 1, Pricing: Pricing{InputMicroUSDPerMillionTokens: 1, OutputMicroUSDPerMillionTokens: 1}, ToolTransport: "mcp", AllowedMCPTools: []string{"safe_lookup"}, Checks: []RunCheck{{Name: "x", Kind: "interface_all_succeeded"}}}
+	plan, err := buildProviderCommand(spec, "codex", "/bin/atl", "/bin/guard", "/tmp/work", "/tmp/schema", "/tmp/final", "", "", "", ProviderConfinement{GuardMode: "mcp-with-skill-read", GuardCounterPath: "/tmp/guard.jsonl", WorkspaceReadRoot: "/tmp/work", AllowedReadRoots: []string{"/tmp/skills", "/tmp/work"}, SkillReadRoots: []string{"/tmp/skills"}, AllowedMCPTools: []string{"mcp__external_ro__safe_lookup"}}, json.RawMessage(`{}`), providerCommandBindings{externalMCPServerURL: "http://127.0.0.1:1234/mcp", externalMCPBearerTokenEnv: WrapperEnvExternalMCPToken})
 	if err != nil {
 		t.Fatal(err)
 	}

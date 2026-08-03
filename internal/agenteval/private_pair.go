@@ -29,9 +29,9 @@ func ValidatePrivateRunComparisonSet(paths ...string) (PrivateComparisonSet, err
 	if len(paths) < 2 || len(paths) > 3 {
 		return PrivateComparisonSet{}, fmt.Errorf("private comparison set requires 2..3 run specs")
 	}
-	loaded := make([]loadedRun, 0, len(paths))
+	loaded := make([]resolvedRunContract, 0, len(paths))
 	for index, path := range paths {
-		item, err := loadRunInputs(RunOptions{SpecPath: path})
+		item, err := resolveRunContract(path)
 		if err != nil {
 			return PrivateComparisonSet{}, fmt.Errorf("private comparison run %d: %w", index+1, err)
 		}
@@ -81,7 +81,7 @@ func ValidatePrivateRunComparisonSet(paths ...string) (PrivateComparisonSet, err
 			{"provider", item.spec.Provider == base.spec.Provider},
 			{"model", item.spec.Model == base.spec.Model},
 			{"reasoning", item.spec.Reasoning == base.spec.Reasoning},
-			{"workspace", item.spec.WorkspaceTemplate == base.spec.WorkspaceTemplate && item.workspace == base.workspace},
+			{"workspace", item.spec.WorkspaceTemplate == base.spec.WorkspaceTemplate && item.workspaceTemplate == base.workspaceTemplate},
 			{"scenario and budgets", equalPrivateComparisonJSON(item.scenario, base.scenario)},
 			{"core prompt", bytes.Equal(item.prompt, base.prompt)},
 			{"response schema", bytes.Equal(item.responseSchema, base.responseSchema)},
@@ -133,11 +133,11 @@ func ValidatePrivateRunPair(firstPath, secondPath string) (PrivateRunPair, error
 	if !equalPrivateComparisonJSON(set.Surfaces, want) {
 		return PrivateRunPair{}, fmt.Errorf("paired runs require cli-skill and atl-mcp surfaces")
 	}
-	first, err := loadRunInputs(RunOptions{SpecPath: firstPath})
+	first, err := resolveRunContract(firstPath)
 	if err != nil {
 		return PrivateRunPair{}, err
 	}
-	second, err := loadRunInputs(RunOptions{SpecPath: secondPath})
+	second, err := resolveRunContract(secondPath)
 	if err != nil {
 		return PrivateRunPair{}, err
 	}

@@ -102,8 +102,6 @@ func TestWrapperOracleProviderCommands(t *testing.T) {
 	assertOracleProviderCommand(t, privateMCP, privateMCPConfinement, "", ProviderCommand{Path: "agent", Args: privateMCPArgs})
 
 	privateExternal := oracleMCPRunSpec("codex", BackendModePrivateLive, SurfaceExternalMCP)
-	privateExternal.mcpServerURL = "http://127.0.0.1:1234/mcp"
-	privateExternal.mcpBearerTokenEnv = "ATL_EVAL_EXTERNAL_MCP_TOKEN"
 	privateExternalConfinement := privateMCPHookConfinement("external_ro", "jira_fields")
 	privateExternalArgs := oracleCodexBaseArgs(false, true, oraclePrivateExternalMCPProjection)
 	privateExternalArgs = oracleInsertCodexLocalRoute(privateExternalArgs)
@@ -114,7 +112,10 @@ func TestWrapperOracleProviderCommands(t *testing.T) {
 		"-c", `mcp_servers.external_ro.required=true`, "-c", `mcp_servers.external_ro.enabled_tools=["jira_fields"]`,
 		"-c", `mcp_servers.external_ro.default_tools_approval_mode="approve"`,
 		"-c", oracleHookConfig(oraclePrivateHookCommand("mcp-with-skill-read", `["mcp__external_ro__jira_fields"]`)), "-")
-	assertOracleProviderCommand(t, privateExternal, privateExternalConfinement, "", ProviderCommand{Path: "agent", Args: privateExternalArgs})
+	assertOracleProviderCommandWithBindings(t, privateExternal, privateExternalConfinement, "", providerCommandBindings{
+		externalMCPServerURL:      "http://127.0.0.1:1234/mcp",
+		externalMCPBearerTokenEnv: "ATL_EVAL_EXTERNAL_MCP_TOKEN",
+	}, ProviderCommand{Path: "agent", Args: privateExternalArgs})
 
 	confinedReadOnly := validRunSpec()
 	confinedReadOnly.AllowedATLCommands = nil
@@ -265,6 +266,17 @@ func TestWrapperOracleProxyRecordJSONAndReaderSemantics(t *testing.T) {
 func assertOracleProviderCommand(t *testing.T, spec RunSpec, confinement ProviderConfinement, mcpConfig string, want ProviderCommand) {
 	t.Helper()
 	got, err := BuildProviderCommand(spec, "agent", "/atl", "/guard", "/workspace", "/schema", "/final", "/plugin", "/settings", mcpConfig, confinement, []byte(oracleSchema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Path != want.Path || !slices.Equal(got.Args, want.Args) {
+		t.Fatalf("provider command drifted\ngot:  %#v\nwant: %#v", got, want)
+	}
+}
+
+func assertOracleProviderCommandWithBindings(t *testing.T, spec RunSpec, confinement ProviderConfinement, mcpConfig string, bindings providerCommandBindings, want ProviderCommand) {
+	t.Helper()
+	got, err := buildProviderCommand(spec, "agent", "/atl", "/guard", "/workspace", "/schema", "/final", "/plugin", "/settings", mcpConfig, confinement, []byte(oracleSchema), bindings)
 	if err != nil {
 		t.Fatal(err)
 	}

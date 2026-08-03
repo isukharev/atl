@@ -79,7 +79,7 @@ func ValidateBenchmarkCorpus(root string) (CorpusInventory, error) {
 	if err != nil {
 		return CorpusInventory{}, fmt.Errorf("benchmark corpus root is unreadable")
 	}
-	byDirectory := map[string][]loadedRun{}
+	byDirectory := map[string][]resolvedRunContract{}
 	runCount := 0
 	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -98,7 +98,7 @@ func ValidateBenchmarkCorpus(root string) (CorpusInventory, error) {
 		if runCount > maxCorpusRunSpecs {
 			return fmt.Errorf("benchmark corpus exceeds %d run specs", maxCorpusRunSpecs)
 		}
-		loaded, err := loadRunInputs(RunOptions{SpecPath: path})
+		loaded, err := resolveRunContract(path)
 		if err != nil {
 			return fmt.Errorf("benchmark corpus contains an invalid run spec")
 		}
@@ -283,7 +283,7 @@ func corpusCanonicalDecimalID(value string) (string, bool) {
 	return value, true
 }
 
-func corpusMCPToolInventory(byDirectory map[string][]loadedRun) []CorpusMCPToolInventory {
+func corpusMCPToolInventory(byDirectory map[string][]resolvedRunContract) []CorpusMCPToolInventory {
 	type providerKey struct{ tool, provider string }
 	type providerScenarios struct {
 		primary map[string]struct{}
@@ -422,7 +422,7 @@ func corpusExactMCPTools(spec RunSpec) map[string]bool {
 	return result
 }
 
-func validateNeutralCommonCohorts(runs []loadedRun) (int, error) {
+func validateNeutralCommonCohorts(runs []resolvedRunContract) (int, error) {
 	base := runs[0]
 	for _, run := range runs[1:] {
 		if err := compareNeutralCommonTaskContract(base, run); err != nil {
@@ -430,7 +430,7 @@ func validateNeutralCommonCohorts(runs []loadedRun) (int, error) {
 		}
 	}
 	type cohortKey struct{ provider, model, reasoning, backend string }
-	cohorts := map[cohortKey][]loadedRun{}
+	cohorts := map[cohortKey][]resolvedRunContract{}
 	for _, run := range runs {
 		key := cohortKey{run.spec.Provider, run.spec.Model, run.spec.Reasoning, run.spec.EffectiveBackendMode()}
 		cohorts[key] = append(cohorts[key], run)
@@ -462,7 +462,7 @@ func validateNeutralCommonCohorts(runs []loadedRun) (int, error) {
 	return len(cohorts), nil
 }
 
-func compareNeutralCommonTaskContract(base, candidate loadedRun) error {
+func compareNeutralCommonTaskContract(base, candidate resolvedRunContract) error {
 	semanticBase, err := semanticRunChecks(base.spec.Checks)
 	if err != nil {
 		return err
@@ -483,7 +483,7 @@ func compareNeutralCommonTaskContract(base, candidate loadedRun) error {
 		{"semantic response checks", equalPrivateComparisonJSON(semanticBase, semanticCandidate)},
 		{"data capabilities", equalStrings(base.spec.DataCapabilities, candidate.spec.DataCapabilities)},
 		{"backend mode", base.spec.EffectiveBackendMode() == candidate.spec.EffectiveBackendMode()},
-		{"workspace", base.spec.WorkspaceTemplate == candidate.spec.WorkspaceTemplate && base.workspace == candidate.workspace},
+		{"workspace", base.spec.WorkspaceTemplate == candidate.spec.WorkspaceTemplate && base.workspaceTemplate == candidate.workspaceTemplate},
 	}
 	for _, comparison := range comparisons {
 		if !comparison.equal {
@@ -493,7 +493,7 @@ func compareNeutralCommonTaskContract(base, candidate loadedRun) error {
 	return nil
 }
 
-func compareNeutralCommonExecutionContract(base, candidate loadedRun) error {
+func compareNeutralCommonExecutionContract(base, candidate resolvedRunContract) error {
 	comparisons := []struct {
 		name  string
 		equal bool

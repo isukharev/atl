@@ -120,8 +120,8 @@ func TestCorpusMCPToolInventoryRequiresDistinctPrimaryAndHoldoutScenarios(t *tes
 		Name: "exact", Kind: "mcp_invocations_equal",
 		Expected: json.RawMessage(`[{"tool":"jira_board_view","arguments":{"board_id":1}}]`),
 	}
-	run := func(scenarioID string, repetitions int) loadedRun {
-		return loadedRun{
+	run := func(scenarioID string, repetitions int) resolvedRunContract {
+		return resolvedRunContract{
 			scenario: Scenario{ID: scenarioID},
 			spec: RunSpec{
 				Provider: "codex", Repetitions: repetitions, ToolTransport: "mcp",
@@ -130,7 +130,7 @@ func TestCorpusMCPToolInventoryRequiresDistinctPrimaryAndHoldoutScenarios(t *tes
 		}
 	}
 
-	inventory := corpusMCPToolInventory(map[string][]loadedRun{
+	inventory := corpusMCPToolInventory(map[string][]resolvedRunContract{
 		"holdout": {
 			run("jira.synthetic-board-holdout-v1", 3),
 			run("jira.synthetic-board-holdout-v1", 1),
@@ -142,7 +142,7 @@ func TestCorpusMCPToolInventoryRequiresDistinctPrimaryAndHoldoutScenarios(t *tes
 		t.Fatalf("holdout-only coverage accepted as primary: %+v", provider)
 	}
 
-	inventory = corpusMCPToolInventory(map[string][]loadedRun{
+	inventory = corpusMCPToolInventory(map[string][]resolvedRunContract{
 		"primary": {run("jira.synthetic-board-v1", 3)},
 		"holdout": {run("jira.synthetic-board-holdout-v1", 1)},
 	})
@@ -2445,7 +2445,7 @@ func TestBenchmarkCorpusScopesExecutionContractsToProviderModelCohorts(t *testin
 	}
 	repetitionDrift := otherMCP
 	repetitionDrift.Repetitions++
-	if err := compareNeutralCommonExecutionContract(loadedRun{spec: otherCLI}, loadedRun{spec: repetitionDrift}); err == nil || !strings.Contains(err.Error(), "cohort runs differ in repetitions") {
+	if err := compareNeutralCommonExecutionContract(resolvedRunContract{spec: otherCLI}, resolvedRunContract{spec: repetitionDrift}); err == nil || !strings.Contains(err.Error(), "cohort runs differ in repetitions") {
 		t.Fatalf("within-cohort repetition drift passed: %v", err)
 	}
 
