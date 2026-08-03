@@ -383,7 +383,9 @@ or discard the output, and do not publish until the baseline is repaired.
 - Pull/render/apply/push and mirror-local edit share a mutation lock. Wait on
   contention; never delete/bypass locks or retry concurrently. A partial scan,
   missing native body, or corrupt sidecar is not clean evidence.
-- Remote version conflict is exit 5: re-pull and reconcile. Use `--force` only
+- Remote version conflict is exit 5: preserve the local candidate and run
+  `conf reconcile preview` before any refresh. Resolve the exact
+  base/ours/theirs state and create a fresh push preview. Use `--force` only
   after a human explicitly chooses to overwrite reviewed remote changes.
 
 Tool friction that costs real turns should use the `atl` skill's consent-gated

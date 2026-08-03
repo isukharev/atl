@@ -1,8 +1,8 @@
 # CSF and fragments
 
 This document explains how `atl` handles Confluence Storage Format (CSF): how
-it parses CSF for reading, why edits are byte-stable on the write path, what
-the `.md` read-view looks like, and how opaque fragments (diagrams, user
+it parses CSF for reading, why remote writes retain a native byte substrate,
+what the `.md` staging view looks like, and how opaque fragments (diagrams, user
 mentions, page links, images, attachments) are discovered and resolved.
 
 See also: [../README.md](../README.md) · [architecture.md](architecture.md) ·
@@ -34,21 +34,24 @@ ac:name="…">` elements with `<ac:parameter>` children and an optional
 
 ---
 
-## The write path: byte-stable round-trip
+## The remote write path: native bytes only
 
-**`atl` never re-serializes a CSF body.** When `atl conf push` uploads a page,
-it sends the exact bytes from the `.csf` file verbatim. This is the
-foundational safety property of the tool: macros, panels, layouts, draw.io
-diagrams, and any other Confluence-specific markup that the parser does not
-understand are preserved with zero risk of lossy conversion.
+When `atl conf push` uploads a page, it sends the exact candidate bytes from the
+`.csf` file. It never converts Markdown or a parsed DOM into a new whole-page
+body during that remote write. Macros, panels, layouts, draw.io diagrams, and
+other Confluence-specific markup therefore remain in the native substrate.
 
 The comment in `internal/csf/parse.go` makes this explicit:
 
 > "The DOM here is read-only and lossy by design — it exists to understand a
 > body, not to reproduce it."
 
-The `.csf` file is the single source of truth. The `.md` read-view is derived
-from it for human/agent orientation but is never used on the write path.
+The `.csf` file is the authoritative remote-write substrate. Its `.md` sibling
+is a versioned derived view for human/agent reading and supported local staging.
+`atl conf apply` may compare an edited current-format view with its pristine
+baseline and splice only supported changes into `.csf`; untouched native blocks
+keep their exact bytes and unsupported or lossy changes fail closed. The
+Markdown file itself is never sent to Confluence.
 
 ---
 
@@ -205,13 +208,34 @@ during `Extract` and is not changed by `Resolve`.
 
 ---
 
-## The `.md` read-view
+## The `.md` staging view
 
 `mirror.RenderMarkdown(root *csf.Node, refs []domain.Ref) []byte` produces the
-human-readable and grep-friendly `.md` file. It is intentionally lossy: the
-`.csf` file is always the authoritative write substrate. `conf apply` supports
-a strict staged subset and preserves or refuses native structure it cannot
-reproduce; the Markdown file is never pushed directly.
+human-readable and grep-friendly `.md` file. It cannot express every native
+construct, so `.csf` remains authoritative. `conf apply` supports a strict
+staged subset and preserves or refuses native structure it cannot reproduce;
+the Markdown file is never pushed directly.
+
+Every current Confluence staging view starts with
+`<!-- atl:document confluence-page v6 -->`. The v6 contract closes four common
+round-trip hazards:
+
+- code and preformatted blocks use a fence longer than every backtick run in
+  their native body;
+- paragraph text that could be parsed as a fence or thematic break is escaped
+  reversibly;
+- a native `<br>` is rendered as a protected literal `<br>` marker, so an edit
+  to adjacent prose reuses the original break bytes;
+- simple tables place the GFM separator after physical row zero, while tables
+  with native structure or editor styling preserve header topology, attributes,
+  columns, captions, spans, wrappers, and untouched row/cell bytes through the
+  structure-preserving merge path.
+
+Removing a protected break or structural marker is subject to the explicit
+fragment-loss gate. An unrepresentable structural rewrite fails before `.csf`
+changes. Legacy, unversioned, and unknown/future views are not silently treated
+as v6; use the migration and recovery guidance in the
+[command reference](usage.md#atl-conf-apply).
 
 ### Block-level rendering
 
@@ -221,7 +245,6 @@ reproduce; the Markdown file is never pushed directly.
 | `<p>` | paragraph with trailing blank line |
 | `<ul>` / `<ol>` | unordered / ordered list (nested) |
 | `<table>` | pipe-table with its separator after physical row zero; native header topology, attributes, columns, captions, and spans route edits through structure-preserving merge |
-| `<br>` | protected literal `<br>` marker whose original native bytes are reused on adjacent prose edits |
 | `<hr>` | `---` |
 | `<ac:layout>`, `<ac:layout-section>`, `<ac:layout-cell>` | contents rendered recursively (layout structure discarded) |
 | `<ac:structured-macro ac:name="code">` | fenced code block with language hint |
@@ -238,7 +261,7 @@ reproduce; the Markdown file is never pushed directly.
 | `<strong>` / `<b>` | `**…**` |
 | `<em>` / `<i>` | `_…_` |
 | `<code>` | `` `…` `` |
-| `<br>` | space |
+| `<br>` | protected literal `<br>` marker whose original native bytes are reused on adjacent prose edits |
 | `<a href="…">` | `[label](href)` |
 | `<span style="color: …">` | protected `<span style="color: …">text</span>` for safe CSS colors; inert `data-atl-color` otherwise |
 | `<ac:link>` to a page | `[label](confluence-page:SPACE/percent-encoded-title)` (space omitted when absent) |

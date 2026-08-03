@@ -37,6 +37,7 @@ read-only policy until one exact write proposal has been reviewed.
 | Install and prove one backend works | [Five-minute setup](docs/getting-started.md) |
 | Give a coding agent safe access | [Agent setup](docs/agent-setup.md) |
 | Mirror, edit, and publish safely | [Safe writes](docs/safe-writes.md) |
+| Refresh or recover an existing mirror | [Mirrors and recovery](docs/mirrors-and-recovery.md) |
 | Trace Jira links, docs, and code identities | [Jira artifact graph](docs/jira-artifact-graph.md) |
 | Read or change Confluence discussions | [Qualified comments](docs/confluence-comments.md) |
 | See the core guarantees without credentials | [Reproducible demos](docs/demos/README.md) |

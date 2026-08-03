@@ -21,6 +21,7 @@ reference before the first successful workflow.
 | Guide | Audience | What it contains |
 |---|---|---|
 | [agent-recipes.md](agent-recipes.md) | Agents / users | Runnable Jira, board, Structure, Confluence, and guarded-write recipes |
+| [mirrors-and-recovery.md](mirrors-and-recovery.md) | Jira / Confluence users | Backend identity, non-destructive refresh, three-way reconcile, and create registration |
 | [jira-artifact-graph.md](jira-artifact-graph.md) | Jira users / agents | Bounded relationship, documentation, and Development identity graph |
 | [confluence-comments.md](confluence-comments.md) | Confluence users / agents | Qualified comment reads and guarded footer/inline write choices |
 | [demos/](demos/README.md) | New users / reviewers | Three credential-free demonstrations of losslessness, conflict refusal, and bounded graph reads |

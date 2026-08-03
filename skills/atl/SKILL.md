@@ -384,7 +384,7 @@ manifest before publishing.
 documents a human view; unsupported text requests fail with exit 2 and never
 fall back to JSON. The CLI signals outcomes
 through exit codes. Parse the JSON; map the exit code per [exit-codes.md](reference/exit-codes.md)
-(e.g. `5` = version conflict → re-pull and reconcile before considering `--force`; `7` = not
+(e.g. `5` = version conflict → preserve the candidate and run reconcile preview before any refresh or `--force`; `7` = not
 configured → run `/atl:setup`; `3` = the server rejected the token → re-`auth login` with a valid
 PAT).
 

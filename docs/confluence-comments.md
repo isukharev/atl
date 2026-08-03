@@ -77,7 +77,7 @@ Footer creation starts with a read-only preview:
 
 ```sh
 ATL_READ_ONLY=1 atl conf comment preview --id 12345 --from-file comment.csf
-atl conf comment add --id 12345 --from-file comment.csf \
+env -u ATL_READ_ONLY atl conf comment add --id 12345 --from-file comment.csf \
   --apply --expected-proposal-hash <reviewed-hash>
 ```
 
@@ -93,7 +93,7 @@ whose provider has passed remote qualification. Example:
 atl conf comment mutation preview --id 12345 \
   --operation inline-create --from-file comment.csf \
   --selection-file selection.txt --occurrence 0
-atl conf comment mutation apply --id 12345 \
+env -u ATL_READ_ONLY atl conf comment mutation apply --id 12345 \
   --operation inline-create --from-file comment.csf \
   --selection-file selection.txt --occurrence 0 --apply \
   --expected-proposal-hash <reviewed-hash>

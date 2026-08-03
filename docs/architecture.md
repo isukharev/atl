@@ -281,7 +281,7 @@ mirror/
     ancestor-title/
       page-title/
         page-title.csf        ← source of truth (verbatim CSF bytes)
-        page-title.md         ← v6 read-view; may include a qualified comment tree
+        page-title.md         ← v6 staging view; may include a qualified comment tree
         page-title.meta.json  ← id, title, version, content_hash, fragments
         page-title.comments.json ← schema-v2 qualified comment evidence
         page-title.comments.md   ← flat compatibility projection
