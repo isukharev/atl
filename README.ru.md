@@ -7,7 +7,7 @@
 [![Main smoke](https://img.shields.io/github/actions/workflow/status/isukharev/atl/ci.yml?branch=main&label=main%20smoke)](https://github.com/isukharev/atl/actions/workflows/ci.yml)
 
 [Документация](docs/README.md) · [Совместимость](docs/compatibility.md) ·
-[Roadmap](ROADMAP.md) · [Участие](CONTRIBUTING.md) ·
+[Roadmap](ROADMAP.md) · [История версий](CHANGELOG.md) · [Участие](CONTRIBUTING.md) ·
 [Безопасность](SECURITY.md)
 
 **Локальные workflow без потерь для Jira и Confluence Server/Data Center.**
@@ -48,6 +48,8 @@ Pull записывает файлы локального зеркала, но �
 Полный [справочник команд](docs/usage.md) и
 [контракт вывода](docs/OUTPUT_CONTRACT.md) пригодятся, когда важны точные флаги
 или поля wire-формата; для первого полезного чтения они не нужны.
+Подробная документация поддерживается на английском; русский README остаётся
+равноправной входной страницей и ведёт к тем же каноническим руководствам.
 
 ## Установка
 

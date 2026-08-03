@@ -1,17 +1,19 @@
 # Agent workflow for atl
 
-This file is the cross-agent operating guide for work in this repository. It
-mirrors the high-signal architecture, correctness, testing, and handoff rules
-from `CLAUDE.md` so agents that only read `AGENTS.md` still preserve the project
-invariants.
+This file is the binding cross-agent operating guide for work in this
+repository. Provider-specific instruction files may add execution guidance but
+must not replace or weaken the invariants defined here.
 
 ## Project shape
 
 `atl` is a single static Go binary: a Git-style CLI that mirrors Confluence
 pages and Jira issues to disk in their native storage formats (Confluence
 Storage Format `.csf`; Jira wiki). The `.csf` bytes are the write substrate:
-never convert bodies through Markdown on the write path. Mirror `.md` files are
-read-only views regenerated best-effort; render failures must not fail a pull.
+never convert bodies through Markdown on the remote write path. Mirror `.md`
+files are derived staging views regenerated best-effort; supported edits may be
+spliced into the native substrate only through explicit `conf apply` or
+`jira apply`. The Markdown file itself is never sent to a backend, and render
+failures must not fail a pull.
 
 Core commands:
 

@@ -8,8 +8,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 issues to disk in their **native storage formats** (Confluence Storage Format `.csf`; Jira
 wiki), lets agents edit/search the bytes directly, and pushes under an optimistic version
 gate. The `.csf` bytes are the substrate — there is no lossy Markdown round-trip, so the
-write path must never convert bodies. The `.md` files in a mirror are read-only views and
-are regenerated best-effort (a render failure is swallowed; it never fails a pull).
+remote write path must never convert whole bodies. The `.md` files in a mirror are derived
+staging views and are regenerated best-effort (a render failure is swallowed; it never fails
+a pull). Supported edits may be merged into the native substrate only through explicit
+`conf apply` or `jira apply`; the Markdown file itself is never sent to a backend.
 
 ## Agent operating model
 

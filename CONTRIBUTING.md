@@ -53,15 +53,17 @@ different Go toolchain automatically.
 
 - **Unit tests** live alongside the code they test (`*_test.go` in the same
   package). All new logic must have unit tests.
-- **Live integration tests** are guarded by an env flag so they never run in CI
-  unintentionally:
+- **Live integration tests** are opt-in and load their private selectors from
+  `.env.integration`, so they never run in CI unintentionally:
 
   ```bash
-  ATL_TEST_PAGE_ID=<your-throwaway-page-id> make integration
+  make integration
+  make live-smoke
   ```
 
-  Use a page you own and can safely overwrite; do not hard-code real page IDs in
-  test files.
+  Start with the read-only fixture checks. A live write requires a separately
+  reviewed plan, explicit authority, an owned disposable target, and a cleanup
+  plan. Never hard-code real object IDs or backend details in tracked files.
 
 - **Agent-evaluation tests** have a separate deterministic gate. Product
   changes run the small compatibility contract in CI; evaluator/corpus changes
@@ -85,6 +87,15 @@ different Go toolchain automatically.
   review** — `main` is a protected branch.
 - Do not commit secrets, PATs, or any credentials. See `.gitignore` for the
   key/token patterns that are explicitly excluded.
+
+## Maintainer documentation
+
+[`AGENTS.md`](AGENTS.md) is the binding cross-agent repository contract.
+Provider-specific overlays do not replace it. The
+[documentation index](docs/README.md#maintainers) routes to architecture,
+issue/PR lifecycle, generated plugins, releases, documentation indexing, and
+evaluation operations. [`STANDARDS.md`](STANDARDS.md) explains which document
+owns each maintainer topic so policy is updated in one place.
 
 ---
 

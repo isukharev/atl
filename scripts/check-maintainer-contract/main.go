@@ -59,6 +59,11 @@ check-context7-docs:
 	go run ./scripts/check-context7-docs
 `
 
+const docsCatalogMakeContract = `.PHONY: check-docs-catalog
+check-docs-catalog:
+	go run ./scripts/check-docs-catalog -root .
+`
+
 const onboardingMakeContract = `.PHONY: check-onboarding-docs
 check-onboarding-docs: build
 	ATL_NO_UPDATE=1 go run ./scripts/check-onboarding-docs -root . -atl ./atl
@@ -93,6 +98,8 @@ const (
         run: make check-package-boundary`
 	pluginsStepContract = `      - name: Generated plugin trees are current
         run: make check-plugins`
+	docsCatalogStepContract = `      - name: Documentation catalog
+        run: make check-docs-catalog`
 	context7StepContract = `      - name: Indexed documentation contract
         run: make check-context7-docs`
 	onboardingStepContract = `      - name: Onboarding documentation rehearsal
@@ -290,6 +297,7 @@ func validateBootstrap(root string) error {
 	}{
 		{"check-package-boundary", packageBoundaryMakeContract, "makefile must retain the exact package-boundary gate"},
 		{"check-plugins", pluginsMakeContract, "makefile must retain the exact generated-plugin gate"},
+		{"check-docs-catalog", docsCatalogMakeContract, "makefile must retain the exact documentation-catalog gate"},
 		{"check-context7-docs", context7MakeContract, "makefile must retain the exact indexed-documentation gate"},
 		{"check-onboarding-docs", onboardingMakeContract, "makefile onboarding binary assertion must set ATL_NO_UPDATE=1"},
 		{"agent-eval-race", agentEvalRaceMakeContract, "makefile must retain the exact agent-evaluation race gate"},
@@ -349,7 +357,7 @@ func validateBootstrap(root string) error {
 	}
 	if err := requireWorkflowStepPrefix(lintJob, "ci lint",
 		checkoutStepContract, setupGoStepContract, maintainerStepContract,
-		packageBoundaryStepContract, pluginsStepContract, context7StepContract,
+		packageBoundaryStepContract, pluginsStepContract, docsCatalogStepContract, context7StepContract,
 		onboardingStepContract, lintStepContract,
 	); err != nil {
 		return err
@@ -360,6 +368,7 @@ func validateBootstrap(root string) error {
 		{"Maintainer toolchain contract", maintainerStepContract},
 		{"Core/heavy package boundary", packageBoundaryStepContract},
 		{"Generated plugin trees are current", pluginsStepContract},
+		{"Documentation catalog", docsCatalogStepContract},
 		{"Indexed documentation contract", context7StepContract},
 		{"Onboarding documentation rehearsal", onboardingStepContract},
 		{"golangci-lint", lintStepContract},
@@ -536,7 +545,7 @@ func validateDeliveryContracts(root string) error {
 	}
 	if err := requireWorkflowStepPrefix(qualityJob, "release quality",
 		checkoutStepContract, setupGoStepContract, maintainerStepContract,
-		packageBoundaryStepContract, pluginsStepContract, context7StepContract,
+		packageBoundaryStepContract, pluginsStepContract, docsCatalogStepContract, context7StepContract,
 		onboardingStepContract, vetStepContract, lintStepContract, govulncheckStepContract,
 	); err != nil {
 		return err
@@ -547,6 +556,7 @@ func validateDeliveryContracts(root string) error {
 		{"Maintainer toolchain contract", maintainerStepContract},
 		{"Core/heavy package boundary", packageBoundaryStepContract},
 		{"Generated plugin trees are current", pluginsStepContract},
+		{"Documentation catalog", docsCatalogStepContract},
 		{"Indexed documentation contract", context7StepContract},
 		{"Onboarding documentation rehearsal", onboardingStepContract},
 		{"Vet", vetStepContract},

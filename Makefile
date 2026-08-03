@@ -9,6 +9,7 @@
 #   make gen-plugins      regenerate skills/ and plugins/atl/skills/ from skills-src/
 #   make check-plugins    verify the generated plugin trees are current
 #   make check-skill-safety validate designated read-only skill shell blocks
+#   make check-docs-catalog validate the maintained public Markdown inventory
 #   make check-context7-docs validate the public Context7 parsing/snippet boundary
 #   make check-onboarding-docs validate first-use links and offline command paths
 #   make check-maintainer-contract verify the exact Go maintainer toolchain
@@ -112,6 +113,10 @@ check-skill-routing:
 .PHONY: check-context7-docs
 check-context7-docs:
 	go run ./scripts/check-context7-docs
+
+.PHONY: check-docs-catalog
+check-docs-catalog:
+	go run ./scripts/check-docs-catalog -root .
 
 .PHONY: check-onboarding-docs
 check-onboarding-docs: build

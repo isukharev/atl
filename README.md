@@ -7,7 +7,7 @@
 [![Main smoke](https://img.shields.io/github/actions/workflow/status/isukharev/atl/ci.yml?branch=main&label=main%20smoke)](https://github.com/isukharev/atl/actions/workflows/ci.yml)
 
 [Documentation](docs/README.md) · [Compatibility](docs/compatibility.md) ·
-[Roadmap](ROADMAP.md) · [Contributing](CONTRIBUTING.md) ·
+[Roadmap](ROADMAP.md) · [Release notes](CHANGELOG.md) · [Contributing](CONTRIBUTING.md) ·
 [Security](SECURITY.md)
 
 **Lossless local workflows for Jira and Confluence Server/Data Center.**

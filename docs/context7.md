@@ -79,6 +79,14 @@ outside the selected tree. When adding a new documentation category, review
 `folders`, `excludeFolders`, `excludeFiles`, and the short `rules` list rather
 than widening the index implicitly.
 
+Also classify every maintained public Markdown page in
+[`catalog.v1.json`](catalog.v1.json). That catalog owns audience lane, canonical
+topic, landing page, language relationships, and any `required_anchors` kept for
+published-link compatibility; `context7.json` owns only the external retrieval
+subset. The catalog check rejects missing required anchors and maintainer-lane
+pages that would enter Context7 implicitly, but it does not require every user
+page to be indexed—retrieval remains a deliberate curated subset.
+
 Context7 extracts explanations around code examples and may ignore a page that
 has no code. Every selected atl document therefore needs at least one real,
 non-empty fenced example with a language tag such as `sh`, `json`, `yaml`,
@@ -97,6 +105,7 @@ agent to use it.
 Before merging an indexed documentation change, run:
 
 ```sh
+make check-docs-catalog
 make check-context7-docs
 ```
 
