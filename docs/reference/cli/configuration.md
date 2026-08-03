@@ -7,6 +7,7 @@ Backend binding, configuration, diagnostics, compatibility pins, environment ins
 <!-- reference-navigation:start -->
 ## Navigate this reference
 
+- [Help and shell completion](#help-and-shell-completion)
 - [`atl mirror backend`](#atl-mirror-backend)
 - [`atl config`](#atl-config)
 - [Global read-only policy](#global-read-only-policy)
@@ -20,6 +21,17 @@ Backend binding, configuration, diagnostics, compatibility pins, environment ins
 - [`atl auth status`](#atl-auth-status)
 - [`atl auth logout`](#atl-auth-logout)
 <!-- reference-navigation:end -->
+
+## Help and shell completion
+
+`atl help` prints the command tree without contacting a configured backend.
+Use `atl help <command>` or `<command> --help` to inspect one route before
+building an automated invocation.
+
+Generate completion scripts with `atl completion bash`, `atl completion fish`,
+`atl completion powershell`, or `atl completion zsh`. These commands are
+offline and read-only; redirect their output according to the installation
+instructions of the selected shell.
 
 ## `atl mirror backend`
 

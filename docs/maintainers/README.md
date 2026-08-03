@@ -19,6 +19,8 @@ Other canonical maintainer references:
 - [Generated client plugins and skills](../plugins.md)
 - [Release procedure](../RELEASING.md)
 - [Documentation catalog](../catalog.v1.json)
+- [CLI documentation coverage](../command-coverage.v1.json)
+- [Change-impact verification map](../maintainer-impact.v1.json)
 - [Private evaluator lifecycle](../agent-benchmark-private-workspace.md)
 
 Repository-scoped Codex skills under `.agents/skills/` are concise routers to
@@ -60,6 +62,8 @@ Update one owner instead of copying procedure back into root instructions:
 | Live read/write/cleanup boundaries | `live-validation.md` |
 | CLI flags and behavior | `docs/reference/cli/` |
 | JSON, exits, completeness, and recovery | `docs/reference/output/` |
+| CLI-leaf and mutation-safety documentation routes | `docs/command-coverage.v1.json` |
+| Changed-path to verification-gate selection | `docs/maintainer-impact.v1.json` |
 | Generated client skill pipeline | `docs/plugins.md` and `skills-src/` |
 | Release trust and publication | `docs/RELEASING.md` |
 | Private evaluator operation | `docs/agent-benchmark-private-workspace.md` |

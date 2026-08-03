@@ -11,6 +11,7 @@
 #   make check-skill-safety validate designated read-only skill shell blocks
 #   make check-repository-skills validate repository-only maintainer skills
 #   make check-docs-catalog validate the maintained public Markdown inventory
+#   make check-docs-freshness bind CLI leaves, safety docs, and change-impact gates
 #   make check-reference-split validate generated legacy reference indexes
 #   make check-context7-docs validate the public Context7 parsing/snippet boundary
 #   make update-reference-navigation regenerate navigation in large references
@@ -128,6 +129,10 @@ update-reference-navigation:
 .PHONY: check-docs-catalog
 check-docs-catalog:
 	go run ./scripts/check-docs-catalog -root .
+
+.PHONY: check-docs-freshness
+check-docs-freshness:
+	go run ./scripts/check-docs-freshness -root .
 
 .PHONY: check-reference-split
 check-reference-split:

@@ -114,6 +114,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
@@ -126,6 +128,11 @@ jobs:
         run: make check-plugins
       - name: Documentation catalog
         run: make check-docs-catalog
+      - name: Documentation freshness
+        env:
+          ATL_DOCS_BASE: ${{ github.event.pull_request.base.sha }}
+          ATL_DOCS_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: make check-docs-freshness
       - name: Repository maintainer skills
         run: make check-repository-skills
       - name: Reference split compatibility

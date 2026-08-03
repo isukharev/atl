@@ -96,6 +96,7 @@ full gate only after a material fix that can affect it.
 | Generated client skills | `make gen-plugins && make check-plugins` |
 | Repository runbooks or `.agents/skills/` | `make check-repository-skills && make check-docs-catalog` |
 | Public documentation | `make check-docs-catalog && make check-context7-docs` |
+| CLI leaves, safety docs, or changed-path routing | `make check-docs-freshness` |
 | Onboarding routes | `make check-onboarding-docs` |
 | Large reference headings | `make update-reference-navigation && make check-context7-docs` |
 | CLI/output reference moves | `make check-reference-split` |
@@ -110,6 +111,20 @@ make lint
 make vet
 git diff --check
 ```
+
+For a change relative to a branch or commit, ask the maintained impact map for
+the applicable existing gates:
+
+```sh
+ATL_DOCS_BASE=origin/main make check-docs-freshness
+```
+
+Set `ATL_DOCS_HEAD` only when checking two committed endpoints instead of the
+current index and working tree. An owner may also set
+`ATL_PRIVATE_MARKERS_FILE` to an untracked marker-registry path; the checker
+then scans added diff lines and untracked public files. A match emits only a
+generic failure, never a marker, path, line, or content. Keep that registry
+outside tracked files.
 
 Use `make agent-eval-contract` only for evaluator/corpus changes, and the live
 targets only when the change and authority require them. Run a privacy scan over

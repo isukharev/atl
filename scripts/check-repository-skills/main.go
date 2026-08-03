@@ -429,6 +429,10 @@ func validateInstructions(root string, value catalog) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	pluginGuide, err := readRegular(filepath.Join(root, "docs", "plugins.md"))
+	if err != nil {
+		return 0, err
+	}
 	if len(agents) > maxAgentsBytes || len(claude) > maxClaudeBytes {
 		return 0, fmt.Errorf("instruction budget exceeded: AGENTS.md=%d/%d CLAUDE.md=%d/%d",
 			len(agents), maxAgentsBytes, len(claude), maxClaudeBytes)
@@ -454,6 +458,28 @@ func validateInstructions(root string, value catalog) (int, error) {
 	}
 	if !bytes.Contains(docsIndex, []byte("maintainers/README.md")) {
 		return 0, errors.New("documentation index does not route to maintainer workflows")
+	}
+	for _, contract := range []struct {
+		name string
+		body []byte
+		want []string
+	}{
+		{
+			name: "AGENTS.md client-skill ownership",
+			body: agents,
+			want: []string{"`skills-src/` is the source of truth", "`skills/` and", "`plugins/atl/skills/` are generated", "never edit them by hand"},
+		},
+		{
+			name: "docs/plugins.md client-skill ownership",
+			body: pluginGuide,
+			want: []string{"skills-src/                 ← SOURCE OF TRUTH: edit here, and only here", "skills/                     ← GENERATED:", "plugins/atl/skills/         ← GENERATED:", "Edit files under `skills-src/`."},
+		},
+	} {
+		for _, phrase := range contract.want {
+			if !bytes.Contains(contract.body, []byte(phrase)) {
+				return 0, fmt.Errorf("%s is missing semantic boundary %q", contract.name, phrase)
+			}
+		}
 	}
 	makefile, err := readRegular(filepath.Join(root, "Makefile"))
 	if err != nil {

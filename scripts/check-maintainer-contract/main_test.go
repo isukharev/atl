@@ -94,12 +94,17 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 		{name: "coverage checker", path: "Makefile", old: "go run ./scripts/check-coverage --profile cover.out", replacement: "echo coverage", want: "core race/coverage command"},
 		{name: "onboarding update opt out", path: "Makefile", old: "ATL_NO_UPDATE=1 go run ./scripts/check-onboarding-docs", replacement: "go run ./scripts/check-onboarding-docs", want: "onboarding binary assertion must set ATL_NO_UPDATE=1"},
 		{name: "documentation catalog make gate", path: "Makefile", old: "go run ./scripts/check-docs-catalog -root .", replacement: "echo skipped", want: "exact documentation-catalog gate"},
+		{name: "documentation freshness make gate", path: "Makefile", old: "go run ./scripts/check-docs-freshness -root .", replacement: "echo skipped", want: "exact documentation-freshness gate"},
 		{name: "repository skills make gate", path: "Makefile", old: "go run ./scripts/check-repository-skills -root .", replacement: "echo skipped", want: "exact repository-skills gate"},
 		{name: "reference split make gate", path: "Makefile", old: "go run ./scripts/check-reference-split -root .", replacement: "echo skipped", want: "exact reference-split compatibility gate"},
 		{name: "ci core gate", path: ".github/workflows/ci.yml", old: "run: make check-core-race-coverage", replacement: "run: make race", want: "exact required workflow block"},
 		{name: "ci core gate quoted condition", path: ".github/workflows/ci.yml", old: "run: make check-core-race-coverage", replacement: "run: make check-core-race-coverage\n        'if': false", want: "exact required workflow block"},
 		{name: "ci provenance update opt out", path: ".github/workflows/ci.yml", old: "ATL_NO_UPDATE=1 ./atl version", replacement: "./atl version", want: "exact required workflow block"},
 		{name: "ci documentation catalog gate", path: ".github/workflows/ci.yml", old: "run: make check-docs-catalog", replacement: "run: echo skipped", want: "exact required workflow block"},
+		{name: "ci documentation freshness gate", path: ".github/workflows/ci.yml", old: "run: make check-docs-freshness", replacement: "run: echo skipped", want: "exact required workflow block"},
+		{name: "ci documentation freshness diff base", path: ".github/workflows/ci.yml", old: "ATL_DOCS_BASE: ${{ github.event.pull_request.base.sha }}", replacement: "ATL_DOCS_BASE: HEAD", want: "exact required workflow block"},
+		{name: "ci documentation freshness diff head", path: ".github/workflows/ci.yml", old: "ATL_DOCS_HEAD: ${{ github.event.pull_request.head.sha }}", replacement: "ATL_DOCS_HEAD: HEAD", want: "exact required workflow block"},
+		{name: "ci documentation freshness shallow checkout", path: ".github/workflows/ci.yml", old: "          fetch-depth: 0", replacement: "          fetch-depth: 1", want: "exact required workflow block"},
 		{name: "ci repository skills gate", path: ".github/workflows/ci.yml", old: "run: make check-repository-skills", replacement: "run: echo skipped", want: "exact required workflow block"},
 		{name: "ci reference split gate", path: ".github/workflows/ci.yml", old: "run: make check-reference-split", replacement: "run: echo skipped", want: "exact required workflow block"},
 		{name: "ci provenance command only inert heredoc content", path: ".github/workflows/ci.yml", old: "          ATL_NO_UPDATE=1 ./atl version > \"$RUNNER_TEMP/atl-version.json\"", replacement: "          cat <<'EOF'\n          ATL_NO_UPDATE=1 ./atl version > \"$RUNNER_TEMP/atl-version.json\"\n          EOF", want: "exact required workflow block"},
@@ -115,6 +120,7 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 		{name: "release package gate", path: ".github/workflows/release.yml", old: "run: make check-package-boundary", replacement: "run: echo skipped", want: "exact required workflow block"},
 		{name: "release plugin gate", path: ".github/workflows/release.yml", old: "run: make check-plugins", replacement: "run: echo skipped", want: "exact required workflow block"},
 		{name: "release documentation catalog gate", path: ".github/workflows/release.yml", old: "run: make check-docs-catalog", replacement: "run: echo skipped", want: "exact required workflow block"},
+		{name: "release documentation freshness gate", path: ".github/workflows/release.yml", old: "run: make check-docs-freshness", replacement: "run: echo skipped", want: "exact required workflow block"},
 		{name: "release repository skills gate", path: ".github/workflows/release.yml", old: "run: make check-repository-skills", replacement: "run: echo skipped", want: "exact required workflow block"},
 		{name: "release reference split gate", path: ".github/workflows/release.yml", old: "run: make check-reference-split", replacement: "run: echo skipped", want: "exact required workflow block"},
 		{name: "release context7 gate", path: ".github/workflows/release.yml", old: "run: make check-context7-docs", replacement: "run: echo skipped", want: "exact required workflow block"},
@@ -266,7 +272,7 @@ go run ./scripts/check-maintainer-contract
 `,
 		"Makefile": `check-maintainer-contract:
 	GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract
-` + windowsCompileMakeContract + coreCoverageMakeContract + packageBoundaryMakeContract + pluginsMakeContract + docsCatalogMakeContract + repositorySkillsMakeContract + referenceSplitMakeContract + context7MakeContract + onboardingMakeContract + agentEvalRaceMakeContract,
+` + windowsCompileMakeContract + coreCoverageMakeContract + packageBoundaryMakeContract + pluginsMakeContract + docsCatalogMakeContract + docsFreshnessMakeContract + repositorySkillsMakeContract + referenceSplitMakeContract + context7MakeContract + onboardingMakeContract + agentEvalRaceMakeContract,
 		".github/workflows/ci.yml": `name: ci
 on:
   push:
@@ -319,6 +325,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version-file: go.mod
@@ -331,6 +339,11 @@ jobs:
         run: make check-plugins
       - name: Documentation catalog
         run: make check-docs-catalog
+      - name: Documentation freshness
+        env:
+          ATL_DOCS_BASE: ${{ github.event.pull_request.base.sha }}
+          ATL_DOCS_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: make check-docs-freshness
       - name: Repository maintainer skills
         run: make check-repository-skills
       - name: Reference split compatibility
@@ -390,6 +403,8 @@ jobs:
         run: make check-plugins
       - name: Documentation catalog
         run: make check-docs-catalog
+      - name: Documentation freshness
+        run: make check-docs-freshness
       - name: Repository maintainer skills
         run: make check-repository-skills
       - name: Reference split compatibility
