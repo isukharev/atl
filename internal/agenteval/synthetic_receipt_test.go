@@ -27,23 +27,23 @@ func TestSyntheticTaskContractBindsEffectiveInputsAndIsProviderNeutral(t *testin
 		t.Fatalf("provider-neutral digest=%q want=%q err=%v", pairedDigest, digest, err)
 	}
 
-	tests := map[string]func(*loadedRun){
-		"scenario": func(run *loadedRun) { run.scenario.Description = "Changed task." },
-		"prompt":   func(run *loadedRun) { run.prompt = []byte("changed prompt\n") },
-		"schema":   func(run *loadedRun) { run.responseSchema = []byte(`{"type":"array"}`) },
-		"rubric":   func(run *loadedRun) { run.rubric.MinimumScoreBPS++ },
-		"fixture": func(run *loadedRun) {
+	tests := map[string]func(*resolvedRunContract){
+		"scenario": func(run *resolvedRunContract) { run.scenario.Description = "Changed task." },
+		"prompt":   func(run *resolvedRunContract) { run.prompt = []byte("changed prompt\n") },
+		"schema":   func(run *resolvedRunContract) { run.responseSchema = []byte(`{"type":"array"}`) },
+		"rubric":   func(run *resolvedRunContract) { run.rubric.MinimumScoreBPS++ },
+		"fixture": func(run *resolvedRunContract) {
 			fixture := *run.fixture
 			fixture.Routes = append([]MockRoute(nil), fixture.Routes...)
 			fixture.Routes[0].Body = json.RawMessage(`{"changed":true}`)
 			run.fixture = &fixture
 		},
-		"semantic check": func(run *loadedRun) {
+		"semantic check": func(run *resolvedRunContract) {
 			run.spec.Checks = append([]RunCheck(nil), run.spec.Checks...)
 			run.spec.Checks[0].Expected = json.RawMessage(`"changed"`)
 		},
-		"capabilities": func(run *loadedRun) { run.spec.DataCapabilities = []string{"jira.issue.fields"} },
-		"write intent": func(run *loadedRun) { run.spec.AllowSyntheticWrites = true },
+		"capabilities": func(run *resolvedRunContract) { run.spec.DataCapabilities = []string{"jira.issue.fields"} },
+		"write intent": func(run *resolvedRunContract) { run.spec.AllowSyntheticWrites = true },
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -155,7 +155,7 @@ func TestSyntheticRunAttestationRejectsExecutableDrift(t *testing.T) {
 	}
 }
 
-func syntheticReceiptLoadedRun(t *testing.T) loadedRun {
+func syntheticReceiptLoadedRun(t *testing.T) resolvedRunContract {
 	t.Helper()
 	scenario := validScenario()
 	fixture := MockFixture{
@@ -170,7 +170,7 @@ func syntheticReceiptLoadedRun(t *testing.T) loadedRun {
 	}
 	spec := validRunSpec()
 	spec.Repetitions = 1
-	return loadedRun{
+	return resolvedRunContract{
 		spec: spec, scenario: scenario, fixture: &fixture,
 		prompt: []byte("answer the task\n"), responseSchema: []byte(`{"type":"object"}`), rubric: rubric,
 	}

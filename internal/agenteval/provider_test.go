@@ -140,19 +140,64 @@ func TestBuildCodexSyntheticReadOnlyCommandUsesZeroNetworkBrokerConfinement(t *t
 }
 
 func TestBuildProviderCommandRequiresExternalMCPProxy(t *testing.T) {
-	spec := validRunSpec()
-	spec.ToolTransport = "mcp"
-	spec.Provider = "codex"
-	spec.BackendMode = BackendModePrivateLive
-	spec.FixtureFile = ""
-	spec.Repetitions = 1
-	spec.Surface = SurfaceExternalMCP
-	spec.AllowedTools = nil
-	spec.AllowedATLCommands = nil
-	spec.AllowedMCPTools = []string{"jira_fields"}
-	_, err := BuildProviderCommand(spec, "codex", "/atl", "/guard", "/workspace", "/schema", "/final", "", "", "/mcp.json", ProviderConfinement{}, []byte(`{"type":"object"}`))
-	if err == nil || !strings.Contains(err.Error(), "local proxy") {
-		t.Fatalf("err=%v", err)
+	spec := validExternalMCPProviderRunSpec("codex")
+	for _, test := range []struct {
+		name     string
+		exported bool
+		bindings providerCommandBindings
+	}{
+		{name: "exported builder", exported: true},
+		{name: "URL only", bindings: providerCommandBindings{externalMCPServerURL: "http://127.0.0.1:1234/mcp"}},
+		{name: "token environment only", bindings: providerCommandBindings{externalMCPBearerTokenEnv: "ATL_EVAL_EXTERNAL_MCP_TOKEN"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var err error
+			if test.exported {
+				_, err = BuildProviderCommand(spec, "codex", "/atl", "/guard", "/workspace", "/schema", "/final", "", "", "/mcp.json", ProviderConfinement{}, []byte(`{"type":"object"}`))
+			} else {
+				_, err = buildProviderCommand(spec, "codex", "/atl", "/guard", "/workspace", "/schema", "/final", "", "", "/mcp.json", ProviderConfinement{}, []byte(`{"type":"object"}`), test.bindings)
+			}
+			if err == nil || err.Error() != "codex external MCP requires a local proxy" {
+				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+}
+
+func TestBuildProviderCommandAcceptsPlaceholderExternalMCPBindings(t *testing.T) {
+	spec := validExternalMCPProviderRunSpec("codex")
+	command, err := buildProviderCommand(spec, "codex", "/atl", "/guard", "/workspace", "/schema", "/final", "", "", "", privateMCPHookConfinement("external_ro", "jira_fields"), []byte(`{"type":"object"}`), providerCommandBindings{
+		externalMCPServerURL:      "http://127.0.0.1:<private>/mcp",
+		externalMCPBearerTokenEnv: "ATL_EVAL_EXTERNAL_MCP_TOKEN",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`mcp_servers.external_ro.url="http://127.0.0.1:<private>/mcp"`,
+		`mcp_servers.external_ro.bearer_token_env_var="ATL_EVAL_EXTERNAL_MCP_TOKEN"`,
+	} {
+		if !slices.Contains(command.Args, want) {
+			t.Fatalf("placeholder binding %q absent from exact command args: %v", want, command.Args)
+		}
+	}
+}
+
+func TestBuildProviderCommandLeavesClaudeExternalMCPConfigPathUnchanged(t *testing.T) {
+	spec := validExternalMCPProviderRunSpec("claude-code")
+	want, err := BuildProviderCommand(spec, "claude", "/atl", "/guard", "/workspace", "/schema", "/final", "/plugin", "/settings", "/mcp.json", ProviderConfinement{}, []byte(`{"type":"object"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := buildProviderCommand(spec, "claude", "/atl", "/guard", "/workspace", "/schema", "/final", "/plugin", "/settings", "/mcp.json", ProviderConfinement{}, []byte(`{"type":"object"}`), providerCommandBindings{
+		externalMCPServerURL:      "http://127.0.0.1:1234/mcp",
+		externalMCPBearerTokenEnv: "ATL_EVAL_EXTERNAL_MCP_TOKEN",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Path != want.Path || !slices.Equal(got.Args, want.Args) {
+		t.Fatalf("Claude external MCP command changed with Codex-only bindings\ngot:  %#v\nwant: %#v", got, want)
 	}
 }
 
@@ -245,9 +290,10 @@ func TestBuildPrivateCodexMCPProjectsOnlyReviewedSkillReadPolicy(t *testing.T) {
 		}
 	}
 	spec.Surface = SurfaceExternalMCP
-	spec.mcpServerURL = "http://127.0.0.1:1234/mcp"
-	spec.mcpBearerTokenEnv = "ATL_EVAL_EXTERNAL_MCP_TOKEN"
-	external, err := BuildProviderCommand(spec, "codex", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "", "", "", privateMCPHookConfinement("external_ro", "jira_fields"), []byte(`{"type":"object"}`))
+	external, err := buildProviderCommand(spec, "codex", "/opt/atl", "/opt/guard", "/workspace", "/schema", "/final", "", "", "", privateMCPHookConfinement("external_ro", "jira_fields"), []byte(`{"type":"object"}`), providerCommandBindings{
+		externalMCPServerURL:      "http://127.0.0.1:1234/mcp",
+		externalMCPBearerTokenEnv: "ATL_EVAL_EXTERNAL_MCP_TOKEN",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -814,6 +860,23 @@ func containsArgumentPair(args []string, name, value string) bool {
 		}
 	}
 	return false
+}
+
+func validExternalMCPProviderRunSpec(provider string) RunSpec {
+	spec := validRunSpec()
+	spec.Provider = provider
+	spec.ToolTransport = "mcp"
+	spec.BackendMode = BackendModePrivateLive
+	spec.FixtureFile = ""
+	spec.Repetitions = 1
+	spec.Surface = SurfaceExternalMCP
+	spec.AllowedTools = nil
+	spec.AllowedATLCommands = nil
+	spec.AllowedMCPTools = []string{"jira_fields"}
+	if provider == "claude-code" {
+		spec.Pricing = Pricing{}
+	}
+	return spec
 }
 
 func privateMCPHookConfinement(server string, tools ...string) ProviderConfinement {

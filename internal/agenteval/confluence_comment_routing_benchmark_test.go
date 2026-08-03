@@ -39,7 +39,7 @@ func TestConfluenceCommentRoutingCorpusContracts(t *testing.T) {
 			root := filepath.Join("..", "..", "benchmarks", "agent-eval", test.directory)
 			var baseline RunSpec
 			for _, provider := range []string{"claude", "codex"} {
-				loaded, err := loadRunInputs(RunOptions{SpecPath: filepath.Join(root, "run.mcp."+provider+".json")})
+				loaded, err := resolveRunContract(filepath.Join(root, "run.mcp."+provider+".json"))
 				if err != nil {
 					t.Fatalf("load %s: %v", provider, err)
 				}
@@ -82,7 +82,7 @@ func TestConfluenceCommentRoutingFixturesDriveProductionMCP(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.directory, func(t *testing.T) {
 			root := filepath.Join("..", "..", "benchmarks", "agent-eval", test.directory)
-			loaded, err := loadRunInputs(RunOptions{SpecPath: filepath.Join(root, "run.mcp.codex.json")})
+			loaded, err := resolveRunContract(filepath.Join(root, "run.mcp.codex.json"))
 			if err != nil {
 				t.Fatal(err)
 			}

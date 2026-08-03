@@ -18,7 +18,7 @@ func validateLegacyPrivateActivationStudy(paths ...string) error {
 	specs := make([]RunSpec, 0, len(paths))
 	commonDirectory := ""
 	for index, path := range paths {
-		loaded, err := loadRunInputs(RunOptions{SpecPath: path})
+		loaded, err := resolveRunContract(path)
 		if err != nil {
 			return fmt.Errorf("legacy private activation study run %d is invalid", index+1)
 		}

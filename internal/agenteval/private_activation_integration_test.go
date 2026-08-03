@@ -93,7 +93,7 @@ func TestPrivateActivationCalibrationReceiptInspectsFrozenSchemaSixPlan(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := loadRunInputs(RunOptions{SpecPath: filepath.Join(fixture.root, filepath.FromSlash(plan.Items[0].SpecPath))})
+	loaded, err := resolveRunContract(filepath.Join(fixture.root, filepath.FromSlash(plan.Items[0].SpecPath)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1554,7 +1554,7 @@ func installPrivateActivationRunStub(t *testing.T) {
 		if preparedRoot != options.OutputRoot {
 			return RunOutput{}, fmt.Errorf("activation output root changed during preparation")
 		}
-		loaded, err := loadRunInputs(options)
+		loaded, err := resolveRunContract(options.SpecPath)
 		if err != nil {
 			return RunOutput{}, err
 		}
@@ -1586,7 +1586,7 @@ func installPrivateActivationRunStub(t *testing.T) {
 	})
 }
 
-func privateActivationStubResult(t *testing.T, loaded loadedRun) Result {
+func privateActivationStubResult(t *testing.T, loaded resolvedRunContract) Result {
 	t.Helper()
 	result := privateActivationResult(t, loaded.spec.SkillActivation)
 	result.ScenarioID = loaded.scenario.ID
@@ -1615,7 +1615,7 @@ func privateActivationStubResult(t *testing.T, loaded loadedRun) Result {
 
 func writePrivateActivationExecutionEvidence(t *testing.T, fixture privatePlanTestFixture, plan privatePlan, item privatePlanItem, runID string) RunOutput {
 	t.Helper()
-	loaded, err := loadRunInputs(RunOptions{SpecPath: filepath.Join(fixture.root, filepath.FromSlash(item.SpecPath))})
+	loaded, err := resolveRunContract(filepath.Join(fixture.root, filepath.FromSlash(item.SpecPath)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1667,7 +1667,7 @@ func completePrivateActivationFixtureCalibration(t *testing.T, fixture privatePl
 		CommandExecutions: 1, BrokeredInvocations: 1, GuardAdmissions: 1, GuardATLAdmissions: 1,
 		StdoutBytes: 8, InputTokens: 30, OutputTokens: 10, EstimatedCostMicroUSD: 50, DurationMillis: 1,
 	}
-	loaded, err := loadRunInputs(RunOptions{SpecPath: filepath.Join(fixture.root, filepath.FromSlash(plan.Items[0].SpecPath))})
+	loaded, err := resolveRunContract(filepath.Join(fixture.root, filepath.FromSlash(plan.Items[0].SpecPath)))
 	if err != nil {
 		t.Fatal(err)
 	}

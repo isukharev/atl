@@ -224,6 +224,21 @@ func selectorCall(receiver, method string) evaluatorRuntimeCallMatcher {
 	}
 }
 
+func nestedSelectorCall(receiver, field, method string) evaluatorRuntimeCallMatcher {
+	return func(call *ast.CallExpr) bool {
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || selector.Sel.Name != method {
+			return false
+		}
+		target, ok := selector.X.(*ast.SelectorExpr)
+		if !ok || target.Sel.Name != field {
+			return false
+		}
+		identifier, ok := target.X.(*ast.Ident)
+		return ok && identifier.Name == receiver
+	}
+}
+
 func selectorCallWithIdentifierArgument(receiver, method, argument string) evaluatorRuntimeCallMatcher {
 	base := selectorCall(receiver, method)
 	return func(call *ast.CallExpr) bool {
@@ -368,7 +383,7 @@ func TestEvaluatorRuntimeModeHeadlessDryRunCreatesOnlyMarker(t *testing.T) {
 
 func TestEvaluatorRuntimeModeCommitmentAndProbeOrdering(t *testing.T) {
 	assertRuntimeModeCallOrder(t, "runner.go", "runHeadlessOnce",
-		selectorCall("options", "providerAttemptCommitted"), selectorCall("providerRuntime", "verifyPluginPackage"),
+		selectorCall("bindings", "providerAttemptCommitted"), nestedSelectorCall("bindings", "providerRuntime", "verifyPluginPackage"),
 		selectorCall("command", "Start"), selectorCall("command", "Wait"))
 	assertRuntimeModeCallOrder(t, "calibration.go", "RunCodexCLICalibration",
 		selectorCall("options", "providerAttemptCommitted"), selectorCall("providerRuntime", "verifyPluginPackage"), selectorCall("command", "Run"))

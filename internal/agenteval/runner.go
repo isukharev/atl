@@ -87,29 +87,18 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 	if err != nil {
 		return RunOutput{}, err
 	}
-	loaded, err := loadRunInputs(options)
+	contract, err := resolveRunContract(options.SpecPath)
 	if err != nil {
 		return RunOutput{}, err
 	}
-	if loaded.spec.EffectiveBackendMode() == BackendModeProviderCalibration {
+	if contract.spec.EffectiveBackendMode() == BackendModeProviderCalibration {
 		return RunOutput{}, fmt.Errorf("provider-calibration is an internal pre-study contract; use the private activation plan runner")
 	}
-	if options.ModelOverride != "" {
-		loaded.spec.Model = options.ModelOverride
-	}
-	if options.RepetitionsOverride != 0 {
-		if options.RepetitionsOverride < 1 || options.RepetitionsOverride > loaded.spec.Repetitions {
-			return RunOutput{}, fmt.Errorf("repetitions override must be in 1..%d", loaded.spec.Repetitions)
-		}
-		loaded.spec.Repetitions = options.RepetitionsOverride
-	}
-	if err := loaded.spec.Validate(); err != nil {
+	contract, err = contract.withOverrides(options.ModelOverride, options.RepetitionsOverride)
+	if err != nil {
 		return RunOutput{}, err
 	}
-	if err := loaded.spec.ValidateAgainstScenario(loaded.scenario); err != nil {
-		return RunOutput{}, err
-	}
-	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive {
+	if contract.spec.EffectiveBackendMode() == BackendModePrivateLive {
 		if options.LiveConfigDir == "" {
 			return RunOutput{}, fmt.Errorf("private-live runs require --live-config-dir")
 		}
@@ -120,7 +109,7 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 		return RunOutput{}, fmt.Errorf("--live-config-dir is only valid for private-live runs")
 	}
 	var externalProfile ExternalMCPProfile
-	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
+	if contract.spec.EffectiveSurface() == SurfaceExternalMCP {
 		if options.ExternalMCPProfile == "" {
 			return RunOutput{}, fmt.Errorf("external-mcp runs require --external-mcp-profile")
 		}
@@ -128,7 +117,7 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 		if err != nil {
 			return RunOutput{}, err
 		}
-		if err := validateExternalMCPProfileForRun(externalProfile, loaded.spec, loaded.scenario); err != nil {
+		if err := validateExternalMCPProfileForRun(externalProfile, contract.spec, contract.scenario); err != nil {
 			return RunOutput{}, err
 		}
 	} else if options.ExternalMCPProfile != "" {
@@ -138,37 +127,37 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 	if err != nil {
 		return RunOutput{}, err
 	}
-	attestation, err := newSyntheticRunAttestation(loaded.spec, options.AgentBinary, options.ATLBinary, options.WrapperExecutable)
+	attestation, err := newSyntheticRunAttestation(contract.spec, options.AgentBinary, options.ATLBinary, options.WrapperExecutable)
 	if err != nil {
 		return RunOutput{}, err
 	}
-	invocationSpec := loaded.spec
-	invocationSpec.MaxEstimatedCostMicroUSD = perRepetitionCostCap(loaded.spec)
+	invocationSpec := contract.forAttempt().spec
+	previewProviderBindings := providerCommandBindings{}
 	if invocationSpec.EffectiveSurface() == SurfaceExternalMCP {
-		invocationSpec.mcpServerURL = "http://127.0.0.1:<private>/mcp"
-		invocationSpec.mcpBearerTokenEnv = WrapperEnvExternalMCPToken
+		previewProviderBindings.externalMCPServerURL = "http://127.0.0.1:<private>/mcp"
+		previewProviderBindings.externalMCPBearerTokenEnv = WrapperEnvExternalMCPToken
 		invocationSpec.AllowedMCPTools = []string{"reviewed_tool"}
 	}
 	previewConfinement := ProviderConfinement{}
-	if loaded.spec.Provider == "codex" && loaded.spec.EffectiveBackendMode() == BackendModePrivateLive {
+	if contract.spec.Provider == "codex" && contract.spec.EffectiveBackendMode() == BackendModePrivateLive {
 		previewConfinement.GuardMode = "mcp-with-skill-read"
 		previewConfinement.GuardCounterPath = "/private/guard-decisions.jsonl"
 		previewConfinement.WorkspaceReadRoot = "/private/workspace"
 		previewConfinement.AllowedReadRoots = []string{"/private/workspace"}
 		previewConfinement.SkillReadRoots = []string{"/private/workspace/.agents/skills"}
 		previewConfinement.AllowedMCPTools = claudeMCPToolNamesForServer(mcpServerName(invocationSpec), invocationSpec.AllowedMCPTools)
-		if loaded.spec.ToolTransport == "cli" {
+		if contract.spec.ToolTransport == "cli" {
 			previewConfinement.GuardMode = "private-cli"
 			previewConfinement.AllowedReadRoots = []string{"/private/skill-read-root", "/private/workspace"}
 			previewConfinement.SkillReadRoots = []string{"/private/skill-read-root"}
 			previewConfinement.AllowedMCPTools = nil
 		}
 	}
-	if loaded.spec.Provider == "codex" && loaded.spec.EffectiveBackendMode() == BackendModePrivateLive && loaded.spec.ToolTransport == "cli" {
+	if contract.spec.Provider == "codex" && contract.spec.EffectiveBackendMode() == BackendModePrivateLive && contract.spec.ToolTransport == "cli" {
 		previewConfinement.RequestDirectory = "/private/requests"
 		previewConfinement.ResponseDirectory = "/private/responses"
 	}
-	if isCodexSyntheticBrokerCLI(loaded.spec) {
+	if isCodexSyntheticBrokerCLI(contract.spec) {
 		previewConfinement.GuardMode = "private-cli"
 		previewConfinement.GuardCounterPath = "/private/guard-decisions.jsonl"
 		previewConfinement.WorkspaceReadRoot = "/private/workspace"
@@ -177,36 +166,36 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 		previewConfinement.RequestDirectory = "/private/requests"
 		previewConfinement.ResponseDirectory = "/private/responses"
 	}
-	previewCommand, err := BuildProviderCommand(invocationSpec, providerPreviewBinary(loaded.spec.Provider), "<atl-binary>", "<guard>", "<workspace>", "<response-schema>", "<final-response>", pluginPreviewPath(loaded.spec, options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, "<guard-settings>"), claudeMCPConfigPath(loaded.spec, "<mcp-config>"), previewConfinement, loaded.responseSchema)
+	previewCommand, err := buildProviderCommand(invocationSpec, providerPreviewBinary(contract.spec.Provider), "<atl-binary>", "<guard>", "<workspace>", "<response-schema>", "<final-response>", pluginPreviewPath(contract.spec, options.PluginRoot), claudeGuardSettingsPath(contract.spec.Provider, "<guard-settings>"), claudeMCPConfigPath(contract.spec, "<mcp-config>"), previewConfinement, contract.responseSchema, previewProviderBindings)
 	if err != nil {
 		return RunOutput{}, err
 	}
 	preview := RunPreview{
-		SchemaVersion: 1, ScenarioID: loaded.scenario.ID,
-		Provider: loaded.spec.Provider, Variant: loaded.spec.Variant,
-		Category: loaded.spec.EffectiveCategory(), Surface: loaded.spec.EffectiveSurface(),
-		SkillActivation:                loaded.spec.SkillActivationIdentity(),
-		PromptContractBound:            loaded.promptContractSHA256 != "",
-		BackendMode:                    loaded.spec.EffectiveBackendMode(),
-		Repetitions:                    loaded.spec.Repetitions,
-		MaxEstimatedCostMicroUSDTotal:  loaded.spec.MaxEstimatedCostMicroUSD,
+		SchemaVersion: 1, ScenarioID: contract.scenario.ID,
+		Provider: contract.spec.Provider, Variant: contract.spec.Variant,
+		Category: contract.spec.EffectiveCategory(), Surface: contract.spec.EffectiveSurface(),
+		SkillActivation:                contract.spec.SkillActivationIdentity(),
+		PromptContractBound:            contract.promptContractSHA256 != "",
+		BackendMode:                    contract.spec.EffectiveBackendMode(),
+		Repetitions:                    contract.spec.Repetitions,
+		MaxEstimatedCostMicroUSDTotal:  contract.spec.MaxEstimatedCostMicroUSD,
 		MaxEstimatedCostMicroUSDPerRun: invocationSpec.MaxEstimatedCostMicroUSD,
 		Command:                        previewCommand,
 		OutputRoot:                     "<private-output-root>",
-		QualitativeRubricID:            loaded.rubric.ID,
+		QualitativeRubricID:            contract.rubric.ID,
 	}
 	if options.DryRun {
 		return RunOutput{Preview: preview, Results: []Result{}}, nil
 	}
-	if loaded.spec.Provider == "codex" && loaded.spec.EffectiveToolTransport() != "mcp" {
-		if loaded.spec.EffectiveBackendMode() != BackendModePrivateLive && !isCodexSyntheticBrokerCLI(loaded.spec) {
+	if contract.spec.Provider == "codex" && contract.spec.EffectiveToolTransport() != "mcp" {
+		if contract.spec.EffectiveBackendMode() != BackendModePrivateLive && !isCodexSyntheticBrokerCLI(contract.spec) {
 			return RunOutput{}, fmt.Errorf("codex synthetic model execution requires tool_transport=mcp; cli transport remains validate/dry-run only")
 		}
 	}
 	providerAuthSession := options.providerAuthSession
 	providerAuthSessionOwned := false
 	providerScratchRoot := options.ScratchRoot
-	if loaded.spec.Provider == "codex" {
+	if contract.spec.Provider == "codex" {
 		if providerScratchRoot == "" {
 			providerScratchRoot = filepath.Join(outputRoot, ".ephemeral")
 			if err := mkdirPrivate(providerScratchRoot); err != nil {
@@ -247,18 +236,17 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 	if err != nil {
 		return RunOutput{}, fmt.Errorf("atl version: %w", err)
 	}
-	pluginVersion, skillDigest, err := pluginIdentity(options.PluginRoot, loaded.spec.Provider)
+	pluginVersion, skillDigest, err := pluginIdentity(options.PluginRoot, contract.spec.Provider)
 	if err != nil {
 		return RunOutput{}, err
 	}
 
-	results := make([]Result, 0, loaded.spec.Repetitions)
-	receipts := make([]SyntheticRunReceipt, 0, loaded.spec.Repetitions)
+	results := make([]Result, 0, contract.spec.Repetitions)
+	receipts := make([]SyntheticRunReceipt, 0, contract.spec.Repetitions)
 	var totalCost int64
 	var budgetExhausted bool
-	for repetition := 1; repetition <= loaded.spec.Repetitions; repetition++ {
-		perRun := loaded
-		perRun.spec.MaxEstimatedCostMicroUSD = perRepetitionCostCap(loaded.spec)
+	for repetition := 1; repetition <= contract.spec.Repetitions; repetition++ {
+		attemptContract := contract.forAttempt()
 		var providerRuntime *providerRuntimeCapsule
 		if providerAuthSession != nil {
 			providerRuntime, err = newCodexProviderRuntime(providerScratchRoot, providerAuthSession)
@@ -267,12 +255,21 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 			}
 		}
 		var receipt SyntheticRunReceipt
-		result, runErr := runHeadlessOnce(ctx, perRun, options, outputRoot, repetition, Runtime{
-			Provider: loaded.spec.Provider, AgentVersion: agentVersion,
-			Model: loaded.spec.Model, Reasoning: loaded.spec.Reasoning,
-			ATLVersion: atlVersion, PluginVersion: pluginVersion, SkillDigest: skillDigest,
-			SkillActivation: loaded.spec.SkillActivationIdentity(), PromptContractSHA256: loaded.promptContractSHA256,
-		}, externalProfile, providerRuntime, attestation, &receipt)
+		result, runErr := runHeadlessOnce(ctx, attemptContract, runAttemptBindings{
+			outputRoot: outputRoot, repetition: repetition,
+			agentBinary: options.AgentBinary, atlBinary: options.ATLBinary,
+			pluginRoot: options.PluginRoot, wrapperExecutable: options.WrapperExecutable,
+			liveConfigDir: options.LiveConfigDir, scratchRoot: options.ScratchRoot,
+			runtime: Runtime{
+				Provider: contract.spec.Provider, AgentVersion: agentVersion,
+				Model: contract.spec.Model, Reasoning: contract.spec.Reasoning,
+				ATLVersion: atlVersion, PluginVersion: pluginVersion, SkillDigest: skillDigest,
+				SkillActivation: contract.spec.SkillActivationIdentity(), PromptContractSHA256: contract.promptContractSHA256,
+			},
+			externalProfile: externalProfile, providerRuntime: providerRuntime,
+			attestation: attestation, providerAttemptCommitted: options.providerAttemptCommitted,
+			receipt: &receipt,
+		})
 		if providerRuntime != nil {
 			runErr = errors.Join(runErr, providerRuntime.Close())
 		}
@@ -285,7 +282,7 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 		}
 		if result.Coverage["estimated_cost_microusd"] {
 			totalCost += result.Metrics.EstimatedCostMicroUSD
-			if result.Metrics.EstimatedCostMicroUSD > perRun.spec.MaxEstimatedCostMicroUSD || totalCost > loaded.spec.MaxEstimatedCostMicroUSD {
+			if result.Metrics.EstimatedCostMicroUSD > attemptContract.spec.MaxEstimatedCostMicroUSD || totalCost > contract.spec.MaxEstimatedCostMicroUSD {
 				budgetExhausted = true
 				break
 			}
@@ -295,7 +292,7 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 		return RunOutput{}, err
 	}
 	if attestation != nil {
-		finalPluginVersion, finalSkillDigest, err := pluginIdentity(options.PluginRoot, loaded.spec.Provider)
+		finalPluginVersion, finalSkillDigest, err := pluginIdentity(options.PluginRoot, contract.spec.Provider)
 		if err != nil || finalPluginVersion != pluginVersion || finalSkillDigest != skillDigest {
 			return RunOutput{}, fmt.Errorf("synthetic run plugin changed during execution")
 		}
@@ -418,7 +415,7 @@ func perRepetitionCostCap(spec RunSpec) int64 {
 	return spec.MaxEstimatedCostMicroUSD / int64(spec.Repetitions)
 }
 
-type loadedRun struct {
+type resolvedRunContract struct {
 	spec                 RunSpec
 	scenario             Scenario
 	fixture              *MockFixture
@@ -427,33 +424,59 @@ type loadedRun struct {
 	promptContractSHA256 string
 	responseSchema       []byte
 	rubric               Rubric
-	workspace            string
+	workspaceTemplate    string
 	specDir              string
 }
 
-func loadRunInputs(options RunOptions) (loadedRun, error) {
-	if options.SpecPath == "" {
-		return loadedRun{}, fmt.Errorf("run options require a spec path")
+func (contract resolvedRunContract) withOverrides(model string, repetitions int) (resolvedRunContract, error) {
+	resolved := contract
+	if model != "" {
+		resolved.spec.Model = model
 	}
-	file, err := os.Open(options.SpecPath)
+	if repetitions != 0 {
+		if repetitions < 1 || repetitions > contract.spec.Repetitions {
+			return resolvedRunContract{}, fmt.Errorf("repetitions override must be in 1..%d", contract.spec.Repetitions)
+		}
+		resolved.spec.Repetitions = repetitions
+	}
+	if err := resolved.spec.Validate(); err != nil {
+		return resolvedRunContract{}, err
+	}
+	if err := resolved.spec.ValidateAgainstScenario(resolved.scenario); err != nil {
+		return resolvedRunContract{}, err
+	}
+	return resolved, nil
+}
+
+func (contract resolvedRunContract) forAttempt() resolvedRunContract {
+	attempt := contract
+	attempt.spec.MaxEstimatedCostMicroUSD = perRepetitionCostCap(contract.spec)
+	return attempt
+}
+
+func resolveRunContract(specPath string) (resolvedRunContract, error) {
+	if specPath == "" {
+		return resolvedRunContract{}, fmt.Errorf("run options require a spec path")
+	}
+	file, err := os.Open(specPath)
 	if err != nil {
-		return loadedRun{}, err
+		return resolvedRunContract{}, err
 	}
 	spec, decodeErr := DecodeRunSpec(file)
 	closeErr := file.Close()
 	if decodeErr != nil {
-		return loadedRun{}, decodeErr
+		return resolvedRunContract{}, decodeErr
 	}
 	if closeErr != nil {
-		return loadedRun{}, closeErr
+		return resolvedRunContract{}, closeErr
 	}
-	specPath, err := filepath.Abs(options.SpecPath)
+	specPath, err = filepath.Abs(specPath)
 	if err != nil {
-		return loadedRun{}, err
+		return resolvedRunContract{}, err
 	}
 	specPath, err = filepath.EvalSymlinks(specPath)
 	if err != nil {
-		return loadedRun{}, err
+		return resolvedRunContract{}, err
 	}
 	specDir := filepath.Dir(specPath)
 	resolveRelative := func(relative string) (string, error) {
@@ -476,129 +499,146 @@ func loadRunInputs(options RunOptions) (loadedRun, error) {
 	}
 	scenarioFile, err := openRelative(spec.ScenarioFile)
 	if err != nil {
-		return loadedRun{}, err
+		return resolvedRunContract{}, err
 	}
 	scenario, scenarioErr := DecodeScenario(scenarioFile)
 	_ = scenarioFile.Close()
 	if scenarioErr != nil {
-		return loadedRun{}, scenarioErr
+		return resolvedRunContract{}, scenarioErr
 	}
 	if err := spec.ValidateAgainstScenario(scenario); err != nil {
-		return loadedRun{}, err
+		return resolvedRunContract{}, err
 	}
 	var fixture *MockFixture
 	if spec.EffectiveBackendMode() == BackendModeSynthetic {
 		fixtureFile, err := openRelative(spec.FixtureFile)
 		if err != nil {
-			return loadedRun{}, err
+			return resolvedRunContract{}, err
 		}
 		decoded, fixtureErr := DecodeMockFixture(fixtureFile)
 		_ = fixtureFile.Close()
 		if fixtureErr != nil {
-			return loadedRun{}, fixtureErr
+			return resolvedRunContract{}, fixtureErr
 		}
 		fixture = &decoded
 	}
 	promptPath, err := resolveRelative(spec.PromptFile)
 	if err != nil {
-		return loadedRun{}, err
+		return resolvedRunContract{}, err
 	}
 	prompt, err := readBoundedFile(promptPath, maxProviderPromptBytes)
 	if err != nil {
-		return loadedRun{}, err
+		return resolvedRunContract{}, err
 	}
 	if scenario.EffectiveCategory() == BenchmarkCategoryNeutralCommon {
 		if err := validateNeutralCorePrompt(prompt); err != nil {
-			return loadedRun{}, err
+			return resolvedRunContract{}, err
 		}
 	}
 	providerPrompt, err := effectiveProviderPrompt(spec, prompt)
 	if err != nil {
-		return loadedRun{}, err
+		return resolvedRunContract{}, err
 	}
 	promptContractSHA256, err := providerPromptContractSHA256(spec, prompt, providerPrompt)
 	if err != nil {
-		return loadedRun{}, err
+		return resolvedRunContract{}, err
 	}
 	responseSchemaPath, err := resolveRelative(spec.ResponseSchemaFile)
 	if err != nil {
-		return loadedRun{}, err
+		return resolvedRunContract{}, err
 	}
 	responseSchema, err := readBoundedFile(responseSchemaPath, 1<<20)
 	if err != nil || !json.Valid(responseSchema) {
-		return loadedRun{}, fmt.Errorf("response schema is invalid")
+		return resolvedRunContract{}, fmt.Errorf("response schema is invalid")
 	}
 	rubricFile, err := openRelative(spec.QualitativeRubricFile)
 	if err != nil {
-		return loadedRun{}, err
+		return resolvedRunContract{}, err
 	}
 	rubric, rubricErr := DecodeRubric(rubricFile)
 	_ = rubricFile.Close()
 	if rubricErr != nil {
-		return loadedRun{}, rubricErr
+		return resolvedRunContract{}, rubricErr
 	}
 	if rubric.ScenarioID != scenario.ID {
-		return loadedRun{}, fmt.Errorf("qualitative rubric scenario_id %q does not match %q", rubric.ScenarioID, scenario.ID)
+		return resolvedRunContract{}, fmt.Errorf("qualitative rubric scenario_id %q does not match %q", rubric.ScenarioID, scenario.ID)
 	}
 	workspace, err := resolveRelative(spec.WorkspaceTemplate)
 	if err != nil {
-		return loadedRun{}, err
+		return resolvedRunContract{}, err
 	}
-	return loadedRun{spec: spec, scenario: scenario, fixture: fixture, prompt: prompt, providerPrompt: providerPrompt, promptContractSHA256: promptContractSHA256, responseSchema: responseSchema, rubric: rubric, workspace: workspace, specDir: specDir}, nil
+	return resolvedRunContract{spec: spec, scenario: scenario, fixture: fixture, prompt: prompt, providerPrompt: providerPrompt, promptContractSHA256: promptContractSHA256, responseSchema: responseSchema, rubric: rubric, workspaceTemplate: workspace, specDir: specDir}, nil
 }
 
 func ValidateRunSpecFile(path string) (RunSpec, Scenario, error) {
-	loaded, err := loadRunInputs(RunOptions{SpecPath: path})
+	contract, err := resolveRunContract(path)
 	if err != nil {
 		return RunSpec{}, Scenario{}, err
 	}
-	return loaded.spec, loaded.scenario, nil
+	return contract.spec, contract.scenario, nil
 }
 
-func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOptions, outputRoot string, repetition int, runtime Runtime, externalProfile ExternalMCPProfile, providerRuntime *providerRuntimeCapsule, attestation *syntheticRunAttestation, receipt *SyntheticRunReceipt) (Result, error) {
-	privateCLI := loaded.spec.EffectiveBackendMode() == BackendModePrivateLive && loaded.spec.EffectiveToolTransport() == "cli"
-	codexPrivateCLI := loaded.spec.Provider == "codex" && privateCLI
-	codexSyntheticBrokerCLI := isCodexSyntheticBrokerCLI(loaded.spec)
-	codexSyntheticWriteCLI := codexSyntheticBrokerCLI && loaded.spec.AllowSyntheticWrites
-	privateLiveWriteCLI := privateCLI && loaded.spec.AllowLiveWrites
+type runAttemptBindings struct {
+	outputRoot               string
+	repetition               int
+	agentBinary              string
+	atlBinary                string
+	pluginRoot               string
+	wrapperExecutable        string
+	liveConfigDir            string
+	scratchRoot              string
+	runtime                  Runtime
+	externalProfile          ExternalMCPProfile
+	providerRuntime          *providerRuntimeCapsule
+	attestation              *syntheticRunAttestation
+	providerAttemptCommitted func() error
+	receipt                  *SyntheticRunReceipt
+}
+
+func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindings runAttemptBindings) (Result, error) {
+	privateCLI := contract.spec.EffectiveBackendMode() == BackendModePrivateLive && contract.spec.EffectiveToolTransport() == "cli"
+	codexPrivateCLI := contract.spec.Provider == "codex" && privateCLI
+	codexSyntheticBrokerCLI := isCodexSyntheticBrokerCLI(contract.spec)
+	codexSyntheticWriteCLI := codexSyntheticBrokerCLI && contract.spec.AllowSyntheticWrites
+	privateLiveWriteCLI := privateCLI && contract.spec.AllowLiveWrites
 	reviewedWriteCLI := codexSyntheticWriteCLI || privateLiveWriteCLI
 	codexBrokerCLI := codexPrivateCLI || codexSyntheticBrokerCLI
 	brokerCLI := privateCLI || codexSyntheticBrokerCLI
-	claudePrivateCLI := loaded.spec.Provider == "claude-code" && privateCLI
-	gatewayBackedMCP := gatewayBackedInternalMCP(loaded.spec)
+	claudePrivateCLI := contract.spec.Provider == "claude-code" && privateCLI
+	gatewayBackedMCP := gatewayBackedInternalMCP(contract.spec)
 	var err error
-	if err := validatePathComponentID("scenario id", loaded.scenario.ID); err != nil {
+	if err := validatePathComponentID("scenario id", contract.scenario.ID); err != nil {
 		return Result{}, err
 	}
-	if err := validatePathComponentID("run variant", loaded.spec.Variant); err != nil {
+	if err := validatePathComponentID("run variant", contract.spec.Variant); err != nil {
 		return Result{}, err
 	}
-	runDir := filepath.Join(outputRoot, loaded.scenario.ID, loaded.spec.Provider, loaded.spec.Variant, fmt.Sprintf("run-%02d", repetition))
-	inside, pathErr := pathWithin(outputRoot, runDir)
+	runDir := filepath.Join(bindings.outputRoot, contract.scenario.ID, contract.spec.Provider, contract.spec.Variant, fmt.Sprintf("run-%02d", bindings.repetition))
+	inside, pathErr := pathWithin(bindings.outputRoot, runDir)
 	if pathErr != nil || !inside {
 		return Result{}, fmt.Errorf("private run directory escapes its output root")
 	}
-	if err := mkdirPrivateWithin(outputRoot, runDir); err != nil {
+	if err := mkdirPrivateWithin(bindings.outputRoot, runDir); err != nil {
 		return Result{}, err
 	}
 	workspace := filepath.Join(runDir, "workspace")
-	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive {
-		if err := validatePrivateWorkspaceTemplate(loaded.workspace); err != nil {
+	if contract.spec.EffectiveBackendMode() == BackendModePrivateLive {
+		if err := validatePrivateWorkspaceTemplate(contract.workspaceTemplate); err != nil {
 			return Result{}, err
 		}
 	}
-	if err := copyWorkspace(loaded.workspace, workspace); err != nil {
+	if err := copyWorkspace(contract.workspaceTemplate, workspace); err != nil {
 		return Result{}, err
 	}
 	taskContractSHA256 := ""
-	if attestation != nil {
-		taskContractSHA256, err = syntheticTaskContractSHA256(loaded, workspace)
+	if bindings.attestation != nil {
+		taskContractSHA256, err = syntheticTaskContractSHA256(contract, workspace)
 		if err != nil {
 			return Result{}, err
 		}
 	}
-	if shouldInstallCodexBenchmarkSkills(loaded.spec) {
-		_, skillRoot, err := providerPluginLayout(options.PluginRoot, loaded.spec.Provider)
+	if shouldInstallCodexBenchmarkSkills(contract.spec) {
+		_, skillRoot, err := providerPluginLayout(bindings.pluginRoot, contract.spec.Provider)
 		if err != nil {
 			return Result{}, err
 		}
@@ -607,22 +647,22 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		}
 	}
 	responseSchemaPath := filepath.Join(runDir, "response-schema.json")
-	if err := writePrivateFile(responseSchemaPath, loaded.responseSchema); err != nil {
+	if err := writePrivateFile(responseSchemaPath, contract.responseSchema); err != nil {
 		return Result{}, err
 	}
-	providerSchema, projectionErr := providerResponseSchema(loaded.spec, loaded.responseSchema)
+	providerSchema, projectionErr := providerResponseSchema(contract.spec, contract.responseSchema)
 	if projectionErr != nil {
 		return Result{}, projectionErr
 	}
 	executionContractSHA256 := ""
-	if attestation != nil {
-		executionContractSHA256, err = syntheticExecutionContractSHA256(attestation, taskContractSHA256, runtime, providerSchema)
+	if bindings.attestation != nil {
+		executionContractSHA256, err = syntheticExecutionContractSHA256(bindings.attestation, taskContractSHA256, bindings.runtime, providerSchema)
 		if err != nil {
 			return Result{}, err
 		}
 	}
 	providerResponseSchemaPath := responseSchemaPath
-	if !bytes.Equal(providerSchema, loaded.responseSchema) {
+	if !bytes.Equal(providerSchema, contract.responseSchema) {
 		providerResponseSchemaPath = filepath.Join(runDir, "provider-response-schema.json")
 		if err := writePrivateFile(providerResponseSchemaPath, providerSchema); err != nil {
 			return Result{}, err
@@ -636,7 +676,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		return Result{}, err
 	}
 	mirrorRoot := filepath.Join(evalDir, "mirror")
-	if loaded.spec.EffectiveBackendMode() == BackendModeSynthetic && loaded.spec.EffectiveSurface() == SurfaceATLMCP {
+	if contract.spec.EffectiveBackendMode() == BackendModeSynthetic && contract.spec.EffectiveSurface() == SurfaceATLMCP {
 		resolvedMirrorRoot, rootErr := syntheticMCPMirrorRoot(workspace, mirrorRoot)
 		if rootErr != nil {
 			return Result{}, rootErr
@@ -649,11 +689,11 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if err := mkdirPrivate(wrapperDir); err != nil {
 		return Result{}, err
 	}
-	if err := copyExecutable(options.WrapperExecutable, filepath.Join(wrapperDir, wrapperName())); err != nil {
+	if err := copyExecutable(bindings.wrapperExecutable, filepath.Join(wrapperDir, wrapperName())); err != nil {
 		return Result{}, err
 	}
 	guardPath := filepath.Join(wrapperDir, guardName())
-	if err := copyExecutable(options.WrapperExecutable, guardPath); err != nil {
+	if err := copyExecutable(bindings.wrapperExecutable, guardPath); err != nil {
 		return Result{}, err
 	}
 	brokerRequestDirectory := ""
@@ -679,28 +719,28 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	probeExecutablePath := ""
 	if codexBrokerCLI {
 		probeExecutablePath = filepath.Join(wrapperDir, confinementProbeName())
-		if err := copyExecutable(options.WrapperExecutable, probeExecutablePath); err != nil {
+		if err := copyExecutable(bindings.wrapperExecutable, probeExecutablePath); err != nil {
 			return Result{}, err
 		}
 	}
-	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive || codexSyntheticBrokerCLI {
+	if contract.spec.EffectiveBackendMode() == BackendModePrivateLive || codexSyntheticBrokerCLI {
 		for _, reader := range []string{"cat", "sed", "wc"} {
-			if err := copyExecutable(options.WrapperExecutable, filepath.Join(wrapperDir, reader)); err != nil {
+			if err := copyExecutable(bindings.wrapperExecutable, filepath.Join(wrapperDir, reader)); err != nil {
 				return Result{}, err
 			}
 		}
 	}
 	if reviewedWriteCLI {
-		if err := copyExecutable(options.WrapperExecutable, filepath.Join(wrapperDir, "env")); err != nil {
+		if err := copyExecutable(bindings.wrapperExecutable, filepath.Join(wrapperDir, "env")); err != nil {
 			return Result{}, err
 		}
 	}
 	settingsPath := filepath.Join(runDir, "claude-settings.json")
 	var reviewedMCPTools []string
-	if loaded.spec.Provider == "claude-code" && loaded.spec.ToolTransport == "mcp" {
-		reviewedMCPTools = claudeMCPToolNamesForServer(mcpServerName(loaded.spec), loaded.spec.AllowedMCPTools)
+	if contract.spec.Provider == "claude-code" && contract.spec.ToolTransport == "mcp" {
+		reviewedMCPTools = claudeMCPToolNamesForServer(mcpServerName(contract.spec), contract.spec.AllowedMCPTools)
 	}
-	if err := writeClaudeGuardSettings(settingsPath, guardPath, mcpServerName(loaded.spec), reviewedMCPTools); err != nil {
+	if err := writeClaudeGuardSettings(settingsPath, guardPath, mcpServerName(contract.spec), reviewedMCPTools); err != nil {
 		return Result{}, err
 	}
 	atlConfigDir := filepath.Join(evalDir, "atl-config")
@@ -714,6 +754,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	var externalProxy *ExternalMCPProxy
 	externalAuditPath := ""
 	var externalCanaries []string
+	providerBindings := providerCommandBindings{}
 	var commandBroker *CommandBroker
 	if codexBrokerCLI {
 		providerConfinement.RequestDirectory = brokerRequestDirectory
@@ -721,7 +762,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	if brokerCLI {
 		cliPolicyPath = filepath.Join(evalDir, "cli-policy.json")
-		cliPolicy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: loaded.spec.AllowedCLICommands}
+		cliPolicy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: contract.spec.AllowedCLICommands}
 		policyData, err := EncodeCLICommandPolicy(cliPolicy)
 		if err != nil {
 			return Result{}, err
@@ -730,11 +771,11 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			return Result{}, err
 		}
 	}
-	if loaded.spec.EffectiveBackendMode() == BackendModeSynthetic {
-		if loaded.fixture == nil {
+	if contract.spec.EffectiveBackendMode() == BackendModeSynthetic {
+		if contract.fixture == nil {
 			return Result{}, fmt.Errorf("synthetic run has no fixture")
 		}
-		backend, err = StartMockBackend(*loaded.fixture)
+		backend, err = StartMockBackend(*contract.fixture)
 		if err != nil {
 			return Result{}, err
 		}
@@ -746,16 +787,16 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		// mirror fixtures compatible with the product's explicit legacy-mirror
 		// migration gate without changing the agent-visible command contract or
 		// counting setup as an interface invocation.
-		if loaded.spec.EffectiveSurface() == SurfaceCLISkill {
+		if contract.spec.EffectiveSurface() == SurfaceCLISkill {
 			if err := mkdirPrivate(atlConfigDir); err != nil {
 				return Result{}, err
 			}
-			if err := bindSyntheticWorkspaceMirrors(parent, options.ATLBinary, workspace, atlConfigDir, backendEnvironment); err != nil {
+			if err := bindSyntheticWorkspaceMirrors(parent, bindings.atlBinary, workspace, atlConfigDir, backendEnvironment); err != nil {
 				return Result{}, err
 			}
 		}
 	} else {
-		scratchRoot := options.ScratchRoot
+		scratchRoot := bindings.scratchRoot
 		atlConfigDir, err = os.MkdirTemp(scratchRoot, "atl-agent-eval-live-config-")
 		if err != nil {
 			return Result{}, err
@@ -765,9 +806,9 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			return Result{}, err
 		}
 		defer func() { _ = os.RemoveAll(atlConfigDir) }()
-		if loaded.spec.ToolTransport == "cli" {
+		if contract.spec.ToolTransport == "cli" {
 			httpGuardPath = filepath.Join(evalDir, "gateway-audit.jsonl")
-			liveGateway, err = startPrivateLiveGateway(options.LiveConfigDir, atlConfigDir, httpGuardPath, loaded.spec, loaded.scenario)
+			liveGateway, err = startPrivateLiveGateway(bindings.liveConfigDir, atlConfigDir, httpGuardPath, contract.spec, contract.scenario)
 			if err != nil {
 				return Result{}, err
 			}
@@ -777,32 +818,32 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			// the private CLI. Route-less historical specs receive a harness-owned
 			// GET/HEAD-only compatibility policy when this gateway starts.
 			httpGuardPath = filepath.Join(evalDir, "gateway-audit.jsonl")
-			liveGateway, err = startPrivateLiveGateway(options.LiveConfigDir, atlConfigDir, httpGuardPath, loaded.spec, loaded.scenario)
+			liveGateway, err = startPrivateLiveGateway(bindings.liveConfigDir, atlConfigDir, httpGuardPath, contract.spec, contract.scenario)
 			if err != nil {
 				return Result{}, err
 			}
 			defer func() { _ = liveGateway.Close(context.Background()) }()
-		} else if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
-			headers, canaries, err := resolveExternalMCPHeaders(externalProfile, options.LiveConfigDir)
+		} else if contract.spec.EffectiveSurface() == SurfaceExternalMCP {
+			headers, canaries, err := resolveExternalMCPHeaders(bindings.externalProfile, bindings.liveConfigDir)
 			if err != nil {
 				return Result{}, err
 			}
 			externalAuditPath = filepath.Join(evalDir, "external-mcp-audit.jsonl")
 			externalCanaries = append([]string(nil), canaries...)
-			externalProxy, err = StartExternalMCPProxy(parent, externalProfile, headers, canaries, externalAuditPath)
+			externalProxy, err = StartExternalMCPProxy(parent, bindings.externalProfile, headers, canaries, externalAuditPath)
 			if err != nil {
 				return Result{}, err
 			}
 			defer func() { _ = externalProxy.closeBounded() }()
 			endpoint, capability := externalProxy.Endpoint()
-			loaded.spec.mcpServerURL = endpoint
-			loaded.spec.mcpBearerTokenEnv = WrapperEnvExternalMCPToken
+			providerBindings.externalMCPServerURL = endpoint
+			providerBindings.externalMCPBearerTokenEnv = WrapperEnvExternalMCPToken
 			backendEnvironment[WrapperEnvExternalMCPToken] = capability
 		}
 	}
 	if brokerCLI {
 		brokerManifestPath = filepath.Join(evalDir, "command-broker.json")
-		brokerTimeout := time.Duration(loaded.spec.TimeoutSeconds) * time.Second
+		brokerTimeout := time.Duration(contract.spec.TimeoutSeconds) * time.Second
 		if brokerTimeout > 2*time.Minute {
 			brokerTimeout = 2 * time.Minute
 		}
@@ -832,15 +873,15 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 				brokerEnvironment[name] = value
 			}
 		}
-		maxStdout := loaded.scenario.Budgets.MaxOutputBytes
+		maxStdout := contract.scenario.Budgets.MaxOutputBytes
 		if maxStdout > 4<<20 {
 			maxStdout = 4 << 20
 		}
-		cliPolicy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: loaded.spec.AllowedCLICommands}
+		cliPolicy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: contract.spec.AllowedCLICommands}
 		commandBroker, err = StartCommandBroker(CommandBrokerConfig{
 			RequestDirectory: brokerRequestDirectory, ResponseDirectory: brokerResponseDirectory,
 			ManifestPath: brokerManifestPath,
-			RealBinary:   options.ATLBinary, WorkingDirectory: workspace, Policy: cliPolicy,
+			RealBinary:   bindings.atlBinary, WorkingDirectory: workspace, Policy: cliPolicy,
 			Environment:    flattenEnvironment(brokerEnvironment),
 			MaxStdoutBytes: maxStdout, MaxStderrBytes: 64 << 10, CommandTimeout: brokerTimeout,
 			AllowSyntheticWrites: codexSyntheticWriteCLI,
@@ -851,7 +892,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		}
 		defer func() { _ = commandBroker.Close() }()
 	}
-	mcpConfigPath := claudeMCPConfigPath(loaded.spec, filepath.Join(runDir, "claude-mcp.json"))
+	mcpConfigPath := claudeMCPConfigPath(contract.spec, filepath.Join(runDir, "claude-mcp.json"))
 	if mcpConfigPath != "" {
 		mcpEnvironment := map[string]string{
 			"ATL_READ_ONLY":   "1",
@@ -873,45 +914,45 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 				mcpEnvironment[name] = value
 			}
 		}
-		if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
-			if err := writeClaudeExternalMCPConfig(mcpConfigPath, loaded.spec.mcpServerURL, backendEnvironment[WrapperEnvExternalMCPToken]); err != nil {
+		if contract.spec.EffectiveSurface() == SurfaceExternalMCP {
+			if err := writeClaudeExternalMCPConfig(mcpConfigPath, providerBindings.externalMCPServerURL, backendEnvironment[WrapperEnvExternalMCPToken]); err != nil {
 				return Result{}, err
 			}
-		} else if err := writeClaudeMCPConfig(mcpConfigPath, options.ATLBinary, mcpChildArgs(loaded.spec), mcpEnvironment); err != nil {
+		} else if err := writeClaudeMCPConfig(mcpConfigPath, bindings.atlBinary, mcpChildArgs(contract.spec), mcpEnvironment); err != nil {
 			return Result{}, err
 		}
 	}
 
 	if codexPrivateCLI {
-		if providerRuntime == nil {
+		if bindings.providerRuntime == nil {
 			return Result{}, fmt.Errorf("private codex CLI run requires an isolated provider runtime")
 		}
 		provisionContext, cancelProvision := context.WithTimeout(parent, 30*time.Second)
-		err := provisionCodexBenchmarkPlugin(provisionContext, options.AgentBinary, options.PluginRoot, providerRuntime)
+		err := provisionCodexBenchmarkPlugin(provisionContext, bindings.agentBinary, bindings.pluginRoot, bindings.providerRuntime)
 		cancelProvision()
 		if err != nil {
 			return Result{}, err
 		}
 	}
-	skillReadRoot := filepath.Join(options.PluginRoot, "skills")
+	skillReadRoot := filepath.Join(bindings.pluginRoot, "skills")
 	if codexPrivateCLI {
-		skillReadRoot = providerRuntime.PluginSkillRoot()
+		skillReadRoot = bindings.providerRuntime.PluginSkillRoot()
 		if skillReadRoot == "" {
 			return Result{}, fmt.Errorf("private codex CLI run has no installed plugin skill root")
 		}
 	}
-	if loaded.spec.Provider == "codex" && !codexPrivateCLI {
+	if contract.spec.Provider == "codex" && !codexPrivateCLI {
 		skillReadRoot = filepath.Join(workspace, ".agents", "skills")
 	}
 	reviewedReadRoots := []string{skillReadRoot, workspace}
 	reviewedSkillReadRoots := []string{skillReadRoot}
 	canonicalWorkspace := ""
-	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive {
+	if contract.spec.EffectiveBackendMode() == BackendModePrivateLive {
 		canonicalWorkspace, err = filepath.EvalSymlinks(workspace)
 		if err != nil {
 			return Result{}, fmt.Errorf("resolve private benchmark workspace: %w", err)
 		}
-		if loaded.spec.Provider == "codex" && !codexPrivateCLI {
+		if contract.spec.Provider == "codex" && !codexPrivateCLI {
 			reviewedReadRoots = []string{canonicalWorkspace}
 			canonicalSkillReadRoot, canonicalErr := filepath.EvalSymlinks(skillReadRoot)
 			if canonicalErr != nil {
@@ -926,7 +967,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			reviewedReadRoots = []string{canonicalSkillReadRoot, canonicalWorkspace}
 			reviewedSkillReadRoots = []string{canonicalSkillReadRoot}
 		}
-		if loaded.spec.Provider == "codex" {
+		if contract.spec.Provider == "codex" {
 			providerConfinement.GuardMode = "mcp-with-skill-read"
 			if codexPrivateCLI {
 				providerConfinement.GuardMode = "private-cli"
@@ -935,7 +976,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			providerConfinement.WorkspaceReadRoot = canonicalWorkspace
 			providerConfinement.AllowedReadRoots = append([]string(nil), reviewedReadRoots...)
 			providerConfinement.SkillReadRoots = append([]string(nil), reviewedSkillReadRoots...)
-			providerConfinement.AllowedMCPTools = claudeMCPToolNamesForServer(mcpServerName(loaded.spec), loaded.spec.AllowedMCPTools)
+			providerConfinement.AllowedMCPTools = claudeMCPToolNamesForServer(mcpServerName(contract.spec), contract.spec.AllowedMCPTools)
 			if codexPrivateCLI {
 				providerConfinement.AllowedMCPTools = nil
 			}
@@ -959,12 +1000,12 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	allowedReadRoots, _ := json.Marshal(reviewedReadRoots)
 	allowedSkillReadRoots, _ := json.Marshal(reviewedSkillReadRoots)
-	commandPlan, err := BuildProviderCommand(loaded.spec, options.AgentBinary, options.ATLBinary, guardPath, workspace, providerResponseSchemaPath, finalPath, claudePluginPath(loaded.spec, options.PluginRoot), claudeGuardSettingsPath(loaded.spec.Provider, settingsPath), mcpConfigPath, providerConfinement, loaded.responseSchema)
+	commandPlan, err := buildProviderCommand(contract.spec, bindings.agentBinary, bindings.atlBinary, guardPath, workspace, providerResponseSchemaPath, finalPath, claudePluginPath(contract.spec, bindings.pluginRoot), claudeGuardSettingsPath(contract.spec.Provider, settingsPath), mcpConfigPath, providerConfinement, contract.responseSchema, providerBindings)
 	if err != nil {
 		return Result{}, err
 	}
 	if codexBrokerCLI {
-		if err := runCodexConfinementPreflight(parent, options.AgentBinary, workspace, probeExecutablePath, brokerManifestPath, providerConfinement, providerRuntime); err != nil {
+		if err := runCodexConfinementPreflight(parent, bindings.agentBinary, workspace, probeExecutablePath, brokerManifestPath, providerConfinement, bindings.providerRuntime); err != nil {
 			return Result{}, err
 		}
 	}
@@ -981,28 +1022,28 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		_ = transcript.Close()
 		return Result{}, err
 	}
-	ctx, cancel := context.WithTimeout(parent, time.Duration(loaded.spec.TimeoutSeconds)*time.Second)
+	ctx, cancel := context.WithTimeout(parent, time.Duration(contract.spec.TimeoutSeconds)*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, commandPlan.Path, commandPlan.Args...)
 	command.Dir = workspace
-	command.Stdin = bytes.NewReader(loaded.providerPrompt)
+	command.Stdin = bytes.NewReader(contract.providerPrompt)
 	command.Stdout = transcript
 	command.Stderr = stderr
 	environment := safeAgentEnvironment(os.Environ())
-	if providerRuntime != nil {
-		environment = providerRuntime.Environment()
+	if bindings.providerRuntime != nil {
+		environment = bindings.providerRuntime.Environment()
 	}
 	environment["ATL_READ_ONLY"] = "1"
 	environment["ATL_NO_UPDATE"] = "1"
 	environment["ATL_CONFIG_DIR"] = atlConfigDir
 	environment["ATL_MIRROR_ROOT"] = mirrorRoot
-	environment[WrapperEnvRealBinary] = options.ATLBinary
+	environment[WrapperEnvRealBinary] = bindings.atlBinary
 	environment[WrapperEnvCounter] = counterPath
 	environment[WrapperEnvGuardCounter] = guardCounterPath
 	if cliResultDirectory != "" {
 		environment[WrapperEnvCLIResultDir] = cliResultDirectory
 	}
-	if loaded.spec.AllowSyntheticWrites {
+	if contract.spec.AllowSyntheticWrites {
 		environment[WrapperEnvAllowSyntheticWrites] = "1"
 	}
 	if reviewedWriteCLI {
@@ -1021,37 +1062,37 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		environment["NO_PROXY"] = "127.0.0.1,localhost"
 		environment["no_proxy"] = "127.0.0.1,localhost"
 	}
-	if loaded.spec.ToolTransport == "mcp" {
+	if contract.spec.ToolTransport == "mcp" {
 		environment[WrapperEnvGuardMode] = "mcp-only"
-		if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive {
+		if contract.spec.EffectiveBackendMode() == BackendModePrivateLive {
 			environment[WrapperEnvGuardMode] = "mcp-with-skill-read"
 		}
 	}
-	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP && loaded.spec.Provider == "codex" {
+	if contract.spec.EffectiveSurface() == SurfaceExternalMCP && contract.spec.Provider == "codex" {
 		environment[WrapperEnvExternalMCPToken] = backendEnvironment[WrapperEnvExternalMCPToken]
 	}
-	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP || gatewayBackedMCP {
+	if contract.spec.EffectiveSurface() == SurfaceExternalMCP || gatewayBackedMCP {
 		environment["NO_PROXY"] = "127.0.0.1,localhost"
 		environment["no_proxy"] = "127.0.0.1,localhost"
 	}
-	environment[WrapperEnvMaxDelegations] = fmt.Sprintf("%d", loaded.scenario.Budgets.MaxDelegations)
-	allowedCommands, _ := json.Marshal(loaded.spec.AllowedATLCommands)
+	environment[WrapperEnvMaxDelegations] = fmt.Sprintf("%d", contract.scenario.Budgets.MaxDelegations)
+	allowedCommands, _ := json.Marshal(contract.spec.AllowedATLCommands)
 	environment[WrapperEnvAllowedCommands] = string(allowedCommands)
-	allowedMCPTools, _ := json.Marshal(claudeMCPToolNamesForServer(mcpServerName(loaded.spec), loaded.spec.AllowedMCPTools))
+	allowedMCPTools, _ := json.Marshal(claudeMCPToolNamesForServer(mcpServerName(contract.spec), contract.spec.AllowedMCPTools))
 	environment[WrapperEnvAllowedMCPTools] = string(allowedMCPTools)
 	environment[WrapperEnvAllowedReadRoots] = string(allowedReadRoots)
 	environment[WrapperEnvSkillReadRoots] = string(allowedSkillReadRoots)
-	if loaded.spec.EffectiveBackendMode() == BackendModePrivateLive || codexSyntheticBrokerCLI {
+	if contract.spec.EffectiveBackendMode() == BackendModePrivateLive || codexSyntheticBrokerCLI {
 		environment[WrapperEnvWorkspaceRoot] = canonicalWorkspace
 	}
 	environment["PATH"] = wrapperDir
-	if (loaded.spec.Provider != "claude-code" || loaded.spec.EffectiveToolTransport() != "mcp") && !codexSyntheticBrokerCLI {
+	if (contract.spec.Provider != "claude-code" || contract.spec.EffectiveToolTransport() != "mcp") && !codexSyntheticBrokerCLI {
 		for name, value := range backendEnvironment {
 			environment[name] = value
 		}
 	}
-	if loaded.spec.Provider == "claude-code" && loaded.spec.EffectiveBackendMode() == BackendModeSynthetic &&
-		loaded.spec.EffectiveToolTransport() == "cli" && loaded.spec.AllowSyntheticWrites {
+	if contract.spec.Provider == "claude-code" && contract.spec.EffectiveBackendMode() == BackendModeSynthetic &&
+		contract.spec.EffectiveToolTransport() == "cli" && contract.spec.AllowSyntheticWrites {
 		// Ordinary Claude synthetic-write prompts use the same plain `atl ...`
 		// form as their reviewed prefix policy. The proxy still requires the
 		// explicit write authority below and verifies both backend URLs are
@@ -1063,7 +1104,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	var guardAborted atomic.Bool
 	guardStop := make(chan struct{})
 	var guardDone chan struct{}
-	if requiresCleanGuard(loaded.spec.Checks) {
+	if requiresCleanGuard(contract.spec.Checks) {
 		guardDone = make(chan struct{})
 		go func() {
 			defer close(guardDone)
@@ -1089,8 +1130,8 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	// is no atomic primitive spanning durable storage and exec: committing after
 	// Start would leave a crash window in which a live provider process could be
 	// replayed. A failed Start is therefore conservatively charged as an attempt.
-	if options.providerAttemptCommitted != nil {
-		if commitErr := options.providerAttemptCommitted(); commitErr != nil {
+	if bindings.providerAttemptCommitted != nil {
+		if commitErr := bindings.providerAttemptCommitted(); commitErr != nil {
 			runErr = fmt.Errorf("persist provider attempt boundary: %w", commitErr)
 		}
 	}
@@ -1098,7 +1139,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	// provider. A failed rebind consumes the conservative attempt boundary but
 	// cannot expose unreviewed plugin bytes to the model.
 	if runErr == nil && codexPrivateCLI {
-		if verifyErr := providerRuntime.verifyPluginPackage(); verifyErr != nil {
+		if verifyErr := bindings.providerRuntime.verifyPluginPackage(); verifyErr != nil {
 			runErr = verifyErr
 		}
 	}
@@ -1137,7 +1178,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		return Result{}, fmt.Errorf("close external MCP proxy: %w", externalCloseErr)
 	}
 	if ctx.Err() == context.DeadlineExceeded {
-		return Result{}, fmt.Errorf("agent exceeded %d second timeout", loaded.spec.TimeoutSeconds)
+		return Result{}, fmt.Errorf("agent exceeded %d second timeout", contract.spec.TimeoutSeconds)
 	}
 	if guardAborted.Load() {
 		return Result{}, fmt.Errorf("agent attempted a command rejected by the benchmark guard")
@@ -1152,7 +1193,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if err != nil {
 		return Result{}, err
 	}
-	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
+	if contract.spec.EffectiveSurface() == SurfaceExternalMCP {
 		stderrData, readErr := readBoundedFile(stderrPath, 4<<20)
 		if readErr != nil {
 			return Result{}, readErr
@@ -1171,17 +1212,17 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		}
 	}
 	var finalData []byte
-	if loaded.spec.Provider == "codex" {
+	if contract.spec.Provider == "codex" {
 		finalData, err = readBoundedFile(finalPath, 4<<20)
 		if err != nil {
 			return Result{}, err
 		}
 	}
-	providerMetrics, final, err := ParseProviderOutput(loaded.spec.Provider, transcriptData, finalData)
+	providerMetrics, final, err := ParseProviderOutput(contract.spec.Provider, transcriptData, finalData)
 	if err != nil {
 		return Result{}, err
 	}
-	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
+	if contract.spec.EffectiveSurface() == SurfaceExternalMCP {
 		for _, data := range [][]byte{finalData, final} {
 			if containsCanary(data, externalCanaries) {
 				return Result{}, fmt.Errorf("external MCP protected material reached the final provider artifact")
@@ -1191,7 +1232,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	externalCalls, externalFailures, externalDenials := 0, 0, 0
 	var externalOutputBytes int64
 	var externalFamilies []CapabilityFamilyMetric
-	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
+	if contract.spec.EffectiveSurface() == SurfaceExternalMCP {
 		externalCalls, externalFailures, externalDenials, externalOutputBytes, externalFamilies, err = readExternalMCPAudit(externalAuditPath)
 		if err != nil {
 			return Result{}, err
@@ -1219,7 +1260,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 			return Result{}, err
 		}
 	}
-	if loaded.spec.Provider == "claude-code" {
+	if contract.spec.Provider == "claude-code" {
 		if err := writePrivateFile(finalPath, append(append([]byte(nil), final...), '\n')); err != nil {
 			return Result{}, err
 		}
@@ -1249,7 +1290,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	guardDenials := guardSummary.Denials
 	atlInvocations := len(proxyRecords) + providerMetrics.MCPToolCalls
 	failedATL += providerMetrics.FailedMCPToolCalls
-	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
+	if contract.spec.EffectiveSurface() == SurfaceExternalMCP {
 		atlInvocations = externalCalls
 		failedATL = externalFailures
 		guardDenials += externalDenials
@@ -1285,7 +1326,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	outputBytes += providerMetrics.MCPToolOutputBytes
 	providerFamilies := providerMetrics.CapabilityFamilies
-	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
+	if contract.spec.EffectiveSurface() == SurfaceExternalMCP {
 		outputBytes = externalOutputBytes
 		providerFamilies = externalFamilies
 		providerMetrics.CapabilityFamilyCoverage = true
@@ -1306,7 +1347,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	providerMetrics.DurationMillis = duration
 	providerMetrics.Coverage["duration_millis"] = true
 	if !providerMetrics.Coverage["estimated_cost_microusd"] && providerMetrics.Coverage["input_tokens"] && providerMetrics.Coverage["output_tokens"] {
-		cost, err := estimateCost(providerMetrics.InputTokens, providerMetrics.OutputTokens, loaded.spec.Pricing)
+		cost, err := estimateCost(providerMetrics.InputTokens, providerMetrics.OutputTokens, contract.spec.Pricing)
 		if err != nil {
 			return Result{}, err
 		}
@@ -1315,7 +1356,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	}
 	providerMetrics.Coverage["interface_invocations"] = true
 	legacyATLInvocations := 0
-	if loaded.scenario.Budgets.MaxInterfaceInvocations == 0 {
+	if contract.scenario.Budgets.MaxInterfaceInvocations == 0 {
 		// Legacy scenarios budget and require the historical atl-specific
 		// metric. New multi-surface scenarios use only the generic metric so a
 		// zero legacy budget cannot become a false violation.
@@ -1332,7 +1373,7 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		capabilityFamilies = nil
 	}
 	checks, err := evaluateRunChecksWithCLIErrorContracts(
-		loaded.spec.Checks, final, workspace, atlInvocations, failedATL, unexpected,
+		contract.spec.Checks, final, workspace, atlInvocations, failedATL, unexpected,
 		providerMetrics.SkillToolCalls+guardSummary.SkillReadAdmissions,
 		providerMetrics.SkillToolCallsByName, providerMetrics.Delegations, guardDenials,
 		methods, httpMethodsObserved, cliExitCodes, capabilityFamilies, familyCoverage,
@@ -1343,12 +1384,12 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		return Result{}, err
 	}
 	backendObservation, safetyAssurance := BackendObservationHTTP, SafetyAssuranceObservedHTTP
-	if loaded.spec.EffectiveSurface() == SurfaceExternalMCP {
+	if contract.spec.EffectiveSurface() == SurfaceExternalMCP {
 		backendObservation, safetyAssurance = BackendObservationOpaqueMCP, SafetyAssuranceReviewedROMCP
 	}
 	observation := Observation{
-		SchemaVersion: ObservationSchemaVersion, ScenarioID: loaded.scenario.ID,
-		Variant: loaded.spec.Variant, Surface: loaded.spec.EffectiveSurface(), Runtime: runtime,
+		SchemaVersion: ObservationSchemaVersion, ScenarioID: contract.scenario.ID,
+		Variant: contract.spec.Variant, Surface: contract.spec.EffectiveSurface(), Runtime: bindings.runtime,
 		BackendObservation: backendObservation, SafetyAssurance: safetyAssurance,
 		Metrics: InputMetrics{
 			AgentTurns: providerMetrics.AgentTurns, ToolCalls: providerMetrics.ToolCalls,
@@ -1364,16 +1405,16 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 		EvidenceReport:     evidenceReport,
 		CapabilityFamilies: capabilityFamilies,
 	}
-	result, err := Evaluate(loaded.scenario, observation)
+	result, err := Evaluate(contract.scenario, observation)
 	if err != nil {
 		return Result{}, err
 	}
-	addRunCheckViolations(&result, loaded.spec.Checks, loaded.scenario.RequiredChecks)
-	if result.Coverage["estimated_cost_microusd"] && result.Metrics.EstimatedCostMicroUSD > loaded.spec.MaxEstimatedCostMicroUSD {
+	addRunCheckViolations(&result, contract.spec.Checks, contract.scenario.RequiredChecks)
+	if result.Coverage["estimated_cost_microusd"] && result.Metrics.EstimatedCostMicroUSD > contract.spec.MaxEstimatedCostMicroUSD {
 		result.Status = "fail"
 		result.Violations = append(result.Violations, Violation{
 			Code: "run_cost_cap_exceeded", Subject: "estimated_cost_microusd",
-			Observed: result.Metrics.EstimatedCostMicroUSD, Limit: loaded.spec.MaxEstimatedCostMicroUSD,
+			Observed: result.Metrics.EstimatedCostMicroUSD, Limit: contract.spec.MaxEstimatedCostMicroUSD,
 		})
 		sort.Slice(result.Violations, func(i, j int) bool {
 			if result.Violations[i].Code != result.Violations[j].Code {
@@ -1394,11 +1435,11 @@ func runHeadlessOnce(parent context.Context, loaded loadedRun, options RunOption
 	if err := writePrivateFile(resultPath, encoded); err != nil {
 		return Result{}, err
 	}
-	if attestation != nil {
-		if receipt == nil {
+	if bindings.attestation != nil {
+		if bindings.receipt == nil {
 			return Result{}, fmt.Errorf("synthetic run receipt destination is missing")
 		}
-		*receipt, err = newSyntheticRunReceipt(attestation, loaded, runtime, repetition, taskContractSHA256, executionContractSHA256, encoded)
+		*bindings.receipt, err = newSyntheticRunReceipt(bindings.attestation, contract, bindings.runtime, bindings.repetition, taskContractSHA256, executionContractSHA256, encoded)
 		if err != nil {
 			return Result{}, err
 		}

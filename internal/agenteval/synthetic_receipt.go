@@ -171,7 +171,7 @@ func normalizedSyntheticExecutionSpec(spec RunSpec) RunSpec {
 	return spec
 }
 
-func syntheticTaskContractSHA256(loaded loadedRun, copiedWorkspace string) (string, error) {
+func syntheticTaskContractSHA256(loaded resolvedRunContract, copiedWorkspace string) (string, error) {
 	if loaded.spec.EffectiveBackendMode() != BackendModeSynthetic || loaded.fixture == nil {
 		return "", fmt.Errorf("synthetic task contract requires a synthetic fixture")
 	}
@@ -236,7 +236,7 @@ func syntheticExecutionContractSHA256(attestation *syntheticRunAttestation, task
 	return sha256HexBytes(append([]byte("atl-agent-eval-synthetic-execution-v1\x00"), canonical...)), nil
 }
 
-func newSyntheticRunReceipt(attestation *syntheticRunAttestation, loaded loadedRun, runtime Runtime, repetition int, taskSHA256, executionSHA256 string, resultData []byte) (SyntheticRunReceipt, error) {
+func newSyntheticRunReceipt(attestation *syntheticRunAttestation, loaded resolvedRunContract, runtime Runtime, repetition int, taskSHA256, executionSHA256 string, resultData []byte) (SyntheticRunReceipt, error) {
 	if attestation == nil {
 		return SyntheticRunReceipt{}, nil
 	}
