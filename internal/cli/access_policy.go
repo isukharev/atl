@@ -50,11 +50,59 @@ const (
 	mutationPlan           mutationProfile = "plan"
 )
 
+type mutationGuardRequirement uint8
+
+const (
+	mutationGuardApply mutationGuardRequirement = iota + 1
+	mutationGuardConfirm
+	mutationGuardExpectedProposalHash
+	mutationGuardExpectedVersion
+	mutationGuardExpectedParent
+	mutationGuardExpectedUpdated
+	mutationGuardExpectedBackendSHA256
+	mutationGuardFromFile
+	mutationGuardSuggestionHash
+	mutationGuardCandidateHash
+	mutationGuardExpectedCurrentHash
+)
+
+type mutationGuardPresence uint8
+
+const (
+	mutationGuardPresenceTrue mutationGuardPresence = iota + 1
+	mutationGuardPresenceNonBlank
+	mutationGuardPresenceExplicit
+)
+
+type mutationGuardPhase uint8
+
+const (
+	mutationGuardCommandOwned mutationGuardPhase = iota + 1
+	mutationGuardPreConfig
+	mutationGuardPreConfigOnApply
+)
+
+type mutationGuardFamily uint8
+
+const (
+	mutationGuardGeneric mutationGuardFamily = iota + 1
+	mutationGuardConfluenceAttachmentDelete
+	mutationGuardConfluencePageCopy
+	mutationGuardConfluencePageDelete
+	mutationGuardJiraIssueDelete
+)
+
+type mutationGuardSpec struct {
+	requirements []mutationGuardRequirement
+	phase        mutationGuardPhase
+	family       mutationGuardFamily
+}
+
 type commandRegistration struct {
-	traits        commandTrait
-	profile       mutationProfile
-	requiredFlags []string
-	outputModes   commandOutputMode
+	traits      commandTrait
+	profile     mutationProfile
+	guard       mutationGuardSpec
+	outputModes commandOutputMode
 }
 
 type commandRegistryState struct {
@@ -97,49 +145,51 @@ func accessPolicyInvariantMetadata(err error) (string, bool) {
 
 // commandRegistry is the single reviewed command contract. Read-only rows use
 // "R <output-modes> <path>". Mutating rows use
-// "M <profile> <required-flags-or-dash> <output-modes> <path>". Output modes
-// are explicit and canonical: json, json,text, json,id, or json,text,id. Parent
-// groups are derived from path prefixes, so the finalized Cobra tree is checked
-// bidirectionally for groups, leaves, and the two intentional hybrids.
+// Unguarded mutating rows use "M <profile> - <output-modes> <path>". Guarded
+// rows additionally declare "<phase> <family>" between requirements and output
+// modes. Output modes are explicit and canonical: json, json,text, json,id, or
+// json,text,id. Parent groups are derived from path prefixes, so the finalized
+// Cobra tree is checked bidirectionally for groups, leaves, and the two
+// intentional hybrids.
 var commandRegistry, commandRegistryErr = parseCommandRegistry(`
 M local-direct - json,text auth login
 M local-direct - json auth logout
 R json,text auth status
 R json,text,id capabilities
 M local-direct - json,text conf apply
-M preview-apply apply,confirm,expected-proposal-hash,expected-version json conf attachment delete
+M preview-apply apply,confirm,expected-proposal-hash,expected-version pre-config confluence-attachment-delete json conf attachment delete
 R json,text conf attachment get
 R json,text,id conf attachment list
 M remote-direct - json conf attachment upload
 M remote-direct - json,text,id conf blog create
-M preview-apply apply,expected-proposal-hash json,text conf comment add
+M preview-apply apply,expected-proposal-hash command generic json,text conf comment add
 R json,text conf comment list
-M dedicated-apply apply,expected-proposal-hash json conf comment mutation apply
+M dedicated-apply apply,expected-proposal-hash pre-config generic json conf comment mutation apply
 R json conf comment mutation preview
 R json,text conf comment preview
 R json,text conf comment thread
 R json,text conf diff
 M local-direct - json,text conf edit
 R json,text conf me
-M preview-apply apply,expected-proposal-hash,expected-version json,id conf page copy
+M preview-apply apply,expected-proposal-hash,expected-version pre-config confluence-page-copy json,id conf page copy
 M remote-direct - json conf page create
-M preview-apply apply,confirm,expected-proposal-hash,expected-version json conf page delete
+M preview-apply apply,confirm,expected-proposal-hash,expected-version pre-config confluence-page-delete json conf page delete
 R json,text conf page get
 R json,text conf page history
-M preview-apply apply,expected-proposal-hash json,text conf page labels add
+M preview-apply apply,expected-proposal-hash command generic json,text conf page labels add
 R json,text conf page labels list
-M preview-apply apply,expected-proposal-hash json,text conf page labels remove
+M preview-apply apply,expected-proposal-hash command generic json,text conf page labels remove
 R json,text,id conf page list
 R json,text conf page meta
-M preview-apply apply,expected-proposal-hash,expected-version,expected-parent json,text conf page move
+M preview-apply apply,expected-proposal-hash,expected-version,expected-parent command generic json,text conf page move
 R json,text conf page open
 R json,text conf page outline
 R json,text,id conf page resolve
 R json,text conf page section
 R json,text conf page sections
-M preview-apply apply,expected-proposal-hash,expected-version json,text conf page title set
+M preview-apply apply,expected-proposal-hash,expected-version command generic json,text conf page title set
 R json,text conf page view
-M plan confirm,expected-proposal-hash json,text conf plan apply
+M plan confirm,expected-proposal-hash command generic json,text conf plan apply
 R json,text conf plan create
 R json,text conf plan preview
 R json,text conf pull
@@ -185,16 +235,16 @@ R json,text,id jira issue attachment list
 M remote-direct - json jira issue attachment upload
 R json,text jira issue check
 R json,text,id jira issue children
-M preview-apply apply,expected-proposal-hash json,text jira issue comment add
+M preview-apply apply,expected-proposal-hash command generic json,text jira issue comment add
 M remote-direct - json jira issue comment delete
 R json,text,id jira issue comment list
 R json,text jira issue comment preview
 M remote-direct - json,text,id jira issue create
-M preview-apply apply,confirm,expected-proposal-hash,expected-updated json jira issue delete
+M preview-apply apply,confirm,expected-proposal-hash,expected-updated pre-config jira-issue-delete json jira issue delete
 M remote-direct - json,text jira issue edit
 R json,text jira issue field get
 R json,text jira issue field preview
-M preview-apply apply,expected-proposal-hash,expected-updated json,text jira issue field set
+M preview-apply apply,expected-proposal-hash,expected-updated command generic json,text jira issue field set
 R json,text jira issue fields
 R json,text jira issue get
 R json,text jira issue graph
@@ -206,24 +256,24 @@ M remote-direct - json jira issue link delete
 R json,text,id jira issue link list
 R json,text jira issue link suggest
 M remote-direct - json jira issue link-epic
-M plan apply,confirm json,text jira issue plan apply
+M plan apply,confirm command generic json,text jira issue plan apply
 R json,text jira issue refs
 R json,text,id jira issue search
-M preview-apply apply,expected-proposal-hash json,text jira issue transition
+M preview-apply apply,expected-proposal-hash command generic json,text jira issue transition
 R json,text jira issue transition preview
 R json,text jira issue tree
 M remote-direct - json jira issue update
 R json,text jira issue view
-M preview-apply apply,expected-proposal-hash json,text jira issue watchers add
+M preview-apply apply,expected-proposal-hash command generic json,text jira issue watchers add
 R json,text jira issue watchers list
-M preview-apply apply,expected-proposal-hash json,text jira issue watchers remove
-M preview-apply apply,expected-proposal-hash json,text jira issue worklog add
+M preview-apply apply,expected-proposal-hash command generic json,text jira issue watchers remove
+M preview-apply apply,expected-proposal-hash command generic json,text jira issue worklog add
 R json,text,id jira issue worklog list
 R json,text jira link-types
 R json,text,id jira me
 R json,text jira planning report
 R json,text jira pull
-M preview-apply apply json,text jira push
+M preview-apply apply command generic json,text jira push
 R json,text jira reconcile preview
 M local-direct - json,text jira reconcile stage
 R json,text jira quality-report
@@ -249,16 +299,16 @@ R json,text,id jira user get
 R json,text,id jira user search
 R json,text manifest create
 R json mcp serve
-M preview-apply apply,expected-backend-sha256,confirm json,text mirror backend bind
+M preview-apply apply,expected-backend-sha256,confirm pre-config-on-apply generic json,text mirror backend bind
 R json,text mirror backend status
-M dedicated-apply from-file,candidate-hash,expected-current-hash json,text profile apply
+M dedicated-apply from-file,candidate-hash,expected-current-hash pre-config generic json,text profile apply
 R json,text profile guidance
 R json,text profile preview
 M local-direct - json,text profile revalidate
 R json,text profile revalidation status
 R json,text profile show
 M local-direct - json,text profile suggest
-M dedicated-apply from-file,suggestion-hash,candidate-hash,expected-current-hash json,text profile suggestion apply
+M dedicated-apply from-file,suggestion-hash,candidate-hash,expected-current-hash pre-config generic json,text profile suggestion apply
 M local-direct - json,text profile suggestion reject
 R json,text profile suggestion review
 R json,text version
@@ -270,6 +320,130 @@ func validMutationProfile(profile mutationProfile) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func parseMutationGuardRequirement(value string) (mutationGuardRequirement, bool) {
+	switch value {
+	case "apply":
+		return mutationGuardApply, true
+	case "confirm":
+		return mutationGuardConfirm, true
+	case "expected-proposal-hash":
+		return mutationGuardExpectedProposalHash, true
+	case "expected-version":
+		return mutationGuardExpectedVersion, true
+	case "expected-parent":
+		return mutationGuardExpectedParent, true
+	case "expected-updated":
+		return mutationGuardExpectedUpdated, true
+	case "expected-backend-sha256":
+		return mutationGuardExpectedBackendSHA256, true
+	case "from-file":
+		return mutationGuardFromFile, true
+	case "suggestion-hash":
+		return mutationGuardSuggestionHash, true
+	case "candidate-hash":
+		return mutationGuardCandidateHash, true
+	case "expected-current-hash":
+		return mutationGuardExpectedCurrentHash, true
+	default:
+		return 0, false
+	}
+}
+
+func mutationGuardRequirementName(requirement mutationGuardRequirement) (string, bool) {
+	switch requirement {
+	case mutationGuardApply:
+		return "apply", true
+	case mutationGuardConfirm:
+		return "confirm", true
+	case mutationGuardExpectedProposalHash:
+		return "expected-proposal-hash", true
+	case mutationGuardExpectedVersion:
+		return "expected-version", true
+	case mutationGuardExpectedParent:
+		return "expected-parent", true
+	case mutationGuardExpectedUpdated:
+		return "expected-updated", true
+	case mutationGuardExpectedBackendSHA256:
+		return "expected-backend-sha256", true
+	case mutationGuardFromFile:
+		return "from-file", true
+	case mutationGuardSuggestionHash:
+		return "suggestion-hash", true
+	case mutationGuardCandidateHash:
+		return "candidate-hash", true
+	case mutationGuardExpectedCurrentHash:
+		return "expected-current-hash", true
+	default:
+		return "", false
+	}
+}
+
+func mutationGuardRequirementPresence(requirement mutationGuardRequirement) (mutationGuardPresence, bool) {
+	switch requirement {
+	case mutationGuardApply:
+		return mutationGuardPresenceTrue, true
+	case mutationGuardExpectedParent:
+		return mutationGuardPresenceExplicit, true
+	case mutationGuardConfirm,
+		mutationGuardExpectedProposalHash,
+		mutationGuardExpectedVersion,
+		mutationGuardExpectedUpdated,
+		mutationGuardExpectedBackendSHA256,
+		mutationGuardFromFile,
+		mutationGuardSuggestionHash,
+		mutationGuardCandidateHash,
+		mutationGuardExpectedCurrentHash:
+		return mutationGuardPresenceNonBlank, true
+	default:
+		return 0, false
+	}
+}
+
+func mutationGuardRequirementNames(requirements []mutationGuardRequirement) []string {
+	if len(requirements) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(requirements))
+	for _, requirement := range requirements {
+		name, ok := mutationGuardRequirementName(requirement)
+		if !ok {
+			continue
+		}
+		names = append(names, name)
+	}
+	return names
+}
+
+func parseMutationGuardPhase(value string) (mutationGuardPhase, bool) {
+	switch value {
+	case "command":
+		return mutationGuardCommandOwned, true
+	case "pre-config":
+		return mutationGuardPreConfig, true
+	case "pre-config-on-apply":
+		return mutationGuardPreConfigOnApply, true
+	default:
+		return 0, false
+	}
+}
+
+func parseMutationGuardFamily(value string) (mutationGuardFamily, bool) {
+	switch value {
+	case "generic":
+		return mutationGuardGeneric, true
+	case "confluence-attachment-delete":
+		return mutationGuardConfluenceAttachmentDelete, true
+	case "confluence-page-copy":
+		return mutationGuardConfluencePageCopy, true
+	case "confluence-page-delete":
+		return mutationGuardConfluencePageDelete, true
+	case "jira-issue-delete":
+		return mutationGuardJiraIssueDelete, true
+	default:
+		return 0, false
 	}
 }
 
@@ -327,20 +501,37 @@ func parseCommandRegistry(value string) (commandRegistryState, error) {
 			if !validMutationProfile(registration.profile) {
 				return commandRegistryState{}, fmt.Errorf("registry line %d has invalid mutation profile %q", lineNumber+1, fields[1])
 			}
+			outputIndex := 3
+			pathIndex := 4
 			if fields[2] != "-" {
-				registration.requiredFlags = strings.Split(fields[2], ",")
-				for _, name := range registration.requiredFlags {
-					if name == "" {
-						return commandRegistryState{}, fmt.Errorf("registry line %d has an empty required flag", lineNumber+1)
-					}
+				if len(fields) < 7 {
+					return commandRegistryState{}, fmt.Errorf("registry line %d guarded mutation has invalid shape", lineNumber+1)
 				}
+				for _, name := range strings.Split(fields[2], ",") {
+					requirement, ok := parseMutationGuardRequirement(name)
+					if !ok {
+						return commandRegistryState{}, fmt.Errorf("registry line %d has invalid guard requirement %q", lineNumber+1, name)
+					}
+					registration.guard.requirements = append(registration.guard.requirements, requirement)
+				}
+				var ok bool
+				registration.guard.phase, ok = parseMutationGuardPhase(fields[3])
+				if !ok {
+					return commandRegistryState{}, fmt.Errorf("registry line %d has invalid guard phase %q", lineNumber+1, fields[3])
+				}
+				registration.guard.family, ok = parseMutationGuardFamily(fields[4])
+				if !ok {
+					return commandRegistryState{}, fmt.Errorf("registry line %d has invalid guard family %q", lineNumber+1, fields[4])
+				}
+				outputIndex = 5
+				pathIndex = 6
 			}
 			var ok bool
-			registration.outputModes, ok = parseCommandOutputModes(fields[3])
+			registration.outputModes, ok = parseCommandOutputModes(fields[outputIndex])
 			if !ok {
-				return commandRegistryState{}, fmt.Errorf("registry line %d has invalid output modes %q", lineNumber+1, fields[3])
+				return commandRegistryState{}, fmt.Errorf("registry line %d has invalid output modes %q", lineNumber+1, fields[outputIndex])
 			}
-			pathFields = fields[4:]
+			pathFields = fields[pathIndex:]
 		default:
 			return commandRegistryState{}, fmt.Errorf("registry line %d has invalid shape", lineNumber+1)
 		}
@@ -353,8 +544,8 @@ func parseCommandRegistry(value string) (commandRegistryState, error) {
 		}
 		if registration.traits&commandMutating != 0 {
 			hasApply := false
-			for _, name := range registration.requiredFlags {
-				hasApply = hasApply || name == "apply"
+			for _, requirement := range registration.guard.requirements {
+				hasApply = hasApply || requirement == mutationGuardApply
 			}
 			switch registration.profile {
 			case mutationPreviewApply:
@@ -362,12 +553,20 @@ func parseCommandRegistry(value string) (commandRegistryState, error) {
 					return commandRegistryState{}, fmt.Errorf("registry line %d preview-apply profile does not require --apply", lineNumber+1)
 				}
 			case mutationDedicatedApply, mutationPlan:
-				if len(registration.requiredFlags) == 0 {
+				if len(registration.guard.requirements) == 0 {
 					return commandRegistryState{}, fmt.Errorf("registry line %d %s profile has no required guard", lineNumber+1, registration.profile)
 				}
 			case mutationLocalDirect, mutationRemoteDirect:
-				if len(registration.requiredFlags) != 0 {
+				if len(registration.guard.requirements) != 0 {
 					return commandRegistryState{}, fmt.Errorf("registry line %d %s profile unexpectedly declares a guard", lineNumber+1, registration.profile)
+				}
+			}
+			if len(registration.guard.requirements) != 0 {
+				if registration.guard.family != mutationGuardGeneric && registration.guard.phase != mutationGuardPreConfig {
+					return commandRegistryState{}, fmt.Errorf("registry line %d specialized guard family must run pre-config", lineNumber+1)
+				}
+				if registration.guard.phase == mutationGuardPreConfigOnApply && !hasApply {
+					return commandRegistryState{}, fmt.Errorf("registry line %d apply-only guard phase has no --apply requirement", lineNumber+1)
 				}
 			}
 		}
@@ -455,12 +654,12 @@ func finalizeCommandTree(root *cobra.Command) error {
 			if registration.profile == mutationNone {
 				return fmt.Errorf("mutating command %q has no mutation profile", cmd.CommandPath())
 			}
-			for _, flag := range registration.requiredFlags {
+			for _, flag := range mutationGuardRequirementNames(registration.guard.requirements) {
 				if cmd.Flags().Lookup(flag) == nil {
 					return fmt.Errorf("mutating command %q profile %q requires missing --%s flag", cmd.CommandPath(), registration.profile, flag)
 				}
 			}
-		} else if registration.profile != mutationNone || len(registration.requiredFlags) != 0 {
+		} else if registration.profile != mutationNone || len(registration.guard.requirements) != 0 {
 			return fmt.Errorf("read-only command %q has mutation metadata", cmd.CommandPath())
 		}
 		for _, child := range cmd.Commands() {
@@ -503,7 +702,10 @@ func validateMutationInvocation(cmd *cobra.Command) error {
 	if !ok || registration.traits&commandMutating == 0 {
 		return nil
 	}
-	profile := registration.profile
+	guard := registration.guard
+	if len(guard.requirements) == 0 || guard.phase == mutationGuardCommandOwned {
+		return nil
+	}
 	applyFlag := cmd.Flags().Lookup("apply")
 	applyRequested := false
 	if applyFlag != nil {
@@ -513,60 +715,66 @@ func validateMutationInvocation(cmd *cobra.Command) error {
 		}
 		applyRequested = value
 	}
-	preflightRequired := profile == mutationDedicatedApply
-	if path == "mirror backend bind" || path == "conf attachment delete" || path == "conf page copy" || path == "conf page delete" || path == "jira issue delete" {
-		preflightRequired = applyRequested
-	}
-	if !preflightRequired {
-		if path == "conf attachment delete" {
-			return validateConfluenceAttachmentDeleteInvocation(cmd, false)
-		}
-		if path == "conf page copy" {
-			return validateConfluencePageCopyInvocation(cmd, false)
-		}
-		if path == "conf page delete" {
-			return validateConfluencePageDeleteInvocation(cmd, false)
-		}
-		if path == "jira issue delete" {
-			return validateJiraIssueDeleteInvocation(cmd, false)
-		}
+	if guard.phase == mutationGuardPreConfigOnApply && !applyRequested {
 		return nil
 	}
-	for _, name := range registration.requiredFlags {
+	if guard.phase == mutationGuardPreConfig && registration.profile == mutationPreviewApply && !applyRequested {
+		return validateMutationGuardFamily(cmd, guard.family, false)
+	}
+	for _, requirement := range guard.requirements {
+		name, ok := mutationGuardRequirementName(requirement)
+		if !ok {
+			return &accessPolicyInvariantError{Command: fmt.Sprintf("%s has invalid mutation guard requirement", cmd.CommandPath())}
+		}
+		presence, ok := mutationGuardRequirementPresence(requirement)
+		if !ok {
+			return &accessPolicyInvariantError{Command: fmt.Sprintf("%s has invalid mutation guard requirement presence", cmd.CommandPath())}
+		}
 		flag := cmd.Flags().Lookup(name)
 		if flag == nil {
 			return &accessPolicyInvariantError{Command: fmt.Sprintf("%s missing --%s", cmd.CommandPath(), name)}
 		}
-		if profile == mutationPreviewApply && name == "apply" {
+		if registration.profile == mutationPreviewApply && requirement == mutationGuardApply {
 			continue
 		}
 		missing := !flag.Changed
-		if flag.Value.Type() == "bool" {
+		switch presence {
+		case mutationGuardPresenceTrue:
 			value, err := cmd.Flags().GetBool(name)
 			missing = err != nil || !value
-		} else if name != "expected-parent" {
+		case mutationGuardPresenceNonBlank:
 			missing = missing || strings.TrimSpace(flag.Value.String()) == ""
+		case mutationGuardPresenceExplicit:
+			// An explicitly supplied empty value is meaningful for guards such as
+			// --expected-parent, so flag presence alone satisfies the contract.
+		default:
+			return &accessPolicyInvariantError{Command: fmt.Sprintf("%s has invalid mutation guard presence", cmd.CommandPath())}
 		}
 		if missing {
-			if profile == mutationPreviewApply {
+			if registration.profile == mutationPreviewApply {
 				return usageErr("--%s is required with --apply", name)
 			}
 			return usageErr("--%s is required for this apply command", name)
 		}
 	}
-	if path == "conf page delete" {
-		return validateConfluencePageDeleteInvocation(cmd, applyRequested)
-	}
-	if path == "conf attachment delete" {
+	return validateMutationGuardFamily(cmd, guard.family, applyRequested)
+}
+
+func validateMutationGuardFamily(cmd *cobra.Command, family mutationGuardFamily, applyRequested bool) error {
+	switch family {
+	case mutationGuardGeneric:
+		return nil
+	case mutationGuardConfluenceAttachmentDelete:
 		return validateConfluenceAttachmentDeleteInvocation(cmd, applyRequested)
-	}
-	if path == "conf page copy" {
+	case mutationGuardConfluencePageCopy:
 		return validateConfluencePageCopyInvocation(cmd, applyRequested)
-	}
-	if path == "jira issue delete" {
+	case mutationGuardConfluencePageDelete:
+		return validateConfluencePageDeleteInvocation(cmd, applyRequested)
+	case mutationGuardJiraIssueDelete:
 		return validateJiraIssueDeleteInvocation(cmd, applyRequested)
+	default:
+		return &accessPolicyInvariantError{Command: fmt.Sprintf("%s has invalid mutation guard family", cmd.CommandPath())}
 	}
-	return nil
 }
 
 func validateJiraIssueDeleteInvocation(cmd *cobra.Command, applyRequested bool) error {

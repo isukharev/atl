@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -63,7 +64,7 @@ func TestCommandRegistryExactlyMatchesTree(t *testing.T) {
 				if got := mutationProfile(cmd.Annotations[mutationProfileAnnotation]); got != registration.profile || !validMutationProfile(got) {
 					t.Errorf("%s mutation profile=%q want=%q", cmd.CommandPath(), got, registration.profile)
 				}
-				for _, flag := range registration.requiredFlags {
+				for _, flag := range mutationGuardRequirementNames(registration.guard.requirements) {
 					if cmd.Flags().Lookup(flag) == nil {
 						t.Errorf("%s profile=%q missing structural --%s", cmd.CommandPath(), registration.profile, flag)
 					}
@@ -84,10 +85,14 @@ func TestCommandRegistryExactlyMatchesTree(t *testing.T) {
 
 func TestMutationProfileShapesAreEnforced(t *testing.T) {
 	for name, row := range map[string]string{
-		"preview without apply":   "M preview-apply expected-proposal-hash json unsafe",
+		"preview without apply":   "M preview-apply expected-proposal-hash command generic json unsafe",
 		"dedicated without guard": "M dedicated-apply - json unsafe",
 		"plan without guard":      "M plan - json unsafe",
-		"direct with guard":       "M remote-direct confirm json unsafe",
+		"direct with guard":       "M remote-direct confirm command generic json unsafe",
+		"invalid requirement":     "M preview-apply apply,unknown command generic json unsafe",
+		"invalid phase":           "M preview-apply apply unknown generic json unsafe",
+		"invalid family":          "M preview-apply apply command unknown json unsafe",
+		"special command phase":   "M preview-apply apply command confluence-page-delete json unsafe",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := parseCommandRegistry(row); err == nil {
@@ -208,6 +213,16 @@ local-direct|-|profile suggestion reject
 		}
 	}
 	walk(root)
+	inventory, err := RepositoryCommandInventory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range inventory {
+		expected, ok := want[command.Path]
+		if ok && !reflect.DeepEqual(command.RequiredFlags, expected.guards) {
+			t.Errorf("reviewed mutating command %q RequiredFlags=%v want=%v", command.Path, command.RequiredFlags, expected.guards)
+		}
+	}
 	for path := range want {
 		if !seen[path] {
 			t.Errorf("reviewed mutating command %q lost its executable classification", path)

@@ -494,21 +494,6 @@ func confPageCmd() *cobra.Command {
 		Short: "Preview or apply one reviewed page trash operation",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if strings.TrimSpace(delID) == "" {
-				return usageErr("--id is required")
-			}
-			if !delGuard.apply && (delConfirm != "" || delExpectedVersion != 0 || strings.TrimSpace(delGuard.expectedProposalHash) != "") {
-				return usageErr("--confirm, --expected-version, and --expected-proposal-hash require --apply")
-			}
-			if delGuard.apply && delConfirm != "TRASH" {
-				return usageErr("--confirm must be exactly TRASH with --apply")
-			}
-			if delGuard.apply && delExpectedVersion <= 0 {
-				return usageErr("--expected-version is required with --apply; run the dry-run first")
-			}
-			if err := delGuard.validate(); err != nil {
-				return err
-			}
 			svc, err := confService()
 			if err != nil {
 				return err
@@ -614,21 +599,6 @@ func confPageCmd() *cobra.Command {
 		Short: "Preview or apply one reviewed page copy",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if strings.TrimSpace(copyID) == "" || strings.TrimSpace(copyTitle) == "" {
-				return usageErr("--id and --title are required")
-			}
-			if copyRegister != (strings.TrimSpace(copyInto) != "") {
-				return usageErr("--register and a non-empty --into must be used together")
-			}
-			if !copyGuard.apply && (copyExpectedVersion != 0 || strings.TrimSpace(copyGuard.expectedProposalHash) != "") {
-				return usageErr("--expected-version and --expected-proposal-hash require --apply")
-			}
-			if copyGuard.apply && copyExpectedVersion <= 0 {
-				return usageErr("--expected-version is required with --apply; run the dry-run first")
-			}
-			if err := copyGuard.validate(); err != nil {
-				return err
-			}
 			svc, err := confService()
 			if err != nil {
 				return err
@@ -1821,30 +1791,6 @@ func confAttachmentCmd() *cobra.Command {
 		Short: "Preview or apply one reviewed permanent attachment deletion",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if strings.TrimSpace(delAttPageID) == "" || strings.TrimSpace(delAttID) == "" {
-				return usageErr("--page-id and --id are required")
-			}
-			if !canonicalConfluenceCLIContentID(delAttPageID) {
-				return usageErr("--page-id must be a positive numeric content id")
-			}
-			if !canonicalConfluenceCLIContentID(delAttID) {
-				return usageErr("--id must be a positive numeric attachment id")
-			}
-			if outputFormat == "id" {
-				return usageErr("-o id is not supported for this command")
-			}
-			if !delAttGuard.apply && (delAttConfirm != "" || delAttExpectedVersion != 0 || strings.TrimSpace(delAttGuard.expectedProposalHash) != "") {
-				return usageErr("--confirm, --expected-version, and --expected-proposal-hash require --apply")
-			}
-			if delAttGuard.apply && delAttConfirm != "DELETE" {
-				return usageErr("--confirm must be exactly DELETE with --apply")
-			}
-			if delAttGuard.apply && delAttExpectedVersion <= 0 {
-				return usageErr("--expected-version is required with --apply; run the dry-run first")
-			}
-			if err := delAttGuard.validate(); err != nil {
-				return err
-			}
 			svc, err := confService()
 			if err != nil {
 				return err
