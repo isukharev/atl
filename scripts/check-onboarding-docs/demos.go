@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -22,6 +23,14 @@ import (
 )
 
 const onboardingDemoTimeout = 20 * time.Second
+
+var canonicalCommitRE = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+type binaryIdentity struct {
+	Version    string `json:"version"`
+	Commit     string `json:"commit"`
+	BuildState string `json:"build_state"`
+}
 
 type demoCommandResult struct {
 	stdout string
@@ -56,6 +65,10 @@ func validateDemos(atlBinary string) (int, error) {
 }
 
 func newDemoRunner(binary string, overlay map[string]string) (*demoRunner, error) {
+	binary, err := filepath.Abs(binary)
+	if err != nil {
+		return nil, fmt.Errorf("resolve demo atl binary: %w", err)
+	}
 	root, err := os.MkdirTemp("", "atl-onboarding-demo-")
 	if err != nil {
 		return nil, fmt.Errorf("create demo workspace: %w", err)
@@ -73,6 +86,7 @@ func newDemoRunner(binary string, overlay map[string]string) (*demoRunner, error
 	environment := map[string]string{
 		"ATL_CONFIG_DIR":  configDir,
 		"ATL_NO_UPDATE":   "1",
+		"HOME":            filepath.Join(root, "home"),
 		"HTTP_PROXY":      "http://127.0.0.1:1",
 		"HTTPS_PROXY":     "http://127.0.0.1:1",
 		"NO_PROXY":        "127.0.0.1,localhost",
@@ -94,6 +108,82 @@ func newDemoRunner(binary string, overlay map[string]string) (*demoRunner, error
 		env = append(env, name+"="+environment[name])
 	}
 	return &demoRunner{binary: binary, root: root, env: env}, nil
+}
+
+func validateBinaryIdentity(repositoryRoot, binary string) (identity binaryIdentity, retErr error) {
+	expectedBytes, err := os.ReadFile(filepath.Join(repositoryRoot, "VERSION"))
+	if err != nil {
+		return identity, fmt.Errorf("read repository VERSION: %w", err)
+	}
+	expected := strings.TrimSpace(string(expectedBytes))
+	if expected == "" {
+		return identity, errors.New("repository VERSION is empty")
+	}
+	runner, err := newDemoRunner(binary, nil)
+	if err != nil {
+		return identity, err
+	}
+	defer func() { retErr = errors.Join(retErr, runner.close()) }()
+
+	result, err := runner.run(0, "version")
+	if err != nil {
+		return identity, err
+	}
+	if err := json.Unmarshal([]byte(result.stdout), &identity); err != nil {
+		return identity, fmt.Errorf("decode atl version: %w", err)
+	}
+	if identity.Version == "dev" || identity.Version != expected {
+		return identity, fmt.Errorf("atl version identity %q does not match repository VERSION %q", identity.Version, expected)
+	}
+	if !canonicalCommitRE.MatchString(identity.Commit) {
+		return identity, fmt.Errorf("atl version commit %q is not a canonical full lowercase git SHA", identity.Commit)
+	}
+	if identity.BuildState != "clean" && identity.BuildState != "dirty" {
+		return identity, fmt.Errorf("atl version build_state %q is not one of clean or dirty", identity.BuildState)
+	}
+	return identity, nil
+}
+
+func validateCleanConfig(binary string) (retErr error) {
+	const syntheticURL = "http://127.0.0.1:1/wiki"
+	runner, err := newDemoRunner(binary, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { retErr = errors.Join(retErr, runner.close()) }()
+
+	configPath := filepath.Join(runner.root, "config", "config.json")
+	if _, err := os.Stat(configPath); !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("fresh config path exists before config set: %v", err)
+	}
+	set, err := runner.run(0, "config", "set", "--confluence-url", syntheticURL)
+	if err != nil {
+		return err
+	}
+	var persisted struct {
+		ConfluenceURL string `json:"confluence_url"`
+	}
+	if err := json.Unmarshal([]byte(set.stdout), &persisted); err != nil || persisted.ConfluenceURL != syntheticURL {
+		return fmt.Errorf("config set did not select the synthetic Confluence URL: url=%q err=%v", persisted.ConfluenceURL, err)
+	}
+	contents, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("read persisted clean config: %w", err)
+	}
+	if bytes.Contains(bytes.ToLower(contents), []byte("token")) || bytes.Contains(bytes.ToLower(contents), []byte("pat")) {
+		return errors.New("config set persisted credential-like material")
+	}
+	shown, err := runner.run(0, "config", "show")
+	if err != nil {
+		return err
+	}
+	var selected struct {
+		ConfluenceURL string `json:"confluence_url"`
+	}
+	if err := json.Unmarshal([]byte(shown.stdout), &selected); err != nil || selected.ConfluenceURL != syntheticURL {
+		return fmt.Errorf("config show did not reload the synthetic Confluence URL: url=%q err=%v", selected.ConfluenceURL, err)
+	}
+	return nil
 }
 
 func (r *demoRunner) close() error {
@@ -158,11 +248,19 @@ func validateLosslessConfluenceDemo(binary string) (retErr error) {
 		`<td style="text-align: center;">?</td></tr></tbody></table>`
 	fixture := testbackend.MockFixture{
 		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
-		Routes: []testbackend.MockRoute{{
-			Name: "lossless-page", Method: http.MethodGet, Path: "/wiki/rest/api/content/" + pageID,
-			Status: http.StatusOK, Body: demoPageJSON(pageID, title, 3, csfBody),
-		}},
-		RequestSequence: []string{"lossless-page"},
+		Routes: []testbackend.MockRoute{
+			{
+				Name: "lossless-page", Method: http.MethodGet, Path: "/wiki/rest/api/content/" + pageID,
+				QueryEquals: map[string]string{"expand": "body.storage,version,space,ancestors,metadata.labels"},
+				Status:      http.StatusOK, Body: demoPageJSON(pageID, title, 3, csfBody),
+			},
+			{
+				Name: "lossless-preview-meta", Method: http.MethodGet, Path: "/wiki/rest/api/content/" + pageID,
+				QueryEquals: map[string]string{"expand": "version,space,ancestors,metadata.labels,restrictions.read.restrictions.user,restrictions.read.restrictions.group"},
+				Status:      http.StatusOK, Body: demoPageJSON(pageID, title, 3, csfBody),
+			},
+		},
+		RequestSequence: []string{"lossless-page", "lossless-preview-meta"},
 	}
 	backend, err := testbackend.StartMockBackend(fixture)
 	if err != nil {
@@ -244,7 +342,19 @@ func validateLosslessConfluenceDemo(binary string) (retErr error) {
 	if string(finalCSF) != want {
 		return errors.New("apply changed bytes outside the reviewed table cell")
 	}
-	return requireDemoBackend(backend, map[string]int{http.MethodGet: 1})
+	previewed, err := runner.run(0, "conf", "push", csfPath, "--dry-run", "--into", mirrorRoot)
+	if err != nil {
+		return err
+	}
+	var preview app.PushResult
+	if err := json.Unmarshal([]byte(previewed.stdout), &preview); err != nil || len(preview.Items) != 1 {
+		return fmt.Errorf("decode push dry-run: items=%d err=%v", len(preview.Items), err)
+	}
+	item := preview.Items[0]
+	if !item.DryRun || item.Pushed || item.ID != pageID || item.Path != csfPath || item.Drifted || item.Failed != "" {
+		return fmt.Errorf("unexpected guarded push preview: %+v", item)
+	}
+	return requireDemoBackend(backend, map[string]int{http.MethodGet: 2})
 }
 
 func validateConfluenceConflictDemo(binary string) (retErr error) {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -24,10 +25,7 @@ func fakeATLMain() {
 		_, _ = fmt.Fprintln(os.Stderr, message)
 		os.Exit(90)
 	}
-	if len(arguments) == 0 || arguments[len(arguments)-1] != "--help" {
-		fail("fake atl received a non-help invocation")
-	}
-	if os.Getenv("ATL_NO_UPDATE") != "1" || os.Getenv("ATL_READ_ONLY") != "1" || os.Getenv("ATL_CONFIG_DIR") == "" {
+	if os.Getenv("ATL_NO_UPDATE") != "1" || os.Getenv("ATL_CONFIG_DIR") == "" {
 		fail("fake atl did not receive the offline safety environment")
 	}
 	for _, forbidden := range []string{
@@ -40,6 +38,42 @@ func fakeATLMain() {
 	}
 
 	base := os.Args[0]
+	if len(arguments) == 1 && arguments[0] == "version" {
+		identity := binaryIdentity{Version: "1.2.3", Commit: strings.Repeat("a", 40), BuildState: "dirty"}
+		if content, err := os.ReadFile(base + ".identity"); err == nil {
+			if err := json.Unmarshal(content, &identity); err != nil {
+				fail(err.Error())
+			}
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(identity)
+		os.Exit(0)
+	}
+	if len(arguments) == 4 && arguments[0] == "config" && arguments[1] == "set" && arguments[2] == "--confluence-url" {
+		configPath := filepath.Join(os.Getenv("ATL_CONFIG_DIR"), "config.json")
+		if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+			fail(err.Error())
+		}
+		contents, _ := json.Marshal(map[string]string{"confluence_url": arguments[3]})
+		if err := os.WriteFile(configPath, contents, 0o600); err != nil {
+			fail(err.Error())
+		}
+		_, _ = os.Stdout.Write(contents)
+		os.Exit(0)
+	}
+	if len(arguments) == 2 && arguments[0] == "config" && arguments[1] == "show" {
+		contents, err := os.ReadFile(filepath.Join(os.Getenv("ATL_CONFIG_DIR"), "config.json"))
+		if err != nil {
+			fail(err.Error())
+		}
+		_, _ = os.Stdout.Write(contents)
+		os.Exit(0)
+	}
+	if len(arguments) == 0 || arguments[len(arguments)-1] != "--help" {
+		fail("fake atl received an unexpected invocation")
+	}
+	if os.Getenv("ATL_READ_ONLY") != "1" {
+		fail("fake atl help did not receive read-only policy")
+	}
 	path := strings.Join(arguments[:len(arguments)-1], " ")
 	if content, err := os.ReadFile(base + ".fail"); err == nil && strings.TrimSpace(string(content)) == path {
 		_, _ = fmt.Fprintln(os.Stderr, "unknown command path: "+path)
@@ -77,7 +111,8 @@ func TestValidateRepositoryAcceptsLocalLinksAndOfflineHelp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Documents != len(requiredDocuments) || report.Links != 5 || report.Commands != len(commandPaths) {
+	if report.Documents != len(requiredDocuments) || report.Links != 18 || report.Commands != len(commandPaths) ||
+		report.Identity.Version != "1.2.3" || report.Identity.BuildState != "dirty" {
 		t.Fatalf("unexpected report: %+v", report)
 	}
 	logBytes, err := os.ReadFile(binary + ".log")
@@ -92,6 +127,80 @@ func TestValidateRepositoryAcceptsLocalLinksAndOfflineHelp(t *testing.T) {
 		if line != "--help" && !strings.HasSuffix(line, " --help") {
 			t.Fatalf("non-help invocation recorded: %q", line)
 		}
+	}
+}
+
+func TestValidateBinaryIdentityRejectsVersionMismatchAndUnstampedIdentity(t *testing.T) {
+	root := validRepository(t)
+	tests := []struct {
+		name     string
+		identity binaryIdentity
+		want     string
+	}{
+		{
+			name: "version mismatch",
+			identity: binaryIdentity{
+				Version: "1.2.4", Commit: strings.Repeat("a", 40), BuildState: "clean",
+			},
+			want: `does not match repository VERSION "1.2.3"`,
+		},
+		{
+			name: "development version",
+			identity: binaryIdentity{
+				Version: "dev", Commit: "unknown", BuildState: "unknown",
+			},
+			want: `atl version identity "dev"`,
+		},
+		{
+			name: "unstamped commit",
+			identity: binaryIdentity{
+				Version: "1.2.3", Commit: "unknown", BuildState: "dirty",
+			},
+			want: `is not a canonical full lowercase git SHA`,
+		},
+		{
+			name: "unknown build state",
+			identity: binaryIdentity{
+				Version: "1.2.3", Commit: strings.Repeat("a", 40), BuildState: "unknown",
+			},
+			want: `build_state "unknown" is not one of clean or dirty`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			binary := fakeATL(t, "", "", "")
+			contents, err := json.Marshal(test.identity)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(binary+".identity", contents, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err = validateBinaryIdentity(root, binary)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("identity validation error=%v", err)
+			}
+		})
+	}
+}
+
+func TestValidateCleanConfigIgnoresAmbientConfigAndCredentials(t *testing.T) {
+	binary := fakeATL(t, "", "", "")
+	ambient := t.TempDir()
+	writeFile(t, ambient, "config.json", `{"confluence_url":"https://ambient.invalid"}`)
+	t.Setenv("ATL_CONFIG_DIR", ambient)
+	t.Setenv("ATL_CONFLUENCE_URL", "https://ambient.invalid")
+	t.Setenv("ATL_CONFLUENCE_PAT", "ambient-must-not-leak")
+
+	if err := validateCleanConfig(binary); err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(filepath.Join(ambient, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(contents), "ambient.invalid") {
+		t.Fatalf("ambient config was changed: %s", contents)
 	}
 }
 
@@ -147,6 +256,17 @@ func TestValidateDocumentationReportsMissingRequiredGuide(t *testing.T) {
 	}
 }
 
+func TestValidateDocumentationRejectsBloatedOrDisconnectedEntryPoint(t *testing.T) {
+	root := validRepository(t)
+	writeFile(t, root, "README.md", "# Project\n\n"+strings.Repeat("word ", 1201)+"\n")
+
+	_, err := validateDocumentation(root)
+	if err == nil || !strings.Contains(err.Error(), "README.md has 1203 words; entry point limit is 1200") ||
+		!strings.Contains(err.Error(), "README.md does not link directly to task guide docs/safe-writes.md") {
+		t.Fatalf("validation error=%v", err)
+	}
+}
+
 func TestValidateCommandsRejectsStalePath(t *testing.T) {
 	root := validRepository(t)
 	binary := fakeATL(t, "jira apply", "", "")
@@ -197,7 +317,7 @@ func TestDemoRunnerUsesClosedConfigAndTempEnvironment(t *testing.T) {
 		if entry == "ATL_JIRA_PAT=ambient-must-not-leak" {
 			t.Fatalf("runner inherited ambient credential: %q", entry)
 		}
-		for _, name := range []string{"ATL_CONFIG_DIR", "TMPDIR", "TMP", "TEMP", "XDG_CONFIG_HOME"} {
+		for _, name := range []string{"ATL_CONFIG_DIR", "HOME", "TMPDIR", "TMP", "TEMP", "XDG_CONFIG_HOME"} {
 			prefix := name + "="
 			if strings.HasPrefix(entry, prefix) {
 				seen[name] = true
@@ -207,7 +327,7 @@ func TestDemoRunnerUsesClosedConfigAndTempEnvironment(t *testing.T) {
 			}
 		}
 	}
-	for _, name := range []string{"ATL_CONFIG_DIR", "TMPDIR", "TMP", "TEMP", "XDG_CONFIG_HOME"} {
+	for _, name := range []string{"ATL_CONFIG_DIR", "HOME", "TMPDIR", "TMP", "TEMP", "XDG_CONFIG_HOME"} {
 		if !seen[name] {
 			t.Fatalf("runner environment is missing %s", name)
 		}
@@ -231,11 +351,13 @@ func TestMarkdownLinksIgnoreFencedAndInlineCode(t *testing.T) {
 func validRepository(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
+	writeFile(t, root, "VERSION", "1.2.3\n")
 	for _, relative := range requiredDocuments {
 		writeFile(t, root, relative, "# Guide\n")
 	}
-	writeFile(t, root, "README.md", "# Project\n\n[Russian](README.ru.md)\n[Start](docs/getting-started.md#install)\n[website](https://example.com)\n[email](mailto:docs@example.com)\n")
-	writeFile(t, root, "README.ru.md", "# Project\n\n[Docs](/docs/README.md)\n")
+	entryLinks := "[Start](docs/getting-started.md#install)\n[Agents](docs/agent-setup.md)\n[Writes](docs/safe-writes.md)\n[Graph](docs/jira-artifact-graph.md)\n[Comments](docs/confluence-comments.md)\n[Demos](docs/demos/README.md)\n[Troubleshooting](docs/troubleshooting.md)\n"
+	writeFile(t, root, "README.md", "# Project\n\n[Russian](README.ru.md)\n"+entryLinks+"[website](https://example.com)\n[email](mailto:docs@example.com)\n")
+	writeFile(t, root, "README.ru.md", "# Project\n\n[Docs](/docs/README.md)\n"+entryLinks)
 	writeFile(t, root, "docs/README.md", "# Docs\n\n[Setup](agent-setup.md)\n")
 	writeFile(t, root, "docs/agent-setup.md", "# Agent setup\n\n[Project](../README.md?from=setup#install)\n")
 	return root

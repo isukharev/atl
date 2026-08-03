@@ -1,6 +1,6 @@
 // Command check-onboarding-docs validates the documentation paths that a new
-// user or agent follows. It is deliberately offline: command checks execute a
-// supplied atl binary with --help and an isolated, credential-free environment.
+// user or agent follows. It is deliberately offline: identity, config, command,
+// and demo checks execute a supplied atl binary in isolated environments.
 package main
 
 import (
@@ -17,6 +17,36 @@ import (
 )
 
 const commandManifestVersion = 2
+
+var entryPointContracts = map[string]struct {
+	maxWords      int
+	requiredLinks []string
+}{
+	"README.md": {
+		maxWords: 1200,
+		requiredLinks: []string{
+			"docs/getting-started.md",
+			"docs/agent-setup.md",
+			"docs/safe-writes.md",
+			"docs/jira-artifact-graph.md",
+			"docs/confluence-comments.md",
+			"docs/demos/README.md",
+			"docs/troubleshooting.md",
+		},
+	},
+	"README.ru.md": {
+		maxWords: 1400,
+		requiredLinks: []string{
+			"docs/getting-started.md",
+			"docs/agent-setup.md",
+			"docs/safe-writes.md",
+			"docs/jira-artifact-graph.md",
+			"docs/confluence-comments.md",
+			"docs/demos/README.md",
+			"docs/troubleshooting.md",
+		},
+	},
+}
 
 var requiredDocuments = []string{
 	"README.md",
@@ -74,6 +104,7 @@ var commandPaths = [][]string{
 	{"jira", "status"},
 	{"jira", "apply"},
 	{"jira", "push"},
+	{"jira", "reconcile", "preview"},
 	{"profile"},
 	{"profile", "show"},
 	{"profile", "apply"},
@@ -101,6 +132,7 @@ var commandHelpRequirements = map[string][]string{
 	"jira issue comment add":     {"--from-md", "--apply", "--expected-proposal-hash"},
 	"jira pull":                  {"--jql", "--into"},
 	"jira push":                  {"--apply"},
+	"jira reconcile preview":     {"--into"},
 	"mcp serve":                  {"--service"},
 }
 
@@ -109,6 +141,7 @@ type report struct {
 	Links     int
 	Commands  int
 	Demos     int
+	Identity  binaryIdentity
 }
 
 type markdownLink struct {
@@ -140,8 +173,8 @@ func main() {
 		os.Exit(1)
 	}
 	result.Demos = demos
-	fmt.Printf("onboarding docs: %d documents, %d local links, %d command paths, %d reproducible demos (manifest v%d)\n",
-		result.Documents, result.Links, result.Commands, result.Demos, commandManifestVersion)
+	fmt.Printf("onboarding docs: binary %s (%s), %d documents, %d local links, %d command paths, %d reproducible demos (manifest v%d)\n",
+		result.Identity.Version, result.Identity.BuildState, result.Documents, result.Links, result.Commands, result.Demos, commandManifestVersion)
 }
 
 func validateRepository(root, atlBinary string) (report, error) {
@@ -158,7 +191,15 @@ func validateRepository(root, atlBinary string) (report, error) {
 		return report{}, fmt.Errorf("repository root %q is not a directory", rootAbs)
 	}
 
+	identity, err := validateBinaryIdentity(rootAbs, atlBinary)
+	if err != nil {
+		return report{}, err
+	}
+	if err := validateCleanConfig(atlBinary); err != nil {
+		return report{Identity: identity}, fmt.Errorf("clean config workflow failed: %w", err)
+	}
 	result, err := validateDocumentation(rootAbs)
+	result.Identity = identity
 	if err != nil {
 		return result, err
 	}
@@ -194,7 +235,9 @@ func validateDocumentation(root string) (report, error) {
 			continue
 		}
 		result.Documents++
-		for _, link := range markdownLinks(string(contents)) {
+		links := markdownLinks(string(contents))
+		problems = append(problems, validateEntryPoint(relative, string(contents), links)...)
+		for _, link := range links {
 			local, linkErr := validateLocalLink(root, rootResolved, document, link.destination)
 			if !local {
 				continue
@@ -210,6 +253,31 @@ func validateDocumentation(root string) (report, error) {
 		return result, errors.New("onboarding documentation check failed:\n- " + strings.Join(problems, "\n- "))
 	}
 	return result, nil
+}
+
+func validateEntryPoint(relative, contents string, links []markdownLink) []string {
+	contract, ok := entryPointContracts[relative]
+	if !ok {
+		return nil
+	}
+	var problems []string
+	words := len(strings.Fields(contents))
+	if words > contract.maxWords {
+		problems = append(problems, fmt.Sprintf("%s has %d words; entry point limit is %d", relative, words, contract.maxWords))
+	}
+	linked := make(map[string]bool, len(links))
+	for _, link := range links {
+		parsed, err := url.Parse(strings.TrimSpace(link.destination))
+		if err == nil && !parsed.IsAbs() && parsed.Host == "" {
+			linked[parsed.Path] = true
+		}
+	}
+	for _, required := range contract.requiredLinks {
+		if !linked[required] {
+			problems = append(problems, fmt.Sprintf("%s does not link directly to task guide %s", relative, required))
+		}
+	}
+	return problems
 }
 
 func validateLocalLink(root, rootResolved, document, destination string) (bool, error) {
