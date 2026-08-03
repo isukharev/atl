@@ -2,6 +2,7 @@ package wikimerge
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/isukharev/atl/internal/wikimd"
@@ -54,6 +55,8 @@ func FuzzMerge(f *testing.F) {
 		f.Add(base, base)
 		f.Add(base, "")
 	}
+	oversized := strings.TrimSuffix(strings.Repeat("paragraph\n\n", 1000), "\n\n")
+	f.Add(oversized, oversized)
 	f.Fuzz(func(t *testing.T, base, edited string) {
 		// Never panic on arbitrary edits.
 		_, _, _ = Merge([]byte(base), edited, Options{AllowLoss: true})
@@ -67,8 +70,9 @@ func FuzzMerge(f *testing.F) {
 			// fails closed — that is acceptable and safe, but it must be a *BlockError
 			// ("edit the .wiki directly"), never a panic or a silent bad merge.
 			var be *BlockError
-			if !errors.As(err, &be) {
-				t.Fatalf("pristine round-trip errored with non-BlockError: %v\nbase=%q\nmd=%q", err, base, md)
+			var ae *AlignmentError
+			if !errors.As(err, &be) && !errors.As(err, &ae) {
+				t.Fatalf("pristine round-trip errored with unexpected type: %v\nbase=%q\nmd=%q", err, base, md)
 			}
 			return
 		}

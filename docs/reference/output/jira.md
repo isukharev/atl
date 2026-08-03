@@ -212,7 +212,8 @@ rewrites the derived `.md`, callers preserve any existing edits externally and
 reapply them after migration.
 `removed_constructs` entry is `{ "kind", "text" }` (`kind` ∈ `panel`, `color`, `mention`, `image`,
 `monospace`, `link`, `macro`, …). The merge is fail-closed and exits `8` (`ErrCheckFailed`, nothing
-written) on: an unconvertible edited block; a wiki-only construct dropped without `--allow-loss`
+written) on: an unconvertible edited block; a block set that exceeds the fixed alignment allocation
+budget (edit the native `.wiki` directly); a wiki-only construct dropped without `--allow-loss`
 (the report still carries `removed_constructs` so the caller can see what would go); an edit to any
 section other than generated `# Description` or an explicitly editable rich-text field (the error
 names the section and its dedicated command); or a

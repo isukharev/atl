@@ -322,6 +322,8 @@ cannot be converted to wiki (a construct outside the subset) — make that edit 
 the `.wiki` directly; a wiki-only construct present in the base is dropped by the
 edit (`{panel}`, `{color}`, `[~mention]`, `!embed!`, a macro) and `--allow-loss`
 was not given (the dropped constructs are listed in `removed_constructs`); an edit
+has enough blocks to exceed the fixed alignment safety budget — edit the native
+`.wiki` substrate directly instead of retrying or weakening the bound; an edit
 touches any section other than generated `# Description` or an opt-in editable field (Metadata, Comments,
 Links, Image Attachments) — the refusal names the section and the dedicated
 command (`jira issue update`, `jira issue comment add`, `jira issue link add`,
