@@ -112,16 +112,20 @@ mismatch causes `Run` to return with no update.
 ### 9. Atomic replacement (applied on the next invocation)
 
 The new binary is written to a temporary file in the same directory as the
-running executable, then `os.Rename`-d over the current executable. The original
-file's permission bits are preserved (a hardened `0700`/`0750` install is not
-silently widened), with the executable bit forced on. On Linux and macOS this is
-safe while the binary is running (the OS keeps the old inode open; only the
-directory entry changes). The current process is **not** re-execed — the running
-command finishes on the already-loaded image and the new version takes effect on
-the next invocation, so a command is never transparently replaced mid-run.
+running executable, then `os.Rename`-d over the current executable. If the
+launcher is a symlink, its real target is resolved and replaced while the
+launcher remains a symlink. The target's permission bits are preserved (a
+hardened `0700`/`0750` install is not silently widened), with the executable bit
+forced on. On Linux and macOS this is safe while the binary is running (the OS
+keeps the old inode open; only the directory entry changes). The current process
+is **not** re-execed — the running command finishes on the already-loaded image
+and the new version takes effect on the next invocation, so a command is never
+transparently replaced mid-run.
 
-If any step from 8 onwards fails (unwritable directory, rename error), `Run`
-returns with no side effects visible to the user.
+If the final rename fails, the original target and its permissions remain
+unchanged and the same-directory temporary file is removed. `Run` still records
+the normal check-throttle stamp written before remote work, but it does not
+record the candidate as an installed version.
 
 ---
 

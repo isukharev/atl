@@ -38,7 +38,40 @@ jobs:
         with:
           go-version-file: go.mod
           check-latest: true
-      - run: make race
+      - name: Core race and coverage gate
+        run: make check-core-race-coverage
+
+  # Release-only tags do not pass through pull-request CI, so rerun every
+  # repository-integrity and static-analysis gate before credentials become
+  # available to the publication job.
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Maintainer toolchain contract
+        run: GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract
+      - name: Core/heavy package boundary
+        run: make check-package-boundary
+      - name: Generated plugin trees are current
+        run: make check-plugins
+      - name: Indexed documentation contract
+        run: make check-context7-docs
+      - name: Onboarding documentation rehearsal
+        run: make check-onboarding-docs
+      - name: Vet
+        run: go vet ./...
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.12.2
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.4.0
+          govulncheck ./...
 
   agent-eval:
     runs-on: ubuntu-latest
@@ -48,10 +81,11 @@ jobs:
         with:
           go-version-file: go.mod
           check-latest: true
-      - run: make agent-eval-race
+      - name: Agent evaluation race gate
+        run: make agent-eval-race
 
   release:
-    needs: [test, agent-eval]
+    needs: [test, quality, agent-eval]
     runs-on: ubuntu-latest
     # Environment protection is a second gate after the protected v* tag: only
     # this credential-bearing job can request release secrets, and it must wait

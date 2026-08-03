@@ -358,10 +358,17 @@ func checksumOK(data []byte, want string) bool {
 // (the running image keeps the old inode); the new bytes take effect on the
 // next invocation.
 func replaceBinary(ctx context.Context, data []byte) error {
+	return replaceBinaryFrom(ctx, data, os.Executable)
+}
+
+// replaceBinaryFrom keeps executable discovery injectable without a mutable
+// package hook. Production passes os.Executable; tests can directly prove the
+// launcher-to-target resolution and replacement boundary.
+func replaceBinaryFrom(ctx context.Context, data []byte, executable func() (string, error)) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	exe, err := os.Executable()
+	exe, err := executable()
 	if err != nil {
 		return err
 	}
@@ -382,6 +389,12 @@ func replaceBinary(ctx context.Context, data []byte) error {
 // running executable via rename is safe on Linux/macOS (the running image keeps
 // the old inode); the new bytes take effect on the next invocation.
 func replaceFile(path string, data []byte) error {
+	return replaceFileWithRename(path, data, os.Rename)
+}
+
+// replaceFileWithRename isolates the final filesystem commit for deterministic
+// failure tests. The production path always supplies os.Rename.
+func replaceFileWithRename(path string, data []byte, rename func(string, string) error) error {
 	mode := os.FileMode(0o755)
 	if fi, err := os.Stat(path); err == nil {
 		mode = fi.Mode().Perm()
@@ -406,7 +419,7 @@ func replaceFile(path string, data []byte) error {
 	if err := os.Chmod(tmpName, mode); err != nil {
 		return err
 	}
-	return os.Rename(tmpName, path)
+	return rename(tmpName, path)
 }
 
 // semverLess reports whether a < b for dotted numeric versions (pre-release

@@ -15,6 +15,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -439,6 +441,110 @@ func TestReplaceFileDirGone(t *testing.T) {
 	path := filepath.Join(missingDir, "atl")
 	if err := replaceFile(path, []byte("x")); err == nil {
 		t.Error("replaceFile into a non-existent directory should error")
+	}
+}
+
+func TestReplaceBinaryFromResolvesSymlinkLauncher(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("self-update releases support Linux and macOS")
+	}
+	dir := t.TempDir()
+	target := filepath.Join(dir, "atl-real")
+	launcher := filepath.Join(dir, "atl")
+	if err := os.WriteFile(target, []byte("OLD"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Base(target), launcher); err != nil {
+		t.Fatal(err)
+	}
+	if err := replaceBinaryFrom(context.Background(), []byte("NEW"), func() (string, error) {
+		return launcher, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(target); err != nil || string(got) != "NEW" {
+		t.Fatalf("real target content=%q err=%v, want NEW", got, err)
+	}
+	info, err := os.Lstat(launcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("launcher symlink was replaced instead of its real target")
+	}
+	targetInfo, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if targetInfo.Mode().Perm() != 0o700 {
+		t.Fatalf("real target mode=%o, want 0700", targetInfo.Mode().Perm())
+	}
+}
+
+func TestReplaceFileCommitsBySameDirectoryRename(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "atl")
+	if err := os.WriteFile(path, []byte("OLD"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	committed := false
+	err = replaceFileWithRename(path, []byte("NEW"), func(temporary, destination string) error {
+		if destination != path || filepath.Dir(temporary) != dir ||
+			!strings.HasPrefix(filepath.Base(temporary), ".atl-update-") {
+			t.Fatalf("rename(%q, %q) is not a same-directory atomic commit", temporary, destination)
+		}
+		committed = true
+		return os.Rename(temporary, destination)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !committed || os.SameFile(before, after) {
+		t.Fatal("replacement did not atomically install a new file at the target path")
+	}
+}
+
+func TestReplaceFileRenameFailurePreservesTargetAndCleansTemp(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "atl")
+	if err := os.WriteFile(path, []byte("ORIGINAL"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	wantErr := errors.New("injected rename failure")
+	err := replaceFileWithRename(path, []byte("REPLACEMENT"), func(_, _ string) error {
+		return wantErr
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("error=%v, want injected rename failure", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "ORIGINAL" {
+		t.Fatalf("target content=%q after failed commit, want ORIGINAL", got)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o750 {
+		t.Fatalf("target mode=%o after failed commit, want 0750", info.Mode().Perm())
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "atl" {
+		t.Fatalf("directory entries after failed commit=%v, want only atl", entries)
 	}
 }
 

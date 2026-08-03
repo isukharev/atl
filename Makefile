@@ -5,6 +5,7 @@
 #   make test             run unit tests
 #   make lint             run golangci-lint (if installed)
 #   make vet              go vet
+#   make check-core-race-coverage run the shared release-grade core test gate
 #   make gen-plugins      regenerate skills/ and plugins/atl/skills/ from skills-src/
 #   make check-plugins    verify the generated plugin trees are current
 #   make check-skill-safety validate designated read-only skill shell blocks
@@ -49,6 +50,17 @@ test:
 race:
 	@packages="$$(go run ./scripts/list-go-packages --class core)" && \
 		test -n "$$packages" && go test -race $$packages
+
+# Shared by pull-request CI and tag releases. Keep package selection routed
+# through list-go-packages so the race and cross-package coverage scopes cannot
+# silently drift apart as heavy evaluator packages are added.
+.PHONY: check-core-race-coverage
+check-core-race-coverage:
+	@core_packages="$$(go run ./scripts/list-go-packages --class core)" && \
+		core_cover="$$(go run ./scripts/list-go-packages --class core --scope internal --format csv)" && \
+		test -n "$$core_packages" && test -n "$$core_cover" && \
+		go test -race -covermode=atomic -coverprofile=cover.out -coverpkg="$$core_cover" -count=1 -timeout=10m $$core_packages
+	@go run ./scripts/check-coverage --profile cover.out --minimum "84.0"
 
 # Live integration tests against a REAL Confluence/Jira Data Center. Opt-in only —
 # never part of `make test` and never run in CI. Reads local-only ./.env.integration
@@ -103,7 +115,7 @@ check-context7-docs:
 
 .PHONY: check-onboarding-docs
 check-onboarding-docs: build
-	go run ./scripts/check-onboarding-docs -root . -atl ./atl
+	ATL_NO_UPDATE=1 go run ./scripts/check-onboarding-docs -root . -atl ./atl
 
 .PHONY: check-maintainer-contract
 check-maintainer-contract:
