@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 )
 
@@ -30,6 +31,86 @@ check-windows-compile:
 	GOROOT= GOTOOLCHAIN=auto GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...
 `
 
+const coreCoverageMakeContract = `.PHONY: check-core-race-coverage
+check-core-race-coverage:
+	@core_packages="$$(go run ./scripts/list-go-packages --class core)" && \
+		core_cover="$$(go run ./scripts/list-go-packages --class core --scope internal --format csv)" && \
+		test -n "$$core_packages" && test -n "$$core_cover" && \
+		go test -race -covermode=atomic -coverprofile=cover.out -coverpkg="$$core_cover" -count=1 -timeout=10m $$core_packages
+	@go run ./scripts/check-coverage --profile cover.out --minimum "84.0"
+`
+
+const packageBoundaryMakeContract = `.PHONY: check-package-boundary
+check-package-boundary:
+	@core="$$(go run ./scripts/list-go-packages --class core)" && \
+		heavy="$$(go run ./scripts/list-go-packages --class heavy)" && \
+		test -n "$$core" && test -n "$$heavy"
+`
+
+const pluginsMakeContract = `.PHONY: check-plugins
+check-plugins: gen-plugins check-skill-safety check-skill-routing
+	@test -z "$$(git status --porcelain -- skills plugins/atl/skills plugins/atl/.mcp.json)" || { \
+		git status --porcelain -- skills plugins/atl/skills plugins/atl/.mcp.json; \
+		echo "generated plugin trees are stale or hand-edited: edit skills-src/, run 'make gen-plugins', commit all three trees"; exit 1; }
+`
+
+const context7MakeContract = `.PHONY: check-context7-docs
+check-context7-docs:
+	go run ./scripts/check-context7-docs
+`
+
+const onboardingMakeContract = `.PHONY: check-onboarding-docs
+check-onboarding-docs: build
+	ATL_NO_UPDATE=1 go run ./scripts/check-onboarding-docs -root . -atl ./atl
+`
+
+const agentEvalRaceMakeContract = `.PHONY: agent-eval-race
+agent-eval-race: agent-eval-compat
+	go test -race ./internal/agenteval ./scripts/agent-eval -count=1 -timeout=10m
+`
+
+const (
+	checkoutStepContract = `      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1`
+	setupGoStepContract  = `      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: go.mod
+          check-latest: true`
+	buildStepContract = `      - name: Build
+        run: make build`
+	coreGateStepContract = `      - name: Core race and coverage gate
+        run: make check-core-race-coverage`
+	ciProvenanceStepContract = `      - name: Verify stamped build provenance
+        run: |
+          ATL_NO_UPDATE=1 ./atl version > "$RUNNER_TEMP/atl-version.json"
+          grep -F "\"commit\": \"$(git rev-parse HEAD)\"" "$RUNNER_TEMP/atl-version.json"
+          grep -F '"build_state": "clean"' "$RUNNER_TEMP/atl-version.json"`
+	windowsCompileStepContract = `      - name: Windows source cross-compile
+        if: matrix.os == 'ubuntu-latest'
+        run: make check-windows-compile`
+	maintainerStepContract = `      - name: Maintainer toolchain contract
+        run: GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract`
+	packageBoundaryStepContract = `      - name: Core/heavy package boundary
+        run: make check-package-boundary`
+	pluginsStepContract = `      - name: Generated plugin trees are current
+        run: make check-plugins`
+	context7StepContract = `      - name: Indexed documentation contract
+        run: make check-context7-docs`
+	onboardingStepContract = `      - name: Onboarding documentation rehearsal
+        run: make check-onboarding-docs`
+	vetStepContract = `      - name: Vet
+        run: go vet ./...`
+	lintStepContract = `      - name: golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a
+        with:
+          version: v2.12.2`
+	govulncheckStepContract = `      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.4.0
+          govulncheck ./...`
+	agentEvalStepContract = `      - name: Agent evaluation race gate
+        run: make agent-eval-race`
+)
+
 type devcontainerConfig struct {
 	Image        string                       `json:"image"`
 	RemoteUser   string                       `json:"remoteUser"`
@@ -46,6 +127,13 @@ type lockedFeature struct {
 	Resolved  string `json:"resolved"`
 	Integrity string `json:"integrity"`
 }
+
+type workflowField struct {
+	key   string
+	value string
+}
+
+const anyWorkflowValue = "\x00"
 
 type report struct {
 	Status         string `json:"status"`
@@ -93,6 +181,9 @@ func validateRepository(root, runtimeVersion string) (string, error) {
 		if err := validateSetupGoWorkflow(contents); err != nil {
 			return "", fmt.Errorf("%s: %w", workflow, err)
 		}
+	}
+	if err := validateDeliveryContracts(root); err != nil {
+		return "", err
 	}
 	return goVersion, nil
 }
@@ -179,11 +270,34 @@ func validateBootstrap(root string) error {
 		return fmt.Errorf("read Makefile: %w", err)
 	}
 	const makeContract = "check-maintainer-contract:\n\tGOTOOLCHAIN=local go run ./scripts/check-maintainer-contract\n"
-	if !bytes.Contains(makefile, []byte(makeContract)) {
+	if countMakeTargetDeclarations(makefile, "check-maintainer-contract") != 1 ||
+		bytes.Count(makefile, []byte(makeContract)) != 1 {
 		return errors.New("makefile maintainer check must start with GOTOOLCHAIN=local")
 	}
-	if !bytes.Contains(makefile, []byte(windowsCompileMakeContract)) {
+	if countMakeTargetDeclarations(makefile, "check-windows-compile") != 1 ||
+		bytes.Count(makefile, []byte(windowsCompileMakeContract)) != 1 {
 		return errors.New("makefile must provide the exact Windows source cross-compile target")
+	}
+	if err := validateMakeExecutionControls(makefile); err != nil {
+		return err
+	}
+	if countMakeTargetDeclarations(makefile, "check-core-race-coverage") != 1 ||
+		bytes.Count(makefile, []byte(coreCoverageMakeContract)) != 1 {
+		return errors.New("makefile must retain the exact core race/coverage command and reviewed 84.0% floor")
+	}
+	for _, required := range []struct {
+		target, contract, diagnostic string
+	}{
+		{"check-package-boundary", packageBoundaryMakeContract, "makefile must retain the exact package-boundary gate"},
+		{"check-plugins", pluginsMakeContract, "makefile must retain the exact generated-plugin gate"},
+		{"check-context7-docs", context7MakeContract, "makefile must retain the exact indexed-documentation gate"},
+		{"check-onboarding-docs", onboardingMakeContract, "makefile onboarding binary assertion must set ATL_NO_UPDATE=1"},
+		{"agent-eval-race", agentEvalRaceMakeContract, "makefile must retain the exact agent-evaluation race gate"},
+	} {
+		if countMakeTargetDeclarations(makefile, required.target) != 1 ||
+			bytes.Count(makefile, []byte(required.contract)) != 1 {
+			return errors.New(required.diagnostic)
+		}
 	}
 	postCreate, err := os.ReadFile(filepath.Join(root, ".devcontainer", "post-create.sh"))
 	if err != nil {
@@ -197,10 +311,664 @@ func validateBootstrap(root string) error {
 	if err != nil {
 		return fmt.Errorf("read ci workflow: %w", err)
 	}
-	if !bytes.Contains(ci, []byte("run: make check-maintainer-contract")) {
-		return errors.New("ci must run make check-maintainer-contract")
+	if !bytes.Contains(ci, []byte("run: GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract")) {
+		return errors.New("ci must run the maintainer contract directly with the local toolchain")
 	}
-	return validateWindowsCompileWorkflow(ci)
+	if err := validateWorkflowHeader(ci, "ci", "ci"); err != nil {
+		return err
+	}
+	if err := validateWindowsCompileWorkflow(ci); err != nil {
+		return err
+	}
+	testJob, err := workflowJob(ci, "test")
+	if err != nil {
+		return err
+	}
+	if err := requireWorkflowStepPrefix(testJob, "ci test",
+		checkoutStepContract, setupGoStepContract, buildStepContract,
+		ciProvenanceStepContract, vetStepContract, coreGateStepContract,
+	); err != nil {
+		return err
+	}
+	if err := requireWorkflowStep(testJob, "Core race and coverage gate", coreGateStepContract); err != nil {
+		return fmt.Errorf("ci: %w", err)
+	}
+	if err := requireWorkflowStep(testJob, "Verify stamped build provenance", ciProvenanceStepContract); err != nil {
+		return fmt.Errorf("ci: %w", err)
+	}
+	lintJob, err := workflowJob(ci, "lint")
+	if err != nil {
+		return err
+	}
+	if err := validateRequiredJob(lintJob, "ci lint",
+		workflowField{"if", "github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'"},
+		workflowField{"runs-on", "ubuntu-latest"},
+		workflowField{"steps", ""},
+	); err != nil {
+		return err
+	}
+	if err := requireWorkflowStepPrefix(lintJob, "ci lint",
+		checkoutStepContract, setupGoStepContract, maintainerStepContract,
+		packageBoundaryStepContract, pluginsStepContract, context7StepContract,
+		onboardingStepContract, lintStepContract,
+	); err != nil {
+		return err
+	}
+	for _, required := range []struct {
+		name, contract string
+	}{
+		{"Maintainer toolchain contract", maintainerStepContract},
+		{"Core/heavy package boundary", packageBoundaryStepContract},
+		{"Generated plugin trees are current", pluginsStepContract},
+		{"Indexed documentation contract", context7StepContract},
+		{"Onboarding documentation rehearsal", onboardingStepContract},
+		{"golangci-lint", lintStepContract},
+	} {
+		if err := requireWorkflowStep(lintJob, required.name, required.contract); err != nil {
+			return fmt.Errorf("ci: %w", err)
+		}
+	}
+	return nil
+}
+
+func countMakeTargetDeclarations(makefile []byte, target string) int {
+	count := 0
+	for _, line := range strings.Split(string(makefile), "\n") {
+		if strings.HasPrefix(line, "\t") {
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		separator := strings.IndexByte(trimmed, ':')
+		if separator < 0 {
+			continue
+		}
+		for _, declared := range strings.Fields(trimmed[:separator]) {
+			declared = strings.TrimSuffix(declared, "&")
+			if declared == target {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+func validateMakeExecutionControls(makefile []byte) error {
+	for lineNumber, line := range strings.Split(string(makefile), "\n") {
+		if strings.HasPrefix(line, "\t") {
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if strings.HasSuffix(trimmed, "\\") {
+			return fmt.Errorf("makefile line %d must not continue hidden top-level build controls", lineNumber+1)
+		}
+		lower := strings.ToLower(trimmed)
+		fields := strings.Fields(lower)
+		if len(fields) > 0 {
+			switch fields[0] {
+			case "ifeq", "ifneq", "ifdef", "ifndef", "else", "endif":
+				return fmt.Errorf("makefile line %d must not conditionally disable reviewed build controls", lineNumber+1)
+			}
+		}
+		includeDirective := len(fields) > 0 && (fields[0] == "include" || fields[0] == "-include" || fields[0] == "sinclude")
+		if includeDirective || strings.Contains(trimmed, "$(eval") ||
+			strings.Contains(trimmed, "${eval") {
+			return fmt.Errorf("makefile line %d must not import or evaluate hidden build rules", lineNumber+1)
+		}
+		for _, field := range fields {
+			if field == "define" || field == "endef" {
+				return fmt.Errorf("makefile line %d must not define hidden multiline build controls", lineNumber+1)
+			}
+		}
+		if strings.HasPrefix(trimmed, "$") {
+			return fmt.Errorf("makefile line %d must not expand hidden top-level directives", lineNumber+1)
+		}
+		if variable := dangerousMakeAssignment(trimmed); variable != "" {
+			return fmt.Errorf("makefile line %d must not override %s", lineNumber+1, variable)
+		}
+		if separator := strings.IndexByte(trimmed, ':'); separator >= 0 {
+			declaration := strings.TrimSpace(trimmed[:separator])
+			if strings.Contains(declaration, "$") {
+				return fmt.Errorf("makefile line %d must not declare dynamically expanded targets", lineNumber+1)
+			}
+			for _, target := range strings.Fields(declaration) {
+				target = strings.TrimSuffix(target, "&")
+				if target == ".IGNORE" || target == ".ONESHELL" {
+					return fmt.Errorf("makefile line %d must not weaken recipe failure propagation", lineNumber+1)
+				}
+			}
+			if variable := dangerousMakeAssignment(strings.TrimSpace(trimmed[separator+1:])); variable != "" {
+				return fmt.Errorf("makefile line %d must not set target-specific %s", lineNumber+1, variable)
+			}
+		}
+	}
+	return nil
+}
+
+func dangerousMakeAssignment(value string) string {
+	for {
+		previous := value
+		for _, modifier := range []string{"override", "export", "private", "unexport"} {
+			if strings.HasPrefix(value, modifier) && len(value) > len(modifier) &&
+				(value[len(modifier)] == ' ' || value[len(modifier)] == '\t') {
+				value = strings.TrimLeft(value[len(modifier):], " \t")
+			}
+		}
+		if value == previous {
+			break
+		}
+	}
+	if assignment := strings.IndexByte(value, '='); assignment >= 0 {
+		name := value[:assignment]
+		if strings.Contains(name, "$") {
+			return "computed variable name"
+		}
+	}
+	for _, variable := range []string{"MAKEFLAGS", "GNUMAKEFLAGS", "MAKEFILES", "SHELL", ".SHELLFLAGS", ".RECIPEPREFIX"} {
+		if !strings.HasPrefix(value, variable) {
+			continue
+		}
+		rest := strings.TrimSpace(strings.TrimPrefix(value, variable))
+		if rest == "" || strings.HasPrefix(rest, "=") || strings.HasPrefix(rest, ":=") ||
+			strings.HasPrefix(rest, "::=") || strings.HasPrefix(rest, ":::=") ||
+			strings.HasPrefix(rest, "+=") || strings.HasPrefix(rest, "?=") ||
+			strings.HasPrefix(rest, "!=") {
+			return variable
+		}
+	}
+	return ""
+}
+
+func validateDeliveryContracts(root string) error {
+	releasePath := filepath.Join(root, ".github", "workflows", "release.yml")
+	release, err := os.ReadFile(releasePath)
+	if err != nil {
+		return fmt.Errorf("read release workflow: %w", err)
+	}
+	if err := validateWorkflowHeader(release, "release", "release"); err != nil {
+		return err
+	}
+	trigger, err := workflowTopLevelBlock(release, "on")
+	if err != nil {
+		return err
+	}
+	const releaseTrigger = `on:
+  push:
+    tags: ['v*']
+`
+	if strings.TrimSpace(string(trigger)) != strings.TrimSpace(releaseTrigger) {
+		return errors.New("release workflow must retain the exact v* tag trigger")
+	}
+	if err := validateWorkflowJobSet(release, "release", "test", "quality", "agent-eval", "release", "refresh-context7"); err != nil {
+		return err
+	}
+
+	testJob, err := workflowJob(release, "test")
+	if err != nil {
+		return err
+	}
+	if err := validateReleaseMatrix(testJob); err != nil {
+		return err
+	}
+	if err := requireWorkflowStepPrefix(testJob, "release test",
+		checkoutStepContract, setupGoStepContract, coreGateStepContract,
+	); err != nil {
+		return err
+	}
+	if err := requireWorkflowStep(testJob, "Core race and coverage gate", coreGateStepContract); err != nil {
+		return fmt.Errorf("release: %w", err)
+	}
+
+	qualityJob, err := workflowJob(release, "quality")
+	if err != nil {
+		return err
+	}
+	if err := validateRequiredJob(qualityJob, "release quality",
+		workflowField{"runs-on", "ubuntu-latest"},
+		workflowField{"steps", ""},
+	); err != nil {
+		return err
+	}
+	if err := requireWorkflowStepPrefix(qualityJob, "release quality",
+		checkoutStepContract, setupGoStepContract, maintainerStepContract,
+		packageBoundaryStepContract, pluginsStepContract, context7StepContract,
+		onboardingStepContract, vetStepContract, lintStepContract, govulncheckStepContract,
+	); err != nil {
+		return err
+	}
+	qualitySteps := []struct {
+		name, contract string
+	}{
+		{"Maintainer toolchain contract", maintainerStepContract},
+		{"Core/heavy package boundary", packageBoundaryStepContract},
+		{"Generated plugin trees are current", pluginsStepContract},
+		{"Indexed documentation contract", context7StepContract},
+		{"Onboarding documentation rehearsal", onboardingStepContract},
+		{"Vet", vetStepContract},
+		{"golangci-lint", lintStepContract},
+		{"govulncheck", govulncheckStepContract},
+	}
+	for _, required := range qualitySteps {
+		if err := requireWorkflowStep(qualityJob, required.name, required.contract); err != nil {
+			return fmt.Errorf("release: %w", err)
+		}
+	}
+
+	agentEvalJob, err := workflowJob(release, "agent-eval")
+	if err != nil {
+		return err
+	}
+	if err := validateRequiredJob(agentEvalJob, "release agent-eval",
+		workflowField{"runs-on", "ubuntu-latest"},
+		workflowField{"steps", ""},
+	); err != nil {
+		return err
+	}
+	if err := requireWorkflowStepPrefix(agentEvalJob, "release agent-eval",
+		checkoutStepContract, setupGoStepContract, agentEvalStepContract,
+	); err != nil {
+		return err
+	}
+	if err := requireWorkflowStep(agentEvalJob, "Agent evaluation race gate", agentEvalStepContract); err != nil {
+		return fmt.Errorf("release: %w", err)
+	}
+
+	publication, err := workflowJob(release, "release")
+	if err != nil {
+		return err
+	}
+	if err := validateRequiredJob(publication, "release publication",
+		workflowField{"needs", anyWorkflowValue},
+		workflowField{"runs-on", "ubuntu-latest"},
+		workflowField{"environment", "release"},
+		workflowField{"permissions", ""},
+		workflowField{"env", ""},
+		workflowField{"steps", ""},
+	); err != nil {
+		return err
+	}
+	if err := requireInlineNeeds(publication, "test", "quality", "agent-eval"); err != nil {
+		return err
+	}
+
+	followup, err := workflowJob(release, "refresh-context7")
+	if err != nil {
+		return err
+	}
+	if err := validateJobFields(followup, "release documentation follow-up", true,
+		workflowField{"name", "Refresh Context7 stable docs (non-blocking)"},
+		workflowField{"needs", anyWorkflowValue},
+		workflowField{"runs-on", "ubuntu-latest"},
+		workflowField{"continue-on-error", "true"},
+		workflowField{"environment", "context7"},
+		workflowField{"permissions", ""},
+		workflowField{"concurrency", ""},
+		workflowField{"env", ""},
+		workflowField{"steps", ""},
+	); err != nil {
+		return err
+	}
+	return requireInlineNeeds(followup, "release")
+}
+
+func validateReleaseMatrix(job []byte) error {
+	lines := strings.Split(string(job), "\n")
+	if err := validateRequiredJob(job, "release test matrix",
+		workflowField{"strategy", ""},
+		workflowField{"runs-on", "${{ matrix.os }}"},
+		workflowField{"steps", ""},
+	); err != nil {
+		return fmt.Errorf("release test job must retain the exact Ubuntu/macOS matrix runners: %w", err)
+	}
+	matrixLine, matrixCount, runnerCount := -1, 0, 0
+	for index, line := range lines {
+		if indentation(line) == 6 && strings.TrimSpace(line) == "matrix:" {
+			matrixLine = index
+			matrixCount++
+		}
+		if indentation(line) == 4 && strings.TrimSpace(line) == "runs-on: ${{ matrix.os }}" {
+			runnerCount++
+		}
+	}
+	if matrixCount != 1 || runnerCount != 1 {
+		return errors.New("release test job must retain the exact Ubuntu/macOS matrix runners")
+	}
+	hasOS := false
+	for _, line := range lines[matrixLine+1:] {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if indentation(line) <= 6 {
+			break
+		}
+		if indentation(line) != 8 || trimmed != "os: [ubuntu-latest, macos-latest]" || hasOS {
+			return errors.New("release test job must retain the exact Ubuntu/macOS matrix runners")
+		}
+		hasOS = true
+	}
+	if !hasOS {
+		return errors.New("release test job must retain the exact Ubuntu/macOS matrix runners")
+	}
+	return nil
+}
+
+func validateRequiredJob(job []byte, description string, expected ...workflowField) error {
+	return validateJobFields(job, description, false, expected...)
+}
+
+func validateJobFields(job []byte, description string, allowFailure bool, expected ...workflowField) error {
+	wanted := make(map[string]string, len(expected))
+	for _, field := range expected {
+		if _, duplicate := wanted[field.key]; duplicate {
+			return fmt.Errorf("%s contract repeats job-level key %q", description, field.key)
+		}
+		wanted[field.key] = field.value
+	}
+	seen := make(map[string]bool, len(expected))
+	for _, line := range strings.Split(string(job), "\n") {
+		if indentation(line) != 4 {
+			continue
+		}
+		trimmed := strings.TrimSpace(stripYAMLComment(line))
+		if trimmed == "" {
+			continue
+		}
+		key, value, ok := simpleYAMLKeyValue(line)
+		if !ok {
+			return fmt.Errorf("%s job has an unrecognized job-level field", description)
+		}
+		if key == "continue-on-error" && !allowFailure {
+			return fmt.Errorf("%s job must be unconditional and failure-blocking", description)
+		}
+		want, allowed := wanted[key]
+		if key == "if" && !allowed {
+			return fmt.Errorf("%s job must be unconditional and failure-blocking", description)
+		}
+		if !allowed {
+			return fmt.Errorf("%s job has unexpected job-level key %q", description, key)
+		}
+		if seen[key] {
+			return fmt.Errorf("%s job repeats job-level key %q", description, key)
+		}
+		if want != anyWorkflowValue && value != want {
+			return fmt.Errorf("%s job must retain %s: %s", description, key, want)
+		}
+		seen[key] = true
+	}
+	for _, field := range expected {
+		if !seen[field.key] {
+			return fmt.Errorf("%s job is missing required job-level key %q", description, field.key)
+		}
+	}
+	return nil
+}
+
+func validateWorkflowJobSet(contents []byte, description string, expected ...string) error {
+	jobs, err := workflowTopLevelBlock(contents, "jobs")
+	if err != nil {
+		return err
+	}
+	wanted := make(map[string]bool, len(expected))
+	for _, name := range expected {
+		wanted[name] = true
+	}
+	seen := make(map[string]bool, len(expected))
+	for _, line := range strings.Split(string(jobs), "\n") {
+		if indentation(line) != 2 || strings.TrimSpace(stripYAMLComment(line)) == "" {
+			continue
+		}
+		name, _, ok := simpleYAMLKeyValue(line)
+		if !ok {
+			return fmt.Errorf("%s workflow has an unrecognized job identifier", description)
+		}
+		if !wanted[name] {
+			return fmt.Errorf("%s workflow has unexpected job %q", description, name)
+		}
+		if seen[name] {
+			return fmt.Errorf("%s workflow defines %q job more than once", description, name)
+		}
+		seen[name] = true
+	}
+	for _, name := range expected {
+		if !seen[name] {
+			return fmt.Errorf("%s workflow is missing required job %q", description, name)
+		}
+	}
+	return nil
+}
+
+func validateWorkflowHeader(contents []byte, description, name string) error {
+	expected := []workflowField{
+		{"name", name},
+		{"on", ""},
+		{"permissions", ""},
+		{"concurrency", ""},
+		{"jobs", ""},
+	}
+	wanted := make(map[string]string, len(expected))
+	for _, field := range expected {
+		wanted[field.key] = field.value
+	}
+	seen := make(map[string]bool, len(expected))
+	for _, line := range strings.Split(string(contents), "\n") {
+		if indentation(line) != 0 {
+			continue
+		}
+		trimmed := strings.TrimSpace(stripYAMLComment(line))
+		if trimmed == "" {
+			continue
+		}
+		key, value, ok := simpleYAMLKeyValue(line)
+		if !ok {
+			return fmt.Errorf("%s workflow has an unrecognized top-level field", description)
+		}
+		want, allowed := wanted[key]
+		if !allowed {
+			return fmt.Errorf("%s workflow has unexpected top-level key %q", description, key)
+		}
+		if seen[key] || value != want {
+			return fmt.Errorf("%s workflow must retain exactly one %s: %s field", description, key, want)
+		}
+		seen[key] = true
+	}
+	for _, field := range expected {
+		if !seen[field.key] {
+			return fmt.Errorf("%s workflow is missing top-level key %q", description, field.key)
+		}
+	}
+	return nil
+}
+
+func requireWorkflowStep(job []byte, name, contract string) error {
+	lines := strings.Split(string(job), "\n")
+	start, count := -1, 0
+	for index, line := range lines {
+		if indentation(line) == 6 && strings.TrimSpace(stripYAMLComment(line)) == "- name: "+name {
+			start = index
+			count++
+		}
+	}
+	if count != 1 {
+		return fmt.Errorf("required %q step must appear exactly once", name)
+	}
+	end := len(lines)
+	for index := start + 1; index < len(lines); index++ {
+		trimmed := strings.TrimSpace(lines[index])
+		if indentation(lines[index]) == 6 && (trimmed == "-" || strings.HasPrefix(trimmed, "- ")) {
+			end = index
+			break
+		}
+	}
+	actual := normalizeWorkflowBlock(strings.Join(lines[start:end], "\n"))
+	want := normalizeWorkflowBlock(contract)
+	if actual != want {
+		return fmt.Errorf("required %q step must retain its exact workflow block", name)
+	}
+	return nil
+}
+
+func requireWorkflowStepPrefix(job []byte, description string, contracts ...string) error {
+	steps, err := workflowStepBlocks(job)
+	if err != nil {
+		return err
+	}
+	if len(steps) < len(contracts) {
+		return fmt.Errorf("%s job must retain its required step prefix", description)
+	}
+	for index, contract := range contracts {
+		if normalizeWorkflowBlock(steps[index]) != normalizeWorkflowBlock(contract) {
+			return fmt.Errorf("%s job step %d must retain its exact required workflow block", description, index+1)
+		}
+	}
+	return nil
+}
+
+func workflowStepBlocks(job []byte) ([]string, error) {
+	lines := strings.Split(string(job), "\n")
+	stepsLine := -1
+	for index, line := range lines {
+		if indentation(line) == 4 && strings.TrimSpace(stripYAMLComment(line)) == "steps:" {
+			if stepsLine >= 0 {
+				return nil, errors.New("required workflow job defines steps more than once")
+			}
+			stepsLine = index
+		}
+	}
+	if stepsLine < 0 {
+		return nil, errors.New("required workflow job has no steps")
+	}
+	var starts []int
+	end := len(lines)
+	for index := stepsLine + 1; index < len(lines); index++ {
+		trimmed := strings.TrimSpace(lines[index])
+		if trimmed != "" && indentation(lines[index]) <= 4 {
+			end = index
+			break
+		}
+		if indentation(lines[index]) == 6 && (trimmed == "-" || strings.HasPrefix(trimmed, "- ")) {
+			starts = append(starts, index)
+		}
+	}
+	if len(starts) == 0 {
+		return nil, errors.New("required workflow job has no step entries")
+	}
+	blocks := make([]string, 0, len(starts))
+	for index, start := range starts {
+		blockEnd := end
+		if index+1 < len(starts) {
+			blockEnd = starts[index+1]
+		}
+		blocks = append(blocks, strings.Join(lines[start:blockEnd], "\n"))
+	}
+	return blocks, nil
+}
+
+func normalizeWorkflowBlock(block string) string {
+	var normalized []string
+	for _, line := range strings.Split(block, "\n") {
+		semantic := strings.TrimSpace(stripYAMLComment(line))
+		if semantic == "" || strings.HasPrefix(semantic, "#") {
+			continue
+		}
+		normalized = append(normalized, fmt.Sprintf("%d:%s", indentation(line), semantic))
+	}
+	return strings.Join(normalized, "\n")
+}
+
+func stripYAMLComment(line string) string {
+	singleQuoted, doubleQuoted, escaped := false, false, false
+	for index, current := range line {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if doubleQuoted && current == '\\' {
+			escaped = true
+			continue
+		}
+		switch current {
+		case '\'':
+			if !doubleQuoted {
+				singleQuoted = !singleQuoted
+			}
+		case '"':
+			if !singleQuoted {
+				doubleQuoted = !doubleQuoted
+			}
+		case '#':
+			if !singleQuoted && !doubleQuoted && (index == 0 || line[index-1] == ' ' || line[index-1] == '\t') {
+				return strings.TrimSpace(line[:index])
+			}
+		}
+	}
+	return line
+}
+
+func simpleYAMLKeyValue(line string) (key, value string, ok bool) {
+	trimmed := strings.TrimSpace(stripYAMLComment(line))
+	separator := strings.IndexByte(trimmed, ':')
+	if separator <= 0 {
+		return "", "", false
+	}
+	key = strings.TrimSpace(trimmed[:separator])
+	value = strings.TrimSpace(trimmed[separator+1:])
+	if len(key) >= 2 && key[0] == key[len(key)-1] {
+		switch key[0] {
+		case '"':
+			decoded, err := strconv.Unquote(key)
+			if err != nil {
+				return "", "", false
+			}
+			key = decoded
+		case '\'':
+			key = strings.ReplaceAll(key[1:len(key)-1], "''", "'")
+		}
+	}
+	if key == "" || strings.ContainsAny(key, "'\"") {
+		return "", "", false
+	}
+	return key, value, true
+}
+
+func requireInlineNeeds(job []byte, required ...string) error {
+	var needs []string
+	for _, line := range strings.Split(string(job), "\n") {
+		if indentation(line) != 4 {
+			continue
+		}
+		key, value, ok := simpleYAMLKeyValue(line)
+		if !ok || key != "needs" {
+			continue
+		}
+		if needs != nil {
+			return errors.New("release publication job must define one required needs list")
+		}
+		if len(value) < 2 || value[0] != '[' || value[len(value)-1] != ']' {
+			return errors.New("release publication job must use an explicit inline needs list")
+		}
+		for _, item := range strings.Split(value[1:len(value)-1], ",") {
+			needs = append(needs, strings.TrimSpace(item))
+		}
+	}
+	if needs == nil {
+		return errors.New("release publication job is missing required prerequisites")
+	}
+	for _, want := range required {
+		found := false
+		for _, got := range needs {
+			found = found || got == want
+		}
+		if !found {
+			return fmt.Errorf("release publication job must need %q", want)
+		}
+	}
+	return nil
 }
 
 func validateWindowsCompileWorkflow(contents []byte) error {
@@ -238,23 +1006,30 @@ func validateWindowsCompileWorkflow(contents []byte) error {
 		if indent != 4 {
 			continue
 		}
-		if strings.HasPrefix(trimmed, "if:") {
-			if trimmed != "if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'" {
+		key, value, ok := simpleYAMLKeyValue(line)
+		if !ok {
+			continue
+		}
+		if key == "if" {
+			if value != "github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'" {
 				return errors.New("ci test job must retain the exact required event condition")
 			}
 			requiredIfCount++
 		}
-		if strings.HasPrefix(trimmed, "runs-on:") {
-			if trimmed != "runs-on: ${{ matrix.os }}" {
+		if key == "runs-on" {
+			if value != "${{ matrix.os }}" {
 				return errors.New("ci test job must retain the exact matrix runner")
 			}
 			requiredRunnerCount++
 		}
-		if strings.HasPrefix(trimmed, "continue-on-error:") {
+		if key == "continue-on-error" {
 			return errors.New("ci test job must not allow job-level failure")
 		}
-		if strings.HasPrefix(trimmed, "needs:") {
+		if key == "needs" {
 			return errors.New("ci test job must not depend on a potentially skipped job")
+		}
+		if key != "if" && key != "strategy" && key != "runs-on" && key != "steps" {
+			return fmt.Errorf("ci test job has unexpected job-level key %q", key)
 		}
 	}
 	if requiredIfCount != 1 || requiredRunnerCount != 1 || matrixLine < 0 {
@@ -277,24 +1052,8 @@ func validateWindowsCompileWorkflow(contents []byte) error {
 	if !hasRequiredOS {
 		return errors.New("ci test job must retain the exact required Ubuntu/macOS matrix")
 	}
-	const requiredStep = `      - name: Windows source cross-compile
-        if: matrix.os == 'ubuntu-latest'
-        run: make check-windows-compile
-`
-	stepStart := bytes.Index(testJob, []byte(requiredStep))
-	if stepStart < 0 {
-		return errors.New("ci Ubuntu test job must run make check-windows-compile")
-	}
-	stepEnd := len(testJob)
-	if nextStep := bytes.Index(testJob[stepStart+len(requiredStep):], []byte("      - ")); nextStep >= 0 {
-		stepEnd = stepStart + len(requiredStep) + nextStep
-	}
-	step := testJob[stepStart:stepEnd]
-	if bytes.Contains(step, []byte("continue-on-error:")) {
-		return errors.New("ci Windows source cross-compile step must not allow failure")
-	}
-	if bytes.Count(step, []byte("\n        if:")) != 1 || bytes.Count(step, []byte("\n        run:")) != 1 {
-		return errors.New("ci Windows source cross-compile step must retain one exact condition and command")
+	if err := requireWorkflowStep(testJob, "Windows source cross-compile", windowsCompileStepContract); err != nil {
+		return fmt.Errorf("ci Ubuntu test job must run the exact Windows source cross-compile workflow block: %w", err)
 	}
 	return nil
 }
@@ -303,7 +1062,9 @@ func workflowTopLevelBlock(contents []byte, name string) ([]byte, error) {
 	lines := strings.SplitAfter(string(contents), "\n")
 	start := -1
 	for index, line := range lines {
-		if strings.TrimSuffix(line, "\n") != name+":" {
+		candidate := strings.TrimSuffix(line, "\n")
+		key, _, ok := simpleYAMLKeyValue(candidate)
+		if indentation(candidate) != 0 || !ok || key != name {
 			continue
 		}
 		if start >= 0 {
@@ -329,10 +1090,15 @@ func workflowJob(contents []byte, name string) ([]byte, error) {
 	lines := strings.SplitAfter(string(contents), "\n")
 	start := -1
 	for index, line := range lines {
-		if strings.TrimSuffix(line, "\n") == "  "+name+":" {
-			start = index
-			break
+		candidate := strings.TrimSuffix(line, "\n")
+		key, _, ok := simpleYAMLKeyValue(candidate)
+		if indentation(candidate) != 2 || !ok || key != name {
+			continue
 		}
+		if start >= 0 {
+			return nil, fmt.Errorf("workflow defines %q job more than once", name)
+		}
+		start = index
 	}
 	if start < 0 {
 		return nil, fmt.Errorf("ci workflow has no %q job", name)

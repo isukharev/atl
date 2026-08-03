@@ -36,7 +36,7 @@ jobs:
         run: make build
       - name: Verify stamped build provenance
         run: |
-          ./atl version > "$RUNNER_TEMP/atl-version.json"
+          ATL_NO_UPDATE=1 ./atl version > "$RUNNER_TEMP/atl-version.json"
           grep -F "\"commit\": \"$(git rev-parse HEAD)\"" "$RUNNER_TEMP/atl-version.json"
           grep -F '"build_state": "clean"' "$RUNNER_TEMP/atl-version.json"
       - name: Vet
@@ -48,13 +48,8 @@ jobs:
       # dumps goroutine stacks instead of hanging the job on a deadlock.
       # Core-internal coverage attributes calls across product package
       # boundaries without instrumenting the separately gated evaluator.
-      - name: Test
-        run: |
-          core_packages="$(go run ./scripts/list-go-packages --class core)"
-          core_cover="$(go run ./scripts/list-go-packages --class core --scope internal --format csv)"
-          test -n "$core_packages"
-          test -n "$core_cover"
-          go test -race -covermode=atomic -coverprofile=cover.out -coverpkg="$core_cover" -count=1 -timeout=10m $core_packages
+      - name: Core race and coverage gate
+        run: make check-core-race-coverage
       - name: Coverage summary
         run: |
           {
@@ -124,7 +119,7 @@ jobs:
           go-version-file: go.mod
           check-latest: true
       - name: Maintainer toolchain contract
-        run: make check-maintainer-contract
+        run: GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract
       - name: Core/heavy package boundary
         run: make check-package-boundary
       - name: Generated plugin trees are current

@@ -218,6 +218,16 @@ The `release` workflow cross-compiles the four targets, generates `manifest.json
 the binaries, `.sha256` files, `manifest.json`, `manifest.json.sig`, `atl.rb`,
 and `install.sh`.
 
+Before the credential-bearing publication job can start, the tagged commit must
+pass the same core race and cross-package coverage gate on Ubuntu and macOS as a
+pull request; the reviewed statement-coverage floor is `84.0%`. A separate
+required quality job runs the maintainer and package-boundary contracts,
+generated-plugin and indexed-documentation checks, onboarding rehearsal, vet,
+golangci-lint, and govulncheck. The full agent-evaluation race gate is also a
+required prerequisite. The maintainer contract pins the tag trigger, runner
+matrix, coverage command and floor, and these publication dependencies so a
+workflow edit cannot silently weaken them.
+
 Releases are never intentionally unsigned: a missing signing secret or a key
 that the latest published client does not trust fails the workflow before
 artifacts are built or published.
