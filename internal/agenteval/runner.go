@@ -2069,9 +2069,9 @@ func readBoundedFile(path string, limit int64) ([]byte, error) {
 	return data, nil
 }
 
-func ioReadAllLimit(file *os.File, limit int64) ([]byte, error) {
-	reader := io.LimitReader(file, limit+1)
-	data, err := io.ReadAll(reader)
+func ioReadAllLimit(reader io.Reader, limit int64) ([]byte, error) {
+	limited := io.LimitReader(reader, limit+1)
+	data, err := io.ReadAll(limited)
 	if err != nil {
 		return nil, err
 	}

@@ -127,7 +127,7 @@ func aggregateSyntheticOutputRoot(root string, afterInitialInventory, afterPrima
 	if !ok {
 		return SyntheticRootAggregate{}, rejectSyntheticRoot("invalid_marker")
 	}
-	marker, err := readSyntheticRootFile(rootHandle, markerEntry, int64(len(privateOutputRootMarkerContents)))
+	marker, err := readStableRootFile(rootHandle, markerEntry.path, markerEntry.info, int64(len(privateOutputRootMarkerContents)))
 	if err != nil || string(marker) != privateOutputRootMarkerContents {
 		return SyntheticRootAggregate{}, rejectSyntheticRoot("invalid_marker")
 	}
@@ -143,7 +143,7 @@ func aggregateSyntheticOutputRoot(root string, afterInitialInventory, afterPrima
 	receiptDigests := make(map[string][sha256.Size]byte, len(slots))
 	totalBytes := int64(0)
 	for _, slot := range slots {
-		data, err := readSyntheticRootFile(rootHandle, syntheticRootEntry{path: slot.path, info: slot.info}, maxContractBytes)
+		data, err := readStableRootFile(rootHandle, slot.path, slot.info, maxContractBytes)
 		if err != nil {
 			return SyntheticRootAggregate{}, rejectSyntheticRoot("invalid_result")
 		}
@@ -168,7 +168,7 @@ func aggregateSyntheticOutputRoot(root string, afterInitialInventory, afterPrima
 		if result.ScenarioID != slot.scenario || result.Runtime.Provider != slot.provider || result.Variant != slot.variant {
 			return SyntheticRootAggregate{}, rejectSyntheticRoot("identity_mismatch")
 		}
-		receiptData, err := readSyntheticRootFile(rootHandle, syntheticRootEntry{path: slot.receiptPath, info: slot.receiptInfo}, maxSyntheticRunReceiptBytes)
+		receiptData, err := readStableRootFile(rootHandle, slot.receiptPath, slot.receiptInfo, maxSyntheticRunReceiptBytes)
 		if err != nil {
 			return SyntheticRootAggregate{}, rejectSyntheticRoot("invalid_receipt")
 		}
@@ -246,7 +246,7 @@ func aggregateSyntheticOutputRoot(root string, afterInitialInventory, afterPrima
 	if !ok {
 		return SyntheticRootAggregate{}, rejectSyntheticRoot("changed_during_read")
 	}
-	finalMarker, err := readSyntheticRootFile(rootHandle, finalMarkerEntry, int64(len(privateOutputRootMarkerContents)))
+	finalMarker, err := readStableRootFile(rootHandle, finalMarkerEntry.path, finalMarkerEntry.info, int64(len(privateOutputRootMarkerContents)))
 	if err != nil || string(finalMarker) != privateOutputRootMarkerContents {
 		return SyntheticRootAggregate{}, rejectSyntheticRoot("changed_during_read")
 	}
@@ -254,12 +254,12 @@ func aggregateSyntheticOutputRoot(root string, afterInitialInventory, afterPrima
 		return SyntheticRootAggregate{}, rejectSyntheticRoot("changed_during_read")
 	}
 	for _, slot := range finalSlots {
-		data, err := readSyntheticRootFile(rootHandle, syntheticRootEntry{path: slot.path, info: slot.info}, maxContractBytes)
+		data, err := readStableRootFile(rootHandle, slot.path, slot.info, maxContractBytes)
 		expected, exists := resultDigests[slot.path]
 		if err != nil || !exists || sha256.Sum256(data) != expected {
 			return SyntheticRootAggregate{}, rejectSyntheticRoot("changed_during_read")
 		}
-		receiptData, err := readSyntheticRootFile(rootHandle, syntheticRootEntry{path: slot.receiptPath, info: slot.receiptInfo}, maxSyntheticRunReceiptBytes)
+		receiptData, err := readStableRootFile(rootHandle, slot.receiptPath, slot.receiptInfo, maxSyntheticRunReceiptBytes)
 		expectedReceipt, exists := receiptDigests[slot.receiptPath]
 		if err != nil || !exists || sha256.Sum256(receiptData) != expectedReceipt {
 			return SyntheticRootAggregate{}, rejectSyntheticRoot("changed_during_read")
@@ -472,31 +472,6 @@ func parseSyntheticRunDirectory(name string) (int, bool) {
 	}
 	run, err := strconv.Atoi(name[len("run-"):])
 	return run, err == nil && run >= 1 && run <= 20
-}
-
-func readSyntheticRootFile(root *os.Root, entry syntheticRootEntry, limit int64) ([]byte, error) {
-	file, err := root.Open(entry.path)
-	if err != nil {
-		return nil, err
-	}
-	openedInfo, statErr := file.Stat()
-	if statErr != nil || !openedInfo.Mode().IsRegular() || !os.SameFile(entry.info, openedInfo) || !sameSyntheticRootInfo(entry.info, openedInfo) {
-		_ = file.Close()
-		return nil, fmt.Errorf("entry changed")
-	}
-	data, readErr := ioReadAllLimit(file, limit)
-	finalInfo, finalStatErr := file.Stat()
-	closeErr := file.Close()
-	if readErr != nil {
-		return nil, readErr
-	}
-	if finalStatErr != nil || !os.SameFile(openedInfo, finalInfo) || !sameSyntheticRootInfo(openedInfo, finalInfo) || finalInfo.Size() != int64(len(data)) {
-		return nil, fmt.Errorf("entry changed")
-	}
-	if closeErr != nil {
-		return nil, closeErr
-	}
-	return data, nil
 }
 
 func findSyntheticRootEntry(entries []syntheticRootEntry, name string) (syntheticRootEntry, bool) {
