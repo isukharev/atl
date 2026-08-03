@@ -52,6 +52,19 @@ func TestRoundTrip(t *testing.T) {
 	}
 }
 
+func TestMergeRefusesAlignmentBeyondBudget(t *testing.T) {
+	base := strings.TrimSuffix(strings.Repeat("base paragraph\n\n", 1000), "\n\n")
+	edited := strings.TrimSuffix(strings.Repeat("edited paragraph\n\n", 1000), "\n\n")
+	out, rep, err := Merge([]byte(base), edited, Options{AllowLoss: true})
+	var alignmentErr *AlignmentError
+	if !errors.As(err, &alignmentErr) {
+		t.Fatalf("error = %v, want *AlignmentError", err)
+	}
+	if out != nil || rep != nil {
+		t.Fatalf("bounded refusal returned output/report: %q / %+v", out, rep)
+	}
+}
+
 func TestEditLeadingSpaceOrderedList(t *testing.T) {
 	base := "User:\n # first\n # second"
 	md := wikimd.Render(base, wikimd.Options{})

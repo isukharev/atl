@@ -302,7 +302,9 @@ shell/workspace configuration implicitly.
   `<!-- atl:document jira-issue v3 -->`, edit only supported `.md` sections,
   run `jira apply`, validate/review `jira push` dry-run, then use explicit
   `jira push --apply`. Preserve edited legacy/future views before render; update
-  atl for a future marker, never downgrade it.
+  atl for a future marker, never downgrade it. If apply refuses because the
+  block set exceeds the fixed alignment safety budget, edit the native `.wiki`
+  substrate directly; never retry by weakening or bypassing the bound.
 - `jira pull` preserves locally edited `.wiki` and unapplied/unsupported `.md`
   views by default, continues clean siblings, emits content-free `local_safety`,
   and exits 8 for a blocked selection. Use `--dry-run` to qualify without any

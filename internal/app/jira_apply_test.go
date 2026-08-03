@@ -111,6 +111,28 @@ func TestJiraApply_ParagraphEditMerges(t *testing.T) {
 	}
 }
 
+func TestJiraApply_AlignmentBudgetRefusesWithoutWriting(t *testing.T) {
+	body := strings.TrimSuffix(strings.Repeat("base paragraph\n\n", 1000), "\n\n")
+	svc, root, mdPath, wikiPath := scaffoldApplyIssue(t, body)
+	md := mustReadFile(t, mdPath)
+	edited := strings.ReplaceAll(md, "base paragraph", "edited paragraph")
+	if edited == md {
+		t.Fatal("test edit did not change the generated view")
+	}
+	mustWriteFile(t, mdPath, edited)
+
+	res, err := svc.Apply(mdPath, JiraApplyOpts{Into: root})
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "alignment exceeds the bounded safety budget") {
+		t.Fatalf("apply error = %v, want bounded ErrCheckFailed refusal", err)
+	}
+	if res == nil || res.Report != nil || res.Wrote {
+		t.Fatalf("bounded refusal result = %+v", res)
+	}
+	if got := mustReadFile(t, wikiPath); got != body {
+		t.Fatal("bounded refusal changed the native wiki substrate")
+	}
+}
+
 func TestJiraApply_ConsecutiveMarkdownEditsPreserveRemoteBase(t *testing.T) {
 	svc, root, mdPath, wikiPath := scaffoldApplyIssue(t, applyBody)
 	md := mustReadFile(t, mdPath)

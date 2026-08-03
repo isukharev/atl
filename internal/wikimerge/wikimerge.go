@@ -83,6 +83,15 @@ func (e *LossError) Error() string {
 		len(e.Removed), strings.Join(names, ", "))
 }
 
+// AlignmentError reports that exact block alignment would exceed the fixed
+// allocation budget. Merge fails before constructing output; callers should
+// direct the user to edit the native wiki substrate instead.
+type AlignmentError struct{}
+
+func (*AlignmentError) Error() string {
+	return "Markdown alignment exceeds the bounded safety budget; edit the native .wiki directly"
+}
+
 // Merge maps editedDescMD onto the base Jira wiki body, block by block. The
 // return is (mergedWiki, report, error): on a fail-closed refusal it returns a
 // nil body with (for a LossError) the populated report so the caller can show
@@ -123,7 +132,10 @@ func Merge(baseWiki []byte, editedDescMD string, opts Options) ([]byte, *Report,
 	for i, u := range units {
 		baseTexts[i] = u.text
 	}
-	baseMatch, editMatch := lcs(baseTexts, edited)
+	baseMatch, editMatch, aligned := lcs(baseTexts, edited)
+	if !aligned {
+		return nil, nil, &AlignmentError{}
+	}
 
 	// A block is kept only when all its pieces matched, in consecutive edited
 	// positions (no insertion inside the block's span).
