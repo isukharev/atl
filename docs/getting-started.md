@@ -134,6 +134,7 @@ Status/snapshot require an initialized `.atl` root. Positional `[DIR]` and
 ## What to do next
 
 - Coding agent setup: [agent-setup.md](agent-setup.md)
+- Refreshing, reconciling, or adopting a mirror: [mirrors-and-recovery.md](mirrors-and-recovery.md)
 - Editing and reviewed writes: [safe-writes.md](safe-writes.md)
 - Copy-paste task recipes: [agent-recipes.md](agent-recipes.md)
 - Exhaustive commands and flags: [usage.md](usage.md)

@@ -21,18 +21,36 @@ healthy result does not certify every product feature or Marketplace app.
 
 Version-pinned compatibility providers are a separate opt-in boundary for
 reviewed product-UI protocols that are not part of the documented public REST
-surface. Inspect them independently:
+surface. Start with an offline status. Obtain the exact three-component version
+and decimal build from the deployment's trusted administrative/version evidence,
+pin those values explicitly, and only then request the bounded identity probe:
 
 ```sh
 atl compatibility status
+
+export ATL_CONFLUENCE_VERSION='<exact observed version>'
+export ATL_CONFLUENCE_BUILD_NUMBER='<exact observed build number>'
+env -u ATL_READ_ONLY atl compatibility pin confluence \
+  --version "$ATL_CONFLUENCE_VERSION" \
+  --build-number "$ATL_CONFLUENCE_BUILD_NUMBER"
+
+# Only an exact remote match sets qualified:true.
 atl compatibility status --remote
+
+# Disable the provider when the deployment changes or it is no longer needed.
+env -u ATL_READ_ONLY atl compatibility clear confluence
 ```
 
 The provider settings live in owner-only `compatibility.json`, separate from
 ordinary `config.json`. Enabling a provider explicitly binds a compiled protocol
 profile to one exact version and build; every remote use must match that private
-pin. Nearby patches are never inferred. The status probe accepts no custom
-endpoint, header, payload template, or provider download.
+pin. `pin` and `clear` are local mutation-classified commands, so an exported
+read-only policy must be removed only for that exact process. Nearby patches are
+never inferred. With no configured pin, `status --remote` remains disabled and
+does not probe: ATL neither discovers an identity nor silently authorizes it.
+After pinning, the remote status probe accepts no custom endpoint, header,
+payload template, or provider download. Clear and requalify after any product
+upgrade; do not copy a pin from another deployment.
 
 ## Atlassian products
 

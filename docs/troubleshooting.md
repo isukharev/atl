@@ -12,7 +12,7 @@ free-form backend error text.
 | `2` | Invalid command, flag, or input | Run the exact parent command with `--help` |
 | `3` | Backend rejected the credential | Replace or re-enter the PAT |
 | `4` | Object not found | Recheck the exact selector and permissions |
-| `5` | Remote version conflict | Pull fresh state and reapply |
+| `5` | Remote version conflict | Preserve the candidate, reconcile with fresh remote state, and make a new preview |
 | `6` | Authenticated but forbidden | Request the minimum missing permission |
 | `7` | URL, credential, or config missing/invalid | Complete or repair setup |
 | `8` | Safety/check gate refused the operation | Follow the structured recovery; do not bypass |
@@ -102,8 +102,35 @@ root is absent or not initialized; pull it first or select the intended mirror.
 Add `--remote` only when you intentionally want one bounded remote drift check
 per eligible object.
 
-For a Confluence push exit `5`, preserve the local candidate, pull current
-remote state, reapply the edit, and review a new diff. Never auto-force.
+For a Confluence push exit `5`, keep the working `.csf` and its mirror baseline
+unchanged. First qualify what a pull would do, then compare the exact base,
+candidate, and current remote body without replacing any working artifact:
+
+```sh
+ATL_READ_ONLY=1 atl conf pull --id 123456 --into /path/to/mirror --dry-run
+ATL_READ_ONLY=1 atl conf reconcile preview \
+  /path/to/mirror/SPACE/page/page.csf --into /path/to/mirror -o text
+```
+
+The dry-run may exit `8` with `local_safety` because preserving the candidate is
+the intended result. Reconcile performs one qualified remote read and does not
+change the working `.csf`, `.md`, baseline, metadata, or sidecar. If exact review
+artifacts are useful, run the separately mutation-classified stage:
+
+```sh
+env -u ATL_READ_ONLY atl conf reconcile stage \
+  /path/to/mirror/SPACE/page/page.csf --into /path/to/mirror
+```
+
+It writes immutable base/theirs files under `.atl/reconcile/` and still does not
+replace the working candidate.
+
+After reviewing the three sides, explicitly merge or reapply the intended local
+change onto current remote bytes. A qualified `pull --stash-local` can preserve
+the exact edited native bytes in `.atl/stash/` before refreshing them; it cannot
+bypass a dirty derived view, broken baseline, or other unqualified state. Then
+validate, diff, and produce a fresh push preview. Never auto-force and never
+replay the failed write.
 
 An ordinary Confluence `--cql` pull caps selection and reports
 `truncated:true`. Narrow the query or use the explicit resumable `--complete`

@@ -89,8 +89,11 @@ Make `push` the single deliberate, human-reviewed checkpoint:
 5. **Review a write dry-run** (`conf push --dry-run`) — confirm the consequences,
    remote drift, and any added/removed fragments.
 6. **Push** under the version gate.
-7. **On conflict** (Confluence exit `5`), surface it and let a human decide: re-pull and
-   reconcile, or `--force` (last-writer-wins). **Never auto-`--force`.**
+7. **On conflict** (Confluence exit `5`), preserve the candidate and run
+   `conf reconcile preview` before any refresh. Resolve the exact
+   base/ours/theirs state and make a new push preview. Consider `--force` only
+   after a human explicitly chooses to clobber reviewed remote changes.
+   **Never auto-`--force`.**
 
 Push the bytes you reviewed — don't regenerate the body between the dry-run and the push.
 For a large Confluence mirror that needs historical completeness, first run

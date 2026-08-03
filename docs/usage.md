@@ -262,7 +262,7 @@ a usage error (exit 2) instead of hanging forever waiting for input.
 | 2 | usage error (bad flags, missing required args, insecure backend URL) |
 | 3 | authentication failed (a PAT **was** supplied but the server rejected it) |
 | 4 | resource not found |
-| 5 | version conflict (remote moved since last pull; re-pull and retry) |
+| 5 | version conflict (preserve the candidate, reconcile with fresh remote state, then make a new preview) |
 | 6 | forbidden (per-space or per-issue permission) |
 | 7 | not configured (backend URL or PAT **not set** yet; run `atl config set` / `atl auth login`) |
 | 8 | safety/check failed (validation, lossy conversion, ambiguous write outcome, or app-layer Jira drift) |
@@ -1344,7 +1344,7 @@ The listing stops at a 2000-page safety cap; when hit, the JSON result carries
 ### `atl conf pull`
 
 Mirror pages to disk. Downloads `.csf` (native storage format), `.md`
-(read-view), `.meta.json`, and optionally renders draw.io / image assets and
+(versioned staging view), `.meta.json`, and optionally renders draw.io / image assets and
 mirrors page comments.
 
 ```bash
@@ -1608,7 +1608,7 @@ view first and make no view changes if any selected marker is unsupported.
 
 Extract tables from a page's native CSF body into structured data. This is useful
 when the page has multiple tables or merged cells and a script needs something
-more explicit than the markdown read-view.
+more explicit than the Markdown staging view.
 
 ```bash
 # all tables as JSON, preserving per-cell metadata
@@ -4199,7 +4199,7 @@ mirror-jira/
     PROJ-2.json
 ```
 
-The `.md` is a lossy, best-effort read view (headings, emphasis, `{code}`/
+The `.md` is a lossy, best-effort staging view (headings, emphasis, `{code}`/
 `{quote}`/`{panel}`, lists, tables, links, `!image!` embeds, `{color}`,
 `[~mentions]`); a render failure degrades that one section to a stub comment and
 never fails the pull. To change supported content, edit generated `# Description` and/or
@@ -5040,29 +5040,63 @@ Text output remains the bare version for script compatibility. Root
 This is the canonical edit loop for Confluence pages:
 
 ```bash
-# 1. Pull the page (and its draw.io/image assets if needed)
+# 1. Keep investigations read-only and pull the page. Pull writes only local
+#    mirror artifacts; --assets is optional.
+export ATL_READ_ONLY=1
 atl conf pull --id 12345678 --assets --into mirror
 
 # 2. Inspect the on-disk layout
 #    mirror/DOCS/parent/child/child.csf   ← your source of truth
-#    mirror/DOCS/parent/child/child.md    ← human-readable view
+#    mirror/DOCS/parent/child/child.md    ← versioned staging view
 
-# 3. Edit child.csf directly.
-#    Tip: read child.md for orientation; edit child.csf for correctness.
+# 3. Edit the supported body in child.md, then inspect and apply the local
+#    merge. conf apply is mutation-classified even in dry-run mode.
+env -u ATL_READ_ONLY atl conf apply \
+  mirror/DOCS/parent/child/child.md --dry-run -o text
+env -u ATL_READ_ONLY atl conf apply mirror/DOCS/parent/child/child.md
+#    Direct native .csf edits remain available when Markdown cannot represent
+#    the required construct.
 
 # 4. Validate before pushing
 atl conf validate mirror/DOCS/parent/child/child.csf
+atl conf diff mirror/DOCS/parent/child/child.csf -o text
 
-# 5. Dry-run to see what fragments change
-atl conf push --dry-run mirror/DOCS/parent/child/child.csf
+# 5. Preview the remote write. conf push is mutation-classified even when its
+#    --dry-run prevents the PUT.
+env -u ATL_READ_ONLY atl conf push \
+  --dry-run mirror/DOCS/parent/child/child.csf
 
-# 6. Push (version gate is automatic)
-atl conf push mirror/DOCS/parent/child/child.csf
-
-# If exit 5 (version conflict): someone else edited the page.
-# Re-pull, re-apply your changes, then push again.
-atl conf pull --id 12345678 --into mirror
+# 6. After reviewing the exact preview, run the same target once without
+#    --dry-run. The Confluence version gate remains automatic.
+env -u ATL_READ_ONLY atl conf push mirror/DOCS/parent/child/child.csf
 ```
+
+If push exits `5`, preserve the working candidate. Do not immediately overwrite
+it with a pull and do not add `--force`. Qualify the refresh and inspect one
+content-free three-way comparison first:
+
+```bash
+ATL_READ_ONLY=1 atl conf pull --id 12345678 --into mirror --dry-run
+ATL_READ_ONLY=1 atl conf reconcile preview \
+  mirror/DOCS/parent/child/child.csf --into mirror -o text
+```
+
+The pull dry-run may report `local_safety` and exit `8`; that proves the local
+candidate was preserved. Reconcile reads the exact current remote page once and
+leaves the working native/view/baseline artifacts unchanged. If exact review
+files are useful, the separately mutation-classified stage still leaves the
+working candidate unchanged:
+
+```bash
+env -u ATL_READ_ONLY atl conf reconcile stage \
+  mirror/DOCS/parent/child/child.csf --into mirror
+```
+
+After reviewing base/ours/theirs, explicitly merge or reapply the intended
+change onto current remote bytes. Use a qualified `pull --stash-local` when the
+local native edit should be retained in `.atl/stash/` before refresh; it does
+not bypass a dirty Markdown view or broken baseline. Validate, diff, and run a
+fresh push preview before one new write.
 
 For a whole space:
 
@@ -5070,7 +5104,7 @@ For a whole space:
 atl conf pull --space DOCS --into mirror
 # ... edit files ...
 atl conf status mirror                # see which files are dirty
-atl conf push mirror/DOCS/           # push all dirty files under DOCS/
+env -u ATL_READ_ONLY atl conf push mirror/DOCS/ # push reviewed dirty files
 ```
 
 For Jira issues the workflow is read-heavy:
@@ -5078,8 +5112,16 @@ For Jira issues the workflow is read-heavy:
 ```bash
 atl jira pull --jql "project=PROJ and status=Open" --into mirror-jira
 # read mirror-jira/PROJ/PROJ-1.md  and  mirror-jira/PROJ/PROJ-1.json
-# make changes via commands:
-atl jira issue update PROJ-1 --summary "Revised title"
+# edit a supported section in PROJ-1.md, then stage and preview it explicitly:
+env -u ATL_READ_ONLY atl jira apply \
+  mirror-jira/PROJ/PROJ-1.md --dry-run -o text
+env -u ATL_READ_ONLY atl jira apply mirror-jira/PROJ/PROJ-1.md
+env -u ATL_READ_ONLY atl jira push mirror-jira/PROJ/PROJ-1.wiki
+# after reviewing the preview:
+env -u ATL_READ_ONLY atl jira push \
+  --apply mirror-jira/PROJ/PROJ-1.wiki
+
+# dedicated proposal commands remain read-only until their explicit apply:
 ATL_READ_ONLY=1 atl jira issue transition preview PROJ-1 --to "In Review"
 # Repeat the exact target/fields/comment with transition --apply and the reviewed hash.
 atl jira issue comment preview PROJ-1 --from-file - <<'EOF'

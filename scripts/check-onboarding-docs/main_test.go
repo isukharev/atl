@@ -111,7 +111,7 @@ func TestValidateRepositoryAcceptsLocalLinksAndOfflineHelp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Documents != len(requiredDocuments) || report.Links != 18 || report.Commands != len(commandPaths) ||
+	if report.Documents != len(requiredDocuments) || report.Links != 20 || report.Commands != len(commandPaths) ||
 		report.Identity.Version != "1.2.3" || report.Identity.BuildState != "dirty" {
 		t.Fatalf("unexpected report: %+v", report)
 	}
@@ -355,7 +355,7 @@ func validRepository(t *testing.T) string {
 	for _, relative := range requiredDocuments {
 		writeFile(t, root, relative, "# Guide\n")
 	}
-	entryLinks := "[Start](docs/getting-started.md#install)\n[Agents](docs/agent-setup.md)\n[Writes](docs/safe-writes.md)\n[Graph](docs/jira-artifact-graph.md)\n[Comments](docs/confluence-comments.md)\n[Demos](docs/demos/README.md)\n[Troubleshooting](docs/troubleshooting.md)\n"
+	entryLinks := "[Start](docs/getting-started.md#install)\n[Agents](docs/agent-setup.md)\n[Writes](docs/safe-writes.md)\n[Mirrors](docs/mirrors-and-recovery.md)\n[Graph](docs/jira-artifact-graph.md)\n[Comments](docs/confluence-comments.md)\n[Demos](docs/demos/README.md)\n[Troubleshooting](docs/troubleshooting.md)\n"
 	writeFile(t, root, "README.md", "# Project\n\n[Russian](README.ru.md)\n"+entryLinks+"[website](https://example.com)\n[email](mailto:docs@example.com)\n")
 	writeFile(t, root, "README.ru.md", "# Project\n\n[Docs](/docs/README.md)\n"+entryLinks)
 	writeFile(t, root, "docs/README.md", "# Docs\n\n[Setup](agent-setup.md)\n")

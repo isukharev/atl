@@ -242,15 +242,17 @@ supported sections in the versioned Markdown view, merge locally, preview the
 server write, and apply it explicitly.
 
 ```sh
+export ATL_READ_ONLY=1
 atl jira pull --jql 'key = PROJ-42' --into mirror-jira
 
 # Edit mirror-jira/PROJ/PROJ-42.md, then inspect the local merge.
-atl jira apply mirror-jira/PROJ/PROJ-42.md --dry-run -o text
-atl jira apply mirror-jira/PROJ/PROJ-42.md
+env -u ATL_READ_ONLY atl jira apply \
+  mirror-jira/PROJ/PROJ-42.md --dry-run -o text
+env -u ATL_READ_ONLY atl jira apply mirror-jira/PROJ/PROJ-42.md
 
 # jira push is a preview unless --apply is present.
-atl jira push mirror-jira/PROJ/PROJ-42.wiki
-atl jira push --apply mirror-jira/PROJ/PROJ-42.wiki
+env -u ATL_READ_ONLY atl jira push mirror-jira/PROJ/PROJ-42.wiki
+env -u ATL_READ_ONLY atl jira push --apply mirror-jira/PROJ/PROJ-42.wiki
 ```
 
 If apply reports a wiki-only construct loss, restore it or make the deliberate
@@ -336,20 +338,44 @@ Use transient `page view` for one-off reading. Pull first when an edit or an
 offline baseline is required.
 
 ```sh
+export ATL_READ_ONLY=1
 atl conf page view 123456 --render-profile full -o text
 
 atl conf pull --id 123456 --comments --into mirror
 # Edit the generated page.md body, preserving atl document/section markers.
-atl conf apply mirror/SPACE/page/page.md --dry-run -o text
-atl conf apply mirror/SPACE/page/page.md
+env -u ATL_READ_ONLY atl conf apply \
+  mirror/SPACE/page/page.md --dry-run -o text
+env -u ATL_READ_ONLY atl conf apply mirror/SPACE/page/page.md
 
-atl conf push mirror/SPACE/page/page.csf --dry-run
-atl conf push mirror/SPACE/page/page.csf
+env -u ATL_READ_ONLY atl conf push mirror/SPACE/page/page.csf --dry-run
+env -u ATL_READ_ONLY atl conf push mirror/SPACE/page/page.csf
 ```
 
 The `.csf` file is the native write substrate. Generated Metadata, Comments,
 and Jira Queries sections are read-only. `conf apply` merges only supported body
 edits and keeps untouched native CSF bytes.
+
+If push exits `5`, keep the working candidate and inspect the current three-way
+state before replacing anything:
+
+```sh
+atl conf pull --id 123456 --into mirror --dry-run
+atl conf reconcile preview mirror/SPACE/page/page.csf --into mirror -o text
+```
+
+The dry-run may exit `8` with `local_safety`; reconcile still leaves the working
+file and baseline unchanged. If exact base/theirs files help the review, stage
+them without replacing the candidate:
+
+```sh
+env -u ATL_READ_ONLY atl conf reconcile stage \
+  mirror/SPACE/page/page.csf --into mirror
+```
+
+After reviewing base/ours/theirs, explicitly merge or reapply the intended edit
+to current remote bytes and create a fresh push preview. Use
+`pull --stash-local` only after deciding to retain the exact local native
+candidate while refreshing; never auto-force or replay the failed write.
 
 JQL-bearing Jira macros use the shared IssueList table in a generated suffix:
 
