@@ -241,6 +241,24 @@ func isolatedGuardedWriteRoot(t *testing.T) *cobra.Command {
 	return newRoot()
 }
 
+// Several established guarded operations predate the product-wide
+// ErrCheckFailed ambiguity sentinel. Their concrete errors expose only the
+// semantic ambiguity marker, so recovery remains no-replay while the historical
+// process exit remains generic until a separately reviewed contract migration.
+func assertLegacyMarkerOnlyAmbiguousExit(t *testing.T, err error) {
+	t.Helper()
+	var ambiguous interface{ DiagnosticAmbiguousWrite() bool }
+	if err == nil || !errors.As(err, &ambiguous) || !ambiguous.DiagnosticAmbiguousWrite() {
+		t.Fatalf("error=%T %v, want ambiguous-write marker", err, err)
+	}
+	if errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("error=%T %v unexpectedly wraps ErrCheckFailed", err, err)
+	}
+	if code := codeFor(err); code != exitGeneric {
+		t.Fatalf("exit code=%d, want legacy generic exit %d", code, exitGeneric)
+	}
+}
+
 func TestGuardedWriteMissingHashPrecedesFileRead(t *testing.T) {
 	out, _, code := runCLIFull(t, nil,
 		"jira", "issue", "field", "set", "PROJ-1",

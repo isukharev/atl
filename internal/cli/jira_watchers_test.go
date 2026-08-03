@@ -115,3 +115,41 @@ func TestJiraIssueWatchersRequiresOneIdentityBeforeCredentials(t *testing.T) {
 		}
 	}
 }
+
+func TestJiraIssueWatchersAmbiguousWriteKeepsLegacyGenericExit(t *testing.T) {
+	posts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if request.URL.Path != "/rest/api/2/issue/PROJ-1/watchers" {
+			t.Fatalf("path=%s", request.URL.Path)
+		}
+		switch request.Method {
+		case http.MethodGet:
+			_, _ = io.WriteString(w, `{"watchCount":0,"isWatching":false,"watchers":[]}`)
+		case http.MethodPost:
+			posts++
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = io.WriteString(w, `{"errorMessages":["write response unavailable"]}`)
+		default:
+			t.Fatalf("method=%s", request.Method)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	previewOut, code := runCLI(t, jiraEnv(server), "jira", "issue", "watchers", "add", "PROJ-1", "--username", "alice")
+	if code != exitOK {
+		t.Fatalf("preview exit=%d out=%s", code, previewOut)
+	}
+	var preview struct {
+		ProposalHash string `json:"proposal_hash"`
+	}
+	if err := json.Unmarshal([]byte(previewOut), &preview); err != nil {
+		t.Fatal(err)
+	}
+	out, _, execErr := executeCLIRaw(t, jiraEnv(server), "jira", "issue", "watchers", "add", "PROJ-1", "--username", "alice",
+		"--apply", "--expected-proposal-hash", preview.ProposalHash)
+	assertLegacyMarkerOnlyAmbiguousExit(t, execErr)
+	if posts != 1 || !strings.Contains(out, `"status": "unknown"`) {
+		t.Fatalf("posts=%d out=%s err=%v", posts, out, execErr)
+	}
+}

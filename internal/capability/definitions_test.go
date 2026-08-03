@@ -1,6 +1,11 @@
 package capability
 
-import "testing"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"testing"
+)
 
 func TestDefinitionsReturnsDefensiveCopy(t *testing.T) {
 	first := Definitions()
@@ -13,6 +18,18 @@ func TestDefinitionsReturnsDefensiveCopy(t *testing.T) {
 	second := Definitions()
 	if second[0] != want {
 		t.Fatalf("Definitions shared backing storage: got=%+v want=%+v", second[0], want)
+	}
+}
+
+func TestDefinitionsCanonicalMetadataDigestIsStable(t *testing.T) {
+	encoded, err := json.Marshal(Definitions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := sha256.Sum256(encoded)
+	const want = "0f059c8a3a3b97adbda24eb56cc3a5b8beb5f52c1545fe44beaf3d7b8195e218"
+	if hex.EncodeToString(got[:]) != want {
+		t.Fatalf("definition metadata digest=%x", got)
 	}
 }
 

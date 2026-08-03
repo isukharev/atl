@@ -47,6 +47,9 @@ func FuzzConvertDocument(f *testing.F) {
 	for _, s := range seeds {
 		f.Add(s)
 	}
+	for _, testCase := range loadMDWikiBehaviorContract(f).Cases {
+		f.Add(testCase.Input)
+	}
 	f.Fuzz(func(t *testing.T, md string) {
 		out, err := ConvertDocument(md)
 		if err != nil {

@@ -6888,6 +6888,23 @@ func TestToolErrorClassifierMatrixIsExact(t *testing.T) {
 			},
 		},
 		{
+			name: "jira_issue_graph", classify: classifiedJiraIssueGraphRead,
+			want: []classifierExpectation{
+				{message: "invalid Jira issue graph request"},
+				{message: "Jira issue graph service is not configured"},
+				{message: "Jira issue graph authentication failed"},
+				{message: "Jira issue graph access is forbidden"},
+				{message: "Jira issue graph root was not found"},
+				{message: "Jira issue graph read failed"},
+				{message: "Jira issue graph result failed validation"},
+				{message: "Jira issue graph result exceeds max_bytes", remediation: "narrow_graph_or_raise_bound"},
+				{message: "Jira issue graph rate limit was exhausted"},
+				{message: "Jira issue graph API request failed"},
+				{message: "Jira issue graph transport failed"},
+				{message: "Jira issue graph read failed"},
+			},
+		},
+		{
 			name: "table", classify: classifiedTableRead,
 			want: []classifierExpectation{
 				{message: "invalid Confluence table request"},
@@ -6990,8 +7007,8 @@ func TestToolErrorClassifierMatrixIsExact(t *testing.T) {
 			},
 		},
 	}
-	if len(matrix) != 11 {
-		t.Fatalf("classifier matrix has %d rows, want 11 current families", len(matrix))
+	if len(matrix) != 12 {
+		t.Fatalf("classifier matrix has %d rows, want 12 current families", len(matrix))
 	}
 
 	for _, entry := range matrix {
@@ -7041,6 +7058,7 @@ func TestToolErrorPoliciesAlwaysHaveClientMessages(t *testing.T) {
 		{name: "page_metadata", policy: confluencePageMetadataReadPolicy},
 		{name: "jira_history", policy: jiraHistoryReadPolicy},
 		{name: "jira_issue_refs", policy: jiraIssueRefsReadPolicy},
+		{name: "jira_issue_graph", policy: jiraIssueGraphReadPolicy},
 		{name: "table", policy: confluenceTableReadPolicy},
 		{name: "section", policy: confluenceSectionReadPolicy},
 		{name: "attachment_inventory", policy: confluenceAttachmentInventoryReadPolicy},

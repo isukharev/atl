@@ -114,77 +114,168 @@ func TestMutationProfileShapesAreEnforced(t *testing.T) {
 }
 
 func TestMutationRegistryPreservesReviewedAccessSet(t *testing.T) {
-	want := map[string]mutationProfile{}
+	type expectedMutation struct {
+		profile mutationProfile
+		guards  []string
+	}
+	want := map[string]expectedMutation{}
 	for _, line := range strings.Split(`
-local-direct auth login
-local-direct auth logout
-local-direct conf apply
-preview-apply conf attachment delete
-remote-direct conf attachment upload
-remote-direct conf blog create
-preview-apply conf comment add
-dedicated-apply conf comment mutation apply
-local-direct conf edit
-preview-apply conf page copy
-remote-direct conf page create
-preview-apply conf page delete
-preview-apply conf page labels add
-preview-apply conf page labels remove
-preview-apply conf page move
-preview-apply conf page title set
-plan conf plan apply
-remote-direct conf push
-local-direct conf reconcile stage
-local-direct compatibility clear
-local-direct compatibility pin
-local-direct config set
-local-direct jira apply
-remote-direct jira issue assign
-remote-direct jira issue attachment upload
-preview-apply jira issue comment add
-remote-direct jira issue comment delete
-remote-direct jira issue create
-preview-apply jira issue delete
-remote-direct jira issue edit
-preview-apply jira issue field set
-remote-direct jira issue labels
-remote-direct jira issue link add
-remote-direct jira issue link delete
-remote-direct jira issue link-epic
-plan jira issue plan apply
-preview-apply jira issue transition
-remote-direct jira issue update
-preview-apply jira issue watchers add
-preview-apply jira issue watchers remove
-preview-apply jira issue worklog add
-preview-apply jira push
-local-direct jira reconcile stage
-remote-direct jira sprint add
-remote-direct jira sprint remove
-preview-apply mirror backend bind
-dedicated-apply profile apply
-local-direct profile revalidate
-local-direct profile suggest
-dedicated-apply profile suggestion apply
-local-direct profile suggestion reject
+local-direct|-|auth login
+local-direct|-|auth logout
+local-direct|-|conf apply
+preview-apply|apply,confirm,expected-proposal-hash,expected-version|conf attachment delete
+remote-direct|-|conf attachment upload
+remote-direct|-|conf blog create
+preview-apply|apply,expected-proposal-hash|conf comment add
+dedicated-apply|apply,expected-proposal-hash|conf comment mutation apply
+local-direct|-|conf edit
+preview-apply|apply,expected-proposal-hash,expected-version|conf page copy
+remote-direct|-|conf page create
+preview-apply|apply,confirm,expected-proposal-hash,expected-version|conf page delete
+preview-apply|apply,expected-proposal-hash|conf page labels add
+preview-apply|apply,expected-proposal-hash|conf page labels remove
+preview-apply|apply,expected-proposal-hash,expected-version,expected-parent|conf page move
+preview-apply|apply,expected-proposal-hash,expected-version|conf page title set
+plan|confirm,expected-proposal-hash|conf plan apply
+remote-direct|-|conf push
+local-direct|-|conf reconcile stage
+local-direct|-|compatibility clear
+local-direct|-|compatibility pin
+local-direct|-|config set
+local-direct|-|jira apply
+remote-direct|-|jira issue assign
+remote-direct|-|jira issue attachment upload
+preview-apply|apply,expected-proposal-hash|jira issue comment add
+remote-direct|-|jira issue comment delete
+remote-direct|-|jira issue create
+preview-apply|apply,confirm,expected-proposal-hash,expected-updated|jira issue delete
+remote-direct|-|jira issue edit
+preview-apply|apply,expected-proposal-hash,expected-updated|jira issue field set
+remote-direct|-|jira issue labels
+remote-direct|-|jira issue link add
+remote-direct|-|jira issue link delete
+remote-direct|-|jira issue link-epic
+plan|apply,confirm|jira issue plan apply
+preview-apply|apply,expected-proposal-hash|jira issue transition
+remote-direct|-|jira issue update
+preview-apply|apply,expected-proposal-hash|jira issue watchers add
+preview-apply|apply,expected-proposal-hash|jira issue watchers remove
+preview-apply|apply,expected-proposal-hash|jira issue worklog add
+preview-apply|apply|jira push
+local-direct|-|jira reconcile stage
+remote-direct|-|jira sprint add
+remote-direct|-|jira sprint remove
+preview-apply|apply,expected-backend-sha256,confirm|mirror backend bind
+dedicated-apply|from-file,candidate-hash,expected-current-hash|profile apply
+local-direct|-|profile revalidate
+local-direct|-|profile suggest
+dedicated-apply|from-file,suggestion-hash,candidate-hash,expected-current-hash|profile suggestion apply
+local-direct|-|profile suggestion reject
 `, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) > 1 {
-			want[strings.Join(fields[1:], " ")] = mutationProfile(fields[0])
+		if line = strings.TrimSpace(line); line != "" {
+			fields := strings.Split(line, "|")
+			if len(fields) != 3 {
+				t.Fatalf("invalid reviewed mutation row %q", line)
+			}
+			var guards []string
+			if fields[1] != "-" {
+				guards = strings.Split(fields[1], ",")
+			}
+			want[fields[2]] = expectedMutation{profile: mutationProfile(fields[0]), guards: guards}
 		}
 	}
-	for path, profile := range want {
-		registration, ok := commandRegistry.nodes[path]
-		if !ok || registration.traits&commandMutating == 0 {
-			t.Errorf("reviewed mutating command %q lost its classification", path)
-		} else if registration.profile != profile {
-			t.Errorf("reviewed mutating command %q profile=%q want=%q", path, registration.profile, profile)
+
+	root := newRoot()
+	seen := map[string]bool{}
+	standardGuardNames := []string{
+		"apply", "confirm", "expected-proposal-hash", "expected-version", "expected-parent",
+		"expected-updated", "expected-backend-sha256", "candidate-hash", "expected-current-hash",
+	}
+	var walk func(*cobra.Command)
+	walk = func(cmd *cobra.Command) {
+		if cmd.Annotations[commandRoleAnnotation] == commandRoleLeaf || cmd.Annotations[commandRoleAnnotation] == commandRoleHybrid {
+			path := commandRegistryPath(root, cmd)
+			if cmd.Annotations[accessAnnotation] == "mutating" {
+				seen[path] = true
+				expected, ok := want[path]
+				if !ok {
+					t.Errorf("executable command %q unexpectedly became mutating", path)
+				} else {
+					if got := mutationProfile(cmd.Annotations[mutationProfileAnnotation]); got != expected.profile {
+						t.Errorf("reviewed mutating command %q profile=%q want=%q", path, got, expected.profile)
+					}
+					wantGuard := map[string]bool{}
+					for _, name := range expected.guards {
+						wantGuard[name] = true
+						if cmd.Flags().Lookup(name) == nil {
+							t.Errorf("reviewed mutating command %q lost structural --%s", path, name)
+						}
+					}
+					for _, name := range standardGuardNames {
+						if present := cmd.Flags().Lookup(name) != nil; present != wantGuard[name] {
+							t.Errorf("reviewed mutating command %q structural --%s presence=%t want=%t", path, name, present, wantGuard[name])
+						}
+					}
+				}
+			}
+		}
+		for _, child := range cmd.Commands() {
+			walk(child)
 		}
 	}
-	for path, registration := range commandRegistry.nodes {
-		if _, expected := want[path]; registration.traits&commandMutating != 0 && !expected {
-			t.Errorf("command %q unexpectedly became mutating", path)
+	walk(root)
+	for path := range want {
+		if !seen[path] {
+			t.Errorf("reviewed mutating command %q lost its executable classification", path)
 		}
+	}
+	if len(seen) != 51 {
+		t.Fatalf("executable mutating commands=%d want=51", len(seen))
+	}
+}
+
+func TestPersistentPreRunCollisionPrecedenceIsStable(t *testing.T) {
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{"read_only":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	brokenConfig := map[string]string{"ATL_CONFIG_DIR": configDir}
+	tests := []struct {
+		name string
+		env  map[string]string
+		args []string
+		want error
+	}{
+		{
+			name: "unsupported output precedes explicit read-only",
+			args: []string{"--read-only", "--output", "id", "jira", "issue", "transition", "PROJ-1", "--to", "Done"},
+			want: domain.ErrUsage,
+		},
+		{
+			name: "explicit read-only precedes malformed apply guards",
+			args: []string{"--read-only", "jira", "issue", "delete", "PROJ-1", "--apply"},
+			want: domain.ErrCheckFailed,
+		},
+		{
+			name: "apply guards precede malformed config",
+			env:  brokenConfig,
+			args: []string{"conf", "comment", "mutation", "apply", "--id", "1", "--thread-id", "2", "--operation", "resolve"},
+			want: domain.ErrUsage,
+		},
+		{
+			name: "malformed config precedes command input and service",
+			env:  brokenConfig,
+			args: []string{"jira", "issue", "create", "--project", "PROJ", "--type", "Task", "--summary", "Synthetic", "--from-file", "/definitely/missing/description.wiki"},
+			want: domain.ErrConfig,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, _, err := executeCLIRaw(t, test.env, test.args...)
+			if !errors.Is(err, test.want) {
+				t.Fatalf("err=%v want classification %v", err, test.want)
+			}
+		})
 	}
 }
 

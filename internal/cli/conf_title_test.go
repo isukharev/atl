@@ -158,8 +158,10 @@ func TestConfPageTitleUnknownEmitsJSONAndNeverReplaysPUT(t *testing.T) {
 		_, _ = io.WriteString(w, `{"id":"42","title":"Old","version":{"number":7},"body":{"storage":{"value":"body"}}}`)
 	}))
 	t.Cleanup(srv.Close)
-	out, _, code := runCLIFull(t, confEnv(srv), "conf", "page", "title", "set", "42", "--from-file", path,
+	out, _, execErr := executeCLIRaw(t, confEnv(srv), "conf", "page", "title", "set", "42", "--from-file", path,
 		"--apply", "--expected-version", "7", "--expected-proposal-hash", "682a43495d3a2dad4ee0e7b9622e4f5141fcdf362113a7d63af08350a375492f")
+	assertLegacyMarkerOnlyAmbiguousExit(t, execErr)
+	code := codeFor(execErr)
 	if code != exitGeneric || gets != 2 || puts != 1 || !strings.Contains(out, `"status": "unknown"`) {
 		t.Fatalf("unknown contract exit=%d gets=%d puts=%d out=%s", code, gets, puts, out)
 	}

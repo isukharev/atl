@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "mixed_document",
+      "input": "# Title\n\nIntro with **bold** and `code`.\n\n- one\n- two\n\n| K | V |\n| --- | --- |\n| a | 1 |\n\n```bash\necho hi\n```\n",
+      "outcome": "success",
+      "output": "h1. Title\n\nIntro with *bold* and {{code}}.\n\n* one\n* two\n\n||K||V||\n|a|1|\n\n{code:bash}\necho hi\n{code}",
+      "invariants": ["non_empty", "no_markdown_heading"]
+    },
+    {
+      "name": "dynamic_code_fence",
+      "input": "`````go\nbefore\n```\nafter\n``````   ",
+      "outcome": "success",
+      "output": "{code:go}\nbefore\n```\nafter\n{code}",
+      "invariants": ["non_empty", "no_markdown_heading"]
+    },
+    {
+      "name": "escaped_block_collisions",
+      "input": "intro\n\\```lang **bold**\n\\---",
+      "outcome": "success",
+      "output": "intro\n```lang *bold*\n---",
+      "invariants": ["non_empty", "no_markdown_heading"]
+    },
+    {
+      "name": "multiline_paragraph",
+      "input": "a **bold** word\nand _em_ next",
+      "outcome": "success",
+      "output": "a *bold* word\nand _em_ next",
+      "invariants": ["non_empty", "no_markdown_heading"]
+    },
+    {
+      "name": "bom_and_unicode",
+      "input": "\ufeff## Контекст **важно**\n\nПривет\n",
+      "outcome": "success",
+      "output": "h2. Контекст *важно*\n\nПривет",
+      "invariants": ["non_empty", "no_markdown_heading"]
+    },
+    {
+      "name": "crlf_code_fence",
+      "input": "# T\r\n\r\n```\r\nline1\r\nline2\r\n```\r\n",
+      "outcome": "success",
+      "output": "h1. T\n\n{code}\nline1\nline2\n{code}",
+      "invariants": ["non_empty", "no_markdown_heading"]
+    },
+    {
+      "name": "jira_issue_link",
+      "input": "See [DS-1](jira:DS-1).",
+      "outcome": "success",
+      "output": "See DS-1.",
+      "invariants": ["non_empty", "no_markdown_heading"]
+    },
+    {
+      "name": "image_fails_closed",
+      "input": "# Fine\n\n![img](x.png)",
+      "outcome": "error",
+      "error_class": "UnsupportedError",
+      "invariants": ["no_partial_output"]
+    },
+    {
+      "name": "code_terminator_fails_closed",
+      "input": "```\nbody with {code} inside\n```",
+      "outcome": "error",
+      "error_class": "UnsupportedError",
+      "invariants": ["no_partial_output"]
+    },
+    {
+      "name": "ambiguous_link_fails_closed",
+      "input": "[text|pipe](https://example.com/a|b)",
+      "outcome": "error",
+      "error_class": "UnsupportedError",
+      "invariants": ["no_partial_output"]
+    },
+    {
+      "name": "control_character_fails_closed",
+      "input": "safe\u0000unsafe",
+      "outcome": "error",
+      "error_class": "UnsupportedError",
+      "invariants": ["no_partial_output"]
+    }
+  ],
+  "fuzz_regressions": [
+    {"path":"testdata/fuzz/FuzzConvertDocument/5fb102422365f0bc","sha256":"5fb102422365f0bc95247161addca6ae838bc0787e26741e62d88be6745d3377"},
+    {"path":"testdata/fuzz/FuzzConvertDocument/c8409534529b5317","sha256":"c8409534529b531735aa323ab7b41f66d6c3d6ca7a9848ac988d849229dbeddd"}
+  ]
+}

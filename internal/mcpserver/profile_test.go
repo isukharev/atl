@@ -131,6 +131,21 @@ func TestDefaultProfilePreservesNewToolSchemasAndInstructions(t *testing.T) {
 	}
 }
 
+func TestServiceProfileInstructionDigestsAreStable(t *testing.T) {
+	want := map[ServiceProfile]string{
+		ServiceDefault:    "c24f2df54a033d9771c4e6c265b028b1288f3670be5e7535fe8b79873957f732",
+		ServiceJira:       "f47c4eef57cf8d3c61a1bc12557144438471847f29ee7a9d7c9d2a28c77c0bd4",
+		ServiceConfluence: "2bdb992eafb5621728515beecd4d4bbed979fa47367be5d4a08b35f284a0ee79",
+		ServiceOffline:    "9ab393f7baf37c2249e099d8c1682c00e4cd7768ed5211371b4f25888c6b7aaa",
+	}
+	for profile, expected := range want {
+		got := sha256.Sum256([]byte(instructionsForService(profile)))
+		if hex.EncodeToString(got[:]) != expected {
+			t.Errorf("profile %q instruction digest=%x", profile, got)
+		}
+	}
+}
+
 func TestParseServiceProfileIsClosed(t *testing.T) {
 	for _, value := range []string{"jira", "confluence", "offline"} {
 		profile, err := ParseServiceProfile(value)
