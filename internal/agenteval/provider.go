@@ -115,17 +115,17 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 		}
 		return ProviderCommand{Path: agentBinary, Args: args}, nil
 	case "codex":
-		includeOnly := `["PATH","ATL_READ_ONLY","ATL_NO_UPDATE","ATL_CONFIG_DIR","ATL_MIRROR_ROOT","ATL_JIRA_URL","ATL_CONFLUENCE_URL","ATL_JIRA_PAT","ATL_CONFLUENCE_PAT","ATL_ALLOW_INSECURE","ATL_EVAL_REAL_BINARY","ATL_EVAL_COUNTER","ATL_EVAL_ALLOWED_COMMANDS"]`
+		environmentProjection := wrapperProjectionSyntheticCLI
 		sandboxMode := "read-only"
 		if spec.ToolTransport == "mcp" {
-			includeOnly = `["PATH","LANG","LC_ALL","TERM"]`
+			environmentProjection = wrapperProjectionMCP
 			if spec.EffectiveSurface() == SurfaceExternalMCP {
-				includeOnly = `["PATH","LANG","LC_ALL","TERM","NO_PROXY","no_proxy","ATL_EVAL_EXTERNAL_MCP_TOKEN"]`
+				environmentProjection = wrapperProjectionExternalMCP
 			}
 			if spec.EffectiveBackendMode() == BackendModePrivateLive {
-				includeOnly = `["PATH","LANG","LC_ALL","TERM","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_SKILL_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`
+				environmentProjection = wrapperProjectionPrivateMCP
 				if spec.EffectiveSurface() == SurfaceExternalMCP {
-					includeOnly = `["PATH","LANG","LC_ALL","TERM","NO_PROXY","no_proxy","ATL_EVAL_EXTERNAL_MCP_TOKEN","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_SKILL_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`
+					environmentProjection = wrapperProjectionPrivateExternalMCP
 				}
 			}
 		}
@@ -133,13 +133,14 @@ func BuildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 		privateCLI := spec.EffectiveBackendMode() == BackendModePrivateLive || spec.EffectiveBackendMode() == BackendModeProviderCalibration
 		if confinedCLI {
 			sandboxMode = "workspace-write"
-			includeOnly = `["PATH","SHELL","LANG","LC_ALL","TERM","ATL_READ_ONLY","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_COMMAND_BROKER_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_SKILL_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`
+			environmentProjection = wrapperProjectionConfinedCLI
 			if spec.EffectiveBackendMode() == BackendModePrivateLive && spec.AllowLiveWrites {
-				includeOnly = `["PATH","SHELL","LANG","LC_ALL","TERM","ATL_READ_ONLY","ATL_EVAL_ALLOW_REVIEWED_WRITES","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_COMMAND_BROKER_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_SKILL_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`
+				environmentProjection = wrapperProjectionPrivateReviewedWriteCLI
 			} else if spec.EffectiveBackendMode() == BackendModeSynthetic && spec.AllowSyntheticWrites {
-				includeOnly = `["PATH","SHELL","LANG","LC_ALL","TERM","ATL_EVAL_ALLOW_SYNTHETIC_WRITES","ATL_EVAL_COUNTER","ATL_EVAL_GUARD_COUNTER","ATL_EVAL_CLI_POLICY_FILE","ATL_EVAL_COMMAND_BROKER_FILE","ATL_EVAL_GUARD_MODE","ATL_EVAL_ALLOWED_READ_ROOTS","ATL_EVAL_SKILL_READ_ROOTS","ATL_EVAL_WORKSPACE_ROOT"]`
+				environmentProjection = wrapperProjectionSyntheticWriteCLI
 			}
 		}
+		includeOnly := renderWrapperEnvironmentProjection(environmentProjection)
 		args := []string{
 			"exec", "--json", "--ephemeral", "--strict-config",
 			"--skip-git-repo-check",
@@ -443,12 +444,12 @@ func codexPrivateHookCommand(guardPath, expectedMode string, expectedTools []str
 	if err != nil {
 		return "", fmt.Errorf("encode codex private-live hook tool policy: %w", err)
 	}
-	return "ATL_EVAL_GUARD_MODE=" + shellSingleQuote(confinement.GuardMode) +
-		" ATL_EVAL_GUARD_COUNTER=" + shellSingleQuote(confinement.GuardCounterPath) +
-		" ATL_EVAL_ALLOWED_MCP_TOOLS=" + shellSingleQuote(string(tools)) +
-		" ATL_EVAL_WORKSPACE_ROOT=" + shellSingleQuote(confinement.WorkspaceReadRoot) +
-		" ATL_EVAL_ALLOWED_READ_ROOTS=" + shellSingleQuote(string(roots)) +
-		" ATL_EVAL_SKILL_READ_ROOTS=" + shellSingleQuote(string(skillRoots)) +
+	return WrapperEnvGuardMode + "=" + shellSingleQuote(confinement.GuardMode) +
+		" " + WrapperEnvGuardCounter + "=" + shellSingleQuote(confinement.GuardCounterPath) +
+		" " + WrapperEnvAllowedMCPTools + "=" + shellSingleQuote(string(tools)) +
+		" " + WrapperEnvWorkspaceRoot + "=" + shellSingleQuote(confinement.WorkspaceReadRoot) +
+		" " + WrapperEnvAllowedReadRoots + "=" + shellSingleQuote(string(roots)) +
+		" " + WrapperEnvSkillReadRoots + "=" + shellSingleQuote(string(skillRoots)) +
 		" " + shellSingleQuote(guardPath), nil
 }
 

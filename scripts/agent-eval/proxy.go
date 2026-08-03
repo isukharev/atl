@@ -20,19 +20,10 @@ import (
 	"github.com/isukharev/atl/internal/agenteval"
 )
 
-type proxyRecord struct {
-	CommandFamily                string `json:"command_family,omitempty"`
-	CalibrationObservationSHA256 string `json:"calibration_observation_sha256,omitempty"`
-	// The classification of a failed reviewed invocation, and nothing else from
-	// its stderr. Both members are absent unless the closed CLI vocabulary
-	// accepted the exact pair the CLI itself emitted.
-	ErrorKind        string `json:"error_kind,omitempty"`
-	ErrorRemediation string `json:"error_remediation,omitempty"`
-	Denied           bool   `json:"denied,omitempty"`
-	StdoutBytes      int64  `json:"stdout_bytes"`
-	StderrBytes      int64  `json:"stderr_bytes"`
-	ExitCode         int    `json:"exit_code"`
-}
+// proxyRecord is the writer-side name for the shared evaluator CLI audit ABI.
+// Classifications contain only the closed kind/remediation pair accepted from
+// the CLI; no stderr content enters this record.
+type proxyRecord = agenteval.CLIInvocationAuditRecord
 
 type guardRecord struct {
 	Decision string `json:"decision"`
@@ -72,7 +63,7 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 	decision := "deny"
 	family := "other"
 	var reason string
-	guardMode := os.Getenv("ATL_EVAL_GUARD_MODE")
+	guardMode := os.Getenv(agenteval.WrapperEnvGuardMode)
 	if guardMode == "provider-calibration" {
 		reason = "provider calibration admits only the literal atl version command"
 		if hook.ToolName == "Bash" && hook.ToolInput.Command == "atl version" {
@@ -84,7 +75,7 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 	}
 	if guardMode == "mcp-only" {
 		reason = "typed-MCP benchmark blocks every non-MCP model tool"
-		if hook.ToolName == "StructuredOutput" || allowedMCPGuardTool(hook.ToolName, os.Getenv("ATL_EVAL_ALLOWED_MCP_TOOLS")) {
+		if hook.ToolName == "StructuredOutput" || allowedMCPGuardTool(hook.ToolName, os.Getenv(agenteval.WrapperEnvAllowedMCPTools)) {
 			decision = "allow"
 			family = "mcp"
 			reason = "tool is required structured output or an exact reviewed MCP tool"
@@ -99,7 +90,7 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 			family = "structured_output"
 			reason = "structured output is required by the reviewed response schema"
 		case "Read":
-			allowed, err := allowedPrivateReadPath(hook.ToolInput.FilePath, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"))
+			allowed, err := allowedPrivateReadPath(hook.ToolInput.FilePath, os.Getenv(agenteval.WrapperEnvAllowedReadRoots))
 			if err != nil {
 				fmt.Fprintln(errorOutput, "atl evaluation guard could not enforce the read limit")
 				return 2
@@ -108,23 +99,23 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 				decision = "allow"
 				family = "read"
 				reason = "read target is within a reviewed benchmark root"
-				if skillRead, _ := allowedPrivateReadPath(hook.ToolInput.FilePath, os.Getenv("ATL_EVAL_SKILL_READ_ROOTS")); skillRead {
+				if skillRead, _ := allowedPrivateReadPath(hook.ToolInput.FilePath, os.Getenv(agenteval.WrapperEnvSkillReadRoots)); skillRead {
 					family = "skill_read"
 					reason = "read target is within the reviewed skill root"
 				}
 			}
 		case "Bash":
-			if allowedSkillReadCommand(hook.ToolInput.Command, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS")) {
+			if allowedSkillReadCommand(hook.ToolInput.Command, os.Getenv(agenteval.WrapperEnvAllowedReadRoots)) {
 				decision = "allow"
 				family = "read"
 				reason = "command contains only confined reader invocations"
-				if allowedSkillReadCommand(hook.ToolInput.Command, os.Getenv("ATL_EVAL_SKILL_READ_ROOTS")) {
+				if allowedSkillReadCommand(hook.ToolInput.Command, os.Getenv(agenteval.WrapperEnvSkillReadRoots)) {
 					family = "skill_read"
 					reason = "command contains only confined skill-reader invocations"
 				}
 			}
 		default:
-			if allowedMCPGuardTool(hook.ToolName, os.Getenv("ATL_EVAL_ALLOWED_MCP_TOOLS")) {
+			if allowedMCPGuardTool(hook.ToolName, os.Getenv(agenteval.WrapperEnvAllowedMCPTools)) {
 				decision = "allow"
 				family = "mcp"
 				reason = "tool is an exact reviewed MCP tool"
@@ -137,7 +128,7 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 		switch hook.ToolName {
 		case "Read":
 			allowed, err := allowedPrivateCLIResultRead(hook.ToolInput.FilePath, hook.ToolInput.Offset, hook.ToolInput.Limit,
-				os.Getenv("ATL_EVAL_CLI_RESULT_DIR"), os.Getenv("ATL_EVAL_GUARD_COUNTER"))
+				os.Getenv(agenteval.WrapperEnvCLIResultDir), os.Getenv(agenteval.WrapperEnvGuardCounter))
 			if err != nil {
 				fmt.Fprintln(errorOutput, "atl evaluation guard could not enforce the read limit")
 				return 2
@@ -148,7 +139,7 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 				reason = "read target is a bounded result of a reviewed atl invocation"
 				break
 			}
-			allowed, err = allowedPrivateReadPath(hook.ToolInput.FilePath, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"))
+			allowed, err = allowedPrivateReadPath(hook.ToolInput.FilePath, os.Getenv(agenteval.WrapperEnvAllowedReadRoots))
 			if err != nil {
 				fmt.Fprintln(errorOutput, "atl evaluation guard could not enforce the read limit")
 				return 2
@@ -157,17 +148,17 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 				decision = "allow"
 				family = "read"
 				reason = "read target is within a reviewed benchmark root"
-				if skillRead, _ := allowedPrivateReadPath(hook.ToolInput.FilePath, os.Getenv("ATL_EVAL_SKILL_READ_ROOTS")); skillRead {
+				if skillRead, _ := allowedPrivateReadPath(hook.ToolInput.FilePath, os.Getenv(agenteval.WrapperEnvSkillReadRoots)); skillRead {
 					family = "skill_read"
 					reason = "read target is within the reviewed skill root"
 				}
 			}
 		case "Bash":
-			if allowedSkillReadCommand(hook.ToolInput.Command, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS")) {
+			if allowedSkillReadCommand(hook.ToolInput.Command, os.Getenv(agenteval.WrapperEnvAllowedReadRoots)) {
 				decision = "allow"
 				family = "read"
 				reason = "command contains only confined reader invocations"
-				if allowedSkillReadCommand(hook.ToolInput.Command, os.Getenv("ATL_EVAL_SKILL_READ_ROOTS")) {
+				if allowedSkillReadCommand(hook.ToolInput.Command, os.Getenv(agenteval.WrapperEnvSkillReadRoots)) {
 					family = "skill_read"
 					reason = "command contains only confined skill-reader invocations"
 				}
@@ -181,8 +172,8 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 	}
 	switch hook.ToolName {
 	case "Bash":
-		var allowed []string
-		if err := json.Unmarshal([]byte(os.Getenv("ATL_EVAL_ALLOWED_COMMANDS")), &allowed); err != nil || len(allowed) == 0 {
+		allowed, err := agenteval.DecodeWrapperStringList(os.Getenv(agenteval.WrapperEnvAllowedCommands))
+		if err != nil || len(allowed) == 0 {
 			fmt.Fprintln(errorOutput, "atl evaluation guard has no command policy")
 			return 2
 		}
@@ -193,7 +184,7 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 			reason = "command matches the reviewed benchmark allowlist"
 		}
 	case "Agent":
-		allowed, err := reserveDelegationSlot(os.Getenv("ATL_EVAL_GUARD_COUNTER"), os.Getenv("ATL_EVAL_MAX_DELEGATIONS"))
+		allowed, err := reserveDelegationSlot(os.Getenv(agenteval.WrapperEnvGuardCounter), os.Getenv(agenteval.WrapperEnvMaxDelegations))
 		if err != nil {
 			fmt.Fprintln(errorOutput, "atl evaluation guard could not enforce the delegation limit")
 			return 2
@@ -206,7 +197,7 @@ func runClaudeBashGuard(input io.Reader, output, errorOutput io.Writer) int {
 			reason = "benchmark delegation limit reached"
 		}
 	case "Read":
-		allowed, err := allowedReadPath(hook.ToolInput.FilePath, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"))
+		allowed, err := allowedReadPath(hook.ToolInput.FilePath, os.Getenv(agenteval.WrapperEnvAllowedReadRoots))
 		if err != nil {
 			fmt.Fprintln(errorOutput, "atl evaluation guard could not enforce the read limit")
 			return 2
@@ -302,7 +293,7 @@ func runSkillReader(name string, args []string, output, errorOutput io.Writer) i
 	default:
 		return 2
 	}
-	resolved, allowed, err := resolveAllowedReadPath(target, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"), true)
+	resolved, allowed, err := resolveAllowedReadPath(target, os.Getenv(agenteval.WrapperEnvAllowedReadRoots), true)
 	if err != nil || !allowed {
 		fmt.Fprintln(errorOutput, "private benchmark reader denied path")
 		return 2
@@ -342,7 +333,7 @@ func runSkillCat(paths []string, output, errorOutput io.Writer) int {
 	}
 	resolved := make([]string, 0, len(paths))
 	for _, path := range paths {
-		target, allowed, err := resolveAllowedReadPath(path, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"), true)
+		target, allowed, err := resolveAllowedReadPath(path, os.Getenv(agenteval.WrapperEnvAllowedReadRoots), true)
 		if err != nil || !allowed {
 			fmt.Fprintln(errorOutput, "private benchmark reader denied path")
 			return 2
@@ -374,7 +365,7 @@ func runSkillCat(paths []string, output, errorOutput io.Writer) int {
 func runSkillLineCount(paths []string, output, errorOutput io.Writer) int {
 	total := 0
 	for _, path := range paths {
-		resolved, allowed, err := resolveAllowedReadPath(path, os.Getenv("ATL_EVAL_ALLOWED_READ_ROOTS"), true)
+		resolved, allowed, err := resolveAllowedReadPath(path, os.Getenv(agenteval.WrapperEnvAllowedReadRoots), true)
 		if err != nil || !allowed {
 			fmt.Fprintln(errorOutput, "private benchmark reader denied path")
 			return 2
@@ -411,8 +402,8 @@ func validGuardToolName(name string) bool {
 }
 
 func allowedMCPGuardTool(name, rawAllowed string) bool {
-	var allowed []string
-	if json.Unmarshal([]byte(rawAllowed), &allowed) != nil {
+	allowed, err := agenteval.DecodeWrapperStringList(rawAllowed)
+	if err != nil {
 		return false
 	}
 	for _, candidate := range allowed {
@@ -427,7 +418,7 @@ func writeGuardDecision(output, errorOutput io.Writer, decision, family, reason 
 	// The family is deliberately coarse and content-free. It proves which
 	// reviewed policy branch admitted a tool without retaining its command,
 	// arguments, path, or backend data.
-	if err := appendGuardRecord(os.Getenv("ATL_EVAL_GUARD_COUNTER"), guardRecord{Decision: decision, Family: family}); err != nil {
+	if err := appendGuardRecord(os.Getenv(agenteval.WrapperEnvGuardCounter), guardRecord{Decision: decision, Family: family}); err != nil {
 		fmt.Fprintln(errorOutput, "atl evaluation guard could not record its decision")
 		return 2
 	}
@@ -509,13 +500,13 @@ func resolveAllowedReadPath(path, rawRoots string, requireWorkspace bool) (strin
 	if path == "" {
 		return "", false, nil
 	}
-	var roots []string
-	if err := json.Unmarshal([]byte(rawRoots), &roots); err != nil || len(roots) == 0 {
+	roots, err := agenteval.DecodeWrapperStringList(rawRoots)
+	if err != nil || len(roots) == 0 {
 		return "", false, fmt.Errorf("invalid read policy")
 	}
 	target := path
 	if !filepath.IsAbs(target) {
-		workspace := os.Getenv("ATL_EVAL_WORKSPACE_ROOT")
+		workspace := os.Getenv(agenteval.WrapperEnvWorkspaceRoot)
 		if workspace == "" {
 			if requireWorkspace {
 				return "", false, nil
@@ -527,7 +518,7 @@ func resolveAllowedReadPath(path, rawRoots string, requireWorkspace bool) (strin
 			target = filepath.Join(workspace, target)
 		}
 	}
-	target, err := filepath.Abs(target)
+	target, err = filepath.Abs(target)
 	if err != nil {
 		return "", false, err
 	}
@@ -553,8 +544,8 @@ func resolveAllowedReadPath(path, rawRoots string, requireWorkspace bool) (strin
 }
 
 func reserveDelegationSlot(counterPath, rawLimit string) (bool, error) {
-	limit, err := strconv.Atoi(rawLimit)
-	if err != nil || limit < 0 || limit > 3 || counterPath == "" {
+	limit, err := agenteval.ParseWrapperDelegationLimit(rawLimit)
+	if err != nil || counterPath == "" {
 		return false, fmt.Errorf("invalid delegation policy")
 	}
 	for slot := 1; slot <= limit; slot++ {
@@ -743,7 +734,8 @@ func runReviewedWriteEnv(args []string) int {
 }
 
 func reviewedWriteEnvironmentEnabled() bool {
-	return os.Getenv("ATL_EVAL_ALLOW_REVIEWED_WRITES") == "1" || os.Getenv("ATL_EVAL_ALLOW_SYNTHETIC_WRITES") == "1"
+	return agenteval.WrapperAuthorityEnabled(os.Getenv(agenteval.WrapperEnvAllowReviewedWrites)) ||
+		agenteval.WrapperAuthorityEnabled(os.Getenv(agenteval.WrapperEnvAllowSyntheticWrites))
 }
 
 func runATLProxy(args []string) int {
@@ -751,10 +743,10 @@ func runATLProxy(args []string) int {
 }
 
 func runATLProxyWithWriteIntent(args []string, reviewedWriteIntent bool) int {
-	counterPath := os.Getenv("ATL_EVAL_COUNTER")
-	brokerPath := os.Getenv("ATL_EVAL_COMMAND_BROKER_FILE")
+	counterPath := os.Getenv(agenteval.WrapperEnvCounter)
+	brokerPath := os.Getenv(agenteval.WrapperEnvCommandBrokerFile)
 	allowReviewedWrites := reviewedWriteEnvironmentEnabled()
-	reviewedWriteAuthority := os.Getenv("ATL_EVAL_ALLOW_SYNTHETIC_WRITES") == "1" && syntheticBackendsAreLoopback()
+	reviewedWriteAuthority := agenteval.WrapperAuthorityEnabled(os.Getenv(agenteval.WrapperEnvAllowSyntheticWrites)) && syntheticBackendsAreLoopback()
 	brokerAllowsReviewedWrites := false
 	if allowReviewedWrites && brokerPath != "" {
 		brokerAllowsWrites, err := agenteval.CommandBrokerAllowsReviewedWrites(brokerPath)
@@ -767,12 +759,12 @@ func runATLProxyWithWriteIntent(args []string, reviewedWriteIntent bool) int {
 	if os.Getenv("ATL_READ_ONLY") != "1" && !reviewedWriteAuthority {
 		return rejectATLProxy(counterPath, "atl evaluation proxy requires ATL_READ_ONLY=1")
 	}
-	realBinary := os.Getenv("ATL_EVAL_REAL_BINARY")
+	realBinary := os.Getenv(agenteval.WrapperEnvRealBinary)
 	if counterPath == "" || realBinary == "" && brokerPath == "" {
 		return rejectATLProxy(counterPath, "atl evaluation proxy is not configured")
 	}
 	commandFamily, _ := agenteval.CapabilityFamilyForCLI(args)
-	if policyPath := os.Getenv("ATL_EVAL_CLI_POLICY_FILE"); policyPath != "" {
+	if policyPath := os.Getenv(agenteval.WrapperEnvCLIPolicyFile); policyPath != "" {
 		policy, err := agenteval.LoadCLICommandPolicy(policyPath)
 		if err != nil {
 			return rejectATLProxy(counterPath, "atl evaluation proxy rejected its command policy")
@@ -793,7 +785,7 @@ func runATLProxyWithWriteIntent(args []string, reviewedWriteIntent bool) int {
 		if !allowed {
 			return rejectATLProxy(counterPath, "atl evaluation proxy rejected an exhausted command budget")
 		}
-	} else if !allowedATLArgs(args, os.Getenv("ATL_EVAL_ALLOWED_COMMANDS")) {
+	} else if !allowedATLArgs(args, os.Getenv(agenteval.WrapperEnvAllowedCommands)) {
 		return rejectATLProxy(counterPath, "atl evaluation proxy rejected command arguments")
 	}
 	if brokerPath != "" {
@@ -811,7 +803,7 @@ func runATLProxyWithWriteIntent(args []string, reviewedWriteIntent bool) int {
 		if response.Status != "executed" {
 			return failATLProxy(counterPath, "atl evaluation proxy command broker failed the invocation")
 		}
-		calibrationObservation, err := calibrationProxyObservation(commandFamily, os.Getenv("ATL_EVAL_GUARD_MODE"), response)
+		calibrationObservation, err := calibrationProxyObservation(commandFamily, os.Getenv(agenteval.WrapperEnvGuardMode), response)
 		if err != nil {
 			return failATLProxy(counterPath, "atl evaluation proxy rejected invalid calibration output")
 		}
@@ -880,7 +872,7 @@ func runATLProxyWithWriteIntent(args []string, reviewedWriteIntent bool) int {
 }
 
 func emitBrokeredCLIStdout(data []byte, output io.Writer) error {
-	root := os.Getenv("ATL_EVAL_CLI_RESULT_DIR")
+	root := os.Getenv(agenteval.WrapperEnvCLIResultDir)
 	if len(data) <= privateCLIResultInlineBytes || root == "" || !utf8.Valid(data) {
 		_, err := output.Write(data)
 		return err
@@ -953,8 +945,8 @@ func calibrationProxyObservation(commandFamily, guardMode string, response agent
 }
 
 func allowedATLArgs(args []string, rawAllowed string) bool {
-	var prefixes []string
-	if json.Unmarshal([]byte(rawAllowed), &prefixes) != nil || len(prefixes) == 0 {
+	prefixes, err := agenteval.DecodeWrapperStringList(rawAllowed)
+	if err != nil || len(prefixes) == 0 {
 		return false
 	}
 	for _, prefix := range prefixes {

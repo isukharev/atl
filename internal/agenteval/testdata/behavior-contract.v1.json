@@ -2,14 +2,14 @@
   "schema_version": 1,
   "environment": {
     "variables": [
-      {"name":"ATL_EVAL_ALLOWED_COMMANDS","producers":["internal/agenteval/runner.go"],"consumers":["scripts/agent-eval/proxy.go"],"value_type":"json_string_array","modes":["synthetic_cli","private_cli"],"sensitivity":"policy"},
+      {"name":"ATL_EVAL_ALLOWED_COMMANDS","producers":["internal/agenteval/runner.go"],"consumers":["internal/agenteval/provider.go","scripts/agent-eval/proxy.go"],"value_type":"json_string_array","modes":["synthetic_cli","private_cli"],"sensitivity":"policy"},
       {"name":"ATL_EVAL_ALLOWED_MCP_TOOLS","producers":["internal/agenteval/runner.go","internal/agenteval/calibration.go"],"consumers":["internal/agenteval/provider.go","scripts/agent-eval/proxy.go"],"value_type":"json_string_array","modes":["synthetic_mcp","private_mcp","provider_calibration"],"sensitivity":"policy"},
       {"name":"ATL_EVAL_ALLOWED_READ_ROOTS","producers":["internal/agenteval/runner.go","internal/agenteval/calibration.go"],"consumers":["internal/agenteval/provider.go","scripts/agent-eval/proxy.go"],"value_type":"json_path_array","modes":["all"],"sensitivity":"private_path"},
       {"name":"ATL_EVAL_ALLOW_REVIEWED_WRITES","producers":["internal/agenteval/runner.go"],"consumers":["internal/agenteval/provider.go","scripts/agent-eval/proxy.go"],"value_type":"presence_flag","modes":["private_cli"],"sensitivity":"policy"},
       {"name":"ATL_EVAL_ALLOW_SYNTHETIC_WRITES","producers":["internal/agenteval/runner.go"],"consumers":["internal/agenteval/provider.go","scripts/agent-eval/proxy.go"],"value_type":"presence_flag","modes":["synthetic_cli"],"sensitivity":"policy"},
       {"name":"ATL_EVAL_CLI_POLICY_FILE","producers":["internal/agenteval/runner.go","internal/agenteval/calibration.go"],"consumers":["internal/agenteval/provider.go","scripts/agent-eval/proxy.go"],"value_type":"path","modes":["cli","provider_calibration"],"sensitivity":"private_path"},
       {"name":"ATL_EVAL_CLI_RESULT_DIR","producers":["internal/agenteval/runner.go"],"consumers":["scripts/agent-eval/proxy.go"],"value_type":"path","modes":["private_cli"],"sensitivity":"private_path"},
-      {"name":"ATL_EVAL_COMMAND_BROKER_FILE","producers":["internal/agenteval/runner.go","internal/agenteval/calibration.go"],"consumers":["internal/agenteval/provider.go","scripts/agent-eval/proxy.go"],"value_type":"path","modes":["cli","provider_calibration"],"sensitivity":"private_path"},
+      {"name":"ATL_EVAL_COMMAND_BROKER_FILE","producers":["internal/agenteval/runner.go","internal/agenteval/calibration.go"],"consumers":["internal/agenteval/provider.go","scripts/agent-eval/command_broker.go","scripts/agent-eval/proxy.go"],"value_type":"path","modes":["cli","provider_calibration"],"sensitivity":"private_path"},
       {"name":"ATL_EVAL_COUNTER","producers":["internal/agenteval/runner.go","internal/agenteval/calibration.go"],"consumers":["internal/agenteval/provider.go","scripts/agent-eval/proxy.go"],"value_type":"path","modes":["cli","provider_calibration"],"sensitivity":"private_path"},
       {"name":"ATL_EVAL_EXTERNAL_MCP_TOKEN","producers":["internal/agenteval/runner.go"],"consumers":["internal/agenteval/provider.go"],"value_type":"opaque_token","modes":["external_mcp"],"sensitivity":"secret"},
       {"name":"ATL_EVAL_FORBIDDEN_NETWORK_ADDRESS","producers":["internal/agenteval/runner.go"],"consumers":["scripts/agent-eval/command_broker.go"],"value_type":"socket_address","modes":["private_cli"],"sensitivity":"private_address"},
@@ -17,7 +17,7 @@
       {"name":"ATL_EVAL_GUARD_MODE","producers":["internal/agenteval/runner.go","internal/agenteval/calibration.go"],"consumers":["internal/agenteval/provider.go","scripts/agent-eval/proxy.go"],"value_type":"enum","modes":["all"],"sensitivity":"policy"},
       {"name":"ATL_EVAL_HTTP_GUARD_FILE","producers":[],"consumers":[],"value_type":"path","modes":["forbidden_ambient"],"sensitivity":"privileged_control"},
       {"name":"ATL_EVAL_MAX_DELEGATIONS","producers":["internal/agenteval/runner.go"],"consumers":["scripts/agent-eval/proxy.go"],"value_type":"nonnegative_integer","modes":["all"],"sensitivity":"policy"},
-      {"name":"ATL_EVAL_REAL_BINARY","producers":["internal/agenteval/runner.go"],"consumers":["scripts/agent-eval/proxy.go"],"value_type":"path","modes":["cli"],"sensitivity":"private_path"},
+      {"name":"ATL_EVAL_REAL_BINARY","producers":["internal/agenteval/runner.go"],"consumers":["internal/agenteval/provider.go","scripts/agent-eval/proxy.go"],"value_type":"path","modes":["cli"],"sensitivity":"private_path"},
       {"name":"ATL_EVAL_SKILL_READ_ROOTS","producers":["internal/agenteval/runner.go","internal/agenteval/calibration.go"],"consumers":["internal/agenteval/provider.go","scripts/agent-eval/proxy.go"],"value_type":"json_path_array","modes":["skill_read"],"sensitivity":"private_path"},
       {"name":"ATL_EVAL_WORKSPACE_ROOT","producers":["internal/agenteval/runner.go","internal/agenteval/calibration.go"],"consumers":["internal/agenteval/provider.go","scripts/agent-eval/proxy.go"],"value_type":"path","modes":["all"],"sensitivity":"private_path"}
     ],
