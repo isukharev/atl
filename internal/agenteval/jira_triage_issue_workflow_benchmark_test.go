@@ -301,7 +301,7 @@ func assertTriageProviderOracles(t *testing.T, root string, cohort triageCohort,
 			t.Fatal(err)
 		}
 		for name, candidate := range map[string][]byte{"retained": schema, "provider": providerSchema} {
-			if err := validateHistoryBenchmarkSchemaInstance(candidate, final); err != nil {
+			if err := validateJSONSchemaSubsetInstance(candidate, final); err != nil {
 				t.Fatalf("%s %s schema rejected production final: %v", spec.Provider, name, err)
 			}
 		}
@@ -379,7 +379,7 @@ func assertTriageSemanticMutationsFail(t *testing.T, spec RunSpec, schema, final
 	_ = json.Unmarshal(final, &document)
 	document["unexpected"] = true
 	extra, _ := json.Marshal(document)
-	if err := validateHistoryBenchmarkSchemaInstance(schema, extra); err == nil {
+	if err := validateJSONSchemaSubsetInstance(schema, extra); err == nil {
 		t.Fatal("closed response schema accepted an extra field")
 	}
 }

@@ -780,7 +780,7 @@ func assertJiraSnapshotReconciliationSchemaMatchesFinal(
 		t.Fatalf("%s response schema is not provider-compatible: %v", spec.Provider, err)
 	}
 	for name, schema := range map[string][]byte{"retained": schemaBytes, "provider": providerSchema} {
-		if err := validateHistoryBenchmarkSchemaInstance(schema, evidence.final); err != nil {
+		if err := validateJSONSchemaSubsetInstance(schema, evidence.final); err != nil {
 			t.Fatalf("%s %s response schema rejected fixture-derived final: %v", spec.Provider, name, err)
 		}
 	}
@@ -795,7 +795,7 @@ func assertJiraSnapshotReconciliationSchemaMatchesFinal(
 		"non-boolean-flags": func(final map[string]any) { final["snapshot_reconciled"] = "true" },
 	} {
 		mutated := jiraSnapshotReconciliationMutateFinal(t, evidence.final, mutate)
-		if err := validateHistoryBenchmarkSchemaInstance(schemaBytes, mutated); err == nil {
+		if err := validateJSONSchemaSubsetInstance(schemaBytes, mutated); err == nil {
 			t.Fatalf("%s response schema accepted %q: %s", spec.Provider, name, mutated)
 		}
 	}

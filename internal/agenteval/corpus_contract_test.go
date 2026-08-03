@@ -2885,7 +2885,7 @@ func TestRepositoryConfluenceTableSelectionRecoverySchemaRejectsLooseAnswers(t *
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := validateHistoryBenchmarkSchemaInstance(schema, final); err != nil {
+			if err := validateJSONSchemaSubsetInstance(schema, final); err != nil {
 				t.Fatalf("response schema rejected the fixture-derived final: %v", err)
 			}
 			for name, mutate := range map[string]func(map[string]any){
@@ -2915,7 +2915,7 @@ func TestRepositoryConfluenceTableSelectionRecoverySchemaRejectsLooseAnswers(t *
 					if err != nil {
 						t.Fatal(err)
 					}
-					if err := validateHistoryBenchmarkSchemaInstance(schema, mutated); err == nil {
+					if err := validateJSONSchemaSubsetInstance(schema, mutated); err == nil {
 						t.Fatalf("response schema accepted %q: %s", name, mutated)
 					}
 				})

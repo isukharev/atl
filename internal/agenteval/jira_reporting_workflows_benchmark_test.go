@@ -532,7 +532,7 @@ func assertReportingResponseSchema(t *testing.T, root string, spec RunSpec, fina
 		t.Fatalf("%s response schema is not provider-compatible: %v", spec.Provider, err)
 	}
 	for name, schema := range map[string][]byte{"retained": schemaBytes, "provider": providerSchema} {
-		if err := validateHistoryBenchmarkSchemaInstance(schema, final); err != nil {
+		if err := validateJSONSchemaSubsetInstance(schema, final); err != nil {
 			t.Fatalf("%s %s response schema rejected fixture-derived final: %v", spec.Provider, name, err)
 		}
 	}

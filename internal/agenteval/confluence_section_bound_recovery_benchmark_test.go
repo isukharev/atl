@@ -872,7 +872,7 @@ func assertConfluenceSectionBoundRecoverySchemaMatchesFinal(t *testing.T, root s
 		t.Fatalf("%s response schema is not provider-compatible: %v", spec.Provider, err)
 	}
 	for name, schema := range map[string][]byte{"retained": schemaBytes, "provider": providerSchema} {
-		if err := validateHistoryBenchmarkSchemaInstance(schema, final); err != nil {
+		if err := validateJSONSchemaSubsetInstance(schema, final); err != nil {
 			t.Fatalf("%s %s response schema rejected fixture-derived final: %v", spec.Provider, name, err)
 		}
 	}
@@ -908,17 +908,17 @@ func assertConfluenceSectionBoundRecoverySchemaNullabilityIsLoadBearing(
 	}
 	integerOnly, nullOnly := retype(`{"type":"integer"}`), retype(`{"type":"null"}`)
 	if cohort.recoverable {
-		if err := validateHistoryBenchmarkSchemaInstance(integerOnly, evidence.final); err != nil {
+		if err := validateJSONSchemaSubsetInstance(integerOnly, evidence.final); err != nil {
 			t.Fatalf("a recovered answer needs no null retry bound: %v", err)
 		}
-		if err := validateHistoryBenchmarkSchemaInstance(nullOnly, evidence.final); err == nil {
+		if err := validateJSONSchemaSubsetInstance(nullOnly, evidence.final); err == nil {
 			t.Fatal("a null-only retry bound accepted a reported recovery bound")
 		}
 	} else {
-		if err := validateHistoryBenchmarkSchemaInstance(integerOnly, evidence.final); err == nil {
+		if err := validateJSONSchemaSubsetInstance(integerOnly, evidence.final); err == nil {
 			t.Fatal("an integer-only retry bound accepted the stopped route: nullability is not load-bearing")
 		}
-		if err := validateHistoryBenchmarkSchemaInstance(nullOnly, evidence.final); err != nil {
+		if err := validateJSONSchemaSubsetInstance(nullOnly, evidence.final); err != nil {
 			t.Fatalf("the stopped route does not report a null retry bound: %v", err)
 		}
 	}
@@ -934,7 +934,7 @@ func assertConfluenceSectionBoundRecoverySchemaNullabilityIsLoadBearing(
 	} {
 		t.Run("schema/"+name, func(t *testing.T) {
 			mutated := mutateConfluenceSectionBoundRecoveryFinal(t, evidence.final, mutate)
-			if err := validateHistoryBenchmarkSchemaInstance(schemaBytes, mutated); err == nil {
+			if err := validateJSONSchemaSubsetInstance(schemaBytes, mutated); err == nil {
 				t.Fatalf("response schema accepted %q: %s", name, mutated)
 			}
 		})

@@ -145,7 +145,7 @@ func TestRepositoryStructureQualificationFixturesMatchSafeOracles(t *testing.T) 
 				if schemaErr != nil {
 					t.Fatalf("%s response schema is not provider-compatible: %v", providerSpec.Provider, schemaErr)
 				}
-				if schemaErr = validateHistoryBenchmarkSchemaInstance(providerSchema, final); schemaErr != nil {
+				if schemaErr = validateJSONSchemaSubsetInstance(providerSchema, final); schemaErr != nil {
 					t.Fatalf("%s response schema rejected fixture-derived final: %v", providerSpec.Provider, schemaErr)
 				}
 			}
@@ -188,7 +188,7 @@ func TestRepositoryStructureQualificationFixturesMatchSafeOracles(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := validateHistoryBenchmarkSchemaInstance(schemaBytes, mutatedFinal); err == nil {
+			if err := validateJSONSchemaSubsetInstance(schemaBytes, mutatedFinal); err == nil {
 				t.Fatal("closed response schema accepted owner transport metadata")
 			}
 		})
