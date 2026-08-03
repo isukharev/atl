@@ -143,7 +143,7 @@ func TestRepositoryConfluenceSelectionCompletenessFixtureMutationsFailClosed(t *
 		root := confluenceSelectionBenchmarkRoot(confluenceSelectionHoldoutDirectory)
 		fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
 		var body map[string]any
-		if err := decodeHistoryBenchmarkJSON(fixture.Routes[0].Body, &body); err != nil {
+		if err := decodeJSONDocument(fixture.Routes[0].Body, &body); err != nil {
 			t.Fatal(err)
 		}
 		body["totalCount"] = json.Number("2")
@@ -411,7 +411,7 @@ func assertConfluenceSelectionSchemaMatchesFinal(t *testing.T, root string, spec
 		t.Fatalf("%s provider schema conversion failed: %v", spec.Provider, err)
 	}
 	for name, candidate := range map[string][]byte{"retained": schema, "provider": provider} {
-		if err := validateHistoryBenchmarkSchemaInstance(candidate, final); err != nil {
+		if err := validateJSONSchemaSubsetInstance(candidate, final); err != nil {
 			t.Fatalf("%s %s schema rejected fixture-derived final: %v", spec.Provider, name, err)
 		}
 	}

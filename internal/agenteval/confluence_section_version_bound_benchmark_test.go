@@ -1104,7 +1104,7 @@ func assertConfluenceSectionVersionBoundSchemaMatchesFinal(
 		t.Fatalf("%s response schema is not provider-compatible: %v", spec.Provider, err)
 	}
 	for name, schema := range map[string][]byte{"retained": schemaBytes, "provider": providerSchema} {
-		if err := validateHistoryBenchmarkSchemaInstance(schema, final); err != nil {
+		if err := validateJSONSchemaSubsetInstance(schema, final); err != nil {
 			t.Fatalf("%s %s response schema rejected fixture-derived final: %v", spec.Provider, name, err)
 		}
 	}
@@ -1144,7 +1144,7 @@ func assertConfluenceSectionVersionBoundSchemaRejectsOmittedGate(
 	} {
 		t.Run("schema/"+name, func(t *testing.T) {
 			mutated := mutateConfluenceSectionVersionBoundFinal(t, evidence.final, mutate)
-			if err := validateHistoryBenchmarkSchemaInstance(schemaBytes, mutated); err == nil {
+			if err := validateJSONSchemaSubsetInstance(schemaBytes, mutated); err == nil {
 				t.Fatalf("response schema accepted %q: %s", name, mutated)
 			}
 		})
@@ -1169,7 +1169,7 @@ func assertConfluenceSectionVersionBoundSchemaRejectsOmittedGate(
 		return encoded
 	}
 	booleanOnly := retype("section_version_gated", `{"type":"boolean"}`)
-	if err := validateHistoryBenchmarkSchemaInstance(booleanOnly, evidence.final); err == nil {
+	if err := validateJSONSchemaSubsetInstance(booleanOnly, evidence.final); err == nil {
 		if evidence.section == nil {
 			t.Fatal("a boolean-only gate field accepted the refused route: nullability is not load-bearing")
 		}

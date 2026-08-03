@@ -1109,7 +1109,7 @@ func assertConfluenceAttachmentEvidenceSchemaMatchesFinal(t *testing.T, root str
 		t.Fatalf("%s response schema is not provider-compatible: %v", spec.Provider, err)
 	}
 	for name, schema := range map[string][]byte{"retained": schemaBytes, "provider": providerSchema} {
-		if err := validateHistoryBenchmarkSchemaInstance(schema, final); err != nil {
+		if err := validateJSONSchemaSubsetInstance(schema, final); err != nil {
 			t.Fatalf("%s %s response schema rejected fixture-derived final: %v", spec.Provider, name, err)
 		}
 	}
@@ -1146,23 +1146,23 @@ func assertConfluenceAttachmentEvidenceSchemaNullabilityIsLoadBearing(
 	integerOnly := retype("attachment_file_size", `{"type":"integer"}`)
 	nullOnly := retype("attachment_file_size", `{"type":"null"}`)
 	if cohort.member {
-		if err := validateHistoryBenchmarkSchemaInstance(integerOnly, evidence.final); err != nil {
+		if err := validateJSONSchemaSubsetInstance(integerOnly, evidence.final); err != nil {
 			t.Fatalf("a listed attachment needs no null size: %v", err)
 		}
-		if err := validateHistoryBenchmarkSchemaInstance(nullOnly, evidence.final); err == nil {
+		if err := validateJSONSchemaSubsetInstance(nullOnly, evidence.final); err == nil {
 			t.Fatal("a null-only size accepted a reported attachment size")
 		}
 	} else {
-		if err := validateHistoryBenchmarkSchemaInstance(integerOnly, evidence.final); err == nil {
+		if err := validateJSONSchemaSubsetInstance(integerOnly, evidence.final); err == nil {
 			t.Fatal("an integer-only size accepted the dangling branch: nullability is not load-bearing")
 		}
-		if err := validateHistoryBenchmarkSchemaInstance(nullOnly, evidence.final); err != nil {
+		if err := validateJSONSchemaSubsetInstance(nullOnly, evidence.final); err != nil {
 			t.Fatalf("the dangling branch does not report a null size: %v", err)
 		}
 	}
 	// The unread-content field is null in both branches, so a string-only
 	// declaration must reject every honest answer this cohort can produce.
-	if err := validateHistoryBenchmarkSchemaInstance(
+	if err := validateJSONSchemaSubsetInstance(
 		retype("attachment_content", `{"type":"string"}`), evidence.final,
 	); err == nil {
 		t.Fatal("a string-only content field accepted an answer that read no attachment bytes")
@@ -1182,7 +1182,7 @@ func assertConfluenceAttachmentEvidenceSchemaNullabilityIsLoadBearing(
 	} {
 		t.Run("schema/"+name, func(t *testing.T) {
 			mutated := mutateConfluenceAttachmentEvidenceFinal(t, evidence.final, mutate)
-			if err := validateHistoryBenchmarkSchemaInstance(schemaBytes, mutated); err == nil {
+			if err := validateJSONSchemaSubsetInstance(schemaBytes, mutated); err == nil {
 				t.Fatalf("response schema accepted %q: %s", name, mutated)
 			}
 		})

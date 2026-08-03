@@ -898,7 +898,7 @@ func assertConfluencePageMetadataSchemaMatchesFinal(
 		t.Fatalf("%s response schema is not provider-compatible: %v", spec.Provider, err)
 	}
 	for name, schema := range map[string][]byte{"retained": schemaBytes, "provider": providerSchema} {
-		if err := validateHistoryBenchmarkSchemaInstance(schema, final); err != nil {
+		if err := validateJSONSchemaSubsetInstance(schema, final); err != nil {
 			t.Fatalf("%s %s response schema rejected fixture-derived final: %v", spec.Provider, name, err)
 		}
 	}
@@ -938,7 +938,7 @@ func assertConfluencePageMetadataSchemaRejectsLooseAnswers(
 	} {
 		t.Run("schema/"+name, func(t *testing.T) {
 			mutated := mutateConfluencePageMetadataFinal(t, evidence.final, mutate)
-			if err := validateHistoryBenchmarkSchemaInstance(schemaBytes, mutated); err == nil {
+			if err := validateJSONSchemaSubsetInstance(schemaBytes, mutated); err == nil {
 				t.Fatalf("response schema accepted %q: %s", name, mutated)
 			}
 		})

@@ -147,7 +147,7 @@ func TestRepositoryConfluenceCSVFormulaFixtureAndTrafficMutationsFailClosed(t *t
 		tc := confluenceCSVFormulaCases[0]
 		fixture := loadRepositoryMockFixture(t, filepath.Join(confluenceCSVFormulaBenchmarkRoot(tc.directory), "fixture.json"))
 		var body map[string]any
-		if err := decodeHistoryBenchmarkJSON(fixture.Routes[0].Body, &body); err != nil {
+		if err := decodeJSONDocument(fixture.Routes[0].Body, &body); err != nil {
 			t.Fatal(err)
 		}
 		body["id"] = "different-page"
@@ -397,7 +397,7 @@ func assertConfluenceCSVFormulaSchema(t *testing.T, root string, spec RunSpec, f
 		t.Fatal(err)
 	}
 	for name, candidate := range map[string][]byte{"retained": schema, "provider": provider} {
-		if err := validateHistoryBenchmarkSchemaInstance(candidate, final); err != nil {
+		if err := validateJSONSchemaSubsetInstance(candidate, final); err != nil {
 			t.Fatalf("%s schema rejected fixture final: %v", name, err)
 		}
 	}
@@ -407,7 +407,7 @@ func assertConfluenceCSVFormulaSchema(t *testing.T, root string, spec RunSpec, f
 	}
 	document["extra"] = true
 	extra, _ := json.Marshal(document)
-	if err := validateHistoryBenchmarkSchemaInstance(schema, extra); err == nil {
+	if err := validateJSONSchemaSubsetInstance(schema, extra); err == nil {
 		t.Fatal("closed schema accepted an extra field")
 	}
 }
@@ -505,7 +505,7 @@ func validateConfluenceCSVFormulaTopology(fixture MockFixture, tc confluenceCSVF
 func mutateConfluenceCSVFormulaStorage(t *testing.T, fixture *MockFixture, mutate func(string) string) {
 	t.Helper()
 	var body map[string]any
-	if err := decodeHistoryBenchmarkJSON(fixture.Routes[0].Body, &body); err != nil {
+	if err := decodeJSONDocument(fixture.Routes[0].Body, &body); err != nil {
 		t.Fatal(err)
 	}
 	bodyMap := body["body"].(map[string]any)

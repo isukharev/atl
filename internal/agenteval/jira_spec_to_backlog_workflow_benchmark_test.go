@@ -305,7 +305,7 @@ func assertSpecBacklogProviderOracles(t *testing.T, root string, cohort specBack
 			t.Fatal(err)
 		}
 		for name, candidate := range map[string][]byte{"retained": schema, "provider": providerSchema} {
-			if err := validateHistoryBenchmarkSchemaInstance(candidate, final); err != nil {
+			if err := validateJSONSchemaSubsetInstance(candidate, final); err != nil {
 				t.Fatalf("%s %s schema rejected production-derived final: %v", spec.Provider, name, err)
 			}
 		}
@@ -379,7 +379,7 @@ func assertSpecBacklogAnswerMutationsFail(t *testing.T, spec RunSpec, final []by
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validateHistoryBenchmarkSchemaInstance(schema, extraJSON); err == nil {
+	if err := validateJSONSchemaSubsetInstance(schema, extraJSON); err == nil {
 		t.Fatal("response schema accepted an extra field")
 	}
 }
@@ -421,10 +421,10 @@ func assertSpecBacklogFixtureTopology(t *testing.T, fixture MockFixture, cohort 
 			var response struct {
 				Key string `json:"key"`
 			}
-			if err := decodeHistoryBenchmarkJSON(route.RequestBody, &request); err != nil {
+			if err := decodeJSONDocument(route.RequestBody, &request); err != nil {
 				t.Fatal(err)
 			}
-			if err := decodeHistoryBenchmarkJSON(route.Body, &response); err != nil {
+			if err := decodeJSONDocument(route.Body, &response); err != nil {
 				t.Fatal(err)
 			}
 			if request.Fields.Project.Key != cohort.project || request.Fields.Description == "" || response.Key == "" {
@@ -435,7 +435,7 @@ func assertSpecBacklogFixtureTopology(t *testing.T, fixture MockFixture, cohort 
 			var request struct {
 				Fields map[string]string `json:"fields"`
 			}
-			if err := decodeHistoryBenchmarkJSON(route.RequestBody, &request); err != nil {
+			if err := decodeJSONDocument(route.RequestBody, &request); err != nil {
 				t.Fatal(err)
 			}
 			if len(request.Fields) != 1 {

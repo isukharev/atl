@@ -251,13 +251,13 @@ func assertJiraReferenceSchemaMatchesFinal(t *testing.T, root string, spec RunSp
 		t.Fatalf("%s response schema is not provider-compatible: %v", spec.Provider, err)
 	}
 	for name, schema := range map[string][]byte{"retained": schemaBytes, "provider": providerSchema} {
-		if err := validateHistoryBenchmarkSchemaInstance(schema, final); err != nil {
+		if err := validateJSONSchemaSubsetInstance(schema, final); err != nil {
 			t.Fatalf("%s %s response schema rejected fixture-derived final: %v", spec.Provider, name, err)
 		}
 	}
 
 	var mutated map[string]any
-	if err := decodeHistoryBenchmarkJSON(schemaBytes, &mutated); err != nil {
+	if err := decodeJSONDocument(schemaBytes, &mutated); err != nil {
 		t.Fatal(err)
 	}
 	properties := mutated["properties"].(map[string]any)
@@ -269,7 +269,7 @@ func assertJiraReferenceSchemaMatchesFinal(t *testing.T, root string, spec RunSp
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validateHistoryBenchmarkSchemaInstance(mutatedBytes, final); err == nil {
+	if err := validateJSONSchemaSubsetInstance(mutatedBytes, final); err == nil {
 		t.Fatal("fixture-derived final passed a schema with incompatible nested reference_count type")
 	}
 }

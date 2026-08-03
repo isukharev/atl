@@ -4,10 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
-	"io"
 	"maps"
-	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -332,10 +329,10 @@ func assertClosedResponseSchemaMatchesFinal(t *testing.T, root string, spec RunS
 	if err != nil {
 		t.Fatalf("%s response schema is not provider-compatible: %v", spec.Provider, err)
 	}
-	if err := validateHistoryBenchmarkSchemaInstance(schemaBytes, final); err != nil {
+	if err := validateJSONSchemaSubsetInstance(schemaBytes, final); err != nil {
 		t.Fatalf("%s retained response schema rejected fixture-derived final: %v", spec.Provider, err)
 	}
-	if err := validateHistoryBenchmarkSchemaInstance(providerSchema, final); err != nil {
+	if err := validateJSONSchemaSubsetInstance(providerSchema, final); err != nil {
 		t.Fatalf("%s provider response schema rejected fixture-derived final: %v", spec.Provider, err)
 	}
 	var schema struct {
@@ -371,7 +368,7 @@ func assertClosedResponseSchemaMatchesFinal(t *testing.T, root string, spec RunS
 	}
 
 	var mutated map[string]any
-	if err := decodeHistoryBenchmarkJSON(schemaBytes, &mutated); err != nil {
+	if err := decodeJSONDocument(schemaBytes, &mutated); err != nil {
 		t.Fatal(err)
 	}
 	entries := mutated["properties"].(map[string]any)["entries"].(map[string]any)
@@ -381,192 +378,9 @@ func assertClosedResponseSchemaMatchesFinal(t *testing.T, root string, spec RunS
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validateHistoryBenchmarkSchemaInstance(mutatedBytes, final); err == nil {
+	if err := validateJSONSchemaSubsetInstance(mutatedBytes, final); err == nil {
 		t.Fatal("fixture-derived final passed a response schema with incompatible nested item type")
 	}
-}
-
-func validateHistoryBenchmarkSchemaInstance(schemaBytes, instanceBytes []byte) error {
-	var schema, instance any
-	if err := decodeHistoryBenchmarkJSON(schemaBytes, &schema); err != nil {
-		return fmt.Errorf("decode schema: %w", err)
-	}
-	if err := decodeHistoryBenchmarkJSON(instanceBytes, &instance); err != nil {
-		return fmt.Errorf("decode instance: %w", err)
-	}
-	return validateHistoryBenchmarkSchemaNode(schema, instance, "")
-}
-
-func decodeHistoryBenchmarkJSON(data []byte, target any) error {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	if err := decoder.Decode(target); err != nil {
-		return err
-	}
-	if err := decoder.Decode(new(any)); err != io.EOF {
-		return fmt.Errorf("trailing JSON data")
-	}
-	return nil
-}
-
-func validateHistoryBenchmarkSchemaNode(rawSchema, value any, path string) error {
-	schema, ok := rawSchema.(map[string]any)
-	if !ok {
-		return fmt.Errorf("%s: schema node is not an object", historyBenchmarkPath(path))
-	}
-	types, err := historyBenchmarkSchemaTypes(schema["type"])
-	if err != nil {
-		return fmt.Errorf("%s: %w", historyBenchmarkPath(path), err)
-	}
-	if len(types) > 0 {
-		matched := false
-		for _, candidate := range types {
-			if historyBenchmarkTypeMatches(candidate, value) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			return fmt.Errorf("%s: value type %s does not match %v", historyBenchmarkPath(path), historyBenchmarkValueType(value), types)
-		}
-	}
-	if value == nil {
-		return nil
-	}
-
-	if enum, ok := schema["enum"].([]any); ok {
-		matched := false
-		for _, candidate := range enum {
-			if reflect.DeepEqual(candidate, value) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			return fmt.Errorf("%s: value is outside enum", historyBenchmarkPath(path))
-		}
-	}
-
-	switch typed := value.(type) {
-	case map[string]any:
-		properties, _ := schema["properties"].(map[string]any)
-		if required, ok := schema["required"].([]any); ok {
-			for _, rawName := range required {
-				name, ok := rawName.(string)
-				if !ok {
-					return fmt.Errorf("%s: required member is not a string", historyBenchmarkPath(path))
-				}
-				if _, exists := typed[name]; !exists {
-					return fmt.Errorf("%s: missing required property %q", historyBenchmarkPath(path), name)
-				}
-			}
-		}
-		additional, hasAdditional := schema["additionalProperties"].(bool)
-		for name, child := range typed {
-			childSchema, exists := properties[name]
-			if !exists {
-				if hasAdditional && !additional {
-					return fmt.Errorf("%s: unexpected property %q", historyBenchmarkPath(path), name)
-				}
-				continue
-			}
-			if err := validateHistoryBenchmarkSchemaNode(childSchema, child, path+"/"+name); err != nil {
-				return err
-			}
-		}
-	case []any:
-		itemSchema, exists := schema["items"]
-		if !exists {
-			return nil
-		}
-		for index, child := range typed {
-			if err := validateHistoryBenchmarkSchemaNode(itemSchema, child, fmt.Sprintf("%s/%d", path, index)); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func historyBenchmarkSchemaTypes(raw any) ([]string, error) {
-	switch typed := raw.(type) {
-	case nil:
-		return nil, nil
-	case string:
-		return []string{typed}, nil
-	case []any:
-		out := make([]string, 0, len(typed))
-		for _, value := range typed {
-			name, ok := value.(string)
-			if !ok {
-				return nil, fmt.Errorf("schema type union contains a non-string")
-			}
-			out = append(out, name)
-		}
-		return out, nil
-	default:
-		return nil, fmt.Errorf("schema type is neither a string nor an array")
-	}
-}
-
-func historyBenchmarkTypeMatches(schemaType string, value any) bool {
-	switch schemaType {
-	case "null":
-		return value == nil
-	case "object":
-		_, ok := value.(map[string]any)
-		return ok
-	case "array":
-		_, ok := value.([]any)
-		return ok
-	case "string":
-		_, ok := value.(string)
-		return ok
-	case "boolean":
-		_, ok := value.(bool)
-		return ok
-	case "integer":
-		number, ok := value.(json.Number)
-		if !ok {
-			return false
-		}
-		if _, err := number.Int64(); err == nil {
-			return true
-		}
-		parsed, err := number.Float64()
-		return err == nil && !math.IsInf(parsed, 0) && !math.IsNaN(parsed) && math.Trunc(parsed) == parsed
-	case "number":
-		_, ok := value.(json.Number)
-		return ok
-	default:
-		return false
-	}
-}
-
-func historyBenchmarkValueType(value any) string {
-	switch value.(type) {
-	case nil:
-		return "null"
-	case map[string]any:
-		return "object"
-	case []any:
-		return "array"
-	case string:
-		return "string"
-	case bool:
-		return "boolean"
-	case json.Number:
-		return "number"
-	default:
-		return fmt.Sprintf("%T", value)
-	}
-}
-
-func historyBenchmarkPath(path string) string {
-	if path == "" {
-		return "/"
-	}
-	return path
 }
 
 // ---------------------------------------------------------------------------
@@ -2597,13 +2411,13 @@ func TestJiraHistorySummaryMCPNullableLatestChangeSchemaIsExact(t *testing.T) {
 				for instanceName, instance := range map[string][]byte{
 					"object-latest-change": object, "null-latest-change": null,
 				} {
-					if err := validateHistoryBenchmarkSchemaInstance(schema, instance); err != nil {
+					if err := validateJSONSchemaSubsetInstance(schema, instance); err != nil {
 						t.Fatalf("%s %s schema rejected the %s instance: %v",
 							spec.Provider, schemaName, instanceName, err)
 					}
 				}
 				for name, instance := range rejected {
-					if err := validateHistoryBenchmarkSchemaInstance(schema, instance); err == nil {
+					if err := validateJSONSchemaSubsetInstance(schema, instance); err == nil {
 						t.Fatalf("%s %s schema accepted %q: %s", spec.Provider, schemaName, name, instance)
 					}
 				}
