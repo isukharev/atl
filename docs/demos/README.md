@@ -15,6 +15,8 @@ ATL binary:
 make check-onboarding-docs
 ```
 
-The rehearsal uses a new credential-free config directory, fixed synthetic
-tokens, finite request/byte bounds, and no external network or persistent
-backend. It fails if a demonstration sends an unexpected write or request.
+The rehearsal uses a new credential-free config and temp directory, fixed
+synthetic tokens, finite request/byte bounds, loopback-only configured
+backends, and dead ordinary outbound proxies. It fails on every unexpected
+fixture route or backend write and reports workspace-cleanup failures. This is
+a hermetic product rehearsal, not an operating-system network sandbox.

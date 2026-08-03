@@ -60,9 +60,14 @@ func newDemoRunner(binary string, overlay map[string]string) (*demoRunner, error
 		return nil, fmt.Errorf("create demo workspace: %w", err)
 	}
 	configDir := filepath.Join(root, "config")
+	tempDir := filepath.Join(root, "tmp")
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		_ = os.RemoveAll(root)
 		return nil, fmt.Errorf("create demo config: %w", err)
+	}
+	if err := os.MkdirAll(tempDir, 0o700); err != nil {
+		_ = os.RemoveAll(root)
+		return nil, fmt.Errorf("create demo temp directory: %w", err)
 	}
 	environment := map[string]string{
 		"ATL_CONFIG_DIR":  configDir,
@@ -70,6 +75,9 @@ func newDemoRunner(binary string, overlay map[string]string) (*demoRunner, error
 		"HTTP_PROXY":      "http://127.0.0.1:1",
 		"HTTPS_PROXY":     "http://127.0.0.1:1",
 		"NO_PROXY":        "127.0.0.1,localhost",
+		"TEMP":            tempDir,
+		"TMP":             tempDir,
+		"TMPDIR":          tempDir,
 		"XDG_CONFIG_HOME": filepath.Join(root, "xdg"),
 	}
 	for name, value := range overlay {
@@ -87,10 +95,14 @@ func newDemoRunner(binary string, overlay map[string]string) (*demoRunner, error
 	return &demoRunner{binary: binary, root: root, env: env}, nil
 }
 
-func (r *demoRunner) close() {
-	if r != nil {
-		_ = os.RemoveAll(r.root)
+func (r *demoRunner) close() error {
+	if r == nil {
+		return nil
 	}
+	if err := os.RemoveAll(r.root); err != nil {
+		return fmt.Errorf("remove demo workspace: %w", err)
+	}
+	return nil
 }
 
 func (r *demoRunner) run(expectedExit int, arguments ...string) (demoCommandResult, error) {
@@ -131,7 +143,7 @@ func boundedDetail(value string) string {
 	return value
 }
 
-func validateLosslessConfluenceDemo(binary string) error {
+func validateLosslessConfluenceDemo(binary string) (retErr error) {
 	const (
 		pageID = "7001"
 		title  = "Synthetic complex page"
@@ -160,7 +172,7 @@ func validateLosslessConfluenceDemo(binary string) error {
 	if err != nil {
 		return err
 	}
-	defer runner.close()
+	defer func() { retErr = errors.Join(retErr, runner.close()) }()
 
 	mirrorRoot := filepath.Join(runner.root, "mirror")
 	pulled, err := runner.run(0, "conf", "pull", "--id", pageID, "--into", mirrorRoot)
@@ -234,7 +246,7 @@ func validateLosslessConfluenceDemo(binary string) error {
 	return requireDemoBackend(backend, map[string]int{http.MethodGet: 1})
 }
 
-func validateConfluenceConflictDemo(binary string) error {
+func validateConfluenceConflictDemo(binary string) (retErr error) {
 	const (
 		pageID = "7002"
 		title  = "Synthetic conflict page"
@@ -261,7 +273,7 @@ func validateConfluenceConflictDemo(binary string) error {
 	if err != nil {
 		return err
 	}
-	defer runner.close()
+	defer func() { retErr = errors.Join(retErr, runner.close()) }()
 
 	mirrorRoot := filepath.Join(runner.root, "mirror")
 	pulled, err := runner.run(0, "conf", "pull", "--id", pageID, "--into", mirrorRoot)
@@ -281,6 +293,10 @@ func validateConfluenceConflictDemo(binary string) error {
 		return errors.New("local CSF did not contain the exact staged conflict edit")
 	}
 	beforeHash := sha256.Sum256(before)
+	beforeTree, err := demoTreeDigest(mirrorRoot)
+	if err != nil {
+		return fmt.Errorf("snapshot local conflict artifacts: %w", err)
+	}
 
 	failedPush, err := runner.run(5, "conf", "push", csfPath, "--into", mirrorRoot)
 	if err != nil {
@@ -305,10 +321,17 @@ func validateConfluenceConflictDemo(binary string) error {
 	if err != nil || !bytes.Equal(after, before) || sha256.Sum256(after) != beforeHash {
 		return errors.New("version-conflict handling changed the local CSF")
 	}
+	afterTree, err := demoTreeDigest(mirrorRoot)
+	if err != nil {
+		return fmt.Errorf("resnapshot local conflict artifacts: %w", err)
+	}
+	if beforeTree != afterTree {
+		return errors.New("version-conflict handling changed the local mirror artifact set")
+	}
 	return requireDemoBackend(backend, map[string]int{http.MethodGet: 1, http.MethodPut: 1})
 }
 
-func validateJiraGraphDemo(binary string) error {
+func validateJiraGraphDemo(binary string) (retErr error) {
 	const issuePath = "/jira/rest/api/2/issue/DEMO-1"
 	fixture := testbackend.MockFixture{
 		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
@@ -317,7 +340,7 @@ func validateJiraGraphDemo(binary string) error {
 				QueryEquals: map[string]string{"fields": "*all", "properties": "*all", "expand": "names,schema"},
 				Status:      http.StatusOK, Body: json.RawMessage(`{
 					"id":"10001","key":"DEMO-1",
-					"fields":{"summary":"Graph seed","description":"See DEMO-2 and pageId=7","issuelinks":[],"parent":null,"subtasks":[],"attachment":[{"id":"4","filename":"design.txt","content":"https://unreachable.invalid/download"}]},
+					"fields":{"summary":"Graph seed","description":"See DEMO-2 and pageId=7","issuelinks":[{"id":"9","type":{"name":"Blocks","inward":"is blocked by","outward":"blocks"},"outwardIssue":{"id":"10003","key":"DEMO-3"}}],"parent":null,"subtasks":[],"attachment":[{"id":"4","filename":"design.txt","content":"https://unreachable.invalid/download"}]},
 					"names":{"summary":"Summary","description":"Description"},
 					"schema":{"summary":{"type":"string","system":"summary"},"description":{"type":"string","system":"description"}},"properties":{}
 				}`)},
@@ -339,7 +362,7 @@ func validateJiraGraphDemo(binary string) error {
 	if err != nil {
 		return err
 	}
-	defer runner.close()
+	defer func() { retErr = errors.Join(retErr, runner.close()) }()
 
 	result, err := runner.run(0,
 		"--read-only", "jira", "issue", "graph", "DEMO-1",
@@ -373,6 +396,7 @@ func validateJiraGraphDemo(binary string) error {
 	wantNodes := map[string]domain.ArtifactGraphNodeState{
 		"jira:issue:DEMO-1": domain.ArtifactNodeResolved,
 		"jira:issue:DEMO-2": domain.ArtifactNodeUnresolved,
+		"jira:issue:DEMO-3": domain.ArtifactNodeStub,
 		"confluence:page:7": domain.ArtifactNodeStub,
 		"jira:attachment:4": domain.ArtifactNodeResolved,
 	}
@@ -385,6 +409,59 @@ func validateJiraGraphDemo(binary string) error {
 		return fmt.Errorf("graph omitted qualified synthetic nodes: %v", wantNodes)
 	}
 	return requireDemoBackend(backend, map[string]int{http.MethodGet: 4})
+}
+
+func demoTreeDigest(root string) ([sha256.Size]byte, error) {
+	type record struct {
+		Path   string `json:"path"`
+		Mode   uint32 `json:"mode"`
+		Size   int    `json:"size"`
+		SHA256 string `json:"sha256"`
+	}
+	const maxBytes = 16 << 20
+	records := make([]record, 0)
+	total := 0
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("local demo artifact is not a regular file: %s", path)
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		total += len(body)
+		if total > maxBytes {
+			return fmt.Errorf("local demo artifacts exceed %d bytes", maxBytes)
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		digest := sha256.Sum256(body)
+		records = append(records, record{
+			Path: filepath.ToSlash(relative), Mode: uint32(info.Mode().Perm()), Size: len(body),
+			SHA256: fmt.Sprintf("%x", digest),
+		})
+		return nil
+	})
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	encoded, err := json.Marshal(records)
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	return sha256.Sum256(encoded), nil
 }
 
 func requireDemoBackend(backend *testbackend.MockBackend, wantMethods map[string]int) error {

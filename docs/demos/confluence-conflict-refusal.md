@@ -32,7 +32,8 @@ backend that accepts the initial pull and rejects exactly one PUT with HTTP
 
 - ATL exits with the version-conflict class;
 - exactly one write attempt reached only the loopback fixture;
-- both staged Markdown and native CSF bytes remain unchanged locally;
+- the complete local mirror artifact set, including Markdown, native CSF,
+  baseline, metadata, and sidecars, remains byte-identical;
 - the result never claims that the page was pushed.
 
 Run it with:

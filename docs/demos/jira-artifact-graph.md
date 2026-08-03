@@ -17,7 +17,7 @@ Inspect:
 schema_version
 complete
 sources
-reconciliation
+summary
 bounds.requests_used
 frontier
 nodes
@@ -34,8 +34,10 @@ atl jira issue graph DEMO-1 --depth 1 --max-nodes 20 --max-requests 12 --strict
 The credential-free repository rehearsal serves one synthetic Jira snapshot,
 empty comments/worklogs/remote links, and no external artifact endpoints. It
 proves the depth-zero command uses exactly four single-attempt Jira reads,
-reports finite bounds, leaves discovered objects unexpanded, and sends no
-request outside the loopback server.
+reports finite bounds, leaves a real structured link as an unfetched stub, and
+sends no unexpected request to the configured loopback backend. Ordinary
+outbound HTTP traffic is pointed at a dead proxy; the rehearsal is not an
+operating-system network sandbox.
 
 Run it with:
 
