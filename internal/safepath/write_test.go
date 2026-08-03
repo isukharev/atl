@@ -63,9 +63,9 @@ func TestWriteFileHappyPath(t *testing.T) {
 	}
 }
 
-// TestWriteFileRefusesSymlink is the core O_NOFOLLOW guarantee: a symlink
-// planted at the target path must not be followed; the write fails and the link
-// target stays untouched.
+// TestWriteFileRefusesSymlink is the core final-component no-follow guarantee:
+// a symlink planted at the target path must not be followed; the write fails
+// and the link target stays untouched.
 func TestWriteFileRefusesSymlink(t *testing.T) {
 	dir := t.TempDir()
 	victim := filepath.Join(dir, "victim.txt")
@@ -79,7 +79,7 @@ func TestWriteFileRefusesSymlink(t *testing.T) {
 
 	err := WriteFile(link, []byte("ATTACK"), 0o600)
 	if err == nil {
-		t.Fatal("WriteFile through a symlink succeeded; O_NOFOLLOW not enforced")
+		t.Fatal("WriteFile through a symlink succeeded; final-component no-follow not enforced")
 	}
 
 	// The link target must be untouched — the write must not have gone through.

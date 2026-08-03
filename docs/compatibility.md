@@ -57,7 +57,7 @@ an upgrade.
 | Linux amd64 | Supported | Release artifact and hosted Linux test job |
 | Linux arm64 | Supported release target | Release artifact is cross-compiled; no hosted arm64 runtime certification |
 | macOS amd64/arm64 | Supported release targets | Release artifacts for both; hosted macOS tests exercise the runner architecture, not a guaranteed per-architecture matrix |
-| Windows | Not currently supported | No release artifact or hosted compatibility matrix |
+| Windows | Not currently supported | Source cross-compilation is CI-verified; Windows remains unsupported pending runtime, install, update, and recovery evidence |
 | Homebrew | Supported | Release-owned formula and checksum |
 | Release installer | Supported on Linux/macOS | SHA-256 verification; signed update trust documented separately |
 | Source build | Supported with Go 1.26.5+ | Maintainer toolchain contract and CI |
