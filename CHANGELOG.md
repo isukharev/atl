@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-03
+
 ### Added
 
 - Added explicit `jira issue graph --include-development` and typed MCP
@@ -68,16 +70,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Confluence backend, with no content/identity reads, retries, redirects,
   self-update, or raw backend diagnostics in output.
 
+- Added non-destructive Confluence and Jira refresh. Pulls now refuse to
+  replace locally edited native or derived artifacts by default, can preview
+  local-safety outcomes without writes, and provide explicit immutable stash
+  or overwrite recovery. Successful Markdown applies retain staged lineage so
+  consecutive applies remain reviewable without weakening remote-drift proof.
+
+- Added bounded three-way reconcile previews for Confluence and Jira mirrors,
+  with optional immutable local staging of exact base and remote artifacts for
+  external review. Reconcile never merges automatically or changes the working
+  file or baseline.
+
+- Added content-minimized per-service backend identity bindings for mirrors.
+  Remote mirror operations refuse a mismatched configured origin before their
+  first backend request; legacy mirrors require an explicit reviewed binding.
+  Page/issue creation and page copy can now register authoritative readback in
+  a mirror through an explicit `--register --into` workflow.
+
+### Changed
+
+- Replaced direct Confluence page trash, page copy, attachment deletion, and
+  Jira issue deletion with preview-first contracts. Each apply binds exact
+  reviewed identity and current-state evidence, revalidates before one
+  non-replayed mutation, and reports ambiguous outcomes without retrying.
+
+- Made CLI command behavior exhaustive and machine-checked: unknown group
+  tokens now fail as usage errors, every command declares its read/write and
+  preview traits, mirror inspection commands share predictable root selection,
+  and zero-limit behavior is explicit instead of silently changing pagination.
+
+- Reduced large-mirror work by sharing one immutable sidecar snapshot per
+  offline phase, adding opt-in bounded scheduling to ordinary multi-page
+  Confluence pulls, batching qualified remote status reads, and publishing
+  complete-pull artifacts through a bounded crash-recoverable journal.
+
+- Strengthened delivery gates with a required Windows source-compile check,
+  an 84% cross-package coverage floor, direct self-update replacement tests,
+  exact tag-time race/quality/vulnerability checks, and mechanically checked
+  generated-plugin, onboarding, package-boundary, and documentation contracts.
+
 ### Fixed
 
-- Replaced direct Confluence attachment deletion with a preview-first guarded
-  workflow. The proposal binds the backend, exact current page revision, the
-  selected attachment, and two independently complete canonical inventories
-  that must agree; apply requires the
-  reviewed page version, proposal hash, and `DELETE` confirmation before one
-  non-replayed request. Only two agreeing complete post-inventories equal to
-  the reviewed inventory minus the target, with unchanged page evidence, prove
-  success or recovery.
+- Refused automatic redirects for every mutating HTTP request, including
+  same-origin redirects that preserve a method and body. GET/HEAD reads retain
+  the reviewed redirect policy, while write responses cannot cause a second
+  request to a server-selected path.
 
 - Closed the Confluence Markdown staging round trip for server-controlled code
   fences, paragraph block collisions, inline breaks, and native table
@@ -2649,7 +2686,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- link references -->
 
-[Unreleased]: https://github.com/isukharev/atl/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/isukharev/atl/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/isukharev/atl/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/isukharev/atl/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/isukharev/atl/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/isukharev/atl/compare/v0.3.0...v0.4.0
