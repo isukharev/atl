@@ -1525,22 +1525,9 @@ func mutateConfluenceSectionBoundRecoveryFinal(t *testing.T, final []byte, mutat
 
 func TestConfluenceSectionBoundRecoveryHoldoutIsDistinct(t *testing.T) {
 	cohorts := confluenceSectionBoundRecoveryCohorts()
-	primaryRoot := confluenceSectionBoundRecoveryRoot(cohorts[0])
-	holdoutRoot := confluenceSectionBoundRecoveryRoot(cohorts[1])
-
-	primaryScenario := loadRepositoryScenario(t, filepath.Join(primaryRoot, "scenario.v1.json"))
-	holdoutScenario := loadRepositoryScenario(t, filepath.Join(holdoutRoot, "scenario.v1.json"))
-	if primaryScenario.ID == holdoutScenario.ID ||
-		primaryScenario.EffectiveCategory() != holdoutScenario.EffectiveCategory() ||
-		primaryScenario.TaskClass != holdoutScenario.TaskClass ||
-		primaryScenario.DataClass != holdoutScenario.DataClass ||
-		!slices.Equal(primaryScenario.RequiredChecks, holdoutScenario.RequiredChecks) ||
-		!slices.Equal(primaryScenario.RequiredSemanticChecks, holdoutScenario.RequiredSemanticChecks) ||
-		!slices.Equal(primaryScenario.RequiredMetrics, holdoutScenario.RequiredMetrics) ||
-		!slices.Equal(primaryScenario.RequiredCapabilities, holdoutScenario.RequiredCapabilities) {
-		t.Fatalf("primary/holdout scenarios are not distinct-compatible: primary=%+v holdout=%+v",
-			primaryScenario, holdoutScenario)
-	}
+	pair := loadRepositorySamplingPairContract(t, "confluence-section-bound-recovery-mcp")
+	primaryRoot, holdoutRoot := pair.Primary.Root, pair.Holdout.Root
+	primaryScenario, holdoutScenario := pair.Primary.Scenario, pair.Holdout.Scenario
 	// The branches differ, so the transport budgets must differ too, while the
 	// shared authorization ceiling stays identical.
 	if equalPrivateComparisonJSON(primaryScenario.Budgets, holdoutScenario.Budgets) {
@@ -1595,19 +1582,14 @@ func TestConfluenceSectionBoundRecoveryHoldoutIsDistinct(t *testing.T) {
 		{runFile: "run.mcp.claude.json", provider: "claude-code", model: "claude-opus-4-8"},
 	} {
 		t.Run(test.provider, func(t *testing.T) {
-			primarySpec := loadRepositoryRunSpec(t, filepath.Join(primaryRoot, test.runFile))
-			holdoutSpec := loadRepositoryRunSpec(t, filepath.Join(holdoutRoot, test.runFile))
+			primarySpec, holdoutSpec := pair.Primary.Runs[test.runFile], pair.Holdout.Runs[test.runFile]
 			if primarySpec.Provider != test.provider || primarySpec.Model != test.model ||
-				primarySpec.Reasoning != "high" || primarySpec.Repetitions != primary.repetitions ||
+				primarySpec.Reasoning != "high" ||
 				holdoutSpec.Provider != test.provider || holdoutSpec.Model != test.model ||
-				holdoutSpec.Reasoning != "high" || holdoutSpec.Repetitions != holdout.repetitions {
+				holdoutSpec.Reasoning != "high" {
 				t.Fatalf("exact cohort contract drifted: primary=%+v holdout=%+v", primarySpec, holdoutSpec)
 			}
-			if primarySpec.Variant != holdoutSpec.Variant ||
-				primarySpec.EffectiveCategory() != holdoutSpec.EffectiveCategory() ||
-				primarySpec.EffectiveSurface() != holdoutSpec.EffectiveSurface() ||
-				primarySpec.EffectiveToolTransport() != holdoutSpec.EffectiveToolTransport() ||
-				!slices.Equal(primarySpec.AllowedMCPTools, holdoutSpec.AllowedMCPTools) {
+			if !slices.Equal(primarySpec.AllowedMCPTools, holdoutSpec.AllowedMCPTools) {
 				t.Fatalf("primary/holdout execution identity drifted: primary=%+v holdout=%+v",
 					primarySpec, holdoutSpec)
 			}

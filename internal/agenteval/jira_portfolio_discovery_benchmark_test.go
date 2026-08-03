@@ -204,20 +204,12 @@ func assertJiraPortfolioDiscoveryTransportBudget(t *testing.T, scenario Scenario
 }
 
 func TestRepositoryJiraPortfolioDiscoverySamplingPairIdentity(t *testing.T) {
-	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
-	primaryRoot := filepath.Join(root, "jira-portfolio-source-discovery")
-	holdoutRoot := filepath.Join(root, "jira-portfolio-source-discovery-holdout")
-	primaryScenario := loadRepositoryScenario(t, filepath.Join(primaryRoot, "scenario.v1.json"))
-	holdoutScenario := loadRepositoryScenario(t, filepath.Join(holdoutRoot, "scenario.v1.json"))
-	if primaryScenario.ID == holdoutScenario.ID ||
-		primaryScenario.TaskClass != holdoutScenario.TaskClass ||
-		primaryScenario.DataClass != holdoutScenario.DataClass {
-		t.Fatalf("primary/holdout scenario identity is not distinct-compatible: primary=%+v holdout=%+v", primaryScenario, holdoutScenario)
-	}
+	pair := loadRepositorySamplingPairContract(t, "jira-portfolio-source-discovery")
+	primaryRoot, holdoutRoot := pair.Primary.Root, pair.Holdout.Root
 
 	for _, provider := range []string{"codex", "claude"} {
-		primary := loadRepositoryRunSpec(t, filepath.Join(primaryRoot, "run.cli."+provider+".json"))
-		holdout := loadRepositoryRunSpec(t, filepath.Join(holdoutRoot, "run.cli."+provider+".json"))
+		runFile := "run.cli." + provider + ".json"
+		primary, holdout := pair.Primary.Runs[runFile], pair.Holdout.Runs[runFile]
 		expectedProvider := "codex"
 		expectedModel := "gpt-5.6-luna"
 		if provider == "claude" {
@@ -227,20 +219,10 @@ func TestRepositoryJiraPortfolioDiscoverySamplingPairIdentity(t *testing.T) {
 		if primary.Provider != expectedProvider ||
 			primary.Model != expectedModel ||
 			primary.Reasoning != "high" ||
-			primary.Repetitions != 3 ||
 			holdout.Provider != expectedProvider ||
 			holdout.Model != expectedModel ||
-			holdout.Reasoning != "high" ||
-			holdout.Repetitions != 1 {
+			holdout.Reasoning != "high" {
 			t.Fatalf("%s exact cohort contract drifted: primary=%+v holdout=%+v", provider, primary, holdout)
-		}
-		if primary.Variant != holdout.Variant ||
-			primary.Provider != holdout.Provider ||
-			primary.Model != holdout.Model ||
-			primary.Reasoning != holdout.Reasoning ||
-			primary.EffectiveCategory() != holdout.EffectiveCategory() ||
-			primary.EffectiveSurface() != holdout.EffectiveSurface() {
-			t.Fatalf("%s primary/holdout execution identity drifted: primary=%+v holdout=%+v", provider, primary, holdout)
 		}
 		primaryPrompt, err := os.ReadFile(filepath.Join(primaryRoot, primary.PromptFile))
 		if err != nil {

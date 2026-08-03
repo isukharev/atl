@@ -98,28 +98,12 @@ func TestRepositoryJiraReferenceSummaryFixturesDriveProviderOracles(t *testing.T
 }
 
 func TestRepositoryJiraReferenceSummarySamplingPairIdentity(t *testing.T) {
-	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
-	primaryRoot := filepath.Join(root, "jira-reference-summary")
-	holdoutRoot := filepath.Join(root, "jira-reference-summary-holdout")
-	primaryScenario := loadRepositoryScenario(t, filepath.Join(primaryRoot, "scenario.v1.json"))
-	holdoutScenario := loadRepositoryScenario(t, filepath.Join(holdoutRoot, "scenario.v1.json"))
-	if primaryScenario.ID == holdoutScenario.ID ||
-		primaryScenario.TaskClass != holdoutScenario.TaskClass ||
-		primaryScenario.DataClass != holdoutScenario.DataClass {
-		t.Fatalf("primary/holdout scenario identity is not distinct-compatible: primary=%+v holdout=%+v", primaryScenario, holdoutScenario)
-	}
+	pair := loadRepositorySamplingPairContract(t, "jira-reference-summary")
+	primaryRoot, holdoutRoot := pair.Primary.Root, pair.Holdout.Root
 
 	for _, provider := range []string{"codex", "claude"} {
-		primary := loadRepositoryRunSpec(t, filepath.Join(primaryRoot, "run.cli."+provider+".json"))
-		holdout := loadRepositoryRunSpec(t, filepath.Join(holdoutRoot, "run.cli."+provider+".json"))
-		if primary.Variant != holdout.Variant ||
-			primary.Provider != holdout.Provider ||
-			primary.Model != holdout.Model ||
-			primary.Reasoning != holdout.Reasoning ||
-			primary.EffectiveCategory() != holdout.EffectiveCategory() ||
-			primary.EffectiveSurface() != holdout.EffectiveSurface() {
-			t.Fatalf("%s primary/holdout execution identity drifted: primary=%+v holdout=%+v", provider, primary, holdout)
-		}
+		runFile := "run.cli." + provider + ".json"
+		primary, holdout := pair.Primary.Runs[runFile], pair.Holdout.Runs[runFile]
 		primaryPrompt, err := os.ReadFile(filepath.Join(primaryRoot, primary.PromptFile))
 		if err != nil {
 			t.Fatal(err)

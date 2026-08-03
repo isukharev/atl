@@ -181,13 +181,10 @@ func TestRepositoryConfluenceSelectionCompletenessFixtureMutationsFailClosed(t *
 }
 
 func TestRepositoryConfluenceSelectionCompletenessSamplingAndRouteIdentity(t *testing.T) {
-	primaryRoot := confluenceSelectionBenchmarkRoot(confluenceSelectionPrimaryDirectory)
-	holdoutRoot := confluenceSelectionBenchmarkRoot(confluenceSelectionHoldoutDirectory)
-	primaryScenario := loadRepositoryScenario(t, filepath.Join(primaryRoot, "scenario.v1.json"))
-	holdoutScenario := loadRepositoryScenario(t, filepath.Join(holdoutRoot, "scenario.v1.json"))
-	if primaryScenario.ID == holdoutScenario.ID || primaryScenario.TaskClass != "confluence/selection-completeness" ||
-		holdoutScenario.TaskClass != primaryScenario.TaskClass || primaryScenario.DataClass != holdoutScenario.DataClass {
-		t.Fatalf("primary/holdout scenario identity drifted: primary=%+v holdout=%+v", primaryScenario, holdoutScenario)
+	pair := loadRepositorySamplingPairContract(t, confluenceSelectionPrimaryDirectory)
+	primaryRoot, holdoutRoot := pair.Primary.Root, pair.Holdout.Root
+	if pair.Primary.Scenario.TaskClass != "confluence/selection-completeness" {
+		t.Fatalf("primary scenario task class drifted: %+v", pair.Primary.Scenario)
 	}
 	primarySchema, err := os.ReadFile(filepath.Join(primaryRoot, "response-schema.v1.json"))
 	if err != nil {
@@ -213,17 +210,17 @@ func TestRepositoryConfluenceSelectionCompletenessSamplingAndRouteIdentity(t *te
 	}
 
 	for _, provider := range []string{"codex", "claude"} {
-		primary := loadRepositoryRunSpec(t, filepath.Join(primaryRoot, "run.cli."+provider+".json"))
-		holdout := loadRepositoryRunSpec(t, filepath.Join(holdoutRoot, "run.cli."+provider+".json"))
+		runFile := "run.cli." + provider + ".json"
+		primary, holdout := pair.Primary.Runs[runFile], pair.Holdout.Runs[runFile]
 		wantProvider, wantModel := "codex", "gpt-5.6-luna"
 		if provider == "claude" {
 			wantProvider, wantModel = "claude-code", "claude-opus-4-8"
 		}
-		if primary.Provider != wantProvider || primary.Model != wantModel || primary.Reasoning != "high" || primary.Repetitions != 3 ||
-			holdout.Provider != wantProvider || holdout.Model != wantModel || holdout.Reasoning != "high" || holdout.Repetitions != 1 ||
-			primary.Variant != "confluence-selection-completeness-v1" || holdout.Variant != primary.Variant ||
-			primary.EffectiveCategory() != BenchmarkCategorySurfaceNative || holdout.EffectiveCategory() != primary.EffectiveCategory() ||
-			primary.EffectiveSurface() != SurfaceCLISkill || holdout.EffectiveSurface() != primary.EffectiveSurface() {
+		if primary.Provider != wantProvider || primary.Model != wantModel || primary.Reasoning != "high" ||
+			holdout.Provider != wantProvider || holdout.Model != wantModel || holdout.Reasoning != "high" ||
+			primary.Variant != "confluence-selection-completeness-v1" ||
+			primary.EffectiveCategory() != BenchmarkCategorySurfaceNative ||
+			primary.EffectiveSurface() != SurfaceCLISkill {
 			t.Fatalf("%s exact paired cohort drifted: primary=%+v holdout=%+v", provider, primary, holdout)
 		}
 		primaryPrompt, err := os.ReadFile(filepath.Join(primaryRoot, primary.PromptFile))

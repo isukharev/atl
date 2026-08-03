@@ -907,19 +907,8 @@ func mutateJiraZeroProgressFinal(t *testing.T, final []byte, mutate func(map[str
 
 func TestRepositoryJiraSearchZeroProgressSamplingPairIdentity(t *testing.T) {
 	cohorts := jiraZeroProgressCohorts()
-	primaryRoot := jiraZeroProgressRoot(cohorts[0])
-	holdoutRoot := jiraZeroProgressRoot(cohorts[1])
-	primaryScenario := loadRepositoryScenario(t, filepath.Join(primaryRoot, "scenario.v1.json"))
-	holdoutScenario := loadRepositoryScenario(t, filepath.Join(holdoutRoot, "scenario.v1.json"))
-	if primaryScenario.ID == holdoutScenario.ID ||
-		primaryScenario.EffectiveCategory() != holdoutScenario.EffectiveCategory() ||
-		primaryScenario.TaskClass != holdoutScenario.TaskClass ||
-		primaryScenario.DataClass != holdoutScenario.DataClass ||
-		!slices.Equal(primaryScenario.RequiredChecks, holdoutScenario.RequiredChecks) ||
-		!slices.Equal(primaryScenario.RequiredSemanticChecks, holdoutScenario.RequiredSemanticChecks) {
-		t.Fatalf("primary/holdout scenarios are not distinct-compatible: primary=%+v holdout=%+v",
-			primaryScenario, holdoutScenario)
-	}
+	pair := loadRepositorySamplingPairContract(t, "jira-search-zero-progress-mcp")
+	primaryRoot, holdoutRoot := pair.Primary.Root, pair.Holdout.Root
 
 	primarySchema, err := os.ReadFile(filepath.Join(primaryRoot, "response-schema.v1.json"))
 	if err != nil {
@@ -971,19 +960,14 @@ func TestRepositoryJiraSearchZeroProgressSamplingPairIdentity(t *testing.T) {
 		{runFile: "run.mcp.claude.json", provider: "claude-code", model: "claude-opus-4-8"},
 	} {
 		t.Run(test.provider, func(t *testing.T) {
-			primary := loadRepositoryRunSpec(t, filepath.Join(primaryRoot, test.runFile))
-			holdout := loadRepositoryRunSpec(t, filepath.Join(holdoutRoot, test.runFile))
+			primary, holdout := pair.Primary.Runs[test.runFile], pair.Holdout.Runs[test.runFile]
 			if primary.Provider != test.provider || primary.Model != test.model ||
-				primary.Reasoning != "high" || primary.Repetitions != cohorts[0].repetitions ||
+				primary.Reasoning != "high" ||
 				holdout.Provider != test.provider || holdout.Model != test.model ||
-				holdout.Reasoning != "high" || holdout.Repetitions != cohorts[1].repetitions {
+				holdout.Reasoning != "high" {
 				t.Fatalf("exact cohort contract drifted: primary=%+v holdout=%+v", primary, holdout)
 			}
-			if primary.Variant != holdout.Variant ||
-				primary.EffectiveCategory() != holdout.EffectiveCategory() ||
-				primary.EffectiveSurface() != holdout.EffectiveSurface() ||
-				primary.EffectiveToolTransport() != holdout.EffectiveToolTransport() ||
-				!slices.Equal(primary.AllowedMCPTools, holdout.AllowedMCPTools) ||
+			if !slices.Equal(primary.AllowedMCPTools, holdout.AllowedMCPTools) ||
 				!slices.Equal(primary.DataCapabilities, holdout.DataCapabilities) {
 				t.Fatalf("primary/holdout execution identity drifted: primary=%+v holdout=%+v", primary, holdout)
 			}
