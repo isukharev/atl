@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -21,6 +22,8 @@ import (
 const (
 	backendBindingsSchemaVersion = 1
 	backendBindingsMaxBytes      = 64 << 10
+	backendBindingsLockAttempts  = 20
+	backendBindingsLockDelay     = 10 * time.Millisecond
 )
 
 // BackendBinding is the only durable backend identity shape. OriginSHA256 is
@@ -182,19 +185,31 @@ func (m *Mirror) bindBackend(want BackendBinding, nativeExt string, requireFresh
 }
 
 func (m *Mirror) lockBackendBindings() (*safepath.FileLock, error) {
-	for attempt := 0; attempt < 20; attempt++ {
+	for attempt := 0; attempt < backendBindingsLockAttempts; attempt++ {
 		lock, acquired, err := safepath.TryLockFileWithin(m.Root, m.backendBindingsLockPath(), 0o600)
 		if err != nil {
+			// Darwin can transiently surface ENOENT when concurrent callers
+			// first create and open the same lock beneath the just-created
+			// state directory. Retry only that condition; never recreate the
+			// directory or absorb containment, permission, or I/O failures.
+			if shouldRetryBackendBindingLock(err, attempt) {
+				time.Sleep(backendBindingsLockDelay)
+				continue
+			}
 			return nil, err
 		}
 		if acquired {
 			return lock, nil
 		}
-		if attempt < 19 {
-			time.Sleep(10 * time.Millisecond)
+		if attempt < backendBindingsLockAttempts-1 {
+			time.Sleep(backendBindingsLockDelay)
 		}
 	}
 	return nil, fmt.Errorf("%w: another mirror backend-binding update is active", domain.ErrCheckFailed)
+}
+
+func shouldRetryBackendBindingLock(err error, attempt int) bool {
+	return errors.Is(err, fs.ErrNotExist) && attempt < backendBindingsLockAttempts-1
 }
 
 func (m *Mirror) loadBackendBindings() (backendBindingsFile, bool, error) {
