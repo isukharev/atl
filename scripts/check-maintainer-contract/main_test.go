@@ -56,6 +56,7 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 		{name: "lock feature", path: ".devcontainer/devcontainer-lock.json", old: goFeatureID, replacement: "ghcr.io/devcontainers/features/missing:1", want: "lock is missing"},
 		{name: "lock package version", path: ".devcontainer/devcontainer-lock.json", old: `"version": "` + goFeaturePackageVersion + `"`, replacement: `"version": "0.0.0"`, want: "reviewed"},
 		{name: "lock integrity", path: ".devcontainer/devcontainer-lock.json", old: `"integrity": "` + goFeatureDigest + `"`, replacement: `"integrity": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"`, want: "reviewed package digest"},
+		{name: "generated source hidden", path: ".gitattributes", old: generatedAttributesContract, replacement: generatedAttributesContract + "/skills-src/** linguist-generated=true\n", want: "exactly the two generated skill output trees"},
 		{name: "make automatic repair", path: "Makefile", old: "GOTOOLCHAIN=local", replacement: "GOTOOLCHAIN=auto", want: "must start with GOTOOLCHAIN=local"},
 		{name: "windows make target", path: "Makefile", old: "GOOS=windows", replacement: "GOOS=linux", want: "exact Windows source cross-compile target"},
 		{name: "ci literal", path: ".github/workflows/ci.yml", old: "go-version-file: go.mod", replacement: "go-version: '1.26.5'", want: "exact required workflow block"},
@@ -95,6 +96,7 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 		{name: "onboarding update opt out", path: "Makefile", old: "ATL_NO_UPDATE=1 go run ./scripts/check-onboarding-docs", replacement: "go run ./scripts/check-onboarding-docs", want: "onboarding binary assertion must set ATL_NO_UPDATE=1"},
 		{name: "documentation catalog make gate", path: "Makefile", old: "go run ./scripts/check-docs-catalog -root .", replacement: "echo skipped", want: "exact documentation-catalog gate"},
 		{name: "documentation freshness make gate", path: "Makefile", old: "go run ./scripts/check-docs-freshness -root .", replacement: "echo skipped", want: "exact documentation-freshness gate"},
+		{name: "maintainability make gate", path: "Makefile", old: "go run ./scripts/check-maintainability", replacement: "echo skipped", want: "exact maintainability-ratchet gate"},
 		{name: "repository skills make gate", path: "Makefile", old: "go run ./scripts/check-repository-skills -root .", replacement: "echo skipped", want: "exact repository-skills gate"},
 		{name: "reference split make gate", path: "Makefile", old: "go run ./scripts/check-reference-split -root .", replacement: "echo skipped", want: "exact reference-split compatibility gate"},
 		{name: "ci core gate", path: ".github/workflows/ci.yml", old: "run: make check-core-race-coverage", replacement: "run: make race", want: "exact required workflow block"},
@@ -102,6 +104,7 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 		{name: "ci provenance update opt out", path: ".github/workflows/ci.yml", old: "ATL_NO_UPDATE=1 ./atl version", replacement: "./atl version", want: "exact required workflow block"},
 		{name: "ci documentation catalog gate", path: ".github/workflows/ci.yml", old: "run: make check-docs-catalog", replacement: "run: echo skipped", want: "exact required workflow block"},
 		{name: "ci documentation freshness gate", path: ".github/workflows/ci.yml", old: "run: make check-docs-freshness", replacement: "run: echo skipped", want: "exact required workflow block"},
+		{name: "ci maintainability gate", path: ".github/workflows/ci.yml", old: "run: make check-maintainability", replacement: "run: echo skipped", want: "exact required workflow block"},
 		{name: "ci documentation freshness diff base", path: ".github/workflows/ci.yml", old: "ATL_DOCS_BASE: ${{ github.event.pull_request.base.sha }}", replacement: "ATL_DOCS_BASE: HEAD", want: "exact required workflow block"},
 		{name: "ci documentation freshness diff head", path: ".github/workflows/ci.yml", old: "ATL_DOCS_HEAD: ${{ github.event.pull_request.head.sha }}", replacement: "ATL_DOCS_HEAD: HEAD", want: "exact required workflow block"},
 		{name: "ci documentation freshness shallow checkout", path: ".github/workflows/ci.yml", old: "          fetch-depth: 0", replacement: "          fetch-depth: 1", want: "exact required workflow block"},
@@ -118,6 +121,7 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 		{name: "release core gate", path: ".github/workflows/release.yml", old: "run: make check-core-race-coverage", replacement: "run: make race", want: "exact required workflow block"},
 		{name: "release maintainer gate", path: ".github/workflows/release.yml", old: "run: GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract", replacement: "run: echo skipped", want: "exact required workflow block"},
 		{name: "release package gate", path: ".github/workflows/release.yml", old: "run: make check-package-boundary", replacement: "run: echo skipped", want: "exact required workflow block"},
+		{name: "release maintainability gate", path: ".github/workflows/release.yml", old: "run: make check-maintainability", replacement: "run: echo skipped", want: "exact required workflow block"},
 		{name: "release plugin gate", path: ".github/workflows/release.yml", old: "run: make check-plugins", replacement: "run: echo skipped", want: "exact required workflow block"},
 		{name: "release documentation catalog gate", path: ".github/workflows/release.yml", old: "run: make check-docs-catalog", replacement: "run: echo skipped", want: "exact required workflow block"},
 		{name: "release documentation freshness gate", path: ".github/workflows/release.yml", old: "run: make check-docs-freshness", replacement: "run: echo skipped", want: "exact required workflow block"},
@@ -247,7 +251,8 @@ func writeFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	files := map[string]string{
-		"go.mod": "module example.test/project\n\ngo " + fixtureGoVersion + "\n",
+		"go.mod":         "module example.test/project\n\ngo " + fixtureGoVersion + "\n",
+		".gitattributes": generatedAttributesContract,
 		".devcontainer/devcontainer.json": `{
   // OCI digest verified fixture.
   "image": "` + verifiedBaseImage + `",
@@ -272,7 +277,7 @@ go run ./scripts/check-maintainer-contract
 `,
 		"Makefile": `check-maintainer-contract:
 	GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract
-` + windowsCompileMakeContract + coreCoverageMakeContract + packageBoundaryMakeContract + pluginsMakeContract + docsCatalogMakeContract + docsFreshnessMakeContract + repositorySkillsMakeContract + referenceSplitMakeContract + context7MakeContract + onboardingMakeContract + agentEvalRaceMakeContract,
+` + windowsCompileMakeContract + coreCoverageMakeContract + packageBoundaryMakeContract + maintainabilityMakeContract + pluginsMakeContract + docsCatalogMakeContract + docsFreshnessMakeContract + repositorySkillsMakeContract + referenceSplitMakeContract + context7MakeContract + onboardingMakeContract + agentEvalRaceMakeContract,
 		".github/workflows/ci.yml": `name: ci
 on:
   push:
@@ -335,6 +340,8 @@ jobs:
         run: GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract
       - name: Core/heavy package boundary
         run: make check-package-boundary
+      - name: Maintainability ratchets
+        run: make check-maintainability
       - name: Generated plugin trees are current
         run: make check-plugins
       - name: Documentation catalog
@@ -399,6 +406,8 @@ jobs:
         run: GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract
       - name: Core/heavy package boundary
         run: make check-package-boundary
+      - name: Maintainability ratchets
+        run: make check-maintainability
       - name: Generated plugin trees are current
         run: make check-plugins
       - name: Documentation catalog

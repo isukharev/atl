@@ -6,6 +6,17 @@ Pagination, output modes, body input, environment behavior, scripting, version o
 
 ## Global conventions
 
+The root flags apply before every command:
+
+| flag | description |
+|---|---|
+| `-o`, `--output` | select the command's supported `json`, `text`, or `id` output contract |
+| `--verbose` | trace HTTP requests and responses to stderr without logging bearer tokens; any non-empty `ATL_VERBOSE` enables the same trace |
+| `--read-only` | block every mutation before credentials, stdin, self-update, or network access; see [Global read-only policy](configuration.md#global-read-only-policy) |
+
+Verbose diagnostics never change stdout: the selected command result remains
+the only stdout payload.
+
 ## Pagination limits
 
 One-page reads require a positive explicit `--limit`: `conf search` and

@@ -31,7 +31,9 @@ building an automated invocation.
 Generate completion scripts with `atl completion bash`, `atl completion fish`,
 `atl completion powershell`, or `atl completion zsh`. These commands are
 offline and read-only; redirect their output according to the installation
-instructions of the selected shell.
+instructions of the selected shell. Every shell accepts `--no-descriptions` to
+omit descriptive text from the generated completion candidates, for example
+`atl completion zsh --no-descriptions`.
 
 ## `atl mirror backend`
 

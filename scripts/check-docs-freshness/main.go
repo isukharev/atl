@@ -30,11 +30,14 @@ const (
 
 var (
 	idPattern      = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
+	flagPattern    = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 	headingPattern = regexp.MustCompile(`^#{1,6} \S`)
 )
 
 type commandManifest struct {
 	SchemaVersion    int             `json:"schema_version"`
+	GlobalFlagRoutes []flagRoute     `json:"global_flag_routes"`
+	FlagExclusions   []flagExclusion `json:"flag_exclusions"`
 	Routes           []commandRoute  `json:"routes"`
 	MutationProfiles []mutationRoute `json:"mutation_profiles"`
 }
@@ -52,6 +55,19 @@ type mutationRoute struct {
 	Profile  string `json:"profile"`
 	Document string `json:"document"`
 	Evidence string `json:"evidence"`
+}
+
+type flagRoute struct {
+	Flag     string `json:"flag"`
+	Document string `json:"document"`
+	Evidence string `json:"evidence"`
+}
+
+type flagExclusion struct {
+	Command string `json:"command"`
+	Flag    string `json:"flag"`
+	Class   string `json:"class"`
+	Reason  string `json:"reason"`
 }
 
 type impactManifest struct {
@@ -98,6 +114,7 @@ type privateMarker struct {
 
 type report struct {
 	Commands         int
+	Flags            int
 	Routes           int
 	MutationProfiles int
 	ImpactRules      int
@@ -126,8 +143,8 @@ func main() {
 	if len(result.SelectedChecks) != 0 {
 		checks = strings.Join(result.SelectedChecks, ",")
 	}
-	fmt.Printf("documentation freshness: commands=%d routes=%d mutation_profiles=%d impact_rules=%d selected_checks=%s private_markers=%d\n",
-		result.Commands, result.Routes, result.MutationProfiles, result.ImpactRules, checks, result.PrivateMarkers)
+	fmt.Printf("documentation freshness: commands=%d flags=%d routes=%d mutation_profiles=%d impact_rules=%d selected_checks=%s private_markers=%d\n",
+		result.Commands, result.Flags, result.Routes, result.MutationProfiles, result.ImpactRules, checks, result.PrivateMarkers)
 }
 
 func validateRepository(root, base, head, markerPath string) (report, error) {
@@ -151,11 +168,15 @@ func validateRepository(root, base, head, markerPath string) (report, error) {
 	if err != nil {
 		return report{}, fmt.Errorf("command inventory: %w", err)
 	}
+	flags, err := cli.RepositoryFlagInventory()
+	if err != nil {
+		return report{}, fmt.Errorf("flag inventory: %w", err)
+	}
 	commandContract, err := loadCommandManifest(filepath.Join(root, filepath.FromSlash(commandManifestPath)))
 	if err != nil {
 		return report{}, err
 	}
-	if err := validateCommandCoverage(root, commandContract, commands, documents); err != nil {
+	if err := validateCommandCoverage(root, commandContract, commands, flags, documents); err != nil {
 		return report{}, err
 	}
 	impactContract, err := loadImpactManifest(filepath.Join(root, filepath.FromSlash(impactManifestPath)))
@@ -166,7 +187,7 @@ func validateRepository(root, base, head, markerPath string) (report, error) {
 		return report{}, err
 	}
 	result := report{
-		Commands: len(commands), Routes: len(commandContract.Routes),
+		Commands: len(commands), Flags: len(flags), Routes: len(commandContract.Routes),
 		MutationProfiles: len(commandContract.MutationProfiles), ImpactRules: len(impactContract.Rules),
 	}
 	if strings.TrimSpace(base) != "" {
@@ -201,7 +222,7 @@ func loadCommandManifest(path string) (commandManifest, error) {
 	if err := decodeStrictFile(path, maxManifestBytes, &value); err != nil {
 		return value, fmt.Errorf("command coverage manifest: %w", err)
 	}
-	if value.SchemaVersion != 1 || value.Routes == nil || value.MutationProfiles == nil {
+	if value.SchemaVersion != 1 || value.GlobalFlagRoutes == nil || value.FlagExclusions == nil || value.Routes == nil || value.MutationProfiles == nil {
 		return value, errors.New("command coverage manifest requires schema_version 1 and non-null arrays")
 	}
 	return value, nil
@@ -231,7 +252,7 @@ func loadDocuments(path string) (map[string]docsEntry, error) {
 	return documents, nil
 }
 
-func validateCommandCoverage(root string, manifest commandManifest, commands []cli.RepositoryCommand, documents map[string]docsEntry) error {
+func validateCommandCoverage(root string, manifest commandManifest, commands []cli.RepositoryCommand, flags []cli.RepositoryFlag, documents map[string]docsEntry) error {
 	want := make(map[string]cli.RepositoryCommand, len(commands))
 	wantProfiles := map[string]bool{}
 	for _, command := range commands {
@@ -244,6 +265,7 @@ func validateCommandCoverage(root string, manifest commandManifest, commands []c
 		}
 	}
 	seenCommands := map[string]string{}
+	commandDocuments := map[string]string{}
 	seenIDs := map[string]bool{}
 	previousID := ""
 	for _, route := range manifest.Routes {
@@ -272,6 +294,7 @@ func validateCommandCoverage(root string, manifest commandManifest, commands []c
 				return fmt.Errorf("command %q is covered by routes %q and %q", path, prior, route.ID)
 			}
 			seenCommands[path] = route.ID
+			commandDocuments[path] = route.Document
 			mutating = mutating || want[path].Access == "mutating"
 		}
 		if mutating {
@@ -315,7 +338,161 @@ func validateCommandCoverage(root string, manifest commandManifest, commands []c
 			return fmt.Errorf("mutation profile %q has no documented safety route", profile)
 		}
 	}
+	return validateFlagCoverage(root, manifest, flags, commandDocuments, documents)
+}
+
+func validateFlagCoverage(root string, manifest commandManifest, flags []cli.RepositoryFlag, commandDocuments map[string]string, documents map[string]docsEntry) error {
+	actual := make(map[string]cli.RepositoryFlag, len(flags))
+	globalVisible := map[string]cli.RepositoryFlag{}
+	for _, entry := range flags {
+		key := flagKey(entry.Command, entry.Name)
+		if entry.Name == "" || actual[key].Name != "" {
+			return errors.New("flag inventory contains an empty or duplicated flag")
+		}
+		actual[key] = entry
+		if entry.Command == "" && entry.Class == cli.RepositoryFlagVisible {
+			globalVisible[entry.Name] = entry
+		}
+	}
+
+	globalDocuments := map[string]string{}
+	previousFlag := ""
+	for _, route := range manifest.GlobalFlagRoutes {
+		if !flagPattern.MatchString(route.Flag) || route.Flag <= previousFlag {
+			return errors.New("global flag routes require unique sorted flags")
+		}
+		previousFlag = route.Flag
+		entry, ok := globalVisible[route.Flag]
+		if !ok || entry.Command != "" {
+			return fmt.Errorf("global flag route --%s is stale or non-visible", route.Flag)
+		}
+		if !canonicalDocumentRoute(route.Document, documents, "reference") {
+			return fmt.Errorf("global flag route --%s has an invalid document", route.Flag)
+		}
+		if err := requireEvidence(root, route.Document, route.Evidence); err != nil {
+			return fmt.Errorf("global flag route --%s: %w", route.Flag, err)
+		}
+		globalDocuments[route.Flag] = route.Document
+	}
+	for name := range globalVisible {
+		if globalDocuments[name] == "" {
+			return fmt.Errorf("visible global flag --%s has no documentation route", name)
+		}
+	}
+
+	excluded := map[string]bool{}
+	previousExclusion := ""
+	for _, exclusion := range manifest.FlagExclusions {
+		key := flagKey(exclusion.Command, exclusion.Flag)
+		if !flagPattern.MatchString(exclusion.Flag) || key <= previousExclusion ||
+			strings.TrimSpace(exclusion.Reason) != exclusion.Reason || exclusion.Reason == "" || len(exclusion.Reason) > 300 || strings.ContainsAny(exclusion.Reason, "\r\n") {
+			return errors.New("flag exclusions require unique sorted flags and one bounded reason")
+		}
+		previousExclusion = key
+		switch exclusion.Class {
+		case cli.RepositoryFlagHidden, cli.RepositoryFlagDeprecated, cli.RepositoryFlagFramework:
+		default:
+			return fmt.Errorf("flag exclusion %q has invalid class %q", printableFlag(exclusion.Command, exclusion.Flag), exclusion.Class)
+		}
+		if exclusion.Command == "*" {
+			if exclusion.Flag != "help" || exclusion.Class != cli.RepositoryFlagFramework {
+				return errors.New("only the framework --help flag may use a wildcard exclusion")
+			}
+			matched := false
+			for actualKey, entry := range actual {
+				if entry.Name == exclusion.Flag && entry.Class == exclusion.Class {
+					excluded[actualKey] = true
+					matched = true
+				}
+			}
+			if !matched {
+				return errors.New("framework --help wildcard exclusion is stale")
+			}
+			continue
+		}
+		entry, ok := actual[key]
+		if !ok {
+			return fmt.Errorf("flag exclusion %q is stale", printableFlag(exclusion.Command, exclusion.Flag))
+		}
+		if entry.Class == cli.RepositoryFlagVisible {
+			return fmt.Errorf("visible flag %q must be documented, not excluded", printableFlag(entry.Command, entry.Name))
+		}
+		if entry.Class != exclusion.Class {
+			return fmt.Errorf("flag exclusion %q class is %q, inventory requires %q", printableFlag(entry.Command, entry.Name), exclusion.Class, entry.Class)
+		}
+		excluded[key] = true
+	}
+	for key, entry := range actual {
+		if entry.Class != cli.RepositoryFlagVisible && !excluded[key] {
+			return fmt.Errorf("non-visible flag %q class %q has no explicit exclusion", printableFlag(entry.Command, entry.Name), entry.Class)
+		}
+	}
+
+	documentBodies := map[string][]byte{}
+	documented := func(document, name string) bool {
+		body, ok := documentBodies[document]
+		if !ok {
+			var err error
+			body, err = readRegular(filepath.Join(root, filepath.FromSlash(document)), maxTrackedFileBytes)
+			if err != nil {
+				return false
+			}
+			documentBodies[document] = body
+		}
+		return containsExactFlagToken(body, name)
+	}
+	var missing []string
+	for _, entry := range flags {
+		if entry.Class != cli.RepositoryFlagVisible {
+			continue
+		}
+		document := globalDocuments[entry.Name]
+		if entry.Command != "" {
+			document = commandDocuments[entry.Command]
+		}
+		if document == "" || !documented(document, entry.Name) {
+			missing = append(missing, printableFlag(entry.Command, entry.Name)+" -> "+document)
+		}
+	}
+	if len(missing) != 0 {
+		sort.Strings(missing)
+		return fmt.Errorf("visible flag documentation is incomplete: %s", strings.Join(missing, ", "))
+	}
 	return nil
+}
+
+func containsExactFlagToken(body []byte, name string) bool {
+	token := []byte("--" + name)
+	for offset := 0; offset <= len(body)-len(token); {
+		index := bytes.Index(body[offset:], token)
+		if index < 0 {
+			return false
+		}
+		start := offset + index
+		end := start + len(token)
+		beforeOK := start == 0 || !flagNameByte(body[start-1])
+		afterOK := end == len(body) || !flagNameByte(body[end])
+		if beforeOK && afterOK {
+			return true
+		}
+		offset = start + 1
+	}
+	return false
+}
+
+func flagNameByte(value byte) bool {
+	return value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' || value >= '0' && value <= '9' || value == '-'
+}
+
+func flagKey(command, name string) string {
+	return command + "\x00" + name
+}
+
+func printableFlag(command, name string) string {
+	if command == "" {
+		return "global --" + name
+	}
+	return command + " --" + name
 }
 
 func canonicalDocumentRoute(path string, documents map[string]docsEntry, requiredLane string) bool {

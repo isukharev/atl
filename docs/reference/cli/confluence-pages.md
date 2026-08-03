@@ -188,6 +188,7 @@ atl conf page view 12345678 -o text
 atl conf page view 12345678 --render-profile full
 atl conf page view 12345678 --render-root ~/.atl/workspace
 atl conf page view 12345678 --jira-view full -o text
+atl conf page view 12345678 --jira-macros off -o text
 ```
 
 JSON output contains `id`, `title`, `space`, `version`, and `markdown`; `-o
@@ -216,6 +217,7 @@ Flags:
 | `--render-include` | comma-separated Confluence sections to add |
 | `--render-exclude` | comma-separated Confluence sections to remove |
 | `--jira-view` | named Jira list projection for JQL macros (default `default`) |
+| `--jira-macros` | JQL macro expansion mode: `auto` or `off`; overrides configured render policy |
 
 ## `atl conf page meta`
 
@@ -558,6 +560,7 @@ uses one transport attempt on apply, and refuses redirects.
 atl conf attachment list --id 12345678                       # qualified inventory; -o id → ids
 atl conf attachment list --id 12345678 --expected-version 7  # refuse unless the page is at v7
 atl conf attachment get --id 12345678 --name diagram.png --into ./assets
+atl conf attachment get --id 12345678 --name diagram.png --version 2 --into ./assets
 atl conf attachment upload --id 12345678 --file ./diagram.png [--comment 'v2']
 atl conf attachment delete --page-id 12345678 --id <ATTACHMENT-ID>
 atl conf attachment delete --page-id 12345678 --id <ATTACHMENT-ID> \
@@ -578,6 +581,10 @@ set.
 observed. A positive value refuses the read with exit `8` when the page has
 moved, before any attachment request is made, and reports only the expected and
 current version integers; `0` (the default) disables the gate.
+
+Attachment `get --version N` downloads that attachment revision; `0` (the
+default) selects the latest revision. This is an attachment-version selector,
+not the page-version gate used by `attachment list` and guarded deletion.
 
 Uploads stream the selected file without buffering it and send the exact multipart
 `Content-Length`, preserving compatibility with intermediaries that reject chunked uploads.
