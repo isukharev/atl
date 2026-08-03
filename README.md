@@ -47,47 +47,9 @@ The exhaustive [command reference](docs/usage.md) and
 [output contract](docs/OUTPUT_CONTRACT.md) remain available, but neither is
 required before the first successful workflow.
 
-Given one exact Jira issue, `atl jira issue graph PROJ-123` returns its
-provenance-qualified, schema-v2 direct work-artifact graph without following
-any discovered issue, page, or URL. `--depth 1..3` follows only exact structured
-Jira relations under hard request/output budgets; optional
-`--resolve confluence` reads only page id/title metadata. The explicit
-`--include-development` flag adds content-minimized GitLab project, full commit,
-exact branch, and merge-request coordinates from Jira's experimental
-Development surface. It never contacts GitLab or fetches a returned artifact
-URL, and an incomplete Development source emits no Development facts. Every returned field
-is reconciled with its inspection metadata: missing or invalid metadata makes
-the named source partial, while issue properties are explicitly experimental.
-The typed `jira_issue_graph` MCP tool exposes the same schema-v2 graph under
-Jira-only traversal: it accepts no Confluence-resolution input, leaves page
-identities as qualified stubs, and keeps the fixed backend-response bound
-separate from the configurable encoded-result bound. Development remains absent
-when `include_development` is omitted or false; explicit true adds only the
-closed experimental SCM coordinates and omits Development-node URLs. ATL makes
-no GitLab request. Any later lookup must require exact equality with an
-owner-approved lowercase host and use a separately authenticated read-only
-client, never Jira credentials.
-
-For Confluence discussions, `atl conf comment list --id 123456` returns a
-schema-v2 qualified inventory across footer, inline, and resolved comments,
-with proven thread relationships, independent completeness dimensions, and
-exact native-CSF anchor matching. `conf comment thread` selects one exact root
-subtree and scopes diagnostics/completeness to it; missing ancestry or markers
-remain explicit partial evidence. The explicit backend `reopened` state is
-normalized to semantic `open`; unknown states remain partial. Qualified backend
-reads are bound internally to the reconciled page revision, including every
-pagination request.
-`conf pull --comments` stores that qualification in a versioned mirror sidecar;
-the page's main `.md` renders a deterministic read-only tree with explicit
-location/state, completeness, safely qualified anchors, and unattached records.
-The schema-v2 `.comments.json` remains the source evidence (including closed
-diagnostics), while `.comments.md` remains a flat compatibility view;
-historical flat sidecars stay readable and comments never affect page drift.
-The offline `confluence/comments` capability route separates list, exact-thread,
-preview, and add. MCP exposes only the first two as bounded read-only tools:
-body-free `confluence_comment_list` for discovery and
-`confluence_comment_thread` for one exact plain-text expansion. Partial results
-never prove absence, and preview/add remain guarded CLI-only operations.
+Advanced graph and qualified-comment workflows are documented in the
+[command reference](docs/usage.md), [agent recipes](docs/agent-recipes.md), and
+[typed MCP guide](docs/mcp.md); they do not delay the install path below.
 
 ## Install
 

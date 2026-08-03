@@ -8,97 +8,36 @@ feedback, Data Center migration pressure, and safety findings.
 
 ## Shipped foundation
 
-Recent beta work established the contracts the next wave builds on:
+The released foundation and current `main` provide:
 
-- process-wide read-only policy with pre-network mutation refusal;
-- stable JSON error `kind` and remediation, explicit text/id projections, and
-  named Jira list views;
-- guarded Jira and Confluence writes, versioned derived views, contained mirror
-  I/O, complete pagination signals, and build/update provenance;
-- compact Jira field/history/reference/digest workflows, transient batch
-  exports, Structure/board reads, and bounded Confluence page sections;
-- Jira attachments/watchers and Confluence labels with review-bound mutation
-  flows;
-- guarded Jira worklog list/add and native Confluence blogpost creation for
-  routine delivery updates;
-- a complete multi-page Confluence review/sync chain: deterministic native
-  semantic diff, hash-bound plan/apply, and selector-bound incremental refresh
-  with explicit completeness and resume evidence;
-- explicit historical Confluence selector pulls beyond the ordinary caps, with
-  two-pass membership qualification and private exact-prefix resume state;
-- absolute UTC synchronization boundaries, deterministic human display zones,
-  and bounded GET-only diagnostics that qualify server/user/query time evidence
-  without hidden calibration searches;
-- a versioned offline capability catalog that maps exact agent task classes to
-  bounded command/reference routes and derives access/output facts from the
-  executable CLI contract;
-- a typed read-only MCP stdio server with twenty bounded evidence tools,
-  including two offline content-free mirror health snapshots, stable error
-  classes, a body-free Confluence page governance projection with explicit
-  tri-state access state, a fixed offline capability resource, closed
-  Jira/Confluence/offline service profiles, plugin distribution, and a
-  synthetic Codex route that proves the same fifteen-GET quarterly portfolio
-  result with zero writes;
-- shared structured recovery for CLI and MCP failures, plus reviewed Jira
-  comment and transition proposals that bind exact state before at-most-once
-  apply and reconcile ambiguous outcomes without replay;
-- a same-runtime Claude Code CLI/MCP portfolio comparison whose three-run MCP
-  median preserves correctness and backend traffic while materially reducing
-  turns, context, cost, and duration.
-- synthetic Confluence agent-evaluation cells for duplicate-heading/rich-page
-  evidence and multi-page decision synthesis, including hostile-content guards,
-  deterministic route budgets, qualitative rubrics, and bounded delegation.
-- an offline durable-mirror review cell that distinguishes semantic, byte-only,
-  unchanged, and corrupt-baseline states through one `conf diff`, proves zero
-  backend traffic, scores safe fail-closed recovery separately from tool
-  success, and measures a lossless compact text route against full JSON; its
-  skill-enforced oracle also validated a one-hop Confluence skill split that
-  reduces always-loaded instructions while preserving the reviewed workflow.
-- a topic-first cross-service discovery cell for the primary CLI, shipped
-  knowledge-search skill, and paired typed-MCP route, with qualified
-  Jira/Confluence candidate pages, a six-GET deterministic oracle, and a
-  reviewed five-GET MCP baseline that justified bounded Confluence search.
-- skill-enforced CLI benchmarks and one-hop routing cores for Jira and
-  Confluence: exact named-skill events distinguish real guidance from an
-  installed plugin digest, while task-specific runbooks load only after the
-  core safety/evidence route selects them.
-- a review-bound Jira mutation cell that keeps proposal generation under the
-  global read-only policy, permits only one exact loopback PUT after approval,
-  and proves ambiguous outcomes are reconciled without replay.
-- a review-bound Confluence plan mutation cell that creates and previews one
-  native plan under the read-only policy, accepts only its exact version/hash-
-  bound loopback PUT, and distinguishes success, proven conflict, and an
-  unverifiable non-replayable outcome across repeated model runs.
-- opt-in private-live agent evaluation for real Jira/Confluence compatibility
-  through paired typed-MCP and primary CLI+skill paths: MCP uses ephemeral
-  credentials and an independent transport guard, while CLI receives only
-  disposable loopback gateway capabilities under exact argv, route, response,
-  and provider-sandbox budgets; only reviewed aggregates cross the
-  private/public boundary.
-- a fail-closed private pair preflight and supervised comparison procedure that
-  hold task/oracle/model inputs constant across CLI and MCP, retain raw answers
-  locally, and compare deterministic, qualitative, context, request, byte,
-  latency, duplicate, and denial evidence without publishing private identity.
-- explicit package-update ownership: Homebrew launchers delegate exclusively to
-  `brew upgrade atl`, while a consolidated egress contract separates read-only,
-  update-disable, backend traffic, and externally enforced air-gap controls.
-- opt-in bounded scheduling for large Confluence pulls: native body reads may
-  prefetch in canonical order while a shared transport gate covers Confluence,
-  Jira macros, redirects, retries, comments, and streams; local writes and
-  checkpoints remain serial.
-- opt-in advisory Confluence Cloud compatibility validation
-  (`conf validate --cloud-compat`): a closed, versioned rule pack that reports
-  documented editor limitations as warnings only, identifies its own rule-pack
-  version and source date, never changes the push gate or an exit code, and
-  makes no claim about whether a page will migrate.
+- lossless native Jira/Confluence mirrors with derived Markdown views,
+  non-destructive refresh, three-way reconciliation, backend identity binding,
+  and deterministic native semantic diff;
+- a process-wide read-only policy plus preview/hash/version-gated Jira and
+  Confluence mutations with at-most-once transport and explicit ambiguous-outcome
+  reconciliation;
+- qualified bounded Jira fields, history, boards, Structure, artifact graphs,
+  experimental Development identities, and Confluence sections, tables,
+  attachments, and comment threads;
+- an offline capability catalog and a typed read-only MCP stdio server with
+  twenty-three bounded evidence tools, two content-free mirror snapshots, and
+  closed Jira/Confluence/offline profiles;
+- signed self-update and release provenance, contained filesystem writes,
+  cross-platform Linux/macOS evidence, and a required Windows source-compile
+  gate without a Windows support claim;
+- generated Claude Code and Codex skills plus deterministic public and private
+  evaluation contracts kept outside ordinary product test/package paths;
+- explicit historical Confluence pulls beyond ordinary selector caps, bounded
+  scheduling, durable resume/publication state, and advisory Cloud-compatibility
+  inventory without a Cloud write-path claim.
 
 ## Now
 
-The v0.5.0 foundation is release-ready: daily Jira/Confluence operations,
-review-bound mutations, Confluence review/sync and bounded scheduling, typed
-MCP service profiles, structured recovery, package ownership, and the initial
-agent-evaluation sequence are shipped. Current work is release verification and
-adoption feedback; new surface area remains evidence- or demand-gated.
+v0.5.1 is the current published release. `main` contains the post-release safety,
+mirror, graph, comment, and Data Center compatibility work being prepared for
+v0.6.0. New surface remains evidence- or concrete-workflow-gated; current owner
+and colleague use is valid product evidence and does not impose a user-count
+freeze.
 
 ## Next
 
@@ -107,16 +46,13 @@ Work likely to follow once the current sequence is stable.
 - Extend read-only MCP only when benchmark evidence justifies another bounded
   app-level tool; Structure, mirror writes, pull/status, and full page bodies
   remain CLI-only for now.
-- Revisit the MCP Go SDK schema-error wire contract as an explicit compatibility
-  migration with boundary tests and documentation, not as an incidental
-  dependency update.
 - Migration readiness beyond the shipped advisory `conf validate --cloud-compat`
   rule pack: later packs as Atlassian's documentation moves, and — only if
   demand justifies it — space-level reporting and third-party app assessment,
   both of which are deliberately out of scope today.
-- Windows support:
-  - config-dir and path handling;
-  - Scoop/Winget packaging.
+- Windows runtime support and Scoop/Winget packaging only after the existing
+  source-compile gate is supplemented by runtime, install, update, and recovery
+  evidence.
 
 ## Later
 

@@ -9,6 +9,23 @@ See also: [../README.md](../README.md) · [architecture.md](architecture.md) ·
 [csf-and-fragments.md](csf-and-fragments.md) · [self-update.md](self-update.md) ·
 [network-egress.md](network-egress.md)
 
+<!-- reference-navigation:start -->
+## Navigate this reference
+
+- [Global conventions](#global-conventions)
+- [Environment variables](#environment-variables)
+- [Scripting & CI](#scripting--ci)
+- [`atl mirror backend`](#atl-mirror-backend)
+- [`atl config`](#atl-config)
+- [`atl profile`](#atl-profile)
+- [Render profiles](#render-profiles)
+- [`atl auth`](#atl-auth)
+- [`atl conf` — Confluence](#atl-conf--confluence)
+- [`atl jira` — Jira](#atl-jira--jira)
+- [`atl version`](#atl-version)
+- [Workflow: pull → edit → validate → push](#workflow-pull--edit--validate--push)
+<!-- reference-navigation:end -->
+
 ---
 
 ## Global conventions
@@ -4691,6 +4708,7 @@ atl jira board view 5 --columns key,status,updated,customfield_10001 \
   --epic-field customfield_10001 --done-status Done
 atl jira board export 5 --format jsonl --out board.jsonl
 atl jira sprint list --board 5 [--state active|closed|future]   # {sprints:[...]}; -o id → sprint ids
+atl jira sprint get 7                       # one sprint by numeric id; -o text/id supported
 atl jira sprint current --board 5           # the active sprint (exit 4 if none)
 atl jira sprint issues 7 --columns position,key,summary,status  # issues in sprint 7; -o id → keys
 atl jira sprint add 7 PROJ-1 PROJ-2         # move issues into sprint 7

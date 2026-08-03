@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 type context7Config struct {
@@ -63,7 +64,154 @@ func validateRepository(root string) (report, error) {
 	if err := validateAutomation(root); err != nil {
 		return report, err
 	}
+	if err := validateReferenceNavigation(root); err != nil {
+		return report, err
+	}
 	return report, nil
+}
+
+const (
+	referenceNavigationStart = "<!-- reference-navigation:start -->"
+	referenceNavigationEnd   = "<!-- reference-navigation:end -->"
+)
+
+func validateReferenceNavigation(root string) error {
+	for _, spec := range []struct {
+		path     string
+		maxLevel int
+	}{
+		{"docs/usage.md", 2},
+		{"docs/OUTPUT_CONTRACT.md", 3},
+	} {
+		path := filepath.Join(root, filepath.FromSlash(spec.path))
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read %s navigation: %w", spec.path, err)
+		}
+		actual, err := referenceNavigationBlock(string(contents))
+		if err != nil {
+			return fmt.Errorf("%s: %w", spec.path, err)
+		}
+		expected, err := renderReferenceNavigation(string(contents), spec.maxLevel)
+		if err != nil {
+			return fmt.Errorf("%s: %w", spec.path, err)
+		}
+		if actual != expected {
+			return fmt.Errorf("%s reference navigation is stale; replace the marked block with:\n%s", spec.path, expected)
+		}
+	}
+	return nil
+}
+
+func referenceNavigationBlock(contents string) (string, error) {
+	start := strings.Index(contents, referenceNavigationStart)
+	end := strings.Index(contents, referenceNavigationEnd)
+	if start < 0 || end < 0 || end < start ||
+		strings.Count(contents, referenceNavigationStart) != 1 ||
+		strings.Count(contents, referenceNavigationEnd) != 1 {
+		return "", errors.New("must contain exactly one ordered reference-navigation marker pair")
+	}
+	end += len(referenceNavigationEnd)
+	return contents[start:end], nil
+}
+
+func renderReferenceNavigation(contents string, maxLevel int) (string, error) {
+	if _, err := referenceNavigationBlock(contents); err != nil {
+		return "", err
+	}
+	type heading struct {
+		level int
+		text  string
+		slug  string
+	}
+	var headings []heading
+	usedSlugs := map[string]bool{}
+	nextSuffix := map[string]int{}
+	insideFence := false
+	insideNavigation := false
+	for _, line := range strings.Split(contents, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == referenceNavigationStart {
+			insideNavigation = true
+			continue
+		}
+		if trimmed == referenceNavigationEnd {
+			insideNavigation = false
+			continue
+		}
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			insideFence = !insideFence
+			continue
+		}
+		if insideFence {
+			continue
+		}
+		level, text, ok := markdownHeading(line)
+		if !ok {
+			continue
+		}
+		base := githubHeadingSlug(text)
+		if base == "" {
+			return "", fmt.Errorf("heading %q has no stable anchor", text)
+		}
+		slug := base
+		if usedSlugs[slug] {
+			suffix := nextSuffix[base] + 1
+			for usedSlugs[fmt.Sprintf("%s-%d", base, suffix)] {
+				suffix++
+			}
+			nextSuffix[base] = suffix
+			slug = fmt.Sprintf("%s-%d", base, suffix)
+		}
+		usedSlugs[slug] = true
+		if insideNavigation || level < 2 || level > maxLevel {
+			continue
+		}
+		headings = append(headings, heading{level: level, text: text, slug: slug})
+	}
+	if len(headings) == 0 {
+		return "", errors.New("reference has no maintained headings")
+	}
+	var rendered strings.Builder
+	rendered.WriteString(referenceNavigationStart)
+	rendered.WriteString("\n## Navigate this reference\n\n")
+	for _, item := range headings {
+		if item.level == 3 {
+			rendered.WriteString("  ")
+		}
+		label := strings.NewReplacer("[", "\\[", "]", "\\]").Replace(item.text)
+		fmt.Fprintf(&rendered, "- [%s](#%s)\n", label, item.slug)
+	}
+	rendered.WriteString(referenceNavigationEnd)
+	return rendered.String(), nil
+}
+
+func markdownHeading(line string) (int, string, bool) {
+	level := 0
+	for level < len(line) && level < 6 && line[level] == '#' {
+		level++
+	}
+	if level == 0 || level >= len(line) || line[level] != ' ' {
+		return 0, "", false
+	}
+	return level, strings.TrimSpace(line[level+1:]), true
+}
+
+func githubHeadingSlug(text string) string {
+	var slug strings.Builder
+	for _, current := range strings.ToLower(strings.ReplaceAll(text, "`", "")) {
+		switch {
+		case current == '-' || current == '_' || current == ' ' || current == '\t':
+			if current == ' ' || current == '\t' {
+				slug.WriteByte('-')
+			} else {
+				slug.WriteRune(current)
+			}
+		case unicode.IsLetter(current), unicode.IsDigit(current):
+			slug.WriteRune(current)
+		}
+	}
+	return slug.String()
 }
 
 func validate(root string) (report, error) {

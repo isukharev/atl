@@ -36,7 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   native CSF up to 1 MiB, public-REST capability, and a complete root-only
   footer baseline. Apply revalidates immediately and reports
   `applied|recovered|outcome_unknown` from complete readback without replay.
-  Replies, inline creation, and resolution mutation remain unsupported. This
+  Public REST mode remains footer-root only. An exact-version compatibility
+  provider additionally supports guarded inline-root creation, replies, and
+  resolve/reopen through `conf comment mutation preview|apply`; every apply is
+  version/proposal-bound, single-attempt, and reconciled without replay. This
   replaces the former immediate-write behavior of `conf comment add`.
 
 - Versioned mirrored Confluence comment inventories as strict schema-v2
