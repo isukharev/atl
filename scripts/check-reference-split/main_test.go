@@ -268,20 +268,21 @@ func TestRenderCompatibilityIndexIsDeterministic(t *testing.T) {
 
 func TestCheckReferenceSplitWriteAndValidate(t *testing.T) {
 	root, routes := routeFixture(t)
+	inventory := historicalInventoryForRoutes(routes)
 	manifestPath := filepath.Join(root, "split-map.v1.json")
 	writeManifest(t, manifestPath, splitManifest{SchemaVersion: 1, Routes: routes})
 
-	_, err := checkReferenceSplit(root, manifestPath, false)
+	_, err := checkReferenceSplitWithInventory(root, manifestPath, false, inventory)
 	requireErrorContains(t, err, "is stale")
 
-	report, err := checkReferenceSplit(root, manifestPath, true)
+	report, err := checkReferenceSplitWithInventory(root, manifestPath, true, inventory)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if report.Indexes != 1 || report.Routes != 2 || report.Written != 1 {
 		t.Fatalf("write report = %+v", report)
 	}
-	report, err = checkReferenceSplit(root, manifestPath, false)
+	report, err = checkReferenceSplitWithInventory(root, manifestPath, false, inventory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,26 +299,45 @@ func TestCheckReferenceSplitWriteAndValidate(t *testing.T) {
 	if err := os.WriteFile(legacyPath, contents, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err = checkReferenceSplit(root, manifestPath, false)
+	_, err = checkReferenceSplitWithInventory(root, manifestPath, false, inventory)
 	requireErrorContains(t, err, "is stale")
 }
 
 func TestCheckReferenceSplitDetectsMissingAndStaleRoutes(t *testing.T) {
 	root, routes := routeFixture(t)
+	inventory := historicalInventoryForRoutes(routes)
 	manifestPath := filepath.Join(root, "split-map.v1.json")
 	writeManifest(t, manifestPath, splitManifest{SchemaVersion: 1, Routes: routes})
-	if _, err := checkReferenceSplit(root, manifestPath, true); err != nil {
+	if _, err := checkReferenceSplitWithInventory(root, manifestPath, true, inventory); err != nil {
 		t.Fatal(err)
 	}
 
 	writeManifest(t, manifestPath, splitManifest{SchemaVersion: 1, Routes: routes[:1]})
-	_, err := checkReferenceSplit(root, manifestPath, false)
-	requireErrorContains(t, err, "is stale")
+	_, err := checkReferenceSplitWithInventory(root, manifestPath, true, inventory)
+	requireErrorContains(t, err, "historical route inventory changed")
 
+	routes[0].HeadingText = "Renamed legacy title"
+	writeManifest(t, manifestPath, splitManifest{SchemaVersion: 1, Routes: routes})
+	_, err = checkReferenceSplitWithInventory(root, manifestPath, true, inventory)
+	requireErrorContains(t, err, "historical route identity changed")
+
+	routes[0].HeadingText = "Legacy title"
 	routes[0].DestinationAnchor = "removed-anchor"
-	writeManifest(t, manifestPath, splitManifest{SchemaVersion: 1, Routes: routes[:1]})
-	_, err = checkReferenceSplit(root, manifestPath, false)
+	writeManifest(t, manifestPath, splitManifest{SchemaVersion: 1, Routes: routes})
+	_, err = checkReferenceSplitWithInventory(root, manifestPath, false, inventory)
 	requireErrorContains(t, err, "does not exist case-exactly")
+}
+
+func TestPermanentHistoricalInventory(t *testing.T) {
+	value, err := loadManifest(filepath.Join("..", "..", "docs", "reference", "split-map.v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateHistoricalInventory(value.Routes, historicalInventory{
+		Routes: permanentHistoricalRouteCount, SHA256: permanentHistoricalRouteInventory,
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func routeFixture(t *testing.T) (string, []route) {

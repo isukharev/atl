@@ -18,6 +18,12 @@ This compatibility index preserves historical heading links. Canonical prose liv
 `
 
 func checkReferenceSplit(root, manifestPath string, write bool) (report, error) {
+	return checkReferenceSplitWithInventory(root, manifestPath, write, historicalInventory{
+		Routes: permanentHistoricalRouteCount, SHA256: permanentHistoricalRouteInventory,
+	})
+}
+
+func checkReferenceSplitWithInventory(root, manifestPath string, write bool, expected historicalInventory) (report, error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return report{}, fmt.Errorf("resolve repository root: %w", err)
@@ -28,6 +34,9 @@ func checkReferenceSplit(root, manifestPath string, write bool) (report, error) 
 	}
 	value, err := loadManifest(manifestPath)
 	if err != nil {
+		return report{}, err
+	}
+	if err := validateHistoricalInventory(value.Routes, expected); err != nil {
 		return report{}, err
 	}
 	groups, err := validateManifest(root, value)

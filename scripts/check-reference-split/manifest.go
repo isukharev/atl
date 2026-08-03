@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,7 +13,23 @@ import (
 	"strings"
 )
 
-const manifestSchemaVersion = 1
+const (
+	manifestSchemaVersion             = 1
+	permanentHistoricalRouteCount     = 150
+	permanentHistoricalRouteInventory = "9a215abf1814b3752506bd020038bdf93198fa890310fb53445f7a0f34e44f3c"
+)
+
+type historicalInventory struct {
+	Routes int
+	SHA256 string
+}
+
+type historicalRoute struct {
+	LegacyPath   string `json:"legacy_path"`
+	HeadingText  string `json:"heading_text"`
+	HeadingLevel int    `json:"heading_level"`
+	SourceOrder  int    `json:"source_order"`
+}
 
 type splitManifest struct {
 	SchemaVersion int     `json:"schema_version"`
@@ -25,6 +43,34 @@ type route struct {
 	SourceOrder       int    `json:"source_order"`
 	DestinationPath   string `json:"destination_path"`
 	DestinationAnchor string `json:"destination_anchor"`
+}
+
+func historicalInventoryForRoutes(routes []route) historicalInventory {
+	entries := make([]historicalRoute, 0, len(routes))
+	for _, item := range routes {
+		entries = append(entries, historicalRoute{
+			LegacyPath: item.LegacyPath, HeadingText: item.HeadingText,
+			HeadingLevel: item.HeadingLevel, SourceOrder: item.SourceOrder,
+		})
+	}
+	body, err := json.Marshal(entries)
+	if err != nil {
+		panic("historical route inventory contains only JSON-safe scalar fields")
+	}
+	digest := sha256.Sum256(body)
+	return historicalInventory{Routes: len(entries), SHA256: hex.EncodeToString(digest[:])}
+}
+
+func validateHistoricalInventory(routes []route, expected historicalInventory) error {
+	actual := historicalInventoryForRoutes(routes)
+	if actual.Routes != expected.Routes {
+		return fmt.Errorf("historical route inventory changed: got %d routes, want the permanent %d-route baseline",
+			actual.Routes, expected.Routes)
+	}
+	if actual.SHA256 != expected.SHA256 {
+		return errors.New("historical route identity changed; published legacy paths, headings, levels, and source order are immutable")
+	}
+	return nil
 }
 
 func loadManifest(path string) (splitManifest, error) {
