@@ -31,19 +31,19 @@ linked guide is translated.
 
 | Task | Route |
 |---|---|
-| Read, create, move, copy, or trash a page | [Page lifecycle commands](usage.md#atl-conf-page-resolve) |
-| Inspect or extract tables | [Table extraction](usage.md#atl-conf-table-extract) and [table summary](usage.md#atl-conf-table-summary) |
-| List, download, upload, or delete attachments | [Attachment commands](usage.md#atl-conf-attachment-listgetuploaddelete) |
+| Read, create, move, copy, or trash a page | [Page lifecycle commands](reference/cli/confluence-pages.md#atl-conf-page-resolve) |
+| Inspect or extract tables | [Table extraction](reference/cli/confluence-tables.md#atl-conf-table-extract) and [table summary](reference/cli/confluence-tables.md#atl-conf-table-summary) |
+| List, download, upload, or delete attachments | [Attachment commands](reference/cli/confluence-pages.md#atl-conf-attachment-listgetuploaddelete) |
 | Understand native storage and Markdown staging | [CSF and fragments](csf-and-fragments.md) |
 
 ### Jira task routes
 
 | Task | Route |
 |---|---|
-| Read, create, edit, transition, or delete an issue | [Issue lifecycle commands](usage.md#atl-jira-issue-get) |
+| Read, create, edit, transition, or delete an issue | [Issue lifecycle commands](reference/cli/jira-issues.md#atl-jira-issue-get) |
 | Plan fields and guarded writeback | [Jira guarded-writeback model](jira-guarded-writeback.md) |
-| Inspect boards and sprints | [Planning commands](usage.md#atl-jira-board-listgetconfigissuesbacklogviewexport-and-atl-jira-sprint-listgetcurrentissuesaddremove) |
-| Read or export a Structure hierarchy | [Structure commands](usage.md#atl-jira-structure-getviewforestrowsfoldersvaluespull-issuesexport) |
+| Inspect boards and sprints | [Planning commands](reference/cli/jira-planning.md#atl-jira-board-listgetconfigissuesbacklogviewexport-and-atl-jira-sprint-listgetcurrentissuesaddremove) |
+| Read or export a Structure hierarchy | [Structure commands](reference/cli/jira-structure.md#atl-jira-structure-getviewforestrowsfoldersvaluespull-issuesexport) |
 
 <a id="common-workflows"></a>
 
@@ -63,8 +63,8 @@ Read these when you need the model behind a workflow rather than one command.
 
 | Reference | Use it for |
 |---|---|
-| [Command reference](usage.md) | Every CLI command, flag, environment variable, and scripting pattern |
-| [Output contract](OUTPUT_CONTRACT.md) | JSON/text/id schemas, exit classes, completeness, and recovery |
+| [Command reference](reference/cli/README.md) | Every CLI command, flag, environment variable, and scripting pattern by concern |
+| [Output contract](reference/output/README.md) | JSON/text/id schemas, exit classes, completeness, and recovery by concern |
 | [MCP reference](mcp.md) | Typed read-only tools, profiles, bounds, and CLI fallback |
 | [Changelog](../CHANGELOG.md) | User-visible changes by released version |
 | `atl --help` | The command tree shipped by the installed binary |

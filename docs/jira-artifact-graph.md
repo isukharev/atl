@@ -114,5 +114,5 @@ make check-onboarding-docs
 
 See [the short graph demonstration](demos/jira-artifact-graph.md) for the exact
 user-facing sequence. Exhaustive flags and wire fields remain in the
-[command reference](usage.md#atl-jira-issue-graph) and
-[output contract](OUTPUT_CONTRACT.md#jira-graphs-and-references).
+[command reference](reference/cli/jira-graph.md#atl-jira-issue-graph) and
+[output contract](reference/output/jira.md#jira-graphs-and-references).

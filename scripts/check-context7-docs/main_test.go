@@ -79,6 +79,59 @@ func TestRenderReferenceNavigation(t *testing.T) {
 	}
 }
 
+func TestReferenceNavigationSpecsSelectLargeOrMarkedCanonicalFiles(t *testing.T) {
+	root := t.TempDir()
+	for _, directory := range []string{"docs/reference/cli", "docs/reference/output"} {
+		if err := os.MkdirAll(filepath.Join(root, directory), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := map[string]string{
+		"docs/reference/cli/short.md":    "# Short\n\n## One\n",
+		"docs/reference/cli/marked.md":   "# Marked\n\n" + referenceNavigationStart + "\n## Navigate this reference\n\n- [One](#one)\n" + referenceNavigationEnd + "\n\n## One\n",
+		"docs/reference/output/large.md": strings.Repeat("line\n", 298) + "## One\n",
+	}
+	for relative, body := range files {
+		if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(relative)), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	specs, err := referenceNavigationSpecs(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(specs) != 2 || specs[0].path != "docs/reference/cli/marked.md" || specs[1].path != "docs/reference/output/large.md" {
+		t.Fatalf("unexpected navigation specs: %+v", specs)
+	}
+}
+
+func TestSyncReferenceNavigationWritesMissingBlock(t *testing.T) {
+	root := t.TempDir()
+	for _, directory := range []string{"docs/reference/cli", "docs/reference/output"} {
+		if err := os.MkdirAll(filepath.Join(root, directory), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(root, "docs/reference/cli/large.md")
+	body := "# Large\n\n" + strings.Repeat("line\n", 296) + "\n## First\n\ntext\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncReferenceNavigation(root, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncReferenceNavigation(root, false); err != nil {
+		t.Fatalf("written navigation did not validate: %v", err)
+	}
+	written, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(written), "- [First](#first)") {
+		t.Fatalf("generated navigation missing heading:\n%s", written)
+	}
+}
+
 func TestValidateRejectsImplicitRootMarkdownAndSnippetlessDocs(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, "docs"), 0o755); err != nil {

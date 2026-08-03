@@ -62,7 +62,7 @@ the default branch:
    npx ctx7@latest docs /isukharev/atl "What is the default output format and how do sentinel errors map to exit codes?"
    ```
 
-4. Confirm that the answer reflects the current `docs/usage.md` and does not
+4. Confirm that the answer reflects the current focused CLI references and does not
    expose implementation, generated skills, or any non-public content.
 
 Do not close the tracking issue merely because the config merged. Registration
@@ -93,21 +93,30 @@ non-empty fenced example with a language tag such as `sh`, `json`, `yaml`,
 `text`, or `xml`. Do not add decorative or impossible commands merely to raise
 the snippet count. Prefer a small task recipe that a user can run, followed by
 the output shape or safety constraint it demonstrates. The curated
-[agent recipes](agent-recipes.md) cover high-frequency workflows while
-`usage.md` remains the exhaustive reference.
+[agent recipes](agent-recipes.md) cover high-frequency workflows; the focused
+[CLI](reference/cli/README.md) and
+[output-contract](reference/output/README.md) trees own exhaustive reference
+material. The old `usage.md` and `OUTPUT_CONTRACT.md` paths remain excluded
+compatibility indexes so retrieval never sees forwarding prose beside the
+canonical contract.
 
 The index intentionally excludes `docs/proposals/` and `docs/superpowers/`:
 they describe historical or prospective designs and can conflict with the
-shipped CLI contract. Promote durable behavior into `docs/usage.md`,
-`docs/OUTPUT_CONTRACT.md`, or another maintained reference before expecting an
-agent to use it.
+shipped CLI contract. Promote durable behavior into the focused CLI/output
+trees or another maintained reference before expecting an agent to use it.
 
 Before merging an indexed documentation change, run:
 
 ```sh
+make check-reference-split
 make check-docs-catalog
 make check-context7-docs
 ```
+
+Canonical reference files at 300 lines or more must carry a generated marked
+navigation block. After moving or renaming their headings, refresh those blocks
+with `make update-reference-navigation`; the ordinary Context7 check validates
+that the committed result is current.
 
 The repository check fails when a root Markdown file would be indexed
 implicitly without review or when a selected document lacks a non-empty named

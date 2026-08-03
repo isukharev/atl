@@ -137,8 +137,8 @@ Status/snapshot require an initialized `.atl` root. Positional `[DIR]` and
 - Refreshing, reconciling, or adopting a mirror: [mirrors-and-recovery.md](mirrors-and-recovery.md)
 - Editing and reviewed writes: [safe-writes.md](safe-writes.md)
 - Copy-paste task recipes: [agent-recipes.md](agent-recipes.md)
-- Exhaustive commands and flags: [usage.md](usage.md)
-- Stable JSON and exit contracts: [OUTPUT_CONTRACT.md](OUTPUT_CONTRACT.md)
+- Exhaustive commands and flags: [CLI reference](reference/cli/README.md)
+- Stable JSON and exit contracts: [output-contract reference](reference/output/README.md)
 
 Questions and sanitized bug reports belong in
 [GitHub Issues](https://github.com/isukharev/atl/issues/new/choose).

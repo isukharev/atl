@@ -115,6 +115,6 @@ no mutation tool.
 - Do not use a provider outside its exact activated product identity.
 
 See [safe writes](safe-writes.md) for the common proposal/apply discipline. The
-exhaustive [comment command reference](usage.md#atl-conf-comment-list) and
-[output contract](OUTPUT_CONTRACT.md#confluence-pull-and-comments)
+exhaustive [comment command reference](reference/cli/confluence-comments.md#atl-conf-comment-list) and
+[output contract](reference/output/confluence.md#confluence-pull-and-comments)
 remain the canonical flag and wire-shape sources.

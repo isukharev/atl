@@ -1828,3 +1828,34 @@ Before committing an aggregate, scan the staged diff using the repository's
 private-marker rules and inspect the exact GitHub issue/PR text. Local pruning
 does not imply deletion from the model provider, external MCP service, backend,
 terminal capture, or another user's clone.
+
+## Stable private-workspace migration output
+
+
+The repository's `agent-eval` maintainer tool is outside the shipped `atl`
+command tree, but its migration output is also a stable privacy boundary.
+Previewing `agent-eval private migrate` emits only this content-free JSON shape:
+
+```json
+{
+  "schema_version": 1,
+  "status": "ready",
+  "from_schema_version": 3,
+  "to_schema_version": 4,
+  "source_sha256": "<hex>",
+  "candidate_sha256": "<hex>",
+  "migration_sha256": "<hex>",
+  "preserved_run_sets": 2,
+  "preserved_spec_references": 3,
+  "preserved_run_records": 4
+}
+```
+
+`status` is `ready` for an ordinary preview. The apply result uses the same
+schema version, source/target versions, and migration digest with status
+`migrated`; an exact interrupted dual-manifest, staged-source, or archived-source
+transition returns `recovered`.
+After flag parsing, migration-operation errors contain a closed reason code and
+never include paths, run-set aliases, case identities, reviewer identities,
+models, pricing, or source content.
+Apply requires `--expected-migration-sha256` and `--confirm MIGRATE`.

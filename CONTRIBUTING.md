@@ -73,6 +73,20 @@ different Go toolchain automatically.
 
 ---
 
+## Documentation
+
+The focused files under `docs/reference/cli/` and `docs/reference/output/` own
+command and output prose. The old `docs/usage.md` and
+`docs/OUTPUT_CONTRACT.md` paths are generated compatibility indexes; do not edit
+them directly. If a canonical section moves, update the split map and run:
+
+```sh
+go run ./scripts/check-reference-split -root . -write
+make check-reference-split
+```
+
+---
+
 ## Commits and pull requests
 
 - Keep PRs **small and focused** — one logical change per PR.

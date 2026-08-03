@@ -19,8 +19,9 @@ weaken that contract.
 | Contributor setup and pull-request expectations | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Agent authority, repository safety, and non-negotiable invariants | [AGENTS.md](AGENTS.md) |
 | Architecture and extension points | [docs/architecture.md](docs/architecture.md) |
-| CLI usage and flags | [docs/usage.md](docs/usage.md) |
-| Output schemas, exit classes, and recovery | [docs/OUTPUT_CONTRACT.md](docs/OUTPUT_CONTRACT.md) |
+| CLI usage and flags | [docs/reference/cli/README.md](docs/reference/cli/README.md) |
+| Output schemas, exit classes, and recovery | [docs/reference/output/README.md](docs/reference/output/README.md) |
+| Historical reference routes and generated compatibility indexes | [docs/reference/split-map.v1.json](docs/reference/split-map.v1.json) and `make check-reference-split` |
 | Native Confluence storage and staging model | [docs/csf-and-fragments.md](docs/csf-and-fragments.md) |
 | Durable Markdown-view testing and migrations | [docs/csf-markdown-testing.md](docs/csf-markdown-testing.md) |
 | Issue, branch, PR, review, and handoff lifecycle | [docs/github-issue-workflow.md](docs/github-issue-workflow.md) |

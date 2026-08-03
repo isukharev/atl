@@ -4,6 +4,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -47,8 +48,9 @@ type report struct {
 
 func main() {
 	root := flag.String("root", ".", "repository root")
+	writeNavigation := flag.Bool("write-navigation", false, "regenerate marked navigation in large canonical references")
 	flag.Parse()
-	report, err := validateRepository(*root)
+	report, err := validateRepositoryWithNavigation(*root, *writeNavigation)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -57,6 +59,10 @@ func main() {
 }
 
 func validateRepository(root string) (report, error) {
+	return validateRepositoryWithNavigation(root, false)
+}
+
+func validateRepositoryWithNavigation(root string, writeNavigation bool) (report, error) {
 	report, err := validate(root)
 	if err != nil {
 		return report, err
@@ -64,7 +70,7 @@ func validateRepository(root string) (report, error) {
 	if err := validateAutomation(root); err != nil {
 		return report, err
 	}
-	if err := validateReferenceNavigation(root); err != nil {
+	if err := syncReferenceNavigation(root, writeNavigation); err != nil {
 		return report, err
 	}
 	return report, nil
@@ -75,32 +81,99 @@ const (
 	referenceNavigationEnd   = "<!-- reference-navigation:end -->"
 )
 
-func validateReferenceNavigation(root string) error {
-	for _, spec := range []struct {
-		path     string
-		maxLevel int
-	}{
-		{"docs/usage.md", 2},
-		{"docs/OUTPUT_CONTRACT.md", 3},
-	} {
+func syncReferenceNavigation(root string, write bool) error {
+	specs, err := referenceNavigationSpecs(root)
+	if err != nil {
+		return err
+	}
+	for _, spec := range specs {
 		path := filepath.Join(root, filepath.FromSlash(spec.path))
 		contents, err := os.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("read %s navigation: %w", spec.path, err)
 		}
-		actual, err := referenceNavigationBlock(string(contents))
+		content := string(contents)
+		actual, err := referenceNavigationBlock(content)
+		if err != nil && write {
+			content, err = insertReferenceNavigationMarkers(content)
+			if err == nil {
+				actual, err = referenceNavigationBlock(content)
+			}
+		}
 		if err != nil {
 			return fmt.Errorf("%s: %w", spec.path, err)
 		}
-		expected, err := renderReferenceNavigation(string(contents), spec.maxLevel)
+		expected, err := renderReferenceNavigation(content, spec.maxLevel)
 		if err != nil {
-			return fmt.Errorf("%s: %w", spec.path, err)
+			return fmt.Errorf("render %s navigation: %w", spec.path, err)
 		}
-		if actual != expected {
-			return fmt.Errorf("%s reference navigation is stale; replace the marked block with:\n%s", spec.path, expected)
+		if actual == expected {
+			continue
+		}
+		if !write {
+			return fmt.Errorf("%s reference navigation is stale; regenerate its marked block", spec.path)
+		}
+		updated := strings.Replace(content, actual, expected, 1)
+		info, err := os.Lstat(path)
+		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refuse to write non-regular or symlink reference %s", spec.path)
+		}
+		if err := os.WriteFile(path, []byte(updated), info.Mode().Perm()); err != nil {
+			return fmt.Errorf("write %s navigation: %w", spec.path, err)
 		}
 	}
 	return nil
+}
+
+func insertReferenceNavigationMarkers(contents string) (string, error) {
+	lines := strings.Split(contents, "\n")
+	inFence := false
+	for index, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			inFence = !inFence
+			continue
+		}
+		if !inFence && strings.HasPrefix(line, "## ") && !strings.HasPrefix(line, "### ") {
+			block := []string{referenceNavigationStart, "## Navigate this reference", "", referenceNavigationEnd, ""}
+			updated := append([]string{}, lines[:index]...)
+			updated = append(updated, block...)
+			updated = append(updated, lines[index:]...)
+			return strings.Join(updated, "\n"), nil
+		}
+	}
+	return "", errors.New("reference has no H2 before which navigation can be inserted")
+}
+
+type referenceNavigationSpec struct {
+	path     string
+	maxLevel int
+}
+
+func referenceNavigationSpecs(root string) ([]referenceNavigationSpec, error) {
+	var specs []referenceNavigationSpec
+	for _, directory := range []string{"docs/reference/cli", "docs/reference/output"} {
+		entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(directory)))
+		if err != nil {
+			return nil, fmt.Errorf("read reference directory %s: %w", directory, err)
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".md") {
+				continue
+			}
+			relative := filepath.ToSlash(filepath.Join(directory, entry.Name()))
+			body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative)))
+			if err != nil {
+				return nil, fmt.Errorf("read reference %s: %w", relative, err)
+			}
+			if len(strings.Split(string(body), "\n")) < 300 && !bytes.Contains(body, []byte(referenceNavigationStart)) {
+				continue
+			}
+			specs = append(specs, referenceNavigationSpec{path: relative, maxLevel: 2})
+		}
+	}
+	sort.Slice(specs, func(i, j int) bool { return specs[i].path < specs[j].path })
+	return specs, nil
 }
 
 func referenceNavigationBlock(contents string) (string, error) {
@@ -339,7 +412,7 @@ func validate(root string) (report, error) {
 	}
 	for _, required := range []string{
 		"README.md", "docs/README.md", "docs/agent-recipes.md",
-		"docs/usage.md", "docs/OUTPUT_CONTRACT.md", "docs/csf-and-fragments.md",
+		"docs/reference/cli/README.md", "docs/reference/output/README.md", "docs/csf-and-fragments.md",
 		"docs/jira-guarded-writeback.md", "docs/self-update.md",
 	} {
 		if !selectedRelative[required] {

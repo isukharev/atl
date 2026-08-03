@@ -255,5 +255,6 @@ retry the deletion automatically.
 | HTTP 429 on a write | Respect the cooldown; do not assume the write was absent |
 | Validation failure | Fix the candidate locally; no network write occurred |
 
-The exhaustive command flags are in [usage.md](usage.md); stable output and
-recovery envelopes are in [OUTPUT_CONTRACT.md](OUTPUT_CONTRACT.md).
+The exhaustive command flags are in the [CLI reference](reference/cli/README.md);
+stable output and recovery envelopes are in the
+[output-contract reference](reference/output/README.md).

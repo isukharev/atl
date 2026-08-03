@@ -44,8 +44,8 @@ read-only policy until one exact write proposal has been reviewed.
 | Diagnose setup, access, or conflict errors | [Troubleshooting](docs/troubleshooting.md) |
 
 The [task-first documentation index](docs/README.md) leads to focused workflows.
-The exhaustive [command reference](docs/usage.md) and
-[output contract](docs/OUTPUT_CONTRACT.md) are available when exact flags or
+The exhaustive [command reference](docs/reference/cli/README.md) and
+[output contract](docs/reference/output/README.md) are available when exact flags or
 wire fields matter; neither is required before the first useful read.
 
 ## Install

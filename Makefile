@@ -10,7 +10,9 @@
 #   make check-plugins    verify the generated plugin trees are current
 #   make check-skill-safety validate designated read-only skill shell blocks
 #   make check-docs-catalog validate the maintained public Markdown inventory
+#   make check-reference-split validate generated legacy reference indexes
 #   make check-context7-docs validate the public Context7 parsing/snippet boundary
+#   make update-reference-navigation regenerate navigation in large references
 #   make check-onboarding-docs validate first-use links and offline command paths
 #   make check-maintainer-contract verify the exact Go maintainer toolchain
 #   make check-windows-compile verify Windows source cross-compilation
@@ -114,9 +116,17 @@ check-skill-routing:
 check-context7-docs:
 	go run ./scripts/check-context7-docs
 
+.PHONY: update-reference-navigation
+update-reference-navigation:
+	go run ./scripts/check-context7-docs -write-navigation
+
 .PHONY: check-docs-catalog
 check-docs-catalog:
 	go run ./scripts/check-docs-catalog -root .
+
+.PHONY: check-reference-split
+check-reference-split:
+	go run ./scripts/check-reference-split -root .
 
 .PHONY: check-onboarding-docs
 check-onboarding-docs: build
