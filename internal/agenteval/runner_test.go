@@ -559,6 +559,31 @@ printf '%s\n' 'not-json' >"$final"
 	}
 	assertProviderFailureRetention(t, filepath.Join(outputRoot, scenario.ID, "codex", spec.Variant, "run-01"))
 
+	spec.Variant = "typed-mcp-codex-start-error"
+	writeJSONTestFile(t, filepath.Join(caseDir, "run.json"), spec)
+	writeTestFile(t, fakeAgent, "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo fake-agent-1; exit 0; fi\nexit 0\n", 0o700)
+	providerAttempts = 0
+	_, err = RunHeadless(context.Background(), RunOptions{
+		SpecPath: filepath.Join(caseDir, "run.json"), OutputRoot: outputRoot,
+		RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: fakeATL,
+		PluginRoot: pluginRoot, WrapperExecutable: wrapper,
+		providerAttemptCommitted: func() error {
+			providerAttempts++
+			return os.Remove(fakeAgent)
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "agent process failed") {
+		t.Fatalf("provider start failure result=%v", err)
+	}
+	if providerAttempts != 1 {
+		t.Fatalf("failed-start provider attempts=%d want=1", providerAttempts)
+	}
+	assertProviderFailureRetention(t, filepath.Join(outputRoot, scenario.ID, "codex", spec.Variant, "run-01"))
+	ephemeralEntries, err = os.ReadDir(filepath.Join(outputRoot, ".ephemeral"))
+	if err != nil || len(ephemeralEntries) != 0 {
+		t.Fatalf("provider start failure left runtime credentials: entries=%v err=%v", ephemeralEntries, err)
+	}
+
 	spec.Provider = "claude-code"
 	spec.ToolTransport = "cli"
 	spec.Variant = "provider-boundary-persistence-failure"

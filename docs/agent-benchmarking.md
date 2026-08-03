@@ -863,6 +863,17 @@ are characterization-tested. Calibration, review, aggregate, and probe
 lifecycles remain separate because their admission, commitment, and cleanup
 contracts differ.
 
+Headless treatment and provider calibration share one smaller process boundary:
+optional durable commitment, optional installed-package revalidation, one
+`Start`, and one `Wait` only after a successful start. The internal primitive
+returns the exact failed or completed stage and the raw error. Each owner still
+constructs its command and environment, maps errors and timeouts, retains its
+own artifacts, and closes its own broker, gateway, proxy, output, capsule, and
+authentication resources. Calibration, private-plan lifecycle, review, probes,
+and aggregation therefore do not share an executor. This is an explicit
+no-change boundary: extending the primitive into setup, cleanup, or failure
+classification would merge contracts that deliberately differ.
+
 The runner creates a fresh private workspace per repetition. Synthetic typed-MCP
 runs expose only the reviewed MCP inventory: they neither install the Codex
 client skills into the workspace nor load the Claude Code plugin. This keeps the

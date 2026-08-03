@@ -1125,29 +1125,16 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 			}
 		}()
 	}
-	var runErr error
-	// Persist the irrevocable attempt boundary immediately before spawn. There
-	// is no atomic primitive spanning durable storage and exec: committing after
-	// Start would leave a crash window in which a live provider process could be
-	// replayed. A failed Start is therefore conservatively charged as an attempt.
-	if bindings.providerAttemptCommitted != nil {
-		if commitErr := bindings.providerAttemptCommitted(); commitErr != nil {
-			runErr = fmt.Errorf("persist provider attempt boundary: %w", commitErr)
-		}
+	// Persist immediately before spawn: there is no atomic primitive spanning
+	// durable storage and exec, so even a failed Start consumes the attempt.
+	// Revalidation remains private-CLI-only and occurs after that commitment.
+	var revalidateProvider func() error
+	if codexPrivateCLI {
+		revalidateProvider = bindings.providerRuntime.verifyPluginPackage
 	}
-	// Rebind the installed package at the last safe point before spawning the
-	// provider. A failed rebind consumes the conservative attempt boundary but
-	// cannot expose unreviewed plugin bytes to the model.
-	if runErr == nil && codexPrivateCLI {
-		if verifyErr := bindings.providerRuntime.verifyPluginPackage(); verifyErr != nil {
-			runErr = verifyErr
-		}
-	}
-	if runErr == nil {
-		runErr = command.Start()
-	}
-	if runErr == nil {
-		runErr = command.Wait()
+	attemptStage, runErr := executeProviderAttempt(command, bindings.providerAttemptCommitted, revalidateProvider)
+	if runErr != nil && attemptStage == providerAttemptStageCommit {
+		runErr = fmt.Errorf("persist provider attempt boundary: %w", runErr)
 	}
 	var brokerCloseErr error
 	if commandBroker != nil {

@@ -551,6 +551,85 @@ printf '%s\n' '{"version":"test","commit":"test","build_state":"clean"}'
 			}
 		}
 	}
+
+	if err := os.Remove(promptCapture); err != nil {
+		t.Fatal(err)
+	}
+	startFailureOutput := filepath.Join(root, "start-failure-output")
+	if err := os.Mkdir(startFailureOutput, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	attempts = 0
+	_, err = RunCodexCLICalibration(context.Background(), CodexCLICalibrationOptions{
+		OutputRoot: startFailureOutput, RepositoryRoot: repositoryRoot,
+		AgentBinary: agent, ATLBinary: atl, PluginRoot: pluginRoot,
+		WrapperExecutable: wrapper, ScratchRoot: scratch,
+		Model: "test-model", TimeoutSeconds: 30, MaxEstimatedCostMicroUSD: 1_000_000,
+		Pricing:             Pricing{InputMicroUSDPerMillionTokens: 1_000_000, OutputMicroUSDPerMillionTokens: 2_000_000},
+		providerAuthSession: session, providerAttemptCommitted: func() error {
+			attempts++
+			return os.Remove(agent)
+		},
+	})
+	var processFailure *CodexCLICalibrationFailure
+	if !errors.As(err, &processFailure) || processFailure.Status != CodexCLICalibrationProcessFailed || attempts != 1 {
+		t.Fatalf("calibration start failure=%v attempts=%d", err, attempts)
+	}
+	assertCalibrationAttemptFailureState(t, startFailureOutput, scratch, promptCapture)
+
+	writeTestFile(t, agent, calibrationFakeCodexScript(promptCapture), 0o700)
+	commitFailureOutput := filepath.Join(root, "commit-failure-output")
+	if err := os.Mkdir(commitFailureOutput, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	attempts = 0
+	_, err = RunCodexCLICalibration(context.Background(), CodexCLICalibrationOptions{
+		OutputRoot: commitFailureOutput, RepositoryRoot: repositoryRoot,
+		AgentBinary: agent, ATLBinary: atl, PluginRoot: pluginRoot,
+		WrapperExecutable: wrapper, ScratchRoot: scratch,
+		Model: "test-model", TimeoutSeconds: 30, MaxEstimatedCostMicroUSD: 1_000_000,
+		Pricing:             Pricing{InputMicroUSDPerMillionTokens: 1_000_000, OutputMicroUSDPerMillionTokens: 2_000_000},
+		providerAuthSession: session, providerAttemptCommitted: func() error {
+			attempts++
+			return errors.New("injected calibration persistence failure")
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "persist calibration provider attempt boundary") || attempts != 1 {
+		t.Fatalf("calibration commitment failure=%v attempts=%d", err, attempts)
+	}
+	assertCalibrationAttemptFailureState(t, commitFailureOutput, scratch, promptCapture)
+}
+
+func assertCalibrationAttemptFailureState(t *testing.T, outputRoot, scratchRoot, promptCapture string) {
+	t.Helper()
+	if _, err := os.Stat(promptCapture); !os.IsNotExist(err) {
+		t.Fatalf("calibration provider started before failure: %v", err)
+	}
+	runDir := filepath.Join(outputRoot, "provider-calibration")
+	for _, name := range []string{"response-schema.json", "transcript.jsonl", "agent.stderr"} {
+		info, err := os.Stat(filepath.Join(runDir, name))
+		if err != nil || info.Mode().Perm() != 0o600 {
+			t.Fatalf("retained calibration artifact %s: info=%v err=%v", name, info, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(runDir, "final.json")); !os.IsNotExist(err) {
+		t.Fatalf("failed calibration created final output: %v", err)
+	}
+	entries, err := os.ReadDir(scratchRoot)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("failed calibration left runtime credentials: entries=%v err=%v", entries, err)
+	}
+	for _, directory := range []string{"command-broker-requests", "command-broker-responses"} {
+		entries, err := os.ReadDir(filepath.Join(runDir, ".atl-eval", directory))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), "request-") || strings.HasPrefix(entry.Name(), "processing-") || strings.HasPrefix(entry.Name(), "response-") {
+				t.Fatalf("transient calibration broker payload survived: %s", entry.Name())
+			}
+		}
+	}
 }
 
 func TestVerifyCalibrationCommandSlotRequiresExactFamily(t *testing.T) {
