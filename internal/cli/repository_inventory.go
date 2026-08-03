@@ -56,7 +56,7 @@ func RepositoryCommandInventory() ([]RepositoryCommand, error) {
 			Path:            path,
 			Access:          access,
 			MutationProfile: string(registration.profile),
-			RequiredFlags:   append([]string(nil), registration.requiredFlags...),
+			RequiredFlags:   mutationGuardRequirementNames(registration.guard.requirements),
 			OutputModes:     commandOutputModeNames(registration.outputModes),
 		})
 	}
