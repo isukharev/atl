@@ -1689,7 +1689,7 @@ remote since the last pull.
 atl conf status
 atl conf status my-mirror
 atl conf status --into my-mirror
-atl conf status --remote          # also checks remote version (one request per page)
+atl conf status --remote          # checks remote versions in bounded qualified batches
 ```
 
 Local edits are shown with `M`; remote drift with `M↯` in text mode.
@@ -1702,7 +1702,7 @@ Flags:
 |---|---|
 | `[DIR]` | initialized mirror root directory |
 | `--into` | initialized mirror root directory (mutually exclusive with `[DIR]`) |
-| `--remote` | also check remote for drift (one API call per page) |
+| `--remote` | also check remote for drift (qualified batches for multiple pages; exact read for one) |
 
 With neither explicit form, inspection uses `ATL_MIRROR_ROOT`, then the nearest
 initialized `.atl` walking up from the current directory, then `mirror`.
@@ -1743,13 +1743,18 @@ fails, the write failure is reported together with the inspection failure and
 the exit code stays the inspection code. If inspection otherwise succeeds, the
 write failure is returned on its own with generic exit `1`.
 
-`--remote` starts one metadata probe per eligible canonical tracked page and
-disables the transport's automatic replay-safe retries for it. Redirect
-responses are not followed and count as unavailable because a second hop would
-exceed the one-attempt bound. Untracked/non-canonical pages remain `not_attempted`;
-failures increment `unavailable` and never `in_sync`. The output never includes
-page ids, titles, paths, hashes, validation text, or native/derived content. Use
-`conf diff` only when page-level identity or exact change evidence is required.
+`--remote` keeps the exact metadata endpoint for one eligible canonical tracked
+page. Larger selections use completeness-qualified metadata batches of at most
+100 page ids and 16 KiB of escaped selector input. Each batch gets one transport
+attempt with automatic replay-safe retries disabled; it is accepted only when
+the response contains every requested id exactly once with a positive version
+and proves terminal pagination. A typed error, omitted/duplicate/unexpected row,
+invalid version, or unqualified continuation makes that whole batch unavailable
+without per-page fallback or permission inference. Redirect responses are not
+followed. Untracked/non-canonical pages remain `not_attempted`; failures
+increment `unavailable` and never `in_sync`. The output never includes page ids,
+titles, paths, hashes, validation text, or native/derived content. Use `conf
+diff` only when page-level identity or exact change evidence is required.
 Snapshot accepts the same mutually exclusive `[DIR]`/`--into` forms, root
 precedence, and pre-network exit-4 initialized-root check as `conf status`.
 

@@ -185,7 +185,10 @@ atl conf validate <page.csf>
 atl conf validate <page.csf> --cloud-compat # advisory warnings only
 ```
 
-Remote status makes one request per page. Omit `--remote` for local-only state.
+Remote status keeps the exact endpoint for one page and uses bounded,
+completeness-qualified batches for larger mirrors. A batch with missing,
+duplicate, unexpected, malformed, or partial evidence stays unavailable without
+per-page fallback. Omit `--remote` for local-only state.
 All commands default to JSON. `-o text` selects an explicitly registered human
 projection; unsupported text requests fail before network access rather than
 falling back to JSON. Commands with an ID projection accept `-o id` for one

@@ -118,8 +118,9 @@ func PreflightConfluenceMirrorRemoteSnapshot(dir string) (*ConfluenceMirrorSnaps
 	return result, err
 }
 
-// SnapshotMirror optionally adds one bounded remote metadata probe per
-// canonical page. Local integrity failures stop before any network request.
+// SnapshotMirror optionally adds completeness-qualified, bounded remote
+// metadata batches. A zero/one-page selection retains the exact metadata read.
+// Local integrity failures stop before any network request.
 func (s *ConfluenceService) SnapshotMirror(ctx context.Context, dir string, checkRemote bool) (*ConfluenceMirrorSnapshot, error) {
 	if !checkRemote {
 		result, _, err := inspectConfluenceMirror(dir)
@@ -169,11 +170,35 @@ func (s *ConfluenceService) SnapshotMirror(ctx context.Context, dir string, chec
 		return result, fmt.Errorf("%w: remote mirror snapshot requires a configured Confluence backend", domain.ErrConfig)
 	}
 	probeContext := domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(ctx))
+	ids := make([]string, 0, result.Remote.Eligible)
+	for _, local := range locals {
+		if local.Meta.ID != "" && !local.TrackedElsewhere && local.Synced != nil {
+			ids = append(ids, local.Meta.ID)
+		}
+	}
+	var bulkMetadata map[string]confluenceRemoteMetadataEvidence
+	if reader, ok := s.store.(domain.QualifiedConfluencePageMetadataBatchReader); ok && len(ids) > 1 {
+		bulkMetadata = readConfluenceRemoteMetadataBatches(probeContext, reader, ids)
+	}
 	for _, local := range locals {
 		if local.Meta.ID == "" || local.TrackedElsewhere || local.Synced == nil {
 			continue
 		}
 		result.Remote.Attempted++
+		if bulkMetadata != nil {
+			evidence, ok := bulkMetadata[local.Meta.ID]
+			if !ok || !evidence.available {
+				result.Remote.Unavailable++
+				continue
+			}
+			result.Remote.Checked++
+			if evidence.version != local.Synced.Version {
+				result.Remote.Drifted++
+			} else {
+				result.Remote.InSync++
+			}
+			continue
+		}
 		meta, err := s.store.GetMeta(probeContext, local.Meta.ID)
 		if err != nil || meta == nil {
 			result.Remote.Unavailable++
