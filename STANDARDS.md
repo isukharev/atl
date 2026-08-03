@@ -1,24 +1,38 @@
-# STANDARDS.md — Document Index
+# Maintainer documentation authority
 
-This file is an index of the repo's authoritative references. Read the relevant doc before
-adding a feature; do not duplicate their content here.
+This file routes maintainers to the single canonical owner for each topic. It
+does not duplicate those policies. User and operator documentation starts at
+the [task-first documentation index](docs/README.md).
 
-## Core references
+## Instruction precedence
 
-| Document | Use for |
+[`AGENTS.md`](AGENTS.md) is the binding cross-agent repository contract for
+safety, ownership, architecture invariants, issue-first work, verification, and
+handoff. Provider-specific instruction files, including
+[`CLAUDE.md`](CLAUDE.md), may add execution guidance but do not replace or
+weaken that contract.
+
+## Canonical owners
+
+| Topic | Canonical document |
 |---|---|
-| [`CLAUDE.md`](CLAUDE.md) | Project conventions, architecture rules, house rules, and everything an AI agent needs to know before touching code |
-| [`docs/architecture.md`](docs/architecture.md) | Hexagonal layers, dependency rules, extension points (new backend, new fragment type) |
-| [`docs/OUTPUT_CONTRACT.md`](docs/OUTPUT_CONTRACT.md) | CLI output formats (json/text/id), `emit`/`emitID` behaviour, sentinel→exit-code matrix |
-| [`docs/csf-and-fragments.md`](docs/csf-and-fragments.md) | Confluence Storage Format internals, fragment types, the read-only parse contract |
-| [`docs/self-update.md`](docs/self-update.md) | Self-update mechanism: manifest, ed25519 verification, anti-rollback, update base URL |
-| [`docs/RELEASING.md`](docs/RELEASING.md) | Release checklist: VERSION bump, CHANGELOG, tagging, signing, publishing |
-| [`docs/usage.md`](docs/usage.md) | End-user command reference and worked examples |
+| Contributor setup and pull-request expectations | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| Agent authority, repository safety, and non-negotiable invariants | [AGENTS.md](AGENTS.md) |
+| Architecture and extension points | [docs/architecture.md](docs/architecture.md) |
+| CLI usage and flags | [docs/usage.md](docs/usage.md) |
+| Output schemas, exit classes, and recovery | [docs/OUTPUT_CONTRACT.md](docs/OUTPUT_CONTRACT.md) |
+| Native Confluence storage and staging model | [docs/csf-and-fragments.md](docs/csf-and-fragments.md) |
+| Durable Markdown-view testing and migrations | [docs/csf-markdown-testing.md](docs/csf-markdown-testing.md) |
+| Issue, branch, PR, review, and handoff lifecycle | [docs/github-issue-workflow.md](docs/github-issue-workflow.md) |
+| Generated client plugins and skills | [docs/plugins.md](docs/plugins.md) |
+| Public documentation indexing | [docs/context7.md](docs/context7.md) |
+| Release preparation and signing | [docs/RELEASING.md](docs/RELEASING.md) |
+| Agent evaluation method | [docs/agent-benchmarking.md](docs/agent-benchmarking.md) |
+| Private evaluation operations | [docs/agent-benchmark-private-workspace.md](docs/agent-benchmark-private-workspace.md) |
+| Public evaluation scenarios | [benchmarks/agent-eval/README.md](benchmarks/agent-eval/README.md) |
+| Audience, topic, landing-page, and language ownership | [docs/catalog.v1.json](docs/catalog.v1.json) |
 
-## Additional docs
-
-| Document | Use for |
-|---|---|
-| [`docs/csf-markdown-testing.md`](docs/csf-markdown-testing.md) | Test strategy for the CSF→Markdown render pipeline |
-| [`docs/README.md`](docs/README.md) | Docs directory overview |
-| [`docs/proposals/`](docs/proposals/) | Design proposals and ADRs |
+When two documents disagree, fix the non-canonical copy or replace it with a
+link. Do not add a third summary. Proposed designs and private evidence stay in
+their designated ignored workspace; public maintainer documents must remain
+self-contained without linking to it.

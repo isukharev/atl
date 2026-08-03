@@ -10,6 +10,17 @@ See also: [../README.md](../README.md) · [architecture.md](architecture.md) ·
 
 ---
 
+## Reader map
+
+Users editing or reviewing a page usually need
+[native remote writes](#the-remote-write-path-native-bytes-only),
+[validation](#validation), [fragment behavior](#fragment-extraction), and the
+[Markdown staging view](#the-md-staging-view). The parsing function and adapter
+details in the read/resolve sections are maintainer reference: they explain why
+the user-facing guarantees hold but are not required for the normal edit loop.
+
+---
+
 ## What is Confluence Storage Format?
 
 Confluence Storage Format is the native on-wire format used by the Confluence

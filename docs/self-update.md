@@ -12,6 +12,16 @@ See also: [../README.md](../README.md) · [../SECURITY.md](../SECURITY.md) ·
 
 ---
 
+## Reader map
+
+Users and operators should read how the check works, the
+[disable controls](#disabling-auto-update), and the
+[threat model](#threat-model-summary). Release maintainers additionally need
+[the signing and publication guide](#enabling-auto-update-for-a-release-maintainer-guide).
+The canonical release sequence remains in [RELEASING.md](RELEASING.md).
+
+---
+
 ## How it works, step by step
 
 ### 1. Triggered before most commands

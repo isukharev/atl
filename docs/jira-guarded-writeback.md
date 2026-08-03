@@ -1,7 +1,14 @@
-# Guarded Jira Writeback Design
+<a id="guarded-jira-writeback-design"></a>
+
+# Guarded Jira writeback
 
 Status: implemented for `atl jira issue plan apply` CSV schema version 1 and
 single-issue `atl jira issue field preview` / `field set` file-backed updates.
+
+This document defines the safety model shared by users who plan Jira
+automation and maintainers who implement it. The phases and failure behavior
+explain the user-visible contract; testing requirements and the implemented
+gate inventory are maintainer reference.
 
 ## Goals
 

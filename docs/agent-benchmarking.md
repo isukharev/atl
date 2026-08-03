@@ -6,6 +6,11 @@ editing tasks through a given CLI surface or skill text. The numbers published
 in issues (e.g. the md-vs-CSF study and the `conf apply` table-merge work) are
 produced with this method.
 
+The committed [public scenario inventory](../benchmarks/agent-eval/README.md)
+documents the deterministic contracts and synthetic fixtures. Private backend
+operations use the separate
+[owner-controlled workspace](agent-benchmark-private-workspace.md).
+
 ## Why
 
 `atl`'s primary user is an agent. Changes that look neutral in unit tests —
