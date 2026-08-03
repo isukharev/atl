@@ -1210,6 +1210,19 @@ func (s *ConfluenceService) Status(ctx context.Context, dir string, checkRemote 
 			return nil, err
 		}
 	}
+	var bulkMetadata map[string]confluenceRemoteMetadataEvidence
+	if checkRemote {
+		ids := make([]string, 0, len(locals))
+		for _, lc := range locals {
+			if lc.Meta.ID != "" && !lc.TrackedElsewhere {
+				ids = append(ids, lc.Meta.ID)
+			}
+		}
+		if reader, ok := s.store.(domain.QualifiedConfluencePageMetadataBatchReader); ok && len(ids) > 1 {
+			probeContext := domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(ctx))
+			bulkMetadata = readConfluenceRemoteMetadataBatches(probeContext, reader, ids)
+		}
+	}
 	var out []StatusEntry
 	for _, lc := range locals {
 		e := StatusEntry{Path: lc.Path, ID: lc.Meta.ID, Title: lc.Meta.Title, LocallyEdited: lc.Dirty}
@@ -1221,10 +1234,21 @@ func (s *ConfluenceService) Status(ctx context.Context, dir string, checkRemote 
 			e.SyncedVersion = lc.Synced.Version
 		}
 		if checkRemote && lc.Meta.ID != "" && !lc.TrackedElsewhere {
-			// Record the reason a remote check failed (deleted/forbidden/network)
-			// so a page that could not be checked is not silently reported as
-			// in-sync — which would mislead a "safe to push?" decision.
-			if meta, err := s.store.GetMeta(ctx, lc.Meta.ID); err == nil {
+			// Record a closed reason when remote evidence is unavailable so the
+			// page is not silently reported as in-sync. Exact single-page reads
+			// retain their typed reason; a batch failure stays deliberately coarse.
+			if bulkMetadata != nil {
+				evidence, ok := bulkMetadata[lc.Meta.ID]
+				if ok && evidence.available {
+					e.RemoteVersion = evidence.version
+					e.Drifted = e.SyncedVersion > 0 && evidence.version != e.SyncedVersion
+				} else {
+					e.RemoteError = confluenceRemoteEvidenceIncomplete
+					if ok && evidence.reason != "" {
+						e.RemoteError = evidence.reason
+					}
+				}
+			} else if meta, err := s.store.GetMeta(ctx, lc.Meta.ID); err == nil {
 				e.RemoteVersion = meta.Version
 				e.Drifted = e.SyncedVersion > 0 && meta.Version != e.SyncedVersion
 			} else {

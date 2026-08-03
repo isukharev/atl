@@ -75,6 +75,23 @@ type PageSearchPage struct {
 	PartialReason string
 }
 
+// ConfluencePageMetadataBatch is one completeness-qualified response for an
+// exact, caller-supplied set of page identities. PartialReason belongs to the
+// closed static set below and never contains query or backend-controlled text.
+type ConfluencePageMetadataBatch struct {
+	Results       []PageRef
+	Complete      bool
+	PartialReason string
+}
+
+const ConfluencePageMetadataPartialPaginationUnqualified = "pagination_unqualified"
+
+// ValidConfluencePageMetadataPartialReason reports whether reason is safe to
+// expose across the app boundary.
+func ValidConfluencePageMetadataPartialReason(reason string) bool {
+	return reason == ConfluencePageMetadataPartialPaginationUnqualified
+}
+
 // PageMeta is the non-body metadata of a Confluence page.
 type PageMeta struct {
 	ID           string   `json:"id"`

@@ -102,6 +102,16 @@ type CompletePageSearcher interface {
 	SearchComplete(ctx context.Context, query string, limit int, cursor string) (PageSearchPage, error)
 }
 
+// QualifiedConfluencePageMetadataBatchReader is the optional capability used
+// by read-only mirror inspection to replace per-page metadata probes with
+// bounded, completeness-qualified batches. PlanPageMetadataBatches is pure and
+// preserves caller order; it lets the adapter own selector escaping and byte
+// limits without exposing generated CQL to the app layer.
+type QualifiedConfluencePageMetadataBatchReader interface {
+	PlanPageMetadataBatches(ids []string) ([][]string, error)
+	ReadPageMetadataBatch(ctx context.Context, ids []string) (ConfluencePageMetadataBatch, error)
+}
+
 // Attachment inventories name their limiter through this closed set of static
 // identifiers. Each value is a compile-time literal that never interpolates a
 // page id, title, filename, URL, body, or backend text, so a client can branch

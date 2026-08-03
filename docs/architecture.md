@@ -397,7 +397,8 @@ Notable behaviors:
   surface creates footer roots only; inline create/reply/resolution uses the
   separately activated compatibility provider described below.
 - `Status` walks the mirror's `.csf` files, compares hashes, and optionally
-  fires one `GetMeta` per page to detect remote drift.
+  detects remote drift through exact one-page metadata or bounded qualified
+  multi-page batches with whole-batch reconciliation.
 - `JiraService.Images` downloads only `image/*`-typed attachments; the others
   are skipped.
 - `JiraService.Pull` exports each issue as three files under

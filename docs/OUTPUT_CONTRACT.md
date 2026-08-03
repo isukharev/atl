@@ -1074,11 +1074,14 @@ is only a format-compatibility statement, not proof that rendering would
 preserve edits, and never causes an automatic render. With `--remote`, `remote`
 partitions all present local pages into attempted/not-attempted; attempted pages
 must be an eligible tracked canonical subset. It then partitions attempts into
-checked/unavailable and checked results into in-sync/drifted. One metadata probe
-is started per attempted page with generic replay-safe transport retries
-disabled. Redirect responses are not followed because a second hop would exceed
-the one-attempt bound; they count as unavailable. Without `--remote`, all pages
-remain not attempted.
+checked/unavailable and checked results into in-sync/drifted. One eligible page
+uses its exact metadata endpoint. Larger selections use qualified batches of at
+most 100 page ids and 16 KiB of escaped selector input, with one transport
+attempt per batch and generic replay-safe retries disabled. A batch is credited
+only after exact id/version reconciliation and terminal pagination; any typed,
+partial, omitted, duplicate, unexpected, or malformed evidence makes the whole
+batch unavailable without per-page fallback. Redirect responses are not
+followed. Without `--remote`, all pages remain not attempted.
 
 Every nested `reconciled` proves its declared equations and top-level
 `reconciled` requires all of them. `complete` is evidence availability, not a
