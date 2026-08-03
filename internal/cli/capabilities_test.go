@@ -271,7 +271,7 @@ func TestCapabilitiesExactSelectionFailsLoudly(t *testing.T) {
 	}
 }
 
-func TestUnsupportedIDOutputFailsBeforeConfigAndNetwork(t *testing.T) {
+func TestUnsupportedOutputFailsBeforeConfigAndNetwork(t *testing.T) {
 	requests := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
 	defer srv.Close()
@@ -281,7 +281,14 @@ func TestUnsupportedIDOutputFailsBeforeConfigAndNetwork(t *testing.T) {
 	}
 	env := jiraEnv(srv)
 	env["ATL_CONFIG_DIR"] = cfgDir
-	if _, code := runCLI(t, env, "jira", "issue", "get", "PROJ-1", "-o", "id"); code != exitUsage || requests != 0 {
-		t.Fatalf("exit=%d requests=%d", code, requests)
+	for name, args := range map[string][]string{
+		"id":   {"jira", "issue", "get", "PROJ-1", "-o", "id"},
+		"text": {"jira", "issue", "images", "PROJ-1", "-o", "text"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, code := runCLI(t, env, args...); code != exitUsage || requests != 0 {
+				t.Fatalf("exit=%d requests=%d", code, requests)
+			}
+		})
 	}
 }

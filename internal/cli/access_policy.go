@@ -31,6 +31,14 @@ const (
 	commandMutating
 )
 
+type commandOutputMode uint8
+
+const (
+	commandOutputJSON commandOutputMode = 1 << iota
+	commandOutputText
+	commandOutputID
+)
+
 type mutationProfile string
 
 const (
@@ -46,6 +54,7 @@ type commandRegistration struct {
 	traits        commandTrait
 	profile       mutationProfile
 	requiredFlags []string
+	outputModes   commandOutputMode
 }
 
 type commandRegistryState struct {
@@ -87,181 +96,173 @@ func accessPolicyInvariantMetadata(err error) (string, bool) {
 }
 
 // commandRegistry is the single reviewed command contract. Read-only rows use
-// "R <path>". Mutating rows use "M <profile> <required-flags-or-dash> <path>".
-// Parent groups are derived from path prefixes, so the finalized Cobra tree is
-// checked bidirectionally for groups, leaves, and the two intentional hybrids.
+// "R <output-modes> <path>". Mutating rows use
+// "M <profile> <required-flags-or-dash> <output-modes> <path>". Output modes
+// are explicit and canonical: json, json,text, json,id, or json,text,id. Parent
+// groups are derived from path prefixes, so the finalized Cobra tree is checked
+// bidirectionally for groups, leaves, and the two intentional hybrids.
 var commandRegistry, commandRegistryErr = parseCommandRegistry(`
-M local-direct - auth login
-M local-direct - auth logout
-R auth status
-R capabilities
-M local-direct - conf apply
-M preview-apply apply,confirm,expected-proposal-hash,expected-version conf attachment delete
-R conf attachment get
-R conf attachment list
-M remote-direct - conf attachment upload
-M remote-direct - conf blog create
-M preview-apply apply,expected-proposal-hash conf comment add
-R conf comment list
-M dedicated-apply apply,expected-proposal-hash conf comment mutation apply
-R conf comment mutation preview
-R conf comment preview
-R conf comment thread
-R conf diff
-M local-direct - conf edit
-R conf me
-M preview-apply apply,expected-proposal-hash,expected-version conf page copy
-M remote-direct - conf page create
-M preview-apply apply,confirm,expected-proposal-hash,expected-version conf page delete
-R conf page get
-R conf page history
-M preview-apply apply,expected-proposal-hash conf page labels add
-R conf page labels list
-M preview-apply apply,expected-proposal-hash conf page labels remove
-R conf page list
-R conf page meta
-M preview-apply apply,expected-proposal-hash,expected-version,expected-parent conf page move
-R conf page open
-R conf page outline
-R conf page resolve
-R conf page section
-R conf page sections
-M preview-apply apply,expected-proposal-hash,expected-version conf page title set
-R conf page view
-M plan confirm,expected-proposal-hash conf plan apply
-R conf plan create
-R conf plan preview
-R conf pull
-M remote-direct - conf push
-R conf reconcile preview
-M local-direct - conf reconcile stage
-R conf render
-R conf search
-R conf snapshot
-R conf space tree
-R conf status
-R conf table extract
-R conf table summary
-R conf validate
-M local-direct - compatibility clear
-M local-direct - compatibility pin
-R compatibility status
-R completion bash
-R completion fish
-R completion powershell
-R completion zsh
-M local-direct - config set
-R config show
-R doctor
-R environment inspect
-R help
-M local-direct - jira apply
-R jira board backlog
-R jira board config
-R jira board export
-R jira board get
-R jira board issues
-R jira board list
-R jira board view
-R jira epic digest
-R jira export
-R jira export diff
-R jira field-options
-R jira fields
-M remote-direct - jira issue assign
-R jira issue attachment get
-R jira issue attachment list
-M remote-direct - jira issue attachment upload
-R jira issue check
-R jira issue children
-M preview-apply apply,expected-proposal-hash jira issue comment add
-M remote-direct - jira issue comment delete
-R jira issue comment list
-R jira issue comment preview
-M remote-direct - jira issue create
-M preview-apply apply,confirm,expected-proposal-hash,expected-updated jira issue delete
-M remote-direct - jira issue edit
-R jira issue field get
-R jira issue field preview
-M preview-apply apply,expected-proposal-hash,expected-updated jira issue field set
-R jira issue fields
-R jira issue get
-R jira issue graph
-R jira issue history
-R jira issue images
-M remote-direct - jira issue labels
-M remote-direct - jira issue link add
-M remote-direct - jira issue link delete
-R jira issue link list
-R jira issue link suggest
-M remote-direct - jira issue link-epic
-M plan apply,confirm jira issue plan apply
-R jira issue refs
-R jira issue search
-M preview-apply apply,expected-proposal-hash jira issue transition
-R jira issue transition preview
-R jira issue tree
-M remote-direct - jira issue update
-R jira issue view
-M preview-apply apply,expected-proposal-hash jira issue watchers add
-R jira issue watchers list
-M preview-apply apply,expected-proposal-hash jira issue watchers remove
-M preview-apply apply,expected-proposal-hash jira issue worklog add
-R jira issue worklog list
-R jira link-types
-R jira me
-R jira planning report
-R jira pull
-M preview-apply apply jira push
-R jira reconcile preview
-M local-direct - jira reconcile stage
-R jira quality-report
-R jira render
-M remote-direct - jira sprint add
-R jira sprint current
-R jira sprint get
-R jira sprint issues
-R jira sprint list
-M remote-direct - jira sprint remove
-R jira snapshot
-R jira status
-R jira structure export
-R jira structure folders
-R jira structure forest
-R jira structure get
-R jira structure pull-issues
-R jira structure rows
-R jira structure values
-R jira structure view
-R jira transitions
-R jira user get
-R jira user search
-R manifest create
-R mcp serve
-M preview-apply apply,expected-backend-sha256,confirm mirror backend bind
-R mirror backend status
-M dedicated-apply from-file,candidate-hash,expected-current-hash profile apply
-R profile guidance
-R profile preview
-M local-direct - profile revalidate
-R profile revalidation status
-R profile show
-M local-direct - profile suggest
-M dedicated-apply from-file,suggestion-hash,candidate-hash,expected-current-hash profile suggestion apply
-M local-direct - profile suggestion reject
-R profile suggestion review
-R version
+M local-direct - json,text auth login
+M local-direct - json auth logout
+R json,text auth status
+R json,text,id capabilities
+M local-direct - json,text conf apply
+M preview-apply apply,confirm,expected-proposal-hash,expected-version json conf attachment delete
+R json,text conf attachment get
+R json,text,id conf attachment list
+M remote-direct - json conf attachment upload
+M remote-direct - json,text,id conf blog create
+M preview-apply apply,expected-proposal-hash json,text conf comment add
+R json,text conf comment list
+M dedicated-apply apply,expected-proposal-hash json conf comment mutation apply
+R json conf comment mutation preview
+R json,text conf comment preview
+R json,text conf comment thread
+R json,text conf diff
+M local-direct - json,text conf edit
+R json,text conf me
+M preview-apply apply,expected-proposal-hash,expected-version json,id conf page copy
+M remote-direct - json conf page create
+M preview-apply apply,confirm,expected-proposal-hash,expected-version json conf page delete
+R json,text conf page get
+R json,text conf page history
+M preview-apply apply,expected-proposal-hash json,text conf page labels add
+R json,text conf page labels list
+M preview-apply apply,expected-proposal-hash json,text conf page labels remove
+R json,text,id conf page list
+R json,text conf page meta
+M preview-apply apply,expected-proposal-hash,expected-version,expected-parent json,text conf page move
+R json,text conf page open
+R json,text conf page outline
+R json,text,id conf page resolve
+R json,text conf page section
+R json,text conf page sections
+M preview-apply apply,expected-proposal-hash,expected-version json,text conf page title set
+R json,text conf page view
+M plan confirm,expected-proposal-hash json,text conf plan apply
+R json,text conf plan create
+R json,text conf plan preview
+R json,text conf pull
+M remote-direct - json,text conf push
+R json,text conf reconcile preview
+M local-direct - json,text conf reconcile stage
+R json,text conf render
+R json,text,id conf search
+R json,text conf snapshot
+R json,text conf space tree
+R json,text conf status
+R json,text conf table extract
+R json,text conf table summary
+R json conf validate
+M local-direct - json compatibility clear
+M local-direct - json compatibility pin
+R json,text compatibility status
+R json,text completion bash
+R json,text completion fish
+R json,text completion powershell
+R json,text completion zsh
+M local-direct - json config set
+R json,text config show
+R json,text doctor
+R json,text environment inspect
+R json,text help
+M local-direct - json,text jira apply
+R json,text,id jira board backlog
+R json,text,id jira board config
+R json,text jira board export
+R json,text,id jira board get
+R json,text,id jira board issues
+R json,text,id jira board list
+R json,text,id jira board view
+R json,text jira epic digest
+R json,text jira export
+R json,text jira export diff
+R json,text jira field-options
+R json,text jira fields
+M remote-direct - json,text jira issue assign
+R json,text jira issue attachment get
+R json,text,id jira issue attachment list
+M remote-direct - json jira issue attachment upload
+R json,text jira issue check
+R json,text,id jira issue children
+M preview-apply apply,expected-proposal-hash json,text jira issue comment add
+M remote-direct - json jira issue comment delete
+R json,text,id jira issue comment list
+R json,text jira issue comment preview
+M remote-direct - json,text,id jira issue create
+M preview-apply apply,confirm,expected-proposal-hash,expected-updated json jira issue delete
+M remote-direct - json,text jira issue edit
+R json,text jira issue field get
+R json,text jira issue field preview
+M preview-apply apply,expected-proposal-hash,expected-updated json,text jira issue field set
+R json,text jira issue fields
+R json,text jira issue get
+R json,text jira issue graph
+R json,text jira issue history
+R json jira issue images
+M remote-direct - json jira issue labels
+M remote-direct - json jira issue link add
+M remote-direct - json jira issue link delete
+R json,text,id jira issue link list
+R json,text jira issue link suggest
+M remote-direct - json jira issue link-epic
+M plan apply,confirm json,text jira issue plan apply
+R json,text jira issue refs
+R json,text,id jira issue search
+M preview-apply apply,expected-proposal-hash json,text jira issue transition
+R json,text jira issue transition preview
+R json,text jira issue tree
+M remote-direct - json jira issue update
+R json,text jira issue view
+M preview-apply apply,expected-proposal-hash json,text jira issue watchers add
+R json,text jira issue watchers list
+M preview-apply apply,expected-proposal-hash json,text jira issue watchers remove
+M preview-apply apply,expected-proposal-hash json,text jira issue worklog add
+R json,text,id jira issue worklog list
+R json,text jira link-types
+R json,text,id jira me
+R json,text jira planning report
+R json,text jira pull
+M preview-apply apply json,text jira push
+R json,text jira reconcile preview
+M local-direct - json,text jira reconcile stage
+R json,text jira quality-report
+R json,text jira render
+M remote-direct - json jira sprint add
+R json,text,id jira sprint current
+R json,text,id jira sprint get
+R json,text,id jira sprint issues
+R json,text,id jira sprint list
+M remote-direct - json jira sprint remove
+R json,text jira snapshot
+R json,text jira status
+R json,text jira structure export
+R json,text,id jira structure folders
+R json,text jira structure forest
+R json,text,id jira structure get
+R json,text,id jira structure pull-issues
+R json,text,id jira structure rows
+R json jira structure values
+R json,text,id jira structure view
+R json,text jira transitions
+R json,text,id jira user get
+R json,text,id jira user search
+R json,text manifest create
+R json mcp serve
+M preview-apply apply,expected-backend-sha256,confirm json,text mirror backend bind
+R json,text mirror backend status
+M dedicated-apply from-file,candidate-hash,expected-current-hash json,text profile apply
+R json,text profile guidance
+R json,text profile preview
+M local-direct - json,text profile revalidate
+R json,text profile revalidation status
+R json,text profile show
+M local-direct - json,text profile suggest
+M dedicated-apply from-file,suggestion-hash,candidate-hash,expected-current-hash json,text profile suggestion apply
+M local-direct - json,text profile suggestion reject
+R json,text profile suggestion review
+R json,text version
 `)
-
-func stringSetFromLines(value string) map[string]bool {
-	out := map[string]bool{}
-	for _, line := range strings.Split(value, "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			out[line] = true
-		}
-	}
-	return out
-}
 
 func validMutationProfile(profile mutationProfile) bool {
 	switch profile {
@@ -270,6 +271,35 @@ func validMutationProfile(profile mutationProfile) bool {
 	default:
 		return false
 	}
+}
+
+func parseCommandOutputModes(value string) (commandOutputMode, bool) {
+	switch value {
+	case "json":
+		return commandOutputJSON, true
+	case "json,text":
+		return commandOutputJSON | commandOutputText, true
+	case "json,id":
+		return commandOutputJSON | commandOutputID, true
+	case "json,text,id":
+		return commandOutputJSON | commandOutputText | commandOutputID, true
+	default:
+		return 0, false
+	}
+}
+
+func commandOutputModeNames(modes commandOutputMode) []string {
+	var out []string
+	if modes&commandOutputJSON != 0 {
+		out = append(out, "json")
+	}
+	if modes&commandOutputText != 0 {
+		out = append(out, "text")
+	}
+	if modes&commandOutputID != 0 {
+		out = append(out, "id")
+	}
+	return out
 }
 
 func parseCommandRegistry(value string) (commandRegistryState, error) {
@@ -283,10 +313,15 @@ func parseCommandRegistry(value string) (commandRegistryState, error) {
 		var registration commandRegistration
 		var pathFields []string
 		switch {
-		case len(fields) >= 2 && fields[0] == "R":
+		case len(fields) >= 3 && fields[0] == "R":
 			registration.traits = commandLeaf
-			pathFields = fields[1:]
-		case len(fields) >= 4 && fields[0] == "M":
+			var ok bool
+			registration.outputModes, ok = parseCommandOutputModes(fields[1])
+			if !ok {
+				return commandRegistryState{}, fmt.Errorf("registry line %d has invalid output modes %q", lineNumber+1, fields[1])
+			}
+			pathFields = fields[2:]
+		case len(fields) >= 5 && fields[0] == "M":
 			registration.traits = commandLeaf | commandMutating
 			registration.profile = mutationProfile(fields[1])
 			if !validMutationProfile(registration.profile) {
@@ -300,7 +335,12 @@ func parseCommandRegistry(value string) (commandRegistryState, error) {
 					}
 				}
 			}
-			pathFields = fields[3:]
+			var ok bool
+			registration.outputModes, ok = parseCommandOutputModes(fields[3])
+			if !ok {
+				return commandRegistryState{}, fmt.Errorf("registry line %d has invalid output modes %q", lineNumber+1, fields[3])
+			}
+			pathFields = fields[4:]
 		default:
 			return commandRegistryState{}, fmt.Errorf("registry line %d has invalid shape", lineNumber+1)
 		}
@@ -387,8 +427,7 @@ func finalizeCommandTree(root *cobra.Command) error {
 			cmd.Annotations[commandRoleAnnotation] = commandRoleHybrid
 		}
 		if registration.traits&commandLeaf != 0 {
-			classifyTextOutput(cmd, path)
-			classifyIDOutput(cmd, path)
+			classifyOutputModes(cmd, registration.outputModes)
 			if registration.traits&commandMutating != 0 {
 				cmd.Annotations[accessAnnotation] = "mutating"
 				cmd.Annotations[mutationProfileAnnotation] = string(registration.profile)
