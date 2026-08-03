@@ -810,6 +810,44 @@ input/output alias checks retain their specialized readers. Their permission,
 ambiguity, durability, hash-domain, or path-following semantics differ, so this
 consolidation is an explicit no-change decision for those families.
 
+### Evaluator runtime modes and process roles
+
+The evaluator has a closed test-only runtime-mode review inventory. Its literal
+matrix records, for every mode, which immutable contract owns admission, which
+values remain ephemeral execution bindings, whether preparing the marked output
+root is observable, whether a provider or backend can be contacted, who owns
+authentication and cleanup, where an attempt becomes durable, and how many
+provider processes may be spawned. The matrix is not generated from the runner:
+it forces additions and classification edits to be reviewed, while separate
+behavioral and AST oracles enforce the critical dry-run, commitment, spawn, and
+probe boundaries. Descriptive ownership fields are review evidence rather than
+a claim that every prose dimension can be projected mechanically from Go. None
+of this is a new public schema or runtime registry.
+
+Headless dry-run validates inputs and creates or verifies the private output
+root marker, then returns before authentication, version probes, backend setup,
+provider capsules, or model execution. Synthetic and private-live treatments
+use one provider attempt per repetition after their preflight and durable
+commitment boundary. Provider calibration is a separate backend-free,
+single-attempt private-plan precondition. Automated review commits its panel
+slot earlier—after the pristine-template check but before reloading review
+inputs—so later setup failures still consume that slot. Tool-availability,
+CLI-route, and confinement probes remain distinct single-purpose processes;
+offline validation and aggregate-root reading contact no provider or backend.
+
+The evaluator wrapper has a closed set of explicit worker basename routes for
+the tool guard, confinement probe, accounting proxy, bounded readers, and the
+reviewed-write environment shim. Their supported platform aliases map to the
+same roles. Every other basename—including the ordinary coordinator binary
+name—uses the coordinator fallback; it is intentionally not an allowlist of
+only two coordinator spellings. The command broker and local gateways are
+in-process services, while the internal MCP server may be a provider-managed
+child; neither changes the one treatment attempt boundary. These
+classifications freeze current ownership and cleanup semantics before
+implementation sharing. They deliberately do not change provider arguments,
+environment bytes, root-marker behavior, authentication, capsules, probes,
+retries, failure ordering, or retention of committed failed attempts.
+
 The runner creates a fresh private workspace per repetition. Synthetic typed-MCP
 runs expose only the reviewed MCP inventory: they neither install the Codex
 client skills into the workspace nor load the Claude Code plugin. This keeps the
