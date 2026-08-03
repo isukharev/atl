@@ -475,17 +475,17 @@ func RunCodexCLICalibration(parent context.Context, options CodexCLICalibrationO
 	command.Env = flattenEnvironment(environment)
 
 	started := time.Now()
-	if err := options.providerAttemptCommitted(); err != nil {
+	attemptStage, runErr := executeProviderAttempt(command, options.providerAttemptCommitted, providerRuntime.verifyPluginPackage)
+	if runErr != nil && attemptStage == providerAttemptStageCommit {
 		_ = transcript.Close()
 		_ = stderr.Close()
-		return receipt, fmt.Errorf("persist calibration provider attempt boundary: %w", err)
+		return receipt, fmt.Errorf("persist calibration provider attempt boundary: %w", runErr)
 	}
-	if err := providerRuntime.verifyPluginPackage(); err != nil {
+	if runErr != nil && attemptStage == providerAttemptStageRevalidate {
 		_ = transcript.Close()
 		_ = stderr.Close()
-		return receipt, err
+		return receipt, runErr
 	}
-	runErr := command.Run()
 	duration := time.Since(started).Milliseconds()
 	closeTranscriptErr := transcript.Close()
 	closeStderrErr := stderr.Close()

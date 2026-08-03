@@ -213,6 +213,21 @@ func identifierCall(name string) evaluatorRuntimeCallMatcher {
 	}
 }
 
+func identifierCallWithArgumentPaths(name string, argumentPaths ...[]string) evaluatorRuntimeCallMatcher {
+	base := identifierCall(name)
+	return func(call *ast.CallExpr) bool {
+		if !base(call) || len(call.Args) != len(argumentPaths) {
+			return false
+		}
+		for index, want := range argumentPaths {
+			if !expressionPath(call.Args[index], want...) {
+				return false
+			}
+		}
+		return true
+	}
+}
+
 func selectorCall(receiver, method string) evaluatorRuntimeCallMatcher {
 	return func(call *ast.CallExpr) bool {
 		selector, ok := call.Fun.(*ast.SelectorExpr)
@@ -220,21 +235,6 @@ func selectorCall(receiver, method string) evaluatorRuntimeCallMatcher {
 			return false
 		}
 		identifier, ok := selector.X.(*ast.Ident)
-		return ok && identifier.Name == receiver
-	}
-}
-
-func nestedSelectorCall(receiver, field, method string) evaluatorRuntimeCallMatcher {
-	return func(call *ast.CallExpr) bool {
-		selector, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || selector.Sel.Name != method {
-			return false
-		}
-		target, ok := selector.X.(*ast.SelectorExpr)
-		if !ok || target.Sel.Name != field {
-			return false
-		}
-		identifier, ok := target.X.(*ast.Ident)
 		return ok && identifier.Name == receiver
 	}
 }
@@ -272,6 +272,60 @@ func assertRuntimeModeCallOrder(t *testing.T, name, function string, matchers ..
 		return true
 	})
 	if next != len(matchers) {
+		t.Fatal("runtime mode contract invalid")
+	}
+}
+
+func assertRuntimeModeCallCount(t *testing.T, name, function string, matcher evaluatorRuntimeCallMatcher, want int) {
+	t.Helper()
+	parsed, err := parseEvaluatorRuntimeSource(name)
+	if err != nil {
+		t.Fatal("runtime mode contract invalid")
+	}
+	body := evaluatorRuntimeFunction(parsed, function)
+	if body == nil {
+		t.Fatal("runtime mode contract invalid")
+	}
+	count := 0
+	ast.Inspect(body.Body, func(node ast.Node) bool {
+		if call, ok := node.(*ast.CallExpr); ok && matcher(call) {
+			count++
+		}
+		return true
+	})
+	if count != want {
+		t.Fatal("runtime mode contract invalid")
+	}
+}
+
+func assertRuntimeModeConditionalAssignment(t *testing.T, name, function, condition, target string, valuePath ...string) {
+	t.Helper()
+	parsed, err := parseEvaluatorRuntimeSource(name)
+	if err != nil {
+		t.Fatal("runtime mode contract invalid")
+	}
+	body := evaluatorRuntimeFunction(parsed, function)
+	if body == nil {
+		t.Fatal("runtime mode contract invalid")
+	}
+	matches := 0
+	ast.Inspect(body.Body, func(node ast.Node) bool {
+		statement, ok := node.(*ast.IfStmt)
+		if !ok || !expressionPath(statement.Cond, condition) {
+			return true
+		}
+		for _, nested := range statement.Body.List {
+			assignment, ok := nested.(*ast.AssignStmt)
+			if !ok || len(assignment.Lhs) != 1 || len(assignment.Rhs) != 1 || !expressionPath(assignment.Lhs[0], target) {
+				continue
+			}
+			if expressionPath(assignment.Rhs[0], valuePath...) {
+				matches++
+			}
+		}
+		return true
+	})
+	if matches != 1 {
 		t.Fatal("runtime mode contract invalid")
 	}
 }
@@ -325,6 +379,20 @@ func selectorExpression(expression ast.Expr, receiver, field string) bool {
 	}
 	identifier, ok := selector.X.(*ast.Ident)
 	return ok && identifier.Name == receiver
+}
+
+func expressionPath(expression ast.Expr, want ...string) bool {
+	if len(want) == 0 {
+		return false
+	}
+	switch typed := expression.(type) {
+	case *ast.Ident:
+		return len(want) == 1 && typed.Name == want[0]
+	case *ast.SelectorExpr:
+		return len(want) > 1 && typed.Sel.Name == want[len(want)-1] && expressionPath(typed.X, want[:len(want)-1]...)
+	default:
+		return false
+	}
 }
 
 func TestEvaluatorRuntimeModeHeadlessDryRunCreatesOnlyMarker(t *testing.T) {
@@ -382,11 +450,13 @@ func TestEvaluatorRuntimeModeHeadlessDryRunCreatesOnlyMarker(t *testing.T) {
 }
 
 func TestEvaluatorRuntimeModeCommitmentAndProbeOrdering(t *testing.T) {
-	assertRuntimeModeCallOrder(t, "runner.go", "runHeadlessOnce",
-		selectorCall("bindings", "providerAttemptCommitted"), nestedSelectorCall("bindings", "providerRuntime", "verifyPluginPackage"),
-		selectorCall("command", "Start"), selectorCall("command", "Wait"))
-	assertRuntimeModeCallOrder(t, "calibration.go", "RunCodexCLICalibration",
-		selectorCall("options", "providerAttemptCommitted"), selectorCall("providerRuntime", "verifyPluginPackage"), selectorCall("command", "Run"))
+	assertRuntimeModeCallOrder(t, "provider_attempt.go", "executeProviderAttempt",
+		identifierCall("commit"), identifierCall("revalidate"), selectorCall("command", "Start"), selectorCall("command", "Wait"))
+	assertRuntimeModeConditionalAssignment(t, "runner.go", "runHeadlessOnce", "codexPrivateCLI", "revalidateProvider", "bindings", "providerRuntime", "verifyPluginPackage")
+	assertRuntimeModeCallCount(t, "runner.go", "runHeadlessOnce", identifierCallWithArgumentPaths("executeProviderAttempt",
+		[]string{"command"}, []string{"bindings", "providerAttemptCommitted"}, []string{"revalidateProvider"}), 1)
+	assertRuntimeModeCallCount(t, "calibration.go", "RunCodexCLICalibration", identifierCallWithArgumentPaths("executeProviderAttempt",
+		[]string{"command"}, []string{"options", "providerAttemptCommitted"}, []string{"providerRuntime", "verifyPluginPackage"}), 1)
 	assertRuntimeModeCallOrder(t, "private_review_runner.go", "RunPrivateReview",
 		selectorCallWithIdentifierArgument("safepath", "WriteFileExclusiveWithin", "attemptPath"), identifierCall("loadPrivateReviewInputs"), identifierCall("privateReviewRunProvider"))
 	assertRuntimeModeCallOrder(t, "tool_availability.go", "QualifyCodexCLIToolAvailability",
