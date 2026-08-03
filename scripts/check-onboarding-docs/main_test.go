@@ -167,6 +167,59 @@ func TestValidateCommandsRejectsMissingDocumentedFlag(t *testing.T) {
 	}
 }
 
+func TestDemoTreeDigestCoversTheWholeArtifactSet(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "page/page.csf", "<p>local</p>")
+	writeFile(t, root, "page/page.md", "local\n")
+	before, err := demoTreeDigest(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, root, ".atl/state.json", "{}\n")
+	after, err := demoTreeDigest(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == after {
+		t.Fatal("adding a sidecar did not change the demo tree digest")
+	}
+}
+
+func TestDemoRunnerUsesClosedConfigAndTempEnvironment(t *testing.T) {
+	t.Setenv("ATL_JIRA_PAT", "ambient-must-not-leak")
+	runner, err := newDemoRunner("atl", map[string]string{"ATL_JIRA_PAT": "synthetic-token"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := runner.root
+	seen := map[string]bool{}
+	for _, entry := range runner.env {
+		if entry == "ATL_JIRA_PAT=ambient-must-not-leak" {
+			t.Fatalf("runner inherited ambient credential: %q", entry)
+		}
+		for _, name := range []string{"ATL_CONFIG_DIR", "TMPDIR", "TMP", "TEMP", "XDG_CONFIG_HOME"} {
+			prefix := name + "="
+			if strings.HasPrefix(entry, prefix) {
+				seen[name] = true
+				if !strings.HasPrefix(strings.TrimPrefix(entry, prefix), root+string(filepath.Separator)) {
+					t.Fatalf("%s escaped demo root: %q", name, entry)
+				}
+			}
+		}
+	}
+	for _, name := range []string{"ATL_CONFIG_DIR", "TMPDIR", "TMP", "TEMP", "XDG_CONFIG_HOME"} {
+		if !seen[name] {
+			t.Fatalf("runner environment is missing %s", name)
+		}
+	}
+	if err := runner.close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatalf("demo root remains after cleanup: %v", err)
+	}
+}
+
 func TestMarkdownLinksIgnoreFencedAndInlineCode(t *testing.T) {
 	content := "[real](docs/README.md)\n\n`[inline](ignored.md)`\n\n```md\n[fenced](ignored.md)\n```\n[ref]: <README.ru.md> \"title\"\n"
 	got := markdownLinks(content)
