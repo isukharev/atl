@@ -153,28 +153,12 @@ func TestRepositoryJiraHistorySummaryFixturesDriveProviderOracles(t *testing.T) 
 }
 
 func TestRepositoryJiraHistorySummarySamplingPairIdentity(t *testing.T) {
-	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
-	primaryRoot := filepath.Join(root, "jira-history-summary")
-	holdoutRoot := filepath.Join(root, "jira-history-summary-holdout")
-	primaryScenario := loadRepositoryScenario(t, filepath.Join(primaryRoot, "scenario.v1.json"))
-	holdoutScenario := loadRepositoryScenario(t, filepath.Join(holdoutRoot, "scenario.v1.json"))
-	if primaryScenario.ID == holdoutScenario.ID ||
-		primaryScenario.TaskClass != holdoutScenario.TaskClass ||
-		primaryScenario.DataClass != holdoutScenario.DataClass {
-		t.Fatalf("primary/holdout scenario identity is not distinct-compatible: primary=%+v holdout=%+v", primaryScenario, holdoutScenario)
-	}
+	pair := loadRepositorySamplingPairContract(t, "jira-history-summary")
+	primaryRoot, holdoutRoot := pair.Primary.Root, pair.Holdout.Root
 
 	for _, provider := range []string{"codex", "claude"} {
-		primary := loadRepositoryRunSpec(t, filepath.Join(primaryRoot, "run.cli."+provider+".json"))
-		holdout := loadRepositoryRunSpec(t, filepath.Join(holdoutRoot, "run.cli."+provider+".json"))
-		if primary.Variant != holdout.Variant ||
-			primary.Provider != holdout.Provider ||
-			primary.Model != holdout.Model ||
-			primary.Reasoning != holdout.Reasoning ||
-			primary.EffectiveCategory() != holdout.EffectiveCategory() ||
-			primary.EffectiveSurface() != holdout.EffectiveSurface() {
-			t.Fatalf("%s primary/holdout execution identity drifted: primary=%+v holdout=%+v", provider, primary, holdout)
-		}
+		runFile := "run.cli." + provider + ".json"
+		primary, holdout := pair.Primary.Runs[runFile], pair.Holdout.Runs[runFile]
 		primaryPrompt, err := os.ReadFile(filepath.Join(primaryRoot, primary.PromptFile))
 		if err != nil {
 			t.Fatal(err)
@@ -2010,21 +1994,9 @@ func jiraHistorySummaryMCPItems(t *testing.T, entry map[string]any) []map[string
 // genuinely shared.
 func TestJiraHistorySummaryMCPHoldoutIsDistinct(t *testing.T) {
 	cohorts := jiraHistorySummaryMCPCohorts()
-	primaryRoot := jiraHistorySummaryMCPRoot(cohorts[0])
-	holdoutRoot := jiraHistorySummaryMCPRoot(cohorts[1])
-
-	primaryScenario := loadRepositoryScenario(t, filepath.Join(primaryRoot, "scenario.v1.json"))
-	holdoutScenario := loadRepositoryScenario(t, filepath.Join(holdoutRoot, "scenario.v1.json"))
-	if primaryScenario.ID == holdoutScenario.ID ||
-		primaryScenario.EffectiveCategory() != holdoutScenario.EffectiveCategory() ||
-		primaryScenario.TaskClass != holdoutScenario.TaskClass ||
-		primaryScenario.DataClass != holdoutScenario.DataClass ||
-		!slices.Equal(primaryScenario.RequiredCapabilities, holdoutScenario.RequiredCapabilities) ||
-		!slices.Equal(primaryScenario.RequiredChecks, holdoutScenario.RequiredChecks) ||
-		!slices.Equal(primaryScenario.RequiredSemanticChecks, holdoutScenario.RequiredSemanticChecks) {
-		t.Fatalf("primary/holdout scenarios are not distinct-compatible: primary=%+v holdout=%+v",
-			primaryScenario, holdoutScenario)
-	}
+	pair := loadRepositorySamplingPairContract(t, "jira-history-summary-mcp")
+	primaryRoot, holdoutRoot := pair.Primary.Root, pair.Holdout.Root
+	primaryScenario, holdoutScenario := pair.Primary.Scenario, pair.Holdout.Scenario
 	// The budgets are identical except the exact backend-request bound, which is
 	// the one dimension in which the two topologies legitimately differ.
 	neutralBudgets := func(budgets Budgets) Budgets {
@@ -2076,19 +2048,14 @@ func TestJiraHistorySummaryMCPHoldoutIsDistinct(t *testing.T) {
 		{runFile: "run.mcp.claude.json", provider: "claude-code", model: "claude-opus-4-8"},
 	} {
 		t.Run(test.provider, func(t *testing.T) {
-			primarySpec := loadRepositoryRunSpec(t, filepath.Join(primaryRoot, test.runFile))
-			holdoutSpec := loadRepositoryRunSpec(t, filepath.Join(holdoutRoot, test.runFile))
+			primarySpec, holdoutSpec := pair.Primary.Runs[test.runFile], pair.Holdout.Runs[test.runFile]
 			if primarySpec.Provider != test.provider || primarySpec.Model != test.model ||
-				primarySpec.Reasoning != "high" || primarySpec.Repetitions != cohorts[0].repetitions ||
+				primarySpec.Reasoning != "high" ||
 				holdoutSpec.Provider != test.provider || holdoutSpec.Model != test.model ||
-				holdoutSpec.Reasoning != "high" || holdoutSpec.Repetitions != cohorts[1].repetitions {
+				holdoutSpec.Reasoning != "high" {
 				t.Fatalf("exact cohort contract drifted: primary=%+v holdout=%+v", primarySpec, holdoutSpec)
 			}
-			if primarySpec.Variant != holdoutSpec.Variant ||
-				primarySpec.EffectiveCategory() != holdoutSpec.EffectiveCategory() ||
-				primarySpec.EffectiveSurface() != holdoutSpec.EffectiveSurface() ||
-				primarySpec.EffectiveToolTransport() != holdoutSpec.EffectiveToolTransport() ||
-				!slices.Equal(primarySpec.AllowedMCPTools, holdoutSpec.AllowedMCPTools) {
+			if !slices.Equal(primarySpec.AllowedMCPTools, holdoutSpec.AllowedMCPTools) {
 				t.Fatalf("primary/holdout execution identity drifted: primary=%+v holdout=%+v",
 					primarySpec, holdoutSpec)
 			}

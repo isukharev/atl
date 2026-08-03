@@ -418,27 +418,16 @@ func jiraArtifactGraphDevelopmentMCPOracleMutations() []jiraArtifactGraphMCPOrac
 func TestJiraArtifactGraphDevelopmentMCPSamplingPairIdentity(t *testing.T) {
 	cohorts := jiraArtifactGraphDevelopmentMCPCohorts()
 	primary, holdout := cohorts[0], cohorts[1]
-	primaryScenario := loadRepositoryScenario(t, filepath.Join(primary.root(), "scenario.v1.json"))
-	holdoutScenario := loadRepositoryScenario(t, filepath.Join(holdout.root(), "scenario.v1.json"))
-	if primaryScenario.ID == holdoutScenario.ID || primaryScenario.TaskClass != holdoutScenario.TaskClass ||
-		primaryScenario.DataClass != holdoutScenario.DataClass || primaryScenario.Category != holdoutScenario.Category ||
-		!slices.Equal(primaryScenario.RequiredCapabilities, holdoutScenario.RequiredCapabilities) ||
-		primary.key == holdout.key || primary.expectedGETs == holdout.expectedGETs {
+	pair := loadRepositorySamplingPairContract(t, "jira-artifact-graph-development-mcp")
+	primaryScenario, holdoutScenario := pair.Primary.Scenario, pair.Holdout.Scenario
+	if primary.key == holdout.key || primary.expectedGETs == holdout.expectedGETs {
 		t.Fatalf("primary/holdout sampling identity drifted: primary=%+v holdout=%+v", primaryScenario, holdoutScenario)
 	}
 	if !bytes.Equal(mustReadFile(t, filepath.Join(primary.root(), "response-schema.v1.json")), mustReadFile(t, filepath.Join(holdout.root(), "response-schema.v1.json"))) {
 		t.Fatal("primary/holdout response schema is not byte-identical")
 	}
 	for _, runFile := range []string{"run.mcp.codex.json", "run.mcp.claude.json"} {
-		primarySpec := loadRepositoryRunSpec(t, filepath.Join(primary.root(), runFile))
-		holdoutSpec := loadRepositoryRunSpec(t, filepath.Join(holdout.root(), runFile))
-		if primarySpec.Provider != holdoutSpec.Provider || primarySpec.Model != holdoutSpec.Model ||
-			primarySpec.Reasoning != holdoutSpec.Reasoning || primarySpec.Variant != holdoutSpec.Variant ||
-			primarySpec.EffectiveSurface() != holdoutSpec.EffectiveSurface() ||
-			primarySpec.EffectiveToolTransport() != holdoutSpec.EffectiveToolTransport() ||
-			primarySpec.Repetitions != 3 || holdoutSpec.Repetitions != 1 {
-			t.Fatalf("%s execution identity drifted: primary=%+v holdout=%+v", runFile, primarySpec, holdoutSpec)
-		}
+		primarySpec, holdoutSpec := pair.Primary.Runs[runFile], pair.Holdout.Runs[runFile]
 		if bytes.Equal(mustReadFile(t, filepath.Join(primary.root(), primarySpec.PromptFile)), mustReadFile(t, filepath.Join(holdout.root(), holdoutSpec.PromptFile))) ||
 			bytes.Equal(mustReadFile(t, filepath.Join(primary.root(), primarySpec.FixtureFile)), mustReadFile(t, filepath.Join(holdout.root(), holdoutSpec.FixtureFile))) {
 			t.Fatalf("%s holdout prompt or fixture is not distinct", runFile)

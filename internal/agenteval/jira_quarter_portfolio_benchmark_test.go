@@ -231,17 +231,8 @@ func TestRepositoryJiraQuarterPortfolioFixturesDriveProviderOracles(t *testing.T
 }
 
 func TestRepositoryJiraQuarterPortfolioSamplingPairIdentity(t *testing.T) {
-	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
-	primaryRoot := filepath.Join(root, "jira-quarter-portfolio-mcp")
-	holdoutRoot := filepath.Join(root, "jira-quarter-portfolio-mcp-holdout")
-	primaryScenario := loadRepositoryScenario(t, filepath.Join(primaryRoot, "scenario.v1.json"))
-	holdoutScenario := loadRepositoryScenario(t, filepath.Join(holdoutRoot, "scenario.v1.json"))
-	if primaryScenario.ID == holdoutScenario.ID ||
-		primaryScenario.TaskClass != holdoutScenario.TaskClass ||
-		primaryScenario.DataClass != holdoutScenario.DataClass ||
-		primaryScenario.Category != holdoutScenario.Category {
-		t.Fatalf("primary/holdout scenario identity is not distinct-compatible: primary=%+v holdout=%+v", primaryScenario, holdoutScenario)
-	}
+	pair := loadRepositorySamplingPairContract(t, "jira-quarter-portfolio-mcp")
+	primaryRoot, holdoutRoot := pair.Primary.Root, pair.Holdout.Root
 	primarySchema, err := os.ReadFile(filepath.Join(primaryRoot, "response-schema.v1.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -273,22 +264,16 @@ func TestRepositoryJiraQuarterPortfolioSamplingPairIdentity(t *testing.T) {
 		{runFile: "run.mcp.codex.json", provider: "codex", model: "gpt-5.6-luna"},
 		{runFile: "run.mcp.claude.json", provider: "claude-code", model: "claude-opus-4-8"},
 	} {
-		primary := loadRepositoryRunSpec(t, filepath.Join(primaryRoot, test.runFile))
-		holdout := loadRepositoryRunSpec(t, filepath.Join(holdoutRoot, test.runFile))
+		primary, holdout := pair.Primary.Runs[test.runFile], pair.Holdout.Runs[test.runFile]
 		if primary.Provider != test.provider || primary.Model != test.model || primary.Reasoning != "high" ||
-			primary.Repetitions != 3 || holdout.Provider != test.provider || holdout.Model != test.model ||
-			holdout.Reasoning != "high" || holdout.Repetitions != 1 {
+			holdout.Provider != test.provider || holdout.Model != test.model || holdout.Reasoning != "high" {
 			t.Fatalf("exact cohort contract drifted: primary=%+v holdout=%+v", primary, holdout)
 		}
-		if primary.Variant != holdout.Variant ||
-			primary.EffectiveCategory() != holdout.EffectiveCategory() ||
-			primary.EffectiveSurface() != holdout.EffectiveSurface() ||
-			primary.EffectiveToolTransport() != holdout.EffectiveToolTransport() ||
-			!slices.Equal(primary.AllowedMCPTools, holdout.AllowedMCPTools) {
+		if !slices.Equal(primary.AllowedMCPTools, holdout.AllowedMCPTools) {
 			t.Fatalf("primary/holdout execution identity drifted: primary=%+v holdout=%+v", primary, holdout)
 		}
-		if !equalPrivateComparisonJSON(primary.Checks, loadRepositoryRunSpec(t, filepath.Join(primaryRoot, peerRunFile(test.runFile))).Checks) ||
-			!equalPrivateComparisonJSON(holdout.Checks, loadRepositoryRunSpec(t, filepath.Join(holdoutRoot, peerRunFile(test.runFile))).Checks) {
+		if !equalPrivateComparisonJSON(primary.Checks, pair.Primary.Runs[peerRunFile(test.runFile)].Checks) ||
+			!equalPrivateComparisonJSON(holdout.Checks, pair.Holdout.Runs[peerRunFile(test.runFile)].Checks) {
 			t.Fatal("provider checks drifted")
 		}
 	}

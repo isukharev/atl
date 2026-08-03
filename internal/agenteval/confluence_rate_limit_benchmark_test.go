@@ -88,9 +88,8 @@ func TestRepositoryConfluenceRateLimitFixturesDriveProviderOracles(t *testing.T)
 }
 
 func TestRepositoryConfluenceRateLimitSamplingPairIdentity(t *testing.T) {
-	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
-	primary := filepath.Join(root, "confluence-rate-limit-mcp")
-	holdout := filepath.Join(root, "confluence-rate-limit-mcp-holdout")
+	pair := loadRepositorySamplingPairContract(t, "confluence-rate-limit-mcp")
+	primary, holdout := pair.Primary.Root, pair.Holdout.Root
 	mainSchema, err := os.ReadFile(filepath.Join(primary, "response-schema.v1.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -103,10 +102,8 @@ func TestRepositoryConfluenceRateLimitSamplingPairIdentity(t *testing.T) {
 		t.Fatal("primary and holdout schemas drifted")
 	}
 	for _, runFile := range []string{"run.mcp.codex.json", "run.mcp.claude.json"} {
-		main := loadRepositoryRunSpec(t, filepath.Join(primary, runFile))
-		hidden := loadRepositoryRunSpec(t, filepath.Join(holdout, runFile))
-		if main.Variant != hidden.Variant || main.Repetitions != 3 || hidden.Repetitions != 1 ||
-			main.Model != hidden.Model || main.Reasoning != "high" || hidden.Reasoning != "high" ||
+		main, hidden := pair.Primary.Runs[runFile], pair.Holdout.Runs[runFile]
+		if main.Reasoning != "high" || hidden.Reasoning != "high" ||
 			!slices.Equal(main.AllowedMCPTools, hidden.AllowedMCPTools) {
 			t.Fatalf("pair drifted: primary=%+v holdout=%+v", main, hidden)
 		}

@@ -182,32 +182,15 @@ func TestJiraReferenceMCPFixturesDriveProviderOracles(t *testing.T) {
 func TestJiraReferenceMCPSamplingPairIdentity(t *testing.T) {
 	cohorts := jiraReferenceMCPCohorts()
 	primary, holdout := cohorts[0], cohorts[1]
-	primaryScenario := loadRepositoryScenario(t, filepath.Join(primary.root(), "scenario.v1.json"))
-	holdoutScenario := loadRepositoryScenario(t, filepath.Join(holdout.root(), "scenario.v1.json"))
-	if primaryScenario.ID == holdoutScenario.ID ||
-		primaryScenario.TaskClass != holdoutScenario.TaskClass ||
-		primaryScenario.DataClass != holdoutScenario.DataClass ||
-		primaryScenario.Budgets.MaxBackendRequests == holdoutScenario.Budgets.MaxBackendRequests {
+	pair := loadRepositorySamplingPairContract(t, "jira-reference-summary-mcp")
+	primaryScenario, holdoutScenario := pair.Primary.Scenario, pair.Holdout.Scenario
+	if primaryScenario.Budgets.MaxBackendRequests == holdoutScenario.Budgets.MaxBackendRequests {
 		t.Fatalf("primary/holdout scenario identity is not distinct-compatible: primary=%+v holdout=%+v",
 			primaryScenario, holdoutScenario)
 	}
 
 	for _, runFile := range []string{"run.mcp.codex.json", "run.mcp.claude.json"} {
-		primarySpec := loadRepositoryRunSpec(t, filepath.Join(primary.root(), runFile))
-		holdoutSpec := loadRepositoryRunSpec(t, filepath.Join(holdout.root(), runFile))
-		if primarySpec.Variant != holdoutSpec.Variant ||
-			primarySpec.Provider != holdoutSpec.Provider ||
-			primarySpec.Model != holdoutSpec.Model ||
-			primarySpec.Reasoning != holdoutSpec.Reasoning ||
-			primarySpec.EffectiveCategory() != holdoutSpec.EffectiveCategory() ||
-			primarySpec.EffectiveSurface() != holdoutSpec.EffectiveSurface() {
-			t.Fatalf("%s primary/holdout execution identity drifted: primary=%+v holdout=%+v",
-				runFile, primarySpec, holdoutSpec)
-		}
-		if primarySpec.Repetitions != primary.repetitions || holdoutSpec.Repetitions != holdout.repetitions {
-			t.Fatalf("%s repetition split drifted: primary=%d holdout=%d",
-				runFile, primarySpec.Repetitions, holdoutSpec.Repetitions)
-		}
+		primarySpec, holdoutSpec := pair.Primary.Runs[runFile], pair.Holdout.Runs[runFile]
 		primaryPrompt := mustReadFile(t, filepath.Join(primary.root(), primarySpec.PromptFile))
 		holdoutPrompt := mustReadFile(t, filepath.Join(holdout.root(), holdoutSpec.PromptFile))
 		primaryFixture := mustReadFile(t, filepath.Join(primary.root(), primarySpec.FixtureFile))

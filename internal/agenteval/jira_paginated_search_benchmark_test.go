@@ -219,16 +219,8 @@ func TestRepositoryJiraPaginatedSearchFixturesDriveProviderOracles(t *testing.T)
 }
 
 func TestRepositoryJiraPaginatedSearchSamplingPairIdentity(t *testing.T) {
-	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
-	primaryRoot := filepath.Join(root, "jira-paginated-search-mcp")
-	holdoutRoot := filepath.Join(root, "jira-paginated-search-mcp-holdout")
-	primaryScenario := loadRepositoryScenario(t, filepath.Join(primaryRoot, "scenario.v1.json"))
-	holdoutScenario := loadRepositoryScenario(t, filepath.Join(holdoutRoot, "scenario.v1.json"))
-	if primaryScenario.ID == holdoutScenario.ID ||
-		primaryScenario.TaskClass != holdoutScenario.TaskClass ||
-		primaryScenario.DataClass != holdoutScenario.DataClass {
-		t.Fatalf("primary/holdout scenario identity is not distinct-compatible: primary=%+v holdout=%+v", primaryScenario, holdoutScenario)
-	}
+	pair := loadRepositorySamplingPairContract(t, "jira-paginated-search-mcp")
+	primaryRoot, holdoutRoot := pair.Primary.Root, pair.Holdout.Root
 
 	primarySchema, err := os.ReadFile(filepath.Join(primaryRoot, "response-schema.v1.json"))
 	if err != nil {
@@ -267,19 +259,14 @@ func TestRepositoryJiraPaginatedSearchSamplingPairIdentity(t *testing.T) {
 			if test.provider == "claude-code" {
 				runFile = "run.mcp.claude.json"
 			}
-			primary := loadRepositoryRunSpec(t, filepath.Join(primaryRoot, runFile))
-			holdout := loadRepositoryRunSpec(t, filepath.Join(holdoutRoot, runFile))
+			primary, holdout := pair.Primary.Runs[runFile], pair.Holdout.Runs[runFile]
 			if primary.Provider != test.provider || primary.Model != test.model ||
-				primary.Reasoning != "high" || primary.Repetitions != 3 ||
+				primary.Reasoning != "high" ||
 				holdout.Provider != test.provider || holdout.Model != test.model ||
-				holdout.Reasoning != "high" || holdout.Repetitions != 1 {
+				holdout.Reasoning != "high" {
 				t.Fatalf("exact cohort contract drifted: primary=%+v holdout=%+v", primary, holdout)
 			}
-			if primary.Variant != holdout.Variant ||
-				primary.EffectiveCategory() != holdout.EffectiveCategory() ||
-				primary.EffectiveSurface() != holdout.EffectiveSurface() ||
-				primary.EffectiveToolTransport() != holdout.EffectiveToolTransport() ||
-				!slices.Equal(primary.AllowedMCPTools, holdout.AllowedMCPTools) ||
+			if !slices.Equal(primary.AllowedMCPTools, holdout.AllowedMCPTools) ||
 				!slices.Equal(primary.DataCapabilities, holdout.DataCapabilities) {
 				t.Fatalf("primary/holdout execution identity drifted: primary=%+v holdout=%+v", primary, holdout)
 			}

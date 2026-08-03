@@ -40,25 +40,29 @@ type evaluatorBehaviorContract struct {
 		Count    int    `json:"count"`
 	} `json:"corpus_versions"`
 	PairIdentity struct {
-		ScenarioFields []string `json:"scenario_fields"`
-		RunFields      []string `json:"run_fields"`
-		RunFileSets    []struct {
-			Name    string   `json:"name"`
-			Primary []string `json:"primary"`
-			Holdout []string `json:"holdout"`
-		} `json:"run_file_sets"`
-		Pairs []struct {
-			Primary            string              `json:"primary"`
-			ScenarioExceptions []string            `json:"scenario_exceptions"`
-			RunFileSet         string              `json:"run_file_set"`
-			RunExceptions      map[string][]string `json:"run_exceptions"`
-		} `json:"pairs"`
+		ScenarioFields []string                        `json:"scenario_fields"`
+		RunFields      []string                        `json:"run_fields"`
+		RunFileSets    []evaluatorRunFileSetContract   `json:"run_file_sets"`
+		Pairs          []evaluatorSamplingPairContract `json:"pairs"`
 	} `json:"pair_identity"`
 	Artifacts struct {
 		PublicRootFiles      []string                 `json:"public_root_files"`
 		PublicTrackedClasses []evaluatorArtifactClass `json:"public_tracked_classes"`
 		PrivateOnlyClasses   []evaluatorArtifactClass `json:"private_only_classes"`
 	} `json:"artifacts"`
+}
+
+type evaluatorRunFileSetContract struct {
+	Name    string   `json:"name"`
+	Primary []string `json:"primary"`
+	Holdout []string `json:"holdout"`
+}
+
+type evaluatorSamplingPairContract struct {
+	Primary            string              `json:"primary"`
+	ScenarioExceptions []string            `json:"scenario_exceptions"`
+	RunFileSet         string              `json:"run_file_set"`
+	RunExceptions      map[string][]string `json:"run_exceptions"`
 }
 
 type evaluatorArtifactClass struct {
@@ -272,18 +276,33 @@ func TestEvaluatorSchemaCompatibilityAndCorpusDistribution(t *testing.T) {
 func TestEvaluatorSamplingPairIdentityContract(t *testing.T) {
 	contract := loadEvaluatorBehaviorContract(t)
 	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
-	runFileSets := make(map[string]struct{ primary, holdout []string }, len(contract.PairIdentity.RunFileSets))
+	wantScenarioFields := []string{
+		"category", "task_class", "data_class", "required_capabilities", "required_checks",
+		"required_semantic_checks", "required_metrics", "budgets",
+	}
+	wantRunFields := []string{
+		"provider", "model", "reasoning", "variant", "category", "surface", "tool_transport",
+	}
+	if !slices.Equal(contract.PairIdentity.ScenarioFields, wantScenarioFields) {
+		t.Fatalf("sampling scenario identity fields drifted: got=%v want=%v",
+			contract.PairIdentity.ScenarioFields, wantScenarioFields)
+	}
+	if !slices.Equal(contract.PairIdentity.RunFields, wantRunFields) {
+		t.Fatalf("sampling run identity fields drifted: got=%v want=%v",
+			contract.PairIdentity.RunFields, wantRunFields)
+	}
+	runFileSets := make(map[string]bool, len(contract.PairIdentity.RunFileSets))
 	for _, set := range contract.PairIdentity.RunFileSets {
 		if set.Name == "" || len(set.Primary) == 0 || len(set.Holdout) == 0 {
 			t.Fatalf("invalid run file set: %+v", set)
 		}
-		if _, duplicate := runFileSets[set.Name]; duplicate {
+		if runFileSets[set.Name] {
 			t.Fatalf("duplicate run file set %q", set.Name)
 		}
-		primary, holdout := slices.Clone(set.Primary), slices.Clone(set.Holdout)
-		sort.Strings(primary)
-		sort.Strings(holdout)
-		runFileSets[set.Name] = struct{ primary, holdout []string }{primary, holdout}
+		runFileSets[set.Name] = true
+	}
+	if len(runFileSets) != 4 {
+		t.Fatalf("run file set inventory=%d want=4", len(runFileSets))
 	}
 	actualPairs, err := filepath.Glob(filepath.Join(root, "*-holdout"))
 	if err != nil {
@@ -305,50 +324,8 @@ func TestEvaluatorSamplingPairIdentityContract(t *testing.T) {
 
 	for _, pair := range contract.PairIdentity.Pairs {
 		t.Run(pair.Primary, func(t *testing.T) {
-			expectedFiles, ok := runFileSets[pair.RunFileSet]
-			if !ok {
-				t.Fatalf("unknown run file set %q", pair.RunFileSet)
-			}
-			primaryRoot := filepath.Join(root, pair.Primary)
-			holdoutRoot := primaryRoot + "-holdout"
-			primaryScenario, primaryRaw := loadLatestScenarioContract(t, primaryRoot)
-			holdoutScenario, holdoutRaw := loadLatestScenarioContract(t, holdoutRoot)
-			if primaryScenario.ID == holdoutScenario.ID {
-				t.Fatal("holdout reused the primary scenario id")
-			}
-			gotScenarioExceptions := differingJSONFields(primaryRaw, holdoutRaw, contract.PairIdentity.ScenarioFields)
-			wantScenarioExceptions := slices.Clone(pair.ScenarioExceptions)
-			sort.Strings(wantScenarioExceptions)
-			if !slices.Equal(gotScenarioExceptions, wantScenarioExceptions) {
-				t.Fatalf("scenario identity exceptions drifted: got=%v want=%v", gotScenarioExceptions, wantScenarioExceptions)
-			}
-
-			primaryRuns := loadRunContracts(t, primaryRoot, 3)
-			holdoutRuns := loadRunContracts(t, holdoutRoot, 1)
-			primaryFiles, holdoutFiles := sortedMapKeys(primaryRuns), sortedMapKeys(holdoutRuns)
-			if !slices.Equal(primaryFiles, expectedFiles.primary) || !slices.Equal(holdoutFiles, expectedFiles.holdout) {
-				t.Fatalf("run file set %q drifted: primary=%v want=%v holdout=%v want=%v",
-					pair.RunFileSet, primaryFiles, expectedFiles.primary, holdoutFiles, expectedFiles.holdout)
-			}
-			for name, primary := range primaryRuns {
-				holdout, ok := holdoutRuns[name]
-				if !ok {
-					continue
-				}
-				got := differingJSONFields(primary, holdout, contract.PairIdentity.RunFields)
-				want := slices.Clone(pair.RunExceptions[name])
-				sort.Strings(want)
-				if !slices.Equal(got, want) {
-					t.Errorf("%s run identity exceptions drifted: got=%v want=%v", name, got, want)
-				}
-			}
-			for name := range pair.RunExceptions {
-				if _, ok := primaryRuns[name]; !ok {
-					t.Errorf("stale run exception for %s", name)
-				}
-				if _, ok := holdoutRuns[name]; !ok {
-					t.Errorf("stale run exception for %s", name)
-				}
+			if _, err := resolveRepositorySamplingPairContract(contract, root, pair.Primary); err != nil {
+				t.Fatal(err)
 			}
 		})
 	}
@@ -439,56 +416,6 @@ func TestEvaluatorArtifactClassBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-}
-
-func loadLatestScenarioContract(t *testing.T, root string) (Scenario, map[string]json.RawMessage) {
-	t.Helper()
-	paths, err := filepath.Glob(filepath.Join(root, "scenario.v*.json"))
-	if err != nil || len(paths) == 0 {
-		t.Fatalf("scenario inventory %s: paths=%v err=%v", filepath.Base(root), paths, err)
-	}
-	sort.Strings(paths)
-	data, err := os.ReadFile(paths[len(paths)-1])
-	if err != nil {
-		t.Fatal(err)
-	}
-	scenario, err := DecodeScenario(bytes.NewReader(data))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		t.Fatal(err)
-	}
-	return scenario, raw
-}
-
-func loadRunContracts(t *testing.T, root string, wantRepetitions int) map[string]map[string]json.RawMessage {
-	t.Helper()
-	paths, err := filepath.Glob(filepath.Join(root, "run.*.json"))
-	if err != nil || len(paths) == 0 {
-		t.Fatalf("run inventory %s: paths=%v err=%v", filepath.Base(root), paths, err)
-	}
-	out := make(map[string]map[string]json.RawMessage, len(paths))
-	for _, path := range paths {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		spec, err := DecodeRunSpec(bytes.NewReader(data))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if spec.Repetitions != wantRepetitions {
-			t.Errorf("%s repetitions=%d want=%d", filepath.Base(path), spec.Repetitions, wantRepetitions)
-		}
-		var raw map[string]json.RawMessage
-		if err := json.Unmarshal(data, &raw); err != nil {
-			t.Fatal(err)
-		}
-		out[filepath.Base(path)] = raw
-	}
-	return out
 }
 
 func differingJSONFields(a, b map[string]json.RawMessage, fields []string) []string {

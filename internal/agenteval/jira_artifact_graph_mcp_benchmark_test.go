@@ -149,24 +149,16 @@ func TestJiraArtifactGraphMCPFixturesDriveProviderOracles(t *testing.T) {
 func TestJiraArtifactGraphMCPSamplingPairIdentity(t *testing.T) {
 	cohorts := jiraArtifactGraphMCPCohorts()
 	primary, holdout := cohorts[0], cohorts[1]
-	primaryScenario := loadRepositoryScenario(t, filepath.Join(primary.root(), "scenario.v1.json"))
-	holdoutScenario := loadRepositoryScenario(t, filepath.Join(holdout.root(), "scenario.v1.json"))
-	if primaryScenario.ID == holdoutScenario.ID || primaryScenario.TaskClass != "jira/graph-evidence" ||
+	pair := loadRepositorySamplingPairContract(t, "jira-artifact-graph-mcp")
+	primaryScenario, holdoutScenario := pair.Primary.Scenario, pair.Holdout.Scenario
+	if primaryScenario.TaskClass != "jira/graph-evidence" ||
 		holdoutScenario.TaskClass != "jira/graph-evidence" || primary.key == holdout.key ||
 		primary.depth == holdout.depth || primary.maxRequests == holdout.maxRequests ||
 		primaryScenario.Budgets.MaxOutputBytes == holdoutScenario.Budgets.MaxOutputBytes {
 		t.Fatalf("primary/holdout identity is not distinct: primary=%+v holdout=%+v", primaryScenario, holdoutScenario)
 	}
 	for _, runFile := range []string{"run.mcp.codex.json", "run.mcp.claude.json"} {
-		primarySpec := loadRepositoryRunSpec(t, filepath.Join(primary.root(), runFile))
-		holdoutSpec := loadRepositoryRunSpec(t, filepath.Join(holdout.root(), runFile))
-		if primarySpec.Provider != holdoutSpec.Provider || primarySpec.Model != holdoutSpec.Model ||
-			primarySpec.Reasoning != holdoutSpec.Reasoning || primarySpec.Variant != holdoutSpec.Variant ||
-			primarySpec.EffectiveSurface() != holdoutSpec.EffectiveSurface() ||
-			primarySpec.EffectiveToolTransport() != holdoutSpec.EffectiveToolTransport() ||
-			primarySpec.Repetitions != 3 || holdoutSpec.Repetitions != 1 {
-			t.Fatalf("%s execution identity drifted: primary=%+v holdout=%+v", runFile, primarySpec, holdoutSpec)
-		}
+		primarySpec, holdoutSpec := pair.Primary.Runs[runFile], pair.Holdout.Runs[runFile]
 		if bytes.Equal(mustReadFile(t, filepath.Join(primary.root(), primarySpec.PromptFile)), mustReadFile(t, filepath.Join(holdout.root(), holdoutSpec.PromptFile))) ||
 			bytes.Equal(mustReadFile(t, filepath.Join(primary.root(), primarySpec.FixtureFile)), mustReadFile(t, filepath.Join(holdout.root(), holdoutSpec.FixtureFile))) {
 			t.Fatalf("%s holdout prompt or fixture is not distinct", runFile)
