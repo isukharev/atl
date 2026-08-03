@@ -6,7 +6,7 @@ what the `.md` staging view looks like, and how opaque fragments (diagrams, user
 mentions, page links, images, attachments) are discovered and resolved.
 
 See also: [../README.md](../README.md) · [architecture.md](architecture.md) ·
-[usage.md](usage.md)
+[CLI reference](reference/cli/README.md)
 
 ---
 
@@ -246,7 +246,7 @@ Removing a protected break or structural marker is subject to the explicit
 fragment-loss gate. An unrepresentable structural rewrite fails before `.csf`
 changes. Legacy, unversioned, and unknown/future views are not silently treated
 as v6; use the migration and recovery guidance in the
-[command reference](usage.md#atl-conf-apply).
+[command reference](reference/cli/confluence-mirrors.md#atl-conf-apply).
 
 ### Block-level rendering
 

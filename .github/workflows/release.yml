@@ -60,6 +60,8 @@ jobs:
         run: make check-plugins
       - name: Documentation catalog
         run: make check-docs-catalog
+      - name: Reference split compatibility
+        run: make check-reference-split
       - name: Indexed documentation contract
         run: make check-context7-docs
       - name: Onboarding documentation rehearsal

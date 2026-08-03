@@ -7,7 +7,7 @@ budget; every failure path is swallowed. The Homebrew launcher disables this
 path so the package manager remains the single owner of that installation.
 
 See also: [../README.md](../README.md) · [../SECURITY.md](../SECURITY.md) ·
-[usage.md](usage.md) · [architecture.md](architecture.md) ·
+[CLI reference](reference/cli/README.md) · [architecture.md](architecture.md) ·
 [network-egress.md](network-egress.md)
 
 ---

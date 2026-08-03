@@ -41,6 +41,7 @@
     "CHANGELOG.md",
     "CLAUDE.md",
     "CONTRIBUTING.md",
+    "OUTPUT_CONTRACT.md",
     "README.ru.md",
     "RELEASING.md",
     "ROADMAP.md",
@@ -52,7 +53,8 @@
     "context7.md",
     "csf-markdown-testing.md",
     "github-issue-workflow.md",
-    "plugins.md"
+    "plugins.md",
+    "usage.md"
   ],
   "rules": [
     "CLI output is JSON by default; use -o text only for human-readable Markdown and -o id only where the command documents an identity projection.",

@@ -92,7 +92,7 @@ Hexagonal (ports & adapters). The dependency rule is strict — internalize it b
 - **`internal/cli`** — thin cobra layer: parse flags → call one use-case → `emit()` → return
   error. Do not maintain a copied command tree here: inspect the exact current
   surface with `atl --help`, the relevant parent `--help`, or
-  `docs/usage.md`; use `atl capabilities` for the versioned task-oriented
+  `docs/reference/cli/`; use `atl capabilities` for the versioned task-oriented
   routes. The facts that are not visible in help are the native write
   substrate, read-only Markdown views, JSON-default output, stable exit
   classes, bounded read contracts, and review-bound write gates documented
@@ -231,7 +231,8 @@ Canonical guides live outside this file: `AGENTS.md` (cross-agent handoff rules)
   output. When a change alters user-facing CLI behaviour, update the matching
   `skills-src/*/SKILL.md` (Quick-Reference tables, examples, `USE WHEN` frontmatter,
   Common-Errors / exit-code blocks), run `make gen-plugins`, and commit all three trees plus
-  `docs/usage.md` / `docs/OUTPUT_CONTRACT.md` / `CHANGELOG.md` — and `README.md` (and
+  the canonical `docs/reference/cli/` and `docs/reference/output/` owners plus
+  `CHANGELOG.md` — and `README.md` (and
   `README.ru.md` when it mirrors the same section) — in the **same PR**, and confirm it
   **before merging**. Setup/auth/mirror behaviour changes also update
   `skills-src/setup/SKILL.md` and `skills-src/atl/reference/*`. Platform-specific strings use

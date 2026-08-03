@@ -5,7 +5,7 @@ abstract interfaces; use-cases depend only on those interfaces; adapters
 implement them; the CLI and any future server tier sit at the outermost ring
 and are interchangeable transport layers.
 
-See also: [../README.md](../README.md) · [usage.md](usage.md) ·
+See also: [../README.md](../README.md) · [CLI reference](reference/cli/README.md) ·
 [csf-and-fragments.md](csf-and-fragments.md) · [self-update.md](self-update.md) ·
 [network-egress.md](network-egress.md)
 

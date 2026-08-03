@@ -1,8 +1,8 @@
 # Agent recipes for Jira and Confluence
 
 These recipes are compact retrieval targets for coding agents. They complement
-the complete [usage reference](usage.md) and machine-readable [output
-contract](OUTPUT_CONTRACT.md); those documents remain authoritative for every
+the complete [CLI reference](reference/cli/README.md) and machine-readable
+[output contract](reference/output/README.md); those documents remain authoritative for every
 flag and JSON field.
 
 `atl` is non-interactive and emits JSON by default. Use `-o text` when Markdown

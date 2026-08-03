@@ -175,11 +175,18 @@ patterns over introducing cross-layer shortcuts.
 - CLI output is a contract. Golden tests in `internal/cli/testdata/golden/` and
   the sentinel exit-code matrix must be updated when output or sentinels change.
 - User-facing CLI changes must update public docs and shipped client skills in
-  the same PR: `README.md`, `README.ru.md` when applicable, `docs/usage.md`,
-  `docs/OUTPUT_CONTRACT.md` for output shape changes, and the relevant
+  the same PR: `README.md`, `README.ru.md` when applicable, the canonical owner
+  under `docs/reference/cli/`, the relevant `docs/reference/output/` owner for
+  output shape changes, and the relevant
   `skills-src/*/SKILL.md`. `skills/` and `plugins/atl/skills/` are **generated**
   from `skills-src/` by `make gen-plugins` — never edit them by hand; regenerate
   and commit all three trees together (see `docs/plugins.md`).
+- `docs/usage.md` and `docs/OUTPUT_CONTRACT.md` are generated compatibility
+  indexes. Never put canonical prose there. Edit the matching owner under
+  `docs/reference/cli/` or `docs/reference/output/`; when a published heading
+  moves, update `docs/reference/split-map.v1.json`, regenerate with
+  `go run ./scripts/check-reference-split -root . -write`, and run
+  `make check-reference-split`.
 - Plugin manifest versions (`.claude-plugin/plugin.json`,
   `plugins/atl/.codex-plugin/plugin.json`) are bumped only in the release prep
   commit, in lockstep with the CLI version — never in a feature PR.
@@ -192,6 +199,8 @@ patterns over introducing cross-layer shortcuts.
 - Context7-selected runtime documentation must contain at least one real,
   non-empty language-tagged fenced example. Run `make check-context7-docs` when
   adding root Markdown, changing `context7.json`, or editing the indexed corpus.
+  Run `make update-reference-navigation` after changing headings in a canonical
+  reference of 300 lines or more.
 - Private model-in-the-loop benchmarks use the marked lifecycle in
   `docs/agent-benchmark-private-workspace.md`. If
   `ATL_AGENT_EVAL_PRIVATE_ROOT` is configured, start with `agent-eval private

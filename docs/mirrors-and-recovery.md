@@ -7,7 +7,7 @@ and sync evidence together so local and remote changes can be distinguished.
 Use this guide when you need to refresh an existing mirror, adopt a legacy
 mirror, preserve local work, recover after a version conflict, or register a
 newly created object. Exact flags and JSON schemas remain in the
-[command reference](usage.md) and [output contract](OUTPUT_CONTRACT.md).
+[command reference](reference/cli/README.md) and [output contract](reference/output/README.md).
 
 ## Start with a dedicated root
 
@@ -159,5 +159,100 @@ atl jira pull --jql 'key = RETURNED-1' --limit 1 \
 | `outcome_unknown` after any write | Retain evidence and reconcile; never infer absence or retry automatically |
 
 For large, incremental, or resumable selections, see the exact
-[`conf pull`](usage.md#atl-conf-pull) and
-[`jira pull`](usage.md#atl-jira-pull) reference sections.
+[`conf pull`](reference/cli/confluence-mirrors.md#atl-conf-pull) and
+[`jira pull`](reference/cli/jira-mirrors.md#atl-jira-pull) reference sections.
+
+## Workflow: pull → edit → validate → push
+
+This is the canonical edit loop for Confluence pages:
+
+```bash
+# 1. Keep investigations read-only and pull the page. Pull writes only local
+#    mirror artifacts; --assets is optional.
+export ATL_READ_ONLY=1
+atl conf pull --id 12345678 --assets --into mirror
+
+# 2. Inspect the on-disk layout
+#    mirror/DOCS/parent/child/child.csf   ← your source of truth
+#    mirror/DOCS/parent/child/child.md    ← versioned staging view
+
+# 3. Edit the supported body in child.md, then inspect and apply the local
+#    merge. conf apply is mutation-classified even in dry-run mode.
+env -u ATL_READ_ONLY atl conf apply \
+  mirror/DOCS/parent/child/child.md --dry-run -o text
+env -u ATL_READ_ONLY atl conf apply mirror/DOCS/parent/child/child.md
+#    Direct native .csf edits remain available when Markdown cannot represent
+#    the required construct.
+
+# 4. Validate before pushing
+atl conf validate mirror/DOCS/parent/child/child.csf
+atl conf diff mirror/DOCS/parent/child/child.csf -o text
+
+# 5. Preview the remote write. conf push is mutation-classified even when its
+#    --dry-run prevents the PUT.
+env -u ATL_READ_ONLY atl conf push \
+  --dry-run mirror/DOCS/parent/child/child.csf
+
+# 6. After reviewing the exact preview, run the same target once without
+#    --dry-run. The Confluence version gate remains automatic.
+env -u ATL_READ_ONLY atl conf push mirror/DOCS/parent/child/child.csf
+```
+
+If push exits `5`, preserve the working candidate. Do not immediately overwrite
+it with a pull and do not add `--force`. Qualify the refresh and inspect one
+content-free three-way comparison first:
+
+```bash
+ATL_READ_ONLY=1 atl conf pull --id 12345678 --into mirror --dry-run
+ATL_READ_ONLY=1 atl conf reconcile preview \
+  mirror/DOCS/parent/child/child.csf --into mirror -o text
+```
+
+The pull dry-run may report `local_safety` and exit `8`; that proves the local
+candidate was preserved. Reconcile reads the exact current remote page once and
+leaves the working native/view/baseline artifacts unchanged. If exact review
+files are useful, the separately mutation-classified stage still leaves the
+working candidate unchanged:
+
+```bash
+env -u ATL_READ_ONLY atl conf reconcile stage \
+  mirror/DOCS/parent/child/child.csf --into mirror
+```
+
+After reviewing base/ours/theirs, explicitly merge or reapply the intended
+change onto current remote bytes. Use a qualified `pull --stash-local` when the
+local native edit should be retained in `.atl/stash/` before refresh; it does
+not bypass a dirty Markdown view or broken baseline. Validate, diff, and run a
+fresh push preview before one new write.
+
+For a whole space:
+
+```bash
+atl conf pull --space DOCS --into mirror
+# ... edit files ...
+atl conf status mirror                # see which files are dirty
+env -u ATL_READ_ONLY atl conf push mirror/DOCS/ # push reviewed dirty files
+```
+
+For Jira issues the workflow is read-heavy:
+
+```bash
+atl jira pull --jql "project=PROJ and status=Open" --into mirror-jira
+# read mirror-jira/PROJ/PROJ-1.md  and  mirror-jira/PROJ/PROJ-1.json
+# edit a supported section in PROJ-1.md, then stage and preview it explicitly:
+env -u ATL_READ_ONLY atl jira apply \
+  mirror-jira/PROJ/PROJ-1.md --dry-run -o text
+env -u ATL_READ_ONLY atl jira apply mirror-jira/PROJ/PROJ-1.md
+env -u ATL_READ_ONLY atl jira push mirror-jira/PROJ/PROJ-1.wiki
+# after reviewing the preview:
+env -u ATL_READ_ONLY atl jira push \
+  --apply mirror-jira/PROJ/PROJ-1.wiki
+
+# dedicated proposal commands remain read-only until their explicit apply:
+ATL_READ_ONLY=1 atl jira issue transition preview PROJ-1 --to "In Review"
+# Repeat the exact target/fields/comment with transition --apply and the reviewed hash.
+atl jira issue comment preview PROJ-1 --from-file - <<'EOF'
+Updated as discussed in today's meeting.
+EOF
+# Repeat the exact body with `comment add --apply --expected-proposal-hash ...`
+```

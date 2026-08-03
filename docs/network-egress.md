@@ -6,7 +6,7 @@ caller explicitly starts against configured Jira or Confluence backends. This
 document separates those two layers so a read-only policy is not mistaken for
 a no-network policy.
 
-See also: [usage.md](usage.md) · [self-update.md](self-update.md) ·
+See also: [CLI reference](reference/cli/README.md) · [self-update.md](self-update.md) ·
 [mcp.md](mcp.md) · [../SECURITY.md](../SECURITY.md)
 
 ## Runtime egress inventory
