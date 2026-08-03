@@ -88,12 +88,13 @@ func TestJiraWorklogPreviewAndApply(t *testing.T) {
 	if strings.Contains(string(encoded), "private@example.test") {
 		t.Fatalf("preview leaked email: %s", encoded)
 	}
+	store.listCalls = 0
 	applied, err := service.AddWorklogGuarded(context.Background(), "PROJ-1", JiraWorklogAddOpts{
 		Time: "1h30m", Comment: "implemented", Started: "2026-07-01T10:00:00Z",
 		Apply: true, ExpectedProposalHash: preview.ProposalHash,
 	})
-	if err != nil || applied.Status != "applied" || applied.Created == nil || applied.Created.ID != "new" || store.addCalls != 1 {
-		t.Fatalf("applied=%+v calls=%d err=%v", applied, store.addCalls, err)
+	if err != nil || applied.Status != "applied" || applied.Created == nil || applied.Created.ID != "new" || store.addCalls != 1 || store.listCalls != 1 {
+		t.Fatalf("applied=%+v addCalls=%d listCalls=%d err=%v", applied, store.addCalls, store.listCalls, err)
 	}
 }
 

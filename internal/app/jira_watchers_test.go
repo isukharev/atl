@@ -10,15 +10,36 @@ import (
 
 type jiraWatcherStoreStub struct {
 	domain.Tracker
-	state       domain.IssueWatcherList
-	currentUser *domain.User
-	currentErr  error
-	writeErr    error
-	addCalls    int
-	removeCalls int
+	state                  domain.IssueWatcherList
+	currentUser            *domain.User
+	currentErr             error
+	writeErr               error
+	verificationErr        error
+	verificationNil        bool
+	verificationIncomplete bool
+	skipMutation           bool
+	noCommitOnError        bool
+	listCalls              int
+	addCalls               int
+	removeCalls            int
 }
 
 func (s *jiraWatcherStoreStub) ListIssueWatchers(context.Context, string) (*domain.IssueWatcherList, error) {
+	s.listCalls++
+	if s.listCalls > 1 {
+		if s.verificationErr != nil {
+			return nil, s.verificationErr
+		}
+		if s.verificationNil {
+			return nil, nil
+		}
+		if s.verificationIncomplete {
+			copy := s.state
+			copy.Watchers = append([]domain.IssueWatcher(nil), s.state.Watchers...)
+			copy.Complete = false
+			return &copy, nil
+		}
+	}
 	copy := s.state
 	copy.Watchers = append([]domain.IssueWatcher(nil), s.state.Watchers...)
 	return &copy, nil
@@ -26,7 +47,7 @@ func (s *jiraWatcherStoreStub) ListIssueWatchers(context.Context, string) (*doma
 
 func (s *jiraWatcherStoreStub) AddIssueWatcher(_ context.Context, _, username string) error {
 	s.addCalls++
-	if !watcherPresent(s.state.Watchers, username) {
+	if !s.skipMutation && (!s.noCommitOnError || s.writeErr == nil) && !watcherPresent(s.state.Watchers, username) {
 		s.state.Watchers = append(s.state.Watchers, domain.IssueWatcher{Name: username, DisplayName: username, Active: true})
 		s.state.WatchCount++
 	}
@@ -35,16 +56,23 @@ func (s *jiraWatcherStoreStub) AddIssueWatcher(_ context.Context, _, username st
 
 func (s *jiraWatcherStoreStub) RemoveIssueWatcher(_ context.Context, _, username string) error {
 	s.removeCalls++
-	filtered := s.state.Watchers[:0]
-	for _, watcher := range s.state.Watchers {
-		if watcher.Name != username {
-			filtered = append(filtered, watcher)
+	if !s.skipMutation && (!s.noCommitOnError || s.writeErr == nil) {
+		filtered := s.state.Watchers[:0]
+		for _, watcher := range s.state.Watchers {
+			if watcher.Name != username {
+				filtered = append(filtered, watcher)
+			}
 		}
+		s.state.Watchers = filtered
+		s.state.WatchCount = len(filtered)
 	}
-	s.state.Watchers = filtered
-	s.state.WatchCount = len(filtered)
 	return s.writeErr
 }
+
+type jiraWatcherStatusError int
+
+func (e jiraWatcherStatusError) Error() string   { return "rejected" }
+func (e jiraWatcherStatusError) HTTPStatus() int { return int(e) }
 
 func (s *jiraWatcherStoreStub) CurrentUser(context.Context) (*domain.User, error) {
 	return s.currentUser, s.currentErr
@@ -116,6 +144,73 @@ func TestJiraWatchersReconcileAmbiguousWriteAndRefuseIncompleteState(t *testing.
 	_, err = (&JiraService{tr: incomplete}).MutateWatcherGuarded(context.Background(), "PROJ-1", JiraWatcherMutationOpts{Operation: "remove", Username: "visible"})
 	if !errors.Is(err, domain.ErrCheckFailed) || incomplete.removeCalls != 0 {
 		t.Fatalf("incomplete mutation err=%v calls=%d", err, incomplete.removeCalls)
+	}
+}
+
+func TestJiraWatchersGuardedApplyOutcomeMatrix(t *testing.T) {
+	tests := []struct {
+		name           string
+		store          *jiraWatcherStoreStub
+		wantStatus     string
+		wantErr        bool
+		wantAmbiguous  bool
+		wantReconciled bool
+	}{
+		{
+			name:       "successful apply has exactly prewrite and readback lists",
+			store:      &jiraWatcherStoreStub{state: domain.IssueWatcherList{Complete: true}},
+			wantStatus: "applied",
+		},
+		{
+			name:       "definitive rejection is failed after complete readback",
+			store:      &jiraWatcherStoreStub{state: domain.IssueWatcherList{Complete: true}, writeErr: jiraWatcherStatusError(400), noCommitOnError: true},
+			wantStatus: "failed", wantErr: true, wantReconciled: true,
+		},
+		{
+			name:       "failed readback is ambiguous",
+			store:      &jiraWatcherStoreStub{state: domain.IssueWatcherList{Complete: true}, verificationErr: errors.New("verification unavailable")},
+			wantStatus: "unknown", wantErr: true, wantAmbiguous: true,
+		},
+		{
+			name:       "nil readback is ambiguous",
+			store:      &jiraWatcherStoreStub{state: domain.IssueWatcherList{Complete: true}, verificationNil: true},
+			wantStatus: "unknown", wantErr: true, wantAmbiguous: true,
+		},
+		{
+			name:       "incomplete readback is ambiguous",
+			store:      &jiraWatcherStoreStub{state: domain.IssueWatcherList{Complete: true}, verificationIncomplete: true},
+			wantStatus: "unknown", wantErr: true, wantAmbiguous: true,
+		},
+		{
+			name:       "complete goal mismatch is ambiguous",
+			store:      &jiraWatcherStoreStub{state: domain.IssueWatcherList{Complete: true}, skipMutation: true},
+			wantStatus: "unknown", wantErr: true, wantAmbiguous: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := &JiraService{tr: test.store}
+			preview, err := service.MutateWatcherGuarded(context.Background(), "PROJ-1", JiraWatcherMutationOpts{
+				Operation: "add", Username: "alice",
+			})
+			if err != nil {
+				t.Fatalf("preview: %v", err)
+			}
+			test.store.listCalls = 0
+			result, err := service.MutateWatcherGuarded(context.Background(), "PROJ-1", JiraWatcherMutationOpts{
+				Operation: "add", Username: "alice", Apply: true, ExpectedProposalHash: preview.ProposalHash,
+			})
+			if result == nil || result.Status != test.wantStatus || (err != nil) != test.wantErr ||
+				test.store.listCalls != 2 || test.store.addCalls != 1 || result.Reconciled != test.wantReconciled {
+				t.Fatalf("result=%+v err=%v lists=%d adds=%d", result, err, test.store.listCalls, test.store.addCalls)
+			}
+			var ambiguous interface{ DiagnosticAmbiguousWrite() bool }
+			gotAmbiguous := errors.As(err, &ambiguous) && ambiguous.DiagnosticAmbiguousWrite()
+			if gotAmbiguous != test.wantAmbiguous {
+				t.Fatalf("ambiguous=%t want=%t err=%v", gotAmbiguous, test.wantAmbiguous, err)
+			}
+		})
 	}
 }
 

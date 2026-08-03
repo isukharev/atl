@@ -127,8 +127,10 @@ func TestConfPageMoveUnknownEmitsJSONAndNeverReplaysPUT(t *testing.T) {
 	if err := json.Unmarshal([]byte(previewOut), &preview); err != nil {
 		t.Fatal(err)
 	}
-	out, _, code := runCLIFull(t, confEnv(srv), "conf", "page", "move", "42", "--parent", "20", "--apply",
+	out, _, execErr := executeCLIRaw(t, confEnv(srv), "conf", "page", "move", "42", "--parent", "20", "--apply",
 		"--expected-version", "7", "--expected-parent", "10", "--expected-proposal-hash", preview.ProposalHash)
+	assertLegacyMarkerOnlyAmbiguousExit(t, execErr)
+	code = codeFor(execErr)
 	if code != exitGeneric || putCalls != 1 || !strings.Contains(out, `"status": "unknown"`) {
 		t.Fatalf("unknown exit=%d puts=%d out=%s", code, putCalls, out)
 	}

@@ -483,13 +483,22 @@ exit 2
 	spec.Repetitions = 1
 	writeJSONTestFile(t, filepath.Join(caseDir, "run.json"), spec)
 	writeTestFile(t, fakeAgent, "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo fake-agent-1; exit 0; fi\nexit 59\n", 0o700)
+	providerAttempts = 0
 	if _, err := RunHeadless(context.Background(), RunOptions{
 		SpecPath: filepath.Join(caseDir, "run.json"), OutputRoot: outputRoot,
 		RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: fakeATL,
 		PluginRoot: pluginRoot, WrapperExecutable: wrapper,
+		providerAttemptCommitted: func() error {
+			providerAttempts++
+			return nil
+		},
 	}); err == nil {
 		t.Fatal("provider error was accepted")
 	}
+	if providerAttempts != 1 {
+		t.Fatalf("failed provider attempts=%d want=1", providerAttempts)
+	}
+	assertProviderFailureRetention(t, filepath.Join(outputRoot, scenario.ID, "codex", spec.Variant, "run-01"))
 	ephemeralEntries, err := os.ReadDir(filepath.Join(outputRoot, ".ephemeral"))
 	if err != nil || len(ephemeralEntries) != 0 {
 		t.Fatalf("provider error left runtime credentials: entries=%v err=%v", ephemeralEntries, err)
@@ -499,17 +508,56 @@ exit 2
 	spec.TimeoutSeconds = 1
 	writeJSONTestFile(t, filepath.Join(caseDir, "run.json"), spec)
 	writeTestFile(t, fakeAgent, "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo fake-agent-1; exit 0; fi\nwhile :; do :; done\n", 0o700)
+	providerAttempts = 0
 	if _, err := RunHeadless(context.Background(), RunOptions{
 		SpecPath: filepath.Join(caseDir, "run.json"), OutputRoot: outputRoot,
 		RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: fakeATL,
 		PluginRoot: pluginRoot, WrapperExecutable: wrapper,
+		providerAttemptCommitted: func() error {
+			providerAttempts++
+			return nil
+		},
 	}); err == nil || !strings.Contains(err.Error(), "timeout") {
 		t.Fatalf("provider timeout result=%v", err)
 	}
+	if providerAttempts != 1 {
+		t.Fatalf("timed-out provider attempts=%d want=1", providerAttempts)
+	}
+	assertProviderFailureRetention(t, filepath.Join(outputRoot, scenario.ID, "codex", spec.Variant, "run-01"))
 	ephemeralEntries, err = os.ReadDir(filepath.Join(outputRoot, ".ephemeral"))
 	if err != nil || len(ephemeralEntries) != 0 {
 		t.Fatalf("provider timeout left runtime credentials: entries=%v err=%v", ephemeralEntries, err)
 	}
+
+	spec.Variant = "typed-mcp-codex-parse-error"
+	spec.TimeoutSeconds = 30
+	writeJSONTestFile(t, filepath.Join(caseDir, "run.json"), spec)
+	writeTestFile(t, fakeAgent, `#!/bin/sh
+if [ "$1" = "--version" ]; then echo fake-agent-1; exit 0; fi
+final=""
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = "--output-last-message" ]; then final="$2"; shift 2; continue; fi
+  shift
+done
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+printf '%s\n' 'not-json' >"$final"
+`, 0o700)
+	providerAttempts = 0
+	if _, err := RunHeadless(context.Background(), RunOptions{
+		SpecPath: filepath.Join(caseDir, "run.json"), OutputRoot: outputRoot,
+		RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: fakeATL,
+		PluginRoot: pluginRoot, WrapperExecutable: wrapper,
+		providerAttemptCommitted: func() error {
+			providerAttempts++
+			return nil
+		},
+	}); err == nil {
+		t.Fatal("malformed provider result was accepted")
+	}
+	if providerAttempts != 1 {
+		t.Fatalf("malformed provider attempts=%d want=1", providerAttempts)
+	}
+	assertProviderFailureRetention(t, filepath.Join(outputRoot, scenario.ID, "codex", spec.Variant, "run-01"))
 
 	spec.Provider = "claude-code"
 	spec.ToolTransport = "cli"
@@ -540,6 +588,25 @@ exit 0
 	}
 	if _, err := os.Stat(startedMarker); !os.IsNotExist(err) {
 		t.Fatalf("provider started before its durable boundary: %v", err)
+	}
+	assertProviderFailureRetention(t, filepath.Join(outputRoot, scenario.ID, "claude-code", spec.Variant, "run-01"))
+}
+
+func assertProviderFailureRetention(t *testing.T, runDir string) {
+	t.Helper()
+	for _, name := range []string{"response-schema.json", "transcript.jsonl", "agent.stderr"} {
+		info, err := os.Stat(filepath.Join(runDir, name))
+		if err != nil {
+			t.Fatalf("retained failure artifact %s: %v", name, err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("retained failure artifact %s mode=%v", name, info.Mode().Perm())
+		}
+	}
+	for _, name := range []string{"result.json", syntheticRunReceiptFileName} {
+		if _, err := os.Stat(filepath.Join(runDir, name)); !os.IsNotExist(err) {
+			t.Fatalf("failed provider created success artifact %s: %v", name, err)
+		}
 	}
 }
 

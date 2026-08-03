@@ -212,8 +212,8 @@ func TestSetFieldsGuardedApplyWritesTypedValuesAtomically(t *testing.T) {
 	if err != nil || res.Status != "applied" {
 		t.Fatalf("result=%+v err=%v", res, err)
 	}
-	if tr.setCalls != 1 || tr.setKey != "PROJ-1" {
-		t.Fatalf("write calls=%d key=%q", tr.setCalls, tr.setKey)
+	if tr.setCalls != 1 || tr.setKey != "PROJ-1" || tr.getCalls != 1 {
+		t.Fatalf("write calls=%d read calls=%d key=%q", tr.setCalls, tr.getCalls, tr.setKey)
 	}
 	if got, ok := tr.setFields["customfield_1"].(string); !ok || got != "{}" {
 		t.Fatalf("Markdown string was retyped: %#v", tr.setFields["customfield_1"])

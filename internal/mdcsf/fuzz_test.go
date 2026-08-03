@@ -50,6 +50,9 @@ func FuzzConvert(f *testing.F) {
 	for _, s := range mdSeeds {
 		f.Add(s)
 	}
+	for _, testCase := range loadMDCSFBehaviorContract(f).Cases {
+		f.Add(testCase.Input)
+	}
 	f.Fuzz(func(t *testing.T, md string) {
 		out, err := Convert(md)
 		if err != nil {

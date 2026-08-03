@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "mixed_document",
+      "input": "# Title\n\nIntro with **bold** and `code`.\n\n---\n",
+      "outcome": "success",
+      "output": "<h1>Title</h1>\n<p>Intro with <strong>bold</strong> and <code>code</code>.</p>\n<hr/>",
+      "invariants": ["non_empty", "well_formed_csf"]
+    },
+    {
+      "name": "dynamic_code_fence",
+      "input": "`````go\nbefore\n```\nafter\n``````   ",
+      "outcome": "success",
+      "output": "<ac:structured-macro ac:name=\"code\"><ac:parameter ac:name=\"language\">go</ac:parameter><ac:plain-text-body><![CDATA[before\n```\nafter]]></ac:plain-text-body></ac:structured-macro>",
+      "invariants": ["non_empty", "well_formed_csf"]
+    },
+    {
+      "name": "table_with_escaped_pipe",
+      "input": "| K | V |\n| --- | --- |\n| a \\| b | `c` |",
+      "outcome": "success",
+      "output": "<table><tbody><tr><th>K</th><th>V</th></tr><tr><td>a | b</td><td><code>c</code></td></tr></tbody></table>",
+      "invariants": ["non_empty", "well_formed_csf"]
+    },
+    {
+      "name": "escaped_block_collisions",
+      "input": "intro\n\\```json **bold**\n\\---",
+      "outcome": "success",
+      "output": "<p>intro ```json <strong>bold</strong> ---</p>",
+      "invariants": ["non_empty", "well_formed_csf"]
+    },
+    {
+      "name": "bom_and_unicode",
+      "input": "\ufeff## Контекст **важно**\n\nПривет\n",
+      "outcome": "success",
+      "output": "<h2>Контекст <strong>важно</strong></h2>\n<p>Привет</p>",
+      "invariants": ["non_empty", "well_formed_csf"]
+    },
+    {
+      "name": "crlf_code_fence",
+      "input": "# T\r\n\r\n```\r\nline1\r\nline2\r\n```\r\n",
+      "outcome": "success",
+      "output": "<h1>T</h1>\n<ac:structured-macro ac:name=\"code\"><ac:plain-text-body><![CDATA[line1\nline2]]></ac:plain-text-body></ac:structured-macro>",
+      "invariants": ["non_empty", "well_formed_csf"]
+    },
+    {
+      "name": "image_fails_closed",
+      "input": "# Fine\n\n![img](x.png)",
+      "outcome": "error",
+      "error_class": "UnsupportedError",
+      "invariants": ["no_partial_output"]
+    },
+    {
+      "name": "opaque_marker_fails_closed",
+      "input": "⟦macro jira⟧",
+      "outcome": "error",
+      "error_class": "UnsupportedError",
+      "invariants": ["no_partial_output"]
+    },
+    {
+      "name": "unterminated_fence_fails_closed",
+      "input": "```go\nbody",
+      "outcome": "error",
+      "error_class": "UnsupportedError",
+      "invariants": ["no_partial_output"]
+    },
+    {
+      "name": "control_character_fails_closed",
+      "input": "safe\u0000unsafe",
+      "outcome": "error",
+      "error_class": "UnsupportedError",
+      "invariants": ["no_partial_output"]
+    }
+  ],
+  "fuzz_regressions": [
+    {"path":"testdata/fuzz/FuzzConvert/fbe58da4022249b9","sha256":"fbe58da4022249b9ed2321226e724bf83cf4202ed8d02fb89bd925ead0d0ab32"}
+  ]
+}

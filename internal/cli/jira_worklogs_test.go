@@ -127,3 +127,46 @@ func TestJiraIssueWorklogPreflightAndReadOnlyPolicy(t *testing.T) {
 		t.Fatalf("read-only exit=%d requests=%d", code, requests)
 	}
 }
+
+func TestJiraIssueWorklogAmbiguousWriteKeepsLegacyGenericExit(t *testing.T) {
+	posts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/rest/api/2/myself":
+			_, _ = io.WriteString(w, `{"name":"alice","key":"user-1","displayName":"Alice","active":true}`)
+		case "/rest/api/2/issue/PROJ-1/worklog":
+			switch request.Method {
+			case http.MethodGet:
+				_, _ = io.WriteString(w, `{"startAt":0,"maxResults":100,"total":0,"worklogs":[]}`)
+			case http.MethodPost:
+				posts++
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = io.WriteString(w, `{"errorMessages":["write response unavailable"]}`)
+			default:
+				t.Fatalf("method=%s", request.Method)
+			}
+		default:
+			t.Fatalf("path=%s", request.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	args := []string{"jira", "issue", "worklog", "add", "PROJ-1", "--time", "30m", "--comment", "reviewed", "--started", "2026-07-01T10:00:00Z"}
+	previewOut, code := runCLI(t, jiraEnv(server), args...)
+	if code != exitOK {
+		t.Fatalf("preview exit=%d out=%s", code, previewOut)
+	}
+	var preview struct {
+		ProposalHash string `json:"proposal_hash"`
+	}
+	if err := json.Unmarshal([]byte(previewOut), &preview); err != nil {
+		t.Fatal(err)
+	}
+	applyArgs := append(append([]string(nil), args...), "--apply", "--expected-proposal-hash", preview.ProposalHash)
+	out, _, execErr := executeCLIRaw(t, jiraEnv(server), applyArgs...)
+	assertLegacyMarkerOnlyAmbiguousExit(t, execErr)
+	if posts != 1 || !strings.Contains(out, `"status": "unknown"`) {
+		t.Fatalf("posts=%d out=%s err=%v", posts, out, execErr)
+	}
+}

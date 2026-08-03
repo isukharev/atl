@@ -229,6 +229,46 @@ func TestJiraIssueFieldSetLargeIntegerAlreadySatisfiedExactly(t *testing.T) {
 	}
 }
 
+func TestJiraIssueFieldSetAmbiguousWriteKeepsLegacyGenericExit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "value.txt")
+	if err := os.WriteFile(path, []byte("reviewed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	puts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/rest/api/2/field":
+			_, _ = io.WriteString(w, `[{"id":"customfield_1","name":"Notes","custom":true,"schema":{"type":"string"}}]`)
+		case request.Method == http.MethodGet && request.URL.Path == "/rest/api/2/issue/ENG-1":
+			_, _ = io.WriteString(w, `{"key":"ENG-1","fields":{"updated":"fresh","customfield_1":"old"}}`)
+		case request.Method == http.MethodPut && request.URL.Path == "/rest/api/2/issue/ENG-1":
+			puts++
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = io.WriteString(w, `{"errorMessages":["write response unavailable"]}`)
+		default:
+			http.NotFound(w, request)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	args := []string{"jira", "issue", "field", "set", "ENG-1", "--from-file", "customfield_1=" + path, "--allow-fields", "customfield_1"}
+	previewOut, code := runCLI(t, jiraEnv(server), args...)
+	if code != exitOK {
+		t.Fatalf("preview exit=%d out=%s", code, previewOut)
+	}
+	var preview app.JiraFieldSetResult
+	if err := json.Unmarshal([]byte(previewOut), &preview); err != nil {
+		t.Fatal(err)
+	}
+	applyArgs := append(append([]string(nil), args...), "--apply", "--expected-updated", "fresh", "--expected-proposal-hash", preview.ProposalHash)
+	out, _, execErr := executeCLIRaw(t, jiraEnv(server), applyArgs...)
+	assertLegacyMarkerOnlyAmbiguousExit(t, execErr)
+	if puts != 1 || !strings.Contains(out, `"status": "unknown"`) {
+		t.Fatalf("puts=%d out=%s err=%v", puts, out, execErr)
+	}
+}
+
 func TestJiraFieldInputParsingAndBound(t *testing.T) {
 	if got, ok := rawJiraFieldValue([]byte(` {"id":"2","large":9007199254740993} `)).(map[string]any); !ok || got["id"] != "2" || got["large"] != json.Number("9007199254740993") {
 		t.Fatalf("object parsing = %#v", got)
