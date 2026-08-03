@@ -33,11 +33,9 @@ The released foundation and current `main` provide:
 
 ## Now
 
-v0.5.1 is the current published release. `main` contains the post-release safety,
-mirror, graph, comment, and Data Center compatibility work being prepared for
-v0.6.0. New surface remains evidence- or concrete-workflow-gated; current owner
-and colleague use is valid product evidence and does not impose a user-count
-freeze.
+v0.6.0 is the current published release. New surface remains evidence- or
+concrete-workflow-gated; current owner and colleague use is valid product
+evidence and does not impose a user-count freeze.
 
 ## Next
 
