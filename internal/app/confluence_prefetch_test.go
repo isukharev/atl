@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -433,5 +435,9 @@ func TestCompletePullPrefetchFailureCheckpointsOnlyCommittedPrefix(t *testing.T)
 	}
 	if _, exists, stateErr := mirror.New(root).SyncStateOf("30"); stateErr != nil || exists {
 		t.Fatal("prefetched page after the failure was incorrectly committed")
+	}
+	journalPath := filepath.Join(root, ".atl", "complete-pulls", selectorHash("space = DOC")+".journal.json")
+	if _, statErr := os.Stat(journalPath); !os.IsNotExist(statErr) {
+		t.Fatalf("graceful prefix commit left journal: %v", statErr)
 	}
 }

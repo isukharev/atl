@@ -82,9 +82,11 @@ Complete pull performs two exhaustive, completeness-qualified metadata passes
 and requires the same canonical unique-id set before body reads. It stores a
 mode-0600 exact-id checkpoint under `.atl/complete-pulls/`, binds
 assets/comments/render/Jira-view options, and resumes the durable remaining
-prefix on the exact same command. Page downloads are serial. A graceful failure
-checkpoints every committed page; a hard crash may replay at most the current
-25-page batch, never skip it. `--max-pages 0` means no configured cap in this
+prefix on the exact same command. Page downloads are serial. Each page's exact
+artifact set is publication-intent staged, and accepted pages are journaled
+before batched sidecar/progress commits. Recovery recognizes only exact,
+bounded intent/journal-owned temp residue, so a hard crash does not refetch or
+skip an accepted body. `--max-pages 0` means no configured cap in this
 mode, subject to local state-size/identity safety guards. `ORDER BY`, `--depth`,
 partial pagination, selection drift, duplicate ids, and local edits fail
 closed. `--restart-complete` is the explicit reviewed replacement path; absence

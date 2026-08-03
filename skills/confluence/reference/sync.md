@@ -67,9 +67,11 @@ atl conf pull --complete --cql '<same stable CQL>' --into <absolute-root>
 Complete mode performs two exhaustive metadata passes and requires the same
 canonical unique-id set before body reads. It stores a private mode-0600 exact-id
 checkpoint, binds content/render options, and resumes only its remaining prefix.
-Committed page writes/checkpoints are serial; a hard crash may replay at most
-the current batch, never skip it. `ORDER BY`, partial pagination, selection
-drift, duplicate ids, or local edits fail closed. Use `--restart-complete` only
+Each page is staged behind a durable publication intent, and accepted pages are
+journaled before batch sidecar/progress commits. Exact intent/journal-owned temp
+names make hard-crash residue recoverable without deleting unrelated files; a
+hard crash neither refetches an accepted body nor skips it. `ORDER BY`, partial
+pagination, selection drift, duplicate ids, or local edits fail closed. Use `--restart-complete` only
 after preserving edits and explicitly replacing the unfinished snapshot.
 Absence from a snapshot never proves deletion.
 

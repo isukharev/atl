@@ -276,45 +276,101 @@ type commentSidecar struct {
 	truncated bool
 }
 
-// writePageFiles writes the page artifacts (.csf, .md view, .meta.json, base
-// copy) and returns the .csf path relative to the mirror root; sidecar state
-// is recorded by the caller. When cs is non-nil it also writes the comment
-// sidecar files and stamps the comment counters into .meta.json.
-func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []domain.Ref, cs *commentSidecar, mdOpts MDViewOpts) (rel string, err error) {
-	if err := safepath.MkdirAllWithin(m.Root, dir, 0o755); err != nil {
-		return "", err
+// CompletePullArtifact is one fully prepared canonical page artifact for the
+// crash-recoverable complete-pull publisher. Data is copied into a private
+// staging area before any Path is mutated. Remove expresses the intentional
+// retirement of an owned auxiliary artifact. BestEffort is reserved for
+// derived Markdown views: publication may establish either these exact bytes
+// or absence, preserving the longstanding render-failure contract.
+type CompletePullArtifact struct {
+	Path       string
+	Data       []byte
+	Mode       os.FileMode
+	Remove     bool
+	BestEffort bool
+}
+
+// PrepareCompletePullView builds every page/base artifact without touching the
+// filesystem. Complete pulls stage this complete set before publication;
+// ordinary and incremental pulls keep using WriteView.
+func (m *Mirror) PrepareCompletePullView(dir, slug string, page *domain.Resource, refs []domain.Ref, mdOpts MDViewOpts) (SyncState, []CompletePullArtifact, error) {
+	return m.preparePageFiles(dir, slug, page, refs, nil, mdOpts)
+}
+
+// PrepareCompletePullConfluenceComments is the qualified-comment counterpart
+// of PrepareCompletePullView.
+func (m *Mirror) PrepareCompletePullConfluenceComments(dir, slug string, page *domain.Resource, refs []domain.Ref, sidecar ConfluenceCommentsSidecarV2, display []domain.Comment, truncated bool, mdOpts MDViewOpts) (SyncState, []CompletePullArtifact, error) {
+	encoded, err := EncodeConfluenceCommentsSidecarV2(sidecar)
+	if err != nil {
+		return SyncState{}, nil, err
 	}
+	decoded, err := DecodeConfluenceCommentsSidecar(encoded)
+	if err != nil || decoded.V2 == nil {
+		return SyncState{}, nil, fmt.Errorf("%w: canonical Confluence comments sidecar could not be decoded", domain.ErrCheckFailed)
+	}
+	canonical := *decoded.V2
+	display = orderCommentProjection(canonical.Comments, display)
+	mdOpts.Comments = orderCommentProjection(canonical.Comments, mdOpts.Comments)
+	mdOpts.CommentView = orderCommentProjection(canonical.Comments, mdOpts.CommentView)
+	if mdOpts.QualifiedComments != nil {
+		displayCanonical, displayErr := qualifiedCommentsDisplayTimes(canonical, *mdOpts.QualifiedComments)
+		if displayErr != nil {
+			return SyncState{}, nil, displayErr
+		}
+		mdOpts.Comments = nil
+		mdOpts.QualifiedComments = &displayCanonical
+	}
+	return m.preparePageFiles(dir, slug, page, refs, &commentSidecar{
+		encoded: encoded, display: display, v2: &canonical, truncated: truncated,
+	}, mdOpts)
+}
+
+func mirrorRelativePath(root, target string) (string, error) {
+	rel, err := filepath.Rel(root, target)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("%w: page artifact escapes mirror root: %s", domain.ErrCheckFailed, target)
+	}
+	return filepath.ToSlash(rel), nil
+}
+
+func (m *Mirror) preparePageFiles(dir, slug string, page *domain.Resource, refs []domain.Ref, cs *commentSidecar, mdOpts MDViewOpts) (SyncState, []CompletePullArtifact, error) {
 	csfPath := filepath.Join(dir, slug+".csf")
-	if err := safepath.WriteFileWithin(m.Root, csfPath, page.Body, 0o644); err != nil {
-		return "", err
+	csfRel, err := mirrorRelativePath(m.Root, csfPath)
+	if err != nil {
+		return SyncState{}, nil, err
 	}
-	// Markdown view — best-effort by contract: a render or write failure never
-	// fails a pull. The view must also never contradict the source of truth, so
-	// an unparseable body overwrites any previous revision's .md with a stub,
-	// and a failed write falls back to removing the stale file. mdOpts carries the
-	// profile-driven generated metadata/comments additions; a zero value renders exactly
-	// the pre-profile body-only view.
-	mdPath := filepath.Join(dir, slug+".md")
+	artifacts := []CompletePullArtifact{{Path: csfRel, Data: append([]byte(nil), page.Body...), Mode: 0o644}}
 	md := []byte(MDUnavailableStub)
-	if root, err := csf.Parse(page.Body); err == nil {
+	if root, parseErr := csf.Parse(page.Body); parseErr == nil {
 		md = RenderMarkdownOpts(root, refs, mdOpts)
 	}
-	if err := safepath.WriteFileWithin(m.Root, mdPath, md, 0o644); err != nil {
-		_ = safepath.RemoveWithin(m.Root, mdPath)
+	mdRel, err := mirrorRelativePath(m.Root, filepath.Join(dir, slug+".md"))
+	if err != nil {
+		return SyncState{}, nil, err
 	}
+	artifacts = append(artifacts, CompletePullArtifact{Path: mdRel, Data: md, Mode: 0o644, BestEffort: true})
 	meta := Meta{
 		ID: page.ID, Title: page.Title, Space: page.SpaceKey, Version: page.Version,
 		Hash: Hash(page.Body), Parent: page.Parent, Ancestors: page.Ancestors,
 		Labels: page.Labels, Updated: page.Updated, Restricted: page.Restricted, Refs: refs,
 	}
-	// Comment sidecars are written before the meta so a mid-write failure never
-	// leaves a meta claiming a comment count with no files behind it. The bytes
-	// are pure read-view data: Hash above is over page.Body alone, so drift/push
-	// gating is unaffected.
 	if cs != nil {
-		if err := m.writeCommentSidecar(dir, slug, cs.encoded, cs.display, mdOpts.CommentView); err != nil {
-			return "", err
+		commentsJSONRel, relErr := mirrorRelativePath(m.Root, filepath.Join(dir, slug+".comments.json"))
+		if relErr != nil {
+			return SyncState{}, nil, relErr
 		}
+		displayComments := cs.display
+		if mdOpts.CommentView != nil {
+			displayComments = mdOpts.CommentView
+		}
+		commentsMDRel, relErr := mirrorRelativePath(m.Root, filepath.Join(dir, slug+".comments.md"))
+		if relErr != nil {
+			return SyncState{}, nil, relErr
+		}
+		artifacts = append(artifacts,
+			CompletePullArtifact{Path: commentsJSONRel, Data: append([]byte(nil), cs.encoded...), Mode: 0o644},
+			CompletePullArtifact{Path: commentsMDRel, Data: RenderCommentsMarkdown(displayComments), Mode: 0o644, BestEffort: true},
+		)
 		meta.CommentsPulled = true
 		meta.CommentCount = len(cs.display)
 		meta.CommentsTruncated = cs.truncated
@@ -333,38 +389,45 @@ func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []
 			}
 		}
 	}
-	mb, _ := json.MarshalIndent(meta, "", "  ")
-	if err := safepath.WriteFileWithin(m.Root, filepath.Join(dir, slug+".meta.json"), append(mb, '\n'), 0o644); err != nil {
-		return "", err
+	mb, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return SyncState{}, nil, err
 	}
-	if err := m.saveBase(page.ID, page.Body); err != nil {
-		return "", err
+	metaRel, err := mirrorRelativePath(m.Root, filepath.Join(dir, slug+".meta.json"))
+	if err != nil {
+		return SyncState{}, nil, err
 	}
-	rel, _ = filepath.Rel(m.Root, csfPath)
-	return rel, nil
+	baseRel := filepath.ToSlash(filepath.Join(".atl", "base", safepath.Segment(page.ID)+".csf"))
+	artifacts = append(artifacts,
+		CompletePullArtifact{Path: metaRel, Data: append(mb, '\n'), Mode: 0o644},
+		CompletePullArtifact{Path: baseRel, Data: append([]byte(nil), page.Body...), Mode: 0o600},
+	)
+	return SyncState{ID: page.ID, Version: page.Version, Hash: Hash(page.Body), Path: csfRel}, artifacts, nil
 }
 
-// writeCommentSidecar writes the two per-page comment artifacts next to the page
-// files: <slug>.comments.json (primary; schema v2 for current pulls, with the
-// legacy flat array retained only by the compatibility helper) and
-// <slug>.comments.md (a derived human read view). The .md is purely derived
-// from the JSON and is not part of any parity contract. Neither file feeds the
-// content hash or .atl/base/.
-func (m *Mirror) writeCommentSidecar(dir, slug string, encoded []byte, comments, displayComments []domain.Comment) error {
-	if err := safepath.MkdirAllWithin(m.Root, dir, 0o755); err != nil {
-		return err
+// writePageFiles writes the page artifacts (.csf, .md view, .meta.json, base
+// copy) and returns the .csf path relative to the mirror root; sidecar state
+// is recorded by the caller. When cs is non-nil it also writes the comment
+// sidecar files and stamps the comment counters into .meta.json.
+func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []domain.Ref, cs *commentSidecar, mdOpts MDViewOpts) (rel string, err error) {
+	state, artifacts, err := m.preparePageFiles(dir, slug, page, refs, cs, mdOpts)
+	if err != nil {
+		return "", err
 	}
-	if err := safepath.WriteFileWithin(m.Root, filepath.Join(dir, slug+".comments.json"), encoded, 0o644); err != nil {
-		return err
+	for _, artifact := range artifacts {
+		target := filepath.Join(m.Root, filepath.FromSlash(artifact.Path))
+		if err := safepath.MkdirAllWithin(m.Root, filepath.Dir(target), 0o755); err != nil {
+			return "", err
+		}
+		if err := safepath.WriteFileWithin(m.Root, target, artifact.Data, artifact.Mode); err != nil {
+			if artifact.BestEffort {
+				_ = safepath.RemoveWithin(m.Root, target)
+				continue
+			}
+			return "", err
+		}
 	}
-	if displayComments == nil {
-		displayComments = comments
-	}
-	mdPath := filepath.Join(dir, slug+".comments.md")
-	if err := safepath.WriteFileWithin(m.Root, mdPath, RenderCommentsMarkdown(displayComments), 0o644); err != nil {
-		_ = safepath.RemoveWithin(m.Root, mdPath)
-	}
-	return nil
+	return filepath.FromSlash(state.Path), nil
 }
 
 func boolPointer(value bool) *bool { return &value }
@@ -579,6 +642,34 @@ func (b *SyncBatch) Flush() error {
 	clear(b.dirtyViews)
 	clear(b.dirtyStaged)
 	return nil
+}
+
+// FlushCompletePull adds the directory durability barrier required before a
+// complete-pull progress file may claim that this shared sidecar patch landed.
+// Ordinary callers retain Flush's existing byte and latency behavior.
+func (b *SyncBatch) FlushCompletePull(checkpoint CompletePullCheckpoint) error {
+	journal, found, err := b.m.loadCompletePullJournal(checkpoint.SelectorSHA256)
+	if err != nil {
+		return err
+	}
+	if !found {
+		if len(b.dirtyPages) == 0 && len(b.dirtyViews) == 0 && len(b.dirtyStaged) == 0 {
+			return nil
+		}
+		return fmt.Errorf("%w: complete-pull sidecar commit has no durable journal owner", domain.ErrCheckFailed)
+	}
+	if err := validateCompletePullJournal(journal, checkpoint); err != nil {
+		return err
+	}
+	if len(b.dirtyPages) != 0 || len(b.dirtyViews) != 0 || len(b.dirtyStaged) != 0 {
+		if err := b.m.mergeSidecarPatchOwned(b.dirtyPages, b.dirtyViews, b.dirtyStaged, completePullSidecarTemp(journal.WriteToken)); err != nil {
+			return err
+		}
+		clear(b.dirtyPages)
+		clear(b.dirtyViews)
+		clear(b.dirtyStaged)
+	}
+	return syncPublicationPath(b.m.Root, b.m.sidecarPath(), defaultCompletePullPublicationOps())
 }
 
 // EnsureScaffold writes a .gitignore guarding secrets in the mirror root.

@@ -154,11 +154,30 @@ func (m *Mirror) saveSidecar(sc sidecarFile) error {
 	return safepath.WriteFileWithin(m.Root, m.sidecarPath(), append(b, '\n'), 0o600)
 }
 
+func (m *Mirror) saveSidecarOwned(sc sidecarFile, tempBase string) error {
+	if err := safepath.MkdirAllWithin(m.Root, filepath.Dir(m.sidecarPath()), 0o755); err != nil {
+		return err
+	}
+	b, _ := json.MarshalIndent(sc, "", "  ")
+	return m.writeCompletePullOwned(m.sidecarPath(), tempBase, append(b, '\n'), 0o600)
+}
+
 // mergeSidecarPatch applies only the entries changed by one operation to the
 // latest state under a backend-neutral lock. Re-reading after lock acquisition
 // is essential: Jira and Confluence may share one mirror root and batches can
 // have been opened from the same old snapshot.
 func (m *Mirror) mergeSidecarPatch(pages map[string]SyncState, views map[string]ViewState, staged map[string]*StagedState) error {
+	return m.mergeSidecarPatchWithOwnedTemp(pages, views, staged, "")
+}
+
+func (m *Mirror) mergeSidecarPatchOwned(pages map[string]SyncState, views map[string]ViewState, staged map[string]*StagedState, tempBase string) error {
+	if !validCompletePullTempName(tempBase) {
+		return fmt.Errorf("%w: invalid complete-pull sidecar temporary-file ownership", domain.ErrCheckFailed)
+	}
+	return m.mergeSidecarPatchWithOwnedTemp(pages, views, staged, tempBase)
+}
+
+func (m *Mirror) mergeSidecarPatchWithOwnedTemp(pages map[string]SyncState, views map[string]ViewState, staged map[string]*StagedState, tempBase string) error {
 	if len(pages) == 0 && len(views) == 0 && len(staged) == 0 {
 		return nil
 	}
@@ -186,6 +205,9 @@ func (m *Mirror) mergeSidecarPatch(pages map[string]SyncState, views map[string]
 			return fmt.Errorf("%w: invalid staged lineage: %v", domain.ErrCheckFailed, err)
 		}
 		sc.Staged[id] = *state
+	}
+	if tempBase != "" {
+		return m.saveSidecarOwned(sc, tempBase)
 	}
 	return m.saveSidecar(sc)
 }

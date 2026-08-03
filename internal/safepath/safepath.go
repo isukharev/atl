@@ -144,7 +144,7 @@ func WriteFileAtomicPrivate(target string, data []byte, perm os.FileMode) error 
 		return err
 	}
 	defer func() { _ = r.Remove(tmpName) }()
-	if _, err := tmp.Write(data); err != nil {
+	if _, err := io.Copy(tmp, bytes.NewReader(data)); err != nil {
 		_ = tmp.Close()
 		return err
 	}
@@ -195,6 +195,64 @@ func MkdirAllWithin(root, target string, perm os.FileMode) error {
 func WriteFileWithin(root, target string, data []byte, perm os.FileMode) error {
 	_, err := WriteReaderAtomicWithin(root, target, bytes.NewReader(data), perm)
 	return err
+}
+
+// WriteFileOwnedAtomicWithin atomically replaces target through the exact
+// caller-declared sibling temp name. It is intentionally narrower than
+// WriteFileWithin: callers must first durably record ownership of tempBase and
+// reconcile any surviving file at that exact name. O_EXCL prevents an
+// unreviewed residue (or a symlink) from being reused implicitly.
+func WriteFileOwnedAtomicWithin(root, target, tempBase string, data []byte, perm os.FileMode) error {
+	unsafeRune := strings.IndexFunc(tempBase, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0
+	if tempBase == "" || tempBase == "." || tempBase == ".." || len(tempBase) > 128 || filepath.Base(tempBase) != tempBase || tempBase == filepath.Base(target) || strings.ContainsAny(tempBase, `/\\:`) || unsafeRune {
+		return fmt.Errorf("invalid owned temporary filename %q", tempBase)
+	}
+	rel, err := relativeToRoot(root, target)
+	if err != nil {
+		return err
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = r.Close() }()
+	if err := rejectSymlinkComponents(r, filepath.Dir(rel)); err != nil {
+		return err
+	}
+	parent := r
+	closeParent := false
+	dir, base := filepath.Dir(rel), filepath.Base(rel)
+	if dir != "." {
+		parent, err = r.OpenRoot(dir)
+		if err != nil {
+			return err
+		}
+		closeParent = true
+	}
+	if closeParent {
+		defer func() { _ = parent.Close() }()
+	}
+	tmp, err := parent.OpenFile(tempBase, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = parent.Remove(tempBase) }()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return parent.Rename(tempBase, base)
 }
 
 // WriteFileExclusiveWithin creates target beneath root without replacing an

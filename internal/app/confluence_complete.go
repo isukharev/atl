@@ -108,16 +108,25 @@ func (s *ConfluenceService) prepareCompletePull(ctx context.Context, m *mirror.M
 	if err != nil {
 		return nil, err
 	}
-	if found && !o.RestartComplete {
+	if found {
 		if checkpoint.Service != confluenceCompletePullService || checkpoint.SelectorSHA256 != selectorSHA256 {
 			return nil, fmt.Errorf("%w: complete-pull checkpoint does not match its selector", domain.ErrCheckFailed)
-		}
-		if checkpoint.OptionsSHA256 != optionsSHA256 {
-			return nil, fmt.Errorf("%w: complete-pull options changed since the checkpoint; rerun with the original assets/comments/render/Jira-view settings or pass --restart-complete after preserving local edits", domain.ErrCheckFailed)
 		}
 		selectionSHA256, hashErr := confluenceCompleteHashJSON(checkpoint.IDs)
 		if hashErr != nil || selectionSHA256 != checkpoint.SelectionSHA256 || !sort.StringsAreSorted(checkpoint.IDs) {
 			return nil, fmt.Errorf("%w: complete-pull checkpoint selection identity is invalid", domain.ErrCheckFailed)
+		}
+	}
+	if err := m.RecoverCompletePullPublication(selectorSHA256, checkpoint, found); err != nil {
+		return nil, err
+	}
+	checkpoint, err = m.RecoverCompletePullJournal(selectorSHA256, checkpoint, found)
+	if err != nil {
+		return nil, err
+	}
+	if found && !o.RestartComplete {
+		if checkpoint.OptionsSHA256 != optionsSHA256 {
+			return nil, fmt.Errorf("%w: complete-pull options changed since the checkpoint; rerun with the original assets/comments/render/Jira-view settings or pass --restart-complete after preserving local edits", domain.ErrCheckFailed)
 		}
 		return newCompleteSelection(checkpoint, "resumed", 0), nil
 	}
@@ -230,4 +239,18 @@ func (selection *confluenceCompleteSelection) save(m *mirror.Mirror) error {
 	}
 	selection.savedIndex = selection.nextIndex
 	return nil
+}
+
+// commit publishes the accepted journal prefix in the only safe cross-file
+// order: shared sidecar, checkpoint progress, then journal retirement.
+func (selection *confluenceCompleteSelection) commit(m *mirror.Mirror, batch *mirror.SyncBatch) error {
+	if err := batch.FlushCompletePull(selection.checkpoint); err != nil {
+		return err
+	}
+	if selection.nextIndex > selection.savedIndex {
+		if err := selection.save(m); err != nil {
+			return err
+		}
+	}
+	return m.RetireCompletePullJournal(selection.checkpoint)
 }
