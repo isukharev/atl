@@ -19,6 +19,8 @@ const (
 	classHeavy = "heavy"
 )
 
+var declaredPackagePatterns = []string{"./cmd/...", "./internal/...", "./scripts/..."}
+
 type options struct {
 	class  string
 	format string
@@ -69,15 +71,21 @@ func run(root string, arguments []string, output io.Writer) error {
 	if module == "" || strings.ContainsAny(module, " \t\r\n") {
 		return errors.New("go list returned an invalid module path")
 	}
-	listed, err := goOutput(absoluteRoot, "list", "-f", "{{.ImportPath}}", "./...")
+	listArguments := []string{"list", "-f", "{{.ImportPath}}"}
+	listArguments = append(listArguments, declaredPackagePatterns...)
+	listed, err := goOutput(absoluteRoot, listArguments...)
 	if err != nil {
 		return err
 	}
-	sets, err := classifyPackages(module, strings.Fields(listed))
+	listedPackages := strings.Fields(listed)
+	if err := verifyDeclaredPackageRoots(module, listedPackages); err != nil {
+		return err
+	}
+	sets, err := classifyPackages(module, listedPackages)
 	if err != nil {
 		return err
 	}
-	if err := verifyCoreBoundary(absoluteRoot, module, sets.Core); err != nil {
+	if err := verifyPackageBoundaries(absoluteRoot, module, sets); err != nil {
 		return err
 	}
 
@@ -97,6 +105,23 @@ func run(root string, arguments []string, output io.Writer) error {
 	}
 	_, err = fmt.Fprintln(output, strings.Join(packages, separator))
 	return err
+}
+
+func verifyDeclaredPackageRoots(module string, packages []string) error {
+	for _, root := range []string{"cmd", "internal", "scripts"} {
+		prefix := module + "/" + root
+		found := false
+		for _, packagePath := range packages {
+			if packagePath == prefix || strings.HasPrefix(packagePath, prefix+"/") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("go list declared root %q matched no Go packages", "./"+root+"/...")
+		}
+	}
+	return nil
 }
 
 func classifyPackages(module string, packages []string) (packageSets, error) {
@@ -157,16 +182,50 @@ func heavyPackageRoot(module, packagePath string) (string, bool) {
 	return "", false
 }
 
-func verifyCoreBoundary(root, module string, corePackages []string) error {
-	arguments := []string{"list", "-deps", "-test", "-f", "{{.ImportPath}}"}
-	arguments = append(arguments, corePackages...)
+func verifyPackageBoundaries(root, module string, sets packageSets) error {
+	classified := make(map[string]struct{}, len(sets.Core)+len(sets.Heavy))
+	for _, packagePath := range sets.Core {
+		classified[packagePath] = struct{}{}
+	}
+	for _, packagePath := range sets.Heavy {
+		classified[packagePath] = struct{}{}
+	}
+	if err := verifyPackageDependencies(root, module, "core", sets.Core, classified, true); err != nil {
+		return err
+	}
+	return verifyPackageDependencies(root, module, "heavy", sets.Heavy, classified, false)
+}
+
+func verifyPackageDependencies(
+	root, module, class string,
+	packages []string,
+	classified map[string]struct{},
+	rejectHeavy bool,
+) error {
+	// Exclude the rewritten package variants produced for in-package tests.
+	// Their ImportPath contains a bracketed display suffix; the ordinary package
+	// and every dependency still appear independently in this inventory.
+	arguments := []string{"list", "-deps", "-test", "-f", `{{if and .Module (eq .ForTest "")}}{{.ImportPath}}{{end}}`}
+	arguments = append(arguments, packages...)
 	output, err := goOutput(root, arguments...)
 	if err != nil {
 		return err
 	}
+	syntheticTests := make(map[string]struct{}, len(packages))
+	for _, packagePath := range packages {
+		syntheticTests[packagePath+".test"] = struct{}{}
+	}
 	for _, dependency := range strings.Fields(output) {
-		if heavyRoot, heavy := heavyPackageRoot(module, dependency); heavy {
+		if _, synthetic := syntheticTests[dependency]; synthetic {
+			continue
+		}
+		if heavyRoot, heavy := heavyPackageRoot(module, dependency); rejectHeavy && heavy {
 			return fmt.Errorf("core test dependency reaches heavy package %q", heavyRoot)
+		}
+		if dependency == module || strings.HasPrefix(dependency, module+"/") {
+			if _, known := classified[dependency]; !known {
+				return fmt.Errorf("%s test dependency %q is outside declared package roots", class, dependency)
+			}
 		}
 	}
 	return nil

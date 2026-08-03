@@ -11,6 +11,7 @@
 #   make check-context7-docs validate the public Context7 parsing/snippet boundary
 #   make check-onboarding-docs validate first-use links and offline command paths
 #   make check-maintainer-contract verify the exact Go maintainer toolchain
+#   make check-windows-compile verify Windows source cross-compilation
 #   make check-package-boundary verify the core/heavy dependency split
 #   make agent-eval-compat run the small product/evaluation compatibility gate
 #   make agent-eval-contract run the complete deterministic evaluation gate
@@ -107,6 +108,10 @@ check-onboarding-docs: build
 .PHONY: check-maintainer-contract
 check-maintainer-contract:
 	GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract
+
+.PHONY: check-windows-compile
+check-windows-compile:
+	GOROOT= GOTOOLCHAIN=auto GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...
 
 .PHONY: check-package-boundary
 check-package-boundary:

@@ -75,6 +75,9 @@ jobs:
           git diff --exit-code go.mod go.sum
       - name: Static CGO-free build
         run: CGO_ENABLED=0 go build ./...
+      - name: Windows source cross-compile
+        if: matrix.os == 'ubuntu-latest'
+        run: make check-windows-compile
 
   agent-eval:
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'

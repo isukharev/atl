@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -163,5 +164,119 @@ func TestRepositoryPackageBoundary(t *testing.T) {
 	if strings.Contains(output.String(), "/internal/agenteval") ||
 		strings.Contains(output.String(), "/scripts/agent-eval") {
 		t.Fatalf("core output contains heavy package:\n%s", output.String())
+	}
+}
+
+func TestRunIgnoresBrokenGoTreeOutsideDeclaredRoots(t *testing.T) {
+	root := writeGoListFixture(t)
+	writeFixtureFile(t, root, "foreign/broken.go", "this is not a Go package\n")
+
+	var output strings.Builder
+	if err := run(root, []string{"--class", "core"}, &output); err != nil {
+		t.Fatalf("run with broken foreign tree: %v", err)
+	}
+	if strings.Contains(output.String(), "/foreign") {
+		t.Fatalf("foreign package was discovered:\n%s", output.String())
+	}
+	for _, required := range []string{
+		"example.test/project/cmd/product",
+		"example.test/project/internal/product",
+		"example.test/project/scripts/tool",
+	} {
+		if !strings.Contains(output.String(), required) {
+			t.Errorf("core output does not contain %q:\n%s", required, output.String())
+		}
+	}
+}
+
+func TestRunReportsBrokenPackageUnderDeclaredRoot(t *testing.T) {
+	root := writeGoListFixture(t)
+	writeFixtureFile(t, root, "internal/broken/broken.go", "package broken\nimport (\n")
+
+	var output strings.Builder
+	err := run(root, []string{"--class", "core"}, &output)
+	if err == nil {
+		t.Fatal("broken declared-root package passed discovery")
+	}
+	if !strings.Contains(err.Error(), "go list -f {{.ImportPath}} ./cmd/... ./internal/... ./scripts/...") ||
+		!strings.Contains(err.Error(), "internal/broken") {
+		t.Fatalf("error lacks useful go-list context: %v", err)
+	}
+}
+
+func TestRunReportsMissingDeclaredRoot(t *testing.T) {
+	root := writeGoListFixture(t)
+	if err := os.RemoveAll(filepath.Join(root, "cmd")); err != nil {
+		t.Fatal(err)
+	}
+
+	var output strings.Builder
+	err := run(root, []string{"--class", "core"}, &output)
+	if err == nil {
+		t.Fatal("missing declared package root passed discovery")
+	}
+	if !strings.Contains(err.Error(), "go list -f {{.ImportPath}} ./cmd/... ./internal/... ./scripts/...") ||
+		!strings.Contains(err.Error(), "pattern ./cmd/...") || len(err.Error()) > commandStderrMaxBytes+256 {
+		t.Fatalf("error lacks useful missing-root context: %v", err)
+	}
+}
+
+func TestRunRejectsImportedModulePackageOutsideDeclaredRoots(t *testing.T) {
+	for name, importer := range map[string]string{
+		"core importer":  "internal/product/product.go",
+		"heavy importer": "internal/agenteval/agenteval.go",
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := writeGoListFixture(t)
+			writeFixtureFile(t, root, "pkg/escaped/escaped.go", "package escaped\n")
+			writeFixtureFile(t, root, importer, "package "+strings.TrimSuffix(filepath.Base(importer), ".go")+"\nimport _ \"example.test/project/pkg/escaped\"\n")
+
+			var output strings.Builder
+			err := run(root, []string{"--class", "core"}, &output)
+			if err == nil {
+				t.Fatal("imported module package outside declared roots passed classification")
+			}
+			if !strings.Contains(err.Error(), `test dependency "example.test/project/pkg/escaped" is outside declared package roots`) {
+				t.Fatalf("error lacks escaped dependency identity: %v", err)
+			}
+		})
+	}
+}
+
+func TestRunRejectsCoreDependencyOnHeavyPackage(t *testing.T) {
+	root := writeGoListFixture(t)
+	writeFixtureFile(t, root, "internal/product/product.go", "package product\nimport _ \"example.test/project/internal/agenteval\"\n")
+
+	var output strings.Builder
+	err := run(root, []string{"--class", "core"}, &output)
+	if err == nil || !strings.Contains(err.Error(), "core test dependency reaches heavy package") {
+		t.Fatalf("core-to-heavy dependency error=%v", err)
+	}
+}
+
+func writeGoListFixture(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	for name, contents := range map[string]string{
+		"go.mod":                          "module example.test/project\n\ngo 1.26.0\n",
+		"cmd/product/product.go":          "package product\n",
+		"internal/product/product.go":     "package product\n",
+		"internal/agenteval/agenteval.go": "package agenteval\n",
+		"scripts/agent-eval/agenteval.go": "package agenteval\n",
+		"scripts/tool/tool.go":            "package tool\n",
+	} {
+		writeFixtureFile(t, root, name, contents)
+	}
+	return root
+}
+
+func writeFixtureFile(t *testing.T, root, name, contents string) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(name))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

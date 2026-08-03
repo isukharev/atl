@@ -18,7 +18,6 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"syscall"
 )
 
 // ErrUnsafePrivatePath classifies a caller-selected private artifact path that
@@ -84,13 +83,13 @@ func Base(name string) (string, bool) {
 	return Segment(b), true
 }
 
-// WriteFile writes data to path like os.WriteFile but opens the final path
-// component with O_NOFOLLOW, so a symlink planted at that exact path cannot
-// redirect the write. This guards only the final component, not an intermediate
-// directory symlink; `atl` never creates symlinks under the mirror, so the
-// residual risk is a pre-existing on-disk symlink, never server-controlled data.
+// WriteFile writes data to path like os.WriteFile but refuses to follow a
+// symlink or reparse point planted at the final path component. This guards only
+// the final component, not an intermediate directory link; `atl` never creates
+// links under the mirror, so the residual risk is a pre-existing on-disk link,
+// never server-controlled data.
 func WriteFile(path string, data []byte, perm os.FileMode) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, perm)
+	f, err := openFileNoFollow(path, perm)
 	if err != nil {
 		return err
 	}

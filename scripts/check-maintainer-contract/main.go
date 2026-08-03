@@ -25,6 +25,11 @@ const (
 
 var exactGoVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 
+const windowsCompileMakeContract = `.PHONY: check-windows-compile
+check-windows-compile:
+	GOROOT= GOTOOLCHAIN=auto GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...
+`
+
 type devcontainerConfig struct {
 	Image        string                       `json:"image"`
 	RemoteUser   string                       `json:"remoteUser"`
@@ -177,6 +182,9 @@ func validateBootstrap(root string) error {
 	if !bytes.Contains(makefile, []byte(makeContract)) {
 		return errors.New("makefile maintainer check must start with GOTOOLCHAIN=local")
 	}
+	if !bytes.Contains(makefile, []byte(windowsCompileMakeContract)) {
+		return errors.New("makefile must provide the exact Windows source cross-compile target")
+	}
 	postCreate, err := os.ReadFile(filepath.Join(root, ".devcontainer", "post-create.sh"))
 	if err != nil {
 		return fmt.Errorf("read devcontainer post-create: %w", err)
@@ -192,7 +200,152 @@ func validateBootstrap(root string) error {
 	if !bytes.Contains(ci, []byte("run: make check-maintainer-contract")) {
 		return errors.New("ci must run make check-maintainer-contract")
 	}
+	return validateWindowsCompileWorkflow(ci)
+}
+
+func validateWindowsCompileWorkflow(contents []byte) error {
+	const requiredTriggers = `on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+`
+	triggerBlock, err := workflowTopLevelBlock(contents, "on")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(triggerBlock)) != strings.TrimSpace(requiredTriggers) {
+		return errors.New("ci workflow must retain the exact pull-request trigger contract")
+	}
+	testJob, err := workflowJob(contents, "test")
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(testJob), "\n")
+	requiredIfCount := 0
+	requiredRunnerCount := 0
+	matrixLine := -1
+	for index, line := range lines {
+		indent := indentation(line)
+		trimmed := strings.TrimSpace(line)
+		if indent == 6 && trimmed == "matrix:" {
+			if matrixLine >= 0 {
+				return errors.New("ci test job must define exactly one matrix")
+			}
+			matrixLine = index
+		}
+		if indent != 4 {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "if:") {
+			if trimmed != "if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'" {
+				return errors.New("ci test job must retain the exact required event condition")
+			}
+			requiredIfCount++
+		}
+		if strings.HasPrefix(trimmed, "runs-on:") {
+			if trimmed != "runs-on: ${{ matrix.os }}" {
+				return errors.New("ci test job must retain the exact matrix runner")
+			}
+			requiredRunnerCount++
+		}
+		if strings.HasPrefix(trimmed, "continue-on-error:") {
+			return errors.New("ci test job must not allow job-level failure")
+		}
+		if strings.HasPrefix(trimmed, "needs:") {
+			return errors.New("ci test job must not depend on a potentially skipped job")
+		}
+	}
+	if requiredIfCount != 1 || requiredRunnerCount != 1 || matrixLine < 0 {
+		return errors.New("ci test job must retain the exact required Ubuntu/macOS matrix")
+	}
+	hasRequiredOS := false
+	for _, line := range lines[matrixLine+1:] {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if indentation(line) <= 6 {
+			break
+		}
+		if indentation(line) != 8 || trimmed != "os: [ubuntu-latest, macos-latest]" || hasRequiredOS {
+			return errors.New("ci test job must retain the exact required Ubuntu/macOS matrix")
+		}
+		hasRequiredOS = true
+	}
+	if !hasRequiredOS {
+		return errors.New("ci test job must retain the exact required Ubuntu/macOS matrix")
+	}
+	const requiredStep = `      - name: Windows source cross-compile
+        if: matrix.os == 'ubuntu-latest'
+        run: make check-windows-compile
+`
+	stepStart := bytes.Index(testJob, []byte(requiredStep))
+	if stepStart < 0 {
+		return errors.New("ci Ubuntu test job must run make check-windows-compile")
+	}
+	stepEnd := len(testJob)
+	if nextStep := bytes.Index(testJob[stepStart+len(requiredStep):], []byte("      - ")); nextStep >= 0 {
+		stepEnd = stepStart + len(requiredStep) + nextStep
+	}
+	step := testJob[stepStart:stepEnd]
+	if bytes.Contains(step, []byte("continue-on-error:")) {
+		return errors.New("ci Windows source cross-compile step must not allow failure")
+	}
+	if bytes.Count(step, []byte("\n        if:")) != 1 || bytes.Count(step, []byte("\n        run:")) != 1 {
+		return errors.New("ci Windows source cross-compile step must retain one exact condition and command")
+	}
 	return nil
+}
+
+func workflowTopLevelBlock(contents []byte, name string) ([]byte, error) {
+	lines := strings.SplitAfter(string(contents), "\n")
+	start := -1
+	for index, line := range lines {
+		if strings.TrimSuffix(line, "\n") != name+":" {
+			continue
+		}
+		if start >= 0 {
+			return nil, fmt.Errorf("ci workflow defines %q more than once", name)
+		}
+		start = index
+	}
+	if start < 0 {
+		return nil, fmt.Errorf("ci workflow has no %q block", name)
+	}
+	end := len(lines)
+	for index := start + 1; index < len(lines); index++ {
+		line := strings.TrimSuffix(lines[index], "\n")
+		if strings.TrimSpace(line) != "" && indentation(line) == 0 {
+			end = index
+			break
+		}
+	}
+	return []byte(strings.Join(lines[start:end], "")), nil
+}
+
+func workflowJob(contents []byte, name string) ([]byte, error) {
+	lines := strings.SplitAfter(string(contents), "\n")
+	start := -1
+	for index, line := range lines {
+		if strings.TrimSuffix(line, "\n") == "  "+name+":" {
+			start = index
+			break
+		}
+	}
+	if start < 0 {
+		return nil, fmt.Errorf("ci workflow has no %q job", name)
+	}
+	end := len(lines)
+	for index := start + 1; index < len(lines); index++ {
+		line := strings.TrimSuffix(lines[index], "\n")
+		if strings.TrimSpace(line) != "" && strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "    ") {
+			end = index
+			break
+		}
+	}
+	return []byte(strings.Join(lines[start:end], "")), nil
 }
 
 func validateSetupGoWorkflow(contents []byte) error {

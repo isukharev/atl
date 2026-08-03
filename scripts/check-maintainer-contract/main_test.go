@@ -57,7 +57,17 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 		{name: "lock package version", path: ".devcontainer/devcontainer-lock.json", old: `"version": "` + goFeaturePackageVersion + `"`, replacement: `"version": "0.0.0"`, want: "reviewed"},
 		{name: "lock integrity", path: ".devcontainer/devcontainer-lock.json", old: `"integrity": "` + goFeatureDigest + `"`, replacement: `"integrity": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"`, want: "reviewed package digest"},
 		{name: "make automatic repair", path: "Makefile", old: "GOTOOLCHAIN=local", replacement: "GOTOOLCHAIN=auto", want: "must start with GOTOOLCHAIN=local"},
+		{name: "windows make target", path: "Makefile", old: "GOOS=windows", replacement: "GOOS=linux", want: "exact Windows source cross-compile target"},
 		{name: "ci literal", path: ".github/workflows/ci.yml", old: "go-version-file: go.mod", replacement: "go-version: '1.26.5'", want: "must not use a literal"},
+		{name: "windows ci step", path: ".github/workflows/ci.yml", old: "run: make check-windows-compile", replacement: "run: echo skipped", want: "Ubuntu test job must run"},
+		{name: "windows ci condition", path: ".github/workflows/ci.yml", old: "if: matrix.os == 'ubuntu-latest'", replacement: "if: matrix.os == 'macos-latest'", want: "Ubuntu test job must run"},
+		{name: "windows ci allowed failure", path: ".github/workflows/ci.yml", old: "run: make check-windows-compile", replacement: "run: make check-windows-compile\n        continue-on-error: true", want: "cross-compile step must not allow failure"},
+		{name: "windows ci expression allowed failure", path: ".github/workflows/ci.yml", old: "run: make check-windows-compile", replacement: "run: make check-windows-compile\n        continue-on-error: ${{ true }}", want: "cross-compile step must not allow failure"},
+		{name: "windows ci duplicate condition", path: ".github/workflows/ci.yml", old: "run: make check-windows-compile", replacement: "run: make check-windows-compile\n        if: false", want: "one exact condition and command"},
+		{name: "windows ci job allowed failure", path: ".github/workflows/ci.yml", old: "    runs-on: ${{ matrix.os }}", replacement: "    runs-on: ${{ matrix.os }}\n    continue-on-error: true", want: "job-level failure"},
+		{name: "windows ci excluded Ubuntu", path: ".github/workflows/ci.yml", old: "        os: [ubuntu-latest, macos-latest]", replacement: "        os: [ubuntu-latest, macos-latest]\n        exclude:\n          - os: ubuntu-latest", want: "exact required Ubuntu/macOS matrix"},
+		{name: "windows ci skipped dependency", path: ".github/workflows/ci.yml", old: "    runs-on: ${{ matrix.os }}", replacement: "    runs-on: ${{ matrix.os }}\n    needs: optional", want: "potentially skipped job"},
+		{name: "windows ci missing pull request trigger", path: ".github/workflows/ci.yml", old: "  pull_request:\n    branches: [main]", replacement: "  issues:\n    types: [opened]", want: "pull-request trigger contract"},
 		{name: "codeql version file", path: ".github/workflows/codeql.yml", old: "go-version-file: go.mod", replacement: "version-file: go.mod", want: "must use go-version-file"},
 	}
 	for _, test := range tests {
@@ -167,8 +177,15 @@ go run ./scripts/check-maintainer-contract
 `,
 		"Makefile": `check-maintainer-contract:
 	GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract
-`,
-		".github/workflows/ci.yml": `steps:
+` + windowsCompileMakeContract,
+		".github/workflows/ci.yml": `on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+steps:
   - uses: actions/setup-go@fixture
     with:
       go-version-file: go.mod
@@ -176,6 +193,20 @@ go run ./scripts/check-maintainer-contract
     run: make check-maintainer-contract
   - name: Build
     run: go build ./...
+jobs:
+  test:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Windows source cross-compile
+        if: matrix.os == 'ubuntu-latest'
+        run: make check-windows-compile
+      - name: Optional fixture step
+        continue-on-error: true
+        run: echo optional
 `,
 		".github/workflows/codeql.yml": `steps:
   - uses: actions/setup-go@fixture
