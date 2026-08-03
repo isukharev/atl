@@ -1,0 +1,4 @@
+interface:
+  display_name: "ATL development"
+  short_description: "Select safe ATL implementation and test steps."
+  default_prompt: "Use $atl-develop to implement and verify this ATL repository change."

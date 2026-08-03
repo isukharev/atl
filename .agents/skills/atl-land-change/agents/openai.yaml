@@ -1,0 +1,4 @@
+interface:
+  display_name: "ATL change landing"
+  short_description: "Carry an ATL issue and PR safely to merge."
+  default_prompt: "Use $atl-land-change to land the current ATL issue through review and CI."

@@ -100,10 +100,11 @@ material. The old `usage.md` and `OUTPUT_CONTRACT.md` paths remain excluded
 compatibility indexes so retrieval never sees forwarding prose beside the
 canonical contract.
 
-The index intentionally excludes `docs/proposals/` and `docs/superpowers/`:
-they describe historical or prospective designs and can conflict with the
-shipped CLI contract. Promote durable behavior into the focused CLI/output
-trees or another maintained reference before expecting an agent to use it.
+The index intentionally excludes `docs/proposals/`, `docs/superpowers/`, and
+`docs/maintainers/`: the first two can conflict with the shipped CLI contract,
+while maintainer runbooks describe repository development rather than installed
+ATL behavior. Promote durable user behavior into the focused CLI/output trees
+or another maintained runtime reference before expecting retrieval to use it.
 
 Before merging an indexed documentation change, run:
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "ATL work recovery"
+  short_description: "Resume ATL work after context or session loss."
+  default_prompt: "Use $atl-resume-work to recover the active ATL task from repository state."

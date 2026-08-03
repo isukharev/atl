@@ -157,7 +157,7 @@ func approvedMarkdownPath(path string) bool {
 		return true
 	}
 	for _, prefix := range []string{
-		".github/", "benchmarks/agent-eval/", "docs/", "internal/cli/testdata/",
+		".agents/skills/", ".github/", "benchmarks/agent-eval/", "docs/", "internal/cli/testdata/",
 		"plugins/atl/skills/", "skills-src/", "skills/",
 	} {
 		if strings.HasPrefix(path, prefix) {
@@ -261,7 +261,7 @@ func validateExclusionRule(root string, rule exclusionRule) (string, error) {
 	if (rule.Path == "") == (rule.Prefix == "") {
 		return "", errors.New("exactly one of path or prefix is required")
 	}
-	if !oneOf(rule.Reason, "template", "benchmark-material", "client-skill-source", "generated-client-skill", "testdata") {
+	if !oneOf(rule.Reason, "template", "benchmark-material", "client-skill-source", "generated-client-skill", "repository-maintainer-skill", "testdata") {
 		return "", errors.New("reason is not in the closed exclusion vocabulary")
 	}
 	if rule.Path != "" {
