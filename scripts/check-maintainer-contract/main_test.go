@@ -94,11 +94,13 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 		{name: "coverage checker", path: "Makefile", old: "go run ./scripts/check-coverage --profile cover.out", replacement: "echo coverage", want: "core race/coverage command"},
 		{name: "onboarding update opt out", path: "Makefile", old: "ATL_NO_UPDATE=1 go run ./scripts/check-onboarding-docs", replacement: "go run ./scripts/check-onboarding-docs", want: "onboarding binary assertion must set ATL_NO_UPDATE=1"},
 		{name: "documentation catalog make gate", path: "Makefile", old: "go run ./scripts/check-docs-catalog -root .", replacement: "echo skipped", want: "exact documentation-catalog gate"},
+		{name: "repository skills make gate", path: "Makefile", old: "go run ./scripts/check-repository-skills -root .", replacement: "echo skipped", want: "exact repository-skills gate"},
 		{name: "reference split make gate", path: "Makefile", old: "go run ./scripts/check-reference-split -root .", replacement: "echo skipped", want: "exact reference-split compatibility gate"},
 		{name: "ci core gate", path: ".github/workflows/ci.yml", old: "run: make check-core-race-coverage", replacement: "run: make race", want: "exact required workflow block"},
 		{name: "ci core gate quoted condition", path: ".github/workflows/ci.yml", old: "run: make check-core-race-coverage", replacement: "run: make check-core-race-coverage\n        'if': false", want: "exact required workflow block"},
 		{name: "ci provenance update opt out", path: ".github/workflows/ci.yml", old: "ATL_NO_UPDATE=1 ./atl version", replacement: "./atl version", want: "exact required workflow block"},
 		{name: "ci documentation catalog gate", path: ".github/workflows/ci.yml", old: "run: make check-docs-catalog", replacement: "run: echo skipped", want: "exact required workflow block"},
+		{name: "ci repository skills gate", path: ".github/workflows/ci.yml", old: "run: make check-repository-skills", replacement: "run: echo skipped", want: "exact required workflow block"},
 		{name: "ci reference split gate", path: ".github/workflows/ci.yml", old: "run: make check-reference-split", replacement: "run: echo skipped", want: "exact required workflow block"},
 		{name: "ci provenance command only inert heredoc content", path: ".github/workflows/ci.yml", old: "          ATL_NO_UPDATE=1 ./atl version > \"$RUNNER_TEMP/atl-version.json\"", replacement: "          cat <<'EOF'\n          ATL_NO_UPDATE=1 ./atl version > \"$RUNNER_TEMP/atl-version.json\"\n          EOF", want: "exact required workflow block"},
 		{name: "release tag trigger", path: ".github/workflows/release.yml", old: "tags: ['v*']", replacement: "branches: [main]", want: "exact v* tag trigger"},
@@ -113,6 +115,7 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 		{name: "release package gate", path: ".github/workflows/release.yml", old: "run: make check-package-boundary", replacement: "run: echo skipped", want: "exact required workflow block"},
 		{name: "release plugin gate", path: ".github/workflows/release.yml", old: "run: make check-plugins", replacement: "run: echo skipped", want: "exact required workflow block"},
 		{name: "release documentation catalog gate", path: ".github/workflows/release.yml", old: "run: make check-docs-catalog", replacement: "run: echo skipped", want: "exact required workflow block"},
+		{name: "release repository skills gate", path: ".github/workflows/release.yml", old: "run: make check-repository-skills", replacement: "run: echo skipped", want: "exact required workflow block"},
 		{name: "release reference split gate", path: ".github/workflows/release.yml", old: "run: make check-reference-split", replacement: "run: echo skipped", want: "exact required workflow block"},
 		{name: "release context7 gate", path: ".github/workflows/release.yml", old: "run: make check-context7-docs", replacement: "run: echo skipped", want: "exact required workflow block"},
 		{name: "release onboarding gate", path: ".github/workflows/release.yml", old: "run: make check-onboarding-docs", replacement: "run: echo skipped", want: "exact required workflow block"},
@@ -263,7 +266,7 @@ go run ./scripts/check-maintainer-contract
 `,
 		"Makefile": `check-maintainer-contract:
 	GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract
-` + windowsCompileMakeContract + coreCoverageMakeContract + packageBoundaryMakeContract + pluginsMakeContract + docsCatalogMakeContract + referenceSplitMakeContract + context7MakeContract + onboardingMakeContract + agentEvalRaceMakeContract,
+` + windowsCompileMakeContract + coreCoverageMakeContract + packageBoundaryMakeContract + pluginsMakeContract + docsCatalogMakeContract + repositorySkillsMakeContract + referenceSplitMakeContract + context7MakeContract + onboardingMakeContract + agentEvalRaceMakeContract,
 		".github/workflows/ci.yml": `name: ci
 on:
   push:
@@ -328,6 +331,8 @@ jobs:
         run: make check-plugins
       - name: Documentation catalog
         run: make check-docs-catalog
+      - name: Repository maintainer skills
+        run: make check-repository-skills
       - name: Reference split compatibility
         run: make check-reference-split
       - name: Indexed documentation contract
@@ -385,6 +390,8 @@ jobs:
         run: make check-plugins
       - name: Documentation catalog
         run: make check-docs-catalog
+      - name: Repository maintainer skills
+        run: make check-repository-skills
       - name: Reference split compatibility
         run: make check-reference-split
       - name: Indexed documentation contract

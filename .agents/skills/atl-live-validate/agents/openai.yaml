@@ -1,0 +1,4 @@
+interface:
+  display_name: "ATL live validation"
+  short_description: "Plan safe Jira or Confluence live validation."
+  default_prompt: "Use $atl-live-validate to validate this change against a configured live backend."

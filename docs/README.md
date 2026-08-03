@@ -101,6 +101,7 @@ but do not replace it.
 | [Repository standards map](../STANDARDS.md) | Authority and routing among maintainer documents |
 | [Agent operating contract](../AGENTS.md) | Repository safety, ownership, workflow, and architecture invariants |
 | [Claude Code overlay](../CLAUDE.md) | Claude-specific execution guidance subordinate to `AGENTS.md` |
+| [Maintainer workflows](maintainers/README.md) | Preflight, verification, landing, recovery, and live-validation runbooks |
 | [Architecture](architecture.md) | Hexagonal layers, dependency rules, and extension points |
 | [Issue and PR workflow](github-issue-workflow.md) | Issue-first planning, linked branches, review, and handoff |
 | [Generated plugins](plugins.md) | `skills-src` source of truth and Claude Code/Codex plugin generation |

@@ -18,6 +18,8 @@ weaken that contract.
 |---|---|
 | Contributor setup and pull-request expectations | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | Agent authority, repository safety, and non-negotiable invariants | [AGENTS.md](AGENTS.md) |
+| Maintainer preflight, verification, landing, recovery, and live validation | [docs/maintainers/README.md](docs/maintainers/README.md) |
+| Repository-scoped Codex workflow skills | [.agents/skills/catalog.v1.json](.agents/skills/catalog.v1.json) and `make check-repository-skills` |
 | Architecture and extension points | [docs/architecture.md](docs/architecture.md) |
 | CLI usage and flags | [docs/reference/cli/README.md](docs/reference/cli/README.md) |
 | Output schemas, exit classes, and recovery | [docs/reference/output/README.md](docs/reference/output/README.md) |

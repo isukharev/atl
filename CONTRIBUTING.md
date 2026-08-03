@@ -108,8 +108,10 @@ make check-reference-split
 Provider-specific overlays do not replace it. The
 [documentation index](docs/README.md#maintainers) routes to architecture,
 issue/PR lifecycle, generated plugins, releases, documentation indexing, and
-evaluation operations. [`STANDARDS.md`](STANDARDS.md) explains which document
-owns each maintainer topic so policy is updated in one place.
+evaluation operations. The focused [maintainer workflows](docs/maintainers/README.md)
+cover preflight, verification, landing, recovery, and live validation.
+[`STANDARDS.md`](STANDARDS.md) explains which document owns each maintainer topic
+so policy is updated in one place.
 
 ---
 

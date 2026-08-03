@@ -1,21 +1,106 @@
 # Agent workflow for atl
 
-This file is the binding cross-agent operating guide for work in this
-repository. Provider-specific instruction files may add execution guidance but
-must not replace or weaken the invariants defined here.
+This is the binding cross-agent contract for repository work. Provider-specific
+files may add execution guidance but cannot replace or weaken these rules.
+Repeatable procedure lives in [maintainer runbooks](docs/maintainers/README.md),
+and focused Codex workflows live in `.agents/skills/`.
 
-## Project shape
+## Product invariants
 
-`atl` is a single static Go binary: a Git-style CLI that mirrors Confluence
-pages and Jira issues to disk in their native storage formats (Confluence
-Storage Format `.csf`; Jira wiki). The `.csf` bytes are the write substrate:
-never convert bodies through Markdown on the remote write path. Mirror `.md`
-files are derived staging views regenerated best-effort; supported edits may be
-spliced into the native substrate only through explicit `conf apply` or
-`jira apply`. The Markdown file itself is never sent to a backend, and render
-failures must not fail a pull.
+`atl` is one static Go CLI that mirrors Confluence pages and Jira issues in
+their native storage formats: Confluence Storage Format (`.csf`) and Jira wiki.
 
-Core commands:
+- Native bytes are the remote write substrate. Never convert a whole body
+  through Markdown on a write path.
+- Mirror `.md` files are derived staging views. Supported edits enter native
+  bytes only through explicit `conf apply` or `jira apply`; Markdown itself is
+  never sent to a backend.
+- Render failures are best-effort and must not fail a pull.
+- JSON is the default stdout contract. Human text requires an explicit output
+  mode; logs and errors go to stderr; commands remain non-interactive.
+- Sentinel errors wrap with `%w` so the CLI preserves stable exit classes.
+- Confluence writes use optimistic version gates. A post-write mirror refresh
+  failure is a warning, not proof that the remote write failed.
+
+Read [architecture](docs/architecture.md), [safe writes](docs/safe-writes.md),
+and the focused [CLI](docs/reference/cli/README.md) and
+[output](docs/reference/output/README.md) references for detailed contracts.
+
+## Authority and ownership
+
+The root agent owns the plan, design, final integrated diff, external state,
+and verification. Work directly when the task is short or tightly coupled.
+Delegate only concrete bounded work that can proceed independently.
+
+- A worker is subordinate only when its brief says so. Omitted edit authority
+  means read-only. Workers do not delegate, push, mutate issues/PRs, merge,
+  release, or make authenticated backend writes unless the brief authorizes the
+  exact action.
+- Give workers the objective, allowed files, invariants, non-goals, expected
+  output, focused verification, and branch/worktree ownership. One agent owns
+  each overlapping file set.
+- Give workers no transcript or only the smallest recent context by default;
+  include full history only when irreducible state cannot be summarized safely.
+  Reuse a worker only while its bounded context remains current; otherwise use
+  a fresh brief.
+- The root inspects every result. A worker report is evidence, not proof.
+- A worker's final report names its outcome, findings, verification actually
+  run, files changed when authorized, and unfinished or blocked scope.
+- Independent review is read-only and covers the integrated diff. Findings use
+  file/line evidence; the reviewer does not fix the code under review.
+- Preserve all pre-existing worktree state. Never stash, reset, clean, discard,
+  overwrite, commit, or absorb unrelated changes.
+- Do not infer write, cleanup, deletion, release, archive, benchmark, or merge
+  authority from credentials, old approvals, issue labels, or a prior task.
+
+The git author email must remain `ivan7654@gmail.com` and local
+`user.useConfigOnly` must remain `true`. Stop before publishing if another
+identity appears in the pending history.
+
+## Architecture boundary
+
+Preserve the ports-and-adapters dependency direction:
+
+- `internal/domain`: types, ports, registry contracts, sentinels; imports no
+  other ATL package.
+- `internal/adapter/{confluence,jira}`: REST adapters; HTTP only through
+  `internal/httpx`; native bodies pass verbatim.
+- `internal/app`: transport-agnostic use cases and assembly; no Cobra or stdin.
+- `internal/cli`: thin parsing/emission layer; never imports adapters.
+- `internal/csf` and `internal/fragment`: read-only CSF parsing and resolution.
+- `internal/mirror`: backend-agnostic layout, sidecars, baselines, dirty/drift,
+  and durable local writes.
+
+Adapters and CLI never import each other. Prefer existing ports and service
+patterns over cross-layer shortcuts.
+
+## Security and write safety
+
+- PATs are host-scoped. Refuse cross-host and scheme-downgrade redirects; never
+  follow a redirect from a mutating request.
+- Generic retries are for replay-safe reads only. A non-replay-safe request is
+  single-attempt unless an explicit reviewed plan proves a bounded retry safe.
+- Backend URLs require HTTPS except loopback or an explicitly trusted internal
+  run with `ATL_ALLOW_INSECURE=1`.
+- Server-controlled paths use existing safe-path and containment helpers.
+- Stdin bodies are capped at 64 MiB and fail rather than truncate.
+- CSF parsing is byte-stable and read-only. Validation errors gate pushes;
+  warnings are advisory. Fragment resolution remains best-effort.
+- Security tests prove the intended control—not an incidental parser failure—
+  rejects the adversarial case.
+- A change to durable derived-view bytes requires marker review, migration and
+  apply diagnostics, plus current/legacy/unversioned/future tests.
+
+Mirror roots, baselines, pull bounds, auth precedence, and self-update details
+are canonical in the focused references. Do not reconstruct them from memory.
+
+## Development and verification
+
+Start with the read-only preflight and check-selection table in
+[Development and verification](docs/maintainers/development.md). Requires the
+exact Go patch declared by `go.mod` (currently 1.26.5+).
+
+Core gates:
 
 ```sh
 make build
@@ -23,338 +108,86 @@ make test
 make race
 make lint
 make vet
-go test ./internal/csf/ -run TestParse
 ```
 
-For CLI changes, run focused tests first (`go test ./internal/app
-./internal/cli` or touched packages), then `make test`. Live integration tests
-are opt-in through `.env.integration` and `ATL_INTEGRATION=1`; keep backend URLs,
-PATs, and live fixture values out of the repo. Use `make integration` for
-app-level live checks and `make live-smoke` for CLI-level fixture checks when
-relevant. Requires Go 1.26.5+.
+- Tests live beside code. Prefer `httptest`, `t.Setenv`, `t.TempDir`, and stable
+  fixtures. Never combine `t.Parallel` with `t.Setenv`.
+- Fuzz server-controlled bytes and add regression seeds/crash corpus when
+  fixing parser, path, mirror, or transport ingestion bugs.
+- CLI changes update focused app/CLI tests, golden output, and the sentinel exit
+  matrix as applicable, then run `make test`.
+- Iterate with focused checks. Once stable, run required full gates once. Rerun
+  affected full gates after a material fix, not after unchanged review nits.
+- One independent review is the default. Add a bounded follow-up after a
+  material correctness/security finding or design change.
+- Run a privacy scan over the complete public diff before every public commit
+  or PR.
 
-## Agent operating model
+Live tests are opt-in through the ignored integration environment. Follow
+[Live validation](docs/maintainers/live-validation.md); begin read-only, keep
+values private, and require an exact owned-target plan plus explicit authority
+before a live write or cleanup.
 
-The root agent owns the plan, integration decisions, final diff, and final
-verification. Work directly when a task is short, sequential, or depends on the
-same files and reasoning throughout. Delegate only concrete, bounded work that
-can proceed independently, such as disjoint implementation areas, read-only
-research, or an independent review of an integrated diff. Delegation is not a
-substitute for understanding the result.
+## Documentation and skills
 
-Give a worker the smallest context that lets it succeed. When the agent tooling
-supports history forking, default to no inherited transcript or a small recent
-window. Full-transcript inheritance is opt-in and should be used only when the
-worker genuinely needs conversational state that cannot be summarized safely.
-Every worker brief should state:
+User-facing CLI changes update in the same PR:
 
-- the objective and why the work is needed;
-- the allowed files or subsystem and whether edits are permitted;
-- relevant invariants, privacy boundaries, and explicit non-goals;
-- expected output or acceptance criteria;
-- focused verification commands;
-- branch/worktree ownership and any concurrent work to avoid.
+- `README.md` and the corresponding `README.ru.md` section when present;
+- the canonical owner under `docs/reference/cli/`;
+- `docs/reference/output/` when output shape or recovery changes;
+- `CHANGELOG.md` when user-visible;
+- relevant `skills-src/*/SKILL.md` client behavior.
 
-A session is a delegated worker only when the root's brief explicitly assigns
-that subordinate role. A worker operates one level below the root and must not
-delegate again, start background agents, or invoke another agent or model-review
-process. If the work needs splitting or the brief is insufficient, report that
-to the root instead of widening or narrowing scope. Treat omitted edit
-authority as read-only.
+`skills-src/` is the source of truth for shipped client skills. `skills/` and
+`plugins/atl/skills/` are generated: never edit them by hand. Run
+`make gen-plugins` and commit all generated trees. Plugin manifest versions move
+only in release prep, in lockstep with the CLI version.
 
-Workers do not own repository integration or outward-facing state. Unless the
-brief authorizes the exact action, do not push, mutate issues/PRs/comments or
-labels, create tags or releases, merge, or make authenticated live-backend
-mutations. Read-only use is allowed when the brief places that backend in
-scope. Authority for one action does not carry to another task. The root owns
-those decisions and the final integrated state.
+`.agents/skills/` contains repository-maintenance skills. It is deliberately
+separate from shipped client skills and must never enter generated plugin trees.
 
-Preserve pre-existing worktree state. Inspect and report it before acting, edit
-only the allowed files, and never stash, reset, clean, discard, overwrite,
-commit, or otherwise absorb unrelated user changes.
+`docs/usage.md` and `docs/OUTPUT_CONTRACT.md` are generated compatibility
+indexes. Edit focused owners, update the split map for a destination move, and
+run `make check-reference-split`. Historical headings are immutable.
 
-Keep parallel waves bounded and give every overlapping file set a single
-implementation owner. Prefer parallel read-only analysis or disjoint edits over
-multiple workers modifying the same files. The root must inspect and reconcile
-worker changes; a worker report is evidence, not proof that the shared worktree
-is correct. Reuse a worker for a closely related follow-up when its context is
-still accurate, but start a fresh bounded context when the scope or assumptions
-have materially changed.
+Every maintained public Markdown file is registered in `docs/catalog.v1.json`.
+Context7-selected runtime docs require a real named fenced example. Run the
+documentation checks named in the maintainer runbook; regenerate navigation
+after changing headings in a large focused reference.
 
-Review the integrated diff, not a collection of stale intermediate snapshots.
-One independent review pass is the normal default. Add another pass when the
-first review finds material issues, the fix changes the design or a security
-boundary, or repository policy explicitly requires it. Run focused tests while
-iterating, then the required full gates once the diff is stable; rerun affected
-full gates after material fixes instead of repeatedly testing unchanged code.
+## Public workflow and privacy
 
-Long-running roots must keep durable state outside the transcript. Maintain the
-active issue and plan, and leave a checkpoint at safe issue or PR boundaries
-that records completed work, the current branch/worktree and dirty state,
-verification already run, remaining steps, and important constraints. Move to
-a fresh root session when repeated context compaction or obsolete history makes
-the transcript more costly than that checkpoint. Do not hand off in the middle
-of an unrecorded edit, destructive operation, release, or remote write.
+Non-trivial work is issue-first. Before code: find/create a generic issue,
+comment an agent plan, set labels, and create the linked branch. Open a small
+draft PR, include verification and privacy review, wait for hosted CI, and close
+through merge. Follow [Landing a change](docs/maintainers/landing-a-change.md)
+and [GitHub issue workflow](docs/github-issue-workflow.md).
 
-An independent review assignment is read-only: review the integrated diff,
-report findings with file/line evidence, and do not fix the code under review.
-A worker's final report should state the outcome, findings ordered by severity,
-verification actually run, files changed when edits were authorized, and any
-unfinished or blocked scope. The root rechecks the diff and runs the required
-full gates before completion.
+- Never publish credentials, private hostnames, IDs, titles, fields, values,
+  proprietary content, private evidence, screenshots, internal roadmap IDs, or
+  owner-only planning paths/files.
+- Use generic public wording such as “configured fixture”, “backend”, “custom
+  field”, or “multi-table page”.
+- Owner-private planning/evidence stays ignored, unmoved, and unreferenced from
+  public artifacts. Historical evidence is not deleted without separate
+  authority.
+- Never merge a PR authored by anyone other than `isukharev` unless
+  `isukharev` explicitly authorizes that exact PR. Green CI is not authority.
+- Remove `agent-working` after the issue closes. Do not close an issue merely
+  because a local patch exists.
 
-## Architecture invariants
+## Long-running work and handoff
 
-The codebase follows hexagonal architecture. Preserve the dependency rule:
+Use [Session recovery](docs/maintainers/session-recovery.md) after compaction,
+interruption, or uncertain state. Current repository/issue facts outrank
+transcript memory and historical checkpoints.
 
-- `internal/domain` is the hub. It defines ports, `Resource`/`Ref`, registry
-  ports, and sentinel errors. It imports nothing from the rest of the tree.
-- `internal/adapter/{confluence,jira}` implement REST adapters. HTTP goes
-  through `internal/httpx`; bodies are passed verbatim.
-- `internal/app` contains transport-agnostic use cases and assembly in
-  `wire.go`. No cobra, stdin, or filesystem beyond mirror operations.
-- `internal/cli` is a thin cobra layer: parse flags, call one use case, emit,
-  return error.
-- `internal/csf` is read-only parsing and validation for Confluence Storage
-  Format.
-- `internal/fragment` extracts and resolves opaque CSF fragments.
-- `internal/mirror` owns on-disk layout, sidecars, baselines, and dirty/drift
-  detection. It is backend-agnostic.
+Maintain durable state outside the transcript. At safe issue/PR boundaries
+record HEAD/base, branch/worktree and dirty ownership, completed verification,
+next acceptance criterion, blockers, and all active authorities. Do not hand off
+mid-edit, mid-write, mid-deletion, mid-release, or with an unreconciled outcome.
 
-Adapters and CLI never import each other. Prefer existing ports and service
-patterns over introducing cross-layer shortcuts.
-
-## Correctness rules
-
-- Sentinel errors drive exit codes. Lower layers wrap with `fmt.Errorf("%w:
-  ...", domain.ErrXxx)` so `errors.Is` maps usage/auth/not found/version
-  conflict/forbidden/config/check failure correctly.
-- Output is JSON by default. `emit(cmd, v, textFn)` writes indented,
-  HTML-unescaped JSON unless `-o text` and a non-nil text renderer are both
-  present. Logs and errors go to stderr; commands are non-interactive.
-- Confluence updates use an optimistic version gate. `--force` re-reads current
-  state and targets `current+1`; post-push mirror refresh failures are warnings,
-  not hard failures.
-- PATs are host-scoped. `httpx` only sends bearer tokens to the configured host,
-  refuses cross-host or scheme-downgrade redirects, and never follows a
-  redirect from a mutating request.
-- Backend URLs must be https except loopback or trusted internal runs with
-  `ATL_ALLOW_INSECURE=1`.
-- CSF parsing must be byte-stable and read-only. Validation errors gate pushes;
-  warnings are advisory.
-- Fragment resolution never fails a pull. Unresolved refs keep raw display or
-  empty assets.
-- Stdin bodies are capped at 64 MiB and rejected with usage errors when larger.
-
-## Mirror and config rules
-
-- Ordinary `conf pull --cql` caps at 1000 pages and reports truncation. Explicit
-  two-pass `--complete` snapshots bypass the ordinary selector caps;
-  `--max-pages 0` removes their configured page cap but not their identity,
-  checkpoint, transport, or durability guards. Jira aggregate `pull --limit 0`
-  paginates to exhaustion subject to its documented safety caps.
-- Mirror roots are auto-detected by walking up to 12 levels for `.atl`; if none
-  is found, commands default to `mirror`.
-- Drift requires a synced baseline. Dirty detection is content-hash based, not
-  timestamp based.
-- Slugs must remain unicode-safe and path-safe. Server-controlled path
-  components go through the existing safe path helpers.
-- PAT resolution is environment first, then host-scoped credentials under the
-  ATL config dir. Env URLs overlay config-file URLs.
-- Self-update is best-effort before subcommands, skipped for dev/empty versions
-  or `ATL_NO_UPDATE`, and must verify signatures and hashes before trusting
-  downloaded content.
-
-## Testing and docs
-
-- Tests live alongside code in the same package. Use `httptest`, `t.Setenv`,
-  `t.TempDir`, and stable fixtures. Do not combine `t.Parallel` with
-  `t.Setenv`.
-- Fuzz code that ingests server-controlled bytes, especially `internal/csf`,
-  `internal/safepath`, and `internal/mirror`. Add seeds for regressions.
-- CLI output is a contract. Golden tests in `internal/cli/testdata/golden/` and
-  the sentinel exit-code matrix must be updated when output or sentinels change.
-- User-facing CLI changes must update public docs and shipped client skills in
-  the same PR: `README.md`, `README.ru.md` when applicable, the canonical owner
-  under `docs/reference/cli/`, the relevant `docs/reference/output/` owner for
-  output shape changes, and the relevant
-  `skills-src/*/SKILL.md`. `skills/` and `plugins/atl/skills/` are **generated**
-  from `skills-src/` by `make gen-plugins` — never edit them by hand; regenerate
-  and commit all three trees together (see `docs/plugins.md`).
-- `docs/usage.md` and `docs/OUTPUT_CONTRACT.md` are generated compatibility
-  indexes. Never put canonical prose there. Edit the matching owner under
-  `docs/reference/cli/` or `docs/reference/output/`; when a published heading
-  moves, update `docs/reference/split-map.v1.json`, regenerate with
-  `go run ./scripts/check-reference-split -root . -write`, and run
-  `make check-reference-split`.
-- Plugin manifest versions (`.claude-plugin/plugin.json`,
-  `plugins/atl/.codex-plugin/plugin.json`) are bumped only in the release prep
-  commit, in lockstep with the CLI version — never in a feature PR.
-- Security-boundary tests should prove the guarantee fails when the control is
-  removed, not because of incidental parse or fixture failures.
-- Any change to bytes emitted inside a durable derived view requires an explicit
-  document-format marker review. If existing pristine views would reconstruct
-  differently, bump the marker, add render migration and apply diagnostics, and
-  test current, legacy, unversioned, and future-marker behavior.
-- Context7-selected runtime documentation must contain at least one real,
-  non-empty language-tagged fenced example. Run `make check-context7-docs` when
-  adding root Markdown, changing `context7.json`, or editing the indexed corpus.
-  Run `make update-reference-navigation` after changing headings in a canonical
-  reference of 300 lines or more.
-- Private model-in-the-loop benchmarks use the marked lifecycle in
-  `docs/agent-benchmark-private-workspace.md`. If
-  `ATL_AGENT_EVAL_PRIVATE_ROOT` is configured, start with `agent-eval private
-  status`/`doctor`; do not enumerate raw cases or transcripts, construct ad-hoc
-  `/tmp` output roots, infer consent, or publish private artifacts. Real
-  workspace files stay ignored and owner-only.
-- Keep PRs small; commit subjects use `<type>: <summary>`.
-
-## GitHub tracking
-
-Non-trivial work should be visible in GitHub before code changes start. A task is
-non-trivial when it changes user-facing behavior, public docs, CLI output, release
-process, architecture, security posture, or more than one small implementation
-detail.
-
-Trivial typo fixes, mechanical formatting, local experiments, and explicitly
-private/security-sensitive work may skip public issue creation.
-
-The workflow is intentionally issue-first and does not depend on GitHub Projects.
-Issues, parent/sub-issues, labels, comments, linked branches, and PR links provide
-enough traceability without heavy GraphQL usage.
-
-### Standard flow
-
-1. Find or create a GitHub issue for the task.
-2. Link it to a parent roadmap or quarterly initiative issue when one exists.
-3. Add labels for area/kind/roadmap horizon and agent state.
-4. Comment with the agent plan before editing code.
-5. Create or use a linked branch.
-6. Implement the change.
-7. Open a PR that references the issue and includes verification.
-8. Use PR review/CI and issue comments as the visible status trail.
-9. Close the issue through a PR (`Fixes #...`) or explicit maintainer decision.
-
-Recommended issue comment before implementation:
-
-```md
-## Agent plan
-
-Problem:
-
-Approach:
-
-Files likely to change:
-
-Acceptance criteria:
-
-Verification:
-
-Risks / non-goals:
-```
-
-Recommended PR body links:
-
-```md
-Refs #<issue>
-Parent: #<initiative>
-Roadmap: <ID or ROADMAP.md section>
-```
-
-### GitHub CLI commands
-
-Check authentication:
-
-```sh
-gh auth status
-```
-
-Create an issue:
-
-```sh
-gh issue create \
-  --title "agent: add global read-only policy" \
-  --label agent-ready \
-  --label area/safety \
-  --label kind/feature \
-  --body-file /tmp/issue.md
-```
-
-Create a sub-issue under a parent initiative:
-
-```sh
-gh issue create \
-  --parent <parent-issue-number> \
-  --title "agent: add global read-only policy" \
-  --label agent-ready \
-  --body-file /tmp/issue.md
-```
-
-Create a linked branch for an issue:
-
-```sh
-gh issue develop <issue-number> --checkout
-```
-
-Post or update the agent plan:
-
-```sh
-gh issue comment <issue-number> --body-file /tmp/agent-plan.md
-```
-
-Update issue state with labels instead of Project fields:
-
-```sh
-gh issue edit <issue-number> --add-label agent-working
-gh issue edit <issue-number> --remove-label agent-ready
-gh issue edit <issue-number> --add-label needs-human
-```
-
-Create a PR:
-
-```sh
-gh pr create \
-  --draft \
-  --title "feat: add global read-only policy" \
-  --body-file /tmp/pr.md
-```
-
-### Labels
-
-Use labels for search, queueing, and lightweight automation.
-
-- `area/confluence`, `area/jira`, `area/sync`, `area/mcp`, `area/safety`,
-  `area/packaging`, `area/cloud`, `area/docs`
-- `kind/feature`, `kind/bug`, `kind/research`, `kind/docs`, `kind/infra`
-- `agent-ready`, `agent-working`, `needs-human`
-- `roadmap/now`, `roadmap/next`, `roadmap/later`
-
-Suggested issue searches:
-
-```sh
-gh issue list --label agent-ready --state open
-gh issue list --label agent-working --state open
-gh issue list --label needs-human --state open
-gh issue list --label roadmap/now --state open
-```
-
-## Agent handoff rules
-
-- Never merge a pull request authored by anyone other than `isukharev` unless
-  `isukharev` explicitly instructs you to merge that specific PR. Green CI,
-  labels, assignments, or general autonomy do not count as authorization.
-- Do not start broad implementation work from chat-only context when an issue is
-  expected; create or update the issue first.
-- Keep the issue updated when scope changes.
-- If blocked, comment with the blocker and add `needs-human`.
-- Do not close an issue just because a local patch exists. Close it through a PR
-  (`Fixes #...`) or explicit maintainer decision.
-- Never put secrets, PATs, private hostnames, private page IDs, or proprietary
-  page content in issues, PRs, commits, or logs.
-- Internal planning and strategy docs live in the gitignored `local-docs/`
-  directory. This is a **public** repository: never commit that content (or the
-  files) to it, move them out of `local-docs/`, or name/reference them from public
-  docs, issue forms, PRs, or commit messages. Internal roadmap IDs stay internal —
-  reference the public `ROADMAP.md` instead.
-- Follow `CLAUDE.md` for code architecture, output contracts, write-path safety,
-  plugin/docs synchronization, and test expectations.
+Private model-in-the-loop evaluation follows the owner-only lifecycle in
+`docs/agent-benchmark-private-workspace.md`. When its private root is configured,
+start with its status/doctor flow; do not enumerate raw cases/transcripts,
+invent scratch output roots, infer consent, or publish private artifacts.

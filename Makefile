@@ -9,6 +9,7 @@
 #   make gen-plugins      regenerate skills/ and plugins/atl/skills/ from skills-src/
 #   make check-plugins    verify the generated plugin trees are current
 #   make check-skill-safety validate designated read-only skill shell blocks
+#   make check-repository-skills validate repository-only maintainer skills
 #   make check-docs-catalog validate the maintained public Markdown inventory
 #   make check-reference-split validate generated legacy reference indexes
 #   make check-context7-docs validate the public Context7 parsing/snippet boundary
@@ -111,6 +112,10 @@ check-skill-safety:
 .PHONY: check-skill-routing
 check-skill-routing:
 	go run ./scripts/check-skill-routing --root .
+
+.PHONY: check-repository-skills
+check-repository-skills:
+	go run ./scripts/check-repository-skills -root .
 
 .PHONY: check-context7-docs
 check-context7-docs:

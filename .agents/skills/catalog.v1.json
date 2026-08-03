@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "skills": [
+    {
+      "name": "atl-develop",
+      "runbook": "docs/maintainers/development.md",
+      "required_description_terms": ["ATL repository", "code", "documentation", "tests", "Do not use"],
+      "activation_examples": {
+        "should_activate": ["Fix a bug in an ATL adapter and add regression tests.", "Reorganize ATL public documentation and update its checks."],
+        "should_not_activate": ["Use the installed ATL CLI to list configured Jira issues.", "Resume an interrupted ATL pull request after context loss."]
+      }
+    },
+    {
+      "name": "atl-land-change",
+      "runbook": "docs/maintainers/landing-a-change.md",
+      "required_description_terms": ["ATL repository", "issue", "PR", "CI", "merge", "Do not use"],
+      "activation_examples": {
+        "should_activate": ["Open a draft PR for the planned ATL issue and carry it through CI.", "Recover a failing ATL PR, review its final diff, and land it safely."],
+        "should_not_activate": ["Explore a local ATL implementation idea before issue shaping.", "Use ATL to update a Confluence page."]
+      }
+    },
+    {
+      "name": "atl-live-validate",
+      "runbook": "docs/maintainers/live-validation.md",
+      "required_description_terms": ["Jira", "Confluence", "GitHub", "GitLab", "live", "Do not use"],
+      "activation_examples": {
+        "should_activate": ["Validate this Jira collector against a configured live fixture.", "Run the approved create and cleanup plan on an owned Confluence test page."],
+        "should_not_activate": ["Add synthetic httptest coverage for a Jira adapter.", "Review a documentation-only diff without contacting a backend."]
+      }
+    },
+    {
+      "name": "atl-resume-work",
+      "runbook": "docs/maintainers/session-recovery.md",
+      "required_description_terms": ["ATL repository", "compaction", "interruption", "session", "dirty-file", "Do not use"],
+      "activation_examples": {
+        "should_activate": ["Resume the ATL task after transcript compaction and verify current state.", "Recover an interrupted branch with uncertain dirty-file ownership."],
+        "should_not_activate": ["Implement a routine ATL bug fix in the already established session.", "Use the installed ATL CLI to inspect a local mirror."]
+      }
+    }
+  ]
+}

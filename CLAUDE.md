@@ -1,254 +1,43 @@
-# CLAUDE.md
+# Claude Code guidance
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Read [`AGENTS.md`](AGENTS.md) completely before repository work. It is the
+binding cross-agent contract for architecture, authority, privacy, write safety,
+issue-first work, verification, review, and handoff. This file is only a Claude
+Code compatibility route and does not duplicate or override those rules.
 
-## What this is
+## Repository workflow
 
-`atl` is a single static Go binary: a Git-style CLI that mirrors Confluence pages and Jira
-issues to disk in their **native storage formats** (Confluence Storage Format `.csf`; Jira
-wiki), lets agents edit/search the bytes directly, and pushes under an optimistic version
-gate. The `.csf` bytes are the substrate — there is no lossy Markdown round-trip, so the
-remote write path must never convert whole bodies. The `.md` files in a mirror are derived
-staging views and are regenerated best-effort (a render failure is swallowed; it never fails
-a pull). Supported edits may be merged into the native substrate only through explicit
-`conf apply` or `jira apply`; the Markdown file itself is never sent to a backend.
+Choose the smallest relevant maintainer runbook:
 
-## Agent operating model
+- [Development and verification](docs/maintainers/development.md)
+- [Landing a change](docs/maintainers/landing-a-change.md)
+- [Session recovery](docs/maintainers/session-recovery.md)
+- [Live validation](docs/maintainers/live-validation.md)
 
-`AGENTS.md` → **Agent operating model** is the binding contract for delegated
-work in this repository: root ownership, bounded briefs, single implementation
-ownership for overlapping files, integrated-diff review, verification, and
-durable checkpoints.
+The exact current command and output contracts live under
+`docs/reference/cli/` and `docs/reference/output/`. Inspect `atl --help` or the
+relevant parent help instead of copying the command tree into this file.
 
-This session is a delegated worker only when the caller's brief explicitly
-assigns that subordinate role. In that case:
+## Delegated Claude sessions
 
-- Work only on the brief's bounded objective. Treat omitted edit authority as
-  read-only, do not delegate again, and report any need to split or expand the
-  task to the root.
-- Do not push, mutate GitHub state, merge, tag, release, or mutate an
-  authenticated live backend unless the brief authorizes that exact action.
-  Read-only backend access is allowed when the brief places it in scope.
-- Inspect and report all pre-existing dirty worktree state, preserve it, and
-  edit only the allowed files. Never stash, reset, clean, discard, overwrite,
-  commit, or absorb unrelated changes.
-- A review assignment is read-only. Report findings with file/line evidence;
-  the root owns integration, the final diff, and final verification.
+A Claude session is a delegated worker only when the caller's brief explicitly
+says so. Then:
 
-## Commands
+- stay inside the objective, files, authority, and non-goals in the brief;
+- treat omitted edit authority as read-only and do not delegate again;
+- preserve and report pre-existing dirty state;
+- do not push, mutate GitHub, merge, release, or contact an authenticated live
+  backend unless the exact action is authorized;
+- for review tasks, report findings with file/line evidence and do not edit.
 
-```sh
-make build    # CGO_ENABLED=0 build -> ./atl (version-stamped via -ldflags)
-make test     # core product test packages
-make agent-eval-contract # complete deterministic evaluator contract
-make race     # core product test packages with the race detector
-make lint     # golangci-lint run (v2 config in .golangci.yml)
-make vet      # go vet ./...
-go test ./internal/csf/ -run TestParse   # single package / single test
-```
+The root owns integration and final verification. Never add assistant
+attribution or `Co-Authored-By` trailers to commits, PRs, or generated public
+text.
 
-Live integration tests hit a real backend and are gated by env so they never run in CI.
-Keep your DC URL/PATs out of the repo: copy the template to a gitignored `.env.integration`
-and run them through the Makefile, which sources it and sets `ATL_INTEGRATION=1`:
+## Skill boundary
 
-```sh
-cp .env.integration.example .env.integration   # fill in DC URL, PATs, throwaway test objects
-make integration                               # runs only -run Integration, never in CI
-make live-smoke                                # opt-in live CLI smoke checks (built binary)
-```
-
-Private model-in-the-loop agent evaluations use the owner-only lifecycle in
-`docs/agent-benchmark-private-workspace.md`. If `ATL_AGENT_EVAL_PRIVATE_ROOT` is
-configured, start with `agent-eval private status`/`doctor` and a reviewed plan;
-never enumerate raw cases or transcripts, use raw transcripts as implicit consent,
-construct ad-hoc `/tmp` output roots, or publish private artifacts — real
-workspace files stay gitignored and owner-only.
-
-For CLI changes, run focused tests first (`go test ./internal/app ./internal/cli` or the
-touched packages), then `make test`.
-
-Or pass the env inline for a one-off (no file): `ATL_INTEGRATION=1 CONFLUENCE_URL=… TEST_CONFLUENCE_PAT=…
-  ATL_TEST_PAGE_ID=<throwaway-page-id> make integration`. Jira `field-options` coverage
-also needs `ATL_TEST_JIRA_PROJECT` + `ATL_TEST_JIRA_FIELD` (e.g. `priority`).
-
-Requires Go 1.26.5+. CI enforces `gofmt` and `goimports` (`local-prefixes = github.com/isukharev/atl`)
-and pins `golangci-lint` (v2.12.2) and `govulncheck` (v1.4.0) — match these locally to avoid lint drift.
-
-## Architecture
-
-Hexagonal (ports & adapters). The dependency rule is strict — internalize it before adding code:
-
-- **`internal/domain`** — the hub. Ports (`DocStore`, `Tracker`), the `Resource`/`Ref` model,
-  registry ports (`AssetSink`, `AssetResolver`, `UserResolver`), and sentinel errors.
-  Imports nothing from the rest of the tree; everything else implements or consumes it.
-  Adapters and CLI never import each other.
-- **`internal/adapter/{confluence,jira}`** — REST adapters implementing the ports. All HTTP
-  goes through `internal/httpx`. Bodies are passed verbatim, never converted.
-- **`internal/app`** — transport-agnostic use-cases (`ConfluenceService`, `JiraService`),
-  assembled in `wire.go`. No cobra, no stdin, no filesystem beyond the mirror. A future
-  server/MCP tier would call this layer directly. Note: a service method name here may differ
-  from the `domain` port method it calls (e.g. `JiraService.Comment` → `Tracker.AddComment`),
-  so grepping one name won't always reveal the full service→port→adapter chain.
-- **`internal/cli`** — thin cobra layer: parse flags → call one use-case → `emit()` → return
-  error. Do not maintain a copied command tree here: inspect the exact current
-  surface with `atl --help`, the relevant parent `--help`, or
-  `docs/reference/cli/`; use `atl capabilities` for the versioned task-oriented
-  routes. The facts that are not visible in help are the native write
-  substrate, read-only Markdown views, JSON-default output, stable exit
-  classes, bounded read contracts, and review-bound write gates documented
-  below.
-- **`internal/csf`** — read-only DOM parser + validator for Confluence Storage Format.
-- **`internal/fragment`** — extracts/resolves opaque fragments (drawio, image, user,
-  page-link, attachment) from a CSF DOM.
-- **`internal/mirror`** — on-disk layout + sidecar (`.atl/state.json`, `.atl/base/`) +
-  dirty/drift detection. Backend-agnostic; stores `Resource` bytes, knows nothing of HTTP/CSF.
-- Shared infra: `internal/httpx` (bearer PAT auth, retries, status→sentinel mapping),
-  `internal/auth` (PAT resolution: env → credentials.json), `internal/config`,
-  `internal/safepath` (sanitize server-controlled path components + containment + safe writes),
-  `internal/selfupdate`, `internal/version`.
-
-Full detail: `docs/architecture.md`. Extension points (new backend, new fragment type) are
-documented there.
-
-## Conventions that affect correctness
-
-- **Sentinel errors drive exit codes.** Adapters wrap every error as
-  `fmt.Errorf("%w: ...", domain.ErrXxx)`; the CLI's `codeFor` uses `errors.Is` to map to an
-  exit code: `ErrUsage`→2, `ErrAuth`→3, `ErrNotFound`→4, `ErrVersionConflict`→5,
-  `ErrForbidden`→6, `ErrConfig`→7, `ErrCheckFailed`→8 (anything else→1). Do not return bare errors from layers below the CLI
-  for these conditions, or the exit code degrades to 1.
-- **Output is JSON by default.** `emit(cmd, v, textFn)` writes indented, HTML-unescaped JSON
-  to stdout unless `-o text` AND a non-nil `textFn` are both present (pass `nil` for textFn
-  when there is no human view). Logs/errors go to stderr; never interactive.
-- **Optimistic version gate.** `UpdatePage` sends `expectVersion+1`; a 409 maps to
-  `ErrVersionConflict` (exit 5). `--force` re-reads current and targets `current+1`. After a
-  successful push, the code re-fetches to refresh the mirror; a failure there is a warning,
-  not an error.
-- **PAT is host-scoped.** `httpx` injects the bearer token only when the request host is empty
-  or matches the configured backend host (case-insensitive) — server-supplied attachment URLs
-  on other hosts get no token, and cross-host / scheme-downgrade redirects are refused. Retries:
-  3 (4 attempts total) for replay-safe reads (`GET`/`HEAD`) on transport errors, 429, or 5xx;
-  writes are never retried generically or redirected, including on 429, to
-  avoid duplicate, retargeted, or ambiguous writes.
-  Backoff is 200ms→×2 capped at 5s with jitter, honoring `Retry-After` (capped at 30s).
-- **Backend URLs must be https.** `config.CheckSecureURL` rejects a non-https backend URL for a
-  non-loopback host (enforced at `config set` time and in `wire.go`); `ATL_ALLOW_INSECURE=1`
-  overrides for a trusted internal http instance. `auth login` never accepts the PAT on argv —
-  it reads a no-echo prompt, piped stdin, or `--from-file`.
-- **CSF parsing is read-only and byte-stable.** `Parse` wraps raw bytes in a synthetic
-  `<root>` (6-byte prefix; subtract when mapping error offsets) and never mutates input — the
-  write path relies on this. `Validate` returns `[]Problem`; `HasErrors` (any `error`-severity
-  problem) is the push gate. Warnings are advisory and do not block.
-- **Fragment resolution never errors.** `fragment.Resolve` swallows all failures; an
-  unresolved ref keeps its raw display/empty asset rather than failing the pull.
-
-## Mirror & config gotchas
-
-- **Ordinary CQL pull cap: 1000 pages.** `conf pull --cql` stops after 1000 IDs; the
-  result carries `truncated`/`truncated_at` and a stderr warning fires. An explicit
-  two-pass `conf pull --complete` selector snapshot bypasses the ordinary 1000/2000
-  caps; `--max-pages 0` removes its configured page cap while the one-million-identity,
-  64 MiB checkpoint, request-rate, and local durability guards still apply. Jira
-  aggregate `pull --limit 0` likewise means paginate to exhaustion subject to its
-  documented safety caps.
-- **Mirror root auto-detection.** Commands resolve the mirror root by walking up from the
-  target ≤12 levels looking for an `.atl` marker dir; if none is found it defaults to
-  `"mirror"`. Watch this in multi-workspace setups.
-- **Drift needs a baseline.** A page is reported `Drifted` only when it has a prior synced
-  version (`SyncedVersion > 0`); never-pushed pages read as clean even if the remote changed.
-  Dirty detection is content-hash based, not timestamp.
-- **Slugify is unicode-safe.** Page dir slugs lowercase, keep unicode letters/digits
-  (Cyrillic preserved), hyphenate the rest, truncate at 80 runes, fall back to `"untitled"`.
-  Space keys go through `safeSeg`, which neutralizes `.`/`..`/separators to block path
-  traversal from hostile server input.
-- **stdin bodies are capped at 64 MiB** (`--from-file -`); larger input is rejected with a
-  usage error (exit 2), never silently truncated.
-- **PAT resolution order** (per service, first non-empty wins): `ATL_<SVC>_PAT` → `<SVC>_PAT`
-  → `TEST_<SVC>_PAT` (only when `ATL_INTEGRATION` is set) → `~/.config/atl/credentials.json`
-  (mode 0600, written atomically). Config dir:
-  `ATL_CONFIG_DIR` → `$XDG_CONFIG_HOME/atl` → `~/.config/atl`. Env URLs always overlay the
-  config file.
-- **Self-update** runs in `PersistentPreRun` before every subcommand, best-effort (never
-  blocks/errors). Throttled to 6h; skipped for dev/empty version builds or when
-  `ATL_NO_UPDATE` is set; the source URL must be https. Verifies the ed25519 signature over the
-  exact manifest bytes *before* parsing, then SHA-256 of the binary (public key embedded in
-  `internal/selfupdate/pubkey.go`), enforces a persisted version high-water-mark (anti-rollback),
-  and fails closed. It does NOT re-exec — the swapped binary takes effect on the next invocation.
-
-## GitHub issue workflow (agent tracking)
-
-Non-trivial work is **issue-first**: find or open a GitHub issue before changing code, so the
-chain `roadmap → issue/sub-issue → agent plan → branch → PR → verification → done` stays
-visible. Non-trivial = changes user-facing behaviour, public docs, CLI output, release process,
-architecture, or security posture; trivial typos/formatting/local experiments — and explicitly
-private/security-sensitive work — may skip public issue creation. The
-process is deliberately **issue-only** (labels + comments + sub-issues), not GitHub Projects.
-Canonical guides live outside this file: `AGENTS.md` (cross-agent handoff rules) and
-`docs/github-issue-workflow.md` (full process); issue forms are in `.github/ISSUE_TEMPLATE/`.
-
-- **Comment an `## Agent plan` before coding** (Problem / Approach / Files / Acceptance criteria /
-  Verification / Risks-non-goals); re-comment when scope changes instead of drifting silently.
-- **Labels carry state + routing:** `agent-ready` → `agent-working` → `needs-human`;
-  `area/{confluence,jira,sync,mcp,safety,packaging,cloud,docs}`;
-  `kind/{feature,bug,research,docs,infra}`; `roadmap/{now,next,later}`. If blocked, comment
-  on the issue with the blocker and add `needs-human`.
-- **Branch** with `gh issue develop <n> --checkout`; the **PR** references the issue
-  (`Refs #…` / `Fixes #…`), parent initiative, and roadmap ID/section, and lists verification
-  (`make test`, `make lint`). Close issues through a merged PR, not a local patch.
-- **Never** put PATs, private hostnames, private page IDs / issue keys, customer names, or
-  proprietary page/issue bodies in issues, PRs, comments, commits, or logs. Use generic
-  wording in public issues/PRs instead: "configured fixture", "multi-table page",
-  "Structure id", "custom field", "backend".
-- **PR flow:** open as draft, mark ready when green, wait for CI, merge, then remove
-  `agent-working` from the closed issue. PR bodies include verification.
-- **External PR merge gate:** never merge a pull request authored by anyone other than
-  `isukharev` unless `isukharev` explicitly instructs you to merge that specific PR. Green
-  CI, labels, assignments, or general autonomy do not count as authorization.
-- `ROADMAP.md` is the **public** roadmap. Internal product/brand strategy lives in the
-  gitignored `local-docs/` (kept out of this public repo) — never commit it, and never point
-  public docs/issues at it.
-
-## House rules
-
-- Tests live alongside code in the same package; new logic needs unit tests. Tests use
-  `httptest` servers, `t.Setenv`, `t.TempDir`, and `internal/csf/testdata/sample.csf` — no
-  build tags. (Never pair `t.Parallel` with `t.Setenv` — it panics.)
-- **Fuzz the code that ingests server-controlled bytes.** The CSF parser and the path
-  sanitizers (`internal/csf`, `internal/safepath`, `internal/mirror`) have `fuzz_test.go`
-  targets whose `f.Add` seeds double as deterministic regression tests under plain `go test`;
-  add seeds (and keep any `testdata/fuzz/` crash corpus) when you touch that code. Containment
-  fuzzers join the sanitized segment as its own path component, not a `+".csf"` suffix (a
-  suffix masks a bare-`..` regression into a harmless filename).
-- **CLI output is a contract.** `internal/cli` golden tests (`testdata/golden/` + `assertGolden`,
-  regenerate with `go test ./internal/cli/ -run … -update`) pin `emit()`'s JSON; keep canned
-  responses free of volatile data (httptest ports, timestamps). The sentinel→exit-code matrix
-  is locked in `cli_contract_test.go` — extend it when you add a sentinel.
-- **Keep the shipped agent plugins in sync with the CLI.** `skills-src/` is the **single source
-  of truth** for the skills; `skills/` (Claude Code plugin) and `plugins/atl/skills/` (Codex
-  plugin) are **generated** from it by `make gen-plugins` — never edit them by hand (every
-  generated file says so in a header comment; CI's `make check-plugins` rejects stale or
-  hand-edited outputs). The skills — and `docs/` — enumerate commands, flags, exit codes, and
-  output. When a change alters user-facing CLI behaviour, update the matching
-  `skills-src/*/SKILL.md` (Quick-Reference tables, examples, `USE WHEN` frontmatter,
-  Common-Errors / exit-code blocks), run `make gen-plugins`, and commit all three trees plus
-  the canonical `docs/reference/cli/` and `docs/reference/output/` owners plus
-  `CHANGELOG.md` — and `README.md` (and
-  `README.ru.md` when it mirrors the same section) — in the **same PR**, and confirm it
-  **before merging**. Setup/auth/mirror behaviour changes also update
-  `skills-src/setup/SKILL.md` and `skills-src/atl/reference/*`. Platform-specific strings use
-  `{{atl.var}}` placeholders; the pipeline guide is `docs/plugins.md`. Plugin manifest
-  `version`s (`.claude-plugin/plugin.json`, `plugins/atl/.codex-plugin/plugin.json`) are bumped
-  **only** in the release prep commit, in lockstep with the CLI version — the release workflow
-  asserts both against the tag; never bump them in a feature PR.
-- **Security-boundary tests assert the guarantee fails when the control is removed** (O_NOFOLLOW,
-  atomic symlink-replace, ed25519 verify-before-parse). Tamper *inside a valid payload* so the
-  control under test — not an incidental parse failure — is what rejects it.
-- **Durable derived-view byte changes require a document-format marker review.** If an existing
-  pristine `.md` would reconstruct differently, bump the marker, add render migration and apply
-  diagnostics, and test current, legacy, unversioned, and future-marker behavior.
-- Never commit secrets/PATs (see `.gitignore`). The ed25519 release signing private key is
-  never committed.
-- Keep PRs small; commit subjects `<type>: <summary>` (e.g. `fix: handle empty body in push`).
-- Context7-selected runtime documentation must contain at least one real,
-  non-empty language-tagged fenced example. Run `make check-context7-docs` when
-  adding root Markdown, changing `context7.json`, or editing the indexed corpus.
+`skills-src/` owns the ATL client workflows distributed to Claude Code and
+Codex. `skills/` and `plugins/atl/skills/` are generated with
+`make gen-plugins`; never edit them directly. Repository-maintenance skills in
+`.agents/skills/` are Codex-local development aids and are not shipped client
+content or an alternative source of truth.
