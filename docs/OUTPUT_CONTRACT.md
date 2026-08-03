@@ -3,6 +3,41 @@
 This document is the authoritative reference for how `atl` communicates results and failures.
 It is derived from `internal/cli/root.go` (`codeFor`, `emit`, `emitID`, `writeError`, exit constants).
 
+<!-- reference-navigation:start -->
+## Navigate this reference
+
+- [Output formats](#output-formats)
+  - [`emit()` — JSON / text output](#emit--json--text-output)
+  - [`emitID()` — JSON / text / id output](#emitid--json--text--id-output)
+  - [Explicit created-object registration](#explicit-created-object-registration)
+  - [Guarded Confluence page copy](#guarded-confluence-page-copy)
+  - [Mirror backend binding](#mirror-backend-binding)
+  - [Maintainer-only private workspace migration](#maintainer-only-private-workspace-migration)
+  - [Qualified Confluence search page](#qualified-confluence-search-page)
+  - [Advisory Cloud-compatibility validation](#advisory-cloud-compatibility-validation)
+  - [Capability catalog](#capability-catalog)
+  - [MCP tool results](#mcp-tool-results)
+  - [Error output](#error-output)
+  - [Binary identity](#binary-identity)
+  - [Setup doctor](#setup-doctor)
+  - [Exact compatibility-provider status](#exact-compatibility-provider-status)
+- [Sentinel → exit-code matrix](#sentinel--exit-code-matrix)
+  - [Practical notes](#practical-notes)
+- [`--verbose` / `ATL_VERBOSE=1`](#--verbose--atl_verbose1)
+- [Command and snapshot contracts](#command-and-snapshot-contracts)
+  - [Jira mirrors and derived views](#jira-mirrors-and-derived-views)
+  - [Confluence mirrors and page operations](#confluence-mirrors-and-page-operations)
+  - [Mirror status, diff, reconciliation, and plans](#mirror-status-diff-reconciliation-and-plans)
+  - [Jira mirror status, apply, and push](#jira-mirror-status-apply-and-push)
+  - [Confluence pull and comments](#confluence-pull-and-comments)
+  - [Environment time diagnostics](#environment-time-diagnostics)
+  - [Exports, tables, and reports](#exports-tables-and-reports)
+  - [Jira graphs and references](#jira-graphs-and-references)
+  - [Attachments, guarded mutations, and worklogs](#attachments-guarded-mutations-and-worklogs)
+  - [Page and section reads](#page-and-section-reads)
+  - [Boards and Structure](#boards-and-structure)
+<!-- reference-navigation:end -->
+
 ---
 
 ## Output formats
@@ -693,7 +728,9 @@ fragments, so a failed request does not reintroduce JQL/CQL/selectors through st
 
 ---
 
-## Stable Snapshot Notes
+## Command and snapshot contracts
+
+### Jira mirrors and derived views
 
 `atl jira issue view <KEY>` is the non-persistent counterpart to a mirror view.
 It writes no files and emits `{"key":<KEY>,"markdown":<configured-view>}` by
@@ -790,6 +827,8 @@ and the resolved epic field, in the
 sidecar `views` map only, so a later `apply` can reproduce it), so `status` is
 unchanged before and after. Render-resolution warnings go to **stderr**, never
 stdout.
+
+### Confluence mirrors and page operations
 
 Every Confluence derived page view begins with
 `<!-- atl:document confluence-page v6 -->` and has reserved generated
@@ -1041,6 +1080,8 @@ sidecar patches under the shared `.atl/state.lock`; cross-service state
 contention is retried for a brief fixed window, then fails closed and cannot
 lose unrelated entries.
 
+### Mirror status, diff, reconciliation, and plans
+
 `atl conf snapshot [DIR | --into ROOT]` emits the content-free aggregate contract
 `{schema_version:1,service:"confluence",remote_requested,complete,reconciled,
 local,native,validation,render,remote}`. It intentionally omits root/target,
@@ -1222,6 +1263,8 @@ Missing local page targets for Confluence render/apply/push use
 `unreachable`, `canceled`, or `network`) alongside a query-redacted URL. The
 raw cause remains non-unwrappable and no category includes cause text.
 
+### Jira mirror status, apply, and push
+
 `atl jira status [DIR | --into ROOT] [--remote]` emits `{ "entries": [ { "path", "key", "locally_edited",
 "synced", "pending_fields"?, "local_error"?, "remote_drifted"?, "field_drifted"?, "remote_error"? }, ... ] }`.
 `locally_edited` is true when the `.wiki` differs from the pulled base or a configured field is
@@ -1339,6 +1382,8 @@ Both `conf apply` and `jira apply` also carry a `-o text` projection — a compa
 (first line dry-run/applied, `blocks:` counts, `removed fragments:`/`removed constructs:` and
 `problems:` sections, `validation:` for conf, an optional `warning:`, and a contextual `next:`
 hint). The JSON above is unchanged; the text view is a read-only reprojection of the same result.
+
+### Confluence pull and comments
 
 `atl conf pull` returns a `PullResult` whose `pages[]` entries are `PulledPage`
 objects. Each carries `id`, `title`, `path`, `version`, `assets`, and — only when
@@ -1819,6 +1864,8 @@ per service in private state, writes verified facts to a version-1 observations
 artifact, and never changes or deletes a profile fact. Persisted failure
 summaries reject controls, redact network locations, and are length-capped.
 
+### Exports, tables, and reports
+
 `atl jira export --jql ... --out FILE --format jsonl|json|csv` writes one compact artifact and a
 sidecar manifest at `FILE.manifest.json`. `--ids` and `--keys` can be used instead of `--jql` to
 generate batched `id in (...)` / `key in (...)` queries. Explicit selectors are
@@ -2104,6 +2151,8 @@ proves that an omitted relationship is absent. When `include_development` is
 omitted or false, the MCP request and output retain the stable profile and no
 Development source is present; that absence must never be reported as zero
 development activity.
+
+### Jira graphs and references
 
 `atl jira issue graph <KEY>` emits one transient, deterministic schema-v2
 work-artifact graph. Depth defaults to zero:
@@ -2521,6 +2570,8 @@ Missing requested fields and clipped values remain incomplete. `-o text` starts
 with completeness/selection status, then emits the shared escaped Markdown
 table and bounded warnings. An empty `refs` array is evidence of absence only
 when both result and issue completeness are true.
+
+### Attachments, guarded mutations, and worklogs
 
 `atl jira issue attachment list <KEY>` returns the issue key plus the attachment
 metadata Jira exposes. `-o id` prints attachment ids one per line:
@@ -2979,6 +3030,8 @@ when the process exits zero. File destinations retain the existing atomic
 artifact plus `<out>.manifest.json` contract. Exact field display names are
 resolved before search and exported under stable field ids.
 
+### Page and section reads
+
 `atl conf page resolve <ID-OR-URL>` emits
 `{id,kind,via?,network_requests,space?,title?}`. `kind` is `id`, `canonical`,
 `viewpage`, `rest`, `display`, or `short`; a short link records the final parsed
@@ -3173,6 +3226,8 @@ not read every child individually. Its default columns are
 `key,summary,status,issuetype,assignee`. The generated epic-children and
 subtasks sections in transient/durable issue Markdown use the same table
 renderer in embedded mode; an empty related list is `_None._`.
+
+### Boards and Structure
 
 `atl jira board config <ID>` returns the workflow projection used to interpret
 board issues:

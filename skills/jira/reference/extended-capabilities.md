@@ -109,6 +109,7 @@ atl jira board view 5 --columns key,status,updated,customfield_10001 \
   --epic-field customfield_10001 --done-status Done
 atl jira board export 5 --format jsonl --out board.jsonl
 atl jira sprint list --board 5 --state active
+atl jira sprint get 7
 atl jira sprint current --board 5
 atl jira sprint issues 7 --columns position,key,summary,status
 atl jira sprint add 7 PROJ-1 PROJ-2

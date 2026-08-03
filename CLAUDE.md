@@ -142,9 +142,13 @@ documented there.
 
 ## Mirror & config gotchas
 
-- **CQL pull cap: 1000 pages.** `conf pull --cql` stops after 1000 IDs; the result carries
-  `truncated`/`truncated_at` and a stderr warning fires. Confluence has no "unbounded"
-  escape; Jira `pull --limit 0` *does* mean unbounded.
+- **Ordinary CQL pull cap: 1000 pages.** `conf pull --cql` stops after 1000 IDs; the
+  result carries `truncated`/`truncated_at` and a stderr warning fires. An explicit
+  two-pass `conf pull --complete` selector snapshot bypasses the ordinary 1000/2000
+  caps; `--max-pages 0` removes its configured page cap while the one-million-identity,
+  64 MiB checkpoint, request-rate, and local durability guards still apply. Jira
+  aggregate `pull --limit 0` likewise means paginate to exhaustion subject to its
+  documented safety caps.
 - **Mirror root auto-detection.** Commands resolve the mirror root by walking up from the
   target ≤12 levels looking for an `.atl` marker dir; if none is found it defaults to
   `"mirror"`. Watch this in multi-workspace setups.

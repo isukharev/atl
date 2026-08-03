@@ -85,6 +85,7 @@ id/title-only Confluence resolution.
 | `jira board backlog <ID>` | Read one Scrum backlog IssueList page | `--view`, `--columns`, `--jql`, `--limit 1..50` (0 invalid), `--cursor`, `-o text/id` |
 | `jira board view <ID>` | Read normalized config/issues/backlog snapshot with optional deterministic epic rollup | `--scope all/board/backlog`, `--view`, `--columns`, `--jql`, aggregate `--limit` (0 all, negative invalid), `--epic-field`, repeatable `--done-status`, `-o text/id` |
 | `jira board export <ID>` | Write normalized board artifact | `--scope`, `--view`, `--columns`, `--jql`, aggregate `--limit` (0 all, negative invalid), `--format json/jsonl/csv/md`, `--out`, `--raw-csv` |
+| `jira sprint get <ID>` | Get one sprint by numeric id | `-o text/id` |
 | `jira sprint issues <ID>` | Read one sprint IssueList page | `--view`, `--columns`, `--limit 1..50` (0 invalid), `--cursor`, `-o text/id` |
 | `jira structure get <ID>` | Get Structure metadata | `-o id` |
 | `jira structure view <ID>` | Read normalized hierarchy + Jira fields, optionally bound to one forest version | exact folder selector or fuzzy `--root`, paired `--expected-forest-signature`/`--expected-forest-version`, `--view`, `--fields`, `--batch-size`, `-o text/id` |

@@ -24,6 +24,61 @@ func TestRepositoryContext7Documentation(t *testing.T) {
 	}
 }
 
+func TestRenderReferenceNavigation(t *testing.T) {
+	contents := `# Reference
+
+<!-- reference-navigation:start -->
+## Navigate this reference
+
+- [First](#first)
+  - [Child](#child)
+- [Second](#second-2)
+- [Пример — справочник](#пример--справочник)
+- [Navigate this reference](#navigate-this-reference-1)
+<!-- reference-navigation:end -->
+
+## First
+
+### Child
+
+` + "```md\n## Not a heading\n```" + `
+
+#### Second
+
+#### Second-1
+
+## Second
+
+## Пример — справочник
+
+## Navigate this reference
+`
+	got, err := renderReferenceNavigation(contents, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := referenceNavigationBlock(contents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("navigation:\n%s\nwant:\n%s", got, want)
+	}
+	if !strings.Contains(got, "#пример--справочник") {
+		t.Fatalf("unicode heading anchor was not normalized: %s", got)
+	}
+	if !strings.Contains(got, "#second-2") {
+		t.Fatalf("unlisted heading did not reserve its duplicate anchor: %s", got)
+	}
+	if !strings.Contains(got, "#navigate-this-reference-1") {
+		t.Fatalf("navigation heading did not reserve its own anchor: %s", got)
+	}
+	drifted := strings.Replace(contents, "## Second", "## Renamed", 1)
+	if got, _ := renderReferenceNavigation(drifted, 3); got == want {
+		t.Fatal("heading drift did not change generated navigation")
+	}
+}
+
 func TestValidateRejectsImplicitRootMarkdownAndSnippetlessDocs(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, "docs"), 0o755); err != nil {

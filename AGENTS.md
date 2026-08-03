@@ -146,8 +146,11 @@ patterns over introducing cross-layer shortcuts.
 
 ## Mirror and config rules
 
-- `conf pull --cql` caps at 1000 pages and reports truncation; Jira `pull
-  --limit 0` means unbounded.
+- Ordinary `conf pull --cql` caps at 1000 pages and reports truncation. Explicit
+  two-pass `--complete` snapshots bypass the ordinary selector caps;
+  `--max-pages 0` removes their configured page cap but not their identity,
+  checkpoint, transport, or durability guards. Jira aggregate `pull --limit 0`
+  paginates to exhaustion subject to its documented safety caps.
 - Mirror roots are auto-detected by walking up to 12 levels for `.atl`; if none
   is found, commands default to `mirror`.
 - Drift requires a synced baseline. Dirty detection is content-hash based, not
