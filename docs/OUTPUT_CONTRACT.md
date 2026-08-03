@@ -689,8 +689,9 @@ is bumped.
   `3` → replace the PAT via `auth login`.
 - Codes `3` vs `6` are distinct: `3` = authentication failure (re-auth); `6` = authorization
   failure (the identity is known but lacks permission — surface to the user).
-- **Only Confluence `push` uses the version gate** (`5`). Jira writes are last-writer-wins; `5` is
-  never returned from Jira commands. `jira push` guards staleness with an app-layer
+- **Confluence version gates use exit `5`.** This includes `conf push` and
+  qualified comment reads whose `--expected-version` no longer matches. Jira
+  writes are last-writer-wins; `5` is never returned from Jira commands. `jira push` guards staleness with an app-layer
   compare-and-swap instead: a drift refusal is exit `8` (`ErrCheckFailed`), not `5`. A server-side
   HTTP 409 on a Jira write (locked issue, workflow veto) stays a generic conflict (exit `1`), also
   distinct from `5` (#66).

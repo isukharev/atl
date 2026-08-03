@@ -21,6 +21,9 @@ reference before the first successful workflow.
 | Guide | Audience | What it contains |
 |---|---|---|
 | [agent-recipes.md](agent-recipes.md) | Agents / users | Runnable Jira, board, Structure, Confluence, and guarded-write recipes |
+| [jira-artifact-graph.md](jira-artifact-graph.md) | Jira users / agents | Bounded relationship, documentation, and Development identity graph |
+| [confluence-comments.md](confluence-comments.md) | Confluence users / agents | Qualified comment reads and guarded footer/inline write choices |
+| [demos/](demos/README.md) | New users / reviewers | Three credential-free demonstrations of losslessness, conflict refusal, and bounded graph reads |
 | [csf-and-fragments.md](csf-and-fragments.md) | Confluence users | Native `.csf`, opaque macros/assets, and derived Markdown views |
 | [jira-guarded-writeback.md](jira-guarded-writeback.md) | Jira automation | Reviewed batch and field write contracts |
 | [mcp.md](mcp.md) | Agent clients | Exact typed read-only tools, profiles, bounds, and CLI fallback |

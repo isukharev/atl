@@ -16,7 +16,7 @@ import (
 	"strings"
 )
 
-const commandManifestVersion = 1
+const commandManifestVersion = 2
 
 var requiredDocuments = []string{
 	"README.md",
@@ -27,6 +27,12 @@ var requiredDocuments = []string{
 	"docs/safe-writes.md",
 	"docs/troubleshooting.md",
 	"docs/compatibility.md",
+	"docs/jira-artifact-graph.md",
+	"docs/confluence-comments.md",
+	"docs/demos/README.md",
+	"docs/demos/confluence-lossless-edit.md",
+	"docs/demos/confluence-conflict-refusal.md",
+	"docs/demos/jira-artifact-graph.md",
 }
 
 // commandPaths is intentionally small and versioned. These are the command
@@ -51,12 +57,17 @@ var commandPaths = [][]string{
 	{"conf", "status"},
 	{"conf", "diff"},
 	{"conf", "validate"},
+	{"conf", "edit"},
 	{"conf", "apply"},
 	{"conf", "push"},
+	{"conf", "reconcile", "preview"},
+	{"conf", "comment", "list"},
+	{"conf", "comment", "thread"},
 	{"jira"},
 	{"jira", "fields"},
 	{"jira", "issue", "get"},
 	{"jira", "issue", "search"},
+	{"jira", "issue", "graph"},
 	{"jira", "issue", "comment", "preview"},
 	{"jira", "issue", "comment", "add"},
 	{"jira", "pull"},
@@ -77,9 +88,15 @@ var commandHelpRequirements = map[string][]string{
 	"doctor":                     {"--remote"},
 	"conf search":                {"--cql", "--limit"},
 	"conf pull":                  {"--id", "--into"},
+	"conf edit":                  {"--old", "--new", "--dry-run"},
+	"conf apply":                 {"--dry-run", "--into"},
 	"conf push":                  {"--dry-run"},
+	"conf reconcile preview":     {"--into"},
+	"conf comment list":          {"--id", "--expected-version"},
+	"conf comment thread":        {"--id", "--comment-id"},
 	"jira fields":                {"--summary-only"},
 	"jira issue search":          {"--jql", "--limit"},
+	"jira issue graph":           {"--depth", "--max-requests"},
 	"jira issue comment preview": {"--from-md"},
 	"jira issue comment add":     {"--from-md", "--apply", "--expected-proposal-hash"},
 	"jira pull":                  {"--jql", "--into"},
@@ -91,6 +108,7 @@ type report struct {
 	Documents int
 	Links     int
 	Commands  int
+	Demos     int
 }
 
 type markdownLink struct {
@@ -116,8 +134,14 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	fmt.Printf("onboarding docs: %d documents, %d local links, %d command paths (manifest v%d)\n",
-		result.Documents, result.Links, result.Commands, commandManifestVersion)
+	demos, err := validateDemos(*atlBinary)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	result.Demos = demos
+	fmt.Printf("onboarding docs: %d documents, %d local links, %d command paths, %d reproducible demos (manifest v%d)\n",
+		result.Documents, result.Links, result.Commands, result.Demos, commandManifestVersion)
 }
 
 func validateRepository(root, atlBinary string) (report, error) {
