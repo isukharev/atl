@@ -318,6 +318,11 @@ func decodeConfluenceSelectionSearchWire(data []byte) (confluenceSelectionSearch
 	}, []string{"partial_reason"}); err != nil {
 		return confluenceSelectionSearchWire{}, err
 	}
+	if err := rejectNullConfluenceSelectionMembers(root, "Confluence search", []string{
+		"schema_version", "query", "results", "count", "complete", "truncated",
+	}); err != nil {
+		return confluenceSelectionSearchWire{}, err
+	}
 	var results []map[string]json.RawMessage
 	if err := json.Unmarshal(root["results"], &results); err != nil {
 		return confluenceSelectionSearchWire{}, fmt.Errorf("decode Confluence search results: %w", err)
@@ -329,6 +334,10 @@ func decodeConfluenceSelectionSearchWire(data []byte) (confluenceSelectionSearch
 		if err := requireConfluenceSelectionMembers(result, fmt.Sprintf("Confluence search result[%d]", index),
 			[]string{"id", "title", "space", "version"},
 			[]string{"updated", "parent", "excerpt", "url"}); err != nil {
+			return confluenceSelectionSearchWire{}, err
+		}
+		if err := rejectNullConfluenceSelectionMembers(result, fmt.Sprintf("Confluence search result[%d]", index),
+			[]string{"id", "title", "space", "version"}); err != nil {
 			return confluenceSelectionSearchWire{}, err
 		}
 	}
@@ -374,6 +383,19 @@ func requireConfluenceSelectionMembers(
 	return nil
 }
 
+func rejectNullConfluenceSelectionMembers(
+	document map[string]json.RawMessage,
+	owner string,
+	members []string,
+) error {
+	for _, name := range members {
+		if bytes.Equal(bytes.TrimSpace(document[name]), []byte("null")) {
+			return fmt.Errorf("%s member %q must not be null", owner, name)
+		}
+	}
+	return nil
+}
+
 func TestConfluenceSelectionSearchWireRequiresReleasedMembers(t *testing.T) {
 	valid := []byte(`{"schema_version":1,"query":"type = page","results":[],"count":0,"complete":true,"truncated":false,"next_cursor":null}`)
 	if _, err := decodeConfluenceSelectionSearchWire(valid); err != nil {
@@ -394,6 +416,18 @@ func TestConfluenceSelectionSearchWireRequiresReleasedMembers(t *testing.T) {
 				t.Fatalf("missing required member %q passed", name)
 			}
 		})
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(valid, &document); err != nil {
+		t.Fatal(err)
+	}
+	document["complete"] = json.RawMessage("null")
+	mutated, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeConfluenceSelectionSearchWire(mutated); err == nil {
+		t.Fatal("null required boolean passed")
 	}
 }
 
@@ -601,7 +635,10 @@ func TestConfluenceSelectionMirrorArtifactRejectsDescendantSymlink(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validateConfluenceSelectionMirrorArtifact(canonicalRoot, filepath.Join(link, "page.csf")); err == nil {
+	if err := validateConfluenceSelectionMirrorArtifact(
+		canonicalRoot,
+		filepath.Join(canonicalRoot, filepath.Base(link), "page.csf"),
+	); err == nil {
 		t.Fatal("artifact below a descendant symlink passed mirror containment")
 	}
 }
