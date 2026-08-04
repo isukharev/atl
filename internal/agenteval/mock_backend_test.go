@@ -13,9 +13,10 @@ import (
 func TestDecodeMockFixtureRejectsUnboundedOrAmbiguousContracts(t *testing.T) {
 	valid := `{"schema_version":1,"jira_context":"/jira","confluence_context":"/wiki","routes":[{"method":"GET","path":"/jira/rest/api/2/field","status":200,"body":[]}]}`
 	tests := map[string]string{
-		"unknown field":   strings.TrimSuffix(valid, "}") + `,"unknown":true}`,
-		"multiple values": valid + valid,
-		"oversized":       fmt.Sprintf(`{"schema_version":1,"jira_context":"/jira","confluence_context":"/wiki","routes":[{"method":"GET","path":"/jira/rest/api/2/field","status":200,"body":%q}]}`, strings.Repeat("a", maxContractBytes)),
+		"unknown field":                 strings.TrimSuffix(valid, "}") + `,"unknown":true}`,
+		"multiple values":               valid + valid,
+		"oversized primary value":       fmt.Sprintf(`{"schema_version":1,"jira_context":"/jira","confluence_context":"/wiki","routes":[{"method":"GET","path":"/jira/rest/api/2/field","status":200,"body":%q}]}`, strings.Repeat("a", maxContractBytes)),
+		"oversized trailing whitespace": valid + strings.Repeat(" ", maxContractBytes-len(valid)+1),
 	}
 	for name, contract := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -23,6 +24,10 @@ func TestDecodeMockFixtureRejectsUnboundedOrAmbiguousContracts(t *testing.T) {
 				t.Fatal("invalid mock fixture contract passed")
 			}
 		})
+	}
+	atLimit := valid + strings.Repeat(" ", maxContractBytes-len(valid))
+	if _, err := DecodeMockFixture(strings.NewReader(atLimit)); err != nil {
+		t.Fatalf("exact-limit mock fixture rejected: %v", err)
 	}
 }
 
