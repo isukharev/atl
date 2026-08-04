@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -50,15 +51,17 @@ func containsBytes(data []byte, value string) bool {
 
 func TestIssueWorklogsListFailsClosedOnPaginationAnomalies(t *testing.T) {
 	tests := []struct {
-		name string
-		body string
+		name        string
+		body        string
+		wantMessage string
 	}{
-		{"missing total", `{"startAt":0,"worklogs":[]}`},
-		{"wrong offset", `{"startAt":1,"total":1,"worklogs":[]}`},
-		{"empty incomplete", `{"startAt":0,"total":1,"worklogs":[]}`},
-		{"past total", `{"startAt":0,"total":0,"worklogs":[{"id":"1"}]}`},
-		{"missing identity", `{"startAt":0,"total":1,"worklogs":[{"id":""}]}`},
-		{"duplicate identity", `{"startAt":0,"total":2,"worklogs":[{"id":"1"},{"id":"1"}]}`},
+		{"missing total", `{"startAt":0,"worklogs":[]}`, "omitted total"},
+		{"negative total", `{"startAt":0,"total":-1,"worklogs":[]}`, "invalid pagination"},
+		{"wrong offset", `{"startAt":1,"total":1,"worklogs":[]}`, "invalid pagination"},
+		{"empty incomplete", `{"startAt":0,"total":1,"worklogs":[]}`, "empty incomplete page"},
+		{"past total", `{"startAt":0,"total":0,"worklogs":[{"id":"1"}]}`, "with total 0"},
+		{"missing identity", `{"startAt":0,"total":1,"worklogs":[{"id":""}]}`, "missing or duplicate worklog id"},
+		{"duplicate identity", `{"startAt":0,"total":2,"worklogs":[{"id":"1"},{"id":"1"}]}`, "missing or duplicate worklog id"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -67,9 +70,61 @@ func TestIssueWorklogsListFailsClosedOnPaginationAnomalies(t *testing.T) {
 				_, _ = io.WriteString(w, test.body)
 			}))
 			t.Cleanup(server.Close)
-			_, err := newTestJira(server).ListIssueWorklogs(context.Background(), "PROJ-1")
-			if !errors.Is(err, domain.ErrCheckFailed) {
-				t.Fatalf("error=%v, want ErrCheckFailed", err)
+			result, err := newTestJira(server).ListIssueWorklogs(context.Background(), "PROJ-1")
+			if !errors.Is(err, domain.ErrCheckFailed) || result != nil || !strings.Contains(err.Error(), test.wantMessage) {
+				t.Fatalf("result=%+v error=%v, want nil ErrCheckFailed containing %q", result, err, test.wantMessage)
+			}
+		})
+	}
+}
+
+func TestIssueWorklogsListFailsClosedWhenTotalChanges(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if request.URL.Query().Get("startAt") == "0" {
+			_, _ = io.WriteString(w, `{"startAt":0,"total":2,"worklogs":[{"id":"1"}]}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"startAt":1,"total":1,"worklogs":[]}`)
+	}))
+	t.Cleanup(server.Close)
+
+	result, err := newTestJira(server).ListIssueWorklogs(context.Background(), "PROJ-1")
+	if !errors.Is(err, domain.ErrCheckFailed) || result != nil {
+		t.Fatalf("result=%+v error=%v, want nil and ErrCheckFailed", result, err)
+	}
+}
+
+func TestIssueWorklogsListPageGuardBoundaries(t *testing.T) {
+	tests := []struct {
+		name      string
+		total     int
+		wantError bool
+	}{
+		{name: "incomplete at guard", total: worklogPageGuard + 1, wantError: true},
+		{name: "complete at guard", total: worklogPageGuard},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			requests := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				requests++
+				start := request.URL.Query().Get("startAt")
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"startAt":`+start+`,"total":`+strconv.Itoa(test.total)+`,"worklogs":[{"id":"`+start+`"}]}`)
+			}))
+			t.Cleanup(server.Close)
+
+			result, err := newTestJira(server).ListIssueWorklogs(context.Background(), "PROJ-1")
+			if test.wantError {
+				if !errors.Is(err, domain.ErrCheckFailed) || result != nil {
+					t.Fatalf("result=%+v error=%v, want nil and ErrCheckFailed", result, err)
+				}
+			} else if err != nil || result == nil || !result.Complete || result.Total != test.total || len(result.Worklogs) != test.total {
+				t.Fatalf("result=%+v error=%v, want exact complete boundary", result, err)
+			}
+			if requests != worklogPageGuard {
+				t.Fatalf("requests=%d, want %d", requests, worklogPageGuard)
 			}
 		})
 	}

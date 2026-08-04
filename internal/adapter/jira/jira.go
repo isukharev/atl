@@ -439,6 +439,7 @@ func (j *Jira) ListComments(ctx context.Context, key string) ([]domain.Comment, 
 	startAt := 0
 	expectedTotal := -1
 	out := []domain.Comment{}
+	seenIDs := map[string]bool{}
 	for page := 0; page < commentPageGuard; page++ {
 		var resp struct {
 			StartAt  int  `json:"startAt"`
@@ -461,6 +462,10 @@ func (j *Jira) ListComments(ctx context.Context, key string) ([]domain.Comment, 
 				domain.ErrCheckFailed, key, startAt)
 		}
 		total := *resp.Total
+		if total < 0 {
+			return nil, fmt.Errorf("%w: Jira comment listing for %s returned negative total %d at offset %d",
+				domain.ErrCheckFailed, key, total, startAt)
+		}
 		if resp.StartAt != startAt {
 			return nil, fmt.Errorf("%w: Jira comment listing for %s returned offset %d while %d was requested",
 				domain.ErrCheckFailed, key, resp.StartAt, startAt)
@@ -472,6 +477,11 @@ func (j *Jira) ListComments(ctx context.Context, key string) ([]domain.Comment, 
 				domain.ErrCheckFailed, key, expectedTotal, total)
 		}
 		for _, c := range resp.Comments {
+			if c.ID == "" || seenIDs[c.ID] {
+				return nil, fmt.Errorf("%w: Jira comment listing for %s returned a missing or duplicate comment id at offset %d",
+					domain.ErrCheckFailed, key, startAt)
+			}
+			seenIDs[c.ID] = true
 			out = append(out, domain.Comment{
 				ID: c.ID, Author: nestedDisplay(c.Author), AuthorName: nestedName(c.Author),
 				AuthorKey: nestedKey(c.Author), Created: c.Created, Body: c.Body,

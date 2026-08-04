@@ -268,7 +268,8 @@ func TestListCommentsFailsClosedAtPageGuard(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"startAt":` + r.URL.Query().Get("startAt") + `,"total":101,"comments":[{"id":"one","body":"still paging"}]}`))
+		start := r.URL.Query().Get("startAt")
+		_, _ = w.Write([]byte(`{"startAt":` + start + `,"total":101,"comments":[{"id":"` + start + `","body":"still paging"}]}`))
 	}))
 	defer srv.Close()
 
@@ -284,59 +285,46 @@ func TestListCommentsFailsClosedAtPageGuard(t *testing.T) {
 	}
 }
 
-func TestListCommentsFailsClosedOnEmptyIncompletePage(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"startAt":0,"total":1,"comments":[]}`))
-	}))
-	defer srv.Close()
-
-	comments, err := newTestJira(srv).ListComments(context.Background(), "PROJ-1")
-	if !errors.Is(err, domain.ErrCheckFailed) || comments != nil {
-		t.Fatalf("comments=%+v error=%v, want nil and ErrCheckFailed", comments, err)
+func TestListCommentsFailsClosedOnPaginationAnomalies(t *testing.T) {
+	tests := []struct {
+		name        string
+		pages       map[string]string
+		wantMessage string
+	}{
+		{"missing total", map[string]string{"0": `{"startAt":0,"comments":[]}`}, "omitted total"},
+		{"negative total", map[string]string{"0": `{"startAt":0,"total":-1,"comments":[]}`}, "negative total"},
+		{"wrong offset", map[string]string{"0": `{"startAt":1,"total":2,"comments":[{"id":"one"}]}`}, "returned offset"},
+		{"empty incomplete", map[string]string{"0": `{"startAt":0,"total":1,"comments":[]}`}, "made no progress"},
+		{"past total", map[string]string{"0": `{"startAt":0,"total":0,"comments":[{"id":"one"}]}`}, "inconsistent pagination"},
+		{"missing identity", map[string]string{"0": `{"startAt":0,"total":1,"comments":[{"id":""}]}`}, "missing or duplicate comment id"},
+		{"duplicate identity", map[string]string{"0": `{"startAt":0,"total":2,"comments":[{"id":"one"},{"id":"one"}]}`}, "missing or duplicate comment id"},
+		{"changing total", map[string]string{
+			"0": `{"startAt":0,"total":2,"comments":[{"id":"one"}]}`,
+			"1": `{"startAt":1,"total":1,"comments":[]}`,
+		}, "changed total"},
+		{"duplicate identity across pages", map[string]string{
+			"0": `{"startAt":0,"total":2,"comments":[{"id":"one"}]}`,
+			"1": `{"startAt":1,"total":2,"comments":[{"id":"one"}]}`,
+		}, "missing or duplicate comment id"},
 	}
-}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, ok := test.pages[r.URL.Query().Get("startAt")]
+				if !ok {
+					http.Error(w, "unexpected page", http.StatusInternalServerError)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(body))
+			}))
+			t.Cleanup(srv.Close)
 
-func TestListCommentsFailsClosedWhenTotalIsMissing(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"startAt":0,"comments":[]}`))
-	}))
-	defer srv.Close()
-
-	comments, err := newTestJira(srv).ListComments(context.Background(), "PROJ-1")
-	if !errors.Is(err, domain.ErrCheckFailed) || comments != nil {
-		t.Fatalf("comments=%+v error=%v, want nil and ErrCheckFailed", comments, err)
-	}
-}
-
-func TestListCommentsFailsClosedOnUnexpectedOffset(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"startAt":1,"total":2,"comments":[{"id":"one"}]}`))
-	}))
-	defer srv.Close()
-
-	comments, err := newTestJira(srv).ListComments(context.Background(), "PROJ-1")
-	if !errors.Is(err, domain.ErrCheckFailed) || comments != nil {
-		t.Fatalf("comments=%+v error=%v, want nil and ErrCheckFailed", comments, err)
-	}
-}
-
-func TestListCommentsFailsClosedWhenTotalChanges(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Query().Get("startAt") == "0" {
-			_, _ = w.Write([]byte(`{"startAt":0,"total":2,"comments":[{"id":"one"}]}`))
-			return
-		}
-		_, _ = w.Write([]byte(`{"startAt":1,"total":1,"comments":[]}`))
-	}))
-	defer srv.Close()
-
-	comments, err := newTestJira(srv).ListComments(context.Background(), "PROJ-1")
-	if !errors.Is(err, domain.ErrCheckFailed) || comments != nil {
-		t.Fatalf("comments=%+v error=%v, want nil and ErrCheckFailed", comments, err)
+			comments, err := newTestJira(srv).ListComments(context.Background(), "PROJ-1")
+			if !errors.Is(err, domain.ErrCheckFailed) || comments != nil || !strings.Contains(err.Error(), test.wantMessage) {
+				t.Fatalf("comments=%+v error=%v, want nil ErrCheckFailed containing %q", comments, err, test.wantMessage)
+			}
+		})
 	}
 }
 
