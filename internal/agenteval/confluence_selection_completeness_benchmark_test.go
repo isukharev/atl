@@ -323,6 +323,11 @@ func decodeConfluenceSelectionSearchWire(data []byte) (confluenceSelectionSearch
 	}); err != nil {
 		return confluenceSelectionSearchWire{}, err
 	}
+	if err := requireNonemptyOptionalConfluenceSelectionStrings(root, "Confluence search", []string{
+		"partial_reason",
+	}); err != nil {
+		return confluenceSelectionSearchWire{}, err
+	}
 	var results []map[string]json.RawMessage
 	if err := json.Unmarshal(root["results"], &results); err != nil {
 		return confluenceSelectionSearchWire{}, fmt.Errorf("decode Confluence search results: %w", err)
@@ -338,6 +343,13 @@ func decodeConfluenceSelectionSearchWire(data []byte) (confluenceSelectionSearch
 		}
 		if err := rejectNullConfluenceSelectionMembers(result, fmt.Sprintf("Confluence search result[%d]", index),
 			[]string{"id", "title", "space", "version"}); err != nil {
+			return confluenceSelectionSearchWire{}, err
+		}
+		if err := requireNonemptyOptionalConfluenceSelectionStrings(
+			result,
+			fmt.Sprintf("Confluence search result[%d]", index),
+			[]string{"updated", "parent", "excerpt", "url"},
+		); err != nil {
 			return confluenceSelectionSearchWire{}, err
 		}
 	}
@@ -396,6 +408,27 @@ func rejectNullConfluenceSelectionMembers(
 	return nil
 }
 
+func requireNonemptyOptionalConfluenceSelectionStrings(
+	document map[string]json.RawMessage,
+	owner string,
+	members []string,
+) error {
+	for _, name := range members {
+		raw, ok := document[name]
+		if !ok {
+			continue
+		}
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return fmt.Errorf("%s optional member %q must not be null", owner, name)
+		}
+		var value string
+		if err := json.Unmarshal(raw, &value); err != nil || value == "" {
+			return fmt.Errorf("%s optional member %q must be a non-empty string", owner, name)
+		}
+	}
+	return nil
+}
+
 func TestConfluenceSelectionSearchWireRequiresReleasedMembers(t *testing.T) {
 	valid := []byte(`{"schema_version":1,"query":"type = page","results":[],"count":0,"complete":true,"truncated":false,"next_cursor":null}`)
 	if _, err := decodeConfluenceSelectionSearchWire(valid); err != nil {
@@ -428,6 +461,28 @@ func TestConfluenceSelectionSearchWireRequiresReleasedMembers(t *testing.T) {
 	}
 	if _, err := decodeConfluenceSelectionSearchWire(mutated); err == nil {
 		t.Fatal("null required boolean passed")
+	}
+	for name, raw := range map[string]json.RawMessage{
+		"partial_reason": json.RawMessage("null"),
+		"results":        json.RawMessage(`[{"id":"1","title":"Page","space":"SPACE","version":1,"excerpt":null}]`),
+	} {
+		t.Run("null optional "+name, func(t *testing.T) {
+			var candidate map[string]json.RawMessage
+			if err := json.Unmarshal(valid, &candidate); err != nil {
+				t.Fatal(err)
+			}
+			candidate[name] = raw
+			if name == "results" {
+				candidate["count"] = json.RawMessage("1")
+			}
+			mutated, err := json.Marshal(candidate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := decodeConfluenceSelectionSearchWire(mutated); err == nil {
+				t.Fatalf("null optional member in %q passed", name)
+			}
+		})
 	}
 }
 
