@@ -24,6 +24,10 @@ Graph evidence uses the same process boundary for both the base and explicitly
 opted-in Development routes. The evaluator accepts only the released bounded
 schema-v2 coordinates and qualifications, and the synthetic route separately
 proves every closed Jira request without following returned SCM locations.
+Structure view and metadata qualification evidence also run through the exact
+selected process. Closed evaluator-owned schema-v1 projections reconcile the
+returned hierarchy, selection, fields, accessibility, counts, and forest
+version while the synthetic backend proves the reviewed GET/POST sequence.
 
 ## Why
 
