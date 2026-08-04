@@ -109,14 +109,7 @@ func (e *confluenceCommentMutationWriteError) Unwrap() []error {
 	if e == nil {
 		return nil
 	}
-	causes := make([]error, 0, 2)
-	if e.closed {
-		causes = append(causes, domain.ErrCheckFailed)
-	}
-	if e.cause != nil {
-		causes = append(causes, e.cause)
-	}
-	return causes
+	return operationErrorCauses(e.cause, e.closed)
 }
 
 func (e *confluenceCommentMutationWriteError) DiagnosticAmbiguousWrite() bool {

@@ -98,11 +98,7 @@ func (e *confluenceAttachmentDeleteWriteError) Unwrap() []error {
 	if e == nil {
 		return nil
 	}
-	errs := []error{domain.ErrCheckFailed}
-	if e.cause != nil {
-		errs = append(errs, e.cause)
-	}
-	return errs
+	return operationErrorCauses(e.cause, true)
 }
 
 func (e *confluenceAttachmentDeleteWriteError) DiagnosticAmbiguousWrite() bool {

@@ -78,11 +78,7 @@ func (e *jiraIssueDeleteWriteError) Unwrap() []error {
 	if e == nil {
 		return nil
 	}
-	errList := []error{domain.ErrCheckFailed}
-	if e.cause != nil {
-		errList = append(errList, e.cause)
-	}
-	return errList
+	return operationErrorCauses(e.cause, true)
 }
 
 func (e *jiraIssueDeleteWriteError) DiagnosticAmbiguousWrite() bool {
