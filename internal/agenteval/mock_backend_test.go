@@ -355,6 +355,12 @@ func TestMockFixtureRejectsDuplicateOrAmbiguousQuerySelectors(t *testing.T) {
 	if err := fixture.Validate(); err == nil {
 		t.Fatal("duplicate exact query selector passed")
 	}
+	closedDuplicate := route
+	closedDuplicate.closedQuery = true
+	fixture.Routes = []MockRoute{route, closedDuplicate}
+	if err := fixture.Validate(); err == nil {
+		t.Fatal("overlapping open and closed query selectors passed")
+	}
 	fixture.Routes = []MockRoute{{Method: "GET", Path: "/wiki/rest/api/search", QueryContains: map[string]string{"start": "0"},
 		QueryEquals: map[string]string{"start": "0"}, Status: 200, Body: []byte(`{}`)}}
 	if err := fixture.Validate(); err == nil {
@@ -394,6 +400,55 @@ func TestMockBackendExactQueryRejectsMultipleValues(t *testing.T) {
 	_ = response.Body.Close()
 	if response.StatusCode != http.StatusNotFound {
 		t.Fatalf("status=%d, want %d", response.StatusCode, http.StatusNotFound)
+	}
+}
+
+func TestMockBackendClosedQueryRejectsUnreviewedNames(t *testing.T) {
+	route := MockRoute{
+		Method: "GET", Path: "/wiki/rest/api/search",
+		QueryEquals: map[string]string{"start": "0"}, Status: 200, Body: []byte(`{}`),
+		closedQuery: true,
+	}
+	fixture := MockFixture{
+		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
+		Routes: []MockRoute{route},
+	}
+	backend, err := StartMockBackend(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+
+	response, err := http.Get(backend.Environment()["ATL_CONFLUENCE_URL"] + "/rest/api/search?start=0&extra=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusNotFound {
+		t.Fatalf("extra query status=%d, want %d", response.StatusCode, http.StatusNotFound)
+	}
+
+	response, err = http.Get(backend.Environment()["ATL_CONFLUENCE_URL"] + "/rest/api/search?start=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("closed query status=%d, want %d", response.StatusCode, http.StatusOK)
+	}
+}
+
+func TestMockFixtureRejectsClosedContainsQuery(t *testing.T) {
+	fixture := MockFixture{
+		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
+		Routes: []MockRoute{{
+			Method: "GET", Path: "/wiki/rest/api/search",
+			QueryContains: map[string]string{"cql": "text"}, Status: 200, Body: []byte(`{}`),
+			closedQuery: true,
+		}},
+	}
+	if err := fixture.Validate(); err == nil {
+		t.Fatal("closed contains-query route passed")
 	}
 }
 
