@@ -19,7 +19,6 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-	"sync/atomic"
 	"time"
 )
 
@@ -596,332 +595,46 @@ type runAttemptBindings struct {
 }
 
 func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindings runAttemptBindings) (Result, error) {
-	privateCLI := contract.spec.EffectiveBackendMode() == BackendModePrivateLive && contract.spec.EffectiveToolTransport() == "cli"
-	codexPrivateCLI := contract.spec.Provider == "codex" && privateCLI
-	codexSyntheticBrokerCLI := isCodexSyntheticBrokerCLI(contract.spec)
-	codexSyntheticWriteCLI := codexSyntheticBrokerCLI && contract.spec.AllowSyntheticWrites
-	privateLiveWriteCLI := privateCLI && contract.spec.AllowLiveWrites
-	reviewedWriteCLI := codexSyntheticWriteCLI || privateLiveWriteCLI
-	codexBrokerCLI := codexPrivateCLI || codexSyntheticBrokerCLI
-	brokerCLI := privateCLI || codexSyntheticBrokerCLI
-	claudePrivateCLI := contract.spec.Provider == "claude-code" && privateCLI
-	gatewayBackedMCP := gatewayBackedInternalMCP(contract.spec)
-	var err error
-	if err := validatePathComponentID("scenario id", contract.scenario.ID); err != nil {
+	layout, err := prepareHeadlessAttemptLayout(contract, bindings)
+	if err != nil {
 		return Result{}, err
 	}
-	if err := validatePathComponentID("run variant", contract.spec.Variant); err != nil {
+	codexPrivateCLI := layout.codexPrivateCLI
+	codexSyntheticBrokerCLI := layout.codexSyntheticBrokerCLI
+	reviewedWriteCLI := layout.reviewedWriteCLI
+	codexBrokerCLI := layout.codexBrokerCLI
+	gatewayBackedMCP := layout.gatewayBackedMCP
+	runDir := layout.runDir
+	workspace := layout.workspace
+	taskContractSHA256 := layout.taskContractSHA256
+	executionContractSHA256 := layout.executionContractSHA256
+	providerResponseSchemaPath := layout.providerResponseSchema
+	finalPath := layout.finalPath
+	transcriptPath := layout.transcriptPath
+	stderrPath := layout.stderrPath
+	mirrorRoot := layout.mirrorRoot
+	counterPath := layout.counterPath
+	guardCounterPath := layout.guardCounterPath
+	wrapperDir := layout.wrapperDir
+	guardPath := layout.guardPath
+	cliResultDirectory := layout.cliResultDirectory
+	probeExecutablePath := layout.probeExecutablePath
+	settingsPath := layout.settingsPath
+	resources, err := prepareHeadlessProviderResources(parent, contract, bindings, layout)
+	if err != nil {
 		return Result{}, err
 	}
-	runDir := filepath.Join(bindings.outputRoot, contract.scenario.ID, contract.spec.Provider, contract.spec.Variant, fmt.Sprintf("run-%02d", bindings.repetition))
-	inside, pathErr := pathWithin(bindings.outputRoot, runDir)
-	if pathErr != nil || !inside {
-		return Result{}, fmt.Errorf("private run directory escapes its output root")
-	}
-	if err := mkdirPrivateWithin(bindings.outputRoot, runDir); err != nil {
-		return Result{}, err
-	}
-	workspace := filepath.Join(runDir, "workspace")
-	if contract.spec.EffectiveBackendMode() == BackendModePrivateLive {
-		if err := validatePrivateWorkspaceTemplate(contract.workspaceTemplate); err != nil {
-			return Result{}, err
-		}
-	}
-	if err := copyWorkspace(contract.workspaceTemplate, workspace); err != nil {
-		return Result{}, err
-	}
-	taskContractSHA256 := ""
-	if bindings.attestation != nil {
-		taskContractSHA256, err = syntheticTaskContractSHA256(contract, workspace)
-		if err != nil {
-			return Result{}, err
-		}
-	}
-	if shouldInstallCodexBenchmarkSkills(contract.spec) {
-		_, skillRoot, err := providerPluginLayout(bindings.pluginRoot, contract.spec.Provider)
-		if err != nil {
-			return Result{}, err
-		}
-		if err := copyWorkspace(skillRoot, filepath.Join(workspace, ".agents", "skills")); err != nil {
-			return Result{}, fmt.Errorf("install benchmark skills: %w", err)
-		}
-	}
-	responseSchemaPath := filepath.Join(runDir, "response-schema.json")
-	if err := writePrivateFile(responseSchemaPath, contract.responseSchema); err != nil {
-		return Result{}, err
-	}
-	providerSchema, projectionErr := providerResponseSchema(contract.spec, contract.responseSchema)
-	if projectionErr != nil {
-		return Result{}, projectionErr
-	}
-	executionContractSHA256 := ""
-	if bindings.attestation != nil {
-		executionContractSHA256, err = syntheticExecutionContractSHA256(bindings.attestation, taskContractSHA256, bindings.runtime, providerSchema)
-		if err != nil {
-			return Result{}, err
-		}
-	}
-	providerResponseSchemaPath := responseSchemaPath
-	if !bytes.Equal(providerSchema, contract.responseSchema) {
-		providerResponseSchemaPath = filepath.Join(runDir, "provider-response-schema.json")
-		if err := writePrivateFile(providerResponseSchemaPath, providerSchema); err != nil {
-			return Result{}, err
-		}
-	}
-	finalPath := filepath.Join(runDir, "final.json")
-	transcriptPath := filepath.Join(runDir, "transcript.jsonl")
-	stderrPath := filepath.Join(runDir, "agent.stderr")
-	evalDir := filepath.Join(runDir, ".atl-eval")
-	if err := mkdirPrivate(evalDir); err != nil {
-		return Result{}, err
-	}
-	mirrorRoot := filepath.Join(evalDir, "mirror")
-	if contract.spec.EffectiveBackendMode() == BackendModeSynthetic && contract.spec.EffectiveSurface() == SurfaceATLMCP {
-		resolvedMirrorRoot, rootErr := syntheticMCPMirrorRoot(workspace, mirrorRoot)
-		if rootErr != nil {
-			return Result{}, rootErr
-		}
-		mirrorRoot = resolvedMirrorRoot
-	}
-	counterPath := filepath.Join(evalDir, "atl-invocations.jsonl")
-	guardCounterPath := filepath.Join(evalDir, "guard-decisions.jsonl")
-	wrapperDir := filepath.Join(runDir, "bin")
-	if err := mkdirPrivate(wrapperDir); err != nil {
-		return Result{}, err
-	}
-	if err := copyExecutable(bindings.wrapperExecutable, filepath.Join(wrapperDir, wrapperName())); err != nil {
-		return Result{}, err
-	}
-	guardPath := filepath.Join(wrapperDir, guardName())
-	if err := copyExecutable(bindings.wrapperExecutable, guardPath); err != nil {
-		return Result{}, err
-	}
-	brokerRequestDirectory := ""
-	brokerResponseDirectory := ""
-	if brokerCLI {
-		brokerRequestDirectory = filepath.Join(evalDir, "command-broker-requests")
-		brokerResponseDirectory = filepath.Join(evalDir, "command-broker-responses")
-		if err := mkdirPrivate(brokerRequestDirectory); err != nil {
-			return Result{}, err
-		}
-		if err := mkdirPrivate(brokerResponseDirectory); err != nil {
-			return Result{}, err
-		}
-		counterPath = filepath.Join(brokerRequestDirectory, "atl-invocations.jsonl")
-	}
-	cliResultDirectory := ""
-	if claudePrivateCLI {
-		cliResultDirectory = filepath.Join(evalDir, "cli-results")
-		if err := mkdirPrivate(cliResultDirectory); err != nil {
-			return Result{}, err
-		}
-	}
-	probeExecutablePath := ""
-	if codexBrokerCLI {
-		probeExecutablePath = filepath.Join(wrapperDir, confinementProbeName())
-		if err := copyExecutable(bindings.wrapperExecutable, probeExecutablePath); err != nil {
-			return Result{}, err
-		}
-	}
-	if contract.spec.EffectiveBackendMode() == BackendModePrivateLive || codexSyntheticBrokerCLI {
-		for _, reader := range []string{"cat", "sed", "wc"} {
-			if err := copyExecutable(bindings.wrapperExecutable, filepath.Join(wrapperDir, reader)); err != nil {
-				return Result{}, err
-			}
-		}
-	}
-	if reviewedWriteCLI {
-		if err := copyExecutable(bindings.wrapperExecutable, filepath.Join(wrapperDir, "env")); err != nil {
-			return Result{}, err
-		}
-	}
-	settingsPath := filepath.Join(runDir, "claude-settings.json")
-	var reviewedMCPTools []string
-	if contract.spec.Provider == "claude-code" && contract.spec.ToolTransport == "mcp" {
-		reviewedMCPTools = claudeMCPToolNamesForServer(mcpServerName(contract.spec), contract.spec.AllowedMCPTools)
-	}
-	if err := writeClaudeGuardSettings(settingsPath, guardPath, mcpServerName(contract.spec), reviewedMCPTools); err != nil {
-		return Result{}, err
-	}
-	atlConfigDir := filepath.Join(evalDir, "atl-config")
-	httpGuardPath := ""
-	cliPolicyPath := ""
-	backendEnvironment := map[string]string{}
-	providerConfinement := ProviderConfinement{}
-	brokerManifestPath := ""
-	var backend *MockBackend
-	var liveGateway *LiveGateway
-	var externalProxy *ExternalMCPProxy
-	externalAuditPath := ""
-	var externalCanaries []string
-	providerBindings := providerCommandBindings{}
-	var commandBroker *CommandBroker
-	if codexBrokerCLI {
-		providerConfinement.RequestDirectory = brokerRequestDirectory
-		providerConfinement.ResponseDirectory = brokerResponseDirectory
-	}
-	if brokerCLI {
-		cliPolicyPath = filepath.Join(evalDir, "cli-policy.json")
-		cliPolicy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: contract.spec.AllowedCLICommands}
-		policyData, err := EncodeCLICommandPolicy(cliPolicy)
-		if err != nil {
-			return Result{}, err
-		}
-		if err := writePrivateFile(cliPolicyPath, policyData); err != nil {
-			return Result{}, err
-		}
-	}
-	if contract.spec.EffectiveBackendMode() == BackendModeSynthetic {
-		if contract.fixture == nil {
-			return Result{}, fmt.Errorf("synthetic run has no fixture")
-		}
-		backend, err = StartMockBackend(*contract.fixture)
-		if err != nil {
-			return Result{}, err
-		}
-		defer backend.Close()
-		backendEnvironment = backend.Environment()
-		// Backend bindings are harness-owned setup, like installed benchmark
-		// skills: they are injected only into the disposable copied workspace
-		// after its task contract has been hashed. This keeps existing synthetic
-		// mirror fixtures compatible with the product's explicit legacy-mirror
-		// migration gate without changing the agent-visible command contract or
-		// counting setup as an interface invocation.
-		if contract.spec.EffectiveSurface() == SurfaceCLISkill {
-			if err := mkdirPrivate(atlConfigDir); err != nil {
-				return Result{}, err
-			}
-			if err := bindSyntheticWorkspaceMirrors(parent, bindings.atlBinary, workspace, atlConfigDir, backendEnvironment); err != nil {
-				return Result{}, err
-			}
-		}
-	} else {
-		scratchRoot := bindings.scratchRoot
-		atlConfigDir, err = os.MkdirTemp(scratchRoot, "atl-agent-eval-live-config-")
-		if err != nil {
-			return Result{}, err
-		}
-		if err := os.Chmod(atlConfigDir, 0o700); err != nil {
-			_ = os.RemoveAll(atlConfigDir)
-			return Result{}, err
-		}
-		defer func() { _ = os.RemoveAll(atlConfigDir) }()
-		if contract.spec.ToolTransport == "cli" {
-			httpGuardPath = filepath.Join(evalDir, "gateway-audit.jsonl")
-			liveGateway, err = startPrivateLiveGateway(bindings.liveConfigDir, atlConfigDir, httpGuardPath, contract.spec, contract.scenario)
-			if err != nil {
-				return Result{}, err
-			}
-			defer func() { _ = liveGateway.Close(context.Background()) }()
-		} else if gatewayBackedMCP {
-			// Every private-live internal MCP uses the same credential boundary as
-			// the private CLI. Route-less historical specs receive a harness-owned
-			// GET/HEAD-only compatibility policy when this gateway starts.
-			httpGuardPath = filepath.Join(evalDir, "gateway-audit.jsonl")
-			liveGateway, err = startPrivateLiveGateway(bindings.liveConfigDir, atlConfigDir, httpGuardPath, contract.spec, contract.scenario)
-			if err != nil {
-				return Result{}, err
-			}
-			defer func() { _ = liveGateway.Close(context.Background()) }()
-		} else if contract.spec.EffectiveSurface() == SurfaceExternalMCP {
-			headers, canaries, err := resolveExternalMCPHeaders(bindings.externalProfile, bindings.liveConfigDir)
-			if err != nil {
-				return Result{}, err
-			}
-			externalAuditPath = filepath.Join(evalDir, "external-mcp-audit.jsonl")
-			externalCanaries = append([]string(nil), canaries...)
-			externalProxy, err = StartExternalMCPProxy(parent, bindings.externalProfile, headers, canaries, externalAuditPath)
-			if err != nil {
-				return Result{}, err
-			}
-			defer func() { _ = externalProxy.closeBounded() }()
-			endpoint, capability := externalProxy.Endpoint()
-			providerBindings.externalMCPServerURL = endpoint
-			providerBindings.externalMCPBearerTokenEnv = WrapperEnvExternalMCPToken
-			backendEnvironment[WrapperEnvExternalMCPToken] = capability
-		}
-	}
-	if brokerCLI {
-		brokerManifestPath = filepath.Join(evalDir, "command-broker.json")
-		brokerTimeout := time.Duration(contract.spec.TimeoutSeconds) * time.Second
-		if brokerTimeout > 2*time.Minute {
-			brokerTimeout = 2 * time.Minute
-		}
-		brokerEnvironment := map[string]string{
-			"ATL_NO_UPDATE": "1", "NO_PROXY": "127.0.0.1,localhost", "no_proxy": "127.0.0.1,localhost",
-		}
-		if privateCLI {
-			if !privateLiveWriteCLI {
-				brokerEnvironment["ATL_READ_ONLY"] = "1"
-			}
-			brokerEnvironment["ATL_CONFIG_DIR"] = atlConfigDir
-			brokerEnvironment["ATL_MIRROR_ROOT"] = mirrorRoot
-		} else {
-			for name, value := range backendEnvironment {
-				brokerEnvironment[name] = value
-			}
-			brokerEnvironment["ATL_CONFIG_DIR"] = atlConfigDir
-			brokerEnvironment["ATL_MIRROR_ROOT"] = mirrorRoot
-			if codexSyntheticWriteCLI {
-				brokerEnvironment[WrapperEnvAllowSyntheticWrites] = "1"
-			} else {
-				brokerEnvironment["ATL_READ_ONLY"] = "1"
-			}
-		}
-		for _, name := range []string{"LANG", "LC_ALL", "TERM", "TZ"} {
-			if value := os.Getenv(name); value != "" {
-				brokerEnvironment[name] = value
-			}
-		}
-		maxStdout := contract.scenario.Budgets.MaxOutputBytes
-		if maxStdout > 4<<20 {
-			maxStdout = 4 << 20
-		}
-		cliPolicy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: contract.spec.AllowedCLICommands}
-		commandBroker, err = StartCommandBroker(CommandBrokerConfig{
-			RequestDirectory: brokerRequestDirectory, ResponseDirectory: brokerResponseDirectory,
-			ManifestPath: brokerManifestPath,
-			RealBinary:   bindings.atlBinary, WorkingDirectory: workspace, Policy: cliPolicy,
-			Environment:    flattenEnvironment(brokerEnvironment),
-			MaxStdoutBytes: maxStdout, MaxStderrBytes: 64 << 10, CommandTimeout: brokerTimeout,
-			AllowSyntheticWrites: codexSyntheticWriteCLI,
-			AllowReviewedWrites:  reviewedWriteCLI,
-		})
-		if err != nil {
-			return Result{}, err
-		}
-		defer func() { _ = commandBroker.Close() }()
-	}
-	mcpConfigPath := claudeMCPConfigPath(contract.spec, filepath.Join(runDir, "claude-mcp.json"))
-	if mcpConfigPath != "" {
-		mcpEnvironment := map[string]string{
-			"ATL_READ_ONLY":   "1",
-			"ATL_NO_UPDATE":   "1",
-			"ATL_CONFIG_DIR":  atlConfigDir,
-			"ATL_MIRROR_ROOT": mirrorRoot,
-		}
-		if gatewayBackedMCP {
-			// The MCP child must reach only the disposable loopback gateway, so it
-			// receives a fixed allowlist instead of the ambient backend environment:
-			// no upstream URL or PAT name, no insecure-transport switch, and no HTTP
-			// guard file. NO_PROXY keeps the loopback ingress off any ambient proxy.
-			mcpEnvironment = gatewayMCPEnvironment(atlConfigDir, mirrorRoot)
-			if err := validateGatewayMCPEnvironment(mcpEnvironment); err != nil {
-				return Result{}, err
-			}
-		} else {
-			for name, value := range backendEnvironment {
-				mcpEnvironment[name] = value
-			}
-		}
-		if contract.spec.EffectiveSurface() == SurfaceExternalMCP {
-			if err := writeClaudeExternalMCPConfig(mcpConfigPath, providerBindings.externalMCPServerURL, backendEnvironment[WrapperEnvExternalMCPToken]); err != nil {
-				return Result{}, err
-			}
-		} else if err := writeClaudeMCPConfig(mcpConfigPath, bindings.atlBinary, mcpChildArgs(contract.spec), mcpEnvironment); err != nil {
-			return Result{}, err
-		}
-	}
+	defer resources.closeDeferred()
+	atlConfigDir := resources.atlConfigDir
+	httpGuardPath := resources.httpGuardPath
+	cliPolicyPath := resources.cliPolicyPath
+	backendEnvironment := resources.backendEnvironment
+	providerConfinement := resources.providerConfinement
+	brokerManifestPath := resources.brokerManifestPath
+	externalAuditPath := resources.externalAuditPath
+	externalCanaries := resources.externalCanaries
+	providerBindings := resources.providerBindings
+	mcpConfigPath := layout.mcpConfigPath
 
 	if codexPrivateCLI {
 		if bindings.providerRuntime == nil {
@@ -1100,81 +813,30 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 		delete(environment, "ATL_READ_ONLY")
 	}
 	command.Env = flattenEnvironment(environment)
-	started := time.Now()
-	var guardAborted atomic.Bool
-	guardStop := make(chan struct{})
-	var guardDone chan struct{}
-	if requiresCleanGuard(contract.spec.Checks) {
-		guardDone = make(chan struct{})
-		go func() {
-			defer close(guardDone)
-			ticker := time.NewTicker(250 * time.Millisecond)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-guardStop:
-					return
-				case <-ticker.C:
-					denials, countErr := countGuardDenials(guardCounterPath)
-					if countErr == nil && denials > 0 {
-						guardAborted.Store(true)
-						cancel()
-						return
-					}
-				}
-			}
-		}()
+	execution := executeAndCloseHeadlessProvider(headlessProviderExecutionInput{
+		contract: contract, bindings: bindings, layout: layout, resources: resources,
+		command: command, transcript: transcript, stderr: stderr, ctx: ctx, cancel: cancel,
+	})
+	if execution.gatewayCloseErr != nil {
+		return Result{}, fmt.Errorf("close private-live gateway: %w", execution.gatewayCloseErr)
 	}
-	// Persist immediately before spawn: there is no atomic primitive spanning
-	// durable storage and exec, so even a failed Start consumes the attempt.
-	// Revalidation remains private-CLI-only and occurs after that commitment.
-	var revalidateProvider func() error
-	if codexPrivateCLI {
-		revalidateProvider = bindings.providerRuntime.verifyPluginPackage
+	if execution.brokerCloseErr != nil {
+		return Result{}, fmt.Errorf("close private-live command broker: %w", execution.brokerCloseErr)
 	}
-	attemptStage, runErr := executeProviderAttempt(command, bindings.providerAttemptCommitted, revalidateProvider)
-	if runErr != nil && attemptStage == providerAttemptStageCommit {
-		runErr = fmt.Errorf("persist provider attempt boundary: %w", runErr)
+	if execution.externalCloseErr != nil {
+		return Result{}, fmt.Errorf("close external MCP proxy: %w", execution.externalCloseErr)
 	}
-	var brokerCloseErr error
-	if commandBroker != nil {
-		brokerCloseErr = commandBroker.Close()
-	}
-	var gatewayCloseErr error
-	if liveGateway != nil {
-		gatewayCloseErr = liveGateway.Close(context.Background())
-	}
-	var externalCloseErr error
-	if externalProxy != nil {
-		externalCloseErr = externalProxy.closeBounded()
-	}
-	close(guardStop)
-	if guardDone != nil {
-		<-guardDone
-	}
-	duration := time.Since(started).Milliseconds()
-	closeTranscriptErr := transcript.Close()
-	closeStderrErr := stderr.Close()
-	if gatewayCloseErr != nil {
-		return Result{}, fmt.Errorf("close private-live gateway: %w", gatewayCloseErr)
-	}
-	if brokerCloseErr != nil {
-		return Result{}, fmt.Errorf("close private-live command broker: %w", brokerCloseErr)
-	}
-	if externalCloseErr != nil {
-		return Result{}, fmt.Errorf("close external MCP proxy: %w", externalCloseErr)
-	}
-	if ctx.Err() == context.DeadlineExceeded {
+	if execution.timedOut {
 		return Result{}, fmt.Errorf("agent exceeded %d second timeout", contract.spec.TimeoutSeconds)
 	}
-	if guardAborted.Load() {
+	if execution.guardAborted {
 		return Result{}, fmt.Errorf("agent attempted a command rejected by the benchmark guard")
 	}
-	if runErr != nil {
-		return Result{}, fmt.Errorf("agent process failed: %w", runErr)
+	if execution.runErr != nil {
+		return Result{}, fmt.Errorf("agent process failed: %w", execution.runErr)
 	}
-	if closeTranscriptErr != nil || closeStderrErr != nil {
-		return Result{}, fmt.Errorf("close agent output: %v %v", closeTranscriptErr, closeStderrErr)
+	if execution.closeTranscriptErr != nil || execution.closeStderrErr != nil {
+		return Result{}, fmt.Errorf("close agent output: %v %v", execution.closeTranscriptErr, execution.closeStderrErr)
 	}
 	trajectory, err := captureHeadlessTrajectory(headlessTrajectoryCaptureInput{
 		contract:          contract,
@@ -1187,8 +849,8 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 		guardCounterPath:  guardCounterPath,
 		httpGuardPath:     httpGuardPath,
 		externalCanaries:  externalCanaries,
-		backend:           backend,
-		liveGateway:       liveGateway,
+		backend:           resources.backend,
+		liveGateway:       resources.liveGateway,
 	})
 	if err != nil {
 		return Result{}, err
@@ -1198,7 +860,7 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 		trajectory:              trajectory,
 		workspace:               workspace,
 		runDir:                  runDir,
-		durationMillis:          duration,
+		durationMillis:          execution.durationMillis,
 		runtime:                 bindings.runtime,
 		repetition:              bindings.repetition,
 		taskContractSHA256:      taskContractSHA256,

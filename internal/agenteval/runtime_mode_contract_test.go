@@ -241,6 +241,13 @@ func selectorCall(receiver, method string) evaluatorRuntimeCallMatcher {
 	}
 }
 
+func selectorCallWithReceiverPath(receiver []string, method string) evaluatorRuntimeCallMatcher {
+	return func(call *ast.CallExpr) bool {
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		return ok && selector.Sel.Name == method && expressionPath(selector.X, receiver...)
+	}
+}
+
 func selectorCallWithIdentifierArgument(receiver, method, argument string) evaluatorRuntimeCallMatcher {
 	base := selectorCall(receiver, method)
 	return func(call *ast.CallExpr) bool {
@@ -448,6 +455,42 @@ func assertRuntimeModeConditionalAssignment(t *testing.T, name, function, condit
 	}
 }
 
+func assertHeadlessExecutionErrorPrecedence(t *testing.T) {
+	t.Helper()
+	set := token.NewFileSet()
+	parsed, err := parser.ParseFile(set, "runner.go", nil, 0)
+	if err != nil {
+		t.Fatal("runtime mode contract invalid")
+	}
+	body := evaluatorRuntimeFunction(parsed, "runHeadlessOnce")
+	if body == nil {
+		t.Fatal("runtime mode contract invalid")
+	}
+	want := []string{
+		"execution.gatewayCloseErr != nil",
+		"execution.brokerCloseErr != nil",
+		"execution.externalCloseErr != nil",
+		"execution.timedOut",
+		"execution.guardAborted",
+		"execution.runErr != nil",
+		"execution.closeTranscriptErr != nil || execution.closeStderrErr != nil",
+	}
+	next := 0
+	for _, statement := range body.Body.List {
+		guard, ok := statement.(*ast.IfStmt)
+		if !ok || next >= len(want) || runtimeModeNodeSource(set, guard.Cond) != want[next] {
+			continue
+		}
+		if guard.Init != nil || guard.Else != nil || !runtimeModeDirectReturn(guard.Body) {
+			t.Fatal("runtime mode contract invalid")
+		}
+		next++
+	}
+	if next != len(want) {
+		t.Fatal("runtime mode contract invalid")
+	}
+}
+
 func assertRuntimeModeDryRunReturnOrder(t *testing.T) {
 	t.Helper()
 	parsed, err := parseEvaluatorRuntimeSource("runner.go")
@@ -570,9 +613,9 @@ func TestEvaluatorRuntimeModeHeadlessDryRunCreatesOnlyMarker(t *testing.T) {
 func TestEvaluatorRuntimeModeCommitmentAndProbeOrdering(t *testing.T) {
 	assertRuntimeModeCallOrder(t, "provider_attempt.go", "executeProviderAttempt",
 		identifierCall("commit"), identifierCall("revalidate"), selectorCall("command", "Start"), selectorCall("command", "Wait"))
-	assertRuntimeModeConditionalAssignment(t, "runner.go", "runHeadlessOnce", "codexPrivateCLI", "revalidateProvider", "bindings", "providerRuntime", "verifyPluginPackage")
-	assertRuntimeModeCallCount(t, "runner.go", "runHeadlessOnce", identifierCallWithArgumentPaths("executeProviderAttempt",
-		[]string{"command"}, []string{"bindings", "providerAttemptCommitted"}, []string{"revalidateProvider"}), 1)
+	assertRuntimeModeConditionalAssignment(t, "runner_provider.go", "executeAndCloseHeadlessProvider", "codexPrivateCLI", "revalidateProvider", "input", "bindings", "providerRuntime", "verifyPluginPackage")
+	assertRuntimeModeCallCount(t, "runner_provider.go", "executeAndCloseHeadlessProvider", identifierCallWithArgumentPaths("executeProviderAttempt",
+		[]string{"input", "command"}, []string{"input", "bindings", "providerAttemptCommitted"}, []string{"revalidateProvider"}), 1)
 	assertRuntimeModeCallCount(t, "calibration.go", "RunCodexCLICalibration", identifierCallWithArgumentPaths("executeProviderAttempt",
 		[]string{"command"}, []string{"options", "providerAttemptCommitted"}, []string{"providerRuntime", "verifyPluginPackage"}), 1)
 	assertRuntimeModeCallOrder(t, "private_review_runner.go", "RunPrivateReview",
@@ -581,6 +624,20 @@ func TestEvaluatorRuntimeModeCommitmentAndProbeOrdering(t *testing.T) {
 		identifierCall("preparePrivateProbeAgent"), selectorCall("command", "Run"))
 	assertRuntimeModeCallOrder(t, "cli_route_qualification.go", "QualifyCLIRoute",
 		identifierCall("preparePrivateProbeAgent"), selectorCall("command", "Run"))
+	assertRuntimeModeCallOrder(t, "runner_provider.go", "executeAndCloseHeadlessProvider",
+		identifierCall("executeProviderAttempt"),
+		selectorCallWithReceiverPath([]string{"input", "resources", "commandBroker"}, "Close"),
+		selectorCallWithReceiverPath([]string{"input", "resources", "liveGateway"}, "Close"),
+		selectorCallWithReceiverPath([]string{"input", "resources", "externalProxy"}, "closeBounded"),
+		identifierCall("close"), selectorCall("time", "Since"),
+		selectorCallWithReceiverPath([]string{"input", "transcript"}, "Close"),
+		selectorCallWithReceiverPath([]string{"input", "stderr"}, "Close"))
+	assertRuntimeModeCallOrder(t, "runner_provider.go", "closeDeferred",
+		selectorCallWithReceiverPath([]string{"resources", "commandBroker"}, "Close"),
+		selectorCallWithReceiverPath([]string{"resources", "liveGateway"}, "Close"),
+		selectorCallWithReceiverPath([]string{"resources", "externalProxy"}, "closeBounded"),
+		selectorCall("os", "RemoveAll"), selectorCallWithReceiverPath([]string{"resources", "backend"}, "Close"))
+	assertHeadlessExecutionErrorPrecedence(t)
 }
 
 func TestEvaluatorRuntimeModeReceiptPersistenceRemainsOuterAndRevalidated(t *testing.T) {

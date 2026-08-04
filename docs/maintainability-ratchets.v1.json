@@ -15,8 +15,8 @@
     {"owner":"cli","path":"internal/cli/conf.go","function":"confPageCmd","max_lines":520,"rationale":"Keep the largest Confluence command family within a reviewed growth allowance."},
     {"owner":"cli","path":"internal/cli/jira.go","max_lines":1800,"rationale":"Keep the Jira command assembly owner visible until issue, mirror, graph, and project surfaces are split."},
     {"owner":"cli","path":"internal/cli/jira.go","function":"jiraIssueCmd","max_lines":575,"rationale":"Keep the largest Jira command family within a reviewed growth allowance."},
-    {"owner":"evaluator","path":"internal/agenteval/runner.go","max_lines":2300,"rationale":"Keep the evaluator execution owner visible after trajectory capture and outcome finalization moved to focused owners."},
-    {"owner":"evaluator","path":"internal/agenteval/runner.go","function":"runHeadlessOnce","max_lines":700,"rationale":"Keep the remaining admission, provider lifecycle, cleanup, and error-precedence transaction within its reduced reviewed allowance."},
+    {"owner":"evaluator","path":"internal/agenteval/runner.go","max_lines":1900,"rationale":"Keep the evaluator launch and orchestration owner visible after attempt layout, provider lifecycle, trajectory capture, and outcome finalization moved to focused owners."},
+    {"owner":"evaluator","path":"internal/agenteval/runner.go","function":"runHeadlessOnce","max_lines":350,"rationale":"Keep the remaining launch-environment assembly and explicit lifecycle/error-precedence orchestration within its reduced reviewed allowance."},
     {"owner":"mcp","path":"internal/mcpserver/server.go","max_lines":2850,"rationale":"Keep MCP registration, validation, and error-policy assembly visible until those responsibilities are split."},
     {"owner":"mcp","path":"internal/mcpserver/server.go","function":"registerConfluenceTools","max_lines":320,"rationale":"Keep Confluence MCP tool registration within a reviewed allowance."},
     {"owner":"mcp","path":"internal/mcpserver/server.go","function":"registerJiraTools","max_lines":300,"rationale":"Keep Jira MCP tool registration within a reviewed allowance."}
