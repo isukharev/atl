@@ -2,23 +2,14 @@ package agenteval
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"io"
 	"maps"
-	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
-
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/isukharev/atl/internal/app"
 )
 
 // confluenceAttachmentEvidenceCohort names one synthetic attachment-evidence
@@ -207,21 +198,20 @@ func confluenceAttachmentEvidenceRoot(cohort confluenceAttachmentEvidenceCohort)
 // the transport traffic the mock backend actually observed.
 type confluenceAttachmentEvidenceEvidence struct {
 	cohort    confluenceAttachmentEvidenceCohort
-	section   *app.ConfluencePageSectionResult
-	inventory *app.ConfluenceAttachmentInventoryView
+	section   *ConfluencePageSectionView
+	inventory *ConfluenceAttachmentInventoryView
 	// marker is the filename extracted from the returned section Markdown.
 	marker string
 
-	final       []byte
-	invocations []MCPInvocation
-	families    []CapabilityFamilyMetric
-	sequence    []string
-	methods     map[string]int
-	paths       []string
-	targets     []string
-	duplicates  int
-	unexpected  int
-	failed      int
+	final                   []byte
+	invocations             []MCPInvocation
+	families                []CapabilityFamilyMetric
+	sequence                []string
+	methods                 map[string]int
+	requestSequenceComplete bool
+	duplicates              int
+	unexpected              int
+	failed                  int
 }
 
 func TestRepositoryConfluenceAttachmentEvidenceFixturesDriveProviderOracles(t *testing.T) {
@@ -230,7 +220,7 @@ func TestRepositoryConfluenceAttachmentEvidenceFixturesDriveProviderOracles(t *t
 			root := confluenceAttachmentEvidenceRoot(cohort)
 			fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
 			evidence := driveConfluenceAttachmentEvidence(t, cohort, fixture,
-				confluenceAttachmentEvidenceAuthorizedRoute)
+				[]int{cohort.pageVersion}, confluenceAttachmentEvidenceAuthorizedRoute)
 			assertConfluenceAttachmentEvidenceReadings(t, cohort, evidence)
 			assertConfluenceAttachmentEvidenceReconciliation(t, cohort, evidence)
 			assertConfluenceAttachmentEvidenceReturnedProseIsData(t, cohort, evidence)
@@ -272,7 +262,7 @@ func TestRepositoryConfluenceAttachmentEvidenceFixturesDriveProviderOracles(t *t
 // never consults the retained answer keys: the fixture alone decides whether the
 // inventory read is authorized, and which page version it is bound to. Returning
 // no version stops the route.
-func confluenceAttachmentEvidenceAuthorizedRoute(section *app.ConfluencePageSectionResult) []int {
+func confluenceAttachmentEvidenceAuthorizedRoute(section *ConfluencePageSectionView) []int {
 	if section == nil || !section.Complete || section.Truncated || section.PartialReason != "" {
 		return nil
 	}
@@ -299,18 +289,25 @@ func driveConfluenceAttachmentEvidence(
 	t *testing.T,
 	cohort confluenceAttachmentEvidenceCohort,
 	fixture MockFixture,
-	plan func(*app.ConfluencePageSectionResult) []int,
+	admittedVersions []int,
+	plan func(*ConfluencePageSectionView) []int,
 ) confluenceAttachmentEvidenceEvidence {
 	t.Helper()
-	backend, trace, client := startConfluenceAttachmentEvidenceBackend(t, fixture)
+	sectionInvocation := confluenceAttachmentEvidenceSectionInvocation(t, cohort)
+	admissions := []MCPInvocation{sectionInvocation}
+	for _, version := range admittedVersions {
+		admissions = append(admissions,
+			confluenceAttachmentEvidenceInventoryInvocation(t, cohort, version))
+	}
+	fixture = confluenceAttachmentEvidenceProcessFixture(t, fixture, cohort, admittedVersions)
+	process := startRepositoryConfluenceEvidenceProcess(t, fixture, admissions)
 	evidence := confluenceAttachmentEvidenceEvidence{cohort: cohort}
 
 	// 1. The one authorized opening call: the exact selection at the declared
 	// bound, through the shipped typed tool rather than a test-side copy of it.
-	sectionInvocation := confluenceAttachmentEvidenceSectionInvocation(t, cohort)
 	evidence.invocations = append(evidence.invocations, sectionInvocation)
 	evidence.sequence = append(evidence.sequence, confluenceAttachmentEvidenceSectionFamily)
-	section, ok := callConfluenceAttachmentEvidenceSection(t, client, sectionInvocation)
+	section, ok := callConfluenceAttachmentEvidenceSection(t, process, sectionInvocation)
 	if !ok {
 		t.Fatal("the opening bounded section read must succeed")
 	}
@@ -331,7 +328,7 @@ func driveConfluenceAttachmentEvidence(
 		invocation := confluenceAttachmentEvidenceInventoryInvocation(t, cohort, version)
 		evidence.invocations = append(evidence.invocations, invocation)
 		evidence.sequence = append(evidence.sequence, confluenceAttachmentEvidenceInventoryFamily)
-		inventory, inventoryOK := callConfluenceAttachmentEvidenceInventory(t, client, invocation)
+		inventory, inventoryOK := callConfluenceAttachmentEvidenceInventory(t, process, invocation)
 		if !inventoryOK {
 			evidence.failed++
 			continue
@@ -343,8 +340,10 @@ func driveConfluenceAttachmentEvidence(
 		}
 	}
 
-	evidence.methods, evidence.unexpected, evidence.duplicates = backend.Summary()
-	evidence.paths, evidence.targets = trace.observed()
+	summary := process.Summary()
+	evidence.methods, evidence.unexpected, evidence.duplicates = summary.HTTPMethods,
+		summary.UnexpectedRequests, summary.DuplicateRequests
+	evidence.requestSequenceComplete = process.RequestSequenceComplete()
 	evidence.final = confluenceAttachmentEvidenceFinal(t, evidence)
 	evidence.families = confluenceAttachmentEvidenceFamilies(evidence)
 	return evidence
@@ -375,75 +374,66 @@ func confluenceAttachmentEvidenceFamilies(evidence confluenceAttachmentEvidenceE
 	return result
 }
 
-// confluenceAttachmentEvidenceTrace records the ordered backend requests the
-// driven route actually issued. The mock backend reports aggregate counts only,
-// so the recorder sits in front of it and keeps the order observable.
-type confluenceAttachmentEvidenceTrace struct {
-	mu      sync.Mutex
-	paths   []string
-	targets []string
-}
-
-func (r *confluenceAttachmentEvidenceTrace) record(method, path, target string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.paths = append(r.paths, method+" "+path)
-	r.targets = append(r.targets, method+" "+target)
-}
-
-func (r *confluenceAttachmentEvidenceTrace) observed() ([]string, []string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return slices.Clone(r.paths), slices.Clone(r.targets)
-}
-
-func startConfluenceAttachmentEvidenceBackend(
+func confluenceAttachmentEvidenceProcessFixture(
 	t *testing.T,
 	fixture MockFixture,
-) (*MockBackend, *confluenceAttachmentEvidenceTrace, *mcp.ClientSession) {
+	cohort confluenceAttachmentEvidenceCohort,
+	admittedVersions []int,
+) MockFixture {
 	t.Helper()
-	backend, err := StartMockBackend(fixture)
-	if err != nil {
-		t.Fatal(err)
+	pagePath := "/wiki/rest/api/content/" + cohort.reference
+	attachmentPath := pagePath + "/child/attachment"
+	if len(fixture.Routes) != 2 {
+		t.Fatalf("attachment-evidence fixture must contain exactly two routes, got %d", len(fixture.Routes))
 	}
-	t.Cleanup(backend.Close)
-	environment := backend.Environment()
-	origin := strings.TrimSuffix(environment["ATL_CONFLUENCE_URL"], fixture.ConfluenceContext)
-
-	trace := &confluenceAttachmentEvidenceTrace{}
-	recorder := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		trace.record(r.Method, r.URL.Path, r.URL.RequestURI())
-		forwarded, err := http.NewRequestWithContext(r.Context(), r.Method, origin+r.URL.RequestURI(), r.Body)
-		if err != nil {
-			w.WriteHeader(http.StatusBadGateway)
-			return
+	var pageRoute, attachmentRoute *MockRoute
+	for index := range fixture.Routes {
+		route := &fixture.Routes[index]
+		switch route.Path {
+		case pagePath:
+			pageRoute = route
+		case attachmentPath:
+			attachmentRoute = route
 		}
-		forwarded.Header = r.Header.Clone()
-		response, err := http.DefaultClient.Do(forwarded)
-		if err != nil {
-			w.WriteHeader(http.StatusBadGateway)
-			return
-		}
-		defer func() { _ = response.Body.Close() }()
-		for name, values := range response.Header {
-			for _, value := range values {
-				w.Header().Add(name, value)
-			}
-		}
-		w.WriteHeader(response.StatusCode)
-		_, _ = io.Copy(w, response.Body)
-	}))
-	t.Cleanup(recorder.Close)
-
-	environment["ATL_CONFLUENCE_URL"] = recorder.URL + fixture.ConfluenceContext
-	environment["ATL_JIRA_URL"] = recorder.URL + fixture.JiraContext
-	for name, value := range environment {
-		t.Setenv(name, value)
 	}
-	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
-	t.Setenv("ATL_READ_ONLY", "1")
-	t.Setenv("ATL_NO_UPDATE", "1")
-	return backend, trace, connectRepositoryMCPClient(t)
+	if pageRoute == nil || attachmentRoute == nil {
+		t.Fatalf("fixture does not carry the expected page and attachment routes")
+	}
+	if pageRoute.Method != "GET" || attachmentRoute.Method != "GET" ||
+		len(pageRoute.QueryContains) != 0 || len(pageRoute.QueryEquals) != 0 ||
+		len(attachmentRoute.QueryContains) != 0 || len(attachmentRoute.QueryEquals) != 0 {
+		t.Fatalf("fixture route shape drifted: page=%+v attachment=%+v", *pageRoute, *attachmentRoute)
+	}
+
+	sectionPage := *pageRoute
+	sectionPage.Name = "section-page"
+	sectionPage.QueryEquals = map[string]string{
+		"expand": "body.storage,version,space,ancestors,metadata.labels",
+	}
+	attachmentPage := *pageRoute
+	attachmentPage.Name = "attachment-page"
+	attachmentPage.QueryEquals = map[string]string{
+		"expand": "version,space,ancestors,metadata.labels,restrictions.read.restrictions.user,restrictions.read.restrictions.group",
+	}
+	attachmentList := *attachmentRoute
+	attachmentList.Name = "attachment-list"
+	attachmentList.QueryEquals = map[string]string{
+		"expand": "version,metadata", "limit": "200", "start": "0",
+	}
+
+	prepared := fixture
+	prepared.Routes = []MockRoute{sectionPage, attachmentPage, attachmentList}
+	prepared.RequestSequence = []string{"section-page"}
+	for _, version := range admittedVersions {
+		prepared.RequestSequence = append(prepared.RequestSequence, "attachment-page")
+		if version == cohort.pageVersion {
+			prepared.RequestSequence = append(prepared.RequestSequence, "attachment-list")
+		}
+	}
+	if err := prepared.Validate(); err != nil {
+		t.Fatalf("prepare attachment-evidence process fixture: %v", err)
+	}
+	return prepared
 }
 
 // confluenceAttachmentEvidenceSectionInvocation is the direct, externally fixed
@@ -475,54 +465,36 @@ func confluenceAttachmentEvidenceInventoryInvocation(
 
 func callConfluenceAttachmentEvidenceSection(
 	t *testing.T,
-	client *mcp.ClientSession,
+	process *SyntheticATLProcess,
 	invocation MCPInvocation,
-) (*app.ConfluencePageSectionResult, bool) {
+) (*ConfluencePageSectionView, bool) {
 	t.Helper()
-	structured, ok := callConfluenceAttachmentEvidenceMCP(t, client, invocation)
+	result, _, ok := callRepositoryConfluenceEvidence(t, process, invocation)
 	if !ok {
 		return nil, false
 	}
-	var section app.ConfluencePageSectionResult
-	decodeRepositoryStructuredContent(t, structured, &section)
+	section, err := DecodeConfluencePageSectionView(bytes.NewReader(result.StructuredContent))
+	if err != nil {
+		t.Fatalf("decode Confluence page section: %v", err)
+	}
 	return &section, true
 }
 
 func callConfluenceAttachmentEvidenceInventory(
 	t *testing.T,
-	client *mcp.ClientSession,
+	process *SyntheticATLProcess,
 	invocation MCPInvocation,
-) (*app.ConfluenceAttachmentInventoryView, bool) {
+) (*ConfluenceAttachmentInventoryView, bool) {
 	t.Helper()
-	structured, ok := callConfluenceAttachmentEvidenceMCP(t, client, invocation)
+	result, _, ok := callRepositoryConfluenceEvidence(t, process, invocation)
 	if !ok {
 		return nil, false
 	}
-	var inventory app.ConfluenceAttachmentInventoryView
-	decodeRepositoryStructuredContent(t, structured, &inventory)
-	return &inventory, true
-}
-
-func callConfluenceAttachmentEvidenceMCP(
-	t *testing.T,
-	client *mcp.ClientSession,
-	invocation MCPInvocation,
-) (any, bool) {
-	t.Helper()
-	var arguments map[string]any
-	if err := json.Unmarshal(invocation.Arguments, &arguments); err != nil {
-		t.Fatal(err)
-	}
-	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: invocation.Tool, Arguments: arguments,
-	})
+	inventory, err := DecodeConfluenceAttachmentInventoryView(bytes.NewReader(result.StructuredContent))
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("decode Confluence attachment inventory: %v", err)
 	}
-	if result.IsError {
-		return nil, false
-	}
-	return result.StructuredContent, true
+	return &inventory, true
 }
 
 // confluenceAttachmentEvidenceFinal maps the driven route to the closed response
@@ -663,27 +635,9 @@ func assertConfluenceAttachmentEvidenceTraffic(
 	t.Helper()
 	if !equalHTTPMethods(evidence.methods, map[string]int{"GET": cohort.gets}) ||
 		evidence.unexpected != 0 || evidence.failed != 0 ||
-		evidence.duplicates != cohort.duplicates {
+		evidence.duplicates != cohort.duplicates || !evidence.requestSequenceComplete {
 		t.Fatalf("observed traffic drifted: methods=%v unexpected=%d duplicates=%d failed=%d",
 			evidence.methods, evidence.unexpected, evidence.duplicates, evidence.failed)
-	}
-	page := "GET /wiki/rest/api/content/" + cohort.reference
-	if !slices.Equal(evidence.paths, []string{page, page, page + "/child/attachment"}) {
-		t.Fatalf("observed request order drifted: %v", evidence.paths)
-	}
-	// The two page reads carry different expansions, so no identical request is
-	// replayed and the declared duplicate allowance stays zero.
-	if evidence.targets[0] == evidence.targets[1] {
-		t.Fatalf("the page reads are the same request: %v", evidence.targets)
-	}
-	// Nothing on the route may reach attachment bytes, a download path, or the
-	// page's comment thread.
-	for _, target := range evidence.targets {
-		for _, forbidden := range []string{"/download", "/child/comment", "/attachment/"} {
-			if strings.Contains(target, forbidden) {
-				t.Fatalf("the route reached a forbidden backend path: %q", target)
-			}
-		}
 	}
 	families := []string{
 		confluenceAttachmentEvidenceSectionFamily, confluenceAttachmentEvidenceInventoryFamily,
@@ -1436,7 +1390,7 @@ func assertConfluenceAttachmentEvidenceRouteMutationsFail(
 	// membership question the cohort exists to answer is never asked.
 	t.Run("stop-after-section", func(t *testing.T) {
 		stopped := driveConfluenceAttachmentEvidence(t, cohort, fixture,
-			func(*app.ConfluencePageSectionResult) []int { return nil })
+			nil, func(*ConfluencePageSectionView) []int { return nil })
 		if stopped.inventory != nil || len(stopped.invocations) != 1 ||
 			!equalHTTPMethods(stopped.methods, map[string]int{"GET": 1}) {
 			t.Fatalf("stopped route drifted: invocations=%d methods=%v",
@@ -1451,7 +1405,8 @@ func assertConfluenceAttachmentEvidenceRouteMutationsFail(
 	// the route oracles expose the redundant call and its replayed request.
 	t.Run("repeat-inventory-read", func(t *testing.T) {
 		repeated := driveConfluenceAttachmentEvidence(t, cohort, fixture,
-			func(section *app.ConfluencePageSectionResult) []int {
+			[]int{cohort.pageVersion, cohort.pageVersion},
+			func(section *ConfluencePageSectionView) []int {
 				return []int{section.Version, section.Version}
 			})
 		// The repeat replays both requests the inventory tool issues — the page
@@ -1473,7 +1428,8 @@ func assertConfluenceAttachmentEvidenceRouteMutationsFail(
 	// no inventory at all.
 	t.Run("reject-unobserved-page-version", func(t *testing.T) {
 		drifted := driveConfluenceAttachmentEvidence(t, cohort, fixture,
-			func(section *app.ConfluencePageSectionResult) []int {
+			[]int{cohort.pageVersion + 1},
+			func(section *ConfluencePageSectionView) []int {
 				return []int{section.Version + 1}
 			})
 		if drifted.inventory != nil || drifted.failed != 1 ||
@@ -1549,7 +1505,7 @@ func assertConfluenceAttachmentEvidenceFixtureIsLoadBearing(
 	t.Run("flipped-inventory-membership", func(t *testing.T) {
 		patched := confluenceAttachmentEvidenceFlipMembership(t, fixture, cohort)
 		evidence := driveConfluenceAttachmentEvidence(t, cohort, patched,
-			confluenceAttachmentEvidenceAuthorizedRoute)
+			[]int{cohort.pageVersion}, confluenceAttachmentEvidenceAuthorizedRoute)
 		if evidence.inventory == nil || !evidence.inventory.Complete {
 			t.Fatalf("the patched inventory is no longer complete evidence: %+v", evidence.inventory)
 		}
@@ -1569,7 +1525,7 @@ func assertConfluenceAttachmentEvidenceFixtureIsLoadBearing(
 	t.Run("inventory-cannot-prove-exhaustion", func(t *testing.T) {
 		patched := confluenceAttachmentEvidenceStallInventory(t, fixture, cohort)
 		evidence := driveConfluenceAttachmentEvidence(t, cohort, patched,
-			confluenceAttachmentEvidenceAuthorizedRoute)
+			[]int{cohort.pageVersion}, confluenceAttachmentEvidenceAuthorizedRoute)
 		if evidence.inventory == nil || evidence.inventory.Complete ||
 			evidence.inventory.PartialReason == "" || evidence.inventory.Count != 0 {
 			t.Fatalf("the patched inventory still proves exhaustion: %+v", evidence.inventory)
@@ -1591,7 +1547,7 @@ func assertConfluenceAttachmentEvidenceFixtureIsLoadBearing(
 	t.Run("section-references-no-attachment", func(t *testing.T) {
 		patched := confluenceAttachmentEvidenceRemoveMarker(t, fixture, cohort)
 		evidence := driveConfluenceAttachmentEvidence(t, cohort, patched,
-			confluenceAttachmentEvidenceAuthorizedRoute)
+			nil, confluenceAttachmentEvidenceAuthorizedRoute)
 		if evidence.marker != "" || len(evidence.invocations) != 1 ||
 			!equalHTTPMethods(evidence.methods, map[string]int{"GET": 1}) {
 			t.Fatalf("the markerless section still authorized an inventory read: marker=%q methods=%v",
@@ -1914,7 +1870,7 @@ func TestRepositoryConfluenceAttachmentEvidencePromptsWithholdAnswers(t *testing
 
 			evidence := driveConfluenceAttachmentEvidence(t, cohort,
 				loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json")),
-				confluenceAttachmentEvidenceAuthorizedRoute)
+				[]int{cohort.pageVersion}, confluenceAttachmentEvidenceAuthorizedRoute)
 			if leaks := confluenceAttachmentEvidencePromptLeaks(cohort, evidence, prompt); len(leaks) != 0 {
 				t.Fatalf("prompt discloses oracle evidence: %v", leaks)
 			}

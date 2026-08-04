@@ -129,7 +129,7 @@ func TestJiraReferenceMCPFixturesDriveProviderOracles(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertJiraReferenceMCPClassShape(t, cohort, &view)
-			assertSyntheticMCPTextMatchesStructured(t, called)
+			assertRepositoryMCPTextMatchesStructured(t, called)
 			rawRefs, narrative := jiraReferenceMCPProjectionLeaks(t, called.StructuredContent)
 			final := jiraReferenceMCPFinal(t, cohort, &view, rawRefs, narrative)
 
@@ -191,24 +191,6 @@ func TestJiraReferenceMCPFixturesDriveProviderOracles(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func assertSyntheticMCPTextMatchesStructured(t *testing.T, result SyntheticMCPResult) {
-	t.Helper()
-	if len(result.TextContent) != 1 {
-		t.Fatalf("MCP result carried %d text projections, want one", len(result.TextContent))
-	}
-	structured, err := canonicalJSON(result.StructuredContent)
-	if err != nil {
-		t.Fatalf("canonicalize MCP structured content: %v", err)
-	}
-	text, err := canonicalJSON(json.RawMessage(result.TextContent[0]))
-	if err != nil {
-		t.Fatalf("MCP text projection is not strict JSON: %v", err)
-	}
-	if !bytes.Equal(text, structured) {
-		t.Fatal("MCP text projection diverged from the bounded structured content")
 	}
 }
 

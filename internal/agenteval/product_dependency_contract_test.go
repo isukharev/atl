@@ -68,15 +68,11 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 		},
 		Tests: map[string][]string{
 			productInternalImportPrefix + "app": {
-				"confluence_attachment_evidence_benchmark_test.go",
 				"confluence_comment_routing_benchmark_test.go",
 				"confluence_csv_formula_safety_benchmark_test.go",
 				"confluence_multi_section_benchmark_test.go",
 				"confluence_page_evidence_benchmark_test.go",
-				"confluence_page_metadata_benchmark_test.go",
 				"confluence_paginated_search_benchmark_test.go",
-				"confluence_section_bound_recovery_benchmark_test.go",
-				"confluence_section_version_bound_benchmark_test.go",
 				"confluence_selection_completeness_benchmark_test.go",
 				"corpus_contract_test.go",
 				"cross_service_discovery_benchmark_test.go",
@@ -159,8 +155,8 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 	if declarations, files, targets := dependencyLaneCounts(got.Production); declarations != 25 || files != 25 || targets != 1 {
 		t.Fatalf("production dependency counts=%d declarations/%d files/%d targets, want 25/25/1", declarations, files, targets)
 	}
-	if declarations, files, targets := dependencyLaneCounts(got.Tests); declarations != 58 || files != 29 || targets != 6 {
-		t.Fatalf("test dependency counts=%d declarations/%d files/%d targets, want 58/29/6", declarations, files, targets)
+	if declarations, files, targets := dependencyLaneCounts(got.Tests); declarations != 54 || files != 25 || targets != 6 {
+		t.Fatalf("test dependency counts=%d declarations/%d files/%d targets, want 54/25/6", declarations, files, targets)
 	}
 	if declarations, files, targets := dependencyLaneCounts(got.EntrypointProduction); declarations != 4 || files != 4 || targets != 1 {
 		t.Fatalf("entrypoint production dependency counts=%d declarations/%d files/%d targets, want 4/4/1", declarations, files, targets)

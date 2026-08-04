@@ -15,10 +15,7 @@ import (
 	"time"
 )
 
-const (
-	maxSyntheticMCPMessageBytes  = 1 << 20
-	maxSyntheticMCPNotifications = 32
-)
+const maxSyntheticMCPNotifications = 32
 
 type boundedMCPCommand struct {
 	command *exec.Cmd
@@ -107,11 +104,11 @@ func startBoundedMCPCommand(
 		command: command, tree: tree, stdin: stdin, stdout: stdout,
 		reader: &boundedJSONLineReader{
 			limited: limited, reader: bufio.NewReaderSize(limited, 64<<10),
-			maxMessage: min(maxStdoutBytes, int64(maxSyntheticMCPMessageBytes)),
+			maxMessage: maxStdoutBytes,
 		},
 		stderr: stderr, timeout: timeout,
-		maxMessageBytes:    min(maxStdoutBytes, int64(maxSyntheticMCPMessageBytes)),
-		maxStructuredBytes: min(maxStdoutBytes, int64(maxSyntheticMCPMessageBytes)),
+		maxMessageBytes:    maxStdoutBytes,
+		maxStructuredBytes: maxStdoutBytes,
 		waitDone:           make(chan struct{}), nextID: 1,
 	}
 	go func() {

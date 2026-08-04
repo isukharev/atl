@@ -205,12 +205,13 @@ go run ./scripts/agent-eval inventory benchmarks/agent-eval
 the current `atl`, requires its complete offline schema-v1 capability catalog
 to equal the evaluator's pinned released artifact, checks the exact CLI-error
 vocabulary, verifies the generated Codex plugin skill catalog against every
-regular file in its skill tree, exercises representative CLI and MCP fixture
-oracles through that exact selected executable, and validates every supported
-versioned scenario and run contract. The process oracle uses only synthetic
-loopback endpoints, closed invocation policies, bounded protocol/output bytes,
-deadlines, an attested private executable copy, process-tree cleanup, and an
-isolated child environment; it does not inherit configured backend credentials.
+regular file in its skill tree, exercises Jira reference and Confluence page-
+evidence CLI/MCP fixture oracles through that exact selected executable, and
+validates every supported versioned scenario and run contract. The process
+oracle uses only synthetic loopback endpoints, closed invocation policies,
+bounded protocol/output bytes, deadlines, an attested private executable copy,
+process-tree cleanup, and an isolated child environment; it does not inherit
+configured backend credentials.
 An internal ATL MCP run performs the same bounded, credential-free, single-attempt
 catalog check against its selected executable before creating output or starting
 a provider/backend path. `agent-eval-contract` includes that gate, then runs the

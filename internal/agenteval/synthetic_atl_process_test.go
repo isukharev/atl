@@ -348,6 +348,52 @@ exit 72
 	}
 }
 
+func TestSyntheticATLProcessHonorsConfiguredMCPMessageBoundAboveOneMiB(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is Unix-only")
+	}
+	root := privateSyntheticScratch(t)
+	binary := filepath.Join(root, "atl-fake")
+	writeSyntheticExecutable(t, binary, syntheticATLTestScript(`
+if [ "$1" = "mcp" ]; then
+  IFS= read -r initialize || exit 69
+  printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"fake","version":"1"}}}'
+  IFS= read -r initialized || exit 70
+  IFS= read -r call || exit 71
+  printf '%s' '{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"ok"}],"structuredContent":{"payload":"'
+  head -c 1100000 /dev/zero | tr '\000' x
+  printf '%s\n' '"},"isError":false}}'
+  while IFS= read -r ignored; do :; done
+  exit 0
+fi
+exit 72
+`))
+	scratch := filepath.Join(root, "scratch")
+	if err := os.Mkdir(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	invocation, ok := newMCPInvocation("jira_fields", map[string]any{})
+	if !ok {
+		t.Fatal("construct invocation")
+	}
+	process, err := StartSyntheticATLProcess(context.Background(), SyntheticATLProcessConfig{
+		Binary: binary, Fixture: minimalSyntheticFixture(), ScratchRoot: scratch,
+		MCPService: "jira", MCPInvocations: []MCPInvocation{invocation}, Timeout: 10 * time.Second,
+		MaxMCPBytes: 2 << 20, MaxStderrBytes: 4096,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = process.Close() })
+	result, err := process.CallMCPJSON(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.StructuredContent) <= 1<<20 {
+		t.Fatalf("structured content bytes=%d, want above the former fixed ceiling", len(result.StructuredContent))
+	}
+}
+
 func TestSyntheticATLProcessPreservesMCPApplicationError(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture is Unix-only")
