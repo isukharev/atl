@@ -10,14 +10,15 @@ import (
 
 type titleStore struct {
 	domain.DocStore
-	reads         []*domain.Resource
-	readErrs      []error
-	getCalls      int
-	updateCalls   int
-	updatedTitle  string
-	updatedBody   []byte
-	updatedExpect int
-	updateErr     error
+	reads               []*domain.Resource
+	readErrs            []error
+	getCalls            int
+	updateCalls         int
+	updatedTitle        string
+	updatedBody         []byte
+	updatedExpect       int
+	updateErr           error
+	updateSingleAttempt bool
 }
 
 type titleHTTPError struct{ status int }
@@ -37,8 +38,9 @@ func (s *titleStore) GetPage(context.Context, string, domain.PullOpts) (*domain.
 	return s.reads[i], nil
 }
 
-func (s *titleStore) UpdatePage(_ context.Context, _ string, expect int, title string, body []byte, _ bool) (int, error) {
+func (s *titleStore) UpdatePage(ctx context.Context, _ string, expect int, title string, body []byte, _ bool) (int, error) {
 	s.updateCalls++
+	s.updateSingleAttempt = domain.SingleAttempt(ctx)
 	s.updatedExpect, s.updatedTitle, s.updatedBody = expect, title, append([]byte(nil), body...)
 	if s.updateErr != nil {
 		return 0, s.updateErr
@@ -77,7 +79,7 @@ func TestConfluenceTitleDryRunAndApply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != "applied" || result.FinalVersion != 8 || applyStore.updateCalls != 1 || applyStore.updatedExpect != 7 || applyStore.updatedTitle != "New title" || string(applyStore.updatedBody) != "<p>body</p>" {
+	if result.Status != "applied" || result.FinalVersion != 8 || applyStore.updateCalls != 1 || !applyStore.updateSingleAttempt || applyStore.updatedExpect != 7 || applyStore.updatedTitle != "New title" || string(applyStore.updatedBody) != "<p>body</p>" {
 		t.Fatalf("result=%+v store=%+v", result, applyStore)
 	}
 }

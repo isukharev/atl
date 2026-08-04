@@ -12,14 +12,15 @@ import (
 
 type jiraWorklogStoreStub struct {
 	domain.Tracker
-	current       domain.User
-	worklogs      []domain.IssueWorklog
-	addErr        error
-	addWithoutID  bool
-	commitOnError bool
-	addCalls      int
-	listCalls     int
-	incomplete    bool
+	current          domain.User
+	worklogs         []domain.IssueWorklog
+	addErr           error
+	addWithoutID     bool
+	commitOnError    bool
+	addCalls         int
+	listCalls        int
+	incomplete       bool
+	addSingleAttempt bool
 }
 
 func (s *jiraWorklogStoreStub) CurrentUser(context.Context) (*domain.User, error) {
@@ -33,8 +34,9 @@ func (s *jiraWorklogStoreStub) ListIssueWorklogs(context.Context, string) (*doma
 	return &domain.IssueWorklogList{Worklogs: copy, Total: len(copy), Complete: !s.incomplete}, nil
 }
 
-func (s *jiraWorklogStoreStub) AddIssueWorklog(_ context.Context, _ string, input domain.IssueWorklogCreate) (*domain.IssueWorklog, error) {
+func (s *jiraWorklogStoreStub) AddIssueWorklog(ctx context.Context, _ string, input domain.IssueWorklogCreate) (*domain.IssueWorklog, error) {
 	s.addCalls++
+	s.addSingleAttempt = domain.SingleAttempt(ctx)
 	created := domain.IssueWorklog{
 		ID: "new", Author: domain.IssueWorklogAuthor{Name: s.current.Name, Key: s.current.Key},
 		Comment: input.Comment, Started: input.Started, TimeSpentSeconds: input.TimeSpentSeconds,
@@ -93,7 +95,7 @@ func TestJiraWorklogPreviewAndApply(t *testing.T) {
 		Time: "1h30m", Comment: "implemented", Started: "2026-07-01T10:00:00Z",
 		Apply: true, ExpectedProposalHash: preview.ProposalHash,
 	})
-	if err != nil || applied.Status != "applied" || applied.Created == nil || applied.Created.ID != "new" || store.addCalls != 1 || store.listCalls != 1 {
+	if err != nil || applied.Status != "applied" || applied.Created == nil || applied.Created.ID != "new" || store.addCalls != 1 || store.listCalls != 1 || !store.addSingleAttempt {
 		t.Fatalf("applied=%+v addCalls=%d listCalls=%d err=%v", applied, store.addCalls, store.listCalls, err)
 	}
 }

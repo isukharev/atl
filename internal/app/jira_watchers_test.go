@@ -22,6 +22,8 @@ type jiraWatcherStoreStub struct {
 	listCalls              int
 	addCalls               int
 	removeCalls            int
+	addSingleAttempt       bool
+	removeSingleAttempt    bool
 }
 
 func (s *jiraWatcherStoreStub) ListIssueWatchers(context.Context, string) (*domain.IssueWatcherList, error) {
@@ -45,8 +47,9 @@ func (s *jiraWatcherStoreStub) ListIssueWatchers(context.Context, string) (*doma
 	return &copy, nil
 }
 
-func (s *jiraWatcherStoreStub) AddIssueWatcher(_ context.Context, _, username string) error {
+func (s *jiraWatcherStoreStub) AddIssueWatcher(ctx context.Context, _, username string) error {
 	s.addCalls++
+	s.addSingleAttempt = domain.SingleAttempt(ctx)
 	if !s.skipMutation && (!s.noCommitOnError || s.writeErr == nil) && !watcherPresent(s.state.Watchers, username) {
 		s.state.Watchers = append(s.state.Watchers, domain.IssueWatcher{Name: username, DisplayName: username, Active: true})
 		s.state.WatchCount++
@@ -54,8 +57,9 @@ func (s *jiraWatcherStoreStub) AddIssueWatcher(_ context.Context, _, username st
 	return s.writeErr
 }
 
-func (s *jiraWatcherStoreStub) RemoveIssueWatcher(_ context.Context, _, username string) error {
+func (s *jiraWatcherStoreStub) RemoveIssueWatcher(ctx context.Context, _, username string) error {
 	s.removeCalls++
+	s.removeSingleAttempt = domain.SingleAttempt(ctx)
 	if !s.skipMutation && (!s.noCommitOnError || s.writeErr == nil) {
 		filtered := s.state.Watchers[:0]
 		for _, watcher := range s.state.Watchers {
@@ -103,8 +107,25 @@ func TestJiraWatchersListPreviewAndGuardedAdd(t *testing.T) {
 	applied, err := service.MutateWatcherGuarded(context.Background(), "PROJ-1", JiraWatcherMutationOpts{
 		Operation: "add", Username: "bob", ExpectedProposalHash: preview.ProposalHash, Apply: true,
 	})
-	if err != nil || applied.Status != "applied" || len(applied.Final) != 2 || store.addCalls != 1 {
+	if err != nil || applied.Status != "applied" || len(applied.Final) != 2 || store.addCalls != 1 || !store.addSingleAttempt {
 		t.Fatalf("applied=%+v calls=%d err=%v", applied, store.addCalls, err)
+	}
+}
+
+func TestJiraWatcherRemoveUsesSingleAttemptContext(t *testing.T) {
+	store := &jiraWatcherStoreStub{state: domain.IssueWatcherList{
+		WatchCount: 1, Complete: true, Watchers: []domain.IssueWatcher{{Name: "alice", Active: true}},
+	}}
+	service := &JiraService{tr: store}
+	preview, err := service.MutateWatcherGuarded(context.Background(), "PROJ-1", JiraWatcherMutationOpts{Operation: "remove", Username: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.MutateWatcherGuarded(context.Background(), "PROJ-1", JiraWatcherMutationOpts{
+		Operation: "remove", Username: "alice", ExpectedProposalHash: preview.ProposalHash, Apply: true,
+	})
+	if err != nil || result.Status != "applied" || store.removeCalls != 1 || !store.removeSingleAttempt {
+		t.Fatalf("result=%+v calls=%d single_attempt=%t err=%v", result, store.removeCalls, store.removeSingleAttempt, err)
 	}
 }
 

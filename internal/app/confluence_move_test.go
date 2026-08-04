@@ -10,17 +10,18 @@ import (
 
 type moveStore struct {
 	domain.DocStore
-	reads       []*domain.Resource
-	readErrs    []error
-	readIDs     []string
-	getCalls    int
-	moveCalls   int
-	movedID     string
-	movedParent string
-	movedExpect int
-	movedTitle  string
-	movedBody   []byte
-	moveErr     error
+	reads             []*domain.Resource
+	readErrs          []error
+	readIDs           []string
+	getCalls          int
+	moveCalls         int
+	movedID           string
+	movedParent       string
+	movedExpect       int
+	movedTitle        string
+	movedBody         []byte
+	moveErr           error
+	moveSingleAttempt bool
 }
 
 func (s *moveStore) GetPage(_ context.Context, id string, _ domain.PullOpts) (*domain.Resource, error) {
@@ -36,8 +37,9 @@ func (s *moveStore) GetPage(_ context.Context, id string, _ domain.PullOpts) (*d
 	return s.reads[i], nil
 }
 
-func (s *moveStore) MovePage(_ context.Context, id, parent string, expect int, title string, body []byte) (int, error) {
+func (s *moveStore) MovePage(ctx context.Context, id, parent string, expect int, title string, body []byte) (int, error) {
 	s.moveCalls++
+	s.moveSingleAttempt = domain.SingleAttempt(ctx)
 	s.movedID, s.movedParent, s.movedExpect, s.movedTitle = id, parent, expect, title
 	s.movedBody = append([]byte(nil), body...)
 	if s.moveErr != nil {
@@ -98,7 +100,7 @@ func TestConfluenceMoveDryRunAndApply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != "applied" || result.FinalVersion != 8 || applyStore.moveCalls != 1 || applyStore.movedExpect != 7 || applyStore.movedTitle != "Page 42" || string(applyStore.movedBody) != "body" {
+	if result.Status != "applied" || result.FinalVersion != 8 || applyStore.moveCalls != 1 || !applyStore.moveSingleAttempt || applyStore.movedExpect != 7 || applyStore.movedTitle != "Page 42" || string(applyStore.movedBody) != "body" {
 		t.Fatalf("result=%+v store=%+v", result, applyStore)
 	}
 }

@@ -156,7 +156,7 @@ func (s *JiraService) SetFieldsGuarded(ctx context.Context, key string, opts Jir
 	if !opts.Apply {
 		return result, nil
 	}
-	if err := s.tr.SetFields(ctx, key, values); err != nil {
+	if err := s.tr.SetFields(domain.WithSingleAttempt(ctx), key, values); err != nil {
 		definitive := definitiveWriteRejection(err)
 		fresh, reconcileErr := s.tr.GetIssue(ctx, key, fields)
 		if reconcileErr != nil || fresh == nil {

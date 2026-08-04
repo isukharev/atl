@@ -160,9 +160,9 @@ func (s *JiraService) MutateWatcherGuarded(ctx context.Context, key string, opts
 
 	var writeErr error
 	if operation == "add" {
-		writeErr = store.AddIssueWatcher(ctx, key, username)
+		writeErr = store.AddIssueWatcher(domain.WithSingleAttempt(ctx), key, username)
 	} else {
-		writeErr = store.RemoveIssueWatcher(ctx, key, username)
+		writeErr = store.RemoveIssueWatcher(domain.WithSingleAttempt(ctx), key, username)
 	}
 	verifiedState, verifyErr := store.ListIssueWatchers(ctx, key)
 	if verifyErr != nil || verifiedState == nil || !verifiedState.Complete {
