@@ -2,13 +2,10 @@ package mcpserver
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"slices"
 	"sort"
 	"testing"
-
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/isukharev/atl/internal/domain"
 )
@@ -105,21 +102,7 @@ func TestToolProfileAndConfigClassifierBindings(t *testing.T) {
 	for _, row := range bindings {
 		t.Run(row.name, func(t *testing.T) {
 			beforeJira, beforeConfluence, beforeMirror := jiraCalls, confluenceCalls, mirrorCalls
-			result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: row.name, Arguments: row.args})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
-				t.Fatalf("result=%+v", result)
-			}
-			text, ok := result.Content[0].(*mcp.TextContent)
-			if !ok {
-				t.Fatalf("content=%T", result.Content[0])
-			}
-			var got toolError
-			if err := json.Unmarshal([]byte(text.Text), &got); err != nil {
-				t.Fatalf("decode %q: %v", text.Text, err)
-			}
+			_, got := callToolError(t, client, row.name, row.args)
 			if got.Kind != "configuration_error" || got.Remediation != "complete_configuration" || got.Message != row.configMessage {
 				t.Fatalf("error=%+v", got)
 			}
