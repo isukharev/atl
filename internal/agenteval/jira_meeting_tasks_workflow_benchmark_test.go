@@ -437,7 +437,8 @@ func sendMeetingTasksRoute(t *testing.T, backend *MockBackend, fixture MockFixtu
 	if override != nil {
 		body = override
 	}
-	request, err := http.NewRequest(route.Method, backend.server.URL+route.Path, bytes.NewReader(body))
+	server := backend.HTTPServer()
+	request, err := http.NewRequest(route.Method, server.URL+route.Path, bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -449,7 +450,7 @@ func sendMeetingTasksRoute(t *testing.T, backend *MockBackend, fixture MockFixtu
 	if len(body) > 0 {
 		request.Header.Set("Content-Type", "application/json")
 	}
-	response, err := backend.server.Client().Do(request)
+	response, err := server.Client().Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -458,9 +459,7 @@ func sendMeetingTasksRoute(t *testing.T, backend *MockBackend, fixture MockFixtu
 }
 
 func meetingTasksRequestIndex(backend *MockBackend) int {
-	backend.mu.Lock()
-	defer backend.mu.Unlock()
-	return backend.requestIndex
+	return backend.RequestIndex()
 }
 
 func TestRepositoryJiraMeetingTasksSamplingSkillsAndCommandPolicies(t *testing.T) {

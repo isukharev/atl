@@ -60,3 +60,21 @@ func TestHeadlessProviderDeferredCleanupRemovesTemporaryConfigIdempotently(t *te
 		t.Fatalf("deferred cleanup retained temporary config: %v", err)
 	}
 }
+
+func TestHeadlessProviderDeferredCleanupClosesSyntheticBackendIdempotently(t *testing.T) {
+	backend, err := StartMockBackend(MockFixture{
+		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
+		Routes: []MockRoute{{Method: "GET", Path: "/jira/rest/api/2/field", Status: 200, Body: []byte(`[]`)}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := backend.HTTPServer()
+	resources := &headlessProviderResources{backend: backend}
+	resources.closeDeferred()
+	resources.closeDeferred()
+	if response, err := server.Client().Get(server.URL + "/jira/rest/api/2/field"); err == nil {
+		_ = response.Body.Close()
+		t.Fatal("deferred cleanup retained the synthetic backend listener")
+	}
+}

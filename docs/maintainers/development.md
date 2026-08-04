@@ -151,6 +151,13 @@ only the product or evaluator classification/recovery vocabulary, required
 member set, action catalog, or refresh-capability catalog is therefore a
 failing compatibility change.
 
+The benchmark fixture schema and bounded synthetic HTTP backend are owned by
+the evaluator package. Keep their strict decoding, route matching, ordered
+request sequencing, stateful responses, accounting, and cleanup tests there so
+an independent evaluator module does not import product test infrastructure.
+The product onboarding checks retain their own small backend; do not make core
+product tooling import the heavy evaluator package to share test helpers.
+
 The evaluator also owns a frozen, content-free schema-v1 projection of the
 released `atl capabilities` wire contract. It must not import product routing
 definitions to validate run specs. `make agent-eval-compat` builds the current

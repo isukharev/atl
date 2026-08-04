@@ -33,7 +33,8 @@ type evaluatorDependencyLedger struct {
 // a dependency by making its own imports part of the expected boundary.
 // The first reviewed baseline was 29/27/5 production declarations/files/targets
 // and 66/33/10 for tests. The current values below record the evaluator-owned
-// CLI error wire and capability catalog reductions.
+// CLI error wire, capability catalog, skill catalog, and synthetic backend
+// ownership reductions.
 func TestEvaluatorProductDependencyLedger(t *testing.T) {
 	want := evaluatorDependencyLedger{
 		Production: map[string][]string{
@@ -64,7 +65,6 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 				"storage.go",
 				"tool_availability.go",
 			},
-			productInternalImportPrefix + "testbackend": {"mock_backend.go"},
 		},
 		Tests: map[string][]string{
 			productInternalImportPrefix + "app": {
@@ -159,8 +159,8 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 	if err := compareEvaluatorDependencyLedgers(got, want); err != nil {
 		t.Fatal(err)
 	}
-	if declarations, files, targets := dependencyLaneCounts(got.Production); declarations != 26 || files != 26 || targets != 2 {
-		t.Fatalf("production dependency counts=%d declarations/%d files/%d targets, want 26/26/2", declarations, files, targets)
+	if declarations, files, targets := dependencyLaneCounts(got.Production); declarations != 25 || files != 25 || targets != 1 {
+		t.Fatalf("production dependency counts=%d declarations/%d files/%d targets, want 25/25/1", declarations, files, targets)
 	}
 	if declarations, files, targets := dependencyLaneCounts(got.Tests); declarations != 61 || files != 31 || targets != 6 {
 		t.Fatalf("test dependency counts=%d declarations/%d files/%d targets, want 61/31/6", declarations, files, targets)
