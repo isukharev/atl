@@ -1,5 +1,5 @@
 // Package testbackend provides a bounded synthetic Atlassian HTTP backend for
-// product and evaluator contract tests.
+// product contract tests and onboarding demonstrations.
 package testbackend
 
 import (
@@ -234,15 +234,6 @@ func (b *MockBackend) Environment() map[string]string {
 	}
 }
 
-// HTTPServer exposes the in-process server to compatibility helpers that need
-// to issue a synthetic request outside the configured product base URLs.
-func (b *MockBackend) HTTPServer() *httptest.Server {
-	if b == nil {
-		return nil
-	}
-	return b.server
-}
-
 func (b *MockBackend) Summary() (map[string]int, int, int) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -265,14 +256,6 @@ func (b *MockBackend) RequestSequenceComplete() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.requestIndex == len(b.fixture.RequestSequence)
-}
-
-// RequestIndex returns the number of accepted entries in the configured
-// ordered request sequence.
-func (b *MockBackend) RequestIndex() int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.requestIndex
 }
 
 func (b *MockBackend) handle(w http.ResponseWriter, r *http.Request) {
@@ -402,12 +385,6 @@ func equalJSONBody(left, right []byte) bool {
 	leftJSON, leftErr := json.Marshal(leftValue)
 	rightJSON, rightErr := json.Marshal(rightValue)
 	return leftErr == nil && rightErr == nil && bytes.Equal(leftJSON, rightJSON)
-}
-
-// EqualJSONBody reports whether two byte slices each contain one semantically
-// equal JSON value.
-func EqualJSONBody(left, right []byte) bool {
-	return equalJSONBody(left, right)
 }
 
 func validContextPath(value string) bool {

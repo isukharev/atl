@@ -572,7 +572,8 @@ func sendTriageRoute(t *testing.T, backend *MockBackend, route MockRoute, overri
 
 func sendTriageRaw(t *testing.T, backend *MockBackend, method, path string, query map[string]string, body []byte) int {
 	t.Helper()
-	request, err := http.NewRequest(method, backend.server.URL+path, bytes.NewReader(body))
+	server := backend.HTTPServer()
+	request, err := http.NewRequest(method, server.URL+path, bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -584,7 +585,7 @@ func sendTriageRaw(t *testing.T, backend *MockBackend, method, path string, quer
 	if len(body) != 0 {
 		request.Header.Set("Content-Type", "application/json")
 	}
-	response, err := backend.server.Client().Do(request)
+	response, err := server.Client().Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -593,9 +594,7 @@ func sendTriageRaw(t *testing.T, backend *MockBackend, method, path string, quer
 }
 
 func triageRequestIndex(backend *MockBackend) int {
-	backend.mu.Lock()
-	defer backend.mu.Unlock()
-	return backend.requestIndex
+	return backend.RequestIndex()
 }
 
 func TestRepositoryJiraTriageIssueSamplingPromptsAndPolicies(t *testing.T) {

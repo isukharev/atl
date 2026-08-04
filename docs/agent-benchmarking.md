@@ -11,6 +11,12 @@ documents the deterministic contracts and synthetic fixtures. Private backend
 operations use the separate
 [owner-controlled workspace](agent-benchmark-private-workspace.md).
 
+The evaluator package owns the versioned synthetic fixture schema and its
+bounded HTTP simulator. Their strict decoder, exact route matching, ordered
+request and response sequencing, accounting, and cleanup contracts are tested
+inside the evaluator boundary. Product onboarding checks use independent core
+test infrastructure so product packages never depend on the heavy evaluator.
+
 ## Why
 
 `atl`'s primary user is an agent. Changes that look neutral in unit tests —

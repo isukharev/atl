@@ -154,7 +154,8 @@ func sendSpecBacklogFixtureRoute(t *testing.T, backend *MockBackend, fixture Moc
 	if selected == nil {
 		t.Fatalf("fixture route %q not found", name)
 	}
-	request, err := http.NewRequest(selected.Method, backend.server.URL+selected.Path, bytes.NewReader(selected.RequestBody))
+	server := backend.HTTPServer()
+	request, err := http.NewRequest(selected.Method, server.URL+selected.Path, bytes.NewReader(selected.RequestBody))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +170,7 @@ func sendSpecBacklogFixtureRoute(t *testing.T, backend *MockBackend, fixture Moc
 	if len(selected.RequestBody) > 0 {
 		request.Header.Set("Content-Type", "application/json")
 	}
-	response, err := backend.server.Client().Do(request)
+	response, err := server.Client().Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,9 +179,7 @@ func sendSpecBacklogFixtureRoute(t *testing.T, backend *MockBackend, fixture Moc
 }
 
 func specBacklogRequestIndex(backend *MockBackend) int {
-	backend.mu.Lock()
-	defer backend.mu.Unlock()
-	return backend.requestIndex
+	return backend.RequestIndex()
 }
 
 func executeSpecBacklogProductionWorkflow(t *testing.T, root string, fixture MockFixture, cohort specBacklogCohort) (*MockBackend, []byte, int) {
