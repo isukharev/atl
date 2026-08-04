@@ -12,10 +12,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/isukharev/atl/internal/app"
 )
 
 // jiraSnapshotReconciliationCohort names one synthetic cross-call
@@ -24,7 +20,7 @@ import (
 // the class-level shape the cohort is meant to exercise. Every reported
 // quantity (the selected identity, both snapshot stamps, the marker, the
 // reconciliation outcome, the decision, and the transport traffic) is derived
-// by driving the production MCP server against the retained fixture, so the
+// by driving the selected ATL binary against the retained fixture, so the
 // bundled run-spec oracles stay the only independent copy of the expected
 // answer.
 type jiraSnapshotReconciliationCohort struct {
@@ -156,7 +152,7 @@ type jiraSnapshotReconciliationEvidence struct {
 	failed      int
 }
 
-func TestJiraSnapshotReconciliationFixturesDriveProviderOracles(t *testing.T) {
+func TestJiraSnapshotReconciliationFixturesDriveSelectedATLBinary(t *testing.T) {
 	for _, cohort := range jiraSnapshotReconciliationCohorts() {
 		t.Run(cohort.directory, func(t *testing.T) {
 			root := jiraSnapshotReconciliationRoot(cohort)
@@ -192,8 +188,73 @@ func TestJiraSnapshotReconciliationFixturesDriveProviderOracles(t *testing.T) {
 	}
 }
 
-// driveJiraSnapshotReconciliation walks the real route against the real mock
-// backend through the production MCP server: one bounded search, one exact
+func TestJiraSnapshotReconciliationDerivedExpansionDivergenceRefusesBeforeBackend(t *testing.T) {
+	cohort := jiraSnapshotReconciliationCohorts()[0]
+	fixture := loadRepositoryMockFixture(t, filepath.Join(
+		jiraSnapshotReconciliationRoot(cohort), "fixture.json"))
+	var search map[string]any
+	if err := json.Unmarshal(fixture.Routes[0].Body, &search); err != nil {
+		t.Fatal(err)
+	}
+	issues, ok := search["issues"].([]any)
+	if !ok {
+		t.Fatalf("search fixture issues have unexpected type %T", search["issues"])
+	}
+	changed := false
+	for _, value := range issues {
+		issue, ok := value.(map[string]any)
+		if !ok {
+			t.Fatalf("search fixture issue has unexpected type %T", value)
+		}
+		fields, ok := issue["fields"].(map[string]any)
+		if !ok {
+			t.Fatalf("search fixture fields have unexpected type %T", issue["fields"])
+		}
+		status, _ := fields["status"].(map[string]any)
+		if status["name"] != jiraSnapshotReconciliationStatus {
+			continue
+		}
+		issue["key"] = "QUASAR-99"
+		changed = true
+	}
+	if !changed {
+		t.Fatal("search fixture has no selected row to mutate")
+	}
+	var err error
+	fixture.Routes[0].Body, err = json.Marshal(search)
+	if err != nil {
+		t.Fatal(err)
+	}
+	admissions := jiraSnapshotReconciliationExpectedInvocations(t, cohort)
+	process := startJiraSnapshotReconciliationProcess(t, fixture, admissions, []string{"search", "field"})
+	result := callJiraSnapshotReconciliationProcess(t, process, admissions[0])
+	if result.IsError {
+		t.Fatalf("mutated search failed: text_items=%d", len(result.TextContent))
+	}
+	list, err := DecodeJiraSnapshotIssueList(bytes.NewReader(result.StructuredContent))
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence := jiraSnapshotReconciliationEvidence{cohort: cohort}
+	jiraSnapshotReconciliationSelectRow(t, cohort, &list, &evidence)
+	derived := jiraSnapshotReconciliationExpansionInvocation(t, evidence.selectedKey)
+	if equalMCPInvocations([]MCPInvocation{derived}, admissions[1:]) {
+		t.Fatal("changed search evidence reproduced the committed expansion admission")
+	}
+	if _, err := process.CallMCPJSON(context.Background(), derived); err == nil {
+		t.Fatal("unadmitted search-derived expansion reached the backend")
+	}
+	summary := process.Summary()
+	if process.RequestSequenceComplete() || summary.UnexpectedRequests != 0 ||
+		summary.DuplicateRequests != 0 || !equalHTTPMethods(summary.HTTPMethods, map[string]int{"GET": 1}) ||
+		!equalHTTPMethods(summary.MCPInvocations, map[string]int{"jira_issue_search": 1}) {
+		t.Fatalf("derived-route refusal was not pre-backend: summary=%+v sequence_complete=%t",
+			summary, process.RequestSequenceComplete())
+	}
+}
+
+// driveJiraSnapshotReconciliation walks the released route against the exact
+// mock backend through the selected ATL process: one bounded search, one exact
 // field expansion of the row the status rule selects. Reconciliation is
 // derived only from selected/expanded key, id, and `updated` equality, and the
 // decision is derived only from the bounded description the expansion returns.
@@ -203,29 +264,36 @@ func driveJiraSnapshotReconciliation(
 	fixture MockFixture,
 ) jiraSnapshotReconciliationEvidence {
 	t.Helper()
-	backend, client := startJiraSnapshotReconciliationMCPBackend(t, fixture)
+	invocations := jiraSnapshotReconciliationExpectedInvocations(t, cohort)
+	process := startJiraSnapshotReconciliationProcess(t, fixture, invocations, []string{"search", "field"})
 	evidence := jiraSnapshotReconciliationEvidence{cohort: cohort}
 
 	// 1. One bounded search page with the narrow ordered projection.
-	searchInvocation := jiraSnapshotReconciliationSearchInvocation(t, cohort)
-	searchResult := callJiraSnapshotReconciliationMCP(t, client, searchInvocation)
+	searchInvocation := invocations[0]
+	searchResult := callJiraSnapshotReconciliationProcess(t, process, searchInvocation)
 	if searchResult.IsError {
-		t.Fatalf("bounded search failed: %+v", searchResult.Content)
+		t.Fatalf("bounded search failed: text_items=%d", len(searchResult.TextContent))
 	}
-	var list app.IssueList
-	decodeRepositoryStructuredContent(t, searchResult.StructuredContent, &list)
+	list, err := DecodeJiraSnapshotIssueList(bytes.NewReader(searchResult.StructuredContent))
+	if err != nil {
+		t.Fatalf("decode Jira snapshot search: %v", err)
+	}
+	assertRepositoryMCPTextMatchesStructured(t, searchResult)
 	jiraSnapshotReconciliationSelectRow(t, cohort, &list, &evidence)
 	evidence.invocations = append(evidence.invocations, searchInvocation)
 	evidence.sequence = append(evidence.sequence, "jira.issue.search")
 
 	// 2. One exact bounded expansion of the selected row's `description`.
 	expansionInvocation := jiraSnapshotReconciliationExpansionInvocation(t, evidence.selectedKey)
-	expansionResult := callJiraSnapshotReconciliationMCP(t, client, expansionInvocation)
+	expansionResult := callJiraSnapshotReconciliationProcess(t, process, expansionInvocation)
 	if expansionResult.IsError {
-		t.Fatalf("exact field expansion failed: %+v", expansionResult.Content)
+		t.Fatalf("exact field expansion failed: text_items=%d", len(expansionResult.TextContent))
 	}
-	var expansion app.JiraIssueFieldEvidenceResult
-	decodeRepositoryStructuredContent(t, expansionResult.StructuredContent, &expansion)
+	expansion, err := DecodeJiraSnapshotFieldEvidence(bytes.NewReader(expansionResult.StructuredContent))
+	if err != nil {
+		t.Fatalf("decode Jira snapshot field evidence: %v", err)
+	}
+	assertRepositoryMCPTextMatchesStructured(t, expansionResult)
 	jiraSnapshotReconciliationReadExpansion(t, &expansion, &evidence)
 	evidence.invocations = append(evidence.invocations, expansionInvocation)
 	evidence.sequence = append(evidence.sequence, "jira.issue.field")
@@ -265,53 +333,101 @@ func driveJiraSnapshotReconciliation(
 		}
 	}
 
-	methods, unexpected, duplicates := backend.Summary()
+	summary := process.Summary()
+	methods, unexpected, duplicates := summary.HTTPMethods, summary.UnexpectedRequests, summary.DuplicateRequests
 	if !equalHTTPMethods(methods, map[string]int{"GET": jiraSnapshotReconciliationGETs}) ||
 		unexpected != 0 || duplicates != jiraSnapshotReconciliationDuplicates {
 		t.Fatalf("route traffic drifted: methods=%v unexpected=%d duplicates=%d",
 			methods, unexpected, duplicates)
+	}
+	if !process.RequestSequenceComplete() || len(summary.CLIInvocations) != 0 ||
+		!equalHTTPMethods(summary.MCPInvocations, map[string]int{
+			"jira_issue_search": 1, "jira_issue_field_get": 1,
+		}) {
+		t.Fatalf("selected process accounting drifted: sequence_complete=%t cli=%v mcp=%v",
+			process.RequestSequenceComplete(), summary.CLIInvocations, summary.MCPInvocations)
 	}
 	evidence.methods, evidence.unexpected, evidence.duplicates = methods, unexpected, duplicates
 	evidence.families = jiraSnapshotReconciliationFamilies(1, 1)
 	return evidence
 }
 
-func startJiraSnapshotReconciliationMCPBackend(
+func startJiraSnapshotReconciliationProcess(
 	t *testing.T,
 	fixture MockFixture,
-) (*MockBackend, *mcp.ClientSession) {
+	invocations []MCPInvocation,
+	sequence []string,
+) *SyntheticATLProcess {
 	t.Helper()
-	backend, err := StartMockBackend(fixture)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(backend.Close)
-	for name, value := range backend.Environment() {
-		t.Setenv(name, value)
-	}
-	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
-	t.Setenv("ATL_READ_ONLY", "1")
-	t.Setenv("ATL_NO_UPDATE", "1")
-	return backend, connectRepositoryMCPClient(t)
-}
-
-func callJiraSnapshotReconciliationMCP(
-	t *testing.T,
-	client *mcp.ClientSession,
-	invocation MCPInvocation,
-) *mcp.CallToolResult {
-	t.Helper()
-	var arguments map[string]any
-	if err := json.Unmarshal(invocation.Arguments, &arguments); err != nil {
-		t.Fatal(err)
-	}
-	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: invocation.Tool, Arguments: arguments,
+	prepared := jiraSnapshotReconciliationProcessFixture(t, fixture, sequence)
+	process, err := StartSyntheticATLProcess(context.Background(), SyntheticATLProcessConfig{
+		Binary: repositorySyntheticATLBinary(t), Fixture: prepared,
+		ScratchRoot: privateSyntheticATLScratch(t), MCPService: "jira", MCPInvocations: invocations,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		if err := process.Close(); err != nil {
+			t.Errorf("close synthetic Jira snapshot process: %v", err)
+		}
+	})
+	return process
+}
+
+func callJiraSnapshotReconciliationProcess(
+	t *testing.T,
+	process *SyntheticATLProcess,
+	invocation MCPInvocation,
+) SyntheticMCPResult {
+	t.Helper()
+	result, err := process.CallMCPJSON(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return result
+}
+
+func jiraSnapshotReconciliationExpectedInvocations(
+	t *testing.T,
+	cohort jiraSnapshotReconciliationCohort,
+) []MCPInvocation {
+	t.Helper()
+	spec := loadRepositoryRunSpec(t, filepath.Join(
+		jiraSnapshotReconciliationRoot(cohort), "run.mcp.codex.json"))
+	invocations := repositoryExpectedMCPInvocations(t, spec)
+	if len(invocations) != jiraSnapshotReconciliationCalls {
+		t.Fatalf("snapshot reconciliation route has %d invocations, want %d",
+			len(invocations), jiraSnapshotReconciliationCalls)
+	}
+	return invocations
+}
+
+func jiraSnapshotReconciliationProcessFixture(
+	t *testing.T,
+	fixture MockFixture,
+	sequence []string,
+) MockFixture {
+	t.Helper()
+	if len(fixture.Routes) != 2 {
+		t.Fatalf("snapshot reconciliation fixture has %d routes, want 2", len(fixture.Routes))
+	}
+	prepared := fixture
+	prepared.Routes = slices.Clone(fixture.Routes)
+	for index, name := range []string{"search", "field"} {
+		route := prepared.Routes[index]
+		if route.Method != "GET" || len(route.QueryEquals) == 0 || len(route.QueryContains) != 0 {
+			t.Fatalf("snapshot reconciliation route %q is not an exact GET: %+v", name, route)
+		}
+		route.Name = name
+		route.closedQuery = true
+		prepared.Routes[index] = route
+	}
+	prepared.RequestSequence = slices.Clone(sequence)
+	if err := prepared.Validate(); err != nil {
+		t.Fatalf("prepare Jira snapshot reconciliation fixture: %v", err)
+	}
+	return prepared
 }
 
 func jiraSnapshotReconciliationSearchInvocation(
@@ -356,7 +472,7 @@ func jiraSnapshotReconciliationFamilies(searchCalls, expansionCalls int) []Capab
 func jiraSnapshotReconciliationSelectRow(
 	t *testing.T,
 	cohort jiraSnapshotReconciliationCohort,
-	list *app.IssueList,
+	list *JiraSnapshotIssueList,
 	evidence *jiraSnapshotReconciliationEvidence,
 ) {
 	t.Helper()
@@ -430,7 +546,7 @@ func jiraSnapshotReconciliationSelectRow(
 	}
 }
 
-func jiraSnapshotReconciliationRowValue(t *testing.T, row app.IssueListRow, field string) string {
+func jiraSnapshotReconciliationRowValue(t *testing.T, row JiraSnapshotIssueListRow, field string) string {
 	t.Helper()
 	value, ok := row.Values[field]
 	if !ok {
@@ -448,7 +564,7 @@ func jiraSnapshotReconciliationRowValue(t *testing.T, row app.IssueListRow, fiel
 // decision marker carried by the returned text.
 func jiraSnapshotReconciliationReadExpansion(
 	t *testing.T,
-	expansion *app.JiraIssueFieldEvidenceResult,
+	expansion *JiraSnapshotFieldEvidence,
 	evidence *jiraSnapshotReconciliationEvidence,
 ) {
 	t.Helper()
@@ -1091,7 +1207,7 @@ func assertJiraSnapshotReconciliationFinalMutationsFail(
 
 // assertJiraSnapshotReconciliationRouteMutationsFail proves the honest route
 // rejects extra, missing, and wrong calls. Mutations whose behavior depends on
-// backend handling are driven through the production MCP server; pure
+// backend handling are driven through the selected ATL process; pure
 // omission cases adjust the already observed transcript.
 func assertJiraSnapshotReconciliationRouteMutationsFail(
 	t *testing.T,
@@ -1106,20 +1222,23 @@ func assertJiraSnapshotReconciliationRouteMutationsFail(
 	// served, so the regression is a real duplicate GET rather than an
 	// unexpected request.
 	t.Run("refresh-re-read", func(t *testing.T) {
-		backend, client := startJiraSnapshotReconciliationMCPBackend(t, fixture)
 		searchInvocation := jiraSnapshotReconciliationSearchInvocation(t, cohort)
-		if result := callJiraSnapshotReconciliationMCP(t, client, searchInvocation); result.IsError {
-			t.Fatalf("bounded search failed: %+v", result.Content)
-		}
 		expansionInvocation := jiraSnapshotReconciliationExpansionInvocation(t, evidence.selectedKey)
+		process := startJiraSnapshotReconciliationProcess(t, fixture,
+			[]MCPInvocation{searchInvocation, expansionInvocation, expansionInvocation},
+			[]string{"search", "field", "field"})
+		if result := callJiraSnapshotReconciliationProcess(t, process, searchInvocation); result.IsError {
+			t.Fatalf("bounded search failed: text_items=%d", len(result.TextContent))
+		}
 		for attempt := range 2 {
-			if result := callJiraSnapshotReconciliationMCP(t, client, expansionInvocation); result.IsError {
-				t.Fatalf("expansion attempt %d failed: %+v", attempt, result.Content)
+			if result := callJiraSnapshotReconciliationProcess(t, process, expansionInvocation); result.IsError {
+				t.Fatalf("expansion attempt %d failed: text_items=%d", attempt, len(result.TextContent))
 			}
 		}
-		methods, unexpected, duplicates := backend.Summary()
+		summary := process.Summary()
+		methods, unexpected, duplicates := summary.HTTPMethods, summary.UnexpectedRequests, summary.DuplicateRequests
 		if !equalHTTPMethods(methods, map[string]int{"GET": jiraSnapshotReconciliationGETs + 1}) ||
-			unexpected != 0 || duplicates != 1 {
+			unexpected != 0 || duplicates != 1 || !process.RequestSequenceComplete() {
 			t.Fatalf("refresh traffic drifted: methods=%v unexpected=%d duplicates=%d",
 				methods, unexpected, duplicates)
 		}
@@ -1171,23 +1290,24 @@ func assertJiraSnapshotReconciliationRouteMutationsFail(
 	})
 
 	// Expanding a real row the selection rule rejects. The fixture deliberately
-	// configures no exact field route for this distractor, so the production
-	// MCP call fails and the mock backend records one unexpected request.
-	// This makes interface_succeeded and mock_clean load-bearing as well as
-	// proving that a plausible wrong identity is rejected.
+	// The selected process admits only the committed selected identity, so the
+	// derived mismatch is refused before it can issue a backend request.
 	t.Run("expanded-a-rejected-row", func(t *testing.T) {
-		backend, client := startJiraSnapshotReconciliationMCPBackend(t, fixture)
 		searchInvocation := jiraSnapshotReconciliationSearchInvocation(t, cohort)
-		if result := callJiraSnapshotReconciliationMCP(t, client, searchInvocation); result.IsError {
-			t.Fatalf("bounded search failed: %+v", result.Content)
+		expectedExpansion := jiraSnapshotReconciliationExpansionInvocation(t, evidence.selectedKey)
+		process := startJiraSnapshotReconciliationProcess(t, fixture,
+			[]MCPInvocation{searchInvocation, expectedExpansion}, []string{"search", "field"})
+		if result := callJiraSnapshotReconciliationProcess(t, process, searchInvocation); result.IsError {
+			t.Fatalf("bounded search failed: text_items=%d", len(result.TextContent))
 		}
 		rejectedInvocation := jiraSnapshotReconciliationExpansionInvocation(t, evidence.otherRowKeys[0])
-		if result := callJiraSnapshotReconciliationMCP(t, client, rejectedInvocation); !result.IsError {
-			t.Fatalf("field expansion for rejected row %q unexpectedly succeeded", evidence.otherRowKeys[0])
+		if _, err := process.CallMCPJSON(context.Background(), rejectedInvocation); err == nil {
+			t.Fatalf("field expansion for rejected row %q reached the process", evidence.otherRowKeys[0])
 		}
-		methods, unexpected, duplicates := backend.Summary()
-		if !equalHTTPMethods(methods, map[string]int{"GET": jiraSnapshotReconciliationGETs}) ||
-			unexpected != 1 || duplicates != 0 {
+		summary := process.Summary()
+		methods, unexpected, duplicates := summary.HTTPMethods, summary.UnexpectedRequests, summary.DuplicateRequests
+		if !equalHTTPMethods(methods, map[string]int{"GET": 1}) ||
+			unexpected != 0 || duplicates != 0 || process.RequestSequenceComplete() {
 			t.Fatalf("rejected-row traffic drifted: methods=%v unexpected=%d duplicates=%d",
 				methods, unexpected, duplicates)
 		}
@@ -1204,7 +1324,7 @@ func assertJiraSnapshotReconciliationRouteMutationsFail(
 		mutated.failed = 1
 		for _, spec := range specs {
 			assertJiraSnapshotReconciliationFailures(t, spec, mutated, []string{
-				"interface_succeeded", "mock_clean", "route_arguments", "route_exact",
+				"http_exact", "interface_succeeded", "route_arguments", "route_exact",
 			})
 		}
 	})

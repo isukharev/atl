@@ -16,6 +16,10 @@ bounded HTTP simulator. Their strict decoder, exact route matching, ordered
 request and response sequencing, accounting, and cleanup contracts are tested
 inside the evaluator boundary. Product onboarding checks use independent core
 test infrastructure so product packages never depend on the heavy evaluator.
+Selected-binary oracles also decode released Jira and Confluence evidence with
+evaluator-owned closed wire types. Cross-call snapshot tests derive follow-up
+identities from the first decoded result, while exact admissions refuse any
+provenance divergence before it can reach the synthetic backend.
 
 ## Why
 
