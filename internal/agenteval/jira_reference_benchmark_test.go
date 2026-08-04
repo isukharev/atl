@@ -9,16 +9,12 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/isukharev/atl/internal/app"
-	"github.com/isukharev/atl/internal/config"
 )
 
 func TestRepositoryJiraReferenceSummaryFixturesDriveProviderOracles(t *testing.T) {
 	tests := []struct {
 		name          string
 		directory     string
-		opts          app.JiraIssueRefsOpts
 		expectedGETs  int
 		claudeCommand string
 		codexPrompt   string
@@ -27,7 +23,6 @@ func TestRepositoryJiraReferenceSummaryFixturesDriveProviderOracles(t *testing.T
 	}{
 		{
 			name: "complete multi-source primary", directory: "jira-reference-summary",
-			opts:          app.JiraIssueRefsOpts{Key: "RF-42", Fields: []string{"customfield_20001"}},
 			expectedGETs:  2,
 			claudeCommand: "atl jira issue refs RF-42 --fields customfield_20001 --",
 			codexPrompt:   "atl jira issue refs RF-42 --fields customfield_20001",
@@ -36,7 +31,6 @@ func TestRepositoryJiraReferenceSummaryFixturesDriveProviderOracles(t *testing.T
 		},
 		{
 			name: "truncated cross-issue holdout", directory: "jira-reference-summary-holdout",
-			opts:          app.JiraIssueRefsOpts{JQL: "project=RF", Limit: 2},
 			expectedGETs:  3,
 			claudeCommand: "atl jira issue refs --jql project=RF --limit 2 --",
 			codexPrompt:   "atl jira issue refs --jql project=RF --limit 2",
@@ -49,26 +43,45 @@ func TestRepositoryJiraReferenceSummaryFixturesDriveProviderOracles(t *testing.T
 		t.Run(test.name, func(t *testing.T) {
 			root := filepath.Join("..", "..", "benchmarks", "agent-eval", test.directory)
 			fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
-			backend, err := StartMockBackend(fixture)
+			codexSpec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli.codex.json"))
+			scratchRoot := privateSyntheticATLScratch(t)
+			process, err := StartSyntheticATLProcess(context.Background(), SyntheticATLProcessConfig{
+				Binary: repositorySyntheticATLBinary(t), Fixture: fixture, ScratchRoot: scratchRoot,
+				CLIPolicy: CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: codexSpec.AllowedCLICommands},
+			})
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer backend.Close()
-
-			t.Setenv("ATL_CONFIG_DIR", t.TempDir())
-			t.Setenv("ATL_JIRA_PAT", "synthetic-token")
-			service, err := app.NewJira(&config.Config{JiraURL: backend.Environment()["ATL_JIRA_URL"]}, "benchmark-contract")
+			t.Cleanup(func() {
+				if err := process.Close(); err != nil {
+					t.Errorf("close synthetic ATL process: %v", err)
+				}
+			})
+			called, err := process.RunCLIJSON(context.Background(), test.commandArgs...)
 			if err != nil {
 				t.Fatal(err)
 			}
-			result, err := service.IssueRefs(context.Background(), test.opts)
+			if called.ExitCode != 0 || len(called.JSON) == 0 || len(called.Stderr) != 0 {
+				t.Fatalf("selected CLI failed: exit=%d stderr_bytes=%d json_bytes=%d", called.ExitCode, len(called.Stderr), len(called.JSON))
+			}
+			result, err := DecodeJiraIssueRefsResult(bytes.NewReader(called.JSON))
 			if err != nil {
 				t.Fatal(err)
 			}
-			final := jiraReferenceBenchmarkFinal(t, result)
-			methods, unexpected, duplicates := backend.Summary()
+			final := jiraReferenceBenchmarkFinal(t, &result)
+			summary := process.Summary()
+			methods, unexpected, duplicates := summary.HTTPMethods, summary.UnexpectedRequests, summary.DuplicateRequests
 			if unexpected != 0 || duplicates != 0 || len(methods) != 1 || methods["GET"] != test.expectedGETs {
 				t.Fatalf("methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+			}
+			matched, matchErr := (CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: codexSpec.AllowedCLICommands}).Match(test.commandArgs)
+			if matchErr != nil {
+				t.Fatal(matchErr)
+			}
+			if !process.RequestSequenceComplete() || len(summary.CLIInvocations) != 1 ||
+				summary.CLIInvocations[matched.Name] != 1 || len(summary.MCPInvocations) != 0 {
+				t.Fatalf("selected process accounting drifted: sequence_complete=%v cli=%v mcp=%v",
+					process.RequestSequenceComplete(), summary.CLIInvocations, summary.MCPInvocations)
 			}
 
 			for _, provider := range []string{"codex", "claude"} {
@@ -118,7 +131,7 @@ func TestRepositoryJiraReferenceSummarySamplingPairIdentity(t *testing.T) {
 	}
 }
 
-func jiraReferenceBenchmarkFinal(t *testing.T, result *app.JiraIssueRefsResult) []byte {
+func jiraReferenceBenchmarkFinal(t *testing.T, result *JiraIssueRefsResult) []byte {
 	t.Helper()
 	issues := make([]map[string]any, 0, len(result.Issues))
 	for _, issue := range result.Issues {
