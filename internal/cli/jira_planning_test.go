@@ -108,13 +108,13 @@ func TestJiraIssueRefsCLIForKeyAndJQL(t *testing.T) {
 			"summary":"First",
 			"description":"Spec https://docs.example.com/spec",
 			"issuetype":{"name":"Story"},
-			"comment":{"comments":[{"body":"Design https://figma.com/file/abc"}]}
+			"comment":{"comments":[{"id":"1","body":"Design https://figma.com/file/abc"}]}
 		}
 	}`)
 	js.route(http.MethodGet, "/rest/api/2/issue/PROJ-1/comment", http.StatusOK, `{
 		"startAt":0,
 		"total":1,
-		"comments":[{"body":"Design https://figma.com/file/abc"}]
+		"comments":[{"id":"1","body":"Design https://figma.com/file/abc"}]
 	}`)
 
 	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "refs", "PROJ-1")
