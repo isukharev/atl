@@ -85,19 +85,19 @@ func renderBlocks(b *strings.Builder, lines []string, opts Options) {
 		case strings.TrimSpace(line) == "":
 			b.WriteString("\n")
 			i++
-		case isWikiHeading(line):
+		case wikiscanner.IsHeading(line):
 			n, body, _ := wikiscanner.ParseHeading(line)
 			writeBlock(renderHeading(n, strings.TrimSpace(body), opts))
 			i++
-		case isWikiCodeOpen(line):
+		case wikiscanner.IsCodeOpen(line):
 			out, next := codeBlock(lines, i)
 			writeBlock(out)
 			i = next
-		case isWikiQuoteOpen(line):
+		case wikiscanner.IsQuoteOpen(line):
 			out, next := quoteBlock(lines, i, opts)
 			writeBlock(out)
 			i = next
-		case isWikiPanelOpen(line):
+		case wikiscanner.IsPanelOpen(line):
 			out, next := panelBlock(lines, i, opts)
 			writeBlock(out)
 			i = next
@@ -271,26 +271,6 @@ func panelBlock(lines []string, i int, opts Options) (string, int) {
 		}
 	}
 	return blockquote(content), next
-}
-
-func isWikiHeading(line string) bool {
-	_, _, ok := wikiscanner.ParseHeading(line)
-	return ok
-}
-
-func isWikiCodeOpen(line string) bool {
-	_, _, _, ok := wikiscanner.ParseCodeOpen(line)
-	return ok
-}
-
-func isWikiQuoteOpen(line string) bool {
-	_, ok := wikiscanner.ParseQuoteOpen(line)
-	return ok
-}
-
-func isWikiPanelOpen(line string) bool {
-	_, _, ok := wikiscanner.ParsePanelOpen(line)
-	return ok
 }
 
 // collectMacroBody gathers the raw inner text of a paired brace macro whose

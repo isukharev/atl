@@ -30,6 +30,85 @@ func TestSharedWikiBlockRecognizers(t *testing.T) {
 	}
 }
 
+func TestSharedWikiBlockPredicatesMatchParsers(t *testing.T) {
+	tests := []struct {
+		name      string
+		predicate func(string) bool
+		parse     func(string) bool
+		samples   map[string]bool
+	}{
+		{
+			name:      "heading",
+			predicate: IsHeading,
+			parse: func(line string) bool {
+				_, _, ok := ParseHeading(line)
+				return ok
+			},
+			samples: map[string]bool{
+				"h3. Title":  true,
+				"h0. Title":  false,
+				"h3.Title":   false,
+				" h3. Title": false,
+			},
+		},
+		{
+			name:      "code open",
+			predicate: IsCodeOpen,
+			parse: func(line string) bool {
+				_, _, _, ok := ParseCodeOpen(line)
+				return ok
+			},
+			samples: map[string]bool{
+				"{code:go}body":  true,
+				"{noformat}body": true,
+				"{Code:go}body":  false,
+				"{code:go":       false,
+				"x{code}":        false,
+			},
+		},
+		{
+			name:      "quote open",
+			predicate: IsQuoteOpen,
+			parse: func(line string) bool {
+				_, ok := ParseQuoteOpen(line)
+				return ok
+			},
+			samples: map[string]bool{
+				"{quote}body":     true,
+				"{Quote}body":     false,
+				"{quote:bad}body": false,
+			},
+		},
+		{
+			name:      "panel open",
+			predicate: IsPanelOpen,
+			parse: func(line string) bool {
+				_, _, ok := ParsePanelOpen(line)
+				return ok
+			},
+			samples: map[string]bool{
+				"{panel:title=Note}body": true,
+				"{Panel:title=Note}body": false,
+				"{panel:title=Note":      false,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for line, want := range tt.samples {
+				parsed := tt.parse(line)
+				if parsed != want {
+					t.Errorf("parser(%q) = %v, want %v", line, parsed, want)
+				}
+				if got := tt.predicate(line); got != parsed {
+					t.Errorf("predicate(%q) = %v, parser = %v", line, got, parsed)
+				}
+			}
+		})
+	}
+}
+
 func TestTableRowEnd(t *testing.T) {
 	tests := []struct {
 		name  string

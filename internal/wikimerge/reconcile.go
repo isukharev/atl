@@ -41,13 +41,13 @@ func reconcileWikiBlockKind(raw string) string {
 		line = line[:at]
 	}
 	switch {
-	case isWikiHeading(line):
+	case wikiscanner.IsHeading(line):
 		return "heading"
-	case isWikiCodeOpen(line):
+	case wikiscanner.IsCodeOpen(line):
 		return "code"
-	case isWikiQuoteOpen(line):
+	case wikiscanner.IsQuoteOpen(line):
 		return "quote"
-	case isWikiPanelOpen(line):
+	case wikiscanner.IsPanelOpen(line):
 		return "panel"
 	case strings.HasPrefix(line, "|"):
 		return "table"
