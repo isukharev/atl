@@ -96,7 +96,7 @@ check-onboarding-docs: build
 
 const agentEvalRaceMakeContract = `.PHONY: agent-eval-race
 agent-eval-race: agent-eval-compat
-	go test -race ./internal/agenteval ./scripts/agent-eval -count=1 -timeout=10m
+	go test -race ./internal/agenteval ./scripts/agent-eval -count=1 -timeout=15m
 `
 
 const (

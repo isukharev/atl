@@ -8,6 +8,250 @@ import (
 	"testing"
 )
 
+func TestDecodeJiraStructureFailureAcceptsReleasedRecoverableProjection(t *testing.T) {
+	for _, test := range []struct {
+		want JiraStructureFailureView
+		raw  []byte
+	}{
+		{
+			want: JiraStructureFailureView{
+				Kind: "not_found", Remediation: "view_then_select_subtree",
+				Message:   "selected Jira Structure folder was not found; available stored-folder count is 4",
+				Available: 4,
+			},
+			raw: jiraStructureFailureInput(t, "not_found", 4, nil),
+		},
+		{
+			want: JiraStructureFailureView{
+				Kind: "check_failed", Remediation: "view_then_select_subtree",
+				Message:   "Jira Structure folder selector is ambiguous; matching stored-folder count is 2 and available stored-folder count is 4",
+				Available: 4, Matches: 2,
+			},
+			raw: jiraStructureFailureInput(t, "check_failed", 4, jiraStructureInt(2)),
+		},
+	} {
+		got, err := DecodeJiraStructureFailure(bytes.NewReader(test.raw))
+		if err != nil {
+			t.Fatalf("decode valid %q failure: %v", test.want.Kind, err)
+		}
+		if got != test.want {
+			t.Fatalf("failure drifted: got=%+v want=%+v", got, test.want)
+		}
+	}
+}
+
+func TestDecodeJiraStructureFailureRejectsInvalidWire(t *testing.T) {
+	valid := jiraStructureFailureInput(t, "not_found", 4, nil)
+	atLimit := append(bytes.Clone(valid), bytes.Repeat([]byte(" "), jiraStructureFailureWireMaxBytes-len(valid))...)
+	if _, err := DecodeJiraStructureFailure(bytes.NewReader(atLimit)); err != nil {
+		t.Fatalf("exact byte bound was rejected: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{name: "oversized", data: append(atLimit, ' ')},
+		{name: "missing kind", data: jiraStructureFailureMutate(t, valid, func(doc map[string]any) { delete(doc, "kind") })},
+		{name: "missing remediation", data: jiraStructureFailureMutate(t, valid, func(doc map[string]any) { delete(doc, "remediation") })},
+		{name: "missing message", data: jiraStructureFailureMutate(t, valid, func(doc map[string]any) { delete(doc, "message") })},
+		{name: "missing recovery", data: jiraStructureFailureMutate(t, valid, func(doc map[string]any) { delete(doc, "recovery") })},
+		{name: "unknown member", data: jiraStructureFailureMutate(t, valid, func(doc map[string]any) { doc["available"] = 4 })},
+		{name: "null kind", data: jiraStructureFailureMutate(t, valid, func(doc map[string]any) { doc["kind"] = nil })},
+		{name: "null remediation", data: jiraStructureFailureMutate(t, valid, func(doc map[string]any) { doc["remediation"] = nil })},
+		{name: "null message", data: jiraStructureFailureMutate(t, valid, func(doc map[string]any) { doc["message"] = nil })},
+		{name: "null recovery", data: jiraStructureFailureMutate(t, valid, func(doc map[string]any) { doc["recovery"] = nil })},
+		{name: "root duplicate", data: []byte(strings.Replace(string(valid), `"kind":`, `"kind":"not_found","kind":`, 1))},
+		{name: "recursive duplicate", data: []byte(strings.Replace(string(valid), `"action":`, `"action":"reread_then_reselect","action":`, 1))},
+		{name: "trailing", data: append(bytes.Clone(valid), []byte(`{}`)...)},
+		{name: "invalid UTF-8", data: append(bytes.Clone(valid[:len(valid)-2]), 0xff, '"', '}')},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := DecodeJiraStructureFailure(bytes.NewReader(tc.data)); err == nil {
+				t.Fatal("invalid failure wire was accepted")
+			} else if tc.name == "recursive duplicate" && !strings.Contains(err.Error(), "duplicate key") {
+				t.Fatalf("recursive duplicate was not rejected by duplicate-key validation: %v", err)
+			}
+		})
+	}
+}
+
+func TestDecodeJiraStructureFailureRejectsSemanticDrift(t *testing.T) {
+	valid := jiraStructureFailureInput(t, "not_found", 4, nil)
+	tests := []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{name: "empty kind", mutate: func(doc map[string]any) { doc["kind"] = "" }},
+		{name: "unnormalized kind", mutate: func(doc map[string]any) { doc["kind"] = " not_found" }},
+		{name: "empty remediation", mutate: func(doc map[string]any) { doc["remediation"] = "" }},
+		{name: "unnormalized remediation", mutate: func(doc map[string]any) { doc["remediation"] = "view_then_select_subtree " }},
+		{name: "empty message", mutate: func(doc map[string]any) { doc["message"] = "" }},
+		{name: "unnormalized message", mutate: func(doc map[string]any) { doc["message"] = " safe" }},
+		{name: "unknown kind", mutate: func(doc map[string]any) { doc["kind"] = "usage_error" }},
+		{name: "wrong remediation", mutate: func(doc map[string]any) { doc["remediation"] = "verify_identifier_or_access" }},
+		{name: "wrong schema", mutate: func(doc map[string]any) { doc["recovery"].(map[string]any)["schema_version"] = 2 }},
+		{name: "wrong action", mutate: func(doc map[string]any) { doc["recovery"].(map[string]any)["action"] = "adjust_request" }},
+		{name: "retry safe", mutate: func(doc map[string]any) { doc["recovery"].(map[string]any)["retry_safe"] = true }},
+		{name: "wrong capability", mutate: func(doc map[string]any) {
+			doc["recovery"].(map[string]any)["next_capability"] = "confluence.page.outline"
+		}},
+		{name: "missing available", mutate: func(doc map[string]any) { delete(doc["recovery"].(map[string]any), "available") }},
+		{name: "zero available", mutate: func(doc map[string]any) { doc["recovery"].(map[string]any)["available"] = 0 }},
+		{name: "not found with matches", mutate: func(doc map[string]any) { doc["recovery"].(map[string]any)["matches"] = 2 }},
+		{name: "check failed without matches", mutate: func(doc map[string]any) { doc["kind"] = "check_failed" }},
+		{name: "one match", mutate: func(doc map[string]any) {
+			doc["kind"] = "check_failed"
+			doc["recovery"].(map[string]any)["matches"] = 1
+		}},
+		{name: "matches exceed available", mutate: func(doc map[string]any) {
+			doc["kind"] = "check_failed"
+			doc["recovery"].(map[string]any)["matches"] = 5
+		}},
+		{name: "unknown recovery member", mutate: func(doc map[string]any) { doc["recovery"].(map[string]any)["private"] = true }},
+		{name: "null recovery member", mutate: func(doc map[string]any) { doc["recovery"].(map[string]any)["retry_safe"] = nil }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			data := jiraStructureFailureMutate(t, valid, test.mutate)
+			if _, err := DecodeJiraStructureFailure(bytes.NewReader(data)); err == nil {
+				t.Fatal("semantic drift was accepted")
+			}
+		})
+	}
+}
+
+func TestDecodeJiraStructureForestMismatchFailureAcceptsReleasedProjection(t *testing.T) {
+	want := JiraStructureForestMismatchFailureView{
+		Kind: "check_failed", Remediation: "reread_structure_view_then_retry_expected_forest_version",
+		Message:  "expected Jira Structure forest signature -55 version 7 does not match current signature 66 version 8",
+		Expected: JiraStructureForestVersion{Signature: -55, Version: 7},
+		Observed: JiraStructureForestVersion{Signature: 66, Version: 8},
+	}
+	got, err := DecodeJiraStructureForestMismatchFailure(bytes.NewReader(
+		jiraStructureForestMismatchFailureInput(t, want.Expected, want.Observed),
+	))
+	if err != nil {
+		t.Fatalf("decode valid forest mismatch: %v", err)
+	}
+	if got != want {
+		t.Fatalf("forest mismatch drifted: got=%+v want=%+v", got, want)
+	}
+}
+
+func TestDecodeJiraStructureForestMismatchFailureRejectsDrift(t *testing.T) {
+	valid := jiraStructureForestMismatchFailureInput(t,
+		JiraStructureForestVersion{Signature: -55, Version: 7},
+		JiraStructureForestVersion{Signature: 66, Version: 8},
+	)
+	tests := []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{name: "wrong kind", mutate: func(doc map[string]any) { doc["kind"] = "not_found" }},
+		{name: "wrong remediation", mutate: func(doc map[string]any) { doc["remediation"] = "view_then_select_subtree" }},
+		{name: "unnormalized message", mutate: func(doc map[string]any) { doc["message"] = " stale" }},
+		{name: "wrong action", mutate: func(doc map[string]any) { doc["recovery"].(map[string]any)["action"] = "adjust_request" }},
+		{name: "retry safe", mutate: func(doc map[string]any) { doc["recovery"].(map[string]any)["retry_safe"] = true }},
+		{name: "wrong capability", mutate: func(doc map[string]any) {
+			doc["recovery"].(map[string]any)["next_capability"] = "confluence.page.outline"
+		}},
+		{name: "missing expected", mutate: func(doc map[string]any) { delete(doc["recovery"].(map[string]any), "expected_forest") }},
+		{name: "null observed", mutate: func(doc map[string]any) { doc["recovery"].(map[string]any)["observed_forest"] = nil }},
+		{name: "zero signature", mutate: func(doc map[string]any) {
+			doc["recovery"].(map[string]any)["expected_forest"].(map[string]any)["signature"] = 0
+		}},
+		{name: "nonpositive version", mutate: func(doc map[string]any) {
+			doc["recovery"].(map[string]any)["observed_forest"].(map[string]any)["version"] = 0
+		}},
+		{name: "equal forests", mutate: func(doc map[string]any) {
+			doc["recovery"].(map[string]any)["observed_forest"] = doc["recovery"].(map[string]any)["expected_forest"]
+		}},
+		{name: "selection facts", mutate: func(doc map[string]any) {
+			recovery := doc["recovery"].(map[string]any)
+			delete(recovery, "expected_forest")
+			delete(recovery, "observed_forest")
+			recovery["available"] = 4
+		}},
+		{name: "unknown nested member", mutate: func(doc map[string]any) {
+			doc["recovery"].(map[string]any)["expected_forest"].(map[string]any)["private"] = true
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			data := jiraStructureFailureMutate(t, valid, test.mutate)
+			if _, err := DecodeJiraStructureForestMismatchFailure(bytes.NewReader(data)); err == nil {
+				t.Fatal("forest mismatch drift was accepted")
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name string
+		data []byte
+	}{
+		{name: "unknown root member", data: jiraStructureFailureMutate(t, valid, func(doc map[string]any) { doc["private"] = true })},
+		{name: "null recovery", data: jiraStructureFailureMutate(t, valid, func(doc map[string]any) { doc["recovery"] = nil })},
+		{name: "recursive duplicate", data: []byte(strings.Replace(string(valid), `"signature":`, `"signature":-55,"signature":`, 1))},
+		{name: "trailing", data: append(bytes.Clone(valid), []byte(`true`)...)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := DecodeJiraStructureForestMismatchFailure(bytes.NewReader(test.data)); err == nil {
+				t.Fatal("invalid forest mismatch wire was accepted")
+			}
+		})
+	}
+}
+
+func jiraStructureFailureInput(t *testing.T, kind string, available int, matches *int) []byte {
+	t.Helper()
+	message := "selected Jira Structure folder was not found; available stored-folder count is 4"
+	recovery := map[string]any{
+		"schema_version": 1, "action": "reread_then_reselect", "retry_safe": false,
+		"next_capability": "jira.structure.view", "available": available,
+	}
+	if matches != nil {
+		recovery["matches"] = *matches
+		message = "Jira Structure folder selector is ambiguous; matching stored-folder count is 2 and available stored-folder count is 4"
+	}
+	return jiraStructureEncode(t, map[string]any{
+		"kind": kind, "remediation": "view_then_select_subtree", "message": message, "recovery": recovery,
+	})
+}
+
+func jiraStructureForestMismatchFailureInput(
+	t *testing.T,
+	expected, observed JiraStructureForestVersion,
+) []byte {
+	t.Helper()
+	return jiraStructureEncode(t, map[string]any{
+		"kind":        "check_failed",
+		"remediation": "reread_structure_view_then_retry_expected_forest_version",
+		"message":     "expected Jira Structure forest signature -55 version 7 does not match current signature 66 version 8",
+		"recovery": map[string]any{
+			"schema_version": 1, "action": "reread_then_reselect", "retry_safe": false,
+			"next_capability": "jira.structure.view",
+			"expected_forest": map[string]any{"signature": expected.Signature, "version": expected.Version},
+			"observed_forest": map[string]any{"signature": observed.Signature, "version": observed.Version},
+		},
+	})
+}
+
+func jiraStructureFailureMutate(t *testing.T, input []byte, mutate func(map[string]any)) []byte {
+	t.Helper()
+	var doc map[string]any
+	if err := json.Unmarshal(input, &doc); err != nil {
+		t.Fatal(err)
+	}
+	mutate(doc)
+	return jiraStructureEncode(t, doc)
+}
+
+func jiraStructureInt(value int) *int {
+	return &value
+}
+
 func TestDecodeJiraStructureMetadataAcceptsReleasedProjection(t *testing.T) {
 	for _, name := range []string{"Synthetic structure", " Synthetic structure "} {
 		input := JiraStructureMetadataView{SchemaVersion: 1, ID: 95, Name: name, ReadOnly: true}

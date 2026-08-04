@@ -2,7 +2,6 @@ package agenteval
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -13,12 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/isukharev/atl/internal/app"
-	"github.com/isukharev/atl/internal/config"
-	"github.com/isukharev/atl/internal/domain"
 )
 
 // structureFolderRecoveryCohort names one synthetic stored-folder selection
@@ -26,9 +19,9 @@ import (
 // selector, the folder the goal points at, and the declared bounds. Every
 // reported quantity (failure counts, forest inventory, subtree hierarchy,
 // answer keys, and transport traffic) is derived from the retained fixture by
-// driving the real Structure snapshot service against the real mock backend,
-// so the bundled run-spec oracles stay the only independent copy of the
-// expected answer.
+// driving the exact selected ATL binary against the evaluator backend, so the
+// bundled run-spec oracles stay the only independent copy of the expected
+// answer.
 type structureFolderRecoveryCohort struct {
 	directory     string
 	scenarioID    string
@@ -93,15 +86,13 @@ func structureFolderRecoveryRoot(cohort structureFolderRecoveryCohort) string {
 }
 
 // The bounds the prompts pin, mirrored here so the drive uses exactly the
-// arguments the run specs declare. structureFolderRecoveryScanRows is the MCP
-// forest scan cap the transport applies before any folder-value query.
+// arguments the run specs declare.
 var structureFolderRecoveryFields = []string{"key", "summary", "status"}
 
 const (
 	structureFolderRecoverySubtreeRows = 50
 	structureFolderRecoveryForestRows  = 200
 	structureFolderRecoveryMaxBytes    = 65536
-	structureFolderRecoveryScanRows    = 1000
 	structureFolderRecoveryCalls       = 3
 	// Claude Code reports its schema-constrained final response as one
 	// additional generic tool event. The exact MCP route remains three
@@ -137,7 +128,7 @@ type structureFolderRecoveryEvidence struct {
 	rows      []map[string]any
 
 	structureName string
-	forestVersion domain.StructureVersion
+	forestVersion JiraStructureForestVersion
 	inaccessible  []int64
 	answerKeys    []string
 	warnings      int
@@ -187,10 +178,11 @@ func TestStructureFolderSelectionRecoveryFixturesDriveProviderOracles(t *testing
 	}
 }
 
-// driveStructureFolderRecovery walks the real recovery route against the real
-// mock backend: the stored selector is rejected, one selector-free bounded view
-// inventories the whole forest, and one exact folder-row view returns the
-// target subtree. Every reported quantity is read back from the service.
+// driveStructureFolderRecovery walks the released recovery route through the
+// selected ATL process: the stored selector is rejected, one selector-free
+// bounded view inventories the whole forest, and one exact folder-row view
+// returns the target subtree. Every reported quantity is decoded from released
+// wire evidence or read from process accounting.
 func driveStructureFolderRecovery(
 	t *testing.T,
 	cohort structureFolderRecoveryCohort,
@@ -198,7 +190,14 @@ func driveStructureFolderRecovery(
 	t.Helper()
 	root := structureFolderRecoveryRoot(cohort)
 	fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
-	backend, client := startStructureFolderRecoveryMCPBackend(t, fixture)
+	retained := loadRepositoryRunSpec(t, filepath.Join(root, "run.mcp.codex.json"))
+	admitted := repositoryExpectedMCPInvocations(t, retained)
+	if len(admitted) != structureFolderRecoveryCalls {
+		t.Fatalf("retained recovery route has %d admissions, want %d",
+			len(admitted), structureFolderRecoveryCalls)
+	}
+	process := startStructureFolderRecoveryProcess(
+		t, cohort, fixture, admitted, structureFolderRecoveryHonestRequestSequence())
 	evidence := structureFolderRecoveryEvidence{cohort: cohort}
 
 	// 1. The caller's stored selector is rejected with the typed, recoverable
@@ -207,7 +206,11 @@ func driveStructureFolderRecovery(
 	// test-side copy of that transport contract.
 	rejectedInvocation := structureFolderRecoveryInvocation(t, cohort,
 		cohort.selectorKind, cohort.selectorValue, structureFolderRecoverySubtreeRows, nil)
-	rejected := callStructureFolderRecoveryMCP(t, client, rejectedInvocation)
+	if !equalMCPInvocations([]MCPInvocation{rejectedInvocation}, admitted[:1]) {
+		t.Fatalf("derived rejected-selector admission drifted: derived=%+v retained=%+v",
+			rejectedInvocation, admitted[0])
+	}
+	rejected := callStructureFolderRecoveryProcess(t, process, rejectedInvocation)
 	evidence.failure, evidence.rejection = structureFolderRecoveryClassifyMCP(t, rejected)
 	evidence.invocations = append(evidence.invocations, rejectedInvocation)
 	evidence.sequence = append(evidence.sequence, "jira.structure.view")
@@ -216,12 +219,19 @@ func driveStructureFolderRecovery(
 	// 2. One selector-free bounded view inventories the whole forest.
 	inventoryInvocation := structureFolderRecoveryInvocation(t, cohort,
 		"", "", structureFolderRecoveryForestRows, nil)
-	inventoryResult := callStructureFolderRecoveryMCP(t, client, inventoryInvocation)
-	if inventoryResult.IsError {
-		t.Fatalf("selector-free inventory failed: %+v", inventoryResult.Content)
+	if !equalMCPInvocations([]MCPInvocation{inventoryInvocation}, admitted[1:2]) {
+		t.Fatalf("derived inventory admission drifted: derived=%+v retained=%+v",
+			inventoryInvocation, admitted[1])
 	}
-	var inventory app.StructureSnapshot
-	decodeRepositoryStructuredContent(t, inventoryResult.StructuredContent, &inventory)
+	inventoryResult := callStructureFolderRecoveryProcess(t, process, inventoryInvocation)
+	if inventoryResult.IsError {
+		t.Fatalf("selector-free inventory failed: text_items=%d", len(inventoryResult.TextContent))
+	}
+	assertRepositoryMCPTextMatchesStructured(t, inventoryResult)
+	inventory, err := DecodeJiraStructureView(bytes.NewReader(inventoryResult.StructuredContent))
+	if err != nil {
+		t.Fatalf("decode selector-free inventory: %v", err)
+	}
 	assertStructureFolderRecoverySnapshotBounds(t, &inventory, structureFolderRecoveryForestRows)
 	if inventory.Selection != nil {
 		t.Fatalf("the inventory view must carry no selection: %+v", inventory.Selection)
@@ -253,12 +263,19 @@ func driveStructureFolderRecovery(
 	subtreeInvocation := structureFolderRecoveryInvocation(t, cohort,
 		"folder_row", strconv.FormatInt(cohort.targetRow, 10), structureFolderRecoverySubtreeRows,
 		&inventory.ForestVersion)
-	subtreeResult := callStructureFolderRecoveryMCP(t, client, subtreeInvocation)
-	if subtreeResult.IsError {
-		t.Fatalf("exact folder-row view failed: %+v", subtreeResult.Content)
+	if !equalMCPInvocations([]MCPInvocation{subtreeInvocation}, admitted[2:3]) {
+		t.Fatalf("inventory-derived subtree admission drifted: derived=%+v retained=%+v",
+			subtreeInvocation, admitted[2])
 	}
-	var subtree app.StructureSnapshot
-	decodeRepositoryStructuredContent(t, subtreeResult.StructuredContent, &subtree)
+	subtreeResult := callStructureFolderRecoveryProcess(t, process, subtreeInvocation)
+	if subtreeResult.IsError {
+		t.Fatalf("exact folder-row view failed: text_items=%d", len(subtreeResult.TextContent))
+	}
+	assertRepositoryMCPTextMatchesStructured(t, subtreeResult)
+	subtree, err := DecodeJiraStructureView(bytes.NewReader(subtreeResult.StructuredContent))
+	if err != nil {
+		t.Fatalf("decode exact folder-row view: %v", err)
+	}
 	assertStructureFolderRecoverySnapshotBounds(t, &subtree, structureFolderRecoverySubtreeRows)
 	if subtree.RowCount >= inventory.RowCount {
 		t.Fatalf("the selected subtree (%d rows) must be a proper part of the forest (%d rows)",
@@ -296,12 +313,15 @@ func driveStructureFolderRecovery(
 		}
 	}
 
-	methods, unexpected, duplicates := backend.Summary()
+	summary := process.Summary()
+	methods, unexpected, duplicates := summary.HTTPMethods, summary.UnexpectedRequests, summary.DuplicateRequests
 	if !equalHTTPMethods(methods, map[string]int{
 		"GET": structureFolderRecoveryGETs, "POST": structureFolderRecoveryQueryOnlyPOSTs,
-	}) || unexpected != 0 || duplicates != structureFolderRecoveryDuplicates {
-		t.Fatalf("recovery route traffic drifted: methods=%v unexpected=%d duplicates=%d",
-			methods, unexpected, duplicates)
+	}) || unexpected != 0 || duplicates != structureFolderRecoveryDuplicates ||
+		!process.RequestSequenceComplete() || len(summary.CLIInvocations) != 0 ||
+		!equalHTTPMethods(summary.MCPInvocations, map[string]int{"jira_structure_view": structureFolderRecoveryCalls}) {
+		t.Fatalf("recovery process accounting drifted: summary=%+v sequence_complete=%t",
+			summary, process.RequestSequenceComplete())
 	}
 	evidence.methods, evidence.unexpected, evidence.duplicates = methods, unexpected, duplicates
 	evidence.families = []CapabilityFamilyMetric{{
@@ -311,103 +331,24 @@ func driveStructureFolderRecovery(
 	return evidence
 }
 
-func startStructureFolderRecoveryMCPBackend(
-	t *testing.T,
-	fixture MockFixture,
-) (*MockBackend, *mcp.ClientSession) {
-	t.Helper()
-	backend, err := StartMockBackend(fixture)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(backend.Close)
-	for name, value := range backend.Environment() {
-		t.Setenv(name, value)
-	}
-	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
-	t.Setenv("ATL_READ_ONLY", "1")
-	t.Setenv("ATL_NO_UPDATE", "1")
-	return backend, connectRepositoryMCPClient(t)
-}
-
-func startStructureFolderRecoveryAppBackend(
-	t *testing.T,
-	fixture MockFixture,
-) (*MockBackend, *app.JiraService) {
-	t.Helper()
-	backend, err := StartMockBackend(fixture)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(backend.Close)
-	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
-	t.Setenv("ATL_JIRA_PAT", "synthetic-token")
-	service, err := app.NewJira(
-		&config.Config{JiraURL: backend.Environment()["ATL_JIRA_URL"]},
-		"benchmark-contract",
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return backend, service
-}
-
-func structureFolderRecoverySelector(kind, value string) app.StructureFolderSelector {
-	switch kind {
-	case "folder_id":
-		return app.StructureFolderSelector{FolderID: value}
-	case "folder_path":
-		return app.StructureFolderSelector{FolderPath: value}
-	default:
-		row, _ := strconv.ParseInt(value, 10, 64)
-		return app.StructureFolderSelector{FolderRow: row}
-	}
-}
-
-func callStructureFolderRecoveryMCP(
-	t *testing.T,
-	client *mcp.ClientSession,
-	invocation MCPInvocation,
-) *mcp.CallToolResult {
-	t.Helper()
-	var arguments map[string]any
-	if err := json.Unmarshal(invocation.Arguments, &arguments); err != nil {
-		t.Fatal(err)
-	}
-	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: invocation.Tool, Arguments: arguments,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return result
-}
-
 // structureFolderRecoveryClassifyMCP decodes the actual production MCP error.
 // The count-only messages are deliberately matched exactly enough that a
 // remediation or disclosure regression cannot be hidden by the harness.
 func structureFolderRecoveryClassifyMCP(
 	t *testing.T,
-	result *mcp.CallToolResult,
+	result SyntheticMCPResult,
 ) (structureFolderRecoverySelectionFailure, []byte) {
 	t.Helper()
-	if result == nil || !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
+	if !result.IsError || result.StructuredContent != nil || len(result.TextContent) != 1 {
 		t.Fatalf("stored selector was not rejected by the MCP transport: %+v", result)
 	}
-	content, ok := result.Content[0].(*mcp.TextContent)
-	if !ok {
-		t.Fatalf("selection rejection content=%T", result.Content[0])
-	}
-	var decoded struct {
-		Kind        string `json:"kind"`
-		Remediation string `json:"remediation"`
-		Message     string `json:"message"`
-	}
-	if err := json.Unmarshal([]byte(content.Text), &decoded); err != nil {
+	decoded, err := DecodeJiraStructureFailure(strings.NewReader(result.TextContent[0]))
+	if err != nil {
 		t.Fatalf("decode selection rejection: %v", err)
 	}
 	failure := structureFolderRecoverySelectionFailure{
 		kind: decoded.Kind, remediation: decoded.Remediation,
+		matches: decoded.Matches, available: decoded.Available,
 	}
 	switch decoded.Kind {
 	case "not_found":
@@ -416,15 +357,19 @@ func structureFolderRecoveryClassifyMCP(
 		if len(match) != 2 {
 			t.Fatalf("unsafe or unexpected not-found selection message %q", decoded.Message)
 		}
-		failure.available = mustStructureFolderRecoveryCount(t, match[1])
+		if failure.available != mustStructureFolderRecoveryCount(t, match[1]) {
+			t.Fatalf("decoded not-found count drifted: decoded=%+v message=%q", decoded, decoded.Message)
+		}
 	case "check_failed":
 		match := regexp.MustCompile(`^Jira Structure folder selector is ambiguous; matching stored-folder count is ([0-9]+) and available stored-folder count is ([0-9]+)$`).
 			FindStringSubmatch(decoded.Message)
 		if len(match) != 3 {
 			t.Fatalf("unsafe or unexpected ambiguous selection message %q", decoded.Message)
 		}
-		failure.matches = mustStructureFolderRecoveryCount(t, match[1])
-		failure.available = mustStructureFolderRecoveryCount(t, match[2])
+		if failure.matches != mustStructureFolderRecoveryCount(t, match[1]) ||
+			failure.available != mustStructureFolderRecoveryCount(t, match[2]) {
+			t.Fatalf("decoded ambiguous counts drifted: decoded=%+v message=%q", decoded, decoded.Message)
+		}
 	default:
 		t.Fatalf("unexpected selection failure kind %q", decoded.Kind)
 	}
@@ -432,11 +377,7 @@ func structureFolderRecoveryClassifyMCP(
 		failure.available <= 0 || failure.matches < 0 || failure.matches == 1 {
 		t.Fatalf("selection counts are not recoverable evidence: %+v", failure)
 	}
-	encoded, err := json.Marshal(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return failure, encoded
+	return failure, []byte(result.TextContent[0])
 }
 
 func mustStructureFolderRecoveryCount(t *testing.T, value string) int {
@@ -451,7 +392,7 @@ func mustStructureFolderRecoveryCount(t *testing.T, value string) int {
 func assertStructureFolderRecoveryRejectionIsContentFree(
 	t *testing.T,
 	evidence structureFolderRecoveryEvidence,
-	inventory *app.StructureSnapshot,
+	inventory *JiraStructureView,
 ) {
 	t.Helper()
 	forbidden := append([]string{}, evidence.cohort.hostile...)
@@ -478,7 +419,7 @@ func assertStructureFolderRecoveryRejectionIsContentFree(
 	}
 }
 
-func assertStructureFolderRecoverySnapshotBounds(t *testing.T, snapshot *app.StructureSnapshot, maxRows int) {
+func assertStructureFolderRecoverySnapshotBounds(t *testing.T, snapshot *JiraStructureView, maxRows int) {
 	t.Helper()
 	if snapshot == nil || snapshot.SchemaVersion != 1 || snapshot.RowCount != len(snapshot.Rows) ||
 		snapshot.RowCount == 0 || snapshot.RowCount > maxRows ||
@@ -501,7 +442,7 @@ func assertStructureFolderRecoverySnapshotBounds(t *testing.T, snapshot *app.Str
 // snapshot alone.
 func structureFolderRecoverySubtreeEvidence(
 	t *testing.T,
-	subtree *app.StructureSnapshot,
+	subtree *JiraStructureView,
 ) ([]map[string]any, map[string]any, []string) {
 	t.Helper()
 	rows := make([]map[string]any, 0, len(subtree.Rows))
@@ -568,7 +509,7 @@ func structureFolderRecoveryInvocation(
 	cohort structureFolderRecoveryCohort,
 	selectorKind, selectorValue string,
 	maxRows int,
-	expected *domain.StructureVersion,
+	expected *JiraStructureForestVersion,
 ) MCPInvocation {
 	t.Helper()
 	arguments := map[string]any{
@@ -1149,7 +1090,8 @@ func assertStructureFolderRecoveryFinalMutationsFail(
 }
 
 // assertStructureFolderRecoveryRouteMutationsFail drives the wrong routes
-// against a real mock backend so the rejected traffic is observed, not assumed.
+// through selected ATL processes so the rejected traffic is observed, not
+// assumed.
 func assertStructureFolderRecoveryRouteMutationsFail(
 	t *testing.T,
 	cohort structureFolderRecoveryCohort,
@@ -1157,29 +1099,34 @@ func assertStructureFolderRecoveryRouteMutationsFail(
 	evidence structureFolderRecoveryEvidence,
 ) {
 	t.Helper()
+	fixture := loadRepositoryMockFixture(t, filepath.Join(structureFolderRecoveryRoot(cohort), "fixture.json"))
+	rejectedSequence := []string{
+		structureFolderRecoveryMetadataRoute,
+		structureFolderRecoveryForestRoute,
+		structureFolderRecoveryInventoryValuesRoute,
+	}
+	subtreeSequence := []string{
+		structureFolderRecoveryMetadataRoute,
+		structureFolderRecoveryForestRoute,
+		structureFolderRecoveryInventoryValuesRoute,
+		structureFolderRecoverySubtreeIssuesRoute,
+		structureFolderRecoverySubtreeValuesRoute,
+	}
 
 	t.Run("stale-forest-binding", func(t *testing.T) {
-		fixture := loadRepositoryMockFixture(t, filepath.Join(structureFolderRecoveryRoot(cohort), "fixture.json"))
-		backend, client := startStructureFolderRecoveryMCPBackend(t, fixture)
 		stale := evidence.forestVersion
 		stale.Version++
 		invocation := structureFolderRecoveryInvocation(t, cohort,
 			"folder_row", strconv.FormatInt(cohort.targetRow, 10), structureFolderRecoverySubtreeRows, &stale)
-		result := callStructureFolderRecoveryMCP(t, client, invocation)
-		if result == nil || !result.IsError || result.StructuredContent != nil || len(result.Content) != 1 {
+		process := startStructureFolderRecoveryProcess(t, cohort, fixture, []MCPInvocation{invocation},
+			[]string{structureFolderRecoveryMetadataRoute, structureFolderRecoveryForestRoute})
+		result := callStructureFolderRecoveryProcess(t, process, invocation)
+		if !result.IsError || result.StructuredContent != nil || len(result.TextContent) != 1 {
 			t.Fatalf("stale forest binding was not rejected: %+v", result)
 		}
-		content, ok := result.Content[0].(*mcp.TextContent)
-		if !ok {
-			t.Fatalf("stale forest binding content=%T", result.Content[0])
-		}
-		var decoded struct {
-			Kind        string `json:"kind"`
-			Remediation string `json:"remediation"`
-			Message     string `json:"message"`
-		}
-		if err := json.Unmarshal([]byte(content.Text), &decoded); err != nil {
-			t.Fatal(err)
+		decoded, err := DecodeJiraStructureForestMismatchFailure(strings.NewReader(result.TextContent[0]))
+		if err != nil {
+			t.Fatalf("decode stale forest binding: %v", err)
 		}
 		wantMessage := fmt.Sprintf(
 			"expected Jira Structure forest signature %d version %d does not match current signature %d version %d",
@@ -1187,33 +1134,44 @@ func assertStructureFolderRecoveryRouteMutationsFail(
 		)
 		if decoded.Kind != "check_failed" ||
 			decoded.Remediation != "reread_structure_view_then_retry_expected_forest_version" ||
-			decoded.Message != wantMessage {
+			decoded.Message != wantMessage || decoded.Expected != stale ||
+			decoded.Observed != evidence.forestVersion {
 			t.Fatalf("stale forest binding error=%+v", decoded)
 		}
-		methods, unexpected, _ := backend.Summary()
-		if !equalHTTPMethods(methods, map[string]int{"GET": 2}) || unexpected != 0 {
-			t.Fatalf("stale forest binding expanded values or issues: methods=%v unexpected=%d", methods, unexpected)
+		summary := process.Summary()
+		if !equalHTTPMethods(summary.HTTPMethods, map[string]int{"GET": 2}) ||
+			summary.UnexpectedRequests != 0 || summary.DuplicateRequests != 0 ||
+			!process.RequestSequenceComplete() || len(summary.CLIInvocations) != 0 ||
+			!equalHTTPMethods(summary.MCPInvocations, map[string]int{"jira_structure_view": 1}) {
+			t.Fatalf("stale forest binding expanded beyond two GETs: summary=%+v complete=%t",
+				summary, process.RequestSequenceComplete())
 		}
 	})
 
 	// Repeating the rejected selector: the second attempt fails identically and
 	// re-reads the same metadata, forest, and query-only Value routes.
 	t.Run("repeat-rejected-selector", func(t *testing.T) {
-		fixture := loadRepositoryMockFixture(t, filepath.Join(structureFolderRecoveryRoot(cohort), "fixture.json"))
-		backend, service := startStructureFolderRecoveryAppBackend(t, fixture)
-		selector := structureFolderRecoverySelector(cohort.selectorKind, cohort.selectorValue)
+		invocation := evidence.invocations[0]
+		process := startStructureFolderRecoveryProcess(t, cohort, fixture,
+			[]MCPInvocation{invocation, invocation}, append(slices.Clone(rejectedSequence), rejectedSequence...))
+		var first string
 		for attempt := range 2 {
-			if _, err := service.StructureSnapshot(context.Background(), cohort.structureID, app.StructureSnapshotOpts{
-				Attributes: structureFolderRecoveryFields, BatchSize: 100,
-				MaxRows: structureFolderRecoverySubtreeRows, MaxScanRows: structureFolderRecoveryScanRows,
-				StructureFolderSelector: selector,
-			}); err == nil {
-				t.Fatalf("attempt %d unexpectedly resolved the rejected selector", attempt)
+			result := callStructureFolderRecoveryProcess(t, process, invocation)
+			structureFolderRecoveryClassifyMCP(t, result)
+			if attempt == 0 {
+				first = result.TextContent[0]
+			} else if result.TextContent[0] != first {
+				t.Fatalf("repeated rejected selector changed its failure: first=%q second=%q",
+					first, result.TextContent[0])
 			}
 		}
-		methods, unexpected, _ := backend.Summary()
-		if !equalHTTPMethods(methods, map[string]int{"GET": 4, "POST": 2}) || unexpected != 0 {
-			t.Fatalf("repeated rejected selector traffic drifted: methods=%v unexpected=%d", methods, unexpected)
+		summary := process.Summary()
+		if !equalHTTPMethods(summary.HTTPMethods, map[string]int{"GET": 4, "POST": 2}) ||
+			summary.UnexpectedRequests != 0 || summary.DuplicateRequests != 3 ||
+			!process.RequestSequenceComplete() || len(summary.CLIInvocations) != 0 ||
+			!equalHTTPMethods(summary.MCPInvocations, map[string]int{"jira_structure_view": 2}) {
+			t.Fatalf("repeated rejected selector process drifted: summary=%+v complete=%t",
+				summary, process.RequestSequenceComplete())
 		}
 		mutated := evidence.clone()
 		mutated.invocations = slices.Insert(mutated.invocations, 1, mutated.invocations[0])
@@ -1236,6 +1194,18 @@ func assertStructureFolderRecoveryRouteMutationsFail(
 
 	// Stopping after the rejected selector reports nothing recoverable.
 	t.Run("stop-after-rejected-selector", func(t *testing.T) {
+		process := startStructureFolderRecoveryProcess(t, cohort, fixture,
+			evidence.invocations[:1], rejectedSequence)
+		structureFolderRecoveryClassifyMCP(t,
+			callStructureFolderRecoveryProcess(t, process, evidence.invocations[0]))
+		summary := process.Summary()
+		if !equalHTTPMethods(summary.HTTPMethods, map[string]int{"GET": 2, "POST": 1}) ||
+			summary.UnexpectedRequests != 0 || summary.DuplicateRequests != 0 ||
+			!process.RequestSequenceComplete() ||
+			!equalHTTPMethods(summary.MCPInvocations, map[string]int{"jira_structure_view": 1}) {
+			t.Fatalf("stopped recovery process drifted: summary=%+v complete=%t",
+				summary, process.RequestSequenceComplete())
+		}
 		mutated := evidence.clone()
 		mutated.invocations = mutated.invocations[:1]
 		mutated.sequence = mutated.sequence[:1]
@@ -1257,6 +1227,26 @@ func assertStructureFolderRecoveryRouteMutationsFail(
 
 	// Skipping the selector-free inventory and guessing the folder row.
 	t.Run("skip-selector-free-inventory", func(t *testing.T) {
+		admitted := []MCPInvocation{evidence.invocations[0], evidence.invocations[2]}
+		sequence := append(slices.Clone(rejectedSequence), subtreeSequence...)
+		process := startStructureFolderRecoveryProcess(t, cohort, fixture, admitted, sequence)
+		structureFolderRecoveryClassifyMCP(t, callStructureFolderRecoveryProcess(t, process, admitted[0]))
+		result := callStructureFolderRecoveryProcess(t, process, admitted[1])
+		if result.IsError {
+			t.Fatalf("inventory-skipping subtree call failed: text_items=%d", len(result.TextContent))
+		}
+		assertRepositoryMCPTextMatchesStructured(t, result)
+		if _, err := DecodeJiraStructureView(bytes.NewReader(result.StructuredContent)); err != nil {
+			t.Fatalf("decode inventory-skipping subtree: %v", err)
+		}
+		summary := process.Summary()
+		if !equalHTTPMethods(summary.HTTPMethods, map[string]int{"GET": 5, "POST": 3}) ||
+			summary.UnexpectedRequests != 0 || summary.DuplicateRequests != 4 ||
+			!process.RequestSequenceComplete() ||
+			!equalHTTPMethods(summary.MCPInvocations, map[string]int{"jira_structure_view": 2}) {
+			t.Fatalf("inventory-skipping process drifted: summary=%+v complete=%t",
+				summary, process.RequestSequenceComplete())
+		}
 		mutated := evidence.clone()
 		mutated.invocations = slices.Delete(slices.Clone(mutated.invocations), 1, 2)
 		mutated.sequence = mutated.sequence[:2]
@@ -1275,31 +1265,45 @@ func assertStructureFolderRecoveryRouteMutationsFail(
 	// fixture either cannot serve its issue projection at all, or serves a
 	// materially different subtree that the pinned oracles reject.
 	t.Run("wrong-folder-row-selected", func(t *testing.T) {
-		fixture := loadRepositoryMockFixture(t, filepath.Join(structureFolderRecoveryRoot(cohort), "fixture.json"))
-		backend, service := startStructureFolderRecoveryAppBackend(t, fixture)
-		wrong, err := service.StructureSnapshot(context.Background(), cohort.structureID, app.StructureSnapshotOpts{
-			Attributes: structureFolderRecoveryFields, BatchSize: 100,
-			MaxRows: structureFolderRecoverySubtreeRows, MaxScanRows: structureFolderRecoveryScanRows,
-			StructureFolderSelector: app.StructureFolderSelector{FolderRow: cohort.wrongRow},
-		})
-		_, unexpected, _ := backend.Summary()
+		invocation := structureFolderRecoveryInvocation(t, cohort,
+			"folder_row", strconv.FormatInt(cohort.wrongRow, 10), structureFolderRecoverySubtreeRows,
+			&evidence.forestVersion)
+		process := startStructureFolderRecoveryProcess(t, cohort, fixture,
+			[]MCPInvocation{invocation}, rejectedSequence)
+		result := callStructureFolderRecoveryProcess(t, process, invocation)
+		summary := process.Summary()
 		if !cohort.wrongRowServed {
-			if err == nil || unexpected == 0 {
-				t.Fatalf("wrong folder row was served by the honest fixture: err=%v unexpected=%d", err, unexpected)
+			if !result.IsError ||
+				!equalHTTPMethods(summary.HTTPMethods, map[string]int{"GET": 3, "POST": 1}) ||
+				summary.UnexpectedRequests != 1 || summary.DuplicateRequests != 0 ||
+				!process.RequestSequenceComplete() || len(summary.CLIInvocations) != 0 ||
+				!equalHTTPMethods(summary.MCPInvocations, map[string]int{"jira_structure_view": 1}) {
+				t.Fatalf("wrong folder row was served by the honest fixture: result=%+v summary=%+v",
+					result, summary)
 			}
 			return
 		}
+		if result.IsError {
+			t.Fatalf("served wrong folder row failed: text_items=%d", len(result.TextContent))
+		}
+		assertRepositoryMCPTextMatchesStructured(t, result)
+		wrong, err := DecodeJiraStructureView(bytes.NewReader(result.StructuredContent))
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("decode wrong-folder-row view: %v", err)
 		}
 		if wrong.Selection == nil || wrong.Selection.RowID != cohort.wrongRow ||
 			wrong.RowCount >= len(evidence.rows) {
 			t.Fatalf("wrong folder row did not yield a distinct subtree: %+v", wrong)
 		}
+		if !equalHTTPMethods(summary.HTTPMethods, map[string]int{"GET": 2, "POST": 2}) ||
+			summary.UnexpectedRequests != 1 || summary.DuplicateRequests != 1 ||
+			!process.RequestSequenceComplete() || len(summary.CLIInvocations) != 0 ||
+			!equalHTTPMethods(summary.MCPInvocations, map[string]int{"jira_structure_view": 1}) {
+			t.Fatalf("served wrong-folder-row process drifted: summary=%+v complete=%t",
+				summary, process.RequestSequenceComplete())
+		}
 		mutated := evidence.clone()
-		mutated.invocations[2] = structureFolderRecoveryInvocation(t, cohort,
-			"folder_row", strconv.FormatInt(cohort.wrongRow, 10), structureFolderRecoverySubtreeRows,
-			&evidence.forestVersion)
+		mutated.invocations[2] = invocation
 		mutated.final = mutateStructureFolderRecoveryFinal(t, evidence.final, func(final map[string]any) {
 			final["selected_folder"] = map[string]any{
 				"kind": wrong.Selection.Kind, "folder_id": wrong.Selection.FolderID,
@@ -1320,6 +1324,50 @@ func assertStructureFolderRecoveryRouteMutationsFail(
 			assertStructureFolderRecoveryFailures(t, spec, mutated, []string{
 				"accessibility_correct", "answer_correct", "hierarchy_correct",
 				"route_arguments", "selected_folder_correct",
+			})
+		}
+	})
+
+	t.Run("argument-divergences-refused", func(t *testing.T) {
+		for _, test := range []struct {
+			name   string
+			index  int
+			mutate func(map[string]any)
+		}{
+			{
+				name:  "rejected-selector-row-bound",
+				index: 0,
+				mutate: func(arguments map[string]any) {
+					arguments["max_rows"] = arguments["max_rows"].(float64) + 1
+				},
+			},
+			{
+				name:  "inventory-selector",
+				index: 1,
+				mutate: func(arguments map[string]any) {
+					arguments["folder_row"] = cohort.targetRow
+				},
+			},
+			{
+				name:  "subtree-forest-version",
+				index: 2,
+				mutate: func(arguments map[string]any) {
+					arguments["expected_forest_version"] =
+						arguments["expected_forest_version"].(float64) + 1
+				},
+			},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				admitted := evidence.invocations[test.index]
+				var arguments map[string]any
+				if err := json.Unmarshal(admitted.Arguments, &arguments); err != nil {
+					t.Fatal(err)
+				}
+				test.mutate(arguments)
+				divergent := mustMCPInvocation(t, admitted.Tool, arguments)
+				process := startStructureFolderRecoveryProcess(t, cohort, fixture,
+					[]MCPInvocation{admitted}, structureFolderRecoveryHonestRequestSequence())
+				assertStructureFolderRecoveryAdmissionRefused(t, process, divergent)
 			})
 		}
 	})
@@ -1352,17 +1400,41 @@ func assertStructureFolderRecoveryFixtureIsLoadBearing(
 		t.Fatalf("patched fixture is no longer a valid mock fixture: %v", err)
 	}
 
-	_, service := startStructureFolderRecoveryAppBackend(t, fixture)
-	snapshot, err := service.StructureSnapshot(context.Background(), cohort.structureID, app.StructureSnapshotOpts{
-		Attributes: structureFolderRecoveryFields, BatchSize: 100,
-		MaxRows: structureFolderRecoverySubtreeRows, MaxScanRows: structureFolderRecoveryScanRows,
-		StructureFolderSelector: structureFolderRecoverySelector(cohort.selectorKind, cohort.selectorValue),
-	})
+	invocation := evidence.invocations[0]
+	sequence := []string{
+		structureFolderRecoveryMetadataRoute,
+		structureFolderRecoveryForestRoute,
+		structureFolderRecoveryInventoryValuesRoute,
+		structureFolderRecoverySubtreeIssuesRoute,
+	}
+	wantMethods := map[string]int{"GET": 3, "POST": 1}
+	wantDuplicates := 0
+	if cohort.selectorKind == "folder_id" {
+		sequence = append(sequence, structureFolderRecoverySubtreeValuesRoute)
+		wantMethods["POST"]++
+		wantDuplicates++
+	}
+	process := startStructureFolderRecoveryProcess(t, cohort, fixture, []MCPInvocation{invocation}, sequence)
+	result := callStructureFolderRecoveryProcess(t, process, invocation)
+	if result.IsError {
+		t.Fatalf("the stored selector still failed once the fixture stopped being unresolvable: text_items=%d",
+			len(result.TextContent))
+	}
+	assertRepositoryMCPTextMatchesStructured(t, result)
+	snapshot, err := DecodeJiraStructureView(bytes.NewReader(result.StructuredContent))
 	if err != nil {
-		t.Fatalf("the stored selector still failed once the fixture stopped being unresolvable: %v", err)
+		t.Fatalf("decode resolved stored selector: %v", err)
 	}
 	if snapshot.Selection == nil || snapshot.Selection.RowID != evidence.cohort.targetRow {
 		t.Fatalf("patched fixture resolved to an unexpected selection: %+v", snapshot.Selection)
+	}
+	summary := process.Summary()
+	if !equalHTTPMethods(summary.HTTPMethods, wantMethods) ||
+		summary.UnexpectedRequests != 0 || summary.DuplicateRequests != wantDuplicates ||
+		!process.RequestSequenceComplete() || len(summary.CLIInvocations) != 0 ||
+		!equalHTTPMethods(summary.MCPInvocations, map[string]int{"jira_structure_view": 1}) {
+		t.Fatalf("resolved-selector process drifted: summary=%+v complete=%t",
+			summary, process.RequestSequenceComplete())
 	}
 
 	// With no rejected selector there is no recovery route: a single
