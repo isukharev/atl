@@ -79,11 +79,9 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 				"jira_board_pagination_benchmark_test.go",
 				"jira_history_benchmark_test.go",
 				"jira_meeting_tasks_workflow_benchmark_test.go",
-				"jira_paginated_search_benchmark_test.go",
 				"jira_portfolio_discovery_benchmark_test.go",
 				"jira_quarter_portfolio_benchmark_test.go",
 				"jira_reporting_workflows_benchmark_test.go",
-				"jira_search_zero_progress_benchmark_test.go",
 				"jira_spec_to_backlog_workflow_benchmark_test.go",
 				"jira_structure_folder_selection_recovery_benchmark_test.go",
 				"jira_triage_issue_workflow_benchmark_test.go",
@@ -99,11 +97,9 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 				"jira_board_pagination_benchmark_test.go",
 				"jira_history_benchmark_test.go",
 				"jira_meeting_tasks_workflow_benchmark_test.go",
-				"jira_paginated_search_benchmark_test.go",
 				"jira_portfolio_discovery_benchmark_test.go",
 				"jira_quarter_portfolio_benchmark_test.go",
 				"jira_reporting_workflows_benchmark_test.go",
-				"jira_search_zero_progress_benchmark_test.go",
 				"jira_spec_to_backlog_workflow_benchmark_test.go",
 				"jira_structure_folder_selection_recovery_benchmark_test.go",
 				"jira_triage_issue_workflow_benchmark_test.go",
@@ -150,8 +146,8 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 	if declarations, files, targets := dependencyLaneCounts(got.Production); declarations != 25 || files != 25 || targets != 1 {
 		t.Fatalf("production dependency counts=%d declarations/%d files/%d targets, want 25/25/1", declarations, files, targets)
 	}
-	if declarations, files, targets := dependencyLaneCounts(got.Tests); declarations != 49 || files != 21 || targets != 6 {
-		t.Fatalf("test dependency counts=%d declarations/%d files/%d targets, want 49/21/6", declarations, files, targets)
+	if declarations, files, targets := dependencyLaneCounts(got.Tests); declarations != 45 || files != 19 || targets != 6 {
+		t.Fatalf("test dependency counts=%d declarations/%d files/%d targets, want 45/19/6", declarations, files, targets)
 	}
 	if declarations, files, targets := dependencyLaneCounts(got.EntrypointProduction); declarations != 4 || files != 4 || targets != 1 {
 		t.Fatalf("entrypoint production dependency counts=%d declarations/%d files/%d targets, want 4/4/1", declarations, files, targets)
