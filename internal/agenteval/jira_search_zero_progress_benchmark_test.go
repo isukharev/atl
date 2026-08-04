@@ -908,32 +908,10 @@ func mutateJiraZeroProgressFinal(t *testing.T, final []byte, mutate func(map[str
 func TestRepositoryJiraSearchZeroProgressSamplingPairIdentity(t *testing.T) {
 	cohorts := jiraZeroProgressCohorts()
 	pair := loadRepositorySamplingPairContract(t, "jira-search-zero-progress-mcp")
+	if err := validateBenchmarkPair(jiraZeroProgressPairDescriptor(), pair); err != nil {
+		t.Fatal(err)
+	}
 	primaryRoot, holdoutRoot := pair.Primary.Root, pair.Holdout.Root
-
-	primarySchema, err := os.ReadFile(filepath.Join(primaryRoot, "response-schema.v1.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	holdoutSchema, err := os.ReadFile(filepath.Join(holdoutRoot, "response-schema.v1.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(primarySchema, holdoutSchema) {
-		t.Fatal("primary and holdout response schemas drifted")
-	}
-	for _, filename := range []string{"fixture.json", "prompt.mcp.v1.md", "rubric.v1.json"} {
-		primary, readErr := os.ReadFile(filepath.Join(primaryRoot, filename))
-		if readErr != nil {
-			t.Fatal(readErr)
-		}
-		holdout, readErr := os.ReadFile(filepath.Join(holdoutRoot, filename))
-		if readErr != nil {
-			t.Fatal(readErr)
-		}
-		if bytes.Equal(primary, holdout) {
-			t.Fatalf("holdout does not exercise distinct %s data", filename)
-		}
-	}
 
 	primaryFixture := loadRepositoryMockFixture(t, filepath.Join(primaryRoot, "fixture.json"))
 	holdoutFixture := loadRepositoryMockFixture(t, filepath.Join(holdoutRoot, "fixture.json"))
@@ -953,45 +931,22 @@ func TestRepositoryJiraSearchZeroProgressSamplingPairIdentity(t *testing.T) {
 		}
 	}
 
-	for _, test := range []struct {
-		runFile, provider, model string
-	}{
-		{runFile: "run.mcp.codex.json", provider: "codex", model: "gpt-5.6-luna"},
-		{runFile: "run.mcp.claude.json", provider: "claude-code", model: "claude-opus-4-8"},
-	} {
-		t.Run(test.provider, func(t *testing.T) {
-			primary, holdout := pair.Primary.Runs[test.runFile], pair.Holdout.Runs[test.runFile]
-			if primary.Provider != test.provider || primary.Model != test.model ||
-				primary.Reasoning != "high" ||
-				holdout.Provider != test.provider || holdout.Model != test.model ||
-				holdout.Reasoning != "high" {
-				t.Fatalf("exact cohort contract drifted: primary=%+v holdout=%+v", primary, holdout)
-			}
-			if !slices.Equal(primary.AllowedMCPTools, holdout.AllowedMCPTools) ||
-				!slices.Equal(primary.DataCapabilities, holdout.DataCapabilities) {
-				t.Fatalf("primary/holdout execution identity drifted: primary=%+v holdout=%+v", primary, holdout)
-			}
-			if equalPrivateComparisonJSON(primary.Checks, holdout.Checks) {
-				t.Fatal("holdout oracles are not bound to distinct evidence")
-			}
-		})
+	for _, provider := range benchmarkPairProviders {
+		if equalPrivateComparisonJSON(
+			pair.Primary.Runs[provider.runFile].Checks,
+			pair.Holdout.Runs[provider.runFile].Checks,
+		) {
+			t.Fatalf("%s holdout oracles are not bound to distinct evidence", provider.provider)
+		}
 	}
+}
 
-	// The two provider run specs of one cohort may differ only in provider,
-	// model, and pricing metadata.
-	for _, root := range []string{primaryRoot, holdoutRoot} {
-		codex := loadRepositoryRunSpec(t, filepath.Join(root, "run.mcp.codex.json"))
-		claude := loadRepositoryRunSpec(t, filepath.Join(root, "run.mcp.claude.json"))
-		if codex.Provider == claude.Provider || codex.Model == claude.Model ||
-			equalPrivateComparisonJSON(codex.Pricing, claude.Pricing) {
-			t.Fatalf("%s provider pair is not distinct: codex=%+v claude=%+v", root, codex, claude)
-		}
-		codex.Provider, claude.Provider = "", ""
-		codex.Model, claude.Model = "", ""
-		codex.Pricing, claude.Pricing = Pricing{}, Pricing{}
-		if !equalPrivateComparisonJSON(codex, claude) {
-			t.Fatalf("%s provider pair differs beyond provider/model/pricing metadata", root)
-		}
+func jiraZeroProgressPairDescriptor() benchmarkPairDescriptor {
+	return benchmarkPairDescriptor{
+		primaryName:           "jira-search-zero-progress-mcp",
+		responseSchema:        "response-schema.v1.json",
+		distinctArtifacts:     []string{"fixture.json", "prompt.mcp.v1.md", "rubric.v1.json"},
+		workspaceRelationship: benchmarkWorkspaceDistinctTrees,
 	}
 }
 

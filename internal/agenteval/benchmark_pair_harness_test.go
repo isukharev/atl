@@ -208,6 +208,27 @@ func validateMigratedBenchmarkPairDescriptor(descriptor benchmarkPairDescriptor)
 			distinctArtifacts:     []string{"fixture.json", "prompt.mcp.v1.md", "rubric.v1.json", "scenario.v1.json"},
 			workspaceRelationship: benchmarkWorkspaceSameNeutralTree,
 		}
+	case "jira-structure-folder-selection-recovery-mcp":
+		want = benchmarkPairDescriptor{
+			primaryName:           "jira-structure-folder-selection-recovery-mcp",
+			responseSchema:        "response-schema.v1.json",
+			distinctArtifacts:     []string{"fixture.json", "prompt.mcp.v1.md", "rubric.v1.json"},
+			workspaceRelationship: benchmarkWorkspaceDistinctTrees,
+		}
+	case "jira-snapshot-reconciliation-mcp":
+		want = benchmarkPairDescriptor{
+			primaryName:           "jira-snapshot-reconciliation-mcp",
+			responseSchema:        "response-schema.v1.json",
+			distinctArtifacts:     []string{"fixture.json", "prompt.mcp.v1.md", "rubric.v1.json"},
+			workspaceRelationship: benchmarkWorkspaceDistinctTrees,
+		}
+	case "jira-search-zero-progress-mcp":
+		want = benchmarkPairDescriptor{
+			primaryName:           "jira-search-zero-progress-mcp",
+			responseSchema:        "response-schema.v1.json",
+			distinctArtifacts:     []string{"fixture.json", "prompt.mcp.v1.md", "rubric.v1.json"},
+			workspaceRelationship: benchmarkWorkspaceDistinctTrees,
+		}
 	default:
 		return fmt.Errorf("benchmark pair %q descriptor is not registered", descriptor.primaryName)
 	}
@@ -301,6 +322,9 @@ func TestBenchmarkPairHarnessAcceptsExplicitWorkspaceRelationships(t *testing.T)
 		confluenceAttachmentEvidencePairDescriptor(),
 		confluenceSectionVersionBoundPairDescriptor(),
 		confluenceSectionBoundRecoveryPairDescriptor(),
+		structureFolderRecoveryPairDescriptor(),
+		jiraSnapshotReconciliationPairDescriptor(),
+		jiraZeroProgressPairDescriptor(),
 	} {
 		t.Run(descriptor.primaryName, func(t *testing.T) {
 			pair := syntheticBenchmarkPair(t, descriptor)
@@ -525,6 +549,9 @@ func TestBenchmarkPairHarnessRejectsMigratedDescriptorWeakening(t *testing.T) {
 		confluenceAttachmentEvidencePairDescriptor(),
 		confluenceSectionVersionBoundPairDescriptor(),
 		confluenceSectionBoundRecoveryPairDescriptor(),
+		structureFolderRecoveryPairDescriptor(),
+		jiraSnapshotReconciliationPairDescriptor(),
+		jiraZeroProgressPairDescriptor(),
 	} {
 		for index, artifact := range descriptor.distinctArtifacts {
 			t.Run(descriptor.primaryName+"/remove-"+artifact, func(t *testing.T) {

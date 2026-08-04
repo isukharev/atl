@@ -1445,11 +1445,16 @@ func jiraSnapshotReconciliationMutateFinal(
 
 func TestJiraSnapshotReconciliationHoldoutIsDistinct(t *testing.T) {
 	cohorts := jiraSnapshotReconciliationCohorts()
-	primaryRoot := jiraSnapshotReconciliationRoot(cohorts[0])
-	holdoutRoot := jiraSnapshotReconciliationRoot(cohorts[1])
-
-	primaryScenario := loadRepositoryScenario(t, filepath.Join(primaryRoot, "scenario.v1.json"))
-	holdoutScenario := loadRepositoryScenario(t, filepath.Join(holdoutRoot, "scenario.v1.json"))
+	pair := loadRepositorySamplingPairContract(t, "jira-snapshot-reconciliation-mcp")
+	if err := validateBenchmarkPair(jiraSnapshotReconciliationPairDescriptor(), pair); err != nil {
+		t.Fatal(err)
+	}
+	if cohorts[0].repetitions != pair.Primary.Runs[benchmarkPairProviders[0].runFile].Repetitions ||
+		cohorts[1].repetitions != pair.Holdout.Runs[benchmarkPairProviders[0].runFile].Repetitions {
+		t.Fatalf("cohort repetitions drifted from the run contract: primary=%d holdout=%d",
+			cohorts[0].repetitions, cohorts[1].repetitions)
+	}
+	primaryScenario, holdoutScenario := pair.Primary.Scenario, pair.Holdout.Scenario
 	if primaryScenario.ID == holdoutScenario.ID ||
 		primaryScenario.EffectiveCategory() != holdoutScenario.EffectiveCategory() ||
 		primaryScenario.TaskClass != holdoutScenario.TaskClass ||
@@ -1460,24 +1465,6 @@ func TestJiraSnapshotReconciliationHoldoutIsDistinct(t *testing.T) {
 		!equalPrivateComparisonJSON(primaryScenario.Budgets, holdoutScenario.Budgets) {
 		t.Fatalf("primary/holdout scenarios are not distinct-compatible: primary=%+v holdout=%+v",
 			primaryScenario, holdoutScenario)
-	}
-
-	primarySchema := mustReadFile(t, filepath.Join(primaryRoot, "response-schema.v1.json"))
-	holdoutSchema := mustReadFile(t, filepath.Join(holdoutRoot, "response-schema.v1.json"))
-	if !bytes.Equal(primarySchema, holdoutSchema) {
-		t.Fatal("the shared response schema is no longer byte-identical across the cohorts")
-	}
-	for _, filename := range []string{"fixture.json", "prompt.mcp.v1.md", "rubric.v1.json"} {
-		if bytes.Equal(
-			mustReadFile(t, filepath.Join(primaryRoot, filename)),
-			mustReadFile(t, filepath.Join(holdoutRoot, filename)),
-		) {
-			t.Fatalf("holdout does not exercise distinct %s data", filename)
-		}
-	}
-	if repositoryTreeDigest(t, filepath.Join(primaryRoot, "workspace")) ==
-		repositoryTreeDigest(t, filepath.Join(holdoutRoot, "workspace")) {
-		t.Fatal("holdout reused the primary workspace tree")
 	}
 
 	primary := jiraSnapshotReconciliationIdentity(t, cohorts[0])
@@ -1491,57 +1478,22 @@ func TestJiraSnapshotReconciliationHoldoutIsDistinct(t *testing.T) {
 		t.Fatal("identity detector does not flag a cloned cohort")
 	}
 
-	for _, test := range []struct {
-		runFile, provider, model string
-	}{
-		{runFile: "run.mcp.codex.json", provider: "codex", model: "gpt-5.6-luna"},
-		{runFile: "run.mcp.claude.json", provider: "claude-code", model: "claude-opus-4-8"},
-	} {
-		t.Run(test.provider, func(t *testing.T) {
-			primarySpec := loadRepositoryRunSpec(t, filepath.Join(primaryRoot, test.runFile))
-			holdoutSpec := loadRepositoryRunSpec(t, filepath.Join(holdoutRoot, test.runFile))
-			if primarySpec.Provider != test.provider || primarySpec.Model != test.model ||
-				primarySpec.Reasoning != "high" || primarySpec.Repetitions != cohorts[0].repetitions ||
-				holdoutSpec.Provider != test.provider || holdoutSpec.Model != test.model ||
-				holdoutSpec.Reasoning != "high" || holdoutSpec.Repetitions != cohorts[1].repetitions {
-				t.Fatalf("exact cohort contract drifted: primary=%+v holdout=%+v", primarySpec, holdoutSpec)
-			}
-			if primarySpec.Variant != holdoutSpec.Variant ||
-				primarySpec.EffectiveCategory() != holdoutSpec.EffectiveCategory() ||
-				primarySpec.EffectiveSurface() != holdoutSpec.EffectiveSurface() ||
-				primarySpec.EffectiveToolTransport() != holdoutSpec.EffectiveToolTransport() ||
-				!slices.Equal(primarySpec.AllowedMCPTools, holdoutSpec.AllowedMCPTools) {
-				t.Fatalf("primary/holdout execution identity drifted: primary=%+v holdout=%+v",
-					primarySpec, holdoutSpec)
-			}
-			if equalPrivateComparisonJSON(primarySpec.Checks, holdoutSpec.Checks) {
-				t.Fatal("holdout oracles are not bound to distinct evidence")
-			}
-		})
+	for _, provider := range benchmarkPairProviders {
+		if equalPrivateComparisonJSON(
+			pair.Primary.Runs[provider.runFile].Checks,
+			pair.Holdout.Runs[provider.runFile].Checks,
+		) {
+			t.Fatalf("%s holdout oracles are not bound to distinct evidence", provider.provider)
+		}
 	}
+}
 
-	// Within one cohort the two provider run specs may differ only in
-	// provider, model, and pricing metadata; drifting any other field must be
-	// caught.
-	for _, root := range []string{primaryRoot, holdoutRoot} {
-		codex := loadRepositoryRunSpec(t, filepath.Join(root, "run.mcp.codex.json"))
-		claude := loadRepositoryRunSpec(t, filepath.Join(root, "run.mcp.claude.json"))
-		if codex.Provider == claude.Provider || codex.Model == claude.Model ||
-			equalPrivateComparisonJSON(codex.Pricing, claude.Pricing) {
-			t.Fatalf("%s provider pair is not distinct: codex=%+v claude=%+v", root, codex, claude)
-		}
-		neutral := func(spec RunSpec) RunSpec {
-			spec.Provider, spec.Model, spec.Pricing = "", "", Pricing{}
-			return spec
-		}
-		if !equalPrivateComparisonJSON(neutral(codex), neutral(claude)) {
-			t.Fatalf("%s provider pair differs beyond provider/model/pricing metadata", root)
-		}
-		drifted := claude
-		drifted.Reasoning = "medium"
-		if equalPrivateComparisonJSON(neutral(codex), neutral(drifted)) {
-			t.Fatalf("%s provider parity check does not detect reasoning drift", root)
-		}
+func jiraSnapshotReconciliationPairDescriptor() benchmarkPairDescriptor {
+	return benchmarkPairDescriptor{
+		primaryName:           "jira-snapshot-reconciliation-mcp",
+		responseSchema:        "response-schema.v1.json",
+		distinctArtifacts:     []string{"fixture.json", "prompt.mcp.v1.md", "rubric.v1.json"},
+		workspaceRelationship: benchmarkWorkspaceDistinctTrees,
 	}
 }
 
