@@ -1,28 +1,151 @@
 package agenteval
 
 import (
+	"bytes"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"net/http"
+	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/isukharev/atl/internal/diagnostic"
-	"github.com/isukharev/atl/internal/domain"
-	"github.com/isukharev/atl/internal/httpx"
 )
 
+const cliErrorWireFixturePath = "testdata/cli-error-wire.v1.json"
+
+type cliErrorWireFixture struct {
+	SchemaVersion int                         `json:"schema_version"`
+	Contracts     []CLIErrorContract          `json:"contracts"`
+	Recovery      cliErrorRecoveryWireFixture `json:"recovery"`
+}
+
+type cliErrorRecoveryWireFixture struct {
+	SchemaVersion    int                  `json:"schema_version"`
+	Members          []cliErrorWireMember `json:"members"`
+	Actions          []string             `json:"actions"`
+	NextCapabilities []string             `json:"next_capabilities"`
+	ValidVectors     []json.RawMessage    `json:"valid_vectors"`
+	InvalidVectors   []json.RawMessage    `json:"invalid_vectors"`
+}
+
+type cliErrorWireMember struct {
+	Name     string `json:"name"`
+	Required bool   `json:"required"`
+}
+
+func TestCLIErrorContractVocabularyMatchesVersionedWireFixture(t *testing.T) {
+	data, err := os.ReadFile(cliErrorWireFixturePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var fixture cliErrorWireFixture
+	if err := decoder.Decode(&fixture); err != nil {
+		t.Fatal(err)
+	}
+	if decoder.Decode(new(any)) != io.EOF {
+		t.Fatal("CLI error wire fixture contains trailing JSON")
+	}
+	if fixture.SchemaVersion != 1 {
+		t.Fatalf("CLI error wire fixture schema=%d, want 1", fixture.SchemaVersion)
+	}
+	if got := KnownCLIErrorContracts(); !slices.Equal(got, fixture.Contracts) {
+		t.Fatalf("evaluator vocabulary=%v, versioned wire fixture=%v", got, fixture.Contracts)
+	}
+	assertEvaluatorRecoveryWireFixture(t, fixture.Recovery)
+}
+
+func assertEvaluatorRecoveryWireFixture(t *testing.T, fixture cliErrorRecoveryWireFixture) {
+	t.Helper()
+	if fixture.SchemaVersion != 1 {
+		t.Fatalf("recovery wire fixture schema=%d, want 1", fixture.SchemaVersion)
+	}
+	if got := cliErrorJSONMembers(reflect.TypeFor[cliErrorRecovery]()); !slices.Equal(got, fixture.Members) {
+		t.Fatalf("evaluator recovery members=%v, versioned wire fixture=%v", got, fixture.Members)
+	}
+	actions := cliErrorTypedStringConstants(t, "cli_error_recovery.go", "cliErrorRecoveryAction")
+	if !slices.Equal(actions, fixture.Actions) {
+		t.Fatalf("evaluator recovery actions=%v, versioned wire fixture=%v", actions, fixture.Actions)
+	}
+	capabilities := cliErrorTypedStringConstants(t, "cli_error_recovery.go", "cliErrorNextCapability")
+	if !slices.Equal(capabilities, fixture.NextCapabilities) {
+		t.Fatalf("evaluator recovery capabilities=%v, versioned wire fixture=%v", capabilities, fixture.NextCapabilities)
+	}
+	if len(fixture.ValidVectors) != 27 || len(fixture.InvalidVectors) != 30 {
+		t.Fatalf("recovery semantic vectors=%d valid/%d invalid, want 27/30", len(fixture.ValidVectors), len(fixture.InvalidVectors))
+	}
+	for index, raw := range fixture.ValidVectors {
+		if !validCLIErrorRecoveryJSON(raw) {
+			t.Fatalf("evaluator rejected valid recovery vector %d: %s", index, raw)
+		}
+	}
+	for index, raw := range fixture.InvalidVectors {
+		if validCLIErrorRecoveryJSON(raw) {
+			t.Fatalf("evaluator accepted invalid recovery vector %d: %s", index, raw)
+		}
+	}
+}
+
+func cliErrorJSONMembers(typ reflect.Type) []cliErrorWireMember {
+	members := make([]cliErrorWireMember, 0, typ.NumField())
+	for index := range typ.NumField() {
+		tag := typ.Field(index).Tag.Get("json")
+		parts := strings.Split(tag, ",")
+		members = append(members, cliErrorWireMember{Name: parts[0], Required: !slices.Contains(parts[1:], "omitempty")})
+	}
+	sort.Slice(members, func(left, right int) bool { return members[left].Name < members[right].Name })
+	return members
+}
+
+func cliErrorTypedStringConstants(t *testing.T, file, typeName string) []string {
+	t.Helper()
+	source, err := os.ReadFile(filepath.Clean(file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := parser.ParseFile(token.NewFileSet(), file, source, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var values []string
+	for _, declaration := range parsed.Decls {
+		general, ok := declaration.(*ast.GenDecl)
+		if !ok || general.Tok != token.CONST {
+			continue
+		}
+		for _, specification := range general.Specs {
+			valueSpec := specification.(*ast.ValueSpec)
+			identifier, ok := valueSpec.Type.(*ast.Ident)
+			if !ok || identifier.Name != typeName || len(valueSpec.Values) != len(valueSpec.Names) {
+				continue
+			}
+			for _, expression := range valueSpec.Values {
+				literal, ok := expression.(*ast.BasicLit)
+				if !ok || literal.Kind != token.STRING {
+					t.Fatalf("%s constant has a non-literal value", typeName)
+				}
+				value, err := strconv.Unquote(literal.Value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				values = append(values, value)
+			}
+		}
+	}
+	sort.Strings(values)
+	return values
+}
+
 func TestParseCLIErrorContractAdmitsOnlyTypedFailedCLIErrors(t *testing.T) {
-	typed := `{"error":"page not found: private-page-title","code":4,"kind":"not_found","remediation":"verify_identifier_or_access"}`
-	typedWithRecovery := `{"error":"page not found: private-page-title","code":4,"kind":"not_found","remediation":"verify_identifier_or_access","recovery":{"schema_version":1,"action":"adjust_request","retry_safe":false}}`
+	legacyPreRecovery := `{"error":"page not found: private-page-title","code":4,"kind":"not_found","remediation":"verify_identifier_or_access"}`
+	releasedV060AndCurrent := `{"error":"page not found: private-page-title","code":4,"kind":"not_found","remediation":"verify_identifier_or_access","recovery":{"schema_version":1,"action":"adjust_request","retry_safe":false}}`
 	policy := `{"error":"blocked by read-only policy","code":8,"kind":"read_only_policy","remediation":"request_human_approval","policy":"read_only","command":"atl jira push"}`
 	tests := []struct {
 		name     string
@@ -32,25 +155,29 @@ func TestParseCLIErrorContractAdmitsOnlyTypedFailedCLIErrors(t *testing.T) {
 	}{
 		{
 			name: "typed failure after unrelated stderr", exitCode: 4,
-			stderr: "warning: mirror view not regenerated\n" + typed + "\n",
+			stderr: "warning: mirror view not regenerated\n" + releasedV060AndCurrent + "\n",
 			want:   CLIErrorContract{ExitCode: 4, Kind: "not_found", Remediation: "verify_identifier_or_access"},
 		},
 		{
-			name: "typed failure with validated recovery", exitCode: 4, stderr: typedWithRecovery,
+			name: "pre-recovery backward compatibility", exitCode: 4, stderr: legacyPreRecovery,
+			want: CLIErrorContract{ExitCode: 4, Kind: "not_found", Remediation: "verify_identifier_or_access"},
+		},
+		{
+			name: "v0.6.0 and current typed failure with validated recovery", exitCode: 4, stderr: releasedV060AndCurrent,
 			want: CLIErrorContract{ExitCode: 4, Kind: "not_found", Remediation: "verify_identifier_or_access"},
 		},
 		{
 			name: "read-only policy refusal", exitCode: 8, stderr: policy,
 			want: CLIErrorContract{ExitCode: 8, Kind: "read_only_policy", Remediation: "request_human_approval"},
 		},
-		{name: "successful invocation", exitCode: 0, stderr: typed},
+		{name: "successful invocation", exitCode: 0, stderr: releasedV060AndCurrent},
 		{name: "empty capture", exitCode: 4, stderr: ""},
 		{name: "blank capture", exitCode: 4, stderr: "\n \n\t\n"},
 		{name: "text output", exitCode: 4, stderr: "error: page not found: private-page-title\n"},
-		{name: "truncated object", exitCode: 4, stderr: typed[:len(typed)-12]},
-		{name: "trailing data", exitCode: 4, stderr: typed + " {}"},
+		{name: "truncated object", exitCode: 4, stderr: releasedV060AndCurrent[:len(releasedV060AndCurrent)-12]},
+		{name: "trailing data", exitCode: 4, stderr: releasedV060AndCurrent + " {}"},
 		{name: "not an object", exitCode: 4, stderr: "[4]"},
-		{name: "code disagrees with audited exit", exitCode: 5, stderr: typed},
+		{name: "code disagrees with audited exit", exitCode: 5, stderr: releasedV060AndCurrent},
 		{
 			name: "unknown kind", exitCode: 4,
 			stderr: `{"error":"x","code":4,"kind":"backend_said_no","remediation":"verify_identifier_or_access"}`,
@@ -82,12 +209,16 @@ func TestParseCLIErrorContractAdmitsOnlyTypedFailedCLIErrors(t *testing.T) {
 			stderr: `{"error":"x","code":4,"kind":"not_found","remediation":"verify_identifier_or_access","recovery":{"schema_version":1,"action":"adjust_request","retry_safe":true}}`,
 		},
 		{
+			name: "missing required recovery retry safety", exitCode: 4,
+			stderr: `{"error":"x","code":4,"kind":"not_found","remediation":"verify_identifier_or_access","recovery":{"schema_version":1,"action":"adjust_request"}}`,
+		},
+		{
 			name: "policy member without its kind", exitCode: 4,
 			stderr: `{"error":"x","code":4,"kind":"not_found","remediation":"verify_identifier_or_access","policy":"read_only","command":"atl jira push"}`,
 		},
 		{
 			name: "oversized capture", exitCode: 4,
-			stderr: strings.Repeat("x\n", maxCLIErrorContractStderrBytes) + typed,
+			stderr: strings.Repeat("x\n", maxCLIErrorContractStderrBytes) + releasedV060AndCurrent,
 		},
 		{
 			name: "oversized line", exitCode: 4,
@@ -144,283 +275,6 @@ func TestValidateCLIErrorContractBoundsExitCodes(t *testing.T) {
 			t.Fatalf("valid contract rejected: %+v", contract)
 		}
 	}
-}
-
-// The benchmark vocabulary is a reviewed copy of the CLI's own classification.
-// This proves it stays closed and in step with what the CLI can emit, so a new
-// CLI kind cannot silently widen a published contract and an existing one
-// cannot drift out of the table.
-func TestCLIErrorContractVocabularyMatchesCLIClassification(t *testing.T) {
-	examples := []struct {
-		err      error
-		exitCode int
-	}{
-		{fmt.Errorf("%w: x", domain.ErrAuth), 3},
-		{fmt.Errorf("%w: x", domain.ErrNotFound), 4},
-		{fmt.Errorf("%w: x", domain.ErrVersionConflict), 5},
-		{fmt.Errorf("%w: x", domain.ErrForbidden), 6},
-		{fmt.Errorf("%w: x", domain.ErrConfig), 7},
-		{fmt.Errorf("%w: x", domain.ErrOutputLimit), 1},
-		{fmt.Errorf("%w: %w", domain.ErrCheckFailed, domain.ErrOutputLimit), 8},
-		{fmt.Errorf("%w: x", domain.ErrCheckFailed), 8},
-		{fmt.Errorf("%w: x", domain.ErrUsage), 2},
-		{fmt.Errorf("x: %w", &httpx.TransportError{}), 1},
-		{fmt.Errorf("x: %w", &httpx.APIError{Status: http.StatusTooManyRequests}), 1},
-		{fmt.Errorf("x: %w", &httpx.APIError{Status: http.StatusServiceUnavailable}), 1},
-		{errors.New("x"), 1},
-	}
-	covered := map[string]struct{}{}
-	for _, example := range examples {
-		kind, remediation := diagnostic.Classify(example.err)
-		known, exists := cliErrorContractVocabulary[kind]
-		if !exists || known.remediation != remediation {
-			t.Fatalf("CLI classification %q/%q is not in the benchmark vocabulary", kind, remediation)
-		}
-		if _, ok := ValidateCLIErrorContract(example.exitCode, kind, remediation); !ok {
-			t.Fatalf("reachable CLI contract %d/%q/%q is not in the benchmark vocabulary", example.exitCode, kind, remediation)
-		}
-		covered[kind] = struct{}{}
-	}
-	// The two CLI-local policy classifications never reach diagnostic.Classify.
-	for kind, remediation := range map[string]string{
-		"internal_error": "report_bug", "read_only_policy": "request_human_approval",
-	} {
-		if cliErrorContractVocabulary[kind].remediation != remediation {
-			t.Fatalf("CLI-local classification %q/%q is not in the benchmark vocabulary", kind, remediation)
-		}
-		if _, ok := ValidateCLIErrorContract(8, kind, remediation); !ok {
-			t.Fatalf("reachable CLI-local contract 8/%q/%q is not in the benchmark vocabulary", kind, remediation)
-		}
-		covered[kind] = struct{}{}
-	}
-	if len(covered) != len(cliErrorContractVocabulary) {
-		t.Fatalf("vocabulary holds %d pairs, %d are reachable from the CLI", len(cliErrorContractVocabulary), len(covered))
-	}
-}
-
-// Runtime examples above bind every current triplet, while this source-level
-// census closes the other drift direction: adding a literal classification to
-// diagnostic.Classify or classifyError without adding it to the harness fails
-// even when nobody remembered to add a matching example.
-func TestCLIErrorContractVocabularyCoversEverySourceClassification(t *testing.T) {
-	sourcePairs := returnedStringPairs(t, filepath.Join("..", "diagnostic", "error.go"), "Classify")
-	localPairs := returnedStringPairs(t, filepath.Join("..", "cli", "root.go"), "classifyError")
-	for kind, remediation := range localPairs {
-		if previous, exists := sourcePairs[kind]; exists && previous != remediation {
-			t.Fatalf("source classification %q has two remediations: %q and %q", kind, previous, remediation)
-		}
-		sourcePairs[kind] = remediation
-	}
-	if len(sourcePairs) != len(cliErrorContractVocabulary) {
-		t.Fatalf("source has %d classifications, harness has %d", len(sourcePairs), len(cliErrorContractVocabulary))
-	}
-	for kind, remediation := range sourcePairs {
-		known, exists := cliErrorContractVocabulary[kind]
-		if !exists || known.remediation != remediation {
-			t.Fatalf("source classification %q/%q is absent or different in the harness", kind, remediation)
-		}
-	}
-}
-
-func returnedStringPairs(t *testing.T, file, function string) map[string]string {
-	t.Helper()
-	parsed := parseGoFile(t, file)
-	pairs := map[string]string{}
-	for _, declaration := range parsed.Decls {
-		functionDeclaration, ok := declaration.(*ast.FuncDecl)
-		if !ok || functionDeclaration.Name.Name != function {
-			continue
-		}
-		ast.Inspect(functionDeclaration.Body, func(node ast.Node) bool {
-			statement, ok := node.(*ast.ReturnStmt)
-			if !ok {
-				return true
-			}
-			if len(statement.Results) == 1 && function == "classifyError" && isDiagnosticClassifyDelegation(statement.Results[0]) {
-				return true
-			}
-			if len(statement.Results) != 2 {
-				t.Fatalf("%s.%s contains an unexpected %d-result return", file, function, len(statement.Results))
-			}
-			kind, kindOK := stringLiteral(statement.Results[0])
-			remediation, remediationOK := stringLiteral(statement.Results[1])
-			if !kindOK || !remediationOK {
-				t.Fatalf("%s.%s contains a non-literal two-result return", file, function)
-			}
-			pairs[kind] = remediation
-			return true
-		})
-		return pairs
-	}
-	t.Fatalf("function %s not found in %s", function, file)
-	return nil
-}
-
-func isDiagnosticClassifyDelegation(expression ast.Expr) bool {
-	call, ok := expression.(*ast.CallExpr)
-	if !ok || len(call.Args) != 1 {
-		return false
-	}
-	callee, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok || callee.Sel.Name != "Classify" {
-		return false
-	}
-	packageName, ok := callee.X.(*ast.Ident)
-	argument, argumentOK := call.Args[0].(*ast.Ident)
-	return ok && argumentOK && packageName.Name == "diagnostic" && argument.Name == "err"
-}
-
-// The vocabulary's numeric column is reviewed against the CLI's source of
-// truth. This exact, ordered census catches a new, reordered, or structurally
-// changed codeFor clause and a changed exit constant; the CLI package's runtime
-// matrix then joins those values to the harness vocabulary.
-func TestCLIErrorContractExitCodeSourceIsPinned(t *testing.T) {
-	file := filepath.Join("..", "cli", "root.go")
-	parsed := parseGoFile(t, file)
-	wantConstants := map[string]int{
-		"exitOK": 0, "exitGeneric": 1, "exitUsage": 2, "exitAuth": 3, "exitNotFound": 4,
-		"exitVersionConfl": 5, "exitForbidden": 6, "exitConfig": 7, "exitCheckFailed": 8,
-	}
-	gotConstants := integerConstants(parsed, wantConstants)
-	if !equalStringIntMaps(gotConstants, wantConstants) {
-		t.Fatalf("CLI exit constants=%v, want %v", gotConstants, wantConstants)
-	}
-	wantCases := []switchReturn{
-		{condition: "ErrAuth", result: "exitAuth"},
-		{condition: "ErrNotFound", result: "exitNotFound"},
-		{condition: "ErrVersionConflict", result: "exitVersionConfl"},
-		{condition: "ErrForbidden", result: "exitForbidden"},
-		{condition: "ErrConfig", result: "exitConfig"},
-		{condition: "ErrCheckFailed", result: "exitCheckFailed"},
-		{condition: "ErrUsage", result: "exitUsage"},
-		{condition: "default", result: "exitGeneric"},
-	}
-	gotCases := functionSwitchReturns(t, parsed, "codeFor")
-	if !slices.Equal(gotCases, wantCases) {
-		t.Fatalf("codeFor cases=%v, want %v", gotCases, wantCases)
-	}
-}
-
-func parseGoFile(t *testing.T, file string) *ast.File {
-	t.Helper()
-	source, err := os.ReadFile(filepath.Clean(file))
-	if err != nil {
-		t.Fatal(err)
-	}
-	parsed, err := parser.ParseFile(token.NewFileSet(), file, source, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return parsed
-}
-
-func stringLiteral(expression ast.Expr) (string, bool) {
-	literal, ok := expression.(*ast.BasicLit)
-	if !ok || literal.Kind != token.STRING {
-		return "", false
-	}
-	value, err := strconv.Unquote(literal.Value)
-	return value, err == nil
-}
-
-func integerConstants(parsed *ast.File, wanted map[string]int) map[string]int {
-	values := map[string]int{}
-	for _, declaration := range parsed.Decls {
-		general, ok := declaration.(*ast.GenDecl)
-		if !ok || general.Tok != token.CONST {
-			continue
-		}
-		for _, specification := range general.Specs {
-			valueSpec := specification.(*ast.ValueSpec)
-			for index, name := range valueSpec.Names {
-				if _, keep := wanted[name.Name]; !keep || index >= len(valueSpec.Values) {
-					continue
-				}
-				literal, ok := valueSpec.Values[index].(*ast.BasicLit)
-				if !ok || literal.Kind != token.INT {
-					continue
-				}
-				value, err := strconv.Atoi(literal.Value)
-				if err == nil {
-					values[name.Name] = value
-				}
-			}
-		}
-	}
-	return values
-}
-
-type switchReturn struct {
-	condition string
-	result    string
-}
-
-func functionSwitchReturns(t *testing.T, parsed *ast.File, function string) []switchReturn {
-	t.Helper()
-	for _, declaration := range parsed.Decls {
-		functionDeclaration, ok := declaration.(*ast.FuncDecl)
-		if !ok || functionDeclaration.Name.Name != function {
-			continue
-		}
-		if len(functionDeclaration.Body.List) != 1 {
-			t.Fatalf("%s must contain exactly one statement, got %d", function, len(functionDeclaration.Body.List))
-		}
-		statement, ok := functionDeclaration.Body.List[0].(*ast.SwitchStmt)
-		if !ok || statement.Tag != nil {
-			t.Fatalf("%s must consist of one expressionless switch", function)
-		}
-		var returns []switchReturn
-		for _, item := range statement.Body.List {
-			clause := item.(*ast.CaseClause)
-			key := "default"
-			switch len(clause.List) {
-			case 0:
-			case 1:
-				call, ok := clause.List[0].(*ast.CallExpr)
-				if !ok || len(call.Args) != 2 {
-					t.Fatalf("%s contains a non-errors.Is case", function)
-				}
-				callee, ok := call.Fun.(*ast.SelectorExpr)
-				if !ok || callee.Sel.Name != "Is" {
-					t.Fatalf("%s contains a non-errors.Is case", function)
-				}
-				selector, ok := call.Args[1].(*ast.SelectorExpr)
-				if !ok {
-					t.Fatalf("%s contains an errors.Is case without a selector sentinel", function)
-				}
-				key = selector.Sel.Name
-			default:
-				t.Fatalf("%s contains a multi-expression case", function)
-			}
-			if len(clause.Body) != 1 {
-				t.Fatalf("%s case %s has %d statements", function, key, len(clause.Body))
-			}
-			returnStatement, ok := clause.Body[0].(*ast.ReturnStmt)
-			if !ok || len(returnStatement.Results) != 1 {
-				t.Fatalf("%s case %s is not one direct return", function, key)
-			}
-			identifier, ok := returnStatement.Results[0].(*ast.Ident)
-			if !ok {
-				t.Fatalf("%s case %s does not return an exit identifier", function, key)
-			}
-			returns = append(returns, switchReturn{condition: key, result: identifier.Name})
-		}
-		return returns
-	}
-	t.Fatalf("function %s not found", function)
-	return nil
-}
-
-func equalStringIntMaps(left, right map[string]int) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for key, value := range left {
-		if right[key] != value {
-			return false
-		}
-	}
-	return true
 }
 
 func TestCLIErrorContractsEqualComparesExactOrderedContracts(t *testing.T) {
