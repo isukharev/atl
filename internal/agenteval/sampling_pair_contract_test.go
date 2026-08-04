@@ -69,25 +69,6 @@ func resolveRepositorySamplingPairContract(
 
 	primaryRoot := filepath.Join(root, primaryName)
 	holdoutRoot := primaryRoot + "-holdout"
-	primaryScenario, primaryRaw, err := readLatestScenarioContract(primaryRoot)
-	if err != nil {
-		return repositorySamplingPair{}, fmt.Errorf("primary scenario: %w", err)
-	}
-	holdoutScenario, holdoutRaw, err := readLatestScenarioContract(holdoutRoot)
-	if err != nil {
-		return repositorySamplingPair{}, fmt.Errorf("holdout scenario: %w", err)
-	}
-	if primaryScenario.ID == holdoutScenario.ID {
-		return repositorySamplingPair{}, fmt.Errorf("holdout reused the primary scenario id %q", primaryScenario.ID)
-	}
-	gotScenarioExceptions := differingJSONFields(primaryRaw, holdoutRaw, contract.PairIdentity.ScenarioFields)
-	wantScenarioExceptions := slices.Clone(pairContract.ScenarioExceptions)
-	sort.Strings(wantScenarioExceptions)
-	if !slices.Equal(gotScenarioExceptions, wantScenarioExceptions) {
-		return repositorySamplingPair{}, fmt.Errorf("scenario identity exceptions drifted: got=%v want=%v",
-			gotScenarioExceptions, wantScenarioExceptions)
-	}
-
 	primaryRuns, err := readRunContracts(primaryRoot, 3)
 	if err != nil {
 		return repositorySamplingPair{}, fmt.Errorf("primary runs: %w", err)
@@ -103,6 +84,28 @@ func resolveRepositorySamplingPairContract(
 	if !slices.Equal(primaryFiles, wantPrimaryFiles) || !slices.Equal(holdoutFiles, wantHoldoutFiles) {
 		return repositorySamplingPair{}, fmt.Errorf("run file set %q drifted: primary=%v want=%v holdout=%v want=%v",
 			pairContract.RunFileSet, primaryFiles, wantPrimaryFiles, holdoutFiles, wantHoldoutFiles)
+	}
+	scenarioFile, err := samplingPairScenarioFile(primaryRuns, holdoutRuns)
+	if err != nil {
+		return repositorySamplingPair{}, err
+	}
+	primaryScenario, primaryRaw, err := readScenarioContract(primaryRoot, scenarioFile)
+	if err != nil {
+		return repositorySamplingPair{}, fmt.Errorf("primary scenario: %w", err)
+	}
+	holdoutScenario, holdoutRaw, err := readScenarioContract(holdoutRoot, scenarioFile)
+	if err != nil {
+		return repositorySamplingPair{}, fmt.Errorf("holdout scenario: %w", err)
+	}
+	if primaryScenario.ID == holdoutScenario.ID {
+		return repositorySamplingPair{}, fmt.Errorf("holdout reused the primary scenario id %q", primaryScenario.ID)
+	}
+	gotScenarioExceptions := differingJSONFields(primaryRaw, holdoutRaw, contract.PairIdentity.ScenarioFields)
+	wantScenarioExceptions := slices.Clone(pairContract.ScenarioExceptions)
+	sort.Strings(wantScenarioExceptions)
+	if !slices.Equal(gotScenarioExceptions, wantScenarioExceptions) {
+		return repositorySamplingPair{}, fmt.Errorf("scenario identity exceptions drifted: got=%v want=%v",
+			gotScenarioExceptions, wantScenarioExceptions)
 	}
 	for _, name := range sortedMapKeys(primaryRuns) {
 		primary := primaryRuns[name]
@@ -136,15 +139,43 @@ func resolveRepositorySamplingPairContract(
 	}, nil
 }
 
-func readLatestScenarioContract(root string) (Scenario, map[string]json.RawMessage, error) {
-	paths, err := filepath.Glob(filepath.Join(root, "scenario.v*.json"))
-	if err != nil || len(paths) == 0 {
-		return Scenario{}, nil, fmt.Errorf("scenario inventory %s: paths=%v err=%v", filepath.Base(root), paths, err)
+func samplingPairScenarioFile(
+	primary, holdout map[string]repositoryRunContract,
+) (string, error) {
+	bound := ""
+	for _, item := range []struct {
+		cohort string
+		runs   map[string]repositoryRunContract
+	}{
+		{cohort: "primary", runs: primary},
+		{cohort: "holdout", runs: holdout},
+	} {
+		for _, name := range sortedMapKeys(item.runs) {
+			candidate := item.runs[name].Spec.ScenarioFile
+			if candidate == "" || filepath.Base(candidate) != candidate {
+				return "", fmt.Errorf("%s %s scenario file is missing or unsafe: %q", item.cohort, name, candidate)
+			}
+			if bound == "" {
+				bound = candidate
+				continue
+			}
+			if candidate != bound {
+				return "", fmt.Errorf("sampling pair run scenario files drifted: %s %s=%q want=%q",
+					item.cohort, name, candidate, bound)
+			}
+		}
 	}
-	sort.Strings(paths)
-	data, err := os.ReadFile(paths[len(paths)-1])
+	if bound == "" {
+		return "", fmt.Errorf("sampling pair run scenario file is missing")
+	}
+	return bound, nil
+}
+
+func readScenarioContract(root, name string) (Scenario, map[string]json.RawMessage, error) {
+	path := filepath.Join(root, name)
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return Scenario{}, nil, err
+		return Scenario{}, nil, fmt.Errorf("scenario inventory %s bound=%q: %w", filepath.Base(root), name, err)
 	}
 	scenario, err := DecodeScenario(bytes.NewReader(data))
 	if err != nil {
@@ -247,6 +278,14 @@ func TestRepositorySamplingPairContractRejectsMutations(t *testing.T) {
 			wantErr: `holdout reused the primary scenario id`,
 		},
 		{
+			name: "run scenario binding drift",
+			mutate: func(t *testing.T, _ *evaluatorBehaviorContract, root string) {
+				writeSamplingPairRunWithScenario(t, filepath.Join(root, "generic-pair-holdout"),
+					"run.mcp.codex.json", 1, "gpt-test-1", "scenario.v2.json")
+			},
+			wantErr: `sampling pair run scenario files drifted`,
+		},
+		{
 			name: "wrong run file set",
 			mutate: func(t *testing.T, _ *evaluatorBehaviorContract, root string) {
 				writeSamplingPairRun(t, filepath.Join(root, "generic-pair"), "run.mcp.extra.json", 3, "gpt-test-1")
@@ -322,6 +361,32 @@ func TestRepositorySamplingPairContractRejectsMutations(t *testing.T) {
 	}
 }
 
+func TestRepositorySamplingPairContractReadsExactRunBoundScenario(t *testing.T) {
+	root := t.TempDir()
+	contract := syntheticSamplingPairContract()
+	writeSyntheticSamplingPair(t, root, contract.PairIdentity.RunFileSets[0])
+	for _, item := range []struct {
+		root, id string
+	}{
+		{root: filepath.Join(root, "generic-pair"), id: "ignored.latest.primary"},
+		{root: filepath.Join(root, "generic-pair-holdout"), id: "ignored.latest.holdout"},
+	} {
+		scenario := validScenario()
+		scenario.ID = item.id
+		scenario.TaskClass = "jira/other-evidence"
+		writeSamplingPairJSON(t, filepath.Join(item.root, "scenario.v2.json"), scenario)
+	}
+
+	pair, err := resolveRepositorySamplingPairContract(contract, root, "generic-pair")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pair.Primary.Scenario.ID != "generic.primary" || pair.Holdout.Scenario.ID != "generic.holdout" {
+		t.Fatalf("pair selected an unbound retained scenario: primary=%q holdout=%q",
+			pair.Primary.Scenario.ID, pair.Holdout.Scenario.ID)
+	}
+}
+
 func TestRepositorySamplingPairContractPreservesLegacyAsymmetricRunSets(t *testing.T) {
 	root := t.TempDir()
 	contract := syntheticSamplingPairContract()
@@ -394,6 +459,15 @@ func writeSamplingPairScenario(t *testing.T, root, id, taskClass string) {
 }
 
 func writeSamplingPairRun(t *testing.T, root, name string, repetitions int, model string) {
+	writeSamplingPairRunWithScenario(t, root, name, repetitions, model, "scenario.v1.json")
+}
+
+func writeSamplingPairRunWithScenario(
+	t *testing.T,
+	root, name string,
+	repetitions int,
+	model, scenarioFile string,
+) {
 	t.Helper()
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
@@ -401,6 +475,7 @@ func writeSamplingPairRun(t *testing.T, root, name string, repetitions int, mode
 	spec := validRunSpec()
 	spec.Repetitions = repetitions
 	spec.Model = model
+	spec.ScenarioFile = scenarioFile
 	writeSamplingPairJSON(t, filepath.Join(root, name), spec)
 }
 
