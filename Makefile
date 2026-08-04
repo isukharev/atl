@@ -163,7 +163,8 @@ check-package-boundary:
 
 .PHONY: agent-eval-compat
 agent-eval-compat: check-skill-routing
-	go test ./internal/agenteval -run '^(TestRepositoryBenchmarkCorpusContract|TestRepositoryScenarioCapabilitiesMatchCatalog|TestCLIErrorContractVocabularyMatchesCLIClassification|TestCLIErrorContractVocabularyCoversEverySourceClassification)$$' -count=1
+	go test ./internal/agenteval -run '^(TestRepositoryBenchmarkCorpusContract|TestRepositoryScenarioCapabilitiesMatchCatalog|TestEvaluatorProductDependencyLedger|TestEvaluatorProductDependencyLedgerDetectsAliasAndOwnershipDrift|TestParseCLIErrorContractAdmitsOnlyTypedFailedCLIErrors|TestCLIErrorContractVocabularyMatchesVersionedWireFixture|TestCLIErrorRecoveryV1AcceptsOnlyDocumentedShapes)$$' -count=1
+	go test ./internal/cli -run '^TestCLIErrorWireProductContract$$' -count=1
 	go run ./scripts/agent-eval validate internal/cli/testdata/agent-eval/*.json benchmarks/agent-eval/*/scenario.v*.json >/dev/null
 	go run ./scripts/agent-eval validate-run benchmarks/agent-eval/*/run.*.json >/dev/null
 

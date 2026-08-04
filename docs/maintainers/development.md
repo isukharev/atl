@@ -138,3 +138,15 @@ targets only when the change and authority require them. Run a privacy scan over
 the complete public diff, excluding unrelated owner changes. Review the
 integrated diff once; add a bounded follow-up only after a material finding,
 design change, or security-boundary fix.
+
+The evaluator library's exact production/test product-private imports and the
+`scripts/agent-eval` entrypoint's exact dependency on that library are reviewed
+in `TestEvaluatorProductDependencyLedger`; additions, removals, and lane moves
+must update that ledger deliberately. No other product-private entrypoint
+dependency is permitted. `make agent-eval-compat` keeps
+the evaluator wire/parser side and the lightweight product CLI
+classification/exit-source side in the same required compatibility gate. Both
+sides must match the content-free versioned CLI error wire fixture; changing
+only the product or evaluator classification/recovery vocabulary, required
+member set, action catalog, or refresh-capability catalog is therefore a
+failing compatibility change.

@@ -254,9 +254,9 @@ func isReadOperation(operation OperationContext) bool {
 
 func intPointer(value int) *int { return &value }
 
-// ValidateRecovery enforces the complete closed v1 wire shape. Transport and
-// benchmark decoders call this after rejecting unknown JSON members, so one
-// reviewed vocabulary and invariant set governs every consumer.
+// ValidateRecovery enforces the complete closed v1 wire shape for product-side
+// producers and consumers. External consumers keep an independent validator
+// bound to the same versioned public wire contract.
 func ValidateRecovery(recovery Recovery) bool {
 	if recovery.SchemaVersion != RecoverySchemaVersion || !validRecoveryAction(recovery.Action) {
 		return false

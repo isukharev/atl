@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"io"
 	"sort"
-
-	"github.com/isukharev/atl/internal/diagnostic"
 )
 
 const (
@@ -53,9 +51,8 @@ type CLIErrorContract struct {
 }
 
 // KnownCLIErrorContracts returns the complete stable vocabulary as a sorted
-// copy. It lets the CLI's runtime contract test prove that every accepted
-// triplet is actually reachable, without exposing the mutable table or
-// restating its size.
+// copy. Compatibility tests bind it to the versioned wire fixture without
+// exposing the mutable table to evaluator callers.
 func KnownCLIErrorContracts() []CLIErrorContract {
 	contracts := make([]CLIErrorContract, 0, len(cliErrorContractVocabulary))
 	for kind, known := range cliErrorContractVocabulary {
@@ -138,12 +135,7 @@ func ParseCLIErrorContract(exitCode int, stderr []byte) (CLIErrorContract, bool)
 	// benchmark record. Admit legacy lines that lack it; whenever it is present,
 	// validate the entire closed object before discarding it.
 	if body.Recovery != nil {
-		recoveryDecoder := json.NewDecoder(bytes.NewReader(body.Recovery))
-		recoveryDecoder.DisallowUnknownFields()
-		var recovery diagnostic.Recovery
-		if bytes.Equal(bytes.TrimSpace(body.Recovery), []byte("null")) ||
-			recoveryDecoder.Decode(&recovery) != nil || recoveryDecoder.Decode(new(any)) != io.EOF ||
-			!diagnostic.ValidateRecovery(recovery) {
+		if !validCLIErrorRecoveryJSON(body.Recovery) {
 			return CLIErrorContract{}, false
 		}
 	}
