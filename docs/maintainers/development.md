@@ -167,6 +167,10 @@ whole-process-tree cleanup in that boundary. Compatibility oracles must inspect
 both structured MCP output and its user-visible text projection. Decode released
 JSON into evaluator-owned wire DTOs; do not instantiate product app or MCP
 implementation owners merely to remove an import from the dependency ledger.
+Committed route expectations may pre-admit a dynamic evidence workflow, but
+each follow-up invocation must still be derived from the selected binary's
+strictly decoded result; a mismatch is a pre-backend refusal, not a reason to
+relax the admission.
 
 The evaluator also owns a frozen, content-free schema-v1 projection of the
 released `atl capabilities` wire contract. It must not import product routing

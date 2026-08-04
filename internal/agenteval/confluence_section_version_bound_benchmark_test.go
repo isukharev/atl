@@ -2,23 +2,15 @@ package agenteval
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"io"
 	"maps"
 	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
-
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/isukharev/atl/internal/app"
 )
 
 // confluenceSectionVersionBoundCohort names one synthetic version-bound
@@ -27,10 +19,10 @@ import (
 // reported quantity — the observed page
 // version, the structural path that distinguishes the repeated heading, the
 // gate claim, completeness, the recorded position, and the observed transport
-// traffic — is read back from the real production `confluence_page_outline` and
-// `confluence_page_section` MCP surfaces driven against the retained mock
-// fixture; the final response is derived from those readings rather than from
-// the retained answer keys.
+// traffic — is read back from the selected repository binary's
+// `confluence_page_outline` and `confluence_page_section` MCP surfaces driven
+// against the retained mock fixture; the final response is derived from those
+// readings rather than from the retained answer keys.
 type confluenceSectionVersionBoundCohort struct {
 	directory  string
 	scenarioID string
@@ -152,25 +144,25 @@ type confluenceSectionVersionBoundStep struct {
 // the transport traffic the mock backend actually observed.
 type confluenceSectionVersionBoundEvidence struct {
 	cohort   confluenceSectionVersionBoundCohort
-	outline  *app.ConfluencePageOutlineResult
-	selected app.ConfluenceOutlineEntry
+	outline  *ConfluencePageOutlineView
+	selected ConfluenceOutlineEntryView
 	// section is the result of the first bounded section read, or nil when that
 	// read was refused. Later reads only amplify the route; they never become
 	// the evidence an honest answer stands on.
-	section     *app.ConfluencePageSectionResult
+	section     *ConfluencePageSectionView
 	sentVersion int
 	retried     bool
 	sectionErr  string
 
-	final       []byte
-	invocations []MCPInvocation
-	families    []CapabilityFamilyMetric
-	sequence    []string
-	methods     map[string]int
-	requests    []string
-	duplicates  int
-	unexpected  int
-	failed      int
+	final                   []byte
+	invocations             []MCPInvocation
+	families                []CapabilityFamilyMetric
+	sequence                []string
+	methods                 map[string]int
+	requestSequenceComplete bool
+	duplicates              int
+	unexpected              int
+	failed                  int
 }
 
 func TestConfluenceSectionVersionBoundFixturesDriveProviderOracles(t *testing.T) {
@@ -220,8 +212,8 @@ func TestConfluenceSectionVersionBoundFixturesDriveProviderOracles(t *testing.T)
 // bound to the exact version that outline reported.
 func confluenceSectionVersionBoundAuthorizedRoute(
 	cohort confluenceSectionVersionBoundCohort,
-) func(*app.ConfluencePageOutlineResult) []confluenceSectionVersionBoundStep {
-	return func(outline *app.ConfluencePageOutlineResult) []confluenceSectionVersionBoundStep {
+) func(*ConfluencePageOutlineView) []confluenceSectionVersionBoundStep {
+	return func(outline *ConfluencePageOutlineView) []confluenceSectionVersionBoundStep {
 		return []confluenceSectionVersionBoundStep{
 			{occurrence: cohort.occurrence, expectedVersion: outline.Version},
 		}
@@ -229,43 +221,59 @@ func confluenceSectionVersionBoundAuthorizedRoute(
 }
 
 // driveConfluenceSectionVersionBound walks the route against the real mock
-// backend through the production MCP server. plan reports the bounded section
-// reads to send once the outline has been observed.
+// backend through the exact selected repository binary. plan reports the
+// bounded section reads to send once the outline has been observed.
 func driveConfluenceSectionVersionBound(
 	t *testing.T,
 	cohort confluenceSectionVersionBoundCohort,
 	fixture MockFixture,
-	plan func(*app.ConfluencePageOutlineResult) []confluenceSectionVersionBoundStep,
+	plan func(*ConfluencePageOutlineView) []confluenceSectionVersionBoundStep,
 ) confluenceSectionVersionBoundEvidence {
 	t.Helper()
-	backend, trace, client := startConfluenceSectionVersionBoundBackend(t, fixture)
+	outlineInvocation := mustMCPInvocation(t, confluenceSectionVersionBoundOutline,
+		map[string]any{"reference": cohort.reference})
+	admittedSteps := plan(&ConfluencePageOutlineView{Version: cohort.outlineVersion})
+	admissions := make([]MCPInvocation, 0, 1+len(admittedSteps))
+	admissions = append(admissions, outlineInvocation)
+	for _, step := range admittedSteps {
+		admissions = append(admissions, confluenceSectionVersionBoundInvocation(t, cohort, step))
+	}
+	process := startRepositoryConfluenceEvidenceProcess(
+		t, confluenceSectionVersionBoundSequencedFixture(t, fixture, len(admissions)), admissions,
+	)
 	evidence := confluenceSectionVersionBoundEvidence{cohort: cohort}
 
 	// 1. The one authorized outline call, through the shipped typed tool rather
 	// than a test-side copy of it.
-	outlineInvocation := mustMCPInvocation(t, confluenceSectionVersionBoundOutline,
-		map[string]any{"reference": cohort.reference})
-	outline, _, ok := callConfluenceSectionVersionBoundOutline(t, client, outlineInvocation)
+	outlineResult, _, ok := callRepositoryConfluenceEvidence(t, process, outlineInvocation)
 	if !ok {
 		t.Fatal("the opening outline read must succeed")
 	}
-	evidence.outline = outline
+	outline, err := DecodeConfluencePageOutlineView(bytes.NewReader(outlineResult.StructuredContent))
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence.outline = &outline
 	evidence.invocations = append(evidence.invocations, outlineInvocation)
 	evidence.sequence = append(evidence.sequence, confluenceSectionVersionBoundOutlineF)
-	evidence.selected = confluenceSectionVersionBoundSelection(t, cohort, outline)
+	evidence.selected = confluenceSectionVersionBoundSelection(t, cohort, &outline)
 
 	// 2. The bounded section reads the plan asks for. Only the first one can
 	// become evidence; anything after it is an unauthorized retry.
-	for index, step := range plan(outline) {
+	for index, step := range plan(&outline) {
 		invocation := confluenceSectionVersionBoundInvocation(t, cohort, step)
-		section, message, sectionOK := callConfluenceSectionVersionBoundSection(t, client, invocation)
+		sectionResult, message, sectionOK := callRepositoryConfluenceEvidence(t, process, invocation)
 		evidence.invocations = append(evidence.invocations, invocation)
 		evidence.sequence = append(evidence.sequence, confluenceSectionVersionBoundSectionF)
 		if index == 0 {
 			evidence.sentVersion = step.expectedVersion
 			evidence.sectionErr = message
 			if sectionOK {
-				evidence.section = section
+				section, err := DecodeConfluencePageSectionView(bytes.NewReader(sectionResult.StructuredContent))
+				if err != nil {
+					t.Fatal(err)
+				}
+				evidence.section = &section
 			}
 		} else {
 			evidence.retried = true
@@ -275,11 +283,39 @@ func driveConfluenceSectionVersionBound(
 		}
 	}
 
-	evidence.methods, evidence.unexpected, evidence.duplicates = backend.Summary()
-	evidence.requests = trace.observed()
+	summary := process.Summary()
+	evidence.methods = summary.HTTPMethods
+	evidence.unexpected = summary.UnexpectedRequests
+	evidence.duplicates = summary.DuplicateRequests
+	evidence.requestSequenceComplete = process.RequestSequenceComplete()
 	evidence.final = confluenceSectionVersionBoundFinal(t, evidence)
 	evidence.families = confluenceSectionVersionBoundFamilies(evidence)
 	return evidence
+}
+
+func confluenceSectionVersionBoundSequencedFixture(
+	t *testing.T,
+	fixture MockFixture,
+	admissions int,
+) MockFixture {
+	t.Helper()
+	if len(fixture.Routes) != 1 || len(fixture.Routes[0].Responses) != 2 || admissions < 2 {
+		t.Fatalf("version-bound sequence requires one two-response route and two admissions")
+	}
+	sequenced := fixture
+	sequenced.Routes = slices.Clone(fixture.Routes)
+	sequenced.Routes[0].Name = "version_bound_page"
+	sequenced.Routes[0].QueryEquals = map[string]string{
+		"expand": "body.storage,version,space,ancestors,metadata.labels",
+	}
+	sequenced.RequestSequence = []string{
+		sequenced.Routes[0].Name,
+		sequenced.Routes[0].Name,
+	}
+	if err := sequenced.Validate(); err != nil {
+		t.Fatalf("version-bound fixture sequence is invalid: %v", err)
+	}
+	return sequenced
 }
 
 func confluenceSectionVersionBoundFamilies(
@@ -299,75 +335,6 @@ func confluenceSectionVersionBoundFamilies(
 	return families
 }
 
-// confluenceSectionVersionBoundTrace records the ordered backend requests the
-// driven route actually issued. The mock backend reports aggregate counts only,
-// so the recorder sits in front of it and keeps the order observable.
-type confluenceSectionVersionBoundTrace struct {
-	mu       sync.Mutex
-	requests []string
-}
-
-func (r *confluenceSectionVersionBoundTrace) record(method, path string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.requests = append(r.requests, method+" "+path)
-}
-
-func (r *confluenceSectionVersionBoundTrace) observed() []string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return slices.Clone(r.requests)
-}
-
-func startConfluenceSectionVersionBoundBackend(
-	t *testing.T,
-	fixture MockFixture,
-) (*MockBackend, *confluenceSectionVersionBoundTrace, *mcp.ClientSession) {
-	t.Helper()
-	backend, err := StartMockBackend(fixture)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(backend.Close)
-	environment := backend.Environment()
-	origin := strings.TrimSuffix(environment["ATL_CONFLUENCE_URL"], fixture.ConfluenceContext)
-
-	trace := &confluenceSectionVersionBoundTrace{}
-	recorder := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		trace.record(r.Method, r.URL.Path)
-		forwarded, err := http.NewRequestWithContext(r.Context(), r.Method, origin+r.URL.RequestURI(), r.Body)
-		if err != nil {
-			w.WriteHeader(http.StatusBadGateway)
-			return
-		}
-		forwarded.Header = r.Header.Clone()
-		response, err := http.DefaultClient.Do(forwarded)
-		if err != nil {
-			w.WriteHeader(http.StatusBadGateway)
-			return
-		}
-		defer func() { _ = response.Body.Close() }()
-		for name, values := range response.Header {
-			for _, value := range values {
-				w.Header().Add(name, value)
-			}
-		}
-		w.WriteHeader(response.StatusCode)
-		_, _ = io.Copy(w, response.Body)
-	}))
-	t.Cleanup(recorder.Close)
-
-	environment["ATL_CONFLUENCE_URL"] = recorder.URL + fixture.ConfluenceContext
-	environment["ATL_JIRA_URL"] = recorder.URL + fixture.JiraContext
-	for name, value := range environment {
-		t.Setenv(name, value)
-	}
-	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
-	t.Setenv("ATL_READ_ONLY", "1")
-	t.Setenv("ATL_NO_UPDATE", "1")
-	return backend, trace, connectRepositoryMCPClient(t)
-}
-
 func confluenceSectionVersionBoundInvocation(
 	t *testing.T,
 	cohort confluenceSectionVersionBoundCohort,
@@ -384,64 +351,6 @@ func confluenceSectionVersionBoundInvocation(
 	return mustMCPInvocation(t, confluenceSectionVersionBoundSection, arguments)
 }
 
-func callConfluenceSectionVersionBoundOutline(
-	t *testing.T,
-	client *mcp.ClientSession,
-	invocation MCPInvocation,
-) (*app.ConfluencePageOutlineResult, string, bool) {
-	t.Helper()
-	structured, message, ok := callConfluenceSectionVersionBoundMCP(t, client, invocation)
-	if !ok {
-		return nil, message, false
-	}
-	var outline app.ConfluencePageOutlineResult
-	decodeRepositoryStructuredContent(t, structured, &outline)
-	return &outline, "", true
-}
-
-func callConfluenceSectionVersionBoundSection(
-	t *testing.T,
-	client *mcp.ClientSession,
-	invocation MCPInvocation,
-) (*app.ConfluencePageSectionResult, string, bool) {
-	t.Helper()
-	structured, message, ok := callConfluenceSectionVersionBoundMCP(t, client, invocation)
-	if !ok {
-		return nil, message, false
-	}
-	var section app.ConfluencePageSectionResult
-	decodeRepositoryStructuredContent(t, structured, &section)
-	return &section, "", true
-}
-
-func callConfluenceSectionVersionBoundMCP(
-	t *testing.T,
-	client *mcp.ClientSession,
-	invocation MCPInvocation,
-) (any, string, bool) {
-	t.Helper()
-	var arguments map[string]any
-	if err := json.Unmarshal(invocation.Arguments, &arguments); err != nil {
-		t.Fatal(err)
-	}
-	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: invocation.Tool, Arguments: arguments,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.IsError {
-		message := ""
-		if len(result.Content) > 0 {
-			if text, ok := result.Content[0].(*mcp.TextContent); ok {
-				message = text.Text
-			}
-		}
-		return nil, message, false
-	}
-	return result.StructuredContent, "", true
-}
-
 // confluenceSectionVersionBoundSelection resolves the repeated heading through
 // the outline alone and proves the choice is structural: the exact title
 // repeats the declared number of times, and the selected and superseded
@@ -449,10 +358,10 @@ func callConfluenceSectionVersionBoundMCP(
 func confluenceSectionVersionBoundSelection(
 	t *testing.T,
 	cohort confluenceSectionVersionBoundCohort,
-	outline *app.ConfluencePageOutlineResult,
-) app.ConfluenceOutlineEntry {
+	outline *ConfluencePageOutlineView,
+) ConfluenceOutlineEntryView {
 	t.Helper()
-	matches := make([]app.ConfluenceOutlineEntry, 0, cohort.headingCount)
+	matches := make([]ConfluenceOutlineEntryView, 0, cohort.headingCount)
 	for _, entry := range outline.Headings {
 		if entry.Title != cohort.heading {
 			continue
@@ -669,9 +578,8 @@ func assertConfluenceSectionVersionBoundReadings(
 		t.Fatalf("observed traffic drifted: methods=%v unexpected=%d duplicates=%d",
 			evidence.methods, evidence.unexpected, evidence.duplicates)
 	}
-	target := "GET /wiki/rest/api/content/" + cohort.reference
-	if !slices.Equal(evidence.requests, []string{target, target}) {
-		t.Fatalf("observed request order drifted: %v", evidence.requests)
+	if !evidence.requestSequenceComplete {
+		t.Fatal("mock backend did not accept the complete configured request sequence")
 	}
 	if len(evidence.invocations) != 2 || !slices.Equal(evidence.sequence,
 		[]string{confluenceSectionVersionBoundOutlineF, confluenceSectionVersionBoundSectionF}) {
@@ -765,8 +673,20 @@ func confluenceSectionVersionBoundFixtureBody(
 	t.Helper()
 	fixture := loadRepositoryMockFixture(t,
 		filepath.Join(confluenceSectionVersionBoundRoot(cohort), "fixture.json"))
-	if len(fixture.Routes) != 1 || len(fixture.Routes[0].Responses) != 2 {
+	if len(fixture.Routes) != 1 {
 		t.Fatalf("fixture must define one stateful page route with two responses: %+v", fixture.Routes)
+	}
+	route := fixture.Routes[0]
+	wantPath := "/wiki/rest/api/content/" + cohort.reference
+	if route.Method != http.MethodGet || route.Path != wantPath || len(route.Responses) != 2 ||
+		len(route.QueryContains) != 0 || len(route.QueryEquals) != 0 || len(route.RequestBody) != 0 ||
+		route.Status != 0 || len(route.Body) != 0 {
+		t.Fatalf("fixture route is not the exact stateful page read: %+v", route)
+	}
+	for _, response := range route.Responses {
+		if response.Status != http.StatusOK {
+			t.Fatalf("fixture page response is not successful: %+v", response)
+		}
 	}
 	var page struct {
 		Body struct {
@@ -775,7 +695,7 @@ func confluenceSectionVersionBoundFixtureBody(
 			} `json:"storage"`
 		} `json:"body"`
 	}
-	if err := json.Unmarshal(fixture.Routes[0].Responses[0].Body, &page); err != nil {
+	if err := json.Unmarshal(route.Responses[0].Body, &page); err != nil {
 		t.Fatal(err)
 	}
 	return page.Body.Storage.Value
@@ -1501,7 +1421,7 @@ func assertConfluenceSectionVersionBoundRouteMutationsFail(
 	// never reported, at a position the outline never named.
 	t.Run("gate-omitted", func(t *testing.T) {
 		ungated := driveConfluenceSectionVersionBound(t, cohort, fixture,
-			func(*app.ConfluencePageOutlineResult) []confluenceSectionVersionBoundStep {
+			func(*ConfluencePageOutlineView) []confluenceSectionVersionBoundStep {
 				return []confluenceSectionVersionBoundStep{{occurrence: cohort.occurrence}}
 			})
 		if ungated.section == nil || ungated.section.PageVersionGated ||
@@ -1540,7 +1460,7 @@ func assertConfluenceSectionVersionBoundRouteMutationsFail(
 			guess = decoy
 		}
 		guessed := driveConfluenceSectionVersionBound(t, cohort, fixture,
-			func(*app.ConfluencePageOutlineResult) []confluenceSectionVersionBoundStep {
+			func(*ConfluencePageOutlineView) []confluenceSectionVersionBoundStep {
 				return []confluenceSectionVersionBoundStep{
 					{occurrence: cohort.occurrence, expectedVersion: guess},
 				}
@@ -1575,7 +1495,7 @@ func assertConfluenceSectionVersionBoundRouteMutationsFail(
 	// unexpected traffic and a failed interface call.
 	t.Run("retry-after-the-authorized-read", func(t *testing.T) {
 		amplified := driveConfluenceSectionVersionBound(t, cohort, fixture,
-			func(outline *app.ConfluencePageOutlineResult) []confluenceSectionVersionBoundStep {
+			func(outline *ConfluencePageOutlineView) []confluenceSectionVersionBoundStep {
 				step := confluenceSectionVersionBoundStep{
 					occurrence: cohort.occurrence, expectedVersion: outline.Version,
 				}

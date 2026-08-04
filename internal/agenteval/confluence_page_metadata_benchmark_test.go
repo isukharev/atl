@@ -2,23 +2,15 @@ package agenteval
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"io"
 	"maps"
 	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
-
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/isukharev/atl/internal/app"
 )
 
 // confluencePageMetadataCohort names one synthetic body-free page-metadata
@@ -26,9 +18,9 @@ import (
 // here for independent oracle comparison. Every reported quantity — the page
 // identity, the returned version, the update stamp, the explicit access state,
 // the current-or-stale verdict, and the observed transport traffic — is read
-// back from the real production `confluence_page_meta` MCP surface driven
-// against the retained mock fixture; the final response is derived from those
-// readings rather than from the retained answer keys.
+// back from the selected repository binary's `confluence_page_meta` MCP
+// surface driven against the retained mock fixture; the final response is
+// derived from those readings rather than from the retained answer keys.
 type confluencePageMetadataCohort struct {
 	directory  string
 	scenarioID string
@@ -71,7 +63,7 @@ func confluencePageMetadataCohorts() []confluencePageMetadataCohort {
 			recordedVersion:  6,
 			currentVersion:   6,
 			decoyNumber:      "2",
-			restrictionState: app.ConfluenceRestrictionUnknown,
+			restrictionState: ConfluenceRestrictionUnknown,
 			evidenceStatus:   "current",
 			accessDecision:   "access_not_proven",
 			repetitions:      3,
@@ -87,7 +79,7 @@ func confluencePageMetadataCohorts() []confluencePageMetadataCohort {
 			recordedVersion:  8,
 			currentVersion:   9,
 			decoyNumber:      "4",
-			restrictionState: app.ConfluenceRestrictionRestricted,
+			restrictionState: ConfluenceRestrictionRestricted,
 			evidenceStatus:   "stale",
 			accessDecision:   "do_not_quote",
 			repetitions:      1,
@@ -130,21 +122,21 @@ func confluencePageMetadataRoot(cohort confluencePageMetadataCohort) string {
 // traffic the mock backend actually observed.
 type confluencePageMetadataEvidence struct {
 	cohort   confluencePageMetadataCohort
-	metadata *app.ConfluencePageMetadataResult
+	metadata *ConfluencePageMetadataView
 	// structured is the raw structured content the typed tool emitted, kept so
 	// the closed projection can be inspected field by field.
 	structured map[string]any
 	toolErr    string
 
-	final       []byte
-	invocations []MCPInvocation
-	families    []CapabilityFamilyMetric
-	sequence    []string
-	methods     map[string]int
-	requests    []string
-	duplicates  int
-	unexpected  int
-	failed      int
+	final                   []byte
+	invocations             []MCPInvocation
+	families                []CapabilityFamilyMetric
+	sequence                []string
+	methods                 map[string]int
+	requestSequenceComplete bool
+	duplicates              int
+	unexpected              int
+	failed                  int
 }
 
 func TestConfluencePageMetadataFixturesDriveProviderOracles(t *testing.T) {
@@ -246,8 +238,8 @@ func confluencePageMetadataInvocation(t *testing.T, reference string) MCPInvocat
 }
 
 // driveConfluencePageMetadata walks the planned route against the real mock
-// backend through the production MCP server. Only the first call can become
-// evidence; anything after it is unauthorized route amplification.
+// backend through the exact selected repository binary. Only the first call can
+// become evidence; anything after it is unauthorized route amplification.
 func driveConfluencePageMetadata(
 	t *testing.T,
 	cohort confluencePageMetadataCohort,
@@ -255,11 +247,13 @@ func driveConfluencePageMetadata(
 	plan []MCPInvocation,
 ) confluencePageMetadataEvidence {
 	t.Helper()
-	backend, trace, client := startConfluencePageMetadataBackend(t, fixture)
+	process := startRepositoryConfluenceEvidenceProcess(
+		t, confluencePageMetadataSequencedFixture(t, fixture, len(plan)), plan,
+	)
 	evidence := confluencePageMetadataEvidence{cohort: cohort}
 
 	for index, invocation := range plan {
-		structured, message, ok := callConfluencePageMetadata(t, client, invocation)
+		result, message, ok := callRepositoryConfluenceEvidence(t, process, invocation)
 		evidence.invocations = append(evidence.invocations, invocation)
 		evidence.sequence = append(evidence.sequence, confluencePageMetadataFamily)
 		if !ok {
@@ -270,20 +264,49 @@ func driveConfluencePageMetadata(
 		}
 		evidence.toolErr = message
 		if ok {
-			var metadata app.ConfluencePageMetadataResult
-			decodeRepositoryStructuredContent(t, structured, &metadata)
+			metadata, err := DecodeConfluencePageMetadataView(bytes.NewReader(result.StructuredContent))
+			if err != nil {
+				t.Fatal(err)
+			}
 			evidence.metadata = &metadata
 			var raw map[string]any
-			decodeRepositoryStructuredContent(t, structured, &raw)
+			if err := json.Unmarshal(result.StructuredContent, &raw); err != nil {
+				t.Fatal(err)
+			}
 			evidence.structured = raw
 		}
 	}
 
-	evidence.methods, evidence.unexpected, evidence.duplicates = backend.Summary()
-	evidence.requests = trace.observed()
+	summary := process.Summary()
+	evidence.methods = summary.HTTPMethods
+	evidence.unexpected = summary.UnexpectedRequests
+	evidence.duplicates = summary.DuplicateRequests
+	evidence.requestSequenceComplete = process.RequestSequenceComplete()
 	evidence.final = confluencePageMetadataFinal(t, evidence)
 	evidence.families = confluencePageMetadataFamilies(evidence)
 	return evidence
+}
+
+func confluencePageMetadataSequencedFixture(
+	t *testing.T,
+	fixture MockFixture,
+	calls int,
+) MockFixture {
+	t.Helper()
+	if len(fixture.Routes) != 1 || calls < 1 {
+		t.Fatalf("metadata sequence requires one route and at least one call")
+	}
+	sequenced := fixture
+	sequenced.Routes = slices.Clone(fixture.Routes)
+	sequenced.Routes[0].Name = "page_metadata"
+	sequenced.RequestSequence = make([]string, calls)
+	for index := range sequenced.RequestSequence {
+		sequenced.RequestSequence[index] = sequenced.Routes[0].Name
+	}
+	if err := sequenced.Validate(); err != nil {
+		t.Fatalf("metadata fixture sequence is invalid: %v", err)
+	}
+	return sequenced
 }
 
 func confluencePageMetadataFamilies(
@@ -300,111 +323,14 @@ func confluencePageMetadataFamilies(
 	}}
 }
 
-// confluencePageMetadataTrace records the ordered backend requests the driven
-// route actually issued. The mock backend reports aggregate counts only, so the
-// recorder sits in front of it and keeps the order observable.
-type confluencePageMetadataTrace struct {
-	mu       sync.Mutex
-	requests []string
-}
-
-func (r *confluencePageMetadataTrace) record(method, path string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.requests = append(r.requests, method+" "+path)
-}
-
-func (r *confluencePageMetadataTrace) observed() []string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return slices.Clone(r.requests)
-}
-
-func startConfluencePageMetadataBackend(
-	t *testing.T,
-	fixture MockFixture,
-) (*MockBackend, *confluencePageMetadataTrace, *mcp.ClientSession) {
-	t.Helper()
-	backend, err := StartMockBackend(fixture)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(backend.Close)
-	environment := backend.Environment()
-	origin := strings.TrimSuffix(environment["ATL_CONFLUENCE_URL"], fixture.ConfluenceContext)
-
-	trace := &confluencePageMetadataTrace{}
-	recorder := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		trace.record(r.Method, r.URL.Path)
-		forwarded, err := http.NewRequestWithContext(r.Context(), r.Method, origin+r.URL.RequestURI(), r.Body)
-		if err != nil {
-			w.WriteHeader(http.StatusBadGateway)
-			return
-		}
-		forwarded.Header = r.Header.Clone()
-		response, err := http.DefaultClient.Do(forwarded)
-		if err != nil {
-			w.WriteHeader(http.StatusBadGateway)
-			return
-		}
-		defer func() { _ = response.Body.Close() }()
-		for name, values := range response.Header {
-			for _, value := range values {
-				w.Header().Add(name, value)
-			}
-		}
-		w.WriteHeader(response.StatusCode)
-		_, _ = io.Copy(w, response.Body)
-	}))
-	t.Cleanup(recorder.Close)
-
-	environment["ATL_CONFLUENCE_URL"] = recorder.URL + fixture.ConfluenceContext
-	environment["ATL_JIRA_URL"] = recorder.URL + fixture.JiraContext
-	for name, value := range environment {
-		t.Setenv(name, value)
-	}
-	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
-	t.Setenv("ATL_READ_ONLY", "1")
-	t.Setenv("ATL_NO_UPDATE", "1")
-	return backend, trace, connectRepositoryMCPClient(t)
-}
-
-func callConfluencePageMetadata(
-	t *testing.T,
-	client *mcp.ClientSession,
-	invocation MCPInvocation,
-) (any, string, bool) {
-	t.Helper()
-	var arguments map[string]any
-	if err := json.Unmarshal(invocation.Arguments, &arguments); err != nil {
-		t.Fatal(err)
-	}
-	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: invocation.Tool, Arguments: arguments,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.IsError {
-		message := ""
-		if len(result.Content) > 0 {
-			if text, ok := result.Content[0].(*mcp.TextContent); ok {
-				message = text.Text
-			}
-		}
-		return nil, message, false
-	}
-	return result.StructuredContent, "", true
-}
-
 // confluencePageMetadataAccessDecision is the only mapping the prompt permits.
 // An unobserved restriction expansion never becomes a claim that the page is
 // unrestricted.
 func confluencePageMetadataAccessDecision(state string) string {
 	switch state {
-	case app.ConfluenceRestrictionUnrestricted:
+	case ConfluenceRestrictionUnrestricted:
 		return "unrestricted_confirmed"
-	case app.ConfluenceRestrictionRestricted:
+	case ConfluenceRestrictionRestricted:
 		return "do_not_quote"
 	default:
 		return "access_not_proven"
@@ -434,7 +360,7 @@ func confluencePageMetadataFinal(
 			"so the held revision is still the one in force."
 	}
 	encoded, err := json.Marshal(map[string]any{
-		"schema_version":    app.ConfluencePageMetadataSchemaVersion,
+		"schema_version":    ConfluencePageMetadataViewSchemaVersion,
 		"page_id":           metadata.ID,
 		"title":             metadata.Title,
 		"space":             metadata.Space,
@@ -466,7 +392,7 @@ func assertConfluencePageMetadataReadings(
 	if metadata == nil {
 		t.Fatalf("the authorized metadata read was refused: %q", evidence.toolErr)
 	}
-	if metadata.SchemaVersion != app.ConfluencePageMetadataSchemaVersion ||
+	if metadata.SchemaVersion != ConfluencePageMetadataViewSchemaVersion ||
 		metadata.ID != cohort.pageID || metadata.Title != cohort.title ||
 		metadata.Space != cohort.space || metadata.Version != cohort.currentVersion ||
 		metadata.Updated != cohort.updated ||
@@ -514,8 +440,8 @@ func assertConfluencePageMetadataReadings(
 		t.Fatalf("observed traffic drifted: methods=%v unexpected=%d duplicates=%d failed=%d",
 			evidence.methods, evidence.unexpected, evidence.duplicates, evidence.failed)
 	}
-	if !slices.Equal(evidence.requests, []string{"GET /wiki/rest/api/content/" + cohort.pageID}) {
-		t.Fatalf("observed request order drifted: %v", evidence.requests)
+	if !evidence.requestSequenceComplete {
+		t.Fatal("mock backend did not accept the complete configured request sequence")
 	}
 	if len(evidence.invocations) != 1 ||
 		!slices.Equal(evidence.sequence, []string{confluencePageMetadataFamily}) {
@@ -1124,7 +1050,7 @@ func assertConfluencePageMetadataFinalMutationsFail(
 			failing: []string{"brief_present"},
 		},
 	}
-	if cohort.restrictionState == app.ConfluenceRestrictionUnknown {
+	if cohort.restrictionState == ConfluenceRestrictionUnknown {
 		tests = append(tests, struct {
 			name    string
 			mutate  func(map[string]any)
@@ -1134,7 +1060,7 @@ func assertConfluencePageMetadataFinalMutationsFail(
 			// expansion reported as proof that the page is open.
 			name: "unknown-treated-as-unrestricted",
 			mutate: func(answer map[string]any) {
-				answer["restriction_state"] = app.ConfluenceRestrictionUnrestricted
+				answer["restriction_state"] = ConfluenceRestrictionUnrestricted
 				answer["access_decision"] = "unrestricted_confirmed"
 			},
 			failing: []string{"access_decision_exact", "restriction_exact"},
@@ -1182,7 +1108,7 @@ func assertConfluencePageMetadataFinalMutationsFail(
 		}{
 			name: "restriction-downgraded",
 			mutate: func(answer map[string]any) {
-				answer["restriction_state"] = app.ConfluenceRestrictionUnknown
+				answer["restriction_state"] = ConfluenceRestrictionUnknown
 				answer["access_decision"] = "access_not_proven"
 			},
 			failing: []string{"access_decision_exact", "restriction_exact"},
@@ -1322,7 +1248,7 @@ func assertConfluencePageMetadataFixtureIsLoadBearing(
 
 	t.Run("restriction-expansion-flipped", func(t *testing.T) {
 		patched := confluencePageMetadataPatch(t, fixture, cohort, func(page map[string]any) {
-			if cohort.restrictionState == app.ConfluenceRestrictionUnknown {
+			if cohort.restrictionState == ConfluenceRestrictionUnknown {
 				// An observed, empty expansion is the only thing that proves a
 				// page is unrestricted.
 				page["restrictions"] = map[string]any{
@@ -1339,9 +1265,9 @@ func assertConfluencePageMetadataFixtureIsLoadBearing(
 		})
 		evidence := driveConfluencePageMetadata(t, cohort, patched,
 			[]MCPInvocation{confluencePageMetadataInvocation(t, cohort.reference)})
-		flipped := app.ConfluenceRestrictionUnrestricted
-		if cohort.restrictionState != app.ConfluenceRestrictionUnknown {
-			flipped = app.ConfluenceRestrictionUnknown
+		flipped := ConfluenceRestrictionUnrestricted
+		if cohort.restrictionState != ConfluenceRestrictionUnknown {
+			flipped = ConfluenceRestrictionUnknown
 		}
 		if evidence.metadata == nil || evidence.metadata.RestrictionState != flipped {
 			t.Fatalf("the re-pinned expansion did not change the observed access state: %+v",

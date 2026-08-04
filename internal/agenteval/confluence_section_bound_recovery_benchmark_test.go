@@ -2,23 +2,14 @@ package agenteval
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"io"
 	"maps"
-	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
-
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/isukharev/atl/internal/app"
 )
 
 // confluenceSectionBoundRecoveryCohort names one synthetic bounded-section
@@ -143,19 +134,19 @@ func confluenceSectionBoundRecoveryRoot(cohort confluenceSectionBoundRecoveryCoh
 // the transport traffic the mock backend actually observed.
 type confluenceSectionBoundRecoveryEvidence struct {
 	cohort   confluenceSectionBoundRecoveryCohort
-	initial  *app.ConfluencePageSectionResult
-	repeated *app.ConfluencePageSectionResult
-	accepted *app.ConfluencePageSectionResult
+	initial  *ConfluencePageSectionView
+	repeated *ConfluencePageSectionView
+	accepted *ConfluencePageSectionView
 
-	final       []byte
-	invocations []MCPInvocation
-	families    []CapabilityFamilyMetric
-	sequence    []string
-	methods     map[string]int
-	requests    []string
-	duplicates  int
-	unexpected  int
-	failed      int
+	final                   []byte
+	invocations             []MCPInvocation
+	families                []CapabilityFamilyMetric
+	sequence                []string
+	methods                 map[string]int
+	requestSequenceComplete bool
+	duplicates              int
+	unexpected              int
+	failed                  int
 }
 
 func TestConfluenceSectionBoundRecoveryFixturesDriveProviderOracles(t *testing.T) {
@@ -164,6 +155,7 @@ func TestConfluenceSectionBoundRecoveryFixturesDriveProviderOracles(t *testing.T
 			root := confluenceSectionBoundRecoveryRoot(cohort)
 			fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
 			evidence := driveConfluenceSectionBoundRecovery(t, cohort, fixture,
+				confluenceSectionBoundRecoveryExpectedBound(cohort),
 				confluenceSectionBoundRecoveryAuthorizedRoute)
 			assertConfluenceSectionBoundRecoveryReadings(t, cohort, evidence)
 			assertConfluenceSectionBoundRecoveryReturnedProseIsData(t, cohort, evidence)
@@ -204,13 +196,20 @@ func TestConfluenceSectionBoundRecoveryFixturesDriveProviderOracles(t *testing.T
 // state, expressed over the machine-readable fields the tool returns. It never
 // consults the retained answer keys: the fixture alone decides whether one
 // repeat of the identical selection is authorized, and at which bound.
-func confluenceSectionBoundRecoveryAuthorizedRoute(first *app.ConfluencePageSectionResult) int {
+func confluenceSectionBoundRecoveryAuthorizedRoute(first *ConfluencePageSectionView) int {
 	if first.Complete ||
 		first.PartialReason != "max_bytes" ||
 		first.OriginalBytes > confluenceSectionBoundRecoveryCeiling {
 		return 0
 	}
 	return first.OriginalBytes
+}
+
+func confluenceSectionBoundRecoveryExpectedBound(cohort confluenceSectionBoundRecoveryCohort) int {
+	if cohort.recoverable {
+		return cohort.originalBytes
+	}
+	return 0
 }
 
 // driveConfluenceSectionBoundRecovery walks the route against the real mock
@@ -220,17 +219,24 @@ func driveConfluenceSectionBoundRecovery(
 	t *testing.T,
 	cohort confluenceSectionBoundRecoveryCohort,
 	fixture MockFixture,
-	plan func(*app.ConfluencePageSectionResult) int,
+	admittedFollowupBound int,
+	plan func(*ConfluencePageSectionView) int,
 ) confluenceSectionBoundRecoveryEvidence {
 	t.Helper()
-	backend, trace, client := startConfluenceSectionBoundRecoveryBackend(t, fixture)
+	initialInvocation := confluenceSectionBoundRecoveryInvocation(t, cohort,
+		confluenceSectionBoundRecoveryInitialMaxBytes, 0)
+	admissions := []MCPInvocation{initialInvocation}
+	if admittedFollowupBound > 0 {
+		admissions = append(admissions, confluenceSectionBoundRecoveryInvocation(
+			t, cohort, admittedFollowupBound, cohort.pageVersion))
+	}
+	fixture = confluenceSectionBoundRecoveryProcessFixture(t, fixture, len(admissions))
+	process := startRepositoryConfluenceEvidenceProcess(t, fixture, admissions)
 	evidence := confluenceSectionBoundRecoveryEvidence{cohort: cohort}
 
 	// 1. The one authorized opening call: the exact selection at the declared
 	// bound, through the shipped typed tool rather than a test-side copy of it.
-	initialInvocation := confluenceSectionBoundRecoveryInvocation(t, cohort,
-		confluenceSectionBoundRecoveryInitialMaxBytes, 0)
-	initial, ok := callConfluenceSectionBoundRecoveryMCP(t, client, initialInvocation)
+	initial, ok := callConfluenceSectionBoundRecoveryMCP(t, process, initialInvocation)
 	if !ok {
 		t.Fatal("the opening bounded section read must succeed")
 	}
@@ -248,7 +254,7 @@ func driveConfluenceSectionBoundRecovery(
 	// that moved between the two reads is refused instead of stitched together.
 	if bound := plan(initial); bound > 0 {
 		repeatInvocation := confluenceSectionBoundRecoveryInvocation(t, cohort, bound, initial.Version)
-		repeated, repeatOK := callConfluenceSectionBoundRecoveryMCP(t, client, repeatInvocation)
+		repeated, repeatOK := callConfluenceSectionBoundRecoveryMCP(t, process, repeatInvocation)
 		evidence.invocations = append(evidence.invocations, repeatInvocation)
 		evidence.sequence = append(evidence.sequence, confluenceSectionBoundRecoveryFamily)
 		if repeatOK {
@@ -262,8 +268,10 @@ func driveConfluenceSectionBoundRecovery(
 		}
 	}
 
-	evidence.methods, evidence.unexpected, evidence.duplicates = backend.Summary()
-	evidence.requests = trace.observed()
+	summary := process.Summary()
+	evidence.methods, evidence.unexpected, evidence.duplicates = summary.HTTPMethods,
+		summary.UnexpectedRequests, summary.DuplicateRequests
+	evidence.requestSequenceComplete = process.RequestSequenceComplete()
 	evidence.final = confluenceSectionBoundRecoveryFinal(t, evidence)
 	evidence.families = []CapabilityFamilyMetric{{
 		Family:      confluenceSectionBoundRecoveryFamily,
@@ -275,73 +283,31 @@ func driveConfluenceSectionBoundRecovery(
 	return evidence
 }
 
-// confluenceSectionBoundRecoveryTrace records the ordered backend requests the
-// driven route actually issued. The mock backend reports aggregate counts only,
-// so the recorder sits in front of it and keeps the order observable.
-type confluenceSectionBoundRecoveryTrace struct {
-	mu       sync.Mutex
-	requests []string
-}
-
-func (r *confluenceSectionBoundRecoveryTrace) record(method, path string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.requests = append(r.requests, method+" "+path)
-}
-
-func (r *confluenceSectionBoundRecoveryTrace) observed() []string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return slices.Clone(r.requests)
-}
-
-func startConfluenceSectionBoundRecoveryBackend(
+func confluenceSectionBoundRecoveryProcessFixture(
 	t *testing.T,
 	fixture MockFixture,
-) (*MockBackend, *confluenceSectionBoundRecoveryTrace, *mcp.ClientSession) {
+	requests int,
+) MockFixture {
 	t.Helper()
-	backend, err := StartMockBackend(fixture)
-	if err != nil {
-		t.Fatal(err)
+	prepared := fixture
+	prepared.Routes = slices.Clone(fixture.Routes)
+	if len(prepared.Routes) != 1 || prepared.Routes[0].Method != "GET" ||
+		!strings.HasPrefix(prepared.Routes[0].Path, fixture.ConfluenceContext+"/rest/api/content/") ||
+		len(prepared.Routes[0].QueryContains) != 0 || len(prepared.Routes[0].QueryEquals) != 0 {
+		t.Fatal("bounded-section fixture must contain one Confluence page route")
 	}
-	t.Cleanup(backend.Close)
-	environment := backend.Environment()
-	origin := strings.TrimSuffix(environment["ATL_CONFLUENCE_URL"], fixture.ConfluenceContext)
-
-	trace := &confluenceSectionBoundRecoveryTrace{}
-	recorder := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		trace.record(r.Method, r.URL.Path)
-		forwarded, err := http.NewRequestWithContext(r.Context(), r.Method, origin+r.URL.RequestURI(), r.Body)
-		if err != nil {
-			w.WriteHeader(http.StatusBadGateway)
-			return
-		}
-		forwarded.Header = r.Header.Clone()
-		response, err := http.DefaultClient.Do(forwarded)
-		if err != nil {
-			w.WriteHeader(http.StatusBadGateway)
-			return
-		}
-		defer func() { _ = response.Body.Close() }()
-		for name, values := range response.Header {
-			for _, value := range values {
-				w.Header().Add(name, value)
-			}
-		}
-		w.WriteHeader(response.StatusCode)
-		_, _ = io.Copy(w, response.Body)
-	}))
-	t.Cleanup(recorder.Close)
-
-	environment["ATL_CONFLUENCE_URL"] = recorder.URL + fixture.ConfluenceContext
-	environment["ATL_JIRA_URL"] = recorder.URL + fixture.JiraContext
-	for name, value := range environment {
-		t.Setenv(name, value)
+	prepared.Routes[0].Name = "section-page"
+	prepared.Routes[0].QueryEquals = map[string]string{
+		"expand": "body.storage,version,space,ancestors,metadata.labels",
 	}
-	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
-	t.Setenv("ATL_READ_ONLY", "1")
-	t.Setenv("ATL_NO_UPDATE", "1")
-	return backend, trace, connectRepositoryMCPClient(t)
+	prepared.RequestSequence = make([]string, requests)
+	for index := range prepared.RequestSequence {
+		prepared.RequestSequence[index] = "section-page"
+	}
+	if err := prepared.Validate(); err != nil {
+		t.Fatalf("prepare bounded-section process fixture: %v", err)
+	}
+	return prepared
 }
 
 // confluenceSectionBoundRecoveryInvocation builds one call of the authorized
@@ -368,25 +334,18 @@ func confluenceSectionBoundRecoveryInvocation(
 
 func callConfluenceSectionBoundRecoveryMCP(
 	t *testing.T,
-	client *mcp.ClientSession,
+	process *SyntheticATLProcess,
 	invocation MCPInvocation,
-) (*app.ConfluencePageSectionResult, bool) {
+) (*ConfluencePageSectionView, bool) {
 	t.Helper()
-	var arguments map[string]any
-	if err := json.Unmarshal(invocation.Arguments, &arguments); err != nil {
-		t.Fatal(err)
-	}
-	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: invocation.Tool, Arguments: arguments,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.IsError {
+	result, _, ok := callRepositoryConfluenceEvidence(t, process, invocation)
+	if !ok {
 		return nil, false
 	}
-	var section app.ConfluencePageSectionResult
-	decodeRepositoryStructuredContent(t, result.StructuredContent, &section)
+	section, err := DecodeConfluencePageSectionView(bytes.NewReader(result.StructuredContent))
+	if err != nil {
+		t.Fatalf("decode Confluence page section: %v", err)
+	}
 	return &section, true
 }
 
@@ -544,15 +503,10 @@ func assertConfluenceSectionBoundRecoveryReadings(
 		t.Fatalf("observed traffic drifted: methods=%v unexpected=%d duplicates=%d failed=%d",
 			evidence.methods, evidence.unexpected, evidence.duplicates, evidence.failed)
 	}
-	// The exact ordered backend traffic: one page target, read as many times as
-	// the route required, and nothing else.
-	target := "GET /wiki/rest/api/content/" + cohort.reference
-	expected := make([]string, cohort.gets)
-	for index := range expected {
-		expected[index] = target
-	}
-	if !slices.Equal(evidence.requests, expected) {
-		t.Fatalf("observed request order drifted: got=%v want=%v", evidence.requests, expected)
+	// The backend accepts only the exact page route and query projection, and
+	// advances this sequence only after a matching response is consumed.
+	if !evidence.requestSequenceComplete {
+		t.Fatal("the exact bounded-section backend request sequence is incomplete")
 	}
 	families := make([]string, cohort.calls)
 	for index := range families {
@@ -1205,7 +1159,7 @@ func assertConfluenceSectionBoundRecoveryRouteMutationsFail(
 		// and the recovery the cohort exists to reward never happened.
 		t.Run("stop-on-coherent-prefix", func(t *testing.T) {
 			stopped := driveConfluenceSectionBoundRecovery(t, cohort, fixture,
-				func(*app.ConfluencePageSectionResult) int { return 0 })
+				0, func(*ConfluencePageSectionView) int { return 0 })
 			if !equalHTTPMethods(stopped.methods, map[string]int{"GET": 1}) || stopped.duplicates != 0 {
 				t.Fatalf("stopped route traffic drifted: methods=%v duplicates=%d",
 					stopped.methods, stopped.duplicates)
@@ -1227,7 +1181,8 @@ func assertConfluenceSectionBoundRecoveryRouteMutationsFail(
 		// expose the unauthorized guess.
 		t.Run("recover-at-guessed-bound", func(t *testing.T) {
 			guessed := driveConfluenceSectionBoundRecovery(t, cohort, fixture,
-				func(*app.ConfluencePageSectionResult) int { return confluenceSectionBoundRecoveryCeiling })
+				confluenceSectionBoundRecoveryCeiling,
+				func(*ConfluencePageSectionView) int { return confluenceSectionBoundRecoveryCeiling })
 			if guessed.accepted == nil || !guessed.accepted.Complete {
 				t.Fatal("the guessed bound did not return the whole section")
 			}
@@ -1248,6 +1203,7 @@ func assertConfluenceSectionBoundRecoveryRouteMutationsFail(
 			driftedFixture := confluenceSectionBoundRecoveryVersionDrift(
 				t, fixture, cohort, cohort.pageVersion+1)
 			drifted := driveConfluenceSectionBoundRecovery(t, cohort, driftedFixture,
+				cohort.originalBytes,
 				confluenceSectionBoundRecoveryAuthorizedRoute)
 			if drifted.repeated != nil || drifted.failed != 1 ||
 				drifted.accepted != drifted.initial || drifted.accepted.Complete ||
@@ -1268,7 +1224,8 @@ func assertConfluenceSectionBoundRecoveryRouteMutationsFail(
 		// a failed interface call.
 		t.Run("futile-repeat-above-ceiling", func(t *testing.T) {
 			futile := driveConfluenceSectionBoundRecovery(t, cohort, fixture,
-				func(*app.ConfluencePageSectionResult) int {
+				confluenceSectionBoundRecoveryInitialMaxBytes,
+				func(*ConfluencePageSectionView) int {
 					return confluenceSectionBoundRecoveryInitialMaxBytes
 				})
 			if futile.repeated != nil || futile.failed != 1 || futile.unexpected != 1 ||
@@ -1350,6 +1307,7 @@ func assertConfluenceSectionBoundRecoveryFixtureIsLoadBearing(
 		t.Fatalf("patched fixture is no longer a valid mock fixture: %v", err)
 	}
 	evidence := driveConfluenceSectionBoundRecovery(t, cohort, shortened,
+		0,
 		confluenceSectionBoundRecoveryAuthorizedRoute)
 	if !evidence.initial.Complete || evidence.initial.PartialReason != "" ||
 		evidence.initial.OriginalBytes >= confluenceSectionBoundRecoveryInitialMaxBytes ||
@@ -1668,6 +1626,7 @@ func TestConfluenceSectionBoundRecoveryPromptsWithholdAnswers(t *testing.T) {
 
 			evidence := driveConfluenceSectionBoundRecovery(t, cohort,
 				loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json")),
+				confluenceSectionBoundRecoveryExpectedBound(cohort),
 				confluenceSectionBoundRecoveryAuthorizedRoute)
 			if leaks := confluenceSectionBoundRecoveryPromptLeaks(cohort, evidence, prompt); len(leaks) != 0 {
 				t.Fatalf("prompt discloses oracle evidence: %v", leaks)
