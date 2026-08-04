@@ -291,10 +291,7 @@ func (view JiraHistorySummaryView) validate(p jiraHistoryPresence) error {
 	if p.lastChanges && len(view.LastChanges) == 0 {
 		return fmt.Errorf("present last_changes must not be empty")
 	}
-	if err := validateJiraHistoryLastChanges(view.LastChanges, view.Filters.Fields); err != nil {
-		return err
-	}
-	return nil
+	return validateJiraHistoryLastChanges(view.LastChanges, view.Filters.Fields)
 }
 
 func (filters JiraHistoryFiltersView) validate(p jiraHistoryPresence) error {
