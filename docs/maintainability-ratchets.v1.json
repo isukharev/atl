@@ -7,8 +7,9 @@
     {"id":"mcp","path_prefixes":["internal/mcpserver/"]}
   ],
   "hotspots": [
-    {"owner":"app","path":"internal/app/confluence.go","max_lines":1850,"rationale":"Keep the Confluence pull and push orchestration owner visible until responsibility-based splits land."},
-    {"owner":"app","path":"internal/app/confluence.go","function":"(*ConfluenceService).Pull","max_lines":525,"rationale":"Keep local qualification, fetch scheduling, and checkpoint orchestration from growing silently before they are separated."},
+    {"owner":"app","path":"internal/app/confluence.go","max_lines":725,"rationale":"Keep the remaining Confluence search, status, push, apply, diff, and export owner within its reduced allowance after pull orchestration moved to a focused owner."},
+    {"owner":"app","path":"internal/app/confluence_pull.go","max_lines":1000,"rationale":"Keep Confluence pull types, qualification, fetch scheduling, assets, and mirror orchestration within a reviewed allowance."},
+    {"owner":"app","path":"internal/app/confluence_pull.go","function":"(*ConfluenceService).Pull","max_lines":500,"rationale":"Keep Confluence pull selection, revalidation, fetch, staging, and checkpoint orchestration within a reduced reviewed allowance."},
     {"owner":"app","path":"internal/app/jira.go","max_lines":1100,"rationale":"Keep the remaining Jira issue operations and Markdown presentation owner within its reduced allowance after pull orchestration moved to a focused owner."},
     {"owner":"app","path":"internal/app/jira_pull.go","max_lines":675,"rationale":"Keep Jira pull types, local qualification, fetch, asset, and mirror orchestration within a reviewed allowance."},
     {"owner":"app","path":"internal/app/jira_pull.go","function":"(*JiraService).Pull","max_lines":400,"rationale":"Keep Jira pull selection, preflight, fetch, and mirror commit orchestration within a reduced reviewed allowance."},
