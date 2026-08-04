@@ -17,9 +17,9 @@
     {"owner":"cli","path":"internal/cli/jira.go","function":"jiraIssueCmd","max_lines":575,"rationale":"Keep the largest Jira command family within a reviewed growth allowance."},
     {"owner":"evaluator","path":"internal/agenteval/runner.go","max_lines":1900,"rationale":"Keep the evaluator launch and orchestration owner visible after attempt layout, provider lifecycle, trajectory capture, and outcome finalization moved to focused owners."},
     {"owner":"evaluator","path":"internal/agenteval/runner.go","function":"runHeadlessOnce","max_lines":350,"rationale":"Keep the remaining launch-environment assembly and explicit lifecycle/error-precedence orchestration within its reduced reviewed allowance."},
-    {"owner":"mcp","path":"internal/mcpserver/server.go","max_lines":2850,"rationale":"Keep MCP registration, validation, and error-policy assembly visible until those responsibilities are split."},
-    {"owner":"mcp","path":"internal/mcpserver/server.go","function":"registerConfluenceTools","max_lines":320,"rationale":"Keep Confluence MCP tool registration within a reviewed allowance."},
-    {"owner":"mcp","path":"internal/mcpserver/server.go","function":"registerJiraTools","max_lines":300,"rationale":"Keep Jira MCP tool registration within a reviewed allowance."}
+    {"owner":"mcp","path":"internal/mcpserver/confluence_tools.go","function":"registerConfluenceTools","max_lines":320,"rationale":"Keep Confluence MCP tool registration within a reviewed allowance."},
+    {"owner":"mcp","path":"internal/mcpserver/jira_tools.go","function":"registerJiraTools","max_lines":300,"rationale":"Keep Jira MCP tool registration within a reviewed allowance."},
+    {"owner":"mcp","path":"internal/mcpserver/server.go","max_lines":2050,"rationale":"Keep MCP service assembly, shared validation, and error-policy ownership within its reduced reviewed allowance after service tool catalogs moved to focused owners."}
   ],
   "timing": {
     "mode": "observe",
