@@ -228,8 +228,9 @@ regular file in its skill tree, exercises bounded Jira and Confluence CLI/MCP
 fixture oracles—including Jira search pagination, history summaries with
 zero-progress stopping, board snapshot completeness, and Structure folder
 recovery, plus Confluence
-CSV formula safety, pull/search selection completeness, page resolution,
-paginated search, and multi-section evidence—
+CSV formula safety, schema-v3 table summary/extract and stale-selection
+recovery (decoded by strict evaluator-owned wire views), pull/search selection
+completeness, page resolution, paginated search, and multi-section evidence—
 through that exact selected executable, and validates every supported versioned
 scenario and run contract.
 The process oracle uses only synthetic loopback endpoints, closed invocation
