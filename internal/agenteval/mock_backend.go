@@ -34,6 +34,11 @@ type MockRoute struct {
 	Status        int               `json:"status,omitempty"`
 	Body          json.RawMessage   `json:"body,omitempty"`
 	Responses     []MockResponse    `json:"responses,omitempty"`
+
+	// closedQuery is evaluator-runtime policy, not part of the retained fixture
+	// schema. It requires QueryEquals to name the complete request query so an
+	// oracle cannot silently admit a new unreviewed parameter.
+	closedQuery bool
 }
 
 // MockResponse is one bounded response in a stateful synthetic route. A
@@ -131,6 +136,9 @@ func (f MockFixture) Validate() error {
 		}
 		if len(route.QueryContains)+len(route.QueryEquals) > 16 {
 			return fmt.Errorf("mock route query constraints exceed 16 entries")
+		}
+		if route.closedQuery && len(route.QueryContains) != 0 {
+			return fmt.Errorf("closed mock route query requires exact-value constraints")
 		}
 		for name := range route.QueryEquals {
 			if _, duplicate := route.QueryContains[name]; duplicate {
@@ -312,6 +320,9 @@ func (b *MockBackend) handle(w http.ResponseWriter, r *http.Request) {
 
 func mockRouteQueryMatches(route MockRoute, request *http.Request) bool {
 	query := request.URL.Query()
+	if route.closedQuery && len(query) != len(route.QueryEquals) {
+		return false
+	}
 	for name, value := range route.QueryContains {
 		if !strings.Contains(query.Get(name), value) {
 			return false
