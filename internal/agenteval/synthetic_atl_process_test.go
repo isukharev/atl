@@ -154,6 +154,67 @@ exit 62
 	}
 }
 
+func TestSyntheticATLProcessPreservesOpaqueCLIBytesAndSingleAccounting(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is Unix-only")
+	}
+	root := privateSyntheticScratch(t)
+	binary := filepath.Join(root, "atl-fake")
+	writeSyntheticExecutable(t, binary, syntheticATLTestScript(`
+if [ "$1" = "raw" ]; then
+  printf '\377\000raw \n'
+  printf '\376\000warning\n' >&2
+  exit 0
+fi
+if [ "$1" = "failed" ]; then
+  printf '\375failure-out\000'
+  printf '\374failure-err\000' >&2
+  exit 7
+fi
+exit 78
+`))
+	scratch := filepath.Join(root, "scratch")
+	if err := os.Mkdir(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	process, err := StartSyntheticATLProcess(context.Background(), SyntheticATLProcessConfig{
+		Binary: binary, Fixture: minimalSyntheticFixture(), ScratchRoot: scratch,
+		CLIPolicy: CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: []CLICommandRule{
+			{Name: "raw", Command: []string{"raw"}, MaxInvocations: 1},
+			{Name: "failed", Command: []string{"failed"}, MaxInvocations: 1},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = process.Close() })
+
+	raw, err := process.RunCLIBytes(context.Background(), "raw")
+	if err != nil || raw.ExitCode != 0 ||
+		!bytes.Equal(raw.Stdout, []byte{0xff, 0x00, 'r', 'a', 'w', ' ', '\n'}) ||
+		!bytes.Equal(raw.Stderr, []byte{0xfe, 0x00, 'w', 'a', 'r', 'n', 'i', 'n', 'g', '\n'}) {
+		t.Fatalf("raw result=%+v err=%v", raw, err)
+	}
+	failed, err := process.RunCLIBytes(context.Background(), "failed")
+	if err != nil || failed.ExitCode != 7 ||
+		!bytes.Equal(failed.Stdout, append([]byte{0xfd}, []byte("failure-out\x00")...)) ||
+		!bytes.Equal(failed.Stderr, append([]byte{0xfc}, []byte("failure-err\x00")...)) {
+		t.Fatalf("failed raw result=%+v err=%v", failed, err)
+	}
+	if _, err := process.RunCLIBytes(context.Background(), "other"); err == nil ||
+		!strings.Contains(err.Error(), "reviewed budget") {
+		t.Fatalf("unadmitted raw command error=%v", err)
+	}
+	if _, err := process.RunCLIJSON(context.Background(), "raw"); err == nil ||
+		!strings.Contains(err.Error(), "reviewed budget") {
+		t.Fatalf("shared raw/JSON budget error=%v", err)
+	}
+	if summary := process.Summary(); !equalHTTPMethods(summary.CLIInvocations, map[string]int{"raw": 1, "failed": 1}) ||
+		len(summary.HTTPMethods) != 0 {
+		t.Fatalf("raw accounting drifted: %+v", summary)
+	}
+}
+
 func TestSyntheticATLProcessPreflightsBeforeRuntimeAndRevalidatesBinary(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture and symlink assertions are Unix-only")
@@ -203,7 +264,7 @@ exit 63
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := process.RunCLIJSON(context.Background(), "version"); err == nil || !strings.Contains(err.Error(), "binary changed") {
+	if _, err := process.RunCLIBytes(context.Background(), "version"); err == nil || !strings.Contains(err.Error(), "binary changed") {
 		t.Fatalf("changed binary error=%v", err)
 	}
 	if err := process.Close(); err == nil || !strings.Contains(err.Error(), "binary changed") {
@@ -218,17 +279,21 @@ func TestSyntheticATLProcessRejectsCLIOutputAndTimeBounds(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture is Unix-only")
 	}
-	for name, body := range map[string]string{
-		"multiple JSON":   `printf '%s\n' '{}' '{}'; exit 0`,
-		"duplicate JSON":  `printf '%s\n' '{"value":1,"value":2}'; exit 0`,
-		"stdout overflow": `i=0; while [ "$i" -lt 100 ]; do printf '0123456789'; i=$((i + 1)); done; exit 0`,
-		"timeout":         `exec /bin/sleep 10`,
+	for name, test := range map[string]struct {
+		body string
+		raw  bool
+	}{
+		"multiple JSON":   {body: `printf '%s\n' '{}' '{}'; exit 0`},
+		"duplicate JSON":  {body: `printf '%s\n' '{"value":1,"value":2}'; exit 0`},
+		"stdout overflow": {body: `i=0; while [ "$i" -lt 100 ]; do printf '0123456789'; i=$((i + 1)); done; exit 0`, raw: true},
+		"stderr overflow": {body: `i=0; while [ "$i" -lt 100 ]; do printf '0123456789' >&2; i=$((i + 1)); done; exit 0`, raw: true},
+		"timeout":         {body: `exec /bin/sleep 10`, raw: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			root := privateSyntheticScratch(t)
 			binary := filepath.Join(root, "atl-fake")
 			writeSyntheticExecutable(t, binary, syntheticATLTestScript(`
-if [ "$1" = "version" ]; then `+body+`; fi
+if [ "$1" = "version" ]; then `+test.body+`; fi
 exit 64
 `))
 			scratch := filepath.Join(root, "scratch")
@@ -243,13 +308,20 @@ exit 64
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = process.RunCLIJSON(context.Background(), "version")
+			if test.raw {
+				_, err = process.RunCLIBytes(context.Background(), "version")
+			} else {
+				_, err = process.RunCLIJSON(context.Background(), "version")
+			}
 			if err == nil {
 				t.Fatal("invalid bounded CLI result passed")
 			}
 			if _, retryErr := process.RunCLIJSON(context.Background(), "version"); retryErr == nil ||
 				!strings.Contains(retryErr.Error(), "reviewed budget") {
 				t.Fatalf("failed attempt did not consume its budget: %v", retryErr)
+			}
+			if summary := process.Summary(); !equalHTTPMethods(summary.CLIInvocations, map[string]int{"version": 1}) {
+				t.Fatalf("failed JSON/raw interpretation executed more than once: %+v", summary)
 			}
 			if closeErr := process.Close(); closeErr != nil {
 				t.Fatal(closeErr)

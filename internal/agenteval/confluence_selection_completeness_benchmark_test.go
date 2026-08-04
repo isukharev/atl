@@ -2,17 +2,17 @@ package agenteval
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
+	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/isukharev/atl/internal/app"
-	"github.com/isukharev/atl/internal/config"
+	"time"
 )
 
 const (
@@ -22,6 +22,7 @@ const (
 	confluenceSelectionHoldoutQuery     = `space = "ARCHIVE" AND type = page`
 	confluenceSelectionCapReason        = "selection truncated at 1000 pages by the safety cap"
 	confluenceSelectionHoldoutReason    = "backend reported 5 total matches but only 2 were reachable"
+	confluenceSelectionCapWarning       = "warning: selection truncated at 1000 pages (safety cap) — the rest was NOT mirrored; narrow the query or pull subsets\n"
 )
 
 func TestRepositoryConfluenceSelectionCompletenessFixturesDriveProviderOracles(t *testing.T) {
@@ -30,13 +31,7 @@ func TestRepositoryConfluenceSelectionCompletenessFixturesDriveProviderOracles(t
 		fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
 		assertConfluenceSelectionPrimaryTopology(t, fixture)
 
-		backend, service := startConfluenceSelectionBackend(t, fixture)
-		result, err := service.Pull(context.Background(), app.PullOpts{
-			CQL: confluenceSelectionPrimaryQuery, Into: filepath.Join(t.TempDir(), "selection-mirror"),
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
+		result, summary, mirrorFiles := runConfluenceSelectionPullCLI(t, root, fixture, confluenceSelectionCapWarning)
 		if len(result.Pages) != 1000 || !result.Truncated || result.TruncatedAt != 1000 {
 			t.Fatalf("pull result did not preserve the cap: pages=%d truncated=%t truncated_at=%d", len(result.Pages), result.Truncated, result.TruncatedAt)
 		}
@@ -44,9 +39,8 @@ func TestRepositoryConfluenceSelectionCompletenessFixturesDriveProviderOracles(t
 		if !warningObserved {
 			t.Fatalf("pull result does not require the CLI truncation warning: %+v", result)
 		}
-		methods, unexpected, duplicates := backend.Summary()
-		if !equalHTTPMethods(methods, map[string]int{"GET": 1011}) || unexpected != 0 || duplicates != 0 {
-			t.Fatalf("methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+		if mirrorFiles.native != 1000 || mirrorFiles.metadata != 1000 || mirrorFiles.derived != 1000 {
+			t.Fatalf("contained selected-binary mirror files drifted: %+v", mirrorFiles)
 		}
 		final := confluenceSelectionBenchmarkFinal(t, confluenceSelectionFinalInput{
 			operation: "pull", query: confluenceSelectionPrimaryQuery, observedCount: len(result.Pages),
@@ -54,7 +48,7 @@ func TestRepositoryConfluenceSelectionCompletenessFixturesDriveProviderOracles(t
 			partialReason: confluenceSelectionCapReason, warningObserved: warningObserved,
 			recommendedAction: "narrow-or-partition", localMirrorWritten: len(result.Pages) > 0,
 		})
-		assertConfluenceSelectionProviderOracles(t, root, final, methods, unexpected)
+		assertConfluenceSelectionProviderOracles(t, root, final, summary.HTTPMethods, summary.UnexpectedRequests)
 	})
 
 	t.Run("unreachable backend total", func(t *testing.T) {
@@ -70,25 +64,17 @@ func TestRepositoryConfluenceSelectionCompletenessFixturesDriveProviderOracles(t
 		if len(fixture.Routes) != 1 {
 			t.Fatalf("holdout routes=%d want=1", len(fixture.Routes))
 		}
-		backend, service := startConfluenceSelectionBackend(t, fixture)
-		result, err := service.SearchQualified(context.Background(), confluenceSelectionHoldoutQuery, 25, "")
-		if err != nil {
-			t.Fatal(err)
-		}
+		result, summary := runConfluenceSelectionSearchCLI(t, root, fixture)
 		if result.Query != confluenceSelectionHoldoutQuery || result.Count != 2 || result.Complete ||
 			!result.Truncated || result.NextCursor != nil || result.PartialReason != confluenceSelectionHoldoutReason {
 			t.Fatalf("qualified holdout result drifted: %+v", result)
-		}
-		methods, unexpected, duplicates := backend.Summary()
-		if !equalHTTPMethods(methods, map[string]int{"GET": 1}) || unexpected != 0 || duplicates != 0 {
-			t.Fatalf("methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
 		}
 		final := confluenceSelectionBenchmarkFinal(t, confluenceSelectionFinalInput{
 			operation: "search", query: result.Query, observedCount: result.Count,
 			complete: result.Complete, truncated: result.Truncated, partialReason: result.PartialReason,
 			recommendedAction: "refine-or-investigate",
 		})
-		assertConfluenceSelectionProviderOracles(t, root, final, methods, unexpected)
+		assertConfluenceSelectionProviderOracles(t, root, final, summary.HTTPMethods, summary.UnexpectedRequests)
 	})
 }
 
@@ -107,20 +93,11 @@ func TestRepositoryConfluenceSelectionCompletenessFixtureMutationsFailClosed(t *
 		if !probeFound {
 			t.Fatal("primary fixture probe route not found")
 		}
-		backend, service := startConfluenceSelectionBackend(t, fixture)
-		result, err := service.Pull(context.Background(), app.PullOpts{
-			CQL: confluenceSelectionPrimaryQuery, Into: filepath.Join(t.TempDir(), "selection-mirror"),
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
+		result, summary, _ := runConfluenceSelectionPullCLI(t, root, fixture, "")
 		if len(result.Pages) != 1000 || result.Truncated || result.TruncatedAt != 0 {
 			t.Fatalf("empty terminal probe did not clear cap/warning: pages=%d result=%+v", len(result.Pages), result)
 		}
-		methods, unexpected, duplicates := backend.Summary()
-		if !equalHTTPMethods(methods, map[string]int{"GET": 1011}) || unexpected != 0 || duplicates != 0 {
-			t.Fatalf("methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
-		}
+		methods, unexpected := summary.HTTPMethods, summary.UnexpectedRequests
 		final := confluenceSelectionBenchmarkFinal(t, confluenceSelectionFinalInput{
 			operation: "pull", query: confluenceSelectionPrimaryQuery, observedCount: len(result.Pages),
 			complete: true, recommendedAction: "none", localMirrorWritten: true,
@@ -152,18 +129,11 @@ func TestRepositoryConfluenceSelectionCompletenessFixtureMutationsFailClosed(t *
 			t.Fatal(err)
 		}
 		fixture.Routes[0].Body = mutated
-		backend, service := startConfluenceSelectionBackend(t, fixture)
-		result, err := service.SearchQualified(context.Background(), confluenceSelectionHoldoutQuery, 25, "")
-		if err != nil {
-			t.Fatal(err)
-		}
+		result, summary := runConfluenceSelectionSearchCLI(t, root, fixture)
 		if !result.Complete || result.Truncated || result.PartialReason != "" || result.NextCursor != nil {
 			t.Fatalf("reachable-total mutation did not become complete: %+v", result)
 		}
-		methods, unexpected, duplicates := backend.Summary()
-		if !equalHTTPMethods(methods, map[string]int{"GET": 1}) || unexpected != 0 || duplicates != 0 {
-			t.Fatalf("methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
-		}
+		methods, unexpected := summary.HTTPMethods, summary.UnexpectedRequests
 		final := confluenceSelectionBenchmarkFinal(t, confluenceSelectionFinalInput{
 			operation: "search", query: result.Query, observedCount: result.Count,
 			complete: true, recommendedAction: "none",
@@ -302,20 +272,565 @@ func confluenceSelectionBenchmarkRoot(directory string) string {
 	return filepath.Join("..", "..", "benchmarks", "agent-eval", directory)
 }
 
-func startConfluenceSelectionBackend(t *testing.T, fixture MockFixture) (*MockBackend, *app.ConfluenceService) {
+type confluenceSelectionPullWire struct {
+	Root  string `json:"root"`
+	Pages []struct {
+		ID      string `json:"id"`
+		Title   string `json:"title"`
+		Path    string `json:"path"`
+		Version int    `json:"version"`
+		Assets  int    `json:"assets"`
+	} `json:"pages"`
+	Truncated   bool `json:"truncated,omitempty"`
+	TruncatedAt int  `json:"truncated_at,omitempty"`
+}
+
+type confluenceSelectionSearchWire struct {
+	SchemaVersion int    `json:"schema_version"`
+	Query         string `json:"query"`
+	Results       []struct {
+		ID      string `json:"id"`
+		Title   string `json:"title"`
+		Space   string `json:"space"`
+		Version int    `json:"version"`
+		Updated string `json:"updated,omitempty"`
+		Parent  string `json:"parent,omitempty"`
+		Excerpt string `json:"excerpt,omitempty"`
+		URL     string `json:"url,omitempty"`
+	} `json:"results"`
+	Count         int     `json:"count"`
+	Complete      bool    `json:"complete"`
+	Truncated     bool    `json:"truncated"`
+	PartialReason string  `json:"partial_reason,omitempty"`
+	NextCursor    *string `json:"next_cursor"`
+}
+
+func decodeConfluenceSelectionSearchWire(data []byte) (confluenceSelectionSearchWire, error) {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(data, &root); err != nil {
+		return confluenceSelectionSearchWire{}, fmt.Errorf("decode Confluence search members: %w", err)
+	}
+	if root == nil {
+		return confluenceSelectionSearchWire{}, fmt.Errorf("Confluence search wire must be an object")
+	}
+	if err := requireConfluenceSelectionMembers(root, "Confluence search", []string{
+		"schema_version", "query", "results", "count", "complete", "truncated", "next_cursor",
+	}, []string{"partial_reason"}); err != nil {
+		return confluenceSelectionSearchWire{}, err
+	}
+	if err := rejectNullConfluenceSelectionMembers(root, "Confluence search", []string{
+		"schema_version", "query", "results", "count", "complete", "truncated",
+	}); err != nil {
+		return confluenceSelectionSearchWire{}, err
+	}
+	if err := requireNonemptyOptionalConfluenceSelectionStrings(root, "Confluence search", []string{
+		"partial_reason",
+	}); err != nil {
+		return confluenceSelectionSearchWire{}, err
+	}
+	var results []map[string]json.RawMessage
+	if err := json.Unmarshal(root["results"], &results); err != nil {
+		return confluenceSelectionSearchWire{}, fmt.Errorf("decode Confluence search results: %w", err)
+	}
+	if results == nil {
+		return confluenceSelectionSearchWire{}, fmt.Errorf("Confluence search results must be an array")
+	}
+	for index, result := range results {
+		if err := requireConfluenceSelectionMembers(result, fmt.Sprintf("Confluence search result[%d]", index),
+			[]string{"id", "title", "space", "version"},
+			[]string{"updated", "parent", "excerpt", "url"}); err != nil {
+			return confluenceSelectionSearchWire{}, err
+		}
+		if err := rejectNullConfluenceSelectionMembers(result, fmt.Sprintf("Confluence search result[%d]", index),
+			[]string{"id", "title", "space", "version"}); err != nil {
+			return confluenceSelectionSearchWire{}, err
+		}
+		if err := requireNonemptyOptionalConfluenceSelectionStrings(
+			result,
+			fmt.Sprintf("Confluence search result[%d]", index),
+			[]string{"updated", "parent", "excerpt", "url"},
+		); err != nil {
+			return confluenceSelectionSearchWire{}, err
+		}
+	}
+	var wire confluenceSelectionSearchWire
+	if err := decodeStrict(bytes.NewReader(data), &wire); err != nil {
+		return confluenceSelectionSearchWire{}, err
+	}
+	if wire.SchemaVersion != 1 || wire.Results == nil || wire.Count != len(wire.Results) {
+		return confluenceSelectionSearchWire{}, fmt.Errorf(
+			"Confluence search wire is inconsistent: schema=%d count=%d results=%d",
+			wire.SchemaVersion, wire.Count, len(wire.Results),
+		)
+	}
+	for index, result := range wire.Results {
+		if result.ID == "" || result.Title == "" || result.Space == "" || result.Version < 1 {
+			return confluenceSelectionSearchWire{}, fmt.Errorf("Confluence search result[%d] is incomplete", index)
+		}
+	}
+	return wire, nil
+}
+
+func requireConfluenceSelectionMembers(
+	document map[string]json.RawMessage,
+	owner string,
+	required []string,
+	optional []string,
+) error {
+	allowed := make(map[string]struct{}, len(required)+len(optional))
+	for _, name := range required {
+		allowed[name] = struct{}{}
+		if _, ok := document[name]; !ok {
+			return fmt.Errorf("%s is missing required member %q", owner, name)
+		}
+	}
+	for _, name := range optional {
+		allowed[name] = struct{}{}
+	}
+	for name := range document {
+		if _, ok := allowed[name]; !ok {
+			return fmt.Errorf("%s contains unknown member %q", owner, name)
+		}
+	}
+	return nil
+}
+
+func rejectNullConfluenceSelectionMembers(
+	document map[string]json.RawMessage,
+	owner string,
+	members []string,
+) error {
+	for _, name := range members {
+		if bytes.Equal(bytes.TrimSpace(document[name]), []byte("null")) {
+			return fmt.Errorf("%s member %q must not be null", owner, name)
+		}
+	}
+	return nil
+}
+
+func requireNonemptyOptionalConfluenceSelectionStrings(
+	document map[string]json.RawMessage,
+	owner string,
+	members []string,
+) error {
+	for _, name := range members {
+		raw, ok := document[name]
+		if !ok {
+			continue
+		}
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return fmt.Errorf("%s optional member %q must not be null", owner, name)
+		}
+		var value string
+		if err := json.Unmarshal(raw, &value); err != nil || value == "" {
+			return fmt.Errorf("%s optional member %q must be a non-empty string", owner, name)
+		}
+	}
+	return nil
+}
+
+func TestConfluenceSelectionSearchWireRequiresReleasedMembers(t *testing.T) {
+	valid := []byte(`{"schema_version":1,"query":"type = page","results":[],"count":0,"complete":true,"truncated":false,"next_cursor":null}`)
+	if _, err := decodeConfluenceSelectionSearchWire(valid); err != nil {
+		t.Fatalf("valid Confluence search wire: %v", err)
+	}
+	for _, name := range []string{"schema_version", "results", "next_cursor"} {
+		t.Run("missing "+name, func(t *testing.T) {
+			var document map[string]json.RawMessage
+			if err := json.Unmarshal(valid, &document); err != nil {
+				t.Fatal(err)
+			}
+			delete(document, name)
+			mutated, err := json.Marshal(document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := decodeConfluenceSelectionSearchWire(mutated); err == nil {
+				t.Fatalf("missing required member %q passed", name)
+			}
+		})
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(valid, &document); err != nil {
+		t.Fatal(err)
+	}
+	document["complete"] = json.RawMessage("null")
+	mutated, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeConfluenceSelectionSearchWire(mutated); err == nil {
+		t.Fatal("null required boolean passed")
+	}
+	for name, raw := range map[string]json.RawMessage{
+		"partial_reason": json.RawMessage("null"),
+		"results":        json.RawMessage(`[{"id":"1","title":"Page","space":"SPACE","version":1,"excerpt":null}]`),
+	} {
+		t.Run("null optional "+name, func(t *testing.T) {
+			var candidate map[string]json.RawMessage
+			if err := json.Unmarshal(valid, &candidate); err != nil {
+				t.Fatal(err)
+			}
+			candidate[name] = raw
+			if name == "results" {
+				candidate["count"] = json.RawMessage("1")
+			}
+			mutated, err := json.Marshal(candidate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := decodeConfluenceSelectionSearchWire(mutated); err == nil {
+				t.Fatalf("null optional member in %q passed", name)
+			}
+		})
+	}
+}
+
+type confluenceSelectionMirrorFiles struct {
+	native   int
+	derived  int
+	metadata int
+}
+
+func runConfluenceSelectionPullCLI(
+	t *testing.T,
+	root string,
+	fixture MockFixture,
+	wantStderr string,
+) (confluenceSelectionPullWire, SyntheticATLProcessSummary, confluenceSelectionMirrorFiles) {
 	t.Helper()
-	backend, err := StartMockBackend(fixture)
+	process := startConfluenceSelectionCLIProcess(t, prepareConfluenceSelectionPullFixture(t, fixture), root)
+	mirrorRoot := filepath.Join(process.runtimeRoot, "selection-mirror")
+	if _, err := os.Lstat(mirrorRoot); !os.IsNotExist(err) {
+		t.Fatalf("selection mirror existed before the selected CLI: %v", err)
+	}
+	result, err := process.RunCLIJSON(t.Context(),
+		"conf", "pull", "--cql", confluenceSelectionPrimaryQuery, "--into", "selection-mirror")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(backend.Close)
-	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
-	t.Setenv("ATL_CONFLUENCE_PAT", "synthetic-token")
-	service, err := app.NewConfluence(&config.Config{ConfluenceURL: backend.Environment()["ATL_CONFLUENCE_URL"]}, "benchmark-contract")
+	if result.ExitCode != 0 || !bytes.Equal(result.Stderr, []byte(wantStderr)) {
+		t.Fatalf("selected pull exit=%d stderr=%q", result.ExitCode, result.Stderr)
+	}
+	var wire confluenceSelectionPullWire
+	if err := decodeStrict(bytes.NewReader(result.JSON), &wire); err != nil {
+		t.Fatalf("decode selected Confluence pull wire: %v", err)
+	}
+	if wire.Root != "selection-mirror" {
+		t.Fatalf("selected pull root=%q", wire.Root)
+	}
+	summary := assertConfluenceSelectionProcessSummary(t, process, 1011, "confluence_selection_pull")
+	return wire, summary, inspectConfluenceSelectionMirror(t, process, mirrorRoot, wire)
+}
+
+func runConfluenceSelectionSearchCLI(
+	t *testing.T,
+	root string,
+	fixture MockFixture,
+) (confluenceSelectionSearchWire, SyntheticATLProcessSummary) {
+	t.Helper()
+	process := startConfluenceSelectionCLIProcess(t, prepareConfluenceSelectionSearchFixture(t, fixture), root)
+	before, err := os.ReadDir(filepath.Join(process.runtimeRoot, "mirror"))
+	if err != nil || len(before) != 0 {
+		t.Fatalf("search runtime mirror before selected CLI: entries=%d err=%v", len(before), err)
+	}
+	result, err := process.RunCLIJSON(t.Context(),
+		"conf", "search", "--cql", confluenceSelectionHoldoutQuery, "--limit", "25")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return backend, service
+	if result.ExitCode != 0 || len(result.Stderr) != 0 {
+		t.Fatalf("selected search exit=%d stderr=%q", result.ExitCode, result.Stderr)
+	}
+	wire, err := decodeConfluenceSelectionSearchWire(result.JSON)
+	if err != nil {
+		t.Fatalf("decode selected Confluence search wire: %v", err)
+	}
+	after, err := os.ReadDir(filepath.Join(process.runtimeRoot, "mirror"))
+	if err != nil || len(after) != 0 {
+		t.Fatalf("selected search changed its process mirror: entries=%d err=%v", len(after), err)
+	}
+	if _, err := os.Lstat(filepath.Join(process.runtimeRoot, "selection-mirror")); !os.IsNotExist(err) {
+		t.Fatalf("selected search created a pull mirror: %v", err)
+	}
+	return wire, assertConfluenceSelectionProcessSummary(t, process, 1, "confluence_selection_search")
+}
+
+func startConfluenceSelectionCLIProcess(
+	t *testing.T,
+	fixture MockFixture,
+	root string,
+) *SyntheticATLProcess {
+	t.Helper()
+	spec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli.codex.json"))
+	process, err := StartSyntheticATLProcess(t.Context(), SyntheticATLProcessConfig{
+		Binary: repositorySyntheticATLBinary(t), Fixture: fixture,
+		ScratchRoot: privateSyntheticATLScratch(t),
+		CLIPolicy:   CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: spec.AllowedCLICommands},
+		Timeout:     2 * time.Minute,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := process.Close(); err != nil {
+			t.Errorf("close synthetic Confluence selection process: %v", err)
+		}
+	})
+	return process
+}
+
+func assertConfluenceSelectionProcessSummary(
+	t *testing.T,
+	process *SyntheticATLProcess,
+	getCount int,
+	ruleName string,
+) SyntheticATLProcessSummary {
+	t.Helper()
+	summary := process.Summary()
+	if !process.RequestSequenceComplete() || !equalHTTPMethods(summary.HTTPMethods, map[string]int{"GET": getCount}) ||
+		summary.UnexpectedRequests != 0 || summary.DuplicateRequests != 0 ||
+		!equalHTTPMethods(summary.CLIInvocations, map[string]int{ruleName: 1}) || len(summary.MCPInvocations) != 0 {
+		t.Fatalf("selected Confluence selection process drifted: summary=%+v sequence_complete=%t",
+			summary, process.RequestSequenceComplete())
+	}
+	return summary
+}
+
+func inspectConfluenceSelectionMirror(
+	t *testing.T,
+	process *SyntheticATLProcess,
+	mirrorRoot string,
+	wire confluenceSelectionPullWire,
+) confluenceSelectionMirrorFiles {
+	t.Helper()
+	canonicalRoot, err := filepath.EvalSymlinks(mirrorRoot)
+	if err != nil {
+		t.Fatalf("resolve selected pull mirror: %v", err)
+	}
+	inside, err := pathWithin(process.runtimeRoot, canonicalRoot)
+	if err != nil || !inside {
+		t.Fatalf("selected pull mirror escaped its runtime: path=%q err=%v", canonicalRoot, err)
+	}
+	seen := make(map[string]struct{}, len(wire.Pages))
+	counts := confluenceSelectionMirrorFiles{}
+	for _, page := range wire.Pages {
+		if page.ID == "" || page.Title == "" || page.Version < 1 || page.Path == "" {
+			t.Fatalf("selected pull page wire is incomplete: %+v", page)
+		}
+		if _, duplicate := seen[page.Path]; duplicate {
+			t.Fatalf("selected pull repeated mirror path %q", page.Path)
+		}
+		seen[page.Path] = struct{}{}
+		csfPath := filepath.Join(canonicalRoot, filepath.FromSlash(page.Path))
+		inside, err := pathWithin(canonicalRoot, csfPath)
+		if err != nil || !inside || filepath.Ext(csfPath) != ".csf" {
+			t.Fatalf("selected pull exposed an uncontained native path %q: %v", page.Path, err)
+		}
+		for _, artifact := range []struct {
+			path  string
+			count *int
+		}{
+			{csfPath, &counts.native},
+			{strings.TrimSuffix(csfPath, ".csf") + ".md", &counts.derived},
+			{strings.TrimSuffix(csfPath, ".csf") + ".meta.json", &counts.metadata},
+		} {
+			if err := validateConfluenceSelectionMirrorArtifact(canonicalRoot, artifact.path); err != nil {
+				t.Fatalf("selected pull artifact %q is unsafe: %v", artifact.path, err)
+			}
+			*artifact.count++
+		}
+	}
+	return counts
+}
+
+func validateConfluenceSelectionMirrorArtifact(canonicalRoot, path string) error {
+	inside, err := pathWithin(canonicalRoot, path)
+	if err != nil {
+		return fmt.Errorf("artifact path is not lexically contained: %w", err)
+	}
+	if !inside {
+		return fmt.Errorf("artifact path is not lexically contained")
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("artifact is not a regular file")
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return err
+	}
+	inside, err = pathWithin(canonicalRoot, resolved)
+	if err != nil {
+		return fmt.Errorf("artifact resolves outside the mirror: %w", err)
+	}
+	if !inside {
+		return fmt.Errorf("artifact resolves outside the mirror")
+	}
+	return nil
+}
+
+func TestConfluenceSelectionMirrorArtifactRejectsDescendantSymlink(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "page.csf"), []byte("opaque"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "nested")
+	if err := os.Symlink(outside, link); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("create test symlink: %v", err)
+		}
+		t.Fatal(err)
+	}
+	canonicalRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateConfluenceSelectionMirrorArtifact(
+		canonicalRoot,
+		filepath.Join(canonicalRoot, filepath.Base(link), "page.csf"),
+	); err == nil {
+		t.Fatal("artifact below a descendant symlink passed mirror containment")
+	}
+}
+
+type confluenceSelectionBackendSearchPage struct {
+	Results []struct {
+		Content struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+			Space struct {
+				Key string `json:"key"`
+			} `json:"space"`
+			Version struct {
+				Number int    `json:"number"`
+				When   string `json:"when"`
+			} `json:"version"`
+		} `json:"content"`
+		Title   string `json:"title"`
+		Excerpt string `json:"excerpt"`
+	} `json:"results"`
+	Size       int  `json:"size"`
+	TotalCount *int `json:"totalCount,omitempty"`
+	Links      struct {
+		Next string `json:"next,omitempty"`
+	} `json:"_links"`
+}
+
+func prepareConfluenceSelectionPullFixture(t *testing.T, fixture MockFixture) MockFixture {
+	t.Helper()
+	prepared := fixture
+	prepared.Routes = slices.Clone(fixture.Routes)
+	searchNames := map[int]string{}
+	searchIDs := map[int][]string{}
+	contentNames := map[string]string{}
+	contentOrdinal := 0
+	for index := range prepared.Routes {
+		route := &prepared.Routes[index]
+		switch {
+		case route.Path == fixture.ConfluenceContext+"/rest/api/search":
+			start, err := strconv.Atoi(route.QueryEquals["start"])
+			if err != nil || (start != 1000 && (start < 0 || start > 900 || start%100 != 0)) ||
+				route.Method != "GET" || route.Status != 200 || route.Name != "" ||
+				len(route.QueryEquals) != 4 || route.QueryEquals["cql"] != confluenceSelectionPrimaryQuery ||
+				route.QueryEquals["expand"] != "content.version,content.space" ||
+				(start == 1000 && route.QueryEquals["limit"] != "1") ||
+				(start != 1000 && route.QueryEquals["limit"] != "100") ||
+				len(route.QueryContains) != 0 || len(route.RequestBody) != 0 || len(route.Responses) != 0 {
+				t.Fatalf("retained selection search route %d is not exact: %+v", index, *route)
+			}
+			var page confluenceSelectionBackendSearchPage
+			if err := decodeStrict(bytes.NewReader(route.Body), &page); err != nil {
+				t.Fatalf("decode retained selection search page start=%d: %v", start, err)
+			}
+			ids := make([]string, len(page.Results))
+			for resultIndex, result := range page.Results {
+				if result.Content.ID == "" {
+					t.Fatalf("selection search start=%d result=%d has no id", start, resultIndex)
+				}
+				ids[resultIndex] = result.Content.ID
+			}
+			name := fmt.Sprintf("selection-search-%04d", start)
+			route.Name, route.closedQuery = name, true
+			searchNames[start], searchIDs[start] = name, ids
+		case strings.HasPrefix(route.Path, fixture.ConfluenceContext+"/rest/api/content/"):
+			id := strings.TrimPrefix(route.Path, fixture.ConfluenceContext+"/rest/api/content/")
+			if id == "" || route.Method != "GET" || route.Status != 200 || route.Name != "" ||
+				len(route.QueryEquals) != 1 || route.QueryEquals["expand"] != "body.storage,version,space,ancestors,metadata.labels" ||
+				len(route.QueryContains) != 0 || len(route.RequestBody) != 0 || len(route.Responses) != 0 {
+				t.Fatalf("retained selection content route %d is not exact: %+v", index, *route)
+			}
+			contentOrdinal++
+			name := fmt.Sprintf("selection-content-%04d", contentOrdinal)
+			route.Name, route.closedQuery = name, true
+			if _, duplicate := contentNames[id]; duplicate {
+				t.Fatalf("retained selection content repeats id %q", id)
+			}
+			contentNames[id] = name
+		default:
+			t.Fatalf("retained selection route %d has unsupported path %q", index, route.Path)
+		}
+	}
+	prepared.RequestSequence = make([]string, 0, len(prepared.Routes))
+	for start := 0; start <= 1000; start += 100 {
+		name := searchNames[start]
+		if name == "" {
+			t.Fatalf("retained selection fixture has no search start=%d", start)
+		}
+		prepared.RequestSequence = append(prepared.RequestSequence, name)
+	}
+	for start := 0; start <= 900; start += 100 {
+		for _, id := range searchIDs[start] {
+			name := contentNames[id]
+			if name == "" {
+				t.Fatalf("retained selection id %q has no content route", id)
+			}
+			prepared.RequestSequence = append(prepared.RequestSequence, name)
+		}
+	}
+	if len(prepared.RequestSequence) != 1011 || len(contentNames) != 1000 {
+		t.Fatalf("prepared selection sequence=%d content=%d", len(prepared.RequestSequence), len(contentNames))
+	}
+	if err := prepared.Validate(); err != nil {
+		t.Fatalf("prepare Confluence selection pull fixture: %v", err)
+	}
+	return prepared
+}
+
+func prepareConfluenceSelectionSearchFixture(t *testing.T, fixture MockFixture) MockFixture {
+	t.Helper()
+	if len(fixture.Routes) != 1 || len(fixture.RequestSequence) != 0 {
+		t.Fatalf("retained selection search topology drifted: routes=%d sequence=%v", len(fixture.Routes), fixture.RequestSequence)
+	}
+	prepared := fixture
+	prepared.Routes = slices.Clone(fixture.Routes)
+	route := &prepared.Routes[0]
+	wantQuery := map[string]string{
+		"cql": confluenceSelectionHoldoutQuery, "limit": "25", "start": "0",
+		"expand": "content.version,content.space",
+	}
+	if route.Name != "" || route.Method != "GET" || route.Path != fixture.ConfluenceContext+"/rest/api/search" ||
+		route.Status != 200 || !maps.Equal(route.QueryEquals, wantQuery) || len(route.QueryContains) != 0 ||
+		len(route.RequestBody) != 0 || len(route.Responses) != 0 {
+		t.Fatalf("retained selection search route is not exact: %+v", *route)
+	}
+	var page confluenceSelectionBackendSearchPage
+	if err := decodeStrict(bytes.NewReader(route.Body), &page); err != nil {
+		t.Fatalf("decode retained selection search fixture: %v", err)
+	}
+	if page.Size != len(page.Results) {
+		t.Fatalf("retained selection search size=%d results=%d", page.Size, len(page.Results))
+	}
+	route.Name, route.closedQuery = "selection-search", true
+	prepared.RequestSequence = []string{route.Name}
+	if err := prepared.Validate(); err != nil {
+		t.Fatalf("prepare Confluence selection search fixture: %v", err)
+	}
+	return prepared
 }
 
 func assertConfluenceSelectionProviderOracles(t *testing.T, root string, final []byte, methods map[string]int, unexpected int) {

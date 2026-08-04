@@ -19,6 +19,11 @@ test infrastructure so product packages never depend on the heavy evaluator.
 Selected-binary oracles also decode released Jira and Confluence evidence with
 evaluator-owned closed wire types. Jira history CLI and MCP cohorts reconcile
 the same bounded summary projection without importing product history owners.
+The retained Confluence CSV formula-safety cohorts use a byte-opaque bounded
+stdout path and parse only CSV emitted by that executable. The retained
+selection-completeness cohorts strictly decode pull/search output, reconcile
+exact warning and request sequences, and confine pull artifacts to the
+process-owned runtime without importing product app or configuration owners.
 Cross-call snapshot tests derive follow-up
 identities from the first decoded result, while exact admissions refuse any
 provenance divergence before it can reach the synthetic backend.
@@ -223,13 +228,18 @@ regular file in its skill tree, exercises bounded Jira and Confluence CLI/MCP
 fixture oracles—including Jira search pagination, history summaries with
 zero-progress stopping, board snapshot completeness, and Structure folder
 recovery, plus Confluence
-page resolution, paginated search, and multi-section evidence—
+CSV formula safety, pull/search selection completeness, page resolution,
+paginated search, and multi-section evidence—
 through that exact selected executable, and validates every supported versioned
 scenario and run contract.
 The process oracle uses only synthetic loopback endpoints, closed invocation
 policies, bounded protocol/output bytes, deadlines, an attested private
 executable copy, process-tree cleanup, and an isolated child environment; it
 does not inherit configured backend credentials.
+Its CLI boundary has one shared admission, accounting, executable-attestation,
+deadline, and output-bound path: strict JSON callers add one-value and
+duplicate-key rejection after execution, while byte callers preserve stdout
+and stderr exactly without trimming, UTF-8 validation, or format inference.
 An internal ATL MCP run performs the same bounded, credential-free, single-attempt
 catalog check against its selected executable before creating output or starting
 a provider/backend path. `agent-eval-contract` includes that gate, then runs the

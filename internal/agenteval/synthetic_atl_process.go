@@ -52,6 +52,15 @@ type SyntheticCLIResult struct {
 	Stderr   []byte
 }
 
+// SyntheticCLIBytesResult preserves the selected binary's bounded stdout and
+// stderr byte-for-byte. It deliberately assigns no text, UTF-8, or format
+// meaning to either stream.
+type SyntheticCLIBytesResult struct {
+	ExitCode int
+	Stdout   []byte
+	Stderr   []byte
+}
+
 // SyntheticMCPResult preserves both successful and application-error tool
 // evidence. Protocol/transport failures remain Go errors; an ATL tool error is
 // represented by IsError with its bounded text and optional structured object.
@@ -329,23 +338,55 @@ func syntheticATLProcessEnvironment(backend *MockBackend, runtimeRoot string) []
 	return flattenEnvironment(values)
 }
 
-// RunCLIJSON admits one exact CLI command, executes it once, and preserves a
-// bounded nonzero exit without treating it as retryable process failure.
+// RunCLIBytes admits one exact CLI command and returns its bounded output
+// byte-for-byte. A nonzero exit is evidence, not a retryable process failure.
+func (p *SyntheticATLProcess) RunCLIBytes(ctx context.Context, args ...string) (SyntheticCLIBytesResult, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.runCLIBytesLocked(ctx, args)
+}
+
+// RunCLIJSON executes through the same single admission/accounting path as
+// RunCLIBytes, then requires successful stdout to be exactly one strict JSON
+// value. It never re-executes the selected binary while interpreting stdout.
 func (p *SyntheticATLProcess) RunCLIJSON(ctx context.Context, args ...string) (SyntheticCLIResult, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.closed {
-		return SyntheticCLIResult{}, fmt.Errorf("synthetic ATL process is closed")
-	}
-	if err := p.binary.verify(); err != nil {
+	bytesResult, err := p.runCLIBytesLocked(ctx, args)
+	if err != nil {
 		return SyntheticCLIResult{}, err
 	}
+	result := SyntheticCLIResult{
+		ExitCode: bytesResult.ExitCode,
+		Stderr:   append([]byte(nil), bytesResult.Stderr...),
+	}
+	if result.ExitCode != 0 {
+		return result, nil
+	}
+	value, err := oneSyntheticJSONValue(bytesResult.Stdout)
+	if err != nil {
+		return SyntheticCLIResult{}, err
+	}
+	result.JSON = value
+	return result, nil
+}
+
+// runCLIBytesLocked is the sole CLI admission and execution path. The caller
+// holds p.mu across admission, one accounting increment, both executable
+// attestations, and bounded process execution.
+func (p *SyntheticATLProcess) runCLIBytesLocked(ctx context.Context, args []string) (SyntheticCLIBytesResult, error) {
+	if p.closed {
+		return SyntheticCLIBytesResult{}, fmt.Errorf("synthetic ATL process is closed")
+	}
+	if err := p.binary.verify(); err != nil {
+		return SyntheticCLIBytesResult{}, err
+	}
 	if len(p.config.CLIPolicy.Rules) == 0 {
-		return SyntheticCLIResult{}, fmt.Errorf("synthetic ATL process has no CLI admission")
+		return SyntheticCLIBytesResult{}, fmt.Errorf("synthetic ATL process has no CLI admission")
 	}
 	match, err := p.config.CLIPolicy.Match(args)
 	if err != nil || p.cliCounts[match.Name] >= match.MaxInvocations {
-		return SyntheticCLIResult{}, fmt.Errorf("synthetic ATL CLI invocation is outside its reviewed budget")
+		return SyntheticCLIBytesResult{}, fmt.Errorf("synthetic ATL CLI invocation is outside its reviewed budget")
 	}
 	p.cliCounts[match.Name]++
 	commandResult, runErr := executeBoundedCommand(
@@ -353,24 +394,16 @@ func (p *SyntheticATLProcess) RunCLIJSON(ctx context.Context, args ...string) (S
 		p.config.Timeout, p.config.MaxStdoutBytes, p.config.MaxStderrBytes,
 	)
 	if verifyErr := p.binary.verify(); verifyErr != nil {
-		return SyntheticCLIResult{}, verifyErr
+		return SyntheticCLIBytesResult{}, verifyErr
 	}
 	if runErr != nil {
-		return SyntheticCLIResult{}, runErr
+		return SyntheticCLIBytesResult{}, runErr
 	}
-	result := SyntheticCLIResult{
+	return SyntheticCLIBytesResult{
 		ExitCode: commandResult.exitCode,
+		Stdout:   append([]byte(nil), commandResult.stdout...),
 		Stderr:   append([]byte(nil), commandResult.stderr...),
-	}
-	if result.ExitCode != 0 {
-		return result, nil
-	}
-	value, err := oneSyntheticJSONValue(commandResult.stdout)
-	if err != nil {
-		return SyntheticCLIResult{}, err
-	}
-	result.JSON = value
-	return result, nil
+	}, nil
 }
 
 func oneSyntheticJSONValue(data []byte) (json.RawMessage, error) {
