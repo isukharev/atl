@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -304,6 +305,98 @@ type confluenceSelectionSearchWire struct {
 	NextCursor    *string `json:"next_cursor"`
 }
 
+func decodeConfluenceSelectionSearchWire(data []byte) (confluenceSelectionSearchWire, error) {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(data, &root); err != nil {
+		return confluenceSelectionSearchWire{}, fmt.Errorf("decode Confluence search members: %w", err)
+	}
+	if root == nil {
+		return confluenceSelectionSearchWire{}, fmt.Errorf("Confluence search wire must be an object")
+	}
+	if err := requireConfluenceSelectionMembers(root, "Confluence search", []string{
+		"schema_version", "query", "results", "count", "complete", "truncated", "next_cursor",
+	}, []string{"partial_reason"}); err != nil {
+		return confluenceSelectionSearchWire{}, err
+	}
+	var results []map[string]json.RawMessage
+	if err := json.Unmarshal(root["results"], &results); err != nil {
+		return confluenceSelectionSearchWire{}, fmt.Errorf("decode Confluence search results: %w", err)
+	}
+	if results == nil {
+		return confluenceSelectionSearchWire{}, fmt.Errorf("Confluence search results must be an array")
+	}
+	for index, result := range results {
+		if err := requireConfluenceSelectionMembers(result, fmt.Sprintf("Confluence search result[%d]", index),
+			[]string{"id", "title", "space", "version"},
+			[]string{"updated", "parent", "excerpt", "url"}); err != nil {
+			return confluenceSelectionSearchWire{}, err
+		}
+	}
+	var wire confluenceSelectionSearchWire
+	if err := decodeStrict(bytes.NewReader(data), &wire); err != nil {
+		return confluenceSelectionSearchWire{}, err
+	}
+	if wire.SchemaVersion != 1 || wire.Results == nil || wire.Count != len(wire.Results) {
+		return confluenceSelectionSearchWire{}, fmt.Errorf(
+			"Confluence search wire is inconsistent: schema=%d count=%d results=%d",
+			wire.SchemaVersion, wire.Count, len(wire.Results),
+		)
+	}
+	for index, result := range wire.Results {
+		if result.ID == "" || result.Title == "" || result.Space == "" || result.Version < 1 {
+			return confluenceSelectionSearchWire{}, fmt.Errorf("Confluence search result[%d] is incomplete", index)
+		}
+	}
+	return wire, nil
+}
+
+func requireConfluenceSelectionMembers(
+	document map[string]json.RawMessage,
+	owner string,
+	required []string,
+	optional []string,
+) error {
+	allowed := make(map[string]struct{}, len(required)+len(optional))
+	for _, name := range required {
+		allowed[name] = struct{}{}
+		if _, ok := document[name]; !ok {
+			return fmt.Errorf("%s is missing required member %q", owner, name)
+		}
+	}
+	for _, name := range optional {
+		allowed[name] = struct{}{}
+	}
+	for name := range document {
+		if _, ok := allowed[name]; !ok {
+			return fmt.Errorf("%s contains unknown member %q", owner, name)
+		}
+	}
+	return nil
+}
+
+func TestConfluenceSelectionSearchWireRequiresReleasedMembers(t *testing.T) {
+	valid := []byte(`{"schema_version":1,"query":"type = page","results":[],"count":0,"complete":true,"truncated":false,"next_cursor":null}`)
+	if _, err := decodeConfluenceSelectionSearchWire(valid); err != nil {
+		t.Fatalf("valid Confluence search wire: %v", err)
+	}
+	for _, name := range []string{"schema_version", "results", "next_cursor"} {
+		t.Run("missing "+name, func(t *testing.T) {
+			var document map[string]json.RawMessage
+			if err := json.Unmarshal(valid, &document); err != nil {
+				t.Fatal(err)
+			}
+			delete(document, name)
+			mutated, err := json.Marshal(document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := decodeConfluenceSelectionSearchWire(mutated); err == nil {
+				t.Fatalf("missing required member %q passed", name)
+			}
+		})
+	}
+}
+
 type confluenceSelectionMirrorFiles struct {
 	native   int
 	derived  int
@@ -360,8 +453,8 @@ func runConfluenceSelectionSearchCLI(
 	if result.ExitCode != 0 || len(result.Stderr) != 0 {
 		t.Fatalf("selected search exit=%d stderr=%q", result.ExitCode, result.Stderr)
 	}
-	var wire confluenceSelectionSearchWire
-	if err := decodeStrict(bytes.NewReader(result.JSON), &wire); err != nil {
+	wire, err := decodeConfluenceSelectionSearchWire(result.JSON)
+	if err != nil {
 		t.Fatalf("decode selected Confluence search wire: %v", err)
 	}
 	after, err := os.ReadDir(filepath.Join(process.runtimeRoot, "mirror"))
@@ -453,14 +546,64 @@ func inspectConfluenceSelectionMirror(
 			{strings.TrimSuffix(csfPath, ".csf") + ".md", &counts.derived},
 			{strings.TrimSuffix(csfPath, ".csf") + ".meta.json", &counts.metadata},
 		} {
-			info, err := os.Stat(artifact.path)
-			if err != nil || !info.Mode().IsRegular() {
-				t.Fatalf("selected pull artifact %q is unavailable: %v", artifact.path, err)
+			if err := validateConfluenceSelectionMirrorArtifact(canonicalRoot, artifact.path); err != nil {
+				t.Fatalf("selected pull artifact %q is unsafe: %v", artifact.path, err)
 			}
 			*artifact.count++
 		}
 	}
 	return counts
+}
+
+func validateConfluenceSelectionMirrorArtifact(canonicalRoot, path string) error {
+	inside, err := pathWithin(canonicalRoot, path)
+	if err != nil {
+		return fmt.Errorf("artifact path is not lexically contained: %w", err)
+	}
+	if !inside {
+		return fmt.Errorf("artifact path is not lexically contained")
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("artifact is not a regular file")
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return err
+	}
+	inside, err = pathWithin(canonicalRoot, resolved)
+	if err != nil {
+		return fmt.Errorf("artifact resolves outside the mirror: %w", err)
+	}
+	if !inside {
+		return fmt.Errorf("artifact resolves outside the mirror")
+	}
+	return nil
+}
+
+func TestConfluenceSelectionMirrorArtifactRejectsDescendantSymlink(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "page.csf"), []byte("opaque"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "nested")
+	if err := os.Symlink(outside, link); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("create test symlink: %v", err)
+		}
+		t.Fatal(err)
+	}
+	canonicalRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateConfluenceSelectionMirrorArtifact(canonicalRoot, filepath.Join(link, "page.csf")); err == nil {
+		t.Fatal("artifact below a descendant symlink passed mirror containment")
+	}
 }
 
 type confluenceSelectionBackendSearchPage struct {
