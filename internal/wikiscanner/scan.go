@@ -34,6 +34,12 @@ func ParseHeading(line string) (level int, body string, ok bool) {
 	return int(m[1][0] - '0'), m[2], true
 }
 
+// IsHeading reports whether line is a Jira wiki heading.
+func IsHeading(line string) bool {
+	_, _, ok := ParseHeading(line)
+	return ok
+}
+
 // ParseCodeOpen recognizes a {code} or {noformat} opening line.
 func ParseCodeOpen(line string) (macro, params, rest string, ok bool) {
 	m := codeOpenRe.FindStringSubmatch(line)
@@ -41,6 +47,12 @@ func ParseCodeOpen(line string) (macro, params, rest string, ok bool) {
 		return "", "", "", false
 	}
 	return m[1], m[2], m[3], true
+}
+
+// IsCodeOpen reports whether line opens a Jira wiki code or noformat macro.
+func IsCodeOpen(line string) bool {
+	_, _, _, ok := ParseCodeOpen(line)
+	return ok
 }
 
 // ParseQuoteOpen recognizes a {quote} opening line and returns trailing text.
@@ -52,6 +64,12 @@ func ParseQuoteOpen(line string) (rest string, ok bool) {
 	return m[1], true
 }
 
+// IsQuoteOpen reports whether line opens a Jira wiki quote macro.
+func IsQuoteOpen(line string) bool {
+	_, ok := ParseQuoteOpen(line)
+	return ok
+}
+
 // ParsePanelOpen recognizes a {panel} opening line.
 func ParsePanelOpen(line string) (params, rest string, ok bool) {
 	m := panelOpenRe.FindStringSubmatch(line)
@@ -59,6 +77,12 @@ func ParsePanelOpen(line string) (params, rest string, ok bool) {
 		return "", "", false
 	}
 	return m[1], m[2], true
+}
+
+// IsPanelOpen reports whether line opens a Jira wiki panel macro.
+func IsPanelOpen(line string) bool {
+	_, _, ok := ParsePanelOpen(line)
+	return ok
 }
 
 // IsHorizontalRule reports whether line is a Jira wiki horizontal rule.

@@ -71,20 +71,20 @@ func scanWikiBlocks(base string) []block {
 		switch {
 		case strings.TrimSpace(ln) == "":
 			i++ // blank line: a gap, preserved by the assembler
-		case isWikiHeading(ln), wikiscanner.IsHorizontalRule(ln):
+		case wikiscanner.IsHeading(ln), wikiscanner.IsHorizontalRule(ln):
 			add(i, i)
 			i++
-		case isWikiCodeOpen(ln):
+		case wikiscanner.IsCodeOpen(ln):
 			macro, _, rest, _ := wikiscanner.ParseCodeOpen(ln)
 			end := macroEnd(lines, i, rest, "{"+macro+"}")
 			add(i, end)
 			i = end + 1
-		case isWikiQuoteOpen(ln):
+		case wikiscanner.IsQuoteOpen(ln):
 			rest, _ := wikiscanner.ParseQuoteOpen(ln)
 			end := macroEnd(lines, i, rest, "{quote}")
 			add(i, end)
 			i = end + 1
-		case isWikiPanelOpen(ln):
+		case wikiscanner.IsPanelOpen(ln):
 			_, rest, _ := wikiscanner.ParsePanelOpen(ln)
 			end := macroEnd(lines, i, rest, "{panel}")
 			add(i, end)
@@ -145,28 +145,8 @@ func macroEnd(lines []wline, i int, rest, closeTag string) int {
 // run stops before it (the same triggers wikimd's scanner tries before its
 // paragraph fallthrough).
 func isSpecialStart(line string) bool {
-	return isWikiHeading(line) || isWikiCodeOpen(line) || isWikiQuoteOpen(line) || isWikiPanelOpen(line) ||
+	return wikiscanner.IsHeading(line) || wikiscanner.IsCodeOpen(line) || wikiscanner.IsQuoteOpen(line) || wikiscanner.IsPanelOpen(line) ||
 		wikiscanner.IsHorizontalRule(line) || strings.HasPrefix(line, "|") || wikiscanner.IsListLine(line)
-}
-
-func isWikiHeading(line string) bool {
-	_, _, ok := wikiscanner.ParseHeading(line)
-	return ok
-}
-
-func isWikiCodeOpen(line string) bool {
-	_, _, _, ok := wikiscanner.ParseCodeOpen(line)
-	return ok
-}
-
-func isWikiQuoteOpen(line string) bool {
-	_, ok := wikiscanner.ParseQuoteOpen(line)
-	return ok
-}
-
-func isWikiPanelOpen(line string) bool {
-	_, _, ok := wikiscanner.ParsePanelOpen(line)
-	return ok
 }
 
 // splitMDBlocks splits a markdown fragment into trimmed blocks (blank-line

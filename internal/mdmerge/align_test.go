@@ -1,6 +1,12 @@
 package mdmerge
 
-import "testing"
+import (
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/isukharev/atl/internal/domain"
+)
 
 func TestLCSRefusesQuadraticAllocationBeyondBudget(t *testing.T) {
 	a := make([]string, 1001)
@@ -32,20 +38,17 @@ func TestLCSKeepsExactBehaviorForSmallInput(t *testing.T) {
 	}
 }
 
-func TestLCSUsesFullMatrixDimensionsAtBudget(t *testing.T) {
-	atBudget := make([]string, 999) // (999+1)^2 == maxLCSCells
-	if _, _, complete := lcs(atBudget, atBudget); !complete {
-		t.Fatal("exact matrix budget unexpectedly refused")
+func TestMergeAlignmentBudgetKeepsCheckFailedSentinel(t *testing.T) {
+	base := strings.Repeat("<p>base</p>", 1000)
+	edited := strings.TrimSuffix(strings.Repeat("edited\n\n", 1000), "\n\n")
+	out, report, err := Merge([]byte(base), nil, edited, Options{AllowFragmentLoss: true})
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("error = %v, want ErrCheckFailed", err)
 	}
-	over := make([]string, 1000) // (1000+1)^2 > maxLCSCells
-	if a, b, complete := lcs(over, over); complete || a != nil || b != nil {
-		t.Fatal("matrix above exact budget must be refused before allocation")
+	if got, want := err.Error(), "check failed: Markdown alignment exceeds the bounded safety budget; edit the native .csf directly"; got != want {
+		t.Fatalf("error = %q, want %q", got, want)
 	}
-}
-
-func TestLCSItemCapAppliesWithEmptyPeer(t *testing.T) {
-	large := make([]string, maxLCSItems+1)
-	if a, b, complete := lcs(large, nil); complete || a != nil || b != nil {
-		t.Fatal("one-sided oversized alignment must be refused before match allocation")
+	if out != nil || report != nil {
+		t.Fatalf("bounded refusal returned output/report: %q / %+v", out, report)
 	}
 }
