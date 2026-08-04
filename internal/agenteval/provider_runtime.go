@@ -17,7 +17,6 @@ import (
 	"sync"
 
 	"github.com/isukharev/atl/internal/safepath"
-	"github.com/isukharev/atl/internal/skillmeta"
 )
 
 const codexAuthMaxBytes = 4 << 20
@@ -228,8 +227,7 @@ func provisionCodexBenchmarkPlugin(ctx context.Context, agentBinary, pluginRoot 
 	if err != nil {
 		return fmt.Errorf("provision isolated codex benchmark plugin: source digest")
 	}
-	sourceSkillRoot := filepath.Join(sourcePackage, "skills")
-	sourceSkillCatalog, err := skillmeta.LoadSource(sourceSkillRoot)
+	sourceSkillCatalog, err := VerifyCodexSkillPackage(sourcePackage)
 	if err != nil {
 		return fmt.Errorf("provision isolated codex benchmark plugin: source catalog")
 	}
@@ -279,7 +277,7 @@ func provisionCodexBenchmarkPlugin(ctx context.Context, agentBinary, pluginRoot 
 	if info, err := os.Lstat(pluginSkillRoot); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("verify isolated codex benchmark plugin: installed skill root")
 	}
-	if err := verifyInstalledCodexSkillCatalog(sourceSkillCatalog, pluginSkillRoot); err != nil {
+	if _, err := VerifyCodexSkillPackage(installedPath); err != nil {
 		return fmt.Errorf("verify isolated codex benchmark plugin: installed catalog")
 	}
 	listData, err := runCodexPluginCommand(ctx, agentBinary, environment, "plugin", "list", "--json")
@@ -336,7 +334,7 @@ func (c *providerRuntimeCapsule) verifyPluginPackage() error {
 	return nil
 }
 
-func codexPromptExposesImplicitSkills(data []byte, catalog skillmeta.Catalog, installedSkillRoot string) bool {
+func codexPromptExposesImplicitSkills(data []byte, catalog CodexSkillCatalog, installedSkillRoot string) bool {
 	if !filepath.IsAbs(installedSkillRoot) || filepath.Clean(installedSkillRoot) != installedSkillRoot {
 		return false
 	}
@@ -353,7 +351,7 @@ func codexPromptExposesImplicitSkills(data []byte, catalog skillmeta.Catalog, in
 	if json.Unmarshal(data, &messages) != nil {
 		return false
 	}
-	byName := make(map[string]skillmeta.Skill, len(catalog.Skills))
+	byName := make(map[string]CodexSkillCatalogSkill, len(catalog.Skills))
 	for _, skill := range catalog.Skills {
 		byName[skill.Name] = skill
 	}
@@ -384,7 +382,7 @@ func codexPromptExposesImplicitSkills(data []byte, catalog skillmeta.Catalog, in
 					continue
 				}
 				skill, known := byName[name]
-				if !known || !skill.OpenAI.AllowImplicitInvocation || canonicalPath != expectedPath {
+				if !known || !skill.AllowImplicitInvocation || canonicalPath != expectedPath {
 					return false
 				}
 				if _, duplicate := seen[name]; duplicate {
@@ -396,7 +394,7 @@ func codexPromptExposesImplicitSkills(data []byte, catalog skillmeta.Catalog, in
 	}
 	want := 0
 	for _, skill := range catalog.Skills {
-		if !skill.OpenAI.AllowImplicitInvocation {
+		if !skill.AllowImplicitInvocation {
 			continue
 		}
 		want++
@@ -425,19 +423,6 @@ func parseCodexSkillInventoryLine(line string) (name, path string, ok bool) {
 		return "", "", false
 	}
 	return name, path, true
-}
-
-func verifyInstalledCodexSkillCatalog(source skillmeta.Catalog, installedRoot string) error {
-	installed, err := skillmeta.LoadSource(installedRoot)
-	if err != nil || len(source.Skills) == 0 || len(installed.Skills) != len(source.Skills) {
-		return fmt.Errorf("installed Codex skill catalog is invalid")
-	}
-	for index := range source.Skills {
-		if source.Skills[index] != installed.Skills[index] {
-			return fmt.Errorf("installed Codex skill catalog differs from the reviewed package")
-		}
-	}
-	return nil
 }
 
 type codexMCPInventoryEntry struct {

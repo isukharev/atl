@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "skills": [
+    {
+      "name": "atl",
+      "allow_implicit_invocation": true
+    },
+    {
+      "name": "setup",
+      "allow_implicit_invocation": false
+    }
+  ],
+  "files": [
+    {
+      "path": "atl/SKILL.md",
+      "sha256": "8a652ef5ff5187d19beeab61764ffc8fa72aceb056441eaae452e5c7b57d817d"
+    },
+    {
+      "path": "atl/agents/openai.yaml",
+      "sha256": "b564b83e1dd1357d7c41fe6aafe93640f2d322ce90a95dd826a031f34146dcb0"
+    },
+    {
+      "path": "setup/SKILL.md",
+      "sha256": "777044cc4b499b3cf9f57a63106f3952f17e7962324f8dfc432aea0abdbd833b"
+    }
+  ]
+}

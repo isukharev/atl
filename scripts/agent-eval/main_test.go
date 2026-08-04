@@ -20,7 +20,7 @@ import (
 )
 
 func TestRunRejectsMissingAndUnknownCommands(t *testing.T) {
-	for _, args := range [][]string{nil, {"unknown"}, {"evaluate"}, {"aggregate"}, {"aggregate-root"}, {"aggregate-root", "one", "two"}, {"inventory"}, {"inventory", "one", "two"}, {"validate-pair"}, {"validate-pair", "one.json"}, {"verify-atl-capabilities"}, {"verify-atl-capabilities", "one", "two"}} {
+	for _, args := range [][]string{nil, {"unknown"}, {"evaluate"}, {"aggregate"}, {"aggregate-root"}, {"aggregate-root", "one", "two"}, {"inventory"}, {"inventory", "one", "two"}, {"validate-pair"}, {"validate-pair", "one.json"}, {"verify-atl-capabilities"}, {"verify-atl-capabilities", "one", "two"}, {"verify-codex-skill-package"}, {"verify-codex-skill-package", "one", "two"}} {
 		if err := run(args); err == nil {
 			t.Fatalf("run(%v) succeeded", args)
 		}

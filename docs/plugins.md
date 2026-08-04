@@ -30,16 +30,17 @@ file with that header, stop and edit the `skills-src/` original instead.
 
 1. Edit files under `skills-src/`.
 2. `make gen-plugins` — regenerates both output trees wholesale and refreshes
-   the Codex `.mcp.json` copy.
-3. Commit **all three trees in the same PR**. When MCP config changes, commit
-   root `.mcp.json`, the generated Codex copy, and both manifest references too.
+   the Codex `.mcp.json` copy and versioned skill-catalog companion.
+3. Commit **every generated output in the same PR**. When MCP config changes,
+   commit root `.mcp.json`, the generated Codex copy, and both manifest
+   references too.
 
 CI runs `make check-plugins` (validate metadata and routing, regenerate, then
 `git status --porcelain` over the outputs), so malformed metadata and stale or
 hand-edited output trees fail the build. Complete source, routing, and corpus
 validation finishes before the generator removes either output tree. A runtime
-filesystem failure during publication may leave a generated tree partial;
-rerun `make gen-plugins` to reconstruct both derived trees. The same target runs
+filesystem failure during publication may leave generated output partial;
+rerun `make gen-plugins` to reconstruct it. The same target runs
 `check-skill-safety`: a shell fence preceded by
 `<!-- atl:read-only-shell -->` must begin with the inherited
 `export ATL_READ_ONLY=1` guard. Designated read-only workflow skills also have
@@ -81,6 +82,15 @@ declared classes are mutually exclusive: focused workflow, cross-service
 discovery, direct single-service work, and the `atl` orientation/mirror role
 each have one intended route. Code-only Jira or Confluence mentions are
 declared no-activation cases; provider behavior is measured separately.
+
+`plugins/atl/skill-catalog.v1.json` is a generated companion contract for
+offline consumers of the Codex package. It contains the sorted skill names and
+implicit-invocation policy plus a SHA-256 inventory of every regular file under
+`plugins/atl/skills/`. It deliberately lives outside that discovery root, so it
+is included in the complete plugin-package identity without appearing as an
+extra skill or changing the provider-visible skill-tree digest. Do not edit the
+companion by hand; `make gen-plugins` derives it from the same validated source
+snapshot and in-memory Codex render as the generated tree.
 
 `skills-src/routing.v1.json` records provider-neutral logical ids, implicit
 policy, ownership classes, and exclusion assertions. The synthetic prompts

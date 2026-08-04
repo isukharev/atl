@@ -198,7 +198,9 @@ go run ./scripts/agent-eval inventory benchmarks/agent-eval
 `agent-eval-compat` is the small uncached product/evaluator boundary: it builds
 the current `atl`, requires its complete offline schema-v1 capability catalog
 to equal the evaluator's pinned released artifact, checks the exact CLI-error
-vocabulary, and validates every supported versioned scenario and run contract.
+vocabulary, verifies the generated Codex plugin skill catalog against every
+regular file in its skill tree, and validates every supported versioned
+scenario and run contract.
 An internal ATL MCP run performs the same bounded, credential-free, single-attempt
 catalog check against its selected executable before creating output or starting
 a provider/backend path. `agent-eval-contract` includes that gate, then runs the
@@ -206,6 +208,14 @@ complete evaluator and runner test suites uncached. Ordinary
 `make test` and `make race` use a fail-closed package classifier and do not
 execute the heavy evaluator; release tags retain a separate Linux evaluator
 race gate.
+
+The skill catalog is a versioned JSON companion in the selected Codex plugin
+package, not metadata reported by the ATL binary. The evaluator owns only its
+strict wire decoder and the implicit-skill projection needed for prompt
+inventory qualification; product YAML/frontmatter parsing remains owned by the
+plugin generator. Runtime provisioning validates both source and installed
+package copies before the first provider prompt is accepted, while the existing
+complete package digest continues to bind all package bytes.
 
 The inventory command validates the whole corpus before returning only
 aggregate category/task-class counts. Its success and error outputs never emit

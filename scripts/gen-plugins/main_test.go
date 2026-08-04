@@ -2,8 +2,12 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -155,6 +159,153 @@ func TestRenderFileSkipsRoutingMetadata(t *testing.T) {
 		got, err := renderFile([]byte(`{"schema_version":1}`), skillmeta.RoutingFileName, platform)
 		if err != nil || got != nil {
 			t.Fatalf("platform %s: output=%q err=%v", platform.name, got, err)
+		}
+	}
+}
+
+func TestBuildCodexSkillCatalogIsDeterministicAndComplete(t *testing.T) {
+	catalog := skillmeta.Catalog{Skills: []skillmeta.Skill{
+		{Name: "zeta", OpenAI: skillmeta.OpenAI{AllowImplicitInvocation: false}},
+		{Name: "alpha", OpenAI: skillmeta.OpenAI{AllowImplicitInvocation: true}},
+	}}
+	rendered := []renderedFile{
+		{rel: filepath.Join("zeta", "SKILL.md"), data: []byte("zeta\n")},
+		{rel: filepath.Join("alpha", "agents", "openai.yaml"), data: []byte("implicit: true\n")},
+		{rel: filepath.Join("alpha", "SKILL.md"), data: []byte("alpha\n")},
+	}
+
+	first, err := buildCodexSkillCatalog(catalog, rendered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := buildCodexSkillCatalog(catalog, append([]renderedFile(nil), rendered...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(first, second) || len(first) == 0 || first[len(first)-1] != '\n' {
+		t.Fatal("catalog encoding is not deterministic newline-terminated JSON")
+	}
+
+	var got codexSkillCatalog
+	if err := json.Unmarshal(first, &got); err != nil {
+		t.Fatal(err)
+	}
+	wantSkills := []codexSkillCatalogSkill{
+		{Name: "alpha", AllowImplicitInvocation: true},
+		{Name: "zeta", AllowImplicitInvocation: false},
+	}
+	if got.SchemaVersion != codexCatalogSchema || !reflect.DeepEqual(got.Skills, wantSkills) {
+		t.Fatalf("catalog semantics=%+v schema=%d", got.Skills, got.SchemaVersion)
+	}
+	wantPaths := []string{"alpha/SKILL.md", "alpha/agents/openai.yaml", "zeta/SKILL.md"}
+	if len(got.Files) != len(wantPaths) {
+		t.Fatalf("catalog files=%d, want %d", len(got.Files), len(wantPaths))
+	}
+	byPath := make(map[string][]byte, len(rendered))
+	for _, file := range rendered {
+		byPath[filepath.ToSlash(file.rel)] = file.data
+	}
+	for index, file := range got.Files {
+		if file.Path != wantPaths[index] {
+			t.Fatalf("catalog file[%d]=%q, want %q", index, file.Path, wantPaths[index])
+		}
+		digest := sha256.Sum256(byPath[file.Path])
+		if file.SHA256 != hex.EncodeToString(digest[:]) {
+			t.Fatalf("catalog digest for %q does not cover exact rendered bytes", file.Path)
+		}
+	}
+}
+
+func TestBuildCodexSkillCatalogRejectsDuplicateOrEscapingInventory(t *testing.T) {
+	validCatalog := skillmeta.Catalog{Skills: []skillmeta.Skill{{Name: "demo"}}}
+	validFiles := []renderedFile{{rel: "demo/SKILL.md", data: []byte("demo")}}
+	for name, input := range map[string]struct {
+		catalog skillmeta.Catalog
+		files   []renderedFile
+	}{
+		"duplicate skill": {
+			catalog: skillmeta.Catalog{Skills: []skillmeta.Skill{{Name: "demo"}, {Name: "demo"}}},
+			files:   validFiles,
+		},
+		"duplicate file": {
+			catalog: validCatalog,
+			files:   []renderedFile{validFiles[0], validFiles[0]},
+		},
+		"escaping file": {
+			catalog: validCatalog,
+			files:   []renderedFile{{rel: filepath.Join("..", "escape"), data: []byte("escape")}},
+		},
+		"noncanonical file": {
+			catalog: validCatalog,
+			files: []renderedFile{{
+				rel:  "demo" + string(filepath.Separator) + ".." + string(filepath.Separator) + "demo" + string(filepath.Separator) + "SKILL.md",
+				data: []byte("demo"),
+			}},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := buildCodexSkillCatalog(input.catalog, input.files); err == nil {
+				t.Fatal("invalid catalog inventory passed")
+			}
+		})
+	}
+}
+
+func TestRunPublishesCodexSkillCatalogOutsideProviderSkillRoot(t *testing.T) {
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(original) })
+	writeValidGeneratorSkill(t)
+	if err := os.MkdirAll(filepath.Join("plugins", "atl"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(codexSkillCatalogPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var catalog codexSkillCatalog
+	if err := json.Unmarshal(data, &catalog); err != nil {
+		t.Fatal(err)
+	}
+	if catalog.SchemaVersion != codexCatalogSchema || !reflect.DeepEqual(catalog.Skills, []codexSkillCatalogSkill{{Name: "demo", AllowImplicitInvocation: true}}) {
+		t.Fatalf("published catalog semantics=%+v schema=%d", catalog.Skills, catalog.SchemaVersion)
+	}
+	skillRoot := filepath.Join("plugins", "atl", "skills")
+	entries, err := os.ReadDir(skillRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "demo" || !entries[0].IsDir() {
+		t.Fatalf("provider-visible root contains companion metadata: %+v", entries)
+	}
+	if _, err := os.Stat(filepath.Join(skillRoot, filepath.Base(codexSkillCatalogPath))); !os.IsNotExist(err) {
+		t.Fatalf("catalog entered provider-visible skill root: %v", err)
+	}
+	wantPaths := []string{"demo/SKILL.md", "demo/agents/openai.yaml"}
+	if len(catalog.Files) != len(wantPaths) {
+		t.Fatalf("published file inventory=%d, want %d", len(catalog.Files), len(wantPaths))
+	}
+	for index, file := range catalog.Files {
+		if file.Path != wantPaths[index] {
+			t.Fatalf("published file[%d]=%q, want %q", index, file.Path, wantPaths[index])
+		}
+		generated, err := os.ReadFile(filepath.Join(skillRoot, filepath.FromSlash(file.Path)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest := sha256.Sum256(generated)
+		if file.SHA256 != hex.EncodeToString(digest[:]) {
+			t.Fatalf("published digest for %q does not match generated bytes", file.Path)
 		}
 	}
 }
@@ -381,6 +532,48 @@ func TestRunRejectsSymlinkedOutputParentBeforeRemovingOutputs(t *testing.T) {
 	}
 }
 
+func TestRunRejectsSymlinkedCatalogDestinationBeforeRemovingOutputs(t *testing.T) {
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(original) })
+
+	writeValidGeneratorSkill(t)
+	writeGeneratorSentinels(t)
+	external := filepath.Join(t.TempDir(), "external-catalog.json")
+	if err := os.WriteFile(external, []byte("external sentinel"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(codexSkillCatalogPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(external, codexSkillCatalogPath); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if err := run(); err == nil || !strings.Contains(err.Error(), "catalog output") {
+		t.Fatalf("symlinked catalog destination passed: %v", err)
+	}
+	for path, want := range map[string]string{
+		filepath.Join("skills", "keep"):                   "claude sentinel",
+		filepath.Join("plugins", "atl", "skills", "keep"): "codex sentinel",
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil || string(data) != want {
+			t.Fatalf("output %s was touched: data=%q err=%v", path, data, err)
+		}
+	}
+	data, err := os.ReadFile(external)
+	if err != nil || string(data) != "external sentinel" {
+		t.Fatalf("external catalog target was touched: data=%q err=%v", data, err)
+	}
+}
+
 func writeValidGeneratorSkill(t *testing.T) {
 	t.Helper()
 	skillRoot := filepath.Join(srcRoot, "demo")
@@ -422,6 +615,7 @@ func writeGeneratorSentinels(t *testing.T) {
 	for path, data := range map[string]string{
 		filepath.Join("skills", "keep"):                   "claude sentinel",
 		filepath.Join("plugins", "atl", "skills", "keep"): "codex sentinel",
+		filepath.FromSlash(codexSkillCatalogPath):         "catalog sentinel",
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
@@ -437,6 +631,7 @@ func assertGeneratorSentinels(t *testing.T) {
 	for path, want := range map[string]string{
 		filepath.Join("skills", "keep"):                   "claude sentinel",
 		filepath.Join("plugins", "atl", "skills", "keep"): "codex sentinel",
+		filepath.FromSlash(codexSkillCatalogPath):         "catalog sentinel",
 	} {
 		data, err := os.ReadFile(path)
 		if err != nil || string(data) != want {

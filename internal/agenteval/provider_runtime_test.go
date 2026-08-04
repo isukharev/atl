@@ -9,15 +9,13 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-
-	"github.com/isukharev/atl/internal/skillmeta"
 )
 
 func TestCodexPromptInventoryIsBoundToInstalledSkillRoot(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "installed", "skills")
-	catalog := skillmeta.Catalog{Skills: []skillmeta.Skill{
-		{Name: "atl", OpenAI: skillmeta.OpenAI{AllowImplicitInvocation: true}},
-		{Name: "setup", OpenAI: skillmeta.OpenAI{AllowImplicitInvocation: false}},
+	catalog := CodexSkillCatalog{Skills: []CodexSkillCatalogSkill{
+		{Name: "atl", AllowImplicitInvocation: true},
+		{Name: "setup", AllowImplicitInvocation: false},
 	}}
 	line := func(name, path string) string {
 		return "- atl:" + name + ": Synthetic (file: " + path + ")"
@@ -66,6 +64,54 @@ func TestCodexPromptInventoryIsBoundToInstalledSkillRoot(t *testing.T) {
 				t.Fatal("invalid installed inventory passed")
 			}
 		})
+	}
+}
+
+func TestProvisionCodexBenchmarkPluginRejectsCatalogDriftBeforeProviderCommand(t *testing.T) {
+	requireCodexRuntimePOSIX(t)
+	home := t.TempDir()
+	codexHome := filepath.Join(home, ".codex")
+	if err := os.Mkdir(codexHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexHome, "auth.json"), []byte(`{"token":"synthetic"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scratch := filepath.Join(t.TempDir(), "scratch")
+	if err := os.Mkdir(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	session, err := newCodexAuthSession([]string{"HOME=" + home, "CODEX_HOME=" + codexHome})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+	capsule, err := newCodexProviderRuntime(scratch, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = capsule.Close() }()
+
+	pluginRoot := filepath.Join(t.TempDir(), "plugin")
+	writeTestPluginTrees(t, pluginRoot, "0.4.0", "Synthetic plugin.")
+	skillPath := filepath.Join(pluginRoot, "plugins", "atl", "skills", "atl", "SKILL.md")
+	skill, err := os.ReadFile(skillPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(skillPath, append(skill, []byte("changed after catalog generation\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commandLog := filepath.Join(t.TempDir(), "commands")
+	binary := filepath.Join(t.TempDir(), "codex")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >>"+shellQuote(commandLog)+"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := provisionCodexBenchmarkPlugin(context.Background(), binary, pluginRoot, capsule); err == nil {
+		t.Fatal("stale skill catalog passed")
+	}
+	if data, err := os.ReadFile(commandLog); err == nil || !os.IsNotExist(err) || len(data) != 0 {
+		t.Fatalf("provider command ran before source catalog verification: data=%q err=%v", data, err)
 	}
 }
 
@@ -188,104 +234,6 @@ exit 6
 	if err := capsule.verifyPluginPackage(); err == nil {
 		t.Fatal("post-verification installed package drift passed")
 	}
-}
-
-func TestVerifyInstalledCodexSkillCatalogRejectsSemanticDrift(t *testing.T) {
-	for name, mutate := range map[string]func(*testing.T, string){
-		"missing skill": func(t *testing.T, root string) {
-			if err := os.RemoveAll(filepath.Join(root, "atl")); err != nil {
-				t.Fatal(err)
-			}
-		},
-		"extra skill": func(t *testing.T, root string) {
-			writeCodexSkillFixture(t, root, "jira", false)
-		},
-		"malformed metadata": func(t *testing.T, root string) {
-			path := filepath.Join(root, "atl", "SKILL.md")
-			data, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			writeTestFile(t, path, strings.Replace(string(data), "name: atl", "name: INVALID", 1), 0o600)
-		},
-		"policy drift": func(t *testing.T, root string) {
-			skillPath := filepath.Join(root, "atl", "SKILL.md")
-			skill, err := os.ReadFile(skillPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			writeTestFile(t, skillPath, strings.Replace(string(skill), "description:", "disable-model-invocation: true\ndescription:", 1), 0o600)
-			metadataPath := filepath.Join(root, "atl", "agents", "openai.yaml")
-			metadata, err := os.ReadFile(metadataPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			writeTestFile(t, metadataPath, strings.Replace(string(metadata), "allow_implicit_invocation: true", "allow_implicit_invocation: false", 1), 0o600)
-		},
-		"description drift": func(t *testing.T, root string) {
-			path := filepath.Join(root, "atl", "SKILL.md")
-			data, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			writeTestFile(t, path, strings.Replace(string(data), "Work with synthetic Atlassian fixtures.", "Inspect synthetic Atlassian fixtures.", 1), 0o600)
-		},
-		"Codex UI drift": func(t *testing.T, root string) {
-			path := filepath.Join(root, "atl", "agents", "openai.yaml")
-			data, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			writeTestFile(t, path, strings.Replace(string(data), `display_name: "atl"`, `display_name: "atl changed"`, 1), 0o600)
-		},
-		"default prompt drift": func(t *testing.T, root string) {
-			path := filepath.Join(root, "atl", "agents", "openai.yaml")
-			data, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			writeTestFile(t, path, strings.Replace(string(data), "Use $atl for this synthetic Atlassian task.", "Use $atl for this changed synthetic task.", 1), 0o600)
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			sourcePlugin := filepath.Join(t.TempDir(), "source")
-			writeTestPluginTrees(t, sourcePlugin, "0.4.0", "Reviewed source.")
-			sourceRoot := filepath.Join(sourcePlugin, "plugins", "atl", "skills")
-			source, err := skillmeta.LoadSource(sourceRoot)
-			if err != nil {
-				t.Fatal(err)
-			}
-			installedRoot := filepath.Join(t.TempDir(), "installed-skills")
-			if err := copyWorkspace(sourceRoot, installedRoot); err != nil {
-				t.Fatal(err)
-			}
-			if err := verifyInstalledCodexSkillCatalog(source, installedRoot); err != nil {
-				t.Fatalf("exact semantic skill inventory failed: %v", err)
-			}
-			mutate(t, installedRoot)
-			if err := verifyInstalledCodexSkillCatalog(source, installedRoot); err == nil {
-				t.Fatal("semantic skill inventory drift passed")
-			}
-		})
-	}
-}
-
-func writeCodexSkillFixture(t *testing.T, root, name string, explicit bool) {
-	t.Helper()
-	directory := filepath.Join(root, name)
-	if err := os.MkdirAll(filepath.Join(directory, "agents"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	disable := ""
-	implicit := "true"
-	if explicit {
-		disable = "disable-model-invocation: true\n"
-		implicit = "false"
-	}
-	skill := "---\nname: " + name + "\n" + disable + "description: Work with a synthetic service. USE WHEN the benchmark needs this service. DO NOT USE WHEN another workflow is more specific.\n---\n\n# Synthetic skill\n"
-	metadata := "interface:\n  display_name: \"Synthetic " + name + "\"\n  short_description: \"Work with a synthetic service fixture\"\n  default_prompt: \"Use $" + name + " for this synthetic service task.\"\npolicy:\n  allow_implicit_invocation: " + implicit + "\n"
-	writeTestFile(t, filepath.Join(directory, "SKILL.md"), skill, 0o600)
-	writeTestFile(t, filepath.Join(directory, "agents", "openai.yaml"), metadata, 0o600)
 }
 
 func TestProvisionCodexBenchmarkPluginRejectsUnexpectedInventoryWithoutLeakingOutput(t *testing.T) {

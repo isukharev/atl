@@ -25,6 +25,7 @@ func TestStableReadProductionInventory(t *testing.T) {
 		"internal/agenteval/private_sampling.go":            7,
 		"internal/agenteval/private_synthetic_sampling.go":  3,
 		"internal/agenteval/private_workspace_migration.go": 7,
+		"internal/agenteval/plugin_skill_catalog.go":        5,
 		"internal/agenteval/provider_runtime.go":            7,
 		"internal/agenteval/runner.go":                      5,
 		"internal/agenteval/stable_root_read.go":            2,

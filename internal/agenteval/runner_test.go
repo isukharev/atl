@@ -3,6 +3,7 @@ package agenteval
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -2139,6 +2141,41 @@ func writeTestPluginTrees(t *testing.T, root, version, body string) {
 	writeTestFile(t, filepath.Join(root, "skills", "atl", "SKILL.md"), skill+"Claude "+body+"\n", 0o600)
 	writeTestFile(t, filepath.Join(root, "plugins", "atl", "skills", "atl", "SKILL.md"), skill+"Codex "+body+"\n", 0o600)
 	writeTestFile(t, filepath.Join(root, "plugins", "atl", "skills", "atl", "agents", "openai.yaml"), "interface:\n  display_name: \"atl\"\n  short_description: \"Work with synthetic Atlassian fixtures\"\n  default_prompt: \"Use $atl for this synthetic Atlassian task.\"\npolicy:\n  allow_implicit_invocation: true\n", 0o600)
+	writeTestCodexSkillCatalog(t, filepath.Join(root, "plugins", "atl"), []CodexSkillCatalogSkill{{Name: "atl", AllowImplicitInvocation: true}})
+}
+
+func writeTestCodexSkillCatalog(t *testing.T, packageRoot string, skills []CodexSkillCatalogSkill) {
+	t.Helper()
+	skillRoot := filepath.Join(packageRoot, "skills")
+	files := make([]CodexSkillCatalogFile, 0, 4)
+	if err := filepath.WalkDir(skillRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(skillRoot, path)
+		if err != nil {
+			return err
+		}
+		digest := sha256.Sum256(data)
+		files = append(files, CodexSkillCatalogFile{Path: filepath.ToSlash(relative), SHA256: fmt.Sprintf("%x", digest)})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	catalog := CodexSkillCatalog{SchemaVersion: codexSkillCatalogSchemaVersion, Skills: skills, Files: files}
+	data, err := json.MarshalIndent(catalog, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(packageRoot, CodexSkillCatalogFileName), string(append(data, '\n')), 0o600)
 }
 
 func writeJSONTestFile(t *testing.T, path string, value any) {

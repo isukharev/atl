@@ -157,3 +157,13 @@ definitions to validate run specs. `make agent-eval-compat` builds the current
 binary and verifies its complete offline catalog against that projection;
 internal ATL MCP runs repeat the same bounded process-boundary check against
 the exact selected binary before any output, provider, or backend work.
+
+Codex skill routing crosses a separate package boundary. The product generator
+owns source metadata validation and emits
+`plugins/atl/skill-catalog.v1.json`; the evaluator owns a strict bounded decoder
+and reconciles that companion with the exact regular-file tree. Keep the file
+outside `plugins/atl/skills/` so provider discovery and the skill-tree digest do
+not change. `make agent-eval-compat` verifies the current generated package
+offline. Do not restore an evaluator import of product skill parsers or replace
+this package-owned contract with a query to an independently versioned ATL
+binary.
