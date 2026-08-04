@@ -20,6 +20,21 @@ func ambiguousWriteFailure(message string) error {
 	return &ambiguousWriteError{message: message}
 }
 
+// operationErrorCauses preserves the ordered error identity used by guarded
+// write adapters: closed outcomes expose ErrCheckFailed first, followed by the
+// original typed cause when one exists. Open outcomes intentionally return an
+// empty, non-nil slice when no cause is available.
+func operationErrorCauses(cause error, closed bool) []error {
+	causes := make([]error, 0, 2)
+	if closed {
+		causes = append(causes, domain.ErrCheckFailed)
+	}
+	if cause != nil {
+		causes = append(causes, cause)
+	}
+	return causes
+}
+
 // definitiveWriteRejection reports HTTP outcomes known not to have applied the
 // mutation. Timeout/early-data/throttling statuses remain ambiguous and require
 // a reconciliation read; transport errors have no HTTP status and are likewise
