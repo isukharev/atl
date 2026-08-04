@@ -218,7 +218,8 @@ the current `atl`, requires its complete offline schema-v1 capability catalog
 to equal the evaluator's pinned released artifact, checks the exact CLI-error
 vocabulary, verifies the generated Codex plugin skill catalog against every
 regular file in its skill tree, exercises bounded Jira and Confluence CLI/MCP
-fixture oracles—including Jira search pagination and zero-progress stopping—
+fixture oracles—including Jira search pagination and zero-progress stopping,
+plus Confluence page resolution, paginated search, and multi-section evidence—
 through that exact selected executable, and validates every supported versioned
 scenario and run contract.
 The process oracle uses only synthetic loopback endpoints, closed invocation
