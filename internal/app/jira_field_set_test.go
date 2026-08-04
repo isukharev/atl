@@ -13,17 +13,18 @@ import (
 
 type fieldSetTracker struct {
 	domain.Tracker
-	issue          *domain.Issue
-	defs           []domain.FieldDef
-	getFields      []string
-	setKey         string
-	setFields      map[string]any
-	setCalls       int
-	setError       error
-	getCalls       int
-	fieldCalls     int
-	reconcileError error
-	commitOnError  bool
+	issue            *domain.Issue
+	defs             []domain.FieldDef
+	getFields        []string
+	setKey           string
+	setFields        map[string]any
+	setCalls         int
+	setError         error
+	getCalls         int
+	fieldCalls       int
+	reconcileError   error
+	commitOnError    bool
+	setSingleAttempt bool
 }
 
 type fieldSetHTTPError int
@@ -51,8 +52,9 @@ func (t *fieldSetTracker) GetIssue(_ context.Context, _ string, fields []string)
 	return t.issue, nil
 }
 
-func (t *fieldSetTracker) SetFields(_ context.Context, key string, fields map[string]any) error {
+func (t *fieldSetTracker) SetFields(ctx context.Context, key string, fields map[string]any) error {
 	t.setCalls++
+	t.setSingleAttempt = domain.SingleAttempt(ctx)
 	t.setKey, t.setFields = key, fields
 	if t.setError != nil && t.commitOnError {
 		for field, value := range fields {
@@ -212,7 +214,7 @@ func TestSetFieldsGuardedApplyWritesTypedValuesAtomically(t *testing.T) {
 	if err != nil || res.Status != "applied" {
 		t.Fatalf("result=%+v err=%v", res, err)
 	}
-	if tr.setCalls != 1 || tr.setKey != "PROJ-1" || tr.getCalls != 1 {
+	if tr.setCalls != 1 || !tr.setSingleAttempt || tr.setKey != "PROJ-1" || tr.getCalls != 1 {
 		t.Fatalf("write calls=%d read calls=%d key=%q", tr.setCalls, tr.getCalls, tr.setKey)
 	}
 	if got, ok := tr.setFields["customfield_1"].(string); !ok || got != "{}" {

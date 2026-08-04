@@ -23,6 +23,8 @@ type confluenceLabelStoreStub struct {
 	listCalls             int
 	addCalls              int
 	removeCalls           int
+	addSingleAttempt      bool
+	removeSingleAttempts  []bool
 }
 
 func (s *confluenceLabelStoreStub) ListContentLabels(context.Context, string) ([]domain.ContentLabel, bool, error) {
@@ -38,8 +40,9 @@ func (s *confluenceLabelStoreStub) ListContentLabels(context.Context, string) ([
 	return append([]domain.ContentLabel(nil), s.labels...), s.truncated, s.listErr
 }
 
-func (s *confluenceLabelStoreStub) AddContentLabels(_ context.Context, _ string, labels []domain.ContentLabel) error {
+func (s *confluenceLabelStoreStub) AddContentLabels(ctx context.Context, _ string, labels []domain.ContentLabel) error {
 	s.addCalls++
+	s.addSingleAttempt = domain.SingleAttempt(ctx)
 	if !s.skipMutation && (!s.noCommitOnError || s.writeErr == nil) {
 		for _, added := range labels {
 			if !labelRecordPresent(s.labels, added.Name) {
@@ -50,8 +53,9 @@ func (s *confluenceLabelStoreStub) AddContentLabels(_ context.Context, _ string,
 	return s.writeErr
 }
 
-func (s *confluenceLabelStoreStub) RemoveContentLabel(_ context.Context, _ string, name string) error {
+func (s *confluenceLabelStoreStub) RemoveContentLabel(ctx context.Context, _ string, name string) error {
 	s.removeCalls++
+	s.removeSingleAttempts = append(s.removeSingleAttempts, domain.SingleAttempt(ctx))
 	writeErr := s.writeErr
 	if index := s.removeCalls - 1; index < len(s.removeErrors) {
 		writeErr = s.removeErrors[index]
@@ -96,7 +100,7 @@ func TestConfluenceLabelsListAndGuardedAdd(t *testing.T) {
 	applied, err := service.MutateLabelsGuarded(context.Background(), "42", ConfluenceLabelMutationOpts{
 		Operation: "add", Labels: []string{"urgent", "release"}, ExpectedProposalHash: preview.ProposalHash, Apply: true,
 	})
-	if err != nil || applied.Status != "applied" || store.addCalls != 1 || len(applied.Final) != 3 || applied.Final[1].Name != "release" || applied.Final[2].Name != "urgent" {
+	if err != nil || applied.Status != "applied" || store.addCalls != 1 || !store.addSingleAttempt || len(applied.Final) != 3 || applied.Final[1].Name != "release" || applied.Final[2].Name != "urgent" {
 		t.Fatalf("applied=%+v calls=%d labels=%+v err=%v", applied, store.addCalls, store.labels, err)
 	}
 }
@@ -229,6 +233,11 @@ func TestConfluenceLabelsGuardedRemoveOutcomeMatrix(t *testing.T) {
 				test.store.removeCalls != test.wantRemoveCalls || test.store.listCalls != 2 ||
 				result.Reconciled != test.wantReconciled {
 				t.Fatalf("result=%+v err=%v removes=%d lists=%d", result, err, test.store.removeCalls, test.store.listCalls)
+			}
+			for index, singleAttempt := range test.store.removeSingleAttempts {
+				if !singleAttempt {
+					t.Fatalf("remove write %d did not receive single-attempt context", index+1)
+				}
 			}
 			var ambiguous interface{ DiagnosticAmbiguousWrite() bool }
 			gotAmbiguous := errors.As(err, &ambiguous) && ambiguous.DiagnosticAmbiguousWrite()

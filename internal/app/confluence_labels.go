@@ -152,13 +152,13 @@ func (s *ConfluenceService) MutateLabelsGuarded(ctx context.Context, id string, 
 		for index, name := range requested {
 			labels[index] = domain.ContentLabel{Prefix: "global", Name: name}
 		}
-		writeErr = store.AddContentLabels(ctx, id, labels)
+		writeErr = store.AddContentLabels(domain.WithSingleAttempt(ctx), id, labels)
 		if writeErr == nil {
 			successfulWrites = 1
 		}
 	} else {
 		for _, name := range requested {
-			if err := store.RemoveContentLabel(ctx, id, name); err != nil {
+			if err := store.RemoveContentLabel(domain.WithSingleAttempt(ctx), id, name); err != nil {
 				writeErr = err
 				break
 			}

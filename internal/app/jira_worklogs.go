@@ -150,7 +150,7 @@ func (s *JiraService) AddWorklogGuarded(ctx context.Context, key string, opts Ji
 	}
 
 	input := domain.IssueWorklogCreate{TimeSpentSeconds: seconds, Comment: comment, Started: started}
-	created, writeErr := store.AddIssueWorklog(ctx, key, input)
+	created, writeErr := store.AddIssueWorklog(domain.WithSingleAttempt(ctx), key, input)
 	if writeErr == nil && created != nil && strings.TrimSpace(created.ID) != "" {
 		result.Status = "applied"
 		result.Created = created

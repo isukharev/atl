@@ -141,7 +141,7 @@ func (s *ConfluenceService) MoveGuarded(ctx context.Context, id string, opts Con
 		return result, fmt.Errorf("%w: target parent %s changed during move preflight; preview again", domain.ErrCheckFailed, parent)
 	}
 
-	_, writeErr := s.store.MovePage(ctx, id, parent, current.Version, current.Title, current.Body)
+	_, writeErr := s.store.MovePage(domain.WithSingleAttempt(ctx), id, parent, current.Version, current.Title, current.Body)
 	if writeErr != nil && definitiveWriteRejection(writeErr) {
 		result.Status = "failed"
 		return result, &confluenceMoveWriteError{message: "Confluence rejected the page move", cause: writeErr}
