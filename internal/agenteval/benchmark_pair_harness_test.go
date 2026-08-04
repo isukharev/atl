@@ -36,6 +36,30 @@ var benchmarkPairProviders = [...]benchmarkPairProvider{
 	{runFile: "run.mcp.claude.json", provider: "claude-code", model: "claude-opus-4-8"},
 }
 
+type benchmarkPairDescriptorFactory func() benchmarkPairDescriptor
+
+func migratedBenchmarkPairDescriptorFactories() []benchmarkPairDescriptorFactory {
+	return []benchmarkPairDescriptorFactory{
+		confluencePageMetadataPairDescriptor,
+		jiraHistorySummaryMCPPairDescriptor,
+		confluenceAttachmentEvidencePairDescriptor,
+		confluenceSectionVersionBoundPairDescriptor,
+		confluenceSectionBoundRecoveryPairDescriptor,
+		structureFolderRecoveryPairDescriptor,
+		jiraSnapshotReconciliationPairDescriptor,
+		jiraZeroProgressPairDescriptor,
+	}
+}
+
+func migratedBenchmarkPairDescriptors() []benchmarkPairDescriptor {
+	factories := migratedBenchmarkPairDescriptorFactories()
+	descriptors := make([]benchmarkPairDescriptor, 0, len(factories))
+	for _, factory := range factories {
+		descriptors = append(descriptors, factory())
+	}
+	return descriptors
+}
+
 // validateBenchmarkPair owns only repository-wide pair artifact and provider
 // invariants. Cell semantics, evidence construction, route checks, budgets,
 // failure policy, and mutation oracles remain in the benchmark cell.
@@ -316,16 +340,7 @@ func benchmarkPairTreeDigest(root string) ([sha256.Size]byte, error) {
 }
 
 func TestBenchmarkPairHarnessAcceptsExplicitWorkspaceRelationships(t *testing.T) {
-	for _, descriptor := range []benchmarkPairDescriptor{
-		confluencePageMetadataPairDescriptor(),
-		jiraHistorySummaryMCPPairDescriptor(),
-		confluenceAttachmentEvidencePairDescriptor(),
-		confluenceSectionVersionBoundPairDescriptor(),
-		confluenceSectionBoundRecoveryPairDescriptor(),
-		structureFolderRecoveryPairDescriptor(),
-		jiraSnapshotReconciliationPairDescriptor(),
-		jiraZeroProgressPairDescriptor(),
-	} {
+	for _, descriptor := range migratedBenchmarkPairDescriptors() {
 		t.Run(descriptor.primaryName, func(t *testing.T) {
 			pair := syntheticBenchmarkPair(t, descriptor)
 			if err := validateBenchmarkPair(descriptor, pair); err != nil {
@@ -543,16 +558,7 @@ func TestBenchmarkPairHarnessRejectsMutations(t *testing.T) {
 }
 
 func TestBenchmarkPairHarnessRejectsMigratedDescriptorWeakening(t *testing.T) {
-	for _, descriptor := range []benchmarkPairDescriptor{
-		confluencePageMetadataPairDescriptor(),
-		jiraHistorySummaryMCPPairDescriptor(),
-		confluenceAttachmentEvidencePairDescriptor(),
-		confluenceSectionVersionBoundPairDescriptor(),
-		confluenceSectionBoundRecoveryPairDescriptor(),
-		structureFolderRecoveryPairDescriptor(),
-		jiraSnapshotReconciliationPairDescriptor(),
-		jiraZeroProgressPairDescriptor(),
-	} {
+	for _, descriptor := range migratedBenchmarkPairDescriptors() {
 		for index, artifact := range descriptor.distinctArtifacts {
 			t.Run(descriptor.primaryName+"/remove-"+artifact, func(t *testing.T) {
 				drifted := descriptor
@@ -581,6 +587,53 @@ func TestBenchmarkPairHarnessRejectsMigratedDescriptorWeakening(t *testing.T) {
 	if err := validateBenchmarkPairDescriptor(unknown); err == nil ||
 		!bytes.Contains([]byte(err.Error()), []byte("descriptor is not registered")) {
 		t.Fatalf("error=%v want unregistered descriptor rejection", err)
+	}
+}
+
+func TestBenchmarkPairHarnessDescriptorFactoryInventory(t *testing.T) {
+	factories := migratedBenchmarkPairDescriptorFactories()
+	if len(factories) != 8 {
+		t.Fatalf("migrated descriptor factories=%d want=8", len(factories))
+	}
+	names := make([]string, 0, len(factories))
+	seen := make(map[string]bool, len(factories))
+	for _, factory := range factories {
+		descriptor := factory()
+		if err := validateBenchmarkPairDescriptor(descriptor); err != nil {
+			t.Fatalf("factory %q returned an invalid descriptor: %v", descriptor.primaryName, err)
+		}
+		if seen[descriptor.primaryName] {
+			t.Fatalf("duplicate migrated descriptor factory %q", descriptor.primaryName)
+		}
+		seen[descriptor.primaryName] = true
+		names = append(names, descriptor.primaryName)
+	}
+	// This literal oracle is intentionally independent from both the factory
+	// inventory and the closed descriptor switch above.
+	want := []string{
+		"confluence-page-metadata-mcp",
+		"jira-history-summary-mcp",
+		"confluence-attachment-evidence-mcp",
+		"confluence-section-version-bound-mcp",
+		"confluence-section-bound-recovery-mcp",
+		"jira-structure-folder-selection-recovery-mcp",
+		"jira-snapshot-reconciliation-mcp",
+		"jira-search-zero-progress-mcp",
+	}
+	if !slices.Equal(names, want) {
+		t.Fatalf("migrated descriptor names=%v want=%v", names, want)
+	}
+}
+
+func TestBenchmarkPairHarnessValidatesRepositoryInventory(t *testing.T) {
+	for _, factory := range migratedBenchmarkPairDescriptorFactories() {
+		descriptor := factory()
+		t.Run(descriptor.primaryName, func(t *testing.T) {
+			pair := loadRepositorySamplingPairContract(t, descriptor.primaryName)
+			if err := validateBenchmarkPair(descriptor, pair); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 

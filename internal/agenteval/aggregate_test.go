@@ -3,6 +3,7 @@ package agenteval
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -192,6 +193,54 @@ func TestResultPromptIdentityKeepsExplicitLegacySchemasReadableAndCurrentFailClo
 	current.SchemaVersion = ResultSchemaVersion + 1
 	if err := current.Validate(); err == nil || !strings.Contains(err.Error(), "unsupported result schema_version") {
 		t.Fatalf("future result schema passed: %v", err)
+	}
+}
+
+func TestFailedHistoricalResultsRemainDirectlyReadable(t *testing.T) {
+	for _, version := range []int{
+		LegacyResultSchemaVersion,
+		PanelResultSchemaVersion,
+		LegacyPromptBoundResultSchemaVersion,
+		LegacyAttemptlessResultSchemaVersion,
+		LegacyEvidenceResultSchemaVersion,
+		ResultSchemaVersion,
+	} {
+		t.Run(fmt.Sprintf("v%d", version), func(t *testing.T) {
+			var document map[string]any
+			if err := json.Unmarshal(minimalResultContractJSON(t, version), &document); err != nil {
+				t.Fatal(err)
+			}
+			document["status"] = "fail"
+			document["checks"].(map[string]any)["answer_correct"] = false
+			document["violations"] = []any{map[string]any{
+				"code": "oracle_failed", "subject": "answer_correct",
+			}}
+			encoded, err := json.Marshal(document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := DecodeResult(bytes.NewReader(encoded))
+			if err != nil {
+				t.Fatalf("failed historical result v%d became unreadable: %v", version, err)
+			}
+			if result.Status != "fail" || len(result.Violations) != 1 ||
+				result.Violations[0].Code != "oracle_failed" ||
+				result.Violations[0].Subject != "answer_correct" {
+				t.Fatalf("failed historical result v%d=%+v", version, result)
+			}
+			aggregate, err := AggregateResults([]Result{result})
+			if err != nil {
+				t.Fatalf("failed historical result v%d is not aggregatable: %v", version, err)
+			}
+			if len(aggregate.Groups) != 1 {
+				t.Fatalf("failed historical aggregate v%d=%+v", version, aggregate)
+			}
+			group := aggregate.Groups[0]
+			if group.Runs != 1 || group.EligibleRuns != 1 || group.UnsupportedRuns != 0 ||
+				group.DriftedRuns != 0 || group.Passes != 0 || group.SuccessRate != 0 {
+				t.Fatalf("failed historical aggregate group v%d=%+v", version, group)
+			}
+		})
 	}
 }
 

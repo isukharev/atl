@@ -272,6 +272,23 @@ failure retention, or mutation oracles. Those guarantees remain explicit in
 the cell test; contributors should extend the typed descriptor only when a
 third representative proves another invariant is byte-for-byte identical.
 
+The harness registry is deliberately enumerable and closed at eight migrated
+pairs. An independent literal-name oracle and a repository-backed test load
+each real pair, follow the exact scenario file bound by its run specs, and
+reconcile it through the descriptor validator. A higher-version but unbound
+retained scenario is not selected. Expanding the registry beyond the migrated
+pairs is an explicit no-change decision: the remaining pairs have legacy run
+sets or pair-specific artifact, workspace, and execution policy that has not
+been proved identical.
+
+There is likewise no run-JSON generator for the retained heterogeneous specs
+and no bulk run-spec v5/v6-to-v7 rewrite. The corpus intentionally preserves
+heterogeneous route, provider, policy, and historical schema contracts; current
+decoders keep the readable generations executable, including direct decoding
+and aggregation of failed results across the readable v3-v8 range. New specs
+use the current schema, while retained bytes change only through an explicit
+migration with its own compatibility evidence.
+
 The current provider-paired Jira quarter-portfolio cell extends that exact
 argument oracle across a longer cross-service workflow. The primary cohort
 freezes one board snapshot, reads ascending per-epic history and bounded page
