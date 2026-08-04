@@ -9,8 +9,9 @@
   "hotspots": [
     {"owner":"app","path":"internal/app/confluence.go","max_lines":1850,"rationale":"Keep the Confluence pull and push orchestration owner visible until responsibility-based splits land."},
     {"owner":"app","path":"internal/app/confluence.go","function":"(*ConfluenceService).Pull","max_lines":525,"rationale":"Keep local qualification, fetch scheduling, and checkpoint orchestration from growing silently before they are separated."},
-    {"owner":"app","path":"internal/app/jira.go","max_lines":1900,"rationale":"Keep the Jira mirror orchestration and rendering owner visible until responsibility-based splits land."},
-    {"owner":"app","path":"internal/app/jira.go","function":"(*JiraService).Pull","max_lines":420,"rationale":"Keep selection, local preflight, fetching, and mirror commit orchestration within a reviewed allowance."},
+    {"owner":"app","path":"internal/app/jira.go","max_lines":1100,"rationale":"Keep the remaining Jira issue operations and Markdown presentation owner within its reduced allowance after pull orchestration moved to a focused owner."},
+    {"owner":"app","path":"internal/app/jira_pull.go","max_lines":675,"rationale":"Keep Jira pull types, local qualification, fetch, asset, and mirror orchestration within a reviewed allowance."},
+    {"owner":"app","path":"internal/app/jira_pull.go","function":"(*JiraService).Pull","max_lines":400,"rationale":"Keep Jira pull selection, preflight, fetch, and mirror commit orchestration within a reduced reviewed allowance."},
     {"owner":"cli","path":"internal/cli/conf.go","max_lines":1350,"rationale":"Keep the remaining Confluence search, mirror, table, comment, and attachment command assembly within its reduced allowance after the page surface moved to a focused owner."},
     {"owner":"cli","path":"internal/cli/conf_page.go","max_lines":550,"rationale":"Keep the focused Confluence page command surface within a reviewed allowance."},
     {"owner":"cli","path":"internal/cli/conf_page.go","function":"confPageCmd","max_lines":450,"rationale":"Keep the largest Confluence page command family within a reduced reviewed allowance."},
