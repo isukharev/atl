@@ -282,7 +282,7 @@ func (view JiraHistorySummaryView) validate(p jiraHistoryPresence) error {
 	if err := view.Filters.validate(p); err != nil {
 		return err
 	}
-	if err := view.Summary.validate(view.Count, view.Fetched, view.Total, view.Filters.Fields); err != nil {
+	if err := view.Summary.validate(view.Count, view.Fetched, view.Total); err != nil {
 		return err
 	}
 	if view.Complete && !view.Summary.FetchedMatchesTotal {
@@ -291,7 +291,15 @@ func (view JiraHistorySummaryView) validate(p jiraHistoryPresence) error {
 	if p.lastChanges && len(view.LastChanges) == 0 {
 		return fmt.Errorf("present last_changes must not be empty")
 	}
-	return validateJiraHistoryLastChanges(view.LastChanges, view.Filters.Fields)
+	if err := validateJiraHistoryLastChanges(view.LastChanges, view.Filters.Fields); err != nil {
+		return err
+	}
+	for _, change := range view.LastChanges {
+		if change.HistoryID == "" && view.Summary.HistoryIDMissingCount == 0 {
+			return fmt.Errorf("last change with an empty history_id requires a missing history id")
+		}
+	}
+	return nil
 }
 
 func (filters JiraHistoryFiltersView) validate(p jiraHistoryPresence) error {
@@ -332,7 +340,7 @@ func (filters JiraHistoryFiltersView) validate(p jiraHistoryPresence) error {
 	return nil
 }
 
-func (summary JiraHistorySummaryFacts) validate(count, fetched, total int, selected []JiraHistorySelectedField) error {
+func (summary JiraHistorySummaryFacts) validate(count, fetched, total int) error {
 	counts := []int{
 		summary.HistoryCount, summary.HistoryIDNonemptyCount, summary.HistoryIDMissingCount,
 		summary.AuthorNonemptyCount, summary.TimestampNonemptyCount, summary.EntriesWithItems,
@@ -374,14 +382,11 @@ func (summary JiraHistorySummaryFacts) validate(count, fetched, total int, selec
 			return fmt.Errorf("field bucket %d is invalid", index)
 		}
 		identity := jiraHistoryFieldIdentity(field.FieldID, field.Field)
-		if seen[identity] || index > 0 && !jiraHistoryFieldLess(summary.Fields[index-1], field) {
-			return fmt.Errorf("field buckets are not ordered and distinct")
+		if seen[identity] {
+			return fmt.Errorf("field buckets are not distinct")
 		}
 		seen[identity] = true
 		bucketItems += field.Count
-		if len(selected) > 0 && jiraHistorySelectedIndex(selected, field.FieldID, field.Field) < 0 {
-			return fmt.Errorf("field bucket is outside selected fields")
-		}
 	}
 	if bucketItems > summary.ItemCount {
 		return fmt.Errorf("field bucket counts exceed item count")
@@ -393,31 +398,23 @@ func validateJiraHistoryLastChanges(changes []JiraHistoryLastChange, selected []
 	if len(changes) > 0 && len(selected) == 0 {
 		return fmt.Errorf("last_changes require selected fields")
 	}
-	previous := -1
+	selectedIDs := make(map[string]bool, len(selected))
+	for _, field := range selected {
+		selectedIDs[strings.ToLower(field.ID)] = true
+	}
+	seen := make(map[string]bool, len(changes))
 	for index, change := range changes {
 		if !jiraHistoryNormalized(change.FieldID) || !jiraHistoryNormalized(change.Field) ||
 			!jiraHistoryNormalized(change.Created) || !jiraHistoryEmptyOrNormalized(change.HistoryID) {
 			return fmt.Errorf("last change %d identity is invalid", index)
 		}
-		selectedIndex := jiraHistorySelectedIndex(selected, change.FieldID, change.Field)
-		if selectedIndex <= previous {
-			return fmt.Errorf("last_changes are not an ordered selected-field subset")
+		identity := strings.ToLower(change.FieldID)
+		if !selectedIDs[identity] || seen[identity] {
+			return fmt.Errorf("last_changes are not a distinct selected-field subset")
 		}
-		previous = selectedIndex
+		seen[identity] = true
 	}
 	return nil
-}
-
-func jiraHistorySelectedIndex(fields []JiraHistorySelectedField, id, name string) int {
-	for index, field := range fields {
-		if id != "" && strings.EqualFold(field.ID, id) {
-			return index
-		}
-		if id == "" && (strings.EqualFold(field.Name, name) || strings.EqualFold(field.ID, name)) {
-			return index
-		}
-	}
-	return -1
 }
 
 func jiraHistoryFieldIdentity(id, name string) string {
@@ -425,27 +422,6 @@ func jiraHistoryFieldIdentity(id, name string) string {
 		return "id:" + strings.ToLower(id)
 	}
 	return "name:" + strings.ToLower(name)
-}
-
-func jiraHistoryFieldLess(left, right JiraHistoryFieldBucket) bool {
-	leftID, rightID := strings.ToLower(left.FieldID), strings.ToLower(right.FieldID)
-	if leftID != rightID {
-		if leftID == "" {
-			return false
-		}
-		if rightID == "" {
-			return true
-		}
-		return leftID < rightID
-	}
-	leftName, rightName := strings.ToLower(left.Field), strings.ToLower(right.Field)
-	if leftName != rightName {
-		return leftName < rightName
-	}
-	if left.Field != right.Field {
-		return left.Field < right.Field
-	}
-	return left.FieldID < right.FieldID
 }
 
 func jiraHistoryNormalized(value string) bool {

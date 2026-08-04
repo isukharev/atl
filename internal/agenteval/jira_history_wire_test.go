@@ -117,10 +117,15 @@ func TestDecodeJiraHistorySummaryRejectsReconciliationDrift(t *testing.T) {
 		{name: "bucket count exceeds items", mutate: func(doc map[string]any) {
 			doc["summary"].(map[string]any)["fields"].([]any)[0].(map[string]any)["count"] = 4
 		}},
-		{name: "bucket outside selection", mutate: func(doc map[string]any) {
-			doc["summary"].(map[string]any)["fields"].([]any)[0].(map[string]any)["field_id"] = "status"
-		}},
 		{name: "last change outside selection", mutate: func(doc map[string]any) { doc["last_changes"].([]any)[0].(map[string]any)["field_id"] = "status" }},
+		{name: "duplicate last change field", mutate: func(doc map[string]any) {
+			filters := doc["filters"].(map[string]any)
+			fields := filters["fields"].([]any)
+			fields = append(fields, map[string]any{"id": "status", "name": "Status", "custom": false})
+			filters["fields"] = fields
+			changes := doc["last_changes"].([]any)
+			doc["last_changes"] = append(changes, changes[0])
+		}},
 		{name: "last changes without selected fields", mutate: func(doc map[string]any) { delete(doc["filters"].(map[string]any), "fields") }},
 		{name: "empty present last changes", mutate: func(doc map[string]any) { doc["last_changes"] = []any{} }},
 	}
@@ -168,50 +173,51 @@ func TestDecodeJiraHistorySummaryAcceptsFetchedAboveAdvertisedTotal(t *testing.T
 func TestDecodeJiraHistorySummaryAcceptsMissingLastChangeHistoryID(t *testing.T) {
 	view := validJiraHistoryPrimary()
 	view.LastChanges[0].HistoryID = ""
+	view.Summary.HistoryIDNonemptyCount = 1
+	view.Summary.HistoryIDMissingCount = 1
 	if _, err := DecodeJiraHistorySummary(bytes.NewReader(jiraHistoryEncode(t, view))); err != nil {
 		t.Fatalf("required but empty latest-change history_id was rejected: %v", err)
 	}
+	view.Summary.HistoryIDNonemptyCount = 2
+	view.Summary.HistoryIDMissingCount = 0
+	if _, err := DecodeJiraHistorySummary(bytes.NewReader(jiraHistoryEncode(t, view))); err == nil {
+		t.Fatal("empty latest-change history_id without missing-id evidence was accepted")
+	}
 }
 
-func TestDecodeJiraHistorySummaryReconcilesIDLessBucketTechnicalField(t *testing.T) {
+func TestDecodeJiraHistorySummaryPreservesIDLessBucketWithoutSelectionMatching(t *testing.T) {
 	view := validJiraHistoryPrimary()
 	view.Summary.Fields[0].FieldID = ""
-	view.Summary.Fields[0].Field = "CUSTOMFIELD_20001"
-	if _, err := DecodeJiraHistorySummary(bytes.NewReader(jiraHistoryEncode(t, view))); err != nil {
-		t.Fatalf("id-less bucket technical field was not matched to selected id: %v", err)
+	view.Summary.Fields[0].Field = "unrelated display identity"
+	decoded, err := DecodeJiraHistorySummary(bytes.NewReader(jiraHistoryEncode(t, view)))
+	if err != nil {
+		t.Fatalf("decoder reapplied product field selection: %v", err)
+	}
+	if decoded.Summary.Fields[0].Field != view.Summary.Fields[0].Field {
+		t.Fatalf("decoder did not preserve the released bucket: %+v", decoded.Summary.Fields[0])
 	}
 }
 
-func TestDecodeJiraHistorySummaryRejectsBucketAndLastChangeOrderingDrift(t *testing.T) {
+func TestDecodeJiraHistorySummaryPreservesOrderingWithoutRecomputingIt(t *testing.T) {
 	holdout := jiraHistoryEncode(t, validJiraHistoryHoldout())
-	for _, test := range []struct {
-		name   string
-		mutate func(map[string]any)
-	}{
-		{name: "reversed buckets", mutate: func(doc map[string]any) {
-			fields := doc["summary"].(map[string]any)["fields"].([]any)
-			fields[0], fields[1] = fields[1], fields[0]
-		}},
-		{name: "duplicate bucket identity", mutate: func(doc map[string]any) {
-			fields := doc["summary"].(map[string]any)["fields"].([]any)
-			fields[1].(map[string]any)["field_id"] = fields[0].(map[string]any)["field_id"]
-		}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			if _, err := DecodeJiraHistorySummary(bytes.NewReader(jiraHistoryMutate(t, holdout, test.mutate))); err == nil {
-				t.Fatal("field bucket ordering drift was accepted")
-			}
-		})
+	reversed := jiraHistoryMutate(t, holdout, func(doc map[string]any) {
+		fields := doc["summary"].(map[string]any)["fields"].([]any)
+		fields[0], fields[1] = fields[1], fields[0]
+	})
+	decoded, err := DecodeJiraHistorySummary(bytes.NewReader(reversed))
+	if err != nil {
+		t.Fatalf("decoder reapplied the product bucket comparator: %v", err)
+	}
+	if decoded.Summary.Fields[0].FieldID != "status" {
+		t.Fatalf("decoder reordered released buckets: %+v", decoded.Summary.Fields)
 	}
 
-	view := validJiraHistoryPrimary()
-	view.Filters.Fields = append(view.Filters.Fields,
-		JiraHistorySelectedField{ID: "status", Name: "status"})
-	view.LastChanges = append(view.LastChanges,
-		JiraHistoryLastChange{FieldID: "status", Field: "status", Created: "2026-01-21T10:00:00Z"})
-	view.LastChanges[0], view.LastChanges[1] = view.LastChanges[1], view.LastChanges[0]
-	if _, err := DecodeJiraHistorySummary(bytes.NewReader(jiraHistoryEncode(t, view))); err == nil {
-		t.Fatal("last_changes selected-field ordering drift was accepted")
+	duplicate := jiraHistoryMutate(t, holdout, func(doc map[string]any) {
+		fields := doc["summary"].(map[string]any)["fields"].([]any)
+		fields[1].(map[string]any)["field_id"] = fields[0].(map[string]any)["field_id"]
+	})
+	if _, err := DecodeJiraHistorySummary(bytes.NewReader(duplicate)); err == nil {
+		t.Fatal("duplicate field bucket identity was accepted")
 	}
 }
 
