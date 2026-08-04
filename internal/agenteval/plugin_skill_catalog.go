@@ -105,6 +105,10 @@ func verifyCodexSkillPackage(packageRoot string, hooks codexSkillPackageHooks) (
 	if err := reconcileCodexSkillTree(catalog, skillsPath, hooks); err != nil {
 		return zero, fmt.Errorf("verify Codex skill package: %w", err)
 	}
+	finalManifestData, err := readStableRootFile(packageHandle, CodexSkillCatalogFileName, manifestInfo, maxCodexSkillCatalogBytes)
+	if err != nil || !bytes.Equal(manifestData, finalManifestData) {
+		return zero, fmt.Errorf("verify Codex skill package: catalog changed during verification")
+	}
 	finalPackageInfo, err := os.Lstat(packageRoot)
 	if err != nil || !os.SameFile(packageInfo, finalPackageInfo) || !sameSyntheticRootInfo(packageInfo, finalPackageInfo) {
 		return zero, fmt.Errorf("verify Codex skill package: package root changed")
@@ -338,18 +342,41 @@ func reconcileCodexSkillTree(catalog CodexSkillCatalog, skillsRoot string, hooks
 		return fmt.Errorf("skill root changed")
 	}
 
-	expected := make(map[string]CodexSkillCatalogFile, len(catalog.Files))
-	for _, file := range catalog.Files {
-		expected[file.Path] = file
+	if err := verifyCodexSkillTreePass(root, catalog, hooks); err != nil {
+		return err
 	}
-	seen := make(map[string]struct{}, len(catalog.Files))
-	semanticDirectories := make(map[string]struct{}, len(catalog.Skills))
+	// Reconcile the complete tree again after every first-pass file has been
+	// read. This catches mutation of an earlier entry while a later entry was
+	// being verified, including metadata-preserving in-place writes.
+	if err := verifyCodexSkillTreePass(root, catalog, codexSkillPackageHooks{}); err != nil {
+		return fmt.Errorf("final skill tree verification: %w", err)
+	}
+	finalOpenedRootInfo, openedErr := root.Stat(".")
+	finalRootInfo, pathErr := os.Lstat(skillsRoot)
+	if openedErr != nil || pathErr != nil || !os.SameFile(rootInfo, finalOpenedRootInfo) ||
+		!os.SameFile(rootInfo, finalRootInfo) || !sameSyntheticRootInfo(rootInfo, finalOpenedRootInfo) ||
+		!sameSyntheticRootInfo(rootInfo, finalRootInfo) {
+		return fmt.Errorf("reconcile skill tree: skill root changed")
+	}
+	return nil
+}
+
+func verifyCodexSkillTreePass(root *os.Root, catalog CodexSkillCatalog, hooks codexSkillPackageHooks) error {
+	expectedFiles := make(map[string]CodexSkillCatalogFile, len(catalog.Files))
+	expectedDirectories := make(map[string]struct{}, len(catalog.Files)+len(catalog.Skills))
 	for _, skill := range catalog.Skills {
-		semanticDirectories[skill.Name] = struct{}{}
+		expectedDirectories[skill.Name] = struct{}{}
 	}
-	observedDirectories := make(map[string]struct{}, len(catalog.Skills))
+	for _, file := range catalog.Files {
+		expectedFiles[file.Path] = file
+		for directory := path.Dir(file.Path); directory != "."; directory = path.Dir(directory) {
+			expectedDirectories[directory] = struct{}{}
+		}
+	}
+	seenFiles := make(map[string]struct{}, len(catalog.Files))
+	seenDirectories := make(map[string]struct{}, len(expectedDirectories))
 	var totalBytes int64
-	err = fs.WalkDir(root.FS(), ".", func(name string, entry fs.DirEntry, walkErr error) error {
+	err := fs.WalkDir(root.FS(), ".", func(name string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -363,9 +390,10 @@ func reconcileCodexSkillTree(catalog CodexSkillCatalog, skillsRoot string, hooks
 			return fmt.Errorf("skill tree contains a symbolic link")
 		}
 		if entry.IsDir() {
-			if !strings.Contains(name, "/") {
-				observedDirectories[name] = struct{}{}
+			if _, ok := expectedDirectories[name]; !ok {
+				return fmt.Errorf("skill tree contains an unexpected directory")
 			}
+			seenDirectories[name] = struct{}{}
 			return nil
 		}
 		info, err := entry.Info()
@@ -375,7 +403,7 @@ func reconcileCodexSkillTree(catalog CodexSkillCatalog, skillsRoot string, hooks
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("skill tree contains a special file")
 		}
-		want, ok := expected[name]
+		want, ok := expectedFiles[name]
 		if !ok {
 			return fmt.Errorf("skill tree contains an unexpected file")
 		}
@@ -394,24 +422,17 @@ func reconcileCodexSkillTree(catalog CodexSkillCatalog, skillsRoot string, hooks
 		if hex.EncodeToString(digest[:]) != want.SHA256 {
 			return fmt.Errorf("skill tree contains a changed file")
 		}
-		seen[name] = struct{}{}
+		seenFiles[name] = struct{}{}
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("reconcile skill tree: %w", err)
 	}
-	if len(seen) != len(expected) {
+	if len(seenFiles) != len(expectedFiles) {
 		return fmt.Errorf("reconcile skill tree: catalog file is missing")
 	}
-	if !sameStringSet(semanticDirectories, observedDirectories) {
-		return fmt.Errorf("reconcile skill tree: top-level skill directories differ from catalog semantics")
-	}
-	finalOpenedRootInfo, openedErr := root.Stat(".")
-	finalRootInfo, pathErr := os.Lstat(skillsRoot)
-	if openedErr != nil || pathErr != nil || !os.SameFile(rootInfo, finalOpenedRootInfo) ||
-		!os.SameFile(rootInfo, finalRootInfo) || !sameSyntheticRootInfo(rootInfo, finalOpenedRootInfo) ||
-		!sameSyntheticRootInfo(rootInfo, finalRootInfo) {
-		return fmt.Errorf("reconcile skill tree: skill root changed")
+	if !sameStringSet(expectedDirectories, seenDirectories) {
+		return fmt.Errorf("reconcile skill tree: directory inventory differs from catalog")
 	}
 	return nil
 }

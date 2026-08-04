@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -246,6 +247,49 @@ func TestBuildCodexSkillCatalogRejectsDuplicateOrEscapingInventory(t *testing.T)
 		t.Run(name, func(t *testing.T) {
 			if _, err := buildCodexSkillCatalog(input.catalog, input.files); err == nil {
 				t.Fatal("invalid catalog inventory passed")
+			}
+		})
+	}
+}
+
+func TestBuildCodexSkillCatalogEnforcesSchemaV1Bounds(t *testing.T) {
+	validCatalog := skillmeta.Catalog{Skills: []skillmeta.Skill{{Name: "demo"}}}
+	validFiles := []renderedFile{{rel: "demo/SKILL.md", data: []byte("demo")}}
+
+	tooManySkills := make([]skillmeta.Skill, maxCodexCatalogSkills+1)
+	for index := range tooManySkills {
+		tooManySkills[index].Name = fmt.Sprintf("skill-%03d", index)
+	}
+	tooManyFiles := make([]renderedFile, maxCodexCatalogFiles+1)
+	for index := range tooManyFiles {
+		tooManyFiles[index].rel = fmt.Sprintf("demo/file-%04d.md", index)
+	}
+	largeChunk := make([]byte, maxCodexSkillFile)
+	largeTree := make([]renderedFile, 0, 9)
+	for index := 0; index < 8; index++ {
+		largeTree = append(largeTree, renderedFile{rel: fmt.Sprintf("demo/large-%d", index), data: largeChunk})
+	}
+	largeTree = append(largeTree, renderedFile{rel: "demo/overflow", data: []byte("x")})
+	largeCatalog := make([]renderedFile, maxCodexCatalogFiles)
+	for index := range largeCatalog {
+		largeCatalog[index].rel = fmt.Sprintf("demo/%s-%04d", strings.Repeat("a", 400), index)
+	}
+
+	for name, input := range map[string]struct {
+		catalog skillmeta.Catalog
+		files   []renderedFile
+	}{
+		"skill count":   {catalog: skillmeta.Catalog{Skills: tooManySkills}, files: validFiles},
+		"file count":    {catalog: validCatalog, files: tooManyFiles},
+		"skill name":    {catalog: skillmeta.Catalog{Skills: []skillmeta.Skill{{Name: strings.Repeat("a", maxCodexSkillName+1)}}}, files: validFiles},
+		"file path":     {catalog: validCatalog, files: []renderedFile{{rel: "demo/" + strings.Repeat("a", maxCodexSkillPath), data: []byte("x")}}},
+		"file bytes":    {catalog: validCatalog, files: []renderedFile{{rel: "demo/SKILL.md", data: make([]byte, maxCodexSkillFile+1)}}},
+		"tree bytes":    {catalog: validCatalog, files: largeTree},
+		"catalog bytes": {catalog: validCatalog, files: largeCatalog},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := buildCodexSkillCatalog(input.catalog, input.files); err == nil {
+				t.Fatal("schema-v1 bound violation passed")
 			}
 		})
 	}
@@ -571,6 +615,110 @@ func TestRunRejectsSymlinkedCatalogDestinationBeforeRemovingOutputs(t *testing.T
 	data, err := os.ReadFile(external)
 	if err != nil || string(data) != "external sentinel" {
 		t.Fatalf("external catalog target was touched: data=%q err=%v", data, err)
+	}
+}
+
+func TestRunRejectsReplacedCatalogTemporaryAndPreservesPreviousCompanion(t *testing.T) {
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(original) })
+	writeValidGeneratorSkill(t)
+	if err := os.MkdirAll(filepath.Dir(codexSkillCatalogPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const previous = "previous companion\n"
+	if err := os.WriteFile(codexSkillCatalogPath, []byte(previous), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	afterGeneratedTempClosed = func(name string) {
+		temporary := filepath.Join(filepath.Dir(codexSkillCatalogPath), name)
+		if removeErr := os.Remove(temporary); removeErr != nil {
+			t.Fatal(removeErr)
+		}
+		if writeErr := os.WriteFile(temporary, []byte("attacker bytes\n"), 0o600); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+	}
+	t.Cleanup(func() { afterGeneratedTempClosed = nil })
+	if err := run(); err == nil || !strings.Contains(err.Error(), "temporary file") {
+		t.Fatalf("replaced catalog temporary passed: %v", err)
+	}
+	data, err := os.ReadFile(codexSkillCatalogPath)
+	if err != nil || string(data) != previous {
+		t.Fatalf("previous companion was not preserved: data=%q err=%v", data, err)
+	}
+}
+
+func TestRunRejectsCodexSkillMutationBeforeCatalogPublication(t *testing.T) {
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(original) })
+	writeValidGeneratorSkill(t)
+	if err := os.MkdirAll(filepath.Dir(codexSkillCatalogPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const previous = "previous companion\n"
+	if err := os.WriteFile(codexSkillCatalogPath, []byte(previous), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	beforeCodexCatalogPublish = func() {
+		path := filepath.Join("plugins", "atl", "skills", "demo", "SKILL.md")
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if writeErr := os.WriteFile(path, append(data, []byte("changed\n")...), 0o600); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+	}
+	t.Cleanup(func() { beforeCodexCatalogPublish = nil })
+	if err := run(); err == nil || !strings.Contains(err.Error(), "verify codex skill tree") {
+		t.Fatalf("mutated codex tree passed: %v", err)
+	}
+	data, err := os.ReadFile(codexSkillCatalogPath)
+	if err != nil || string(data) != previous {
+		t.Fatalf("catalog was published for a mutated tree: data=%q err=%v", data, err)
+	}
+}
+
+func TestWriteGeneratedFileRestoresPreviousDestinationAfterRenameFailure(t *testing.T) {
+	directory := t.TempDir()
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	const name = "catalog.json"
+	if err := root.WriteFile(name, []byte("previous\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	beforeGeneratedPublishRename = func(temporary, _ string) {
+		if removeErr := root.Remove(temporary); removeErr != nil {
+			t.Fatal(removeErr)
+		}
+	}
+	t.Cleanup(func() { beforeGeneratedPublishRename = nil })
+	if err := writeGeneratedFile(root, name, []byte("next\n")); err == nil {
+		t.Fatal("injected publication failure passed")
+	}
+	data, err := root.ReadFile(name)
+	if err != nil || string(data) != "previous\n" {
+		t.Fatalf("previous destination was not restored: data=%q err=%v", data, err)
+	}
+	if _, err := root.Lstat("." + name + ".bak"); !os.IsNotExist(err) {
+		t.Fatalf("backup survived restoration: %v", err)
 	}
 }
 

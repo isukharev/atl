@@ -1,6 +1,7 @@
 package agenteval
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -154,6 +155,11 @@ func TestVerifyCodexSkillPackageRejectsTreeDrift(t *testing.T) {
 		"extra": func(t *testing.T, root string) {
 			writeCodexCatalogTestFile(t, filepath.Join(root, "skills", "atl", "EXTRA.md"), "extra\n")
 		},
+		"extra empty nested directory": func(t *testing.T, root string) {
+			if err := os.Mkdir(filepath.Join(root, "skills", "atl", "rogue"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		},
 		"changed": func(t *testing.T, root string) {
 			writeCodexCatalogTestFile(t, filepath.Join(root, "skills", "atl", "SKILL.md"), "changed\n")
 		},
@@ -260,6 +266,59 @@ func TestVerifyCodexSkillPackageRejectsFileReplacementBeforeRead(t *testing.T) {
 	if err == nil {
 		t.Fatal("verifyCodexSkillPackage(replaced file) error = nil")
 	}
+}
+
+func TestVerifyCodexSkillPackageRejectsEarlierFileAndCatalogMutation(t *testing.T) {
+	t.Run("earlier skill file", func(t *testing.T) {
+		root := writeCodexSkillFixture(t)
+		mutated := false
+		_, err := verifyCodexSkillPackage(root, codexSkillPackageHooks{
+			beforeSkillFileRead: func(name string) {
+				if mutated || name != "setup/SKILL.md" {
+					return
+				}
+				mutated = true
+				file := filepath.Join(root, "skills", "atl", "SKILL.md")
+				info, statErr := os.Stat(file)
+				if statErr != nil {
+					t.Fatal(statErr)
+				}
+				writeCodexCatalogTestFile(t, file, "# BAD\n")
+				if chtimesErr := os.Chtimes(file, info.ModTime(), info.ModTime()); chtimesErr != nil {
+					t.Fatal(chtimesErr)
+				}
+			},
+		})
+		if err == nil {
+			t.Fatal("metadata-preserving mutation of an earlier file passed")
+		}
+	})
+
+	t.Run("catalog", func(t *testing.T) {
+		root := writeCodexSkillFixture(t)
+		mutated := false
+		_, err := verifyCodexSkillPackage(root, codexSkillPackageHooks{
+			beforeSkillFileRead: func(name string) {
+				if mutated || name != "setup/SKILL.md" {
+					return
+				}
+				mutated = true
+				catalogPath := filepath.Join(root, CodexSkillCatalogFileName)
+				data, readErr := os.ReadFile(catalogPath)
+				if readErr != nil {
+					t.Fatal(readErr)
+				}
+				changed := bytes.Replace(data, []byte(`"name":"atl"`), []byte(`"name":"bad"`), 1)
+				if bytes.Equal(data, changed) {
+					t.Fatal("catalog fixture did not contain the expected token")
+				}
+				writeCodexCatalogTestFileBytes(t, catalogPath, changed)
+			},
+		})
+		if err == nil {
+			t.Fatal("catalog mutation during tree verification passed")
+		}
+	})
 }
 
 func TestVerifyCodexSkillPackageRejectsOversizedFileWithoutPathLeak(t *testing.T) {

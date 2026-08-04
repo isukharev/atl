@@ -33,7 +33,7 @@ func TestStableReadProductionInventory(t *testing.T) {
 		"internal/cli/profile_revalidation.go":              1,
 		"internal/skillmeta/catalog.go":                     3,
 		"internal/skillrouting/contract.go":                 1,
-		"scripts/gen-plugins/main.go":                       7,
+		"scripts/gen-plugins/main.go":                       13,
 	}
 
 	got := map[string]int{}

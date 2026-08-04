@@ -54,6 +54,7 @@ check-maintainability:
 
 const generatedAttributesContract = `/skills/** linguist-generated=true
 /plugins/atl/skills/** linguist-generated=true
+/plugins/atl/skill-catalog.v1.json linguist-generated=true
 `
 
 const pluginsMakeContract = `.PHONY: check-plugins
