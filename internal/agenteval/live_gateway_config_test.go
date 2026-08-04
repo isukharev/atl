@@ -12,8 +12,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestRouteLessInternalMCPUsesReadOnlyCompatibilityGateway(t *testing.T) {
@@ -408,28 +406,27 @@ func TestGatewayBackedInternalMCPRunsProductionStructureViewRoute(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	// ProductionDependencies must discover only the disposable child config;
-	// ambient direct-backend overlays would bypass the boundary under test.
-	t.Setenv("ATL_CONFIG_DIR", child)
-	for _, name := range []string{"ATL_JIRA_URL", "JIRA_URL", "ATL_JIRA_PAT", "JIRA_PAT", "ATL_ALLOW_INSECURE"} {
-		t.Setenv(name, "")
+	// The selected process receives only the disposable child config; ambient
+	// direct-backend overlays never enter the subprocess environment.
+	environment := map[string]string{
+		"ATL_CONFIG_DIR":  child,
+		"ATL_MIRROR_ROOT": filepath.Join(child, "mirror"),
+		"ATL_READ_ONLY":   "1",
+		"ATL_NO_UPDATE":   "1",
+		"NO_PROXY":        "127.0.0.1,localhost",
+		"no_proxy":        "127.0.0.1,localhost",
 	}
-	t.Setenv("ATL_READ_ONLY", "1")
-	t.Setenv("ATL_NO_UPDATE", "1")
-	client := connectRepositoryMCPClient(t)
-	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "jira_structure_view",
-		Arguments: map[string]any{
-			"structure_id": 95, "fields": []string{"key", "summary", "status"},
-			"folder_row": 714, "expected_forest_signature": 9501, "expected_forest_version": 21,
-			"max_rows": 50, "max_bytes": 65536,
-		},
-	})
-	if err != nil {
+	if err := validateGatewayMCPEnvironment(environment); err != nil {
 		t.Fatal(err)
 	}
+	invocation := mustMCPInvocation(t, "jira_structure_view", map[string]any{
+		"structure_id": 95, "fields": []string{"key", "summary", "status"},
+		"folder_row": 714, "expected_forest_signature": 9501, "expected_forest_version": 21,
+		"max_rows": 50, "max_bytes": 65536,
+	})
+	result := callGatewaySelectedATL(t, environment, invocation)
 	if result.IsError {
-		t.Fatalf("production jira_structure_view failed through gateway: %+v", result.Content)
+		t.Fatalf("production jira_structure_view failed through gateway: %+v", result.TextContent)
 	}
 	methods, duplicates, observed, err := closeAndReadLiveGatewayRecords(gateway)
 	if err != nil || !observed {
@@ -442,4 +439,58 @@ func TestGatewayBackedInternalMCPRunsProductionStructureViewRoute(t *testing.T) 
 	if unexpected != 0 || backendMethods["GET"] != 3 || backendMethods["POST"] != 2 {
 		t.Fatalf("upstream production route methods=%v unexpected=%d", backendMethods, unexpected)
 	}
+}
+
+// callGatewaySelectedATL runs one exact internal-MCP invocation through an
+// attested private copy of the selected ATL executable. The gateway child
+// config is the only backend authority; ambient process state is not inherited.
+func callGatewaySelectedATL(t *testing.T, environment map[string]string, invocation MCPInvocation) SyntheticMCPResult {
+	t.Helper()
+	if err := validateGatewayMCPEnvironment(environment); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), defaultSyntheticATLTimeout)
+	defer cancel()
+	binary, err := inspectSelectedSyntheticATLBinary(repositorySyntheticATLBinary(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyATLCapabilityCatalog(ctx, binary.canonicalPath); err != nil {
+		t.Fatal(err)
+	}
+	runtimeRoot := privateSyntheticATLScratch(t)
+	binary, err = materializeSelectedSyntheticATLBinary(binary, runtimeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := make(map[string]string, len(environment)+3)
+	for name, value := range environment {
+		values[name] = value
+	}
+	temporary := filepath.Join(runtimeRoot, "tmp")
+	if err := os.Mkdir(temporary, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	values["TMPDIR"], values["TMP"], values["TEMP"] = temporary, temporary, temporary
+	process, err := startBoundedMCPCommand(
+		ctx, binary.executionPath, []string{"mcp", "serve", "--service", "jira"},
+		runtimeRoot, flattenEnvironment(values), defaultSyntheticATLTimeout,
+		defaultSyntheticATLMCPBytes, defaultSyntheticATLStderrBytes,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, callErr := process.call(ctx, invocation)
+	closeErr := process.Close()
+	verifyErr := binary.verify()
+	if callErr != nil {
+		t.Fatal(callErr)
+	}
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	if verifyErr != nil {
+		t.Fatal(verifyErr)
+	}
+	return result
 }
