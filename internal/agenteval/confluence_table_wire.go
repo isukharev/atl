@@ -234,7 +234,7 @@ func readConfluenceTableWire(r io.Reader, maxBytes int64, subject string) ([]byt
 		return nil, fmt.Errorf("read Confluence table %s wire: %w", subject, err)
 	}
 	if limited.N <= 0 {
-		return nil, fmt.Errorf("Confluence table %s wire exceeds %d bytes", subject, maxBytes)
+		return nil, fmt.Errorf("confluence table %s wire exceeds %d bytes", subject, maxBytes)
 	}
 	if err := validateJSONNoDuplicateKeys(data); err != nil {
 		return nil, fmt.Errorf("decode Confluence table %s wire: %w", subject, err)
@@ -596,13 +596,10 @@ func validateConfluenceTableOptionalMetadata(object map[string]json.RawMessage, 
 }
 
 func (view ConfluenceTableSummaryView) validate() error {
-	if err := validateConfluenceTableEnvelope(
+	return validateConfluenceTableEnvelope(
 		view.SchemaVersion, view.CellContract, view.PageID, view.Version, view.TableCount,
 		view.Table, view.ReturnedTableCount, view.SelectionReconciled, view.Tables, true,
-	); err != nil {
-		return err
-	}
-	return nil
+	)
 }
 
 func (view ConfluenceTableExtractView) validate() error {
