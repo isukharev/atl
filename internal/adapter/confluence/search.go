@@ -97,16 +97,17 @@ func (cf *Confluence) SearchComplete(ctx context.Context, query string, limit in
 	return page, nil
 }
 
-// treePageCap bounds how many pages Tree collects in one call, so a huge space
-// cannot balloon memory/time. Hitting it is reported via the truncated return,
-// never hidden.
+// treePageCap bounds how many backend page rows Tree scans in one call, so a
+// huge space cannot balloon memory/time. Hitting it is reported via the
+// truncated return, never hidden.
 const treePageCap = 2000
 
 // Tree returns the page hierarchy of a space (Parent set from ancestors). depth
-// <= 0 means unlimited. It pages internally up to treePageCap; truncated is
-// true when the cap stopped the listing while the server still had more pages.
+// <= 0 means unlimited. It scans up to treePageCap backend rows; truncated is
+// true when the cap or stalled pagination stopped the listing before exhaustion.
 func (cf *Confluence) Tree(ctx context.Context, space string, depth int) ([]domain.PageRef, bool, error) {
 	start := 0
+	scanned := 0
 	var out []domain.PageRef
 	for {
 		q := url.Values{}
@@ -124,7 +125,13 @@ func (cf *Confluence) Tree(ctx context.Context, space string, depth int) ([]doma
 		if err := cf.c.GetJSON(ctx, "/rest/api/content/search?"+q.Encode(), &resp); err != nil {
 			return nil, false, err
 		}
-		for _, ct := range resp.Results {
+		remaining := treePageCap - scanned
+		resultCount := len(resp.Results)
+		if resultCount > remaining {
+			resultCount = remaining
+		}
+		scanned += resultCount
+		for _, ct := range resp.Results[:resultCount] {
 			d := 0
 			if ct.Ancestors != nil {
 				d = len(*ct.Ancestors)
@@ -140,10 +147,16 @@ func (cf *Confluence) Tree(ctx context.Context, space string, depth int) ([]doma
 			}
 			out = append(out, pr)
 		}
-		if resp.Links.Next == "" || len(resp.Results) == 0 {
+		if len(resp.Results) > remaining {
+			return out, true, nil // the response itself exceeded the scan cap
+		}
+		if resp.Links.Next == "" {
 			return out, false, nil
 		}
-		if len(out) >= treePageCap {
+		if len(resp.Results) == 0 {
+			return out, true, nil
+		}
+		if scanned >= treePageCap {
 			return out, true, nil // cap hit with more pages remaining
 		}
 		start += len(resp.Results)

@@ -58,8 +58,9 @@ type DocStore interface {
 	// Search runs a backend query (CQL) and returns hits plus a next cursor.
 	Search(ctx context.Context, query string, limit int, cursor string) ([]PageRef, string, error)
 	// Tree returns the page hierarchy rooted at a space (or page), to depth.
-	// truncated reports that an internal safety cap stopped the listing while
-	// the backend still had more pages — callers must surface it, never hide it.
+	// truncated reports that an internal safety cap, an oversized response, or
+	// stalled pagination prevented proven exhaustion — callers must surface it,
+	// never hide it.
 	Tree(ctx context.Context, space string, depth int) (refs []PageRef, truncated bool, err error)
 	// GetPage fetches a single page; Body holds native CSF unless Format=view.
 	GetPage(ctx context.Context, id string, opts PullOpts) (*Resource, error)
@@ -79,8 +80,8 @@ type DocStore interface {
 	// DeletePage trashes a page. May return ErrForbidden on per-space perms.
 	DeletePage(ctx context.Context, id string) error
 	// Comments. ListComments returns a page's comments; truncated reports that an
-	// internal safety cap stopped the listing while the backend still signaled
-	// more — callers must surface it, never hide it.
+	// internal safety cap, an oversized response, or stalled pagination prevented
+	// proven exhaustion — callers must surface it, never hide it.
 	ListComments(ctx context.Context, id string) (comments []Comment, truncated bool, err error)
 	AddComment(ctx context.Context, id string, body []byte) (*Comment, error)
 	// Attachments.

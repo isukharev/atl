@@ -40,9 +40,9 @@ func (r *multipartReadCloser) Close() error {
 // ListComments returns a page's comments with both a plain-text fallback and
 // the native storage body used by readonly Markdown rendering. It
 // follows _links.next, paging until the server stops signaling more. truncated
-// is true when a safety cap (maxPages/maxItems) stopped the listing while the
-// server still signaled _links.next — the mirror must surface that, never bake
-// in a silently-truncated set.
+// is true when a safety cap (maxPages/maxItems) clipped or stopped the listing,
+// or when the server advertised another page without making progress — the
+// mirror must surface that, never bake in a silently-truncated set.
 func (cf *Confluence) ListComments(ctx context.Context, id string) ([]domain.Comment, bool, error) {
 	start := 0
 	var out []domain.Comment
@@ -74,7 +74,12 @@ func (cf *Confluence) ListComments(ctx context.Context, id string) ([]domain.Com
 		if err := cf.c.GetJSON(ctx, path, &resp); err != nil {
 			return nil, false, err
 		}
-		for _, r := range resp.Results {
+		remaining := maxItems - len(out)
+		resultCount := len(resp.Results)
+		if resultCount > remaining {
+			resultCount = remaining
+		}
+		for _, r := range resp.Results[:resultCount] {
 			storage := r.Body.Storage.Value
 			body := storage
 			if root, err := csf.Parse([]byte(body)); err == nil {
@@ -85,8 +90,14 @@ func (cf *Confluence) ListComments(ctx context.Context, id string) ([]domain.Com
 				Created: r.History.CreatedDate, Body: body, BodyStorage: storage,
 			})
 		}
-		if resp.Links.Next == "" || len(resp.Results) == 0 {
+		if len(resp.Results) > remaining {
+			return out, true, nil // the response itself exceeded the item cap
+		}
+		if resp.Links.Next == "" {
 			return out, false, nil // server exhausted at or under the cap
+		}
+		if len(resp.Results) == 0 || len(out) >= maxItems {
+			return out, true, nil
 		}
 		start += len(resp.Results)
 	}
