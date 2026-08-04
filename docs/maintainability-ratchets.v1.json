@@ -18,8 +18,9 @@
     {"owner":"evaluator","path":"internal/agenteval/runner.go","max_lines":1900,"rationale":"Keep the evaluator launch and orchestration owner visible after attempt layout, provider lifecycle, trajectory capture, and outcome finalization moved to focused owners."},
     {"owner":"evaluator","path":"internal/agenteval/runner.go","function":"runHeadlessOnce","max_lines":350,"rationale":"Keep the remaining launch-environment assembly and explicit lifecycle/error-precedence orchestration within its reduced reviewed allowance."},
     {"owner":"mcp","path":"internal/mcpserver/confluence_tools.go","function":"registerConfluenceTools","max_lines":320,"rationale":"Keep Confluence MCP tool registration within a reviewed allowance."},
+    {"owner":"mcp","path":"internal/mcpserver/errors.go","max_lines":472,"rationale":"Keep the shared client-safe MCP error classification, redaction, and recovery policy subsystem within its reviewed allowance."},
     {"owner":"mcp","path":"internal/mcpserver/jira_tools.go","function":"registerJiraTools","max_lines":300,"rationale":"Keep Jira MCP tool registration within a reviewed allowance."},
-    {"owner":"mcp","path":"internal/mcpserver/server.go","max_lines":2050,"rationale":"Keep MCP service assembly, shared validation, and error-policy ownership within its reduced reviewed allowance after service tool catalogs moved to focused owners."}
+    {"owner":"mcp","path":"internal/mcpserver/server.go","max_lines":1590,"rationale":"Keep MCP service assembly and shared validation ownership within its reduced reviewed allowance after client-safe error policy moved to a focused owner."}
   ],
   "timing": {
     "mode": "observe",
