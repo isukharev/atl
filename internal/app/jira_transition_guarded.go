@@ -494,8 +494,7 @@ func jiraTransitionProposalHash(result *JiraTransitionGuardedResult, commentIDs 
 	if err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(encoded)
-	return hex.EncodeToString(sum[:]), nil
+	return guardedProposalDigest(encoded), nil
 }
 
 func (s *JiraService) readJiraTransitionEndState(ctx context.Context, before *jiraTransitionSnapshot) (*jiraTransitionSnapshot, error) {

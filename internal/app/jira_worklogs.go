@@ -352,8 +352,7 @@ func jiraWorklogProposalHash(key string, seconds int64, comment, started string,
 		AuthorKey      string `json:"author_key"`
 		BaselineSHA256 string `json:"baseline_sha256"`
 	}{2, key, seconds, comment, started, author.Name, author.Key, baselineSHA256})
-	sum := sha256.Sum256(canonical)
-	return hex.EncodeToString(sum[:])
+	return guardedProposalDigest(canonical)
 }
 
 func jiraWorklogMatches(worklog domain.IssueWorklog, input domain.IssueWorklogCreate, author domain.IssueWorklogAuthor) bool {

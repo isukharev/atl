@@ -329,8 +329,7 @@ func jiraIssueDeleteProposalHash(snapshot jiraIssueDeleteSnapshot, deleteSubtask
 		Key: snapshot.key, IssueID: snapshot.issueID, Updated: snapshot.updated,
 		Subtasks: snapshot.subtasks, DeleteSubtasks: deleteSubtasks,
 	})
-	sum := sha256.Sum256(canonical)
-	return hex.EncodeToString(sum[:])
+	return guardedProposalDigest(canonical)
 }
 
 func jiraIssueDeleteAmbiguousError(message string, cause error) error {

@@ -419,8 +419,7 @@ func confluenceCommentMutationProposalHash(snapshot confluenceCommentMutationSna
 		operation, snapshot.pageID, snapshot.pageVersion, snapshot.target, snapshot.actor.ID,
 		bodySHA256, bodyBytes, snapshot.capabilities, snapshot.baselineSHA256,
 	})
-	sum := sha256.Sum256(canonical)
-	return hex.EncodeToString(sum[:])
+	return guardedProposalDigest(canonical)
 }
 
 func confluenceCommentMutationTargetState(operation domain.ConfluenceCommentMutationOperation) domain.ConfluenceCommentResolution {

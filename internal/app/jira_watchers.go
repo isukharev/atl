@@ -2,8 +2,6 @@ package app
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -253,6 +251,5 @@ func jiraWatcherProposalHash(key, operation, username string, watchers []domain.
 		Username      string   `json:"username"`
 		Current       []string `json:"current"`
 	}{SchemaVersion: 1, Key: key, Operation: operation, Username: username, Current: names})
-	sum := sha256.Sum256(canonical)
-	return hex.EncodeToString(sum[:])
+	return guardedProposalDigest(canonical)
 }

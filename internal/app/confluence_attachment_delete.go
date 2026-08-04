@@ -374,8 +374,7 @@ func confluenceAttachmentDeleteProposalHash(snapshot confluenceAttachmentDeleteS
 		InventorySHA256: snapshot.inventorySHA256, InventoryCount: len(snapshot.inventory),
 		ExpectedFinalSHA256: expectedFinalSHA256, ExpectedFinalCount: len(snapshot.inventory) - 1,
 	})
-	sum := sha256.Sum256(canonical)
-	return hex.EncodeToString(sum[:])
+	return guardedProposalDigest(canonical)
 }
 
 func confluenceAttachmentDeletePageMatches(a, b confluenceAttachmentDeletePageEvidence) bool {
