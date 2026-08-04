@@ -1995,7 +1995,9 @@ func jiraHistorySummaryMCPItems(t *testing.T, entry map[string]any) []map[string
 func TestJiraHistorySummaryMCPHoldoutIsDistinct(t *testing.T) {
 	cohorts := jiraHistorySummaryMCPCohorts()
 	pair := loadRepositorySamplingPairContract(t, "jira-history-summary-mcp")
-	primaryRoot, holdoutRoot := pair.Primary.Root, pair.Holdout.Root
+	if err := validateBenchmarkPair(jiraHistorySummaryMCPPairDescriptor(), pair); err != nil {
+		t.Fatal(err)
+	}
 	primaryScenario, holdoutScenario := pair.Primary.Scenario, pair.Holdout.Scenario
 	// The budgets are identical except the exact backend-request bound, which is
 	// the one dimension in which the two topologies legitimately differ.
@@ -2012,24 +2014,6 @@ func TestJiraHistorySummaryMCPHoldoutIsDistinct(t *testing.T) {
 		t.Fatal("the holdout no longer exercises a distinct pagination topology")
 	}
 
-	primarySchema := mustReadFile(t, filepath.Join(primaryRoot, "response-schema.v1.json"))
-	holdoutSchema := mustReadFile(t, filepath.Join(holdoutRoot, "response-schema.v1.json"))
-	if !bytes.Equal(primarySchema, holdoutSchema) {
-		t.Fatal("the shared response schema is no longer byte-identical across the cohorts")
-	}
-	for _, filename := range []string{"fixture.json", "prompt.mcp.v1.md", "rubric.v1.json"} {
-		if bytes.Equal(
-			mustReadFile(t, filepath.Join(primaryRoot, filename)),
-			mustReadFile(t, filepath.Join(holdoutRoot, filename)),
-		) {
-			t.Fatalf("holdout does not exercise distinct %s data", filename)
-		}
-	}
-	if repositoryTreeDigest(t, filepath.Join(primaryRoot, "workspace")) ==
-		repositoryTreeDigest(t, filepath.Join(holdoutRoot, "workspace")) {
-		t.Fatal("holdout reused the primary workspace tree")
-	}
-
 	primary := jiraHistorySummaryMCPIdentity(t, cohorts[0])
 	holdout := jiraHistorySummaryMCPIdentity(t, cohorts[1])
 	if shared := jiraSnapshotReconciliationSharedIdentity(primary, holdout); len(shared) != 0 {
@@ -2041,51 +2025,22 @@ func TestJiraHistorySummaryMCPHoldoutIsDistinct(t *testing.T) {
 		t.Fatal("identity detector does not flag a cloned cohort")
 	}
 
-	for _, test := range []struct {
-		runFile, provider, model string
-	}{
-		{runFile: "run.mcp.codex.json", provider: "codex", model: "gpt-5.6-luna"},
-		{runFile: "run.mcp.claude.json", provider: "claude-code", model: "claude-opus-4-8"},
-	} {
-		t.Run(test.provider, func(t *testing.T) {
-			primarySpec, holdoutSpec := pair.Primary.Runs[test.runFile], pair.Holdout.Runs[test.runFile]
-			if primarySpec.Provider != test.provider || primarySpec.Model != test.model ||
-				primarySpec.Reasoning != "high" ||
-				holdoutSpec.Provider != test.provider || holdoutSpec.Model != test.model ||
-				holdoutSpec.Reasoning != "high" {
-				t.Fatalf("exact cohort contract drifted: primary=%+v holdout=%+v", primarySpec, holdoutSpec)
-			}
-			if !slices.Equal(primarySpec.AllowedMCPTools, holdoutSpec.AllowedMCPTools) {
-				t.Fatalf("primary/holdout execution identity drifted: primary=%+v holdout=%+v",
-					primarySpec, holdoutSpec)
-			}
-			if equalPrivateComparisonJSON(primarySpec.Checks, holdoutSpec.Checks) {
-				t.Fatal("holdout oracles are not bound to distinct evidence")
-			}
-		})
+	for _, provider := range benchmarkPairProviders {
+		if equalPrivateComparisonJSON(
+			pair.Primary.Runs[provider.runFile].Checks,
+			pair.Holdout.Runs[provider.runFile].Checks,
+		) {
+			t.Fatalf("%s holdout oracles are not bound to distinct evidence", provider.provider)
+		}
 	}
+}
 
-	// Within one cohort the two provider run specs may differ only in provider,
-	// model, and pricing metadata; drifting any other field must be caught.
-	for _, root := range []string{primaryRoot, holdoutRoot} {
-		codex := loadRepositoryRunSpec(t, filepath.Join(root, "run.mcp.codex.json"))
-		claude := loadRepositoryRunSpec(t, filepath.Join(root, "run.mcp.claude.json"))
-		if codex.Provider == claude.Provider || codex.Model == claude.Model ||
-			equalPrivateComparisonJSON(codex.Pricing, claude.Pricing) {
-			t.Fatalf("%s provider pair is not distinct: codex=%+v claude=%+v", root, codex, claude)
-		}
-		neutral := func(spec RunSpec) RunSpec {
-			spec.Provider, spec.Model, spec.Pricing = "", "", Pricing{}
-			return spec
-		}
-		if !equalPrivateComparisonJSON(neutral(codex), neutral(claude)) {
-			t.Fatalf("%s provider pair differs beyond provider/model/pricing metadata", root)
-		}
-		drifted := claude
-		drifted.Reasoning = "medium"
-		if equalPrivateComparisonJSON(neutral(codex), neutral(drifted)) {
-			t.Fatalf("%s provider parity check does not detect reasoning drift", root)
-		}
+func jiraHistorySummaryMCPPairDescriptor() benchmarkPairDescriptor {
+	return benchmarkPairDescriptor{
+		primaryName:           "jira-history-summary-mcp",
+		responseSchema:        "response-schema.v1.json",
+		distinctArtifacts:     []string{"fixture.json", "prompt.mcp.v1.md", "rubric.v1.json"},
+		workspaceRelationship: benchmarkWorkspaceDistinctTrees,
 	}
 }
 

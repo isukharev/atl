@@ -259,6 +259,19 @@ extract to the exact positive version returned by its content-free summary.
 Omitting or changing `expected_page_version` fails the route oracle even when
 the positional index and filtered answer still match.
 
+Repository contract tests may use the narrow typed sampling-pair harness for
+pair-wide ceremony only. Its closed descriptor declares the primary corpus
+name, the byte-identical response schema, artifacts that must differ, and
+whether the two workspace trees are intentionally identical or distinct. The
+harness also pins the two provider rows, high reasoning, regression/holdout
+repetitions, primary/holdout execution identity, and within-cohort parity after
+neutralizing only provider, model, and pricing. It does not drive a tool,
+construct evidence, evaluate run checks, or own budgets, schema semantics,
+fixture meaning, route arguments, prompt-withholding controls, sink policy,
+failure retention, or mutation oracles. Those guarantees remain explicit in
+the cell test; contributors should extend the typed descriptor only when a
+third representative proves another invariant is byte-for-byte identical.
+
 The current provider-paired Jira quarter-portfolio cell extends that exact
 argument oracle across a longer cross-service workflow. The primary cohort
 freezes one board snapshot, reads ascending per-epic history and bounded page
