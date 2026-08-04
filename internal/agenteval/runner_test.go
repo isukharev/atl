@@ -156,8 +156,7 @@ printf '%s\n' '{"answer":"ok","labels":["alpha","beta"],"format":"json"}' >"$fin
 	fakeAgentScript = strings.ReplaceAll(fakeAgentScript, "__CODEX_CONTINUITY__", codexContinuity)
 	writeTestFile(t, fakeAgent, fakeAgentScript, 0o700)
 	fakeATL := filepath.Join(tempRepository, "fake-atl")
-	writeTestFile(t, fakeATL, `#!/bin/sh
-if [ "$1" = "version" ]; then
+	writeTestFile(t, fakeATL, "#!/bin/sh\n"+testATLCapabilityCatalogHandler()+`if [ "$1" = "version" ]; then
   printf '%s\n' '{"version":"0.4.0","commit":"test","build_state":"clean"}'
   exit 0
 fi

@@ -20,7 +20,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/isukharev/atl/internal/app"
-	"github.com/isukharev/atl/internal/capability"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/mcpserver"
 )
@@ -61,7 +60,7 @@ func TestRepositoryBenchmarkCorpusContract(t *testing.T) {
 	}
 	definedTools := make([]string, 0)
 	seenTools := map[string]struct{}{}
-	for _, definition := range capability.Definitions() {
+	for _, definition := range PinnedCapabilityCatalog().Capabilities {
 		if definition.MCPTool == "" {
 			continue
 		}
@@ -85,8 +84,8 @@ func TestRepositoryScenarioCapabilitiesMatchCatalog(t *testing.T) {
 	if len(paths) == 0 {
 		t.Fatal("no versioned agent-evaluation scenarios found")
 	}
-	definitions := map[string]capability.Definition{}
-	for _, definition := range capability.Definitions() {
+	definitions := map[string]CapabilityCatalogItem{}
+	for _, definition := range PinnedCapabilityCatalog().Capabilities {
 		definitions[definition.ID] = definition
 	}
 	for _, path := range paths {

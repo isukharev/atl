@@ -593,7 +593,7 @@ func TestExecutePrivatePlanCompletesExactlyOnceAndLoadsBaselineSource(t *testing
 		t.Fatalf("summary=%+v", summary)
 	}
 	assertPrivatePlanInvocationCount(t, fixture.agent, 1)
-	assertPrivatePlanInvocationCount(t, fixture.atl, 1)
+	assertPrivatePlanInvocationCount(t, fixture.atl, 2)
 
 	source, err := LoadCompletedPrivateRun(fixture.root, fixture.repository, preview.PlanID)
 	if err != nil {
@@ -623,7 +623,7 @@ func TestExecutePrivatePlanCompletesExactlyOnceAndLoadsBaselineSource(t *testing
 	_, err = ExecutePrivatePlan(context.Background(), fixture.executeOptions(preview))
 	assertPrivatePlanError(t, err, "consumed")
 	assertPrivatePlanInvocationCount(t, fixture.agent, 1)
-	assertPrivatePlanInvocationCount(t, fixture.atl, 1)
+	assertPrivatePlanInvocationCount(t, fixture.atl, 2)
 
 	statePath := filepath.Join(fixture.root, "plans", preview.PlanID+".state.json")
 	var state privatePlanState
@@ -826,11 +826,11 @@ func TestExecutePrivatePlanInterruptedStateCannotReplay(t *testing.T) {
 		t.Fatalf("summary=%+v", summary)
 	}
 	assertPrivatePlanInvocationCount(t, fixture.agent, 1)
-	assertPrivatePlanInvocationCount(t, fixture.atl, 1)
+	assertPrivatePlanInvocationCount(t, fixture.atl, 2)
 	_, err = ExecutePrivatePlan(context.Background(), fixture.executeOptions(preview))
 	assertPrivatePlanError(t, err, "consumed")
 	assertPrivatePlanInvocationCount(t, fixture.agent, 1)
-	assertPrivatePlanInvocationCount(t, fixture.atl, 1)
+	assertPrivatePlanInvocationCount(t, fixture.atl, 2)
 	if _, err := LoadCompletedPrivateRun(fixture.root, fixture.repository, preview.PlanID); err == nil {
 		t.Fatal("interrupted plan loaded as completed")
 	}
@@ -904,7 +904,7 @@ func TestExecutePrivatePlanRechecksExecutionSnapshotBetweenSurfaces(t *testing.T
 		t.Fatalf("summary=%+v", summary)
 	}
 	assertPrivatePlanInvocationCount(t, fixture.agent, 1)
-	assertPrivatePlanInvocationCount(t, fixture.atl, 1)
+	assertPrivatePlanInvocationCount(t, fixture.atl, 2)
 }
 
 func newPrivatePlanTestFixture(t *testing.T, includeCLI, failAgent bool) privatePlanTestFixture {
@@ -1000,7 +1000,7 @@ func main() {
 		t.Fatalf("build native agent fixture: %v: %s", err, output)
 	}
 	atl := filepath.Join(binRoot, "fake-atl")
-	writeTestFile(t, atl, "#!/bin/sh\n"+fmt.Sprintf("printf '%%s\\n' x >>%q\n", atl+".calls")+`if [ "$1" = "version" ]; then printf '%s\n' '{"version":"test","commit":"synthetic","build_state":"clean"}'; exit 0; fi
+	writeTestFile(t, atl, "#!/bin/sh\n"+fmt.Sprintf("printf '%%s\\n' x >>%q\n", atl+".calls")+testATLCapabilityCatalogHandler()+`if [ "$1" = "version" ]; then printf '%s\n' '{"version":"test","commit":"synthetic","build_state":"clean"}'; exit 0; fi
 if [ "$1" = "jira" ] && [ "$2" = "fields" ]; then printf '%s\n' '{"fields":[]}'; exit 0; fi
 exit 2
 `, 0o700)

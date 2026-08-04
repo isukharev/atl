@@ -162,11 +162,12 @@ check-package-boundary:
 		test -n "$$core" && test -n "$$heavy"
 
 .PHONY: agent-eval-compat
-agent-eval-compat: check-skill-routing
-	go test ./internal/agenteval -run '^(TestRepositoryBenchmarkCorpusContract|TestRepositoryScenarioCapabilitiesMatchCatalog|TestEvaluatorProductDependencyLedger|TestEvaluatorProductDependencyLedgerDetectsAliasAndOwnershipDrift|TestParseCLIErrorContractAdmitsOnlyTypedFailedCLIErrors|TestCLIErrorContractVocabularyMatchesVersionedWireFixture|TestCLIErrorRecoveryV1AcceptsOnlyDocumentedShapes)$$' -count=1
+agent-eval-compat: check-skill-routing build
+	go test ./internal/agenteval -run '^(TestRepositoryBenchmarkCorpusContract|TestRepositoryScenarioCapabilitiesMatchCatalog|TestEvaluatorProductDependencyLedger|TestEvaluatorProductDependencyLedgerDetectsAliasAndOwnershipDrift|TestParseCLIErrorContractAdmitsOnlyTypedFailedCLIErrors|TestCLIErrorContractVocabularyMatchesVersionedWireFixture|TestCLIErrorRecoveryV1AcceptsOnlyDocumentedShapes|TestPinnedCapabilityCatalogIsStrictAndImmutable|TestDecodeCapabilityCatalogFailsClosed|TestVerifyPinnedCapabilityCatalogChecksEveryWireField|TestCapabilityCatalogMinimalProjectionPreservesProfiles|TestVerifyATLCapabilityCatalogUsesExactBoundedOfflineCommand|TestVerifyATLCapabilityCatalogRejectsSemanticDriftAndTimeout|TestRunHeadlessChecksSelectedATLCatalogBeforeCreatingOutput)$$' -count=1
 	go test ./internal/cli -run '^TestCLIErrorWireProductContract$$' -count=1
 	go run ./scripts/agent-eval validate internal/cli/testdata/agent-eval/*.json benchmarks/agent-eval/*/scenario.v*.json >/dev/null
 	go run ./scripts/agent-eval validate-run benchmarks/agent-eval/*/run.*.json >/dev/null
+	go run ./scripts/agent-eval verify-atl-capabilities ./atl >/dev/null
 
 .PHONY: agent-eval-contract
 agent-eval-contract: agent-eval-compat

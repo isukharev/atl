@@ -32,11 +32,11 @@ type evaluatorDependencyLedger struct {
 // review. The ledger test excludes itself so its AST machinery cannot conceal
 // a dependency by making its own imports part of the expected boundary.
 // The first reviewed baseline was 29/27/5 production declarations/files/targets
-// and 66/33/10 for tests; the current values below record the first reduction.
+// and 66/33/10 for tests. The current values below record the evaluator-owned
+// CLI error wire and capability catalog reductions.
 func TestEvaluatorProductDependencyLedger(t *testing.T) {
 	want := evaluatorDependencyLedger{
 		Production: map[string][]string{
-			productInternalImportPrefix + "capability": {"runspec.go"},
 			productInternalImportPrefix + "safepath": {
 				"cli_route_qualification.go",
 				"private_activation_calibration.go",
@@ -97,7 +97,6 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 				"jira_structure_folder_selection_recovery_benchmark_test.go",
 				"jira_triage_issue_workflow_benchmark_test.go",
 			},
-			productInternalImportPrefix + "capability": {"corpus_contract_test.go"},
 			productInternalImportPrefix + "config": {
 				"confluence_csv_formula_safety_benchmark_test.go",
 				"confluence_multi_section_benchmark_test.go",
@@ -162,11 +161,11 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 	if err := compareEvaluatorDependencyLedgers(got, want); err != nil {
 		t.Fatal(err)
 	}
-	if declarations, files, targets := dependencyLaneCounts(got.Production); declarations != 28 || files != 26 || targets != 4 {
-		t.Fatalf("production dependency counts=%d declarations/%d files/%d targets, want 28/26/4", declarations, files, targets)
+	if declarations, files, targets := dependencyLaneCounts(got.Production); declarations != 27 || files != 26 || targets != 3 {
+		t.Fatalf("production dependency counts=%d declarations/%d files/%d targets, want 27/26/3", declarations, files, targets)
 	}
-	if declarations, files, targets := dependencyLaneCounts(got.Tests); declarations != 63 || files != 32 || targets != 8 {
-		t.Fatalf("test dependency counts=%d declarations/%d files/%d targets, want 63/32/8", declarations, files, targets)
+	if declarations, files, targets := dependencyLaneCounts(got.Tests); declarations != 62 || files != 32 || targets != 7 {
+		t.Fatalf("test dependency counts=%d declarations/%d files/%d targets, want 62/32/7", declarations, files, targets)
 	}
 	if declarations, files, targets := dependencyLaneCounts(got.EntrypointProduction); declarations != 4 || files != 4 || targets != 1 {
 		t.Fatalf("entrypoint production dependency counts=%d declarations/%d files/%d targets, want 4/4/1", declarations, files, targets)
