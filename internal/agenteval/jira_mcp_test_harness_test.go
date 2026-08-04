@@ -8,10 +8,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// startJiraSnapshotReconciliationMCPBackend remains the in-process harness for
-// graph and history evaluator families that have not crossed the selected ATL
-// process boundary yet. The snapshot-reconciliation family must not use it.
-func startJiraSnapshotReconciliationMCPBackend(
+// startRepositoryJiraHistoryMCPBackend remains the in-process harness for the
+// Jira history evaluator family that has not crossed the selected ATL process
+// boundary yet. Graph and snapshot-reconciliation families must not use it.
+func startRepositoryJiraHistoryMCPBackend(
 	t *testing.T,
 	fixture MockFixture,
 ) (*MockBackend, *mcp.ClientSession) {
@@ -30,7 +30,7 @@ func startJiraSnapshotReconciliationMCPBackend(
 	return backend, connectRepositoryMCPClient(t)
 }
 
-func callJiraSnapshotReconciliationMCP(
+func callRepositoryJiraHistoryMCP(
 	t *testing.T,
 	client *mcp.ClientSession,
 	invocation MCPInvocation,

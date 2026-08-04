@@ -119,8 +119,6 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 			},
 			productInternalImportPrefix + "mcpserver": {
 				"corpus_contract_test.go",
-				"jira_artifact_graph_development_mcp_benchmark_test.go",
-				"jira_artifact_graph_mcp_benchmark_test.go",
 			},
 			productInternalImportPrefix + "mdwiki": {
 				"jira_meeting_tasks_workflow_benchmark_test.go",
@@ -153,8 +151,8 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 	if declarations, files, targets := dependencyLaneCounts(got.Production); declarations != 25 || files != 25 || targets != 1 {
 		t.Fatalf("production dependency counts=%d declarations/%d files/%d targets, want 25/25/1", declarations, files, targets)
 	}
-	if declarations, files, targets := dependencyLaneCounts(got.Tests); declarations != 52 || files != 23 || targets != 6 {
-		t.Fatalf("test dependency counts=%d declarations/%d files/%d targets, want 52/23/6", declarations, files, targets)
+	if declarations, files, targets := dependencyLaneCounts(got.Tests); declarations != 50 || files != 21 || targets != 6 {
+		t.Fatalf("test dependency counts=%d declarations/%d files/%d targets, want 50/21/6", declarations, files, targets)
 	}
 	if declarations, files, targets := dependencyLaneCounts(got.EntrypointProduction); declarations != 4 || files != 4 || targets != 1 {
 		t.Fatalf("entrypoint production dependency counts=%d declarations/%d files/%d targets, want 4/4/1", declarations, files, targets)
