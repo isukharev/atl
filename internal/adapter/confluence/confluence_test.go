@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -12,6 +13,15 @@ import (
 
 func newTestClient(url string) *httpx.Client {
 	return httpx.New(url, "token", "test")
+}
+
+func legacyCommentPage(count int, next bool) string {
+	results := strings.TrimSuffix(strings.Repeat(`{},`, count), ",")
+	nextLink := ""
+	if next {
+		nextLink = `"next":"/next"`
+	}
+	return `{"results":[` + results + `],"_links":{` + nextLink + `}}`
 }
 
 func TestResolveShortPageLinkUsesScopedRedirectClient(t *testing.T) {
@@ -242,6 +252,56 @@ func TestListCommentsTruncates(t *testing.T) {
 	}
 	if len(got) != maxPages {
 		t.Errorf("expected %d comments collected before the cap, got %d", maxPages, len(got))
+	}
+}
+
+func TestListCommentsStalledNextPageIsTruncated(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(legacyCommentPage(0, true)))
+	}))
+	defer srv.Close()
+
+	got, truncated, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListComments(context.Background(), "200")
+	if err != nil || !truncated || len(got) != 0 {
+		t.Fatalf("comments=%d truncated=%v err=%v, want empty truncated inventory", len(got), truncated, err)
+	}
+	if requests != 1 {
+		t.Fatalf("requests=%d, want 1", requests)
+	}
+}
+
+func TestListCommentsClipsOversizedPageAtItemCap(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(legacyCommentPage(maxItems+1, false)))
+	}))
+	defer srv.Close()
+
+	got, truncated, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListComments(context.Background(), "200")
+	if err != nil || !truncated {
+		t.Fatalf("truncated=%v err=%v, want clipped inventory", truncated, err)
+	}
+	if len(got) != maxItems {
+		t.Fatalf("comments=%d, want exact item cap %d", len(got), maxItems)
+	}
+}
+
+func TestListCommentsExactItemCapTerminalIsComplete(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(legacyCommentPage(maxItems, false)))
+	}))
+	defer srv.Close()
+
+	got, truncated, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListComments(context.Background(), "200")
+	if err != nil || truncated {
+		t.Fatalf("truncated=%v err=%v, want complete terminal inventory", truncated, err)
+	}
+	if len(got) != maxItems {
+		t.Fatalf("comments=%d, want exact item cap %d", len(got), maxItems)
 	}
 }
 
