@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "skills": [
+    {"name": "atl", "allow_implicit_invocation": true},
+    {"name": "confluence", "allow_implicit_invocation": true},
+    {"name": "jira", "allow_implicit_invocation": true},
+    {"name": "meeting-tasks", "allow_implicit_invocation": true},
+    {"name": "onboarding", "allow_implicit_invocation": false},
+    {"name": "search-knowledge", "allow_implicit_invocation": true},
+    {"name": "setup", "allow_implicit_invocation": false},
+    {"name": "spec-to-backlog", "allow_implicit_invocation": true},
+    {"name": "sprint-dashboard", "allow_implicit_invocation": true},
+    {"name": "status-report", "allow_implicit_invocation": true},
+    {"name": "triage-issue", "allow_implicit_invocation": true}
+  ]
+}

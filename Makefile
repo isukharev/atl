@@ -103,9 +103,9 @@ gen-plugins:
 
 .PHONY: check-plugins
 check-plugins: gen-plugins check-skill-safety check-skill-routing
-	@test -z "$$(git status --porcelain -- skills plugins/atl/skills plugins/atl/.mcp.json)" || { \
-		git status --porcelain -- skills plugins/atl/skills plugins/atl/.mcp.json; \
-		echo "generated plugin trees are stale or hand-edited: edit skills-src/, run 'make gen-plugins', commit all three trees"; exit 1; }
+	@test -z "$$(git status --porcelain -- skills plugins/atl/skills plugins/atl/.mcp.json plugins/atl/skill-catalog.v1.json)" || { \
+		git status --porcelain -- skills plugins/atl/skills plugins/atl/.mcp.json plugins/atl/skill-catalog.v1.json; \
+		echo "generated plugin outputs are stale or hand-edited: edit skills-src/, run 'make gen-plugins', commit every generated output"; exit 1; }
 
 .PHONY: check-skill-safety
 check-skill-safety:
@@ -163,11 +163,12 @@ check-package-boundary:
 
 .PHONY: agent-eval-compat
 agent-eval-compat: check-skill-routing build
-	go test ./internal/agenteval -run '^(TestRepositoryBenchmarkCorpusContract|TestRepositoryScenarioCapabilitiesMatchCatalog|TestEvaluatorProductDependencyLedger|TestEvaluatorProductDependencyLedgerDetectsAliasAndOwnershipDrift|TestParseCLIErrorContractAdmitsOnlyTypedFailedCLIErrors|TestCLIErrorContractVocabularyMatchesVersionedWireFixture|TestCLIErrorRecoveryV1AcceptsOnlyDocumentedShapes|TestPinnedCapabilityCatalogIsStrictAndImmutable|TestDecodeCapabilityCatalogFailsClosed|TestVerifyPinnedCapabilityCatalogChecksEveryWireField|TestCapabilityCatalogMinimalProjectionPreservesProfiles|TestVerifyATLCapabilityCatalogUsesExactBoundedOfflineCommand|TestVerifyATLCapabilityCatalogRejectsSemanticDriftAndTimeout|TestRunHeadlessChecksSelectedATLCatalogBeforeCreatingOutput)$$' -count=1
+	go test ./internal/agenteval -run '^(TestRepositoryBenchmarkCorpusContract|TestRepositoryScenarioCapabilitiesMatchCatalog|TestEvaluatorProductDependencyLedger|TestEvaluatorProductDependencyLedgerDetectsAliasAndOwnershipDrift|TestParseCLIErrorContractAdmitsOnlyTypedFailedCLIErrors|TestCLIErrorContractVocabularyMatchesVersionedWireFixture|TestCLIErrorRecoveryV1AcceptsOnlyDocumentedShapes|TestPinnedCapabilityCatalogIsStrictAndImmutable|TestDecodeCapabilityCatalogFailsClosed|TestVerifyPinnedCapabilityCatalogChecksEveryWireField|TestCapabilityCatalogMinimalProjectionPreservesProfiles|TestVerifyATLCapabilityCatalogUsesExactBoundedOfflineCommand|TestVerifyATLCapabilityCatalogRejectsSemanticDriftAndTimeout|TestRunHeadlessChecksSelectedATLCatalogBeforeCreatingOutput|TestRepositoryCodexSkillPackageMatchesReleasedSemantics|TestVerifyReleasedCodexSkillSemanticsRejectsPolicyDrift|TestVerifyCodexSkillPackageReconcilesExactTree|TestDecodeCodexSkillCatalogRejectsMalformedContracts)$$' -count=1
 	go test ./internal/cli -run '^TestCLIErrorWireProductContract$$' -count=1
 	go run ./scripts/agent-eval validate internal/cli/testdata/agent-eval/*.json benchmarks/agent-eval/*/scenario.v*.json >/dev/null
 	go run ./scripts/agent-eval validate-run benchmarks/agent-eval/*/run.*.json >/dev/null
 	go run ./scripts/agent-eval verify-atl-capabilities ./atl >/dev/null
+	go run ./scripts/agent-eval verify-codex-skill-package plugins/atl >/dev/null
 
 .PHONY: agent-eval-contract
 agent-eval-contract: agent-eval-compat

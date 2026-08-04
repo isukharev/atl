@@ -40,7 +40,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-eval validate scenarios | validate-run specs | verify-atl-capabilities ATL_BINARY | inventory CORPUS_ROOT | validate-pair CLI_SPEC MCP_SPEC | validate-comparison-set SPEC SPEC [SPEC] | evaluate scenario observation | review-template options | assess options | aggregate results | aggregate-root ROOT | run options | private COMMAND options")
+		return fmt.Errorf("usage: agent-eval validate scenarios | validate-run specs | verify-atl-capabilities ATL_BINARY | verify-codex-skill-package PACKAGE_ROOT | inventory CORPUS_ROOT | validate-pair CLI_SPEC MCP_SPEC | validate-comparison-set SPEC SPEC [SPEC] | evaluate scenario observation | review-template options | assess options | aggregate results | aggregate-root ROOT | run options | private COMMAND options")
 	}
 	switch args[0] {
 	case "private":
@@ -98,6 +98,18 @@ func run(args []string) error {
 			return fmt.Errorf("verify-atl-capabilities requires exactly one ATL executable")
 		}
 		if err := agenteval.VerifyATLCapabilityCatalog(context.Background(), args[1]); err != nil {
+			return err
+		}
+		return writeJSON(map[string]any{"schema_version": 1, "compatible": true})
+	case "verify-codex-skill-package":
+		if len(args) != 2 {
+			return fmt.Errorf("verify-codex-skill-package requires exactly one package root")
+		}
+		catalog, err := agenteval.VerifyCodexSkillPackage(args[1])
+		if err != nil {
+			return err
+		}
+		if err := agenteval.VerifyReleasedCodexSkillSemantics(catalog); err != nil {
 			return err
 		}
 		return writeJSON(map[string]any{"schema_version": 1, "compatible": true})

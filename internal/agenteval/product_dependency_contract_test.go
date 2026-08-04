@@ -64,7 +64,6 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 				"storage.go",
 				"tool_availability.go",
 			},
-			productInternalImportPrefix + "skillmeta":   {"provider_runtime.go"},
 			productInternalImportPrefix + "testbackend": {"mock_backend.go"},
 		},
 		Tests: map[string][]string{
@@ -141,7 +140,6 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 				"private_baseline_test.go",
 				"private_workspace_migration_test.go",
 			},
-			productInternalImportPrefix + "skillmeta": {"provider_runtime_test.go"},
 		},
 		EntrypointProduction: map[string][]string{
 			"github.com/isukharev/atl/internal/agenteval": {
@@ -161,11 +159,11 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 	if err := compareEvaluatorDependencyLedgers(got, want); err != nil {
 		t.Fatal(err)
 	}
-	if declarations, files, targets := dependencyLaneCounts(got.Production); declarations != 27 || files != 26 || targets != 3 {
-		t.Fatalf("production dependency counts=%d declarations/%d files/%d targets, want 27/26/3", declarations, files, targets)
+	if declarations, files, targets := dependencyLaneCounts(got.Production); declarations != 26 || files != 26 || targets != 2 {
+		t.Fatalf("production dependency counts=%d declarations/%d files/%d targets, want 26/26/2", declarations, files, targets)
 	}
-	if declarations, files, targets := dependencyLaneCounts(got.Tests); declarations != 62 || files != 32 || targets != 7 {
-		t.Fatalf("test dependency counts=%d declarations/%d files/%d targets, want 62/32/7", declarations, files, targets)
+	if declarations, files, targets := dependencyLaneCounts(got.Tests); declarations != 61 || files != 31 || targets != 6 {
+		t.Fatalf("test dependency counts=%d declarations/%d files/%d targets, want 61/31/6", declarations, files, targets)
 	}
 	if declarations, files, targets := dependencyLaneCounts(got.EntrypointProduction); declarations != 4 || files != 4 || targets != 1 {
 		t.Fatalf("entrypoint production dependency counts=%d declarations/%d files/%d targets, want 4/4/1", declarations, files, targets)

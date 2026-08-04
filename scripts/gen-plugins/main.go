@@ -19,10 +19,14 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -33,9 +37,18 @@ import (
 )
 
 const (
-	srcRoot        = "skills-src"
-	routingCorpus  = "benchmarks/agent-eval/skill-routing.v1.json"
-	maxSourceBytes = 8 << 20
+	srcRoot               = "skills-src"
+	routingCorpus         = "benchmarks/agent-eval/skill-routing.v1.json"
+	codexSkillCatalogName = "skill-catalog.v1.json"
+	maxSourceBytes        = 8 << 20
+	codexCatalogSchema    = 1
+	maxCodexCatalogBytes  = 1 << 20
+	maxCodexCatalogSkills = 256
+	maxCodexCatalogFiles  = 4096
+	maxCodexSkillName     = 64
+	maxCodexSkillPath     = 512
+	maxCodexSkillFile     = 8 << 20
+	maxCodexSkillTree     = 64 << 20
 )
 
 type platform struct {
@@ -66,34 +79,53 @@ type publishedOutput struct {
 	root   *os.Root
 }
 
-var platforms = []platform{
-	{
-		name:       "claude",
-		outRoot:    "skills",
-		copyOpenAI: false,
-		vars: map[string]string{
-			"setup_cmd":                  "/atl:setup",
-			"agent_name":                 "Claude Code",
-			"agent_short":                "Claude",
-			"guidance_file":              "CLAUDE.md",
-			"plugin_update_instructions": "Use Claude Code's `/plugin update atl` command.",
-			"setup_invocation_note":      "",
-		},
-	},
-	{
-		name:       "codex",
-		outRoot:    filepath.Join("plugins", "atl", "skills"),
-		copyOpenAI: true,
-		vars: map[string]string{
-			"setup_cmd":                  "$setup",
-			"agent_name":                 "Codex",
-			"agent_short":                "Codex",
-			"guidance_file":              "AGENTS.md",
-			"plugin_update_instructions": "Run `codex plugin marketplace upgrade atl --json`. If it succeeds, run `codex plugin add atl@atl --json`. Then start a new Codex chat or CLI session before retrying.",
-			"setup_invocation_note":      "Invocation: install/enable the atl plugin in Codex, then run this skill from `/skills` or with `$setup`.",
-		},
-	},
+type codexSkillCatalog struct {
+	SchemaVersion int                      `json:"schema_version"`
+	Skills        []codexSkillCatalogSkill `json:"skills"`
+	Files         []codexSkillCatalogFile  `json:"files"`
 }
+
+type codexSkillCatalogSkill struct {
+	Name                    string `json:"name"`
+	AllowImplicitInvocation bool   `json:"allow_implicit_invocation"`
+}
+
+type codexSkillCatalogFile struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+}
+
+var (
+	codexSkillCatalogPath = filepath.Join("plugins", "atl", codexSkillCatalogName)
+	platforms             = []platform{
+		{
+			name:       "claude",
+			outRoot:    "skills",
+			copyOpenAI: false,
+			vars: map[string]string{
+				"setup_cmd":                  "/atl:setup",
+				"agent_name":                 "Claude Code",
+				"agent_short":                "Claude",
+				"guidance_file":              "CLAUDE.md",
+				"plugin_update_instructions": "Use Claude Code's `/plugin update atl` command.",
+				"setup_invocation_note":      "",
+			},
+		},
+		{
+			name:       "codex",
+			outRoot:    filepath.Join("plugins", "atl", "skills"),
+			copyOpenAI: true,
+			vars: map[string]string{
+				"setup_cmd":                  "$setup",
+				"agent_name":                 "Codex",
+				"agent_short":                "Codex",
+				"guidance_file":              "AGENTS.md",
+				"plugin_update_instructions": "Run `codex plugin marketplace upgrade atl --json`. If it succeeds, run `codex plugin add atl@atl --json`. Then start a new Codex chat or CLI session before retrying.",
+				"setup_invocation_note":      "Invocation: install/enable the atl plugin in Codex, then run this skill from `/skills` or with `$setup`.",
+			},
+		},
+	}
+)
 
 // Placeholders use an "atl." prefix ({{atl.setup_cmd}}) so they can never
 // collide with literal {{...}} content (Jira wiki markup renders {{text}}
@@ -105,6 +137,9 @@ var varRe = regexp.MustCompile(`\{\{atl\.([a-z_]+)\}\}`)
 var (
 	afterSourceSnapshotValidated func()
 	beforeOutputIdentityRebind   func(platformName string)
+	afterGeneratedTempClosed     func(name string)
+	beforeGeneratedPublishRename func(temporary, destination string)
+	beforeCodexCatalogPublish    func()
 )
 
 func main() {
@@ -193,7 +228,14 @@ func run() error {
 	// committed tree. Unknown file types, placeholder drift, or malformed
 	// frontmatter therefore leave both existing outputs intact.
 	rendered := make([][]renderedFile, len(platforms))
+	codexPlatformIndex := -1
 	for platformIndex, pl := range platforms {
+		if pl.name == "codex" {
+			if codexPlatformIndex >= 0 {
+				return fmt.Errorf("codex output platform is duplicated")
+			}
+			codexPlatformIndex = platformIndex
+		}
 		for _, source := range files {
 			out, err := renderFile(source.data, source.rel, pl)
 			if err != nil {
@@ -204,6 +246,13 @@ func run() error {
 			}
 			rendered[platformIndex] = append(rendered[platformIndex], renderedFile{rel: source.rel, data: out})
 		}
+	}
+	if codexPlatformIndex < 0 {
+		return fmt.Errorf("codex output platform is missing")
+	}
+	codexSkillCatalogData, err := buildCodexSkillCatalog(catalog, rendered[codexPlatformIndex])
+	if err != nil {
+		return fmt.Errorf("build codex skill catalog: %w", err)
 	}
 
 	repositoryRoot, err := os.OpenRoot(".")
@@ -218,6 +267,9 @@ func run() error {
 		if err := validateOutputRoot(repositoryRoot, pl.outRoot); err != nil {
 			return fmt.Errorf("validate %s output root: %w", pl.name, err)
 		}
+	}
+	if err := validateGeneratedFileDestination(repositoryRoot, codexSkillCatalogPath); err != nil {
+		return fmt.Errorf("validate codex skill catalog output: %w", err)
 	}
 	targets := make([]outputTarget, 0, len(platforms))
 	for _, pl := range platforms {
@@ -296,8 +348,330 @@ func run() error {
 			return fmt.Errorf("publish %s output root: directory changed after publication", output.target.platform.name)
 		}
 	}
+	var codexOutputParent, codexOutputRoot *os.Root
+	for _, output := range published {
+		if output.target.platform.name == "codex" {
+			codexOutputParent = output.target.parent
+			codexOutputRoot = output.root
+			break
+		}
+	}
+	if codexOutputParent == nil || codexOutputRoot == nil || filepath.Dir(codexSkillCatalogPath) != filepath.Dir(platforms[codexPlatformIndex].outRoot) {
+		return fmt.Errorf("publish codex skill catalog: output parent mismatch")
+	}
+	if beforeCodexCatalogPublish != nil {
+		beforeCodexCatalogPublish()
+	}
+	if err := verifyPublishedSkillTree(codexOutputRoot, rendered[codexPlatformIndex]); err != nil {
+		return fmt.Errorf("verify codex skill tree before catalog publication: %w", err)
+	}
+	if err := writeGeneratedFile(codexOutputParent, filepath.Base(codexSkillCatalogPath), codexSkillCatalogData); err != nil {
+		return fmt.Errorf("publish codex skill catalog: %w", err)
+	}
+	if err := verifyPublishedSkillTree(codexOutputRoot, rendered[codexPlatformIndex]); err != nil {
+		return fmt.Errorf("verify codex skill tree after catalog publication: %w", err)
+	}
 	if err := closePublished(); err != nil {
 		return fmt.Errorf("close published output roots: %w", err)
+	}
+	return nil
+}
+
+func buildCodexSkillCatalog(catalog skillmeta.Catalog, rendered []renderedFile) ([]byte, error) {
+	if len(catalog.Skills) == 0 || len(rendered) == 0 {
+		return nil, fmt.Errorf("catalog and generated file inventory must be non-empty")
+	}
+	if len(catalog.Skills) > maxCodexCatalogSkills || len(rendered) > maxCodexCatalogFiles {
+		return nil, fmt.Errorf("catalog exceeds schema-v1 cardinality bounds")
+	}
+	value := codexSkillCatalog{SchemaVersion: codexCatalogSchema}
+	value.Skills = make([]codexSkillCatalogSkill, 0, len(catalog.Skills))
+	for _, skill := range catalog.Skills {
+		if len(skill.Name) == 0 || len(skill.Name) > maxCodexSkillName {
+			return nil, fmt.Errorf("skill name exceeds schema-v1 bounds")
+		}
+		value.Skills = append(value.Skills, codexSkillCatalogSkill{
+			Name:                    skill.Name,
+			AllowImplicitInvocation: skill.OpenAI.AllowImplicitInvocation,
+		})
+	}
+	sort.Slice(value.Skills, func(i, j int) bool { return value.Skills[i].Name < value.Skills[j].Name })
+	for index := 1; index < len(value.Skills); index++ {
+		if value.Skills[index-1].Name == value.Skills[index].Name {
+			return nil, fmt.Errorf("duplicate skill %q", value.Skills[index].Name)
+		}
+	}
+
+	value.Files = make([]codexSkillCatalogFile, 0, len(rendered))
+	var treeBytes int64
+	for _, file := range rendered {
+		clean := filepath.Clean(file.rel)
+		path := filepath.ToSlash(clean)
+		if clean != file.rel || path == "." || path == "" || path == ".." || strings.HasPrefix(path, "../") || strings.Contains(path, "\\") || filepath.IsAbs(file.rel) {
+			return nil, fmt.Errorf("generated file path %q is not relative to the skill root", file.rel)
+		}
+		if len(path) > maxCodexSkillPath || len(file.data) > maxCodexSkillFile {
+			return nil, fmt.Errorf("generated file exceeds schema-v1 bounds")
+		}
+		treeBytes += int64(len(file.data))
+		if treeBytes > maxCodexSkillTree {
+			return nil, fmt.Errorf("generated skill tree exceeds schema-v1 byte bound")
+		}
+		digest := sha256.Sum256(file.data)
+		value.Files = append(value.Files, codexSkillCatalogFile{Path: path, SHA256: hex.EncodeToString(digest[:])})
+	}
+	sort.Slice(value.Files, func(i, j int) bool { return value.Files[i].Path < value.Files[j].Path })
+	for index := 1; index < len(value.Files); index++ {
+		if value.Files[index-1].Path == value.Files[index].Path {
+			return nil, fmt.Errorf("duplicate generated file %q", value.Files[index].Path)
+		}
+	}
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	data = append(data, '\n')
+	if len(data) > maxCodexCatalogBytes {
+		return nil, fmt.Errorf("generated catalog exceeds schema-v1 byte bound")
+	}
+	return data, nil
+}
+
+func verifyPublishedSkillTree(root *os.Root, rendered []renderedFile) error {
+	expectedFiles := make(map[string]renderedFile, len(rendered))
+	expectedDirectories := make(map[string]struct{}, len(rendered))
+	for _, file := range rendered {
+		name := filepath.ToSlash(file.rel)
+		expectedFiles[name] = file
+		for directory := path.Dir(name); directory != "."; directory = path.Dir(directory) {
+			expectedDirectories[directory] = struct{}{}
+		}
+	}
+	seenFiles := make(map[string]struct{}, len(expectedFiles))
+	seenDirectories := make(map[string]struct{}, len(expectedDirectories))
+	err := fs.WalkDir(root.FS(), ".", func(name string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if name == "." {
+			return nil
+		}
+		if entry.Type()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("published tree contains a symbolic link")
+		}
+		if entry.IsDir() {
+			if _, ok := expectedDirectories[name]; !ok {
+				return fmt.Errorf("published tree contains an unexpected directory")
+			}
+			seenDirectories[name] = struct{}{}
+			return nil
+		}
+		want, ok := expectedFiles[name]
+		if !ok {
+			return fmt.Errorf("published tree contains an unexpected file")
+		}
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() {
+			return fmt.Errorf("published tree contains a special file")
+		}
+		if err := verifyGeneratedFile(root, filepath.FromSlash(name), info, want.data); err != nil {
+			return fmt.Errorf("published file changed: %w", err)
+		}
+		seenFiles[name] = struct{}{}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if len(seenFiles) != len(expectedFiles) || !sameGeneratedDirectorySet(expectedDirectories, seenDirectories) {
+		return fmt.Errorf("published tree is incomplete")
+	}
+	return nil
+}
+
+func sameGeneratedDirectorySet(expected, observed map[string]struct{}) bool {
+	if len(expected) != len(observed) {
+		return false
+	}
+	for name := range expected {
+		if _, ok := observed[name]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func writeGeneratedFile(root *os.Root, name string, data []byte) error {
+	if filepath.Base(name) != name || name == "." || name == "" {
+		return fmt.Errorf("generated file name is invalid")
+	}
+	temporary := "." + name + ".tmp"
+	backup := "." + name + ".bak"
+	if _, err := root.Lstat(backup); err == nil {
+		return fmt.Errorf("generated file backup already exists")
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if info, err := root.Lstat(temporary); err == nil {
+		if !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("generated temporary destination is not regular")
+		}
+		if err := root.Remove(temporary); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	file, err := root.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = root.Remove(temporary)
+		}
+	}()
+	written, writeErr := file.Write(data)
+	if writeErr == nil && written != len(data) {
+		writeErr = io.ErrShortWrite
+	}
+	if writeErr == nil {
+		writeErr = file.Sync()
+	}
+	temporaryInfo, statErr := file.Stat()
+	closeErr := file.Close()
+	if writeErr != nil {
+		return writeErr
+	}
+	if statErr != nil || !temporaryInfo.Mode().IsRegular() || temporaryInfo.Size() != int64(len(data)) {
+		return fmt.Errorf("generated temporary file changed while it was written")
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	if afterGeneratedTempClosed != nil {
+		afterGeneratedTempClosed(temporary)
+	}
+	if err := verifyGeneratedFile(root, temporary, temporaryInfo, data); err != nil {
+		return fmt.Errorf("verify generated temporary file: %w", err)
+	}
+	var priorInfo fs.FileInfo
+	if info, err := root.Lstat(name); err == nil {
+		if !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("generated file destination is not regular")
+		}
+		priorInfo = info
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if priorInfo != nil {
+		if err := root.Rename(name, backup); err != nil {
+			return fmt.Errorf("preserve previous generated file: %w", err)
+		}
+		backupInfo, err := root.Lstat(backup)
+		if err != nil || !backupInfo.Mode().IsRegular() || backupInfo.Mode()&fs.ModeSymlink != 0 || !os.SameFile(priorInfo, backupInfo) {
+			return fmt.Errorf("preserve previous generated file: identity changed")
+		}
+	}
+	if beforeGeneratedPublishRename != nil {
+		beforeGeneratedPublishRename(temporary, name)
+	}
+	if err := root.Rename(temporary, name); err != nil {
+		restoreErr := restoreGeneratedBackup(root, name, backup, priorInfo, nil)
+		if restoreErr != nil {
+			return fmt.Errorf("publish generated file: %v; restore previous file: %w", err, restoreErr)
+		}
+		return err
+	}
+	cleanup = false
+	if err := verifyGeneratedFile(root, name, temporaryInfo, data); err != nil {
+		restoreErr := restoreGeneratedBackup(root, name, backup, priorInfo, temporaryInfo)
+		if restoreErr != nil {
+			return fmt.Errorf("verify published generated file: %v; restore previous file: %w", err, restoreErr)
+		}
+		return fmt.Errorf("verify published generated file: %w", err)
+	}
+	if priorInfo != nil {
+		if err := root.Remove(backup); err != nil {
+			return fmt.Errorf("remove previous generated file backup: %w", err)
+		}
+	}
+	return nil
+}
+
+func restoreGeneratedBackup(root *os.Root, name, backup string, priorInfo, publishedInfo fs.FileInfo) error {
+	if publishedInfo != nil {
+		current, err := root.Lstat(name)
+		if err != nil || !os.SameFile(publishedInfo, current) {
+			return fmt.Errorf("published destination identity changed")
+		}
+		if err := root.Remove(name); err != nil {
+			return err
+		}
+	}
+	if priorInfo == nil {
+		return nil
+	}
+	if _, err := root.Lstat(name); err == nil {
+		return fmt.Errorf("destination unexpectedly exists during restore")
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := root.Rename(backup, name); err != nil {
+		return err
+	}
+	restored, err := root.Lstat(name)
+	if err != nil || !restored.Mode().IsRegular() || restored.Mode()&fs.ModeSymlink != 0 || !os.SameFile(priorInfo, restored) {
+		return fmt.Errorf("restored destination identity changed")
+	}
+	return nil
+}
+
+func verifyGeneratedFile(root *os.Root, name string, expected fs.FileInfo, data []byte) error {
+	pathInfo, err := root.Lstat(name)
+	if err != nil || !pathInfo.Mode().IsRegular() || pathInfo.Mode()&fs.ModeSymlink != 0 || !os.SameFile(expected, pathInfo) {
+		return fmt.Errorf("generated file identity changed")
+	}
+	file, err := root.Open(name)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = file.Close() }()
+	openedInfo, err := file.Stat()
+	if err != nil || !openedInfo.Mode().IsRegular() || !os.SameFile(expected, openedInfo) {
+		return fmt.Errorf("generated file identity changed")
+	}
+	got, err := io.ReadAll(io.LimitReader(file, int64(len(data))+1))
+	if err != nil {
+		return err
+	}
+	finalInfo, err := file.Stat()
+	if err != nil || !os.SameFile(openedInfo, finalInfo) || finalInfo.Size() != int64(len(data)) ||
+		!finalInfo.ModTime().Equal(openedInfo.ModTime()) || !bytes.Equal(got, data) {
+		return fmt.Errorf("generated file bytes changed")
+	}
+	return nil
+}
+
+func validateGeneratedFileDestination(root *os.Root, path string) error {
+	clean := filepath.Clean(path)
+	if clean != path || clean == "." || clean == ".." || filepath.IsAbs(path) || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("generated file path is invalid")
+	}
+	temporary := filepath.Join(filepath.Dir(clean), "."+filepath.Base(clean)+".tmp")
+	backup := filepath.Join(filepath.Dir(clean), "."+filepath.Base(clean)+".bak")
+	for _, candidate := range []string{clean, temporary, backup} {
+		info, err := root.Lstat(candidate)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return err
+		}
+		if !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("generated file destination is not regular")
+		}
 	}
 	return nil
 }
