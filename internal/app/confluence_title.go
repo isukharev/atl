@@ -163,6 +163,5 @@ func confluenceTitleProposalHash(id string, version int, title string) (proposal
 		Version       int    `json:"version"`
 		Title         string `json:"title"`
 	}{SchemaVersion: 1, ID: id, Version: version, Title: title})
-	sum := sha256.Sum256(canonical)
-	return hex.EncodeToString(sum[:]), titleDigest
+	return guardedProposalDigest(canonical), titleDigest
 }

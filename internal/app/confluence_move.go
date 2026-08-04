@@ -2,8 +2,6 @@ package app
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -219,6 +217,5 @@ func confluenceMoveProposalHash(id string, version int, currentParent, parent st
 		Parent        string `json:"parent"`
 		TargetVersion int    `json:"target_version"`
 	}{SchemaVersion: 2, ID: id, Version: version, CurrentParent: currentParent, Parent: parent, TargetVersion: targetVersion})
-	sum := sha256.Sum256(canonical)
-	return hex.EncodeToString(sum[:])
+	return guardedProposalDigest(canonical)
 }

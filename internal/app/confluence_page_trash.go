@@ -290,8 +290,7 @@ func confluencePageTrashProposalHash(snapshot confluencePageTrashSnapshot) strin
 		BodySHA256: snapshot.bodySHA256, BodyBytes: snapshot.bodyBytes,
 		TitleSHA256: snapshot.titleSHA256, Space: snapshot.space, Parent: snapshot.parent,
 	})
-	sum := sha256.Sum256(canonical)
-	return hex.EncodeToString(sum[:])
+	return guardedProposalDigest(canonical)
 }
 
 func confluencePageTrashMatches(before, after confluencePageTrashSnapshot) bool {

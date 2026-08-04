@@ -377,8 +377,7 @@ func confluenceInlineCreateProposalHash(snapshot confluenceInlineCreateSnapshot,
 		snapshot.preparation.SerializedHighlights, snapshot.actor.ID, snapshot.provider.ID,
 		snapshot.capabilities, snapshot.baselineSHA256, snapshot.markers,
 	})
-	sum := sha256.Sum256(canonical)
-	return hex.EncodeToString(sum[:])
+	return guardedProposalDigest(canonical)
 }
 
 func reconcileConfluenceInlineCreate(result *ConfluenceCommentMutationGuardedResult, before, after confluenceInlineCreateSnapshot, body []byte, providerResult domain.ConfluenceCommentMutationResult, writeErr error) (*ConfluenceCommentMutationGuardedResult, error) {

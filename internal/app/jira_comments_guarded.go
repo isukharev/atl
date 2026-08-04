@@ -270,8 +270,7 @@ func jiraCommentProposalHash(key string, body []byte, bodySHA256 string, actor J
 		ActorKey      string   `json:"actor_key"`
 		BaselineIDs   []string `json:"baseline_ids"`
 	}{1, key, string(body), bodySHA256, len(body), actor.Name, actor.Key, baselineIDs})
-	sum := sha256.Sum256(canonical)
-	return hex.EncodeToString(sum[:])
+	return guardedProposalDigest(canonical)
 }
 
 func jiraCommentMatches(comment domain.Comment, body []byte, actor JiraCommentActor) bool {

@@ -217,7 +217,7 @@ func confluencePlanHash(plan *ConfluencePlan) string {
 	copy := *plan
 	copy.ProposalHash = ""
 	canonical, _ := json.Marshal(copy)
-	return hashHex(canonical)
+	return guardedProposalDigest(canonical)
 }
 
 type ConfluencePlanApplyOpts struct {

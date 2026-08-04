@@ -213,8 +213,7 @@ func jiraFieldProposalHash(key string, previews []JiraFieldSetPreview) (string, 
 	if err != nil {
 		return "", fmt.Errorf("canonicalize Jira field proposal: %w", err)
 	}
-	digest := sha256.Sum256(encoded)
-	return hex.EncodeToString(digest[:]), nil
+	return guardedProposalDigest(encoded), nil
 }
 
 func normalizeFieldProposals(input []JiraFieldProposal, allowed map[string]bool) ([]JiraFieldSetPreview, map[string]any, error) {

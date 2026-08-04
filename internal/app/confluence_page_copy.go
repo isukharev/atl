@@ -389,8 +389,7 @@ func confluencePageCopyProposalHash(snapshot confluencePageCopySnapshot) string 
 		ParentHierarchyHash: snapshot.parentHierarchyHash, Register: snapshot.register,
 		TargetHierarchyHash: snapshot.targetHierarchyHash, RootSHA256: snapshot.rootSHA256,
 	})
-	sum := sha256.Sum256(canonical)
-	return hex.EncodeToString(sum[:])
+	return guardedProposalDigest(canonical)
 }
 
 func confluencePageCopyReadbackMatches(snapshot confluencePageCopySnapshot, page *domain.Resource) bool {

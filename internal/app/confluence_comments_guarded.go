@@ -396,8 +396,7 @@ func confluenceFooterCommentProposalHash(snapshot confluenceFooterCommentSnapsho
 		snapshot.pageVersion, "footer", string(body), bodySHA256, len(body), snapshot.actor.ID,
 		snapshot.capability, snapshot.baselineSHA256, len(snapshot.comments),
 	})
-	sum := sha256.Sum256(canonical)
-	return hex.EncodeToString(sum[:])
+	return guardedProposalDigest(canonical)
 }
 
 func confluenceFooterBaselineMembersUnchanged(before, after []ConfluenceCommentResultRecord) bool {

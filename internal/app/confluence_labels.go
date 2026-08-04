@@ -2,8 +2,6 @@ package app
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -277,6 +275,5 @@ func confluenceLabelProposalHash(id, operation string, requested []string, curre
 		Requested     []string `json:"requested"`
 		Current       []string `json:"current"`
 	}{SchemaVersion: 1, ID: id, Operation: operation, Requested: requested, Current: state})
-	sum := sha256.Sum256(canonical)
-	return hex.EncodeToString(sum[:])
+	return guardedProposalDigest(canonical)
 }
