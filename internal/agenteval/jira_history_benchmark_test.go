@@ -2,20 +2,15 @@ package agenteval
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"maps"
 	"os"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/isukharev/atl/internal/app"
-	"github.com/isukharev/atl/internal/config"
 )
 
 func TestRepositoryJiraHistorySummaryFixturesDriveProviderOracles(t *testing.T) {
@@ -24,42 +19,21 @@ func TestRepositoryJiraHistorySummaryFixturesDriveProviderOracles(t *testing.T) 
 		name          string
 		directory     string
 		key           string
-		opts          app.JiraHistoryOpts
+		fields        []string
 		total         int
 		fetched       int
 		count         int
 		complete      bool
 		partialReason string
 		expectedGETs  int
-		summary       app.JiraHistorySummary
-		lastChanges   []app.JiraFieldLastChange
 		countField    string
 		command       string
 		commandArgs   []string
 	}{
 		{
 			name: "filtered complete primary", directory: "jira-history-summary", key: "QZ-42",
-			opts:  app.JiraHistoryOpts{Fields: []string{"customfield_20001"}},
-			total: 4, fetched: 4, count: 3, complete: true, expectedGETs: 1,
-			summary: app.JiraHistorySummary{
-				HistoryCount: 3, HistoryIDNonemptyCount: 2, HistoryIDMissingCount: 1,
-				HistoryIDsUnique: false, HistoryNonemptyIDsUnique: false,
-				AuthorNonemptyCount: 2, TimestampNonemptyCount: 3,
-				ChronologicalComparable: true, ChronologicalAscending: &ascending,
-				EntriesWithItems: 3, MultiItemEntryCount: 1, ItemCount: 4,
-				ItemFieldNonemptyCount: 4, DistinctItemFieldCount: 1,
-				ItemsWithFromCount: 3, ItemsWithToCount: 4, StatusItemCount: 0,
-				CountMatchesHistory: true, FetchedMatchesTotal: true,
-				Fields: []app.JiraHistoryFieldSummary{{
-					FieldID: "customfield_20001", Field: "Forecast",
-					Count: 4, WithFrom: 3, WithTo: 4,
-				}},
-			},
-			lastChanges: []app.JiraFieldLastChange{{
-				FieldID: "customfield_20001", Field: "customfield_20001",
-				Created: "2026-06-03T09:00:00.000+0000", HistoryID: "801",
-				From: "9", To: "10",
-			}},
+			fields: []string{"customfield_20001"},
+			total:  4, fetched: 4, count: 3, complete: true, expectedGETs: 1,
 			countField:  "filtered_history_count",
 			command:     "atl jira issue history QZ-42 --field customfield_20001 --summary-only --",
 			commandArgs: []string{"jira", "issue", "history", "QZ-42", "--field", "customfield_20001", "--summary-only"},
@@ -69,25 +43,9 @@ func TestRepositoryJiraHistorySummaryFixturesDriveProviderOracles(t *testing.T) 
 			total: 5, fetched: 3, count: 3, complete: false,
 			partialReason: "Jira changelog pagination made no forward progress",
 			expectedGETs:  2,
-			summary: app.JiraHistorySummary{
-				HistoryCount: 3, HistoryIDNonemptyCount: 3, HistoryIDMissingCount: 0,
-				HistoryIDsUnique: true, HistoryNonemptyIDsUnique: true,
-				AuthorNonemptyCount: 2, TimestampNonemptyCount: 3,
-				ChronologicalComparable: false, ChronologicalAscending: nil,
-				EntriesWithItems: 3, MultiItemEntryCount: 2, ItemCount: 5,
-				ItemFieldNonemptyCount: 5, DistinctItemFieldCount: 4,
-				ItemsWithFromCount: 4, ItemsWithToCount: 4, StatusItemCount: 1,
-				CountMatchesHistory: true, FetchedMatchesTotal: false,
-				Fields: []app.JiraHistoryFieldSummary{
-					{FieldID: "customfield_30001", Field: "Risk", Count: 1, WithFrom: 0, WithTo: 1},
-					{FieldID: "customfield_30002", Field: "Risk", Count: 2, WithFrom: 2, WithTo: 1},
-					{FieldID: "status", Field: "Status", Count: 1, WithFrom: 1, WithTo: 1},
-					{FieldID: "", Field: "Risk", Count: 1, WithFrom: 1, WithTo: 1},
-				},
-			},
-			countField:  "history_count",
-			command:     "atl jira issue history RV-9 --summary-only --",
-			commandArgs: []string{"jira", "issue", "history", "RV-9", "--summary-only"},
+			countField:    "history_count",
+			command:       "atl jira issue history RV-9 --summary-only --",
+			commandArgs:   []string{"jira", "issue", "history", "RV-9", "--summary-only"},
 		},
 	}
 
@@ -95,41 +53,41 @@ func TestRepositoryJiraHistorySummaryFixturesDriveProviderOracles(t *testing.T) 
 		t.Run(test.name, func(t *testing.T) {
 			root := filepath.Join("..", "..", "benchmarks", "agent-eval", test.directory)
 			fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
-			backend, err := StartMockBackend(fixture)
-			if err != nil {
-				t.Fatal(err)
+			codexSpec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli.codex.json"))
+			policy := jiraHistoryCLIProcessPolicy(codexSpec)
+			process := startJiraHistoryCLIProcess(t, fixture, test.key, test.expectedGETs, policy)
+			called, err := process.RunCLIJSON(t.Context(), test.commandArgs...)
+			if err != nil || called.ExitCode != 0 || len(called.Stderr) != 0 {
+				t.Fatalf("selected Jira history CLI failed: result=%+v err=%v", called, err)
 			}
-			defer backend.Close()
-
-			t.Setenv("ATL_CONFIG_DIR", t.TempDir())
-			t.Setenv("ATL_JIRA_PAT", "synthetic-token")
-			service, err := app.NewJira(&config.Config{JiraURL: backend.Environment()["ATL_JIRA_URL"]}, "benchmark-contract")
-			if err != nil {
-				t.Fatal(err)
-			}
-			full, err := service.HistoryFiltered(context.Background(), test.key, test.opts)
-			if err != nil {
-				t.Fatal(err)
-			}
-			projection := app.JiraHistorySummaryProjection(full)
-			if projection == nil || projection.Key != test.key || projection.Source != "paginated" ||
+			projection := decodeJiraHistoryProcessSummary(t, called.JSON)
+			if projection.Key != test.key || projection.Source != "paginated" ||
 				projection.Total != test.total || projection.Fetched != test.fetched ||
 				projection.Count != test.count || projection.Complete != test.complete ||
 				projection.PartialReason != test.partialReason {
 				t.Fatalf("projection provenance=%+v", projection)
 			}
-			if !reflect.DeepEqual(projection.Summary, test.summary) {
-				t.Fatalf("summary=%+v want=%+v", projection.Summary, test.summary)
+			if len(projection.Filters.Fields) != len(test.fields) {
+				t.Fatalf("CLI selected fields=%+v want ids=%v", projection.Filters.Fields, test.fields)
 			}
-			if !reflect.DeepEqual(projection.LastChanges, test.lastChanges) {
-				t.Fatalf("last_changes=%+v want=%+v", projection.LastChanges, test.lastChanges)
+			for index, field := range projection.Filters.Fields {
+				if field.ID != test.fields[index] {
+					t.Fatalf("CLI selected field %d=%+v want id=%q", index, field, test.fields[index])
+				}
 			}
-			assertHistoryProjectionOmitsRawArray(t, projection)
+			assertJiraHistoryCLIExpectedSummary(t, projection, &ascending)
+			assertHistoryProjectionOmitsRawArray(t, &projection)
 
-			final := historyBenchmarkFinal(t, projection, test.countField)
-			methods, unexpected, duplicates := backend.Summary()
-			if unexpected != 0 || duplicates != 0 || len(methods) != 1 || methods["GET"] != test.expectedGETs {
-				t.Fatalf("methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+			final := historyBenchmarkFinal(t, &projection, test.countField)
+			assertJiraHistorySummaryContentOmissions(t, fixture, called.JSON, "CLI summary")
+			summary := process.Summary()
+			methods, unexpected, duplicates := summary.HTTPMethods, summary.UnexpectedRequests, summary.DuplicateRequests
+			if unexpected != 0 || duplicates != 0 ||
+				!equalHTTPMethods(methods, map[string]int{"GET": test.expectedGETs}) ||
+				!process.RequestSequenceComplete() || !jiraHistoryExpectedCLIInvocationCount(summary) ||
+				len(summary.MCPInvocations) != 0 {
+				t.Fatalf("selected CLI process accounting drifted: summary=%+v complete=%t",
+					summary, process.RequestSequenceComplete())
 			}
 			for _, provider := range []string{"codex", "claude"} {
 				spec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli."+provider+".json"))
@@ -148,6 +106,8 @@ func TestRepositoryJiraHistorySummaryFixturesDriveProviderOracles(t *testing.T) 
 					}
 				}
 			}
+			assertJiraHistoryCLIDivergencesRefused(
+				t, fixture, test.key, test.expectedGETs, policy, test.commandArgs)
 		})
 	}
 }
@@ -173,7 +133,67 @@ func TestRepositoryJiraHistorySummarySamplingPairIdentity(t *testing.T) {
 	}
 }
 
-func historyBenchmarkFinal(t *testing.T, result *app.JiraHistorySummaryResult, countField string) []byte {
+func assertJiraHistoryCLIExpectedSummary(t *testing.T, result JiraHistorySummaryView, ascending *bool) {
+	t.Helper()
+	summary := result.Summary
+	if summary.HistoryCount != 3 || summary.AuthorNonemptyCount != 2 ||
+		summary.TimestampNonemptyCount != 3 || !summary.CountMatchesHistory {
+		t.Fatalf("CLI summary common facts drifted: %+v", summary)
+	}
+	switch result.Key {
+	case "QZ-42":
+		if summary.HistoryIDNonemptyCount != 2 || summary.HistoryIDMissingCount != 1 ||
+			summary.HistoryIDsUnique || summary.HistoryNonemptyIDsUnique ||
+			!summary.ChronologicalComparable || summary.ChronologicalAscending == nil ||
+			*summary.ChronologicalAscending != *ascending || summary.EntriesWithItems != 3 ||
+			summary.MultiItemEntryCount != 1 || summary.ItemCount != 4 ||
+			summary.ItemFieldNonemptyCount != 4 || summary.DistinctItemFieldCount != 1 ||
+			summary.ItemsWithFromCount != 3 || summary.ItemsWithToCount != 4 ||
+			summary.StatusItemCount != 0 || !summary.FetchedMatchesTotal || len(summary.Fields) != 1 ||
+			summary.Fields[0].FieldID != "customfield_20001" || summary.Fields[0].Field != "Forecast" ||
+			summary.Fields[0].Count != 4 || summary.Fields[0].WithFrom != 3 || summary.Fields[0].WithTo != 4 ||
+			len(result.LastChanges) != 1 {
+			t.Fatalf("primary CLI summary drifted: %+v", result)
+		}
+		change := result.LastChanges[0]
+		if change.FieldID != "customfield_20001" || change.Field != "customfield_20001" ||
+			change.Created != "2026-06-03T09:00:00.000+0000" || change.HistoryID != "801" ||
+			change.From != "9" || change.To != "10" {
+			t.Fatalf("primary CLI latest change drifted: %+v", change)
+		}
+	case "RV-9":
+		if summary.HistoryIDNonemptyCount != 3 || summary.HistoryIDMissingCount != 0 ||
+			!summary.HistoryIDsUnique || !summary.HistoryNonemptyIDsUnique ||
+			summary.ChronologicalComparable || summary.ChronologicalAscending != nil ||
+			summary.EntriesWithItems != 3 || summary.MultiItemEntryCount != 2 || summary.ItemCount != 5 ||
+			summary.ItemFieldNonemptyCount != 5 || summary.DistinctItemFieldCount != 4 ||
+			summary.ItemsWithFromCount != 4 || summary.ItemsWithToCount != 4 ||
+			summary.StatusItemCount != 1 || summary.FetchedMatchesTotal || len(summary.Fields) != 4 ||
+			len(result.LastChanges) != 0 {
+			t.Fatalf("holdout CLI summary drifted: %+v", result)
+		}
+		want := []struct {
+			id, field       string
+			count, from, to int
+		}{
+			{id: "customfield_30001", field: "Risk", count: 1, from: 0, to: 1},
+			{id: "customfield_30002", field: "Risk", count: 2, from: 2, to: 1},
+			{id: "status", field: "Status", count: 1, from: 1, to: 1},
+			{id: "", field: "Risk", count: 1, from: 1, to: 1},
+		}
+		for index, field := range summary.Fields {
+			if field.FieldID != want[index].id || field.Field != want[index].field ||
+				field.Count != want[index].count || field.WithFrom != want[index].from ||
+				field.WithTo != want[index].to {
+				t.Fatalf("holdout CLI field %d drifted: %+v want=%+v", index, field, want[index])
+			}
+		}
+	default:
+		t.Fatalf("unexpected CLI history key %q", result.Key)
+	}
+}
+
+func historyBenchmarkFinal(t *testing.T, result *JiraHistorySummaryView, countField string) []byte {
 	t.Helper()
 	summary := result.Summary
 	fields := make([]map[string]any, 0, len(summary.Fields))
@@ -230,7 +250,7 @@ func historyBenchmarkFinal(t *testing.T, result *app.JiraHistorySummaryResult, c
 	return encoded
 }
 
-func assertHistoryProjectionOmitsRawArray(t *testing.T, result *app.JiraHistorySummaryResult) {
+func assertHistoryProjectionOmitsRawArray(t *testing.T, result *JiraHistorySummaryView) {
 	t.Helper()
 	encoded, err := json.Marshal(result)
 	if err != nil {
@@ -381,9 +401,9 @@ func assertClosedResponseSchemaMatchesFinal(t *testing.T, root string, spec RunS
 // and boundaries the prompt pins, and the repetition count — together with the
 // class shapes the cohort exists to exercise. Every reported quantity
 // (provenance, cardinality, identity, ordering, buckets, reconciliation, and
-// the selected field's latest change) is derived by driving the production MCP
-// server against the retained fixture, so the bundled run-spec oracles stay the
-// only independent copy of the expected answer.
+// the selected field's latest change) is derived by driving the exact selected
+// ATL process against the retained fixture, so the bundled run-spec oracles
+// stay the only independent copy of the expected answer.
 type jiraHistorySummaryMCPCohort struct {
 	directory   string
 	scenarioID  string
@@ -473,7 +493,7 @@ const (
 // and the transport metrics a compliant run would report.
 type jiraHistorySummaryMCPEvidence struct {
 	cohort jiraHistorySummaryMCPCohort
-	result app.JiraHistorySummaryResult
+	result JiraHistorySummaryView
 	// rawHistoryPresent is observed on the encoded tool result rather than
 	// assumed, so the `raw_history_present=false` oracle rests on the product's
 	// projection.
@@ -532,28 +552,43 @@ func TestJiraHistorySummaryMCPFixturesDriveProviderOracles(t *testing.T) {
 	}
 }
 
-// driveJiraHistorySummaryMCP walks the honest route against the real mock
-// backend through the production in-memory MCP server: one bounded
-// `jira_issue_history` call with the exact arguments the run specs declare. The
-// decoded result is the product's own `app.JiraHistorySummaryResult`; nothing
-// here recomputes the changelog arithmetic that `HistoryFiltered` owns.
+// driveJiraHistorySummaryMCP walks the honest route through the exact selected
+// ATL process: one bounded `jira_issue_history` call with the exact arguments
+// the run specs declare. The strict evaluator DTO owns the released wire;
+// nothing here recomputes changelog arithmetic.
 func driveJiraHistorySummaryMCP(
 	t *testing.T,
 	cohort jiraHistorySummaryMCPCohort,
 	fixture MockFixture,
 ) jiraHistorySummaryMCPEvidence {
 	t.Helper()
-	backend, client := startRepositoryJiraHistoryMCPBackend(t, fixture)
-	invocation := jiraHistorySummaryMCPInvocation(t, cohort, jiraHistorySummaryMCPMaxBytes)
-	result := callRepositoryJiraHistoryMCP(t, client, invocation)
-	if result.IsError {
-		t.Fatalf("bounded history read failed: %+v", result.Content)
+	root := jiraHistorySummaryMCPRoot(cohort)
+	retained := loadRepositoryRunSpec(t, filepath.Join(root, "run.mcp.codex.json"))
+	admitted := repositoryExpectedMCPInvocations(t, retained)
+	if len(admitted) != 1 {
+		t.Fatalf("retained Jira history route has %d admissions, want one", len(admitted))
 	}
+	invocation := jiraHistorySummaryMCPInvocation(t, cohort, jiraHistorySummaryMCPMaxBytes)
+	if !equalMCPInvocations(admitted, []MCPInvocation{invocation}) {
+		t.Fatalf("derived Jira history admission drifted: derived=%+v retained=%+v", invocation, admitted[0])
+	}
+	return driveAdmittedJiraHistorySummaryMCP(t, cohort, fixture, invocation)
+}
+
+func driveAdmittedJiraHistorySummaryMCP(
+	t *testing.T,
+	cohort jiraHistorySummaryMCPCohort,
+	fixture MockFixture,
+	invocation MCPInvocation,
+) jiraHistorySummaryMCPEvidence {
+	t.Helper()
+	process := startJiraHistoryMCPProcess(t, fixture, cohort, []MCPInvocation{invocation}, 1)
+	result := callJiraHistoryMCPProcess(t, process, invocation)
 
 	evidence := jiraHistorySummaryMCPEvidence{cohort: cohort}
-	decodeRepositoryStructuredContent(t, result.StructuredContent, &evidence.result)
+	evidence.result = decodeJiraHistoryProcessSummary(t, result.StructuredContent)
 	assertHistoryProjectionOmitsRawArray(t, &evidence.result)
-	encodedResult := mustJiraHistorySummaryMCPJSON(t, result.StructuredContent)
+	encodedResult := slices.Clone(result.StructuredContent)
 	evidence.rawHistoryPresent = jiraHistorySummaryMCPHasRawHistory(t, result.StructuredContent)
 	assertJiraHistorySummaryMCPClassShape(t, cohort, &evidence.result)
 	assertJiraHistorySummaryMCPContentIsBounded(t, cohort, fixture, encodedResult, "tool result")
@@ -561,11 +596,14 @@ func driveJiraHistorySummaryMCP(
 	evidence.final = jiraHistorySummaryMCPFinal(t, cohort, &evidence.result, evidence.rawHistoryPresent)
 	assertJiraHistorySummaryMCPContentIsBounded(t, cohort, fixture, evidence.final, "final response")
 
-	methods, unexpected, duplicates := backend.Summary()
+	summary := process.Summary()
+	methods, unexpected, duplicates := summary.HTTPMethods, summary.UnexpectedRequests, summary.DuplicateRequests
 	if !equalHTTPMethods(methods, map[string]int{"GET": cohort.expectedGETs}) ||
-		unexpected != 0 || duplicates != jiraHistorySummaryMCPDuplicates {
-		t.Fatalf("route traffic drifted: methods=%v unexpected=%d duplicates=%d",
-			methods, unexpected, duplicates)
+		unexpected != 0 || duplicates != jiraHistorySummaryMCPDuplicates ||
+		!process.RequestSequenceComplete() || len(summary.CLIInvocations) != 0 ||
+		!equalHTTPMethods(summary.MCPInvocations, map[string]int{jiraHistorySummaryMCPTool: 1}) {
+		t.Fatalf("selected Jira history MCP accounting drifted: summary=%+v complete=%t",
+			summary, process.RequestSequenceComplete())
 	}
 	evidence.methods, evidence.unexpected, evidence.duplicates = methods, unexpected, duplicates
 	evidence.invocations = []MCPInvocation{invocation}
@@ -608,7 +646,7 @@ func jiraHistorySummaryMCPFamilies(successes, failures int) []CapabilityFamilyMe
 func assertJiraHistorySummaryMCPClassShape(
 	t *testing.T,
 	cohort jiraHistorySummaryMCPCohort,
-	result *app.JiraHistorySummaryResult,
+	result *JiraHistorySummaryView,
 ) {
 	t.Helper()
 	summary := result.Summary
@@ -665,7 +703,7 @@ func assertJiraHistorySummaryMCPClassShape(
 func jiraHistorySummaryMCPFinal(
 	t *testing.T,
 	cohort jiraHistorySummaryMCPCohort,
-	result *app.JiraHistorySummaryResult,
+	result *JiraHistorySummaryView,
 	rawHistoryPresent bool,
 ) []byte {
 	t.Helper()
@@ -786,6 +824,20 @@ func assertJiraHistorySummaryMCPContentIsBounded(
 		if !slices.Contains(authors, hostile) {
 			t.Fatalf("fixture lost its synthetic hostile author text %q", hostile)
 		}
+	}
+	assertJiraHistorySummaryContentOmissions(t, fixture, encoded, label)
+}
+
+func assertJiraHistorySummaryContentOmissions(
+	t *testing.T,
+	fixture MockFixture,
+	encoded []byte,
+	label string,
+) {
+	t.Helper()
+	authors := jiraHistorySummaryMCPFixtureAuthors(t, fixture)
+	if len(authors) == 0 {
+		t.Fatal("fixture carries no changelog author names to withhold")
 	}
 	for _, author := range authors {
 		if bytes.Contains(encoded, []byte(author)) {
@@ -1628,9 +1680,8 @@ func jiraHistorySummaryMCPBucket(t *testing.T, final map[string]any, index int) 
 
 // assertJiraHistorySummaryMCPRouteMutationsFail proves the honest route rejects
 // wrong arguments, a repeated read, a fabricated answer with no read at all,
-// and a read of an issue the task never named. Everything whose behavior
-// depends on backend handling is driven through the production MCP server, so
-// the regressions are real traffic rather than an edited transcript.
+// and a read of an issue the task never named. Argument divergences are refused
+// before backend work; admitted mutations execute through selected ATL.
 func assertJiraHistorySummaryMCPRouteMutationsFail(
 	t *testing.T,
 	cohort jiraHistorySummaryMCPCohort,
@@ -1639,28 +1690,14 @@ func assertJiraHistorySummaryMCPRouteMutationsFail(
 	evidence jiraHistorySummaryMCPEvidence,
 ) {
 	t.Helper()
+	admitted := evidence.invocations[0]
+	assertJiraHistoryMCPDivergencesRefused(t, fixture, cohort, admitted)
 
 	// The declared byte bound is part of the pinned arguments even though it
-	// changes neither the backend traffic nor the returned summary.
+	// would change neither backend traffic nor the returned summary. Exact
+	// process admission refuses it before either can happen.
 	t.Run("wrong-byte-bound", func(t *testing.T) {
-		backend, client := startRepositoryJiraHistoryMCPBackend(t, fixture)
 		invocation := jiraHistorySummaryMCPInvocation(t, cohort, jiraHistorySummaryMCPMaxBytes/2)
-		result := callRepositoryJiraHistoryMCP(t, client, invocation)
-		if result.IsError {
-			t.Fatalf("bounded history read failed: %+v", result.Content)
-		}
-		var summary app.JiraHistorySummaryResult
-		decodeRepositoryStructuredContent(t, result.StructuredContent, &summary)
-		if !equalPrivateComparisonJSON(&summary, &evidence.result) {
-			t.Fatalf("halving the byte bound changed the summary projection: %+v", summary)
-		}
-		methods, unexpected, duplicates := backend.Summary()
-		if !equalHTTPMethods(methods, evidence.methods) || unexpected != 0 ||
-			duplicates != jiraHistorySummaryMCPDuplicates {
-			t.Fatalf("byte-bound traffic drifted: methods=%v unexpected=%d duplicates=%d",
-				methods, unexpected, duplicates)
-		}
-
 		mutated := evidence.clone()
 		mutated.invocations = []MCPInvocation{invocation}
 		for _, spec := range specs {
@@ -1671,18 +1708,21 @@ func assertJiraHistorySummaryMCPRouteMutationsFail(
 	// A second identical read: the extra call is served, so the regression is
 	// real duplicate backend traffic rather than an unexpected request.
 	t.Run("repeated-read", func(t *testing.T) {
-		backend, client := startRepositoryJiraHistoryMCPBackend(t, fixture)
 		invocation := jiraHistorySummaryMCPInvocation(t, cohort, jiraHistorySummaryMCPMaxBytes)
-		for attempt := range 2 {
-			if result := callRepositoryJiraHistoryMCP(t, client, invocation); result.IsError {
-				t.Fatalf("read attempt %d failed: %+v", attempt, result.Content)
-			}
+		process := startJiraHistoryMCPProcess(t, fixture, cohort,
+			[]MCPInvocation{invocation, invocation}, 2)
+		for range 2 {
+			result := callJiraHistoryMCPProcess(t, process, invocation)
+			decodeJiraHistoryProcessSummary(t, result.StructuredContent)
 		}
-		methods, unexpected, duplicates := backend.Summary()
+		summary := process.Summary()
+		methods, unexpected, duplicates := summary.HTTPMethods, summary.UnexpectedRequests, summary.DuplicateRequests
 		if !equalHTTPMethods(methods, map[string]int{"GET": 2 * cohort.expectedGETs}) ||
-			unexpected != 0 || duplicates != cohort.expectedGETs {
-			t.Fatalf("repeated-read traffic drifted: methods=%v unexpected=%d duplicates=%d",
-				methods, unexpected, duplicates)
+			unexpected != 0 || duplicates != cohort.expectedGETs ||
+			!process.RequestSequenceComplete() || len(summary.CLIInvocations) != 0 ||
+			!equalHTTPMethods(summary.MCPInvocations, map[string]int{jiraHistorySummaryMCPTool: 2}) {
+			t.Fatalf("repeated-read process drifted: summary=%+v complete=%t",
+				summary, process.RequestSequenceComplete())
 		}
 
 		mutated := evidence.clone()
@@ -1724,38 +1764,23 @@ func assertJiraHistorySummaryMCPRouteMutationsFail(
 		}
 	})
 
-	// Reading an issue the task never named. The fixture configures no route
-	// for it, so the production MCP call fails and the mock backend records the
-	// unexpected traffic: interface_succeeded and mock_clean become
-	// load-bearing, and the failure must disclose no backend content.
+	// Reading an issue the task never named is refused before process/backend
+	// work by the exact invocation admission.
 	t.Run("unnamed-issue-key", func(t *testing.T) {
-		backend, client := startRepositoryJiraHistoryMCPBackend(t, fixture)
 		unnamed := cohort
 		unnamed.key = cohort.key + "9"
 		invocation := jiraHistorySummaryMCPInvocation(t, unnamed, jiraHistorySummaryMCPMaxBytes)
-		result := callRepositoryJiraHistoryMCP(t, client, invocation)
-		if !result.IsError || result.StructuredContent != nil {
-			t.Fatalf("history read for unconfigured key %q unexpectedly succeeded: %+v", unnamed.key, result)
+		process := startJiraHistoryMCPProcess(t, fixture, cohort, []MCPInvocation{admitted}, 1)
+		if _, err := process.CallMCPJSON(t.Context(), invocation); err == nil {
+			t.Fatalf("unadmitted history key %q crossed the process boundary", unnamed.key)
 		}
-		assertJiraHistorySummaryMCPContentIsBounded(
-			t, cohort, fixture, mustJiraHistorySummaryMCPJSON(t, result), "failed tool result")
-
-		methods, unexpected, duplicates := backend.Summary()
-		if unexpected == 0 || duplicates != jiraHistorySummaryMCPDuplicates {
-			t.Fatalf("unnamed-key traffic drifted: methods=%v unexpected=%d duplicates=%d",
-				methods, unexpected, duplicates)
-		}
-
+		assertJiraHistoryPreBackendRefusal(t, process)
 		mutated := evidence.clone()
-		mutated.invocations = []MCPInvocation{invocation}
-		mutated.families = jiraHistorySummaryMCPFamilies(0, 1)
-		mutated.methods, mutated.unexpected, mutated.duplicates = methods, unexpected, duplicates
-		mutated.failed = 1
-		want := []string{"interface_succeeded", "mock_clean", "route_arguments", "route_exact"}
-		if !equalHTTPMethods(methods, evidence.methods) {
-			// The failed read did not reproduce the honest route's traffic.
-			want = append(want, "http_exact")
-		}
+		mutated.invocations = nil
+		mutated.sequence = nil
+		mutated.families = nil
+		mutated.methods = map[string]int{}
+		want := []string{"http_exact", "route_arguments", "route_exact", "route_ordered", "used_interface"}
 		for _, spec := range specs {
 			assertJiraHistorySummaryMCPFailures(t, spec, mutated, want)
 		}
@@ -1773,7 +1798,8 @@ func assertJiraHistorySummaryMCPRouteMutationsFail(
 		unfiltered.wantSelectedField = false
 		// Without the selector the status changes are no longer filtered out.
 		unfiltered.wantStatusItems = true
-		derived := driveJiraHistorySummaryMCP(t, unfiltered, fixture)
+		invocation := jiraHistorySummaryMCPInvocation(t, unfiltered, jiraHistorySummaryMCPMaxBytes)
+		derived := driveAdmittedJiraHistorySummaryMCP(t, unfiltered, fixture, invocation)
 		for _, spec := range specs {
 			assertJiraHistorySummaryMCPFailures(t, spec, derived, []string{
 				"counts_correct", "fields_correct", "history_count_correct", "identity_correct",
@@ -1807,7 +1833,7 @@ func assertJiraHistorySummaryMCPDuplicateBudgetFails(
 }
 
 // jiraHistorySummaryMCPFixtureMutation edits the retained fixture, re-drives the
-// production MCP server against it, and requires the retained oracles to reject
+// selected ATL process against it, and requires the retained oracles to reject
 // the changed evidence. The class flags move with the edit, so the drive still
 // states what the mutated cohort is.
 type jiraHistorySummaryMCPFixtureMutation struct {

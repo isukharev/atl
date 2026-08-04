@@ -17,7 +17,9 @@ request and response sequencing, accounting, and cleanup contracts are tested
 inside the evaluator boundary. Product onboarding checks use independent core
 test infrastructure so product packages never depend on the heavy evaluator.
 Selected-binary oracles also decode released Jira and Confluence evidence with
-evaluator-owned closed wire types. Cross-call snapshot tests derive follow-up
+evaluator-owned closed wire types. Jira history CLI and MCP cohorts reconcile
+the same bounded summary projection without importing product history owners.
+Cross-call snapshot tests derive follow-up
 identities from the first decoded result, while exact admissions refuse any
 provenance divergence before it can reach the synthetic backend.
 Graph evidence uses the same process boundary for both the base and explicitly
@@ -218,8 +220,9 @@ the current `atl`, requires its complete offline schema-v1 capability catalog
 to equal the evaluator's pinned released artifact, checks the exact CLI-error
 vocabulary, verifies the generated Codex plugin skill catalog against every
 regular file in its skill tree, exercises bounded Jira and Confluence CLI/MCP
-fixture oracles—including Jira search pagination, zero-progress stopping,
-board snapshot completeness, and Structure folder recovery, plus Confluence
+fixture oracles—including Jira search pagination, history summaries with
+zero-progress stopping, board snapshot completeness, and Structure folder
+recovery, plus Confluence
 page resolution, paginated search, and multi-section evidence—
 through that exact selected executable, and validates every supported versioned
 scenario and run contract.
