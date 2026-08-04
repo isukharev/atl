@@ -11,8 +11,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-
-	"github.com/isukharev/atl/internal/mcpserver"
 )
 
 const (
@@ -69,34 +67,41 @@ func (c jiraArtifactGraphMCPCohort) arguments() map[string]any {
 	}
 }
 
-// TestJiraArtifactGraphMCPFixturesDriveProviderOracles derives the committed
-// answer oracles by driving the real typed tool through the product MCP server.
+// TestJiraArtifactGraphMCPFixturesDriveSelectedATLBinary derives the committed
+// answer oracles by driving the real typed tool through the selected ATL binary.
 // No expected topology, source qualification, or frontier is reconstructed
 // from fixture JSON in the test.
-func TestJiraArtifactGraphMCPFixturesDriveProviderOracles(t *testing.T) {
+func TestJiraArtifactGraphMCPFixturesDriveSelectedATLBinary(t *testing.T) {
 	for _, cohort := range jiraArtifactGraphMCPCohorts() {
 		t.Run(cohort.directory, func(t *testing.T) {
 			root := cohort.root()
 			fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
-			backend, client := startJiraSnapshotReconciliationMCPBackend(t, fixture)
 			invocation := mustMCPInvocation(t, jiraArtifactGraphMCPTool, cohort.arguments())
-			called := callJiraSnapshotReconciliationMCP(t, client, invocation)
+			process := startRepositoryJiraGraphProcess(t, fixture, invocation,
+				jiraArtifactGraphRouteNames(), jiraArtifactGraphExactQueries())
+			called := callRepositoryJiraGraph(t, process, invocation)
 			if called.IsError {
-				t.Fatalf("bounded graph read failed: %+v", called.Content)
+				t.Fatalf("bounded graph read failed: %v", called.TextContent)
 			}
+			assertRepositoryMCPTextMatchesStructured(t, called)
 
-			var graph mcpserver.JiraIssueGraphOutput
-			decodeRepositoryStructuredContent(t, called.StructuredContent, &graph)
-			encodedProduct, err := json.Marshal(called.StructuredContent)
+			graph, err := DecodeJiraIssueGraphView(bytes.NewReader(called.StructuredContent))
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("decode Jira issue graph: %v", err)
 			}
+			encodedProduct := called.StructuredContent
 			labelsPresent, narrativePresent, developmentPresent := jiraArtifactGraphMCPProjectionLeaks(t, cohort, encodedProduct)
 			final := jiraArtifactGraphMCPFinal(t, cohort, &graph, labelsPresent, narrativePresent, developmentPresent)
 
-			methods, unexpected, duplicates := backend.Summary()
-			if !equalHTTPMethods(methods, map[string]int{"GET": 4}) || unexpected != 0 || duplicates != 0 {
-				t.Fatalf("route traffic drifted: methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
+			summary := process.Summary()
+			methods := summary.HTTPMethods
+			if !process.RequestSequenceComplete() ||
+				!equalHTTPMethods(methods, map[string]int{"GET": 4}) ||
+				summary.UnexpectedRequests != 0 || summary.DuplicateRequests != 0 ||
+				len(summary.CLIInvocations) != 0 ||
+				!equalHTTPMethods(summary.MCPInvocations, map[string]int{jiraArtifactGraphMCPTool: 1}) {
+				t.Fatalf("selected process accounting drifted: summary=%+v sequence_complete=%t",
+					summary, process.RequestSequenceComplete())
 			}
 			families := []CapabilityFamilyMetric{{Family: jiraArtifactGraphMCPFamily, Invocations: 1, Successes: 1}}
 			sequence := []string{jiraArtifactGraphMCPFamily}
@@ -146,6 +151,42 @@ func TestJiraArtifactGraphMCPFixturesDriveProviderOracles(t *testing.T) {
 	}
 }
 
+func TestJiraArtifactGraphMCPBoundsDivergenceRefusesBeforeBackend(t *testing.T) {
+	cohort := jiraArtifactGraphMCPCohorts()[0]
+	fixture := loadRepositoryMockFixture(t, filepath.Join(cohort.root(), "fixture.json"))
+	invocation := mustMCPInvocation(t, jiraArtifactGraphMCPTool, cohort.arguments())
+	process := startRepositoryJiraGraphProcess(t, fixture, invocation,
+		jiraArtifactGraphRouteNames(), jiraArtifactGraphExactQueries())
+
+	mutatedArgs := cohort.arguments()
+	mutatedArgs["max_bytes"] = cohort.maxBytes + 1024
+	mutatedInvocation := mustMCPInvocation(t, jiraArtifactGraphMCPTool, mutatedArgs)
+	if _, err := process.CallMCPJSON(t.Context(), mutatedInvocation); err == nil {
+		t.Fatal("unadmitted max_bytes reached the selected ATL process")
+	}
+
+	summary := process.Summary()
+	if process.RequestSequenceComplete() || len(summary.HTTPMethods) != 0 ||
+		summary.UnexpectedRequests != 0 || summary.DuplicateRequests != 0 ||
+		len(summary.CLIInvocations) != 0 || len(summary.MCPInvocations) != 0 {
+		t.Fatalf("bounds divergence was not refused before backend access: summary=%+v sequence_complete=%t",
+			summary, process.RequestSequenceComplete())
+	}
+}
+
+func jiraArtifactGraphRouteNames() []string {
+	return []string{"issue", "comments", "worklogs", "remote-links"}
+}
+
+func jiraArtifactGraphExactQueries() []map[string]string {
+	return []map[string]string{
+		{"expand": "names,schema", "fields": "*all", "properties": "*all"},
+		{"maxResults": "100", "startAt": "0"},
+		{"maxResults": "100", "startAt": "0"},
+		{},
+	}
+}
+
 func TestJiraArtifactGraphMCPSamplingPairIdentity(t *testing.T) {
 	cohorts := jiraArtifactGraphMCPCohorts()
 	primary, holdout := cohorts[0], cohorts[1]
@@ -182,7 +223,7 @@ func jiraArtifactGraphMCPProjectionLeaks(t *testing.T, cohort jiraArtifactGraphM
 	return labels, narrative, development
 }
 
-func jiraArtifactGraphMCPFinal(t *testing.T, cohort jiraArtifactGraphMCPCohort, graph *mcpserver.JiraIssueGraphOutput, labels, narrative, development bool) []byte {
+func jiraArtifactGraphMCPFinal(t *testing.T, cohort jiraArtifactGraphMCPCohort, graph *JiraIssueGraphView, labels, narrative, development bool) []byte {
 	t.Helper()
 	nodeKinds, edgeKinds := map[string]int{}, map[string]int{}
 	for _, node := range graph.Nodes {

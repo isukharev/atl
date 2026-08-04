@@ -543,9 +543,9 @@ func driveJiraHistorySummaryMCP(
 	fixture MockFixture,
 ) jiraHistorySummaryMCPEvidence {
 	t.Helper()
-	backend, client := startJiraSnapshotReconciliationMCPBackend(t, fixture)
+	backend, client := startRepositoryJiraHistoryMCPBackend(t, fixture)
 	invocation := jiraHistorySummaryMCPInvocation(t, cohort, jiraHistorySummaryMCPMaxBytes)
-	result := callJiraSnapshotReconciliationMCP(t, client, invocation)
+	result := callRepositoryJiraHistoryMCP(t, client, invocation)
 	if result.IsError {
 		t.Fatalf("bounded history read failed: %+v", result.Content)
 	}
@@ -1643,9 +1643,9 @@ func assertJiraHistorySummaryMCPRouteMutationsFail(
 	// The declared byte bound is part of the pinned arguments even though it
 	// changes neither the backend traffic nor the returned summary.
 	t.Run("wrong-byte-bound", func(t *testing.T) {
-		backend, client := startJiraSnapshotReconciliationMCPBackend(t, fixture)
+		backend, client := startRepositoryJiraHistoryMCPBackend(t, fixture)
 		invocation := jiraHistorySummaryMCPInvocation(t, cohort, jiraHistorySummaryMCPMaxBytes/2)
-		result := callJiraSnapshotReconciliationMCP(t, client, invocation)
+		result := callRepositoryJiraHistoryMCP(t, client, invocation)
 		if result.IsError {
 			t.Fatalf("bounded history read failed: %+v", result.Content)
 		}
@@ -1671,10 +1671,10 @@ func assertJiraHistorySummaryMCPRouteMutationsFail(
 	// A second identical read: the extra call is served, so the regression is
 	// real duplicate backend traffic rather than an unexpected request.
 	t.Run("repeated-read", func(t *testing.T) {
-		backend, client := startJiraSnapshotReconciliationMCPBackend(t, fixture)
+		backend, client := startRepositoryJiraHistoryMCPBackend(t, fixture)
 		invocation := jiraHistorySummaryMCPInvocation(t, cohort, jiraHistorySummaryMCPMaxBytes)
 		for attempt := range 2 {
-			if result := callJiraSnapshotReconciliationMCP(t, client, invocation); result.IsError {
+			if result := callRepositoryJiraHistoryMCP(t, client, invocation); result.IsError {
 				t.Fatalf("read attempt %d failed: %+v", attempt, result.Content)
 			}
 		}
@@ -1729,11 +1729,11 @@ func assertJiraHistorySummaryMCPRouteMutationsFail(
 	// unexpected traffic: interface_succeeded and mock_clean become
 	// load-bearing, and the failure must disclose no backend content.
 	t.Run("unnamed-issue-key", func(t *testing.T) {
-		backend, client := startJiraSnapshotReconciliationMCPBackend(t, fixture)
+		backend, client := startRepositoryJiraHistoryMCPBackend(t, fixture)
 		unnamed := cohort
 		unnamed.key = cohort.key + "9"
 		invocation := jiraHistorySummaryMCPInvocation(t, unnamed, jiraHistorySummaryMCPMaxBytes)
-		result := callJiraSnapshotReconciliationMCP(t, client, invocation)
+		result := callRepositoryJiraHistoryMCP(t, client, invocation)
 		if !result.IsError || result.StructuredContent != nil {
 			t.Fatalf("history read for unconfigured key %q unexpectedly succeeded: %+v", unnamed.key, result)
 		}
