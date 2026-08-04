@@ -7,11 +7,9 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -221,33 +219,24 @@ func (b *CommandBroker) processOne(path, id string) CommandBrokerResponse {
 		return response
 	}
 	b.counts[match.Name]++
-	ctx, cancel := context.WithTimeout(b.ctx, b.config.CommandTimeout)
-	defer cancel()
-	command := exec.CommandContext(ctx, b.config.RealBinary, request.Args...)
-	command.Dir = b.config.WorkingDirectory
-	command.Env = append([]string(nil), b.config.Environment...)
-	stdout := &boundedCommandBuffer{maximum: b.config.MaxStdoutBytes}
-	stderr := &boundedCommandBuffer{maximum: b.config.MaxStderrBytes}
-	command.Stdout = stdout
-	command.Stderr = stderr
-	runErr := command.Run()
-	if stdout.exceeded || stderr.exceeded || ctx.Err() != nil {
+	result, err := executeBoundedCommand(
+		b.ctx,
+		b.config.RealBinary,
+		request.Args,
+		b.config.WorkingDirectory,
+		b.config.Environment,
+		b.config.CommandTimeout,
+		b.config.MaxStdoutBytes,
+		b.config.MaxStderrBytes,
+	)
+	if err != nil {
 		response.Status = "failed"
 		return response
 	}
 	response.Status = "executed"
-	response.Stdout = stdout.Bytes()
-	response.Stderr = stderr.Bytes()
-	if runErr != nil {
-		var exitError *exec.ExitError
-		if !errors.As(runErr, &exitError) {
-			response.Status = "failed"
-			response.Stdout = nil
-			response.Stderr = nil
-			return response
-		}
-		response.ExitCode = exitError.ExitCode()
-	}
+	response.Stdout = result.stdout
+	response.Stderr = result.stderr
+	response.ExitCode = result.exitCode
 	return response
 }
 

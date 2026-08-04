@@ -2,13 +2,12 @@ package agenteval
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
-
-	"github.com/isukharev/atl/internal/app"
 )
 
 const (
@@ -104,28 +103,47 @@ func TestJiraReferenceMCPFixturesDriveProviderOracles(t *testing.T) {
 		t.Run(cohort.directory, func(t *testing.T) {
 			root := cohort.root()
 			fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
-			backend, client := startJiraSnapshotReconciliationMCPBackend(t, fixture)
 			invocation := mustMCPInvocation(t, jiraReferenceMCPTool, cohort.arguments())
-			called := callJiraSnapshotReconciliationMCP(t, client, invocation)
-			if called.IsError {
-				t.Fatalf("bounded reference read failed: %+v", called.Content)
-			}
-
-			var view app.JiraIssueRefsView
-			decodeRepositoryStructuredContent(t, called.StructuredContent, &view)
-			assertJiraReferenceMCPClassShape(t, cohort, &view)
-			encoded, err := json.Marshal(called.StructuredContent)
+			process, err := StartSyntheticATLProcess(context.Background(), SyntheticATLProcessConfig{
+				Binary: repositorySyntheticATLBinary(t), Fixture: fixture, ScratchRoot: privateSyntheticATLScratch(t),
+				MCPService: "jira", MCPInvocations: []MCPInvocation{invocation},
+			})
 			if err != nil {
 				t.Fatal(err)
 			}
-			rawRefs, narrative := jiraReferenceMCPProjectionLeaks(t, encoded)
+			t.Cleanup(func() {
+				if err := process.Close(); err != nil {
+					t.Errorf("close synthetic ATL process: %v", err)
+				}
+			})
+			called, err := process.CallMCPJSON(context.Background(), invocation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if called.IsError {
+				t.Fatalf("bounded reference read failed: text_items=%d", len(called.TextContent))
+			}
+
+			view, err := DecodeJiraIssueRefsView(bytes.NewReader(called.StructuredContent))
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertJiraReferenceMCPClassShape(t, cohort, &view)
+			assertSyntheticMCPTextMatchesStructured(t, called)
+			rawRefs, narrative := jiraReferenceMCPProjectionLeaks(t, called.StructuredContent)
 			final := jiraReferenceMCPFinal(t, cohort, &view, rawRefs, narrative)
 
-			methods, unexpected, duplicates := backend.Summary()
+			summary := process.Summary()
+			methods, unexpected, duplicates := summary.HTTPMethods, summary.UnexpectedRequests, summary.DuplicateRequests
 			if !equalHTTPMethods(methods, map[string]int{"GET": cohort.expectedGETs}) ||
 				unexpected != 0 || duplicates != 0 {
 				t.Fatalf("route traffic drifted: methods=%v unexpected=%d duplicates=%d",
 					methods, unexpected, duplicates)
+			}
+			if !process.RequestSequenceComplete() || len(summary.CLIInvocations) != 0 ||
+				!equalHTTPMethods(summary.MCPInvocations, map[string]int{jiraReferenceMCPTool: 1}) {
+				t.Fatalf("selected process accounting drifted: sequence_complete=%v cli=%v mcp=%v",
+					process.RequestSequenceComplete(), summary.CLIInvocations, summary.MCPInvocations)
 			}
 			families := []CapabilityFamilyMetric{{
 				Family: jiraReferenceMCPFamily, Invocations: 1, Successes: 1,
@@ -176,6 +194,24 @@ func TestJiraReferenceMCPFixturesDriveProviderOracles(t *testing.T) {
 	}
 }
 
+func assertSyntheticMCPTextMatchesStructured(t *testing.T, result SyntheticMCPResult) {
+	t.Helper()
+	if len(result.TextContent) != 1 {
+		t.Fatalf("MCP result carried %d text projections, want one", len(result.TextContent))
+	}
+	structured, err := canonicalJSON(result.StructuredContent)
+	if err != nil {
+		t.Fatalf("canonicalize MCP structured content: %v", err)
+	}
+	text, err := canonicalJSON(json.RawMessage(result.TextContent[0]))
+	if err != nil {
+		t.Fatalf("MCP text projection is not strict JSON: %v", err)
+	}
+	if !bytes.Equal(text, structured) {
+		t.Fatal("MCP text projection diverged from the bounded structured content")
+	}
+}
+
 // TestJiraReferenceMCPSamplingPairIdentity keeps the two cohorts a valid
 // sampling pair: one execution identity per provider, distinct scenarios and
 // task contracts, and the repetition split the MCP corpus inventory requires.
@@ -204,7 +240,7 @@ func TestJiraReferenceMCPSamplingPairIdentity(t *testing.T) {
 // assertJiraReferenceMCPClassShape pins what makes each cohort its own class.
 // Every assertion reads the product's projection; none recomputes the
 // reference arithmetic that IssueRefs owns.
-func assertJiraReferenceMCPClassShape(t *testing.T, cohort jiraReferenceMCPCohort, view *app.JiraIssueRefsView) {
+func assertJiraReferenceMCPClassShape(t *testing.T, cohort jiraReferenceMCPCohort, view *JiraIssueRefsView) {
 	t.Helper()
 	if view.SchemaVersion != 1 || view.Selection.Mode != cohort.wantMode ||
 		view.Complete != cohort.wantComplete || view.Truncated != cohort.wantTruncated ||
@@ -282,7 +318,7 @@ func jiraReferenceMCPProjectionLeaks(t *testing.T, encoded []byte) (rawRefs, nar
 func jiraReferenceMCPFinal(
 	t *testing.T,
 	cohort jiraReferenceMCPCohort,
-	view *app.JiraIssueRefsView,
+	view *JiraIssueRefsView,
 	rawRefs, narrative bool,
 ) []byte {
 	t.Helper()

@@ -158,6 +158,16 @@ an independent evaluator module does not import product test infrastructure.
 The product onboarding checks retain their own small backend; do not make core
 product tooling import the heavy evaluator package to share test helpers.
 
+Evaluator fixture oracles that claim CLI or MCP compatibility should execute
+the exact selected ATL binary through the evaluator-owned synthetic process
+boundary. Keep executable identity and capability preflight, closed invocation
+policy, an attested owner-only execution copy, allowlisted child environment,
+stdout/stderr/protocol byte limits, deadlines, backend reconciliation, and
+whole-process-tree cleanup in that boundary. Compatibility oracles must inspect
+both structured MCP output and its user-visible text projection. Decode released
+JSON into evaluator-owned wire DTOs; do not instantiate product app or MCP
+implementation owners merely to remove an import from the dependency ledger.
+
 The evaluator also owns a frozen, content-free schema-v1 projection of the
 released `atl capabilities` wire contract. It must not import product routing
 definitions to validate run specs. `make agent-eval-compat` builds the current
