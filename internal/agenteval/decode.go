@@ -45,18 +45,23 @@ func decodeStrict(r io.Reader, dst any) error {
 	limited := &io.LimitedReader{R: r, N: maxContractBytes + 1}
 	decoder := json.NewDecoder(limited)
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(dst); err != nil {
-		return fmt.Errorf("decode contract: %w", err)
-	}
+	decodeErr := decoder.Decode(dst)
 	if limited.N <= 0 {
 		return fmt.Errorf("contract exceeds %d bytes", maxContractBytes)
 	}
+	if decodeErr != nil {
+		return fmt.Errorf("decode contract: %w", decodeErr)
+	}
 	var extra any
-	if err := decoder.Decode(&extra); err != io.EOF {
-		if err == nil {
+	trailingErr := decoder.Decode(&extra)
+	if limited.N <= 0 {
+		return fmt.Errorf("contract exceeds %d bytes", maxContractBytes)
+	}
+	if trailingErr != io.EOF {
+		if trailingErr == nil {
 			return fmt.Errorf("contract contains multiple JSON values")
 		}
-		return fmt.Errorf("decode trailing contract data: %w", err)
+		return fmt.Errorf("decode trailing contract data: %w", trailingErr)
 	}
 	return nil
 }
