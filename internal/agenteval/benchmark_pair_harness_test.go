@@ -187,6 +187,27 @@ func validateMigratedBenchmarkPairDescriptor(descriptor benchmarkPairDescriptor)
 			distinctArtifacts:     []string{"fixture.json", "prompt.mcp.v1.md", "rubric.v1.json"},
 			workspaceRelationship: benchmarkWorkspaceDistinctTrees,
 		}
+	case "confluence-attachment-evidence-mcp":
+		want = benchmarkPairDescriptor{
+			primaryName:           "confluence-attachment-evidence-mcp",
+			responseSchema:        "response-schema.v1.json",
+			distinctArtifacts:     []string{"fixture.json", "prompt.mcp.v1.md", "rubric.v1.json", "scenario.v1.json"},
+			workspaceRelationship: benchmarkWorkspaceSameNeutralTree,
+		}
+	case "confluence-section-version-bound-mcp":
+		want = benchmarkPairDescriptor{
+			primaryName:           "confluence-section-version-bound-mcp",
+			responseSchema:        "response-schema.v1.json",
+			distinctArtifacts:     []string{"fixture.json", "prompt.mcp.v1.md", "rubric.v1.json", "scenario.v1.json"},
+			workspaceRelationship: benchmarkWorkspaceSameNeutralTree,
+		}
+	case "confluence-section-bound-recovery-mcp":
+		want = benchmarkPairDescriptor{
+			primaryName:           "confluence-section-bound-recovery-mcp",
+			responseSchema:        "response-schema.v1.json",
+			distinctArtifacts:     []string{"fixture.json", "prompt.mcp.v1.md", "rubric.v1.json", "scenario.v1.json"},
+			workspaceRelationship: benchmarkWorkspaceSameNeutralTree,
+		}
 	default:
 		return fmt.Errorf("benchmark pair %q descriptor is not registered", descriptor.primaryName)
 	}
@@ -277,8 +298,11 @@ func TestBenchmarkPairHarnessAcceptsExplicitWorkspaceRelationships(t *testing.T)
 	for _, descriptor := range []benchmarkPairDescriptor{
 		confluencePageMetadataPairDescriptor(),
 		jiraHistorySummaryMCPPairDescriptor(),
+		confluenceAttachmentEvidencePairDescriptor(),
+		confluenceSectionVersionBoundPairDescriptor(),
+		confluenceSectionBoundRecoveryPairDescriptor(),
 	} {
-		t.Run(fmt.Sprint(descriptor.workspaceRelationship), func(t *testing.T) {
+		t.Run(descriptor.primaryName, func(t *testing.T) {
 			pair := syntheticBenchmarkPair(t, descriptor)
 			if err := validateBenchmarkPair(descriptor, pair); err != nil {
 				t.Fatal(err)
@@ -498,6 +522,9 @@ func TestBenchmarkPairHarnessRejectsMigratedDescriptorWeakening(t *testing.T) {
 	for _, descriptor := range []benchmarkPairDescriptor{
 		confluencePageMetadataPairDescriptor(),
 		jiraHistorySummaryMCPPairDescriptor(),
+		confluenceAttachmentEvidencePairDescriptor(),
+		confluenceSectionVersionBoundPairDescriptor(),
+		confluenceSectionBoundRecoveryPairDescriptor(),
 	} {
 		for index, artifact := range descriptor.distinctArtifacts {
 			t.Run(descriptor.primaryName+"/remove-"+artifact, func(t *testing.T) {

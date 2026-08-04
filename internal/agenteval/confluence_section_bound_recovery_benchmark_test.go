@@ -1526,7 +1526,9 @@ func mutateConfluenceSectionBoundRecoveryFinal(t *testing.T, final []byte, mutat
 func TestConfluenceSectionBoundRecoveryHoldoutIsDistinct(t *testing.T) {
 	cohorts := confluenceSectionBoundRecoveryCohorts()
 	pair := loadRepositorySamplingPairContract(t, "confluence-section-bound-recovery-mcp")
-	primaryRoot, holdoutRoot := pair.Primary.Root, pair.Holdout.Root
+	if err := validateBenchmarkPair(confluenceSectionBoundRecoveryPairDescriptor(), pair); err != nil {
+		t.Fatal(err)
+	}
 	primaryScenario, holdoutScenario := pair.Primary.Scenario, pair.Holdout.Scenario
 	// The branches differ, so the transport budgets must differ too, while the
 	// shared authorization ceiling stays identical.
@@ -1536,26 +1538,6 @@ func TestConfluenceSectionBoundRecoveryHoldoutIsDistinct(t *testing.T) {
 	if primaryScenario.Budgets.MaxOutputBytes != holdoutScenario.Budgets.MaxOutputBytes ||
 		primaryScenario.Budgets.MaxOutputBytes != confluenceSectionBoundRecoveryCeiling {
 		t.Fatal("the cohorts no longer share one authorization ceiling")
-	}
-
-	primarySchema := mustReadFile(t, filepath.Join(primaryRoot, "response-schema.v1.json"))
-	holdoutSchema := mustReadFile(t, filepath.Join(holdoutRoot, "response-schema.v1.json"))
-	if !bytes.Equal(primarySchema, holdoutSchema) {
-		t.Fatal("the shared response schema is no longer byte-identical across the cohorts")
-	}
-	for _, filename := range []string{"fixture.json", "prompt.mcp.v1.md", "rubric.v1.json", "scenario.v1.json"} {
-		if bytes.Equal(
-			mustReadFile(t, filepath.Join(primaryRoot, filename)),
-			mustReadFile(t, filepath.Join(holdoutRoot, filename)),
-		) {
-			t.Fatalf("holdout does not exercise distinct %s data", filename)
-		}
-	}
-	// The workspace carries no task evidence at all, so it is deliberately the
-	// one byte-identical tree across the pair.
-	if repositoryTreeDigest(t, filepath.Join(primaryRoot, "workspace")) !=
-		repositoryTreeDigest(t, filepath.Join(holdoutRoot, "workspace")) {
-		t.Fatal("the neutral workspace tree is no longer byte-identical across the cohorts")
 	}
 
 	primary, holdout := cohorts[0], cohorts[1]
@@ -1575,54 +1557,25 @@ func TestConfluenceSectionBoundRecoveryHoldoutIsDistinct(t *testing.T) {
 		}
 	}
 
-	for _, test := range []struct {
-		runFile, provider, model string
-	}{
-		{runFile: "run.mcp.codex.json", provider: "codex", model: "gpt-5.6-luna"},
-		{runFile: "run.mcp.claude.json", provider: "claude-code", model: "claude-opus-4-8"},
-	} {
-		t.Run(test.provider, func(t *testing.T) {
-			primarySpec, holdoutSpec := pair.Primary.Runs[test.runFile], pair.Holdout.Runs[test.runFile]
-			if primarySpec.Provider != test.provider || primarySpec.Model != test.model ||
-				primarySpec.Reasoning != "high" ||
-				holdoutSpec.Provider != test.provider || holdoutSpec.Model != test.model ||
-				holdoutSpec.Reasoning != "high" {
-				t.Fatalf("exact cohort contract drifted: primary=%+v holdout=%+v", primarySpec, holdoutSpec)
-			}
-			if !slices.Equal(primarySpec.AllowedMCPTools, holdoutSpec.AllowedMCPTools) {
-				t.Fatalf("primary/holdout execution identity drifted: primary=%+v holdout=%+v",
-					primarySpec, holdoutSpec)
-			}
-			if equalPrivateComparisonJSON(primarySpec.Checks, holdoutSpec.Checks) {
-				t.Fatal("holdout oracles are not bound to distinct evidence")
-			}
-		})
-	}
-
-	// Within one cohort the two provider run specs may differ only in provider,
-	// model, and pricing metadata; drifting any other field must be caught.
-	for _, root := range []string{primaryRoot, holdoutRoot} {
-		codex := loadRepositoryRunSpec(t, filepath.Join(root, "run.mcp.codex.json"))
-		claude := loadRepositoryRunSpec(t, filepath.Join(root, "run.mcp.claude.json"))
-		if codex.Provider == claude.Provider || codex.Model == claude.Model ||
-			equalPrivateComparisonJSON(codex.Pricing, claude.Pricing) {
-			t.Fatalf("%s provider pair is not distinct: codex=%+v claude=%+v", root, codex, claude)
-		}
-		neutral := func(spec RunSpec) RunSpec {
-			spec.Provider, spec.Model, spec.Pricing = "", "", Pricing{}
-			return spec
-		}
-		if !equalPrivateComparisonJSON(neutral(codex), neutral(claude)) {
-			t.Fatalf("%s provider pair differs beyond provider/model/pricing metadata", root)
-		}
-		drifted := claude
-		drifted.Reasoning = "medium"
-		if equalPrivateComparisonJSON(neutral(codex), neutral(drifted)) {
-			t.Fatalf("%s provider parity check does not detect reasoning drift", root)
+	for _, provider := range benchmarkPairProviders {
+		if equalPrivateComparisonJSON(
+			pair.Primary.Runs[provider.runFile].Checks,
+			pair.Holdout.Runs[provider.runFile].Checks,
+		) {
+			t.Fatalf("%s holdout oracles are not bound to distinct evidence", provider.provider)
 		}
 	}
 
 	assertConfluenceSectionBoundRecoveryMatrixPairs(t, cohorts)
+}
+
+func confluenceSectionBoundRecoveryPairDescriptor() benchmarkPairDescriptor {
+	return benchmarkPairDescriptor{
+		primaryName:           "confluence-section-bound-recovery-mcp",
+		responseSchema:        "response-schema.v1.json",
+		distinctArtifacts:     []string{"fixture.json", "prompt.mcp.v1.md", "rubric.v1.json", "scenario.v1.json"},
+		workspaceRelationship: benchmarkWorkspaceSameNeutralTree,
+	}
 }
 
 // assertConfluenceSectionBoundRecoveryMatrixPairs keeps the published corpus
