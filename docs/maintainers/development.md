@@ -150,3 +150,10 @@ sides must match the content-free versioned CLI error wire fixture; changing
 only the product or evaluator classification/recovery vocabulary, required
 member set, action catalog, or refresh-capability catalog is therefore a
 failing compatibility change.
+
+The evaluator also owns a frozen, content-free schema-v1 projection of the
+released `atl capabilities` wire contract. It must not import product routing
+definitions to validate run specs. `make agent-eval-compat` builds the current
+binary and verifies its complete offline catalog against that projection;
+internal ATL MCP runs repeat the same bounded process-boundary check against
+the exact selected binary before any output, provider, or backend work.

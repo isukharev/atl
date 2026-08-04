@@ -13,7 +13,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/isukharev/atl/internal/capability"
 	"github.com/isukharev/atl/internal/safepath"
 )
 
@@ -641,25 +640,7 @@ func validateMCPServiceProfile(s RunSpec) error {
 }
 
 func mcpServiceProfileTools(profile string) (map[string]bool, bool) {
-	if profile != "jira" && profile != "confluence" && profile != "offline" {
-		return nil, false
-	}
-	allowed := map[string]bool{}
-	for _, definition := range capability.Definitions() {
-		if definition.MCPTool == "" {
-			continue
-		}
-		if profile == "offline" {
-			if definition.ID == "jira.mirror.snapshot" || definition.ID == "confluence.mirror.snapshot" {
-				allowed[definition.MCPTool] = true
-			}
-			continue
-		}
-		if definition.Service == profile {
-			allowed[definition.MCPTool] = true
-		}
-	}
-	return allowed, true
+	return pinnedCapabilityCatalog.mcpToolsForProfile(profile)
 }
 
 // isCodexSyntheticBrokerCLI selects the executable synthetic CLI route without
