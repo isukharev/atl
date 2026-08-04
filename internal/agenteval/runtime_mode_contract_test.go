@@ -1,9 +1,11 @@
 package agenteval
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"go/ast"
+	"go/format"
 	"go/parser"
 	"go/token"
 	"os"
@@ -298,6 +300,122 @@ func assertRuntimeModeCallCount(t *testing.T, name, function string, matcher eva
 	}
 }
 
+func assertRuntimeModeReceiptPersistenceGuards(t *testing.T) {
+	t.Helper()
+	set := token.NewFileSet()
+	parsed, err := parser.ParseFile(set, "runner.go", nil, 0)
+	if err != nil {
+		t.Fatal("runtime mode contract invalid")
+	}
+	body := evaluatorRuntimeFunction(parsed, "RunHeadless")
+	if body == nil {
+		t.Fatal("runtime mode contract invalid")
+	}
+	verifyGuard, pluginGuard, receiptLoop := -1, -1, -1
+	for index, statement := range body.Body.List {
+		if guard, ok := statement.(*ast.IfStmt); ok {
+			switch {
+			case runtimeModeExactCallGuard(set, guard, []string{"err"},
+				selectorCallWithArgumentPaths("attestation", "verifyExecutables",
+					[]string{"options", "AgentBinary"}, []string{"options", "ATLBinary"}, []string{"options", "WrapperExecutable"}),
+				"err != nil"):
+				verifyGuard = index
+			case runtimeModeExactPluginIdentityGuard(set, guard):
+				pluginGuard = index
+			}
+		}
+		if loop, ok := statement.(*ast.RangeStmt); ok && runtimeModeExactReceiptPersistenceLoop(set, loop) {
+			receiptLoop = index
+		}
+	}
+	if verifyGuard < 0 || pluginGuard <= verifyGuard || receiptLoop <= pluginGuard {
+		t.Fatal("runtime mode contract invalid")
+	}
+}
+
+func selectorCallWithArgumentPaths(receiver, method string, argumentPaths ...[]string) evaluatorRuntimeCallMatcher {
+	base := selectorCall(receiver, method)
+	return func(call *ast.CallExpr) bool {
+		if !base(call) || len(call.Args) != len(argumentPaths) {
+			return false
+		}
+		for index, want := range argumentPaths {
+			if !expressionPath(call.Args[index], want...) {
+				return false
+			}
+		}
+		return true
+	}
+}
+
+func runtimeModeExactCallGuard(
+	set *token.FileSet,
+	guard *ast.IfStmt,
+	lhs []string,
+	matcher evaluatorRuntimeCallMatcher,
+	condition string,
+) bool {
+	return guard != nil && guard.Else == nil && runtimeModeExactCallAssignment(guard.Init, lhs, matcher) &&
+		runtimeModeNodeSource(set, guard.Cond) == condition && runtimeModeDirectReturn(guard.Body)
+}
+
+func runtimeModeExactCallAssignment(statement ast.Stmt, lhs []string, matcher evaluatorRuntimeCallMatcher) bool {
+	assignment, ok := statement.(*ast.AssignStmt)
+	if !ok || assignment.Tok != token.DEFINE || len(assignment.Lhs) != len(lhs) || len(assignment.Rhs) != 1 {
+		return false
+	}
+	for index, name := range lhs {
+		if !expressionPath(assignment.Lhs[index], name) {
+			return false
+		}
+	}
+	call, ok := assignment.Rhs[0].(*ast.CallExpr)
+	return ok && matcher(call)
+}
+
+func runtimeModeDirectReturn(body *ast.BlockStmt) bool {
+	if body == nil || len(body.List) != 1 {
+		return false
+	}
+	_, ok := body.List[0].(*ast.ReturnStmt)
+	return ok
+}
+
+func runtimeModeExactPluginIdentityGuard(set *token.FileSet, guard *ast.IfStmt) bool {
+	if guard == nil || guard.Init != nil || guard.Else != nil ||
+		runtimeModeNodeSource(set, guard.Cond) != "attestation != nil" || len(guard.Body.List) != 2 {
+		return false
+	}
+	if !runtimeModeExactCallAssignment(guard.Body.List[0], []string{"finalPluginVersion", "finalSkillDigest", "err"},
+		identifierCallWithArgumentPaths("pluginIdentity", []string{"options", "PluginRoot"}, []string{"contract", "spec", "Provider"})) {
+		return false
+	}
+	mismatch, ok := guard.Body.List[1].(*ast.IfStmt)
+	return ok && mismatch.Init == nil && mismatch.Else == nil &&
+		runtimeModeNodeSource(set, mismatch.Cond) ==
+			"err != nil || finalPluginVersion != pluginVersion || finalSkillDigest != skillDigest" &&
+		runtimeModeDirectReturn(mismatch.Body)
+}
+
+func runtimeModeExactReceiptPersistenceLoop(set *token.FileSet, loop *ast.RangeStmt) bool {
+	if loop == nil || loop.Tok != token.DEFINE || !expressionPath(loop.Key, "_") ||
+		!expressionPath(loop.Value, "receipt") || !expressionPath(loop.X, "receipts") || len(loop.Body.List) != 1 {
+		return false
+	}
+	guard, ok := loop.Body.List[0].(*ast.IfStmt)
+	return ok && runtimeModeExactCallGuard(set, guard, []string{"err"},
+		identifierCallWithArgumentPaths("writeSyntheticRunReceipt", []string{"outputRoot"}, []string{"receipt"}),
+		"err != nil")
+}
+
+func runtimeModeNodeSource(set *token.FileSet, node ast.Node) string {
+	var buffer bytes.Buffer
+	if err := format.Node(&buffer, set, node); err != nil {
+		return ""
+	}
+	return buffer.String()
+}
+
 func assertRuntimeModeConditionalAssignment(t *testing.T, name, function, condition, target string, valuePath ...string) {
 	t.Helper()
 	parsed, err := parseEvaluatorRuntimeSource(name)
@@ -463,4 +581,11 @@ func TestEvaluatorRuntimeModeCommitmentAndProbeOrdering(t *testing.T) {
 		identifierCall("preparePrivateProbeAgent"), selectorCall("command", "Run"))
 	assertRuntimeModeCallOrder(t, "cli_route_qualification.go", "QualifyCLIRoute",
 		identifierCall("preparePrivateProbeAgent"), selectorCall("command", "Run"))
+}
+
+func TestEvaluatorRuntimeModeReceiptPersistenceRemainsOuterAndRevalidated(t *testing.T) {
+	assertRuntimeModeCallCount(t, "runner.go", "RunHeadless", identifierCall("writeSyntheticRunReceipt"), 1)
+	assertRuntimeModeCallCount(t, "runner.go", "runHeadlessOnce", identifierCall("writeSyntheticRunReceipt"), 0)
+	assertRuntimeModeCallCount(t, "runner_outcome.go", "finalizeHeadlessOutcome", identifierCall("writeSyntheticRunReceipt"), 0)
+	assertRuntimeModeReceiptPersistenceGuards(t)
 }

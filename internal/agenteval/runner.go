@@ -1176,262 +1176,36 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 	if closeTranscriptErr != nil || closeStderrErr != nil {
 		return Result{}, fmt.Errorf("close agent output: %v %v", closeTranscriptErr, closeStderrErr)
 	}
-	transcriptData, err := readBoundedFile(transcriptPath, 64<<20)
-	if err != nil {
-		return Result{}, err
-	}
-	if contract.spec.EffectiveSurface() == SurfaceExternalMCP {
-		stderrData, readErr := readBoundedFile(stderrPath, 4<<20)
-		if readErr != nil {
-			return Result{}, readErr
-		}
-		configData := []byte(nil)
-		if mcpConfigPath != "" {
-			configData, readErr = readBoundedFile(mcpConfigPath, 4<<20)
-			if readErr != nil {
-				return Result{}, readErr
-			}
-		}
-		for _, data := range [][]byte{transcriptData, stderrData, configData} {
-			if containsCanary(data, externalCanaries) {
-				return Result{}, fmt.Errorf("external MCP protected material reached a provider-visible artifact")
-			}
-		}
-	}
-	var finalData []byte
-	if contract.spec.Provider == "codex" {
-		finalData, err = readBoundedFile(finalPath, 4<<20)
-		if err != nil {
-			return Result{}, err
-		}
-	}
-	providerMetrics, final, err := ParseProviderOutput(contract.spec.Provider, transcriptData, finalData)
-	if err != nil {
-		return Result{}, err
-	}
-	if contract.spec.EffectiveSurface() == SurfaceExternalMCP {
-		for _, data := range [][]byte{finalData, final} {
-			if containsCanary(data, externalCanaries) {
-				return Result{}, fmt.Errorf("external MCP protected material reached the final provider artifact")
-			}
-		}
-	}
-	externalCalls, externalFailures, externalDenials := 0, 0, 0
-	var externalOutputBytes int64
-	var externalFamilies []CapabilityFamilyMetric
-	if contract.spec.EffectiveSurface() == SurfaceExternalMCP {
-		externalCalls, externalFailures, externalDenials, externalOutputBytes, externalFamilies, err = readExternalMCPAudit(externalAuditPath)
-		if err != nil {
-			return Result{}, err
-		}
-	}
-	proxyRecords, err := readProxyRecords(counterPath)
-	if err != nil {
-		return Result{}, err
-	}
-	var methods map[string]int
-	unexpected := 0
-	duplicateRequests := 0
-	httpMethodsObserved := false
-	if backend != nil {
-		methods, unexpected, duplicateRequests = backend.Summary()
-		httpMethodsObserved = true
-	} else if liveGateway != nil {
-		methods, duplicateRequests, httpMethodsObserved, err = closeAndReadLiveGatewayRecords(liveGateway)
-		if err != nil {
-			return Result{}, err
-		}
-	} else {
-		methods, duplicateRequests, httpMethodsObserved, err = readLiveHTTPRecords(httpGuardPath)
-		if err != nil {
-			return Result{}, err
-		}
-	}
-	if contract.spec.Provider == "claude-code" {
-		if err := writePrivateFile(finalPath, append(append([]byte(nil), final...), '\n')); err != nil {
-			return Result{}, err
-		}
-	} else if err := os.Chmod(finalPath, 0o600); err != nil {
-		return Result{}, err
-	}
-	var failedATL int
-	cliExitCodes := make([]int, 0, len(proxyRecords))
-	cliErrorContracts := make([]CLIErrorContract, 0, len(proxyRecords))
-	for _, record := range proxyRecords {
-		cliExitCodes = append(cliExitCodes, record.ExitCode)
-		if record.ExitCode != 0 {
-			failedATL++
-		}
-		contract, classified, err := record.errorContract()
-		if err != nil {
-			return Result{}, err
-		}
-		if classified {
-			cliErrorContracts = append(cliErrorContracts, contract)
-		}
-	}
-	guardSummary, err := readGuardDecisionSummary(guardCounterPath)
-	if err != nil {
-		return Result{}, err
-	}
-	guardDenials := guardSummary.Denials
-	atlInvocations := len(proxyRecords) + providerMetrics.MCPToolCalls
-	failedATL += providerMetrics.FailedMCPToolCalls
-	if contract.spec.EffectiveSurface() == SurfaceExternalMCP {
-		atlInvocations = externalCalls
-		failedATL = externalFailures
-		guardDenials += externalDenials
-		proxyRecords = nil
-		cliExitCodes = nil
-		cliErrorContracts = nil
-		providerMetrics.MCPToolCalls = externalCalls
-		providerMetrics.FailedMCPToolCalls = externalFailures
-	}
-	evidenceAttempt, err := deriveRunnerEvidenceAttempt(proxyRecords, providerMetrics.MCPToolCalls, providerMetrics.FailedMCPToolCalls, guardDenials)
-	if err != nil {
-		return Result{}, fmt.Errorf("derive evidence attempt telemetry: %w", err)
-	}
-	evidenceReport, err := ParseEvidenceOutcomeReport(final)
-	if err != nil {
-		return Result{}, err
-	}
-	if evidenceReport.Coverage && !evidenceReport.ConsistentWithAudit(evidenceAttempt) {
-		return Result{}, fmt.Errorf("model evidence outcome contradicts audited attempts")
-	}
-	var outputBytes int64
-	familyValues := map[string]CapabilityFamilyMetric{}
-	capabilitySequence := make([]string, 0, len(proxyRecords)+len(providerMetrics.CapabilityFamilySequence))
-	familyCoverage := true
-	for _, record := range proxyRecords {
-		outputBytes += record.StdoutBytes
-		if record.Denied || record.CommandFamily == "" {
-			familyCoverage = false
-			continue
-		}
-		mergeCapabilityFamily(familyValues, record.CommandFamily, record.ExitCode != 0, record.StdoutBytes)
-		capabilitySequence = append(capabilitySequence, record.CommandFamily)
-	}
-	outputBytes += providerMetrics.MCPToolOutputBytes
-	providerFamilies := providerMetrics.CapabilityFamilies
-	if contract.spec.EffectiveSurface() == SurfaceExternalMCP {
-		outputBytes = externalOutputBytes
-		providerFamilies = externalFamilies
-		providerMetrics.CapabilityFamilyCoverage = true
-	}
-	for _, value := range providerFamilies {
-		existing := familyValues[value.Family]
-		existing.Family = value.Family
-		existing.Invocations += value.Invocations
-		existing.Successes += value.Successes
-		existing.Failures += value.Failures
-		existing.OutputBytes += value.OutputBytes
-		familyValues[value.Family] = existing
-	}
-	capabilitySequence = append(capabilitySequence, providerMetrics.CapabilityFamilySequence...)
-	if !providerMetrics.CapabilityFamilyCoverage {
-		familyCoverage = false
-	}
-	providerMetrics.DurationMillis = duration
-	providerMetrics.Coverage["duration_millis"] = true
-	if !providerMetrics.Coverage["estimated_cost_microusd"] && providerMetrics.Coverage["input_tokens"] && providerMetrics.Coverage["output_tokens"] {
-		cost, err := estimateCost(providerMetrics.InputTokens, providerMetrics.OutputTokens, contract.spec.Pricing)
-		if err != nil {
-			return Result{}, err
-		}
-		providerMetrics.EstimatedCostMicroUSD = cost
-		providerMetrics.Coverage["estimated_cost_microusd"] = true
-	}
-	providerMetrics.Coverage["interface_invocations"] = true
-	legacyATLInvocations := 0
-	if contract.scenario.Budgets.MaxInterfaceInvocations == 0 {
-		// Legacy scenarios budget and require the historical atl-specific
-		// metric. New multi-surface scenarios use only the generic metric so a
-		// zero legacy budget cannot become a false violation.
-		providerMetrics.Coverage["atl_invocations"] = true
-		legacyATLInvocations = atlInvocations
-	}
-	providerMetrics.Coverage["backend_requests"] = httpMethodsObserved
-	providerMetrics.Coverage["duplicate_backend_requests"] = httpMethodsObserved
-	providerMetrics.Coverage["remote_writes"] = httpMethodsObserved
-	providerMetrics.Coverage["output_bytes"] = true
-	providerMetrics.Coverage["capability_families"] = familyCoverage
-	capabilityFamilies := capabilityFamilySlice(familyValues)
-	if !familyCoverage {
-		capabilityFamilies = nil
-	}
-	checks, err := evaluateRunChecksWithCLIErrorContracts(
-		contract.spec.Checks, final, workspace, atlInvocations, failedATL, unexpected,
-		providerMetrics.SkillToolCalls+guardSummary.SkillReadAdmissions,
-		providerMetrics.SkillToolCallsByName, providerMetrics.Delegations, guardDenials,
-		methods, httpMethodsObserved, cliExitCodes, capabilityFamilies, familyCoverage,
-		capabilitySequence, providerMetrics.MCPInvocations,
-		familyCoverage && providerMetrics.MCPInvocationCoverage, cliErrorContracts,
-	)
-	if err != nil {
-		return Result{}, err
-	}
-	backendObservation, safetyAssurance := BackendObservationHTTP, SafetyAssuranceObservedHTTP
-	if contract.spec.EffectiveSurface() == SurfaceExternalMCP {
-		backendObservation, safetyAssurance = BackendObservationOpaqueMCP, SafetyAssuranceReviewedROMCP
-	}
-	observation := Observation{
-		SchemaVersion: ObservationSchemaVersion, ScenarioID: contract.scenario.ID,
-		Variant: contract.spec.Variant, Surface: contract.spec.EffectiveSurface(), Runtime: bindings.runtime,
-		BackendObservation: backendObservation, SafetyAssurance: safetyAssurance,
-		Metrics: InputMetrics{
-			AgentTurns: providerMetrics.AgentTurns, ToolCalls: providerMetrics.ToolCalls,
-			ATLInvocations: legacyATLInvocations, InterfaceInvocations: atlInvocations, Delegations: providerMetrics.Delegations,
-			DuplicateBackendRequests: duplicateRequests, OutputBytes: outputBytes,
-			InputTokens: providerMetrics.InputTokens, OutputTokens: providerMetrics.OutputTokens,
-			MainThreadInputTokens: providerMetrics.MainThreadInputTokens, MainThreadOutputTokens: providerMetrics.MainThreadOutputTokens,
-			EstimatedCostMicroUSD: providerMetrics.EstimatedCostMicroUSD,
-			DurationMillis:        providerMetrics.DurationMillis,
-		},
-		Coverage: providerMetrics.Coverage, HTTPMethods: methods, Checks: checks,
-		EvidenceAttempt:    evidenceAttempt,
-		EvidenceReport:     evidenceReport,
-		CapabilityFamilies: capabilityFamilies,
-	}
-	result, err := Evaluate(contract.scenario, observation)
-	if err != nil {
-		return Result{}, err
-	}
-	addRunCheckViolations(&result, contract.spec.Checks, contract.scenario.RequiredChecks)
-	if result.Coverage["estimated_cost_microusd"] && result.Metrics.EstimatedCostMicroUSD > contract.spec.MaxEstimatedCostMicroUSD {
-		result.Status = "fail"
-		result.Violations = append(result.Violations, Violation{
-			Code: "run_cost_cap_exceeded", Subject: "estimated_cost_microusd",
-			Observed: result.Metrics.EstimatedCostMicroUSD, Limit: contract.spec.MaxEstimatedCostMicroUSD,
-		})
-		sort.Slice(result.Violations, func(i, j int) bool {
-			if result.Violations[i].Code != result.Violations[j].Code {
-				return result.Violations[i].Code < result.Violations[j].Code
-			}
-			return result.Violations[i].Subject < result.Violations[j].Subject
-		})
-	}
-	sort.Slice(result.Violations, func(i, j int) bool {
-		if result.Violations[i].Code != result.Violations[j].Code {
-			return result.Violations[i].Code < result.Violations[j].Code
-		}
-		return result.Violations[i].Subject < result.Violations[j].Subject
+	trajectory, err := captureHeadlessTrajectory(headlessTrajectoryCaptureInput{
+		contract:          contract,
+		transcriptPath:    transcriptPath,
+		stderrPath:        stderrPath,
+		finalPath:         finalPath,
+		mcpConfigPath:     mcpConfigPath,
+		externalAuditPath: externalAuditPath,
+		counterPath:       counterPath,
+		guardCounterPath:  guardCounterPath,
+		httpGuardPath:     httpGuardPath,
+		externalCanaries:  externalCanaries,
+		backend:           backend,
+		liveGateway:       liveGateway,
 	})
-	resultPath := filepath.Join(runDir, "result.json")
-	encoded, _ := json.MarshalIndent(result, "", "  ")
-	encoded = append(encoded, '\n')
-	if err := writePrivateFile(resultPath, encoded); err != nil {
+	if err != nil {
 		return Result{}, err
 	}
-	if bindings.attestation != nil {
-		if bindings.receipt == nil {
-			return Result{}, fmt.Errorf("synthetic run receipt destination is missing")
-		}
-		*bindings.receipt, err = newSyntheticRunReceipt(bindings.attestation, contract, bindings.runtime, bindings.repetition, taskContractSHA256, executionContractSHA256, encoded)
-		if err != nil {
-			return Result{}, err
-		}
-	}
-	return result, nil
+	return finalizeHeadlessOutcome(headlessOutcomeInput{
+		contract:                contract,
+		trajectory:              trajectory,
+		workspace:               workspace,
+		runDir:                  runDir,
+		durationMillis:          duration,
+		runtime:                 bindings.runtime,
+		repetition:              bindings.repetition,
+		taskContractSHA256:      taskContractSHA256,
+		executionContractSHA256: executionContractSHA256,
+		attestation:             bindings.attestation,
+		receipt:                 bindings.receipt,
+	})
 }
 
 func bindSyntheticWorkspaceMirrors(ctx context.Context, atlBinary, workspace, configDir string, backendEnvironment map[string]string) error {
