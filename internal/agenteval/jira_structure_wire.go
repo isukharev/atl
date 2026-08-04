@@ -13,6 +13,7 @@ const (
 	JiraStructureWireSchemaVersion = 1
 
 	jiraStructureMetadataWireMaxBytes = 32 << 10
+	jiraStructureFailureWireMaxBytes  = 4 << 10
 	jiraStructureViewWireMaxBytes     = 1 << 20
 	jiraStructureViewMaxRows          = 1000
 	jiraStructureViewMaxFields        = 32
@@ -26,6 +27,34 @@ type JiraStructureMetadataView struct {
 	ID            int64  `json:"id"`
 	Name          string `json:"name"`
 	ReadOnly      bool   `json:"read_only"`
+}
+
+// JiraStructureFailureView is the evaluator-owned content-free projection of
+// one recoverable jira_structure_view selection failure. Available and Matches
+// come from the released recovery-v1 facts, never from parsing Message.
+type JiraStructureFailureView struct {
+	Kind        string
+	Remediation string
+	Message     string
+	Available   int
+	Matches     int
+}
+
+// JiraStructureForestMismatchFailureView is the evaluator-owned content-free
+// projection of a stale expected forest-version failure.
+type JiraStructureForestMismatchFailureView struct {
+	Kind        string
+	Remediation string
+	Message     string
+	Expected    JiraStructureForestVersion
+	Observed    JiraStructureForestVersion
+}
+
+type jiraStructureFailureWire struct {
+	Kind        string          `json:"kind"`
+	Remediation string          `json:"remediation"`
+	Message     string          `json:"message"`
+	Recovery    json.RawMessage `json:"recovery"`
 }
 
 // JiraStructureView is the evaluator-owned released jira_structure_view
@@ -104,6 +133,90 @@ func DecodeJiraStructureMetadata(r io.Reader) (JiraStructureMetadataView, error)
 		return JiraStructureMetadataView{}, fmt.Errorf("validate jira structure metadata: identity is invalid")
 	}
 	return view, nil
+}
+
+// DecodeJiraStructureFailure strictly decodes one bounded, content-free
+// recoverable Structure selection failure.
+func DecodeJiraStructureFailure(r io.Reader) (JiraStructureFailureView, error) {
+	wire, recovery, err := decodeJiraStructureFailureWire(r)
+	if err != nil {
+		return JiraStructureFailureView{}, err
+	}
+	if recovery.Action != cliErrorRecoveryRereadThenReselect || recovery.RetrySafe == nil || *recovery.RetrySafe ||
+		recovery.NextCapability != cliErrorCapabilityJiraStructureView || recovery.Available == nil {
+		return JiraStructureFailureView{}, fmt.Errorf("validate jira structure failure: recovery route is invalid")
+	}
+	view := JiraStructureFailureView{
+		Kind: wire.Kind, Remediation: wire.Remediation, Message: wire.Message,
+		Available: *recovery.Available,
+	}
+	if recovery.Matches != nil {
+		view.Matches = *recovery.Matches
+	}
+	if err := view.validate(); err != nil {
+		return JiraStructureFailureView{}, fmt.Errorf("validate jira structure failure: %w", err)
+	}
+	if view.Kind == "not_found" && recovery.Matches != nil ||
+		view.Kind == "check_failed" && recovery.Matches == nil {
+		return JiraStructureFailureView{}, fmt.Errorf("validate jira structure failure: recovery facts do not match kind")
+	}
+	return view, nil
+}
+
+// DecodeJiraStructureForestMismatchFailure strictly decodes one bounded,
+// content-free expected forest-version mismatch.
+func DecodeJiraStructureForestMismatchFailure(r io.Reader) (JiraStructureForestMismatchFailureView, error) {
+	wire, recovery, err := decodeJiraStructureFailureWire(r)
+	if err != nil {
+		return JiraStructureForestMismatchFailureView{}, err
+	}
+	if err := validateJiraStructureFailureStrings(wire.Kind, wire.Remediation, wire.Message); err != nil {
+		return JiraStructureForestMismatchFailureView{}, fmt.Errorf("validate jira structure forest mismatch failure: %w", err)
+	}
+	if wire.Kind != "check_failed" ||
+		wire.Remediation != "reread_structure_view_then_retry_expected_forest_version" ||
+		recovery.Action != cliErrorRecoveryRereadThenReselect || recovery.RetrySafe == nil || *recovery.RetrySafe ||
+		recovery.NextCapability != cliErrorCapabilityJiraStructureView ||
+		recovery.ExpectedForest == nil || recovery.ObservedForest == nil {
+		return JiraStructureForestMismatchFailureView{}, fmt.Errorf("validate jira structure forest mismatch failure: recovery route is invalid")
+	}
+	return JiraStructureForestMismatchFailureView{
+		Kind: wire.Kind, Remediation: wire.Remediation, Message: wire.Message,
+		Expected: JiraStructureForestVersion{
+			Signature: recovery.ExpectedForest.Signature,
+			Version:   recovery.ExpectedForest.Version,
+		},
+		Observed: JiraStructureForestVersion{
+			Signature: recovery.ObservedForest.Signature,
+			Version:   recovery.ObservedForest.Version,
+		},
+	}, nil
+}
+
+func decodeJiraStructureFailureWire(r io.Reader) (jiraStructureFailureWire, cliErrorRecovery, error) {
+	data, err := readJiraStructureWire(r, jiraStructureFailureWireMaxBytes, "failure")
+	if err != nil {
+		return jiraStructureFailureWire{}, cliErrorRecovery{}, err
+	}
+	root, err := jiraStructureObject(data, "failure")
+	if err != nil {
+		return jiraStructureFailureWire{}, cliErrorRecovery{}, fmt.Errorf("decode jira structure failure wire: %w", err)
+	}
+	if err := jiraStructureMembers(root, "failure", []string{"kind", "remediation", "message", "recovery"}, nil); err != nil {
+		return jiraStructureFailureWire{}, cliErrorRecovery{}, fmt.Errorf("decode jira structure failure wire: %w", err)
+	}
+	var wire jiraStructureFailureWire
+	if err := decodeStrict(bytes.NewReader(data), &wire); err != nil {
+		return jiraStructureFailureWire{}, cliErrorRecovery{}, fmt.Errorf("decode jira structure failure wire: %w", err)
+	}
+	if !validCLIErrorRecoveryJSON(wire.Recovery) {
+		return jiraStructureFailureWire{}, cliErrorRecovery{}, fmt.Errorf("validate jira structure failure: recovery is invalid")
+	}
+	var recovery cliErrorRecovery
+	if err := json.Unmarshal(wire.Recovery, &recovery); err != nil {
+		return jiraStructureFailureWire{}, cliErrorRecovery{}, fmt.Errorf("decode jira structure failure recovery: %w", err)
+	}
+	return wire, recovery, nil
 }
 
 // DecodeJiraStructureView strictly decodes and independently reconciles one
@@ -282,6 +395,31 @@ func jiraStructureArray(raw json.RawMessage, owner string, validate func(map[str
 
 func jiraStructureNull(raw json.RawMessage) bool {
 	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
+}
+
+func (view JiraStructureFailureView) validate() error {
+	if err := validateJiraStructureFailureStrings(view.Kind, view.Remediation, view.Message); err != nil {
+		return err
+	}
+	if !jiraStructureOneOf(view.Kind, "not_found", "check_failed") ||
+		view.Remediation != "view_then_select_subtree" {
+		return fmt.Errorf("kind and remediation are not a retained recoverable selection failure")
+	}
+	if view.Available <= 0 || view.Matches < 0 || view.Matches == 1 || view.Matches > view.Available {
+		return fmt.Errorf("available and matching counts are invalid")
+	}
+	return nil
+}
+
+func validateJiraStructureFailureStrings(kind, remediation, message string) error {
+	for name, value := range map[string]string{
+		"kind": kind, "remediation": remediation, "message": message,
+	} {
+		if value == "" || value != strings.TrimSpace(value) || !utf8.ValidString(value) {
+			return fmt.Errorf("%s is not a non-empty normalized string", name)
+		}
+	}
+	return nil
 }
 
 func (view JiraStructureView) validate() error {
