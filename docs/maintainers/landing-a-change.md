@@ -34,21 +34,29 @@ enough for traceability. Its body includes:
 - privacy review of the complete diff;
 - docs, generated-tree, migration, and live-validation notes when relevant.
 
-Run one independent read-only review of the integrated diff. The reviewer
-reports findings with file/line evidence and does not edit. Fix material
-findings, rerun affected gates, and request a bounded follow-up only when the
-finding or fix warrants it. Low-severity naming or testability nits do not create
-an unbounded review loop.
+Run the independent read-only review required by the issue's process class. The
+reviewer reports findings with file/line evidence and does not edit. A material
+fix changes compiled/tested bytes, an executable contract, a security/authority
+boundary, or the design. Name its changed paths and rerun only their impact-map
+gates; prose and naming fixes do not create another full wave. Request a bounded
+follow-up only when the finding or fix warrants it.
 
 ## CI and merge
 
 Mark the PR ready only after local gates and review are green. Inspect hosted
-checks rather than assuming that a queued workflow passed:
+checks rather than assuming that a queued workflow passed. Waiting is a model
+round trip: start one blocking watch under the orchestration layer's timeout
+matched to the matrix, never poll with repeated `gh pr checks` or short empty
+waits. Watch only required checks:
 
 ```sh
-gh pr checks <number> --watch --interval 10
+gh pr checks <number> --required --watch --fail-fast
 gh pr view <number> --json mergeable,isDraft,state,statusCheckRollup
 ```
+
+For one known workflow run, use `gh run watch <run-id> --exit-status`. While a
+watch is pending, prepare only an independent non-conflicting task; otherwise
+block once and consume the final result.
 
 Never merge a PR authored by anyone other than `isukharev` without explicit
 authorization for that exact PR. When the author and authority are valid, all

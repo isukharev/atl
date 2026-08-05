@@ -125,6 +125,8 @@ Problem:
 
 Approach:
 
+Process class: low | standard | high
+
 Files likely to change:
 
 Acceptance criteria:

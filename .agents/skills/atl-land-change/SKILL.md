@@ -10,13 +10,14 @@ description: Carry an ATL repository change from a shaped issue through linked b
 3. Before opening a draft, verify issue plan, branch ownership, author identity,
    dirty state, and the current coherent scope. Open it early enough to preserve
    traceability.
-4. Before marking ready, verify the final diff, local gates, privacy scan, and
-   issue/parent/roadmap links. Use one independent integrated-diff review by
-   default.
-5. Fix material findings and rerun only affected gates; request a bounded
-   follow-up for material correctness or security fixes.
-6. Mark ready, wait for required hosted checks on the reviewed head, and inspect
-   mergeability.
+4. Before marking ready, verify the final diff, class-selected local gates,
+   privacy scan, issue links, and the class-required independent review.
+5. For a material fix, name changed paths and rerun only their impact-map gates;
+   request a bounded follow-up only for material correctness, security, or
+   design changes.
+6. Mark ready, then block once under an outer timeout with
+   `gh pr checks <number> --required --watch --fail-fast`. Never poll checks or
+   workers with repeated short waits. Inspect mergeability after the watch.
 7. Merge only when the author/authority rule permits it. Synchronize `main`,
    remove the working label, and update the durable checkpoint.
 
