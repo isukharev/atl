@@ -200,6 +200,17 @@ Use [Session recovery](docs/maintainers/session-recovery.md) after compaction,
 interruption, or uncertain state. Current repository/issue facts outrank
 transcript memory and historical checkpoints.
 
+At the start of recovery, capture the optional local owner-knowledge location
+without rendering it: `owner_root="$(git config --local --get atl.ownerKnowledgeRoot)"`,
+then record the assignment's exit status. Status 1
+means the key is absent and this source is skipped; any other nonzero status,
+an empty configured value, or validation failure stops recovery without path
+guessing. Never echo the value or copy it into tracked files or public
+artifacts. Validate a configured root with its own bootstrap before reading its
+current state. The local setting adds recovery context; it never overrides this
+file or grants write, benchmark, cleanup, archive, release, or destructive
+authority.
+
 Maintain durable state outside the transcript. At safe issue/PR boundaries
 record HEAD/base, branch/worktree and dirty ownership, completed verification,
 next acceptance criterion, blockers, and all active authorities. Do not hand off
