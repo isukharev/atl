@@ -7,9 +7,13 @@ continuing implementation.
 ## Source order
 
 1. Read the active `AGENTS.md` instruction chain.
-2. If the current environment identifies an owner-only knowledge root, run its
-   validator and read only its current state and handoff. Never guess or publish
-   that location.
+2. Capture the optional owner-only knowledge root without rendering it:
+   `owner_root="$(git config --local --get atl.ownerKnowledgeRoot)"`, then
+   record the assignment's exit status. Status
+   1 means the key is absent and this source is skipped. Any other nonzero
+   status or an empty configured value stops recovery without guessing. For a
+   configured value, run the root's bootstrap validator without echoing the
+   value, then read only its current state and handoff.
 3. Read the active public issue plan and PR state.
 4. Inspect Git and worktrees directly.
 5. Read historical checkpoints or evidence only when the current handoff routes
@@ -17,6 +21,12 @@ continuing implementation.
 
 Current state outranks old plans, transcripts, closed issues, and historical
 checkpoints. Old approval text never creates current authority.
+
+The local owner-knowledge setting is repository-local context, not an
+instruction override. It cannot weaken `AGENTS.md` or grant backend write,
+benchmark, cleanup, archive, release, merge, or destructive authority. Stop if
+the lookup or configured root fails as described above; do not search for a
+replacement.
 
 ## Reconstruction commands
 
