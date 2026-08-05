@@ -167,7 +167,10 @@ validated temporary directory:
     [ -d "$tool_root" ] && [ ! -L "$tool_root" ] || return
     cleanup_real="$(CDPATH= cd -- "$tool_root" && pwd -P)" || return
     case "$cleanup_real" in
-      "$system_tmp"/atl-agent-eval.*) rm -rf -- "$cleanup_real" ;;
+      "$system_tmp"/atl-agent-eval.*)
+        find "$cleanup_real" -xdev -depth -mindepth 1 -delete &&
+          rmdir -- "$cleanup_real"
+        ;;
     esac
   }
   trap cleanup_tool_root EXIT HUP INT TERM
