@@ -4,9 +4,9 @@ Status: current as of 2026-08-05. Revisit only through the evidence gates below.
 
 ## Decision
 
-Keep the independent Go evaluator module as the authoritative execution-policy,
-attempt-lifecycle, artifact, and scoring boundary. Do not replace it with Harbor,
-Inspect AI, or Promptfoo today.
+Keep the independent Go evaluator module in the ATL monorepo as the authoritative
+execution-policy, attempt-lifecycle, artifact, and scoring boundary. Do not
+replace it with Harbor, Inspect AI, or Promptfoo today.
 
 Inspect AI is the strongest candidate for a future optional execution adapter.
 Harbor is the strongest candidate when container-task and separate-verifier
@@ -19,6 +19,64 @@ remove.
 This is a measured no-change decision, not a permanent rejection. The evaluator
 must also stop growing generic runner features that one of these substrates can
 own.
+
+## Repository placement
+
+Retain the evaluator as the independent nested module at
+`internal/agenteval`. This is a no-change decision about physical placement,
+not permission to merge it back into the product module. The module boundary,
+dependency direction, and independent gates remain mandatory.
+
+| Evidence | Retained nested module | Separate repository now |
+|---|---|---|
+| Build boundary | Own `go.mod`, dependency lock, command, linter, and full build/test/race/vet/vulnerability/Windows gates; root recursive Go commands do not enter the module | Preserves isolation, but does not remove any required evaluator gate |
+| Product coupling | Zero product-private imports; one explicit process/JSON compatibility seam exercises the selected ATL binary and released public contracts | Replaces same-commit contract updates with version pins, artifact publication, and coordinated changes across repositories |
+| Corpus and history | Scenario, run, synthetic fixture, released-wire, and generated-skill evidence stay atomically reviewable with the product revision they qualify | Requires either duplicated evidence or a cross-repository fetch and retention protocol before the same revision can be qualified |
+| CI and releases | Eligible pull requests whose changed paths avoid the reviewed impact list use the smaller compatibility path; pushes, dispatches, impact-listed paths, and ATL releases retain the full evaluator gate | Could shorten this repository's jobs only after an independently published evaluator still proves the same release candidate |
+| Ownership and distribution | Repository guidance declares one combined maintainer workflow and issue/review boundary; the evaluator command remains a repository-maintainer tool | Adds independent versioning, release security, dependency updates, triage, and compatibility support before a proposal has named a separate consumer and owner |
+
+The completed decoupling work repeatedly needed atomic changes to evaluator
+consumers and versioned product contracts. Moving the files now would not
+remove the selected-binary compatibility gate, release qualification, or
+evidence corpus. It would mainly exchange local path coupling for release and
+coordination coupling. The smaller checkout and independent issue/release
+surface are real benefits, but current evidence does not show that they exceed
+that cost.
+
+Reopen physical extraction only when all of these conditions have recorded
+evidence:
+
+1. A public proposal names the responsible maintainer, at least one consumer
+   outside the ATL repository, the requested release cadence and support
+   window, and a concrete workflow that the nested module cannot serve.
+2. Starting after this decision, collect the first 20 consecutive merged pull
+   requests that touch `internal/agenteval/**` over a period of at least eight
+   weeks. An evaluator-contained pull request changes files only under
+   `internal/agenteval/**` or `benchmarks/agent-eval/**`. At least 16 of the 20
+   must be evaluator-contained. Record the pull-request numbers and changed-path
+   classification in the extraction proposal; fewer than 20 is insufficient.
+3. A credential-free prototype exposes
+   `agent-eval compat verify --atl <binary> --bundle <bundle> -o json`. The
+   content-addressed bundle and result schema are published with the prototype.
+   The command must exit zero with `compatible:true` for both a SHA-pinned ATL
+   binary built from the proposal's base commit and the signed binary from the
+   highest published stable semantic GitHub release selected by
+   `scripts/select-release-predecessor`. Record binary and bundle SHA-256
+   values, source URLs, exit statuses, and complete bounded JSON results. The
+   verifier must neither check out nor modify ATL source.
+4. The proposed split removes the evaluator source and evaluator-only full-gate
+   tooling from ATL while retaining one bounded, fail-closed product
+   compatibility job; it does not duplicate or rewrite the evidence corpus.
+5. The candidate repository has machine-enforced equivalents of the current
+   full module gate, CodeQL, weekly Go dependency updates, and protected release
+   workflow. The proposal links green full and CodeQL runs, the weekly
+   dependency-update configuration, a release dry run, and snapshots of branch
+   and release-environment protection. Its security and maintainer runbooks name
+   the responsible account and response target, and tests prove historical
+   artifact readability plus the current privacy boundary.
+
+Repository extraction remains a separate initiative. Meeting these conditions
+allows that initiative to be proposed; it does not authorize a move.
 
 ## Required contract
 
