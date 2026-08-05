@@ -7,6 +7,7 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -74,6 +75,43 @@ type JiraBoardRow struct {
 	Values          map[string]any `json:"values"`
 }
 
+// JiraQuarterBoardSnapshot is the explicit epic-rollup variant of the released
+// jira_board_view projection. It is intentionally separate from
+// JiraBoardSnapshot: older retained cohorts did not request a rollup and must
+// continue to reject one rather than silently widening their wire contract.
+type JiraQuarterBoardSnapshot struct {
+	JiraBoardSnapshot
+	EpicRollup JiraBoardEpicRollup `json:"epic_rollup"`
+}
+
+// JiraBoardEpicRollup is the evaluator-owned aggregate evidence returned when
+// jira_board_view is invoked with epic_field and done_statuses. It reconciles
+// internal aggregate invariants and anchors row-observable facts to the released
+// projection without assuming that object-valued relations retain their keys.
+type JiraBoardEpicRollup struct {
+	EpicField    string                     `json:"epic_field"`
+	DoneStatuses []string                   `json:"done_statuses"`
+	Complete     bool                       `json:"complete"`
+	Epics        []JiraBoardEpicRollupEntry `json:"epics"`
+}
+
+type JiraBoardEpicRollupEntry struct {
+	Key                       string                 `json:"key"`
+	ParentPresent             bool                   `json:"parent_present"`
+	ChildCount                int                    `json:"child_count"`
+	DoneChildCount            int                    `json:"done_child_count"`
+	StatusCounts              []JiraBoardStatusCount `json:"status_counts"`
+	LatestChildUpdated        string                 `json:"latest_child_updated,omitempty"`
+	TimestampedChildren       int                    `json:"timestamped_children"`
+	MissingUpdatedChildren    int                    `json:"missing_updated_children"`
+	TimestampCoverageComplete bool                   `json:"timestamp_coverage_complete"`
+}
+
+type JiraBoardStatusCount struct {
+	Status string `json:"status"`
+	Count  int    `json:"count"`
+}
+
 // DecodeJiraBoardSnapshot strictly decodes and independently reconciles one
 // bounded released jira_board_view result.
 func DecodeJiraBoardSnapshot(r io.Reader) (JiraBoardSnapshot, error) {
@@ -104,15 +142,57 @@ func DecodeJiraBoardSnapshot(r io.Reader) (JiraBoardSnapshot, error) {
 	return snapshot, nil
 }
 
+// DecodeJiraQuarterBoardSnapshot strictly decodes the explicit epic-rollup
+// board projection used only by the retained quarter-portfolio workflow.
+func DecodeJiraQuarterBoardSnapshot(r io.Reader) (JiraQuarterBoardSnapshot, error) {
+	limited := &io.LimitedReader{R: r, N: maxContractBytes + 1}
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		return JiraQuarterBoardSnapshot{}, fmt.Errorf("read Jira quarter board snapshot wire: %w", err)
+	}
+	if limited.N <= 0 {
+		return JiraQuarterBoardSnapshot{}, fmt.Errorf("jira quarter board snapshot wire exceeds %d bytes", maxContractBytes)
+	}
+	if !utf8.Valid(data) {
+		return JiraQuarterBoardSnapshot{}, fmt.Errorf("decode Jira quarter board snapshot wire: wire is not valid UTF-8")
+	}
+	if err := validateJSONNoDuplicateKeys(data); err != nil {
+		return JiraQuarterBoardSnapshot{}, fmt.Errorf("decode Jira quarter board snapshot wire: %w", err)
+	}
+	if err := validateJiraQuarterBoardMembers(data); err != nil {
+		return JiraQuarterBoardSnapshot{}, fmt.Errorf("decode Jira quarter board snapshot wire: %w", err)
+	}
+	var snapshot JiraQuarterBoardSnapshot
+	if err := decodeStrict(bytes.NewReader(data), &snapshot); err != nil {
+		return JiraQuarterBoardSnapshot{}, fmt.Errorf("decode Jira quarter board snapshot wire: %w", err)
+	}
+	if err := snapshot.validate(); err != nil {
+		return JiraQuarterBoardSnapshot{}, fmt.Errorf("validate Jira quarter board snapshot: %w", err)
+	}
+	return snapshot, nil
+}
+
 func validateJiraBoardMembers(data []byte) error {
+	return validateJiraBoardMembersForMode(data, false)
+}
+
+func validateJiraQuarterBoardMembers(data []byte) error {
+	return validateJiraBoardMembersForMode(data, true)
+}
+
+func validateJiraBoardMembersForMode(data []byte, requireEpicRollup bool) error {
 	root, err := jiraBoardObject(data, "snapshot")
 	if err != nil {
 		return err
 	}
-	if err := jiraBoardMembers(root, "snapshot", []string{
+	required := []string{
 		"schema_version", "board", "scope", "projection", "rows", "row_count",
 		"complete", "truncated", "backlog_fetched",
-	}, nil); err != nil {
+	}
+	if requireEpicRollup {
+		required = append(required, "epic_rollup")
+	}
+	if err := jiraBoardMembers(root, "snapshot", required, nil); err != nil {
 		return err
 	}
 	board, err := jiraBoardNestedObject(root["board"], "snapshot.board")
@@ -149,7 +229,17 @@ func validateJiraBoardMembers(data []byte) error {
 	if err := jiraBoardArray(projection["fields"], "snapshot.projection.fields", nil); err != nil {
 		return err
 	}
-	return jiraBoardArray(root["rows"], "snapshot.rows", validateJiraBoardRowMembers)
+	if err := jiraBoardArray(root["rows"], "snapshot.rows", validateJiraBoardRowMembers); err != nil {
+		return err
+	}
+	if !requireEpicRollup {
+		return nil
+	}
+	rollup, err := jiraBoardNestedObject(root["epic_rollup"], "snapshot.epic_rollup")
+	if err != nil {
+		return err
+	}
+	return validateJiraBoardEpicRollupMembers(rollup, "snapshot.epic_rollup")
 }
 
 func validateJiraBoardColumnMembers(column map[string]json.RawMessage, owner string) error {
@@ -173,6 +263,33 @@ func validateJiraBoardRowMembers(row map[string]json.RawMessage, owner string) e
 	}
 	_, err := jiraBoardNestedObject(row["values"], owner+".values")
 	return err
+}
+
+func validateJiraBoardEpicRollupMembers(rollup map[string]json.RawMessage, owner string) error {
+	if err := jiraBoardMembers(rollup, owner, []string{"epic_field", "done_statuses", "complete", "epics"}, nil); err != nil {
+		return err
+	}
+	if err := jiraBoardArray(rollup["done_statuses"], owner+".done_statuses", nil); err != nil {
+		return err
+	}
+	return jiraBoardArray(rollup["epics"], owner+".epics", validateJiraBoardEpicRollupEntryMembers)
+}
+
+func validateJiraBoardEpicRollupEntryMembers(entry map[string]json.RawMessage, owner string) error {
+	if err := jiraBoardMembers(entry, owner, []string{
+		"key", "parent_present", "child_count", "done_child_count", "status_counts",
+		"timestamped_children", "missing_updated_children", "timestamp_coverage_complete",
+	}, []string{"latest_child_updated"}); err != nil {
+		return err
+	}
+	if err := jiraBoardOptionalNonemptyString(entry, owner, "latest_child_updated"); err != nil {
+		return err
+	}
+	return jiraBoardArray(entry["status_counts"], owner+".status_counts", validateJiraBoardStatusCountMembers)
+}
+
+func validateJiraBoardStatusCountMembers(entry map[string]json.RawMessage, owner string) error {
+	return jiraBoardMembers(entry, owner, []string{"status", "count"}, nil)
 }
 
 func jiraBoardObject(data []byte, owner string) (map[string]json.RawMessage, error) {
@@ -287,6 +404,125 @@ func (s JiraBoardSnapshot) validate() error {
 		return fmt.Errorf("complete and truncated flags are contradictory")
 	}
 	return s.validateRows(fields, statusColumns)
+}
+
+func (s JiraQuarterBoardSnapshot) validate() error {
+	if err := s.JiraBoardSnapshot.validate(); err != nil {
+		return err
+	}
+	return s.EpicRollup.validate(s.JiraBoardSnapshot)
+}
+
+func (r JiraBoardEpicRollup) validate(snapshot JiraBoardSnapshot) error {
+	if !jiraBoardIdentity(r.EpicField) {
+		return fmt.Errorf("epic_rollup.epic_field is invalid")
+	}
+	fieldPresent, updatedPresent := false, false
+	for _, field := range snapshot.Projection.Fields {
+		fieldPresent = fieldPresent || field == r.EpicField
+		updatedPresent = updatedPresent || field == "updated"
+	}
+	if !fieldPresent || !updatedPresent {
+		return fmt.Errorf("epic_rollup fields are not reconciled with board projection")
+	}
+	if len(r.DoneStatuses) == 0 {
+		return fmt.Errorf("epic_rollup.done_statuses must be a non-empty array")
+	}
+	seenDone := make(map[string]bool, len(r.DoneStatuses))
+	for index, status := range r.DoneStatuses {
+		if !jiraBoardIdentity(status) {
+			return fmt.Errorf("epic_rollup.done_statuses[%d] is invalid", index)
+		}
+		folded := strings.ToLower(status)
+		if seenDone[folded] || index > 0 && strings.ToLower(r.DoneStatuses[index-1]) >= folded {
+			return fmt.Errorf("epic_rollup.done_statuses are duplicated or unordered")
+		}
+		seenDone[folded] = true
+	}
+	if r.Epics == nil {
+		return fmt.Errorf("epic_rollup.epics must be an array")
+	}
+	parents := make(map[string]bool, len(snapshot.Rows))
+	for _, row := range snapshot.Rows {
+		parents[row.Key] = true
+	}
+	rowUpdates := disclosedJiraBoardUpdates(snapshot.Rows)
+	complete := snapshot.Complete
+	seenEpics := make(map[string]bool, len(r.Epics))
+	for index, epic := range r.Epics {
+		if !jiraBoardIdentity(epic.Key) || seenEpics[epic.Key] || index > 0 && r.Epics[index-1].Key >= epic.Key {
+			return fmt.Errorf("epic_rollup.epics[%d].key is invalid, duplicated, or unordered", index)
+		}
+		seenEpics[epic.Key] = true
+		if epic.ParentPresent != parents[epic.Key] {
+			return fmt.Errorf("epic_rollup.epics[%d].parent_present is not reconciled with board rows", index)
+		}
+		if epic.ChildCount <= 0 || epic.DoneChildCount < 0 || epic.DoneChildCount > epic.ChildCount {
+			return fmt.Errorf("epic_rollup.epics[%d] child counts are invalid", index)
+		}
+		if len(epic.StatusCounts) == 0 {
+			return fmt.Errorf("epic_rollup.epics[%d].status_counts must be non-empty", index)
+		}
+		statusTotal, doneTotal := 0, 0
+		seenStatuses := make(map[string]bool, len(epic.StatusCounts))
+		for statusIndex, count := range epic.StatusCounts {
+			if !jiraBoardNonempty(count.Status) || count.Count <= 0 || seenStatuses[count.Status] ||
+				statusIndex > 0 && epic.StatusCounts[statusIndex-1].Status >= count.Status {
+				return fmt.Errorf("epic_rollup.epics[%d].status_counts[%d] is invalid, duplicated, or unordered", index, statusIndex)
+			}
+			seenStatuses[count.Status] = true
+			statusTotal += count.Count
+			if seenDone[strings.ToLower(count.Status)] {
+				doneTotal += count.Count
+			}
+		}
+		if statusTotal != epic.ChildCount || doneTotal != epic.DoneChildCount {
+			return fmt.Errorf("epic_rollup.epics[%d] status counts are not reconciled with child counts", index)
+		}
+		if epic.TimestampedChildren < 0 || epic.MissingUpdatedChildren < 0 ||
+			epic.TimestampedChildren+epic.MissingUpdatedChildren != epic.ChildCount ||
+			epic.TimestampCoverageComplete != (epic.MissingUpdatedChildren == 0) {
+			return fmt.Errorf("epic_rollup.epics[%d] timestamp coverage is not reconciled with child counts", index)
+		}
+		if epic.TimestampedChildren == 0 && epic.LatestChildUpdated != "" ||
+			epic.TimestampedChildren > 0 && !jiraBoardIdentity(epic.LatestChildUpdated) {
+			return fmt.Errorf("epic_rollup.epics[%d].latest_child_updated is not reconciled with timestamps", index)
+		}
+		if epic.TimestampedChildren > 0 {
+			if _, err := parseJiraBoardTimestamp(epic.LatestChildUpdated); err != nil || !rowUpdates[epic.LatestChildUpdated] {
+				return fmt.Errorf("epic_rollup.epics[%d].latest_child_updated is not disclosed by board rows", index)
+			}
+		}
+		complete = complete && epic.ParentPresent && epic.TimestampCoverageComplete
+	}
+	if r.Complete != complete {
+		return fmt.Errorf("epic_rollup.complete is not reconciled with board and entry completeness")
+	}
+	return nil
+}
+
+func disclosedJiraBoardUpdates(rows []JiraBoardRow) map[string]bool {
+	updates := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		if updated, ok := row.Values["updated"].(string); ok && updated != "" {
+			updates[updated] = true
+		}
+	}
+	return updates
+}
+
+func parseJiraBoardTimestamp(value string) (time.Time, error) {
+	for _, layout := range []string{
+		time.RFC3339Nano,
+		"2006-01-02T15:04:05.999999999-0700",
+		"2006-01-02T15:04:05-0700",
+		"2006-01-02",
+	} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unsupported Jira timestamp")
 }
 
 func (b JiraBoardConfig) validate() (map[string]int, error) {

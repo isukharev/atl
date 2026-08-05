@@ -7,11 +7,36 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestSyntheticMCPServeArgsPreserveDefaultProfileOmission(t *testing.T) {
+	for _, test := range []struct {
+		service string
+		want    []string
+	}{
+		{service: "default", want: []string{"mcp", "serve"}},
+		{service: "jira", want: []string{"mcp", "serve", "--service", "jira"}},
+		{service: "confluence", want: []string{"mcp", "serve", "--service", "confluence"}},
+	} {
+		t.Run(test.service, func(t *testing.T) {
+			if got := syntheticMCPServeArgs(test.service); !slices.Equal(got, test.want) {
+				t.Fatalf("args=%q want=%q", got, test.want)
+			}
+		})
+	}
+	defaultTools, ok := syntheticMCPToolsForService("default")
+	if !ok || len(defaultTools) != 23 || !defaultTools["jira_fields"] || !defaultTools["confluence_page_section"] {
+		t.Fatalf("default synthetic MCP inventory=%v ok=%t", defaultTools, ok)
+	}
+	if _, ok := syntheticMCPToolsForService("all"); ok {
+		t.Fatal("unknown synthetic MCP service was accepted")
+	}
+}
 
 func TestSyntheticATLProcessRunsSelectedBinaryCLIAndMCPContracts(t *testing.T) {
 	binary, err := filepath.Abs(filepath.Join("..", "..", "atl"))
@@ -909,8 +934,12 @@ func syntheticATLTestScriptWithToolInventory(body string) string {
 func testSyntheticMCPToolInventoryHandler() string {
 	var script strings.Builder
 	script.WriteString("synthetic_mcp_tools_list() {\n  case \"$1\" in\n")
-	for _, profile := range []string{"jira", "confluence", "offline"} {
-		script.WriteString("    " + profile + ") printf '%s\\n' '")
+	for _, profile := range []string{"default", "jira", "confluence", "offline"} {
+		caseLabel := profile
+		if profile == "default" {
+			caseLabel = "\"\"|default"
+		}
+		script.WriteString("    " + caseLabel + ") printf '%s\\n' '")
 		script.WriteString(syntheticMCPToolInventoryResponse(profile))
 		script.WriteString("' ;;\n")
 	}
@@ -919,7 +948,7 @@ func testSyntheticMCPToolInventoryHandler() string {
 }
 
 func syntheticMCPToolInventoryResponse(profile string) string {
-	expected, ok := PinnedCapabilityCatalog().mcpToolsForProfile(profile)
+	expected, ok := syntheticMCPToolsForService(profile)
 	if !ok {
 		panic("unknown synthetic MCP profile")
 	}

@@ -191,7 +191,7 @@ func StartSyntheticATLProcess(ctx context.Context, input SyntheticATLProcessConf
 	process.backend = backend
 	process.environment = syntheticATLProcessEnvironment(backend, runtimeRoot)
 	if len(config.MCPInvocations) > 0 {
-		expectedTools, ok := PinnedCapabilityCatalog().mcpToolsForProfile(config.MCPService)
+		expectedTools, ok := syntheticMCPToolsForService(config.MCPService)
 		if !ok {
 			return fail(fmt.Errorf("synthetic ATL MCP service must be a closed profile"))
 		}
@@ -200,7 +200,7 @@ func StartSyntheticATLProcess(ctx context.Context, input SyntheticATLProcessConf
 		}
 		process.mcp, err = startBoundedMCPCommand(
 			ctx, process.binary.executionPath,
-			[]string{"mcp", "serve", "--service", config.MCPService},
+			syntheticMCPServeArgs(config.MCPService),
 			runtimeRoot, process.environment, config.Timeout,
 			config.MaxMCPBytes, config.MaxStderrBytes,
 		)
@@ -223,6 +223,36 @@ func StartSyntheticATLProcess(ctx context.Context, input SyntheticATLProcessConf
 		return fail(err)
 	}
 	return process, nil
+}
+
+// syntheticMCPServeArgs preserves the product CLI's default-service spelling:
+// default is selected by omitting --service, while named restricted profiles
+// remain explicit. The evaluator config keeps "default" as an admission
+// profile so its capability boundary stays closed and inspectable.
+func syntheticMCPServeArgs(service string) []string {
+	args := []string{"mcp", "serve"}
+	if service != "default" {
+		args = append(args, "--service", service)
+	}
+	return args
+}
+
+// syntheticMCPToolsForService keeps the selected-process-only "default"
+// sentinel separate from durable run-spec profiles. Product CLI syntax selects
+// the complete default surface only by omitting --service; explicit profiles
+// remain the three values accepted by mcpToolsForProfile.
+func syntheticMCPToolsForService(service string) (map[string]bool, bool) {
+	catalog := PinnedCapabilityCatalog()
+	if service != "default" {
+		return catalog.mcpToolsForProfile(service)
+	}
+	allowed := make(map[string]bool)
+	for _, item := range catalog.Capabilities {
+		if item.MCPTool != "" {
+			allowed[item.MCPTool] = true
+		}
+	}
+	return allowed, true
 }
 
 // seedSyntheticATLMirrorTemplate creates the child-visible mirror root from a
@@ -290,7 +320,7 @@ func normalizeSyntheticATLProcessConfig(input SyntheticATLProcessConfig) (Synthe
 	}
 	exactBudgets := map[string]int{}
 	if len(config.MCPInvocations) > 0 {
-		allowed, ok := PinnedCapabilityCatalog().mcpToolsForProfile(config.MCPService)
+		allowed, ok := syntheticMCPToolsForService(config.MCPService)
 		if !ok {
 			return SyntheticATLProcessConfig{}, nil, fmt.Errorf("synthetic ATL MCP service must be a closed profile")
 		}
