@@ -5,7 +5,9 @@ description: Implement or review changes in the ATL repository with the correct 
 
 # Develop ATL
 
-1. Read repository `AGENTS.md`; it is binding.
+1. Treat the active repository `AGENTS.md` instruction chain as binding. Do
+   not reread the whole file when Codex already supplied it in session context
+   unless evidence says the active copy is missing or stale.
 2. Read [Development and verification](../../../docs/maintainers/development.md).
 3. Run the runbook's literal read-only snapshot once per session boundary and
    classify every dirty path before executing Makefiles/scripts or editing. Do

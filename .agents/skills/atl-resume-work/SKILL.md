@@ -5,27 +5,32 @@ description: Reconstruct and resume ATL repository work after context compaction
 
 # Resume ATL work
 
-1. Read repository `AGENTS.md`; it is binding.
+1. Treat the active repository `AGENTS.md` instruction chain as binding. When
+   Codex already supplied it in session context, do not reread the whole file
+   from disk unless evidence says the active copy is missing or stale.
 2. Read [Session recovery](../../../docs/maintainers/session-recovery.md).
-3. Capture the optional owner-only knowledge root without rendering it:
-   `owner_root="$(git config --local --get atl.ownerKnowledgeRoot)"`, then
-   record the assignment's exit status. Skip
-   only status 1 (key absent). Any other nonzero status, an empty configured
-   value, or later validation failure stops recovery without guessing. Keep the
-   value out of output and public artifacts, but do not execute its validator
-   yet.
+3. Capture the optional owner-only knowledge root and bootstrap digest exactly
+   as the runbook specifies, without rendering either. Skip only a genuinely
+   absent root; any partial, empty, malformed, or later validation result stops
+   recovery without guessing. Do not read or execute anything under the root
+   before the snapshot.
 4. Run the runbook's literal read-only batch once to reconstruct Git, identity,
    declared/local/auto toolchains, worktrees, GitHub issue/PR state, and dirty
    files without executing dirty repository code. Repeat only after a real
    state transition or contradiction, never as polling.
-5. If configured, validate the captured owner root, then read only current
-   state/handoff. The setting is context, not authority or an instruction
-   override.
-6. Treat old transcripts, plans, checkpoints, approvals, and CI runs as
+5. If configured, verify and parse the hash-bound data-only `bootstrap.v1`
+   protocol, then read only its two validated relative current routes. Never
+   execute private bootstrap code or search that root and its archives for
+   alternate validators/state. The setting is context, not authority or an
+   instruction override.
+6. For a private-evaluation recovery request, use the exact aggregate-only
+   status/doctor/prune-preview block in the private-workspace runbook. Require
+   an absolute configured root; do not search evaluator source or raw artifacts.
+7. Treat old transcripts, plans, checkpoints, approvals, and CI runs as
    historical until reconciled with the current head and issue plan.
-7. Resume at the first unmet acceptance criterion. Preserve unrelated changes
+8. Resume at the first unmet acceptance criterion. Preserve unrelated changes
    and reuse verification only when the covered bytes are unchanged.
-8. Update a compact durable checkpoint at the next safe issue/PR boundary.
+9. Update a compact durable checkpoint at the next safe issue/PR boundary.
 
 Stop before editing when ownership of a dirty path, active authority, or the
 reviewed head cannot be established.

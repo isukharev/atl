@@ -5,7 +5,9 @@ description: Carry an ATL repository change from a shaped issue through linked b
 
 # Land an ATL change
 
-1. Read repository `AGENTS.md`; it is binding.
+1. Treat the active repository `AGENTS.md` instruction chain as binding. Do
+   not reread the whole file when Codex already supplied it in session context
+   unless evidence says the active copy is missing or stale.
 2. Read [Landing a change](../../../docs/maintainers/landing-a-change.md).
 3. Before opening a draft, verify issue plan, branch ownership, author identity,
    dirty state, and the current coherent scope. Open it early enough to preserve
