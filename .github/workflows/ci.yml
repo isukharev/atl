@@ -40,7 +40,7 @@ jobs:
           grep -F "\"commit\": \"$(git rev-parse HEAD)\"" "$RUNNER_TEMP/atl-version.json"
           grep -F '"build_state": "clean"' "$RUNNER_TEMP/atl-version.json"
       - name: Vet
-        run: go vet ./...
+        run: make vet
       # -race needs cgo (ThreadSanitizer is a C runtime); the runners ship a C
       # toolchain and CGO defaults on. -covermode=atomic is mandatory with -race —
       # non-atomic coverage counters would themselves be a data race. -count=1
@@ -64,18 +64,17 @@ jobs:
             echo '```'
             echo "</details>"
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: go.mod tidy check
+      - name: Product go.mod tidy check
         run: |
-          go mod tidy
+          env -u GOROOT GOTOOLCHAIN=auto GOWORK=off go mod tidy
           git diff --exit-code go.mod go.sum
-      - name: Static CGO-free build
-        run: CGO_ENABLED=0 go build ./...
+      - name: Product static CGO-free build
+        run: env -u GOROOT GOTOOLCHAIN=auto GOWORK=off CGO_ENABLED=0 go build ./...
       - name: Windows source cross-compile
         if: matrix.os == 'ubuntu-latest'
         run: make check-windows-compile
 
   agent-eval:
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -90,24 +89,27 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "heavy=true" >> "$GITHUB_OUTPUT"
-          elif git diff --quiet "$BASE_SHA" "$GITHUB_SHA" -- \
-            go.mod go.sum Makefile .github/workflows/ci.yml .github/workflows/release.yml \
-            .claude-plugin .mcp.json skills skills-src plugins/atl \
-            internal/agenteval internal/capability internal/diagnostic internal/safepath \
-            internal/skillmeta internal/testbackend scripts/agent-eval scripts/list-go-packages \
-            benchmarks/agent-eval internal/cli/testdata/agent-eval; then
-            echo "heavy=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "heavy=true" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          mode=full
+          if [ "${{ github.event_name }}" = "pull_request" ] && \
+            [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] && \
+            git cat-file -e "${BASE_SHA}^{commit}" && \
+            git cat-file -e "${GITHUB_SHA}^{commit}" && \
+            git merge-base --is-ancestor "$BASE_SHA" "$GITHUB_SHA"; then
+            if git diff --quiet "$BASE_SHA" "$GITHUB_SHA" -- \
+              go.mod go.sum Makefile .golangci.yml .github \
+              .claude-plugin .mcp.json cmd internal scripts \
+              skills skills-src plugins/atl benchmarks/agent-eval; then
+              mode=compat
+            fi
           fi
+          printf 'mode=%s\n' "$mode" >> "$GITHUB_OUTPUT"
       - name: Product compatibility contract
-        if: steps.impact.outputs.heavy != 'true'
+        if: steps.impact.outputs.mode == 'compat'
         run: make agent-eval-compat
-      - name: Complete evaluation contract
-        if: steps.impact.outputs.heavy == 'true'
-        run: make agent-eval-race
+      - name: Complete agent-evaluation gate
+        if: steps.impact.outputs.mode == 'full'
+        run: make agent-eval-full
 
   lint:
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
@@ -121,8 +123,8 @@ jobs:
           go-version-file: go.mod
           check-latest: true
       - name: Maintainer toolchain contract
-        run: GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract
-      - name: Core/heavy package boundary
+        run: make check-maintainer-contract
+      - name: Two-module package boundary
         run: make check-package-boundary
       - name: Maintainability ratchets
         run: make check-maintainability

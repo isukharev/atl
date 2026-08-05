@@ -34,5 +34,5 @@ func (r CLIInvocationAuditRecord) errorContract() (CLIErrorContract, bool, error
 }
 
 // atlProxyRecord preserves the package-local historical name while the writer
-// in scripts/agent-eval consumes the canonical exported ABI type directly.
+// in cmd/agent-eval consumes the canonical exported ABI type directly.
 type atlProxyRecord = CLIInvocationAuditRecord

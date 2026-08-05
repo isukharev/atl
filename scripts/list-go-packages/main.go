@@ -15,8 +15,7 @@ import (
 )
 
 const (
-	classCore  = "core"
-	classHeavy = "heavy"
+	classRootCore = "root-core"
 )
 
 var declaredPackagePatterns = []string{"./cmd/...", "./internal/...", "./scripts/..."}
@@ -28,8 +27,7 @@ type options struct {
 }
 
 type packageSets struct {
-	Core  []string
-	Heavy []string
+	RootCore []string
 }
 
 func main() {
@@ -43,14 +41,14 @@ func run(root string, arguments []string, output io.Writer) error {
 	flags := flag.NewFlagSet("list-go-packages", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var selected options
-	flags.StringVar(&selected.class, "class", "", "package class: core or heavy")
+	flags.StringVar(&selected.class, "class", "", "package class: root-core")
 	flags.StringVar(&selected.format, "format", "lines", "output format: lines or csv")
 	flags.StringVar(&selected.scope, "scope", "all", "package scope: all or internal")
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
-	if flags.NArg() != 0 || selected.class != classCore && selected.class != classHeavy {
-		return errors.New("--class must be exactly core or heavy")
+	if flags.NArg() != 0 || selected.class != classRootCore {
+		return errors.New("--class must be exactly root-core")
 	}
 	if selected.format != "lines" && selected.format != "csv" {
 		return errors.New("--format must be exactly lines or csv")
@@ -89,10 +87,7 @@ func run(root string, arguments []string, output io.Writer) error {
 		return err
 	}
 
-	packages := sets.Core
-	if selected.class == classHeavy {
-		packages = sets.Heavy
-	}
+	packages := sets.RootCore
 	if selected.scope == "internal" {
 		packages = filterPackagePrefix(packages, module+"/internal/")
 	}
@@ -127,10 +122,6 @@ func verifyDeclaredPackageRoots(module string, packages []string) error {
 func classifyPackages(module string, packages []string) (packageSets, error) {
 	var sets packageSets
 	seen := make(map[string]struct{}, len(packages))
-	heavyRoots := map[string]bool{
-		module + "/internal/agenteval": false,
-		module + "/scripts/agent-eval": false,
-	}
 	for _, packagePath := range packages {
 		if packagePath == "" {
 			continue
@@ -139,32 +130,19 @@ func classifyPackages(module string, packages []string) (packageSets, error) {
 			return packageSets{}, fmt.Errorf("duplicate package %q", packagePath)
 		}
 		seen[packagePath] = struct{}{}
-		if root, heavy := heavyPackageRoot(module, packagePath); heavy {
-			sets.Heavy = append(sets.Heavy, packagePath)
-			if packagePath == root {
-				heavyRoots[root] = true
-			}
-			continue
+		if !rootCorePackagePath(module, packagePath) {
+			return packageSets{}, fmt.Errorf("package %q has no root-core classification", packagePath)
 		}
-		if !corePackagePath(module, packagePath) {
-			return packageSets{}, fmt.Errorf("package %q has no core/heavy classification", packagePath)
-		}
-		sets.Core = append(sets.Core, packagePath)
+		sets.RootCore = append(sets.RootCore, packagePath)
 	}
-	for root, found := range heavyRoots {
-		if !found {
-			return packageSets{}, fmt.Errorf("required heavy package %q is missing", root)
-		}
+	if len(sets.RootCore) == 0 {
+		return packageSets{}, errors.New("root-core package set is empty")
 	}
-	if len(sets.Core) == 0 || len(sets.Heavy) == 0 {
-		return packageSets{}, errors.New("core and heavy package sets must both be non-empty")
-	}
-	sort.Strings(sets.Core)
-	sort.Strings(sets.Heavy)
+	sort.Strings(sets.RootCore)
 	return sets, nil
 }
 
-func corePackagePath(module, packagePath string) bool {
+func rootCorePackagePath(module, packagePath string) bool {
 	for _, root := range []string{module + "/cmd", module + "/internal", module + "/scripts"} {
 		if packagePath == root || strings.HasPrefix(packagePath, root+"/") {
 			return true
@@ -173,34 +151,18 @@ func corePackagePath(module, packagePath string) bool {
 	return false
 }
 
-func heavyPackageRoot(module, packagePath string) (string, bool) {
-	for _, root := range []string{module + "/internal/agenteval", module + "/scripts/agent-eval"} {
-		if packagePath == root || strings.HasPrefix(packagePath, root+"/") {
-			return root, true
-		}
-	}
-	return "", false
-}
-
 func verifyPackageBoundaries(root, module string, sets packageSets) error {
-	classified := make(map[string]struct{}, len(sets.Core)+len(sets.Heavy))
-	for _, packagePath := range sets.Core {
+	classified := make(map[string]struct{}, len(sets.RootCore))
+	for _, packagePath := range sets.RootCore {
 		classified[packagePath] = struct{}{}
 	}
-	for _, packagePath := range sets.Heavy {
-		classified[packagePath] = struct{}{}
-	}
-	if err := verifyPackageDependencies(root, module, "core", sets.Core, classified, true); err != nil {
-		return err
-	}
-	return verifyPackageDependencies(root, module, "heavy", sets.Heavy, classified, false)
+	return verifyPackageDependencies(root, module, "root-core", sets.RootCore, classified)
 }
 
 func verifyPackageDependencies(
 	root, module, class string,
 	packages []string,
 	classified map[string]struct{},
-	rejectHeavy bool,
 ) error {
 	// Exclude the rewritten package variants produced for in-package tests.
 	// Their ImportPath contains a bracketed display suffix; the ordinary package
@@ -218,9 +180,6 @@ func verifyPackageDependencies(
 	for _, dependency := range strings.Fields(output) {
 		if _, synthetic := syntheticTests[dependency]; synthetic {
 			continue
-		}
-		if heavyRoot, heavy := heavyPackageRoot(module, dependency); rejectHeavy && heavy {
-			return fmt.Errorf("core test dependency reaches heavy package %q", heavyRoot)
 		}
 		if dependency == module || strings.HasPrefix(dependency, module+"/") {
 			if _, known := classified[dependency]; !known {
@@ -244,7 +203,20 @@ func filterPackagePrefix(packages []string, prefix string) []string {
 func goOutput(root string, arguments ...string) (string, error) {
 	command := exec.Command("go", arguments...)
 	command.Dir = root
+	command.Env = goCommandEnvironment()
 	return separatedCommandOutput(command, "go "+strings.Join(arguments, " "))
+}
+
+func goCommandEnvironment() []string {
+	environment := make([]string, 0, len(os.Environ())+2)
+	for _, entry := range os.Environ() {
+		name, _, found := strings.Cut(entry, "=")
+		if found && (name == "GOROOT" || name == "GOTOOLCHAIN" || name == "GOWORK") {
+			continue
+		}
+		environment = append(environment, entry)
+	}
+	return append(environment, "GOTOOLCHAIN=auto", "GOWORK=off")
 }
 
 const commandStderrMaxBytes = 64 << 10

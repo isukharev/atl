@@ -92,6 +92,7 @@ full gate only after a material fix that can affect it.
 |---|---|
 | App or CLI behavior | `go test ./internal/app ./internal/cli -count=1` |
 | One Go package | `go test ./path/to/package -count=1` |
+| Evaluator module or corpus | `make agent-eval-contract`, then `make agent-eval-full` once stable |
 | Concurrency or shared state | focused `go test -race`, then `make race` |
 | Generated client skills | `make gen-plugins && make check-plugins` |
 | Repository runbooks or `.agents/skills/` | `make check-repository-skills && make check-docs-catalog` |
@@ -133,17 +134,37 @@ not quality scores: add headroom only with a rationale, and lower a limit after
 a responsibility-based split lands. Timing rows record hosted observations in
 `observe` mode; they do not impose runtime thresholds.
 
-Use `make agent-eval-contract` only for evaluator/corpus changes, and the live
-targets only when the change and authority require them. Run a privacy scan over
-the complete public diff, excluding unrelated owner changes. Review the
-integrated diff once; add a bounded follow-up only after a material finding,
+The evaluator is an independent nested module at `internal/agenteval`, with its
+maintainer command at `internal/agenteval/cmd/agent-eval`. Root recursive Go
+commands intentionally exclude it. Use the root `make agent-eval-*` façades:
+ordinary product work retains the provider/backend-free
+`make agent-eval-compat` compatibility boundary, evaluator/corpus changes use
+`make agent-eval-contract` while iterating, and evaluator-impacting or release
+work requires `make agent-eval-full`. The full facade includes the nested
+module's build, unit, deterministic contract, race, lint, vet, vulnerability,
+tidy, Windows, and bilateral `make agent-eval-product-boundary` gates. Do not
+add a root module dependency, a root `replace`, or a tracked `go.work` to make
+root recursive commands traverse the evaluator.
+
+When an ad hoc evaluator executable is necessary, build it from the repository
+root and run the resulting binary there so repository-relative inputs retain
+their meaning:
+
+```sh
+GOWORK=off go -C internal/agenteval build -o /tmp/agent-eval ./cmd/agent-eval
+/tmp/agent-eval inventory benchmarks/agent-eval
+```
+
+Run live targets only when the change and authority require them. Run a privacy
+scan over the complete public diff, excluding unrelated owner changes. Review
+the integrated diff once; add a bounded follow-up only after a material finding,
 design change, or security-boundary fix.
 
-The evaluator library's exact production/test product-private imports and the
-`scripts/agent-eval` entrypoint's exact dependency on that library are reviewed
-in `TestEvaluatorProductDependencyLedger`; additions, removals, and lane moves
-must update that ledger deliberately. No other product-private entrypoint
-dependency is permitted. `make agent-eval-compat` keeps
+The evaluator module's exact production/test product-private imports and the
+`internal/agenteval/cmd/agent-eval` command's reviewed module-self import are
+reviewed in `TestEvaluatorProductDependencyLedger`; additions, removals, and
+lane moves must update that ledger deliberately. No other cross-module or
+product-private entrypoint dependency is permitted. `make agent-eval-compat` keeps
 the evaluator wire/parser side and the lightweight product CLI
 classification/exit-source side in the same required compatibility gate. Both
 sides must match the content-free versioned CLI error wire fixture; changing

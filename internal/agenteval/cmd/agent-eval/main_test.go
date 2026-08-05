@@ -477,7 +477,8 @@ func TestPrivateLiveCLIGuardAllowsOnlyOneATLCommandShape(t *testing.T) {
 }
 
 func TestRepositoryClaudeReferenceHoldoutCommandPassesGuardAndProxy(t *testing.T) {
-	specPath := filepath.Join("..", "..", "benchmarks", "agent-eval", "jira-reference-summary-holdout", "run.cli.claude.json")
+	repositoryRoot := filepath.Join("..", "..", "..", "..")
+	specPath := filepath.Join(repositoryRoot, "benchmarks", "agent-eval", "jira-reference-summary-holdout", "run.cli.claude.json")
 	file, err := os.Open(specPath)
 	if err != nil {
 		t.Fatal(err)

@@ -26,30 +26,40 @@ const (
 
 var exactGoVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 
+const rootGoEnvironmentMakeContract = `GO_ENV   := env -u GOROOT GOTOOLCHAIN=auto GOWORK=off
+GO_LOCAL_ENV := env -u GOROOT GOTOOLCHAIN=local GOWORK=off
+AGENT_EVAL_DIR := internal/agenteval
+AGENT_EVAL_MAKE := $(MAKE) -C $(AGENT_EVAL_DIR) REPOSITORY_ROOT="$(CURDIR)" ATL_BINARY="$(CURDIR)/atl"
+`
+
 const windowsCompileMakeContract = `.PHONY: check-windows-compile
 check-windows-compile:
-	GOROOT= GOTOOLCHAIN=auto GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...
+	$(GO_ENV) GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...
 `
 
 const coreCoverageMakeContract = `.PHONY: check-core-race-coverage
 check-core-race-coverage:
-	@core_packages="$$(go run ./scripts/list-go-packages --class core)" && \
-		core_cover="$$(go run ./scripts/list-go-packages --class core --scope internal --format csv)" && \
-		test -n "$$core_packages" && test -n "$$core_cover" && \
-		go test -race -covermode=atomic -coverprofile=cover.out -coverpkg="$$core_cover" -count=1 -timeout=10m $$core_packages
-	@go run ./scripts/check-coverage --profile cover.out --minimum "84.0"
+	@root_core_packages="$$( $(GO_ENV) go run ./scripts/list-go-packages --class root-core)" && \
+		root_core_cover="$$( $(GO_ENV) go run ./scripts/list-go-packages --class root-core --scope internal --format csv)" && \
+		test -n "$$root_core_packages" && test -n "$$root_core_cover" && \
+		$(GO_ENV) go test -race -covermode=atomic -coverprofile=cover.out -coverpkg="$$root_core_cover" -count=1 -timeout=10m $$root_core_packages
+	@$(GO_ENV) go run ./scripts/check-coverage --profile cover.out --minimum "84.0"
+`
+
+const moduleBoundaryMakeContract = `.PHONY: check-module-boundary
+check-module-boundary:
+	$(GO_ENV) go run ./scripts/check-module-boundary -root .
 `
 
 const packageBoundaryMakeContract = `.PHONY: check-package-boundary
-check-package-boundary:
-	@core="$$(go run ./scripts/list-go-packages --class core)" && \
-		heavy="$$(go run ./scripts/list-go-packages --class heavy)" && \
-		test -n "$$core" && test -n "$$heavy"
+check-package-boundary: check-module-boundary
+	@root_core="$$( $(GO_ENV) go run ./scripts/list-go-packages --class root-core)" && \
+		test -n "$$root_core"
 `
 
 const maintainabilityMakeContract = `.PHONY: check-maintainability
 check-maintainability:
-	go run ./scripts/check-maintainability
+	$(GO_ENV) go run ./scripts/check-maintainability
 `
 
 const generatedAttributesContract = `/skills/** linguist-generated=true
@@ -66,37 +76,73 @@ check-plugins: gen-plugins check-skill-safety check-skill-routing
 
 const context7MakeContract = `.PHONY: check-context7-docs
 check-context7-docs:
-	go run ./scripts/check-context7-docs
+	$(GO_ENV) go run ./scripts/check-context7-docs
 `
 
 const docsCatalogMakeContract = `.PHONY: check-docs-catalog
 check-docs-catalog:
-	go run ./scripts/check-docs-catalog -root .
+	$(GO_ENV) go run ./scripts/check-docs-catalog -root .
 `
 
 const docsFreshnessMakeContract = `.PHONY: check-docs-freshness
 check-docs-freshness:
-	go run ./scripts/check-docs-freshness -root .
+	$(GO_ENV) go run ./scripts/check-docs-freshness -root .
 `
 
 const repositorySkillsMakeContract = `.PHONY: check-repository-skills
 check-repository-skills:
-	go run ./scripts/check-repository-skills -root .
+	$(GO_ENV) go run ./scripts/check-repository-skills -root .
 `
 
 const referenceSplitMakeContract = `.PHONY: check-reference-split
 check-reference-split:
-	go run ./scripts/check-reference-split -root .
+	$(GO_ENV) go run ./scripts/check-reference-split -root .
 `
 
 const onboardingMakeContract = `.PHONY: check-onboarding-docs
 check-onboarding-docs: build
-	ATL_NO_UPDATE=1 go run ./scripts/check-onboarding-docs -root . -atl ./atl
+	ATL_NO_UPDATE=1 $(GO_ENV) go run ./scripts/check-onboarding-docs -root . -atl ./atl
 `
 
-const agentEvalRaceMakeContract = `.PHONY: agent-eval-race
-agent-eval-race: agent-eval-compat
-	go test -race ./internal/agenteval ./scripts/agent-eval -count=1 -timeout=30m
+const agentEvalFacadeMakeContract = `.PHONY: agent-eval-build agent-eval-unit agent-eval-race agent-eval-lint agent-eval-vet agent-eval-vuln agent-eval-tidy-check agent-eval-windows
+agent-eval-build:
+	$(AGENT_EVAL_MAKE) build
+
+agent-eval-unit:
+	$(AGENT_EVAL_MAKE) unit
+
+agent-eval-race:
+	$(AGENT_EVAL_MAKE) race
+
+agent-eval-lint:
+	$(AGENT_EVAL_MAKE) lint
+
+agent-eval-vet:
+	$(AGENT_EVAL_MAKE) vet
+
+agent-eval-vuln:
+	$(AGENT_EVAL_MAKE) vuln
+
+agent-eval-tidy-check:
+	$(AGENT_EVAL_MAKE) tidy-check
+
+agent-eval-windows:
+	$(AGENT_EVAL_MAKE) windows
+
+.PHONY: agent-eval-compat
+agent-eval-compat: check-skill-routing
+	$(AGENT_EVAL_MAKE) compat
+
+.PHONY: agent-eval-contract
+agent-eval-contract: check-skill-routing
+	$(AGENT_EVAL_MAKE) contract
+
+.PHONY: agent-eval-product-boundary
+agent-eval-product-boundary: check-package-boundary
+
+.PHONY: agent-eval-full
+agent-eval-full: check-skill-routing check-module-boundary
+	$(AGENT_EVAL_MAKE) full
 `
 
 const (
@@ -121,8 +167,8 @@ const (
         if: matrix.os == 'ubuntu-latest'
         run: make check-windows-compile`
 	maintainerStepContract = `      - name: Maintainer toolchain contract
-        run: GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract`
-	packageBoundaryStepContract = `      - name: Core/heavy package boundary
+        run: make check-maintainer-contract`
+	packageBoundaryStepContract = `      - name: Two-module package boundary
         run: make check-package-boundary`
 	maintainabilityStepContract = `      - name: Maintainability ratchets
         run: make check-maintainability`
@@ -146,7 +192,7 @@ const (
 	onboardingStepContract = `      - name: Onboarding documentation rehearsal
         run: make check-onboarding-docs`
 	vetStepContract = `      - name: Vet
-        run: go vet ./...`
+        run: make vet`
 	lintStepContract = `      - name: golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a
         with:
@@ -155,8 +201,41 @@ const (
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.4.0
           govulncheck ./...`
-	agentEvalStepContract = `      - name: Agent evaluation race gate
-        run: make agent-eval-race`
+	agentEvalCheckoutStepContract = `      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0`
+	agentEvalImpactStepContract = `      - name: Classify evaluation impact
+        id: impact
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          mode=full
+          if [ "${{ github.event_name }}" = "pull_request" ] && \
+            [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] && \
+            git cat-file -e "${BASE_SHA}^{commit}" && \
+            git cat-file -e "${GITHUB_SHA}^{commit}" && \
+            git merge-base --is-ancestor "$BASE_SHA" "$GITHUB_SHA"; then
+            if git diff --quiet "$BASE_SHA" "$GITHUB_SHA" -- \
+              go.mod go.sum Makefile .golangci.yml .github \
+              .claude-plugin .mcp.json cmd internal scripts \
+              skills skills-src plugins/atl benchmarks/agent-eval; then
+              mode=compat
+            fi
+          fi
+          printf 'mode=%s\n' "$mode" >> "$GITHUB_OUTPUT"`
+	agentEvalCompatStepContract = `      - name: Product compatibility contract
+        if: steps.impact.outputs.mode == 'compat'
+        run: make agent-eval-compat`
+	agentEvalFullStepContract = "      - name: Complete agent-evaluation gate\n" +
+		"        if: steps.impact.outputs.mode == 'full'\n" +
+		"        run: make agent-eval-full"
+	agentEvalReleaseFullStepContract = "      - name: Complete agent-evaluation gate\n" +
+		"        run: make agent-eval-full"
+	codeQLProductBuildStepContract = "      - name: Build product module\n" +
+		"        run: env -u GOROOT GOTOOLCHAIN=auto GOWORK=off go build ./..."
+	codeQLEvaluatorBuildStepContract = `      - name: Build evaluator module
+        run: make agent-eval-build`
 )
 
 type devcontainerConfig struct {
@@ -214,6 +293,13 @@ func validateRepository(root, runtimeVersion string) (string, error) {
 	if err := validateRuntime(goVersion, runtimeVersion); err != nil {
 		return "", err
 	}
+	evaluatorGoVersion, err := readGoVersion(filepath.Join(root, "internal", "agenteval", "go.mod"))
+	if err != nil {
+		return "", fmt.Errorf("evaluator module: %w", err)
+	}
+	if evaluatorGoVersion != goVersion {
+		return "", fmt.Errorf("evaluator module go directive = %q, want %q from root go.mod", evaluatorGoVersion, goVersion)
+	}
 	if err := validateDevcontainer(root, goVersion); err != nil {
 		return "", err
 	}
@@ -231,6 +317,9 @@ func validateRepository(root, runtimeVersion string) (string, error) {
 		}
 	}
 	if err := validateDeliveryContracts(root); err != nil {
+		return "", err
+	}
+	if err := validateModuleDeliveryContracts(root); err != nil {
 		return "", err
 	}
 	return goVersion, nil
@@ -325,10 +414,13 @@ func validateBootstrap(root string) error {
 	if err != nil {
 		return fmt.Errorf("read Makefile: %w", err)
 	}
-	const makeContract = "check-maintainer-contract:\n\tGOTOOLCHAIN=local go run ./scripts/check-maintainer-contract\n"
+	const makeContract = "check-maintainer-contract:\n\t$(GO_LOCAL_ENV) go run ./scripts/check-maintainer-contract\n"
 	if countMakeTargetDeclarations(makefile, "check-maintainer-contract") != 1 ||
 		bytes.Count(makefile, []byte(makeContract)) != 1 {
 		return errors.New("makefile maintainer check must start with GOTOOLCHAIN=local")
+	}
+	if bytes.Count(makefile, []byte(rootGoEnvironmentMakeContract)) != 1 {
+		return errors.New("makefile must use the reviewed workspace-independent root and evaluator environments")
 	}
 	if countMakeTargetDeclarations(makefile, "check-windows-compile") != 1 ||
 		bytes.Count(makefile, []byte(windowsCompileMakeContract)) != 1 {
@@ -339,11 +431,12 @@ func validateBootstrap(root string) error {
 	}
 	if countMakeTargetDeclarations(makefile, "check-core-race-coverage") != 1 ||
 		bytes.Count(makefile, []byte(coreCoverageMakeContract)) != 1 {
-		return errors.New("makefile must retain the exact core race/coverage command and reviewed 84.0% floor")
+		return errors.New("makefile must retain the exact root-core race/coverage command and reviewed 84.0% floor")
 	}
 	for _, required := range []struct {
 		target, contract, diagnostic string
 	}{
+		{"check-module-boundary", moduleBoundaryMakeContract, "makefile must retain the exact two-module boundary gate"},
 		{"check-package-boundary", packageBoundaryMakeContract, "makefile must retain the exact package-boundary gate"},
 		{"check-maintainability", maintainabilityMakeContract, "makefile must retain the exact maintainability-ratchet gate"},
 		{"check-plugins", pluginsMakeContract, "makefile must retain the exact generated-plugin gate"},
@@ -353,12 +446,28 @@ func validateBootstrap(root string) error {
 		{"check-reference-split", referenceSplitMakeContract, "makefile must retain the exact reference-split compatibility gate"},
 		{"check-context7-docs", context7MakeContract, "makefile must retain the exact indexed-documentation gate"},
 		{"check-onboarding-docs", onboardingMakeContract, "makefile onboarding binary assertion must set ATL_NO_UPDATE=1"},
-		{"agent-eval-race", agentEvalRaceMakeContract, "makefile must retain the exact agent-evaluation race gate"},
 	} {
 		if countMakeTargetDeclarations(makefile, required.target) != 1 ||
 			bytes.Count(makefile, []byte(required.contract)) != 1 {
 			return errors.New(required.diagnostic)
 		}
+	}
+	for _, target := range []string{
+		"agent-eval-build", "agent-eval-unit", "agent-eval-race", "agent-eval-lint",
+		"agent-eval-vet", "agent-eval-vuln", "agent-eval-tidy-check", "agent-eval-windows",
+		"agent-eval-compat", "agent-eval-contract", "agent-eval-product-boundary", "agent-eval-full",
+	} {
+		if countMakeTargetDeclarations(makefile, target) != 1 {
+			return fmt.Errorf("makefile must define exactly one %q evaluator facade", target)
+		}
+	}
+	if bytes.Count(makefile, []byte(agentEvalFacadeMakeContract)) != 1 ||
+		bytes.Contains(makefile, []byte("scripts/agent-eval")) ||
+		bytes.Contains(makefile, []byte("go test ./internal/agenteval")) {
+		return errors.New("makefile must keep evaluator gates behind the reviewed nested-module facades")
+	}
+	if err := validateEvaluatorMakefile(root); err != nil {
+		return err
 	}
 	postCreate, err := os.ReadFile(filepath.Join(root, ".devcontainer", "post-create.sh"))
 	if err != nil {
@@ -372,13 +481,16 @@ func validateBootstrap(root string) error {
 	if err != nil {
 		return fmt.Errorf("read ci workflow: %w", err)
 	}
-	if !bytes.Contains(ci, []byte("run: GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract")) {
-		return errors.New("ci must run the maintainer contract directly with the local toolchain")
+	if !bytes.Contains(ci, []byte("run: make check-maintainer-contract")) {
+		return errors.New("ci must run the maintainer contract through the reviewed root facade")
 	}
 	if err := validateWorkflowHeader(ci, "ci", "ci"); err != nil {
 		return err
 	}
 	if err := validateWindowsCompileWorkflow(ci); err != nil {
+		return err
+	}
+	if err := validateWorkflowJobSet(ci, "ci", "test", "agent-eval", "lint", "govulncheck", "smoke"); err != nil {
 		return err
 	}
 	testJob, err := workflowJob(ci, "test")
@@ -396,6 +508,33 @@ func validateBootstrap(root string) error {
 	}
 	if err := requireWorkflowStep(testJob, "Verify stamped build provenance", ciProvenanceStepContract); err != nil {
 		return fmt.Errorf("ci: %w", err)
+	}
+	agentEvalJob, err := workflowJob(ci, "agent-eval")
+	if err != nil {
+		return err
+	}
+	if err := validateRequiredJob(agentEvalJob, "ci agent-eval",
+		workflowField{"runs-on", "ubuntu-latest"},
+		workflowField{"steps", ""},
+	); err != nil {
+		return err
+	}
+	if err := requireWorkflowStepPrefix(agentEvalJob, "ci agent-eval",
+		agentEvalCheckoutStepContract, setupGoStepContract, agentEvalImpactStepContract,
+		agentEvalCompatStepContract, agentEvalFullStepContract,
+	); err != nil {
+		return err
+	}
+	for _, required := range []struct {
+		name, contract string
+	}{
+		{"Classify evaluation impact", agentEvalImpactStepContract},
+		{"Product compatibility contract", agentEvalCompatStepContract},
+		{"Complete agent-evaluation gate", agentEvalFullStepContract},
+	} {
+		if err := requireWorkflowStep(agentEvalJob, required.name, required.contract); err != nil {
+			return fmt.Errorf("ci: %w", err)
+		}
 	}
 	lintJob, err := workflowJob(ci, "lint")
 	if err != nil {
@@ -419,7 +558,7 @@ func validateBootstrap(root string) error {
 		name, contract string
 	}{
 		{"Maintainer toolchain contract", maintainerStepContract},
-		{"Core/heavy package boundary", packageBoundaryStepContract},
+		{"Two-module package boundary", packageBoundaryStepContract},
 		{"Maintainability ratchets", maintainabilityStepContract},
 		{"Generated plugin trees are current", pluginsStepContract},
 		{"Documentation catalog", docsCatalogStepContract},
@@ -432,6 +571,75 @@ func validateBootstrap(root string) error {
 	} {
 		if err := requireWorkflowStep(lintJob, required.name, required.contract); err != nil {
 			return fmt.Errorf("ci: %w", err)
+		}
+	}
+	return nil
+}
+
+func validateEvaluatorMakefile(root string) error {
+	path := filepath.Join(root, "internal", "agenteval", "Makefile")
+	makefile, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read evaluator Makefile: %w", err)
+	}
+	const evaluatorEnvironment = `GO_ENV := env -u GOROOT GOTOOLCHAIN=auto GOWORK=off
+REPOSITORY_ROOT ?= $(abspath ../..)
+ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
+`
+	if bytes.Count(makefile, []byte(evaluatorEnvironment)) != 1 {
+		return errors.New("evaluator Makefile must use the reviewed workspace-independent environment")
+	}
+	if err := validateMakeExecutionControls(makefile); err != nil {
+		return fmt.Errorf("evaluator Makefile: %w", err)
+	}
+	if bytes.Contains(makefile, []byte("scripts/agent-eval")) {
+		return errors.New("evaluator Makefile must not retain the legacy scripts/agent-eval path")
+	}
+
+	required := []struct {
+		target, contract string
+	}{
+		{"build", ".PHONY: build\nbuild:\n\t$(GO_ENV) go build ./...\n"},
+		{"unit", ".PHONY: unit\nunit:\n\t$(GO_ENV) go test ./... -count=1 -timeout=10m\n"},
+		{"race", ".PHONY: race\nrace:\n\t$(GO_ENV) go test -race ./... -count=1 -timeout=30m\n"},
+		{"lint", ".PHONY: lint\nlint:\n\t$(GO_ENV) go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run\n"},
+		{"vet", ".PHONY: vet\nvet:\n\t$(GO_ENV) go vet ./...\n"},
+		{"vuln", ".PHONY: vuln\nvuln:\n\t$(GO_ENV) go run golang.org/x/vuln/cmd/govulncheck@v1.4.0 ./...\n"},
+		{"tidy-check", ".PHONY: tidy-check\ntidy-check:\n\t$(GO_ENV) go mod tidy -diff\n"},
+		{"windows", ".PHONY: windows\nwindows:\n\t$(GO_ENV) GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...\n"},
+		{"product-atl", ".PHONY: product-atl\nproduct-atl:\n\t$(MAKE) -C $(REPOSITORY_ROOT) build\n"},
+		{"product-boundary", ".PHONY: product-boundary\nproduct-boundary:\n\t$(MAKE) -C $(REPOSITORY_ROOT) check-package-boundary\n"},
+		{"contract", ".PHONY: contract\ncontract: compat unit\n"},
+		{"full", ".PHONY: full\nfull: tidy-check build race lint vet vuln contract windows product-boundary\n"},
+	}
+	for _, target := range required {
+		if countMakeTargetDeclarations(makefile, target.target) != 1 || bytes.Count(makefile, []byte(target.contract)) != 1 {
+			return fmt.Errorf("evaluator Makefile must retain the exact %q gate", target.target)
+		}
+	}
+	for _, target := range []string{"compat", "contract"} {
+		if countMakeTargetDeclarations(makefile, target) != 1 {
+			return fmt.Errorf("evaluator Makefile must define exactly one %q gate", target)
+		}
+	}
+	for _, requiredSnippet := range []string{
+		"COMPAT_TESTS_WIRES := ",
+		"COMPAT_TESTS_MIRROR := ",
+		"COMPAT_TESTS_WRITES := ",
+		"COMPAT_TESTS_MCP := ",
+		"compat: product-atl\n",
+		"$(GO_ENV) go test . -run '$(COMPAT_TESTS_WIRES)' -count=1\n",
+		"$(GO_ENV) go test . -run '$(COMPAT_TESTS_MIRROR)' -count=1\n",
+		"$(GO_ENV) go test . -run '$(COMPAT_TESTS_WRITES)' -count=1\n",
+		"$(GO_ENV) go test . -run '$(COMPAT_TESTS_MCP)' -count=1\n",
+		"contract: compat unit\n",
+		"$(GO_ENV) go run ./cmd/agent-eval validate ",
+		"$(GO_ENV) go run ./cmd/agent-eval validate-run ",
+		"$(GO_ENV) go run ./cmd/agent-eval verify-atl-capabilities $(ATL_BINARY) >/dev/null\n",
+		"$(GO_ENV) go run ./cmd/agent-eval verify-codex-skill-package $(REPOSITORY_ROOT)/plugins/atl >/dev/null\n",
+	} {
+		if !bytes.Contains(makefile, []byte(requiredSnippet)) {
+			return errors.New("evaluator Makefile must retain the reviewed compatibility and deterministic contract commands")
 		}
 	}
 	return nil
@@ -611,7 +819,7 @@ func validateDeliveryContracts(root string) error {
 		name, contract string
 	}{
 		{"Maintainer toolchain contract", maintainerStepContract},
-		{"Core/heavy package boundary", packageBoundaryStepContract},
+		{"Two-module package boundary", packageBoundaryStepContract},
 		{"Maintainability ratchets", maintainabilityStepContract},
 		{"Generated plugin trees are current", pluginsStepContract},
 		{"Documentation catalog", docsCatalogStepContract},
@@ -641,11 +849,11 @@ func validateDeliveryContracts(root string) error {
 		return err
 	}
 	if err := requireWorkflowStepPrefix(agentEvalJob, "release agent-eval",
-		checkoutStepContract, setupGoStepContract, agentEvalStepContract,
+		checkoutStepContract, setupGoStepContract, agentEvalReleaseFullStepContract,
 	); err != nil {
 		return err
 	}
-	if err := requireWorkflowStep(agentEvalJob, "Agent evaluation race gate", agentEvalStepContract); err != nil {
+	if err := requireWorkflowStep(agentEvalJob, "Complete agent-evaluation gate", agentEvalReleaseFullStepContract); err != nil {
 		return fmt.Errorf("release: %w", err)
 	}
 
@@ -685,6 +893,70 @@ func validateDeliveryContracts(root string) error {
 		return err
 	}
 	return requireInlineNeeds(followup, "release")
+}
+
+func validateModuleDeliveryContracts(root string) error {
+	codeQL, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "codeql.yml"))
+	if err != nil {
+		return fmt.Errorf("read CodeQL workflow: %w", err)
+	}
+	analyze, err := workflowJob(codeQL, "analyze")
+	if err != nil {
+		return err
+	}
+	if err := validateRequiredJob(analyze, "CodeQL analyze",
+		workflowField{"runs-on", "ubuntu-latest"},
+		workflowField{"permissions", ""},
+		workflowField{"steps", ""},
+	); err != nil {
+		return err
+	}
+	if err := requireWorkflowStep(analyze, "Build product module", codeQLProductBuildStepContract); err != nil {
+		return fmt.Errorf("CodeQL: %w", err)
+	}
+	if err := requireWorkflowStep(analyze, "Build evaluator module", codeQLEvaluatorBuildStepContract); err != nil {
+		return fmt.Errorf("CodeQL: %w", err)
+	}
+
+	dependabot, err := os.ReadFile(filepath.Join(root, ".github", "dependabot.yml"))
+	if err != nil {
+		return fmt.Errorf("read Dependabot configuration: %w", err)
+	}
+	const evaluatorDependabotContract = `  - package-ecosystem: gomod
+    directory: "/internal/agenteval"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - go
+`
+	const rootDependabotContract = `  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - go
+`
+	if bytes.Count(dependabot, []byte(evaluatorDependabotContract)) != 1 ||
+		bytes.Count(dependabot, []byte(rootDependabotContract)) != 1 {
+		return errors.New("dependabot must retain exactly one reviewed gomod entry for each module")
+	}
+	return nil
 }
 
 func validateReleaseMatrix(job []byte) error {

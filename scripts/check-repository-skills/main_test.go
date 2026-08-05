@@ -148,6 +148,13 @@ func TestRepositoryGuidanceRejectsRegressions(t *testing.T) {
 			wantError: "exact repository-skill check block",
 		},
 		{
+			name: "make gate bypasses isolated Go environment",
+			mutate: func(t *testing.T, root string) {
+				replaceFile(t, filepath.Join(root, "Makefile"), "$(GO_ENV) go run ./scripts/check-repository-skills", "go run ./scripts/check-repository-skills")
+			},
+			wantError: "exact repository-skill check target",
+		},
+		{
 			name: "source ownership direction reversed",
 			mutate: func(t *testing.T, root string) {
 				replaceFile(t, filepath.Join(root, "docs/plugins.md"), "SOURCE OF TRUTH: edit here, and only here", "generated copy")

@@ -3,7 +3,7 @@
   "owners": [
     {"id":"app","path_prefixes":["internal/app/"]},
     {"id":"cli","path_prefixes":["internal/cli/"]},
-    {"id":"evaluator","path_prefixes":["internal/agenteval/","scripts/agent-eval/"]},
+    {"id":"evaluator","path_prefixes":["internal/agenteval/"]},
     {"id":"mcp","path_prefixes":["internal/mcpserver/"]}
   ],
   "hotspots": [
