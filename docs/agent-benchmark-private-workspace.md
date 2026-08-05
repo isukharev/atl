@@ -107,7 +107,8 @@ When repository-local configuration supplies the private root, require an
 absolute value and use this exact aggregate-only route after repository
 dirty-state recovery. It refuses anything except a clean synchronized evaluator
 tree, isolates build cache and temporary bytes outside the private root, runs no
-provider or backend, and removes only its own validated temporary directory:
+benchmark provider or configured product backend, and removes only its own
+validated temporary directory:
 
 ```sh
 (
@@ -193,7 +194,7 @@ provider or backend, and removes only its own validated temporary directory:
 
   env -i HOME="$tool_root/home" PATH="$PATH" GOENV=off \
     GOTOOLCHAIN=auto GOWORK=off GOPATH="$tool_root/go-path" \
-    GOPROXY=off GOSUMDB=off CGO_ENABLED=0 \
+    GOPROXY=off GOSUMDB=sum.golang.org CGO_ENABLED=0 \
     GOCACHE="$tool_root/go-cache" GOTMPDIR="$tool_root/go-tmp" \
     GOMODCACHE="$module_cache" \
     go -C "$repository_root/internal/agenteval" build \
@@ -214,7 +215,9 @@ provider or backend, and removes only its own validated temporary directory:
 
 `private prune` without confirmation is preview-only. Healthy output or an
 eligible preview grants no benchmark execution, pruning, or cleanup authority.
-Do not replace this block with source searches or raw workspace enumeration.
+Module downloads remain disabled. Go may consult the public checksum database
+to authenticate a cached automatic toolchain. Do not replace this block with
+source searches or raw workspace enumeration.
 
 ## Lifecycle command matrix
 
