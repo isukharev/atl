@@ -170,6 +170,189 @@ exit 87
 	}
 }
 
+func TestSyntheticATLProcessSeedsWorkspaceTemplateForNamedSyntheticWrite(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is Unix-only")
+	}
+	root := privateSyntheticScratch(t)
+	template := filepath.Join(root, "workspace-template")
+	if err := os.Mkdir(template, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(template, "seed.md"), []byte("synthetic workspace\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := digestWorkspaceTree(template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(root, "atl-fake")
+	writeSyntheticExecutable(t, binary, syntheticATLTestScript(`
+if [ "$1" = "normal-write" ]; then
+  [ "$ATL_READ_ONLY" = "1" ] || exit 141
+  [ ! -f "$PWD/seed.md" ] || exit 142
+  printf '%s\n' '{"mode":"read-only"}'
+  exit 0
+fi
+if [ "$1" = "write" ]; then
+  [ -z "${ATL_READ_ONLY+x}" ] || exit 143
+  [ -f "$PWD/seed.md" ] || exit 144
+  [ "$(/bin/cat "$PWD/seed.md")" = "synthetic workspace" ] || exit 145
+  printf '%s\n' '{"mode":"synthetic-write"}'
+  exit 0
+fi
+exit 146
+`))
+	scratch := filepath.Join(root, "scratch")
+	if err := os.Mkdir(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	policy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: []CLICommandRule{
+		{Name: "normal_write", Command: []string{"normal-write"}, MaxInvocations: 1},
+		{
+			Name: "write", Command: []string{"write"},
+			Positionals:    []CLIArgumentRule{{Values: []string{"safe"}}},
+			Flags:          []CLIFlagRule{{Name: "--target", Values: []string{"exact"}, Required: true}},
+			MaxInvocations: 1,
+		},
+	}}
+	process, err := StartSyntheticATLProcess(context.Background(), SyntheticATLProcessConfig{
+		Binary: binary, Fixture: minimalSyntheticFixture(), ScratchRoot: scratch,
+		WorkspaceTemplate: template, SyntheticWriteRules: SyntheticWriteRules{"write"}, CLIPolicy: policy,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy.Rules[1].Command[0] = "retarget"
+	policy.Rules[1].Positionals[0].Values[0] = "unsafe"
+	policy.Rules[1].Flags[0].Values[0] = "unsafe"
+	policy.Rules[1].MaxInvocations = 2
+	workspace := filepath.Join(process.runtimeRoot, "workspace")
+	inside, containmentErr := pathWithin(process.runtimeRoot, workspace)
+	if containmentErr != nil || !inside || process.workspaceRoot != workspace {
+		t.Fatalf("workspace runtime escaped process root: root=%q workspace=%q configured=%q err=%v", process.runtimeRoot, workspace, process.workspaceRoot, containmentErr)
+	}
+	if _, err := process.RunSyntheticWriteCLIJSON(context.Background(), "normal-write"); err == nil || !strings.Contains(err.Error(), "write invocation") {
+		t.Fatalf("unnamed synthetic write error=%v", err)
+	}
+	if summary := process.Summary(); len(summary.HTTPMethods) != 0 || len(summary.CLIInvocations) != 0 {
+		t.Fatalf("unnamed synthetic write crossed admission: %+v", summary)
+	}
+	normal, err := process.RunCLIJSON(context.Background(), "normal-write")
+	if err != nil || normal.ExitCode != 0 || string(normal.JSON) != `{"mode":"read-only"}` {
+		t.Fatalf("normal read-only invocation=%+v err=%v", normal, err)
+	}
+	if _, err := process.RunSyntheticWriteCLIJSON(context.Background(), "retarget", "unsafe", "--target", "unsafe"); err == nil {
+		t.Fatal("post-start caller policy mutation retargeted synthetic write admission")
+	}
+	write, err := process.RunSyntheticWriteCLIJSON(context.Background(), "write", "safe", "--target", "exact")
+	if err != nil || write.ExitCode != 0 || string(write.JSON) != `{"mode":"synthetic-write"}` {
+		t.Fatalf("synthetic write=%+v err=%v", write, err)
+	}
+	if _, err := process.RunSyntheticWriteCLIJSON(context.Background(), "write", "safe", "--target", "exact"); err == nil {
+		t.Fatal("post-start caller policy mutation raised the synthetic write replay budget")
+	}
+	if environmentMap(process.environment)["ATL_READ_ONLY"] != "1" {
+		t.Fatal("synthetic write mutated the process read-only environment")
+	}
+	if summary := process.Summary(); !equalHTTPMethods(summary.CLIInvocations, map[string]int{"normal_write": 1, "write": 1}) ||
+		len(summary.HTTPMethods) != 0 || summary.UnexpectedRequests != 0 || summary.DuplicateRequests != 0 {
+		t.Fatalf("workspace process accounting=%+v", summary)
+	}
+	if err := process.Close(); err != nil {
+		t.Fatal(err)
+	}
+	after, err := digestWorkspaceTree(template)
+	if err != nil || after != before {
+		t.Fatalf("workspace template changed: before=%s after=%s err=%v", before, after, err)
+	}
+	if entries, err := os.ReadDir(scratch); err != nil || len(entries) != 0 {
+		t.Fatalf("runtime survived workspace close: entries=%v err=%v", entries, err)
+	}
+}
+
+func TestSyntheticATLProcessRejectsUnreconciledSyntheticWriteConfig(t *testing.T) {
+	policy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: []CLICommandRule{
+		{Name: "one_shot", Command: []string{"one-shot"}, MaxInvocations: 1},
+		{Name: "repeat", Command: []string{"repeat"}, MaxInvocations: 2},
+	}}
+	for _, test := range []struct {
+		name     string
+		mutate   func(*SyntheticATLProcessConfig)
+		contains string
+	}{
+		{
+			name: "missing workspace", mutate: func(config *SyntheticATLProcessConfig) {
+				config.SyntheticWriteRules = SyntheticWriteRules{"one_shot"}
+			}, contains: "require a workspace template",
+		},
+		{
+			name: "orphan workspace", mutate: func(config *SyntheticATLProcessConfig) {
+				config.WorkspaceTemplate = "workspace"
+			}, contains: "requires named synthetic write rules",
+		},
+		{
+			name: "unknown rule", mutate: func(config *SyntheticATLProcessConfig) {
+				config.WorkspaceTemplate = "workspace"
+				config.SyntheticWriteRules = SyntheticWriteRules{"missing"}
+			}, contains: "one-shot CLI policy rule",
+		},
+		{
+			name: "repeat rule", mutate: func(config *SyntheticATLProcessConfig) {
+				config.WorkspaceTemplate = "workspace"
+				config.SyntheticWriteRules = SyntheticWriteRules{"repeat"}
+			}, contains: "one-shot CLI policy rule",
+		},
+		{
+			name: "duplicate rule", mutate: func(config *SyntheticATLProcessConfig) {
+				config.WorkspaceTemplate = "workspace"
+				config.SyntheticWriteRules = SyntheticWriteRules{"one_shot", "one_shot"}
+			}, contains: "duplicate",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			config := SyntheticATLProcessConfig{Fixture: minimalSyntheticFixture(), CLIPolicy: policy}
+			test.mutate(&config)
+			if _, _, _, err := normalizeSyntheticATLProcessConfig(config); err == nil || !strings.Contains(err.Error(), test.contains) {
+				t.Fatalf("configuration error=%v want %q", err, test.contains)
+			}
+		})
+	}
+}
+
+func TestSyntheticATLProcessRejectsSymlinkWorkspaceTemplateAndCleansRuntime(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink assertion is Unix-only")
+	}
+	root := privateSyntheticScratch(t)
+	template := filepath.Join(root, "workspace-template")
+	if err := os.Mkdir(template, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "workspace-link")
+	if err := os.Symlink(template, link); err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(root, "atl-fake")
+	writeSyntheticExecutable(t, binary, syntheticATLTestScript("exit 147\n"))
+	scratch := filepath.Join(root, "scratch")
+	if err := os.Mkdir(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, err := StartSyntheticATLProcess(context.Background(), SyntheticATLProcessConfig{
+		Binary: binary, Fixture: minimalSyntheticFixture(), ScratchRoot: scratch, WorkspaceTemplate: link,
+		SyntheticWriteRules: SyntheticWriteRules{"write"}, CLIPolicy: CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: []CLICommandRule{
+			{Name: "write", Command: []string{"write"}, MaxInvocations: 1},
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "workspace template") || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("unsafe workspace template error=%v", err)
+	}
+	if entries, readErr := os.ReadDir(scratch); readErr != nil || len(entries) != 0 {
+		t.Fatalf("runtime survived unsafe workspace rejection: entries=%v err=%v", entries, readErr)
+	}
+}
+
 func TestSyntheticATLProcessRejectsOfflineToolInventoryMismatch(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture is Unix-only")
@@ -214,7 +397,7 @@ func TestSyntheticATLProcessRequiresToolInventoryVerificationForMirrorTemplate(t
 	if !ok {
 		t.Fatal("construct invocation")
 	}
-	_, _, err := normalizeSyntheticATLProcessConfig(SyntheticATLProcessConfig{
+	_, _, _, err := normalizeSyntheticATLProcessConfig(SyntheticATLProcessConfig{
 		Fixture:        minimalSyntheticFixture(),
 		MirrorTemplate: "mirror-template",
 		MCPService:     "offline",
@@ -226,7 +409,7 @@ func TestSyntheticATLProcessRequiresToolInventoryVerificationForMirrorTemplate(t
 }
 
 func TestSyntheticATLProcessRejectsToolInventoryVerificationWithoutMCP(t *testing.T) {
-	_, _, err := normalizeSyntheticATLProcessConfig(SyntheticATLProcessConfig{
+	_, _, _, err := normalizeSyntheticATLProcessConfig(SyntheticATLProcessConfig{
 		Fixture:                minimalSyntheticFixture(),
 		VerifyMCPToolInventory: true,
 		CLIPolicy: CLICommandPolicy{
