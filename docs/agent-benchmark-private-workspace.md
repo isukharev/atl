@@ -101,6 +101,121 @@ codes, counts, surfaces, generic task classes, hashes, and aggregate metrics.
 Detailed diagnostics are written owner-only inside the workspace rather than
 echoed into a terminal or CI log.
 
+### Cold read-only recovery
+
+When repository-local configuration supplies the private root, require an
+absolute value and use this exact aggregate-only route after repository
+dirty-state recovery. It refuses anything except a clean synchronized evaluator
+tree, isolates build cache and temporary bytes outside the private root, runs no
+provider or backend, and removes only its own validated temporary directory:
+
+```sh
+(
+  git_ro() {
+    command git --no-optional-locks -c core.fsmonitor=false \
+      -c core.hooksPath=/dev/null -c core.pager=cat "$@"
+  }
+  repository_root="$(git_ro rev-parse --show-toplevel)" || exit 1
+  repository_root_real="$(
+    CDPATH= cd -- "$repository_root" && pwd -P
+  )" || exit 1
+  [ "$repository_root_real" = "$repository_root" ] || exit 1
+  private_root="$(
+    git_ro -C "$repository_root" config --local --get \
+      atl.benchmarkPrivateRoot
+  )" || exit 1
+  case "$private_root" in
+    /*) ;;
+    *) exit 1 ;;
+  esac
+  [ -d "$private_root" ] && [ ! -L "$private_root" ] || exit 1
+  private_root_real="$(CDPATH= cd -- "$private_root" && pwd -P)" || exit 1
+  [ "$private_root_real" = "$private_root" ] || exit 1
+
+  evaluator_head="$(
+    git_ro -C "$repository_root" rev-parse --verify 'HEAD^{commit}'
+  )" || exit 1
+  evaluator_base="$(
+    git_ro -C "$repository_root" rev-parse --verify 'origin/main^{commit}'
+  )" || exit 1
+  [ "$evaluator_head" = "$evaluator_base" ] || exit 1
+  evaluator_index="$(
+    git_ro -C "$repository_root" ls-files -v -- internal/agenteval
+  )" || exit 1
+  printf '%s\n' "$evaluator_index" | LC_ALL=C grep -Eq '^[a-zS] '
+  evaluator_index_status=$?
+  case "$evaluator_index_status" in
+    0) exit 1 ;;
+    1) ;;
+    *) exit 1 ;;
+  esac
+  evaluator_status="$(
+    git_ro -C "$repository_root" status --porcelain=v1 \
+      --untracked-files=all --ignored=matching -- internal/agenteval
+  )" || exit 1
+  [ -z "$evaluator_status" ] || exit 1
+
+  system_tmp="$(CDPATH= cd -- /tmp && pwd -P)" || exit 1
+  tool_root="$(mktemp -d "$system_tmp/atl-agent-eval.XXXXXX")" || exit 1
+  tool_root="$(CDPATH= cd -- "$tool_root" && pwd -P)" || exit 1
+  case "$tool_root" in
+    "$system_tmp"/atl-agent-eval.*) ;;
+    *) exit 1 ;;
+  esac
+  cleanup_tool_root() {
+    [ -d "$tool_root" ] && [ ! -L "$tool_root" ] || return
+    cleanup_real="$(CDPATH= cd -- "$tool_root" && pwd -P)" || return
+    case "$cleanup_real" in
+      "$system_tmp"/atl-agent-eval.*) rm -rf -- "$cleanup_real" ;;
+    esac
+  }
+  trap cleanup_tool_root EXIT HUP INT TERM
+  case "$tool_root" in
+    "$private_root"|"$private_root"/*) exit 1 ;;
+  esac
+  mkdir -m 700 "$tool_root/home" "$tool_root/go-cache" \
+    "$tool_root/go-path" "$tool_root/go-tmp" || exit 1
+  caller_home="${HOME:-}"
+  case "$caller_home" in
+    /*) ;;
+    *) exit 1 ;;
+  esac
+  module_cache="$(
+    env -i HOME="$caller_home" PATH="$PATH" GOENV=off \
+      GOTOOLCHAIN=local GOWORK=off GOPATH="${GOPATH:-}" \
+      go env GOMODCACHE
+  )" || exit 1
+  [ -d "$module_cache" ] && [ ! -L "$module_cache" ] || exit 1
+  module_cache="$(CDPATH= cd -- "$module_cache" && pwd -P)" || exit 1
+  case "$module_cache" in
+    "$private_root"|"$private_root"/*) exit 1 ;;
+  esac
+
+  env -i HOME="$tool_root/home" PATH="$PATH" GOENV=off \
+    GOTOOLCHAIN=auto GOWORK=off GOPATH="$tool_root/go-path" \
+    GOPROXY=off GOSUMDB=off CGO_ENABLED=0 \
+    GOCACHE="$tool_root/go-cache" GOTMPDIR="$tool_root/go-tmp" \
+    GOMODCACHE="$module_cache" \
+    go -C "$repository_root/internal/agenteval" build \
+      -o "$tool_root/agent-eval" ./cmd/agent-eval || exit 1
+
+  clean_eval() {
+    env -i HOME="$tool_root/home" PATH="$PATH" TMPDIR="$tool_root/go-tmp" \
+      "$tool_root/agent-eval" "$@"
+  }
+  clean_eval private status \
+    --root "$private_root" --repository-root "$repository_root" &&
+  clean_eval private doctor \
+    --root "$private_root" --repository-root "$repository_root" &&
+  clean_eval private prune \
+    --root "$private_root" --repository-root "$repository_root"
+)
+```
+
+`private prune` without confirmation is preview-only. Healthy output or an
+eligible preview grants no benchmark execution, pruning, or cleanup authority.
+Do not replace this block with source searches or raw workspace enumeration.
+
 ## Lifecycle command matrix
 
 | Stage | Command | Model/backend access | Local effect | Required review gate |
