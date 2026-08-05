@@ -134,14 +134,14 @@ authorization to promote or delete. Each transition has its own bound gate.
 
 ## Initialize and configure
 
-Build the maintainer tool and create an empty workspace. Set `umask 077` before
-every private session: the lifecycle normalizes its candidate tree after a
-child exits, while the outer umask protects files created by that child during
-execution.
+From the repository root, build the nested maintainer command and create an
+empty workspace. Set `umask 077` before every private session: the lifecycle
+normalizes its candidate tree after a child exits, while the outer umask
+protects files created by that child during execution.
 
 ```sh
 umask 077
-go build -o /tmp/agent-eval ./scripts/agent-eval
+GOWORK=off go -C internal/agenteval build -o /tmp/agent-eval ./cmd/agent-eval
 
 /tmp/agent-eval private init \
   --root "$ATL_AGENT_EVAL_PRIVATE_ROOT" \

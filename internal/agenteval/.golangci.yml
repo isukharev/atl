@@ -1,0 +1,71 @@
+# golangci-lint v2 configuration for the independently built evaluator module.
+version: "2"
+
+linters:
+  # Default set (errcheck, govet, ineffassign, staticcheck, unused) plus opt-ins.
+  enable:
+    - bodyclose
+    - gosec
+    - misspell
+    - revive
+    - unconvert
+
+  settings:
+    revive:
+      rules:
+        # The evaluator's only production consumer is its co-located command,
+        # so doc-comments-on-every-exported-method would be noise here.
+        - name: unused-parameter
+        - name: error-return
+        - name: error-strings
+        - name: if-return
+        - name: increment-decrement
+        - name: var-naming
+    staticcheck:
+      # QF1002 (prefer tagged switch) is a style quick-fix; the existing
+      # condition switches are clearer as-is.
+      checks:
+        - all
+        - -QF1002
+    errcheck:
+      # Errors from these are not actionable: writing to already-acquired
+      # stdout/stderr, and closing a body/file on a best-effort cleanup path.
+      exclude-functions:
+        - (io.Closer).Close
+        - (*os.File).Close
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+    gosec:
+      excludes:
+        - G104 # unhandled errors — covered by errcheck where it matters
+        - G204 # subprocess with variable — bounded evaluator process paths are reviewed separately
+        - G301 # dir 0755 — repository-visible synthetic fixtures are readable by design
+        - G302 # file 0755 — evaluator test executables must be runnable
+        - G304 # file inclusion via variable — the evaluator reads reviewed fixture paths
+        - G306 # WriteFile 0644 — checked-in fixture/output files are readable by design
+        - G702 # taint: bounded re-exec uses an executable resolved by the evaluator
+        - G703 # taint: reviewed fixture tools write beside their explicit outputs
+    misspell:
+      locale: US
+
+  exclusions:
+    rules:
+      # Tests may ignore errors on setup/teardown helpers freely.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+
+issues:
+  max-same-issues: 10
+  max-issues-per-linter: 50
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/isukharev/atl/internal/agenteval

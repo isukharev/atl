@@ -14,8 +14,11 @@ operations use the separate
 The evaluator package owns the versioned synthetic fixture schema and its
 bounded HTTP simulator. Their strict decoder, exact route matching, ordered
 request and response sequencing, accounting, and cleanup contracts are tested
-inside the evaluator boundary. Product onboarding checks use independent core
-test infrastructure so product packages never depend on the heavy evaluator.
+inside the evaluator boundary. The library and maintainer command are an
+independent nested module at `internal/agenteval`, with the command at
+`internal/agenteval/cmd/agent-eval`; root recursive Go commands intentionally
+exclude it. Product onboarding checks use independent core test infrastructure
+so product packages never depend on the heavy evaluator.
 Selected-binary oracles also decode released Jira and Confluence evidence with
 evaluator-owned closed wire types. The retained offline mirror snapshot cohorts
 seed bounded, symlink-free templates into a private process runtime and
@@ -222,13 +225,14 @@ Observations and unreviewed results contain aggregate trajectory data only. The
 contract contains no prompt bytes, commands, HTTP paths, backend URLs, or
 response bodies. A private Codex CLI result v7 retains only the activation mode
 and a SHA-256 identity of its complete prompt contract; that digest is omitted
-from aggregate output. Validate the committed scenarios and deterministic
-workflows with:
+from aggregate output. From the repository root, validate the committed
+scenarios and deterministic workflows with:
 
 ```sh
 make agent-eval-compat
 make agent-eval-contract
-go run ./scripts/agent-eval inventory benchmarks/agent-eval
+GOWORK=off go -C internal/agenteval build -o /tmp/agent-eval ./cmd/agent-eval
+/tmp/agent-eval inventory benchmarks/agent-eval
 ```
 
 `agent-eval-compat` is the small uncached product/evaluator boundary: it builds
@@ -256,10 +260,13 @@ and stderr exactly without trimming, UTF-8 validation, or format inference.
 An internal ATL MCP run performs the same bounded, credential-free, single-attempt
 catalog check against its selected executable before creating output or starting
 a provider/backend path. `agent-eval-contract` includes that gate, then runs the
-complete evaluator and runner test suites uncached. Ordinary
-`make test` and `make race` use a fail-closed package classifier and do not
-execute the heavy evaluator; release tags retain a separate Linux evaluator
-race gate.
+complete deterministic evaluator and runner suites uncached.
+`make agent-eval-full` adds the independent module's build, unit, race, lint,
+vet, vulnerability, tidy, Windows, and bilateral module-boundary gates.
+Ordinary product changes retain the small provider/backend-free
+`make agent-eval-compat` boundary; evaluator or corpus changes and release
+preparation require the full facade. Root `make test` and `make race`
+intentionally do not traverse the nested evaluator module.
 
 The skill catalog is a versioned JSON companion in the selected Codex plugin
 package, not metadata reported by the ATL binary. The evaluator owns only its
@@ -449,13 +456,15 @@ supported through the documented result decoders; observation inputs must be
 migrated explicitly before evaluation.
 
 The maintainer tool can validate scenario files, evaluate one aggregate
-observation, and combine comparable result files into p50/p90 groups:
+observation, and combine comparable result files into p50/p90 groups. Build
+the command from the repository root before using it:
 
 ```sh
-go run ./scripts/agent-eval validate internal/cli/testdata/agent-eval/*.json
-go run ./scripts/agent-eval evaluate scenario.json observation.json >result.json
-go run ./scripts/agent-eval aggregate runs/*.result.json >aggregate.json
-go run ./scripts/agent-eval aggregate-root marked-synthetic-runs >aggregate.json
+GOWORK=off go -C internal/agenteval build -o /tmp/agent-eval ./cmd/agent-eval
+/tmp/agent-eval validate internal/cli/testdata/agent-eval/*.json
+/tmp/agent-eval evaluate scenario.json observation.json >result.json
+/tmp/agent-eval aggregate runs/*.result.json >aggregate.json
+/tmp/agent-eval aggregate-root marked-synthetic-runs >aggregate.json
 ```
 
 Aggregation separates providers, exact models, agent versions, variants,
@@ -593,12 +602,12 @@ structured response schema, deterministic mock fixture, oracle checks, reviewed
 CLI command prefixes or typed MCP tool names, repetitions, timeout, and a whole-run
 USD-equivalent cap. Output roots are owner-only and carry an ATL marker; use a
 new empty directory or an already marked root. A non-empty legacy directory is
-never adopted or chmodded implicitly. Review the provider command without
-contacting a model:
+never adopted or chmodded implicitly. From the repository root, review the
+provider command without contacting a model:
 
 ```sh
 make build
-go build -o /tmp/agent-eval ./scripts/agent-eval
+GOWORK=off go -C internal/agenteval build -o /tmp/agent-eval ./cmd/agent-eval
 
 /tmp/agent-eval run \
   --spec benchmarks/agent-eval/jira-epic-evidence/run.codex.json \
@@ -1779,14 +1788,15 @@ is a measured failure; it is not reclassified as a missing-plugin error or
 reported as direct proof that a skill did or did not load.
 
 At the low level, review without invoking the model or backend, then run once.
-New private comparison baselines and activation studies should use
+From the repository root, new private comparison baselines and activation
+studies should use
 `agent-eval private plan` and `private run` instead, so the reviewed bytes and
 execution remain bound:
 
 ```sh
 umask 077
 make build
-go build -o /tmp/agent-eval ./scripts/agent-eval
+GOWORK=off go -C internal/agenteval build -o /tmp/agent-eval ./cmd/agent-eval
 
 /tmp/agent-eval run \
   --spec "$ATL_PRIVATE_EVAL_CASE/run.codex.json" \

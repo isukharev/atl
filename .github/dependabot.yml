@@ -2,6 +2,21 @@ version: 2
 
 updates:
   - package-ecosystem: gomod
+    directory: "/internal/agenteval"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - go
+
+  - package-ecosystem: gomod
     directory: "/"
     schedule:
       interval: weekly

@@ -485,7 +485,7 @@ func validateInstructions(root string, value catalog) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	makeContract := []byte("check-repository-skills:\n\tgo run ./scripts/check-repository-skills -root .\n")
+	makeContract := []byte("check-repository-skills:\n\t$(GO_ENV) go run ./scripts/check-repository-skills -root .\n")
 	if bytes.Count(makefile, makeContract) != 1 {
 		return 0, errors.New("makefile must contain one exact repository-skill check target")
 	}

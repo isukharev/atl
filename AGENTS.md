@@ -98,7 +98,7 @@ are canonical in the focused references. Do not reconstruct them from memory.
 
 Start with the read-only preflight and check-selection table in
 [Development and verification](docs/maintainers/development.md). Requires the
-exact Go patch declared by `go.mod` (currently 1.26.5+).
+exact Go patch declared by the applicable module's `go.mod` (currently 1.26.5+).
 
 Core gates:
 
@@ -109,6 +109,18 @@ make race
 make lint
 make vet
 ```
+
+The evaluator is an independent nested module at `internal/agenteval` (module
+`github.com/isukharev/atl/internal/agenteval`); its maintainer command is
+`internal/agenteval/cmd/agent-eval`. Root recursive Go commands intentionally
+exclude that module. Do not reconnect it with a root `require`/`replace` or a
+tracked `go.work`. `make agent-eval-product-boundary` checks the bilateral
+module/import boundary. Use the root `make agent-eval-*` façades: ordinary
+product work retains the credential-free `make agent-eval-compat` boundary,
+while evaluator/corpus work and release preparation require
+`make agent-eval-full`.
+Those contracts use selected binaries and synthetic fixtures only; they do not
+contact configured providers or backends.
 
 - Tests live beside code. Prefer `httptest`, `t.Setenv`, `t.TempDir`, and stable
   fixtures. Never combine `t.Parallel` with `t.Setenv`.

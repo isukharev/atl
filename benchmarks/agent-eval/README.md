@@ -190,11 +190,15 @@ cannot report a named Skill event through the current run-spec contract, so its
 strongest valid oracle combines one Skill event with an exact named-workflow
 prompt/static contract check.
 
-Validate and inventory the complete corpus before spending model budget:
+Validate and inventory the complete corpus before spending model budget. Use
+the root facade for the deterministic gate; when inventory needs an executable,
+build the nested evaluator command from the repository root and run the binary
+there:
 
 ```sh
-go run ./scripts/agent-eval inventory benchmarks/agent-eval
 make agent-eval-contract
+GOWORK=off go -C internal/agenteval build -o /tmp/agent-eval ./cmd/agent-eval
+/tmp/agent-eval inventory benchmarks/agent-eval
 ```
 
 Inventory schema v2 is aggregate-only. In addition to task-class totals,
@@ -383,12 +387,12 @@ before spending the committed three-repetition regression budget. Interpret
 n=3 only with a distinct same-class holdout; reserve n>=10 for an explicitly
 reviewed product decision, not routine provider ranking.
 
-Build `atl`, choose one exact provider/model spec, and write transcripts only to
-a private ignored path or outside the worktree:
+From the repository root, build `atl`, choose one exact provider/model spec,
+and write transcripts only to a private ignored path or outside the worktree:
 
 ```sh
 make build
-go build -o /tmp/agent-eval ./scripts/agent-eval
+GOWORK=off go -C internal/agenteval build -o /tmp/agent-eval ./cmd/agent-eval
 
 /tmp/agent-eval run \
   --spec benchmarks/agent-eval/jira-epic-evidence/run.codex.json \

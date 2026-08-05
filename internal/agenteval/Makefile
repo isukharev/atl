@@ -1,0 +1,73 @@
+# Agent-evaluation module gates. Every Go command is workspace-independent so
+# a developer's ambient go.work cannot reconnect this module to the product.
+
+GO_ENV := env -u GOROOT GOTOOLCHAIN=auto GOWORK=off
+REPOSITORY_ROOT ?= $(abspath ../..)
+ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
+
+# The small product/evaluator compatibility selection is owned here, once. The
+# root facade delegates instead of carrying a second copy of this reviewed list.
+COMPAT_TESTS_WIRES := ^(TestRepositoryBenchmarkCorpusContract|TestRepositoryScenarioCapabilitiesMatchCatalog|TestEvaluatorProductDependencyLedger|TestEvaluatorProductDependencyLedgerDetectsAliasAndOwnershipDrift|TestParseCLIErrorContractAdmitsOnlyTypedFailedCLIErrors|TestCLIErrorContractVocabularyMatchesVersionedWireFixture|TestCLIErrorRecoveryV1AcceptsOnlyDocumentedShapes|TestPinnedCapabilityCatalogIsStrictAndImmutable|TestDecodeCapabilityCatalogFailsClosed|TestVerifyPinnedCapabilityCatalogChecksEveryWireField|TestCapabilityCatalogMinimalProjectionPreservesProfiles|TestSyntheticMCPServeArgsPreserveDefaultProfileOmission|TestVerifyATLCapabilityCatalogUsesExactBoundedOfflineCommand|TestVerifyATLCapabilityCatalogRejectsSemanticDriftAndTimeout|TestRunHeadlessChecksSelectedATLCatalogBeforeCreatingOutput|TestRepositoryCodexSkillPackageMatchesReleasedSemantics|TestVerifyReleasedCodexSkillSemanticsRejectsPolicyDrift|TestVerifyCodexSkillPackageReconcilesExactTree|TestDecodeCodexSkillCatalogRejectsMalformedContracts|TestDecodeConfluenceTableWiresAcceptReleasedShapes|TestDecodeConfluenceTableWiresRejectWireDrift|TestDecodeConfluenceTableWiresRejectUnreconciledConsumerViews|TestDecodeJiraWorkflowWiresAcceptReleasedShapes|TestDecodeJiraWorkflowWiresFailClosed|TestDecodeJiraWorkflowWiresRejectNestedMemberAndSelectionDrift|TestDecodeJiraWorkflowWireExactLimit|TestDecodeJiraBoardSnapshotAcceptsReleasedShapes|TestDecodeJiraBoardSnapshotRejectsMemberNullUTF8AndDuplicateDrift|TestDecodeJiraBoardSnapshotKeepsOnlyValuesOpen|TestDecodeJiraBoardSnapshotRejectsSemanticContradictions|TestDecodeJiraBoardSnapshotHonorsExactOneMiBWireLimit|TestDecodeJiraQuarterBoardSnapshotRequiresAndReconcilesEpicRollup|TestJiraQuarterFieldCatalogFailsClosed|TestJiraQuarterCompactEpicDigestFailsClosed|TestJiraPortfolioDiscoveryProcessSequenceDriftFailsClosed|TestRepositoryJiraPortfolioDiscoveryFixturesDriveProviderOracles|TestRepositoryJiraPortfolioDiscoverySamplingPairIdentity|TestRepositoryJiraQuarterPortfolioFixturesDriveProviderOracles|TestRepositoryJiraQuarterPortfolioSamplingPairIdentity|TestJiraStatusReportWorkflowFixturesDriveProviderOracles|TestJiraSprintDashboardWorkflowFixturesDriveProviderOracles|TestJiraReportingWorkflowSamplingPairs|TestRepositoryJiraReferenceSummaryFixturesDriveProviderOracles|TestJiraHistorySummaryMCPFixturesDriveProviderOracles|TestJiraReferenceMCPFixturesDriveProviderOracles|TestJiraSnapshotReconciliationFixturesDriveSelectedATLBinary|TestJiraArtifactGraphMCPFixturesDriveSelectedATLBinary|TestJiraArtifactGraphDevelopmentMCPFixturesDriveSelectedATLBinary|TestRepositoryStructureMCPV1FixturesDriveSelectedATLBinary|TestRepositoryStructureQualificationFixturesMatchSafeOracles|TestStructureFolderSelectionRecoveryFixturesDriveProviderOracles|TestRepositoryJiraPaginatedSearchFixturesDriveProviderOracles|TestRepositoryJiraSearchZeroProgressFixturesDriveProviderOracles|TestRepositoryJiraBoardIncompleteFixturesDriveProviderOracles|TestRepositoryJiraBoardPaginationFixturesDriveProviderOracles|TestRepositoryConfluenceCSVFormulaFixturesDriveProviderOracles|TestRepositoryConfluenceSelectionCompletenessFixturesDriveProviderOracles|TestRepositoryConfluenceTableSummaryMCPFixturesDriveSelectedATLBinary|TestRepositoryConfluenceTableAnalyticsMCPFixturesDriveSelectedATLBinary|TestRepositoryConfluenceTableSelectionRecoveryFixturesDriveSelectedATLBinary|TestConfluenceTableRecoveryDerivedFollowUpRefusesBeforeBackend|TestRepositoryConfluenceTableSelectionRecoverySamplingPairIdentity|TestConfluencePageMetadataFixturesDriveProviderOracles|TestConfluenceSectionBoundRecoveryFixturesDriveProviderOracles|TestConfluenceSectionVersionBoundFixturesDriveProviderOracles|TestRepositoryConfluenceAttachmentEvidenceFixturesDriveProviderOracles|TestRepositoryConfluenceCommentRoutingFixturesDriveSelectedATLBinary|TestRepositoryConfluencePageEvidenceFixturesDriveProviderOracles|TestRepositoryConfluencePaginatedSearchFixturesDriveProviderOracles|TestConfluenceMultiSectionTreatmentMatchesCurrentGeometry|TestRepositoryCrossServiceDiscoveryFixturesDriveProviderOracles|TestRepositoryCrossServiceDiscoverySamplingPairIdentity)$$
+COMPAT_TESTS_MIRROR := ^(TestCopyWorkspaceRejectsGrowthAfterOpeningInventoriedFile|TestCopyWorkspaceRejectsRootReplacementAfterInventory|TestSyntheticMCPToolInventoryRejectsDrift|TestDecodeMirrorSnapshotWiresAcceptReleasedShapes|TestDecodeMirrorSnapshotWiresRejectWireDrift|TestSyntheticATLProcessSeedsMirrorTemplateBeforeMCPLaunch|TestSyntheticATLProcessRejectsOfflineToolInventoryMismatch|TestSyntheticATLProcessRequiresToolInventoryVerificationForMirrorTemplate|TestSyntheticATLProcessRejectsToolInventoryVerificationWithoutMCP|TestSyntheticATLProcessRejectsExecutionCopyMutationDuringMCPStartup|TestSyntheticATLProcessRejectsSymlinkMirrorTemplateAndCleansRuntime|TestRepositoryMirrorSnapshotMCPV1FixturesDriveSelectedATLBinary|TestRepositoryMirrorSnapshotMCPV1SchemasStayClosedAndContentFree|TestRepositoryMirrorSnapshotMCPV1SchemaMutationsAreRejected)$$
+COMPAT_TESTS_WRITES := ^(TestSyntheticATLProcessSeedsWorkspaceTemplateForNamedSyntheticWrite|TestSyntheticATLProcessRejectsUnreconciledSyntheticWriteConfig|TestSyntheticATLProcessRejectsSymlinkWorkspaceTemplateAndCleansRuntime|TestDecodeJiraSyntheticWriteWiresFailClosed|TestDecodeJiraSyntheticWriteWiresRejectNestedMemberDrift|TestDecodeJiraTriageWiresAcceptReleasedShapes|TestDecodeJiraTriageWiresFailClosed|TestDecodeJiraTriageWiresRejectNestedAndStateDrift|TestDecodeJiraTriageWiresHonorExactBounds|TestRepositoryJiraMeetingTasksFixturesDriveProductionWorkflowOracles|TestRepositoryJiraMeetingTasksRequestSequenceFailsClosed|TestRepositoryJiraMeetingTasksSamplingSkillsAndCommandPolicies|TestRepositoryJiraSpecToBacklogFixturesDriveProductionWorkflowOracles|TestRepositoryJiraSpecToBacklogRequestSequenceFailsClosed|TestRepositoryJiraSpecToBacklogSamplingSkillsAndExactCommandPolicies|TestRepositoryJiraTriageIssueFixturesDriveSelectedCLIAndHistoricalOracles|TestRepositoryJiraTriageIssueFailsClosedBoundaries|TestRepositoryJiraTriageIssueReconciliationAndCompletenessNegatives|TestRepositoryJiraTriageHoldoutCurrentCLIGuardedPreviewIsNoWrite|TestRepositoryJiraTriageIssueSamplingPromptsAndPolicies)$$
+COMPAT_TESTS_MCP := ^TestRunSpecMCPServiceProfileIsClosedAndToolBound$$
+
+.PHONY: build
+build:
+	$(GO_ENV) go build ./...
+
+.PHONY: unit
+unit:
+	$(GO_ENV) go test ./... -count=1 -timeout=10m
+
+.PHONY: race
+race:
+	$(GO_ENV) go test -race ./... -count=1 -timeout=30m
+
+.PHONY: lint
+lint:
+	@command -v golangci-lint >/dev/null 2>&1 || { echo "golangci-lint not installed: https://golangci-lint.run/usage/install/"; exit 1; }
+	$(GO_ENV) golangci-lint run
+
+.PHONY: vet
+vet:
+	$(GO_ENV) go vet ./...
+
+.PHONY: vuln
+vuln:
+	$(GO_ENV) go run golang.org/x/vuln/cmd/govulncheck@v1.4.0 ./...
+
+.PHONY: tidy-check
+tidy-check:
+	$(GO_ENV) go mod tidy -diff
+
+.PHONY: windows
+windows:
+	$(GO_ENV) GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...
+
+.PHONY: product-atl
+product-atl:
+	$(MAKE) -C $(REPOSITORY_ROOT) build
+
+.PHONY: compat
+compat: product-atl
+	@test -x "$(ATL_BINARY)"
+	$(GO_ENV) go test . -run '$(COMPAT_TESTS_WIRES)' -count=1
+	$(GO_ENV) go test . -run '$(COMPAT_TESTS_MIRROR)' -count=1
+	$(GO_ENV) go test . -run '$(COMPAT_TESTS_WRITES)' -count=1
+	$(GO_ENV) go test . -run '$(COMPAT_TESTS_MCP)' -count=1
+	cd $(REPOSITORY_ROOT) && $(GO_ENV) go test ./internal/cli -run '^TestCLIErrorWireProductContract$$' -count=1
+	$(GO_ENV) go run ./cmd/agent-eval validate $(REPOSITORY_ROOT)/internal/cli/testdata/agent-eval/*.json $(REPOSITORY_ROOT)/benchmarks/agent-eval/*/scenario.v*.json >/dev/null
+	$(GO_ENV) go run ./cmd/agent-eval validate-run $(REPOSITORY_ROOT)/benchmarks/agent-eval/*/run.*.json >/dev/null
+	$(GO_ENV) go run ./cmd/agent-eval verify-atl-capabilities $(ATL_BINARY) >/dev/null
+	$(GO_ENV) go run ./cmd/agent-eval verify-codex-skill-package $(REPOSITORY_ROOT)/plugins/atl >/dev/null
+
+.PHONY: contract
+contract: compat unit
+
+.PHONY: product-boundary
+product-boundary:
+	$(MAKE) -C $(REPOSITORY_ROOT) check-package-boundary
+
+.PHONY: full
+full: tidy-check build race lint vet vuln contract windows product-boundary

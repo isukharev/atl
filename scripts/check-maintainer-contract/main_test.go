@@ -41,116 +41,24 @@ func TestValidMaintainerContract(t *testing.T) {
 
 func TestMaintainerContractRejectsDrift(t *testing.T) {
 	tests := []struct {
-		name        string
-		path        string
-		old         string
-		replacement string
-		runtime     string
-		want        string
+		name, path, old, replacement, runtime, want string
 	}{
 		{name: "runtime", runtime: "go1.26.4", want: "runtime.Version()"},
-		{name: "base image", path: ".devcontainer/devcontainer.json", old: verifiedBaseImage, replacement: "mcr.microsoft.com/devcontainers/base:bookworm", want: "verified base image"},
-		{name: "remote user", path: ".devcontainer/devcontainer.json", old: `"remoteUser": "vscode"`, replacement: `"remoteUser": "root"`, want: "remoteUser"},
-		{name: "automatic toolchain", path: ".devcontainer/devcontainer.json", old: `"GOTOOLCHAIN": "local"`, replacement: `"GOTOOLCHAIN": "auto"`, want: "GOTOOLCHAIN"},
-		{name: "feature patch", path: ".devcontainer/devcontainer.json", old: `"version": "1.26.5"`, replacement: `"version": "1.26.4"`, want: "Go feature version"},
-		{name: "lock feature", path: ".devcontainer/devcontainer-lock.json", old: goFeatureID, replacement: "ghcr.io/devcontainers/features/missing:1", want: "lock is missing"},
-		{name: "lock package version", path: ".devcontainer/devcontainer-lock.json", old: `"version": "` + goFeaturePackageVersion + `"`, replacement: `"version": "0.0.0"`, want: "reviewed"},
-		{name: "lock integrity", path: ".devcontainer/devcontainer-lock.json", old: `"integrity": "` + goFeatureDigest + `"`, replacement: `"integrity": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"`, want: "reviewed package digest"},
-		{name: "generated source hidden", path: ".gitattributes", old: generatedAttributesContract, replacement: generatedAttributesContract + "/skills-src/** linguist-generated=true\n", want: "exactly the two generated skill output trees"},
-		{name: "make automatic repair", path: "Makefile", old: "GOTOOLCHAIN=local", replacement: "GOTOOLCHAIN=auto", want: "must start with GOTOOLCHAIN=local"},
-		{name: "windows make target", path: "Makefile", old: "GOOS=windows", replacement: "GOOS=linux", want: "exact Windows source cross-compile target"},
-		{name: "ci literal", path: ".github/workflows/ci.yml", old: "go-version-file: go.mod", replacement: "go-version: '1.26.5'", want: "exact required workflow block"},
-		{name: "windows ci step", path: ".github/workflows/ci.yml", old: "run: make check-windows-compile", replacement: "run: echo skipped", want: "exact Windows source cross-compile workflow block"},
-		{name: "windows ci condition", path: ".github/workflows/ci.yml", old: "if: matrix.os == 'ubuntu-latest'", replacement: "if: matrix.os == 'macos-latest'", want: "exact Windows source cross-compile workflow block"},
-		{name: "windows ci allowed failure", path: ".github/workflows/ci.yml", old: "run: make check-windows-compile", replacement: "run: make check-windows-compile\n        continue-on-error: true", want: "exact Windows source cross-compile workflow block"},
-		{name: "windows ci expression allowed failure", path: ".github/workflows/ci.yml", old: "run: make check-windows-compile", replacement: "run: make check-windows-compile\n        continue-on-error: ${{ true }}", want: "exact Windows source cross-compile workflow block"},
-		{name: "windows ci duplicate condition", path: ".github/workflows/ci.yml", old: "run: make check-windows-compile", replacement: "run: make check-windows-compile\n        if: false", want: "exact Windows source cross-compile workflow block"},
-		{name: "windows ci job allowed failure", path: ".github/workflows/ci.yml", old: "    runs-on: ${{ matrix.os }}", replacement: "    runs-on: ${{ matrix.os }}\n    continue-on-error: true", want: "job-level failure"},
-		{name: "windows ci quoted job allowed failure", path: ".github/workflows/ci.yml", old: "    runs-on: ${{ matrix.os }}", replacement: "    runs-on: ${{ matrix.os }}\n    \"continue-on-error\": true", want: "job-level failure"},
-		{name: "ci test make environment", path: ".github/workflows/ci.yml", old: "    runs-on: ${{ matrix.os }}", replacement: "    runs-on: ${{ matrix.os }}\n    env:\n      MAKEFLAGS: -i", want: "unexpected job-level key \"env\""},
-		{name: "ci workflow make environment", path: ".github/workflows/ci.yml", old: "permissions:\n  contents: read", replacement: "env:\n  MAKEFLAGS: -i\npermissions:\n  contents: read", want: "unexpected top-level key \"env\""},
-		{name: "windows ci excluded Ubuntu", path: ".github/workflows/ci.yml", old: "        os: [ubuntu-latest, macos-latest]", replacement: "        os: [ubuntu-latest, macos-latest]\n        exclude:\n          - os: ubuntu-latest", want: "exact required Ubuntu/macOS matrix"},
-		{name: "windows ci skipped dependency", path: ".github/workflows/ci.yml", old: "    runs-on: ${{ matrix.os }}", replacement: "    runs-on: ${{ matrix.os }}\n    needs: optional", want: "potentially skipped job"},
-		{name: "windows ci missing pull request trigger", path: ".github/workflows/ci.yml", old: "  pull_request:\n    branches: [main]", replacement: "  issues:\n    types: [opened]", want: "pull-request trigger contract"},
-		{name: "coverage floor", path: "Makefile", old: `--minimum "84.0"`, replacement: `--minimum "0.0"`, want: "reviewed 84.0% floor"},
-		{name: "coverage target-specific override", path: "Makefile", old: "check-core-race-coverage:\n", replacement: "check-core-race-coverage:\ncheck-core-race-coverage: COVERAGE_FLOOR=0.0\n", want: "reviewed 84.0% floor"},
-		{name: "coverage dynamic target override", path: "Makefile", old: "check-core-race-coverage:\n", replacement: "check-core-race-coverage:\ncoverage_gate := check-core-race-coverage\n$(coverage_gate):\n\t@true\n", want: "hidden top-level directives"},
-		{name: "make ignored failures", path: "Makefile", old: ".PHONY: check-core-race-coverage", replacement: ".IGNORE: check-core-race-coverage\n.PHONY: check-core-race-coverage", want: "failure propagation"},
-		{name: "make global ignored failures", path: "Makefile", old: ".PHONY: check-core-race-coverage", replacement: "MAKEFLAGS += -i\n.PHONY: check-core-race-coverage", want: "must not override MAKEFLAGS"},
-		{name: "make tabbed override", path: "Makefile", old: ".PHONY: check-core-race-coverage", replacement: "override\tMAKEFLAGS += -i\n.PHONY: check-core-race-coverage", want: "must not override MAKEFLAGS"},
-		{name: "make computed ignored failures", path: "Makefile", old: ".PHONY: check-core-race-coverage", replacement: "control = MAKEFLAGS\noverride $(control) += -i\n.PHONY: check-core-race-coverage", want: "computed variable name"},
-		{name: "make short computed ignored failures", path: "Makefile", old: ".PHONY: check-core-race-coverage", replacement: "A = MAKEFLAGS\noverride $A += -i\n.PHONY: check-core-race-coverage", want: "computed variable name"},
-		{name: "make computed shell override", path: "Makefile", old: ".PHONY: check-core-race-coverage", replacement: "control = SHELL\noverride $(control) := /bin/true\n.PHONY: check-core-race-coverage", want: "computed variable name"},
-		{name: "make target-specific computed override", path: "Makefile", old: ".PHONY: check-core-race-coverage", replacement: "control = MAKEFLAGS\ncheck-%: override $(control) += -i\n.PHONY: check-core-race-coverage", want: "computed variable name"},
-		{name: "make conditional gate", path: "Makefile", old: ".PHONY: check-core-race-coverage", replacement: "ifeq (1,0)\n.PHONY: check-core-race-coverage", want: "conditionally disable reviewed build controls"},
-		{name: "make conditional terminator", path: "Makefile", old: "\ncheck-core-race-coverage:\n", replacement: "\nendif\ncheck-core-race-coverage:\n", want: "conditionally disable reviewed build controls"},
-		{name: "make continued override", path: "Makefile", old: ".PHONY: check-core-race-coverage", replacement: "MAKE\\\nFLAGS += -i\n.PHONY: check-core-race-coverage", want: "continue hidden top-level build controls"},
-		{name: "make multiline ignored failures", path: "Makefile", old: ".PHONY: check-core-race-coverage", replacement: "define MAKEFLAGS\n-i\nendef\n.PHONY: check-core-race-coverage", want: "hidden multiline build controls"},
-		{name: "make immediate ignored failures", path: "Makefile", old: ".PHONY: check-core-race-coverage", replacement: "MAKEFLAGS ::= -i\n.PHONY: check-core-race-coverage", want: "must not override MAKEFLAGS"},
-		{name: "make pattern shell override", path: "Makefile", old: ".PHONY: check-core-race-coverage", replacement: "check-% agent-eval-%: SHELL=/bin/true\n.PHONY: check-core-race-coverage", want: "target-specific SHELL"},
-		{name: "make one shell masking", path: "Makefile", old: ".PHONY: check-core-race-coverage", replacement: ".ONESHELL:\n.PHONY: check-core-race-coverage", want: "failure propagation"},
-		{name: "make hidden include", path: "Makefile", old: ".PHONY: check-core-race-coverage", replacement: "-include bypass.mk\n.PHONY: check-core-race-coverage", want: "hidden build rules"},
-		{name: "make tab-separated include", path: "Makefile", old: ".PHONY: check-core-race-coverage", replacement: "include\tbypass.mk\n.PHONY: check-core-race-coverage", want: "hidden build rules"},
-		{name: "coverage command", path: "Makefile", old: "go test -race -covermode=atomic", replacement: "go test -covermode=count", want: "core race/coverage command"},
-		{name: "coverage checker", path: "Makefile", old: "go run ./scripts/check-coverage --profile cover.out", replacement: "echo coverage", want: "core race/coverage command"},
-		{name: "agent eval race timeout", path: "Makefile", old: "-timeout=30m", replacement: "-timeout=10m", want: "exact agent-evaluation race gate"},
-		{name: "onboarding update opt out", path: "Makefile", old: "ATL_NO_UPDATE=1 go run ./scripts/check-onboarding-docs", replacement: "go run ./scripts/check-onboarding-docs", want: "onboarding binary assertion must set ATL_NO_UPDATE=1"},
-		{name: "documentation catalog make gate", path: "Makefile", old: "go run ./scripts/check-docs-catalog -root .", replacement: "echo skipped", want: "exact documentation-catalog gate"},
-		{name: "documentation freshness make gate", path: "Makefile", old: "go run ./scripts/check-docs-freshness -root .", replacement: "echo skipped", want: "exact documentation-freshness gate"},
-		{name: "maintainability make gate", path: "Makefile", old: "go run ./scripts/check-maintainability", replacement: "echo skipped", want: "exact maintainability-ratchet gate"},
-		{name: "repository skills make gate", path: "Makefile", old: "go run ./scripts/check-repository-skills -root .", replacement: "echo skipped", want: "exact repository-skills gate"},
-		{name: "reference split make gate", path: "Makefile", old: "go run ./scripts/check-reference-split -root .", replacement: "echo skipped", want: "exact reference-split compatibility gate"},
-		{name: "ci core gate", path: ".github/workflows/ci.yml", old: "run: make check-core-race-coverage", replacement: "run: make race", want: "exact required workflow block"},
-		{name: "ci core gate quoted condition", path: ".github/workflows/ci.yml", old: "run: make check-core-race-coverage", replacement: "run: make check-core-race-coverage\n        'if': false", want: "exact required workflow block"},
-		{name: "ci provenance update opt out", path: ".github/workflows/ci.yml", old: "ATL_NO_UPDATE=1 ./atl version", replacement: "./atl version", want: "exact required workflow block"},
-		{name: "ci documentation catalog gate", path: ".github/workflows/ci.yml", old: "run: make check-docs-catalog", replacement: "run: echo skipped", want: "exact required workflow block"},
-		{name: "ci documentation freshness gate", path: ".github/workflows/ci.yml", old: "run: make check-docs-freshness", replacement: "run: echo skipped", want: "exact required workflow block"},
-		{name: "ci maintainability gate", path: ".github/workflows/ci.yml", old: "run: make check-maintainability", replacement: "run: echo skipped", want: "exact required workflow block"},
-		{name: "ci documentation freshness diff base", path: ".github/workflows/ci.yml", old: "ATL_DOCS_BASE: ${{ github.event.pull_request.base.sha }}", replacement: "ATL_DOCS_BASE: HEAD", want: "exact required workflow block"},
-		{name: "ci documentation freshness diff head", path: ".github/workflows/ci.yml", old: "ATL_DOCS_HEAD: ${{ github.event.pull_request.head.sha }}", replacement: "ATL_DOCS_HEAD: HEAD", want: "exact required workflow block"},
-		{name: "ci documentation freshness shallow checkout", path: ".github/workflows/ci.yml", old: "          fetch-depth: 0", replacement: "          fetch-depth: 1", want: "exact required workflow block"},
-		{name: "ci repository skills gate", path: ".github/workflows/ci.yml", old: "run: make check-repository-skills", replacement: "run: echo skipped", want: "exact required workflow block"},
-		{name: "ci reference split gate", path: ".github/workflows/ci.yml", old: "run: make check-reference-split", replacement: "run: echo skipped", want: "exact required workflow block"},
-		{name: "ci provenance command only inert heredoc content", path: ".github/workflows/ci.yml", old: "          ATL_NO_UPDATE=1 ./atl version > \"$RUNNER_TEMP/atl-version.json\"", replacement: "          cat <<'EOF'\n          ATL_NO_UPDATE=1 ./atl version > \"$RUNNER_TEMP/atl-version.json\"\n          EOF", want: "exact required workflow block"},
-		{name: "release tag trigger", path: ".github/workflows/release.yml", old: "tags: ['v*']", replacement: "branches: [main]", want: "exact v* tag trigger"},
-		{name: "release workflow make environment", path: ".github/workflows/release.yml", old: "permissions:\n  contents: read", replacement: "env:\n  MAKEFLAGS: -i\npermissions:\n  contents: read", want: "unexpected top-level key \"env\""},
-		{name: "release quoted duplicate publication job", path: ".github/workflows/release.yml", old: "jobs:\n", replacement: "jobs:\n  \"release\":\n    if: ${{ always() }}\n    runs-on: ubuntu-latest\n    steps: []\n", want: "defines \"release\" job more than once"},
-		{name: "release unexpected publisher job", path: ".github/workflows/release.yml", old: "jobs:\n", replacement: "jobs:\n  publish-without-gates:\n    permissions:\n      contents: write\n    runs-on: ubuntu-latest\n    steps:\n      - run: gh release create v0.0.0\n", want: "unexpected job \"publish-without-gates\""},
-		{name: "release runner", path: ".github/workflows/release.yml", old: "runs-on: ${{ matrix.os }}", replacement: "runs-on: ubuntu-latest", want: "exact Ubuntu/macOS matrix runners"},
-		{name: "release matrix", path: ".github/workflows/release.yml", old: "os: [ubuntu-latest, macos-latest]", replacement: "os: [ubuntu-latest]", want: "exact Ubuntu/macOS matrix runners"},
-		{name: "release matrix exclusion", path: ".github/workflows/release.yml", old: "os: [ubuntu-latest, macos-latest]", replacement: "os: [ubuntu-latest, macos-latest]\n        exclude:\n          - os: macos-latest", want: "exact Ubuntu/macOS matrix runners"},
-		{name: "release core gate", path: ".github/workflows/release.yml", old: "run: make check-core-race-coverage", replacement: "run: make race", want: "exact required workflow block"},
-		{name: "release maintainer gate", path: ".github/workflows/release.yml", old: "run: GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract", replacement: "run: echo skipped", want: "exact required workflow block"},
-		{name: "release package gate", path: ".github/workflows/release.yml", old: "run: make check-package-boundary", replacement: "run: echo skipped", want: "exact required workflow block"},
-		{name: "release maintainability gate", path: ".github/workflows/release.yml", old: "run: make check-maintainability", replacement: "run: echo skipped", want: "exact required workflow block"},
-		{name: "release plugin gate", path: ".github/workflows/release.yml", old: "run: make check-plugins", replacement: "run: echo skipped", want: "exact required workflow block"},
-		{name: "release documentation catalog gate", path: ".github/workflows/release.yml", old: "run: make check-docs-catalog", replacement: "run: echo skipped", want: "exact required workflow block"},
-		{name: "release documentation freshness gate", path: ".github/workflows/release.yml", old: "run: make check-docs-freshness", replacement: "run: echo skipped", want: "exact required workflow block"},
-		{name: "release repository skills gate", path: ".github/workflows/release.yml", old: "run: make check-repository-skills", replacement: "run: echo skipped", want: "exact required workflow block"},
-		{name: "release reference split gate", path: ".github/workflows/release.yml", old: "run: make check-reference-split", replacement: "run: echo skipped", want: "exact required workflow block"},
-		{name: "release context7 gate", path: ".github/workflows/release.yml", old: "run: make check-context7-docs", replacement: "run: echo skipped", want: "exact required workflow block"},
-		{name: "release onboarding gate", path: ".github/workflows/release.yml", old: "run: make check-onboarding-docs", replacement: "run: echo skipped", want: "exact required workflow block"},
-		{name: "release vet gate", path: ".github/workflows/release.yml", old: "run: go vet ./...", replacement: "run: echo skipped", want: "exact required workflow block"},
-		{name: "release lint gate", path: ".github/workflows/release.yml", old: "uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a", replacement: "run: echo skipped", want: "exact required workflow block"},
-		{name: "release vulnerability gate", path: ".github/workflows/release.yml", old: "govulncheck ./...", replacement: "echo skipped", want: "exact required workflow block"},
-		{name: "release agent eval race", path: ".github/workflows/release.yml", old: "run: make agent-eval-race", replacement: "run: make agent-eval-contract", want: "exact required workflow block"},
-		{name: "release missing test prerequisite", path: ".github/workflows/release.yml", old: "needs: [test, quality, agent-eval]", replacement: "needs: [quality, agent-eval]", want: "must need \"test\""},
-		{name: "release missing quality prerequisite", path: ".github/workflows/release.yml", old: "needs: [test, quality, agent-eval]", replacement: "needs: [test, agent-eval]", want: "must need \"quality\""},
-		{name: "release missing agent eval prerequisite", path: ".github/workflows/release.yml", old: "needs: [test, quality, agent-eval]", replacement: "needs: [test, quality]", want: "must need \"agent-eval\""},
-		{name: "release required step allowed failure", path: ".github/workflows/release.yml", old: "run: make check-package-boundary", replacement: "run: make check-package-boundary\n        continue-on-error: true", want: "exact required workflow block"},
-		{name: "release quoted required step allowed failure", path: ".github/workflows/release.yml", old: "run: make check-package-boundary", replacement: "run: make check-package-boundary\n        \"continue-on-error\": true", want: "exact required workflow block"},
-		{name: "release required command ignores failure", path: ".github/workflows/release.yml", old: "run: make check-package-boundary", replacement: "run: make check-package-boundary || true", want: "exact required workflow block"},
-		{name: "release required command only inert heredoc content", path: ".github/workflows/release.yml", old: "run: make check-package-boundary", replacement: "run: |\n          cat <<'EOF'\n          run: make check-package-boundary\n          EOF", want: "exact required workflow block"},
-		{name: "release quality job allowed failure", path: ".github/workflows/release.yml", old: "  quality:\n    runs-on: ubuntu-latest", replacement: "  quality:\n    continue-on-error: true\n    runs-on: ubuntu-latest", want: "quality job must be unconditional"},
-		{name: "release quality quoted job allowed failure", path: ".github/workflows/release.yml", old: "  quality:\n    runs-on: ubuntu-latest", replacement: "  quality:\n    'continue-on-error': true\n    runs-on: ubuntu-latest", want: "quality job must be unconditional"},
-		{name: "release quality runner drift", path: ".github/workflows/release.yml", old: "  quality:\n    runs-on: ubuntu-latest", replacement: "  quality:\n    runs-on: self-hosted", want: "must retain runs-on: ubuntu-latest"},
-		{name: "release publication always runs", path: ".github/workflows/release.yml", old: "  release:\n    needs: [test, quality, agent-eval]", replacement: "  release:\n    if: ${{ always() }}\n    needs: [test, quality, agent-eval]", want: "publication job must be unconditional"},
-		{name: "release publication quoted always runs", path: ".github/workflows/release.yml", old: "  release:\n    needs: [test, quality, agent-eval]", replacement: "  release:\n    \"if\": ${{ always() }}\n    needs: [test, quality, agent-eval]", want: "publication job must be unconditional"},
-		{name: "release publication complex key", path: ".github/workflows/release.yml", old: "  release:\n    needs: [test, quality, agent-eval]", replacement: "  release:\n    ? if\n    : ${{ always() }}\n    needs: [test, quality, agent-eval]", want: "unrecognized job-level field"},
-		{name: "release publication allowed failure", path: ".github/workflows/release.yml", old: "  release:\n    needs: [test, quality, agent-eval]", replacement: "  release:\n    continue-on-error: true\n    needs: [test, quality, agent-eval]", want: "publication job must be unconditional"},
-		{name: "release publication quoted allowed failure", path: ".github/workflows/release.yml", old: "  release:\n    needs: [test, quality, agent-eval]", replacement: "  release:\n    'continue-on-error': true\n    needs: [test, quality, agent-eval]", want: "publication job must be unconditional"},
-		{name: "release follow-up skips publication", path: ".github/workflows/release.yml", old: "    needs: [release]", replacement: "    needs: []", want: "must need \"release\""},
-		{name: "codeql version file", path: ".github/workflows/codeql.yml", old: "go-version-file: go.mod", replacement: "version-file: go.mod", want: "must use go-version-file"},
+		{name: "evaluator patch drift", path: "internal/agenteval/go.mod", old: "go " + fixtureGoVersion, replacement: "go 1.26.4", want: "evaluator module go directive"},
+		{name: "root evaluator environment", path: "Makefile", old: "GOWORK=off", replacement: "GOWORK=on", want: "workspace-independent root and evaluator environments"},
+		{name: "nested evaluator environment", path: "internal/agenteval/Makefile", old: "GOWORK=off", replacement: "GOWORK=on", want: "workspace-independent environment"},
+		{name: "nested full gate", path: "internal/agenteval/Makefile", old: "full: tidy-check build race lint vet vuln contract windows product-boundary", replacement: "full: tidy-check build race lint vet vuln contract windows", want: "exact \"full\" gate"},
+		{name: "nested contract unit dependency", path: "internal/agenteval/Makefile", old: "contract: compat unit\n", replacement: "contract: compat\n", want: "exact \"contract\" gate"},
+		{name: "root facade bypass", path: "Makefile", old: "\t$(AGENT_EVAL_MAKE) race", replacement: "\tgo test -race ./internal/agenteval", want: "nested-module facades"},
+		{name: "root module boundary", path: "Makefile", old: "go run ./scripts/check-module-boundary -root .", replacement: "echo skipped", want: "exact two-module boundary gate"},
+		{name: "nested ignored failures", path: "internal/agenteval/Makefile", old: ".PHONY: build", replacement: ".IGNORE: build\n.PHONY: build", want: "failure propagation"},
+		{name: "ci evaluator job condition", path: ".github/workflows/ci.yml", old: "  agent-eval:\n    runs-on", replacement: "  agent-eval:\n    if: false\n    runs-on", want: "ci agent-eval job must be unconditional"},
+		{name: "ci evaluator fail-open fallback", path: ".github/workflows/ci.yml", old: "          mode=full", replacement: "          mode=compat", want: "exact required workflow block"},
+		{name: "ci evaluator internal tree coverage", path: ".github/workflows/ci.yml", old: ".claude-plugin .mcp.json cmd internal scripts", replacement: ".claude-plugin .mcp.json cmd scripts", want: "exact required workflow block"},
+		{name: "ci evaluator allowed failure", path: ".github/workflows/ci.yml", old: "        run: make agent-eval-full", replacement: "        run: make agent-eval-full\n        continue-on-error: true", want: "exact required workflow block"},
+		{name: "release evaluator full", path: ".github/workflows/release.yml", old: "run: make agent-eval-full", replacement: "run: make agent-eval-compat", want: "exact required workflow block"},
+		{name: "CodeQL evaluator build", path: ".github/workflows/codeql.yml", old: "run: make agent-eval-build", replacement: "run: echo skipped", want: "exact workflow block"},
+		{name: "nested Dependabot module", path: ".github/dependabot.yml", old: "directory: \"/internal/agenteval\"", replacement: "directory: \"/internal/evaluator\"", want: "exactly one reviewed gomod entry"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -165,6 +73,22 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 			_, err := validateRepository(root, runtimeVersion)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error=%v, want substring %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestMakeExecutionControlsRejectBypasses(t *testing.T) {
+	for name, makefile := range map[string]string{
+		"global ignored failure": "MAKEFLAGS += -i\n",
+		"computed shell":         "name = SHELL\noverride $(name) := /bin/true\n",
+		"conditional":            "ifeq (1,0)\nendif\n",
+		"hidden include":         "-include bypass.mk\n",
+		"one shell":              ".ONESHELL:\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := validateMakeExecutionControls([]byte(makefile)); err == nil {
+				t.Fatal("make control bypass passed")
 			}
 		})
 	}
@@ -252,14 +176,13 @@ func writeFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	files := map[string]string{
-		"go.mod":         "module example.test/project\n\ngo " + fixtureGoVersion + "\n",
-		".gitattributes": generatedAttributesContract,
+		"go.mod":                    "module example.test/project\n\ngo " + fixtureGoVersion + "\n",
+		"internal/agenteval/go.mod": "module example.test/project/internal/agenteval\n\ngo " + fixtureGoVersion + "\n",
+		".gitattributes":            generatedAttributesContract,
 		".devcontainer/devcontainer.json": `{
-  // OCI digest verified fixture.
   "image": "` + verifiedBaseImage + `",
   "features": {
-    "` + goFeatureID + `": {"version": "` + fixtureGoVersion + `"},
-    "ghcr.io/devcontainers/features/node:1": {"version": "lts"}
+    "` + goFeatureID + `": {"version": "` + fixtureGoVersion + `"}
   },
   "containerEnv": {"GOTOOLCHAIN": "local"},
   "remoteUser": "vscode"
@@ -273,12 +196,80 @@ func writeFixture(t *testing.T) string {
     }
   }
 }`,
-		".devcontainer/post-create.sh": `#!/usr/bin/env bash
-go run ./scripts/check-maintainer-contract
+		".devcontainer/post-create.sh": "#!/usr/bin/env bash\ngo run ./scripts/check-maintainer-contract\n",
+		"Makefile": rootGoEnvironmentMakeContract +
+			"check-maintainer-contract:\n\t$(GO_LOCAL_ENV) go run ./scripts/check-maintainer-contract\n" +
+			windowsCompileMakeContract + coreCoverageMakeContract + moduleBoundaryMakeContract + packageBoundaryMakeContract +
+			maintainabilityMakeContract + pluginsMakeContract + docsCatalogMakeContract + docsFreshnessMakeContract +
+			repositorySkillsMakeContract + referenceSplitMakeContract + context7MakeContract + onboardingMakeContract +
+			agentEvalFacadeMakeContract,
+		"internal/agenteval/Makefile": `GO_ENV := env -u GOROOT GOTOOLCHAIN=auto GOWORK=off
+REPOSITORY_ROOT ?= $(abspath ../..)
+ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
+COMPAT_TESTS_WIRES := fixture
+COMPAT_TESTS_MIRROR := fixture
+COMPAT_TESTS_WRITES := fixture
+COMPAT_TESTS_MCP := fixture
+
+.PHONY: build
+build:
+	$(GO_ENV) go build ./...
+
+.PHONY: unit
+unit:
+	$(GO_ENV) go test ./... -count=1 -timeout=10m
+
+.PHONY: race
+race:
+	$(GO_ENV) go test -race ./... -count=1 -timeout=30m
+
+.PHONY: lint
+lint:
+	@command -v golangci-lint >/dev/null 2>&1 || { echo "golangci-lint not installed: https://golangci-lint.run/usage/install/"; exit 1; }
+	$(GO_ENV) golangci-lint run
+
+.PHONY: vet
+vet:
+	$(GO_ENV) go vet ./...
+
+.PHONY: vuln
+vuln:
+	$(GO_ENV) go run golang.org/x/vuln/cmd/govulncheck@v1.4.0 ./...
+
+.PHONY: tidy-check
+tidy-check:
+	$(GO_ENV) go mod tidy -diff
+
+.PHONY: windows
+windows:
+	$(GO_ENV) GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...
+
+.PHONY: product-atl
+product-atl:
+	$(MAKE) -C $(REPOSITORY_ROOT) build
+
+.PHONY: compat
+compat: product-atl
+	@test -x "$(ATL_BINARY)"
+	$(GO_ENV) go test . -run '$(COMPAT_TESTS_WIRES)' -count=1
+	$(GO_ENV) go test . -run '$(COMPAT_TESTS_MIRROR)' -count=1
+	$(GO_ENV) go test . -run '$(COMPAT_TESTS_WRITES)' -count=1
+	$(GO_ENV) go test . -run '$(COMPAT_TESTS_MCP)' -count=1
+	$(GO_ENV) go run ./cmd/agent-eval validate fixture >/dev/null
+	$(GO_ENV) go run ./cmd/agent-eval validate-run fixture >/dev/null
+	$(GO_ENV) go run ./cmd/agent-eval verify-atl-capabilities $(ATL_BINARY) >/dev/null
+	$(GO_ENV) go run ./cmd/agent-eval verify-codex-skill-package $(REPOSITORY_ROOT)/plugins/atl >/dev/null
+
+.PHONY: contract
+contract: compat unit
+
+.PHONY: product-boundary
+product-boundary:
+	$(MAKE) -C $(REPOSITORY_ROOT) check-package-boundary
+
+.PHONY: full
+full: tidy-check build race lint vet vuln contract windows product-boundary
 `,
-		"Makefile": `check-maintainer-contract:
-	GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract
-` + windowsCompileMakeContract + coreCoverageMakeContract + packageBoundaryMakeContract + maintainabilityMakeContract + pluginsMakeContract + docsCatalogMakeContract + docsFreshnessMakeContract + repositorySkillsMakeContract + referenceSplitMakeContract + context7MakeContract + onboardingMakeContract + agentEvalRaceMakeContract,
 		".github/workflows/ci.yml": `name: ci
 on:
   push:
@@ -286,7 +277,6 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
-
 permissions:
   contents: read
 concurrency:
@@ -299,84 +289,29 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
-        with:
-          go-version-file: go.mod
-          check-latest: true
-      - name: Build
-        run: make build
-      - name: Verify stamped build provenance
-        run: |
-          ATL_NO_UPDATE=1 ./atl version > "$RUNNER_TEMP/atl-version.json"
-          grep -F "\"commit\": \"$(git rev-parse HEAD)\"" "$RUNNER_TEMP/atl-version.json"
-          grep -F '"build_state": "clean"' "$RUNNER_TEMP/atl-version.json"
-      - name: Vet
-        run: go vet ./...
-      - name: Core race and coverage gate
-        run: make check-core-race-coverage
-      - name: Optional matrix-word output
-        continue-on-error: true
-        run: |
-          echo 'include: optional diagnostic'
-          echo 'exclude: optional diagnostic'
-      - name: Windows source cross-compile
-        if: matrix.os == 'ubuntu-latest'
-        run: make check-windows-compile
-      - name: Optional fixture step
-        continue-on-error: true
-        run: echo optional
+` + checkoutStepContract + "\n" + setupGoStepContract + "\n" + buildStepContract + "\n" + ciProvenanceStepContract + "\n" + vetStepContract + "\n" + coreGateStepContract + "\n" + windowsCompileStepContract + `
+  agent-eval:
+    runs-on: ubuntu-latest
+    steps:
+` + agentEvalCheckoutStepContract + "\n" + setupGoStepContract + "\n" + agentEvalImpactStepContract + "\n" + agentEvalCompatStepContract + "\n" + agentEvalFullStepContract + `
   lint:
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
-        with:
-          go-version-file: go.mod
-          check-latest: true
-      - name: Maintainer toolchain contract
-        run: GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract
-      - name: Core/heavy package boundary
-        run: make check-package-boundary
-      - name: Maintainability ratchets
-        run: make check-maintainability
-      - name: Generated plugin trees are current
-        run: make check-plugins
-      - name: Documentation catalog
-        run: make check-docs-catalog
-      - name: Documentation freshness
-        env:
-          ATL_DOCS_BASE: ${{ github.event.pull_request.base.sha }}
-          ATL_DOCS_HEAD: ${{ github.event.pull_request.head.sha }}
-        run: make check-docs-freshness
-      - name: Repository maintainer skills
-        run: make check-repository-skills
-      - name: Reference split compatibility
-        run: make check-reference-split
-      - name: Indexed documentation contract
-        run: make check-context7-docs
-      - name: Onboarding documentation rehearsal
-        run: make check-onboarding-docs
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a
-        with:
-          version: v2.12.2
-`,
-		".github/workflows/codeql.yml": `steps:
-  - uses: actions/setup-go@fixture
-    with:
-      go-version-file: go.mod
-  - name: Analyze
-    run: codeql
+` + lintCheckoutStepContract + "\n" + setupGoStepContract + "\n" + maintainerStepContract + "\n" + packageBoundaryStepContract + "\n" + maintainabilityStepContract + "\n" + pluginsStepContract + "\n" + docsCatalogStepContract + "\n" + docsFreshnessStepContract + "\n" + repositorySkillsStepContract + "\n" + referenceSplitStepContract + "\n" + context7StepContract + "\n" + onboardingStepContract + "\n" + lintStepContract + `
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - run: true
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - run: true
 `,
 		".github/workflows/release.yml": `name: release
 on:
   push:
     tags: ['v*']
-
 permissions:
   contents: read
 concurrency:
@@ -388,65 +323,15 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
-        with:
-          go-version-file: go.mod
-          check-latest: true
-      - name: Core race and coverage gate
-        run: make check-core-race-coverage
+` + checkoutStepContract + "\n" + setupGoStepContract + "\n" + coreGateStepContract + `
   quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
-        with:
-          go-version-file: go.mod
-          check-latest: true
-      - name: Maintainer toolchain contract
-        run: GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract
-      - name: Core/heavy package boundary
-        run: make check-package-boundary
-      - name: Maintainability ratchets
-        run: make check-maintainability
-      - name: Generated plugin trees are current
-        run: make check-plugins
-      - name: Documentation catalog
-        run: make check-docs-catalog
-      - name: Documentation freshness
-        run: make check-docs-freshness
-      - name: Repository maintainer skills
-        run: make check-repository-skills
-      - name: Reference split compatibility
-        run: make check-reference-split
-      - name: Indexed documentation contract
-        run: make check-context7-docs
-      - name: Onboarding documentation rehearsal
-        run: make check-onboarding-docs
-      - name: Vet
-        run: go vet ./...
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a
-        with:
-          version: v2.12.2
-      - name: govulncheck
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.4.0
-          govulncheck ./...
-      -
-        name: Optional notification
-        continue-on-error: true
-        run: echo optional
+` + checkoutStepContract + "\n" + setupGoStepContract + "\n" + maintainerStepContract + "\n" + packageBoundaryStepContract + "\n" + maintainabilityStepContract + "\n" + pluginsStepContract + "\n" + docsCatalogStepContract + "\n" + releaseDocsFreshnessStepContract + "\n" + repositorySkillsStepContract + "\n" + referenceSplitStepContract + "\n" + context7StepContract + "\n" + onboardingStepContract + "\n" + vetStepContract + "\n" + lintStepContract + "\n" + govulncheckStepContract + `
   agent-eval:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
-        with:
-          go-version-file: go.mod
-          check-latest: true
-      - name: Agent evaluation race gate
-        run: make agent-eval-race
+` + checkoutStepContract + "\n" + setupGoStepContract + "\n" + agentEvalReleaseFullStepContract + `
   release:
     needs: [test, quality, agent-eval]
     runs-on: ubuntu-latest
@@ -456,8 +341,7 @@ jobs:
     env:
       FIXTURE: true
     steps:
-      - name: Release
-        run: go build ./...
+      - run: true
   refresh-context7:
     name: Refresh Context7 stable docs (non-blocking)
     needs: [release]
@@ -467,13 +351,55 @@ jobs:
     permissions:
       contents: write
     concurrency:
-      group: context7-stable
-      cancel-in-progress: false
+      group: fixture
     env:
-      HAS_CONTEXT7_KEY: true
+      FIXTURE: true
     steps:
-      - name: Refresh
-        run: echo refresh
+      - run: true
+`,
+		".github/workflows/codeql.yml": `name: codeql
+on:
+  workflow_dispatch:
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/setup-go@fixture
+        with:
+          go-version-file: go.mod
+` + codeQLProductBuildStepContract + "\n" + codeQLEvaluatorBuildStepContract + "\n",
+		".github/dependabot.yml": `version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: "/internal/agenteval"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - go
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - go
 `,
 	}
 	for name, contents := range files {

@@ -150,7 +150,7 @@ func TestEvaluatorEnvironmentABIContract(t *testing.T) {
 	production := map[string]bool{}
 	productionSymbolOwners := map[string][]string{}
 	testOnlyOccurrences := map[string]bool{}
-	for _, root := range []string{"internal/agenteval", "scripts/agent-eval"} {
+	for _, root := range []string{"internal/agenteval"} {
 		err := filepath.WalkDir(filepath.Join(repository, root), func(path string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return walkErr

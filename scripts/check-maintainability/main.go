@@ -77,7 +77,7 @@ type report struct {
 var reviewedOwners = []owner{
 	{ID: "app", PathPrefixes: []string{"internal/app/"}},
 	{ID: "cli", PathPrefixes: []string{"internal/cli/"}},
-	{ID: "evaluator", PathPrefixes: []string{"internal/agenteval/", "scripts/agent-eval/"}},
+	{ID: "evaluator", PathPrefixes: []string{"internal/agenteval/"}},
 	{ID: "mcp", PathPrefixes: []string{"internal/mcpserver/"}},
 }
 

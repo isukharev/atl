@@ -81,6 +81,7 @@ func TestMaintainabilityManifestRejectsInvalidRows(t *testing.T) {
 		{name: "unsorted", mutate: func(m *manifest) { m.Hotspots[0], m.Hotspots[2] = m.Hotspots[2], m.Hotspots[0] }, want: "must be sorted"},
 		{name: "missing owner kind", mutate: func(m *manifest) { m.Hotspots = m.Hotspots[1:] }, want: "must have selected file and function"},
 		{name: "owner declaration drift", mutate: func(m *manifest) { m.Owners[0].PathPrefixes = []string{"internal/"} }, want: "reviewed sorted owner/path mapping"},
+		{name: "legacy evaluator owner prefix", mutate: func(m *manifest) { m.Owners[2].PathPrefixes = append(m.Owners[2].PathPrefixes, "scripts/agent-eval/") }, want: "reviewed sorted owner/path mapping"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

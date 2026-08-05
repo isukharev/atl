@@ -5,7 +5,7 @@
 #   make test             run unit tests
 #   make lint             run golangci-lint (if installed)
 #   make vet              go vet
-#   make check-core-race-coverage run the shared release-grade core test gate
+#   make check-core-race-coverage run the shared release-grade root-core test gate
 #   make gen-plugins      regenerate skills/ and plugins/atl/skills/ from skills-src/
 #   make check-plugins    verify the generated plugin trees are current
 #   make check-skill-safety validate designated read-only skill shell blocks
@@ -19,9 +19,10 @@
 #   make check-maintainer-contract verify the exact Go maintainer toolchain
 #   make check-maintainability enforce reviewed production growth ratchets
 #   make check-windows-compile verify Windows source cross-compilation
-#   make check-package-boundary verify the core/heavy dependency split
+#   make check-module-boundary verify the reviewed two-module layout
+#   make check-package-boundary verify root-core and bilateral module boundaries
 #   make agent-eval-compat run the small product/evaluation compatibility gate
-#   make agent-eval-contract run the complete deterministic evaluation gate
+#   make agent-eval-full   run every independent evaluator-module gate
 #   make live-smoke       run opt-in live CLI smoke checks
 #   make dist             cross-compile release binaries into ./dist
 #   make manifest         generate dist/manifest.json from ./dist binaries
@@ -35,38 +36,42 @@ BUILD_COMMIT ?= $(shell git rev-parse --verify HEAD 2>/dev/null || echo unknown)
 BUILD_STATE  ?= $(shell if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then test -z "$$(git status --porcelain --untracked-files=normal)" && echo clean || echo dirty; else echo unknown; fi)
 LDFLAGS  := -s -w -X $(MODULE)/internal/version.Version=$(VERSION) -X $(MODULE)/internal/version.Commit=$(BUILD_COMMIT) -X $(MODULE)/internal/version.BuildState=$(BUILD_STATE)
 GOFLAGS  := -trimpath
+GO_ENV   := env -u GOROOT GOTOOLCHAIN=auto GOWORK=off
+GO_LOCAL_ENV := env -u GOROOT GOTOOLCHAIN=local GOWORK=off
+AGENT_EVAL_DIR := internal/agenteval
+AGENT_EVAL_MAKE := $(MAKE) -C $(AGENT_EVAL_DIR) REPOSITORY_ROOT="$(CURDIR)" ATL_BINARY="$(CURDIR)/atl"
 
 # Platforms published to GitHub Releases. Keep in sync with the release workflow.
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
 .PHONY: build
 build:
-	CGO_ENABLED=0 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o atl ./cmd/atl
+	$(GO_ENV) CGO_ENABLED=0 go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o atl ./cmd/atl
 
 .PHONY: install
 install:
-	CGO_ENABLED=0 go install $(GOFLAGS) -ldflags "$(LDFLAGS)" ./cmd/atl
+	$(GO_ENV) CGO_ENABLED=0 go install $(GOFLAGS) -ldflags "$(LDFLAGS)" ./cmd/atl
 
 .PHONY: test
 test:
-	@packages="$$(go run ./scripts/list-go-packages --class core)" && \
-		test -n "$$packages" && go test $$packages
+	@packages="$$( $(GO_ENV) go run ./scripts/list-go-packages --class root-core)" && \
+		test -n "$$packages" && $(GO_ENV) go test $$packages
 
 .PHONY: race
 race:
-	@packages="$$(go run ./scripts/list-go-packages --class core)" && \
-		test -n "$$packages" && go test -race $$packages
+	@packages="$$( $(GO_ENV) go run ./scripts/list-go-packages --class root-core)" && \
+		test -n "$$packages" && $(GO_ENV) go test -race $$packages
 
 # Shared by pull-request CI and tag releases. Keep package selection routed
 # through list-go-packages so the race and cross-package coverage scopes cannot
-# silently drift apart as heavy evaluator packages are added.
+# silently drift apart as the root module changes.
 .PHONY: check-core-race-coverage
 check-core-race-coverage:
-	@core_packages="$$(go run ./scripts/list-go-packages --class core)" && \
-		core_cover="$$(go run ./scripts/list-go-packages --class core --scope internal --format csv)" && \
-		test -n "$$core_packages" && test -n "$$core_cover" && \
-		go test -race -covermode=atomic -coverprofile=cover.out -coverpkg="$$core_cover" -count=1 -timeout=10m $$core_packages
-	@go run ./scripts/check-coverage --profile cover.out --minimum "84.0"
+	@root_core_packages="$$( $(GO_ENV) go run ./scripts/list-go-packages --class root-core)" && \
+		root_core_cover="$$( $(GO_ENV) go run ./scripts/list-go-packages --class root-core --scope internal --format csv)" && \
+		test -n "$$root_core_packages" && test -n "$$root_core_cover" && \
+		$(GO_ENV) go test -race -covermode=atomic -coverprofile=cover.out -coverpkg="$$root_core_cover" -count=1 -timeout=10m $$root_core_packages
+	@$(GO_ENV) go run ./scripts/check-coverage --profile cover.out --minimum "84.0"
 
 # Live integration tests against a REAL Confluence/Jira Data Center. Opt-in only —
 # never part of `make test` and never run in CI. Reads local-only ./.env.integration
@@ -75,9 +80,9 @@ check-core-race-coverage:
 .PHONY: integration
 integration:
 	@test -f .env.integration || { echo "missing .env.integration — run: cp .env.integration.example .env.integration && edit it"; exit 1; }
-	@set -e; packages="$$(go run ./scripts/list-go-packages --class core)"; \
+	@set -e; packages="$$( $(GO_ENV) go run ./scripts/list-go-packages --class root-core)"; \
 		test -n "$$packages"; set -a; . ./.env.integration; set +a; \
-		ATL_INTEGRATION=1 go test $$packages -run Integration -count=1 -v
+		ATL_INTEGRATION=1 $(GO_ENV) go test $$packages -run Integration -count=1 -v
 
 # CLI-level live smoke against locally configured fixtures. This complements
 # `make integration`: it exercises the built binary and optional fixture-specific
@@ -89,16 +94,16 @@ live-smoke: build
 
 .PHONY: vet
 vet:
-	go vet ./...
+	$(GO_ENV) go vet ./...
 
 .PHONY: lint
 lint:
 	@command -v golangci-lint >/dev/null 2>&1 || { echo "golangci-lint not installed: https://golangci-lint.run/usage/install/"; exit 1; }
-	golangci-lint run
+	$(GO_ENV) golangci-lint run
 
 .PHONY: gen-plugins
 gen-plugins:
-	go run ./scripts/gen-plugins
+	$(GO_ENV) go run ./scripts/gen-plugins
 	cp .mcp.json plugins/atl/.mcp.json
 
 .PHONY: check-plugins
@@ -109,81 +114,104 @@ check-plugins: gen-plugins check-skill-safety check-skill-routing
 
 .PHONY: check-skill-safety
 check-skill-safety:
-	go run ./scripts/check-skill-safety
+	$(GO_ENV) go run ./scripts/check-skill-safety
 
 .PHONY: check-skill-routing
 check-skill-routing:
-	go run ./scripts/check-skill-routing --root .
+	$(GO_ENV) go run ./scripts/check-skill-routing --root .
 
 .PHONY: check-repository-skills
 check-repository-skills:
-	go run ./scripts/check-repository-skills -root .
+	$(GO_ENV) go run ./scripts/check-repository-skills -root .
 
 .PHONY: check-context7-docs
 check-context7-docs:
-	go run ./scripts/check-context7-docs
+	$(GO_ENV) go run ./scripts/check-context7-docs
 
 .PHONY: update-reference-navigation
 update-reference-navigation:
-	go run ./scripts/check-context7-docs -write-navigation
+	$(GO_ENV) go run ./scripts/check-context7-docs -write-navigation
 
 .PHONY: check-docs-catalog
 check-docs-catalog:
-	go run ./scripts/check-docs-catalog -root .
+	$(GO_ENV) go run ./scripts/check-docs-catalog -root .
 
 .PHONY: check-docs-freshness
 check-docs-freshness:
-	go run ./scripts/check-docs-freshness -root .
+	$(GO_ENV) go run ./scripts/check-docs-freshness -root .
 
 .PHONY: check-reference-split
 check-reference-split:
-	go run ./scripts/check-reference-split -root .
+	$(GO_ENV) go run ./scripts/check-reference-split -root .
 
 .PHONY: check-onboarding-docs
 check-onboarding-docs: build
-	ATL_NO_UPDATE=1 go run ./scripts/check-onboarding-docs -root . -atl ./atl
+	ATL_NO_UPDATE=1 $(GO_ENV) go run ./scripts/check-onboarding-docs -root . -atl ./atl
 
 .PHONY: check-maintainer-contract
 check-maintainer-contract:
-	GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract
+	$(GO_LOCAL_ENV) go run ./scripts/check-maintainer-contract
 
 .PHONY: check-maintainability
 check-maintainability:
-	go run ./scripts/check-maintainability
+	$(GO_ENV) go run ./scripts/check-maintainability
 
 .PHONY: check-windows-compile
 check-windows-compile:
-	GOROOT= GOTOOLCHAIN=auto GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...
+	$(GO_ENV) GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...
+
+.PHONY: check-module-boundary
+check-module-boundary:
+	$(GO_ENV) go run ./scripts/check-module-boundary -root .
 
 .PHONY: check-package-boundary
-check-package-boundary:
-	@core="$$(go run ./scripts/list-go-packages --class core)" && \
-		heavy="$$(go run ./scripts/list-go-packages --class heavy)" && \
-		test -n "$$core" && test -n "$$heavy"
+check-package-boundary: check-module-boundary
+	@root_core="$$( $(GO_ENV) go run ./scripts/list-go-packages --class root-core)" && \
+		test -n "$$root_core"
+
+.PHONY: agent-eval-build agent-eval-unit agent-eval-race agent-eval-lint agent-eval-vet agent-eval-vuln agent-eval-tidy-check agent-eval-windows
+agent-eval-build:
+	$(AGENT_EVAL_MAKE) build
+
+agent-eval-unit:
+	$(AGENT_EVAL_MAKE) unit
+
+agent-eval-race:
+	$(AGENT_EVAL_MAKE) race
+
+agent-eval-lint:
+	$(AGENT_EVAL_MAKE) lint
+
+agent-eval-vet:
+	$(AGENT_EVAL_MAKE) vet
+
+agent-eval-vuln:
+	$(AGENT_EVAL_MAKE) vuln
+
+agent-eval-tidy-check:
+	$(AGENT_EVAL_MAKE) tidy-check
+
+agent-eval-windows:
+	$(AGENT_EVAL_MAKE) windows
 
 .PHONY: agent-eval-compat
-agent-eval-compat: check-skill-routing build
-	go test ./internal/agenteval -run '^(TestRepositoryBenchmarkCorpusContract|TestRepositoryScenarioCapabilitiesMatchCatalog|TestEvaluatorProductDependencyLedger|TestEvaluatorProductDependencyLedgerDetectsAliasAndOwnershipDrift|TestParseCLIErrorContractAdmitsOnlyTypedFailedCLIErrors|TestCLIErrorContractVocabularyMatchesVersionedWireFixture|TestCLIErrorRecoveryV1AcceptsOnlyDocumentedShapes|TestPinnedCapabilityCatalogIsStrictAndImmutable|TestDecodeCapabilityCatalogFailsClosed|TestVerifyPinnedCapabilityCatalogChecksEveryWireField|TestCapabilityCatalogMinimalProjectionPreservesProfiles|TestSyntheticMCPServeArgsPreserveDefaultProfileOmission|TestVerifyATLCapabilityCatalogUsesExactBoundedOfflineCommand|TestVerifyATLCapabilityCatalogRejectsSemanticDriftAndTimeout|TestRunHeadlessChecksSelectedATLCatalogBeforeCreatingOutput|TestRepositoryCodexSkillPackageMatchesReleasedSemantics|TestVerifyReleasedCodexSkillSemanticsRejectsPolicyDrift|TestVerifyCodexSkillPackageReconcilesExactTree|TestDecodeCodexSkillCatalogRejectsMalformedContracts|TestDecodeConfluenceTableWiresAcceptReleasedShapes|TestDecodeConfluenceTableWiresRejectWireDrift|TestDecodeConfluenceTableWiresRejectUnreconciledConsumerViews|TestDecodeJiraWorkflowWiresAcceptReleasedShapes|TestDecodeJiraWorkflowWiresFailClosed|TestDecodeJiraWorkflowWiresRejectNestedMemberAndSelectionDrift|TestDecodeJiraWorkflowWireExactLimit|TestDecodeJiraBoardSnapshotAcceptsReleasedShapes|TestDecodeJiraBoardSnapshotRejectsMemberNullUTF8AndDuplicateDrift|TestDecodeJiraBoardSnapshotKeepsOnlyValuesOpen|TestDecodeJiraBoardSnapshotRejectsSemanticContradictions|TestDecodeJiraBoardSnapshotHonorsExactOneMiBWireLimit|TestDecodeJiraQuarterBoardSnapshotRequiresAndReconcilesEpicRollup|TestDecodeJiraQuarterFieldCatalogFailsClosed|TestDecodeJiraQuarterCompactEpicDigestFailsClosed|TestJiraPortfolioDiscoveryProcessSequenceDriftFailsClosed|TestRepositoryJiraPortfolioDiscoveryFixturesDriveProviderOracles|TestRepositoryJiraPortfolioDiscoverySamplingPairIdentity|TestRepositoryJiraQuarterPortfolioFixturesDriveProviderOracles|TestRepositoryJiraQuarterPortfolioSamplingPairIdentity|TestJiraStatusReportWorkflowFixturesDriveProviderOracles|TestJiraSprintDashboardWorkflowFixturesDriveProviderOracles|TestJiraReportingWorkflowSamplingPairs|TestRepositoryJiraReferenceSummaryFixturesDriveProviderOracles|TestJiraHistorySummaryMCPFixturesDriveProviderOracles|TestJiraReferenceMCPFixturesDriveProviderOracles|TestJiraSnapshotReconciliationFixturesDriveSelectedATLBinary|TestJiraArtifactGraphMCPFixturesDriveSelectedATLBinary|TestJiraArtifactGraphDevelopmentMCPFixturesDriveSelectedATLBinary|TestRepositoryStructureMCPV1FixturesDriveSelectedATLBinary|TestRepositoryStructureQualificationFixturesMatchSafeOracles|TestStructureFolderSelectionRecoveryFixturesDriveProviderOracles|TestRepositoryJiraPaginatedSearchFixturesDriveProviderOracles|TestRepositoryJiraSearchZeroProgressFixturesDriveProviderOracles|TestRepositoryJiraBoardIncompleteFixturesDriveProviderOracles|TestRepositoryJiraBoardPaginationFixturesDriveProviderOracles|TestRepositoryConfluenceCSVFormulaFixturesDriveProviderOracles|TestRepositoryConfluenceSelectionCompletenessFixturesDriveProviderOracles|TestRepositoryConfluenceTableSummaryMCPFixturesDriveSelectedATLBinary|TestRepositoryConfluenceTableAnalyticsMCPFixturesDriveSelectedATLBinary|TestRepositoryConfluenceTableSelectionRecoveryFixturesDriveSelectedATLBinary|TestConfluenceTableRecoveryDerivedFollowUpRefusesBeforeBackend|TestRepositoryConfluenceTableSelectionRecoverySamplingPairIdentity|TestConfluencePageMetadataFixturesDriveProviderOracles|TestConfluenceSectionBoundRecoveryFixturesDriveProviderOracles|TestConfluenceSectionVersionBoundFixturesDriveProviderOracles|TestRepositoryConfluenceAttachmentEvidenceFixturesDriveProviderOracles|TestRepositoryConfluenceCommentRoutingFixturesDriveSelectedATLBinary|TestRepositoryConfluencePageEvidenceFixturesDriveProviderOracles|TestRepositoryConfluencePaginatedSearchFixturesDriveProviderOracles|TestConfluenceMultiSectionTreatmentMatchesCurrentGeometry|TestRepositoryCrossServiceDiscoveryFixturesDriveProviderOracles|TestRepositoryCrossServiceDiscoverySamplingPairIdentity)$$' -count=1
-	go test ./internal/agenteval -run '^(TestCopyWorkspaceRejectsGrowthAfterOpeningInventoriedFile|TestCopyWorkspaceRejectsRootReplacementAfterInventory|TestSyntheticMCPToolInventoryRejectsDrift|TestDecodeMirrorSnapshotWiresAcceptReleasedShapes|TestDecodeMirrorSnapshotWiresRejectWireDrift|TestSyntheticATLProcessSeedsMirrorTemplateBeforeMCPLaunch|TestSyntheticATLProcessRejectsOfflineToolInventoryMismatch|TestSyntheticATLProcessRequiresToolInventoryVerificationForMirrorTemplate|TestSyntheticATLProcessRejectsToolInventoryVerificationWithoutMCP|TestSyntheticATLProcessRejectsExecutionCopyMutationDuringMCPStartup|TestSyntheticATLProcessRejectsSymlinkMirrorTemplateAndCleansRuntime|TestRepositoryMirrorSnapshotMCPV1FixturesDriveSelectedATLBinary|TestRepositoryMirrorSnapshotMCPV1SchemasStayClosedAndContentFree|TestRepositoryMirrorSnapshotMCPV1SchemaMutationsAreRejected)$$' -count=1
-	go test ./internal/agenteval -run '^(TestSyntheticATLProcessSeedsWorkspaceTemplateForNamedSyntheticWrite|TestSyntheticATLProcessRejectsUnreconciledSyntheticWriteConfig|TestSyntheticATLProcessRejectsSymlinkWorkspaceTemplateAndCleansRuntime|TestDecodeJiraSyntheticWriteWiresFailClosed|TestDecodeJiraSyntheticWriteWiresRejectNestedMemberDrift|TestDecodeJiraTriageWiresAcceptReleasedShapes|TestDecodeJiraTriageWiresFailClosed|TestDecodeJiraTriageWiresRejectNestedAndStateDrift|TestDecodeJiraTriageWiresHonorExactBounds|TestRepositoryJiraMeetingTasksFixturesDriveProductionWorkflowOracles|TestRepositoryJiraMeetingTasksRequestSequenceFailsClosed|TestRepositoryJiraMeetingTasksSamplingSkillsAndCommandPolicies|TestRepositoryJiraSpecToBacklogFixturesDriveProductionWorkflowOracles|TestRepositoryJiraSpecToBacklogRequestSequenceFailsClosed|TestRepositoryJiraSpecToBacklogSamplingSkillsAndExactCommandPolicies|TestRepositoryJiraTriageIssueFixturesDriveSelectedCLIAndHistoricalOracles|TestRepositoryJiraTriageIssueFailsClosedBoundaries|TestRepositoryJiraTriageIssueReconciliationAndCompletenessNegatives|TestRepositoryJiraTriageHoldoutCurrentCLIGuardedPreviewIsNoWrite|TestRepositoryJiraTriageIssueSamplingPromptsAndPolicies)$$' -count=1
-	go test ./internal/agenteval -run '^TestRunSpecMCPServiceProfileIsClosedAndToolBound$$' -count=1
-	go test ./internal/cli -run '^TestCLIErrorWireProductContract$$' -count=1
-	go run ./scripts/agent-eval validate internal/cli/testdata/agent-eval/*.json benchmarks/agent-eval/*/scenario.v*.json >/dev/null
-	go run ./scripts/agent-eval validate-run benchmarks/agent-eval/*/run.*.json >/dev/null
-	go run ./scripts/agent-eval verify-atl-capabilities ./atl >/dev/null
-	go run ./scripts/agent-eval verify-codex-skill-package plugins/atl >/dev/null
+agent-eval-compat: check-skill-routing
+	$(AGENT_EVAL_MAKE) compat
 
 .PHONY: agent-eval-contract
-agent-eval-contract: agent-eval-compat
-	go test ./internal/agenteval ./scripts/agent-eval -count=1 -timeout=10m
+agent-eval-contract: check-skill-routing
+	$(AGENT_EVAL_MAKE) contract
 
-.PHONY: agent-eval-race
-agent-eval-race: agent-eval-compat
-	go test -race ./internal/agenteval ./scripts/agent-eval -count=1 -timeout=30m
+.PHONY: agent-eval-product-boundary
+agent-eval-product-boundary: check-package-boundary
+
+.PHONY: agent-eval-full
+agent-eval-full: check-skill-routing check-module-boundary
+	$(AGENT_EVAL_MAKE) full
 
 .PHONY: tidy
 tidy:
-	go mod tidy
+	$(GO_ENV) go mod tidy
 
 .PHONY: install-hooks
 install-hooks:
@@ -202,7 +230,7 @@ dist: clean
 	@for p in $(PLATFORMS); do \
 		os=$${p%/*}; arch=$${p#*/}; out=dist/atl-$$os-$$arch; \
 		echo "build $$out"; \
-		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $$out ./cmd/atl || exit 1; \
+		$(GO_ENV) CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $$out ./cmd/atl || exit 1; \
 		( cd dist && sha256sum atl-$$os-$$arch > atl-$$os-$$arch.sha256 ); \
 	done
 	@echo "$(VERSION)" > dist/VERSION
@@ -211,7 +239,7 @@ dist: clean
 # Signing happens in CI (scripts/sign-manifest.go) with the release secret.
 .PHONY: manifest
 manifest:
-	go run ./scripts/gen-manifest --dist dist --version "$(VERSION)" > dist/manifest.json
+	$(GO_ENV) go run ./scripts/gen-manifest --dist dist --version "$(VERSION)" > dist/manifest.json
 	@echo "wrote dist/manifest.json"
 
 # Generate the Homebrew formula (dist/atl.rb) from ./dist: each platform's
@@ -220,7 +248,7 @@ manifest:
 # maintained by the project owner — copy dist/atl.rb into its Formula/ dir.
 .PHONY: homebrew
 homebrew:
-	go run ./scripts/gen-homebrew-formula --dist dist --version "$(VERSION)" --repo "$(REPO)" > dist/atl.rb
+	$(GO_ENV) go run ./scripts/gen-homebrew-formula --dist dist --version "$(VERSION)" --repo "$(REPO)" > dist/atl.rb
 	@echo "wrote dist/atl.rb"
 
 # Generate an ed25519 signing keypair OUTSIDE CI. Prints the public key to embed
@@ -229,4 +257,4 @@ homebrew:
 # GitHub Actions secret, then delete the local copy.
 .PHONY: genkey
 genkey:
-	go run ./scripts/genkey
+	$(GO_ENV) go run ./scripts/genkey

@@ -165,11 +165,7 @@ fi
 exit 2
 `, 0o700)
 	wrapper := filepath.Join(tempRepository, "agent-eval")
-	build := exec.Command("go", "build", "-buildvcs=false", "-o", wrapper, "./scripts/agent-eval")
-	build.Dir = repositoryRoot
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build wrapper: %v\n%s", err, output)
-	}
+	buildEvaluatorCommand(t, repositoryRoot, wrapper)
 
 	providerAttempts := 0
 	output, err := RunHeadless(context.Background(), RunOptions{
@@ -803,12 +799,7 @@ printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use"}]}}'
 printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":0.0001,"usage":{"input_tokens":100,"output_tokens":20},"structured_output":{"answer":"ok"}}'
 `, 0o700)
 	wrapper := filepath.Join(root, "agent-eval")
-	buildWrapper := exec.Command("go", "build", "-buildvcs=false", "-o", wrapper, "./scripts/agent-eval")
-	buildWrapper.Dir = repositoryRoot
-	buildWrapper.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
-	if output, err := buildWrapper.CombinedOutput(); err != nil {
-		t.Fatalf("build wrapper: %v\n%s", err, output)
-	}
+	buildEvaluatorCommand(t, repositoryRoot, wrapper)
 	atlBinary := filepath.Join(root, "atl")
 	buildATL := exec.Command("go", "build", "-buildvcs=false", "-o", atlBinary, "./cmd/atl")
 	buildATL.Dir = repositoryRoot
@@ -856,12 +847,7 @@ func TestCodexSyntheticWriteRunUsesHostBroker(t *testing.T) {
 	outputRoot := filepath.Join(tempRepository, "private", "runs")
 
 	wrapper := filepath.Join(tempRepository, "agent-eval")
-	buildWrapper := exec.Command("go", "build", "-buildvcs=false", "-o", wrapper, "./scripts/agent-eval")
-	buildWrapper.Dir = repositoryRoot
-	buildWrapper.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
-	if output, err := buildWrapper.CombinedOutput(); err != nil {
-		t.Fatalf("build wrapper: %v\n%s", err, output)
-	}
+	buildEvaluatorCommand(t, repositoryRoot, wrapper)
 	atlBinary := filepath.Join(tempRepository, "real-atl")
 	buildATL := exec.Command("go", "build", "-buildvcs=false", "-o", atlBinary, "./cmd/atl")
 	buildATL.Dir = repositoryRoot
@@ -1103,12 +1089,7 @@ func TestCodexSyntheticReadOnlyRunUsesHostBroker(t *testing.T) {
 	outputRoot := filepath.Join(tempRepository, "private", "runs")
 
 	wrapper := filepath.Join(tempRepository, "agent-eval")
-	buildWrapper := exec.Command("go", "build", "-buildvcs=false", "-o", wrapper, "./scripts/agent-eval")
-	buildWrapper.Dir = repositoryRoot
-	buildWrapper.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
-	if output, err := buildWrapper.CombinedOutput(); err != nil {
-		t.Fatalf("build wrapper: %v\n%s", err, output)
-	}
+	buildEvaluatorCommand(t, repositoryRoot, wrapper)
 	atlBinary := filepath.Join(tempRepository, "real-atl")
 	buildATL := exec.Command("go", "build", "-buildvcs=false", "-o", atlBinary, "./cmd/atl")
 	buildATL.Dir = repositoryRoot
@@ -1316,12 +1297,7 @@ printf '%s\n' '{"answer":"ok"}' >"$final"
 		t.Fatalf("build atl: %v\n%s", err, output)
 	}
 	wrapper := filepath.Join(tempRepository, "agent-eval")
-	build := exec.Command("go", "build", "-buildvcs=false", "-o", wrapper, "./scripts/agent-eval")
-	build.Dir = repositoryRoot
-	build.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build wrapper: %v\n%s", err, output)
-	}
+	buildEvaluatorCommand(t, repositoryRoot, wrapper)
 	outputRoot := filepath.Join(tempRepository, "private", "runs")
 	output, err := RunHeadless(context.Background(), RunOptions{SpecPath: filepath.Join(caseDir, "run.json"), OutputRoot: outputRoot, RepositoryRoot: tempRepository, AgentBinary: fakeAgent, ATLBinary: fakeATL, PluginRoot: pluginRoot, WrapperExecutable: wrapper, LiveConfigDir: liveConfig})
 	if err != nil {
@@ -1486,12 +1462,7 @@ printf '%s\n' '{"answer":"ok"}' >"$final"
 		t.Fatalf("build atl: %v\n%s", err, output)
 	}
 	wrapper := filepath.Join(tempRepository, "agent-eval")
-	buildWrapper := exec.Command("go", "build", "-buildvcs=false", "-o", wrapper, "./scripts/agent-eval")
-	buildWrapper.Dir = repositoryRoot
-	buildWrapper.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
-	if output, err := buildWrapper.CombinedOutput(); err != nil {
-		t.Fatalf("build wrapper: %v\n%s", err, output)
-	}
+	buildEvaluatorCommand(t, repositoryRoot, wrapper)
 	scratchRoot := filepath.Join(tempRepository, "private", "scratch")
 	if err := os.MkdirAll(scratchRoot, 0o700); err != nil {
 		t.Fatal(err)
@@ -1704,12 +1675,7 @@ printf '%s\n' '{"answer":"ok"}' >"$final"
 	).Replace(fakeAgentScript)
 	writeTestFile(t, fakeAgent, fakeAgentScript, 0o700)
 	wrapper := filepath.Join(tempRepository, "agent-eval")
-	buildWrapper := exec.Command("go", "build", "-buildvcs=false", "-o", wrapper, "./scripts/agent-eval")
-	buildWrapper.Dir = repositoryRoot
-	buildWrapper.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
-	if output, err := buildWrapper.CombinedOutput(); err != nil {
-		t.Fatalf("build wrapper: %v\n%s", err, output)
-	}
+	buildEvaluatorCommand(t, repositoryRoot, wrapper)
 	atlBinary := filepath.Join(tempRepository, "real-atl")
 	buildATL := exec.Command("go", "build", "-buildvcs=false", "-o", atlBinary, "./cmd/atl")
 	buildATL.Dir = repositoryRoot
@@ -2273,12 +2239,7 @@ printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use"}]}}'
 printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":0.0001,"usage":{"input_tokens":100,"output_tokens":20},"structured_output":{"answer":"ok"}}'
 `, 0o700)
 	wrapper := filepath.Join(root, "agent-eval")
-	buildWrapper := exec.Command("go", "build", "-buildvcs=false", "-o", wrapper, "./scripts/agent-eval")
-	buildWrapper.Dir = repositoryRoot
-	buildWrapper.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
-	if output, err := buildWrapper.CombinedOutput(); err != nil {
-		t.Fatalf("build wrapper: %v\n%s", err, output)
-	}
+	buildEvaluatorCommand(t, repositoryRoot, wrapper)
 	atlBinary := filepath.Join(root, "atl")
 	buildATL := exec.Command("go", "build", "-buildvcs=false", "-o", atlBinary, "./cmd/atl")
 	buildATL.Dir = repositoryRoot
@@ -2391,12 +2352,7 @@ printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use"}]}}'
 printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":0.0001,"usage":{"input_tokens":100,"output_tokens":20},"structured_output":{"answer":"refused"}}'
 `, 0o700)
 	wrapper := filepath.Join(root, "agent-eval")
-	buildWrapper := exec.Command("go", "build", "-buildvcs=false", "-o", wrapper, "./scripts/agent-eval")
-	buildWrapper.Dir = repositoryRoot
-	buildWrapper.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
-	if output, err := buildWrapper.CombinedOutput(); err != nil {
-		t.Fatalf("build wrapper: %v\n%s", err, output)
-	}
+	buildEvaluatorCommand(t, repositoryRoot, wrapper)
 	atlBinary := filepath.Join(root, "atl")
 	buildATL := exec.Command("go", "build", "-buildvcs=false", "-o", atlBinary, "./cmd/atl")
 	buildATL.Dir = repositoryRoot

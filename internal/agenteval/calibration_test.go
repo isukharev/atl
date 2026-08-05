@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -497,13 +496,9 @@ if [ "$#" -ne 1 ] || [ "$1" != "version" ]; then exit 70; fi
 if [ "$ATL_READ_ONLY" != "1" ] || [ "$ATL_NO_UPDATE" != "1" ]; then exit 71; fi
 if [ -n "$ATL_CONFIG_DIR$ATL_MIRROR_ROOT$ATL_JIRA_URL$ATL_CONFLUENCE_URL$ATL_JIRA_PAT$ATL_CONFLUENCE_PAT$NO_PROXY$no_proxy" ]; then exit 72; fi
 printf '%s\n' '{"version":"test","commit":"test","build_state":"clean"}'
-`, 0o700)
+	`, 0o700)
 	wrapper := filepath.Join(root, "agent-eval")
-	build := exec.Command("go", "build", "-buildvcs=false", "-o", wrapper, "./scripts/agent-eval")
-	build.Dir = repositoryRoot
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build wrapper: %v\n%s", err, output)
-	}
+	buildEvaluatorCommand(t, repositoryRoot, wrapper)
 	outputRoot := filepath.Join(root, "output")
 	scratch := filepath.Join(root, "scratch")
 	for _, directory := range []string{outputRoot, scratch} {

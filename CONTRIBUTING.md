@@ -7,14 +7,17 @@ started and what to expect when opening a pull request.
 
 ## Dev setup
 
-**Requirements:** the exact Go patch declared by `go.mod`, `make`, `git`.
+**Requirements:** the exact Go patch declared by the applicable module's
+`go.mod`, `make`, `git`.
 
 ```bash
 git clone https://github.com/isukharev/atl.git
 cd atl
-go build ./...          # build everything
-make test               # run core product tests
-make agent-eval-contract # run the complete deterministic evaluator contract
+go build ./...            # build the root product module
+make test                 # run core product tests
+make agent-eval-compat    # run the product/evaluator compatibility boundary
+make agent-eval-contract  # run the deterministic evaluator contract
+make agent-eval-full      # run every nested evaluator-module gate
 ```
 
 Or, using the Makefile targets:
@@ -25,8 +28,23 @@ make test    # core product tests
 make race    # core product tests with the race detector
 make lint    # golangci-lint run
 make check-maintainer-contract # verifies the local Go/tooling contract
-make check-package-boundary # verifies the core/heavy dependency split
+make check-package-boundary # verifies root-module and bilateral module/import boundaries
+make agent-eval-product-boundary # verifies the bilateral module/import boundary
+make agent-eval-build      # build the nested evaluator command
+make agent-eval-unit       # evaluator unit suite
+make agent-eval-race       # evaluator race suite
+make agent-eval-lint       # evaluator lint
+make agent-eval-vet        # evaluator vet
+make agent-eval-vuln       # evaluator vulnerability scan
+make agent-eval-tidy-check # evaluator module tidiness
+make agent-eval-windows    # evaluator Windows compilation
 ```
+
+The evaluator library and its maintainer command are an independent nested Go
+module at `internal/agenteval`; its command entrypoint is
+`internal/agenteval/cmd/agent-eval`. Root recursive Go commands intentionally
+do not enter that module, so use the root `make agent-eval-*` façades instead
+of adding a root module dependency or a tracked workspace file.
 
 ### Devcontainer
 
@@ -65,11 +83,13 @@ different Go toolchain automatically.
   reviewed plan, explicit authority, an owned disposable target, and a cleanup
   plan. Never hard-code real object IDs or backend details in tracked files.
 
-- **Agent-evaluation tests** have a separate deterministic gate. Product
-  changes run the small compatibility contract in CI; evaluator/corpus changes
-  run `make agent-eval-contract`. Release tags additionally run the evaluator
-  race gate on Linux. Generic synthetic backend fixtures live outside the
-  evaluator so product tests cannot acquire a hidden heavy dependency.
+- **Agent-evaluation tests** have a separate, provider/backend-free nested
+  module gate. Ordinary product changes retain `make agent-eval-compat` in CI.
+  Evaluator or corpus changes and release preparation run
+  `make agent-eval-full`, which includes the deterministic contract plus build,
+  unit, race, lint, vet, vulnerability, tidy, and Windows checks. Generic
+  synthetic backend fixtures live outside the evaluator so product tests cannot
+  acquire a hidden heavy dependency.
 
 ---
 

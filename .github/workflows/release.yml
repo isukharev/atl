@@ -53,8 +53,8 @@ jobs:
           go-version-file: go.mod
           check-latest: true
       - name: Maintainer toolchain contract
-        run: GOTOOLCHAIN=local go run ./scripts/check-maintainer-contract
-      - name: Core/heavy package boundary
+        run: make check-maintainer-contract
+      - name: Two-module package boundary
         run: make check-package-boundary
       - name: Maintainability ratchets
         run: make check-maintainability
@@ -73,7 +73,7 @@ jobs:
       - name: Onboarding documentation rehearsal
         run: make check-onboarding-docs
       - name: Vet
-        run: go vet ./...
+        run: make vet
       - name: golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
@@ -91,8 +91,8 @@ jobs:
         with:
           go-version-file: go.mod
           check-latest: true
-      - name: Agent evaluation race gate
-        run: make agent-eval-race
+      - name: Complete agent-evaluation gate
+        run: make agent-eval-full
 
   release:
     needs: [test, quality, agent-eval]
