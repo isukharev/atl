@@ -176,7 +176,7 @@ func (issue JiraTriageIssueGet) validate() error {
 	if strings.TrimSpace(issue.Description) == "" || len(issue.Description) > jiraTriageWireMaximumBodyBytes || !utf8.ValidString(issue.Description) {
 		return fmt.Errorf("description is invalid")
 	}
-	if issue.Fields == nil || len(issue.Fields) == 0 || len(issue.Fields) > jiraTriageWireMaximumFields {
+	if len(issue.Fields) == 0 || len(issue.Fields) > jiraTriageWireMaximumFields {
 		return fmt.Errorf("fields are invalid")
 	}
 	for name, expected := range map[string]string{
@@ -311,7 +311,9 @@ func triageWireSHA256(value string) bool {
 		return false
 	}
 	for index := 0; index < len(value); index++ {
-		if !((value[index] >= '0' && value[index] <= '9') || (value[index] >= 'a' && value[index] <= 'f')) {
+		decimal := value[index] >= '0' && value[index] <= '9'
+		lowerHex := value[index] >= 'a' && value[index] <= 'f'
+		if !decimal && !lowerHex {
 			return false
 		}
 	}
