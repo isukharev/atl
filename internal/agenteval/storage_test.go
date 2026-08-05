@@ -280,6 +280,80 @@ func TestCopyWorkspaceRejectsSymlinks(t *testing.T) {
 	}
 }
 
+func TestCopyWorkspaceRejectsGrowthAfterOpeningInventoriedFile(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "source")
+	if err := os.Mkdir(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const name = "evidence.txt"
+	if err := os.WriteFile(filepath.Join(source, name), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "target")
+	grown := false
+	err := copyWorkspaceWithHooks(source, target, workspaceCopyHooks{
+		beforeFileRead: func(path string) {
+			if path != name {
+				return
+			}
+			file, openErr := os.OpenFile(filepath.Join(source, path), os.O_WRONLY|os.O_APPEND, 0)
+			if openErr != nil {
+				t.Fatal(openErr)
+			}
+			if truncateErr := file.Truncate(maxWorkspaceBytes + 1); truncateErr != nil {
+				_ = file.Close()
+				t.Fatal(truncateErr)
+			}
+			if closeErr := file.Close(); closeErr != nil {
+				t.Fatal(closeErr)
+			}
+			grown = true
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "changed") || !grown {
+		t.Fatalf("growth copy error=%v grown=%t", err, grown)
+	}
+	info, statErr := os.Stat(filepath.Join(target, name))
+	if statErr != nil || info.Size() != 1 {
+		t.Fatalf("bounded growth copy size=%v err=%v", info, statErr)
+	}
+}
+
+func TestCopyWorkspaceRejectsRootReplacementAfterInventory(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	replacement := filepath.Join(root, "replacement")
+	for _, directory := range []string{source, replacement} {
+		if err := os.Mkdir(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(source, "evidence.txt"), []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(replacement, "evidence.txt"), []byte("replacement"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	moved := filepath.Join(root, "moved")
+	target := filepath.Join(root, "target")
+	err := copyWorkspaceWithHooks(source, target, workspaceCopyHooks{
+		afterInventory: func() {
+			if renameErr := os.Rename(source, moved); renameErr != nil {
+				t.Fatal(renameErr)
+			}
+			if renameErr := os.Rename(replacement, source); renameErr != nil {
+				t.Fatal(renameErr)
+			}
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "root changed") {
+		t.Fatalf("root replacement error=%v", err)
+	}
+	if _, statErr := os.Stat(target); !os.IsNotExist(statErr) {
+		t.Fatalf("root replacement created target: %v", statErr)
+	}
+}
+
 func TestPrivateLiveInputsRequireIgnoredSpecAndExternalOwnerOnlyConfig(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix permission boundary")

@@ -28,18 +28,26 @@ const (
 // SyntheticATLProcessConfig binds evaluator-owned fixture bytes and exact
 // CLI/MCP admissions to one selected ATL executable. ScratchRoot must already
 // exist as an owner-only directory; the process creates and removes one unique
-// owner-only child beneath it.
+// owner-only child beneath it. MirrorTemplate, when set, is copied into that
+// child before a synthetic MCP server starts; it is never used as the child
+// process's mirror root.
 type SyntheticATLProcessConfig struct {
 	Binary         string
 	Fixture        MockFixture
 	ScratchRoot    string
-	CLIPolicy      CLICommandPolicy
-	MCPService     string
-	MCPInvocations []MCPInvocation
-	Timeout        time.Duration
-	MaxStdoutBytes int64
-	MaxStderrBytes int64
-	MaxMCPBytes    int64
+	MirrorTemplate string
+	// VerifyMCPToolInventory performs the extra bounded tools/list profile
+	// attestation before admitted MCP calls. Mirror templates require it; other
+	// high-volume synthetic cohorts retain their already-reviewed admission
+	// boundary without paying this per-process compatibility cost.
+	VerifyMCPToolInventory bool
+	CLIPolicy              CLICommandPolicy
+	MCPService             string
+	MCPInvocations         []MCPInvocation
+	Timeout                time.Duration
+	MaxStdoutBytes         int64
+	MaxStderrBytes         int64
+	MaxMCPBytes            int64
 }
 
 // SyntheticCLIResult preserves the selected binary's exit status and bounded
@@ -158,12 +166,19 @@ func StartSyntheticATLProcess(ctx context.Context, input SyntheticATLProcessConf
 	}
 	for _, directory := range []string{
 		filepath.Join(runtimeRoot, "config"),
-		filepath.Join(runtimeRoot, "mirror"),
 		filepath.Join(runtimeRoot, "tmp"),
 	} {
 		if err := os.Mkdir(directory, 0o700); err != nil {
 			return fail(fmt.Errorf("create synthetic ATL runtime directory"))
 		}
+	}
+	mirrorRoot := filepath.Join(runtimeRoot, "mirror")
+	insideMirror, pathErr := pathWithin(runtimeRoot, mirrorRoot)
+	if pathErr != nil || !insideMirror {
+		return fail(fmt.Errorf("synthetic ATL mirror runtime escaped its root"))
+	}
+	if err := seedSyntheticATLMirrorTemplate(config.MirrorTemplate, mirrorRoot); err != nil {
+		return fail(err)
 	}
 	process.binary, err = materializeSelectedSyntheticATLBinary(process.binary, runtimeRoot)
 	if err != nil {
@@ -176,6 +191,13 @@ func StartSyntheticATLProcess(ctx context.Context, input SyntheticATLProcessConf
 	process.backend = backend
 	process.environment = syntheticATLProcessEnvironment(backend, runtimeRoot)
 	if len(config.MCPInvocations) > 0 {
+		expectedTools, ok := PinnedCapabilityCatalog().mcpToolsForProfile(config.MCPService)
+		if !ok {
+			return fail(fmt.Errorf("synthetic ATL MCP service must be a closed profile"))
+		}
+		if err := process.binary.verify(); err != nil {
+			return fail(err)
+		}
 		process.mcp, err = startBoundedMCPCommand(
 			ctx, process.binary.executionPath,
 			[]string{"mcp", "serve", "--service", config.MCPService},
@@ -185,11 +207,46 @@ func StartSyntheticATLProcess(ctx context.Context, input SyntheticATLProcessConf
 		if err != nil {
 			return fail(err)
 		}
+		if err := process.binary.verify(); err != nil {
+			return fail(err)
+		}
+		if config.VerifyMCPToolInventory {
+			if err := process.mcp.verifyToolInventory(ctx, expectedTools); err != nil {
+				return fail(err)
+			}
+			if err := process.binary.verify(); err != nil {
+				return fail(err)
+			}
+		}
 	}
-	if err := binary.verify(); err != nil {
+	if err := process.binary.verify(); err != nil {
 		return fail(err)
 	}
 	return process, nil
+}
+
+// seedSyntheticATLMirrorTemplate creates the child-visible mirror root from a
+// bounded plain-directory template. copyWorkspace owns the descriptor-relative
+// copy and rejects nested links and non-regular entries, keeping product mirror
+// parsing out of the evaluator process boundary.
+func seedSyntheticATLMirrorTemplate(template, target string) error {
+	if template == "" {
+		if err := os.Mkdir(target, 0o700); err != nil {
+			return fmt.Errorf("create synthetic ATL mirror root")
+		}
+		return nil
+	}
+	info, err := os.Lstat(template)
+	if err != nil {
+		return fmt.Errorf("inspect synthetic ATL mirror template")
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("synthetic ATL mirror template must be a plain non-symlink directory")
+	}
+	if err := copyWorkspace(template, target); err != nil {
+		return fmt.Errorf("seed synthetic ATL mirror template: %w", err)
+	}
+	return requirePrivateDirectory("synthetic ATL mirror runtime", target)
 }
 
 func normalizeSyntheticATLProcessConfig(input SyntheticATLProcessConfig) (SyntheticATLProcessConfig, map[string]int, error) {
@@ -224,6 +281,12 @@ func normalizeSyntheticATLProcessConfig(input SyntheticATLProcessConfig) (Synthe
 	}
 	if (config.MCPService == "") != (len(config.MCPInvocations) == 0) {
 		return SyntheticATLProcessConfig{}, nil, fmt.Errorf("synthetic ATL MCP service and invocations must be configured together")
+	}
+	if config.VerifyMCPToolInventory && len(config.MCPInvocations) == 0 {
+		return SyntheticATLProcessConfig{}, nil, fmt.Errorf("synthetic ATL MCP tool inventory verification requires MCP invocations")
+	}
+	if config.MirrorTemplate != "" && !config.VerifyMCPToolInventory {
+		return SyntheticATLProcessConfig{}, nil, fmt.Errorf("synthetic ATL mirror template requires MCP tool inventory verification")
 	}
 	exactBudgets := map[string]int{}
 	if len(config.MCPInvocations) > 0 {

@@ -93,7 +93,7 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 		{name: "make tab-separated include", path: "Makefile", old: ".PHONY: check-core-race-coverage", replacement: "include\tbypass.mk\n.PHONY: check-core-race-coverage", want: "hidden build rules"},
 		{name: "coverage command", path: "Makefile", old: "go test -race -covermode=atomic", replacement: "go test -covermode=count", want: "core race/coverage command"},
 		{name: "coverage checker", path: "Makefile", old: "go run ./scripts/check-coverage --profile cover.out", replacement: "echo coverage", want: "core race/coverage command"},
-		{name: "agent eval race timeout", path: "Makefile", old: "-timeout=15m", replacement: "-timeout=10m", want: "exact agent-evaluation race gate"},
+		{name: "agent eval race timeout", path: "Makefile", old: "-timeout=20m", replacement: "-timeout=10m", want: "exact agent-evaluation race gate"},
 		{name: "onboarding update opt out", path: "Makefile", old: "ATL_NO_UPDATE=1 go run ./scripts/check-onboarding-docs", replacement: "go run ./scripts/check-onboarding-docs", want: "onboarding binary assertion must set ATL_NO_UPDATE=1"},
 		{name: "documentation catalog make gate", path: "Makefile", old: "go run ./scripts/check-docs-catalog -root .", replacement: "echo skipped", want: "exact documentation-catalog gate"},
 		{name: "documentation freshness make gate", path: "Makefile", old: "go run ./scripts/check-docs-freshness -root .", replacement: "echo skipped", want: "exact documentation-freshness gate"},

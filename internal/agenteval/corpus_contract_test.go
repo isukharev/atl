@@ -13,8 +13,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-
-	"github.com/isukharev/atl/internal/app"
 )
 
 func TestRepositoryBenchmarkCorpusContract(t *testing.T) {
@@ -1038,7 +1036,7 @@ func TestRepositoryMirrorSnapshotMCPV1HoldoutsAreDistinct(t *testing.T) {
 	}
 }
 
-func TestRepositoryMirrorSnapshotMCPV1FixturesMatchContentFreeOracles(t *testing.T) {
+func TestRepositoryMirrorSnapshotMCPV1FixturesDriveSelectedATLBinary(t *testing.T) {
 	root := filepath.Join("..", "..", "benchmarks", "agent-eval")
 	for _, test := range []struct {
 		directory string
@@ -1054,9 +1052,9 @@ func TestRepositoryMirrorSnapshotMCPV1FixturesMatchContentFreeOracles(t *testing
 		t.Run(test.directory, func(t *testing.T) {
 			directory := filepath.Join(root, test.directory)
 			workspace := filepath.Join(directory, "workspace")
-			final, complete, snapshotErr := repositoryMirrorSnapshotFinal(t, test.service, filepath.Join(workspace, "mirror"))
-			if complete != test.complete || (snapshotErr != nil) == test.complete {
-				t.Fatalf("snapshot completeness/error contract drifted: complete=%t err=%v", complete, snapshotErr)
+			final, complete := repositoryMirrorSnapshotFinal(t, test.service, filepath.Join(workspace, "mirror"))
+			if complete != test.complete {
+				t.Fatalf("selected ATL mirror snapshot completeness drifted: complete=%t want=%t", complete, test.complete)
 			}
 			for _, forbidden := range []string{workspace, ".wiki", ".csf", "SYN-1", "HOLD-7"} {
 				if strings.Contains(string(final), forbidden) {
@@ -1119,7 +1117,7 @@ func TestRepositoryMirrorSnapshotMCPV1SchemasStayClosedAndContentFree(t *testing
 	} {
 		t.Run(test.directory, func(t *testing.T) {
 			directory := filepath.Join(root, test.directory)
-			final, _, _ := repositoryMirrorSnapshotFinal(t, test.service, filepath.Join(directory, "workspace", "mirror"))
+			final, _ := repositoryMirrorSnapshotFinal(t, test.service, filepath.Join(directory, "workspace", "mirror"))
 			var output map[string]any
 			if err := json.Unmarshal(final, &output); err != nil {
 				t.Fatal(err)
@@ -1132,7 +1130,7 @@ func TestRepositoryMirrorSnapshotMCPV1SchemasStayClosedAndContentFree(t *testing
 			if err := json.Unmarshal(schemaBytes, &schema); err != nil {
 				t.Fatal(err)
 			}
-			if err := validateRepositoryContentFreeSchema(schema, output, "$"); err != nil {
+			if err := validateRepositoryMirrorSnapshotSchema(schema, output, test.service); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -1141,7 +1139,7 @@ func TestRepositoryMirrorSnapshotMCPV1SchemasStayClosedAndContentFree(t *testing
 
 func TestRepositoryMirrorSnapshotMCPV1SchemaMutationsAreRejected(t *testing.T) {
 	directory := filepath.Join("..", "..", "benchmarks", "agent-eval", "jira-mirror-snapshot-mcp")
-	final, _, _ := repositoryMirrorSnapshotFinal(t, "jira", filepath.Join(directory, "workspace", "mirror"))
+	final, _ := repositoryMirrorSnapshotFinal(t, "jira", filepath.Join(directory, "workspace", "mirror"))
 	baseSchema, err := os.ReadFile(filepath.Join(directory, "response-schema.v1.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -1168,6 +1166,24 @@ func TestRepositoryMirrorSnapshotMCPV1SchemaMutationsAreRejected(t *testing.T) {
 			},
 		},
 		{
+			name: "schema version constant",
+			mutate: func(schema, _ map[string]any) {
+				schema["properties"].(map[string]any)["schema_version"].(map[string]any)["const"] = 2
+			},
+		},
+		{
+			name: "service constant",
+			mutate: func(schema, _ map[string]any) {
+				schema["properties"].(map[string]any)["service"].(map[string]any)["const"] = "confluence"
+			},
+		},
+		{
+			name: "nested integer minimum",
+			mutate: func(schema, _ map[string]any) {
+				delete(schema["properties"].(map[string]any)["local"].(map[string]any)["properties"].(map[string]any)["present"].(map[string]any), "minimum")
+			},
+		},
+		{
 			name: "nested type drift",
 			mutate: func(schema, _ map[string]any) {
 				local := schema["properties"].(map[string]any)["local"].(map[string]any)
@@ -1178,6 +1194,12 @@ func TestRepositoryMirrorSnapshotMCPV1SchemaMutationsAreRejected(t *testing.T) {
 			name: "fractional integer output",
 			mutate: func(_ map[string]any, output map[string]any) {
 				output["local"].(map[string]any)["present"] = 1.5
+			},
+		},
+		{
+			name: "negative integer output",
+			mutate: func(_ map[string]any, output map[string]any) {
+				output["local"].(map[string]any)["present"] = -1.0
 			},
 		},
 	} {
@@ -1191,7 +1213,7 @@ func TestRepositoryMirrorSnapshotMCPV1SchemaMutationsAreRejected(t *testing.T) {
 				t.Fatal(err)
 			}
 			test.mutate(schema, output)
-			if err := validateRepositoryContentFreeSchema(schema, output, "$"); err == nil {
+			if err := validateRepositoryMirrorSnapshotSchema(schema, output, "jira"); err == nil {
 				t.Fatal("mutated response schema passed the closed content-free contract")
 			}
 		})
@@ -1212,7 +1234,14 @@ var repositoryMirrorSnapshotAllowedProperties = map[string]struct{}{
 	"not_attempted": {}, "checked": {}, "in_sync": {}, "drifted": {}, "unavailable": {}, "absent": {},
 }
 
-func validateRepositoryContentFreeSchema(schema map[string]any, output any, pointer string) error {
+func validateRepositoryMirrorSnapshotSchema(schema map[string]any, output any, service string) error {
+	if service != "jira" && service != "confluence" {
+		return fmt.Errorf("unsupported mirror snapshot service %q", service)
+	}
+	return validateRepositoryContentFreeSchema(schema, output, "$", service)
+}
+
+func validateRepositoryContentFreeSchema(schema map[string]any, output any, pointer, service string) error {
 	typeName, ok := schema["type"].(string)
 	if !ok {
 		return fmt.Errorf("%s schema has no type", pointer)
@@ -1259,7 +1288,7 @@ func validateRepositoryContentFreeSchema(schema map[string]any, output any, poin
 			if !ok {
 				return fmt.Errorf("%s/%s property schema is not an object", pointer, name)
 			}
-			if err := validateRepositoryContentFreeSchema(childSchema, value[name], pointer+"/"+name); err != nil {
+			if err := validateRepositoryContentFreeSchema(childSchema, value[name], pointer+"/"+name, service); err != nil {
 				return err
 			}
 		}
@@ -1268,9 +1297,27 @@ func validateRepositoryContentFreeSchema(schema map[string]any, output any, poin
 		if !ok || math.IsNaN(number) || math.IsInf(number, 0) || math.Trunc(number) != number {
 			return fmt.Errorf("%s app output is not an integer", pointer)
 		}
+		if pointer == "$/schema_version" {
+			constant, ok := schema["const"].(float64)
+			if !ok || constant != 1 || number != 1 {
+				return fmt.Errorf("%s schema_version is not the released schema-v1 constant", pointer)
+			}
+			break
+		}
+		minimum, ok := schema["minimum"].(float64)
+		if !ok || minimum != 0 || number < 0 {
+			return fmt.Errorf("%s integer is not nonnegative with minimum zero", pointer)
+		}
 	case "string":
-		if _, ok := output.(string); !ok {
+		value, ok := output.(string)
+		if !ok {
 			return fmt.Errorf("%s app output is not a string", pointer)
+		}
+		if pointer == "$/service" {
+			constant, ok := schema["const"].(string)
+			if !ok || constant != service || value != service {
+				return fmt.Errorf("%s service is not the released %s constant", pointer, service)
+			}
 		}
 	case "boolean":
 		if _, ok := output.(bool); !ok {
@@ -1291,32 +1338,106 @@ func sortedRepositoryMapKeys[V any](values map[string]V) []string {
 	return keys
 }
 
-func repositoryMirrorSnapshotFinal(t *testing.T, service, workspace string) ([]byte, bool, error) {
+func repositoryMirrorSnapshotFinal(t *testing.T, service, template string) ([]byte, bool) {
 	t.Helper()
-	var value any
-	var complete bool
-	var snapshotErr error
-	switch service {
-	case "jira":
-		snapshot, err := app.SnapshotJiraMirror(workspace)
-		if snapshot == nil {
-			t.Fatalf("Jira mirror snapshot is nil: %v", err)
-		}
-		value, complete, snapshotErr = snapshot, snapshot.Complete, err
-	case "confluence":
-		snapshot, err := app.SnapshotConfluenceMirror(workspace)
-		if snapshot == nil {
-			t.Fatalf("Confluence mirror snapshot is nil: %v", err)
-		}
-		value, complete, snapshotErr = snapshot, snapshot.Complete, err
-	default:
-		t.Fatalf("unsupported mirror service %q", service)
+	tool := service + "_mirror_snapshot"
+	invocation := mustMCPInvocation(t, tool, map[string]any{})
+	if string(invocation.Arguments) != "{}" {
+		t.Fatalf("mirror snapshot admission is not exactly empty: %s", invocation.Arguments)
 	}
-	final, err := json.Marshal(value)
+	before := repositoryTreeDigest(t, template)
+	fixture := loadRepositoryMockFixture(t, filepath.Join(filepath.Dir(filepath.Dir(template)), "fixture.json"))
+	scratch := privateSyntheticATLScratch(t)
+	process, err := StartSyntheticATLProcess(t.Context(), SyntheticATLProcessConfig{
+		Binary: repositorySyntheticATLBinary(t), Fixture: fixture, ScratchRoot: scratch, MirrorTemplate: template,
+		VerifyMCPToolInventory: true, MCPService: "offline", MCPInvocations: []MCPInvocation{invocation},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return final, complete, snapshotErr
+	t.Cleanup(func() {
+		if closeErr := process.Close(); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+
+	runtimeMirror := filepath.Join(process.runtimeRoot, "mirror")
+	insideScratch, scratchErr := pathWithin(process.scratchRoot, process.runtimeRoot)
+	insideRuntime, runtimeErr := pathWithin(process.runtimeRoot, runtimeMirror)
+	if scratchErr != nil || runtimeErr != nil || !insideScratch || !insideRuntime ||
+		environmentMap(process.environment)["ATL_MIRROR_ROOT"] != runtimeMirror {
+		t.Fatalf("mirror runtime escaped isolated process root: scratch=%q runtime=%q mirror=%q scratch_err=%v runtime_err=%v",
+			process.scratchRoot, process.runtimeRoot, runtimeMirror, scratchErr, runtimeErr)
+	}
+	templateInfo, err := os.Stat(template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeInfo, err := os.Stat(runtimeMirror)
+	if err != nil || os.SameFile(templateInfo, runtimeInfo) {
+		t.Fatalf("mirror template was not copied into the private runtime: runtime=%v err=%v", runtimeInfo, err)
+	}
+
+	for name, arguments := range map[string]map[string]any{
+		"path":   {"path": "mirror"},
+		"remote": {"remote": true},
+	} {
+		t.Run("refuse_"+name, func(t *testing.T) {
+			mutated := mustMCPInvocation(t, tool, arguments)
+			if _, callErr := process.CallMCPJSON(t.Context(), mutated); callErr == nil {
+				t.Fatalf("unadmitted mirror snapshot arguments reached the selected process: %s", mutated.Arguments)
+			}
+		})
+	}
+	if summary := process.Summary(); len(summary.HTTPMethods) != 0 || summary.UnexpectedRequests != 0 ||
+		summary.DuplicateRequests != 0 || len(summary.CLIInvocations) != 0 || len(summary.MCPInvocations) != 0 {
+		t.Fatalf("unadmitted mirror snapshot call reached execution: %+v", summary)
+	}
+
+	result, err := process.CallMCPJSON(t.Context(), invocation)
+	if err != nil || result.IsError || len(result.StructuredContent) == 0 || len(result.TextContent) != 1 {
+		t.Fatalf("selected ATL mirror snapshot result=%+v err=%v", result, err)
+	}
+	structured, err := canonicalJSON(result.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, err := canonicalJSON(json.RawMessage(result.TextContent[0]))
+	if err != nil || !bytes.Equal(structured, text) {
+		t.Fatalf("mirror snapshot structured/text content diverged: structured=%s text=%q err=%v", structured, result.TextContent[0], err)
+	}
+	var complete bool
+	switch service {
+	case "jira":
+		wire, decodeErr := decodeJiraMirrorSnapshotWire(bytes.NewReader(structured))
+		if decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		complete = wire.Complete
+	case "confluence":
+		wire, decodeErr := decodeConfluenceMirrorSnapshotWire(bytes.NewReader(structured))
+		if decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		complete = wire.Complete
+	default:
+		t.Fatalf("unsupported mirror service %q", service)
+	}
+	if summary := process.Summary(); len(summary.HTTPMethods) != 0 || summary.UnexpectedRequests != 0 ||
+		summary.DuplicateRequests != 0 || len(summary.CLIInvocations) != 0 || len(summary.MCPInvocations) != 1 ||
+		summary.MCPInvocations[tool] != 1 {
+		t.Fatalf("mirror snapshot accounting drifted: %+v", summary)
+	}
+	if err := process.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if entries, err := os.ReadDir(scratch); err != nil || len(entries) != 0 {
+		t.Fatalf("mirror process runtime survived cleanup: entries=%v err=%v", entries, err)
+	}
+	if after := repositoryTreeDigest(t, template); after != before {
+		t.Fatal("mirror template changed during selected ATL execution")
+	}
+	return structured, complete
 }
 
 func repositoryTreeDigest(t *testing.T, root string) [sha256.Size]byte {
