@@ -2,17 +2,12 @@ package agenteval
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/isukharev/atl/internal/app"
-	"github.com/isukharev/atl/internal/config"
-	"github.com/isukharev/atl/internal/domain"
 )
 
 func TestRepositoryJiraPortfolioDiscoveryFixturesDriveProviderOracles(t *testing.T) {
@@ -79,31 +74,16 @@ func TestRepositoryJiraPortfolioDiscoveryFixturesDriveProviderOracles(t *testing
 		t.Run(test.name, func(t *testing.T) {
 			root := filepath.Join("..", "..", "benchmarks", "agent-eval", test.directory)
 			fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
-			backend, err := StartMockBackend(fixture)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer backend.Close()
-
-			t.Setenv("ATL_CONFIG_DIR", t.TempDir())
-			t.Setenv("ATL_JIRA_PAT", "synthetic-token")
-			service, err := app.NewJira(&config.Config{JiraURL: backend.Environment()["ATL_JIRA_URL"]}, "benchmark-contract")
-			if err != nil {
-				t.Fatal(err)
-			}
-			boards, next, err := service.Boards(context.Background(), test.project, test.limit, "")
-			if err != nil {
-				t.Fatal(err)
-			}
-			folders, err := service.StructureFolders(context.Background(), test.structureID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			final := jiraPortfolioDiscoveryBenchmarkFinal(t, boards, next, folders)
-			methods, unexpected, duplicates := backend.Summary()
+			codexSpec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli.codex.json"))
+			policy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: codexSpec.AllowedCLICommands}
+			process := startJiraPortfolioDiscoveryProcess(t, fixture, policy, test.project, test.limit, test.structureID)
+			evidence := executeJiraPortfolioDiscoveryProcess(t, process, test.codexCommands)
+			final := jiraPortfolioDiscoveryBenchmarkFinal(t, evidence.Boards, evidence.Folders)
+			methods, unexpected, duplicates := evidence.Summary.HTTPMethods, evidence.Summary.UnexpectedRequests, evidence.Summary.DuplicateRequests
 			if unexpected != 0 || duplicates != 0 || !equalHTTPMethods(methods, test.expectedMethods) {
 				t.Fatalf("methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
 			}
+			assertJiraPortfolioDiscoveryAdmissionRefused(t, fixture, policy, test.project, test.limit, test.structureID, test.codexCommands)
 
 			for _, provider := range []string{"codex", "claude"} {
 				spec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli."+provider+".json"))
@@ -238,10 +218,10 @@ func TestRepositoryJiraPortfolioDiscoverySamplingPairIdentity(t *testing.T) {
 	}
 }
 
-func jiraPortfolioDiscoveryBenchmarkFinal(t *testing.T, boards []domain.Board, next string, result *app.StructureFoldersResult) []byte {
+func jiraPortfolioDiscoveryBenchmarkFinal(t *testing.T, boards JiraPortfolioBoardList, result JiraPortfolioStructureFolders) []byte {
 	t.Helper()
-	boardItems := make([]map[string]any, 0, len(boards))
-	for _, board := range boards {
+	boardItems := make([]map[string]any, 0, len(boards.Boards))
+	for _, board := range boards.Boards {
 		boardItems = append(boardItems, map[string]any{
 			"id": board.ID, "name": board.Name, "type": board.Type, "project_key": board.ProjectKey,
 		})
@@ -263,7 +243,7 @@ func jiraPortfolioDiscoveryBenchmarkFinal(t *testing.T, boards []domain.Board, n
 		})
 	}
 	final := map[string]any{
-		"boards": map[string]any{"count": len(boards), "next_cursor": next, "items": boardItems},
+		"boards": map[string]any{"count": len(boards.Boards), "next_cursor": boards.NextCursor, "items": boardItems},
 		"structure": map[string]any{
 			"id":               result.Structure.ID,
 			"name":             result.Structure.Name,

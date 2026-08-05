@@ -2,9 +2,7 @@ package agenteval
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,10 +10,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-
-	"github.com/isukharev/atl/internal/app"
-	"github.com/isukharev/atl/internal/config"
-	"github.com/isukharev/atl/internal/domain"
 )
 
 const reportingColumns = "key,summary,status,assignee,priority,updated"
@@ -50,24 +44,18 @@ func TestJiraStatusReportWorkflowFixturesDriveProviderOracles(t *testing.T) {
 			root := reportingWorkflowRoot(test.directory)
 			fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
 			assertStatusReportFixtureRoutes(t, fixture, test.queries)
-			backend, service := startReportingWorkflowBackend(t, root)
-			defer backend.Close()
-			columns := strings.Split(reportingColumns, ",")
-			pages := make([]*app.IssueList, len(test.queries))
-			for i, query := range test.queries {
-				page, err := service.SearchIssueList(context.Background(), query, columns, 2, "")
-				if err != nil {
-					t.Fatal(err)
-				}
-				pages[i] = page
-			}
-			final := statusReportFinal(t, test, pages)
-			methods, unexpected, duplicates := backend.Summary()
+			codexSpec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli.codex.json"))
+			policy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: codexSpec.AllowedCLICommands}
+			commands := statusReportCommands(test.queries)
+			process := startJiraStatusReportProcess(t, fixture, policy, test.queries)
+			evidence := executeJiraStatusReportProcess(t, process, jiraReportingWorkflowCommands(commands), test.queries)
+			final := statusReportFinal(t, test, evidence.Pages)
+			methods, unexpected, duplicates := evidence.Summary.HTTPMethods, evidence.Summary.UnexpectedRequests, evidence.Summary.DuplicateRequests
 			if !equalHTTPMethods(methods, map[string]int{"GET": 3}) || unexpected != 0 || duplicates != 0 {
 				t.Fatalf("methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
 			}
-			commands := statusReportCommands(test.queries)
 			assertReportingWorkflowSpecs(t, root, "atl:status-report", final, methods, 0, []int{0, 0, 0}, nil, commands)
+			assertJiraStatusReportAdmissionRefused(t, fixture, policy, test.queries, jiraReportingWorkflowCommands(commands))
 			assertReportingSemanticMutationFails(t, root, final, methods, "/metrics/done_observed", "metrics_correct", 0, []int{0, 0, 0}, "atl:status-report")
 			assertReportingSemanticMutationFails(t, root, final, methods, "/interpretation/qualification", "interpretation_correct", 0, []int{0, 0, 0}, "atl:status-report")
 			if test.directory == "jira-status-report-workflow" {
@@ -77,7 +65,7 @@ func TestJiraStatusReportWorkflowFixturesDriveProviderOracles(t *testing.T) {
 	}
 }
 
-func statusReportFinal(t *testing.T, test reportingWorkflowCase, pages []*app.IssueList) []byte {
+func statusReportFinal(t *testing.T, test reportingWorkflowCase, pages []JiraSnapshotIssueList) []byte {
 	t.Helper()
 	ids := []string{"done", "active", "risk"}
 	sources := make([]map[string]any, len(pages))
@@ -112,15 +100,15 @@ func statusReportFinal(t *testing.T, test reportingWorkflowCase, pages []*app.Is
 		t.Fatal("fixture must retain a named partial source")
 	}
 	facts := []string{
-		formatStatusRows("done", pages[0].Rows, func(row app.IssueListRow) string { return stringValue(row.Values["status"]) }),
-		formatStatusRows("active", pages[1].Rows, func(row app.IssueListRow) string {
+		formatStatusRows("done", pages[0].Rows, func(row JiraSnapshotIssueListRow) string { return stringValue(row.Values["status"]) }),
+		formatStatusRows("active", pages[1].Rows, func(row JiraSnapshotIssueListRow) string {
 			assignee := stringValue(row.Values["assignee"])
 			if assignee == "" {
 				assignee = "Unassigned"
 			}
 			return stringValue(row.Values["status"]) + "@" + assignee
 		}),
-		formatStatusRows("risk", pages[2].Rows, func(row app.IssueListRow) string {
+		formatStatusRows("risk", pages[2].Rows, func(row JiraSnapshotIssueListRow) string {
 			return stringValue(row.Values["priority"]) + "/" + stringValue(row.Values["status"])
 		}),
 	}
@@ -139,7 +127,7 @@ func statusReportFinal(t *testing.T, test reportingWorkflowCase, pages []*app.Is
 	return mustJSON(t, final)
 }
 
-func formatStatusRows(source string, rows []app.IssueListRow, value func(app.IssueListRow) string) string {
+func formatStatusRows(source string, rows []JiraSnapshotIssueListRow, value func(JiraSnapshotIssueListRow) string) string {
 	parts := make([]string, len(rows))
 	for i, row := range rows {
 		parts[i] = row.Key + "=" + value(row)
@@ -174,22 +162,17 @@ func assertStatusFixtureMutationsChangeOracles(t *testing.T, root string, fixtur
 
 func driveStatusReportFixture(t *testing.T, fixture MockFixture, test reportingWorkflowCase) ([]byte, map[string]int) {
 	t.Helper()
-	backend, service := startReportingWorkflowBackendFixture(t, fixture)
-	defer backend.Close()
-	columns := strings.Split(reportingColumns, ",")
-	pages := make([]*app.IssueList, len(test.queries))
-	for i, query := range test.queries {
-		page, err := service.SearchIssueList(context.Background(), query, columns, 2, "")
-		if err != nil {
-			t.Fatal(err)
-		}
-		pages[i] = page
-	}
-	methods, unexpected, duplicates := backend.Summary()
+	root := reportingWorkflowRoot(test.directory)
+	spec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli.codex.json"))
+	policy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: spec.AllowedCLICommands}
+	commands := statusReportCommands(test.queries)
+	process := startJiraStatusReportProcess(t, fixture, policy, test.queries)
+	evidence := executeJiraStatusReportProcess(t, process, jiraReportingWorkflowCommands(commands), test.queries)
+	methods, unexpected, duplicates := evidence.Summary.HTTPMethods, evidence.Summary.UnexpectedRequests, evidence.Summary.DuplicateRequests
 	if unexpected != 0 || duplicates != 0 {
 		t.Fatalf("mutated status fixture unexpected=%d duplicates=%d", unexpected, duplicates)
 	}
-	return statusReportFinal(t, test, pages), methods
+	return statusReportFinal(t, test, evidence.Pages), methods
 }
 
 type sprintWorkflowCase struct {
@@ -210,47 +193,28 @@ func TestJiraSprintDashboardWorkflowFixturesDriveProviderOracles(t *testing.T) {
 			root := reportingWorkflowRoot(test.directory)
 			fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
 			assertSprintDashboardFixtureRoutes(t, fixture, test)
-			backend, service := startReportingWorkflowBackend(t, root)
-			defer backend.Close()
-			sprint, err := service.SprintCurrent(context.Background(), test.boardID)
-			if err != nil {
-				t.Fatal(err)
+			codexSpec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli.codex.json"))
+			policy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: codexSpec.AllowedCLICommands}
+			commands := sprintDashboardCommands(test)
+			process := startJiraSprintDashboardProcess(t, fixture, policy, test.boardID, test.sprintID, test.expectContinuationErr)
+			evidence := executeJiraSprintDashboardProcess(t, process, jiraReportingWorkflowCommands(commands), test.expectContinuationErr)
+			if test.expectContinuationErr && (len(evidence.Pages) != 1 || len(evidence.Contracts) != 1) {
+				t.Fatalf("holdout retained %d successful pages with contracts=%v", len(evidence.Pages), evidence.Contracts)
 			}
-			columns := strings.Split(dashboardColumns, ",")
-			var pages []*app.IssueList
-			var continuationErr error
-			for i, cursor := range test.cursors {
-				page, pageErr := service.SprintIssueList(context.Background(), test.sprintID, columns, 2, cursor)
-				if pageErr != nil {
-					if !test.expectContinuationErr || i != 1 {
-						t.Fatal(pageErr)
-					}
-					if !errors.Is(pageErr, domain.ErrForbidden) {
-						t.Fatalf("holdout continuation error=%v want ErrForbidden", pageErr)
-					}
-					continuationErr = pageErr
-					break
-				}
-				pages = append(pages, page)
+			var continuationContract *CLIErrorContract
+			if len(evidence.Contracts) == 1 {
+				continuationContract = &evidence.Contracts[0]
 			}
-			if test.expectContinuationErr && (len(pages) != 1 || continuationErr == nil) {
-				t.Fatalf("holdout retained %d successful pages with continuation error %v", len(pages), continuationErr)
-			}
-			final := sprintDashboardFinal(t, test, sprint, pages, continuationErr)
-			methods, unexpected, duplicates := backend.Summary()
+			final := sprintDashboardFinal(t, test, evidence.Sprint, evidence.Pages, continuationContract)
+			methods, unexpected, duplicates := evidence.Summary.HTTPMethods, evidence.Summary.UnexpectedRequests, evidence.Summary.DuplicateRequests
 			if !equalHTTPMethods(methods, map[string]int{"GET": 3}) || unexpected != 0 || duplicates != 0 {
 				t.Fatalf("methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
 			}
-			failed, exits := 0, []int{0, 0, 0}
-			var contracts []CLIErrorContract
-			if test.expectContinuationErr {
-				failed, exits = 1, []int{0, 0, 6}
-				contracts = []CLIErrorContract{{ExitCode: 6, Kind: "forbidden", Remediation: "request_access"}}
-			}
-			commands := sprintDashboardCommands(test)
-			assertReportingWorkflowSpecs(t, root, "atl:sprint-dashboard", final, methods, failed, exits, contracts, commands)
-			assertReportingSemanticMutationFails(t, root, final, methods, "/snapshot/complete", "snapshot_correct", failed, exits, "atl:sprint-dashboard")
-			assertReportingSemanticMutationFails(t, root, final, methods, "/qualification", "qualification_correct", failed, exits, "atl:sprint-dashboard")
+			failed := len(evidence.Contracts)
+			assertReportingWorkflowSpecs(t, root, "atl:sprint-dashboard", final, methods, failed, evidence.Exits, evidence.Contracts, commands)
+			assertJiraSprintDashboardAdmissionRefused(t, fixture, policy, test.boardID, test.sprintID, test.expectContinuationErr, jiraReportingWorkflowCommands(commands))
+			assertReportingSemanticMutationFails(t, root, final, methods, "/snapshot/complete", "snapshot_correct", failed, evidence.Exits, "atl:sprint-dashboard")
+			assertReportingSemanticMutationFails(t, root, final, methods, "/qualification", "qualification_correct", failed, evidence.Exits, "atl:sprint-dashboard")
 			if test.directory == "jira-sprint-dashboard-workflow" {
 				assertSprintPageMetadataMutationChangesOracles(t, root, fixture, test)
 			}
@@ -258,13 +222,8 @@ func TestJiraSprintDashboardWorkflowFixturesDriveProviderOracles(t *testing.T) {
 	}
 }
 
-func sprintDashboardFinal(t *testing.T, test sprintWorkflowCase, sprint any, pages []*app.IssueList, continuationErr error) []byte {
+func sprintDashboardFinal(t *testing.T, test sprintWorkflowCase, sprint JiraSprintCurrent, pages []JiraSprintMembershipIssueList, continuationContract *CLIErrorContract) []byte {
 	t.Helper()
-	sprintBytes := mustJSON(t, sprint)
-	var sprintDoc map[string]any
-	if err := json.Unmarshal(sprintBytes, &sprintDoc); err != nil {
-		t.Fatal(err)
-	}
 	counts := map[string]int{"to_do": 0, "in_progress": 0, "in_review": 0, "done": 0}
 	attention := map[string][]string{"stale_in_flight": {}, "unassigned_non_done": {}, "high_priority_not_started": {}, "wip_concentration": {}}
 	type loadCount struct{ total, wip int }
@@ -324,12 +283,12 @@ func sprintDashboardFinal(t *testing.T, test sprintWorkflowCase, sprint any, pag
 	if lastPage.Page.NextCursor != nil {
 		nextCursor = *lastPage.Page.NextCursor
 	}
-	complete := lastPage.Page.Complete && continuationErr == nil
+	complete := lastPage.Page.Complete && continuationContract == nil
 	truncated := !complete
 	qualification := fmt.Sprintf("Complete issue-count snapshot across %d pages and %d observed issues.", len(pages), len(keys))
-	if continuationErr != nil {
-		if !errors.Is(continuationErr, domain.ErrForbidden) || nextCursor == "" {
-			t.Fatalf("partial snapshot lacks forbidden continuation provenance: err=%v next=%q", continuationErr, nextCursor)
+	if continuationContract != nil {
+		if *continuationContract != (CLIErrorContract{ExitCode: 6, Kind: "forbidden", Remediation: "request_access"}) || nextCursor == "" {
+			t.Fatalf("partial snapshot lacks typed forbidden continuation provenance: contract=%+v next=%q", continuationContract, nextCursor)
 		}
 		qualification = fmt.Sprintf("Partial issue-count snapshot: continuation cursor %s was forbidden; rollups cover %d observed issues only.", nextCursor, len(keys))
 	} else if !lastPage.Page.Complete {
@@ -337,7 +296,7 @@ func sprintDashboardFinal(t *testing.T, test sprintWorkflowCase, sprint any, pag
 	}
 	final := map[string]any{
 		"board_id":      test.boardID,
-		"sprint":        map[string]any{"id": int(sprintDoc["id"].(float64)), "name": sprintDoc["name"], "state": sprintDoc["state"], "start_date": sprintDoc["start_date"], "end_date": sprintDoc["end_date"]},
+		"sprint":        map[string]any{"id": sprint.ID, "name": sprint.Name, "state": sprint.State, "start_date": sprint.StartDate, "end_date": sprint.EndDate},
 		"snapshot":      map[string]any{"complete": complete, "truncated": truncated, "next_cursor": nextCursor, "pages": len(pages), "observed_total": len(keys)},
 		"status_counts": counts, "attention": attention, "load": loadRows, "issue_keys": keys,
 		"qualification": qualification, "writes_performed": false,
@@ -348,27 +307,16 @@ func sprintDashboardFinal(t *testing.T, test sprintWorkflowCase, sprint any, pag
 func assertSprintPageMetadataMutationChangesOracles(t *testing.T, root string, fixture MockFixture, test sprintWorkflowCase) {
 	t.Helper()
 	mutation := mutateReportingFixtureBody(t, fixture, 2, func(body map[string]any) { body["total"] = float64(5) })
-	backend, service := startReportingWorkflowBackendFixture(t, mutation)
-	defer backend.Close()
-	sprint, err := service.SprintCurrent(context.Background(), test.boardID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	columns := strings.Split(dashboardColumns, ",")
-	pages := make([]*app.IssueList, 0, 2)
-	for _, cursor := range test.cursors {
-		page, pageErr := service.SprintIssueList(context.Background(), test.sprintID, columns, 2, cursor)
-		if pageErr != nil {
-			t.Fatal(pageErr)
-		}
-		pages = append(pages, page)
-	}
-	final := sprintDashboardFinal(t, test, sprint, pages, nil)
-	methods, unexpected, duplicates := backend.Summary()
+	spec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli.codex.json"))
+	policy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: spec.AllowedCLICommands}
+	commands := sprintDashboardCommands(test)
+	process := startJiraSprintDashboardProcess(t, mutation, policy, test.boardID, test.sprintID, false)
+	evidence := executeJiraSprintDashboardProcess(t, process, jiraReportingWorkflowCommands(commands), false)
+	final := sprintDashboardFinal(t, test, evidence.Sprint, evidence.Pages, nil)
+	methods, unexpected, duplicates := evidence.Summary.HTTPMethods, evidence.Summary.UnexpectedRequests, evidence.Summary.DuplicateRequests
 	if unexpected != 0 || duplicates != 0 {
 		t.Fatalf("mutated sprint fixture unexpected=%d duplicates=%d", unexpected, duplicates)
 	}
-	spec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli.codex.json"))
 	checks, err := evaluateReportingWorkflowChecks(spec, final, 3, 0, "atl:sprint-dashboard", methods, []int{0, 0, 0}, nil)
 	if err != nil || checks["snapshot_correct"] || checks["qualification_correct"] {
 		t.Fatalf("fixture sprint-page mutation did not reject snapshot/qualification oracles: checks=%v err=%v", checks, err)
@@ -398,27 +346,6 @@ func mutateReportingFixtureBody(t *testing.T, fixture MockFixture, routeIndex in
 		t.Fatalf("mutated fixture invalid: %v", err)
 	}
 	return clone
-}
-
-func startReportingWorkflowBackend(t *testing.T, root string) (*MockBackend, *app.JiraService) {
-	t.Helper()
-	return startReportingWorkflowBackendFixture(t, loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json")))
-}
-
-func startReportingWorkflowBackendFixture(t *testing.T, fixture MockFixture) (*MockBackend, *app.JiraService) {
-	t.Helper()
-	backend, err := StartMockBackend(fixture)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
-	t.Setenv("ATL_JIRA_PAT", "synthetic-token")
-	service, err := app.NewJira(&config.Config{JiraURL: backend.Environment()["ATL_JIRA_URL"]}, "benchmark-contract")
-	if err != nil {
-		backend.Close()
-		t.Fatal(err)
-	}
-	return backend, service
 }
 
 type reviewedCLICommand struct {
