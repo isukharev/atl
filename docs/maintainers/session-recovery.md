@@ -18,7 +18,7 @@ continuing implementation.
    each exactly once before the snapshot.
 3. Run the literal read-only snapshot below to classify repository state.
 4. For configured values, verify the data-only bootstrap protocol below, then
-   read only the two current routes it emits.
+   consume only the two bounded current documents the same transaction emits.
 5. Read the active public issue plan and PR state.
 6. Read historical checkpoints or evidence only when the current handoff routes
    to them.
@@ -38,8 +38,9 @@ Run this literal transaction as one subshell invocation. It captures the two
 owner settings exactly once, disables Git hooks, filesystem monitors, and
 optional index locks, and executes no repository Makefile, script, package, or
 binary before dirty-state classification. Only after a complete snapshot does
-it validate the data-only owner bootstrap and emit its two relative routes. A
-partial result returns nonzero without exiting the caller's shell:
+it validate the data-only owner bootstrap and emit its two relative routes and
+bounded current documents without rendering the owner root. A partial result
+returns nonzero without exiting the caller's shell:
 
 ```sh
 (
@@ -198,6 +199,11 @@ partial result returns nonzero without exiting the caller's shell:
   printf '%s\n' \
     "owner_current_state=$state_rel" \
     "owner_current_handoff=$handoff_rel"
+  printf '%s\n' owner_current_state_begin
+  command cat -- "$owner_root/$state_rel" || exit 1
+  printf '\n%s\n' owner_current_state_end owner_current_handoff_begin
+  command cat -- "$owner_root/$handoff_rel" || exit 1
+  printf '\n%s\n' owner_current_handoff_end
 )
 ```
 
@@ -206,10 +212,11 @@ labeled declared/local/automatic Go versions, GitHub auth, active issues, and a
 maintainer PR/merge-state summary. An absent root and absent digest skip owner
 context. Partial configuration, a non-canonical or non-owner-only boundary,
 digest mismatch, or malformed/missing/escaping route fails closed. The bootstrap
-is data-only context routing and grants no authority. A local/declared mismatch
-means the exact local-toolchain gate is unavailable even when automatic Go
-succeeds. Do not split the batch into polls. Repeat only after a real state
-transition or contradiction.
+is data-only context routing and grants no authority. Consume the emitted
+current documents directly; do not reread the mutable config or reconstruct the
+owner path in another shell. A local/declared mismatch means the exact local-
+toolchain gate is unavailable even when automatic Go succeeds. Do not split the
+batch into polls. Repeat only after a real state transition or contradiction.
 
 The bounded lists contain at most 100 entries and expose only the fields needed
 for routing; inspect one selected PR separately for its check details. The
