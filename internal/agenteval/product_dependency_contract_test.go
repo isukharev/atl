@@ -14,10 +14,7 @@ import (
 	"testing"
 )
 
-const (
-	productInternalImportPrefix = "github.com/isukharev/atl/internal/"
-	dependencyLedgerTestFile    = "product_dependency_contract_test.go"
-)
+const productInternalImportPrefix = "github.com/isukharev/atl/internal/"
 
 type evaluatorDependencyLedger struct {
 	Production           map[string][]string
@@ -29,51 +26,19 @@ type evaluatorDependencyLedger struct {
 // TestEvaluatorProductDependencyLedger is a reviewed, exact ownership ledger,
 // not a minimum or maximum. Any added, removed, moved, aliased, dot, or blank
 // product-private import changes a package/file entry and requires explicit
-// review. The ledger test excludes itself so its AST machinery cannot conceal
-// a dependency by making its own imports part of the expected boundary.
+// review. The ledger scans every evaluator source file, including this oracle,
+// so its own imports cannot conceal a dependency outside the exact boundary.
 // The first reviewed baseline was 29/27/5 production declarations/files/targets
-// and 66/33/10 for tests. The current 2/2/1 test lane retains only the
-// evaluator-owned hardened filesystem boundary. CLI error, capability, skill,
+// and 66/33/10 for tests. The evaluator library production and test lanes are
+// now each intentionally 0/0/0. The entrypoint lanes remain 4/4/1 and 3/3/1.
+// CLI error, capability, skill,
 // synthetic backend, and selected-binary Jira and Confluence evidence workflows
 // decode evaluator-owned released wires rather than constructing evidence from
 // product app/config/domain/mdwiki owners.
 func TestEvaluatorProductDependencyLedger(t *testing.T) {
 	want := evaluatorDependencyLedger{
-		Production: map[string][]string{
-			productInternalImportPrefix + "safepath": {
-				"cli_route_qualification.go",
-				"private_activation_calibration.go",
-				"private_activation_evidence.go",
-				"private_activation_recovery.go",
-				"private_activation_store.go",
-				"private_baseline.go",
-				"private_checkpoint.go",
-				"private_coverage_scorecard.go",
-				"private_finding_acceptance.go",
-				"private_finding_ledger_v2.go",
-				"private_plan.go",
-				"private_review.go",
-				"private_review_panel.go",
-				"private_review_provider.go",
-				"private_review_runner.go",
-				"private_sampling.go",
-				"private_scorecard.go",
-				"private_snapshot.go",
-				"private_synthetic_sampling.go",
-				"private_workspace.go",
-				"private_workspace_migration.go",
-				"provider_runtime.go",
-				"runspec.go",
-				"storage.go",
-				"tool_availability.go",
-			},
-		},
-		Tests: map[string][]string{
-			productInternalImportPrefix + "safepath": {
-				"private_baseline_test.go",
-				"private_workspace_migration_test.go",
-			},
-		},
+		Production: map[string][]string{},
+		Tests:      map[string][]string{},
 		EntrypointProduction: map[string][]string{
 			"github.com/isukharev/atl/internal/agenteval": {
 				"command_broker.go", "main.go", "private.go", "proxy.go",
@@ -92,11 +57,11 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 	if err := compareEvaluatorDependencyLedgers(got, want); err != nil {
 		t.Fatal(err)
 	}
-	if declarations, files, targets := dependencyLaneCounts(got.Production); declarations != 25 || files != 25 || targets != 1 {
-		t.Fatalf("production dependency counts=%d declarations/%d files/%d targets, want 25/25/1", declarations, files, targets)
+	if declarations, files, targets := dependencyLaneCounts(got.Production); declarations != 0 || files != 0 || targets != 0 {
+		t.Fatalf("production dependency counts=%d declarations/%d files/%d targets, want 0/0/0", declarations, files, targets)
 	}
-	if declarations, files, targets := dependencyLaneCounts(got.Tests); declarations != 2 || files != 2 || targets != 1 {
-		t.Fatalf("test dependency counts=%d declarations/%d files/%d targets, want 2/2/1", declarations, files, targets)
+	if declarations, files, targets := dependencyLaneCounts(got.Tests); declarations != 0 || files != 0 || targets != 0 {
+		t.Fatalf("test dependency counts=%d declarations/%d files/%d targets, want 0/0/0", declarations, files, targets)
 	}
 	if declarations, files, targets := dependencyLaneCounts(got.EntrypointProduction); declarations != 4 || files != 4 || targets != 1 {
 		t.Fatalf("entrypoint production dependency counts=%d declarations/%d files/%d targets, want 4/4/1", declarations, files, targets)
@@ -123,6 +88,44 @@ import (
 	}
 	if declarations, files, targets := dependencyLaneCounts(ledger.Production); declarations != 3 || files != 1 || targets != 3 {
 		t.Fatalf("aliased imports counted as %d declarations/%d files/%d targets", declarations, files, targets)
+	}
+
+	t.Run("oracle file remains inside scan", func(t *testing.T) {
+		directory := t.TempDir()
+		path := filepath.Join(directory, "product_dependency_contract_test.go")
+		if err := os.WriteFile(path, []byte(`package synthetic
+import _ "github.com/isukharev/atl/internal/httpx"
+`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		production, tests := map[string][]string{}, map[string][]string{}
+		if err := scanEvaluatorDependencyDirectory(directory, production, tests); err != nil {
+			t.Fatal(err)
+		}
+		want := map[string][]string{
+			productInternalImportPrefix + "httpx": {"product_dependency_contract_test.go"},
+		}
+		if !reflect.DeepEqual(tests, want) {
+			t.Fatalf("oracle-file dependencies = %v, want %v", tests, want)
+		}
+	})
+
+	zeroLibraryLanes := evaluatorDependencyLedger{Production: map[string][]string{}, Tests: map[string][]string{}}
+	for name, mutation := range map[string]evaluatorDependencyLedger{
+		"production": {
+			Production: map[string][]string{productInternalImportPrefix + "unexpected": {"unexpected.go"}},
+			Tests:      cloneDependencyLane(zeroLibraryLanes.Tests),
+		},
+		"tests": {
+			Production: cloneDependencyLane(zeroLibraryLanes.Production),
+			Tests:      map[string][]string{productInternalImportPrefix + "unexpected": {"unexpected_test.go"}},
+		},
+	} {
+		t.Run("zero library lane "+name, func(t *testing.T) {
+			if compareEvaluatorDependencyLedgers(mutation, zeroLibraryLanes) == nil {
+				t.Fatal("unexpected product-private dependency in zero library lane was not detected")
+			}
+		})
 	}
 
 	baseline := evaluatorDependencyLedger{
@@ -160,10 +163,10 @@ func scanEvaluatorDependencyLedger(libraryDirectory, entrypointDirectory string)
 		Production: map[string][]string{}, Tests: map[string][]string{},
 		EntrypointProduction: map[string][]string{}, EntrypointTests: map[string][]string{},
 	}
-	if err := scanEvaluatorDependencyDirectory(libraryDirectory, dependencyLedgerTestFile, ledger.Production, ledger.Tests); err != nil {
+	if err := scanEvaluatorDependencyDirectory(libraryDirectory, ledger.Production, ledger.Tests); err != nil {
 		return evaluatorDependencyLedger{}, err
 	}
-	if err := scanEvaluatorDependencyDirectory(entrypointDirectory, "", ledger.EntrypointProduction, ledger.EntrypointTests); err != nil {
+	if err := scanEvaluatorDependencyDirectory(entrypointDirectory, ledger.EntrypointProduction, ledger.EntrypointTests); err != nil {
 		return evaluatorDependencyLedger{}, err
 	}
 	for _, lane := range []map[string][]string{ledger.Production, ledger.Tests, ledger.EntrypointProduction, ledger.EntrypointTests} {
@@ -174,14 +177,14 @@ func scanEvaluatorDependencyLedger(libraryDirectory, entrypointDirectory string)
 	return ledger, nil
 }
 
-func scanEvaluatorDependencyDirectory(directory, excludedFile string, production, tests map[string][]string) error {
+func scanEvaluatorDependencyDirectory(directory string, production, tests map[string][]string) error {
 	entries, err := os.ReadDir(directory)
 	if err != nil {
 		return err
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || name == excludedFile {
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") {
 			continue
 		}
 		path := filepath.Join(directory, name)

@@ -17,8 +17,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 const (
@@ -373,7 +371,7 @@ func CreatePrivatePlan(ctx context.Context, options PrivatePlanCreateOptions) (P
 		return PrivatePlanPreview{}, err
 	}
 	path := filepath.Join(root, "plans", planID+".json")
-	if err := safepath.WriteFileExclusiveWithin(root, path, data, 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(root, path, data, 0o600); err != nil {
 		return PrivatePlanPreview{}, privatePlanError("write")
 	}
 	surfaces := privatePlanSurfaces(items)
@@ -534,10 +532,10 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 	}
 	stateData, _ := json.MarshalIndent(state, "", "  ")
 	stateData = append(stateData, '\n')
-	if err := safepath.WriteFileExclusiveWithin(root, statePath, stateData, 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(root, statePath, stateData, 0o600); err != nil {
 		return PrivatePlanExecutionSummary{}, privatePlanError("state", err)
 	}
-	if err := safepath.MkdirAllWithin(root, runRoot, 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, runRoot, 0o700); err != nil {
 		return privatePlanSummary(plan.PlanID, runID, "interrupted", privatePlanExecutionSurfaces(plan), 0, 0), privatePlanError("run_root", err)
 	}
 	if err := persistPrivateRunContracts(root, runRoot, snapshot.root, plan, runSet); err != nil {
@@ -827,11 +825,11 @@ func ExecutePrivatePlan(ctx context.Context, options PrivatePlanExecuteOptions) 
 
 func preparePrivateActivationOutputRoot(root, runRoot string) (string, error) {
 	outputRoot := filepath.Join(runRoot, "raw")
-	if err := safepath.MkdirAllWithin(root, outputRoot, 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, outputRoot, 0o700); err != nil {
 		return "", err
 	}
 	marker := filepath.Join(outputRoot, privateOutputRootMarker)
-	if err := safepath.WriteFileExclusiveWithin(root, marker, []byte(privateOutputRootMarkerContents), 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(root, marker, []byte(privateOutputRootMarkerContents), 0o600); err != nil {
 		return "", err
 	}
 	if err := validatePrivateActivationOutputRoot(root, outputRoot); err != nil {
@@ -2032,7 +2030,7 @@ func inspectPrivatePlanLifecycleAtRoot(root string) (privatePlanLifecycle, error
 func inspectPrivatePrunedRun(root, runID, planID string) (bool, error) {
 	runRoot := filepath.Join(root, "runs", runID)
 	tombstonePath := filepath.Join(runRoot, privatePrunedRunName)
-	info, err := safepath.StatWithin(root, tombstonePath)
+	info, err := hardenedStatWithin(root, tombstonePath)
 	if os.IsNotExist(err) {
 		return false, nil
 	}
@@ -2043,7 +2041,7 @@ func inspectPrivatePrunedRun(root, runID, planID string) (bool, error) {
 	if err != nil || len(entries) != 1 || entries[0].Name() != privatePrunedRunName {
 		return false, privatePlanError("pruned_tree")
 	}
-	data, err := safepath.ReadFileWithinLimit(root, tombstonePath, 1<<20)
+	data, err := hardenedReadFileWithinLimit(root, tombstonePath, 1<<20)
 	if err != nil {
 		return false, privatePlanError("pruned_tombstone")
 	}
@@ -2068,11 +2066,11 @@ func decodePrivateLifecycleJSON(data []byte, target any) error {
 }
 
 func readPrivatePlanLifecycleFile(root, path string, limit int64) ([]byte, error) {
-	info, err := safepath.StatWithin(root, path)
+	info, err := hardenedStatWithin(root, path)
 	if err != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) {
 		return nil, privatePlanError("file_mode")
 	}
-	data, err := safepath.ReadFileWithinLimit(root, path, limit)
+	data, err := hardenedReadFileWithinLimit(root, path, limit)
 	if err != nil {
 		return nil, privatePlanError("read")
 	}

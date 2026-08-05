@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 // PrivateActivationRecoveryConfirmation is an operator attestation, not merely
@@ -115,8 +113,8 @@ func RecoverPrivateActivationStudy(options PrivateActivationRecoveryOptions) (Pr
 		return PrivateActivationRecoverySummary{}, privatePlanError("recovery_evidence")
 	}
 	runRoot := filepath.Join(root, "runs", state.RunID)
-	if info, statErr := safepath.StatWithin(root, runRoot); os.IsNotExist(statErr) {
-		if len(state.Events) != 0 || state.Status != "interrupted" || safepath.MkdirAllWithin(root, runRoot, 0o700) != nil {
+	if info, statErr := hardenedStatWithin(root, runRoot); os.IsNotExist(statErr) {
+		if len(state.Events) != 0 || state.Status != "interrupted" || hardenedMkdirAllWithin(root, runRoot, 0o700) != nil {
 			return PrivateActivationRecoverySummary{}, privatePlanError("recovery_run")
 		}
 	} else if statErr != nil || !info.IsDir() || !privateWorkspaceDirectoryMode(info.Mode()) {
@@ -141,7 +139,7 @@ func recoverPrivateActivationCalibrationReceipt(root string, plan privatePlan, s
 	lifecycle *PrivateActivationStudyLifecycle,
 ) error {
 	path := filepath.Join(root, "runs", state.RunID, "calibration", "execution-receipt.json")
-	if _, err := safepath.StatWithin(root, path); os.IsNotExist(err) {
+	if _, err := hardenedStatWithin(root, path); os.IsNotExist(err) {
 		return nil
 	} else if err != nil {
 		return privatePlanError("recovery_calibration_receipt")
@@ -170,7 +168,7 @@ func removePrivateActivationRecoverySnapshot(root, runID string) error {
 		return privatePlanError("recovery_snapshot")
 	}
 	target := filepath.Join(root, ".ephemeral", "execution-"+runID)
-	info, err := safepath.StatWithin(root, target)
+	info, err := hardenedStatWithin(root, target)
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -188,7 +186,7 @@ func recoverPrivateActivationReceipt(root string, plan privatePlan, state privat
 		return privatePlanError("recovery_receipt")
 	}
 	receiptPath, runDirectory := privateActivationItemEvidencePaths(root, plan, state.RunID, item)
-	if _, err := safepath.StatWithin(root, receiptPath); os.IsNotExist(err) {
+	if _, err := hardenedStatWithin(root, receiptPath); os.IsNotExist(err) {
 		return nil
 	} else if err != nil {
 		return privatePlanError("recovery_receipt")

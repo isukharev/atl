@@ -15,8 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 const codexAuthMaxBytes = 4 << 20
@@ -151,7 +149,7 @@ func newCodexProviderRuntime(scratchRoot string, session *codexAuthSession) (*pr
 		if _, ok := created[directory]; ok {
 			continue
 		}
-		if err := safepath.MkdirAllWithin(root, directory, 0o700); err != nil {
+		if err := hardenedMkdirAllWithin(root, directory, 0o700); err != nil {
 			return nil, fmt.Errorf("prepare isolated codex provider runtime")
 		}
 		if err := requirePrivateDirectory("codex provider runtime directory", directory); err != nil {
@@ -174,7 +172,7 @@ func newCodexProviderRuntime(scratchRoot string, session *codexAuthSession) (*pr
 		return nil, err
 	}
 	destination := filepath.Join(directories["CODEX_HOME"], "auth.json")
-	if err := safepath.WriteFileExclusiveWithin(root, destination, auth, 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(root, destination, auth, 0o600); err != nil {
 		clear(auth)
 		return nil, fmt.Errorf("prepare isolated codex provider authentication")
 	}

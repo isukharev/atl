@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 const privateActivationExecutionReceiptSchemaVersion = 1
@@ -49,7 +47,7 @@ func persistPrivateActivationExecutionReceipt(root, runRoot string, plan private
 		return "", err
 	}
 	path := filepath.Join(runRoot, "contracts", privatePlanItemContractKey(plan, item), "execution-receipt.json")
-	if err := safepath.WriteFileExclusiveWithin(root, path, data, 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(root, path, data, 0o600); err != nil {
 		return "", privatePlanError("execution_receipt_write")
 	}
 	return sha256HexBytes(data), nil

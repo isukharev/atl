@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 const (
@@ -91,7 +89,7 @@ func prepareMarkedPrivateRoot(root string) error {
 	if err := requireOwnerOnly("evaluation output root marker", marker, false); err != nil {
 		return err
 	}
-	data, err := safepath.ReadFileWithinLimit(root, marker, int64(len(privateOutputRootMarkerContents)))
+	data, err := hardenedReadFileWithinLimit(root, marker, int64(len(privateOutputRootMarkerContents)))
 	if err != nil {
 		return err
 	}
@@ -103,7 +101,7 @@ func prepareMarkedPrivateRoot(root string) error {
 
 func initializePrivateRootMarker(root string) error {
 	marker := filepath.Join(root, privateOutputRootMarker)
-	if err := safepath.WriteFileExclusiveWithin(root, marker, []byte(privateOutputRootMarkerContents), 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(root, marker, []byte(privateOutputRootMarkerContents), 0o600); err != nil {
 		return fmt.Errorf("initialize evaluation output root: %w", err)
 	}
 	return nil
@@ -177,7 +175,7 @@ func validatePrivateWorkspaceRootForRuntime(root string) error {
 	if err := requireOwnerOnly("private workspace marker", marker, false); err != nil {
 		return err
 	}
-	data, err := safepath.ReadFileWithinLimit(root, marker, int64(len(privateOutputRootMarkerContents)))
+	data, err := hardenedReadFileWithinLimit(root, marker, int64(len(privateOutputRootMarkerContents)))
 	if err != nil || string(data) != privateOutputRootMarkerContents {
 		return fmt.Errorf("private workspace marker is invalid")
 	}
@@ -257,19 +255,19 @@ func mkdirPrivate(path string) error {
 }
 
 func mkdirPrivateWithin(root, path string) error {
-	if _, err := safepath.StatWithin(root, path); err == nil {
+	if _, err := hardenedStatWithin(root, path); err == nil {
 		return fmt.Errorf("private run directory already exists")
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	if err := safepath.MkdirAllWithin(root, path, 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, path, 0o700); err != nil {
 		return err
 	}
 	return requirePrivateDirectory("private run directory", path)
 }
 
 func writePrivateFile(path string, data []byte) error {
-	return safepath.WriteFileAtomicPrivate(path, data, 0o600)
+	return hardenedWriteFileAtomicPrivate(path, data, 0o600)
 }
 
 func requirePrivateDirectory(name, path string) error {

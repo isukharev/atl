@@ -12,8 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 func TestPrivateWorkspaceMigrationIsReviewedAndPreservesWorkspace(t *testing.T) {
@@ -109,7 +107,7 @@ func TestPrivateWorkspaceMigrationRecoversExactCommittedCandidate(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := safepath.WriteFileExclusiveWithin(root, filepath.Join(root, PrivateWorkspaceManifestName), candidateData, 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(root, filepath.Join(root, PrivateWorkspaceManifestName), candidateData, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := PreviewPrivateWorkspaceMigration(root, repository); err == nil {
@@ -150,10 +148,10 @@ func TestPrivateWorkspaceMigrationRecoversDuplicateRenameCrashState(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := safepath.WriteFileExclusiveWithin(root, filepath.Join(root, PrivateWorkspaceManifestName), candidateData, 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(root, filepath.Join(root, PrivateWorkspaceManifestName), candidateData, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := safepath.WriteFileExclusiveWithin(root, archivePath, sourceData, 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(root, archivePath, sourceData, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Link(legacyPath, stagePath); err != nil {
@@ -192,7 +190,7 @@ func TestPrivateWorkspaceMigrationLeavesMismatchedDualManifestUntouched(t *testi
 		t.Fatal(err)
 	}
 	currentPath := filepath.Join(root, PrivateWorkspaceManifestName)
-	if err := safepath.WriteFileExclusiveWithin(root, currentPath, mismatchData, 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(root, currentPath, mismatchData, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	legacyPath := filepath.Join(root, LegacyCalibratedWorkspaceManifestName)
@@ -460,10 +458,10 @@ func TestPrivateWorkspaceMigrationRecoversTransactionFaultBoundaries(t *testing.
 			if err == nil {
 				t.Fatal("synthetic transaction fault was ignored")
 			}
-			privateWorkspaceMigrationWrite = safepath.WriteFileExclusiveWithin
-			privateWorkspaceMigrationSync = safepath.SyncDirectoryWithin
-			privateWorkspaceMigrationRename = safepath.RenameWithin
-			privateWorkspaceMigrationRemove = safepath.RemoveWithin
+			privateWorkspaceMigrationWrite = hardenedWriteFileExclusiveWithin
+			privateWorkspaceMigrationSync = hardenedSyncDirectoryWithin
+			privateWorkspaceMigrationRename = hardenedRenameWithin
+			privateWorkspaceMigrationRemove = hardenedRemoveWithin
 			summary, err := ApplyPrivateWorkspaceMigration(PrivateWorkspaceMigrationOptions{Root: root, RepositoryRoot: repository,
 				ExpectedMigrationSHA256: preview.MigrationSHA256, Confirm: PrivateWorkspaceMigrationConfirmation})
 			if err != nil || summary.Status != "recovered" {
@@ -913,7 +911,7 @@ func TestPrivateWorkspaceMigrationValidationOnlyRejectionsCarryNoCause(t *testin
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := safepath.WriteFileExclusiveWithin(root, filepath.Join(root, PrivateWorkspaceManifestName), candidateData, 0o600); err != nil {
+		if err := hardenedWriteFileExclusiveWithin(root, filepath.Join(root, PrivateWorkspaceManifestName), candidateData, 0o600); err != nil {
 			t.Fatal(err)
 		}
 		_, err = PreviewPrivateWorkspaceMigration(root, repository)
@@ -995,13 +993,13 @@ func downgradePrivateWorkspaceFixture(t *testing.T, fixture privatePlanTestFixtu
 		t.Fatal(err)
 	}
 	legacyPath := filepath.Join(fixture.root, LegacyCalibratedWorkspaceManifestName)
-	if err := safepath.WriteFileExclusiveWithin(fixture.root, legacyPath, legacyData, 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(fixture.root, legacyPath, legacyData, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := safepath.RemoveWithin(fixture.root, currentPath); err != nil {
+	if err := hardenedRemoveWithin(fixture.root, currentPath); err != nil {
 		t.Fatal(err)
 	}
-	if err := safepath.SyncDirectoryWithin(fixture.root, fixture.root); err != nil {
+	if err := hardenedSyncDirectoryWithin(fixture.root, fixture.root); err != nil {
 		t.Fatal(err)
 	}
 }

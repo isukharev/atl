@@ -8,8 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 const (
@@ -110,7 +108,7 @@ func readPrivateFindingLedgerWithHook(root string, afterInventory func()) (int, 
 	directory := filepath.Join(root, "reports")
 	// Mixed: an observed directory type or permission rejects on its own and
 	// leaves nil, while a failed probe keeps the failure it holds.
-	directoryInfo, err := safepath.StatWithin(root, directory)
+	directoryInfo, err := hardenedStatWithin(root, directory)
 	if err != nil || !directoryInfo.IsDir() ||
 		(runtime.GOOS != "windows" && directoryInfo.Mode().Perm() != 0o700) {
 		return 0, nil, privateFindingError("ledger_directory", err)
@@ -226,7 +224,7 @@ func privateFindingLedgerDirectoryStable(
 	root, directory string, handle *os.Root, opened os.FileInfo,
 ) (bool, error, error) {
 	final, err := handle.Stat(".")
-	ambient, ambientErr := safepath.StatWithin(root, directory)
+	ambient, ambientErr := hardenedStatWithin(root, directory)
 	stable := err == nil && ambientErr == nil &&
 		os.SameFile(opened, final) && sameSyntheticRootInfo(opened, final) &&
 		os.SameFile(opened, ambient) && sameSyntheticRootInfo(opened, ambient)

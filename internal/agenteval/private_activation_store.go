@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 const (
@@ -151,8 +149,8 @@ func SetPrivateActivationReference(options PrivateActivationReferenceSetOptions)
 		return PrivateActivationReferenceSummary{}, privatePlanError("reference_directory")
 	}
 	path := filepath.Join(directory, options.Reference+".json")
-	if existing, readErr := safepath.ReadFileWithinLimit(root, path, maxContractBytes); readErr == nil {
-		info, statErr := safepath.StatWithin(root, path)
+	if existing, readErr := hardenedReadFileWithinLimit(root, path, maxContractBytes); readErr == nil {
+		info, statErr := hardenedStatWithin(root, path)
 		if statErr != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) {
 			return PrivateActivationReferenceSummary{}, privatePlanError("reference_mode")
 		}
@@ -161,7 +159,7 @@ func SetPrivateActivationReference(options PrivateActivationReferenceSetOptions)
 		}
 	} else if !os.IsNotExist(readErr) {
 		return PrivateActivationReferenceSummary{}, privatePlanError("reference_read")
-	} else if err := safepath.WriteFileExclusiveWithin(root, path, data, 0o600); err != nil {
+	} else if err := hardenedWriteFileExclusiveWithin(root, path, data, 0o600); err != nil {
 		return PrivateActivationReferenceSummary{}, privatePlanError("reference_write")
 	}
 	return PrivateActivationReferenceSummary{SchemaVersion: 1, Stored: true, Gates: gates}, nil
@@ -214,7 +212,7 @@ func PromotePrivateActivationReference(options PrivateActivationPromotionOptions
 		return PrivateActivationPromotionSummary{}, privatePlanError("promotion_encode")
 	}
 	path := filepath.Join(root, "baselines", "activation-studies", "current.json")
-	if err := safepath.WriteFileWithin(root, path, append(pointerData, '\n'), 0o600); err != nil {
+	if err := hardenedWriteFileWithin(root, path, append(pointerData, '\n'), 0o600); err != nil {
 		return PrivateActivationPromotionSummary{}, privatePlanError("promotion_write")
 	}
 	return PrivateActivationPromotionSummary{SchemaVersion: 1, Promoted: true}, nil
@@ -298,11 +296,11 @@ func privateActivationResultMatchesPlan(result Result, plan privatePlan, item pr
 func privateActivationReferenceDirectory(root string, create bool) (string, error) {
 	directory := filepath.Join(root, "baselines", "activation-studies")
 	if create {
-		if err := safepath.MkdirAllWithin(root, directory, 0o700); err != nil {
+		if err := hardenedMkdirAllWithin(root, directory, 0o700); err != nil {
 			return "", err
 		}
 	}
-	info, err := safepath.StatWithin(root, directory)
+	info, err := hardenedStatWithin(root, directory)
 	if err != nil || !info.IsDir() || !privateWorkspaceDirectoryMode(info.Mode()) {
 		return "", privatePlanError("reference_directory_mode")
 	}

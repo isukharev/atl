@@ -13,8 +13,6 @@ import (
 	"reflect"
 	"sort"
 	"strings"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 const (
@@ -743,7 +741,7 @@ func privateFindingBaselineResult(root string, source PrivateBaselineSource, ref
 	}
 	expectedResultPath := filepath.ToSlash(filepath.Join("surfaces", ref.Surface, "result.json"))
 	expectedReviewedPath := filepath.ToSlash(filepath.Join("surfaces", ref.Surface, "reviewed-result.json"))
-	reviewedInfo, reviewedErr := safepath.StatWithin(root, filepath.Join(baselineRoot, filepath.FromSlash(expectedReviewedPath)))
+	reviewedInfo, reviewedErr := hardenedStatWithin(root, filepath.Join(baselineRoot, filepath.FromSlash(expectedReviewedPath)))
 	reviewedExists := reviewedErr == nil && reviewedInfo.Mode().IsRegular()
 	// An ordinary absence is normal here and is not a rejection at all. Of the
 	// two branches that do reject, only the first holds a failure; the second
@@ -762,7 +760,7 @@ func privateFindingBaselineResult(root string, source PrivateBaselineSource, ref
 	}
 	// Mixed: bytes that read cleanly but hash to something else are rejected by
 	// the digest comparison alone and leave nil here.
-	resultData, err := safepath.ReadFileWithinLimit(root, filepath.Join(baselineRoot, filepath.FromSlash(selected.ResultPath)), maxContractBytes)
+	resultData, err := hardenedReadFileWithinLimit(root, filepath.Join(baselineRoot, filepath.FromSlash(selected.ResultPath)), maxContractBytes)
 	if err != nil || sha256HexBytes(resultData) != selected.ResultSHA256 {
 		return Result{}, "", privateFindingError("baseline_result", err)
 	}

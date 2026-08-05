@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 const (
@@ -253,16 +251,16 @@ func loadPrivateSyntheticSamplingAssessment(root, digest string) (privateSynthet
 		return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("assessment_digest")
 	}
 	directory := filepath.Join(root, "reports", "sampling")
-	info, err := safepath.StatWithin(root, directory)
+	info, err := hardenedStatWithin(root, directory)
 	if err != nil || !info.IsDir() || runtime.GOOS != "windows" && info.Mode().Perm() != 0o700 {
 		return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("assessment_directory", err)
 	}
 	path := filepath.Join(directory, digest+".json")
-	info, err = safepath.StatWithin(root, path)
+	info, err = hardenedStatWithin(root, path)
 	if err != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) {
 		return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("assessment_file", err)
 	}
-	data, err := safepath.ReadFileWithinLimit(root, path, privateSamplingMaxBytes)
+	data, err := hardenedReadFileWithinLimit(root, path, privateSamplingMaxBytes)
 	if err != nil {
 		return privateSyntheticSamplingAssessment{}, nil, nil, privateSamplingError("assessment_read", err)
 	}
@@ -315,12 +313,12 @@ func loadPrivateSyntheticSamplingAssessment(root, digest string) (privateSynthet
 
 func resolvePrivateSyntheticSamplingRoot(root string, ref PrivateSyntheticSamplingRootRef) (privateSyntheticSamplingBinding, []Result, error) {
 	parent := filepath.Join(root, "reports", privateSyntheticRootDirectory)
-	parentBefore, err := safepath.StatWithin(root, parent)
+	parentBefore, err := hardenedStatWithin(root, parent)
 	if err != nil || !parentBefore.IsDir() || runtime.GOOS != "windows" && parentBefore.Mode().Perm() != 0o700 {
 		return privateSyntheticSamplingBinding{}, nil, privateSamplingError("synthetic_root_directory", err)
 	}
 	rootPath := filepath.Join(parent, ref.Root)
-	containedBefore, err := safepath.StatWithin(root, rootPath)
+	containedBefore, err := hardenedStatWithin(root, rootPath)
 	if err != nil || !containedBefore.IsDir() {
 		return privateSyntheticSamplingBinding{}, nil, privateSamplingError("synthetic_root", err)
 	}
@@ -328,8 +326,8 @@ func resolvePrivateSyntheticSamplingRoot(root string, ref PrivateSyntheticSampli
 	// attached in the branch's own condition order; the attested-digest,
 	// cardinality, and identity comparisons in the same branch leave nil.
 	aggregate, loaded, err := loadSyntheticOutputRootEvidence(rootPath)
-	containedAfter, containedErr := safepath.StatWithin(root, rootPath)
-	parentAfter, parentErr := safepath.StatWithin(root, parent)
+	containedAfter, containedErr := hardenedStatWithin(root, rootPath)
+	parentAfter, parentErr := hardenedStatWithin(root, parent)
 	if err != nil || aggregate.SchemaVersion != SyntheticRootAggregateSchemaVersion ||
 		aggregate.SourceSHA256 != ref.SourceSHA256 || aggregate.Cohorts != 1 ||
 		len(aggregate.Aggregate.Groups) != 1 || len(loaded.observations) != aggregate.Results ||

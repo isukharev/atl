@@ -12,8 +12,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 func TestSanitizePrivateAuditDropsCalibrationObservation(t *testing.T) {
@@ -185,7 +183,7 @@ func TestSetPrivateBaselineRequiresConfirmationAssessmentStablePlanAndFreeLock(t
 		t.Fatalf("missing assessment err=%v", err)
 	}
 
-	lock, acquired, err := safepath.TryLockFileWithin(fixture.root, filepath.Join(fixture.root, privateWorkspaceLockPath), 0o600)
+	lock, acquired, err := hardenedTryLockFileWithin(fixture.root, filepath.Join(fixture.root, privateWorkspaceLockPath), 0o600)
 	if err != nil || !acquired {
 		t.Fatalf("lock acquired=%v err=%v", acquired, err)
 	}
@@ -519,7 +517,7 @@ func TestPrivatePruneRejectsConcurrentLockAndSymlinkTree(t *testing.T) {
 	}
 	options := PrivatePruneOptions{Root: fixture.root, RepositoryRoot: fixture.repository, Inventory: loader}
 
-	lock, acquired, err := safepath.TryLockFileWithin(fixture.root, filepath.Join(fixture.root, privateWorkspaceLockPath), 0o600)
+	lock, acquired, err := hardenedTryLockFileWithin(fixture.root, filepath.Join(fixture.root, privateWorkspaceLockPath), 0o600)
 	if err != nil || !acquired {
 		t.Fatalf("lock acquired=%v err=%v", acquired, err)
 	}
@@ -657,10 +655,10 @@ func TestPrivatePruneRecoversRenamedRunBeforeRecheckingReviewedInventory(t *test
 		OriginalTreeSHA256: candidate.hash, InventorySHA256: preview.InventorySHA256}
 	intentData, _ := json.MarshalIndent(intent, "", "  ")
 	intentPath, stagePath := privatePruneTransactionPaths(fixture.root, candidate.runID)
-	if err := safepath.WriteFileExclusiveWithin(fixture.root, intentPath, append(intentData, '\n'), 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(fixture.root, intentPath, append(intentData, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := safepath.RenameWithin(fixture.root, candidate.path, stagePath); err != nil {
+	if err := hardenedRenameWithin(fixture.root, candidate.path, stagePath); err != nil {
 		t.Fatal(err)
 	}
 	options.Confirm = PrivatePruneConfirmation
@@ -704,10 +702,10 @@ func TestPrivatePruneRecoveryRejectsStagedTreeDrift(t *testing.T) {
 		OriginalTreeSHA256: candidate.hash, InventorySHA256: preview.InventorySHA256}
 	data, _ := json.MarshalIndent(intent, "", "  ")
 	intentPath, stagePath := privatePruneTransactionPaths(fixture.root, candidate.runID)
-	if err := safepath.WriteFileExclusiveWithin(fixture.root, intentPath, append(data, '\n'), 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(fixture.root, intentPath, append(data, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := safepath.RenameWithin(fixture.root, candidate.path, stagePath); err != nil {
+	if err := hardenedRenameWithin(fixture.root, candidate.path, stagePath); err != nil {
 		t.Fatal(err)
 	}
 	writeTestFile(t, filepath.Join(stagePath, "unexpected.json"), "drift\n", 0o600)
@@ -859,7 +857,7 @@ func TestPrivatePruneAttachesWorkspaceLockAndInventoryCauses(t *testing.T) {
 		fixture := newPrivateBaselineFixture(t, 1)
 		options := PrivatePruneOptions{Root: fixture.root, RepositoryRoot: fixture.repository,
 			Inventory: func(string) (PrivatePruneInventory, error) { return PrivatePruneInventory{}, nil }}
-		lock, acquired, err := safepath.TryLockFileWithin(fixture.root, filepath.Join(fixture.root, privateWorkspaceLockPath), 0o600)
+		lock, acquired, err := hardenedTryLockFileWithin(fixture.root, filepath.Join(fixture.root, privateWorkspaceLockPath), 0o600)
 		if err != nil || !acquired {
 			t.Fatalf("lock acquired=%v err=%v", acquired, err)
 		}
@@ -1800,7 +1798,7 @@ func writePrivateWorkspaceManifestForTest(t *testing.T, root string, manifest Pr
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := safepath.WriteFileWithin(root, filepath.Join(root, PrivateWorkspaceManifestName), data, 0o600); err != nil {
+	if err := hardenedWriteFileWithin(root, filepath.Join(root, PrivateWorkspaceManifestName), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
