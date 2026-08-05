@@ -1350,7 +1350,7 @@ func repositoryMirrorSnapshotFinal(t *testing.T, service, template string) ([]by
 	scratch := privateSyntheticATLScratch(t)
 	process, err := StartSyntheticATLProcess(t.Context(), SyntheticATLProcessConfig{
 		Binary: repositorySyntheticATLBinary(t), Fixture: fixture, ScratchRoot: scratch, MirrorTemplate: template,
-		MCPService: "offline", MCPInvocations: []MCPInvocation{invocation},
+		VerifyMCPToolInventory: true, MCPService: "offline", MCPInvocations: []MCPInvocation{invocation},
 	})
 	if err != nil {
 		t.Fatal(err)

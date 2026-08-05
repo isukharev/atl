@@ -84,7 +84,7 @@ func TestSyntheticATLProcessSeedsMirrorTemplateBeforeMCPLaunch(t *testing.T) {
 		t.Fatal(err)
 	}
 	binary := filepath.Join(root, "atl-fake")
-	writeSyntheticExecutable(t, binary, syntheticATLTestScript(`
+	writeSyntheticExecutable(t, binary, syntheticATLTestScriptWithToolInventory(`
 if [ "$1" = "mcp" ]; then
   [ "$2" = "serve" ] && [ "$3" = "--service" ] && [ "$4" = "offline" ] || exit 81
   [ -d "$ATL_MIRROR_ROOT" ] && [ ! -L "$ATL_MIRROR_ROOT" ] && [ -f "$ATL_MIRROR_ROOT/seed.txt" ] || exit 82
@@ -109,7 +109,7 @@ exit 87
 	}
 	process, err := StartSyntheticATLProcess(context.Background(), SyntheticATLProcessConfig{
 		Binary: binary, Fixture: minimalSyntheticFixture(), ScratchRoot: scratch, MirrorTemplate: template,
-		MCPService: "offline", MCPInvocations: []MCPInvocation{invocation}, Timeout: time.Second,
+		VerifyMCPToolInventory: true, MCPService: "offline", MCPInvocations: []MCPInvocation{invocation}, Timeout: time.Second,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -174,13 +174,45 @@ exit 93
 	}
 	process, err := StartSyntheticATLProcess(context.Background(), SyntheticATLProcessConfig{
 		Binary: binary, Fixture: minimalSyntheticFixture(), ScratchRoot: scratch,
-		MCPService: "offline", MCPInvocations: []MCPInvocation{invocation}, Timeout: time.Second,
+		VerifyMCPToolInventory: true, MCPService: "offline", MCPInvocations: []MCPInvocation{invocation}, Timeout: time.Second,
 	})
 	if process != nil || err == nil || !strings.Contains(err.Error(), "tool inventory") {
 		t.Fatalf("offline inventory mismatch process=%v err=%v", process, err)
 	}
 	if entries, readErr := os.ReadDir(scratch); readErr != nil || len(entries) != 0 {
 		t.Fatalf("runtime survived tool inventory mismatch: entries=%v err=%v", entries, readErr)
+	}
+}
+
+func TestSyntheticATLProcessRequiresToolInventoryVerificationForMirrorTemplate(t *testing.T) {
+	invocation, ok := newMCPInvocation("jira_mirror_snapshot", map[string]any{})
+	if !ok {
+		t.Fatal("construct invocation")
+	}
+	_, _, err := normalizeSyntheticATLProcessConfig(SyntheticATLProcessConfig{
+		Fixture:        minimalSyntheticFixture(),
+		MirrorTemplate: "mirror-template",
+		MCPService:     "offline",
+		MCPInvocations: []MCPInvocation{invocation},
+	})
+	if err == nil || !strings.Contains(err.Error(), "mirror template requires MCP tool inventory verification") {
+		t.Fatalf("missing mirror inventory verification error=%v", err)
+	}
+}
+
+func TestSyntheticATLProcessRejectsToolInventoryVerificationWithoutMCP(t *testing.T) {
+	_, _, err := normalizeSyntheticATLProcessConfig(SyntheticATLProcessConfig{
+		Fixture:                minimalSyntheticFixture(),
+		VerifyMCPToolInventory: true,
+		CLIPolicy: CLICommandPolicy{
+			SchemaVersion: CLICommandPolicySchemaVersion,
+			Rules: []CLICommandRule{{
+				Name: "version", Command: []string{"version"}, MaxInvocations: 1,
+			}},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "tool inventory verification requires MCP invocations") {
+		t.Fatalf("inventory verification without MCP error=%v", err)
 	}
 }
 
@@ -309,7 +341,7 @@ func TestSyntheticATLProcessRejectsSymlinkMirrorTemplateAndCleansRuntime(t *test
 			}
 			if _, err := StartSyntheticATLProcess(context.Background(), SyntheticATLProcessConfig{
 				Binary: binary, Fixture: minimalSyntheticFixture(), ScratchRoot: scratch, MirrorTemplate: source,
-				MCPService: "offline", MCPInvocations: []MCPInvocation{invocation}, Timeout: time.Second,
+				VerifyMCPToolInventory: true, MCPService: "offline", MCPInvocations: []MCPInvocation{invocation}, Timeout: time.Second,
 			}); err == nil || !strings.Contains(err.Error(), "symlink") {
 				t.Fatalf("unsafe mirror template error=%v", err)
 			}
@@ -863,6 +895,10 @@ func writeSyntheticExecutable(t *testing.T, path, data string) {
 }
 
 func syntheticATLTestScript(body string) string {
+	return "#!/bin/sh\n" + testATLCapabilityCatalogHandler() + body
+}
+
+func syntheticATLTestScriptWithToolInventory(body string) string {
 	body = strings.ReplaceAll(body, "IFS= read -r initialized", `IFS= read -r initialized
   IFS= read -r listed || exit 127
   synthetic_mcp_tools_list "$4"`)
