@@ -183,6 +183,9 @@ The evaluation stack has distinct safety and cost properties:
 
 Model-in-the-loop runs remain manual or opt-in because they cost resources and
 are nondeterministic. Static and deterministic contract gates belong in CI.
+The current official-source comparison and the evidence gate for adopting an
+external execution substrate are recorded in the
+[agent evaluator substrate decision](maintainers/agent-evaluator-substrates.md).
 
 ## Versioned evaluation contract
 

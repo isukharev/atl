@@ -22,6 +22,7 @@ Other canonical maintainer references:
 - [CLI documentation coverage](../command-coverage.v1.json)
 - [Change-impact verification map](../maintainer-impact.v1.json)
 - [Production hotspot and timing ratchets](../maintainability-ratchets.v1.json)
+- [Agent evaluator substrate decision](agent-evaluator-substrates.md)
 - [Private evaluator lifecycle](../agent-benchmark-private-workspace.md)
 
 Repository-scoped Codex skills under `.agents/skills/` are concise routers to
