@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"time"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 const (
@@ -214,16 +212,16 @@ func applyPrivateCheckpoint(options PrivateCheckpointOptions, dependencies priva
 		return PrivateCheckpointSummary{}, privateCheckpointError("contract", err)
 	}
 	directory := filepath.Join(root, "reports", "checkpoints")
-	if err := safepath.MkdirAllWithin(root, directory, 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, directory, 0o700); err != nil {
 		return PrivateCheckpointSummary{}, privateCheckpointError("directory", err)
 	}
-	if info, statErr := safepath.StatWithin(root, directory); statErr != nil || !info.IsDir() ||
+	if info, statErr := hardenedStatWithin(root, directory); statErr != nil || !info.IsDir() ||
 		(runtime.GOOS != "windows" && info.Mode().Perm() != 0o700) {
 		return PrivateCheckpointSummary{}, privateCheckpointError("directory_mode", statErr)
 	}
 	path := filepath.Join(directory, preview.Checkpoint.UTCDate+".json")
-	if existing, readErr := safepath.ReadFileWithinLimit(root, path, privateFindingLedgerMaxBytes); readErr == nil {
-		info, statErr := safepath.StatWithin(root, path)
+	if existing, readErr := hardenedReadFileWithinLimit(root, path, privateFindingLedgerMaxBytes); readErr == nil {
+		info, statErr := hardenedStatWithin(root, path)
 		if statErr != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) || !bytes.Equal(existing, data) {
 			return PrivateCheckpointSummary{}, privateCheckpointError("checkpoint_exists", statErr)
 		}
@@ -232,7 +230,7 @@ func applyPrivateCheckpoint(options PrivateCheckpointOptions, dependencies priva
 	} else if !os.IsNotExist(readErr) {
 		return PrivateCheckpointSummary{}, privateCheckpointError("checkpoint_read", readErr)
 	}
-	if err := safepath.WriteFileExclusiveWithin(root, path, data, 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(root, path, data, 0o600); err != nil {
 		return PrivateCheckpointSummary{}, privateCheckpointError("checkpoint_write", err)
 	}
 	return PrivateCheckpointSummary{SchemaVersion: PrivateCheckpointSchemaVersion, UTCDate: preview.Checkpoint.UTCDate,

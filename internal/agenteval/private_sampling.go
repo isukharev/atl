@@ -9,8 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 const (
@@ -111,7 +109,7 @@ func previewPrivateSampling(options PrivateSamplingOptions, dependencies private
 		return PrivateSamplingPreview{}, nil, privateSamplingError("workspace_state", err)
 	}
 	specDirectory := filepath.Join(root, "cases", "sampling")
-	if info, statErr := safepath.StatWithin(root, specDirectory); statErr != nil || !info.IsDir() ||
+	if info, statErr := hardenedStatWithin(root, specDirectory); statErr != nil || !info.IsDir() ||
 		(runtime.GOOS != "windows" && info.Mode().Perm() != 0o700) {
 		return PrivateSamplingPreview{}, nil, privateSamplingError("spec_directory", statErr)
 	}
@@ -148,7 +146,7 @@ func readPrivateSamplingSpec(root, directory, alias string) (int, []byte, error)
 }
 
 func readPrivateSamplingSpecWithHook(root, directory, alias string, afterRead func()) (int, []byte, error) {
-	directoryInfo, err := safepath.StatWithin(root, directory)
+	directoryInfo, err := hardenedStatWithin(root, directory)
 	if err != nil || !directoryInfo.IsDir() ||
 		(runtime.GOOS != "windows" && directoryInfo.Mode().Perm() != 0o700) {
 		return 0, nil, privateSamplingError("spec_directory", err)
@@ -225,7 +223,7 @@ func readPrivateSamplingSpecWithHook(root, directory, alias string, afterRead fu
 		return 0, nil, privateSamplingError("spec_file")
 	}
 	finalDirectory, err := handle.Stat(".")
-	ambientDirectory, ambientErr := safepath.StatWithin(root, directory)
+	ambientDirectory, ambientErr := hardenedStatWithin(root, directory)
 	if err != nil || ambientErr != nil ||
 		!os.SameFile(openedDirectory, finalDirectory) || !sameSyntheticRootInfo(openedDirectory, finalDirectory) ||
 		!os.SameFile(openedDirectory, ambientDirectory) || !sameSyntheticRootInfo(openedDirectory, ambientDirectory) {
@@ -269,16 +267,16 @@ func applyPrivateSampling(options PrivateSamplingOptions, dependencies privateSa
 		return PrivateSamplingSummary{}, privateSamplingError("assessment_drift", err)
 	}
 	directory := filepath.Join(root, "reports", "sampling")
-	if err := safepath.MkdirAllWithin(root, directory, 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, directory, 0o700); err != nil {
 		return PrivateSamplingSummary{}, privateSamplingError("directory", err)
 	}
-	if info, statErr := safepath.StatWithin(root, directory); statErr != nil || !info.IsDir() ||
+	if info, statErr := hardenedStatWithin(root, directory); statErr != nil || !info.IsDir() ||
 		(runtime.GOOS != "windows" && info.Mode().Perm() != 0o700) {
 		return PrivateSamplingSummary{}, privateSamplingError("directory_mode", statErr)
 	}
 	path := filepath.Join(directory, preview.AssessmentSHA256+".json")
-	if existing, readErr := safepath.ReadFileWithinLimit(root, path, privateSamplingMaxBytes); readErr == nil {
-		info, statErr := safepath.StatWithin(root, path)
+	if existing, readErr := hardenedReadFileWithinLimit(root, path, privateSamplingMaxBytes); readErr == nil {
+		info, statErr := hardenedStatWithin(root, path)
 		if statErr != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) || !bytes.Equal(existing, data) {
 			return PrivateSamplingSummary{}, privateSamplingError("assessment_exists", statErr)
 		}
@@ -286,7 +284,7 @@ func applyPrivateSampling(options PrivateSamplingOptions, dependencies privateSa
 	} else if !os.IsNotExist(readErr) {
 		return PrivateSamplingSummary{}, privateSamplingError("assessment_read", readErr)
 	}
-	if err := safepath.WriteFileExclusiveWithin(root, path, data, 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(root, path, data, 0o600); err != nil {
 		return PrivateSamplingSummary{}, privateSamplingError("assessment_write", err)
 	}
 	return PrivateSamplingSummary{PrivateSamplingPreview: preview, Stored: true}, nil
@@ -422,16 +420,16 @@ func loadPrivateSamplingAssessment(root, repository, digest string, load private
 		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_digest")
 	}
 	directory := filepath.Join(root, "reports", "sampling")
-	info, err := safepath.StatWithin(root, directory)
+	info, err := hardenedStatWithin(root, directory)
 	if err != nil || !info.IsDir() || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o700) {
 		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_directory", err)
 	}
 	path := filepath.Join(directory, digest+".json")
-	info, err = safepath.StatWithin(root, path)
+	info, err = hardenedStatWithin(root, path)
 	if err != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) {
 		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_file", err)
 	}
-	data, err := safepath.ReadFileWithinLimit(root, path, privateSamplingMaxBytes)
+	data, err := hardenedReadFileWithinLimit(root, path, privateSamplingMaxBytes)
 	if err != nil {
 		return privateSamplingAssessment{}, nil, nil, privateSamplingError("assessment_read", err)
 	}

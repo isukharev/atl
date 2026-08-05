@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"path/filepath"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 const privateActivationCalibrationReceiptSchemaVersion = 1
@@ -33,11 +31,11 @@ func persistPrivateActivationCalibrationReceipt(root, runRoot string, plan priva
 		return "", err
 	}
 	directory := filepath.Join(runRoot, "calibration")
-	if err := safepath.MkdirAllWithin(root, directory, 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, directory, 0o700); err != nil {
 		return "", privatePlanError("calibration_receipt_directory")
 	}
 	path := filepath.Join(directory, "execution-receipt.json")
-	if err := safepath.WriteFileExclusiveWithin(root, path, data, 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(root, path, data, 0o600); err != nil {
 		return "", privatePlanError("calibration_receipt_write")
 	}
 	return sha256HexBytes(data), nil
@@ -48,7 +46,7 @@ func validatePrivateActivationCalibrationReceipt(root, runID string, plan privat
 		return privatePlanError("calibration_receipt_binding")
 	}
 	path := filepath.Join(root, "runs", runID, "calibration", "execution-receipt.json")
-	data, err := safepath.ReadFileWithinLimit(root, path, 1<<20)
+	data, err := hardenedReadFileWithinLimit(root, path, 1<<20)
 	if err != nil {
 		return privatePlanError("calibration_receipt_read")
 	}

@@ -18,8 +18,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 const (
@@ -91,12 +89,12 @@ func runPrivateReviewProvider(ctx context.Context, root, packet, agentBinary str
 	}
 	defer func() { returnErr = errors.Join(returnErr, removePrivateTree(root, scratch)) }()
 	workspace := filepath.Join(scratch, "workspace")
-	if err := safepath.MkdirAllWithin(root, workspace, 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, workspace, 0o700); err != nil {
 		return result, privatePlanError("review_runtime")
 	}
 	schemaPath := filepath.Join(scratch, "schema.json")
 	finalPath := filepath.Join(scratch, "final.json")
-	if err := safepath.WriteFileExclusiveWithin(root, schemaPath, schema, 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(root, schemaPath, schema, 0o600); err != nil {
 		return result, privatePlanError("review_runtime")
 	}
 
@@ -250,7 +248,7 @@ func newClaudeReviewRuntime(root, scratch string, ambient []string) (*claudeRevi
 	home := filepath.Join(runtimeRoot, "home")
 	temporary := filepath.Join(runtimeRoot, "tmp")
 	for _, directory := range []string{runtimeRoot, config, home, temporary} {
-		if err := safepath.MkdirAllWithin(root, directory, 0o700); err != nil {
+		if err := hardenedMkdirAllWithin(root, directory, 0o700); err != nil {
 			return nil, err
 		}
 	}

@@ -17,8 +17,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 const (
@@ -616,11 +614,11 @@ func newClaudeRouteProbeRuntime(scratchRoot, baseURL string) (*cliRouteProbeRunt
 		"TEMP":              filepath.Join(root, "tmp"),
 	}
 	for _, directory := range directories {
-		if err := safepath.MkdirAllWithin(root, directory, 0o700); err != nil {
+		if err := hardenedMkdirAllWithin(root, directory, 0o700); err != nil {
 			return nil, fmt.Errorf("prepare cli route qualification runtime")
 		}
 	}
-	if err := safepath.MkdirAllWithin(root, runtime.workspace, 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, runtime.workspace, 0o700); err != nil {
 		return nil, fmt.Errorf("prepare cli route qualification runtime")
 	}
 	environment := make([]string, 0, len(directories)+12)

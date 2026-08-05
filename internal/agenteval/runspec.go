@@ -12,8 +12,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 const (
@@ -1365,11 +1363,11 @@ func workspaceFileSHA256ExpectationFrom(raw json.RawMessage) (workspaceFileSHA25
 
 func workspaceFileMatchesSHA256(workspace string, expectation workspaceFileSHA256Expectation) bool {
 	target := filepath.Join(workspace, filepath.FromSlash(expectation.Path))
-	info, err := safepath.StatWithin(workspace, target)
+	info, err := hardenedStatWithin(workspace, target)
 	if err != nil || !info.Mode().IsRegular() || info.Size() > maxWorkspaceArtifactBytes {
 		return false
 	}
-	data, err := safepath.ReadFileWithinLimit(workspace, target, maxWorkspaceArtifactBytes)
+	data, err := hardenedReadFileWithinLimit(workspace, target, maxWorkspaceArtifactBytes)
 	if err != nil {
 		return false
 	}

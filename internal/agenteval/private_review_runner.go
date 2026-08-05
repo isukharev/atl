@@ -11,8 +11,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 const (
@@ -95,7 +93,7 @@ type privateReviewProviderResult struct {
 var (
 	privateReviewRunProvider   = runPrivateReviewProvider
 	privateReviewCommitReceipt = func(root, path string, data []byte) error {
-		return safepath.WriteFileExclusiveWithin(root, path, data, 0o600)
+		return hardenedWriteFileExclusiveWithin(root, path, data, 0o600)
 	}
 )
 
@@ -147,7 +145,7 @@ func RunPrivateReview(ctx context.Context, options PrivateReviewRunOptions) (Pri
 	packet := filepath.Join(root, filepath.FromSlash(privatePanelPacketRelative(source.RunID, privateReviewCellKey(surface), reviewer.ID)))
 	attemptPath := filepath.Join(packet, "execution-attempt.json")
 	receiptPath := filepath.Join(packet, "execution-receipt.json")
-	if _, statErr := safepath.StatWithin(root, attemptPath); statErr == nil || !os.IsNotExist(statErr) {
+	if _, statErr := hardenedStatWithin(root, attemptPath); statErr == nil || !os.IsNotExist(statErr) {
 		return PrivateReviewExecutionSummary{}, privatePlanError("review_run_consumed")
 	}
 	if err := validatePrivateReviewTemplatePristine(root, packet); err != nil {
@@ -166,7 +164,7 @@ func RunPrivateReview(ctx context.Context, options PrivateReviewRunOptions) (Pri
 		ReviewerKind: reviewer.Kind, ReviewerModel: reviewer.Model, ReviewerExecutionSHA256: executionDigest,
 		StartedAt: now.Format(time.RFC3339Nano)}
 	attemptData, err := encodePrivateReviewAttempt(attempt)
-	if err != nil || safepath.WriteFileExclusiveWithin(root, attemptPath, attemptData, 0o600) != nil {
+	if err != nil || hardenedWriteFileExclusiveWithin(root, attemptPath, attemptData, 0o600) != nil {
 		return PrivateReviewExecutionSummary{}, privatePlanError("review_run_commit")
 	}
 
@@ -318,7 +316,7 @@ func validatePrivateReviewReserve(root string, source PrivateBaselineSource, pla
 		for _, reviewer := range contract.Reviewers {
 			packet := filepath.Join(root, filepath.FromSlash(privatePanelPacketRelative(source.RunID, privateReviewCellKey(surface), reviewer.ID)))
 			attemptPath := filepath.Join(packet, "execution-attempt.json")
-			if _, statErr := safepath.StatWithin(root, attemptPath); os.IsNotExist(statErr) {
+			if _, statErr := hardenedStatWithin(root, attemptPath); os.IsNotExist(statErr) {
 				continue
 			} else if statErr != nil {
 				return privatePlanError("review_attempt")

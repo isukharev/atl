@@ -14,8 +14,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 const (
@@ -244,7 +242,7 @@ func SetPrivateBaseline(options PrivateBaselineSetOptions) (PrivateBaselineSumma
 		return PrivateBaselineSummary{}, privateBaselineError("staging", err)
 	}
 	staging := filepath.Join(root, ".ephemeral", stagingName)
-	if err := safepath.MkdirAllWithin(root, staging, 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, staging, 0o700); err != nil {
 		return PrivateBaselineSummary{}, privateBaselineError("staging", err)
 	}
 	committed := false
@@ -253,7 +251,7 @@ func SetPrivateBaseline(options PrivateBaselineSetOptions) (PrivateBaselineSumma
 			_ = removePrivateTree(root, staging)
 		}
 	}()
-	if err := safepath.WriteFileExclusiveWithin(root, filepath.Join(staging, "plan.json"), planData, 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(root, filepath.Join(staging, "plan.json"), planData, 0o600); err != nil {
 		return PrivateBaselineSummary{}, privateBaselineError("plan_copy", err)
 	}
 
@@ -280,12 +278,12 @@ func SetPrivateBaseline(options PrivateBaselineSetOptions) (PrivateBaselineSumma
 	if err != nil {
 		return PrivateBaselineSummary{}, privateBaselineError("manifest", err)
 	}
-	if err := safepath.WriteFileExclusiveWithin(root, filepath.Join(staging, "baseline.v1.json"), manifestData, 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(root, filepath.Join(staging, "baseline.v1.json"), manifestData, 0o600); err != nil {
 		return PrivateBaselineSummary{}, privateBaselineError("manifest_write", err)
 	}
 
 	contractDirectory := filepath.Join(root, "baselines", options.Source.ContractSHA256)
-	if err := safepath.MkdirAllWithin(root, contractDirectory, 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, contractDirectory, 0o700); err != nil {
 		return PrivateBaselineSummary{}, privateBaselineError("baseline_parent", err)
 	}
 	destination := filepath.Join(contractDirectory, options.Baseline)
@@ -317,11 +315,11 @@ func SetPrivateBaseline(options PrivateBaselineSetOptions) (PrivateBaselineSumma
 	} else if !os.IsNotExist(err) {
 		return PrivateBaselineSummary{}, privateBaselineError("baseline_exists", err)
 	}
-	if err := safepath.RenameWithin(root, staging, destination); err != nil {
+	if err := hardenedRenameWithin(root, staging, destination); err != nil {
 		return PrivateBaselineSummary{}, privateBaselineError("baseline_commit", err)
 	}
 	committed = true
-	if err := safepath.WriteFileWithin(root, filepath.Join(contractDirectory, "current.json"), pointerData, 0o600); err != nil {
+	if err := hardenedWriteFileWithin(root, filepath.Join(contractDirectory, "current.json"), pointerData, 0o600); err != nil {
 		return PrivateBaselineSummary{}, privateBaselineError("current_pointer", err)
 	}
 	return PrivateBaselineSummary{
@@ -331,7 +329,7 @@ func SetPrivateBaseline(options PrivateBaselineSetOptions) (PrivateBaselineSumma
 }
 
 func recoverPrivateBaselinePointer(root, destination string, expected privateBaselineManifest, pointerData []byte, pointerPath string) bool {
-	data, err := safepath.ReadFileWithinLimit(root, filepath.Join(destination, "baseline.v1.json"), maxContractBytes)
+	data, err := hardenedReadFileWithinLimit(root, filepath.Join(destination, "baseline.v1.json"), maxContractBytes)
 	if err != nil {
 		return false
 	}
@@ -344,7 +342,7 @@ func recoverPrivateBaselinePointer(root, destination string, expected privateBas
 	if err != nil || hash != expected.TreeSHA256 {
 		return false
 	}
-	return safepath.WriteFileWithin(root, pointerPath, pointerData, 0o600) == nil
+	return hardenedWriteFileWithin(root, pointerPath, pointerData, 0o600) == nil
 }
 
 func validPrivateBaselineSource(root string, source PrivateBaselineSource) bool {
@@ -408,7 +406,7 @@ func privatePathWithin(workspaceRoot, parent, target string) bool {
 
 func compactPrivateSurface(root, staging string, source PrivateBaselineSurfaceSource, retainTranscript bool) (privateBaselineSurface, error) {
 	resultPath := filepath.Join(source.RunDirectory, "result.json")
-	resultData, err := safepath.ReadFileWithinLimit(root, resultPath, maxContractBytes)
+	resultData, err := hardenedReadFileWithinLimit(root, resultPath, maxContractBytes)
 	if err != nil {
 		return privateBaselineSurface{}, privateBaselineError("result_missing", err)
 	}
@@ -447,14 +445,14 @@ func compactPrivateSurface(root, staging string, source PrivateBaselineSurfaceSo
 		return privateBaselineSurface{}, privateBaselineError("assessment_invalid")
 	}
 	destinationRoot := filepath.Join(staging, "surfaces", source.Surface)
-	if err := safepath.MkdirAllWithin(root, destinationRoot, 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, destinationRoot, 0o700); err != nil {
 		return privateBaselineSurface{}, privateBaselineError("surface_directory", err)
 	}
-	if err := safepath.WriteFileExclusiveWithin(root, filepath.Join(destinationRoot, "result.json"), resultData, 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(root, filepath.Join(destinationRoot, "result.json"), resultData, 0o600); err != nil {
 		return privateBaselineSurface{}, privateBaselineError("result_copy", err)
 	}
 	if assessedPath != "" {
-		if err := safepath.WriteFileExclusiveWithin(root, filepath.Join(destinationRoot, "reviewed-result.json"), assessedData, 0o600); err != nil {
+		if err := hardenedWriteFileExclusiveWithin(root, filepath.Join(destinationRoot, "reviewed-result.json"), assessedData, 0o600); err != nil {
 			return privateBaselineSurface{}, privateBaselineError("assessment_copy", err)
 		}
 	}
@@ -470,7 +468,7 @@ func compactPrivateSurface(root, staging string, source PrivateBaselineSurfaceSo
 		{"agent.stderr", 4 << 20, true, true, true},
 	} {
 		if !artifact.retain {
-			data, err := safepath.ReadFileWithinLimit(root, filepath.Join(source.RunDirectory, artifact.name), artifact.limit)
+			data, err := hardenedReadFileWithinLimit(root, filepath.Join(source.RunDirectory, artifact.name), artifact.limit)
 			if err != nil || artifact.nonempty && len(data) == 0 {
 				// A readable but empty required artifact attaches nothing.
 				return privateBaselineSurface{}, privateBaselineError("artifact_read", err)
@@ -485,7 +483,7 @@ func compactPrivateSurface(root, staging string, source PrivateBaselineSurfaceSo
 		}
 		if artifact.nonempty {
 			path := filepath.Join(destinationRoot, artifact.name)
-			info, err := safepath.StatWithin(root, path)
+			info, err := hardenedStatWithin(root, path)
 			if err != nil {
 				if artifact.optional && os.IsNotExist(err) {
 					continue
@@ -494,7 +492,7 @@ func compactPrivateSurface(root, staging string, source PrivateBaselineSurfaceSo
 			}
 			if info.Size() == 0 {
 				if artifact.optional {
-					_ = safepath.RemoveWithin(root, path)
+					_ = hardenedRemoveWithin(root, path)
 				} else {
 					return privateBaselineSurface{}, privateBaselineError("artifact_empty")
 				}
@@ -514,7 +512,7 @@ func findPrivateAssessedResult(root, runDirectory string) (string, []byte, Resul
 	var found string
 	for _, name := range []string{"reviewed-result.json", "assessed-result.json"} {
 		path := filepath.Join(runDirectory, name)
-		info, err := safepath.StatWithin(root, path)
+		info, err := hardenedStatWithin(root, path)
 		if os.IsNotExist(err) {
 			continue
 		}
@@ -530,7 +528,7 @@ func findPrivateAssessedResult(root, runDirectory string) (string, []byte, Resul
 	if found == "" {
 		return "", nil, Result{}, nil
 	}
-	data, err := safepath.ReadFileWithinLimit(root, found, maxContractBytes)
+	data, err := hardenedReadFileWithinLimit(root, found, maxContractBytes)
 	if err != nil {
 		return "", nil, Result{}, privateBaselineError("assessment_read", err)
 	}
@@ -552,11 +550,11 @@ func validatePrivateAssessmentBinding(root string, source PrivateBaselineSurface
 	if !hasPrivateQualitativeAssessment(assessed) || !privatePathWithin(root, filepath.Join(root, "runs"), source.RubricPath) {
 		return privateBaselineError("assessment_binding")
 	}
-	finalData, err := safepath.ReadFileWithinLimit(root, filepath.Join(source.RunDirectory, "final.json"), 16<<20)
+	finalData, err := hardenedReadFileWithinLimit(root, filepath.Join(source.RunDirectory, "final.json"), 16<<20)
 	if err != nil {
 		return privateBaselineError("assessment_binding", err)
 	}
-	rubricData, err := safepath.ReadFileWithinLimit(root, source.RubricPath, maxReviewBytes)
+	rubricData, err := hardenedReadFileWithinLimit(root, source.RubricPath, maxReviewBytes)
 	if err != nil {
 		return privateBaselineError("assessment_binding", err)
 	}
@@ -641,14 +639,14 @@ func equalPrivateResultJSON(left, right Result) bool {
 }
 
 func copyPrivateArtifact(root, source, destinationRoot, name string, limit int64, optional bool) error {
-	data, err := safepath.ReadFileWithinLimit(root, source, limit)
+	data, err := hardenedReadFileWithinLimit(root, source, limit)
 	if err != nil {
 		if optional && os.IsNotExist(err) {
 			return err
 		}
 		return err
 	}
-	return safepath.WriteFileExclusiveWithin(root, filepath.Join(destinationRoot, name), data, 0o600)
+	return hardenedWriteFileExclusiveWithin(root, filepath.Join(destinationRoot, name), data, 0o600)
 }
 
 var privateAuditFiles = []string{
@@ -661,7 +659,7 @@ func copyPrivateAudits(root, runDirectory, destinationRoot string) error {
 	written := false
 	for _, name := range privateAuditFiles {
 		source := filepath.Join(runDirectory, ".atl-eval", name)
-		data, err := safepath.ReadFileWithinLimit(root, source, 4<<20)
+		data, err := hardenedReadFileWithinLimit(root, source, 4<<20)
 		if os.IsNotExist(err) {
 			continue
 		}
@@ -678,12 +676,12 @@ func copyPrivateAudits(root, runDirectory, destinationRoot string) error {
 			return privateBaselineError("audit_invalid", err)
 		}
 		if !written {
-			if err := safepath.MkdirAllWithin(root, auditDestination, 0o700); err != nil {
+			if err := hardenedMkdirAllWithin(root, auditDestination, 0o700); err != nil {
 				return privateBaselineError("audit_directory", err)
 			}
 			written = true
 		}
-		if err := safepath.WriteFileExclusiveWithin(root, filepath.Join(auditDestination, name), sanitized, 0o600); err != nil {
+		if err := hardenedWriteFileExclusiveWithin(root, filepath.Join(auditDestination, name), sanitized, 0o600); err != nil {
 			return privateBaselineError("audit_copy", err)
 		}
 	}
@@ -880,7 +878,7 @@ func privatePruneInventory(root string, loader PrivatePruneInventoryLoader, now 
 	if err != nil {
 		return PrivatePrunePreview{}, nil, privatePruneError("manifest", err)
 	}
-	manifestData, err := safepath.ReadFileWithinLimit(root, manifestPath, maxPrivateWorkspaceManifestBytes)
+	manifestData, err := hardenedReadFileWithinLimit(root, manifestPath, maxPrivateWorkspaceManifestBytes)
 	if err != nil {
 		return PrivatePrunePreview{}, nil, privatePruneError("manifest", err)
 	}
@@ -1035,7 +1033,7 @@ func compactPrivatePrunedRun(root string, candidate privatePruneCandidate, inven
 		return err
 	}
 	intentPath, _ := privatePruneTransactionPaths(root, candidate.runID)
-	if err := safepath.WriteFileExclusiveWithin(root, intentPath, append(data, '\n'), 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(root, intentPath, append(data, '\n'), 0o600); err != nil {
 		return err
 	}
 	return finishPrivatePruneTransaction(root, intent)
@@ -1097,13 +1095,13 @@ func finishPrivatePruneTransaction(root string, intent privatePruneIntent) error
 	stageInfo, stageErr := os.Lstat(stagePath)
 	if os.IsNotExist(stageErr) {
 		if pruned, err := inspectPrivatePrunedRun(root, intent.RunID, intent.PlanID); err == nil && pruned {
-			return safepath.RemoveWithin(root, intentPath)
+			return hardenedRemoveWithin(root, intentPath)
 		}
 		hash, _, _, err := hashPrivatePruneTree(root, runPath)
 		if err != nil || hash != intent.OriginalTreeSHA256 {
 			return privatePruneError("recovery_drift", err)
 		}
-		if err := safepath.RenameWithin(root, runPath, stagePath); err != nil {
+		if err := hardenedRenameWithin(root, runPath, stagePath); err != nil {
 			return err
 		}
 	} else if stageErr != nil || !stageInfo.IsDir() || stageInfo.Mode()&os.ModeSymlink != 0 {
@@ -1114,7 +1112,7 @@ func finishPrivatePruneTransaction(root string, intent privatePruneIntent) error
 		return privatePruneError("stage_drift", err)
 	}
 	if _, err := os.Lstat(runPath); os.IsNotExist(err) {
-		if err := safepath.MkdirAllWithin(root, runPath, 0o700); err != nil {
+		if err := hardenedMkdirAllWithin(root, runPath, 0o700); err != nil {
 			return err
 		}
 		if err := writePrivatePrunedRun(root, runPath, intent); err != nil {
@@ -1128,7 +1126,7 @@ func finishPrivatePruneTransaction(root string, intent privatePruneIntent) error
 	if err := removePrivateTree(root, stagePath); err != nil {
 		return err
 	}
-	return safepath.RemoveWithin(root, intentPath)
+	return hardenedRemoveWithin(root, intentPath)
 }
 
 func writePrivatePrunedRun(root, runPath string, intent privatePruneIntent) error {
@@ -1137,7 +1135,7 @@ func writePrivatePrunedRun(root, runPath string, intent privatePruneIntent) erro
 	if err != nil {
 		return err
 	}
-	return safepath.WriteFileExclusiveWithin(root, filepath.Join(runPath, privatePrunedRunName), append(data, '\n'), 0o600)
+	return hardenedWriteFileExclusiveWithin(root, filepath.Join(runPath, privatePrunedRunName), append(data, '\n'), 0o600)
 }
 
 func privatePruneTransactionPaths(root, runID string) (string, string) {
@@ -1204,7 +1202,7 @@ func hashPrivatePruneTree(root, target string) (string, int, int64, error) {
 	sort.Strings(paths)
 	hash := sha256.New()
 	for _, relative := range paths {
-		data, err := safepath.ReadFileWithinLimit(root, filepath.Join(target, filepath.FromSlash(relative)), 512<<20)
+		data, err := hardenedReadFileWithinLimit(root, filepath.Join(target, filepath.FromSlash(relative)), 512<<20)
 		if err != nil {
 			return "", 0, 0, privatePruneError("tree_read", err)
 		}
@@ -1239,7 +1237,7 @@ func ComparePrivateBaseline(options PrivateCompareOptions) (PrivateComparison, e
 	baselineResults := make(map[string]Result, len(manifest.Surfaces))
 	for _, surface := range manifest.Surfaces {
 		path := filepath.Join(baselineRoot, filepath.FromSlash(surface.ResultPath))
-		data, err := safepath.ReadFileWithinLimit(root, path, maxContractBytes)
+		data, err := hardenedReadFileWithinLimit(root, path, maxContractBytes)
 		if err != nil || sha256HexBytes(data) != surface.ResultSHA256 {
 			// A readable result that simply hashes differently attaches nothing.
 			return PrivateComparison{}, privateBaselineError("baseline_result", err)
@@ -1358,7 +1356,7 @@ func privateResultMetricDeltas(baseline, candidate Result) []PrivateMetricDelta 
 func effectivePrivateSourceResults(root string, source PrivateBaselineSource) (map[string]Result, error) {
 	results := make(map[string]Result, len(source.Surfaces))
 	for _, surface := range source.Surfaces {
-		resultData, err := safepath.ReadFileWithinLimit(root, filepath.Join(surface.RunDirectory, "result.json"), maxContractBytes)
+		resultData, err := hardenedReadFileWithinLimit(root, filepath.Join(surface.RunDirectory, "result.json"), maxContractBytes)
 		if err != nil {
 			return nil, privateBaselineError("candidate_result", err)
 		}
@@ -1398,7 +1396,7 @@ func loadPrivateBaseline(root, contract, baseline string) (privateBaselineManife
 	contractRoot := filepath.Join(root, "baselines", contract)
 	pointerTreeSHA256 := ""
 	if baseline == "current" {
-		pointerData, err := safepath.ReadFileWithinLimit(root, filepath.Join(contractRoot, "current.json"), maxContractBytes)
+		pointerData, err := hardenedReadFileWithinLimit(root, filepath.Join(contractRoot, "current.json"), maxContractBytes)
 		if err != nil {
 			return privateBaselineManifest{}, "", privateBaselineError("current_missing", err)
 		}
@@ -1414,7 +1412,7 @@ func loadPrivateBaseline(root, contract, baseline string) (privateBaselineManife
 		return privateBaselineManifest{}, "", privateBaselineError("baseline_name")
 	}
 	baselineRoot := filepath.Join(contractRoot, baseline)
-	data, err := safepath.ReadFileWithinLimit(root, filepath.Join(baselineRoot, "baseline.v1.json"), maxContractBytes)
+	data, err := hardenedReadFileWithinLimit(root, filepath.Join(baselineRoot, "baseline.v1.json"), maxContractBytes)
 	if err != nil {
 		return privateBaselineManifest{}, "", privateBaselineError("baseline_missing", err)
 	}
@@ -1499,8 +1497,8 @@ func decodePrivateBaselineJSON(data []byte, target any) error {
 	return nil
 }
 
-func acquirePrivateWorkspaceLock(root string) (*safepath.FileLock, error) {
-	lock, acquired, err := safepath.TryLockFileWithin(root, filepath.Join(root, privateWorkspaceLockPath), 0o600)
+func acquirePrivateWorkspaceLock(root string) (*hardenedFileLock, error) {
+	lock, acquired, err := hardenedTryLockFileWithin(root, filepath.Join(root, privateWorkspaceLockPath), 0o600)
 	if err != nil || !acquired {
 		// A lock held by another holder reports contention with no failure.
 		return nil, privateBaselineError("workspace_busy", err)
@@ -1551,7 +1549,7 @@ func hashPrivateTree(root, excluded string) (string, int, int64, error) {
 	sort.Strings(paths)
 	hash := sha256.New()
 	for _, relative := range paths {
-		data, err := safepath.ReadFileWithinLimit(root, filepath.Join(root, filepath.FromSlash(relative)), privateBaselineMaxBytes)
+		data, err := hardenedReadFileWithinLimit(root, filepath.Join(root, filepath.FromSlash(relative)), privateBaselineMaxBytes)
 		if err != nil {
 			return "", 0, 0, err
 		}

@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 const privateReviewPacketVersion = 1
@@ -80,7 +78,7 @@ func PreparePrivateReview(options PrivateReviewPrepareOptions) (PrivateReviewSum
 		if !privatePathWithin(root, filepath.Join(root, "cases"), path) {
 			return PrivateReviewSummary{}, privatePlanError("blind_assignment")
 		}
-		data, readErr := safepath.ReadFileWithinLimit(root, path, maxReviewBytes)
+		data, readErr := hardenedReadFileWithinLimit(root, path, maxReviewBytes)
 		if readErr != nil || len(data) == 0 {
 			return PrivateReviewSummary{}, privatePlanError("blind_assignment")
 		}
@@ -95,7 +93,7 @@ func PreparePrivateReview(options PrivateReviewPrepareOptions) (PrivateReviewSum
 	if _, err := os.Lstat(packet); err == nil || !os.IsNotExist(err) {
 		return PrivateReviewSummary{}, privatePlanError("review_exists")
 	}
-	if err := safepath.MkdirAllWithin(root, filepath.Dir(packet), 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, filepath.Dir(packet), 0o700); err != nil {
 		return PrivateReviewSummary{}, privatePlanError("review_directory")
 	}
 	stageID, err := privateRandomID("review-stage-")
@@ -103,7 +101,7 @@ func PreparePrivateReview(options PrivateReviewPrepareOptions) (PrivateReviewSum
 		return PrivateReviewSummary{}, privatePlanError("review_directory")
 	}
 	stage := filepath.Join(root, ".ephemeral", stageID)
-	if err := safepath.MkdirAllWithin(root, stage, 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, stage, 0o700); err != nil {
 		return PrivateReviewSummary{}, privatePlanError("review_directory")
 	}
 	committed := false
@@ -119,11 +117,11 @@ func PreparePrivateReview(options PrivateReviewPrepareOptions) (PrivateReviewSum
 	for name, data := range map[string][]byte{
 		"final.json": finalData, "result.json": resultData, "rubric.json": rubricData, "review.json": append(reviewData, '\n'),
 	} {
-		if err := safepath.WriteFileExclusiveWithin(root, filepath.Join(stage, name), data, 0o600); err != nil {
+		if err := hardenedWriteFileExclusiveWithin(root, filepath.Join(stage, name), data, 0o600); err != nil {
 			return PrivateReviewSummary{}, privatePlanError("review_write")
 		}
 	}
-	if err := safepath.RenameWithin(root, stage, packet); err != nil {
+	if err := hardenedRenameWithin(root, stage, packet); err != nil {
 		return PrivateReviewSummary{}, privatePlanError("review_commit")
 	}
 	committed = true
@@ -183,7 +181,7 @@ func AssessPrivateReview(options PrivateReviewAssessOptions) (PrivateReviewSumma
 	if err != nil {
 		return PrivateReviewSummary{}, privatePlanError("assessment_encode")
 	}
-	if err := safepath.WriteFileExclusiveWithin(root, filepath.Join(surface.RunDirectory, "reviewed-result.json"), append(assessedData, '\n'), 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(root, filepath.Join(surface.RunDirectory, "reviewed-result.json"), append(assessedData, '\n'), 0o600); err != nil {
 		return PrivateReviewSummary{}, privatePlanError("assessment_write")
 	}
 	return privateReviewSummary(source, options.Surface, "assessed", packetRelative, resultData, finalData, rubric), nil
@@ -203,7 +201,7 @@ func loadPrivateReviewSurface(root, repository, planID, surfaceName, treatment s
 }
 
 func loadPrivateReviewInputs(root string, surface PrivateBaselineSurfaceSource) ([]byte, []byte, []byte, Result, Rubric, error) {
-	resultData, err := safepath.ReadFileWithinLimit(root, filepath.Join(surface.RunDirectory, "result.json"), maxContractBytes)
+	resultData, err := hardenedReadFileWithinLimit(root, filepath.Join(surface.RunDirectory, "result.json"), maxContractBytes)
 	if err != nil {
 		return nil, nil, nil, Result{}, Rubric{}, privatePlanError("review_result")
 	}
@@ -211,11 +209,11 @@ func loadPrivateReviewInputs(root string, surface PrivateBaselineSurfaceSource) 
 	if err != nil || result.DataClass != "private-local" || result.EffectiveSurface() != surface.Surface {
 		return nil, nil, nil, Result{}, Rubric{}, privatePlanError("review_result")
 	}
-	finalData, err := safepath.ReadFileWithinLimit(root, filepath.Join(surface.RunDirectory, "final.json"), 16<<20)
+	finalData, err := hardenedReadFileWithinLimit(root, filepath.Join(surface.RunDirectory, "final.json"), 16<<20)
 	if err != nil || len(finalData) == 0 {
 		return nil, nil, nil, Result{}, Rubric{}, privatePlanError("review_final")
 	}
-	rubricData, err := safepath.ReadFileWithinLimit(root, surface.RubricPath, maxReviewBytes)
+	rubricData, err := hardenedReadFileWithinLimit(root, surface.RubricPath, maxReviewBytes)
 	if err != nil {
 		return nil, nil, nil, Result{}, Rubric{}, privatePlanError("review_rubric")
 	}

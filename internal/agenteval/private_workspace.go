@@ -14,8 +14,6 @@ import (
 	"sort"
 	"strings"
 	"unicode/utf8"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 const (
@@ -606,7 +604,7 @@ func loadPrivateWorkspaceManifest(root string) (PrivateWorkspaceManifest, string
 	if err != nil {
 		return PrivateWorkspaceManifest{}, "", err
 	}
-	data, err := safepath.ReadFileWithinLimit(root, path, maxPrivateWorkspaceManifestBytes)
+	data, err := hardenedReadFileWithinLimit(root, path, maxPrivateWorkspaceManifestBytes)
 	if err != nil {
 		return PrivateWorkspaceManifest{}, "", privateWorkspaceOperationError("manifest_read", err)
 	}
@@ -744,7 +742,7 @@ func InitPrivateWorkspace(root, repositoryRoot string, manifest PrivateWorkspace
 		if err != nil {
 			return emptyPrivateWorkspaceReport(), privateWorkspaceOperationError("manifest_invalid", err)
 		}
-		if err := safepath.WriteFileExclusiveWithin(absRoot, markerPath, data, 0o600); err != nil {
+		if err := hardenedWriteFileExclusiveWithin(absRoot, markerPath, data, 0o600); err != nil {
 			return emptyPrivateWorkspaceReport(), privateWorkspaceOperationError("manifest_create", err)
 		}
 	} else if markerErr != nil {

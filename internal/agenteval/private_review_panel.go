@@ -7,8 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 const privatePanelResultBindingSchemaVersion = 1
@@ -53,7 +51,7 @@ func preparePrivatePanelReview(root string, source PrivateBaselineSource, surfac
 	}
 	packetRelative := privatePanelPacketRelative(source.RunID, privateReviewCellKey(surface), reviewer.ID)
 	packet := filepath.Join(root, filepath.FromSlash(packetRelative))
-	if _, err := safepath.StatWithin(root, packet); err == nil || !os.IsNotExist(err) {
+	if _, err := hardenedStatWithin(root, packet); err == nil || !os.IsNotExist(err) {
 		return PrivateReviewSummary{}, privatePlanError("review_exists")
 	}
 	if err := writePrivateReviewPacket(root, packet, resultData, finalData, rubricData, review, surface.CellID == ""); err != nil {
@@ -97,8 +95,8 @@ func assessPrivatePanelReview(root string, source PrivateBaselineSource, surface
 	if err != nil {
 		return PrivateReviewSummary{}, err
 	}
-	if _, statErr := safepath.StatWithin(root, assessmentPath); os.IsNotExist(statErr) {
-		if err := safepath.WriteFileExclusiveWithin(root, assessmentPath, canonicalData, 0o600); err != nil {
+	if _, statErr := hardenedStatWithin(root, assessmentPath); os.IsNotExist(statErr) {
+		if err := hardenedWriteFileExclusiveWithin(root, assessmentPath, canonicalData, 0o600); err != nil {
 			return PrivateReviewSummary{}, privatePlanError("assessment_write")
 		}
 	} else if statErr != nil {
@@ -137,13 +135,13 @@ func assessPrivatePanelReview(root string, source PrivateBaselineSource, surface
 			return PrivateReviewSummary{}, privatePlanError("assessment_encode")
 		}
 		reviewedPath := filepath.Join(surface.RunDirectory, "reviewed-result.json")
-		if existing, readErr := safepath.ReadFileWithinLimit(root, reviewedPath, maxContractBytes); readErr == nil {
+		if existing, readErr := hardenedReadFileWithinLimit(root, reviewedPath, maxContractBytes); readErr == nil {
 			if !bytes.Equal(existing, append(encoded, '\n')) {
 				return PrivateReviewSummary{}, privatePlanError("assessment_drift")
 			}
 		} else if !os.IsNotExist(readErr) {
 			return PrivateReviewSummary{}, privatePlanError("assessment_write")
-		} else if err := safepath.WriteFileExclusiveWithin(root, reviewedPath, append(encoded, '\n'), 0o600); err != nil {
+		} else if err := hardenedWriteFileExclusiveWithin(root, reviewedPath, append(encoded, '\n'), 0o600); err != nil {
 			return PrivateReviewSummary{}, privatePlanError("assessment_write")
 		}
 		status = "assessed"
@@ -209,7 +207,7 @@ func privatePanelPacketRelative(runID, surface, reviewerID string) string {
 
 func privatePanelReviewProgress(root string, source PrivateBaselineSource, surface PrivateBaselineSurfaceSource, contract privateQualitativeReviewPanelContract) (int, int, error) {
 	reviewRoot := filepath.Join(root, "runs", source.RunID, "review", privateReviewCellKey(surface))
-	entries, err := safepath.ReadDirWithin(root, reviewRoot)
+	entries, err := hardenedReadDirWithin(root, reviewRoot)
 	if os.IsNotExist(err) {
 		return 0, 0, nil
 	}
@@ -226,12 +224,12 @@ func privatePanelReviewProgress(root string, source PrivateBaselineSource, surfa
 			return 0, 0, privatePlanError("review_roster")
 		}
 		packet := filepath.Join(reviewRoot, entry.Name())
-		info, statErr := safepath.StatWithin(root, packet)
+		info, statErr := hardenedStatWithin(root, packet)
 		if statErr != nil || !info.IsDir() || !privateWorkspaceDirectoryMode(info.Mode()) {
 			return 0, 0, privatePlanError("review_roster")
 		}
 		prepared++
-		assessment, statErr := safepath.StatWithin(root, filepath.Join(packet, "assessment.json"))
+		assessment, statErr := hardenedStatWithin(root, filepath.Join(packet, "assessment.json"))
 		if os.IsNotExist(statErr) {
 			continue
 		}
@@ -311,7 +309,7 @@ func validatePrivatePanelRunPackets(root string, source PrivateBaselineSource, r
 				return canonicalErr
 			}
 			assessmentPath := filepath.Join(packet, "assessment.json")
-			if _, statErr := safepath.StatWithin(root, assessmentPath); os.IsNotExist(statErr) {
+			if _, statErr := hardenedStatWithin(root, assessmentPath); os.IsNotExist(statErr) {
 				continue
 			} else if statErr != nil {
 				return privatePlanError("assessment_invalid")
@@ -349,7 +347,7 @@ func canonicalPrivatePanelAssessment(result Result, resultData, finalData []byte
 }
 
 func validatePrivatePanelPacket(root, packet string, resultData, finalData, rubricData []byte, includeResult bool) error {
-	entries, err := safepath.ReadDirWithin(root, packet)
+	entries, err := hardenedReadDirWithin(root, packet)
 	if err != nil {
 		return privatePlanError("review_packet")
 	}
@@ -377,7 +375,7 @@ func validatePrivatePanelPacket(root, packet string, resultData, finalData, rubr
 }
 
 func writePrivateReviewPacket(root, packet string, resultData, finalData, rubricData []byte, review Review, includeResult bool) error {
-	if err := safepath.MkdirAllWithin(root, filepath.Dir(packet), 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, filepath.Dir(packet), 0o700); err != nil {
 		return privatePlanError("review_directory")
 	}
 	stageID, err := privateRandomID("review-stage-")
@@ -385,7 +383,7 @@ func writePrivateReviewPacket(root, packet string, resultData, finalData, rubric
 		return privatePlanError("review_directory")
 	}
 	stage := filepath.Join(root, ".ephemeral", stageID)
-	if err := safepath.MkdirAllWithin(root, stage, 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, stage, 0o700); err != nil {
 		return privatePlanError("review_directory")
 	}
 	committed := false
@@ -403,11 +401,11 @@ func writePrivateReviewPacket(root, packet string, resultData, finalData, rubric
 		files["result.json"] = resultData
 	}
 	for name, data := range files {
-		if err := safepath.WriteFileExclusiveWithin(root, filepath.Join(stage, name), data, 0o600); err != nil {
+		if err := hardenedWriteFileExclusiveWithin(root, filepath.Join(stage, name), data, 0o600); err != nil {
 			return privatePlanError("review_write")
 		}
 	}
-	if err := safepath.RenameWithin(root, stage, packet); err != nil {
+	if err := hardenedRenameWithin(root, stage, packet); err != nil {
 		return privatePlanError("review_commit")
 	}
 	committed = true
@@ -451,7 +449,7 @@ func createOrLoadPrivatePanelResultBinding(root string, source PrivateBaselineSo
 	reviewer Reviewer, resultSHA256 string,
 ) (privatePanelResultBinding, error) {
 	path := privatePanelResultBindingPath(root, source, surface, reviewer)
-	if _, err := safepath.StatWithin(root, path); err == nil {
+	if _, err := hardenedStatWithin(root, path); err == nil {
 		return loadPrivatePanelResultBinding(root, source, surface, reviewer, resultSHA256)
 	} else if !os.IsNotExist(err) {
 		return privatePanelResultBinding{}, privatePlanError("review_binding")
@@ -466,10 +464,10 @@ func createOrLoadPrivatePanelResultBinding(root string, source PrivateBaselineSo
 	if err != nil {
 		return privatePanelResultBinding{}, err
 	}
-	if err := safepath.MkdirAllWithin(root, filepath.Dir(path), 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, filepath.Dir(path), 0o700); err != nil {
 		return privatePanelResultBinding{}, privatePlanError("review_binding")
 	}
-	if err := safepath.WriteFileExclusiveWithin(root, path, data, 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(root, path, data, 0o600); err != nil {
 		return privatePanelResultBinding{}, privatePlanError("review_binding")
 	}
 	return binding, nil

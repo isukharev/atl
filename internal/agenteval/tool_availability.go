@@ -18,8 +18,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 const (
@@ -514,7 +512,7 @@ func preparePrivateProbeAgent(scratchRoot, runtimeRoot string, agent privateAgen
 	probeAgentPath := filepath.Join(runtimeRoot, probeAgentName)
 	if agent.resourceRelativePath != "" {
 		probeBinRoot := filepath.Join(runtimeRoot, "bin")
-		if err := safepath.MkdirAllWithin(scratchRoot, probeBinRoot, 0o700); err != nil {
+		if err := hardenedMkdirAllWithin(scratchRoot, probeBinRoot, 0o700); err != nil {
 			return privateAgentBinaryContract{}, fmt.Errorf("prepare private probe agent")
 		}
 		probeAgentPath = filepath.Join(probeBinRoot, probeAgentName)
@@ -558,11 +556,11 @@ func newCodexIsolatedProbeRuntime(scratchRoot, prefix string) (*codexToolProbeRu
 		"TEMP":            filepath.Join(root, "tmp"),
 	}
 	for _, directory := range directories {
-		if err := safepath.MkdirAllWithin(root, directory, 0o700); err != nil {
+		if err := hardenedMkdirAllWithin(root, directory, 0o700); err != nil {
 			return nil, fmt.Errorf("prepare codex cli tool availability runtime")
 		}
 	}
-	if err := safepath.MkdirAllWithin(root, runtime.workspace, 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, runtime.workspace, 0o700); err != nil {
 		return nil, fmt.Errorf("prepare codex cli tool availability runtime")
 	}
 	environment := make([]string, 0, len(directories)+8)

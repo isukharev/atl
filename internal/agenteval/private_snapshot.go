@@ -5,8 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 type privateExecutionSnapshot struct {
@@ -21,7 +19,7 @@ func createPrivateExecutionSnapshot(root, runID string, options PrivatePlanExecu
 		return privateExecutionSnapshot{}, privatePlanError("snapshot_id")
 	}
 	snapshot := privateExecutionSnapshot{root: filepath.Join(root, ".ephemeral", "execution-"+runID)}
-	if err := safepath.MkdirAllWithin(root, snapshot.root, 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, snapshot.root, 0o700); err != nil {
 		return privateExecutionSnapshot{}, err
 	}
 	failed := true
@@ -37,7 +35,7 @@ func createPrivateExecutionSnapshot(root, runID string, options PrivatePlanExecu
 		return privateExecutionSnapshot{}, err
 	}
 	snapshot.pluginRoot = filepath.Join(snapshot.root, "plugin")
-	if err := safepath.MkdirAllWithin(root, snapshot.pluginRoot, 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, snapshot.pluginRoot, 0o700); err != nil {
 		return privateExecutionSnapshot{}, err
 	}
 	switch provider {
@@ -54,7 +52,7 @@ func createPrivateExecutionSnapshot(root, runID string, options PrivatePlanExecu
 				return privateExecutionSnapshot{}, err
 			}
 			marketplaceDestination := filepath.Join(snapshot.pluginRoot, ".agents", "plugins", "marketplace.json")
-			if err := safepath.MkdirAllWithin(root, filepath.Dir(marketplaceDestination), 0o700); err != nil {
+			if err := hardenedMkdirAllWithin(root, filepath.Dir(marketplaceDestination), 0o700); err != nil {
 				return privateExecutionSnapshot{}, err
 			}
 			if err := copyPrivateSnapshotFile(root, filepath.Join(options.PluginRoot, ".agents", "plugins", "marketplace.json"), marketplaceDestination, 1<<20, 0o600); err != nil {
@@ -72,7 +70,7 @@ func createPrivateExecutionSnapshot(root, runID string, options PrivatePlanExecu
 		return privateExecutionSnapshot{}, privatePlanError("snapshot_plugin")
 	}
 	snapshot.liveConfig = filepath.Join(snapshot.root, "live-config")
-	if err := safepath.MkdirAllWithin(root, snapshot.liveConfig, 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, snapshot.liveConfig, 0o700); err != nil {
 		return privateExecutionSnapshot{}, err
 	}
 	for _, name := range []string{"config.json", "credentials.json"} {
@@ -87,7 +85,7 @@ func createPrivateExecutionSnapshot(root, runID string, options PrivatePlanExecu
 		}
 	}
 	binRoot := filepath.Join(snapshot.root, "bin")
-	if err := safepath.MkdirAllWithin(root, binRoot, 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, binRoot, 0o700); err != nil {
 		return privateExecutionSnapshot{}, err
 	}
 	for _, executable := range []struct {
@@ -115,7 +113,7 @@ func createPrivateExecutionSnapshot(root, runID string, options PrivatePlanExecu
 	snapshot.agentProvenanceSHA256 = reviewedAgent.provenanceSHA256
 	snapshot.agentIdentity = reviewedAgent.identity
 	snapshot.providerScratch = filepath.Join(snapshot.root, "provider-runtime")
-	if err := safepath.MkdirAllWithin(root, snapshot.providerScratch, 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, snapshot.providerScratch, 0o700); err != nil {
 		return privateExecutionSnapshot{}, err
 	}
 	if err := normalizePrivateSnapshotTree(snapshot.root); err != nil {
@@ -156,7 +154,7 @@ func copyReviewedPrivateAgent(root, snapshotRoot string, reviewed privateAgentBi
 	if !privatePathWithin(root, snapshotRoot, resourceDestination) {
 		return privatePlanError("agent_binary_resource_snapshot")
 	}
-	if err := safepath.MkdirAllWithin(root, filepath.Dir(resourceDestination), 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, filepath.Dir(resourceDestination), 0o700); err != nil {
 		return privatePlanError("agent_binary_resource_snapshot")
 	}
 	if err := writePrivateAgentCopy(resourceDestination, resourceData); err != nil {
@@ -197,7 +195,7 @@ func copyPrivateSelectedCases(root, snapshotRoot string, specPaths []string) err
 			return privatePlanError("snapshot_case")
 		}
 		destination := filepath.Join(snapshotRoot, relative)
-		if err := safepath.MkdirAllWithin(root, filepath.Dir(destination), 0o700); err != nil {
+		if err := hardenedMkdirAllWithin(root, filepath.Dir(destination), 0o700); err != nil {
 			return err
 		}
 		if err := copyWorkspace(source, destination); err != nil {
@@ -221,7 +219,7 @@ func copyPrivateBlindAssignment(root, snapshotRoot string, runSet PrivateWorkspa
 		return privatePlanError("snapshot_blind_assignment")
 	}
 	destination := filepath.Join(snapshotRoot, filepath.FromSlash(relative))
-	if _, statErr := safepath.StatWithin(root, destination); statErr == nil {
+	if _, statErr := hardenedStatWithin(root, destination); statErr == nil {
 		existing, readErr := readPrivatePlanLifecycleFile(root, destination, maxReviewBytes)
 		if readErr != nil {
 			return privatePlanError("snapshot_blind_assignment")
@@ -233,10 +231,10 @@ func copyPrivateBlindAssignment(root, snapshotRoot string, runSet PrivateWorkspa
 	} else if !os.IsNotExist(statErr) {
 		return privatePlanError("snapshot_blind_assignment")
 	}
-	if err := safepath.MkdirAllWithin(root, filepath.Dir(destination), 0o700); err != nil {
+	if err := hardenedMkdirAllWithin(root, filepath.Dir(destination), 0o700); err != nil {
 		return err
 	}
-	if err := safepath.WriteFileExclusiveWithin(root, destination, data, 0o600); err != nil {
+	if err := hardenedWriteFileExclusiveWithin(root, destination, data, 0o600); err != nil {
 		return privatePlanError("snapshot_blind_assignment")
 	}
 	return nil
@@ -285,20 +283,20 @@ func persistPrivateRunContracts(root, runRoot, snapshotRoot string, plan private
 			return privatePlanError("contract_rubric")
 		}
 		destination := filepath.Join(runRoot, "contracts", contractKey, "rubric.json")
-		if err := safepath.MkdirAllWithin(root, filepath.Dir(destination), 0o700); err != nil {
+		if err := hardenedMkdirAllWithin(root, filepath.Dir(destination), 0o700); err != nil {
 			return err
 		}
-		if err := safepath.WriteFileExclusiveWithin(root, destination, data, 0o600); err != nil {
+		if err := hardenedWriteFileExclusiveWithin(root, destination, data, 0o600); err != nil {
 			return err
 		}
 		if plan.QualitativeReviewPanel != nil {
 			panelDestination := filepath.Join(runRoot, "contracts", contractKey, "qualitative-panel.json")
-			if err := safepath.WriteFileExclusiveWithin(root, panelDestination, panelData, 0o600); err != nil {
+			if err := hardenedWriteFileExclusiveWithin(root, panelDestination, panelData, 0o600); err != nil {
 				return err
 			}
 			if len(assignmentData) != 0 {
 				assignmentDestination := filepath.Join(runRoot, "contracts", contractKey, "blind-assignment")
-				if err := safepath.WriteFileExclusiveWithin(root, assignmentDestination, assignmentData, 0o600); err != nil {
+				if err := hardenedWriteFileExclusiveWithin(root, assignmentDestination, assignmentData, 0o600); err != nil {
 					return err
 				}
 			}
@@ -316,7 +314,7 @@ func copyPrivateSnapshotFile(root, source, destination string, limit int64, mode
 	if err != nil {
 		return err
 	}
-	return safepath.WriteFileExclusiveWithin(root, destination, data, mode)
+	return hardenedWriteFileExclusiveWithin(root, destination, data, mode)
 }
 
 func normalizePrivateSnapshotTree(root string) error {

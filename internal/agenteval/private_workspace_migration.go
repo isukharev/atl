@@ -10,8 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 const (
@@ -26,10 +24,10 @@ const (
 var ErrPrivateWorkspaceMigrationRejected = errors.New("private workspace migration is rejected")
 
 var (
-	privateWorkspaceMigrationWrite   = safepath.WriteFileExclusiveWithin
-	privateWorkspaceMigrationSync    = safepath.SyncDirectoryWithin
-	privateWorkspaceMigrationRename  = safepath.RenameWithin
-	privateWorkspaceMigrationRemove  = safepath.RemoveWithin
+	privateWorkspaceMigrationWrite   = hardenedWriteFileExclusiveWithin
+	privateWorkspaceMigrationSync    = hardenedSyncDirectoryWithin
+	privateWorkspaceMigrationRename  = hardenedRenameWithin
+	privateWorkspaceMigrationRemove  = hardenedRemoveWithin
 	privateWorkspaceMigrationInspect = InspectPrivateWorkspace
 	privateWorkspaceMigrationGOOS    = runtime.GOOS
 )
@@ -170,7 +168,7 @@ func ApplyPrivateWorkspaceMigration(options PrivateWorkspaceMigrationOptions) (P
 	if err := privateWorkspaceMigrationSync(material.root, filepath.Dir(material.archivePath)); err != nil {
 		return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_archive_durability", err)
 	}
-	archiveData, err := safepath.ReadFileWithinLimit(material.root, material.archivePath, maxPrivateWorkspaceManifestBytes)
+	archiveData, err := hardenedReadFileWithinLimit(material.root, material.archivePath, maxPrivateWorkspaceManifestBytes)
 	if err != nil || !bytes.Equal(archiveData, material.sourceData) {
 		return PrivateWorkspaceMigrationSummary{}, privateWorkspaceMigrationError("source_archive_changed", err)
 	}
@@ -295,7 +293,7 @@ func loadPrivateWorkspaceMigration(root, repository string, allowRecoverable boo
 	if err != nil {
 		return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("source_read", err)
 	}
-	sourceData, err := safepath.ReadFileWithinLimit(root, sourcePath, maxPrivateWorkspaceManifestBytes)
+	sourceData, err := hardenedReadFileWithinLimit(root, sourcePath, maxPrivateWorkspaceManifestBytes)
 	if err != nil {
 		return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("source_read", err)
 	}
@@ -305,7 +303,7 @@ func loadPrivateWorkspaceMigration(root, repository string, allowRecoverable boo
 	}
 	if duplicateStageRecovery {
 		legacyInfo, statErr := os.Lstat(legacyPath)
-		legacyData, readErr := safepath.ReadFileWithinLimit(root, legacyPath, maxPrivateWorkspaceManifestBytes)
+		legacyData, readErr := hardenedReadFileWithinLimit(root, legacyPath, maxPrivateWorkspaceManifestBytes)
 		if statErr != nil || readErr != nil || !os.SameFile(legacyInfo, sourceInfo) || !bytes.Equal(legacyData, sourceData) {
 			return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("unsupported_state", statErr, readErr)
 		}
@@ -317,7 +315,7 @@ func loadPrivateWorkspaceMigration(root, repository string, allowRecoverable boo
 		return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("candidate_invalid", err)
 	}
 	if currentExists {
-		currentData, readErr := safepath.ReadFileWithinLimit(root, currentPath, maxPrivateWorkspaceManifestBytes)
+		currentData, readErr := hardenedReadFileWithinLimit(root, currentPath, maxPrivateWorkspaceManifestBytes)
 		if readErr != nil || !bytes.Equal(currentData, candidateData) {
 			return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("ambiguous_candidate", readErr)
 		}
@@ -411,7 +409,7 @@ func revalidatePrivateWorkspaceMigration(material privateWorkspaceMigrationMater
 		!sourceInfo.Mode().IsRegular() || !privateWorkspaceFileMode(sourceInfo.Mode()) {
 		return privateWorkspaceMigrationError("source_changed", err)
 	}
-	sourceData, err := safepath.ReadFileWithinLimit(material.root, material.sourcePath, maxPrivateWorkspaceManifestBytes)
+	sourceData, err := hardenedReadFileWithinLimit(material.root, material.sourcePath, maxPrivateWorkspaceManifestBytes)
 	if err != nil || !bytes.Equal(sourceData, material.sourceData) {
 		return privateWorkspaceMigrationError("source_changed", err)
 	}
@@ -421,7 +419,7 @@ func revalidatePrivateWorkspaceMigration(material privateWorkspaceMigrationMater
 		!privateWorkspaceFileMode(candidateInfo.Mode()) {
 		return privateWorkspaceMigrationError("candidate_changed", err)
 	}
-	candidateData, err := safepath.ReadFileWithinLimit(material.root, material.currentPath, maxPrivateWorkspaceManifestBytes)
+	candidateData, err := hardenedReadFileWithinLimit(material.root, material.currentPath, maxPrivateWorkspaceManifestBytes)
 	if err != nil || !bytes.Equal(candidateData, material.candidateData) {
 		return privateWorkspaceMigrationError("candidate_changed", err)
 	}
@@ -438,7 +436,7 @@ func revalidatePrivateWorkspaceMigration(material privateWorkspaceMigrationMater
 		return privateWorkspaceMigrationError("source_archive_changed", err)
 	}
 	if archiveExists {
-		archiveData, readErr := safepath.ReadFileWithinLimit(material.root, material.archivePath, maxPrivateWorkspaceManifestBytes)
+		archiveData, readErr := hardenedReadFileWithinLimit(material.root, material.archivePath, maxPrivateWorkspaceManifestBytes)
 		if readErr != nil || !bytes.Equal(archiveData, material.sourceData) {
 			return privateWorkspaceMigrationError("source_archive_changed", readErr)
 		}

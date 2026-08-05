@@ -248,8 +248,8 @@ func selectorCallWithReceiverPath(receiver []string, method string) evaluatorRun
 	}
 }
 
-func selectorCallWithIdentifierArgument(receiver, method, argument string) evaluatorRuntimeCallMatcher {
-	base := selectorCall(receiver, method)
+func identifierCallWithIdentifierArgument(name, argument string) evaluatorRuntimeCallMatcher {
+	base := identifierCall(name)
 	return func(call *ast.CallExpr) bool {
 		if !base(call) {
 			return false
@@ -619,7 +619,7 @@ func TestEvaluatorRuntimeModeCommitmentAndProbeOrdering(t *testing.T) {
 	assertRuntimeModeCallCount(t, "calibration.go", "RunCodexCLICalibration", identifierCallWithArgumentPaths("executeProviderAttempt",
 		[]string{"command"}, []string{"options", "providerAttemptCommitted"}, []string{"providerRuntime", "verifyPluginPackage"}), 1)
 	assertRuntimeModeCallOrder(t, "private_review_runner.go", "RunPrivateReview",
-		selectorCallWithIdentifierArgument("safepath", "WriteFileExclusiveWithin", "attemptPath"), identifierCall("loadPrivateReviewInputs"), identifierCall("privateReviewRunProvider"))
+		identifierCallWithIdentifierArgument("hardenedWriteFileExclusiveWithin", "attemptPath"), identifierCall("loadPrivateReviewInputs"), identifierCall("privateReviewRunProvider"))
 	assertRuntimeModeCallOrder(t, "tool_availability.go", "QualifyCodexCLIToolAvailability",
 		identifierCall("preparePrivateProbeAgent"), selectorCall("command", "Run"))
 	assertRuntimeModeCallOrder(t, "cli_route_qualification.go", "QualifyCLIRoute",

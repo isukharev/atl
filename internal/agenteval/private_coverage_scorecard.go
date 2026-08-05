@@ -14,8 +14,6 @@ import (
 	"runtime"
 	"sort"
 	"strings"
-
-	"github.com/isukharev/atl/internal/safepath"
 )
 
 const (
@@ -194,7 +192,7 @@ type privateCoverageSelectedIndex struct {
 
 func loadPrivateCoverageIndex(root string) (privateCoverageSelectedIndex, []byte, error) {
 	directory := filepath.Join(root, "reports")
-	info, err := safepath.StatWithin(root, directory)
+	info, err := hardenedStatWithin(root, directory)
 	if err != nil || !info.IsDir() || runtime.GOOS != "windows" && info.Mode().Perm() != 0o700 {
 		// A directory that stats cleanly but has the wrong type or permission
 		// mode is rejected by observation alone; the nil cause is dropped.
@@ -223,7 +221,7 @@ func loadPrivateCoverageIndex(root string) (privateCoverageSelectedIndex, []byte
 	if currentExists {
 		path, selectedInfo, version = currentPath, currentInfo, PrivateCoverageIndexV2SchemaVersion
 	}
-	data, err := safepath.ReadFileWithinLimit(root, path, privateFindingLedgerMaxBytes)
+	data, err := hardenedReadFileWithinLimit(root, path, privateFindingLedgerMaxBytes)
 	if err != nil {
 		return privateCoverageSelectedIndex{}, nil, privateCoverageError("index_read", err)
 	}
@@ -272,7 +270,7 @@ func loadPrivateCoverageIndex(root string) (privateCoverageSelectedIndex, []byte
 }
 
 func privateCoverageIndexEntry(root, path string) (os.FileInfo, bool, error) {
-	info, err := safepath.StatWithin(root, path)
+	info, err := hardenedStatWithin(root, path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, false, nil
 	}
