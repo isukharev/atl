@@ -117,6 +117,10 @@ func TestRunSpecMCPServiceProfileIsClosedAndToolBound(t *testing.T) {
 	}
 
 	for name, mutate := range map[string]func(*RunSpec){
+		"explicit default profile": func(spec *RunSpec) {
+			spec.MCPServiceProfile = "default"
+			spec.AllowedMCPTools = []string{"jira_fields"}
+		},
 		"unknown profile": func(spec *RunSpec) {
 			spec.MCPServiceProfile = "all"
 			spec.AllowedMCPTools = []string{"jira_fields"}

@@ -3,6 +3,7 @@ package agenteval
 import (
 	"bytes"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -84,6 +85,65 @@ func TestDecodeJiraBoardSnapshotRejectsMemberNullUTF8AndDuplicateDrift(t *testin
 		t.Run(name, func(t *testing.T) {
 			if _, err := DecodeJiraBoardSnapshot(bytes.NewReader(data)); err == nil {
 				t.Fatal("invalid wire was accepted")
+			}
+		})
+	}
+}
+
+func TestDecodeJiraQuarterBoardSnapshotRequiresAndReconcilesEpicRollup(t *testing.T) {
+	valid := validJiraQuarterBoardWire(t)
+	if _, err := DecodeJiraBoardSnapshot(bytes.NewReader(valid)); err == nil {
+		t.Fatal("base board decoder accepted explicit epic rollup")
+	}
+	decoded, err := DecodeJiraQuarterBoardSnapshot(bytes.NewReader(valid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.EpicRollup.EpicField != "customfield_1" || len(decoded.EpicRollup.Epics) != 1 ||
+		decoded.EpicRollup.Epics[0].Key != "SYN-1" || !decoded.EpicRollup.Complete {
+		t.Fatalf("quarter board=%+v", decoded.EpicRollup)
+	}
+	objectDisplay := mutateJiraBoardWire(t, valid, func(root map[string]any) {
+		root["rows"].([]any)[1].(map[string]any)["values"].(map[string]any)["customfield_1"] = "Misleading label"
+	})
+	if _, err := DecodeJiraQuarterBoardSnapshot(bytes.NewReader(objectDisplay)); err != nil {
+		t.Fatalf("valid object-display epic relation rejected: %v", err)
+	}
+
+	mutations := map[string]func(map[string]any){
+		"missing rollup": func(root map[string]any) { delete(root, "epic_rollup") },
+		"unknown rollup member": func(root map[string]any) {
+			root["epic_rollup"].(map[string]any)["backend"] = true
+		},
+		"null rollup member": func(root map[string]any) {
+			root["epic_rollup"].(map[string]any)["epics"] = nil
+		},
+		"unprojected epic field": func(root map[string]any) {
+			root["epic_rollup"].(map[string]any)["epic_field"] = "missing"
+		},
+		"duplicate done status": func(root map[string]any) {
+			root["epic_rollup"].(map[string]any)["done_statuses"] = []any{"Done", "done"}
+		},
+		"parent mismatch": func(root map[string]any) {
+			root["epic_rollup"].(map[string]any)["epics"].([]any)[0].(map[string]any)["parent_present"] = false
+		},
+		"status count mismatch": func(root map[string]any) {
+			root["epic_rollup"].(map[string]any)["epics"].([]any)[0].(map[string]any)["done_child_count"] = 1
+		},
+		"timestamp mismatch": func(root map[string]any) {
+			root["epic_rollup"].(map[string]any)["epics"].([]any)[0].(map[string]any)["missing_updated_children"] = 1
+		},
+		"latest timestamp is not disclosed by rows": func(root map[string]any) {
+			root["epic_rollup"].(map[string]any)["epics"].([]any)[0].(map[string]any)["latest_child_updated"] = "2099-01-01T00:00:00Z"
+		},
+		"completeness mismatch": func(root map[string]any) {
+			root["epic_rollup"].(map[string]any)["complete"] = false
+		},
+	}
+	for name, mutate := range mutations {
+		t.Run(name, func(t *testing.T) {
+			if _, err := DecodeJiraQuarterBoardSnapshot(bytes.NewReader(mutateJiraBoardWire(t, valid, mutate))); err == nil {
+				t.Fatal("invalid quarter board wire was accepted")
 			}
 		})
 	}
@@ -239,6 +299,34 @@ func validJiraBoardWire(t *testing.T) []byte {
 			},
 		},
 		"row_count": 3, "complete": true, "truncated": false, "backlog_fetched": true,
+	})
+}
+
+func validJiraQuarterBoardWire(t *testing.T) []byte {
+	t.Helper()
+	return mutateJiraBoardWire(t, validJiraBoardWire(t), func(root map[string]any) {
+		projection := root["projection"].(map[string]any)
+		projection["columns"] = append(projection["columns"].([]any), "updated", "customfield_1")
+		projection["fields"] = append(projection["fields"].([]any), "updated", "customfield_1")
+		for index, raw := range root["rows"].([]any) {
+			row := raw.(map[string]any)
+			row["values"].(map[string]any)["updated"] = "2026-04-0" + strconv.Itoa(index+1) + "T10:00:00.000+0000"
+			row["values"].(map[string]any)["customfield_1"] = nil
+		}
+		root["rows"].([]any)[1].(map[string]any)["values"].(map[string]any)["customfield_1"] = "SYN-1"
+		root["rows"].([]any)[2].(map[string]any)["values"].(map[string]any)["customfield_1"] = "SYN-1"
+		root["epic_rollup"] = map[string]any{
+			"epic_field": "customfield_1", "done_statuses": []any{"Done"}, "complete": true,
+			"epics": []any{map[string]any{
+				"key": "SYN-1", "parent_present": true, "child_count": 2, "done_child_count": 0,
+				"status_counts": []any{
+					map[string]any{"status": "Open", "count": 1},
+					map[string]any{"status": "Paused", "count": 1},
+				},
+				"latest_child_updated": "2026-04-03T10:00:00.000+0000",
+				"timestamped_children": 2, "missing_updated_children": 0, "timestamp_coverage_complete": true,
+			}},
+		}
 	})
 }
 

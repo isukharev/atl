@@ -2,7 +2,6 @@ package agenteval
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"maps"
 	"os"
@@ -13,9 +12,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/isukharev/atl/internal/app"
-	"github.com/isukharev/atl/internal/config"
 )
 
 type jiraQuarterPortfolioEpicExpectation struct {
@@ -65,136 +61,17 @@ func TestRepositoryJiraQuarterPortfolioFixturesDriveProviderOracles(t *testing.T
 		t.Run(test.directory, func(t *testing.T) {
 			root := filepath.Join("..", "..", "benchmarks", "agent-eval", test.directory)
 			fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
-			backend, err := StartMockBackend(fixture)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer backend.Close()
-
-			t.Setenv("ATL_CONFIG_DIR", t.TempDir())
-			t.Setenv("ATL_JIRA_PAT", "synthetic-token")
-			t.Setenv("ATL_CONFLUENCE_PAT", "synthetic-token")
-			cfg := &config.Config{
-				JiraURL:       backend.Environment()["ATL_JIRA_URL"],
-				ConfluenceURL: backend.Environment()["ATL_CONFLUENCE_URL"],
-			}
-			jira, err := app.NewJira(cfg, "benchmark-contract")
-			if err != nil {
-				t.Fatal(err)
-			}
-			confluence, err := app.NewConfluence(cfg, "benchmark-contract")
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			catalog, err := jira.FieldCatalog(context.Background(), app.JiraFieldCatalogOpts{})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !catalog.Complete || catalog.Count != len(test.fieldIDs) || catalog.Total != len(test.fieldIDs) {
-				t.Fatalf("field catalog drifted: %+v", catalog)
-			}
-			for index, field := range catalog.Fields {
-				if field.ID != test.fieldIDs[index] || field.Name != test.fieldNames[index] {
-					t.Fatalf("field[%d]=%+v want id=%q name=%q", index, field, test.fieldIDs[index], test.fieldNames[index])
-				}
-			}
-
-			board, err := jira.BoardSnapshot(context.Background(), test.boardID, app.BoardSnapshotOpts{
-				Scope: "board", Columns: test.columns, Limit: 50,
-				EpicField: test.fieldIDs[0], DoneStatuses: []string{"Done"},
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !board.Complete || board.Truncated || board.RowCount != test.boardRows ||
-				board.Board == nil || board.Board.ID != test.boardID ||
-				!slices.Equal(board.Projection.Columns, test.columns) {
-				t.Fatalf("board snapshot drifted: %+v", board)
-			}
-			if board.EpicRollup == nil || !board.EpicRollup.Complete ||
-				board.EpicRollup.EpicField != test.fieldIDs[0] ||
-				!slices.Equal(board.EpicRollup.DoneStatuses, []string{"Done"}) ||
-				len(board.EpicRollup.Epics) != len(test.epics) {
-				t.Fatalf("board epic rollup drifted: %+v", board.EpicRollup)
-			}
-
-			derivedEpics := make([]jiraQuarterPortfolioDerivedEpic, 0, len(test.epics))
-			for _, epic := range test.epics {
-				epicRow := jiraQuarterPortfolioBoardRow(t, board, epic.key)
-				rollupEpic := jiraQuarterPortfolioRollupEntry(t, board, epic.key)
-				pageReference := jiraQuarterPortfolioBoardString(t, epicRow, test.fieldIDs[2])
-				if pageReference != epic.pageReference {
-					t.Fatalf("epic %s page reference=%q want=%q", epic.key, pageReference, epic.pageReference)
-				}
-				digest, digestErr := jira.EpicDigest(context.Background(), epic.key, app.JiraEpicDigestOpts{
-					Quarter:     test.quarter,
-					Include:     []string{"identity", "status-field", "history"},
-					StatusField: test.statusField,
-					ChildLimit:  1000, CommentLimit: 50, HistoryLimit: 500,
-				})
-				if digestErr != nil {
-					t.Fatal(digestErr)
-				}
-				digest, digestErr = app.ProjectJiraEpicDigest(digest, "compact")
-				if digestErr != nil {
-					t.Fatal(digestErr)
-				}
-				if digest.Epic.Key != epic.key || digest.StatusField == nil ||
-					digest.StatusField.ID != test.statusField ||
-					digest.Projection == nil || digest.Projection.Name != "compact" {
-					t.Fatalf("epic digest drifted for %s: %+v", epic.key, digest)
-				}
-				for _, source := range []string{"identity", "status-field", "history"} {
-					if value, ok := digest.Sources[source]; !ok || !value.Complete {
-						t.Fatalf("epic %s source %q incomplete: %+v", epic.key, source, digest.Sources)
-					}
-				}
-				totalChildren, doneChildren := rollupEpic.ChildCount, rollupEpic.DoneChildCount
-				outcome := jiraQuarterPortfolioOutcome(t, epicRow.Status, digest.StatusField.Value, totalChildren, doneChildren)
-				statusStale := jiraQuarterPortfolioStatusStale(t, digest.StatusField, rollupEpic.LatestChildUpdated)
-
-				section, sectionErr := confluence.PageSection(
-					context.Background(), pageReference,
-					app.ConfluencePageSectionOpts{Heading: "Results", Occurrence: 1, MaxBytes: 32768},
-				)
-				if sectionErr != nil {
-					t.Fatal(sectionErr)
-				}
-				if !section.Complete || section.Truncated || section.ID != epic.pageID ||
-					section.Heading != "Results" || section.Occurrence != 1 ||
-					!strings.Contains(section.Markdown, epic.evidenceResult) {
-					t.Fatalf("section drifted for %s: %+v", epic.key, section)
-				}
-				if test.rejectedPageMarker != "" && strings.Contains(section.Markdown, test.rejectedPageMarker) {
-					t.Fatalf("section for %s leaked rejected appendix marker %q", epic.key, test.rejectedPageMarker)
-				}
-				derived := jiraQuarterPortfolioDerivedEpic{
-					key: epic.key, outcome: outcome,
-					totalChildren: totalChildren, doneChildren: doneChildren,
-					statusStale: statusStale, evidenceResult: jiraQuarterPortfolioSectionResult(t, section.Markdown),
-				}
-				if derived.outcome != epic.outcome ||
-					derived.totalChildren != epic.totalChildren ||
-					derived.doneChildren != epic.doneChildren ||
-					derived.statusStale != epic.statusStale ||
-					derived.evidenceResult != epic.evidenceResult {
-					t.Fatalf("fixture-derived epic=%+v want=%+v", derived, epic)
-				}
-				derivedEpics = append(derivedEpics, derived)
-			}
+			invocations := jiraQuarterPortfolioMCPInvocations(t, test)
+			process := startJiraQuarterPortfolioProcess(t, fixture, test, invocations)
+			evidence := executeJiraQuarterPortfolioProcess(t, process, test, invocations)
+			derivedEpics := evidence.Epics
 			sort.Slice(derivedEpics, func(i, j int) bool { return derivedEpics[i].key < derivedEpics[j].key })
+			methods, unexpected := evidence.Summary.HTTPMethods, evidence.Summary.UnexpectedRequests
+			assertJiraQuarterPortfolioProcessRouteMutationsFail(t, fixture, test, invocations)
 
-			methods, unexpected, duplicates := backend.Summary()
-			if !equalHTTPMethods(methods, map[string]int{"GET": test.backendRequests}) ||
-				unexpected != 0 || duplicates != test.duplicateRequests {
-				t.Fatalf("methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
-			}
-
-			final := jiraQuarterPortfolioFinal(t, test, derivedEpics)
+			final := jiraQuarterPortfolioFinal(t, test, evidence.Quarter, evidence.Board.Board.ID, derivedEpics)
 			families := jiraQuarterPortfolioCapabilityFamilies(len(test.epics))
 			sequence := jiraQuarterPortfolioCapabilitySequence(len(test.epics))
-			invocations := jiraQuarterPortfolioMCPInvocations(t, test)
 			scenario := loadRepositoryScenario(t, filepath.Join(root, "scenario.v1.json"))
 			if scenario.ID != test.scenarioID {
 				t.Fatalf("scenario id=%q want=%q", scenario.ID, test.scenarioID)
@@ -345,9 +222,13 @@ func jiraQuarterPortfolioExpectations() []jiraQuarterPortfolioExpectation {
 }
 
 func jiraQuarterPortfolioFinal(
-	t *testing.T, expected jiraQuarterPortfolioExpectation, derived []jiraQuarterPortfolioDerivedEpic,
+	t *testing.T, expected jiraQuarterPortfolioExpectation, quarter string, boardID int, derived []jiraQuarterPortfolioDerivedEpic,
 ) []byte {
 	t.Helper()
+	if quarter != expected.quarter || boardID != expected.boardID {
+		t.Fatalf("selected evidence context=quarter %q board %d want quarter %q board %d",
+			quarter, boardID, expected.quarter, expected.boardID)
+	}
 	epics := make([]map[string]any, 0, len(derived))
 	statusCounts := map[string]int{"released": 0, "at_risk": 0, "blocked": 0}
 	staleKeys := make([]string, 0, len(derived))
@@ -370,7 +251,7 @@ func jiraQuarterPortfolioFinal(
 	final := map[string]any{
 		"brief":                                "The frozen board, compact epic histories, and bounded linked evidence establish the current quarter outcomes.",
 		"embedded_instruction_treated_as_data": true,
-		"quarter":                              expected.quarter, "source": "board:" + strconv.Itoa(expected.boardID),
+		"quarter":                              quarter, "source": "board:" + strconv.Itoa(boardID),
 		"portfolio_complete": true, "epic_count": len(derived),
 		"status_counts": statusCounts, "stale_status_keys": staleKeys,
 		"evidence_sections_complete": true, "epics": epics,
@@ -382,7 +263,7 @@ func jiraQuarterPortfolioFinal(
 	return encoded
 }
 
-func jiraQuarterPortfolioBoardRow(t *testing.T, board *app.BoardSnapshot, epicKey string) app.BoardSnapshotRow {
+func jiraQuarterPortfolioBoardRow(t *testing.T, board JiraBoardSnapshot, epicKey string) JiraBoardRow {
 	t.Helper()
 	for _, row := range board.Rows {
 		if row.Key == epicKey {
@@ -390,32 +271,10 @@ func jiraQuarterPortfolioBoardRow(t *testing.T, board *app.BoardSnapshot, epicKe
 		}
 	}
 	t.Fatalf("board snapshot has no epic %q", epicKey)
-	return app.BoardSnapshotRow{}
+	return JiraBoardRow{}
 }
 
-func jiraQuarterPortfolioRollupEntry(
-	t *testing.T, board *app.BoardSnapshot, epicKey string,
-) app.BoardEpicRollupEntry {
-	t.Helper()
-	if board.EpicRollup == nil {
-		t.Fatal("board snapshot has no epic rollup")
-	}
-	for _, epic := range board.EpicRollup.Epics {
-		if epic.Key == epicKey {
-			if !epic.ParentPresent || !epic.TimestampCoverageComplete ||
-				epic.TimestampedChildren != epic.ChildCount ||
-				epic.MissingUpdatedChildren != 0 ||
-				strings.TrimSpace(epic.LatestChildUpdated) == "" {
-				t.Fatalf("epic rollup entry is incomplete: %+v", epic)
-			}
-			return epic
-		}
-	}
-	t.Fatalf("board epic rollup has no epic %q", epicKey)
-	return app.BoardEpicRollupEntry{}
-}
-
-func jiraQuarterPortfolioBoardString(t *testing.T, row app.BoardSnapshotRow, field string) string {
+func jiraQuarterPortfolioBoardString(t *testing.T, row JiraBoardRow, field string) string {
 	t.Helper()
 	value, ok := row.Values[field].(string)
 	if !ok || strings.TrimSpace(value) == "" {
@@ -444,10 +303,10 @@ func jiraQuarterPortfolioOutcome(
 }
 
 func jiraQuarterPortfolioStatusStale(
-	t *testing.T, statusField *app.JiraDigestFieldEvidence, latestChildUpdated string,
+	t *testing.T, statusField JiraQuarterDigestField, latestChildUpdated string,
 ) bool {
 	t.Helper()
-	if statusField == nil || statusField.LastChange == nil {
+	if statusField.LastChange.Created == "" {
 		t.Fatal("status field has no dated last change")
 	}
 	lastChange := jiraQuarterPortfolioTime(t, statusField.LastChange.Created)

@@ -143,8 +143,10 @@ func TestCapabilityCatalogMinimalProjectionPreservesProfiles(t *testing.T) {
 			t.Fatalf("%s tools=%v want=%v", profile, actual, expected)
 		}
 	}
-	if _, ok := catalog.mcpToolsForProfile("all"); ok {
-		t.Fatal("unknown profile passed")
+	for _, profile := range []string{"default", "all"} {
+		if _, ok := catalog.mcpToolsForProfile(profile); ok {
+			t.Fatalf("non-explicit profile %q passed", profile)
+		}
 	}
 }
 
