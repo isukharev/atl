@@ -602,7 +602,7 @@ ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
 		{"build", ".PHONY: build\nbuild:\n\t$(GO_ENV) go build ./...\n"},
 		{"unit", ".PHONY: unit\nunit:\n\t$(GO_ENV) go test ./... -count=1 -timeout=10m\n"},
 		{"race", ".PHONY: race\nrace:\n\t$(GO_ENV) go test -race ./... -count=1 -timeout=30m\n"},
-		{"lint", ".PHONY: lint\nlint:\n\t@command -v golangci-lint >/dev/null 2>&1 || { echo \"golangci-lint not installed: https://golangci-lint.run/usage/install/\"; exit 1; }\n\t$(GO_ENV) golangci-lint run\n"},
+		{"lint", ".PHONY: lint\nlint:\n\t$(GO_ENV) go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run\n"},
 		{"vet", ".PHONY: vet\nvet:\n\t$(GO_ENV) go vet ./...\n"},
 		{"vuln", ".PHONY: vuln\nvuln:\n\t$(GO_ENV) go run golang.org/x/vuln/cmd/govulncheck@v1.4.0 ./...\n"},
 		{"tidy-check", ".PHONY: tidy-check\ntidy-check:\n\t$(GO_ENV) go mod tidy -diff\n"},

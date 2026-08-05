@@ -26,8 +26,7 @@ race:
 
 .PHONY: lint
 lint:
-	@command -v golangci-lint >/dev/null 2>&1 || { echo "golangci-lint not installed: https://golangci-lint.run/usage/install/"; exit 1; }
-	$(GO_ENV) golangci-lint run
+	$(GO_ENV) go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run
 
 .PHONY: vet
 vet:

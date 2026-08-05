@@ -49,6 +49,7 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 		{name: "nested evaluator environment", path: "internal/agenteval/Makefile", old: "GOWORK=off", replacement: "GOWORK=on", want: "workspace-independent environment"},
 		{name: "nested full gate", path: "internal/agenteval/Makefile", old: "full: tidy-check build race lint vet vuln contract windows product-boundary", replacement: "full: tidy-check build race lint vet vuln contract windows", want: "exact \"full\" gate"},
 		{name: "nested contract unit dependency", path: "internal/agenteval/Makefile", old: "contract: compat unit\n", replacement: "contract: compat\n", want: "exact \"contract\" gate"},
+		{name: "nested lint pin", path: "internal/agenteval/Makefile", old: "golangci-lint@v2.12.2 run", replacement: "golangci-lint@latest run", want: "exact \"lint\" gate"},
 		{name: "root facade bypass", path: "Makefile", old: "\t$(AGENT_EVAL_MAKE) race", replacement: "\tgo test -race ./internal/agenteval", want: "nested-module facades"},
 		{name: "root module boundary", path: "Makefile", old: "go run ./scripts/check-module-boundary -root .", replacement: "echo skipped", want: "exact two-module boundary gate"},
 		{name: "nested ignored failures", path: "internal/agenteval/Makefile", old: ".PHONY: build", replacement: ".IGNORE: build\n.PHONY: build", want: "failure propagation"},
@@ -225,8 +226,7 @@ race:
 
 .PHONY: lint
 lint:
-	@command -v golangci-lint >/dev/null 2>&1 || { echo "golangci-lint not installed: https://golangci-lint.run/usage/install/"; exit 1; }
-	$(GO_ENV) golangci-lint run
+	$(GO_ENV) go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run
 
 .PHONY: vet
 vet:
