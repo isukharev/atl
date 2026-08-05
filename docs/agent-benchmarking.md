@@ -25,6 +25,11 @@ copy around server launch and compares one bounded `tools/list` result with the
 pinned service-profile inventory.
 Jira history CLI and MCP cohorts reconcile
 the same bounded summary projection without importing product history owners.
+Jira portfolio discovery, status-report, and sprint-dashboard cohorts execute
+their exact admitted CLI sequences through that selected process as well.
+Evaluator-owned closed projections reconcile capability routing, board and
+Structure discovery, JQL snapshots, sprint identity, membership pagination,
+and typed continuation failures without importing product Jira owners.
 The retained Confluence CSV formula-safety cohorts use a byte-opaque bounded
 stdout path and parse only CSV emitted by that executable. The retained
 selection-completeness cohorts strictly decode pull/search output, reconcile
@@ -232,8 +237,9 @@ to equal the evaluator's pinned released artifact, checks the exact CLI-error
 vocabulary, verifies the generated Codex plugin skill catalog against every
 regular file in its skill tree, exercises bounded Jira and Confluence CLI/MCP
 fixture oracles—including Jira search pagination, history summaries with
-zero-progress stopping, board snapshot completeness, and Structure folder
-recovery, plus Confluence
+zero-progress stopping, board snapshot completeness, Structure folder
+recovery, portfolio discovery, status reporting, and sprint membership with a
+typed forbidden continuation, plus Confluence
 CSV formula safety, schema-v3 table summary/extract and stale-selection
 recovery (decoded by strict evaluator-owned wire views), pull/search selection
 completeness, page resolution, paginated search, and multi-section evidence—

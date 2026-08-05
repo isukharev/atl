@@ -32,11 +32,11 @@ type evaluatorDependencyLedger struct {
 // review. The ledger test excludes itself so its AST machinery cannot conceal
 // a dependency by making its own imports part of the expected boundary.
 // The first reviewed baseline was 29/27/5 production declarations/files/targets
-// and 66/33/10 for tests. The current values below record the evaluator-owned
-// CLI error wire, capability catalog, skill catalog, synthetic backend, and
-// selected-binary Jira and Confluence evidence oracle ownership reductions.
-// Confluence table summary, extraction, recovery, and mirror snapshots use
-// evaluator-owned wire views through the selected binary.
+// and 66/33/10 for tests. The current 18/7/5 test lane records evaluator-owned
+// CLI error, capability, skill, synthetic backend, and selected-binary Jira and
+// Confluence evidence boundaries. Portfolio discovery and reporting workflows
+// decode evaluator-owned released wires through the selected binary rather than
+// constructing evidence from product app/config/domain owners.
 func TestEvaluatorProductDependencyLedger(t *testing.T) {
 	want := evaluatorDependencyLedger{
 		Production: map[string][]string{
@@ -72,25 +72,19 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 			productInternalImportPrefix + "app": {
 				"cross_service_discovery_benchmark_test.go",
 				"jira_meeting_tasks_workflow_benchmark_test.go",
-				"jira_portfolio_discovery_benchmark_test.go",
 				"jira_quarter_portfolio_benchmark_test.go",
-				"jira_reporting_workflows_benchmark_test.go",
 				"jira_spec_to_backlog_workflow_benchmark_test.go",
 				"jira_triage_issue_workflow_benchmark_test.go",
 			},
 			productInternalImportPrefix + "config": {
 				"cross_service_discovery_benchmark_test.go",
 				"jira_meeting_tasks_workflow_benchmark_test.go",
-				"jira_portfolio_discovery_benchmark_test.go",
 				"jira_quarter_portfolio_benchmark_test.go",
-				"jira_reporting_workflows_benchmark_test.go",
 				"jira_spec_to_backlog_workflow_benchmark_test.go",
 				"jira_triage_issue_workflow_benchmark_test.go",
 			},
 			productInternalImportPrefix + "domain": {
 				"jira_meeting_tasks_workflow_benchmark_test.go",
-				"jira_portfolio_discovery_benchmark_test.go",
-				"jira_reporting_workflows_benchmark_test.go",
 				"jira_spec_to_backlog_workflow_benchmark_test.go",
 				"jira_triage_issue_workflow_benchmark_test.go",
 			},
@@ -125,8 +119,8 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 	if declarations, files, targets := dependencyLaneCounts(got.Production); declarations != 25 || files != 25 || targets != 1 {
 		t.Fatalf("production dependency counts=%d declarations/%d files/%d targets, want 25/25/1", declarations, files, targets)
 	}
-	if declarations, files, targets := dependencyLaneCounts(got.Tests); declarations != 24 || files != 9 || targets != 5 {
-		t.Fatalf("test dependency counts=%d declarations/%d files/%d targets, want 24/9/5", declarations, files, targets)
+	if declarations, files, targets := dependencyLaneCounts(got.Tests); declarations != 18 || files != 7 || targets != 5 {
+		t.Fatalf("test dependency counts=%d declarations/%d files/%d targets, want 18/7/5", declarations, files, targets)
 	}
 	if declarations, files, targets := dependencyLaneCounts(got.EntrypointProduction); declarations != 4 || files != 4 || targets != 1 {
 		t.Fatalf("entrypoint production dependency counts=%d declarations/%d files/%d targets, want 4/4/1", declarations, files, targets)
