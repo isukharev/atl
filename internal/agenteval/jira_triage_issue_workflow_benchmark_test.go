@@ -2,7 +2,6 @@ package agenteval
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -10,11 +9,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/isukharev/atl/internal/app"
-	"github.com/isukharev/atl/internal/config"
-	"github.com/isukharev/atl/internal/domain"
-	"github.com/isukharev/atl/internal/mdwiki"
 )
 
 const (
@@ -75,99 +69,75 @@ var triageCohorts = []triageCohort{
 	},
 }
 
-func TestRepositoryJiraTriageIssueFixturesDriveProductionWorkflowOracles(t *testing.T) {
-	for _, cohort := range triageCohorts {
-		cohort := cohort
-		t.Run(cohort.directory, func(t *testing.T) {
-			root := triageRoot(cohort.directory)
-			fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
-			assertTriageFixtureTopology(t, fixture, cohort)
-			backend, final := executeTriageProductionWorkflow(t, root, fixture, cohort)
-			if !backend.RequestSequenceComplete() {
-				t.Fatal("production workflow did not complete the exact request sequence")
-			}
-			methods, unexpected, duplicates := backend.Summary()
-			if !equalHTTPMethods(methods, cohort.methods) || unexpected != 0 || duplicates != cohort.duplicates {
-				t.Fatalf("methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
-			}
-			assertTriageProviderOracles(t, root, cohort, final, methods)
-		})
-	}
+// TestRepositoryJiraTriageIssueFixturesDriveSelectedCLIAndHistoricalOracles
+// keeps the primary evidence bound to the selected CLI. The paired holdout is
+// a retained historical trace: its old raw POST-failure/reconciliation shape is
+// checked statically below and is not represented as current CLI behavior.
+func TestRepositoryJiraTriageIssueFixturesDriveSelectedCLIAndHistoricalOracles(t *testing.T) {
+	primary := triageCohorts[0]
+	t.Run(primary.directory+" selected CLI", func(t *testing.T) {
+		root := triageRoot(primary.directory)
+		fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
+		assertTriageFixtureTopology(t, fixture, primary)
+		policy := triageCodexPolicy(t, root)
+		evidence := executeJiraTriagePrimaryProcess(t, startJiraTriagePrimaryProcess(t, root, fixture, primary, policy), primary)
+		assertTriageProviderOracles(t, root, primary, triageFinal(t, primary), evidence.Summary.HTTPMethods)
+		assertJiraTriagePrimaryProcessAdmissionRefused(t, root, fixture, primary, policy)
+	})
+
+	holdout := triageCohorts[1]
+	t.Run(holdout.directory+" retained historical oracle", func(t *testing.T) {
+		root := triageRoot(holdout.directory)
+		fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
+		assertTriageFixtureTopology(t, fixture, holdout)
+		assertTriageHistoricalFixtureReconciliation(t, fixture, holdout)
+		// The corpus deliberately records an earlier raw POST failure followed by
+		// readback. Its static schema, checks, failure count, topology, and final
+		// are frozen; current guarded-preview compatibility lives in its own test.
+		assertTriageProviderOracles(t, root, holdout, triageFinal(t, holdout), holdout.methods)
+	})
 }
 
-func executeTriageProductionWorkflow(t *testing.T, root string, fixture MockFixture, cohort triageCohort) (*MockBackend, []byte) {
+func assertTriageHistoricalFixtureReconciliation(t *testing.T, fixture MockFixture, cohort triageCohort) {
 	t.Helper()
-	backend, err := StartMockBackend(fixture)
-	if err != nil {
-		t.Fatal(err)
+	comments := triageRoute(t, fixture, "comments")
+	if len(comments.Responses) != 2 {
+		t.Fatalf("historical comments responses=%d want=2", len(comments.Responses))
 	}
-	t.Cleanup(backend.Close)
-	for key, value := range backend.Environment() {
-		t.Setenv(key, value)
+	decode := func(raw json.RawMessage) []triageHistoricalComment {
+		var document struct {
+			StartAt  int `json:"startAt"`
+			Total    int `json:"total"`
+			Comments []struct {
+				ID   string `json:"id"`
+				Body string `json:"body"`
+			} `json:"comments"`
+		}
+		if err := json.Unmarshal(raw, &document); err != nil || document.StartAt != 0 || document.Total != len(document.Comments) {
+			t.Fatalf("decode historical comments response: start=%d total=%d comments=%d err=%v", document.StartAt, document.Total, len(document.Comments), err)
+		}
+		result := make([]triageHistoricalComment, len(document.Comments))
+		for index, comment := range document.Comments {
+			if comment.ID == "" {
+				t.Fatal("historical comment response contains an empty id")
+			}
+			result[index] = triageHistoricalComment{id: comment.ID, body: comment.Body}
+		}
+		return result
 	}
-	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
-	cfg := &config.Config{JiraURL: backend.Environment()["ATL_JIRA_URL"]}
-	jira, err := app.NewJira(cfg, "benchmark-contract")
-	if err != nil {
-		t.Fatal(err)
+	var request struct {
+		Body string `json:"body"`
 	}
-	var searches []*app.IssueList
-	for index, query := range cohort.queries {
-		list, searchErr := jira.SearchIssueList(context.Background(), query, strings.Split(triageColumns, ","), 10, "")
-		if searchErr != nil {
-			t.Fatal(searchErr)
-		}
-		if !list.Page.Complete || !slices.Equal(issueListKeys(list), cohort.queryKeys[index]) {
-			t.Fatalf("search %d complete=%t keys=%v", index, list.Page.Complete, issueListKeys(list))
-		}
-		searches = append(searches, list)
+	if err := json.Unmarshal(triageRoute(t, fixture, "comment").RequestBody, &request); err != nil || request.Body == "" {
+		t.Fatalf("decode historical comment request: %v", err)
 	}
-	issues := make([]*domain.Issue, 0, len(cohort.candidates))
-	for _, expected := range cohort.candidates {
-		issue, issueErr := jira.Issue(context.Background(), expected.key, nil)
-		if issueErr != nil {
-			t.Fatal(issueErr)
-		}
-		actual := scoreTriageIssue(issue, cohort)
-		if actual != expected {
-			t.Fatalf("candidate %s score=%+v want=%+v", issue.Key, actual, expected)
-		}
-		issues = append(issues, issue)
+	id, ok := reconcileTriageComment(decode(comments.Responses[0].Body), decode(comments.Responses[1].Body), request.Body)
+	if !ok || id != cohort.commentID {
+		t.Fatalf("historical fixture reconciliation id=%q ok=%t want=%q", id, ok, cohort.commentID)
 	}
-	if !triageMayWrite(searches, issues) {
-		t.Fatal("complete search and qualification unexpectedly refused the approved branch")
-	}
-	if decision := triageDecision(cohort.candidates); decision != cohort.decision {
-		t.Fatalf("decision=%q want=%q", decision, cohort.decision)
-	}
-	if cohort.decision == "create" {
-		wiki := triageMarkdown(t, filepath.Join(root, "workspace", "new-bug.md"))
-		created, createErr := jira.Create(context.Background(), cohort.project, "Bug", cohort.newSummary, wiki, nil)
-		if createErr != nil || created.Key != cohort.createdKey {
-			t.Fatalf("create=%+v err=%v", created, createErr)
-		}
-	} else {
-		before, commentsErr := jira.Comments(context.Background(), cohort.targetKey)
-		if commentsErr != nil {
-			t.Fatal(commentsErr)
-		}
-		wiki := triageMarkdown(t, filepath.Join(root, "workspace", "duplicate-comment.md"))
-		if _, commentErr := jira.Comment(context.Background(), cohort.targetKey, wiki); commentErr == nil {
-			t.Fatal("ambiguous synthetic comment unexpectedly succeeded")
-		}
-		after, commentsErr := jira.Comments(context.Background(), cohort.targetKey)
-		if commentsErr != nil {
-			t.Fatal(commentsErr)
-		}
-		id, ok := reconcileTriageComment(before, after, string(wiki))
-		if !ok || id != cohort.commentID {
-			t.Fatalf("reconciled id=%q ok=%t", id, ok)
-		}
-	}
-	return backend, triageFinal(t, cohort)
 }
 
-func issueListKeys(list *app.IssueList) []string {
+func triageIssueListKeys(list JiraSnapshotIssueList) []string {
 	keys := make([]string, len(list.Rows))
 	for index, row := range list.Rows {
 		keys[index] = row.Key
@@ -175,24 +145,11 @@ func issueListKeys(list *app.IssueList) []string {
 	return keys
 }
 
-func triageMarkdown(t *testing.T, path string) []byte {
-	t.Helper()
-	markdown, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wiki, err := mdwiki.ConvertDocument(string(markdown))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return []byte(wiki)
-}
-
-func scoreTriageIssue(issue *domain.Issue, cohort triageCohort) triageCandidate {
+func scoreTriageIssue(issue JiraTriageIssueGet, cohort triageCohort) triageCandidate {
 	value := triageCandidate{key: issue.Key, status: issue.Status}
-	value.signature = strings.Contains(issue.Body, cohort.signature)
+	value.signature = strings.Contains(issue.Description, cohort.signature)
 	value.component = strings.Contains(issue.Summary, cohort.component)
-	value.trigger = strings.Contains(issue.Body, cohort.trigger)
+	value.trigger = strings.Contains(issue.Description, cohort.trigger)
 	value.open = issue.Status == "Open"
 	if value.signature {
 		value.score += 40
@@ -218,28 +175,32 @@ func triageDecision(candidates []triageCandidate) string {
 	return "create"
 }
 
-func triageMayWrite(searches []*app.IssueList, issues []*domain.Issue) bool {
+func triageMayWrite(searches []JiraSnapshotIssueList, issues []JiraTriageIssueGet) bool {
 	if len(searches) != 2 || len(issues) == 0 {
 		return false
 	}
 	return searches[0].Page.Complete && searches[1].Page.Complete
 }
 
-func reconcileTriageComment(before, after []domain.Comment, body string) (string, bool) {
+type triageHistoricalComment struct {
+	id, body string
+}
+
+func reconcileTriageComment(before, after []triageHistoricalComment, body string) (string, bool) {
 	baseline := make(map[string]struct{}, len(before))
 	for _, comment := range before {
-		baseline[comment.ID] = struct{}{}
+		baseline[comment.id] = struct{}{}
 	}
-	var matches []domain.Comment
+	var matches []triageHistoricalComment
 	for _, comment := range after {
-		if _, existed := baseline[comment.ID]; !existed && comment.Body == body {
+		if _, existed := baseline[comment.id]; !existed && comment.body == body {
 			matches = append(matches, comment)
 		}
 	}
 	if len(matches) != 1 {
 		return "", false
 	}
-	return matches[0].ID, true
+	return matches[0].id, true
 }
 
 func triageFinal(t *testing.T, cohort triageCohort) []byte {
@@ -445,8 +406,7 @@ func TestRepositoryJiraTriageIssueFailsClosedBoundaries(t *testing.T) {
 				t.Fatalf("route %s failed", name)
 			}
 		}
-		body := triageMarkdown(t, filepath.Join(triageRoot(primary.directory), "workspace", "duplicate-comment.md"))
-		payload, _ := json.Marshal(map[string]string{"body": string(body)})
+		payload := []byte(`{"body":"wrong branch"}`)
 		before := triageRequestIndex(backend)
 		status := sendTriageRaw(t, backend, "POST", "/jira/rest/api/2/issue/LAB-52/comment", nil, payload)
 		if status != http.StatusNotFound || triageRequestIndex(backend) != before {
@@ -460,8 +420,7 @@ func TestRepositoryJiraTriageIssueFailsClosedBoundaries(t *testing.T) {
 				t.Fatalf("route %s failed", name)
 			}
 		}
-		wiki := triageMarkdown(t, filepath.Join(triageRoot(holdout.directory), "workspace", "new-bug.md"))
-		payload, _ := json.Marshal(map[string]any{"fields": map[string]any{"project": map[string]string{"key": "OPS"}, "issuetype": map[string]string{"name": "Bug"}, "summary": holdout.newSummary, "description": string(wiki)}})
+		payload := []byte(`{"fields":{}}`)
 		before := triageRequestIndex(backend)
 		status := sendTriageRaw(t, backend, "POST", "/jira/rest/api/2/issue", nil, payload)
 		if status != http.StatusNotFound || triageRequestIndex(backend) != before {
@@ -488,7 +447,19 @@ func TestRepositoryJiraTriageIssueFailsClosedBoundaries(t *testing.T) {
 		}
 	})
 	t.Run("no second post after ambiguity", func(t *testing.T) {
-		backend, _ := executeTriageProductionWorkflow(t, triageRoot(holdout.directory), holdoutFixture, holdout)
+		backend := startTriageRawBackend(t, holdoutFixture)
+		for _, name := range holdout.sequence {
+			want := http.StatusOK
+			if name == "comment" {
+				want = http.StatusInternalServerError
+			}
+			if status := sendTriageRoute(t, backend, triageRoute(t, holdoutFixture, name), nil); status != want {
+				t.Fatalf("historical route %s status=%d want=%d", name, status, want)
+			}
+		}
+		if !backend.RequestSequenceComplete() {
+			t.Fatal("retained historical request sequence did not complete")
+		}
 		before := triageRequestIndex(backend)
 		if status := sendTriageRoute(t, backend, triageRoute(t, holdoutFixture, "comment"), nil); status != http.StatusNotFound || triageRequestIndex(backend) != before {
 			t.Fatalf("status=%d cursor=%d", status, triageRequestIndex(backend))
@@ -498,46 +469,21 @@ func TestRepositoryJiraTriageIssueFailsClosedBoundaries(t *testing.T) {
 
 func TestRepositoryJiraTriageIssueReconciliationAndCompletenessNegatives(t *testing.T) {
 	body := "h2. New occurrence\n\nLeaseRenewalError after lease renewal on synthetic build 23."
-	baseline := []domain.Comment{{ID: "800", Body: "Initial synthetic occurrence."}}
+	baseline := []triageHistoricalComment{{id: "800", body: "Initial synthetic occurrence."}}
 	if _, ok := reconcileTriageComment(baseline, baseline, body); ok {
 		t.Fatal("missing new-id delta reconciled")
 	}
-	if _, ok := reconcileTriageComment(append(baseline, domain.Comment{ID: "801", Body: body}), append(baseline, domain.Comment{ID: "801", Body: body}), body); ok {
+	if _, ok := reconcileTriageComment(append(baseline, triageHistoricalComment{id: "801", body: body}), append(baseline, triageHistoricalComment{id: "801", body: body}), body); ok {
 		t.Fatal("baseline already containing new id reconciled")
 	}
-	if _, ok := reconcileTriageComment(baseline, append(baseline, domain.Comment{ID: "801", Body: "wrong"}), body); ok {
+	if _, ok := reconcileTriageComment(baseline, append(baseline, triageHistoricalComment{id: "801", body: "wrong"}), body); ok {
 		t.Fatal("wrong comment body reconciled")
 	}
 
 	cohort := triageCohorts[0]
-	fixture := loadRepositoryMockFixture(t, filepath.Join(triageRoot(cohort.directory), "fixture.json"))
-	var bodyDocument map[string]any
-	if err := json.Unmarshal(fixture.Routes[0].Body, &bodyDocument); err != nil {
-		t.Fatal(err)
-	}
-	bodyDocument["total"] = 2
-	fixture.Routes[0].Body, _ = json.Marshal(bodyDocument)
-	backend := startTriageRawBackend(t, fixture)
-	for key, value := range backend.Environment() {
-		t.Setenv(key, value)
-	}
-	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
-	jira, err := app.NewJira(&config.Config{JiraURL: backend.Environment()["ATL_JIRA_URL"]}, "benchmark-contract")
-	if err != nil {
-		t.Fatal(err)
-	}
-	list, err := jira.SearchIssueList(context.Background(), cohort.queries[0], strings.Split(triageColumns, ","), 10, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	complete := &app.IssueList{Page: app.IssueListPage{Complete: true}}
-	if list.Page.Complete || triageMayWrite([]*app.IssueList{list, complete}, []*domain.Issue{{Key: "LAB-41"}}) {
-		t.Fatal("incomplete search admitted a write")
-	}
-	methods, _, _ := backend.Summary()
-	if methods["POST"] != 0 {
-		t.Fatalf("incomplete search sent %d writes", methods["POST"])
-	}
+	root := triageRoot(cohort.directory)
+	fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
+	assertJiraTriageIncompleteSearchIsReadOnly(t, fixture, cohort, triageCodexPolicy(t, root))
 }
 
 func startTriageRawBackend(t *testing.T, fixture MockFixture) *MockBackend {
@@ -730,4 +676,14 @@ func assertTriagePolicyAlternativesAndMutations(t *testing.T, policy CLICommandP
 
 func triageRoot(directory string) string {
 	return filepath.Join("..", "..", "benchmarks", "agent-eval", directory)
+}
+
+func triageCodexPolicy(t *testing.T, root string) CLICommandPolicy {
+	t.Helper()
+	spec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli.codex.json"))
+	policy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: slices.Clone(spec.AllowedCLICommands)}
+	if err := policy.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	return policy
 }
