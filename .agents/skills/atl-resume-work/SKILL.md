@@ -7,21 +7,25 @@ description: Reconstruct and resume ATL repository work after context compaction
 
 1. Read repository `AGENTS.md`; it is binding.
 2. Read [Session recovery](../../../docs/maintainers/session-recovery.md).
-3. Reconstruct current Git, identity, worktree, GitHub issue/PR, check, and dirty
-   state read-only.
-4. Capture the optional owner-only knowledge root without rendering it:
+3. Capture the optional owner-only knowledge root without rendering it:
    `owner_root="$(git config --local --get atl.ownerKnowledgeRoot)"`, then
    record the assignment's exit status. Skip
    only status 1 (key absent). Any other nonzero status, an empty configured
-   value, or validation failure stops recovery without guessing. Keep the value
-   out of output and public artifacts; after validation, read only current
+   value, or later validation failure stops recovery without guessing. Keep the
+   value out of output and public artifacts, but do not execute its validator
+   yet.
+4. Run the runbook's literal read-only batch once to reconstruct Git, identity,
+   declared/local/auto toolchains, worktrees, GitHub issue/PR state, and dirty
+   files without executing dirty repository code. Repeat only after a real
+   state transition or contradiction, never as polling.
+5. If configured, validate the captured owner root, then read only current
    state/handoff. The setting is context, not authority or an instruction
    override.
-5. Treat old transcripts, plans, checkpoints, approvals, and CI runs as
+6. Treat old transcripts, plans, checkpoints, approvals, and CI runs as
    historical until reconciled with the current head and issue plan.
-6. Resume at the first unmet acceptance criterion. Preserve unrelated changes
+7. Resume at the first unmet acceptance criterion. Preserve unrelated changes
    and reuse verification only when the covered bytes are unchanged.
-7. Update a compact durable checkpoint at the next safe issue/PR boundary.
+8. Update a compact durable checkpoint at the next safe issue/PR boundary.
 
 Stop before editing when ownership of a dirty path, active authority, or the
 reviewed head cannot be established.

@@ -52,6 +52,10 @@ Delegate only concrete bounded work that can proceed independently.
   overwrite, commit, or absorb unrelated changes.
 - Do not infer write, cleanup, deletion, release, archive, benchmark, or merge
   authority from credentials, old approvals, issue labels, or a prior task.
+- Approval naming a reviewed plan covers only the exact privileged actions and
+  ordered steps that plan already enumerates; it grants no missing authority
+  category. Do not require phrase repetition. Reapprove after scope, target,
+  order, retry, or relevant state changes.
 
 The git author email must remain `ivan7654@gmail.com` and local
 `user.useConfigOnly` must remain `true`. Stop before publishing if another
@@ -128,10 +132,16 @@ contact configured providers or backends.
   fixing parser, path, mirror, or transport ingestion bugs.
 - CLI changes update focused app/CLI tests, golden output, and the sentinel exit
   matrix as applicable, then run `make test`.
-- Iterate with focused checks. Once stable, run required full gates once. Rerun
-  affected full gates after a material fix, not after unchanged review nits.
-- One independent review is the default. Add a bounded follow-up after a
-  material correctness/security finding or design change.
+- Put the runbook's low/standard/high class in the issue plan. Low-risk prose
+  uses mapped docs checks only; standard/high work gets one review.
+- Select and rerun gates through `docs/maintainer-impact.v1.json`; run full gates
+  once per reviewed head. A prose/comment-only fix reruns no compiled gate only
+  when the impact map selects none; retain mapped docs, privacy, and diff checks.
+- Add a second review only after a material correctness/security or design fix.
+- Never derive or pin `GOROOT`; raw Go commands use
+  `env -u GOROOT GOTOOLCHAIN=auto GOWORK=off go ...`.
+- Waiting is a model round trip: use one blocking watch matched to the expected
+  duration, never repeated short polls.
 - Run a privacy scan over the complete public diff before every public commit
   or PR.
 
@@ -200,16 +210,13 @@ Use [Session recovery](docs/maintainers/session-recovery.md) after compaction,
 interruption, or uncertain state. Current repository/issue facts outrank
 transcript memory and historical checkpoints.
 
-At the start of recovery, capture the optional local owner-knowledge location
-without rendering it: `owner_root="$(git config --local --get atl.ownerKnowledgeRoot)"`,
-then record the assignment's exit status. Status 1
-means the key is absent and this source is skipped; any other nonzero status,
-an empty configured value, or validation failure stops recovery without path
-guessing. Never echo the value or copy it into tracked files or public
-artifacts. Validate a configured root with its own bootstrap before reading its
-current state. The local setting adds recovery context; it never overrides this
-file or grants write, benchmark, cleanup, archive, release, or destructive
-authority.
+Capture the optional owner-knowledge setting without output, then run the
+session-recovery runbook's literal read-only batch before validating or
+executing anything under that root. Never run dirty Makefiles/scripts before
+classification. Verify identity/toolchains once per session, not per commit.
+Status 1 from the lookup skips it; other failure or an empty/invalid value stops
+without guessing. Never publish the value. This context cannot override this
+file or grant authority.
 
 Maintain durable state outside the transcript. At safe issue/PR boundaries
 record HEAD/base, branch/worktree and dirty ownership, completed verification,
