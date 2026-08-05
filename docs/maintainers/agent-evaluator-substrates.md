@@ -65,7 +65,7 @@ The snapshots are comparison pins, not new production dependencies.
 
 | Dimension | Evaluator-owned | Harbor | Inspect AI / Inspect SWE | Promptfoo | ATL-owned hybrid |
 |---|---|---|---|---|---|
-| Agent permissions | Exact provider policy, broker, and route admission | Codex wrapper hard-codes bypass; Claude defaults to bypass but exposes other modes | Codex can opt into guardian review; Claude can opt into `auto`; unsafe bypass and retries remain defaults unless pinned | Native agent providers have structured controls, but Promptfoo is not the OS/tool policy authority | ATL keeps admission; substrate receives only admitted work |
+| Agent permissions | Exact provider policy, broker, and route admission | Codex wrapper hard-codes bypass; Claude defaults to bypass but exposes other modes | Inspect has approval policies, but pinned Inspect SWE hard-codes Codex bypass; Claude can opt into `auto` | Native agent providers have structured controls, but Promptfoo is not the OS/tool policy authority | ATL keeps admission; substrate receives only admitted work |
 | Non-interactive evidence | Structured provider streams and typed ATL gateways | Structured session and stream logs are converted to ATIF | Agent Bridge and Inspect SWE expose structured events/transcripts | Native Codex/Claude providers and custom providers return structured results | Substrate output is a secondary observation, never the authority |
 | Fixed sampling | Immutable plans bind exact cells and repetitions | `n_attempts` exists, but the `1/3/1` lifecycle is not immutable by construction | Epochs/attempts exist; eval-set retries default to repeated work | `repeat` exists; cache, resume, and retry features can change attempts | ATL binds stage manifests; substrate executes one named attempt |
 | Failed attempts | Append-only attempt and recovery states | `max_retries=0` is available; enabled retry removes the earlier trial directory | Error logs are useful, but eval-set retry/cleanup is enabled by default | Error rows exist, but retry flows are mutable and error normalization can lose the first cause | ATL commits the attempt before launch and retains raw secondary artifacts |
@@ -108,15 +108,15 @@ extension [sandboxes](https://inspect.aisi.org.uk/sandboxing.html), rich
 [limits](https://inspect.aisi.org.uk/setting-limits.html), and versioned
 [evaluation logs](https://inspect.aisi.org.uk/eval-logs.html).
 
-Inspect SWE directly supports Codex and Claude Code. Its reviewed Codex adapter
-can replace bypass with `auto_review`, which enables Codex's workspace sandbox
-and guardian-adjudicated escalation. Its Claude adapter can select
-`permission_mode="auto"`. Those are meaningful improvements over the earlier
-substrate review.
+Inspect SWE directly supports Codex and Claude Code. At the reviewed pin, its
+[Codex adapter](https://github.com/meridianlabs-ai/inspect_swe/blob/0.2.65/src/inspect_swe/_codex_cli/codex_cli.py)
+unconditionally passes `--dangerously-bypass-approvals-and-sandbox`; core
+Inspect approval policy does not remove that inner bypass. Its Claude adapter
+can select `permission_mode="auto"`, while bypass remains the default.
 
-They still require an explicit ATL profile. Codex bypass is the default when
-`auto_review` is absent. Claude bypass is the default when no permission mode is
-provided, and refusal and uncaught-error retries default to three. Inspect
+They therefore still require a new safe adapter or a separately proven outer
+sandbox before ATL could execute either agent through this substrate. Claude
+refusal and uncaught-error retries also default to three. Inspect
 eval-set retries failed tasks up to ten times by default and can remove failed
 logs after a later success. Core Inspect approval governs Inspect tool calls;
 it does not by itself prove the bridged CLI's internal tool policy. Logs and
