@@ -29,6 +29,7 @@ func TestStableReadProductionInventory(t *testing.T) {
 		"internal/agenteval/provider_runtime.go":            7,
 		"internal/agenteval/runner.go":                      5,
 		"internal/agenteval/stable_root_read.go":            2,
+		"internal/agenteval/storage.go":                     1,
 		"internal/agenteval/synthetic_receipt.go":           2,
 		"internal/cli/profile_revalidation.go":              1,
 		"internal/skillmeta/catalog.go":                     3,

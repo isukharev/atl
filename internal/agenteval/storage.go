@@ -1,8 +1,10 @@
 package agenteval
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -284,77 +286,280 @@ func requirePrivateDirectory(name, path string) error {
 	return nil
 }
 
+type workspaceCopyHooks struct {
+	afterInventory func()
+	beforeFileRead func(string)
+}
+
+type workspaceInventory struct {
+	entries []workspaceInventoryEntry
+	bytes   int64
+}
+
+type workspaceInventoryEntry struct {
+	path   string
+	info   fs.FileInfo
+	digest [sha256.Size]byte
+}
+
 func copyWorkspace(source, target string) error {
+	return copyWorkspaceWithHooks(source, target, workspaceCopyHooks{})
+}
+
+// copyWorkspaceWithHooks retains the production copy contract while allowing
+// deterministic adversarial tests to mutate a source only after it has been
+// inventoried or opened. Callers outside tests use copyWorkspace.
+func copyWorkspaceWithHooks(source, target string, hooks workspaceCopyHooks) error {
 	info, err := os.Lstat(source)
 	if err != nil {
 		return err
 	}
-	if !info.IsDir() {
-		return fmt.Errorf("workspace template is not a directory")
-	}
-	if err := mkdirPrivate(target); err != nil {
-		return err
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("workspace template is not a plain directory")
 	}
 	sourceRoot, err := os.OpenRoot(source)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = sourceRoot.Close() }()
-	var total int64
-	var entries int
-	return filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {
+	if err := verifyWorkspaceCopyRoot(source, info, sourceRoot); err != nil {
+		return err
+	}
+	inventory, err := inventoryWorkspace(sourceRoot)
+	if err != nil {
+		return err
+	}
+	if err := verifyWorkspaceCopyRoot(source, info, sourceRoot); err != nil {
+		return err
+	}
+	if hooks.afterInventory != nil {
+		hooks.afterInventory()
+	}
+	if err := verifyWorkspaceCopyRoot(source, info, sourceRoot); err != nil {
+		return err
+	}
+	if err := mkdirPrivate(target); err != nil {
+		return err
+	}
+	var copiedBytes int64
+	for _, entry := range inventory.entries {
+		if err := verifyWorkspaceInventoryEntry(sourceRoot, entry); err != nil {
+			return err
+		}
+		destination := filepath.Join(target, entry.path)
+		if entry.info.IsDir() {
+			if err := os.Mkdir(destination, 0o700); err != nil {
+				return err
+			}
+			continue
+		}
+		remaining := maxWorkspaceBytes - copiedBytes
+		copied, digest, err := copyWorkspaceInventoryFile(sourceRoot, entry, destination, remaining, hooks.beforeFileRead)
+		if err != nil {
+			return err
+		}
+		if digest != entry.digest {
+			return fmt.Errorf("workspace template file changed while it was copied")
+		}
+		copiedBytes += copied
+	}
+	if copiedBytes != inventory.bytes {
+		return fmt.Errorf("workspace template byte inventory drifted while it was copied")
+	}
+	if err := verifyWorkspaceCopyRoot(source, info, sourceRoot); err != nil {
+		return err
+	}
+	finalInventory, err := inventoryWorkspace(sourceRoot)
+	if err != nil || !sameWorkspaceInventory(inventory, finalInventory) {
+		return fmt.Errorf("workspace template changed while it was copied")
+	}
+	return verifyWorkspaceCopyRoot(source, info, sourceRoot)
+}
+
+func verifyWorkspaceCopyRoot(source string, initial fs.FileInfo, root *os.Root) error {
+	current, err := os.Lstat(source)
+	if err != nil || current.Mode()&os.ModeSymlink != 0 || !current.IsDir() || !sameWorkspaceFileInfo(initial, current) {
+		return fmt.Errorf("workspace template root changed while it was copied")
+	}
+	opened, err := root.Stat(".")
+	if err != nil || !opened.IsDir() || !sameWorkspaceFileInfo(initial, opened) {
+		return fmt.Errorf("workspace template root changed while it was copied")
+	}
+	return nil
+}
+
+func inventoryWorkspace(root *os.Root) (workspaceInventory, error) {
+	var inventory workspaceInventory
+	err := fs.WalkDir(root.FS(), ".", func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if path == source {
+		if path == "." {
 			return nil
 		}
-		entries++
-		if entries > maxWorkspaceEntries {
+		if !fs.ValidPath(path) {
+			return fmt.Errorf("workspace template inventory path is invalid")
+		}
+		inventory.entries = append(inventory.entries, workspaceInventoryEntry{path: filepath.FromSlash(path)})
+		if len(inventory.entries) > maxWorkspaceEntries {
 			return fmt.Errorf("workspace template exceeds %d entries", maxWorkspaceEntries)
 		}
-		relative, err := filepath.Rel(source, path)
+		item := &inventory.entries[len(inventory.entries)-1]
+		info, err := root.Lstat(item.path)
 		if err != nil {
 			return err
 		}
-		destination := filepath.Join(target, relative)
-		info, err := entry.Info()
-		if err != nil {
-			return err
+		entryInfo, err := entry.Info()
+		if err != nil || !sameWorkspaceFileInfo(entryInfo, info) {
+			return fmt.Errorf("workspace template changed while it was inventoried")
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("workspace template contains symlink %q", relative)
+			return fmt.Errorf("workspace template contains symlink %q", path)
 		}
 		if info.IsDir() {
-			return os.Mkdir(destination, 0o700)
+			item.info = info
+			return nil
 		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("workspace template contains non-regular file %q", relative)
+		if !info.Mode().IsRegular() || info.Size() < 0 {
+			return fmt.Errorf("workspace template contains non-regular file %q", path)
 		}
-		total += info.Size()
-		if total > maxWorkspaceBytes {
+		remaining := maxWorkspaceBytes - inventory.bytes
+		if info.Size() > remaining {
 			return fmt.Errorf("workspace template exceeds %d bytes", maxWorkspaceBytes)
 		}
-		input, err := sourceRoot.Open(relative)
+		digest, err := hashWorkspaceInventoryFile(root, item.path, info, remaining)
 		if err != nil {
 			return err
 		}
-		output, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-		if err != nil {
-			_ = input.Close()
-			return err
-		}
-		_, copyErr := io.Copy(output, input)
-		inputCloseErr := input.Close()
-		closeErr := output.Close()
-		if copyErr != nil {
-			return copyErr
-		}
-		if inputCloseErr != nil {
-			return inputCloseErr
-		}
-		return closeErr
+		item.info = info
+		item.digest = digest
+		inventory.bytes += info.Size()
+		return nil
 	})
+	if err != nil {
+		return workspaceInventory{}, err
+	}
+	return inventory, nil
+}
+
+func verifyWorkspaceInventoryEntry(root *os.Root, entry workspaceInventoryEntry) error {
+	info, err := root.Lstat(entry.path)
+	if err != nil || !sameWorkspaceFileInfo(entry.info, info) {
+		return fmt.Errorf("workspace template changed after inventory")
+	}
+	if info.Mode()&os.ModeSymlink != 0 || info.IsDir() != entry.info.IsDir() {
+		return fmt.Errorf("workspace template changed after inventory")
+	}
+	return nil
+}
+
+func hashWorkspaceInventoryFile(root *os.Root, path string, expected fs.FileInfo, remaining int64) ([sha256.Size]byte, error) {
+	file, err := root.Open(path)
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	digest, _, readErr := readWorkspaceInventoryFile(file, expected, remaining, io.Discard, nil)
+	closeErr := file.Close()
+	if readErr != nil {
+		return [sha256.Size]byte{}, readErr
+	}
+	if closeErr != nil {
+		return [sha256.Size]byte{}, closeErr
+	}
+	return digest, nil
+}
+
+func copyWorkspaceInventoryFile(
+	root *os.Root,
+	entry workspaceInventoryEntry,
+	destination string,
+	remaining int64,
+	beforeRead func(string),
+) (int64, [sha256.Size]byte, error) {
+	input, err := root.Open(entry.path)
+	if err != nil {
+		return 0, [sha256.Size]byte{}, err
+	}
+	output, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		_ = input.Close()
+		return 0, [sha256.Size]byte{}, err
+	}
+	digest, copied, readErr := readWorkspaceInventoryFile(input, entry.info, remaining, output, func() {
+		if beforeRead != nil {
+			beforeRead(entry.path)
+		}
+	})
+	inputCloseErr := input.Close()
+	outputCloseErr := output.Close()
+	if readErr != nil {
+		return 0, [sha256.Size]byte{}, readErr
+	}
+	if inputCloseErr != nil {
+		return 0, [sha256.Size]byte{}, inputCloseErr
+	}
+	if outputCloseErr != nil {
+		return 0, [sha256.Size]byte{}, outputCloseErr
+	}
+	return copied, digest, nil
+}
+
+func readWorkspaceInventoryFile(
+	file *os.File,
+	expected fs.FileInfo,
+	remaining int64,
+	destination io.Writer,
+	beforeRead func(),
+) ([sha256.Size]byte, int64, error) {
+	if expected.Size() < 0 || remaining < expected.Size() || remaining < 0 {
+		return [sha256.Size]byte{}, 0, fmt.Errorf("workspace template exceeds %d bytes", maxWorkspaceBytes)
+	}
+	opened, err := file.Stat()
+	if err != nil || !opened.Mode().IsRegular() || !sameWorkspaceFileInfo(expected, opened) {
+		return [sha256.Size]byte{}, 0, fmt.Errorf("workspace template file changed while it was copied")
+	}
+	if beforeRead != nil {
+		beforeRead()
+	}
+	hash := sha256.New()
+	reader := &io.LimitedReader{R: file, N: remaining + 1}
+	copied, copyErr := io.CopyN(io.MultiWriter(destination, hash), reader, expected.Size())
+	if copyErr != nil || copied != expected.Size() {
+		return [sha256.Size]byte{}, 0, fmt.Errorf("workspace template file changed while it was copied")
+	}
+	var probe [1]byte
+	extra, probeErr := reader.Read(probe[:])
+	if extra != 0 {
+		return [sha256.Size]byte{}, 0, fmt.Errorf("workspace template file changed while it was copied")
+	}
+	if probeErr != io.EOF {
+		return [sha256.Size]byte{}, 0, fmt.Errorf("read workspace template file")
+	}
+	final, err := file.Stat()
+	if err != nil || !sameWorkspaceFileInfo(opened, final) {
+		return [sha256.Size]byte{}, 0, fmt.Errorf("workspace template file changed while it was copied")
+	}
+	var digest [sha256.Size]byte
+	copy(digest[:], hash.Sum(nil))
+	return digest, copied, nil
+}
+
+func sameWorkspaceInventory(first, second workspaceInventory) bool {
+	if first.bytes != second.bytes || len(first.entries) != len(second.entries) {
+		return false
+	}
+	for index := range first.entries {
+		left, right := first.entries[index], second.entries[index]
+		if left.path != right.path || left.digest != right.digest || !sameWorkspaceFileInfo(left.info, right.info) {
+			return false
+		}
+	}
+	return true
+}
+
+func sameWorkspaceFileInfo(first, second fs.FileInfo) bool {
+	return first != nil && second != nil && os.SameFile(first, second) && first.Mode() == second.Mode() &&
+		first.Size() == second.Size() && first.ModTime().Equal(second.ModTime())
 }
 
 func validatePrivateWorkspaceTemplate(source string) error {

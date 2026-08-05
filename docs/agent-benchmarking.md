@@ -17,7 +17,13 @@ request and response sequencing, accounting, and cleanup contracts are tested
 inside the evaluator boundary. Product onboarding checks use independent core
 test infrastructure so product packages never depend on the heavy evaluator.
 Selected-binary oracles also decode released Jira and Confluence evidence with
-evaluator-owned closed wire types. Jira history CLI and MCP cohorts reconcile
+evaluator-owned closed wire types. The retained offline mirror snapshot cohorts
+seed bounded, symlink-free templates into a private process runtime and
+reconcile both structured and text MCP projections from that selected binary.
+Before any admitted MCP call, that boundary re-attests its private executable
+copy around server launch and compares one bounded `tools/list` result with the
+pinned service-profile inventory.
+Jira history CLI and MCP cohorts reconcile
 the same bounded summary projection without importing product history owners.
 The retained Confluence CSV formula-safety cohorts use a byte-opaque bounded
 stdout path and parse only CSV emitted by that executable. The retained

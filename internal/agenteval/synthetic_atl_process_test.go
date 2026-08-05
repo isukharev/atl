@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -63,6 +64,259 @@ func TestSyntheticATLProcessRunsSelectedBinaryCLIAndMCPContracts(t *testing.T) {
 		summary.CLIInvocations["fields"] != 1 || summary.MCPInvocations["jira_fields"] != 1 ||
 		!process.RequestSequenceComplete() {
 		t.Fatalf("summary=%+v sequence_complete=%t", summary, process.RequestSequenceComplete())
+	}
+}
+
+func TestSyntheticATLProcessSeedsMirrorTemplateBeforeMCPLaunch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is Unix-only")
+	}
+	root := privateSyntheticScratch(t)
+	template := filepath.Join(root, "mirror-template")
+	if err := os.Mkdir(template, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(template, "seed.txt"), []byte("seed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := digestWorkspaceTree(template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(root, "atl-fake")
+	writeSyntheticExecutable(t, binary, syntheticATLTestScript(`
+if [ "$1" = "mcp" ]; then
+  [ "$2" = "serve" ] && [ "$3" = "--service" ] && [ "$4" = "offline" ] || exit 81
+  [ -d "$ATL_MIRROR_ROOT" ] && [ ! -L "$ATL_MIRROR_ROOT" ] && [ -f "$ATL_MIRROR_ROOT/seed.txt" ] || exit 82
+  [ "$(/bin/cat "$ATL_MIRROR_ROOT/seed.txt")" = "seed" ] || exit 83
+  IFS= read -r initialize || exit 84
+  printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"fake","version":"1"}}}'
+  IFS= read -r initialized || exit 85
+  IFS= read -r call || exit 86
+  printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\"schema_version\":1}"}],"structuredContent":{"schema_version":1},"isError":false}}'
+  while IFS= read -r ignored; do :; done
+  exit 0
+fi
+exit 87
+`))
+	scratch := filepath.Join(root, "scratch")
+	if err := os.Mkdir(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	invocation, ok := newMCPInvocation("jira_mirror_snapshot", map[string]any{})
+	if !ok {
+		t.Fatal("construct invocation")
+	}
+	process, err := StartSyntheticATLProcess(context.Background(), SyntheticATLProcessConfig{
+		Binary: binary, Fixture: minimalSyntheticFixture(), ScratchRoot: scratch, MirrorTemplate: template,
+		MCPService: "offline", MCPInvocations: []MCPInvocation{invocation}, Timeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeMirror := filepath.Join(process.runtimeRoot, "mirror")
+	inside, containmentErr := pathWithin(process.runtimeRoot, runtimeMirror)
+	if containmentErr != nil || !inside || environmentMap(process.environment)["ATL_MIRROR_ROOT"] != runtimeMirror {
+		t.Fatalf("mirror runtime escaped process root: root=%q mirror=%q env=%q err=%v",
+			process.runtimeRoot, runtimeMirror, environmentMap(process.environment)["ATL_MIRROR_ROOT"], containmentErr)
+	}
+	templateInfo, err := os.Stat(template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeInfo, err := os.Stat(runtimeMirror)
+	if err != nil || os.SameFile(templateInfo, runtimeInfo) {
+		t.Fatalf("runtime mirror did not isolate template: info=%v err=%v", runtimeInfo, err)
+	}
+	result, err := process.CallMCPJSON(context.Background(), invocation)
+	if err != nil || result.IsError || string(result.StructuredContent) != `{"schema_version":1}` ||
+		len(result.TextContent) != 1 || result.TextContent[0] != `{"schema_version":1}` {
+		t.Fatalf("MCP result=%+v err=%v", result, err)
+	}
+	after, err := digestWorkspaceTree(template)
+	if err != nil || after != before {
+		t.Fatalf("mirror template changed: before=%q after=%q err=%v", before, after, err)
+	}
+	if err := process.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if entries, err := os.ReadDir(scratch); err != nil || len(entries) != 0 {
+		t.Fatalf("runtime survived close: entries=%v err=%v", entries, err)
+	}
+}
+
+func TestSyntheticATLProcessRejectsOfflineToolInventoryMismatch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is Unix-only")
+	}
+	root := privateSyntheticScratch(t)
+	binary := filepath.Join(root, "atl-fake")
+	writeSyntheticExecutable(t, binary, "#!/bin/sh\n"+testATLCapabilityCatalogHandler()+`
+if [ "$1" = "mcp" ]; then
+  [ "$4" = "offline" ] || exit 89
+  IFS= read -r initialize || exit 90
+  printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"fake","version":"1"}}}'
+  IFS= read -r initialized || exit 91
+  IFS= read -r listed || exit 92
+  printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"jira_mirror_snapshot"}]}}'
+  while IFS= read -r ignored; do :; done
+  exit 0
+fi
+exit 93
+`)
+	scratch := filepath.Join(root, "scratch")
+	if err := os.Mkdir(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	invocation, ok := newMCPInvocation("jira_mirror_snapshot", map[string]any{})
+	if !ok {
+		t.Fatal("construct invocation")
+	}
+	process, err := StartSyntheticATLProcess(context.Background(), SyntheticATLProcessConfig{
+		Binary: binary, Fixture: minimalSyntheticFixture(), ScratchRoot: scratch,
+		MCPService: "offline", MCPInvocations: []MCPInvocation{invocation}, Timeout: time.Second,
+	})
+	if process != nil || err == nil || !strings.Contains(err.Error(), "tool inventory") {
+		t.Fatalf("offline inventory mismatch process=%v err=%v", process, err)
+	}
+	if entries, readErr := os.ReadDir(scratch); readErr != nil || len(entries) != 0 {
+		t.Fatalf("runtime survived tool inventory mismatch: entries=%v err=%v", entries, readErr)
+	}
+}
+
+func TestSyntheticATLProcessRejectsExecutionCopyMutationDuringMCPStartup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is Unix-only")
+	}
+	root := privateSyntheticScratch(t)
+	binary := filepath.Join(root, "atl-fake")
+	writeSyntheticExecutable(t, binary, "#!/bin/sh\n"+testATLCapabilityCatalogHandler()+`
+if [ "$1" = "mcp" ]; then
+  : > "$ATL_CONFIG_DIR/../startup-ready"
+  while [ ! -f "$ATL_CONFIG_DIR/../startup-release" ]; do /bin/sleep 0.01; done
+  IFS= read -r initialize || exit 94
+  printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"fake","version":"1"}}}'
+  while IFS= read -r ignored; do :; done
+  exit 0
+fi
+exit 95
+`)
+	scratch := filepath.Join(root, "scratch")
+	if err := os.Mkdir(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	invocation, ok := newMCPInvocation("jira_fields", map[string]any{})
+	if !ok {
+		t.Fatal("construct invocation")
+	}
+	type startResult struct {
+		process *SyntheticATLProcess
+		err     error
+	}
+	started := make(chan startResult, 1)
+	go func() {
+		process, err := StartSyntheticATLProcess(context.Background(), SyntheticATLProcessConfig{
+			Binary: binary, Fixture: minimalSyntheticFixture(), ScratchRoot: scratch,
+			MCPService: "jira", MCPInvocations: []MCPInvocation{invocation}, Timeout: time.Second,
+		})
+		started <- startResult{process: process, err: err}
+	}()
+
+	var runtimeRoot string
+	deadline := time.Now().Add(2 * time.Second)
+	for runtimeRoot == "" && time.Now().Before(deadline) {
+		select {
+		case result := <-started:
+			t.Fatalf("process stopped before startup mutation: process=%v err=%v", result.process, result.err)
+		default:
+		}
+		entries, err := os.ReadDir(scratch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range entries {
+			candidate := filepath.Join(scratch, entry.Name())
+			if _, err := os.Stat(filepath.Join(candidate, "startup-ready")); err == nil {
+				runtimeRoot = candidate
+				break
+			}
+		}
+		if runtimeRoot == "" {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	if runtimeRoot == "" {
+		t.Fatal("MCP startup marker was not created")
+	}
+	executionPath := filepath.Join(runtimeRoot, "selected-atl")
+	if err := os.Chmod(executionPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.OpenFile(executionPath, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString("# startup mutation\n"); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runtimeRoot, "startup-release"), []byte("release\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result := <-started
+	if result.process != nil || result.err == nil || !strings.Contains(result.err.Error(), "private ATL execution copy changed") {
+		t.Fatalf("startup mutation process=%v err=%v", result.process, result.err)
+	}
+	if entries, err := os.ReadDir(scratch); err != nil || len(entries) != 0 {
+		t.Fatalf("runtime survived execution-copy rejection: entries=%v err=%v", entries, err)
+	}
+}
+
+func TestSyntheticATLProcessRejectsSymlinkMirrorTemplateAndCleansRuntime(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink fixture is Unix-only")
+	}
+	root := privateSyntheticScratch(t)
+	template := filepath.Join(root, "mirror-template")
+	if err := os.Mkdir(template, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(root, "outside")
+	if err := os.WriteFile(outside, []byte("outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(template, "escape")); err != nil {
+		t.Fatal(err)
+	}
+	rootLink := filepath.Join(root, "mirror-template-link")
+	if err := os.Symlink(template, rootLink); err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(root, "atl-fake")
+	writeSyntheticExecutable(t, binary, syntheticATLTestScript("exit 88\n"))
+	invocation, ok := newMCPInvocation("jira_mirror_snapshot", map[string]any{})
+	if !ok {
+		t.Fatal("construct invocation")
+	}
+	for name, source := range map[string]string{"nested": template, "root": rootLink} {
+		t.Run(name, func(t *testing.T) {
+			scratch := filepath.Join(root, "scratch-"+name)
+			if err := os.Mkdir(scratch, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := StartSyntheticATLProcess(context.Background(), SyntheticATLProcessConfig{
+				Binary: binary, Fixture: minimalSyntheticFixture(), ScratchRoot: scratch, MirrorTemplate: source,
+				MCPService: "offline", MCPInvocations: []MCPInvocation{invocation}, Timeout: time.Second,
+			}); err == nil || !strings.Contains(err.Error(), "symlink") {
+				t.Fatalf("unsafe mirror template error=%v", err)
+			}
+			if entries, err := os.ReadDir(scratch); err != nil || len(entries) != 0 {
+				t.Fatalf("runtime survived unsafe template rejection: entries=%v err=%v", entries, err)
+			}
+		})
 	}
 }
 
@@ -346,9 +600,9 @@ IFS= read -r call || exit 71
 		closeFails bool
 	}{
 		"total stdout": {
-			maxMCP: 480, maxStderr: 4096, wantError: "total output bound",
+			maxMCP: 2048, maxStderr: 4096, wantError: "total output bound",
 			body: validResponsePrefix + `printf '%s' '{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"'
-i=0; while [ "$i" -lt 220 ]; do printf 'x'; i=$((i + 1)); done
+i=0; while [ "$i" -lt 1800 ]; do printf 'x'; i=$((i + 1)); done
 printf '%s\n' '"}],"structuredContent":{"schema_version":1,"complete":true},"isError":false}}'
 exec /bin/sleep 10`,
 		},
@@ -609,7 +863,44 @@ func writeSyntheticExecutable(t *testing.T, path, data string) {
 }
 
 func syntheticATLTestScript(body string) string {
-	return "#!/bin/sh\n" + testATLCapabilityCatalogHandler() + body
+	body = strings.ReplaceAll(body, "IFS= read -r initialized", `IFS= read -r initialized
+  IFS= read -r listed || exit 127
+  synthetic_mcp_tools_list "$4"`)
+	body = strings.ReplaceAll(body, `"id":2`, `"id":3`)
+	return "#!/bin/sh\n" + testATLCapabilityCatalogHandler() + testSyntheticMCPToolInventoryHandler() + body
+}
+
+func testSyntheticMCPToolInventoryHandler() string {
+	var script strings.Builder
+	script.WriteString("synthetic_mcp_tools_list() {\n  case \"$1\" in\n")
+	for _, profile := range []string{"jira", "confluence", "offline"} {
+		script.WriteString("    " + profile + ") printf '%s\\n' '")
+		script.WriteString(syntheticMCPToolInventoryResponse(profile))
+		script.WriteString("' ;;\n")
+	}
+	script.WriteString("    *) exit 127 ;;\n  esac\n}\n")
+	return script.String()
+}
+
+func syntheticMCPToolInventoryResponse(profile string) string {
+	expected, ok := PinnedCapabilityCatalog().mcpToolsForProfile(profile)
+	if !ok {
+		panic("unknown synthetic MCP profile")
+	}
+	names := make([]string, 0, len(expected))
+	for name := range expected {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	tools := make([]map[string]string, len(names))
+	for index, name := range names {
+		tools[index] = map[string]string{"name": name}
+	}
+	result, err := json.Marshal(map[string]any{"tools": tools})
+	if err != nil {
+		panic(err)
+	}
+	return `{"jsonrpc":"2.0","id":2,"result":` + string(result) + `}`
 }
 
 func minimalSyntheticFixture() MockFixture {

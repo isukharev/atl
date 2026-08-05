@@ -65,6 +65,28 @@ func TestSyntheticMCPDecoderPreservesApplicationErrorEvidence(t *testing.T) {
 	}
 }
 
+func TestSyntheticMCPToolInventoryRejectsDrift(t *testing.T) {
+	expected := map[string]bool{"jira_fields": true, "jira_issue_search": true}
+	if err := validateSyntheticMCPToolInventory([]byte(`{"tools":[{"name":"jira_fields"},{"name":"jira_issue_search"}]}`), expected); err != nil {
+		t.Fatalf("released inventory rejected: %v", err)
+	}
+	for name, result := range map[string]string{
+		"missing":      `{"tools":[{"name":"jira_fields"}]}`,
+		"unexpected":   `{"tools":[{"name":"jira_fields"},{"name":"jira_board_view"}]}`,
+		"duplicate":    `{"tools":[{"name":"jira_fields"},{"name":"jira_fields"}]}`,
+		"cursor":       `{"tools":[{"name":"jira_fields"},{"name":"jira_issue_search"}],"nextCursor":"more"}`,
+		"bad entry":    `{"tools":[{}, {"name":"jira_issue_search"}]}`,
+		"duplicates":   `{"tools":[{"name":"jira_fields","name":"jira_fields"},{"name":"jira_issue_search"}]}`,
+		"not an array": `{"tools":{}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := validateSyntheticMCPToolInventory([]byte(result), expected); err == nil {
+				t.Fatal("tool inventory drift passed")
+			}
+		})
+	}
+}
+
 func newTestBoundedJSONLineReader(data string, total, message int64) *boundedJSONLineReader {
 	limited := &io.LimitedReader{R: strings.NewReader(data), N: total + 1}
 	return &boundedJSONLineReader{

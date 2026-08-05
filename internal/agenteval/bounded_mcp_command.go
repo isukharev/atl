@@ -156,6 +156,34 @@ func (p *boundedMCPCommand) initializeLocked(ctx context.Context) error {
 	})
 }
 
+// verifyToolInventory requires the selected server's one-page tools/list
+// inventory to match the caller's frozen profile before any admitted tool call.
+func (p *boundedMCPCommand) verifyToolInventory(ctx context.Context, expected map[string]bool) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.stopped || len(expected) == 0 || len(expected) > CapabilityCatalogItemCount {
+		return fmt.Errorf("ATL MCP tool inventory expectation is invalid")
+	}
+	id := p.nextID
+	p.nextID++
+	response, err := p.exchangeLocked(ctx, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"method":  "tools/list",
+		"params":  map[string]any{},
+	}, id)
+	if err != nil {
+		return fmt.Errorf("list ATL MCP tools: %w", err)
+	}
+	if response.err != nil {
+		return fmt.Errorf("list ATL MCP tools: protocol error")
+	}
+	if err := validateSyntheticMCPToolInventory(response.result, expected); err != nil {
+		return fmt.Errorf("list ATL MCP tools: %w", err)
+	}
+	return nil
+}
+
 func (p *boundedMCPCommand) call(ctx context.Context, invocation MCPInvocation) (SyntheticMCPResult, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -378,6 +406,44 @@ func validateSyntheticMCPInitializeResult(result json.RawMessage) error {
 	}
 	if err := json.Unmarshal(serverInfo["version"], &version); err != nil || version == "" {
 		return fmt.Errorf("initialize result has invalid server version")
+	}
+	return nil
+}
+
+func validateSyntheticMCPToolInventory(result json.RawMessage, expected map[string]bool) error {
+	if validateJSONNoDuplicateKeys(result) != nil {
+		return fmt.Errorf("tool inventory contains duplicate JSON members")
+	}
+	var document map[string]json.RawMessage
+	if err := decodeStrictJSONObject(result, &document); err != nil || len(document) != 1 || document["tools"] == nil {
+		return fmt.Errorf("tool inventory is not one closed tools result")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(document["tools"]))
+	var tools []json.RawMessage
+	if err := decoder.Decode(&tools); err != nil || decoder.Decode(new(any)) != io.EOF || len(tools) != len(expected) {
+		return fmt.Errorf("tool inventory cardinality does not match the frozen profile")
+	}
+	seen := make(map[string]struct{}, len(tools))
+	for index, raw := range tools {
+		if validateJSONNoDuplicateKeys(raw) != nil {
+			return fmt.Errorf("tool inventory entry %d contains duplicate JSON members", index)
+		}
+		var tool map[string]json.RawMessage
+		if err := decodeStrictJSONObject(raw, &tool); err != nil || tool == nil {
+			return fmt.Errorf("tool inventory entry %d is not an object", index)
+		}
+		nameRaw, ok := tool["name"]
+		var name string
+		if !ok || json.Unmarshal(nameRaw, &name) != nil || name == "" || !expected[name] {
+			return fmt.Errorf("tool inventory entry %d is outside the frozen profile", index)
+		}
+		if _, duplicate := seen[name]; duplicate {
+			return fmt.Errorf("tool inventory contains duplicate tool %q", name)
+		}
+		seen[name] = struct{}{}
+	}
+	if len(seen) != len(expected) {
+		return fmt.Errorf("tool inventory does not contain every frozen profile tool")
 	}
 	return nil
 }
