@@ -2,20 +2,13 @@ package agenteval
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/isukharev/atl/internal/app"
-	"github.com/isukharev/atl/internal/config"
-	"github.com/isukharev/atl/internal/domain"
-	"github.com/isukharev/atl/internal/mdwiki"
 )
 
 const (
@@ -69,11 +62,13 @@ func TestRepositoryJiraSpecToBacklogFixturesDriveProductionWorkflowOracles(t *te
 			root := specBacklogRoot(cohort.directory)
 			fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
 			assertSpecBacklogFixtureTopology(t, fixture, cohort)
-			backend, final, failed := executeSpecBacklogProductionWorkflow(t, root, fixture, cohort)
-			if !backend.RequestSequenceComplete() {
+			policy := specBacklogCodexPolicy(t, root)
+			process := startJiraSpecBacklogProcess(t, root, fixture, cohort, policy)
+			evidence := executeJiraSpecBacklogProcess(t, process, cohort)
+			if !process.RequestSequenceComplete() {
 				t.Fatal("production workflow did not complete the exact fixture request sequence")
 			}
-			methods, unexpected, duplicates := backend.Summary()
+			methods, unexpected, duplicates := evidence.Summary.HTTPMethods, evidence.Summary.UnexpectedRequests, evidence.Summary.DuplicateRequests
 			if !equalHTTPMethods(methods, cohort.methods) || unexpected != 0 || duplicates != cohort.duplicates {
 				t.Fatalf("methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
 			}
@@ -85,10 +80,11 @@ func TestRepositoryJiraSpecToBacklogFixturesDriveProductionWorkflowOracles(t *te
 			if cohort.holdout {
 				wantFailed = 1
 			}
-			if failed != wantFailed {
-				t.Fatalf("failed CLI-equivalent stages=%d want=%d", failed, wantFailed)
+			if evidence.Failed != wantFailed {
+				t.Fatalf("failed CLI-equivalent stages=%d want=%d", evidence.Failed, wantFailed)
 			}
-			assertSpecBacklogProviderOracles(t, root, cohort, final, methods, unexpected, failed)
+			assertSpecBacklogProviderOracles(t, root, cohort, specBacklogFinal(t, cohort, evidence.Failed == 0), methods, unexpected, evidence.Failed)
+			assertJiraSpecBacklogProcessAdmissionRefused(t, root, fixture, cohort, policy)
 		})
 	}
 }
@@ -124,9 +120,12 @@ func TestRepositoryJiraSpecToBacklogRequestSequenceFailsClosed(t *testing.T) {
 		cohort := specBacklogCohorts[1]
 		root := specBacklogRoot(cohort.directory)
 		fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
-		backend, _, failed := executeSpecBacklogProductionWorkflow(t, root, fixture, cohort)
-		if failed != 1 || !backend.RequestSequenceComplete() {
-			t.Fatalf("holdout precondition failed: failures=%d complete=%t", failed, backend.RequestSequenceComplete())
+		policy := specBacklogCodexPolicy(t, root)
+		process := startJiraSpecBacklogProcess(t, root, fixture, cohort, policy)
+		evidence := executeJiraSpecBacklogProcess(t, process, cohort)
+		backend := process.backend
+		if evidence.Failed != 1 || !backend.RequestSequenceComplete() {
+			t.Fatalf("holdout precondition failed: failures=%d complete=%t", evidence.Failed, backend.RequestSequenceComplete())
 		}
 		before := specBacklogRequestIndex(backend)
 		if status := sendSpecBacklogFixtureRoute(t, backend, fixture, "child_2_create"); status != http.StatusNotFound {
@@ -182,86 +181,14 @@ func specBacklogRequestIndex(backend *MockBackend) int {
 	return backend.RequestIndex()
 }
 
-func executeSpecBacklogProductionWorkflow(t *testing.T, root string, fixture MockFixture, cohort specBacklogCohort) (*MockBackend, []byte, int) {
+func specBacklogCodexPolicy(t *testing.T, root string) CLICommandPolicy {
 	t.Helper()
-	backend, err := StartMockBackend(fixture)
-	if err != nil {
+	spec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli.codex.json"))
+	policy := CLICommandPolicy{SchemaVersion: LegacyCLICommandPolicySchemaVersion, Rules: spec.AllowedCLICommands}
+	if err := policy.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(backend.Close)
-	for key, value := range backend.Environment() {
-		t.Setenv(key, value)
-	}
-	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
-	cfg := &config.Config{
-		ConfluenceURL: backend.Environment()["ATL_CONFLUENCE_URL"],
-		JiraURL:       backend.Environment()["ATL_JIRA_URL"],
-	}
-	conf, err := app.NewConfluence(cfg, "benchmark-contract")
-	if err != nil {
-		t.Fatal(err)
-	}
-	jira, err := app.NewJira(cfg, "benchmark-contract")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	view, err := conf.ViewPage(context.Background(), cohort.pageID, app.ConfluencePageViewOpts{Root: t.TempDir()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if view.ID != cohort.pageID || !strings.Contains(view.Markdown, cohort.hostileMarker) {
-		t.Fatalf("source identity/content drifted: id=%q markdown=%q", view.ID, view.Markdown)
-	}
-
-	bodies := map[string][]byte{}
-	for _, file := range []string{"epic.md", "child-1.md", "child-2.md"} {
-		markdown, readErr := os.ReadFile(filepath.Join(root, "workspace", file))
-		if readErr != nil {
-			t.Fatal(readErr)
-		}
-		wiki, convertErr := mdwiki.ConvertDocument(string(markdown))
-		if convertErr != nil {
-			t.Fatalf("%s: %v", file, convertErr)
-		}
-		bodies[file] = []byte(wiki)
-	}
-
-	epic, err := jira.Create(context.Background(), cohort.project, "Epic", cohort.epicSummary, bodies["epic.md"], nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if epic.Key != cohort.epicKey {
-		t.Fatalf("epic key=%q want=%q", epic.Key, cohort.epicKey)
-	}
-	childOne, err := jira.Create(context.Background(), cohort.project, "Task", cohort.childSummaries[0], bodies["child-1.md"], nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if childOne.Key != cohort.childKeys[0] {
-		t.Fatalf("child key=%q want=%q", childOne.Key, cohort.childKeys[0])
-	}
-	linkErr := jira.LinkEpic(context.Background(), childOne.Key, epic.Key)
-	if cohort.holdout {
-		if !errors.Is(linkErr, domain.ErrForbidden) {
-			t.Fatalf("holdout link error=%v want ErrForbidden", linkErr)
-		}
-		return backend, specBacklogFinal(t, cohort, false), 1
-	}
-	if linkErr != nil {
-		t.Fatal(linkErr)
-	}
-	childTwo, err := jira.Create(context.Background(), cohort.project, "Task", cohort.childSummaries[1], bodies["child-2.md"], nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if childTwo.Key != cohort.childKeys[1] {
-		t.Fatalf("child key=%q want=%q", childTwo.Key, cohort.childKeys[1])
-	}
-	if err := jira.LinkEpic(context.Background(), childTwo.Key, epic.Key); err != nil {
-		t.Fatal(err)
-	}
-	return backend, specBacklogFinal(t, cohort, true), 0
+	return policy
 }
 
 func specBacklogFinal(t *testing.T, cohort specBacklogCohort, complete bool) []byte {

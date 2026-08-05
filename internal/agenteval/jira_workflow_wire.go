@@ -17,11 +17,51 @@ const (
 	jiraPortfolioFoldersWireMaxBytes   = 1 << 20
 	jiraSprintCurrentWireMaxBytes      = 64 << 10
 	jiraSprintMembershipWireMaxBytes   = 1 << 20
+	jiraUserSearchWireMaxBytes         = 256 << 10
+	jiraIssueCreateWireMaxBytes        = 128 << 10
+	jiraEpicLinkWireMaxBytes           = 64 << 10
 	jiraWorkflowMaximumItems           = 1000
 	jiraWorkflowMaximumWarnings        = 256
 	jiraWorkflowMaximumPathComponents  = 128
 	jiraWorkflowMaximumStringBytes     = 16 << 10
 )
+
+// JiraUserSearch is the evaluator-owned released JSON result of
+// `atl jira user search`. It intentionally carries only the closed public
+// projection needed by synthetic identity qualification.
+type JiraUserSearch struct {
+	Users []JiraWorkflowUser `json:"users"`
+}
+
+type JiraWorkflowUser struct {
+	Name        string `json:"name,omitempty"`
+	Key         string `json:"key,omitempty"`
+	AccountID   string `json:"accountId,omitempty"`
+	DisplayName string `json:"displayName"`
+	Email       string `json:"email,omitempty"`
+	Active      bool   `json:"active"`
+}
+
+// JiraIssueCreate is the evaluator-owned released JSON result of an
+// unregistered `atl jira issue create --from-md` invocation. The selected
+// synthetic workflows use the command's complete returned issue projection;
+// no product domain type crosses this boundary.
+type JiraIssueCreate struct {
+	Key         string `json:"key"`
+	Summary     string `json:"summary"`
+	Status      string `json:"status"`
+	Type        string `json:"type"`
+	Project     string `json:"project"`
+	Description string `json:"description"`
+}
+
+// JiraEpicLink is the evaluator-owned released JSON result of
+// `atl jira issue link-epic`.
+type JiraEpicLink struct {
+	Issue  string `json:"issue"`
+	Epic   string `json:"epic"`
+	Status string `json:"status"`
+}
 
 // JiraPortfolioBoardList is the evaluator-owned released board-list envelope.
 // It models only the public CLI JSON and intentionally has no product import.
@@ -144,6 +184,39 @@ type JiraSprintMembershipIssueListPage struct {
 	NextCursor    *string `json:"next_cursor"`
 }
 
+func DecodeJiraUserSearch(r io.Reader) (JiraUserSearch, error) {
+	var users JiraUserSearch
+	if err := decodeJiraWorkflowWire(r, jiraUserSearchWireMaxBytes, "Jira user search", &users, validateJiraUserSearchMembers); err != nil {
+		return JiraUserSearch{}, err
+	}
+	if err := users.validate(); err != nil {
+		return JiraUserSearch{}, fmt.Errorf("validate Jira user search: %w", err)
+	}
+	return users, nil
+}
+
+func DecodeJiraIssueCreate(r io.Reader) (JiraIssueCreate, error) {
+	var issue JiraIssueCreate
+	if err := decodeJiraWorkflowWire(r, jiraIssueCreateWireMaxBytes, "Jira issue create", &issue, validateJiraIssueCreateMembers); err != nil {
+		return JiraIssueCreate{}, err
+	}
+	if err := issue.validate(); err != nil {
+		return JiraIssueCreate{}, fmt.Errorf("validate Jira issue create: %w", err)
+	}
+	return issue, nil
+}
+
+func DecodeJiraEpicLink(r io.Reader) (JiraEpicLink, error) {
+	var link JiraEpicLink
+	if err := decodeJiraWorkflowWire(r, jiraEpicLinkWireMaxBytes, "Jira epic link", &link, validateJiraEpicLinkMembers); err != nil {
+		return JiraEpicLink{}, err
+	}
+	if err := link.validate(); err != nil {
+		return JiraEpicLink{}, fmt.Errorf("validate Jira epic link: %w", err)
+	}
+	return link, nil
+}
+
 func DecodeJiraPortfolioBoardList(r io.Reader) (JiraPortfolioBoardList, error) {
 	var list JiraPortfolioBoardList
 	if err := decodeJiraWorkflowWire(r, jiraPortfolioBoardListWireMaxBytes, "portfolio board list", &list, validateJiraPortfolioBoardListMembers); err != nil {
@@ -210,6 +283,37 @@ func decodeJiraWorkflowWire(r io.Reader, maximum int64, subject string, dst any,
 		return fmt.Errorf("decode %s wire: %w", subject, err)
 	}
 	return nil
+}
+
+func validateJiraUserSearchMembers(data []byte) error {
+	root, err := jiraWorkflowObject(data, "Jira user search")
+	if err != nil {
+		return err
+	}
+	if err := jiraWorkflowMembers(root, "Jira user search", []string{"users"}, nil); err != nil {
+		return err
+	}
+	return jiraWorkflowArray(root["users"], "Jira user search.users", func(user map[string]json.RawMessage, owner string) error {
+		return jiraWorkflowMembers(user, owner, []string{"displayName", "active"}, []string{"name", "key", "accountId", "email"})
+	})
+}
+
+func validateJiraIssueCreateMembers(data []byte) error {
+	root, err := jiraWorkflowObject(data, "Jira issue create")
+	if err != nil {
+		return err
+	}
+	return jiraWorkflowMembers(root, "Jira issue create", []string{
+		"key", "summary", "status", "type", "project", "description",
+	}, nil)
+}
+
+func validateJiraEpicLinkMembers(data []byte) error {
+	root, err := jiraWorkflowObject(data, "Jira epic link")
+	if err != nil {
+		return err
+	}
+	return jiraWorkflowMembers(root, "Jira epic link", []string{"issue", "epic", "status"}, nil)
 }
 
 func validateJiraPortfolioBoardListMembers(data []byte) error {
@@ -428,6 +532,54 @@ func jiraWorkflowArray(raw json.RawMessage, owner string, validate func(map[stri
 
 func jiraWorkflowNull(raw json.RawMessage) bool {
 	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
+}
+
+func (users JiraUserSearch) validate() error {
+	if users.Users == nil || len(users.Users) > jiraWorkflowMaximumItems {
+		return fmt.Errorf("users must contain at most %d entries", jiraWorkflowMaximumItems)
+	}
+	seen := make(map[string]struct{}, len(users.Users))
+	for index, user := range users.Users {
+		if !jiraWorkflowNormalized(user.DisplayName) ||
+			user.Name != "" && !jiraWorkflowNormalized(user.Name) ||
+			user.Key != "" && !jiraWorkflowNormalized(user.Key) ||
+			user.AccountID != "" && !jiraWorkflowNormalized(user.AccountID) ||
+			user.Email != "" && !jiraWorkflowNormalized(user.Email) {
+			return fmt.Errorf("users[%d] is invalid", index)
+		}
+		identity := user.Name
+		if identity == "" {
+			identity = user.Key
+		}
+		if identity == "" {
+			identity = user.AccountID
+		}
+		if identity == "" {
+			return fmt.Errorf("users[%d] has no identity", index)
+		}
+		if _, duplicate := seen[identity]; duplicate {
+			return fmt.Errorf("users[%d] duplicates an earlier identity", index)
+		}
+		seen[identity] = struct{}{}
+	}
+	return nil
+}
+
+func (issue JiraIssueCreate) validate() error {
+	if !jiraWorkflowNormalized(issue.Key) || !jiraWorkflowNormalized(issue.Summary) ||
+		!jiraWorkflowNormalizedOrEmpty(issue.Status) || !jiraWorkflowNormalized(issue.Type) ||
+		!jiraWorkflowNormalized(issue.Project) || issue.Description == "" ||
+		len(issue.Description) > jiraWorkflowMaximumStringBytes || !utf8.ValidString(issue.Description) {
+		return fmt.Errorf("created issue is invalid")
+	}
+	return nil
+}
+
+func (link JiraEpicLink) validate() error {
+	if !jiraWorkflowNormalized(link.Issue) || !jiraWorkflowNormalized(link.Epic) || link.Status != "linked" {
+		return fmt.Errorf("epic link is invalid")
+	}
+	return nil
 }
 
 func (list JiraPortfolioBoardList) validate() error {

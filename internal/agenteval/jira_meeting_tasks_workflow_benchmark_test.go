@@ -2,20 +2,13 @@ package agenteval
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/isukharev/atl/internal/app"
-	"github.com/isukharev/atl/internal/config"
-	"github.com/isukharev/atl/internal/domain"
-	"github.com/isukharev/atl/internal/mdwiki"
 )
 
 const (
@@ -83,100 +76,33 @@ func TestRepositoryJiraMeetingTasksFixturesDriveProductionWorkflowOracles(t *tes
 			root := meetingTasksRoot(cohort.directory)
 			fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
 			assertMeetingTasksFixtureTopology(t, fixture, cohort)
-			backend, final := executeMeetingTasksProductionWorkflow(t, root, fixture, cohort)
-			if !backend.RequestSequenceComplete() {
+			policy := meetingTasksCodexPolicy(t, root)
+			process := startJiraMeetingTasksProcess(t, root, fixture, cohort, policy)
+			evidence := executeJiraMeetingTasksProcess(t, process, cohort)
+			if !process.RequestSequenceComplete() {
 				t.Fatal("production workflow did not complete the exact request sequence")
 			}
-			methods, unexpected, duplicates := backend.Summary()
+			methods, unexpected, duplicates := evidence.Summary.HTTPMethods, evidence.Summary.UnexpectedRequests, evidence.Summary.DuplicateRequests
 			if !equalHTTPMethods(methods, cohort.methods) || unexpected != 0 || duplicates != cohort.duplicates {
 				t.Fatalf("methods=%v unexpected=%d duplicates=%d", methods, unexpected, duplicates)
 			}
 			if writes := methods["POST"]; writes != cohort.writes {
 				t.Fatalf("write attempts=%d want=%d", writes, cohort.writes)
 			}
-			assertMeetingTasksProviderOracles(t, root, cohort, final, methods, unexpected)
+			assertMeetingTasksProviderOracles(t, root, cohort, meetingTasksFinal(t, cohort), methods, unexpected)
+			assertJiraMeetingTasksProcessAdmissionRefused(t, root, fixture, cohort, policy)
 		})
 	}
 }
 
-func executeMeetingTasksProductionWorkflow(t *testing.T, root string, fixture MockFixture, cohort meetingTasksCohort) (*MockBackend, []byte) {
+func meetingTasksCodexPolicy(t *testing.T, root string) CLICommandPolicy {
 	t.Helper()
-	backend, err := StartMockBackend(fixture)
-	if err != nil {
+	spec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli.codex.json"))
+	policy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: spec.AllowedCLICommands}
+	if err := policy.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(backend.Close)
-	for key, value := range backend.Environment() {
-		t.Setenv(key, value)
-	}
-	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
-	cfg := &config.Config{ConfluenceURL: backend.Environment()["ATL_CONFLUENCE_URL"], JiraURL: backend.Environment()["ATL_JIRA_URL"]}
-	conf, err := app.NewConfluence(cfg, "benchmark-contract")
-	if err != nil {
-		t.Fatal(err)
-	}
-	jira, err := app.NewJira(cfg, "benchmark-contract")
-	if err != nil {
-		t.Fatal(err)
-	}
-	view, err := conf.ViewPage(context.Background(), cohort.pageID, app.ConfluencePageViewOpts{Root: t.TempDir()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if view.ID != cohort.pageID || !strings.Contains(view.Markdown, cohort.hostile) {
-		t.Fatalf("source identity/content drifted: id=%q markdown=%q", view.ID, view.Markdown)
-	}
-	for index, query := range cohort.queries {
-		users, searchErr := jira.SearchUsers(context.Background(), query, 5)
-		if searchErr != nil {
-			t.Fatal(searchErr)
-		}
-		var names []string
-		for _, user := range users {
-			names = append(names, user.Name)
-		}
-		if !slices.Equal(names, stringSlice(cohort.resolutions[index]["candidate_usernames"])) {
-			t.Fatalf("query %q names=%v", query, names)
-		}
-	}
-	for _, item := range cohort.items {
-		if item.state == "unattempted" {
-			break
-		}
-		markdown, readErr := os.ReadFile(filepath.Join(root, "workspace", item.file))
-		if readErr != nil {
-			t.Fatal(readErr)
-		}
-		wiki, convertErr := mdwiki.ConvertDocument(string(markdown))
-		if convertErr != nil {
-			t.Fatal(convertErr)
-		}
-		fields := map[string]string{}
-		if item.assignee != "" {
-			fields["assignee"] = `{"name":"` + item.assignee + `"}`
-		}
-		if item.due != "" {
-			fields["duedate"] = item.due
-		}
-		created, createErr := jira.Create(context.Background(), cohort.project, "Task", item.summary, []byte(wiki), fields)
-		if item.state == "failed" {
-			if !errors.Is(createErr, domain.ErrForbidden) {
-				t.Fatalf("failed create error=%v want ErrForbidden", createErr)
-			}
-			break
-		}
-		if createErr != nil || created.Key != item.key {
-			t.Fatalf("create %q key=%v err=%v", item.summary, created, createErr)
-		}
-	}
-	return backend, meetingTasksFinal(t, cohort)
-}
-
-func stringSlice(value any) []string {
-	if values, ok := value.([]string); ok {
-		return values
-	}
-	return nil
+	return policy
 }
 
 func meetingTasksFinal(t *testing.T, cohort meetingTasksCohort) []byte {
@@ -395,7 +321,10 @@ func TestRepositoryJiraMeetingTasksRequestSequenceFailsClosed(t *testing.T) {
 		}
 	})
 	t.Run("continuation after failure", func(t *testing.T) {
-		backend, _ := executeMeetingTasksProductionWorkflow(t, root, fixture, cohort)
+		policy := meetingTasksCodexPolicy(t, root)
+		process := startJiraMeetingTasksProcess(t, root, fixture, cohort, policy)
+		executeJiraMeetingTasksProcess(t, process, cohort)
+		backend := process.backend
 		if !backend.RequestSequenceComplete() {
 			t.Fatal("primary sequence incomplete")
 		}

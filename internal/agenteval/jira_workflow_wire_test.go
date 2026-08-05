@@ -8,6 +8,21 @@ import (
 )
 
 func TestDecodeJiraWorkflowWiresAcceptReleasedShapes(t *testing.T) {
+	users, err := DecodeJiraUserSearch(bytes.NewReader(validJiraUserSearchWire(t)))
+	if err != nil || len(users.Users) != 2 || users.Users[0].Name != "synthetic-user" || users.Users[1].Key != "user-key-2" {
+		t.Fatalf("Jira user search=%+v err=%v", users, err)
+	}
+
+	created, err := DecodeJiraIssueCreate(bytes.NewReader(validJiraIssueCreateWire(t)))
+	if err != nil || created.Key != "SYN-101" || created.Status != "" || created.Project != "SYN" {
+		t.Fatalf("Jira issue create=%+v err=%v", created, err)
+	}
+
+	linked, err := DecodeJiraEpicLink(bytes.NewReader(validJiraEpicLinkWire(t)))
+	if err != nil || linked.Issue != "SYN-102" || linked.Epic != "SYN-101" || linked.Status != "linked" {
+		t.Fatalf("Jira epic link=%+v err=%v", linked, err)
+	}
+
 	capabilities, err := DecodeJiraPortfolioCapabilityCatalog(bytes.NewReader(validJiraPortfolioCapabilityWire(t)))
 	if err != nil || capabilities.Selection.Count != jiraPortfolioCapabilityCount || capabilities.Capabilities[0].ID != "jira.board.list" {
 		t.Fatalf("portfolio capabilities=%+v err=%v", capabilities, err)
@@ -35,6 +50,87 @@ func TestDecodeJiraWorkflowWiresAcceptReleasedShapes(t *testing.T) {
 	}
 	if _, ok := membership.Rows[0].Values["summary"].(map[string]any); !ok {
 		t.Fatalf("backend-defined values were not preserved open: %#v", membership.Rows[0].Values)
+	}
+}
+
+func TestDecodeJiraSyntheticWriteWiresFailClosed(t *testing.T) {
+	tests := []struct {
+		name       string
+		valid      []byte
+		rootMember string
+		maximum    int
+		decode     func([]byte) error
+		semantic   func(map[string]any)
+	}{
+		{
+			name: "user search", valid: validJiraUserSearchWire(t), rootMember: "users", maximum: jiraUserSearchWireMaxBytes,
+			decode:   func(data []byte) error { _, err := DecodeJiraUserSearch(bytes.NewReader(data)); return err },
+			semantic: func(root map[string]any) { root["users"].([]any)[0].(map[string]any)["displayName"] = "" },
+		},
+		{
+			name: "issue create", valid: validJiraIssueCreateWire(t), rootMember: "key", maximum: jiraIssueCreateWireMaxBytes,
+			decode:   func(data []byte) error { _, err := DecodeJiraIssueCreate(bytes.NewReader(data)); return err },
+			semantic: func(root map[string]any) { root["description"] = "" },
+		},
+		{
+			name: "epic link", valid: validJiraEpicLinkWire(t), rootMember: "issue", maximum: jiraEpicLinkWireMaxBytes,
+			decode:   func(data []byte) error { _, err := DecodeJiraEpicLink(bytes.NewReader(data)); return err },
+			semantic: func(root map[string]any) { root["status"] = "unlinked" },
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			invalid := map[string][]byte{
+				"unknown":  mutateJiraWorkflowWire(t, test.valid, func(root map[string]any) { root["backend_payload"] = true }),
+				"missing":  mutateJiraWorkflowWire(t, test.valid, func(root map[string]any) { delete(root, test.rootMember) }),
+				"null":     mutateJiraWorkflowWire(t, test.valid, func(root map[string]any) { root[test.rootMember] = nil }),
+				"semantic": mutateJiraWorkflowWire(t, test.valid, test.semantic),
+				"trailing": append(bytes.Clone(test.valid), []byte("\n{}")...),
+				"oversize": bytes.Repeat([]byte(" "), test.maximum+1),
+				"utf8":     append([]byte{0xff}, test.valid...),
+			}
+			duplicate := bytes.Replace(test.valid, []byte(`"`+test.rootMember+`":`), []byte(`"`+test.rootMember+`":null,"`+test.rootMember+`":`), 1)
+			if bytes.Equal(duplicate, test.valid) {
+				t.Fatal("duplicate-key mutation did not apply")
+			}
+			invalid["duplicate"] = duplicate
+			for name, data := range invalid {
+				t.Run(name, func(t *testing.T) {
+					if err := test.decode(data); err == nil {
+						t.Fatal("invalid synthetic write wire was accepted")
+					}
+				})
+			}
+			atLimit := append(bytes.Clone(test.valid), bytes.Repeat([]byte(" "), test.maximum-len(test.valid))...)
+			if _, err := decodeJiraSyntheticWriteWireForTest(test.name, atLimit); err != nil {
+				t.Fatalf("exact bound rejected: %v", err)
+			}
+			if _, err := decodeJiraSyntheticWriteWireForTest(test.name, append(atLimit, ' ')); err == nil {
+				t.Fatal("oversized exact-bound wire was accepted")
+			}
+		})
+	}
+}
+
+func TestDecodeJiraSyntheticWriteWiresRejectNestedMemberDrift(t *testing.T) {
+	users := mutateJiraWorkflowWire(t, validJiraUserSearchWire(t), func(root map[string]any) {
+		root["users"].([]any)[0].(map[string]any)["backend_payload"] = true
+	})
+	if _, err := DecodeJiraUserSearch(bytes.NewReader(users)); err == nil {
+		t.Fatal("unknown Jira user member was accepted")
+	}
+}
+
+func decodeJiraSyntheticWriteWireForTest(name string, data []byte) (any, error) {
+	switch name {
+	case "user search":
+		return DecodeJiraUserSearch(bytes.NewReader(data))
+	case "issue create":
+		return DecodeJiraIssueCreate(bytes.NewReader(data))
+	case "epic link":
+		return DecodeJiraEpicLink(bytes.NewReader(data))
+	default:
+		return nil, nil
 	}
 }
 
@@ -157,6 +253,29 @@ func validJiraPortfolioCapabilityWire(t *testing.T) []byte {
 		t.Fatalf("pinned Jira portfolio capabilities=%d want=%d", len(items), jiraPortfolioCapabilityCount)
 	}
 	return mustJiraWorkflowJSON(t, catalog)
+}
+
+func validJiraUserSearchWire(t *testing.T) []byte {
+	t.Helper()
+	return mustJiraWorkflowJSON(t, map[string]any{
+		"users": []any{
+			map[string]any{"name": "synthetic-user", "key": "user-key-1", "displayName": "Synthetic User", "active": true},
+			map[string]any{"key": "user-key-2", "accountId": "account-2", "displayName": "Synthetic User Two", "email": "synthetic@example.test", "active": false},
+		},
+	})
+}
+
+func validJiraIssueCreateWire(t *testing.T) []byte {
+	t.Helper()
+	return mustJiraWorkflowJSON(t, map[string]any{
+		"key": "SYN-101", "summary": "Create synthetic issue", "status": "", "type": "Task", "project": "SYN",
+		"description": "h1. Synthetic\n\nCreate a bounded issue.",
+	})
+}
+
+func validJiraEpicLinkWire(t *testing.T) []byte {
+	t.Helper()
+	return mustJiraWorkflowJSON(t, map[string]any{"issue": "SYN-102", "epic": "SYN-101", "status": "linked"})
 }
 
 func validJiraPortfolioBoardListWire(t *testing.T) []byte {

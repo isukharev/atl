@@ -30,12 +30,15 @@ const (
 // exist as an owner-only directory; the process creates and removes one unique
 // owner-only child beneath it. MirrorTemplate, when set, is copied into that
 // child before a synthetic MCP server starts; it is never used as the child
-// process's mirror root.
+// process's mirror root. WorkspaceTemplate, when set for explicitly named
+// synthetic writes, is copied into a separate private child working directory.
 type SyntheticATLProcessConfig struct {
-	Binary         string
-	Fixture        MockFixture
-	ScratchRoot    string
-	MirrorTemplate string
+	Binary              string
+	Fixture             MockFixture
+	ScratchRoot         string
+	MirrorTemplate      string
+	WorkspaceTemplate   string
+	SyntheticWriteRules SyntheticWriteRules
 	// VerifyMCPToolInventory performs the extra bounded tools/list profile
 	// attestation before admitted MCP calls. Mirror templates require it; other
 	// high-volume synthetic cohorts retain their already-reviewed admission
@@ -49,6 +52,11 @@ type SyntheticATLProcessConfig struct {
 	MaxStderrBytes         int64
 	MaxMCPBytes            int64
 }
+
+// SyntheticWriteRules is the closed list of reviewed CLI policy rule names
+// that may be executed by RunSyntheticWriteCLIJSON. It is intentionally names
+// only: command syntax and exact argument values remain owned by CLIPolicy.
+type SyntheticWriteRules []string
 
 // SyntheticCLIResult preserves the selected binary's exit status and bounded
 // stderr. JSON is populated only for exit zero and is exactly one JSON value.
@@ -99,17 +107,19 @@ type selectedSyntheticATLBinary struct {
 // SyntheticATLProcess owns one bounded selected-binary lifecycle and its
 // evaluator synthetic backend. Call Close even after a CLI or MCP failure.
 type SyntheticATLProcess struct {
-	config      SyntheticATLProcessConfig
-	binary      selectedSyntheticATLBinary
-	scratchRoot string
-	runtimeRoot string
-	environment []string
-	backend     *MockBackend
-	mcp         *boundedMCPCommand
+	config        SyntheticATLProcessConfig
+	binary        selectedSyntheticATLBinary
+	scratchRoot   string
+	runtimeRoot   string
+	workspaceRoot string
+	environment   []string
+	backend       *MockBackend
+	mcp           *boundedMCPCommand
 
 	mu              sync.Mutex
 	closed          bool
 	cliCounts       map[string]int
+	syntheticWrites map[string]struct{}
 	mcpCounts       map[string]int
 	mcpExactBudgets map[string]int
 	mcpExactCounts  map[string]int
@@ -121,7 +131,7 @@ type SyntheticATLProcess struct {
 // before it creates a runtime directory, starts the synthetic backend, or
 // launches an MCP child.
 func StartSyntheticATLProcess(ctx context.Context, input SyntheticATLProcessConfig) (*SyntheticATLProcess, error) {
-	config, exactBudgets, err := normalizeSyntheticATLProcessConfig(input)
+	config, exactBudgets, syntheticWrites, err := normalizeSyntheticATLProcessConfig(input)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +169,7 @@ func StartSyntheticATLProcess(ctx context.Context, input SyntheticATLProcessConf
 	process := &SyntheticATLProcess{
 		config: config, binary: binary, scratchRoot: scratchRoot, runtimeRoot: runtimeRoot,
 		cliCounts: map[string]int{}, mcpCounts: map[string]int{},
-		mcpExactBudgets: exactBudgets, mcpExactCounts: map[string]int{},
+		syntheticWrites: syntheticWrites, mcpExactBudgets: exactBudgets, mcpExactCounts: map[string]int{},
 	}
 	fail := func(startErr error) (*SyntheticATLProcess, error) {
 		return nil, errors.Join(startErr, process.Close())
@@ -179,6 +189,17 @@ func StartSyntheticATLProcess(ctx context.Context, input SyntheticATLProcessConf
 	}
 	if err := seedSyntheticATLMirrorTemplate(config.MirrorTemplate, mirrorRoot); err != nil {
 		return fail(err)
+	}
+	if config.WorkspaceTemplate != "" {
+		workspaceRoot := filepath.Join(runtimeRoot, "workspace")
+		insideWorkspace, pathErr := pathWithin(runtimeRoot, workspaceRoot)
+		if pathErr != nil || !insideWorkspace {
+			return fail(fmt.Errorf("synthetic ATL workspace runtime escaped its root"))
+		}
+		if err := seedSyntheticATLWorkspaceTemplate(config.WorkspaceTemplate, workspaceRoot); err != nil {
+			return fail(err)
+		}
+		process.workspaceRoot = workspaceRoot
 	}
 	process.binary, err = materializeSelectedSyntheticATLBinary(process.binary, runtimeRoot)
 	if err != nil {
@@ -279,8 +300,28 @@ func seedSyntheticATLMirrorTemplate(template, target string) error {
 	return requirePrivateDirectory("synthetic ATL mirror runtime", target)
 }
 
-func normalizeSyntheticATLProcessConfig(input SyntheticATLProcessConfig) (SyntheticATLProcessConfig, map[string]int, error) {
+// seedSyntheticATLWorkspaceTemplate copies an evaluator-owned workspace into a
+// distinct child used only by an explicitly admitted synthetic write. It never
+// becomes a mirror root or the working directory of normal read-only CLI calls.
+func seedSyntheticATLWorkspaceTemplate(template, target string) error {
+	info, err := os.Lstat(template)
+	if err != nil {
+		return fmt.Errorf("inspect synthetic ATL workspace template")
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("synthetic ATL workspace template must be a plain non-symlink directory")
+	}
+	if err := copyWorkspace(template, target); err != nil {
+		return fmt.Errorf("seed synthetic ATL workspace template: %w", err)
+	}
+	return requirePrivateDirectory("synthetic ATL workspace runtime", target)
+}
+
+func normalizeSyntheticATLProcessConfig(input SyntheticATLProcessConfig) (SyntheticATLProcessConfig, map[string]int, map[string]struct{}, error) {
 	config := input
+	config.CLIPolicy = cloneCLICommandPolicy(input.CLIPolicy)
+	config.SyntheticWriteRules = append(SyntheticWriteRules(nil), input.SyntheticWriteRules...)
+	config.MCPInvocations = cloneSyntheticMCPInvocations(input.MCPInvocations)
 	if config.Timeout == 0 {
 		config.Timeout = defaultSyntheticATLTimeout
 	}
@@ -297,45 +338,112 @@ func normalizeSyntheticATLProcessConfig(input SyntheticATLProcessConfig) (Synthe
 		config.MaxStdoutBytes < 1 || config.MaxStdoutBytes > maximumSyntheticATLStdoutBytes ||
 		config.MaxStderrBytes < 1 || config.MaxStderrBytes > maximumSyntheticATLStderrBytes ||
 		config.MaxMCPBytes < 1 || config.MaxMCPBytes > maximumSyntheticATLMCPBytes {
-		return SyntheticATLProcessConfig{}, nil, fmt.Errorf("synthetic ATL process bounds are invalid")
+		return SyntheticATLProcessConfig{}, nil, nil, fmt.Errorf("synthetic ATL process bounds are invalid")
 	}
 	if err := config.Fixture.Validate(); err != nil {
-		return SyntheticATLProcessConfig{}, nil, err
+		return SyntheticATLProcessConfig{}, nil, nil, err
 	}
 	if len(config.CLIPolicy.Rules) > 0 {
 		if err := config.CLIPolicy.Validate(); err != nil {
-			return SyntheticATLProcessConfig{}, nil, err
+			return SyntheticATLProcessConfig{}, nil, nil, err
 		}
 	} else if len(config.MCPInvocations) == 0 {
-		return SyntheticATLProcessConfig{}, nil, fmt.Errorf("synthetic ATL process requires a CLI or MCP admission")
+		return SyntheticATLProcessConfig{}, nil, nil, fmt.Errorf("synthetic ATL process requires a CLI or MCP admission")
 	}
 	if (config.MCPService == "") != (len(config.MCPInvocations) == 0) {
-		return SyntheticATLProcessConfig{}, nil, fmt.Errorf("synthetic ATL MCP service and invocations must be configured together")
+		return SyntheticATLProcessConfig{}, nil, nil, fmt.Errorf("synthetic ATL MCP service and invocations must be configured together")
 	}
 	if config.VerifyMCPToolInventory && len(config.MCPInvocations) == 0 {
-		return SyntheticATLProcessConfig{}, nil, fmt.Errorf("synthetic ATL MCP tool inventory verification requires MCP invocations")
+		return SyntheticATLProcessConfig{}, nil, nil, fmt.Errorf("synthetic ATL MCP tool inventory verification requires MCP invocations")
 	}
 	if config.MirrorTemplate != "" && !config.VerifyMCPToolInventory {
-		return SyntheticATLProcessConfig{}, nil, fmt.Errorf("synthetic ATL mirror template requires MCP tool inventory verification")
+		return SyntheticATLProcessConfig{}, nil, nil, fmt.Errorf("synthetic ATL mirror template requires MCP tool inventory verification")
+	}
+	syntheticWrites, err := reconcileSyntheticWriteRules(config.SyntheticWriteRules, config.CLIPolicy)
+	if err != nil {
+		return SyntheticATLProcessConfig{}, nil, nil, err
+	}
+	if len(syntheticWrites) > 0 && config.WorkspaceTemplate == "" {
+		return SyntheticATLProcessConfig{}, nil, nil, fmt.Errorf("synthetic ATL write rules require a workspace template")
+	}
+	if config.WorkspaceTemplate != "" && len(syntheticWrites) == 0 {
+		return SyntheticATLProcessConfig{}, nil, nil, fmt.Errorf("synthetic ATL workspace template requires named synthetic write rules")
 	}
 	exactBudgets := map[string]int{}
 	if len(config.MCPInvocations) > 0 {
 		allowed, ok := syntheticMCPToolsForService(config.MCPService)
 		if !ok {
-			return SyntheticATLProcessConfig{}, nil, fmt.Errorf("synthetic ATL MCP service must be a closed profile")
+			return SyntheticATLProcessConfig{}, nil, nil, fmt.Errorf("synthetic ATL MCP service must be a closed profile")
 		}
 		if len(config.MCPInvocations) > maxMCPInvocationExpectations {
-			return SyntheticATLProcessConfig{}, nil, fmt.Errorf("synthetic ATL MCP invocation budget is oversized")
+			return SyntheticATLProcessConfig{}, nil, nil, fmt.Errorf("synthetic ATL MCP invocation budget is oversized")
 		}
 		for _, invocation := range config.MCPInvocations {
 			canonical, err := canonicalJSONObject(invocation.Arguments)
 			if err != nil || !bytes.Equal(canonical, invocation.Arguments) || !allowed[invocation.Tool] {
-				return SyntheticATLProcessConfig{}, nil, fmt.Errorf("synthetic ATL MCP invocation lies outside the closed profile")
+				return SyntheticATLProcessConfig{}, nil, nil, fmt.Errorf("synthetic ATL MCP invocation lies outside the closed profile")
 			}
 			exactBudgets[mcpInvocationKey(invocation)]++
 		}
 	}
-	return config, exactBudgets, nil
+	return config, exactBudgets, syntheticWrites, nil
+}
+
+func cloneCLICommandPolicy(source CLICommandPolicy) CLICommandPolicy {
+	clone := CLICommandPolicy{SchemaVersion: source.SchemaVersion, Rules: make([]CLICommandRule, len(source.Rules))}
+	for index, rule := range source.Rules {
+		clone.Rules[index] = rule
+		clone.Rules[index].Command = append([]string(nil), rule.Command...)
+		clone.Rules[index].Positionals = make([]CLIArgumentRule, len(rule.Positionals))
+		for positionalIndex, positional := range rule.Positionals {
+			clone.Rules[index].Positionals[positionalIndex] = CLIArgumentRule{
+				Values: append([]string(nil), positional.Values...),
+			}
+		}
+		clone.Rules[index].Flags = make([]CLIFlagRule, len(rule.Flags))
+		for flagIndex, flag := range rule.Flags {
+			clone.Rules[index].Flags[flagIndex] = flag
+			clone.Rules[index].Flags[flagIndex].Values = append([]string(nil), flag.Values...)
+		}
+	}
+	return clone
+}
+
+func cloneSyntheticMCPInvocations(source []MCPInvocation) []MCPInvocation {
+	clone := make([]MCPInvocation, len(source))
+	for index, invocation := range source {
+		clone[index] = invocation
+		clone[index].Arguments = append(json.RawMessage(nil), invocation.Arguments...)
+	}
+	return clone
+}
+
+func reconcileSyntheticWriteRules(rules SyntheticWriteRules, policy CLICommandPolicy) (map[string]struct{}, error) {
+	if len(rules) == 0 {
+		return map[string]struct{}{}, nil
+	}
+	if len(rules) > len(policy.Rules) {
+		return nil, fmt.Errorf("synthetic ATL write rules exceed the CLI policy")
+	}
+	byName := make(map[string]CLICommandRule, len(policy.Rules))
+	for _, rule := range policy.Rules {
+		byName[rule.Name] = rule
+	}
+	admitted := make(map[string]struct{}, len(rules))
+	for _, name := range rules {
+		if !identifierRE.MatchString(name) {
+			return nil, fmt.Errorf("synthetic ATL write rule name is invalid")
+		}
+		rule, found := byName[name]
+		if !found || rule.MaxInvocations != 1 {
+			return nil, fmt.Errorf("synthetic ATL write rule is not a one-shot CLI policy rule")
+		}
+		if _, duplicate := admitted[name]; duplicate {
+			return nil, fmt.Errorf("synthetic ATL write rules contain a duplicate")
+		}
+		admitted[name] = struct{}{}
+	}
+	return admitted, nil
 }
 
 func inspectSelectedSyntheticATLBinary(path string) (selectedSyntheticATLBinary, error) {
@@ -436,7 +544,7 @@ func syntheticATLProcessEnvironment(backend *MockBackend, runtimeRoot string) []
 func (p *SyntheticATLProcess) RunCLIBytes(ctx context.Context, args ...string) (SyntheticCLIBytesResult, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.runCLIBytesLocked(ctx, args)
+	return p.runCLIBytesLocked(ctx, args, false)
 }
 
 // RunCLIJSON executes through the same single admission/accounting path as
@@ -445,7 +553,21 @@ func (p *SyntheticATLProcess) RunCLIBytes(ctx context.Context, args ...string) (
 func (p *SyntheticATLProcess) RunCLIJSON(ctx context.Context, args ...string) (SyntheticCLIResult, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	bytesResult, err := p.runCLIBytesLocked(ctx, args)
+	return p.runCLIJSONLocked(ctx, args, false)
+}
+
+// RunSyntheticWriteCLIJSON executes one exact explicitly named synthetic write
+// through the same locked CLI admission, accounting, attestation, and bounded
+// process path as RunCLIJSON. Only the admitted child receives an environment
+// copy without ATL_READ_ONLY, and it runs from the private copied workspace.
+func (p *SyntheticATLProcess) RunSyntheticWriteCLIJSON(ctx context.Context, args ...string) (SyntheticCLIResult, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.runCLIJSONLocked(ctx, args, true)
+}
+
+func (p *SyntheticATLProcess) runCLIJSONLocked(ctx context.Context, args []string, syntheticWrite bool) (SyntheticCLIResult, error) {
+	bytesResult, err := p.runCLIBytesLocked(ctx, args, syntheticWrite)
 	if err != nil {
 		return SyntheticCLIResult{}, err
 	}
@@ -466,8 +588,9 @@ func (p *SyntheticATLProcess) RunCLIJSON(ctx context.Context, args ...string) (S
 
 // runCLIBytesLocked is the sole CLI admission and execution path. The caller
 // holds p.mu across admission, one accounting increment, both executable
-// attestations, and bounded process execution.
-func (p *SyntheticATLProcess) runCLIBytesLocked(ctx context.Context, args []string) (SyntheticCLIBytesResult, error) {
+// attestations, and bounded process execution. syntheticWrite is reachable
+// only through RunSyntheticWriteCLIJSON after a named-rule reconciliation.
+func (p *SyntheticATLProcess) runCLIBytesLocked(ctx context.Context, args []string, syntheticWrite bool) (SyntheticCLIBytesResult, error) {
 	if p.closed {
 		return SyntheticCLIBytesResult{}, fmt.Errorf("synthetic ATL process is closed")
 	}
@@ -481,9 +604,19 @@ func (p *SyntheticATLProcess) runCLIBytesLocked(ctx context.Context, args []stri
 	if err != nil || p.cliCounts[match.Name] >= match.MaxInvocations {
 		return SyntheticCLIBytesResult{}, fmt.Errorf("synthetic ATL CLI invocation is outside its reviewed budget")
 	}
+	if syntheticWrite {
+		if _, allowed := p.syntheticWrites[match.Name]; !allowed || p.workspaceRoot == "" {
+			return SyntheticCLIBytesResult{}, fmt.Errorf("synthetic ATL write invocation is outside its reviewed budget")
+		}
+	}
 	p.cliCounts[match.Name]++
+	directory, environment := p.runtimeRoot, p.environment
+	if syntheticWrite {
+		directory = p.workspaceRoot
+		environment = syntheticATLWriteEnvironment(p.environment)
+	}
 	commandResult, runErr := executeBoundedCommand(
-		ctx, p.binary.executionPath, args, p.runtimeRoot, p.environment,
+		ctx, p.binary.executionPath, args, directory, environment,
 		p.config.Timeout, p.config.MaxStdoutBytes, p.config.MaxStderrBytes,
 	)
 	if verifyErr := p.binary.verify(); verifyErr != nil {
@@ -497,6 +630,12 @@ func (p *SyntheticATLProcess) runCLIBytesLocked(ctx context.Context, args []stri
 		Stdout:   append([]byte(nil), commandResult.stdout...),
 		Stderr:   append([]byte(nil), commandResult.stderr...),
 	}, nil
+}
+
+func syntheticATLWriteEnvironment(readOnlyEnvironment []string) []string {
+	values := environmentMap(readOnlyEnvironment)
+	delete(values, "ATL_READ_ONLY")
+	return flattenEnvironment(values)
 }
 
 func oneSyntheticJSONValue(data []byte) (json.RawMessage, error) {
