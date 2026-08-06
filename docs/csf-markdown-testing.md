@@ -32,7 +32,8 @@ marker.
 3. **Corpus coverage sweep — optional, local.**
    `internal/mirror/corpus_sweep_test.go` renders a whole directory of *real*
    storage-format pages to find what the renderer still mishandles and to guard
-   against panics on real input. It is **skipped unless a corpus is present**, so CI
+   against panics on real input. It is **skipped unless a corpus is present** and
+   is deliberately a local-only confidence check, not a hosted CI gate, so CI
    and the default `go test` are unaffected.
 
 All three run with the standard tooling:

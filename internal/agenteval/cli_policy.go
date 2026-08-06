@@ -145,13 +145,18 @@ func DecodeCLICommandPolicy(reader io.Reader) (CLICommandPolicy, error) {
 	decoder := json.NewDecoder(limited)
 	decoder.DisallowUnknownFields()
 	var policy CLICommandPolicy
-	if err := decoder.Decode(&policy); err != nil {
-		return CLICommandPolicy{}, fmt.Errorf("decode cli command policy: %w", err)
-	}
+	decodeErr := decoder.Decode(&policy)
 	if limited.N <= 0 {
 		return CLICommandPolicy{}, fmt.Errorf("cli command policy exceeds %d bytes", maxCLICommandPolicyBytes)
 	}
-	if err := decoder.Decode(new(any)); err != io.EOF {
+	if decodeErr != nil {
+		return CLICommandPolicy{}, fmt.Errorf("decode cli command policy: %w", decodeErr)
+	}
+	trailingErr := decoder.Decode(new(any))
+	if limited.N <= 0 {
+		return CLICommandPolicy{}, fmt.Errorf("cli command policy exceeds %d bytes", maxCLICommandPolicyBytes)
+	}
+	if trailingErr != io.EOF {
 		return CLICommandPolicy{}, fmt.Errorf("cli command policy contains trailing JSON data")
 	}
 	if err := policy.Validate(); err != nil {

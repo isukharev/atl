@@ -1572,8 +1572,8 @@ func TestSearchError(t *testing.T) {
 	}
 }
 
-// TestTreeReportsTruncationAtCap verifies the safety cap stops the listing AND
-// is reported: a space larger than treePageCap must yield truncated=true, and a
+// TestTreeReportsTruncationAtCap verifies the safety caps stop the listing AND
+// are reported: a space larger than treeScanCap must yield truncated=true, and a
 // listing that ends exactly when the server is exhausted must not.
 func TestTreeReportsTruncationAtCap(t *testing.T) {
 	pageJSON := func(start, n int, next bool) string {
@@ -1612,8 +1612,8 @@ func TestTreeReportsTruncationAtCap(t *testing.T) {
 	if len(got) != 0 {
 		t.Fatalf("depth filter retained %d pages, want 0", len(got))
 	}
-	if requests != treePageCap/200 {
-		t.Fatalf("requests=%d, want %d full backend pages to scan %d rows", requests, treePageCap/200, treePageCap)
+	if requests != treeScanCap/200 {
+		t.Fatalf("requests=%d, want %d full backend pages to scan %d rows", requests, treeScanCap/200, treeScanCap)
 	}
 
 	// Exhausted exactly at the end: no next link → not truncated.
@@ -1660,6 +1660,47 @@ func TestTreeReportsTruncationAtCap(t *testing.T) {
 	}
 	if len(got4) != treePageCap {
 		t.Fatalf("exact-cap terminal page retained %d rows, want %d", len(got4), treePageCap)
+	}
+}
+
+func TestTreeDepthFilterDoesNotConsumeResultBudget(t *testing.T) {
+	const totalRows = 4000
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		start, _ := strconv.Atoi(r.URL.Query().Get("start"))
+		var body strings.Builder
+		body.WriteString(`{"results":[`)
+		for index := 0; index < 200; index++ {
+			if index > 0 {
+				body.WriteByte(',')
+			}
+			id := start + index
+			ancestors := `[{"id":"root"}]`
+			if index == 0 {
+				ancestors = `[]`
+			}
+			fmt.Fprintf(&body, `{"id":"%d","title":"P%d","space":{"key":"DOC"},"version":{"number":1},"ancestors":%s}`, id, id, ancestors)
+		}
+		body.WriteString(`],"_links":{`)
+		if start+200 < totalRows {
+			body.WriteString(`"next":"/rest/api/content/search?start=next"`)
+		}
+		body.WriteString(`}}`)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body.String()))
+	}))
+	defer srv.Close()
+
+	got, truncated, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).Tree(t.Context(), "DOC", 1)
+	if err != nil || truncated {
+		t.Fatalf("Tree returned %d pages, truncated=%v, err=%v", len(got), truncated, err)
+	}
+	if len(got) != totalRows/200 {
+		t.Fatalf("Tree returned %d roots, want %d", len(got), totalRows/200)
+	}
+	if requests != totalRows/200 {
+		t.Fatalf("Tree made %d requests, want %d", requests, totalRows/200)
 	}
 }
 

@@ -224,7 +224,7 @@ func repositorySyntheticATLBinary(t *testing.T) string {
 	}
 	info, err := os.Stat(binary)
 	if err != nil || !info.Mode().IsRegular() {
-		t.Skip("repository ATL binary is unavailable; make agent-eval-compat builds it")
+		t.Fatal("repository ATL binary is unavailable; use an evaluator Make target that builds it")
 	}
 	return binary
 }

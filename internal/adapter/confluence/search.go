@@ -97,14 +97,18 @@ func (cf *Confluence) SearchComplete(ctx context.Context, query string, limit in
 	return page, nil
 }
 
-// treePageCap bounds how many backend page rows Tree scans in one call, so a
-// huge space cannot balloon memory/time. Hitting it is reported via the
-// truncated return, never hidden.
-const treePageCap = 2000
+// treePageCap bounds the returned hierarchy. treeScanCap separately bounds raw
+// backend rows so a depth filter cannot consume the result budget while a huge
+// or hostile space still cannot drive unbounded pagination.
+const (
+	treePageCap = 2000
+	treeScanCap = 20_000
+)
 
 // Tree returns the page hierarchy of a space (Parent set from ancestors). depth
-// <= 0 means unlimited. It scans up to treePageCap backend rows; truncated is
-// true when the cap or stalled pagination stopped the listing before exhaustion.
+// <= 0 means unlimited. It returns up to treePageCap matching pages and scans
+// up to treeScanCap backend rows; truncated is true when either cap or stalled
+// pagination stopped the listing before exhaustion.
 func (cf *Confluence) Tree(ctx context.Context, space string, depth int) ([]domain.PageRef, bool, error) {
 	start := 0
 	scanned := 0
@@ -125,12 +129,13 @@ func (cf *Confluence) Tree(ctx context.Context, space string, depth int) ([]doma
 		if err := cf.c.GetJSON(ctx, "/rest/api/content/search?"+q.Encode(), &resp); err != nil {
 			return nil, false, err
 		}
-		remaining := treePageCap - scanned
+		remaining := treeScanCap - scanned
 		resultCount := len(resp.Results)
 		if resultCount > remaining {
 			resultCount = remaining
 		}
 		scanned += resultCount
+		outputOverflow := false
 		for _, ct := range resp.Results[:resultCount] {
 			d := 0
 			if ct.Ancestors != nil {
@@ -145,10 +150,17 @@ func (cf *Confluence) Tree(ctx context.Context, space string, depth int) ([]doma
 					pr.Parent = (*ct.Ancestors)[n-1].ID
 				}
 			}
-			out = append(out, pr)
+			if len(out) < treePageCap {
+				out = append(out, pr)
+			} else {
+				outputOverflow = true
+			}
 		}
 		if len(resp.Results) > remaining {
 			return out, true, nil // the response itself exceeded the scan cap
+		}
+		if outputOverflow {
+			return out, true, nil
 		}
 		if resp.Links.Next == "" {
 			return out, false, nil
@@ -156,7 +168,7 @@ func (cf *Confluence) Tree(ctx context.Context, space string, depth int) ([]doma
 		if len(resp.Results) == 0 {
 			return out, true, nil
 		}
-		if scanned >= treePageCap {
+		if scanned >= treeScanCap {
 			return out, true, nil // cap hit with more pages remaining
 		}
 		start += len(resp.Results)

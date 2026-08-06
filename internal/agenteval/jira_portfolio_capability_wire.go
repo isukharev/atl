@@ -128,8 +128,12 @@ func (catalog JiraPortfolioCapabilityCatalog) validate() error {
 		}
 		seen[item.ID] = struct{}{}
 	}
+	pinned, err := PinnedCapabilityCatalog()
+	if err != nil {
+		return err
+	}
 	expected := make([]CapabilityCatalogItem, 0, jiraPortfolioCapabilityCount)
-	for _, item := range PinnedCapabilityCatalog().Capabilities {
+	for _, item := range pinned.Capabilities {
 		if item.TaskClass == catalog.Selection.Task {
 			expected = append(expected, item)
 		}

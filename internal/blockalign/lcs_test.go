@@ -49,6 +49,13 @@ func TestLCSUsesExactFullMatrixBudget(t *testing.T) {
 	if complete || matchA != nil || matchB != nil {
 		t.Fatalf("over-budget alignment = %v, %v, %t; want nil, nil, false", matchA, matchB, complete)
 	}
+
+	if _, _, complete := LCS(make([]string, 999), make([]string, 998)); !complete {
+		t.Fatal("asymmetric exact matrix budget unexpectedly refused")
+	}
+	if matchA, matchB, complete := LCS(make([]string, 1000), make([]string, 999)); complete || matchA != nil || matchB != nil {
+		t.Fatalf("asymmetric over-budget alignment = %v, %v, %t; want nil, nil, false", matchA, matchB, complete)
+	}
 }
 
 func TestLCSOneSidedItemBoundary(t *testing.T) {

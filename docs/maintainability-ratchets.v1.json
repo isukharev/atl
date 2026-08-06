@@ -27,6 +27,12 @@
     {"owner":"mcp","path":"internal/mcpserver/jira_tools.go","function":"registerJiraTools","max_lines":300,"rationale":"Keep Jira MCP tool registration within a reviewed allowance."},
     {"owner":"mcp","path":"internal/mcpserver/server.go","max_lines":1588,"rationale":"Keep MCP service assembly and shared validation ownership within its reduced reviewed allowance after focused instruction and error-policy splits."}
   ],
+  "package_totals": [
+    {"owner":"app","path":"internal/app/","max_lines":34386,"rationale":"Keep total production growth in the app package visible even when responsibilities move out of selected hotspot files."},
+    {"owner":"cli","path":"internal/cli/","max_lines":10108,"rationale":"Keep total production growth in the CLI package visible even when command assembly moves into new files."},
+    {"owner":"evaluator","path":"internal/agenteval/","max_lines":47450,"rationale":"Keep the complete evaluator module tree, including cmd/agent-eval, visible across responsibility splits."},
+    {"owner":"mcp","path":"internal/mcpserver/","max_lines":3294,"rationale":"Keep total production growth in the MCP package visible even when registration and protocol owners are split."}
+  ],
   "timing": {
     "mode": "observe",
     "observations": [

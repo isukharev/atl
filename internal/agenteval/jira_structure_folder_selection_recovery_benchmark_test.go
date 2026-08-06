@@ -1296,7 +1296,7 @@ func assertStructureFolderRecoveryRouteMutationsFail(
 			t.Fatalf("wrong folder row did not yield a distinct subtree: %+v", wrong)
 		}
 		if !equalHTTPMethods(summary.HTTPMethods, map[string]int{"GET": 2, "POST": 2}) ||
-			summary.UnexpectedRequests != 1 || summary.DuplicateRequests != 1 ||
+			summary.UnexpectedRequests != 1 || summary.DuplicateRequests != 0 ||
 			!process.RequestSequenceComplete() || len(summary.CLIInvocations) != 0 ||
 			!equalHTTPMethods(summary.MCPInvocations, map[string]int{"jira_structure_view": 1}) {
 			t.Fatalf("served wrong-folder-row process drifted: summary=%+v complete=%t",

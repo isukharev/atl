@@ -170,6 +170,38 @@ func TestMockBackendRecordsMethodsWithoutExposingPaths(t *testing.T) {
 	}
 }
 
+func TestMockBackendDuplicateAccountingUsesMatchedCanonicalQuery(t *testing.T) {
+	fixture := MockFixture{
+		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
+		Routes: []MockRoute{{
+			Method: "GET", Path: "/jira/rest/api/2/search", Status: 200, Body: []byte(`{}`),
+			QueryEquals: map[string]string{"a": "1", "b": "2"},
+		}},
+	}
+	backend, err := StartMockBackend(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+	base := backend.Environment()["ATL_JIRA_URL"] + "/rest/api/2/search"
+	for _, query := range []string{"?a=1&b=2", "?b=2&a=1"} {
+		response, requestErr := http.Get(base + query)
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		_ = response.Body.Close()
+	}
+	response, err := http.Get(base + "?a=wrong&b=2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	_, unexpected, duplicates := backend.Summary()
+	if unexpected != 1 || duplicates != 1 {
+		t.Fatalf("unexpected=%d duplicates=%d, want 1/1", unexpected, duplicates)
+	}
+}
+
 func TestMockBackendConsumesBoundedResponseSequence(t *testing.T) {
 	fixture := MockFixture{
 		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
@@ -203,7 +235,7 @@ func TestMockBackendConsumesBoundedResponseSequence(t *testing.T) {
 	}
 	_ = response.Body.Close()
 	methods, unexpected, duplicates := backend.Summary()
-	if response.StatusCode != http.StatusNotFound || methods["GET"] != 3 || unexpected != 1 || duplicates != 2 {
+	if response.StatusCode != http.StatusNotFound || methods["GET"] != 3 || unexpected != 1 || duplicates != 1 {
 		t.Fatalf("status=%d methods=%v unexpected=%d duplicates=%d", response.StatusCode, methods, unexpected, duplicates)
 	}
 }
@@ -532,7 +564,7 @@ func TestMockBackendMatchesExpectedJSONRequestBody(t *testing.T) {
 	}
 	_ = response.Body.Close()
 	methods, unexpected, duplicates := backend.Summary()
-	if response.StatusCode != http.StatusNoContent || methods["PUT"] != 2 || unexpected != 1 || duplicates != 1 {
+	if response.StatusCode != http.StatusNoContent || methods["PUT"] != 2 || unexpected != 1 || duplicates != 0 {
 		t.Fatalf("status=%d methods=%v unexpected=%d duplicates=%d", response.StatusCode, methods, unexpected, duplicates)
 	}
 }

@@ -231,6 +231,9 @@ definitions to validate run specs. `make agent-eval-compat` builds the current
 binary and verifies its complete offline catalog against that projection;
 internal ATL MCP runs repeat the same bounded process-boundary check against
 the exact selected binary before any output, provider, or backend work.
+When a reviewed capability-contract change intentionally updates that frozen
+projection, run `make -C internal/agenteval gen-capability-catalog`, inspect the
+complete fixture diff, and rerun the compatibility gate.
 
 Codex skill routing crosses a separate package boundary. The product generator
 owns source metadata validation and emits
@@ -241,3 +244,8 @@ not change. `make agent-eval-compat` verifies the current generated package
 offline. Do not restore an evaluator import of product skill parsers or replace
 this package-owned contract with a query to an independently versioned ATL
 binary.
+
+The released catalog is intentionally Codex-only: it is the versioned package
+boundary consumed by the evaluator, while the sibling `skills/` tree remains a
+generated client distribution without a second compatibility catalog. Both
+generated trees still require exact regular non-executable `0644` file modes.

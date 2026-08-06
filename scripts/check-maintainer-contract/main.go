@@ -7,13 +7,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/build"
+	"go/parser"
+	"go/token"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -654,14 +661,15 @@ ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
 		target, contract string
 	}{
 		{"build", ".PHONY: build\nbuild:\n\t$(GO_ENV) go build ./...\n"},
-		{"unit", ".PHONY: unit\nunit:\n\t$(GO_ENV) go test ./... -count=1 -timeout=10m\n"},
-		{"race", ".PHONY: race\nrace:\n\t$(GO_ENV) go test -race ./... -count=1 -timeout=30m\n"},
+		{"unit", ".PHONY: unit\nunit: product-atl\n\t$(GO_ENV) go test ./... -count=1 -timeout=10m\n"},
+		{"race", ".PHONY: race\nrace: product-atl\n\t$(GO_ENV) go test -race ./... -count=1 -timeout=30m\n"},
 		{"lint", ".PHONY: lint\nlint:\n\t$(GO_ENV) go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run\n"},
 		{"vet", ".PHONY: vet\nvet:\n\t$(GO_ENV) go vet ./...\n"},
 		{"vuln", ".PHONY: vuln\nvuln:\n\t$(GO_ENV) go run golang.org/x/vuln/cmd/govulncheck@v1.4.0 ./...\n"},
 		{"tidy-check", ".PHONY: tidy-check\ntidy-check:\n\t$(GO_ENV) go mod tidy -diff\n"},
 		{"windows", ".PHONY: windows\nwindows:\n\t$(GO_ENV) GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...\n"},
 		{"product-atl", ".PHONY: product-atl\nproduct-atl:\n\t$(MAKE) -C $(REPOSITORY_ROOT) build\n"},
+		{"gen-capability-catalog", ".PHONY: gen-capability-catalog\ngen-capability-catalog: product-atl\n"},
 		{"product-boundary", ".PHONY: product-boundary\nproduct-boundary:\n\t$(MAKE) -C $(REPOSITORY_ROOT) check-package-boundary\n"},
 		{"contract", ".PHONY: contract\ncontract: compat unit\n"},
 		{"full", ".PHONY: full\nfull: tidy-check build race lint vet vuln contract windows product-boundary\n"},
@@ -677,6 +685,7 @@ ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
 		}
 	}
 	for _, requiredSnippet := range []string{
+		"CAPABILITY_CATALOG_FIXTURE := $(CURDIR)/testdata/capability-catalog.v1.json\n",
 		"COMPAT_TESTS_WIRES := ",
 		"COMPAT_TESTS_MIRROR := ",
 		"COMPAT_TESTS_WRITES := ",
@@ -691,12 +700,117 @@ ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
 		"$(GO_ENV) go run ./cmd/agent-eval validate-run ",
 		"$(GO_ENV) go run ./cmd/agent-eval verify-atl-capabilities $(ATL_BINARY) >/dev/null\n",
 		"$(GO_ENV) go run ./cmd/agent-eval verify-codex-skill-package $(REPOSITORY_ROOT)/plugins/atl >/dev/null\n",
+		"\t@set -eu; \\\n\t\ttmp=\"$$(mktemp \"$(CURDIR)/testdata/.capability-catalog.XXXXXX\")\"; \\\n",
 	} {
 		if !bytes.Contains(makefile, []byte(requiredSnippet)) {
 			return errors.New("evaluator Makefile must retain the reviewed compatibility and deterministic contract commands")
 		}
 	}
+	return validateEvaluatorCompatSelections(root, makefile)
+}
+
+func validateEvaluatorCompatSelections(root string, makefile []byte) error {
+	const prefix = "COMPAT_TESTS_"
+	definitions := make(map[string]int)
+	testRoot := filepath.Join(root, "internal", "agenteval")
+	testFiles, err := os.OpenRoot(testRoot)
+	if err != nil {
+		return fmt.Errorf("open evaluator compatibility test root: %w", err)
+	}
+	defer func() { _ = testFiles.Close() }()
+	entries, err := fs.ReadDir(testFiles.FS(), ".")
+	if err != nil {
+		return fmt.Errorf("inspect evaluator compatibility tests: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.Type()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("inspect evaluator compatibility tests: symbolic links are not allowed")
+		}
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		active, err := build.Default.MatchFile(testRoot, entry.Name())
+		if err != nil {
+			return fmt.Errorf("inspect evaluator compatibility test constraints: %w", err)
+		}
+		if !active {
+			continue
+		}
+		data, err := fs.ReadFile(testFiles.FS(), entry.Name())
+		if err != nil {
+			return fmt.Errorf("inspect evaluator compatibility tests: %w", err)
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), entry.Name(), data, parser.SkipObjectResolution)
+		if err != nil {
+			return fmt.Errorf("parse evaluator compatibility tests: %w", err)
+		}
+		for _, declaration := range file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if ok && isRunnableGoTest(function) {
+				definitions[function.Name.Name]++
+			}
+		}
+	}
+
+	seenVariables := 0
+	for _, line := range strings.Split(string(makefile), "\n") {
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		name, expression, ok := strings.Cut(line, " := ")
+		if !ok || !strings.HasSuffix(expression, "$$") {
+			return fmt.Errorf("evaluator Makefile compatibility selection %q is malformed", name)
+		}
+		selection := strings.TrimSuffix(strings.TrimPrefix(expression, "^("), ")$$")
+		if !strings.HasPrefix(expression, "^(") {
+			selection = strings.TrimSuffix(strings.TrimPrefix(expression, "^"), "$$")
+		}
+		if selection == "" {
+			return fmt.Errorf("evaluator Makefile compatibility selection %q is empty", name)
+		}
+		for _, testName := range strings.Split(selection, "|") {
+			if definitions[testName] != 1 {
+				return fmt.Errorf("evaluator Makefile compatibility selection %q resolves %q to %d test definitions, want 1", name, testName, definitions[testName])
+			}
+		}
+		seenVariables++
+	}
+	if seenVariables != 4 {
+		return fmt.Errorf("evaluator Makefile has %d compatibility selections, want 4", seenVariables)
+	}
 	return nil
+}
+
+func isRunnableGoTest(function *ast.FuncDecl) bool {
+	if function.Recv != nil || !isGoTestName(function.Name.Name) ||
+		function.Type.TypeParams.NumFields() != 0 || function.Type.Results.NumFields() != 0 ||
+		function.Type.Params.NumFields() != 1 || len(function.Type.Params.List) != 1 ||
+		len(function.Type.Params.List[0].Names) > 1 {
+		return false
+	}
+	pointer, ok := function.Type.Params.List[0].Type.(*ast.StarExpr)
+	if !ok {
+		return false
+	}
+	switch parameter := pointer.X.(type) {
+	case *ast.Ident:
+		return parameter.Name == "T"
+	case *ast.SelectorExpr:
+		return parameter.Sel.Name == "T"
+	default:
+		return false
+	}
+}
+
+func isGoTestName(name string) bool {
+	if !strings.HasPrefix(name, "Test") {
+		return false
+	}
+	if len(name) == len("Test") {
+		return true
+	}
+	r, _ := utf8.DecodeRuneInString(name[len("Test"):])
+	return !unicode.IsLower(r)
 }
 
 func countMakeTargetDeclarations(makefile []byte, target string) int {

@@ -21,17 +21,17 @@ func TestPinnedCapabilityCatalogIsStrictAndImmutable(t *testing.T) {
 		t.Fatalf("catalog=%+v", catalog)
 	}
 
-	first := PinnedCapabilityCatalog()
+	first := mustPinnedCapabilityCatalog(t)
 	first.Capabilities[0].ID = "mutated"
 	first.Capabilities[0].OutputModes[0] = "mutated"
-	second := PinnedCapabilityCatalog()
+	second := mustPinnedCapabilityCatalog(t)
 	if second.Capabilities[0].ID == "mutated" || second.Capabilities[0].OutputModes[0] == "mutated" {
 		t.Fatal("caller mutation changed the pinned capability catalog")
 	}
 }
 
 func TestDecodeCapabilityCatalogFailsClosed(t *testing.T) {
-	valid := PinnedCapabilityCatalog()
+	valid := mustPinnedCapabilityCatalog(t)
 	validJSON := slices.Clone(pinnedCapabilityCatalogJSON)
 
 	mutations := map[string][]byte{
@@ -84,7 +84,7 @@ func TestDecodeCapabilityCatalogFailsClosed(t *testing.T) {
 }
 
 func TestVerifyPinnedCapabilityCatalogChecksEveryWireField(t *testing.T) {
-	base := PinnedCapabilityCatalog()
+	base := mustPinnedCapabilityCatalog(t)
 	mutations := map[string]func(*CapabilityCatalog){
 		"routing":   func(c *CapabilityCatalog) { c.Routing.Stop += "." },
 		"selection": func(c *CapabilityCatalog) { c.Selection.Count-- },
@@ -119,8 +119,17 @@ func TestVerifyPinnedCapabilityCatalogChecksEveryWireField(t *testing.T) {
 	}
 }
 
+func TestVerifyPinnedCapabilityCatalogNamesFirstDifferingField(t *testing.T) {
+	catalog := mustPinnedCapabilityCatalog(t)
+	catalog.Capabilities[0].Summary += ".changed"
+	err := VerifyPinnedCapabilityCatalog(catalog)
+	if err == nil || !strings.Contains(err.Error(), "$.capabilities[0].summary") {
+		t.Fatalf("catalog difference error=%v, want first field path", err)
+	}
+}
+
 func TestCapabilityCatalogMinimalProjectionPreservesProfiles(t *testing.T) {
-	catalog := PinnedCapabilityCatalog()
+	catalog := mustPinnedCapabilityCatalog(t)
 	want := map[string][]string{
 		"jira": {
 			"jira_board_view", "jira_epic_digest", "jira_fields", "jira_issue_field_get", "jira_issue_graph",

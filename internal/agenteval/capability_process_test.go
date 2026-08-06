@@ -85,6 +85,20 @@ func TestVerifyATLCapabilityCatalogRejectsSemanticDriftAndTimeout(t *testing.T) 
 	}
 }
 
+func TestVerifyATLCapabilityCatalogReportsBoundedFailureDetails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture is Unix-only")
+	}
+	binary := filepath.Join(t.TempDir(), "atl")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf 'diagnostic-detail' >&2\nexit 23\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	err := VerifyATLCapabilityCatalog(context.Background(), binary)
+	if err == nil || !strings.Contains(err.Error(), "exit 23") || !strings.Contains(err.Error(), "diagnostic-detail") {
+		t.Fatalf("preflight error=%v, want exit code and stderr detail", err)
+	}
+}
+
 func TestRunHeadlessChecksSelectedATLCatalogBeforeCreatingOutput(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture is Unix-only")

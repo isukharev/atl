@@ -17,7 +17,7 @@ import (
 	"testing"
 )
 
-const cliErrorWireFixturePath = "testdata/cli-error-wire.v1.json"
+const cliErrorWireFixturePath = "../diagnostic/testdata/cli-error-wire.v1.json"
 
 type cliErrorWireFixture struct {
 	SchemaVersion int                         `json:"schema_version"`

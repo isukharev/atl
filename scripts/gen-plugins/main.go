@@ -326,6 +326,10 @@ func run() error {
 				_ = outputRoot.Close()
 				return fmt.Errorf("write %s output %s: %w", target.platform.name, output.rel, err)
 			}
+			if err := outputRoot.Chmod(output.rel, 0o644); err != nil {
+				_ = outputRoot.Close()
+				return fmt.Errorf("set %s output %s mode: %w", target.platform.name, output.rel, err)
+			}
 		}
 		if beforeOutputIdentityRebind != nil {
 			beforeOutputIdentityRebind(target.platform.name)
@@ -471,7 +475,7 @@ func verifyPublishedSkillTree(root *os.Root, rendered []renderedFile) error {
 			return fmt.Errorf("published tree contains an unexpected file")
 		}
 		info, err := entry.Info()
-		if err != nil || !info.Mode().IsRegular() {
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o644 {
 			return fmt.Errorf("published tree contains a special file")
 		}
 		if err := verifyGeneratedFile(root, filepath.FromSlash(name), info, want.data); err != nil {
@@ -538,6 +542,9 @@ func writeGeneratedFile(root *os.Root, name string, data []byte) error {
 	}
 	if writeErr == nil {
 		writeErr = file.Sync()
+	}
+	if writeErr == nil {
+		writeErr = file.Chmod(0o644)
 	}
 	temporaryInfo, statErr := file.Stat()
 	closeErr := file.Close()
@@ -630,7 +637,7 @@ func restoreGeneratedBackup(root *os.Root, name, backup string, priorInfo, publi
 
 func verifyGeneratedFile(root *os.Root, name string, expected fs.FileInfo, data []byte) error {
 	pathInfo, err := root.Lstat(name)
-	if err != nil || !pathInfo.Mode().IsRegular() || pathInfo.Mode()&fs.ModeSymlink != 0 || !os.SameFile(expected, pathInfo) {
+	if err != nil || !pathInfo.Mode().IsRegular() || pathInfo.Mode()&fs.ModeSymlink != 0 || pathInfo.Mode().Perm() != 0o644 || !os.SameFile(expected, pathInfo) {
 		return fmt.Errorf("generated file identity changed")
 	}
 	file, err := root.Open(name)
@@ -639,7 +646,7 @@ func verifyGeneratedFile(root *os.Root, name string, expected fs.FileInfo, data 
 	}
 	defer func() { _ = file.Close() }()
 	openedInfo, err := file.Stat()
-	if err != nil || !openedInfo.Mode().IsRegular() || !os.SameFile(expected, openedInfo) {
+	if err != nil || !openedInfo.Mode().IsRegular() || openedInfo.Mode().Perm() != 0o644 || !os.SameFile(expected, openedInfo) {
 		return fmt.Errorf("generated file identity changed")
 	}
 	got, err := io.ReadAll(io.LimitReader(file, int64(len(data))+1))

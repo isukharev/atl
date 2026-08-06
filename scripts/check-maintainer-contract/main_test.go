@@ -72,6 +72,46 @@ func TestValidMaintainerContract(t *testing.T) {
 	}
 }
 
+func TestMaintainerContractRejectsCompatibilityTestFromSubpackage(t *testing.T) {
+	root := writeFixture(t)
+	subpackageTest := filepath.Join(root, "internal", "agenteval", "cmd", "agent-eval", "fixture_test.go")
+	if err := os.MkdirAll(filepath.Dir(subpackageTest), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(subpackageTest, []byte("package main\n\nimport \"testing\"\n\nfunc TestSubpackageFixture(t *testing.T) {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	makefile := filepath.Join(root, "internal", "agenteval", "Makefile")
+	replaceFixture(t, makefile, "TestFixture", "TestSubpackageFixture")
+	if _, err := validateRepository(root, "go"+fixtureGoVersion); err == nil || !strings.Contains(err.Error(), "0 test definitions") {
+		t.Fatalf("subpackage-only compatibility test error=%v", err)
+	}
+}
+
+func TestMaintainerContractRejectsCompatibilitySelectorThatIsNotRunnable(t *testing.T) {
+	tests := []struct {
+		name, source string
+	}{
+		{name: "lowercase suffix", source: "package agenteval\n\nimport \"testing\"\n\nfunc Testfixture(t *testing.T) {}\n"},
+		{name: "wrong signature", source: "package agenteval\n\nfunc TestFixture() {}\n"},
+		{name: "inactive build constraint", source: "//go:build ignore\n\npackage agenteval\n\nimport \"testing\"\n\nfunc TestFixture(t *testing.T) {}\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := writeFixture(t)
+			if err := os.WriteFile(filepath.Join(root, "internal", "agenteval", "fixture_test.go"), []byte(test.source), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if test.name == "lowercase suffix" {
+				replaceFixture(t, filepath.Join(root, "internal", "agenteval", "Makefile"), "TestFixture", "Testfixture")
+			}
+			if _, err := validateRepository(root, "go"+fixtureGoVersion); err == nil || !strings.Contains(err.Error(), "0 test definitions") {
+				t.Fatalf("non-runnable compatibility test error=%v", err)
+			}
+		})
+	}
+}
+
 func TestMaintainerContractRejectsDrift(t *testing.T) {
 	tests := []struct {
 		name, path, old, replacement, runtime, want string
@@ -86,6 +126,7 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 		{name: "root facade bypass", path: "Makefile", old: "\t$(AGENT_EVAL_MAKE) race", replacement: "\tgo test -race ./internal/agenteval", want: "nested-module facades"},
 		{name: "root module boundary", path: "Makefile", old: "go run ./scripts/check-module-boundary -root .", replacement: "echo skipped", want: "exact two-module boundary gate"},
 		{name: "nested ignored failures", path: "internal/agenteval/Makefile", old: ".PHONY: build", replacement: ".IGNORE: build\n.PHONY: build", want: "failure propagation"},
+		{name: "capability catalog generation fail open", path: "internal/agenteval/Makefile", old: "@set -eu;", replacement: "@set +e;", want: "compatibility and deterministic contract commands"},
 		{name: "ci evaluator job condition", path: ".github/workflows/ci.yml", old: "  agent-eval:\n    runs-on", replacement: "  agent-eval:\n    if: false\n    runs-on", want: "ci agent-eval job must be unconditional"},
 		{name: "ci evaluator fail-open fallback", path: ".github/workflows/ci.yml", old: "          mode=full", replacement: "          mode=compat", want: "exact required workflow block"},
 		{name: "ci evaluator internal tree coverage", path: ".github/workflows/ci.yml", old: ".claude-plugin .mcp.json cmd internal scripts", replacement: ".claude-plugin .mcp.json cmd scripts", want: "exact required workflow block"},
@@ -430,21 +471,23 @@ readonly GRAPHIFY_WHEEL_URL="https://files.pythonhosted.org/packages/c3/fe/eb0af
 		"internal/agenteval/Makefile": `GO_ENV := env -u GOROOT GOTOOLCHAIN=auto GOWORK=off
 REPOSITORY_ROOT ?= $(abspath ../..)
 ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
-COMPAT_TESTS_WIRES := fixture
-COMPAT_TESTS_MIRROR := fixture
-COMPAT_TESTS_WRITES := fixture
-COMPAT_TESTS_MCP := fixture
+
+CAPABILITY_CATALOG_FIXTURE := $(CURDIR)/testdata/capability-catalog.v1.json
+COMPAT_TESTS_WIRES := ^(TestFixture)$$
+COMPAT_TESTS_MIRROR := ^(TestFixture)$$
+COMPAT_TESTS_WRITES := ^(TestFixture)$$
+COMPAT_TESTS_MCP := ^TestFixture$$
 
 .PHONY: build
 build:
 	$(GO_ENV) go build ./...
 
 .PHONY: unit
-unit:
+unit: product-atl
 	$(GO_ENV) go test ./... -count=1 -timeout=10m
 
 .PHONY: race
-race:
+race: product-atl
 	$(GO_ENV) go test -race ./... -count=1 -timeout=30m
 
 .PHONY: lint
@@ -471,6 +514,15 @@ windows:
 product-atl:
 	$(MAKE) -C $(REPOSITORY_ROOT) build
 
+.PHONY: gen-capability-catalog
+gen-capability-catalog: product-atl
+	@set -eu; \
+		tmp="$$(mktemp "$(CURDIR)/testdata/.capability-catalog.XXXXXX")"; \
+		trap 'rm -f "$$tmp"' EXIT; \
+		env -i ATL_NO_UPDATE=1 ATL_READ_ONLY=1 "$(ATL_BINARY)" capabilities -o json >"$$tmp"; \
+		chmod 0644 "$$tmp"; \
+		mv "$$tmp" "$(CAPABILITY_CATALOG_FIXTURE)"
+
 .PHONY: compat
 compat: product-atl
 	@test -x "$(ATL_BINARY)"
@@ -493,6 +545,7 @@ product-boundary:
 .PHONY: full
 full: tidy-check build race lint vet vuln contract windows product-boundary
 `,
+		"internal/agenteval/fixture_test.go": "package agenteval\n\nimport \"testing\"\n\nfunc TestFixture(t *testing.T) {}\n",
 		".github/workflows/ci.yml": `name: ci
 on:
   push:

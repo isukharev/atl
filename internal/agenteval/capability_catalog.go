@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 )
 
 const (
@@ -65,7 +66,11 @@ type CapabilityCatalogItem struct {
 	Reference    string   `json:"reference"`
 }
 
-var pinnedCapabilityCatalog = mustDecodeCapabilityCatalog(pinnedCapabilityCatalogJSON)
+var (
+	pinnedCapabilityCatalogOnce sync.Once
+	pinnedCapabilityCatalog     CapabilityCatalog
+	pinnedCapabilityCatalogErr  error
+)
 
 func DecodeCapabilityCatalog(r io.Reader) (CapabilityCatalog, error) {
 	limited := &io.LimitedReader{R: r, N: maxCapabilityCatalogBytes + 1}
@@ -100,17 +105,71 @@ func DecodeCapabilityCatalog(r io.Reader) (CapabilityCatalog, error) {
 
 // PinnedCapabilityCatalog returns a deep copy so callers cannot mutate the
 // evaluator's released schema-v1 compatibility artifact.
-func PinnedCapabilityCatalog() CapabilityCatalog {
-	return cloneCapabilityCatalog(pinnedCapabilityCatalog)
+func PinnedCapabilityCatalog() (CapabilityCatalog, error) {
+	pinnedCapabilityCatalogOnce.Do(func() {
+		pinnedCapabilityCatalog, pinnedCapabilityCatalogErr = DecodeCapabilityCatalog(bytes.NewReader(pinnedCapabilityCatalogJSON))
+	})
+	if pinnedCapabilityCatalogErr != nil {
+		return CapabilityCatalog{}, fmt.Errorf("decode pinned capability catalog: %w", pinnedCapabilityCatalogErr)
+	}
+	return cloneCapabilityCatalog(pinnedCapabilityCatalog), nil
 }
 
 // VerifyPinnedCapabilityCatalog requires semantic equality with the released
 // evaluator-owned artifact after strict wire decoding.
 func VerifyPinnedCapabilityCatalog(catalog CapabilityCatalog) error {
-	if !reflect.DeepEqual(catalog, pinnedCapabilityCatalog) {
-		return fmt.Errorf("capability catalog differs from the pinned schema-v1 artifact")
+	pinned, err := PinnedCapabilityCatalog()
+	if err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(catalog, pinned) {
+		return fmt.Errorf("capability catalog differs from the pinned schema-v1 artifact at %s", firstCapabilityCatalogDifference(pinned, catalog))
 	}
 	return nil
+}
+
+func firstCapabilityCatalogDifference(want, got CapabilityCatalog) string {
+	wantData, _ := json.Marshal(want)
+	gotData, _ := json.Marshal(got)
+	var wantValue, gotValue any
+	_ = json.Unmarshal(wantData, &wantValue)
+	_ = json.Unmarshal(gotData, &gotValue)
+	return firstJSONDifference("$", wantValue, gotValue)
+}
+
+func firstJSONDifference(path string, want, got any) string {
+	if reflect.DeepEqual(want, got) {
+		return path
+	}
+	switch wantValue := want.(type) {
+	case map[string]any:
+		gotValue, ok := got.(map[string]any)
+		if !ok {
+			return path
+		}
+		keys := make([]string, 0, len(wantValue))
+		for key := range wantValue {
+			keys = append(keys, key)
+		}
+		slices.Sort(keys)
+		for _, key := range keys {
+			other, exists := gotValue[key]
+			if !exists || !reflect.DeepEqual(wantValue[key], other) {
+				return firstJSONDifference(path+"."+key, wantValue[key], other)
+			}
+		}
+	case []any:
+		gotValue, ok := got.([]any)
+		if !ok || len(wantValue) != len(gotValue) {
+			return path
+		}
+		for index := range wantValue {
+			if !reflect.DeepEqual(wantValue[index], gotValue[index]) {
+				return firstJSONDifference(fmt.Sprintf("%s[%d]", path, index), wantValue[index], gotValue[index])
+			}
+		}
+	}
+	return path
 }
 
 func (c CapabilityCatalog) mcpToolsForProfile(profile string) (map[string]bool, bool) {
@@ -292,12 +351,4 @@ func cloneCapabilityCatalog(catalog CapabilityCatalog) CapabilityCatalog {
 		clone.Capabilities[index].OutputModes = slices.Clone(catalog.Capabilities[index].OutputModes)
 	}
 	return clone
-}
-
-func mustDecodeCapabilityCatalog(data []byte) CapabilityCatalog {
-	catalog, err := DecodeCapabilityCatalog(bytes.NewReader(data))
-	if err != nil {
-		panic(err)
-	}
-	return catalog
 }

@@ -51,7 +51,7 @@ func TestRepositoryBenchmarkCorpusContract(t *testing.T) {
 	}
 	definedTools := make([]string, 0)
 	seenTools := map[string]struct{}{}
-	for _, definition := range PinnedCapabilityCatalog().Capabilities {
+	for _, definition := range mustPinnedCapabilityCatalog(t).Capabilities {
 		if definition.MCPTool == "" {
 			continue
 		}
@@ -76,7 +76,7 @@ func TestRepositoryScenarioCapabilitiesMatchCatalog(t *testing.T) {
 		t.Fatal("no versioned agent-evaluation scenarios found")
 	}
 	definitions := map[string]CapabilityCatalogItem{}
-	for _, definition := range PinnedCapabilityCatalog().Capabilities {
+	for _, definition := range mustPinnedCapabilityCatalog(t).Capabilities {
 		definitions[definition.ID] = definition
 	}
 	for _, path := range paths {

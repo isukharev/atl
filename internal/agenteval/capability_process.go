@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -36,7 +37,18 @@ func VerifyATLCapabilityCatalog(ctx context.Context, binary string) error {
 		if errors.Is(commandCtx.Err(), context.DeadlineExceeded) || errors.Is(commandCtx.Err(), context.Canceled) {
 			return fmt.Errorf("ATL capability catalog preflight did not complete: %w", commandCtx.Err())
 		}
-		return fmt.Errorf("ATL capability catalog preflight failed")
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			detail := strings.TrimSpace(stderr.data.String())
+			if len(detail) > 512 {
+				detail = detail[:512] + "…"
+			}
+			if detail != "" {
+				return fmt.Errorf("ATL capability catalog preflight failed with exit %d: %s", exitErr.ExitCode(), detail)
+			}
+			return fmt.Errorf("ATL capability catalog preflight failed with exit %d", exitErr.ExitCode())
+		}
+		return fmt.Errorf("ATL capability catalog preflight failed: %w", err)
 	}
 	if stdout.overflow || stderr.overflow {
 		return fmt.Errorf("ATL capability catalog preflight exceeded its output bound")

@@ -263,7 +263,10 @@ func syntheticMCPServeArgs(service string) []string {
 // the complete default surface only by omitting --service; explicit profiles
 // remain the three values accepted by mcpToolsForProfile.
 func syntheticMCPToolsForService(service string) (map[string]bool, bool) {
-	catalog := PinnedCapabilityCatalog()
+	catalog, err := PinnedCapabilityCatalog()
+	if err != nil {
+		return nil, false
+	}
 	if service != "default" {
 		return catalog.mcpToolsForProfile(service)
 	}

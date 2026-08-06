@@ -1,6 +1,7 @@
 package agenteval
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -9,6 +10,17 @@ import (
 	"strings"
 	"testing"
 )
+
+type hardenedIOParityContract struct {
+	SchemaVersion int `json:"schema_version"`
+	Cases         []struct {
+		Name      string `json:"name"`
+		Path      string `json:"path"`
+		Limit     int64  `json:"limit"`
+		Want      string `json:"want,omitempty"`
+		WantError bool   `json:"want_error,omitempty"`
+	} `json:"cases"`
+}
 
 func hardenedTestNoTempLeak(t *testing.T, directory string) {
 	t.Helper()
@@ -87,6 +99,60 @@ func TestHardenedReadFileWithinLimitBoundsAndLinks(t *testing.T) {
 	hardenedTestSymlink(t, filepath.Join("real", "inside.txt"), filepath.Join(root, "inside-file.txt"))
 	if got, err := hardenedReadFileWithinLimit(root, filepath.Join(root, "inside-file.txt"), 6); err != nil || string(got) != "inside" {
 		t.Fatalf("bounded read rejected an in-root final link: got=%q err=%v", got, err)
+	}
+}
+
+func TestHardenedReadFileWithinLimitSharedParityContract(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "safepath", "testdata", "io-parity.v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var contract hardenedIOParityContract
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&contract); err != nil || contract.SchemaVersion != 1 || len(contract.Cases) == 0 {
+		t.Fatalf("decode shared I/O parity contract: %+v, %v", contract, err)
+	}
+	fixtureRoot := t.TempDir()
+	root := filepath.Join(fixtureRoot, "root")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	realDirectory := filepath.Join(root, "real")
+	if err := os.Mkdir(realDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(realDirectory, "inside.txt"), []byte("inside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outsideFile := filepath.Join(fixtureRoot, "outside.txt")
+	if err := os.WriteFile(outsideFile, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outsideDirectory := filepath.Join(fixtureRoot, "outside-directory-target")
+	if err := os.Mkdir(outsideDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outsideDirectory, "outside.txt"), []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hardenedTestSymlink(t, filepath.Join("real", "inside.txt"), filepath.Join(root, "inside-file.txt"))
+	hardenedTestSymlink(t, "real", filepath.Join(root, "inside-directory"))
+	hardenedTestSymlink(t, outsideFile, filepath.Join(root, "outside-file.txt"))
+	hardenedTestSymlink(t, outsideDirectory, filepath.Join(root, "outside-directory"))
+	for _, test := range contract.Cases {
+		t.Run(test.Name, func(t *testing.T) {
+			got, err := hardenedReadFileWithinLimit(root, filepath.Join(root, filepath.FromSlash(test.Path)), test.Limit)
+			if test.WantError {
+				if err == nil {
+					t.Fatalf("read returned %q without an error", got)
+				}
+				return
+			}
+			if err != nil || string(got) != test.Want {
+				t.Fatalf("read=%q err=%v, want %q", got, err, test.Want)
+			}
+		})
 	}
 }
 

@@ -80,8 +80,11 @@ Flags:
 | `--space` | space key (required) |
 | `--depth` | maximum depth (0 = unlimited) |
 
-The listing stops at a 2000-page safety cap; when hit, the JSON result carries
-`"truncated": true` and a `warning:` line goes to stderr.
+The listing returns at most 2000 pages that match the requested depth while
+independently scanning at most 20000 raw pages. Depth-filtered descendants do
+not consume the result budget. If either bound prevents proving a complete
+listing, the JSON result carries `"truncated": true` and a `warning:` line goes
+to stderr.
 
 ## `atl conf pull`
 

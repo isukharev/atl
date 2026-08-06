@@ -28,6 +28,7 @@ type manifest struct {
 	SchemaVersion int                `json:"schema_version"`
 	Owners        []owner            `json:"owners"`
 	Hotspots      []hotspot          `json:"hotspots"`
+	PackageTotals []packageTotal     `json:"package_totals"`
 	Timing        timingObservations `json:"timing"`
 }
 
@@ -40,6 +41,13 @@ type hotspot struct {
 	Owner     string `json:"owner"`
 	Path      string `json:"path"`
 	Function  string `json:"function,omitempty"`
+	MaxLines  int    `json:"max_lines"`
+	Rationale string `json:"rationale"`
+}
+
+type packageTotal struct {
+	Owner     string `json:"owner"`
+	Path      string `json:"path"`
 	MaxLines  int    `json:"max_lines"`
 	Rationale string `json:"rationale"`
 }
@@ -138,6 +146,14 @@ func validateManifest(root string, m manifest) ([]measurement, error) {
 	if !sort.SliceIsSorted(m.Hotspots, func(i, j int) bool { return hotspotKey(m.Hotspots[i]) < hotspotKey(m.Hotspots[j]) }) {
 		return nil, errors.New("hotspots must be sorted by owner, path, and function")
 	}
+	if len(m.PackageTotals) != len(reviewedOwners) {
+		return nil, fmt.Errorf("package_totals must contain one row for each of the %d reviewed owners", len(reviewedOwners))
+	}
+	if !sort.SliceIsSorted(m.PackageTotals, func(i, j int) bool {
+		return m.PackageTotals[i].Owner+"\x00"+m.PackageTotals[i].Path < m.PackageTotals[j].Owner+"\x00"+m.PackageTotals[j].Path
+	}) {
+		return nil, errors.New("package_totals must be sorted by owner and path")
+	}
 
 	ownerKinds := make(map[string]map[string]bool, len(reviewedOwners))
 	seen := make(map[string]bool, len(m.Hotspots))
@@ -192,10 +208,79 @@ func validateManifest(root string, m manifest) ([]measurement, error) {
 			return nil, fmt.Errorf("owner %q must have selected file and function ratchets", owner.ID)
 		}
 	}
+	seenPackageOwners := make(map[string]bool, len(m.PackageTotals))
+	for _, item := range m.PackageTotals {
+		key := item.Owner + ":" + item.Path
+		packageRoot, ok := ownerPackageRoot(item.Owner)
+		if !ok || item.Path != packageRoot {
+			return nil, fmt.Errorf("package total %q has an invalid owner/path mapping", key)
+		}
+		if seenPackageOwners[item.Owner] {
+			return nil, fmt.Errorf("package total owner %q is duplicated", item.Owner)
+		}
+		seenPackageOwners[item.Owner] = true
+		if strings.TrimSpace(item.Rationale) == "" || item.MaxLines <= 0 {
+			return nil, fmt.Errorf("package total %q must have a positive maximum and rationale", key)
+		}
+		lines, err := countProductionGoLines(root, item.Path)
+		if err != nil {
+			return nil, fmt.Errorf("package total %q: %w", key, err)
+		}
+		if lines > item.MaxLines {
+			return nil, fmt.Errorf("package total %q is %d lines, exceeds reviewed maximum %d", key, lines, item.MaxLines)
+		}
+		measurements = append(measurements, measurement{Owner: item.Owner, Path: item.Path, Lines: lines, Maximum: item.MaxLines})
+	}
 	if err := validateTiming(root, m.Timing); err != nil {
 		return nil, err
 	}
 	return measurements, nil
+}
+
+func ownerPackageRoot(id string) (string, bool) {
+	prefixes, ok := ownerPrefixes(id)
+	if !ok || len(prefixes) != 1 {
+		return "", false
+	}
+	return prefixes[0], true
+}
+
+func countProductionGoLines(root, directory string) (int, error) {
+	clean := filepath.Clean(directory)
+	if directory == "" || filepath.IsAbs(directory) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return 0, errors.New("path must be a clean repository-relative directory")
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return 0, err
+	}
+	absDirectory := filepath.Join(absRoot, filepath.FromSlash(clean))
+	if err := rejectSymlinkPath(absRoot, absDirectory); err != nil {
+		return 0, err
+	}
+	total := 0
+	err = filepath.WalkDir(absDirectory, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return errors.New("symlinked paths are not allowed")
+		}
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".go" || strings.HasSuffix(entry.Name(), "_test.go") {
+			return nil
+		}
+		relative, err := filepath.Rel(absRoot, path)
+		if err != nil {
+			return err
+		}
+		parsed, err := parseProductionGoFile(root, filepath.ToSlash(relative))
+		if err != nil {
+			return err
+		}
+		total += parsed.lines
+		return nil
+	})
+	return total, err
 }
 
 type parsedGoFile struct {

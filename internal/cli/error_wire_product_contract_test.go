@@ -164,7 +164,7 @@ func TestCLIErrorWireProductContract(t *testing.T) {
 
 func assertCLIErrorWireFixture(t *testing.T, expected map[string]cliErrorWireExpectation) {
 	t.Helper()
-	path := filepath.Join("..", "agenteval", "testdata", "cli-error-wire.v1.json")
+	path := filepath.Join("..", "diagnostic", "testdata", "cli-error-wire.v1.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

@@ -226,13 +226,18 @@ func DecodeRunSpec(r io.Reader) (RunSpec, error) {
 	limited := &io.LimitedReader{R: r, N: maxRunSpecBytes + 1}
 	decoder := json.NewDecoder(limited)
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&spec); err != nil {
-		return RunSpec{}, fmt.Errorf("decode run spec: %w", err)
-	}
+	decodeErr := decoder.Decode(&spec)
 	if limited.N <= 0 {
 		return RunSpec{}, fmt.Errorf("run spec exceeds %d bytes", maxRunSpecBytes)
 	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+	if decodeErr != nil {
+		return RunSpec{}, fmt.Errorf("decode run spec: %w", decodeErr)
+	}
+	trailingErr := decoder.Decode(&struct{}{})
+	if limited.N <= 0 {
+		return RunSpec{}, fmt.Errorf("run spec exceeds %d bytes", maxRunSpecBytes)
+	}
+	if trailingErr != io.EOF {
 		return RunSpec{}, fmt.Errorf("run spec contains trailing JSON data")
 	}
 	if err := spec.Validate(); err != nil {
@@ -638,7 +643,11 @@ func validateMCPServiceProfile(s RunSpec) error {
 }
 
 func mcpServiceProfileTools(profile string) (map[string]bool, bool) {
-	return pinnedCapabilityCatalog.mcpToolsForProfile(profile)
+	catalog, err := PinnedCapabilityCatalog()
+	if err != nil {
+		return nil, false
+	}
+	return catalog.mcpToolsForProfile(profile)
 }
 
 // isCodexSyntheticBrokerCLI selects the executable synthetic CLI route without
