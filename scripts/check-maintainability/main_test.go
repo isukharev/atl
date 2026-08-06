@@ -34,8 +34,8 @@ func TestRunReportsPhysicalFileAndFunctionSpans(t *testing.T) {
 	if got.Status != "ok" || got.TimingMode != "observe" || got.TimingObservations != 2 {
 		t.Fatalf("unexpected report: %+v", got)
 	}
-	if len(got.Measurements) != 12 {
-		t.Fatalf("measurements=%d want 12", len(got.Measurements))
+	if len(got.Measurements) != 15 {
+		t.Fatalf("measurements=%d want 15", len(got.Measurements))
 	}
 	if got.Measurements[0].Lines != 3 || got.Measurements[1].Lines != 1 {
 		t.Fatalf("app measurements=%+v want file=3 function=1", got.Measurements[:2])
@@ -89,7 +89,7 @@ func TestMaintainabilityManifestRejectsInvalidRows(t *testing.T) {
 		{name: "unsorted", mutate: func(m *manifest) { m.Hotspots[0], m.Hotspots[2] = m.Hotspots[2], m.Hotspots[0] }, want: "must be sorted"},
 		{name: "missing owner kind", mutate: func(m *manifest) { m.Hotspots = m.Hotspots[1:] }, want: "must have selected file and function"},
 		{name: "owner declaration drift", mutate: func(m *manifest) { m.Owners[0].PathPrefixes = []string{"internal/"} }, want: "reviewed sorted owner/path mapping"},
-		{name: "legacy evaluator owner prefix", mutate: func(m *manifest) { m.Owners[2].PathPrefixes = append(m.Owners[2].PathPrefixes, "scripts/agent-eval/") }, want: "reviewed sorted owner/path mapping"},
+		{name: "legacy evaluator owner prefix", mutate: func(m *manifest) { m.Owners[3].PathPrefixes = append(m.Owners[3].PathPrefixes, "scripts/agent-eval/") }, want: "reviewed sorted owner/path mapping"},
 		{name: "missing package owner", mutate: func(m *manifest) { m.PackageTotals = m.PackageTotals[1:] }, want: "one row for each"},
 		{name: "duplicate package owner", mutate: func(m *manifest) {
 			m.PackageTotals[1].Owner = m.PackageTotals[0].Owner
@@ -205,11 +205,12 @@ func writeMaintainabilityFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	files := map[string]string{
-		"internal/app/a.go":       "package app\n\nfunc appHotspot() {}\n",
-		"internal/cli/c.go":       "package cli\n\nfunc cliHotspot() {}\n",
-		"internal/agenteval/e.go": "package agenteval\n\nfunc evalHotspot() {}\n",
-		"internal/mcpserver/m.go": "package mcpserver\n\nfunc mcpHotspot() {}\n",
-		"Makefile":                "agent-eval-race:\n\t@true\n\ncheck-core-race-coverage:\n\t@true\n",
+		"internal/app/a.go":           "package app\n\nfunc appHotspot() {}\n",
+		"internal/cli/c.go":           "package cli\n\nfunc cliHotspot() {}\n",
+		"internal/contentpolicy/p.go": "package contentpolicy\n\nfunc policyHotspot() {}\n",
+		"internal/agenteval/e.go":     "package agenteval\n\nfunc evalHotspot() {}\n",
+		"internal/mcpserver/m.go":     "package mcpserver\n\nfunc mcpHotspot() {}\n",
+		"Makefile":                    "agent-eval-race:\n\t@true\n\ncheck-core-race-coverage:\n\t@true\n",
 	}
 	for path, contents := range files {
 		writeTestFile(t, filepath.Join(root, filepath.FromSlash(path)), contents)
@@ -222,6 +223,8 @@ func writeMaintainabilityFixture(t *testing.T) string {
 			{Owner: "app", Path: "internal/app/a.go", Function: "appHotspot", MaxLines: 5, Rationale: "fixture function"},
 			{Owner: "cli", Path: "internal/cli/c.go", MaxLines: 10, Rationale: "fixture file"},
 			{Owner: "cli", Path: "internal/cli/c.go", Function: "cliHotspot", MaxLines: 5, Rationale: "fixture function"},
+			{Owner: "contentpolicy", Path: "internal/contentpolicy/p.go", MaxLines: 10, Rationale: "fixture file"},
+			{Owner: "contentpolicy", Path: "internal/contentpolicy/p.go", Function: "policyHotspot", MaxLines: 5, Rationale: "fixture function"},
 			{Owner: "evaluator", Path: "internal/agenteval/e.go", MaxLines: 10, Rationale: "fixture file"},
 			{Owner: "evaluator", Path: "internal/agenteval/e.go", Function: "evalHotspot", MaxLines: 5, Rationale: "fixture function"},
 			{Owner: "mcp", Path: "internal/mcpserver/m.go", MaxLines: 10, Rationale: "fixture file"},
@@ -230,6 +233,7 @@ func writeMaintainabilityFixture(t *testing.T) string {
 		PackageTotals: []packageTotal{
 			{Owner: "app", Path: "internal/app/", MaxLines: 10, Rationale: "fixture package"},
 			{Owner: "cli", Path: "internal/cli/", MaxLines: 10, Rationale: "fixture package"},
+			{Owner: "contentpolicy", Path: "internal/contentpolicy/", MaxLines: 10, Rationale: "fixture package"},
 			{Owner: "evaluator", Path: "internal/agenteval/", MaxLines: 10, Rationale: "fixture package"},
 			{Owner: "mcp", Path: "internal/mcpserver/", MaxLines: 10, Rationale: "fixture package"},
 		},

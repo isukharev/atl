@@ -224,6 +224,11 @@ func (j *Jira) StreamAttachment(ctx context.Context, contentURL string) (io.Read
 // UploadAttachment uploads file bytes as an issue attachment via multipart/form-data.
 // Jira DC requires X-Atlassian-Token: no-check and a form field named "file".
 func (j *Jira) UploadAttachment(ctx context.Context, key, filename string, data io.Reader, size int64) (*domain.Attachment, error) {
+	var authorizeErr error
+	ctx, authorizeErr = j.authorizeIssues(ctx, domain.WriteVerbSet{domain.WriteVerbCreate}, "attachment", key)
+	if authorizeErr != nil {
+		return nil, authorizeErr
+	}
 	pr, pw := io.Pipe()
 	w := multipart.NewWriter(pw)
 	contentLength, lengthErr := multipartFileContentLength(w.Boundary(), filename, size)
@@ -259,7 +264,7 @@ func (j *Jira) UploadAttachment(ctx context.Context, key, filename string, data 
 	if lengthErr != nil {
 		err = lengthErr
 	} else {
-		raw, err = j.c.DoStreamSized(ctx, "POST", "/rest/api/2/issue/"+url.PathEscape(key)+"/attachments", pr, contentLength, headers)
+		raw, err = j.c.DoStreamSized(domain.WithWriteClearance(ctx), "POST", "/rest/api/2/issue/"+url.PathEscape(key)+"/attachments", pr, contentLength, headers)
 	}
 	_ = pr.Close()
 	if werr := <-errc; err == nil && werr != nil {

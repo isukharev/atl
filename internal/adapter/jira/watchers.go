@@ -40,17 +40,27 @@ func (j *Jira) ListIssueWatchers(ctx context.Context, key string) (*domain.Issue
 
 // AddIssueWatcher sends Jira DC's required raw JSON string body exactly once.
 func (j *Jira) AddIssueWatcher(ctx context.Context, key, username string) error {
+	var authorizeErr error
+	ctx, authorizeErr = j.authorizeIssues(ctx, domain.WriteVerbSet{domain.WriteVerbUpdate}, "watcher", key)
+	if authorizeErr != nil {
+		return authorizeErr
+	}
 	body, err := json.Marshal(username)
 	if err != nil {
 		return err
 	}
-	_, err = j.c.Do(ctx, http.MethodPost, "/rest/api/2/issue/"+url.PathEscape(key)+"/watchers", body, map[string]string{"Content-Type": "application/json"})
+	_, err = j.c.Do(domain.WithWriteClearance(ctx), http.MethodPost, "/rest/api/2/issue/"+url.PathEscape(key)+"/watchers", body, map[string]string{"Content-Type": "application/json"})
 	return err
 }
 
 func (j *Jira) RemoveIssueWatcher(ctx context.Context, key, username string) error {
+	var err error
+	ctx, err = j.authorizeIssues(ctx, domain.WriteVerbSet{domain.WriteVerbUpdate}, "watcher", key)
+	if err != nil {
+		return err
+	}
 	query := url.Values{}
 	query.Set("username", username)
-	_, err := j.c.Do(ctx, http.MethodDelete, "/rest/api/2/issue/"+url.PathEscape(key)+"/watchers?"+query.Encode(), nil, nil)
+	_, err = j.c.Do(domain.WithWriteClearance(ctx), http.MethodDelete, "/rest/api/2/issue/"+url.PathEscape(key)+"/watchers?"+query.Encode(), nil, nil)
 	return err
 }

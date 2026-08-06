@@ -92,6 +92,10 @@ type readOnlyPolicyMetadata interface {
 	DiagnosticReadOnlyPolicy() bool
 }
 
+type writePolicyDenialMetadata interface {
+	DiagnosticPolicyDenial() bool
+}
+
 // Recover classifies one failure without parsing its prose. Invalid typed
 // metadata is ignored in full and falls back to a fact-free generic recovery.
 func Recover(err error, operation OperationContext) Recovery {
@@ -99,6 +103,11 @@ func Recover(err error, operation OperationContext) Recovery {
 
 	var policy readOnlyPolicyMetadata
 	if errors.As(err, &policy) && policy.DiagnosticReadOnlyPolicy() {
+		base.Action = RecoveryRequestHumanApproval
+		return base
+	}
+	var writePolicy writePolicyDenialMetadata
+	if errors.As(err, &writePolicy) && writePolicy.DiagnosticPolicyDenial() {
 		base.Action = RecoveryRequestHumanApproval
 		return base
 	}

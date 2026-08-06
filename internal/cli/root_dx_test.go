@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/contentpolicy"
 	"github.com/isukharev/atl/internal/diagnostic"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/httpx"
@@ -49,6 +51,41 @@ func TestWriteErrorJSON(t *testing.T) {
 	}
 	if got.Kind != "configuration_error" || got.Remediation != "complete_configuration" {
 		t.Errorf("classification = %q/%q", got.Kind, got.Remediation)
+	}
+}
+
+func TestWriteErrorContentPolicyDenialContract(t *testing.T) {
+	resolved := &contentpolicy.Resolved{Layers: []contentpolicy.Layer{{
+		Source: "config_dir", Digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Policy: contentpolicy.Policy{Rules: []contentpolicy.Rule{{
+			ID: "deny-ml", Effect: contentpolicy.EffectDeny,
+			Verbs:    domain.WriteVerbSet{domain.WriteVerbDelete},
+			Resource: contentpolicy.Selector{Services: []string{"jira"}, Projects: []string{"ML"}},
+		}}},
+	}}}
+	request := domain.WriteAuthorizationRequest{
+		Verbs:   domain.WriteVerbSet{domain.WriteVerbDelete},
+		Targets: []domain.WriteTarget{{Service: "jira", Kind: "issue", Project: "ML", Key: "ML-3"}},
+	}
+	_, err := contentpolicy.NewAuthorizer(resolved).Authorize(context.Background(), request)
+	var buffer bytes.Buffer
+	writeErrorWithContext(&buffer, "json", err, codeFor(err), diagnostic.OperationWrite)
+	var body struct {
+		Error       string                      `json:"error"`
+		Code        int                         `json:"code"`
+		Kind        string                      `json:"kind"`
+		Remediation string                      `json:"remediation"`
+		Policy      string                      `json:"policy"`
+		Denial      contentpolicy.DenialDetails `json:"denial"`
+		Recovery    diagnostic.Recovery         `json:"recovery"`
+	}
+	if decodeErr := json.Unmarshal(buffer.Bytes(), &body); decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	if body.Code != exitCheckFailed || body.Kind != "content_policy" || body.Remediation != "request_human_approval" || body.Policy != "content" ||
+		body.Denial.Reason != contentpolicy.ReasonExplicitDeny || body.Denial.DecidedBy.RuleID == nil || *body.Denial.DecidedBy.RuleID != "deny-ml" ||
+		body.Recovery.Action != diagnostic.RecoveryRequestHumanApproval || body.Recovery.RetrySafe || !strings.Contains(body.Error, "deny-ml") {
+		t.Fatalf("content-policy error body = %+v", body)
 	}
 }
 

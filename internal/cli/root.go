@@ -85,6 +85,11 @@ func writeErrorWithContext(w io.Writer, format string, err error, code int, oper
 		body["policy"] = "read_only"
 		body["command"] = command
 	}
+	var policyDenial interface{ DiagnosticPolicyDenialDetails() any }
+	if errors.As(err, &policyDenial) {
+		body["policy"] = "content"
+		body["denial"] = policyDenial.DiagnosticPolicyDenialDetails()
+	}
 	// Encode never fails for these plain types; ignore its error.
 	_ = enc.Encode(body)
 }
@@ -116,11 +121,19 @@ func recoveryOperation(cmd *cobra.Command) diagnostic.OperationContext {
 }
 
 func classifyError(err error) (kind, remediation string) {
+	var clearanceFailure interface{ DiagnosticWriteClearanceFailure() bool }
+	if errors.As(err, &clearanceFailure) && clearanceFailure.DiagnosticWriteClearanceFailure() {
+		return "internal_error", "report_bug"
+	}
 	if _, ok := accessPolicyInvariantMetadata(err); ok {
 		return "internal_error", "report_bug"
 	}
 	if _, ok := readOnlyErrorMetadata(err); ok {
 		return "read_only_policy", "request_human_approval"
+	}
+	var policyDenial interface{ DiagnosticPolicyDenial() bool }
+	if errors.As(err, &policyDenial) && policyDenial.DiagnosticPolicyDenial() {
+		return "content_policy", "request_human_approval"
 	}
 	return diagnostic.Classify(err)
 }

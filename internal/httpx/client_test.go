@@ -100,6 +100,11 @@ func TestWriteClearanceBackstopRefusesUnmarkedWritesBeforeTransport(t *testing.T
 		if !errors.Is(err, errUnclearedWrite) || !errors.Is(err, domain.ErrCheckFailed) {
 			t.Errorf("method %q error = %v, want uncleared-write/check-failed", method, err)
 		}
+		var attempt interface{ DiagnosticWriteAttempted() bool }
+		var clearance interface{ DiagnosticWriteClearanceFailure() bool }
+		if !errors.As(err, &attempt) || attempt.DiagnosticWriteAttempted() || !errors.As(err, &clearance) || !clearance.DiagnosticWriteClearanceFailure() {
+			t.Errorf("method %q lost typed not-attempted clearance evidence", method)
+		}
 	}
 	if _, err := c.DoStream(context.Background(), http.MethodPost, "/stream", strings.NewReader("body"), nil); !errors.Is(err, errUnclearedWrite) {
 		t.Fatalf("streaming write error = %v, want uncleared-write", err)

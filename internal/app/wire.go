@@ -211,6 +211,13 @@ func NewConfluenceRenderer(cfg *config.Config) *ConfluenceService {
 
 // NewJira wires the Jira adapter from config + PAT.
 func NewJira(cfg *config.Config, version string) (*JiraService, error) {
+	return NewJiraWithWriteAuthorizer(cfg, version, nil)
+}
+
+// NewJiraWithWriteAuthorizer wires the optional transport-neutral policy port
+// into the Jira adapter. Callers pass nil when no content policy is active so
+// ordinary commands preserve their exact request counts.
+func NewJiraWithWriteAuthorizer(cfg *config.Config, version string, authorizer domain.WriteAuthorizer) (*JiraService, error) {
 	if cfg.JiraURL == "" {
 		return nil, fmt.Errorf("%w: Jira URL not set — run `atl config set --jira-url https://jira.example.com` (or export ATL_JIRA_URL); see `atl auth status`", domain.ErrConfig)
 	}
@@ -226,7 +233,11 @@ func NewJira(cfg *config.Config, version string) (*JiraService, error) {
 		}
 		return nil, err
 	}
-	j := jira.New(cfg.JiraURL, tok, version)
+	var options []jira.Option
+	if authorizer != nil {
+		options = append(options, jira.WithWriteAuthorizer(authorizer))
+	}
+	j := jira.New(cfg.JiraURL, tok, version, options...)
 	service := &JiraService{tr: j, agile: j, structure: j, baseURL: cfg.JiraURL, cfg: cfg}
 	service.graphConfluenceFactory = func() (domain.ConfluenceGraphPageMetadataReader, string) {
 		return optionalConfluenceGraphRead(cfg, version)

@@ -102,6 +102,11 @@ func (j *Jira) ListIssueWorklogs(ctx context.Context, key string) (*domain.Issue
 // AddIssueWorklog sends one non-retried POST and explicitly leaves Jira's
 // remaining estimate unchanged.
 func (j *Jira) AddIssueWorklog(ctx context.Context, key string, input domain.IssueWorklogCreate) (*domain.IssueWorklog, error) {
+	var authorizeErr error
+	ctx, authorizeErr = j.authorizeIssues(ctx, domain.WriteVerbSet{domain.WriteVerbUpdate}, "worklog", key)
+	if authorizeErr != nil {
+		return nil, authorizeErr
+	}
 	query := url.Values{}
 	query.Set("adjustEstimate", "leave")
 	path := "/rest/api/2/issue/" + url.PathEscape(key) + "/worklog?" + query.Encode()
@@ -111,7 +116,7 @@ func (j *Jira) AddIssueWorklog(ctx context.Context, key string, input domain.Iss
 		Started          string `json:"started,omitempty"`
 	}{TimeSpentSeconds: input.TimeSpentSeconds, Comment: input.Comment, Started: input.Started}
 	var response worklogDTO
-	if err := j.c.SendJSON(ctx, http.MethodPost, path, payload, &response); err != nil {
+	if err := j.c.SendJSON(domain.WithWriteClearance(ctx), http.MethodPost, path, payload, &response); err != nil {
 		return nil, err
 	}
 	mapped := mapWorklog(response)

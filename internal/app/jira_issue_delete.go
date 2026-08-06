@@ -72,7 +72,7 @@ type jiraIssueDeleteWriteError struct {
 	ambiguous bool
 }
 
-func (e *jiraIssueDeleteWriteError) Error() string { return e.message }
+func (e *jiraIssueDeleteWriteError) Error() string { return definitiveWriteMessage(e.message, e.cause) }
 
 func (e *jiraIssueDeleteWriteError) Unwrap() []error {
 	if e == nil {
@@ -165,6 +165,9 @@ func (s *JiraService) DeleteIssueGuarded(ctx context.Context, requestedKey strin
 
 	result.WriteAttempted = true
 	writeErr := s.tr.DeleteIssue(domain.WithSingleAttempt(ctx), prewrite.issueID, opts.DeleteSubtasks)
+	if writeDefinitelyNotAttempted(writeErr) {
+		result.WriteAttempted = false
+	}
 	if writeErr != nil && definitiveWriteRejection(writeErr) && !errors.Is(writeErr, domain.ErrNotFound) {
 		result.Status = "not_applied"
 		return result, &jiraIssueDeleteWriteError{

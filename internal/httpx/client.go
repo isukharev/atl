@@ -111,13 +111,27 @@ type Client struct {
 	requireWriteClearance bool
 }
 
-var errUnclearedWrite = fmt.Errorf("%w: non-replay-safe request lacks write clearance or reviewed read intent", domain.ErrCheckFailed)
+type unclearedWriteError struct{}
+
+func (*unclearedWriteError) Error() string {
+	return "check failed: non-replay-safe request lacks write clearance or reviewed read intent"
+}
+func (*unclearedWriteError) Unwrap() error                         { return domain.ErrCheckFailed }
+func (*unclearedWriteError) DiagnosticWriteAttempted() bool        { return false }
+func (*unclearedWriteError) DiagnosticWriteClearanceFailure() bool { return true }
+
+var errUnclearedWrite error = &unclearedWriteError{}
 
 // SetNoVersionGate marks the backend as having no optimistic version gate:
 // an HTTP 409 keeps its full APIError (status and body) but carries no
 // ErrVersionConflict sentinel, so it maps to the generic exit code instead
 // of masquerading as a version conflict.
 func (c *Client) SetNoVersionGate() { c.noVersionGate = true }
+
+// RequireWriteClearance enables the last-hop assertion that every
+// non-replay-safe request carries reviewed write clearance or read intent.
+// Adapters call it only after their complete write inventory is guarded.
+func (c *Client) RequireWriteClearance() { c.requireWriteClearance = true }
 
 // New builds a client for a backend base URL with a bearer PAT.
 func New(base, token, version string) *Client {

@@ -51,7 +51,7 @@ type jiraWatcherWriteError struct {
 	ambiguous bool
 }
 
-func (e *jiraWatcherWriteError) Error() string                  { return e.message }
+func (e *jiraWatcherWriteError) Error() string                  { return definitiveWriteMessage(e.message, e.cause) }
 func (e *jiraWatcherWriteError) Unwrap() error                  { return e.cause }
 func (e *jiraWatcherWriteError) DiagnosticAmbiguousWrite() bool { return e != nil && e.ambiguous }
 
@@ -163,6 +163,10 @@ func (s *JiraService) MutateWatcherGuarded(ctx context.Context, key string, opts
 		writeErr = store.AddIssueWatcher(domain.WithSingleAttempt(ctx), key, username)
 	} else {
 		writeErr = store.RemoveIssueWatcher(domain.WithSingleAttempt(ctx), key, username)
+	}
+	if writeDefinitelyNotAttempted(writeErr) {
+		result.Status = "failed"
+		return result, &jiraWatcherWriteError{message: "Jira rejected the watcher update", cause: writeErr}
 	}
 	verifiedState, verifyErr := store.ListIssueWatchers(ctx, key)
 	if verifyErr != nil || verifiedState == nil || !verifiedState.Complete {

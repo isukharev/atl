@@ -73,6 +73,7 @@
     {"prefix":"internal/","checks":["lint","maintainability","package-boundary","test","vet"]},
     {"prefix":"internal/agenteval/","checks":["agent-eval-full"]},
     {"prefix":"internal/cli/","checks":["docs-freshness","onboarding-docs","skill-routing"]},
+    {"prefix":"internal/contentpolicy/","checks":["lint","maintainability","package-boundary","test","vet"]},
     {"prefix":"plugins/","checks":["plugins"]},
     {"prefix":"scripts/","checks":["lint","maintainability","test","vet"]},
     {"prefix":"scripts/check-docs-freshness/","checks":["docs-freshness"]},
