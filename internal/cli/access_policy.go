@@ -901,6 +901,9 @@ func validateConfluencePageDeleteInvocation(cmd *cobra.Command, applyRequested b
 	if err != nil || strings.TrimSpace(id) == "" {
 		return usageErr("--id is required")
 	}
+	if !canonicalConfluenceCLIContentID(id) {
+		return usageErr("--id must be a positive numeric content id")
+	}
 	guardNames := []string{"confirm", "expected-version", "expected-proposal-hash"}
 	if !applyRequested {
 		for _, name := range guardNames {

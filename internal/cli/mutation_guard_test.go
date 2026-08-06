@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -115,6 +116,56 @@ func TestMutationPreConfigRoutesPreserveLiteralContract(t *testing.T) {
 				t.Fatalf("write target changed: before=%v after=%v", beforeRoot, after)
 			}
 		})
+	}
+}
+
+func TestConfluencePageDeleteRejectsNonCanonicalIDBeforeConfiguration(t *testing.T) {
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		requests.Add(1)
+	}))
+	defer server.Close()
+
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{"read_only":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{
+		"ATL_CONFIG_DIR":     configDir,
+		"ATL_CONFLUENCE_URL": server.URL,
+		"ATL_CONFLUENCE_PAT": "test-pat",
+	}
+	tests := []struct {
+		name, id, want string
+	}{
+		{name: "blank", id: "", want: "--id is required"},
+		{name: "zero", id: "0", want: "positive numeric content id"},
+		{name: "leading zero", id: "01", want: "positive numeric content id"},
+		{name: "negative", id: "-1", want: "positive numeric content id"},
+		{name: "positive sign", id: "+1", want: "positive numeric content id"},
+		{name: "leading whitespace", id: " 1", want: "positive numeric content id"},
+		{name: "trailing whitespace", id: "1 ", want: "positive numeric content id"},
+		{name: "non-numeric", id: "page-name", want: "positive numeric content id"},
+	}
+	for _, test := range tests {
+		for _, apply := range []bool{false, true} {
+			name := "preview"
+			args := []string{"conf", "page", "delete", "--id", test.id}
+			if apply {
+				name = "apply"
+				args = append(args, "--apply", "--confirm", "TRASH", "--expected-version", "1", "--expected-proposal-hash", strings.Repeat("a", 64))
+			}
+			t.Run(test.name+"/"+name, func(t *testing.T) {
+				requests.Store(0)
+				stdout, stderr, err := executeCLIRaw(t, env, args...)
+				if !errors.Is(err, domain.ErrUsage) || codeFor(err) != exitUsage || !strings.Contains(err.Error(), test.want) {
+					t.Fatalf("error=%v code=%d, want usage containing %q", err, codeFor(err), test.want)
+				}
+				if stdout != "" || stderr != "" || requests.Load() != 0 {
+					t.Fatalf("stdout=%q stderr=%q requests=%d, want no effects", stdout, stderr, requests.Load())
+				}
+			})
+		}
 	}
 }
 

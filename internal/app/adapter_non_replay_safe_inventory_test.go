@@ -55,7 +55,7 @@ func TestAdapterNonReplaySafeRequestInventory(t *testing.T) {
 		"jira/meta.go:UploadAttachment:DoStreamSized:POST":                          mutatingNoMarker,
 		"jira/structure.go:StructureValues:SendJSON:POST": {
 			Disposition: readIntent,
-			Marker:      noMarker,
+			Marker:      readIntent,
 		},
 		"jira/watchers.go:AddIssueWatcher:Do:POST":       mutatingNoMarker,
 		"jira/watchers.go:RemoveIssueWatcher:Do:DELETE":  mutatingNoMarker,
