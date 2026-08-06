@@ -28,3 +28,6 @@ bash "${here}/install-claude-code.sh"
 
 # OpenAI Codex CLI (installed via npm; see script header for rationale).
 bash "${here}/install-codex.sh"
+
+# Optional structural code navigation (CLI only; graph extraction stays manual).
+bash "${here}/install-graphify.sh"

@@ -3,6 +3,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +20,9 @@ const (
 	goFeatureID             = "ghcr.io/devcontainers/features/go:1"
 	goFeaturePackageVersion = "1.3.4"
 	goFeatureDigest         = "sha256:d85e921f91b41340055bb12b325d9d551170ed04b3b832e33530bf42f167c032"
+	graphifyUVVersion       = "0.12.2"
+	graphifyVersion         = "0.9.34"
+	graphifyConstraintsSHA  = "5ebaed040427a75906a3aff0aa451cbb2329a541544c048dc840700fa87119b0"
 	// verifiedBaseImage pins the OCI digest that
 	// mcr.microsoft.com/devcontainers/base:bookworm resolved to on 2026-07-31.
 	verifiedBaseImage = "mcr.microsoft.com/devcontainers/base:bookworm@sha256:73d85a96694a2cadca1ba3fcb5721f2312a64f1d571dd86f6c77e10a708931dc"
@@ -477,6 +481,12 @@ func validateBootstrap(root string) error {
 		bytes.Contains(postCreate, []byte("GOTOOLCHAIN=auto")) {
 		return errors.New("devcontainer post-create must run the local maintainer contract")
 	}
+	if bytes.Count(postCreate, []byte(`bash "${here}/install-graphify.sh"`)) != 1 {
+		return errors.New("devcontainer post-create must install Graphify exactly once")
+	}
+	if err := validateGraphifyInstaller(root); err != nil {
+		return err
+	}
 	ci, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "ci.yml"))
 	if err != nil {
 		return fmt.Errorf("read ci workflow: %w", err)
@@ -572,6 +582,40 @@ func validateBootstrap(root string) error {
 		if err := requireWorkflowStep(lintJob, required.name, required.contract); err != nil {
 			return fmt.Errorf("ci: %w", err)
 		}
+	}
+	return nil
+}
+
+func validateGraphifyInstaller(root string) error {
+	installer, err := os.ReadFile(filepath.Join(root, ".devcontainer", "install-graphify.sh"))
+	if err != nil {
+		return fmt.Errorf("read devcontainer Graphify installer: %w", err)
+	}
+	required := []string{
+		`readonly UV_VERSION="` + graphifyUVVersion + `"`,
+		`readonly GRAPHIFY_VERSION="` + graphifyVersion + `"`,
+		`uv_sha256="d66e96b5f1ca3b99806eee283a8125d33a0bd669e6e6d9bc4ab7ffda63c41bf4"`,
+		`uv_sha256="19b7f1f66895261fbaa07f8ea91da0f86337ad4e47efa594e87641c1718ffc52"`,
+		`sha256sum --check --status`,
+		`readonly GRAPHIFY_WHEEL_URL="https://files.pythonhosted.org/packages/c3/fe/eb0afeb410f29e2e534f2e46a2d3191a0e08c02a36176080548542371f83/graphifyy-0.9.34-py3-none-any.whl#sha256=2bb5fdc6aa96abbeb105f177040815f68253a56610af64771b5dcfa0464eb35b"`,
+		`--constraints "${here}/graphify-constraints.txt"`,
+	}
+	for _, contract := range required {
+		if bytes.Count(installer, []byte(contract)) != 1 {
+			return fmt.Errorf("devcontainer Graphify installer must contain exactly one reviewed %q contract", contract)
+		}
+	}
+	for _, forbidden := range []string{"graphify extract", "graphify install --"} {
+		if bytes.Contains(installer, []byte(forbidden)) {
+			return fmt.Errorf("devcontainer Graphify installer must not run %q during setup", forbidden)
+		}
+	}
+	constraints, err := os.ReadFile(filepath.Join(root, ".devcontainer", "graphify-constraints.txt"))
+	if err != nil {
+		return fmt.Errorf("read devcontainer Graphify constraints: %w", err)
+	}
+	if fmt.Sprintf("%x", sha256.Sum256(constraints)) != graphifyConstraintsSHA {
+		return errors.New("devcontainer Graphify constraints differ from the reviewed dependency set")
 	}
 	return nil
 }

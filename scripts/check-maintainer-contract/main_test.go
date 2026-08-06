@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -11,6 +12,38 @@ import (
 )
 
 const fixtureGoVersion = "1.26.5"
+
+const graphifyConstraintsFixture = `# Resolved with uv 0.12.2 for graphifyy 0.9.34 on Python 3.11.
+networkx==3.6.1
+numpy==2.4.6
+rapidfuzz==3.14.5
+tree-sitter==0.25.2
+tree-sitter-bash==0.25.1
+tree-sitter-c==0.24.2
+tree-sitter-c-sharp==0.23.5
+tree-sitter-cpp==0.23.4
+tree-sitter-elixir==0.3.5
+tree-sitter-fortran==0.6.0
+tree-sitter-go==0.25.0
+tree-sitter-groovy==0.1.2
+tree-sitter-java==0.23.5
+tree-sitter-javascript==0.25.0
+tree-sitter-json==0.24.8
+tree-sitter-julia==0.23.1
+tree-sitter-kotlin==1.1.0
+tree-sitter-lua==0.5.0
+tree-sitter-objc==3.0.2
+tree-sitter-php==0.24.1
+tree-sitter-powershell==0.26.4
+tree-sitter-python==0.25.0
+tree-sitter-ruby==0.23.1
+tree-sitter-rust==0.24.2
+tree-sitter-scala==0.26.0
+tree-sitter-swift==0.7.3
+tree-sitter-typescript==0.23.2
+tree-sitter-verilog==1.0.3
+tree-sitter-zig==1.1.2
+`
 
 func TestRepositoryMaintainerContract(t *testing.T) {
 	_, current, _, ok := runtime.Caller(0)
@@ -60,6 +93,10 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 		{name: "release evaluator full", path: ".github/workflows/release.yml", old: "run: make agent-eval-full", replacement: "run: make agent-eval-compat", want: "exact required workflow block"},
 		{name: "CodeQL evaluator build", path: ".github/workflows/codeql.yml", old: "run: make agent-eval-build", replacement: "run: echo skipped", want: "exact workflow block"},
 		{name: "nested Dependabot module", path: ".github/dependabot.yml", old: "directory: \"/internal/agenteval\"", replacement: "directory: \"/internal/evaluator\"", want: "exactly one reviewed gomod entry"},
+		{name: "Graphify post-create hook", path: ".devcontainer/post-create.sh", old: `bash "${here}/install-graphify.sh"`, replacement: "echo skipped", want: "install Graphify exactly once"},
+		{name: "Graphify version pin", path: ".devcontainer/install-graphify.sh", old: `readonly GRAPHIFY_VERSION="` + graphifyVersion + `"`, replacement: `readonly GRAPHIFY_VERSION="latest"`, want: "Graphify installer"},
+		{name: "Graphify dependency pin", path: ".devcontainer/graphify-constraints.txt", old: "networkx==3.6.1", replacement: "networkx>=3.6.1", want: "reviewed dependency set"},
+		{name: "Graphify extraction remains explicit", path: ".devcontainer/install-graphify.sh", old: "set -euo pipefail", replacement: "set -euo pipefail\ngraphify extract . --code-only", want: "must not run"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -76,6 +113,48 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 				t.Fatalf("error=%v, want substring %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestGraphifyInstallerSkipsMatchingVersions(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Graphify devcontainer installer is Linux-only")
+	}
+	_, current, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve test path")
+	}
+	installer := filepath.Join(filepath.Dir(current), "..", "..", ".devcontainer", "install-graphify.sh")
+	for _, uvOutput := range []string{
+		"uv " + graphifyUVVersion,
+		"uv " + graphifyUVVersion + " (x86_64-unknown-linux-gnu)",
+	} {
+		t.Run(uvOutput, func(t *testing.T) {
+			home := t.TempDir()
+			binDir := filepath.Join(home, ".local", "bin")
+			if err := os.MkdirAll(binDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writeExecutable(t, filepath.Join(binDir, "uv"), "#!/bin/sh\nprintf '%s\\n' '"+uvOutput+"'\n")
+			writeExecutable(t, filepath.Join(binDir, "graphify"), "#!/bin/sh\nprintf '%s\\n' 'graphify "+graphifyVersion+"'\n")
+			writeExecutable(t, filepath.Join(binDir, "curl"), "#!/bin/sh\n: > \"$HOME/curl-called\"\nexit 99\n")
+
+			cmd := exec.Command("bash", installer)
+			cmd.Env = append(os.Environ(), "HOME="+home, "PATH="+binDir+":"+os.Getenv("PATH"))
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("installer failed: %v\n%s", err, output)
+			}
+			if _, err := os.Stat(filepath.Join(home, "curl-called")); !os.IsNotExist(err) {
+				t.Fatalf("matching uv version unexpectedly downloaded an archive: %v", err)
+			}
+		})
+	}
+}
+
+func writeExecutable(t *testing.T, path, contents string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(contents), 0o755); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -197,7 +276,18 @@ func writeFixture(t *testing.T) string {
     }
   }
 }`,
-		".devcontainer/post-create.sh": "#!/usr/bin/env bash\ngo run ./scripts/check-maintainer-contract\n",
+		".devcontainer/post-create.sh": "#!/usr/bin/env bash\ngo run ./scripts/check-maintainer-contract\nbash \"${here}/install-graphify.sh\"\n",
+		".devcontainer/install-graphify.sh": `#!/usr/bin/env bash
+set -euo pipefail
+readonly UV_VERSION="` + graphifyUVVersion + `"
+readonly GRAPHIFY_VERSION="` + graphifyVersion + `"
+uv_sha256="d66e96b5f1ca3b99806eee283a8125d33a0bd669e6e6d9bc4ab7ffda63c41bf4"
+uv_sha256="19b7f1f66895261fbaa07f8ea91da0f86337ad4e47efa594e87641c1718ffc52"
+sha256sum --check --status
+readonly GRAPHIFY_WHEEL_URL="https://files.pythonhosted.org/packages/c3/fe/eb0afeb410f29e2e534f2e46a2d3191a0e08c02a36176080548542371f83/graphifyy-0.9.34-py3-none-any.whl#sha256=2bb5fdc6aa96abbeb105f177040815f68253a56610af64771b5dcfa0464eb35b"
+--constraints "${here}/graphify-constraints.txt"
+`,
+		".devcontainer/graphify-constraints.txt": graphifyConstraintsFixture,
 		"Makefile": rootGoEnvironmentMakeContract +
 			"check-maintainer-contract:\n\t$(GO_LOCAL_ENV) go run ./scripts/check-maintainer-contract\n" +
 			windowsCompileMakeContract + coreCoverageMakeContract + moduleBoundaryMakeContract + packageBoundaryMakeContract +
