@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -698,24 +699,26 @@ ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
 			return errors.New("evaluator Makefile must retain the reviewed compatibility and deterministic contract commands")
 		}
 	}
-	if err := validateEvaluatorCompatSelections(root, makefile); err != nil {
-		return err
-	}
-	return nil
+	return validateEvaluatorCompatSelections(root, makefile)
 }
 
 func validateEvaluatorCompatSelections(root string, makefile []byte) error {
 	const prefix = "COMPAT_TESTS_"
 	definitions := make(map[string]int)
 	testRoot := filepath.Join(root, "internal", "agenteval")
-	if err := filepath.WalkDir(testRoot, func(path string, entry os.DirEntry, walkErr error) error {
+	testFiles, err := os.OpenRoot(testRoot)
+	if err != nil {
+		return fmt.Errorf("open evaluator compatibility test root: %w", err)
+	}
+	defer func() { _ = testFiles.Close() }()
+	if err := fs.WalkDir(testFiles.FS(), ".", func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
 			return nil
 		}
-		data, err := os.ReadFile(path)
+		data, err := fs.ReadFile(testFiles.FS(), path)
 		if err != nil {
 			return err
 		}
