@@ -60,14 +60,14 @@ func (cache *issueIdentityCache) put(reference string, target domain.WriteTarget
 	}
 }
 
-func (cache *issueIdentityCache) failure(reference string) (error, bool) {
+func (cache *issueIdentityCache) failure(reference string) (bool, error) {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	err, ok := cache.failures[reference]
 	if ok {
 		cache.failureRecency.MoveToFront(cache.failureEntries[reference])
 	}
-	return err, ok
+	return ok, err
 }
 
 func (cache *issueIdentityCache) fail(reference string, err error) {
@@ -178,7 +178,7 @@ func (j *Jira) issueTarget(ctx context.Context, kind, reference string) (domain.
 		target.Kind = kind
 		return target, nil
 	}
-	if err, failed := j.identity.failure(reference); failed {
+	if failed, err := j.identity.failure(reference); failed {
 		return domain.WriteTarget{}, err
 	}
 	var response issueDTO

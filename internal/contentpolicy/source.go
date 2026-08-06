@@ -248,7 +248,7 @@ func validateRule(raw ruleJSON) (Rule, []Warning, error) {
 		warnings = append(warnings, Warning{RuleID: raw.ID, Message: "Confluence selectors cannot be produced by the selected service"})
 	}
 	if len(selector.IDs) > 0 && !containsString(selector.Services, "confluence") &&
-		!(containsString(selector.Services, "jira") && containsString(selector.Kinds, "sprint")) {
+		(!containsString(selector.Services, "jira") || !containsString(selector.Kinds, "sprint")) {
 		warnings = append(warnings, Warning{RuleID: raw.ID, Message: "id cannot be produced by the selected service and kind"})
 	}
 	return rule, warnings, nil

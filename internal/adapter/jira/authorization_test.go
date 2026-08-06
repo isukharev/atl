@@ -132,10 +132,10 @@ func TestIssueIdentityCacheIsBoundedLRU(t *testing.T) {
 	for index := 1; index <= issueIdentityCacheLimit+1; index++ {
 		cache.fail("missing-"+strconv.Itoa(index), errors.New("missing"))
 	}
-	if _, ok := cache.failure("missing-1"); ok {
+	if ok, _ := cache.failure("missing-1"); ok {
 		t.Fatal("oldest cached failure was retained")
 	}
-	if _, ok := cache.failure("missing-4097"); !ok || len(cache.failureEntries) != issueIdentityCacheLimit {
+	if ok, _ := cache.failure("missing-4097"); !ok || len(cache.failureEntries) != issueIdentityCacheLimit {
 		t.Fatalf("failure cache entries=%d, want %d", len(cache.failureEntries), issueIdentityCacheLimit)
 	}
 }
