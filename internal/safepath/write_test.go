@@ -679,7 +679,11 @@ func TestReadFileWithinLimitSharedParityContract(t *testing.T) {
 	if err := decoder.Decode(&contract); err != nil || contract.SchemaVersion != 1 || len(contract.Cases) == 0 {
 		t.Fatalf("decode shared I/O parity contract: %+v, %v", contract, err)
 	}
-	root := t.TempDir()
+	fixtureRoot := t.TempDir()
+	root := filepath.Join(fixtureRoot, "root")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	realDirectory := filepath.Join(root, "real")
 	if err := os.Mkdir(realDirectory, 0o700); err != nil {
 		t.Fatal(err)
@@ -687,15 +691,22 @@ func TestReadFileWithinLimitSharedParityContract(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(realDirectory, "inside.txt"), []byte("inside"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	outsideDirectory := t.TempDir()
+	outsideFile := filepath.Join(fixtureRoot, "outside.txt")
+	if err := os.WriteFile(outsideFile, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outsideDirectory := filepath.Join(fixtureRoot, "outside-directory-target")
+	if err := os.Mkdir(outsideDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(outsideDirectory, "outside.txt"), []byte("outside"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	for target, link := range map[string]string{
 		filepath.Join("real", "inside.txt"): filepath.Join(root, "inside-file.txt"),
 		"real":                              filepath.Join(root, "inside-directory"),
-		filepath.Join(outsideDirectory, "outside.txt"): filepath.Join(root, "outside-file.txt"),
-		outsideDirectory: filepath.Join(root, "outside-directory"),
+		outsideFile:                         filepath.Join(root, "outside-file.txt"),
+		outsideDirectory:                    filepath.Join(root, "outside-directory"),
 	} {
 		if err := os.Symlink(target, link); err != nil {
 			t.Skipf("symlinks unavailable: %v", err)

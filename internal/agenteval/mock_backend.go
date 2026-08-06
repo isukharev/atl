@@ -282,8 +282,6 @@ func (b *MockBackend) handle(w http.ResponseWriter, r *http.Request) {
 	ok := matched == 1
 	b.mu.Lock()
 	b.methods[r.Method]++
-	requestKey := r.Method + " " + r.URL.RequestURI()
-	b.routeHits[requestKey]++
 	if ok && len(b.fixture.RequestSequence) > 0 && (b.requestIndex >= len(b.fixture.RequestSequence) || route.Name != b.fixture.RequestSequence[b.requestIndex]) {
 		ok = false
 	}
@@ -298,6 +296,7 @@ func (b *MockBackend) handle(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if ok {
+		b.routeHits[canonicalMockRequestKey(r)]++
 		if len(route.Responses) > 0 {
 			b.sequenceHits[mockRouteSelectorKey(route)]++
 		}
@@ -316,6 +315,14 @@ func (b *MockBackend) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(route.Status)
 	_, _ = w.Write(route.Body)
+}
+
+func canonicalMockRequestKey(request *http.Request) string {
+	key := request.Method + " " + request.URL.Path
+	if query := request.URL.Query().Encode(); query != "" {
+		key += "?" + query
+	}
+	return key
 }
 
 func mockRouteQueryMatches(route MockRoute, request *http.Request) bool {

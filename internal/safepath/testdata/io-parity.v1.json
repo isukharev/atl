@@ -3,7 +3,7 @@
   "cases": [
     {"name":"exact-limit","path":"real/inside.txt","limit":6,"want":"inside"},
     {"name":"over-limit","path":"real/inside.txt","limit":5,"want_error":true},
-    {"name":"negative-limit","path":"../outside.txt","limit":-1,"want_error":true},
+    {"name":"negative-limit","path":"real/inside.txt","limit":-1,"want_error":true},
     {"name":"root-target","path":".","limit":16,"want_error":true},
     {"name":"outside-target","path":"../outside.txt","limit":16,"want_error":true},
     {"name":"in-root-final-symlink","path":"inside-file.txt","limit":6,"want":"inside"},

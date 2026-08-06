@@ -326,6 +326,10 @@ func run() error {
 				_ = outputRoot.Close()
 				return fmt.Errorf("write %s output %s: %w", target.platform.name, output.rel, err)
 			}
+			if err := outputRoot.Chmod(output.rel, 0o644); err != nil {
+				_ = outputRoot.Close()
+				return fmt.Errorf("set %s output %s mode: %w", target.platform.name, output.rel, err)
+			}
 		}
 		if beforeOutputIdentityRebind != nil {
 			beforeOutputIdentityRebind(target.platform.name)
@@ -538,6 +542,9 @@ func writeGeneratedFile(root *os.Root, name string, data []byte) error {
 	}
 	if writeErr == nil {
 		writeErr = file.Sync()
+	}
+	if writeErr == nil {
+		writeErr = file.Chmod(0o644)
 	}
 	temporaryInfo, statErr := file.Stat()
 	closeErr := file.Close()

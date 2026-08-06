@@ -711,23 +711,24 @@ func validateEvaluatorCompatSelections(root string, makefile []byte) error {
 		return fmt.Errorf("open evaluator compatibility test root: %w", err)
 	}
 	defer func() { _ = testFiles.Close() }()
-	if err := fs.WalkDir(testFiles.FS(), ".", func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
+	entries, err := fs.ReadDir(testFiles.FS(), ".")
+	if err != nil {
+		return fmt.Errorf("inspect evaluator compatibility tests: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.Type()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("inspect evaluator compatibility tests: symbolic links are not allowed")
 		}
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
-			return nil
+			continue
 		}
-		data, err := fs.ReadFile(testFiles.FS(), path)
+		data, err := fs.ReadFile(testFiles.FS(), entry.Name())
 		if err != nil {
-			return err
+			return fmt.Errorf("inspect evaluator compatibility tests: %w", err)
 		}
 		for _, match := range regexp.MustCompile(`(?m)^func[ \t]+(Test[A-Za-z0-9_]+)[ \t]*\(`).FindAllSubmatch(data, -1) {
 			definitions[string(match[1])]++
 		}
-		return nil
-	}); err != nil {
-		return fmt.Errorf("inspect evaluator compatibility tests: %w", err)
 	}
 
 	seenVariables := 0

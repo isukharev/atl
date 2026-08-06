@@ -72,6 +72,22 @@ func TestValidMaintainerContract(t *testing.T) {
 	}
 }
 
+func TestMaintainerContractRejectsCompatibilityTestFromSubpackage(t *testing.T) {
+	root := writeFixture(t)
+	subpackageTest := filepath.Join(root, "internal", "agenteval", "cmd", "agent-eval", "fixture_test.go")
+	if err := os.MkdirAll(filepath.Dir(subpackageTest), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(subpackageTest, []byte("package main\n\nfunc TestSubpackageFixture() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	makefile := filepath.Join(root, "internal", "agenteval", "Makefile")
+	replaceFixture(t, makefile, "TestFixture", "TestSubpackageFixture")
+	if _, err := validateRepository(root, "go"+fixtureGoVersion); err == nil || !strings.Contains(err.Error(), "0 test definitions") {
+		t.Fatalf("subpackage-only compatibility test error=%v", err)
+	}
+}
+
 func TestMaintainerContractRejectsDrift(t *testing.T) {
 	tests := []struct {
 		name, path, old, replacement, runtime, want string
