@@ -104,7 +104,7 @@ func (e *confluencePageCopyWriteError) DiagnosticAmbiguousWrite() bool {
 // non-replayed POST, then requires an exact current-state readback.
 func (s *ConfluenceService) CopyPageGuarded(ctx context.Context, sourceID string, opts ConfluencePageCopyOpts) (*ConfluencePageCopyResult, error) {
 	sourceID = strings.TrimSpace(sourceID)
-	if !canonicalConfluenceContentID(sourceID) {
+	if !domain.ValidConfluenceContentID(sourceID) {
 		return nil, fmt.Errorf("%w: source page id must be a positive numeric content id", domain.ErrUsage)
 	}
 	title, err := normalizeConfluenceTitle([]byte(opts.Title))
@@ -114,7 +114,7 @@ func (s *ConfluenceService) CopyPageGuarded(ctx context.Context, sourceID string
 	opts.Title = title
 	opts.Space = strings.TrimSpace(opts.Space)
 	opts.Parent = strings.TrimSpace(opts.Parent)
-	if opts.Parent != "" && !canonicalConfluenceContentID(opts.Parent) {
+	if opts.Parent != "" && !domain.ValidConfluenceContentID(opts.Parent) {
 		return nil, fmt.Errorf("%w: target parent must be a positive numeric content id", domain.ErrUsage)
 	}
 	if opts.Register != (strings.TrimSpace(opts.Root) != "") {
@@ -217,7 +217,7 @@ func (s *ConfluenceService) CopyPageGuarded(ctx context.Context, sourceID string
 		result.Status = "not_applied"
 		return result, &confluencePageCopyWriteError{message: "Confluence rejected the page copy; it was not applied", cause: sanitizeConfluenceWriteCause(writeErr)}
 	}
-	if created == nil || !canonicalConfluenceContentID(created.ID) {
+	if created == nil || !domain.ValidConfluenceContentID(created.ID) {
 		result.Status = "outcome_unknown"
 		result.Complete = false
 		return result, confluencePageCopyAmbiguousError("page copy outcome is unknown because the create response did not prove the new page id; do not retry or search by title", writeErr)

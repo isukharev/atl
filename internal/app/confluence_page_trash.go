@@ -237,7 +237,7 @@ func (s *ConfluenceService) confluencePageTrashSnapshot(ctx context.Context, id 
 }
 
 func validateExactConfluencePageRead(page *domain.Resource, id, status string) error {
-	if page == nil || !canonicalConfluenceContentID(id) || page.ID != id || !canonicalConfluenceContentID(page.ID) || page.Type != "page" || page.Status != status || page.Version <= 0 || !page.BodyPresent {
+	if page == nil || !domain.ValidConfluenceContentID(id) || page.ID != id || !domain.ValidConfluenceContentID(page.ID) || page.Type != "page" || page.Status != status || page.Version <= 0 || !page.BodyPresent {
 		return fmt.Errorf("%w: exact %s page read omitted required identity, type, status, version, or native body", domain.ErrCheckFailed, status)
 	}
 	if strings.TrimSpace(page.Title) == "" || strings.TrimSpace(page.SpaceKey) == "" {
@@ -247,7 +247,7 @@ func validateExactConfluencePageRead(page *domain.Resource, id, status string) e
 		return fmt.Errorf("%w: exact %s page read omitted ancestor identity", domain.ErrCheckFailed, status)
 	}
 	for _, ancestorID := range page.AncestorIDs {
-		if !canonicalConfluenceContentID(ancestorID) {
+		if !domain.ValidConfluenceContentID(ancestorID) {
 			return fmt.Errorf("%w: exact %s page read contains an empty ancestor identity", domain.ErrCheckFailed, status)
 		}
 	}

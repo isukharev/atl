@@ -113,10 +113,10 @@ func (e *confluenceAttachmentDeleteWriteError) DiagnosticAmbiguousWrite() bool {
 func (s *ConfluenceService) DeleteAttachmentGuarded(ctx context.Context, pageID, attachmentID string, opts ConfluenceAttachmentDeleteOpts) (*ConfluenceAttachmentDeleteResult, error) {
 	pageID = strings.TrimSpace(pageID)
 	attachmentID = strings.TrimSpace(attachmentID)
-	if !canonicalConfluenceContentID(pageID) {
+	if !domain.ValidConfluenceContentID(pageID) {
 		return nil, fmt.Errorf("%w: page id must be a positive numeric content id", domain.ErrUsage)
 	}
-	if !canonicalConfluenceContentID(attachmentID) {
+	if !domain.ValidConfluenceContentID(attachmentID) {
 		return nil, fmt.Errorf("%w: attachment id must be a positive numeric content id", domain.ErrUsage)
 	}
 	if !opts.Apply && (opts.Confirm != "" || opts.ExpectedPageVersion != 0 || strings.TrimSpace(opts.ExpectedProposalHash) != "") {
@@ -310,7 +310,7 @@ func validateConfluenceAttachmentDeleteInventory(inventory domain.AttachmentInve
 		return fmt.Errorf("%w: permanent deletion requires a complete attachment inventory", domain.ErrCheckFailed)
 	}
 	for _, attachment := range inventory.Attachments {
-		if !canonicalConfluenceContentID(attachment.ID) || strings.TrimSpace(attachment.Title) == "" || attachment.Version <= 0 {
+		if !domain.ValidConfluenceContentID(attachment.ID) || strings.TrimSpace(attachment.Title) == "" || attachment.Version <= 0 {
 			return fmt.Errorf("%w: attachment inventory omitted canonical id, title, or positive version evidence", domain.ErrCheckFailed)
 		}
 	}

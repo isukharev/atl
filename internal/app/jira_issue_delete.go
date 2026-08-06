@@ -91,7 +91,7 @@ func (e *jiraIssueDeleteWriteError) DiagnosticAmbiguousWrite() bool {
 // subtask inventory immediately before one non-replayed DELETE addressed by id.
 func (s *JiraService) DeleteIssueGuarded(ctx context.Context, requestedKey string, opts JiraIssueDeleteOpts) (*JiraIssueDeleteResult, error) {
 	requestedKey = strings.TrimSpace(requestedKey)
-	if !canonicalJiraIssueDeleteKey(requestedKey) {
+	if !domain.ValidJiraIssueKey(requestedKey) {
 		return nil, fmt.Errorf("%w: issue key must be canonical (for example PROJ-1)", domain.ErrUsage)
 	}
 	if !opts.Apply && (opts.Confirm != "" || strings.TrimSpace(opts.ExpectedUpdated) != "" || strings.TrimSpace(opts.ExpectedProposalHash) != "") {
@@ -214,7 +214,7 @@ func (s *JiraService) jiraIssueDeleteSnapshot(ctx context.Context, lookup, reque
 	if err != nil {
 		return jiraIssueDeleteSnapshot{}, err
 	}
-	if issue == nil || !canonicalPositiveNumericString(issue.ID) || issue.Key != requestedKey || !canonicalJiraIssueDeleteKey(issue.Key) {
+	if issue == nil || !canonicalPositiveNumericString(issue.ID) || issue.Key != requestedKey || !domain.ValidJiraIssueKey(issue.Key) {
 		return jiraIssueDeleteSnapshot{}, fmt.Errorf("%w: Jira returned a missing, moved, or malformed issue identity", domain.ErrCheckFailed)
 	}
 	if expectedID != "" && issue.ID != expectedID {
@@ -258,7 +258,7 @@ func jiraIssueDeleteSubtasks(fields map[string]any, parentID, parentKey string) 
 		}
 		id, ok := graphStrictPositiveID(object["id"])
 		key, keyOK := object["key"].(string)
-		if !ok || !keyOK || !canonicalJiraIssueDeleteKey(key) || id == parentID || key == parentKey || seenIDs[id] || seenKeys[key] {
+		if !ok || !keyOK || !domain.ValidJiraIssueKey(key) || id == parentID || key == parentKey || seenIDs[id] || seenKeys[key] {
 			return nil, fmt.Errorf("%w: Jira returned a missing, duplicate, or malformed subtask identity", domain.ErrCheckFailed)
 		}
 		seenIDs[id] = true
@@ -280,11 +280,6 @@ func canonicalPositiveNumericString(value string) bool {
 	}
 	number, err := strconv.ParseUint(value, 10, 64)
 	return err == nil && number > 0
-}
-
-func canonicalJiraIssueDeleteKey(key string) bool {
-	span := graphJiraKeyPattern.FindStringIndex(key)
-	return span != nil && span[0] == 0 && span[1] == len(key)
 }
 
 // ValidateJiraIssueDeleteReviewMarkers rejects malformed complete-looking
