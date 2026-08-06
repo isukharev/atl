@@ -19,24 +19,45 @@ import (
 
 // Jira is the Tracker adapter.
 type Jira struct {
-	c    *httpx.Client
-	base string
+	c          *httpx.Client
+	base       string
+	authorizer domain.WriteAuthorizer
+	identity   *issueIdentityCache
+}
+
+// Option configures transport-neutral adapter behavior.
+type Option func(*Jira)
+
+// WithWriteAuthorizer enables content-scoped last-hop authorization. A nil
+// authorizer is equivalent to omitting the option.
+func WithWriteAuthorizer(authorizer domain.WriteAuthorizer) Option {
+	return func(j *Jira) { j.authorizer = authorizer }
 }
 
 // New builds a Jira adapter for base URL with a PAT.
-func New(base, token, version string) *Jira {
-	return NewWithScheduler(base, token, version, nil)
+func New(base, token, version string, options ...Option) *Jira {
+	return NewWithScheduler(base, token, version, nil, options...)
 }
 
 // NewWithScheduler lets Confluence Jira-macro expansion share the exact same
 // command-scoped load boundary as the originating Confluence requests.
-func NewWithScheduler(base, token, version string, scheduler *httpx.Scheduler) *Jira {
+func NewWithScheduler(base, token, version string, scheduler *httpx.Scheduler, options ...Option) *Jira {
 	c := httpx.NewWithScheduler(base, token, version, scheduler)
 	// Jira DC has no optimistic version gate: a 409 is a generic conflict
 	// (locked issue, closed sprint, workflow veto), never a version conflict —
 	// exit 5's re-pull/--force remediation does not apply here.
 	c.SetNoVersionGate()
-	return &Jira{c: c, base: strings.TrimRight(base, "/")}
+	j := &Jira{c: c, base: strings.TrimRight(base, "/"), identity: newIssueIdentityCache()}
+	for _, option := range options {
+		if option != nil {
+			option(j)
+		}
+	}
+	// Every mutating Jira transport site carries an explicit marker. Keeping
+	// the backstop enabled even without a configured policy catches omissions
+	// while the nil-authorizer fast path preserves request counts.
+	c.RequireWriteClearance()
+	return j
 }
 
 var _ domain.Tracker = (*Jira)(nil)
@@ -186,6 +207,26 @@ func (j *Jira) searchPage(ctx context.Context, jql string, fields []string, limi
 // sent as the decoded JSON value (so callers can pass objects, arrays or
 // numbers, e.g. priority={"name":"High"}); otherwise it is sent as a string.
 func (j *Jira) Create(ctx context.Context, project, issueType, summary string, body []byte, fields map[string]string) (*domain.Issue, error) {
+	if j.authorizer != nil {
+		if _, overridesProject := fields["project"]; overridesProject {
+			var err error
+			ctx, err = j.authorizeScopeProblem(ctx, domain.WriteVerbSet{domain.WriteVerbCreate}, domain.WriteScopeContradiction, "project",
+				domain.WriteTarget{Service: "jira", Kind: "issue", Project: strings.ToUpper(strings.TrimSpace(project))})
+			return nil, err
+		}
+		project = strings.ToUpper(strings.TrimSpace(project))
+		if !domain.ValidJiraIssueKey(project + "-1") {
+			var err error
+			ctx, err = j.authorizeScopeProblem(ctx, domain.WriteVerbSet{domain.WriteVerbCreate}, domain.WriteScopeUnresolved, "project",
+				domain.WriteTarget{Service: "jira", Kind: "issue", Project: project})
+			return nil, err
+		}
+		var err error
+		ctx, err = j.authorize(ctx, domain.WriteVerbSet{domain.WriteVerbCreate}, []domain.WriteTarget{{Service: "jira", Kind: "issue", Project: project}})
+		if err != nil {
+			return nil, err
+		}
+	}
 	fl := map[string]any{
 		"project":   map[string]string{"key": project},
 		"issuetype": map[string]string{"name": issueType},
@@ -200,7 +241,7 @@ func (j *Jira) Create(ctx context.Context, project, issueType, summary string, b
 	var out struct {
 		Key string `json:"key"`
 	}
-	if err := j.c.SendJSON(ctx, "POST", "/rest/api/2/issue", map[string]any{"fields": fl}, &out); err != nil {
+	if err := j.c.SendJSON(domain.WithWriteClearance(ctx), "POST", "/rest/api/2/issue", map[string]any{"fields": fl}, &out); err != nil {
 		return nil, err
 	}
 	return &domain.Issue{Key: out.Key, Summary: summary, Project: project, Type: issueType, Body: string(body)}, nil
@@ -226,7 +267,17 @@ func (j *Jira) Update(ctx context.Context, key, summary string, body []byte, fie
 	if len(fl) == 0 {
 		return fmt.Errorf("%w: nothing to update", domain.ErrUsage)
 	}
-	return j.c.SendJSON(ctx, "PUT", "/rest/api/2/issue/"+url.PathEscape(key), map[string]any{"fields": fl}, nil)
+	project, relocates := fields["project"]
+	var err error
+	ctx, err = j.authorizeIssueMutation(ctx, domain.WriteVerbSet{domain.WriteVerbUpdate}, "issue", key, coerceField(project), relocates)
+	if err != nil {
+		return err
+	}
+	err = j.c.SendJSON(domain.WithWriteClearance(ctx), "PUT", "/rest/api/2/issue/"+url.PathEscape(key), map[string]any{"fields": fl}, nil)
+	if relocates && j.identity != nil {
+		j.identity.evictReference(key)
+	}
+	return err
 }
 
 // SetFields writes explicitly typed values as-is. Unlike Update's compatibility
@@ -235,7 +286,17 @@ func (j *Jira) SetFields(ctx context.Context, key string, fields map[string]any)
 	if len(fields) == 0 {
 		return fmt.Errorf("%w: no fields to update", domain.ErrUsage)
 	}
-	return j.c.SendJSON(ctx, "PUT", "/rest/api/2/issue/"+url.PathEscape(key), map[string]any{"fields": fields}, nil)
+	project, relocates := fields["project"]
+	var err error
+	ctx, err = j.authorizeIssueMutation(ctx, domain.WriteVerbSet{domain.WriteVerbUpdate}, "issue", key, project, relocates)
+	if err != nil {
+		return err
+	}
+	err = j.c.SendJSON(domain.WithWriteClearance(ctx), "PUT", "/rest/api/2/issue/"+url.PathEscape(key), map[string]any{"fields": fields}, nil)
+	if relocates && j.identity != nil {
+		j.identity.evictReference(key)
+	}
+	return err
 }
 
 // Transition moves an issue to a target status by name, optionally commenting
@@ -282,7 +343,21 @@ func (j *Jira) TransitionByID(ctx context.Context, key string, request domain.Ji
 	if len(request.Comment) > 0 {
 		payload["update"] = map[string]any{"comment": []any{map[string]any{"add": map[string]string{"body": string(request.Comment)}}}}
 	}
-	return j.c.SendJSON(ctx, "POST", "/rest/api/2/issue/"+url.PathEscape(key)+"/transitions", payload, nil)
+	verbs := domain.WriteVerbSet{domain.WriteVerbTransition}
+	if len(request.Comment) > 0 {
+		verbs = append(verbs, domain.WriteVerbComment)
+	}
+	project, relocates := request.Fields["project"]
+	var err error
+	ctx, err = j.authorizeIssueMutation(ctx, verbs, "issue", key, project, relocates)
+	if err != nil {
+		return err
+	}
+	err = j.c.SendJSON(domain.WithWriteClearance(ctx), "POST", "/rest/api/2/issue/"+url.PathEscape(key)+"/transitions", payload, nil)
+	if relocates && j.identity != nil {
+		j.identity.evictReference(key)
+	}
+	return err
 }
 
 // DeleteIssue permanently deletes an issue. deleteSubtasks must be true to
@@ -290,7 +365,19 @@ func (j *Jira) TransitionByID(ctx context.Context, key string, request domain.Ji
 func (j *Jira) DeleteIssue(ctx context.Context, key string, deleteSubtasks bool) error {
 	q := url.Values{}
 	q.Set("deleteSubtasks", strconv.FormatBool(deleteSubtasks))
-	return j.c.SendJSON(ctx, "DELETE", "/rest/api/2/issue/"+url.PathEscape(key)+"?"+q.Encode(), nil, nil)
+	var err error
+	ctx, err = j.authorizeIssues(ctx, domain.WriteVerbSet{domain.WriteVerbDelete}, "issue", key)
+	if err != nil {
+		return err
+	}
+	if deleteSubtasks {
+		ctx, err = j.authorizePartialTarget(ctx, domain.WriteVerbSet{domain.WriteVerbDelete}, "subtasks",
+			domain.WriteTarget{Service: "jira", Kind: "issue"})
+		if err != nil {
+			return err
+		}
+	}
+	return j.c.SendJSON(domain.WithWriteClearance(ctx), "DELETE", "/rest/api/2/issue/"+url.PathEscape(key)+"?"+q.Encode(), nil, nil)
 }
 
 // UpdateLabels adds/removes labels via the field-update verb so it doesn't
@@ -307,7 +394,12 @@ func (j *Jira) UpdateLabels(ctx context.Context, key string, add, remove []strin
 		return fmt.Errorf("%w: nothing to change (pass --add and/or --remove)", domain.ErrUsage)
 	}
 	payload := map[string]any{"update": map[string]any{"labels": ops}}
-	return j.c.SendJSON(ctx, "PUT", "/rest/api/2/issue/"+url.PathEscape(key), payload, nil)
+	var err error
+	ctx, err = j.authorizeIssues(ctx, domain.WriteVerbSet{domain.WriteVerbUpdate}, "issue", key)
+	if err != nil {
+		return err
+	}
+	return j.c.SendJSON(domain.WithWriteClearance(ctx), "PUT", "/rest/api/2/issue/"+url.PathEscape(key), payload, nil)
 }
 
 // Assign sets the issue assignee via the dedicated endpoint. Jira DC's field
@@ -319,7 +411,12 @@ func (j *Jira) Assign(ctx context.Context, key, username string) error {
 	if username != "" {
 		payload["name"] = username
 	}
-	return j.c.SendJSON(ctx, "PUT", "/rest/api/2/issue/"+url.PathEscape(key)+"/assignee", payload, nil)
+	var err error
+	ctx, err = j.authorizeIssues(ctx, domain.WriteVerbSet{domain.WriteVerbUpdate}, "issue", key)
+	if err != nil {
+		return err
+	}
+	return j.c.SendJSON(domain.WithWriteClearance(ctx), "PUT", "/rest/api/2/issue/"+url.PathEscape(key)+"/assignee", payload, nil)
 }
 
 type userDTO struct {
@@ -408,6 +505,11 @@ func (j *Jira) GetUser(ctx context.Context, username string) (*domain.User, erro
 
 // AddComment posts a wiki-markup comment.
 func (j *Jira) AddComment(ctx context.Context, key string, body []byte) (*domain.Comment, error) {
+	var err error
+	ctx, err = j.authorizeIssues(ctx, domain.WriteVerbSet{domain.WriteVerbComment}, "issue", key)
+	if err != nil {
+		return nil, err
+	}
 	var out struct {
 		ID      string `json:"id"`
 		Created string `json:"created"`
@@ -417,7 +519,7 @@ func (j *Jira) AddComment(ctx context.Context, key string, body []byte) (*domain
 			DisplayName string `json:"displayName"`
 		} `json:"author"`
 	}
-	if err := j.c.SendJSON(ctx, "POST", "/rest/api/2/issue/"+url.PathEscape(key)+"/comment",
+	if err := j.c.SendJSON(domain.WithWriteClearance(ctx), "POST", "/rest/api/2/issue/"+url.PathEscape(key)+"/comment",
 		map[string]string{"body": string(body)}, &out); err != nil {
 		return nil, err
 	}
@@ -510,23 +612,39 @@ func (j *Jira) ListComments(ctx context.Context, key string) ([]domain.Comment, 
 
 // DeleteComment removes a comment by id.
 func (j *Jira) DeleteComment(ctx context.Context, key, commentID string) error {
-	return j.c.SendJSON(ctx, "DELETE",
+	var err error
+	ctx, err = j.authorizeIssues(ctx, domain.WriteVerbSet{domain.WriteVerbDelete}, "issue", key)
+	if err != nil {
+		return err
+	}
+	return j.c.SendJSON(domain.WithWriteClearance(ctx), "DELETE",
 		"/rest/api/2/issue/"+url.PathEscape(key)+"/comment/"+url.PathEscape(commentID), nil, nil)
 }
 
 // Link creates a typed link from→to.
 func (j *Jira) Link(ctx context.Context, from, to, linkType string) error {
+	var err error
+	ctx, err = j.authorizeIssues(ctx, domain.WriteVerbSet{domain.WriteVerbUpdate}, "issue", from, to)
+	if err != nil {
+		return err
+	}
 	payload := map[string]any{
 		"type":         map[string]string{"name": linkType},
 		"inwardIssue":  map[string]string{"key": to},
 		"outwardIssue": map[string]string{"key": from},
 	}
-	return j.c.SendJSON(ctx, "POST", "/rest/api/2/issueLink", payload, nil)
+	return j.c.SendJSON(domain.WithWriteClearance(ctx), "POST", "/rest/api/2/issueLink", payload, nil)
 }
 
 // DeleteLink removes an issue link by its backend id.
 func (j *Jira) DeleteLink(ctx context.Context, linkID string) error {
-	return j.c.SendJSON(ctx, "DELETE", "/rest/api/2/issueLink/"+url.PathEscape(linkID), nil, nil)
+	var err error
+	ctx, err = j.authorizePartialTarget(ctx, domain.WriteVerbSet{domain.WriteVerbDelete}, "identity",
+		domain.WriteTarget{Service: "jira", Kind: "link"})
+	if err != nil {
+		return err
+	}
+	return j.c.SendJSON(domain.WithWriteClearance(ctx), "DELETE", "/rest/api/2/issueLink/"+url.PathEscape(linkID), nil, nil)
 }
 
 type jiraChangelogItem struct {
@@ -679,7 +797,11 @@ func (j *Jira) LinkEpic(ctx context.Context, issue, epic string) error {
 	if epicField == "" {
 		return fmt.Errorf("%w: no 'Epic Link' field on this Jira (team-managed projects use the parent field)", domain.ErrUsage)
 	}
-	return j.c.SendJSON(ctx, "PUT", "/rest/api/2/issue/"+url.PathEscape(issue),
+	ctx, err = j.authorizeIssues(ctx, domain.WriteVerbSet{domain.WriteVerbUpdate}, "issue", issue, epic)
+	if err != nil {
+		return err
+	}
+	return j.c.SendJSON(domain.WithWriteClearance(ctx), "PUT", "/rest/api/2/issue/"+url.PathEscape(issue),
 		map[string]any{"fields": map[string]any{epicField: epic}}, nil)
 }
 

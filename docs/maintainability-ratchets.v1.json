@@ -3,6 +3,7 @@
   "owners": [
     {"id":"app","path_prefixes":["internal/app/"]},
     {"id":"cli","path_prefixes":["internal/cli/"]},
+    {"id":"contentpolicy","path_prefixes":["internal/contentpolicy/"]},
     {"id":"evaluator","path_prefixes":["internal/agenteval/"]},
     {"id":"mcp","path_prefixes":["internal/mcpserver/"]}
   ],
@@ -19,6 +20,8 @@
     {"owner":"cli","path":"internal/cli/jira.go","max_lines":775,"rationale":"Keep the remaining Jira service, user, mirror, export, planning, and metadata command assembly within its reduced allowance after the issue surface moved to a focused owner."},
     {"owner":"cli","path":"internal/cli/jira_issue.go","max_lines":925,"rationale":"Keep the focused Jira issue command surface within a reviewed allowance."},
     {"owner":"cli","path":"internal/cli/jira_issue.go","function":"jiraIssueCmd","max_lines":525,"rationale":"Keep the largest Jira issue command family within a reduced reviewed allowance."},
+    {"owner":"contentpolicy","path":"internal/contentpolicy/source.go","max_lines":434,"rationale":"Keep the strict bounded policy schema and deterministic backend-binding validation visible at its reviewed introduction size."},
+    {"owner":"contentpolicy","path":"internal/contentpolicy/source.go","function":"validateSelector","max_lines":59,"rationale":"Keep selector validation and normalization at its reviewed closed-schema introduction size."},
     {"owner":"evaluator","path":"internal/agenteval/runner.go","max_lines":1900,"rationale":"Keep the evaluator launch and orchestration owner visible after attempt layout, provider lifecycle, trajectory capture, and outcome finalization moved to focused owners."},
     {"owner":"evaluator","path":"internal/agenteval/runner.go","function":"runHeadlessOnce","max_lines":350,"rationale":"Keep the remaining launch-environment assembly and explicit lifecycle/error-precedence orchestration within its reduced reviewed allowance."},
     {"owner":"mcp","path":"internal/mcpserver/confluence_tools.go","function":"registerConfluenceTools","max_lines":320,"rationale":"Keep Confluence MCP tool registration within a reviewed allowance."},
@@ -28,8 +31,9 @@
     {"owner":"mcp","path":"internal/mcpserver/server.go","max_lines":1588,"rationale":"Keep MCP service assembly and shared validation ownership within its reduced reviewed allowance after focused instruction and error-policy splits."}
   ],
   "package_totals": [
-    {"owner":"app","path":"internal/app/","max_lines":34386,"rationale":"Keep total production growth in the app package visible even when responsibilities move out of selected hotspot files."},
+    {"owner":"app","path":"internal/app/","max_lines":34413,"rationale":"Keep total production growth in the app package visible, including the reviewed generic not-attempted passthrough and Jira authorizer assembly seam."},
     {"owner":"cli","path":"internal/cli/","max_lines":10111,"rationale":"Keep total production growth in the CLI package visible; 10111 includes the reviewed pre-configuration Confluence page-delete content-id guard."},
+    {"owner":"contentpolicy","path":"internal/contentpolicy/","max_lines":1101,"rationale":"Keep all production policy parsing, evaluation, denial, digest, source, and freeze logic at its reviewed introduction total."},
     {"owner":"evaluator","path":"internal/agenteval/","max_lines":47450,"rationale":"Keep the complete evaluator module tree, including cmd/agent-eval, visible across responsibility splits."},
     {"owner":"mcp","path":"internal/mcpserver/","max_lines":3294,"rationale":"Keep total production growth in the MCP package visible even when registration and protocol owners are split."}
   ],

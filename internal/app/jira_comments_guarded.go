@@ -52,7 +52,7 @@ type jiraCommentWriteError struct {
 	ambiguous bool
 }
 
-func (e *jiraCommentWriteError) Error() string { return e.message }
+func (e *jiraCommentWriteError) Error() string { return definitiveWriteMessage(e.message, e.cause) }
 
 func (e *jiraCommentWriteError) Unwrap() []error {
 	if e == nil {

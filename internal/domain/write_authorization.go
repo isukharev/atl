@@ -65,9 +65,27 @@ type WriteTarget struct {
 // WriteAuthorizationRequest describes the complete verb and target
 // conjunction for one governed remote operation.
 type WriteAuthorizationRequest struct {
-	Verbs   WriteVerbSet
-	Targets []WriteTarget
+	Verbs        WriteVerbSet
+	Targets      []WriteTarget
+	ScopeProblem WriteScopeProblem
+	// ScopeAttribute without ScopeProblem marks an attribute that this target
+	// structurally cannot supply. A rule independent of that attribute may
+	// still admit it; otherwise the denial is scope_unresolved rather than
+	// ordinary policy silence.
+	ScopeAttribute string
 }
+
+// WriteScopeProblem carries an adapter-established failure to resolve a
+// backend-canonical authorization target. It is data, not a policy decision;
+// the authorizer turns it into the concrete stable denial contract.
+type WriteScopeProblem string
+
+const (
+	WriteScopeResolved      WriteScopeProblem = ""
+	WriteScopeUnresolved    WriteScopeProblem = "unresolved"
+	WriteScopeUnavailable   WriteScopeProblem = "unavailable"
+	WriteScopeContradiction WriteScopeProblem = "contradiction"
+)
 
 // WriteAuthorizer is the transport-neutral last-hop authorization port.
 // An admitted request returns the context that must be threaded into the

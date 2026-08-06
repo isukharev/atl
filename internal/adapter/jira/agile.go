@@ -297,7 +297,21 @@ func (j *Jira) MoveIssuesToSprint(ctx context.Context, sprintID int, keys []stri
 	if len(keys) == 0 {
 		return fmt.Errorf("%w: no issue keys given", domain.ErrUsage)
 	}
-	return j.c.SendJSON(ctx, "POST", "/rest/agile/1.0/sprint/"+strconv.Itoa(sprintID)+"/issue",
+	if j.authorizer != nil {
+		targets, err := j.issueTargets(ctx, "issue", keys...)
+		if err != nil {
+			ctx, err = j.authorizeResolutionFailure(ctx, domain.WriteVerbSet{domain.WriteVerbUpdate}, "issue", keys[0], err)
+			if err != nil {
+				return err
+			}
+		}
+		targets = append(targets, domain.WriteTarget{Service: "jira", Kind: "sprint", ID: strconv.Itoa(sprintID)})
+		ctx, err = j.authorize(ctx, domain.WriteVerbSet{domain.WriteVerbUpdate}, targets)
+		if err != nil {
+			return err
+		}
+	}
+	return j.c.SendJSON(domain.WithWriteClearance(ctx), "POST", "/rest/agile/1.0/sprint/"+strconv.Itoa(sprintID)+"/issue",
 		map[string]any{"issues": keys}, nil)
 }
 
@@ -306,6 +320,11 @@ func (j *Jira) MoveIssuesToBacklog(ctx context.Context, keys []string) error {
 	if len(keys) == 0 {
 		return fmt.Errorf("%w: no issue keys given", domain.ErrUsage)
 	}
-	return j.c.SendJSON(ctx, "POST", "/rest/agile/1.0/backlog/issue",
+	var err error
+	ctx, err = j.authorizeIssues(ctx, domain.WriteVerbSet{domain.WriteVerbUpdate}, "issue", keys...)
+	if err != nil {
+		return err
+	}
+	return j.c.SendJSON(domain.WithWriteClearance(ctx), "POST", "/rest/agile/1.0/backlog/issue",
 		map[string]any{"issues": keys}, nil)
 }

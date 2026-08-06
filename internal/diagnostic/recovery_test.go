@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/isukharev/atl/internal/contentpolicy"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/httpx"
 )
@@ -20,6 +21,14 @@ type recoveryFactsError struct {
 	observedForestVersion int64
 	ambiguous             bool
 	structureReason       string
+}
+
+func TestRecoverPolicyDenialPrecedesAmbiguousWriteFallback(t *testing.T) {
+	denial := &contentpolicy.DenialError{Reason: contentpolicy.ReasonExplicitDeny, RuleID: "deny-ml"}
+	got := Recover(denial, OperationWrite)
+	if got.Action != RecoveryRequestHumanApproval || got.RetrySafe || !ValidateRecovery(got) {
+		t.Fatalf("recovery=%+v", got)
+	}
 }
 
 func (e *recoveryFactsError) Error() string { return "private prose" }

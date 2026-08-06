@@ -89,7 +89,7 @@ type jiraTransitionWriteError struct {
 	ambiguous bool
 }
 
-func (e *jiraTransitionWriteError) Error() string { return e.message }
+func (e *jiraTransitionWriteError) Error() string { return definitiveWriteMessage(e.message, e.cause) }
 
 func (e *jiraTransitionWriteError) Unwrap() []error {
 	if e == nil {

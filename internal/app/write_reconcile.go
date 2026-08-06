@@ -40,6 +40,9 @@ func operationErrorCauses(cause error, closed bool) []error {
 // a reconciliation read; transport errors have no HTTP status and are likewise
 // ambiguous. Callers must never replay either class automatically.
 func definitiveWriteRejection(err error) bool {
+	if writeDefinitelyNotAttempted(err) {
+		return true
+	}
 	var statusErr interface{ HTTPStatus() int }
 	if !errors.As(err, &statusErr) {
 		return false
@@ -48,11 +51,26 @@ func definitiveWriteRejection(err error) bool {
 	return status >= 400 && status < 500 && status != 408 && status != 425 && status != 429
 }
 
+func writeDefinitelyNotAttempted(err error) bool {
+	var attempt interface{ DiagnosticWriteAttempted() bool }
+	return errors.As(err, &attempt) && !attempt.DiagnosticWriteAttempted()
+}
+
+func definitiveWriteMessage(fallback string, cause error) string {
+	if writeDefinitelyNotAttempted(cause) {
+		return cause.Error()
+	}
+	return fallback
+}
+
 // sanitizeRemoteWriteCause preserves only typed classification and HTTP status
 // while dropping response bodies, request paths, and backend-derived detail.
 func sanitizeRemoteWriteCause(err error) error {
 	if err == nil {
 		return nil
+	}
+	if writeDefinitelyNotAttempted(err) {
+		return err
 	}
 	var causes []error
 	for _, sentinel := range []error{

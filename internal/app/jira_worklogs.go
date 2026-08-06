@@ -57,7 +57,7 @@ type jiraWorklogWriteError struct {
 	ambiguous bool
 }
 
-func (e *jiraWorklogWriteError) Error() string                  { return e.message }
+func (e *jiraWorklogWriteError) Error() string                  { return definitiveWriteMessage(e.message, e.cause) }
 func (e *jiraWorklogWriteError) Unwrap() error                  { return e.cause }
 func (e *jiraWorklogWriteError) DiagnosticAmbiguousWrite() bool { return e != nil && e.ambiguous }
 

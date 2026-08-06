@@ -57,7 +57,7 @@ type jiraFieldWriteError struct {
 	ambiguous bool
 }
 
-func (e *jiraFieldWriteError) Error() string                  { return e.message }
+func (e *jiraFieldWriteError) Error() string                  { return definitiveWriteMessage(e.message, e.cause) }
 func (e *jiraFieldWriteError) Unwrap() error                  { return e.cause }
 func (e *jiraFieldWriteError) DiagnosticAmbiguousWrite() bool { return e != nil && e.ambiguous }
 
@@ -158,6 +158,10 @@ func (s *JiraService) SetFieldsGuarded(ctx context.Context, key string, opts Jir
 	}
 	if err := s.tr.SetFields(domain.WithSingleAttempt(ctx), key, values); err != nil {
 		definitive := definitiveWriteRejection(err)
+		if writeDefinitelyNotAttempted(err) {
+			result.Status = "failed"
+			return result, sanitizedFieldWriteError("Jira rejected the custom-field update", err, false)
+		}
 		fresh, reconcileErr := s.tr.GetIssue(ctx, key, fields)
 		if reconcileErr != nil || fresh == nil {
 			if definitive {

@@ -10,12 +10,18 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isukharev/atl/internal/contentpolicy"
 	"github.com/isukharev/atl/internal/domain"
 )
 
 type operationCauseTestError struct{ marker string }
 
 func (e *operationCauseTestError) Error() string { return e.marker }
+
+type notAttemptedTestError struct{}
+
+func (notAttemptedTestError) Error() string                  { return "write was not attempted" }
+func (notAttemptedTestError) DiagnosticWriteAttempted() bool { return false }
 
 func TestOperationErrorCausesExactVectors(t *testing.T) {
 	typed := &operationCauseTestError{marker: "typed"}
@@ -56,6 +62,45 @@ func TestOperationErrorCausesExactVectors(t *testing.T) {
 				t.Fatalf("joined result lost typed cause %T", test.cause)
 			}
 		})
+	}
+}
+
+func TestPolicyDenialIsDefinitiveAndPreservesLocalMessage(t *testing.T) {
+	denial := &contentpolicy.DenialError{Reason: contentpolicy.ReasonExplicitDeny, RuleID: "deny-ml"}
+	if !definitiveWriteRejection(denial) {
+		t.Fatal("policy denial was not classified as definitive")
+	}
+	if !writeDefinitelyNotAttempted(denial) {
+		t.Fatal("policy denial lost not-attempted evidence")
+	}
+	if got := sanitizeRemoteWriteCause(denial); got != denial {
+		t.Fatalf("sanitized policy denial = %#v, want original", got)
+	}
+	if got := classifyCreateWriteError("create", denial); got != denial {
+		t.Fatalf("create classification = %#v, want original denial", got)
+	}
+	want := denial.Error()
+	for name, err := range map[string]error{
+		"field":      &jiraFieldWriteError{message: "remote", cause: denial},
+		"worklog":    &jiraWorklogWriteError{message: "remote", cause: denial},
+		"watcher":    &jiraWatcherWriteError{message: "remote", cause: denial},
+		"comment":    &jiraCommentWriteError{message: "remote", cause: denial, closed: true},
+		"delete":     &jiraIssueDeleteWriteError{message: "remote", cause: denial},
+		"transition": &jiraTransitionWriteError{message: "remote", cause: denial, closed: true},
+	} {
+		if err.Error() != want || !errors.Is(err, domain.ErrCheckFailed) {
+			t.Errorf("%s error=%q check_failed=%t, want %q/true", name, err, errors.Is(err, domain.ErrCheckFailed), want)
+		}
+	}
+}
+
+func TestGenericNotAttemptedErrorIsDefinitive(t *testing.T) {
+	err := notAttemptedTestError{}
+	if !writeDefinitelyNotAttempted(err) || !definitiveWriteRejection(err) {
+		t.Fatal("generic not-attempted evidence was not classified as definitive")
+	}
+	if got := sanitizeRemoteWriteCause(err); got != err {
+		t.Fatalf("sanitized not-attempted error = %#v, want original", got)
 	}
 }
 

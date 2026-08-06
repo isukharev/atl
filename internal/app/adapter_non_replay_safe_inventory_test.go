@@ -24,6 +24,7 @@ func TestAdapterNonReplaySafeRequestInventory(t *testing.T) {
 		noMarker   = "none"
 	)
 	mutatingNoMarker := adapterRequestClassification{Disposition: mutating, Marker: noMarker}
+	mutatingCleared := adapterRequestClassification{Disposition: mutating, Marker: "write_clearance"}
 	want := map[string]adapterRequestClassification{
 		"confluence/blogposts.go:CreateBlogPost:SendJSON:POST":                      mutatingNoMarker,
 		"confluence/comment_mutation_provider.go:createInline:DoWithBodyLimit:POST": mutatingNoMarker,
@@ -38,28 +39,28 @@ func TestAdapterNonReplaySafeRequestInventory(t *testing.T) {
 		"confluence/extras.go:UploadAttachment:DoStreamSized:POST":                  mutatingNoMarker,
 		"confluence/labels.go:AddContentLabels:Do:POST":                             mutatingNoMarker,
 		"confluence/labels.go:RemoveContentLabel:Do:DELETE":                         mutatingNoMarker,
-		"jira/agile.go:MoveIssuesToBacklog:SendJSON:POST":                           mutatingNoMarker,
-		"jira/agile.go:MoveIssuesToSprint:SendJSON:POST":                            mutatingNoMarker,
-		"jira/jira.go:AddComment:SendJSON:POST":                                     mutatingNoMarker,
-		"jira/jira.go:Assign:SendJSON:PUT":                                          mutatingNoMarker,
-		"jira/jira.go:Create:SendJSON:POST":                                         mutatingNoMarker,
-		"jira/jira.go:DeleteComment:SendJSON:DELETE":                                mutatingNoMarker,
-		"jira/jira.go:DeleteIssue:SendJSON:DELETE":                                  mutatingNoMarker,
-		"jira/jira.go:DeleteLink:SendJSON:DELETE":                                   mutatingNoMarker,
-		"jira/jira.go:Link:SendJSON:POST":                                           mutatingNoMarker,
-		"jira/jira.go:LinkEpic:SendJSON:PUT":                                        mutatingNoMarker,
-		"jira/jira.go:SetFields:SendJSON:PUT":                                       mutatingNoMarker,
-		"jira/jira.go:TransitionByID:SendJSON:POST":                                 mutatingNoMarker,
-		"jira/jira.go:Update:SendJSON:PUT":                                          mutatingNoMarker,
-		"jira/jira.go:UpdateLabels:SendJSON:PUT":                                    mutatingNoMarker,
-		"jira/meta.go:UploadAttachment:DoStreamSized:POST":                          mutatingNoMarker,
+		"jira/agile.go:MoveIssuesToBacklog:SendJSON:POST":                           mutatingCleared,
+		"jira/agile.go:MoveIssuesToSprint:SendJSON:POST":                            mutatingCleared,
+		"jira/jira.go:AddComment:SendJSON:POST":                                     mutatingCleared,
+		"jira/jira.go:Assign:SendJSON:PUT":                                          mutatingCleared,
+		"jira/jira.go:Create:SendJSON:POST":                                         mutatingCleared,
+		"jira/jira.go:DeleteComment:SendJSON:DELETE":                                mutatingCleared,
+		"jira/jira.go:DeleteIssue:SendJSON:DELETE":                                  mutatingCleared,
+		"jira/jira.go:DeleteLink:SendJSON:DELETE":                                   mutatingCleared,
+		"jira/jira.go:Link:SendJSON:POST":                                           mutatingCleared,
+		"jira/jira.go:LinkEpic:SendJSON:PUT":                                        mutatingCleared,
+		"jira/jira.go:SetFields:SendJSON:PUT":                                       mutatingCleared,
+		"jira/jira.go:TransitionByID:SendJSON:POST":                                 mutatingCleared,
+		"jira/jira.go:Update:SendJSON:PUT":                                          mutatingCleared,
+		"jira/jira.go:UpdateLabels:SendJSON:PUT":                                    mutatingCleared,
+		"jira/meta.go:UploadAttachment:DoStreamSized:POST":                          mutatingCleared,
 		"jira/structure.go:StructureValues:SendJSON:POST": {
 			Disposition: readIntent,
 			Marker:      readIntent,
 		},
-		"jira/watchers.go:AddIssueWatcher:Do:POST":       mutatingNoMarker,
-		"jira/watchers.go:RemoveIssueWatcher:Do:DELETE":  mutatingNoMarker,
-		"jira/worklogs.go:AddIssueWorklog:SendJSON:POST": mutatingNoMarker,
+		"jira/watchers.go:AddIssueWatcher:Do:POST":       mutatingCleared,
+		"jira/watchers.go:RemoveIssueWatcher:Do:DELETE":  mutatingCleared,
+		"jira/worklogs.go:AddIssueWorklog:SendJSON:POST": mutatingCleared,
 	}
 
 	got, lookalikes := collectAdapterNonReplaySafeRequests(t)
@@ -72,11 +73,16 @@ func TestAdapterNonReplaySafeRequestInventory(t *testing.T) {
 	}
 
 	dispositions := map[string]int{}
+	markers := map[string]int{}
 	for _, classification := range got {
 		dispositions[classification.Disposition]++
+		markers[classification.Marker]++
 	}
 	if len(got) != 32 || dispositions[mutating] != 31 || dispositions[readIntent] != 1 {
 		t.Fatalf("inventory counts = total %d, mutating %d, read-intent %d; want 32/31/1", len(got), dispositions[mutating], dispositions[readIntent])
+	}
+	if markers["write_clearance"] != 18 || markers[readIntent] != 1 || markers[noMarker] != 13 {
+		t.Fatalf("marker counts = clearance %d, read-intent %d, none %d; want 18/1/13", markers["write_clearance"], markers[readIntent], markers[noMarker])
 	}
 }
 
