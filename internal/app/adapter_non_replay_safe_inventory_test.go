@@ -82,9 +82,14 @@ func TestAdapterNonReplaySafeRequestInventory(t *testing.T) {
 
 func collectAdapterNonReplaySafeRequests(t *testing.T) (map[string]adapterRequestClassification, map[string]bool) {
 	t.Helper()
-	methods := map[string]bool{
+	methodArgRequests := map[string]bool{
 		"Do": true, "DoStream": true, "DoStreamSized": true,
 		"DoWithBodyLimit": true, "SendJSON": true,
+	}
+	clientMethods := map[string]bool{
+		"Do": true, "DoStream": true, "DoStreamSized": true,
+		"DoWithBodyLimit": true, "GetJSON": true, "GetJSONUseNumber": true,
+		"GetStream": true, "ResolveGET": true, "SendJSON": true,
 	}
 	packages := []struct {
 		name, directory string
@@ -113,11 +118,26 @@ func collectAdapterNonReplaySafeRequests(t *testing.T) (map[string]adapterReques
 			}
 			for _, declaration := range file.Decls {
 				function, ok := declaration.(*ast.FuncDecl)
-				if !ok || function.Body == nil {
+				if !ok {
+					if selectors := adapterTransportClientSelectors(declaration); len(selectors) != 0 {
+						t.Fatalf("%s uses transport client selectors outside function declarations: %v", path, selectors)
+					}
+					if markers := adapterDetachedRequestMarkers(declaration, clientMethods); len(markers) != 0 {
+						t.Fatalf("%s constructs request markers outside function declarations: %v", path, markers)
+					}
 					continue
 				}
-				if values := adapterTransportMethodValues(function.Body, methods); len(values) != 0 {
+				if function.Body == nil {
+					continue
+				}
+				if unknown := adapterUnknownTransportSelectors(function.Body, clientMethods); len(unknown) != 0 {
+					t.Fatalf("%s uses unknown transport client selectors: %v", path, unknown)
+				}
+				if values := adapterTransportMethodValues(function.Body, clientMethods); len(values) != 0 {
 					t.Fatalf("%s uses transport method values instead of direct calls: %v", path, values)
+				}
+				if markers := adapterDetachedRequestMarkers(function.Body, clientMethods); len(markers) != 0 {
+					t.Fatalf("%s constructs request markers outside direct request context arguments: %v", path, markers)
 				}
 				ast.Inspect(function.Body, func(node ast.Node) bool {
 					call, ok := node.(*ast.CallExpr)
@@ -125,11 +145,11 @@ func collectAdapterNonReplaySafeRequests(t *testing.T) (map[string]adapterReques
 						return true
 					}
 					selector, ok := call.Fun.(*ast.SelectorExpr)
-					if !ok || !methods[selector.Sel.Name] {
+					if !ok || !methodArgRequests[selector.Sel.Name] {
 						return true
 					}
 					receiver := guardedWriteReceiver(selector.X)
-					if !strings.HasSuffix(receiver, ".c") && receiver != "c" {
+					if !strings.HasSuffix(receiver, ".c") {
 						key := packageRoot.name + "/" + entry.Name() + ":" + function.Name.Name + ":" + receiver + ":" + selector.Sel.Name
 						if lookalikes[key] {
 							t.Fatalf("duplicate transport-method lookalike %s", key)
@@ -165,6 +185,33 @@ func collectAdapterNonReplaySafeRequests(t *testing.T) (map[string]adapterReques
 		}
 	}
 	return got, lookalikes
+}
+
+func adapterTransportClientSelectors(node ast.Node) []string {
+	var selectors []string
+	ast.Inspect(node, func(node ast.Node) bool {
+		selector, ok := node.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		receiver := guardedWriteReceiver(selector.X)
+		if strings.HasSuffix(receiver, ".c") {
+			selectors = append(selectors, receiver+"."+selector.Sel.Name)
+		}
+		return true
+	})
+	return selectors
+}
+
+func adapterUnknownTransportSelectors(node ast.Node, methods map[string]bool) []string {
+	var unknown []string
+	for _, selector := range adapterTransportClientSelectors(node) {
+		method := selector[strings.LastIndex(selector, ".")+1:]
+		if !methods[method] {
+			unknown = append(unknown, selector)
+		}
+	}
+	return unknown
 }
 
 func staticHTTPMethod(expression ast.Expr) (string, bool) {
@@ -247,6 +294,35 @@ func f() {
 	}
 }
 
+func TestAdapterInventoryRejectsUnknownTransportSelectors(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "fixture.go", `package fixture
+func f() { _ = j.c.PostJSON(ctx, path, payload) }
+`, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	function := file.Decls[0].(*ast.FuncDecl)
+	got := adapterUnknownTransportSelectors(function.Body, map[string]bool{"SendJSON": true})
+	want := []string{"j.c.PostJSON"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("unknown transport selectors = %v, want %v", got, want)
+	}
+}
+
+func TestAdapterInventoryFindsTransportSelectorsOutsideFunctions(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "fixture.go", `package fixture
+var send = j.c.SendJSON
+`, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := adapterTransportClientSelectors(file.Decls[0])
+	want := []string{"j.c.SendJSON"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("transport selectors outside functions = %v, want %v", got, want)
+	}
+}
+
 func adapterRequestMarker(expression ast.Expr) string {
 	marker := "none"
 	ast.Inspect(expression, func(node ast.Node) bool {
@@ -271,4 +347,72 @@ func adapterRequestMarker(expression ast.Expr) string {
 		return true
 	})
 	return marker
+}
+
+func adapterDetachedRequestMarkers(node ast.Node, methods map[string]bool) []string {
+	attached := make(map[token.Pos]bool)
+	ast.Inspect(node, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok || len(call.Args) == 0 {
+			return true
+		}
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || !methods[selector.Sel.Name] {
+			return true
+		}
+		receiver := guardedWriteReceiver(selector.X)
+		if !strings.HasSuffix(receiver, ".c") {
+			return true
+		}
+		ast.Inspect(call.Args[0], func(node ast.Node) bool {
+			if marker, ok := adapterRequestMarkerName(node); ok {
+				attached[marker.Pos()] = true
+			}
+			return true
+		})
+		return true
+	})
+	var detached []string
+	ast.Inspect(node, func(node ast.Node) bool {
+		marker, ok := adapterRequestMarkerName(node)
+		if ok && !attached[marker.Pos()] {
+			detached = append(detached, marker.Sel.Name)
+		}
+		return true
+	})
+	return detached
+}
+
+func adapterRequestMarkerName(node ast.Node) (*ast.SelectorExpr, bool) {
+	call, ok := node.(*ast.CallExpr)
+	if !ok {
+		return nil, false
+	}
+	selector, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return nil, false
+	}
+	packageName, ok := selector.X.(*ast.Ident)
+	if !ok || packageName.Name != "domain" {
+		return nil, false
+	}
+	return selector, selector.Sel.Name == "WithReadIntent" || selector.Sel.Name == "WithWriteClearance"
+}
+
+func TestAdapterInventoryRejectsDetachedRequestMarkers(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "fixture.go", `package fixture
+func f() {
+	marked := domain.WithWriteClearance(ctx)
+	_ = j.c.SendJSON(marked, "POST", path, nil, nil)
+}
+`, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	function := file.Decls[0].(*ast.FuncDecl)
+	got := adapterDetachedRequestMarkers(function.Body, map[string]bool{"SendJSON": true})
+	want := []string{"WithWriteClearance"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("detached request markers = %v, want %v", got, want)
+	}
 }
