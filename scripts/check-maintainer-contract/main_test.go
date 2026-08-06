@@ -430,21 +430,23 @@ readonly GRAPHIFY_WHEEL_URL="https://files.pythonhosted.org/packages/c3/fe/eb0af
 		"internal/agenteval/Makefile": `GO_ENV := env -u GOROOT GOTOOLCHAIN=auto GOWORK=off
 REPOSITORY_ROOT ?= $(abspath ../..)
 ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
-COMPAT_TESTS_WIRES := fixture
-COMPAT_TESTS_MIRROR := fixture
-COMPAT_TESTS_WRITES := fixture
-COMPAT_TESTS_MCP := fixture
+
+CAPABILITY_CATALOG_FIXTURE := $(CURDIR)/testdata/capability-catalog.v1.json
+COMPAT_TESTS_WIRES := ^(TestFixture)$$
+COMPAT_TESTS_MIRROR := ^(TestFixture)$$
+COMPAT_TESTS_WRITES := ^(TestFixture)$$
+COMPAT_TESTS_MCP := ^TestFixture$$
 
 .PHONY: build
 build:
 	$(GO_ENV) go build ./...
 
 .PHONY: unit
-unit:
+unit: product-atl
 	$(GO_ENV) go test ./... -count=1 -timeout=10m
 
 .PHONY: race
-race:
+race: product-atl
 	$(GO_ENV) go test -race ./... -count=1 -timeout=30m
 
 .PHONY: lint
@@ -471,6 +473,9 @@ windows:
 product-atl:
 	$(MAKE) -C $(REPOSITORY_ROOT) build
 
+.PHONY: gen-capability-catalog
+gen-capability-catalog: product-atl
+
 .PHONY: compat
 compat: product-atl
 	@test -x "$(ATL_BINARY)"
@@ -493,6 +498,7 @@ product-boundary:
 .PHONY: full
 full: tidy-check build race lint vet vuln contract windows product-boundary
 `,
+		"internal/agenteval/fixture_test.go": "package agenteval\n\nfunc TestFixture() {}\n",
 		".github/workflows/ci.yml": `name: ci
 on:
   push:

@@ -654,14 +654,15 @@ ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
 		target, contract string
 	}{
 		{"build", ".PHONY: build\nbuild:\n\t$(GO_ENV) go build ./...\n"},
-		{"unit", ".PHONY: unit\nunit:\n\t$(GO_ENV) go test ./... -count=1 -timeout=10m\n"},
-		{"race", ".PHONY: race\nrace:\n\t$(GO_ENV) go test -race ./... -count=1 -timeout=30m\n"},
+		{"unit", ".PHONY: unit\nunit: product-atl\n\t$(GO_ENV) go test ./... -count=1 -timeout=10m\n"},
+		{"race", ".PHONY: race\nrace: product-atl\n\t$(GO_ENV) go test -race ./... -count=1 -timeout=30m\n"},
 		{"lint", ".PHONY: lint\nlint:\n\t$(GO_ENV) go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run\n"},
 		{"vet", ".PHONY: vet\nvet:\n\t$(GO_ENV) go vet ./...\n"},
 		{"vuln", ".PHONY: vuln\nvuln:\n\t$(GO_ENV) go run golang.org/x/vuln/cmd/govulncheck@v1.4.0 ./...\n"},
 		{"tidy-check", ".PHONY: tidy-check\ntidy-check:\n\t$(GO_ENV) go mod tidy -diff\n"},
 		{"windows", ".PHONY: windows\nwindows:\n\t$(GO_ENV) GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...\n"},
 		{"product-atl", ".PHONY: product-atl\nproduct-atl:\n\t$(MAKE) -C $(REPOSITORY_ROOT) build\n"},
+		{"gen-capability-catalog", ".PHONY: gen-capability-catalog\ngen-capability-catalog: product-atl\n"},
 		{"product-boundary", ".PHONY: product-boundary\nproduct-boundary:\n\t$(MAKE) -C $(REPOSITORY_ROOT) check-package-boundary\n"},
 		{"contract", ".PHONY: contract\ncontract: compat unit\n"},
 		{"full", ".PHONY: full\nfull: tidy-check build race lint vet vuln contract windows product-boundary\n"},
@@ -677,6 +678,7 @@ ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
 		}
 	}
 	for _, requiredSnippet := range []string{
+		"CAPABILITY_CATALOG_FIXTURE := $(CURDIR)/testdata/capability-catalog.v1.json\n",
 		"COMPAT_TESTS_WIRES := ",
 		"COMPAT_TESTS_MIRROR := ",
 		"COMPAT_TESTS_WRITES := ",
@@ -695,6 +697,61 @@ ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
 		if !bytes.Contains(makefile, []byte(requiredSnippet)) {
 			return errors.New("evaluator Makefile must retain the reviewed compatibility and deterministic contract commands")
 		}
+	}
+	if err := validateEvaluatorCompatSelections(root, makefile); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateEvaluatorCompatSelections(root string, makefile []byte) error {
+	const prefix = "COMPAT_TESTS_"
+	definitions := make(map[string]int)
+	testRoot := filepath.Join(root, "internal", "agenteval")
+	if err := filepath.WalkDir(testRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for _, match := range regexp.MustCompile(`(?m)^func[ \t]+(Test[A-Za-z0-9_]+)[ \t]*\(`).FindAllSubmatch(data, -1) {
+			definitions[string(match[1])]++
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("inspect evaluator compatibility tests: %w", err)
+	}
+
+	seenVariables := 0
+	for _, line := range strings.Split(string(makefile), "\n") {
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		name, expression, ok := strings.Cut(line, " := ")
+		if !ok || !strings.HasSuffix(expression, "$$") {
+			return fmt.Errorf("evaluator Makefile compatibility selection %q is malformed", name)
+		}
+		selection := strings.TrimSuffix(strings.TrimPrefix(expression, "^("), ")$$")
+		if !strings.HasPrefix(expression, "^(") {
+			selection = strings.TrimSuffix(strings.TrimPrefix(expression, "^"), "$$")
+		}
+		if selection == "" {
+			return fmt.Errorf("evaluator Makefile compatibility selection %q is empty", name)
+		}
+		for _, testName := range strings.Split(selection, "|") {
+			if definitions[testName] != 1 {
+				return fmt.Errorf("evaluator Makefile compatibility selection %q resolves %q to %d test definitions, want 1", name, testName, definitions[testName])
+			}
+		}
+		seenVariables++
+	}
+	if seenVariables != 4 {
+		return fmt.Errorf("evaluator Makefile has %d compatibility selections, want 4", seenVariables)
 	}
 	return nil
 }

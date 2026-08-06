@@ -51,6 +51,18 @@ func TestMergeNoEditIsIdentity(t *testing.T) {
 	}
 }
 
+func TestMergeLCSAlignmentTiePreservesEstablishedRichBlock(t *testing.T) {
+	base := `<p>b<br/></p><p>a</p><p><span>a</span></p>` +
+		`<table><tbody><tr><th>r</th></tr><tr><td>r</td></tr></tbody></table>` +
+		`<h2>H</h2>` +
+		`<table><tbody><tr><th>r</th></tr><tr><td>r</td></tr></tbody></table>`
+	edited := "b\n\na\n\n| r |\n| --- |\n| r |\n\n## H\n\n| r |\n| --- |\n| r |"
+	out, _ := mustMerge(t, base, edited, nil, Options{AllowFragmentLoss: true})
+	if !strings.Contains(string(out), `<p><span>a</span></p>`) {
+		t.Fatalf("deterministic alignment did not preserve the established rich block: %s", out)
+	}
+}
+
 func TestMergeSingleParagraphEdit(t *testing.T) {
 	md := renderOf(t, samplePage, nil)
 	edited := strings.Replace(md, "is green.", "is red.", 1)

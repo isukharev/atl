@@ -417,6 +417,9 @@ Notable behaviors:
   `internal/wikiscanner` owns the Jira heading/macro/hr/list/table recognition
   rules consumed by both `wikimd` and `wikimerge`, so renderer and apply block
   boundaries cannot drift through duplicated regular expressions.
+  `internal/blockalign` owns the bounded deterministic LCS alignment shared by
+  the Confluence and Jira native-byte merge paths; its tie rule is a durable
+  byte-selection contract, not an interchangeable implementation detail.
 
 Confluence path relocation is id-based rather than directory-based. A re-pull
 reconstructs the recorded pristine view in `app`, while `mirror` hash-binds and

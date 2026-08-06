@@ -73,13 +73,18 @@ func DecodeSyntheticRunReceipt(reader io.Reader) (SyntheticRunReceipt, error) {
 	limited := &io.LimitedReader{R: reader, N: maxSyntheticRunReceiptBytes + 1}
 	decoder := json.NewDecoder(limited)
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&receipt); err != nil {
-		return SyntheticRunReceipt{}, fmt.Errorf("decode synthetic run receipt: %w", err)
-	}
+	decodeErr := decoder.Decode(&receipt)
 	if limited.N <= 0 {
 		return SyntheticRunReceipt{}, fmt.Errorf("synthetic run receipt exceeds %d bytes", maxSyntheticRunReceiptBytes)
 	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+	if decodeErr != nil {
+		return SyntheticRunReceipt{}, fmt.Errorf("decode synthetic run receipt: %w", decodeErr)
+	}
+	trailingErr := decoder.Decode(&struct{}{})
+	if limited.N <= 0 {
+		return SyntheticRunReceipt{}, fmt.Errorf("synthetic run receipt exceeds %d bytes", maxSyntheticRunReceiptBytes)
+	}
+	if trailingErr != io.EOF {
 		return SyntheticRunReceipt{}, fmt.Errorf("synthetic run receipt contains trailing JSON data")
 	}
 	if err := receipt.Validate(); err != nil {

@@ -34,8 +34,8 @@ func TestRunReportsPhysicalFileAndFunctionSpans(t *testing.T) {
 	if got.Status != "ok" || got.TimingMode != "observe" || got.TimingObservations != 2 {
 		t.Fatalf("unexpected report: %+v", got)
 	}
-	if len(got.Measurements) != 8 {
-		t.Fatalf("measurements=%d want 8", len(got.Measurements))
+	if len(got.Measurements) != 12 {
+		t.Fatalf("measurements=%d want 12", len(got.Measurements))
 	}
 	if got.Measurements[0].Lines != 3 || got.Measurements[1].Lines != 1 {
 		t.Fatalf("app measurements=%+v want file=3 function=1", got.Measurements[:2])
@@ -61,6 +61,14 @@ func TestMaintainabilityRatchetsRejectGrowthAndRemovedControl(t *testing.T) {
 		assertMaintainabilityError(t, root, "exceeds reviewed maximum")
 	})
 
+	t.Run("package growth", func(t *testing.T) {
+		root := writeMaintainabilityFixture(t)
+		m := readFixtureManifest(t, root)
+		m.PackageTotals[0].MaxLines = 2
+		writeFixtureManifest(t, root, m)
+		assertMaintainabilityError(t, root, "exceeds reviewed maximum")
+	})
+
 	t.Run("function removed", func(t *testing.T) {
 		root := writeMaintainabilityFixture(t)
 		writeTestFile(t, filepath.Join(root, "internal", "app", "a.go"), "package app\n")
@@ -82,6 +90,13 @@ func TestMaintainabilityManifestRejectsInvalidRows(t *testing.T) {
 		{name: "missing owner kind", mutate: func(m *manifest) { m.Hotspots = m.Hotspots[1:] }, want: "must have selected file and function"},
 		{name: "owner declaration drift", mutate: func(m *manifest) { m.Owners[0].PathPrefixes = []string{"internal/"} }, want: "reviewed sorted owner/path mapping"},
 		{name: "legacy evaluator owner prefix", mutate: func(m *manifest) { m.Owners[2].PathPrefixes = append(m.Owners[2].PathPrefixes, "scripts/agent-eval/") }, want: "reviewed sorted owner/path mapping"},
+		{name: "missing package owner", mutate: func(m *manifest) { m.PackageTotals = m.PackageTotals[1:] }, want: "one row for each"},
+		{name: "duplicate package owner", mutate: func(m *manifest) {
+			m.PackageTotals[1].Owner = m.PackageTotals[0].Owner
+			m.PackageTotals[1].Path = m.PackageTotals[0].Path
+		}, want: "duplicated"},
+		{name: "package owner mapping", mutate: func(m *manifest) { m.PackageTotals[0].Path = "internal/cli/" }, want: "invalid owner/path mapping"},
+		{name: "package empty rationale", mutate: func(m *manifest) { m.PackageTotals[0].Rationale = " " }, want: "positive maximum and rationale"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -209,6 +224,12 @@ func writeMaintainabilityFixture(t *testing.T) string {
 			{Owner: "evaluator", Path: "internal/agenteval/e.go", Function: "evalHotspot", MaxLines: 5, Rationale: "fixture function"},
 			{Owner: "mcp", Path: "internal/mcpserver/m.go", MaxLines: 10, Rationale: "fixture file"},
 			{Owner: "mcp", Path: "internal/mcpserver/m.go", Function: "mcpHotspot", MaxLines: 5, Rationale: "fixture function"},
+		},
+		PackageTotals: []packageTotal{
+			{Owner: "app", Path: "internal/app/", MaxLines: 10, Rationale: "fixture package"},
+			{Owner: "cli", Path: "internal/cli/", MaxLines: 10, Rationale: "fixture package"},
+			{Owner: "evaluator", Path: "internal/agenteval/", MaxLines: 10, Rationale: "fixture package"},
+			{Owner: "mcp", Path: "internal/mcpserver/", MaxLines: 10, Rationale: "fixture package"},
 		},
 		Timing: timingObservations{Mode: "observe", Observations: []timingObservation{
 			{MakeTarget: "agent-eval-race", Source: "github_actions_ubuntu_step", WorkflowRunID: 1, Revision: strings.Repeat("a", 40), ObservedAt: "2026-08-03T00:00:00Z", DurationSeconds: 2, Rationale: "fixture observation"},

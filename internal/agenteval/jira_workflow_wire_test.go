@@ -236,7 +236,7 @@ func TestDecodeJiraWorkflowWiresRejectNestedMemberAndSelectionDrift(t *testing.T
 func validJiraPortfolioCapabilityWire(t *testing.T) []byte {
 	t.Helper()
 	items := make([]CapabilityCatalogItem, 0, jiraPortfolioCapabilityCount)
-	for _, item := range PinnedCapabilityCatalog().Capabilities {
+	for _, item := range mustPinnedCapabilityCatalog(t).Capabilities {
 		if item.TaskClass == "jira/portfolio" {
 			items = append(items, item)
 		}

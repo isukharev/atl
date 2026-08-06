@@ -44,7 +44,7 @@ func TestSyntheticATLProcessRunsSelectedBinaryCLIAndMCPContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 	if info, statErr := os.Stat(binary); statErr != nil || !info.Mode().IsRegular() {
-		t.Skip("repository ATL binary is built by make agent-eval-compat")
+		t.Fatal("repository ATL binary is unavailable; use an evaluator Make target that builds it")
 	}
 	invocation, ok := newMCPInvocation("jira_fields", map[string]any{"summary_only": true, "max_bytes": 1024})
 	if !ok {

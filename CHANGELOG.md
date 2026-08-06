@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Kept Confluence space-tree depth filtering independent from the 2000-page
+  result budget while bounding raw traversal at 20000 pages and reporting
+  truncation when either bound prevents a complete result.
+- Hardened evaluator and maintainer verification so binary-backed tests cannot
+  silently skip, compatibility selectors must name real tests, strict decoders
+  reject over-limit trailing data, and generated contracts are reproducible
+  and mode-stable.
+
 ## [0.6.0] - 2026-08-03
 
 ### Added

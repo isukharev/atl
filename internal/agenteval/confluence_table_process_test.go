@@ -773,7 +773,10 @@ func assertConfluenceTableRecoverySchemaMutationsFail(t *testing.T, root string,
 		t.Fatal(err)
 	}
 	for name, mutate := range map[string]func(map[string]any){
-		"free-text brief":         func(answer map[string]any) { answer["brief"] = "the page was missing" },
+		"free-text brief": func(answer map[string]any) { answer["brief"] = "the page was missing" },
+		"free-text source status": func(answer map[string]any) {
+			answer["source_status"].(map[string]any)["initial_table_extract"] = "not_found"
+		},
 		"missing recovery action": func(answer map[string]any) { delete(answer, "recovery_action") },
 		"undeclared narrative":    func(answer map[string]any) { answer["notes"] = "unreviewed" },
 		"wrong boolean":           func(answer map[string]any) { answer["missing_page_claimed"] = "false" },

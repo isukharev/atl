@@ -98,6 +98,26 @@ func TestPlatformVarSetsAreComplete(t *testing.T) {
 	}
 }
 
+func TestVerifyPublishedSkillTreeRejectsExecutableFile(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "SKILL.md")
+	data := []byte("generated\n")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	if err := verifyPublishedSkillTree(root, []renderedFile{{rel: "SKILL.md", data: data}}); err == nil {
+		t.Fatal("executable generated skill file passed publication verification")
+	}
+}
+
 func TestPlatformPluginUpdateCommands(t *testing.T) {
 	updates := map[string]string{}
 	for _, pl := range platforms {

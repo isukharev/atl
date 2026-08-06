@@ -1,6 +1,7 @@
 package safepath
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -8,6 +9,17 @@ import (
 	"strings"
 	"testing"
 )
+
+type ioParityContract struct {
+	SchemaVersion int `json:"schema_version"`
+	Cases         []struct {
+		Name      string `json:"name"`
+		Path      string `json:"path"`
+		Limit     int64  `json:"limit"`
+		Want      string `json:"want,omitempty"`
+		WantError bool   `json:"want_error,omitempty"`
+	} `json:"cases"`
+}
 
 // dirHasTempLeak reports whether dir contains any leftover temp file matching
 // the prefixes WriteFileAtomic uses for its in-progress writes.
@@ -653,5 +665,54 @@ func TestReadFileWithinLimit(t *testing.T) {
 	}
 	if _, err := ReadFileWithinLimit(root, link, 16); err == nil {
 		t.Fatal("bounded read followed an escaping symlink")
+	}
+}
+
+func TestReadFileWithinLimitSharedParityContract(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("testdata", "io-parity.v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var contract ioParityContract
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&contract); err != nil || contract.SchemaVersion != 1 || len(contract.Cases) == 0 {
+		t.Fatalf("decode shared I/O parity contract: %+v, %v", contract, err)
+	}
+	root := t.TempDir()
+	realDirectory := filepath.Join(root, "real")
+	if err := os.Mkdir(realDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(realDirectory, "inside.txt"), []byte("inside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outsideDirectory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outsideDirectory, "outside.txt"), []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for target, link := range map[string]string{
+		filepath.Join("real", "inside.txt"): filepath.Join(root, "inside-file.txt"),
+		"real":                              filepath.Join(root, "inside-directory"),
+		filepath.Join(outsideDirectory, "outside.txt"): filepath.Join(root, "outside-file.txt"),
+		outsideDirectory: filepath.Join(root, "outside-directory"),
+	} {
+		if err := os.Symlink(target, link); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+	}
+	for _, test := range contract.Cases {
+		t.Run(test.Name, func(t *testing.T) {
+			got, err := ReadFileWithinLimit(root, filepath.Join(root, filepath.FromSlash(test.Path)), test.Limit)
+			if test.WantError {
+				if err == nil {
+					t.Fatalf("read returned %q without an error", got)
+				}
+				return
+			}
+			if err != nil || string(got) != test.Want {
+				t.Fatalf("read=%q err=%v, want %q", got, err, test.Want)
+			}
+		})
 	}
 }

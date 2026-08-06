@@ -305,6 +305,22 @@ func TestListCommentsExactItemCapTerminalIsComplete(t *testing.T) {
 	}
 }
 
+func TestListCommentsExactItemCapWithNextIsTruncated(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(legacyCommentPage(maxItems, true)))
+	}))
+	defer srv.Close()
+
+	got, truncated, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).ListComments(t.Context(), "200")
+	if err != nil || !truncated {
+		t.Fatalf("truncated=%v err=%v, want exact-cap continuation to be truncated", truncated, err)
+	}
+	if len(got) != maxItems {
+		t.Fatalf("comments=%d, want exact item cap %d", len(got), maxItems)
+	}
+}
+
 // TestListAttachmentsPaginates verifies attachment paging follows _links.next.
 func TestListAttachmentsPaginates(t *testing.T) {
 	page1 := `{
