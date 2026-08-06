@@ -116,6 +116,9 @@ func collectAdapterNonReplaySafeRequests(t *testing.T) (map[string]adapterReques
 				if !ok || function.Body == nil {
 					continue
 				}
+				if values := adapterTransportMethodValues(function.Body, methods); len(values) != 0 {
+					t.Fatalf("%s uses transport method values instead of direct calls: %v", path, values)
+				}
 				ast.Inspect(function.Body, func(node ast.Node) bool {
 					call, ok := node.(*ast.CallExpr)
 					if !ok {
@@ -174,7 +177,7 @@ func staticHTTPMethod(expression ast.Expr) (string, bool) {
 		if err != nil {
 			return "", false
 		}
-		return strings.ToUpper(decoded), true
+		return decoded, true
 	case *ast.SelectorExpr:
 		packageName, ok := value.X.(*ast.Ident)
 		if !ok || packageName.Name != "http" || !strings.HasPrefix(value.Sel.Name, "Method") {
@@ -187,6 +190,60 @@ func staticHTTPMethod(expression ast.Expr) (string, bool) {
 		return method, true
 	default:
 		return "", false
+	}
+}
+
+func adapterTransportMethodValues(body ast.Node, methods map[string]bool) []string {
+	directCalls := make(map[token.Pos]bool)
+	ast.Inspect(body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if ok && methods[selector.Sel.Name] {
+			directCalls[selector.Pos()] = true
+		}
+		return true
+	})
+	var values []string
+	ast.Inspect(body, func(node ast.Node) bool {
+		selector, ok := node.(*ast.SelectorExpr)
+		if !ok || !methods[selector.Sel.Name] || directCalls[selector.Pos()] {
+			return true
+		}
+		values = append(values, guardedWriteReceiver(selector.X)+"."+selector.Sel.Name)
+		return true
+	})
+	return values
+}
+
+func TestAdapterInventoryPreservesLiteralHTTPMethodCase(t *testing.T) {
+	expression, err := parser.ParseExpr(`"get"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	method, ok := staticHTTPMethod(expression)
+	if !ok || method != "get" {
+		t.Fatalf("static HTTP method = %q, %t; want lowercase literal preserved", method, ok)
+	}
+}
+
+func TestAdapterInventoryRejectsTransportMethodValues(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "fixture.go", `package fixture
+func f() {
+	send := j.c.SendJSON
+	_ = send
+}
+`, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	function := file.Decls[0].(*ast.FuncDecl)
+	got := adapterTransportMethodValues(function.Body, map[string]bool{"SendJSON": true})
+	want := []string{"j.c.SendJSON"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("transport method values = %v, want %v", got, want)
 	}
 }
 
