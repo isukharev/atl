@@ -29,7 +29,7 @@
   ],
   "package_totals": [
     {"owner":"app","path":"internal/app/","max_lines":34386,"rationale":"Keep total production growth in the app package visible even when responsibilities move out of selected hotspot files."},
-    {"owner":"cli","path":"internal/cli/","max_lines":10108,"rationale":"Keep total production growth in the CLI package visible even when command assembly moves into new files."},
+    {"owner":"cli","path":"internal/cli/","max_lines":10111,"rationale":"Keep total production growth in the CLI package visible; 10111 includes the reviewed pre-configuration Confluence page-delete content-id guard."},
     {"owner":"evaluator","path":"internal/agenteval/","max_lines":47450,"rationale":"Keep the complete evaluator module tree, including cmd/agent-eval, visible across responsibility splits."},
     {"owner":"mcp","path":"internal/mcpserver/","max_lines":3294,"rationale":"Keep total production growth in the MCP package visible even when registration and protocol owners are split."}
   ],

@@ -238,7 +238,9 @@ write command after explicit approval.
   terminal evidence; `-o id` is apply-only. The leaf is mutating-classified, so
   `ATL_READ_ONLY=1` blocks preview too; remove it only inside an explicitly
   approved copy workflow, then restore it for ordinary read blocks.
-- Guarded page trash: run `conf page delete --id <id>` as a GET-only preview,
+- Guarded page trash: use a canonical positive numeric page id; aliases, URLs,
+  signs, leading zeroes, and surrounding whitespace fail before configuration
+  or backend access. Run `conf page delete --id <id>` as a GET-only preview,
   review its version and proposal hash, then apply once with `--apply`,
   `--confirm TRASH`, `--expected-version <version>`, and
   `--expected-proposal-hash <hash>`. The

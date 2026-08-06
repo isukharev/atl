@@ -51,7 +51,7 @@ func (j *Jira) StructureValues(ctx context.Context, id int64, rows []int64, fiel
 		}},
 	}
 	var raw map[string]any
-	if err := j.c.SendJSON(ctx, http.MethodPost, "/rest/structure/2.0/value", payload, &raw); err != nil {
+	if err := j.c.SendJSON(domain.WithReadIntent(ctx), http.MethodPost, "/rest/structure/2.0/value", payload, &raw); err != nil {
 		return nil, err
 	}
 	return mapStructureValues(raw), nil

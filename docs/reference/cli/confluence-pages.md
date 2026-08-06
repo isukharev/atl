@@ -471,6 +471,9 @@ Flags:
 Preview or apply one reviewed current-to-trashed transition. The command is
 dry-run by default: preview performs exact `current`/`trashed` reads and emits a
 content-minimized proposal, but sends no DELETE.
+`--id` must be a canonical positive numeric content id. Aliases, URLs, signs,
+leading zeroes, and surrounding whitespace are usage errors before
+configuration or backend access.
 
 ```bash
 atl conf page delete --id 12345678

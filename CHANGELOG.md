@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Refused non-canonical Confluence page-delete ids before configuration or
+  backend access, and added opt-in last-hop clearance/read-intent plumbing for
+  future scoped write enforcement.
 - Kept Confluence space-tree depth filtering independent from the 2000-page
   result budget while bounding raw traversal at 20000 pages and reporting
   truncation when either bound prevents a complete result.

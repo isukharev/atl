@@ -35,6 +35,25 @@ func TestReadBudgetContextIsOptIn(t *testing.T) {
 	}
 }
 
+func TestWriteClearanceAndReadIntentAreIndependentOptInMarkers(t *testing.T) {
+	ctx := context.Background()
+	if HasWriteClearance(ctx) || ReadIntent(ctx) {
+		t.Fatal("background context unexpectedly carries request authorization markers")
+	}
+	writeContext := WithWriteClearance(ctx)
+	if !HasWriteClearance(writeContext) || ReadIntent(writeContext) {
+		t.Fatal("write-clearance context did not preserve marker independence")
+	}
+	readContext := WithReadIntent(ctx)
+	if HasWriteClearance(readContext) || !ReadIntent(readContext) {
+		t.Fatal("read-intent context did not preserve marker independence")
+	}
+	both := WithReadIntent(writeContext)
+	if !HasWriteClearance(both) || !ReadIntent(both) {
+		t.Fatal("nested request authorization markers were not preserved")
+	}
+}
+
 func TestReadBudgetConcurrentCountersNeverExceedLimits(t *testing.T) {
 	const (
 		attemptLimit = 37

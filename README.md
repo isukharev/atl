@@ -171,6 +171,9 @@ A Confluence version conflict exits `5`; preserve the local candidate and use
 create/copy, trash, Jira field, transition, and deletion workflows require the
 emitted expected values and never retry ambiguous writes. Follow the
 [safe-write guide](docs/safe-writes.md) for exact apply and recovery commands.
+Confluence page trash accepts only a canonical positive numeric `--id`; page
+aliases, URLs, signs, leading zeroes, and surrounding whitespace fail before
+configuration or backend access.
 
 ## Coding agents
 

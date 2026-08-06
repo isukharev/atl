@@ -106,7 +106,12 @@ type Client struct {
 	// ErrVersionConflict — exit 5 would point the caller at a re-pull/--force
 	// recovery that does not exist there. Set by the Jira adapter.
 	noVersionGate bool
+	// requireWriteClearance enables the last-hop assertion for clients whose
+	// application policy wiring is complete. It remains false by default.
+	requireWriteClearance bool
 }
+
+var errUnclearedWrite = fmt.Errorf("%w: non-replay-safe request lacks write clearance or reviewed read intent", domain.ErrCheckFailed)
 
 // SetNoVersionGate marks the backend as having no optimistic version gate:
 // an HTTP 409 keeps its full APIError (status and body) but carries no
@@ -582,6 +587,9 @@ func (c *Client) newRequest(ctx context.Context, method, url string, body []byte
 }
 
 func (c *Client) newRequestReader(ctx context.Context, method, url string, body io.Reader, headers map[string]string) (*http.Request, error) {
+	if c.requireWriteClearance && !replaySafe(method) && !domain.HasWriteClearance(ctx) && !domain.ReadIntent(ctx) {
+		return nil, errUnclearedWrite
+	}
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return nil, err

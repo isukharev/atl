@@ -85,6 +85,78 @@ func TestClassifyToSentinels(t *testing.T) {
 	}
 }
 
+func TestWriteClearanceBackstopRefusesUnmarkedWritesBeforeTransport(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "token", "test")
+	c.requireWriteClearance = true
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, "get"} {
+		_, err := c.Do(context.Background(), method, "/write", nil, nil)
+		if !errors.Is(err, errUnclearedWrite) || !errors.Is(err, domain.ErrCheckFailed) {
+			t.Errorf("method %q error = %v, want uncleared-write/check-failed", method, err)
+		}
+	}
+	if _, err := c.DoStream(context.Background(), http.MethodPost, "/stream", strings.NewReader("body"), nil); !errors.Is(err, errUnclearedWrite) {
+		t.Fatalf("streaming write error = %v, want uncleared-write", err)
+	}
+	if got := hits.Load(); got != 0 {
+		t.Fatalf("uncleared writes made %d transport attempts, want zero", got)
+	}
+}
+
+func TestWriteClearanceBackstopAdmitsMarkersAndReplaySafeReads(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "token", "test")
+	c.requireWriteClearance = true
+	tests := []struct {
+		name   string
+		ctx    context.Context
+		method string
+	}{
+		{name: "write clearance", ctx: domain.WithWriteClearance(context.Background()), method: http.MethodPost},
+		{name: "read intent", ctx: domain.WithReadIntent(context.Background()), method: http.MethodPost},
+		{name: "GET", ctx: context.Background(), method: http.MethodGet},
+		{name: "HEAD", ctx: context.Background(), method: http.MethodHead},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := c.Do(test.ctx, test.method, "/allowed", nil, nil); err != nil {
+				t.Fatalf("allowed request: %v", err)
+			}
+		})
+	}
+	if got := hits.Load(); got != int32(len(tests)) {
+		t.Fatalf("allowed requests made %d transport attempts, want %d", got, len(tests))
+	}
+}
+
+func TestWriteClearanceBackstopIsDisabledByDefault(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	if _, err := New(srv.URL, "token", "test").Do(context.Background(), http.MethodPost, "/write", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := hits.Load(); got != 1 {
+		t.Fatalf("default-disabled client made %d transport attempts, want 1", got)
+	}
+}
+
 func TestResolveGETReturnsFinalSameOriginURLWithScopedAuth(t *testing.T) {
 	var auth []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -85,7 +85,7 @@
     },
     {
       "path": "confluence/SKILL.md",
-      "sha256": "da0dfa9d1424bbdcaf802fbaae3a7e94d9f7636a2e19e17403a188a638298b22"
+      "sha256": "3fce606cc775aa799c50e0f5f8d0ad85f1bd6d5cb0bddc1ebcfe419fd07b6b5f"
     },
     {
       "path": "confluence/agents/openai.yaml",

@@ -9,6 +9,8 @@ import (
 type singleAttemptContextKey struct{}
 type redactHTTPTraceContextKey struct{}
 type readBudgetContextKey struct{}
+type writeClearanceContextKey struct{}
+type readIntentContextKey struct{}
 
 // ReadBudgetExhaustedError is a content-free transport classification. Static
 // instances below let callers distinguish which closed budget dimension was
@@ -176,6 +178,30 @@ func WithSingleAttempt(ctx context.Context) context.Context {
 func SingleAttempt(ctx context.Context) bool {
 	requested, _ := ctx.Value(singleAttemptContextKey{}).(bool)
 	return requested
+}
+
+// WithWriteClearance records that an application authorization decision
+// admitted the write represented by this request context.
+func WithWriteClearance(ctx context.Context) context.Context {
+	return context.WithValue(ctx, writeClearanceContextKey{}, true)
+}
+
+// HasWriteClearance reports whether the request context carries an admitted
+// application authorization decision.
+func HasWriteClearance(ctx context.Context) bool {
+	cleared, _ := ctx.Value(writeClearanceContextKey{}).(bool)
+	return cleared
+}
+
+// WithReadIntent marks a reviewed read that uses a non-replay-safe HTTP method.
+func WithReadIntent(ctx context.Context) context.Context {
+	return context.WithValue(ctx, readIntentContextKey{}, true)
+}
+
+// ReadIntent reports whether a non-replay-safe request is a reviewed read.
+func ReadIntent(ctx context.Context) bool {
+	read, _ := ctx.Value(readIntentContextKey{}).(bool)
+	return read
 }
 
 // WithRedactedHTTPTrace prevents request identity from appearing in verbose
