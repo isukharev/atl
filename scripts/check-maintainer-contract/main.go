@@ -36,6 +36,10 @@ AGENT_EVAL_DIR := internal/agenteval
 AGENT_EVAL_MAKE := $(MAKE) -C $(AGENT_EVAL_DIR) REPOSITORY_ROOT="$(CURDIR)" ATL_BINARY="$(CURDIR)/atl"
 `
 
+const devcontainerSystemPackagesContract = `sudo apt-get -o Acquire::Retries=3 -o APT::Update::Error-Mode=any update -qq
+sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends gnupg python3 ripgrep
+`
+
 const windowsCompileMakeContract = `.PHONY: check-windows-compile
 check-windows-compile:
 	$(GO_ENV) GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...
@@ -483,6 +487,12 @@ func validateBootstrap(root string) error {
 	}
 	if bytes.Count(postCreate, []byte(`bash "${here}/install-graphify.sh"`)) != 1 {
 		return errors.New("devcontainer post-create must install Graphify exactly once")
+	}
+	if bytes.Count(postCreate, []byte(`bash "${here}/install-claude-code.sh"`)) != 1 {
+		return errors.New("devcontainer post-create must install Claude Code exactly once")
+	}
+	if bytes.Count(postCreate, []byte(devcontainerSystemPackagesContract)) != 1 {
+		return errors.New("devcontainer post-create must install the system packages required by Claude Code and Graphify")
 	}
 	if err := validateGraphifyInstaller(root); err != nil {
 		return err

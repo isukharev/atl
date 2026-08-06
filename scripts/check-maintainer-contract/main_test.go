@@ -94,6 +94,9 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 		{name: "CodeQL evaluator build", path: ".github/workflows/codeql.yml", old: "run: make agent-eval-build", replacement: "run: echo skipped", want: "exact workflow block"},
 		{name: "nested Dependabot module", path: ".github/dependabot.yml", old: "directory: \"/internal/agenteval\"", replacement: "directory: \"/internal/evaluator\"", want: "exactly one reviewed gomod entry"},
 		{name: "Graphify post-create hook", path: ".devcontainer/post-create.sh", old: `bash "${here}/install-graphify.sh"`, replacement: "echo skipped", want: "install Graphify exactly once"},
+		{name: "Claude post-create hook", path: ".devcontainer/post-create.sh", old: `bash "${here}/install-claude-code.sh"`, replacement: "echo skipped", want: "install Claude Code exactly once"},
+		{name: "Graphify Python runtime", path: ".devcontainer/post-create.sh", old: "gnupg python3 ripgrep", replacement: "gnupg ripgrep", want: "system packages required by Claude Code and Graphify"},
+		{name: "Claude key verification dependency", path: ".devcontainer/post-create.sh", old: "gnupg python3 ripgrep", replacement: "python3 ripgrep", want: "system packages required by Claude Code and Graphify"},
 		{name: "Graphify version pin", path: ".devcontainer/install-graphify.sh", old: `readonly GRAPHIFY_VERSION="` + graphifyVersion + `"`, replacement: `readonly GRAPHIFY_VERSION="latest"`, want: "Graphify installer"},
 		{name: "Graphify dependency pin", path: ".devcontainer/graphify-constraints.txt", old: "networkx==3.6.1", replacement: "networkx>=3.6.1", want: "reviewed dependency set"},
 		{name: "Graphify extraction remains explicit", path: ".devcontainer/install-graphify.sh", old: "set -euo pipefail", replacement: "set -euo pipefail\ngraphify extract . --code-only", want: "must not run"},
@@ -111,6 +114,136 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 			_, err := validateRepository(root, runtimeVersion)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error=%v, want substring %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestClaudeInstallerUsesSignedAPTRepository(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Claude Code devcontainer installer is Linux-only")
+	}
+	_, current, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve test path")
+	}
+	installer := filepath.Join(filepath.Dir(current), "..", "..", ".devcontainer", "install-claude-code.sh")
+
+	for _, test := range []struct {
+		name        string
+		channel     string
+		fingerprint string
+		extraKey    string
+		wantRepo    string
+		wantError   bool
+	}{
+		{
+			name:        "latest channel",
+			channel:     "latest",
+			fingerprint: "31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE",
+			wantRepo:    "deb [signed-by=/etc/apt/keyrings/claude-code.asc] https://downloads.claude.ai/claude-code/apt/latest latest main\n",
+		},
+		{
+			name:        "stable channel",
+			channel:     "stable",
+			fingerprint: "31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE",
+			wantRepo:    "deb [signed-by=/etc/apt/keyrings/claude-code.asc] https://downloads.claude.ai/claude-code/apt/stable stable main\n",
+		},
+		{name: "untrusted key", channel: "latest", fingerprint: "0000000000000000000000000000000000000000", wantError: true},
+		{
+			name:        "additional primary key",
+			channel:     "latest",
+			fingerprint: "31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE",
+			extraKey:    "0000000000000000000000000000000000000000",
+			wantError:   true,
+		},
+		{name: "invalid channel", channel: "2.3.4", fingerprint: "31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE", wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			binDir := filepath.Join(home, "bin")
+			if err := os.MkdirAll(binDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writeExecutable(t, filepath.Join(binDir, "curl"), `#!/bin/sh
+output=
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -o) shift; output="$1" ;;
+    esac
+    shift
+done
+printf '%s\n' 'synthetic key' > "$output"
+`)
+			writeExecutable(t, filepath.Join(binDir, "gpg"), `#!/bin/sh
+printf 'pub::::::::::\n'
+printf 'fpr:::::::::%s:\n' "$FAKE_FINGERPRINT"
+printf 'sub::::::::::\n'
+printf 'fpr:::::::::%s:\n' '1111111111111111111111111111111111111111'
+if [ -n "$FAKE_EXTRA_KEY" ]; then
+    printf 'pub::::::::::\n'
+    printf 'fpr:::::::::%s:\n' "$FAKE_EXTRA_KEY"
+fi
+`)
+			writeExecutable(t, filepath.Join(binDir, "sudo"), `#!/bin/sh
+printf '%s\n' "$*" >> "$HOME/sudo-calls"
+if [ "$1" = tee ]; then
+    cat > "$HOME/repository-line"
+fi
+`)
+			writeExecutable(t, filepath.Join(binDir, "claude"), "#!/bin/sh\nprintf '%s\\n' '2.3.4 (Claude Code)'\n")
+
+			runs := 2
+			if test.wantError {
+				runs = 1
+			}
+			var output []byte
+			var err error
+			for range runs {
+				cmd := exec.Command("bash", installer, test.channel)
+				cmd.Env = append(os.Environ(),
+					"FAKE_FINGERPRINT="+test.fingerprint,
+					"FAKE_EXTRA_KEY="+test.extraKey,
+					"HOME="+home,
+					"PATH="+binDir+":"+os.Getenv("PATH"),
+				)
+				output, err = cmd.CombinedOutput()
+				if err != nil {
+					break
+				}
+			}
+			if test.wantError && err == nil {
+				t.Fatalf("installer succeeded unexpectedly\n%s", output)
+			}
+			if !test.wantError && err != nil {
+				t.Fatalf("installer failed: %v\n%s", err, output)
+			}
+			repo, readErr := os.ReadFile(filepath.Join(home, "repository-line"))
+			if test.wantError {
+				if !os.IsNotExist(readErr) {
+					t.Fatalf("untrusted key configured a repository: %v", readErr)
+				}
+				return
+			}
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if string(repo) != test.wantRepo {
+				t.Fatalf("repository=%q want=%q", repo, test.wantRepo)
+			}
+			sudoCalls, readErr := os.ReadFile(filepath.Join(home, "sudo-calls"))
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			for _, want := range []string{
+				"install -d -m 0755 /etc/apt/keyrings",
+				"install -m 0644",
+				"apt-get -o Acquire::Retries=3 -o APT::Update::Error-Mode=any update -qq",
+				"apt-get -o Acquire::Retries=3 install -y --no-install-recommends claude-code",
+			} {
+				if count := bytes.Count(sudoCalls, []byte(want)); count != runs {
+					t.Fatalf("sudo call count for %q = %d, want %d:\n%s", want, count, runs, sudoCalls)
+				}
 			}
 		})
 	}
@@ -276,7 +409,7 @@ func writeFixture(t *testing.T) string {
     }
   }
 }`,
-		".devcontainer/post-create.sh": "#!/usr/bin/env bash\ngo run ./scripts/check-maintainer-contract\nbash \"${here}/install-graphify.sh\"\n",
+		".devcontainer/post-create.sh": "#!/usr/bin/env bash\ngo run ./scripts/check-maintainer-contract\n" + devcontainerSystemPackagesContract + "bash \"${here}/install-claude-code.sh\"\nbash \"${here}/install-graphify.sh\"\n",
 		".devcontainer/install-graphify.sh": `#!/usr/bin/env bash
 set -euo pipefail
 readonly UV_VERSION="` + graphifyUVVersion + `"
