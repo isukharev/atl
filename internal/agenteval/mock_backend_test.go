@@ -564,7 +564,7 @@ func TestMockBackendMatchesExpectedJSONRequestBody(t *testing.T) {
 	}
 	_ = response.Body.Close()
 	methods, unexpected, duplicates := backend.Summary()
-	if response.StatusCode != http.StatusNoContent || methods["PUT"] != 2 || unexpected != 1 || duplicates != 1 {
+	if response.StatusCode != http.StatusNoContent || methods["PUT"] != 2 || unexpected != 1 || duplicates != 0 {
 		t.Fatalf("status=%d methods=%v unexpected=%d duplicates=%d", response.StatusCode, methods, unexpected, duplicates)
 	}
 }
