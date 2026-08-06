@@ -96,6 +96,8 @@ func TestMaintainabilityManifestRejectsInvalidRows(t *testing.T) {
 			m.PackageTotals[1].Path = m.PackageTotals[0].Path
 		}, want: "duplicated"},
 		{name: "package owner mapping", mutate: func(m *manifest) { m.PackageTotals[0].Path = "internal/cli/" }, want: "invalid owner/path mapping"},
+		{name: "package subtree", mutate: func(m *manifest) { m.PackageTotals[0].Path = "internal/app/subpackage/" }, want: "invalid owner/path mapping"},
+		{name: "package traversal", mutate: func(m *manifest) { m.PackageTotals[0].Path = "internal/app/../cli/" }, want: "invalid owner/path mapping"},
 		{name: "package empty rationale", mutate: func(m *manifest) { m.PackageTotals[0].Rationale = " " }, want: "positive maximum and rationale"},
 	}
 	for _, test := range tests {

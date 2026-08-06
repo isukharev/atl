@@ -211,8 +211,8 @@ func validateManifest(root string, m manifest) ([]measurement, error) {
 	seenPackageOwners := make(map[string]bool, len(m.PackageTotals))
 	for _, item := range m.PackageTotals {
 		key := item.Owner + ":" + item.Path
-		prefixes, ok := ownerPrefixes(item.Owner)
-		if !ok || !hasAnyPrefix(item.Path, prefixes) {
+		packageRoot, ok := ownerPackageRoot(item.Owner)
+		if !ok || item.Path != packageRoot {
 			return nil, fmt.Errorf("package total %q has an invalid owner/path mapping", key)
 		}
 		if seenPackageOwners[item.Owner] {
@@ -235,6 +235,14 @@ func validateManifest(root string, m manifest) ([]measurement, error) {
 		return nil, err
 	}
 	return measurements, nil
+}
+
+func ownerPackageRoot(id string) (string, bool) {
+	prefixes, ok := ownerPrefixes(id)
+	if !ok || len(prefixes) != 1 {
+		return "", false
+	}
+	return prefixes[0], true
 }
 
 func countProductionGoLines(root, directory string) (int, error) {

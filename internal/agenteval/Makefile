@@ -51,7 +51,8 @@ product-atl:
 
 .PHONY: gen-capability-catalog
 gen-capability-catalog: product-atl
-	@tmp="$$(mktemp "$(CURDIR)/testdata/.capability-catalog.XXXXXX")"; \
+	@set -eu; \
+		tmp="$$(mktemp "$(CURDIR)/testdata/.capability-catalog.XXXXXX")"; \
 		trap 'rm -f "$$tmp"' EXIT; \
 		env -i ATL_NO_UPDATE=1 ATL_READ_ONLY=1 "$(ATL_BINARY)" capabilities -o json >"$$tmp"; \
 		chmod 0644 "$$tmp"; \

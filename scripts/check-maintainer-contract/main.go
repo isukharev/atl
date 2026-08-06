@@ -7,6 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/build"
+	"go/parser"
+	"go/token"
 	"io"
 	"io/fs"
 	"os"
@@ -15,6 +19,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -694,6 +700,7 @@ ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
 		"$(GO_ENV) go run ./cmd/agent-eval validate-run ",
 		"$(GO_ENV) go run ./cmd/agent-eval verify-atl-capabilities $(ATL_BINARY) >/dev/null\n",
 		"$(GO_ENV) go run ./cmd/agent-eval verify-codex-skill-package $(REPOSITORY_ROOT)/plugins/atl >/dev/null\n",
+		"\t@set -eu; \\\n\t\ttmp=\"$$(mktemp \"$(CURDIR)/testdata/.capability-catalog.XXXXXX\")\"; \\\n",
 	} {
 		if !bytes.Contains(makefile, []byte(requiredSnippet)) {
 			return errors.New("evaluator Makefile must retain the reviewed compatibility and deterministic contract commands")
@@ -722,12 +729,26 @@ func validateEvaluatorCompatSelections(root string, makefile []byte) error {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
 			continue
 		}
+		active, err := build.Default.MatchFile(testRoot, entry.Name())
+		if err != nil {
+			return fmt.Errorf("inspect evaluator compatibility test constraints: %w", err)
+		}
+		if !active {
+			continue
+		}
 		data, err := fs.ReadFile(testFiles.FS(), entry.Name())
 		if err != nil {
 			return fmt.Errorf("inspect evaluator compatibility tests: %w", err)
 		}
-		for _, match := range regexp.MustCompile(`(?m)^func[ \t]+(Test[A-Za-z0-9_]+)[ \t]*\(`).FindAllSubmatch(data, -1) {
-			definitions[string(match[1])]++
+		file, err := parser.ParseFile(token.NewFileSet(), entry.Name(), data, parser.SkipObjectResolution)
+		if err != nil {
+			return fmt.Errorf("parse evaluator compatibility tests: %w", err)
+		}
+		for _, declaration := range file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if ok && isRunnableGoTest(function) {
+				definitions[function.Name.Name]++
+			}
 		}
 	}
 
@@ -758,6 +779,38 @@ func validateEvaluatorCompatSelections(root string, makefile []byte) error {
 		return fmt.Errorf("evaluator Makefile has %d compatibility selections, want 4", seenVariables)
 	}
 	return nil
+}
+
+func isRunnableGoTest(function *ast.FuncDecl) bool {
+	if function.Recv != nil || !isGoTestName(function.Name.Name) ||
+		function.Type.TypeParams.NumFields() != 0 || function.Type.Results.NumFields() != 0 ||
+		function.Type.Params.NumFields() != 1 || len(function.Type.Params.List) != 1 ||
+		len(function.Type.Params.List[0].Names) > 1 {
+		return false
+	}
+	pointer, ok := function.Type.Params.List[0].Type.(*ast.StarExpr)
+	if !ok {
+		return false
+	}
+	switch parameter := pointer.X.(type) {
+	case *ast.Ident:
+		return parameter.Name == "T"
+	case *ast.SelectorExpr:
+		return parameter.Sel.Name == "T"
+	default:
+		return false
+	}
+}
+
+func isGoTestName(name string) bool {
+	if !strings.HasPrefix(name, "Test") {
+		return false
+	}
+	if len(name) == len("Test") {
+		return true
+	}
+	r, _ := utf8.DecodeRuneInString(name[len("Test"):])
+	return !unicode.IsLower(r)
 }
 
 func countMakeTargetDeclarations(makefile []byte, target string) int {
