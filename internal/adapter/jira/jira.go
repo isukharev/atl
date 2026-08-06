@@ -210,14 +210,14 @@ func (j *Jira) Create(ctx context.Context, project, issueType, summary string, b
 	if j.authorizer != nil {
 		if _, overridesProject := fields["project"]; overridesProject {
 			var err error
-			ctx, err = j.authorizeScopeProblem(ctx, domain.WriteVerbSet{domain.WriteVerbCreate}, domain.WriteScopeContradiction, "project",
+			_, err = j.authorizeScopeProblem(ctx, domain.WriteVerbSet{domain.WriteVerbCreate}, domain.WriteScopeContradiction, "project",
 				domain.WriteTarget{Service: "jira", Kind: "issue", Project: strings.ToUpper(strings.TrimSpace(project))})
 			return nil, err
 		}
 		project = strings.ToUpper(strings.TrimSpace(project))
 		if !domain.ValidJiraIssueKey(project + "-1") {
 			var err error
-			ctx, err = j.authorizeScopeProblem(ctx, domain.WriteVerbSet{domain.WriteVerbCreate}, domain.WriteScopeUnresolved, "project",
+			_, err = j.authorizeScopeProblem(ctx, domain.WriteVerbSet{domain.WriteVerbCreate}, domain.WriteScopeUnresolved, "project",
 				domain.WriteTarget{Service: "jira", Kind: "issue", Project: project})
 			return nil, err
 		}
