@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -779,7 +778,7 @@ func validateMutationGuardFamily(cmd *cobra.Command, family mutationGuardFamily,
 
 func validateJiraIssueDeleteInvocation(cmd *cobra.Command, applyRequested bool) error {
 	key := cmd.Flags().Arg(0)
-	if !canonicalJiraCLIIssueKey(key) {
+	if !domain.ValidJiraIssueKey(key) {
 		return usageErr("issue key must be canonical (for example PROJ-1)")
 	}
 	if outputFormat == "id" {
@@ -806,34 +805,16 @@ func validateJiraIssueDeleteInvocation(cmd *cobra.Command, applyRequested bool) 
 	return app.ValidateJiraIssueDeleteReviewMarkers(expectedUpdated, expectedProposalHash)
 }
 
-func canonicalJiraCLIIssueKey(value string) bool {
-	dash := strings.LastIndexByte(value, '-')
-	if dash < 2 || dash > 32 || dash == len(value)-1 || value[0] < 'A' || value[0] > 'Z' || value[dash+1] == '0' {
-		return false
-	}
-	for _, char := range value[:dash] {
-		if (char < 'A' || char > 'Z') && (char < '0' || char > '9') && char != '_' {
-			return false
-		}
-	}
-	for _, char := range value[dash+1:] {
-		if char < '0' || char > '9' {
-			return false
-		}
-	}
-	return true
-}
-
 func validateConfluenceAttachmentDeleteInvocation(cmd *cobra.Command, applyRequested bool) error {
 	pageID, pageErr := cmd.Flags().GetString("page-id")
 	attachmentID, attachmentErr := cmd.Flags().GetString("id")
 	if pageErr != nil || attachmentErr != nil || strings.TrimSpace(pageID) == "" || strings.TrimSpace(attachmentID) == "" {
 		return usageErr("--page-id and --id are required")
 	}
-	if !canonicalConfluenceCLIContentID(pageID) {
+	if !domain.ValidConfluenceContentID(pageID) {
 		return usageErr("--page-id must be a positive numeric content id")
 	}
-	if !canonicalConfluenceCLIContentID(attachmentID) {
+	if !domain.ValidConfluenceContentID(attachmentID) {
 		return usageErr("--id must be a positive numeric attachment id")
 	}
 	if outputFormat == "id" {
@@ -857,14 +838,6 @@ func validateConfluenceAttachmentDeleteInvocation(cmd *cobra.Command, applyReque
 		return usageErr("--expected-version is required with --apply; run the dry-run first")
 	}
 	return nil
-}
-
-func canonicalConfluenceCLIContentID(value string) bool {
-	if value == "" || value[0] == '0' || strings.TrimSpace(value) != value {
-		return false
-	}
-	_, err := strconv.ParseUint(value, 10, 64)
-	return err == nil
 }
 
 func validateConfluencePageCopyInvocation(cmd *cobra.Command, applyRequested bool) error {
@@ -901,7 +874,7 @@ func validateConfluencePageDeleteInvocation(cmd *cobra.Command, applyRequested b
 	if err != nil || strings.TrimSpace(id) == "" {
 		return usageErr("--id is required")
 	}
-	if !canonicalConfluenceCLIContentID(id) {
+	if !domain.ValidConfluenceContentID(id) {
 		return usageErr("--id must be a positive numeric content id")
 	}
 	guardNames := []string{"confirm", "expected-version", "expected-proposal-hash"}

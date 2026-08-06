@@ -934,7 +934,7 @@ func validateConfluenceCommentViewBounds(bounds ConfluenceCommentViewBounds) err
 
 func validateConfluenceCommentInventoryResult(result *ConfluenceCommentInventoryResult, mode string) error {
 	if result == nil || result.SchemaVersion != confluenceCommentInventorySchemaVersion ||
-		!canonicalConfluenceContentID(result.PageID) || result.PageVersion < 1 ||
+		!domain.ValidConfluenceContentID(result.PageID) || result.PageVersion < 1 ||
 		result.PartialReasons == nil || result.Comments == nil || result.Diagnostics == nil {
 		return fmt.Errorf("%w: Confluence comment result provenance is not reconciled", domain.ErrCheckFailed)
 	}
@@ -953,7 +953,7 @@ func validateConfluenceCommentInventoryResult(result *ConfluenceCommentInventory
 	seen := make(map[string]struct{}, len(result.Comments))
 	byID := make(map[string]ConfluenceCommentResultRecord, len(result.Comments))
 	for _, comment := range result.Comments {
-		if comment.PageID != result.PageID || !canonicalConfluenceContentID(comment.ID) ||
+		if comment.PageID != result.PageID || !domain.ValidConfluenceContentID(comment.ID) ||
 			!optionalCanonicalConfluenceContentID(comment.ParentID) || !optionalCanonicalConfluenceContentID(comment.RootID) ||
 			comment.Version < 0 ||
 			!domain.ValidConfluenceCommentRelation(comment.Relation) ||
@@ -1153,7 +1153,7 @@ func validConfluenceCommentMarkerRef(value string) bool {
 func validateConfluenceCommentResultDiagnostics(diagnostics []ConfluenceCommentResultDiagnostic) error {
 	for _, diagnostic := range diagnostics {
 		if !domain.ValidConfluenceCommentDiagnosticCode(diagnostic.Code) ||
-			(diagnostic.CommentID != "" && !canonicalConfluenceContentID(diagnostic.CommentID)) ||
+			(diagnostic.CommentID != "" && !domain.ValidConfluenceContentID(diagnostic.CommentID)) ||
 			(diagnostic.MarkerRef != "" && !validConfluenceCommentMarkerRef(diagnostic.MarkerRef)) ||
 			(diagnostic.Selector != "" && !domain.ValidConfluenceCommentSelector(diagnostic.Selector)) ||
 			(diagnostic.Location != "" && !domain.ValidConfluenceCommentLocation(diagnostic.Location)) {
@@ -1166,7 +1166,7 @@ func validateConfluenceCommentResultDiagnostics(diagnostics []ConfluenceCommentR
 func validateConfluenceCommentViewDiagnostics(diagnostics []ConfluenceCommentViewDiagnostic) error {
 	for _, diagnostic := range diagnostics {
 		if !domain.ValidConfluenceCommentDiagnosticCode(diagnostic.Code) ||
-			(diagnostic.CommentID != "" && !canonicalConfluenceContentID(diagnostic.CommentID)) ||
+			(diagnostic.CommentID != "" && !domain.ValidConfluenceContentID(diagnostic.CommentID)) ||
 			(diagnostic.MarkerRef != "" && !validConfluenceCommentMarkerRef(diagnostic.MarkerRef)) ||
 			(diagnostic.Selector != "" && !domain.ValidConfluenceCommentSelector(diagnostic.Selector)) ||
 			(diagnostic.Location != "" && !domain.ValidConfluenceCommentLocation(diagnostic.Location)) {
@@ -1219,7 +1219,7 @@ func validateConfluenceCommentThreadAncestry(byID map[string]ConfluenceCommentRe
 // ValidateConfluenceCommentListView validates the closed body-free projection
 // independently of its source result.
 func ValidateConfluenceCommentListView(view *ConfluenceCommentListView) error {
-	if view == nil || view.SchemaVersion != ConfluenceCommentViewSchemaVersion || !canonicalConfluenceContentID(view.PageID) ||
+	if view == nil || view.SchemaVersion != ConfluenceCommentViewSchemaVersion || !domain.ValidConfluenceContentID(view.PageID) ||
 		view.PageVersion < 1 || view.PartialReasons == nil || view.Comments == nil || view.Diagnostics == nil {
 		return fmt.Errorf("%w: Confluence comment list view provenance is not reconciled", domain.ErrCheckFailed)
 	}
@@ -1239,7 +1239,7 @@ func ValidateConfluenceCommentListView(view *ConfluenceCommentListView) error {
 	rootCount := 0
 	seen := make(map[string]struct{}, len(view.Comments))
 	for _, comment := range view.Comments {
-		if !canonicalConfluenceContentID(comment.ID) ||
+		if !domain.ValidConfluenceContentID(comment.ID) ||
 			!optionalCanonicalConfluenceContentID(comment.ParentID) || !optionalCanonicalConfluenceContentID(comment.RootID) ||
 			comment.Version < 0 || !domain.ValidConfluenceCommentRelation(comment.Relation) ||
 			!domain.ValidConfluenceCommentLocation(comment.Location) || !domain.ValidConfluenceCommentResolution(comment.Resolution) {
@@ -1277,7 +1277,7 @@ func ValidateConfluenceCommentListView(view *ConfluenceCommentListView) error {
 // ValidateConfluenceCommentThreadView additionally validates self-contained
 // complete ancestry and the nullable reconciled body projection.
 func ValidateConfluenceCommentThreadView(view *ConfluenceCommentThreadView) error {
-	if view == nil || view.SchemaVersion != ConfluenceCommentViewSchemaVersion || !canonicalConfluenceContentID(view.PageID) ||
+	if view == nil || view.SchemaVersion != ConfluenceCommentViewSchemaVersion || !domain.ValidConfluenceContentID(view.PageID) ||
 		view.PageVersion < 1 || view.PartialReasons == nil || view.Comments == nil || view.Diagnostics == nil {
 		return fmt.Errorf("%w: Confluence comment thread view provenance is not reconciled", domain.ErrCheckFailed)
 	}
@@ -1299,7 +1299,7 @@ func ValidateConfluenceCommentThreadView(view *ConfluenceCommentThreadView) erro
 	byID := make(map[string]ConfluenceCommentResultRecord, len(view.Comments))
 	anchorsByID := make(map[string]*ConfluenceCommentViewAnchor, len(view.Comments))
 	for _, comment := range view.Comments {
-		if !canonicalConfluenceContentID(comment.ID) ||
+		if !domain.ValidConfluenceContentID(comment.ID) ||
 			!optionalCanonicalConfluenceContentID(comment.ParentID) || !optionalCanonicalConfluenceContentID(comment.RootID) ||
 			comment.Version < 0 || !domain.ValidConfluenceCommentRelation(comment.Relation) ||
 			!domain.ValidConfluenceCommentLocation(comment.Location) || !domain.ValidConfluenceCommentResolution(comment.Resolution) ||
@@ -1375,16 +1375,8 @@ func hasResultPartialReason(reasons []string, want string) bool {
 	return false
 }
 
-func canonicalConfluenceContentID(value string) bool {
-	if value == "" || value[0] == '0' || strings.TrimSpace(value) != value {
-		return false
-	}
-	_, err := strconv.ParseUint(value, 10, 64)
-	return err == nil
-}
-
 func optionalCanonicalConfluenceContentID(value *string) bool {
-	return value == nil || canonicalConfluenceContentID(*value)
+	return value == nil || domain.ValidConfluenceContentID(*value)
 }
 
 func ValidateConfluenceCommentID(value string) error {
