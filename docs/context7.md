@@ -141,7 +141,7 @@ Release tags listed under `previousVersions` provide immutable version-specific
 ids:
 
 ```text
-/isukharev/atl/v0.7.0
+/isukharev/atl/v0.7.1
 /isukharev/atl/v0.6.0
 /isukharev/atl/v0.5.0
 ```
