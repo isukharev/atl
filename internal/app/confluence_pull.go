@@ -242,7 +242,7 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 		if o.Since != "" || o.MaxPages != 0 {
 			return nil, fmt.Errorf("%w: --since and --max-pages require --incremental", domain.ErrUsage)
 		}
-		ids, truncated, err = s.resolveIDs(ctx, o)
+		ctx, ids, truncated, err = s.resolveIDs(ctx, o)
 		if err != nil {
 			return nil, err
 		}
@@ -918,29 +918,30 @@ const cqlPullCap = 1000
 
 // resolveIDs returns the page ids a pull should mirror plus whether the
 // selection was truncated by a cap (the --cql id cap or the space tree cap).
-func (s *ConfluenceService) resolveIDs(ctx context.Context, o PullOpts) (ids []string, truncated bool, err error) {
+func (s *ConfluenceService) resolveIDs(ctx context.Context, o PullOpts) (context.Context, []string, bool, error) {
 	switch {
 	case o.ID != "":
 		resolved, err := s.ResolvePageReference(ctx, o.ID)
 		if err != nil {
-			return nil, false, err
+			return ctx, nil, false, err
 		}
 		ctx = resolved.Context(ctx)
-		return []string{resolved.ID}, false, nil
+		return ctx, []string{resolved.ID}, false, nil
 	case o.CQL != "":
-		return s.collectSearch(ctx, o.CQL)
+		ids, truncated, err := s.collectSearch(ctx, o.CQL)
+		return ctx, ids, truncated, err
 	case o.Space != "":
 		refs, truncated, err := s.store.Tree(ctx, o.Space, o.Depth)
 		if err != nil {
-			return nil, false, err
+			return ctx, nil, false, err
 		}
 		ids := make([]string, 0, len(refs))
 		for _, r := range refs {
 			ids = append(ids, r.ID)
 		}
-		return ids, truncated, nil
+		return ctx, ids, truncated, nil
 	default:
-		return nil, false, fmt.Errorf("%w: pull needs --id, --cql or --space", domain.ErrUsage)
+		return ctx, nil, false, fmt.Errorf("%w: pull needs --id, --cql or --space", domain.ErrUsage)
 	}
 }
 

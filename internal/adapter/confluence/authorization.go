@@ -73,14 +73,14 @@ func (cache *confluenceIdentityCache) put(value confluenceIdentity) {
 	}
 }
 
-func (cache *confluenceIdentityCache) failure(id string) (error, bool) {
+func (cache *confluenceIdentityCache) failure(id string) (bool, error) {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	err, ok := cache.failures[id]
 	if ok {
 		cache.failureRecency.MoveToFront(cache.failureEntries[id])
 	}
-	return err, ok
+	return ok, err
 }
 
 func (cache *confluenceIdentityCache) fail(id string, err error) {
@@ -180,7 +180,7 @@ func (cf *Confluence) pageIdentity(ctx context.Context, id string) (confluenceId
 	if value, ok := cf.identity.get(id); ok {
 		return value, nil
 	}
-	if err, failed := cf.identity.failure(id); failed {
+	if failed, err := cf.identity.failure(id); failed {
 		return confluenceIdentity{}, err
 	}
 	meta, err := cf.GetMeta(ctx, id)
@@ -292,7 +292,7 @@ func (cf *Confluence) exactContentIdentity(ctx context.Context, id string) (conf
 	if value, ok := cf.identity.get(id); ok {
 		return value, nil
 	}
-	if err, failed := cf.identity.failure(id); failed {
+	if failed, err := cf.identity.failure(id); failed {
 		return confluenceIdentity{}, err
 	}
 	meta, err := cf.GetMeta(ctx, id)
