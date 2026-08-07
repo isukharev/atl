@@ -34,11 +34,11 @@ read-only policy until one exact write proposal has been reviewed.
 
 | Goal | Short guide |
 |---|---|
-| Install and prove one backend works | [Five-minute setup](docs/getting-started.md) |
+| Install and configure private-PKI trust | [Five-minute setup](docs/getting-started.md) |
 | Give a coding agent safe access | [Agent setup](docs/agent-setup.md) |
 | Mirror, edit, and publish safely | [Safe writes](docs/safe-writes.md) |
 | Refresh or recover an existing mirror | [Mirrors and recovery](docs/mirrors-and-recovery.md) |
-| Trace Jira links, docs, and code identities | [Jira artifact graph](docs/jira-artifact-graph.md) |
+| Discover Jira projects, create schema, and [links](docs/jira-artifact-graph.md) | [Jira commands](docs/reference/cli/README.md) |
 | Read or change Confluence discussions | [Qualified comments](docs/confluence-comments.md) |
 | See the core guarantees without credentials | [Reproducible demos](docs/demos/README.md) |
 | Diagnose setup, access, or conflict errors | [Troubleshooting](docs/troubleshooting.md) |
