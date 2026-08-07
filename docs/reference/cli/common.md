@@ -110,6 +110,8 @@ usage error (`2`) — fix the input rather than re-running setup.
 | `CONFLUENCE_URL` | Confluence base URL (fallback) |
 | `ATL_JIRA_URL` | Jira base URL (takes priority over `JIRA_URL`) |
 | `JIRA_URL` | Jira base URL (fallback) |
+| `ATL_CONFLUENCE_CA_BUNDLE` | path to a PEM CA bundle appended to system roots for Confluence only; the path is never emitted |
+| `ATL_JIRA_CA_BUNDLE` | path to a PEM CA bundle appended to system roots for Jira only; the path is never emitted |
 | `ATL_ALLOW_INSECURE` | set to any non-empty value to permit a non-https backend URL for a non-loopback host (an internal http-only instance you trust). Loopback hosts are always allowed; otherwise a non-https URL is refused so the PAT is never sent in cleartext |
 
 ## Mirror location

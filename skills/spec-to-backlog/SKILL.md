@@ -29,10 +29,12 @@ atl conf pull --id <id> --into <dir> # long/multi-section spec; then read .md
 
 For a long or multi-section spec, use the second command and read the generated
 `.md`.
-Ask for the target Jira project key if not given, and confirm the instance's
-issue types before planning. Use only types already confirmed for that project;
-if the available types are unknown, stop and ask rather than probing with
-`issue create` (many instances lack "Story").
+If the target Jira project key is not given, discover visible candidates with
+`atl jira project list` and ask the user to select one; do not guess from names.
+Then run `atl jira issue types --project KEY` and use only an exact returned
+type. Before proposing fields, run
+`atl jira issue create-check --project KEY --type '<type id or exact name>'`.
+These reads replace probing with `issue create` (many instances lack "Story").
 
 ### 2. Analyze and propose — no writes
 
@@ -83,5 +85,5 @@ follow-ups without performing them: assignees
 | Symptom | Cause / fix |
 |---|---|
 | exit 8 on `--from-md` | unconvertible markdown block — the error names it; keep bodies to plain headings/lists/fences |
-| `link-epic` fails | Epic Link is a custom field on some Server/DC instances; report the error and suggest linking manually rather than guessing field ids |
-| type rejected | verify types once before the batch, not per ticket |
+| `link-epic` fails | Set a reviewed `render.jira.epic_field` id or exact name when the conventional field was renamed; never guess ids |
+| type rejected | refresh `issue types` and `create-check` once, then stop if the exact type or required fields changed |

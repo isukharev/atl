@@ -142,6 +142,10 @@ JSON output:
   "confluence_url": "https://confluence.example.com",
   "jira_url": "https://jira.example.com",
   "update_base_url": "",
+  "transport": {
+    "jira": { "ca_bundle_configured": false, "ca_bundle_source": "missing" },
+    "confluence": { "ca_bundle_configured": false, "ca_bundle_source": "missing" }
+  },
   "render": {
     "display_time_zone": "UTC",
     "jira": { "profile": "default" },
@@ -201,6 +205,10 @@ atl config set --confluence-url https://confluence.example.com
 atl config set --jira-url https://jira.example.com
 atl config set --update-url https://releases.example.com/atl
 
+# Optional private PKI trust, scoped independently to each backend:
+atl config set transport.jira.ca_bundle /path/to/jira-ca.pem
+atl config set transport.confluence.ca_bundle /path/to/confluence-ca.pem
+
 # Render (presentation-only) keys — global or per-mirror (--local):
 atl config set render.display_time_zone Europe/Berlin
 atl config set render.jira.profile full
@@ -235,6 +243,17 @@ comma-separated list, while `field_views` and `page_fields` take JSON descriptor
 `render.display_time_zone` is an IANA presentation zone shared by both
 backends; it defaults to deterministic `UTC` and never changes JQL/CQL
 interpretation or exact timestamps in JSON/native snapshots.
+
+**Transport keys** `transport.jira.ca_bundle` and
+`transport.confluence.ca_bundle` append PEM certificates to the operating
+system trust roots for that backend only. The equivalent environment overrides
+are `ATL_JIRA_CA_BUNDLE` and `ATL_CONFLUENCE_CA_BUNDLE`. A configured bundle is
+accepted only for an HTTPS backend, must be a regular file no larger than
+4 MiB, and must contain at least one certificate. Client certificates and
+private keys are not supported. `config show`, `config set`, `doctor`, and
+errors report only configured/source/status metadata; they never print the
+local bundle path. These keys are global-only because they affect authenticated
+transport and cannot be set in a mirror-local file.
 
 ## `atl doctor`
 

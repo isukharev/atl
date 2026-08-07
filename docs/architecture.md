@@ -552,7 +552,8 @@ Non-secret settings. `Config` holds `ConfluenceURL`, `JiraURL`,
 3. `~/.config/atl`
 
 `Load` reads `config.json` then overlays env vars (`ATL_CONFLUENCE_URL` /
-`CONFLUENCE_URL`, `ATL_JIRA_URL` / `JIRA_URL`, `ATL_UPDATE_URL`); env always
+`CONFLUENCE_URL`, `ATL_JIRA_URL` / `JIRA_URL`, `ATL_UPDATE_URL`, and the
+backend-scoped `ATL_CONFLUENCE_CA_BUNDLE` / `ATL_JIRA_CA_BUNDLE`); env always
 wins.
 
 ---

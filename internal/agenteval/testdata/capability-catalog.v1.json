@@ -6,7 +6,7 @@
     "stop": "stop expanding the route when sufficient complete evidence is available"
   },
   "selection": {
-    "count": 55
+    "count": 57
   },
   "capabilities": [
     {
@@ -987,6 +987,47 @@
       "evidence": "derived",
       "completeness": "explicit",
       "skill": "confluence",
+      "reference": "reference/commands.md"
+    },
+    {
+      "id": "jira.project.list",
+      "task_class": "jira/setup",
+      "service": "jira",
+      "role": "discover",
+      "priority": 10,
+      "summary": "Discover projects visible to the authenticated Jira user",
+      "command": "jira project list",
+      "cli_command": "jira project list",
+      "cli_only": true,
+      "access": "read-only",
+      "output_modes": [
+        "json",
+        "text",
+        "id"
+      ],
+      "evidence": "identity",
+      "completeness": "explicit",
+      "skill": "jira",
+      "reference": "reference/commands.md"
+    },
+    {
+      "id": "jira.issue.create-check",
+      "task_class": "jira/setup",
+      "service": "jira",
+      "role": "primary",
+      "priority": 20,
+      "summary": "Inspect content-free create-screen requirements for one exact project and issue type",
+      "command": "jira issue create-check",
+      "cli_command": "jira issue create-check",
+      "cli_only": true,
+      "access": "read-only",
+      "output_modes": [
+        "json",
+        "text"
+      ],
+      "evidence": "qualified",
+      "completeness": "explicit",
+      "skill": "jira",
       "reference": "reference/commands.md"
     },
     {

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -197,6 +198,19 @@ func TestDoctorMalformedConfigBlocksRemoteButStillEmits(t *testing.T) {
 		if strings.Contains(out, private) {
 			t.Fatalf("doctor output leaked %q: %s", private, out)
 		}
+	}
+}
+
+func TestDoctorReportsInvalidCABundleWithoutLeakingPath(t *testing.T) {
+	dir := t.TempDir()
+	privatePath := filepath.Join(dir, "configured-private-ca.pem")
+	configBody := `{"transport":{"jira":{"ca_bundle":` + strconv.Quote(privatePath) + `}}}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(configBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, code := runCLI(t, map[string]string{"ATL_CONFIG_DIR": dir}, "doctor")
+	if code != exitCheckFailed || strings.Contains(out, privatePath) || !strings.Contains(out, `"reason": "ca_bundle_invalid"`) {
+		t.Fatalf("exit=%d output=%s", code, out)
 	}
 }
 

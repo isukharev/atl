@@ -49,22 +49,15 @@ func (j *Jira) ReadFieldCatalog(ctx context.Context) (domain.FieldCatalogSnapsho
 // (/createmeta/{projectKey}/issuetypes then /createmeta/{projectKey}/issuetypes/{id})
 // because Jira DC 9.x removed the older expand-based /createmeta query.
 func (j *Jira) FieldOptions(ctx context.Context, project, issueType, field string) ([]string, error) {
-	base := "/rest/api/2/issue/createmeta/" + url.PathEscape(project) + "/issuetypes"
-
-	var its struct {
-		Values []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-		} `json:"values"`
-	}
-	if err := j.c.GetJSON(ctx, base+"?maxResults=200", &its); err != nil {
+	issueTypes, err := j.readCreateIssueTypes(ctx, project)
+	if err != nil {
 		return nil, err
 	}
 
 	// Pick the issue type(s) to inspect: the named one, or all when unspecified.
 	var typeIDs []string
-	for _, it := range its.Values {
-		if issueType == "" || it.Name == issueType {
+	for _, it := range issueTypes {
+		if issueType == "" || it.Name == issueType || it.ID == issueType {
 			typeIDs = append(typeIDs, it.ID)
 		}
 	}
@@ -78,17 +71,8 @@ func (j *Jira) FieldOptions(ctx context.Context, project, issueType, field strin
 	var firstErr error
 	okTypes := 0
 	for _, tid := range typeIDs {
-		var fs struct {
-			Values []struct {
-				FieldID       string `json:"fieldId"`
-				Name          string `json:"name"`
-				AllowedValues []struct {
-					Name  string `json:"name"`
-					Value string `json:"value"`
-				} `json:"allowedValues"`
-			} `json:"values"`
-		}
-		if err := j.c.GetJSON(ctx, base+"/"+url.PathEscape(tid)+"?maxResults=200", &fs); err != nil {
+		fields, err := j.readCreateFields(ctx, project, tid)
+		if err != nil {
 			// A named single type was requested: the caller asked for exactly
 			// that type, so surface the error. When scanning all types, a
 			// restricted or odd type shouldn't sink the whole scan — skip it,
@@ -102,7 +86,7 @@ func (j *Jira) FieldOptions(ctx context.Context, project, issueType, field strin
 			continue
 		}
 		okTypes++
-		for _, fd := range fs.Values {
+		for _, fd := range fields {
 			if fd.FieldID != field && fd.Name != field {
 				continue
 			}

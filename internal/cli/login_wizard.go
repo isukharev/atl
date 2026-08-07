@@ -50,7 +50,7 @@ type svcSpec struct {
 	label  string
 	getURL func(*config.Config) string
 	setURL func(*config.Config, string)
-	verify func(ctx context.Context, url, token string) (string, error)
+	verify func(ctx context.Context, url, token string, cfg *config.Config) (string, error)
 }
 
 func wizardSpecs() []svcSpec {
@@ -60,8 +60,8 @@ func wizardSpecs() []svcSpec {
 			label:  "Confluence",
 			getURL: func(c *config.Config) string { return c.ConfluenceURL },
 			setURL: func(c *config.Config, u string) { c.ConfluenceURL = u },
-			verify: func(ctx context.Context, u, t string) (string, error) {
-				return app.VerifyConfluence(ctx, u, t, version.Version)
+			verify: func(ctx context.Context, u, t string, cfg *config.Config) (string, error) {
+				return app.VerifyConfluenceWithConfig(ctx, u, t, version.Version, cfg)
 			},
 		},
 		{
@@ -69,8 +69,8 @@ func wizardSpecs() []svcSpec {
 			label:  "Jira",
 			getURL: func(c *config.Config) string { return c.JiraURL },
 			setURL: func(c *config.Config, u string) { c.JiraURL = u },
-			verify: func(ctx context.Context, u, t string) (string, error) {
-				return app.VerifyJira(ctx, u, t, version.Version)
+			verify: func(ctx context.Context, u, t string, cfg *config.Config) (string, error) {
+				return app.VerifyJiraWithConfig(ctx, u, t, version.Version, cfg)
 			},
 		},
 	}
@@ -122,7 +122,7 @@ func configureService(ctx context.Context, wz wizardIO, sp svcSpec, res *svcResu
 		return err
 	}
 	for {
-		name, verr := sp.verify(ctx, url, token)
+		name, verr := sp.verify(ctx, url, token, cfg)
 		if verr == nil {
 			if serr := auth.Login(sp.svc, token); serr != nil {
 				return serr

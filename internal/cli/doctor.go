@@ -49,6 +49,12 @@ func doctorText(result *app.DoctorResult) string {
 	fmt.Fprintf(&b, "config_file: present=%t status=%s owner_only=%t permission_known=%t\n",
 		result.Config.File.Present, result.Config.File.Status,
 		result.Config.File.OwnerOnly, result.Config.File.PermissionKnown)
+	fmt.Fprintf(&b, "jira_ca_bundle: configured=%t source=%s status=%s reason=%s\n",
+		result.Config.Transport.Jira.Configured, result.Config.Transport.Jira.Source,
+		result.Config.Transport.Jira.Status, orNone(result.Config.Transport.Jira.Reason))
+	fmt.Fprintf(&b, "confluence_ca_bundle: configured=%t source=%s status=%s reason=%s\n",
+		result.Config.Transport.Confluence.Configured, result.Config.Transport.Confluence.Source,
+		result.Config.Transport.Confluence.Status, orNone(result.Config.Transport.Confluence.Reason))
 	fmt.Fprintf(&b, "credential_store: present=%t status=%s owner_only=%t permission_known=%t\n",
 		result.Credentials.Store.Present, result.Credentials.Store.Status,
 		result.Credentials.Store.OwnerOnly, result.Credentials.Store.PermissionKnown)

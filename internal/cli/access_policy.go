@@ -266,6 +266,7 @@ M remote-direct delete jira-issue-arg - json jira issue comment delete
 R json,text,id jira issue comment list
 R json,text jira issue comment preview
 M remote-direct create jira-project-flag - json,text,id jira issue create
+R json,text jira issue create-check
 M preview-apply delete jira-issue-arg apply,confirm,expected-proposal-hash,expected-updated pre-config jira-issue-delete json jira issue delete
 M remote-direct update,move? jira-issue-arg - json,text jira issue edit
 R json,text jira issue field get
@@ -288,6 +289,7 @@ R json,text,id jira issue search
 M preview-apply transition,comment? jira-issue-arg apply,expected-proposal-hash command generic json,text jira issue transition
 R json,text jira issue transition preview
 R json,text jira issue tree
+R json,text,id jira issue types
 M remote-direct update,move? jira-issue-arg - json jira issue update
 R json,text jira issue view
 M preview-apply update jira-issue-arg apply,expected-proposal-hash command generic json,text jira issue watchers add
@@ -298,6 +300,7 @@ R json,text,id jira issue worklog list
 R json,text jira link-types
 R json,text,id jira me
 R json,text jira planning report
+R json,text,id jira project list
 R json,text jira pull
 M preview-apply update jira-mirror apply command generic json,text jira push
 R json,text jira reconcile preview

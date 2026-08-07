@@ -47,7 +47,7 @@ func TestAdapterNonReplaySafeRequestInventory(t *testing.T) {
 		"jira/jira.go:DeleteIssue:SendJSON:DELETE":                                  mutatingCleared,
 		"jira/jira.go:DeleteLink:SendJSON:DELETE":                                   mutatingCleared,
 		"jira/jira.go:Link:SendJSON:POST":                                           mutatingCleared,
-		"jira/jira.go:LinkEpic:SendJSON:PUT":                                        mutatingCleared,
+		"jira/jira.go:LinkEpicWithField:SendJSON:PUT":                               mutatingCleared,
 		"jira/jira.go:SetFields:SendJSON:PUT":                                       mutatingCleared,
 		"jira/jira.go:TransitionByID:SendJSON:POST":                                 mutatingCleared,
 		"jira/jira.go:Update:SendJSON:PUT":                                          mutatingCleared,

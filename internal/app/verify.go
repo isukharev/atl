@@ -16,16 +16,32 @@ import (
 // auth-login wizard persists only after this succeeds. ctx is threaded to the
 // adapter so a server/MCP caller keeps cancellation/deadline propagation.
 func VerifyConfluence(ctx context.Context, url, token, version string) (string, error) {
+	return VerifyConfluenceWithConfig(ctx, url, token, version, nil)
+}
+
+func VerifyConfluenceWithConfig(ctx context.Context, url, token, version string, cfg *config.Config) (string, error) {
 	if err := config.CheckSecureURL(url); err != nil {
 		return "", fmt.Errorf("%w: %v", domain.ErrUsage, err)
 	}
-	return confluence.New(url, token, version).Whoami(ctx)
+	client, err := confluence.NewWithSchedulerTLS(url, token, version, nil, confluenceTLSOptions(cfg))
+	if err != nil {
+		return "", err
+	}
+	return client.Whoami(ctx)
 }
 
 // VerifyJira mirrors VerifyConfluence for Jira.
 func VerifyJira(ctx context.Context, url, token, version string) (string, error) {
+	return VerifyJiraWithConfig(ctx, url, token, version, nil)
+}
+
+func VerifyJiraWithConfig(ctx context.Context, url, token, version string, cfg *config.Config) (string, error) {
 	if err := config.CheckSecureURL(url); err != nil {
 		return "", fmt.Errorf("%w: %v", domain.ErrUsage, err)
 	}
-	return jira.New(url, token, version).Whoami(ctx)
+	client, err := jira.NewWithSchedulerTLS(url, token, version, nil, jiraTLSOptions(cfg))
+	if err != nil {
+		return "", err
+	}
+	return client.Whoami(ctx)
 }
