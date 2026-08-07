@@ -89,7 +89,9 @@ advertise an output mode that the root preflight would refuse.
 
 `atl doctor` returns a schema-v1, content-free aggregate with
 `{schema_version,mode,complete,healthy,status,cli,runtime,config,credentials,
-safety,services,mirror,plugin,problems}`. Closed status/reason/remediation
+safety,content_policy,services,mirror,plugin,problems}`. `content_policy`
+reports only `active`, `enforcement`, and the closed `advisory_because` symbols;
+it never exposes policy bytes, rules, paths, URLs, or digests. Closed status/reason/remediation
 values are safe for automation; configured URLs/hostnames, local paths,
 environment-variable names, credentials, identities, object ids, mirrored
 content, and raw parser/backend errors are never fields or interpolated text.

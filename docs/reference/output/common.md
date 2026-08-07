@@ -106,6 +106,15 @@ When read-only policy blocks a mutation, the normal JSON error envelope keeps
 text. Its recovery action requires human approval and is never retry-safe. Text
 output remains one concise `error:` line.
 
+When scoped content policy blocks a write, exit `8` instead uses
+`kind:"content_policy"`, `remediation:"request_human_approval"`, and
+`policy:"content"`. The structured `denial` names the preflight or resolved
+phase, closed reason, verbs, target, deciding layer/rule, allowed verbs,
+non-path policy source, per-layer digest, advice, and retry safety. It never
+reclassifies a backend `403` as policy denial. A resolving read that failed
+transiently is retry-safe; policy scope, explicit deny, required-policy,
+digest, and backend-binding failures are not.
+
 This additive stderr/MCP error schema does not change a successful result or
 any Confluence/Jira mirror-derived document. No durable document-format marker
 is bumped.

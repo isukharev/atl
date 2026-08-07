@@ -65,6 +65,15 @@ func (a *Authorizer) Authorize(ctx context.Context, request domain.WriteAuthoriz
 	return domain.WithWriteClearance(ctx), nil
 }
 
+// Preflight refuses only decisions that remain denied after any later
+// backend-canonical identity resolution.
+func (a *Authorizer) Preflight(request domain.WriteAuthorizationRequest) error {
+	if a == nil {
+		return nil
+	}
+	return PreflightDeny(a.layers, request)
+}
+
 // RequiredWriteScope reports the canonical metadata attributes referenced by
 // any rule that can apply to service. It is frozen with the authorizer.
 func (a *Authorizer) RequiredWriteScope(service string) domain.WriteScopeRequirements {

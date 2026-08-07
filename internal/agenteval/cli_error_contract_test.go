@@ -147,6 +147,7 @@ func TestParseCLIErrorContractAdmitsOnlyTypedFailedCLIErrors(t *testing.T) {
 	legacyPreRecovery := `{"error":"page not found: private-page-title","code":4,"kind":"not_found","remediation":"verify_identifier_or_access"}`
 	releasedV060AndCurrent := `{"error":"page not found: private-page-title","code":4,"kind":"not_found","remediation":"verify_identifier_or_access","recovery":{"schema_version":1,"action":"adjust_request","retry_safe":false}}`
 	policy := `{"error":"blocked by read-only policy","code":8,"kind":"read_only_policy","remediation":"request_human_approval","policy":"read_only","command":"atl jira push"}`
+	contentPolicy := `{"error":"denied","code":8,"kind":"content_policy","remediation":"request_human_approval","policy":"content","command":"atl jira issue update","denial":{"schema_version":1,"phase":"resolved","verbs":["update"],"target":{"service":"jira","kind":"issue","key":"DOC-1"},"decided_by":{"layer":"managed","rule_id":"deny-doc","effect":"deny"},"reason":"explicit_deny","allowed_verbs_here":[],"advice":"out_of_scope","policy_digest":{"managed":null,"user":null},"policy_source":"env_inline","retry_safe":false}}`
 	tests := []struct {
 		name     string
 		exitCode int
@@ -169,6 +170,10 @@ func TestParseCLIErrorContractAdmitsOnlyTypedFailedCLIErrors(t *testing.T) {
 		{
 			name: "read-only policy refusal", exitCode: 8, stderr: policy,
 			want: CLIErrorContract{ExitCode: 8, Kind: "read_only_policy", Remediation: "request_human_approval"},
+		},
+		{
+			name: "content policy refusal", exitCode: 8, stderr: contentPolicy,
+			want: CLIErrorContract{ExitCode: 8, Kind: "content_policy", Remediation: "request_human_approval"},
 		},
 		{name: "successful invocation", exitCode: 0, stderr: releasedV060AndCurrent},
 		{name: "empty capture", exitCode: 4, stderr: ""},
@@ -215,6 +220,18 @@ func TestParseCLIErrorContractAdmitsOnlyTypedFailedCLIErrors(t *testing.T) {
 		{
 			name: "policy member without its kind", exitCode: 4,
 			stderr: `{"error":"x","code":4,"kind":"not_found","remediation":"verify_identifier_or_access","policy":"read_only","command":"atl jira push"}`,
+		},
+		{
+			name: "content policy denial with unknown member", exitCode: 8,
+			stderr: strings.Replace(contentPolicy, `"retry_safe":false`, `"retry_safe":false,"private_hint":7`, 1),
+		},
+		{
+			name: "content policy denial missing null rule id", exitCode: 8,
+			stderr: strings.Replace(contentPolicy, `"rule_id":"deny-doc",`, "", 1),
+		},
+		{
+			name: "content policy denial missing digest member", exitCode: 8,
+			stderr: strings.Replace(contentPolicy, `"managed":null,`, "", 1),
 		},
 		{
 			name: "oversized capture", exitCode: 4,

@@ -100,6 +100,13 @@ type WriteAuthorizer interface {
 	Authorize(context.Context, WriteAuthorizationRequest) (context.Context, error)
 }
 
+// WritePreflightAuthorizer is an optional deny-only companion used with
+// caller-supplied partial identity. A nil error never grants a write; the
+// authoritative Authorize call still runs at the adapter boundary.
+type WritePreflightAuthorizer interface {
+	Preflight(WriteAuthorizationRequest) error
+}
+
 // WriteScopeRequirements is the static metadata projection an authorizer may
 // require to decide Confluence targets. Adapters use it only to avoid reads;
 // it never grants a write by itself.

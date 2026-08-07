@@ -2,9 +2,16 @@
 
 package cli
 
-import "os"
+import (
+	"math"
+	"os"
+)
 
 func processPolicyOwnerUID() *uint32 {
-	uid := uint32(os.Geteuid())
+	value := os.Geteuid()
+	if value < 0 || uint64(value) > math.MaxUint32 {
+		return nil
+	}
+	uid := uint32(value) // #nosec G115 -- bounded above before conversion.
 	return &uid
 }

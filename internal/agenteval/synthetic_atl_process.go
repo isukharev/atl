@@ -3,6 +3,8 @@ package agenteval
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -210,7 +213,10 @@ func StartSyntheticATLProcess(ctx context.Context, input SyntheticATLProcessConf
 		return fail(err)
 	}
 	process.backend = backend
-	process.environment = syntheticATLProcessEnvironment(backend, runtimeRoot)
+	process.environment, err = syntheticATLProcessEnvironment(backend, runtimeRoot)
+	if err != nil {
+		return fail(err)
+	}
 	if len(config.MCPInvocations) > 0 {
 		expectedTools, ok := syntheticMCPToolsForService(config.MCPService)
 		if !ok {
@@ -522,12 +528,36 @@ func materializeSelectedSyntheticATLBinary(
 	return binary, nil
 }
 
-func syntheticATLProcessEnvironment(backend *MockBackend, runtimeRoot string) []string {
+func syntheticATLProcessEnvironment(backend *MockBackend, runtimeRoot string) ([]string, error) {
 	values := backend.Environment()
 	values["ATL_NO_UPDATE"] = "1"
 	values["ATL_READ_ONLY"] = "1"
 	values["ATL_CONFIG_DIR"] = filepath.Join(runtimeRoot, "config")
 	values["ATL_MIRROR_ROOT"] = filepath.Join(runtimeRoot, "mirror")
+	policyPath := filepath.Join(runtimeRoot, "policy.json")
+	policy := map[string]any{
+		"schema_version": 1,
+		"backend": map[string]string{
+			"jira_sha256":       syntheticBackendOriginDigest(values["ATL_JIRA_URL"]),
+			"confluence_sha256": syntheticBackendOriginDigest(values["ATL_CONFLUENCE_URL"]),
+		},
+		"rules": []map[string]any{
+			{"id": "synthetic-jira-writes", "effect": "allow", "verbs": []string{"write"}, "resource": map[string]string{"service": "jira"}},
+			{"id": "synthetic-confluence-writes", "effect": "allow", "verbs": []string{"write"}, "resource": map[string]string{"service": "confluence"}},
+			{"id": "synthetic-denial-oracle", "effect": "deny", "verbs": []string{"write"}, "resource": map[string]string{"service": "jira", "project": "DENIED"}},
+		},
+	}
+	policyBytes, err := json.Marshal(policy)
+	if err != nil {
+		return nil, fmt.Errorf("encode synthetic ATL policy")
+	}
+	if err := os.WriteFile(policyPath, policyBytes, 0o600); err != nil {
+		return nil, fmt.Errorf("write synthetic ATL policy")
+	}
+	policySum := sha256.Sum256(policyBytes)
+	values["ATL_POLICY_FILE"] = policyPath
+	values["ATL_POLICY_SHA256"] = "sha256:" + hex.EncodeToString(policySum[:])
+	values["ATL_POLICY_REQUIRED"] = "1"
 	temporary := filepath.Join(runtimeRoot, "tmp")
 	values["TMPDIR"] = temporary
 	values["TMP"] = temporary
@@ -539,7 +569,13 @@ func syntheticATLProcessEnvironment(backend *MockBackend, runtimeRoot string) []
 			}
 		}
 	}
-	return flattenEnvironment(values)
+	return flattenEnvironment(values), nil
+}
+
+func syntheticBackendOriginDigest(raw string) string {
+	canonical := strings.TrimRight(strings.TrimSpace(raw), "/")
+	sum := sha256.Sum256([]byte(canonical))
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // RunCLIBytes admits one exact CLI command and returns its bounded output

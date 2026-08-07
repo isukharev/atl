@@ -24,25 +24,29 @@ const doctorSchemaVersion = 1
 var safeServerVersion = regexp.MustCompile(`^[0-9]{1,3}\.[0-9]{1,3}(\.[0-9]{1,4})?(-[0-9A-Za-z]{1,16})?$`)
 
 type DoctorOptions struct {
-	Remote         bool
-	ReadOnlyPolicy bool
+	Remote                   bool
+	ReadOnlyPolicy           bool
+	ContentPolicyActive      bool
+	ContentPolicyEnforcement string
+	ContentPolicyAdvisory    []string
 }
 
 type DoctorResult struct {
-	SchemaVersion int               `json:"schema_version"`
-	Mode          string            `json:"mode"`
-	Complete      bool              `json:"complete"`
-	Healthy       bool              `json:"healthy"`
-	Status        string            `json:"status"`
-	CLI           version.BuildInfo `json:"cli"`
-	Runtime       DoctorRuntime     `json:"runtime"`
-	Config        DoctorConfig      `json:"config"`
-	Credentials   DoctorCredentials `json:"credentials"`
-	Safety        DoctorSafety      `json:"safety"`
-	Services      DoctorServices    `json:"services"`
-	Mirror        DoctorMirror      `json:"mirror"`
-	Plugin        DoctorPlugin      `json:"plugin"`
-	Problems      []DoctorProblem   `json:"problems"`
+	SchemaVersion int                 `json:"schema_version"`
+	Mode          string              `json:"mode"`
+	Complete      bool                `json:"complete"`
+	Healthy       bool                `json:"healthy"`
+	Status        string              `json:"status"`
+	CLI           version.BuildInfo   `json:"cli"`
+	Runtime       DoctorRuntime       `json:"runtime"`
+	Config        DoctorConfig        `json:"config"`
+	Credentials   DoctorCredentials   `json:"credentials"`
+	Safety        DoctorSafety        `json:"safety"`
+	ContentPolicy DoctorContentPolicy `json:"content_policy"`
+	Services      DoctorServices      `json:"services"`
+	Mirror        DoctorMirror        `json:"mirror"`
+	Plugin        DoctorPlugin        `json:"plugin"`
+	Problems      []DoctorProblem     `json:"problems"`
 }
 
 type DoctorRuntime struct {
@@ -68,6 +72,12 @@ type DoctorCredentials struct {
 type DoctorSafety struct {
 	ReadOnly bool   `json:"read_only"`
 	Status   string `json:"status"`
+}
+
+type DoctorContentPolicy struct {
+	Active          bool     `json:"active"`
+	Enforcement     string   `json:"enforcement"`
+	AdvisoryBecause []string `json:"advisory_because"`
 }
 
 type DoctorServices struct {
@@ -152,8 +162,9 @@ func RunDoctor(ctx context.Context, opts DoctorOptions) (*DoctorResult, error) {
 		Credentials: DoctorCredentials{
 			Store: authInspection.Store, Confluence: authInspection.Confluence, Jira: authInspection.Jira,
 		},
-		Safety: DoctorSafety{ReadOnly: opts.ReadOnlyPolicy || cfgInspection.Effective.ReadOnly, Status: "available"},
-		Plugin: DoctorPlugin{Status: "not_observable", Reason: "host_does_not_expose_plugin_version"},
+		Safety:        DoctorSafety{ReadOnly: opts.ReadOnlyPolicy || cfgInspection.Effective.ReadOnly, Status: "available"},
+		ContentPolicy: DoctorContentPolicy{Active: opts.ContentPolicyActive, Enforcement: opts.ContentPolicyEnforcement, AdvisoryBecause: append([]string(nil), opts.ContentPolicyAdvisory...)},
+		Plugin:        DoctorPlugin{Status: "not_observable", Reason: "host_does_not_expose_plugin_version"},
 	}
 	if build.Version != "" && build.Version != "dev" {
 		result.Plugin.ExpectedVersion = build.Version

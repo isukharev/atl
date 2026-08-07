@@ -22,6 +22,10 @@ command -v atl
 atl config show
 ```
 
+Before planning any Jira write, run `atl policy show`; when it is active, plan
+only within its effective `grants` and treat content-policy denial as a human
+decision boundary.
+
 If `atl` or Jira URL/auth is missing, run `/atl:setup` and stop. Exit 7
 also means setup is incomplete. Exit 8 with `policy:"read_only"` is a human
 decision boundary; never disable it to create, update, transition, comment,

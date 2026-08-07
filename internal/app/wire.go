@@ -54,6 +54,7 @@ type JiraService struct {
 	graphConfluenceFactory func() (domain.ConfluenceGraphPageMetadataReader, string)
 	graphConfluenceOnce    sync.Once
 	graphConfluenceReason  string
+	writeAuthorizer        domain.WriteAuthorizer
 }
 
 // EnvironmentService composes the bounded metadata readers used by
@@ -260,7 +261,7 @@ func NewJiraWithWriteAuthorizer(cfg *config.Config, version string, authorizer d
 		options = append(options, jira.WithWriteAuthorizer(authorizer))
 	}
 	j := jira.New(cfg.JiraURL, tok, version, options...)
-	service := &JiraService{tr: j, agile: j, structure: j, baseURL: cfg.JiraURL, cfg: cfg}
+	service := &JiraService{tr: j, agile: j, structure: j, baseURL: cfg.JiraURL, cfg: cfg, writeAuthorizer: authorizer}
 	service.graphConfluenceFactory = func() (domain.ConfluenceGraphPageMetadataReader, string) {
 		return optionalConfluenceGraphRead(cfg, version)
 	}

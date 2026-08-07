@@ -27,6 +27,9 @@ command -v atl
 atl config show
 ```
 
+Before planning any Confluence write, run `atl policy show`; when it is active,
+plan only within its effective `grants` and use canonical numeric content ids.
+
 If `atl` or Confluence URL/auth is missing, run `{{atl.setup_cmd}}` and stop.
 Exit 7 also means setup is incomplete. Exit 8 with `policy:"read_only"` is a
 human-decision boundary; never disable it to apply, push, create, move, or

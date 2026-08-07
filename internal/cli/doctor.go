@@ -20,8 +20,14 @@ func newDoctorCmd() *cobra.Command {
 			"per ready backend; legacy Confluence may add one bodyless reachability probe.\n" +
 			"It never reads page/issue bodies, identities, or search results.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			resolved, err := currentProcessPolicy.resolve()
+			if err != nil {
+				return classifyProcessPolicyLoadError(err)
+			}
+			policy := buildPolicyShowResult(resolved)
 			result, doctorErr := app.RunDoctor(cmd.Context(), app.DoctorOptions{
-				Remote: remote, ReadOnlyPolicy: readOnly || envReadOnly(),
+				Remote: remote, ReadOnlyPolicy: readOnly || envReadOnly(), ContentPolicyActive: policy.Active,
+				ContentPolicyEnforcement: policy.Enforcement, ContentPolicyAdvisory: policy.AdvisoryBecause,
 			})
 			emitErr := emitSnapshot(cmd, result, func() string { return doctorText(result) })
 			return snapshotResultErr(doctorErr, emitErr)
@@ -51,6 +57,7 @@ func doctorText(result *app.DoctorResult) string {
 	fmt.Fprintf(&b, "credentials_confluence: present=%t status=%s source=%s\n",
 		result.Credentials.Confluence.Present, result.Credentials.Confluence.Status, result.Credentials.Confluence.Source)
 	fmt.Fprintf(&b, "safety: read_only=%t status=%s\n", result.Safety.ReadOnly, result.Safety.Status)
+	fmt.Fprintf(&b, "content_policy: active=%t enforcement=%s advisory_because=%s\n", result.ContentPolicy.Active, result.ContentPolicy.Enforcement, strings.Join(result.ContentPolicy.AdvisoryBecause, ","))
 	writeDoctorServiceText(&b, "jira", result.Services.Jira)
 	writeDoctorServiceText(&b, "confluence", result.Services.Confluence)
 	fmt.Fprintf(&b, "mirror: status=%s source=%s\n", result.Mirror.Status, result.Mirror.Source)

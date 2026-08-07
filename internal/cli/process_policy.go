@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -25,8 +26,20 @@ type processPolicy struct {
 	err        error
 }
 
+// policyRelevantEnvironment is the launcher allowlist contract. It includes
+// direct product reads plus Go transport variables that can redirect or trust
+// a peer without changing the configured backend origin.
+var policyRelevantEnvironment = []string{
+	"PATH", "HOME", "USERPROFILE", "XDG_CONFIG_HOME",
+	"ATL_CONFIG_DIR", "ATL_JIRA_URL", "JIRA_URL", "ATL_CONFLUENCE_URL", "CONFLUENCE_URL", "ATL_UPDATE_URL",
+	"ATL_JIRA_PAT", "JIRA_PAT", "ATL_CONFLUENCE_PAT", "CONFLUENCE_PAT", "ATL_INTEGRATION", "TEST_JIRA_PAT", "TEST_CONFLUENCE_PAT",
+	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR",
+	"ATL_ALLOW_INSECURE", "ATL_READ_ONLY", "ATL_MIRROR_ROOT", "ATL_NO_UPDATE", "ATL_UPDATE_DEBUG", "ATL_VERBOSE",
+	"ATL_POLICY", "ATL_POLICY_FILE", "ATL_POLICY_SHA256", "ATL_POLICY_REQUIRED",
+}
+
 func newProcessPolicy() *processPolicy {
-	return &processPolicy{
+	policy := &processPolicy{
 		resolver: contentpolicy.NewResolver(config.Dir(), contentpolicy.Environment{
 			Inline:           os.Getenv("ATL_POLICY"),
 			File:             os.Getenv("ATL_POLICY_FILE"),
@@ -35,6 +48,11 @@ func newProcessPolicy() *processPolicy {
 		}),
 		required: envBool("ATL_POLICY_REQUIRED"),
 	}
+	// Snapshot source bytes and failures while constructing the process command
+	// tree. Ungoverned reads ignore the frozen result; governed writes and policy
+	// diagnostics consume it without giving later code control of the timing.
+	_, _ = policy.resolve()
+	return policy
 }
 
 func envBool(name string) bool {
@@ -62,15 +80,13 @@ func (p *processPolicy) resolve() (*contentpolicy.Resolved, error) {
 	return p.resolved, p.err
 }
 
-func (p *processPolicy) active() bool {
-	resolved, err := p.resolve()
-	return err == nil && resolved != nil && len(resolved.Layers) != 0
-}
-
 func (p *processPolicy) requireActiveFor(registration commandRegistration) error {
+	if registration.policyIdentity == policyIdentityNone {
+		return nil
+	}
 	resolved, err := p.resolve()
 	if err != nil {
-		return fmt.Errorf("%w: load content policy: %v", domain.ErrConfig, err)
+		return classifyProcessPolicyLoadError(err)
 	}
 	if p.required && registration.policyIdentity != policyIdentityNone && len(resolved.Layers) == 0 {
 		return contentpolicy.NewSourceDenial(
@@ -86,7 +102,7 @@ func (p *processPolicy) requireActiveFor(registration commandRegistration) error
 func (p *processPolicy) authorizerFor(service, rawURL string) (domain.WriteAuthorizer, error) {
 	resolved, err := p.resolve()
 	if err != nil {
-		return nil, fmt.Errorf("%w: load content policy: %v", domain.ErrConfig, err)
+		return nil, classifyProcessPolicyLoadError(err)
 	}
 	if len(resolved.Layers) == 0 {
 		if p.required {
@@ -99,9 +115,14 @@ func (p *processPolicy) authorizerFor(service, rawURL string) (domain.WriteAutho
 		}
 		return nil, nil
 	}
+	if strings.TrimSpace(rawURL) == "" {
+		// Preserve the app constructor's established missing-backend config
+		// classification; no backend exists to bind or write.
+		return p.authorizer, nil
+	}
 	digest, err := backendid.OriginSHA256(rawURL)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: invalid %s backend origin", domain.ErrConfig, service)
 	}
 	for _, layer := range resolved.Layers {
 		var want string
@@ -128,8 +149,16 @@ func (p *processPolicy) authorizerFor(service, rawURL string) (domain.WriteAutho
 	return p.authorizer, nil
 }
 
+func classifyProcessPolicyLoadError(err error) error {
+	var denial interface{ DiagnosticPolicyDenial() bool }
+	if errors.As(err, &denial) && denial.DiagnosticPolicyDenial() {
+		return err
+	}
+	return fmt.Errorf("%w: load content policy: %w", domain.ErrConfig, err)
+}
+
 func policyAuthorizerFor(service, rawURL string) (domain.WriteAuthorizer, error) {
-	if currentProcessPolicy == nil {
+	if currentProcessPolicy == nil || !currentCommandPolicyWrite {
 		return nil, nil
 	}
 	return currentProcessPolicy.authorizerFor(service, rawURL)

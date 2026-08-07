@@ -58,6 +58,7 @@ func executeCLIRaw(t *testing.T, env map[string]string, args ...string) (stdout,
 		"ATL_CONFLUENCE_PAT", "CONFLUENCE_PAT", "ATL_JIRA_PAT", "JIRA_PAT",
 		"ATL_MIRROR_ROOT", "ATL_ALLOW_INSECURE",
 		"ATL_READ_ONLY",
+		"ATL_POLICY", "ATL_POLICY_FILE", "ATL_POLICY_SHA256", "ATL_POLICY_REQUIRED",
 	} {
 		t.Setenv(k, "")
 	}

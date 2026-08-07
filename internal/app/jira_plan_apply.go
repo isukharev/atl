@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -63,6 +64,34 @@ type jiraPlanOp struct {
 	Value           string
 	Rationale       string
 	ExpectedUpdated string
+}
+
+// JiraPlanPolicyRequests parses the bounded plan artifact into deny-only
+// authorization requests without configuration, credentials, or network.
+func JiraPlanPolicyRequests(path string) ([]domain.WriteAuthorizationRequest, error) {
+	data, err := os.ReadFile(strings.TrimSpace(path))
+	if err != nil {
+		return nil, err
+	}
+	ops, err := parseJiraPlanCSV(data)
+	if err != nil {
+		return nil, err
+	}
+	requests := make([]domain.WriteAuthorizationRequest, 0, len(ops))
+	for _, op := range ops {
+		verb := domain.WriteVerbUpdate
+		if op.Op == "comment" {
+			verb = domain.WriteVerbComment
+		}
+		targets := planJiraTargets(op.Source)
+		if op.Op == "link" {
+			targets = append(targets, planJiraTargets(op.Target)...)
+		}
+		if len(targets) != 0 {
+			requests = append(requests, domain.WriteAuthorizationRequest{Verbs: domain.WriteVerbSet{verb}, Targets: targets})
+		}
+	}
+	return requests, nil
 }
 
 // ApplyPlan executes or previews a guarded Jira operation plan.
@@ -363,6 +392,11 @@ func (s *JiraService) planPolicyBlocks(ctx context.Context, ops []jiraPlanOp, al
 		if op.Op == "field" && !allowedFields[op.Field] {
 			blocked[op.Row] = "field is not allowlisted"
 		}
+		if blocked[op.Row] == "" {
+			if denial := s.planContentPolicyBlock(op); denial != "" {
+				blocked[op.Row] = denial
+			}
+		}
 		if op.Op == "link" && !explicitTypes[strings.ToLower(op.Type)] {
 			needMetadata = true
 		}
@@ -384,6 +418,42 @@ func (s *JiraService) planPolicyBlocks(ctx context.Context, ops []jiraPlanOp, al
 		}
 	}
 	return blocked, nil
+}
+
+func (s *JiraService) planContentPolicyBlock(op jiraPlanOp) string {
+	preflight, ok := s.writeAuthorizer.(domain.WritePreflightAuthorizer)
+	if !ok {
+		return ""
+	}
+	verb := domain.WriteVerbUpdate
+	if op.Op == "comment" {
+		verb = domain.WriteVerbComment
+	}
+	targets := planJiraTargets(op.Source)
+	if op.Op == "link" {
+		targets = append(targets, planJiraTargets(op.Target)...)
+	}
+	if len(targets) == 0 {
+		return ""
+	}
+	err := preflight.Preflight(domain.WriteAuthorizationRequest{Verbs: domain.WriteVerbSet{verb}, Targets: targets})
+	if err == nil {
+		return ""
+	}
+	var denial interface{ DiagnosticPolicyDenial() bool }
+	if errors.As(err, &denial) && denial.DiagnosticPolicyDenial() {
+		return err.Error()
+	}
+	return "content policy preflight failed"
+}
+
+func planJiraTargets(ref string) []domain.WriteTarget {
+	ref = strings.ToUpper(strings.TrimSpace(ref))
+	if !domain.ValidJiraIssueKey(ref) {
+		return nil
+	}
+	project := ref[:strings.IndexByte(ref, '-')]
+	return []domain.WriteTarget{{Service: "jira", Kind: "issue", Key: ref, Project: project}}
 }
 
 func lowerSet(values []string) map[string]bool {
