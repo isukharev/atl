@@ -48,3 +48,5 @@ docs/superpowers/
 docs/proposals/
 # Local-only working docs (internal planning, drafts, strategy) — never published.
 /local-docs/
+/tmp/
+.claude/settings.local.json
