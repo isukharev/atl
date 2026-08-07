@@ -2,7 +2,7 @@
   "schema_version": 1,
   "jira_context": "/jira",
   "confluence_context": "/wiki",
-  "request_sequence": ["source_read", "epic_create", "child_1_create", "epic_field", "child_1_link"],
+  "request_sequence": ["source_read", "epic_create", "child_1_create", "epic_field", "child_1_identity", "epic_identity", "child_1_link"],
   "routes": [
     {
       "name": "source_read",
@@ -34,6 +34,22 @@
       "path": "/jira/rest/api/2/field",
       "status": 200,
       "body": [{"id":"summary","name":"Summary","custom":false,"schema":{"type":"string"}},{"id":"customfield_10020","name":"Epic Link","custom":true,"schema":{"type":"any"}}]
+    },
+    {
+      "name": "child_1_identity",
+      "method": "GET",
+      "path": "/jira/rest/api/2/issue/OPS-701",
+      "query_equals": {"fields":"project"},
+      "status": 200,
+      "body": {"id":"701","key":"OPS-701","fields":{"project":{"key":"OPS"}}}
+    },
+    {
+      "name": "epic_identity",
+      "method": "GET",
+      "path": "/jira/rest/api/2/issue/OPS-700",
+      "query_equals": {"fields":"project"},
+      "status": 200,
+      "body": {"id":"700","key":"OPS-700","fields":{"project":{"key":"OPS"}}}
     },
     {
       "name": "child_1_link",
