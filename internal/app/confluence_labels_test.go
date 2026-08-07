@@ -25,9 +25,15 @@ type confluenceLabelStoreStub struct {
 	removeCalls           int
 	addSingleAttempt      bool
 	removeSingleAttempts  []bool
+	metaCalls             int
+	metaErr               error
 }
 
 func (s *confluenceLabelStoreStub) GetMeta(_ context.Context, id string) (*domain.PageMeta, error) {
+	s.metaCalls++
+	if s.metaErr != nil {
+		return nil, s.metaErr
+	}
 	return &domain.PageMeta{ID: id, Type: "page", Space: "DOC", Version: 1, AncestorIDs: []string{}}, nil
 }
 
@@ -106,6 +112,16 @@ func TestConfluenceLabelsListAndGuardedAdd(t *testing.T) {
 	})
 	if err != nil || applied.Status != "applied" || store.addCalls != 1 || !store.addSingleAttempt || len(applied.Final) != 3 || applied.Final[1].Name != "release" || applied.Final[2].Name != "urgent" {
 		t.Fatalf("applied=%+v calls=%d labels=%+v err=%v", applied, store.addCalls, store.labels, err)
+	}
+}
+
+func TestConfluenceLabelsWithoutPolicyDoNotRequireMetadata(t *testing.T) {
+	store := &confluenceLabelStoreStub{stubStore: &stubStore{}, metaErr: errors.New("metadata unavailable")}
+	result, err := (&ConfluenceService{store: store}).MutateLabelsGuarded(context.Background(), "42", ConfluenceLabelMutationOpts{
+		Operation: "add", Labels: []string{"release"},
+	})
+	if err != nil || result.Status != "would_apply" || store.metaCalls != 0 || store.listCalls != 1 {
+		t.Fatalf("result=%+v err=%v metadata=%d labels=%d", result, err, store.metaCalls, store.listCalls)
 	}
 }
 

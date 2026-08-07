@@ -51,6 +51,7 @@ type confluenceCommentMutatorFake struct {
 	calls               int
 	singleAttempt       bool
 	request             domain.ConfluenceCommentMutationRequest
+	untrustedReference  bool
 	notAttempted        bool
 	omitAttemptMetadata bool
 }
@@ -58,6 +59,7 @@ type confluenceCommentMutatorFake struct {
 func (m *confluenceCommentMutatorFake) MutateConfluenceComment(ctx context.Context, request domain.ConfluenceCommentMutationRequest) (domain.ConfluenceCommentMutationResult, error) {
 	m.calls++
 	m.singleAttempt = domain.SingleAttempt(ctx)
+	m.untrustedReference = domain.UntrustedConfluenceReference(ctx)
 	m.request = request
 	if m.commit != nil {
 		m.commit(m.store, request)
@@ -246,6 +248,31 @@ func TestConfluenceCommentMutationReplyApplyWritesOnceAndReconciles(t *testing.T
 		mutator.calls != 1 || !mutator.singleAttempt || mutator.request.PageID != "42" || mutator.request.ThreadID != "101" ||
 		string(mutator.request.BodyStorage) != string(body) {
 		t.Fatalf("result=%+v err=%v writes=%d single=%t request=%+v", result, err, mutator.calls, mutator.singleAttempt, mutator.request)
+	}
+}
+
+func TestConfluenceCommentMutationPreservesURLProvenanceAtWrite(t *testing.T) {
+	service, _, mutator := newConfluenceCommentMutationFixture(domain.ConfluenceCommentResolutionOpen)
+	body := []byte("<p>reviewed reply</p>")
+	reference := "https://confluence.example.test/pages/viewpage.action?pageId=42"
+	preview, err := service.MutateCommentGuarded(context.Background(), reference, ConfluenceCommentMutationOpts{
+		Operation: domain.ConfluenceCommentMutationReply, ThreadID: "101", Body: body,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutator.result = domain.ConfluenceCommentMutationResult{
+		Operation: domain.ConfluenceCommentMutationReply, ThreadID: "101", CommentID: "202",
+	}
+	mutator.commit = func(store *confluenceCommentMutationStore, request domain.ConfluenceCommentMutationRequest) {
+		store.comments = append(store.comments, confluenceInlineReply("202", "actor-1", string(request.BodyStorage)))
+	}
+	result, err := service.MutateCommentGuarded(context.Background(), reference, ConfluenceCommentMutationOpts{
+		Operation: domain.ConfluenceCommentMutationReply, ThreadID: "101", Body: body,
+		Apply: true, ExpectedProposalHash: preview.ProposalHash,
+	})
+	if err != nil || result.Status != "applied" || !mutator.untrustedReference {
+		t.Fatalf("result=%+v err=%v untrusted=%t", result, err, mutator.untrustedReference)
 	}
 }
 

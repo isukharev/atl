@@ -139,7 +139,7 @@ func (cf *Confluence) scopeRequirements() domain.WriteScopeRequirements {
 	}
 	reader, ok := cf.authorizer.(domain.WriteScopeRequirementReader)
 	if !ok {
-		return domain.WriteScopeRequirements{Space: true, Ancestors: true}
+		return domain.WriteScopeRequirements{Kind: true, Space: true, Ancestors: true}
 	}
 	requirements := reader.RequiredWriteScope("confluence")
 	if requirements.Ancestors {
@@ -255,7 +255,8 @@ func (cf *Confluence) rememberResource(resource *domain.Resource) {
 func (cf *Confluence) contentTarget(ctx context.Context, kind, subjectID, containerID string) (domain.WriteTarget, error) {
 	var identity confluenceIdentity
 	var err error
-	if kind == "" {
+	requirements := cf.scopeRequirements()
+	if kind == "" || subjectID == containerID && requirements.Kind {
 		identity, err = cf.exactContentIdentity(ctx, containerID)
 	} else {
 		identity, err = cf.pageIdentity(ctx, containerID)
@@ -265,12 +266,14 @@ func (cf *Confluence) contentTarget(ctx context.Context, kind, subjectID, contai
 	}
 	if kind == "" {
 		kind = identity.kind
+	} else if subjectID == containerID && requirements.Kind && identity.kind != kind {
+		return domain.WriteTarget{}, fmt.Errorf("%w: Confluence content kind does not match the write operation", domain.ErrCheckFailed)
 	}
 	if subjectID != containerID && identity.kind != "page" {
 		return domain.WriteTarget{}, fmt.Errorf("%w: Confluence container is not a canonical page", domain.ErrCheckFailed)
 	}
 	target := domain.WriteTarget{Service: "confluence", Kind: kind, ID: subjectID, Space: identity.space}
-	if cf.scopeRequirements().Ancestors {
+	if requirements.Ancestors {
 		target.AncestorIDs = cloneAncestorIDs(identity.ancestorIDs)
 		if subjectID != containerID {
 			target.AncestorIDs = append(target.AncestorIDs, containerID)
@@ -404,7 +407,7 @@ func (cf *Confluence) authorizeHierarchy(ctx context.Context, verbs domain.Write
 			writeContext, _, authorizationErr := cf.authorizeResolutionFailure(ctx, verbs, "page", anchor.ID, err)
 			return writeContext, authorizationErr
 		}
-		if anchor.ID == target.ID || containsID(identity.ancestorIDs, target.ID) {
+		if anchor.ID == target.ID || containsID(identity.ancestorIDs, target.ID) || containsID(target.AncestorIDs, anchor.ID) {
 			return cf.authorizeScopeProblemByRule(ctx, verbs, domain.WriteScopeProtectedSubtree, "under", anchor.RuleID, target)
 		}
 	}

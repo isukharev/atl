@@ -93,6 +93,7 @@ type confluenceCommentMutationSnapshot struct {
 	baselineSHA256     string
 	backend            string
 	configuredIdentity string
+	untrustedReference bool
 	noOp               bool
 }
 
@@ -171,6 +172,9 @@ func (s *ConfluenceService) MutateCommentGuarded(ctx context.Context, reference 
 	if s.commentMutator == nil {
 		result.Status = "conflict"
 		return result, fmt.Errorf("%w: Confluence comment mutation provider is unavailable", domain.ErrConfig)
+	}
+	if snapshot.untrustedReference {
+		ctx = domain.WithUntrustedConfluenceReference(ctx)
 	}
 
 	prewrite, err := s.confluenceCommentMutationSnapshot(ctx, snapshot.pageID, opts.Operation, snapshot.target.ID)
@@ -318,7 +322,12 @@ func (s *ConfluenceService) confluenceCommentMutationSnapshot(ctx context.Contex
 		return confluenceCommentMutationSnapshot{}, err
 	}
 
-	inventory, err := s.CommentInventory(ctx, reference, ConfluenceCommentInventoryOpts{Location: "all", State: "all", Depth: "all"})
+	resolved, err := s.ResolvePageReference(ctx, reference)
+	if err != nil {
+		return confluenceCommentMutationSnapshot{}, err
+	}
+	ctx = resolved.Context(ctx)
+	inventory, err := s.CommentInventory(ctx, resolved.ID, ConfluenceCommentInventoryOpts{Location: "all", State: "all", Depth: "all"})
 	if err != nil {
 		return confluenceCommentMutationSnapshot{}, err
 	}
@@ -363,6 +372,7 @@ func (s *ConfluenceService) confluenceCommentMutationSnapshot(ctx context.Contex
 		provider:   ConfluenceCommentMutationProviderEvidence{ID: activation.ProviderID},
 		activation: activation, comments: comments, target: target, capabilities: inventory.Capabilities,
 		baselineSHA256: baselineSHA256, backend: backend, configuredIdentity: identity, noOp: noOp,
+		untrustedReference: resolved.Untrusted() || domain.UntrustedConfluenceReference(ctx),
 	}, nil
 }
 
