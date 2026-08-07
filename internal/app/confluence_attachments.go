@@ -69,6 +69,7 @@ func (s *ConfluenceService) AttachmentInventory(ctx context.Context, reference s
 	if err != nil {
 		return nil, err
 	}
+	ctx = resolved.Context(ctx)
 	meta, err := s.store.GetMeta(ctx, resolved.ID)
 	if err != nil {
 		return nil, err

@@ -72,6 +72,7 @@ func (s *ConfluenceService) ListLabels(ctx context.Context, id string) (*Conflue
 	if err != nil {
 		return nil, err
 	}
+	ctx = resolved.Context(ctx)
 	id = resolved.ID
 	store, err := s.contentLabelStore()
 	if err != nil {
@@ -103,6 +104,14 @@ func (s *ConfluenceService) MutateLabelsGuarded(ctx context.Context, id string, 
 	store, err := s.contentLabelStore()
 	if err != nil {
 		return nil, err
+	}
+	meta, err := s.store.GetMeta(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if meta == nil || meta.ID != id || !domain.ValidConfluenceContentID(meta.ID) ||
+		(meta.Type != "page" && meta.Type != "blogpost" && meta.Type != "attachment" && meta.Type != "comment") {
+		return nil, fmt.Errorf("%w: label target metadata is not exact and policy-qualified", domain.ErrCheckFailed)
 	}
 	currentRecords, truncated, err := store.ListContentLabels(ctx, id)
 	if err != nil {
@@ -186,7 +195,7 @@ func (s *ConfluenceService) MutateLabelsGuarded(ctx context.Context, id string, 
 	}
 	if writeErr != nil && definitiveWriteRejection(writeErr) && successfulWrites == 0 {
 		result.Status = "failed"
-		return result, &confluenceLabelWriteError{message: "Confluence rejected the label update", cause: writeErr}
+		return result, &confluenceLabelWriteError{message: definitiveWriteMessage("Confluence rejected the label update", writeErr), cause: writeErr}
 	}
 	result.Status = "unknown"
 	cause := writeErr

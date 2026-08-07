@@ -144,7 +144,7 @@ func (s *ConfluenceService) MoveGuarded(ctx context.Context, id string, opts Con
 	_, writeErr := s.store.MovePage(domain.WithSingleAttempt(ctx), id, parent, current.Version, current.Title, current.Body)
 	if writeErr != nil && definitiveWriteRejection(writeErr) {
 		result.Status = "failed"
-		return result, &confluenceMoveWriteError{message: "Confluence rejected the page move", cause: writeErr}
+		return result, &confluenceMoveWriteError{message: definitiveWriteMessage("Confluence rejected the page move", writeErr), cause: writeErr}
 	}
 	verified, verifyErr := s.store.GetPage(ctx, id, domain.PullOpts{Format: "csf"})
 	if verifyErr != nil || verified == nil {

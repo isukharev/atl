@@ -14,6 +14,10 @@ var _ domain.BlogPostCreator = (*Confluence)(nil)
 // closed here rather than accepted from a caller, and blog posts never carry a
 // page ancestor. expand makes the write response independently verifiable.
 func (cf *Confluence) CreateBlogPost(ctx context.Context, space, title string, body []byte) (*domain.Resource, error) {
+	writeContext, err := cf.authorizeCreate(ctx, "blogpost", space, "")
+	if err != nil {
+		return nil, err
+	}
 	payload := map[string]any{
 		"type":  "blogpost",
 		"title": title,
@@ -25,7 +29,7 @@ func (cf *Confluence) CreateBlogPost(ctx context.Context, space, title string, b
 	query := url.Values{}
 	query.Set("expand", "body.storage,version,space")
 	var out content
-	if err := cf.c.SendJSON(ctx, http.MethodPost, "/rest/api/content?"+query.Encode(), payload, &out); err != nil {
+	if err := cf.c.SendJSON(domain.WithWriteClearance(writeContext), http.MethodPost, "/rest/api/content?"+query.Encode(), payload, &out); err != nil {
 		return nil, err
 	}
 	bodyValue, present := out.storageBody()

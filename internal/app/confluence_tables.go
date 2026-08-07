@@ -282,6 +282,7 @@ func (s *ConfluenceService) ExtractTablesWithOptions(ctx context.Context, id str
 	if err != nil {
 		return nil, err
 	}
+	ctx = resolved.Context(ctx)
 	id = resolved.ID
 	page, err := s.store.GetPage(ctx, id, domain.PullOpts{Format: "csf"})
 	if err != nil {

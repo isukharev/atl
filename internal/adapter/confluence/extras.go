@@ -108,6 +108,10 @@ func (cf *Confluence) ListComments(ctx context.Context, id string) ([]domain.Com
 
 // AddComment posts a storage-format comment on a page.
 func (cf *Confluence) AddComment(ctx context.Context, id string, body []byte) (*domain.Comment, error) {
+	writeContext, _, err := cf.authorizeContent(ctx, domain.WriteVerbSet{domain.WriteVerbComment}, "comment", "", id)
+	if err != nil {
+		return nil, err
+	}
 	payload := map[string]any{
 		"type":      "comment",
 		"container": map[string]string{"id": id, "type": "page"},
@@ -125,7 +129,7 @@ func (cf *Confluence) AddComment(ctx context.Context, id string, body []byte) (*
 			Storage *commentBodyJSON `json:"storage"`
 		} `json:"body"`
 	}
-	if err := cf.c.SendJSON(ctx, "POST", "/rest/api/content", payload, &out); err != nil {
+	if err := cf.c.SendJSON(domain.WithWriteClearance(writeContext), "POST", "/rest/api/content", payload, &out); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(out.ID) == "" {
@@ -255,6 +259,11 @@ func (cf *Confluence) DownloadAttachment(ctx context.Context, pageID, filename s
 // multipart/form-data. DC endpoint: POST /rest/api/content/{pageId}/child/attachment.
 // X-Atlassian-Token: nocheck is required to bypass XSRF protection.
 func (cf *Confluence) UploadAttachment(ctx context.Context, pageID, filename string, data io.ReadCloser, size int64, comment string) (*domain.Attachment, error) {
+	writeContext, _, authorizationErr := cf.authorizeContent(ctx, domain.WriteVerbSet{domain.WriteVerbCreate}, "attachment", "", pageID)
+	if authorizationErr != nil {
+		_ = data.Close()
+		return nil, authorizationErr
+	}
 	if size < 0 {
 		_ = data.Close()
 		return nil, fmt.Errorf("%w: upload attachment: size must be non-negative", domain.ErrUsage)
@@ -316,7 +325,7 @@ func (cf *Confluence) UploadAttachment(ctx context.Context, pageID, filename str
 		} `json:"results"`
 	}
 	contentLength := framingSize + size
-	raw, err := cf.c.DoStreamSized(ctx, "POST", "/rest/api/content/"+url.PathEscape(pageID)+"/child/attachment", body, contentLength, headers)
+	raw, err := cf.c.DoStreamSized(domain.WithWriteClearance(writeContext), "POST", "/rest/api/content/"+url.PathEscape(pageID)+"/child/attachment", body, contentLength, headers)
 	if err != nil {
 		return nil, err
 	}
@@ -336,8 +345,12 @@ func (cf *Confluence) UploadAttachment(ctx context.Context, pageID, filename str
 
 // DeleteAttachment deletes an attachment by its content id.
 // DC endpoint: DELETE /rest/api/content/{attachmentId}
-func (cf *Confluence) DeleteAttachment(ctx context.Context, attachmentID string) error {
-	_, err := cf.c.Do(domain.WithSingleAttempt(ctx), "DELETE", "/rest/api/content/"+url.PathEscape(attachmentID), nil, nil)
+func (cf *Confluence) DeleteAttachment(ctx context.Context, pageID, attachmentID string) error {
+	writeContext, _, err := cf.authorizeContent(ctx, domain.WriteVerbSet{domain.WriteVerbDelete}, "attachment", attachmentID, pageID)
+	if err != nil {
+		return err
+	}
+	_, err = cf.c.Do(domain.WithWriteClearance(domain.WithSingleAttempt(writeContext)), "DELETE", "/rest/api/content/"+url.PathEscape(attachmentID), nil, nil)
 	return err
 }
 

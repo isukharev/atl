@@ -399,6 +399,7 @@ func (s *ConfluenceService) loadStructuralConfluencePage(ctx context.Context, re
 	if err != nil {
 		return nil, err
 	}
+	ctx = resolved.Context(ctx)
 	page, err := s.store.GetPage(ctx, resolved.ID, domain.PullOpts{Format: "csf"})
 	if err != nil {
 		return nil, err

@@ -87,6 +87,7 @@ func (s *ConfluenceService) Get(ctx context.Context, id, format string) (*domain
 	if err != nil {
 		return nil, err
 	}
+	ctx = resolved.Context(ctx)
 	id = resolved.ID
 	page, err := s.store.GetPage(ctx, id, domain.PullOpts{Format: format})
 	if err != nil {
@@ -109,6 +110,7 @@ func (s *ConfluenceService) Meta(ctx context.Context, id string) (*domain.PageMe
 	if err != nil {
 		return nil, err
 	}
+	ctx = resolved.Context(ctx)
 	id = resolved.ID
 	return s.store.GetMeta(ctx, id)
 }
@@ -124,6 +126,7 @@ func (s *ConfluenceService) Comments(ctx context.Context, id string) ([]domain.C
 	if err != nil {
 		return nil, false, err
 	}
+	ctx = resolved.Context(ctx)
 	id = resolved.ID
 	return s.store.ListComments(ctx, id)
 }
@@ -133,6 +136,7 @@ func (s *ConfluenceService) Attachments(ctx context.Context, id string) ([]domai
 	if err != nil {
 		return nil, err
 	}
+	ctx = resolved.Context(ctx)
 	id = resolved.ID
 	return s.store.ListAttachments(ctx, id)
 }
@@ -167,6 +171,7 @@ func (s *ConfluenceService) DownloadAttachment(ctx context.Context, pageID, file
 	if err != nil {
 		return "", err
 	}
+	ctx = resolved.Context(ctx)
 	pageID = resolved.ID
 	if outDir == "" {
 		outDir = "."

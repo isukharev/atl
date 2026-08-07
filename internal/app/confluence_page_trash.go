@@ -155,11 +155,14 @@ func (s *ConfluenceService) TrashPageGuarded(ctx context.Context, id string, opt
 
 	result.WriteAttempted = true
 	writeErr := s.store.DeletePage(domain.WithSingleAttempt(ctx), id)
+	if writeDefinitelyNotAttempted(writeErr) {
+		result.WriteAttempted = false
+	}
 	if writeErr != nil && definitiveWriteRejection(writeErr) && !errors.Is(writeErr, domain.ErrNotFound) {
 		result.Status = "not_applied"
 		result.ObservedState = "current"
 		return result, &confluencePageTrashWriteError{
-			message: "Confluence rejected the page trash operation; it was not applied",
+			message: definitiveWriteMessage("Confluence rejected the page trash operation; it was not applied", writeErr),
 			cause:   sanitizeConfluenceWriteCause(writeErr),
 		}
 	}

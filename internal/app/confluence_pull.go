@@ -925,6 +925,7 @@ func (s *ConfluenceService) resolveIDs(ctx context.Context, o PullOpts) (ids []s
 		if err != nil {
 			return nil, false, err
 		}
+		ctx = resolved.Context(ctx)
 		return []string{resolved.ID}, false, nil
 	case o.CQL != "":
 		return s.collectSearch(ctx, o.CQL)

@@ -23,22 +23,21 @@ func TestAdapterNonReplaySafeRequestInventory(t *testing.T) {
 		readIntent = "read_intent"
 		noMarker   = "none"
 	)
-	mutatingNoMarker := adapterRequestClassification{Disposition: mutating, Marker: noMarker}
 	mutatingCleared := adapterRequestClassification{Disposition: mutating, Marker: "write_clearance"}
 	want := map[string]adapterRequestClassification{
-		"confluence/blogposts.go:CreateBlogPost:SendJSON:POST":                      mutatingNoMarker,
-		"confluence/comment_mutation_provider.go:createInline:DoWithBodyLimit:POST": mutatingNoMarker,
-		"confluence/comment_mutation_provider.go:reply:DoWithBodyLimit:POST":        mutatingNoMarker,
-		"confluence/comment_mutation_provider.go:setResolved:DoWithBodyLimit:PUT":   mutatingNoMarker,
-		"confluence/confluence.go:CreatePage:SendJSON:POST":                         mutatingNoMarker,
-		"confluence/confluence.go:DeletePage:Do:DELETE":                             mutatingNoMarker,
-		"confluence/confluence.go:MovePage:SendJSON:PUT":                            mutatingNoMarker,
-		"confluence/confluence.go:UpdatePage:SendJSON:PUT":                          mutatingNoMarker,
-		"confluence/extras.go:AddComment:SendJSON:POST":                             mutatingNoMarker,
-		"confluence/extras.go:DeleteAttachment:Do:DELETE":                           mutatingNoMarker,
-		"confluence/extras.go:UploadAttachment:DoStreamSized:POST":                  mutatingNoMarker,
-		"confluence/labels.go:AddContentLabels:Do:POST":                             mutatingNoMarker,
-		"confluence/labels.go:RemoveContentLabel:Do:DELETE":                         mutatingNoMarker,
+		"confluence/blogposts.go:CreateBlogPost:SendJSON:POST":                      mutatingCleared,
+		"confluence/comment_mutation_provider.go:createInline:DoWithBodyLimit:POST": mutatingCleared,
+		"confluence/comment_mutation_provider.go:reply:DoWithBodyLimit:POST":        mutatingCleared,
+		"confluence/comment_mutation_provider.go:setResolved:DoWithBodyLimit:PUT":   mutatingCleared,
+		"confluence/confluence.go:CreatePage:SendJSON:POST":                         mutatingCleared,
+		"confluence/confluence.go:DeletePage:Do:DELETE":                             mutatingCleared,
+		"confluence/confluence.go:MovePage:SendJSON:PUT":                            mutatingCleared,
+		"confluence/confluence.go:UpdatePage:SendJSON:PUT":                          mutatingCleared,
+		"confluence/extras.go:AddComment:SendJSON:POST":                             mutatingCleared,
+		"confluence/extras.go:DeleteAttachment:Do:DELETE":                           mutatingCleared,
+		"confluence/extras.go:UploadAttachment:DoStreamSized:POST":                  mutatingCleared,
+		"confluence/labels.go:AddContentLabels:Do:POST":                             mutatingCleared,
+		"confluence/labels.go:RemoveContentLabel:Do:DELETE":                         mutatingCleared,
 		"jira/agile.go:MoveIssuesToBacklog:SendJSON:POST":                           mutatingCleared,
 		"jira/agile.go:MoveIssuesToSprint:SendJSON:POST":                            mutatingCleared,
 		"jira/jira.go:AddComment:SendJSON:POST":                                     mutatingCleared,
@@ -81,8 +80,8 @@ func TestAdapterNonReplaySafeRequestInventory(t *testing.T) {
 	if len(got) != 32 || dispositions[mutating] != 31 || dispositions[readIntent] != 1 {
 		t.Fatalf("inventory counts = total %d, mutating %d, read-intent %d; want 32/31/1", len(got), dispositions[mutating], dispositions[readIntent])
 	}
-	if markers["write_clearance"] != 18 || markers[readIntent] != 1 || markers[noMarker] != 13 {
-		t.Fatalf("marker counts = clearance %d, read-intent %d, none %d; want 18/1/13", markers["write_clearance"], markers[readIntent], markers[noMarker])
+	if markers["write_clearance"] != 31 || markers[readIntent] != 1 || markers[noMarker] != 0 {
+		t.Fatalf("marker counts = clearance %d, read-intent %d, none %d; want 31/1/0", markers["write_clearance"], markers[readIntent], markers[noMarker])
 	}
 }
 

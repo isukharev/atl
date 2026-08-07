@@ -70,7 +70,7 @@ func (s *confluenceAttachmentDeleteStore) ListAttachmentsQualified(ctx context.C
 	return read.inventory, read.err
 }
 
-func (s *confluenceAttachmentDeleteStore) DeleteAttachment(ctx context.Context, id string) error {
+func (s *confluenceAttachmentDeleteStore) DeleteAttachment(ctx context.Context, _ string, id string) error {
 	s.deleteCalls++
 	s.deleteID = id
 	s.deleteSingle = domain.SingleAttempt(ctx)

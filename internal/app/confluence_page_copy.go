@@ -213,9 +213,12 @@ func (s *ConfluenceService) CopyPageGuarded(ctx context.Context, sourceID string
 
 	result.WriteAttempted = true
 	created, writeErr := s.store.CreatePage(domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(ctx)), prewrite.space, prewrite.parent, prewrite.title, prewrite.source.Body)
+	if writeDefinitelyNotAttempted(writeErr) {
+		result.WriteAttempted = false
+	}
 	if writeErr != nil && definitiveWriteRejection(writeErr) {
 		result.Status = "not_applied"
-		return result, &confluencePageCopyWriteError{message: "Confluence rejected the page copy; it was not applied", cause: sanitizeConfluenceWriteCause(writeErr)}
+		return result, &confluencePageCopyWriteError{message: definitiveWriteMessage("Confluence rejected the page copy; it was not applied", writeErr), cause: sanitizeConfluenceWriteCause(writeErr)}
 	}
 	if created == nil || !domain.ValidConfluenceContentID(created.ID) {
 		result.Status = "outcome_unknown"

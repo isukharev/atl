@@ -65,7 +65,18 @@ func (provider *CommentMutationProvider) MutateConfluenceComment(ctx context.Con
 			"qualification", fmt.Errorf("%w: activation does not match", domain.ErrCheckFailed), false,
 		)
 	}
-
+	subjectID := request.ThreadID
+	if request.Operation == domain.ConfluenceCommentMutationInlineCreate {
+		subjectID = ""
+	} else if !domain.HasConfluenceCommentContainment(ctx, request.PageID, request.ThreadID) && provider.confluence.authorizer != nil {
+		target := domain.WriteTarget{Service: "confluence", Kind: "comment", ID: request.ThreadID}
+		_, err := provider.confluence.authorizeScopeProblem(writeContext, domain.WriteVerbSet{domain.WriteVerbComment}, domain.WriteScopeUnresolved, "containment", target)
+		return domain.ConfluenceCommentMutationResult{}, err
+	}
+	writeContext, _, err = provider.confluence.authorizeContent(writeContext, domain.WriteVerbSet{domain.WriteVerbComment}, "comment", subjectID, request.PageID)
+	if err != nil {
+		return domain.ConfluenceCommentMutationResult{}, err
+	}
 	switch request.Operation {
 	case domain.ConfluenceCommentMutationReply:
 		return provider.reply(writeContext, request)
@@ -107,7 +118,7 @@ func (provider *CommentMutationProvider) createInline(ctx context.Context, reque
 	if err != nil {
 		return domain.ConfluenceCommentMutationResult{}, fmt.Errorf("%w: Confluence inline create request could not be encoded", domain.ErrCheckFailed)
 	}
-	response, err := provider.confluence.c.DoWithBodyLimit(ctx, http.MethodPost,
+	response, err := provider.confluence.c.DoWithBodyLimit(domain.WithWriteClearance(ctx), http.MethodPost,
 		"/rest/inlinecomments/1.0/comments", body, commentMutationHeaders(), commentMutationResponseMaxBytes)
 	if err != nil {
 		return domain.ConfluenceCommentMutationResult{}, sanitizedCommentMutationError("write", err, true)
@@ -132,7 +143,7 @@ func (provider *CommentMutationProvider) reply(ctx context.Context, request doma
 	query := url.Values{}
 	query.Set("containerId", request.PageID)
 	path := "/rest/inlinecomments/1.0/comments/" + url.PathEscape(request.ThreadID) + "/replies?" + query.Encode()
-	response, err := provider.confluence.c.DoWithBodyLimit(ctx, http.MethodPost, path, body, commentMutationHeaders(), commentMutationResponseMaxBytes)
+	response, err := provider.confluence.c.DoWithBodyLimit(domain.WithWriteClearance(ctx), http.MethodPost, path, body, commentMutationHeaders(), commentMutationResponseMaxBytes)
 	if err != nil {
 		return domain.ConfluenceCommentMutationResult{}, sanitizedCommentMutationError("write", err, true)
 	}
@@ -151,7 +162,7 @@ func (provider *CommentMutationProvider) reply(ctx context.Context, request doma
 func (provider *CommentMutationProvider) setResolved(ctx context.Context, request domain.ConfluenceCommentMutationRequest, resolved bool) (domain.ConfluenceCommentMutationResult, error) {
 	path := "/rest/inlinecomments/1.0/comments/" + url.PathEscape(request.ThreadID) +
 		"/resolve/" + strconv.FormatBool(resolved) + "/dangling/false"
-	response, err := provider.confluence.c.DoWithBodyLimit(ctx, http.MethodPut, path, []byte("{}"), commentMutationHeaders(), commentMutationResponseMaxBytes)
+	response, err := provider.confluence.c.DoWithBodyLimit(domain.WithWriteClearance(ctx), http.MethodPut, path, []byte("{}"), commentMutationHeaders(), commentMutationResponseMaxBytes)
 	if err != nil {
 		return domain.ConfluenceCommentMutationResult{}, sanitizedCommentMutationError("write", err, true)
 	}

@@ -121,6 +121,9 @@ func denialFromDecision(decision Decision, request domain.WriteAuthorizationRequ
 	if decision.Reason == ReasonScopeUnresolved || decision.Reason == ReasonScopeContradiction {
 		advice = AdviceNoRetry
 	}
+	if decision.Reason == ReasonProtectedSubtree || decision.Reason == ReasonContainedContentDenied {
+		advice = AdviceNarrowScope
+	}
 	if decision.Reason == ReasonScopeUnavailable {
 		advice = AdviceWaitThenRetry
 		retrySafe = true

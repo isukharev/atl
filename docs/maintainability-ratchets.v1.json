@@ -31,9 +31,9 @@
     {"owner":"mcp","path":"internal/mcpserver/server.go","max_lines":1588,"rationale":"Keep MCP service assembly and shared validation ownership within its reduced reviewed allowance after focused instruction and error-policy splits."}
   ],
   "package_totals": [
-    {"owner":"app","path":"internal/app/","max_lines":34413,"rationale":"Keep total production growth in the app package visible, including the reviewed generic not-attempted passthrough and Jira authorizer assembly seam."},
+	{"owner":"app","path":"internal/app/","max_lines":34494,"rationale":"Keep total production growth in the app package visible, including Confluence authorizer assembly, provenance propagation, label type pinning, and not-attempted passthrough."},
     {"owner":"cli","path":"internal/cli/","max_lines":10111,"rationale":"Keep total production growth in the CLI package visible; 10111 includes the reviewed pre-configuration Confluence page-delete content-id guard."},
-    {"owner":"contentpolicy","path":"internal/contentpolicy/","max_lines":1101,"rationale":"Keep all production policy parsing, evaluation, denial, digest, source, and freeze logic at its reviewed introduction total."},
+	{"owner":"contentpolicy","path":"internal/contentpolicy/","max_lines":1190,"rationale":"Keep all production policy parsing, evaluation, denial, digest, source, freeze, static scope, and hierarchy-hazard logic at its reviewed total."},
     {"owner":"evaluator","path":"internal/agenteval/","max_lines":47450,"rationale":"Keep the complete evaluator module tree, including cmd/agent-eval, visible across responsibility splits."},
     {"owner":"mcp","path":"internal/mcpserver/","max_lines":3294,"rationale":"Keep total production growth in the MCP package visible even when registration and protocol owners are split."}
   ],

@@ -45,6 +45,42 @@ func TestDecideEvaluationSemantics(t *testing.T) {
 	}
 }
 
+func TestAuthorizerReportsFrozenConfluenceScopeRequirements(t *testing.T) {
+	resolved := &Resolved{Layers: []Layer{{Source: "managed", Policy: Policy{Rules: []Rule{
+		{ID: "space", Effect: EffectAllow, Verbs: domain.WriteVerbSet{domain.WriteVerbUpdate}, Resource: Selector{Services: []string{"confluence"}, Spaces: []string{"DOC"}}},
+		{ID: "tree", Effect: EffectDeny, Verbs: domain.WriteVerbSet{domain.WriteVerbDelete}, Resource: Selector{Services: []string{"confluence"}, Under: []string{"10"}}},
+		{ID: "jira", Effect: EffectAllow, Verbs: domain.WriteVerbSet{domain.WriteVerbUpdate}, Resource: Selector{Services: []string{"jira"}, Projects: []string{"ML"}}},
+	}}}}}
+	authorizer := NewAuthorizer(resolved)
+	resolved.Layers[0].Policy.Rules[0].Resource.Spaces = nil
+	resolved.Layers[0].Policy.Rules[1].Resource.Under[0] = "99"
+	requirements := authorizer.RequiredWriteScope("confluence")
+	if !requirements.Space || !requirements.Ancestors {
+		t.Fatalf("requirements=%+v", requirements)
+	}
+	anchors := authorizer.DenyUnderAnchors()
+	if len(anchors) != 1 || anchors[0].ID != "10" || anchors[0].RuleID != "tree" {
+		t.Fatalf("frozen anchors=%v", anchors)
+	}
+	anchors[0].ID = "changed"
+	if authorizer.DenyUnderAnchors()[0].ID != "10" {
+		t.Fatal("caller mutated frozen anchors")
+	}
+}
+
+func TestUntrustedConfluenceReferenceIsDenyOnly(t *testing.T) {
+	authorizer := NewAuthorizer(&Resolved{Layers: []Layer{{Source: "managed", Policy: Policy{Rules: []Rule{{
+		ID: "allow", Effect: EffectAllow, Verbs: domain.WriteVerbSet{domain.WriteVerbUpdate},
+		Resource: Selector{Services: []string{"confluence"}, Kinds: []string{"page"}, IDs: []string{"10"}},
+	}}}}}})
+	request := domain.WriteAuthorizationRequest{Verbs: domain.WriteVerbSet{domain.WriteVerbUpdate}, Targets: []domain.WriteTarget{{Service: "confluence", Kind: "page", ID: "10"}}}
+	_, err := authorizer.Authorize(domain.WithUntrustedConfluenceReference(context.Background()), request)
+	var denial *DenialError
+	if !errors.As(err, &denial) || denial.Reason != ReasonScopeUnresolved || denial.Attribute != "id" || denial.RetrySafe {
+		t.Fatalf("error=%v denial=%+v", err, denial)
+	}
+}
+
 func TestDecideMismatchPrecedesUnresolvedAndLayersConjoin(t *testing.T) {
 	target := domain.WriteTarget{Service: "jira", Kind: "issue", Project: "ML", Key: "ML-1"}
 	foreignDeny := Rule{ID: "foreign", Effect: EffectDeny, Verbs: domain.WriteVerbSet{domain.WriteVerbUpdate}, Resource: Selector{Services: []string{"confluence"}, Spaces: []string{"SECRET"}, Under: []string{"99"}}}

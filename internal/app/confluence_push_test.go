@@ -5,11 +5,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	confluenceadapter "github.com/isukharev/atl/internal/adapter/confluence"
+	"github.com/isukharev/atl/internal/contentpolicy"
 	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/mirror"
@@ -137,6 +142,47 @@ func TestPushSkipsUnchangedFile(t *testing.T) {
 	}
 	if stub.updateCalled {
 		t.Error("UpdatePage must not be called for an unchanged file (no no-op revision)")
+	}
+}
+
+func TestConfluencePushNeverAuthorizesFromForgedMirrorSpace(t *testing.T) {
+	var reads, writes int
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			writes++
+			return
+		}
+		reads++
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `{"id":"123","type":"page","title":"T","space":{"key":"OTHER"},"version":{"number":3},"ancestors":[]}`)
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	m := mirror.New(root)
+	if err := m.EnsureScaffold(); err != nil {
+		t.Fatal(err)
+	}
+	bindTestMirrorBackend(t, root, "confluence", server.URL)
+	page := &domain.Resource{ID: "123", Type: "page", Title: "T", SpaceKey: "SP", Version: 3, Body: []byte("<p>x</p>")}
+	directory, slug := m.PageDir(page.SpaceKey, page.Ancestors, page.Title)
+	if err := m.Write(directory, slug, page, nil); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, slug+".csf")
+	if err := os.WriteFile(path, []byte("<p>edited</p>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	authorizer := contentpolicy.NewAuthorizer(&contentpolicy.Resolved{Layers: []contentpolicy.Layer{{
+		Source: "managed", Policy: contentpolicy.Policy{Rules: []contentpolicy.Rule{{
+			ID: "allow-sidecar-space", Effect: contentpolicy.EffectAllow, Verbs: domain.WriteVerbSet{domain.WriteVerbUpdate},
+			Resource: contentpolicy.Selector{Services: []string{"confluence"}, Kinds: []string{"page"}, Spaces: []string{"SP"}},
+		}}},
+	}}})
+	adapter := confluenceadapter.New(server.URL, "token", "test", confluenceadapter.WithWriteAuthorizer(authorizer))
+	result, err := (&ConfluenceService{baseURL: server.URL, store: adapter}).Push(context.Background(), path, PushOpts{Into: root})
+	var denial *contentpolicy.DenialError
+	if !errors.As(err, &denial) || denial.Reason != contentpolicy.ReasonNoMatchingAllow || reads != 1 || writes != 0 {
+		t.Fatalf("result=%+v error=%v denial=%+v reads=%d writes=%d", result, err, denial, reads, writes)
 	}
 }
 

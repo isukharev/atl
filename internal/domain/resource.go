@@ -100,6 +100,7 @@ type PageMeta struct {
 	Space        string   `json:"space"`
 	Version      int      `json:"version"`
 	Ancestors    []string `json:"ancestors,omitempty"`
+	AncestorIDs  []string `json:"-"`
 	Labels       []string `json:"labels,omitempty"`
 	Restrictions *bool    `json:"restricted,omitempty"` // nil when restriction state was omitted/unknown
 	Updated      string   `json:"updated,omitempty"`

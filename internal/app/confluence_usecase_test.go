@@ -1186,7 +1186,7 @@ func (s *attachmentStore) UploadAttachment(_ context.Context, pageID, filename s
 	return s.uploadReturn, s.uploadErr
 }
 
-func (s *attachmentStore) DeleteAttachment(_ context.Context, attachmentID string) error {
+func (s *attachmentStore) DeleteAttachment(_ context.Context, _ string, attachmentID string) error {
 	s.deleteID = attachmentID
 	return s.deleteErr
 }

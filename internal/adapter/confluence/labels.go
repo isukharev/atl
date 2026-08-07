@@ -52,19 +52,27 @@ func (cf *Confluence) ListContentLabels(ctx context.Context, id string) ([]domai
 // AddContentLabels sends exactly one non-retried POST. Confluence DC accepts
 // the JSON representation of a label list at the content label collection.
 func (cf *Confluence) AddContentLabels(ctx context.Context, id string, labels []domain.ContentLabel) error {
+	writeContext, _, err := cf.authorizeContent(ctx, domain.WriteVerbSet{domain.WriteVerbUpdate}, "", id, id)
+	if err != nil {
+		return err
+	}
 	body, err := json.Marshal(labels)
 	if err != nil {
 		return err
 	}
-	_, err = cf.c.Do(ctx, http.MethodPost, "/rest/api/content/"+url.PathEscape(id)+"/label", body, map[string]string{"Content-Type": "application/json"})
+	_, err = cf.c.Do(domain.WithWriteClearance(writeContext), http.MethodPost, "/rest/api/content/"+url.PathEscape(id)+"/label", body, map[string]string{"Content-Type": "application/json"})
 	return err
 }
 
 // RemoveContentLabel uses the query-parameter endpoint so names containing '/'
 // never become path components. The DELETE is sent once and never replayed.
 func (cf *Confluence) RemoveContentLabel(ctx context.Context, id, name string) error {
+	writeContext, _, err := cf.authorizeContent(ctx, domain.WriteVerbSet{domain.WriteVerbUpdate}, "", id, id)
+	if err != nil {
+		return err
+	}
 	query := url.Values{}
 	query.Set("name", name)
-	_, err := cf.c.Do(ctx, http.MethodDelete, "/rest/api/content/"+url.PathEscape(id)+"/label?"+query.Encode(), nil, nil)
+	_, err = cf.c.Do(domain.WithWriteClearance(writeContext), http.MethodDelete, "/rest/api/content/"+url.PathEscape(id)+"/label?"+query.Encode(), nil, nil)
 	return err
 }

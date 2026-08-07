@@ -103,14 +103,26 @@ func newDoctorServerMetadataReader(service, rawURL, token, clientVersion string)
 
 // NewConfluence wires the Confluence adapter from config + PAT.
 func NewConfluence(cfg *config.Config, version string) (*ConfluenceService, error) {
-	return NewConfluenceScheduled(cfg, version, 0, 0)
+	return NewConfluenceWithWriteAuthorizer(cfg, version, nil)
+}
+
+// NewConfluenceWithWriteAuthorizer wires the optional transport-neutral policy
+// port through every concrete Confluence capability.
+func NewConfluenceWithWriteAuthorizer(cfg *config.Config, version string, authorizer domain.WriteAuthorizer) (*ConfluenceService, error) {
+	return NewConfluenceScheduledWithWriteAuthorizer(cfg, version, 0, 0, authorizer)
 }
 
 // NewConfluenceCommentMutations constructs the explicitly activated mutation
 // surface without making ordinary Confluence commands load compatibility
 // settings or fail because those optional owner-private settings are invalid.
 func NewConfluenceCommentMutations(cfg *config.Config, version string, activation compatibility.Activation) (*ConfluenceService, error) {
-	service, err := NewConfluence(cfg, version)
+	return NewConfluenceCommentMutationsWithWriteAuthorizer(cfg, version, activation, nil)
+}
+
+// NewConfluenceCommentMutationsWithWriteAuthorizer keeps compatibility writes
+// behind the same adapter-owned policy guard as ordinary Confluence writes.
+func NewConfluenceCommentMutationsWithWriteAuthorizer(cfg *config.Config, version string, activation compatibility.Activation, authorizer domain.WriteAuthorizer) (*ConfluenceService, error) {
+	service, err := NewConfluenceWithWriteAuthorizer(cfg, version, authorizer)
 	if err != nil {
 		return nil, err
 	}
@@ -133,6 +145,12 @@ func NewConfluenceCommentMutations(cfg *config.Config, version string, activatio
 // optional Jira-macro reads. maxInFlight=0 preserves the ordinary unscheduled
 // constructor used by every command except explicitly bounded pull workflows.
 func NewConfluenceScheduled(cfg *config.Config, version string, maxInFlight, requestsPerSecond int) (*ConfluenceService, error) {
+	return NewConfluenceScheduledWithWriteAuthorizer(cfg, version, maxInFlight, requestsPerSecond, nil)
+}
+
+// NewConfluenceScheduledWithWriteAuthorizer combines bounded read scheduling
+// with the optional write guard on one shared adapter instance.
+func NewConfluenceScheduledWithWriteAuthorizer(cfg *config.Config, version string, maxInFlight, requestsPerSecond int, authorizer domain.WriteAuthorizer) (*ConfluenceService, error) {
 	if maxInFlight == 0 && requestsPerSecond != 0 {
 		return nil, fmt.Errorf("%w: request pacing requires a positive in-flight bound", domain.ErrUsage)
 	}
@@ -161,7 +179,11 @@ func NewConfluenceScheduled(cfg *config.Config, version string, maxInFlight, req
 			return nil, fmt.Errorf("%w: invalid request schedule: %v", domain.ErrUsage, err)
 		}
 	}
-	cf := confluence.NewWithScheduler(cfg.ConfluenceURL, tok, version, scheduler)
+	var options []confluence.Option
+	if authorizer != nil {
+		options = append(options, confluence.WithWriteAuthorizer(authorizer))
+	}
+	cf := confluence.NewWithScheduler(cfg.ConfluenceURL, tok, version, scheduler, options...)
 	service := &ConfluenceService{
 		store: cf, users: cf.ResolveUser, assets: cf, baseURL: cfg.ConfluenceURL, verifier: cf, cfg: cfg,
 		requestMaxInFlight: maxInFlight, requestsPerSecond: requestsPerSecond,

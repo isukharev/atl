@@ -241,6 +241,7 @@ func (s *ConfluenceService) CommentInventory(ctx context.Context, reference stri
 	if err != nil {
 		return nil, err
 	}
+	ctx = resolved.Context(ctx)
 	page, err := s.store.GetPage(ctx, resolved.ID, domain.PullOpts{Format: "csf"})
 	if err != nil {
 		return nil, err

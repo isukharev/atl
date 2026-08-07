@@ -39,6 +39,7 @@ type confluenceInlineCreateSnapshot struct {
 	preparation          domain.ConfluenceInlineCommentPreparation
 	geometrySHA256       string
 	highlightedSelection string
+	untrustedReference   bool
 }
 
 func (s *ConfluenceService) createInlineCommentGuarded(ctx context.Context, reference string, opts ConfluenceCommentMutationOpts, body []byte) (*ConfluenceCommentMutationGuardedResult, error) {
@@ -46,6 +47,9 @@ func (s *ConfluenceService) createInlineCommentGuarded(ctx context.Context, refe
 	snapshot, err := s.confluenceInlineCreateSnapshot(ctx, reference, selection, opts.Occurrence)
 	if err != nil {
 		return nil, err
+	}
+	if snapshot.untrustedReference {
+		ctx = domain.WithUntrustedConfluenceReference(ctx)
 	}
 	bodySum := sha256.Sum256(body)
 	bodySHA256 := hex.EncodeToString(bodySum[:])
@@ -112,7 +116,7 @@ func (s *ConfluenceService) createInlineCommentGuarded(ctx context.Context, refe
 	if writeErr != nil && (definitiveWriteRejection(writeErr) || confluenceCommentWriteDefinitelyNotAttempted(writeErr)) {
 		result.Status = "not_applied"
 		return result, &confluenceCommentMutationWriteError{
-			message: "Confluence rejected the inline comment; it was not applied",
+			message: definitiveWriteMessage("Confluence rejected the inline comment; it was not applied", writeErr),
 			cause:   sanitizeConfluenceWriteCause(writeErr),
 		}
 	}
@@ -178,6 +182,7 @@ func (s *ConfluenceService) confluenceInlineCreateBaseSnapshot(ctx context.Conte
 	if err != nil {
 		return confluenceInlineCreateSnapshot{}, err
 	}
+	ctx = resolved.Context(ctx)
 	page, err := s.store.GetPage(ctx, resolved.ID, domain.PullOpts{Format: "csf"})
 	if err != nil {
 		return confluenceInlineCreateSnapshot{}, err
@@ -226,6 +231,7 @@ func (s *ConfluenceService) confluenceInlineCreateBaseSnapshot(ctx context.Conte
 		provider:       ConfluenceCommentMutationProviderEvidence{ID: activation.ProviderID}, activation: activation,
 		comments: comments, capabilities: inventory.Capabilities, baselineSHA256: baselineHash,
 		markers: markers, markerSHA256: markerHash, backend: backend, configuredIdentity: configuredIdentity,
+		untrustedReference: resolved.Untrusted(),
 	}, nil
 }
 

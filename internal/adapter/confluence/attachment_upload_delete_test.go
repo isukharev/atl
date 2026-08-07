@@ -272,7 +272,7 @@ func TestDeleteAttachment(t *testing.T) {
 	defer srv.Close()
 
 	cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
-	err := cf.DeleteAttachment(context.Background(), "att99")
+	err := cf.DeleteAttachment(context.Background(), "42", "att99")
 	if err != nil {
 		t.Fatalf("DeleteAttachment: %v", err)
 	}
@@ -303,7 +303,7 @@ func TestDeleteAttachmentRefusesRedirectReplay(t *testing.T) {
 			defer srv.Close()
 
 			cf := &Confluence{c: newTestClient(srv.URL), base: srv.URL}
-			if err := cf.DeleteAttachment(context.Background(), "att99"); err == nil {
+			if err := cf.DeleteAttachment(context.Background(), "42", "att99"); err == nil {
 				t.Fatal("DeleteAttachment redirect: expected refusal")
 			}
 			if original != 1 || redirected != 0 {
