@@ -330,7 +330,7 @@ func TestResolveIDsBranches(t *testing.T) {
 
 	t.Run("byID", func(t *testing.T) {
 		svc := &ConfluenceService{store: &recordingStore{}}
-		ids, _, err := svc.resolveIDs(ctx, PullOpts{ID: "555"})
+		_, ids, _, err := svc.resolveIDs(ctx, PullOpts{ID: "555"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -342,7 +342,7 @@ func TestResolveIDsBranches(t *testing.T) {
 	t.Run("bySpace", func(t *testing.T) {
 		st := &recordingStore{pageRefs: []domain.PageRef{{ID: "a"}, {ID: "b"}, {ID: "c"}}}
 		svc := &ConfluenceService{store: st}
-		ids, _, err := svc.resolveIDs(ctx, PullOpts{Space: "ENG", Depth: 2})
+		_, ids, _, err := svc.resolveIDs(ctx, PullOpts{Space: "ENG", Depth: 2})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -357,7 +357,7 @@ func TestResolveIDsBranches(t *testing.T) {
 	t.Run("byCQL", func(t *testing.T) {
 		st := &recordingStore{pageRefs: []domain.PageRef{{ID: "x"}, {ID: ""}, {ID: "y"}}}
 		svc := &ConfluenceService{store: st}
-		ids, truncated, err := svc.resolveIDs(ctx, PullOpts{CQL: "label = foo"})
+		_, ids, truncated, err := svc.resolveIDs(ctx, PullOpts{CQL: "label = foo"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -375,7 +375,7 @@ func TestResolveIDsBranches(t *testing.T) {
 
 	t.Run("noSelector", func(t *testing.T) {
 		svc := &ConfluenceService{store: &recordingStore{}}
-		_, _, err := svc.resolveIDs(ctx, PullOpts{})
+		_, _, _, err := svc.resolveIDs(ctx, PullOpts{})
 		if !errors.Is(err, domain.ErrUsage) {
 			t.Errorf("missing selector should be ErrUsage, got %v", err)
 		}
@@ -383,7 +383,7 @@ func TestResolveIDsBranches(t *testing.T) {
 
 	t.Run("treeErrPropagates", func(t *testing.T) {
 		svc := &ConfluenceService{store: &recordingStore{err: domain.ErrForbidden}}
-		_, _, err := svc.resolveIDs(ctx, PullOpts{Space: "X"})
+		_, _, _, err := svc.resolveIDs(ctx, PullOpts{Space: "X"})
 		if !errors.Is(err, domain.ErrForbidden) {
 			t.Errorf("tree error should propagate, got %v", err)
 		}
@@ -391,7 +391,7 @@ func TestResolveIDsBranches(t *testing.T) {
 
 	t.Run("searchErrPropagates", func(t *testing.T) {
 		svc := &ConfluenceService{store: &recordingStore{err: domain.ErrAuth}}
-		_, _, err := svc.resolveIDs(ctx, PullOpts{CQL: "x"})
+		_, _, _, err := svc.resolveIDs(ctx, PullOpts{CQL: "x"})
 		if !errors.Is(err, domain.ErrAuth) {
 			t.Errorf("search error should propagate, got %v", err)
 		}
@@ -1267,7 +1267,7 @@ func TestConfluenceWhoami(t *testing.T) {
 func TestResolveIDsPropagatesSpaceTruncation(t *testing.T) {
 	st := &recordingStore{pageRefs: []domain.PageRef{{ID: "1"}, {ID: "2"}}, treeTruncated: true}
 	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: st}
-	ids, truncated, err := svc.resolveIDs(context.Background(), PullOpts{Space: "DOC"})
+	_, ids, truncated, err := svc.resolveIDs(context.Background(), PullOpts{Space: "DOC"})
 	if err != nil {
 		t.Fatal(err)
 	}

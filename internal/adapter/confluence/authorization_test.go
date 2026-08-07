@@ -496,7 +496,7 @@ func TestConfluenceExistingContentKindMustMatchOperation(t *testing.T) {
 
 func TestConfluenceTopLevelAndBlogCreateUseResolvedEmptyHierarchy(t *testing.T) {
 	var writes int
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writes++
 		writer.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(writer, `{"id":"50","type":"page","space":{"key":"DOC"},"version":{"number":1},"ancestors":[],"body":{"storage":{"value":"x"}}}`)
