@@ -10,6 +10,12 @@ Public synthetic scenarios remain the default for CI and routine development.
 Use a private workspace only when a change needs backend-compatibility evidence
 that a deterministic fixture cannot provide.
 
+New maintainers should begin with
+[Private benchmark onboarding](maintainers/private-benchmark-onboarding.md).
+That runbook covers fresh-clone setup, privacy intake, owned-fixture selection,
+primary/holdout design, private case authoring, and the offline validation gate
+before this lifecycle can create a consent-bound plan.
+
 ## Trust boundary
 
 A private run may send the reviewed prompt and the evidence selected through

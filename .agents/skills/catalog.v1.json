@@ -29,6 +29,15 @@
       }
     },
     {
+      "name": "atl-private-benchmark-bootstrap",
+      "runbook": "docs/maintainers/private-benchmark-onboarding.md",
+      "required_description_terms": ["private ATL", "Jira", "Confluence", "benchmark dataset", "fresh clone", "offline validation", "Do not use"],
+      "activation_examples": {
+        "should_activate": ["Help a new ATL maintainer create a private Jira benchmark dataset after cloning the repository.", "Design and offline-validate private Confluence primary and holdout cases before any provider run."],
+        "should_not_activate": ["Add a synthetic evaluator fixture to the public benchmark corpus.", "Execute the already reviewed private benchmark plan against the configured provider."]
+      }
+    },
+    {
       "name": "atl-resume-work",
       "runbook": "docs/maintainers/session-recovery.md",
       "required_description_terms": ["ATL repository", "compaction", "interruption", "session", "dirty-file", "Do not use"],

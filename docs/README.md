@@ -110,6 +110,7 @@ but do not replace it.
 | [Durable-view testing](csf-markdown-testing.md) | Format-marker review, migration, corpus, and fuzz expectations |
 | [Agent evaluation methodology](agent-benchmarking.md) | Deterministic scenarios and model-in-the-loop evidence |
 | [Private evaluation operations](agent-benchmark-private-workspace.md) | Owner-controlled workspace lifecycle and publication boundary |
+| [Private benchmark onboarding](maintainers/private-benchmark-onboarding.md) | Fresh-clone workflow for an owner-local Jira or Confluence evaluation dataset |
 | [Public evaluation inventory](../benchmarks/agent-eval/README.md) | Committed scenario contracts, schemas, and synthetic fixtures |
 | [Documentation catalog](catalog.v1.json) | Machine-readable audience, topic, landing, and language ownership |
 
