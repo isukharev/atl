@@ -33,7 +33,7 @@ The released foundation and current `main` provide:
 
 ## Now
 
-The current release line is v0.6.0; published artifacts are identified by the
+The current release line is v0.7.0; published artifacts are identified by the
 exact signed release tag. New surface remains evidence- or concrete-workflow-
 gated; current owner and colleague use is valid product evidence and does not
 impose a user-count freeze.
