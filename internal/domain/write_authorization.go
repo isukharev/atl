@@ -104,6 +104,7 @@ type WriteAuthorizer interface {
 // require to decide Confluence targets. Adapters use it only to avoid reads;
 // it never grants a write by itself.
 type WriteScopeRequirements struct {
+	Kind      bool
 	Space     bool
 	Ancestors bool
 }

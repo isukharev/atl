@@ -47,7 +47,7 @@ func TestDecideEvaluationSemantics(t *testing.T) {
 
 func TestAuthorizerReportsFrozenConfluenceScopeRequirements(t *testing.T) {
 	resolved := &Resolved{Layers: []Layer{{Source: "managed", Policy: Policy{Rules: []Rule{
-		{ID: "space", Effect: EffectAllow, Verbs: domain.WriteVerbSet{domain.WriteVerbUpdate}, Resource: Selector{Services: []string{"confluence"}, Spaces: []string{"DOC"}}},
+		{ID: "space", Effect: EffectAllow, Verbs: domain.WriteVerbSet{domain.WriteVerbUpdate}, Resource: Selector{Services: []string{"confluence"}, Kinds: []string{"page"}, Spaces: []string{"DOC"}}},
 		{ID: "tree", Effect: EffectDeny, Verbs: domain.WriteVerbSet{domain.WriteVerbDelete}, Resource: Selector{Services: []string{"confluence"}, Under: []string{"10"}}},
 		{ID: "jira", Effect: EffectAllow, Verbs: domain.WriteVerbSet{domain.WriteVerbUpdate}, Resource: Selector{Services: []string{"jira"}, Projects: []string{"ML"}}},
 	}}}}}
@@ -55,7 +55,7 @@ func TestAuthorizerReportsFrozenConfluenceScopeRequirements(t *testing.T) {
 	resolved.Layers[0].Policy.Rules[0].Resource.Spaces = nil
 	resolved.Layers[0].Policy.Rules[1].Resource.Under[0] = "99"
 	requirements := authorizer.RequiredWriteScope("confluence")
-	if !requirements.Space || !requirements.Ancestors {
+	if !requirements.Kind || !requirements.Space || !requirements.Ancestors {
 		t.Fatalf("requirements=%+v", requirements)
 	}
 	anchors := authorizer.DenyUnderAnchors()

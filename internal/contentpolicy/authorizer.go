@@ -77,6 +77,9 @@ func (a *Authorizer) RequiredWriteScope(service string) domain.WriteScopeRequire
 			if !containsString(rule.Resource.Services, service) {
 				continue
 			}
+			if len(rule.Resource.Kinds) > 0 {
+				requirements.Kind = true
+			}
 			if len(rule.Resource.Spaces) > 0 {
 				requirements.Space = true
 			}

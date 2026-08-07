@@ -305,8 +305,13 @@ func policyAuthorizer(rules ...contentpolicy.Rule) *contentpolicy.Authorizer {
 }
 
 func TestConfluenceReferenceProvenanceCannotGroundAllow(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		t.Fatal("untrusted reference reached backend")
+	var writes int
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			writes++
+			return
+		}
+		writeConfluenceMetadata(writer, "10", "page", "DOC")
 	}))
 	defer server.Close()
 	allow := policyAuthorizer(contentpolicy.Rule{
@@ -317,8 +322,8 @@ func TestConfluenceReferenceProvenanceCannotGroundAllow(t *testing.T) {
 	ctx := domain.WithUntrustedConfluenceReference(context.Background())
 	_, err := adapter.UpdatePage(ctx, "10", 1, "T", []byte("x"), false)
 	var denial *contentpolicy.DenialError
-	if !errors.As(err, &denial) || denial.Reason != contentpolicy.ReasonScopeUnresolved || denial.Attribute != "id" {
-		t.Fatalf("error=%v denial=%+v", err, denial)
+	if !errors.As(err, &denial) || denial.Reason != contentpolicy.ReasonScopeUnresolved || denial.Attribute != "id" || writes != 0 {
+		t.Fatalf("error=%v denial=%+v writes=%d", err, denial, writes)
 	}
 }
 
@@ -429,6 +434,58 @@ func TestConfluenceHierarchyAndContainedContentPolicy(t *testing.T) {
 	}
 	if writes != 2 {
 		t.Fatalf("unrelated contained deny writes=%d, want 2", writes)
+	}
+}
+
+func TestConfluenceMoveCannotEscapeDenyUnderScope(t *testing.T) {
+	var writes int
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			writes++
+			return
+		}
+		id := strings.TrimPrefix(request.URL.Path, "/rest/api/content/")
+		switch id {
+		case "30":
+			writeConfluenceMetadata(writer, id, "page", "DOC", "10")
+		case "40":
+			writeConfluenceMetadata(writer, id, "page", "DOC", "10", "30")
+		default:
+			writeConfluenceMetadata(writer, id, "page", "DOC")
+		}
+	}))
+	defer server.Close()
+	rules := []contentpolicy.Rule{
+		{ID: "allow-move", Effect: contentpolicy.EffectAllow, Verbs: domain.WriteVerbSet{domain.WriteVerbUpdate, domain.WriteVerbMove}, Resource: contentpolicy.Selector{Services: []string{"confluence"}, Kinds: []string{"page"}, Spaces: []string{"DOC"}}},
+		{ID: "deny-delete-under", Effect: contentpolicy.EffectDeny, Verbs: domain.WriteVerbSet{domain.WriteVerbDelete}, Resource: contentpolicy.Selector{Services: []string{"confluence"}, Kinds: []string{"page"}, Under: []string{"30"}}},
+	}
+	adapter := New(server.URL, "token", "test", WithWriteAuthorizer(policyAuthorizer(rules...)))
+	_, err := adapter.MovePage(context.Background(), "40", "50", 1, "T", []byte("x"))
+	var denial *contentpolicy.DenialError
+	if !errors.As(err, &denial) || denial.Reason != contentpolicy.ReasonProtectedSubtree || denial.RuleID != "deny-delete-under" || writes != 0 {
+		t.Fatalf("error=%v denial=%+v writes=%d", err, denial, writes)
+	}
+}
+
+func TestConfluenceExistingContentKindMustMatchOperation(t *testing.T) {
+	var writes int
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			writes++
+			return
+		}
+		writeConfluenceMetadata(writer, "40", "blogpost", "DOC")
+	}))
+	defer server.Close()
+	allowPages := contentpolicy.Rule{
+		ID: "allow-pages", Effect: contentpolicy.EffectAllow, Verbs: domain.WriteVerbSet{domain.WriteVerbUpdate},
+		Resource: contentpolicy.Selector{Services: []string{"confluence"}, Kinds: []string{"page"}, Spaces: []string{"DOC"}},
+	}
+	adapter := New(server.URL, "token", "test", WithWriteAuthorizer(policyAuthorizer(allowPages)))
+	_, err := adapter.UpdatePage(context.Background(), "40", 1, "T", []byte("x"), false)
+	var denial *contentpolicy.DenialError
+	if !errors.As(err, &denial) || denial.Reason != contentpolicy.ReasonScopeUnresolved || denial.Attribute != "id" || writes != 0 {
+		t.Fatalf("error=%v denial=%+v writes=%d", err, denial, writes)
 	}
 }
 

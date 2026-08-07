@@ -105,14 +105,6 @@ func (s *ConfluenceService) MutateLabelsGuarded(ctx context.Context, id string, 
 	if err != nil {
 		return nil, err
 	}
-	meta, err := s.store.GetMeta(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if meta == nil || meta.ID != id || !domain.ValidConfluenceContentID(meta.ID) ||
-		(meta.Type != "page" && meta.Type != "blogpost" && meta.Type != "attachment" && meta.Type != "comment") {
-		return nil, fmt.Errorf("%w: label target metadata is not exact and policy-qualified", domain.ErrCheckFailed)
-	}
 	currentRecords, truncated, err := store.ListContentLabels(ctx, id)
 	if err != nil {
 		return nil, err
