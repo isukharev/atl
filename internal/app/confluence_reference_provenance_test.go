@@ -57,8 +57,8 @@ func TestEveryConfluenceReferenceResolutionThreadsProvenance(t *testing.T) {
 			})
 		}
 	}
-	if len(callers) != 16 {
-		t.Fatalf("provenance-threaded ResolvePageReference callers=%d, want exact inventory 16: %v", len(callers), callers)
+	if len(callers) != 17 {
+		t.Fatalf("provenance-threaded ResolvePageReference callers=%d, want exact inventory 17: %v", len(callers), callers)
 	}
 }
 

@@ -450,6 +450,8 @@ func TestConfluenceMoveCannotEscapeDenyUnderScope(t *testing.T) {
 			writeConfluenceMetadata(writer, id, "page", "DOC", "10")
 		case "40":
 			writeConfluenceMetadata(writer, id, "page", "DOC", "10", "30")
+		case "60":
+			writeConfluenceMetadata(writer, id, "page", "DOC", "10", "30")
 		default:
 			writeConfluenceMetadata(writer, id, "page", "DOC")
 		}
@@ -464,6 +466,9 @@ func TestConfluenceMoveCannotEscapeDenyUnderScope(t *testing.T) {
 	var denial *contentpolicy.DenialError
 	if !errors.As(err, &denial) || denial.Reason != contentpolicy.ReasonProtectedSubtree || denial.RuleID != "deny-delete-under" || writes != 0 {
 		t.Fatalf("error=%v denial=%+v writes=%d", err, denial, writes)
+	}
+	if _, err := adapter.MovePage(context.Background(), "40", "60", 1, "T", []byte("x")); err != nil || writes != 1 {
+		t.Fatalf("within-scope move error=%v writes=%d", err, writes)
 	}
 }
 
