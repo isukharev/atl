@@ -2,7 +2,7 @@
   "schema_version": 1,
   "jira_context": "/jira",
   "confluence_context": "/wiki",
-  "request_sequence": ["source_read", "epic_create", "child_1_create", "epic_field", "child_1_link", "child_2_create", "epic_field", "child_2_link"],
+  "request_sequence": ["source_read", "epic_create", "child_1_create", "epic_field", "child_1_identity", "epic_identity", "child_1_link", "child_2_create", "epic_field", "child_2_identity", "epic_identity", "child_2_link"],
   "routes": [
     {
       "name": "source_read",
@@ -38,6 +38,24 @@
       ]
     },
     {
+      "name": "child_1_identity",
+      "method": "GET",
+      "path": "/jira/rest/api/2/issue/LAB-501",
+      "query_equals": {"fields":"project"},
+      "status": 200,
+      "body": {"id":"501","key":"LAB-501","fields":{"project":{"key":"LAB"}}}
+    },
+    {
+      "name": "epic_identity",
+      "method": "GET",
+      "path": "/jira/rest/api/2/issue/LAB-500",
+      "query_equals": {"fields":"project"},
+      "responses": [
+        {"status":200,"body":{"id":"500","key":"LAB-500","fields":{"project":{"key":"LAB"}}}},
+        {"status":200,"body":{"id":"500","key":"LAB-500","fields":{"project":{"key":"LAB"}}}}
+      ]
+    },
+    {
       "name": "child_1_link",
       "method": "PUT",
       "path": "/jira/rest/api/2/issue/LAB-501",
@@ -52,6 +70,14 @@
       "request_body": {"fields":{"project":{"key":"LAB"},"issuetype":{"name":"Task"},"summary":"Document catalog rollout","description":"h1. Context\n\nDocument the reviewed rollout slice from specification 4101.\n\nh2. Acceptance criteria\n\n* Describe the staged rollout.\n* Record the rollback signal."}},
       "status": 201,
       "body": {"key":"LAB-502"}
+    },
+    {
+      "name": "child_2_identity",
+      "method": "GET",
+      "path": "/jira/rest/api/2/issue/LAB-502",
+      "query_equals": {"fields":"project"},
+      "status": 200,
+      "body": {"id":"502","key":"LAB-502","fields":{"project":{"key":"LAB"}}}
     },
     {
       "name": "child_2_link",

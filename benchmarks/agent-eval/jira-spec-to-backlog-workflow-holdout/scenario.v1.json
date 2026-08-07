@@ -29,7 +29,7 @@
     "max_tool_calls": 9,
     "max_atl_invocations": 4,
     "max_delegations": 0,
-    "max_backend_requests": 5,
+    "max_backend_requests": 7,
     "max_duplicate_backend_requests": 1,
     "max_remote_writes": 3,
     "max_output_bytes": 32768,
