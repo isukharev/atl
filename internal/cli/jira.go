@@ -18,7 +18,11 @@ func jiraService() (*app.JiraService, error) {
 	if err != nil {
 		return nil, err
 	}
-	return app.NewJira(cfg, version.Version)
+	authorizer, err := policyAuthorizerFor("jira", cfg.JiraURL)
+	if err != nil {
+		return nil, err
+	}
+	return app.NewJiraWithWriteAuthorizer(cfg, version.Version, authorizer)
 }
 
 // wikiBody resolves a Jira body flag pair: raw wiki markup from --from-file,

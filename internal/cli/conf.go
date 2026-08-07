@@ -70,7 +70,11 @@ func confService() (*app.ConfluenceService, error) {
 	if err != nil {
 		return nil, err
 	}
-	return app.NewConfluence(cfg, version.Version)
+	authorizer, err := policyAuthorizerFor("confluence", cfg.ConfluenceURL)
+	if err != nil {
+		return nil, err
+	}
+	return app.NewConfluenceWithWriteAuthorizer(cfg, version.Version, authorizer)
 }
 
 func confCommentMutationService() (*app.ConfluenceService, error) {
@@ -85,7 +89,11 @@ func confCommentMutationService() (*app.ConfluenceService, error) {
 	if settings.Confluence == nil {
 		return nil, fmt.Errorf("%w: Confluence comment compatibility is not activated; run compatibility pin first", domain.ErrConfig)
 	}
-	return app.NewConfluenceCommentMutations(cfg, version.Version, *settings.Confluence)
+	authorizer, err := policyAuthorizerFor("confluence", cfg.ConfluenceURL)
+	if err != nil {
+		return nil, err
+	}
+	return app.NewConfluenceCommentMutationsWithWriteAuthorizer(cfg, version.Version, *settings.Confluence, authorizer)
 }
 
 func confScheduledService(pagePrefetch, requestsPerSecond int) (*app.ConfluenceService, error) {
@@ -93,7 +101,11 @@ func confScheduledService(pagePrefetch, requestsPerSecond int) (*app.ConfluenceS
 	if err != nil {
 		return nil, err
 	}
-	return app.NewConfluenceScheduled(cfg, version.Version, pagePrefetch, requestsPerSecond)
+	authorizer, err := policyAuthorizerFor("confluence", cfg.ConfluenceURL)
+	if err != nil {
+		return nil, err
+	}
+	return app.NewConfluenceScheduledWithWriteAuthorizer(cfg, version.Version, pagePrefetch, requestsPerSecond, authorizer)
 }
 
 func newConfCmd() *cobra.Command {

@@ -38,9 +38,10 @@ const (
 )
 
 var (
-	outputFormat string
-	verbose      bool
-	readOnly     bool
+	outputFormat         string
+	verbose              bool
+	readOnly             bool
+	currentProcessPolicy *processPolicy
 )
 
 // Execute builds and runs the root command, mapping errors to exit codes.
@@ -85,6 +86,11 @@ func writeErrorWithContext(w io.Writer, format string, err error, code int, oper
 		body["policy"] = "read_only"
 		body["command"] = command
 	}
+	var policyDetails interface{ DiagnosticPolicyDenialDetails() any }
+	if errors.As(err, &policyDetails) {
+		body["policy"] = "content"
+		body["denial"] = policyDetails.DiagnosticPolicyDenialDetails()
+	}
 	// Encode never fails for these plain types; ignore its error.
 	_ = enc.Encode(body)
 }
@@ -125,10 +131,15 @@ func classifyError(err error) (kind, remediation string) {
 	if _, ok := readOnlyErrorMetadata(err); ok {
 		return "read_only_policy", "request_human_approval"
 	}
+	var policyDenial interface{ DiagnosticPolicyDenial() bool }
+	if errors.As(err, &policyDenial) && policyDenial.DiagnosticPolicyDenial() {
+		return "content_policy", "request_human_approval"
+	}
 	return diagnostic.Classify(err)
 }
 
 func newRoot() *cobra.Command {
+	currentProcessPolicy = newProcessPolicy()
 	var topologyErr error
 	root := &cobra.Command{
 		Use:           "atl",
@@ -146,10 +157,10 @@ func newRoot() *cobra.Command {
 	root.SetFlagErrorFunc(func(_ *cobra.Command, e error) error {
 		return usageErr("%v", e)
 	})
-	root.AddCommand(newConfCmd(), newJiraCmd(), newMirrorCmd(), newCapabilitiesCmd(), newCompatibilityCmd(), newDoctorCmd(), newEnvironmentCmd(), newMCPCommand(), newAuthCmd(), newConfigCmd(), newProfileCmd(), newManifestCmd(), newVersionCmd())
+	root.AddCommand(newConfCmd(), newJiraCmd(), newMirrorCmd(), newCapabilitiesCmd(), newCompatibilityCmd(), newDoctorCmd(), newEnvironmentCmd(), newMCPCommand(), newAuthCmd(), newConfigCmd(), newProfileCmd(), newManifestCmd(), newPolicyCmd(), newVersionCmd())
 	// Validate the global output format, then run a best-effort self-update check
 	// within its total startup budget. Update failures never fail the command.
-	root.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
+	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		if topologyErr != nil {
 			return &accessPolicyInvariantError{Command: topologyErr.Error()}
 		}
@@ -180,6 +191,15 @@ func newRoot() *cobra.Command {
 		// credentials, stdin, self-update, or network access.
 		if err := validateMutationInvocation(cmd); err != nil {
 			return err
+		}
+		path := commandRegistryPath(cmd.Root(), cmd)
+		if registration, ok := commandRegistry.nodes[path]; ok {
+			if err := currentProcessPolicy.requireActiveFor(registration); err != nil {
+				return err
+			}
+			if err := enforceContentPolicyPreflight(cmd, args, registration); err != nil {
+				return err
+			}
 		}
 		policyEnabled, err := resolveReadOnlyPolicy(cmd, readOnly)
 		if err != nil {

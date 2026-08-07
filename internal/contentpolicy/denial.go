@@ -81,6 +81,35 @@ type DenialPolicyDigest struct {
 	User    *string `json:"user"`
 }
 
+// NewSourceDenial builds a stable denial for process-policy failures that do
+// not describe one backend resource (required policy, digest, or binding).
+func NewSourceDenial(reason DenialReason, message, source string, resolved *Resolved) *DenialError {
+	details := DenialDetails{
+		SchemaVersion:    1,
+		Phase:            "resolved",
+		Verbs:            make(domain.WriteVerbSet, 0),
+		Target:           DenialTarget{},
+		DecidedBy:        DenialDecision{Layer: policyLayerName(source), Effect: "source_error"},
+		Reason:           reason,
+		AllowedVerbsHere: make(domain.WriteVerbSet, 0),
+		Advice:           AdviceNoRetry,
+		PolicySource:     source,
+		RetrySafe:        false,
+	}
+	if resolved != nil {
+		for _, layer := range resolved.Layers {
+			digest := layer.Digest
+			switch layer.Source {
+			case "env_inline", "env_file":
+				details.PolicyDigest.Managed = &digest
+			case "config_dir":
+				details.PolicyDigest.User = &digest
+			}
+		}
+	}
+	return &DenialError{Reason: reason, Advice: AdviceNoRetry, Message: message, Details: details}
+}
+
 func (e *DenialError) Error() string {
 	if e == nil {
 		return "write denied by local policy"
