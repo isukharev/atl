@@ -34,7 +34,7 @@ read-only policy until one exact write proposal has been reviewed.
 
 | Goal | Short guide |
 |---|---|
-| Install and configure private-PKI trust | [Five-minute setup](docs/getting-started.md) |
+| Install and configure private PKI trust | [Five-minute setup](docs/getting-started.md) |
 | Give a coding agent safe access | [Agent setup](docs/agent-setup.md) |
 | Mirror, edit, and publish safely | [Safe writes](docs/safe-writes.md) |
 | Refresh or recover an existing mirror | [Mirrors and recovery](docs/mirrors-and-recovery.md) |
