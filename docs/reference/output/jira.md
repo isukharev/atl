@@ -292,6 +292,12 @@ The backend hostname and PAT are never written to the manifest.
 
 ## Jira export comparison, reports, and field catalogs
 
+`atl jira issue create-check` emits
+`{schema_version,project,issue_type,count,complete,fields}`. Each field contains
+only `{field_id,name,required,has_allowed_values}`. Jira's endpoint already
+limits the result to create-screen fields, so there is no redundant `on_screen`
+member; allowed-value labels and values are also omitted.
+
 `atl jira export diff OLD NEW` reads JSONL/JSON/CSV compact exports and reports issue identifiers:
 
 ```json

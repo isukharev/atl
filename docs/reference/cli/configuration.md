@@ -253,7 +253,9 @@ accepted only for an HTTPS backend, must be a regular file no larger than
 private keys are not supported. `config show`, `config set`, `doctor`, and
 errors report only configured/source/status metadata; they never print the
 local bundle path. These keys are global-only because they affect authenticated
-transport and cannot be set in a mirror-local file.
+transport and cannot be set in a mirror-local file. They do not change trust for
+`update_base_url` or the self-update distribution channel, whose transport and
+signed-manifest verification remain separate.
 
 ## `atl doctor`
 

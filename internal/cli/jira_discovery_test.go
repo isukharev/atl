@@ -54,7 +54,7 @@ func TestJiraCreateMetadataCommandsAreContentFree(t *testing.T) {
 		t.Fatalf("types exit=%d output=%q", code, ids)
 	}
 	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "create-check", "--project", "OPS", "--type", "Task")
-	if code != exitOK || strings.Contains(out, "Private") || strings.Contains(out, "private-id") || !strings.Contains(out, `"has_allowed_values": true`) {
+	if code != exitOK || strings.Contains(out, "Private") || strings.Contains(out, "private-id") || strings.Contains(out, `"on_screen"`) || !strings.Contains(out, `"has_allowed_values": true`) {
 		t.Fatalf("create-check exit=%d output=%q", code, out)
 	}
 }

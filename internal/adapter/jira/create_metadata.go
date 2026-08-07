@@ -139,7 +139,7 @@ func (j *Jira) ReadCreateMetadata(ctx context.Context, project, selector string)
 		}
 	}
 	if len(matches) == 0 {
-		return nil, fmt.Errorf("%w: issue type was not found in project create metadata", domain.ErrNotFound)
+		return nil, fmt.Errorf("%w: issue type was not found in project create metadata; run 'atl jira issue types --project PROJECT' and use an exact id or name", domain.ErrNotFound)
 	}
 	if len(matches) != 1 {
 		return nil, fmt.Errorf("%w: issue type selector is ambiguous", domain.ErrCheckFailed)
@@ -159,7 +159,7 @@ func (j *Jira) readCreateMetadataFields(ctx context.Context, project string, iss
 		}
 		fields = append(fields, domain.JiraCreateField{
 			FieldID: field.FieldID, Name: field.Name, Required: field.Required,
-			HasAllowedValues: len(field.AllowedValues) > 0, OnScreen: true,
+			HasAllowedValues: len(field.AllowedValues) > 0,
 		})
 	}
 	sort.Slice(fields, func(i, k int) bool { return fields[i].FieldID < fields[k].FieldID })
