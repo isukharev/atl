@@ -980,6 +980,18 @@ func enforceContentPolicyPreflight(cmd *cobra.Command, args []string, registrati
 	if err != nil || resolved == nil || len(resolved.Layers) == 0 {
 		return err
 	}
+	if registration.policyIdentity == policyIdentityJiraPlan {
+		requests, err := app.JiraPlanPolicyRequests(policyFlagValue(cmd, "csv"))
+		if err != nil {
+			return err
+		}
+		for _, request := range requests {
+			if denial := contentpolicy.PreflightDeny(resolved.Layers, request); denial != nil {
+				return denial
+			}
+		}
+		return nil
+	}
 	verbs := policyPreflightVerbs(cmd, registration.policyVerbs)
 	if len(verbs) == 0 {
 		return nil
@@ -989,10 +1001,11 @@ func enforceContentPolicyPreflight(cmd *cobra.Command, args []string, registrati
 		return err
 	}
 	request := domain.WriteAuthorizationRequest{Verbs: verbs, Targets: targets}
-	if denial := contentpolicy.PreflightDeny(resolved.Layers, request); denial != nil {
-		return denial
+	denial := contentpolicy.PreflightDeny(resolved.Layers, request)
+	if denial == nil {
+		return nil
 	}
-	return nil
+	return denial
 }
 
 func policyPreflightVerbs(cmd *cobra.Command, specs []policyVerb) domain.WriteVerbSet {
@@ -1024,11 +1037,23 @@ func policyVerbConditionPresent(cmd *cobra.Command, verb domain.WriteVerb) bool 
 
 func policyPreflightTargets(cmd *cobra.Command, args []string, identity policyIdentitySource) ([]domain.WriteTarget, error) {
 	switch identity {
-	case policyIdentityNone, policyIdentityJiraPlan, policyIdentityJiraMirror,
-		policyIdentityConfluencePlan, policyIdentityConfluenceMirror:
+	case policyIdentityNone, policyIdentityJiraMirror, policyIdentityConfluenceMirror:
 		return nil, nil
+	case policyIdentityJiraPlan:
+		return nil, nil
+	case policyIdentityConfluencePlan:
+		return app.ConfluencePlanPolicyTargets(firstArg(args))
 	case policyIdentityJiraIssueArg:
-		return jiraPreflightTargets(firstArg(args)), nil
+		kind := "issue"
+		switch commandRegistryPath(cmd.Root(), cmd) {
+		case "jira issue attachment upload":
+			kind = "attachment"
+		case "jira issue watchers add", "jira issue watchers remove":
+			kind = "watcher"
+		case "jira issue worklog add":
+			kind = "worklog"
+		}
+		return jiraPreflightTargets(kind, firstArg(args)), nil
 	case policyIdentityJiraProjectFlag:
 		project := strings.ToUpper(policyFlagValue(cmd, "project"))
 		if project == "" {
@@ -1042,7 +1067,7 @@ func policyPreflightTargets(cmd *cobra.Command, args []string, identity policyId
 		}
 		var out []domain.WriteTarget
 		for _, ref := range refs {
-			out = append(out, jiraPreflightTargets(ref)...)
+			out = append(out, jiraPreflightTargets("issue", ref)...)
 		}
 		return uniqueWriteTargets(out), nil
 	case policyIdentityJiraLinkID:
@@ -1056,19 +1081,53 @@ func policyPreflightTargets(cmd *cobra.Command, args []string, identity policyId
 			out = append(out, domain.WriteTarget{Service: "jira", Kind: "sprint", ID: args[0]})
 		}
 		for _, ref := range args[start:] {
-			out = append(out, jiraPreflightTargets(ref)...)
+			out = append(out, jiraPreflightTargets("issue", ref)...)
 		}
 		return out, nil
 	case policyIdentityConfluencePageFlag:
-		return confluencePreflightTarget(policyFlagValue(cmd, "id", "page-id", "page"))
+		path := commandRegistryPath(cmd.Root(), cmd)
+		switch path {
+		case "conf attachment delete":
+			return confluencePreflightTarget("attachment", policyFlagValue(cmd, "id"))
+		case "conf attachment upload":
+			pageID := policyFlagValue(cmd, "id")
+			if pageID == "" {
+				return nil, nil
+			}
+			if _, err := confluencePreflightTarget("page", pageID); err != nil {
+				return nil, err
+			}
+			return []domain.WriteTarget{{Service: "confluence", Kind: "attachment"}}, nil
+		case "conf comment mutation apply":
+			pageID := policyFlagValue(cmd, "id")
+			if pageID == "" {
+				return nil, nil
+			}
+			if _, err := confluencePreflightTarget("page", pageID); err != nil {
+				return nil, err
+			}
+			return confluencePreflightTarget("comment", policyFlagValue(cmd, "thread-id"))
+		default:
+			return confluencePreflightTarget("page", policyFlagValue(cmd, "id", "page-id", "page"))
+		}
 	case policyIdentityConfluencePageArg:
-		return confluencePreflightTarget(firstArg(args))
+		if commandRegistryPath(cmd.Root(), cmd) == "conf comment add" {
+			if _, err := confluencePreflightTarget("page", firstArg(args)); err != nil {
+				return nil, err
+			}
+			return []domain.WriteTarget{{Service: "confluence", Kind: "comment"}}, nil
+		}
+		return confluencePreflightTarget("page", firstArg(args))
 	case policyIdentityConfluenceSpace:
 		space := strings.ToUpper(policyFlagValue(cmd, "space"))
 		if space == "" {
 			return nil, nil
 		}
-		return []domain.WriteTarget{{Service: "confluence", Kind: "page", Space: space}}, nil
+		kind := "page"
+		if commandRegistryPath(cmd.Root(), cmd) == "conf blog create" {
+			kind = "blogpost"
+		}
+		return []domain.WriteTarget{{Service: "confluence", Kind: kind, Space: space}}, nil
 	default:
 		return nil, fmt.Errorf("%w: unsupported content-policy identity source %q", domain.ErrCheckFailed, identity)
 	}
@@ -1092,24 +1151,27 @@ func firstArg(args []string) string {
 	return strings.TrimSpace(args[0])
 }
 
-func jiraPreflightTargets(ref string) []domain.WriteTarget {
+func jiraPreflightTargets(kind, ref string) []domain.WriteTarget {
 	ref = strings.ToUpper(strings.TrimSpace(ref))
 	if !domain.ValidJiraIssueKey(ref) {
 		return nil
 	}
 	project := ref[:strings.IndexByte(ref, '-')]
-	return []domain.WriteTarget{{Service: "jira", Kind: "issue", Project: project, Key: ref}}
+	return []domain.WriteTarget{{Service: "jira", Kind: kind, Project: project, Key: ref}}
 }
 
-func confluencePreflightTarget(ref string) ([]domain.WriteTarget, error) {
+func confluencePreflightTarget(kind, ref string) ([]domain.WriteTarget, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
-		return nil, nil
+		if kind == "page" {
+			return nil, nil
+		}
+		return []domain.WriteTarget{{Service: "confluence", Kind: kind}}, nil
 	}
 	if !domain.ValidConfluenceContentID(ref) {
 		return nil, usageErr("mutating Confluence references must use a canonical numeric content id while a content policy is active")
 	}
-	return []domain.WriteTarget{{Service: "confluence", Kind: "page", ID: ref}}, nil
+	return []domain.WriteTarget{{Service: "confluence", Kind: kind, ID: ref}}, nil
 }
 
 func uniqueWriteTargets(values []domain.WriteTarget) []domain.WriteTarget {

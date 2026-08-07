@@ -210,6 +210,9 @@ codex plugin add atl@atl
 
 - `ATL_READ_ONLY=1` / `--read-only` блокирует remote mutations до чтения
   credentials, body-файлов, self-update или обращения к сети.
+- Необязательная [scoped write policy](docs/reference/cli/policy.md) ограничивает
+  записи Jira и Confluence по verb и канонической identity контента. Перед
+  планированием записи запускайте `atl policy show`.
 - PAT привязаны к host; cross-host redirect и downgrade с HTTPS запрещены.
   Mutating requests никогда не следуют redirect и не используют generic retry.
 - Стабильные коды выхода различают usage, authentication, not-found, version
@@ -228,6 +231,7 @@ codex plugin add atl@atl
 - [Готовые рецепты для агентов](docs/agent-recipes.md)
 - [Native storage и фрагменты Confluence](docs/csf-and-fragments.md)
 - [Typed read-only MCP](docs/mcp.md)
+- [Scoped write policy](docs/reference/cli/policy.md)
 - [Архитектура](docs/architecture.md)
 
 Вопросы и обезличенные отчёты о совместимости отправляйте через

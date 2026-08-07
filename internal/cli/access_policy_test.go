@@ -85,14 +85,18 @@ func TestCommandRegistryExactlyMatchesTree(t *testing.T) {
 
 func TestMutationProfileShapesAreEnforced(t *testing.T) {
 	for name, row := range map[string]string{
-		"preview without apply":   "M preview-apply expected-proposal-hash command generic json unsafe",
-		"dedicated without guard": "M dedicated-apply - json unsafe",
-		"plan without guard":      "M plan - json unsafe",
-		"direct with guard":       "M remote-direct confirm command generic json unsafe",
-		"invalid requirement":     "M preview-apply apply,unknown command generic json unsafe",
-		"invalid phase":           "M preview-apply apply unknown generic json unsafe",
-		"invalid family":          "M preview-apply apply command unknown json unsafe",
-		"special command phase":   "M preview-apply apply command confluence-page-delete json unsafe",
+		"preview without apply":   "M preview-apply update jira-issue-arg expected-proposal-hash command generic json unsafe",
+		"dedicated without guard": "M dedicated-apply update jira-issue-arg - json unsafe",
+		"plan without guard":      "M plan update jira-plan - json unsafe",
+		"direct with guard":       "M remote-direct update jira-issue-arg confirm command generic json unsafe",
+		"invalid requirement":     "M preview-apply update jira-issue-arg apply,unknown command generic json unsafe",
+		"invalid phase":           "M preview-apply update jira-issue-arg apply unknown generic json unsafe",
+		"invalid family":          "M preview-apply update jira-issue-arg apply command unknown json unsafe",
+		"special command phase":   "M preview-apply update jira-issue-arg apply command confluence-page-delete json unsafe",
+		"verbs without identity":  "M remote-direct update none - json unsafe",
+		"identity without verbs":  "M remote-direct none jira-issue-arg - json unsafe",
+		"unknown verb":            "M remote-direct read jira-issue-arg - json unsafe",
+		"unknown identity":        "M remote-direct update guessed - json unsafe",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := parseCommandRegistry(row); err == nil {
@@ -108,6 +112,72 @@ func TestMutationRegistryPreservesReviewedAccessSet(t *testing.T) {
 		guards  []string
 	}
 	want := map[string]expectedMutation{}
+	type expectedPolicy struct {
+		verbs    string
+		identity policyIdentitySource
+	}
+	wantPolicy := map[string]expectedPolicy{}
+	for _, line := range strings.Split(`
+none|none|auth login
+none|none|auth logout
+none|none|conf apply
+delete|confluence-page-flag|conf attachment delete
+create|confluence-page-flag|conf attachment upload
+create|confluence-space|conf blog create
+comment|confluence-page-arg|conf comment add
+comment|confluence-page-flag|conf comment mutation apply
+none|none|conf edit
+create|confluence-space|conf page copy
+create|confluence-space|conf page create
+delete|confluence-page-flag|conf page delete
+update|confluence-page-arg|conf page labels add
+update|confluence-page-arg|conf page labels remove
+update,move|confluence-page-arg|conf page move
+update|confluence-page-arg|conf page title set
+update|confluence-plan|conf plan apply
+update|confluence-mirror|conf push
+none|none|conf reconcile stage
+none|none|compatibility clear
+none|none|compatibility pin
+none|none|config set
+none|none|jira apply
+update|jira-issue-arg|jira issue assign
+create|jira-issue-arg|jira issue attachment upload
+comment|jira-issue-arg|jira issue comment add
+delete|jira-issue-arg|jira issue comment delete
+create|jira-project-flag|jira issue create
+delete|jira-issue-arg|jira issue delete
+update,move?|jira-issue-arg|jira issue edit
+update,move?|jira-issue-arg|jira issue field set
+update|jira-issue-arg|jira issue labels
+update|jira-two-issue-args|jira issue link add
+delete|jira-link-id|jira issue link delete
+update|jira-two-issue-args|jira issue link-epic
+update|jira-plan|jira issue plan apply
+transition,comment?|jira-issue-arg|jira issue transition
+update,move?|jira-issue-arg|jira issue update
+update|jira-issue-arg|jira issue watchers add
+update|jira-issue-arg|jira issue watchers remove
+update|jira-issue-arg|jira issue worklog add
+update|jira-mirror|jira push
+none|none|jira reconcile stage
+update|jira-sprint-issues|jira sprint add
+update|jira-sprint-issues|jira sprint remove
+none|none|mirror backend bind
+none|none|profile apply
+none|none|profile revalidate
+none|none|profile suggest
+none|none|profile suggestion apply
+none|none|profile suggestion reject
+`, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			fields := strings.Split(line, "|")
+			if len(fields) != 3 {
+				t.Fatalf("invalid reviewed policy row %q", line)
+			}
+			wantPolicy[fields[2]] = expectedPolicy{verbs: fields[0], identity: policyIdentitySource(fields[1])}
+		}
+	}
 	for _, line := range strings.Split(`
 local-direct|-|auth login
 local-direct|-|auth logout
@@ -205,6 +275,27 @@ local-direct|-|profile suggestion reject
 							t.Errorf("reviewed mutating command %q structural --%s presence=%t want=%t", path, name, present, wantGuard[name])
 						}
 					}
+					registration := commandRegistry.nodes[path]
+					policyWant, policyOK := wantPolicy[path]
+					if !policyOK {
+						t.Errorf("reviewed mutating command %q lacks policy metadata", path)
+					} else {
+						var names []string
+						for _, spec := range registration.policyVerbs {
+							name := string(spec.verb)
+							if spec.conditional {
+								name += "?"
+							}
+							names = append(names, name)
+						}
+						gotVerbs := strings.Join(names, ",")
+						if gotVerbs == "" {
+							gotVerbs = "none"
+						}
+						if gotVerbs != policyWant.verbs || registration.policyIdentity != policyWant.identity {
+							t.Errorf("reviewed mutating command %q policy=%s/%s want=%s/%s", path, gotVerbs, registration.policyIdentity, policyWant.verbs, policyWant.identity)
+						}
+					}
 				}
 			}
 		}
@@ -231,6 +322,9 @@ local-direct|-|profile suggestion reject
 	if len(seen) != 51 {
 		t.Fatalf("executable mutating commands=%d want=51", len(seen))
 	}
+	if len(wantPolicy) != len(seen) {
+		t.Fatalf("reviewed policy rows=%d mutators=%d", len(wantPolicy), len(seen))
+	}
 }
 
 func TestPersistentPreRunCollisionPrecedenceIsStable(t *testing.T) {
@@ -239,6 +333,10 @@ func TestPersistentPreRunCollisionPrecedenceIsStable(t *testing.T) {
 		t.Fatal(err)
 	}
 	brokenConfig := map[string]string{"ATL_CONFIG_DIR": configDir}
+	brokenPolicyConfig := map[string]string{
+		"ATL_CONFIG_DIR": configDir,
+		"ATL_POLICY":     `{"schema_version":1,"rules":[{"id":"allow-docs","effect":"allow","verbs":["update"],"resource":{"service":"jira","project":"DOC"}}]}`,
+	}
 	tests := []struct {
 		name string
 		env  map[string]string
@@ -260,6 +358,12 @@ func TestPersistentPreRunCollisionPrecedenceIsStable(t *testing.T) {
 			env:  brokenConfig,
 			args: []string{"conf", "comment", "mutation", "apply", "--id", "1", "--thread-id", "2", "--operation", "resolve"},
 			want: domain.ErrUsage,
+		},
+		{
+			name: "content policy preflight precedes malformed config",
+			env:  brokenPolicyConfig,
+			args: []string{"jira", "issue", "assign", "OPS-1", "--none"},
+			want: domain.ErrCheckFailed,
 		},
 		{
 			name: "malformed config precedes command input and service",

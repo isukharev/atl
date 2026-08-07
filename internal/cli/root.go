@@ -38,10 +38,12 @@ const (
 )
 
 var (
-	outputFormat         string
-	verbose              bool
-	readOnly             bool
-	currentProcessPolicy *processPolicy
+	outputFormat              string
+	verbose                   bool
+	readOnly                  bool
+	currentReadOnlyPolicy     bool
+	currentProcessPolicy      *processPolicy
+	currentCommandPolicyWrite bool
 )
 
 // Execute builds and runs the root command, mapping errors to exit codes.
@@ -53,7 +55,7 @@ func Execute() {
 	cmd, err := root.ExecuteContextC(ctx)
 	if err != nil {
 		code := codeFor(err)
-		writeErrorWithContext(os.Stderr, outputFormat, err, code, recoveryOperation(cmd))
+		writeErrorWithCommand(os.Stderr, outputFormat, err, code, recoveryOperation(cmd), cmd)
 		os.Exit(code)
 	}
 }
@@ -69,6 +71,10 @@ func writeError(w io.Writer, format string, err error, code int) {
 }
 
 func writeErrorWithContext(w io.Writer, format string, err error, code int, operation diagnostic.OperationContext) {
+	writeErrorWithCommand(w, format, err, code, operation, nil)
+}
+
+func writeErrorWithCommand(w io.Writer, format string, err error, code int, operation diagnostic.OperationContext, cmd *cobra.Command) {
 	if format == "text" {
 		fmt.Fprintln(w, "error:", err)
 		return
@@ -90,6 +96,9 @@ func writeErrorWithContext(w io.Writer, format string, err error, code int, oper
 	if errors.As(err, &policyDetails) {
 		body["policy"] = "content"
 		body["denial"] = policyDetails.DiagnosticPolicyDenialDetails()
+		if cmd != nil {
+			body["command"] = cmd.CommandPath()
+		}
 	}
 	// Encode never fails for these plain types; ignore its error.
 	_ = enc.Encode(body)
@@ -140,6 +149,8 @@ func classifyError(err error) (kind, remediation string) {
 
 func newRoot() *cobra.Command {
 	currentProcessPolicy = newProcessPolicy()
+	currentCommandPolicyWrite = false
+	currentReadOnlyPolicy = false
 	var topologyErr error
 	root := &cobra.Command{
 		Use:           "atl",
@@ -161,6 +172,8 @@ func newRoot() *cobra.Command {
 	// Validate the global output format, then run a best-effort self-update check
 	// within its total startup budget. Update failures never fail the command.
 	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		currentCommandPolicyWrite = false
+		currentReadOnlyPolicy = false
 		if topologyErr != nil {
 			return &accessPolicyInvariantError{Command: topologyErr.Error()}
 		}
@@ -200,6 +213,7 @@ func newRoot() *cobra.Command {
 			if err := enforceContentPolicyPreflight(cmd, args, registration); err != nil {
 				return err
 			}
+			currentCommandPolicyWrite = registration.policyIdentity != policyIdentityNone
 		}
 		policyEnabled, err := resolveReadOnlyPolicy(cmd, readOnly)
 		if err != nil {
@@ -208,6 +222,7 @@ func newRoot() *cobra.Command {
 		if err := enforceAccessPolicy(cmd, policyEnabled); err != nil {
 			return err
 		}
+		currentReadOnlyPolicy = policyEnabled
 		// --verbose (or ATL_VERBOSE) traces every HTTP request to stderr. The
 		// bearer token is never written. stdout stays reserved for the result.
 		if verbose || os.Getenv("ATL_VERBOSE") != "" {

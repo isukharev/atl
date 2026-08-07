@@ -201,8 +201,9 @@ version-skew recovery.
 
 ## Safety and compatibility
 
-- `ATL_READ_ONLY=1` / `--read-only` blocks remote mutations before credentials,
-  body files, self-update, or network access.
+- `ATL_READ_ONLY=1` / `--read-only` blocks mutations before credentials, files,
+  self-update, or network.
+- [Inspect scoped write grants](docs/reference/cli/policy.md) with `atl policy show`.
 - PATs are host-scoped; cross-host and HTTPS-downgrade redirects are refused.
   Mutating requests never follow redirects or use generic retries.
 - Stable exit codes distinguish usage, authentication, not-found, version
@@ -221,6 +222,7 @@ version-skew recovery.
 - [Runnable agent recipes](docs/agent-recipes.md)
 - [Confluence native storage and fragments](docs/csf-and-fragments.md)
 - [Typed read-only MCP](docs/mcp.md)
+- [Scoped write policy](docs/reference/cli/policy.md)
 - [Architecture](docs/architecture.md)
 
 Questions and sanitized compatibility reports belong in

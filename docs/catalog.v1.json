@@ -57,6 +57,7 @@
     {"path":"docs/reference/cli/jira-planning.md","lane":"reference","topic":"cli-jira-planning","landing_page":"docs/reference/cli/README.md","language":"en"},
     {"path":"docs/reference/cli/jira-structure.md","lane":"reference","topic":"cli-jira-structure","landing_page":"docs/reference/cli/README.md","language":"en"},
     {"path":"docs/reference/cli/local-artifacts.md","lane":"reference","topic":"cli-local-artifacts","landing_page":"docs/reference/cli/README.md","language":"en"},
+    {"path":"docs/reference/cli/policy.md","lane":"reference","topic":"cli-scoped-write-policy","landing_page":"docs/reference/cli/README.md","language":"en"},
     {"path":"docs/reference/cli/rendering.md","lane":"reference","topic":"cli-rendering","landing_page":"docs/reference/cli/README.md","language":"en"},
     {"path":"docs/reference/output/README.md","lane":"reference","topic":"output-contract-index","landing_page":"docs/README.md","language":"en"},
     {"path":"docs/reference/output/agent-interfaces.md","lane":"reference","topic":"output-agent-interfaces","landing_page":"docs/reference/output/README.md","language":"en"},

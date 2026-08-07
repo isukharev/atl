@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isukharev/atl/internal/contentpolicy"
 	"github.com/isukharev/atl/internal/domain"
 )
 
@@ -99,6 +100,35 @@ func TestApplyPlanDryRunIsIdempotentAndBlockedByAllowlists(t *testing.T) {
 	}
 	if len(tr.linked) != 0 {
 		t.Fatalf("dry-run linked = %+v, want no writes", tr.linked)
+	}
+}
+
+func TestApplyPlanContentPolicyBlocksDeniedRowsBeforeBackendReads(t *testing.T) {
+	csvPath := filepath.Join(t.TempDir(), "plan.csv")
+	data := strings.Join([]string{
+		"version,op,source,target,type,field,value,rationale,expected_updated",
+		"1,link,OPS-1,DOC-2,Blocks,,,out of scope,2026-01-01",
+	}, "\n")
+	if err := os.WriteFile(csvPath, []byte(data), 0o644); err != nil {
+		t.Fatalf("write plan: %v", err)
+	}
+	tr := &planTracker{linkTypes: []string{"Blocks"}, issues: map[string]domain.Issue{}}
+	authorizer := contentpolicy.NewAuthorizer(&contentpolicy.Resolved{Layers: []contentpolicy.Layer{{
+		Source: "env_inline",
+		Policy: contentpolicy.Policy{SchemaVersion: 1, Rules: []contentpolicy.Rule{{
+			ID: "allow-docs", Effect: contentpolicy.EffectAllow, Verbs: domain.WriteVerbSet{domain.WriteVerbUpdate},
+			Resource: contentpolicy.Selector{Services: []string{"jira"}, Projects: []string{"DOC"}},
+		}}},
+	}}})
+
+	res, err := (&JiraService{tr: tr, writeAuthorizer: authorizer}).ApplyPlan(context.Background(), JiraPlanApplyOpts{
+		CSVPath: csvPath, AllowLinkTypes: []string{"Blocks"},
+	})
+	if !errors.Is(err, domain.ErrCheckFailed) || res == nil || len(res.Results) != 1 || res.Results[0].Status != "blocked" {
+		t.Fatalf("ApplyPlan result=%+v err=%v, want one policy-blocked row", res, err)
+	}
+	if len(tr.linked) != 0 || tr.linkTypeCalls != 0 {
+		t.Fatalf("policy-blocked plan reached backend: links=%v link-type calls=%d", tr.linked, tr.linkTypeCalls)
 	}
 }
 

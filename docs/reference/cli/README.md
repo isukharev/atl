@@ -12,6 +12,7 @@ ATL_NO_UPDATE=1 atl --help
 
 - [Common conventions](common.md)
 - [Configuration and authentication](configuration.md)
+- [Scoped write policy](policy.md)
 - [Derived-view rendering](rendering.md)
 - [Agent interfaces](agent-interfaces.md)
 - [Local artifacts](local-artifacts.md)

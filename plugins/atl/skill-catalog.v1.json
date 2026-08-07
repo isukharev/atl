@@ -49,7 +49,7 @@
   "files": [
     {
       "path": "atl/SKILL.md",
-      "sha256": "aa007ad0b60e8f648cddcbd629e98c83d19147eefab106ff4a5ffed5f737733e"
+      "sha256": "9043064581b5210c06ca6b56f70f543c8a49ed328dc7ad907dba9a6fee7ce487"
     },
     {
       "path": "atl/agents/openai.yaml",
@@ -85,7 +85,7 @@
     },
     {
       "path": "confluence/SKILL.md",
-      "sha256": "3fce606cc775aa799c50e0f5f8d0ad85f1bd6d5cb0bddc1ebcfe419fd07b6b5f"
+      "sha256": "70c0077acaad23a642a3f1f36853c44193df0039a5f0f8146f5099f37d7d12a6"
     },
     {
       "path": "confluence/agents/openai.yaml",
@@ -129,7 +129,7 @@
     },
     {
       "path": "jira/SKILL.md",
-      "sha256": "5f007b5bc41ec479320fd27b8d8fe9e316e1db1bfe8c093fab5b4473cc38c004"
+      "sha256": "bb3916c48fbfa9af90ee4e22d051b8626bde0cca70f733656104d37058b3d1c5"
     },
     {
       "path": "jira/agents/openai.yaml",

@@ -57,7 +57,7 @@ func policyShowCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			resolved, err := currentProcessPolicy.resolve()
 			if err != nil {
-				return err
+				return classifyProcessPolicyLoadError(err)
 			}
 			result := buildPolicyShowResult(resolved)
 			return emit(cmd, result, func() string { return policyShowText(result) })
@@ -91,12 +91,18 @@ func policyExplainCmd() *cobra.Command {
 				Project: strings.ToUpper(strings.TrimSpace(project)), Key: strings.ToUpper(strings.TrimSpace(key)),
 				Space: strings.ToUpper(strings.TrimSpace(space)),
 			}
+			if target.Project == "" && domain.ValidJiraIssueKey(target.Key) {
+				target.Project = target.Key[:strings.IndexByte(target.Key, '-')]
+			}
 			if under != "" {
 				target.AncestorIDs = splitNonBlank(under)
 			}
+			if err := validatePolicyExplainTarget(target); err != nil {
+				return err
+			}
 			resolved, err := currentProcessPolicy.resolve()
 			if err != nil {
-				return err
+				return classifyProcessPolicyLoadError(err)
 			}
 			request := domain.WriteAuthorizationRequest{Verbs: domain.WriteVerbSet{writeVerb}, Targets: []domain.WriteTarget{target}}
 			decision := contentpolicy.Decide(resolved.Layers, request)
@@ -105,15 +111,10 @@ func policyExplainCmd() *cobra.Command {
 				result.Decision = "allow"
 			} else {
 				result.Reason = string(decision.Reason)
-				if decision.Reason == contentpolicy.ReasonScopeUnresolved || decision.Attribute != "" {
+				if contentpolicy.PreflightDeny(resolved.Layers, request) == nil {
 					result.Decision = "conditional"
-					attribute := decision.Attribute
-					if attribute == "key" {
-						attribute = "project"
-					}
-					if attribute != "" {
-						result.Unresolved = []string{attribute}
-					}
+					result.Reason = string(contentpolicy.ReasonScopeUnresolved)
+					result.Unresolved = policyExplainUnresolved(resolved, target, writeVerb)
 				}
 			}
 			return emit(cmd, result, func() string { return policyExplainText(result) })
@@ -132,6 +133,92 @@ func policyExplainCmd() *cobra.Command {
 	return cmd
 }
 
+func policyExplainUnresolved(resolved *contentpolicy.Resolved, target domain.WriteTarget, verb domain.WriteVerb) []string {
+	if resolved == nil {
+		return nil
+	}
+	unresolved := map[string]bool{}
+	for _, layer := range resolved.Layers {
+		for _, rule := range layer.Policy.Rules {
+			selector := rule.Resource
+			if !verbSetContains(rule.Verbs, verb) ||
+				!selectorValueCouldMatch(selector.Services, target.Service) ||
+				!selectorValueCouldMatch(selector.Kinds, target.Kind) ||
+				!selectorValueCouldMatch(selector.Projects, target.Project) ||
+				!selectorValueCouldMatch(selector.Keys, target.Key) ||
+				!selectorValueCouldMatch(selector.Spaces, target.Space) ||
+				!selectorValueCouldMatch(selector.IDs, target.ID) {
+				continue
+			}
+			for _, item := range []struct {
+				name    string
+				missing bool
+			}{
+				{"project", len(selector.Projects) > 0 && target.Project == ""},
+				{"key", len(selector.Keys) > 0 && target.Key == ""},
+				{"space", len(selector.Spaces) > 0 && target.Space == ""},
+				{"id", len(selector.IDs) > 0 && target.ID == ""},
+				{"under", len(selector.Under) > 0 && target.AncestorIDs == nil && !stringSetContains(selector.Under, target.ID)},
+			} {
+				if item.missing {
+					unresolved[item.name] = true
+				}
+			}
+		}
+	}
+	ordered := []string{"project", "key", "space", "id", "under"}
+	out := make([]string, 0, len(unresolved))
+	for _, name := range ordered {
+		if unresolved[name] {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+func selectorValueCouldMatch(values []string, actual string) bool {
+	return len(values) == 0 || actual == "" || stringSetContains(values, actual)
+}
+
+func validatePolicyExplainTarget(target domain.WriteTarget) error {
+	if target.Service == "jira" {
+		if !stringSetContains([]string{"issue", "sprint", "link", "attachment", "worklog", "watcher"}, target.Kind) {
+			return usageErr("--kind is not a governed Jira resource kind")
+		}
+		if target.Space != "" || target.AncestorIDs != nil {
+			return usageErr("--space and --under apply only to Confluence targets")
+		}
+		if target.ID != "" && target.Kind != "sprint" {
+			return usageErr("--id applies only to Jira sprint targets")
+		}
+		if target.Kind == "sprint" && !domain.ValidConfluenceContentID(target.ID) {
+			return usageErr("Jira sprint targets require a positive numeric --id")
+		}
+		if target.Key != "" && !domain.ValidJiraIssueKey(target.Key) {
+			return usageErr("--key must be a canonical Jira issue key")
+		}
+		if target.Project != "" && !domain.ValidJiraIssueKey(target.Project+"-1") {
+			return usageErr("--project must be a canonical Jira project key")
+		}
+		return nil
+	}
+	if !stringSetContains([]string{"page", "blogpost", "attachment", "comment"}, target.Kind) {
+		return usageErr("--kind is not a governed Confluence resource kind")
+	}
+	if target.Project != "" || target.Key != "" {
+		return usageErr("--project and --key apply only to Jira targets")
+	}
+	if target.ID != "" && !domain.ValidConfluenceContentID(target.ID) {
+		return usageErr("--id must be a positive numeric Confluence content id")
+	}
+	for _, ancestor := range target.AncestorIDs {
+		if !domain.ValidConfluenceContentID(ancestor) {
+			return usageErr("--under must contain positive numeric Confluence content ids")
+		}
+	}
+	return nil
+}
+
 func splitNonBlank(value string) []string {
 	var out []string
 	for _, item := range strings.Split(value, ",") {
@@ -145,17 +232,25 @@ func splitNonBlank(value string) []string {
 func buildPolicyShowResult(resolved *contentpolicy.Resolved) policyShowResult {
 	result := policyShowResult{
 		SchemaVersion: 1, Active: resolved != nil && len(resolved.Layers) != 0, Enforcement: "advisory",
-		ReadOnly: policyReadOnlyStatus{Active: readOnly || envReadOnly()}, Digest: policyDigestStatus{},
+		ReadOnly: policyReadOnlyStatus{Active: currentReadOnlyPolicy}, Digest: policyDigestStatus{},
 		Grants:       summarizePolicyGrants(resolved),
 		Governs:      map[string]string{"jira": "guarded", "confluence": "guarded", "local_commands": "not_governed", "local_mirror": "not_governed", "reads": "not_governed"},
 		NotABoundary: "atl enforces these rules on the atl code path only; a process that can run atl can read the credential and call the REST API directly",
 	}
 	if result.ReadOnly.Active {
-		source := "flag"
-		if envReadOnly() {
+		source := "configuration"
+		switch {
+		case readOnly:
+			source = "flag"
+		case envReadOnly():
 			source = "environment"
 		}
 		result.ReadOnly.Source = source
+		for service := range result.Grants {
+			for verb := range result.Grants[service] {
+				result.Grants[service][verb] = []string{}
+			}
+		}
 	}
 	if resolved != nil {
 		var sources []string
@@ -181,7 +276,12 @@ func buildPolicyShowResult(resolved *contentpolicy.Resolved) policyShowResult {
 	if !policyHasCompleteBackendBinding(resolved) {
 		result.AdvisoryBecause = append(result.AdvisoryBecause, "no_backend_binding")
 	}
-	result.AdvisoryBecause = append(result.AdvisoryBecause, "self_update_armed")
+	if os.Getenv("ATL_NO_UPDATE") == "" {
+		result.AdvisoryBecause = append(result.AdvisoryBecause, "self_update_armed")
+	}
+	if currentProcessPolicy != nil && currentProcessPolicy.required && os.Getenv("ATL_POLICY_FILE") != "" && os.Getenv("ATL_POLICY_SHA256") != "" && policyHasCompleteBackendBinding(resolved) {
+		result.Enforcement = "sealed_unverified"
+	}
 	return result
 }
 
@@ -199,7 +299,7 @@ func policyHasCompleteBackendBinding(resolved *contentpolicy.Resolved) bool {
 
 func summarizePolicyGrants(resolved *contentpolicy.Resolved) map[string]map[string][]string {
 	services := map[string][]domain.WriteVerb{
-		"jira":       {domain.WriteVerbCreate, domain.WriteVerbUpdate, domain.WriteVerbComment, domain.WriteVerbTransition, domain.WriteVerbDelete},
+		"jira":       {domain.WriteVerbCreate, domain.WriteVerbUpdate, domain.WriteVerbComment, domain.WriteVerbTransition, domain.WriteVerbMove, domain.WriteVerbDelete},
 		"confluence": {domain.WriteVerbCreate, domain.WriteVerbUpdate, domain.WriteVerbComment, domain.WriteVerbMove, domain.WriteVerbDelete},
 	}
 	out := make(map[string]map[string][]string, len(services))
@@ -219,13 +319,24 @@ func effectiveGrantLabels(resolved *contentpolicy.Resolved, service string, verb
 	var intersection map[string]struct{}
 	for _, layer := range resolved.Layers {
 		current := map[string]struct{}{}
+		hasApplicableDeny := false
 		for _, rule := range layer.Policy.Rules {
-			if rule.Effect != contentpolicy.EffectAllow || !verbSetContains(rule.Verbs, verb) || !stringSetContains(rule.Resource.Services, service) {
+			if !verbSetContains(rule.Verbs, verb) || !stringSetContains(rule.Resource.Services, service) {
+				continue
+			}
+			if rule.Effect == contentpolicy.EffectDeny {
+				hasApplicableDeny = true
 				continue
 			}
 			for _, label := range selectorGrantLabels(rule.Resource, service) {
 				current[label] = struct{}{}
 			}
+		}
+		// The compact discovery schema cannot express allow-minus-deny. Emptying
+		// this verb is conservative; retaining an allow label would overstate the
+		// effective scope and could make an agent plan a write that is forbidden.
+		if hasApplicableDeny {
+			clear(current)
 		}
 		if intersection == nil {
 			intersection = current

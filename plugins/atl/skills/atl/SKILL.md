@@ -168,6 +168,9 @@ atl ...
 atl ...
 ```
 
+Before planning Jira or Confluence writes, run `atl policy show`; when it is
+active, plan only within its effective `grants`.
+
 Every later `atl` call and child process in that shell inherits the guard unless
 it is explicitly overridden. A prefix such as `ATL_READ_ONLY=1 atl ...` protects
 only that one process, so never use the one-command form for a multi-command

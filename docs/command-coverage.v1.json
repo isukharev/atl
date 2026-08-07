@@ -61,6 +61,7 @@
     {"id":"confluence-page-view","document":"docs/reference/cli/confluence-pages.md","evidence":"## `atl conf page view`","commands":["conf page view"]},
     {"id":"confluence-table-extract","document":"docs/reference/cli/confluence-tables.md","evidence":"## `atl conf table extract`","commands":["conf table extract"]},
     {"id":"confluence-table-summary","document":"docs/reference/cli/confluence-tables.md","evidence":"## `atl conf table summary`","commands":["conf table summary"]},
+    {"id":"content-policy","document":"docs/reference/cli/policy.md","evidence":"## Discover the effective policy","commands":["policy explain","policy show"]},
     {"id":"jira-data-export","document":"docs/reference/cli/jira-data.md","evidence":"## `atl jira export`","commands":["jira export","jira export diff"]},
     {"id":"jira-data-field-options","document":"docs/reference/cli/jira-data.md","evidence":"## `atl jira field-options`","commands":["jira field-options"]},
     {"id":"jira-data-fields","document":"docs/reference/cli/jira-data.md","evidence":"## `atl jira fields`","commands":["jira fields"]},

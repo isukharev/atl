@@ -31,10 +31,10 @@
     {"owner":"mcp","path":"internal/mcpserver/server.go","max_lines":1588,"rationale":"Keep MCP service assembly and shared validation ownership within its reduced reviewed allowance after focused instruction and error-policy splits."}
   ],
   "package_totals": [
-	{"owner":"app","path":"internal/app/","max_lines":34497,"rationale":"Keep total production growth in the app package visible, including Confluence authorizer assembly, reference provenance propagation into pull processing, and not-attempted passthrough."},
-    {"owner":"cli","path":"internal/cli/","max_lines":10111,"rationale":"Keep total production growth in the CLI package visible; 10111 includes the reviewed pre-configuration Confluence page-delete content-id guard."},
-	{"owner":"contentpolicy","path":"internal/contentpolicy/","max_lines":1193,"rationale":"Keep all production policy parsing, evaluation, denial, digest, source, freeze, static kind/scope requirements, and hierarchy-hazard logic at its reviewed total."},
-    {"owner":"evaluator","path":"internal/agenteval/","max_lines":47450,"rationale":"Keep the complete evaluator module tree, including cmd/agent-eval, visible across responsibility splits."},
+	{"owner":"app","path":"internal/app/","max_lines":34597,"rationale":"Keep total production growth visible, including Confluence authorizer assembly, deny-only Jira plan-row policy classification, doctor policy status, and not-attempted passthrough."},
+    {"owner":"cli","path":"internal/cli/","max_lines":11030,"rationale":"Keep total production growth visible, including reviewed policy discovery, process freeze and binding, exhaustive registry metadata, and deny-only preflight."},
+	{"owner":"contentpolicy","path":"internal/contentpolicy/","max_lines":1281,"rationale":"Keep policy parsing, resolved and deny-only evaluation, source-denial envelopes, freeze, static scope requirements, and hierarchy hazards at the reviewed public-surface total."},
+    {"owner":"evaluator","path":"internal/agenteval/","max_lines":47625,"rationale":"Keep the complete evaluator module tree visible, including the reviewed synthetic-write policy projection, strict denial parser, and zero-request refusal scenario."},
     {"owner":"mcp","path":"internal/mcpserver/","max_lines":3294,"rationale":"Keep total production growth in the MCP package visible even when registration and protocol owners are split."}
   ],
   "timing": {

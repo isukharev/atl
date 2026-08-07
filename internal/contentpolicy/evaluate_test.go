@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"testing/quick"
 
 	"github.com/isukharev/atl/internal/domain"
 )
@@ -90,6 +91,38 @@ func TestDecideMismatchPrecedesUnresolvedAndLayersConjoin(t *testing.T) {
 	decision := Decide([]Layer{{Source: "managed", Policy: Policy{Rules: []Rule{foreignDeny, allowML}}}, {Source: "user", Policy: Policy{Rules: []Rule{allowOPS}}}}, request)
 	if decision.Reason != ReasonNoMatchingAllow || decision.Layer != "user" {
 		t.Fatalf("decision = %+v, want user-layer default denial", decision)
+	}
+}
+
+func TestLayerConjunctionNeverWidensEitherRandomPolicy(t *testing.T) {
+	property := func(leftMask, rightMask uint8, useOPS bool) bool {
+		request := domain.WriteAuthorizationRequest{
+			Verbs:   domain.WriteVerbSet{domain.WriteVerbUpdate},
+			Targets: []domain.WriteTarget{{Service: "jira", Kind: "issue", Project: "ML", Key: "ML-1"}},
+		}
+		if useOPS {
+			request.Targets[0].Project, request.Targets[0].Key = "OPS", "OPS-1"
+		}
+		layer := func(mask uint8, source string) Layer {
+			var rules []Rule
+			for bit, project := range []string{"ML", "OPS"} {
+				if mask&(1<<bit) != 0 {
+					rules = append(rules, Rule{ID: source + "-allow-" + strings.ToLower(project), Effect: EffectAllow,
+						Verbs: domain.WriteVerbSet{domain.WriteVerbUpdate}, Resource: Selector{Services: []string{"jira"}, Projects: []string{project}}})
+				}
+				if mask&(1<<(bit+2)) != 0 {
+					rules = append(rules, Rule{ID: source + "-deny-" + strings.ToLower(project), Effect: EffectDeny,
+						Verbs: domain.WriteVerbSet{domain.WriteVerbUpdate}, Resource: Selector{Services: []string{"jira"}, Projects: []string{project}}})
+				}
+			}
+			return Layer{Source: source, Policy: Policy{Rules: rules}}
+		}
+		left, right := layer(leftMask, "managed"), layer(rightMask, "user")
+		effective := Decide([]Layer{left, right}, request)
+		return !effective.Allowed || (Decide([]Layer{left}, request).Allowed && Decide([]Layer{right}, request).Allowed)
+	}
+	if err := quick.Check(property, &quick.Config{MaxCount: 1000}); err != nil {
+		t.Fatal(err)
 	}
 }
 

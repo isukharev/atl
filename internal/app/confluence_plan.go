@@ -54,6 +54,24 @@ type ConfluencePlanEntry struct {
 	ByteEvidence    *ConfluenceByteEvidence  `json:"byte_evidence,omitempty"`
 }
 
+// ConfluencePlanPolicyTargets validates a durable plan and returns only the
+// identity needed for deny-only process preflight. Native bodies remain in the
+// mirror and are never loaded through this surface.
+func ConfluencePlanPolicyTargets(path string) ([]domain.WriteTarget, error) {
+	plan, err := loadConfluencePlan(path)
+	if err != nil {
+		return nil, err
+	}
+	targets := make([]domain.WriteTarget, 0, len(plan.Entries))
+	for _, entry := range plan.Entries {
+		targets = append(targets, domain.WriteTarget{
+			Service: "confluence", Kind: strings.ToLower(entry.Type), ID: entry.ID,
+			Space: strings.ToUpper(entry.Space),
+		})
+	}
+	return targets, nil
+}
+
 type ConfluencePlanCreateResult struct {
 	Path           string                `json:"path"`
 	Schema         string                `json:"schema"`

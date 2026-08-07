@@ -92,6 +92,43 @@ func TestSyntheticATLProcessRunsSelectedBinaryCLIAndMCPContracts(t *testing.T) {
 	}
 }
 
+func TestSyntheticATLContentPolicyDenialNeverReachesBackend(t *testing.T) {
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	if err := os.Mkdir(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	process, err := StartSyntheticATLProcess(t.Context(), SyntheticATLProcessConfig{
+		Binary: repositorySyntheticATLBinary(t), Fixture: minimalSyntheticFixture(),
+		ScratchRoot: privateSyntheticATLScratch(t), WorkspaceTemplate: workspace,
+		SyntheticWriteRules: SyntheticWriteRules{"denied_assign"},
+		CLIPolicy: CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: []CLICommandRule{{
+			Name: "denied_assign", Command: []string{"jira", "issue", "assign"},
+			Positionals: []CLIArgumentRule{{Values: []string{"DENIED-1"}}},
+			Flags:       []CLIFlagRule{{Name: "--none", Required: true}}, MaxInvocations: 1,
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := process.Close(); closeErr != nil {
+			t.Errorf("close selected ATL process: %v", closeErr)
+		}
+	})
+
+	result, err := process.RunSyntheticWriteCLIJSON(t.Context(), "jira", "issue", "assign", "DENIED-1", "--none")
+	if err != nil || result.ExitCode != 8 {
+		t.Fatalf("denied selected ATL invocation=%+v err=%v", result, err)
+	}
+	contract, ok := ParseCLIErrorContract(result.ExitCode, result.Stderr)
+	if !ok || contract.Kind != "content_policy" || contract.Remediation != "request_human_approval" {
+		t.Fatalf("denial contract=%+v ok=%t stderr=%s", contract, ok, result.Stderr)
+	}
+	if summary := process.Summary(); len(summary.HTTPMethods) != 0 || summary.UnexpectedRequests != 0 || summary.DuplicateRequests != 0 {
+		t.Fatalf("policy-denied write reached synthetic backend: %+v", summary)
+	}
+}
+
 func TestSyntheticATLProcessSeedsMirrorTemplateBeforeMCPLaunch(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture is Unix-only")

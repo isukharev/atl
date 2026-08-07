@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added an optional process-frozen, content-scoped write policy for Jira and
+  Confluence, offline `policy show`/`policy explain`, deny-only CLI and plan
+  preflight, authoritative adapter enforcement, strict file/digest/backend
+  sealing checks, and a stable exit-8 policy-denial envelope.
+
 ### Fixed
 
 - Refused non-canonical Confluence page-delete ids before configuration or
