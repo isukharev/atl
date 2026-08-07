@@ -197,15 +197,8 @@ func parseSetArgs(args []string) (key, value string, hasKV bool, err error) {
 
 // runSetGlobal persists URL flags and/or a render key to the global config.
 func runSetGlobal(cmd *cobra.Command, key, value string, hasKV bool, confluenceURL, jiraURL, updateURL string) error {
-	repairingViews := hasKV && (key == "jira.list_views" || strings.HasPrefix(key, "jira.list_views."))
 	deletingView := hasKV && strings.HasPrefix(key, "jira.list_views.") && strings.TrimSpace(value) == "null"
-	var cfg *config.Config
-	var err error
-	if repairingViews {
-		cfg, err = config.LoadForEdit()
-	} else {
-		cfg, err = loadConfig()
-	}
+	cfg, err := config.LoadPersistedForEdit()
 	if err != nil {
 		return err
 	}
@@ -265,7 +258,11 @@ func runSetGlobal(cmd *cobra.Command, key, value string, hasKV bool, confluenceU
 	if saveErr != nil {
 		return saveErr
 	}
-	return emit(cmd, configPersistProjection(cfg), nil)
+	effective, err := config.LoadForEdit()
+	if err != nil {
+		return err
+	}
+	return emit(cmd, configPersistProjection(effective), nil)
 }
 
 // runSetLocal writes a render.* key to the per-mirror local config. It refuses

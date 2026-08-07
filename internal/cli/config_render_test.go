@@ -53,6 +53,71 @@ func TestConfigTransportPathsPersistButNeverAppearInOutput(t *testing.T) {
 	}
 }
 
+func TestConfigSetDoesNotPersistEnvironmentOverlays(t *testing.T) {
+	tests := []struct {
+		name      string
+		envKey    string
+		envValue  string
+		transport bool
+	}{
+		{name: "atl confluence URL", envKey: "ATL_CONFLUENCE_URL", envValue: "https://atl-conf-env.example.test"},
+		{name: "legacy confluence URL", envKey: "CONFLUENCE_URL", envValue: "https://legacy-conf-env.example.test"},
+		{name: "atl Jira URL", envKey: "ATL_JIRA_URL", envValue: "https://atl-jira-env.example.test"},
+		{name: "legacy Jira URL", envKey: "JIRA_URL", envValue: "https://legacy-jira-env.example.test"},
+		{name: "update URL", envKey: "ATL_UPDATE_URL", envValue: "https://update-env.example.test"},
+		{name: "Jira CA", envKey: "ATL_JIRA_CA_BUNDLE", envValue: "/env-only/jira-ca.pem", transport: true},
+		{name: "Confluence CA", envKey: "ATL_CONFLUENCE_CA_BUNDLE", envValue: "/env-only/conf-ca.pem", transport: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfgDir := t.TempDir()
+			env := map[string]string{"ATL_CONFIG_DIR": cfgDir, test.envKey: test.envValue}
+			out, code := runCLI(t, env, "config", "set", "safety.read_only", "false")
+			if code != exitOK {
+				t.Fatalf("config set exit=%d output=%s", code, out)
+			}
+			body, err := os.ReadFile(filepath.Join(cfgDir, "config.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(body), test.envValue) {
+				t.Fatalf("environment-only value was persisted: %s", body)
+			}
+			if test.transport && (!strings.Contains(out, `"ca_bundle_configured": true`) || !strings.Contains(out, `"ca_bundle_source": "environment"`)) {
+				t.Fatalf("environment overlay was not effective in process: %s", out)
+			}
+		})
+	}
+}
+
+func TestConfigSetExplicitValuePersistsWhileEnvironmentStillWinsInProcess(t *testing.T) {
+	cfgDir := t.TempDir()
+	env := map[string]string{
+		"ATL_CONFIG_DIR":     cfgDir,
+		"ATL_JIRA_URL":       "https://env-jira.example.test",
+		"ATL_JIRA_CA_BUNDLE": "/env-only/jira-ca.pem",
+	}
+	explicitURL := "https://explicit-jira.example.test"
+	explicitCA := "/explicit/jira-ca.pem"
+	out, code := runCLI(t, env, "config", "set", "--jira-url", explicitURL, "transport.jira.ca_bundle", explicitCA)
+	if code != exitOK || strings.Contains(out, explicitCA) || strings.Contains(out, env["ATL_JIRA_CA_BUNDLE"]) ||
+		!strings.Contains(out, `"ca_bundle_source": "environment"`) {
+		t.Fatalf("config set exit=%d output=%s", code, out)
+	}
+	body, err := os.ReadFile(filepath.Join(cfgDir, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), explicitURL) || !strings.Contains(string(body), explicitCA) ||
+		strings.Contains(string(body), env["ATL_JIRA_URL"]) || strings.Contains(string(body), env["ATL_JIRA_CA_BUNDLE"]) {
+		t.Fatalf("explicit values were not persisted independently: %s", body)
+	}
+	out, code = runCLI(t, map[string]string{"ATL_CONFIG_DIR": cfgDir}, "config", "show")
+	if code != exitOK || strings.Contains(out, explicitCA) || !strings.Contains(out, `"ca_bundle_source": "config_file"`) {
+		t.Fatalf("persisted config after clearing env exit=%d output=%s", code, out)
+	}
+}
+
 func TestConfigListViewsExposeBuiltinsAndAddNamedPreset(t *testing.T) {
 	cfgDir := t.TempDir()
 	env := map[string]string{"ATL_CONFIG_DIR": cfgDir}
@@ -118,7 +183,11 @@ func TestConfigListViewsInvalidSectionCanBeShownAndRepaired(t *testing.T) {
 
 func TestConfigListViewsCanDeleteMultipleInvalidPresetsSequentially(t *testing.T) {
 	cfgDir := t.TempDir()
-	env := map[string]string{"ATL_CONFIG_DIR": cfgDir}
+	env := map[string]string{
+		"ATL_CONFIG_DIR":     cfgDir,
+		"ATL_UPDATE_URL":     "https://repair-env.example.test",
+		"ATL_JIRA_CA_BUNDLE": "/repair-env/jira-ca.pem",
+	}
 	configPath := filepath.Join(cfgDir, "config.json")
 	invalid := `{"jira_list_views":{"first":{"search":["board.column"]},"second":{"structure":["position"]}}}`
 	if err := os.WriteFile(configPath, []byte(invalid), 0o600); err != nil {
@@ -131,7 +200,8 @@ func TestConfigListViewsCanDeleteMultipleInvalidPresetsSequentially(t *testing.T
 		t.Fatalf("runtime after partial repair exit=%d, want strict config", code)
 	}
 	body, err := os.ReadFile(configPath)
-	if err != nil || strings.Contains(string(body), `"first"`) || !strings.Contains(string(body), `"second"`) {
+	if err != nil || strings.Contains(string(body), `"first"`) || !strings.Contains(string(body), `"second"`) ||
+		strings.Contains(string(body), env["ATL_UPDATE_URL"]) || strings.Contains(string(body), env["ATL_JIRA_CA_BUNDLE"]) {
 		t.Fatalf("partial repair config=%s err=%v", body, err)
 	}
 	if _, code := runCLI(t, env, "config", "set", "jira.list_views.second", "null"); code != exitOK {
@@ -165,7 +235,10 @@ func TestConfigSetLocalInsideMirror(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(mirror)
-	out, code := runCLI(t, nil, "config", "set", "--local", "render.confluence.profile", "minimal")
+	out, code := runCLI(t, map[string]string{
+		"ATL_JIRA_URL":       "https://local-env.example.test",
+		"ATL_JIRA_CA_BUNDLE": "/local-env/jira-ca.pem",
+	}, "config", "set", "--local", "render.confluence.profile", "minimal")
 	if code != exitOK {
 		t.Fatalf("config set --local: exit %d (out=%q)", code, out)
 	}
@@ -177,8 +250,8 @@ func TestConfigSetLocalInsideMirror(t *testing.T) {
 		t.Errorf("local file missing render key:\n%s", b)
 	}
 	// The local file must never carry a URL/credential key.
-	if strings.Contains(string(b), "url") {
-		t.Errorf("local file leaked a url key:\n%s", b)
+	if strings.Contains(string(b), "url") || strings.Contains(string(b), "transport") || strings.Contains(string(b), "ca_bundle") {
+		t.Errorf("local file leaked a global environment key:\n%s", b)
 	}
 }
 

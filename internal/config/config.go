@@ -92,17 +92,13 @@ func Load() (*Config, error) {
 	return c, nil
 }
 
-// LoadForEdit reads non-secret config and applies environment URL overrides
-// without normalizing jira_list_views. It is reserved for `config show` and a
-// list-view repair operation, so a malformed view can be inspected or replaced
-// through atl while every runtime command continues to use strict Load.
+// LoadForEdit reads non-secret config and applies environment overrides without
+// normalizing jira_list_views. It is reserved for effective inspection and
+// safety-policy reads, so a malformed view can still be inspected while every
+// runtime command continues to use strict Load.
 func LoadForEdit() (*Config, error) {
-	c := &Config{}
-	if b, err := os.ReadFile(path()); err == nil {
-		if err := json.Unmarshal(b, c); err != nil {
-			return nil, fmt.Errorf("%w: decode config.json: %v", domain.ErrConfig, err)
-		}
-	} else if !os.IsNotExist(err) {
+	c, err := LoadPersistedForEdit()
+	if err != nil {
 		return nil, err
 	}
 	if v := firstEnv("ATL_CONFLUENCE_URL", "CONFLUENCE_URL"); v != "" {
@@ -115,10 +111,31 @@ func LoadForEdit() (*Config, error) {
 		c.UpdateBaseURL = v
 	}
 	overlayTransportEnvironment(c)
+	trimConfigURLs(c)
+	return c, nil
+}
+
+// LoadPersistedForEdit reads only the global config file, without environment
+// overlays or jira_list_views normalization. Global config mutations must edit
+// this persisted target so process-local environment values are never written
+// to disk as an unintended side effect.
+func LoadPersistedForEdit() (*Config, error) {
+	c := &Config{}
+	if b, err := os.ReadFile(path()); err == nil {
+		if err := json.Unmarshal(b, c); err != nil {
+			return nil, fmt.Errorf("%w: decode config.json: %v", domain.ErrConfig, err)
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	trimConfigURLs(c)
+	return c, nil
+}
+
+func trimConfigURLs(c *Config) {
 	c.ConfluenceURL = strings.TrimRight(c.ConfluenceURL, "/")
 	c.JiraURL = strings.TrimRight(c.JiraURL, "/")
 	c.UpdateBaseURL = strings.TrimRight(c.UpdateBaseURL, "/")
-	return c, nil
 }
 
 // Save persists non-secret config to disk (0700 dir, 0600 file).

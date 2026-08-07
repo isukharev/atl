@@ -209,11 +209,14 @@ atl jira issue create-check --project PROJ --type Task
 `types` accepts a project key or id, returns the exact backend type ids/names
 and subtask flags, and prints type ids with `-o id`. `create-check` accepts an
 exact type id or exact name and fails closed when a name is absent or ambiguous.
-Its fields report only id, name, required, on-screen, and whether allowed
-values exist; option labels and values are deliberately omitted. Both commands
-read paginated metadata with a 1000-item hard bound and explicit completeness.
-They are preflight reads, not proof that a later create will succeed after
-permissions or workflow configuration change.
+Its fields report only id, name, required, and whether allowed values exist;
+option labels and values are deliberately omitted. Every returned field is on
+Jira's create screen by definition of the endpoint, so the output does not emit
+a redundant `on_screen` boolean. If an exact type is not found, refresh it with
+`jira issue types` rather than guessing case or spelling. Both commands read
+paginated metadata with a 1000-item hard bound and explicit completeness. They
+are preflight reads, not proof that a later create will succeed after permissions
+or workflow configuration change.
 
 ## `atl jira issue children`
 

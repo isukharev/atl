@@ -21,7 +21,6 @@ type JiraCreateField struct {
 	Name             string `json:"name"`
 	Required         bool   `json:"required"`
 	HasAllowedValues bool   `json:"has_allowed_values"`
-	OnScreen         bool   `json:"on_screen"`
 }
 
 type JiraCreateMetadata struct {

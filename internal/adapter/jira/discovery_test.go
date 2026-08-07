@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -47,8 +48,8 @@ func TestReadCreateMetadataSelectsExactTypeAndKeepsValuesPrivate(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []domain.JiraCreateField{
-		{FieldID: "priority", Name: "Priority", HasAllowedValues: true, OnScreen: true},
-		{FieldID: "summary", Name: "Summary", Required: true, OnScreen: true},
+		{FieldID: "priority", Name: "Priority", HasAllowedValues: true},
+		{FieldID: "summary", Name: "Summary", Required: true},
 	}
 	if metadata.IssueType.ID != "10" || !reflect.DeepEqual(metadata.Fields, want) {
 		t.Fatalf("metadata=%+v", metadata)
@@ -64,7 +65,8 @@ func TestReadCreateMetadataRejectsMissingAndAmbiguousSelectors(t *testing.T) {
 	}))
 	defer server.Close()
 	j := newTestJira(server)
-	if _, err := j.ReadCreateMetadata(context.Background(), "OPS", "Missing"); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := j.ReadCreateMetadata(context.Background(), "OPS", "Missing"); !errors.Is(err, domain.ErrNotFound) ||
+		!strings.Contains(err.Error(), "atl jira issue types --project PROJECT") || strings.Contains(err.Error(), "OPS") {
 		t.Fatalf("missing selector error=%v", err)
 	}
 	if _, err := j.ReadCreateMetadata(context.Background(), "OPS", "Task"); !errors.Is(err, domain.ErrCheckFailed) {

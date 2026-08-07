@@ -23,8 +23,43 @@ func clearConfigEnv(t *testing.T) {
 		"ATL_CONFLUENCE_URL", "CONFLUENCE_URL",
 		"ATL_JIRA_URL", "JIRA_URL",
 		"ATL_UPDATE_URL",
+		"ATL_JIRA_CA_BUNDLE", "ATL_CONFLUENCE_CA_BUNDLE",
 	} {
 		t.Setenv(k, "")
+	}
+}
+
+func TestLoadPersistedForEditIgnoresEnvironmentOverlays(t *testing.T) {
+	clearConfigEnv(t)
+	dir := t.TempDir()
+	t.Setenv("ATL_CONFIG_DIR", dir)
+	onDisk := `{"confluence_url":"https://file-conf.example.com","jira_url":"https://file-jira.example.com","update_base_url":"https://file-update.example.com","transport":{"jira":{"ca_bundle":"/file/jira.pem"},"confluence":{"ca_bundle":"/file/conf.pem"}}}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(onDisk), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ATL_CONFLUENCE_URL", "https://env-conf.example.com")
+	t.Setenv("ATL_JIRA_URL", "https://env-jira.example.com")
+	t.Setenv("ATL_UPDATE_URL", "https://env-update.example.com")
+	t.Setenv("ATL_JIRA_CA_BUNDLE", "/env/jira.pem")
+	t.Setenv("ATL_CONFLUENCE_CA_BUNDLE", "/env/conf.pem")
+
+	persisted, err := LoadPersistedForEdit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.ConfluenceURL != "https://file-conf.example.com" || persisted.JiraURL != "https://file-jira.example.com" ||
+		persisted.UpdateBaseURL != "https://file-update.example.com" || persisted.CABundle(TransportServiceJira) != "/file/jira.pem" ||
+		persisted.CABundle(TransportServiceConfluence) != "/file/conf.pem" {
+		t.Fatalf("persisted load applied environment overlays: %+v", persisted)
+	}
+	effective, err := LoadForEdit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effective.ConfluenceURL != "https://env-conf.example.com" || effective.JiraURL != "https://env-jira.example.com" ||
+		effective.UpdateBaseURL != "https://env-update.example.com" || effective.CABundle(TransportServiceJira) != "/env/jira.pem" ||
+		effective.CABundle(TransportServiceConfluence) != "/env/conf.pem" {
+		t.Fatalf("effective load did not apply environment overlays: %+v", effective)
 	}
 }
 
