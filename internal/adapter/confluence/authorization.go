@@ -375,7 +375,7 @@ func (cf *Confluence) authorizeMove(ctx context.Context, id, parent string) (con
 	if err != nil {
 		return writeContext, err
 	}
-	return cf.authorizeHierarchy(writeContext, domain.WriteVerbSet{domain.WriteVerbUpdate, domain.WriteVerbMove}, source)
+	return cf.authorizeMoveHierarchy(writeContext, source, destination)
 }
 
 func (cf *Confluence) authorizeResolutionFailure(ctx context.Context, verbs domain.WriteVerbSet, kind, id string, err error) (context.Context, domain.WriteTarget, error) {
@@ -410,6 +410,24 @@ func (cf *Confluence) authorizeHierarchy(ctx context.Context, verbs domain.Write
 		if anchor.ID == target.ID || containsID(identity.ancestorIDs, target.ID) || containsID(target.AncestorIDs, anchor.ID) {
 			return cf.authorizeScopeProblemByRule(ctx, verbs, domain.WriteScopeProtectedSubtree, "under", anchor.RuleID, target)
 		}
+	}
+	return ctx, nil
+}
+
+func (cf *Confluence) authorizeMoveHierarchy(ctx context.Context, source, destination domain.WriteTarget) (context.Context, error) {
+	reader, ok := cf.authorizer.(domain.WriteHierarchyPolicyReader)
+	if !ok {
+		return ctx, nil
+	}
+	verbs := domain.WriteVerbSet{domain.WriteVerbUpdate, domain.WriteVerbMove}
+	for _, anchor := range reader.DenyUnderAnchors() {
+		if !containsID(source.AncestorIDs, anchor.ID) {
+			continue
+		}
+		if destination.ID == anchor.ID || containsID(destination.AncestorIDs, anchor.ID) {
+			continue
+		}
+		return cf.authorizeScopeProblemByRule(ctx, verbs, domain.WriteScopeProtectedSubtree, "under", anchor.RuleID, source)
 	}
 	return ctx, nil
 }
