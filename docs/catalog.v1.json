@@ -37,6 +37,7 @@
     {"path":"docs/maintainers/development.md","lane":"maintainers","topic":"maintainer-development-verification","landing_page":"docs/maintainers/README.md","language":"en"},
     {"path":"docs/maintainers/landing-a-change.md","lane":"maintainers","topic":"maintainer-change-landing","landing_page":"docs/maintainers/README.md","language":"en"},
     {"path":"docs/maintainers/live-validation.md","lane":"maintainers","topic":"maintainer-live-validation","landing_page":"docs/maintainers/README.md","language":"en"},
+    {"path":"docs/maintainers/private-benchmark-onboarding.md","lane":"maintainers","topic":"private-benchmark-onboarding","landing_page":"docs/maintainers/README.md","language":"en"},
     {"path":"docs/maintainers/session-recovery.md","lane":"maintainers","topic":"maintainer-session-recovery","landing_page":"docs/maintainers/README.md","language":"en"},
     {"path":"docs/mcp.md","lane":"reference","topic":"mcp-reference","landing_page":"docs/README.md","language":"en"},
     {"path":"docs/mirrors-and-recovery.md","lane":"start","topic":"mirror-recovery","landing_page":"docs/README.md","language":"en"},

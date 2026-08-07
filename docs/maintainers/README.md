@@ -11,6 +11,7 @@ agents do not have to reconstruct it from old issues, transcripts, or CI logs.
 | Carry an issue and PR through review, CI, and merge | [Landing a change](landing-a-change.md) |
 | Resume after compaction, interruption, or a new session | [Session recovery](session-recovery.md) |
 | Exercise a configured backend safely | [Live validation](live-validation.md) |
+| Bootstrap an owner-local Jira or Confluence evaluation dataset | [Private benchmark onboarding](private-benchmark-onboarding.md) |
 
 Other canonical maintainer references:
 
@@ -24,6 +25,7 @@ Other canonical maintainer references:
 - [Production hotspot and timing ratchets](../maintainability-ratchets.v1.json)
 - [Agent evaluator substrate decision](agent-evaluator-substrates.md)
 - [Private evaluator lifecycle](../agent-benchmark-private-workspace.md)
+- [Private benchmark onboarding](private-benchmark-onboarding.md)
 
 Repository-scoped Codex skills under `.agents/skills/` are concise routers to
 these runbooks. They are development aids, not shipped ATL client skills. Edit
@@ -62,6 +64,7 @@ Update one owner instead of copying procedure back into root instructions:
 | Issue, review, CI, merge, and cleanup sequence | `landing-a-change.md` |
 | Context-loss reconstruction and checkpoints | `session-recovery.md` |
 | Live read/write/cleanup boundaries | `live-validation.md` |
+| Fresh-clone private dataset design and offline case authoring | `private-benchmark-onboarding.md` |
 | CLI flags and behavior | `docs/reference/cli/` |
 | JSON, exits, completeness, and recovery | `docs/reference/output/` |
 | CLI-leaf and mutation-safety documentation routes | `docs/command-coverage.v1.json` |
@@ -70,3 +73,4 @@ Update one owner instead of copying procedure back into root instructions:
 | Generated client skill pipeline | `docs/plugins.md` and `skills-src/` |
 | Release trust and publication | `docs/RELEASING.md` |
 | Private evaluator operation | `docs/agent-benchmark-private-workspace.md` |
+| New-maintainer private benchmark bootstrap | `docs/maintainers/private-benchmark-onboarding.md` |

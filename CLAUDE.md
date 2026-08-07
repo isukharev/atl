@@ -13,6 +13,7 @@ Choose the smallest relevant maintainer runbook:
 - [Landing a change](docs/maintainers/landing-a-change.md)
 - [Session recovery](docs/maintainers/session-recovery.md)
 - [Live validation](docs/maintainers/live-validation.md)
+- [Private benchmark onboarding](docs/maintainers/private-benchmark-onboarding.md)
 
 The exact current command and output contracts live under
 `docs/reference/cli/` and `docs/reference/output/`. Inspect `atl --help` or the
@@ -41,3 +42,10 @@ Codex. `skills/` and `plugins/atl/skills/` are generated with
 `make gen-plugins`; never edit them directly. Repository-maintenance skills in
 `.agents/skills/` are Codex-local development aids and are not shipped client
 content or an alternative source of truth.
+
+For a fresh-clone request to create an owner-local Jira or Confluence
+evaluation dataset, follow the private benchmark onboarding runbook above.
+Begin in `--permission-mode plan`, require an exact additional private root,
+isolate ambient MCP and integration tools, and stop before backend access,
+private-data disclosure, or benchmark execution unless the current request
+grants that exact authority.

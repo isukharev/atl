@@ -1,0 +1,4 @@
+interface:
+  display_name: "ATL private benchmark bootstrap"
+  short_description: "Create an owner-local Jira or Confluence eval dataset safely."
+  default_prompt: "Use $atl-private-benchmark-bootstrap to design and offline-validate my private ATL benchmark dataset."

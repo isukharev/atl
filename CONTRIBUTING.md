@@ -91,6 +91,12 @@ different Go toolchain automatically.
   synthetic backend fixtures live outside the evaluator so product tests cannot
   acquire a hidden heavy dependency.
 
+  Maintainers who need evidence from their own Jira or Confluence should start
+  with [Private benchmark onboarding](docs/maintainers/private-benchmark-onboarding.md).
+  It creates an owner-local dataset through offline case authoring first;
+  configured-backend access and model execution remain separate, explicitly
+  authorized stages.
+
 ---
 
 ## Documentation
