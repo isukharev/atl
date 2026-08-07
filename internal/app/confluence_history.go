@@ -34,6 +34,7 @@ func (s *ConfluenceService) History(ctx context.Context, reference string) (*Con
 	if err != nil {
 		return nil, err
 	}
+	ctx = resolved.Context(ctx)
 	id := resolved.ID
 	inventory := domain.VersionInventory{PartialReason: domain.HistoryPartialLegacyUnqualified}
 	if qualified, ok := s.store.(domain.QualifiedHistoryReader); ok {

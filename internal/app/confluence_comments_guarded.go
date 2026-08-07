@@ -61,13 +61,14 @@ type ConfluenceFooterCommentAddResult struct {
 }
 
 type confluenceFooterCommentSnapshot struct {
-	pageID         string
-	pageVersion    int
-	actor          ConfluenceFooterCommentActor
-	capability     ConfluenceFooterCommentCapability
-	comments       []ConfluenceCommentResultRecord
-	baselineSHA256 string
-	backend        string
+	pageID             string
+	pageVersion        int
+	actor              ConfluenceFooterCommentActor
+	capability         ConfluenceFooterCommentCapability
+	comments           []ConfluenceCommentResultRecord
+	baselineSHA256     string
+	backend            string
+	untrustedReference bool
 }
 
 type confluenceFooterCommentWriteError struct {
@@ -106,6 +107,9 @@ func (s *ConfluenceService) AddFooterCommentGuarded(ctx context.Context, referen
 	snapshot, err := s.confluenceFooterCommentSnapshot(ctx, reference)
 	if err != nil {
 		return nil, err
+	}
+	if snapshot.untrustedReference {
+		ctx = domain.WithUntrustedConfluenceReference(ctx)
 	}
 	bodySum := sha256.Sum256(body)
 	bodySHA256 := hex.EncodeToString(bodySum[:])
@@ -154,7 +158,7 @@ func (s *ConfluenceService) AddFooterCommentGuarded(ctx context.Context, referen
 	if writeErr != nil && definitiveWriteRejection(writeErr) {
 		result.Status = "not_applied"
 		return result, &confluenceFooterCommentWriteError{
-			message: "Confluence rejected the footer comment; it was not applied",
+			message: definitiveWriteMessage("Confluence rejected the footer comment; it was not applied", writeErr),
 			cause:   sanitizeConfluenceWriteCause(writeErr),
 		}
 	}
@@ -285,6 +289,7 @@ func (s *ConfluenceService) confluenceFooterCommentInventorySnapshot(ctx context
 	if err != nil {
 		return confluenceFooterCommentSnapshot{}, err
 	}
+	ctx = resolved.Context(ctx)
 	meta, err := s.store.GetMeta(ctx, resolved.ID)
 	if err != nil {
 		return confluenceFooterCommentSnapshot{}, err
@@ -339,7 +344,7 @@ func (s *ConfluenceService) confluenceFooterCommentInventorySnapshot(ctx context
 	return confluenceFooterCommentSnapshot{
 		pageID: resolved.ID, pageVersion: meta.Version, capability: capability,
 		comments:       comments,
-		baselineSHA256: hash, backend: backend,
+		baselineSHA256: hash, backend: backend, untrustedReference: resolved.Untrusted(),
 	}, nil
 }
 

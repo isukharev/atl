@@ -188,7 +188,7 @@ func (s *ConfluenceService) MutateCommentGuarded(ctx context.Context, reference 
 	}
 
 	providerResult, writeErr := s.commentMutator.MutateConfluenceComment(
-		domain.WithSingleAttempt(ctx),
+		domain.WithSingleAttempt(domain.WithConfluenceCommentContainment(ctx, prewrite.pageID, prewrite.target.ID)),
 		domain.ConfluenceCommentMutationRequest{
 			Operation: opts.Operation, PageID: prewrite.pageID,
 			ThreadID: prewrite.target.ID, BodyStorage: body,
@@ -199,7 +199,7 @@ func (s *ConfluenceService) MutateCommentGuarded(ctx context.Context, reference 
 		if errors.As(writeErr, &attemptEvidence) && !attemptEvidence.DiagnosticWriteAttempted() {
 			result.Status = "not_applied"
 			return result, &confluenceCommentMutationWriteError{
-				message: "Confluence comment mutation stopped before a write was attempted",
+				message: definitiveWriteMessage("Confluence comment mutation stopped before a write was attempted", writeErr),
 				cause:   sanitizeConfluenceWriteCause(writeErr), closed: true,
 			}
 		}
@@ -207,7 +207,7 @@ func (s *ConfluenceService) MutateCommentGuarded(ctx context.Context, reference 
 	if writeErr != nil && definitiveWriteRejection(writeErr) {
 		result.Status = "not_applied"
 		return result, &confluenceCommentMutationWriteError{
-			message: "Confluence rejected the comment mutation; it was not applied",
+			message: definitiveWriteMessage("Confluence rejected the comment mutation; it was not applied", writeErr),
 			cause:   sanitizeConfluenceWriteCause(writeErr),
 		}
 	}

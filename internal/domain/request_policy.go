@@ -11,6 +11,13 @@ type redactHTTPTraceContextKey struct{}
 type readBudgetContextKey struct{}
 type writeClearanceContextKey struct{}
 type readIntentContextKey struct{}
+type untrustedConfluenceReferenceContextKey struct{}
+type confluenceCommentContainmentContextKey struct{}
+
+type confluenceCommentContainment struct {
+	pageID   string
+	threadID string
+}
 
 // ReadBudgetExhaustedError is a content-free transport classification. Static
 // instances below let callers distinguish which closed budget dimension was
@@ -202,6 +209,32 @@ func WithReadIntent(ctx context.Context) context.Context {
 func ReadIntent(ctx context.Context) bool {
 	read, _ := ctx.Value(readIntentContextKey{}).(bool)
 	return read
+}
+
+// WithUntrustedConfluenceReference marks a content id produced by URL, CQL,
+// or short-link resolution. Such an id may contribute deny evidence but must
+// never ground a policy allow.
+func WithUntrustedConfluenceReference(ctx context.Context) context.Context {
+	return context.WithValue(ctx, untrustedConfluenceReferenceContextKey{}, true)
+}
+
+// UntrustedConfluenceReference reports whether the current target identity was
+// selected by reference resolution rather than supplied as a canonical id.
+func UntrustedConfluenceReference(ctx context.Context) bool {
+	untrusted, _ := ctx.Value(untrustedConfluenceReferenceContextKey{}).(bool)
+	return untrusted
+}
+
+// WithConfluenceCommentContainment records app-validated proof that an inline
+// comment thread belongs to the exact page used for authorization.
+func WithConfluenceCommentContainment(ctx context.Context, pageID, threadID string) context.Context {
+	return context.WithValue(ctx, confluenceCommentContainmentContextKey{}, confluenceCommentContainment{pageID: pageID, threadID: threadID})
+}
+
+// HasConfluenceCommentContainment checks exact page/thread containment proof.
+func HasConfluenceCommentContainment(ctx context.Context, pageID, threadID string) bool {
+	proof, _ := ctx.Value(confluenceCommentContainmentContextKey{}).(confluenceCommentContainment)
+	return proof.pageID == pageID && proof.threadID == threadID
 }
 
 // WithRedactedHTTPTrace prevents request identity from appearing in verbose

@@ -17,6 +17,22 @@ type ConfluencePageResolution struct {
 	NetworkRequests int    `json:"network_requests"`
 	Space           string `json:"space,omitempty"`
 	Title           string `json:"title,omitempty"`
+	untrusted       bool
+}
+
+// Context carries deny-only provenance for ids selected by URL, CQL, or
+// short-link resolution. Numeric ids supplied directly leave ctx unchanged.
+func (resolution *ConfluencePageResolution) Context(ctx context.Context) context.Context {
+	if resolution != nil && resolution.untrusted {
+		return domain.WithUntrustedConfluenceReference(ctx)
+	}
+	return ctx
+}
+
+// Untrusted reports whether reference resolution, rather than a caller-owned
+// canonical id, selected the target.
+func (resolution *ConfluencePageResolution) Untrusted() bool {
+	return resolution != nil && resolution.untrusted
 }
 
 // ResolvePageReference converts one numeric id or supported same-origin page
@@ -58,7 +74,7 @@ func (s *ConfluenceService) resolvePageReference(ctx context.Context, reference 
 	if id, kind, directErr := directConfluencePageID(refPath, u.Query()); directErr != nil {
 		return nil, directErr
 	} else if id != "" {
-		return &ConfluencePageResolution{ID: id, Kind: kind}, nil
+		return &ConfluencePageResolution{ID: id, Kind: kind, untrusted: true}, nil
 	}
 	if space, title, display := confluenceDisplayReference(refPath); display {
 		query := `type = page AND space = "` + cqlQuoted(space) + `" AND title = "` + cqlQuoted(title) + `"`
@@ -72,7 +88,7 @@ func (s *ConfluenceService) resolvePageReference(ctx context.Context, reference 
 		if len(refs) != 1 || next != "" {
 			return nil, fmt.Errorf("%w: Confluence display reference is ambiguous", domain.ErrCheckFailed)
 		}
-		return &ConfluencePageResolution{ID: refs[0].ID, Kind: "display", NetworkRequests: 1, Space: space, Title: title}, nil
+		return &ConfluencePageResolution{ID: refs[0].ID, Kind: "display", NetworkRequests: 1, Space: space, Title: title, untrusted: true}, nil
 	}
 	if isConfluenceShortReference(refPath) {
 		if len(u.Query()) != 0 {
@@ -96,6 +112,7 @@ func (s *ConfluenceService) resolvePageReference(ctx context.Context, reference 
 		}
 		resolved.Via = resolved.Kind
 		resolved.Kind = "short"
+		resolved.untrusted = true
 		resolved.NetworkRequests++
 		return resolved, nil
 	}

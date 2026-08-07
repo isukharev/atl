@@ -38,6 +38,7 @@ func (s *ConfluenceService) PageMetadata(ctx context.Context, reference string) 
 	if err != nil {
 		return nil, err
 	}
+	ctx = resolved.Context(ctx)
 	meta, err := s.store.GetMeta(ctx, resolved.ID)
 	if err != nil {
 		return nil, err

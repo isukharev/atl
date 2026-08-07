@@ -173,12 +173,15 @@ func (s *ConfluenceService) DeleteAttachmentGuarded(ctx context.Context, pageID,
 	}
 
 	result.WriteAttempted = true
-	writeErr := s.store.DeleteAttachment(domain.WithSingleAttempt(ctx), attachmentID)
+	writeErr := s.store.DeleteAttachment(domain.WithSingleAttempt(ctx), pageID, attachmentID)
+	if writeDefinitelyNotAttempted(writeErr) {
+		result.WriteAttempted = false
+	}
 	if writeErr != nil && definitiveWriteRejection(writeErr) {
 		result.Status = "not_applied"
 		result.ObservedState = "present"
 		return result, &confluenceAttachmentDeleteWriteError{
-			message: "Confluence rejected the attachment deletion; it was not applied",
+			message: definitiveWriteMessage("Confluence rejected the attachment deletion; it was not applied", writeErr),
 			cause:   sanitizeConfluenceWriteCause(writeErr),
 		}
 	}

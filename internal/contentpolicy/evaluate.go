@@ -30,8 +30,12 @@ func Decide(layers []Layer, request domain.WriteAuthorizationRequest) Decision {
 			reason = ReasonScopeUnavailable
 		case domain.WriteScopeContradiction:
 			reason = ReasonScopeContradiction
+		case domain.WriteScopeProtectedSubtree:
+			reason = ReasonProtectedSubtree
+		case domain.WriteScopeContainedContent:
+			reason = ReasonContainedContentDenied
 		}
-		return Decision{Reason: reason, Attribute: request.ScopeAttribute}
+		return Decision{Reason: reason, Attribute: request.ScopeAttribute, RuleID: request.ScopeRuleID}
 	}
 	if !domain.ValidWriteVerbSet(request.Verbs) || len(request.Targets) == 0 {
 		return Decision{Reason: reasonInvalidRequest}

@@ -41,6 +41,7 @@ func (s *ConfluenceService) ViewPage(ctx context.Context, id string, opts Conflu
 	if err != nil {
 		return nil, err
 	}
+	ctx = resolved.Context(ctx)
 	id = resolved.ID
 	root := strings.TrimSpace(opts.Root)
 	if root == "" {

@@ -93,8 +93,9 @@ type DocStore interface {
 	// page and takes ownership of data; implementations must close it on every
 	// return path.
 	UploadAttachment(ctx context.Context, pageID, filename string, data io.ReadCloser, size int64, comment string) (*Attachment, error)
-	// DeleteAttachment deletes an attachment by its content id.
-	DeleteAttachment(ctx context.Context, attachmentID string) error
+	// DeleteAttachment deletes an attachment by its content id while carrying
+	// its containing page identity for scoped authorization.
+	DeleteAttachment(ctx context.Context, pageID, attachmentID string) error
 }
 
 // CompletePageSearcher is an optional capability for workflows that must not

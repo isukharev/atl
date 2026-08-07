@@ -27,6 +27,10 @@ type confluenceLabelStoreStub struct {
 	removeSingleAttempts  []bool
 }
 
+func (s *confluenceLabelStoreStub) GetMeta(_ context.Context, id string) (*domain.PageMeta, error) {
+	return &domain.PageMeta{ID: id, Type: "page", Space: "DOC", Version: 1, AncestorIDs: []string{}}, nil
+}
+
 func (s *confluenceLabelStoreStub) ListContentLabels(context.Context, string) ([]domain.ContentLabel, bool, error) {
 	s.listCalls++
 	if s.listCalls > 1 {

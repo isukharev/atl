@@ -110,7 +110,7 @@ func (s *ConfluenceService) SetTitleGuarded(ctx context.Context, id string, opts
 	_, writeErr := s.store.UpdatePage(domain.WithSingleAttempt(ctx), id, current.Version, title, current.Body, false)
 	if writeErr != nil && definitiveWriteRejection(writeErr) {
 		result.Status = "failed"
-		return result, &confluenceTitleWriteError{message: "Confluence rejected the title update", cause: writeErr}
+		return result, &confluenceTitleWriteError{message: definitiveWriteMessage("Confluence rejected the title update", writeErr), cause: writeErr}
 	}
 	verified, verifyErr := s.store.GetPage(ctx, id, domain.PullOpts{Format: "csf"})
 	if verifyErr != nil || verified == nil {

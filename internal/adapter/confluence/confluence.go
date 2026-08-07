@@ -17,19 +17,38 @@ import (
 
 // Confluence is the DocStore adapter.
 type Confluence struct {
-	c    *httpx.Client
-	base string
+	c          *httpx.Client
+	base       string
+	authorizer domain.WriteAuthorizer
+	identity   *confluenceIdentityCache
+}
+
+// Option configures transport-neutral adapter behavior.
+type Option func(*Confluence)
+
+// WithWriteAuthorizer enables content-scoped last-hop authorization. A nil
+// authorizer is equivalent to omitting the option.
+func WithWriteAuthorizer(authorizer domain.WriteAuthorizer) Option {
+	return func(cf *Confluence) { cf.authorizer = authorizer }
 }
 
 // New builds a Confluence adapter for base URL with a PAT.
-func New(base, token, version string) *Confluence {
-	return NewWithScheduler(base, token, version, nil)
+func New(base, token, version string, options ...Option) *Confluence {
+	return NewWithScheduler(base, token, version, nil, options...)
 }
 
 // NewWithScheduler shares a command-scoped request scheduler with every
 // Confluence transport path, including comments and streamed assets.
-func NewWithScheduler(base, token, version string, scheduler *httpx.Scheduler) *Confluence {
-	return &Confluence{c: httpx.NewWithScheduler(base, token, version, scheduler), base: strings.TrimRight(base, "/")}
+func NewWithScheduler(base, token, version string, scheduler *httpx.Scheduler, options ...Option) *Confluence {
+	c := httpx.NewWithScheduler(base, token, version, scheduler)
+	cf := &Confluence{c: c, base: strings.TrimRight(base, "/"), identity: newConfluenceIdentityCache()}
+	for _, option := range options {
+		if option != nil {
+			option(cf)
+		}
+	}
+	c.RequireWriteClearance()
+	return cf
 }
 
 var _ domain.DocStore = (*Confluence)(nil)
@@ -219,6 +238,7 @@ func (cf *Confluence) getPage(ctx context.Context, id, status string, opts domai
 	if opts.IncludeRestrictions {
 		r.Restricted = ct.restrictionState()
 	}
+	cf.rememberResource(r)
 	return r, nil
 }
 
@@ -232,8 +252,10 @@ func (cf *Confluence) GetMeta(ctx context.Context, id string) (*domain.PageMeta,
 	}
 	m := &domain.PageMeta{ID: ct.ID, Type: ct.Type, Title: ct.Title, Space: ct.Space.Key, Version: ct.Version.Number, Updated: ct.Version.When}
 	if ct.Ancestors != nil {
+		m.AncestorIDs = make([]string, 0, len(*ct.Ancestors))
 		for _, a := range *ct.Ancestors {
 			m.Ancestors = append(m.Ancestors, a.Title)
+			m.AncestorIDs = append(m.AncestorIDs, a.ID)
 		}
 	}
 	for _, l := range ct.Metadata.Labels.Results {
@@ -241,6 +263,9 @@ func (cf *Confluence) GetMeta(ctx context.Context, id string) (*domain.PageMeta,
 	}
 	m.Restrictions = ct.restrictionState()
 	m.URL = confluenceWebURL(cf.base, ct.Links.WebUI)
+	if identity, err := identityFromMeta(m, id, domain.WriteScopeRequirements{Space: true, Ancestors: true}); err == nil && cf.identity != nil {
+		cf.identity.put(identity)
+	}
 	return m, nil
 }
 
@@ -375,6 +400,10 @@ func (cf *Confluence) HistoryQualified(ctx context.Context, id string) (domain.V
 // is exactly at expectVersion — that is the drift refusal. force re-reads the
 // current version and bumps from there.
 func (cf *Confluence) UpdatePage(ctx context.Context, id string, expectVersion int, title string, body []byte, force bool) (int, error) {
+	writeContext, _, err := cf.authorizeContent(ctx, domain.WriteVerbSet{domain.WriteVerbUpdate}, "page", id, id)
+	if err != nil {
+		return 0, err
+	}
 	next := expectVersion + 1
 	if force {
 		var cur content
@@ -406,7 +435,7 @@ func (cf *Confluence) UpdatePage(ctx context.Context, id string, expectVersion i
 		},
 	}
 	var out content
-	err := cf.c.SendJSON(ctx, "PUT", "/rest/api/content/"+url.PathEscape(id), payload, &out)
+	err = cf.c.SendJSON(domain.WithWriteClearance(writeContext), "PUT", "/rest/api/content/"+url.PathEscape(id), payload, &out)
 	if err != nil {
 		return 0, err
 	}
@@ -415,6 +444,10 @@ func (cf *Confluence) UpdatePage(ctx context.Context, id string, expectVersion i
 
 // CreatePage creates a new page.
 func (cf *Confluence) CreatePage(ctx context.Context, space, parent, title string, body []byte) (*domain.Resource, error) {
+	writeContext, err := cf.authorizeCreate(ctx, "page", space, parent)
+	if err != nil {
+		return nil, err
+	}
 	payload := map[string]any{
 		"type":  "page",
 		"title": title,
@@ -427,7 +460,7 @@ func (cf *Confluence) CreatePage(ctx context.Context, space, parent, title strin
 		payload["ancestors"] = []map[string]string{{"id": parent}}
 	}
 	var out content
-	if err := cf.c.SendJSON(ctx, "POST", "/rest/api/content", payload, &out); err != nil {
+	if err := cf.c.SendJSON(domain.WithWriteClearance(writeContext), "POST", "/rest/api/content", payload, &out); err != nil {
 		return nil, err
 	}
 	bodyValue, present := out.storageBody()
@@ -439,6 +472,10 @@ func (cf *Confluence) CreatePage(ctx context.Context, space, parent, title strin
 // MovePage performs one version-gated ancestor update. Fresh reads, cycle
 // checks, and ambiguous-outcome reconciliation belong to the app layer.
 func (cf *Confluence) MovePage(ctx context.Context, id, newParent string, expectVersion int, title string, body []byte) (int, error) {
+	writeContext, err := cf.authorizeMove(ctx, id, newParent)
+	if err != nil {
+		return 0, err
+	}
 	payload := map[string]any{
 		"type":      "page",
 		"title":     title,
@@ -453,14 +490,30 @@ func (cf *Confluence) MovePage(ctx context.Context, id, newParent string, expect
 			Number int `json:"number"`
 		} `json:"version"`
 	}
-	if err := cf.c.SendJSON(ctx, "PUT", "/rest/api/content/"+url.PathEscape(id), payload, &out); err != nil {
+	if err := cf.c.SendJSON(domain.WithWriteClearance(writeContext), "PUT", "/rest/api/content/"+url.PathEscape(id), payload, &out); err != nil {
 		return 0, err
+	}
+	if cf.identity != nil {
+		cf.identity.evictSubtree(id)
 	}
 	return out.Version.Number, nil
 }
 
 // DeletePage trashes a page. Per-space permissions may yield ErrForbidden.
 func (cf *Confluence) DeletePage(ctx context.Context, id string) error {
-	_, err := cf.c.Do(domain.WithSingleAttempt(ctx), "DELETE", "/rest/api/content/"+url.PathEscape(id)+"?status=current", nil, nil)
+	writeContext, target, err := cf.authorizeContent(ctx, domain.WriteVerbSet{domain.WriteVerbDelete}, "page", id, id)
+	if err != nil {
+		return err
+	}
+	if cf.authorizer != nil {
+		writeContext, err = cf.authorizeHierarchy(writeContext, domain.WriteVerbSet{domain.WriteVerbDelete}, target)
+		if err == nil {
+			writeContext, err = cf.authorizePageDelete(writeContext, target)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	_, err = cf.c.Do(domain.WithWriteClearance(domain.WithSingleAttempt(writeContext)), "DELETE", "/rest/api/content/"+url.PathEscape(id)+"?status=current", nil, nil)
 	return err
 }
