@@ -10,6 +10,7 @@ import (
 
 	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/config"
+	"github.com/isukharev/atl/internal/contentpolicy"
 	"github.com/isukharev/atl/internal/domain"
 )
 
@@ -98,10 +99,35 @@ type mutationGuardSpec struct {
 }
 
 type commandRegistration struct {
-	traits      commandTrait
-	profile     mutationProfile
-	guard       mutationGuardSpec
-	outputModes commandOutputMode
+	traits         commandTrait
+	profile        mutationProfile
+	guard          mutationGuardSpec
+	outputModes    commandOutputMode
+	policyVerbs    []policyVerb
+	policyIdentity policyIdentitySource
+}
+
+type policyIdentitySource string
+
+const (
+	policyIdentityNone               policyIdentitySource = "none"
+	policyIdentityJiraIssueArg       policyIdentitySource = "jira-issue-arg"
+	policyIdentityJiraProjectFlag    policyIdentitySource = "jira-project-flag"
+	policyIdentityJiraTwoIssueArgs   policyIdentitySource = "jira-two-issue-args"
+	policyIdentityJiraLinkID         policyIdentitySource = "jira-link-id"
+	policyIdentityJiraPlan           policyIdentitySource = "jira-plan"
+	policyIdentityJiraSprintIssues   policyIdentitySource = "jira-sprint-issues"
+	policyIdentityJiraMirror         policyIdentitySource = "jira-mirror"
+	policyIdentityConfluencePageFlag policyIdentitySource = "confluence-page-flag"
+	policyIdentityConfluencePageArg  policyIdentitySource = "confluence-page-arg"
+	policyIdentityConfluenceSpace    policyIdentitySource = "confluence-space"
+	policyIdentityConfluencePlan     policyIdentitySource = "confluence-plan"
+	policyIdentityConfluenceMirror   policyIdentitySource = "confluence-mirror"
+)
+
+type policyVerb struct {
+	verb        domain.WriteVerb
+	conditional bool
 }
 
 type commandRegistryState struct {
@@ -143,58 +169,59 @@ func accessPolicyInvariantMetadata(err error) (string, bool) {
 }
 
 // commandRegistry is the single reviewed command contract. Read-only rows use
-// "R <output-modes> <path>". Mutating rows use
-// Unguarded mutating rows use "M <profile> - <output-modes> <path>". Guarded
-// rows additionally declare "<phase> <family>" between requirements and output
-// modes. Output modes are explicit and canonical: json, json,text, json,id, or
+// "R <output-modes> <path>". Mutating rows declare
+// "M <profile> <verbs> <identity-source>" before their mutation guard. Local
+// commands use the explicit "none none" pair. Unguarded rows then use "-";
+// guarded rows declare requirements, phase, and family. Output modes are
+// explicit and canonical: json, json,text, json,id, or
 // json,text,id. Parent groups are derived from path prefixes, so the finalized
 // Cobra tree is checked bidirectionally for groups, leaves, and the two
 // intentional hybrids.
 var commandRegistry, commandRegistryErr = parseCommandRegistry(`
-M local-direct - json,text auth login
-M local-direct - json auth logout
+M local-direct none none - json,text auth login
+M local-direct none none - json auth logout
 R json,text auth status
 R json,text,id capabilities
-M local-direct - json,text conf apply
-M preview-apply apply,confirm,expected-proposal-hash,expected-version pre-config confluence-attachment-delete json conf attachment delete
+M local-direct none none - json,text conf apply
+M preview-apply delete confluence-page-flag apply,confirm,expected-proposal-hash,expected-version pre-config confluence-attachment-delete json conf attachment delete
 R json,text conf attachment get
 R json,text,id conf attachment list
-M remote-direct - json conf attachment upload
-M remote-direct - json,text,id conf blog create
-M preview-apply apply,expected-proposal-hash command generic json,text conf comment add
+M remote-direct create confluence-page-flag - json conf attachment upload
+M remote-direct create confluence-space - json,text,id conf blog create
+M preview-apply comment confluence-page-arg apply,expected-proposal-hash command generic json,text conf comment add
 R json,text conf comment list
-M dedicated-apply apply,expected-proposal-hash pre-config generic json conf comment mutation apply
+M dedicated-apply comment confluence-page-flag apply,expected-proposal-hash pre-config generic json conf comment mutation apply
 R json conf comment mutation preview
 R json,text conf comment preview
 R json,text conf comment thread
 R json,text conf diff
-M local-direct - json,text conf edit
+M local-direct none none - json,text conf edit
 R json,text conf me
-M preview-apply apply,expected-proposal-hash,expected-version pre-config confluence-page-copy json,id conf page copy
-M remote-direct - json conf page create
-M preview-apply apply,confirm,expected-proposal-hash,expected-version pre-config confluence-page-delete json conf page delete
+M preview-apply create confluence-space apply,expected-proposal-hash,expected-version pre-config confluence-page-copy json,id conf page copy
+M remote-direct create confluence-space - json conf page create
+M preview-apply delete confluence-page-flag apply,confirm,expected-proposal-hash,expected-version pre-config confluence-page-delete json conf page delete
 R json,text conf page get
 R json,text conf page history
-M preview-apply apply,expected-proposal-hash command generic json,text conf page labels add
+M preview-apply update confluence-page-arg apply,expected-proposal-hash command generic json,text conf page labels add
 R json,text conf page labels list
-M preview-apply apply,expected-proposal-hash command generic json,text conf page labels remove
+M preview-apply update confluence-page-arg apply,expected-proposal-hash command generic json,text conf page labels remove
 R json,text,id conf page list
 R json,text conf page meta
-M preview-apply apply,expected-proposal-hash,expected-version,expected-parent command generic json,text conf page move
+M preview-apply update,move confluence-page-arg apply,expected-proposal-hash,expected-version,expected-parent command generic json,text conf page move
 R json,text conf page open
 R json,text conf page outline
 R json,text,id conf page resolve
 R json,text conf page section
 R json,text conf page sections
-M preview-apply apply,expected-proposal-hash,expected-version command generic json,text conf page title set
+M preview-apply update confluence-page-arg apply,expected-proposal-hash,expected-version command generic json,text conf page title set
 R json,text conf page view
-M plan confirm,expected-proposal-hash command generic json,text conf plan apply
+M plan update confluence-plan confirm,expected-proposal-hash command generic json,text conf plan apply
 R json,text conf plan create
 R json,text conf plan preview
 R json,text conf pull
-M remote-direct - json,text conf push
+M remote-direct update confluence-mirror - json,text conf push
 R json,text conf reconcile preview
-M local-direct - json,text conf reconcile stage
+M local-direct none none - json,text conf reconcile stage
 R json,text conf render
 R json,text,id conf search
 R json,text conf snapshot
@@ -203,19 +230,19 @@ R json,text conf status
 R json,text conf table extract
 R json,text conf table summary
 R json conf validate
-M local-direct - json compatibility clear
-M local-direct - json compatibility pin
+M local-direct none none - json compatibility clear
+M local-direct none none - json compatibility pin
 R json,text compatibility status
 R json,text completion bash
 R json,text completion fish
 R json,text completion powershell
 R json,text completion zsh
-M local-direct - json config set
+M local-direct none none - json config set
 R json,text config show
 R json,text doctor
 R json,text environment inspect
 R json,text help
-M local-direct - json,text jira apply
+M local-direct none none - json,text jira apply
 R json,text,id jira board backlog
 R json,text,id jira board config
 R json,text jira board export
@@ -228,61 +255,61 @@ R json,text jira export
 R json,text jira export diff
 R json,text jira field-options
 R json,text jira fields
-M remote-direct - json,text jira issue assign
+M remote-direct update jira-issue-arg - json,text jira issue assign
 R json,text jira issue attachment get
 R json,text,id jira issue attachment list
-M remote-direct - json jira issue attachment upload
+M remote-direct create jira-issue-arg - json jira issue attachment upload
 R json,text jira issue check
 R json,text,id jira issue children
-M preview-apply apply,expected-proposal-hash command generic json,text jira issue comment add
-M remote-direct - json jira issue comment delete
+M preview-apply comment jira-issue-arg apply,expected-proposal-hash command generic json,text jira issue comment add
+M remote-direct delete jira-issue-arg - json jira issue comment delete
 R json,text,id jira issue comment list
 R json,text jira issue comment preview
-M remote-direct - json,text,id jira issue create
-M preview-apply apply,confirm,expected-proposal-hash,expected-updated pre-config jira-issue-delete json jira issue delete
-M remote-direct - json,text jira issue edit
+M remote-direct create jira-project-flag - json,text,id jira issue create
+M preview-apply delete jira-issue-arg apply,confirm,expected-proposal-hash,expected-updated pre-config jira-issue-delete json jira issue delete
+M remote-direct update,move? jira-issue-arg - json,text jira issue edit
 R json,text jira issue field get
 R json,text jira issue field preview
-M preview-apply apply,expected-proposal-hash,expected-updated command generic json,text jira issue field set
+M preview-apply update,move? jira-issue-arg apply,expected-proposal-hash,expected-updated command generic json,text jira issue field set
 R json,text jira issue fields
 R json,text jira issue get
 R json,text jira issue graph
 R json,text jira issue history
 R json jira issue images
-M remote-direct - json jira issue labels
-M remote-direct - json jira issue link add
-M remote-direct - json jira issue link delete
+M remote-direct update jira-issue-arg - json jira issue labels
+M remote-direct update jira-two-issue-args - json jira issue link add
+M remote-direct delete jira-link-id - json jira issue link delete
 R json,text,id jira issue link list
 R json,text jira issue link suggest
-M remote-direct - json jira issue link-epic
-M plan apply,confirm command generic json,text jira issue plan apply
+M remote-direct update jira-two-issue-args - json jira issue link-epic
+M plan update jira-plan apply,confirm command generic json,text jira issue plan apply
 R json,text jira issue refs
 R json,text,id jira issue search
-M preview-apply apply,expected-proposal-hash command generic json,text jira issue transition
+M preview-apply transition,comment? jira-issue-arg apply,expected-proposal-hash command generic json,text jira issue transition
 R json,text jira issue transition preview
 R json,text jira issue tree
-M remote-direct - json jira issue update
+M remote-direct update,move? jira-issue-arg - json jira issue update
 R json,text jira issue view
-M preview-apply apply,expected-proposal-hash command generic json,text jira issue watchers add
+M preview-apply update jira-issue-arg apply,expected-proposal-hash command generic json,text jira issue watchers add
 R json,text jira issue watchers list
-M preview-apply apply,expected-proposal-hash command generic json,text jira issue watchers remove
-M preview-apply apply,expected-proposal-hash command generic json,text jira issue worklog add
+M preview-apply update jira-issue-arg apply,expected-proposal-hash command generic json,text jira issue watchers remove
+M preview-apply update jira-issue-arg apply,expected-proposal-hash command generic json,text jira issue worklog add
 R json,text,id jira issue worklog list
 R json,text jira link-types
 R json,text,id jira me
 R json,text jira planning report
 R json,text jira pull
-M preview-apply apply command generic json,text jira push
+M preview-apply update jira-mirror apply command generic json,text jira push
 R json,text jira reconcile preview
-M local-direct - json,text jira reconcile stage
+M local-direct none none - json,text jira reconcile stage
 R json,text jira quality-report
 R json,text jira render
-M remote-direct - json jira sprint add
+M remote-direct update jira-sprint-issues - json jira sprint add
 R json,text,id jira sprint current
 R json,text,id jira sprint get
 R json,text,id jira sprint issues
 R json,text,id jira sprint list
-M remote-direct - json jira sprint remove
+M remote-direct update jira-sprint-issues - json jira sprint remove
 R json,text jira snapshot
 R json,text jira status
 R json,text jira structure export
@@ -298,18 +325,20 @@ R json,text,id jira user get
 R json,text,id jira user search
 R json,text manifest create
 R json mcp serve
-M preview-apply apply,expected-backend-sha256,confirm pre-config-on-apply generic json,text mirror backend bind
+M preview-apply none none apply,expected-backend-sha256,confirm pre-config-on-apply generic json,text mirror backend bind
 R json,text mirror backend status
-M dedicated-apply from-file,candidate-hash,expected-current-hash pre-config generic json,text profile apply
+M dedicated-apply none none from-file,candidate-hash,expected-current-hash pre-config generic json,text profile apply
 R json,text profile guidance
 R json,text profile preview
-M local-direct - json,text profile revalidate
+M local-direct none none - json,text profile revalidate
 R json,text profile revalidation status
 R json,text profile show
-M local-direct - json,text profile suggest
-M dedicated-apply from-file,suggestion-hash,candidate-hash,expected-current-hash pre-config generic json,text profile suggestion apply
-M local-direct - json,text profile suggestion reject
+M local-direct none none - json,text profile suggest
+M dedicated-apply none none from-file,suggestion-hash,candidate-hash,expected-current-hash pre-config generic json,text profile suggestion apply
+M local-direct none none - json,text profile suggestion reject
 R json,text profile suggestion review
+R json,text policy show
+R json,text policy explain
 R json,text version
 `)
 
@@ -319,6 +348,40 @@ func validMutationProfile(profile mutationProfile) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func parsePolicyVerbs(value string) ([]policyVerb, bool) {
+	if value == "none" {
+		return nil, true
+	}
+	parts := strings.Split(value, ",")
+	verbs := make([]policyVerb, 0, len(parts))
+	seen := map[domain.WriteVerb]bool{}
+	for _, part := range parts {
+		conditional := strings.HasSuffix(part, "?")
+		name := strings.TrimSuffix(part, "?")
+		verb := domain.WriteVerb(name)
+		if !domain.ValidWriteVerb(verb) || seen[verb] {
+			return nil, false
+		}
+		seen[verb] = true
+		verbs = append(verbs, policyVerb{verb: verb, conditional: conditional})
+	}
+	return verbs, len(verbs) != 0
+}
+
+func parsePolicyIdentity(value string) (policyIdentitySource, bool) {
+	identity := policyIdentitySource(value)
+	switch identity {
+	case policyIdentityNone, policyIdentityJiraIssueArg, policyIdentityJiraProjectFlag,
+		policyIdentityJiraTwoIssueArgs, policyIdentityJiraLinkID, policyIdentityJiraPlan,
+		policyIdentityJiraSprintIssues, policyIdentityJiraMirror,
+		policyIdentityConfluencePageFlag, policyIdentityConfluencePageArg,
+		policyIdentityConfluenceSpace, policyIdentityConfluencePlan, policyIdentityConfluenceMirror:
+		return identity, true
+	default:
+		return "", false
 	}
 }
 
@@ -484,6 +547,7 @@ func parseCommandRegistry(value string) (commandRegistryState, error) {
 		}
 		fields := strings.Fields(line)
 		var registration commandRegistration
+		registration.policyIdentity = policyIdentityNone
 		var pathFields []string
 		switch {
 		case len(fields) >= 3 && fields[0] == "R":
@@ -494,19 +558,31 @@ func parseCommandRegistry(value string) (commandRegistryState, error) {
 				return commandRegistryState{}, fmt.Errorf("registry line %d has invalid output modes %q", lineNumber+1, fields[1])
 			}
 			pathFields = fields[2:]
-		case len(fields) >= 5 && fields[0] == "M":
+		case len(fields) >= 7 && fields[0] == "M":
 			registration.traits = commandLeaf | commandMutating
 			registration.profile = mutationProfile(fields[1])
 			if !validMutationProfile(registration.profile) {
 				return commandRegistryState{}, fmt.Errorf("registry line %d has invalid mutation profile %q", lineNumber+1, fields[1])
 			}
-			outputIndex := 3
-			pathIndex := 4
-			if fields[2] != "-" {
-				if len(fields) < 7 {
+			var ok bool
+			registration.policyVerbs, ok = parsePolicyVerbs(fields[2])
+			if !ok {
+				return commandRegistryState{}, fmt.Errorf("registry line %d has invalid policy verbs %q", lineNumber+1, fields[2])
+			}
+			registration.policyIdentity, ok = parsePolicyIdentity(fields[3])
+			if !ok {
+				return commandRegistryState{}, fmt.Errorf("registry line %d has invalid policy identity %q", lineNumber+1, fields[3])
+			}
+			if (len(registration.policyVerbs) == 0) != (registration.policyIdentity == policyIdentityNone) {
+				return commandRegistryState{}, fmt.Errorf("registry line %d must declare policy verbs and identity together, or none none", lineNumber+1)
+			}
+			outputIndex := 5
+			pathIndex := 6
+			if fields[4] != "-" {
+				if len(fields) < 9 {
 					return commandRegistryState{}, fmt.Errorf("registry line %d guarded mutation has invalid shape", lineNumber+1)
 				}
-				for _, name := range strings.Split(fields[2], ",") {
+				for _, name := range strings.Split(fields[4], ",") {
 					requirement, ok := parseMutationGuardRequirement(name)
 					if !ok {
 						return commandRegistryState{}, fmt.Errorf("registry line %d has invalid guard requirement %q", lineNumber+1, name)
@@ -514,18 +590,17 @@ func parseCommandRegistry(value string) (commandRegistryState, error) {
 					registration.guard.requirements = append(registration.guard.requirements, requirement)
 				}
 				var ok bool
-				registration.guard.phase, ok = parseMutationGuardPhase(fields[3])
+				registration.guard.phase, ok = parseMutationGuardPhase(fields[5])
 				if !ok {
-					return commandRegistryState{}, fmt.Errorf("registry line %d has invalid guard phase %q", lineNumber+1, fields[3])
+					return commandRegistryState{}, fmt.Errorf("registry line %d has invalid guard phase %q", lineNumber+1, fields[5])
 				}
-				registration.guard.family, ok = parseMutationGuardFamily(fields[4])
+				registration.guard.family, ok = parseMutationGuardFamily(fields[6])
 				if !ok {
-					return commandRegistryState{}, fmt.Errorf("registry line %d has invalid guard family %q", lineNumber+1, fields[4])
+					return commandRegistryState{}, fmt.Errorf("registry line %d has invalid guard family %q", lineNumber+1, fields[6])
 				}
-				outputIndex = 5
-				pathIndex = 6
+				outputIndex = 7
+				pathIndex = 8
 			}
-			var ok bool
 			registration.outputModes, ok = parseCommandOutputModes(fields[outputIndex])
 			if !ok {
 				return commandRegistryState{}, fmt.Errorf("registry line %d has invalid output modes %q", lineNumber+1, fields[outputIndex])
@@ -895,6 +970,159 @@ func validateConfluencePageDeleteInvocation(cmd *cobra.Command, applyRequested b
 		return usageErr("--expected-version is required with --apply; run the dry-run first")
 	}
 	return nil
+}
+
+func enforceContentPolicyPreflight(cmd *cobra.Command, args []string, registration commandRegistration) error {
+	if currentProcessPolicy == nil || len(registration.policyVerbs) == 0 {
+		return nil
+	}
+	resolved, err := currentProcessPolicy.resolve()
+	if err != nil || resolved == nil || len(resolved.Layers) == 0 {
+		return err
+	}
+	verbs := policyPreflightVerbs(cmd, registration.policyVerbs)
+	if len(verbs) == 0 {
+		return nil
+	}
+	targets, err := policyPreflightTargets(cmd, args, registration.policyIdentity)
+	if err != nil || len(targets) == 0 {
+		return err
+	}
+	request := domain.WriteAuthorizationRequest{Verbs: verbs, Targets: targets}
+	if denial := contentpolicy.PreflightDeny(resolved.Layers, request); denial != nil {
+		return denial
+	}
+	return nil
+}
+
+func policyPreflightVerbs(cmd *cobra.Command, specs []policyVerb) domain.WriteVerbSet {
+	verbs := make(domain.WriteVerbSet, 0, len(specs))
+	for _, spec := range specs {
+		if !spec.conditional || policyVerbConditionPresent(cmd, spec.verb) {
+			verbs = append(verbs, spec.verb)
+		}
+	}
+	return verbs
+}
+
+func policyVerbConditionPresent(cmd *cobra.Command, verb domain.WriteVerb) bool {
+	switch verb {
+	case domain.WriteVerbComment:
+		return policyFlagValue(cmd, "comment") != ""
+	case domain.WriteVerbMove:
+		for _, name := range []string{"project", "fields", "field"} {
+			if flag := cmd.Flags().Lookup(name); flag != nil && flag.Changed {
+				value := strings.ToLower(flag.Value.String())
+				if name == "project" || strings.Contains(value, "project") {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func policyPreflightTargets(cmd *cobra.Command, args []string, identity policyIdentitySource) ([]domain.WriteTarget, error) {
+	switch identity {
+	case policyIdentityNone, policyIdentityJiraPlan, policyIdentityJiraMirror,
+		policyIdentityConfluencePlan, policyIdentityConfluenceMirror:
+		return nil, nil
+	case policyIdentityJiraIssueArg:
+		return jiraPreflightTargets(firstArg(args)), nil
+	case policyIdentityJiraProjectFlag:
+		project := strings.ToUpper(policyFlagValue(cmd, "project"))
+		if project == "" {
+			return nil, nil
+		}
+		return []domain.WriteTarget{{Service: "jira", Kind: "issue", Project: project}}, nil
+	case policyIdentityJiraTwoIssueArgs:
+		refs := []string{firstArg(args), policyFlagValue(cmd, "to", "epic")}
+		if len(args) > 1 {
+			refs = append(refs, args[1])
+		}
+		var out []domain.WriteTarget
+		for _, ref := range refs {
+			out = append(out, jiraPreflightTargets(ref)...)
+		}
+		return uniqueWriteTargets(out), nil
+	case policyIdentityJiraLinkID:
+		return []domain.WriteTarget{{Service: "jira", Kind: "link"}}, nil
+	case policyIdentityJiraSprintIssues:
+		path := commandRegistryPath(cmd.Root(), cmd)
+		start := 0
+		var out []domain.WriteTarget
+		if path == "jira sprint add" && len(args) > 0 {
+			start = 1
+			out = append(out, domain.WriteTarget{Service: "jira", Kind: "sprint", ID: args[0]})
+		}
+		for _, ref := range args[start:] {
+			out = append(out, jiraPreflightTargets(ref)...)
+		}
+		return out, nil
+	case policyIdentityConfluencePageFlag:
+		return confluencePreflightTarget(policyFlagValue(cmd, "id", "page-id", "page"))
+	case policyIdentityConfluencePageArg:
+		return confluencePreflightTarget(firstArg(args))
+	case policyIdentityConfluenceSpace:
+		space := strings.ToUpper(policyFlagValue(cmd, "space"))
+		if space == "" {
+			return nil, nil
+		}
+		return []domain.WriteTarget{{Service: "confluence", Kind: "page", Space: space}}, nil
+	default:
+		return nil, fmt.Errorf("%w: unsupported content-policy identity source %q", domain.ErrCheckFailed, identity)
+	}
+}
+
+func policyFlagValue(cmd *cobra.Command, names ...string) string {
+	for _, name := range names {
+		if flag := cmd.Flags().Lookup(name); flag != nil {
+			if value := strings.TrimSpace(flag.Value.String()); value != "" {
+				return value
+			}
+		}
+	}
+	return ""
+}
+
+func firstArg(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(args[0])
+}
+
+func jiraPreflightTargets(ref string) []domain.WriteTarget {
+	ref = strings.ToUpper(strings.TrimSpace(ref))
+	if !domain.ValidJiraIssueKey(ref) {
+		return nil
+	}
+	project := ref[:strings.IndexByte(ref, '-')]
+	return []domain.WriteTarget{{Service: "jira", Kind: "issue", Project: project, Key: ref}}
+}
+
+func confluencePreflightTarget(ref string) ([]domain.WriteTarget, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return nil, nil
+	}
+	if !domain.ValidConfluenceContentID(ref) {
+		return nil, usageErr("mutating Confluence references must use a canonical numeric content id while a content policy is active")
+	}
+	return []domain.WriteTarget{{Service: "confluence", Kind: "page", ID: ref}}, nil
+}
+
+func uniqueWriteTargets(values []domain.WriteTarget) []domain.WriteTarget {
+	seen := map[string]bool{}
+	out := make([]domain.WriteTarget, 0, len(values))
+	for _, value := range values {
+		key := value.Service + "\x00" + value.Kind + "\x00" + value.ID + "\x00" + value.Key
+		if !seen[key] {
+			seen[key] = true
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func resolveReadOnlyPolicy(cmd *cobra.Command, flagEnabled bool) (bool, error) {

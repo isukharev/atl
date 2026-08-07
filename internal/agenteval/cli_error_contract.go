@@ -28,6 +28,7 @@ var cliErrorContractVocabulary = map[string]struct {
 	"authentication_failed": {"reauthenticate", []int{3}},
 	"check_failed":          {"review_failed_check", []int{8}},
 	"configuration_error":   {"complete_configuration", []int{7}},
+	"content_policy":        {"request_human_approval", []int{8}},
 	"forbidden":             {"request_access", []int{6}},
 	"internal_error":        {"report_bug", []int{8}},
 	"not_found":             {"verify_identifier_or_access", []int{4}},
@@ -82,6 +83,7 @@ type cliErrorBody struct {
 	Remediation string          `json:"remediation"`
 	Policy      *string         `json:"policy"`
 	Command     *string         `json:"command"`
+	Denial      json.RawMessage `json:"denial"`
 	Recovery    json.RawMessage `json:"recovery"`
 }
 
@@ -146,7 +148,14 @@ func ParseCLIErrorContract(exitCode int, stderr []byte) (CLIErrorContract, bool)
 		if body.Policy == nil || *body.Policy != "read_only" || body.Command == nil || *body.Command == "" {
 			return CLIErrorContract{}, false
 		}
-	} else if body.Policy != nil || body.Command != nil {
+		if body.Denial != nil {
+			return CLIErrorContract{}, false
+		}
+	} else if body.Kind == "content_policy" {
+		if body.Policy == nil || *body.Policy != "content" || body.Denial == nil || body.Command != nil {
+			return CLIErrorContract{}, false
+		}
+	} else if body.Policy != nil || body.Command != nil || body.Denial != nil {
 		return CLIErrorContract{}, false
 	}
 	return ValidateCLIErrorContract(exitCode, body.Kind, body.Remediation)

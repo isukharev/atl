@@ -5,6 +5,7 @@
     {"exit_code": 3, "kind": "authentication_failed", "remediation": "reauthenticate"},
     {"exit_code": 8, "kind": "check_failed", "remediation": "review_failed_check"},
     {"exit_code": 7, "kind": "configuration_error", "remediation": "complete_configuration"},
+    {"exit_code": 8, "kind": "content_policy", "remediation": "request_human_approval"},
     {"exit_code": 6, "kind": "forbidden", "remediation": "request_access"},
     {"exit_code": 8, "kind": "internal_error", "remediation": "report_bug"},
     {"exit_code": 4, "kind": "not_found", "remediation": "verify_identifier_or_access"},

@@ -19,6 +19,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isukharev/atl/internal/contentpolicy"
 	"github.com/isukharev/atl/internal/diagnostic"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/httpx"
@@ -64,6 +65,7 @@ func TestCLIErrorWireProductContract(t *testing.T) {
 		"authentication_failed": {"reauthenticate", []int{3}},
 		"check_failed":          {"review_failed_check", []int{8}},
 		"configuration_error":   {"complete_configuration", []int{7}},
+		"content_policy":        {"request_human_approval", []int{8}},
 		"forbidden":             {"request_access", []int{6}},
 		"internal_error":        {"report_bug", []int{8}},
 		"not_found":             {"verify_identifier_or_access", []int{4}},
@@ -84,6 +86,7 @@ func TestCLIErrorWireProductContract(t *testing.T) {
 		{"authentication", fmt.Errorf("%w: x", domain.ErrAuth)},
 		{"check", fmt.Errorf("%w: x", domain.ErrCheckFailed)},
 		{"configuration", fmt.Errorf("%w: x", domain.ErrConfig)},
+		{"content policy", &contentpolicy.DenialError{Reason: contentpolicy.ReasonExplicitDeny}},
 		{"forbidden", fmt.Errorf("%w: x", domain.ErrForbidden)},
 		{"internal", &accessPolicyInvariantError{Command: "atl future"}},
 		{"not found", fmt.Errorf("%w: x", domain.ErrNotFound)},

@@ -54,6 +54,56 @@ func Decide(layers []Layer, request domain.WriteAuthorizationRequest) Decision {
 	return Decision{Allowed: true}
 }
 
+// PreflightDeny evaluates partial, caller-supplied identity and returns a
+// denial only when no later canonical resolution can turn it into an allow.
+// Silence is deliberately non-authoritative; adapters always re-evaluate the
+// complete backend-canonical target.
+func PreflightDeny(layers []Layer, request domain.WriteAuthorizationRequest) *DenialError {
+	if len(layers) == 0 || !domain.ValidWriteVerbSet(request.Verbs) || len(request.Targets) == 0 {
+		return nil
+	}
+	for _, target := range request.Targets {
+		if target.Service != "jira" && target.Service != "confluence" || target.Kind == "" {
+			return nil
+		}
+	}
+	for _, layer := range layers {
+		for targetIndex, target := range request.Targets {
+			for _, verb := range request.Verbs {
+				for _, rule := range layer.Policy.Rules {
+					if rule.Effect != EffectDeny || !containsVerb(rule.Verbs, verb) {
+						continue
+					}
+					if state, _ := matchSelector(rule.Resource, target); state == matchYes {
+						decision := Decision{Reason: ReasonExplicitDeny, RuleID: rule.ID, Layer: layer.Source, Target: targetIndex, Verb: verb}
+						denial := denialFromDecision(decision, request, layers)
+						denial.Details.Phase = "preflight"
+						return denial
+					}
+				}
+				possibleAllow := false
+				for _, rule := range layer.Policy.Rules {
+					if rule.Effect != EffectAllow || !containsVerb(rule.Verbs, verb) {
+						continue
+					}
+					state, _ := matchSelector(rule.Resource, target)
+					if state == matchYes || state == matchUnresolved {
+						possibleAllow = true
+						break
+					}
+				}
+				if !possibleAllow {
+					decision := Decision{Reason: ReasonNoMatchingAllow, Layer: layer.Source, Target: targetIndex, Verb: verb}
+					denial := denialFromDecision(decision, request, layers)
+					denial.Details.Phase = "preflight"
+					return denial
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func decideLayer(layer Layer, request domain.WriteAuthorizationRequest) Decision {
 	// First scan every pair for deny evidence. A default denial on an earlier
 	// pair must not hide a deciding explicit deny elsewhere in the request.

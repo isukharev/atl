@@ -135,6 +135,8 @@ jira user search
 manifest create
 mirror backend bind
 mirror backend status
+policy explain
+policy show
 profile apply
 profile guidance
 profile preview
@@ -263,8 +265,8 @@ func TestCommandRegistryPreservesReviewedOutputModes(t *testing.T) {
 	}
 	walk(root)
 
-	if leafCount != 160 || textCount != 135 || idCount != 32 {
-		t.Fatalf("leaves/text/id=%d/%d/%d want=160/135/32", leafCount, textCount, idCount)
+	if leafCount != 162 || textCount != 137 || idCount != 32 {
+		t.Fatalf("leaves/text/id=%d/%d/%d want=162/137/32", leafCount, textCount, idCount)
 	}
 	for path := range reviewedTextOutputCommandPaths {
 		if !seen[path] {
