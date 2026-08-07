@@ -7,7 +7,7 @@ Global output modes, binary identity, sentinel exit classes, practical recovery 
 The default success channel is JSON; build identity is one compact example:
 
 ```json
-{"version":"0.6.0","commit":"<source revision>","build_state":"clean"}
+{"version":"0.7.0","commit":"<source revision>","build_state":"clean"}
 ```
 
 ## Output formats
