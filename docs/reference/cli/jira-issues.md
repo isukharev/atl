@@ -12,6 +12,7 @@ Issue reads, fields, creation, guarded edits, transitions, relationships, attach
 - [`atl jira issue field get`](#atl-jira-issue-field-get)
 - [`atl jira issue view`](#atl-jira-issue-view)
 - [`atl jira issue search`](#atl-jira-issue-search)
+- [`atl jira issue types` / `create-check`](#atl-jira-issue-types--create-check)
 - [`atl jira issue children`](#atl-jira-issue-children)
 - [`atl jira issue create`](#atl-jira-issue-create)
 - [`atl jira issue update`](#atl-jira-issue-update)
@@ -193,6 +194,26 @@ page with an advertised remainder is `complete:false` with
 `partial_reason:"pagination_stalled"` and no cursor, so it never proves that
 the query has no matches. `pagination_unqualified` reports inconsistent paging
 coordinates. Partial reasons are closed static values and never backend text.
+
+## `atl jira issue types` / `create-check`
+
+Discover the issue types and content-free create-screen schema that Jira Data
+Center exposes for one project before attempting a create:
+
+```bash
+atl jira issue types --project PROJ
+atl jira issue types --project PROJ -o id
+atl jira issue create-check --project PROJ --type Task
+```
+
+`types` accepts a project key or id, returns the exact backend type ids/names
+and subtask flags, and prints type ids with `-o id`. `create-check` accepts an
+exact type id or exact name and fails closed when a name is absent or ambiguous.
+Its fields report only id, name, required, on-screen, and whether allowed
+values exist; option labels and values are deliberately omitted. Both commands
+read paginated metadata with a 1000-item hard bound and explicit completeness.
+They are preflight reads, not proof that a later create will succeed after
+permissions or workflow configuration change.
 
 ## `atl jira issue children`
 
@@ -556,6 +577,11 @@ Set the Epic Link custom field on an issue (classic Jira Data Center boards).
 ```bash
 atl jira issue link-epic PROJ-42 --epic PROJ-1
 ```
+
+The command uses `render.jira.epic_field` when configured (technical id or
+exact display name); otherwise it resolves the conventional `Epic Link` field.
+Resolution happens before the existing target authorization and single-attempt
+PUT. This keeps writes aligned with instances whose Epic Link field was renamed.
 
 Flags:
 

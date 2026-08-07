@@ -4,6 +4,23 @@ Exports, planning reports, catalogs, transitions, link types, and user lookup.
 
 [Reference index](README.md) · [Documentation home](../../README.md)
 
+## `atl jira project list`
+
+List every Jira project visible to the authenticated user through Jira Data
+Center's atomic project inventory endpoint. ATL sorts by key and applies its
+own output bound after the complete response is validated.
+
+```bash
+atl jira project list
+atl jira project list --include-archived --limit 500
+atl jira project list -o id
+```
+
+`--limit` is `1..1000` (default 200); JSON distinguishes `count` from `total`
+and reports `complete`/`truncated`. `--include-archived` is sent explicitly to
+Jira. Text output is a Markdown table; `-o id` prints project keys. No board,
+issue, or project content is read.
+
 ## `atl jira export`
 
 Write one compact issue export as a file plus backend-identity-hashed provenance

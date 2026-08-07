@@ -66,7 +66,8 @@ func Inspect() Inspection {
 	}
 	if !out.File.Present && out.File.Status == "missing" && err == nil &&
 		out.Effective.ConfluenceURL == "" && out.Effective.JiraURL == "" &&
-		out.Effective.UpdateBaseURL == "" {
+		out.Effective.UpdateBaseURL == "" && out.Effective.CABundle(TransportServiceJira) == "" &&
+		out.Effective.CABundle(TransportServiceConfluence) == "" {
 		out.Status = "missing"
 	}
 
@@ -134,6 +135,7 @@ func overlayEnvironmentURLs(cfg *Config) {
 	cfg.ConfluenceURL = strings.TrimRight(firstEnv("ATL_CONFLUENCE_URL", "CONFLUENCE_URL"), "/")
 	cfg.JiraURL = strings.TrimRight(firstEnv("ATL_JIRA_URL", "JIRA_URL"), "/")
 	cfg.UpdateBaseURL = strings.TrimRight(os.Getenv("ATL_UPDATE_URL"), "/")
+	overlayTransportEnvironment(cfg)
 }
 
 func valueSource(envValue, effectiveValue string) string {

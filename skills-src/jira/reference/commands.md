@@ -19,6 +19,7 @@ id/title-only Confluence resolution.
 
 | Command | What it does | Key flags |
 |---|---|---|
+| `jira project list` | List visible projects with explicit local completeness | `--include-archived`, `--limit` 1..1000, `-o text/id` |
 | `jira issue get <KEY>` | Get an issue | `--fields` |
 | `jira issue fields <KEY>` | Compact non-empty named field inspection | repeat `--field`; opt in with `--include-empty` or private `--raw` |
 | `jira issue field get <KEY>` | Qualified bounded expansion of one exact compact value | `--field` required; `--max-bytes` 256..131072, default 16384 |
@@ -26,6 +27,8 @@ id/title-only Confluence resolution.
 | `jira issue view <KEY>` | Render one configured Markdown view without writing files | `-o text`, `--render-root`, `--render-profile`, `--render-include`, `--render-exclude` |
 | `jira issue search` | Search as a paginated common IssueList / Markdown table | `--jql`, `--view`, `--columns`, `--limit` 1..1000, `--cursor` |
 | `jira issue search -o id` | Print matching issue keys one per line | `-o id` |
+| `jira issue types` | Discover create-eligible issue types for one project | `--project`, `-o text/id` |
+| `jira issue create-check` | Inspect content-free create-screen field requirements | `--project`, exact `--type`, `-o text` |
 | `jira issue children <EPIC-KEY>` | Read direct epic children as a common IssueList without per-child reads | `--view`, `--columns`, `--limit 1..1000` (0 invalid), `--cursor`, `--epic-field`, `-o text/id` |
 | `jira epic digest <EPIC-KEY>` | Deterministic multi-source epic evidence with per-source completeness | `--projection compact|full`, period, includes, fields, caps, optional bounded Confluence heading expansion |
 | `jira issue create` | Create an issue; optionally register one authoritative readback in a mirror | `--project`, `--type`, `--summary`, `--from-md`, `--from-file`, `--field k=v`; `--register --into <ROOT>` |
@@ -55,7 +58,7 @@ id/title-only Confluence resolution.
 | `jira issue link delete <LINK-ID>` | Delete a link by id | — |
 | `jira issue link suggest` | Read-only missing-link candidates from CSV | `--csv` |
 | `jira issue plan apply` | Dry-run/apply guarded CSV operation plan | `--csv`, `--allow-ops`, `--allow-fields`, `--allow-link-types`, `--continue-on-error`, `--apply`, `--confirm APPLY` |
-| `jira issue link-epic <KEY>` | Set the Epic Link | `--epic EPIC-KEY` |
+| `jira issue link-epic <KEY>` | Set the configured or auto-resolved Epic Link | `--epic EPIC-KEY`; optional global `render.jira.epic_field` selector |
 | `jira issue attachment list <KEY>` | List attachments | `-o id` |
 | `jira issue attachment get <KEY>` | Download an attachment | `--id ID-or-filename`, `--into DIR` |
 | `jira issue attachment upload <KEY>` | Upload an attachment | `--file PATH` |

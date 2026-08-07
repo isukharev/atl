@@ -294,7 +294,19 @@ func (s *JiraService) Link(ctx context.Context, from, to, linkType string) error
 }
 
 func (s *JiraService) LinkEpic(ctx context.Context, issue, epic string) error {
-	return s.tr.LinkEpic(ctx, issue, epic)
+	linker, ok := s.tr.(domain.JiraEpicFieldLinker)
+	if !ok {
+		return s.tr.LinkEpic(ctx, issue, epic)
+	}
+	var configured string
+	if s.cfg != nil && s.cfg.Render != nil && s.cfg.Render.Jira != nil {
+		configured = s.cfg.Render.Jira.EpicField
+	}
+	fieldID, err := s.resolveEpicField(ctx, configured)
+	if err != nil {
+		return err
+	}
+	return linker.LinkEpicWithField(ctx, issue, epic, fieldID)
 }
 
 func (s *JiraService) Fields(ctx context.Context) ([]domain.FieldDef, error) { return s.tr.Fields(ctx) }

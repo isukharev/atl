@@ -44,6 +44,9 @@ type Config struct {
 	// UpdateBaseURL is the distribution server used for self-update; empty
 	// disables auto-update.
 	UpdateBaseURL string `json:"update_base_url,omitempty"`
+	// Transport contains backend-specific trust settings. The pointers keep an
+	// untouched config byte-compatible: no empty transport object is persisted.
+	Transport *TransportConfig `json:"transport,omitempty"`
 	// Render holds presentation-only markdown-view settings. Pointer so a
 	// config without render keys stays byte-stable (no empty "render":{}) when
 	// re-saved. This is the only section a per-mirror local file may set.
@@ -111,6 +114,7 @@ func LoadForEdit() (*Config, error) {
 	if v := os.Getenv("ATL_UPDATE_URL"); v != "" {
 		c.UpdateBaseURL = v
 	}
+	overlayTransportEnvironment(c)
 	c.ConfluenceURL = strings.TrimRight(c.ConfluenceURL, "/")
 	c.JiraURL = strings.TrimRight(c.JiraURL, "/")
 	c.UpdateBaseURL = strings.TrimRight(c.UpdateBaseURL, "/")

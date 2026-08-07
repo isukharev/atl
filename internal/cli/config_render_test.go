@@ -32,6 +32,27 @@ func TestConfigSetRenderGlobal(t *testing.T) {
 	}
 }
 
+func TestConfigTransportPathsPersistButNeverAppearInOutput(t *testing.T) {
+	cfgDir := t.TempDir()
+	privatePath := filepath.Join(t.TempDir(), "configured-private-ca.pem")
+	env := map[string]string{"ATL_CONFIG_DIR": cfgDir}
+	out, code := runCLI(t, env, "config", "set", "transport.jira.ca_bundle", privatePath)
+	if code != exitOK || strings.Contains(out, privatePath) || !strings.Contains(out, `"ca_bundle_configured": true`) {
+		t.Fatalf("set exit=%d output=%s", code, out)
+	}
+	body, err := os.ReadFile(filepath.Join(cfgDir, "config.json"))
+	if err != nil || !strings.Contains(string(body), privatePath) {
+		t.Fatalf("persisted config=%s err=%v", body, err)
+	}
+	out, code = runCLI(t, env, "config", "show")
+	if code != exitOK || strings.Contains(out, privatePath) || !strings.Contains(out, `"ca_bundle_source": "config_file"`) {
+		t.Fatalf("show exit=%d output=%s", code, out)
+	}
+	if _, code = runCLI(t, env, "config", "set", "--local", "--into", t.TempDir(), "transport.jira.ca_bundle", privatePath); code != exitUsage {
+		t.Fatalf("local transport key exit=%d", code)
+	}
+}
+
 func TestConfigListViewsExposeBuiltinsAndAddNamedPreset(t *testing.T) {
 	cfgDir := t.TempDir()
 	env := map[string]string{"ATL_CONFIG_DIR": cfgDir}

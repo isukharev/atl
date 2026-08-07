@@ -2,11 +2,15 @@ package app
 
 import (
 	"context"
+	"encoding/pem"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
 )
 
@@ -39,6 +43,31 @@ func TestVerifyJiraReturnsName(t *testing.T) {
 	}
 	if name != "Jane Doe" {
 		t.Fatalf("got %q, want Jane Doe", name)
+	}
+}
+
+func TestVerifyJiraUsesBackendScopedCABundle(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rest/api/2/myself" {
+			t.Errorf("path=%q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"displayName":"Private PKI User"}`))
+	}))
+	defer srv.Close()
+	bundle := filepath.Join(t.TempDir(), "jira-ca.pem")
+	body := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
+	if err := os.WriteFile(bundle, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Transport: &config.TransportConfig{Jira: &config.BackendTransportConfig{CABundle: bundle}}}
+	name, err := VerifyJiraWithConfig(context.Background(), srv.URL, "tok", "test", cfg)
+	if err != nil || name != "Private PKI User" {
+		t.Fatalf("name=%q err=%v", name, err)
+	}
+	wrongBackend := &config.Config{Transport: &config.TransportConfig{Confluence: &config.BackendTransportConfig{CABundle: bundle}}}
+	if _, err := VerifyJiraWithConfig(domain.WithSingleAttempt(context.Background()), srv.URL, "tok", "test", wrongBackend); err == nil {
+		t.Fatal("Confluence CA bundle unexpectedly affected Jira trust")
 	}
 }
 

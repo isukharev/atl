@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/http"
 	neturl "net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -44,7 +45,14 @@ const (
 	// download client, whose transfers are otherwise limited by inactivity
 	// (downloadIdleTimeout), not total wall-clock.
 	dlHeaderTimeout = 30 * time.Second
+	caBundleMaxSize = 4 << 20 // 4 MiB
 )
+
+// TLSOptions contains backend-scoped trust material. Paths are never included
+// in returned errors or diagnostics.
+type TLSOptions struct {
+	CABundle string
+}
 
 // downloadIdleTimeout is the stall bound for streamed bodies: each successful
 // read resets it. A variable so tests can shrink it.
@@ -141,6 +149,31 @@ func New(base, token, version string) *Client {
 // NewWithScheduler builds a client whose every transport attempt shares the
 // supplied command-scoped concurrency/rate policy.
 func NewWithScheduler(base, token, version string, scheduler *Scheduler) *Client {
+	dlTransport := http.DefaultTransport.(*http.Transport).Clone()
+	dlTransport.ResponseHeaderTimeout = dlHeaderTimeout
+	return newWithScheduler(base, token, version, scheduler, http.DefaultTransport, dlTransport)
+}
+
+// NewWithSchedulerTLS builds a client with an isolated backend-specific trust
+// pool. An empty option preserves NewWithScheduler's exact transport shape.
+func NewWithSchedulerTLS(base, token, version string, scheduler *Scheduler, options TLSOptions) (*Client, error) {
+	if strings.TrimSpace(options.CABundle) == "" {
+		return NewWithScheduler(base, token, version, scheduler), nil
+	}
+	u, err := neturl.Parse(base)
+	if err != nil || !strings.EqualFold(u.Scheme, "https") {
+		return nil, fmt.Errorf("%w: configured CA bundle requires an https backend", domain.ErrConfig)
+	}
+	transport, err := transportWithCABundle(options.CABundle)
+	if err != nil {
+		return nil, err
+	}
+	dlTransport := transport.Clone()
+	dlTransport.ResponseHeaderTimeout = dlHeaderTimeout
+	return newWithScheduler(base, token, version, scheduler, transport, dlTransport), nil
+}
+
+func newWithScheduler(base, token, version string, scheduler *Scheduler, transport http.RoundTripper, dlTransport http.RoundTripper) *Client {
 	base = strings.TrimRight(base, "/")
 	host := ""
 	scheme := ""
@@ -180,12 +213,6 @@ func NewWithScheduler(base, token, version string, scheduler *Scheduler) *Client
 		}
 		return nil
 	}
-	// The download transport keeps the default dial/TLS bounds and adds a
-	// response-header deadline; the body itself is bounded by inactivity in
-	// GetStream, so a large transfer on a slow link is not killed by the
-	// whole-request timeout the JSON client uses.
-	dlTransport := http.DefaultTransport.(*http.Transport).Clone()
-	dlTransport.ResponseHeaderTimeout = dlHeaderTimeout
 	return &Client{
 		base:       base,
 		baseHost:   host,
@@ -194,7 +221,7 @@ func NewWithScheduler(base, token, version string, scheduler *Scheduler) *Client
 		ver:        version,
 		scheduler:  scheduler,
 		hc: &http.Client{
-			Transport:     scheduleTransport(readBudgetTransport{base: http.DefaultTransport}, scheduler),
+			Transport:     scheduleTransport(readBudgetTransport{base: transport}, scheduler),
 			Timeout:       defaultTimeout,
 			CheckRedirect: checkRedirect,
 		},
@@ -203,6 +230,77 @@ func NewWithScheduler(base, token, version string, scheduler *Scheduler) *Client
 			CheckRedirect: checkRedirect,
 		},
 	}
+}
+
+func transportWithCABundle(path string) (*http.Transport, error) {
+	bundle, err := readCABundle(path)
+	if err != nil {
+		return nil, err
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(bundle) {
+		return nil, fmt.Errorf("%w: configured CA bundle contains no certificates", domain.ErrConfig)
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	tlsConfig := &tls.Config{}
+	if transport.TLSClientConfig != nil {
+		tlsConfig = transport.TLSClientConfig.Clone()
+	}
+	tlsConfig.RootCAs = pool
+	tlsConfig.MinVersion = tls.VersionTLS12
+	transport.TLSClientConfig = tlsConfig
+	return transport, nil
+}
+
+// ValidateCABundle checks configured trust material without constructing a
+// client. It is used by path-free setup diagnostics.
+func ValidateCABundle(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
+	_, err := transportWithCABundle(path)
+	return err
+}
+
+func readCABundle(path string) ([]byte, error) {
+	// Stat before open so a configured FIFO/device cannot block setup forever.
+	// The descriptor is checked again after open to close the ordinary swap race.
+	preInfo, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("%w: configured CA bundle is unreadable", domain.ErrConfig)
+	}
+	if !preInfo.Mode().IsRegular() {
+		return nil, fmt.Errorf("%w: configured CA bundle is not a regular file", domain.ErrConfig)
+	}
+	if preInfo.Size() > caBundleMaxSize {
+		return nil, fmt.Errorf("%w: configured CA bundle exceeds the 4 MiB limit", domain.ErrConfig)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("%w: configured CA bundle is unreadable", domain.ErrConfig)
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("%w: configured CA bundle is unavailable", domain.ErrConfig)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%w: configured CA bundle is not a regular file", domain.ErrConfig)
+	}
+	if info.Size() > caBundleMaxSize {
+		return nil, fmt.Errorf("%w: configured CA bundle exceeds the 4 MiB limit", domain.ErrConfig)
+	}
+	bundle, err := io.ReadAll(io.LimitReader(f, caBundleMaxSize+1))
+	if err != nil {
+		return nil, fmt.Errorf("%w: configured CA bundle is unreadable", domain.ErrConfig)
+	}
+	if len(bundle) > caBundleMaxSize {
+		return nil, fmt.Errorf("%w: configured CA bundle exceeds the 4 MiB limit", domain.ErrConfig)
+	}
+	return bundle, nil
 }
 
 // readBudgetTransport charges immediately before the underlying RoundTrip, so

@@ -141,7 +141,7 @@
     },
     {
       "path": "jira/reference/commands.md",
-      "sha256": "fa4924977d939c9c758d4c1e11a23a28faff1c8467c59ed2534a9200453cb5a0"
+      "sha256": "57d7a0d46cac799858d82a3f90ea250febd6dcf374409c188f50f5da74bb2905"
     },
     {
       "path": "jira/reference/editing.md",
@@ -221,7 +221,7 @@
     },
     {
       "path": "setup/SKILL.md",
-      "sha256": "aa22c5968bf87ad407f101012622eab2ecd0729b8947744844772e1dcdaec1d9"
+      "sha256": "426bedce7b1977986f3bcf80494af8b2cccd99b718dcb80e2ba6e8022524ff69"
     },
     {
       "path": "setup/agents/openai.yaml",
@@ -229,7 +229,7 @@
     },
     {
       "path": "spec-to-backlog/SKILL.md",
-      "sha256": "556cbcc32188ac81d4bb573f0ecc8df3048c80d8fb923814144e624584bb502e"
+      "sha256": "0deb4f145b38341f58fb7f94db6dbfcabd96abc317161f133a50228f2dfc7731"
     },
     {
       "path": "spec-to-backlog/agents/openai.yaml",

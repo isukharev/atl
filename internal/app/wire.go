@@ -86,19 +86,31 @@ func NewCompatibility(cfg *config.Config, settings compatibility.Settings, versi
 			}
 			return nil, "credentials_unavailable"
 		}
-		return confluence.New(cfg.ConfluenceURL, token, version), ""
+		reader, err := confluence.NewWithSchedulerTLS(cfg.ConfluenceURL, token, version, nil, confluenceTLSOptions(cfg))
+		if err != nil {
+			return nil, "invalid_configuration"
+		}
+		return reader, ""
 	}
 	return service
 }
 
-func newDoctorServerMetadataReader(service, rawURL, token, clientVersion string) domain.ServerMetadataReader {
+func jiraTLSOptions(cfg *config.Config) httpx.TLSOptions {
+	return httpx.TLSOptions{CABundle: cfg.CABundle(config.TransportServiceJira)}
+}
+
+func confluenceTLSOptions(cfg *config.Config) httpx.TLSOptions {
+	return httpx.TLSOptions{CABundle: cfg.CABundle(config.TransportServiceConfluence)}
+}
+
+func newDoctorServerMetadataReader(service, rawURL, token, clientVersion string, cfg *config.Config) (domain.ServerMetadataReader, error) {
 	switch service {
 	case domain.ServerProductJira:
-		return jira.New(rawURL, token, clientVersion)
+		return jira.NewWithSchedulerTLS(rawURL, token, clientVersion, nil, jiraTLSOptions(cfg))
 	case domain.ServerProductConfluence:
-		return confluence.New(rawURL, token, clientVersion)
+		return confluence.NewWithSchedulerTLS(rawURL, token, clientVersion, nil, confluenceTLSOptions(cfg))
 	default:
-		return nil
+		return nil, fmt.Errorf("%w: unsupported backend service", domain.ErrConfig)
 	}
 }
 
@@ -184,7 +196,10 @@ func NewConfluenceScheduledWithWriteAuthorizer(cfg *config.Config, version strin
 	if authorizer != nil {
 		options = append(options, confluence.WithWriteAuthorizer(authorizer))
 	}
-	cf := confluence.NewWithScheduler(cfg.ConfluenceURL, tok, version, scheduler, options...)
+	cf, err := confluence.NewWithSchedulerTLS(cfg.ConfluenceURL, tok, version, scheduler, confluenceTLSOptions(cfg), options...)
+	if err != nil {
+		return nil, err
+	}
 	service := &ConfluenceService{
 		store: cf, users: cf.ResolveUser, assets: cf, baseURL: cfg.ConfluenceURL, verifier: cf, cfg: cfg,
 		requestMaxInFlight: maxInFlight, requestsPerSecond: requestsPerSecond,
@@ -204,7 +219,11 @@ func optionalJiraReadScheduled(cfg *config.Config, version string, scheduler *ht
 	if err != nil {
 		return nil, "Jira credentials are not configured"
 	}
-	return jira.NewWithScheduler(cfg.JiraURL, token, version, scheduler), ""
+	reader, err := jira.NewWithSchedulerTLS(cfg.JiraURL, token, version, scheduler, jiraTLSOptions(cfg))
+	if err != nil {
+		return nil, "Jira transport configuration is invalid"
+	}
+	return reader, ""
 }
 
 func optionalConfluenceGraphRead(cfg *config.Config, version string) (domain.ConfluenceGraphPageMetadataReader, string) {
@@ -221,7 +240,11 @@ func optionalConfluenceGraphRead(cfg *config.Config, version string) (domain.Con
 		}
 		return nil, "credentials_unavailable"
 	}
-	return confluence.New(cfg.ConfluenceURL, token, version), ""
+	reader, err := confluence.NewWithSchedulerTLS(cfg.ConfluenceURL, token, version, nil, confluenceTLSOptions(cfg))
+	if err != nil {
+		return nil, "invalid_configuration"
+	}
+	return reader, ""
 }
 
 // NewConfluenceRenderer builds a ConfluenceService for the offline `conf render`
@@ -260,7 +283,10 @@ func NewJiraWithWriteAuthorizer(cfg *config.Config, version string, authorizer d
 	if authorizer != nil {
 		options = append(options, jira.WithWriteAuthorizer(authorizer))
 	}
-	j := jira.New(cfg.JiraURL, tok, version, options...)
+	j, err := jira.NewWithSchedulerTLS(cfg.JiraURL, tok, version, nil, jiraTLSOptions(cfg), options...)
+	if err != nil {
+		return nil, err
+	}
 	service := &JiraService{tr: j, agile: j, structure: j, baseURL: cfg.JiraURL, cfg: cfg, writeAuthorizer: authorizer}
 	service.graphConfluenceFactory = func() (domain.ConfluenceGraphPageMetadataReader, string) {
 		return optionalConfluenceGraphRead(cfg, version)
@@ -313,7 +339,12 @@ func NewEnvironment(cfg *config.Config, version string) *EnvironmentService {
 			s.jiraSetup = "credentials_unavailable"
 		}
 	} else {
-		s.jiraTime = jira.New(cfg.JiraURL, token, version)
+		reader, err := jira.NewWithSchedulerTLS(cfg.JiraURL, token, version, nil, jiraTLSOptions(cfg))
+		if err != nil {
+			s.jiraSetup = "invalid_configuration"
+		} else {
+			s.jiraTime = reader
+		}
 	}
 	if cfg.ConfluenceURL == "" {
 		s.confluenceSetup = "not_configured"
@@ -326,7 +357,12 @@ func NewEnvironment(cfg *config.Config, version string) *EnvironmentService {
 			s.confluenceSetup = "credentials_unavailable"
 		}
 	} else {
-		s.confluenceTime = confluence.New(cfg.ConfluenceURL, token, version)
+		reader, err := confluence.NewWithSchedulerTLS(cfg.ConfluenceURL, token, version, nil, confluenceTLSOptions(cfg))
+		if err != nil {
+			s.confluenceSetup = "invalid_configuration"
+		} else {
+			s.confluenceTime = reader
+		}
 	}
 	return s
 }

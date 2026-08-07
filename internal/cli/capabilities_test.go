@@ -19,8 +19,8 @@ func TestCapabilityCatalogDefinitionsAreValidAndUnique(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.SchemaVersion != capabilityCatalogSchemaVersion || catalog.Selection.Count != 55 {
-		t.Fatalf("catalog metadata=%+v definitions want=55", catalog)
+	if catalog.SchemaVersion != capabilityCatalogSchemaVersion || catalog.Selection.Count != 57 {
+		t.Fatalf("catalog metadata=%+v definitions want=57", catalog)
 	}
 	if catalog.Routing.Match != "exact" || !strings.Contains(catalog.Routing.ReferenceLoad, "do not search") {
 		t.Fatalf("routing contract=%+v", catalog.Routing)
@@ -46,8 +46,8 @@ func TestCapabilityCatalogDefinitionsAreValidAndUnique(t *testing.T) {
 func TestCapabilityDefinitionsResolveAllCobraRoutes(t *testing.T) {
 	root := newRoot()
 	definitions := capabilitydef.Definitions()
-	if len(definitions) != 55 {
-		t.Fatalf("definitions=%d want=55", len(definitions))
+	if len(definitions) != 57 {
+		t.Fatalf("definitions=%d want=57", len(definitions))
 	}
 	for _, definition := range definitions {
 		command, remaining, err := root.Find(strings.Fields(definition.CLICommand))
@@ -123,8 +123,8 @@ func TestCapabilityCatalogPreservesLegacyProjectionAndAddsTransportRouting(t *te
 			mappedMutating++
 		}
 	}
-	if mapped != 32 || cliOnly != 23 {
-		t.Fatalf("mapped=%d cli_only=%d want=32/23", mapped, cliOnly)
+	if mapped != 32 || cliOnly != 25 {
+		t.Fatalf("mapped=%d cli_only=%d want=32/25", mapped, cliOnly)
 	}
 	if mappedMutating != 0 {
 		t.Fatalf("mapped mutating capabilities=%d want=0", mappedMutating)
@@ -136,6 +136,7 @@ func TestCapabilityTaskRoutesStaySmallAndOrdered(t *testing.T) {
 		task string
 		ids  []string
 	}{
+		{"jira/setup", []string{"jira.project.list", "jira.issue.create-check"}},
 		{"jira/evidence", []string{"jira.issue.search", "jira.issue.fields", "jira.epic.digest", "jira.issue.field.get", "jira.issue.refs", "jira.issue.history"}},
 		{"jira/graph-evidence", []string{"jira.issue.graph"}},
 		{"jira/portfolio", []string{"jira.board.list", "jira.board.view", "jira.structure.get", "jira.structure.folders", "jira.structure.view", "jira.portfolio.epic.digest", "jira.portfolio.confluence.section"}},

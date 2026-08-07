@@ -16,6 +16,7 @@ import (
 	"github.com/isukharev/atl/internal/auth"
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/httpx"
 	"github.com/isukharev/atl/internal/version"
 )
 
@@ -61,6 +62,19 @@ type DoctorConfig struct {
 	File                config.FileInspection `json:"file"`
 	ConfluenceURLSource string                `json:"confluence_url_source"`
 	JiraURLSource       string                `json:"jira_url_source"`
+	Transport           DoctorTransport       `json:"transport"`
+}
+
+type DoctorTransport struct {
+	Confluence DoctorCABundle `json:"confluence"`
+	Jira       DoctorCABundle `json:"jira"`
+}
+
+type DoctorCABundle struct {
+	Configured bool   `json:"configured"`
+	Source     string `json:"source"`
+	Status     string `json:"status"`
+	Reason     string `json:"reason,omitempty"`
 }
 
 type DoctorCredentials struct {
@@ -158,6 +172,7 @@ func RunDoctor(ctx context.Context, opts DoctorOptions) (*DoctorResult, error) {
 			File:                cfgInspection.File,
 			ConfluenceURLSource: cfgInspection.ConfluenceURLSource,
 			JiraURLSource:       cfgInspection.JiraURLSource,
+			Transport:           inspectDoctorTransport(cfgInspection.Effective),
 		},
 		Credentials: DoctorCredentials{
 			Store: authInspection.Store, Confluence: authInspection.Confluence, Jira: authInspection.Jira,
@@ -202,6 +217,17 @@ func evaluateLocalDoctor(result *DoctorResult, cfg config.Inspection, credential
 	if credentials.Store.Present && credentials.Store.PermissionKnown && !credentials.Store.OwnerOnly {
 		addDoctorProblem(result, "credentials.permissions", "error", "credentials_not_owner_only", "restrict_file_permissions")
 	}
+	for _, check := range []struct {
+		service string
+		bundle  DoctorCABundle
+	}{
+		{service: "confluence", bundle: result.Config.Transport.Confluence},
+		{service: "jira", bundle: result.Config.Transport.Jira},
+	} {
+		if check.bundle.Status == "invalid" {
+			addDoctorProblem(result, "transport."+check.service+".ca_bundle", "error", check.bundle.Reason, "repair_configuration")
+		}
+	}
 
 	result.Services.Confluence = localDoctorService(
 		cfg.Effective.ConfluenceURL, cfg.ConfluenceURLSource, credentials.Confluence,
@@ -217,6 +243,28 @@ func evaluateLocalDoctor(result *DoctorResult, cfg config.Inspection, credential
 	if build := result.CLI; build.Version == "dev" || build.Commit == "unknown" || build.BuildState == "unknown" {
 		addDoctorProblem(result, "cli.provenance", "advisory", "build_provenance_incomplete", "use_release_build")
 	}
+}
+
+func inspectDoctorTransport(cfg *config.Config) DoctorTransport {
+	summary := config.TransportProjection(cfg)
+	return DoctorTransport{
+		Confluence: inspectDoctorCABundle(cfg.CABundle(config.TransportServiceConfluence), summary.Confluence),
+		Jira:       inspectDoctorCABundle(cfg.CABundle(config.TransportServiceJira), summary.Jira),
+	}
+}
+
+func inspectDoctorCABundle(path string, summary config.BackendTransportSummary) DoctorCABundle {
+	out := DoctorCABundle{Configured: summary.CABundleConfigured, Source: summary.CABundleSource, Status: "not_configured"}
+	if !out.Configured {
+		return out
+	}
+	if err := httpx.ValidateCABundle(path); err != nil {
+		out.Status = "invalid"
+		out.Reason = "ca_bundle_invalid"
+		return out
+	}
+	out.Status = "available"
+	return out
 }
 
 func localDoctorService(rawURL, source string, credential auth.CredentialInspection) DoctorService {
@@ -387,14 +435,15 @@ func runDoctorRemote(ctx context.Context, result *DoctorResult, cfg config.Inspe
 		skipDoctorRemote(&result.Services.Confluence, "configuration_preflight_failed")
 		return
 	}
-	runOneDoctorRemote(ctx, result, "jira", cfg.Effective.JiraURL, cfg.File, credentials.Store, &result.Services.Jira)
-	runOneDoctorRemote(ctx, result, "confluence", cfg.Effective.ConfluenceURL, cfg.File, credentials.Store, &result.Services.Confluence)
+	runOneDoctorRemote(ctx, result, "jira", cfg.Effective.JiraURL, cfg.Effective, cfg.File, credentials.Store, &result.Services.Jira)
+	runOneDoctorRemote(ctx, result, "confluence", cfg.Effective.ConfluenceURL, cfg.Effective, cfg.File, credentials.Store, &result.Services.Confluence)
 }
 
 func runOneDoctorRemote(
 	ctx context.Context,
 	result *DoctorResult,
 	service, rawURL string,
+	effective *config.Config,
 	configFile config.FileInspection,
 	credentialStore auth.StoreInspection,
 	out *DoctorService,
@@ -422,7 +471,13 @@ func runOneDoctorRemote(
 		return
 	}
 
-	reader := newDoctorServerMetadataReader(service, rawURL, token, result.CLI.Version)
+	reader, readerErr := newDoctorServerMetadataReader(service, rawURL, token, result.CLI.Version, effective)
+	if readerErr != nil {
+		out.Remote.Status = "skipped"
+		out.Remote.Reason = "invalid_transport_configuration"
+		addDoctorProblem(result, "remote."+service, "error", out.Remote.Reason, "repair_configuration")
+		return
+	}
 	probeCtx := domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(ctx))
 	probeCtx, cancel := context.WithTimeout(probeCtx, 5*time.Second)
 	defer cancel()

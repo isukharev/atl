@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added backend-scoped Jira and Confluence CA bundles that extend system roots
+  without exposing paths, plus bounded Jira project, issue-type, and
+  create-screen metadata discovery.
 - Added an optional process-frozen, content-scoped write policy for Jira and
   Confluence, offline `policy show`/`policy explain`, deny-only CLI and plan
   preflight, authoritative adapter enforcement, strict file/digest/backend
@@ -18,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Made `jira issue link-epic` honor the configured Epic Link id or exact name
+  before its existing authorized, non-retried update.
 - Refused non-canonical Confluence page-delete ids before configuration or
   backend access, and added opt-in last-hop clearance/read-intent plumbing for
   future scoped write enforcement.

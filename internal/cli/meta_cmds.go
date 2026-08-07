@@ -140,6 +140,7 @@ func newConfigCmd() *cobra.Command {
 				RenderProvenance:   nonDefaultProvenance(prov),
 				LocalConfigPath:    localPath,
 				Mirror:             mirrorHints(),
+				Transport:          config.TransportProjection(cfg),
 			}
 			return emit(cmd, out, func() string { return configShowText(out) })
 		},
@@ -153,6 +154,7 @@ func newConfigCmd() *cobra.Command {
 		Short: "Persist safety policy, backend URLs, render, or Jira list views",
 		Long: "Persist backend URLs (via --confluence-url/--jira-url/--update-url) or a\n" +
 			"dotted key positionally, e.g. `config set safety.read_only true` or `config set render.jira.profile full`.\n" +
+			"Valid transport keys: " + strings.Join(config.ValidTransportKeys(), ", ") + ".\n" +
 			"Valid render keys: " + strings.Join(config.ValidRenderKeys(), ", ") + ".\n" +
 			"include/exclude/custom_fields take a comma-separated value.\n\n" +
 			"--local writes the per-mirror <root>/.atl/config.json (render.* only; a\n" +
@@ -237,6 +239,10 @@ func runSetGlobal(cmd *cobra.Command, key, value string, hasKV bool, confluenceU
 				return usageErr("%v", setErr)
 			}
 			cfg.JiraListViews = views
+		} else if strings.HasPrefix(key, "transport.") {
+			if err := config.SetTransportKey(cfg, key, value); err != nil {
+				return usageErr("%v; valid transport keys: %s", err, strings.Join(config.ValidTransportKeys(), ", "))
+			}
 		} else {
 			if cfg.Render == nil {
 				cfg.Render = &config.RenderConfig{}
@@ -259,7 +265,7 @@ func runSetGlobal(cmd *cobra.Command, key, value string, hasKV bool, confluenceU
 	if saveErr != nil {
 		return saveErr
 	}
-	return emit(cmd, cfg, nil)
+	return emit(cmd, configPersistProjection(cfg), nil)
 }
 
 // runSetLocal writes a render.* key to the per-mirror local config. It refuses
@@ -276,6 +282,9 @@ func runSetLocal(cmd *cobra.Command, key, value string, hasKV bool, into, conflu
 		return usageErr("%s is global-only; omit --local", key)
 	}
 	if key == "safety.read_only" {
+		return usageErr("%s is global-only; omit --local", key)
+	}
+	if strings.HasPrefix(key, "transport.") {
 		return usageErr("%s is global-only; omit --local", key)
 	}
 	if key == "render.confluence.jira_macros" {
@@ -385,6 +394,9 @@ func configShowText(out configShowResult) string {
 		out.ReadOnly, out.ConfluenceURL, out.JiraURL, out.UpdateBaseURL)
 	fmt.Fprintf(&b, "render_display_time_zone: %s\nrender_jira_profile: %s\nrender_confluence_profile: %s\n",
 		out.Render.DisplayTimeZone, out.Render.Jira.Profile, out.Render.Confluence.Profile)
+	fmt.Fprintf(&b, "jira_ca_bundle: configured=%t source=%s\nconfluence_ca_bundle: configured=%t source=%s\n",
+		out.Transport.Jira.CABundleConfigured, out.Transport.Jira.CABundleSource,
+		out.Transport.Confluence.CABundleConfigured, out.Transport.Confluence.CABundleSource)
 	viewNames := make([]string, 0, len(out.JiraListViews))
 	for name := range out.JiraListViews {
 		viewNames = append(viewNames, name)
@@ -423,6 +435,25 @@ type configShowResult struct {
 	RenderProvenance   map[string]string              `json:"render_provenance,omitempty"`
 	LocalConfigPath    string                         `json:"local_config_path,omitempty"`
 	Mirror             mirrorHint                     `json:"mirror"`
+	Transport          config.TransportSummary        `json:"transport"`
+}
+
+type configPersistResult struct {
+	ReadOnly      bool                           `json:"read_only,omitempty"`
+	ConfluenceURL string                         `json:"confluence_url,omitempty"`
+	JiraURL       string                         `json:"jira_url,omitempty"`
+	UpdateBaseURL string                         `json:"update_base_url,omitempty"`
+	Render        *config.RenderConfig           `json:"render,omitempty"`
+	JiraListViews map[string]config.JiraListView `json:"jira_list_views"`
+	Transport     config.TransportSummary        `json:"transport"`
+}
+
+func configPersistProjection(cfg *config.Config) configPersistResult {
+	return configPersistResult{
+		ReadOnly: cfg.ReadOnly, ConfluenceURL: cfg.ConfluenceURL, JiraURL: cfg.JiraURL,
+		UpdateBaseURL: cfg.UpdateBaseURL, Render: cfg.Render, JiraListViews: cfg.JiraListViews,
+		Transport: config.TransportProjection(cfg),
+	}
 }
 
 type mirrorHint struct {

@@ -59,6 +59,16 @@ type recordingTracker struct {
 	err         error
 }
 
+type configuredEpicTracker struct {
+	*recordingTracker
+	resolvedField string
+}
+
+func (t *configuredEpicTracker) LinkEpicWithField(_ context.Context, issue, epic, fieldID string) error {
+	t.epicIssue, t.epicEpic, t.resolvedField = issue, epic, fieldID
+	return t.err
+}
+
 func (t *recordingTracker) GetIssue(_ context.Context, key string, fields []string) (*domain.Issue, error) {
 	t.issueKey, t.issueFields = key, fields
 	return t.issue, t.err
@@ -210,6 +220,18 @@ func TestJiraWrappersPassThrough(t *testing.T) {
 		}
 		if tr.epicIssue != "S-1" || tr.epicEpic != "EPIC-9" {
 			t.Errorf("LinkEpic args not forwarded: %+v", tr)
+		}
+	})
+
+	t.Run("LinkEpic configured field", func(t *testing.T) {
+		tr := &configuredEpicTracker{recordingTracker: &recordingTracker{}}
+		cfg := &config.Config{Render: &config.RenderConfig{Jira: &config.RenderService{EpicField: "customfield_42"}}}
+		svc := &JiraService{tr: tr, cfg: cfg}
+		if err := svc.LinkEpic(ctx, "S-1", "EPIC-9"); err != nil {
+			t.Fatal(err)
+		}
+		if tr.resolvedField != "customfield_42" || tr.epicIssue != "S-1" || tr.epicEpic != "EPIC-9" {
+			t.Fatalf("configured Epic Link args not forwarded: %+v", tr)
 		}
 	})
 

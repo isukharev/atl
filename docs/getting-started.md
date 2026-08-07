@@ -51,6 +51,14 @@ atl config set --jira-url https://jira.example.com
 Only use `ATL_ALLOW_INSECURE=1` for a loopback or internal HTTP instance whose
 transport you trust. HTTPS is the normal policy.
 
+For an HTTPS backend signed by a private CA, add its PEM trust roots before
+login. Trust is backend-scoped and the local path is not emitted:
+
+```sh
+atl config set transport.confluence.ca_bundle /path/to/confluence-ca.pem
+# or: atl config set transport.jira.ca_bundle /path/to/jira-ca.pem
+```
+
 ## 3. Store a PAT safely
 
 `auth login` reads the token from a no-echo prompt, stdin, or a file. Never put

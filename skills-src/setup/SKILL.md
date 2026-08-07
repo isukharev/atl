@@ -101,6 +101,18 @@ effective `render` block with `render_provenance` (see below). Its shared
 changes human Markdown dates only, never JQL/CQL or exact JSON/native timestamps. A non-https URL for a non-loopback
 host is rejected at set time.
 
+If an HTTPS backend uses a private CA, set only that backend's reviewed PEM
+bundle before authentication. The path is persisted but never printed:
+
+```bash
+atl config set transport.confluence.ca_bundle /path/to/confluence-ca.pem
+atl config set transport.jira.ca_bundle /path/to/jira-ca.pem
+atl doctor
+```
+
+Do not request or configure a client certificate or private key; ATL supports
+additional trust roots only.
+
 **Render config layer (presentation-only).** `config set` also takes a positional dotted render key
 that tunes the derived `.md` view — `render.{jira,confluence}.{profile,include,exclude}` (profile is
 `minimal`|`default`|`full`) plus Jira-only `custom_fields` (comma-separated), typed

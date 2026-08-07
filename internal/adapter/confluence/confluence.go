@@ -41,6 +41,20 @@ func New(base, token, version string, options ...Option) *Confluence {
 // Confluence transport path, including comments and streamed assets.
 func NewWithScheduler(base, token, version string, scheduler *httpx.Scheduler, options ...Option) *Confluence {
 	c := httpx.NewWithScheduler(base, token, version, scheduler)
+	return newWithClient(base, c, options...)
+}
+
+// NewWithSchedulerTLS builds a Confluence adapter with backend-specific trust
+// material. Existing constructors preserve the default transport path.
+func NewWithSchedulerTLS(base, token, version string, scheduler *httpx.Scheduler, tlsOptions httpx.TLSOptions, options ...Option) (*Confluence, error) {
+	c, err := httpx.NewWithSchedulerTLS(base, token, version, scheduler, tlsOptions)
+	if err != nil {
+		return nil, err
+	}
+	return newWithClient(base, c, options...), nil
+}
+
+func newWithClient(base string, c *httpx.Client, options ...Option) *Confluence {
 	cf := &Confluence{c: c, base: strings.TrimRight(base, "/"), identity: newConfluenceIdentityCache()}
 	for _, option := range options {
 		if option != nil {

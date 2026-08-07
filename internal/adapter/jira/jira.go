@@ -43,6 +43,21 @@ func New(base, token, version string, options ...Option) *Jira {
 // command-scoped load boundary as the originating Confluence requests.
 func NewWithScheduler(base, token, version string, scheduler *httpx.Scheduler, options ...Option) *Jira {
 	c := httpx.NewWithScheduler(base, token, version, scheduler)
+	return newWithClient(base, c, options...)
+}
+
+// NewWithSchedulerTLS builds a Jira adapter with backend-specific trust
+// material. Existing constructors remain error-free for the unset/default
+// transport path.
+func NewWithSchedulerTLS(base, token, version string, scheduler *httpx.Scheduler, tlsOptions httpx.TLSOptions, options ...Option) (*Jira, error) {
+	c, err := httpx.NewWithSchedulerTLS(base, token, version, scheduler, tlsOptions)
+	if err != nil {
+		return nil, err
+	}
+	return newWithClient(base, c, options...), nil
+}
+
+func newWithClient(base string, c *httpx.Client, options ...Option) *Jira {
 	// Jira DC has no optimistic version gate: a 409 is a generic conflict
 	// (locked issue, closed sprint, workflow veto), never a version conflict —
 	// exit 5's re-pull/--force remediation does not apply here.
@@ -71,6 +86,9 @@ var _ domain.QualifiedIssueSnapshotReader = (*Jira)(nil)
 var _ domain.JiraRemoteLinkReader = (*Jira)(nil)
 var _ domain.JiraDevelopmentReader = (*Jira)(nil)
 var _ domain.Verifier = (*Jira)(nil)
+var _ domain.JiraProjectReader = (*Jira)(nil)
+var _ domain.JiraCreateMetadataReader = (*Jira)(nil)
+var _ domain.JiraEpicFieldLinker = (*Jira)(nil)
 
 const (
 	defaultFields               = "summary,description,status,issuetype,project,assignee,reporter,labels,issuelinks,comment,attachment"
@@ -797,12 +815,23 @@ func (j *Jira) LinkEpic(ctx context.Context, issue, epic string) error {
 	if epicField == "" {
 		return fmt.Errorf("%w: no 'Epic Link' field on this Jira (team-managed projects use the parent field)", domain.ErrUsage)
 	}
-	ctx, err = j.authorizeIssues(ctx, domain.WriteVerbSet{domain.WriteVerbUpdate}, "issue", issue, epic)
+	return j.LinkEpicWithField(ctx, issue, epic, epicField)
+}
+
+// LinkEpicWithField sets a caller-resolved Epic Link field. Keeping target
+// authorization here makes the optional discovery port no less safe than the
+// legacy auto-detecting method.
+func (j *Jira) LinkEpicWithField(ctx context.Context, issue, epic, fieldID string) error {
+	fieldID = strings.TrimSpace(fieldID)
+	if fieldID == "" {
+		return fmt.Errorf("%w: Epic Link field id is required", domain.ErrUsage)
+	}
+	ctx, err := j.authorizeIssues(ctx, domain.WriteVerbSet{domain.WriteVerbUpdate}, "issue", issue, epic)
 	if err != nil {
 		return err
 	}
 	return j.c.SendJSON(domain.WithWriteClearance(ctx), "PUT", "/rest/api/2/issue/"+url.PathEscape(issue),
-		map[string]any{"fields": map[string]any{epicField: epic}}, nil)
+		map[string]any{"fields": map[string]any{fieldID: epic}}, nil)
 }
 
 // Whoami confirms the PAT by fetching the current user and returns their
