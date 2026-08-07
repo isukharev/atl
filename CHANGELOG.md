@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.7.0] - 2026-08-07
+## [0.7.1] - 2026-08-07
 
 ### Added
 
@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Prevented process-local URL and CA-bundle environment overrides from being
+  persisted by an unrelated `config set`; explicit values still persist while
+  the environment remains effective only for the current process.
+- Removed the redundant always-true `on_screen` member from Jira create-screen
+  metadata and added a content-free `jira issue types` recovery hint for an
+  unknown exact issue-type selector.
 - Made `jira issue link-epic` honor the configured Epic Link id or exact name
   before its existing authorized, non-retried update.
 - Refused non-canonical Confluence page-delete ids before configuration or
@@ -2713,8 +2719,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- link references -->
 
-[Unreleased]: https://github.com/isukharev/atl/compare/v0.7.0...HEAD
-[0.7.0]: https://github.com/isukharev/atl/compare/v0.6.0...v0.7.0
+[Unreleased]: https://github.com/isukharev/atl/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/isukharev/atl/compare/v0.6.0...v0.7.1
 [0.6.0]: https://github.com/isukharev/atl/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/isukharev/atl/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/isukharev/atl/compare/v0.4.0...v0.5.0
