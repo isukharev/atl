@@ -187,6 +187,13 @@ tidy, Windows, and bilateral `make agent-eval-product-boundary` gates. Do not
 add a root module dependency, a root `replace`, or a tracked `go.work` to make
 root recursive commands traverse the evaluator.
 
+The standalone compatibility facade runs its exact evaluator test selection
+plus the product wire and selected-binary process and fixture oracles. The full
+facade reaches those evaluator tests through its complete unit pass and runs
+the other compatibility oracles separately, so each evaluator Go test executes
+once in the unit lane and once in the race lane rather than receiving an extra
+compatibility-only pass.
+
 When an ad hoc evaluator executable is necessary, build it from the repository
 root and run the resulting binary there so repository-relative inputs retain
 their meaning:

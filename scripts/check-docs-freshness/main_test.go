@@ -259,6 +259,17 @@ func TestMaintainerImpactRejectsRegressions(t *testing.T) {
 			edit: func(value *impactManifest) { value.Rules = value.Rules[1:] },
 			want: "tracked path \".editorconfig\" has no maintainer impact classification",
 		},
+		{
+			name: "excluded prefix escapes selector",
+			edit: func(value *impactManifest) {
+				for index := range value.Rules {
+					if value.Rules[index].Prefix == "internal/" {
+						value.Rules[index].ExcludePrefixes = []string{"scripts/"}
+					}
+				}
+			},
+			want: "malformed, duplicated, or unsorted excluded prefix",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -275,6 +286,24 @@ func TestMaintainerImpactRejectsRegressions(t *testing.T) {
 	unknown := changedPathSet{Paths: []string{"unclassified/new.file"}, Historical: map[string]bool{}}
 	if _, err := classifyImpact(manifest, nil, unknown); err == nil || !strings.Contains(err.Error(), "no maintainer impact classification") {
 		t.Fatalf("unexpected classification error: %v", err)
+	}
+}
+
+func TestClassifyImpactKeepsNestedEvaluatorIndependent(t *testing.T) {
+	root := freshnessRepositoryRoot(t)
+	manifest, err := loadImpactManifest(filepath.Join(root, filepath.FromSlash(impactManifestPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	checks, err := classifyImpact(manifest, nil, changedPathSet{
+		Paths:      []string{"internal/agenteval/runner.go"},
+		Historical: map[string]bool{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(checks, ","), "agent-eval-full,maintainability"; got != want {
+		t.Fatalf("nested evaluator checks = %q, want %q", got, want)
 	}
 }
 

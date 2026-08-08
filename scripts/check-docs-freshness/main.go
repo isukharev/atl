@@ -82,10 +82,11 @@ type impactCheck struct {
 }
 
 type impactRule struct {
-	Path   string   `json:"path,omitempty"`
-	Prefix string   `json:"prefix,omitempty"`
-	Suffix string   `json:"suffix,omitempty"`
-	Checks []string `json:"checks"`
+	Path            string   `json:"path,omitempty"`
+	Prefix          string   `json:"prefix,omitempty"`
+	Suffix          string   `json:"suffix,omitempty"`
+	ExcludePrefixes []string `json:"exclude_prefixes,omitempty"`
+	Checks          []string `json:"checks"`
 }
 
 type docsCatalog struct {
@@ -548,6 +549,23 @@ func validateImpactManifest(manifest impactManifest, tracked []string, makeTarge
 			return errors.New("impact rules require valid unique sorted selectors")
 		}
 		previous = key
+		previousExclusion := ""
+		for _, exclusion := range rule.ExcludePrefixes {
+			if rule.Prefix == "" || exclusion <= previousExclusion ||
+				!strings.HasSuffix(exclusion, "/") || exclusion == rule.Prefix ||
+				!strings.HasPrefix(exclusion, rule.Prefix) ||
+				!canonicalRelative(strings.TrimSuffix(exclusion, "/")) {
+				return fmt.Errorf("impact rule %q has a malformed, duplicated, or unsorted excluded prefix", key)
+			}
+			matchedExclusion := false
+			for _, path := range tracked {
+				matchedExclusion = matchedExclusion || strings.HasPrefix(path, exclusion)
+			}
+			if !matchedExclusion {
+				return fmt.Errorf("impact rule %q excluded prefix %q matches no tracked path", key, exclusion)
+			}
+			previousExclusion = exclusion
+		}
 		if len(rule.Checks) == 0 {
 			return fmt.Errorf("impact rule %q has no checks", key)
 		}
@@ -603,6 +621,11 @@ func impactRuleKey(rule impactRule) (string, error) {
 }
 
 func impactRuleMatches(rule impactRule, path string) bool {
+	for _, exclusion := range rule.ExcludePrefixes {
+		if strings.HasPrefix(path, exclusion) {
+			return false
+		}
+	}
 	switch {
 	case rule.Path != "":
 		return path == rule.Path

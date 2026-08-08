@@ -671,7 +671,10 @@ ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
 		{"product-atl", ".PHONY: product-atl\nproduct-atl:\n\t$(MAKE) -C $(REPOSITORY_ROOT) build\n"},
 		{"gen-capability-catalog", ".PHONY: gen-capability-catalog\ngen-capability-catalog: product-atl\n"},
 		{"product-boundary", ".PHONY: product-boundary\nproduct-boundary:\n\t$(MAKE) -C $(REPOSITORY_ROOT) check-package-boundary\n"},
-		{"contract", ".PHONY: contract\ncontract: compat unit\n"},
+		{"compat-tests", ".PHONY: compat-tests\ncompat-tests: product-atl\n"},
+		{"compat-oracles", ".PHONY: compat-oracles\ncompat-oracles: product-atl\n"},
+		{"compat", ".PHONY: compat\ncompat: compat-tests compat-oracles\n"},
+		{"contract", ".PHONY: contract\ncontract: compat-oracles unit\n"},
 		{"full", ".PHONY: full\nfull: tidy-check build race lint vet vuln contract windows product-boundary\n"},
 	}
 	for _, target := range required {
@@ -679,23 +682,26 @@ ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
 			return fmt.Errorf("evaluator Makefile must retain the exact %q gate", target.target)
 		}
 	}
-	for _, target := range []string{"compat", "contract"} {
+	for _, target := range []string{"compat-tests", "compat-oracles", "compat", "contract"} {
 		if countMakeTargetDeclarations(makefile, target) != 1 {
 			return fmt.Errorf("evaluator Makefile must define exactly one %q gate", target)
 		}
 	}
 	for _, requiredSnippet := range []string{
 		"CAPABILITY_CATALOG_FIXTURE := $(CURDIR)/testdata/capability-catalog.v1.json\n",
+		"COMPAT_TEST_COUNT := ",
 		"COMPAT_TESTS_WIRES := ",
 		"COMPAT_TESTS_MIRROR := ",
 		"COMPAT_TESTS_WRITES := ",
 		"COMPAT_TESTS_MCP := ",
-		"compat: product-atl\n",
+		"compat-tests: product-atl\n",
+		"compat-oracles: product-atl\n",
+		"compat: compat-tests compat-oracles\n",
 		"$(GO_ENV) go test . -run '$(COMPAT_TESTS_WIRES)' -count=1\n",
 		"$(GO_ENV) go test . -run '$(COMPAT_TESTS_MIRROR)' -count=1\n",
 		"$(GO_ENV) go test . -run '$(COMPAT_TESTS_WRITES)' -count=1\n",
 		"$(GO_ENV) go test . -run '$(COMPAT_TESTS_MCP)' -count=1\n",
-		"contract: compat unit\n",
+		"contract: compat-oracles unit\n",
 		"$(GO_ENV) go run ./cmd/agent-eval validate ",
 		"$(GO_ENV) go run ./cmd/agent-eval validate-run ",
 		"$(GO_ENV) go run ./cmd/agent-eval verify-atl-capabilities $(ATL_BINARY) >/dev/null\n",
@@ -711,6 +717,7 @@ ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
 
 func validateEvaluatorCompatSelections(root string, makefile []byte) error {
 	const prefix = "COMPAT_TESTS_"
+	const countPrefix = "COMPAT_TEST_COUNT := "
 	definitions := make(map[string]int)
 	testRoot := filepath.Join(root, "internal", "agenteval")
 	testFiles, err := os.OpenRoot(testRoot)
@@ -753,7 +760,20 @@ func validateEvaluatorCompatSelections(root string, makefile []byte) error {
 	}
 
 	seenVariables := 0
+	selectedTests := map[string]bool{}
+	wantCount := -1
 	for _, line := range strings.Split(string(makefile), "\n") {
+		if strings.HasPrefix(line, countPrefix) {
+			if wantCount >= 0 {
+				return errors.New("evaluator Makefile defines compatibility test count more than once")
+			}
+			value, err := strconv.Atoi(strings.TrimPrefix(line, countPrefix))
+			if err != nil || value <= 0 {
+				return errors.New("evaluator Makefile compatibility test count is malformed")
+			}
+			wantCount = value
+			continue
+		}
 		if !strings.HasPrefix(line, prefix) {
 			continue
 		}
@@ -772,11 +792,18 @@ func validateEvaluatorCompatSelections(root string, makefile []byte) error {
 			if definitions[testName] != 1 {
 				return fmt.Errorf("evaluator Makefile compatibility selection %q resolves %q to %d test definitions, want 1", name, testName, definitions[testName])
 			}
+			if selectedTests[testName] {
+				return fmt.Errorf("evaluator Makefile compatibility selection repeats %q", testName)
+			}
+			selectedTests[testName] = true
 		}
 		seenVariables++
 	}
 	if seenVariables != 4 {
 		return fmt.Errorf("evaluator Makefile has %d compatibility selections, want 4", seenVariables)
+	}
+	if wantCount < 0 || len(selectedTests) != wantCount {
+		return fmt.Errorf("evaluator Makefile selects %d compatibility tests, want %d", len(selectedTests), wantCount)
 	}
 	return nil
 }

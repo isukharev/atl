@@ -121,7 +121,8 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 		{name: "root evaluator environment", path: "Makefile", old: "GOWORK=off", replacement: "GOWORK=on", want: "workspace-independent root and evaluator environments"},
 		{name: "nested evaluator environment", path: "internal/agenteval/Makefile", old: "GOWORK=off", replacement: "GOWORK=on", want: "workspace-independent environment"},
 		{name: "nested full gate", path: "internal/agenteval/Makefile", old: "full: tidy-check build race lint vet vuln contract windows product-boundary", replacement: "full: tidy-check build race lint vet vuln contract windows", want: "exact \"full\" gate"},
-		{name: "nested contract unit dependency", path: "internal/agenteval/Makefile", old: "contract: compat unit\n", replacement: "contract: compat\n", want: "exact \"contract\" gate"},
+		{name: "nested contract repeats compatibility tests", path: "internal/agenteval/Makefile", old: "contract: compat-oracles unit\n", replacement: "contract: compat unit\n", want: "exact \"contract\" gate"},
+		{name: "nested compatibility test omission", path: "internal/agenteval/Makefile", old: "COMPAT_TEST_COUNT := 4", replacement: "COMPAT_TEST_COUNT := 5", want: "selects 4 compatibility tests, want 5"},
 		{name: "nested lint pin", path: "internal/agenteval/Makefile", old: "golangci-lint@v2.12.2 run", replacement: "golangci-lint@latest run", want: "exact \"lint\" gate"},
 		{name: "root facade bypass", path: "Makefile", old: "\t$(AGENT_EVAL_MAKE) race", replacement: "\tgo test -race ./internal/agenteval", want: "nested-module facades"},
 		{name: "root module boundary", path: "Makefile", old: "go run ./scripts/check-module-boundary -root .", replacement: "echo skipped", want: "exact two-module boundary gate"},
@@ -473,10 +474,11 @@ REPOSITORY_ROOT ?= $(abspath ../..)
 ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
 
 CAPABILITY_CATALOG_FIXTURE := $(CURDIR)/testdata/capability-catalog.v1.json
-COMPAT_TESTS_WIRES := ^(TestFixture)$$
-COMPAT_TESTS_MIRROR := ^(TestFixture)$$
-COMPAT_TESTS_WRITES := ^(TestFixture)$$
-COMPAT_TESTS_MCP := ^TestFixture$$
+COMPAT_TEST_COUNT := 4
+COMPAT_TESTS_WIRES := ^(TestFixtureWires)$$
+COMPAT_TESTS_MIRROR := ^(TestFixtureMirror)$$
+COMPAT_TESTS_WRITES := ^(TestFixtureWrites)$$
+COMPAT_TESTS_MCP := ^TestFixtureMCP$$
 
 .PHONY: build
 build:
@@ -523,20 +525,27 @@ gen-capability-catalog: product-atl
 		chmod 0644 "$$tmp"; \
 		mv "$$tmp" "$(CAPABILITY_CATALOG_FIXTURE)"
 
-.PHONY: compat
-compat: product-atl
+.PHONY: compat-tests
+compat-tests: product-atl
 	@test -x "$(ATL_BINARY)"
 	$(GO_ENV) go test . -run '$(COMPAT_TESTS_WIRES)' -count=1
 	$(GO_ENV) go test . -run '$(COMPAT_TESTS_MIRROR)' -count=1
 	$(GO_ENV) go test . -run '$(COMPAT_TESTS_WRITES)' -count=1
 	$(GO_ENV) go test . -run '$(COMPAT_TESTS_MCP)' -count=1
+
+.PHONY: compat-oracles
+compat-oracles: product-atl
+	@test -x "$(ATL_BINARY)"
 	$(GO_ENV) go run ./cmd/agent-eval validate fixture >/dev/null
 	$(GO_ENV) go run ./cmd/agent-eval validate-run fixture >/dev/null
 	$(GO_ENV) go run ./cmd/agent-eval verify-atl-capabilities $(ATL_BINARY) >/dev/null
 	$(GO_ENV) go run ./cmd/agent-eval verify-codex-skill-package $(REPOSITORY_ROOT)/plugins/atl >/dev/null
 
+.PHONY: compat
+compat: compat-tests compat-oracles
+
 .PHONY: contract
-contract: compat unit
+contract: compat-oracles unit
 
 .PHONY: product-boundary
 product-boundary:
@@ -545,7 +554,7 @@ product-boundary:
 .PHONY: full
 full: tidy-check build race lint vet vuln contract windows product-boundary
 `,
-		"internal/agenteval/fixture_test.go": "package agenteval\n\nimport \"testing\"\n\nfunc TestFixture(t *testing.T) {}\n",
+		"internal/agenteval/fixture_test.go": "package agenteval\n\nimport \"testing\"\n\nfunc TestFixtureWires(t *testing.T) {}\nfunc TestFixtureMirror(t *testing.T) {}\nfunc TestFixtureWrites(t *testing.T) {}\nfunc TestFixtureMCP(t *testing.T) {}\n",
 		".github/workflows/ci.yml": `name: ci
 on:
   push:
