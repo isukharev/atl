@@ -72,37 +72,72 @@ tag:
 ```sh
 umask 077
 mkdir -p tmp/runs
-run_tag=check-docs
+run_tag="check-docs-$(git rev-parse --short HEAD)"
+run_log="tmp/runs/${run_tag}.log"
 run_state="tmp/runs/${run_tag}.state"
-setsid nohup sh -c '
-  make check-docs-catalog
+run_result="tmp/runs/${run_tag}.result"
+for run_path in "$run_log" "$run_state" "$run_result"; do
+  [ ! -e "$run_path" ] || exit 1
+done
+nohup setsid --fork --wait sh -c '
+  log=$1
+  result=$2
+  make check-docs-catalog >"$log" 2>&1
   run_status=$?
-  printf "__EXIT=%s\n" "$run_status"
+  candidate="${result}.tmp.$$"
+  printf "__EXIT=%s\n" "$run_status" >"$candidate" &&
+    mv -- "$candidate" "$result" || exit 125
   exit "$run_status"
-' >"tmp/runs/${run_tag}.log" 2>&1 </dev/null &
+' sh "$run_log" "$run_result" </dev/null >/dev/null 2>&1 &
 run_pid=$!
 run_started="$(awk '{print $22}' "/proc/${run_pid}/stat" 2>/dev/null || true)"
 if [ -n "$run_started" ]; then
   printf '%s %s\n' "$run_pid" "$run_started" >"$run_state"
+elif [ ! -f "$run_result" ]; then
+  exit 1
 fi
 printf 'started %s\n' "$run_tag"
 ```
 
-Check the marker and the Linux process start tick together. A missing marker is
-`running` only while that exact process instance remains alive; otherwise fail
-closed instead of waiting forever:
+`setsid --fork --wait` keeps `$!` attached to a supervisor until the detached
+child finishes, even when the launching shell has job control enabled. The
+child publishes its exit status through a separate atomic result file, so gate
+output cannot spoof the marker.
+
+Check the result and Linux process start tick together. Propagate a completed
+gate's recorded status. A missing result is `running` only while that exact
+supervisor remains alive; if liveness disappears, recheck the result once to
+close the completion race before failing closed:
 
 ```sh
-if grep -m1 '^__EXIT=' "tmp/runs/${run_tag}.log"; then
-  :
-elif read -r run_pid run_started <"$run_state" &&
+read_run_result() {
+  [ -f "$run_result" ] || return 126
+  run_marker="$(cat -- "$run_result")" || return 125
+  case "$run_marker" in
+    __EXIT=[0-9]|__EXIT=[0-9][0-9]|__EXIT=[0-9][0-9][0-9]) ;;
+    *) return 125 ;;
+  esac
+  run_value="${run_marker#__EXIT=}"
+  [ "$run_value" -le 255 ] || return 125
+  printf '%s\n' "$run_value"
+}
+run_status="$(read_run_result)"
+result_status=$?
+if [ "$result_status" -eq 0 ]; then
+  tail -c 3000 "$run_log"
+  exit "$run_status"
+fi
+[ "$result_status" -eq 126 ] || exit 1
+if read -r run_pid run_started <"$run_state" &&
     [ "$(awk '{print $22}' "/proc/${run_pid}/stat" 2>/dev/null || true)" = "$run_started" ]; then
   printf 'running\n'
+elif run_status="$(read_run_result)"; then
+  tail -c 3000 "$run_log"
+  exit "$run_status"
 else
-  printf 'failed: process ended without an exit marker\n' >&2
+  printf 'failed: process ended without a valid result\n' >&2
   exit 1
 fi
-tail -c 3000 "tmp/runs/${run_tag}.log"
 ```
 
 After independent work is exhausted, wait for the same job inside one bounded
@@ -111,16 +146,32 @@ the orchestration layer must not surface those sleeps as separate model turns:
 
 ```sh
 timeout 2700 sh -c '
-  log=$1
+  result=$1
   state=$2
   stat_program=$3
-  while ! grep -q "^__EXIT=" "$log"; do
+  while [ ! -f "$result" ]; do
     read -r pid started <"$state" || exit 1
     current="$(awk "$stat_program" "/proc/${pid}/stat" 2>/dev/null || true)"
-    [ -n "$current" ] && [ "$current" = "$started" ] || exit 1
+    if [ -z "$current" ] || [ "$current" != "$started" ]; then
+      [ -f "$result" ] || exit 125
+      break
+    fi
     sleep 120
   done
-' sh "tmp/runs/${run_tag}.log" "$run_state" '{print $22}'
+' sh "$run_result" "$run_state" '{print $22}'
+wait_status=$?
+if [ "$wait_status" -eq 0 ]; then
+  run_marker="$(cat -- "$run_result")" || wait_status=125
+  case "$run_marker" in
+    __EXIT=[0-9]|__EXIT=[0-9][0-9]|__EXIT=[0-9][0-9][0-9])
+      recorded_status="${run_marker#__EXIT=}"
+      [ "$recorded_status" -le 255 ] && wait_status="$recorded_status" || wait_status=125
+      ;;
+    *) wait_status=125 ;;
+  esac
+fi
+tail -c 3000 "$run_log"
+exit "$wait_status"
 ```
 
 GNU `timeout` and `/proc` make this exact form Linux-specific. On another host,
