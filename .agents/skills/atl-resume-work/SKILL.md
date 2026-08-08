@@ -9,6 +9,8 @@ description: Reconstruct and resume ATL repository work after context compaction
    Codex already supplied it in session context, do not reread the whole file
    from disk unless evidence says the active copy is missing or stale.
 2. Read [Session recovery](../../../docs/maintainers/session-recovery.md).
+   Use [Efficient agent work](../../../docs/maintainers/agent-efficiency.md) to
+   reconcile ignored transient session state and background exit markers.
 3. Capture the optional owner-only knowledge root and bootstrap digest exactly
    as the runbook specifies, without rendering either. Skip only a genuinely
    absent root; any partial, empty, malformed, or later validation result stops

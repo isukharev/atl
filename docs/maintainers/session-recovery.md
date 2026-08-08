@@ -238,6 +238,14 @@ Resume at the first uncompleted issue-plan acceptance criterion, not at the
 last remembered command. Reuse prior test results only when the covered bytes
 and relevant environment are unchanged.
 
+During a long active issue, maintain the content-minimized ignored file
+`tmp/session-state.md` described in
+[Efficient agent work](agent-efficiency.md). Use it to recover the current
+objective, worktree, background log markers, completed checks, and next action
+after compaction. It must not contain private paths, backend values, raw
+evidence, credentials, prompts, or proprietary content. Reconcile it against
+the literal recovery snapshot; current Git and issue state always win.
+
 Write a durable checkpoint at issue/PR boundaries and before a risky operation
 or deliberate session change. Keep it compact:
 

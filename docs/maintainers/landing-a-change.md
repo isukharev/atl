@@ -44,19 +44,28 @@ follow-up only when the finding or fix warrants it.
 ## CI and merge
 
 Mark the PR ready only after local gates and review are green. Inspect hosted
-checks rather than assuming that a queued workflow passed. Waiting is a model
-round trip: start one blocking watch under the orchestration layer's timeout
-matched to the matrix, never poll with repeated `gh pr checks` or short empty
-waits. Watch only required checks:
+checks rather than assuming that a queued workflow passed. Never use streaming
+watch/follow commands or keep a process session alive with model-driven waits.
+Take a bounded snapshot at a natural dependency boundary:
 
 ```sh
-gh pr checks <number> --required --watch --fail-fast
+gh pr checks <number> --json name,bucket \
+  --jq '[.[] | "\(.bucket) \(.name)"] | join("\n")'
 gh pr view <number> --json mergeable,isDraft,state,statusCheckRollup
 ```
 
-For one known workflow run, use `gh run watch <run-id> --exit-status`. While a
-watch is pending, prepare only an independent non-conflicting task; otherwise
-block once and consume the final result.
+For one known workflow run, inspect only its terminal fields:
+
+```sh
+gh run view <run-id> --json status,conclusion \
+  --jq '.status + " " + (.conclusion // "-")'
+```
+
+While checks are pending, prepare an independent non-conflicting task. Take at
+most three snapshots for the hosted workflow. If useful work is exhausted,
+record the pending state and expected duration, then end the turn instead of
+polling. Follow [Efficient agent work](agent-efficiency.md) for the common
+background, output, and session-state contract.
 
 Never merge a PR authored by anyone other than `isukharev` without explicit
 authorization for that exact PR. When the author and authority are valid, all

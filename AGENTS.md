@@ -140,8 +140,10 @@ contact configured providers or backends.
 - Add a second review only after a material correctness/security or design fix.
 - Never derive or pin `GOROOT`; raw Go commands use
   `env -u GOROOT GOTOOLCHAIN=auto GOWORK=off go ...`.
-- Waiting is a model round trip: use one blocking watch matched to the expected
-  duration, never repeated short polls.
+- Follow [Efficient agent work](docs/maintainers/agent-efficiency.md): never
+  stream watches or poll through wait/stdin. Background local commands expected
+  to exceed 90 seconds with an ignored log and exit marker; take at most three
+  status snapshots at natural boundaries; keep state in `tmp/session-state.md`.
 - Run a privacy scan over the complete public diff before every public commit
   or PR.
 

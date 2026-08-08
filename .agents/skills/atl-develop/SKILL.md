@@ -9,6 +9,8 @@ description: Implement or review changes in the ATL repository with the correct 
    not reread the whole file when Codex already supplied it in session context
    unless evidence says the active copy is missing or stale.
 2. Read [Development and verification](../../../docs/maintainers/development.md).
+   Apply [Efficient agent work](../../../docs/maintainers/agent-efficiency.md)
+   before any long command, large read, or repeated status check.
 3. Run the runbook's literal read-only snapshot once per session boundary and
    classify every dirty path before executing Makefiles/scripts or editing. Do
    not repeat identity/toolchain probes per commit.

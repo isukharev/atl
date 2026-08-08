@@ -10,6 +10,7 @@ Code compatibility route and does not duplicate or override those rules.
 Choose the smallest relevant maintainer runbook:
 
 - [Development and verification](docs/maintainers/development.md)
+- [Efficient agent work](docs/maintainers/agent-efficiency.md)
 - [Landing a change](docs/maintainers/landing-a-change.md)
 - [Session recovery](docs/maintainers/session-recovery.md)
 - [Live validation](docs/maintainers/live-validation.md)

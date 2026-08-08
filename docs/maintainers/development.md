@@ -2,7 +2,9 @@
 
 This runbook starts at a clean understanding of repository state and ends with
 a stable integrated diff. Use [Landing a change](landing-a-change.md) after the
-implementation is ready for public review.
+implementation is ready for public review. For background commands, bounded
+output, and transient state, follow
+[Efficient agent work](agent-efficiency.md).
 
 ## Read-only preflight
 
@@ -44,6 +46,7 @@ Classify the request before acting:
 | Output/wire contracts | `docs/reference/output/` |
 | Shipped client skills | `skills-src/`; generate `skills/` and `plugins/atl/skills/` |
 | Repository-only agent workflow | `.agents/skills/` and this directory |
+| Long-running agent execution | `docs/maintainers/agent-efficiency.md` |
 
 Read the smallest canonical file that owns the behavior. Use `rg` and
 `rg --files` before broader searches. Inspect the live command tree with
@@ -112,6 +115,12 @@ the paths changed since the last green invocation and use
 their mapped gates. A prose/comment/changelog-only fix reruns no compiled or
 tested gate only when the impact map selects none; always retain its mapped
 documentation checks, privacy scan, and `git diff --check`.
+
+Treat the stable integrated diff as one verification boundary. Do not run a
+local copy of a hosted gate against identical bytes merely to wait for CI
+unless this repository requires local exact-head evidence. Combine changes
+only when architecture ownership, process class, impact-selected gates, and
+the release window remain the same; otherwise keep separate boundaries.
 
 Prefer Make targets. Never derive `GOROOT` from `go env` or pin a downloaded
 toolchain path. For a raw command use:
