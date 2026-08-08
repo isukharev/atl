@@ -102,6 +102,7 @@ but do not replace it.
 | [Agent operating contract](../AGENTS.md) | Repository safety, ownership, workflow, and architecture invariants |
 | [Claude Code overlay](../CLAUDE.md) | Claude-specific execution guidance subordinate to `AGENTS.md` |
 | [Maintainer workflows](maintainers/README.md) | Preflight, verification, landing, recovery, and live-validation runbooks |
+| [Efficient agent work](maintainers/agent-efficiency.md) | Resumable long commands, bounded output, and one verification boundary |
 | [Architecture](architecture.md) | Hexagonal layers, dependency rules, and extension points |
 | [Issue and PR workflow](github-issue-workflow.md) | Issue-first planning, linked branches, review, and handoff |
 | [Generated plugins](plugins.md) | `skills-src` source of truth and Claude Code/Codex plugin generation |

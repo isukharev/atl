@@ -44,19 +44,40 @@ follow-up only when the finding or fix warrants it.
 ## CI and merge
 
 Mark the PR ready only after local gates and review are green. Inspect hosted
-checks rather than assuming that a queued workflow passed. Waiting is a model
-round trip: start one blocking watch under the orchestration layer's timeout
-matched to the matrix, never poll with repeated `gh pr checks` or short empty
-waits. Watch only required checks:
+checks rather than assuming that a queued workflow passed. Never keep a watch
+alive with model-driven waits. Take a bounded required-check snapshot at a
+natural dependency boundary:
 
 ```sh
-gh pr checks <number> --required --watch --fail-fast
+gh pr checks <number> --required --json name,bucket \
+  --jq '[.[] | "\(.bucket) \(.name)"] | join("\n")'
 gh pr view <number> --json mergeable,isDraft,state,statusCheckRollup
 ```
 
-For one known workflow run, use `gh run watch <run-id> --exit-status`. While a
-watch is pending, prepare only an independent non-conflicting task; otherwise
-block once and consume the final result.
+For one known workflow run, inspect only its terminal fields:
+
+```sh
+gh run view <run-id> --json status,conclusion \
+  --jq '.status + " " + (.conclusion // "-")'
+```
+
+While checks are pending, prepare an independent non-conflicting task. Take at
+most three model-visible snapshots for the hosted workflow. If useful work is
+exhausted, stay on the task with one bounded blocking watch whose intermediate
+ticks remain inside the tool invocation:
+
+```sh
+umask 077
+mkdir -p tmp/runs
+timeout 2700 gh pr checks <number> --required --watch --interval 120 --fail-fast \
+  >tmp/runs/pr-<number>-checks.log 2>&1
+```
+
+After it returns, take one final projected snapshot within the same
+three-snapshot budget and inspect mergeability. Follow
+[Efficient agent work](agent-efficiency.md) for the common liveness, background,
+output, and session-state contract. A timeout or lost waiter is a real pending
+boundary; ordinary queued checks are not.
 
 Never merge a PR authored by anyone other than `isukharev` without explicit
 authorization for that exact PR. When the author and authority are valid, all

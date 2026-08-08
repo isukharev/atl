@@ -8,6 +8,7 @@ agents do not have to reconstruct it from old issues, transcripts, or CI logs.
 | Task | Runbook |
 |---|---|
 | Start or implement a repository change | [Development and verification](development.md) |
+| Keep a long agent session resumable and bounded | [Efficient agent work](agent-efficiency.md) |
 | Carry an issue and PR through review, CI, and merge | [Landing a change](landing-a-change.md) |
 | Resume after compaction, interruption, or a new session | [Session recovery](session-recovery.md) |
 | Exercise a configured backend safely | [Live validation](live-validation.md) |
@@ -61,6 +62,7 @@ Update one owner instead of copying procedure back into root instructions:
 | Binding product, authority, architecture, safety, privacy, and handoff invariants | `AGENTS.md` |
 | Provider compatibility | provider file such as `CLAUDE.md`, as a route to shared owners |
 | Preflight, code ownership, and test selection | `development.md` |
+| Long-command execution, output budgets, and transient session state | `agent-efficiency.md` |
 | Issue, review, CI, merge, and cleanup sequence | `landing-a-change.md` |
 | Context-loss reconstruction and checkpoints | `session-recovery.md` |
 | Live read/write/cleanup boundaries | `live-validation.md` |
