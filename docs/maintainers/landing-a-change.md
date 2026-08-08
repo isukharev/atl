@@ -44,12 +44,12 @@ follow-up only when the finding or fix warrants it.
 ## CI and merge
 
 Mark the PR ready only after local gates and review are green. Inspect hosted
-checks rather than assuming that a queued workflow passed. Never use streaming
-watch/follow commands or keep a process session alive with model-driven waits.
-Take a bounded snapshot at a natural dependency boundary:
+checks rather than assuming that a queued workflow passed. Never keep a watch
+alive with model-driven waits. Take a bounded required-check snapshot at a
+natural dependency boundary:
 
 ```sh
-gh pr checks <number> --json name,bucket \
+gh pr checks <number> --required --json name,bucket \
   --jq '[.[] | "\(.bucket) \(.name)"] | join("\n")'
 gh pr view <number> --json mergeable,isDraft,state,statusCheckRollup
 ```
@@ -62,10 +62,22 @@ gh run view <run-id> --json status,conclusion \
 ```
 
 While checks are pending, prepare an independent non-conflicting task. Take at
-most three snapshots for the hosted workflow. If useful work is exhausted,
-record the pending state and expected duration, then end the turn instead of
-polling. Follow [Efficient agent work](agent-efficiency.md) for the common
-background, output, and session-state contract.
+most three model-visible snapshots for the hosted workflow. If useful work is
+exhausted, stay on the task with one bounded blocking watch whose intermediate
+ticks remain inside the tool invocation:
+
+```sh
+umask 077
+mkdir -p tmp/runs
+timeout 2700 gh pr checks <number> --required --watch --fail-fast \
+  >tmp/runs/pr-<number>-checks.log 2>&1
+```
+
+After it returns, take one final projected snapshot within the same
+three-snapshot budget and inspect mergeability. Follow
+[Efficient agent work](agent-efficiency.md) for the common liveness, background,
+output, and session-state contract. A timeout or lost waiter is a real pending
+boundary; ordinary queued checks are not.
 
 Never merge a PR authored by anyone other than `isukharev` without explicit
 authorization for that exact PR. When the author and authority are valid, all

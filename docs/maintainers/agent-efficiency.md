@@ -36,27 +36,31 @@ duplicated: `make check-maintainability` ran 13 times,
 These numbers establish the controls below. They are a measured operating
 budget, not a promise that a client, shell, or hosted service cannot fail.
 
-## Do not stream or poll
+## Keep waiting outside the model loop
 
-Never use streaming watch/follow commands such as `gh pr checks --watch`,
-`gh run watch`, or `--follow`. Do not keep a foreground session alive with
-repeated wait or stdin-write calls.
+Never make each status tick a model turn. A streaming watch/follow command is
+allowed only inside one bounded blocking tool invocation whose intermediate
+ticks do not return to the model. Never drive `gh pr checks --watch`,
+`gh run watch`, `--follow`, or a foreground process with repeated model-level
+wait or stdin-write calls.
 
 Inspect hosted state with one bounded snapshot and project only the fields
 needed for the decision:
 
 ```sh
-gh pr checks <PR> --json name,bucket \
+gh pr checks <PR> --required --json name,bucket \
   --jq '[.[] | "\(.bucket) \(.name)"] | join("\n")'
 gh run view <RUN_ID> --json status,conclusion \
   --jq '.status + " " + (.conclusion // "-")'
 ```
 
 Take a new snapshot only at a natural dependency boundary. The budget is at
-most three status snapshots for one long local operation or hosted workflow.
-If useful independent work is exhausted while state remains pending, report
-the expected duration and end the turn. A later session recovers from durable
-state; it does not reconstruct a polling loop.
+most three model-visible status snapshots for one long local operation or
+hosted workflow. A shell-side waiter may inspect state internally at intervals
+of at least two minutes because those ticks do not reload model context. When
+useful independent work is exhausted, start one bounded blocking waiter and
+stay on the task. Return a pending result only when that waiter times out,
+loses process liveness, needs new authority, or reaches another real blocker.
 
 ## Put long local commands in the background
 
@@ -69,21 +73,59 @@ tag:
 umask 077
 mkdir -p tmp/runs
 run_tag=check-docs
+run_state="tmp/runs/${run_tag}.state"
 setsid nohup sh -c '
   make check-docs-catalog
   run_status=$?
   printf "__EXIT=%s\n" "$run_status"
   exit "$run_status"
 ' >"tmp/runs/${run_tag}.log" 2>&1 </dev/null &
+run_pid=$!
+run_started="$(awk '{print $22}' "/proc/${run_pid}/stat" 2>/dev/null || true)"
+if [ -n "$run_started" ]; then
+  printf '%s %s\n' "$run_pid" "$run_started" >"$run_state"
+fi
 printf 'started %s\n' "$run_tag"
 ```
 
-Check it with one short bounded command, never through the process session:
+Check the marker and the Linux process start tick together. A missing marker is
+`running` only while that exact process instance remains alive; otherwise fail
+closed instead of waiting forever:
 
 ```sh
-grep -m1 '^__EXIT=' "tmp/runs/${run_tag}.log" || printf 'running\n'
+if grep -m1 '^__EXIT=' "tmp/runs/${run_tag}.log"; then
+  :
+elif read -r run_pid run_started <"$run_state" &&
+    [ "$(awk '{print $22}' "/proc/${run_pid}/stat" 2>/dev/null || true)" = "$run_started" ]; then
+  printf 'running\n'
+else
+  printf 'failed: process ended without an exit marker\n' >&2
+  exit 1
+fi
 tail -c 3000 "tmp/runs/${run_tag}.log"
 ```
+
+After independent work is exhausted, wait for the same job inside one bounded
+shell call. The shell may inspect the marker and liveness every two minutes;
+the orchestration layer must not surface those sleeps as separate model turns:
+
+```sh
+timeout 2700 sh -c '
+  log=$1
+  state=$2
+  stat_program=$3
+  while ! grep -q "^__EXIT=" "$log"; do
+    read -r pid started <"$state" || exit 1
+    current="$(awk "$stat_program" "/proc/${pid}/stat" 2>/dev/null || true)"
+    [ -n "$current" ] && [ "$current" = "$started" ] || exit 1
+    sleep 120
+  done
+' sh "tmp/runs/${run_tag}.log" "$run_state" '{print $22}'
+```
+
+GNU `timeout` and `/proc` make this exact form Linux-specific. On another host,
+use an equivalent bounded waiter that proves process identity, or report the
+missing mechanism. Do not substitute frequent model-visible polling.
 
 At the beginning of a session, verify once that a two-second background probe
 survives the end of an exec cell. `setsid` is Linux-specific and background
@@ -100,9 +142,11 @@ than ten minutes, post one concise commentary line:
 <operation> · ~N min · check: tail -c 3000 tmp/runs/<tag>.log
 ```
 
-While it runs, perform the next independent implementation, documentation,
-review, or PR-preparation step. Inspect the log only when that result becomes a
-dependency.
+Keep a worktree covered by a verification command immutable until that command
+finishes. While it runs, prepare external issue/PR text or work in a separate
+non-overlapping worktree; do not edit files the command can read and do not run
+concurrent generators against the same tree. Inspect the log only when that
+result becomes a dependency.
 
 `tmp/runs` is ignored local state, not a general evidence store. Use it only
 for public repository builds, tests, and reviews whose output is already safe

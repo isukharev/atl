@@ -20,9 +20,10 @@ description: Carry an ATL repository change from a shaped issue through linked b
    request a bounded follow-up only for material correctness, security, or
    design changes.
 6. Mark ready, then inspect required checks with bounded one-shot snapshots.
-   Never use streaming watch commands or model-driven wait/stdin polling. Do
-   independent work while checks run; stop at a durable pending boundary when
-   it is exhausted. Inspect mergeability only after checks are terminal.
+   Never drive a watch with model-level wait/stdin polling. Do independent work
+   while checks run; when it is exhausted, use one bounded tool-internal
+   blocking watch and remain on the task. Inspect mergeability only after
+   checks are terminal.
 7. Merge only when the author/authority rule permits it. Synchronize `main`,
    remove the working label, and update the durable checkpoint.
 

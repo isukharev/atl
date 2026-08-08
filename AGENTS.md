@@ -143,7 +143,8 @@ contact configured providers or backends.
 - Follow [Efficient agent work](docs/maintainers/agent-efficiency.md): never
   stream watches or poll through wait/stdin. Background local commands expected
   to exceed 90 seconds with an ignored log and exit marker; take at most three
-  status snapshots at natural boundaries; keep state in `tmp/session-state.md`.
+  model-visible snapshots; when other work ends, use one bounded tool-internal
+  waiter rather than ending because the operation is pending.
 - Run a privacy scan over the complete public diff before every public commit
   or PR.
 
