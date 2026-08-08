@@ -175,6 +175,16 @@ not quality scores: add headroom only with a rationale, and lower a limit after
 a responsibility-based split lands. Timing rows record hosted observations in
 `observe` mode; they do not impose runtime thresholds.
 
+The same manifest reviews every production Go file under `internal/` and
+`scripts/` at or above 750 physical lines. Each such file must have either an
+owned hotspot row or a bounded, explicitly rationalized exclusion; an exclusion
+retains its own measured ceiling and becomes stale after the file drops below
+the threshold. Selected safety-critical functions use `no_headroom`, which
+requires the checked maximum to equal the current AST span exactly. The checker
+reports hotspots, package totals, change-surface coverage, and observe-only
+timing evidence as separate JSON members so a maintainer can lower the relevant
+allowance mechanically after a split.
+
 The evaluator is an independent nested module at `internal/agenteval`, with its
 maintainer command at `internal/agenteval/cmd/agent-eval`. Root recursive Go
 commands intentionally exclude it. Use the root `make agent-eval-*` façades:
