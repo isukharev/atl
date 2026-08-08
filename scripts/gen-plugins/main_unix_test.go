@@ -37,6 +37,31 @@ func TestRunRejectsSpecialSourceFileBeforeRemovingOutputs(t *testing.T) {
 	assertGeneratorSentinels(t)
 }
 
+func TestRunCheckRejectsSpecialOutputFileWithoutMutation(t *testing.T) {
+	prepareGeneratedCheckWorkspace(t)
+	name := filepath.Join("skills", "demo", "SKILL.md")
+	if err := os.Remove(name); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(name, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Lstat(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runMode(true); err == nil || !strings.Contains(err.Error(), "special file") {
+		t.Fatalf("special output file passed check mode: %v", err)
+	}
+	after, err := os.Lstat(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Mode() != after.Mode() || before.Size() != after.Size() {
+		t.Fatalf("check mode mutated special output: before=%v after=%v", before.Mode(), after.Mode())
+	}
+}
+
 func TestRunRejectsOutputPathReplacementBeforeSuccess(t *testing.T) {
 	original, err := os.Getwd()
 	if err != nil {

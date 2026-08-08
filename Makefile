@@ -107,10 +107,8 @@ gen-plugins:
 	cp .mcp.json plugins/atl/.mcp.json
 
 .PHONY: check-plugins
-check-plugins: gen-plugins check-skill-safety check-skill-routing
-	@test -z "$$(git status --porcelain -- skills plugins/atl/skills plugins/atl/.mcp.json plugins/atl/skill-catalog.v1.json)" || { \
-		git status --porcelain -- skills plugins/atl/skills plugins/atl/.mcp.json plugins/atl/skill-catalog.v1.json; \
-		echo "generated plugin outputs are stale or hand-edited: edit skills-src/, run 'make gen-plugins', commit every generated output"; exit 1; }
+check-plugins: check-skill-safety check-skill-routing
+	$(GO_ENV) go run ./scripts/gen-plugins --check
 
 .PHONY: check-skill-safety
 check-skill-safety:
