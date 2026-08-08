@@ -69,7 +69,7 @@ ticks remain inside the tool invocation:
 ```sh
 umask 077
 mkdir -p tmp/runs
-timeout 2700 gh pr checks <number> --required --watch --fail-fast \
+timeout 2700 gh pr checks <number> --required --watch --interval 120 --fail-fast \
   >tmp/runs/pr-<number>-checks.log 2>&1
 ```
 

@@ -79,30 +79,39 @@ run_result="tmp/runs/${run_tag}.result"
 for run_path in "$run_log" "$run_state" "$run_result"; do
   [ ! -e "$run_path" ] || exit 1
 done
-nohup setsid --fork --wait sh -c '
+nohup setsid --fork sh -c '
   log=$1
   result=$2
+  state=$3
+  stat_program=$4
+  self_started="$(awk "$stat_program" "/proc/$$/stat" 2>/dev/null || true)"
+  [ -n "$self_started" ] || exit 125
+  state_candidate="${state}.tmp.$$"
+  printf '%s %s\n' "$$" "$self_started" >"$state_candidate" &&
+    mv -- "$state_candidate" "$state" || exit 125
   make check-docs-catalog >"$log" 2>&1
   run_status=$?
   candidate="${result}.tmp.$$"
   printf "__EXIT=%s\n" "$run_status" >"$candidate" &&
     mv -- "$candidate" "$result" || exit 125
   exit "$run_status"
-' sh "$run_log" "$run_result" </dev/null >/dev/null 2>&1 &
-run_pid=$!
-run_started="$(awk '{print $22}' "/proc/${run_pid}/stat" 2>/dev/null || true)"
-if [ -n "$run_started" ]; then
-  printf '%s %s\n' "$run_pid" "$run_started" >"$run_state"
-elif [ ! -f "$run_result" ]; then
-  exit 1
-fi
+' sh "$run_log" "$run_result" "$run_state" '{print $22}' \
+  </dev/null >/dev/null 2>&1 &
+launch_attempts=0
+while [ ! -f "$run_state" ] && [ ! -f "$run_result" ] &&
+    [ "$launch_attempts" -lt 50 ]; do
+  launch_attempts=$((launch_attempts + 1))
+  sleep 0.1
+done
+[ -f "$run_state" ] || [ -f "$run_result" ] || exit 1
 printf 'started %s\n' "$run_tag"
 ```
 
-`setsid --fork --wait` keeps `$!` attached to a supervisor until the detached
-child finishes, even when the launching shell has job control enabled. The
-child publishes its exit status through a separate atomic result file, so gate
-output cannot spoof the marker.
+Do not use the launcher's `$!` as the durable identity: GNU `setsid --fork` may
+make it the short-lived parent. The detached child records its own PID and
+Linux start tick atomically before starting the gate. It publishes its exit
+status through a separate atomic result file, so gate output cannot spoof the
+marker.
 
 Check the result and Linux process start tick together. Propagate a completed
 gate's recorded status. A missing result is `running` only while that exact
@@ -110,6 +119,10 @@ supervisor remains alive; if liveness disappears, recheck the result once to
 close the completion race before failing closed:
 
 ```sh
+run_tag=check-docs-abc1234  # copy the exact tag from tmp/session-state.md
+run_log="tmp/runs/${run_tag}.log"
+run_state="tmp/runs/${run_tag}.state"
+run_result="tmp/runs/${run_tag}.result"
 read_run_result() {
   [ -f "$run_result" ] || return 126
   run_marker="$(cat -- "$run_result")" || return 125
@@ -145,6 +158,10 @@ shell call. The shell may inspect the marker and liveness every two minutes;
 the orchestration layer must not surface those sleeps as separate model turns:
 
 ```sh
+run_tag=check-docs-abc1234  # copy the exact tag from tmp/session-state.md
+run_log="tmp/runs/${run_tag}.log"
+run_state="tmp/runs/${run_tag}.state"
+run_result="tmp/runs/${run_tag}.result"
 timeout 2700 sh -c '
   result=$1
   state=$2
