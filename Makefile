@@ -6,8 +6,8 @@
 #   make lint             run golangci-lint (if installed)
 #   make vet              go vet
 #   make check-core-race-coverage run the shared release-grade root-core test gate
-#   make gen-plugins      regenerate skills/ and plugins/atl/skills/ from skills-src/
-#   make check-plugins    verify the generated plugin trees are current
+#   make gen-plugins      regenerate plugin artifacts from skills-src/ and .mcp.json
+#   make check-plugins    verify the generated plugin artifacts are current
 #   make check-skill-safety validate designated read-only skill shell blocks
 #   make check-repository-skills validate repository-only maintainer skills
 #   make check-docs-catalog validate the maintained public Markdown inventory
@@ -104,7 +104,6 @@ lint:
 .PHONY: gen-plugins
 gen-plugins:
 	$(GO_ENV) go run ./scripts/gen-plugins
-	cp .mcp.json plugins/atl/.mcp.json
 
 .PHONY: check-plugins
 check-plugins: check-skill-safety check-skill-routing

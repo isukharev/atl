@@ -752,6 +752,38 @@ func TestRunRejectsSymlinkedCatalogDestinationBeforeRemovingOutputs(t *testing.T
 	}
 }
 
+func TestRunRejectsSymlinkedMCPDestinationBeforeRemovingOutputs(t *testing.T) {
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(original) })
+
+	writeValidGeneratorSkill(t)
+	writeGeneratorSentinels(t)
+	external := filepath.Join(t.TempDir(), "external-mcp.json")
+	const externalSentinel = "external sentinel\n"
+	if err := os.WriteFile(external, []byte(externalSentinel), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(external, pluginMCPConfigPath); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if err := run(); err == nil || !strings.Contains(err.Error(), "MCP config output") {
+		t.Fatalf("symlinked MCP destination passed: %v", err)
+	}
+	assertGeneratorSentinels(t)
+	data, err := os.ReadFile(external)
+	if err != nil || string(data) != externalSentinel {
+		t.Fatalf("external MCP target was touched: data=%q err=%v", data, err)
+	}
+}
+
 func TestRunRejectsReplacedCatalogTemporaryAndPreservesPreviousCompanion(t *testing.T) {
 	original, err := os.Getwd()
 	if err != nil {
@@ -771,6 +803,9 @@ func TestRunRejectsReplacedCatalogTemporaryAndPreservesPreviousCompanion(t *test
 		t.Fatal(err)
 	}
 	afterGeneratedTempClosed = func(name string) {
+		if name != "."+filepath.Base(codexSkillCatalogPath)+".tmp" {
+			return
+		}
 		temporary := filepath.Join(filepath.Dir(codexSkillCatalogPath), name)
 		if removeErr := os.Remove(temporary); removeErr != nil {
 			t.Fatal(removeErr)
@@ -867,6 +902,7 @@ func writeValidGeneratorSkill(t *testing.T) {
 	for path, data := range map[string]string{
 		filepath.Join(skillRoot, "SKILL.md"):              skill,
 		filepath.Join(skillRoot, "agents", "openai.yaml"): metadata,
+		rootMCPConfigName:                                 "{\"mcpServers\":{}}\n",
 	} {
 		if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 			t.Fatal(err)
@@ -941,14 +977,7 @@ func prepareGeneratedCheckWorkspace(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join("plugins", "atl"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	mcpData := []byte("{\"mcpServers\":{}}\n")
-	if err := os.WriteFile(rootMCPConfigName, mcpData, 0o644); err != nil {
-		t.Fatal(err)
-	}
 	if err := run(); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(pluginMCPConfigPath, mcpData, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

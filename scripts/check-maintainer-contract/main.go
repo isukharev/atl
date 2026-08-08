@@ -82,7 +82,11 @@ const generatedAttributesContract = `/skills/** linguist-generated=true
 /plugins/atl/skill-catalog.v1.json linguist-generated=true
 `
 
-const pluginsMakeContract = `.PHONY: check-plugins
+const pluginsMakeContract = `.PHONY: gen-plugins
+gen-plugins:
+	$(GO_ENV) go run ./scripts/gen-plugins
+
+.PHONY: check-plugins
 check-plugins: check-skill-safety check-skill-routing
 	$(GO_ENV) go run ./scripts/gen-plugins --check
 `
@@ -445,6 +449,9 @@ func validateBootstrap(root string) error {
 	if countMakeTargetDeclarations(makefile, "check-core-race-coverage") != 1 ||
 		bytes.Count(makefile, []byte(coreCoverageMakeContract)) != 1 {
 		return errors.New("makefile must retain the exact root-core race/coverage command and reviewed 84.0% floor")
+	}
+	if countMakeTargetDeclarations(makefile, "gen-plugins") != 1 {
+		return errors.New("makefile must provide exactly one generated-plugin publication target")
 	}
 	for _, required := range []struct {
 		target, contract, diagnostic string
