@@ -295,15 +295,23 @@ func TestClassifyImpactKeepsNestedEvaluatorIndependent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checks, err := classifyImpact(manifest, nil, changedPathSet{
-		Paths:      []string{"internal/agenteval/runner.go"},
-		Historical: map[string]bool{},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := strings.Join(checks, ","), "agent-eval-full,maintainability"; got != want {
-		t.Fatalf("nested evaluator checks = %q, want %q", got, want)
+	for _, test := range []struct {
+		path string
+		want string
+	}{
+		{path: "internal/agenteval/runner.go", want: "agent-eval-full,maintainability"},
+		{path: "internal/agenteval/Makefile", want: "agent-eval-full,maintainability,maintainer-contract"},
+	} {
+		checks, err := classifyImpact(manifest, nil, changedPathSet{
+			Paths:      []string{test.path},
+			Historical: map[string]bool{},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Join(checks, ","); got != test.want {
+			t.Errorf("nested evaluator checks for %q = %q, want %q", test.path, got, test.want)
+		}
 	}
 }
 

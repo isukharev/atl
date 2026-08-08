@@ -58,6 +58,7 @@
     {"path":"go.mod","checks":["agent-eval-product-boundary","lint","maintainer-contract","test","vet"]},
     {"path":"go.sum","checks":["agent-eval-product-boundary","lint","test","vet"]},
     {"path":"install.sh","checks":["test"]},
+    {"path":"internal/agenteval/Makefile","checks":["agent-eval-full","maintainability","maintainer-contract"]},
     {"path":"skills-src/routing.v1.json","checks":["docs-freshness","plugins","skill-routing"]},
     {"prefix":".agents/","checks":["docs-catalog","repository-skills"]},
     {"prefix":".claude-plugin/","checks":["plugins"]},
