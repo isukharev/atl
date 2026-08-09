@@ -80,6 +80,8 @@ func TestArtifactPathContractOracleRejectsRealSourceMutations(t *testing.T) {
 		{name: "defined shadow type", path: "internal/mirror/contract_shadow.go", body: `package mirror; type escapedArtifactPath ArtifactPath; var escapedShadow = escapedArtifactPath{value: "x", class: artifactPathPublic}`},
 		{name: "anonymous ArtifactPath conversion", path: "internal/mirror/contract_anonymous_path.go", body: `package mirror; var escapedAnonymousArtifact = ArtifactPath(struct { value string; class artifactPathClass }{value: "x", class: artifactPathPublic})`},
 		{name: "anonymous DTO conversion", path: "internal/mirror/contract_anonymous_dto.go", body: `package mirror; import "os"; var escapedAnonymousDTO = CompletePullArtifact(struct { Path ArtifactPath; Data []byte; Mode os.FileMode; Remove bool; BestEffort bool }{})`},
+		{name: "pointer ArtifactPath conversion", path: "internal/mirror/contract_pointer_path.go", body: `package mirror; var escapedPointerArtifact = *(*ArtifactPath)(&struct { value string; class artifactPathClass }{value: "x", class: artifactPathPublic})`},
+		{name: "pointer DTO conversion", path: "internal/mirror/contract_pointer_dto.go", body: `package mirror; import "os"; var escapedPointerDTO = *(*CompletePullArtifact)(&struct { Path ArtifactPath; Data []byte; Mode os.FileMode; Remove bool; BestEffort bool }{})`},
 		{name: "function alias", path: "internal/mirror/contract_function_alias.go", body: `package mirror; var escapedArtifactConstructor = NewPublicArtifactPath`},
 		{name: "constructor wrapper", path: "internal/mirror/contract_wrapper.go", body: `package mirror; func escapedArtifactConstructor(v string) (ArtifactPath, error) { return NewPublicArtifactPath(v) }`},
 		{name: "raw field", path: "internal/mirror/contract_field.go", body: `package mirror; func escapedArtifactValue(p ArtifactPath) string { return p.value }`},
@@ -639,6 +641,13 @@ func artifactProtectedRepresentation(candidate types.Type, protected map[types.T
 		return "", false
 	}
 	candidate = types.Unalias(candidate)
+	for {
+		pointer, ok := candidate.(*types.Pointer)
+		if !ok {
+			break
+		}
+		candidate = types.Unalias(pointer.Elem())
+	}
 	if _, named := candidate.(*types.Named); !named {
 		return "", false
 	}
@@ -655,6 +664,13 @@ func artifactExactProtectedType(candidate types.Type, protected map[types.Type]s
 		return false
 	}
 	candidate = types.Unalias(candidate)
+	for {
+		pointer, ok := candidate.(*types.Pointer)
+		if !ok {
+			break
+		}
+		candidate = types.Unalias(pointer.Elem())
+	}
 	for expected := range protected {
 		if types.Identical(candidate, expected) {
 			return true
