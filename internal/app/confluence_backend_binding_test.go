@@ -187,7 +187,7 @@ func TestConfluencePullJiraMacroBindingFailsBeforeJiraRead(t *testing.T) {
 	result, err := (&ConfluenceService{
 		baseURL: confluenceTestBackendURL,
 		store:   &recordingStore{page: page}, jiraRead: tracker,
-		cfg: &config.Config{JiraURL: jiraTestBackendURL},
+		cfg: &config.Config{JiraURL: jiraOtherBackendURL}, jiraBaseURL: jiraTestBackendURL,
 	}).Pull(context.Background(), PullOpts{ID: page.ID, Into: root})
 	if !errors.Is(err, domain.ErrCheckFailed) || result == nil || tracker.searchJQL != "" {
 		t.Fatalf("result=%+v jira_jql=%q err=%v", result, tracker.searchJQL, err)
@@ -202,7 +202,7 @@ func TestConfluencePullJiraMacroBindsFreshJiraEvidence(t *testing.T) {
 	result, err := (&ConfluenceService{
 		baseURL: confluenceTestBackendURL,
 		store:   &recordingStore{page: page}, jiraRead: tracker,
-		cfg: &config.Config{JiraURL: jiraTestBackendURL},
+		cfg: &config.Config{}, jiraBaseURL: jiraTestBackendURL,
 	}).Pull(context.Background(), PullOpts{ID: page.ID, Into: root})
 	if err != nil || result == nil || tracker.searchJQL == "" {
 		t.Fatalf("result=%+v jira_jql=%q err=%v", result, tracker.searchJQL, err)
@@ -220,7 +220,7 @@ func TestConfluencePullJiraMacroDryRunWritesNoBinding(t *testing.T) {
 	result, err := (&ConfluenceService{
 		baseURL: confluenceTestBackendURL,
 		store:   &recordingStore{page: page}, jiraRead: tracker,
-		cfg: &config.Config{JiraURL: jiraTestBackendURL},
+		cfg: &config.Config{}, jiraBaseURL: jiraTestBackendURL,
 	}).Pull(context.Background(), PullOpts{ID: page.ID, Into: root, DryRun: true})
 	if err != nil || result == nil || tracker.searchJQL != "" {
 		t.Fatalf("result=%+v jira_jql=%q err=%v", result, tracker.searchJQL, err)

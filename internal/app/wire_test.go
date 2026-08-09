@@ -9,16 +9,19 @@ import (
 )
 
 func TestNewConfluenceServiceProjectsPureDependencies(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &config.Config{JiraURL: "https://render-config-must-not-supply-jira.example.com"}
 	activation := compatibility.Activation{ProviderID: "provider"}
 	service := NewConfluenceService(ConfluenceDependencies{
-		BaseURL: "https://confluence.example.com", Config: cfg,
+		BaseURL: "https://confluence.example.com", Config: cfg, JiraBaseURL: "https://jira.example.com",
 		RequestMaxInFlight: 4, RequestsPerSecond: 10,
 		CommentMutationActivation: &activation,
 	})
 	activation.ProviderID = "changed"
 	if service.baseURL != "https://confluence.example.com" || service.cfg != cfg {
 		t.Fatalf("constructor lost base/config: %+v", service)
+	}
+	if service.jiraBaseURL != "https://jira.example.com" {
+		t.Fatalf("Jira sibling base URL=%q", service.jiraBaseURL)
 	}
 	if service.requestMaxInFlight != 4 || service.requestsPerSecond != 10 {
 		t.Fatalf("schedule = %d/%d", service.requestMaxInFlight, service.requestsPerSecond)
@@ -29,10 +32,15 @@ func TestNewConfluenceServiceProjectsPureDependencies(t *testing.T) {
 }
 
 func TestNewJiraServiceProjectsPureDependencies(t *testing.T) {
-	cfg := &config.Config{}
-	service := NewJiraService(JiraDependencies{BaseURL: "https://jira.example.com", Config: cfg})
+	cfg := &config.Config{ConfluenceURL: "https://render-config-must-not-supply-confluence.example.com"}
+	service := NewJiraService(JiraDependencies{
+		BaseURL: "https://jira.example.com", Config: cfg, ConfluenceBaseURL: "https://confluence.example.com",
+	})
 	if service.baseURL != "https://jira.example.com" || service.cfg != cfg {
 		t.Fatalf("constructor lost base/config: %+v", service)
+	}
+	if got := jiraGraphConfluenceBase(service); got != "https://confluence.example.com" {
+		t.Fatalf("Confluence sibling base URL=%q", got)
 	}
 	if _, reason := service.confluenceGraphMetadataReader(); reason != string(DependencyNotConfigured) {
 		t.Fatalf("optional Confluence reason=%q", reason)

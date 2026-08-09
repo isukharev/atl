@@ -90,7 +90,7 @@ func NewConfluenceCommentMutationsWithWriteAuthorizer(cfg *config.Config, versio
 	activationCopy := activation
 	return app.NewConfluenceService(app.ConfluenceDependencies{
 		Store: cf, Users: cf.ResolveUser, Assets: cf, BaseURL: cfg.ConfluenceURL,
-		Verifier: cf, Config: cfg,
+		Verifier: cf, Config: cfg, JiraBaseURL: cfg.JiraURL,
 		JiraReadFactory: func() (domain.Tracker, string) {
 			return optionalJiraReadScheduled(cfg, version, scheduler)
 		},
@@ -112,7 +112,7 @@ func NewConfluenceScheduledWithWriteAuthorizer(cfg *config.Config, version strin
 	}
 	return app.NewConfluenceService(app.ConfluenceDependencies{
 		Store: cf, Users: cf.ResolveUser, Assets: cf, BaseURL: cfg.ConfluenceURL,
-		Verifier: cf, Config: cfg,
+		Verifier: cf, Config: cfg, JiraBaseURL: cfg.JiraURL,
 		JiraReadFactory: func() (domain.Tracker, string) {
 			return optionalJiraReadScheduled(cfg, version, scheduler)
 		},
@@ -212,6 +212,7 @@ func NewJiraWithWriteAuthorizer(cfg *config.Config, version string, authorizer d
 	}
 	return app.NewJiraService(app.JiraDependencies{
 		Tracker: j, Agile: j, Structure: j, BaseURL: cfg.JiraURL, Config: cfg,
+		ConfluenceBaseURL: cfg.ConfluenceURL,
 		ConfluenceGraphFactory: func() (domain.ConfluenceGraphPageMetadataReader, string) {
 			return optionalConfluenceGraphRead(cfg, version)
 		},

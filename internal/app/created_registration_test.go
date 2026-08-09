@@ -459,7 +459,7 @@ func TestConfluenceRegistrationJiraBindingIsMacroScoped(t *testing.T) {
 		}
 		page, registration, err := (&ConfluenceService{
 			store: store, baseURL: testConfluenceBackendURL,
-			cfg: &config.Config{JiraURL: testJiraBackendURL},
+			cfg: &config.Config{}, jiraBaseURL: testJiraBackendURL,
 		}).CreateAndRegister(context.Background(), "DOC", "", "New", []byte(`<p>plain</p>`), root)
 		if err != nil || page == nil || registration == nil || registration.Status != "registered" || store.createCalls != 1 {
 			t.Fatalf("page=%+v registration=%+v calls=%d err=%v", page, registration, store.createCalls, err)
@@ -472,7 +472,7 @@ func TestConfluenceRegistrationJiraBindingIsMacroScoped(t *testing.T) {
 		store := &createdConfluenceStore{}
 		page, registration, err := (&ConfluenceService{
 			store: store, baseURL: testConfluenceBackendURL, jiraRead: &recordingTracker{},
-			cfg: &config.Config{JiraURL: testJiraBackendURL},
+			cfg: &config.Config{}, jiraBaseURL: testJiraBackendURL,
 		}).CreateAndRegister(context.Background(), "DOC", "", "New", []byte(jiraQueryMacroCSF), root)
 		if page != nil || registration != nil || !errors.Is(err, domain.ErrCheckFailed) || store.createCalls != 0 {
 			t.Fatalf("page=%+v registration=%+v calls=%d err=%v", page, registration, store.createCalls, err)
@@ -492,7 +492,7 @@ func TestConfluenceRegistrationJiraBindingIsMacroScoped(t *testing.T) {
 		}
 		page, registration, err := (&ConfluenceService{
 			store: store, baseURL: testConfluenceBackendURL, jiraRead: tracker,
-			cfg: &config.Config{JiraURL: testJiraBackendURL},
+			cfg: &config.Config{}, jiraBaseURL: testJiraBackendURL,
 		}).CreateAndRegister(context.Background(), "DOC", "", "New", []byte(`<p>plain</p>`), root)
 		if err != nil || page == nil || registration == nil || registration.Status != "registered" || len(registration.Warnings) == 0 {
 			t.Fatalf("page=%+v registration=%+v err=%v", page, registration, err)

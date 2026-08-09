@@ -31,6 +31,7 @@ type ConfluenceService struct {
 	baseURL         string
 	verifier        domain.Verifier
 	cfg             *config.Config
+	jiraBaseURL     string
 	jiraRead        domain.Tracker
 	jiraReadFactory func() (domain.Tracker, string)
 	jiraReadOnce    sync.Once
@@ -52,6 +53,7 @@ type ConfluenceDependencies struct {
 	BaseURL                   string
 	Verifier                  domain.Verifier
 	Config                    *config.Config
+	JiraBaseURL               string
 	JiraReadFactory           func() (domain.Tracker, string)
 	RequestMaxInFlight        int
 	RequestsPerSecond         int
@@ -70,6 +72,7 @@ func NewConfluenceService(deps ConfluenceDependencies) *ConfluenceService {
 	return &ConfluenceService{
 		store: deps.Store, users: deps.Users, assets: deps.Assets,
 		baseURL: deps.BaseURL, verifier: deps.Verifier, cfg: deps.Config,
+		jiraBaseURL:        deps.JiraBaseURL,
 		jiraReadFactory:    deps.JiraReadFactory,
 		requestMaxInFlight: deps.RequestMaxInFlight, requestsPerSecond: deps.RequestsPerSecond,
 		commentMutator: deps.CommentMutator, commentPreparer: deps.CommentPreparer,
@@ -84,6 +87,7 @@ type JiraService struct {
 	structure              domain.StructureReader
 	baseURL                string
 	cfg                    *config.Config
+	confluenceBaseURL      string
 	graphConfluence        domain.ConfluenceGraphPageMetadataReader
 	graphConfluenceFactory func() (domain.ConfluenceGraphPageMetadataReader, string)
 	graphConfluenceOnce    sync.Once
@@ -98,6 +102,7 @@ type JiraDependencies struct {
 	Structure              domain.StructureReader
 	BaseURL                string
 	Config                 *config.Config
+	ConfluenceBaseURL      string
 	ConfluenceGraphFactory func() (domain.ConfluenceGraphPageMetadataReader, string)
 	WriteAuthorizer        domain.WriteAuthorizer
 }
@@ -106,7 +111,7 @@ type JiraDependencies struct {
 func NewJiraService(deps JiraDependencies) *JiraService {
 	return &JiraService{
 		tr: deps.Tracker, agile: deps.Agile, structure: deps.Structure,
-		baseURL: deps.BaseURL, cfg: deps.Config,
+		baseURL: deps.BaseURL, cfg: deps.Config, confluenceBaseURL: deps.ConfluenceBaseURL,
 		graphConfluenceFactory: deps.ConfluenceGraphFactory,
 		writeAuthorizer:        deps.WriteAuthorizer,
 	}

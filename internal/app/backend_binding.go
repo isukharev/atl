@@ -66,10 +66,10 @@ func prepareMirrorBackendPopulation(root, service, rawURL, nativeExt string, dry
 // Jira URL means expansion is unavailable (the caller keeps placeholders), not
 // that the enclosing Confluence operation is invalid.
 func (s *ConfluenceService) prepareConfluenceJiraMacroPopulation(root string, hasMacros, dryRun bool) (bool, error) {
-	if !hasMacros || s == nil || !s.ensureConfluenceJiraReader() || s.cfg == nil || strings.TrimSpace(s.cfg.JiraURL) == "" {
+	if !hasMacros || s == nil || !s.ensureConfluenceJiraReader() || strings.TrimSpace(s.jiraBaseURL) == "" {
 		return false, nil
 	}
-	if err := prepareMirrorBackendPopulation(root, "jira", s.cfg.JiraURL, wikiExt, dryRun); err != nil {
+	if err := prepareMirrorBackendPopulation(root, "jira", s.jiraBaseURL, wikiExt, dryRun); err != nil {
 		return false, err
 	}
 	return true, nil
