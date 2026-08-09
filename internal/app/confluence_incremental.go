@@ -308,6 +308,7 @@ func collectIncrementalHits(ctx context.Context, searcher domain.CompletePageSea
 	cursor := ""
 	seenCursors := map[string]bool{}
 	hitsByID := map[string]domain.PageRef{}
+	var evidence confluenceSearchEvidence
 	for {
 		if seenCursors[cursor] {
 			return nil, fmt.Errorf("%w: incremental search repeated cursor %q", domain.ErrCheckFailed, cursor)
@@ -333,6 +334,9 @@ func collectIncrementalHits(ctx context.Context, searcher domain.CompletePageSea
 			if len(hitsByID) > maxPages {
 				return nil, fmt.Errorf("%w: incremental selection exceeded --max-pages=%d; increase the explicit cap and retry (watermark unchanged)", domain.ErrCheckFailed, maxPages)
 			}
+		}
+		if reason := evidence.observe(page, len(hitsByID)); reason != "" {
+			return nil, fmt.Errorf("%w: incomplete incremental selection: %s (watermark unchanged)", domain.ErrCheckFailed, reason)
 		}
 		if page.Next == "" {
 			if !page.Complete {

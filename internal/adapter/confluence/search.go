@@ -95,6 +95,9 @@ func (cf *Confluence) SearchComplete(ctx context.Context, query string, limit in
 		page.PartialReason = totalReason
 		return page, nil
 	}
+	if hasTotal {
+		page.ExactTotal = &total
+	}
 	if hasTotal && end > total {
 		page.PartialReason = fmt.Sprintf("backend returned %d reachable matches beyond its reported total of %d", end, total)
 		return page, nil
@@ -136,7 +139,7 @@ func (cf *Confluence) SearchComplete(ctx context.Context, query string, limit in
 }
 
 func qualifiedSearchTotal(totalCount, totalSize *int) (int, bool, string) {
-	if totalCount != nil && *totalCount < 0 || totalSize != nil && *totalSize < 0 {
+	if (totalCount != nil && *totalCount < 0) || (totalSize != nil && *totalSize < 0) {
 		return 0, false, "backend reported a negative total match count"
 	}
 	if totalCount != nil && totalSize != nil && *totalCount != *totalSize {

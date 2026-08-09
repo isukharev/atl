@@ -74,6 +74,10 @@ type PageSearchPage struct {
 	Next          string
 	Complete      bool
 	PartialReason string
+	// ExactTotal carries a qualified backend total across pagination. It is
+	// internal evidence for multi-page callers, not a claim that this one page
+	// contains every match.
+	ExactTotal *int
 }
 
 // ConfluencePageMetadataBatch is one completeness-qualified response for an

@@ -100,8 +100,8 @@ atl conf search --cql 'type = page' --limit 5
 
 An empty result proves absence only when its completeness/truncation fields say
 the selection is complete. A result page exactly at the requested limit remains
-partial unless a continuation or supported exact total proves terminal
-exhaustion.
+partial without terminal evidence: follow a continuation when present, or rely
+on a supported exact total that proves exhaustion.
 
 ## Three working loops
 

@@ -3,6 +3,7 @@ package confluence
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -21,22 +22,23 @@ func TestSearchCompleteQualifiesTerminalEvidence(t *testing.T) {
 		wantComplete bool
 		wantNext     string
 		wantReason   string
+		wantTotal    *int
 	}{
 		{name: "short terminal page without total", rows: 24, limit: 25, wantComplete: true},
 		{name: "full terminal page without total", rows: 25, limit: 25, wantReason: "full search page without terminal pagination evidence"},
 		{name: "full terminal page with null totals", rows: 25, limit: 25, totals: map[string]any{"totalCount": nil, "totalSize": nil}, wantReason: "full search page without terminal pagination evidence"},
-		{name: "totalCount proves terminal page", rows: 25, limit: 25, totals: map[string]any{"totalCount": 25}, wantComplete: true},
-		{name: "totalSize proves terminal page", rows: 25, limit: 25, totals: map[string]any{"totalSize": 25}, wantComplete: true},
-		{name: "matching totals prove terminal page", rows: 25, limit: 25, totals: map[string]any{"totalCount": 25, "totalSize": 25}, wantComplete: true},
-		{name: "offset total proves terminal page", rows: 25, limit: 25, cursor: "25", totals: map[string]any{"totalSize": 50}, wantComplete: true},
-		{name: "totalCount proves unreachable matches", rows: 24, limit: 25, totals: map[string]any{"totalCount": 25}, wantReason: "25 total matches but only 24 were reachable"},
-		{name: "totalSize proves unreachable matches", rows: 24, limit: 25, totals: map[string]any{"totalSize": 25}, wantReason: "25 total matches but only 24 were reachable"},
+		{name: "totalCount proves terminal page", rows: 25, limit: 25, totals: map[string]any{"totalCount": 25}, wantComplete: true, wantTotal: searchTotal(25)},
+		{name: "totalSize proves terminal page", rows: 25, limit: 25, totals: map[string]any{"totalSize": 25}, wantComplete: true, wantTotal: searchTotal(25)},
+		{name: "matching totals prove terminal page", rows: 25, limit: 25, totals: map[string]any{"totalCount": 25, "totalSize": 25}, wantComplete: true, wantTotal: searchTotal(25)},
+		{name: "offset total proves terminal page", rows: 25, limit: 25, cursor: "25", totals: map[string]any{"totalSize": 50}, wantComplete: true, wantTotal: searchTotal(50)},
+		{name: "totalCount proves unreachable matches", rows: 24, limit: 25, totals: map[string]any{"totalCount": 25}, wantReason: "25 total matches but only 24 were reachable", wantTotal: searchTotal(25)},
+		{name: "totalSize proves unreachable matches", rows: 24, limit: 25, totals: map[string]any{"totalSize": 25}, wantReason: "25 total matches but only 24 were reachable", wantTotal: searchTotal(25)},
 		{name: "contradictory totals", rows: 24, limit: 25, totals: map[string]any{"totalCount": 24, "totalSize": 25}, wantReason: "contradictory total match counts"},
 		{name: "negative totalCount", limit: 25, totals: map[string]any{"totalCount": -1}, wantReason: "negative total match count"},
 		{name: "negative totalSize", limit: 25, totals: map[string]any{"totalSize": -1}, wantReason: "negative total match count"},
-		{name: "results exceed total", rows: 2, limit: 25, totals: map[string]any{"totalSize": 1}, wantReason: "beyond its reported total"},
+		{name: "results exceed total", rows: 2, limit: 25, totals: map[string]any{"totalSize": 1}, wantReason: "beyond its reported total", wantTotal: searchTotal(1)},
 		{name: "qualified continuation", rows: 25, limit: 25, nextLink: "/rest/api/search?start=25", wantNext: "25"},
-		{name: "continuation contradicts total", rows: 25, limit: 25, totals: map[string]any{"totalSize": 25}, nextLink: "/rest/api/search?start=25", wantReason: "after reaching its reported total"},
+		{name: "continuation contradicts total", rows: 25, limit: 25, totals: map[string]any{"totalSize": 25}, nextLink: "/rest/api/search?start=25", wantReason: "after reaching its reported total", wantTotal: searchTotal(25)},
 		{name: "empty continuing page", limit: 25, nextLink: "/rest/api/search?start=0", wantReason: "empty page with a next link"},
 	}
 	for _, test := range tests {
@@ -65,8 +67,23 @@ func TestSearchCompleteQualifiesTerminalEvidence(t *testing.T) {
 			if test.wantReason != "" && !strings.Contains(page.PartialReason, test.wantReason) {
 				t.Fatalf("partial reason=%q, want substring %q", page.PartialReason, test.wantReason)
 			}
+			if !equalSearchTotal(page.ExactTotal, test.wantTotal) {
+				t.Fatalf("exact total=%v, want %v", page.ExactTotal, test.wantTotal)
+			}
 		})
 	}
+}
+
+func TestCheckedSearchPageEndRejectsOverflow(t *testing.T) {
+	if end, ok := checkedSearchPageEnd(math.MaxInt, 1); ok || end != math.MaxInt {
+		t.Fatalf("end=%d ok=%t, want unchanged overflow rejection", end, ok)
+	}
+}
+
+func searchTotal(total int) *int { return &total }
+
+func equalSearchTotal(left, right *int) bool {
+	return left == nil && right == nil || left != nil && right != nil && *left == *right
 }
 
 func TestSearchCompleteRejectsMalformedTotalEvidence(t *testing.T) {

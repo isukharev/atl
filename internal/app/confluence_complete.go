@@ -175,6 +175,7 @@ func collectCompletePullIDs(ctx context.Context, searcher domain.CompletePageSea
 	cursor := ""
 	seenCursors := map[string]bool{}
 	seenIDs := map[string]bool{}
+	var evidence confluenceSearchEvidence
 	for {
 		if seenCursors[cursor] {
 			return nil, fmt.Errorf("%w: complete-pull search repeated cursor %q", domain.ErrCheckFailed, cursor)
@@ -201,6 +202,9 @@ func collectCompletePullIDs(ctx context.Context, searcher domain.CompletePageSea
 			if len(seenIDs) > confluenceCompletePullMaxIDs {
 				return nil, fmt.Errorf("%w: complete-pull selection exceeds the %d-identity local safety limit; narrow the selector", domain.ErrCheckFailed, confluenceCompletePullMaxIDs)
 			}
+		}
+		if reason := evidence.observe(page, len(seenIDs)); reason != "" {
+			return nil, fmt.Errorf("%w: incomplete complete-pull selection: %s (no checkpoint was written)", domain.ErrCheckFailed, reason)
 		}
 		if page.Next == "" {
 			if !page.Complete {

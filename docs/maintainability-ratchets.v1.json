@@ -99,10 +99,10 @@
     {"owner":"tooling","path":"scripts/gen-plugins/main.go","function":"runMode","max_lines":252,"no_headroom":true,"rationale":"Keep generator mode dispatch, rendering, and publication orchestration at its exact measured span."}
   ],
   "package_totals": [
-    {"owner":"adapter-confluence","path":"internal/adapter/confluence/","max_lines":3851,"rationale":"Keep total Confluence adapter production growth at the exact measured baseline after exhaustive checked and total-qualified pagination."},
+    {"owner":"adapter-confluence","path":"internal/adapter/confluence/","max_lines":3884,"rationale":"Keep total Confluence adapter production at the exact measured baseline after combining shared checked pagination with fail-closed exact-total qualification."},
     {"owner":"adapter-jira","path":"internal/adapter/jira/","max_lines":3641,"rationale":"Keep total Jira adapter production growth at the exact measured baseline after exhaustive checked pagination and immutable client construction."},
-    {"owner":"app","path":"internal/app/","max_lines":35751,"rationale":"Keep total app production growth visible after introducing focused label, watcher, and worklog services, the pure guarded-write decision owner, and typed Jira per-issue and Confluence page pull phases."},
-    {"owner":"cli","path":"internal/cli/","max_lines":11136,"rationale":"Keep total CLI production growth at the exact measured baseline after invocation-local verbose trace injection."},
+    {"owner":"app","path":"internal/app/","max_lines":35795,"rationale":"Keep total app production at the exact measured baseline after combining typed pull phases with cross-page Confluence search-total reconciliation."},
+    {"owner":"cli","path":"internal/cli/","max_lines":11152,"rationale":"Keep total CLI production at the exact measured baseline after isolating qualified Confluence search text recovery from command assembly."},
     {"owner":"compose","path":"internal/compose/","max_lines":553,"rationale":"Keep the complete concrete composition owner at the exact measured baseline after invocation-scoped options and shared trace serialization were introduced."},
     {"owner":"contentpolicy","path":"internal/contentpolicy/","max_lines":1281,"rationale":"Keep policy parsing, resolved and deny-only evaluation, source-denial envelopes, freeze, static scope requirements, and hierarchy hazards at the reviewed public-surface total."},
     {"owner":"evaluator","path":"internal/agenteval/","max_lines":48928,"rationale":"Keep the complete evaluator module tree visible at the measured neutral-core and ATL-profile split baseline, including the compatibility facade and explicit bounded score conversions."},

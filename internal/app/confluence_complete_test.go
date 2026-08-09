@@ -124,6 +124,8 @@ func completeSearchPage(ids ...string) domain.PageSearchPage {
 	return domain.PageSearchPage{Results: refs, Complete: true}
 }
 
+func appSearchTotal(total int) *int { return &total }
+
 func TestCompletePullQualifiesCanonicalSelectionBeforeBodies(t *testing.T) {
 	root := t.TempDir()
 	store := &completePullStore{
@@ -145,6 +147,41 @@ func TestCompletePullQualifiesCanonicalSelectionBeforeBodies(t *testing.T) {
 	}
 	if _, ok, err := mirror.New(root).CompletePullCheckpoint(result.Complete.SelectorSHA256); err != nil || ok {
 		t.Fatalf("completed checkpoint ok=%v err=%v", ok, err)
+	}
+}
+
+func TestCompletePullRejectsContradictoryExactTotalsBeforeBodies(t *testing.T) {
+	root := t.TempDir()
+	store := &completePullStore{
+		pullStore: &pullStore{pages: map[string]*domain.Resource{
+			"10": completeTestPage("10"), "20": completeTestPage("20"),
+		}},
+		searchSequence: []domain.PageSearchPage{
+			{Results: []domain.PageRef{{ID: "10"}}, Next: "1", ExactTotal: appSearchTotal(2)},
+			{Results: []domain.PageRef{{ID: "20"}}, Complete: true, ExactTotal: appSearchTotal(1)},
+		},
+	}
+
+	_, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(
+		context.Background(), PullOpts{CQL: "space = DOC", Into: root, Complete: true},
+	)
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "contradictory exact search totals") {
+		t.Fatalf("err=%v, want contradictory exact-total rejection", err)
+	}
+	if len(store.getIDs) != 0 || store.bodyBeforeSelectionComplete {
+		t.Fatalf("getIDs=%v bodyBeforeSelectionComplete=%t", store.getIDs, store.bodyBeforeSelectionComplete)
+	}
+}
+
+func TestCompletePullCarriesExactTotalThroughTerminalPage(t *testing.T) {
+	store := &completePullStore{searchSequence: []domain.PageSearchPage{
+		{Results: []domain.PageRef{{ID: "10"}}, Next: "1", ExactTotal: appSearchTotal(3)},
+		{Results: []domain.PageRef{{ID: "20"}}, Complete: true},
+	}}
+
+	_, err := collectCompletePullIDs(context.Background(), store, "space = DOC", 0)
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "did not match its exact total") {
+		t.Fatalf("err=%v, want accumulated exact-total rejection", err)
 	}
 }
 

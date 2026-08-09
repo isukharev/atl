@@ -236,9 +236,9 @@ after a complete successful run; older state without a bound absolute instant
 is rejected with guidance to preserve the old mirror. Results are paged until the
 backend proves exhaustion, then the metadata pass is repeated and its
 `(id,version,updated)` set must match before any body is fetched. Only
-`type=page` hits are admitted. A repeated cursor, unreachable advertised total,
-explicit cap, or malformed timestamp exits `8` and leaves the watermark
-unchanged. `ORDER BY` in user CQL is rejected because atl appends
+`type=page` hits are admitted. A repeated cursor, contradictory or unreachable
+advertised total, explicit cap, or malformed timestamp exits `8` and leaves the
+watermark unchanged. `ORDER BY` in user CQL is rejected because atl appends
 `lastmodified asc`; there is no dependency on an undocumented id tie-breaker.
 
 Before the first page body fetch/write, the entire selected local set is

@@ -96,9 +96,10 @@ edits fail closed. `--restart-complete` is the explicit reviewed replacement
 path; absence from a snapshot never proves deletion.
 
 Incremental pull instead exhausts pagination up to its explicit `--max-pages`
-safety cap (default 10000); hitting the cap or any partial response is exit 8
-and cannot advance the private selector watermark. `--since` defines a reviewed
-absolute bootstrap boundary and is needed only for a new selector. Atl stores
+safety cap (default 10000); hitting the cap, contradictory totals, or any
+partial response is exit 8 and cannot advance the private selector watermark.
+`--since` defines a reviewed absolute bootstrap boundary and is needed only for
+a new selector. Atl stores
 UTC, starts the zone-less CQL literal 48 hours earlier, and filters older hits
 locally, so an unknown configured CQL zone only adds reads. No calibration
 search is performed. An explicit offset disambiguates DST folds.

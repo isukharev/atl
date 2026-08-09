@@ -157,6 +157,26 @@ func TestIncrementalPullPaginatesPersistsAndSkipsKnownBoundary(t *testing.T) {
 	}
 }
 
+func TestIncrementalPullRejectsContradictoryExactTotalsBeforeBodies(t *testing.T) {
+	root := t.TempDir()
+	p1, h1 := incrementalPage("10", 1, "2026-07-13T12:00:00Z")
+	p2, h2 := incrementalPage("20", 1, "2026-07-13T12:01:00Z")
+	store := &incrementalPullStore{
+		pullStore: &pullStore{pages: map[string]*domain.Resource{"10": p1, "20": p2}},
+		searchPages: map[string]domain.PageSearchPage{
+			"":  {Results: []domain.PageRef{h1}, Next: "1", ExactTotal: appSearchTotal(2)},
+			"1": {Results: []domain.PageRef{h2}, Complete: true, ExactTotal: appSearchTotal(1)},
+		},
+	}
+
+	_, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(
+		context.Background(), PullOpts{CQL: "space = DOC", Into: root, Incremental: true, Since: "2026-07-13T11:00:00Z"},
+	)
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "contradictory exact search totals") || store.getCalls != 0 {
+		t.Fatalf("err=%v getCalls=%d, want rejection before body reads", err, store.getCalls)
+	}
+}
+
 func TestIncrementalUTCQueryLiteralCannotMoveAfterBoundaryAcrossExtremeBackendZones(t *testing.T) {
 	boundary := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
 	queryLiteral := cqlMinute(boundary.Add(-confluenceIncrementalOverlap), time.UTC)
