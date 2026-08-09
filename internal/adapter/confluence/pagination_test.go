@@ -1,6 +1,14 @@
 package confluence
 
-import "testing"
+import (
+	"context"
+	"math"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"strings"
+	"testing"
+)
 
 func TestConfluencePageCursorPreservesSignalOnlyPagination(t *testing.T) {
 	tests := []struct {
@@ -30,12 +38,56 @@ func TestConfluencePageCursorPreservesSignalOnlyPagination(t *testing.T) {
 			}
 		})
 	}
+	cursor := confluencePageCursor{start: math.MaxInt}
+	if end, ok := cursor.checkedEnd(1); ok || end != math.MaxInt {
+		t.Fatalf("overflow end=%d ok=%t, want unchanged false", end, ok)
+	}
+}
+
+func TestSearchCompleteRejectsNoncontiguousAndOverflowPages(t *testing.T) {
+	tests := []struct {
+		name       string
+		cursor     string
+		body       string
+		wantReason string
+	}{
+		{
+			name:       "noncontiguous",
+			cursor:     "1",
+			body:       `{"start":2,"results":[{"content":{"id":"1"}}],"_links":{"next":"/ignored"}}`,
+			wantReason: "non-contiguous",
+		},
+		{
+			name:       "overflow",
+			cursor:     strconv.Itoa(math.MaxInt),
+			body:       `{"start":` + strconv.Itoa(math.MaxInt) + `,"results":[{"content":{"id":"1"}}],"_links":{"next":"/ignored"}}`,
+			wantReason: "overflowed",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(test.body))
+			}))
+			t.Cleanup(server.Close)
+			adapter := &Confluence{c: newTestClient(server.URL), base: server.URL}
+			page, err := adapter.SearchComplete(context.Background(), "type=page", 1, test.cursor)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if page.Complete || page.Next != "" || !strings.Contains(page.PartialReason, test.wantReason) {
+				t.Fatalf("page=%+v, want partial reason containing %q", page, test.wantReason)
+			}
+		})
+	}
 }
 
 func FuzzConfluencePageCursor(f *testing.F) {
 	f.Add(0, 1, "/next")
 	f.Add(7, 0, "/next")
 	f.Add(7, 1, "")
+	f.Add(math.MaxInt, 1, "/next")
 	f.Fuzz(func(t *testing.T, start, rows int, next string) {
 		if start < 0 {
 			start = -(start + 1)

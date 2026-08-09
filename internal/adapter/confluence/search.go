@@ -55,6 +55,7 @@ func (cf *Confluence) SearchComplete(ctx context.Context, query string, limit in
 			Excerpt string  `json:"excerpt"`
 			URL     string  `json:"url"`
 		} `json:"results"`
+		Start      *int `json:"start"`
 		Size       int  `json:"size"`
 		TotalCount *int `json:"totalCount"`
 		Links      struct {
@@ -77,22 +78,37 @@ func (cf *Confluence) SearchComplete(ctx context.Context, query string, limit in
 		}
 		out = append(out, pr)
 	}
-	next := ""
-	if resp.Links.Next != "" && len(resp.Results) > 0 {
+	pageCursor := confluencePageCursor{start: start}
+	end, bounded := pageCursor.checkedEnd(len(resp.Results))
+	page := domain.PageSearchPage{Results: out}
+	if resp.Start != nil && *resp.Start != start {
+		page.PartialReason = "backend returned a non-contiguous search page"
+		return page, nil
+	}
+	if !bounded {
+		page.PartialReason = "backend search pagination offset overflowed"
+		return page, nil
+	}
+	if resp.TotalCount != nil && *resp.TotalCount < 0 {
+		page.PartialReason = "backend reported a negative total match count"
+		return page, nil
+	}
+	advance := pageCursor.advance(len(resp.Results), resp.Links.Next)
+	if advance == confluencePageMore {
 		// Advance by the number of results actually returned, not the requested
 		// limit, so a short page (server returns < limit but still signals more)
 		// can't skip or repeat the next offset. An empty page is treated as
 		// exhausted even if the server still sets _links.next, so the cursor
 		// never stalls at the same offset.
-		next = strconv.Itoa(start + len(resp.Results))
+		page.Next = strconv.Itoa(pageCursor.startAt())
 	}
-	page := domain.PageSearchPage{Results: out, Next: next, Complete: next == ""}
-	if resp.Links.Next != "" && len(resp.Results) == 0 {
+	page.Complete = advance == confluencePageExhausted
+	if advance == confluencePageStalled {
 		page.Complete = false
 		page.PartialReason = "backend returned an empty page with a next link"
-	} else if next == "" && resp.TotalCount != nil && start+len(resp.Results) < *resp.TotalCount {
+	} else if page.Next == "" && resp.TotalCount != nil && end < *resp.TotalCount {
 		page.Complete = false
-		page.PartialReason = fmt.Sprintf("backend reported %d total matches but only %d were reachable", *resp.TotalCount, start+len(resp.Results))
+		page.PartialReason = fmt.Sprintf("backend reported %d total matches but only %d were reachable", *resp.TotalCount, end)
 	}
 	return page, nil
 }

@@ -1,6 +1,9 @@
 package jira
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestJiraOffsetCursorClassifiesProgress(t *testing.T) {
 	totalTwo := 2
@@ -48,6 +51,7 @@ func FuzzJiraOffsetCursor(f *testing.F) {
 	f.Add(0, 1, -1)
 	f.Add(7, 0, -1)
 	f.Add(7, 2, 8)
+	f.Add(math.MaxInt, 1, -1)
 	f.Fuzz(func(t *testing.T, start, rows, totalValue int) {
 		if start < 0 {
 			start = -(start + 1)

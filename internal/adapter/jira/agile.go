@@ -13,24 +13,44 @@ import (
 
 // The Agile (GreenHopper) REST API lives under /rest/agile/1.0/ on Jira Software
 // Server/Data Center. Listing endpoints page with startAt/maxResults and report
-// either an isLast flag (boards/sprints) or a total (issue search); agileNext
-// reconciles both into the adapter's string cursor convention.
+// either an isLast flag (boards/sprints) or a total (issue search); the checked
+// provider-local cursor reconciles both into the adapter's string convention.
 
 var _ domain.Agile = (*Jira)(nil)
 
-// agileNext computes the next startAt cursor. It stops on an explicit isLast,
-// on a total that has been reached, or on an empty page.
-func agileNext(startAt, count, total int, isLast *bool) string {
-	if count == 0 {
-		return ""
+func agileNext(endpoint string, cursor *jiraOffsetCursor, returned, count, total int, isLast *bool) (string, error) {
+	if total < 0 || !cursor.matches(returned) {
+		return "", fmt.Errorf("%w: Jira %s returned invalid pagination at offset %d", domain.ErrCheckFailed, endpoint, cursor.requested())
 	}
-	if isLast != nil && *isLast {
-		return ""
+	var knownTotal *int
+	if total > 0 {
+		knownTotal = &total
 	}
-	if total > 0 && startAt+count >= total {
-		return ""
+	decision := cursor.advance(count, knownTotal)
+	if decision.state == jiraOffsetOverflow || decision.state == jiraOffsetBeyondTotal {
+		return "", fmt.Errorf("%w: Jira %s returned invalid pagination at offset %d", domain.ErrCheckFailed, endpoint, cursor.requested())
 	}
-	return strconv.Itoa(startAt + count)
+	if isLast != nil {
+		if *isLast {
+			if knownTotal != nil && decision.state != jiraOffsetComplete {
+				return "", fmt.Errorf("%w: Jira %s returned conflicting total and isLast pagination", domain.ErrCheckFailed, endpoint)
+			}
+			return "", nil
+		}
+		if decision.state == jiraOffsetComplete || decision.state == jiraOffsetStalled {
+			return "", fmt.Errorf("%w: Jira %s pagination made no progress at offset %d", domain.ErrCheckFailed, endpoint, cursor.requested())
+		}
+	}
+	if decision.state == jiraOffsetComplete {
+		return "", nil
+	}
+	if decision.state == jiraOffsetStalled {
+		if total > returned {
+			return "", fmt.Errorf("%w: Jira %s pagination made no progress at offset %d", domain.ErrCheckFailed, endpoint, cursor.requested())
+		}
+		return "", nil
+	}
+	return strconv.Itoa(decision.next), nil
 }
 
 // agileLimit clamps the page size to the Agile API's bounds (max 50).
@@ -80,7 +100,8 @@ func (j *Jira) Boards(ctx context.Context, project string, limit int, cursor str
 	for _, b := range resp.Values {
 		out = append(out, b.toDomain())
 	}
-	return out, agileNext(startAt, len(resp.Values), resp.Total, resp.IsLast), nil
+	next, err := agileNext("board listing", &jiraOffsetCursor{startAt: startAt}, resp.StartAt, len(resp.Values), resp.Total, resp.IsLast)
+	return out, next, err
 }
 
 // Board fetches one board by id.
@@ -194,7 +215,8 @@ func (j *Jira) boardIssuePage(ctx context.Context, boardID int, scope string, fi
 	for _, issue := range resp.Issues {
 		out = append(out, *j.mapIssue(issue))
 	}
-	return out, agileNext(startAt, len(resp.Issues), resp.Total, nil), nil
+	next, err := agileNext("board issue listing", &jiraOffsetCursor{startAt: startAt}, resp.StartAt, len(resp.Issues), resp.Total, nil)
+	return out, next, err
 }
 
 // BoardIssues lists issues in backend rank order for the full board scope.
@@ -251,7 +273,8 @@ func (j *Jira) Sprints(ctx context.Context, boardID int, state string, limit int
 	for _, s := range resp.Values {
 		out = append(out, s.toDomain())
 	}
-	return out, agileNext(startAt, len(resp.Values), resp.Total, resp.IsLast), nil
+	next, err := agileNext("sprint listing", &jiraOffsetCursor{startAt: startAt}, resp.StartAt, len(resp.Values), resp.Total, resp.IsLast)
+	return out, next, err
 }
 
 // Sprint fetches one sprint by id.
@@ -289,7 +312,8 @@ func (j *Jira) SprintIssues(ctx context.Context, sprintID int, fields []string, 
 	for _, d := range resp.Issues {
 		out = append(out, *j.mapIssue(d))
 	}
-	return out, agileNext(startAt, len(resp.Issues), resp.Total, nil), nil
+	next, err := agileNext("sprint issue listing", &jiraOffsetCursor{startAt: startAt}, resp.StartAt, len(resp.Issues), resp.Total, nil)
+	return out, next, err
 }
 
 // MoveIssuesToSprint moves the given issues into a sprint.

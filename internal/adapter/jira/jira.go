@@ -218,30 +218,30 @@ func (j *Jira) searchPage(ctx context.Context, jql string, fields []string, limi
 		out = append(out, *j.mapIssue(d))
 	}
 	page := domain.IssueSearchPage{Issues: out}
+	pageCursor := jiraOffsetCursor{startAt: startAt}
 	if resp.StartAt == nil || resp.MaxResults == nil || resp.Total == nil ||
 		*resp.MaxResults <= 0 || len(resp.Issues) > *resp.MaxResults {
 		page.PartialReason = domain.IssueSearchPartialPaginationUnqualified
 		return page, nil
 	}
-	if *resp.StartAt != startAt || *resp.Total < 0 || startAt > *resp.Total {
+	if !pageCursor.matches(*resp.StartAt) || *resp.Total < 0 || startAt > *resp.Total {
 		page.PartialReason = domain.IssueSearchPartialPaginationUnqualified
 		return page, nil
 	}
-	remaining := *resp.Total - startAt
-	if len(resp.Issues) > remaining {
+	decision := pageCursor.advance(len(resp.Issues), resp.Total)
+	if decision.state == jiraOffsetBeyondTotal || decision.state == jiraOffsetOverflow {
 		page.PartialReason = domain.IssueSearchPartialPaginationUnqualified
 		return page, nil
 	}
-	end := startAt + len(resp.Issues)
-	if end >= *resp.Total {
+	if decision.state == jiraOffsetComplete {
 		page.Complete = true
 		return page, nil
 	}
-	if len(resp.Issues) == 0 {
+	if decision.state == jiraOffsetStalled {
 		page.PartialReason = domain.IssueSearchPartialPaginationStalled
 		return page, nil
 	}
-	page.Next = strconv.Itoa(end)
+	page.Next = strconv.Itoa(decision.next)
 	return page, nil
 }
 

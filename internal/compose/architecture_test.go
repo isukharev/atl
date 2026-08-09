@@ -76,8 +76,23 @@ func TestHTTPClientConstructionAndImmutablePolicyInventory(t *testing.T) {
 			if spec.Name != nil {
 				name = spec.Name.Name
 			}
+			if name == "." || name == "_" {
+				t.Errorf("%s imports internal/httpx as %q; use a named import so constructor ownership stays visible", relative, name)
+				continue
+			}
 			httpxAliases[name] = true
 		}
+		directCallFunctions := map[*ast.SelectorExpr]bool{}
+		ast.Inspect(file, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			if selector, ok := call.Fun.(*ast.SelectorExpr); ok {
+				directCallFunctions[selector] = true
+			}
+			return true
+		})
 		for _, declaration := range file.Decls {
 			function, ok := declaration.(*ast.FuncDecl)
 			if !ok || function.Body == nil {
@@ -87,6 +102,12 @@ func TestHTTPClientConstructionAndImmutablePolicyInventory(t *testing.T) {
 				t.Errorf("%s declares removed mutable HTTP policy %s", relative, function.Name.Name)
 			}
 			ast.Inspect(function.Body, func(node ast.Node) bool {
+				if selector, ok := node.(*ast.SelectorExpr); ok {
+					qualifier, qualified := selector.X.(*ast.Ident)
+					if qualified && httpxAliases[qualifier.Name] && constructors[selector.Sel.Name] && !directCallFunctions[selector] {
+						t.Errorf("%s:%s references raw HTTP constructor httpx.%s outside the exact direct call position", relative, function.Name.Name, selector.Sel.Name)
+					}
+				}
 				call, ok := node.(*ast.CallExpr)
 				if !ok {
 					return true
