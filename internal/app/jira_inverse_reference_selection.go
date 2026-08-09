@@ -57,7 +57,7 @@ func validInverseReferenceTargetSyntax(kind domain.JiraInverseReferenceTargetKin
 	}
 }
 
-func (s *JiraService) resolveInverseReferenceTarget(ctx context.Context, opts JiraInverseReferenceOptions) (domain.JiraInverseReferenceTarget, JiraInverseReferenceTargetResult, inverseReferenceTarget, error) {
+func (s *JiraService) resolveInverseReferenceTarget(ctx context.Context, opts JiraInverseReferenceOptions) (context.Context, domain.JiraInverseReferenceTarget, JiraInverseReferenceTargetResult, inverseReferenceTarget, error) {
 	var target inverseReferenceTarget
 	opaqueIdentity := ""
 	target.domain.Kind = opts.TargetKind
@@ -65,7 +65,7 @@ func (s *JiraService) resolveInverseReferenceTarget(ctx context.Context, opts Ji
 	case domain.JiraInverseReferenceTargetGitLabProject:
 		project, ok := scmref.ParseGitLabProject(opts.Target)
 		if !ok {
-			return domain.JiraInverseReferenceTarget{}, JiraInverseReferenceTargetResult{}, target, inverseReferenceUsage("GitLab target is not an exact project URL")
+			return ctx, domain.JiraInverseReferenceTarget{}, JiraInverseReferenceTargetResult{}, target, inverseReferenceUsage("GitLab target is not an exact project URL")
 		}
 		target.gitlab = project
 		target.domain.Value = "https://" + project.Host + "/" + project.ProjectPath
@@ -77,31 +77,32 @@ func (s *JiraService) resolveInverseReferenceTarget(ctx context.Context, opts Ji
 		}
 		resolution, needsNetwork, err := resolveConfluenceReferenceOffline(baseURL, opts.Target)
 		if err != nil {
-			return domain.JiraInverseReferenceTarget{}, JiraInverseReferenceTargetResult{}, target, err
+			return ctx, domain.JiraInverseReferenceTarget{}, JiraInverseReferenceTargetResult{}, target, err
 		}
 		if needsNetwork {
 			resolver, _ := s.inverseConfluenceReferenceResolver()
 			if resolver == nil {
-				return domain.JiraInverseReferenceTarget{}, JiraInverseReferenceTargetResult{}, target,
+				return ctx, domain.JiraInverseReferenceTarget{}, JiraInverseReferenceTargetResult{}, target,
 					fmt.Errorf("%w: configured Confluence reference resolver is unavailable", domain.ErrConfig)
 			}
 			resolution, err = resolver.ResolvePageReference(ctx, opts.Target)
 			if err != nil {
-				return domain.JiraInverseReferenceTarget{}, JiraInverseReferenceTargetResult{}, target, redactInverseReferenceTargetError(err)
+				return ctx, domain.JiraInverseReferenceTarget{}, JiraInverseReferenceTargetResult{}, target, redactInverseReferenceTargetError(err)
 			}
 		}
 		if resolution == nil || !isOpaquePageID(resolution.ID) {
-			return domain.JiraInverseReferenceTarget{}, JiraInverseReferenceTargetResult{}, target,
+			return ctx, domain.JiraInverseReferenceTarget{}, JiraInverseReferenceTargetResult{}, target,
 				fmt.Errorf("%w: Confluence target resolution was malformed", domain.ErrCheckFailed)
 		}
+		ctx = resolution.Context(ctx)
 		target.confluence.baseURL, target.confluence.pageID = baseURL, resolution.ID
 		target.domain.Value = resolution.ID
 		opaqueIdentity = canonicalInverseReferenceConfluenceOrigin(baseURL) + "\x00" + resolution.ID
 	default:
-		return domain.JiraInverseReferenceTarget{}, JiraInverseReferenceTargetResult{}, target, inverseReferenceUsage("target kind is invalid")
+		return ctx, domain.JiraInverseReferenceTarget{}, JiraInverseReferenceTargetResult{}, target, inverseReferenceUsage("target kind is invalid")
 	}
 	targetID := graphHash(string(target.domain.Kind) + "\x00" + opaqueIdentity)
-	return target.domain, JiraInverseReferenceTargetResult{Kind: target.domain.Kind, OpaqueID: targetID}, target, nil
+	return ctx, target.domain, JiraInverseReferenceTargetResult{Kind: target.domain.Kind, OpaqueID: targetID}, target, nil
 }
 
 func canonicalInverseReferenceConfluenceOrigin(raw string) string {
@@ -165,7 +166,7 @@ func resolveConfluenceReferenceOffline(baseRaw, reference string) (*ConfluencePa
 	if id, kind, directErr := directConfluencePageID(refPath, u.Query()); directErr != nil {
 		return nil, false, inverseReferenceUsage("Confluence target has invalid page coordinates")
 	} else if id != "" {
-		return &ConfluencePageResolution{ID: id, Kind: kind}, false, nil
+		return &ConfluencePageResolution{ID: id, Kind: kind, untrusted: true}, false, nil
 	}
 	if _, _, display := confluenceDisplayReference(refPath); display || isConfluenceShortReference(refPath) {
 		return nil, true, nil

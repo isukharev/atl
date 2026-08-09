@@ -13,26 +13,28 @@ import (
 
 type inverseReferenceTestTracker struct {
 	domain.Tracker
-	pages          []domain.JiraInverseReferencePage
-	selectionErrs  map[int]error
-	selections     []domain.JiraInverseReferenceSelection
-	snapshots      map[string]domain.JiraInverseReferenceSnapshot
-	snapshotErr    error
-	snapshotCalls  int
-	comments       map[string][]domain.Comment
-	commentsErr    error
-	commentCalls   int
-	worklogs       map[string]*domain.IssueWorklogList
-	worklogsErr    error
-	remoteLinks    map[string]domain.JiraRemoteLinkInventory
-	remoteErr      error
-	development    map[string]domain.JiraDevelopmentInventory
-	developmentErr error
-	consumeBytes   int64
-	budgets        []*domain.ReadBudget
+	pages           []domain.JiraInverseReferencePage
+	selectionErrs   map[int]error
+	selections      []domain.JiraInverseReferenceSelection
+	snapshots       map[string]domain.JiraInverseReferenceSnapshot
+	snapshotErr     error
+	snapshotCalls   int
+	comments        map[string][]domain.Comment
+	commentsErr     error
+	commentCalls    int
+	worklogs        map[string]*domain.IssueWorklogList
+	worklogsErr     error
+	remoteLinks     map[string]domain.JiraRemoteLinkInventory
+	remoteErr       error
+	development     map[string]domain.JiraDevelopmentInventory
+	developmentErr  error
+	consumeBytes    int64
+	budgets         []*domain.ReadBudget
+	untrustedTarget bool
 }
 
 func (t *inverseReferenceTestTracker) consume(ctx context.Context) error {
+	t.untrustedTarget = t.untrustedTarget || domain.UntrustedConfluenceReference(ctx)
 	budget := domain.ReadBudgetFromContext(ctx)
 	t.budgets = append(t.budgets, budget)
 	if budget == nil || t.consumeBytes == 0 {
@@ -121,9 +123,10 @@ func (t *inverseReferenceTestTracker) ReadIssueDevelopment(ctx context.Context, 
 }
 
 type inverseReferenceTestResolver struct {
-	calls  int
-	id     string
-	budget *domain.ReadBudget
+	calls     int
+	id        string
+	budget    *domain.ReadBudget
+	untrusted bool
 }
 
 func (r *inverseReferenceTestResolver) ResolvePageReference(ctx context.Context, _ string) (*ConfluencePageResolution, error) {
@@ -134,7 +137,7 @@ func (r *inverseReferenceTestResolver) ResolvePageReference(ctx context.Context,
 			return nil, err
 		}
 	}
-	return &ConfluencePageResolution{ID: r.id, Kind: "display", NetworkRequests: 1}, nil
+	return &ConfluencePageResolution{ID: r.id, Kind: "display", NetworkRequests: 1, untrusted: r.untrusted}, nil
 }
 
 func inverseReferenceTestOptions() JiraInverseReferenceOptions {
@@ -273,6 +276,35 @@ func TestInverseReferenceConfluenceTargetNormalizesDefaultHTTPSPort(t *testing.T
 			result, err := (&JiraService{tr: tracker, inverseConfluenceBaseURL: tc.base}).SearchInverseReferences(t.Context(), opts)
 			if err != nil || result == nil || !result.Complete || !result.AbsenceProven || len(tracker.selections) != 2 {
 				t.Fatalf("result=%+v err=%v selections=%d", result, err, len(tracker.selections))
+			}
+		})
+	}
+}
+
+func TestInverseReferenceConfluenceTargetThreadsResolutionProvenance(t *testing.T) {
+	for name, target := range map[string]string{
+		"direct URL":  "https://docs.example.test/wiki/pages/viewpage.action?pageId=42",
+		"display URL": "https://docs.example.test/wiki/display/SAFE/Page",
+	} {
+		t.Run(name, func(t *testing.T) {
+			opts := inverseReferenceTestOptions()
+			opts.Target = target
+			opts.TargetKind = domain.JiraInverseReferenceTargetConfluencePage
+			tracker := &inverseReferenceTestTracker{pages: []domain.JiraInverseReferencePage{
+				inverseReferenceEmptyPage(opts.MaxIssues), inverseReferenceEmptyPage(opts.MaxIssues),
+			}}
+			resolver := &inverseReferenceTestResolver{id: "42", untrusted: true}
+			result, err := (&JiraService{
+				tr: tracker, inverseConfluenceBaseURL: "https://docs.example.test/wiki", inverseConfluence: resolver,
+			}).SearchInverseReferences(t.Context(), opts)
+			if err != nil || result == nil || !result.Complete || !tracker.untrustedTarget {
+				t.Fatalf("result=%+v err=%v untrusted=%t", result, err, tracker.untrustedTarget)
+			}
+			if name == "direct URL" && resolver.calls != 0 {
+				t.Fatalf("direct URL resolver calls=%d", resolver.calls)
+			}
+			if name == "display URL" && resolver.calls != 1 {
+				t.Fatalf("display URL resolver calls=%d", resolver.calls)
 			}
 		})
 	}

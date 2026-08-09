@@ -256,7 +256,7 @@ func (s *JiraService) SearchInverseReferences(ctx context.Context, raw JiraInver
 		return nil, inverseReferenceUsage("search limits are invalid")
 	}
 	readCtx := domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(domain.WithReadBudget(ctx, budget)))
-	target, targetResult, targetMeta, err := s.resolveInverseReferenceTarget(readCtx, opts)
+	readCtx, target, targetResult, targetMeta, err := s.resolveInverseReferenceTarget(readCtx, opts)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
