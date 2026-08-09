@@ -402,10 +402,10 @@ func sameGraphOrigin(parsed *url.URL, base string) bool {
 	}
 	return strings.EqualFold(parsed.Scheme, other.Scheme) &&
 		strings.EqualFold(parsed.Hostname(), other.Hostname()) &&
-		graphEffectivePort(parsed) == graphEffectivePort(other)
+		effectiveURLPort(parsed) == effectiveURLPort(other)
 }
 
-func graphEffectivePort(value *url.URL) string {
+func effectiveURLPort(value *url.URL) string {
 	if port := value.Port(); port != "" {
 		return port
 	}

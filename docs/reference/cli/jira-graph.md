@@ -281,9 +281,11 @@ order. Both passes must reach terminal pagination and return the same issue
 identity set before selection is complete. This detects candidate-set drift;
 it is not atomic snapshot isolation. `atl` then verifies every requested source
 for every selected issue. `fast` instead makes one target-derived narrowed Jira
-selection and is always returned as `selection.complete:false` with
-`reason:"mode_fast"`, even when every selected issue verifies successfully.
-It is useful for qualified discovery but can never prove absence.
+selection and always returns `selection.complete:false`. An otherwise normally
+terminal narrowed pass uses `reason:"mode_fast"`; any concrete selection
+failure retains its own closed reason. Fast is
+useful for qualified discovery but can never prove absence, even when every
+selected issue verifies successfully.
 
 Each selected source is explicit and locally matched:
 

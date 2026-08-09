@@ -4,6 +4,7 @@
 package jira
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -586,13 +587,13 @@ func (j *Jira) ListComments(ctx context.Context, key string) ([]domain.Comment, 
 	seenIDs := map[string]bool{}
 	for page := 0; page < commentPageGuard; page++ {
 		var resp struct {
-			StartAt  int  `json:"startAt"`
+			StartAt  *int `json:"startAt"`
 			Total    *int `json:"total"`
 			Comments []struct {
-				ID      string         `json:"id"`
-				Author  map[string]any `json:"author"`
-				Created string         `json:"created"`
-				Body    string         `json:"body"`
+				ID      string          `json:"id"`
+				Author  map[string]any  `json:"author"`
+				Created string          `json:"created"`
+				Body    json.RawMessage `json:"body"`
 			} `json:"comments"`
 		}
 		q := url.Values{}
@@ -610,9 +611,17 @@ func (j *Jira) ListComments(ctx context.Context, key string) ([]domain.Comment, 
 			return nil, fmt.Errorf("%w: Jira comment listing for %s returned negative total %d at offset %d",
 				domain.ErrCheckFailed, key, total, cursor.requested())
 		}
-		if !cursor.matches(resp.StartAt) {
+		if resp.StartAt == nil {
+			return nil, fmt.Errorf("%w: Jira comment listing for %s omitted startAt at offset %d",
+				domain.ErrCheckFailed, key, cursor.requested())
+		}
+		if !cursor.matches(*resp.StartAt) {
 			return nil, fmt.Errorf("%w: Jira comment listing for %s returned offset %d while %d was requested",
-				domain.ErrCheckFailed, key, resp.StartAt, cursor.requested())
+				domain.ErrCheckFailed, key, *resp.StartAt, cursor.requested())
+		}
+		if resp.Comments == nil {
+			return nil, fmt.Errorf("%w: Jira comment listing for %s omitted or nullified comments at offset %d",
+				domain.ErrCheckFailed, key, cursor.requested())
 		}
 		if expectedTotal < 0 {
 			expectedTotal = total
@@ -625,10 +634,19 @@ func (j *Jira) ListComments(ctx context.Context, key string) ([]domain.Comment, 
 				return nil, fmt.Errorf("%w: Jira comment listing for %s returned a missing or duplicate comment id at offset %d",
 					domain.ErrCheckFailed, key, cursor.requested())
 			}
+			if len(c.Body) == 0 || bytes.Equal(bytes.TrimSpace(c.Body), []byte("null")) {
+				return nil, fmt.Errorf("%w: Jira comment listing for %s omitted or nullified a comment body at offset %d",
+					domain.ErrCheckFailed, key, cursor.requested())
+			}
+			body, bodyOK := decodeJiraRemoteLinkMetadata(c.Body)
+			if !bodyOK {
+				return nil, fmt.Errorf("%w: Jira comment listing for %s returned a malformed comment body at offset %d",
+					domain.ErrCheckFailed, key, cursor.requested())
+			}
 			seenIDs[c.ID] = true
 			out = append(out, domain.Comment{
 				ID: c.ID, Author: nestedDisplay(c.Author), AuthorName: nestedName(c.Author),
-				AuthorKey: nestedKey(c.Author), Created: c.Created, Body: c.Body,
+				AuthorKey: nestedKey(c.Author), Created: c.Created, Body: body,
 			})
 		}
 		decision := cursor.advance(len(resp.Comments), &total)

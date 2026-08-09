@@ -254,6 +254,30 @@ func TestInverseReferenceGitLabTargetIsOfflineCanonicalAndFastIncomplete(t *test
 	}
 }
 
+func TestInverseReferenceConfluenceTargetNormalizesDefaultHTTPSPort(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		base   string
+		target string
+	}{
+		{name: "target explicit", base: "https://docs.example.test/wiki", target: "https://docs.example.test:443/wiki/pages/viewpage.action?pageId=42"},
+		{name: "base explicit", base: "https://docs.example.test:443/wiki", target: "https://docs.example.test/wiki/pages/viewpage.action?pageId=42"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := inverseReferenceTestOptions()
+			opts.Target = tc.target
+			opts.TargetKind = domain.JiraInverseReferenceTargetConfluencePage
+			tracker := &inverseReferenceTestTracker{pages: []domain.JiraInverseReferencePage{
+				inverseReferenceEmptyPage(opts.MaxIssues), inverseReferenceEmptyPage(opts.MaxIssues),
+			}}
+			result, err := (&JiraService{tr: tracker, inverseConfluenceBaseURL: tc.base}).SearchInverseReferences(t.Context(), opts)
+			if err != nil || result == nil || !result.Complete || !result.AbsenceProven || len(tracker.selections) != 2 {
+				t.Fatalf("result=%+v err=%v selections=%d", result, err, len(tracker.selections))
+			}
+		})
+	}
+}
+
 func TestInverseReferenceExhaustiveTwoPassEmptyProvesAbsence(t *testing.T) {
 	opts := inverseReferenceTestOptions()
 	tracker := &inverseReferenceTestTracker{pages: []domain.JiraInverseReferencePage{inverseReferenceEmptyPage(opts.MaxIssues), inverseReferenceEmptyPage(opts.MaxIssues)}}
@@ -362,7 +386,7 @@ func TestInverseReferenceConfluenceDirectAndStructuredMatchingNeverResolveDiscov
 
 	for name, link := range map[string]domain.JiraRemoteLink{
 		"absent globalId direct fallback": {ID: "7", ApplicationType: confluenceRemoteApplicationType, ObjectURL: "https://docs.example.test/wiki/spaces/SAFE/pages/42/Page"},
-		"wrong app literal":               {ID: "7", ApplicationType: "com.example.other", ObjectURL: "https://docs.example.test/wiki/spaces/SAFE/pages/42/Page"},
+		"wrong app literal":               {ID: "7", ApplicationType: "com.example.other", ObjectURL: "HTTPS://docs.example.test:443/wiki/spaces/SAFE/pages/42/Page"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			tracker.remoteLinks["SAFE-1"] = domain.JiraRemoteLinkInventory{Total: 1, Links: []domain.JiraRemoteLink{link}}
@@ -572,13 +596,13 @@ func TestInverseReferenceEveryAuxiliarySourceAndErrorsAreQualified(t *testing.T)
 		prepare func(*inverseReferenceTestTracker)
 	}{
 		{"comments", domain.JiraInverseReferenceSourceComments, func(tracker *inverseReferenceTestTracker) {
-			tracker.comments = map[string][]domain.Comment{issue.Key: {{ID: "1", Body: "https://git.example.test/group/repo"}}}
+			tracker.comments = map[string][]domain.Comment{issue.Key: {{ID: "1", Body: "See HTTPS://git.example.test/group/repo!"}}}
 		}},
 		{"worklogs", domain.JiraInverseReferenceSourceWorklogs, func(tracker *inverseReferenceTestTracker) {
-			tracker.worklogs = map[string]*domain.IssueWorklogList{issue.Key: {Total: 1, Complete: true, Worklogs: []domain.IssueWorklog{{ID: "1", Comment: "https://git.example.test/group/repo"}}}}
+			tracker.worklogs = map[string]*domain.IssueWorklogList{issue.Key: {Total: 1, Complete: true, Worklogs: []domain.IssueWorklog{{ID: "1", Comment: "See https://git.example.test/group/repo?"}}}}
 		}},
 		{"remote links", domain.JiraInverseReferenceSourceRemoteLinks, func(tracker *inverseReferenceTestTracker) {
-			tracker.remoteLinks = map[string]domain.JiraRemoteLinkInventory{issue.Key: {Total: 1, Links: []domain.JiraRemoteLink{{ID: "1", ObjectURL: "https://git.example.test/group/repo/-/tree/main"}}}}
+			tracker.remoteLinks = map[string]domain.JiraRemoteLinkInventory{issue.Key: {Total: 1, Links: []domain.JiraRemoteLink{{ID: "1", ObjectURL: "https://git.example.test/group/repo/-/blob/main/file.go#L20"}}}}
 		}},
 		{"development", domain.JiraInverseReferenceSourceDevelopment, func(tracker *inverseReferenceTestTracker) {
 			tracker.development = map[string]domain.JiraDevelopmentInventory{issue.ID: {
@@ -609,6 +633,134 @@ func TestInverseReferenceEveryAuxiliarySourceAndErrorsAreQualified(t *testing.T)
 			tracker := &inverseReferenceTestTracker{pages: []domain.JiraInverseReferencePage{page, page}, commentsErr: sourceErr}
 			result, err := (&JiraService{tr: tracker}).SearchInverseReferences(t.Context(), opts)
 			if err != nil || result.Complete || !result.SourceCounts[0].Reconciled || !result.Usage.Reconciled || len(result.SourceCounts[0].Reasons) != 1 || result.SourceCounts[0].Reasons[0].Count != 1 || strings.Contains(string(mustJSON(t, result)), "private prose") {
+				t.Fatalf("result=%+v err=%v", result, err)
+			}
+		})
+	}
+}
+
+func TestInverseReferenceLiteralFormattingBoundaries(t *testing.T) {
+	issue := domain.JiraInverseReferenceIssueIdentity{ID: "10001", Key: "SAFE-1"}
+	page := domain.JiraInverseReferencePage{StartAt: 0, MaxResults: 10, Total: 1, Issues: []domain.JiraInverseReferenceIssueIdentity{issue}}
+	for name, body := range map[string]string{
+		"jira inline code":  `{{https://git.example.test/group/repo}}`,
+		"jira bold":         `*https://git.example.test/group/repo*`,
+		"markdown code":     "`https://git.example.test/group/repo`",
+		"guillemets":        `«https://git.example.test/group/repo»`,
+		"nonbreaking space": "https://git.example.test/group/repo\u00a0next",
+	} {
+		t.Run(name, func(t *testing.T) {
+			opts := inverseReferenceTestOptions()
+			tracker := &inverseReferenceTestTracker{
+				pages:    []domain.JiraInverseReferencePage{page, page},
+				comments: map[string][]domain.Comment{issue.Key: {{ID: "1", Body: body}}},
+			}
+			result, err := (&JiraService{tr: tracker}).SearchInverseReferences(t.Context(), opts)
+			if err != nil || !result.Complete || result.AbsenceProven || len(result.Matches) != 1 {
+				t.Fatalf("result=%+v err=%v", result, err)
+			}
+		})
+	}
+}
+
+func TestInverseReferenceGitLabArtifactQueryAndFragmentMatchLocally(t *testing.T) {
+	issue := domain.JiraInverseReferenceIssueIdentity{ID: "10001", Key: "SAFE-1"}
+	page := domain.JiraInverseReferencePage{StartAt: 0, MaxResults: 10, Total: 1, Issues: []domain.JiraInverseReferenceIssueIdentity{issue}}
+	for _, tc := range []struct {
+		name   string
+		source domain.JiraInverseReferenceSource
+		value  string
+	}{
+		{name: "description fragment", source: domain.JiraInverseReferenceSourceDescription, value: "https://git.example.test/group/repo/-/blob/main/file.go#L20"},
+		{name: "comment query", source: domain.JiraInverseReferenceSourceComments, value: "https://git.example.test/group/repo/-/tree/main?ref_type=heads"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := inverseReferenceTestOptions()
+			opts.Sources = []domain.JiraInverseReferenceSource{tc.source}
+			tracker := &inverseReferenceTestTracker{pages: []domain.JiraInverseReferencePage{page, page}}
+			if tc.source == domain.JiraInverseReferenceSourceDescription {
+				tracker.snapshots = map[string]domain.JiraInverseReferenceSnapshot{issue.Key: {
+					Issue: issue,
+					Fields: []domain.JiraInverseReferenceFieldSnapshot{{
+						FieldID: "description", Present: true, Value: json.RawMessage(fmt.Sprintf("%q", tc.value)),
+					}},
+				}}
+			} else {
+				tracker.comments = map[string][]domain.Comment{issue.Key: {{ID: "1", Body: tc.value}}}
+			}
+			result, err := (&JiraService{tr: tracker}).SearchInverseReferences(t.Context(), opts)
+			if err != nil || !result.Complete || result.AbsenceProven || len(result.Matches) != 1 {
+				t.Fatalf("result=%+v err=%v", result, err)
+			}
+		})
+	}
+}
+
+func TestInverseReferenceMalformedCommentReadCannotProveAbsence(t *testing.T) {
+	issue := domain.JiraInverseReferenceIssueIdentity{ID: "10001", Key: "SAFE-1"}
+	page := domain.JiraInverseReferencePage{StartAt: 0, MaxResults: 10, Total: 1, Issues: []domain.JiraInverseReferenceIssueIdentity{issue}}
+	tracker := &inverseReferenceTestTracker{
+		pages:       []domain.JiraInverseReferencePage{page, page},
+		commentsErr: fmt.Errorf("%w: malformed comment body", domain.ErrCheckFailed),
+	}
+	result, err := (&JiraService{tr: tracker}).SearchInverseReferences(t.Context(), inverseReferenceTestOptions())
+	if err != nil || result.Complete || result.AbsenceProven || result.SourceCounts[0].Partial != 1 ||
+		len(result.SourceCounts[0].Reasons) != 1 || result.SourceCounts[0].Reasons[0].Reason != domain.JiraInverseReferenceReasonMalformed {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+}
+
+func TestInverseReferenceMissingCollectionsCannotProveAbsence(t *testing.T) {
+	issue := domain.JiraInverseReferenceIssueIdentity{ID: "10001", Key: "SAFE-1"}
+	page := domain.JiraInverseReferencePage{StartAt: 0, MaxResults: 10, Total: 1, Issues: []domain.JiraInverseReferenceIssueIdentity{issue}}
+	for _, tc := range []struct {
+		name    string
+		source  domain.JiraInverseReferenceSource
+		prepare func(*inverseReferenceTestTracker)
+	}{
+		{name: "comments", source: domain.JiraInverseReferenceSourceComments},
+		{name: "worklogs", source: domain.JiraInverseReferenceSourceWorklogs, prepare: func(tracker *inverseReferenceTestTracker) {
+			tracker.worklogs = map[string]*domain.IssueWorklogList{issue.Key: {Total: 0, Complete: true}}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := inverseReferenceTestOptions()
+			opts.Sources = []domain.JiraInverseReferenceSource{tc.source}
+			tracker := &inverseReferenceTestTracker{pages: []domain.JiraInverseReferencePage{page, page}}
+			if tc.prepare != nil {
+				tc.prepare(tracker)
+			}
+			result, err := (&JiraService{tr: tracker}).SearchInverseReferences(t.Context(), opts)
+			if err != nil || result.Complete || result.AbsenceProven || result.SourceCounts[0].Partial != 1 ||
+				len(result.SourceCounts[0].Reasons) != 1 || result.SourceCounts[0].Reasons[0].Reason != domain.JiraInverseReferenceReasonMalformed {
+				t.Fatalf("result=%+v err=%v", result, err)
+			}
+		})
+	}
+}
+
+func TestInverseReferencePresentEmptyCollectionsCanProveAbsence(t *testing.T) {
+	issue := domain.JiraInverseReferenceIssueIdentity{ID: "10001", Key: "SAFE-1"}
+	page := domain.JiraInverseReferencePage{StartAt: 0, MaxResults: 10, Total: 1, Issues: []domain.JiraInverseReferenceIssueIdentity{issue}}
+	for _, tc := range []struct {
+		name    string
+		source  domain.JiraInverseReferenceSource
+		prepare func(*inverseReferenceTestTracker)
+	}{
+		{name: "comments", source: domain.JiraInverseReferenceSourceComments, prepare: func(tracker *inverseReferenceTestTracker) {
+			tracker.comments = map[string][]domain.Comment{issue.Key: {}}
+		}},
+		{name: "worklogs", source: domain.JiraInverseReferenceSourceWorklogs, prepare: func(tracker *inverseReferenceTestTracker) {
+			tracker.worklogs = map[string]*domain.IssueWorklogList{issue.Key: {Worklogs: []domain.IssueWorklog{}, Total: 0, Complete: true}}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := inverseReferenceTestOptions()
+			opts.Sources = []domain.JiraInverseReferenceSource{tc.source}
+			tracker := &inverseReferenceTestTracker{pages: []domain.JiraInverseReferencePage{page, page}}
+			tc.prepare(tracker)
+			result, err := (&JiraService{tr: tracker}).SearchInverseReferences(t.Context(), opts)
+			if err != nil || !result.Complete || !result.AbsenceProven || result.SourceCounts[0].Empty != 1 {
 				t.Fatalf("result=%+v err=%v", result, err)
 			}
 		})

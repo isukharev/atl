@@ -129,7 +129,7 @@
     },
     {
       "path": "jira/SKILL.md",
-      "sha256": "8b7e9e708229e3644662b31b3ea156b3043ddc69671f7686dc647a37122f5034"
+      "sha256": "1c07083e82d97cee23d44f1a3bd69303dd67b4ab77388852ca7618135d4d371c"
     },
     {
       "path": "jira/agents/openai.yaml",
@@ -141,7 +141,7 @@
     },
     {
       "path": "jira/reference/commands.md",
-      "sha256": "2ef9484aa691b6834d1cbc1b9b67238c0ae537b3c2432d4791973d723d358a63"
+      "sha256": "afad1ad4efe4b3ad2a305205eb696d27d165a1809c111fea0df5b313f4f990df"
     },
     {
       "path": "jira/reference/editing.md",
@@ -153,7 +153,7 @@
     },
     {
       "path": "jira/reference/evidence-workflow.md",
-      "sha256": "3270cc4d9539ca84ba329a163474018cde8ae1a65f92ce15731d397640a0ae24"
+      "sha256": "43bcc31c3a54256b905319d76b85e3114a9988c6e6c805f4f81026ec279a696a"
     },
     {
       "path": "jira/reference/extended-capabilities.md",

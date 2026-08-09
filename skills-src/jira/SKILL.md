@@ -153,8 +153,10 @@ explicit. `fields` requires exact technical ids in `--fields`; the remaining
 source names are `description`, `comments`, `remote-links`, `worklogs`,
 `development`, and `properties`. Use JSON, retain it after strict exit 8, and
 require `complete:true` plus `absence_proven:true` before claiming no issue
-refers to the target. Fast mode is always incomplete with `mode_fast` and is
-only qualified discovery. ATL matches the selected Jira evidence locally: it
+refers to the target. Fast mode is always incomplete and only qualified
+discovery. Its normally terminal narrowed pass uses `mode_fast`; concrete
+selection failures retain their own closed reason. ATL
+matches the selected Jira evidence locally: it
 never contacts GitLab or dereferences a discovered URL. Only a caller-supplied
 Confluence display or short target may use the configured Confluence resolver;
 prefer a page id or direct id-bearing URL for offline target resolution.

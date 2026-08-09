@@ -52,11 +52,11 @@ func mapWorklog(input worklogDTO) domain.IssueWorklog {
 func (j *Jira) ListIssueWorklogs(ctx context.Context, key string) (*domain.IssueWorklogList, error) {
 	cursor := jiraOffsetCursor{}
 	expectedTotal := -1
-	result := &domain.IssueWorklogList{}
+	result := &domain.IssueWorklogList{Worklogs: []domain.IssueWorklog{}}
 	seenIDs := map[string]bool{}
 	for page := 0; page < worklogPageGuard; page++ {
 		var response struct {
-			StartAt  int          `json:"startAt"`
+			StartAt  *int         `json:"startAt"`
 			Total    *int         `json:"total"`
 			Worklogs []worklogDTO `json:"worklogs"`
 		}
@@ -71,8 +71,14 @@ func (j *Jira) ListIssueWorklogs(ctx context.Context, key string) (*domain.Issue
 			return nil, fmt.Errorf("%w: Jira worklog listing for %s omitted total at offset %d", domain.ErrCheckFailed, key, cursor.requested())
 		}
 		total := *response.Total
-		if total < 0 || !cursor.matches(response.StartAt) {
+		if response.StartAt == nil {
+			return nil, fmt.Errorf("%w: Jira worklog listing for %s omitted startAt at offset %d", domain.ErrCheckFailed, key, cursor.requested())
+		}
+		if total < 0 || !cursor.matches(*response.StartAt) {
 			return nil, fmt.Errorf("%w: Jira worklog listing for %s returned invalid pagination at offset %d", domain.ErrCheckFailed, key, cursor.requested())
+		}
+		if response.Worklogs == nil {
+			return nil, fmt.Errorf("%w: Jira worklog listing for %s omitted or nullified worklogs at offset %d", domain.ErrCheckFailed, key, cursor.requested())
 		}
 		if expectedTotal < 0 {
 			expectedTotal = total

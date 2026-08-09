@@ -53,6 +53,36 @@ func TestResolveConfluenceDirectPageReferences(t *testing.T) {
 	}
 }
 
+func TestResolveConfluenceReferenceNormalizesDefaultHTTPSPort(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		base      string
+		reference string
+		short     bool
+	}{
+		{name: "display target explicit", base: "https://docs.example.test/wiki", reference: "https://docs.example.test:443/wiki/display/ENG/Page"},
+		{name: "display base explicit", base: "https://docs.example.test:443/wiki", reference: "https://docs.example.test/wiki/display/ENG/Page"},
+		{name: "short target explicit", base: "https://docs.example.test/wiki", reference: "https://docs.example.test:443/wiki/x/AwAG", short: true},
+		{name: "short base explicit", base: "https://docs.example.test:443/wiki", reference: "https://docs.example.test/wiki/x/AwAG", short: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &referenceStore{refs: []domain.PageRef{{ID: "42"}}, finalURL: "https://docs.example.test/wiki/spaces/ENG/pages/42/Page"}
+			service := &ConfluenceService{store: store, baseURL: tc.base}
+			result, err := service.ResolvePageReference(context.Background(), tc.reference)
+			if err != nil || result == nil || result.ID != "42" || result.NetworkRequests != 1 {
+				t.Fatalf("result=%+v err=%v", result, err)
+			}
+			if tc.short {
+				if result.Kind != "short" || len(store.shortPaths) != 1 || len(store.searches) != 0 {
+					t.Fatalf("result=%+v searches=%v short_paths=%v", result, store.searches, store.shortPaths)
+				}
+			} else if result.Kind != "display" || len(store.searches) != 1 || len(store.shortPaths) != 0 {
+				t.Fatalf("result=%+v searches=%v short_paths=%v", result, store.searches, store.shortPaths)
+			}
+		})
+	}
+}
+
 func TestResolveConfluenceReferenceRejectsUnsafeForms(t *testing.T) {
 	service := &ConfluenceService{store: &referenceStore{}, baseURL: "https://docs.example.test/wiki"}
 	for _, ref := range []string{

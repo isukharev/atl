@@ -963,8 +963,9 @@ classes hold. Top-level `complete:true` requires exhaustive mode, complete targe
 resolution, both complete selection passes with a stable identity set,
 complete verification of every requested source, and every reconciliation.
 Only `complete:true` with no matches sets `absence_proven:true`. Fast mode is
-always `selection.complete:false` with `reason:"mode_fast"`, so it never proves
-absence.
+always `selection.complete:false`, so it never proves absence. Its otherwise
+normally terminal narrowed pass uses `reason:"mode_fast"`; any concrete
+selection failure retains its own closed reason instead.
 
 Without `--strict`, a usable incomplete JSON result may exit zero. With
 `--strict`, the same result is emitted before exit 8 and must be retained.

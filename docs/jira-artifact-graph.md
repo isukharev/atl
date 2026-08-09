@@ -70,9 +70,11 @@ selection passes, rejects selection drift, and verifies every selected source
 for every selected issue. This detects candidate-set drift but is not atomic
 snapshot isolation. Only a reconciled `complete:true` exhaustive result with
 zero matches sets `absence_proven:true`. `fast` uses one target-derived Jira
-selection and is always incomplete with `reason:"mode_fast"`; use it only for
-qualified discovery. `--strict` still emits the result before exit 8, so retain
-and inspect that JSON.
+selection and is always incomplete. An otherwise normally terminal pass uses
+`reason:"mode_fast"`; any concrete selection failure retains its own closed
+reason. Use fast only for qualified discovery.
+`--strict` still emits the result before exit 8, so retain and inspect that
+JSON.
 
 The result contains issue keys and content-free qualification, never the raw
 target, JQL, URLs, titles, source text, property keys, or backend errors. ATL

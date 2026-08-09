@@ -7,8 +7,10 @@ import (
 	"errors"
 	"io"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/scmref"
@@ -19,6 +21,8 @@ const (
 	inverseReferenceMaxValueBytes     = 64 << 10
 	confluenceRemoteApplicationType   = "com.atlassian.confluence"
 )
+
+var inverseReferenceLiteralURLPattern = regexp.MustCompile("(?i)https?://[^\\s\\p{Z}\\p{Pe}\\p{Pf}<>\"')\\]}*`]+")
 
 func verifyInverseReferenceCandidates(ctx context.Context, tracker domain.Tracker, snapshotReader domain.JiraInverseReferenceSnapshotReader, target inverseReferenceTarget, opts JiraInverseReferenceOptions, selected []domain.JiraInverseReferenceIssueIdentity, result *JiraInverseReferenceResult) error {
 	issues := append([]domain.JiraInverseReferenceIssueIdentity(nil), selected...)
@@ -304,7 +308,7 @@ func collectInverseReferenceWorklogs(ctx context.Context, tracker domain.Tracker
 		outcome.Source = source
 		return outcome, nil, nil
 	}
-	if inventory == nil || !inventory.Complete || inventory.Total < 0 || inventory.Total != len(inventory.Worklogs) || len(inventory.Worklogs) > inverseReferenceMaxCollectionRows {
+	if inventory == nil || inventory.Worklogs == nil || !inventory.Complete || inventory.Total < 0 || inventory.Total != len(inventory.Worklogs) || len(inventory.Worklogs) > inverseReferenceMaxCollectionRows {
 		return malformedInverseReferenceOutcome(source), nil, nil
 	}
 	if inventory.Total == 0 {
@@ -372,7 +376,7 @@ func collectInverseReferenceRemoteLinks(ctx context.Context, tracker domain.Trac
 		}
 		switch target.domain.Kind {
 		case domain.JiraInverseReferenceTargetGitLabProject:
-			if project, ok := scmref.ParseGitLabReference(link.ObjectURL); ok && project == target.gitlab {
+			if project, ok := inverseReferenceGitLabLiteralProject(link.ObjectURL); ok && project == target.gitlab {
 				matches = append(matches, literalInverseReferenceMatch(issue, source, ""))
 			}
 		case domain.JiraInverseReferenceTargetConfluencePage:
@@ -496,11 +500,11 @@ func inverseReferenceJSONEmpty(value any) bool {
 }
 
 func inverseReferenceLiteralMatches(text string, target inverseReferenceTarget) bool {
-	for _, span := range graphURLPattern.FindAllStringIndex(text, -1) {
-		raw := strings.TrimRight(text[span[0]:span[1]], ".,;:")
+	for _, span := range inverseReferenceLiteralURLPattern.FindAllStringIndex(text, -1) {
+		raw := strings.TrimRight(text[span[0]:span[1]], ".,;:!?")
 		switch target.domain.Kind {
 		case domain.JiraInverseReferenceTargetGitLabProject:
-			if project, ok := scmref.ParseGitLabReference(raw); ok && project == target.gitlab {
+			if project, ok := inverseReferenceGitLabLiteralProject(raw); ok && project == target.gitlab {
 				return true
 			}
 		case domain.JiraInverseReferenceTargetConfluencePage:
@@ -513,6 +517,21 @@ func inverseReferenceLiteralMatches(text string, target inverseReferenceTarget) 
 	return false
 }
 
+func inverseReferenceGitLabLiteralProject(raw string) (scmref.GitLabProject, bool) {
+	if !utf8.ValidString(raw) || strings.ContainsRune(raw, utf8.RuneError) {
+		return scmref.GitLabProject{}, false
+	}
+	candidate, err := url.Parse(raw)
+	if err != nil || !validInverseReferenceURLComponents(candidate) {
+		return scmref.GitLabProject{}, false
+	}
+	candidate.RawQuery = ""
+	candidate.ForceQuery = false
+	candidate.Fragment = ""
+	candidate.RawFragment = ""
+	return scmref.ParseGitLabReference(candidate.String())
+}
+
 func inverseReferenceConfluenceURLPageID(baseURL, raw string) (string, bool, bool) {
 	base, baseErr := url.Parse(baseURL)
 	candidate, err := url.Parse(raw)
@@ -520,7 +539,7 @@ func inverseReferenceConfluenceURLPageID(baseURL, raw string) (string, bool, boo
 		!validInverseReferenceURLComponents(candidate) {
 		return "", false, false
 	}
-	if !sameConfluenceOrigin(base, candidate) {
+	if !sameGraphOrigin(candidate, baseURL) {
 		return "", false, true
 	}
 	refPath, ok := confluenceReferencePath(base, candidate, true)

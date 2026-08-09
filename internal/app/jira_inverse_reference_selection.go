@@ -152,7 +152,7 @@ func resolveConfluenceReferenceOffline(baseRaw, reference string) (*ConfluencePa
 	}
 	abs := u.IsAbs()
 	if abs {
-		if !sameConfluenceOrigin(base, u) {
+		if !sameGraphOrigin(u, baseRaw) {
 			return nil, false, inverseReferenceUsage("Confluence target is outside the configured origin")
 		}
 	} else if u.Host != "" || !strings.HasPrefix(u.Path, "/") {

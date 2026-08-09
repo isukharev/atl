@@ -56,7 +56,9 @@ passes must reconcile to the same issue set, after which every requested source
 is verified for every issue. This detects selection drift but does not create
 an atomic Jira snapshot. Only `complete:true` and `absence_proven:true` prove
 zero matches. Fast mode is target-derived discovery and always returns
-`selection.complete:false` with `reason:"mode_fast"`.
+`selection.complete:false`. An otherwise normally terminal narrowed pass uses
+`reason:"mode_fast"`; any concrete selection failure retains its own closed
+reason.
 
 Use the default JSON for reasoning. It emits only an opaque target id,
 normalized selectors, phase/source qualification, content-free match facts,

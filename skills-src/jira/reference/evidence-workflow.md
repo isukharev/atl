@@ -101,9 +101,11 @@ the complete source vocabulary is `description`, `fields`, `comments`,
 inspect target resolution, selection, verification, per-source counts,
 frontier, usage, and every reconciliation. Only an exhaustive
 `complete:true` result with `absence_proven:true` proves zero references. Fast
-mode always reports `mode_fast`; do not broaden, repeat, or combine fast calls
-into an absence claim. If strict mode exits 8, retain its emitted incomplete
-JSON and stop or narrow the policy inputs rather than treating stdout as lost.
+mode is always incomplete; an otherwise normally terminal narrowed pass reports
+`mode_fast`, while any concrete selection failure retains its own closed reason.
+Do not broaden, repeat, or combine fast calls into an absence
+claim. If strict mode exits 8, retain its emitted incomplete JSON and stop or
+narrow the policy inputs rather than treating stdout as lost.
 
 The result is content-free and matching is local. ATL never contacts GitLab or
 dereferences URLs found in Jira. Only resolution of a caller-supplied

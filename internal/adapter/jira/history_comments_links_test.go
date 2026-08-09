@@ -121,7 +121,7 @@ func TestListCommentsMapsFromCommentEndpoint(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"comments":[
+		_, _ = w.Write([]byte(`{"startAt":0,"comments":[
 			{"id":"1","author":{"name":"bob","key":"user-1","displayName":"Bob"},"created":"2026-01-02","body":"hello"},
 			{"id":"2","author":{"displayName":"Carol"},"created":"2026-01-03","body":"world"}
 		],"total":2}`))
@@ -139,6 +139,45 @@ func TestListCommentsMapsFromCommentEndpoint(t *testing.T) {
 	if len(cs) != 2 || cs[0].ID != "1" || cs[0].Author != "Bob" || cs[0].AuthorName != "bob" ||
 		cs[0].AuthorKey != "user-1" || cs[0].Body != "hello" || cs[1].ID != "2" {
 		t.Fatalf("comments mismatch: %+v", cs)
+	}
+}
+
+func TestListCommentsPreservesValidEmptyCollection(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"startAt":0,"total":0,"comments":[]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	comments, err := newTestJira(srv).ListComments(context.Background(), "PROJ-1")
+	if err != nil || comments == nil || len(comments) != 0 {
+		t.Fatalf("comments=%+v error=%v, want non-nil empty collection", comments, err)
+	}
+}
+
+func TestListCommentsPreservesExplicitEmptyBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"startAt":0,"total":1,"comments":[{"id":"1","body":""}]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	comments, err := newTestJira(srv).ListComments(context.Background(), "PROJ-1")
+	if err != nil || len(comments) != 1 || comments[0].Body != "" {
+		t.Fatalf("comments=%+v error=%v, want one explicit empty body", comments, err)
+	}
+}
+
+func TestListCommentsRejectsInvalidUTF8Body(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("{\"startAt\":0,\"total\":1,\"comments\":[{\"id\":\"1\",\"body\":\"bad\xff\"}]}"))
+	}))
+	t.Cleanup(srv.Close)
+
+	comments, err := newTestJira(srv).ListComments(context.Background(), "PROJ-1")
+	if !errors.Is(err, domain.ErrCheckFailed) || comments != nil || !strings.Contains(err.Error(), "malformed comment body") {
+		t.Fatalf("comments=%+v error=%v, want nil ErrCheckFailed", comments, err)
 	}
 }
 
@@ -292,19 +331,26 @@ func TestListCommentsFailsClosedOnPaginationAnomalies(t *testing.T) {
 		wantMessage string
 	}{
 		{"missing total", map[string]string{"0": `{"startAt":0,"comments":[]}`}, "omitted total"},
+		{"missing startAt", map[string]string{"0": `{"total":0,"comments":[]}`}, "omitted startAt"},
+		{"null startAt", map[string]string{"0": `{"startAt":null,"total":0,"comments":[]}`}, "omitted startAt"},
+		{"missing comments", map[string]string{"0": `{"startAt":0,"total":0}`}, "omitted or nullified comments"},
+		{"null comments", map[string]string{"0": `{"startAt":0,"total":0,"comments":null}`}, "omitted or nullified comments"},
 		{"negative total", map[string]string{"0": `{"startAt":0,"total":-1,"comments":[]}`}, "negative total"},
 		{"wrong offset", map[string]string{"0": `{"startAt":1,"total":2,"comments":[{"id":"one"}]}`}, "returned offset"},
 		{"empty incomplete", map[string]string{"0": `{"startAt":0,"total":1,"comments":[]}`}, "made no progress"},
-		{"past total", map[string]string{"0": `{"startAt":0,"total":0,"comments":[{"id":"one"}]}`}, "inconsistent pagination"},
+		{"past total", map[string]string{"0": `{"startAt":0,"total":0,"comments":[{"id":"one","body":""}]}`}, "inconsistent pagination"},
 		{"missing identity", map[string]string{"0": `{"startAt":0,"total":1,"comments":[{"id":""}]}`}, "missing or duplicate comment id"},
-		{"duplicate identity", map[string]string{"0": `{"startAt":0,"total":2,"comments":[{"id":"one"},{"id":"one"}]}`}, "missing or duplicate comment id"},
+		{"missing body", map[string]string{"0": `{"startAt":0,"total":1,"comments":[{"id":"one"}]}`}, "omitted or nullified a comment body"},
+		{"null body", map[string]string{"0": `{"startAt":0,"total":1,"comments":[{"id":"one","body":null}]}`}, "omitted or nullified a comment body"},
+		{"non-string body", map[string]string{"0": `{"startAt":0,"total":1,"comments":[{"id":"one","body":{}}]}`}, "malformed comment body"},
+		{"duplicate identity", map[string]string{"0": `{"startAt":0,"total":2,"comments":[{"id":"one","body":""},{"id":"one","body":""}]}`}, "missing or duplicate comment id"},
 		{"changing total", map[string]string{
-			"0": `{"startAt":0,"total":2,"comments":[{"id":"one"}]}`,
+			"0": `{"startAt":0,"total":2,"comments":[{"id":"one","body":""}]}`,
 			"1": `{"startAt":1,"total":1,"comments":[]}`,
 		}, "changed total"},
 		{"duplicate identity across pages", map[string]string{
-			"0": `{"startAt":0,"total":2,"comments":[{"id":"one"}]}`,
-			"1": `{"startAt":1,"total":2,"comments":[{"id":"one"}]}`,
+			"0": `{"startAt":0,"total":2,"comments":[{"id":"one","body":""}]}`,
+			"1": `{"startAt":1,"total":2,"comments":[{"id":"one","body":""}]}`,
 		}, "missing or duplicate comment id"},
 	}
 	for _, test := range tests {
@@ -334,7 +380,7 @@ func TestListCommentsAllowsCompletionAtExactPageGuard(t *testing.T) {
 		requests++
 		w.Header().Set("Content-Type", "application/json")
 		start := r.URL.Query().Get("startAt")
-		_, _ = w.Write([]byte(`{"startAt":` + start + `,"total":100,"comments":[{"id":"` + start + `"}]}`))
+		_, _ = w.Write([]byte(`{"startAt":` + start + `,"total":100,"comments":[{"id":"` + start + `","body":""}]}`))
 	}))
 	defer srv.Close()
 
