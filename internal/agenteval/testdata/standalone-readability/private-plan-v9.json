@@ -1,0 +1,47 @@
+{
+  "schema_version": 9,
+  "plan_id": "pln-00000000000000000000000000000009",
+  "run_set_alias": "comparison",
+  "kind": "comparison",
+  "contract_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "inputs_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "created_at": "2026-01-01T00:00:00Z",
+  "consent": {
+    "expires_at": "2026-01-02T00:00:00Z",
+    "provider_data_approved": true,
+    "external_upstream_approved": false
+  },
+  "repository_commit": "9999999999999999999999999999999999999999",
+  "repository_dirty": false,
+  "provider": "claude-code",
+  "model": "synthetic-model",
+  "max_estimated_cost_microusd": 1,
+  "qualitative_required": false,
+  "cli_route_qualification": {
+    "schema_version": 1,
+    "provider": "claude-code",
+    "surface": "cli-skill",
+    "agent_identity": "binary-sha256:9999999999999999999999999999999999999999999999999999999999999999",
+    "contract_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "status": "supported",
+    "route": "bash",
+    "request_observed": true,
+    "synthetic_requests": 1,
+    "auxiliary_requests": 0,
+    "provider_requests": 0,
+    "backend_requests": 0,
+    "remote_writes": 0
+  },
+  "items": [
+    {
+      "spec_path": "cases/comparison/run.json",
+      "scenario_id": "contract-case",
+      "provider": "claude-code",
+      "variant": "qualified-query",
+      "surface": "cli-skill",
+      "rubric_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "max_estimated_cost_microusd": 1,
+      "max_query_only_requests": 1
+    }
+  ]
+}

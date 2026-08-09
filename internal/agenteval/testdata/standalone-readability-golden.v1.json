@@ -1,0 +1,1450 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "namespace": "atl-profile",
+      "kind": "activation-reference",
+      "version": 1,
+      "expected_projection": {
+        "reference_alias": "synthetic-reference-v1",
+        "plan_id": "pln-00000000000000000000000000000004",
+        "reference_version": 1,
+        "cell_count": 4,
+        "causal_eligible": false,
+        "promotion_eligible": false
+      },
+      "source_path": "testdata/standalone-readability/activation-reference-v1.json",
+      "source_sha256": "b88849f108af6a84b46c76863db14eb63f8a0b3dcd4d1478b21f3ffe8df1ea55",
+      "reader_support_path": "testdata/standalone-readability/private-plan-v4.json",
+      "reader_support_sha256": "7c2ea6db1b22699e5b7569ba1dd93e9d47871754031b006cdbb6b1d03cddde00"
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "activation-reference",
+      "version": 2,
+      "expected_projection": {
+        "reference_alias": "synthetic-reference-v2",
+        "plan_id": "pln-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "reference_version": 2,
+        "cell_count": 4,
+        "causal_eligible": false,
+        "promotion_eligible": false
+      },
+      "source_path": "testdata/standalone-readability/activation-reference-v2.json",
+      "source_sha256": "f13a9a3ef2245f2f255c31a6e432a5e144ab1bf64894da60ec37f8336e007bc4",
+      "reader_support_path": "testdata/standalone-readability/activation-plan-v9.json",
+      "reader_support_sha256": "578ef7e82f24a46f3f42e0c563427e22e125ef1c79a8d4f1818acdc32201485b"
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "capability-catalog",
+      "version": 1,
+      "source_path": "testdata/capability-catalog.v1.json",
+      "source_sha256": "93cc25dd6c4d55e95ba25bc6abdb7fcc25b0bb7ccd828e28fe7748b34dbfe6cb",
+      "expected_projection": {
+        "schema_version": 1,
+        "capability_count": 57,
+        "first_capability": "confluence.comment.list",
+        "last_capability": "knowledge.confluence.sections"
+      }
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "observation",
+      "version": 5,
+      "document": {
+        "schema_version": 5,
+        "scenario_id": "contract-case",
+        "variant": "baseline",
+        "surface": "cli-skill",
+        "eligibility": "supported",
+        "runtime": {
+          "provider": "synthetic",
+          "atl_version": "v0.0.0"
+        },
+        "metrics": {
+          "agent_turns": 0,
+          "tool_calls": 1,
+          "atl_invocations": 0,
+          "delegations": 0,
+          "duplicate_backend_requests": 0,
+          "output_bytes": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "main_thread_input_tokens": 0,
+          "main_thread_output_tokens": 0,
+          "estimated_cost_microusd": 0,
+          "duration_millis": 0
+        },
+        "coverage": {
+          "tool_calls": true
+        },
+        "http_methods": {},
+        "checks": {
+          "answer": true
+        },
+        "evidence_attempt": {
+          "coverage": true,
+          "state": "none"
+        },
+        "evidence_report": {
+          "coverage": true,
+          "state": "none"
+        }
+      },
+      "expected_projection": {
+        "scenario_id": "contract-case",
+        "variant": "baseline",
+        "surface": "cli-skill",
+        "eligibility": "supported",
+        "evidence_state": "none"
+      }
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "private-plan",
+      "version": 1,
+      "expected_projection": {
+        "plan_id": "pln-00000000000000000000000000000001",
+        "run_set_alias": "comparison",
+        "kind": "comparison",
+        "item_count": 1,
+        "first_surface": "atl-mcp",
+        "execution_eligible": false,
+        "first_skill_activation": "",
+        "prompt_bound": false,
+        "kind_declared": false,
+        "item_cost_bound": false,
+        "study_contract_version": 0,
+        "calibration_bound": false,
+        "tool_qualified": false,
+        "automated_review": false,
+        "live_writes": false,
+        "query_only_requests": 0,
+        "cli_route_qualified": false
+      },
+      "source_path": "testdata/standalone-readability/private-plan-v1.json",
+      "source_sha256": "48f222b2e5d89d47cccfd797f7f66fa414bb86af91a5207eccfc4c3f6b8159c5"
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "private-plan",
+      "version": 2,
+      "expected_projection": {
+        "plan_id": "pln-00000000000000000000000000000002",
+        "run_set_alias": "comparison",
+        "kind": "comparison",
+        "item_count": 1,
+        "first_surface": "cli-skill",
+        "execution_eligible": false,
+        "first_skill_activation": "explicit",
+        "prompt_bound": true,
+        "kind_declared": false,
+        "item_cost_bound": false,
+        "study_contract_version": 0,
+        "calibration_bound": false,
+        "tool_qualified": false,
+        "automated_review": false,
+        "live_writes": false,
+        "query_only_requests": 0,
+        "cli_route_qualified": false
+      },
+      "source_path": "testdata/standalone-readability/private-plan-v2.json",
+      "source_sha256": "6f6c7488648484ed7ad886b167670a73451a4222227f5aea7c58564b435481c7"
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "private-plan",
+      "version": 3,
+      "expected_projection": {
+        "plan_id": "pln-00000000000000000000000000000003",
+        "run_set_alias": "comparison",
+        "kind": "comparison",
+        "item_count": 1,
+        "first_surface": "cli-skill",
+        "execution_eligible": false,
+        "first_skill_activation": "combined",
+        "prompt_bound": true,
+        "kind_declared": false,
+        "item_cost_bound": false,
+        "study_contract_version": 0,
+        "calibration_bound": false,
+        "tool_qualified": false,
+        "automated_review": false,
+        "live_writes": false,
+        "query_only_requests": 0,
+        "cli_route_qualified": false
+      },
+      "source_path": "testdata/standalone-readability/private-plan-v3.json",
+      "source_sha256": "0f933d612f7e087110f641fafcd5ea3357b2c6b4cde09fb2ab255816ab37b28d"
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "private-plan",
+      "version": 4,
+      "expected_projection": {
+        "plan_id": "pln-00000000000000000000000000000004",
+        "run_set_alias": "study",
+        "kind": "activation-study",
+        "item_count": 4,
+        "first_surface": "cli-skill",
+        "execution_eligible": false,
+        "first_skill_activation": "implicit",
+        "prompt_bound": true,
+        "kind_declared": true,
+        "item_cost_bound": true,
+        "study_contract_version": 1,
+        "calibration_bound": false,
+        "tool_qualified": false,
+        "automated_review": false,
+        "live_writes": false,
+        "query_only_requests": 0,
+        "cli_route_qualified": false
+      },
+      "source_path": "testdata/standalone-readability/private-plan-v4.json",
+      "source_sha256": "7c2ea6db1b22699e5b7569ba1dd93e9d47871754031b006cdbb6b1d03cddde00"
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "private-plan",
+      "version": 5,
+      "expected_projection": {
+        "plan_id": "pln-00000000000000000000000000000005",
+        "run_set_alias": "study",
+        "kind": "activation-study",
+        "item_count": 4,
+        "first_surface": "cli-skill",
+        "execution_eligible": false,
+        "first_skill_activation": "implicit",
+        "prompt_bound": true,
+        "kind_declared": true,
+        "item_cost_bound": true,
+        "study_contract_version": 2,
+        "calibration_bound": true,
+        "tool_qualified": false,
+        "automated_review": false,
+        "live_writes": false,
+        "query_only_requests": 0,
+        "cli_route_qualified": false
+      },
+      "source_path": "testdata/standalone-readability/private-plan-v5.json",
+      "source_sha256": "1d000c82291ccb56eb8cd436e8f3e78db2459079884d5bdb58c0fbb38654f9a2"
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "private-plan",
+      "version": 6,
+      "expected_projection": {
+        "plan_id": "pln-00000000000000000000000000000006",
+        "run_set_alias": "study",
+        "kind": "activation-study",
+        "item_count": 4,
+        "first_surface": "cli-skill",
+        "execution_eligible": false,
+        "first_skill_activation": "implicit",
+        "prompt_bound": true,
+        "kind_declared": true,
+        "item_cost_bound": true,
+        "study_contract_version": 2,
+        "calibration_bound": true,
+        "tool_qualified": true,
+        "automated_review": false,
+        "live_writes": false,
+        "query_only_requests": 0,
+        "cli_route_qualified": false
+      },
+      "source_path": "testdata/standalone-readability/private-plan-v6.json",
+      "source_sha256": "10b4d674e002b908f75f7c6b2a54f59b03796bbaacb9b6a31a76eddf5229afee"
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "private-plan",
+      "version": 7,
+      "expected_projection": {
+        "plan_id": "pln-00000000000000000000000000000007",
+        "run_set_alias": "study",
+        "kind": "activation-study",
+        "item_count": 4,
+        "first_surface": "cli-skill",
+        "execution_eligible": false,
+        "first_skill_activation": "implicit",
+        "prompt_bound": true,
+        "kind_declared": true,
+        "item_cost_bound": true,
+        "study_contract_version": 2,
+        "calibration_bound": true,
+        "tool_qualified": true,
+        "automated_review": true,
+        "live_writes": false,
+        "query_only_requests": 0,
+        "cli_route_qualified": false
+      },
+      "source_path": "testdata/standalone-readability/private-plan-v7.json",
+      "source_sha256": "d5391deb0928e053c709fafc957a1cbee6263a83d17d425f33a5fcd9a452de67"
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "private-plan",
+      "version": 8,
+      "expected_projection": {
+        "plan_id": "pln-00000000000000000000000000000008",
+        "run_set_alias": "comparison",
+        "kind": "comparison",
+        "item_count": 1,
+        "first_surface": "cli-skill",
+        "execution_eligible": false,
+        "first_skill_activation": "",
+        "prompt_bound": false,
+        "kind_declared": true,
+        "item_cost_bound": true,
+        "study_contract_version": 0,
+        "calibration_bound": false,
+        "tool_qualified": false,
+        "automated_review": false,
+        "live_writes": true,
+        "query_only_requests": 0,
+        "cli_route_qualified": false
+      },
+      "source_path": "testdata/standalone-readability/private-plan-v8.json",
+      "source_sha256": "2eaecdc02e8cf0468223c01d709309b942b9929f3ea3db835c93d490f1026796"
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "private-plan",
+      "version": 9,
+      "expected_projection": {
+        "plan_id": "pln-00000000000000000000000000000009",
+        "run_set_alias": "comparison",
+        "kind": "comparison",
+        "item_count": 1,
+        "first_surface": "cli-skill",
+        "execution_eligible": true,
+        "first_skill_activation": "",
+        "prompt_bound": false,
+        "kind_declared": true,
+        "item_cost_bound": true,
+        "study_contract_version": 0,
+        "calibration_bound": false,
+        "tool_qualified": false,
+        "automated_review": false,
+        "live_writes": false,
+        "query_only_requests": 1,
+        "cli_route_qualified": true
+      },
+      "source_path": "testdata/standalone-readability/private-plan-v9.json",
+      "source_sha256": "ce2c759f28e817c1113291be29f69842c75852480cf92d4ff1bd1f3ea0241ed1"
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "private-workspace",
+      "version": 1,
+      "document": {
+        "schema_version": 1,
+        "live_config_env": "ATL_AGENT_EVAL_SYNTHETIC_CONFIG",
+        "execution": {
+          "max_estimated_cost_microusd": 1000
+        },
+        "retention": {
+          "keep_completed_run_sets_per_alias": 1,
+          "max_candidate_age_days": 1,
+          "max_candidate_bytes": 1048576,
+          "retain_baseline_transcripts": false
+        },
+        "run_sets": [
+          {
+            "alias": "comparison",
+            "spec_paths": [
+              "cases/comparison/run.json"
+            ],
+            "qualitative_review_required": false
+          }
+        ]
+      },
+      "expected_projection": {
+        "live_config_env": "ATL_AGENT_EVAL_SYNTHETIC_CONFIG",
+        "run_set_count": 1,
+        "first_kind": "comparison",
+        "first_spec_count": 1,
+        "calibration_bound": false,
+        "automated_review": false
+      }
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "private-workspace",
+      "version": 2,
+      "document": {
+        "schema_version": 2,
+        "live_config_env": "ATL_AGENT_EVAL_SYNTHETIC_CONFIG",
+        "execution": {
+          "max_estimated_cost_microusd": 1000
+        },
+        "retention": {
+          "keep_completed_run_sets_per_alias": 1,
+          "max_candidate_age_days": 1,
+          "max_candidate_bytes": 1048576,
+          "retain_baseline_transcripts": false
+        },
+        "run_sets": [
+          {
+            "kind": "activation-study",
+            "alias": "study",
+            "spec_paths": [
+              "cases/study/implicit.json",
+              "cases/study/explicit.json",
+              "cases/study/developer.json",
+              "cases/study/combined.json"
+            ],
+            "qualitative_review_required": false,
+            "qualitative_review_panel": {
+              "method": "criterion-median-v1",
+              "reviewers": [
+                {
+                  "id": "reviewer-01",
+                  "kind": "human"
+                },
+                {
+                  "id": "reviewer-02",
+                  "kind": "human"
+                },
+                {
+                  "id": "reviewer-03",
+                  "kind": "human"
+                }
+              ],
+              "max_criterion_range_bps": 2500,
+              "blind_assignment": "cases/study/blind-assignment.txt"
+            },
+            "reviewer_reserve_microusd": 1
+          }
+        ]
+      },
+      "expected_projection": {
+        "live_config_env": "ATL_AGENT_EVAL_SYNTHETIC_CONFIG",
+        "run_set_count": 1,
+        "first_kind": "activation-study",
+        "first_spec_count": 4,
+        "calibration_bound": false,
+        "automated_review": false
+      }
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "private-workspace",
+      "version": 3,
+      "document": {
+        "schema_version": 3,
+        "live_config_env": "ATL_AGENT_EVAL_SYNTHETIC_CONFIG",
+        "execution": {
+          "max_estimated_cost_microusd": 1000
+        },
+        "retention": {
+          "keep_completed_run_sets_per_alias": 1,
+          "max_candidate_age_days": 1,
+          "max_candidate_bytes": 1048576,
+          "retain_baseline_transcripts": false
+        },
+        "run_sets": [
+          {
+            "kind": "activation-study",
+            "alias": "study",
+            "spec_paths": [
+              "cases/study/implicit.json",
+              "cases/study/explicit.json",
+              "cases/study/developer.json",
+              "cases/study/combined.json"
+            ],
+            "qualitative_review_required": false,
+            "qualitative_review_panel": {
+              "method": "criterion-median-v1",
+              "reviewers": [
+                {
+                  "id": "reviewer-01",
+                  "kind": "human"
+                },
+                {
+                  "id": "reviewer-02",
+                  "kind": "human"
+                },
+                {
+                  "id": "reviewer-03",
+                  "kind": "human"
+                }
+              ],
+              "max_criterion_range_bps": 2500,
+              "blind_assignment": "cases/study/blind-assignment.txt"
+            },
+            "reviewer_reserve_microusd": 1,
+            "calibration_max_estimated_cost_microusd": 1
+          }
+        ]
+      },
+      "expected_projection": {
+        "live_config_env": "ATL_AGENT_EVAL_SYNTHETIC_CONFIG",
+        "run_set_count": 1,
+        "first_kind": "activation-study",
+        "first_spec_count": 4,
+        "calibration_bound": true,
+        "automated_review": false
+      }
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "private-workspace",
+      "version": 4,
+      "document": {
+        "schema_version": 4,
+        "live_config_env": "ATL_AGENT_EVAL_SYNTHETIC_CONFIG",
+        "execution": {
+          "max_estimated_cost_microusd": 1000
+        },
+        "retention": {
+          "keep_completed_run_sets_per_alias": 1,
+          "max_candidate_age_days": 1,
+          "max_candidate_bytes": 1048576,
+          "retain_baseline_transcripts": false
+        },
+        "run_sets": [
+          {
+            "kind": "activation-study",
+            "alias": "study",
+            "spec_paths": [
+              "cases/study/implicit.json",
+              "cases/study/explicit.json",
+              "cases/study/developer.json",
+              "cases/study/combined.json"
+            ],
+            "qualitative_review_required": false,
+            "qualitative_review_panel": {
+              "method": "criterion-median-v1",
+              "reviewers": [
+                {
+                  "id": "reviewer-01",
+                  "kind": "codex",
+                  "model": "synthetic-reviewer"
+                },
+                {
+                  "id": "reviewer-02",
+                  "kind": "codex",
+                  "model": "synthetic-reviewer"
+                },
+                {
+                  "id": "reviewer-03",
+                  "kind": "codex",
+                  "model": "synthetic-reviewer"
+                }
+              ],
+              "max_criterion_range_bps": 2500,
+              "blind_assignment": "cases/study/blind-assignment.txt",
+              "executions": [
+                {
+                  "reviewer_id": "reviewer-01",
+                  "reasoning": "high",
+                  "timeout_seconds": 60,
+                  "pricing": {
+                    "input_microusd_per_million_tokens": 1,
+                    "output_microusd_per_million_tokens": 0
+                  },
+                  "max_estimated_cost_microusd": 1
+                },
+                {
+                  "reviewer_id": "reviewer-02",
+                  "reasoning": "high",
+                  "timeout_seconds": 60,
+                  "pricing": {
+                    "input_microusd_per_million_tokens": 1,
+                    "output_microusd_per_million_tokens": 0
+                  },
+                  "max_estimated_cost_microusd": 1
+                },
+                {
+                  "reviewer_id": "reviewer-03",
+                  "reasoning": "high",
+                  "timeout_seconds": 60,
+                  "pricing": {
+                    "input_microusd_per_million_tokens": 1,
+                    "output_microusd_per_million_tokens": 0
+                  },
+                  "max_estimated_cost_microusd": 1
+                }
+              ]
+            },
+            "reviewer_reserve_microusd": 12,
+            "calibration_max_estimated_cost_microusd": 1
+          }
+        ]
+      },
+      "expected_projection": {
+        "live_config_env": "ATL_AGENT_EVAL_SYNTHETIC_CONFIG",
+        "run_set_count": 1,
+        "first_kind": "activation-study",
+        "first_spec_count": 4,
+        "calibration_bound": true,
+        "automated_review": true
+      }
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "qualitative-panel",
+      "version": 1,
+      "document": {
+        "schema_version": 1,
+        "method": "criterion-median-v1",
+        "expected_reviewers": 3,
+        "max_criterion_range_bps": 2500
+      },
+      "expected_projection": {
+        "method": "criterion-median-v1",
+        "expected_reviewers": 3,
+        "max_criterion_range_bps": 2500
+      }
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "result",
+      "version": 3,
+      "document": {
+        "schema_version": 3,
+        "scenario_id": "contract-case",
+        "task_class": "contract/readability",
+        "data_class": "synthetic",
+        "category": "route-fixed",
+        "variant": "baseline",
+        "surface": "cli-skill",
+        "eligibility": "supported",
+        "runtime": {
+          "provider": "synthetic",
+          "atl_version": "v0.0.0"
+        },
+        "status": "pass",
+        "metrics": {
+          "tool_calls": 1
+        },
+        "coverage": {
+          "tool_calls": true
+        },
+        "http_methods": {},
+        "checks": {
+          "answer": true
+        },
+        "violations": [],
+        "qualitative": {
+          "rubric_id": "contract-rubric",
+          "rubric_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "result_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "final_response_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "reviewer": {
+            "kind": "human"
+          },
+          "status": "pass",
+          "score_bps": 8000,
+          "criteria": [
+            {
+              "id": "correctness",
+              "score": 80,
+              "maximum": 100,
+              "minimum": 70,
+              "weight": 1,
+              "passed": true
+            }
+          ],
+          "finding_ids": []
+        }
+      },
+      "expected_projection": {
+        "scenario_id": "contract-case",
+        "status": "pass",
+        "surface": "cli-skill",
+        "eligibility": "supported",
+        "data_class": "synthetic",
+        "category": "route-fixed",
+        "skill_activation": "",
+        "prompt_bound": false,
+        "qualitative_mode": "singleton",
+        "evidence_coverage": false,
+        "evidence_state": "",
+        "backend_observation": "",
+        "safety_assurance": "",
+        "covered_metric_count": 1
+      }
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "result",
+      "version": 4,
+      "document": {
+        "schema_version": 4,
+        "scenario_id": "contract-case",
+        "task_class": "contract/readability",
+        "data_class": "synthetic",
+        "category": "route-fixed",
+        "variant": "baseline",
+        "surface": "cli-skill",
+        "eligibility": "supported",
+        "runtime": {
+          "provider": "synthetic",
+          "atl_version": "v0.0.0"
+        },
+        "status": "pass",
+        "metrics": {
+          "tool_calls": 1
+        },
+        "coverage": {
+          "tool_calls": true
+        },
+        "http_methods": {},
+        "checks": {
+          "answer": true
+        },
+        "violations": [],
+        "qualitative_review_set": {
+          "schema_version": 1,
+          "policy": {
+            "schema_version": 1,
+            "method": "criterion-median-v1",
+            "expected_reviewers": 3,
+            "max_criterion_range_bps": 2500
+          },
+          "contract_sha256": "9f0f296a395c99387f54c7a1dfba6256d275139e78baa7074c870687afd1298f",
+          "rubric_id": "contract-rubric",
+          "rubric_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "minimum_score_bps": 7000,
+          "result_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "final_response_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "status": "pass",
+          "score_bps": 8000,
+          "members": [
+            {
+              "review_sha256": "b5c5e1b2f94ebfc89d77c77382519bb3bf3953279f3b1015c6b76c7b17e3b8a7",
+              "reviewer": {
+                "id": "reviewer-01",
+                "kind": "human"
+              },
+              "status": "pass",
+              "score_bps": 8000,
+              "criteria": [
+                {
+                  "id": "correctness",
+                  "score": 80
+                }
+              ],
+              "finding_ids": []
+            },
+            {
+              "review_sha256": "34aaf3cd6fa487f7d5e051d93ca9cb9a866b019919a04290aebe0a436c0591bd",
+              "reviewer": {
+                "id": "reviewer-02",
+                "kind": "human"
+              },
+              "status": "pass",
+              "score_bps": 8000,
+              "criteria": [
+                {
+                  "id": "correctness",
+                  "score": 80
+                }
+              ],
+              "finding_ids": []
+            },
+            {
+              "review_sha256": "e7f6c208639d9b6429aee0aa318d01053f775d7b9094099d4ad2b4e868207f39",
+              "reviewer": {
+                "id": "reviewer-03",
+                "kind": "human"
+              },
+              "status": "pass",
+              "score_bps": 8000,
+              "criteria": [
+                {
+                  "id": "correctness",
+                  "score": 80
+                }
+              ],
+              "finding_ids": []
+            }
+          ],
+          "criteria": [
+            {
+              "id": "correctness",
+              "score": 80,
+              "minimum": 70,
+              "maximum": 100,
+              "weight": 1,
+              "passed": true,
+              "min_score": 80,
+              "max_score": 80,
+              "passes": 3,
+              "failures": 0,
+              "range_bps": 0
+            }
+          ],
+          "finding_ids": []
+        }
+      },
+      "expected_projection": {
+        "scenario_id": "contract-case",
+        "status": "pass",
+        "surface": "cli-skill",
+        "eligibility": "supported",
+        "data_class": "synthetic",
+        "category": "route-fixed",
+        "skill_activation": "",
+        "prompt_bound": false,
+        "qualitative_mode": "panel",
+        "evidence_coverage": false,
+        "evidence_state": "",
+        "backend_observation": "",
+        "safety_assurance": "",
+        "covered_metric_count": 1
+      }
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "result",
+      "version": 5,
+      "document": {
+        "schema_version": 5,
+        "scenario_id": "contract-case",
+        "task_class": "contract/readability",
+        "data_class": "private-local",
+        "category": "route-fixed",
+        "variant": "baseline",
+        "surface": "cli-skill",
+        "eligibility": "supported",
+        "runtime": {
+          "provider": "codex",
+          "atl_version": "v0.0.0",
+          "skill_activation": "implicit",
+          "prompt_contract_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "status": "pass",
+        "metrics": {
+          "tool_calls": 1
+        },
+        "coverage": {
+          "tool_calls": true
+        },
+        "http_methods": {},
+        "checks": {
+          "answer": true
+        },
+        "violations": []
+      },
+      "expected_projection": {
+        "scenario_id": "contract-case",
+        "status": "pass",
+        "surface": "cli-skill",
+        "eligibility": "supported",
+        "data_class": "private-local",
+        "category": "route-fixed",
+        "skill_activation": "implicit",
+        "prompt_bound": true,
+        "qualitative_mode": "none",
+        "evidence_coverage": false,
+        "evidence_state": "",
+        "backend_observation": "",
+        "safety_assurance": "",
+        "covered_metric_count": 1
+      }
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "result",
+      "version": 6,
+      "document": {
+        "schema_version": 6,
+        "scenario_id": "contract-case",
+        "task_class": "contract/readability",
+        "data_class": "private-local",
+        "category": "route-fixed",
+        "variant": "baseline",
+        "surface": "cli-skill",
+        "eligibility": "supported",
+        "runtime": {
+          "provider": "codex",
+          "atl_version": "v0.0.0",
+          "skill_activation": "developer",
+          "prompt_contract_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "status": "pass",
+        "metrics": {
+          "tool_calls": 1
+        },
+        "coverage": {
+          "tool_calls": true
+        },
+        "http_methods": {},
+        "checks": {
+          "answer": true
+        },
+        "violations": []
+      },
+      "expected_projection": {
+        "scenario_id": "contract-case",
+        "status": "pass",
+        "surface": "cli-skill",
+        "eligibility": "supported",
+        "data_class": "private-local",
+        "category": "route-fixed",
+        "skill_activation": "developer",
+        "prompt_bound": true,
+        "qualitative_mode": "none",
+        "evidence_coverage": false,
+        "evidence_state": "",
+        "backend_observation": "",
+        "safety_assurance": "",
+        "covered_metric_count": 1
+      }
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "result",
+      "version": 7,
+      "document": {
+        "schema_version": 7,
+        "scenario_id": "contract-case",
+        "task_class": "contract/readability",
+        "data_class": "private-local",
+        "category": "route-fixed",
+        "variant": "baseline",
+        "surface": "cli-skill",
+        "eligibility": "supported",
+        "runtime": {
+          "provider": "codex",
+          "atl_version": "v0.0.0",
+          "skill_activation": "combined",
+          "prompt_contract_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "status": "pass",
+        "metrics": {
+          "tool_calls": 1
+        },
+        "coverage": {
+          "tool_calls": true
+        },
+        "http_methods": {},
+        "checks": {
+          "answer": true
+        },
+        "violations": [],
+        "evidence_attempt": {
+          "coverage": true,
+          "state": "succeeded",
+          "attempts": 1,
+          "admitted": 1,
+          "succeeded": 1
+        },
+        "evidence_report": {
+          "coverage": true,
+          "state": "succeeded"
+        }
+      },
+      "expected_projection": {
+        "scenario_id": "contract-case",
+        "status": "pass",
+        "surface": "cli-skill",
+        "eligibility": "supported",
+        "data_class": "private-local",
+        "category": "route-fixed",
+        "skill_activation": "combined",
+        "prompt_bound": true,
+        "qualitative_mode": "none",
+        "evidence_coverage": true,
+        "evidence_state": "succeeded",
+        "backend_observation": "",
+        "safety_assurance": "",
+        "covered_metric_count": 1
+      }
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "result",
+      "version": 8,
+      "document": {
+        "schema_version": 8,
+        "scenario_id": "contract-case",
+        "task_class": "contract/readability",
+        "data_class": "synthetic",
+        "category": "neutral-common",
+        "variant": "baseline",
+        "surface": "external-mcp",
+        "eligibility": "supported",
+        "runtime": {
+          "provider": "synthetic",
+          "atl_version": "v0.0.0",
+          "prompt_contract_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        },
+        "status": "pass",
+        "metrics": {
+          "tool_calls": 1,
+          "interface_invocations": 1
+        },
+        "coverage": {
+          "tool_calls": true,
+          "interface_invocations": true
+        },
+        "http_methods": {},
+        "checks": {
+          "answer": true
+        },
+        "violations": [],
+        "backend_observation": "opaque-mcp",
+        "safety_assurance": "reviewed-ro-mcp-interface",
+        "evidence_attempt": {
+          "coverage": true,
+          "state": "succeeded",
+          "attempts": 1,
+          "admitted": 1,
+          "succeeded": 1
+        },
+        "evidence_report": {
+          "coverage": true,
+          "state": "succeeded"
+        }
+      },
+      "expected_projection": {
+        "scenario_id": "contract-case",
+        "status": "pass",
+        "surface": "external-mcp",
+        "eligibility": "supported",
+        "data_class": "synthetic",
+        "category": "neutral-common",
+        "skill_activation": "",
+        "prompt_bound": true,
+        "qualitative_mode": "none",
+        "evidence_coverage": true,
+        "evidence_state": "succeeded",
+        "backend_observation": "opaque-mcp",
+        "safety_assurance": "reviewed-ro-mcp-interface",
+        "covered_metric_count": 2
+      }
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "review",
+      "version": 1,
+      "document": {
+        "schema_version": 1,
+        "rubric_id": "contract-rubric",
+        "rubric_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "scenario_id": "contract-case",
+        "result_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "final_response_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "reviewer": {
+          "kind": "human"
+        },
+        "criteria": [
+          {
+            "id": "correctness",
+            "score": 80
+          }
+        ],
+        "finding_ids": [
+          "quality-ok"
+        ]
+      },
+      "expected_projection": {
+        "rubric_id": "contract-rubric",
+        "scenario_id": "contract-case",
+        "reviewer_kind": "human",
+        "reviewer_id": "",
+        "criteria_count": 1
+      }
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "review",
+      "version": 2,
+      "document": {
+        "schema_version": 2,
+        "rubric_id": "contract-rubric",
+        "rubric_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "scenario_id": "contract-case",
+        "result_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "final_response_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "reviewer": {
+          "id": "reviewer-01",
+          "kind": "human"
+        },
+        "criteria": [
+          {
+            "id": "correctness",
+            "score": 80
+          }
+        ],
+        "finding_ids": [
+          "quality-ok"
+        ]
+      },
+      "expected_projection": {
+        "rubric_id": "contract-rubric",
+        "scenario_id": "contract-case",
+        "reviewer_kind": "human",
+        "reviewer_id": "reviewer-01",
+        "criteria_count": 1
+      }
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "rubric",
+      "version": 1,
+      "document": {
+        "schema_version": 1,
+        "id": "contract-rubric",
+        "scenario_id": "contract-case",
+        "minimum_score_bps": 7000,
+        "criteria": [
+          {
+            "id": "correctness",
+            "description": "The synthetic response satisfies the declared contract.",
+            "maximum": 100,
+            "minimum": 70,
+            "weight": 1
+          }
+        ],
+        "allowed_finding_ids": [
+          "quality-ok"
+        ]
+      },
+      "expected_projection": {
+        "id": "contract-rubric",
+        "scenario_id": "contract-case",
+        "minimum_score_bps": 7000,
+        "criteria_count": 1
+      }
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "run-spec",
+      "version": 5,
+      "document": {
+        "schema_version": 5,
+        "backend_mode": "private-live",
+        "category": "neutral-common",
+        "surface": "cli-skill",
+        "scenario_file": "scenario.v1.json",
+        "provider": "codex",
+        "variant": "prompt-channel",
+        "model": "synthetic-model",
+        "prompt_file": "prompt.txt",
+        "response_schema_file": "response-schema.v1.json",
+        "qualitative_rubric_file": "rubric.v1.json",
+        "workspace_template": "workspace",
+        "fixture_file": "",
+        "repetitions": 1,
+        "timeout_seconds": 60,
+        "max_estimated_cost_microusd": 1,
+        "pricing": {
+          "input_microusd_per_million_tokens": 1,
+          "output_microusd_per_million_tokens": 1
+        },
+        "tool_transport": "cli",
+        "skill_activation": "developer",
+        "allowed_tools": [
+          "Bash(atl *)",
+          "Read"
+        ],
+        "allowed_atl_commands": [],
+        "allowed_cli_commands": [
+          {
+            "name": "fields",
+            "command": [
+              "jira",
+              "fields"
+            ],
+            "max_invocations": 1
+          }
+        ],
+        "data_capabilities": [
+          "jira.fields"
+        ],
+        "allowed_gateway_routes": {
+          "jira": [
+            {
+              "name": "metadata",
+              "path_prefix": "/rest/api/2/field",
+              "methods": [
+                "GET"
+              ],
+              "max_requests": 1
+            }
+          ]
+        },
+        "gateway_max_response_bytes": 1048576,
+        "gateway_max_total_response_bytes": 1048576,
+        "checks": [
+          {
+            "name": "answer",
+            "kind": "json_present",
+            "pointer": "/answer"
+          }
+        ]
+      },
+      "expected_projection": {
+        "backend_mode": "private-live",
+        "provider": "codex",
+        "variant": "prompt-channel",
+        "surface": "cli-skill",
+        "tool_transport": "cli",
+        "repetitions": 1,
+        "check_count": 1,
+        "skill_activation": "developer",
+        "compatibility_subset": "prompt-channel",
+        "allow_live_writes": false,
+        "gateway_route_count": 1,
+        "cli_rule_count": 1
+      }
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "run-spec",
+      "version": 6,
+      "document": {
+        "schema_version": 6,
+        "backend_mode": "synthetic",
+        "category": "route-fixed",
+        "surface": "cli-skill",
+        "scenario_file": "scenario.v1.json",
+        "provider": "claude-code",
+        "variant": "legacy-overlap",
+        "model": "synthetic-model",
+        "prompt_file": "prompt.txt",
+        "response_schema_file": "response-schema.v1.json",
+        "qualitative_rubric_file": "rubric.v1.json",
+        "workspace_template": "workspace",
+        "fixture_file": "fixture.json",
+        "repetitions": 1,
+        "timeout_seconds": 60,
+        "max_estimated_cost_microusd": 1,
+        "pricing": {
+          "input_microusd_per_million_tokens": 0,
+          "output_microusd_per_million_tokens": 0
+        },
+        "tool_transport": "cli",
+        "allowed_tools": [
+          "Bash"
+        ],
+        "allowed_atl_commands": [
+          "atl jira fields"
+        ],
+        "checks": [
+          {
+            "name": "answer",
+            "kind": "json_present",
+            "pointer": "/answer"
+          }
+        ]
+      },
+      "expected_projection": {
+        "backend_mode": "synthetic",
+        "provider": "claude-code",
+        "variant": "legacy-overlap",
+        "surface": "cli-skill",
+        "tool_transport": "cli",
+        "repetitions": 1,
+        "check_count": 1,
+        "skill_activation": "",
+        "compatibility_subset": "legacy-overlap",
+        "allow_live_writes": false,
+        "gateway_route_count": 0,
+        "cli_rule_count": 0
+      }
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "run-spec",
+      "version": 7,
+      "document": {
+        "schema_version": 7,
+        "backend_mode": "private-live",
+        "category": "route-fixed",
+        "surface": "cli-skill",
+        "scenario_file": "scenario.v1.json",
+        "provider": "codex",
+        "variant": "current-live-write",
+        "model": "synthetic-model",
+        "prompt_file": "prompt.txt",
+        "response_schema_file": "response-schema.v1.json",
+        "qualitative_rubric_file": "rubric.v1.json",
+        "workspace_template": "workspace",
+        "fixture_file": "",
+        "repetitions": 1,
+        "timeout_seconds": 60,
+        "max_estimated_cost_microusd": 1,
+        "pricing": {
+          "input_microusd_per_million_tokens": 1,
+          "output_microusd_per_million_tokens": 1
+        },
+        "tool_transport": "cli",
+        "skill_activation": "implicit",
+        "allowed_tools": [
+          "Bash(atl *)",
+          "Read"
+        ],
+        "allowed_atl_commands": [],
+        "allowed_cli_commands": [
+          {
+            "name": "create",
+            "command": [
+              "jira",
+              "issue",
+              "create"
+            ],
+            "flags": [
+              {
+                "name": "--project",
+                "values": [
+                  "TEST"
+                ],
+                "required": true
+              },
+              {
+                "name": "--type",
+                "values": [
+                  "Task"
+                ],
+                "required": true
+              },
+              {
+                "name": "--summary",
+                "values": [
+                  "synthetic fixture"
+                ],
+                "required": true
+              },
+              {
+                "name": "--from-file",
+                "values": [
+                  "body.txt"
+                ],
+                "required": true
+              }
+            ],
+            "max_invocations": 1
+          }
+        ],
+        "allowed_gateway_routes": {
+          "jira": [
+            {
+              "name": "metadata",
+              "path_prefix": "/rest/api/2/issue/createmeta",
+              "methods": [
+                "GET"
+              ],
+              "max_requests": 2
+            },
+            {
+              "name": "create",
+              "path_prefix": "/rest/api/2/issue",
+              "exact": true,
+              "methods": [
+                "POST"
+              ],
+              "max_requests": 1,
+              "max_request_bytes": 1048576
+            }
+          ]
+        },
+        "gateway_max_response_bytes": 1048576,
+        "gateway_max_total_response_bytes": 3145728,
+        "gateway_max_request_bytes": 1048576,
+        "gateway_max_total_request_bytes": 1048576,
+        "allow_live_writes": true,
+        "checks": [
+          {
+            "name": "answer",
+            "kind": "json_present",
+            "pointer": "/answer"
+          }
+        ]
+      },
+      "expected_projection": {
+        "backend_mode": "private-live",
+        "provider": "codex",
+        "variant": "current-live-write",
+        "surface": "cli-skill",
+        "tool_transport": "cli",
+        "repetitions": 1,
+        "check_count": 1,
+        "skill_activation": "implicit",
+        "compatibility_subset": "current-live-write",
+        "allow_live_writes": true,
+        "gateway_route_count": 2,
+        "cli_rule_count": 1
+      }
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "scenario",
+      "version": 1,
+      "document": {
+        "schema_version": 1,
+        "id": "contract-case",
+        "category": "route-fixed",
+        "task_class": "contract/readability",
+        "description": "Validate a bounded synthetic standalone contract fixture.",
+        "data_class": "synthetic",
+        "required_capabilities": [
+          "jira.issue.search"
+        ],
+        "required_checks": [
+          "answer"
+        ],
+        "required_metrics": [
+          "tool_calls"
+        ],
+        "budgets": {
+          "max_agent_turns": 1,
+          "max_tool_calls": 1,
+          "max_atl_invocations": 0,
+          "max_delegations": 0,
+          "max_backend_requests": 0,
+          "max_duplicate_backend_requests": 0,
+          "max_remote_writes": 0,
+          "max_output_bytes": 1024,
+          "max_input_tokens": 0,
+          "max_output_tokens": 0,
+          "max_main_thread_input_tokens": 0,
+          "max_main_thread_output_tokens": 0,
+          "max_estimated_cost_microusd": 0,
+          "max_duration_millis": 1000,
+          "allowed_http_methods": []
+        }
+      },
+      "expected_projection": {
+        "id": "contract-case",
+        "category": "route-fixed",
+        "task_class": "contract/readability",
+        "data_class": "synthetic",
+        "required_check_count": 1,
+        "required_metric_count": 1
+      }
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "synthetic-run-receipt",
+      "version": 1,
+      "document": {
+        "schema_version": 1,
+        "scenario_id": "contract-case",
+        "provider": "codex",
+        "variant": "baseline",
+        "repetition": 1,
+        "repetitions": 1,
+        "task_contract_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "execution_contract_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "agent_executable_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "atl_executable_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "wrapper_executable_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "result_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "expected_projection": {
+        "scenario_id": "contract-case",
+        "provider": "codex",
+        "variant": "baseline",
+        "repetition": 1,
+        "repetitions": 1
+      }
+    }
+  ]
+}

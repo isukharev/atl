@@ -1,0 +1,79 @@
+{
+  "schema_version": 9,
+  "plan_id": "pln-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "run_set_alias": "study",
+  "kind": "activation-study",
+  "contract_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "inputs_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "created_at": "2026-01-01T00:00:00Z",
+  "consent": {"expires_at": "2026-01-02T00:00:00Z", "provider_data_approved": true, "external_upstream_approved": false},
+  "repository_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "repository_dirty": false,
+  "provider": "codex",
+  "model": "synthetic-model",
+  "max_estimated_cost_microusd": 17,
+  "reviewer_reserve_microusd": 12,
+  "calibration_max_estimated_cost_microusd": 1,
+  "cost_assurance": "detection_only",
+  "study_series_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "study_contract": {
+    "schema_version": 2,
+    "study_id": "pln-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "provider": "codex",
+    "cost": {"assurance": "detection_only", "preventive": false, "total_authorized_microusd": 17, "calibration_allocated_microusd": 1, "treatment_allocated_microusd": 4, "reviewer_reserve_microusd": 12},
+    "calibration": {"contract_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "max_estimated_cost_microusd": 1},
+    "cells": [
+      {"cell_id": "cell-implicit", "skill_activation": "implicit", "contract_sha256": "1111111111111111111111111111111111111111111111111111111111111111", "max_estimated_cost_microusd": 1},
+      {"cell_id": "cell-explicit", "skill_activation": "explicit", "contract_sha256": "2222222222222222222222222222222222222222222222222222222222222222", "max_estimated_cost_microusd": 1},
+      {"cell_id": "cell-developer", "skill_activation": "developer", "contract_sha256": "3333333333333333333333333333333333333333333333333333333333333333", "max_estimated_cost_microusd": 1},
+      {"cell_id": "cell-combined", "skill_activation": "combined", "contract_sha256": "4444444444444444444444444444444444444444444444444444444444444444", "max_estimated_cost_microusd": 1}
+    ]
+  },
+  "activation_contract": {
+    "schema_version": 1,
+    "provider": "codex",
+    "surface": "cli-skill",
+    "common_contract_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "cells": [
+      {"cell": {"surface": "cli-skill", "skill_activation": "implicit"}, "variant": "implicit-cell", "run_spec_sha256": "1111111111111111111111111111111111111111111111111111111111111111"},
+      {"cell": {"surface": "cli-skill", "skill_activation": "explicit"}, "variant": "explicit-cell", "run_spec_sha256": "2222222222222222222222222222222222222222222222222222222222222222"},
+      {"cell": {"surface": "cli-skill", "skill_activation": "developer"}, "variant": "developer-cell", "run_spec_sha256": "3333333333333333333333333333333333333333333333333333333333333333"},
+      {"cell": {"surface": "cli-skill", "skill_activation": "combined"}, "variant": "combined-cell", "run_spec_sha256": "4444444444444444444444444444444444444444444444444444444444444444"}
+    ]
+  },
+  "qualitative_required": true,
+  "qualitative_review_panel": {
+    "method": "criterion-median-v1",
+    "reviewers": [
+      {"id": "reviewer-01", "kind": "codex", "model": "synthetic-reviewer"},
+      {"id": "reviewer-02", "kind": "codex", "model": "synthetic-reviewer"},
+      {"id": "reviewer-03", "kind": "codex", "model": "synthetic-reviewer"}
+    ],
+    "max_criterion_range_bps": 2500,
+    "blind_assignment_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "executions": [
+      {"reviewer_id": "reviewer-01", "reasoning": "high", "timeout_seconds": 60, "pricing": {"input_microusd_per_million_tokens": 1, "output_microusd_per_million_tokens": 0}, "max_estimated_cost_microusd": 1},
+      {"reviewer_id": "reviewer-02", "reasoning": "high", "timeout_seconds": 60, "pricing": {"input_microusd_per_million_tokens": 1, "output_microusd_per_million_tokens": 0}, "max_estimated_cost_microusd": 1},
+      {"reviewer_id": "reviewer-03", "reasoning": "high", "timeout_seconds": 60, "pricing": {"input_microusd_per_million_tokens": 1, "output_microusd_per_million_tokens": 0}, "max_estimated_cost_microusd": 1}
+    ]
+  },
+  "tool_availability": {
+    "schema_version": 2,
+    "provider": "codex",
+    "agent_identity": "binary-sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "contract_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "status": "supported",
+    "shell_tool": "exec_command",
+    "request_observed": true,
+    "synthetic_requests": 1,
+    "provider_requests": 0,
+    "backend_requests": 0,
+    "remote_writes": 0
+  },
+  "items": [
+    {"cell_id": "cell-implicit", "spec_path": "cases/study/implicit.json", "scenario_id": "contract-case", "provider": "codex", "variant": "implicit-cell", "surface": "cli-skill", "skill_activation": "implicit", "prompt_contract_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "rubric_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "max_estimated_cost_microusd": 1},
+    {"cell_id": "cell-explicit", "spec_path": "cases/study/explicit.json", "scenario_id": "contract-case", "provider": "codex", "variant": "explicit-cell", "surface": "cli-skill", "skill_activation": "explicit", "prompt_contract_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "rubric_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "max_estimated_cost_microusd": 1},
+    {"cell_id": "cell-developer", "spec_path": "cases/study/developer.json", "scenario_id": "contract-case", "provider": "codex", "variant": "developer-cell", "surface": "cli-skill", "skill_activation": "developer", "prompt_contract_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "rubric_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "max_estimated_cost_microusd": 1},
+    {"cell_id": "cell-combined", "spec_path": "cases/study/combined.json", "scenario_id": "contract-case", "provider": "codex", "variant": "combined-cell", "surface": "cli-skill", "skill_activation": "combined", "prompt_contract_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "rubric_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "max_estimated_cost_microusd": 1}
+  ]
+}

@@ -36,17 +36,27 @@ type standaloneProductContractFixture struct {
 	ArtifactSchemas      []standaloneArtifactSchema    `json:"artifact_schemas"`
 	ArtifactClasses      []standaloneArtifactClass     `json:"artifact_classes"`
 	AttemptStates        []standaloneAttemptState      `json:"attempt_states"`
+	AttemptProofs        []string                      `json:"attempt_proofs"`
+	AttemptTransitions   []standaloneAttemptTransition `json:"attempt_transitions"`
+	AttemptRecovery      standaloneAttemptRecovery     `json:"attempt_recovery"`
 	CompatibilityPolicy  standaloneCompatibilityPolicy `json:"compatibility_policy"`
 }
 
 type standaloneOperation struct {
-	ID               string `json:"id"`
-	CurrentStatus    string `json:"current_status"`
-	StandaloneStatus string `json:"standalone_status"`
-	Authority        string `json:"authority"`
-	ProviderContact  *bool  `json:"provider_contact"`
-	BackendContact   *bool  `json:"backend_contact"`
-	Network          *bool  `json:"network"`
+	ID                     string   `json:"id"`
+	Mode                   string   `json:"mode"`
+	CurrentStatus          string   `json:"current_status"`
+	MaintainerAliases      []string `json:"maintainer_aliases"`
+	StandaloneStatus       string   `json:"standalone_status"`
+	Authority              string   `json:"authority"`
+	LocalRead              *bool    `json:"local_read"`
+	LocalWrite             *bool    `json:"local_write"`
+	ProcessSpawn           *bool    `json:"process_spawn"`
+	ProviderContact        *bool    `json:"provider_contact"`
+	BackendContact         *bool    `json:"backend_contact"`
+	Network                *bool    `json:"network"`
+	CredentialAccess       *bool    `json:"credential_access"`
+	PrivateWorkspaceAccess *bool    `json:"private_workspace_access"`
 }
 
 type standaloneConfiguration struct {
@@ -86,9 +96,23 @@ type standaloneArtifactClass struct {
 }
 
 type standaloneAttemptState struct {
-	ID              string `json:"id"`
-	Terminal        *bool  `json:"terminal"`
-	AutomaticResume *bool  `json:"automatic_resume"`
+	ID                    string   `json:"id"`
+	Phase                 string   `json:"phase"`
+	Terminal              *bool    `json:"terminal"`
+	AutomaticResume       *bool    `json:"automatic_resume"`
+	AutomaticResumeProofs []string `json:"automatic_resume_proofs"`
+}
+
+type standaloneAttemptTransition struct {
+	From      string     `json:"from"`
+	To        string     `json:"to"`
+	ProofSets [][]string `json:"proof_sets"`
+}
+
+type standaloneAttemptRecovery struct {
+	UnknownMutable     *bool  `json:"unknown_mutable"`
+	SameIdentityReplay *bool  `json:"same_identity_replay"`
+	ReconcileMode      string `json:"reconcile_mode"`
 }
 
 type standaloneCompatibilityPolicy struct {
@@ -97,14 +121,22 @@ type standaloneCompatibilityPolicy struct {
 	SourceBytesPreserved             *bool `json:"source_bytes_preserved"`
 	MigrationRequiresReviewedPreview *bool `json:"migration_requires_reviewed_preview"`
 	MinimumDeprecationReleases       *int  `json:"minimum_deprecation_releases"`
+	MinimumDeprecationDays           *int  `json:"minimum_deprecation_days"`
 	RootModuleLinkForbidden          *bool `json:"root_module_link_forbidden"`
 }
 
 type standaloneConformanceFixture struct {
 	SchemaVersion    int                           `json:"schema_version"`
+	ContractVersion  string                        `json:"contract_version"`
+	GoldenBundle     standaloneGoldenBundle        `json:"golden_bundle"`
 	Readability      []standaloneReadabilityVector `json:"readability"`
 	ForwardRejection []standaloneForwardVector     `json:"forward_rejection"`
 	MetricVectors    []standaloneMetricVector      `json:"metric_vectors"`
+}
+
+type standaloneGoldenBundle struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
 }
 
 type standaloneReadabilityVector struct {
@@ -120,11 +152,14 @@ type standaloneForwardVector struct {
 }
 
 type standaloneMetricVector struct {
-	ID       string `json:"id"`
-	State    string `json:"state"`
-	Coverage *bool  `json:"coverage"`
-	Value    *int64 `json:"value"`
-	Valid    *bool  `json:"valid"`
+	ID             string `json:"id"`
+	Representation string `json:"representation"`
+	Present        *bool  `json:"present"`
+	Required       *bool  `json:"required"`
+	State          string `json:"state,omitempty"`
+	Coverage       *bool  `json:"coverage,omitempty"`
+	Value          *int64 `json:"value,omitempty"`
+	Valid          *bool  `json:"valid"`
 }
 
 type standaloneArtifactCompatibility struct {
@@ -132,6 +167,13 @@ type standaloneArtifactCompatibility struct {
 	readable   []int
 	emitted    []int
 	executable []int
+}
+
+type standaloneArtifactPolicy struct {
+	disposition string
+	privacy     string
+	migration   string
+	maxBytes    int64
 }
 
 func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
@@ -153,6 +195,36 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 			}
 		})
 	}
+	semanticMutations := []struct {
+		name   string
+		mutate func(*standaloneProductContractFixture)
+	}{
+		{name: "unknown operation status", mutate: func(value *standaloneProductContractFixture) {
+			value.StandaloneOperations[0].CurrentStatus = "available"
+		}},
+		{name: "unknown operation authority", mutate: func(value *standaloneProductContractFixture) { value.StandaloneOperations[0].Authority = "ambient" }},
+		{name: "unknown capability state", mutate: func(value *standaloneProductContractFixture) { value.CapabilityStates[0] = "accepted" }},
+		{name: "unknown metric state", mutate: func(value *standaloneProductContractFixture) { value.MetricStates[0] = "measured" }},
+		{name: "unknown exit class", mutate: func(value *standaloneProductContractFixture) { value.ExitClasses[1].ID = "failure" }},
+		{name: "unknown privacy class", mutate: func(value *standaloneProductContractFixture) { value.ArtifactSchemas[0].Privacy = "secret" }},
+		{name: "unknown migration policy", mutate: func(value *standaloneProductContractFixture) { value.ArtifactSchemas[0].Migration = "automatic" }},
+		{name: "unknown attempt phase", mutate: func(value *standaloneProductContractFixture) { value.AttemptStates[0].Phase = "maybe" }},
+		{name: "unknown attempt proof", mutate: func(value *standaloneProductContractFixture) { value.AttemptTransitions[0].ProofSets[0][0] = "assumed" }},
+		{name: "unknown attempt state", mutate: func(value *standaloneProductContractFixture) { value.AttemptTransitions[0].To = "missing" }},
+	}
+	for _, mutation := range semanticMutations {
+		t.Run(mutation.name, func(t *testing.T) {
+			value := loadStandaloneProductContractFixture(t)
+			mutation.mutate(&value)
+			data, err := json.Marshal(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := decodeStandaloneProductContractFixture(data); err == nil {
+				t.Fatal("unknown standalone product-contract vocabulary passed")
+			}
+		})
+	}
 
 	wantRoles := []string{"agent-adapter", "atl-profile", "execution-backend", "grader", "reporter", "standalone-core"}
 	gotRoles := make([]string, 0, len(contract.Roles))
@@ -164,9 +236,13 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 	}
 
 	wantSchemas := map[string]standaloneArtifactCompatibility{
+		"activation-reference":     {current: PrivateActivationReferenceSchemaVersion, readable: []int{LegacyPrivateActivationReferenceSchemaVersion, PrivateActivationReferenceSchemaVersion}, emitted: []int{PrivateActivationReferenceSchemaVersion}},
+		"activation-report":        {current: PrivateActivationReportSchemaVersion, emitted: []int{LegacyPrivateActivationReportSchemaVersion, PrivateActivationReportSchemaVersion}},
 		"aggregate":                {current: AggregateSchemaVersion, emitted: []int{AggregateSchemaVersion}},
 		"capability-catalog":       {current: CapabilityCatalogSchemaVersion, readable: []int{CapabilityCatalogSchemaVersion}, emitted: []int{CapabilityCatalogSchemaVersion}, executable: []int{CapabilityCatalogSchemaVersion}},
 		"observation":              {current: ObservationSchemaVersion, readable: []int{ObservationSchemaVersion}, emitted: []int{ObservationSchemaVersion}, executable: []int{ObservationSchemaVersion}},
+		"private-plan":             {current: PrivatePlanSchemaVersion, readable: []int{LegacyPrivatePlanSchemaVersion, LegacyPromptBoundPrivatePlanSchemaVersion, LegacyCompleteActivationPrivatePlanSchemaVersion, LegacyActivationStudyPrivatePlanSchemaVersion, LegacyCalibratedPrivatePlanSchemaVersion, LegacyToolQualifiedPrivatePlanSchemaVersion, LegacyExecutableReviewPrivatePlanSchemaVersion, LegacyLiveWritePrivatePlanSchemaVersion, PrivatePlanSchemaVersion}, emitted: []int{PrivatePlanSchemaVersion}, executable: []int{PrivatePlanSchemaVersion}},
+		"private-workspace":        {current: PrivateWorkspaceSchemaVersion, readable: []int{LegacyPrivateWorkspaceSchemaVersion, LegacyActivationWorkspaceSchemaVersion, LegacyCalibratedWorkspaceSchemaVersion, PrivateWorkspaceSchemaVersion}, emitted: []int{PrivateWorkspaceSchemaVersion}, executable: []int{PrivateWorkspaceSchemaVersion}},
 		"qualitative-panel":        {current: QualitativePanelSchemaVersion, readable: []int{QualitativePanelSchemaVersion}, emitted: []int{QualitativePanelSchemaVersion}, executable: []int{QualitativePanelSchemaVersion}},
 		"result":                   {current: ResultSchemaVersion, readable: []int{LegacyResultSchemaVersion, PanelResultSchemaVersion, LegacyPromptBoundResultSchemaVersion, LegacyAttemptlessResultSchemaVersion, LegacyEvidenceResultSchemaVersion, ResultSchemaVersion}, emitted: []int{ResultSchemaVersion}, executable: []int{LegacyResultSchemaVersion, PanelResultSchemaVersion, LegacyPromptBoundResultSchemaVersion, LegacyAttemptlessResultSchemaVersion, LegacyEvidenceResultSchemaVersion, ResultSchemaVersion}},
 		"review":                   {current: ReviewSchemaVersion, readable: []int{LegacyReviewSchemaVersion, ReviewSchemaVersion}, emitted: []int{ReviewSchemaVersion}, executable: []int{LegacyReviewSchemaVersion, ReviewSchemaVersion}},
@@ -175,6 +251,23 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 		"scenario":                 {current: ScenarioSchemaVersion, readable: []int{ScenarioSchemaVersion}, emitted: []int{ScenarioSchemaVersion}, executable: []int{ScenarioSchemaVersion}},
 		"synthetic-root-aggregate": {current: SyntheticRootAggregateSchemaVersion, emitted: []int{SyntheticRootAggregateSchemaVersion}},
 		"synthetic-run-receipt":    {current: SyntheticRunReceiptSchemaVersion, readable: []int{SyntheticRunReceiptSchemaVersion}, emitted: []int{SyntheticRunReceiptSchemaVersion}, executable: []int{SyntheticRunReceiptSchemaVersion}},
+	}
+	wantSchemaPolicies := map[string]standaloneArtifactPolicy{
+		"activation-reference":     {disposition: "preserve", privacy: "owner_private", migration: "compare_only", maxBytes: 1 << 20},
+		"activation-report":        {disposition: "write_only_projection", privacy: "content_minimized", migration: "compare_only", maxBytes: 0},
+		"aggregate":                {disposition: "write_only_projection", privacy: "content_minimized", migration: "compare_only", maxBytes: 1 << 20},
+		"capability-catalog":       {disposition: "preserve", privacy: "public", migration: "explicit", maxBytes: 1 << 20},
+		"observation":              {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: 1 << 20},
+		"private-plan":             {disposition: "preserve", privacy: "owner_private", migration: "compare_only", maxBytes: 4 << 20},
+		"private-workspace":        {disposition: "preserve", privacy: "owner_private", migration: "partial_explicit", maxBytes: 1 << 20},
+		"qualitative-panel":        {disposition: "preserve", privacy: "owner_private", migration: "explicit", maxBytes: 1 << 20},
+		"result":                   {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: 1 << 20},
+		"review":                   {disposition: "preserve", privacy: "owner_private", migration: "explicit", maxBytes: 1 << 20},
+		"rubric":                   {disposition: "preserve", privacy: "public_or_private", migration: "explicit", maxBytes: 1 << 20},
+		"run-spec":                 {disposition: "preserve", privacy: "public_or_private", migration: "explicit", maxBytes: 1 << 20},
+		"scenario":                 {disposition: "preserve", privacy: "public_or_private", migration: "explicit", maxBytes: 1 << 20},
+		"synthetic-root-aggregate": {disposition: "write_only_projection", privacy: "content_minimized", migration: "compare_only", maxBytes: 1 << 20},
+		"synthetic-run-receipt":    {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: 16 << 10},
 	}
 	for _, schema := range contract.ArtifactSchemas {
 		if schema.Namespace != "atl-profile" {
@@ -188,34 +281,53 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 			!slices.Equal(schema.Emitted, want.emitted) || !slices.Equal(schema.Executable, want.executable) {
 			t.Fatalf("artifact schema %q compatibility=%+v, want %+v", schema.Kind, schema, want)
 		}
+		wantPolicy, ok := wantSchemaPolicies[schema.Kind]
+		if !ok || schema.MaxBytes == nil || schema.Disposition != wantPolicy.disposition || schema.Privacy != wantPolicy.privacy ||
+			schema.Migration != wantPolicy.migration || *schema.MaxBytes != wantPolicy.maxBytes {
+			t.Fatalf("artifact schema %q policy=%+v, want %+v", schema.Kind, schema, wantPolicy)
+		}
 		delete(wantSchemas, schema.Kind)
+		delete(wantSchemaPolicies, schema.Kind)
 	}
 	if len(wantSchemas) != 0 {
 		t.Fatalf("standalone contract omitted artifact schemas: %v", wantSchemas)
 	}
+	if len(wantSchemaPolicies) != 0 {
+		t.Fatalf("standalone contract omitted artifact policies: %v", wantSchemaPolicies)
+	}
 
-	for _, state := range []string{"supported", "unknown", "unsupported"} {
-		if !slices.Contains(contract.CapabilityStates, state) {
-			t.Fatalf("capability state %q is absent", state)
-		}
+	if want := []string{"not_applicable", "supported", "unknown", "unsupported"}; !slices.Equal(contract.CapabilityStates, want) {
+		t.Fatalf("capability states=%v, want %v", contract.CapabilityStates, want)
 	}
-	for _, state := range []string{"observed", "unknown", "unsupported"} {
-		if !slices.Contains(contract.MetricStates, state) {
-			t.Fatalf("metric state %q is absent", state)
-		}
+	if want := []string{"not_applicable", "observed", "unknown", "unsupported"}; !slices.Equal(contract.MetricStates, want) {
+		t.Fatalf("metric states=%v, want %v", contract.MetricStates, want)
 	}
-	if len(contract.ExitClasses) < 2 || *contract.ExitClasses[0].Code != 0 || contract.ExitClasses[0].ID != "success" {
-		t.Fatalf("exit class registry does not begin with success: %+v", contract.ExitClasses)
+	wantExitClasses := []standaloneExitClass{
+		{Code: standaloneInt(0), ID: "success"},
+		{Code: standaloneInt(1), ID: "internal_error"},
+		{Code: standaloneInt(2), ID: "usage_error"},
+		{Code: standaloneInt(3), ID: "configuration_error"},
+		{Code: standaloneInt(4), ID: "input_error"},
+		{Code: standaloneInt(5), ID: "compatibility_error"},
+		{Code: standaloneInt(6), ID: "policy_denied"},
+		{Code: standaloneInt(7), ID: "authentication_failed"},
+		{Code: standaloneInt(8), ID: "execution_failed"},
+		{Code: standaloneInt(9), ID: "check_failed"},
+		{Code: standaloneInt(10), ID: "outcome_unknown"},
+		{Code: standaloneInt(11), ID: "interrupted"},
 	}
-	for _, exitClass := range contract.ExitClasses[1:] {
-		if *exitClass.Code == 0 || exitClass.ID == "success" {
-			t.Fatalf("non-success exit class aliases success: %+v", exitClass)
+	for index, want := range wantExitClasses {
+		if len(contract.ExitClasses) != len(wantExitClasses) || contract.ExitClasses[index].Code == nil ||
+			*contract.ExitClasses[index].Code != *want.Code || contract.ExitClasses[index].ID != want.ID {
+			t.Fatalf("exit class registry=%+v, want %+v", contract.ExitClasses, wantExitClasses)
 		}
 	}
 	policy := contract.CompatibilityPolicy
 	if !standaloneTrue(policy.StrictUnknownFields) || !standaloneTrue(policy.AdditiveMembersRequireSchemaBump) ||
 		!standaloneTrue(policy.SourceBytesPreserved) || !standaloneTrue(policy.MigrationRequiresReviewedPreview) ||
-		!standaloneTrue(policy.RootModuleLinkForbidden) || policy.MinimumDeprecationReleases == nil || *policy.MinimumDeprecationReleases < 2 {
+		!standaloneTrue(policy.RootModuleLinkForbidden) || policy.MinimumDeprecationReleases == nil || *policy.MinimumDeprecationReleases != 2 ||
+		policy.MinimumDeprecationDays == nil || *policy.MinimumDeprecationDays != 180 ||
+		contract.CompatibilityBegins != "first-conforming-signed-standalone-release" {
 		t.Fatalf("standalone compatibility policy is incomplete: %+v", policy)
 	}
 }
@@ -228,14 +340,44 @@ func TestStandaloneContractClassifiesCurrentCommandsAndArtifacts(t *testing.T) {
 	}
 
 	operationByID := make(map[string]standaloneOperation, len(contract.StandaloneOperations))
+	aliasOwners := make(map[string][]string, len(commands))
 	for _, operation := range contract.StandaloneOperations {
-		operationByID[operation.ID] = operation
+		key := standaloneOperationKey(operation.ID, operation.Mode)
+		operationByID[key] = operation
+		for _, alias := range operation.MaintainerAliases {
+			aliasOwners[alias] = append(aliasOwners[alias], key)
+		}
 	}
 	for _, command := range []string{"run", "validate"} {
-		operation, ok := operationByID[command]
+		operation, ok := operationByID[standaloneOperationKey(command, "default")]
 		if !ok || operation.CurrentStatus != "maintainer_compat" || operation.StandaloneStatus != "reserved" {
 			t.Fatalf("current command %q classification=%+v", command, operation)
 		}
+	}
+	wantAliasOwners := map[string][]string{
+		"aggregate":                  {standaloneOperationKey("compare", "default")},
+		"aggregate-root":             {standaloneOperationKey("compare", "default")},
+		"assess":                     {standaloneOperationKey("grade", "deterministic")},
+		"evaluate":                   {standaloneOperationKey("grade", "deterministic")},
+		"inventory":                  {standaloneOperationKey("inspect", "default")},
+		"private":                    {standaloneOperationKey("init", "default"), standaloneOperationKey("migrate apply", "default"), standaloneOperationKey("migrate preview", "default"), standaloneOperationKey("plan", "default"), standaloneOperationKey("resume", "default")},
+		"review-template":            {standaloneOperationKey("report", "default")},
+		"run":                        {standaloneOperationKey("run", "default")},
+		"validate":                   {standaloneOperationKey("validate", "default")},
+		"validate-comparison-set":    {standaloneOperationKey("compare", "default")},
+		"validate-pair":              {standaloneOperationKey("compare", "default")},
+		"validate-run":               {standaloneOperationKey("validate", "default")},
+		"verify-atl-capabilities":    {standaloneOperationKey("compat verify", "provider-free")},
+		"verify-codex-skill-package": {standaloneOperationKey("compat verify", "provider-free")},
+	}
+	for _, owners := range aliasOwners {
+		slices.Sort(owners)
+	}
+	for _, owners := range wantAliasOwners {
+		slices.Sort(owners)
+	}
+	if !standaloneStringSliceMapEqual(aliasOwners, wantAliasOwners) {
+		t.Fatalf("maintainer alias routes=%v, want %v", aliasOwners, wantAliasOwners)
 	}
 
 	behavior := loadEvaluatorBehaviorContract(t)
@@ -282,6 +424,15 @@ func TestStandaloneContractClassifiesCurrentCommandsAndArtifacts(t *testing.T) {
 func TestStandaloneContractCompatibilityVectors(t *testing.T) {
 	contract := loadStandaloneProductContractFixture(t)
 	conformance := loadStandaloneConformanceFixture(t)
+	if conformance.ContractVersion != contract.ContractVersion {
+		t.Fatalf("conformance contract_version=%q, product contract=%q", conformance.ContractVersion, contract.ContractVersion)
+	}
+	goldens := loadStandaloneReadabilityGoldenFixture(t, conformance.GoldenBundle)
+	goldenByVersion := make(map[string]standaloneReadabilityGoldenEntry, len(goldens.Entries))
+	for _, entry := range goldens.Entries {
+		key := standaloneVersionedContractKey(entry.Namespace, entry.Kind, entry.Version)
+		goldenByVersion[key] = entry
+	}
 
 	schemaByKey := make(map[string]standaloneArtifactSchema, len(contract.ArtifactSchemas))
 	for _, schema := range contract.ArtifactSchemas {
@@ -296,10 +447,19 @@ func TestStandaloneContractCompatibilityVectors(t *testing.T) {
 			t.Fatalf("readability vector %q=%v, schema=%+v", key, vector.Versions, schema)
 		}
 		for _, version := range vector.Versions {
-			if err := standaloneDecodeArtifactVersion(t, vector.Kind, version); err != nil {
+			goldenKey := standaloneVersionedContractKey(vector.Namespace, vector.Kind, version)
+			entry, ok := goldenByVersion[goldenKey]
+			if !ok {
+				t.Fatalf("%s v%d has no checked-in readability golden", vector.Kind, version)
+			}
+			if err := standaloneValidateReadabilityGolden(t, entry); err != nil {
 				t.Fatalf("%s v%d declared readable but rejected: %v", vector.Kind, version, err)
 			}
+			delete(goldenByVersion, goldenKey)
 		}
+	}
+	if len(goldenByVersion) != 0 {
+		t.Fatalf("readability golden bundle contains unclaimed entries: %v", goldenByVersion)
 	}
 	for key, schema := range schemaByKey {
 		if len(schema.Readable) == 0 {
@@ -329,7 +489,12 @@ func TestStandaloneContractCompatibilityVectors(t *testing.T) {
 		if !ok || vector.Version != schema.Current+1 {
 			t.Fatalf("forward vector %q=%d, schema=%+v", key, vector.Version, schema)
 		}
-		if err := standaloneDecodeArtifactVersion(t, vector.Kind, vector.Version); err == nil {
+		currentKey := standaloneVersionedContractKey(vector.Namespace, vector.Kind, schema.Current)
+		currentEntry, ok := standaloneReadabilityGoldenEntryFor(goldens, currentKey)
+		if !ok {
+			t.Fatalf("forward vector %q lacks a current golden", key)
+		}
+		if err := standaloneDecodeFutureReadabilityGolden(t, currentEntry, vector.Version); err == nil {
 			t.Fatalf("future %s v%d passed", vector.Kind, vector.Version)
 		}
 	}
@@ -350,11 +515,18 @@ func TestStandaloneContractCompatibilityVectors(t *testing.T) {
 		metricStates[state] = true
 	}
 	wantMetricVectors := map[string]bool{
-		"observed-zero":     true,
-		"unknown-zero":      true,
-		"unsupported-zero":  true,
-		"unknown-covered":   false,
-		"uncovered-nonzero": false,
+		"legacy-not-applicable-zero": false,
+		"legacy-unknown-zero":        true,
+		"legacy-unsupported-zero":    true,
+		"missing-optional-entry":     true,
+		"missing-required-entry":     false,
+		"not-applicable-absent":      true,
+		"not-applicable-zero":        false,
+		"observed-zero":              true,
+		"uncovered-nonzero":          false,
+		"unknown-absent":             true,
+		"unknown-covered":            false,
+		"unsupported-absent":         true,
 	}
 	for _, vector := range conformance.MetricVectors {
 		valid := standaloneMetricVectorValid(vector, metricStates)
@@ -380,77 +552,120 @@ func TestStandaloneContractAuthorityMatrix(t *testing.T) {
 		t.Fatalf("configuration authority contract=%+v", configuration)
 	}
 
-	wantOperations := map[string]struct {
-		authority string
-		contact   bool
-	}{
-		"capabilities":    {authority: "none"},
-		"compare":         {authority: "none"},
-		"compat verify":   {authority: "none"},
-		"grade":           {authority: "verifier_execution"},
-		"import":          {authority: "local_write"},
-		"init":            {authority: "local_write"},
-		"inspect":         {authority: "none"},
-		"migrate apply":   {authority: "local_write"},
-		"migrate preview": {authority: "none"},
-		"plan":            {authority: "none"},
-		"reconcile":       {authority: "local_write"},
-		"report":          {authority: "none"},
-		"resume":          {authority: "agent_execution", contact: true},
-		"run":             {authority: "agent_execution", contact: true},
-		"schema inspect":  {authority: "none"},
-		"validate":        {authority: "none"},
-		"version":         {authority: "none"},
+	type operationAuthority struct {
+		current, authority                                         string
+		localRead, localWrite, processSpawn                        bool
+		providerContact, backendContact, network, credentialAccess bool
+		privateWorkspaceAccess                                     bool
+	}
+	wantOperations := map[string]operationAuthority{
+		standaloneOperationKey("capabilities", "default"):        {current: "maintainer_compat", authority: "none"},
+		standaloneOperationKey("compare", "default"):             {current: "maintainer_compat", authority: "local_read", localRead: true},
+		standaloneOperationKey("compat verify", "provider-free"): {current: "maintainer_compat", authority: "verifier_execution", localRead: true, processSpawn: true},
+		standaloneOperationKey("grade", "deterministic"):         {current: "maintainer_compat", authority: "verifier_execution", localRead: true, processSpawn: true},
+		standaloneOperationKey("grade", "judge"):                 {current: "absent", authority: "provider_execution", localRead: true, processSpawn: true, providerContact: true, network: true, credentialAccess: true},
+		standaloneOperationKey("import", "default"):              {current: "absent", authority: "local_write", localRead: true, localWrite: true},
+		standaloneOperationKey("init", "default"):                {current: "private_maintainer_only", authority: "local_write", localWrite: true, privateWorkspaceAccess: true},
+		standaloneOperationKey("inspect", "default"):             {current: "maintainer_compat", authority: "local_read", localRead: true},
+		standaloneOperationKey("migrate apply", "default"):       {current: "private_maintainer_only", authority: "local_write", localRead: true, localWrite: true, privateWorkspaceAccess: true},
+		standaloneOperationKey("migrate preview", "default"):     {current: "private_maintainer_only", authority: "local_read", localRead: true, privateWorkspaceAccess: true},
+		standaloneOperationKey("plan", "default"):                {current: "private_maintainer_only", authority: "local_write", localRead: true, localWrite: true, privateWorkspaceAccess: true},
+		standaloneOperationKey("reconcile", "evidence-only"):     {current: "absent", authority: "local_write", localRead: true, localWrite: true, privateWorkspaceAccess: true},
+		standaloneOperationKey("report", "default"):              {current: "maintainer_compat", authority: "local_read", localRead: true},
+		standaloneOperationKey("resume", "default"):              {current: "private_maintainer_only", authority: "agent_execution", localRead: true, localWrite: true, processSpawn: true, providerContact: true, backendContact: true, network: true, credentialAccess: true, privateWorkspaceAccess: true},
+		standaloneOperationKey("run", "default"):                 {current: "maintainer_compat", authority: "agent_execution", localRead: true, localWrite: true, processSpawn: true, providerContact: true, backendContact: true, network: true, credentialAccess: true},
+		standaloneOperationKey("schema inspect", "default"):      {current: "absent", authority: "local_read", localRead: true},
+		standaloneOperationKey("validate", "default"):            {current: "maintainer_compat", authority: "local_read", localRead: true},
+		standaloneOperationKey("version", "default"):             {current: "absent", authority: "none"},
 	}
 	for _, operation := range contract.StandaloneOperations {
-		want, ok := wantOperations[operation.ID]
+		key := standaloneOperationKey(operation.ID, operation.Mode)
+		want, ok := wantOperations[key]
 		if !ok {
-			t.Fatalf("operation %q has no reviewed authority classification", operation.ID)
+			t.Fatalf("operation %q has no reviewed authority classification", key)
 		}
-		provider := standaloneBool(operation.ProviderContact)
-		backend := standaloneBool(operation.BackendContact)
-		network := standaloneBool(operation.Network)
-		if operation.Authority != want.authority || provider != want.contact || backend != want.contact || network != want.contact {
-			t.Fatalf("operation %q authority/contact=%+v, want authority=%q contact=%t", operation.ID, operation, want.authority, want.contact)
+		if operation.CurrentStatus != want.current || operation.StandaloneStatus != "reserved" || operation.Authority != want.authority ||
+			standaloneBool(operation.LocalRead) != want.localRead || standaloneBool(operation.LocalWrite) != want.localWrite ||
+			standaloneBool(operation.ProcessSpawn) != want.processSpawn || standaloneBool(operation.ProviderContact) != want.providerContact ||
+			standaloneBool(operation.BackendContact) != want.backendContact || standaloneBool(operation.Network) != want.network ||
+			standaloneBool(operation.CredentialAccess) != want.credentialAccess ||
+			standaloneBool(operation.PrivateWorkspaceAccess) != want.privateWorkspaceAccess {
+			t.Fatalf("operation %q authority=%+v, want %+v", key, operation, want)
 		}
-		if (provider || backend) && !network {
-			t.Fatalf("operation %q permits contact without network authority", operation.ID)
+		if (standaloneBool(operation.ProviderContact) || standaloneBool(operation.BackendContact)) &&
+			(!standaloneBool(operation.Network) || !standaloneBool(operation.CredentialAccess)) {
+			t.Fatalf("operation %q permits contact without network and credential authority", key)
 		}
-		delete(wantOperations, operation.ID)
+		delete(wantOperations, key)
 	}
 	if len(wantOperations) != 0 {
 		t.Fatalf("authority matrix omitted operations: %v", wantOperations)
 	}
 
 	wantAttempts := map[string]struct {
+		phase           string
 		terminal        bool
 		automaticResume bool
+		proofs          []string
 	}{
-		"cancelled":     {terminal: true},
-		"committed":     {},
-		"failed":        {terminal: true},
-		"planned":       {automaticResume: true},
-		"policy_denied": {terminal: true},
-		"running":       {},
-		"spawning":      {},
-		"succeeded":     {terminal: true},
-		"timed_out":     {terminal: true},
-		"unknown":       {terminal: true},
-		"unsupported":   {terminal: true},
+		"canceled":      {phase: "derived", terminal: true, proofs: []string{}},
+		"committed":     {phase: "postcommit", proofs: []string{}},
+		"failed":        {phase: "postcommit", terminal: true, proofs: []string{}},
+		"planned":       {phase: "precommit", automaticResume: true, proofs: []string{"complete_ledger", "immutable_plan", "no_commit"}},
+		"policy_denied": {phase: "precommit", terminal: true, proofs: []string{}},
+		"running":       {phase: "postcommit", proofs: []string{}},
+		"spawning":      {phase: "postcommit", proofs: []string{}},
+		"succeeded":     {phase: "postcommit", terminal: true, proofs: []string{}},
+		"timed_out":     {phase: "derived", terminal: true, proofs: []string{}},
+		"unknown":       {phase: "derived", terminal: true, proofs: []string{}},
+		"unsupported":   {phase: "precommit", terminal: true, proofs: []string{}},
 	}
+	stateTerminal := make(map[string]bool, len(contract.AttemptStates))
 	for _, state := range contract.AttemptStates {
 		want, ok := wantAttempts[state.ID]
 		if !ok || state.Terminal == nil || state.AutomaticResume == nil ||
-			*state.Terminal != want.terminal || *state.AutomaticResume != want.automaticResume {
+			state.Phase != want.phase || *state.Terminal != want.terminal || *state.AutomaticResume != want.automaticResume ||
+			!slices.Equal(state.AutomaticResumeProofs, want.proofs) {
 			t.Fatalf("attempt state %q violates no-replay semantics: %+v", state.ID, state)
 		}
 		if *state.AutomaticResume && state.ID != "planned" {
 			t.Fatalf("started attempt state %q permits automatic replay", state.ID)
 		}
+		stateTerminal[state.ID] = *state.Terminal
 		delete(wantAttempts, state.ID)
 	}
 	if len(wantAttempts) != 0 {
 		t.Fatalf("attempt lifecycle states are missing: %v", wantAttempts)
+	}
+	wantProofs := []string{"complete_ledger", "definitive_spawn_failure", "durable_cancel", "durable_capability_refusal", "durable_commit", "durable_deadline", "durable_policy_refusal", "durable_process_identity", "durable_spawn_intent", "immutable_plan", "incomplete_terminal_evidence", "no_commit", "non_execution_proof", "terminal_receipt", "termination_proof"}
+	if !slices.Equal(contract.AttemptProofs, wantProofs) {
+		t.Fatalf("attempt proof registry=%v, want %v", contract.AttemptProofs, wantProofs)
+	}
+	wantTransitions := standaloneExpectedAttemptTransitions()
+	gotTransitions := make(map[string][][]string, len(contract.AttemptTransitions))
+	for _, transition := range contract.AttemptTransitions {
+		gotTransitions[standaloneTransitionKey(transition.From, transition.To)] = transition.ProofSets
+	}
+	for _, from := range contract.AttemptStates {
+		for _, to := range contract.AttemptStates {
+			key := standaloneTransitionKey(from.ID, to.ID)
+			got, gotOK := gotTransitions[key]
+			want, wantOK := wantTransitions[key]
+			if gotOK != wantOK || gotOK && !standaloneProofSetsEqual(got, want) {
+				t.Fatalf("attempt transition %s proof sets=%v, want %v present=%t", key, got, want, wantOK)
+			}
+			if stateTerminal[from.ID] && gotOK {
+				t.Fatalf("terminal attempt state %q has outgoing transition to %q", from.ID, to.ID)
+			}
+		}
+	}
+	if len(gotTransitions) != len(wantTransitions) || len(gotTransitions) != 22 {
+		t.Fatalf("attempt transition count=%d, want %d", len(gotTransitions), len(wantTransitions))
+	}
+	if contract.AttemptRecovery.UnknownMutable == nil || *contract.AttemptRecovery.UnknownMutable ||
+		contract.AttemptRecovery.SameIdentityReplay == nil || *contract.AttemptRecovery.SameIdentityReplay ||
+		contract.AttemptRecovery.ReconcileMode != "append_evidence_and_authorize_new_identity_only" {
+		t.Fatalf("attempt recovery permits replay or mutation: %+v", contract.AttemptRecovery)
 	}
 }
 
@@ -497,7 +712,9 @@ func decodeStandaloneConformanceFixture(data []byte) (standaloneConformanceFixtu
 	if err := standaloneDecodeClosedJSON(data, &fixture); err != nil {
 		return standaloneConformanceFixture{}, fmt.Errorf("decode standalone conformance fixture: %w", err)
 	}
-	if fixture.SchemaVersion != 1 || len(fixture.Readability) == 0 || len(fixture.ForwardRejection) == 0 || len(fixture.MetricVectors) == 0 {
+	if fixture.SchemaVersion != 1 || fixture.ContractVersion == "" || fixture.GoldenBundle.Path != "testdata/standalone-readability-golden.v1.json" ||
+		!standaloneValidSHA256(fixture.GoldenBundle.SHA256) || len(fixture.Readability) == 0 ||
+		len(fixture.ForwardRejection) == 0 || len(fixture.MetricVectors) == 0 {
 		return standaloneConformanceFixture{}, fmt.Errorf("standalone conformance fixture is incomplete")
 	}
 	previous := ""
@@ -520,11 +737,14 @@ func decodeStandaloneConformanceFixture(data []byte) (standaloneConformanceFixtu
 		previous = key
 		seenForward[key] = true
 	}
+	previous = ""
 	seenMetrics := map[string]bool{}
 	for _, vector := range fixture.MetricVectors {
-		if vector.ID == "" || vector.State == "" || vector.Coverage == nil || vector.Value == nil || vector.Valid == nil || seenMetrics[vector.ID] {
+		if vector.ID == "" || vector.ID <= previous || (vector.Representation != "atl-profile-legacy" && vector.Representation != "standalone") ||
+			vector.Present == nil || vector.Required == nil || vector.Valid == nil || seenMetrics[vector.ID] {
 			return standaloneConformanceFixture{}, fmt.Errorf("invalid metric vector %q", vector.ID)
 		}
+		previous = vector.ID
 		seenMetrics[vector.ID] = true
 	}
 	return fixture, nil
@@ -552,7 +772,8 @@ func validateStandaloneProductContractFixture(contract standaloneProductContract
 	if contract.SchemaVersion != 1 {
 		return fmt.Errorf("unsupported standalone product contract schema_version %d", contract.SchemaVersion)
 	}
-	if contract.ContractVersion == "" || contract.Status == "" || contract.CompatibilityBegins == "" {
+	if contract.ContractVersion != "0.1.0-pre-release" || contract.Status != "pre-release" ||
+		contract.CompatibilityBegins != "first-conforming-signed-standalone-release" {
 		return fmt.Errorf("standalone product contract identity is incomplete")
 	}
 	if err := standaloneValidateSortedUniqueStrings("maintainer commands", contract.MaintainerCommands, false); err != nil {
@@ -561,13 +782,18 @@ func validateStandaloneProductContractFixture(contract standaloneProductContract
 	previous := ""
 	seenOperations := map[string]bool{}
 	for _, operation := range contract.StandaloneOperations {
-		if operation.ID == "" || operation.ID <= previous || seenOperations[operation.ID] || operation.CurrentStatus == "" ||
-			operation.StandaloneStatus == "" || operation.Authority == "" || operation.ProviderContact == nil ||
-			operation.BackendContact == nil || operation.Network == nil {
-			return fmt.Errorf("invalid standalone operation %q", operation.ID)
+		key := standaloneOperationKey(operation.ID, operation.Mode)
+		if operation.ID == "" || operation.Mode == "" || key <= previous || seenOperations[key] ||
+			!standaloneOneOf(operation.CurrentStatus, "absent", "maintainer_compat", "private_maintainer_only") ||
+			operation.StandaloneStatus != "reserved" ||
+			!standaloneOneOf(operation.Authority, "agent_execution", "local_read", "local_write", "none", "provider_execution", "verifier_execution") ||
+			standaloneValidateSortedUniqueStrings("maintainer aliases", operation.MaintainerAliases, true) != nil ||
+			operation.LocalRead == nil || operation.LocalWrite == nil || operation.ProcessSpawn == nil || operation.ProviderContact == nil ||
+			operation.BackendContact == nil || operation.Network == nil || operation.CredentialAccess == nil || operation.PrivateWorkspaceAccess == nil {
+			return fmt.Errorf("invalid standalone operation %q", key)
 		}
-		previous = operation.ID
-		seenOperations[operation.ID] = true
+		previous = key
+		seenOperations[key] = true
 	}
 	if contract.Configuration.Precedence == nil || contract.Configuration.AmbientAuthority == nil || contract.Configuration.UnknownKeys == "" {
 		return fmt.Errorf("standalone configuration contract is incomplete")
@@ -587,22 +813,34 @@ func validateStandaloneProductContractFixture(contract standaloneProductContract
 			return err
 		}
 	}
+	if !slices.Equal(contract.CapabilityStates, []string{"not_applicable", "supported", "unknown", "unsupported"}) ||
+		!slices.Equal(contract.MetricStates, []string{"not_applicable", "observed", "unknown", "unsupported"}) {
+		return fmt.Errorf("standalone capability or metric state vocabulary is unknown")
+	}
 	previousCode := -1
 	seenExitIDs := map[string]bool{}
-	for _, exitClass := range contract.ExitClasses {
-		if exitClass.Code == nil || *exitClass.Code < 0 || *exitClass.Code > 255 || *exitClass.Code <= previousCode || exitClass.ID == "" || seenExitIDs[exitClass.ID] {
+	wantExitIDs := []string{"success", "internal_error", "usage_error", "configuration_error", "input_error", "compatibility_error", "policy_denied", "authentication_failed", "execution_failed", "check_failed", "outcome_unknown", "interrupted"}
+	for index, exitClass := range contract.ExitClasses {
+		if exitClass.Code == nil || index >= len(wantExitIDs) || *exitClass.Code != index || *exitClass.Code <= previousCode ||
+			exitClass.ID != wantExitIDs[index] || seenExitIDs[exitClass.ID] {
 			return fmt.Errorf("invalid standalone exit class %+v", exitClass)
 		}
 		previousCode = *exitClass.Code
 		seenExitIDs[exitClass.ID] = true
+	}
+	if len(contract.ExitClasses) != len(wantExitIDs) {
+		return fmt.Errorf("standalone exit class registry is incomplete")
 	}
 	previous = ""
 	seenSchemas := map[string]bool{}
 	for _, schema := range contract.ArtifactSchemas {
 		key := standaloneContractKey(schema.Namespace, schema.Kind)
 		if schema.Namespace == "" || schema.Kind == "" || key <= previous || seenSchemas[key] || schema.Current < 1 ||
-			schema.Readable == nil || schema.Emitted == nil || schema.Executable == nil || schema.Disposition == "" ||
-			schema.Privacy == "" || schema.Migration == "" || schema.MaxBytes == nil || *schema.MaxBytes < 1 {
+			schema.Readable == nil || schema.Emitted == nil || schema.Executable == nil ||
+			!standaloneOneOf(schema.Disposition, "preserve", "write_only_projection") ||
+			!standaloneOneOf(schema.Privacy, "content_minimized", "owner_private", "public", "public_or_private") ||
+			!standaloneOneOf(schema.Migration, "compare_only", "explicit", "partial_explicit") ||
+			schema.MaxBytes == nil || *schema.MaxBytes < 0 || (*schema.MaxBytes == 0 && (len(schema.Readable) != 0 || schema.Disposition != "write_only_projection")) {
 			return fmt.Errorf("invalid standalone artifact schema %q", key)
 		}
 		if err := standaloneValidateVersions(schema.Readable, true); err != nil {
@@ -623,7 +861,9 @@ func validateStandaloneProductContractFixture(contract standaloneProductContract
 	previous = ""
 	seenClasses := map[string]bool{}
 	for _, class := range contract.ArtifactClasses {
-		if class.ID == "" || class.ID <= previous || seenClasses[class.ID] || class.Privacy == "" || class.Disposition == "" {
+		if class.ID == "" || class.ID <= previous || seenClasses[class.ID] ||
+			!standaloneOneOf(class.Privacy, "content_minimized", "owner_private", "public", "public_or_private") ||
+			!standaloneOneOf(class.Disposition, "compare_only", "experimental", "preserve") {
 			return fmt.Errorf("invalid standalone artifact class %q", class.ID)
 		}
 		previous = class.ID
@@ -632,15 +872,86 @@ func validateStandaloneProductContractFixture(contract standaloneProductContract
 	previous = ""
 	seenAttempts := map[string]bool{}
 	for _, state := range contract.AttemptStates {
-		if state.ID == "" || state.ID <= previous || seenAttempts[state.ID] || state.Terminal == nil || state.AutomaticResume == nil {
+		if state.ID == "" || state.ID <= previous || seenAttempts[state.ID] ||
+			!standaloneOneOf(state.Phase, "derived", "postcommit", "precommit") || state.Terminal == nil || state.AutomaticResume == nil ||
+			standaloneValidateSortedUniqueStrings("automatic resume proofs", state.AutomaticResumeProofs, true) != nil {
 			return fmt.Errorf("invalid standalone attempt state %q", state.ID)
 		}
 		previous = state.ID
 		seenAttempts[state.ID] = true
 	}
+	wantAttemptStates := []string{"canceled", "committed", "failed", "planned", "policy_denied", "running", "spawning", "succeeded", "timed_out", "unknown", "unsupported"}
+	gotAttemptStates := make([]string, 0, len(contract.AttemptStates))
+	for _, state := range contract.AttemptStates {
+		gotAttemptStates = append(gotAttemptStates, state.ID)
+	}
+	if !slices.Equal(gotAttemptStates, wantAttemptStates) {
+		return fmt.Errorf("standalone attempt state vocabulary is unknown")
+	}
+	if err := standaloneValidateSortedUniqueStrings("attempt proofs", contract.AttemptProofs, false); err != nil {
+		return err
+	}
+	wantAttemptProofs := []string{"complete_ledger", "definitive_spawn_failure", "durable_cancel", "durable_capability_refusal", "durable_commit", "durable_deadline", "durable_policy_refusal", "durable_process_identity", "durable_spawn_intent", "immutable_plan", "incomplete_terminal_evidence", "no_commit", "non_execution_proof", "terminal_receipt", "termination_proof"}
+	if !slices.Equal(contract.AttemptProofs, wantAttemptProofs) {
+		return fmt.Errorf("standalone attempt proof vocabulary is unknown")
+	}
+	knownProofs := make(map[string]bool, len(contract.AttemptProofs))
+	for _, proof := range contract.AttemptProofs {
+		knownProofs[proof] = true
+	}
+	for _, state := range contract.AttemptStates {
+		for _, proof := range state.AutomaticResumeProofs {
+			if !knownProofs[proof] {
+				return fmt.Errorf("attempt state %q references unknown proof %q", state.ID, proof)
+			}
+		}
+	}
+	previous = ""
+	seenTransitions := map[string]bool{}
+	gotTransitions := make(map[string][][]string, len(contract.AttemptTransitions))
+	for _, transition := range contract.AttemptTransitions {
+		key := standaloneTransitionKey(transition.From, transition.To)
+		if !seenAttempts[transition.From] || !seenAttempts[transition.To] || key <= previous || seenTransitions[key] || len(transition.ProofSets) == 0 {
+			return fmt.Errorf("invalid attempt transition %q", key)
+		}
+		previousProofSet := ""
+		for _, proofSet := range transition.ProofSets {
+			if err := standaloneValidateSortedUniqueStrings("transition proof set", proofSet, false); err != nil {
+				return fmt.Errorf("attempt transition %q: %w", key, err)
+			}
+			proofSetKey := strings.Join(proofSet, "\x00")
+			if proofSetKey <= previousProofSet {
+				return fmt.Errorf("attempt transition %q proof sets are not sorted and unique", key)
+			}
+			previousProofSet = proofSetKey
+			for _, proof := range proofSet {
+				if !knownProofs[proof] {
+					return fmt.Errorf("attempt transition %q references unknown proof %q", key, proof)
+				}
+			}
+		}
+		previous = key
+		seenTransitions[key] = true
+		gotTransitions[key] = transition.ProofSets
+	}
+	wantTransitions := standaloneExpectedAttemptTransitions()
+	if len(gotTransitions) != len(wantTransitions) {
+		return fmt.Errorf("standalone attempt transition registry is incomplete")
+	}
+	for key, want := range wantTransitions {
+		if got, ok := gotTransitions[key]; !ok || !standaloneProofSetsEqual(got, want) {
+			return fmt.Errorf("standalone attempt transition %q is unknown", key)
+		}
+	}
+	if contract.AttemptRecovery.UnknownMutable == nil || contract.AttemptRecovery.SameIdentityReplay == nil ||
+		*contract.AttemptRecovery.UnknownMutable || *contract.AttemptRecovery.SameIdentityReplay ||
+		contract.AttemptRecovery.ReconcileMode != "append_evidence_and_authorize_new_identity_only" {
+		return fmt.Errorf("standalone attempt recovery is incomplete")
+	}
 	policy := contract.CompatibilityPolicy
 	if policy.StrictUnknownFields == nil || policy.AdditiveMembersRequireSchemaBump == nil || policy.SourceBytesPreserved == nil ||
-		policy.MigrationRequiresReviewedPreview == nil || policy.MinimumDeprecationReleases == nil || policy.RootModuleLinkForbidden == nil {
+		policy.MigrationRequiresReviewedPreview == nil || policy.MinimumDeprecationReleases == nil || policy.MinimumDeprecationDays == nil ||
+		policy.RootModuleLinkForbidden == nil {
 		return fmt.Errorf("standalone compatibility policy is incomplete")
 	}
 	return nil
@@ -710,115 +1021,30 @@ func standaloneArgsZeroExpression(expression ast.Expr) bool {
 	return ok && literal.Kind == token.INT && literal.Value == "0"
 }
 
-func standaloneDecodeArtifactVersion(t *testing.T, kind string, version int) error {
-	t.Helper()
-	encode := func(value any) ([]byte, error) { return json.Marshal(value) }
-	switch kind {
-	case "capability-catalog":
-		catalog := mustPinnedCapabilityCatalog(t)
-		catalog.SchemaVersion = version
-		data, err := encode(catalog)
-		if err != nil {
-			return err
-		}
-		_, err = DecodeCapabilityCatalog(bytes.NewReader(data))
-		return err
-	case "observation":
-		observation := validObservation()
-		observation.SchemaVersion = version
-		data, err := encode(observation)
-		if err != nil {
-			return err
-		}
-		_, err = DecodeObservation(bytes.NewReader(data))
-		return err
-	case "qualitative-panel":
-		panel := QualitativePanelPolicy{SchemaVersion: version, Method: QualitativePanelMethod, ExpectedReviewers: 3, MaxCriterionRangeBPS: 2500}
-		data, err := encode(panel)
-		if err != nil {
-			return err
-		}
-		var decoded QualitativePanelPolicy
-		if err := decodeStrict(bytes.NewReader(data), &decoded); err != nil {
-			return err
-		}
-		return decoded.Validate()
-	case "result":
-		_, err := DecodeResult(bytes.NewReader(minimalResultContractJSON(t, version)))
-		return err
-	case "review":
-		result, err := Evaluate(validScenario(), validObservation())
-		if err != nil {
-			return err
-		}
-		resultData, err := encode(result)
-		if err != nil {
-			return err
-		}
-		rubric := testRubric(result.ScenarioID)
-		review, err := NewReviewTemplate(result, resultData, []byte(`{"answer":"synthetic"}`), rubric, Reviewer{Kind: "human"})
-		if err != nil {
-			return err
-		}
-		review.SchemaVersion = version
-		data, err := encode(review)
-		if err != nil {
-			return err
-		}
-		_, err = DecodeReview(bytes.NewReader(data))
-		return err
-	case "rubric":
-		rubric := testRubric(validScenario().ID)
-		rubric.SchemaVersion = version
-		data, err := encode(rubric)
-		if err != nil {
-			return err
-		}
-		_, err = DecodeRubric(bytes.NewReader(data))
-		return err
-	case "run-spec":
-		spec := validRunSpec()
-		spec.SchemaVersion = version
-		data, err := encode(spec)
-		if err != nil {
-			return err
-		}
-		_, err = DecodeRunSpec(bytes.NewReader(data))
-		return err
-	case "scenario":
-		scenario := validScenario()
-		scenario.SchemaVersion = version
-		data, err := encode(scenario)
-		if err != nil {
-			return err
-		}
-		_, err = DecodeScenario(bytes.NewReader(data))
-		return err
-	case "synthetic-run-receipt":
-		receipt := SyntheticRunReceipt{
-			SchemaVersion: version, ScenarioID: "synthetic-task", Provider: "codex", Variant: "baseline",
-			Repetition: 1, Repetitions: 1, TaskContractSHA256: strings.Repeat("1", 64),
-			ExecutionContractSHA256: strings.Repeat("2", 64), AgentExecutableSHA256: strings.Repeat("3", 64),
-			ATLExecutableSHA256: strings.Repeat("4", 64), WrapperExecutableSHA256: strings.Repeat("5", 64),
-			ResultSHA256: strings.Repeat("6", 64),
-		}
-		data, err := encode(receipt)
-		if err != nil {
-			return err
-		}
-		_, err = DecodeSyntheticRunReceipt(bytes.NewReader(data))
-		return err
-	default:
-		return fmt.Errorf("unsupported conformance artifact kind %q", kind)
-	}
-}
-
 func standaloneMetricVectorValid(vector standaloneMetricVector, states map[string]bool) bool {
-	if !states[vector.State] || vector.Coverage == nil || vector.Value == nil || *vector.Value < 0 {
+	if vector.Present == nil || vector.Required == nil || vector.Valid == nil {
+		return false
+	}
+	if !*vector.Present {
+		return !*vector.Required && vector.State == "" && vector.Coverage == nil && vector.Value == nil
+	}
+	if !states[vector.State] {
+		return false
+	}
+	if vector.Representation == "standalone" {
+		if vector.State == "observed" {
+			return vector.Coverage != nil && *vector.Coverage && vector.Value != nil && *vector.Value >= 0
+		}
+		return vector.Coverage == nil && vector.Value == nil
+	}
+	if vector.Representation != "atl-profile-legacy" || vector.Coverage == nil || vector.Value == nil || *vector.Value < 0 {
 		return false
 	}
 	if vector.State == "observed" {
 		return *vector.Coverage
+	}
+	if vector.State != "unknown" && vector.State != "unsupported" {
+		return false
 	}
 	return !*vector.Coverage && *vector.Value == 0
 }

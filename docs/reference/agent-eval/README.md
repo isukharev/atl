@@ -1,6 +1,6 @@
 # Standalone agent-eval contract
 
-Status: normative pre-release contract. Contract series: `0.1`. No standalone distribution currently conforms to it.
+Status: normative pre-release contract. Contract version: `0.1.0-pre-release`. No standalone distribution currently conforms to it.
 
 [Documentation home](../../README.md) ·
 [Evaluation methodology](../../agent-benchmarking.md) ·
@@ -31,30 +31,34 @@ A surface is not stable merely because it exists in source, appears in help, has
 
 ## Operations and user journeys
 
-The standalone CLI reserves these command families. #1315 owns their exact flags and help.
+The standalone CLI reserves these command families. #1315 owns their exact flags and help. Each row below is an independent authority ceiling, not an implicit grant. `Y` means the dimension may be admitted only from the explicit invocation and resolved plan; `N` means the operation must be structurally unable to acquire it.
 
-| Journey | Reserved command | Authority ceiling before execution |
-|---|---|---|
-| Create a local project | `agent-eval init` | Local project writes only; no agent, provider, backend, credential, private-root, or network access |
-| Import an Agent Skills eval artifact | `agent-eval import` | Read the named source and write a local candidate only; no execution or network access |
-| Validate inputs and compatibility | `agent-eval validate` | Read-only, provider-free, backend-free, and network-free |
-| Compile an experiment plan | `agent-eval plan` | Local reads and an explicit local destination; no model or backend execution |
-| Start admitted attempts | `agent-eval run` | Only explicitly selected components and admitted authority |
-| Continue an interrupted plan | `agent-eval resume` | Same immutable plan and authority ceiling; never replay an uncertain attempt |
-| Classify an uncertain attempt | `agent-eval reconcile` | Evidence reads only; never repeats the original action |
-| Apply deterministic graders or an explicit judge | `agent-eval grade` | Deterministic by default; a judge requires explicit adapter and execution authority |
-| Compare compatible results | `agent-eval compare` | Existing local artifacts only; no provider or backend execution |
-| Produce a projection | `agent-eval report` | Existing local artifacts only; reporters receive no execution authority |
-| Preview or apply a migration | `agent-eval migrate preview|apply` | Preview is read-only and network-free; apply writes only an explicit local destination |
-| Verify a component or profile bundle | `agent-eval compat verify` | Content-addressed local inputs, isolated processes, and no provider/backend credentials |
-| Inspect the public registry | `agent-eval capabilities` | Offline and read-only |
-| Inspect one artifact or resolved plan | `agent-eval inspect` | Offline, read-only, and content-minimized |
-| Inspect supported artifact schemas | `agent-eval schema inspect` | Offline and read-only |
-| Inspect build and protocol identity | `agent-eval version` | Offline and read-only |
+| ID | Mode | `authority` | `local_read` | `local_write` | `process_spawn` | `provider_contact` | `backend_contact` | `network` | `credential_access` | `private_workspace_access` |
+|---|---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `capabilities` | `default` | `none` | N | N | N | N | N | N | N | N |
+| `compare` | `default` | `local_read` | Y | N | N | N | N | N | N | N |
+| `compat verify` | `provider-free` | `verifier_execution` | Y | N | Y | N | N | N | N | N |
+| `grade` | `deterministic` | `verifier_execution` | Y | N | Y | N | N | N | N | N |
+| `grade` | `judge` | `provider_execution` | Y | N | Y | Y | N | Y | Y | N |
+| `import` | `default` | `local_write` | Y | Y | N | N | N | N | N | N |
+| `init` | `default` | `local_write` | N | Y | N | N | N | N | N | Y |
+| `inspect` | `default` | `local_read` | Y | N | N | N | N | N | N | N |
+| `migrate apply` | `default` | `local_write` | Y | Y | N | N | N | N | N | Y |
+| `migrate preview` | `default` | `local_read` | Y | N | N | N | N | N | N | Y |
+| `plan` | `default` | `local_write` | Y | Y | N | N | N | N | N | Y |
+| `reconcile` | `evidence-only` | `local_write` | Y | Y | N | N | N | N | N | Y |
+| `report` | `default` | `local_read` | Y | N | N | N | N | N | N | N |
+| `resume` | `default` | `agent_execution` | Y | Y | Y | Y | Y | Y | Y | Y |
+| `run` | `default` | `agent_execution` | Y | Y | Y | Y | Y | Y | Y | N |
+| `schema inspect` | `default` | `local_read` | Y | N | N | N | N | N | N | N |
+| `validate` | `default` | `local_read` | Y | N | N | N | N | N | N | N |
+| `version` | `default` | `none` | N | N | N | N | N | N | N | N |
+
+The user journeys follow directly from those ceilings. `init` creates only the explicit project. `import` writes a candidate without execution. `plan` writes an immutable plan to an explicit destination. `reconcile` may append only content-minimized local proof. `compare` and `report` consume existing local artifacts. Migration preview reads; apply writes a new explicit destination. `compat verify` may spawn an isolated verifier but remains provider-, backend-, network-, credential-, and private-workspace-free. Deterministic grading has the same no-contact verifier boundary. Judge grading is a distinct, explicit mode: it may receive provider, network, and credential authority, but never product-backend or private-workspace authority. `run` and `resume` receive only the individually admitted execution dimensions, and resume remains subject to the no-replay lifecycle below.
 
 Commands are non-interactive: no prompts, pagers, browsers, confirmation reads from stdin, or default provider selection. A local mutation requiring confirmation must receive all confirmation material in the original invocation and fail before writing when it is absent.
 
-`import`, `validate`, `plan`, `migrate preview`, `compare`, `report`, `capabilities`, and provider-free `compat verify` must be structurally unable to construct an agent, provider, configured product backend, or network client. Dry-run is not a substitute for this boundary.
+Every row whose contact or access dimension is `N` must be structurally unable to construct or discover that authority. In particular, `import`, `validate`, `plan`, `reconcile`, migration, `compare`, `report`, `capabilities`, deterministic grading, and provider-free `compat verify` cannot construct a provider, configured product backend, or network client. Dry-run is not a substitute for this boundary.
 
 ## Configuration and authority
 
@@ -75,7 +79,7 @@ Selection and authority remain separate:
 - configuration and environment cannot widen the authority admitted for the command;
 - a component may reduce authority or report it unsupported, but cannot grant authority to itself.
 
-No command discovers or imports ambient provider credentials, an ATL backend, a private evaluation workspace, proxy settings, cloud metadata, or network authority. Credentials are resolved only by an explicitly selected adapter after admission and never enter plans or public durable artifacts. Secret bytes are never echoed in errors, previews, or publication-safe digests.
+No command discovers any of these ambiently: provider credentials, an ATL backend, a private evaluation root, proxy settings, cloud metadata, or network authority. A private root is available only to a row with `private_workspace_access:Y` and only through an exact invocation input. Credentials are resolved only by an explicitly selected adapter after admission and never enter plans or public durable artifacts. Secret bytes are never echoed in errors, previews, or publication-safe digests.
 
 ## Output and error contract
 
@@ -102,24 +106,24 @@ Unsupported or unknown required capability is `compatibility_error`, not a task 
 
 ## Compatibility policy
 
-`contract_version` follows Semantic Versioning. Pre-`1.0.0` versions describe this pre-release contract and do not make a distribution stable. After `1.0.0`, patch releases may clarify or add compatible diagnostics, minor releases may add optional stable members while preserving defaults and readers, and incompatible stable changes require a new major version.
+`contract_version` follows Semantic Versioning. The current value is `0.1.0-pre-release`; it describes this normative pre-release contract and does not make a distribution stable. Compatibility starts at the release boundary named `first-conforming-signed-standalone-release`, never merely when a command, fixture, or unsigned archive exists. After `1.0.0`, patch releases may clarify or add compatible diagnostics, minor releases may add optional stable members while preserving defaults and readers, and incompatible stable changes require a new major version.
 
-Stable deprecation lasts at least two consecutive minor releases and 180 days, whichever is longer; removal still requires the next major. A security issue may disable execution sooner, but safe inspection, reporting, or migration remains when it does not recreate the vulnerability, and historical meaning is never silently reinterpreted.
+The compatibility registry records `minimum_deprecation_days: 180` and `minimum_deprecation_releases: 2`. The release count means two later stable minor releases in the same major after notice; patch releases and pre-release builds do not count. Both minima must elapse, and removal still requires the next major. A security issue may disable execution sooner, but safe inspection, reporting, or migration remains when it does not recreate the vulnerability, and historical meaning is never silently reinterpreted.
 
 Readers in a supported major line must read every stable artifact that line emitted. A later reader either preserves meaning directly or offers an explicit previewable migration. Future schemas are preserved and refused, never treated as empty, downgraded, or partially decoded as current.
 
-Compatibility is the tuple `(core, contract, profile, agent adapter, execution backend, grader, reporter, artifact schemas, process protocols)`. `compatible:true` requires every required tuple member and capability to be known and supported; omission is not compatibility.
+Compatibility is the tuple `(standalone-core, contract, atl-profile, agent-adapter, execution-backend, grader, reporter, artifact schemas, process protocols)`. `compatible:true` requires every required tuple member and capability to be known and supported; omission is not compatibility.
 
 ## Component responsibilities
 
 | Component | Owns | Must not own or infer |
 |---|---|---|
-| Standalone core | Registry, strict decoding, admission, planning, durable attempt identity, aggregation, compatibility, and migration orchestration | ATL semantics, provider credentials, sandbox implementation, grader truth, or reconstruction of missing evidence |
-| ATL profile | ATL capability vocabulary, selected-binary compatibility, ATL fixtures/projections, and legacy artifact mappings | Generic vocabulary, provider launch, replay, or standalone release authority |
-| Agent adapter | Explicit launch, bounded structured exchange, agent identity, activation evidence, and usage receipts | Admission, backend authority, scoring, retries, promotion, or privacy classification |
-| Execution backend | Filesystem, process, network, deadline, cleanup, and resource enforcement with a receipt | Agent selection, grader truth, retry policy, or authority beyond the admitted plan |
-| Grader | Deterministic checks or an explicitly isolated judge with coverage and provenance | Runner control, hidden retries, source mutation, missing-as-zero coercion, or promotion authority |
-| Reporter | Content-minimized projections of validated artifacts | Execution, migration, evidence synthesis, or wider visibility |
+| `standalone-core` | Registry, strict decoding, admission, planning, durable attempt identity, aggregation, compatibility, and migration orchestration | ATL semantics, provider credentials, sandbox implementation, grader truth, or reconstruction of missing evidence |
+| `atl-profile` | ATL capability vocabulary, selected-binary compatibility, ATL fixtures/projections, and legacy artifact mappings | Generic vocabulary, provider launch, replay, or standalone release authority |
+| `agent-adapter` | Explicit launch, bounded structured exchange, agent identity, activation evidence, and usage receipts | Admission, backend authority, scoring, retries, promotion, or privacy classification |
+| `execution-backend` | Filesystem, process, network, deadline, cleanup, and resource enforcement with a receipt | Agent selection, grader truth, retry policy, or authority beyond the admitted plan |
+| `grader` | Deterministic checks or an explicitly isolated judge with coverage and provenance | Runner control, hidden retries, source mutation, missing-as-zero coercion, or promotion authority |
+| `reporter` | Content-minimized projections of validated artifacts | Execution, migration, evidence synthesis, or wider visibility |
 
 External substrates are adapters. They do not become admission, privacy, scoring, promotion, or lifecycle authority merely because they execute a task or render a report.
 
@@ -142,12 +146,12 @@ This synthetic example is the reserved compatibility result shape:
 {
   "schema": "agent-eval/compatibility-report",
   "schema_version": 1,
-  "contract_version": "0.1.0",
+  "contract_version": "0.1.0-pre-release",
   "command": "compat verify",
   "status": "failed",
   "components": [
     {
-      "role": "agent_adapter",
+      "role": "agent-adapter",
       "id": "example.agent",
       "protocol_version": 1,
       "capabilities": [
@@ -169,20 +173,27 @@ This synthetic example is the reserved compatibility result shape:
 
 ## ATL-profile compatibility namespace
 
-Existing evaluator artifacts retain their bytes and meaning under logical identities of the form `atl-profile/<family>@<schema-version>`, for example `atl-profile/result@8`. Registry metadata is not inserted into historical JSON, included in an old digest, or grounds for rewriting a file.
+Existing evaluator artifacts retain their bytes and meaning under logical identities of the form `atl-profile/<family>@<schema-version>`, for example `atl-profile/result@8`. Registry metadata is not inserted into historical JSON, included in an old digest, or grounds for rewriting a file. The test-only compatibility ledger has these exact families:
 
-| Family | Current ATL-profile disposition |
-|---|---|
-| `atl-profile/scenario@1` | Preserve and validate under its existing closed schema |
-| `atl-profile/run-spec@5..7` | Preserve readable generations; current writes use v7 and execution eligibility remains generation-specific |
-| `atl-profile/observation@5` | Current evaluation input; older observations require explicit migration before evaluation |
-| `atl-profile/result@3..8` | Preserve readable generations; current writes use v8 and cohort restrictions remain |
-| `atl-profile/aggregate@7` | Preserve current meaning; never backfill missing coverage or identities |
-| `atl-profile/synthetic-run-receipt@1`, `atl-profile/synthetic-root-aggregate@2` | Preserve content-bound provenance and complete-root requirements |
-| `atl-profile/review@1..2` | Preserve readable reviews; current writes use v2 and incompatible policies stay separate |
-| `atl-profile/private-workspace@1..4`, `atl-profile/private-plan@1..9` | Owner-private compatibility only; readability does not imply execution or promotion eligibility |
-| `atl-profile/activation-reference@1..2`, `atl-profile/activation-report@1..2` | Preserve v1 as compare-only and v2 under calibrated rules |
-| Other receipts, ledgers, scorecards, checkpoints, fixtures, and wire projections | Require an explicit registry entry and existing decoder policy; no wildcard admission |
+| Family | Readable | Emitted | Executable | Current ATL-profile disposition |
+|---|---|---|---|---|
+| `atl-profile/aggregate@7` | — | v7 | — | `write_only_projection`; `content_minimized`; `compare_only` |
+| `atl-profile/capability-catalog@1` | v1 | v1 | v1 | `preserve`; `public`; `explicit` migration |
+| `atl-profile/observation@5` | v5 | v5 | v5 | `preserve`; `content_minimized`; `explicit` migration |
+| `atl-profile/qualitative-panel@1` | v1 | v1 | v1 | `preserve`; `owner_private`; `explicit` migration |
+| `atl-profile/result@3..8` | v3–v8 | v8 | v3–v8 | `preserve`; `content_minimized`; `explicit` migration |
+| `atl-profile/review@1..2` | v1–v2 | v2 | v1–v2 | `preserve`; `owner_private`; `explicit` migration |
+| `atl-profile/rubric@1` | v1 | — | v1 | `preserve`; `public_or_private`; `explicit` migration |
+| `atl-profile/run-spec@5..7` | v5–v7 | v7 | v5–v7 | `preserve`; `public_or_private`; `explicit` migration |
+| `atl-profile/scenario@1` | v1 | v1 | v1 | `preserve`; `public_or_private`; `explicit` migration |
+| `atl-profile/synthetic-root-aggregate@2` | — | v2 | — | `write_only_projection`; `content_minimized`; `compare_only` |
+| `atl-profile/synthetic-run-receipt@1` | v1 | v1 | v1 | `preserve`; `content_minimized`; `explicit` migration |
+| `atl-profile/private-workspace@1..4` | v1–v4 | v4 | v4 | `preserve`; `owner_private`; `partial_explicit` migration; v1–v3 are readable only |
+| `atl-profile/private-plan@1..9` | v1–v9 | v9 | v9 | `preserve`; `owner_private`; `compare_only`; v1–v8 are readable only |
+| `atl-profile/activation-reference@1..2` | v1–v2 | v2 | — | `preserve`; `owner_private`; `compare_only` reference envelope |
+| `atl-profile/activation-report@1..2` | — | v1–v2 | — | `write_only_projection`; `content_minimized`; `compare_only` |
+
+Here, “readable” means accepted by the exact generation reader, “emitted” means the maintained evaluator can write that generation, and “executable” means the generation may enter its existing execution path. An empty column is a deliberate refusal, not missing registry data. In particular, a write-only aggregate or report can be compared only under its named projection contract; it cannot be reintroduced as source evidence or treated as a readable canonical artifact.
 
 [#1318](https://github.com/isukharev/atl/issues/1318) owns the exhaustive registry. Until then, existing decoders and tests remain authoritative for exact readable generations. This namespace does not make every readable artifact executable, comparable, promotable, or public.
 
@@ -219,54 +230,86 @@ The planned public extension seam is bounded process/JSON, not the Go module, sh
 
 [#1314](https://github.com/isukharev/atl/issues/1314) owns message schemas and fixtures. Until it lands, no wrapper, launcher, proxy, or environment variable is a stable adapter protocol, and `agent-eval/adapter-message` remains reserved.
 
-The lifecycle meanings are:
+The state registry is closed:
 
-| State | Meaning |
-|---|---|
-| `planned` | Immutable inputs exist; authority is not admitted |
-| `committed` | Compatibility, policy, and bounds passed; the attempt identity is consumed before spawn |
-| `spawning` | A committed component process is being created; replay is unsafe without proof |
-| `running` | The committed component is known to be active |
-| `succeeded`, `failed` | Known terminal execution outcomes |
-| `timed_out` | A terminal timeout with durable proof that the old process cannot continue; otherwise use `unknown` |
-| `policy_denied`, `unsupported` | Known terminal pre-execution refusals retained as attempt evidence |
-| `unknown` | A committed action lacks safe terminal classification; terminal for automatic scheduling |
-| `cancelled` | Replay-safe only with durable proof that cancellation preceded commitment; otherwise `unknown` |
+| State | Phase | Terminal | Automatic resume | Meaning |
+|---|---|---:|---:|---|
+| `canceled` | Derived | Yes | No | Cancellation has the proof required for the predecessor phase |
+| `committed` | Postcommit | No | No | Compatibility, policy, and bounds passed; the attempt identity is consumed before spawn |
+| `failed` | Postcommit | Yes | No | Terminal execution or definitive spawn-failure proof establishes failure |
+| `planned` | Precommit | No | Yes, with proof | Immutable inputs exist, but commitment has not been proved |
+| `policy_denied` | Precommit | Yes | No | A durable policy refusal and complete ledger prove commitment did not occur |
+| `running` | Postcommit | No | No | The bounded process or external attempt identity is durably bound and active |
+| `spawning` | Postcommit | No | No | A committed component process or external action is being created |
+| `succeeded` | Postcommit | Yes | No | A bound terminal receipt and termination proof establish success |
+| `timed_out` | Derived | Yes | No | A deadline has the proof required for the predecessor phase |
+| `unknown` | Derived | Yes | No | Safe non-execution or terminal classification cannot be proved |
+| `unsupported` | Precommit | Yes | No | A durable capability refusal and complete ledger prove commitment did not occur |
 
-Only `planned` work is automatically resumable. `resume` never creates another
-attempt for a committed or unknown slot. `reconcile` may attach bounded evidence
-and refine an outcome but cannot repeat the action. A new attempt needs a new
-identity and explicit plan decision.
+Proof predicates are durable, attempt-bound facts with these closed meanings:
+
+- `complete_ledger` is a stable reread of every record for the attempt identity; `no_commit` proves that ledger contains no durable commitment; and `immutable_plan` proves the plan bytes, identity, and authority are unchanged.
+- `durable_commit` consumes the attempt identity and binds admitted policy and authority; `durable_spawn_intent` precedes component entry; and `durable_process_identity` binds the complete owned process tree or external attempt.
+- `durable_cancel`, `durable_deadline`, `durable_policy_refusal`, and `durable_capability_refusal` are durable trigger or refusal records bound to the attempt.
+- `definitive_spawn_failure` proves launch failed before component entry; `non_execution_proof` proves the selected process or external action did not begin and cannot still begin.
+- `terminal_receipt` is a structured terminal result bound to the attempt; `termination_proof` proves the complete owned process tree or external action cannot continue.
+- `incomplete_terminal_evidence` is a content-minimized evidence digest proving that the records needed for safe non-execution or terminal classification are absent, conflicting, or incomplete.
+
+The allowed transition relation is also closed:
+
+| From | To | Required proof |
+|---|---|---|
+| `committed` | `canceled` | `durable_cancel` + `non_execution_proof` |
+| `committed` | `failed` | `definitive_spawn_failure` + `non_execution_proof` |
+| `committed` | `spawning` | `durable_spawn_intent` |
+| `committed` | `timed_out` | `durable_deadline` + `non_execution_proof` |
+| `committed` | `unknown` | `incomplete_terminal_evidence` |
+| `planned` | `canceled` | `complete_ledger` + `durable_cancel` + `no_commit` |
+| `planned` | `committed` | `durable_commit` |
+| `planned` | `policy_denied` | `complete_ledger` + `durable_policy_refusal` + `no_commit` |
+| `planned` | `timed_out` | `complete_ledger` + `durable_deadline` + `no_commit` |
+| `planned` | `unknown` | `incomplete_terminal_evidence` |
+| `planned` | `unsupported` | `complete_ledger` + `durable_capability_refusal` + `no_commit` |
+| `running` | `canceled` | `durable_cancel` + `termination_proof` |
+| `running` | `failed` | `terminal_receipt` + `termination_proof` |
+| `running` | `succeeded` | `terminal_receipt` + `termination_proof` |
+| `running` | `timed_out` | `durable_deadline` + `termination_proof` |
+| `running` | `unknown` | `incomplete_terminal_evidence` |
+| `spawning` | `canceled` | (`durable_cancel` + `non_execution_proof`) or (`durable_cancel` + `termination_proof`) |
+| `spawning` | `failed` | (`definitive_spawn_failure` + `non_execution_proof`) or (`terminal_receipt` + `termination_proof`) |
+| `spawning` | `running` | `durable_process_identity` |
+| `spawning` | `succeeded` | `terminal_receipt` + `termination_proof` |
+| `spawning` | `timed_out` | (`durable_deadline` + `non_execution_proof`) or (`durable_deadline` + `termination_proof`) |
+| `spawning` | `unknown` | `incomplete_terminal_evidence` |
+
+Every unlisted state pair is rejected. Every terminal state, including `unknown`, is absorbing. Only `planned` work may resume automatically, and only with `complete_ledger`, `immutable_plan`, and `no_commit`. No state permits same-ID replay. Reconciliation appends content-minimized local proof without changing the original state; it may support an explicit plan decision for a new attempt identity, never refine, resume, or repeat the original attempt. In particular, cancel or timeout after commitment becomes `canceled` or `timed_out` only with the listed `non_execution_proof` or `termination_proof`; without it, the only safe terminal transition is `unknown`.
 
 [#1317](https://github.com/isukharev/atl/issues/1317) owns ledger and recovery implementation. This document freezes transition meaning but does not claim current conformance.
 
 ## Missing evidence and provider-free conformance
 
-| Metric coverage | Value rule | Meaning |
+| Representation and state | Member rule | Meaning |
 |---|---|---|
-| `observed` | Required, including explicit zero | The measurement boundary proved the value |
-| `unknown` | Absent or zero in a legacy paired representation | The boundary could not establish the value safely |
-| `unsupported` | Absent or zero in a legacy paired representation | The selected component affirmatively cannot provide the metric |
-| `not_applicable` | Absent | The plan proves it has no meaning for this cell |
-| missing entry | None | Required coverage is incomplete and the relevant check fails |
+| Standalone `observed` | `state:"observed"`, `coverage:true`, and a numeric `value` are required; zero is valid | The measurement boundary proved the value |
+| Standalone `unknown` | `state:"unknown"`; `coverage` and `value` are absent | The boundary could not establish the value safely |
+| Standalone `unsupported` | `state:"unsupported"`; `coverage` and `value` are absent | The selected component affirmatively cannot provide the metric |
+| Standalone `not_applicable` | `state:"not_applicable"`; `coverage` and `value` are absent | The plan proves the metric has no meaning for this cell |
+| Legacy ATL-profile `unknown` or `unsupported` | `coverage:false,value:0` is accepted only as the historical paired placeholder | No numeric observation exists |
+| Missing required entry | No members | Coverage is incomplete and the relevant check fails |
+| Missing optional entry | No members | Valid omission; it does not alter any required denominator |
 
-Zero is valid only with `coverage:"observed"`; it never means unknown,
-unsupported, not applicable, or absent. Historical ATL-profile projections that
-pair `coverage:false` with numeric zero must be interpreted as non-observation,
-never as a measured zero. Aggregates report each coverage count, summarize only
-observed values, and never change denominators or impute silently. Capability
-state, attempt outcome, metric coverage, and numeric value are independent.
+Numeric zero is a measurement only with `state:"observed"` and `coverage:true`. The legacy `coverage:false,value:0` pair is a compatibility placeholder, never an observed zero and never input to a numeric summary. `not_applicable` is an explicit state, not missing coverage. Aggregates report each state count, summarize only observed values, and never change denominators or impute silently. Capability state, attempt outcome, metric state, coverage, and numeric value are independent.
 
-A stable distribution publishes content-addressed synthetic fixtures. Provider-free conformance proves JSON/error/exit contracts; configuration precedence; no ambient authority discovery; pre-execution capability refusal; historical readability and future rejection; migration binding; missing-versus-zero behavior; component confinement; deterministic rereads; and, after #1317, no replay.
+A stable distribution publishes content-addressed synthetic fixtures. Provider-free conformance proves JSON/error/exit contracts; configuration precedence; no ambient authority discovery; pre-execution capability refusal; historical readability and future rejection; migration binding; missing-versus-zero behavior; component confinement; deterministic rereads; and no replay. This issue freezes the closed transition and proof vocabulary in test-only contract data; [#1317](https://github.com/isukharev/atl/issues/1317) owns its production ledger, recovery, and runtime conformance.
 
-The suite uses a temporary synthetic project, closed environment, no provider/backend credentials, no private workspace, and no external network route. Validation, import, migration preview, comparison, and report fixtures make provider/backend construction impossible and prove forward refusal happens before writes or process launch.
+The future provider-free conformance suite must use a temporary synthetic project, a closed environment, no provider/backend credentials, no configured private workspace, and no external network route. Its validation, import, migration-preview, comparison, and report fixtures must make provider/backend construction impossible and prove forward refusal before writes or process launch. The current test-only freeze does not claim those runtime boundaries are implemented.
 
 ## Privacy, placement, and release
 
 Public fixtures are synthetic. Public projections exclude credentials, sessions, backend identities/URLs, private roots, absolute paths, prompts, response bodies, raw trajectories, tool arguments, proprietary content, and private case identities. A digest is not automatic anonymization; low-entropy or private-value digests remain private. Reporters cannot widen source privacy, and aggregates are not public merely because bodies are absent.
 
-Plans declare privacy class before execution; each component receives the minimum role projection. Unknown privacy classes, redaction failures, or incomplete provenance fail closed. Generic retries are only for proven replay-safe work. Timeout, disconnect, or missing receipt after commitment becomes `outcome_unknown`.
+Plans declare privacy class before execution; each component receives the minimum role projection. Unknown privacy classes, redaction failures, or incomplete provenance fail closed. Generic retries are only for proven replay-safe work. After commitment, timeout or cancellation is classified as `timed_out` or `canceled` only with the proof required above; a disconnect, missing receipt, or inadequate termination proof produces terminal `unknown` and exit class `outcome_unknown`.
 
 This contract does not move the evaluator. `internal/agenteval` remains an independent nested module; the root module must not add a `require`, `replace`, or tracked workspace for it. ATL behavior stays behind the selected-binary process/JSON boundary. Physical extraction remains governed by the [substrate decision](../../maintainers/agent-evaluator-substrates.md); this contract does not satisfy or authorize its gates.
 
-There is no standalone release, support window, public Go SDK, registry upload, or installation promise. [#1332](https://github.com/isukharev/atl/issues/1332) owns signed distribution and support. Stable status requires a reviewed release identity, compatibility matrix, provider-free bundle, historical-readability evidence, security/support policy, and supported-platform statement. Until then, use the repository maintainer workflow and call the standalone surface pre-release and reserved.
+There is no standalone release, support window, public Go SDK, registry upload, or installation promise. [#1332](https://github.com/isukharev/atl/issues/1332) owns signed distribution and support. Stable status begins only at `first-conforming-signed-standalone-release` and requires a reviewed release identity, compatibility matrix, provider-free bundle, historical-readability evidence, security/support policy, and supported-platform statement. Until then, use the repository maintainer workflow and call the standalone surface pre-release and reserved.

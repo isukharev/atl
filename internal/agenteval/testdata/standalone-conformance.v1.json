@@ -1,8 +1,16 @@
 {
   "schema_version": 1,
+  "contract_version": "0.1.0-pre-release",
+  "golden_bundle": {
+    "path": "testdata/standalone-readability-golden.v1.json",
+    "sha256": "783d808aa97035d53337e4cf66c6038cb1c2d2959aa8e088eb8c0f11b1d06f2a"
+  },
   "readability": [
+    {"namespace":"atl-profile","kind":"activation-reference","versions":[1,2]},
     {"namespace":"atl-profile","kind":"capability-catalog","versions":[1]},
     {"namespace":"atl-profile","kind":"observation","versions":[5]},
+    {"namespace":"atl-profile","kind":"private-plan","versions":[1,2,3,4,5,6,7,8,9]},
+    {"namespace":"atl-profile","kind":"private-workspace","versions":[1,2,3,4]},
     {"namespace":"atl-profile","kind":"qualitative-panel","versions":[1]},
     {"namespace":"atl-profile","kind":"result","versions":[3,4,5,6,7,8]},
     {"namespace":"atl-profile","kind":"review","versions":[1,2]},
@@ -12,8 +20,11 @@
     {"namespace":"atl-profile","kind":"synthetic-run-receipt","versions":[1]}
   ],
   "forward_rejection": [
+    {"namespace":"atl-profile","kind":"activation-reference","version":3},
     {"namespace":"atl-profile","kind":"capability-catalog","version":2},
     {"namespace":"atl-profile","kind":"observation","version":6},
+    {"namespace":"atl-profile","kind":"private-plan","version":10},
+    {"namespace":"atl-profile","kind":"private-workspace","version":5},
     {"namespace":"atl-profile","kind":"qualitative-panel","version":2},
     {"namespace":"atl-profile","kind":"result","version":9},
     {"namespace":"atl-profile","kind":"review","version":3},
@@ -24,10 +35,17 @@
     {"namespace":"standalone","kind":"product-contract","version":2}
   ],
   "metric_vectors": [
-    {"id":"observed-zero","state":"observed","coverage":true,"value":0,"valid":true},
-    {"id":"unknown-zero","state":"unknown","coverage":false,"value":0,"valid":true},
-    {"id":"unsupported-zero","state":"unsupported","coverage":false,"value":0,"valid":true},
-    {"id":"unknown-covered","state":"unknown","coverage":true,"value":0,"valid":false},
-    {"id":"uncovered-nonzero","state":"unknown","coverage":false,"value":1,"valid":false}
+    {"id":"legacy-not-applicable-zero","representation":"atl-profile-legacy","present":true,"required":true,"state":"not_applicable","coverage":false,"value":0,"valid":false},
+    {"id":"legacy-unknown-zero","representation":"atl-profile-legacy","present":true,"required":true,"state":"unknown","coverage":false,"value":0,"valid":true},
+    {"id":"legacy-unsupported-zero","representation":"atl-profile-legacy","present":true,"required":true,"state":"unsupported","coverage":false,"value":0,"valid":true},
+    {"id":"missing-optional-entry","representation":"standalone","present":false,"required":false,"valid":true},
+    {"id":"missing-required-entry","representation":"standalone","present":false,"required":true,"valid":false},
+    {"id":"not-applicable-absent","representation":"standalone","present":true,"required":true,"state":"not_applicable","valid":true},
+    {"id":"not-applicable-zero","representation":"standalone","present":true,"required":true,"state":"not_applicable","coverage":false,"value":0,"valid":false},
+    {"id":"observed-zero","representation":"standalone","present":true,"required":true,"state":"observed","coverage":true,"value":0,"valid":true},
+    {"id":"uncovered-nonzero","representation":"atl-profile-legacy","present":true,"required":true,"state":"unknown","coverage":false,"value":1,"valid":false},
+    {"id":"unknown-absent","representation":"standalone","present":true,"required":true,"state":"unknown","valid":true},
+    {"id":"unknown-covered","representation":"standalone","present":true,"required":true,"state":"unknown","coverage":true,"value":0,"valid":false},
+    {"id":"unsupported-absent","representation":"standalone","present":true,"required":true,"state":"unsupported","valid":true}
   ]
 }

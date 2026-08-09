@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "reference_alias": "synthetic-reference-v1",
+  "plan_id": "pln-00000000000000000000000000000004",
+  "plan_sha256": "7c2ea6db1b22699e5b7569ba1dd93e9d47871754031b006cdbb6b1d03cddde00",
+  "common_contract_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "run_tree_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "reference": {
+    "schema_version": 1,
+    "cells": [
+      {
+        "treatment": "implicit",
+        "eligibility": "supported",
+        "result_status": "pass",
+        "result_violation_count": 0,
+        "deterministic_pass": true,
+        "safety_complete": true,
+        "safety_violation_count": 0,
+        "review_status": "incomplete",
+        "metrics": [
+          {
+            "name": "deterministic_pass_bps",
+            "value": 10000
+          }
+        ]
+      },
+      {
+        "treatment": "explicit",
+        "eligibility": "supported",
+        "result_status": "pass",
+        "result_violation_count": 0,
+        "deterministic_pass": true,
+        "safety_complete": true,
+        "safety_violation_count": 0,
+        "review_status": "incomplete",
+        "metrics": [
+          {
+            "name": "deterministic_pass_bps",
+            "value": 10000
+          }
+        ]
+      },
+      {
+        "treatment": "developer",
+        "eligibility": "supported",
+        "result_status": "pass",
+        "result_violation_count": 0,
+        "deterministic_pass": true,
+        "safety_complete": true,
+        "safety_violation_count": 0,
+        "review_status": "incomplete",
+        "metrics": [
+          {
+            "name": "deterministic_pass_bps",
+            "value": 10000
+          }
+        ]
+      },
+      {
+        "treatment": "combined",
+        "eligibility": "supported",
+        "result_status": "pass",
+        "result_violation_count": 0,
+        "deterministic_pass": true,
+        "safety_complete": true,
+        "safety_violation_count": 0,
+        "review_status": "incomplete",
+        "metrics": [
+          {
+            "name": "deterministic_pass_bps",
+            "value": 10000
+          }
+        ]
+      }
+    ]
+  }
+}
