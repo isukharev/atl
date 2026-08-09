@@ -1,0 +1,60 @@
+{
+  "schema_version": 8,
+  "scenario_id": "core-equivalence",
+  "task_class": "core/equivalence",
+  "data_class": "synthetic",
+  "category": "neutral-common",
+  "variant": "baseline",
+  "surface": "cli-skill",
+  "eligibility": "supported",
+  "backend_observation": "observed-http",
+  "safety_assurance": "observed-http-policy",
+  "runtime": {
+    "provider": "codex",
+    "agent_version": "synthetic-agent",
+    "model": "synthetic-model",
+    "reasoning": "high",
+    "atl_version": "v0.0.0"
+  },
+  "status": "pass",
+  "metrics": {
+    "agent_turns": 0,
+    "tool_calls": 0,
+    "atl_invocations": 0,
+    "delegations": 0,
+    "backend_requests": 0,
+    "duplicate_backend_requests": 0,
+    "remote_writes": 0,
+    "output_bytes": 0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "main_thread_input_tokens": 0,
+    "main_thread_output_tokens": 0,
+    "estimated_cost_microusd": 0,
+    "duration_millis": 0
+  },
+  "coverage": {
+    "backend_requests": true,
+    "duplicate_backend_requests": true,
+    "interface_invocations": true,
+    "output_bytes": true,
+    "remote_writes": true
+  },
+  "http_methods": {},
+  "checks": {
+    "answer": true
+  },
+  "evidence_attempt": {
+    "coverage": true,
+    "state": "none"
+  },
+  "evidence_report": {
+    "coverage": true,
+    "state": "none"
+  },
+  "violations": [],
+  "warnings": [
+    "alpha-warning",
+    "zeta-warning"
+  ]
+}

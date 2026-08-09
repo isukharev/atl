@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "legacy_baseline": {
+    "repository_commit": "102e8f529899d3e881a4eafd09d48323e73d4be1",
+    "evaluate_source_sha256": "f12c57ad7bc890f13848000bd9a0a66e6e80a4ad7b295e0ad0a9c3eb63994e2a",
+    "aggregate_source_sha256": "b6a90777cc43679c33789e7f0db633b2c310628444946a21eb91fc6f34184edd",
+    "result_writer_source_sha256": "2848d74a4d0ad38d4b00444fbbb73062d0ef335557386682d3841d05b1ba81d8",
+    "receipt_source_sha256": "09798c5465494608408ea51845d60b4dfd9231653f62b7a3d87b6efed5ad4e9c"
+  },
+  "readability_source": {
+    "path": "testdata/standalone-readability-golden.v1.json",
+    "sha256": "783d808aa97035d53337e4cf66c6038cb1c2d2959aa8e088eb8c0f11b1d06f2a",
+    "entry_count": 32,
+    "semantic_projection_sha256": "d2a4040daf92b13b30899c572ced4e4b21271739ddffb920f4c636e7c4f66016"
+  },
+  "files": [
+    {
+      "id": "aggregate-cases",
+      "role": "input",
+      "path": "testdata/atl-core-equivalence-aggregate.v1.json",
+      "sha256": "c5707df65a7d1d63b7e8cff7baac9105982da4a681e80db8b45f450ff605974b"
+    },
+    {
+      "id": "aggregate-historical-generations",
+      "role": "expected",
+      "path": "testdata/atl-core-equivalence-aggregate-historical-generations.json",
+      "sha256": "38946cdaec7c23413e74f5b50d865cc5496d3e40e821fc1f196b795e49ed28a1"
+    },
+    {
+      "id": "aggregate-unknown-zero-and-eligibility",
+      "role": "expected",
+      "path": "testdata/atl-core-equivalence-aggregate-unknown-zero-and-eligibility.json",
+      "sha256": "84d99b8a92f76bcbbf536eebe4ddfa033755cd9ec25dbaa81abbad1e9153f9cb"
+    },
+    {
+      "id": "evaluate-cases",
+      "role": "input",
+      "path": "testdata/atl-core-equivalence-evaluate.v1.json",
+      "sha256": "3b14ca7d7d1293892d7d8516d22e44772bc5a4507e8e24f710feb4e2a7ccb35b"
+    },
+    {
+      "id": "receipt-case",
+      "role": "input",
+      "path": "testdata/atl-core-equivalence-receipt.v1.json",
+      "sha256": "baf18cca8de311d55e5bd3bc596897359e79b410d74722a5328ba3c917f6b3b6"
+    },
+    {
+      "id": "receipt-observed-zero",
+      "role": "expected",
+      "path": "testdata/atl-core-equivalence-receipt-observed-zero.json",
+      "sha256": "f3d7fc25af89402be5576f12268e0234a81d7551160528f843652a1cbe0b3109"
+    },
+    {
+      "id": "result-all-deterministic-gates",
+      "role": "expected",
+      "path": "testdata/atl-core-equivalence-result-all-deterministic-gates.json",
+      "sha256": "1061904caf7be07db861b6c916dd6722ed297901b5f375a69dc6c152e5aa2c3b"
+    },
+    {
+      "id": "result-invalidated-drift",
+      "role": "expected",
+      "path": "testdata/atl-core-equivalence-result-invalidated-drift.json",
+      "sha256": "579181fbcf8bab331354ee74c8c1d73f4cae0fefd8ce35dd8b1440475244edf6"
+    },
+    {
+      "id": "result-observed-zero",
+      "role": "expected",
+      "path": "testdata/atl-core-equivalence-result-observed-zero.json",
+      "sha256": "2481f857532697154179fda85161f4707805c885be5f6ab085a5af36b84f04b7"
+    },
+    {
+      "id": "result-unknown-optional-metric",
+      "role": "expected",
+      "path": "testdata/atl-core-equivalence-result-unknown-optional-metric.json",
+      "sha256": "646405bf3bc8f020e97558e7b89f9790eb3d17b95d6a0950210d23019cd8f955"
+    },
+    {
+      "id": "result-unsupported-capability",
+      "role": "expected",
+      "path": "testdata/atl-core-equivalence-result-unsupported-capability.json",
+      "sha256": "cbe5cc6f3df1e5874f0364d2635e60f8798322fcead0325cd4efe7997d08cdec"
+    }
+  ]
+}
