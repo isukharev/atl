@@ -2,8 +2,10 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/isukharev/atl/internal/app"
@@ -131,6 +133,37 @@ func TestConfEdit_DryRunDoesNotWrite(t *testing.T) {
 	after, _ := os.ReadFile(p)
 	if string(after) != body {
 		t.Errorf("dry-run modified the file: %q", after)
+	}
+}
+
+func TestConfEdit_DryRunPreservesJSONBytes(t *testing.T) {
+	p := writeEditFixture(t, "page.csf", "<p>alpha beta</p>")
+
+	out, stderr, code := runCLIFull(t, nil, "conf", "edit", p, "--old", "alpha", "--new", "gamma", "--dry-run")
+	if code != exitOK {
+		t.Fatalf("dry-run: exit %d (stdout=%q, stderr=%q)", code, out, stderr)
+	}
+	want := fmt.Sprintf(`{
+  "count": 1,
+  "csf_ok": true,
+  "dry_run": true,
+  "file": %s,
+  "offsets": [
+    {
+      "Start": 3,
+      "End": 8
+    }
+  ],
+  "pass": "exact",
+  "region_after": "\"<p>gamma beta</p>\"",
+  "region_before": "\"<p>alpha beta</p>\""
+}
+`, strconv.Quote(p))
+	if out != want {
+		t.Fatalf("stdout changed:\n--- got ---\n%s--- want ---\n%s", out, want)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
 	}
 }
 
