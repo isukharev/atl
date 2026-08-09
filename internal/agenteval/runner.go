@@ -122,6 +122,9 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 	} else if options.ExternalMCPProfile != "" {
 		return RunOutput{}, fmt.Errorf("--external-mcp-profile is valid only for external-mcp runs")
 	}
+	if err := admitATLCoreRunContract(contract); err != nil {
+		return RunOutput{}, err
+	}
 	if contract.spec.EffectiveSurface() == SurfaceATLMCP {
 		if err := VerifyATLCapabilityCatalog(ctx, options.ATLBinary); err != nil {
 			return RunOutput{}, err

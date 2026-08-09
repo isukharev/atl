@@ -18,6 +18,15 @@ This document reserves the public boundary for a local-first standalone `agent-e
 
 The maintainer command remains valid implementation evidence, not an accidental public CLI. It currently writes plain diagnostics to stderr and normally maps every error to exit `1`. The production CLI, global flags, structured errors, and exit mapping are deferred to [#1315](https://github.com/isukharev/atl/issues/1315). Until that work passes conformance, callers must describe the standalone surface as **reserved**, not supported or stable.
 
+The repository implementation now contains an internal, in-memory neutral core
+and one explicitly composed ATL profile. The root evaluator package remains the
+compatibility facade for every historical JSON generation, provider runner,
+selected-binary check, and private workflow. Strict ATL DTOs are validated
+before they are projected into neutral identities; their source bytes, JSON
+tags, schema versions, and digests are not rewritten. This is implementation
+evidence for the component split below, not a public Go API or standalone
+conformance claim.
+
 ## Stability vocabulary
 
 | Status | Meaning |
@@ -126,6 +135,15 @@ Compatibility is the tuple `(standalone-core, contract, atl-profile, agent-adapt
 | `reporter` | Content-minimized projections of validated artifacts | Execution, migration, evidence synthesis, or wider visibility |
 
 External substrates are adapters. They do not become admission, privacy, scoring, promotion, or lifecycle authority merely because they execute a task or render a report.
+
+In the current repository implementation, the neutral core owns a closed,
+immutable profile registry, capability negotiation, attempt-local adapter /
+backend / grader ports, normalized observations, deterministic assessment, and
+integer aggregation. The ATL compatibility facade supplies the single built-in
+profile from the pinned capability catalog and retains all ATL route and durable
+artifact authority. Package-direction and exported-vocabulary tests enforce
+that the core cannot import the facade or the ATL profile, and that profile
+composition is explicit rather than `init`- or plugin-driven.
 
 ## Capability negotiation
 

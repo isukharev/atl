@@ -702,10 +702,10 @@ ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
 		"compat-tests: product-atl\n",
 		"compat-oracles: product-atl\n",
 		"compat: compat-tests compat-oracles\n",
-		"$(GO_ENV) go test . -run '$(COMPAT_TESTS_WIRES)' -count=1\n",
-		"$(GO_ENV) go test . -run '$(COMPAT_TESTS_MIRROR)' -count=1\n",
-		"$(GO_ENV) go test . -run '$(COMPAT_TESTS_WRITES)' -count=1\n",
-		"$(GO_ENV) go test . -run '$(COMPAT_TESTS_MCP)' -count=1\n",
+		"$(GO_ENV) go test ./... -run '$(COMPAT_TESTS_WIRES)' -count=1\n",
+		"$(GO_ENV) go test ./... -run '$(COMPAT_TESTS_MIRROR)' -count=1\n",
+		"$(GO_ENV) go test ./... -run '$(COMPAT_TESTS_WRITES)' -count=1\n",
+		"$(GO_ENV) go test ./... -run '$(COMPAT_TESTS_MCP)' -count=1\n",
 		"contract: compat-oracles unit\n",
 		"$(GO_ENV) go run ./cmd/agent-eval validate ",
 		"$(GO_ENV) go run ./cmd/agent-eval validate-run ",
@@ -723,45 +723,9 @@ ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
 func validateEvaluatorCompatSelections(root string, makefile []byte) error {
 	const prefix = "COMPAT_TESTS_"
 	const countPrefix = "COMPAT_TEST_COUNT := "
-	definitions := make(map[string]int)
-	testRoot := filepath.Join(root, "internal", "agenteval")
-	testFiles, err := os.OpenRoot(testRoot)
+	definitions, err := discoverRunnableEvaluatorTests(root)
 	if err != nil {
-		return fmt.Errorf("open evaluator compatibility test root: %w", err)
-	}
-	defer func() { _ = testFiles.Close() }()
-	entries, err := fs.ReadDir(testFiles.FS(), ".")
-	if err != nil {
-		return fmt.Errorf("inspect evaluator compatibility tests: %w", err)
-	}
-	for _, entry := range entries {
-		if entry.Type()&fs.ModeSymlink != 0 {
-			return fmt.Errorf("inspect evaluator compatibility tests: symbolic links are not allowed")
-		}
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
-			continue
-		}
-		active, err := build.Default.MatchFile(testRoot, entry.Name())
-		if err != nil {
-			return fmt.Errorf("inspect evaluator compatibility test constraints: %w", err)
-		}
-		if !active {
-			continue
-		}
-		data, err := fs.ReadFile(testFiles.FS(), entry.Name())
-		if err != nil {
-			return fmt.Errorf("inspect evaluator compatibility tests: %w", err)
-		}
-		file, err := parser.ParseFile(token.NewFileSet(), entry.Name(), data, parser.SkipObjectResolution)
-		if err != nil {
-			return fmt.Errorf("parse evaluator compatibility tests: %w", err)
-		}
-		for _, declaration := range file.Decls {
-			function, ok := declaration.(*ast.FuncDecl)
-			if ok && isRunnableGoTest(function) {
-				definitions[function.Name.Name]++
-			}
-		}
+		return err
 	}
 
 	seenVariables := 0
@@ -811,6 +775,64 @@ func validateEvaluatorCompatSelections(root string, makefile []byte) error {
 		return fmt.Errorf("evaluator Makefile selects %d compatibility tests, want %d", len(selectedTests), wantCount)
 	}
 	return nil
+}
+
+func discoverRunnableEvaluatorTests(root string) (map[string]int, error) {
+	definitions := make(map[string]int)
+	testRoot := filepath.Join(root, "internal", "agenteval")
+	testFiles, err := os.OpenRoot(testRoot)
+	if err != nil {
+		return nil, fmt.Errorf("open evaluator compatibility test root: %w", err)
+	}
+	defer func() { _ = testFiles.Close() }()
+	err = fs.WalkDir(testFiles.FS(), ".", func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.Type()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("symbolic links are not allowed: %s", filepath.ToSlash(path))
+		}
+		if entry.IsDir() {
+			if path != "." && evaluatorTestDirectoryExcluded(entry.Name()) {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(entry.Name(), "_test.go") {
+			return nil
+		}
+		directory := filepath.Join(testRoot, filepath.FromSlash(filepath.ToSlash(filepath.Dir(path))))
+		active, err := build.Default.MatchFile(directory, entry.Name())
+		if err != nil {
+			return fmt.Errorf("inspect evaluator compatibility test constraints for %s: %w", filepath.ToSlash(path), err)
+		}
+		if !active {
+			return nil
+		}
+		data, err := fs.ReadFile(testFiles.FS(), path)
+		if err != nil {
+			return fmt.Errorf("inspect evaluator compatibility test %s: %w", filepath.ToSlash(path), err)
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, data, parser.SkipObjectResolution)
+		if err != nil {
+			return fmt.Errorf("parse evaluator compatibility test %s: %w", filepath.ToSlash(path), err)
+		}
+		for _, declaration := range file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if ok && isRunnableGoTest(function) {
+				definitions[function.Name.Name]++
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("inspect evaluator compatibility tests recursively: %w", err)
+	}
+	return definitions, nil
+}
+
+func evaluatorTestDirectoryExcluded(name string) bool {
+	return name == "testdata" || name == "vendor" || strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")
 }
 
 func isRunnableGoTest(function *ast.FuncDecl) bool {

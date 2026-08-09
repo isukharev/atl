@@ -72,7 +72,7 @@ func TestValidMaintainerContract(t *testing.T) {
 	}
 }
 
-func TestMaintainerContractRejectsCompatibilityTestFromSubpackage(t *testing.T) {
+func TestMaintainerContractAcceptsCompatibilityTestFromSubpackage(t *testing.T) {
 	root := writeFixture(t)
 	subpackageTest := filepath.Join(root, "internal", "agenteval", "cmd", "agent-eval", "fixture_test.go")
 	if err := os.MkdirAll(filepath.Dir(subpackageTest), 0o700); err != nil {
@@ -82,9 +82,37 @@ func TestMaintainerContractRejectsCompatibilityTestFromSubpackage(t *testing.T) 
 		t.Fatal(err)
 	}
 	makefile := filepath.Join(root, "internal", "agenteval", "Makefile")
-	replaceFixture(t, makefile, "TestFixture", "TestSubpackageFixture")
-	if _, err := validateRepository(root, "go"+fixtureGoVersion); err == nil || !strings.Contains(err.Error(), "0 test definitions") {
-		t.Fatalf("subpackage-only compatibility test error=%v", err)
+	replaceFixture(t, makefile, "TestFixtureWires", "TestSubpackageFixture")
+	if _, err := validateRepository(root, "go"+fixtureGoVersion); err != nil {
+		t.Fatalf("subpackage-only compatibility test was not discovered: %v", err)
+	}
+}
+
+func TestMaintainerContractRejectsDuplicateRecursiveCompatibilityTest(t *testing.T) {
+	root := writeFixture(t)
+	duplicate := filepath.Join(root, "internal", "agenteval", "core", "duplicate_test.go")
+	if err := os.MkdirAll(filepath.Dir(duplicate), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(duplicate, []byte("package core\n\nimport \"testing\"\n\nfunc TestFixtureWires(t *testing.T) {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := validateRepository(root, "go"+fixtureGoVersion); err == nil || !strings.Contains(err.Error(), "2 test definitions, want 1") {
+		t.Fatalf("duplicate recursive compatibility test error=%v", err)
+	}
+}
+
+func TestMaintainerContractRejectsSymlinkedRecursiveCompatibilityTest(t *testing.T) {
+	root := writeFixture(t)
+	directory := filepath.Join(root, "internal", "agenteval", "core")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../fixture_test.go", filepath.Join(directory, "linked_test.go")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := validateRepository(root, "go"+fixtureGoVersion); err == nil || !strings.Contains(err.Error(), "symbolic links are not allowed") {
+		t.Fatalf("symlinked recursive compatibility test error=%v", err)
 	}
 }
 
@@ -123,6 +151,10 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 		{name: "nested full gate", path: "internal/agenteval/Makefile", old: "full: tidy-check build race lint vet vuln contract windows product-boundary", replacement: "full: tidy-check build race lint vet vuln contract windows", want: "exact \"full\" gate"},
 		{name: "nested contract repeats compatibility tests", path: "internal/agenteval/Makefile", old: "contract: compat-oracles unit\n", replacement: "contract: compat unit\n", want: "exact \"contract\" gate"},
 		{name: "nested compatibility test omission", path: "internal/agenteval/Makefile", old: "COMPAT_TEST_COUNT := 4", replacement: "COMPAT_TEST_COUNT := 5", want: "selects 4 compatibility tests, want 5"},
+		{name: "nested wires package recursion", path: "internal/agenteval/Makefile", old: "go test ./... -run '$(COMPAT_TESTS_WIRES)'", replacement: "go test . -run '$(COMPAT_TESTS_WIRES)'", want: "compatibility and deterministic contract commands"},
+		{name: "nested mirror package recursion", path: "internal/agenteval/Makefile", old: "go test ./... -run '$(COMPAT_TESTS_MIRROR)'", replacement: "go test . -run '$(COMPAT_TESTS_MIRROR)'", want: "compatibility and deterministic contract commands"},
+		{name: "nested writes package recursion", path: "internal/agenteval/Makefile", old: "go test ./... -run '$(COMPAT_TESTS_WRITES)'", replacement: "go test . -run '$(COMPAT_TESTS_WRITES)'", want: "compatibility and deterministic contract commands"},
+		{name: "nested MCP package recursion", path: "internal/agenteval/Makefile", old: "go test ./... -run '$(COMPAT_TESTS_MCP)'", replacement: "go test . -run '$(COMPAT_TESTS_MCP)'", want: "compatibility and deterministic contract commands"},
 		{name: "nested lint pin", path: "internal/agenteval/Makefile", old: "golangci-lint@v2.12.2 run", replacement: "golangci-lint@latest run", want: "exact \"lint\" gate"},
 		{name: "root facade bypass", path: "Makefile", old: "\t$(AGENT_EVAL_MAKE) race", replacement: "\tgo test -race ./internal/agenteval", want: "nested-module facades"},
 		{name: "root module boundary", path: "Makefile", old: "go run ./scripts/check-module-boundary -root .", replacement: "echo skipped", want: "exact two-module boundary gate"},
@@ -528,10 +560,10 @@ gen-capability-catalog: product-atl
 .PHONY: compat-tests
 compat-tests: product-atl
 	@test -x "$(ATL_BINARY)"
-	$(GO_ENV) go test . -run '$(COMPAT_TESTS_WIRES)' -count=1
-	$(GO_ENV) go test . -run '$(COMPAT_TESTS_MIRROR)' -count=1
-	$(GO_ENV) go test . -run '$(COMPAT_TESTS_WRITES)' -count=1
-	$(GO_ENV) go test . -run '$(COMPAT_TESTS_MCP)' -count=1
+	$(GO_ENV) go test ./... -run '$(COMPAT_TESTS_WIRES)' -count=1
+	$(GO_ENV) go test ./... -run '$(COMPAT_TESTS_MIRROR)' -count=1
+	$(GO_ENV) go test ./... -run '$(COMPAT_TESTS_WRITES)' -count=1
+	$(GO_ENV) go test ./... -run '$(COMPAT_TESTS_MCP)' -count=1
 
 .PHONY: compat-oracles
 compat-oracles: product-atl

@@ -21,8 +21,16 @@ request and response sequencing, accounting, and cleanup contracts are tested
 inside the evaluator boundary. The library and maintainer command are an
 independent nested module at `internal/agenteval`, with the command at
 `internal/agenteval/cmd/agent-eval`; root recursive Go commands intentionally
-exclude it. Product onboarding checks use independent core test infrastructure
-so product packages never depend on the heavy evaluator.
+exclude it. Its internal `core` package is provider-neutral and in-memory: it
+owns closed profile composition, capability admission, execution ports,
+assessment, and integer aggregation. `profile/atl` is the one built-in profile,
+while the root evaluator package remains the compatibility/composition facade
+for all existing durable DTOs, route policy, selected-binary checks, runners,
+and private workflows. Compatibility DTOs are strictly decoded and validated
+before projection; no historical JSON bytes or digests are migrated by this
+split. Recursive import and vocabulary oracles enforce the dependency direction.
+Product onboarding checks use independent core test infrastructure so product
+packages never depend on the heavy evaluator.
 Selected-binary oracles also decode released Jira and Confluence evidence with
 evaluator-owned closed wire types. The retained offline mirror snapshot cohorts
 seed bounded, symlink-free templates into a private process runtime and
