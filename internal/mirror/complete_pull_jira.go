@@ -16,12 +16,12 @@ func validateJiraCompletePullPayloads(entry CompletePullJournalEntry, artifacts 
 		switch artifact.Role {
 		case CompletePullArtifactRoleNative, CompletePullArtifactRoleBase:
 			if Hash(artifact.Data) != entry.State.Hash {
-				return fmt.Errorf("Jira %s payload does not match the accepted native hash", artifact.Role)
+				return fmt.Errorf("jira %s payload does not match the accepted native hash", artifact.Role)
 			}
 		case CompletePullArtifactRoleMetadata:
 			var snapshot jiraCompletePullSnapshot
 			if err := json.Unmarshal(artifact.Data, &snapshot); err != nil || snapshot.Key != entry.State.ID || snapshot.ID != entry.Identity || snapshot.Fields == nil {
-				return fmt.Errorf("Jira metadata payload does not match the accepted issue identity")
+				return fmt.Errorf("jira metadata payload does not match the accepted issue identity")
 			}
 		}
 	}

@@ -10,9 +10,8 @@ import (
 	"github.com/isukharev/atl/internal/safepath"
 )
 
-// CompletePullService is the closed service discriminator for durable
-// complete-pull transactions. Its string representation preserves the
-// existing JSON wire value; validation rejects values outside these constants.
+// CompletePullService is the closed service discriminator for durable complete-pull
+// transactions. Its string preserves the JSON wire value; validation is closed.
 type CompletePullService string
 
 const (
@@ -109,7 +108,7 @@ func validateCompletePullArtifactRole(service CompletePullService, entry Complet
 		if qualified.class == artifactPathClassPrivateBase {
 			base := confluenceCompletePullBasePath(entry)
 			if qualified.String() != base || mode != 0o600 || remove || bestEffort {
-				return fmt.Errorf("Confluence pristine-base artifact does not match the accepted page identity")
+				return fmt.Errorf("confluence pristine-base artifact does not match the accepted page identity")
 			}
 		}
 		return nil
@@ -175,7 +174,7 @@ func validateJiraArtifactRoleCounts(roles []CompletePullArtifactRole) error {
 		CompletePullArtifactRoleBase,
 	} {
 		if counts[required] != 1 {
-			return fmt.Errorf("Jira publication requires exactly one %s artifact", required)
+			return fmt.Errorf("jira publication requires exactly one %s artifact", required)
 		}
 	}
 	return nil
@@ -241,11 +240,12 @@ func validateCompletePullPublication(intent completePullPublicationIntent, check
 		}
 		roles = append(roles, artifact.Role)
 	}
-	if intent.Service == CompletePullServiceConfluence {
+	switch intent.Service {
+	case CompletePullServiceConfluence:
 		if err := validateConfluenceCompletePullIntent(intent.Entry, intent.Artifacts); err != nil {
 			return fmt.Errorf("%w: %v", domain.ErrCheckFailed, err)
 		}
-	} else if intent.Service == CompletePullServiceJira {
+	case CompletePullServiceJira:
 		if err := validateJiraArtifactRoleCounts(roles); err != nil {
 			return fmt.Errorf("%w: %v", domain.ErrCheckFailed, err)
 		}

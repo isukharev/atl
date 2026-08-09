@@ -18,17 +18,17 @@ func validateConfluenceCompletePullPayloads(entry CompletePullJournalEntry, arti
 		case entry.State.Path:
 			nativeCount++
 			if artifact.Remove || artifact.BestEffort || artifact.Mode != 0o644 || Hash(artifact.Data) != entry.State.Hash {
-				return fmt.Errorf("Confluence native artifact does not match the accepted page state")
+				return fmt.Errorf("confluence native artifact does not match the accepted page state")
 			}
 		case confluenceCompletePullBasePath(entry):
 			baseCount++
 			if artifact.Remove || artifact.BestEffort || artifact.Mode != 0o600 || Hash(artifact.Data) != entry.State.Hash {
-				return fmt.Errorf("Confluence pristine-base artifact does not match the accepted page state")
+				return fmt.Errorf("confluence pristine-base artifact does not match the accepted page state")
 			}
 		}
 	}
 	if nativeCount != 1 || baseCount != 1 {
-		return fmt.Errorf("Confluence publication requires exactly one native and pristine-base artifact")
+		return fmt.Errorf("confluence publication requires exactly one native and pristine-base artifact")
 	}
 	return nil
 }
@@ -40,17 +40,17 @@ func validateConfluenceCompletePullIntent(entry CompletePullJournalEntry, artifa
 		case entry.State.Path:
 			nativeCount++
 			if artifact.Remove || artifact.BestEffort || artifact.Mode != 0o644 || artifact.SHA256 != entry.State.Hash {
-				return fmt.Errorf("Confluence native artifact does not match the accepted page state")
+				return fmt.Errorf("confluence native artifact does not match the accepted page state")
 			}
 		case confluenceCompletePullBasePath(entry):
 			baseCount++
 			if artifact.Remove || artifact.BestEffort || artifact.Mode != 0o600 || artifact.SHA256 != entry.State.Hash {
-				return fmt.Errorf("Confluence pristine-base artifact does not match the accepted page state")
+				return fmt.Errorf("confluence pristine-base artifact does not match the accepted page state")
 			}
 		}
 	}
 	if nativeCount != 1 || baseCount != 1 {
-		return fmt.Errorf("Confluence publication requires exactly one native and pristine-base artifact")
+		return fmt.Errorf("confluence publication requires exactly one native and pristine-base artifact")
 	}
 	return nil
 }

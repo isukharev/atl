@@ -403,8 +403,7 @@ func relocationPublicationArtifacts(m *Mirror, plan *PageRelocation) ([]Complete
 }
 
 // PrepareCompletePullPublication durably stages one page's exact artifact set
-// and writes its selector-bound intent before any canonical destination is
-// mutated.
+// and its selector-bound intent before any canonical destination is mutated.
 func (m *Mirror) PrepareCompletePullPublication(checkpoint CompletePullCheckpoint, index int, entry CompletePullJournalEntry, eligible bool, artifacts []CompletePullArtifact, relocation *PageRelocation) error {
 	return m.prepareCompletePullPublicationWith(checkpoint, index, entry, eligible, artifacts, relocation, defaultCompletePullPublicationOps())
 }
@@ -461,11 +460,12 @@ func (m *Mirror) prepareCompletePullPublicationWith(checkpoint CompletePullCheck
 	for _, artifact := range artifacts {
 		roles = append(roles, artifact.Role)
 	}
-	if checkpoint.Service == CompletePullServiceConfluence {
+	switch checkpoint.Service {
+	case CompletePullServiceConfluence:
 		if err := validateConfluenceCompletePullPayloads(entry, artifacts); err != nil {
 			return fmt.Errorf("%w: %v", domain.ErrCheckFailed, err)
 		}
-	} else if checkpoint.Service == CompletePullServiceJira {
+	case CompletePullServiceJira:
 		if err := validateJiraArtifactRoleCounts(roles); err != nil {
 			return fmt.Errorf("%w: %v", domain.ErrCheckFailed, err)
 		}
