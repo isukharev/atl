@@ -12,6 +12,10 @@ import (
 	"github.com/isukharev/atl/internal/httpx"
 )
 
+type toolErrorKind string
+
+type toolRemediation string
+
 type toolError struct {
 	Kind        string              `json:"kind"`
 	Remediation string              `json:"remediation,omitempty"`
@@ -31,7 +35,7 @@ func (e toolError) Error() string {
 type toolErrorRule struct {
 	message     string
 	safeMessage bool
-	remediation string
+	remediation toolRemediation
 }
 
 // toolErrorOverride is a named hook that upgrades one diagnostic category to a
@@ -40,15 +44,15 @@ type toolErrorRule struct {
 // its precedence by ordering rather than by nested conditionals, and the slice
 // is never map-iterated, so the outcome stays deterministic.
 type toolErrorOverride struct {
-	kind  string
-	apply func(err error) (remediation, message string, ok bool)
+	kind  toolErrorKind
+	apply func(err error) (remediation toolRemediation, message string, ok bool)
 }
 
 // toolErrorPolicy is a tool family's read-error policy: a per-category rule
 // table, a fallback for the categories it does not name, and ordered overrides.
 type toolErrorPolicy struct {
 	fallback  toolErrorRule
-	kinds     map[string]toolErrorRule
+	kinds     map[toolErrorKind]toolErrorRule
 	overrides []toolErrorOverride
 	operation diagnostic.OperationContext
 }
@@ -57,7 +61,9 @@ func (p toolErrorPolicy) classify(err error) error {
 	if err == nil {
 		return nil
 	}
-	kind, remediation := diagnostic.Classify(err)
+	classifiedKind, classifiedRemediation := diagnostic.Classify(err)
+	kind := toolErrorKind(classifiedKind)
+	remediation := toolRemediation(classifiedRemediation)
 	rule, named := p.kinds[kind]
 	if !named {
 		rule = p.fallback
@@ -81,12 +87,12 @@ func (p toolErrorPolicy) classify(err error) error {
 	if operation == diagnostic.OperationUnknown {
 		operation = diagnostic.OperationRead
 	}
-	return toolError{Kind: kind, Remediation: remediation, Message: message, Recovery: diagnostic.Recover(err, operation)}
+	return toolError{Kind: string(kind), Remediation: string(remediation), Message: message, Recovery: diagnostic.Recover(err, operation)}
 }
 
 func staticMessage(message string) toolErrorRule { return toolErrorRule{message: message} }
 
-func staticMessageWithRemediation(message, remediation string) toolErrorRule {
+func staticMessageWithRemediation(message string, remediation toolRemediation) toolErrorRule {
 	return toolErrorRule{message: message, remediation: remediation}
 }
 
@@ -99,8 +105,8 @@ var redactedBackendDetail = toolErrorRule{safeMessage: true}
 // a positional selection. Only the typed application error qualifies — never a
 // string match — and it carries two integers and nothing else. Each family
 // supplies its own remediation because the correct re-read differs per tool.
-func confluencePageVersionMismatchOverride(remediation string) toolErrorOverride {
-	return toolErrorOverride{kind: "check_failed", apply: func(err error) (string, string, bool) {
+func confluencePageVersionMismatchOverride(remediation toolRemediation) toolErrorOverride {
+	return toolErrorOverride{kind: "check_failed", apply: func(err error) (toolRemediation, string, bool) {
 		var mismatch *app.ConfluencePageVersionMismatchError
 		if !errors.As(err, &mismatch) || mismatch == nil {
 			return "", "", false
@@ -114,7 +120,7 @@ func confluencePageVersionMismatchOverride(remediation string) toolErrorOverride
 // page or cell content.
 var confluenceTableOutOfRangeOverride = toolErrorOverride{
 	kind: "not_found",
-	apply: func(err error) (string, string, bool) {
+	apply: func(err error) (toolRemediation, string, bool) {
 		var selection *app.ConfluenceTableSelectionError
 		if !errors.As(err, &selection) {
 			return "", "", false
@@ -129,7 +135,7 @@ var confluenceTableOutOfRangeOverride = toolErrorOverride{
 // occurrence counts — no heading, page reference, or backend text.
 var confluenceSectionOutOfRangeOverride = toolErrorOverride{
 	kind: "not_found",
-	apply: func(err error) (string, string, bool) {
+	apply: func(err error) (toolRemediation, string, bool) {
 		var selection *app.ConfluenceSectionSelectionError
 		if !errors.As(err, &selection) || selection.Requested <= 0 {
 			return "", "", false
@@ -140,7 +146,7 @@ var confluenceSectionOutOfRangeOverride = toolErrorOverride{
 
 var confluenceSectionAmbiguousOverride = toolErrorOverride{
 	kind: "check_failed",
-	apply: func(err error) (string, string, bool) {
+	apply: func(err error) (toolRemediation, string, bool) {
 		var selection *app.ConfluenceSectionSelectionError
 		if !errors.As(err, &selection) || selection.Requested != 0 {
 			return "", "", false
@@ -163,7 +169,7 @@ func structureFolderSelection(err error) (*app.StructureFolderSelectionError, bo
 // row id, path, label, Structure content, or backend text.
 var structureFolderNotFoundOverride = toolErrorOverride{
 	kind: "not_found",
-	apply: func(err error) (string, string, bool) {
+	apply: func(err error) (toolRemediation, string, bool) {
 		selection, ok := structureFolderSelection(err)
 		if !ok || selection.Reason != app.StructureFolderSelectionNotFound {
 			return "", "", false
@@ -174,7 +180,7 @@ var structureFolderNotFoundOverride = toolErrorOverride{
 
 var structureFolderSelectorOverride = toolErrorOverride{
 	kind: "check_failed",
-	apply: func(err error) (string, string, bool) {
+	apply: func(err error) (toolRemediation, string, bool) {
 		selection, ok := structureFolderSelection(err)
 		if !ok {
 			return "", "", false
@@ -193,7 +199,7 @@ var structureFolderSelectorOverride = toolErrorOverride{
 // under a stored-folder selection; the typed error carries four integers.
 var structureForestVersionMismatchOverride = toolErrorOverride{
 	kind: "check_failed",
-	apply: func(err error) (string, string, bool) {
+	apply: func(err error) (toolRemediation, string, bool) {
 		var mismatch *app.StructureForestVersionMismatchError
 		if !errors.As(err, &mismatch) || mismatch == nil {
 			return "", "", false
@@ -213,7 +219,7 @@ var genericToolPolicy = toolErrorPolicy{fallback: redactedBackendDetail}
 
 var confluenceOutlineReadPolicy = toolErrorPolicy{
 	fallback: staticMessage("Confluence page outline read failed"),
-	kinds: map[string]toolErrorRule{
+	kinds: map[toolErrorKind]toolErrorRule{
 		"usage_error":           staticMessage("invalid Confluence page outline request"),
 		"configuration_error":   staticMessage("Confluence page outline service is not configured"),
 		"authentication_failed": staticMessage("Confluence page outline authentication failed"),
@@ -228,7 +234,7 @@ var confluenceOutlineReadPolicy = toolErrorPolicy{
 
 var confluencePageMetadataReadPolicy = toolErrorPolicy{
 	fallback: staticMessage("Confluence page metadata read failed"),
-	kinds: map[string]toolErrorRule{
+	kinds: map[toolErrorKind]toolErrorRule{
 		"usage_error":           staticMessage("invalid Confluence page metadata request"),
 		"configuration_error":   staticMessage("Confluence page metadata service is not configured"),
 		"authentication_failed": staticMessage("Confluence page metadata authentication failed"),
@@ -244,7 +250,7 @@ var confluencePageMetadataReadPolicy = toolErrorPolicy{
 
 var jiraHistoryReadPolicy = toolErrorPolicy{
 	fallback: staticMessage("Jira issue history read failed"),
-	kinds: map[string]toolErrorRule{
+	kinds: map[toolErrorKind]toolErrorRule{
 		"usage_error":           staticMessage("invalid Jira issue history request"),
 		"configuration_error":   staticMessage("Jira issue history service is not configured"),
 		"authentication_failed": staticMessage("Jira issue history authentication failed"),
@@ -259,7 +265,7 @@ var jiraHistoryReadPolicy = toolErrorPolicy{
 
 var jiraIssueRefsReadPolicy = toolErrorPolicy{
 	fallback: staticMessage("Jira issue reference summary read failed"),
-	kinds: map[string]toolErrorRule{
+	kinds: map[toolErrorKind]toolErrorRule{
 		"usage_error":           staticMessage("invalid Jira issue reference summary request"),
 		"configuration_error":   staticMessage("Jira issue reference summary service is not configured"),
 		"authentication_failed": staticMessage("Jira issue reference summary authentication failed"),
@@ -276,7 +282,7 @@ var jiraIssueRefsReadPolicy = toolErrorPolicy{
 var confluenceTableReadPolicy = toolErrorPolicy{
 	operation: diagnostic.OperationConfluenceTableRead,
 	fallback:  staticMessage("Confluence table read failed"),
-	kinds: map[string]toolErrorRule{
+	kinds: map[toolErrorKind]toolErrorRule{
 		"usage_error":           staticMessage("invalid Confluence table request"),
 		"configuration_error":   staticMessage("Confluence table service is not configured"),
 		"authentication_failed": staticMessage("Confluence table authentication failed"),
@@ -299,7 +305,7 @@ var confluenceTableReadPolicy = toolErrorPolicy{
 var confluenceSectionReadPolicy = toolErrorPolicy{
 	operation: diagnostic.OperationConfluenceSectionRead,
 	fallback:  staticMessage("Confluence page section read failed"),
-	kinds: map[string]toolErrorRule{
+	kinds: map[toolErrorKind]toolErrorRule{
 		"usage_error":           staticMessage("invalid Confluence page section request"),
 		"configuration_error":   staticMessage("Confluence page section service is not configured"),
 		"authentication_failed": staticMessage("Confluence page section authentication failed"),
@@ -328,7 +334,7 @@ var confluenceSectionReadPolicy = toolErrorPolicy{
 var confluenceAttachmentInventoryReadPolicy = toolErrorPolicy{
 	operation: diagnostic.OperationConfluenceAttachmentRead,
 	fallback:  staticMessage("Confluence attachment inventory read failed"),
-	kinds: map[string]toolErrorRule{
+	kinds: map[toolErrorKind]toolErrorRule{
 		"usage_error":           staticMessage("invalid Confluence attachment inventory request"),
 		"configuration_error":   staticMessage("Confluence attachment inventory service is not configured"),
 		"authentication_failed": staticMessage("Confluence attachment inventory authentication failed"),
@@ -348,7 +354,7 @@ var confluenceAttachmentInventoryReadPolicy = toolErrorPolicy{
 // only as a closed instruction to re-read, not as a replay hint.
 var confluenceCommentReadPolicy = toolErrorPolicy{
 	fallback: staticMessage("Confluence comment read failed"),
-	kinds: map[string]toolErrorRule{
+	kinds: map[toolErrorKind]toolErrorRule{
 		"usage_error":           staticMessage("invalid Confluence comment request"),
 		"configuration_error":   staticMessage("Confluence comment service is not configured"),
 		"authentication_failed": staticMessage("Confluence comment authentication failed"),
@@ -366,7 +372,7 @@ var confluenceCommentReadPolicy = toolErrorPolicy{
 var jiraStructureReadPolicy = toolErrorPolicy{
 	operation: diagnostic.OperationJiraStructureRead,
 	fallback:  staticMessage("Jira Structure read failed"),
-	kinds: map[string]toolErrorRule{
+	kinds: map[toolErrorKind]toolErrorRule{
 		"usage_error":           staticMessage("invalid Jira Structure request"),
 		"configuration_error":   staticMessage("Jira Structure service is not configured"),
 		"authentication_failed": staticMessage("Jira Structure authentication failed"),
@@ -389,7 +395,7 @@ var jiraStructureReadPolicy = toolErrorPolicy{
 
 var mirrorReadPolicy = toolErrorPolicy{
 	fallback: staticMessage("local mirror snapshot failed"),
-	kinds: map[string]toolErrorRule{
+	kinds: map[toolErrorKind]toolErrorRule{
 		"configuration_error": staticMessage("local mirror root is not configured or is invalid"),
 		"check_failed":        staticMessage("local mirror snapshot could not be completed"),
 	},

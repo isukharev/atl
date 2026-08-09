@@ -489,7 +489,7 @@ func oneOfString(value string, allowed ...string) bool {
 
 var jiraIssueGraphReadPolicy = toolErrorPolicy{
 	fallback: staticMessage("Jira issue graph read failed"),
-	kinds: map[string]toolErrorRule{
+	kinds: map[toolErrorKind]toolErrorRule{
 		"usage_error":           staticMessage("invalid Jira issue graph request"),
 		"configuration_error":   staticMessage("Jira issue graph service is not configured"),
 		"authentication_failed": staticMessage("Jira issue graph authentication failed"),
