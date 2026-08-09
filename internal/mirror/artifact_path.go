@@ -105,6 +105,17 @@ func parseDurableArtifactPath(value string) (ArtifactPath, error) {
 	return NewPublicArtifactPath(value)
 }
 
+// parseDurablePublicStatePath accepts the one historical Windows spelling
+// written by Jira pull before public paths were canonicalized at construction.
+// Mixed separators and every normalized traversal/reserved alias still fail.
+func parseDurablePublicStatePath(value string) (ArtifactPath, error) {
+	qualified, err := NewPublicArtifactPath(value)
+	if err == nil || !strings.Contains(value, `\`) || strings.Contains(value, "/") {
+		return qualified, err
+	}
+	return NewPublicArtifactPath(strings.ReplaceAll(value, `\`, "/"))
+}
+
 func (p ArtifactPath) relative(expected artifactPathClass) (string, error) {
 	if p.class != expected {
 		return "", fmt.Errorf("%w: mirror artifact path has the wrong ownership class", domain.ErrCheckFailed)

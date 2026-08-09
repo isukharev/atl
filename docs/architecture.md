@@ -400,15 +400,21 @@ constructed mirror-relative artifact paths. Public construction rejects the
 reserved `.atl` component, including ASCII case aliases; private construction
 admits only non-empty descendants of the exact `.atl/base/` subtree. Durable
 journals and sidecars keep their existing string bytes, but mirror reparses
-those strings as untrusted paths before recovery or filesystem use. Root-scoped
-resolution and symlink checks remain mandatory at the actual I/O boundary.
+those strings as untrusted paths before recovery or filesystem use. The one
+legacy Jira sidecar spelling written with Windows separators is normalized on
+read only, then subjected to the same public-path checks; new durable paths
+remain canonical slash-separated strings. Root-scoped resolution and symlink
+checks remain mandatory at the actual I/O boundary.
 The complete-pull transaction service is also closed: Confluence keeps its
-schema-2 journal/publication bytes and positive page-version contract, while a
-Jira transaction uses schema 3 with a positive immutable issue ID separate
-from its mutable key, version `0`, canonical `.wiki` state, and explicit
-`native|metadata|view|base|auxiliary` artifact roles. Cross-service schema,
-extension, identity, version, role, and path combinations fail before a
-destination is staged or accepted.
+schema-2 journal/publication and progress-v1 bytes, binds its one private
+artifact to the exact mode-0600 `.atl/base/<page-id>.csf` identity, and retains
+the positive page-version contract. A Jira transaction uses schema 3 with a
+positive immutable issue ID separate from its mutable key, version `0`,
+canonical `.wiki` state, explicit `native|metadata|view|base|auxiliary`
+artifact roles, and service-bound progress v2. A crash after replacing a
+checkpoint with the other service's selection resets the stale progress prefix
+to zero. Cross-service schema, extension, identity, version, role, and path
+combinations fail before a destination is staged or accepted.
 
 Notable behaviors:
 

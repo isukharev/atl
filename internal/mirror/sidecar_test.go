@@ -138,6 +138,27 @@ func TestSidecarRejectsReservedPathAlias(t *testing.T) {
 	}
 }
 
+func TestSidecarLoadsLegacyWindowsJiraPathCanonically(t *testing.T) {
+	m := New(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(m.sidecarPath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sc := sidecarFile{Pages: map[string]SyncState{
+		"PROJ-1": {ID: "PROJ-1", Hash: strings.Repeat("a", 64), Path: `PROJ\PROJ-1.wiki`},
+	}}
+	b, err := json.Marshal(sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(m.sidecarPath(), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state, found, err := m.SyncStateOf("PROJ-1")
+	if err != nil || !found || state.Path != "PROJ/PROJ-1.wiki" {
+		t.Fatalf("legacy state=%+v found=%t err=%v", state, found, err)
+	}
+}
+
 func TestSidecarAndBaseReadsRefuseDescendantSymlinks(t *testing.T) {
 	t.Run("sidecar directory", func(t *testing.T) {
 		root := t.TempDir()

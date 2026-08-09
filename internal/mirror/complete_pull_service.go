@@ -51,6 +51,22 @@ func completePullPublicationSchemaFor(service CompletePullService) int {
 	return completePullPublicationSchema
 }
 
+func completePullProgressSchemaFor(service CompletePullService) int {
+	if service == CompletePullServiceJira {
+		return completePullJiraProgressSchema
+	}
+	return completePullProgressSchema
+}
+
+func validCompletePullProgressService(checkpoint, progress CompletePullService) bool {
+	return checkpoint == CompletePullServiceConfluence && progress == "" || checkpoint == CompletePullServiceJira && progress == CompletePullServiceJira
+}
+
+func staleCompletePullProgressService(checkpoint CompletePullService, progress completePullProgress) bool {
+	return checkpoint == CompletePullServiceJira && progress.SchemaVersion == completePullProgressSchema && progress.Service == "" ||
+		checkpoint == CompletePullServiceConfluence && progress.SchemaVersion == completePullJiraProgressSchema && progress.Service == CompletePullServiceJira
+}
+
 func positiveDecimalIdentity(value string) bool {
 	if value == "" || strings.IndexFunc(value, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
 		return false
@@ -89,6 +105,12 @@ func validateCompletePullArtifactRole(service CompletePullService, entry Complet
 	if service == CompletePullServiceConfluence {
 		if role != "" {
 			return fmt.Errorf("legacy Confluence publication cannot persist an artifact role")
+		}
+		if qualified.class == artifactPathClassPrivateBase {
+			base := filepath.ToSlash(filepath.Join(".atl", "base", entry.State.ID+".csf"))
+			if qualified.String() != base || mode != 0o600 || remove || bestEffort {
+				return fmt.Errorf("Confluence pristine-base artifact does not match the accepted page identity")
+			}
 		}
 		return nil
 	}

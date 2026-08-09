@@ -1,8 +1,10 @@
 package mirror
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -164,6 +166,100 @@ func TestCompletePullCheckpointIgnoresStaleProgressAfterAtomicRestart(t *testing
 	got, ok, err := m.CompletePullCheckpoint(completePullTestHash)
 	if err != nil || !ok || got.NextIndex != 0 || !reflect.DeepEqual(got.IDs, []string{"30"}) {
 		t.Fatalf("restarted checkpoint=%+v ok=%v err=%v", got, ok, err)
+	}
+}
+
+func TestCompletePullCheckpointDoesNotReuseProgressAcrossServices(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		old  CompletePullService
+		new  CompletePullService
+	}{
+		{name: "Confluence to Jira", old: CompletePullServiceConfluence, new: CompletePullServiceJira},
+		{name: "Jira to Confluence", old: CompletePullServiceJira, new: CompletePullServiceConfluence},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := New(t.TempDir())
+			checkpoint := CompletePullCheckpoint{
+				Service: tc.old, SelectorSHA256: completePullTestHash,
+				OptionsSHA256: strings.Repeat("b", 64), SelectionSHA256: strings.Repeat("c", 64),
+				IDs: []string{"10", "20"}, NextIndex: 1,
+			}
+			if err := m.SaveCompletePullCheckpoint(checkpoint); err != nil {
+				t.Fatal(err)
+			}
+			progressPath, _ := m.completePullProgressPath(checkpoint.SelectorSHA256)
+			progressBytes, err := os.ReadFile(progressPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.old == CompletePullServiceConfluence {
+				want := fmt.Sprintf("{\n  \"schema_version\": 1,\n  \"selector_sha256\": %q,\n  \"options_sha256\": %q,\n  \"selection_sha256\": %q,\n  \"next_index\": 1\n}\n", checkpoint.SelectorSHA256, checkpoint.OptionsSHA256, checkpoint.SelectionSHA256)
+				if string(progressBytes) != want {
+					t.Fatalf("legacy Confluence progress bytes changed:\n%s", progressBytes)
+				}
+			}
+			if tc.old == CompletePullServiceJira && (!bytes.Contains(progressBytes, []byte(`"schema_version": 2`)) || !bytes.Contains(progressBytes, []byte(`"service": "jira"`))) {
+				t.Fatalf("Jira progress is not service-qualified: %s", progressBytes)
+			}
+
+			checkpoint.Service = tc.new
+			checkpoint.SchemaVersion = completePullCheckpointSchema
+			checkpoint.NextIndex = 0
+			manifest, err := json.MarshalIndent(checkpoint, "", "  ")
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifestPath, _ := m.completePullCheckpointPath(checkpoint.SelectorSHA256)
+			if err := safepath.WriteFileWithin(m.Root, manifestPath, append(manifest, '\n'), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got, found, err := m.CompletePullCheckpoint(checkpoint.SelectorSHA256)
+			if err != nil || !found || got.Service != tc.new || got.NextIndex != 0 {
+				t.Fatalf("cross-service restart=%+v found=%t err=%v", got, found, err)
+			}
+		})
+	}
+}
+
+func TestCompletePullCheckpointRejectsInvalidServiceQualifiedProgress(t *testing.T) {
+	m := New(t.TempDir())
+	checkpoint := CompletePullCheckpoint{
+		Service: CompletePullServiceJira, SelectorSHA256: completePullTestHash,
+		OptionsSHA256: strings.Repeat("b", 64), SelectionSHA256: strings.Repeat("c", 64),
+		IDs: []string{"10"},
+	}
+	if err := m.SaveCompletePullCheckpoint(checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	progressPath, _ := m.completePullProgressPath(checkpoint.SelectorSHA256)
+	for name, progress := range map[string]completePullProgress{
+		"unversioned": {
+			Service: CompletePullServiceJira, SelectorSHA256: checkpoint.SelectorSHA256,
+			OptionsSHA256: checkpoint.OptionsSHA256, SelectionSHA256: checkpoint.SelectionSHA256,
+		},
+		"future": {
+			SchemaVersion: completePullJiraProgressSchema + 1, Service: CompletePullServiceJira,
+			SelectorSHA256: checkpoint.SelectorSHA256, OptionsSHA256: checkpoint.OptionsSHA256,
+			SelectionSHA256: checkpoint.SelectionSHA256,
+		},
+		"missing service": {
+			SchemaVersion: completePullJiraProgressSchema, SelectorSHA256: checkpoint.SelectorSHA256,
+			OptionsSHA256: checkpoint.OptionsSHA256, SelectionSHA256: checkpoint.SelectionSHA256,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			b, err := json.Marshal(progress)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(progressPath, append(b, '\n'), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := m.CompletePullCheckpoint(checkpoint.SelectorSHA256); !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("invalid progress error=%v", err)
+			}
+		})
 	}
 }
 

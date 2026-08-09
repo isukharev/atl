@@ -70,6 +70,19 @@ func TestPublicArtifactPathWithinRejectsEscapeAndReservedAlias(t *testing.T) {
 	}
 }
 
+func TestDurablePublicStatePathNormalizesOnlyLegacyWindowsSeparators(t *testing.T) {
+	t.Parallel()
+	qualified, err := parseDurablePublicStatePath(`PROJ\PROJ-1.wiki`)
+	if err != nil || qualified.String() != "PROJ/PROJ-1.wiki" {
+		t.Fatalf("legacy path=%q err=%v", qualified.String(), err)
+	}
+	for _, value := range []string{`.ATL\base\10.csf`, `..\escape`, `mixed/path\file`} {
+		if _, err := parseDurablePublicStatePath(value); !errors.Is(err, domain.ErrCheckFailed) {
+			t.Fatalf("legacy path %q error=%v", value, err)
+		}
+	}
+}
+
 func FuzzArtifactPathQualification(f *testing.F) {
 	for _, seed := range []string{
 		"SPACE/page.csf", ".atl/base/42.csf", "../escape", `a\b`, ".ATL/state.json", "a//b",

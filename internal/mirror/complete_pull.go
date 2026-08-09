@@ -17,6 +17,8 @@ import (
 
 const (
 	completePullCheckpointSchema   = 1
+	completePullProgressSchema     = 1 // legacy Confluence schema; bytes are immutable
+	completePullJiraProgressSchema = 2
 	maxCompletePullCheckpointBytes = 64 << 20
 	maxCompletePullProgressBytes   = 4 << 10
 	maxCompletePullCheckpointIDs   = 1_000_000
@@ -42,11 +44,12 @@ type CompletePullCheckpoint struct {
 }
 
 type completePullProgress struct {
-	SchemaVersion   int    `json:"schema_version"`
-	SelectorSHA256  string `json:"selector_sha256"`
-	OptionsSHA256   string `json:"options_sha256"`
-	SelectionSHA256 string `json:"selection_sha256"`
-	NextIndex       int    `json:"next_index"`
+	SchemaVersion   int                 `json:"schema_version"`
+	Service         CompletePullService `json:"service,omitempty"`
+	SelectorSHA256  string              `json:"selector_sha256"`
+	OptionsSHA256   string              `json:"options_sha256"`
+	SelectionSHA256 string              `json:"selection_sha256"`
+	NextIndex       int                 `json:"next_index"`
 }
 
 // CompletePullJournalEntry is the content-minimized durable commit evidence
@@ -456,7 +459,10 @@ func (m *Mirror) CompletePullCheckpoint(selectorSHA256 string) (CompletePullChec
 	if err := decodeCompletePullJSON(progressPath, b, &progress); err != nil {
 		return CompletePullCheckpoint{}, false, err
 	}
-	if progress.SchemaVersion != completePullCheckpointSchema {
+	if staleCompletePullProgressService(value.Service, progress) {
+		return value, true, nil
+	}
+	if progress.SchemaVersion != completePullProgressSchemaFor(value.Service) || !validCompletePullProgressService(value.Service, progress.Service) {
 		return CompletePullCheckpoint{}, false, fmt.Errorf("%w: unsupported complete-pull progress schema %d in %s", domain.ErrCheckFailed, progress.SchemaVersion, progressPath)
 	}
 	if progress.SelectorSHA256 != value.SelectorSHA256 || progress.OptionsSHA256 != value.OptionsSHA256 || progress.SelectionSHA256 != value.SelectionSHA256 {
@@ -534,8 +540,11 @@ func (m *Mirror) SaveCompletePullCheckpoint(value CompletePullCheckpoint) error 
 		}
 	}
 	progress := completePullProgress{
-		SchemaVersion: completePullCheckpointSchema, SelectorSHA256: value.SelectorSHA256,
+		SchemaVersion: completePullProgressSchemaFor(value.Service), SelectorSHA256: value.SelectorSHA256,
 		OptionsSHA256: value.OptionsSHA256, SelectionSHA256: value.SelectionSHA256, NextIndex: value.NextIndex,
+	}
+	if value.Service == CompletePullServiceJira {
+		progress.Service = value.Service
 	}
 	b, err := json.MarshalIndent(progress, "", "  ")
 	if err != nil {

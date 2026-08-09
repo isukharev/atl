@@ -20,11 +20,19 @@ Local mirror publication qualifies every artifact as either public or a
 pristine private base before it can cross from orchestration into durable
 filesystem code. Recovery repeats that qualification for persisted paths and
 still performs root-scoped, no-symlink I/O checks; a journal is not trusted
-merely because ATL wrote it previously.
+merely because ATL wrote it previously. Confluence admits only the exact
+mode-0600 `.atl/base/<page-id>.csf` private artifact for the accepted page.
+Legacy Jira sidecar paths written with Windows separators are normalized only
+while loading and must still pass the canonical public-path boundary; new state
+always uses slash-separated paths.
 Service-qualified complete-pull recovery never relaxes the established
 Confluence page/version/`.csf` rules to admit Jira. Jira uses its own durable
 variant, which binds immutable issue identity, mutable key and `.wiki` path,
 pristine base, raw snapshot, derived view, and the reviewed auxiliary roles.
+Confluence retains its established progress-v1 bytes; Jira progress v2 carries
+an explicit service. If a crash leaves progress from the other service beside a
+new selection, recovery restarts that selection from zero instead of trusting
+the old prefix.
 
 The shared transport never follows a redirect from a mutating HTTP request.
 This applies to every Jira and Confluence POST, PUT, PATCH, and DELETE: a 3xx is
