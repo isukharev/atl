@@ -431,8 +431,11 @@ func deriveGrade(task Task, grade Grade) (Outcome, Score) {
 		return outcome, Score{Presence: PresenceNotApplicable}
 	}
 	return outcome, Score{
-		Presence:    PresenceObserved,
-		BasisPoints: uint16(passedWeight * 10_000 / observedWeight),
+		Presence: PresenceObserved,
+		// At most 256 validated weights of at most 1,000,000 keep the
+		// numerator below 2.56e12; passedWeight <= observedWeight also
+		// bounds the quotient to 10,000.
+		BasisPoints: uint16(passedWeight * 10_000 / observedWeight), // #nosec G115 -- bounded above.
 	}
 }
 
@@ -458,7 +461,7 @@ func Summarize(task Task, input []Assessment) (Aggregate, error) {
 		assessments = append(assessments, validated)
 	}
 	aggregate := Aggregate{
-		Attempts:  uint32(len(assessments)),
+		Attempts:  uint32(len(input)), // #nosec G115 -- input length was bounded by math.MaxUint32 above.
 		Resources: make([]ResourceAggregate, len(canonical.Resources)),
 	}
 	resourceIndex := make(map[ResourceID]int, len(canonical.Resources))
@@ -502,7 +505,7 @@ func Summarize(task Task, input []Assessment) (Aggregate, error) {
 		}
 	}
 	if aggregate.Scores.Presence.Observed > 0 {
-		aggregate.Scores.MeanBasisPoints = uint16(
+		aggregate.Scores.MeanBasisPoints = uint16( // #nosec G115 -- validated assessment scores make the mean at most 10,000.
 			aggregate.Scores.TotalBasisPoints / uint64(aggregate.Scores.Presence.Observed),
 		)
 	}

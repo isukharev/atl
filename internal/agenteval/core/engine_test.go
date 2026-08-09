@@ -2,6 +2,7 @@ package core_test
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -215,6 +216,38 @@ func TestEngineStatefulCounter(t *testing.T) {
 	reversed[0].Score.BasisPoints++
 	if _, err := core.Summarize(plan.Task, reversed); errorCode(err) != core.ErrorAggregationFailed {
 		t.Fatalf("tampered assessment error=%v", err)
+	}
+}
+
+func TestCoreScoringBoundsStayWithinBasisPoints(t *testing.T) {
+	task := core.Task{ID: "maximum-weight-task", Checks: make([]core.Check, 256)}
+	observation := core.Observation{Checks: make([]core.CheckObservation, len(task.Checks))}
+	grade := core.Grade{Checks: make([]core.CheckGrade, len(task.Checks))}
+	for index := range task.Checks {
+		id := core.CheckID(fmt.Sprintf("maximum-weight-%03d", index))
+		task.Checks[index] = core.Check{ID: id, Weight: 1_000_000}
+		observation.Checks[index] = core.CheckObservation{ID: id, Presence: core.PresenceObserved, Passed: true}
+		grade.Checks[index] = core.CheckGrade{ID: id, Presence: core.PresenceObserved, Passed: true}
+	}
+	assessment, err := core.Assess(task, observation, grade)
+	if err != nil || assessment.Score.BasisPoints != 10_000 {
+		t.Fatalf("maximum-weight assessment=%+v err=%v", assessment, err)
+	}
+	aggregate, err := core.Summarize(task, []core.Assessment{assessment})
+	if err != nil || aggregate.Scores.MeanBasisPoints != 10_000 {
+		t.Fatalf("maximum-weight aggregate=%+v err=%v", aggregate, err)
+	}
+
+	tooMany := task
+	tooMany.Checks = append(append([]core.Check(nil), task.Checks...), core.Check{ID: "one-too-many", Weight: 1})
+	if _, err := core.Assess(tooMany, core.Observation{}, core.Grade{}); errorCode(err) != core.ErrorInvalidTask {
+		t.Fatalf("too-many-checks error=%v", err)
+	}
+	overweight := task
+	overweight.Checks = append([]core.Check(nil), task.Checks...)
+	overweight.Checks[0].Weight = 1_000_001
+	if _, err := core.Assess(overweight, observation, grade); errorCode(err) != core.ErrorInvalidTask {
+		t.Fatalf("overweight-check error=%v", err)
 	}
 }
 

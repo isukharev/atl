@@ -2,6 +2,7 @@ package agenteval
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -79,7 +80,7 @@ func projectATLRunContract(contract resolvedRunContract) (core.Plan, error) {
 	return core.Plan{
 		ID:       core.PlanID(atlCoreIdentity("plan", scenarioBytes, specBytes, []byte(fixtureIdentity))),
 		Profile:  profileatl.ProfileID,
-		Attempts: uint32(contract.spec.Repetitions),
+		Attempts: uint32(contract.spec.Repetitions), // #nosec G115 -- strict RunSpec validation bounds repetitions to 1..20 before projection.
 		Task: core.Task{
 			ID:                   core.TaskID(contract.scenario.ID),
 			RequiredCapabilities: capabilities,
@@ -174,9 +175,7 @@ func atlCoreIdentity(domain string, values ...[]byte) string {
 	_, _ = hash.Write([]byte("agent-eval/atl-core/" + domain + "/v1\x00"))
 	for _, value := range values {
 		var length [8]byte
-		for index := uint(0); index < 8; index++ {
-			length[7-index] = byte(uint64(len(value)) >> (index * 8))
-		}
+		binary.BigEndian.PutUint64(length[:], uint64(len(value)))
 		_, _ = hash.Write(length[:])
 		_, _ = hash.Write(value)
 	}
