@@ -40,7 +40,7 @@
     {"name":"used_atl","kind":"atl_invocations_min","minimum":2},
     {"name":"used_atl_twice","kind":"atl_invocations_max","maximum":2},
     {"name":"used_skill","kind":"skill_invocations_min","minimum":1,"expected":"atl:jira"},
-    {"name":"usage_correct","kind":"json_equals","pointer":"/usage","expected":{"requests":4,"reconciled":true}},
+    {"name":"usage_correct","kind":"json_equals","pointer":"/usage","expected":{"requests":4,"response_bytes":1081,"reconciled":true}},
     {"name":"verification_correct","kind":"json_equals","pointer":"/verification","expected":{"complete":true,"reason":null}}
   ]
 }

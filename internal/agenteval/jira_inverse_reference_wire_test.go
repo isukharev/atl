@@ -50,6 +50,12 @@ func TestDecodeJiraInverseReferenceViewRejectsWireAndPrivacyDrift(t *testing.T) 
 		{name: "relation tuple", mutate: func(doc map[string]any) {
 			doc["matches"].([]any)[0].(map[string]any)["relation"] = "structured_remote_link"
 		}},
+		{name: "match completeness", mutate: func(doc map[string]any) {
+			doc["matches"].([]any)[0].(map[string]any)["complete"] = false
+		}},
+		{name: "complete frontier", mutate: func(doc map[string]any) {
+			doc["frontier"].(map[string]any)["phase"] = "verification"
+		}},
 		{name: "complete exhaustive candidate geometry", mutate: func(doc map[string]any) {
 			doc["counts"].(map[string]any)["candidate_issues"] = float64(2)
 		}},
@@ -69,6 +75,17 @@ func TestDecodeJiraInverseReferenceViewRejectsWireAndPrivacyDrift(t *testing.T) 
 		}},
 		{name: "unreconciled source total", mutate: func(doc map[string]any) { doc["source_counts"].([]any)[0].(map[string]any)["total"] = float64(2) }},
 		{name: "false absence", mutate: func(doc map[string]any) { doc["absence_proven"] = true }},
+	}
+	fieldIDMismatch := mutateJiraInverseReferenceWire(t, validJiraInverseReferenceDescriptionMatch(), func(doc map[string]any) {
+		doc["sources"] = []any{"fields"}
+		doc["effective_field_ids"] = []any{"customfield_10001"}
+		doc["source_counts"].([]any)[0].(map[string]any)["source"] = "fields"
+		match := doc["matches"].([]any)[0].(map[string]any)
+		match["source"] = "fields"
+		match["technical_field_id"] = "customfield_10002"
+	})
+	if _, err := DecodeJiraInverseReferenceView(bytes.NewReader(fieldIDMismatch)); err == nil {
+		t.Fatal("inverse-reference decoder admitted an unselected technical field id")
 	}
 	fastComplete := mutateJiraInverseReferenceWire(t, validJiraInverseReferenceHoldout(), func(doc map[string]any) {
 		doc["selection"] = map[string]any{"complete": true}

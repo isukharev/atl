@@ -21,7 +21,11 @@ func TestRepositoryJiraInverseReferenceFixturesDriveSelectedATLBinary(t *testing
 			view, called := runJiraInverseReferenceCLI(t, process, cohort)
 			assertJiraInverseReferenceProcessAccounting(t, process, cohort)
 
-			canaries := []string{cohort.target, cohort.scopeJQL, "PRIVACY_CANARY_FRAGMENT", "PRIVACY_CANARY_SOURCE_TEXT", "PRIVACY_CANARY_DEVELOPMENT_TITLE"}
+			canaries := []string{
+				cohort.target, cohort.scopeJQL, "PRIVACY_CANARY_FRAGMENT", "PRIVACY_CANARY_SOURCE_TEXT",
+				"PRIVACY_CANARY_DEVELOPMENT_TITLE", "PRIVACY_CANARY_DEVELOPMENT_SUMMARY",
+				"PRIVACY_CANARY_DEVELOPMENT_SOURCE_TEXT",
+			}
 			final := inverseReferenceFinalJSON(t, view, called.Stdout, canaries)
 			if bytes.Contains(called.Stdout, []byte("code-inverse.example.test")) ||
 				bytes.Contains(called.Stdout, []byte("platform/widget")) {
@@ -49,9 +53,14 @@ func TestRepositoryJiraInverseReferenceFixturesDriveSelectedATLBinary(t *testing
 				if cohort.strict {
 					failed, exits[1] = 1, 8
 				}
-				checks, err := evaluateRunChecks(
+				var errorContracts []CLIErrorContract
+				if cohort.strict {
+					errorContracts = []CLIErrorContract{{ExitCode: 8, Kind: "check_failed", Remediation: "review_failed_check"}}
+				}
+				checks, err := evaluateRunChecksWithCLIErrorContracts(
 					spec.Checks, final, "", 2, failed, 0, 1,
 					map[string]int{"atl:jira": 1}, 0, 0, map[string]int{"GET": cohort.expectedGETs}, true, exits,
+					nil, false, nil, nil, false, errorContracts,
 				)
 				if err != nil {
 					t.Fatal(err)

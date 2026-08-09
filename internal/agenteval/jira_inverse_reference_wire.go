@@ -380,6 +380,12 @@ func (v JiraInverseReferenceView) validate() error {
 			match.Source != "fields" && match.Source != "description" && match.TechnicalFieldID != "" {
 			return fmt.Errorf("matches[%d].technical_field_id is not source-qualified", index)
 		}
+		if match.Source == "fields" && !slices.Contains(v.EffectiveFieldIDs, match.TechnicalFieldID) {
+			return fmt.Errorf("matches[%d].technical_field_id was not selected", index)
+		}
+		if v.Verification.Complete && !match.Complete {
+			return fmt.Errorf("matches[%d].complete contradicts complete verification", index)
+		}
 		key := strings.Join([]string{match.IssueKey, match.Relation, match.Source, match.TechnicalFieldID}, "\x00")
 		if seenMatches[key] {
 			return fmt.Errorf("matches contains a duplicate")
@@ -408,7 +414,8 @@ func (v JiraInverseReferenceView) validate() error {
 		return fmt.Errorf("usage does not reconcile")
 	}
 	wantComplete := v.Mode == "exhaustive" && v.TargetResolution.Complete && v.Selection.Complete && v.Verification.Complete && v.Usage.Reconciled
-	if v.Complete != wantComplete || v.AbsenceProven != (v.Complete && len(v.Matches) == 0) {
+	if v.Complete != wantComplete || (v.Frontier.Phase == "complete") != v.Complete ||
+		v.AbsenceProven != (v.Complete && len(v.Matches) == 0) {
 		return fmt.Errorf("top-level completeness or absence proof does not reconcile")
 	}
 	return nil

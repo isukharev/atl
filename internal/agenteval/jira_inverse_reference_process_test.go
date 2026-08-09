@@ -25,6 +25,7 @@ type jiraInverseReferenceCohort struct {
 	expectedJQL     string
 	expectedGETs    int
 	expectedRepeats int
+	expectedBytes   int64
 }
 
 func jiraInverseReferenceCohorts() []jiraInverseReferenceCohort {
@@ -33,14 +34,14 @@ func jiraInverseReferenceCohorts() []jiraInverseReferenceCohort {
 			directory: "jira-inverse-reference-search", target: "https://code-inverse.example.test/platform/widget",
 			targetKind: "gitlab-project", scopeJQL: "project = IRP", mode: "exhaustive", sources: "development",
 			maxIssues: "10", maxRequests: "10", maxResponse: "65536",
-			expectedJQL: "(project = IRP) ORDER BY key ASC", expectedGETs: 4, expectedRepeats: 1,
+			expectedJQL: "(project = IRP) ORDER BY key ASC", expectedGETs: 4, expectedRepeats: 1, expectedBytes: 1081,
 		},
 		{
 			directory: "jira-inverse-reference-search-holdout", target: "8401",
 			targetKind: "confluence-page", scopeJQL: "project = IRH AND labels = PRIVACY_CANARY_QUERY",
 			mode: "fast", sources: "description", maxIssues: "5", maxRequests: "5", maxResponse: "32768", strict: true,
 			expectedJQL:  `(project = IRH AND labels = PRIVACY_CANARY_QUERY) AND (text ~ "\"8401\"") ORDER BY key ASC`,
-			expectedGETs: 2,
+			expectedGETs: 2, expectedBytes: 297,
 		},
 	}
 }
@@ -168,7 +169,7 @@ func runJiraInverseReferenceCLI(t *testing.T, process *SyntheticATLProcess, coho
 	wantMaxResponse, _ := strconv.ParseInt(cohort.maxResponse, 10, 64)
 	if view.Usage.MaxIssues != wantMaxIssues || view.Usage.MaxRequests != wantMaxRequests ||
 		view.Usage.MaxResponseBytes != wantMaxResponse || view.Usage.Requests != cohort.expectedGETs ||
-		view.Usage.ResponseBytes <= 0 || !view.Usage.Reconciled {
+		view.Usage.ResponseBytes != cohort.expectedBytes || !view.Usage.Reconciled {
 		t.Fatalf("selected inverse-reference shared request/byte ledger drifted: %+v", view.Usage)
 	}
 	return view, called
@@ -285,8 +286,11 @@ func inverseReferenceFinalJSON(t *testing.T, view JiraInverseReferenceView, enco
 		"selection": phase(view.Selection), "verification": phase(view.Verification), "counts": view.Counts,
 		"source_counts": view.SourceCounts, "matches": matches, "frontier": frontier,
 		"reconciliation": view.Reconciliation,
-		"usage":          map[string]any{"requests": view.Usage.Requests, "reconciled": view.Usage.Reconciled},
-		"complete":       view.Complete, "absence_proven": view.AbsenceProven,
+		"usage": map[string]any{
+			"requests": view.Usage.Requests, "response_bytes": view.Usage.ResponseBytes,
+			"reconciled": view.Usage.Reconciled,
+		},
+		"complete": view.Complete, "absence_proven": view.AbsenceProven,
 		"privacy": map[string]any{"canary_present": canaryPresent, "transport_fields_present": false},
 	}
 	data, err := json.Marshal(final)
