@@ -24,9 +24,9 @@ const (
 )
 
 var (
-	jiraDevelopmentSHA            = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
-	jiraDevelopmentSourceID       = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	jiraDevelopmentIID            = regexp.MustCompile(`^[1-9][0-9]{0,19}$`)
+	jiraDevelopmentSHA      = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
+	jiraDevelopmentSourceID = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	jiraDevelopmentIID      = regexp.MustCompile(`^[1-9][0-9]{0,19}$`)
 )
 
 type jiraDevelopmentProjection struct {

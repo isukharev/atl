@@ -73,7 +73,7 @@ const (
 
 const JiraInverseReferenceDirectionIssueToTarget = "issue_to_target"
 
-// JiraInverseReferenceMatch is one deduplicated, content-free observation.
+// JiraInverseReferenceResultMatch is one deduplicated, content-free observation.
 type JiraInverseReferenceResultMatch struct {
 	IssueKey         string                            `json:"issue_key"`
 	Relation         JiraInverseReferenceRelation      `json:"relation"`
