@@ -272,8 +272,8 @@ func TestCommandRegistryPreservesReviewedOutputModes(t *testing.T) {
 	}
 	walk(root)
 
-	if leafCount != 166 || textCount != 141 || idCount != 34 {
-		t.Fatalf("leaves/text/id=%d/%d/%d want=166/141/34", leafCount, textCount, idCount)
+	if leafCount != 167 || textCount != 142 || idCount != 34 {
+		t.Fatalf("leaves/text/id=%d/%d/%d want=167/142/34", leafCount, textCount, idCount)
 	}
 	for path := range reviewedTextOutputCommandPaths {
 		if !seen[path] {
