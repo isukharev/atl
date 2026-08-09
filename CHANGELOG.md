@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Added the already-normalized public URL-node identity to `jira issue graph -o
+  text`; non-URL, opaque, and sensitive identities remain blank and JSON output
+  is unchanged.
+
 ## [0.7.1] - 2026-08-07
 
 ### Added
