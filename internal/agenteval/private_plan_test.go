@@ -407,6 +407,9 @@ func TestPrivatePlanAndStateRejectSymlinksAndNonPrivateModes(t *testing.T) {
 		if err := os.WriteFile(statePath, data, 0o644); err != nil {
 			t.Fatal(err)
 		}
+		if err := os.Chmod(statePath, 0o644); err != nil {
+			t.Fatal(err)
+		}
 		if _, err := LoadCompletedPrivateRun(fixture.root, fixture.repository, preview.PlanID); err == nil {
 			t.Fatal("non-private completed state passed")
 		}

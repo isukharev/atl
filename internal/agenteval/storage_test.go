@@ -75,6 +75,9 @@ func TestPreparePrivateOutputRootRejectsUnmarkedOrLooseExistingDirectory(t *test
 	if err := os.Mkdir(loose, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(loose, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := PreparePrivateOutputRoot(loose, repository); err == nil {
 		t.Fatal("non-private empty root passed")
 	}
@@ -132,8 +135,13 @@ func TestPreparePrivateOutputRootRejectsInvalidMarker(t *testing.T) {
 				if err := os.Symlink(outside, marker); err != nil {
 					t.Fatal(err)
 				}
-			} else if err := os.WriteFile(marker, []byte(test.contents), test.mode); err != nil {
-				t.Fatal(err)
+			} else {
+				if err := os.WriteFile(marker, []byte(test.contents), test.mode); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Chmod(marker, test.mode); err != nil {
+					t.Fatal(err)
+				}
 			}
 
 			if _, err := PreparePrivateOutputRoot(root, t.TempDir()); err == nil {

@@ -49,6 +49,12 @@ func TestPrivateExtensionRuntimePathsAreOwnerOnly(t *testing.T) {
 	if err := os.Mkdir(directory, 0o777); err != nil {
 		t.Fatalf("make working directory: %v", err)
 	}
+	if err := os.Chmod(directory, 0o777); err != nil {
+		t.Fatalf("set permissive working-directory mode: %v", err)
+	}
+	if info, err := os.Stat(directory); err != nil || info.Mode().Perm() != 0o777 {
+		t.Fatalf("working-directory precondition: info=%v err=%v", info, err)
+	}
 	if err := preparePrivateExtensionRuntimeDirectory(directory); err != nil {
 		t.Fatalf("prepare working directory: %v", err)
 	}
@@ -60,6 +66,12 @@ func TestPrivateExtensionRuntimePathsAreOwnerOnly(t *testing.T) {
 	payload := []byte("synthetic executable bytes")
 	if err := os.WriteFile(executable, payload, 0o777); err != nil {
 		t.Fatalf("write executable: %v", err)
+	}
+	if err := os.Chmod(executable, 0o777); err != nil {
+		t.Fatalf("set permissive executable mode: %v", err)
+	}
+	if info, err := os.Stat(executable); err != nil || info.Mode().Perm() != 0o777 {
+		t.Fatalf("executable precondition: info=%v err=%v", info, err)
 	}
 	digest := sha256.Sum256(payload)
 	guard, err := preparePrivateExtensionRuntimeExecutable(executable, hex.EncodeToString(digest[:]))

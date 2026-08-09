@@ -1057,7 +1057,11 @@ func TestPrivatePruneApplyRedactsRecoveryAndRemovalCauses(t *testing.T) {
 			t.Skip("owner-only file modes are not enforced on Windows")
 		}
 		fixture, options := newFixture(t)
-		writeTestFile(t, filepath.Join(fixture.root, ".ephemeral", intentName), "{}\n", 0o644)
+		intentPath := filepath.Join(fixture.root, ".ephemeral", intentName)
+		writeTestFile(t, intentPath, "{}\n", 0o644)
+		if err := os.Chmod(intentPath, 0o644); err != nil {
+			t.Fatal(err)
+		}
 		options.Confirm = PrivatePruneConfirmation
 		options.ExpectedInventorySHA256 = strings.Repeat("a", 64)
 		_, err := ApplyPrivatePrune(options)

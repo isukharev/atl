@@ -1248,6 +1248,9 @@ func TestEnsurePrivateWorkspaceDirectoriesAttachesLayoutCauses(t *testing.T) {
 		if err := os.Mkdir(filepath.Join(root, privateWorkspaceFixedDirectories[0]), 0o755); err != nil {
 			t.Fatal(err)
 		}
+		if err := os.Chmod(filepath.Join(root, privateWorkspaceFixedDirectories[0]), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		err := ensurePrivateWorkspaceDirectories(root)
 		assertPrivateWorkspaceOperationCode(t, err, "layout_mode")
 		// The stat succeeded; the observed mode is the whole rejection.
