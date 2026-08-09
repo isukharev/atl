@@ -67,15 +67,23 @@ func createBody(cmd *cobra.Command, fromFile, fromMD string) ([]byte, error) {
 }
 
 func confService(cmd *cobra.Command) (*app.ConfluenceService, error) {
-	cfg, err := loadConfig()
-	if err != nil {
-		return nil, err
-	}
-	authorizer, err := policyAuthorizerFor(invocationRuntimeFor(cmd), "confluence", cfg.ConfluenceURL)
+	cfg, authorizer, err := confluenceCompositionInputs(cmd)
 	if err != nil {
 		return nil, err
 	}
 	return compose.NewConfluenceWithWriteAuthorizer(cfg, version.Version, authorizer)
+}
+
+func confluenceCompositionInputs(cmd *cobra.Command) (*config.Config, domain.WriteAuthorizer, error) {
+	cfg, err := loadConfig()
+	if err != nil {
+		return nil, nil, err
+	}
+	authorizer, err := policyAuthorizerFor(invocationRuntimeFor(cmd), "confluence", cfg.ConfluenceURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	return cfg, authorizer, nil
 }
 
 func confCommentMutationService(cmd *cobra.Command) (*app.ConfluenceService, error) {

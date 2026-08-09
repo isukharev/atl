@@ -6,7 +6,17 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/compose"
+	"github.com/isukharev/atl/internal/version"
 )
+
+func jiraWorklogService(cmd *cobra.Command) (*app.JiraWorklogService, error) {
+	cfg, authorizer, err := jiraCompositionInputs(cmd)
+	if err != nil {
+		return nil, err
+	}
+	return compose.NewJiraWorklogsWithWriteAuthorizer(cfg, version.Version, authorizer)
+}
 
 func jiraIssueWorklogCmd() *cobra.Command {
 	group := &cobra.Command{Use: "worklog", Short: "List or safely add issue worklogs"}
@@ -20,7 +30,7 @@ func jiraIssueWorklogListCmd() *cobra.Command {
 		Short: "List the complete worklog history of an issue",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := jiraService(cmd)
+			svc, err := jiraWorklogService(cmd)
 			if err != nil {
 				return err
 			}
@@ -68,7 +78,7 @@ func jiraIssueWorklogAddCmd() *cobra.Command {
 			if _, err := app.ValidateJiraWorklogComment(comment); err != nil {
 				return err
 			}
-			svc, err := jiraService(cmd)
+			svc, err := jiraWorklogService(cmd)
 			if err != nil {
 				return err
 			}

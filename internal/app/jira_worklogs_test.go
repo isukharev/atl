@@ -11,7 +11,6 @@ import (
 )
 
 type jiraWorklogStoreStub struct {
-	domain.Tracker
 	current          domain.User
 	worklogs         []domain.IssueWorklog
 	addErr           error
@@ -21,6 +20,10 @@ type jiraWorklogStoreStub struct {
 	listCalls        int
 	incomplete       bool
 	addSingleAttempt bool
+}
+
+func newJiraWorklogServiceForTest(store *jiraWorklogStoreStub) *JiraWorklogService {
+	return NewJiraWorklogService(JiraWorklogDependencies{Reader: store, Writer: store, CurrentUser: store})
 }
 
 func (s *jiraWorklogStoreStub) CurrentUser(context.Context) (*domain.User, error) {
@@ -79,7 +82,7 @@ func TestJiraWorklogPreviewAndApply(t *testing.T) {
 		current:  domain.User{Name: "alice", Key: "u1", DisplayName: "Alice", Email: "private@example.test", Active: true},
 		worklogs: []domain.IssueWorklog{{ID: "old", Started: "2026-07-01T09:00:00.000+0000"}},
 	}
-	service := &JiraService{tr: store}
+	service := newJiraWorklogServiceForTest(store)
 	preview, err := service.AddWorklogGuarded(context.Background(), "PROJ-1", JiraWorklogAddOpts{
 		Time: "1h30m", Comment: "implemented", Started: "2026-07-01T10:00:00Z",
 	})
@@ -102,7 +105,7 @@ func TestJiraWorklogPreviewAndApply(t *testing.T) {
 
 func TestJiraWorklogHashGateAndIncompleteBaseline(t *testing.T) {
 	store := &jiraWorklogStoreStub{current: domain.User{Name: "alice"}}
-	service := &JiraService{tr: store}
+	service := newJiraWorklogServiceForTest(store)
 	result, err := service.AddWorklogGuarded(context.Background(), "PROJ-1", JiraWorklogAddOpts{
 		Time: "1h", Apply: true, ExpectedProposalHash: "stale",
 	})
@@ -120,7 +123,7 @@ func TestJiraWorklogProposalBindsCompleteBaselineIdentity(t *testing.T) {
 		current:  domain.User{Name: "alice"},
 		worklogs: []domain.IssueWorklog{{ID: "20"}, {ID: "10"}},
 	}
-	service := &JiraService{tr: store}
+	service := newJiraWorklogServiceForTest(store)
 	preview, err := service.AddWorklogGuarded(context.Background(), "PROJ-1", JiraWorklogAddOpts{Time: "1h"})
 	if err != nil || preview.BaselineSHA256 == "" {
 		t.Fatalf("preview=%+v err=%v", preview, err)
@@ -146,7 +149,7 @@ func TestJiraWorklogBaselineRejectsMissingOrDuplicateIdentity(t *testing.T) {
 		{{ID: "10"}, {ID: "10"}},
 	} {
 		store := &jiraWorklogStoreStub{current: domain.User{Name: "alice"}, worklogs: worklogs}
-		_, err := (&JiraService{tr: store}).AddWorklogGuarded(context.Background(), "PROJ-1", JiraWorklogAddOpts{Time: "1h"})
+		_, err := newJiraWorklogServiceForTest(store).AddWorklogGuarded(context.Background(), "PROJ-1", JiraWorklogAddOpts{Time: "1h"})
 		if !errors.Is(err, domain.ErrCheckFailed) || store.addCalls != 0 {
 			t.Fatalf("worklogs=%+v calls=%d err=%v", worklogs, store.addCalls, err)
 		}
@@ -155,7 +158,7 @@ func TestJiraWorklogBaselineRejectsMissingOrDuplicateIdentity(t *testing.T) {
 
 func TestJiraWorklogReconcilesAmbiguousWriteWithoutReplay(t *testing.T) {
 	store := &jiraWorklogStoreStub{current: domain.User{Name: "alice"}, addErr: errors.New("connection lost"), commitOnError: true}
-	service := &JiraService{tr: store}
+	service := newJiraWorklogServiceForTest(store)
 	preview, err := service.AddWorklogGuarded(context.Background(), "PROJ-1", JiraWorklogAddOpts{Time: "30m", Comment: "done", Started: "2026-07-01T10:00:00Z"})
 	if err != nil {
 		t.Fatal(err)
@@ -170,7 +173,7 @@ func TestJiraWorklogReconcilesAmbiguousWriteWithoutReplay(t *testing.T) {
 
 func TestJiraWorklogAmbiguousWriteWithoutExplicitStartedRemainsUnknown(t *testing.T) {
 	store := &jiraWorklogStoreStub{current: domain.User{Name: "alice"}, addErr: errors.New("connection lost"), commitOnError: true}
-	service := &JiraService{tr: store}
+	service := newJiraWorklogServiceForTest(store)
 	preview, err := service.AddWorklogGuarded(context.Background(), "PROJ-1", JiraWorklogAddOpts{Time: "30m", Comment: "done"})
 	if err != nil {
 		t.Fatal(err)
@@ -217,7 +220,7 @@ func (e worklogStatusError) HTTPStatus() int { return int(e) }
 
 func TestJiraWorklogDoesNotReconcileDefinitiveRejection(t *testing.T) {
 	store := &jiraWorklogStoreStub{current: domain.User{Name: "alice"}, addErr: worklogStatusError(400)}
-	service := &JiraService{tr: store}
+	service := newJiraWorklogServiceForTest(store)
 	preview, _ := service.AddWorklogGuarded(context.Background(), "PROJ-1", JiraWorklogAddOpts{Time: "1m"})
 	result, err := service.AddWorklogGuarded(context.Background(), "PROJ-1", JiraWorklogAddOpts{
 		Time: "1m", Apply: true, ExpectedProposalHash: preview.ProposalHash,

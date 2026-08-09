@@ -10,7 +10,11 @@ import (
 	"github.com/isukharev/atl/internal/domain"
 )
 
-var _ domain.IssueWorklogStore = (*Jira)(nil)
+var (
+	_ domain.IssueWorklogReader = (*Jira)(nil)
+	_ domain.IssueWorklogWriter = (*Jira)(nil)
+	_ domain.IssueWorklogStore  = (*Jira)(nil)
+)
 
 const worklogPageGuard = 100
 

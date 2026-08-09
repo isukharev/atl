@@ -10,7 +10,6 @@ import (
 )
 
 type confluenceLabelStoreStub struct {
-	*stubStore
 	labels                []domain.ContentLabel
 	truncated             bool
 	listErr               error
@@ -25,8 +24,18 @@ type confluenceLabelStoreStub struct {
 	removeCalls           int
 	addSingleAttempt      bool
 	removeSingleAttempts  []bool
+	listUntrusted         bool
 	metaCalls             int
 	metaErr               error
+}
+
+func newConfluenceLabelServiceForTest(store *confluenceLabelStoreStub) *ConfluenceLabelService {
+	return NewConfluenceLabelService(ConfluenceLabelDependencies{
+		Reader: store, Writer: store,
+		ResolveReference: func(_ context.Context, reference string) (*ConfluencePageResolution, error) {
+			return &ConfluencePageResolution{ID: reference, Kind: "id"}, nil
+		},
+	})
 }
 
 func (s *confluenceLabelStoreStub) GetMeta(_ context.Context, id string) (*domain.PageMeta, error) {
@@ -37,8 +46,9 @@ func (s *confluenceLabelStoreStub) GetMeta(_ context.Context, id string) (*domai
 	return &domain.PageMeta{ID: id, Type: "page", Space: "DOC", Version: 1, AncestorIDs: []string{}}, nil
 }
 
-func (s *confluenceLabelStoreStub) ListContentLabels(context.Context, string) ([]domain.ContentLabel, bool, error) {
+func (s *confluenceLabelStoreStub) ListContentLabels(ctx context.Context, _ string) ([]domain.ContentLabel, bool, error) {
 	s.listCalls++
+	s.listUntrusted = domain.UntrustedConfluenceReference(ctx)
 	if s.listCalls > 1 {
 		if s.verificationErr != nil {
 			return nil, false, s.verificationErr
@@ -48,6 +58,20 @@ func (s *confluenceLabelStoreStub) ListContentLabels(context.Context, string) ([
 		}
 	}
 	return append([]domain.ContentLabel(nil), s.labels...), s.truncated, s.listErr
+}
+
+func TestConfluenceLabelsListThreadsResolvedReferenceProvenance(t *testing.T) {
+	store := &confluenceLabelStoreStub{}
+	service := NewConfluenceLabelService(ConfluenceLabelDependencies{
+		Reader: store,
+		ResolveReference: func(context.Context, string) (*ConfluencePageResolution, error) {
+			return &ConfluencePageResolution{ID: "42", Kind: "canonical", untrusted: true}, nil
+		},
+	})
+	listed, err := service.ListLabels(context.Background(), "https://docs.example.test/wiki/spaces/DOC/pages/42")
+	if err != nil || listed.ID != "42" || !store.listUntrusted {
+		t.Fatalf("listed=%+v untrusted=%t err=%v", listed, store.listUntrusted, err)
+	}
 }
 
 func (s *confluenceLabelStoreStub) AddContentLabels(ctx context.Context, _ string, labels []domain.ContentLabel) error {
@@ -97,8 +121,8 @@ func labelRecordPresent(labels []domain.ContentLabel, name string) bool {
 }
 
 func TestConfluenceLabelsListAndGuardedAdd(t *testing.T) {
-	store := &confluenceLabelStoreStub{stubStore: &stubStore{}, labels: []domain.ContentLabel{{Prefix: "global", Name: "existing"}}}
-	service := &ConfluenceService{store: store}
+	store := &confluenceLabelStoreStub{labels: []domain.ContentLabel{{Prefix: "global", Name: "existing"}}}
+	service := newConfluenceLabelServiceForTest(store)
 	listed, err := service.ListLabels(context.Background(), "42")
 	if err != nil || !listed.Complete || listed.Count != 1 || listed.Labels[0].Name != "existing" {
 		t.Fatalf("list=%+v err=%v", listed, err)
@@ -116,8 +140,8 @@ func TestConfluenceLabelsListAndGuardedAdd(t *testing.T) {
 }
 
 func TestConfluenceLabelsWithoutPolicyDoNotRequireMetadata(t *testing.T) {
-	store := &confluenceLabelStoreStub{stubStore: &stubStore{}, metaErr: errors.New("metadata unavailable")}
-	result, err := (&ConfluenceService{store: store}).MutateLabelsGuarded(context.Background(), "42", ConfluenceLabelMutationOpts{
+	store := &confluenceLabelStoreStub{metaErr: errors.New("metadata unavailable")}
+	result, err := newConfluenceLabelServiceForTest(store).MutateLabelsGuarded(context.Background(), "42", ConfluenceLabelMutationOpts{
 		Operation: "add", Labels: []string{"release"},
 	})
 	if err != nil || result.Status != "would_apply" || store.metaCalls != 0 || store.listCalls != 1 {
@@ -126,24 +150,24 @@ func TestConfluenceLabelsWithoutPolicyDoNotRequireMetadata(t *testing.T) {
 }
 
 func TestConfluenceLabelsDoNotTreatPersonalLabelAsGlobal(t *testing.T) {
-	store := &confluenceLabelStoreStub{stubStore: &stubStore{}, labels: []domain.ContentLabel{{Prefix: "my", Name: "same"}}}
-	result, err := (&ConfluenceService{store: store}).MutateLabelsGuarded(context.Background(), "42", ConfluenceLabelMutationOpts{Operation: "add", Labels: []string{"same"}})
+	store := &confluenceLabelStoreStub{labels: []domain.ContentLabel{{Prefix: "my", Name: "same"}}}
+	result, err := newConfluenceLabelServiceForTest(store).MutateLabelsGuarded(context.Background(), "42", ConfluenceLabelMutationOpts{Operation: "add", Labels: []string{"same"}})
 	if err != nil || result.Status != "would_apply" {
 		t.Fatalf("personal label incorrectly satisfied global proposal: result=%+v err=%v", result, err)
 	}
 }
 
 func TestConfluenceLabelsRefuseAmbiguousNonGlobalRemoval(t *testing.T) {
-	store := &confluenceLabelStoreStub{stubStore: &stubStore{}, labels: []domain.ContentLabel{{Prefix: "global", Name: "same"}, {Prefix: "my", Name: "same"}}}
-	_, err := (&ConfluenceService{store: store}).MutateLabelsGuarded(context.Background(), "42", ConfluenceLabelMutationOpts{Operation: "remove", Labels: []string{"same"}})
+	store := &confluenceLabelStoreStub{labels: []domain.ContentLabel{{Prefix: "global", Name: "same"}, {Prefix: "my", Name: "same"}}}
+	_, err := newConfluenceLabelServiceForTest(store).MutateLabelsGuarded(context.Background(), "42", ConfluenceLabelMutationOpts{Operation: "remove", Labels: []string{"same"}})
 	if !errors.Is(err, domain.ErrCheckFailed) || store.removeCalls != 0 {
 		t.Fatalf("ambiguous removal error=%v calls=%d", err, store.removeCalls)
 	}
 }
 
 func TestConfluenceLabelsApplyGatesBeforeAlreadySatisfied(t *testing.T) {
-	store := &confluenceLabelStoreStub{stubStore: &stubStore{}, labels: []domain.ContentLabel{{Prefix: "global", Name: "done"}}}
-	service := &ConfluenceService{store: store}
+	store := &confluenceLabelStoreStub{labels: []domain.ContentLabel{{Prefix: "global", Name: "done"}}}
+	service := newConfluenceLabelServiceForTest(store)
 	result, err := service.MutateLabelsGuarded(context.Background(), "42", ConfluenceLabelMutationOpts{
 		Operation: "add", Labels: []string{"done"}, ExpectedProposalHash: "stale", Apply: true,
 	})
@@ -157,8 +181,8 @@ func TestConfluenceLabelsApplyGatesBeforeAlreadySatisfied(t *testing.T) {
 }
 
 func TestConfluenceLabelsReconcilesAmbiguousWriteAndRefusesTruncation(t *testing.T) {
-	store := &confluenceLabelStoreStub{stubStore: &stubStore{}, writeErr: errors.New("connection lost")}
-	service := &ConfluenceService{store: store}
+	store := &confluenceLabelStoreStub{writeErr: errors.New("connection lost")}
+	service := newConfluenceLabelServiceForTest(store)
 	preview, err := service.MutateLabelsGuarded(context.Background(), "42", ConfluenceLabelMutationOpts{Operation: "add", Labels: []string{"one"}})
 	if err != nil {
 		t.Fatal(err)
@@ -170,8 +194,8 @@ func TestConfluenceLabelsReconcilesAmbiguousWriteAndRefusesTruncation(t *testing
 		t.Fatalf("reconciled=%+v calls=%d err=%v", result, store.addCalls, err)
 	}
 
-	truncated := &confluenceLabelStoreStub{stubStore: &stubStore{}, truncated: true}
-	_, err = (&ConfluenceService{store: truncated}).MutateLabelsGuarded(context.Background(), "42", ConfluenceLabelMutationOpts{Operation: "remove", Labels: []string{"one"}})
+	truncated := &confluenceLabelStoreStub{truncated: true}
+	_, err = newConfluenceLabelServiceForTest(truncated).MutateLabelsGuarded(context.Background(), "42", ConfluenceLabelMutationOpts{Operation: "remove", Labels: []string{"one"}})
 	if !errors.Is(err, domain.ErrCheckFailed) || truncated.removeCalls != 0 {
 		t.Fatalf("truncated mutation err=%v calls=%d", err, truncated.removeCalls)
 	}
@@ -190,14 +214,14 @@ func TestConfluenceLabelsGuardedRemoveOutcomeMatrix(t *testing.T) {
 	}{
 		{
 			name: "multi-label success uses one delete per requested label",
-			store: &confluenceLabelStoreStub{stubStore: &stubStore{}, labels: []domain.ContentLabel{
+			store: &confluenceLabelStoreStub{labels: []domain.ContentLabel{
 				{Prefix: "global", Name: "one"}, {Prefix: "global", Name: "two"}, {Prefix: "global", Name: "keep"},
 			}},
 			wantStatus: "applied", wantRemoveCalls: 2, wantFinalGlobalLabels: []string{"keep"},
 		},
 		{
 			name: "partial success remains ambiguous after a later definitive rejection",
-			store: &confluenceLabelStoreStub{stubStore: &stubStore{}, labels: []domain.ContentLabel{
+			store: &confluenceLabelStoreStub{labels: []domain.ContentLabel{
 				{Prefix: "global", Name: "one"}, {Prefix: "global", Name: "two"},
 			}, removeErrors: []error{nil, confluenceLabelStatusError(400)}, noCommitOnError: true},
 			wantStatus: "unknown", wantRemoveCalls: 2, wantAmbiguous: true, wantErr: true, wantReconciled: true,
@@ -205,7 +229,7 @@ func TestConfluenceLabelsGuardedRemoveOutcomeMatrix(t *testing.T) {
 		},
 		{
 			name: "definitive rejection before any successful delete is failed",
-			store: &confluenceLabelStoreStub{stubStore: &stubStore{}, labels: []domain.ContentLabel{
+			store: &confluenceLabelStoreStub{labels: []domain.ContentLabel{
 				{Prefix: "global", Name: "one"}, {Prefix: "global", Name: "two"},
 			}, removeErrors: []error{confluenceLabelStatusError(400)}, noCommitOnError: true},
 			wantStatus: "failed", wantRemoveCalls: 1, wantErr: true, wantReconciled: true,
@@ -213,21 +237,21 @@ func TestConfluenceLabelsGuardedRemoveOutcomeMatrix(t *testing.T) {
 		},
 		{
 			name: "failed verification read is ambiguous",
-			store: &confluenceLabelStoreStub{stubStore: &stubStore{}, labels: []domain.ContentLabel{
+			store: &confluenceLabelStoreStub{labels: []domain.ContentLabel{
 				{Prefix: "global", Name: "one"}, {Prefix: "global", Name: "two"},
 			}, verificationErr: errors.New("verification unavailable")},
 			wantStatus: "unknown", wantRemoveCalls: 2, wantAmbiguous: true, wantErr: true,
 		},
 		{
 			name: "incomplete verification read is ambiguous",
-			store: &confluenceLabelStoreStub{stubStore: &stubStore{}, labels: []domain.ContentLabel{
+			store: &confluenceLabelStoreStub{labels: []domain.ContentLabel{
 				{Prefix: "global", Name: "one"}, {Prefix: "global", Name: "two"},
 			}, verificationTruncated: true},
 			wantStatus: "unknown", wantRemoveCalls: 2, wantAmbiguous: true, wantErr: true,
 		},
 		{
 			name: "complete verification goal mismatch is ambiguous",
-			store: &confluenceLabelStoreStub{stubStore: &stubStore{}, labels: []domain.ContentLabel{
+			store: &confluenceLabelStoreStub{labels: []domain.ContentLabel{
 				{Prefix: "global", Name: "one"}, {Prefix: "global", Name: "two"},
 			}, skipMutation: true},
 			wantStatus: "unknown", wantRemoveCalls: 2, wantAmbiguous: true, wantErr: true,
@@ -237,7 +261,7 @@ func TestConfluenceLabelsGuardedRemoveOutcomeMatrix(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			service := &ConfluenceService{store: test.store}
+			service := newConfluenceLabelServiceForTest(test.store)
 			preview, err := service.MutateLabelsGuarded(context.Background(), "42", ConfluenceLabelMutationOpts{
 				Operation: "remove", Labels: []string{"one", "two"},
 			})

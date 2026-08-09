@@ -9,21 +9,30 @@ import (
 
 	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/compose"
+	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/mdwiki"
 	"github.com/isukharev/atl/internal/version"
 )
 
 func jiraService(cmd *cobra.Command) (*app.JiraService, error) {
-	cfg, err := loadConfig()
-	if err != nil {
-		return nil, err
-	}
-	authorizer, err := policyAuthorizerFor(invocationRuntimeFor(cmd), "jira", cfg.JiraURL)
+	cfg, authorizer, err := jiraCompositionInputs(cmd)
 	if err != nil {
 		return nil, err
 	}
 	return compose.NewJiraWithWriteAuthorizer(cfg, version.Version, authorizer)
+}
+
+func jiraCompositionInputs(cmd *cobra.Command) (*config.Config, domain.WriteAuthorizer, error) {
+	cfg, err := loadConfig()
+	if err != nil {
+		return nil, nil, err
+	}
+	authorizer, err := policyAuthorizerFor(invocationRuntimeFor(cmd), "jira", cfg.JiraURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	return cfg, authorizer, nil
 }
 
 // wikiBody resolves a Jira body flag pair: raw wiki markup from --from-file,

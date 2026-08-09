@@ -9,7 +9,6 @@ import (
 )
 
 type jiraWatcherStoreStub struct {
-	domain.Tracker
 	state                  domain.IssueWatcherList
 	currentUser            *domain.User
 	currentErr             error
@@ -24,6 +23,10 @@ type jiraWatcherStoreStub struct {
 	removeCalls            int
 	addSingleAttempt       bool
 	removeSingleAttempt    bool
+}
+
+func newJiraWatcherServiceForTest(store *jiraWatcherStoreStub) *JiraWatcherService {
+	return NewJiraWatcherService(JiraWatcherDependencies{Reader: store, Writer: store, CurrentUser: store})
 }
 
 func (s *jiraWatcherStoreStub) ListIssueWatchers(context.Context, string) (*domain.IssueWatcherList, error) {
@@ -95,7 +98,7 @@ func TestJiraWatchersListPreviewAndGuardedAdd(t *testing.T) {
 	store := &jiraWatcherStoreStub{state: domain.IssueWatcherList{
 		WatchCount: 1, Complete: true, Watchers: []domain.IssueWatcher{{Name: "alice", DisplayName: "Alice", Active: true}},
 	}}
-	service := &JiraService{tr: store}
+	service := newJiraWatcherServiceForTest(store)
 	listed, err := service.ListWatchers(context.Background(), "PROJ-1")
 	if err != nil || !listed.Complete || listed.WatchCount != 1 || listed.Watchers[0].Name != "alice" {
 		t.Fatalf("listed=%+v err=%v", listed, err)
@@ -116,7 +119,7 @@ func TestJiraWatcherRemoveUsesSingleAttemptContext(t *testing.T) {
 	store := &jiraWatcherStoreStub{state: domain.IssueWatcherList{
 		WatchCount: 1, Complete: true, Watchers: []domain.IssueWatcher{{Name: "alice", Active: true}},
 	}}
-	service := &JiraService{tr: store}
+	service := newJiraWatcherServiceForTest(store)
 	preview, err := service.MutateWatcherGuarded(context.Background(), "PROJ-1", JiraWatcherMutationOpts{Operation: "remove", Username: "alice"})
 	if err != nil {
 		t.Fatal(err)
@@ -134,7 +137,7 @@ func TestJiraWatchersMeResolutionAndApplyGate(t *testing.T) {
 		state:       domain.IssueWatcherList{WatchCount: 1, Complete: true, Watchers: []domain.IssueWatcher{{Name: "me"}}},
 		currentUser: &domain.User{Name: "me", DisplayName: "Current"},
 	}
-	service := &JiraService{tr: store}
+	service := newJiraWatcherServiceForTest(store)
 	result, err := service.MutateWatcherGuarded(context.Background(), "PROJ-1", JiraWatcherMutationOpts{
 		Operation: "add", Me: true, ExpectedProposalHash: "stale", Apply: true,
 	})
@@ -149,7 +152,7 @@ func TestJiraWatchersMeResolutionAndApplyGate(t *testing.T) {
 
 func TestJiraWatchersReconcileAmbiguousWriteAndRefuseIncompleteState(t *testing.T) {
 	store := &jiraWatcherStoreStub{state: domain.IssueWatcherList{Complete: true}, writeErr: errors.New("connection lost")}
-	service := &JiraService{tr: store}
+	service := newJiraWatcherServiceForTest(store)
 	preview, err := service.MutateWatcherGuarded(context.Background(), "PROJ-1", JiraWatcherMutationOpts{Operation: "add", Username: "alice"})
 	if err != nil {
 		t.Fatal(err)
@@ -162,7 +165,7 @@ func TestJiraWatchersReconcileAmbiguousWriteAndRefuseIncompleteState(t *testing.
 	}
 
 	incomplete := &jiraWatcherStoreStub{state: domain.IssueWatcherList{WatchCount: 2, Complete: false, Truncated: true, Watchers: []domain.IssueWatcher{{Name: "visible"}}}}
-	_, err = (&JiraService{tr: incomplete}).MutateWatcherGuarded(context.Background(), "PROJ-1", JiraWatcherMutationOpts{Operation: "remove", Username: "visible"})
+	_, err = newJiraWatcherServiceForTest(incomplete).MutateWatcherGuarded(context.Background(), "PROJ-1", JiraWatcherMutationOpts{Operation: "remove", Username: "visible"})
 	if !errors.Is(err, domain.ErrCheckFailed) || incomplete.removeCalls != 0 {
 		t.Fatalf("incomplete mutation err=%v calls=%d", err, incomplete.removeCalls)
 	}
@@ -211,7 +214,7 @@ func TestJiraWatchersGuardedApplyOutcomeMatrix(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			service := &JiraService{tr: test.store}
+			service := newJiraWatcherServiceForTest(test.store)
 			preview, err := service.MutateWatcherGuarded(context.Background(), "PROJ-1", JiraWatcherMutationOpts{
 				Operation: "add", Username: "alice",
 			})

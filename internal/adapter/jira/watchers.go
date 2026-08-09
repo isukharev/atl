@@ -9,7 +9,12 @@ import (
 	"github.com/isukharev/atl/internal/domain"
 )
 
-var _ domain.IssueWatcherStore = (*Jira)(nil)
+var (
+	_ domain.IssueWatcherReader    = (*Jira)(nil)
+	_ domain.IssueWatcherWriter    = (*Jira)(nil)
+	_ domain.IssueWatcherStore     = (*Jira)(nil)
+	_ domain.JiraCurrentUserReader = (*Jira)(nil)
+)
 
 func (j *Jira) ListIssueWatchers(ctx context.Context, key string) (*domain.IssueWatcherList, error) {
 	var response struct {

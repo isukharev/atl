@@ -44,6 +44,75 @@ func TestServiceCompositionPreservesSetupSentinels(t *testing.T) {
 	}
 }
 
+func TestFocusedFeatureCompositionPreservesSetupSentinels(t *testing.T) {
+	isolateCredentials(t)
+	constructors := []struct {
+		name        string
+		missing     func() error
+		insecure    func() error
+		missingAuth func() error
+	}{
+		{
+			name: "Confluence labels",
+			missing: func() error {
+				_, err := NewConfluenceLabelsWithWriteAuthorizer(nil, "test", nil)
+				return err
+			},
+			insecure: func() error {
+				_, err := NewConfluenceLabelsWithWriteAuthorizer(&config.Config{ConfluenceURL: "http://confluence.example.com"}, "test", nil)
+				return err
+			},
+			missingAuth: func() error {
+				_, err := NewConfluenceLabelsWithWriteAuthorizer(&config.Config{ConfluenceURL: "https://confluence.example.com"}, "test", nil)
+				return err
+			},
+		},
+		{
+			name: "Jira watchers",
+			missing: func() error {
+				_, err := NewJiraWatchersWithWriteAuthorizer(nil, "test", nil)
+				return err
+			},
+			insecure: func() error {
+				_, err := NewJiraWatchersWithWriteAuthorizer(&config.Config{JiraURL: "http://jira.example.com"}, "test", nil)
+				return err
+			},
+			missingAuth: func() error {
+				_, err := NewJiraWatchersWithWriteAuthorizer(&config.Config{JiraURL: "https://jira.example.com"}, "test", nil)
+				return err
+			},
+		},
+		{
+			name: "Jira worklogs",
+			missing: func() error {
+				_, err := NewJiraWorklogsWithWriteAuthorizer(nil, "test", nil)
+				return err
+			},
+			insecure: func() error {
+				_, err := NewJiraWorklogsWithWriteAuthorizer(&config.Config{JiraURL: "http://jira.example.com"}, "test", nil)
+				return err
+			},
+			missingAuth: func() error {
+				_, err := NewJiraWorklogsWithWriteAuthorizer(&config.Config{JiraURL: "https://jira.example.com"}, "test", nil)
+				return err
+			},
+		},
+	}
+	for _, constructor := range constructors {
+		t.Run(constructor.name, func(t *testing.T) {
+			if err := constructor.missing(); !errors.Is(err, domain.ErrConfig) {
+				t.Fatalf("missing URL error=%v", err)
+			}
+			if err := constructor.insecure(); !errors.Is(err, domain.ErrUsage) {
+				t.Fatalf("insecure URL error=%v", err)
+			}
+			if err := constructor.missingAuth(); !errors.Is(err, domain.ErrConfig) {
+				t.Fatalf("missing token error=%v", err)
+			}
+		})
+	}
+}
+
 func TestOptionalCompositionKeepsClosedSiblingStatuses(t *testing.T) {
 	isolateCredentials(t)
 	cfg := &config.Config{

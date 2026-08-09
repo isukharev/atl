@@ -189,24 +189,7 @@ func LoadJira(version string) (*app.JiraService, error) {
 }
 
 func NewJiraWithWriteAuthorizer(cfg *config.Config, version string, authorizer domain.WriteAuthorizer) (*app.JiraService, error) {
-	if cfg == nil || cfg.JiraURL == "" {
-		return nil, fmt.Errorf("%w: Jira URL not set — run `atl config set --jira-url https://jira.example.com` (or export ATL_JIRA_URL); see `atl auth status`", domain.ErrConfig)
-	}
-	if err := config.CheckSecureURL(cfg.JiraURL); err != nil {
-		return nil, fmt.Errorf("%w: %w", domain.ErrUsage, err)
-	}
-	token, err := auth.Token(auth.Jira)
-	if err != nil {
-		if errors.Is(err, auth.ErrNoToken) {
-			return nil, fmt.Errorf("%w: %v", domain.ErrConfig, err)
-		}
-		return nil, err
-	}
-	var options []jiraadapter.Option
-	if authorizer != nil {
-		options = append(options, jiraadapter.WithWriteAuthorizer(authorizer))
-	}
-	j, err := jiraadapter.NewWithSchedulerTLS(cfg.JiraURL, token, version, nil, jiraTLSOptions(cfg), options...)
+	j, err := jiraAdapter(cfg, version, authorizer)
 	if err != nil {
 		return nil, err
 	}

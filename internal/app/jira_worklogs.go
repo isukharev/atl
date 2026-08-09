@@ -51,6 +51,24 @@ type JiraWorklogAddResult struct {
 	Reconciled       bool                      `json:"reconciled,omitempty"`
 }
 
+type JiraWorklogDependencies struct {
+	Reader      domain.IssueWorklogReader
+	Writer      domain.IssueWorklogWriter
+	CurrentUser domain.JiraCurrentUserReader
+}
+
+// JiraWorklogService owns only complete worklog reads, one guarded add, and
+// the current-user identity bound into that proposal.
+type JiraWorklogService struct {
+	reader      domain.IssueWorklogReader
+	writer      domain.IssueWorklogWriter
+	currentUser domain.JiraCurrentUserReader
+}
+
+func NewJiraWorklogService(deps JiraWorklogDependencies) *JiraWorklogService {
+	return &JiraWorklogService{reader: deps.Reader, writer: deps.Writer, currentUser: deps.CurrentUser}
+}
+
 type jiraWorklogWriteError struct {
 	message   string
 	cause     error
@@ -61,24 +79,31 @@ func (e *jiraWorklogWriteError) Error() string                  { return definit
 func (e *jiraWorklogWriteError) Unwrap() error                  { return e.cause }
 func (e *jiraWorklogWriteError) DiagnosticAmbiguousWrite() bool { return e != nil && e.ambiguous }
 
-func (s *JiraService) issueWorklogStore() (domain.IssueWorklogStore, error) {
-	store, ok := s.tr.(domain.IssueWorklogStore)
-	if !ok || store == nil {
+func (s *JiraWorklogService) issueWorklogReader() (domain.IssueWorklogReader, error) {
+	if s == nil || s.reader == nil {
 		return nil, fmt.Errorf("%w: configured tracker does not support issue worklogs", domain.ErrCheckFailed)
 	}
-	return store, nil
+	return s.reader, nil
 }
 
-func (s *JiraService) ListWorklogs(ctx context.Context, key string) (*JiraWorklogListResult, error) {
+func (s *JiraWorklogService) issueWorklogMutationPorts() (domain.IssueWorklogReader, domain.IssueWorklogWriter, domain.JiraCurrentUserReader, error) {
+	reader, err := s.issueWorklogReader()
+	if err != nil || s.writer == nil || s.currentUser == nil {
+		return nil, nil, nil, fmt.Errorf("%w: configured tracker does not support guarded issue worklog adds", domain.ErrCheckFailed)
+	}
+	return reader, s.writer, s.currentUser, nil
+}
+
+func (s *JiraWorklogService) ListWorklogs(ctx context.Context, key string) (*JiraWorklogListResult, error) {
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return nil, fmt.Errorf("%w: issue key is required", domain.ErrUsage)
 	}
-	store, err := s.issueWorklogStore()
+	reader, err := s.issueWorklogReader()
 	if err != nil {
 		return nil, err
 	}
-	listed, err := store.ListIssueWorklogs(ctx, key)
+	listed, err := reader.ListIssueWorklogs(ctx, key)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +116,7 @@ func (s *JiraService) ListWorklogs(ctx context.Context, key string) (*JiraWorklo
 	}, nil
 }
 
-func (s *JiraService) AddWorklogGuarded(ctx context.Context, key string, opts JiraWorklogAddOpts) (*JiraWorklogAddResult, error) {
+func (s *JiraWorklogService) AddWorklogGuarded(ctx context.Context, key string, opts JiraWorklogAddOpts) (*JiraWorklogAddResult, error) {
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return nil, fmt.Errorf("%w: issue key is required", domain.ErrUsage)
@@ -108,19 +133,20 @@ func (s *JiraService) AddWorklogGuarded(ctx context.Context, key string, opts Ji
 	if err != nil {
 		return nil, err
 	}
-	if opts.Apply && strings.TrimSpace(opts.ExpectedProposalHash) == "" {
-		return nil, fmt.Errorf("%w: --expected-proposal-hash is required with --apply; run the dry-run first", domain.ErrUsage)
-	}
-	store, err := s.issueWorklogStore()
+	policy, err := newGuardedWritePolicy(opts.Apply, opts.ExpectedProposalHash)
 	if err != nil {
 		return nil, err
 	}
-	currentUser, err := s.tr.CurrentUser(ctx)
+	reader, writer, currentUserReader, err := s.issueWorklogMutationPorts()
+	if err != nil {
+		return nil, err
+	}
+	currentUser, err := currentUserReader.CurrentUser(ctx)
 	if err != nil {
 		return nil, err
 	}
 	author := compactWorklogAuthor(currentUser)
-	current, err := store.ListIssueWorklogs(ctx, key)
+	current, err := reader.ListIssueWorklogs(ctx, key)
 	if err != nil {
 		return nil, err
 	}
@@ -132,25 +158,21 @@ func (s *JiraService) AddWorklogGuarded(ctx context.Context, key string, opts Ji
 		return nil, err
 	}
 	proposalHash := jiraWorklogProposalHash(key, seconds, comment, started, author, baselineSHA256)
-	mode := "dry-run"
-	if opts.Apply {
-		mode = "apply"
-	}
+	decision := policy.decide(proposalHash, false)
 	result := &JiraWorklogAddResult{
-		Key: key, Mode: mode, Status: "would_apply", TimeSpent: display,
+		Key: key, Mode: decision.mode, Status: decision.status, TimeSpent: display,
 		TimeSpentSeconds: seconds, Comment: comment, Started: started, Author: author,
-		CurrentCount: current.Total, BaselineSHA256: baselineSHA256, ProposalHash: proposalHash, Complete: true,
+		CurrentCount: current.Total, BaselineSHA256: baselineSHA256, ProposalHash: decision.proposalHash, Complete: true,
 	}
-	if opts.Apply && strings.TrimSpace(opts.ExpectedProposalHash) != proposalHash {
-		result.Status = "blocked"
-		return result, fmt.Errorf("%w: worklog proposal changed since review: expected hash %q, got %q", domain.ErrCheckFailed, strings.TrimSpace(opts.ExpectedProposalHash), proposalHash)
+	if decision.hashMismatch {
+		return result, fmt.Errorf("%w: worklog proposal changed since review: expected hash %q, got %q", domain.ErrCheckFailed, policy.expectedHash, proposalHash)
 	}
-	if !opts.Apply {
+	if !decision.writeRequired {
 		return result, nil
 	}
 
 	input := domain.IssueWorklogCreate{TimeSpentSeconds: seconds, Comment: comment, Started: started}
-	created, writeErr := store.AddIssueWorklog(domain.WithSingleAttempt(ctx), key, input)
+	created, writeErr := writer.AddIssueWorklog(domain.WithSingleAttempt(ctx), key, input)
 	if writeErr == nil && created != nil && strings.TrimSpace(created.ID) != "" {
 		result.Status = "applied"
 		result.Created = created
@@ -161,7 +183,7 @@ func (s *JiraService) AddWorklogGuarded(ctx context.Context, key string, opts Ji
 		return result, &jiraWorklogWriteError{message: "Jira rejected the worklog add", cause: writeErr}
 	}
 
-	verified, verifyErr := store.ListIssueWorklogs(ctx, key)
+	verified, verifyErr := reader.ListIssueWorklogs(ctx, key)
 	if verifyErr != nil || verified == nil || !verified.Complete || verified.Total != len(verified.Worklogs) {
 		result.Status = "unknown"
 		cause := writeErr
