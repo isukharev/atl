@@ -1,6 +1,6 @@
 # Agent evaluator substrate decision
 
-Status: current as of 2026-08-05. Revisit only through the evidence gates below.
+Status: current as of 2026-08-09. Revisit only through the evidence gates below.
 
 ## Decision
 
@@ -26,6 +26,15 @@ Retain the evaluator as the independent nested module at
 `internal/agenteval`. This is a no-change decision about physical placement,
 not permission to merge it back into the product module. The module boundary,
 dependency direction, and independent gates remain mandatory.
+
+The module now separates an in-memory neutral `core` from the explicit built-in
+`profile/atl` adapter. The existing root package remains the ATL
+compatibility/composition facade and still owns durable schemas, selected-binary
+and route policy, execution, receipts, and private lifecycle code. This reduces
+generic API coupling without changing the physical-placement decision or
+claiming a standalone SDK. A recursive exact import ledger and vocabulary
+oracle enforce the direction; additional process, lifecycle, and distribution
+extraction remains subject to the issues and evidence gates that own it.
 
 | Evidence | Retained nested module | Separate repository now |
 |---|---|---|

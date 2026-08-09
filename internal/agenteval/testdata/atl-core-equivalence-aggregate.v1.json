@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "historical-generations",
+      "result_sources": [
+        "readability:atl-profile/result@8",
+        "readability:atl-profile/result@3",
+        "readability:atl-profile/result@7",
+        "readability:atl-profile/result@4",
+        "readability:atl-profile/result@6",
+        "readability:atl-profile/result@5"
+      ],
+      "expected_group_count": 6,
+      "expected_aggregate_file": "aggregate-historical-generations"
+    },
+    {
+      "id": "unknown-zero-and-eligibility",
+      "result_sources": [
+        "fixture:result-unsupported-capability",
+        "fixture:result-observed-zero",
+        "fixture:result-invalidated-drift",
+        "fixture:result-unknown-optional-metric"
+      ],
+      "expected_group_count": 1,
+      "expected_aggregate_file": "aggregate-unknown-zero-and-eligibility"
+    }
+  ]
+}

@@ -135,6 +135,10 @@ func AggregateResults(results []Result) (Aggregate, error) {
 	out := Aggregate{SchemaVersion: AggregateSchemaVersion, Groups: make([]AggregateGroup, 0, len(keys))}
 	for _, key := range keys {
 		items := groups[key]
+		coreSummary, err := summarizeATLCoreResults(items)
+		if err != nil {
+			return Aggregate{}, err
+		}
 		group := AggregateGroup{
 			ScenarioID: key.ScenarioID, TaskClass: key.TaskClass, DataClass: key.DataClass,
 			Category: key.Category, Variant: key.Variant, Surface: key.Surface,
@@ -143,21 +147,18 @@ func AggregateResults(results []Result) (Aggregate, error) {
 				Reasoning: key.Reasoning, ATLVersion: key.ATLVersion,
 				PluginVersion: key.PluginVersion, SkillDigest: key.SkillDigest, SkillActivation: key.SkillActivation,
 			},
-			Runs: len(items),
+			Runs: len(items), EligibleRuns: int(coreSummary.Outcomes.Succeeded + coreSummary.Outcomes.Failed),
+			Passes: int(coreSummary.Outcomes.Succeeded),
 		}
 		turns, tools, invocations, interfaceInvocations, delegations, requests, duplicates := make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items))
 		bytesOut, input, output, mainInput, mainOutput, cost, duration := make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items)), make([]int64, 0, len(items))
 		for _, item := range items {
 			switch item.EffectiveEligibility() {
 			case EligibilitySupported:
-				group.EligibleRuns++
 			case EligibilityUnsupportedCapability:
 				group.UnsupportedRuns++
 			case EligibilityInvalidatedDrift:
 				group.DriftedRuns++
-			}
-			if item.EffectiveEligibility() == EligibilitySupported && item.Status == "pass" {
-				group.Passes++
 			}
 			if key.Category != BenchmarkCategoryRouteFixed && !deterministicValidForEfficiency(item) {
 				continue

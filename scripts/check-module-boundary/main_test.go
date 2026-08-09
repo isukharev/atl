@@ -10,6 +10,11 @@ import (
 	"testing"
 )
 
+const (
+	evaluatorCoreFixtureDir = evaluatorModuleDir + "/core"
+	evaluatorATLFixtureDir  = evaluatorModuleDir + "/profile/atl"
+)
+
 func TestRepositoryModuleBoundary(t *testing.T) {
 	if testing.Short() {
 		t.Skip("repository module boundary")
@@ -103,7 +108,7 @@ func TestModuleBoundaryRejectsLayoutAndDependencyMutations(t *testing.T) {
 				writeFixtureFile(t, root, evaluatorModuleDir+"/leak.go", "package agenteval\n\nimport _ \""+rootModulePath+"/internal/cli\"\n")
 				stageAll(t, root)
 			},
-			want: "evaluator library internal/agenteval/leak.go imports product-private package",
+			want: "evaluator source internal/agenteval/leak.go imports product-private package",
 		},
 		{
 			name: "command lacks module self boundary",
@@ -121,6 +126,40 @@ func TestModuleBoundaryRejectsLayoutAndDependencyMutations(t *testing.T) {
 			},
 			want: "evaluator command internal/agenteval/cmd/agent-eval/main.go imports product-private package",
 		},
+		{
+			name: "command imports evaluator subpackage",
+			mutate: func(t *testing.T, root string) {
+				writeFixtureFile(t, root, evaluatorCommandDir+"/subpackage.go", "package main\n\nimport \""+evaluatorModulePath+"/core\"\n")
+				stageAll(t, root)
+			},
+			want: "outside its exact root boundary",
+		},
+		{
+			name: "command imports product-private lookalike",
+			mutate: func(t *testing.T, root string) {
+				writeFixtureFile(t, root, evaluatorCommandDir+"/main.go", "package main\n\nimport \""+evaluatorModulePath+"ish\"\n")
+				stageAll(t, root)
+			},
+			want: "imports product-private package",
+		},
+		{
+			name: "malformed evaluator source",
+			mutate: func(t *testing.T, root string) {
+				writeFixtureFile(t, root, evaluatorCoreFixtureDir+"/malformed.go", "package core\n\nfunc malformed( {\n")
+				stageAll(t, root)
+			},
+			want: "parse Go source",
+		},
+		{
+			name: "symlinked evaluator source",
+			mutate: func(t *testing.T, root string) {
+				if err := os.Symlink("core.go", filepath.Join(root, filepath.FromSlash(evaluatorCoreFixtureDir), "link.go")); err != nil {
+					t.Fatal(err)
+				}
+				stageAll(t, root)
+			},
+			want: "tracked Go source internal/agenteval/core/link.go must be a regular file",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -135,6 +174,16 @@ func TestModuleBoundaryRejectsLayoutAndDependencyMutations(t *testing.T) {
 				t.Fatalf("failure emitted report: %q", output.String())
 			}
 		})
+	}
+}
+
+func TestModuleBoundaryAllowsEvaluatorLibrarySelfSubpackages(t *testing.T) {
+	root := writeModuleFixture(t)
+	writeFixtureFile(t, root, evaluatorCoreFixtureDir+"/compat.go", "package core\n\nimport \""+evaluatorModulePath+"\"\n")
+	writeFixtureFile(t, root, evaluatorATLFixtureDir+"/sibling.go", "package atl\n\nimport \""+evaluatorModulePath+"/profile/other\"\n")
+	stageAll(t, root)
+	if err := run(root, ioDiscard{}); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -163,12 +212,15 @@ func writeModuleFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	files := map[string]string{
-		"go.mod":                          "module " + rootModulePath + "\n\ngo 1.26.5\n",
-		evaluatorModuleDir + "/go.mod":    "module " + evaluatorModulePath + "\n\ngo 1.26.5\n",
-		"cmd/atl/main.go":                 "package main\n",
-		"internal/product/product.go":     "package product\n",
-		evaluatorModuleDir + "/runner.go": "package agenteval\n",
-		evaluatorCommandDir + "/main.go":  "package main\n\nimport _ \"" + evaluatorModulePath + "\"\n",
+		"go.mod":                                  "module " + rootModulePath + "\n\ngo 1.26.5\n",
+		evaluatorModuleDir + "/go.mod":            "module " + evaluatorModulePath + "\n\ngo 1.26.5\n",
+		"cmd/atl/main.go":                         "package main\n",
+		"internal/product/product.go":             "package product\n",
+		evaluatorModuleDir + "/runner.go":         "package agenteval\n\nimport (\n\t\"" + evaluatorModulePath + "/core\"\n\t\"" + evaluatorModulePath + "/profile/atl\"\n)\n",
+		evaluatorCoreFixtureDir + "/core.go":      "package core\n",
+		evaluatorCoreFixtureDir + "/core_test.go": "package core_test\n\nimport \"" + evaluatorModulePath + "/core\"\n",
+		evaluatorATLFixtureDir + "/profile.go":    "package atl\n\nimport \"" + evaluatorModulePath + "/core\"\n",
+		evaluatorCommandDir + "/main.go":          "package main\n\nimport \"" + evaluatorModulePath + "\"\n",
 	}
 	for path, contents := range files {
 		writeFixtureFile(t, root, path, contents)

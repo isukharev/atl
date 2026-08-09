@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -17,272 +18,471 @@ import (
 const (
 	productInternalImportPrefix = "github.com/isukharev/atl/internal/"
 	evaluatorModuleImportPath   = productInternalImportPrefix + "agenteval"
+	evaluatorCoreImportPath     = evaluatorModuleImportPath + "/core"
+	evaluatorATLImportPath      = evaluatorModuleImportPath + "/profile/atl"
 )
 
-type evaluatorDependencyLedger struct {
-	LibraryProduction map[string][]string
-	LibraryTests      map[string][]string
-	CommandProduction map[string][]string
-	CommandTests      map[string][]string
+type evaluatorPackage string
+
+const (
+	evaluatorRootPackage  evaluatorPackage = "root"
+	evaluatorCorePackage  evaluatorPackage = "core"
+	evaluatorATLPackage   evaluatorPackage = "profile/atl"
+	evaluatorCommandOwner evaluatorPackage = "cmd/agent-eval"
+)
+
+var evaluatorPackages = []evaluatorPackage{
+	evaluatorRootPackage,
+	evaluatorCorePackage,
+	evaluatorATLPackage,
+	evaluatorCommandOwner,
 }
 
-// TestEvaluatorProductDependencyLedger is a reviewed, exact ownership ledger,
-// not a minimum or maximum. Any added, removed, moved, aliased, dot, or blank
-// product-private import changes a package/file entry and requires explicit
-// review. The ledger scans every evaluator source file, including this oracle,
-// so its own imports cannot conceal a dependency outside the exact boundary.
-// The first reviewed baseline was 29/27/5 production declarations/files/targets
-// and 66/33/10 for tests. The evaluator library production and test lanes are
-// now each intentionally 0/0/0. The co-located command can import only this
-// module's library and its reviewed lanes remain 4/4/1 and 3/3/1.
-// CLI error, capability, skill,
-// synthetic backend, and selected-binary Jira and Confluence evidence workflows
-// decode evaluator-owned released wires rather than constructing evidence from
-// product app/config/domain/mdwiki owners.
+type evaluatorDependencyLane struct {
+	Package evaluatorPackage
+	Tests   bool
+}
+
+type evaluatorDependencyImport struct {
+	File  string
+	Path  string
+	Alias string
+}
+
+type evaluatorDependencyLedger map[evaluatorDependencyLane][]evaluatorDependencyImport
+
+// TestEvaluatorProductDependencyLedger is a reviewed exact package, lane,
+// import, alias, and file ledger. The scan is recursive and parses every Go
+// source file regardless of build constraints. The evaluator retains zero
+// root-product-private imports; module-self imports must also satisfy the
+// independently enforced core -> none, profile/atl -> core,
+// root -> core + profile/atl, and cmd/agent-eval -> exact root DAG.
 func TestEvaluatorProductDependencyLedger(t *testing.T) {
 	want := evaluatorDependencyLedger{
-		LibraryProduction: map[string][]string{},
-		LibraryTests:      map[string][]string{},
-		CommandProduction: map[string][]string{
-			evaluatorModuleImportPath: {
-				"command_broker.go", "main.go", "private.go", "proxy.go",
-			},
+		{Package: evaluatorRootPackage}: {
+			{File: "atl_core_profile.go", Path: evaluatorCoreImportPath},
+			{File: "atl_core_profile.go", Path: evaluatorATLImportPath, Alias: "profileatl"},
 		},
-		CommandTests: map[string][]string{
-			evaluatorModuleImportPath: {
-				"main_test.go", "private_test.go", "proxy_cli_error_contract_test.go",
-			},
+		{Package: evaluatorRootPackage, Tests: true}: {
+			{File: "atl_core_profile_test.go", Path: evaluatorCoreImportPath},
+			{File: "atl_core_profile_test.go", Path: evaluatorATLImportPath, Alias: "profileatl"},
+		},
+		{Package: evaluatorCorePackage}: {},
+		{Package: evaluatorCorePackage, Tests: true}: {
+			{File: "core/engine_test.go", Path: evaluatorCoreImportPath},
+		},
+		{Package: evaluatorATLPackage}: {
+			{File: "profile/atl/profile.go", Path: evaluatorCoreImportPath},
+		},
+		{Package: evaluatorATLPackage, Tests: true}: {
+			{File: "profile/atl/profile_test.go", Path: evaluatorCoreImportPath},
+			{File: "profile/atl/profile_test.go", Path: evaluatorATLImportPath, Alias: "profileatl"},
+		},
+		{Package: evaluatorCommandOwner}: {
+			{File: "cmd/agent-eval/command_broker.go", Path: evaluatorModuleImportPath},
+			{File: "cmd/agent-eval/main.go", Path: evaluatorModuleImportPath},
+			{File: "cmd/agent-eval/private.go", Path: evaluatorModuleImportPath},
+			{File: "cmd/agent-eval/proxy.go", Path: evaluatorModuleImportPath},
+		},
+		{Package: evaluatorCommandOwner, Tests: true}: {
+			{File: "cmd/agent-eval/main_test.go", Path: evaluatorModuleImportPath},
+			{File: "cmd/agent-eval/private_test.go", Path: evaluatorModuleImportPath},
+			{File: "cmd/agent-eval/proxy_cli_error_contract_test.go", Path: evaluatorModuleImportPath},
 		},
 	}
-	got, err := scanEvaluatorDependencyLedger(".", evaluatorCommandDirectory)
+	got, err := scanEvaluatorDependencyLedger(".")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := compareEvaluatorDependencyLedgers(got, want); err != nil {
 		t.Fatal(err)
 	}
-	if declarations, files, targets := dependencyLaneCounts(got.LibraryProduction); declarations != 0 || files != 0 || targets != 0 {
-		t.Fatalf("library production dependency counts=%d declarations/%d files/%d targets, want 0/0/0", declarations, files, targets)
-	}
-	if declarations, files, targets := dependencyLaneCounts(got.LibraryTests); declarations != 0 || files != 0 || targets != 0 {
-		t.Fatalf("library test dependency counts=%d declarations/%d files/%d targets, want 0/0/0", declarations, files, targets)
-	}
-	if declarations, files, targets := dependencyLaneCounts(got.CommandProduction); declarations != 4 || files != 4 || targets != 1 {
-		t.Fatalf("command production dependency counts=%d declarations/%d files/%d targets, want 4/4/1", declarations, files, targets)
-	}
-	if declarations, files, targets := dependencyLaneCounts(got.CommandTests); declarations != 3 || files != 3 || targets != 1 {
-		t.Fatalf("command test dependency counts=%d declarations/%d files/%d targets, want 3/3/1", declarations, files, targets)
-	}
 }
 
 func TestEvaluatorProductDependencyLedgerDetectsAliasAndOwnershipDrift(t *testing.T) {
-	parsed, err := parser.ParseFile(token.NewFileSet(), "synthetic.go", `package synthetic
-import (
-	alias "github.com/isukharev/atl/internal/app"
-	. "github.com/isukharev/atl/internal/domain"
-	_ "github.com/isukharev/atl/internal/httpx"
-	"fmt"
-)`, parser.ImportsOnly)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ledger := evaluatorDependencyLedger{LibraryProduction: map[string][]string{}, LibraryTests: map[string][]string{}}
-	if err := addParsedProductImports(ledger.LibraryProduction, "synthetic.go", parsed); err != nil {
-		t.Fatal(err)
-	}
-	if declarations, files, targets := dependencyLaneCounts(ledger.LibraryProduction); declarations != 3 || files != 1 || targets != 3 {
-		t.Fatalf("aliased imports counted as %d declarations/%d files/%d targets", declarations, files, targets)
-	}
-
-	t.Run("oracle file remains inside scan", func(t *testing.T) {
-		directory := t.TempDir()
-		path := filepath.Join(directory, "product_dependency_contract_test.go")
-		if err := os.WriteFile(path, []byte(`package synthetic
-import _ "github.com/isukharev/atl/internal/httpx"
-`), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		production, tests := map[string][]string{}, map[string][]string{}
-		if err := scanEvaluatorDependencyDirectory(directory, production, tests); err != nil {
-			t.Fatal(err)
-		}
-		want := map[string][]string{
-			productInternalImportPrefix + "httpx": {"product_dependency_contract_test.go"},
-		}
-		if !reflect.DeepEqual(tests, want) {
-			t.Fatalf("oracle-file dependencies = %v, want %v", tests, want)
+	t.Run("exact ledger drift", func(t *testing.T) {
+		for name, mutate := range map[string]func(*testing.T, string){
+			"alias": func(t *testing.T, root string) {
+				replaceEvaluatorDependencyFixture(t, root, "facade.go", `"`+evaluatorCoreImportPath+`"`, `neutral "`+evaluatorCoreImportPath+`"`)
+			},
+			"lane": func(t *testing.T, root string) {
+				writeEvaluatorDependencyFile(t, root, "facade.go", "package agenteval\n")
+				writeEvaluatorDependencyFile(t, root, "facade_test.go", "package agenteval\n\nimport \""+evaluatorCoreImportPath+"\"\n")
+			},
+			"edge": func(t *testing.T, root string) {
+				writeEvaluatorDependencyFile(t, root, "profile_edge.go", "package agenteval\n\nimport \""+evaluatorATLImportPath+"\"\n")
+			},
+		} {
+			t.Run(name, func(t *testing.T) {
+				root := writeEvaluatorDependencyFixture(t)
+				baseline, err := scanEvaluatorDependencyLedger(root)
+				if err != nil {
+					t.Fatal(err)
+				}
+				mutate(t, root)
+				got, err := scanEvaluatorDependencyLedger(root)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if compareEvaluatorDependencyLedgers(got, baseline) == nil {
+					t.Fatal("exact evaluator dependency drift was not detected")
+				}
+			})
 		}
 	})
 
-	zeroLibraryLanes := evaluatorDependencyLedger{LibraryProduction: map[string][]string{}, LibraryTests: map[string][]string{}}
-	for name, mutation := range map[string]evaluatorDependencyLedger{
-		"production": {
-			LibraryProduction: map[string][]string{productInternalImportPrefix + "unexpected": {"unexpected.go"}},
-			LibraryTests:      cloneDependencyLane(zeroLibraryLanes.LibraryTests),
-		},
-		"tests": {
-			LibraryProduction: cloneDependencyLane(zeroLibraryLanes.LibraryProduction),
-			LibraryTests:      map[string][]string{productInternalImportPrefix + "unexpected": {"unexpected_test.go"}},
-		},
-	} {
-		t.Run("zero library lane "+name, func(t *testing.T) {
-			if compareEvaluatorDependencyLedgers(mutation, zeroLibraryLanes) == nil {
-				t.Fatal("unexpected product-private dependency in zero library lane was not detected")
-			}
-		})
-	}
+	t.Run("closed package DAG", func(t *testing.T) {
+		tests := []struct {
+			name   string
+			mutate func(*testing.T, string)
+			want   string
+		}{
+			{
+				name: "build-tagged reverse edge",
+				mutate: func(t *testing.T, root string) {
+					writeEvaluatorDependencyFile(t, root, "core/reverse_ignore.go", "//go:build ignore\n\npackage core\n\nimport \""+evaluatorModuleImportPath+"\"\n")
+				},
+				want: "package DAG forbids",
+			},
+			{
+				name: "dot self import",
+				mutate: func(t *testing.T, root string) {
+					writeEvaluatorDependencyFile(t, root, "dot.go", "package agenteval\n\nimport . \""+evaluatorCoreImportPath+"\"\n")
+				},
+				want: "dot and blank module-self imports are forbidden",
+			},
+			{
+				name: "blank self import",
+				mutate: func(t *testing.T, root string) {
+					writeEvaluatorDependencyFile(t, root, "blank.go", "package agenteval\n\nimport _ \""+evaluatorCoreImportPath+"\"\n")
+				},
+				want: "dot and blank module-self imports are forbidden",
+			},
+			{
+				name: "unknown package directory",
+				mutate: func(t *testing.T, root string) {
+					writeEvaluatorDependencyFile(t, root, "experiment/experiment.go", "package experiment\n")
+				},
+				want: "unknown Go package directory",
+			},
+			{
+				name: "profile to profile edge",
+				mutate: func(t *testing.T, root string) {
+					writeEvaluatorDependencyFile(t, root, "profile/atl/reverse.go", "package atl\n\nimport \""+evaluatorModuleImportPath+"/profile/other\"\n")
+				},
+				want: "unknown evaluator package",
+			},
+			{
+				name: "command subpackage edge",
+				mutate: func(t *testing.T, root string) {
+					writeEvaluatorDependencyFile(t, root, "cmd/agent-eval/subpackage.go", "package main\n\nimport \""+evaluatorCoreImportPath+"\"\n")
+				},
+				want: "package DAG forbids",
+			},
+			{
+				name: "product-private edge",
+				mutate: func(t *testing.T, root string) {
+					writeEvaluatorDependencyFile(t, root, "core/product.go", "package core\n\nimport \""+productInternalImportPrefix+"app\"\n")
+				},
+				want: "imports product-private package",
+			},
+			{
+				name: "malformed source",
+				mutate: func(t *testing.T, root string) {
+					writeEvaluatorDependencyFile(t, root, "core/malformed.go", "package core\n\nfunc malformed( {\n")
+				},
+				want: "parse evaluator dependency owner",
+			},
+			{
+				name: "missing production package",
+				mutate: func(t *testing.T, root string) {
+					if err := os.Remove(filepath.Join(root, "profile", "atl", "atl.go")); err != nil {
+						t.Fatal(err)
+					}
+				},
+				want: "has no production Go source",
+			},
+		}
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				root := writeEvaluatorDependencyFixture(t)
+				test.mutate(t, root)
+				_, err := scanEvaluatorDependencyLedger(root)
+				if err == nil || !strings.Contains(err.Error(), test.want) {
+					t.Fatalf("error=%v, want substring %q", err, test.want)
+				}
+			})
+		}
+	})
 
-	baseline := evaluatorDependencyLedger{
-		LibraryProduction: map[string][]string{productInternalImportPrefix + "capability": {"runspec.go"}},
-		LibraryTests:      map[string][]string{productInternalImportPrefix + "domain": {"contract_test.go"}},
-	}
-	mutations := map[string]evaluatorDependencyLedger{
-		"added": {
-			LibraryProduction: map[string][]string{
-				productInternalImportPrefix + "capability": {"runspec.go"},
-				productInternalImportPrefix + "newowner":   {"new.go"},
-			},
-			LibraryTests: cloneDependencyLane(baseline.LibraryTests),
-		},
-		"removed": {LibraryProduction: map[string][]string{}, LibraryTests: cloneDependencyLane(baseline.LibraryTests)},
-		"reclassified": {
-			LibraryProduction: map[string][]string{},
-			LibraryTests: map[string][]string{
-				productInternalImportPrefix + "capability": {"runspec_test.go"},
-				productInternalImportPrefix + "domain":     {"contract_test.go"},
-			},
-		},
-	}
-	for name, mutation := range mutations {
-		t.Run(name, func(t *testing.T) {
-			if compareEvaluatorDependencyLedgers(mutation, baseline) == nil {
-				t.Fatal("dependency drift was not detected")
-			}
-		})
-	}
+	t.Run("symbolic link", func(t *testing.T) {
+		root := writeEvaluatorDependencyFixture(t)
+		if err := os.Symlink("core.go", filepath.Join(root, "core", "link.go")); err != nil {
+			t.Fatal(err)
+		}
+		_, err := scanEvaluatorDependencyLedger(root)
+		if err == nil || !strings.Contains(err.Error(), "symbolic links are not allowed") {
+			t.Fatalf("error=%v, want symbolic-link rejection", err)
+		}
+	})
 
-	commandBaseline := evaluatorDependencyLedger{
-		LibraryProduction: map[string][]string{}, LibraryTests: map[string][]string{},
-		CommandProduction: map[string][]string{evaluatorModuleImportPath: {"main.go"}},
-		CommandTests:      map[string][]string{evaluatorModuleImportPath: {"main_test.go"}},
-	}
-	for name, mutation := range map[string]evaluatorDependencyLedger{
-		"additional product package": {
-			LibraryProduction: cloneDependencyLane(commandBaseline.LibraryProduction),
-			LibraryTests:      cloneDependencyLane(commandBaseline.LibraryTests),
-			CommandProduction: map[string][]string{
-				evaluatorModuleImportPath:                  {"main.go"},
-				productInternalImportPrefix + "unexpected": {"drift.go"},
-			},
-			CommandTests: cloneDependencyLane(commandBaseline.CommandTests),
-		},
-		"module self moved to test lane": {
-			LibraryProduction: cloneDependencyLane(commandBaseline.LibraryProduction),
-			LibraryTests:      cloneDependencyLane(commandBaseline.LibraryTests),
-			CommandProduction: map[string][]string{},
-			CommandTests: map[string][]string{
-				evaluatorModuleImportPath: {"main.go", "main_test.go"},
-			},
-		},
-	} {
-		t.Run("command module-self lane "+name, func(t *testing.T) {
-			if compareEvaluatorDependencyLedgers(mutation, commandBaseline) == nil {
-				t.Fatal("reviewed command module-self dependency drift was not detected")
-			}
-		})
-	}
+	t.Run("Go recursive package exclusions", func(t *testing.T) {
+		root := writeEvaluatorDependencyFixture(t)
+		baseline, err := scanEvaluatorDependencyLedger(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range []string{
+			"testdata/fixture.go", "vendor/example.test/dependency/dependency.go",
+			".scratch/reverse.go", "_scratch/reverse.go",
+		} {
+			writeEvaluatorDependencyFile(t, root, path, "package ignored\n\nimport \""+productInternalImportPrefix+"app\"\n")
+		}
+		got, err := scanEvaluatorDependencyLedger(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := compareEvaluatorDependencyLedgers(got, baseline); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("excluded-name symlink", func(t *testing.T) {
+		root := writeEvaluatorDependencyFixture(t)
+		if err := os.Symlink("core", filepath.Join(root, "_ignored")); err != nil {
+			t.Fatal(err)
+		}
+		_, err := scanEvaluatorDependencyLedger(root)
+		if err == nil || !strings.Contains(err.Error(), "symbolic links are not allowed") {
+			t.Fatalf("error=%v, want excluded-name symbolic-link rejection", err)
+		}
+	})
 }
 
-func scanEvaluatorDependencyLedger(libraryDirectory, commandDirectory string) (evaluatorDependencyLedger, error) {
-	ledger := evaluatorDependencyLedger{
-		LibraryProduction: map[string][]string{}, LibraryTests: map[string][]string{},
-		CommandProduction: map[string][]string{}, CommandTests: map[string][]string{},
+func scanEvaluatorDependencyLedger(root string) (evaluatorDependencyLedger, error) {
+	ledger := make(evaluatorDependencyLedger, len(evaluatorPackages)*2)
+	productionSources := make(map[evaluatorPackage]bool, len(evaluatorPackages))
+	for _, owner := range evaluatorPackages {
+		ledger[evaluatorDependencyLane{Package: owner}] = []evaluatorDependencyImport{}
+		ledger[evaluatorDependencyLane{Package: owner, Tests: true}] = []evaluatorDependencyImport{}
 	}
-	if err := scanEvaluatorDependencyDirectory(libraryDirectory, ledger.LibraryProduction, ledger.LibraryTests); err != nil {
-		return evaluatorDependencyLedger{}, err
-	}
-	if err := scanEvaluatorDependencyDirectory(commandDirectory, ledger.CommandProduction, ledger.CommandTests); err != nil {
-		return evaluatorDependencyLedger{}, err
-	}
-	for _, lane := range []map[string][]string{ledger.LibraryProduction, ledger.LibraryTests, ledger.CommandProduction, ledger.CommandTests} {
-		for path := range lane {
-			sort.Strings(lane[path])
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return fmt.Errorf("resolve evaluator dependency owner %s: %w", path, err)
+		}
+		relative = filepath.ToSlash(relative)
+		if entry.Type()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("inspect evaluator dependency owner %s: symbolic links are not allowed", relative)
+		}
+		if entry.IsDir() {
+			if relative != "." && evaluatorDependencyDirectoryExcluded(entry.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(entry.Name(), ".go") {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return fmt.Errorf("inspect evaluator dependency owner %s: %w", relative, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("inspect evaluator dependency owner %s: Go sources must be regular files", relative)
+		}
+		owner, ok := evaluatorPackageForDirectory(filepath.ToSlash(filepath.Dir(relative)))
+		if !ok {
+			return fmt.Errorf("evaluator dependency owner %s is in unknown Go package directory %q", relative, filepath.ToSlash(filepath.Dir(relative)))
+		}
+		parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			return fmt.Errorf("parse evaluator dependency owner %s: %w", relative, err)
+		}
+		tests := strings.HasSuffix(entry.Name(), "_test.go")
+		if err := validateEvaluatorPackageName(owner, tests, relative, parsed.Name.Name); err != nil {
+			return err
+		}
+		if !tests {
+			productionSources[owner] = true
+		}
+		lane := evaluatorDependencyLane{Package: owner, Tests: tests}
+		imports, err := parsedEvaluatorImports(owner, tests, relative, parsed)
+		if err != nil {
+			return err
+		}
+		ledger[lane] = append(ledger[lane], imports...)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, owner := range evaluatorPackages {
+		if !productionSources[owner] {
+			return nil, fmt.Errorf("evaluator package %q has no production Go source", owner)
+		}
+	}
+	for lane := range ledger {
+		sort.Slice(ledger[lane], func(i, j int) bool {
+			left, right := ledger[lane][i], ledger[lane][j]
+			if left.Path != right.Path {
+				return left.Path < right.Path
+			}
+			if left.File != right.File {
+				return left.File < right.File
+			}
+			return left.Alias < right.Alias
+		})
 	}
 	return ledger, nil
 }
 
-func scanEvaluatorDependencyDirectory(directory string, production, tests map[string][]string) error {
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") {
-			continue
-		}
-		path := filepath.Join(directory, name)
-		parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
-		if err != nil {
-			return fmt.Errorf("parse evaluator dependency owner %s: %w", path, err)
-		}
-		lane := production
-		if strings.HasSuffix(name, "_test.go") {
-			lane = tests
-		}
-		if err := addParsedProductImports(lane, name, parsed); err != nil {
-			return err
-		}
-	}
-	return nil
+func evaluatorDependencyDirectoryExcluded(name string) bool {
+	return name == "testdata" || name == "vendor" || strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")
 }
 
-func addParsedProductImports(lane map[string][]string, file string, parsed *ast.File) error {
+func evaluatorPackageForDirectory(directory string) (evaluatorPackage, bool) {
+	switch directory {
+	case ".":
+		return evaluatorRootPackage, true
+	case string(evaluatorCorePackage):
+		return evaluatorCorePackage, true
+	case string(evaluatorATLPackage):
+		return evaluatorATLPackage, true
+	case string(evaluatorCommandOwner):
+		return evaluatorCommandOwner, true
+	default:
+		return "", false
+	}
+}
+
+func evaluatorPackageForImport(path string) (evaluatorPackage, bool) {
+	switch path {
+	case evaluatorModuleImportPath:
+		return evaluatorRootPackage, true
+	case evaluatorCoreImportPath:
+		return evaluatorCorePackage, true
+	case evaluatorATLImportPath:
+		return evaluatorATLPackage, true
+	case evaluatorModuleImportPath + "/cmd/agent-eval":
+		return evaluatorCommandOwner, true
+	default:
+		return "", false
+	}
+}
+
+func validateEvaluatorPackageName(owner evaluatorPackage, tests bool, file, got string) error {
+	want := map[evaluatorPackage]string{
+		evaluatorRootPackage: "agenteval", evaluatorCorePackage: "core",
+		evaluatorATLPackage: "atl", evaluatorCommandOwner: "main",
+	}[owner]
+	if got == want || tests && got == want+"_test" {
+		return nil
+	}
+	return fmt.Errorf("evaluator dependency owner %s declares package %q, want %q", file, got, want)
+}
+
+func parsedEvaluatorImports(owner evaluatorPackage, tests bool, file string, parsed *ast.File) ([]evaluatorDependencyImport, error) {
+	var imports []evaluatorDependencyImport
 	for _, specification := range parsed.Imports {
 		path, err := strconv.Unquote(specification.Path.Value)
 		if err != nil {
-			return fmt.Errorf("decode evaluator import in %s: %w", file, err)
+			return nil, fmt.Errorf("decode evaluator import in %s: %w", file, err)
 		}
 		if !strings.HasPrefix(path, productInternalImportPrefix) {
 			continue
 		}
-		lane[path] = append(lane[path], file)
+		if path != evaluatorModuleImportPath && !strings.HasPrefix(path, evaluatorModuleImportPath+"/") {
+			return nil, fmt.Errorf("evaluator package %q source %s imports product-private package %q", owner, file, path)
+		}
+		target, known := evaluatorPackageForImport(path)
+		if !known {
+			return nil, fmt.Errorf("evaluator package %q source %s imports unknown evaluator package %q", owner, file, path)
+		}
+		alias := ""
+		if specification.Name != nil {
+			alias = specification.Name.Name
+		}
+		if alias == "." || alias == "_" {
+			return nil, fmt.Errorf("evaluator package %q source %s: dot and blank module-self imports are forbidden", owner, file)
+		}
+		if target == owner {
+			wantExternalPackage := strings.TrimSuffix(parsed.Name.Name, "_test") + "_test"
+			if !tests || parsed.Name.Name != wantExternalPackage {
+				return nil, fmt.Errorf("evaluator package DAG forbids %q -> %q in %s", owner, target, file)
+			}
+		} else if !evaluatorPackageEdgeAllowed(owner, target) {
+			return nil, fmt.Errorf("evaluator package DAG forbids %q -> %q in %s", owner, target, file)
+		}
+		imports = append(imports, evaluatorDependencyImport{File: file, Path: path, Alias: alias})
 	}
-	return nil
+	return imports, nil
+}
+
+func evaluatorPackageEdgeAllowed(owner, target evaluatorPackage) bool {
+	switch owner {
+	case evaluatorRootPackage:
+		return target == evaluatorCorePackage || target == evaluatorATLPackage
+	case evaluatorCorePackage:
+		return false
+	case evaluatorATLPackage:
+		return target == evaluatorCorePackage
+	case evaluatorCommandOwner:
+		return target == evaluatorRootPackage
+	default:
+		return false
+	}
 }
 
 func compareEvaluatorDependencyLedgers(got, want evaluatorDependencyLedger) error {
-	if !reflect.DeepEqual(got.LibraryProduction, want.LibraryProduction) {
-		return fmt.Errorf("library production product-private dependency ledger changed: got %v, want %v", got.LibraryProduction, want.LibraryProduction)
-	}
-	if !reflect.DeepEqual(got.LibraryTests, want.LibraryTests) {
-		return fmt.Errorf("library test product-private dependency ledger changed: got %v, want %v", got.LibraryTests, want.LibraryTests)
-	}
-	if !reflect.DeepEqual(got.CommandProduction, want.CommandProduction) {
-		return fmt.Errorf("command production module-self dependency ledger changed: got %v, want %v", got.CommandProduction, want.CommandProduction)
-	}
-	if !reflect.DeepEqual(got.CommandTests, want.CommandTests) {
-		return fmt.Errorf("command test module-self dependency ledger changed: got %v, want %v", got.CommandTests, want.CommandTests)
+	if !reflect.DeepEqual(got, want) {
+		return fmt.Errorf("evaluator dependency ledger changed:\n got: %v\nwant: %v", got, want)
 	}
 	return nil
 }
 
-func dependencyLaneCounts(lane map[string][]string) (declarations, files, targets int) {
-	ownedFiles := map[string]struct{}{}
-	for _, imports := range lane {
-		declarations += len(imports)
-		for _, file := range imports {
-			ownedFiles[file] = struct{}{}
-		}
+func writeEvaluatorDependencyFixture(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	files := map[string]string{
+		"facade.go":              "package agenteval\n\nimport \"" + evaluatorCoreImportPath + "\"\n",
+		"core/core.go":           "package core\n",
+		"core/core_test.go":      "package core_test\n\nimport \"" + evaluatorCoreImportPath + "\"\n",
+		"profile/atl/atl.go":     "package atl\n\nimport \"" + evaluatorCoreImportPath + "\"\n",
+		"cmd/agent-eval/main.go": "package main\n\nimport \"" + evaluatorModuleImportPath + "\"\n",
 	}
-	return declarations, len(ownedFiles), len(lane)
+	for path, contents := range files {
+		writeEvaluatorDependencyFile(t, root, path, contents)
+	}
+	return root
 }
 
-func cloneDependencyLane(source map[string][]string) map[string][]string {
-	clone := make(map[string][]string, len(source))
-	for path, files := range source {
-		clone[path] = append([]string(nil), files...)
+func writeEvaluatorDependencyFile(t *testing.T, root, name, contents string) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(name))
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
 	}
-	return clone
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func replaceEvaluatorDependencyFixture(t *testing.T, root, name, old, replacement string) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(name))
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := strings.Replace(string(contents), old, replacement, 1)
+	if updated == string(contents) {
+		t.Fatalf("fixture %s does not contain %q", name, old)
+	}
+	if err := os.WriteFile(path, []byte(updated), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }

@@ -284,13 +284,21 @@ func validateImports(root string, tracked []string) error {
 		if !strings.HasSuffix(path, ".go") {
 			continue
 		}
-		contents, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
+		absolute := filepath.Join(root, filepath.FromSlash(path))
+		info, err := os.Lstat(absolute)
+		if err != nil {
+			return fmt.Errorf("inspect %s: %w", path, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("tracked Go source %s must be a regular file", path)
+		}
+		contents, err := os.ReadFile(absolute)
 		if err != nil {
 			return fmt.Errorf("read %s: %w", path, err)
 		}
-		parsed, err := parser.ParseFile(token.NewFileSet(), path, contents, parser.ImportsOnly)
+		parsed, err := parser.ParseFile(token.NewFileSet(), path, contents, parser.SkipObjectResolution)
 		if err != nil {
-			return fmt.Errorf("parse imports in %s: %w", path, err)
+			return fmt.Errorf("parse Go source %s: %w", path, err)
 		}
 		imports, err := parsedImports(parsed)
 		if err != nil {
@@ -298,23 +306,27 @@ func validateImports(root string, tracked []string) error {
 		}
 		if strings.HasPrefix(path, evaluatorModuleDir+"/") {
 			inCommand := strings.HasPrefix(path, evaluatorCommandDir+"/")
-			if inCommand && !strings.HasSuffix(path, "_test.go") {
+			tests := strings.HasSuffix(path, "_test.go")
+			if inCommand && !tests {
 				commandHasSource = true
 			}
 			for _, imported := range imports {
 				if !strings.HasPrefix(imported, rootModulePath+"/internal/") {
 					continue
 				}
-				if inCommand && imported == evaluatorModulePath {
-					if !strings.HasSuffix(path, "_test.go") {
+				if imported == evaluatorModulePath || strings.HasPrefix(imported, evaluatorModulePath+"/") {
+					if inCommand && imported != evaluatorModulePath {
+						return fmt.Errorf("evaluator command %s imports module self-package %q outside its exact root boundary", path, imported)
+					}
+					if inCommand && !tests {
 						commandHasModuleSelfImport = true
 					}
 					continue
 				}
 				if inCommand {
-					return fmt.Errorf("evaluator command %s imports product-private package %q outside its module self-boundary", path, imported)
+					return fmt.Errorf("evaluator command %s imports product-private package %q outside its exact root boundary", path, imported)
 				}
-				return fmt.Errorf("evaluator library %s imports product-private package %q", path, imported)
+				return fmt.Errorf("evaluator source %s imports product-private package %q", path, imported)
 			}
 			continue
 		}

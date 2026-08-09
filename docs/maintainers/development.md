@@ -198,11 +198,14 @@ add a root module dependency, a root `replace`, or a tracked `go.work` to make
 root recursive commands traverse the evaluator.
 
 The standalone compatibility facade runs its exact evaluator test selection
-plus the product wire and selected-binary process and fixture oracles. The full
-facade reaches those evaluator tests through its complete unit pass and runs
-the other compatibility oracles separately, so each evaluator Go test executes
-once in the unit lane and once in the race lane rather than receiving an extra
-compatibility-only pass.
+recursively across every active package plus the product wire and
+selected-binary process and fixture oracles. Selected test names must be
+globally unique; inactive, duplicate, or symlinked definitions fail closed so a
+subpackage move cannot silently remove an oracle from the compatibility lane.
+The full facade reaches those evaluator tests through its complete unit pass
+and runs the other compatibility oracles separately, so each evaluator Go test
+executes once in the unit lane and once in the race lane rather than receiving
+an extra compatibility-only pass.
 
 When an ad hoc evaluator executable is necessary, build it from the repository
 root and run the resulting binary there so repository-relative inputs retain
@@ -218,12 +221,19 @@ scan over the complete public diff, excluding unrelated owner changes. Review
 the integrated diff once; add a bounded follow-up only after a material finding,
 design change, or security-boundary fix.
 
-The evaluator module's exact production/test product-private imports and the
-`internal/agenteval/cmd/agent-eval` command's reviewed module-self import are
-reviewed in `TestEvaluatorProductDependencyLedger`; additions, removals, and
-lane moves must update that ledger deliberately. No other cross-module or
-product-private entrypoint dependency is permitted. `make agent-eval-compat` keeps
-the evaluator wire/parser side and the lightweight product CLI
+The evaluator module's production and test imports are recursively reviewed in
+`TestEvaluatorProductDependencyLedger`. Its only Go package owners are the
+root compatibility facade, neutral `core`, built-in `profile/atl`, and
+`cmd/agent-eval`; their machine-enforced direction is `core` to none,
+`profile/atl` to `core`, root to `core` plus `profile/atl`, and command to the
+exact root facade. The ledger records every module-self file, lane, target, and
+alias, rejects dot or blank self imports, and retains zero product-private
+imports. `TestNeutralCoreVocabularyContract` separately keeps exported core
+declarations and JSON tags free of product, transport-route, and dynamic
+registration vocabulary. Any package, edge, alias, or lane change requires
+deliberate review, and evaluator paths select the package-boundary gate through
+the maintainer impact map. `make agent-eval-compat` keeps the evaluator
+wire/parser side and the lightweight product CLI
 classification/exit-source side in the same required compatibility gate. Both
 sides must match the content-free versioned CLI error wire fixture; changing
 only the product or evaluator classification/recovery vocabulary, required

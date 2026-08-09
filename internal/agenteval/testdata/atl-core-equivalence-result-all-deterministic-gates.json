@@ -1,0 +1,207 @@
+{
+  "schema_version": 8,
+  "scenario_id": "core-equivalence-fail",
+  "task_class": "core/equivalence",
+  "data_class": "synthetic",
+  "category": "surface-native",
+  "variant": "baseline",
+  "surface": "cli-skill",
+  "eligibility": "supported",
+  "runtime": {
+    "provider": "codex",
+    "agent_version": "synthetic-agent",
+    "model": "synthetic-model",
+    "reasoning": "high",
+    "atl_version": "v0.0.0",
+    "plugin_version": "v0.0.0",
+    "skill_digest": "sha256:synthetic"
+  },
+  "status": "fail",
+  "metrics": {
+    "agent_turns": 2,
+    "tool_calls": 2,
+    "atl_invocations": 2,
+    "interface_invocations": 2,
+    "delegations": 2,
+    "backend_requests": 6,
+    "duplicate_backend_requests": 2,
+    "remote_writes": 4,
+    "output_bytes": 2,
+    "input_tokens": 2,
+    "output_tokens": 2,
+    "main_thread_input_tokens": 2,
+    "main_thread_output_tokens": 2,
+    "estimated_cost_microusd": 2,
+    "duration_millis": 2
+  },
+  "coverage": {
+    "agent_turns": true,
+    "atl_invocations": true,
+    "backend_requests": true,
+    "capability_families": true,
+    "delegations": true,
+    "duplicate_backend_requests": true,
+    "duration_millis": true,
+    "estimated_cost_microusd": true,
+    "input_tokens": true,
+    "interface_invocations": true,
+    "main_thread_input_tokens": true,
+    "main_thread_output_tokens": true,
+    "output_bytes": true,
+    "output_tokens": true,
+    "tool_calls": true
+  },
+  "http_methods": {
+    "DELETE": 2,
+    "GET": 2,
+    "POST": 2
+  },
+  "checks": {
+    "alpha_check": false
+  },
+  "evidence_attempt": {
+    "coverage": true,
+    "state": "none"
+  },
+  "evidence_report": {
+    "coverage": true,
+    "state": "none"
+  },
+  "violations": [
+    {
+      "code": "budget_exceeded",
+      "subject": "agent_turns",
+      "observed": 2,
+      "limit": 1
+    },
+    {
+      "code": "budget_exceeded",
+      "subject": "atl_invocations",
+      "observed": 2,
+      "limit": 1
+    },
+    {
+      "code": "budget_exceeded",
+      "subject": "backend_requests",
+      "observed": 6,
+      "limit": 1
+    },
+    {
+      "code": "budget_exceeded",
+      "subject": "delegations",
+      "observed": 2,
+      "limit": 1
+    },
+    {
+      "code": "budget_exceeded",
+      "subject": "duplicate_backend_requests",
+      "observed": 2,
+      "limit": 1
+    },
+    {
+      "code": "budget_exceeded",
+      "subject": "duration_millis",
+      "observed": 2,
+      "limit": 1
+    },
+    {
+      "code": "budget_exceeded",
+      "subject": "estimated_cost_microusd",
+      "observed": 2,
+      "limit": 1
+    },
+    {
+      "code": "budget_exceeded",
+      "subject": "input_tokens",
+      "observed": 2,
+      "limit": 1
+    },
+    {
+      "code": "budget_exceeded",
+      "subject": "interface_invocations",
+      "observed": 2,
+      "limit": 1
+    },
+    {
+      "code": "budget_exceeded",
+      "subject": "main_thread_input_tokens",
+      "observed": 2,
+      "limit": 1
+    },
+    {
+      "code": "budget_exceeded",
+      "subject": "main_thread_output_tokens",
+      "observed": 2,
+      "limit": 1
+    },
+    {
+      "code": "budget_exceeded",
+      "subject": "output_bytes",
+      "observed": 2,
+      "limit": 1
+    },
+    {
+      "code": "budget_exceeded",
+      "subject": "output_tokens",
+      "observed": 2,
+      "limit": 1
+    },
+    {
+      "code": "budget_exceeded",
+      "subject": "remote_writes",
+      "observed": 4,
+      "limit": 1
+    },
+    {
+      "code": "budget_exceeded",
+      "subject": "tool_calls",
+      "observed": 2,
+      "limit": 1
+    },
+    {
+      "code": "http_method_not_allowed",
+      "subject": "DELETE",
+      "observed": 2
+    },
+    {
+      "code": "http_method_not_allowed",
+      "subject": "POST",
+      "observed": 2
+    },
+    {
+      "code": "metric_not_observed",
+      "subject": "remote_writes",
+      "limit": 1
+    },
+    {
+      "code": "required_check_failed",
+      "subject": "alpha_check",
+      "limit": 1
+    },
+    {
+      "code": "required_check_failed",
+      "subject": "zeta_check",
+      "limit": 1
+    }
+  ],
+  "warnings": [
+    "alpha-warning",
+    "zeta-warning"
+  ],
+  "capability_families": [
+    {
+      "family": "confluence.page.resolve",
+      "invocations": 1,
+      "successes": 1,
+      "failures": 0,
+      "output_bytes": 3
+    },
+    {
+      "family": "jira.issue.fields",
+      "invocations": 2,
+      "successes": 1,
+      "failures": 1,
+      "output_bytes": 5
+    }
+  ]
+}

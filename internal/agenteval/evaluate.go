@@ -112,11 +112,9 @@ func Evaluate(s Scenario, o Observation) (Result, error) {
 		}
 		return violations[i].Subject < violations[j].Subject
 	})
-	status := "pass"
-	if eligibility != EligibilitySupported {
-		status = "ineligible"
-	} else if len(violations) > 0 {
-		status = "fail"
+	status, err := atlCoreResultStatus(eligibility, len(violations) == 0)
+	if err != nil {
+		return Result{}, err
 	}
 	warnings := append([]string(nil), o.Warnings...)
 	sort.Strings(warnings)
