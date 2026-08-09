@@ -30,6 +30,14 @@ type DoctorOptions struct {
 	ContentPolicyActive      bool
 	ContentPolicyEnforcement string
 	ContentPolicyAdvisory    []string
+	RemoteDependencies       DoctorRemoteDependencies
+}
+
+// DoctorRemoteDependencies are composed outside app so remote diagnostics use
+// only credential and metadata-reader ports here.
+type DoctorRemoteDependencies struct {
+	Token  func(service string) (string, error)
+	Reader func(service, rawURL, token, version string, cfg *config.Config) (domain.ServerMetadataReader, error)
 }
 
 type DoctorResult struct {
@@ -191,7 +199,7 @@ func RunDoctor(ctx context.Context, opts DoctorOptions) (*DoctorResult, error) {
 	evaluateLocalDoctor(result, cfgInspection, authInspection)
 	result.Mirror = inspectDoctorMirror(result)
 	if opts.Remote {
-		runDoctorRemote(ctx, result, cfgInspection, authInspection)
+		runDoctorRemote(ctx, result, cfgInspection, authInspection, opts.RemoteDependencies)
 	}
 	finalizeDoctor(result)
 	if !result.Healthy {
@@ -429,14 +437,14 @@ func doctorJiraMirror(snapshot *JiraMirrorSnapshot, err error) DoctorMirrorServi
 	return out
 }
 
-func runDoctorRemote(ctx context.Context, result *DoctorResult, cfg config.Inspection, credentials auth.Inspection) {
+func runDoctorRemote(ctx context.Context, result *DoctorResult, cfg config.Inspection, credentials auth.Inspection, deps DoctorRemoteDependencies) {
 	if cfg.Status == "invalid" || cfg.Status == "unavailable" {
 		skipDoctorRemote(&result.Services.Jira, "configuration_preflight_failed")
 		skipDoctorRemote(&result.Services.Confluence, "configuration_preflight_failed")
 		return
 	}
-	runOneDoctorRemote(ctx, result, "jira", cfg.Effective.JiraURL, cfg.Effective, cfg.File, credentials.Store, &result.Services.Jira)
-	runOneDoctorRemote(ctx, result, "confluence", cfg.Effective.ConfluenceURL, cfg.Effective, cfg.File, credentials.Store, &result.Services.Confluence)
+	runOneDoctorRemote(ctx, result, "jira", cfg.Effective.JiraURL, cfg.Effective, cfg.File, credentials.Store, &result.Services.Jira, deps)
+	runOneDoctorRemote(ctx, result, "confluence", cfg.Effective.ConfluenceURL, cfg.Effective, cfg.File, credentials.Store, &result.Services.Confluence, deps)
 }
 
 func runOneDoctorRemote(
@@ -447,6 +455,7 @@ func runOneDoctorRemote(
 	configFile config.FileInspection,
 	credentialStore auth.StoreInspection,
 	out *DoctorService,
+	deps DoctorRemoteDependencies,
 ) {
 	out.Remote.Requested = true
 	if out.Status != "ready" {
@@ -463,7 +472,13 @@ func runOneDoctorRemote(
 		skipDoctorRemote(out, "credential_store_preflight_failed")
 		return
 	}
-	token, err := auth.Token(auth.Service(service))
+	if deps.Token == nil || deps.Reader == nil {
+		out.Remote.Status = "skipped"
+		out.Remote.Reason = "composition_unavailable"
+		addDoctorProblem(result, "remote."+service, "error", out.Remote.Reason, "repair_configuration")
+		return
+	}
+	token, err := deps.Token(service)
 	if err != nil {
 		out.Remote.Status = "skipped"
 		out.Remote.Reason = "credentials_unavailable"
@@ -471,7 +486,7 @@ func runOneDoctorRemote(
 		return
 	}
 
-	reader, readerErr := newDoctorServerMetadataReader(service, rawURL, token, result.CLI.Version, effective)
+	reader, readerErr := deps.Reader(service, rawURL, token, result.CLI.Version, effective)
 	if readerErr != nil {
 		out.Remote.Status = "skipped"
 		out.Remote.Reason = "invalid_transport_configuration"

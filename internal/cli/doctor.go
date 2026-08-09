@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/compose"
 )
 
 func newDoctorCmd() *cobra.Command {
@@ -25,7 +26,7 @@ func newDoctorCmd() *cobra.Command {
 				return classifyProcessPolicyLoadError(err)
 			}
 			policy := buildPolicyShowResult(invocationRuntimeFor(cmd), resolved)
-			result, doctorErr := app.RunDoctor(cmd.Context(), app.DoctorOptions{
+			result, doctorErr := compose.RunDoctor(cmd.Context(), app.DoctorOptions{
 				Remote: remote, ReadOnlyPolicy: invocationRuntimeFor(cmd).readOnly || envReadOnly(), ContentPolicyActive: policy.Active,
 				ContentPolicyEnforcement: policy.Enforcement, ContentPolicyAdvisory: policy.AdvisoryBecause,
 			})

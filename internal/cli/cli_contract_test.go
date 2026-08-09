@@ -791,7 +791,7 @@ func TestUsageErrorMissingFlagExit2(t *testing.T) {
 
 // TestMissingBackendURLExitConfig confirms an unconfigured backend URL is a
 // config error (exit 7 — "not set up"), distinct from a usage error, surfaced by
-// wire.NewConfluence before any HTTP call.
+// compose.NewConfluence before any HTTP call.
 func TestMissingBackendURLExitConfig(t *testing.T) {
 	out, code := runCLI(t, nil, "conf", "page", "meta", "--id", "1")
 	if code != exitConfig {
@@ -820,7 +820,7 @@ func TestMissingPATExitConfig(t *testing.T) {
 // TestInsecureBackendURLExitUsage pins the wire-level ErrUsage wrap for a
 // non-https backend URL on a non-loopback host (exit 2, ATL_ALLOW_INSECURE is
 // the documented override — neutralized by the harness). The PAT is present so
-// the failure can only come from CheckSecureURL inside NewConfluence/NewJira,
+// the failure can only come from CheckSecureURL inside compose.NewConfluence/NewJira,
 // before any HTTP call; a regression to a bare error would degrade to exit 1.
 func TestInsecureBackendURLExitUsage(t *testing.T) {
 	cases := []struct {

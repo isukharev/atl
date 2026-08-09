@@ -10,17 +10,16 @@ import (
 )
 
 // TestAppUseCasesDoNotImportAdapters keeps concrete transport assembly confined
-// to the composition root and its compile-time verifier. Ordinary use cases
-// must depend on domain/neutral packages instead.
+// to the outer composition root. Every production app file must depend on
+// domain/neutral packages instead; there are no per-file exceptions.
 func TestAppUseCasesDoNotImportAdapters(t *testing.T) {
-	allowed := map[string]bool{"wire.go": true, "verify.go": true}
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || allowed[name] {
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
 		file, err := parser.ParseFile(token.NewFileSet(), name, nil, parser.ImportsOnly)

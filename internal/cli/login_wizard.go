@@ -12,8 +12,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/auth"
+	"github.com/isukharev/atl/internal/compose"
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/version"
 )
@@ -61,7 +61,7 @@ func wizardSpecs() []svcSpec {
 			getURL: func(c *config.Config) string { return c.ConfluenceURL },
 			setURL: func(c *config.Config, u string) { c.ConfluenceURL = u },
 			verify: func(ctx context.Context, u, t string, cfg *config.Config) (string, error) {
-				return app.VerifyConfluenceWithConfig(ctx, u, t, version.Version, cfg)
+				return compose.VerifyConfluence(ctx, u, t, version.Version, cfg)
 			},
 		},
 		{
@@ -70,7 +70,7 @@ func wizardSpecs() []svcSpec {
 			getURL: func(c *config.Config) string { return c.JiraURL },
 			setURL: func(c *config.Config, u string) { c.JiraURL = u },
 			verify: func(ctx context.Context, u, t string, cfg *config.Config) (string, error) {
-				return app.VerifyJiraWithConfig(ctx, u, t, version.Version, cfg)
+				return compose.VerifyJira(ctx, u, t, version.Version, cfg)
 			},
 		},
 	}

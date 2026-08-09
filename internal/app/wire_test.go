@@ -1,0 +1,61 @@
+package app
+
+import (
+	"testing"
+
+	"github.com/isukharev/atl/internal/compatibility"
+	"github.com/isukharev/atl/internal/config"
+	"github.com/isukharev/atl/internal/domain"
+)
+
+func TestNewConfluenceServiceProjectsPureDependencies(t *testing.T) {
+	cfg := &config.Config{}
+	activation := compatibility.Activation{ProviderID: "provider"}
+	service := NewConfluenceService(ConfluenceDependencies{
+		BaseURL: "https://confluence.example.com", Config: cfg,
+		RequestMaxInFlight: 4, RequestsPerSecond: 10,
+		CommentMutationActivation: &activation,
+	})
+	activation.ProviderID = "changed"
+	if service.baseURL != "https://confluence.example.com" || service.cfg != cfg {
+		t.Fatalf("constructor lost base/config: %+v", service)
+	}
+	if service.requestMaxInFlight != 4 || service.requestsPerSecond != 10 {
+		t.Fatalf("schedule = %d/%d", service.requestMaxInFlight, service.requestsPerSecond)
+	}
+	if service.commentMutationActivation == nil || service.commentMutationActivation.ProviderID != "provider" {
+		t.Fatalf("activation was not defensively copied: %+v", service.commentMutationActivation)
+	}
+}
+
+func TestNewJiraServiceProjectsPureDependencies(t *testing.T) {
+	cfg := &config.Config{}
+	service := NewJiraService(JiraDependencies{BaseURL: "https://jira.example.com", Config: cfg})
+	if service.baseURL != "https://jira.example.com" || service.cfg != cfg {
+		t.Fatalf("constructor lost base/config: %+v", service)
+	}
+	if _, reason := service.confluenceGraphMetadataReader(); reason != string(DependencyNotConfigured) {
+		t.Fatalf("optional Confluence reason=%q", reason)
+	}
+}
+
+func TestNewEnvironmentServiceKeepsClosedSetupStatuses(t *testing.T) {
+	service := NewEnvironmentService(&config.Config{}, EnvironmentDependencies{
+		JiraSetup: DependencyCredentialsMissing, ConfluenceSetup: DependencyInvalidConfiguration,
+	})
+	if service.jiraSetup != "credentials_missing" || service.confluenceSetup != "invalid_configuration" {
+		t.Fatalf("setup=%q/%q", service.jiraSetup, service.confluenceSetup)
+	}
+}
+
+func TestNewCompatibilityServiceKeepsLazySetupStatus(t *testing.T) {
+	called := 0
+	service := NewCompatibilityService(compatibility.Settings{}, func() (domain.ExactServerMetadataReader, DependencySetupStatus) {
+		called++
+		return nil, DependencyCredentialsMissing
+	})
+	_ = service
+	if called != 0 {
+		t.Fatalf("factory called eagerly %d times", called)
+	}
+}

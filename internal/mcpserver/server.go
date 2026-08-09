@@ -13,7 +13,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/isukharev/atl/internal/app"
-	"github.com/isukharev/atl/internal/config"
+	"github.com/isukharev/atl/internal/compose"
 	"github.com/isukharev/atl/internal/domain"
 )
 
@@ -55,18 +55,10 @@ type Dependencies struct {
 func ProductionDependencies(version string) Dependencies {
 	return Dependencies{
 		Jira: func() (JiraReader, error) {
-			cfg, err := config.Load()
-			if err != nil {
-				return nil, err
-			}
-			return app.NewJira(cfg, version)
+			return compose.LoadJira(version)
 		},
 		Confluence: func() (ConfluenceReader, error) {
-			cfg, err := config.Load()
-			if err != nil {
-				return nil, err
-			}
-			return app.NewConfluence(cfg, version)
+			return compose.LoadConfluence(version)
 		},
 		MirrorRoot: func() (string, error) {
 			root := strings.TrimSpace(os.Getenv("ATL_MIRROR_ROOT"))
