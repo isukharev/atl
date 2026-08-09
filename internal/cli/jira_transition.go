@@ -51,7 +51,7 @@ func jiraTransitionMutationCmd(applyCapable bool) *cobra.Command {
 					return err
 				}
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}

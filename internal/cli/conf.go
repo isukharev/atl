@@ -65,19 +65,19 @@ func createBody(cmd *cobra.Command, fromFile, fromMD string) ([]byte, error) {
 	return body, nil
 }
 
-func confService() (*app.ConfluenceService, error) {
+func confService(cmd *cobra.Command) (*app.ConfluenceService, error) {
 	cfg, err := loadConfig()
 	if err != nil {
 		return nil, err
 	}
-	authorizer, err := policyAuthorizerFor("confluence", cfg.ConfluenceURL)
+	authorizer, err := policyAuthorizerFor(invocationRuntimeFor(cmd), "confluence", cfg.ConfluenceURL)
 	if err != nil {
 		return nil, err
 	}
 	return app.NewConfluenceWithWriteAuthorizer(cfg, version.Version, authorizer)
 }
 
-func confCommentMutationService() (*app.ConfluenceService, error) {
+func confCommentMutationService(cmd *cobra.Command) (*app.ConfluenceService, error) {
 	cfg, err := loadConfig()
 	if err != nil {
 		return nil, err
@@ -89,19 +89,19 @@ func confCommentMutationService() (*app.ConfluenceService, error) {
 	if settings.Confluence == nil {
 		return nil, fmt.Errorf("%w: Confluence comment compatibility is not activated; run compatibility pin first", domain.ErrConfig)
 	}
-	authorizer, err := policyAuthorizerFor("confluence", cfg.ConfluenceURL)
+	authorizer, err := policyAuthorizerFor(invocationRuntimeFor(cmd), "confluence", cfg.ConfluenceURL)
 	if err != nil {
 		return nil, err
 	}
 	return app.NewConfluenceCommentMutationsWithWriteAuthorizer(cfg, version.Version, *settings.Confluence, authorizer)
 }
 
-func confScheduledService(pagePrefetch, requestsPerSecond int) (*app.ConfluenceService, error) {
+func confScheduledService(cmd *cobra.Command, pagePrefetch, requestsPerSecond int) (*app.ConfluenceService, error) {
 	cfg, err := loadConfig()
 	if err != nil {
 		return nil, err
 	}
-	authorizer, err := policyAuthorizerFor("confluence", cfg.ConfluenceURL)
+	authorizer, err := policyAuthorizerFor(invocationRuntimeFor(cmd), "confluence", cfg.ConfluenceURL)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +139,7 @@ func confSearchCmd() *cobra.Command {
 			if err := validatePageLimit(limit, 100); err != nil {
 				return err
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -190,7 +190,7 @@ func confSpaceCmd() *cobra.Command {
 			if space == "" {
 				return usageErr("--space is required")
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -289,9 +289,9 @@ func confPullCmd() *cobra.Command {
 			o.Render = override
 			var svc *app.ConfluenceService
 			if o.Incremental || o.Complete || o.PagePrefetch > 1 || o.RequestsPerSecond > 0 {
-				svc, err = confScheduledService(o.PagePrefetch, o.RequestsPerSecond)
+				svc, err = confScheduledService(cmd, o.PagePrefetch, o.RequestsPerSecond)
 			} else {
-				svc, err = confService()
+				svc, err = confService(cmd)
 			}
 			if err != nil {
 				return err
@@ -430,7 +430,7 @@ func confTableCmd() *cobra.Command {
 			if rawCSV && format != "csv" {
 				return usageErr("--raw-csv requires --format csv")
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -515,7 +515,7 @@ func confTableCmd() *cobra.Command {
 			if summaryExpectedVersion < 0 {
 				return usageErr("--expected-version must be >= 1 when set")
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -552,7 +552,7 @@ func confStatusCmd() *cobra.Command {
 			svc := &app.ConfluenceService{}
 			if remote {
 				var err error
-				svc, err = confService()
+				svc, err = confService(cmd)
 				if err != nil {
 					return err
 				}
@@ -620,7 +620,7 @@ func confSnapshotCmd() *cobra.Command {
 				if preflight == nil || preflightErr != nil || !preflight.Complete || !preflight.Reconciled {
 					result, snapshotErr = preflight, preflightErr
 				} else {
-					svc, err := confService()
+					svc, err := confService(cmd)
 					if err != nil {
 						return err
 					}
@@ -688,7 +688,7 @@ func confReconcileCmd() *cobra.Command {
 			Short: map[bool]string{false: "Read one page and classify base/local/remote divergence", true: "Stage exact base/remote artifacts without changing the working page"}[stage],
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				svc, err := confService()
+				svc, err := confService(cmd)
 				if err != nil {
 					return err
 				}
@@ -740,7 +740,7 @@ func confPlanCmd() *cobra.Command {
 		Short: "Run the complete read-only local and remote plan preflight",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -767,7 +767,7 @@ func confPlanCmd() *cobra.Command {
 			if expectedHash == "" {
 				return usageErr("--expected-proposal-hash is required with --confirm APPLY")
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -832,7 +832,7 @@ func confPushCmd() *cobra.Command {
 				_ = emit(cmd, res, func() string { return pushText(res) })
 				return perr
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -909,7 +909,7 @@ func confCommentCmd() *cobra.Command {
 			}); err != nil {
 				return err
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -958,7 +958,7 @@ func confCommentCmd() *cobra.Command {
 			if threadExpectedVersion < 0 {
 				return usageErr("--expected-version must be positive (0 disables the gate)")
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -1069,7 +1069,7 @@ func confInlineCommentMutationLeaf(applyCapable bool) *cobra.Command {
 					return usageErr("--from-file is only valid for inline-create or reply")
 				}
 			}
-			svc, err := confCommentMutationService()
+			svc, err := confCommentMutationService(cmd)
 			if err != nil {
 				return err
 			}
@@ -1150,7 +1150,7 @@ func confFooterCommentMutationCmd(applyCapable bool) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -1212,7 +1212,7 @@ func confAttachmentCmd() *cobra.Command {
 			if listExpectedVersion < 0 {
 				return usageErr("--expected-version must be a positive page version (0 disables the gate)")
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -1251,7 +1251,7 @@ func confAttachmentCmd() *cobra.Command {
 			if getPageID == "" || getName == "" {
 				return usageErr("--id and --name are required")
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -1278,7 +1278,7 @@ func confAttachmentCmd() *cobra.Command {
 			if uploadPageID == "" || uploadFile == "" {
 				return usageErr("--id and --file are required")
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -1301,7 +1301,7 @@ func confAttachmentCmd() *cobra.Command {
 		Short: "Preview or apply one reviewed permanent attachment deletion",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -1332,7 +1332,7 @@ func confMeCmd() *cobra.Command {
 		Short: "Print the authenticated Confluence user",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}

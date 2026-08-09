@@ -158,9 +158,9 @@ func classifyProcessPolicyLoadError(err error) error {
 	return fmt.Errorf("%w: load content policy: %w", domain.ErrConfig, err)
 }
 
-func policyAuthorizerFor(service, rawURL string) (domain.WriteAuthorizer, error) {
-	if currentProcessPolicy == nil || !currentCommandPolicyWrite {
+func policyAuthorizerFor(runtime *invocationRuntime, service, rawURL string) (domain.WriteAuthorizer, error) {
+	if runtime.processPolicy == nil || !runtime.commandPolicyWrite {
 		return nil, nil
 	}
-	return currentProcessPolicy.authorizerFor(service, rawURL)
+	return runtime.processPolicy.authorizerFor(service, rawURL)
 }

@@ -21,7 +21,7 @@ func confPageCmd() *cobra.Command {
 		Short: "Resolve a safe page reference to its stable content id",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -37,7 +37,7 @@ func confPageCmd() *cobra.Command {
 		Short: "List structural page headings without rendering the full body",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -55,7 +55,7 @@ func confPageCmd() *cobra.Command {
 		Short: "Render one structurally bounded page section as Markdown",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -66,7 +66,7 @@ func confPageCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if outputFormat == "text" {
+			if invocationRuntimeFor(cmd).outputFormat == "text" {
 				_, err := io.WriteString(cmd.OutOrStdout(), result.Markdown)
 				return err
 			}
@@ -88,7 +88,7 @@ func confPageCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -99,7 +99,7 @@ func confPageCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if outputFormat == "text" {
+			if invocationRuntimeFor(cmd).outputFormat == "text" {
 				for _, selected := range result.Sections {
 					if _, err := io.WriteString(cmd.OutOrStdout(), selected.Markdown); err != nil {
 						return err
@@ -125,7 +125,7 @@ func confPageCmd() *cobra.Command {
 			if format != "csf" && format != "view" {
 				return usageErr("--format must be csf or view")
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -134,7 +134,7 @@ func confPageCmd() *cobra.Command {
 				return err
 			}
 			// Body is text; print raw for piping.
-			if outputFormat == "text" {
+			if invocationRuntimeFor(cmd).outputFormat == "text" {
 				fmt.Fprintln(cmd.OutOrStdout(), string(page.Body))
 				return nil
 			}
@@ -160,7 +160,7 @@ func confPageCmd() *cobra.Command {
 			if metaID == "" {
 				return usageErr("--id is required")
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -181,7 +181,7 @@ func confPageCmd() *cobra.Command {
 			if histID == "" {
 				return usageErr("--id is required")
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -216,7 +216,7 @@ func confPageCmd() *cobra.Command {
 				_ = emit(cmd, map[string]any{"problems": probs}, nil)
 				return fmt.Errorf("%w: CSF not well-formed (see problems); page not created", domain.ErrCheckFailed)
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -267,7 +267,7 @@ func confPageCmd() *cobra.Command {
 			if err := moveGuard.validate(); err != nil {
 				return err
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -299,7 +299,7 @@ func confPageCmd() *cobra.Command {
 		Short: "Preview or apply one reviewed page trash operation",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -336,7 +336,7 @@ func confPageCmd() *cobra.Command {
 			if listStatus != "" {
 				q += ` AND status = ` + cqlEscape(listStatus)
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -374,7 +374,7 @@ func confPageCmd() *cobra.Command {
 			if openID == "" {
 				return usageErr("--id is required")
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -404,7 +404,7 @@ func confPageCmd() *cobra.Command {
 		Short: "Preview or apply one reviewed page copy",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -420,7 +420,7 @@ func confPageCmd() *cobra.Command {
 				warnRender(cmd.ErrOrStderr(), result.Registration.Warnings)
 			}
 			var emitErr error
-			if outputFormat == "id" {
+			if invocationRuntimeFor(cmd).outputFormat == "id" {
 				if result.ID == "" {
 					if copyErr != nil {
 						return copyErr
@@ -491,7 +491,7 @@ func confPageViewCmd() *cobra.Command {
 			if detected, ok := app.MirrorRootOf(configRoot); ok {
 				configRoot = detected
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -500,7 +500,7 @@ func confPageViewCmd() *cobra.Command {
 				return err
 			}
 			warnRender(cmd.ErrOrStderr(), res.Warnings)
-			if outputFormat == "text" {
+			if invocationRuntimeFor(cmd).outputFormat == "text" {
 				_, err := io.WriteString(cmd.OutOrStdout(), res.Markdown)
 				return err
 			}

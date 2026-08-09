@@ -20,13 +20,13 @@ func newDoctorCmd() *cobra.Command {
 			"per ready backend; legacy Confluence may add one bodyless reachability probe.\n" +
 			"It never reads page/issue bodies, identities, or search results.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			resolved, err := currentProcessPolicy.resolve()
+			resolved, err := invocationRuntimeFor(cmd).processPolicy.resolve()
 			if err != nil {
 				return classifyProcessPolicyLoadError(err)
 			}
-			policy := buildPolicyShowResult(resolved)
+			policy := buildPolicyShowResult(invocationRuntimeFor(cmd), resolved)
 			result, doctorErr := app.RunDoctor(cmd.Context(), app.DoctorOptions{
-				Remote: remote, ReadOnlyPolicy: readOnly || envReadOnly(), ContentPolicyActive: policy.Active,
+				Remote: remote, ReadOnlyPolicy: invocationRuntimeFor(cmd).readOnly || envReadOnly(), ContentPolicyActive: policy.Active,
 				ContentPolicyEnforcement: policy.Enforcement, ContentPolicyAdvisory: policy.AdvisoryBecause,
 			})
 			emitErr := emitSnapshot(cmd, result, func() string { return doctorText(result) })

@@ -18,7 +18,7 @@ func jiraProjectCmd() *cobra.Command {
 			if err := validatePageLimit(limit, 1000); err != nil {
 				return err
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -51,7 +51,7 @@ func jiraIssueTypesCmd() *cobra.Command {
 			if project == "" {
 				return usageErr("--project is required")
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -82,7 +82,7 @@ func jiraIssueCreateCheckCmd() *cobra.Command {
 			if project == "" || issueType == "" {
 				return usageErr("--project and --type are required")
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}

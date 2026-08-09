@@ -37,7 +37,7 @@ func confPageTitleCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}

@@ -64,7 +64,7 @@ func jiraIssueGraphCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			service, err := jiraService()
+			service, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}

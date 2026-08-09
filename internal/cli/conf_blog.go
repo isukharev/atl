@@ -40,7 +40,7 @@ func confBlogCreateCmd() *cobra.Command {
 				_ = emit(cmd, map[string]any{"problems": problems}, nil)
 				return fmt.Errorf("%w: CSF not well-formed (see problems); blog post not created", domain.ErrCheckFailed)
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}

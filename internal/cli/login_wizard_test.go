@@ -12,8 +12,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/spf13/cobra"
 )
 
 // whoamiServer replies with a fixed display name on any path.
@@ -227,14 +225,8 @@ func TestAuthLoginWizardGolden(t *testing.T) {
 	if err != nil {
 		t.Fatalf("wizard: %v", err)
 	}
-	// emit() is called directly (no flag parse), so pin the package-global
-	// output format to JSON rather than depend on whatever a prior test left.
-	prev := outputFormat
-	outputFormat = "json"
-	defer func() { outputFormat = prev }()
-
 	var buf bytes.Buffer
-	cmd := &cobra.Command{}
+	cmd := commandWithFormat("json")
 	cmd.SetOut(&buf)
 	if err := emit(cmd, sum, nil); err != nil {
 		t.Fatalf("emit: %v", err)
