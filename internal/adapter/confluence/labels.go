@@ -20,7 +20,7 @@ var (
 // A server that keeps advertising _links.next is bounded by the shared safety
 // caps and reported as truncated rather than silently returning a prefix.
 func (cf *Confluence) ListContentLabels(ctx context.Context, id string) ([]domain.ContentLabel, bool, error) {
-	start := 0
+	cursor := confluencePageCursor{}
 	var out []domain.ContentLabel
 	for page := 0; page < maxPages && len(out) < maxItems; page++ {
 		var response struct {
@@ -31,7 +31,7 @@ func (cf *Confluence) ListContentLabels(ctx context.Context, id string) ([]domai
 		}
 		query := url.Values{}
 		query.Set("limit", "100")
-		query.Set("start", strconv.Itoa(start))
+		query.Set("start", strconv.Itoa(cursor.startAt()))
 		path := "/rest/api/content/" + url.PathEscape(id) + "/label?" + query.Encode()
 		if err := cf.c.GetJSON(ctx, path, &response); err != nil {
 			return nil, false, err
@@ -42,11 +42,10 @@ func (cf *Confluence) ListContentLabels(ctx context.Context, id string) ([]domai
 			return out, true, nil
 		}
 		out = append(out, response.Results...)
-		if response.Links.Next == "" {
+		switch cursor.advance(len(response.Results), response.Links.Next) {
+		case confluencePageExhausted:
 			return out, false, nil
-		}
-		start += len(response.Results)
-		if len(response.Results) == 0 {
+		case confluencePageStalled:
 			return out, true, nil
 		}
 	}

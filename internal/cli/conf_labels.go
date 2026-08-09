@@ -16,7 +16,7 @@ func confLabelService(cmd *cobra.Command) (*app.ConfluenceLabelService, error) {
 	if err != nil {
 		return nil, err
 	}
-	return compose.NewConfluenceLabelsWithWriteAuthorizer(cfg, version.Version, authorizer)
+	return compose.NewConfluenceLabelsWithWriteAuthorizer(cfg, version.Version, authorizer, invocationCompositionOptions(cmd)...)
 }
 
 func confPageLabelsCmd() *cobra.Command {

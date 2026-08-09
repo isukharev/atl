@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	"github.com/isukharev/atl/internal/app"
 )
@@ -101,6 +104,76 @@ func TestDoctorRemoteIsExactlyOneMetadataGETPerServiceAndPrivacySafe(t *testing.
 	} {
 		if strings.Contains(out, private) || strings.Contains(stderr, private) {
 			t.Fatalf("doctor output/trace leaked %q\nstdout=%s\nstderr=%s", private, out, stderr)
+		}
+	}
+}
+
+func TestCommandTreesKeepVerboseTransportTracingIndependent(t *testing.T) {
+	t.Setenv("ATL_NO_UPDATE", "1")
+	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
+	t.Setenv("ATL_VERBOSE", "")
+	t.Setenv("ATL_CONFLUENCE_URL", "")
+	t.Setenv("ATL_CONFLUENCE_PAT", "")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/rest/api/2/serverInfo" {
+			http.NotFound(w, request)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"version":"9.12.7","deploymentType":"Data Center"}`))
+	}))
+	t.Cleanup(server.Close)
+	t.Setenv("ATL_JIRA_URL", server.URL)
+	t.Setenv("ATL_JIRA_PAT", "test-pat")
+
+	verboseRoot := newRoot()
+	verboseRoot.SetArgs([]string{"--verbose", "doctor", "--remote"})
+	var verboseOut, verboseErr strings.Builder
+	verboseRoot.SetOut(&verboseOut)
+	verboseRoot.SetErr(&verboseErr)
+
+	silentRoot := newRoot()
+	silentRoot.SetArgs([]string{"doctor", "--remote"})
+	var silentOut, silentErr strings.Builder
+	silentRoot.SetOut(&silentOut)
+	silentRoot.SetErr(&silentErr)
+
+	ready := make(chan struct{}, 2)
+	release := make(chan struct{})
+	for _, root := range []*cobra.Command{verboseRoot, silentRoot} {
+		doctor, _, err := root.Find([]string{"doctor"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		original := doctor.RunE
+		doctor.RunE = func(cmd *cobra.Command, args []string) error {
+			ready <- struct{}{}
+			<-release
+			return original(cmd, args)
+		}
+	}
+	results := make(chan error, 2)
+	go func() { results <- verboseRoot.ExecuteContext(context.Background()) }()
+	go func() { results <- silentRoot.ExecuteContext(context.Background()) }()
+	<-ready
+	<-ready
+	close(release)
+	for range 2 {
+		if err := <-results; err != nil {
+			t.Fatalf("doctor execution: %v", err)
+		}
+	}
+
+	if !strings.Contains(verboseErr.String(), "<redacted>") {
+		t.Fatalf("verbose command tree trace = %q", verboseErr.String())
+	}
+	if got := silentErr.String(); got != "" {
+		t.Fatalf("silent command tree inherited trace = %q", got)
+	}
+	for name, output := range map[string]string{"verbose": verboseOut.String(), "silent": silentOut.String()} {
+		var result app.DoctorResult
+		if err := json.Unmarshal([]byte(output), &result); err != nil || result.Services.Jira.Remote.Status != "available" {
+			t.Fatalf("%s doctor output = %q, result=%+v, err=%v", name, output, result, err)
 		}
 	}
 }

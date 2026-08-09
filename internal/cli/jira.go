@@ -20,7 +20,7 @@ func jiraService(cmd *cobra.Command) (*app.JiraService, error) {
 	if err != nil {
 		return nil, err
 	}
-	return compose.NewJiraWithWriteAuthorizer(cfg, version.Version, authorizer)
+	return compose.NewJiraWithWriteAuthorizer(cfg, version.Version, authorizer, invocationCompositionOptions(cmd)...)
 }
 
 func jiraCompositionInputs(cmd *cobra.Command) (*config.Config, domain.WriteAuthorizer, error) {

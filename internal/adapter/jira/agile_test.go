@@ -3,11 +3,16 @@ package jira
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/isukharev/atl/internal/domain"
 )
 
 // capturedAgileReq records one request the Agile adapter sent, so a test can
@@ -209,6 +214,58 @@ func TestSprintIssuesParsesAndPaginates(t *testing.T) {
 	}
 	if (*reqs)[0].path != "/rest/agile/1.0/sprint/7/issue" {
 		t.Errorf("path = %q, want /rest/agile/1.0/sprint/7/issue", (*reqs)[0].path)
+	}
+}
+
+func TestAgilePaginationRejectsNoncontiguousStalledAndOverflowPages(t *testing.T) {
+	tests := []struct {
+		name   string
+		body   string
+		cursor string
+		call   func(*Jira, string) error
+	}{
+		{
+			name:   "boards noncontiguous",
+			body:   `{"startAt":0,"total":2,"isLast":false,"values":[{"id":1}]}`,
+			cursor: "1",
+			call: func(j *Jira, cursor string) error {
+				_, _, err := j.Boards(context.Background(), "", 1, cursor)
+				return err
+			},
+		},
+		{
+			name: "sprints stall",
+			body: `{"startAt":0,"total":2,"isLast":false,"values":[]}`,
+			call: func(j *Jira, cursor string) error {
+				_, _, err := j.Sprints(context.Background(), 5, "", 1, cursor)
+				return err
+			},
+		},
+		{
+			name: "boards conflicting total and isLast",
+			body: `{"startAt":0,"total":2,"isLast":true,"values":[{"id":1}]}`,
+			call: func(j *Jira, cursor string) error {
+				_, _, err := j.Boards(context.Background(), "", 1, cursor)
+				return err
+			},
+		},
+		{
+			name:   "sprint issues overflow",
+			body:   `{"startAt":` + strconv.Itoa(math.MaxInt) + `,"total":0,"issues":[{"key":"X-1","fields":{}}]}`,
+			cursor: strconv.Itoa(math.MaxInt),
+			call: func(j *Jira, cursor string) error {
+				_, _, err := j.SprintIssues(context.Background(), 5, nil, 1, cursor)
+				return err
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			j, _ := agileServer(t, map[string]string{"GET /rest/agile/1.0/": test.body})
+			if err := test.call(j, test.cursor); !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("error=%v, want ErrCheckFailed", err)
+			}
+		})
 	}
 }
 

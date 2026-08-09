@@ -17,10 +17,10 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/isukharev/atl/internal/compose"
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/diagnostic"
 	"github.com/isukharev/atl/internal/domain"
-	"github.com/isukharev/atl/internal/httpx"
 	"github.com/isukharev/atl/internal/version"
 )
 
@@ -47,6 +47,14 @@ type invocationRuntimeContextKey struct{}
 
 func invocationRuntimeFor(cmd *cobra.Command) *invocationRuntime {
 	return cmd.Context().Value(invocationRuntimeContextKey{}).(*invocationRuntime)
+}
+
+func invocationCompositionOptions(cmd *cobra.Command) []compose.Option {
+	runtime := invocationRuntimeFor(cmd)
+	if !runtime.verbose && os.Getenv("ATL_VERBOSE") == "" {
+		return nil
+	}
+	return []compose.Option{compose.WithTrace(cmd.ErrOrStderr())}
 }
 
 // Execute builds and runs the root command, mapping errors to exit codes.
@@ -225,11 +233,6 @@ func newRoot() *cobra.Command {
 			return err
 		}
 		runtime.readOnlyPolicy = policyEnabled
-		// --verbose (or ATL_VERBOSE) traces every HTTP request to stderr. The
-		// bearer token is never written. stdout stays reserved for the result.
-		if runtime.verbose || os.Getenv("ATL_VERBOSE") != "" {
-			httpx.SetTrace(cmd.ErrOrStderr())
-		}
 		if !policyEnabled {
 			runSelfUpdate(cmd)
 		}

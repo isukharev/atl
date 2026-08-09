@@ -108,27 +108,56 @@ func TestSchedulerCountsRedirectTransportHops(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var mu sync.Mutex
-	var starts []time.Time
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		starts = append(starts, time.Now())
-		mu.Unlock()
-		if r.URL.Path == "/short" {
-			http.Redirect(w, r, "/final", http.StatusFound)
-			return
-		}
-		_, _ = io.WriteString(w, "page")
-	}))
-	defer srv.Close()
-	if _, err := NewWithScheduler(srv.URL, "token", "test", scheduler).ResolveGET(context.Background(), "/short"); err != nil {
+	recorder := &redirectHopRecorder{}
+	client := &http.Client{Transport: scheduleTransport(recorder, scheduler)}
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.invalid/short", nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	mu.Lock()
-	defer mu.Unlock()
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := response.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	starts := recorder.snapshot()
 	if len(starts) != 2 || starts[1].Sub(starts[0]) < 35*time.Millisecond {
 		t.Fatalf("redirect starts=%v, want two paced transport hops", starts)
 	}
+}
+
+// redirectHopRecorder observes calls immediately below the scheduler. Measuring
+// inside an httptest handler includes unrelated socket and server scheduling
+// latency before the first observation, which can make the second physical hop
+// appear too early even though the scheduler admitted it at the correct time.
+type redirectHopRecorder struct {
+	mu     sync.Mutex
+	starts []time.Time
+}
+
+func (r *redirectHopRecorder) RoundTrip(request *http.Request) (*http.Response, error) {
+	r.mu.Lock()
+	r.starts = append(r.starts, time.Now())
+	hop := len(r.starts)
+	r.mu.Unlock()
+	response := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader("page")),
+		Request:    request,
+	}
+	if hop == 1 {
+		response.StatusCode = http.StatusFound
+		response.Header.Set("Location", "/final")
+	}
+	return response, nil
+}
+
+func (r *redirectHopRecorder) snapshot() []time.Time {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]time.Time(nil), r.starts...)
 }
 
 func TestSchedulerHoldsStreamPermitUntilClose(t *testing.T) {

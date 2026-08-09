@@ -50,7 +50,7 @@ func mapWorklog(input worklogDTO) domain.IssueWorklog {
 // ListIssueWorklogs consumes every page advertised by Jira. A missing/changing
 // total, offset mismatch, empty incomplete page, or page-guard hit fails closed.
 func (j *Jira) ListIssueWorklogs(ctx context.Context, key string) (*domain.IssueWorklogList, error) {
-	startAt := 0
+	cursor := jiraOffsetCursor{}
 	expectedTotal := -1
 	result := &domain.IssueWorklogList{}
 	seenIDs := map[string]bool{}
@@ -61,18 +61,18 @@ func (j *Jira) ListIssueWorklogs(ctx context.Context, key string) (*domain.Issue
 			Worklogs []worklogDTO `json:"worklogs"`
 		}
 		query := url.Values{}
-		query.Set("startAt", strconv.Itoa(startAt))
+		query.Set("startAt", strconv.Itoa(cursor.requested()))
 		query.Set("maxResults", "100")
 		path := "/rest/api/2/issue/" + url.PathEscape(key) + "/worklog?" + query.Encode()
 		if err := j.c.GetJSON(ctx, path, &response); err != nil {
 			return nil, err
 		}
 		if response.Total == nil {
-			return nil, fmt.Errorf("%w: Jira worklog listing for %s omitted total at offset %d", domain.ErrCheckFailed, key, startAt)
+			return nil, fmt.Errorf("%w: Jira worklog listing for %s omitted total at offset %d", domain.ErrCheckFailed, key, cursor.requested())
 		}
 		total := *response.Total
-		if total < 0 || response.StartAt != startAt {
-			return nil, fmt.Errorf("%w: Jira worklog listing for %s returned invalid pagination at offset %d", domain.ErrCheckFailed, key, startAt)
+		if total < 0 || !cursor.matches(response.StartAt) {
+			return nil, fmt.Errorf("%w: Jira worklog listing for %s returned invalid pagination at offset %d", domain.ErrCheckFailed, key, cursor.requested())
 		}
 		if expectedTotal < 0 {
 			expectedTotal = total
@@ -81,24 +81,24 @@ func (j *Jira) ListIssueWorklogs(ctx context.Context, key string) (*domain.Issue
 		}
 		for _, worklog := range response.Worklogs {
 			if worklog.ID == "" || seenIDs[worklog.ID] {
-				return nil, fmt.Errorf("%w: Jira worklog listing for %s returned a missing or duplicate worklog id at offset %d", domain.ErrCheckFailed, key, startAt)
+				return nil, fmt.Errorf("%w: Jira worklog listing for %s returned a missing or duplicate worklog id at offset %d", domain.ErrCheckFailed, key, cursor.requested())
 			}
 			seenIDs[worklog.ID] = true
 			result.Worklogs = append(result.Worklogs, mapWorklog(worklog))
 		}
-		next := response.StartAt + len(response.Worklogs)
-		if next > total {
-			return nil, fmt.Errorf("%w: Jira worklog listing for %s returned %d rows through offset %d with total %d", domain.ErrCheckFailed, key, len(response.Worklogs), next, total)
-		}
-		if next == total {
+		decision := cursor.advance(len(response.Worklogs), &total)
+		switch decision.state {
+		case jiraOffsetBeyondTotal:
+			return nil, fmt.Errorf("%w: Jira worklog listing for %s returned %d rows through offset %d with total %d", domain.ErrCheckFailed, key, len(response.Worklogs), decision.next, total)
+		case jiraOffsetComplete:
 			result.Total = total
 			result.Complete = true
 			return result, nil
+		case jiraOffsetStalled:
+			return nil, fmt.Errorf("%w: Jira worklog listing for %s returned an empty incomplete page at offset %d", domain.ErrCheckFailed, key, cursor.requested())
+		case jiraOffsetOverflow:
+			return nil, fmt.Errorf("%w: Jira worklog listing for %s returned invalid pagination at offset %d", domain.ErrCheckFailed, key, cursor.requested())
 		}
-		if len(response.Worklogs) == 0 {
-			return nil, fmt.Errorf("%w: Jira worklog listing for %s returned an empty incomplete page at offset %d", domain.ErrCheckFailed, key, startAt)
-		}
-		startAt = next
 	}
 	return nil, fmt.Errorf("%w: Jira worklog listing for %s exceeded the %d-page safety guard", domain.ErrCheckFailed, key, worklogPageGuard)
 }

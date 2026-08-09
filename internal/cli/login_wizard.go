@@ -53,7 +53,7 @@ type svcSpec struct {
 	verify func(ctx context.Context, url, token string, cfg *config.Config) (string, error)
 }
 
-func wizardSpecs() []svcSpec {
+func wizardSpecs(options ...compose.Option) []svcSpec {
 	return []svcSpec{
 		{
 			svc:    auth.Confluence,
@@ -61,7 +61,7 @@ func wizardSpecs() []svcSpec {
 			getURL: func(c *config.Config) string { return c.ConfluenceURL },
 			setURL: func(c *config.Config, u string) { c.ConfluenceURL = u },
 			verify: func(ctx context.Context, u, t string, cfg *config.Config) (string, error) {
-				return compose.VerifyConfluence(ctx, u, t, version.Version, cfg)
+				return compose.VerifyConfluence(ctx, u, t, version.Version, cfg, options...)
 			},
 		},
 		{
@@ -70,7 +70,7 @@ func wizardSpecs() []svcSpec {
 			getURL: func(c *config.Config) string { return c.JiraURL },
 			setURL: func(c *config.Config, u string) { c.JiraURL = u },
 			verify: func(ctx context.Context, u, t string, cfg *config.Config) (string, error) {
-				return compose.VerifyJira(ctx, u, t, version.Version, cfg)
+				return compose.VerifyJira(ctx, u, t, version.Version, cfg, options...)
 			},
 		},
 	}
@@ -78,13 +78,13 @@ func wizardSpecs() []svcSpec {
 
 // runLoginWizard runs the interactive multi-service setup and returns a summary
 // for emit(). Prompts go to wz.out; the caller emits the summary.
-func runLoginWizard(ctx context.Context, wz wizardIO) (loginSummary, error) {
+func runLoginWizard(ctx context.Context, wz wizardIO, options ...compose.Option) (loginSummary, error) {
 	var sum loginSummary
 	results := map[auth.Service]*svcResult{
 		auth.Confluence: &sum.Confluence,
 		auth.Jira:       &sum.Jira,
 	}
-	for _, sp := range wizardSpecs() {
+	for _, sp := range wizardSpecs(options...) {
 		res := results[sp.svc]
 		ok, err := promptYesNo(wz, fmt.Sprintf("Configure %s?", sp.label), true)
 		if err != nil {
@@ -286,7 +286,7 @@ func runInteractiveLogin(cmd *cobra.Command) error {
 		out:        os.Stderr,
 		readSecret: func() (string, error) { return readSecretNoEcho(fd) },
 	}
-	sum, err := runLoginWizard(cmd.Context(), wz)
+	sum, err := runLoginWizard(cmd.Context(), wz, invocationCompositionOptions(cmd)...)
 	if err != nil {
 		return err
 	}

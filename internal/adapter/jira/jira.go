@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"strconv"
 	"strings"
@@ -25,13 +26,24 @@ type Jira struct {
 	identity   *issueIdentityCache
 }
 
-// Option configures transport-neutral adapter behavior.
-type Option func(*Jira)
+// Option configures adapter behavior before its immutable HTTP client is built.
+type Option func(*adapterOptions)
+
+type adapterOptions struct {
+	authorizer domain.WriteAuthorizer
+	trace      io.Writer
+}
 
 // WithWriteAuthorizer enables content-scoped last-hop authorization. A nil
 // authorizer is equivalent to omitting the option.
 func WithWriteAuthorizer(authorizer domain.WriteAuthorizer) Option {
-	return func(j *Jira) { j.authorizer = authorizer }
+	return func(options *adapterOptions) { options.authorizer = authorizer }
+}
+
+// WithTrace supplies a per-adapter HTTP trace sink. A nil writer leaves
+// tracing disabled.
+func WithTrace(w io.Writer) Option {
+	return func(options *adapterOptions) { options.trace = w }
 }
 
 // New builds a Jira adapter for base URL with a PAT.
@@ -42,37 +54,49 @@ func New(base, token, version string, options ...Option) *Jira {
 // NewWithScheduler lets Confluence Jira-macro expansion share the exact same
 // command-scoped load boundary as the originating Confluence requests.
 func NewWithScheduler(base, token, version string, scheduler *httpx.Scheduler, options ...Option) *Jira {
-	c := httpx.NewWithScheduler(base, token, version, scheduler)
-	return newWithClient(base, c, options...)
+	resolved := resolveAdapterOptions(options)
+	c := httpx.NewWithScheduler(base, token, version, scheduler, transportOptions(resolved)...)
+	return newWithClient(base, c, resolved)
 }
 
 // NewWithSchedulerTLS builds a Jira adapter with backend-specific trust
 // material. Existing constructors remain error-free for the unset/default
 // transport path.
 func NewWithSchedulerTLS(base, token, version string, scheduler *httpx.Scheduler, tlsOptions httpx.TLSOptions, options ...Option) (*Jira, error) {
-	c, err := httpx.NewWithSchedulerTLS(base, token, version, scheduler, tlsOptions)
+	resolved := resolveAdapterOptions(options)
+	c, err := httpx.NewWithSchedulerTLS(base, token, version, scheduler, tlsOptions, transportOptions(resolved)...)
 	if err != nil {
 		return nil, err
 	}
-	return newWithClient(base, c, options...), nil
+	return newWithClient(base, c, resolved), nil
 }
 
-func newWithClient(base string, c *httpx.Client, options ...Option) *Jira {
-	// Jira DC has no optimistic version gate: a 409 is a generic conflict
-	// (locked issue, closed sprint, workflow veto), never a version conflict —
-	// exit 5's re-pull/--force remediation does not apply here.
-	c.SetNoVersionGate()
-	j := &Jira{c: c, base: strings.TrimRight(base, "/"), identity: newIssueIdentityCache()}
+func resolveAdapterOptions(options []Option) adapterOptions {
+	var resolved adapterOptions
 	for _, option := range options {
 		if option != nil {
-			option(j)
+			option(&resolved)
 		}
 	}
+	return resolved
+}
+
+func transportOptions(options adapterOptions) []httpx.Option {
+	resolved := []httpx.Option{httpx.WithGenericConflict(), httpx.WithRequiredWriteClearance()}
+	if options.trace != nil {
+		resolved = append(resolved, httpx.WithTrace(options.trace))
+	}
+	return resolved
+}
+
+func newWithClient(base string, c *httpx.Client, options adapterOptions) *Jira {
 	// Every mutating Jira transport site carries an explicit marker. Keeping
 	// the backstop enabled even without a configured policy catches omissions
 	// while the nil-authorizer fast path preserves request counts.
-	c.RequireWriteClearance()
-	return j
+	return &Jira{
+		c: c, base: strings.TrimRight(base, "/"), authorizer: options.authorizer,
+		identity: newIssueIdentityCache(),
+	}
 }
 
 var _ domain.Tracker = (*Jira)(nil)
@@ -194,30 +218,30 @@ func (j *Jira) searchPage(ctx context.Context, jql string, fields []string, limi
 		out = append(out, *j.mapIssue(d))
 	}
 	page := domain.IssueSearchPage{Issues: out}
+	pageCursor := jiraOffsetCursor{startAt: startAt}
 	if resp.StartAt == nil || resp.MaxResults == nil || resp.Total == nil ||
 		*resp.MaxResults <= 0 || len(resp.Issues) > *resp.MaxResults {
 		page.PartialReason = domain.IssueSearchPartialPaginationUnqualified
 		return page, nil
 	}
-	if *resp.StartAt != startAt || *resp.Total < 0 || startAt > *resp.Total {
+	if !pageCursor.matches(*resp.StartAt) || *resp.Total < 0 || startAt > *resp.Total {
 		page.PartialReason = domain.IssueSearchPartialPaginationUnqualified
 		return page, nil
 	}
-	remaining := *resp.Total - startAt
-	if len(resp.Issues) > remaining {
+	decision := pageCursor.advance(len(resp.Issues), resp.Total)
+	if decision.state == jiraOffsetBeyondTotal || decision.state == jiraOffsetOverflow {
 		page.PartialReason = domain.IssueSearchPartialPaginationUnqualified
 		return page, nil
 	}
-	end := startAt + len(resp.Issues)
-	if end >= *resp.Total {
+	if decision.state == jiraOffsetComplete {
 		page.Complete = true
 		return page, nil
 	}
-	if len(resp.Issues) == 0 {
+	if decision.state == jiraOffsetStalled {
 		page.PartialReason = domain.IssueSearchPartialPaginationStalled
 		return page, nil
 	}
-	page.Next = strconv.Itoa(end)
+	page.Next = strconv.Itoa(decision.next)
 	return page, nil
 }
 
@@ -556,7 +580,7 @@ const commentPageGuard = 100
 // the caller need not refetch the whole issue body. The port has no cursor, so
 // the adapter pages internally until the listing is exhausted.
 func (j *Jira) ListComments(ctx context.Context, key string) ([]domain.Comment, error) {
-	startAt := 0
+	cursor := jiraOffsetCursor{}
 	expectedTotal := -1
 	out := []domain.Comment{}
 	seenIDs := map[string]bool{}
@@ -572,23 +596,23 @@ func (j *Jira) ListComments(ctx context.Context, key string) ([]domain.Comment, 
 			} `json:"comments"`
 		}
 		q := url.Values{}
-		q.Set("startAt", strconv.Itoa(startAt))
+		q.Set("startAt", strconv.Itoa(cursor.requested()))
 		q.Set("maxResults", "100")
 		if err := j.c.GetJSON(ctx, "/rest/api/2/issue/"+url.PathEscape(key)+"/comment?"+q.Encode(), &resp); err != nil {
 			return nil, err
 		}
 		if resp.Total == nil {
 			return nil, fmt.Errorf("%w: Jira comment listing for %s omitted total at offset %d",
-				domain.ErrCheckFailed, key, startAt)
+				domain.ErrCheckFailed, key, cursor.requested())
 		}
 		total := *resp.Total
 		if total < 0 {
 			return nil, fmt.Errorf("%w: Jira comment listing for %s returned negative total %d at offset %d",
-				domain.ErrCheckFailed, key, total, startAt)
+				domain.ErrCheckFailed, key, total, cursor.requested())
 		}
-		if resp.StartAt != startAt {
+		if !cursor.matches(resp.StartAt) {
 			return nil, fmt.Errorf("%w: Jira comment listing for %s returned offset %d while %d was requested",
-				domain.ErrCheckFailed, key, resp.StartAt, startAt)
+				domain.ErrCheckFailed, key, resp.StartAt, cursor.requested())
 		}
 		if expectedTotal < 0 {
 			expectedTotal = total
@@ -599,7 +623,7 @@ func (j *Jira) ListComments(ctx context.Context, key string) ([]domain.Comment, 
 		for _, c := range resp.Comments {
 			if c.ID == "" || seenIDs[c.ID] {
 				return nil, fmt.Errorf("%w: Jira comment listing for %s returned a missing or duplicate comment id at offset %d",
-					domain.ErrCheckFailed, key, startAt)
+					domain.ErrCheckFailed, key, cursor.requested())
 			}
 			seenIDs[c.ID] = true
 			out = append(out, domain.Comment{
@@ -607,22 +631,20 @@ func (j *Jira) ListComments(ctx context.Context, key string) ([]domain.Comment, 
 				AuthorKey: nestedKey(c.Author), Created: c.Created, Body: c.Body,
 			})
 		}
-		next := resp.StartAt + len(resp.Comments)
-		if next > total {
+		decision := cursor.advance(len(resp.Comments), &total)
+		switch decision.state {
+		case jiraOffsetBeyondTotal, jiraOffsetOverflow:
 			return nil, fmt.Errorf("%w: Jira comment listing for %s returned inconsistent pagination (%d comments through offset %d, total %d)",
-				domain.ErrCheckFailed, key, len(resp.Comments), next, total)
-		}
-		if len(resp.Comments) == 0 && next < total {
+				domain.ErrCheckFailed, key, len(resp.Comments), decision.next, total)
+		case jiraOffsetStalled:
 			return nil, fmt.Errorf("%w: Jira comment listing for %s made no progress at offset %d with %d comments remaining",
-				domain.ErrCheckFailed, key, next, total-next)
-		}
-		startAt = next
-		if startAt >= total {
+				domain.ErrCheckFailed, key, decision.next, total-decision.next)
+		case jiraOffsetComplete:
 			return out, nil
 		}
 		if page == commentPageGuard-1 {
 			return nil, fmt.Errorf("%w: Jira comment listing for %s remains incomplete after %d pages (%d of %d comments fetched)",
-				domain.ErrCheckFailed, key, commentPageGuard, startAt, total)
+				domain.ErrCheckFailed, key, commentPageGuard, cursor.requested(), total)
 		}
 	}
 	panic("unreachable")
@@ -702,14 +724,14 @@ func (j *Jira) Changelog(ctx context.Context, key string) ([]domain.ChangelogEnt
 // paging metadata proves every advertised entry is present.
 func (j *Jira) CompleteChangelog(ctx context.Context, key string) (*domain.ChangelogSnapshot, error) {
 	const pageSize = 100
-	startAt := 0
+	cursor := jiraOffsetCursor{}
 	advertisedTotal := -1
 	entries := []domain.ChangelogEntry{}
 	for pageNumber := 0; pageNumber < 1000; pageNumber++ {
 		var page jiraChangelogPage
-		path := fmt.Sprintf("/rest/api/2/issue/%s/changelog?startAt=%d&maxResults=%d", url.PathEscape(key), startAt, pageSize)
+		path := fmt.Sprintf("/rest/api/2/issue/%s/changelog?startAt=%d&maxResults=%d", url.PathEscape(key), cursor.requested(), pageSize)
 		if err := j.c.GetJSON(ctx, path, &page); err != nil {
-			if startAt == 0 && unsupportedChangelogEndpoint(err) {
+			if cursor.requested() == 0 && unsupportedChangelogEndpoint(err) {
 				return j.embeddedChangelog(ctx, key)
 			}
 			return nil, err
@@ -718,13 +740,13 @@ func (j *Jira) CompleteChangelog(ctx context.Context, key string) (*domain.Chang
 		if len(raw) == 0 {
 			raw = page.Histories
 		}
-		if startAt == 0 && page.Total == nil && len(raw) == 0 {
+		if cursor.requested() == 0 && page.Total == nil && len(raw) == 0 {
 			return j.embeddedChangelog(ctx, key)
 		}
 		if page.Total != nil {
 			advertisedTotal = *page.Total
 		}
-		if page.StartAt != startAt {
+		if !cursor.matches(page.StartAt) {
 			total := len(entries)
 			if page.Total != nil {
 				total = *page.Total
@@ -732,21 +754,19 @@ func (j *Jira) CompleteChangelog(ctx context.Context, key string) (*domain.Chang
 			return &domain.ChangelogSnapshot{Entries: entries, Total: total, Source: "paginated", PartialReason: "Jira changelog pagination returned a non-contiguous page"}, nil
 		}
 		entries = append(entries, mapChangelogHistories(raw)...)
-		next := page.StartAt + len(raw)
-		if page.Total != nil && next == *page.Total {
+		decision := cursor.advance(len(raw), page.Total)
+		switch decision.state {
+		case jiraOffsetComplete:
 			return &domain.ChangelogSnapshot{Entries: entries, Total: *page.Total, Complete: true, Source: "paginated"}, nil
-		}
-		if page.Total != nil && next > *page.Total {
+		case jiraOffsetBeyondTotal:
 			return &domain.ChangelogSnapshot{Entries: entries, Total: *page.Total, Source: "paginated", PartialReason: "Jira changelog returned more entries than advertised"}, nil
-		}
-		if len(raw) == 0 || next <= startAt {
+		case jiraOffsetStalled, jiraOffsetOverflow:
 			total := len(entries)
 			if page.Total != nil {
 				total = *page.Total
 			}
 			return &domain.ChangelogSnapshot{Entries: entries, Total: total, Source: "paginated", PartialReason: "Jira changelog pagination made no forward progress"}, nil
 		}
-		startAt = next
 	}
 	total := len(entries)
 	if advertisedTotal >= 0 {

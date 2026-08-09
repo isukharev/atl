@@ -15,7 +15,7 @@ func jiraWorklogService(cmd *cobra.Command) (*app.JiraWorklogService, error) {
 	if err != nil {
 		return nil, err
 	}
-	return compose.NewJiraWorklogsWithWriteAuthorizer(cfg, version.Version, authorizer)
+	return compose.NewJiraWorklogsWithWriteAuthorizer(cfg, version.Version, authorizer, invocationCompositionOptions(cmd)...)
 }
 
 func jiraIssueWorklogCmd() *cobra.Command {

@@ -35,7 +35,7 @@ func newCompatibilityCmd() *cobra.Command {
 					return err
 				}
 			}
-			result := compose.NewCompatibility(cfg, settings, version.Version).Status(cmd.Context(), remote)
+			result := compose.NewCompatibility(cfg, settings, version.Version, invocationCompositionOptions(cmd)...).Status(cmd.Context(), remote)
 			return emit(cmd, result, func() string { return app.CompatibilityStatusText(result) })
 		},
 	}
@@ -70,7 +70,7 @@ func newCompatibilityCmd() *cobra.Command {
 			if err := compatibility.Save(config.Dir(), settings); err != nil {
 				return err
 			}
-			result := compose.NewCompatibility(&config.Config{}, settings, version.Version).Status(cmd.Context(), false)
+			result := compose.NewCompatibility(&config.Config{}, settings, version.Version, invocationCompositionOptions(cmd)...).Status(cmd.Context(), false)
 			return emit(cmd, result, nil)
 		},
 	}
@@ -95,7 +95,7 @@ func newCompatibilityCmd() *cobra.Command {
 			if err := compatibility.Save(config.Dir(), settings); err != nil {
 				return err
 			}
-			result := compose.NewCompatibility(&config.Config{}, settings, version.Version).Status(cmd.Context(), false)
+			result := compose.NewCompatibility(&config.Config{}, settings, version.Version, invocationCompositionOptions(cmd)...).Status(cmd.Context(), false)
 			return emit(cmd, result, nil)
 		},
 	}

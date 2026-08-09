@@ -28,7 +28,8 @@ func confluenceTLSOptions(cfg *config.Config) httpx.TLSOptions {
 
 // NewCompatibility composes the optional exact identity reader lazily, so
 // offline status and disabled settings do not load credentials.
-func NewCompatibility(cfg *config.Config, settings compatibility.Settings, version string) *app.CompatibilityService {
+func NewCompatibility(cfg *config.Config, settings compatibility.Settings, version string, values ...Option) *app.CompatibilityService {
+	resolved := resolveOptions(values)
 	return app.NewCompatibilityService(settings, func() (domain.ExactServerMetadataReader, app.DependencySetupStatus) {
 		if cfg == nil || cfg.ConfluenceURL == "" {
 			return nil, app.DependencyNotConfigured
@@ -43,7 +44,7 @@ func NewCompatibility(cfg *config.Config, settings compatibility.Settings, versi
 			}
 			return nil, app.DependencyCredentialsUnavailable
 		}
-		reader, err := confluenceadapter.NewWithSchedulerTLS(cfg.ConfluenceURL, token, version, nil, confluenceTLSOptions(cfg))
+		reader, err := confluenceadapter.NewWithSchedulerTLS(cfg.ConfluenceURL, token, version, nil, confluenceTLSOptions(cfg), confluenceOptions(nil, resolved)...)
 		if err != nil {
 			return nil, app.DependencyInvalidConfiguration
 		}
@@ -52,34 +53,35 @@ func NewCompatibility(cfg *config.Config, settings compatibility.Settings, versi
 }
 
 // NewConfluence wires the ordinary Confluence service.
-func NewConfluence(cfg *config.Config, version string) (*app.ConfluenceService, error) {
-	return NewConfluenceWithWriteAuthorizer(cfg, version, nil)
+func NewConfluence(cfg *config.Config, version string, options ...Option) (*app.ConfluenceService, error) {
+	return NewConfluenceWithWriteAuthorizer(cfg, version, nil, options...)
 }
 
 // LoadConfluence owns the production config-load boundary used by hosts that
 // do not already need a qualified config value.
-func LoadConfluence(version string) (*app.ConfluenceService, error) {
+func LoadConfluence(version string, options ...Option) (*app.ConfluenceService, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
 	}
-	return NewConfluence(cfg, version)
+	return NewConfluence(cfg, version, options...)
 }
 
 // NewConfluenceWithWriteAuthorizer adds the transport-neutral write guard to
 // every concrete Confluence capability.
-func NewConfluenceWithWriteAuthorizer(cfg *config.Config, version string, authorizer domain.WriteAuthorizer) (*app.ConfluenceService, error) {
-	return NewConfluenceScheduledWithWriteAuthorizer(cfg, version, 0, 0, authorizer)
+func NewConfluenceWithWriteAuthorizer(cfg *config.Config, version string, authorizer domain.WriteAuthorizer, options ...Option) (*app.ConfluenceService, error) {
+	return NewConfluenceScheduledWithWriteAuthorizer(cfg, version, 0, 0, authorizer, options...)
 }
 
 // NewConfluenceCommentMutations composes the explicitly activated mutation
 // provider without affecting ordinary Confluence commands.
-func NewConfluenceCommentMutations(cfg *config.Config, version string, activation compatibility.Activation) (*app.ConfluenceService, error) {
-	return NewConfluenceCommentMutationsWithWriteAuthorizer(cfg, version, activation, nil)
+func NewConfluenceCommentMutations(cfg *config.Config, version string, activation compatibility.Activation, options ...Option) (*app.ConfluenceService, error) {
+	return NewConfluenceCommentMutationsWithWriteAuthorizer(cfg, version, activation, nil, options...)
 }
 
-func NewConfluenceCommentMutationsWithWriteAuthorizer(cfg *config.Config, version string, activation compatibility.Activation, authorizer domain.WriteAuthorizer) (*app.ConfluenceService, error) {
-	cf, scheduler, err := confluenceAdapter(cfg, version, 0, 0, authorizer)
+func NewConfluenceCommentMutationsWithWriteAuthorizer(cfg *config.Config, version string, activation compatibility.Activation, authorizer domain.WriteAuthorizer, options ...Option) (*app.ConfluenceService, error) {
+	resolved := resolveOptions(options)
+	cf, scheduler, err := confluenceAdapter(cfg, version, 0, 0, authorizer, resolved)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +94,7 @@ func NewConfluenceCommentMutationsWithWriteAuthorizer(cfg *config.Config, versio
 		Store: cf, Users: cf.ResolveUser, Assets: cf, BaseURL: cfg.ConfluenceURL,
 		Verifier: cf, Config: cfg, JiraBaseURL: cfg.JiraURL,
 		JiraReadFactory: func() (domain.Tracker, string) {
-			return optionalJiraReadScheduled(cfg, version, scheduler)
+			return optionalJiraReadScheduled(cfg, version, scheduler, resolved)
 		},
 		CommentMutator: provider, CommentPreparer: provider,
 		CommentMutationActivation: &activationCopy,
@@ -101,12 +103,13 @@ func NewConfluenceCommentMutationsWithWriteAuthorizer(cfg *config.Config, versio
 
 // NewConfluenceScheduled shares one bounded scheduler with Confluence and
 // optional Jira macro reads.
-func NewConfluenceScheduled(cfg *config.Config, version string, maxInFlight, requestsPerSecond int) (*app.ConfluenceService, error) {
-	return NewConfluenceScheduledWithWriteAuthorizer(cfg, version, maxInFlight, requestsPerSecond, nil)
+func NewConfluenceScheduled(cfg *config.Config, version string, maxInFlight, requestsPerSecond int, options ...Option) (*app.ConfluenceService, error) {
+	return NewConfluenceScheduledWithWriteAuthorizer(cfg, version, maxInFlight, requestsPerSecond, nil, options...)
 }
 
-func NewConfluenceScheduledWithWriteAuthorizer(cfg *config.Config, version string, maxInFlight, requestsPerSecond int, authorizer domain.WriteAuthorizer) (*app.ConfluenceService, error) {
-	cf, scheduler, err := confluenceAdapter(cfg, version, maxInFlight, requestsPerSecond, authorizer)
+func NewConfluenceScheduledWithWriteAuthorizer(cfg *config.Config, version string, maxInFlight, requestsPerSecond int, authorizer domain.WriteAuthorizer, options ...Option) (*app.ConfluenceService, error) {
+	resolved := resolveOptions(options)
+	cf, scheduler, err := confluenceAdapter(cfg, version, maxInFlight, requestsPerSecond, authorizer, resolved)
 	if err != nil {
 		return nil, err
 	}
@@ -114,13 +117,13 @@ func NewConfluenceScheduledWithWriteAuthorizer(cfg *config.Config, version strin
 		Store: cf, Users: cf.ResolveUser, Assets: cf, BaseURL: cfg.ConfluenceURL,
 		Verifier: cf, Config: cfg, JiraBaseURL: cfg.JiraURL,
 		JiraReadFactory: func() (domain.Tracker, string) {
-			return optionalJiraReadScheduled(cfg, version, scheduler)
+			return optionalJiraReadScheduled(cfg, version, scheduler, resolved)
 		},
 		RequestMaxInFlight: maxInFlight, RequestsPerSecond: requestsPerSecond,
 	}), nil
 }
 
-func confluenceAdapter(cfg *config.Config, version string, maxInFlight, requestsPerSecond int, authorizer domain.WriteAuthorizer) (*confluenceadapter.Confluence, *httpx.Scheduler, error) {
+func confluenceAdapter(cfg *config.Config, version string, maxInFlight, requestsPerSecond int, authorizer domain.WriteAuthorizer, resolved options) (*confluenceadapter.Confluence, *httpx.Scheduler, error) {
 	if maxInFlight == 0 && requestsPerSecond != 0 {
 		return nil, nil, fmt.Errorf("%w: request pacing requires a positive in-flight bound", domain.ErrUsage)
 	}
@@ -144,18 +147,14 @@ func confluenceAdapter(cfg *config.Config, version string, maxInFlight, requests
 			return nil, nil, fmt.Errorf("%w: invalid request schedule: %v", domain.ErrUsage, err)
 		}
 	}
-	var options []confluenceadapter.Option
-	if authorizer != nil {
-		options = append(options, confluenceadapter.WithWriteAuthorizer(authorizer))
-	}
-	cf, err := confluenceadapter.NewWithSchedulerTLS(cfg.ConfluenceURL, token, version, scheduler, confluenceTLSOptions(cfg), options...)
+	cf, err := confluenceadapter.NewWithSchedulerTLS(cfg.ConfluenceURL, token, version, scheduler, confluenceTLSOptions(cfg), confluenceOptions(authorizer, resolved)...)
 	if err != nil {
 		return nil, nil, err
 	}
 	return cf, scheduler, nil
 }
 
-func optionalJiraReadScheduled(cfg *config.Config, version string, scheduler *httpx.Scheduler) (domain.Tracker, string) {
+func optionalJiraReadScheduled(cfg *config.Config, version string, scheduler *httpx.Scheduler, resolved options) (domain.Tracker, string) {
 	if cfg == nil || cfg.JiraURL == "" {
 		return nil, "Jira URL is not configured"
 	}
@@ -166,7 +165,7 @@ func optionalJiraReadScheduled(cfg *config.Config, version string, scheduler *ht
 	if err != nil {
 		return nil, "Jira credentials are not configured"
 	}
-	reader, err := jiraadapter.NewWithSchedulerTLS(cfg.JiraURL, token, version, scheduler, jiraTLSOptions(cfg))
+	reader, err := jiraadapter.NewWithSchedulerTLS(cfg.JiraURL, token, version, scheduler, jiraTLSOptions(cfg), jiraOptions(nil, resolved)...)
 	if err != nil {
 		return nil, "Jira transport configuration is invalid"
 	}
@@ -174,22 +173,23 @@ func optionalJiraReadScheduled(cfg *config.Config, version string, scheduler *ht
 }
 
 // NewJira wires the ordinary Jira service.
-func NewJira(cfg *config.Config, version string) (*app.JiraService, error) {
-	return NewJiraWithWriteAuthorizer(cfg, version, nil)
+func NewJira(cfg *config.Config, version string, options ...Option) (*app.JiraService, error) {
+	return NewJiraWithWriteAuthorizer(cfg, version, nil, options...)
 }
 
 // LoadJira owns the production config-load boundary used by MCP and other
 // hosts that have no independent config projection.
-func LoadJira(version string) (*app.JiraService, error) {
+func LoadJira(version string, options ...Option) (*app.JiraService, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, err
 	}
-	return NewJira(cfg, version)
+	return NewJira(cfg, version, options...)
 }
 
-func NewJiraWithWriteAuthorizer(cfg *config.Config, version string, authorizer domain.WriteAuthorizer) (*app.JiraService, error) {
-	j, err := jiraAdapter(cfg, version, authorizer)
+func NewJiraWithWriteAuthorizer(cfg *config.Config, version string, authorizer domain.WriteAuthorizer, options ...Option) (*app.JiraService, error) {
+	resolved := resolveOptions(options)
+	j, err := jiraAdapter(cfg, version, authorizer, resolved)
 	if err != nil {
 		return nil, err
 	}
@@ -197,13 +197,13 @@ func NewJiraWithWriteAuthorizer(cfg *config.Config, version string, authorizer d
 		Tracker: j, Agile: j, Structure: j, BaseURL: cfg.JiraURL, Config: cfg,
 		ConfluenceBaseURL: cfg.ConfluenceURL,
 		ConfluenceGraphFactory: func() (domain.ConfluenceGraphPageMetadataReader, string) {
-			return optionalConfluenceGraphRead(cfg, version)
+			return optionalConfluenceGraphRead(cfg, version, resolved)
 		},
 		WriteAuthorizer: authorizer,
 	}), nil
 }
 
-func optionalConfluenceGraphRead(cfg *config.Config, version string) (domain.ConfluenceGraphPageMetadataReader, string) {
+func optionalConfluenceGraphRead(cfg *config.Config, version string, resolved options) (domain.ConfluenceGraphPageMetadataReader, string) {
 	if cfg == nil || cfg.ConfluenceURL == "" {
 		return nil, string(app.DependencyNotConfigured)
 	}
@@ -217,7 +217,7 @@ func optionalConfluenceGraphRead(cfg *config.Config, version string) (domain.Con
 		}
 		return nil, string(app.DependencyCredentialsUnavailable)
 	}
-	reader, err := confluenceadapter.NewWithSchedulerTLS(cfg.ConfluenceURL, token, version, nil, confluenceTLSOptions(cfg))
+	reader, err := confluenceadapter.NewWithSchedulerTLS(cfg.ConfluenceURL, token, version, nil, confluenceTLSOptions(cfg), confluenceOptions(nil, resolved)...)
 	if err != nil {
 		return nil, string(app.DependencyInvalidConfiguration)
 	}
@@ -225,19 +225,20 @@ func optionalConfluenceGraphRead(cfg *config.Config, version string) (domain.Con
 }
 
 // NewEnvironment composes each optional metadata reader independently.
-func NewEnvironment(cfg *config.Config, version string) *app.EnvironmentService {
+func NewEnvironment(cfg *config.Config, version string, options ...Option) *app.EnvironmentService {
+	resolved := resolveOptions(options)
 	deps := app.EnvironmentDependencies{
 		JiraSetup: app.DependencyNotConfigured, ConfluenceSetup: app.DependencyNotConfigured,
 	}
 	if cfg == nil {
 		return app.NewEnvironmentService(cfg, deps)
 	}
-	deps.Jira, deps.JiraSetup = jiraEnvironmentReader(cfg, version)
-	deps.Confluence, deps.ConfluenceSetup = confluenceEnvironmentReader(cfg, version)
+	deps.Jira, deps.JiraSetup = jiraEnvironmentReader(cfg, version, resolved)
+	deps.Confluence, deps.ConfluenceSetup = confluenceEnvironmentReader(cfg, version, resolved)
 	return app.NewEnvironmentService(cfg, deps)
 }
 
-func jiraEnvironmentReader(cfg *config.Config, version string) (domain.JiraTimeSemanticsReader, app.DependencySetupStatus) {
+func jiraEnvironmentReader(cfg *config.Config, version string, resolved options) (domain.JiraTimeSemanticsReader, app.DependencySetupStatus) {
 	if cfg.JiraURL == "" {
 		return nil, app.DependencyNotConfigured
 	}
@@ -251,14 +252,14 @@ func jiraEnvironmentReader(cfg *config.Config, version string) (domain.JiraTimeS
 		}
 		return nil, app.DependencyCredentialsUnavailable
 	}
-	reader, err := jiraadapter.NewWithSchedulerTLS(cfg.JiraURL, token, version, nil, jiraTLSOptions(cfg))
+	reader, err := jiraadapter.NewWithSchedulerTLS(cfg.JiraURL, token, version, nil, jiraTLSOptions(cfg), jiraOptions(nil, resolved)...)
 	if err != nil {
 		return nil, app.DependencyInvalidConfiguration
 	}
 	return reader, app.DependencyReady
 }
 
-func confluenceEnvironmentReader(cfg *config.Config, version string) (domain.ConfluenceTimeSemanticsReader, app.DependencySetupStatus) {
+func confluenceEnvironmentReader(cfg *config.Config, version string, resolved options) (domain.ConfluenceTimeSemanticsReader, app.DependencySetupStatus) {
 	if cfg.ConfluenceURL == "" {
 		return nil, app.DependencyNotConfigured
 	}
@@ -272,7 +273,7 @@ func confluenceEnvironmentReader(cfg *config.Config, version string) (domain.Con
 		}
 		return nil, app.DependencyCredentialsUnavailable
 	}
-	reader, err := confluenceadapter.NewWithSchedulerTLS(cfg.ConfluenceURL, token, version, nil, confluenceTLSOptions(cfg))
+	reader, err := confluenceadapter.NewWithSchedulerTLS(cfg.ConfluenceURL, token, version, nil, confluenceTLSOptions(cfg), confluenceOptions(nil, resolved)...)
 	if err != nil {
 		return nil, app.DependencyInvalidConfiguration
 	}
@@ -281,11 +282,11 @@ func confluenceEnvironmentReader(cfg *config.Config, version string) (domain.Con
 
 // VerifyConfluence qualifies a URL before constructing a verifier, then
 // delegates the transport-neutral whoami operation to app.
-func VerifyConfluence(ctx context.Context, rawURL, token, version string, cfg *config.Config) (string, error) {
+func VerifyConfluence(ctx context.Context, rawURL, token, version string, cfg *config.Config, options ...Option) (string, error) {
 	if err := config.CheckSecureURL(rawURL); err != nil {
 		return "", fmt.Errorf("%w: %v", domain.ErrUsage, err)
 	}
-	client, err := confluenceadapter.NewWithSchedulerTLS(rawURL, token, version, nil, confluenceTLSOptions(cfg))
+	client, err := confluenceadapter.NewWithSchedulerTLS(rawURL, token, version, nil, confluenceTLSOptions(cfg), confluenceOptions(nil, resolveOptions(options))...)
 	if err != nil {
 		return "", err
 	}
@@ -293,11 +294,11 @@ func VerifyConfluence(ctx context.Context, rawURL, token, version string, cfg *c
 }
 
 // VerifyJira mirrors VerifyConfluence for Jira.
-func VerifyJira(ctx context.Context, rawURL, token, version string, cfg *config.Config) (string, error) {
+func VerifyJira(ctx context.Context, rawURL, token, version string, cfg *config.Config, options ...Option) (string, error) {
 	if err := config.CheckSecureURL(rawURL); err != nil {
 		return "", fmt.Errorf("%w: %v", domain.ErrUsage, err)
 	}
-	client, err := jiraadapter.NewWithSchedulerTLS(rawURL, token, version, nil, jiraTLSOptions(cfg))
+	client, err := jiraadapter.NewWithSchedulerTLS(rawURL, token, version, nil, jiraTLSOptions(cfg), jiraOptions(nil, resolveOptions(options))...)
 	if err != nil {
 		return "", err
 	}
@@ -307,7 +308,8 @@ func VerifyJira(ctx context.Context, rawURL, token, version string, cfg *config.
 // DoctorDependencies projects concrete configuration, credentials, and TLS
 // health into app-owned values. The reader closure captures the qualified
 // config so app never receives a config-shaped construction seam.
-func DoctorDependencies() app.DoctorDependencies {
+func DoctorDependencies(options ...Option) app.DoctorDependencies {
+	resolved := resolveOptions(options)
 	cfgInspection := config.Inspect()
 	credentialInspection := auth.Inspect()
 	cfg := cfgInspection.Effective
@@ -350,9 +352,9 @@ func DoctorDependencies() app.DoctorDependencies {
 		Reader: func(service, rawURL, token, version string) (domain.ServerMetadataReader, error) {
 			switch service {
 			case domain.ServerProductJira:
-				return jiraadapter.NewWithSchedulerTLS(rawURL, token, version, nil, jiraTLSOptions(cfg))
+				return jiraadapter.NewWithSchedulerTLS(rawURL, token, version, nil, jiraTLSOptions(cfg), jiraOptions(nil, resolved)...)
 			case domain.ServerProductConfluence:
-				return confluenceadapter.NewWithSchedulerTLS(rawURL, token, version, nil, confluenceTLSOptions(cfg))
+				return confluenceadapter.NewWithSchedulerTLS(rawURL, token, version, nil, confluenceTLSOptions(cfg), confluenceOptions(nil, resolved)...)
 			default:
 				return nil, fmt.Errorf("%w: unsupported backend service", domain.ErrConfig)
 			}
@@ -388,7 +390,7 @@ func doctorCABundle(path string, summary config.BackendTransportSummary) app.Doc
 
 // RunDoctor supplies production remote composition without changing the app's
 // content-free diagnostic and classification logic.
-func RunDoctor(ctx context.Context, opts app.DoctorOptions) (*app.DoctorResult, error) {
-	opts.Dependencies = DoctorDependencies()
+func RunDoctor(ctx context.Context, opts app.DoctorOptions, options ...Option) (*app.DoctorResult, error) {
+	opts.Dependencies = DoctorDependencies(options...)
 	return app.RunDoctor(ctx, opts)
 }

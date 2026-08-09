@@ -44,7 +44,7 @@ func (r *multipartReadCloser) Close() error {
 // or when the server advertised another page without making progress — the
 // mirror must surface that, never bake in a silently-truncated set.
 func (cf *Confluence) ListComments(ctx context.Context, id string) ([]domain.Comment, bool, error) {
-	start := 0
+	cursor := confluencePageCursor{}
 	var out []domain.Comment
 	for page := 0; page < maxPages && len(out) < maxItems; page++ {
 		var resp struct {
@@ -69,7 +69,7 @@ func (cf *Confluence) ListComments(ctx context.Context, id string) ([]domain.Com
 		q := url.Values{}
 		q.Set("expand", "body.storage,history")
 		q.Set("limit", "100")
-		q.Set("start", strconv.Itoa(start))
+		q.Set("start", strconv.Itoa(cursor.startAt()))
 		path := "/rest/api/content/" + url.PathEscape(id) + "/child/comment?" + q.Encode()
 		if err := cf.c.GetJSON(ctx, path, &resp); err != nil {
 			return nil, false, err
@@ -93,13 +93,15 @@ func (cf *Confluence) ListComments(ctx context.Context, id string) ([]domain.Com
 		if len(resp.Results) > remaining {
 			return out, true, nil // the response itself exceeded the item cap
 		}
-		if resp.Links.Next == "" {
+		switch cursor.advance(len(resp.Results), resp.Links.Next) {
+		case confluencePageExhausted:
 			return out, false, nil // server exhausted at or under the cap
-		}
-		if len(resp.Results) == 0 || len(out) >= maxItems {
+		case confluencePageStalled:
 			return out, true, nil
 		}
-		start += len(resp.Results)
+		if len(out) >= maxItems {
+			return out, true, nil
+		}
 	}
 	// The loop only reaches here by hitting a safety cap; the sole natural exit
 	// returns above, so the last page still signaled _links.next — truncated.
@@ -176,7 +178,7 @@ func (cf *Confluence) ListAttachments(ctx context.Context, id string) ([]domain.
 // The item cap is enforced per attachment, so the returned slice never exceeds
 // it silently.
 func (cf *Confluence) ListAttachmentsQualified(ctx context.Context, id string) (domain.AttachmentInventory, error) {
-	start := 0
+	cursor := confluencePageCursor{}
 	out := []domain.Attachment{}
 	partial := func(reason string) (domain.AttachmentInventory, error) {
 		return domain.AttachmentInventory{Attachments: out, PartialReason: reason}, nil
@@ -212,7 +214,7 @@ func (cf *Confluence) ListAttachmentsQualified(ctx context.Context, id string) (
 		q := url.Values{}
 		q.Set("expand", "version,metadata")
 		q.Set("limit", "200")
-		q.Set("start", strconv.Itoa(start))
+		q.Set("start", strconv.Itoa(cursor.startAt()))
 		path := "/rest/api/content/" + url.PathEscape(id) + "/child/attachment?" + q.Encode()
 		if err := cf.c.GetJSON(ctx, path, &resp); err != nil {
 			return domain.AttachmentInventory{}, err
@@ -229,15 +231,14 @@ func (cf *Confluence) ListAttachmentsQualified(ctx context.Context, id string) (
 				Comment: r.Extensions.Comment, DownPath: r.Links.Download,
 			})
 		}
-		if resp.Links.Next == "" {
+		switch cursor.advance(len(resp.Results), resp.Links.Next) {
+		case confluencePageExhausted:
 			return domain.AttachmentInventory{Attachments: out, Complete: true}, nil // server exhausted at or under the caps
-		}
-		if len(resp.Results) == 0 {
+		case confluencePageStalled:
 			// The server still advertises more but returned nothing, so paging cannot
 			// progress. Reporting exhaustion here would fabricate completeness.
 			return partial(domain.AttachmentPartialPaginationStalled)
 		}
-		start += len(resp.Results)
 	}
 	// The loop only reaches here by exhausting the page cap; every natural exit
 	// returns above, so the last page still signaled _links.next.

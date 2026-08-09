@@ -26,7 +26,7 @@ func newEnvironmentCmd() *cobra.Command {
 				return err
 			}
 			local, _ := loadLocalFromCwd(cmd.ErrOrStderr())
-			result := compose.NewEnvironment(cfg, version.Version).InspectEnvironment(cmd.Context(), local)
+			result := compose.NewEnvironment(cfg, version.Version, invocationCompositionOptions(cmd)...).InspectEnvironment(cmd.Context(), local)
 			return emit(cmd, result, func() string { return environmentInspectText(result) })
 		},
 	}

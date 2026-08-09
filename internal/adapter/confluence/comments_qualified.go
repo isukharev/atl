@@ -229,7 +229,7 @@ func (cf *Confluence) ListConfluenceComments(ctx context.Context, id string, opt
 		if stop {
 			break
 		}
-		start := 0
+		cursor := confluencePageCursor{}
 		locationRows := 0
 		locationObserved := false
 		for {
@@ -248,7 +248,7 @@ func (cf *Confluence) ListConfluenceComments(ctx context.Context, id string, opt
 			q.Set("limit", "100")
 			q.Set("location", string(selector))
 			q.Set("parentVersion", strconv.Itoa(options.ParentVersion))
-			q.Set("start", strconv.Itoa(start))
+			q.Set("start", strconv.Itoa(cursor.startAt()))
 			if options.DepthAll {
 				q.Set("depth", "all")
 			}
@@ -267,7 +267,7 @@ func (cf *Confluence) ListConfluenceComments(ctx context.Context, id string, opt
 				return domain.ConfluenceCommentInventory{}, fmt.Errorf("%w: Confluence comment response omitted results", domain.ErrCheckFailed)
 			}
 			rows := *response.Results
-			pageQualified := response.Start != nil && *response.Start == start &&
+			pageQualified := response.Start != nil && *response.Start == cursor.startAt() &&
 				response.Size != nil && *response.Size == len(rows) &&
 				response.Limit != nil && *response.Limit > 0 && response.Links != nil
 			for _, raw := range rows {
@@ -297,14 +297,14 @@ func (cf *Confluence) ListConfluenceComments(ctx context.Context, id string, opt
 				builder.partial(domain.ConfluenceCommentPartialPaginationUnqualified, "", selector, true, true)
 				break
 			}
-			if response.Links.Next == "" {
+			advance := cursor.advance(len(rows), response.Links.Next)
+			if advance == confluencePageExhausted {
 				break
 			}
-			if len(rows) == 0 {
+			if advance == confluencePageStalled {
 				builder.partial(domain.ConfluenceCommentPartialPaginationStalled, "", selector, true, true)
 				break
 			}
-			start += len(rows)
 		}
 		if locationRows > 0 {
 			if locationObserved {

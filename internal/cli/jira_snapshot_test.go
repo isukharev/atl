@@ -13,7 +13,6 @@ import (
 
 	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/domain"
-	"github.com/isukharev/atl/internal/httpx"
 )
 
 func scaffoldJiraSnapshotMirror(t *testing.T, root, body string) string {
@@ -148,7 +147,6 @@ func TestJiraSnapshotRemoteMakesOneIssueRequest(t *testing.T) {
 }
 
 func TestJiraSnapshotVerboseRemoteTraceIsContentFree(t *testing.T) {
-	t.Cleanup(func() { httpx.SetTrace(nil) })
 	root := t.TempDir()
 	scaffoldJiraSnapshotMirror(t, root, "private body")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

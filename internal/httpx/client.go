@@ -8,22 +8,13 @@ package httpx
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"math/rand/v2"
-	"net"
 	"net/http"
 	neturl "net/url"
-	"os"
-	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -31,73 +22,8 @@ import (
 
 const (
 	defaultTimeout = 60 * time.Second
-	maxRetries     = 3
 	userAgent      = "atl-cli"
-	// maxRetryAfter caps an honored Retry-After so a hostile or misconfigured
-	// backend cannot pin the CLI for an arbitrary duration.
-	maxRetryAfter = 30 * time.Second
-	// jsonBodyCap bounds JSON responses (and error bodies on download paths).
-	jsonBodyCap = 64 << 20 // 64 MiB
-	// BinBodyCap bounds a binary body that a caller chooses to buffer in RAM
-	// (e.g. an asset render); streamed downloads are not size-capped.
-	BinBodyCap = 1 << 30 // 1 GiB
-	// dlHeaderTimeout bounds the wait for response headers on the streaming
-	// download client, whose transfers are otherwise limited by inactivity
-	// (downloadIdleTimeout), not total wall-clock.
-	dlHeaderTimeout = 30 * time.Second
-	caBundleMaxSize = 4 << 20 // 4 MiB
 )
-
-// TLSOptions contains backend-scoped trust material. Paths are never included
-// in returned errors or diagnostics.
-type TLSOptions struct {
-	CABundle string
-}
-
-// downloadIdleTimeout is the stall bound for streamed bodies: each successful
-// read resets it. A variable so tests can shrink it.
-var downloadIdleTimeout = 60 * time.Second
-
-// traceWriter, when non-nil, receives a one-line trace of every request and
-// response (method, URL, status). It is a package-level toggle set by the CLI's
-// --verbose/ATL_VERBOSE wiring before any request runs. The bearer token is
-// never written here. The RWMutex makes the toggle safe even if a future test
-// flips it while a request is in flight.
-var (
-	traceMu     sync.RWMutex
-	traceWriter io.Writer
-)
-
-// SetTrace enables (w != nil) or disables (w == nil) HTTP request tracing for
-// all clients. Pass a stderr-like writer to turn it on.
-func SetTrace(w io.Writer) {
-	traceMu.Lock()
-	traceWriter = w
-	traceMu.Unlock()
-}
-
-func tracef(format string, a ...any) {
-	traceMu.RLock()
-	w := traceWriter
-	traceMu.RUnlock()
-	if w != nil {
-		fmt.Fprintf(w, format, a...)
-	}
-}
-
-func traceRequestURL(ctx context.Context, u *neturl.URL) string {
-	if domain.RedactedHTTPTrace(ctx) {
-		return "<redacted>"
-	}
-	return traceURL(u)
-}
-
-func traceResponsePath(ctx context.Context, path string) string {
-	if domain.RedactedHTTPTrace(ctx) {
-		return "<redacted>"
-	}
-	return path
-}
 
 // Client is a per-backend HTTP client (one for Confluence, one for Jira).
 type Client struct {
@@ -109,71 +35,51 @@ type Client struct {
 	dl         *http.Client // streaming downloads: no whole-request timeout
 	ver        string       // CLI version, for User-Agent
 	scheduler  *Scheduler
-	// noVersionGate: this backend has no optimistic version gate, so an HTTP
+	trace      io.Writer
+	traceMu    sync.Mutex
+	// genericConflict: this backend has no optimistic version gate, so an HTTP
 	// 409 is a generic conflict (locked issue, workflow veto), NOT
 	// ErrVersionConflict — exit 5 would point the caller at a re-pull/--force
-	// recovery that does not exist there. Set by the Jira adapter.
-	noVersionGate bool
+	// recovery that does not exist there.
+	genericConflict bool
 	// requireWriteClearance enables the last-hop assertion for clients whose
 	// application policy wiring is complete. It remains false by default.
 	requireWriteClearance bool
 }
 
-type unclearedWriteError struct{}
-
-func (*unclearedWriteError) Error() string {
-	return "check failed: non-replay-safe request lacks write clearance or reviewed read intent"
-}
-func (*unclearedWriteError) Unwrap() error                         { return domain.ErrCheckFailed }
-func (*unclearedWriteError) DiagnosticWriteAttempted() bool        { return false }
-func (*unclearedWriteError) DiagnosticWriteClearanceFailure() bool { return true }
-
-var errUnclearedWrite error = &unclearedWriteError{}
-
-// SetNoVersionGate marks the backend as having no optimistic version gate:
-// an HTTP 409 keeps its full APIError (status and body) but carries no
-// ErrVersionConflict sentinel, so it maps to the generic exit code instead
-// of masquerading as a version conflict.
-func (c *Client) SetNoVersionGate() { c.noVersionGate = true }
-
-// RequireWriteClearance enables the last-hop assertion that every
-// non-replay-safe request carries reviewed write clearance or read intent.
-// Adapters call it only after their complete write inventory is guarded.
-func (c *Client) RequireWriteClearance() { c.requireWriteClearance = true }
-
 // New builds a client for a backend base URL with a bearer PAT.
-func New(base, token, version string) *Client {
-	return NewWithScheduler(base, token, version, nil)
+func New(base, token, version string, options ...Option) *Client {
+	return NewWithScheduler(base, token, version, nil, options...)
 }
 
 // NewWithScheduler builds a client whose every transport attempt shares the
 // supplied command-scoped concurrency/rate policy.
-func NewWithScheduler(base, token, version string, scheduler *Scheduler) *Client {
+func NewWithScheduler(base, token, version string, scheduler *Scheduler, options ...Option) *Client {
 	dlTransport := http.DefaultTransport.(*http.Transport).Clone()
 	dlTransport.ResponseHeaderTimeout = dlHeaderTimeout
-	return newWithScheduler(base, token, version, scheduler, http.DefaultTransport, dlTransport)
+	return newWithScheduler(base, token, version, scheduler, http.DefaultTransport, dlTransport, resolveOptions(options))
 }
 
 // NewWithSchedulerTLS builds a client with an isolated backend-specific trust
 // pool. An empty option preserves NewWithScheduler's exact transport shape.
-func NewWithSchedulerTLS(base, token, version string, scheduler *Scheduler, options TLSOptions) (*Client, error) {
-	if strings.TrimSpace(options.CABundle) == "" {
-		return NewWithScheduler(base, token, version, scheduler), nil
+func NewWithSchedulerTLS(base, token, version string, scheduler *Scheduler, tlsOptions TLSOptions, options ...Option) (*Client, error) {
+	if strings.TrimSpace(tlsOptions.CABundle) == "" {
+		return NewWithScheduler(base, token, version, scheduler, options...), nil
 	}
 	u, err := neturl.Parse(base)
 	if err != nil || !strings.EqualFold(u.Scheme, "https") {
 		return nil, fmt.Errorf("%w: configured CA bundle requires an https backend", domain.ErrConfig)
 	}
-	transport, err := transportWithCABundle(options.CABundle)
+	transport, err := transportWithCABundle(tlsOptions.CABundle)
 	if err != nil {
 		return nil, err
 	}
 	dlTransport := transport.Clone()
 	dlTransport.ResponseHeaderTimeout = dlHeaderTimeout
-	return newWithScheduler(base, token, version, scheduler, transport, dlTransport), nil
+	return newWithScheduler(base, token, version, scheduler, transport, dlTransport, resolveOptions(options)), nil
 }
 
-func newWithScheduler(base, token, version string, scheduler *Scheduler, transport http.RoundTripper, dlTransport http.RoundTripper) *Client {
+func newWithScheduler(base, token, version string, scheduler *Scheduler, transport http.RoundTripper, dlTransport http.RoundTripper, options clientOptions) *Client {
 	base = strings.TrimRight(base, "/")
 	host := ""
 	scheme := ""
@@ -214,12 +120,15 @@ func newWithScheduler(base, token, version string, scheduler *Scheduler, transpo
 		return nil
 	}
 	return &Client{
-		base:       base,
-		baseHost:   host,
-		baseScheme: scheme,
-		token:      token,
-		ver:        version,
-		scheduler:  scheduler,
+		base:                  base,
+		baseHost:              host,
+		baseScheme:            scheme,
+		token:                 token,
+		ver:                   version,
+		scheduler:             scheduler,
+		trace:                 options.trace,
+		genericConflict:       options.genericConflict,
+		requireWriteClearance: options.requireWriteClearance,
 		hc: &http.Client{
 			Transport:     scheduleTransport(readBudgetTransport{base: transport}, scheduler),
 			Timeout:       defaultTimeout,
@@ -232,229 +141,8 @@ func newWithScheduler(base, token, version string, scheduler *Scheduler, transpo
 	}
 }
 
-func transportWithCABundle(path string) (*http.Transport, error) {
-	bundle, err := readCABundle(path)
-	if err != nil {
-		return nil, err
-	}
-	pool, err := x509.SystemCertPool()
-	if err != nil || pool == nil {
-		pool = x509.NewCertPool()
-	}
-	if !pool.AppendCertsFromPEM(bundle) {
-		return nil, fmt.Errorf("%w: configured CA bundle contains no certificates", domain.ErrConfig)
-	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	tlsConfig := &tls.Config{}
-	if transport.TLSClientConfig != nil {
-		tlsConfig = transport.TLSClientConfig.Clone()
-	}
-	tlsConfig.RootCAs = pool
-	tlsConfig.MinVersion = tls.VersionTLS12
-	transport.TLSClientConfig = tlsConfig
-	return transport, nil
-}
-
-// ValidateCABundle checks configured trust material without constructing a
-// client. It is used by path-free setup diagnostics.
-func ValidateCABundle(path string) error {
-	if strings.TrimSpace(path) == "" {
-		return nil
-	}
-	_, err := transportWithCABundle(path)
-	return err
-}
-
-func readCABundle(path string) ([]byte, error) {
-	// Stat before open so a configured FIFO/device cannot block setup forever.
-	// The descriptor is checked again after open to close the ordinary swap race.
-	preInfo, err := os.Stat(path)
-	if err != nil {
-		return nil, fmt.Errorf("%w: configured CA bundle is unreadable", domain.ErrConfig)
-	}
-	if !preInfo.Mode().IsRegular() {
-		return nil, fmt.Errorf("%w: configured CA bundle is not a regular file", domain.ErrConfig)
-	}
-	if preInfo.Size() > caBundleMaxSize {
-		return nil, fmt.Errorf("%w: configured CA bundle exceeds the 4 MiB limit", domain.ErrConfig)
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("%w: configured CA bundle is unreadable", domain.ErrConfig)
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("%w: configured CA bundle is unavailable", domain.ErrConfig)
-	}
-	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("%w: configured CA bundle is not a regular file", domain.ErrConfig)
-	}
-	if info.Size() > caBundleMaxSize {
-		return nil, fmt.Errorf("%w: configured CA bundle exceeds the 4 MiB limit", domain.ErrConfig)
-	}
-	bundle, err := io.ReadAll(io.LimitReader(f, caBundleMaxSize+1))
-	if err != nil {
-		return nil, fmt.Errorf("%w: configured CA bundle is unreadable", domain.ErrConfig)
-	}
-	if len(bundle) > caBundleMaxSize {
-		return nil, fmt.Errorf("%w: configured CA bundle exceeds the 4 MiB limit", domain.ErrConfig)
-	}
-	return bundle, nil
-}
-
-// readBudgetTransport charges immediately before the underlying RoundTrip, so
-// retries and redirects are physical attempts while scheduler waits are not.
-// An absent context budget leaves transport behavior unchanged.
-type readBudgetTransport struct {
-	base http.RoundTripper
-}
-
-func (t readBudgetTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if budget := domain.ReadBudgetFromContext(req.Context()); budget != nil {
-		if err := budget.TakeAttempt(); err != nil {
-			return nil, err
-		}
-	}
-	return t.base.RoundTrip(req)
-}
-
 // Base returns the backend base URL.
 func (c *Client) Base() string { return c.base }
-
-// APIError carries the HTTP status and body and unwraps to a domain sentinel so
-// the CLI can map it to an exit code.
-type APIError struct {
-	Status int
-	Method string
-	Path   string
-	Body   string
-	kind   error
-}
-
-// TransportError keeps selectors and other query values out of stderr while
-// retaining errors.Is identity for cancellation and ambiguous-write
-// reconciliation. The cause is deliberately not exposed through Unwrap:
-// standard url.Error and custom transports may repeat the complete request URL.
-type TransportError struct {
-	Method   string
-	Category string
-	safeURL  string
-	err      error
-}
-
-func (e *TransportError) Error() string {
-	return fmt.Sprintf("%s %s: transport error (%s)", e.Method, e.safeURL, e.Category)
-}
-
-// Is preserves sentinel/cancellation checks without making the potentially
-// URL-bearing cause available to generic unwrapping loggers.
-func (e *TransportError) Is(target error) bool { return errors.Is(e.err, target) }
-
-// Format keeps alternate fmt verbs from printing the private cause as a Go
-// struct. That cause can contain an unredacted *url.Error.
-func (e *TransportError) Format(state fmt.State, verb rune) {
-	safe := e.Error()
-	if verb == 'q' {
-		safe = strconv.Quote(safe)
-	}
-	_, _ = io.WriteString(state, safe)
-}
-
-func transportError(method string, u *neturl.URL, err error) error {
-	safe := ""
-	if u != nil {
-		safe = redactURLString(u.String())
-	}
-	return &TransportError{Method: method, Category: transportErrorCategory(err), safeURL: safe, err: err}
-}
-
-// transportErrorCategory intentionally returns only a small type-derived
-// vocabulary. It never includes Error() text from the cause, which may contain
-// a raw request URL, proxy address, hostname, or selector.
-func transportErrorCategory(err error) string {
-	switch {
-	case errors.Is(err, context.Canceled):
-		return "canceled"
-	case errors.Is(err, context.DeadlineExceeded):
-		return "timeout"
-	}
-	var netErr net.Error
-	if errors.As(err, &netErr) && netErr.Timeout() {
-		return "timeout"
-	}
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
-		return "dns"
-	}
-	var hostnameErr x509.HostnameError
-	var authorityErr x509.UnknownAuthorityError
-	var invalidErr x509.CertificateInvalidError
-	var tlsHeaderErr tls.RecordHeaderError
-	if errors.As(err, &hostnameErr) || errors.As(err, &authorityErr) ||
-		errors.As(err, &invalidErr) || errors.As(err, &tlsHeaderErr) {
-		return "tls"
-	}
-	switch {
-	case errors.Is(err, syscall.ECONNREFUSED):
-		return "connection-refused"
-	case errors.Is(err, syscall.ECONNRESET), errors.Is(err, syscall.EPIPE):
-		return "connection-lost"
-	case errors.Is(err, syscall.ENETUNREACH), errors.Is(err, syscall.EHOSTUNREACH):
-		return "unreachable"
-	default:
-		return "network"
-	}
-}
-
-func (e *APIError) Error() string {
-	msg := e.Body
-	if len(msg) > 500 {
-		msg = msg[:500] + "…"
-	}
-	return fmt.Sprintf("%s %s → HTTP %d: %s", e.Method, redactURLString(e.Path), e.Status, strings.TrimSpace(msg))
-}
-
-func (e *APIError) Unwrap() error { return e.kind }
-
-// HTTPStatus exposes the received response status without coupling upper
-// layers to this concrete transport error type.
-func (e *APIError) HTTPStatus() int { return e.Status }
-
-// sameHost reports whether a server-supplied URL host matches the configured
-// backend host. An empty request host means a base-relative path (same host).
-func sameHost(base, reqHost string) bool {
-	return reqHost == "" || strings.EqualFold(reqHost, base)
-}
-
-func classify(status int) error {
-	switch {
-	case status == http.StatusBadRequest:
-		return domain.ErrUsage
-	case status == http.StatusUnauthorized:
-		return domain.ErrAuth
-	case status == http.StatusForbidden:
-		return domain.ErrForbidden
-	case status == http.StatusNotFound:
-		return domain.ErrNotFound
-	case status == http.StatusConflict:
-		return domain.ErrVersionConflict
-	default:
-		return nil
-	}
-}
-
-// replaySafe reports whether the generic transport may repeat a request after
-// an ambiguous response. Writes deliberately require endpoint-aware
-// reconciliation rather than relying on HTTP's broad idempotency definition.
-func replaySafe(method string) bool {
-	switch method {
-	case http.MethodGet, http.MethodHead:
-		return true
-	default:
-		return false
-	}
-}
 
 // Do issues a request with retries and returns the raw response body on 2xx.
 // path may be absolute (starts with http) or relative to base. JSON responses
@@ -488,7 +176,7 @@ func (c *Client) ResolveGET(ctx context.Context, path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	tracef("→ GET %s\n", traceRequestURL(ctx, req.URL))
+	c.tracef("→ GET %s\n", traceRequestURL(ctx, req.URL))
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		if resp != nil && resp.Body != nil {
@@ -504,7 +192,7 @@ func (c *Client) ResolveGET(ctx context.Context, path string) (string, error) {
 	if resp.Request != nil && resp.Request.URL != nil {
 		finalURL = resp.Request.URL
 	}
-	tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, finalURL.Path))
+	c.tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, finalURL.Path))
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return finalURL.String(), nil
 	}
@@ -512,10 +200,7 @@ func (c *Client) ResolveGET(ctx context.Context, path string) (string, error) {
 	if readErr != nil {
 		return "", readErr
 	}
-	kind := classify(resp.StatusCode)
-	if c.noVersionGate && kind == domain.ErrVersionConflict {
-		kind = nil
-	}
+	kind := c.classifyResult(resp.StatusCode)
 	return "", &APIError{Status: resp.StatusCode, Method: http.MethodGet, Path: path, Body: string(data), kind: kind}
 }
 
@@ -547,17 +232,17 @@ func (c *Client) DoStreamSized(ctx context.Context, method, path string, r io.Re
 	if contentLength >= 0 {
 		req.ContentLength = contentLength
 	}
-	tracef("→ %s %s\n", method, traceRequestURL(ctx, req.URL))
+	c.tracef("→ %s %s\n", method, traceRequestURL(ctx, req.URL))
 	resp, err := c.dl.Do(req)
 	if err != nil {
-		tracef("× %s %s (transport error: %s)\n", method, traceRequestURL(ctx, req.URL), transportErrorCategory(err))
+		c.tracef("× %s %s (transport error: %s)\n", method, traceRequestURL(ctx, req.URL), transportErrorCategory(err))
 		if budgetErr := readBudgetExhaustion(err); budgetErr != nil {
 			return nil, budgetErr
 		}
 		return nil, transportError(method, req.URL, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, req.URL.Path))
+	c.tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, req.URL.Path))
 	data, err := readIdleResponseBody(ctx, resp.Body, jsonBodyCap, downloadIdleTimeout, cancel)
 	if err != nil {
 		return nil, err
@@ -565,10 +250,7 @@ func (c *Client) DoStreamSized(ctx context.Context, method, path string, r io.Re
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return data, nil
 	}
-	kind := classify(resp.StatusCode)
-	if c.noVersionGate && kind == domain.ErrVersionConflict {
-		kind = nil
-	}
+	kind := c.classifyResult(resp.StatusCode)
 	return nil, &APIError{Status: resp.StatusCode, Method: method, Path: path, Body: string(data), kind: kind}
 }
 
@@ -597,10 +279,10 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 		if err != nil {
 			return nil, err
 		}
-		tracef("→ %s %s\n", method, traceRequestURL(ctx, req.URL))
+		c.tracef("→ %s %s\n", method, traceRequestURL(ctx, req.URL))
 		resp, err := c.hc.Do(req)
 		if err != nil {
-			tracef("× %s %s (transport error: %s)\n", method, traceRequestURL(ctx, req.URL), transportErrorCategory(err))
+			c.tracef("× %s %s (transport error: %s)\n", method, traceRequestURL(ctx, req.URL), transportErrorCategory(err))
 			if budgetErr := readBudgetExhaustion(err); budgetErr != nil {
 				return nil, budgetErr
 			}
@@ -613,12 +295,8 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 			lastErr = safeErr
 			continue // network error → retry
 		}
-		tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, req.URL.Path))
-		retryable := replaySafe(method) && transientRetryStatus(resp.StatusCode)
-		retryDelay := time.Duration(0)
-		if retryable {
-			retryDelay = retryAfter(resp)
-		}
+		c.tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, req.URL.Path))
+		result := c.classifyAttempt(method, resp)
 		data, err := readResponseBody(ctx, resp.Body, maxBytes)
 		resp.Body.Close()
 		if err != nil {
@@ -627,17 +305,13 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return data, nil
 		}
-		kind := classify(resp.StatusCode)
-		if c.noVersionGate && kind == domain.ErrVersionConflict {
-			kind = nil // generic conflict on a backend without a version gate
-		}
-		apiErr := &APIError{Status: resp.StatusCode, Method: method, Path: path, Body: string(data), kind: kind}
+		apiErr := &APIError{Status: resp.StatusCode, Method: method, Path: path, Body: string(data), kind: result.kind}
 		// A response does not prove that a write was uncommitted. Only replay-safe
 		// reads retry generically; write endpoints must reconcile explicitly.
-		if retryable {
+		if result.retryable {
 			lastErr = apiErr
-			if retryDelay > 0 {
-				if !sleep(ctx, retryDelay) {
+			if result.retryDelay > 0 {
+				if !sleep(ctx, result.retryDelay) {
 					return nil, ctx.Err()
 				}
 				skipBackoff = true // already waited per Retry-After; no double sleep
@@ -647,196 +321,6 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 		return nil, apiErr // permanent → stop
 	}
 	return nil, lastErr
-}
-
-// resolveURL joins a relative path to base, or validates an absolute URL drawn
-// from a server response (e.g. an attachment "content" link). Classify by
-// scheme via url.IsAbs, not a "http" prefix: the prefix mis-reads a relative
-// path like "httpcache/..." as absolute and a mixed-case "HTTPS://..." as
-// relative. An absolute URL pointing off the configured backend host is
-// refused outright (blind SSRF) — the request is never issued.
-func (c *Client) resolveURL(path string) (string, error) {
-	u, err := neturl.Parse(path)
-	if err != nil {
-		return "", fmt.Errorf("parse url: %w", err)
-	}
-	if u.IsAbs() {
-		if !sameHost(c.baseHost, u.Host) {
-			return "", fmt.Errorf("refusing request to foreign host %q", u.Host)
-		}
-		if u.User != nil {
-			return "", fmt.Errorf("refusing request URL with user information")
-		}
-		scheme := strings.ToLower(u.Scheme)
-		if scheme != "http" && scheme != "https" {
-			return "", fmt.Errorf("refusing request with unsupported scheme %q", u.Scheme)
-		}
-		if c.baseScheme == "https" && scheme != "https" {
-			return "", fmt.Errorf("refusing https→http request to %q", u.Host)
-		}
-		return path, nil
-	}
-	return c.base + path, nil
-}
-
-// newRequest builds one attempt's request with auth/UA headers. The PAT is
-// only ever sent to the configured backend host: a path may be an absolute URL
-// drawn from a server response; if it points elsewhere we must NOT leak the
-// token.
-func (c *Client) newRequest(ctx context.Context, method, url string, body []byte, headers map[string]string) (*http.Request, error) {
-	var rdr io.Reader
-	if body != nil {
-		rdr = bytes.NewReader(body)
-	}
-	req, err := c.newRequestReader(ctx, method, url, rdr, headers)
-	if err != nil {
-		return nil, err
-	}
-	if body != nil && req.Header.Get("Content-Type") == "" {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	return req, nil
-}
-
-func (c *Client) newRequestReader(ctx context.Context, method, url string, body io.Reader, headers map[string]string) (*http.Request, error) {
-	if c.requireWriteClearance && !replaySafe(method) && !domain.HasWriteClearance(ctx) && !domain.ReadIntent(ctx) {
-		return nil, errUnclearedWrite
-	}
-	req, err := http.NewRequestWithContext(ctx, method, url, body)
-	if err != nil {
-		return nil, err
-	}
-	if sameHost(c.baseHost, req.URL.Host) && (c.baseScheme != "https" || req.URL.Scheme == "https") {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", userAgent+"/"+c.ver)
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-	return req, nil
-}
-
-// traceURL preserves routing information while replacing every query value.
-// Selectors often contain issue keys, page titles, JQL, or CQL and therefore
-// do not belong in CI/debug logs by default.
-func traceURL(u *neturl.URL) string {
-	if u == nil {
-		return ""
-	}
-	redacted := *u
-	redacted.User = nil
-	q := redacted.Query()
-	for key, values := range q {
-		for i := range values {
-			values[i] = "<redacted>"
-		}
-		q[key] = values
-	}
-	redacted.RawQuery = q.Encode()
-	redacted.Fragment = ""
-	return redacted.String()
-}
-
-func redactURLString(raw string) string {
-	u, err := neturl.Parse(raw)
-	if err == nil {
-		return traceURL(u)
-	}
-	// Request construction already rejects malformed URLs. Keep this fallback
-	// opaque and fail-closed for manually constructed APIError values and future
-	// callers: malformed bytes can hide fragments, userinfo, or query content.
-	return "<redacted-invalid-url>"
-}
-
-// readBody reads up to max bytes, returning an error if the body is larger
-// (rather than silently truncating) or if the read itself fails.
-func readBody(r io.Reader, max int64) ([]byte, error) {
-	data, err := io.ReadAll(io.LimitReader(r, max+1))
-	if err != nil {
-		return nil, fmt.Errorf("read response body: %w", err)
-	}
-	if int64(len(data)) > max {
-		return nil, fmt.Errorf("response body exceeds %d bytes", max)
-	}
-	return data, nil
-}
-
-// readResponseBody applies the ordinary per-response cap and, when present,
-// the command-scoped aggregate cap. Budgeted reads are serialized so two
-// concurrent bodies cannot both buffer against the same remaining allowance.
-func readResponseBody(ctx context.Context, r io.Reader, max int64) ([]byte, error) {
-	return readResponseBodyWith(ctx, max, func(limit int64) ([]byte, error) {
-		return io.ReadAll(io.LimitReader(r, limit))
-	})
-}
-
-// readIdleResponseBody waits for any shared response-budget reservation before
-// starting the inactivity watchdog. Time queued behind another bounded reader
-// is not backend inactivity and must not cancel an otherwise healthy request.
-func readIdleResponseBody(ctx context.Context, rc io.ReadCloser, max int64, idle time.Duration, cancel context.CancelFunc) ([]byte, error) {
-	return readResponseBodyWith(ctx, max, func(limit int64) (data []byte, err error) {
-		idleBody := newIdleReader(rc, idle, cancel)
-		data, err = io.ReadAll(io.LimitReader(idleBody, limit))
-		if closeErr := idleBody.Close(); err == nil && closeErr != nil {
-			err = fmt.Errorf("close response body: %w", closeErr)
-		}
-		return data, err
-	})
-}
-
-// readResponseBodyWith centralizes the per-response and aggregate-budget
-// accounting while allowing streaming callers to install a watchdog only once
-// their turn to consume the response begins. read receives an inclusive
-// detection limit (the accepted maximum plus one byte).
-func readResponseBodyWith(ctx context.Context, max int64, read func(limit int64) ([]byte, error)) ([]byte, error) {
-	budget := domain.ReadBudgetFromContext(ctx)
-	if budget == nil {
-		data, err := read(max + 1)
-		if err != nil {
-			return nil, fmt.Errorf("read response body: %w", err)
-		}
-		if int64(len(data)) > max {
-			return nil, fmt.Errorf("response body exceeds %d bytes", max)
-		}
-		return data, nil
-	}
-
-	remaining, finish, err := budget.BeginResponse(ctx)
-	if err != nil {
-		return nil, err
-	}
-	consumed := int64(0)
-	defer func() { finish(consumed) }()
-
-	limit := max
-	if remaining < limit {
-		limit = remaining
-	}
-	data, readErr := read(limit + 1)
-	consumed = int64(len(data))
-	if consumed > remaining {
-		consumed = remaining
-		return nil, domain.ErrReadResponseBudgetExhausted
-	}
-	if readErr != nil {
-		return nil, fmt.Errorf("read response body: %w", readErr)
-	}
-	if int64(len(data)) > max {
-		return nil, fmt.Errorf("response body exceeds %d bytes", max)
-	}
-	return data, nil
-}
-
-func readBudgetExhaustion(err error) error {
-	switch {
-	case errors.Is(err, domain.ErrReadAttemptBudgetExhausted):
-		return domain.ErrReadAttemptBudgetExhausted
-	case errors.Is(err, domain.ErrReadResponseBudgetExhausted):
-		return domain.ErrReadResponseBudgetExhausted
-	default:
-		return nil
-	}
 }
 
 // GetJSON GETs path and unmarshals into out.
@@ -930,41 +414,33 @@ func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, err
 			cancel()
 			return nil, err
 		}
-		tracef("→ GET %s\n", traceRequestURL(ctx, req.URL))
+		c.tracef("→ GET %s\n", traceRequestURL(ctx, req.URL))
 		resp, err := c.dl.Do(req)
 		if err != nil {
 			cancel()
-			tracef("× GET %s (transport error: %s)\n", traceRequestURL(ctx, req.URL), transportErrorCategory(err))
+			c.tracef("× GET %s (transport error: %s)\n", traceRequestURL(ctx, req.URL), transportErrorCategory(err))
 			if budgetErr := readBudgetExhaustion(err); budgetErr != nil {
 				return nil, budgetErr
 			}
 			lastErr = transportError(http.MethodGet, req.URL, err)
 			continue // GET is idempotent → retry
 		}
-		tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, req.URL.Path))
+		c.tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, req.URL.Path))
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return newIdleReader(resp.Body, downloadIdleTimeout, cancel), nil
 		}
-		retryable := transientRetryStatus(resp.StatusCode)
-		retryDelay := time.Duration(0)
-		if retryable {
-			retryDelay = retryAfter(resp)
-		}
+		result := c.classifyAttempt(http.MethodGet, resp)
 		data, rerr := readResponseBody(ctx, resp.Body, jsonBodyCap)
 		resp.Body.Close()
 		cancel()
 		if rerr != nil {
 			return nil, rerr
 		}
-		kind := classify(resp.StatusCode)
-		if c.noVersionGate && kind == domain.ErrVersionConflict {
-			kind = nil
-		}
-		apiErr := &APIError{Status: resp.StatusCode, Method: http.MethodGet, Path: path, Body: string(data), kind: kind}
-		if retryable {
+		apiErr := &APIError{Status: resp.StatusCode, Method: http.MethodGet, Path: path, Body: string(data), kind: result.kind}
+		if result.retryable {
 			lastErr = apiErr
-			if retryDelay > 0 {
-				if !sleep(ctx, retryDelay) {
+			if result.retryDelay > 0 {
+				if !sleep(ctx, result.retryDelay) {
 					return nil, ctx.Err()
 				}
 				skipBackoff = true
@@ -976,63 +452,6 @@ func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, err
 	return nil, lastErr
 }
 
-// ReadCapped fully reads a stream a caller has chosen to buffer in RAM (e.g.
-// an asset render), erroring beyond max rather than silently truncating.
-func ReadCapped(r io.Reader, max int64) ([]byte, error) {
-	return readBody(r, max)
-}
-
-// idleReader bounds a streamed body by inactivity: a watchdog cancels the
-// underlying request when no read has made progress within idle, so a stalled
-// transfer fails with a clear error instead of hanging forever. Progress is a
-// timestamp the watchdog consults, NOT a timer the reads reset: a read racing
-// the watchdog fire therefore wins (the watchdog sees fresh progress and just
-// reschedules), so a fire can never irrecoverably poison a live stream.
-type idleReader struct {
-	rc       io.ReadCloser
-	timer    *time.Timer
-	idle     time.Duration
-	cancel   context.CancelFunc
-	stalled  atomic.Bool
-	progress atomic.Int64 // unix nanos of the last read progress
-}
-
-func newIdleReader(rc io.ReadCloser, idle time.Duration, cancel context.CancelFunc) *idleReader {
-	r := &idleReader{rc: rc, idle: idle, cancel: cancel}
-	r.progress.Store(time.Now().UnixNano())
-	r.timer = time.AfterFunc(idle, r.watchdog)
-	return r
-}
-
-// watchdog cancels the request only when no read progressed within idle;
-// otherwise it reschedules itself for the remainder of the window.
-func (r *idleReader) watchdog() {
-	elapsed := time.Duration(time.Now().UnixNano() - r.progress.Load())
-	if elapsed < r.idle {
-		r.timer.Reset(r.idle - elapsed)
-		return
-	}
-	r.stalled.Store(true)
-	r.cancel()
-}
-
-func (r *idleReader) Read(p []byte) (int, error) {
-	n, err := r.rc.Read(p)
-	if n > 0 || err == nil {
-		r.progress.Store(time.Now().UnixNano())
-	}
-	if err != nil && !errors.Is(err, io.EOF) && r.stalled.Load() {
-		return n, fmt.Errorf("download stalled: no data received for %s: %w", r.idle, err)
-	}
-	return n, err
-}
-
-func (r *idleReader) Close() error {
-	r.timer.Stop()
-	r.cancel()
-	return r.rc.Close()
-}
-
 func unmarshal(data []byte, out any) error {
 	if out == nil {
 		return nil
@@ -1041,58 +460,4 @@ func unmarshal(data []byte, out any) error {
 		return fmt.Errorf("decode response: %w", err)
 	}
 	return nil
-}
-
-// backoff returns an exponential delay with full jitter (a random duration in
-// [d/2, d]) to avoid a thundering herd. The base is capped at 5s before jitter.
-func backoff(attempt int) time.Duration {
-	d := time.Duration(200<<attempt) * time.Millisecond
-	if d > 5*time.Second {
-		d = 5 * time.Second
-	}
-	half := d / 2
-	// Jitter is retry timing, not a security primitive; a non-crypto PRNG is
-	// intentional here.
-	return half + time.Duration(rand.Int64N(int64(half)+1)) //nolint:gosec // G404: jitter is non-cryptographic by design
-}
-
-// retryAfter parses a Retry-After header (integer seconds or RFC 7231
-// HTTP-date), clamping the result to [0, maxRetryAfter] so a hostile value
-// cannot pin the CLI. A missing/invalid header or a past date yields 0.
-func retryAfter(resp *http.Response) time.Duration {
-	v := strings.TrimSpace(resp.Header.Get("Retry-After"))
-	if v == "" {
-		return 0
-	}
-	if secs, err := strconv.Atoi(v); err == nil {
-		return clampRetryAfter(time.Duration(secs) * time.Second)
-	}
-	if t, err := http.ParseTime(v); err == nil {
-		return clampRetryAfter(time.Until(t))
-	}
-	return 0
-}
-
-func clampRetryAfter(d time.Duration) time.Duration {
-	if d < 0 {
-		return 0
-	}
-	if d > maxRetryAfter {
-		return maxRetryAfter
-	}
-	return d
-}
-
-func sleep(ctx context.Context, d time.Duration) bool {
-	if d <= 0 {
-		return true
-	}
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-t.C:
-		return true
-	}
 }

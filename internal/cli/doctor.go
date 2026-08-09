@@ -29,7 +29,7 @@ func newDoctorCmd() *cobra.Command {
 			result, doctorErr := compose.RunDoctor(cmd.Context(), app.DoctorOptions{
 				Remote: remote, ReadOnlyPolicy: invocationRuntimeFor(cmd).readOnly || envReadOnly(), ContentPolicyActive: policy.Active,
 				ContentPolicyEnforcement: policy.Enforcement, ContentPolicyAdvisory: policy.AdvisoryBecause,
-			})
+			}, invocationCompositionOptions(cmd)...)
 			emitErr := emitSnapshot(cmd, result, func() string { return doctorText(result) })
 			return snapshotResultErr(doctorErr, emitErr)
 		},

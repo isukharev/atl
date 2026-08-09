@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"strconv"
 	"strings"
@@ -23,13 +24,24 @@ type Confluence struct {
 	identity   *confluenceIdentityCache
 }
 
-// Option configures transport-neutral adapter behavior.
-type Option func(*Confluence)
+// Option configures adapter behavior before its immutable HTTP client is built.
+type Option func(*adapterOptions)
+
+type adapterOptions struct {
+	authorizer domain.WriteAuthorizer
+	trace      io.Writer
+}
 
 // WithWriteAuthorizer enables content-scoped last-hop authorization. A nil
 // authorizer is equivalent to omitting the option.
 func WithWriteAuthorizer(authorizer domain.WriteAuthorizer) Option {
-	return func(cf *Confluence) { cf.authorizer = authorizer }
+	return func(options *adapterOptions) { options.authorizer = authorizer }
+}
+
+// WithTrace supplies a per-adapter HTTP trace sink. A nil writer leaves
+// tracing disabled.
+func WithTrace(w io.Writer) Option {
+	return func(options *adapterOptions) { options.trace = w }
 }
 
 // New builds a Confluence adapter for base URL with a PAT.
@@ -40,29 +52,45 @@ func New(base, token, version string, options ...Option) *Confluence {
 // NewWithScheduler shares a command-scoped request scheduler with every
 // Confluence transport path, including comments and streamed assets.
 func NewWithScheduler(base, token, version string, scheduler *httpx.Scheduler, options ...Option) *Confluence {
-	c := httpx.NewWithScheduler(base, token, version, scheduler)
-	return newWithClient(base, c, options...)
+	resolved := resolveAdapterOptions(options)
+	c := httpx.NewWithScheduler(base, token, version, scheduler, transportOptions(resolved)...)
+	return newWithClient(base, c, resolved)
 }
 
 // NewWithSchedulerTLS builds a Confluence adapter with backend-specific trust
 // material. Existing constructors preserve the default transport path.
 func NewWithSchedulerTLS(base, token, version string, scheduler *httpx.Scheduler, tlsOptions httpx.TLSOptions, options ...Option) (*Confluence, error) {
-	c, err := httpx.NewWithSchedulerTLS(base, token, version, scheduler, tlsOptions)
+	resolved := resolveAdapterOptions(options)
+	c, err := httpx.NewWithSchedulerTLS(base, token, version, scheduler, tlsOptions, transportOptions(resolved)...)
 	if err != nil {
 		return nil, err
 	}
-	return newWithClient(base, c, options...), nil
+	return newWithClient(base, c, resolved), nil
 }
 
-func newWithClient(base string, c *httpx.Client, options ...Option) *Confluence {
-	cf := &Confluence{c: c, base: strings.TrimRight(base, "/"), identity: newConfluenceIdentityCache()}
+func resolveAdapterOptions(options []Option) adapterOptions {
+	var resolved adapterOptions
 	for _, option := range options {
 		if option != nil {
-			option(cf)
+			option(&resolved)
 		}
 	}
-	c.RequireWriteClearance()
-	return cf
+	return resolved
+}
+
+func transportOptions(options adapterOptions) []httpx.Option {
+	resolved := []httpx.Option{httpx.WithRequiredWriteClearance()}
+	if options.trace != nil {
+		resolved = append(resolved, httpx.WithTrace(options.trace))
+	}
+	return resolved
+}
+
+func newWithClient(base string, c *httpx.Client, options adapterOptions) *Confluence {
+	return &Confluence{
+		c: c, base: strings.TrimRight(base, "/"), authorizer: options.authorizer,
+		identity: newConfluenceIdentityCache(),
+	}
 }
 
 var _ domain.DocStore = (*Confluence)(nil)
@@ -353,7 +381,7 @@ func (cf *Confluence) History(ctx context.Context, id string) ([]domain.Version,
 // stalled, not exhausted. The item cap is enforced per version, so the returned
 // slice never exceeds it silently.
 func (cf *Confluence) HistoryQualified(ctx context.Context, id string) (domain.VersionInventory, error) {
-	start := 0
+	cursor := confluencePageCursor{}
 	out := []domain.Version{}
 	partial := func(reason string) (domain.VersionInventory, error) {
 		return domain.VersionInventory{Versions: out, PartialReason: reason}, nil
@@ -379,7 +407,7 @@ func (cf *Confluence) HistoryQualified(ctx context.Context, id string) (domain.V
 		}
 		q := url.Values{}
 		q.Set("limit", "100")
-		q.Set("start", strconv.Itoa(start))
+		q.Set("start", strconv.Itoa(cursor.startAt()))
 		// Confluence Data Center serves the full version list under
 		// /rest/experimental; the Cloud-style /rest/api/content/{id}/version path
 		// 404s on DC.
@@ -394,15 +422,14 @@ func (cf *Confluence) HistoryQualified(ctx context.Context, id string) (domain.V
 			}
 			out = append(out, domain.Version{Number: v.Number, When: v.When, By: v.By.DisplayName, Message: v.Message})
 		}
-		if resp.Links.Next == "" {
+		switch cursor.advance(len(resp.Results), resp.Links.Next) {
+		case confluencePageExhausted:
 			return domain.VersionInventory{Versions: out, Complete: true}, nil // server exhausted at or under the caps
-		}
-		if len(resp.Results) == 0 {
+		case confluencePageStalled:
 			// The server still advertises more but returned nothing, so paging cannot
 			// progress. Reporting exhaustion here would fabricate completeness.
 			return partial(domain.HistoryPartialPaginationStalled)
 		}
-		start += len(resp.Results)
 	}
 	// The loop only reaches here by exhausting the page cap; every natural exit
 	// returns above, so the last page still signaled _links.next.

@@ -514,7 +514,10 @@ or TLS implementation types. `internal/app`, `internal/cli`, and
 `internal/mcpserver` do not import adapter packages directly. Focused feature
 constructors reuse the same secure adapter factories as the broad services, so
 URL, credential, CA-bundle, scheduler, and write-authorizer behavior cannot
-drift while CLI commands receive narrower app surfaces.
+drift while CLI commands receive narrower app surfaces. Invocation options are
+resolved before adapter construction: verbose CLI roots inject only their own
+stderr trace sink, lazy sibling adapters inherit that same sink, and MCP or
+other default composition remains silent.
 
 ### `internal/cli`
 
@@ -546,6 +549,10 @@ CLI's own error message is the only output on stderr.
 
 Shared HTTP infrastructure used by both adapters. Features:
 
+- Immutable per-client trace, conflict, and write-clearance policy. Confluence
+  construction keeps the optimistic-version 409 mapping; Jira construction
+  selects generic 409 errors because Jira has no equivalent version gate. No
+  process-global transport toggle can cross concurrent CLI roots or hosts.
 - Bearer auth (`Authorization: Bearer <token>`) injected automatically, but
   only when the request host matches the configured backend host — server-
   supplied attachment URLs pointing elsewhere do not receive the PAT.
@@ -554,12 +561,18 @@ Shared HTTP infrastructure used by both adapters. Features:
   `Retry-After`. Writes are never retried generically after an ambiguous
   response and must reconcile at the endpoint/use-case layer.
 - Status → sentinel: 401 → `ErrAuth`, 403 → `ErrForbidden`, 404 →
-  `ErrNotFound`, 409 → `ErrVersionConflict`.
+  `ErrNotFound`; 409 uses the client construction policy described above.
 - `GetJSON`, `SendJSON` convenience wrappers; `GetStream` for binary
   downloads — retries apply until the 2xx headers arrive, then the body
   streams (never buffered in httpx) bounded by an inactivity deadline instead
   of the JSON client's whole-request timeout, so large transfers on slow
   links are limited by stalls, not total wall-clock.
+
+The public `Client` facade remains in `client.go`. Private owners separate
+construction options and tracing (`options.go`), TLS trust (`tls.go`), request
+transport and PAT scoping (`transport.go`), response classification
+(`attempt.go` and `errors.go`), retry timing (`retry.go`), and bounded body
+consumption (`body.go`). An AST contract keeps this ownership inventory closed.
 
 ---
 
