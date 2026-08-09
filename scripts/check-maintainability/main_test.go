@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -31,14 +32,62 @@ func TestRunReportsPhysicalFileAndFunctionSpans(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &got); err != nil {
 		t.Fatalf("decode report: %v\n%s", err, output.String())
 	}
-	if got.Status != "ok" || got.TimingMode != "observe" || got.TimingObservations != 2 {
+	if got.Status != "ok" || got.Timing.Mode != "observe" || got.Timing.Observations != 2 {
 		t.Fatalf("unexpected report: %+v", got)
 	}
-	if len(got.Measurements) != 15 {
-		t.Fatalf("measurements=%d want 15", len(got.Measurements))
+	if len(got.Hotspots) != 20 || len(got.PackageTotals) != 13 {
+		t.Fatalf("hotspots=%d package_totals=%d want 20 and 13", len(got.Hotspots), len(got.PackageTotals))
 	}
-	if got.Measurements[0].Lines != 3 || got.Measurements[1].Lines != 1 {
-		t.Fatalf("app measurements=%+v want file=3 function=1", got.Measurements[:2])
+	appFile := got.Hotspots[hotspotIndex(t, readFixtureManifest(t, root), "app", "")]
+	appFunction := got.Hotspots[hotspotIndex(t, readFixtureManifest(t, root), "app", "appHotspot")]
+	if appFile.Lines != reviewedLargeFileThreshold || appFunction.Lines != 1 {
+		t.Fatalf("app measurements=%+v %+v want file=%d function=1", appFile, appFunction, reviewedLargeFileThreshold)
+	}
+	if got.ChangeSurface.ProductionFiles != 13 || len(got.ChangeSurface.LargeFiles) != 1 || got.ChangeSurface.LargeFiles[0].Path != "internal/app/a.go" {
+		t.Fatalf("unexpected change-surface report: %+v", got.ChangeSurface)
+	}
+}
+
+func TestRunRetainsLegacyJSONProjection(t *testing.T) {
+	root := writeMaintainabilityFixture(t)
+	var output bytes.Buffer
+	if err := run(root, &output); err != nil {
+		t.Fatal(err)
+	}
+	var repeated bytes.Buffer
+	if err := run(root, &repeated); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(output.Bytes(), repeated.Bytes()) {
+		t.Fatal("success JSON is not deterministic")
+	}
+
+	var wire map[string]any
+	if err := json.Unmarshal(output.Bytes(), &wire); err != nil {
+		t.Fatalf("decode generic report: %v\n%s", err, output.String())
+	}
+	legacyMeasurements, ok := wire["measurements"].([]any)
+	if !ok {
+		t.Fatalf("legacy measurements missing or invalid: %#v", wire["measurements"])
+	}
+	hotspots, ok := wire["hotspots"].([]any)
+	if !ok {
+		t.Fatalf("categorized hotspots missing or invalid: %#v", wire["hotspots"])
+	}
+	packageTotals, ok := wire["package_totals"].([]any)
+	if !ok {
+		t.Fatalf("categorized package_totals missing or invalid: %#v", wire["package_totals"])
+	}
+	wantMeasurements := append(append([]any(nil), hotspots...), packageTotals...)
+	if !reflect.DeepEqual(legacyMeasurements, wantMeasurements) {
+		t.Fatalf("legacy measurements differ from ordered hotspot and package measurements")
+	}
+	timing, ok := wire["timing"].(map[string]any)
+	if !ok {
+		t.Fatalf("categorized timing missing or invalid: %#v", wire["timing"])
+	}
+	if wire["timing_mode"] != timing["mode"] || wire["timing_observations"] != timing["observations"] {
+		t.Fatalf("legacy timing aliases differ: mode=%#v/%#v observations=%#v/%#v", wire["timing_mode"], timing["mode"], wire["timing_observations"], timing["observations"])
 	}
 }
 
@@ -56,7 +105,7 @@ func TestMaintainabilityRatchetsRejectGrowthAndRemovedControl(t *testing.T) {
 		path := filepath.Join(root, "internal", "app", "a.go")
 		writeTestFile(t, path, "package app\n\nfunc appHotspot() {\n\tprintln(\"one\")\n\tprintln(\"two\")\n}\n")
 		m := readFixtureManifest(t, root)
-		m.Hotspots[1].MaxLines = 3
+		m.Hotspots[hotspotIndex(t, m, "app", "appHotspot")].MaxLines = 3
 		writeFixtureManifest(t, root, m)
 		assertMaintainabilityError(t, root, "exceeds reviewed maximum")
 	})
@@ -76,6 +125,72 @@ func TestMaintainabilityRatchetsRejectGrowthAndRemovedControl(t *testing.T) {
 	})
 }
 
+func TestChangeSurfaceRejectsUnreviewedLargeFileAndExclusionGrowth(t *testing.T) {
+	t.Run("new large file requires review", func(t *testing.T) {
+		root := writeMaintainabilityFixture(t)
+		writeTestFile(t, filepath.Join(root, "internal", "other", "large.go"), largeProductionFile("other", reviewedLargeFileThreshold))
+		assertMaintainabilityError(t, root, `large production file "internal/other/large.go" is 750 lines and has no hotspot or exclusion`)
+	})
+
+	t.Run("bounded exclusion passes then rejects growth", func(t *testing.T) {
+		root := writeMaintainabilityFixture(t)
+		path := filepath.Join(root, "internal", "other", "large.go")
+		writeTestFile(t, path, largeProductionFile("other", reviewedLargeFileThreshold))
+		m := readFixtureManifest(t, root)
+		m.ChangeSurface.Exclusions = []changeSurfaceExclusion{{
+			Path:      "internal/other/large.go",
+			MaxLines:  reviewedLargeFileThreshold,
+			Rationale: "focused fixture exclusion",
+		}}
+		writeFixtureManifest(t, root, m)
+		var output bytes.Buffer
+		if err := run(root, &output); err != nil {
+			t.Fatalf("bounded exclusion should pass: %v", err)
+		}
+		writeTestFile(t, path, largeProductionFile("other", reviewedLargeFileThreshold+1))
+		assertMaintainabilityError(t, root, `change_surface exclusion "internal/other/large.go" is 751 lines, exceeds reviewed maximum 750`)
+	})
+
+	t.Run("split makes exclusion stale", func(t *testing.T) {
+		root := writeMaintainabilityFixture(t)
+		path := filepath.Join(root, "internal", "other", "large.go")
+		writeTestFile(t, path, largeProductionFile("other", reviewedLargeFileThreshold-1))
+		m := readFixtureManifest(t, root)
+		m.ChangeSurface.Exclusions = []changeSurfaceExclusion{{
+			Path:      "internal/other/large.go",
+			MaxLines:  reviewedLargeFileThreshold,
+			Rationale: "focused fixture exclusion",
+		}}
+		writeFixtureManifest(t, root, m)
+		assertMaintainabilityError(t, root, `change_surface exclusion "internal/other/large.go" is stale`)
+	})
+}
+
+func TestChangeSurfaceAndNoHeadroomControlsCannotBeRelaxedSilently(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*manifest)
+		want   string
+	}{
+		{name: "threshold", mutate: func(m *manifest) { m.ChangeSurface.LargeFileThreshold++ }, want: "want reviewed threshold 750"},
+		{name: "roots", mutate: func(m *manifest) { m.ChangeSurface.PathPrefixes = []string{"internal/app/"} }, want: "retain the reviewed production and tooling roots"},
+		{name: "no headroom", mutate: func(m *manifest) {
+			item := &m.Hotspots[hotspotIndex(t, *m, "app", "appHotspot")]
+			item.NoHeadroom = true
+			item.MaxLines = 2
+		}, want: "marked no_headroom"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := writeMaintainabilityFixture(t)
+			m := readFixtureManifest(t, root)
+			test.mutate(&m)
+			writeFixtureManifest(t, root, m)
+			assertMaintainabilityError(t, root, test.want)
+		})
+	}
+}
+
 func TestMaintainabilityManifestRejectsInvalidRows(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -89,7 +204,14 @@ func TestMaintainabilityManifestRejectsInvalidRows(t *testing.T) {
 		{name: "unsorted", mutate: func(m *manifest) { m.Hotspots[0], m.Hotspots[2] = m.Hotspots[2], m.Hotspots[0] }, want: "must be sorted"},
 		{name: "missing owner kind", mutate: func(m *manifest) { m.Hotspots = m.Hotspots[1:] }, want: "must have selected file and function"},
 		{name: "owner declaration drift", mutate: func(m *manifest) { m.Owners[0].PathPrefixes = []string{"internal/"} }, want: "reviewed sorted owner/path mapping"},
-		{name: "legacy evaluator owner prefix", mutate: func(m *manifest) { m.Owners[3].PathPrefixes = append(m.Owners[3].PathPrefixes, "scripts/agent-eval/") }, want: "reviewed sorted owner/path mapping"},
+		{name: "legacy evaluator owner prefix", mutate: func(m *manifest) {
+			for i := range m.Owners {
+				if m.Owners[i].ID == "evaluator" {
+					m.Owners[i].PathPrefixes = append(m.Owners[i].PathPrefixes, "scripts/agent-eval/")
+					return
+				}
+			}
+		}, want: "reviewed sorted owner/path mapping"},
 		{name: "missing package owner", mutate: func(m *manifest) { m.PackageTotals = m.PackageTotals[1:] }, want: "one row for each"},
 		{name: "duplicate package owner", mutate: func(m *manifest) {
 			m.PackageTotals[1].Owner = m.PackageTotals[0].Owner
@@ -115,8 +237,8 @@ func TestMaintainabilityManifestRejectsUnsafePaths(t *testing.T) {
 	t.Run("missing", func(t *testing.T) {
 		root := writeMaintainabilityFixture(t)
 		m := readFixtureManifest(t, root)
-		m.Hotspots[0].Path = "internal/app/missing.go"
-		m.Hotspots[1].Path = "internal/app/missing.go"
+		m.Hotspots[hotspotIndex(t, m, "app", "")].Path = "internal/app/missing.go"
+		m.Hotspots[hotspotIndex(t, m, "app", "appHotspot")].Path = "internal/app/missing.go"
 		writeFixtureManifest(t, root, m)
 		assertMaintainabilityError(t, root, "inspect path component")
 	})
@@ -125,8 +247,8 @@ func TestMaintainabilityManifestRejectsUnsafePaths(t *testing.T) {
 		root := writeMaintainabilityFixture(t)
 		writeTestFile(t, filepath.Join(root, "internal", "app", "a.txt"), "not Go\n")
 		m := readFixtureManifest(t, root)
-		m.Hotspots[0].Path = "internal/app/a.txt"
-		m.Hotspots[1].Path = "internal/app/a.txt"
+		m.Hotspots[hotspotIndex(t, m, "app", "")].Path = "internal/app/a.txt"
+		m.Hotspots[hotspotIndex(t, m, "app", "appHotspot")].Path = "internal/app/a.txt"
 		writeFixtureManifest(t, root, m)
 		assertMaintainabilityError(t, root, "production Go file")
 	})
@@ -135,8 +257,8 @@ func TestMaintainabilityManifestRejectsUnsafePaths(t *testing.T) {
 		root := writeMaintainabilityFixture(t)
 		writeTestFile(t, filepath.Join(root, "internal", "app", "a_test.go"), "package app\n\nfunc appHotspot() {}\n")
 		m := readFixtureManifest(t, root)
-		m.Hotspots[0].Path = "internal/app/a_test.go"
-		m.Hotspots[1].Path = "internal/app/a_test.go"
+		m.Hotspots[hotspotIndex(t, m, "app", "")].Path = "internal/app/a_test.go"
+		m.Hotspots[hotspotIndex(t, m, "app", "appHotspot")].Path = "internal/app/a_test.go"
 		writeFixtureManifest(t, root, m)
 		assertMaintainabilityError(t, root, "production Go file")
 	})
@@ -150,8 +272,8 @@ func TestMaintainabilityManifestRejectsUnsafePaths(t *testing.T) {
 			t.Fatal(err)
 		}
 		m := readFixtureManifest(t, root)
-		m.Hotspots[0].Path = "internal/app/link.go"
-		m.Hotspots[1].Path = "internal/app/link.go"
+		m.Hotspots[hotspotIndex(t, m, "app", "")].Path = "internal/app/link.go"
+		m.Hotspots[hotspotIndex(t, m, "app", "appHotspot")].Path = "internal/app/link.go"
 		writeFixtureManifest(t, root, m)
 		assertMaintainabilityError(t, root, "symlinked paths are not allowed")
 	})
@@ -198,19 +320,28 @@ func validateRepositoryManifest(root string) ([]measurement, error) {
 	if err != nil {
 		return nil, err
 	}
-	return validateManifest(root, m)
+	hotspots, packageTotals, _, err := validateManifest(root, m)
+	return append(hotspots, packageTotals...), err
 }
 
 func writeMaintainabilityFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	files := map[string]string{
-		"internal/app/a.go":           "package app\n\nfunc appHotspot() {}\n",
-		"internal/cli/c.go":           "package cli\n\nfunc cliHotspot() {}\n",
-		"internal/contentpolicy/p.go": "package contentpolicy\n\nfunc policyHotspot() {}\n",
-		"internal/agenteval/e.go":     "package agenteval\n\nfunc evalHotspot() {}\n",
-		"internal/mcpserver/m.go":     "package mcpserver\n\nfunc mcpHotspot() {}\n",
-		"Makefile":                    "agent-eval-race:\n\t@true\n\ncheck-core-race-coverage:\n\t@true\n",
+		"internal/adapter/confluence/a.go":       "package confluence\n\nfunc confluenceAdapterHotspot() {}\n",
+		"internal/adapter/jira/j.go":             "package jira\n\nfunc jiraAdapterHotspot() {}\n",
+		"internal/app/a.go":                      "package app\n\nfunc appHotspot() {}\n" + strings.Repeat("// filler\n", reviewedLargeFileThreshold-3),
+		"internal/cli/c.go":                      "package cli\n\nfunc cliHotspot() {}\n",
+		"internal/contentpolicy/p.go":            "package contentpolicy\n\nfunc policyHotspot() {}\n",
+		"internal/agenteval/e.go":                "package agenteval\n\nfunc evalHotspot() {}\n",
+		"internal/httpx/h.go":                    "package httpx\n\nfunc httpxHotspot() {}\n",
+		"internal/mcpserver/m.go":                "package mcpserver\n\nfunc mcpHotspot() {}\n",
+		"internal/mirror/r.go":                   "package mirror\n\nfunc mirrorHotspot() {}\n",
+		"scripts/check-maintainability/m.go":     "package main\n\nfunc toolingHotspot() {}\n",
+		"scripts/check-maintainer-contract/m.go": "package main\n",
+		"scripts/check-docs-freshness/m.go":      "package main\n",
+		"scripts/gen-plugins/m.go":               "package main\n",
+		"Makefile":                               "agent-eval-race:\n\t@true\n\ncheck-core-race-coverage:\n\t@true\n",
 	}
 	for path, contents := range files {
 		writeTestFile(t, filepath.Join(root, filepath.FromSlash(path)), contents)
@@ -219,7 +350,11 @@ func writeMaintainabilityFixture(t *testing.T) string {
 		SchemaVersion: 1,
 		Owners:        append([]owner(nil), reviewedOwners...),
 		Hotspots: []hotspot{
-			{Owner: "app", Path: "internal/app/a.go", MaxLines: 10, Rationale: "fixture file"},
+			{Owner: "adapter-confluence", Path: "internal/adapter/confluence/a.go", MaxLines: 10, Rationale: "fixture file"},
+			{Owner: "adapter-confluence", Path: "internal/adapter/confluence/a.go", Function: "confluenceAdapterHotspot", MaxLines: 5, Rationale: "fixture function"},
+			{Owner: "adapter-jira", Path: "internal/adapter/jira/j.go", MaxLines: 10, Rationale: "fixture file"},
+			{Owner: "adapter-jira", Path: "internal/adapter/jira/j.go", Function: "jiraAdapterHotspot", MaxLines: 5, Rationale: "fixture function"},
+			{Owner: "app", Path: "internal/app/a.go", MaxLines: reviewedLargeFileThreshold, Rationale: "fixture file"},
 			{Owner: "app", Path: "internal/app/a.go", Function: "appHotspot", MaxLines: 5, Rationale: "fixture function"},
 			{Owner: "cli", Path: "internal/cli/c.go", MaxLines: 10, Rationale: "fixture file"},
 			{Owner: "cli", Path: "internal/cli/c.go", Function: "cliHotspot", MaxLines: 5, Rationale: "fixture function"},
@@ -227,16 +362,31 @@ func writeMaintainabilityFixture(t *testing.T) string {
 			{Owner: "contentpolicy", Path: "internal/contentpolicy/p.go", Function: "policyHotspot", MaxLines: 5, Rationale: "fixture function"},
 			{Owner: "evaluator", Path: "internal/agenteval/e.go", MaxLines: 10, Rationale: "fixture file"},
 			{Owner: "evaluator", Path: "internal/agenteval/e.go", Function: "evalHotspot", MaxLines: 5, Rationale: "fixture function"},
+			{Owner: "httpx", Path: "internal/httpx/h.go", MaxLines: 10, Rationale: "fixture file"},
+			{Owner: "httpx", Path: "internal/httpx/h.go", Function: "httpxHotspot", MaxLines: 5, Rationale: "fixture function"},
 			{Owner: "mcp", Path: "internal/mcpserver/m.go", MaxLines: 10, Rationale: "fixture file"},
 			{Owner: "mcp", Path: "internal/mcpserver/m.go", Function: "mcpHotspot", MaxLines: 5, Rationale: "fixture function"},
+			{Owner: "mirror", Path: "internal/mirror/r.go", MaxLines: 10, Rationale: "fixture file"},
+			{Owner: "mirror", Path: "internal/mirror/r.go", Function: "mirrorHotspot", MaxLines: 5, Rationale: "fixture function"},
+			{Owner: "tooling", Path: "scripts/check-maintainability/m.go", MaxLines: 10, Rationale: "fixture file"},
+			{Owner: "tooling", Path: "scripts/check-maintainability/m.go", Function: "toolingHotspot", MaxLines: 5, Rationale: "fixture function"},
 		},
 		PackageTotals: []packageTotal{
-			{Owner: "app", Path: "internal/app/", MaxLines: 10, Rationale: "fixture package"},
+			{Owner: "adapter-confluence", Path: "internal/adapter/confluence/", MaxLines: 10, Rationale: "fixture package"},
+			{Owner: "adapter-jira", Path: "internal/adapter/jira/", MaxLines: 10, Rationale: "fixture package"},
+			{Owner: "app", Path: "internal/app/", MaxLines: reviewedLargeFileThreshold, Rationale: "fixture package"},
 			{Owner: "cli", Path: "internal/cli/", MaxLines: 10, Rationale: "fixture package"},
 			{Owner: "contentpolicy", Path: "internal/contentpolicy/", MaxLines: 10, Rationale: "fixture package"},
 			{Owner: "evaluator", Path: "internal/agenteval/", MaxLines: 10, Rationale: "fixture package"},
+			{Owner: "httpx", Path: "internal/httpx/", MaxLines: 10, Rationale: "fixture package"},
 			{Owner: "mcp", Path: "internal/mcpserver/", MaxLines: 10, Rationale: "fixture package"},
+			{Owner: "mirror", Path: "internal/mirror/", MaxLines: 10, Rationale: "fixture package"},
+			{Owner: "tooling", Path: "scripts/check-docs-freshness/", MaxLines: 10, Rationale: "fixture package"},
+			{Owner: "tooling", Path: "scripts/check-maintainability/", MaxLines: 10, Rationale: "fixture package"},
+			{Owner: "tooling", Path: "scripts/check-maintainer-contract/", MaxLines: 10, Rationale: "fixture package"},
+			{Owner: "tooling", Path: "scripts/gen-plugins/", MaxLines: 10, Rationale: "fixture package"},
 		},
+		ChangeSurface: changeSurfacePolicy{PathPrefixes: append([]string(nil), reviewedChangeSurfacePrefixes...), LargeFileThreshold: reviewedLargeFileThreshold},
 		Timing: timingObservations{Mode: "observe", Observations: []timingObservation{
 			{MakeTarget: "agent-eval-race", Source: "github_actions_ubuntu_step", WorkflowRunID: 1, Revision: strings.Repeat("a", 40), ObservedAt: "2026-08-03T00:00:00Z", DurationSeconds: 2, Rationale: "fixture observation"},
 			{MakeTarget: "check-core-race-coverage", Source: "github_actions_ubuntu_step", WorkflowRunID: 1, Revision: strings.Repeat("a", 40), ObservedAt: "2026-08-03T00:00:01Z", DurationSeconds: 1, Rationale: "fixture observation"},
@@ -244,6 +394,21 @@ func writeMaintainabilityFixture(t *testing.T) string {
 	}
 	writeFixtureManifest(t, root, m)
 	return root
+}
+
+func hotspotIndex(t *testing.T, m manifest, owner, function string) int {
+	t.Helper()
+	for i, item := range m.Hotspots {
+		if item.Owner == owner && item.Function == function {
+			return i
+		}
+	}
+	t.Fatalf("missing fixture hotspot owner=%q function=%q", owner, function)
+	return -1
+}
+
+func largeProductionFile(packageName string, lines int) string {
+	return "package " + packageName + "\n" + strings.Repeat("// measured filler\n", lines-1)
 }
 
 func readFixtureManifest(t *testing.T, root string) manifest {

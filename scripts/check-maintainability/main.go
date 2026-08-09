@@ -22,14 +22,19 @@ import (
 
 const manifestPath = "docs/maintainability-ratchets.v1.json"
 
+const reviewedLargeFileThreshold = 750
+
+var reviewedChangeSurfacePrefixes = []string{"internal/", "scripts/"}
+
 var revisionPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 type manifest struct {
-	SchemaVersion int                `json:"schema_version"`
-	Owners        []owner            `json:"owners"`
-	Hotspots      []hotspot          `json:"hotspots"`
-	PackageTotals []packageTotal     `json:"package_totals"`
-	Timing        timingObservations `json:"timing"`
+	SchemaVersion int                 `json:"schema_version"`
+	Owners        []owner             `json:"owners"`
+	Hotspots      []hotspot           `json:"hotspots"`
+	PackageTotals []packageTotal      `json:"package_totals"`
+	ChangeSurface changeSurfacePolicy `json:"change_surface"`
+	Timing        timingObservations  `json:"timing"`
 }
 
 type owner struct {
@@ -38,11 +43,12 @@ type owner struct {
 }
 
 type hotspot struct {
-	Owner     string `json:"owner"`
-	Path      string `json:"path"`
-	Function  string `json:"function,omitempty"`
-	MaxLines  int    `json:"max_lines"`
-	Rationale string `json:"rationale"`
+	Owner      string `json:"owner"`
+	Path       string `json:"path"`
+	Function   string `json:"function,omitempty"`
+	MaxLines   int    `json:"max_lines"`
+	NoHeadroom bool   `json:"no_headroom,omitempty"`
+	Rationale  string `json:"rationale"`
 }
 
 type packageTotal struct {
@@ -67,6 +73,18 @@ type timingObservation struct {
 	Rationale       string `json:"rationale"`
 }
 
+type changeSurfacePolicy struct {
+	PathPrefixes       []string                 `json:"path_prefixes"`
+	LargeFileThreshold int                      `json:"large_file_threshold"`
+	Exclusions         []changeSurfaceExclusion `json:"exclusions"`
+}
+
+type changeSurfaceExclusion struct {
+	Path      string `json:"path"`
+	MaxLines  int    `json:"max_lines"`
+	Rationale string `json:"rationale"`
+}
+
 type measurement struct {
 	Owner    string `json:"owner"`
 	Path     string `json:"path"`
@@ -75,19 +93,46 @@ type measurement struct {
 	Maximum  int    `json:"maximum"`
 }
 
+type changeSurfaceObservation struct {
+	Path        string `json:"path"`
+	Lines       int    `json:"lines"`
+	Disposition string `json:"disposition"`
+}
+
+type changeSurfaceReport struct {
+	PathPrefixes       []string                   `json:"path_prefixes"`
+	LargeFileThreshold int                        `json:"large_file_threshold"`
+	ProductionFiles    int                        `json:"production_files"`
+	LargeFiles         []changeSurfaceObservation `json:"large_files"`
+}
+
+type timingReport struct {
+	Mode         string `json:"mode"`
+	Observations int    `json:"observations"`
+}
+
 type report struct {
-	Status             string        `json:"status"`
-	Measurements       []measurement `json:"measurements"`
-	TimingMode         string        `json:"timing_mode"`
-	TimingObservations int           `json:"timing_observations"`
+	Status             string              `json:"status"`
+	Measurements       []measurement       `json:"measurements"`
+	TimingMode         string              `json:"timing_mode"`
+	TimingObservations int                 `json:"timing_observations"`
+	Hotspots           []measurement       `json:"hotspots"`
+	PackageTotals      []measurement       `json:"package_totals"`
+	ChangeSurface      changeSurfaceReport `json:"change_surface"`
+	Timing             timingReport        `json:"timing"`
 }
 
 var reviewedOwners = []owner{
+	{ID: "adapter-confluence", PathPrefixes: []string{"internal/adapter/confluence/"}},
+	{ID: "adapter-jira", PathPrefixes: []string{"internal/adapter/jira/"}},
 	{ID: "app", PathPrefixes: []string{"internal/app/"}},
 	{ID: "cli", PathPrefixes: []string{"internal/cli/"}},
 	{ID: "contentpolicy", PathPrefixes: []string{"internal/contentpolicy/"}},
 	{ID: "evaluator", PathPrefixes: []string{"internal/agenteval/"}},
+	{ID: "httpx", PathPrefixes: []string{"internal/httpx/"}},
 	{ID: "mcp", PathPrefixes: []string{"internal/mcpserver/"}},
+	{ID: "mirror", PathPrefixes: []string{"internal/mirror/"}},
+	{ID: "tooling", PathPrefixes: []string{"scripts/check-docs-freshness/", "scripts/check-maintainability/", "scripts/check-maintainer-contract/", "scripts/gen-plugins/"}},
 }
 
 func main() {
@@ -102,15 +147,19 @@ func run(root string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	measurements, err := validateManifest(root, m)
+	hotspots, packageTotals, changeSurface, err := validateManifest(root, m)
 	if err != nil {
 		return err
 	}
 	report := report{
 		Status:             "ok",
-		Measurements:       measurements,
+		Measurements:       append(append([]measurement(nil), hotspots...), packageTotals...),
 		TimingMode:         m.Timing.Mode,
 		TimingObservations: len(m.Timing.Observations),
+		Hotspots:           hotspots,
+		PackageTotals:      packageTotals,
+		ChangeSurface:      changeSurface,
+		Timing:             timingReport{Mode: m.Timing.Mode, Observations: len(m.Timing.Observations)},
 	}
 	encoder := json.NewEncoder(output)
 	encoder.SetIndent("", "  ")
@@ -134,54 +183,59 @@ func readManifest(path string) (manifest, error) {
 	return m, nil
 }
 
-func validateManifest(root string, m manifest) ([]measurement, error) {
+func validateManifest(root string, m manifest) ([]measurement, []measurement, changeSurfaceReport, error) {
 	if m.SchemaVersion != 1 {
-		return nil, fmt.Errorf("schema_version = %d, want 1", m.SchemaVersion)
+		return nil, nil, changeSurfaceReport{}, fmt.Errorf("schema_version = %d, want 1", m.SchemaVersion)
 	}
 	if !ownersEqual(m.Owners, reviewedOwners) {
-		return nil, errors.New("owners must retain the reviewed sorted owner/path mapping")
+		return nil, nil, changeSurfaceReport{}, errors.New("owners must retain the reviewed sorted owner/path mapping")
 	}
 	if len(m.Hotspots) == 0 {
-		return nil, errors.New("hotspots must not be empty")
+		return nil, nil, changeSurfaceReport{}, errors.New("hotspots must not be empty")
 	}
 	if !sort.SliceIsSorted(m.Hotspots, func(i, j int) bool { return hotspotKey(m.Hotspots[i]) < hotspotKey(m.Hotspots[j]) }) {
-		return nil, errors.New("hotspots must be sorted by owner, path, and function")
+		return nil, nil, changeSurfaceReport{}, errors.New("hotspots must be sorted by owner, path, and function")
 	}
-	if len(m.PackageTotals) != len(reviewedOwners) {
-		return nil, fmt.Errorf("package_totals must contain one row for each of the %d reviewed owners", len(reviewedOwners))
+	wantPackageTotals := 0
+	for _, owner := range reviewedOwners {
+		wantPackageTotals += len(owner.PathPrefixes)
+	}
+	if len(m.PackageTotals) != wantPackageTotals {
+		return nil, nil, changeSurfaceReport{}, fmt.Errorf("package_totals must contain one row for each of the %d reviewed owner paths", wantPackageTotals)
 	}
 	if !sort.SliceIsSorted(m.PackageTotals, func(i, j int) bool {
 		return m.PackageTotals[i].Owner+"\x00"+m.PackageTotals[i].Path < m.PackageTotals[j].Owner+"\x00"+m.PackageTotals[j].Path
 	}) {
-		return nil, errors.New("package_totals must be sorted by owner and path")
+		return nil, nil, changeSurfaceReport{}, errors.New("package_totals must be sorted by owner and path")
 	}
 
 	ownerKinds := make(map[string]map[string]bool, len(reviewedOwners))
 	seen := make(map[string]bool, len(m.Hotspots))
 	parsed := make(map[string]*parsedGoFile)
-	measurements := make([]measurement, 0, len(m.Hotspots))
+	hotspotMeasurements := make([]measurement, 0, len(m.Hotspots))
+	hotspotFiles := make(map[string]bool)
 	for _, item := range m.Hotspots {
 		key := hotspotKey(item)
 		if seen[key] {
-			return nil, fmt.Errorf("duplicate hotspot %q", key)
+			return nil, nil, changeSurfaceReport{}, fmt.Errorf("duplicate hotspot %q", key)
 		}
 		seen[key] = true
 		if strings.TrimSpace(item.Rationale) == "" {
-			return nil, fmt.Errorf("hotspot %q has an empty rationale", key)
+			return nil, nil, changeSurfaceReport{}, fmt.Errorf("hotspot %q has an empty rationale", key)
 		}
 		if item.MaxLines <= 0 {
-			return nil, fmt.Errorf("hotspot %q max_lines must be positive", key)
+			return nil, nil, changeSurfaceReport{}, fmt.Errorf("hotspot %q max_lines must be positive", key)
 		}
 		prefixes, ok := ownerPrefixes(item.Owner)
 		if !ok || !hasAnyPrefix(item.Path, prefixes) {
-			return nil, fmt.Errorf("hotspot %q has an invalid owner/path mapping", key)
+			return nil, nil, changeSurfaceReport{}, fmt.Errorf("hotspot %q has an invalid owner/path mapping", key)
 		}
 		file, ok := parsed[item.Path]
 		if !ok {
 			var err error
 			file, err = parseProductionGoFile(root, item.Path)
 			if err != nil {
-				return nil, fmt.Errorf("hotspot %q: %w", key, err)
+				return nil, nil, changeSurfaceReport{}, fmt.Errorf("hotspot %q: %w", key, err)
 			}
 			parsed[item.Path] = file
 		}
@@ -192,58 +246,61 @@ func validateManifest(root string, m manifest) ([]measurement, error) {
 			var found bool
 			lines, found = file.functions[item.Function]
 			if !found {
-				return nil, fmt.Errorf("hotspot %q function was not found", key)
+				return nil, nil, changeSurfaceReport{}, fmt.Errorf("hotspot %q function was not found", key)
 			}
 		}
 		if lines > item.MaxLines {
-			return nil, fmt.Errorf("hotspot %q is %d lines, exceeds reviewed maximum %d", key, lines, item.MaxLines)
+			return nil, nil, changeSurfaceReport{}, fmt.Errorf("hotspot %q is %d lines, exceeds reviewed maximum %d", key, lines, item.MaxLines)
+		}
+		if item.NoHeadroom && lines != item.MaxLines {
+			return nil, nil, changeSurfaceReport{}, fmt.Errorf("hotspot %q is marked no_headroom but current span %d does not equal maximum %d", key, lines, item.MaxLines)
 		}
 		if ownerKinds[item.Owner] == nil {
 			ownerKinds[item.Owner] = make(map[string]bool)
 		}
 		ownerKinds[item.Owner][kind] = true
-		measurements = append(measurements, measurement{Owner: item.Owner, Path: item.Path, Function: item.Function, Lines: lines, Maximum: item.MaxLines})
+		if item.Function == "" {
+			hotspotFiles[item.Path] = true
+		}
+		hotspotMeasurements = append(hotspotMeasurements, measurement{Owner: item.Owner, Path: item.Path, Function: item.Function, Lines: lines, Maximum: item.MaxLines})
 	}
 	for _, owner := range reviewedOwners {
 		if !ownerKinds[owner.ID]["file"] || !ownerKinds[owner.ID]["function"] {
-			return nil, fmt.Errorf("owner %q must have selected file and function ratchets", owner.ID)
+			return nil, nil, changeSurfaceReport{}, fmt.Errorf("owner %q must have selected file and function ratchets", owner.ID)
 		}
 	}
-	seenPackageOwners := make(map[string]bool, len(m.PackageTotals))
+	seenPackagePaths := make(map[string]bool, len(m.PackageTotals))
+	packageMeasurements := make([]measurement, 0, len(m.PackageTotals))
 	for _, item := range m.PackageTotals {
 		key := item.Owner + ":" + item.Path
-		packageRoot, ok := ownerPackageRoot(item.Owner)
-		if !ok || item.Path != packageRoot {
-			return nil, fmt.Errorf("package total %q has an invalid owner/path mapping", key)
+		prefixes, ok := ownerPrefixes(item.Owner)
+		if !ok || !contains(prefixes, item.Path) {
+			return nil, nil, changeSurfaceReport{}, fmt.Errorf("package total %q has an invalid owner/path mapping", key)
 		}
-		if seenPackageOwners[item.Owner] {
-			return nil, fmt.Errorf("package total owner %q is duplicated", item.Owner)
+		if seenPackagePaths[key] {
+			return nil, nil, changeSurfaceReport{}, fmt.Errorf("package total %q is duplicated", key)
 		}
-		seenPackageOwners[item.Owner] = true
+		seenPackagePaths[key] = true
 		if strings.TrimSpace(item.Rationale) == "" || item.MaxLines <= 0 {
-			return nil, fmt.Errorf("package total %q must have a positive maximum and rationale", key)
+			return nil, nil, changeSurfaceReport{}, fmt.Errorf("package total %q must have a positive maximum and rationale", key)
 		}
 		lines, err := countProductionGoLines(root, item.Path)
 		if err != nil {
-			return nil, fmt.Errorf("package total %q: %w", key, err)
+			return nil, nil, changeSurfaceReport{}, fmt.Errorf("package total %q: %w", key, err)
 		}
 		if lines > item.MaxLines {
-			return nil, fmt.Errorf("package total %q is %d lines, exceeds reviewed maximum %d", key, lines, item.MaxLines)
+			return nil, nil, changeSurfaceReport{}, fmt.Errorf("package total %q is %d lines, exceeds reviewed maximum %d", key, lines, item.MaxLines)
 		}
-		measurements = append(measurements, measurement{Owner: item.Owner, Path: item.Path, Lines: lines, Maximum: item.MaxLines})
+		packageMeasurements = append(packageMeasurements, measurement{Owner: item.Owner, Path: item.Path, Lines: lines, Maximum: item.MaxLines})
+	}
+	changeSurface, err := measureChangeSurface(root, m.ChangeSurface, hotspotFiles)
+	if err != nil {
+		return nil, nil, changeSurfaceReport{}, err
 	}
 	if err := validateTiming(root, m.Timing); err != nil {
-		return nil, err
+		return nil, nil, changeSurfaceReport{}, err
 	}
-	return measurements, nil
-}
-
-func ownerPackageRoot(id string) (string, bool) {
-	prefixes, ok := ownerPrefixes(id)
-	if !ok || len(prefixes) != 1 {
-		return "", false
-	}
-	return prefixes[0], true
+	return hotspotMeasurements, packageMeasurements, changeSurface, nil
 }
 
 func countProductionGoLines(root, directory string) (int, error) {
@@ -282,6 +339,113 @@ func countProductionGoLines(root, directory string) (int, error) {
 		return nil
 	})
 	return total, err
+}
+
+func measureChangeSurface(root string, policy changeSurfacePolicy, hotspotFiles map[string]bool) (changeSurfaceReport, error) {
+	report := changeSurfaceReport{
+		PathPrefixes:       append([]string(nil), policy.PathPrefixes...),
+		LargeFileThreshold: policy.LargeFileThreshold,
+	}
+	if strings.Join(policy.PathPrefixes, "\x00") != strings.Join(reviewedChangeSurfacePrefixes, "\x00") {
+		return report, errors.New("change_surface path_prefixes must retain the reviewed production and tooling roots")
+	}
+	if policy.LargeFileThreshold != reviewedLargeFileThreshold {
+		return report, fmt.Errorf("change_surface large_file_threshold = %d, want reviewed threshold %d", policy.LargeFileThreshold, reviewedLargeFileThreshold)
+	}
+	if !sort.SliceIsSorted(policy.Exclusions, func(i, j int) bool { return policy.Exclusions[i].Path < policy.Exclusions[j].Path }) {
+		return report, errors.New("change_surface exclusions must be sorted by path")
+	}
+	exclusions := make(map[string]changeSurfaceExclusion, len(policy.Exclusions))
+	for _, exclusion := range policy.Exclusions {
+		if _, duplicate := exclusions[exclusion.Path]; duplicate {
+			return report, fmt.Errorf("duplicate change_surface exclusion %q", exclusion.Path)
+		}
+		if !hasAnyPrefix(exclusion.Path, policy.PathPrefixes) {
+			return report, fmt.Errorf("change_surface exclusion %q is outside the reviewed roots", exclusion.Path)
+		}
+		if hotspotFiles[exclusion.Path] {
+			return report, fmt.Errorf("change_surface exclusion %q duplicates a file hotspot", exclusion.Path)
+		}
+		if exclusion.MaxLines <= 0 || strings.TrimSpace(exclusion.Rationale) == "" {
+			return report, fmt.Errorf("change_surface exclusion %q must have a positive maximum and rationale", exclusion.Path)
+		}
+		exclusions[exclusion.Path] = exclusion
+	}
+
+	largeFiles := make(map[string]int)
+	for _, prefix := range policy.PathPrefixes {
+		clean := filepath.Clean(prefix)
+		if filepath.IsAbs(prefix) || clean == "." || clean != filepath.FromSlash(strings.TrimSuffix(prefix, "/")) {
+			return report, fmt.Errorf("change_surface prefix %q must be a clean repository-relative directory", prefix)
+		}
+		absRoot, err := filepath.Abs(root)
+		if err != nil {
+			return report, err
+		}
+		absPrefix := filepath.Join(absRoot, filepath.FromSlash(clean))
+		if err := rejectSymlinkPath(absRoot, absPrefix); err != nil {
+			return report, fmt.Errorf("change_surface prefix %q: %w", prefix, err)
+		}
+		err = filepath.WalkDir(absPrefix, func(path string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if entry.Type()&os.ModeSymlink != 0 {
+				return errors.New("symlinked paths are not allowed")
+			}
+			if entry.IsDir() || filepath.Ext(entry.Name()) != ".go" || strings.HasSuffix(entry.Name(), "_test.go") {
+				return nil
+			}
+			relative, err := filepath.Rel(absRoot, path)
+			if err != nil {
+				return err
+			}
+			repositoryPath := filepath.ToSlash(relative)
+			parsed, err := parseProductionGoFile(root, repositoryPath)
+			if err != nil {
+				return err
+			}
+			report.ProductionFiles++
+			if parsed.lines >= policy.LargeFileThreshold {
+				largeFiles[repositoryPath] = parsed.lines
+			}
+			return nil
+		})
+		if err != nil {
+			return report, fmt.Errorf("measure change_surface prefix %q: %w", prefix, err)
+		}
+	}
+
+	paths := make([]string, 0, len(largeFiles))
+	for path := range largeFiles {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		lines := largeFiles[path]
+		disposition := "hotspot"
+		if !hotspotFiles[path] {
+			exclusion, ok := exclusions[path]
+			if !ok {
+				return report, fmt.Errorf("large production file %q is %d lines and has no hotspot or exclusion", path, lines)
+			}
+			if lines > exclusion.MaxLines {
+				return report, fmt.Errorf("change_surface exclusion %q is %d lines, exceeds reviewed maximum %d", path, lines, exclusion.MaxLines)
+			}
+			disposition = "excluded"
+			delete(exclusions, path)
+		}
+		report.LargeFiles = append(report.LargeFiles, changeSurfaceObservation{Path: path, Lines: lines, Disposition: disposition})
+	}
+	if len(exclusions) != 0 {
+		stale := make([]string, 0, len(exclusions))
+		for path := range exclusions {
+			stale = append(stale, path)
+		}
+		sort.Strings(stale)
+		return report, fmt.Errorf("change_surface exclusion %q is stale because the file is below the reviewed threshold or missing", stale[0])
+	}
+	return report, nil
 }
 
 type parsedGoFile struct {
@@ -485,6 +649,15 @@ func ownerPrefixes(id string) ([]string, bool) {
 func hasAnyPrefix(path string, prefixes []string) bool {
 	for _, prefix := range prefixes {
 		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func contains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
 			return true
 		}
 	}
