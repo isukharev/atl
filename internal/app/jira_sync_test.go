@@ -28,6 +28,8 @@ type syncTracker struct {
 	getErrOnCall int               // if >0, only the N-th GetIssue fails (1-based) with getErr
 	updateErr    error
 	omitID       bool
+	omitIDOnCall int
+	remoteID     string
 
 	getCalls    int
 	updateCalls int
@@ -53,8 +55,10 @@ func (tr *syncTracker) GetIssue(_ context.Context, key string, _ []string) (*dom
 		body = tr.serverBodies[key]
 	}
 	id := "10001"
-	if tr.omitID {
+	if tr.omitID || (tr.omitIDOnCall > 0 && tr.omitIDOnCall == tr.getCalls) {
 		id = ""
+	} else if tr.remoteID != "" {
+		id = tr.remoteID
 	}
 	return &domain.Issue{ID: id, Key: key, Project: "PROJ", Summary: "S", Status: "Open", Type: "Task", Body: body}, nil
 }
@@ -131,6 +135,37 @@ func TestJiraPullRecordsSidecarAndBase(t *testing.T) {
 	}
 	if lw.Synced.Identity != "10001" {
 		t.Fatalf("sidecar identity = %q, want stable numeric ID", lw.Synced.Identity)
+	}
+}
+
+func TestJiraPullRejectsStableIdentityMismatchBeforeLocalPublication(t *testing.T) {
+	svc, tr, into, wikiPath := setupPulled(t, "before")
+	tracked := []string{
+		wikiPath,
+		filepath.Join(into, "PROJ", "PROJ-1.md"),
+		filepath.Join(into, "PROJ", "PROJ-1.json"),
+		filepath.Join(into, ".atl", "base", "PROJ-1.wiki"),
+		filepath.Join(into, ".atl", "state.json"),
+	}
+	before := make(map[string][]byte, len(tracked))
+	for _, path := range tracked {
+		before[path] = append([]byte(nil), mustReadBytes(t, path)...)
+	}
+	tr.searchIssues[0].ID = "10002"
+	tr.searchIssues[0].Body = "replacement body"
+
+	for _, opts := range []JiraPullOpts{
+		{JQL: "project=PROJ", Into: into, Limit: 1, DryRun: true},
+		{JQL: "project=PROJ", Into: into, Limit: 1},
+	} {
+		if _, err := svc.Pull(context.Background(), opts); !errors.Is(err, domain.ErrCheckFailed) {
+			t.Fatalf("opts=%+v err=%v", opts, err)
+		}
+		for _, path := range tracked {
+			if got := mustReadBytes(t, path); string(got) != string(before[path]) {
+				t.Fatalf("opts=%+v changed %s", opts, filepath.Base(path))
+			}
+		}
 	}
 }
 
@@ -269,7 +304,7 @@ func TestJiraPushDryRunByDefault(t *testing.T) {
 func TestJiraPushApplyWritesDescriptionOnly(t *testing.T) {
 	svc, tr, into, wikiPath := setupPulled(t, "before")
 	editWiki(t, wikiPath, "after")
-	tr.omitID = true
+	tr.omitIDOnCall = 2
 
 	res, err := svc.Push(context.Background(), wikiPath, JiraPushOpts{Apply: true})
 	if err != nil {
@@ -302,6 +337,35 @@ func TestJiraPushApplyWritesDescriptionOnly(t *testing.T) {
 	state, found, err := mirror.New(into).SyncStateOf("PROJ-1")
 	if err != nil || !found || state.Identity != "10001" {
 		t.Fatalf("post-push state=%+v found=%t err=%v", state, found, err)
+	}
+}
+
+func TestJiraPushRejectsStableIdentityMismatchBeforeRemoteWrite(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		remoteID string
+		omitID   bool
+	}{
+		{name: "different", remoteID: "10002"},
+		{name: "missing", omitID: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, tr, _, wikiPath := setupPulled(t, "before")
+			editWiki(t, wikiPath, "after")
+			tr.remoteID = tc.remoteID
+			tr.omitID = tc.omitID
+
+			res, err := svc.Push(context.Background(), wikiPath, JiraPushOpts{Apply: true, Force: true})
+			if !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("result=%+v err=%v", res, err)
+			}
+			if tr.updateCalls != 0 {
+				t.Fatalf("identity mismatch reached Update: %d calls", tr.updateCalls)
+			}
+			if len(res.Items) != 1 || res.Items[0].Failed == "" {
+				t.Fatalf("result=%+v", res)
+			}
+		})
 	}
 }
 

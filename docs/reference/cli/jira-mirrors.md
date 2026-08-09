@@ -101,6 +101,11 @@ and preserves it for manual reconciliation. Missing issues are
 retained; neither successful completion nor absence grants remote or local
 deletion authority.
 
+Once a numeric Jira identity is present in the sidecar, ordinary pull and push
+also bind the mutable key to that identity. A mismatch is rejected before pull
+preview/local publication or push preview/backend mutation; `--force` does not
+override this identity boundary.
+
 An interrupted run resumes the exact suffix from private mode-`0600`
 `.atl/complete-pulls/` state. Selector, effective fields/render policy,
 overwrite/stash policy, and the explicit cap are hash-bound. The control state

@@ -38,6 +38,10 @@ removes hash-matched old artifacts. Unknown, changed, partially present, or
 unowned files stop retirement and remain available for manual reconciliation.
 In particular, a non-empty legacy Jira `<KEY>.assets/` directory has no durable
 ownership inventory, blocks key relocation, and is preserved.
+Ordinary Jira pull and push retain the additive stable identity too. If a
+freshly selected/read issue has a different numeric identity for the same key,
+the command fails before local publication or backend mutation; force flags do
+not bypass this binding.
 Confluence retains its established progress-v1 bytes; Jira progress v2 carries
 an explicit service. If a crash leaves progress from the other service beside a
 new selection, recovery restarts that selection from zero instead of trusting

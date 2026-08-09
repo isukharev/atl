@@ -359,6 +359,10 @@ func (s *JiraService) jiraPushOne(ctx context.Context, m *mirror.Mirror, path st
 		item.Failed = failReason(gerr)
 		return item, gerr
 	}
+	if lw.Synced.Identity != "" && (!canonicalPositiveNumericString(is.ID) || is.ID != lw.Synced.Identity) {
+		item.Failed = "remote Jira identity differs from the synced mirror"
+		return item, fmt.Errorf("%w: remote Jira identity differs from the synced mirror; re-pull before retrying", domain.ErrCheckFailed)
+	}
 	descriptionSelected := lw.Dirty || (len(pendingIDs) == 0 && o.Force)
 	descriptionNeedsWrite := false
 	if descriptionSelected {
