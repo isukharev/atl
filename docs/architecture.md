@@ -116,6 +116,11 @@ the same adapter instance across several capability fields (as
   guarded footer-comment proposals. The application combines it with exact
   page metadata, documented public-REST capability, and a complete root-only
   footer inventory; missing or partial evidence fails closed before POST.
+- Content labels, Jira watchers, and Jira worklogs expose separate reader and
+  writer ports, plus the focused `JiraCurrentUserReader` identity port. Their
+  compatibility aggregates remain available to existing broad services, while
+  the selected feature services and read-only tests depend only on the exact
+  capabilities they consume.
 - `Agile` (`Boards`/`Board`/`Sprints`/`Sprint`/`SprintIssues`/
   `MoveIssuesToSprint`/`MoveIssuesToBacklog`) — Jira Software boards & sprints
   over the Data Center Agile API `/rest/agile/1.0/`. Requires GreenHopper, so a
@@ -392,6 +397,12 @@ bounded/atomic I/O where applicable.
 
 Notable behaviors:
 
+- `ConfluenceLabelService`, `JiraWatcherService`, and `JiraWorklogService` are
+  focused use-case owners assembled directly from their reader, writer, and
+  identity ports. Their guarded mutations share only the pure
+  preview/apply/hash/status decision. Each feature retains its own proposal
+  schema, single-attempt transport call, readback rules, ambiguity diagnostic,
+  and result/error contract.
 - `Pull` resolves page IDs from `--id` / `--cql` / `--space`, fetches each
   page in CSF format, runs `fragment.Extract` + `fragment.Resolve`, and calls
   `mirror.Write`. Ordinary mode caps CQL at 1 000 and space tree at 2 000;
@@ -500,7 +511,10 @@ constructs schedulers and concrete Jira/Confluence adapters, and injects them
 into app services through domain ports. Optional sibling backends remain lazy,
 and doctor receives path-free app-owned projections rather than config, auth,
 or TLS implementation types. `internal/app`, `internal/cli`, and
-`internal/mcpserver` do not import adapter packages directly.
+`internal/mcpserver` do not import adapter packages directly. Focused feature
+constructors reuse the same secure adapter factories as the broad services, so
+URL, credential, CA-bundle, scheduler, and write-authorizer behavior cannot
+drift while CLI commands receive narrower app surfaces.
 
 ### `internal/cli`
 
