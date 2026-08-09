@@ -528,7 +528,8 @@ func (s *JiraService) pullJiraComplete(ctx context.Context, opts JiraPullOpts) (
 		status := ""
 		stashPath := ""
 		if qualified.nativeAction != nil {
-			if qualified.nativeAction.Status == pullLocalWouldStash {
+			switch qualified.nativeAction.Status {
+			case pullLocalWouldStash:
 				if !opts.DryRun {
 					stashPath, err = m.SaveNativeStash("jira", paths.keySeg, wikiExt, qualified.localWiki)
 					if err != nil {
@@ -538,7 +539,7 @@ func (s *JiraService) pullJiraComplete(ctx context.Context, opts JiraPullOpts) (
 				} else {
 					status = pullLocalWouldStash
 				}
-			} else if qualified.nativeAction.Status == pullLocalWouldOverwrite {
+			case pullLocalWouldOverwrite:
 				if opts.DryRun {
 					status = pullLocalWouldOverwrite
 				} else {
