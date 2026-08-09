@@ -98,10 +98,8 @@ export ATL_READ_ONLY=1
 atl conf search --cql 'type = page' --limit 5
 ```
 
-An empty result proves absence only when its completeness/truncation fields say
-the selection is complete. A result page exactly at the requested limit remains
-partial without terminal evidence: follow a continuation when present, or rely
-on a supported exact total that proves exhaustion.
+Claim absence only from `complete:true`; follow `next_cursor`, and never trust
+an unqualified full page.
 
 ## Three working loops
 
