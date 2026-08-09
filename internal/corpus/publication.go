@@ -24,11 +24,11 @@ func (s *Store) Publish(ctx context.Context, id string) (Summary, error) {
 	if err := s.ensureRoot(); err != nil {
 		return zero, err
 	}
-	target, err := s.openGeneration(ctx, id)
+	prelockTarget, err := s.openGeneration(ctx, id)
 	if err != nil {
 		return zero, err
 	}
-	defer func() { _ = target.Close() }()
+	defer func(target *Generation) { _ = target.Close() }(prelockTarget)
 	unlock, err := s.lockPublication(ctx)
 	if err != nil {
 		return zero, err
@@ -40,11 +40,30 @@ func (s *Store) Publish(ctx context.Context, id string) (Summary, error) {
 	// Verification before waiting for the process lock is only an early reject.
 	// Pin and verify the target again inside the serialized CAS window so a
 	// publisher never relies on bytes observed while another publication ran.
-	if err := target.Close(); err != nil {
+	if err := prelockTarget.Close(); err != nil {
 		return zero, err
 	}
-	target, err = s.openGeneration(ctx, id)
+	if err := s.hit("before_locked_target_open"); err != nil {
+		return zero, reject(ReasonIO)
+	}
+	target, err := s.openGeneration(ctx, id)
 	if err != nil {
+		return zero, err
+	}
+	defer func(target *Generation) { _ = target.Close() }(target)
+	// A pointer can survive a crash independently of the process that sealed its
+	// target. Make the verified directory entries durable, then rescan the same
+	// pinned directory before allowing any pointer replacement.
+	if err := s.hit("before_publish_target_sync"); err != nil {
+		return zero, reject(ReasonIO)
+	}
+	if err := syncDirectory(target.root, "."); err != nil {
+		return zero, reject(ReasonIO)
+	}
+	if err := s.hit("after_publish_target_sync"); err != nil {
+		return zero, reject(ReasonIO)
+	}
+	if err := s.revalidatePinnedGeneration(ctx, target); err != nil {
 		return zero, err
 	}
 	current, found, err := s.readPointer()
@@ -111,6 +130,21 @@ func (s *Store) Publish(ctx context.Context, id string) (Summary, error) {
 		return zero, ErrOutcomeUnknown
 	}
 	return target.Summary(), nil
+}
+
+func (s *Store) revalidatePinnedGeneration(ctx context.Context, target *Generation) error {
+	manifestBytes, err := canonicalManifest(target.manifest, s.limits)
+	if err != nil {
+		return err
+	}
+	receiptBytes, err := canonicalReceipt(target.receipt, s.limits)
+	if err != nil {
+		return err
+	}
+	if err := scanSealed(ctx, target.root, target.manifest, manifestBytes, receiptBytes, s.limits); err != nil {
+		return err
+	}
+	return s.ensureGenerationRoot(target.id, target.root)
 }
 
 // SelectCurrent returns a pinned generation that was named by one coherent

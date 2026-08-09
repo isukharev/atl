@@ -4,7 +4,7 @@ package corpus
 
 import (
 	"context"
-	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -22,10 +22,13 @@ func TestSealRejectsSpecialFiles(t *testing.T) {
 	if err := stage.Add(context.Background(), MemberSpec{Service: ServiceJira, StableID: "one", Role: RoleNative, Path: "item"}, strings.NewReader("payload")); err != nil {
 		t.Fatal(err)
 	}
-	if err := unix.Mkfifo(filepath.Join(root, generationsDir, stage.ID(), artifactsDir, "fifo"), uint32(privateFileMode)); err != nil {
+	memberPath := filepath.Join(root, generationsDir, stage.ID(), artifactsDir, "item")
+	if err := os.Remove(memberPath); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := stage.Seal(context.Background(), sealOptions("", ServiceJira)); !errors.Is(err, ErrIntegrity) {
-		t.Fatalf("seal error = %v", err)
+	if err := unix.Mkfifo(memberPath, uint32(privateFileMode)); err != nil {
+		t.Fatal(err)
 	}
+	_, err = stage.Seal(context.Background(), sealOptions("", ServiceJira))
+	assertReason(t, err, ReasonMode)
 }

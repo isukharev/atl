@@ -25,6 +25,13 @@ type expectedFile struct {
 	limit  int64
 }
 
+func classifyExpectedFileError(err error) error {
+	if errors.Is(err, os.ErrNotExist) {
+		return reject(ReasonMembership)
+	}
+	return err
+}
+
 func exactDirectoryMode(mode os.FileMode) bool {
 	return mode == os.ModeDir|privateDirMode
 }
@@ -393,7 +400,7 @@ func scanExact(ctx context.Context, root *os.Root, directories map[string]struct
 			actual, data, inspectErr := inspectRegular(ctx, root, child, expectation.limit, output)
 			if inspectErr != nil {
 				_ = directory.Close()
-				return nil, inspectErr
+				return nil, classifyExpectedFileError(inspectErr)
 			}
 			if expectation.exact != nil && !bytes.Equal(data, expectation.exact) {
 				_ = directory.Close()
@@ -584,7 +591,7 @@ func (g *Generation) CopyMember(ctx context.Context, service Service, stableID s
 	}
 	actual, _, err := inspectRegular(ctx, g.root, artifactsDir+"/"+selected.Path, g.limits.MaxMemberBytes, destination)
 	if err != nil {
-		return 0, err
+		return 0, classifyExpectedFileError(err)
 	}
 	if actual.size != selected.Size || actual.mode != selected.Mode || actual.sha256 != selected.SHA256 {
 		return 0, reject(ReasonDigest)
