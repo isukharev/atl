@@ -58,6 +58,9 @@ func TestEditConfluenceFileDryRunPreservesBytes(t *testing.T) {
 	if err := os.WriteFile(path, before, 0o640); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(path, 0o640); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := EditConfluenceFile(ConfluenceEditOptions{
 		File:   path,
