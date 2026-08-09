@@ -198,7 +198,7 @@ func (m *Mirror) prepareRegistration(state SyncState, baseExt string, baseBody [
 	if state.ID == "" {
 		return nil, preparedRegistrationArtifact{}, fmt.Errorf("%w: mirror registration identity is empty", domain.ErrCheckFailed)
 	}
-	if err := validateStagedPath(state.Path); err != nil || strings.HasPrefix(state.Path, ".atl/") {
+	if _, err := NewPublicArtifactPath(state.Path); err != nil {
 		return nil, preparedRegistrationArtifact{}, fmt.Errorf("%w: invalid mirror registration native path %q", domain.ErrCheckFailed, state.Path)
 	}
 	if baseExt == "" || baseExt == "." || !strings.HasPrefix(baseExt, ".") || strings.ContainsAny(baseExt, `/\\:`) || filepath.Ext(filepath.FromSlash(state.Path)) != baseExt {
@@ -246,7 +246,7 @@ func (m *Mirror) prepareRegistration(state SyncState, baseExt string, baseBody [
 	}
 
 	baseRel := filepath.ToSlash(filepath.Join(".atl", "base", safepath.Segment(state.ID)+baseExt))
-	baseArtifactPath, err := NewPrivateArtifactPath(baseRel)
+	baseArtifactPath, err := newPrivateArtifactPath(baseRel)
 	if err != nil {
 		return nil, preparedRegistrationArtifact{}, err
 	}

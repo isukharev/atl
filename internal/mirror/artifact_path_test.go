@@ -19,9 +19,9 @@ func mustPublicArtifactPath(t testing.TB, value string) ArtifactPath {
 
 func mustPrivateArtifactPath(t testing.TB, value string) ArtifactPath {
 	t.Helper()
-	path, err := NewPrivateArtifactPath(value)
+	path, err := newPrivateArtifactPath(value)
 	if err != nil {
-		t.Fatalf("NewPrivateArtifactPath(%q): %v", value, err)
+		t.Fatalf("newPrivateArtifactPath(%q): %v", value, err)
 	}
 	return path
 }
@@ -106,7 +106,7 @@ func TestArtifactPathConstructorsEnforceClosedClasses(t *testing.T) {
 	}
 	for _, tc := range privateTests {
 		t.Run("private/"+tc.name, func(t *testing.T) {
-			got, err := NewPrivateArtifactPath(tc.value)
+			got, err := newPrivateArtifactPath(tc.value)
 			if tc.ok {
 				if err != nil || got.class != artifactPathPrivateBase || got.value != tc.value {
 					t.Fatalf("path=%+v err=%v", got, err)
@@ -175,7 +175,7 @@ func FuzzArtifactPathConstructors(f *testing.F) {
 		var path ArtifactPath
 		var err error
 		if private {
-			path, err = NewPrivateArtifactPath(value)
+			path, err = newPrivateArtifactPath(value)
 		} else {
 			path, err = NewPublicArtifactPath(value)
 		}

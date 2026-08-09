@@ -1,6 +1,7 @@
 package mirror
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -111,6 +112,9 @@ func TestStagedLineageSemanticCorruptionFailsLoudly(t *testing.T) {
 		{name: "invalid hash", json: `{"pages":{},"staged":{"P1":{"id":"P1","hash":"short","base_hash":"` + validBaseHash + `","path":"p.csf"}}}`},
 		{name: "invalid base hash", json: `{"pages":{},"staged":{"P1":{"id":"P1","hash":"` + validHash + `","base_hash":"short","path":"p.csf"}}}`},
 		{name: "unsafe path", json: `{"pages":{},"staged":{"P1":{"id":"P1","hash":"` + validHash + `","base_hash":"` + validBaseHash + `","path":"../p.csf"}}}`},
+		{name: "private base", json: `{"pages":{},"staged":{"P1":{"id":"P1","hash":"` + validHash + `","base_hash":"` + validBaseHash + `","path":".atl/base/P1.csf"}}}`},
+		{name: "private case alias", json: `{"pages":{},"staged":{"P1":{"id":"P1","hash":"` + validHash + `","base_hash":"` + validBaseHash + `","path":".ATL/base/P1.csf"}}}`},
+		{name: "overlong path", json: `{"pages":{},"staged":{"P1":{"id":"P1","hash":"` + validHash + `","base_hash":"` + validBaseHash + `","path":"` + strings.Repeat("a", maxArtifactPathBytes+1) + `"}}}`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -118,7 +122,8 @@ func TestStagedLineageSemanticCorruptionFailsLoudly(t *testing.T) {
 			if err := os.MkdirAll(filepath.Dir(m.sidecarPath()), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(m.sidecarPath(), []byte(tc.json), 0o600); err != nil {
+			evidence := []byte(tc.json)
+			if err := os.WriteFile(m.sidecarPath(), evidence, 0o600); err != nil {
 				t.Fatal(err)
 			}
 			_, _, err := m.StagedStateOf("P1")
@@ -127,6 +132,10 @@ func TestStagedLineageSemanticCorruptionFailsLoudly(t *testing.T) {
 			}
 			if err := m.ClearStaged("P1"); !errors.Is(err, domain.ErrCheckFailed) {
 				t.Fatalf("mutation silently repaired corrupt state: %v", err)
+			}
+			got, readErr := os.ReadFile(m.sidecarPath())
+			if readErr != nil || !bytes.Equal(got, evidence) {
+				t.Fatalf("invalid staged evidence changed: got=%q err=%v", got, readErr)
 			}
 		})
 	}

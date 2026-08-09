@@ -90,6 +90,9 @@ func (m *Mirror) stagePublicationArtifact(dir string, input CompletePullArtifact
 	if err := validateArtifactPath(input.Path); err != nil {
 		return completePullPublicationArtifact{}, fmt.Errorf("%w: invalid complete-pull destination", domain.ErrCheckFailed)
 	}
+	if artifactPathIsPrivateBase(input.Path) && (input.Remove || input.BestEffort || input.Mode != 0o600) {
+		return completePullPublicationArtifact{}, fmt.Errorf("%w: invalid private complete-pull artifact", domain.ErrCheckFailed)
+	}
 	pre, err := publicationCurrent(m.Root, input.Path)
 	if err != nil {
 		return completePullPublicationArtifact{}, fmt.Errorf("%w: %v", domain.ErrCheckFailed, err)

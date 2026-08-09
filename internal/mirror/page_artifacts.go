@@ -129,7 +129,7 @@ func (m *Mirror) preparePageFiles(dir, slug string, page *domain.Resource, refs 
 		return SyncState{}, nil, err
 	}
 	baseRel := filepath.ToSlash(filepath.Join(".atl", "base", safepath.Segment(page.ID)+".csf"))
-	baseArtifactPath, err := NewPrivateArtifactPath(baseRel)
+	baseArtifactPath, err := newPrivateArtifactPath(baseRel)
 	if err != nil {
 		return SyncState{}, nil, err
 	}

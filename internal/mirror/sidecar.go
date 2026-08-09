@@ -5,10 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -221,7 +219,7 @@ func validateStagedState(key string, state StagedState) error {
 	if key == "" || state.ID == "" || key != state.ID {
 		return fmt.Errorf("map identity %q does not match resource id %q", key, state.ID)
 	}
-	if err := validateStagedPath(state.Path); err != nil {
+	if _, err := NewPublicArtifactPath(state.Path); err != nil {
 		return fmt.Errorf("resource %q path %q: %w", key, state.Path, err)
 	}
 	if len(state.Hash) != 64 {
@@ -235,17 +233,6 @@ func validateStagedState(key string, state StagedState) error {
 	}
 	if _, err := hex.DecodeString(state.BaseHash); err != nil {
 		return fmt.Errorf("resource %q has invalid base SHA-256 digest", key)
-	}
-	return nil
-}
-
-func validateStagedPath(relative string) error {
-	if relative == "" || relative == "." || strings.ContainsAny(relative, "\\:") || strings.ContainsRune(relative, 0) {
-		return fmt.Errorf("must be a non-empty canonical slash-separated relative path")
-	}
-	clean := path.Clean(relative)
-	if clean != relative || path.IsAbs(relative) || clean == ".." || strings.HasPrefix(clean, "../") {
-		return fmt.Errorf("must be a canonical path contained by the mirror root")
 	}
 	return nil
 }

@@ -34,9 +34,10 @@ func NewPublicArtifactPath(value string) (ArtifactPath, error) {
 	return newArtifactPath(value, artifactPathPublic)
 }
 
-// NewPrivateArtifactPath qualifies a canonical private pristine-base path.
-// The only transiently publishable private subtree is .atl/base/.
-func NewPrivateArtifactPath(value string) (ArtifactPath, error) {
+// newPrivateArtifactPath qualifies a canonical private pristine-base path.
+// Private construction remains package-owned so callers can only publish
+// public artifacts through the transient API.
+func newPrivateArtifactPath(value string) (ArtifactPath, error) {
 	return newArtifactPath(value, artifactPathPrivateBase)
 }
 
@@ -91,7 +92,7 @@ func asciiEqualFold(left, right string) bool {
 // is added to the byte-stable publication schema.
 func artifactPathFromDurable(value string) (ArtifactPath, error) {
 	if strings.HasPrefix(value, ".atl/") {
-		return NewPrivateArtifactPath(value)
+		return newPrivateArtifactPath(value)
 	}
 	return NewPublicArtifactPath(value)
 }

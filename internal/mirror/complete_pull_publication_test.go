@@ -450,6 +450,37 @@ func TestCompletePullPublicationPrivateBoundedAndContentMinimized(t *testing.T) 
 	}
 }
 
+func TestStagePublicationArtifactRejectsInvalidPrivateOptionsBeforeStaging(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		artifact CompletePullArtifact
+	}{
+		{name: "remove", artifact: CompletePullArtifact{Path: mustPrivateArtifactPath(t, ".atl/base/10.csf"), Remove: true}},
+		{name: "best effort", artifact: CompletePullArtifact{Path: mustPrivateArtifactPath(t, ".atl/base/10.csf"), Data: []byte("private"), Mode: 0o600, BestEffort: true}},
+		{name: "non owner mode", artifact: CompletePullArtifact{Path: mustPrivateArtifactPath(t, ".atl/base/10.csf"), Data: []byte("private"), Mode: 0o644}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := New(t.TempDir())
+			wrote := false
+			ops := defaultCompletePullPublicationOps()
+			ops.write = func(string, string, []byte, os.FileMode) error {
+				wrote = true
+				return nil
+			}
+			stageDir := filepath.Join(m.Root, ".atl", "pull-publications", "pending")
+			if _, err := m.stagePublicationArtifact(stageDir, tc.artifact, 0, "0123456789abcdef", ops); !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("stage private artifact error=%v", err)
+			}
+			if wrote {
+				t.Fatal("invalid private artifact wrote a stage payload")
+			}
+			if _, err := os.Stat(stageDir); !os.IsNotExist(err) {
+				t.Fatalf("invalid private artifact left stage residue: %v", err)
+			}
+		})
+	}
+}
+
 func TestCompletePullPublicationDurableSchema2BytesRemainExact(t *testing.T) {
 	entry := CompletePullJournalEntry{
 		State: SyncState{ID: "10", Version: 3, Hash: "h", Path: "DOC/page.csf"},
