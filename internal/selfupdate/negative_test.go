@@ -518,6 +518,9 @@ func TestReplaceFileRenameFailurePreservesTargetAndCleansTemp(t *testing.T) {
 	if err := os.WriteFile(path, []byte("ORIGINAL"), 0o750); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(path, 0o750); err != nil {
+		t.Fatal(err)
+	}
 	wantErr := errors.New("injected rename failure")
 	err := replaceFileWithRename(path, []byte("REPLACEMENT"), func(_, _ string) error {
 		return wantErr
