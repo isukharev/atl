@@ -130,11 +130,11 @@ func Initialize(rootPath string, opts Options) (*Store, error) {
 		}
 	}()
 
-	entries, err := readDirectory(store.root, ".")
+	empty, err := directoryIsEmpty(store.root, ".")
 	if err != nil {
 		return nil, reject(ReasonIO)
 	}
-	if len(entries) != 0 {
+	if !empty {
 		return nil, reject(ReasonMembership)
 	}
 	if err := store.root.Mkdir(generationsDir, privateDirMode); err != nil {
@@ -208,7 +208,7 @@ func openPrivateStoreRoot(rootPath string, limits Limits) (*Store, error) {
 		return nil, reject(ReasonPath)
 	}
 	ambient, err := os.Lstat(abs)
-	if err != nil || !ambient.IsDir() || ambient.Mode().Perm() != privateDirMode {
+	if err != nil || !exactDirectoryMode(ambient.Mode()) {
 		return nil, reject(ReasonMode)
 	}
 	root, err := os.OpenRoot(abs)
@@ -216,7 +216,7 @@ func openPrivateStoreRoot(rootPath string, limits Limits) (*Store, error) {
 		return nil, reject(ReasonIO)
 	}
 	pinned, err := root.Stat(".")
-	if err != nil || !os.SameFile(ambient, pinned) || !pinned.IsDir() || pinned.Mode().Perm() != privateDirMode {
+	if err != nil || !os.SameFile(ambient, pinned) || !exactDirectoryMode(pinned.Mode()) {
 		_ = root.Close()
 		return nil, reject(ReasonConcurrent)
 	}
@@ -419,7 +419,7 @@ func (s *Stage) Seal(ctx context.Context, opts SealOptions) (generation *Generat
 	if err != nil {
 		return nil, err
 	}
-	if err := writeExclusiveRegular(genRoot, manifestFile, manifestBytes); err != nil {
+	if _, err := writeExclusiveRegular(genRoot, manifestFile, manifestBytes); err != nil {
 		return nil, err
 	}
 	if err := s.store.hit("after_manifest_link"); err != nil {
@@ -472,7 +472,11 @@ func (s *Stage) Seal(ctx context.Context, opts SealOptions) (generation *Generat
 	if err := s.store.hit("before_receipt_link"); err != nil {
 		return nil, reject(ReasonIO)
 	}
-	if err := writeExclusiveRegular(genRoot, receiptFile, receiptBytes); err != nil {
+	receiptLinked, err := writeExclusiveRegular(genRoot, receiptFile, receiptBytes)
+	if err != nil {
+		if receiptLinked {
+			return nil, ErrOutcomeUnknown
+		}
 		return nil, err
 	}
 	if err := s.store.hit("after_receipt_link"); err != nil {
@@ -485,15 +489,18 @@ func (s *Stage) Seal(ctx context.Context, opts SealOptions) (generation *Generat
 		return nil, ErrOutcomeUnknown
 	}
 	if err := s.store.ensureGenerationRoot(s.id, genRoot); err != nil {
-		return nil, err
+		return nil, ErrOutcomeUnknown
 	}
 	if err := genRoot.Close(); err != nil {
-		return nil, reject(ReasonIO)
+		return nil, ErrOutcomeUnknown
 	}
 	genRoot = nil
+	if err := s.store.hit("before_final_seal_verify"); err != nil {
+		return nil, ErrOutcomeUnknown
+	}
 	generation, err = s.store.openGeneration(ctx, s.id)
 	if err != nil {
-		return nil, err
+		return nil, ErrOutcomeUnknown
 	}
 	s.sealed = true
 	return generation, nil
@@ -744,11 +751,11 @@ func (s *Store) ensureRoot() error {
 		return reject(ReasonIO)
 	}
 	ambient, err := os.Lstat(s.rootPath)
-	if err != nil || !ambient.IsDir() || ambient.Mode().Perm() != privateDirMode {
+	if err != nil || !exactDirectoryMode(ambient.Mode()) {
 		return reject(ReasonConcurrent)
 	}
 	pinned, err := s.root.Stat(".")
-	if err != nil || !os.SameFile(ambient, pinned) || !pinned.IsDir() || pinned.Mode().Perm() != privateDirMode {
+	if err != nil || !os.SameFile(ambient, pinned) || !exactDirectoryMode(pinned.Mode()) {
 		return reject(ReasonConcurrent)
 	}
 	return nil
@@ -759,11 +766,11 @@ func (s *Store) ensureGenerationRoot(id string, root *os.Root) error {
 		return err
 	}
 	ambient, err := s.root.Lstat(generationPath(id))
-	if err != nil || !ambient.IsDir() || ambient.Mode().Perm() != privateDirMode {
+	if err != nil || !exactDirectoryMode(ambient.Mode()) {
 		return reject(ReasonConcurrent)
 	}
 	pinned, err := root.Stat(".")
-	if err != nil || !os.SameFile(ambient, pinned) || !pinned.IsDir() || pinned.Mode().Perm() != privateDirMode {
+	if err != nil || !os.SameFile(ambient, pinned) || !exactDirectoryMode(pinned.Mode()) {
 		return reject(ReasonConcurrent)
 	}
 	return nil
@@ -822,7 +829,7 @@ func (s *Store) replacePointer(data []byte) (bool, error) {
 
 func (s *Store) lockPublication(ctx context.Context) (func() error, error) {
 	info, err := s.root.Lstat(publishLock)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != privateFileMode {
+	if err != nil || !exactRegularMode(info.Mode(), privateFileMode) {
 		return nil, reject(ReasonMode)
 	}
 	file, err := s.root.OpenFile(publishLock, os.O_RDWR, 0)
@@ -830,7 +837,7 @@ func (s *Store) lockPublication(ctx context.Context) (func() error, error) {
 		return nil, reject(ReasonIO)
 	}
 	opened, err := file.Stat()
-	if err != nil || !os.SameFile(info, opened) || !opened.Mode().IsRegular() || opened.Mode().Perm() != privateFileMode {
+	if err != nil || !os.SameFile(info, opened) || !exactRegularMode(opened.Mode(), privateFileMode) {
 		_ = file.Close()
 		return nil, reject(ReasonConcurrent)
 	}

@@ -92,6 +92,12 @@ func TestInitializeRequiresAnEmptyOwnerOnlyTrustRoot(t *testing.T) {
 				t.Fatal(err)
 			}
 		}},
+		{name: "special mode", setup: func(t *testing.T, root string) {
+			t.Helper()
+			if err := os.Chmod(root, privateDirMode|os.ModeSticky); err != nil {
+				t.Fatal(err)
+			}
+		}},
 		{name: "nonempty", setup: func(t *testing.T, root string) {
 			t.Helper()
 			writePrivate(t, filepath.Join(root, "evidence"), []byte("preserve"))
@@ -218,9 +224,21 @@ func TestSealRejectsExactTreeAdversaries(t *testing.T) {
 				t.Fatal(err)
 			}
 		}},
+		{name: "special file mode", mutate: func(t *testing.T, _ string, _ *Stage, member string) {
+			t.Helper()
+			if err := os.Chmod(member, privateFileMode|os.ModeSetuid); err != nil {
+				t.Fatal(err)
+			}
+		}},
 		{name: "unsafe directory mode", mutate: func(t *testing.T, root string, stage *Stage, _ string) {
 			t.Helper()
 			if err := os.Chmod(filepath.Join(root, generationsDir, stage.ID(), artifactsDir), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "special directory mode", mutate: func(t *testing.T, root string, stage *Stage, _ string) {
+			t.Helper()
+			if err := os.Chmod(filepath.Join(root, generationsDir, stage.ID(), artifactsDir), privateDirMode|os.ModeSticky); err != nil {
 				t.Fatal(err)
 			}
 		}},
@@ -287,6 +305,12 @@ func TestSelectionRejectsPointerLinksAndLooseModes(t *testing.T) {
 				t.Fatal(err)
 			}
 		}},
+		{name: "special mode", mutate: func(t *testing.T, root string) {
+			t.Helper()
+			if err := os.Chmod(filepath.Join(root, pointerFile), privateFileMode|os.ModeSetuid); err != nil {
+				t.Fatal(err)
+			}
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root, store := newTestStore(t, Options{})
@@ -324,7 +348,12 @@ func TestSealDetectsDriftAcrossBothInventoryBoundaries(t *testing.T) {
 				}
 				return nil
 			}
-			if _, err := stage.Seal(context.Background(), sealOptions("", ServiceJira)); !errors.Is(err, ErrIntegrity) {
+			_, err = stage.Seal(context.Background(), sealOptions("", ServiceJira))
+			if step == "after_second_inventory" {
+				if !errors.Is(err, ErrOutcomeUnknown) {
+					t.Fatalf("seal error = %v", err)
+				}
+			} else if !errors.Is(err, ErrIntegrity) {
 				t.Fatalf("seal error = %v", err)
 			}
 			store.testHook = nil
@@ -416,7 +445,7 @@ func TestInjectedDurabilityBoundariesNeverSelectPartialBytes(t *testing.T) {
 	t.Run("seal", func(t *testing.T) {
 		for _, step := range []string{
 			"after_manifest_link", "after_manifest_sync", "before_second_inventory", "after_second_inventory",
-			"before_receipt_link", "after_receipt_link", "after_receipt_sync",
+			"before_receipt_link", "after_receipt_link", "after_receipt_sync", "before_final_seal_verify",
 		} {
 			t.Run(step, func(t *testing.T) {
 				_, store := newTestStore(t, Options{})
@@ -430,7 +459,7 @@ func TestInjectedDurabilityBoundariesNeverSelectPartialBytes(t *testing.T) {
 				}
 				store.testHook = failAt(step)
 				_, err = stage.Seal(context.Background(), sealOptions("", ServiceJira))
-				if step == "after_receipt_link" || step == "after_receipt_sync" {
+				if step == "after_receipt_link" || step == "after_receipt_sync" || step == "before_final_seal_verify" {
 					if !errors.Is(err, ErrOutcomeUnknown) {
 						t.Fatalf("seal error = %v", err)
 					}

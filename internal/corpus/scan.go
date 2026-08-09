@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
-	"io/fs"
 	"os"
 	"path"
 	"sort"
@@ -26,38 +25,64 @@ type expectedFile struct {
 	limit  int64
 }
 
-func readDirectory(root *os.Root, rel string) ([]os.DirEntry, error) {
-	directory, err := root.Open(rel)
-	if err != nil {
-		return nil, reject(ReasonIO)
-	}
-	defer func() { _ = directory.Close() }()
-	entries, err := directory.ReadDir(-1)
-	if err != nil {
-		return nil, reject(ReasonIO)
-	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
-	return entries, nil
+func exactDirectoryMode(mode os.FileMode) bool {
+	return mode == os.ModeDir|privateDirMode
 }
 
-func verifyDirectory(root *os.Root, rel string) error {
+func exactRegularMode(actual, expected os.FileMode) bool {
+	return actual == expected
+}
+
+func openVerifiedDirectory(root *os.Root, rel string) (*os.File, os.FileInfo, error) {
 	info, err := root.Lstat(rel)
 	if err != nil {
-		return reject(ReasonIO)
+		return nil, nil, reject(ReasonIO)
 	}
-	if !info.IsDir() {
-		return reject(ReasonType)
-	}
-	if info.Mode().Perm() != privateDirMode {
-		return reject(ReasonMode)
+	if !exactDirectoryMode(info.Mode()) {
+		return nil, nil, reject(ReasonMode)
 	}
 	opened, err := root.Open(rel)
 	if err != nil {
+		return nil, nil, reject(ReasonIO)
+	}
+	pinned, err := opened.Stat()
+	if err != nil || !os.SameFile(info, pinned) || !exactDirectoryMode(pinned.Mode()) {
+		_ = opened.Close()
+		return nil, nil, reject(ReasonConcurrent)
+	}
+	return opened, info, nil
+}
+
+func directoryIsEmpty(root *os.Root, rel string) (bool, error) {
+	directory, info, err := openVerifiedDirectory(root, rel)
+	if err != nil {
+		return false, err
+	}
+	entries, readErr := directory.ReadDir(1)
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		_ = directory.Close()
+		return false, reject(ReasonIO)
+	}
+	if err := directory.Close(); err != nil {
+		return false, reject(ReasonIO)
+	}
+	final, err := root.Lstat(rel)
+	if err != nil || !os.SameFile(info, final) || !exactDirectoryMode(final.Mode()) {
+		return false, reject(ReasonConcurrent)
+	}
+	return len(entries) == 0, nil
+}
+
+func verifyDirectory(root *os.Root, rel string) error {
+	opened, info, err := openVerifiedDirectory(root, rel)
+	if err != nil {
+		return err
+	}
+	if err := opened.Close(); err != nil {
 		return reject(ReasonIO)
 	}
-	defer func() { _ = opened.Close() }()
-	pinned, err := opened.Stat()
-	if err != nil || !os.SameFile(info, pinned) || !pinned.IsDir() || pinned.Mode().Perm() != privateDirMode {
+	final, err := root.Lstat(rel)
+	if err != nil || !os.SameFile(info, final) || !exactDirectoryMode(final.Mode()) {
 		return reject(ReasonConcurrent)
 	}
 	return nil
@@ -71,10 +96,7 @@ func verifyRegularFile(root *os.Root, rel string, mode os.FileMode) error {
 		}
 		return reject(ReasonIO)
 	}
-	if !info.Mode().IsRegular() {
-		return reject(ReasonType)
-	}
-	if info.Mode().Perm() != mode {
+	if !exactRegularMode(info.Mode(), mode) {
 		return reject(ReasonMode)
 	}
 	file, err := root.Open(rel)
@@ -83,7 +105,7 @@ func verifyRegularFile(root *os.Root, rel string, mode os.FileMode) error {
 	}
 	defer func() { _ = file.Close() }()
 	opened, err := file.Stat()
-	if err != nil || !os.SameFile(info, opened) || !opened.Mode().IsRegular() || opened.Mode().Perm() != mode {
+	if err != nil || !os.SameFile(info, opened) || !exactRegularMode(opened.Mode(), mode) {
 		return reject(ReasonConcurrent)
 	}
 	links, err := regularFileLinkCount(file)
@@ -94,8 +116,15 @@ func verifyRegularFile(root *os.Root, rel string, mode os.FileMode) error {
 		return reject(ReasonType)
 	}
 	final, err := root.Lstat(rel)
-	if err != nil || !os.SameFile(info, final) || !final.Mode().IsRegular() || final.Mode().Perm() != mode {
+	if err != nil || !os.SameFile(info, final) || !exactRegularMode(final.Mode(), mode) {
 		return reject(ReasonConcurrent)
+	}
+	finalLinks, err := regularFileLinkCount(file)
+	if err != nil {
+		return reject(ReasonIO)
+	}
+	if finalLinks != 1 {
+		return reject(ReasonType)
 	}
 	return nil
 }
@@ -107,7 +136,7 @@ func syncDirectory(root *os.Root, rel string) error {
 	}
 	defer func() { _ = directory.Close() }()
 	info, err := directory.Stat()
-	if err != nil || !info.IsDir() || info.Mode().Perm() != privateDirMode {
+	if err != nil || !exactDirectoryMode(info.Mode()) {
 		return reject(ReasonMode)
 	}
 	return directory.Sync()
@@ -156,40 +185,41 @@ func syncArtifactPath(root *os.Root, memberPath string) error {
 }
 
 func writeStageMember(ctx context.Context, root *os.Root, memberPath string, reader io.Reader, max int64) (int64, error) {
-	return writeExclusiveReader(ctx, root, artifactsDir+"/"+memberPath, reader, max)
+	written, _, err := writeExclusiveReader(ctx, root, artifactsDir+"/"+memberPath, reader, max)
+	return written, err
 }
 
-func writeExclusiveRegular(root *os.Root, rel string, data []byte) error {
-	_, err := writeExclusiveReader(context.Background(), root, rel, bytes.NewReader(data), int64(len(data)))
-	return err
+func writeExclusiveRegular(root *os.Root, rel string, data []byte) (bool, error) {
+	_, linked, err := writeExclusiveReader(context.Background(), root, rel, bytes.NewReader(data), int64(len(data)))
+	return linked, err
 }
 
-func writeExclusiveReader(ctx context.Context, root *os.Root, rel string, reader io.Reader, max int64) (int64, error) {
+func writeExclusiveReader(ctx context.Context, root *os.Root, rel string, reader io.Reader, max int64) (int64, bool, error) {
 	if err := contextError(ctx); err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	parentRel, base := path.Dir(rel), path.Base(rel)
 	parent, err := root.OpenRoot(parentRel)
 	if err != nil {
-		return 0, reject(ReasonIO)
+		return 0, false, reject(ReasonIO)
 	}
 	defer func() { _ = parent.Close() }()
 	if err := verifyDirectory(parent, "."); err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	if _, err := parent.Lstat(base); err == nil {
-		return 0, ErrAlreadyExists
+		return 0, false, ErrAlreadyExists
 	} else if !os.IsNotExist(err) {
-		return 0, reject(ReasonIO)
+		return 0, false, reject(ReasonIO)
 	}
 	token, err := randomToken(12)
 	if err != nil {
-		return 0, reject(ReasonIO)
+		return 0, false, reject(ReasonIO)
 	}
 	temp := ".add-" + token
 	file, err := parent.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, privateFileMode)
 	if err != nil {
-		return 0, reject(ReasonIO)
+		return 0, false, reject(ReasonIO)
 	}
 	defer func() { _ = parent.Remove(temp) }()
 	limited := &io.LimitedReader{R: &contextReader{ctx: ctx, reader: reader}, N: max + 1}
@@ -197,38 +227,38 @@ func writeExclusiveReader(ctx context.Context, root *os.Root, rel string, reader
 	if copyErr != nil {
 		_ = file.Close()
 		if ctx.Err() != nil {
-			return 0, contextError(ctx)
+			return 0, false, contextError(ctx)
 		}
-		return 0, reject(ReasonIO)
+		return 0, false, reject(ReasonIO)
 	}
 	if written > max {
 		_ = file.Close()
-		return 0, reject(ReasonBounds)
+		return 0, false, reject(ReasonBounds)
 	}
 	if err := file.Chmod(privateFileMode); err != nil {
 		_ = file.Close()
-		return 0, reject(ReasonIO)
+		return 0, false, reject(ReasonIO)
 	}
 	if err := file.Sync(); err != nil {
 		_ = file.Close()
-		return 0, reject(ReasonIO)
+		return 0, false, reject(ReasonIO)
 	}
 	if err := file.Close(); err != nil {
-		return 0, reject(ReasonIO)
+		return 0, false, reject(ReasonIO)
 	}
 	if err := parent.Link(temp, base); err != nil {
 		if os.IsExist(err) {
-			return 0, ErrAlreadyExists
+			return 0, false, ErrAlreadyExists
 		}
-		return 0, reject(ReasonIO)
+		return 0, false, reject(ReasonIO)
 	}
 	if err := parent.Remove(temp); err != nil {
-		return 0, reject(ReasonIO)
+		return written, true, reject(ReasonIO)
 	}
 	if err := verifyRegularFile(parent, base, privateFileMode); err != nil {
-		return 0, err
+		return written, true, err
 	}
-	return written, nil
+	return written, true, nil
 }
 
 func scanStage(ctx context.Context, root *os.Root, specs []MemberSpec, manifest []byte, limits Limits) ([]Member, error) {
@@ -299,55 +329,93 @@ func scanSealed(ctx context.Context, root *os.Root, manifest Manifest, manifestB
 func scanExact(ctx context.Context, root *os.Root, directories map[string]struct{}, files map[string]expectedFile) (map[string]scannedFile, error) {
 	seenDirectories := make(map[string]struct{}, len(directories))
 	seenFiles := make(map[string]scannedFile, len(files))
-	err := fs.WalkDir(root.FS(), ".", func(rel string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return reject(ReasonIO)
-		}
+	queuedDirectories := map[string]struct{}{".": {}}
+	pendingDirectories := []string{"."}
+	for len(pendingDirectories) > 0 {
+		rel := pendingDirectories[len(pendingDirectories)-1]
+		pendingDirectories = pendingDirectories[:len(pendingDirectories)-1]
 		if err := contextError(ctx); err != nil {
-			return err
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return reject(ReasonType)
-		}
-		if entry.IsDir() {
-			if _, ok := directories[rel]; !ok {
-				return reject(ReasonMembership)
-			}
-			if err := verifyDirectory(root, rel); err != nil {
-				return err
-			}
-			seenDirectories[rel] = struct{}{}
-			return nil
-		}
-		expectation, ok := files[rel]
-		if !ok {
-			return reject(ReasonMembership)
-		}
-		var output io.Writer
-		if expectation.exact == nil {
-			output = io.Discard
-		}
-		actual, data, err := inspectRegular(ctx, root, rel, expectation.limit, output)
-		if err != nil {
-			return err
-		}
-		if expectation.exact != nil && !bytes.Equal(data, expectation.exact) {
-			return reject(ReasonDigest)
-		}
-		if expectation.member != nil {
-			member := expectation.member
-			if actual.size != member.Size || actual.mode != member.Mode || actual.sha256 != member.SHA256 {
-				return reject(ReasonDigest)
-			}
-		}
-		seenFiles[rel] = actual
-		return nil
-	})
-	if err != nil {
-		if errors.Is(err, ErrIntegrity) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, err
 		}
-		return nil, reject(ReasonIO)
+		if _, ok := directories[rel]; !ok {
+			return nil, reject(ReasonMembership)
+		}
+		directory, directoryInfo, err := openVerifiedDirectory(root, rel)
+		if err != nil {
+			return nil, err
+		}
+		for {
+			entries, readErr := directory.ReadDir(1)
+			if readErr != nil && !errors.Is(readErr, io.EOF) {
+				_ = directory.Close()
+				return nil, reject(ReasonIO)
+			}
+			if len(entries) == 0 {
+				break
+			}
+			entry := entries[0]
+			child := path.Join(rel, entry.Name())
+			if entry.Type()&os.ModeSymlink != 0 {
+				_ = directory.Close()
+				return nil, reject(ReasonType)
+			}
+			info, statErr := root.Lstat(child)
+			if statErr != nil {
+				_ = directory.Close()
+				return nil, reject(ReasonConcurrent)
+			}
+			if info.IsDir() {
+				if _, ok := directories[child]; !ok {
+					_ = directory.Close()
+					return nil, reject(ReasonMembership)
+				}
+				if _, duplicate := queuedDirectories[child]; duplicate {
+					_ = directory.Close()
+					return nil, reject(ReasonMembership)
+				}
+				queuedDirectories[child] = struct{}{}
+				pendingDirectories = append(pendingDirectories, child)
+				continue
+			}
+			expectation, ok := files[child]
+			if !ok {
+				_ = directory.Close()
+				return nil, reject(ReasonMembership)
+			}
+			if _, duplicate := seenFiles[child]; duplicate {
+				_ = directory.Close()
+				return nil, reject(ReasonMembership)
+			}
+			var output io.Writer
+			if expectation.exact == nil {
+				output = io.Discard
+			}
+			actual, data, inspectErr := inspectRegular(ctx, root, child, expectation.limit, output)
+			if inspectErr != nil {
+				_ = directory.Close()
+				return nil, inspectErr
+			}
+			if expectation.exact != nil && !bytes.Equal(data, expectation.exact) {
+				_ = directory.Close()
+				return nil, reject(ReasonDigest)
+			}
+			if expectation.member != nil {
+				member := expectation.member
+				if actual.size != member.Size || actual.mode != member.Mode || actual.sha256 != member.SHA256 {
+					_ = directory.Close()
+					return nil, reject(ReasonDigest)
+				}
+			}
+			seenFiles[child] = actual
+		}
+		if err := directory.Close(); err != nil {
+			return nil, reject(ReasonIO)
+		}
+		finalDirectory, err := root.Lstat(rel)
+		if err != nil || !os.SameFile(directoryInfo, finalDirectory) || !exactDirectoryMode(finalDirectory.Mode()) {
+			return nil, reject(ReasonConcurrent)
+		}
+		seenDirectories[rel] = struct{}{}
 	}
 	if len(seenDirectories) != len(directories) || len(seenFiles) != len(files) {
 		return nil, reject(ReasonMembership)
@@ -380,10 +448,7 @@ func inspectRegular(ctx context.Context, root *os.Root, rel string, max int64, o
 		}
 		return zero, nil, reject(ReasonIO)
 	}
-	if !info.Mode().IsRegular() {
-		return zero, nil, reject(ReasonType)
-	}
-	if info.Mode().Perm() != privateFileMode {
+	if !exactRegularMode(info.Mode(), privateFileMode) {
 		return zero, nil, reject(ReasonMode)
 	}
 	if info.Size() < 0 || info.Size() > max {
@@ -395,7 +460,7 @@ func inspectRegular(ctx context.Context, root *os.Root, rel string, max int64, o
 	}
 	defer func() { _ = file.Close() }()
 	opened, err := file.Stat()
-	if err != nil || !os.SameFile(info, opened) || !opened.Mode().IsRegular() || opened.Mode().Perm() != privateFileMode || opened.Size() != info.Size() {
+	if err != nil || !os.SameFile(info, opened) || !exactRegularMode(opened.Mode(), privateFileMode) || opened.Size() != info.Size() {
 		return zero, nil, reject(ReasonConcurrent)
 	}
 	links, err := regularFileLinkCount(file)
@@ -438,12 +503,19 @@ func inspectRegular(ctx context.Context, root *os.Root, rel string, max int64, o
 		return zero, nil, reject(ReasonConcurrent)
 	}
 	finalOpened, err := file.Stat()
-	if err != nil || !os.SameFile(info, finalOpened) || finalOpened.Size() != info.Size() || finalOpened.Mode().Perm() != privateFileMode {
+	if err != nil || !os.SameFile(info, finalOpened) || finalOpened.Size() != info.Size() || !exactRegularMode(finalOpened.Mode(), privateFileMode) {
 		return zero, nil, reject(ReasonConcurrent)
 	}
 	finalPath, err := root.Lstat(rel)
-	if err != nil || !os.SameFile(info, finalPath) || !finalPath.Mode().IsRegular() || finalPath.Size() != info.Size() || finalPath.Mode().Perm() != privateFileMode {
+	if err != nil || !os.SameFile(info, finalPath) || finalPath.Size() != info.Size() || !exactRegularMode(finalPath.Mode(), privateFileMode) {
 		return zero, nil, reject(ReasonConcurrent)
+	}
+	finalLinks, err := regularFileLinkCount(file)
+	if err != nil {
+		return zero, nil, reject(ReasonIO)
+	}
+	if finalLinks != 1 {
+		return zero, nil, reject(ReasonType)
 	}
 	actual := scannedFile{size: info.Size(), mode: uint32(info.Mode().Perm()), sha256: hex.EncodeToString(hash.Sum(nil))}
 	return actual, capture.Bytes(), nil
