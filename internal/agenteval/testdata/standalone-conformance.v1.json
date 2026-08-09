@@ -3,7 +3,7 @@
   "contract_version": "0.1.0-pre-release",
   "golden_bundle": {
     "path": "testdata/standalone-readability-golden.v1.json",
-    "sha256": "c719d056fa9db000e4a61e84011755d58500f9b1fa3c3d56b07f34c2159e6802"
+    "sha256": "d8abd2f0623ec80a4280ebe47995f5a0b761e34cc2f0a43addcb989da0d3b9e1"
   },
   "readability": [
     {"namespace":"atl-profile","kind":"activation-reference","versions":[1,2]},
@@ -17,7 +17,11 @@
     {"namespace":"atl-profile","kind":"rubric","versions":[1]},
     {"namespace":"atl-profile","kind":"run-spec","versions":[5,6,7]},
     {"namespace":"atl-profile","kind":"scenario","versions":[1]},
-    {"namespace":"atl-profile","kind":"synthetic-run-receipt","versions":[1]}
+    {"namespace":"atl-profile","kind":"synthetic-run-receipt","versions":[1]},
+    {"namespace":"standalone","kind":"adapter-manifest","versions":[1]},
+    {"namespace":"standalone","kind":"adapter-message","versions":[1]},
+    {"namespace":"standalone","kind":"extension-conformance-bundle","versions":[1]},
+    {"namespace":"standalone","kind":"extension-conformance-report","versions":[1]}
   ],
   "forward_rejection": [
     {"namespace":"atl-profile","kind":"activation-reference","version":3},
@@ -32,6 +36,10 @@
     {"namespace":"atl-profile","kind":"run-spec","version":8},
     {"namespace":"atl-profile","kind":"scenario","version":2},
     {"namespace":"atl-profile","kind":"synthetic-run-receipt","version":2},
+    {"namespace":"standalone","kind":"adapter-manifest","version":2},
+    {"namespace":"standalone","kind":"adapter-message","version":2},
+    {"namespace":"standalone","kind":"extension-conformance-bundle","version":2},
+    {"namespace":"standalone","kind":"extension-conformance-report","version":2},
     {"namespace":"standalone","kind":"product-contract","version":2}
   ],
   "metric_vectors": [

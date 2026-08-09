@@ -16,24 +16,27 @@ import (
 )
 
 const (
-	productInternalImportPrefix = "github.com/isukharev/atl/internal/"
-	evaluatorModuleImportPath   = productInternalImportPrefix + "agenteval"
-	evaluatorCoreImportPath     = evaluatorModuleImportPath + "/core"
-	evaluatorATLImportPath      = evaluatorModuleImportPath + "/profile/atl"
+	productInternalImportPrefix  = "github.com/isukharev/atl/internal/"
+	evaluatorModuleImportPath    = productInternalImportPrefix + "agenteval"
+	evaluatorCoreImportPath      = evaluatorModuleImportPath + "/core"
+	evaluatorExtensionImportPath = evaluatorModuleImportPath + "/extension"
+	evaluatorATLImportPath       = evaluatorModuleImportPath + "/profile/atl"
 )
 
 type evaluatorPackage string
 
 const (
-	evaluatorRootPackage  evaluatorPackage = "root"
-	evaluatorCorePackage  evaluatorPackage = "core"
-	evaluatorATLPackage   evaluatorPackage = "profile/atl"
-	evaluatorCommandOwner evaluatorPackage = "cmd/agent-eval"
+	evaluatorRootPackage      evaluatorPackage = "root"
+	evaluatorCorePackage      evaluatorPackage = "core"
+	evaluatorExtensionPackage evaluatorPackage = "extension"
+	evaluatorATLPackage       evaluatorPackage = "profile/atl"
+	evaluatorCommandOwner     evaluatorPackage = "cmd/agent-eval"
 )
 
 var evaluatorPackages = []evaluatorPackage{
 	evaluatorRootPackage,
 	evaluatorCorePackage,
+	evaluatorExtensionPackage,
 	evaluatorATLPackage,
 	evaluatorCommandOwner,
 }
@@ -55,22 +58,31 @@ type evaluatorDependencyLedger map[evaluatorDependencyLane][]evaluatorDependency
 // import, alias, and file ledger. The scan is recursive and parses every Go
 // source file regardless of build constraints. The evaluator retains zero
 // root-product-private imports; module-self imports must also satisfy the
-// independently enforced core -> none, profile/atl -> core,
-// root -> core + profile/atl, and cmd/agent-eval -> exact root DAG.
+// independently enforced core + extension -> none, profile/atl -> core,
+// root -> core + extension + profile/atl, and cmd/agent-eval -> exact root DAG.
 func TestEvaluatorProductDependencyLedger(t *testing.T) {
 	want := evaluatorDependencyLedger{
 		{Package: evaluatorRootPackage}: {
 			{File: "atl_core_profile.go", Path: evaluatorCoreImportPath},
+			{File: "atl_core_profile.go", Path: evaluatorExtensionImportPath},
+			{File: "extension_host.go", Path: evaluatorExtensionImportPath},
+			{File: "extension_host_process.go", Path: evaluatorExtensionImportPath},
 			{File: "atl_core_profile.go", Path: evaluatorATLImportPath, Alias: "profileatl"},
 		},
 		{Package: evaluatorRootPackage, Tests: true}: {
 			{File: "atl_core_profile_test.go", Path: evaluatorCoreImportPath},
+			{File: "atl_core_profile_test.go", Path: evaluatorExtensionImportPath},
+			{File: "extension_host_process_test.go", Path: evaluatorExtensionImportPath},
+			{File: "extension_host_test.go", Path: evaluatorExtensionImportPath},
+			{File: "standalone_product_contract_golden_test.go", Path: evaluatorExtensionImportPath},
 			{File: "atl_core_profile_test.go", Path: evaluatorATLImportPath, Alias: "profileatl"},
 		},
 		{Package: evaluatorCorePackage}: {},
 		{Package: evaluatorCorePackage, Tests: true}: {
 			{File: "core/engine_test.go", Path: evaluatorCoreImportPath},
 		},
+		{Package: evaluatorExtensionPackage}:              {},
+		{Package: evaluatorExtensionPackage, Tests: true}: {},
 		{Package: evaluatorATLPackage}: {
 			{File: "profile/atl/profile.go", Path: evaluatorCoreImportPath},
 		},
@@ -103,7 +115,7 @@ func TestEvaluatorProductDependencyLedgerDetectsAliasAndOwnershipDrift(t *testin
 	t.Run("exact ledger drift", func(t *testing.T) {
 		for name, mutate := range map[string]func(*testing.T, string){
 			"alias": func(t *testing.T, root string) {
-				replaceEvaluatorDependencyFixture(t, root, "facade.go", `"`+evaluatorCoreImportPath+`"`, `neutral "`+evaluatorCoreImportPath+`"`)
+				replaceEvaluatorDependencyFixture(t, root, "facade.go", `"`+evaluatorExtensionImportPath+`"`, `protocol "`+evaluatorExtensionImportPath+`"`)
 			},
 			"lane": func(t *testing.T, root string) {
 				writeEvaluatorDependencyFile(t, root, "facade.go", "package agenteval\n")
@@ -111,6 +123,9 @@ func TestEvaluatorProductDependencyLedgerDetectsAliasAndOwnershipDrift(t *testin
 			},
 			"edge": func(t *testing.T, root string) {
 				writeEvaluatorDependencyFile(t, root, "profile_edge.go", "package agenteval\n\nimport \""+evaluatorATLImportPath+"\"\n")
+			},
+			"external extension test self import": func(t *testing.T, root string) {
+				writeEvaluatorDependencyFile(t, root, "extension/external_test.go", "package extension_test\n\nimport \""+evaluatorExtensionImportPath+"\"\n")
 			},
 		} {
 			t.Run(name, func(t *testing.T) {
@@ -145,6 +160,13 @@ func TestEvaluatorProductDependencyLedgerDetectsAliasAndOwnershipDrift(t *testin
 				want: "package DAG forbids",
 			},
 			{
+				name: "build-tagged extension reverse edge",
+				mutate: func(t *testing.T, root string) {
+					writeEvaluatorDependencyFile(t, root, "extension/reverse_ignore.go", "//go:build ignore\n\npackage extension\n\nimport \""+evaluatorModuleImportPath+"\"\n")
+				},
+				want: "package DAG forbids",
+			},
+			{
 				name: "dot self import",
 				mutate: func(t *testing.T, root string) {
 					writeEvaluatorDependencyFile(t, root, "dot.go", "package agenteval\n\nimport . \""+evaluatorCoreImportPath+"\"\n")
@@ -173,6 +195,27 @@ func TestEvaluatorProductDependencyLedgerDetectsAliasAndOwnershipDrift(t *testin
 				want: "unknown evaluator package",
 			},
 			{
+				name: "extension to core edge",
+				mutate: func(t *testing.T, root string) {
+					writeEvaluatorDependencyFile(t, root, "extension/core.go", "package extension\n\nimport \""+evaluatorCoreImportPath+"\"\n")
+				},
+				want: "package DAG forbids",
+			},
+			{
+				name: "extension external test to profile edge",
+				mutate: func(t *testing.T, root string) {
+					writeEvaluatorDependencyFile(t, root, "extension/profile_test.go", "package extension_test\n\nimport \""+evaluatorATLImportPath+"\"\n")
+				},
+				want: "package DAG forbids",
+			},
+			{
+				name: "extension internal test to root edge",
+				mutate: func(t *testing.T, root string) {
+					writeEvaluatorDependencyFile(t, root, "extension/root_test.go", "package extension\n\nimport \""+evaluatorModuleImportPath+"\"\n")
+				},
+				want: "package DAG forbids",
+			},
+			{
 				name: "command subpackage edge",
 				mutate: func(t *testing.T, root string) {
 					writeEvaluatorDependencyFile(t, root, "cmd/agent-eval/subpackage.go", "package main\n\nimport \""+evaluatorCoreImportPath+"\"\n")
@@ -180,9 +223,23 @@ func TestEvaluatorProductDependencyLedgerDetectsAliasAndOwnershipDrift(t *testin
 				want: "package DAG forbids",
 			},
 			{
+				name: "command extension edge",
+				mutate: func(t *testing.T, root string) {
+					writeEvaluatorDependencyFile(t, root, "cmd/agent-eval/extension.go", "package main\n\nimport \""+evaluatorExtensionImportPath+"\"\n")
+				},
+				want: "package DAG forbids",
+			},
+			{
 				name: "product-private edge",
 				mutate: func(t *testing.T, root string) {
 					writeEvaluatorDependencyFile(t, root, "core/product.go", "package core\n\nimport \""+productInternalImportPrefix+"app\"\n")
+				},
+				want: "imports product-private package",
+			},
+			{
+				name: "extension product-private edge",
+				mutate: func(t *testing.T, root string) {
+					writeEvaluatorDependencyFile(t, root, "extension/product.go", "package extension\n\nimport \""+productInternalImportPrefix+"app\"\n")
 				},
 				want: "imports product-private package",
 			},
@@ -350,6 +407,8 @@ func evaluatorPackageForDirectory(directory string) (evaluatorPackage, bool) {
 		return evaluatorRootPackage, true
 	case string(evaluatorCorePackage):
 		return evaluatorCorePackage, true
+	case string(evaluatorExtensionPackage):
+		return evaluatorExtensionPackage, true
 	case string(evaluatorATLPackage):
 		return evaluatorATLPackage, true
 	case string(evaluatorCommandOwner):
@@ -365,6 +424,8 @@ func evaluatorPackageForImport(path string) (evaluatorPackage, bool) {
 		return evaluatorRootPackage, true
 	case evaluatorCoreImportPath:
 		return evaluatorCorePackage, true
+	case evaluatorExtensionImportPath:
+		return evaluatorExtensionPackage, true
 	case evaluatorATLImportPath:
 		return evaluatorATLPackage, true
 	case evaluatorModuleImportPath + "/cmd/agent-eval":
@@ -377,7 +438,8 @@ func evaluatorPackageForImport(path string) (evaluatorPackage, bool) {
 func validateEvaluatorPackageName(owner evaluatorPackage, tests bool, file, got string) error {
 	want := map[evaluatorPackage]string{
 		evaluatorRootPackage: "agenteval", evaluatorCorePackage: "core",
-		evaluatorATLPackage: "atl", evaluatorCommandOwner: "main",
+		evaluatorExtensionPackage: "extension",
+		evaluatorATLPackage:       "atl", evaluatorCommandOwner: "main",
 	}[owner]
 	if got == want || tests && got == want+"_test" {
 		return nil
@@ -425,8 +487,10 @@ func parsedEvaluatorImports(owner evaluatorPackage, tests bool, file string, par
 func evaluatorPackageEdgeAllowed(owner, target evaluatorPackage) bool {
 	switch owner {
 	case evaluatorRootPackage:
-		return target == evaluatorCorePackage || target == evaluatorATLPackage
+		return target == evaluatorCorePackage || target == evaluatorExtensionPackage || target == evaluatorATLPackage
 	case evaluatorCorePackage:
+		return false
+	case evaluatorExtensionPackage:
 		return false
 	case evaluatorATLPackage:
 		return target == evaluatorCorePackage
@@ -448,11 +512,13 @@ func writeEvaluatorDependencyFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	files := map[string]string{
-		"facade.go":              "package agenteval\n\nimport \"" + evaluatorCoreImportPath + "\"\n",
-		"core/core.go":           "package core\n",
-		"core/core_test.go":      "package core_test\n\nimport \"" + evaluatorCoreImportPath + "\"\n",
-		"profile/atl/atl.go":     "package atl\n\nimport \"" + evaluatorCoreImportPath + "\"\n",
-		"cmd/agent-eval/main.go": "package main\n\nimport \"" + evaluatorModuleImportPath + "\"\n",
+		"facade.go":                   "package agenteval\n\nimport (\n\t\"" + evaluatorCoreImportPath + "\"\n\t\"" + evaluatorExtensionImportPath + "\"\n)\n",
+		"core/core.go":                "package core\n",
+		"core/core_test.go":           "package core_test\n\nimport \"" + evaluatorCoreImportPath + "\"\n",
+		"extension/extension.go":      "package extension\n",
+		"extension/extension_test.go": "package extension\n",
+		"profile/atl/atl.go":          "package atl\n\nimport \"" + evaluatorCoreImportPath + "\"\n",
+		"cmd/agent-eval/main.go":      "package main\n\nimport \"" + evaluatorModuleImportPath + "\"\n",
 	}
 	for path, contents := range files {
 		writeEvaluatorDependencyFile(t, root, path, contents)

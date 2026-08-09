@@ -1445,6 +1445,88 @@
         "repetition": 1,
         "repetitions": 1
       }
+    },
+    {
+      "namespace": "standalone",
+      "kind": "adapter-manifest",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/adapter-manifest-v1.json",
+      "source_sha256": "82cf6a3146d363c475ddb031c50dbba1505a72e7fdbd1595b210059af6d5547d",
+      "expected_projection": {
+        "schema": "agent-eval/adapter-manifest",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "protocol_version": 1,
+        "component_id": "synthetic.profile",
+        "component_version": "v0.0.0",
+        "role": "profile",
+        "operation_count": 2,
+        "capability_count": 2,
+        "configuration_count": 3,
+        "platform_count": 1,
+        "requirement_count": 5
+      }
+    },
+    {
+      "namespace": "standalone",
+      "kind": "adapter-message",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/adapter-message-v1.json",
+      "source_sha256": "6de27d8e1bc3117a484b81dfab5bc7b57b8d3308a038c74add462db6fd619d50",
+      "expected_projection": {
+        "schema": "agent-eval/adapter-message",
+        "schema_version": 1,
+        "protocol_version": 1,
+        "direction": "host_to_extension",
+        "sequence": 1,
+        "role": "profile",
+        "type": "initialize",
+        "component_id": "synthetic.profile",
+        "component_version": "v0.0.0",
+        "required_capability_count": 2
+      }
+    },
+    {
+      "namespace": "standalone",
+      "kind": "extension-conformance-bundle",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/extension-conformance-bundle-v1.json",
+      "source_sha256": "cba3be54c06307fa5366104f6272ebdfb290858d8a90d55c1458943a28d3059f",
+      "expected_projection": {
+        "schema": "agent-eval/extension-conformance-bundle",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "protocol_version": 1,
+        "case_count": 3,
+        "canceled_case_count": 1,
+        "first_role": "profile",
+        "first_operation": "capabilities",
+        "last_operation": "validate"
+      }
+    },
+    {
+      "namespace": "standalone",
+      "kind": "extension-conformance-report",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/extension-conformance-report-v1.json",
+      "source_sha256": "9b09ceaad1692bec790e3431564caa8f6fb2d4befe4c4c9b46bff69c59d5c0e9",
+      "expected_projection": {
+        "schema": "agent-eval/extension-conformance-report",
+        "schema_version": 1,
+        "scope": "extension_protocol",
+        "contract_version": "0.1.0-pre-release",
+        "protocol_version": 1,
+        "component_id": "synthetic.profile",
+        "component_version": "v0.0.0",
+        "role": "profile",
+        "capability_count": 2,
+        "cleanup_assurance": "best_effort",
+        "case_count": 3,
+        "canceled_case_count": 1,
+        "first_operation": "capabilities",
+        "last_operation": "validate",
+        "protocol_conformant": true
+      }
     }
   ]
 }
