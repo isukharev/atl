@@ -21,12 +21,12 @@
 
 ## Nodes
 
-| ID | Kind | State | Depth | Expanded | Label |
-| --- | --- | --- | --- | --- | --- |
-| jira:issue:PROJ-1 | jira_issue | resolved | 0 | true | Graph seed |
-| jira:attachment:4 | attachment | resolved | 1 | false | design.txt |
-| confluence:page:7 | confluence_page | stub | 1 | false |  |
-| jira:issue:PROJ-2 | jira_issue | unresolved | 1 | false |  |
+| ID | Kind | State | Depth | Expanded | Label | URL |
+| --- | --- | --- | --- | --- | --- | --- |
+| jira:issue:PROJ-1 | jira_issue | resolved | 0 | true | Graph seed |  |
+| jira:attachment:4 | attachment | resolved | 1 | false | design.txt |  |
+| confluence:page:7 | confluence_page | stub | 1 | false |  |  |
+| jira:issue:PROJ-2 | jira_issue | unresolved | 1 | false |  |  |
 
 ## Edges
 

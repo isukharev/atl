@@ -163,7 +163,10 @@ therefore have both a strong typed edge and a separate mention edge. Every edge
 has content-minimized evidence naming its collector and JSON pointer but never
 copies a source snippet. Text output preserves per-node source qualification,
 transport accounting, and any bounded frontier, then renders escaped node/edge
-tables. JSON remains the canonical contract.
+tables. Its node table includes the already-normalized public `url` value;
+opaque or sensitive identities keep that cell blank, and the renderer never
+reconstructs a URL from evidence or source content. JSON remains the canonical
+contract.
 
 This command is additive. `jira issue refs` retains its existing URL-focused
 schema, flags, output bytes, and JQL behavior.

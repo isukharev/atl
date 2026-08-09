@@ -349,21 +349,39 @@ func TestIssueGraphWithOptionsDoesNotFollowSameOriginRemoteLink(t *testing.T) {
 
 func TestIssueGraphWithOptionsAcceptsOpaqueCandidateURLIdentity(t *testing.T) {
 	service, _ := traversalService(map[string]*domain.QualifiedIssueSnapshot{
-		"PROJ-1": traversalSnapshot("PROJ-1", nil, "https://external.example.test/token/secret"),
+		"PROJ-1": traversalSnapshot("PROJ-1", nil,
+			"https://external.example.test/docs?token=private#fragment "+
+				"https://external.example.test/token/secret"),
 	})
 	result, err := service.IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	safeURL := "https://external.example.test/docs?redacted=redacted"
+	foundSafe := false
+	foundOpaque := false
 	for _, node := range result.Nodes {
+		if node.Kind == "url" && node.URL == safeURL {
+			foundSafe = true
+		}
 		if strings.HasPrefix(node.ID, "candidate:url:") {
 			if node.URL != "" || node.State != domain.ArtifactNodeUnresolved {
 				t.Fatalf("opaque URL node = %#v", node)
 			}
-			return
+			foundOpaque = true
 		}
 	}
-	t.Fatal("opaque URL node missing")
+	if !foundSafe || !foundOpaque {
+		t.Fatalf("safe=%t opaque=%t nodes=%#v", foundSafe, foundOpaque, result.Nodes)
+	}
+	markdown := JiraIssueGraphMarkdown(result)
+	if !strings.Contains(markdown, "| ID | Kind | State | Depth | Expanded | Label | URL |") ||
+		!strings.Contains(markdown, safeURL) ||
+		strings.Contains(markdown, "token=private") ||
+		strings.Contains(markdown, "#fragment") ||
+		strings.Contains(markdown, "/token/secret") {
+		t.Fatalf("unsafe or incomplete URL projection:\n%s", markdown)
+	}
 }
 
 func TestIssueGraphWithOptionsPromotesExactRelationAfterNarrativeCandidate(t *testing.T) {

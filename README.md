@@ -110,7 +110,9 @@ Use `atl jira issue graph KEY --depth 0` when the question spans structured
 links, hierarchy, documentation, attachments, or Development identities. Use
 `atl conf comment list --id ID` before expanding one exact thread. Both
 surfaces qualify incomplete evidence instead of treating a failed or bounded
-collector as an empty answer.
+collector as an empty answer. In graph text output, the node `URL` column shows
+only the already-normalized public URL and stays blank for opaque or sensitive
+identities.
 
 Typed MCP offers smaller, read-only projections for agents. The CLI remains the
 route for native bodies, durable mirrors, large bounded traversals, exports,
