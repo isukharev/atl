@@ -110,7 +110,7 @@ const (
 // up to treeScanCap backend rows; truncated is true when either cap or stalled
 // pagination stopped the listing before exhaustion.
 func (cf *Confluence) Tree(ctx context.Context, space string, depth int) ([]domain.PageRef, bool, error) {
-	start := 0
+	cursor := confluencePageCursor{}
 	scanned := 0
 	var out []domain.PageRef
 	for {
@@ -118,7 +118,7 @@ func (cf *Confluence) Tree(ctx context.Context, space string, depth int) ([]doma
 		q.Set("cql", "space="+cqlQuote(space)+" and type=page")
 		q.Set("expand", "ancestors,version,space")
 		q.Set("limit", "200")
-		q.Set("start", strconv.Itoa(start))
+		q.Set("start", strconv.Itoa(cursor.startAt()))
 		var resp struct {
 			Results []content `json:"results"`
 			Size    int       `json:"size"`
@@ -162,16 +162,15 @@ func (cf *Confluence) Tree(ctx context.Context, space string, depth int) ([]doma
 		if outputOverflow {
 			return out, true, nil
 		}
-		if resp.Links.Next == "" {
+		switch cursor.advance(len(resp.Results), resp.Links.Next) {
+		case confluencePageExhausted:
 			return out, false, nil
-		}
-		if len(resp.Results) == 0 {
+		case confluencePageStalled:
 			return out, true, nil
 		}
 		if scanned >= treeScanCap {
 			return out, true, nil // cap hit with more pages remaining
 		}
-		start += len(resp.Results)
 	}
 }
 

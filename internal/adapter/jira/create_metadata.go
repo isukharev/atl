@@ -36,19 +36,23 @@ func createMetaBase(project string) string {
 
 func (j *Jira) readCreateIssueTypes(ctx context.Context, project string) ([]createIssueTypeDTO, error) {
 	var out []createIssueTypeDTO
-	for start := 0; ; {
+	cursor := jiraOffsetCursor{}
+	for {
 		var page struct {
 			StartAt int                  `json:"startAt"`
 			Total   int                  `json:"total"`
 			IsLast  bool                 `json:"isLast"`
 			Values  []createIssueTypeDTO `json:"values"`
 		}
-		path := fmt.Sprintf("%s?startAt=%d&maxResults=%d", createMetaBase(project), start, createMetaPageSize)
+		path := fmt.Sprintf("%s?startAt=%d&maxResults=%d", createMetaBase(project), cursor.requested(), createMetaPageSize)
 		if err := j.c.GetJSON(ctx, path, &page); err != nil {
 			return nil, err
 		}
 		if page.Total > createMetaMaxItems {
 			return nil, fmt.Errorf("%w: Jira create metadata exceeds the 1000 item limit", domain.ErrCheckFailed)
+		}
+		if !cursor.matches(page.StartAt) {
+			return nil, fmt.Errorf("%w: Jira create metadata returned offset %d while %d was requested", domain.ErrCheckFailed, page.StartAt, cursor.requested())
 		}
 		out = append(out, page.Values...)
 		if len(out) > createMetaMaxItems {
@@ -60,29 +64,33 @@ func (j *Jira) readCreateIssueTypes(ctx context.Context, project string) ([]crea
 		if len(out) >= createMetaMaxItems {
 			return nil, fmt.Errorf("%w: Jira create metadata exceeds the 1000 item limit", domain.ErrCheckFailed)
 		}
-		if len(page.Values) == 0 {
+		decision := cursor.advance(len(page.Values), nil)
+		if decision.state != jiraOffsetMore {
 			return nil, fmt.Errorf("%w: Jira create metadata pagination made no progress", domain.ErrCheckFailed)
 		}
-		start += len(page.Values)
 	}
 }
 
 func (j *Jira) readCreateFields(ctx context.Context, project, typeID string) ([]createFieldDTO, error) {
 	var out []createFieldDTO
 	base := createMetaBase(project) + "/" + url.PathEscape(typeID)
-	for start := 0; ; {
+	cursor := jiraOffsetCursor{}
+	for {
 		var page struct {
 			StartAt int              `json:"startAt"`
 			Total   int              `json:"total"`
 			IsLast  bool             `json:"isLast"`
 			Values  []createFieldDTO `json:"values"`
 		}
-		path := fmt.Sprintf("%s?startAt=%d&maxResults=%d", base, start, createMetaPageSize)
+		path := fmt.Sprintf("%s?startAt=%d&maxResults=%d", base, cursor.requested(), createMetaPageSize)
 		if err := j.c.GetJSON(ctx, path, &page); err != nil {
 			return nil, err
 		}
 		if page.Total > createMetaMaxItems {
 			return nil, fmt.Errorf("%w: Jira create-screen metadata exceeds the 1000 field limit", domain.ErrCheckFailed)
+		}
+		if !cursor.matches(page.StartAt) {
+			return nil, fmt.Errorf("%w: Jira create-screen metadata returned offset %d while %d was requested", domain.ErrCheckFailed, page.StartAt, cursor.requested())
 		}
 		out = append(out, page.Values...)
 		if len(out) > createMetaMaxItems {
@@ -94,10 +102,10 @@ func (j *Jira) readCreateFields(ctx context.Context, project, typeID string) ([]
 		if len(out) >= createMetaMaxItems {
 			return nil, fmt.Errorf("%w: Jira create-screen metadata exceeds the 1000 field limit", domain.ErrCheckFailed)
 		}
-		if len(page.Values) == 0 {
+		decision := cursor.advance(len(page.Values), nil)
+		if decision.state != jiraOffsetMore {
 			return nil, fmt.Errorf("%w: Jira create-screen pagination made no progress", domain.ErrCheckFailed)
 		}
-		start += len(page.Values)
 	}
 }
 

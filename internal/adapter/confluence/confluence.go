@@ -353,7 +353,7 @@ func (cf *Confluence) History(ctx context.Context, id string) ([]domain.Version,
 // stalled, not exhausted. The item cap is enforced per version, so the returned
 // slice never exceeds it silently.
 func (cf *Confluence) HistoryQualified(ctx context.Context, id string) (domain.VersionInventory, error) {
-	start := 0
+	cursor := confluencePageCursor{}
 	out := []domain.Version{}
 	partial := func(reason string) (domain.VersionInventory, error) {
 		return domain.VersionInventory{Versions: out, PartialReason: reason}, nil
@@ -379,7 +379,7 @@ func (cf *Confluence) HistoryQualified(ctx context.Context, id string) (domain.V
 		}
 		q := url.Values{}
 		q.Set("limit", "100")
-		q.Set("start", strconv.Itoa(start))
+		q.Set("start", strconv.Itoa(cursor.startAt()))
 		// Confluence Data Center serves the full version list under
 		// /rest/experimental; the Cloud-style /rest/api/content/{id}/version path
 		// 404s on DC.
@@ -394,15 +394,14 @@ func (cf *Confluence) HistoryQualified(ctx context.Context, id string) (domain.V
 			}
 			out = append(out, domain.Version{Number: v.Number, When: v.When, By: v.By.DisplayName, Message: v.Message})
 		}
-		if resp.Links.Next == "" {
+		switch cursor.advance(len(resp.Results), resp.Links.Next) {
+		case confluencePageExhausted:
 			return domain.VersionInventory{Versions: out, Complete: true}, nil // server exhausted at or under the caps
-		}
-		if len(resp.Results) == 0 {
+		case confluencePageStalled:
 			// The server still advertises more but returned nothing, so paging cannot
 			// progress. Reporting exhaustion here would fabricate completeness.
 			return partial(domain.HistoryPartialPaginationStalled)
 		}
-		start += len(resp.Results)
 	}
 	// The loop only reaches here by exhausting the page cap; every natural exit
 	// returns above, so the last page still signaled _links.next.

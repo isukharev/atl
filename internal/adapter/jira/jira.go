@@ -556,7 +556,7 @@ const commentPageGuard = 100
 // the caller need not refetch the whole issue body. The port has no cursor, so
 // the adapter pages internally until the listing is exhausted.
 func (j *Jira) ListComments(ctx context.Context, key string) ([]domain.Comment, error) {
-	startAt := 0
+	cursor := jiraOffsetCursor{}
 	expectedTotal := -1
 	out := []domain.Comment{}
 	seenIDs := map[string]bool{}
@@ -572,23 +572,23 @@ func (j *Jira) ListComments(ctx context.Context, key string) ([]domain.Comment, 
 			} `json:"comments"`
 		}
 		q := url.Values{}
-		q.Set("startAt", strconv.Itoa(startAt))
+		q.Set("startAt", strconv.Itoa(cursor.requested()))
 		q.Set("maxResults", "100")
 		if err := j.c.GetJSON(ctx, "/rest/api/2/issue/"+url.PathEscape(key)+"/comment?"+q.Encode(), &resp); err != nil {
 			return nil, err
 		}
 		if resp.Total == nil {
 			return nil, fmt.Errorf("%w: Jira comment listing for %s omitted total at offset %d",
-				domain.ErrCheckFailed, key, startAt)
+				domain.ErrCheckFailed, key, cursor.requested())
 		}
 		total := *resp.Total
 		if total < 0 {
 			return nil, fmt.Errorf("%w: Jira comment listing for %s returned negative total %d at offset %d",
-				domain.ErrCheckFailed, key, total, startAt)
+				domain.ErrCheckFailed, key, total, cursor.requested())
 		}
-		if resp.StartAt != startAt {
+		if !cursor.matches(resp.StartAt) {
 			return nil, fmt.Errorf("%w: Jira comment listing for %s returned offset %d while %d was requested",
-				domain.ErrCheckFailed, key, resp.StartAt, startAt)
+				domain.ErrCheckFailed, key, resp.StartAt, cursor.requested())
 		}
 		if expectedTotal < 0 {
 			expectedTotal = total
@@ -599,7 +599,7 @@ func (j *Jira) ListComments(ctx context.Context, key string) ([]domain.Comment, 
 		for _, c := range resp.Comments {
 			if c.ID == "" || seenIDs[c.ID] {
 				return nil, fmt.Errorf("%w: Jira comment listing for %s returned a missing or duplicate comment id at offset %d",
-					domain.ErrCheckFailed, key, startAt)
+					domain.ErrCheckFailed, key, cursor.requested())
 			}
 			seenIDs[c.ID] = true
 			out = append(out, domain.Comment{
@@ -607,22 +607,20 @@ func (j *Jira) ListComments(ctx context.Context, key string) ([]domain.Comment, 
 				AuthorKey: nestedKey(c.Author), Created: c.Created, Body: c.Body,
 			})
 		}
-		next := resp.StartAt + len(resp.Comments)
-		if next > total {
+		decision := cursor.advance(len(resp.Comments), &total)
+		switch decision.state {
+		case jiraOffsetBeyondTotal, jiraOffsetOverflow:
 			return nil, fmt.Errorf("%w: Jira comment listing for %s returned inconsistent pagination (%d comments through offset %d, total %d)",
-				domain.ErrCheckFailed, key, len(resp.Comments), next, total)
-		}
-		if len(resp.Comments) == 0 && next < total {
+				domain.ErrCheckFailed, key, len(resp.Comments), decision.next, total)
+		case jiraOffsetStalled:
 			return nil, fmt.Errorf("%w: Jira comment listing for %s made no progress at offset %d with %d comments remaining",
-				domain.ErrCheckFailed, key, next, total-next)
-		}
-		startAt = next
-		if startAt >= total {
+				domain.ErrCheckFailed, key, decision.next, total-decision.next)
+		case jiraOffsetComplete:
 			return out, nil
 		}
 		if page == commentPageGuard-1 {
 			return nil, fmt.Errorf("%w: Jira comment listing for %s remains incomplete after %d pages (%d of %d comments fetched)",
-				domain.ErrCheckFailed, key, commentPageGuard, startAt, total)
+				domain.ErrCheckFailed, key, commentPageGuard, cursor.requested(), total)
 		}
 	}
 	panic("unreachable")
@@ -702,14 +700,14 @@ func (j *Jira) Changelog(ctx context.Context, key string) ([]domain.ChangelogEnt
 // paging metadata proves every advertised entry is present.
 func (j *Jira) CompleteChangelog(ctx context.Context, key string) (*domain.ChangelogSnapshot, error) {
 	const pageSize = 100
-	startAt := 0
+	cursor := jiraOffsetCursor{}
 	advertisedTotal := -1
 	entries := []domain.ChangelogEntry{}
 	for pageNumber := 0; pageNumber < 1000; pageNumber++ {
 		var page jiraChangelogPage
-		path := fmt.Sprintf("/rest/api/2/issue/%s/changelog?startAt=%d&maxResults=%d", url.PathEscape(key), startAt, pageSize)
+		path := fmt.Sprintf("/rest/api/2/issue/%s/changelog?startAt=%d&maxResults=%d", url.PathEscape(key), cursor.requested(), pageSize)
 		if err := j.c.GetJSON(ctx, path, &page); err != nil {
-			if startAt == 0 && unsupportedChangelogEndpoint(err) {
+			if cursor.requested() == 0 && unsupportedChangelogEndpoint(err) {
 				return j.embeddedChangelog(ctx, key)
 			}
 			return nil, err
@@ -718,13 +716,13 @@ func (j *Jira) CompleteChangelog(ctx context.Context, key string) (*domain.Chang
 		if len(raw) == 0 {
 			raw = page.Histories
 		}
-		if startAt == 0 && page.Total == nil && len(raw) == 0 {
+		if cursor.requested() == 0 && page.Total == nil && len(raw) == 0 {
 			return j.embeddedChangelog(ctx, key)
 		}
 		if page.Total != nil {
 			advertisedTotal = *page.Total
 		}
-		if page.StartAt != startAt {
+		if !cursor.matches(page.StartAt) {
 			total := len(entries)
 			if page.Total != nil {
 				total = *page.Total
@@ -732,21 +730,19 @@ func (j *Jira) CompleteChangelog(ctx context.Context, key string) (*domain.Chang
 			return &domain.ChangelogSnapshot{Entries: entries, Total: total, Source: "paginated", PartialReason: "Jira changelog pagination returned a non-contiguous page"}, nil
 		}
 		entries = append(entries, mapChangelogHistories(raw)...)
-		next := page.StartAt + len(raw)
-		if page.Total != nil && next == *page.Total {
+		decision := cursor.advance(len(raw), page.Total)
+		switch decision.state {
+		case jiraOffsetComplete:
 			return &domain.ChangelogSnapshot{Entries: entries, Total: *page.Total, Complete: true, Source: "paginated"}, nil
-		}
-		if page.Total != nil && next > *page.Total {
+		case jiraOffsetBeyondTotal:
 			return &domain.ChangelogSnapshot{Entries: entries, Total: *page.Total, Source: "paginated", PartialReason: "Jira changelog returned more entries than advertised"}, nil
-		}
-		if len(raw) == 0 || next <= startAt {
+		case jiraOffsetStalled, jiraOffsetOverflow:
 			total := len(entries)
 			if page.Total != nil {
 				total = *page.Total
 			}
 			return &domain.ChangelogSnapshot{Entries: entries, Total: total, Source: "paginated", PartialReason: "Jira changelog pagination made no forward progress"}, nil
 		}
-		startAt = next
 	}
 	total := len(entries)
 	if advertisedTotal >= 0 {

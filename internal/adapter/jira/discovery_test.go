@@ -95,12 +95,53 @@ func TestReadCreateIssueTypesRejectsAdvertisedOverLimitBeforeSecondRequest(t *te
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests++
-		_, _ = io.WriteString(w, `{"startAt":0,"total":1001,"values":[{"id":"10","name":"Task"}]}`)
+		_, _ = io.WriteString(w, `{"startAt":1,"total":1001,"values":[{"id":"10","name":"Task"}]}`)
 	}))
 	defer server.Close()
 	_, err := newTestJira(server).ReadCreateIssueTypes(context.Background(), "OPS")
-	if !errors.Is(err, domain.ErrCheckFailed) || requests != 1 {
+	if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "1000 item limit") || requests != 1 {
 		t.Fatalf("requests=%d err=%v", requests, err)
+	}
+}
+
+func TestReadCreateMetadataRejectsNonContiguousOffsets(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		call func(*Jira) error
+	}{
+		{
+			name: "issue types",
+			path: "/rest/api/2/issue/createmeta/OPS/issuetypes",
+			call: func(j *Jira) error {
+				_, err := j.ReadCreateIssueTypes(context.Background(), "OPS")
+				return err
+			},
+		},
+		{
+			name: "fields",
+			path: "/rest/api/2/issue/createmeta/OPS/issuetypes/10",
+			call: func(j *Jira) error {
+				_, err := j.readCreateFields(context.Background(), "OPS", "10")
+				return err
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != test.path {
+					http.NotFound(w, r)
+					return
+				}
+				_, _ = io.WriteString(w, `{"startAt":1,"total":1,"isLast":true,"values":[]}`)
+			}))
+			t.Cleanup(server.Close)
+			err := test.call(newTestJira(server))
+			if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "returned offset 1 while 0 was requested") {
+				t.Fatalf("error=%v, want non-contiguous offset rejection", err)
+			}
+		})
 	}
 }
 
