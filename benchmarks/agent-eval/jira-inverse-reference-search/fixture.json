@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "jira_context": "/jira",
+  "confluence_context": "/wiki",
+  "request_sequence": ["selection", "selection", "development-summary", "development-repository"],
+  "routes": [
+    {
+      "name": "selection",
+      "method": "GET",
+      "path": "/jira/rest/api/2/search",
+      "query_equals": {"fields":"key","jql":"(project = IRP) ORDER BY key ASC","maxResults":"10","startAt":"0"},
+      "responses": [
+        {"status":200,"body":{"startAt":0,"maxResults":10,"total":1,"issues":[{"id":"41001","key":"IR-41"}]}},
+        {"status":200,"body":{"startAt":0,"maxResults":10,"total":1,"issues":[{"id":"41001","key":"IR-41"}]}}
+      ]
+    },
+    {
+      "name": "development-summary",
+      "method": "GET",
+      "path": "/jira/rest/dev-status/1.0/issue/summary",
+      "query_equals": {"issueId":"41001"},
+      "status": 200,
+      "body": {
+        "errors": [],
+        "configErrors": [],
+        "summary": {
+          "repository": {"overall":{"count":1},"byInstanceType":{"GitLab":{"count":1}}},
+          "branch": {"overall":{"count":0},"byInstanceType":{"GitLab":{"count":0}}},
+          "pullrequest": {"overall":{"count":0},"byInstanceType":{"GitLab":{"count":0}}}
+        },
+        "message": "PRIVACY_CANARY_DEVELOPMENT_SUMMARY"
+      }
+    },
+    {
+      "name": "development-repository",
+      "method": "GET",
+      "path": "/jira/rest/dev-status/1.0/issue/detail",
+      "query_equals": {"applicationType":"GitLab","dataType":"repository","issueId":"41001"},
+      "status": 200,
+      "body": {
+        "errors": [],
+        "configErrors": [],
+        "detail": [{"repositories":[{
+          "url":"https://code-inverse.example.test/platform/widget",
+          "name":"PRIVACY_CANARY_DEVELOPMENT_TITLE",
+          "commits":[{
+            "id":"1111111111111111111111111111111111111111",
+            "url":"https://code-inverse.example.test/platform/widget/-/commit/1111111111111111111111111111111111111111",
+            "message":"PRIVACY_CANARY_DEVELOPMENT_SOURCE_TEXT"
+          }]
+        }]}]
+      }
+    }
+  ]
+}

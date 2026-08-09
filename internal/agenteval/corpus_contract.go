@@ -19,7 +19,7 @@ var publicCorpusTaskClasses = map[string]struct{}{
 	"confluence/comments": {}, "confluence/edit": {}, "confluence/evidence": {}, "confluence/mirror": {}, "confluence/selection-completeness": {}, "confluence/table-analytics": {},
 	"cross-service/meeting-tasks": {}, "cross-service/spec-backlog": {},
 	"jira/batch-analysis": {}, "jira/board-portfolio": {}, "jira/edit": {}, "jira/triage": {},
-	"jira/evidence": {}, "jira/graph-evidence": {}, "jira/mirror": {}, "jira/portfolio": {}, "jira/structure-planning": {},
+	"jira/evidence": {}, "jira/graph-evidence": {}, "jira/inverse-reference": {}, "jira/mirror": {}, "jira/portfolio": {}, "jira/structure-planning": {},
 	"jira/sprint-dashboard": {}, "jira/status-report": {},
 	"knowledge/search": {},
 }

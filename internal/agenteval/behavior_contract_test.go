@@ -429,7 +429,7 @@ func TestEvaluatorSamplingPairIdentityContract(t *testing.T) {
 		contractNames = append(contractNames, pair.Primary)
 	}
 	sort.Strings(contractNames)
-	if !slices.Equal(actualNames, contractNames) || len(contractNames) != 41 {
+	if !slices.Equal(actualNames, contractNames) || len(contractNames) != 42 {
 		t.Fatalf("sampling pair inventory drifted: actual=%v contract=%v", actualNames, contractNames)
 	}
 
