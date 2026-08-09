@@ -98,6 +98,27 @@ func TestPlatformVarSetsAreComplete(t *testing.T) {
 	}
 }
 
+func TestParseMode(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		args      []string
+		wantCheck bool
+		wantErr   bool
+	}{
+		{name: "publish"},
+		{name: "check", args: []string{"--check"}, wantCheck: true},
+		{name: "unknown", args: []string{"--unknown"}, wantErr: true},
+		{name: "extra", args: []string{"--check", "extra"}, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := parseMode(test.args)
+			if (err != nil) != test.wantErr || got != test.wantCheck {
+				t.Fatalf("parseMode(%q) = (%v, %v), want check=%v err=%v", test.args, got, err, test.wantCheck, test.wantErr)
+			}
+		})
+	}
+}
+
 func TestVerifyPublishedSkillTreeRejectsExecutableFile(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "SKILL.md")
@@ -374,6 +395,99 @@ func TestRunPublishesCodexSkillCatalogOutsideProviderSkillRoot(t *testing.T) {
 	}
 }
 
+func TestRunCheckAcceptsCurrentOutputsWithoutMutation(t *testing.T) {
+	prepareGeneratedCheckWorkspace(t)
+	before := snapshotGeneratedOutputs(t)
+	if err := runMode(true); err != nil {
+		t.Fatal(err)
+	}
+	after := snapshotGeneratedOutputs(t)
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("check mode mutated current outputs:\nbefore=%v\nafter=%v", before, after)
+	}
+}
+
+func TestRunCheckRejectsDriftWithoutMutation(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*testing.T)
+	}{
+		{
+			name: "missing file",
+			mutate: func(t *testing.T) {
+				if err := os.Remove(filepath.Join("skills", "demo", "SKILL.md")); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "extra file",
+			mutate: func(t *testing.T) {
+				if err := os.WriteFile(filepath.Join("skills", "extra.md"), []byte("extra\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "changed file",
+			mutate: func(t *testing.T) {
+				if err := os.WriteFile(filepath.Join("skills", "demo", "SKILL.md"), []byte("changed\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "symlinked file",
+			mutate: func(t *testing.T) {
+				name := filepath.Join("skills", "demo", "SKILL.md")
+				if err := os.Remove(name); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink("missing-target", name); err != nil {
+					t.Skipf("symlink unsupported: %v", err)
+				}
+			},
+		},
+		{
+			name: "executable file",
+			mutate: func(t *testing.T) {
+				if err := os.Chmod(filepath.Join("skills", "demo", "SKILL.md"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "stale catalog",
+			mutate: func(t *testing.T) {
+				if err := os.WriteFile(codexSkillCatalogPath, []byte("{}\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "stale MCP config",
+			mutate: func(t *testing.T) {
+				if err := os.WriteFile(pluginMCPConfigPath, []byte("{}\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			prepareGeneratedCheckWorkspace(t)
+			test.mutate(t)
+			before := snapshotGeneratedOutputs(t)
+			if err := runMode(true); err == nil {
+				t.Fatal("drifted outputs passed check mode")
+			}
+			after := snapshotGeneratedOutputs(t)
+			if !reflect.DeepEqual(before, after) {
+				t.Fatalf("check mode mutated drifted outputs:\nbefore=%v\nafter=%v", before, after)
+			}
+		})
+	}
+}
+
 func TestRunRejectsInvalidCatalogBeforeRemovingOutputs(t *testing.T) {
 	original, err := os.Getwd()
 	if err != nil {
@@ -638,6 +752,38 @@ func TestRunRejectsSymlinkedCatalogDestinationBeforeRemovingOutputs(t *testing.T
 	}
 }
 
+func TestRunRejectsSymlinkedMCPDestinationBeforeRemovingOutputs(t *testing.T) {
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(original) })
+
+	writeValidGeneratorSkill(t)
+	writeGeneratorSentinels(t)
+	external := filepath.Join(t.TempDir(), "external-mcp.json")
+	const externalSentinel = "external sentinel\n"
+	if err := os.WriteFile(external, []byte(externalSentinel), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(external, pluginMCPConfigPath); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if err := run(); err == nil || !strings.Contains(err.Error(), "MCP config output") {
+		t.Fatalf("symlinked MCP destination passed: %v", err)
+	}
+	assertGeneratorSentinels(t)
+	data, err := os.ReadFile(external)
+	if err != nil || string(data) != externalSentinel {
+		t.Fatalf("external MCP target was touched: data=%q err=%v", data, err)
+	}
+}
+
 func TestRunRejectsReplacedCatalogTemporaryAndPreservesPreviousCompanion(t *testing.T) {
 	original, err := os.Getwd()
 	if err != nil {
@@ -657,6 +803,9 @@ func TestRunRejectsReplacedCatalogTemporaryAndPreservesPreviousCompanion(t *test
 		t.Fatal(err)
 	}
 	afterGeneratedTempClosed = func(name string) {
+		if name != "."+filepath.Base(codexSkillCatalogPath)+".tmp" {
+			return
+		}
 		temporary := filepath.Join(filepath.Dir(codexSkillCatalogPath), name)
 		if removeErr := os.Remove(temporary); removeErr != nil {
 			t.Fatal(removeErr)
@@ -753,6 +902,7 @@ func writeValidGeneratorSkill(t *testing.T) {
 	for path, data := range map[string]string{
 		filepath.Join(skillRoot, "SKILL.md"):              skill,
 		filepath.Join(skillRoot, "agents", "openai.yaml"): metadata,
+		rootMCPConfigName:                                 "{\"mcpServers\":{}}\n",
 	} {
 		if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 			t.Fatal(err)
@@ -806,4 +956,67 @@ func assertGeneratorSentinels(t *testing.T) {
 			t.Fatalf("output %s was touched: data=%q err=%v", path, data, err)
 		}
 	}
+}
+
+func prepareGeneratedCheckWorkspace(t *testing.T) {
+	t.Helper()
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(original); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
+	writeValidGeneratorSkill(t)
+	if err := os.MkdirAll(filepath.Join("plugins", "atl"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func snapshotGeneratedOutputs(t *testing.T) map[string]string {
+	t.Helper()
+	snapshot := make(map[string]string)
+	for _, root := range []string{"skills", filepath.Join("plugins", "atl", "skills")} {
+		err := filepath.WalkDir(root, func(name string, _ os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			return snapshotGeneratedPath(snapshot, name)
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{codexSkillCatalogPath, pluginMCPConfigPath} {
+		if err := snapshotGeneratedPath(snapshot, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return snapshot
+}
+
+func snapshotGeneratedPath(snapshot map[string]string, name string) error {
+	info, err := os.Lstat(name)
+	if err != nil {
+		return err
+	}
+	value := fmt.Sprintf("%v:%d", info.Mode(), info.Size())
+	if info.Mode().IsRegular() {
+		data, err := os.ReadFile(name)
+		if err != nil {
+			return err
+		}
+		value += fmt.Sprintf(":%x", sha256.Sum256(data))
+	}
+	snapshot[filepath.ToSlash(name)] = value
+	return nil
 }

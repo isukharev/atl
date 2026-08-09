@@ -82,11 +82,13 @@ const generatedAttributesContract = `/skills/** linguist-generated=true
 /plugins/atl/skill-catalog.v1.json linguist-generated=true
 `
 
-const pluginsMakeContract = `.PHONY: check-plugins
-check-plugins: gen-plugins check-skill-safety check-skill-routing
-	@test -z "$$(git status --porcelain -- skills plugins/atl/skills plugins/atl/.mcp.json plugins/atl/skill-catalog.v1.json)" || { \
-		git status --porcelain -- skills plugins/atl/skills plugins/atl/.mcp.json plugins/atl/skill-catalog.v1.json; \
-		echo "generated plugin outputs are stale or hand-edited: edit skills-src/, run 'make gen-plugins', commit every generated output"; exit 1; }
+const pluginsMakeContract = `.PHONY: gen-plugins
+gen-plugins:
+	$(GO_ENV) go run ./scripts/gen-plugins
+
+.PHONY: check-plugins
+check-plugins: check-skill-safety check-skill-routing
+	$(GO_ENV) go run ./scripts/gen-plugins --check
 `
 
 const context7MakeContract = `.PHONY: check-context7-docs
@@ -447,6 +449,9 @@ func validateBootstrap(root string) error {
 	if countMakeTargetDeclarations(makefile, "check-core-race-coverage") != 1 ||
 		bytes.Count(makefile, []byte(coreCoverageMakeContract)) != 1 {
 		return errors.New("makefile must retain the exact root-core race/coverage command and reviewed 84.0% floor")
+	}
+	if countMakeTargetDeclarations(makefile, "gen-plugins") != 1 {
+		return errors.New("makefile must provide exactly one generated-plugin publication target")
 	}
 	for _, required := range []struct {
 		target, contract, diagnostic string
