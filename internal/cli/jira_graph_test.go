@@ -151,6 +151,26 @@ func TestJiraIssueGraphURLTextGolden(t *testing.T) {
 	}
 }
 
+func TestJiraIssueGraphCompactURLJSONGolden(t *testing.T) {
+	server, requests := jiraGraphServerWithDescription(t,
+		"See https://external.example.test/guide/a&b "+
+			"https://external.example.test/docs?token=private#fragment "+
+			"https://external.example.test/token/secret")
+	output, code := runCLI(t, jiraEnv(server), "jira", "issue", "graph", "PROJ-1", "--projection", "compact")
+	if code != exitOK {
+		t.Fatalf("compact exit=%d output=%s", code, output)
+	}
+	assertGolden(t, "jira_issue_graph_compact_urls.json", []byte(output))
+	for _, forbidden := range []string{"token=private", "#fragment", "/token/secret"} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("unsafe URL %q leaked: %s", forbidden, output)
+		}
+	}
+	if len(*requests) != 4 {
+		t.Fatalf("requests = %#v", *requests)
+	}
+}
+
 func TestJiraIssueGraphRejectsIDAndArityBeforeNetwork(t *testing.T) {
 	server, requests := jiraGraphServer(t)
 	for _, args := range [][]string{

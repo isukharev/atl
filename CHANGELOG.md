@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added a shared schema-v1 compact projection for `jira issue graph` CLI and
+  MCP output, preserving qualification while selecting safe URL or SCM facts;
+  omitted full output remains compatible.
+
 ### Fixed
 
 - Added the already-normalized public URL-node identity to `jira issue graph -o

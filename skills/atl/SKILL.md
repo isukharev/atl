@@ -346,14 +346,17 @@ without raw changelog rows (explicit false is rejected), and last-field-change
 metadata;
 transient multi-key export to artifact-only stdout; deterministic epic evidence
 digest and standalone refs with reconciled per-kind/per-source aggregates;
-schema-v2 bounded CLI and typed MCP work-artifact graph with exact
+byte-compatible full schema-v2 and post-collection compact schema-v1 CLI and
+typed MCP work-artifact graph with exact
 structured Jira traversal, optional CLI-only Confluence id/title resolution, typed
 edges, mentions, budgets, frontier, metadata-reconciled fields, and qualified
 per-node sources (including experimental issue properties), plus explicit
 CLI and typed MCP fail-closed Jira Development project/commit/branch/MR
 identities that never trigger GitLab requests; MCP requires explicit
 `include_development:true`, omits Development-node URLs, and preserves the
-stable request and output profile when omitted or false;
+stable request and output profile when omitted or false; compact selects only
+canonical URL-node identities and/or SCM coordinates while retaining bounds,
+incomplete sources, frontier, warnings, and reconciliation;
 check/attachments/refs/tree. For a report
 or quarter review, route through the Jira skill's one-hop
 `reference/evidence-workflow.md` and stop once sufficient complete evidence is
