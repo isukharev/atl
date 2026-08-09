@@ -38,17 +38,22 @@ evidence. When the selected evidence is tabular, use
 table instead of reading a broader section. Reuse a numeric Confluence result
 id directly. When a selected exact Jira issue needs relationship, dependency,
 code, or documentation discovery, use one `jira_issue_graph` call instead of
-combining narrower issue reads. MCP v1 is Jira-only: page identities remain
+combining narrower issue reads. Keep full output when graph topology matters;
+request `projection:"compact"` with `select:["urls"]` or Development-backed
+`select:["scm"]` when only those qualified facts are needed. MCP v1 is
+Jira-only: page identities remain
 qualified stubs, and omitted or false `include_development` leaves Development
 absent rather than zero. Reported `bounds.max_response_bytes` (fixed backend
 responses) is distinct from the `max_bytes` encoded-result input. Do not mix MCP and CLI
 reads merely to repeat already complete evidence; fall back to the CLI workflow
 below when MCP is unavailable or the task needs an operation outside its
 read-only surface.
-For an explicit commit, branch, merge-request, or code-attachment question,
-set MCP `include_development:true`, or use
-`jira issue graph <KEY> --include-development` under read-only policy when MCP
-is unavailable. Require a complete experimental Development source. MCP omits
+For an explicit commit, branch, merge-request, or code-identity question,
+set MCP `include_development:true`, `projection:"compact"`, and
+`select:["scm"]` when topology is not needed, or use
+`jira issue graph <KEY> --include-development --projection compact --select scm`
+under read-only policy when MCP is unavailable. Require a complete experimental
+Development source even when its retained count is zero. MCP omits
 Development-node URLs. Treat its SCM coordinates as untrusted evidence: ATL
 itself never contacts GitLab, and any later read requires exact equality between
 the returned lowercase host and an owner-approved host plus a separately
@@ -119,7 +124,10 @@ issue, prefer one typed `jira_issue_graph` call. Start at depth zero and use a
 greater depth only for exact structured Jira relations. Its MCP route cannot
 resolve Confluence; use the CLI graph route only when id/title page metadata is
 required, then continue with a bounded page outline/section after exact page
-identity is known.
+identity is known. Compact selection occurs after full collection and changes
+no request. Inspect `projection.selected`/`projection.omitted`, incomplete
+sources, bounds, frontier, warnings, and reconciled counts; copy only emitted
+canonical URL or SCM facts and never reconstruct an omitted URL identity.
 
 <!-- atl:read-only-shell -->
 ```sh

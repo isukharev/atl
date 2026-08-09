@@ -157,6 +157,10 @@ func TestJiraIssueGraphRejectsIDAndArityBeforeNetwork(t *testing.T) {
 		{"-o", "id", "jira", "issue", "graph", "PROJ-1"},
 		{"jira", "issue", "graph"},
 		{"jira", "issue", "graph", "PROJ-1", "PROJ-2"},
+		{"jira", "issue", "graph", "PROJ-1", "--projection", "unknown"},
+		{"jira", "issue", "graph", "PROJ-1", "--select", "urls"},
+		{"jira", "issue", "graph", "PROJ-1", "--projection", "compact", "--select", "scm"},
+		{"-o", "text", "jira", "issue", "graph", "PROJ-1", "--projection", "compact"},
 	} {
 		output, code := runCLI(t, jiraEnv(server), args...)
 		if code != exitUsage || output != "" {
@@ -165,6 +169,99 @@ func TestJiraIssueGraphRejectsIDAndArityBeforeNetwork(t *testing.T) {
 	}
 	if len(*requests) != 0 {
 		t.Fatalf("requests = %#v", *requests)
+	}
+}
+
+func TestJiraIssueGraphExplicitFullProjectionIsByteAndRequestCompatible(t *testing.T) {
+	server, requests := jiraGraphServer(t)
+	baseline, code := runCLI(t, jiraEnv(server), "jira", "issue", "graph", "PROJ-1")
+	if code != exitOK {
+		t.Fatalf("baseline exit=%d output=%s", code, baseline)
+	}
+	explicit, code := runCLI(t, jiraEnv(server), "jira", "issue", "graph", "PROJ-1", "--projection", "full")
+	if code != exitOK {
+		t.Fatalf("explicit exit=%d output=%s", code, explicit)
+	}
+	if explicit != baseline {
+		t.Fatalf("explicit full projection changed output\nbaseline=%s\nexplicit=%s", baseline, explicit)
+	}
+	if len(*requests) != 8 {
+		t.Fatalf("requests = %#v", *requests)
+	}
+}
+
+func TestJiraIssueGraphCompactJSONGoldenAndRequestCompatibility(t *testing.T) {
+	server, requests := jiraGraphServer(t)
+	full, code := runCLI(t, jiraEnv(server), "jira", "issue", "graph", "PROJ-1")
+	if code != exitOK {
+		t.Fatalf("full exit=%d output=%s", code, full)
+	}
+	compact, code := runCLI(t, jiraEnv(server), "jira", "issue", "graph", "PROJ-1", "--projection", "compact")
+	if code != exitOK {
+		t.Fatalf("compact exit=%d output=%s", code, compact)
+	}
+	assertGolden(t, "jira_issue_graph_compact.json", []byte(compact))
+	if len(compact) >= len(full) {
+		t.Fatalf("compact bytes=%d, full bytes=%d", len(compact), len(full))
+	}
+	assertRepeatedGraphRequests(t, *requests, 4)
+}
+
+func TestJiraIssueGraphCompactDevelopmentJSONGoldenAndRequestCompatibility(t *testing.T) {
+	server, requests := jiraGraphServer(t)
+	full, code := runCLI(t, jiraEnv(server), "jira", "issue", "graph", "PROJ-1", "--include-development")
+	if code != exitOK {
+		t.Fatalf("full exit=%d output=%s", code, full)
+	}
+	compact, code := runCLI(t, jiraEnv(server), "jira", "issue", "graph", "PROJ-1", "--include-development", "--projection", "compact")
+	if code != exitOK {
+		t.Fatalf("compact exit=%d output=%s", code, compact)
+	}
+	assertGolden(t, "jira_issue_graph_compact_development.json", []byte(compact))
+	if len(compact) >= len(full) {
+		t.Fatalf("compact bytes=%d, full bytes=%d", len(compact), len(full))
+	}
+	assertRepeatedGraphRequests(t, *requests, 8)
+}
+
+func TestJiraIssueGraphCompactQualificationOnlyAndStrict(t *testing.T) {
+	server, requests := jiraGraphServer(t)
+	qualification, code := runCLI(t, jiraEnv(server), "jira", "issue", "graph", "PROJ-1", "--projection", "compact", "--select", "none")
+	if code != exitOK {
+		t.Fatalf("qualification exit=%d output=%s", code, qualification)
+	}
+	var projected struct {
+		Projection struct {
+			Selected []string `json:"selected"`
+			Omitted  []string `json:"omitted"`
+		} `json:"projection"`
+		Facts []json.RawMessage `json:"facts"`
+	}
+	if err := json.Unmarshal([]byte(qualification), &projected); err != nil {
+		t.Fatal(err)
+	}
+	if len(projected.Projection.Selected) != 0 || strings.Join(projected.Projection.Omitted, ",") != "urls,scm" || len(projected.Facts) != 0 {
+		t.Fatalf("qualification projection = %+v facts=%d", projected.Projection, len(projected.Facts))
+	}
+
+	strict, code := runCLI(t, jiraEnv(server), "jira", "issue", "graph", "PROJ-1", "--projection", "compact", "--max-nodes", "1", "--strict")
+	if code != exitCheckFailed || !json.Valid([]byte(strict)) || !strings.Contains(strict, `"complete": false`) {
+		t.Fatalf("strict exit=%d output=%s", code, strict)
+	}
+	if len(*requests) != 8 {
+		t.Fatalf("requests = %#v", *requests)
+	}
+}
+
+func assertRepeatedGraphRequests(t *testing.T, requests []string, perRun int) {
+	t.Helper()
+	if len(requests) != perRun*2 {
+		t.Fatalf("requests = %#v", requests)
+	}
+	for index := 0; index < perRun; index++ {
+		if requests[index] != requests[index+perRun] {
+			t.Fatalf("request %d changed: full=%q compact=%q", index, requests[index], requests[index+perRun])
+		}
 	}
 }
 

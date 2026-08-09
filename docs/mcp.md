@@ -54,7 +54,7 @@ The v1 surface is an explicit allowlist:
 | `jira_issue_search` | Read one compact IssueList page | default 50/maximum 1000 rows; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_issue_field_get` | Expand one exact compact field with issue/update provenance | default 16 KiB, maximum 128 KiB encoded value |
 | `jira_issue_history` | Summarize one issue's changelog without raw history rows | summary projection only; default 256 KiB/maximum 1 MiB encoded result |
-| `jira_issue_graph` | Build one schema-v2 work-artifact graph from an exact issue | Jira-only depth 0..2; fixed 16 MiB backend-response bound; default 256 KiB/maximum 1 MiB encoded result; no Confluence resolution; optional experimental Development SCM coordinates |
+| `jira_issue_graph` | Build one full-v2 or compact-v1 qualified work-artifact graph from an exact issue | full default; Jira-only depth 0..2; fixed 16 MiB backend-response bound; default 256 KiB/maximum 1 MiB encoded result; no Confluence resolution; optional experimental Development SCM coordinates |
 | `jira_issue_refs` | Summarize qualified issue references without raw URLs or narrative | one key or JQL limited to 25 issues; at most 8 technical field ids; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_epic_digest` | Aggregate selected qualified epic evidence | `projection:compact`; default 256 KiB/maximum 1 MiB encoded result |
 | `jira_board_view` | Freeze one board/backlog membership snapshot | default 200/maximum 1000 rows per scope; default 256 KiB/maximum 1 MiB encoded result |
@@ -114,14 +114,43 @@ add both metadata requests. There is no raw-history selector and no projection
 mode: when individual changes are themselves the required evidence, use
 `atl jira issue history` in the CLI.
 
-`jira_issue_graph` builds the same provenance-qualified schema-v2 graph as the
-CLI's direct Jira route. It requires one canonical `key`; optional `depth`
-from 0 through 2 follows only exact structured Jira relations. MCP v1 is
-Jira-only and intentionally has no `resolve` or `resolve_confluence` input:
+`jira_issue_graph` builds the same provenance-qualified graph as the CLI's
+direct Jira route. It requires one canonical `key`; optional `depth` from 0
+through 2 follows only exact structured Jira relations. Omitted or explicit
+`projection:"full"` returns the existing schema-v2 bytes and request sequence.
+`projection:"compact"` returns schema v1 and accepts the same closed
+`urls|scm|none` selector contract as the CLI through a `select` string array.
+With no selector, compact selects URLs and also selects SCM only when
+`include_development:true`; explicit SCM selection requires that opt-in. `none`
+returns qualification without facts and cannot be combined with another
+selector. Invalid combinations fail before Jira client construction or network
+access.
+
+```json
+{
+  "key": "PROJ-1",
+  "projection": "compact",
+  "select": ["urls"]
+}
+```
+
+MCP v1 is Jira-only and intentionally has no `resolve` or
+`resolve_confluence` input:
 discovered Confluence page identities remain qualified stubs, and resolving
 their id/title metadata requires the CLI. There is also no `strict` input;
 inspect top-level `complete`, every requested source, the reconciliation
 summary, transport usage, and the bounded `frontier` directly.
+
+Compact selection runs only after the full graph is collected and passes the
+existing fail-closed MCP full-graph validation/sanitization gate. The shared
+compact projector then independently excludes Development-node URLs. It
+preserves root/completeness/truncation, all collection and transport bounds,
+incomplete sources, frontier, warnings,
+`projection.selected`/`projection.omitted`, and reconciled source/fact counts.
+URL facts come only from canonical URL nodes; opaque facts omit `url` rather
+than reconstructing it. SCM facts contain coordinates only and never a GitLab
+web URL. A requested Development source retains its status and count when empty
+or incomplete.
 
 Development remains absent, without implying zero activity, when
 `include_development` is omitted or false. Set `include_development:true` only
@@ -144,7 +173,8 @@ bound (default 256 KiB, minimum 1 KiB, maximum 1 MiB). A graph may succeed with
 `complete:false` and static source/frontier reasons when traversal cannot be
 completed inside its bounds. If the otherwise valid encoded graph exceeds
 `max_bytes`, the whole call fails with output-limit recovery and returns no
-clipped graph. A requested Development source proves absence only when it is
+clipped graph; compact projection never bypasses or replaces that final check.
+A requested Development source proves absence only when it is
 complete; an omitted or false opt-in provides no Development source and is not
 evidence of zero development activity. Do not reinterpret either condition as
 proved absence.

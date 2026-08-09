@@ -11,6 +11,7 @@ Keep the whole investigation read-only and begin at depth zero:
 ```sh
 export ATL_READ_ONLY=1
 atl jira issue graph DEMO-1
+atl jira issue graph DEMO-1 --projection compact
 ```
 
 Depth zero expands only `DEMO-1`. Related Jira issues, Confluence page ids,
@@ -28,6 +29,16 @@ Before using the graph, check:
 
 An empty or absent relation is evidence of absence only when the source and the
 whole relevant selection are complete.
+
+The omitted or explicit `--projection full` form is the byte-compatible
+schema-v2 graph. Use JSON-only `--projection compact` when the task needs the
+same qualification plus a smaller fact inventory. Compact defaults to `urls`;
+with `--include-development` it defaults to `urls,scm`. A repeatable or
+comma-separated `--select urls|scm|none` narrows facts only after the full
+bounded graph has been collected. It never reduces requests. Inspect compact
+`projection.selected`, `projection.omitted`, incomplete-source, frontier,
+warning, bound, and reconciliation fields before treating an empty fact list
+as absence.
 
 ## Expand only structured Jira relations
 
@@ -79,6 +90,7 @@ branch, or merge-request question:
 
 ```sh
 atl jira issue graph DEMO-1 --include-development
+atl jira issue graph DEMO-1 --include-development --projection compact --select scm
 ```
 
 ATL emits only closed GitLab coordinates: normalized lowercase host and project
@@ -93,10 +105,13 @@ Development option is not proof that no development work exists.
 
 ## Use the typed MCP route for transient agent reads
 
-The `jira_issue_graph` MCP tool returns the same schema-v2 graph without shell
-execution. It supports depth `0..2`, smaller default node/edge/request bounds,
-an explicit final encoded-result byte bound, and optional Development
-identities. It has no write, `strict`, or Confluence-resolution input.
+The `jira_issue_graph` MCP tool returns the same full-v2 or compact-v1
+projection without shell execution; full remains the default. It accepts the
+same `projection` and `select` vocabulary, supports depth `0..2`, smaller
+default node/edge/request bounds, an explicit final encoded-result byte bound,
+and optional Development identities. It has no write, `strict`, or
+Confluence-resolution input. Compact output is still subject to the final
+encoded bound and is never clipped.
 
 For durable review, larger CLI traversal, exact text rendering, or Confluence
 metadata resolution, use the CLI. For a single bounded agent question, prefer

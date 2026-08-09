@@ -386,10 +386,11 @@ summary text projection adds `projection=summary`, `custom`, and `system` on a
 second line and no field records; the full projection keeps the existing
 tab-separated field records.
 
-Typed MCP `jira_issue_graph` returns the same schema-v2 graph through a
-Jira-only read. Its schema requires one canonical issue `key` and accepts
-optional `depth` from 0 through 2, `max_nodes`, `max_edges`, `max_requests`,
-and `max_bytes`. It deliberately accepts neither
+Typed MCP `jira_issue_graph` returns the same full-v2 default or compact-v1
+projection through a Jira-only read. Its schema requires one canonical issue
+`key` and accepts optional `depth` from 0 through 2, `max_nodes`, `max_edges`,
+`max_requests`, `include_development`, `projection`, `select`, and `max_bytes`.
+It deliberately accepts neither
 `resolve`/`resolve_confluence` nor `strict`: Confluence identities remain
 qualified stubs, and callers inspect `complete`, sources, reconciliation, and
 the frontier in the successful result.
@@ -402,18 +403,20 @@ input caps the final encoded MCP result (default 256 KiB, minimum 1 KiB,
 maximum 1 MiB). `max_nodes` defaults to 50 and caps at 100, `max_edges`
 defaults to 200 and caps at 500, and `max_requests` defaults to 50 and caps at
 100. Exhausting an
-application traversal bound can therefore return a valid schema-v2 graph with
-`complete:false` and static qualification. Exceeding the final `max_bytes`
-instead returns an MCP output-limit error with no clipped graph. Neither case
+application traversal bound can therefore return a valid full or compact result
+with `complete:false` and static qualification. Exceeding the final `max_bytes`
+instead returns an MCP output-limit error with no clipped result. Neither case
 proves that an omitted relationship is absent. When `include_development` is
-omitted or false, the MCP request and output retain the stable profile and no
-Development source is present; that absence must never be reported as zero
+omitted or false, the MCP request and full output retain the stable profile and
+no Development source is present; that absence must never be reported as zero
 development activity.
 
 ## Jira graphs and references
 
-`atl jira issue graph <KEY>` emits one transient, deterministic schema-v2
-work-artifact graph. Depth defaults to zero:
+`atl jira issue graph <KEY>` emits one transient deterministic work-artifact
+graph. The omitted or explicit full projection is the existing schema-v2 byte
+contract; compact is a qualified schema-v1 fact projection derived after full
+bounded collection. Depth defaults to zero.
 
 The CLI `--include-development` option and typed MCP
 `include_development:true` input add
@@ -427,16 +430,142 @@ have no artifact selector. All such sources, nodes, edges, and evidence are
 Development source `count` excludes project containers. Any failure or
 reconciliation mismatch is fail-closed for that source: stable graph facts
 remain, but no partial Development projection survives. Omitting the option or
-supplying MCP false preserves the stable request sequence and schema-v2 output
-bytes shown below.
+supplying MCP false preserves the stable request sequence and full schema-v2
+output bytes shown below. Explicit `--projection full` preserves those bytes as
+well.
 
-The MCP projection omits every GitLab node URL and exposes only the closed SCM
-coordinates plus ordinary graph topology and experimental provenance. It does
+Compact projection uses `--projection compact` in the CLI or
+`projection:"compact"` in `jira_issue_graph`. CLI `--select` is repeatable and
+comma-separated; MCP `select` is an array. The closed selectors are `urls`,
+`scm`, and qualification-only `none`. Omitted selection means `urls`, plus
+`scm` only when Development collection is enabled. Explicit `scm` requires
+that opt-in, and `none` cannot be combined with a fact selector. Full rejects a
+selector. Compact is JSON-only in the CLI. These combinations are validated
+before configuration or network access. Selected and omitted classes are
+deduplicated and emitted in fixed `urls`, then `scm` order.
+
+The compact result has `schema_version:1`, a normalized
+`projection:{name,selected,omitted}`, the full graph's `root_id`, `complete`,
+`truncated`, complete `bounds`, a compact reconciliation `summary`, selected
+`facts`, retained `sources`, and the full bounded `frontier` and `warnings`.
+Projection occurs only after schema-v2 collection and validation. It never
+clips the graph, changes a request, or makes a lowered safety bound an output
+selector.
+
+Each fact has `class`, `node_id`, `kind`, `depth`, `state`, `stability`, and
+sorted `source_node_ids`. A URL fact is copied only from one canonical
+`kind:"url"` node and carries its already normalized `url` when safe. An opaque URL node is
+still represented, but the blank URL identity is omitted; consumers must never
+rebuild it from a node id, label, evidence pointer, or source content. An SCM
+fact carries only the graph node's validated `scm` coordinates and never its
+Development web URL. Compact evidence contains no pointer or source snippet.
+Facts are ordered by class (`urls`, then `scm`), kind, and node id; each
+`source_node_ids` array is sorted.
+
+Every incomplete full-graph source remains in `sources`; when SCM is selected,
+every requested Development source remains there with its status and count,
+including complete-empty and incomplete sources that produced no fact. The
+retained sources keep full-graph order.
+
+```json
+{
+  "schema_version": 1,
+  "projection": {
+    "name": "compact",
+    "selected": ["urls"],
+    "omitted": ["scm"]
+  },
+  "root_id": "jira:issue:PROJ-1",
+  "complete": true,
+  "bounds": {
+    "requested_depth": 0,
+    "max_nodes": 100,
+    "max_edges": 500,
+    "max_evidence": 500,
+    "max_source_bytes": 1048576,
+    "expanded_node_count": 1,
+    "followed_node_count": 0,
+    "attempted_node_count": 1,
+    "max_requests": 100,
+    "requests_used": 4,
+    "max_response_bytes": 16777216,
+    "response_bytes_used": 4096,
+    "max_sources": 801,
+    "max_frontier": 100
+  },
+  "summary": {
+    "collected": {
+      "node_count": 2,
+      "edge_count": 1,
+      "evidence_count": 1,
+      "source_count": 8,
+      "incomplete_source_count": 0,
+      "source_status_counts": {
+        "complete": 2,
+        "empty": 6,
+        "forbidden": 0,
+        "partial": 0,
+        "skipped": 0,
+        "unsupported": 0
+      }
+    },
+    "projected": {
+      "fact_count": 1,
+      "source_count": 0,
+      "url_count": 1,
+      "scm_count": 0,
+      "incomplete_source_count": 0,
+      "source_status_counts": {
+        "complete": 0,
+        "empty": 0,
+        "forbidden": 0,
+        "partial": 0,
+        "skipped": 0,
+        "unsupported": 0
+      }
+    },
+    "collected_counts_match_full": true,
+    "projected_fact_count_matches_facts": true,
+    "fact_class_counts_match_facts": true,
+    "projected_source_count_matches_sources": true,
+    "source_status_counts_match_sources": true,
+    "incomplete_source_count_matches_sources": true
+  },
+  "facts": [
+    {
+      "class": "urls",
+      "node_id": "url:<sha256>",
+      "kind": "url",
+      "url": "https://docs.example.com/spec",
+      "state": "stub",
+      "depth": 1,
+      "stability": "heuristic",
+      "source_node_ids": ["jira:issue:PROJ-1"]
+    }
+  ],
+  "sources": []
+}
+```
+
+`truncated`, `frontier`, and `warnings` are omitted when false or empty. When
+present, their values are copied from the full graph. `summary.collected`
+retains its validated full node/edge/evidence/source accounting, while
+`summary.projected` counts only emitted facts and retained sources. The six
+booleans reconcile those two scopes without asking a consumer to recount them.
+
+The MCP full projection omits every GitLab node URL and exposes only the closed
+SCM coordinates plus ordinary graph topology and experimental provenance. It does
 not add narrative, people, email, avatars, files, diffs, timestamps, query
 values, labels, or raw payloads. ATL itself never contacts GitLab or reuses Jira
 credentials. A downstream GitLab read is a separate operation: require exact
 equality between the returned lowercase host and an owner-approved host, then
 use a separately authenticated read-only client for that exact host.
+
+MCP applies its existing fail-closed full-graph validation/sanitization gate
+before invoking the shared compact projector, which independently excludes
+Development-node URLs. Its output schema is the closed union of full v2 and
+compact v1. The existing `max_bytes` check measures the final encoded selected
+result and fails the whole tool call on overflow; neither branch is clipped.
 
 ```json
 {
@@ -672,9 +801,9 @@ node's public `url`; it remains blank for non-URL or opaque/sensitive identities
 and is never rebuilt from evidence. `-o id` is rejected before configuration or
 network access.
 
-Every graph invocation uses schema v2. Omitting traversal and resolution flags,
-explicit `--depth 0`, explicit `--resolve none`, or both explicit values keeps
-the same direct depth-zero contract. `--depth 1..3` adds structured Jira
+Every full graph projection uses schema v2. Omitting traversal and resolution
+flags, explicit `--depth 0`, explicit `--resolve none`, or both explicit values
+keeps the same direct depth-zero contract. `--depth 1..3` adds structured Jira
 traversal and `--resolve confluence` adds the narrow metadata phase. Schema v2
 uses the same top-level arrays and reconciliation summary at every depth, with
 these transport and provenance fields:
@@ -726,10 +855,10 @@ pages remain `state:"missing"` while a fully attempted inventory can still be
 complete; forbidden or malformed responses remain explicitly incomplete.
 
 Top-level `complete` continues to be derived from every requested source.
-`--strict` does not alter the document: it emits the reconciled JSON or text
-first, then returns `ErrCheckFailed` (exit 8) when `complete:false`. Schema-v2
-text adds transport usage, per-node source columns, and a frontier table when
-one exists.
+`--strict` does not alter either JSON projection: it emits the reconciled result
+first, then returns `ErrCheckFailed` (exit 8) when `complete:false`. Only full
+schema v2 supports text; it adds transport usage, per-node source columns, and
+a frontier table when one exists.
 
 This contract change does not change `jira issue refs`; its exact JSON/text
 compatibility goldens remain independent.

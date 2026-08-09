@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -44,13 +45,15 @@ var (
 // never enables Confluence reads. Development identities require an explicit
 // opt-in and remain a closed experimental projection.
 type JiraIssueGraphInput struct {
-	Key                string `json:"key" jsonschema:"exact canonical uppercase Jira issue key; required"`
-	Depth              int    `json:"depth,omitempty" jsonschema:"exact structured Jira traversal depth from 0 to 2; default 0"`
-	IncludeDevelopment bool   `json:"include_development,omitempty" jsonschema:"include bounded experimental Jira Development SCM identities; default false"`
-	MaxNodes           int    `json:"max_nodes,omitempty" jsonschema:"node bound from 1 to 100; default 50"`
-	MaxEdges           int    `json:"max_edges,omitempty" jsonschema:"edge bound from 1 to 500; default 200"`
-	MaxRequests        int    `json:"max_requests,omitempty" jsonschema:"physical HTTP attempt bound from 1 to 100; default 50"`
-	MaxBytes           int    `json:"max_bytes,omitempty" jsonschema:"maximum encoded result bytes from 1024 to 1048576; default 262144"`
+	Key                string   `json:"key" jsonschema:"exact canonical uppercase Jira issue key; required"`
+	Depth              int      `json:"depth,omitempty" jsonschema:"exact structured Jira traversal depth from 0 to 2; default 0"`
+	IncludeDevelopment bool     `json:"include_development,omitempty" jsonschema:"include bounded experimental Jira Development SCM identities; default false"`
+	Projection         string   `json:"projection,omitempty" jsonschema:"output projection: full or compact; default full"`
+	Select             []string `json:"select,omitempty" jsonschema:"compact facts: urls, scm, or none; valid only with projection compact; scm requires include_development"`
+	MaxNodes           int      `json:"max_nodes,omitempty" jsonschema:"node bound from 1 to 100; default 50"`
+	MaxEdges           int      `json:"max_edges,omitempty" jsonschema:"edge bound from 1 to 500; default 200"`
+	MaxRequests        int      `json:"max_requests,omitempty" jsonschema:"physical HTTP attempt bound from 1 to 100; default 50"`
+	MaxBytes           int      `json:"max_bytes,omitempty" jsonschema:"maximum encoded result bytes from 1024 to 1048576; default 262144"`
 }
 
 type JiraIssueGraphOutput struct {
@@ -169,9 +172,18 @@ type JiraIssueGraphFrontier struct {
 }
 
 func registerJiraIssueGraphTool(server *mcp.Server, deps Dependencies) {
-	addReadOnlyTool(server, readOnlyTool("jira_issue_graph", "Build a bounded Jira issue graph", "Return one provenance-qualified schema-v2 graph from an exact canonical Jira key. Depth is limited to 0..2 and follows only exact structured Jira relations. The default uses stable Jira sources only. include_development explicitly adds bounded experimental GitLab SCM identities from Jira; those nodes remain unfetched stubs, and ATL never contacts GitLab or follows artifact URLs. The tool performs no Confluence reads."),
-		func(ctx context.Context, _ *mcp.CallToolRequest, in JiraIssueGraphInput) (*mcp.CallToolResult, *JiraIssueGraphOutput, error) {
+	tool := readOnlyTool("jira_issue_graph", "Build a bounded Jira issue graph", "Return one provenance-qualified full schema-v2 graph (the default) or compact schema-v1 qualified fact projection from an exact canonical Jira key. Compact defaults to urls, plus scm when include_development is true. Its select accepts only urls, scm, or none; select is invalid for full, none cannot be combined, and scm requires include_development. Depth is limited to 0..2 and follows only exact structured Jira relations. The default uses stable Jira sources only. include_development explicitly adds bounded experimental GitLab SCM identities from Jira; those nodes remain unfetched stubs, compact never returns their web URLs, and ATL never contacts GitLab or follows artifact URLs. The tool performs no Confluence reads.")
+	tool.OutputSchema = oneOfOutputSchema(tool.Name,
+		reflect.TypeFor[JiraIssueGraphOutput](),
+		reflect.TypeFor[app.JiraIssueGraphCompactResult](),
+	)
+	mcp.AddTool(server, tool,
+		func(ctx context.Context, _ *mcp.CallToolRequest, in JiraIssueGraphInput) (*mcp.CallToolResult, any, error) {
 			key, opts, maxBytes, err := validatedJiraIssueGraphInput(in)
+			if err != nil {
+				return nil, nil, classifiedJiraIssueGraphRead(err)
+			}
+			projection, err := app.NormalizeJiraIssueGraphProjection(in.Projection, in.Select, in.IncludeDevelopment)
 			if err != nil {
 				return nil, nil, classifiedJiraIssueGraphRead(err)
 			}
@@ -183,11 +195,21 @@ func registerJiraIssueGraphTool(server *mcp.Server, deps Dependencies) {
 			if err != nil {
 				return nil, nil, classifiedJiraIssueGraphRead(err)
 			}
-			out, err := projectJiraIssueGraph(result, key, opts)
-			if err == nil {
-				err = boundedOutput(out, maxBytes, "encode Jira issue graph result", "Jira issue graph result exceeds max_bytes")
+			full, err := projectJiraIssueGraph(result, key, opts)
+			if err != nil {
+				return nil, nil, classifiedJiraIssueGraphRead(err)
 			}
-			return nil, out, classifiedJiraIssueGraphRead(err)
+			var out any = full
+			if projection.Projection == "compact" {
+				out, err = app.ProjectJiraIssueGraphCompact(result, projection)
+				if err != nil {
+					return nil, nil, classifiedJiraIssueGraphRead(err)
+				}
+			}
+			if err := boundedOutput(out, maxBytes, "encode Jira issue graph result", "Jira issue graph result exceeds max_bytes"); err != nil {
+				return nil, nil, classifiedJiraIssueGraphRead(err)
+			}
+			return nil, out, nil
 		})
 }
 

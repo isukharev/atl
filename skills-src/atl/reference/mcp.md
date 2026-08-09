@@ -74,9 +74,14 @@ current-user timezone request, while explicit timestamps need no calendar
 lookup; display-name and civil-date metadata requests are independent. Use the
 returned counts instead of recomputing changelog arithmetic, and fall back to
 the CLI when individual changes are themselves the required evidence.
-`jira_issue_graph` takes one canonical issue `key` and returns a
-provenance-qualified schema-v2 graph. Start at depth zero; use the smallest
-sufficient `depth` from 1 through 2 only for exact structured Jira relations.
+`jira_issue_graph` takes one canonical issue `key`. Omitted or explicit full
+projection returns the byte-compatible schema-v2 graph; compact returns schema
+v1 after full bounded collection. Set `projection:"compact"`; its `select`
+array accepts `urls`, `scm`, or qualification-only `none`, defaults to URLs,
+and adds SCM by default only when Development is enabled. Explicit SCM requires
+that opt-in. Start at depth zero;
+use the smallest sufficient `depth` from 1 through 2 only for exact structured
+Jira relations.
 MCP v1 is Jira-only: it has no Confluence-resolution input, does not fetch page
 metadata, and leaves discovered pages as qualified stubs. Omitted or false
 `include_development` preserves the stable projection without implying zero
@@ -92,6 +97,15 @@ source, transport usage, and the bounded frontier. Reported
 budget; the separate `max_bytes` input limits the final encoded result. An
 output-limit error contains no clipped graph, while a successful
 `complete:false` graph remains qualified evidence.
+Compact preserves root/completeness/truncation, every bound, incomplete sources,
+frontier, warnings, `projection.selected`/`projection.omitted`, and reconciled
+counts. It copies only canonical URL-node identities (including opaque facts
+whose `url` is omitted) and SCM
+coordinates; never reconstruct a URL or derive a GitLab web URL. MCP applies
+its existing fail-closed full-graph validation gate before compact projection;
+the shared projector independently excludes Development-node URLs. The encoded
+result bound applies afterward. A requested Development source keeps its
+status/count even when empty or incomplete.
 Use the CLI graph only when
 MCP is unavailable or id/title-only Confluence resolution is explicitly needed.
 `jira_issue_refs` accepts exactly one issue `key`, or bounded `jql` with a
