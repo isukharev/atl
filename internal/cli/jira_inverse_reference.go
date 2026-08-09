@@ -21,9 +21,7 @@ type jiraInverseReferenceServiceFactory func() (jiraInverseReferenceSearcher, er
 // lookup command. The command deliberately validates every caller-controlled
 // search policy before jiraService reads configuration or credentials.
 func jiraIssueInverseReferenceCmd() *cobra.Command {
-	return jiraIssueInverseReferenceCmdWithService(func() (jiraInverseReferenceSearcher, error) {
-		return jiraService()
-	})
+	return jiraIssueInverseReferenceCmdWithService(nil)
 }
 
 func jiraIssueInverseReferenceCmdWithService(newService jiraInverseReferenceServiceFactory) *cobra.Command {
@@ -118,7 +116,12 @@ func jiraIssueInverseReferenceCmdWithService(newService jiraInverseReferenceServ
 			if err != nil {
 				return err
 			}
-			service, err := newService()
+			var service jiraInverseReferenceSearcher
+			if newService != nil {
+				service, err = newService()
+			} else {
+				service, err = jiraService(cmd)
+			}
 			if err != nil {
 				return err
 			}
@@ -130,7 +133,7 @@ func jiraIssueInverseReferenceCmdWithService(newService jiraInverseReferenceServ
 				return err
 			}
 			var text func() string
-			if outputFormat == "text" {
+			if invocationRuntimeFor(cmd).outputFormat == "text" {
 				rendered, err := app.RenderJiraInverseReferencesText(result)
 				if err != nil {
 					return err

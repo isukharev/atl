@@ -258,11 +258,10 @@ func TestJiraInverseReferenceInvalidInputsFailBeforeServiceAndDoNotEchoValues(t 
 
 func runJiraInverseReferenceCommand(t *testing.T, newService jiraInverseReferenceServiceFactory, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
-	previousOutputFormat := outputFormat
-	t.Cleanup(func() { outputFormat = previousOutputFormat })
+	runtime := &invocationRuntime{outputFormat: "json", processPolicy: newProcessPolicy()}
 
 	root := &cobra.Command{Use: "atl", SilenceUsage: true, SilenceErrors: true}
-	root.PersistentFlags().StringVarP(&outputFormat, "output", "o", "json", "output format: json|text|id")
+	root.PersistentFlags().StringVarP(&runtime.outputFormat, "output", "o", "json", "output format: json|text|id")
 	root.SetFlagErrorFunc(func(_ *cobra.Command, flagErr error) error {
 		return usageErr("%v", flagErr)
 	})
@@ -277,7 +276,7 @@ func runJiraInverseReferenceCommand(t *testing.T, newService jiraInverseReferenc
 	root.SetArgs(args)
 	root.SetOut(&stdoutBuffer)
 	root.SetErr(&stderrBuffer)
-	err = root.ExecuteContext(t.Context())
+	err = root.ExecuteContext(context.WithValue(t.Context(), invocationRuntimeContextKey{}, runtime))
 	return stdoutBuffer.String(), stderrBuffer.String(), err
 }
 
