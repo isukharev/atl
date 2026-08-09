@@ -895,19 +895,8 @@ func TestInverseReferenceConfluenceRequiresConfiguredOriginEvenForNumericID(t *t
 	}
 }
 
-func TestInverseReferenceConfluenceOriginSecurityPrecedesEnumeration(t *testing.T) {
-	t.Run("insecure remote", func(t *testing.T) {
-		t.Setenv("ATL_ALLOW_INSECURE", "")
-		opts := inverseReferenceTestOptions()
-		opts.Target, opts.TargetKind = "42", domain.JiraInverseReferenceTargetConfluencePage
-		tracker := &inverseReferenceTestTracker{}
-		result, err := (&JiraService{tr: tracker, inverseConfluenceBaseURL: "http://docs.example.test/wiki"}).SearchInverseReferences(t.Context(), opts)
-		if result != nil || !errors.Is(err, domain.ErrConfig) || len(tracker.selections) != 0 {
-			t.Fatalf("result=%+v err=%v selections=%d", result, err, len(tracker.selections))
-		}
-	})
+func TestInverseReferenceConfluenceOriginQualificationPrecedesEnumeration(t *testing.T) {
 	t.Run("scheme downgrade target", func(t *testing.T) {
-		t.Setenv("ATL_ALLOW_INSECURE", "")
 		opts := inverseReferenceTestOptions()
 		opts.Target, opts.TargetKind = "http://docs.example.test/wiki/spaces/SAFE/pages/42/Page", domain.JiraInverseReferenceTargetConfluencePage
 		tracker := &inverseReferenceTestTracker{}
@@ -917,15 +906,10 @@ func TestInverseReferenceConfluenceOriginSecurityPrecedesEnumeration(t *testing.
 		}
 	})
 	for name, baseURL := range map[string]string{
-		"loopback":         "http://127.0.0.1:8090/wiki",
-		"explicit trusted": "http://docs.example.test/wiki",
+		"loopback":           "http://127.0.0.1:8090/wiki",
+		"qualified insecure": "http://docs.example.test/wiki",
 	} {
 		t.Run(name, func(t *testing.T) {
-			if name == "explicit trusted" {
-				t.Setenv("ATL_ALLOW_INSECURE", "1")
-			} else {
-				t.Setenv("ATL_ALLOW_INSECURE", "")
-			}
 			opts := inverseReferenceTestOptions()
 			opts.Target, opts.TargetKind = "42", domain.JiraInverseReferenceTargetConfluencePage
 			tracker := &inverseReferenceTestTracker{pages: []domain.JiraInverseReferencePage{inverseReferenceEmptyPage(opts.MaxIssues), inverseReferenceEmptyPage(opts.MaxIssues)}}

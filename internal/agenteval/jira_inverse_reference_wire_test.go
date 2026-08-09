@@ -3,6 +3,7 @@ package agenteval
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -117,6 +118,30 @@ func TestDecodeJiraInverseReferenceViewRejectsDuplicateNullMissingAndOversize(t 
 	}
 	if _, err := DecodeJiraInverseReferenceView(strings.NewReader(valid + strings.Repeat(" ", maxContractBytes))); err == nil {
 		t.Fatal("inverse-reference decoder admitted oversized wire")
+	}
+}
+
+func TestDecodeJiraInverseReferenceViewEnforcesReleasedFieldBound(t *testing.T) {
+	fields := make([]any, jiraInverseReferenceMaxFields)
+	for index := range fields {
+		fields[index] = fmt.Sprintf("customfield_%03d", index)
+	}
+	makeWire := func(selected []any) []byte {
+		return mutateJiraInverseReferenceWire(t, validJiraInverseReferenceDescriptionMatch(), func(doc map[string]any) {
+			doc["sources"] = []any{"fields"}
+			doc["effective_field_ids"] = selected
+			doc["source_counts"].([]any)[0].(map[string]any)["source"] = "fields"
+			match := doc["matches"].([]any)[0].(map[string]any)
+			match["source"] = "fields"
+			match["technical_field_id"] = selected[0]
+		})
+	}
+	if _, err := DecodeJiraInverseReferenceView(bytes.NewReader(makeWire(fields))); err != nil {
+		t.Fatalf("decoder rejected %d released fields: %v", len(fields), err)
+	}
+	fields = append(fields, "customfield_128")
+	if _, err := DecodeJiraInverseReferenceView(bytes.NewReader(makeWire(fields))); err == nil {
+		t.Fatalf("decoder admitted %d fields above the released bound", len(fields))
 	}
 }
 

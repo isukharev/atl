@@ -11,7 +11,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/scmref"
 )
@@ -72,9 +71,6 @@ func (s *JiraService) resolveInverseReferenceTarget(ctx context.Context, opts Ji
 		opaqueIdentity = target.domain.Value
 	case domain.JiraInverseReferenceTargetConfluencePage:
 		baseURL := strings.TrimSpace(s.inverseConfluenceBaseURL)
-		if baseURL == "" && s.cfg != nil {
-			baseURL = strings.TrimSpace(s.cfg.ConfluenceURL)
-		}
 		resolution, needsNetwork, err := resolveConfluenceReferenceOffline(baseURL, opts.Target)
 		if err != nil {
 			return ctx, domain.JiraInverseReferenceTarget{}, JiraInverseReferenceTargetResult{}, target, err
@@ -132,9 +128,6 @@ func (s *JiraService) inverseConfluenceReferenceResolver() (ConfluencePageRefere
 func resolveConfluenceReferenceOffline(baseRaw, reference string) (*ConfluencePageResolution, bool, error) {
 	baseRaw = strings.TrimSpace(baseRaw)
 	if containsControl(baseRaw) {
-		return nil, false, fmt.Errorf("%w: configured Confluence origin is required", domain.ErrConfig)
-	}
-	if err := config.CheckSecureURL(baseRaw); err != nil {
 		return nil, false, fmt.Errorf("%w: configured Confluence origin is required", domain.ErrConfig)
 	}
 	base, err := url.Parse(baseRaw)

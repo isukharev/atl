@@ -193,9 +193,10 @@ func NewJiraWithWriteAuthorizer(cfg *config.Config, version string, authorizer d
 	if err != nil {
 		return nil, err
 	}
+	confluenceBaseURL := qualifiedConfluenceBaseURL(cfg)
 	return app.NewJiraService(app.JiraDependencies{
 		Tracker: j, Agile: j, Structure: j, BaseURL: cfg.JiraURL, Config: cfg,
-		ConfluenceBaseURL: cfg.ConfluenceURL,
+		ConfluenceBaseURL: confluenceBaseURL,
 		ConfluenceGraphFactory: func() (domain.ConfluenceGraphPageMetadataReader, string) {
 			return optionalConfluenceGraphRead(cfg, version, resolved)
 		},
@@ -204,6 +205,13 @@ func NewJiraWithWriteAuthorizer(cfg *config.Config, version string, authorizer d
 		},
 		WriteAuthorizer: authorizer,
 	}), nil
+}
+
+func qualifiedConfluenceBaseURL(cfg *config.Config) string {
+	if cfg == nil || config.CheckSecureURL(cfg.ConfluenceURL) != nil {
+		return ""
+	}
+	return cfg.ConfluenceURL
 }
 
 func optionalConfluenceReferenceResolver(cfg *config.Config, version string, resolved options) (app.ConfluencePageReferenceResolver, app.DependencySetupStatus) {

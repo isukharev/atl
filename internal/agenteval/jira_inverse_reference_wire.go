@@ -12,6 +12,7 @@ import (
 
 const (
 	JiraInverseReferenceViewSchemaVersion = 1
+	jiraInverseReferenceMaxFields         = 128
 	jiraInverseReferenceMaxIssues         = 5000
 	jiraInverseReferenceMaxRequests       = 25000
 	jiraInverseReferenceMaxResponseBytes  = int64(256 << 20)
@@ -291,6 +292,9 @@ func (v JiraInverseReferenceView) validate() error {
 		if !validJiraInverseReferenceSource(source) || index > 0 && source == v.Sources[index-1] {
 			return fmt.Errorf("source %q is outside the closed contract", source)
 		}
+	}
+	if len(v.EffectiveFieldIDs) > jiraInverseReferenceMaxFields {
+		return fmt.Errorf("effective_field_ids exceed the released bound")
 	}
 	if !slices.IsSorted(v.EffectiveFieldIDs) {
 		return fmt.Errorf("effective_field_ids are not sorted")
