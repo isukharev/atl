@@ -34,7 +34,7 @@
     {"owner":"app","path":"internal/app/jira_structure.go","max_lines":1066,"rationale":"Keep Jira Structure orchestration at its measured file baseline."},
     {"owner":"app","path":"internal/app/jira_sync.go","max_lines":781,"rationale":"Keep Jira synchronization orchestration at its measured file baseline."},
     {"owner":"cli","path":"internal/cli/access_policy.go","max_lines":1235,"rationale":"Keep access-policy command assembly and output handling at its measured file baseline."},
-    {"owner":"cli","path":"internal/cli/conf.go","max_lines":1357,"rationale":"Keep the remaining Confluence search, mirror, table, comment, and attachment command assembly within its measured allowance after sharing qualified composition inputs with focused label commands."},
+    {"owner":"cli","path":"internal/cli/conf.go","max_lines":1346,"no_headroom":true,"rationale":"Keep Confluence command assembly at its exact measured span after extracting qualified search text projection."},
     {"owner":"cli","path":"internal/cli/conf_page.go","max_lines":550,"rationale":"Keep the focused Confluence page command surface within a reviewed allowance."},
     {"owner":"cli","path":"internal/cli/conf_page.go","function":"confPageCmd","max_lines":450,"rationale":"Keep the largest Confluence page command family within a reduced reviewed allowance."},
     {"owner":"cli","path":"internal/cli/jira.go","max_lines":775,"rationale":"Keep the remaining Jira service, user, mirror, export, planning, and metadata command assembly within its reduced allowance after the issue surface moved to a focused owner."},
