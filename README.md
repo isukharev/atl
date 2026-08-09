@@ -151,12 +151,8 @@ changes local bytes and remains mutation-classified during dry-run; the scoped
 use dry-run, stash, or explicit overwrite recovery. Mirrors are bound to a
 content-minimized backend identity to prevent accidental cross-instance push.
 
-Jira follows the same local pattern with native `.wiki` files, `jira pull`,
-`jira status`, `jira apply`, `jira reconcile preview`, and `jira push`.
-For an exhaustive, resumable project snapshot, use an explicit bounded selector:
-`atl jira pull --complete --project PROJ --max-issues 5000 --into "$ATL_WORKSPACE_ROOT"`.
-This requires two identical completeness-qualified ID passes; ordinary
-`--limit 0` remains unqualified compatibility behavior.
+Jira uses native `.wiki` files; see [Jira mirrors](docs/reference/cli/jira-mirrors.md)
+for ordinary and qualified resumable project pulls, apply, reconcile, and push.
 
 ### 3. Preview, apply once, reconcile
 
