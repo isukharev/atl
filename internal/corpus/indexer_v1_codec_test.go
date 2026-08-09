@@ -46,6 +46,23 @@ func TestIndexerV1StableObjectIDExcludesPresentationFields(t *testing.T) {
 	}
 }
 
+func TestIndexerV1CanonicalizesEmptyLabelsAsQualifiedInventory(t *testing.T) {
+	document := validIndexerDocument(t)
+	document.Labels = nil
+
+	encoded, err := CanonicalIndexerDocuments([]IndexerDocument{document}, Limits{})
+	if err != nil {
+		t.Fatalf("CanonicalIndexerDocuments: %v", err)
+	}
+	if !bytes.Contains(encoded, []byte(`"labels":[]`)) || bytes.Contains(encoded, []byte(`"labels":null`)) {
+		t.Fatalf("empty label inventory is not canonical: %s", encoded)
+	}
+	parsed, err := ParseIndexerDocuments(encoded, Limits{})
+	if err != nil || len(parsed) != 1 || parsed[0].Labels == nil || len(parsed[0].Labels) != 0 {
+		t.Fatalf("ParseIndexerDocuments = %#v, %v", parsed, err)
+	}
+}
+
 func TestIndexerV1CanonicalBundleExactBytesAndRoots(t *testing.T) {
 	document := validIndexerDocument(t)
 	document.Labels = []string{"zeta", "alpha"}
@@ -242,6 +259,9 @@ func TestIndexerV1EdgeRequiresQualifiedOrUnresolvedTarget(t *testing.T) {
 		{name: "no target", mutate: func(e *IndexerEdge) { e.Unresolved = nil }, reason: ReasonMembership},
 		{name: "unsafe evidence", mutate: func(e *IndexerEdge) { e.Evidence.Path = "../raw" }, reason: ReasonPath},
 		{name: "URL reference", mutate: func(e *IndexerEdge) { e.Unresolved.Value = "https://backend.invalid/1" }, reason: ReasonType},
+		{name: "opaque HTTP URL reference", mutate: func(e *IndexerEdge) { e.Unresolved.Value = "HTTPS:backend.invalid/1" }, reason: ReasonType},
+		{name: "scheme relative URL reference", mutate: func(e *IndexerEdge) { e.Unresolved.Value = "//backend.invalid/1" }, reason: ReasonType},
+		{name: "active URL reference", mutate: func(e *IndexerEdge) { e.Unresolved.Value = "javascript:alert(1)" }, reason: ReasonType},
 		{name: "name on generic relation", mutate: func(e *IndexerEdge) { e.RelationName = "custom" }, reason: ReasonMembership},
 		{name: "invented relation", mutate: func(e *IndexerEdge) { e.Relation = "blocks" }, reason: ReasonType},
 		{name: "wrong id", mutate: func(e *IndexerEdge) { e.ID = digestByte('f') }, reason: ReasonDigest},
@@ -255,6 +275,12 @@ func TestIndexerV1EdgeRequiresQualifiedOrUnresolvedTarget(t *testing.T) {
 			_, err := CanonicalIndexerEdges([]IndexerEdge{edge}, Limits{})
 			assertReason(t, err, test.reason)
 		})
+	}
+	titled := base
+	titled.Unresolved = &Reference{Service: ServiceConfluence, Kind: ObjectPage, Value: "Synthetic page title"}
+	titled.ID, _ = DeriveEdgeID(titled)
+	if _, err := CanonicalIndexerEdges([]IndexerEdge{titled}, Limits{}); err != nil {
+		t.Fatalf("bounded unresolved title rejected: %v", err)
 	}
 }
 
@@ -317,7 +343,7 @@ func TestIndexerV1ReceiptQualificationAndBundleIntegrity(t *testing.T) {
 	}
 }
 
-func validIndexerDocument(t *testing.T) IndexerDocument {
+func validIndexerDocument(t testing.TB) IndexerDocument {
 	t.Helper()
 	id, err := StableObjectID("sha256:"+digestByte('a'), ServiceJira, ObjectIssue, "10001")
 	if err != nil {
@@ -357,7 +383,7 @@ func validIndexerDocument(t *testing.T) IndexerDocument {
 	}
 }
 
-func validIndexerEdge(t *testing.T, sourceID string) IndexerEdge {
+func validIndexerEdge(t testing.TB, sourceID string) IndexerEdge {
 	t.Helper()
 	edge := IndexerEdge{
 		SchemaVersion: IndexerSchemaV1,

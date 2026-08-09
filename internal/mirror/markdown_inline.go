@@ -116,7 +116,7 @@ func (r *mdRenderer) inlineNode(b *strings.Builder, n *csf.Node) {
 			}
 		case "jira":
 			if key := macroParam(n, "key"); key != "" {
-				b.WriteString("[" + key + "](jira:" + key + ")")
+				b.WriteString("[" + key + "](" + r.resolvedLink("jira:"+key) + ")")
 			} else if jql := macroParam(n, "jqlQuery"); jql != "" {
 				b.WriteString("⟦jira query: " + jql + "⟧")
 			} else {
@@ -192,10 +192,11 @@ func (r *mdRenderer) acLink(b *strings.Builder, n *csf.Node) {
 		return
 	}
 	if strings.HasPrefix(target, "page:") {
-		b.WriteString("[" + markdownLinkLabel(label) + "](confluence-page:" + pageLinkIdentity(pageSpace, pageTitle) + ")")
+		destination := r.resolvedLink("confluence-page:" + pageLinkIdentity(pageSpace, pageTitle))
+		b.WriteString("[" + markdownLinkLabel(label) + "](" + destination + ")")
 		return
 	}
-	b.WriteString("[" + label + "](" + target + ")")
+	b.WriteString("[" + label + "](" + r.resolvedLink(target) + ")")
 }
 
 func pageLinkIdentity(space, title string) string {
@@ -232,7 +233,7 @@ func (r *mdRenderer) acImage(b *strings.Builder, n *csf.Node) {
 		if ref, ok := r.ref(domain.RefImage, fn); ok && ref.Asset != "" {
 			b.WriteString("![" + fn + "](" + ref.Asset + ")")
 		} else {
-			b.WriteString("![" + fn + "](attachment:" + fn + ")")
+			b.WriteString("![" + fn + "](" + r.resolvedLink("attachment:"+fn) + ")")
 		}
 		return
 	}

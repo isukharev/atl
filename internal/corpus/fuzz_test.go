@@ -54,6 +54,52 @@ func FuzzMemberSpecValidation(f *testing.F) {
 	})
 }
 
+func FuzzStrictIndexerCodecs(f *testing.F) {
+	document := normalizeDocument(validIndexerDocument(f))
+	documents, err := CanonicalIndexerDocuments([]IndexerDocument{document}, Limits{})
+	if err != nil {
+		f.Fatal(err)
+	}
+	edge := validIndexerEdge(f, document.ID)
+	edges, err := CanonicalIndexerEdges([]IndexerEdge{edge}, Limits{})
+	if err != nil {
+		f.Fatal(err)
+	}
+	receipt, err := BuildIndexerReceipt([]IndexerQualification{{
+		Service: ServiceJira, State: QualificationPartial, Basis: QualificationStructural,
+		ScopeDigest: digestByte('a'), Reasons: []QualificationReason{QualificationLegacyMirror},
+	}}, []IndexerDocument{document}, []IndexerEdge{edge}, []MarkdownMember{{
+		DocumentID: document.ID, Path: document.MarkdownPath, Size: int64(len(document.Text)), SHA256: document.MarkdownSHA256,
+	}}, Limits{})
+	if err != nil {
+		f.Fatal(err)
+	}
+	receiptBytes, err := CanonicalIndexerReceipt(receipt, Limits{})
+	if err != nil {
+		f.Fatal(err)
+	}
+	for kind, seed := range [][]byte{
+		documents,
+		edges,
+		receiptBytes,
+		[]byte(`{"schema_version":1,"schema_version":2}`),
+		{0xff, 0x00, '{', '}'},
+	} {
+		f.Add(byte(kind%3), seed)
+	}
+	f.Fuzz(func(_ *testing.T, kind byte, data []byte) {
+		limits := Limits{MaxMembers: 1_000, MaxMemberBytes: 1 << 20, MaxTotalBytes: 1 << 20, MaxManifestBytes: 1 << 20, MaxPathBytes: 1_024, MaxPathDepth: 32}
+		switch kind % 3 {
+		case 0:
+			_, _ = ParseIndexerDocuments(data, limits)
+		case 1:
+			_, _ = ParseIndexerEdges(data, limits)
+		case 2:
+			_, _ = ParseIndexerReceipt(data, limits)
+		}
+	})
+}
+
 func validReceiptForFuzz(t testing.TB, manifest Manifest) Receipt {
 	t.Helper()
 	manifestBytes, err := canonicalManifest(manifest, Limits{})

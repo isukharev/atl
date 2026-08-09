@@ -362,7 +362,9 @@ func forEachJSONLine(data []byte, limits Limits, visit func([]byte) error) error
 }
 
 func normalizeDocument(document IndexerDocument) IndexerDocument {
-	document.Labels = append([]string(nil), document.Labels...)
+	// Empty is a qualified empty label inventory and must remain [] rather than
+	// collapsing to JSON null during canonicalization.
+	document.Labels = append([]string{}, document.Labels...)
 	sort.Strings(document.Labels)
 	document.Evidence = append([]Evidence(nil), document.Evidence...)
 	for i := range document.Evidence {

@@ -25,6 +25,9 @@ import (
 type Options struct {
 	Images        map[string]string
 	HeadingOffset int // nest Jira headings below a generated owning section
+	// LinkResolver replaces a recognized Jira wiki link target for read-only
+	// consumers. Nil preserves the existing staging-view bytes exactly.
+	LinkResolver func(target string) (destination string, ok bool)
 }
 
 // Render converts a Jira wiki body into a Markdown read view. It is total: any

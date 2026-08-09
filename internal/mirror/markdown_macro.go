@@ -39,7 +39,7 @@ func (r *mdRenderer) macro(b *strings.Builder, n *csf.Node) {
 		fmt.Fprintf(b, "**%s**\n\n%s\n\n", title, strings.TrimSpace(inner.String()))
 	case "jira":
 		if key := macroParam(n, "key"); key != "" {
-			fmt.Fprintf(b, "[%s](jira:%s)\n\n", key, key)
+			fmt.Fprintf(b, "[%s](%s)\n\n", key, r.resolvedLink("jira:"+key))
 		} else if jql := macroParam(n, "jqlQuery"); jql != "" {
 			fmt.Fprintf(b, "⟦jira query: %s⟧\n\n", jql)
 		} else {
@@ -47,7 +47,7 @@ func (r *mdRenderer) macro(b *strings.Builder, n *csf.Node) {
 		}
 	case "view-file":
 		if fn := attachmentNameUnder(n); fn != "" {
-			fmt.Fprintf(b, "📎 [%s](attachment:%s)\n\n", fn, fn)
+			fmt.Fprintf(b, "📎 [%s](%s)\n\n", fn, r.resolvedLink("attachment:"+fn))
 		} else {
 			b.WriteString("⟦macro view-file⟧\n\n")
 		}

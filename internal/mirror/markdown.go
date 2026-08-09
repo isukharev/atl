@@ -23,8 +23,8 @@ func RenderMarkdown(root *csf.Node, refs []domain.Ref) []byte {
 	return []byte(renderMarkdownHeadingOffsetVersion(root, refs, 0, confluenceMarkdownCurrent))
 }
 
-func renderMarkdownHeadingOffsetVersion(root *csf.Node, refs []domain.Ref, headingOffset int, format confluenceMarkdownFormat) string {
-	r := newMDRendererOffsetVersion(refs, headingOffset, format)
+func renderMarkdownHeadingOffsetVersion(root *csf.Node, refs []domain.Ref, headingOffset int, format confluenceMarkdownFormat, resolvers ...MarkdownLinkResolver) string {
+	r := newMDRendererOffsetVersion(refs, headingOffset, format, resolvers...)
 	var b strings.Builder
 	forEachBlockNode(root, func(n *csf.Node) {
 		r.block(&b, n)
@@ -227,6 +227,7 @@ func safeMarkerID(s string) string {
 
 type mdRenderer struct {
 	refs                    map[string]domain.Ref
+	linkResolver            MarkdownLinkResolver
 	headingOffset           int
 	headingOverflowAsStrong bool
 	escapeHTMLText          bool
@@ -241,15 +242,14 @@ func newMDRendererOffset(refs []domain.Ref, headingOffset int) *mdRenderer {
 	return newMDRendererOffsetVersion(refs, headingOffset, confluenceMarkdownCurrent)
 }
 
-func newMDRendererOffsetVersion(refs []domain.Ref, headingOffset int, format confluenceMarkdownFormat) *mdRenderer {
+func newMDRendererOffsetVersion(refs []domain.Ref, headingOffset int, format confluenceMarkdownFormat, resolvers ...MarkdownLinkResolver) *mdRenderer {
 	byKey := map[string]domain.Ref{}
 	for _, r := range refs {
 		byKey[string(r.Kind)+"\x00"+r.Key] = r
 	}
-	return &mdRenderer{refs: byKey, headingOffset: headingOffset, format: format}
-}
-
-func (r *mdRenderer) ref(kind domain.RefKind, key string) (domain.Ref, bool) {
-	v, ok := r.refs[string(kind)+"\x00"+key]
-	return v, ok
+	var resolver MarkdownLinkResolver
+	if len(resolvers) > 0 {
+		resolver = resolvers[0]
+	}
+	return &mdRenderer{refs: byKey, linkResolver: resolver, headingOffset: headingOffset, format: format}
 }

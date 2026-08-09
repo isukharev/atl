@@ -177,7 +177,7 @@ func newRoot() *cobra.Command {
 	root.SetFlagErrorFunc(func(_ *cobra.Command, e error) error {
 		return usageErr("%v", e)
 	})
-	root.AddCommand(newConfCmd(), newJiraCmd(), newMirrorCmd(), newCapabilitiesCmd(), newCompatibilityCmd(), newDoctorCmd(), newEnvironmentCmd(), newMCPCommand(), newAuthCmd(), newConfigCmd(), newProfileCmd(), newManifestCmd(), newPolicyCmd(), newVersionCmd())
+	root.AddCommand(newConfCmd(), newJiraCmd(), newCorpusCmd(), newMirrorCmd(), newCapabilitiesCmd(), newCompatibilityCmd(), newDoctorCmd(), newEnvironmentCmd(), newMCPCommand(), newAuthCmd(), newConfigCmd(), newProfileCmd(), newManifestCmd(), newPolicyCmd(), newVersionCmd())
 	// Validate the global output format, then run a best-effort self-update check
 	// within its total startup budget. Update failures never fail the command.
 	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {

@@ -79,8 +79,9 @@ const (
 	EvidenceUnsupportedReason EvidenceReason = "unsupported"
 )
 
-// Evidence reports one facet's status. ObservedCount is meaningful only when
-// CountExact is true; a zero exact count is therefore distinct from unknown.
+// Evidence reports one facet's status. ObservedCount is exact when CountExact
+// is true and a lower bound for partial evidence; exact zero remains distinct
+// from unknown.
 type Evidence struct {
 	Kind          EvidenceKind     `json:"kind"`
 	Status        EvidenceStatus   `json:"status"`
@@ -154,7 +155,8 @@ const (
 )
 
 // Reference preserves an unresolved provider reference without inventing a
-// target corpus identity. Value may be a current key or numeric provider ID.
+// target corpus identity. Value may be a current key, content title, or numeric
+// provider ID, but never a raw backend URL.
 type Reference struct {
 	Service Service    `json:"service"`
 	Kind    ObjectKind `json:"kind"`

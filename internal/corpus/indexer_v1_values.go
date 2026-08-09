@@ -90,13 +90,15 @@ func validateBoundedPlain(value string, empty bool) error {
 }
 
 func validateProviderReference(value string) error {
-	if len(value) == 0 || len(value) > maxIndexerFieldBytes {
-		return reject(ReasonBounds)
+	if err := validateBoundedPlain(value, false); err != nil {
+		return err
 	}
-	for i := range value {
-		if !safeTokenByte(value[i]) {
-			return reject(ReasonType)
-		}
+	lower := strings.ToLower(value)
+	if strings.TrimSpace(value) != value || strings.Contains(value, "://") || strings.HasPrefix(value, "//") ||
+		strings.HasPrefix(lower, "http:") || strings.HasPrefix(lower, "https:") ||
+		strings.HasPrefix(lower, "mailto:") || strings.HasPrefix(lower, "file:") ||
+		strings.HasPrefix(lower, "data:") || strings.HasPrefix(lower, "javascript:") {
+		return reject(ReasonType)
 	}
 	return nil
 }

@@ -1,14 +1,47 @@
 # Sealed corpus generations
 
-Sealed corpus generations are ATL's internal, backend-neutral boundary between
-private staging bytes and one completely verified local corpus. The format is
+Sealed corpus generations are ATL's backend-neutral boundary between private
+mirror evidence and one completely verified local corpus. The durable format is
 owned by `internal/corpus`; it accepts already-produced member streams and does
-not fetch from Jira or Confluence, interpret selectors, or render documents.
+not fetch from Jira or Confluence or interpret backend selectors. The
+`atl corpus export` application path separately projects pristine local mirror
+baselines into those member streams without configuration, credentials, or
+network access.
 
 This format is separate from [`atl manifest create`](reference/cli/local-artifacts.md),
-whose aggregate mirror manifest and behavior are unchanged. It is a library
-contract rather than a new CLI surface. See also the package ownership in
-[Architecture](architecture.md).
+whose aggregate mirror manifest and behavior are unchanged. See the
+[`atl corpus export` reference](reference/cli/local-artifacts.md#atl-corpus-export)
+and package ownership in [Architecture](architecture.md).
+
+## Indexer-v1 projection
+
+The projection contains canonical JSONL document and edge inventories, clean
+Markdown members, and a canonical content-free projection receipt. Stable
+document identities bind backend-origin digest, service, object kind, and
+numeric provider id; mutable keys, titles, paths, and presentation fields do not
+change identity. Edges either name an included stable identity or preserve one
+bounded unresolved key, title, or numeric id. Raw backend URLs are rejected.
+
+Jira issues, comments, attachments, hierarchy, typed issue links, and body
+references are projected when their correlated pristine evidence exists.
+Confluence pages, comments, attachments, hierarchy, page references, and Jira
+macros are treated similarly. A two-source export can therefore emit relative
+Markdown links and typed cross-service edges without fetching discovered
+targets. Render failure is explicit and does not substitute native bytes into
+Markdown.
+
+Every document carries per-category evidence and conservative visibility.
+Absence of a Jira issue-security level is not evidence of unrestricted access.
+The receipt derives `ready`, `partial`, or `unavailable` from the weakest source
+qualification. Current mirrors have structural correlation rather than an
+independent complete-pull receipt, so their projection is sealed as `partial`;
+consumers must retain that qualification.
+
+Export holds service snapshot locks while it inventories and streams bounded
+pristine evidence, revalidates the snapshot, then releases those locks before
+sealing. Working `.csf`, `.wiki`, and `.md` files are ignored. Staged lineage is
+refused by default; `--allow-unreconciled` is diagnostic and can never produce a
+ready projection.
 
 ## Trust root and platform boundary
 

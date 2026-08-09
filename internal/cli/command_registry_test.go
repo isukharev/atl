@@ -60,6 +60,7 @@ conf status
 conf table extract
 conf table summary
 config show
+corpus export
 doctor
 environment inspect
 help
