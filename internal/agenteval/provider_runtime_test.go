@@ -608,7 +608,11 @@ func TestCodexProviderRuntimeRejectsUnsafeAuthWithoutLeakingIt(t *testing.T) {
 		}},
 		{name: "group-readable", prepare: func(t *testing.T, root string) {
 			t.Helper()
-			if err := os.WriteFile(filepath.Join(root, "auth.json"), []byte(`{"token":"x"}`), 0o640); err != nil {
+			path := filepath.Join(root, "auth.json")
+			if err := os.WriteFile(path, []byte(`{"token":"x"}`), 0o640); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(path, 0o640); err != nil {
 				t.Fatal(err)
 			}
 		}},
