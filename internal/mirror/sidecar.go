@@ -134,7 +134,7 @@ func (m *Mirror) loadSidecar() (sidecarFile, error) {
 		sc.Staged = map[string]StagedState{}
 	}
 	for id, state := range sc.Pages {
-		qualified, err := parseDurablePublicStatePath(state)
+		qualified, err := parseDurablePublicStatePath(id, state)
 		if err != nil {
 			return sc, fmt.Errorf("%w: corrupt mirror sidecar %s: resource %q has an invalid public path: %v", domain.ErrCheckFailed, m.sidecarPath(), id, err)
 		}

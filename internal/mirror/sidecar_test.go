@@ -160,17 +160,23 @@ func TestSidecarLoadsLegacyWindowsJiraPathCanonically(t *testing.T) {
 }
 
 func TestSidecarRejectsMalformedLegacyWindowsStatePaths(t *testing.T) {
-	for name, state := range map[string]SyncState{
-		"wrong Jira identity":        {ID: "PROJ-1", Path: `PROJ\OTHER.wiki`},
-		"wrong Jira extension":       {ID: "PROJ-1", Path: `PROJ\PROJ-1.csf`},
-		"wrong Confluence extension": {ID: "10", Version: 1, Path: `DOC\page\page.txt`},
+	for name, fixture := range map[string]struct {
+		key   string
+		state SyncState
+	}{
+		"wrong Jira identity":        {key: "PROJ-1", state: SyncState{ID: "PROJ-1", Path: `PROJ\OTHER.wiki`}},
+		"wrong Jira extension":       {key: "PROJ-1", state: SyncState{ID: "PROJ-1", Path: `PROJ\PROJ-1.csf`}},
+		"wrong Confluence extension": {key: "10", state: SyncState{ID: "10", Version: 1, Path: `DOC\page\page.txt`}},
+		"mismatched map identity":    {key: "PROJ-1", state: SyncState{ID: "OTHER-2", Path: `SPACE\OTHER-2.wiki`}},
+		"empty Jira identity":        {key: "PROJ-1", state: SyncState{Path: `SPACE\.wiki`}},
+		"unsafe Jira identity":       {key: "..", state: SyncState{ID: "..", Path: `SPACE\...wiki`}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			m := New(t.TempDir())
 			if err := os.MkdirAll(filepath.Dir(m.sidecarPath()), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			b, err := json.Marshal(sidecarFile{Pages: map[string]SyncState{state.ID: state}})
+			b, err := json.Marshal(sidecarFile{Pages: map[string]SyncState{fixture.key: fixture.state}})
 			if err != nil {
 				t.Fatal(err)
 			}

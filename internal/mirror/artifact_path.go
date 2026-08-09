@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/safepath"
 )
 
 const maxArtifactPathBytes = 4096
@@ -105,10 +106,10 @@ func parseDurableArtifactPath(value string) (ArtifactPath, error) {
 	return NewPublicArtifactPath(value)
 }
 
-// parseDurablePublicStatePath accepts the one historical Windows spelling
-// written by Jira pull before public paths were canonicalized at construction.
-// Mixed separators and every normalized traversal/reserved alias still fail.
-func parseDurablePublicStatePath(state SyncState) (ArtifactPath, error) {
+// parseDurablePublicStatePath accepts historical Windows spellings written
+// before public paths were canonicalized at construction. Mixed separators
+// and every normalized traversal/reserved alias still fail.
+func parseDurablePublicStatePath(id string, state SyncState) (ArtifactPath, error) {
 	value := state.Path
 	qualified, err := NewPublicArtifactPath(value)
 	if err == nil || !strings.Contains(value, `\`) || strings.Contains(value, "/") {
@@ -118,8 +119,11 @@ func parseDurablePublicStatePath(state SyncState) (ArtifactPath, error) {
 	if err != nil {
 		return ArtifactPath{}, err
 	}
+	if id == "" || state.ID == "" || id != state.ID {
+		return ArtifactPath{}, fmt.Errorf("%w: legacy Windows state path does not match its sidecar identity", domain.ErrCheckFailed)
+	}
 	switch {
-	case state.Version == 0 && path.Ext(qualified.String()) == ".wiki" && path.Base(qualified.String()) == state.ID+".wiki":
+	case state.Version == 0 && safepath.Segment(state.ID) == state.ID && path.Ext(qualified.String()) == ".wiki" && path.Base(qualified.String()) == state.ID+".wiki":
 		return qualified, nil
 	case state.Version > 0 && positiveDecimalIdentity(state.ID) && path.Ext(qualified.String()) == ".csf":
 		return qualified, nil

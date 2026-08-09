@@ -108,7 +108,7 @@
     {"owner":"evaluator","path":"internal/agenteval/","max_lines":48928,"rationale":"Keep the complete evaluator module tree visible at the measured neutral-core and ATL-profile split baseline, including the compatibility facade and explicit bounded score conversions."},
     {"owner":"httpx","path":"internal/httpx/","max_lines":1366,"rationale":"Keep split transport, scheduler, retry, body, TLS, trace, error, and write-safety infrastructure at its exact measured package baseline."},
     {"owner":"mcp","path":"internal/mcpserver/","max_lines":3393,"rationale":"Keep total production growth visible after concrete composition extraction, including the reviewed compact/full Jira graph output-schema union across split registration and protocol owners."},
-    {"owner":"mirror","path":"internal/mirror/","max_lines":7180,"rationale":"Keep total mirror production at the reviewed state-bound legacy migration and payload-bound complete-pull recovery baseline."},
+    {"owner":"mirror","path":"internal/mirror/","max_lines":7184,"rationale":"Keep total mirror production at the reviewed map-and-state-bound legacy migration and payload-bound complete-pull recovery baseline."},
     {"owner":"tooling","path":"scripts/check-docs-freshness/","max_lines":996,"rationale":"Keep documentation freshness and impact-selection tooling at its measured production baseline."},
     {"owner":"tooling","path":"scripts/check-maintainability/","max_lines":674,"rationale":"Keep maintainability checker production growth visible after registering the compose owner."},
     {"owner":"tooling","path":"scripts/check-maintainer-contract/","max_lines":1803,"rationale":"Keep maintainer-contract and recursive evaluator-gate tooling at its measured production baseline."},

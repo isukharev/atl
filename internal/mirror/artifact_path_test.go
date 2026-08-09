@@ -72,11 +72,11 @@ func TestPublicArtifactPathWithinRejectsEscapeAndReservedAlias(t *testing.T) {
 
 func TestDurablePublicStatePathNormalizesOnlyLegacyWindowsSeparators(t *testing.T) {
 	t.Parallel()
-	qualified, err := parseDurablePublicStatePath(SyncState{ID: "PROJ-1", Path: `PROJ\PROJ-1.wiki`})
+	qualified, err := parseDurablePublicStatePath("PROJ-1", SyncState{ID: "PROJ-1", Path: `PROJ\PROJ-1.wiki`})
 	if err != nil || qualified.String() != "PROJ/PROJ-1.wiki" {
 		t.Fatalf("legacy path=%q err=%v", qualified.String(), err)
 	}
-	qualified, err = parseDurablePublicStatePath(SyncState{ID: "10", Version: 1, Path: `DOC\page\page.csf`})
+	qualified, err = parseDurablePublicStatePath("10", SyncState{ID: "10", Version: 1, Path: `DOC\page\page.csf`})
 	if err != nil || qualified.String() != "DOC/page/page.csf" {
 		t.Fatalf("legacy Confluence path=%q err=%v", qualified.String(), err)
 	}
@@ -89,9 +89,13 @@ func TestDurablePublicStatePathNormalizesOnlyLegacyWindowsSeparators(t *testing.
 		{ID: "10", Version: 1, Path: `DOC\page\page.txt`},
 		{ID: "page", Version: 1, Path: `DOC\page\page.csf`},
 	} {
-		if _, err := parseDurablePublicStatePath(state); !errors.Is(err, domain.ErrCheckFailed) {
+		if _, err := parseDurablePublicStatePath(state.ID, state); !errors.Is(err, domain.ErrCheckFailed) {
 			t.Fatalf("legacy state %+v error=%v", state, err)
 		}
+	}
+	canonical, err := parseDurablePublicStatePath("OTHER", SyncState{ID: "PROJ-1", Path: "PROJ/PROJ-1.wiki"})
+	if err != nil || canonical.String() != "PROJ/PROJ-1.wiki" {
+		t.Fatalf("canonical path compatibility=%q err=%v", canonical.String(), err)
 	}
 }
 

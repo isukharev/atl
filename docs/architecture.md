@@ -400,12 +400,12 @@ constructed mirror-relative artifact paths. Public construction rejects the
 reserved `.atl` component, including ASCII case aliases; private construction
 admits only non-empty descendants of the exact `.atl/base/` subtree. Durable
 journals and sidecars keep their existing string bytes, but mirror reparses
-those strings as untrusted paths before recovery or filesystem use. The one
-legacy Jira sidecar spelling written with Windows separators is normalized on
-read only, then bound again to the state's ID, version, and native extension
-before the same public-path checks; new durable paths remain canonical
-slash-separated strings. Root-scoped resolution and symlink checks remain
-mandatory at the actual I/O boundary.
+those strings as untrusted paths before recovery or filesystem use. Historical
+Jira `.wiki` and Confluence `.csf` sidecar spellings written with Windows
+separators are normalized on read only, then bound again to the sidecar map key,
+state ID, version, and native extension before the same public-path checks; new
+durable paths remain canonical slash-separated strings. Root-scoped resolution
+and symlink checks remain mandatory at the actual I/O boundary.
 The complete-pull transaction service is also closed: Confluence keeps its
 schema-2 journal/publication and progress-v1 bytes, requires exactly one native
 artifact and one mode-0600 `.atl/base/<page-id>.csf`, and binds both payload
