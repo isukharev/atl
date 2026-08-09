@@ -15,7 +15,8 @@ import (
 
 const (
 	completePullPublicationSchema       = 2 // legacy Confluence schema; bytes are immutable
-	completePullJiraPublicationSchema   = 3
+	completePullJiraPublicationSchema   = 3 // legacy Jira schema without stable sidecar identity/relocation
+	completePullJiraPublicationSchema4  = 4
 	maxCompletePullPublicationArtifacts = 2048
 	maxCompletePullPublicationBytes     = 256 << 20
 	maxCompletePullPublicationIntent    = 16 << 20
@@ -409,8 +410,25 @@ func (m *Mirror) PrepareCompletePullPublication(checkpoint CompletePullCheckpoin
 }
 
 func (m *Mirror) prepareCompletePullPublicationWith(checkpoint CompletePullCheckpoint, index int, entry CompletePullJournalEntry, eligible bool, artifacts []CompletePullArtifact, relocation *PageRelocation, ops completePullPublicationOps) error {
+	return m.prepareCompletePullPublicationWithJira(checkpoint, index, entry, eligible, artifacts, relocation, nil, ops)
+}
+
+// PrepareJiraCompletePullPublication is the Jira-only key-relocation variant.
+// relocation is nil for an unchanged key and otherwise carries a mirror-owned,
+// hash-bound retirement plan returned by PlanJiraIssueRelocation.
+func (m *Mirror) PrepareJiraCompletePullPublication(checkpoint CompletePullCheckpoint, index int, entry CompletePullJournalEntry, eligible bool, artifacts []CompletePullArtifact, relocation *JiraIssueRelocation) error {
+	return m.prepareCompletePullPublicationWithJira(checkpoint, index, entry, eligible, artifacts, nil, relocation, defaultCompletePullPublicationOps())
+}
+
+func (m *Mirror) prepareCompletePullPublicationWithJira(checkpoint CompletePullCheckpoint, index int, entry CompletePullJournalEntry, eligible bool, artifacts []CompletePullArtifact, relocation *PageRelocation, jiraRelocation *JiraIssueRelocation, ops completePullPublicationOps) error {
 	if checkpoint.SchemaVersion == 0 {
 		checkpoint.SchemaVersion = completePullCheckpointSchema
+	}
+	if jiraRelocation != nil {
+		if checkpoint.Service != CompletePullServiceJira || relocation != nil || jiraRelocation.identity != entry.Identity {
+			return fmt.Errorf("%w: Jira relocation does not match the complete-pull entry", domain.ErrCheckFailed)
+		}
+		entry.Previous = &jiraRelocation.previous
 	}
 	if err := validateCompletePullCheckpoint(checkpoint, checkpoint.SelectorSHA256); err != nil {
 		return err
@@ -428,12 +446,19 @@ func (m *Mirror) prepareCompletePullPublicationWith(checkpoint CompletePullCheck
 	if checkpoint.IDs[index] != selectedIdentity {
 		return fmt.Errorf("%w: complete-pull publication is not the next selected identity", domain.ErrCheckFailed)
 	}
-	if checkpoint.Service == CompletePullServiceJira && relocation != nil {
+	if (checkpoint.Service == CompletePullServiceJira && relocation != nil) ||
+		(checkpoint.Service == CompletePullServiceConfluence && jiraRelocation != nil) {
 		return fmt.Errorf("%w: Jira complete-pull publication cannot relocate a Confluence page", domain.ErrCheckFailed)
 	}
 	retirement, err := relocationPublicationArtifacts(m, relocation)
 	if err != nil {
 		return err
+	}
+	if jiraRelocation != nil {
+		retirement, err = m.jiraRelocationArtifacts(jiraRelocation)
+		if err != nil {
+			return err
+		}
 	}
 	if len(artifacts)+len(retirement) == 0 || len(artifacts)+len(retirement) > maxCompletePullPublicationArtifacts {
 		return fmt.Errorf("%w: complete-pull publication exceeds its artifact bound", domain.ErrCheckFailed)
@@ -490,7 +515,7 @@ func (m *Mirror) prepareCompletePullPublicationWith(checkpoint CompletePullCheck
 		return fmt.Errorf("%w: complete-pull publication stage does not have mode 0700", domain.ErrCheckFailed)
 	}
 	intent := completePullPublicationIntent{
-		SchemaVersion: completePullPublicationSchemaFor(checkpoint.Service), Service: checkpoint.Service,
+		SchemaVersion: completePullPublicationSchemaForEntry(checkpoint.Service, entry), Service: checkpoint.Service,
 		SelectorSHA256: checkpoint.SelectorSHA256, OptionsSHA256: checkpoint.OptionsSHA256,
 		SelectionSHA256: checkpoint.SelectionSHA256, Index: index, Entry: entry,
 		Eligible: eligible, Artifacts: make([]completePullPublicationArtifact, 0, len(artifacts)),
@@ -694,50 +719,6 @@ func (m *Mirror) cleanupCompletePullPublication(dir string, intent completePullP
 	return syncPublicationPath(m.Root, dir, ops)
 }
 
-func (m *Mirror) verifyCommittedPublication(checkpoint CompletePullCheckpoint, intent completePullPublicationIntent) error {
-	for _, artifact := range intent.Artifacts {
-		current, err := publicationCurrent(m.Root, artifact.Path)
-		if err != nil || !publicationMatchesPost(current, artifact) {
-			return fmt.Errorf("%w: committed complete-pull artifact %s does not match its exact postcondition", domain.ErrCheckFailed, artifact.Path)
-		}
-	}
-	if intent.Relocation != nil {
-		state, ok, err := m.SyncStateOf(intent.Entry.State.ID)
-		if err != nil || !ok || state != intent.Entry.State {
-			return fmt.Errorf("%w: committed complete-pull relocation has no exact canonical state", domain.ErrCheckFailed)
-		}
-		view, ok, err := m.ViewStateOf(intent.Entry.State.ID)
-		if err != nil || !ok || !reflect.DeepEqual(view, intent.Entry.View) {
-			return fmt.Errorf("%w: committed complete-pull relocation has no exact view state", domain.ErrCheckFailed)
-		}
-		for _, artifact := range intent.Relocation.Artifacts {
-			current, err := publicationCurrent(m.Root, artifact.Path)
-			if err != nil || !publicationMatchesPost(current, artifact) {
-				return fmt.Errorf("%w: committed complete-pull relocation artifact %s does not match its exact postcondition", domain.ErrCheckFailed, artifact.Path)
-			}
-		}
-	}
-	if intent.Eligible {
-		journal, found, err := m.loadCompletePullJournal(checkpoint.SelectorSHA256)
-		if err != nil || !found {
-			return fmt.Errorf("%w: committed complete-pull publication has no accepted journal evidence", domain.ErrCheckFailed)
-		}
-		if err := validateCompletePullJournal(journal, checkpoint); err != nil {
-			return err
-		}
-		position := intent.Index - journal.StartIndex
-		if position < 0 || position >= len(journal.Entries) || !reflect.DeepEqual(journal.Entries[position], intent.Entry) {
-			return fmt.Errorf("%w: committed complete-pull publication differs from accepted journal evidence", domain.ErrCheckFailed)
-		}
-	} else {
-		state, ok, err := m.SyncStateOf(intent.Entry.State.ID)
-		if err != nil || !ok || state != intent.Entry.State {
-			return fmt.Errorf("%w: committed ineligible complete-pull publication has no exact canonical state", domain.ErrCheckFailed)
-		}
-	}
-	return nil
-}
-
 // RecoverCompletePullPublication finishes a staged page using no backend data.
 // It is safe at every write/progress/acceptance boundary and runs before local
 // mirror qualification on every complete-pull invocation.
@@ -774,13 +755,19 @@ func (m *Mirror) recoverCompletePullPublicationWith(selectorSHA256 string, check
 	}
 	if intent.Relocation != nil || !intent.Eligible {
 		if !intent.StatePublished {
-			if err := m.mergeSidecarPatchOwned(
-				map[string]SyncState{intent.Entry.State.ID: intent.Entry.State},
-				map[string]ViewState{intent.Entry.State.ID: intent.Entry.View},
-				map[string]*StagedState{intent.Entry.State.ID: nil},
-				completePullSidecarTemp(intent.WriteToken),
-			); err != nil {
-				return err
+			var stateErr error
+			if intent.Service == CompletePullServiceJira {
+				stateErr = m.mergeCompletePullEntriesOwned([]CompletePullJournalEntry{intent.Entry}, completePullSidecarTemp(intent.WriteToken))
+			} else {
+				stateErr = m.mergeSidecarPatchOwned(
+					map[string]SyncState{intent.Entry.State.ID: intent.Entry.State},
+					map[string]ViewState{intent.Entry.State.ID: intent.Entry.View},
+					map[string]*StagedState{intent.Entry.State.ID: nil},
+					completePullSidecarTemp(intent.WriteToken),
+				)
+			}
+			if stateErr != nil {
+				return stateErr
 			}
 			if err := ops.sync(m.Root, filepath.Dir(m.sidecarPath())); err != nil {
 				return err

@@ -162,6 +162,10 @@ content-minimized identity backend, поэтому зеркало staging нел
 
 Для Jira действует тот же локальный цикл с нативными `.wiki`-файлами,
 `jira pull`, `jira status`, `jira apply`, `jira reconcile preview` и `jira push`.
+Для полного возобновляемого снимка проекта используйте явный ограничитель:
+`atl jira pull --complete --project PROJ --max-issues 5000 --into "$ATL_WORKSPACE_ROOT"`.
+Команда требует два одинаковых completeness-qualified прохода по ID; обычный
+`--limit 0` сохраняет совместимое, но неквалифицированное поведение.
 
 ### 3. Выполните preview, примените один раз и сверьте результат
 

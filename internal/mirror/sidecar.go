@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"time"
 
@@ -15,10 +16,11 @@ import (
 
 // SyncState is the last-synced snapshot of one resource.
 type SyncState struct {
-	ID      string `json:"id"`
-	Version int    `json:"version"`
-	Hash    string `json:"hash"`
-	Path    string `json:"path"` // rel to mirror root
+	ID       string `json:"id"`
+	Identity string `json:"identity,omitempty"` // stable Jira numeric id; absent for Confluence and legacy Jira states
+	Version  int    `json:"version"`
+	Hash     string `json:"hash"`
+	Path     string `json:"path"` // rel to mirror root
 }
 
 // StagedState binds ATL-produced local substrate bytes to their resource
@@ -133,10 +135,20 @@ func (m *Mirror) loadSidecar() (sidecarFile, error) {
 	if sc.Staged == nil {
 		sc.Staged = map[string]StagedState{}
 	}
+	jiraIdentities := make(map[string]string)
 	for id, state := range sc.Pages {
 		qualified, err := parseDurablePublicStatePath(id, state)
 		if err != nil {
 			return sc, fmt.Errorf("%w: corrupt mirror sidecar %s: resource %q has an invalid public path: %v", domain.ErrCheckFailed, m.sidecarPath(), id, err)
+		}
+		if state.Identity != "" {
+			if state.Version != 0 || filepath.Ext(qualified.String()) != ".wiki" || !positiveDecimalIdentity(state.Identity) {
+				return sc, fmt.Errorf("%w: corrupt mirror sidecar %s: resource %q has an invalid stable Jira identity", domain.ErrCheckFailed, m.sidecarPath(), id)
+			}
+			if previous, duplicate := jiraIdentities[state.Identity]; duplicate {
+				return sc, fmt.Errorf("%w: corrupt mirror sidecar %s: resources %q and %q share one stable Jira identity", domain.ErrCheckFailed, m.sidecarPath(), previous, id)
+			}
+			jiraIdentities[state.Identity] = id
 		}
 		state.Path = qualified.String()
 		sc.Pages[id] = state
@@ -216,6 +228,68 @@ func (m *Mirror) mergeSidecarPatchWithOwnedTemp(pages map[string]SyncState, view
 		return m.saveSidecarOwned(sc, tempBase)
 	}
 	return m.saveSidecar(sc)
+}
+
+func applyCompletePullEntry(sc *sidecarFile, entry CompletePullJournalEntry) error {
+	if entry.State.Identity != "" {
+		for key, state := range sc.Pages {
+			if key != entry.State.ID && (entry.Previous == nil || key != entry.Previous.State.ID) && state.Identity == entry.State.Identity {
+				return fmt.Errorf("%w: stable Jira identity is already tracked under another key", domain.ErrCheckFailed)
+			}
+		}
+	}
+	if entry.Previous != nil {
+		previous := entry.Previous
+		oldState, oldFound := sc.Pages[previous.State.ID]
+		newState, newFound := sc.Pages[entry.State.ID]
+		oldView, oldViewFound := sc.Views[previous.State.ID]
+		newView, newViewFound := sc.Views[entry.State.ID]
+		_, oldStaged := sc.Staged[previous.State.ID]
+		_, newStaged := sc.Staged[entry.State.ID]
+		switch {
+		case oldFound:
+			if oldState != previous.State || oldViewFound != (previous.View != nil) || oldViewFound && !reflect.DeepEqual(oldView, *previous.View) || oldStaged {
+				return fmt.Errorf("%w: Jira relocation predecessor changed before sidecar replacement", domain.ErrCheckFailed)
+			}
+			if newFound && newState != entry.State || newViewFound && !reflect.DeepEqual(newView, entry.View) || newStaged {
+				return fmt.Errorf("%w: Jira relocation target collides with another sidecar entry", domain.ErrCheckFailed)
+			}
+			delete(sc.Pages, previous.State.ID)
+			delete(sc.Views, previous.State.ID)
+			delete(sc.Staged, previous.State.ID)
+		case newFound:
+			if newState != entry.State || !newViewFound || !reflect.DeepEqual(newView, entry.View) || oldViewFound || oldStaged || newStaged {
+				return fmt.Errorf("%w: Jira relocation sidecar matches neither its predecessor nor exact replacement", domain.ErrCheckFailed)
+			}
+		default:
+			return fmt.Errorf("%w: Jira relocation predecessor disappeared before sidecar replacement", domain.ErrCheckFailed)
+		}
+	}
+	sc.Pages[entry.State.ID] = entry.State
+	sc.Views[entry.State.ID] = entry.View
+	delete(sc.Staged, entry.State.ID)
+	return nil
+}
+
+func (m *Mirror) mergeCompletePullEntriesOwned(entries []CompletePullJournalEntry, tempBase string) error {
+	if len(entries) == 0 || !validCompletePullTempName(tempBase) {
+		return fmt.Errorf("%w: invalid complete-pull sidecar replacement", domain.ErrCheckFailed)
+	}
+	lock, err := m.lockSidecar()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Unlock() }()
+	sc, err := m.loadSidecar()
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if err := applyCompletePullEntry(&sc, entry); err != nil {
+			return err
+		}
+	}
+	return m.saveSidecarOwned(sc, tempBase)
 }
 
 func validateStagedState(key string, state StagedState) error {

@@ -153,6 +153,10 @@ content-minimized backend identity to prevent accidental cross-instance push.
 
 Jira follows the same local pattern with native `.wiki` files, `jira pull`,
 `jira status`, `jira apply`, `jira reconcile preview`, and `jira push`.
+For an exhaustive, resumable project snapshot, use an explicit bounded selector:
+`atl jira pull --complete --project PROJ --max-issues 5000 --into "$ATL_WORKSPACE_ROOT"`.
+This requires two identical completeness-qualified ID passes; ordinary
+`--limit 0` remains unqualified compatibility behavior.
 
 ### 3. Preview, apply once, reconcile
 

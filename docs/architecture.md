@@ -413,10 +413,15 @@ The complete-pull transaction service is also closed: Confluence keeps its
 schema-2 journal/publication and progress-v1 bytes, requires exactly one native
 artifact and one mode-0600 `.atl/base/<page-id>.csf`, and binds both payload
 hashes to the accepted page state. It retains the positive page-version
-contract. A Jira transaction uses schema 3 with a
+contract. Legacy Jira schema-3 transaction bytes remain readable. New Jira
+publications use schema 4 with a
 positive immutable issue ID separate from its mutable key, version `0`,
 canonical `.wiki` state, explicit `native|metadata|view|base|auxiliary`
-artifact roles, and service-bound progress v2. A crash after replacing a
+artifact roles, and service-bound progress v2. The stable ID is also recorded
+additively in the private sidecar. A key relocation binds the exact predecessor
+state/view and old artifact pre-images, atomically replaces the sidecar key,
+then retires only the persisted exact old files; recovery accepts either the
+predecessor or exact replacement state, never an unrelated midpoint. A crash after replacing a
 checkpoint with the other service's selection resets the stale progress prefix
 to zero. Cross-service schema, extension, identity, version, role, and path
 combinations fail before a destination is staged or accepted.

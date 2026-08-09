@@ -8,71 +8,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/mirror"
 	"github.com/isukharev/atl/internal/safepath"
 )
-
-// JiraPulled is one exported issue. Path points at the rendered derived .md
-// staging view; WikiPath points at the sibling <KEY>.wiki substrate — the editable
-// native-wiki source of truth — so agents don't have to derive it by swapping
-// extensions. Assets counts image attachments mirrored into the issue's
-// <KEY>.assets/ directory; it is omitted at zero so the JSON shape is unchanged
-// for a default (no --assets) pull.
-type JiraPulled struct {
-	Key          string `json:"key"`
-	Path         string `json:"path"`
-	WikiPath     string `json:"wiki_path,omitempty"`
-	Status       string `json:"status,omitempty"`
-	Assets       int    `json:"assets,omitempty"`
-	EpicChildren int    `json:"epic_children,omitempty"`
-}
-
-// JiraPullOpts narrows what Pull selects and whether it also mirrors image
-// attachments. A zero-value Assets keeps the default metadata/text-only pull.
-// Render is the per-run flag override for the markdown view profile; a zero value
-// leaves the effective settings (local + global config) untouched.
-type JiraPullOpts struct {
-	JQL            string
-	Into           string
-	Limit          int
-	Fields         []string
-	Assets         bool
-	DryRun         bool
-	OverwriteLocal bool
-	StashLocal     bool
-	Render         config.RenderService
-}
-
-// JiraPullResult is the pull summary. AssetsSkipped counts image attachments
-// that were selected but could not be written (download/stream error, unsafe
-// name); it is omitted at zero so the default JSON shape is unchanged.
-type JiraPullResult struct {
-	Into                    string       `json:"into"`
-	Issues                  []JiraPulled `json:"issues"`
-	AssetsSkipped           int          `json:"assets_skipped,omitempty"`
-	EpicChildrenTruncated   bool         `json:"epic_children_truncated,omitempty"`
-	EpicChildrenTruncatedAt int          `json:"epic_children_truncated_at,omitempty"`
-	// Warnings carries advisory render-resolution messages (unknown section names
-	// in a profile include/exclude, malformed local config). It is omitted when
-	// empty so the default pull JSON shape is unchanged; the CLI prints it on
-	// stderr, never stdout.
-	Warnings    []string         `json:"-"`
-	LocalSafety *PullLocalSafety `json:"local_safety,omitempty"`
-}
-
-// JiraIssueAsset is one image attachment selected for mirroring. Path is the
-// path of the written file relative to the issue directory (empty until the
-// bytes land on disk).
-type JiraIssueAsset struct {
-	ID         string
-	Title      string
-	MediaType  string
-	FileSize   int64
-	ContentURL string
-	Path       string
-}
 
 // Pull exports issues matching the JQL to one markdown + json file each. When
 // opts.Assets is set it also streams each issue's image attachments into a
@@ -81,6 +20,12 @@ type JiraIssueAsset struct {
 func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullResult, error) {
 	if opts.OverwriteLocal && opts.StashLocal {
 		return nil, fmt.Errorf("%w: --overwrite-local and --stash-local are mutually exclusive", domain.ErrUsage)
+	}
+	if opts.Complete {
+		return s.pullJiraComplete(ctx, opts)
+	}
+	if opts.Project != "" || opts.MaxIssues != 0 || opts.RestartComplete {
+		return nil, fmt.Errorf("%w: --project, --max-issues, and --restart-complete require --complete", domain.ErrUsage)
 	}
 	into := opts.Into
 	if into == "" {
