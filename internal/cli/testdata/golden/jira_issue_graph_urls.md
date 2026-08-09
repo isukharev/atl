@@ -3,8 +3,8 @@
 - Root: `jira:issue:PROJ-1`
 - Complete: `true`
 - Depth: `0` (expanded `1`, followed `0`)
-- Transport: `4/100` attempts; `575/16777216` buffered response bytes
-- Nodes: `4`; edges: `3`; evidence: `3`; sources: `8`
+- Transport: `4/100` attempts; `701/16777216` buffered response bytes
+- Nodes: `5`; edges: `4`; evidence: `4`; sources: `8`
 
 ## Sources
 
@@ -25,13 +25,15 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | jira:issue:PROJ-1 | jira_issue | resolved | 0 | true | Graph seed |  |
 | jira:attachment:4 | attachment | resolved | 1 | false | design.txt |  |
-| confluence:page:7 | confluence_page | stub | 1 | false |  |  |
-| jira:issue:PROJ-2 | jira_issue | unresolved | 1 | false |  |  |
+| candidate:url:cdb85488220446017b1a84a160cf6d228a992dcbb44c20b993d42d4285a78c6d | url | unresolved | 1 | false |  |  |
+| url:b3319ec922a86bc2ede2f349875b3703c0277a2a856af25736c154b89faa4fae | url | stub | 1 | false |  | https://external.example.test/docs?redacted=redacted |
+| url:eefb63505be99936c49270d9ff5ae2b0a066854dc6383f576800117e5ca4e3e1 | url | stub | 1 | false |  | https://external.example.test/guide/a&amp;b |
 
 ## Edges
 
 | From | Kind | Type | Relation | To | Direction | Confidence | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | jira:issue:PROJ-1 | attached |  |  | jira:attachment:4 | outbound | exact | 1 |
-| jira:issue:PROJ-1 | mentions |  |  | confluence:page:7 | outbound | high | 1 |
-| jira:issue:PROJ-1 | mentions |  |  | jira:issue:PROJ-2 | outbound | candidate | 1 |
+| jira:issue:PROJ-1 | mentions |  |  | candidate:url:cdb85488220446017b1a84a160cf6d228a992dcbb44c20b993d42d4285a78c6d | outbound | candidate | 1 |
+| jira:issue:PROJ-1 | mentions |  |  | url:b3319ec922a86bc2ede2f349875b3703c0277a2a856af25736c154b89faa4fae | outbound | high | 1 |
+| jira:issue:PROJ-1 | mentions |  |  | url:eefb63505be99936c49270d9ff5ae2b0a066854dc6383f576800117e5ca4e3e1 | outbound | high | 1 |

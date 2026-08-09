@@ -957,9 +957,9 @@ func JiraIssueGraphMarkdown(result *JiraIssueGraphResult) string {
 	}
 	nodeRows := make([][]string, 0, len(result.Nodes))
 	for _, node := range result.Nodes {
-		row := []string{
-			node.ID, node.Kind, string(node.State), fmt.Sprint(node.Depth),
-			fmt.Sprint(node.Expanded), node.Label,
+		row := []string{node.ID, node.Kind, string(node.State), fmt.Sprint(node.Depth), fmt.Sprint(node.Expanded), node.Label, ""}
+		if node.Kind == "url" {
+			row[len(row)-1] = node.URL
 		}
 		if includeSCM {
 			host, project, selector, artifactState := "", "", "", ""
@@ -981,7 +981,7 @@ func JiraIssueGraphMarkdown(result *JiraIssueGraphResult) string {
 		}
 		nodeRows = append(nodeRows, row)
 	}
-	nodeHeader := []string{"ID", "Kind", "State", "Depth", "Expanded", "Label"}
+	nodeHeader := []string{"ID", "Kind", "State", "Depth", "Expanded", "Label", "URL"}
 	if includeSCM {
 		nodeHeader = append(nodeHeader, "Host", "Project", "Selector", "Artifact State")
 	}

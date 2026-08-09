@@ -16,8 +16,16 @@ import (
 )
 
 func jiraGraphServer(t *testing.T) (*httptest.Server, *[]string) {
+	return jiraGraphServerWithDescription(t, "See PROJ-2 and pageId=7")
+}
+
+func jiraGraphServerWithDescription(t *testing.T, description string) (*httptest.Server, *[]string) {
 	t.Helper()
 	requests := []string{}
+	descriptionJSON, err := json.Marshal(description)
+	if err != nil {
+		t.Fatal(err)
+	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		requests = append(requests, request.Method+" "+request.URL.RequestURI())
 		if got := request.Header.Get("Authorization"); got != "Bearer test-pat" {
@@ -35,7 +43,7 @@ func jiraGraphServer(t *testing.T) (*httptest.Server, *[]string) {
 				"id":"10001","key":"PROJ-1",
 				"fields":{
 					"summary":"Graph seed",
-					"description":"See PROJ-2 and pageId=7",
+					"description":`+string(descriptionJSON)+`,
 					"issuelinks":[],
 					"parent":null,
 					"subtasks":[],
@@ -121,6 +129,26 @@ func TestJiraIssueGraphDevelopmentJSONAndTextGoldens(t *testing.T) {
 		t.Fatalf("text exit=%d output=%s", code, text)
 	}
 	assertGolden(t, "jira_issue_graph_development.md", []byte(text))
+}
+
+func TestJiraIssueGraphURLTextGolden(t *testing.T) {
+	server, requests := jiraGraphServerWithDescription(t,
+		"See https://external.example.test/guide/a&b "+
+			"https://external.example.test/docs?token=private#fragment "+
+			"https://external.example.test/token/secret")
+	text, code := runCLI(t, jiraEnv(server), "-o", "text", "jira", "issue", "graph", "PROJ-1")
+	if code != exitOK {
+		t.Fatalf("text exit=%d output=%s", code, text)
+	}
+	assertGolden(t, "jira_issue_graph_urls.md", []byte(text))
+	for _, forbidden := range []string{"token=private", "#fragment", "/token/secret"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("unsafe URL %q leaked: %s", forbidden, text)
+		}
+	}
+	if len(*requests) != 4 {
+		t.Fatalf("requests = %#v", *requests)
+	}
 }
 
 func TestJiraIssueGraphRejectsIDAndArityBeforeNetwork(t *testing.T) {
