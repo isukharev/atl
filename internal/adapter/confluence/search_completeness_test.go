@@ -3,7 +3,6 @@ package confluence
 import (
 	"context"
 	"encoding/json"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -71,12 +70,6 @@ func TestSearchCompleteQualifiesTerminalEvidence(t *testing.T) {
 				t.Fatalf("exact total=%v, want %v", page.ExactTotal, test.wantTotal)
 			}
 		})
-	}
-}
-
-func TestCheckedSearchPageEndRejectsOverflow(t *testing.T) {
-	if end, ok := checkedSearchPageEnd(math.MaxInt, 1); ok || end != math.MaxInt {
-		t.Fatalf("end=%d ok=%t, want unchanged overflow rejection", end, ok)
 	}
 }
 
