@@ -261,6 +261,7 @@ func TestInverseReferenceGitLabTargetIsOfflineCanonicalAndFastIncomplete(t *test
 }
 
 func TestInverseReferenceConfluenceTargetNormalizesDefaultHTTPSPort(t *testing.T) {
+	var opaqueID string
 	for _, tc := range []struct {
 		name   string
 		base   string
@@ -279,6 +280,11 @@ func TestInverseReferenceConfluenceTargetNormalizesDefaultHTTPSPort(t *testing.T
 			result, err := (&JiraService{tr: tracker, inverseConfluenceBaseURL: tc.base}).SearchInverseReferences(t.Context(), opts)
 			if err != nil || result == nil || !result.Complete || !result.AbsenceProven || len(tracker.selections) != 2 {
 				t.Fatalf("result=%+v err=%v selections=%d", result, err, len(tracker.selections))
+			}
+			if opaqueID == "" {
+				opaqueID = result.Target.OpaqueID
+			} else if result.Target.OpaqueID != opaqueID {
+				t.Fatalf("opaque ID=%q, want %q", result.Target.OpaqueID, opaqueID)
 			}
 		})
 	}

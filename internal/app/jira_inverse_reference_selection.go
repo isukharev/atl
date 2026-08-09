@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"regexp"
 	"sort"
@@ -106,7 +107,12 @@ func canonicalInverseReferenceConfluenceOrigin(raw string) string {
 	if err != nil {
 		return ""
 	}
-	return strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host) + strings.TrimRight(u.EscapedPath(), "/")
+	scheme, hostname := strings.ToLower(u.Scheme), strings.ToLower(u.Hostname())
+	if scheme == "" || hostname == "" {
+		return ""
+	}
+	host := net.JoinHostPort(hostname, effectiveURLPort(u))
+	return scheme + "://" + host + strings.TrimRight(u.EscapedPath(), "/")
 }
 
 func (s *JiraService) inverseConfluenceReferenceResolver() (ConfluencePageReferenceResolver, string) {
