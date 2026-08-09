@@ -1,6 +1,6 @@
 # Local-artifact output contracts
 
-Local manifest result shapes.
+Local manifest and sealed-corpus result shapes.
 
 [Reference index](README.md) · [Documentation home](../../README.md)
 
@@ -44,3 +44,53 @@ stored PATs to this artifact. Caller-provided `command`, selectors, JQL/CQL,
 fields, include values, and paths are preserved verbatim and are **not
 redacted**. Never pass credentials in that metadata, and review the manifest
 before publishing it.
+
+## Corpus export
+
+`atl corpus export` returns only schema, qualification, digest, count, build,
+and reuse fields. It never writes mirror or store paths, selectors, backend
+origins, object identities, titles, bodies, or member paths to stdout:
+
+```json
+{
+  "schema_version": 1,
+  "reused": false,
+  "projection": {
+    "schema_version": 1,
+    "projection_schema": 1,
+    "readiness": "partial",
+    "qualifications": [
+      {
+        "service": "jira",
+        "state": "partial",
+        "basis": "structural",
+        "scope_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "reasons": ["legacy_mirror"]
+      }
+    ],
+    "counts": {"documents": 3, "edges": 2, "markdown_files": 2, "markdown_bytes": 42},
+    "documents_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "edges_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "markdown_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "projection_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "generation": {
+    "generation_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "manifest_schema": 1,
+    "receipt_schema": 1,
+    "projection_schema": 1,
+    "generator_version": "0.0.0-dev",
+    "build_state": "unknown",
+    "services": ["jira"],
+    "totals": {"members": 5, "bytes": 2048}
+  }
+}
+```
+
+`readiness` is the weakest source qualification. `partial` is valid sealed
+output but is not proof of complete backend selection. `reused:true` means the
+already-selected generation exactly matched the requested projection and build
+identity. Errors remain content-free and use the normal stable CLI exit classes.
+An unreconciled seal or pointer write additionally retains the stable
+durable-outcome-unknown classification so callers do not mistake ambiguity for
+a definite pre-write failure.

@@ -23,7 +23,6 @@ var markdownRendererSourceInventory = map[string][]string{
 	"markdown.go": {
 		"const confluenceMarkdownCurrent",
 		"const confluenceMarkdownV5",
-		"func (*mdRenderer).ref",
 		"func RenderMarkdown",
 		"func RenderMarkdownOpts",
 		"func RenderMarkdownOptsV5",
@@ -73,6 +72,12 @@ var markdownRendererSourceInventory = map[string][]string{
 		"func squeezeSpaces",
 		"func styleColor",
 	},
+	"markdown_links.go": {
+		"func (*mdRenderer).ref",
+		"func (*mdRenderer).resolvedLink",
+		"func RenderMarkdownResolved",
+		"type MarkdownLinkResolver",
+	},
 	"markdown_macro.go": {
 		"func (*mdRenderer).inlineTaskBody",
 		"func (*mdRenderer).macro",
@@ -119,8 +124,8 @@ func TestMarkdownRendererSourceInventory(t *testing.T) {
 			}
 		}
 	}
-	if functions != 59 || types != 6 || constants != 2 {
-		t.Fatalf("renderer inventory functions=%d types=%d constants=%d want 59/6/2", functions, types, constants)
+	if functions != 61 || types != 7 || constants != 2 {
+		t.Fatalf("renderer inventory functions=%d types=%d constants=%d want 61/7/2", functions, types, constants)
 	}
 }
 

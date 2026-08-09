@@ -391,6 +391,19 @@ file counts, selectors, fields, paths, ATL version, and URL hashes. Caller
 metadata is not redacted: never put credentials in those flags, and review the
 manifest before publishing.
 
+**Offline indexer corpus:** use `atl corpus export --jira JIRA_ROOT
+--confluence CONF_ROOT --store STORE` for one or both initialized mirrors. The
+command skips configuration, credentials, self-update, and backend access. It
+reads pristine mirror baselines rather than ambient working native or Markdown
+edits, and stdout is content-free; the sealed store itself contains private
+titles, text, paths, and references, so create it as an existing owner-only
+`0700` directory outside source repositories. Add `--initialize-store` only for
+the first export into an empty root. ATL checks the complete projected member
+set before initializing or staging. Treat `readiness:partial` as incomplete
+evidence, and do not use `--allow-unreconciled` outside diagnostics. Preserve
+the store when an error reports an unknown durable outcome; do not infer either
+rollback or successful publication.
+
 ## Reacting to results
 
 `atl` prints JSON to stdout by default. Use `-o text` only where the command

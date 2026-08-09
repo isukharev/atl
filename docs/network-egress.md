@@ -84,7 +84,14 @@ atl conf validate mirror/page.csf
 atl conf render mirror
 atl conf diff mirror/page.csf
 atl jira render mirror-jira
+atl corpus export --jira mirror-jira --store private-corpus
 ```
+
+`atl corpus export` is stronger than the general local-command guidance below:
+it skips self-update, configuration, and credential loading by construction and
+performs no backend request. It reads only pristine mirror evidence and writes
+the requested owner-private local store. The store is sensitive even though
+normal command output is content-free.
 
 `version`, `capabilities`, help/completion, `auth`, `config`, and `profile`
 commands skip self-update by construction. The render, validate, diff, status,

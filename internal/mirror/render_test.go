@@ -49,6 +49,28 @@ func TestRenderInline(t *testing.T) {
 	mustContain(t, md, "[label](https://ex.com/p)")
 }
 
+func TestRenderMarkdownResolvedChangesOnlyAcceptedLogicalLinks(t *testing.T) {
+	root, err := csf.Parse([]byte(`<p><ac:link><ri:page ri:space-key="DOC" ri:content-title="Child Page"/><ac:plain-text-link-body><![CDATA[child]]></ac:plain-text-link-body></ac:link> <a href="https://example.test/raw">raw</a></p><ac:structured-macro ac:name="jira"><ac:parameter ac:name="key">EX-2</ac:parameter></ac:structured-macro>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := string(RenderMarkdown(root, nil))
+	if got := string(RenderMarkdownResolved(root, nil, nil)); got != want {
+		t.Fatalf("nil resolver changed bytes:\ngot  %q\nwant %q", got, want)
+	}
+	got := string(RenderMarkdownResolved(root, nil, func(target string) (string, bool) {
+		switch target {
+		case "confluence-page:DOC/Child%20Page":
+			return "../resolved-page.md", true
+		case "jira:EX-2":
+			return "../resolved-issue.md", true
+		default:
+			return "", false
+		}
+	}))
+	mustContain(t, got, "[child](../resolved-page.md)", "[EX-2](../resolved-issue.md)", "[raw](https://example.test/raw)")
+}
+
 // TestRenderLists locks unordered, ordered, and nested lists (the list() path,
 // previously 0% covered).
 func TestRenderLists(t *testing.T) {

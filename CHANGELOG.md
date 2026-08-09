@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added zero-egress `atl corpus export` for canonical indexer-v1 documents,
+  typed edges, relative Markdown, qualification receipts, and immutable private
+  generations built from pristine Jira and Confluence mirror evidence.
 - Added a shared schema-v1 compact projection for `jira issue graph` CLI and
   MCP output, preserving qualification while selecting safe URL or SCM facts;
   omitted full output remains compatible.

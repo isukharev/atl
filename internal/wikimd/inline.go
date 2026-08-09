@@ -192,10 +192,21 @@ func link(b *strings.Builder, s string, opts Options) int {
 		if text == "" {
 			text = url
 		}
+		if opts.LinkResolver != nil {
+			if destination, ok := opts.LinkResolver(url); ok && destination != "" {
+				url = destination
+			}
+		}
 		b.WriteString("[" + inline(text, opts) + "](" + escapeURLDest(url) + ")")
 		return end + 1
 	}
 	url := strings.TrimSpace(inner)
+	if opts.LinkResolver != nil {
+		if destination, ok := opts.LinkResolver(url); ok && destination != "" {
+			b.WriteString("[" + escapeAlt(url) + "](" + escapeURLDest(destination) + ")")
+			return end + 1
+		}
+	}
 	if !looksLikeURL(url) {
 		return 0
 	}

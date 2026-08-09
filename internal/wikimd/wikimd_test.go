@@ -116,6 +116,23 @@ func TestRenderHeadingOffsetKeepsOriginalDeepLevel(t *testing.T) {
 	}
 }
 
+func TestRenderLinkResolverIsAdditive(t *testing.T) {
+	input := "[related|EX-2] [EX-3] [web|https://example.test/path]"
+	if got, want := Render(input, Options{}), "[related](EX-2) [EX-3] [web](https://example.test/path)"; got != want {
+		t.Fatalf("nil resolver changed bytes: got %q want %q", got, want)
+	}
+	got := Render(input, Options{LinkResolver: func(target string) (string, bool) {
+		if target == "EX-2" || target == "EX-3" {
+			return "../" + target + ".md", true
+		}
+		return "", false
+	}})
+	want := "[related](../EX-2.md) [EX-3](../EX-3.md) [web](https://example.test/path)"
+	if got != want {
+		t.Fatalf("resolved links = %q, want %q", got, want)
+	}
+}
+
 // A {code} body must be passed through verbatim: no heading, list, or emphasis
 // inside it may be interpreted.
 func TestRenderCodeIsVerbatim(t *testing.T) {
