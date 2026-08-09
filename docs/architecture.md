@@ -17,22 +17,22 @@ See also: [../README.md](../README.md) · [CLI reference](reference/cli/README.m
 ┌──────────────────────────────────────────────────────────┐
 │  transport layer  (internal/cli, internal/mcpserver)     │
 │  cobra commands or typed MCP tools call shared use-cases │
-└───────────────────────┬──────────────────────────────────┘
-                        │ calls
-┌───────────────────────▼──────────────────────────────────┐
-│  use-case layer  (internal/app)                          │
-│  ConfluenceService / JiraService — transport-agnostic    │
-│  orchestration; depends on ports only                    │
-└────┬──────────────────┬──────────────────────────────────┘
-     │ DocStore port     │ Tracker port
-┌────▼──────┐     ┌─────▼──────┐
-│ confluence│     │ jira       │  internal/adapter/{confluence,jira}
-│ adapter   │     │ adapter    │  (swappable; new backend = new adapter)
-└────┬──────┘     └─────┬──────┘
-     │                  │
-     └──────────────────┘
-              │ all adapters use
-┌─────────────▼────────────────────────────────────────────┐
+└───────────────┬───────────────────────────────┬──────────┘
+                │ calls                         │ assembles through
+┌───────────────▼──────────────────────┐  ┌─────▼───────────┐
+│  use-case layer  (internal/app)      │  │ internal/compose│
+│  transport-agnostic orchestration;   │◄─┤ config/auth/TLS │
+│  depends on domain ports             │  │ + concrete ports│
+└──────────┬──────────────────┬────────┘  └─────┬───────────┘
+           │ DocStore port     │ Tracker port   │ constructs
+     ┌─────▼──────┐      ┌────▼───────┐◄────────┘
+     │ confluence │      │ jira       │  internal/adapter/{confluence,jira}
+     │ adapter    │      │ adapter    │  (swappable; new backend = new adapter)
+     └─────┬──────┘      └────┬───────┘
+           │                  │
+           └────────┬─────────┘
+                    │ all adapters use
+┌───────────────────▼──────────────────────────────────────┐
 │  shared infrastructure                                   │
 │  internal/httpx  — HTTP client, retries, PAT auth        │
 │  internal/auth   — PAT resolution (env → keychain file)  │
@@ -95,7 +95,8 @@ type Tracker interface {
 ```
 
 Adding a new backend (Notion, Linear, GitLab Issues) means writing a struct
-that satisfies one of these interfaces; no other package changes.
+that satisfies one of these interfaces, constructing it in `internal/compose`,
+and injecting the port into the applicable app service.
 
 **Optional capability ports.** Some features are not part of every backend's
 surface, so they live in their own narrow interfaces rather than bloating the
@@ -376,14 +377,18 @@ mirror/
 ### `internal/app`
 
 Transport-agnostic use-cases. `ConfluenceService` and `JiraService` are
-assembled in `wire.go` by wiring the config-loaded URL + PAT-resolved adapter
-and storing it behind the port interface. This layer is what a hypothetical
-future HTTP server tier would also call — no cobra, no stdin, no filesystem
-beyond explicit storage use-cases. The app layer orchestrates filesystem-backed
-use-cases through `internal/mirror`, `internal/safepath`, and narrow helpers;
-`internal/mirror` owns layout, sidecar, baseline, and dirty/drift primitives.
-Plan inputs, exports, manifests, attachments, and caller-selected output files
-use bounded/atomic I/O where applicable.
+assembled from domain ports and neutral backend-identity projections in
+`wire.go`; concrete adapters, credentials, transport security, and scheduler
+construction stay outside this package. App code may read `config.Config` only
+for the render and derived-list-view settings owned by `Render` and
+`JiraListViews`; a type-checked architecture oracle rejects every other config
+field. This layer is what a hypothetical future HTTP server tier would also
+call — no cobra, no stdin, no filesystem beyond explicit storage use-cases.
+The app layer orchestrates filesystem-backed use-cases through
+`internal/mirror`, `internal/safepath`, and narrow helpers; `internal/mirror`
+owns layout, sidecar, baseline, and dirty/drift primitives. Plan inputs,
+exports, manifests, attachments, and caller-selected output files use
+bounded/atomic I/O where applicable.
 
 Notable behaviors:
 
@@ -487,6 +492,16 @@ metadata checks separately from the last verified profile fact. No background
 reader, clock-based mutation, or policy inference exists; callers supply an
 absolute stale cutoff and approved read results.
 
+### `internal/compose`
+
+The outer composition owner shared by CLI and MCP. It loads non-secret config,
+resolves host-scoped credentials, validates backend URLs and CA bundles,
+constructs schedulers and concrete Jira/Confluence adapters, and injects them
+into app services through domain ports. Optional sibling backends remain lazy,
+and doctor receives path-free app-owned projections rather than config, auth,
+or TLS implementation types. `internal/app`, `internal/cli`, and
+`internal/mcpserver` do not import adapter packages directly.
+
 ### `internal/cli`
 
 The cobra command tree. Commands are thin:
@@ -581,11 +596,12 @@ binary.
 ### `internal/mcpserver`
 
 The stdio MCP transport registers a closed read-only tool inventory and calls
-application services directly. It never shells back into Cobra. Remote
-dependencies are lazy per service/tool call so a missing Jira configuration
-does not suppress Confluence tools, and vice versa. Local mirror snapshots have
-a separate lazy dependency: an explicit owner-configured root, validated before
-the existing offline content-free snapshot services run. The server shares
+application services directly. It never shells back into Cobra or imports a
+backend adapter; lazy remote dependencies are obtained through
+`internal/compose`. A missing Jira configuration therefore does not suppress
+Confluence tools, and vice versa. Local mirror snapshots have a separate lazy
+dependency: an explicit owner-configured root, validated before the existing
+offline content-free snapshot services run. The server shares
 `internal/diagnostic` classifications with CLI errors while MCP and CLI retain
 their transport-specific envelopes.
 
@@ -691,8 +707,8 @@ is absent from the read-only MCP surface.
 
 | extension | what to do |
 |---|---|
-| New document backend (Notion, GitHub Wiki) | Implement `domain.DocStore` in a new `internal/adapter/<name>` package; add a `New<Name>` wiring function in `internal/app/wire.go`. |
-| New issue tracker (Linear, GitLab Issues) | Implement `domain.Tracker` in a new adapter package; wire analogously. |
+| New document backend (Notion, GitHub Wiki) | Implement `domain.DocStore` in a new `internal/adapter/<name>` package; add concrete construction in `internal/compose` and inject the port through `internal/app/wire.go`. |
+| New issue tracker (Linear, GitLab Issues) | Implement `domain.Tracker` in a new adapter package; compose and inject it analogously. |
 | New opaque fragment type (Mermaid, PlantUML) | Add a case in `fragment.Extract`'s `Walk` callback; add a `Resolve` handler in the `AssetResolver` adapter if the fragment renders to a file. |
 | New MCP evidence tool | Add an explicit typed wrapper around an existing read-only app use-case, define hard context bounds, annotate it accurately, and extend the exact inventory/security tests. Do not expose CLI dispatch or raw REST. |
 | OS-keychain auth backend | Replace `loadStore`/`saveStore` in `internal/auth` with a keychain call; `Token` / `Login` / `Logout` signatures stay the same. |

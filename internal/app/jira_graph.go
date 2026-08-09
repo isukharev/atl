@@ -855,10 +855,10 @@ func jiraGraphExactKey(key string) bool {
 }
 
 func jiraGraphConfluenceBase(service *JiraService) string {
-	if service == nil || service.cfg == nil {
+	if service == nil {
 		return ""
 	}
-	return service.cfg.ConfluenceURL
+	return service.confluenceBaseURL
 }
 
 func graphEdgeID(edge domain.ArtifactGraphEdge) string {

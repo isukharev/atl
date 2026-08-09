@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/compose"
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/version"
 )
@@ -25,7 +26,7 @@ func newEnvironmentCmd() *cobra.Command {
 				return err
 			}
 			local, _ := loadLocalFromCwd(cmd.ErrOrStderr())
-			result := app.NewEnvironment(cfg, version.Version).InspectEnvironment(cmd.Context(), local)
+			result := compose.NewEnvironment(cfg, version.Version).InspectEnvironment(cmd.Context(), local)
 			return emit(cmd, result, func() string { return environmentInspectText(result) })
 		},
 	}

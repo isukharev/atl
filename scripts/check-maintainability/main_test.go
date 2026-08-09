@@ -35,15 +35,15 @@ func TestRunReportsPhysicalFileAndFunctionSpans(t *testing.T) {
 	if got.Status != "ok" || got.Timing.Mode != "observe" || got.Timing.Observations != 2 {
 		t.Fatalf("unexpected report: %+v", got)
 	}
-	if len(got.Hotspots) != 20 || len(got.PackageTotals) != 13 {
-		t.Fatalf("hotspots=%d package_totals=%d want 20 and 13", len(got.Hotspots), len(got.PackageTotals))
+	if len(got.Hotspots) != 22 || len(got.PackageTotals) != 14 {
+		t.Fatalf("hotspots=%d package_totals=%d want 22 and 14", len(got.Hotspots), len(got.PackageTotals))
 	}
 	appFile := got.Hotspots[hotspotIndex(t, readFixtureManifest(t, root), "app", "")]
 	appFunction := got.Hotspots[hotspotIndex(t, readFixtureManifest(t, root), "app", "appHotspot")]
 	if appFile.Lines != reviewedLargeFileThreshold || appFunction.Lines != 1 {
 		t.Fatalf("app measurements=%+v %+v want file=%d function=1", appFile, appFunction, reviewedLargeFileThreshold)
 	}
-	if got.ChangeSurface.ProductionFiles != 13 || len(got.ChangeSurface.LargeFiles) != 1 || got.ChangeSurface.LargeFiles[0].Path != "internal/app/a.go" {
+	if got.ChangeSurface.ProductionFiles != 14 || len(got.ChangeSurface.LargeFiles) != 1 || got.ChangeSurface.LargeFiles[0].Path != "internal/app/a.go" {
 		t.Fatalf("unexpected change-surface report: %+v", got.ChangeSurface)
 	}
 }
@@ -332,6 +332,7 @@ func writeMaintainabilityFixture(t *testing.T) string {
 		"internal/adapter/jira/j.go":             "package jira\n\nfunc jiraAdapterHotspot() {}\n",
 		"internal/app/a.go":                      "package app\n\nfunc appHotspot() {}\n" + strings.Repeat("// filler\n", reviewedLargeFileThreshold-3),
 		"internal/cli/c.go":                      "package cli\n\nfunc cliHotspot() {}\n",
+		"internal/compose/c.go":                  "package compose\n\nfunc composeHotspot() {}\n",
 		"internal/contentpolicy/p.go":            "package contentpolicy\n\nfunc policyHotspot() {}\n",
 		"internal/agenteval/e.go":                "package agenteval\n\nfunc evalHotspot() {}\n",
 		"internal/httpx/h.go":                    "package httpx\n\nfunc httpxHotspot() {}\n",
@@ -358,6 +359,8 @@ func writeMaintainabilityFixture(t *testing.T) string {
 			{Owner: "app", Path: "internal/app/a.go", Function: "appHotspot", MaxLines: 5, Rationale: "fixture function"},
 			{Owner: "cli", Path: "internal/cli/c.go", MaxLines: 10, Rationale: "fixture file"},
 			{Owner: "cli", Path: "internal/cli/c.go", Function: "cliHotspot", MaxLines: 5, Rationale: "fixture function"},
+			{Owner: "compose", Path: "internal/compose/c.go", MaxLines: 10, Rationale: "fixture file"},
+			{Owner: "compose", Path: "internal/compose/c.go", Function: "composeHotspot", MaxLines: 5, Rationale: "fixture function"},
 			{Owner: "contentpolicy", Path: "internal/contentpolicy/p.go", MaxLines: 10, Rationale: "fixture file"},
 			{Owner: "contentpolicy", Path: "internal/contentpolicy/p.go", Function: "policyHotspot", MaxLines: 5, Rationale: "fixture function"},
 			{Owner: "evaluator", Path: "internal/agenteval/e.go", MaxLines: 10, Rationale: "fixture file"},
@@ -376,6 +379,7 @@ func writeMaintainabilityFixture(t *testing.T) string {
 			{Owner: "adapter-jira", Path: "internal/adapter/jira/", MaxLines: 10, Rationale: "fixture package"},
 			{Owner: "app", Path: "internal/app/", MaxLines: reviewedLargeFileThreshold, Rationale: "fixture package"},
 			{Owner: "cli", Path: "internal/cli/", MaxLines: 10, Rationale: "fixture package"},
+			{Owner: "compose", Path: "internal/compose/", MaxLines: 10, Rationale: "fixture package"},
 			{Owner: "contentpolicy", Path: "internal/contentpolicy/", MaxLines: 10, Rationale: "fixture package"},
 			{Owner: "evaluator", Path: "internal/agenteval/", MaxLines: 10, Rationale: "fixture package"},
 			{Owner: "httpx", Path: "internal/httpx/", MaxLines: 10, Rationale: "fixture package"},

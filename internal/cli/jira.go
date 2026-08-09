@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/compose"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/mdwiki"
 	"github.com/isukharev/atl/internal/version"
@@ -22,7 +23,7 @@ func jiraService(cmd *cobra.Command) (*app.JiraService, error) {
 	if err != nil {
 		return nil, err
 	}
-	return app.NewJiraWithWriteAuthorizer(cfg, version.Version, authorizer)
+	return compose.NewJiraWithWriteAuthorizer(cfg, version.Version, authorizer)
 }
 
 // wikiBody resolves a Jira body flag pair: raw wiki markup from --from-file,

@@ -6,9 +6,37 @@ import (
 	"strings"
 	"testing"
 
+	confluenceadapter "github.com/isukharev/atl/internal/adapter/confluence"
+	jiraadapter "github.com/isukharev/atl/internal/adapter/jira"
+	"github.com/isukharev/atl/internal/auth"
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/csf"
+	"github.com/isukharev/atl/internal/httpx"
 )
+
+func newIntegrationConfluence(cfg *config.Config) (*ConfluenceService, error) {
+	token, err := auth.Token(auth.Confluence)
+	if err != nil {
+		return nil, err
+	}
+	adapter, err := confluenceadapter.NewWithSchedulerTLS(cfg.ConfluenceURL, token, "integration-test", nil, httpx.TLSOptions{CABundle: cfg.CABundle(config.TransportServiceConfluence)})
+	if err != nil {
+		return nil, err
+	}
+	return NewConfluenceService(ConfluenceDependencies{Store: adapter, Users: adapter.ResolveUser, Assets: adapter, BaseURL: cfg.ConfluenceURL, Verifier: adapter, Config: cfg}), nil
+}
+
+func newIntegrationJira(cfg *config.Config) (*JiraService, error) {
+	token, err := auth.Token(auth.Jira)
+	if err != nil {
+		return nil, err
+	}
+	adapter, err := jiraadapter.NewWithSchedulerTLS(cfg.JiraURL, token, "integration-test", nil, httpx.TLSOptions{CABundle: cfg.CABundle(config.TransportServiceJira)})
+	if err != nil {
+		return nil, err
+	}
+	return NewJiraService(JiraDependencies{Tracker: adapter, Agile: adapter, Structure: adapter, BaseURL: cfg.JiraURL, Config: cfg}), nil
+}
 
 // Integration tests hit a live Confluence/Jira Data Center instance. They are
 // gated on ATL_INTEGRATION=1 plus a PAT, a URL, and a disposable page ID, and
@@ -48,7 +76,7 @@ func TestIntegrationConfluencePullValidateDryRun(t *testing.T) {
 	if cfg.ConfluenceURL == "" {
 		t.Skip("CONFLUENCE_URL not set")
 	}
-	svc, err := NewConfluence(cfg, "integration-test")
+	svc, err := newIntegrationConfluence(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +142,7 @@ func TestIntegrationConfluenceHistory(t *testing.T) {
 	if cfg.ConfluenceURL == "" {
 		t.Skip("CONFLUENCE_URL not set")
 	}
-	svc, err := NewConfluence(cfg, "integration-test")
+	svc, err := newIntegrationConfluence(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +193,7 @@ func TestIntegrationJiraFieldOptions(t *testing.T) {
 	if cfg.JiraURL == "" {
 		t.Skip("JIRA_URL not set")
 	}
-	svc, err := NewJira(cfg, "integration-test")
+	svc, err := newIntegrationJira(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +215,7 @@ func TestIntegrationJiraFieldCatalogSummary(t *testing.T) {
 	if cfg.JiraURL == "" {
 		t.Skip("JIRA_URL not set")
 	}
-	svc, err := NewJira(cfg, "integration-test")
+	svc, err := newIntegrationJira(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

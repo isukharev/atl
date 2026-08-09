@@ -74,6 +74,17 @@ func TestCompatibilityStatusOfflineDoesNotReadRemote(t *testing.T) {
 	}
 }
 
+func TestCompatibilityStatusNormalizesEmptyMissingBackendReason(t *testing.T) {
+	service := NewCompatibilityService(supportedCompatibilitySettings(t), func() (domain.ExactServerMetadataReader, DependencySetupStatus) {
+		return nil, DependencyReady
+	})
+	service.selectDescriptor = syntheticCompatibilitySelector
+	result := service.Status(context.Background(), true)
+	if result.Status != CompatibilityStatusUnavailable || result.Reason != "setup_unavailable" {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
 func TestCompatibilityStatusRemoteExactMatch(t *testing.T) {
 	reader := &compatibilityMetadataReaderStub{metadata: domain.ServerMetadata{
 		Product: domain.ServerProductConfluence, Version: "9.5.2", BuildNumber: "12345",

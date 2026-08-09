@@ -12,6 +12,7 @@ import (
 
 	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/compatibility"
+	"github.com/isukharev/atl/internal/compose"
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
@@ -74,7 +75,7 @@ func confService(cmd *cobra.Command) (*app.ConfluenceService, error) {
 	if err != nil {
 		return nil, err
 	}
-	return app.NewConfluenceWithWriteAuthorizer(cfg, version.Version, authorizer)
+	return compose.NewConfluenceWithWriteAuthorizer(cfg, version.Version, authorizer)
 }
 
 func confCommentMutationService(cmd *cobra.Command) (*app.ConfluenceService, error) {
@@ -93,7 +94,7 @@ func confCommentMutationService(cmd *cobra.Command) (*app.ConfluenceService, err
 	if err != nil {
 		return nil, err
 	}
-	return app.NewConfluenceCommentMutationsWithWriteAuthorizer(cfg, version.Version, *settings.Confluence, authorizer)
+	return compose.NewConfluenceCommentMutationsWithWriteAuthorizer(cfg, version.Version, *settings.Confluence, authorizer)
 }
 
 func confScheduledService(cmd *cobra.Command, pagePrefetch, requestsPerSecond int) (*app.ConfluenceService, error) {
@@ -105,7 +106,7 @@ func confScheduledService(cmd *cobra.Command, pagePrefetch, requestsPerSecond in
 	if err != nil {
 		return nil, err
 	}
-	return app.NewConfluenceScheduledWithWriteAuthorizer(cfg, version.Version, pagePrefetch, requestsPerSecond, authorizer)
+	return compose.NewConfluenceScheduledWithWriteAuthorizer(cfg, version.Version, pagePrefetch, requestsPerSecond, authorizer)
 }
 
 func newConfCmd() *cobra.Command {
