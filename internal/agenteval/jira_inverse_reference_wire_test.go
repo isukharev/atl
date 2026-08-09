@@ -119,9 +119,7 @@ func TestDecodeJiraInverseReferenceViewRejectsDuplicateNullMissingAndOversize(t 
 	if _, err := DecodeJiraInverseReferenceView(strings.NewReader(valid + strings.Repeat(" ", maxContractBytes))); err == nil {
 		t.Fatal("inverse-reference decoder admitted oversized wire")
 	}
-}
 
-func TestDecodeJiraInverseReferenceViewEnforcesReleasedFieldBound(t *testing.T) {
 	fields := make([]any, jiraInverseReferenceMaxFields)
 	for index := range fields {
 		fields[index] = fmt.Sprintf("customfield_%03d", index)
