@@ -53,8 +53,8 @@ func TestATLCoreProfileAdmitsCommittedSyntheticCorpus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(paths) != 222 {
-		t.Fatalf("committed run specs=%d, want 222", len(paths))
+	if len(paths) != 226 {
+		t.Fatalf("committed run specs=%d, want 226", len(paths))
 	}
 	identities := make(map[core.PlanID]string, len(paths))
 	for _, path := range paths {

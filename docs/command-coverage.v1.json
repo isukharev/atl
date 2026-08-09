@@ -72,6 +72,7 @@
     {"id":"jira-data-users","document":"docs/reference/cli/jira-data.md","evidence":"## `atl jira me` / `atl jira user {search,get}`","commands":["jira me","jira user get","jira user search"]},
     {"id":"jira-epic-digest","document":"docs/reference/cli/jira-issues.md","evidence":"## `atl jira epic digest`","commands":["jira epic digest"]},
     {"id":"jira-graph-graph","document":"docs/reference/cli/jira-graph.md","evidence":"## `atl jira issue graph`","commands":["jira issue graph"]},
+    {"id":"jira-graph-reference-search","document":"docs/reference/cli/jira-graph.md","evidence":"## `atl jira issue reference search`","commands":["jira issue reference search"]},
     {"id":"jira-graph-refs","document":"docs/reference/cli/jira-graph.md","evidence":"## `atl jira issue refs`","commands":["jira issue refs"]},
     {"id":"jira-graph-tree","document":"docs/reference/cli/jira-graph.md","evidence":"## `atl jira issue tree`","commands":["jira issue tree"]},
     {"id":"jira-issue-assign","document":"docs/reference/cli/jira-issues.md","evidence":"## `atl jira issue assign`","safety_document":"docs/safe-writes.md","safety_evidence":"## Pre-write checklist","commands":["jira issue assign"]},

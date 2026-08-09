@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "target": {
+    "kind": "gitlab_project",
+    "opaque_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "mode": "exhaustive",
+  "sources": [
+    "development"
+  ],
+  "effective_field_ids": [],
+  "target_resolution": {
+    "complete": true
+  },
+  "selection": {
+    "complete": true
+  },
+  "verification": {
+    "complete": true
+  },
+  "counts": {
+    "selected_issues": 1,
+    "candidate_issues": 1,
+    "scanned_issues": 2,
+    "verified_issues": 1,
+    "matched_issues": 1,
+    "matches": 1
+  },
+  "source_counts": [
+    {
+      "source": "development",
+      "complete": 1,
+      "empty": 0,
+      "partial": 0,
+      "forbidden": 0,
+      "unsupported": 0,
+      "skipped": 0,
+      "total": 1,
+      "reconciled": true,
+      "reasons": []
+    }
+  ],
+  "matches": [
+    {
+      "issue_key": "IR-41",
+      "relation": "development_association",
+      "direction": "issue_to_target",
+      "source": "development",
+      "stability": "experimental_api",
+      "confidence": "exact",
+      "complete": true
+    }
+  ],
+  "frontier": {
+    "phase": "complete",
+    "verified_issues": 1
+  },
+  "reconciliation": {
+    "counts": true,
+    "sources": true,
+    "matches": true,
+    "usage": true
+  },
+  "usage": {
+    "max_issues": 10,
+    "max_requests": 10,
+    "requests": 4,
+    "max_response_bytes": 65536,
+    "response_bytes": 1024,
+    "reconciled": true
+  },
+  "complete": true,
+  "absence_proven": false
+}

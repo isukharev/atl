@@ -15,7 +15,7 @@ import (
 
 func jiraIssueCmd() *cobra.Command {
 	c := &cobra.Command{Use: "issue", Short: "Issue operations"}
-	c.AddCommand(jiraIssueTypesCmd(), jiraIssueCreateCheckCmd())
+	c.AddCommand(jiraIssueTypesCmd(), jiraIssueCreateCheckCmd(), jiraIssueInverseReferenceCmd())
 
 	var fields string
 	get := &cobra.Command{

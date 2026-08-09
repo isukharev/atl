@@ -193,14 +193,48 @@ func NewJiraWithWriteAuthorizer(cfg *config.Config, version string, authorizer d
 	if err != nil {
 		return nil, err
 	}
+	confluenceBaseURL := qualifiedConfluenceBaseURL(cfg)
 	return app.NewJiraService(app.JiraDependencies{
 		Tracker: j, Agile: j, Structure: j, BaseURL: cfg.JiraURL, Config: cfg,
-		ConfluenceBaseURL: cfg.ConfluenceURL,
+		ConfluenceBaseURL: confluenceBaseURL,
 		ConfluenceGraphFactory: func() (domain.ConfluenceGraphPageMetadataReader, string) {
 			return optionalConfluenceGraphRead(cfg, version, resolved)
 		},
+		ConfluenceReferenceFactory: func() (app.ConfluencePageReferenceResolver, app.DependencySetupStatus) {
+			return optionalConfluenceReferenceResolver(cfg, version, resolved)
+		},
 		WriteAuthorizer: authorizer,
 	}), nil
+}
+
+func qualifiedConfluenceBaseURL(cfg *config.Config) string {
+	if cfg == nil || config.CheckSecureURL(cfg.ConfluenceURL) != nil {
+		return ""
+	}
+	return cfg.ConfluenceURL
+}
+
+func optionalConfluenceReferenceResolver(cfg *config.Config, version string, resolved options) (app.ConfluencePageReferenceResolver, app.DependencySetupStatus) {
+	if cfg == nil || cfg.ConfluenceURL == "" {
+		return nil, app.DependencyNotConfigured
+	}
+	if err := config.CheckSecureURL(cfg.ConfluenceURL); err != nil {
+		return nil, app.DependencyInvalidConfiguration
+	}
+	token, err := auth.Token(auth.Confluence)
+	if err != nil {
+		if errors.Is(err, auth.ErrNoToken) {
+			return nil, app.DependencyCredentialsMissing
+		}
+		return nil, app.DependencyCredentialsUnavailable
+	}
+	reader, err := confluenceadapter.NewWithSchedulerTLS(cfg.ConfluenceURL, token, version, nil, confluenceTLSOptions(cfg), confluenceOptions(nil, resolved)...)
+	if err != nil {
+		return nil, app.DependencyInvalidConfiguration
+	}
+	return app.NewConfluenceService(app.ConfluenceDependencies{
+		Store: reader, BaseURL: cfg.ConfluenceURL, Config: cfg,
+	}), app.DependencyReady
 }
 
 func optionalConfluenceGraphRead(cfg *config.Config, version string, resolved options) (domain.ConfluenceGraphPageMetadataReader, string) {

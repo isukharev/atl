@@ -82,39 +82,53 @@ func NewConfluenceService(deps ConfluenceDependencies) *ConfluenceService {
 
 // JiraService bundles Jira use-cases over domain ports.
 type JiraService struct {
-	tr                     domain.Tracker
-	agile                  domain.Agile
-	structure              domain.StructureReader
-	baseURL                string
-	cfg                    *config.Config
-	confluenceBaseURL      string
-	graphConfluence        domain.ConfluenceGraphPageMetadataReader
-	graphConfluenceFactory func() (domain.ConfluenceGraphPageMetadataReader, string)
-	graphConfluenceOnce    sync.Once
-	graphConfluenceReason  string
-	writeAuthorizer        domain.WriteAuthorizer
+	tr                       domain.Tracker
+	agile                    domain.Agile
+	structure                domain.StructureReader
+	baseURL                  string
+	cfg                      *config.Config
+	confluenceBaseURL        string
+	graphConfluence          domain.ConfluenceGraphPageMetadataReader
+	graphConfluenceFactory   func() (domain.ConfluenceGraphPageMetadataReader, string)
+	graphConfluenceOnce      sync.Once
+	graphConfluenceReason    string
+	inverseConfluenceBaseURL string
+	inverseConfluence        ConfluencePageReferenceResolver
+	inverseConfluenceFactory func() (ConfluencePageReferenceResolver, string)
+	inverseConfluenceOnce    sync.Once
+	inverseConfluenceReason  string
+	writeAuthorizer          domain.WriteAuthorizer
 }
 
 // JiraDependencies contains only qualified transport-neutral ports.
 type JiraDependencies struct {
-	Tracker                domain.Tracker
-	Agile                  domain.Agile
-	Structure              domain.StructureReader
-	BaseURL                string
-	Config                 *config.Config
-	ConfluenceBaseURL      string
-	ConfluenceGraphFactory func() (domain.ConfluenceGraphPageMetadataReader, string)
-	WriteAuthorizer        domain.WriteAuthorizer
+	Tracker                    domain.Tracker
+	Agile                      domain.Agile
+	Structure                  domain.StructureReader
+	BaseURL                    string
+	Config                     *config.Config
+	ConfluenceBaseURL          string
+	ConfluenceGraphFactory     func() (domain.ConfluenceGraphPageMetadataReader, string)
+	ConfluenceReferenceFactory func() (ConfluencePageReferenceResolver, DependencySetupStatus)
+	WriteAuthorizer            domain.WriteAuthorizer
 }
 
 // NewJiraService is a pure constructor from domain ports.
 func NewJiraService(deps JiraDependencies) *JiraService {
-	return &JiraService{
+	service := &JiraService{
 		tr: deps.Tracker, agile: deps.Agile, structure: deps.Structure,
 		baseURL: deps.BaseURL, cfg: deps.Config, confluenceBaseURL: deps.ConfluenceBaseURL,
-		graphConfluenceFactory: deps.ConfluenceGraphFactory,
-		writeAuthorizer:        deps.WriteAuthorizer,
+		graphConfluenceFactory:   deps.ConfluenceGraphFactory,
+		inverseConfluenceBaseURL: deps.ConfluenceBaseURL,
+		writeAuthorizer:          deps.WriteAuthorizer,
 	}
+	if deps.ConfluenceReferenceFactory != nil {
+		service.inverseConfluenceFactory = func() (ConfluencePageReferenceResolver, string) {
+			resolver, status := deps.ConfluenceReferenceFactory()
+			return resolver, string(status)
+		}
+	}
+	return service
 }
 
 func (s *JiraService) confluenceGraphMetadataReader() (domain.ConfluenceGraphPageMetadataReader, string) {

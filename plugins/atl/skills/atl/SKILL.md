@@ -47,13 +47,14 @@ loading broad command references:
 atl capabilities --task jira/evidence
 atl capabilities --task jira/setup
 atl capabilities --task jira/graph-evidence
+atl capabilities --task jira/inverse-reference
 atl capabilities --task confluence/comments
 ```
 
 The closed task classes are `confluence/comments`, `confluence/edit`,
 `confluence/evidence`, `confluence/mirror`, `confluence/table-analytics`,
 `jira/batch-analysis`, `jira/board-portfolio`, `jira/edit`, `jira/evidence`,
-`jira/graph-evidence`, `jira/mirror`, `jira/portfolio`, `jira/setup`,
+`jira/graph-evidence`, `jira/inverse-reference`, `jira/mirror`, `jira/portfolio`, `jira/setup`,
 `jira/structure-planning`, and `knowledge/search`. The result is a small ordered set
 of stable capability ids with the real command path, backend access class,
 supported output modes, evidence/completeness semantics, and one focused skill
@@ -357,6 +358,11 @@ identities that never trigger GitLab requests; MCP requires explicit
 stable request and output profile when omitted or false; compact selects only
 canonical URL-node identities and/or SCM coordinates while retaining bounds,
 incomplete sources, frontier, warnings, and reconciliation;
+CLI-only `jira issue reference search` starts from one exact GitLab project or
+Confluence page and scans an explicit caller-qualified Jira scope and source
+set under explicit bounds; exhaustive mode alone can prove absence, fast mode
+is always incomplete, strict mode emits its content-free qualified result
+before exit 8, and neither GitLab nor discovered URLs are requested;
 check/attachments/refs/tree. For a report
 or quarter review, route through the Jira skill's one-hop
 `reference/evidence-workflow.md` and stop once sufficient complete evidence is

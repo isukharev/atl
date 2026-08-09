@@ -30,8 +30,8 @@
     {"name":"scenario","readable":[1],"emitted":[1],"executable":[1]}
   ],
   "corpus_versions": [
-    {"artifact":"scenario","version":1,"count":109},
-    {"artifact":"run_spec","version":6,"count":214},
+    {"artifact":"scenario","version":1,"count":111},
+    {"artifact":"run_spec","version":6,"count":218},
     {"artifact":"run_spec","version":7,"count":8}
   ],
   "pair_identity": {
@@ -69,6 +69,7 @@
       {"primary":"jira-board-pagination-mcp","run_file_set":"mcp","scenario_exceptions":["budgets"]},
       {"primary":"jira-history-summary","run_file_set":"cli","scenario_exceptions":["required_checks","required_semantic_checks","budgets"]},
       {"primary":"jira-history-summary-mcp","run_file_set":"mcp","scenario_exceptions":["budgets"]},
+      {"primary":"jira-inverse-reference-search","run_file_set":"cli","scenario_exceptions":["required_checks","budgets"]},
       {"primary":"jira-meeting-tasks-workflow","run_file_set":"cli","scenario_exceptions":["required_checks","required_semantic_checks","budgets"]},
       {"primary":"jira-mirror-snapshot-mcp","run_file_set":"mcp"},
       {"primary":"jira-paginated-search-mcp","run_file_set":"mcp","scenario_exceptions":["budgets"]},

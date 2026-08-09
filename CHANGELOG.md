@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a shared schema-v1 compact projection for `jira issue graph` CLI and
   MCP output, preserving qualification while selecting safe URL or SCM facts;
   omitted full output remains compatible.
+- Added CLI-only bounded inverse-reference search from one GitLab project or
+  Confluence page into a caller-qualified Jira scope, with explicit source
+  qualification, transport budgets, and exhaustive absence proof.
 
 ### Fixed
 

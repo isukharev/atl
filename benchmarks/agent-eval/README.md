@@ -175,6 +175,14 @@ one execution variant while retaining distinct scenario, prompt, fixture, and
 task-contract identities, so attested n=3-plus-holdout sampling can compare
 like with like.
 
+The Jira inverse-reference primary (`n=3`) proves one content-free Development
+match through two identical terminal `ORDER BY key ASC` selection passes; the
+intentional second pass is the cohort's single admitted duplicate request. Its
+strict fast holdout (`n=1`) resolves a numeric Confluence page offline, retains
+the qualified exit-8 JSON, and does not convert a verified no-match into proof
+of absence. Both cohorts are GET-only, selected-binary CLI-skill cases with no
+GitLab or Confluence traffic and a byte-identical closed answer schema.
+
 The Jira status-report and sprint-dashboard workflow families exercise their
 named shipped skills end to end on the CLI surface. Each pairs frozen Codex
 Luna/high and Claude Code Opus/high runs at primary `n=3` with a distinct
@@ -291,6 +299,8 @@ The realistic matrix currently contains:
 | surface native | `jira-history-summary-mcp-holdout` | distinct unfiltered incomplete changelog with non-comparable ordering and id-first buckets through the same one-call contract |
 | surface native | `jira-reference-summary-mcp` | one bounded typed issue-reference summary with exact source qualification, kind buckets, reconciliation, and no raw URLs or narrative |
 | surface native | `jira-reference-summary-mcp-holdout` | distinct capped JQL selection with cross-issue counts and the same one-call closed projection |
+| surface native | `jira-inverse-reference-search` | exhaustive content-free Development match through two identical ordered Jira selection passes |
+| surface native | `jira-inverse-reference-search-holdout` | strict fast no-match with retained qualified JSON, offline numeric Confluence resolution, and no absence overclaim |
 | surface native | `jira-status-report-workflow` | named workflow skill synthesis across three bounded sources with fact/interpretation separation and partial-evidence qualification |
 | surface native | `jira-status-report-workflow-holdout` | distinct source topology whose risk slice remains partial without becoming an absence or green claim |
 | surface native | `jira-sprint-dashboard-workflow` | named workflow skill over active-sprint membership with two-page order and deterministic status, attention, and load rollups |

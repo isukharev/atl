@@ -21,6 +21,59 @@ exact owner-approved lowercase host equality and a separately authenticated
 read-only client, never Jira credentials. Use the CLI graph route for optional
 id/title-only Confluence resolution.
 
+## Inverse-reference search
+
+The `jira/inverse-reference` capability starts from one exact GitLab project or
+Confluence page and returns referring issues inside an explicit Jira scope. It
+is CLI-only and has no typed MCP counterpart. Run one bounded JSON command:
+
+```bash
+export ATL_READ_ONLY=1
+atl jira issue reference search \
+  --target 'https://gitlab.example.test/platform/widget' \
+  --target-kind gitlab-project \
+  --scope-jql 'project = DEMO' \
+  --mode exhaustive \
+  --sources description,comments,remote-links,development \
+  --max-issues 100 \
+  --max-requests 1000 \
+  --max-response-bytes 16777216 \
+  --strict
+```
+
+Every invocation must supply `--target`, `--target-kind
+gitlab-project|confluence-page`, a caller-qualified `--scope-jql` without
+`ORDER BY`, `--mode exhaustive|fast`, repeat/comma `--sources`, and all three
+positive bounds. Sources are `description`, `fields`, `comments`,
+`remote-links`, `worklogs`, `development`, and `properties`. Selecting
+`fields` requires one or more exact technical ids in `--fields`; supplying
+field ids without that source is invalid. Hard maxima are 2048 target bytes,
+16384 JQL bytes, 128 field ids, 5000 issues, 25000 requests, and 268435456
+response bytes.
+
+Use `exhaustive` for an absence question. Its two terminal key-ordered scope
+passes must reconcile to the same issue set, after which every requested source
+is verified for every issue. This detects selection drift but does not create
+an atomic Jira snapshot. Only `complete:true` and `absence_proven:true` prove
+zero matches. Fast mode is target-derived discovery and always returns
+`selection.complete:false`. An otherwise normally terminal narrowed pass uses
+`reason:"mode_fast"`; any concrete selection failure retains its own closed
+reason.
+
+Use the default JSON for reasoning. It emits only an opaque target id,
+normalized selectors, phase/source qualification, content-free match facts,
+frontier, reconciliation, and usage. It omits the target, JQL, URLs, titles,
+source values, property keys, identities, and backend errors. `--strict` emits
+that same result before exit 8 when incomplete; retain it. Text is only a match
+table and cannot prove absence; id output is unsupported.
+
+Matching happens locally after bounded Jira reads. ATL never contacts GitLab
+or dereferences any discovered URL. A caller-supplied Confluence display or
+short target may use the configured Confluence resolver under the shared
+single-attempt budget; ids and direct id-bearing URLs resolve offline.
+Confluence values found in Jira match only direct same-origin id-bearing links,
+not display/short URLs, and no page body or backlink query is made.
+
 | Command | What it does | Key flags |
 |---|---|---|
 | `jira project list` | List visible projects with explicit local completeness | `--include-archived`, `--limit` 1..1000, `-o text/id` |
@@ -51,6 +104,7 @@ id/title-only Confluence resolution.
 | `jira issue worklog add <KEY>` | Baseline-bound one-entry time preview/apply | `--time`, optional `--started`, `--from-file`; review `baseline_sha256`; `--apply`, `--expected-proposal-hash` |
 | `jira issue history <KEY>` | Qualified changelog with deterministic `summary`; inspect `complete`, separate missing/non-empty-id identity facts, summary consistency, and `last_changes` | repeat `--field`; `--since`, `--until`; `--summary-only` omits raw history and rejects explicit false |
 | `jira issue graph <KEY>` | Full schema-v2 or compact schema-v1 bounded graph with metadata-reconciled fields; depth zero is direct, while greater depths follow only exact structured Jira relations; optional phases resolve discovered Confluence id/title metadata or collect fail-closed Jira Development coordinates | `--projection full|compact`; repeat/comma `--select urls|scm|none` for compact JSON; `scm` requires `--include-development`; `--depth` 0..3, `--resolve none|confluence`, node/edge/evidence/request/byte limits, `--strict`; Development is experimental and never fetched from GitLab |
+| `jira issue reference search` | CLI-only content-free search from one exact GitLab project or Confluence page into a caller-qualified Jira scope; source-qualified fast discovery or exhaustive absence proof | required `--target`, `--target-kind`, `--scope-jql`, `--mode`, `--sources`, `--max-issues`, `--max-requests`, `--max-response-bytes`; exact `--fields` iff fields source; optional `--strict` |
 | `jira issue refs [KEY]` | Extract provenance-qualified artifact references with reconciled per-issue/top-level aggregates; field ids or exact names; JQL adds one complete comment listing per issue | `--jql`, `--fields`, aggregate `--limit` (0 all, negative invalid) |
 | `jira issue tree` | Build read-only epic-to-child grouping | `--jql`, `--epic-field`, `--fields`, aggregate `--limit` (0 all, negative invalid) |
 | `jira issue comment preview <KEY>` | GET-only baseline-bound append proposal | `--from-md`, `--from-file`; inspect body/baseline/proposal hashes |

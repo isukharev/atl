@@ -1,13 +1,23 @@
 package jira
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/isukharev/atl/internal/domain"
+)
+
+const (
+	jiraRemoteLinkMaxObjectURLBytes       = 2048
+	jiraRemoteLinkMaxGlobalIDBytes        = 2048
+	jiraRemoteLinkMaxApplicationTypeBytes = 256
 )
 
 // ReadIssueSnapshot fetches all fields, properties, names, and schemas in one
@@ -50,11 +60,13 @@ func (j *Jira) ReadIssueSnapshot(ctx context.Context, key string) (*domain.Quali
 // endpoint. URL safety and graph identity normalization remain app concerns.
 func (j *Jira) ReadIssueRemoteLinks(ctx context.Context, key string) (domain.JiraRemoteLinkInventory, error) {
 	var response []struct {
-		ID           string `json:"id"`
-		Relationship string `json:"relationship"`
+		ID           string          `json:"id"`
+		GlobalID     json.RawMessage `json:"globalId"`
+		Relationship string          `json:"relationship"`
+		Application  json.RawMessage `json:"application"`
 		Object       struct {
-			URL   string `json:"url"`
-			Title string `json:"title"`
+			URL   json.RawMessage `json:"url"`
+			Title string          `json:"title"`
 		} `json:"object"`
 	}
 	path := "/rest/api/2/issue/" + url.PathEscape(strings.TrimSpace(key)) + "/remotelink"
@@ -67,21 +79,76 @@ func (j *Jira) ReadIssueRemoteLinks(ctx context.Context, key string) (domain.Jir
 	out := domain.JiraRemoteLinkInventory{Links: []domain.JiraRemoteLink{}, Total: len(response)}
 	seen := make(map[string]bool, len(response))
 	for _, link := range response {
-		parsed, err := url.Parse(link.Object.URL)
+		objectURL, objectURLOK := decodeJiraRemoteLinkMetadata(link.Object.URL)
+		globalID, globalIDOK := decodeJiraRemoteLinkMetadata(link.GlobalID)
+		applicationType, applicationTypeOK := decodeJiraRemoteLinkApplicationType(link.Application)
+		parsed, err := url.Parse(objectURL)
 		numericID, idErr := strconv.ParseInt(link.ID, 10, 64)
 		if idErr != nil || numericID <= 0 || seen[link.ID] || err != nil ||
 			(parsed.Scheme != "http" && parsed.Scheme != "https") ||
-			parsed.Hostname() == "" || parsed.User != nil {
+			parsed.Hostname() == "" || parsed.User != nil ||
+			!objectURLOK || !globalIDOK || !applicationTypeOK ||
+			!validJiraRemoteLinkMetadata(objectURL, jiraRemoteLinkMaxObjectURLBytes) ||
+			!validJiraRemoteLinkMetadata(globalID, jiraRemoteLinkMaxGlobalIDBytes) ||
+			!validJiraRemoteLinkMetadata(applicationType, jiraRemoteLinkMaxApplicationTypeBytes) {
 			out.Unsupported++
 			continue
 		}
 		seen[link.ID] = true
 		out.Links = append(out.Links, domain.JiraRemoteLink{
-			ID:           link.ID,
-			Relationship: link.Relationship,
-			ObjectURL:    link.Object.URL,
-			ObjectTitle:  link.Object.Title,
+			ID:              link.ID,
+			Relationship:    link.Relationship,
+			ObjectURL:       objectURL,
+			ObjectTitle:     link.Object.Title,
+			GlobalID:        globalID,
+			ApplicationType: applicationType,
 		})
 	}
 	return out, nil
+}
+
+// decodeJiraRemoteLinkMetadata keeps malformed metadata local to its row. Raw
+// JSON is checked before Go's JSON decoder can replace invalid UTF-8 bytes.
+func decodeJiraRemoteLinkMetadata(raw json.RawMessage) (string, bool) {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return "", true
+	}
+	if !utf8.Valid(raw) {
+		return "", false
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil || !utf8.ValidString(value) {
+		return "", false
+	}
+	return value, true
+}
+
+func decodeJiraRemoteLinkApplicationType(raw json.RawMessage) (string, bool) {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return "", true
+	}
+	if !utf8.Valid(raw) {
+		return "", false
+	}
+	var application struct {
+		Type json.RawMessage `json:"type"`
+	}
+	if err := json.Unmarshal(raw, &application); err != nil {
+		return "", false
+	}
+	return decodeJiraRemoteLinkMetadata(application.Type)
+}
+
+// validJiraRemoteLinkMetadata admits omitted optional metadata while keeping
+// populated URL and identity values bounded and safe for graph processing.
+func validJiraRemoteLinkMetadata(value string, maxBytes int) bool {
+	if len(value) > maxBytes || !utf8.ValidString(value) {
+		return false
+	}
+	for _, r := range value {
+		if unicode.IsControl(r) || r == utf8.RuneError {
+			return false
+		}
+	}
+	return true
 }

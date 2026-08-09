@@ -285,6 +285,7 @@ R json,text jira issue link suggest
 M remote-direct update jira-two-issue-args - json jira issue link-epic
 M plan update jira-plan apply,confirm command generic json,text jira issue plan apply
 R json,text jira issue refs
+R json,text jira issue reference search
 R json,text,id jira issue search
 M preview-apply transition,comment? jira-issue-arg apply,expected-proposal-hash command generic json,text jira issue transition
 R json,text jira issue transition preview

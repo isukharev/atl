@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "id": "jira.synthetic-inverse-reference-search-holdout-v1",
+  "category": "surface-native",
+  "task_class": "jira/inverse-reference",
+  "description": "Preserve the qualified content-free result and false absence decision from one strict fast Jira inverse-reference search.",
+  "data_class": "synthetic",
+  "required_capabilities": ["jira.issue.reference.search"],
+  "required_checks": ["absence_correct", "complete_correct", "counts_correct", "error_contracts", "exit_codes", "expected_fail_closed", "frontier_correct", "guard_clean", "http_exact", "matches_correct", "mock_clean", "no_delegation", "privacy_correct", "reconciliation_correct", "selection_correct", "source_counts_correct", "target_correct", "used_atl", "used_atl_twice", "used_skill", "usage_correct", "verification_correct"],
+  "required_semantic_checks": ["absence_correct", "complete_correct", "counts_correct", "frontier_correct", "matches_correct", "privacy_correct", "reconciliation_correct", "selection_correct", "source_counts_correct", "target_correct", "usage_correct", "verification_correct"],
+  "required_metrics": ["agent_turns", "tool_calls", "atl_invocations", "delegations", "backend_requests", "duplicate_backend_requests", "output_bytes", "input_tokens", "output_tokens", "main_thread_input_tokens", "main_thread_output_tokens", "estimated_cost_microusd", "duration_millis", "capability_families"],
+  "budgets": {
+    "max_agent_turns": 8,
+    "max_tool_calls": 4,
+    "max_atl_invocations": 2,
+    "max_delegations": 0,
+    "max_backend_requests": 2,
+    "max_duplicate_backend_requests": 0,
+    "max_remote_writes": 0,
+    "max_output_bytes": 32768,
+    "max_input_tokens": 180000,
+    "max_output_tokens": 6000,
+    "max_main_thread_input_tokens": 180000,
+    "max_main_thread_output_tokens": 6000,
+    "max_estimated_cost_microusd": 5000000,
+    "max_duration_millis": 300000,
+    "allowed_http_methods": ["GET"]
+  }
+}

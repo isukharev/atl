@@ -40,6 +40,19 @@ func TestIssueWorklogsListPaginatesAndSanitizesAuthors(t *testing.T) {
 	}
 }
 
+func TestIssueWorklogsListPreservesValidEmptyCollection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"startAt":0,"total":0,"worklogs":[]}`)
+	}))
+	t.Cleanup(server.Close)
+
+	result, err := newTestJira(server).ListIssueWorklogs(context.Background(), "PROJ-1")
+	if err != nil || result == nil || !result.Complete || result.Total != 0 || result.Worklogs == nil || len(result.Worklogs) != 0 {
+		t.Fatalf("result=%+v error=%v, want complete non-nil empty collection", result, err)
+	}
+}
+
 func containsBytes(data []byte, value string) bool {
 	for start := 0; start+len(value) <= len(data); start++ {
 		if string(data[start:start+len(value)]) == value {
@@ -56,6 +69,10 @@ func TestIssueWorklogsListFailsClosedOnPaginationAnomalies(t *testing.T) {
 		wantMessage string
 	}{
 		{"missing total", `{"startAt":0,"worklogs":[]}`, "omitted total"},
+		{"missing startAt", `{"total":0,"worklogs":[]}`, "omitted startAt"},
+		{"null startAt", `{"startAt":null,"total":0,"worklogs":[]}`, "omitted startAt"},
+		{"missing worklogs", `{"startAt":0,"total":0}`, "omitted or nullified worklogs"},
+		{"null worklogs", `{"startAt":0,"total":0,"worklogs":null}`, "omitted or nullified worklogs"},
 		{"negative total", `{"startAt":0,"total":-1,"worklogs":[]}`, "invalid pagination"},
 		{"wrong offset", `{"startAt":1,"total":1,"worklogs":[]}`, "invalid pagination"},
 		{"empty incomplete", `{"startAt":0,"total":1,"worklogs":[]}`, "empty incomplete page"},

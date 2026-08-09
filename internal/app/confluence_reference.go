@@ -120,7 +120,9 @@ func (s *ConfluenceService) resolvePageReference(ctx context.Context, reference 
 }
 
 func sameConfluenceOrigin(base, candidate *url.URL) bool {
-	return strings.EqualFold(base.Scheme, candidate.Scheme) && strings.EqualFold(base.Host, candidate.Host)
+	return strings.EqualFold(base.Scheme, candidate.Scheme) &&
+		strings.EqualFold(base.Hostname(), candidate.Hostname()) &&
+		effectiveURLPort(base) == effectiveURLPort(candidate)
 }
 
 func confluenceReferencePath(base, reference *url.URL, absolute bool) (string, bool) {

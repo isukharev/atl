@@ -131,3 +131,20 @@ func TestOptionalCompositionKeepsClosedSiblingStatuses(t *testing.T) {
 		t.Fatalf("compatibility status=%+v", status)
 	}
 }
+
+func TestQualifiedConfluenceBaseURLAppliesTransportPolicy(t *testing.T) {
+	t.Setenv("ATL_ALLOW_INSECURE", "")
+	if got := qualifiedConfluenceBaseURL(&config.Config{ConfluenceURL: "http://confluence.example.com"}); got != "" {
+		t.Fatalf("insecure Confluence base URL=%q", got)
+	}
+	if got := qualifiedConfluenceBaseURL(&config.Config{ConfluenceURL: "https://confluence.example.com/wiki"}); got != "https://confluence.example.com/wiki" {
+		t.Fatalf("secure Confluence base URL=%q", got)
+	}
+	if got := qualifiedConfluenceBaseURL(&config.Config{ConfluenceURL: "http://127.0.0.1:8090/wiki"}); got != "http://127.0.0.1:8090/wiki" {
+		t.Fatalf("loopback Confluence base URL=%q", got)
+	}
+	t.Setenv("ATL_ALLOW_INSECURE", "1")
+	if got := qualifiedConfluenceBaseURL(&config.Config{ConfluenceURL: "http://confluence.example.com/wiki"}); got != "http://confluence.example.com/wiki" {
+		t.Fatalf("trusted Confluence base URL=%q", got)
+	}
+}

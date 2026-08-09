@@ -16,17 +16,18 @@ import (
 
 func TestJiraPaginationOwnerInventoryIsClosed(t *testing.T) {
 	want := map[string][]string{
-		"agile.go:Boards":                         {"agileNext", "requestStartAt"},
-		"agile.go:SprintIssues":                   {"agileNext", "requestStartAt"},
-		"agile.go:Sprints":                        {"agileNext", "requestStartAt"},
-		"agile.go:agileNext":                      {"advance", "matches", "requested", "requested", "requested", "requested"},
-		"agile.go:boardIssuePage":                 {"agileNext", "requestStartAt"},
-		"create_metadata.go:readCreateFields":     {"advance", "matches", "requestStartAt", "requested", "requested"},
-		"create_metadata.go:readCreateIssueTypes": {"advance", "matches", "requestStartAt", "requested", "requested"},
-		"jira.go:CompleteChangelog":               {"advance", "matches", "requestStartAt", "requested", "requested", "requested"},
-		"jira.go:ListComments":                    {"advance", "matches", "requestStartAt", "requested", "requested", "requested", "requested", "requested", "requested"},
-		"jira.go:searchPage":                      {"advance", "matches", "requestStartAt"},
-		"worklogs.go:ListIssueWorklogs":           {"advance", "matches", "requestStartAt", "requested", "requested", "requested", "requested", "requested", "requested"},
+		"agile.go:Boards":                                 {"agileNext", "requestStartAt"},
+		"agile.go:SprintIssues":                           {"agileNext", "requestStartAt"},
+		"agile.go:Sprints":                                {"agileNext", "requestStartAt"},
+		"agile.go:agileNext":                              {"advance", "matches", "requested", "requested", "requested", "requested"},
+		"agile.go:boardIssuePage":                         {"agileNext", "requestStartAt"},
+		"create_metadata.go:readCreateFields":             {"advance", "matches", "requestStartAt", "requested", "requested"},
+		"create_metadata.go:readCreateIssueTypes":         {"advance", "matches", "requestStartAt", "requested", "requested"},
+		"inverse_reference.go:SelectInverseReferencePage": {"requestStartAt"},
+		"jira.go:CompleteChangelog":                       {"advance", "matches", "requestStartAt", "requested", "requested", "requested"},
+		"jira.go:ListComments":                            {"advance", "matches", "requestStartAt", "requested", "requested", "requested", "requested", "requested", "requested", "requested", "requested", "requested", "requested"},
+		"jira.go:searchPage":                              {"advance", "matches", "requestStartAt"},
+		"worklogs.go:ListIssueWorklogs":                   {"advance", "matches", "requestStartAt", "requested", "requested", "requested", "requested", "requested", "requested", "requested", "requested"},
 	}
 	trackedSelectors := map[string]bool{"advance": true, "matches": true, "requested": true}
 	got := map[string][]string{}
@@ -123,7 +124,6 @@ development.go:decodeDevelopmentSummary:range:2
 development.go:decodeDevelopmentSummary:range:3
 development.go:developmentCategoryCounts:range:1
 development.go:developmentMapCount:range:1
-development.go:developmentProjectFromEscaped:range:1
 development.go:normalized:range:1
 development.go:normalized:range:2
 development.go:normalized:range:3
@@ -133,6 +133,13 @@ development.go:parseDevelopmentArtifact:range:1
 development.go:parseDevelopmentArtifact:range:2
 development.go:validDevelopmentBranch:range:1
 graph.go:ReadIssueRemoteLinks:range:1
+graph.go:validJiraRemoteLinkMetadata:range:1
+inverse_reference.go:ReadInverseReferenceSnapshot:range:1
+inverse_reference.go:ReadInverseReferenceSnapshot:range:2
+inverse_reference.go:ReadInverseReferenceSnapshot:range:3
+inverse_reference.go:ReadInverseReferenceSnapshot:range:4
+inverse_reference.go:SelectInverseReferencePage:range:1
+inverse_reference.go:validInverseReferenceIdentifier:range:1
 jira.go:CompleteChangelog:for:1
 jira.go:Create:range:1
 jira.go:LinkEpic:range:1

@@ -13,10 +13,9 @@
 **Lossless local workflows for Jira and Confluence Server/Data Center.**
 
 `atl` lets people and coding agents inspect, mirror, diff, and update
-Atlassian content with ordinary local tools. Confluence `.csf` and Jira
-`.wiki` bytes remain the write substrate; Markdown is a readable staging view,
-not a lossy replacement. Remote changes pass explicit version, baseline, or
-proposal gates instead of silently overwriting concurrent work.
+Atlassian content locally. Native Confluence `.csf` and Jira `.wiki` bytes
+remain the write substrate; Markdown is only a readable staging view. Remote
+writes require explicit version, baseline, or proposal gates.
 
 ```sh
 export ATL_READ_ONLY=1
@@ -44,9 +43,9 @@ read-only policy until one exact write proposal has been reviewed.
 | Diagnose setup, access, or conflict errors | [Troubleshooting](docs/troubleshooting.md) |
 
 The [task-first documentation index](docs/README.md) leads to focused workflows.
-The exhaustive [command reference](docs/reference/cli/README.md) and
-[output contract](docs/reference/output/README.md) are available when exact flags or
-wire fields matter; neither is required before the first useful read.
+Use the [command reference](docs/reference/cli/README.md) or
+[output contract](docs/reference/output/README.md) when exact flags or wire
+fields matter.
 
 ## Install
 
@@ -64,8 +63,8 @@ brew install isukharev/tap/atl
 ```
 
 Direct downloads are on [GitHub Releases](https://github.com/isukharev/atl/releases).
-Source contributors should clone the repository and use `make install`, which
-stamps the repository version and build identity.
+Source contributors use `make install` to stamp the repository version and
+build identity.
 Windows and Atlassian Cloud are not currently supported; review the
 [compatibility matrix](docs/compatibility.md) before deployment.
 
@@ -108,8 +107,11 @@ an unqualified full page.
 Start with CQL/JQL discovery, then read only the selected object or fields.
 Use `atl jira issue graph KEY --depth 0` for structured links, hierarchy,
 documentation, attachments, or Development identities; add `--projection
-compact` for qualified URL/SCM JSON. Use `atl conf comment list --id ID` before
-expanding one exact thread. Both surfaces qualify incomplete evidence; graph
+compact` for qualified URL/SCM JSON. When the starting point is one GitLab
+project or Confluence page instead, use the CLI-only `atl jira issue reference
+search` with an explicit JQL scope, source set, mode, and limits; only a complete
+exhaustive result can prove absence. Use `atl conf comment list --id ID` before
+expanding one exact thread. These surfaces qualify incomplete evidence; graph
 text exposes safe URL-node identities in its `URL` column.
 
 Typed MCP offers smaller, read-only projections for agents. The CLI remains the
@@ -129,8 +131,8 @@ atl conf status --into "$ATL_WORKSPACE_ROOT"
 atl conf diff "$ATL_WORKSPACE_ROOT" -o text
 ```
 
-The `.csf` file contains the exact native Confluence body. Its `.md` sibling is
-a derived view for reading and supported staging edits. After editing Markdown:
+The `.csf` file contains the exact native Confluence body; its `.md` sibling is
+a derived reading and staging view. After editing Markdown:
 
 ```sh
 env -u ATL_READ_ONLY atl conf apply \
@@ -141,14 +143,12 @@ atl conf validate "$ATL_WORKSPACE_ROOT/SPACE/page/page.csf"
 atl conf diff "$ATL_WORKSPACE_ROOT/SPACE/page/page.csf" -o text
 ```
 
-Untouched native blocks remain byte-identical. Unsupported Markdown changes,
-fragment loss, malformed CSF, or a changed baseline fail before publication.
-`conf apply` changes local native bytes, so it is mutation-classified even
-during dry-run; the scoped `env -u` leaves the shell-wide policy intact.
-Pull refuses to overwrite local native or derived-view edits; use its dry-run,
-stash, or explicit overwrite recovery rather than losing work. Durable mirrors
-are also bound to a content-minimized backend identity so a staging mirror
-cannot be pushed accidentally to another configured instance.
+Untouched native blocks remain byte-identical. Unsupported Markdown, fragment
+loss, malformed CSF, or a changed baseline fail before publication. `conf apply`
+changes local bytes and remains mutation-classified during dry-run; the scoped
+`env -u` preserves the shell-wide policy. Pull refuses to overwrite local edits;
+use dry-run, stash, or explicit overwrite recovery. Mirrors are bound to a
+content-minimized backend identity to prevent accidental cross-instance push.
 
 Jira follows the same local pattern with native `.wiki` files, `jira pull`,
 `jira status`, `jira apply`, `jira reconcile preview`, and `jira push`.
