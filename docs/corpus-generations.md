@@ -28,9 +28,9 @@ Confluence pages, comments, attachments, hierarchy, page references, and Jira
 macros are treated similarly. A two-source export can therefore emit relative
 Markdown links and typed cross-service edges without fetching discovered
 targets. Render failure is explicit and does not substitute native bytes into
-Markdown. A malformed Jira issue-link row makes relation evidence unavailable
-or partial; silently dropped transport rows can never prove an exact empty
-relation set.
+Markdown. A null issue-link field or malformed Jira issue-link row makes
+relation evidence unavailable or partial; only an actual empty array proves an
+exact empty relation set, and silently dropped transport rows never do.
 
 Every document carries per-category evidence and conservative visibility.
 Absence of a Jira issue-security level is not evidence of unrestricted access.
@@ -192,7 +192,8 @@ and performs the same complete verification; it does not infer success from a
 directory name or partial file set. The export path attempts that exact
 verification after an ambiguous seal or pointer result. If it still cannot
 reconcile, the content-free error retains the stable durable-outcome-unknown
-classification; preserve the store and do not infer rollback or success.
+classification even if reconciliation was cancelled or timed out; preserve the
+store and do not infer rollback or success.
 
 Cleanup and garbage collection, backend I/O, rendering, retention policy, and
 backup are outside this format. Those responsibilities require separate owners

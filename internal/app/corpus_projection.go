@@ -384,9 +384,6 @@ func (builder *corpusProjectionBuilder) projectJiraItem(source corpusExportSourc
 	relationsEvidence := corpusNotRequested(corpus.EvidenceRelations)
 	if rawLinks, present := snapshot.Fields["issuelinks"]; present {
 		links, valid := rawLinks.([]any)
-		if rawLinks == nil {
-			valid = true
-		}
 		if !valid || !corpusJiraIssueLinksComplete(links, issue.Links) {
 			relationsEvidence = corpusUnavailable(corpus.EvidenceRelations, corpus.EvidenceCorrupt)
 		} else {

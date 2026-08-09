@@ -120,16 +120,22 @@ func TestExportCorpusPublishesAndReusesExactJiraProjection(t *testing.T) {
 }
 
 func TestExportCorpusDoesNotCertifyMalformedJiraIssueLinks(t *testing.T) {
-	root := t.TempDir()
-	seedCorpusExportJira(t, root, "EX-1", "10001", "EX/EX-1.wiki", []byte("body"), map[string]any{
-		"summary": "Issue", "project": map[string]any{"key": "EX"},
-		"issuelinks": []any{map[string]any{}},
-	})
-	document := exportSingleCorpusDocument(t, corpus.ServiceJira, root, corpus.ObjectIssue)
-	relations := document.Evidence[5]
-	if relations.Kind != corpus.EvidenceRelations || relations.Status != corpus.EvidenceUnavailable ||
-		relations.CountExact || relations.ObservedCount != 0 || len(relations.Reasons) != 1 || relations.Reasons[0] != corpus.EvidenceCorrupt {
-		t.Fatalf("malformed issue-link evidence = %#v", relations)
+	for name, raw := range map[string]any{
+		"malformed row": []any{map[string]any{}},
+		"null field":    nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			seedCorpusExportJira(t, root, "EX-1", "10001", "EX/EX-1.wiki", []byte("body"), map[string]any{
+				"summary": "Issue", "project": map[string]any{"key": "EX"}, "issuelinks": raw,
+			})
+			document := exportSingleCorpusDocument(t, corpus.ServiceJira, root, corpus.ObjectIssue)
+			relations := document.Evidence[5]
+			if relations.Kind != corpus.EvidenceRelations || relations.Status != corpus.EvidenceUnavailable ||
+				relations.CountExact || relations.ObservedCount != 0 || len(relations.Reasons) != 1 || relations.Reasons[0] != corpus.EvidenceCorrupt {
+				t.Fatalf("malformed issue-link evidence = %#v", relations)
+			}
+		})
 	}
 }
 
@@ -422,6 +428,11 @@ func TestCorpusExportFailureIsContentFree(t *testing.T) {
 	ambiguous := corpusExportFailure("seal generation", errors.Join(corpus.ErrOutcomeUnknown, errors.New(private)))
 	if !errors.Is(ambiguous, corpus.ErrOutcomeUnknown) || !errors.Is(ambiguous, domain.ErrCheckFailed) || strings.Contains(ambiguous.Error(), private) {
 		t.Fatalf("content-free ambiguous failure = %v", ambiguous)
+	}
+	ambiguousCanceled := corpusExportFailure("seal generation", errors.Join(corpus.ErrOutcomeUnknown, context.Canceled, errors.New(private)))
+	if !errors.Is(ambiguousCanceled, corpus.ErrOutcomeUnknown) || !errors.Is(ambiguousCanceled, context.Canceled) ||
+		!errors.Is(ambiguousCanceled, domain.ErrCheckFailed) || strings.Contains(ambiguousCanceled.Error(), private) {
+		t.Fatalf("content-free canceled ambiguous failure = %v", ambiguousCanceled)
 	}
 }
 

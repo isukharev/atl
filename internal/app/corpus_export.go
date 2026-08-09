@@ -341,14 +341,21 @@ func corpusExportFailure(operation string, err error) error {
 	if err == nil {
 		return nil
 	}
+	if errors.Is(err, corpus.ErrOutcomeUnknown) {
+		switch {
+		case errors.Is(err, context.Canceled):
+			return fmt.Errorf("%w: %w: %w: corpus export could not %s", domain.ErrCheckFailed, corpus.ErrOutcomeUnknown, context.Canceled, operation)
+		case errors.Is(err, context.DeadlineExceeded):
+			return fmt.Errorf("%w: %w: %w: corpus export could not %s", domain.ErrCheckFailed, corpus.ErrOutcomeUnknown, context.DeadlineExceeded, operation)
+		default:
+			return fmt.Errorf("%w: %w: corpus export could not %s", domain.ErrCheckFailed, corpus.ErrOutcomeUnknown, operation)
+		}
+	}
 	if errors.Is(err, context.Canceled) {
 		return context.Canceled
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return context.DeadlineExceeded
-	}
-	if errors.Is(err, corpus.ErrOutcomeUnknown) {
-		return fmt.Errorf("%w: %w: corpus export could not %s", domain.ErrCheckFailed, corpus.ErrOutcomeUnknown, operation)
 	}
 	// Snapshot, filesystem, JSON, and codec errors may contain private paths or
 	// values. The detailed evidence remains in the private roots; normal command
