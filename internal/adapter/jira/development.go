@@ -18,6 +18,7 @@ import (
 
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/httpx"
+	"github.com/isukharev/atl/internal/scmref"
 )
 
 const (
@@ -30,7 +31,6 @@ const (
 	developmentMaxMRs          = 128
 	developmentMaxArtifacts    = 512
 	developmentMaxURLBytes     = 2048
-	developmentMaxPathBytes    = 2048
 	developmentMaxBranchBytes  = 512
 )
 
@@ -38,7 +38,6 @@ var (
 	developmentPositiveID  = regexp.MustCompile(`^[1-9][0-9]{0,19}$`)
 	developmentApplication = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 	developmentGitLabApp   = regexp.MustCompile(`^gitlab(?:selfmanaged|[._-][a-z0-9._-]{1,57})?$`)
-	developmentProjectPart = regexp.MustCompile(`^[A-Za-z0-9._-]{1,255}$`)
 	developmentFullSHA     = regexp.MustCompile(`^(?:[0-9A-Fa-f]{40}|[0-9A-Fa-f]{64})$`)
 )
 
@@ -565,11 +564,11 @@ func (i *developmentInventory) addMR(raw developmentMRDTO, explicit *development
 }
 
 func parseDevelopmentProject(raw string) (developmentProjectKey, bool) {
-	u, escaped, ok := parseDevelopmentURL(raw)
+	project, ok := scmref.ParseGitLabProject(raw)
 	if !ok {
 		return developmentProjectKey{}, false
 	}
-	return developmentProjectFromEscaped(u, escaped)
+	return developmentProjectKey{host: project.Host, path: project.ProjectPath}, true
 }
 
 func parseDevelopmentURL(raw string) (*url.URL, string, bool) {
@@ -589,41 +588,11 @@ func parseDevelopmentURL(raw string) (*url.URL, string, bool) {
 }
 
 func developmentProjectFromEscaped(u *url.URL, escaped string) (developmentProjectKey, bool) {
-	parts := strings.Split(strings.Trim(escaped, "/"), "/")
-	if len(parts) < 2 || len(parts) > 32 {
+	project, ok := scmref.ParseGitLabProject("https://" + u.Host + "/" + escaped)
+	if !ok {
 		return developmentProjectKey{}, false
 	}
-	decoded := make([]string, len(parts))
-	for index, part := range parts {
-		value, err := url.PathUnescape(part)
-		if err != nil || value == "" || !developmentProjectPart.MatchString(value) || value == "." || value == ".." {
-			return developmentProjectKey{}, false
-		}
-		decoded[index] = value
-	}
-	decoded[len(decoded)-1] = strings.TrimSuffix(decoded[len(decoded)-1], ".git")
-	if decoded[len(decoded)-1] == "" || !developmentProjectPart.MatchString(decoded[len(decoded)-1]) {
-		return developmentProjectKey{}, false
-	}
-	path := strings.Join(decoded, "/")
-	if len(path) > developmentMaxPathBytes {
-		return developmentProjectKey{}, false
-	}
-	hostname := strings.ToLower(u.Hostname())
-	if strings.Contains(hostname, ":") {
-		hostname = "[" + hostname + "]"
-	}
-	host := hostname
-	if port := u.Port(); port != "" {
-		portNumber, err := strconv.Atoi(port)
-		if err != nil || portNumber < 1 || portNumber > 65535 {
-			return developmentProjectKey{}, false
-		}
-		if portNumber != 443 {
-			host += ":" + strconv.Itoa(portNumber)
-		}
-	}
-	return developmentProjectKey{host: host, path: path}, true
+	return developmentProjectKey{host: project.Host, path: project.ProjectPath}, true
 }
 
 func parseDevelopmentArtifact(raw, kind, expected string) (developmentProjectKey, string, bool) {

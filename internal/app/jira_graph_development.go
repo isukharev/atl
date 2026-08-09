@@ -5,12 +5,12 @@ import (
 	"net/url"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/scmref"
 )
 
 const (
@@ -20,12 +20,10 @@ const (
 	jiraDevelopmentMaxMergeRequests = 128
 	jiraDevelopmentMaxArtifacts     = 512
 	jiraDevelopmentMaxURLBytes      = 2048
-	jiraDevelopmentMaxProjectBytes  = 2048
 	jiraDevelopmentMaxBranchBytes   = 512
 )
 
 var (
-	jiraDevelopmentProjectSegment = regexp.MustCompile(`^[A-Za-z0-9._-]{1,255}$`)
 	jiraDevelopmentSHA            = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 	jiraDevelopmentSourceID       = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	jiraDevelopmentIID            = regexp.MustCompile(`^[1-9][0-9]{0,19}$`)
@@ -196,35 +194,11 @@ func validateJiraDevelopmentInventory(in domain.JiraDevelopmentInventory) (jiraD
 }
 
 func jiraDevelopmentProjectKey(host, projectPath string) (string, bool) {
-	if host == "" || host != strings.ToLower(host) || len(projectPath) == 0 ||
-		len(projectPath) > jiraDevelopmentMaxProjectBytes || !utf8.ValidString(host) || !utf8.ValidString(projectPath) ||
-		len("https://"+host+"/"+projectPath) > jiraDevelopmentMaxURLBytes {
+	project, ok := scmref.ValidateGitLabProject(host, projectPath)
+	if !ok {
 		return "", false
 	}
-	u, err := url.Parse("https://" + host + "/")
-	if err != nil {
-		return "", false
-	}
-	port := u.Port()
-	portNumber, portErr := strconv.Atoi(port)
-	if u.Scheme != "https" || u.Host != host || u.Hostname() == "" ||
-		u.User != nil || u.RawQuery != "" || u.Fragment != "" ||
-		(port != "" && (portErr != nil || portNumber < 1 || portNumber > 65535 || portNumber == 443 || port != strconv.Itoa(portNumber))) {
-		return "", false
-	}
-	parts := strings.Split(projectPath, "/")
-	if len(parts) < 2 || len(parts) > 32 {
-		return "", false
-	}
-	for _, part := range parts {
-		if !jiraDevelopmentProjectSegment.MatchString(part) || part == "." || part == ".." {
-			return "", false
-		}
-	}
-	if strings.HasSuffix(parts[len(parts)-1], ".git") {
-		return "", false
-	}
-	return host + "\x00" + projectPath, true
+	return project.Host + "\x00" + project.ProjectPath, true
 }
 
 func jiraDevelopmentBranch(value string) bool {

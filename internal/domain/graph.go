@@ -157,11 +157,15 @@ type QualifiedIssueSnapshotReader interface {
 
 // JiraRemoteLink is the supported Jira remote-link projection. It deliberately
 // omits user records and preserves only bounded graph identity/label metadata.
+// GlobalID and ApplicationType are opaque bounded backend identifiers used for
+// local reference matching; neither is a title or application display name.
 type JiraRemoteLink struct {
-	ID           string
-	Relationship string
-	ObjectURL    string
-	ObjectTitle  string
+	ID              string
+	Relationship    string
+	ObjectURL       string
+	ObjectTitle     string
+	GlobalID        string
+	ApplicationType string
 }
 
 // JiraRemoteLinkInventory distinguishes an empty complete list from a response
