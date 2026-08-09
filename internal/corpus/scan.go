@@ -48,7 +48,7 @@ func openVerifiedDirectory(root *os.Root, rel string) (*os.File, os.FileInfo, er
 	if !exactDirectoryMode(info.Mode()) {
 		return nil, nil, reject(ReasonMode)
 	}
-	opened, err := root.Open(rel)
+	opened, err := openReadOnlyNonblocking(root, rel)
 	if err != nil {
 		return nil, nil, reject(ReasonIO)
 	}
@@ -106,7 +106,7 @@ func verifyRegularFile(root *os.Root, rel string, mode os.FileMode) error {
 	if !exactRegularMode(info.Mode(), mode) {
 		return reject(ReasonMode)
 	}
-	file, err := root.Open(rel)
+	file, err := openReadOnlyNonblocking(root, rel)
 	if err != nil {
 		return reject(ReasonIO)
 	}
@@ -137,7 +137,7 @@ func verifyRegularFile(root *os.Root, rel string, mode os.FileMode) error {
 }
 
 func syncDirectory(root *os.Root, rel string) error {
-	directory, err := root.Open(rel)
+	directory, err := openReadOnlyNonblocking(root, rel)
 	if err != nil {
 		return err
 	}
@@ -461,7 +461,7 @@ func inspectRegular(ctx context.Context, root *os.Root, rel string, max int64, o
 	if info.Size() < 0 || info.Size() > max {
 		return zero, nil, reject(ReasonBounds)
 	}
-	file, err := root.Open(rel)
+	file, err := openReadOnlyNonblocking(root, rel)
 	if err != nil {
 		return zero, nil, reject(ReasonIO)
 	}

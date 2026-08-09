@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-func TestPublishSyncsTargetBeforePointerWrite(t *testing.T) {
+func TestPublishSyncsTargetBeforePointerReplacement(t *testing.T) {
 	_, store := newTestStore(t, Options{})
 	defer func() { _ = store.Close() }()
 	stage, generation := sealTestGeneration(t, store, "payload", "")
@@ -21,7 +21,7 @@ func TestPublishSyncsTargetBeforePointerWrite(t *testing.T) {
 	var boundaries []string
 	store.testHook = func(step string) error {
 		switch step {
-		case "before_publish_target_sync", "after_publish_target_sync", "before_pointer_write":
+		case "before_pointer_write", "before_publish_target_sync", "after_publish_target_sync", "after_pointer_rename":
 			boundaries = append(boundaries, step)
 		}
 		return nil
@@ -29,7 +29,7 @@ func TestPublishSyncsTargetBeforePointerWrite(t *testing.T) {
 	if _, err := store.Publish(context.Background(), stage.ID()); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"before_publish_target_sync", "after_publish_target_sync", "before_pointer_write"}
+	want := []string{"before_pointer_write", "before_publish_target_sync", "after_publish_target_sync", "after_pointer_rename"}
 	if !reflect.DeepEqual(boundaries, want) {
 		t.Fatalf("publication boundaries = %v, want %v", boundaries, want)
 	}
@@ -92,11 +92,53 @@ func TestPublishTargetSyncFailurePreservesPriorPointer(t *testing.T) {
 	}
 }
 
-func TestPublishRevalidatesPinnedTargetAfterSync(t *testing.T) {
+func TestPublishRevalidatesTargetChangedAtPointerBoundary(t *testing.T) {
 	root, store := newTestStore(t, Options{})
 	defer func() { _ = store.Close() }()
 	stage, generation := sealTestGeneration(t, store, "payload", "")
 	defer func() { _ = generation.Close() }()
+	receiptPath := filepath.Join(root, generationsDir, stage.ID(), receiptFile)
+	receiptBytes, err := os.ReadFile(receiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fired := false
+	var writeErr error
+	store.testHook = func(step string) error {
+		if step == "before_pointer_write" && !fired {
+			fired = true
+			writeErr = os.WriteFile(receiptPath, []byte("changed\n"), privateFileMode)
+			return writeErr
+		}
+		return nil
+	}
+	_, publishErr := store.Publish(context.Background(), stage.ID())
+	store.testHook = nil
+	if writeErr != nil {
+		t.Fatalf("mutate target at pointer boundary: %v", writeErr)
+	}
+	if err := os.WriteFile(receiptPath, receiptBytes, privateFileMode); err != nil {
+		t.Fatalf("restore receipt: %v", err)
+	}
+	if !fired {
+		t.Fatal("pointer boundary was not reached")
+	}
+	if !errors.Is(publishErr, ErrIntegrity) || errors.Is(publishErr, ErrOutcomeUnknown) {
+		t.Fatalf("publish error = %v, want definite integrity failure", publishErr)
+	}
+	if _, err := store.SelectCurrent(context.Background()); !errors.Is(err, ErrNoCurrent) {
+		t.Fatalf("target changed after sync became current: %v", err)
+	}
+}
+
+func TestPublishIdempotentRecoveryRevalidatesCurrentTarget(t *testing.T) {
+	root, store := newTestStore(t, Options{})
+	defer func() { _ = store.Close() }()
+	stage, generation := sealTestGeneration(t, store, "payload", "")
+	defer func() { _ = generation.Close() }()
+	if _, err := store.Publish(context.Background(), stage.ID()); err != nil {
+		t.Fatal(err)
+	}
 	receiptPath := filepath.Join(root, generationsDir, stage.ID(), receiptFile)
 	receiptBytes, err := os.ReadFile(receiptPath)
 	if err != nil {
@@ -115,19 +157,24 @@ func TestPublishRevalidatesPinnedTargetAfterSync(t *testing.T) {
 	_, publishErr := store.Publish(context.Background(), stage.ID())
 	store.testHook = nil
 	if writeErr != nil {
-		t.Fatalf("mutate target after sync: %v", writeErr)
+		t.Fatalf("mutate current target after sync: %v", writeErr)
 	}
 	if err := os.WriteFile(receiptPath, receiptBytes, privateFileMode); err != nil {
 		t.Fatalf("restore receipt: %v", err)
 	}
 	if !fired {
-		t.Fatal("post-sync boundary was not reached")
+		t.Fatal("current-target sync boundary was not reached")
 	}
 	if !errors.Is(publishErr, ErrIntegrity) || errors.Is(publishErr, ErrOutcomeUnknown) {
 		t.Fatalf("publish error = %v, want definite integrity failure", publishErr)
 	}
-	if _, err := store.SelectCurrent(context.Background()); !errors.Is(err, ErrNoCurrent) {
-		t.Fatalf("target changed after sync became current: %v", err)
+	selected, err := store.SelectCurrent(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = selected.Close() }()
+	if selected.ID() != stage.ID() {
+		t.Fatalf("selected generation = %s, want %s", selected.ID(), stage.ID())
 	}
 }
 

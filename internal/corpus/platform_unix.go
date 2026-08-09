@@ -11,6 +11,10 @@ import (
 
 func platformAvailable() bool { return true }
 
+func openReadOnlyNonblocking(root *os.Root, rel string) (*os.File, error) {
+	return root.OpenFile(rel, os.O_RDONLY|unix.O_NONBLOCK, 0)
+}
+
 func tryExclusiveLock(file *os.File) (func() error, bool, error) {
 	err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB)
 	if errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EAGAIN) {

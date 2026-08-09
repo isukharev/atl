@@ -51,26 +51,14 @@ func (s *Store) Publish(ctx context.Context, id string) (Summary, error) {
 		return zero, err
 	}
 	defer func(target *Generation) { _ = target.Close() }(target)
-	// A pointer can survive a crash independently of the process that sealed its
-	// target. Make the verified directory entries durable, then rescan the same
-	// pinned directory before allowing any pointer replacement.
-	if err := s.hit("before_publish_target_sync"); err != nil {
-		return zero, reject(ReasonIO)
-	}
-	if err := syncDirectory(target.root, "."); err != nil {
-		return zero, reject(ReasonIO)
-	}
-	if err := s.hit("after_publish_target_sync"); err != nil {
-		return zero, reject(ReasonIO)
-	}
-	if err := s.revalidatePinnedGeneration(ctx, target); err != nil {
-		return zero, err
-	}
 	current, found, err := s.readPointer()
 	if err != nil {
 		return zero, err
 	}
 	if found && current.GenerationID == id && current.GenerationDigest == target.receipt.GenerationDigest {
+		if err := s.syncAndRevalidatePinnedGeneration(ctx, target); err != nil {
+			return zero, err
+		}
 		if err := syncDirectory(s.root, "."); err != nil {
 			return zero, ErrOutcomeUnknown
 		}
@@ -102,6 +90,9 @@ func (s *Store) Publish(ctx context.Context, id string) (Summary, error) {
 	if err := s.hit("before_pointer_write"); err != nil {
 		return zero, reject(ReasonIO)
 	}
+	if err := s.syncAndRevalidatePinnedGeneration(ctx, target); err != nil {
+		return zero, err
+	}
 	observed, observedFound, err := s.readPointer()
 	if err != nil {
 		return zero, err
@@ -130,6 +121,22 @@ func (s *Store) Publish(ctx context.Context, id string) (Summary, error) {
 		return zero, ErrOutcomeUnknown
 	}
 	return target.Summary(), nil
+}
+
+func (s *Store) syncAndRevalidatePinnedGeneration(ctx context.Context, target *Generation) error {
+	// A pointer can survive a crash independently of the process that sealed its
+	// target. Make the verified directory entries durable, then rescan the same
+	// pinned directory at the last deterministic boundary before selection.
+	if err := s.hit("before_publish_target_sync"); err != nil {
+		return reject(ReasonIO)
+	}
+	if err := syncDirectory(target.root, "."); err != nil {
+		return reject(ReasonIO)
+	}
+	if err := s.hit("after_publish_target_sync"); err != nil {
+		return reject(ReasonIO)
+	}
+	return s.revalidatePinnedGeneration(ctx, target)
 }
 
 func (s *Store) revalidatePinnedGeneration(ctx context.Context, target *Generation) error {
