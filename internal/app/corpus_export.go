@@ -111,6 +111,9 @@ func ExportCorpus(ctx context.Context, options CorpusExportOptions) (*CorpusExpo
 	if retry {
 		return nil, corpusExportFailure("project pristine mirror evidence", errors.New("mirror changed during export"))
 	}
+	if err := preflightCorpusExportMembers(bundle.members, options.Limits); err != nil {
+		return nil, corpusExportFailure("validate projected generation bounds", err)
+	}
 
 	store, err := openCorpusExportStore(options)
 	if err != nil {
@@ -155,7 +158,11 @@ func ExportCorpus(ctx context.Context, options CorpusExportOptions) (*CorpusExpo
 		Qualifications:    bundle.qualifications,
 	})
 	if errors.Is(err, corpus.ErrOutcomeUnknown) {
+		sealErr := err
 		generation, err = store.Verify(ctx, stage.ID())
+		if err != nil {
+			err = errors.Join(sealErr, err)
+		}
 	}
 	if err != nil {
 		return nil, corpusExportFailure("seal generation", err)
@@ -305,6 +312,31 @@ func corpusBytesSHA256(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func preflightCorpusExportMembers(members []corpusExportMember, limits corpus.Limits) error {
+	defaults := corpus.DefaultLimits()
+	if limits.MaxMembers == 0 {
+		limits.MaxMembers = defaults.MaxMembers
+	}
+	if limits.MaxMemberBytes == 0 {
+		limits.MaxMemberBytes = defaults.MaxMemberBytes
+	}
+	if limits.MaxTotalBytes == 0 {
+		limits.MaxTotalBytes = defaults.MaxTotalBytes
+	}
+	if limits.MaxMembers < 0 || limits.MaxMemberBytes < 0 || limits.MaxTotalBytes < 0 || len(members) > limits.MaxMembers {
+		return corpus.ErrIntegrity
+	}
+	var total int64
+	for _, member := range members {
+		size := int64(len(member.data))
+		if size > limits.MaxMemberBytes || size > limits.MaxTotalBytes-total {
+			return corpus.ErrIntegrity
+		}
+		total += size
+	}
+	return nil
+}
+
 func corpusExportFailure(operation string, err error) error {
 	if err == nil {
 		return nil
@@ -314,6 +346,9 @@ func corpusExportFailure(operation string, err error) error {
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return context.DeadlineExceeded
+	}
+	if errors.Is(err, corpus.ErrOutcomeUnknown) {
+		return fmt.Errorf("%w: %w: corpus export could not %s", domain.ErrCheckFailed, corpus.ErrOutcomeUnknown, operation)
 	}
 	// Snapshot, filesystem, JSON, and codec errors may contain private paths or
 	// values. The detailed evidence remains in the private roots; normal command

@@ -399,8 +399,11 @@ reads pristine mirror baselines rather than ambient working native or Markdown
 edits, and stdout is content-free; the sealed store itself contains private
 titles, text, paths, and references, so create it as an existing owner-only
 `0700` directory outside source repositories. Add `--initialize-store` only for
-the first export into an empty root. Treat `readiness:partial` as incomplete
-evidence, and do not use `--allow-unreconciled` outside diagnostics.
+the first export into an empty root. ATL checks the complete projected member
+set before initializing or staging. Treat `readiness:partial` as incomplete
+evidence, and do not use `--allow-unreconciled` outside diagnostics. Preserve
+the store when an error reports an unknown durable outcome; do not infer either
+rollback or successful publication.
 
 ## Reacting to results
 

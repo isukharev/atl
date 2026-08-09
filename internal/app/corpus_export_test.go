@@ -119,6 +119,88 @@ func TestExportCorpusPublishesAndReusesExactJiraProjection(t *testing.T) {
 	}
 }
 
+func TestExportCorpusDoesNotCertifyMalformedJiraIssueLinks(t *testing.T) {
+	root := t.TempDir()
+	seedCorpusExportJira(t, root, "EX-1", "10001", "EX/EX-1.wiki", []byte("body"), map[string]any{
+		"summary": "Issue", "project": map[string]any{"key": "EX"},
+		"issuelinks": []any{map[string]any{}},
+	})
+	document := exportSingleCorpusDocument(t, corpus.ServiceJira, root, corpus.ObjectIssue)
+	relations := document.Evidence[5]
+	if relations.Kind != corpus.EvidenceRelations || relations.Status != corpus.EvidenceUnavailable ||
+		relations.CountExact || relations.ObservedCount != 0 || len(relations.Reasons) != 1 || relations.Reasons[0] != corpus.EvidenceCorrupt {
+		t.Fatalf("malformed issue-link evidence = %#v", relations)
+	}
+}
+
+func TestCorpusJiraIssueLinksCompleteRejectsMalformedRows(t *testing.T) {
+	mapped := []domain.IssueLink{{Direction: "outward", Key: "EX-2"}}
+	valid := []any{map[string]any{
+		"type": map[string]any{"name": "Relates"}, "outwardIssue": map[string]any{"key": "EX-2"},
+	}}
+	if !corpusJiraIssueLinksComplete(valid, mapped) {
+		t.Fatal("canonical issue link was rejected")
+	}
+	for name, raw := range map[string][]any{
+		"non-object row": {"bad"},
+		"both directions": {map[string]any{
+			"type":        map[string]any{"name": "Relates"},
+			"inwardIssue": map[string]any{"key": "EX-2"}, "outwardIssue": map[string]any{"key": "EX-2"},
+		}},
+		"invalid extra direction": {map[string]any{
+			"type": map[string]any{"name": "Relates"}, "inwardIssue": "bad", "outwardIssue": map[string]any{"key": "EX-2"},
+		}},
+		"missing relation type": {map[string]any{"outwardIssue": map[string]any{"key": "EX-2"}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if corpusJiraIssueLinksComplete(raw, mapped) {
+				t.Fatal("malformed issue link was accepted")
+			}
+		})
+	}
+}
+
+func TestExportCorpusPreflightsActualStoreMembersBeforeInitialization(t *testing.T) {
+	mirrorRoot := t.TempDir()
+	seedCorpusExportJira(t, mirrorRoot, "EX-1", "10001", "EX/EX-1.wiki", []byte("body"), map[string]any{
+		"summary": "Issue", "project": map[string]any{"key": "EX"},
+	})
+	storeRoot := t.TempDir()
+	if err := os.Chmod(storeRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ExportCorpus(context.Background(), CorpusExportOptions{
+		JiraRoot: mirrorRoot, StoreRoot: storeRoot, InitializeStore: true,
+		GeneratorVersion: "test-v1", BuildState: corpus.BuildStateClean,
+		Limits: corpus.Limits{MaxMembers: 3},
+	})
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("member-bound error = %v", err)
+	}
+	entries, readErr := os.ReadDir(storeRoot)
+	if readErr != nil || len(entries) != 0 {
+		t.Fatalf("bounded export initialized or staged store state: entries=%d err=%v", len(entries), readErr)
+	}
+}
+
+func TestCorpusExportMemberPreflightUsesActualMemberBytes(t *testing.T) {
+	members := []corpusExportMember{{data: []byte("abc")}, {data: []byte("def")}}
+	for name, limits := range map[string]corpus.Limits{
+		"members":      {MaxMembers: 1},
+		"member bytes": {MaxMemberBytes: 2},
+		"total bytes":  {MaxTotalBytes: 5},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := preflightCorpusExportMembers(members, limits); !errors.Is(err, corpus.ErrIntegrity) {
+				t.Fatalf("preflight error = %v", err)
+			}
+		})
+	}
+	if err := preflightCorpusExportMembers(members, corpus.Limits{MaxMembers: 2, MaxMemberBytes: 3, MaxTotalBytes: 6}); err != nil {
+		t.Fatalf("exact bounds rejected: %v", err)
+	}
+}
+
 func TestExportCorpusUsesStableIdentityAndRelativeCrossServiceLinks(t *testing.T) {
 	jiraRoot := t.TempDir()
 	seedCorpusExportJira(t, jiraRoot, "OLD-2", "10002", "OLD/OLD-2.wiki", []byte("jira body"), map[string]any{
@@ -336,6 +418,10 @@ func TestCorpusExportFailureIsContentFree(t *testing.T) {
 	}
 	if err := corpusExportFailure("project pristine mirror evidence", context.Canceled); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation classification = %v", err)
+	}
+	ambiguous := corpusExportFailure("seal generation", errors.Join(corpus.ErrOutcomeUnknown, errors.New(private)))
+	if !errors.Is(ambiguous, corpus.ErrOutcomeUnknown) || !errors.Is(ambiguous, domain.ErrCheckFailed) || strings.Contains(ambiguous.Error(), private) {
+		t.Fatalf("content-free ambiguous failure = %v", ambiguous)
 	}
 }
 

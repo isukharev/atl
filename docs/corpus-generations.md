@@ -28,7 +28,9 @@ Confluence pages, comments, attachments, hierarchy, page references, and Jira
 macros are treated similarly. A two-source export can therefore emit relative
 Markdown links and typed cross-service edges without fetching discovered
 targets. Render failure is explicit and does not substitute native bytes into
-Markdown.
+Markdown. A malformed Jira issue-link row makes relation evidence unavailable
+or partial; silently dropped transport rows can never prove an exact empty
+relation set.
 
 Every document carries per-category evidence and conservative visibility.
 Absence of a Jira issue-security level is not evidence of unrestricted access.
@@ -39,9 +41,11 @@ consumers must retain that qualification.
 
 Export holds service snapshot locks while it inventories and streams bounded
 pristine evidence, revalidates the snapshot, then releases those locks before
-sealing. Working `.csf`, `.wiki`, and `.md` files are ignored. Staged lineage is
-refused by default; `--allow-unreconciled` is diagnostic and can never produce a
-ready projection.
+sealing. It preflights the actual generation member count, every complete
+member's bytes, and their aggregate bytes before initializing a store or
+beginning a stage. Working `.csf`, `.wiki`, and `.md` files are ignored. Staged
+lineage is refused by default; `--allow-unreconciled` is diagnostic and can
+never produce a ready projection.
 
 ## Trust root and platform boundary
 
@@ -185,7 +189,10 @@ or stale pointer leaves it unselected. Both forms are preserved for owner-side
 inspection. A failed stage or publication that never committed a new pointer
 leaves the last valid pointer and generation usable. Recovery reopens the store
 and performs the same complete verification; it does not infer success from a
-directory name or partial file set.
+directory name or partial file set. The export path attempts that exact
+verification after an ambiguous seal or pointer result. If it still cannot
+reconcile, the content-free error retains the stable durable-outcome-unknown
+classification; preserve the store and do not infer rollback or success.
 
 Cleanup and garbage collection, backend I/O, rendering, retention policy, and
 backup are outside this format. Those responsibilities require separate owners

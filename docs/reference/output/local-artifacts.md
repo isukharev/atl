@@ -91,3 +91,6 @@ origins, object identities, titles, bodies, or member paths to stdout:
 output but is not proof of complete backend selection. `reused:true` means the
 already-selected generation exactly matched the requested projection and build
 identity. Errors remain content-free and use the normal stable CLI exit classes.
+An unreconciled seal or pointer write additionally retains the stable
+durable-outcome-unknown classification so callers do not mistake ambiguity for
+a definite pre-write failure.

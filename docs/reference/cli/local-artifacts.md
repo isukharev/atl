@@ -50,7 +50,11 @@ atl corpus export --jira /private/jira-mirror \
 
 Later exports omit `--initialize-store`. An exact existing projection is reused;
 otherwise ATL seals a new immutable generation and atomically selects it.
-Neither publication nor recovery deletes older or incomplete generations.
+The actual member count and complete member/aggregate bytes are checked before
+store initialization or staging. Neither publication nor recovery deletes older
+or incomplete generations. If exact verification cannot reconcile an ambiguous
+seal or pointer result, preserve the store; the error reports a content-free
+durable-outcome-unknown classification rather than claiming failure or success.
 
 Flags:
 

@@ -49,7 +49,7 @@
   "files": [
     {
       "path": "atl/SKILL.md",
-      "sha256": "5b090eb23fff6f2197c6a434184c75494ceaf99d61dd21211a660ba93b594818"
+      "sha256": "dfbbeb95de921c55a5009da1787058c917d26dab2348f9ee3e7a47ff607d29ea"
     },
     {
       "path": "atl/agents/openai.yaml",
