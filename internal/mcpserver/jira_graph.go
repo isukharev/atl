@@ -177,7 +177,7 @@ func registerJiraIssueGraphTool(server *mcp.Server, deps Dependencies) {
 		reflect.TypeFor[JiraIssueGraphOutput](),
 		reflect.TypeFor[app.JiraIssueGraphCompactResult](),
 	)
-	mcp.AddTool(server, tool,
+	addReadOnlyTool(server, tool,
 		func(ctx context.Context, _ *mcp.CallToolRequest, in JiraIssueGraphInput) (*mcp.CallToolResult, any, error) {
 			key, opts, maxBytes, err := validatedJiraIssueGraphInput(in)
 			if err != nil {

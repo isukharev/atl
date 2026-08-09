@@ -73,29 +73,17 @@ func parseStructureIDInput(raw json.RawMessage) (int64, error) {
 	return id, nil
 }
 
-// addReadOnlyTool keeps the SDK's inferred, validated output contract while
-// spelling unrestricted property schemas as {} instead of the equivalent JSON
-// Schema boolean true. Some current MCP clients reject boolean schemas in a
-// tool's properties map and otherwise discard the server's entire tool list.
+// addReadOnlyTool keeps the SDK's validated output contract while spelling
+// unrestricted property schemas as {} instead of the equivalent JSON Schema
+// boolean true. Most tools infer one output type; callers with a reviewed
+// closed union may provide tool.OutputSchema before registration. Some current
+// MCP clients reject boolean schemas in a tool's properties map and otherwise
+// discard the server's entire tool list.
 func addReadOnlyTool[In, Out any](server *mcp.Server, tool *mcp.Tool, handler mcp.ToolHandlerFor[In, Out]) {
-	outputType := reflect.TypeFor[Out]()
-	for outputType.Kind() == reflect.Pointer {
-		outputType = outputType.Elem()
+	if tool.OutputSchema == nil {
+		tool.OutputSchema = inferredOutputSchema(tool.Name, reflect.TypeFor[Out]())
 	}
-	schema, err := jsonschema.ForType(outputType, &jsonschema.ForOptions{})
-	if err != nil {
-		panic(fmt.Sprintf("infer MCP output schema for %s: %v", tool.Name, err))
-	}
-	encoded, err := json.Marshal(schema)
-	if err != nil {
-		panic(fmt.Sprintf("marshal MCP output schema for %s: %v", tool.Name, err))
-	}
-	var compatible any
-	if err := json.Unmarshal(encoded, &compatible); err != nil {
-		panic(fmt.Sprintf("decode MCP output schema for %s: %v", tool.Name, err))
-	}
-	normalizeBooleanPropertySchemas(compatible)
-	tool.OutputSchema = compatible
+	normalizeBooleanPropertySchemas(tool.OutputSchema)
 	mcp.AddTool(server, tool, handler)
 }
 

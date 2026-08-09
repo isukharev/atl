@@ -49,7 +49,7 @@ func TestOneOfOutputSchemaNormalizesBooleanPropertiesAndRetainsSDKValidation(t *
 	server := mcp.NewServer(&mcp.Implementation{Name: "schema-test", Version: "1"}, nil)
 	tool := readOnlyTool(toolName, "Union schema test", "Validate oneOf output")
 	tool.OutputSchema = outputSchema
-	mcp.AddTool(server, tool,
+	addReadOnlyTool(server, tool,
 		func(_ context.Context, _ *mcp.CallToolRequest, in outputSchemaTestInput) (*mcp.CallToolResult, any, error) {
 			if in.Invalid {
 				return nil, map[string]any{"schema_version": 1, "first": true, "second": "invalid"}, nil

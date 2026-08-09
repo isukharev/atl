@@ -92,7 +92,7 @@
     {"owner":"contentpolicy","path":"internal/contentpolicy/","max_lines":1281,"rationale":"Keep policy parsing, resolved and deny-only evaluation, source-denial envelopes, freeze, static scope requirements, and hierarchy hazards at the reviewed public-surface total."},
     {"owner":"evaluator","path":"internal/agenteval/","max_lines":47625,"rationale":"Keep the complete evaluator module tree visible, including the reviewed synthetic-write policy projection, strict denial parser, and zero-request refusal scenario."},
     {"owner":"httpx","path":"internal/httpx/","max_lines":1249,"rationale":"Keep shared transport, scheduler, and write-safety infrastructure at its measured package baseline."},
-    {"owner":"mcp","path":"internal/mcpserver/","max_lines":3413,"rationale":"Keep total production growth visible, including the reviewed compact/full Jira graph output-schema union, even when registration and protocol owners are split."},
+    {"owner":"mcp","path":"internal/mcpserver/","max_lines":3401,"rationale":"Keep total production growth visible, including the reviewed compact/full Jira graph output-schema union, even when registration and protocol owners are split."},
     {"owner":"mirror","path":"internal/mirror/","max_lines":6621,"rationale":"Keep durable mirror layout, publication, recovery, and derived-view production growth visible."},
     {"owner":"tooling","path":"scripts/check-docs-freshness/","max_lines":996,"rationale":"Keep documentation freshness and impact-selection tooling at its measured production baseline."},
     {"owner":"tooling","path":"scripts/check-maintainability/","max_lines":673,"rationale":"Keep maintainability checker production growth at its measured package baseline."},
