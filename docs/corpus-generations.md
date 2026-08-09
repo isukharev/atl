@@ -53,6 +53,14 @@ pointer. `.publish.lock` scopes concurrent publication and is released by the
 operating system if its holder exits. A store without a valid current pointer
 has no selected generation, even if it contains preserved staging directories.
 
+Member service namespaces are closed. `jira` and `confluence` identify
+source-owned members. `aggregate` identifies a member that combines both
+sources, such as one cross-service document or edge inventory, and is accepted
+only when both Jira and Confluence qualifications are present. A single-source
+inventory remains in that backend's namespace. Source qualifications never
+accept `aggregate`, so a member cannot invent a synthetic backend qualification
+or weaken the evidence required for either source.
+
 ## Creation, sealing, and publication
 
 1. Beginning a generation creates a private directory with a random,

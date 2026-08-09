@@ -68,7 +68,7 @@ func validateMemberSpec(spec MemberSpec, limits Limits) error {
 	if err != nil {
 		return err
 	}
-	if !validService(spec.Service) || !validRole(spec.Role) {
+	if !validMemberService(spec.Service) || !validRole(spec.Role) {
 		return reject(ReasonType)
 	}
 	if len(spec.StableID) == 0 {
@@ -312,6 +312,15 @@ func validateManifest(manifest Manifest, limits Limits) error {
 		qualified[qualification.Service] = struct{}{}
 	}
 	for _, service := range services {
+		if service == ServiceAggregate {
+			if _, ok := qualified[ServiceConfluence]; !ok {
+				return reject(ReasonMembership)
+			}
+			if _, ok := qualified[ServiceJira]; !ok {
+				return reject(ReasonMembership)
+			}
+			continue
+		}
 		if _, ok := qualified[service]; !ok {
 			return reject(ReasonMembership)
 		}
@@ -406,7 +415,7 @@ func validateQualifications(qualifications []Qualification) error {
 	}
 	var previous Service
 	for i, qualification := range qualifications {
-		if !validService(qualification.Service) {
+		if !validQualificationService(qualification.Service) {
 			return reject(ReasonType)
 		}
 		if i > 0 && string(previous) >= string(qualification.Service) {
@@ -545,7 +554,11 @@ func validateGenerationID(value string) error {
 	return nil
 }
 
-func validService(service Service) bool {
+func validMemberService(service Service) bool {
+	return service == ServiceAggregate || validQualificationService(service)
+}
+
+func validQualificationService(service Service) bool {
 	return service == ServiceConfluence || service == ServiceJira
 }
 

@@ -164,6 +164,7 @@ func TestValidateManifestRejectsSemanticViolations(t *testing.T) {
 		{name: "negative byte total", mutate: func(m *Manifest) { m.Totals.Bytes = -1 }, reason: ReasonBounds},
 		{name: "missing service qualification", mutate: func(m *Manifest) { m.Qualifications = m.Qualifications[:1] }, reason: ReasonMembership},
 		{name: "qualification unknown service", mutate: func(m *Manifest) { m.Qualifications[0].Service = "private" }, reason: ReasonType},
+		{name: "aggregate namespace cannot qualify", mutate: func(m *Manifest) { m.Qualifications[0].Service = ServiceAggregate }, reason: ReasonType},
 		{name: "qualification schema zero", mutate: func(m *Manifest) { m.Qualifications[0].ReceiptSchema = 0 }, reason: ReasonSchema},
 		{name: "qualification bad digest", mutate: func(m *Manifest) { m.Qualifications[0].ScopeDigest = "abc" }, reason: ReasonDigest},
 		{name: "qualification unsorted", mutate: func(m *Manifest) { m.Qualifications[0], m.Qualifications[1] = m.Qualifications[1], m.Qualifications[0] }, reason: ReasonMembership},
@@ -219,6 +220,57 @@ func TestManifestAllowsQualifiedServiceWithoutMembers(t *testing.T) {
 	}
 	if parsed.Members == nil || len(parsed.Members) != 0 || len(parsed.Qualifications) != 1 {
 		t.Fatalf("qualified empty manifest changed shape: %#v", parsed)
+	}
+}
+
+func TestManifestAllowsAggregateMembersWithoutSyntheticQualification(t *testing.T) {
+	manifest := validManifest()
+	aggregate := Member{
+		Service: ServiceAggregate, StableID: "indexer-v1-documents", Role: RoleDocument,
+		Path: "indexer-v1/documents.jsonl", Size: 2, Mode: memberMode, SHA256: digestByte('d'),
+	}
+	manifest.Members = []Member{aggregate, manifest.Members[0], manifest.Members[1]}
+	manifest.Totals = Totals{Members: 3, Bytes: 9}
+
+	canonical, err := canonicalManifest(manifest, Limits{})
+	if err != nil {
+		t.Fatalf("aggregate member rejected: %v", err)
+	}
+	wantCanonical := `{"schema_version":1,"projection_schema":7,"generator_version":"v1.2.3+clean","build_state":"clean","predecessor_digest":"` + digestByte('1') + `","qualifications":[{"service":"confluence","receipt_schema":1,"scope_digest":"` + digestByte('3') + `","selector_digest":"` + digestByte('4') + `","projection_digest":"` + digestByte('5') + `","receipt_digest":"` + digestByte('6') + `"},{"service":"jira","receipt_schema":1,"scope_digest":"` + digestByte('7') + `","selector_digest":"` + digestByte('8') + `","projection_digest":"` + digestByte('9') + `","receipt_digest":"` + digestByte('a') + `"}],"tombstone_digest":"` + digestByte('2') + `","members":[{"service":"aggregate","stable_id":"indexer-v1-documents","role":"document","path":"indexer-v1/documents.jsonl","size":2,"mode":384,"sha256":"` + digestByte('d') + `"},{"service":"confluence","stable_id":"100","role":"document","path":"confluence/100/document.csf","size":3,"mode":384,"sha256":"` + digestByte('b') + `"},{"service":"jira","stable_id":"PROJ-1","role":"native","path":"jira/PROJ-1/native.wiki","size":4,"mode":384,"sha256":"` + digestByte('c') + `"}],"totals":{"members":3,"bytes":9}}` + "\n"
+	if diff := firstByteDifference(canonical, []byte(wantCanonical)); diff != "" {
+		t.Fatalf("aggregate manifest bytes differ: %s\ngot:  %s\nwant: %s", diff, canonical, wantCanonical)
+	}
+	parsed, err := parseManifest(canonical, Limits{})
+	if err != nil {
+		t.Fatalf("aggregate manifest did not parse: %v", err)
+	}
+	if parsed.Members[0].Service != ServiceAggregate || len(parsed.Qualifications) != 2 {
+		t.Fatalf("aggregate manifest changed shape: %#v", parsed)
+	}
+	inventory, err := inventoryDigest(parsed.Members)
+	if err != nil {
+		t.Fatalf("aggregate inventory digest: %v", err)
+	}
+	receipt := validReceipt(t, parsed)
+	if inventory != "051ce633d0cb3f128e1ba8c8941dcec2f816c31c66871b11812d501ab3906198" {
+		t.Fatalf("aggregate inventory digest = %q", inventory)
+	}
+	if receipt.GenerationDigest != "4bc747a9a1ff39d2ac513f58379c6972422795a2effc396618e7e3ae4d90756d" {
+		t.Fatalf("aggregate generation digest = %q", receipt.GenerationDigest)
+	}
+	if _, err := canonicalReceipt(receipt, Limits{}); err != nil {
+		t.Fatalf("aggregate receipt rejected: %v", err)
+	}
+	aggregateOnly := cloneManifest(parsed)
+	aggregateOnly.Members = []Member{aggregate}
+	aggregateOnly.Totals = Totals{Members: 1, Bytes: aggregate.Size}
+	for _, qualifications := range [][]Qualification{
+		append([]Qualification(nil), aggregateOnly.Qualifications[:1]...),
+		append([]Qualification(nil), aggregateOnly.Qualifications[1:]...),
+	} {
+		missingSource := cloneManifest(aggregateOnly)
+		missingSource.Qualifications = qualifications
+		assertReason(t, validateManifest(missingSource, Limits{}), ReasonMembership)
 	}
 }
 
@@ -394,10 +446,18 @@ func TestInventoryDigestRequiresCanonicalMembers(t *testing.T) {
 }
 
 func TestClosedVocabulariesAndHashes(t *testing.T) {
-	for _, service := range []Service{ServiceJira, ServiceConfluence} {
-		if !validService(service) {
-			t.Fatalf("valid service %q rejected", service)
+	for _, service := range []Service{ServiceJira, ServiceConfluence, ServiceAggregate} {
+		if !validMemberService(service) {
+			t.Fatalf("valid member service %q rejected", service)
 		}
+	}
+	for _, service := range []Service{ServiceJira, ServiceConfluence} {
+		if !validQualificationService(service) {
+			t.Fatalf("valid qualification service %q rejected", service)
+		}
+	}
+	if validQualificationService(ServiceAggregate) {
+		t.Fatal("aggregate member namespace accepted as a source qualification")
 	}
 	for _, role := range []Role{RoleNative, RoleMetadata, RoleDocument, RoleEdges, RoleAsset, RoleTombstone} {
 		if !validRole(role) {

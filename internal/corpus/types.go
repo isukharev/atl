@@ -8,12 +8,16 @@ const (
 	PointerSchemaV1  = 1
 )
 
-// Service is a backend category recorded in a sealed generation.
+// Service is a closed member namespace recorded in a sealed generation.
 type Service string
 
 const (
 	ServiceJira       Service = "jira"
 	ServiceConfluence Service = "confluence"
+	// ServiceAggregate owns members that combine evidence from both qualified
+	// backends, such as one cross-service document or edge inventory. It is
+	// never itself a source qualification.
+	ServiceAggregate Service = "aggregate"
 )
 
 // Role describes how a member participates in a generation.
