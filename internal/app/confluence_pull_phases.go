@@ -118,7 +118,11 @@ func (r *confluencePullRun) fetchPage(id string, prefetch *orderedPagePrefetch) 
 	if err != nil {
 		return nil, fmt.Errorf("pull %s: %w", id, err)
 	}
-	rel, _ := filepath.Rel(r.result.Root, filepath.Join(dir, slug+".csf"))
+	nativePath, err := mirror.PublicArtifactPathWithin(r.result.Root, filepath.Join(dir, slug+".csf"))
+	if err != nil {
+		return nil, fmt.Errorf("pull %s: qualify native artifact: %w", id, err)
+	}
+	rel := nativePath.String()
 	if action, targetErr := qualifyConfluenceClaimedTarget(r.mirror, id, dir, slug, rel, r.qualification.local); targetErr != nil {
 		appendPullLocalBlocked(&r.result.LocalSafety, r.opts.DryRun, *action)
 		if r.complete != nil {
@@ -287,25 +291,25 @@ func (r *confluencePullRun) stagePage(revalidated *confluencePullRevalidatedPage
 	}
 	for _, asset := range revalidated.assetStage.assets {
 		assetPath := filepath.Join(revalidated.dir, revalidated.slug+".assets", asset.name)
-		assetRel, err := filepath.Rel(r.result.Root, assetPath)
+		assetRel, err := mirror.PublicArtifactPathWithin(r.result.Root, assetPath)
 		if err != nil {
 			return nil, fmt.Errorf("prepare staged asset %s: %w", revalidated.id, err)
 		}
-		artifacts = append(artifacts, mirror.CompletePullArtifact{Path: filepath.ToSlash(assetRel), Data: asset.data, Mode: 0o644})
+		artifacts = append(artifacts, mirror.CompletePullArtifact{Path: assetRel, Data: asset.data, Mode: 0o644})
 	}
 	macroPath := confluenceJiraMacroPath(revalidated.dir, revalidated.slug)
-	macroRel, err := filepath.Rel(r.result.Root, macroPath)
+	macroRel, err := mirror.PublicArtifactPathWithin(r.result.Root, macroPath)
 	if err != nil {
 		return nil, fmt.Errorf("prepare Jira macro sidecar %s: %w", revalidated.id, err)
 	}
 	if revalidated.jiraMacros == nil {
-		artifacts = append(artifacts, mirror.CompletePullArtifact{Path: filepath.ToSlash(macroRel), Remove: true})
+		artifacts = append(artifacts, mirror.CompletePullArtifact{Path: macroRel, Remove: true})
 	} else {
 		macroBytes, err := encodeConfluenceJiraMacroSidecar(revalidated.jiraMacros)
 		if err != nil {
 			return nil, fmt.Errorf("prepare Jira macro sidecar %s: %w", revalidated.id, err)
 		}
-		artifacts = append(artifacts, mirror.CompletePullArtifact{Path: filepath.ToSlash(macroRel), Data: macroBytes, Mode: 0o600})
+		artifacts = append(artifacts, mirror.CompletePullArtifact{Path: macroRel, Data: macroBytes, Mode: 0o600})
 	}
 	entry := mirror.CompletePullJournalEntry{State: state, View: staged.viewState}
 	if err := r.mirror.PrepareCompletePullPublication(r.complete.checkpoint, r.complete.nextIndex, entry, revalidated.completeEligible, artifacts, revalidated.relocation); err != nil {

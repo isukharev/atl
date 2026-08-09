@@ -16,15 +16,17 @@ import (
 )
 
 const (
-	completePullCheckpointSchema    = 1
-	maxCompletePullCheckpointBytes  = 64 << 20
-	maxCompletePullProgressBytes    = 4 << 10
-	maxCompletePullCheckpointIDs    = 1_000_000
-	maxCompletePullIDBytes          = 256
-	completePullJournalSchema       = 2
-	maxCompletePullJournalEntries   = 25
-	maxCompletePullJournalBytes     = 256 << 10
-	maxCompletePullJournalPathBytes = 4096
+	completePullCheckpointSchema   = 1
+	completePullProgressSchema     = 1 // legacy Confluence schema; bytes are immutable
+	completePullJiraProgressSchema = 2
+	maxCompletePullCheckpointBytes = 64 << 20
+	maxCompletePullProgressBytes   = 4 << 10
+	maxCompletePullCheckpointIDs   = 1_000_000
+	maxCompletePullIDBytes         = 256
+	completePullJournalSchema      = 2 // legacy Confluence schema; bytes are immutable
+	completePullJiraJournalSchema  = 3
+	maxCompletePullJournalEntries  = 25
+	maxCompletePullJournalBytes    = 256 << 10
 )
 
 // CompletePullCheckpoint is a private, backend-neutral snapshot of one exact
@@ -32,21 +34,22 @@ const (
 // identities only: credentials, backend URLs, page bodies, and titles never
 // enter this resume artifact.
 type CompletePullCheckpoint struct {
-	SchemaVersion   int      `json:"schema_version"`
-	Service         string   `json:"service"`
-	SelectorSHA256  string   `json:"selector_sha256"`
-	OptionsSHA256   string   `json:"options_sha256"`
-	SelectionSHA256 string   `json:"selection_sha256"`
-	IDs             []string `json:"ids"`
-	NextIndex       int      `json:"next_index"`
+	SchemaVersion   int                 `json:"schema_version"`
+	Service         CompletePullService `json:"service"`
+	SelectorSHA256  string              `json:"selector_sha256"`
+	OptionsSHA256   string              `json:"options_sha256"`
+	SelectionSHA256 string              `json:"selection_sha256"`
+	IDs             []string            `json:"ids"`
+	NextIndex       int                 `json:"next_index"`
 }
 
 type completePullProgress struct {
-	SchemaVersion   int    `json:"schema_version"`
-	SelectorSHA256  string `json:"selector_sha256"`
-	OptionsSHA256   string `json:"options_sha256"`
-	SelectionSHA256 string `json:"selection_sha256"`
-	NextIndex       int    `json:"next_index"`
+	SchemaVersion   int                 `json:"schema_version"`
+	Service         CompletePullService `json:"service,omitempty"`
+	SelectorSHA256  string              `json:"selector_sha256"`
+	OptionsSHA256   string              `json:"options_sha256"`
+	SelectionSHA256 string              `json:"selection_sha256"`
+	NextIndex       int                 `json:"next_index"`
 }
 
 // CompletePullJournalEntry is the content-minimized durable commit evidence
@@ -54,13 +57,14 @@ type completePullProgress struct {
 // and credentials remain in their existing private artifacts; recovery needs
 // only the exact sidecar state and view policy that were pending in memory.
 type CompletePullJournalEntry struct {
-	State SyncState `json:"state"`
-	View  ViewState `json:"view"`
+	Identity string    `json:"identity,omitempty"`
+	State    SyncState `json:"state"`
+	View     ViewState `json:"view"`
 }
 
 type completePullJournal struct {
 	SchemaVersion   int                        `json:"schema_version"`
-	Service         string                     `json:"service"`
+	Service         CompletePullService        `json:"service"`
 	SelectorSHA256  string                     `json:"selector_sha256"`
 	OptionsSHA256   string                     `json:"options_sha256"`
 	SelectionSHA256 string                     `json:"selection_sha256"`
@@ -104,7 +108,7 @@ func validateCompletePullCheckpoint(value CompletePullCheckpoint, expectedSelect
 	if value.SchemaVersion != completePullCheckpointSchema {
 		return fmt.Errorf("%w: unsupported complete-pull checkpoint schema %d", domain.ErrCheckFailed, value.SchemaVersion)
 	}
-	if value.Service == "" || value.SelectorSHA256 != expectedSelectorSHA256 || !validSHA256(value.OptionsSHA256) || !validSHA256(value.SelectionSHA256) {
+	if !validCompletePullService(value.Service) || value.SelectorSHA256 != expectedSelectorSHA256 || !validSHA256(value.OptionsSHA256) || !validSHA256(value.SelectionSHA256) {
 		return fmt.Errorf("%w: complete-pull checkpoint identity is invalid", domain.ErrCheckFailed)
 	}
 	if len(value.IDs) > maxCompletePullCheckpointIDs {
@@ -115,11 +119,8 @@ func validateCompletePullCheckpoint(value CompletePullCheckpoint, expectedSelect
 	}
 	seen := make(map[string]struct{}, len(value.IDs))
 	for _, id := range value.IDs {
-		if id == "" {
-			return fmt.Errorf("%w: complete-pull checkpoint contains an empty identity", domain.ErrCheckFailed)
-		}
-		if len(id) > maxCompletePullIDBytes {
-			return fmt.Errorf("%w: complete-pull checkpoint identity exceeds %d bytes", domain.ErrCheckFailed, maxCompletePullIDBytes)
+		if len(id) > maxCompletePullIDBytes || !positiveDecimalIdentity(id) {
+			return fmt.Errorf("%w: complete-pull checkpoint contains an invalid identity", domain.ErrCheckFailed)
 		}
 		if _, exists := seen[id]; exists {
 			return fmt.Errorf("%w: complete-pull checkpoint contains duplicate identity %q", domain.ErrCheckFailed, id)
@@ -129,27 +130,8 @@ func validateCompletePullCheckpoint(value CompletePullCheckpoint, expectedSelect
 	return nil
 }
 
-func validateCompletePullJournalEntry(entry CompletePullJournalEntry) error {
-	state := entry.State
-	if state.ID == "" || len(state.ID) > maxCompletePullIDBytes {
-		return fmt.Errorf("%w: complete-pull journal contains an invalid identity", domain.ErrCheckFailed)
-	}
-	if state.Version <= 0 || !validSHA256(state.Hash) {
-		return fmt.Errorf("%w: complete-pull journal state for %q has an invalid version or hash", domain.ErrCheckFailed, state.ID)
-	}
-	pathForOS := filepath.FromSlash(state.Path)
-	if state.Path == "" || len(state.Path) > maxCompletePullJournalPathBytes || strings.ContainsAny(state.Path, "\\:\x00") || filepath.IsAbs(pathForOS) {
-		return fmt.Errorf("%w: complete-pull journal state for %q has an invalid path", domain.ErrCheckFailed, state.ID)
-	}
-	clean := filepath.ToSlash(filepath.Clean(pathForOS))
-	if clean != state.Path || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || !strings.HasSuffix(clean, ".csf") {
-		return fmt.Errorf("%w: complete-pull journal state for %q has a non-canonical path", domain.ErrCheckFailed, state.ID)
-	}
-	return nil
-}
-
 func validateCompletePullJournal(journal completePullJournal, checkpoint CompletePullCheckpoint) error {
-	if journal.SchemaVersion != completePullJournalSchema {
+	if !validCompletePullService(journal.Service) || journal.SchemaVersion != completePullJournalSchemaFor(journal.Service) {
 		return fmt.Errorf("%w: unsupported complete-pull journal schema %d", domain.ErrCheckFailed, journal.SchemaVersion)
 	}
 	if journal.Service != checkpoint.Service || journal.SelectorSHA256 != checkpoint.SelectorSHA256 || journal.OptionsSHA256 != checkpoint.OptionsSHA256 || journal.SelectionSHA256 != checkpoint.SelectionSHA256 {
@@ -163,11 +145,15 @@ func validateCompletePullJournal(journal completePullJournal, checkpoint Complet
 	}
 	seen := make(map[string]struct{}, len(journal.Entries))
 	for i, entry := range journal.Entries {
-		if err := validateCompletePullJournalEntry(entry); err != nil {
+		if err := validateCompletePullJournalEntry(checkpoint.Service, entry); err != nil {
 			return err
 		}
 		expected := checkpoint.IDs[journal.StartIndex+i]
-		if entry.State.ID != expected {
+		actual := entry.State.ID
+		if checkpoint.Service == CompletePullServiceJira {
+			actual = entry.Identity
+		}
+		if actual != expected {
 			return fmt.Errorf("%w: complete-pull journal contains a gap or unrequested identity at index %d", domain.ErrCheckFailed, journal.StartIndex+i)
 		}
 		if _, duplicate := seen[entry.State.ID]; duplicate {
@@ -259,7 +245,17 @@ func (m *Mirror) appendCompletePullJournalOwned(checkpoint CompletePullCheckpoin
 	if err := validateCompletePullCheckpoint(checkpoint, checkpoint.SelectorSHA256); err != nil {
 		return err
 	}
-	if index < checkpoint.NextIndex || index >= len(checkpoint.IDs) || checkpoint.IDs[index] != entry.State.ID {
+	if err := validateCompletePullJournalEntry(checkpoint.Service, entry); err != nil {
+		return err
+	}
+	if index < checkpoint.NextIndex || index >= len(checkpoint.IDs) {
+		return fmt.Errorf("%w: complete-pull journal append is not the next requested identity", domain.ErrCheckFailed)
+	}
+	selectedIdentity := entry.State.ID
+	if checkpoint.Service == CompletePullServiceJira {
+		selectedIdentity = entry.Identity
+	}
+	if checkpoint.IDs[index] != selectedIdentity {
 		return fmt.Errorf("%w: complete-pull journal append is not the next requested identity", domain.ErrCheckFailed)
 	}
 	journal, found, err := m.loadCompletePullJournal(checkpoint.SelectorSHA256)
@@ -278,7 +274,7 @@ func (m *Mirror) appendCompletePullJournalOwned(checkpoint CompletePullCheckpoin
 			return fmt.Errorf("%w: complete-pull journal must begin at durable checkpoint progress", domain.ErrCheckFailed)
 		}
 		journal = completePullJournal{
-			SchemaVersion: completePullJournalSchema, Service: checkpoint.Service,
+			SchemaVersion: completePullJournalSchemaFor(checkpoint.Service), Service: checkpoint.Service,
 			SelectorSHA256: checkpoint.SelectorSHA256, OptionsSHA256: checkpoint.OptionsSHA256,
 			SelectionSHA256: checkpoint.SelectionSHA256, StartIndex: index,
 			Entries: []CompletePullJournalEntry{}, WriteToken: ownerToken,
@@ -316,20 +312,41 @@ func (m *Mirror) appendCompletePullJournalOwned(checkpoint CompletePullCheckpoin
 func (m *Mirror) verifyCompletePullJournalArtifacts(journal completePullJournal) error {
 	for _, entry := range journal.Entries {
 		state := entry.State
-		csfPath := filepath.Join(m.Root, filepath.FromSlash(state.Path))
-		body, err := safepath.ReadFileWithin(m.Root, csfPath)
+		nativePath := filepath.Join(m.Root, filepath.FromSlash(state.Path))
+		body, err := safepath.ReadFileWithin(m.Root, nativePath)
 		if err != nil || Hash(body) != state.Hash {
 			return fmt.Errorf("%w: complete-pull journal native artifact for %q is missing or changed", domain.ErrCheckFailed, state.ID)
 		}
-		metaPath := strings.TrimSuffix(csfPath, ".csf") + ".meta.json"
-		metaBytes, err := safepath.ReadFileWithin(m.Root, metaPath)
-		var meta Meta
-		if err != nil || json.Unmarshal(metaBytes, &meta) != nil || meta.ID != state.ID || meta.Version != state.Version || meta.Hash != state.Hash {
-			return fmt.Errorf("%w: complete-pull journal metadata for %q does not prove the landed state", domain.ErrCheckFailed, state.ID)
-		}
-		base, present, err := m.ReadBaseBody(state.ID)
-		if err != nil || !present || Hash(base) != state.Hash {
-			return fmt.Errorf("%w: complete-pull journal baseline for %q is missing or changed", domain.ErrCheckFailed, state.ID)
+		switch journal.Service {
+		case CompletePullServiceConfluence:
+			metaPath := strings.TrimSuffix(nativePath, ".csf") + ".meta.json"
+			metaBytes, err := safepath.ReadFileWithin(m.Root, metaPath)
+			var meta Meta
+			if err != nil || json.Unmarshal(metaBytes, &meta) != nil || meta.ID != state.ID || meta.Version != state.Version || meta.Hash != state.Hash {
+				return fmt.Errorf("%w: complete-pull journal metadata for %q does not prove the landed state", domain.ErrCheckFailed, state.ID)
+			}
+			base, present, err := m.ReadBaseBody(state.ID)
+			if err != nil || !present || Hash(base) != state.Hash {
+				return fmt.Errorf("%w: complete-pull journal baseline for %q is missing or changed", domain.ErrCheckFailed, state.ID)
+			}
+		case CompletePullServiceJira:
+			snapshotPath := strings.TrimSuffix(nativePath, ".wiki") + ".json"
+			snapshotBytes, err := safepath.ReadFileWithin(m.Root, snapshotPath)
+			var snapshot struct {
+				Key    string          `json:"key"`
+				ID     string          `json:"id"`
+				Fields json.RawMessage `json:"fields"`
+			}
+			var fields map[string]json.RawMessage
+			if err != nil || json.Unmarshal(snapshotBytes, &snapshot) != nil || snapshot.Key != state.ID || snapshot.ID != entry.Identity || json.Unmarshal(snapshot.Fields, &fields) != nil || fields == nil {
+				return fmt.Errorf("%w: complete-pull Jira snapshot for %q does not prove the landed identity", domain.ErrCheckFailed, state.ID)
+			}
+			base, present, err := m.ReadBaseBodyExt(state.ID, ".wiki")
+			if err != nil || !present || Hash(base) != state.Hash {
+				return fmt.Errorf("%w: complete-pull Jira baseline for %q is missing or changed", domain.ErrCheckFailed, state.ID)
+			}
+		default:
+			return fmt.Errorf("%w: complete-pull journal service is invalid", domain.ErrCheckFailed)
 		}
 	}
 	return nil
@@ -442,7 +459,10 @@ func (m *Mirror) CompletePullCheckpoint(selectorSHA256 string) (CompletePullChec
 	if err := decodeCompletePullJSON(progressPath, b, &progress); err != nil {
 		return CompletePullCheckpoint{}, false, err
 	}
-	if progress.SchemaVersion != completePullCheckpointSchema {
+	if staleCompletePullProgressService(value.Service, progress) {
+		return value, true, nil
+	}
+	if progress.SchemaVersion != completePullProgressSchemaFor(value.Service) || !validCompletePullProgressService(value.Service, progress.Service) {
 		return CompletePullCheckpoint{}, false, fmt.Errorf("%w: unsupported complete-pull progress schema %d in %s", domain.ErrCheckFailed, progress.SchemaVersion, progressPath)
 	}
 	if progress.SelectorSHA256 != value.SelectorSHA256 || progress.OptionsSHA256 != value.OptionsSHA256 || progress.SelectionSHA256 != value.SelectionSHA256 {
@@ -520,8 +540,11 @@ func (m *Mirror) SaveCompletePullCheckpoint(value CompletePullCheckpoint) error 
 		}
 	}
 	progress := completePullProgress{
-		SchemaVersion: completePullCheckpointSchema, SelectorSHA256: value.SelectorSHA256,
+		SchemaVersion: completePullProgressSchemaFor(value.Service), SelectorSHA256: value.SelectorSHA256,
 		OptionsSHA256: value.OptionsSHA256, SelectionSHA256: value.SelectionSHA256, NextIndex: value.NextIndex,
+	}
+	if value.Service == CompletePullServiceJira {
+		progress.Service = value.Service
 	}
 	b, err := json.MarshalIndent(progress, "", "  ")
 	if err != nil {

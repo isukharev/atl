@@ -5,10 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -135,6 +133,14 @@ func (m *Mirror) loadSidecar() (sidecarFile, error) {
 	if sc.Staged == nil {
 		sc.Staged = map[string]StagedState{}
 	}
+	for id, state := range sc.Pages {
+		qualified, err := parseDurablePublicStatePath(id, state)
+		if err != nil {
+			return sc, fmt.Errorf("%w: corrupt mirror sidecar %s: resource %q has an invalid public path: %v", domain.ErrCheckFailed, m.sidecarPath(), id, err)
+		}
+		state.Path = qualified.String()
+		sc.Pages[id] = state
+	}
 	for id, state := range sc.Staged {
 		if err := validateStagedState(id, state); err != nil {
 			return sc, fmt.Errorf("%w: corrupt mirror sidecar %s: invalid staged lineage: %v — fix the JSON or delete the staged entry", domain.ErrCheckFailed, m.sidecarPath(), err)
@@ -235,12 +241,8 @@ func validateStagedState(key string, state StagedState) error {
 }
 
 func validateStagedPath(relative string) error {
-	if relative == "" || relative == "." || strings.ContainsAny(relative, "\\:") || strings.ContainsRune(relative, 0) {
-		return fmt.Errorf("must be a non-empty canonical slash-separated relative path")
-	}
-	clean := path.Clean(relative)
-	if clean != relative || path.IsAbs(relative) || clean == ".." || strings.HasPrefix(clean, "../") {
-		return fmt.Errorf("must be a canonical path contained by the mirror root")
+	if _, err := NewPublicArtifactPath(relative); err != nil {
+		return fmt.Errorf("must be a canonical public path contained by the mirror root: %w", err)
 	}
 	return nil
 }

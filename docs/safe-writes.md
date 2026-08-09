@@ -16,6 +16,25 @@ command so the shell-wide policy remains enabled afterwards.
 
 Mirror refresh, backend binding, three-way conflict handling, and created-object
 registration are covered in [durable mirrors and recovery](mirrors-and-recovery.md).
+Local mirror publication qualifies every artifact as either public or a
+pristine private base before it can cross from orchestration into durable
+filesystem code. Recovery repeats that qualification for persisted paths and
+still performs root-scoped, no-symlink I/O checks; a journal is not trusted
+merely because ATL wrote it previously. Confluence requires exactly one native
+artifact and one mode-0600 `.atl/base/<page-id>.csf` private artifact, with both
+payload hashes bound to the accepted page state.
+Historical Jira `.wiki` and Confluence `.csf` sidecar paths written with
+Windows separators are normalized only while loading, must match the sidecar
+map key plus the state's ID/version/native extension, and must still pass the
+canonical public-path boundary; new state always uses slash-separated paths.
+Service-qualified complete-pull recovery never relaxes the established
+Confluence page/version/`.csf` rules to admit Jira. Jira uses its own durable
+variant, which binds immutable issue identity, mutable key and `.wiki` path,
+pristine base, raw snapshot, derived view, and the reviewed auxiliary roles.
+Confluence retains its established progress-v1 bytes; Jira progress v2 carries
+an explicit service. If a crash leaves progress from the other service beside a
+new selection, recovery restarts that selection from zero instead of trusting
+the old prefix.
 
 The shared transport never follows a redirect from a mutating HTTP request.
 This applies to every Jira and Confluence POST, PUT, PATCH, and DELETE: a 3xx is

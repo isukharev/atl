@@ -2,6 +2,7 @@ package mirror
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -112,6 +113,81 @@ func TestCorruptSidecarFailsLoudly(t *testing.T) {
 	assertLoud("Write", m.Write(dir, slug, page, nil))
 	_, err = m.SyncedVersion(page.ID)
 	assertLoud("SyncedVersion", err)
+}
+
+func TestSidecarRejectsReservedPathAlias(t *testing.T) {
+	m := New(t.TempDir())
+	if err := m.EnsureScaffold(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(m.sidecarPath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sc := sidecarFile{Pages: map[string]SyncState{
+		"10": {ID: "10", Version: 1, Hash: strings.Repeat("a", 64), Path: ".ATL/base/10.csf"},
+	}}
+	b, err := json.Marshal(sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(m.sidecarPath(), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.SyncStates(); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("reserved path alias error=%v", err)
+	}
+}
+
+func TestSidecarLoadsLegacyWindowsJiraPathCanonically(t *testing.T) {
+	m := New(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(m.sidecarPath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sc := sidecarFile{Pages: map[string]SyncState{
+		"PROJ-1": {ID: "PROJ-1", Hash: strings.Repeat("a", 64), Path: `PROJ\PROJ-1.wiki`},
+	}}
+	b, err := json.Marshal(sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(m.sidecarPath(), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state, found, err := m.SyncStateOf("PROJ-1")
+	if err != nil || !found || state.Path != "PROJ/PROJ-1.wiki" {
+		t.Fatalf("legacy state=%+v found=%t err=%v", state, found, err)
+	}
+}
+
+func TestSidecarRejectsMalformedLegacyWindowsStatePaths(t *testing.T) {
+	for name, fixture := range map[string]struct {
+		key   string
+		state SyncState
+	}{
+		"wrong Jira identity":        {key: "PROJ-1", state: SyncState{ID: "PROJ-1", Path: `PROJ\OTHER.wiki`}},
+		"wrong Jira extension":       {key: "PROJ-1", state: SyncState{ID: "PROJ-1", Path: `PROJ\PROJ-1.csf`}},
+		"wrong Confluence extension": {key: "10", state: SyncState{ID: "10", Version: 1, Path: `DOC\page\page.txt`}},
+		"mismatched map identity":    {key: "PROJ-1", state: SyncState{ID: "OTHER-2", Path: `SPACE\OTHER-2.wiki`}},
+		"empty Jira identity":        {key: "PROJ-1", state: SyncState{Path: `SPACE\.wiki`}},
+		"unsafe Jira identity":       {key: "..", state: SyncState{ID: "..", Path: `SPACE\...wiki`}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := New(t.TempDir())
+			if err := os.MkdirAll(filepath.Dir(m.sidecarPath()), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			b, err := json.Marshal(sidecarFile{Pages: map[string]SyncState{fixture.key: fixture.state}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(m.sidecarPath(), b, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := m.SyncStates(); !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("malformed legacy state error=%v", err)
+			}
+		})
+	}
 }
 
 func TestSidecarAndBaseReadsRefuseDescendantSymlinks(t *testing.T) {

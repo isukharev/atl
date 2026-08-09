@@ -26,12 +26,16 @@ type jiraPullIssueRequest struct {
 }
 
 type jiraPullIssuePaths struct {
-	dir          string
-	keySeg       string
-	markdown     string
-	wiki         string
-	snapshot     string
-	epicChildren string
+	dir             string
+	keySeg          string
+	markdown        string
+	wiki            string
+	snapshot        string
+	epicChildren    string
+	markdownRel     mirror.ArtifactPath
+	wikiRel         mirror.ArtifactPath
+	snapshotRel     mirror.ArtifactPath
+	epicChildrenRel mirror.ArtifactPath
 }
 
 type jiraPullQualifiedIssue struct {
@@ -73,6 +77,61 @@ type jiraPullIssueOutcome struct {
 	assetsSkipped int
 	state         *mirror.SyncState
 	view          *mirror.ViewState
+}
+
+func (s *JiraService) qualifyJiraPullView(root, dir, keySeg, mdPath string, pending *JiraPendingFields, localWiki []byte, rs RenderSettings, recordedView *mirror.ViewState) (*PullLocalAction, []byte, error) {
+	actual, readErr := safepath.ReadFileWithin(root, mdPath)
+	if os.IsNotExist(readErr) {
+		return nil, nil, nil
+	}
+	rel, err := mirror.PublicArtifactPathWithin(root, mdPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	blocked := func(reason string) *PullLocalAction {
+		return &PullLocalAction{ID: keySeg, Path: rel.String(), Status: pullLocalBlocked, Reason: reason, CurrentSHA256: mirror.Hash(actual)}
+	}
+	if readErr != nil {
+		return blocked("derived_view_unreadable"), nil, nil
+	}
+	marker := jiraDocumentMarkerLine(string(actual))
+	if marker != jiraIssueDocumentMarker {
+		// Legacy views can be migrated explicitly with `jira render`. Pull does
+		// not guess whether their editable regions are pristine, and future
+		// markers must never be downgraded by an older binary.
+		return blocked("derived_view_unqualified"), actual, nil
+	}
+
+	is, ok := loadIssueSnapshot(root, filepath.Join(dir, keySeg+".json"))
+	if !ok {
+		return blocked("derived_view_snapshot_unqualified"), actual, nil
+	}
+	base, present, baseErr := mirror.New(root).ReadBaseBodyExt(keySeg, wikiExt)
+	if baseErr != nil || !present {
+		return blocked("derived_view_baseline_unqualified"), actual, nil
+	}
+	display := issueWithPendingFields(is, pending)
+	display.Body = string(base)
+	if pending != nil && localWiki != nil {
+		display.Body = string(localWiki)
+	}
+	if recordedView != nil {
+		rs = settingsFromViewState(*recordedView)
+	}
+	related := loadEpicChildrenSidecar(root, epicChildrenPath(dir, keySeg))
+	if related != nil && !compatibleEpicSidecar(related, display.Key, rs.EpicField) {
+		related = nil
+	}
+	if related != nil && (rs.EpicField == "" || !isDirectEpicFieldID(rs.EpicField)) {
+		rs.EpicField = related.EpicField
+	}
+	expected := renderIssueMarkdownWithRelated(display, assetsOnDisk(root, dir, keySeg), related, rs)
+	if string(actual) != string(expected) {
+		action := blocked("derived_view_modified")
+		action.BaselineSHA256 = mirror.Hash(expected)
+		return action, actual, nil
+	}
+	return nil, actual, nil
 }
 
 func (s *JiraService) pullJiraIssue(ctx context.Context, req jiraPullIssueRequest) (jiraPullIssueOutcome, error) {
@@ -194,13 +253,36 @@ func qualifyJiraPullIssuePaths(root string, issue *domain.Issue) (jiraPullIssueP
 	if !safepath.Within(dir, markdown) {
 		return jiraPullIssuePaths{}, fmt.Errorf("refusing unsafe issue key %q", issue.Key)
 	}
+	markdownRel, err := mirror.PublicArtifactPathWithin(root, markdown)
+	if err != nil {
+		return jiraPullIssuePaths{}, err
+	}
+	wiki := filepath.Join(dir, keySeg+wikiExt)
+	wikiRel, err := mirror.PublicArtifactPathWithin(root, wiki)
+	if err != nil {
+		return jiraPullIssuePaths{}, err
+	}
+	snapshot := filepath.Join(dir, keySeg+".json")
+	snapshotRel, err := mirror.PublicArtifactPathWithin(root, snapshot)
+	if err != nil {
+		return jiraPullIssuePaths{}, err
+	}
+	epicChildren := epicChildrenPath(dir, keySeg)
+	epicChildrenRel, err := mirror.PublicArtifactPathWithin(root, epicChildren)
+	if err != nil {
+		return jiraPullIssuePaths{}, err
+	}
 	return jiraPullIssuePaths{
-		dir:          dir,
-		keySeg:       keySeg,
-		markdown:     markdown,
-		wiki:         filepath.Join(dir, keySeg+wikiExt),
-		snapshot:     filepath.Join(dir, keySeg+".json"),
-		epicChildren: epicChildrenPath(dir, keySeg),
+		dir:             dir,
+		keySeg:          keySeg,
+		markdown:        markdown,
+		wiki:            wiki,
+		snapshot:        snapshot,
+		epicChildren:    epicChildren,
+		markdownRel:     markdownRel,
+		wikiRel:         wikiRel,
+		snapshotRel:     snapshotRel,
+		epicChildrenRel: epicChildrenRel,
 	}, nil
 }
 
@@ -320,13 +402,11 @@ func publishJiraPullIssue(candidate *jiraPullPublishCandidate) (jiraPullIssueOut
 	if err := req.mirror.SaveBaseExt(qualified.paths.keySeg, []byte(req.issue.Body), wikiExt); err != nil {
 		return jiraPullIssueOutcome{}, err
 	}
-	relWiki, _ := filepath.Rel(req.root, qualified.paths.wiki)
-	state := mirror.SyncState{ID: qualified.paths.keySeg, Version: 0, Hash: mirror.Hash([]byte(req.issue.Body)), Path: relWiki}
+	state := mirror.SyncState{ID: qualified.paths.keySeg, Version: 0, Hash: mirror.Hash([]byte(req.issue.Body)), Path: qualified.paths.wikiRel.String()}
 	req.batch.Record(state)
 	view := viewStateOf(req.render)
 	req.batch.RecordView(qualified.paths.keySeg, view)
 
-	rel, _ := filepath.Rel(req.root, qualified.paths.markdown)
 	epicChildren := 0
 	if req.related != nil {
 		epicChildren = len(req.related.Children)
@@ -334,8 +414,8 @@ func publishJiraPullIssue(candidate *jiraPullPublishCandidate) (jiraPullIssueOut
 	return jiraPullIssueOutcome{
 		issue: JiraPulled{
 			Key:          req.issue.Key,
-			Path:         rel,
-			WikiPath:     relWiki,
+			Path:         qualified.paths.markdownRel.String(),
+			WikiPath:     qualified.paths.wikiRel.String(),
 			Assets:       len(fetched.assets),
 			EpicChildren: epicChildren,
 		},
@@ -347,9 +427,10 @@ func publishJiraPullIssue(candidate *jiraPullPublishCandidate) (jiraPullIssueOut
 }
 
 func (qualified *jiraPullQualifiedIssue) pulled(status string) JiraPulled {
-	rel, _ := filepath.Rel(qualified.request.root, qualified.paths.markdown)
-	relWiki, _ := filepath.Rel(qualified.request.root, qualified.paths.wiki)
-	return JiraPulled{Key: qualified.request.issue.Key, Path: rel, WikiPath: relWiki, Status: status}
+	return JiraPulled{
+		Key: qualified.request.issue.Key, Path: qualified.paths.markdownRel.String(),
+		WikiPath: qualified.paths.wikiRel.String(), Status: status,
+	}
 }
 
 func blockedJiraPullIssue(qualified *jiraPullQualifiedIssue, action PullLocalAction) jiraPullIssueOutcome {

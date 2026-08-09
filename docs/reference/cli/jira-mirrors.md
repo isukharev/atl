@@ -104,7 +104,10 @@ The pull also records the `.wiki` body in the mirror sidecar (`.atl/state.json`)
 plus a pristine base copy (`.atl/base/<KEY>.wiki`), which `jira status` and
 `jira push` use to detect local edits and remote drift. Mirrors pulled by an
 older `atl` have no sidecar entry: those issues read as never-synced (and are
-not pushable) until re-pulled.
+not pushable) until re-pulled. Existing Jira sidecars written on Windows retain
+compatibility: backslash-separated public paths are normalized and revalidated
+against the recorded issue key, zero Jira version, and `.wiki` extension when
+loaded, while all newly written paths use canonical `/` separators.
 
 `<KEY>.json` shape:
 

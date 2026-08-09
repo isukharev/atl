@@ -1,12 +1,14 @@
 package mirror
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -17,14 +19,17 @@ import (
 const completePullTestWriteToken = "0123456789abcdef0123456789abcdef"
 
 func appendCompletePullJournalForTest(m *Mirror, checkpoint CompletePullCheckpoint, index int, entry CompletePullJournalEntry) error {
-	if err := validateCompletePullJournalEntry(entry); err != nil {
+	if err := validateCompletePullJournalEntry(checkpoint.Service, entry); err != nil {
 		return err
 	}
 	body, err := safepath.ReadFileWithin(m.Root, filepath.Join(m.Root, filepath.FromSlash(entry.State.Path)))
 	if err != nil {
 		return err
 	}
-	if err := m.PrepareCompletePullPublication(checkpoint, index, entry, true, []CompletePullArtifact{{Path: entry.State.Path, Data: body, Mode: 0o644}}, nil); err != nil {
+	if err := m.PrepareCompletePullPublication(checkpoint, index, entry, true, []CompletePullArtifact{
+		{Path: mustArtifactPath(entry.State.Path), Data: body, Mode: 0o644},
+		{Path: mustArtifactPath(confluenceCompletePullBasePath(entry)), Data: body, Mode: 0o600},
+	}, nil); err != nil {
 		return err
 	}
 	return m.RecoverCompletePullPublication(checkpoint.SelectorSHA256, checkpoint, true)
@@ -167,6 +172,100 @@ func TestCompletePullCheckpointIgnoresStaleProgressAfterAtomicRestart(t *testing
 	}
 }
 
+func TestCompletePullCheckpointDoesNotReuseProgressAcrossServices(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		old  CompletePullService
+		new  CompletePullService
+	}{
+		{name: "Confluence to Jira", old: CompletePullServiceConfluence, new: CompletePullServiceJira},
+		{name: "Jira to Confluence", old: CompletePullServiceJira, new: CompletePullServiceConfluence},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := New(t.TempDir())
+			checkpoint := CompletePullCheckpoint{
+				Service: tc.old, SelectorSHA256: completePullTestHash,
+				OptionsSHA256: strings.Repeat("b", 64), SelectionSHA256: strings.Repeat("c", 64),
+				IDs: []string{"10", "20"}, NextIndex: 1,
+			}
+			if err := m.SaveCompletePullCheckpoint(checkpoint); err != nil {
+				t.Fatal(err)
+			}
+			progressPath, _ := m.completePullProgressPath(checkpoint.SelectorSHA256)
+			progressBytes, err := os.ReadFile(progressPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.old == CompletePullServiceConfluence {
+				want := fmt.Sprintf("{\n  \"schema_version\": 1,\n  \"selector_sha256\": %q,\n  \"options_sha256\": %q,\n  \"selection_sha256\": %q,\n  \"next_index\": 1\n}\n", checkpoint.SelectorSHA256, checkpoint.OptionsSHA256, checkpoint.SelectionSHA256)
+				if string(progressBytes) != want {
+					t.Fatalf("legacy Confluence progress bytes changed:\n%s", progressBytes)
+				}
+			}
+			if tc.old == CompletePullServiceJira && (!bytes.Contains(progressBytes, []byte(`"schema_version": 2`)) || !bytes.Contains(progressBytes, []byte(`"service": "jira"`))) {
+				t.Fatalf("Jira progress is not service-qualified: %s", progressBytes)
+			}
+
+			checkpoint.Service = tc.new
+			checkpoint.SchemaVersion = completePullCheckpointSchema
+			checkpoint.NextIndex = 0
+			manifest, err := json.MarshalIndent(checkpoint, "", "  ")
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifestPath, _ := m.completePullCheckpointPath(checkpoint.SelectorSHA256)
+			if err := safepath.WriteFileWithin(m.Root, manifestPath, append(manifest, '\n'), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got, found, err := m.CompletePullCheckpoint(checkpoint.SelectorSHA256)
+			if err != nil || !found || got.Service != tc.new || got.NextIndex != 0 {
+				t.Fatalf("cross-service restart=%+v found=%t err=%v", got, found, err)
+			}
+		})
+	}
+}
+
+func TestCompletePullCheckpointRejectsInvalidServiceQualifiedProgress(t *testing.T) {
+	m := New(t.TempDir())
+	checkpoint := CompletePullCheckpoint{
+		Service: CompletePullServiceJira, SelectorSHA256: completePullTestHash,
+		OptionsSHA256: strings.Repeat("b", 64), SelectionSHA256: strings.Repeat("c", 64),
+		IDs: []string{"10"},
+	}
+	if err := m.SaveCompletePullCheckpoint(checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	progressPath, _ := m.completePullProgressPath(checkpoint.SelectorSHA256)
+	for name, progress := range map[string]completePullProgress{
+		"unversioned": {
+			Service: CompletePullServiceJira, SelectorSHA256: checkpoint.SelectorSHA256,
+			OptionsSHA256: checkpoint.OptionsSHA256, SelectionSHA256: checkpoint.SelectionSHA256,
+		},
+		"future": {
+			SchemaVersion: completePullJiraProgressSchema + 1, Service: CompletePullServiceJira,
+			SelectorSHA256: checkpoint.SelectorSHA256, OptionsSHA256: checkpoint.OptionsSHA256,
+			SelectionSHA256: checkpoint.SelectionSHA256,
+		},
+		"missing service": {
+			SchemaVersion: completePullJiraProgressSchema, SelectorSHA256: checkpoint.SelectorSHA256,
+			OptionsSHA256: checkpoint.OptionsSHA256, SelectionSHA256: checkpoint.SelectionSHA256,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			b, err := json.Marshal(progress)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(progressPath, append(b, '\n'), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := m.CompletePullCheckpoint(checkpoint.SelectorSHA256); !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("invalid progress error=%v", err)
+			}
+		})
+	}
+}
+
 func completePullJournalFixture(t *testing.T, ids ...string) (*Mirror, CompletePullCheckpoint, []CompletePullJournalEntry) {
 	t.Helper()
 	root := t.TempDir()
@@ -263,7 +362,7 @@ func TestCompletePullJournalRecoversEveryCrossFileBoundary(t *testing.T) {
 func TestCompletePullJournalIsPrivateBoundedAndConsecutive(t *testing.T) {
 	ids := make([]string, 26)
 	for i := range ids {
-		ids[i] = fmt.Sprintf("%02d", i+1)
+		ids[i] = strconv.Itoa(i + 1)
 	}
 	m, checkpoint, entries := completePullJournalFixture(t, ids...)
 	for i := 0; i < maxCompletePullJournalEntries; i++ {
@@ -388,6 +487,9 @@ func TestCompletePullJournalRejectsCorruptMismatchedOrTamperedState(t *testing.T
 			"version": func(entry *CompletePullJournalEntry) { entry.State.Version = 0 },
 			"hash":    func(entry *CompletePullJournalEntry) { entry.State.Hash = "bad" },
 			"path":    func(entry *CompletePullJournalEntry) { entry.State.Path = "../escape.csf" },
+			"reserved path alias": func(entry *CompletePullJournalEntry) {
+				entry.State.Path = ".ATL/base/10.csf"
+			},
 			"absolute path": func(entry *CompletePullJournalEntry) {
 				entry.State.Path = filepath.Join(string(filepath.Separator), "escape.csf")
 			},
