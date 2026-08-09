@@ -80,6 +80,12 @@ allows that initiative to be proposed; it does not authorize a move.
 
 ## Required contract
 
+A standalone implementation or external substrate must first conform to the
+[normative pre-release agent-eval contract](../reference/agent-eval/README.md).
+That contract reserves the generic product boundary while this decision remains
+authoritative for repository placement, current ATL-profile behavior, and the
+evidence gates for extraction or adapter adoption.
+
 A replacement or hybrid must preserve all of these properties:
 
 - explicit non-interactive Codex and Claude Code policies without parsing human

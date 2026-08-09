@@ -10,6 +10,10 @@ The committed [public scenario inventory](../benchmarks/agent-eval/README.md)
 documents the deterministic contracts and synthetic fixtures. Private backend
 operations use the separate
 [owner-controlled workspace](agent-benchmark-private-workspace.md).
+The [standalone agent-eval contract](reference/agent-eval/README.md) is the
+normative pre-release product boundary. The schemas and commands described in
+this methodology remain ATL-profile and repository-maintainer compatibility
+surfaces unless that reference explicitly admits them.
 
 The evaluator package owns the versioned synthetic fixture schema and its
 bounded HTTP simulator. Their strict decoder, exact route matching, ordered
@@ -187,7 +191,13 @@ The current official-source comparison and the evidence gate for adopting an
 external execution substrate are recorded in the
 [agent evaluator substrate decision](maintainers/agent-evaluator-substrates.md).
 
-## Versioned evaluation contract
+## ATL-profile versioned evaluation contract
+
+This section documents the current harness and ATL-profile artifact bytes. It
+does not make their ATL-specific field names generic standalone-core
+vocabulary. The standalone contract preserves their historical meaning under
+the `atl-profile` namespace and requires an explicit reviewed migration for any
+new generic representation.
 
 Scenario files describe task class, capabilities, required oracle checks, and
 hard budgets. Zero is a real zero rather than an unbounded sentinel. This makes

@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "readability": [
+    {"namespace":"atl-profile","kind":"capability-catalog","versions":[1]},
+    {"namespace":"atl-profile","kind":"observation","versions":[5]},
+    {"namespace":"atl-profile","kind":"qualitative-panel","versions":[1]},
+    {"namespace":"atl-profile","kind":"result","versions":[3,4,5,6,7,8]},
+    {"namespace":"atl-profile","kind":"review","versions":[1,2]},
+    {"namespace":"atl-profile","kind":"rubric","versions":[1]},
+    {"namespace":"atl-profile","kind":"run-spec","versions":[5,6,7]},
+    {"namespace":"atl-profile","kind":"scenario","versions":[1]},
+    {"namespace":"atl-profile","kind":"synthetic-run-receipt","versions":[1]}
+  ],
+  "forward_rejection": [
+    {"namespace":"atl-profile","kind":"capability-catalog","version":2},
+    {"namespace":"atl-profile","kind":"observation","version":6},
+    {"namespace":"atl-profile","kind":"qualitative-panel","version":2},
+    {"namespace":"atl-profile","kind":"result","version":9},
+    {"namespace":"atl-profile","kind":"review","version":3},
+    {"namespace":"atl-profile","kind":"rubric","version":2},
+    {"namespace":"atl-profile","kind":"run-spec","version":8},
+    {"namespace":"atl-profile","kind":"scenario","version":2},
+    {"namespace":"atl-profile","kind":"synthetic-run-receipt","version":2},
+    {"namespace":"standalone","kind":"product-contract","version":2}
+  ],
+  "metric_vectors": [
+    {"id":"observed-zero","state":"observed","coverage":true,"value":0,"valid":true},
+    {"id":"unknown-zero","state":"unknown","coverage":false,"value":0,"valid":true},
+    {"id":"unsupported-zero","state":"unsupported","coverage":false,"value":0,"valid":true},
+    {"id":"unknown-covered","state":"unknown","coverage":true,"value":0,"valid":false},
+    {"id":"uncovered-nonzero","state":"unknown","coverage":false,"value":1,"valid":false}
+  ]
+}

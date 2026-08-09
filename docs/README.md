@@ -65,6 +65,7 @@ Read these when you need the model behind a workflow rather than one command.
 |---|---|
 | [Command reference](reference/cli/README.md) | Every CLI command, flag, environment variable, and scripting pattern by concern |
 | [Output contract](reference/output/README.md) | JSON/text/id schemas, exit classes, completeness, and recovery by concern |
+| [Standalone agent-eval contract](reference/agent-eval/README.md) | Pre-release evaluator operations, artifacts, compatibility, authority, and extension boundaries |
 | [MCP reference](mcp.md) | Typed read-only tools, profiles, bounds, and CLI fallback |
 | [Changelog](../CHANGELOG.md) | User-visible changes by released version |
 | `atl --help` | The command tree shipped by the installed binary |
