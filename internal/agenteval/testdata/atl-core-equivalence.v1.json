@@ -11,7 +11,7 @@
     "path": "testdata/standalone-readability-golden.v1.json",
     "sha256": "d8abd2f0623ec80a4280ebe47995f5a0b761e34cc2f0a43addcb989da0d3b9e1",
     "entry_count": 36,
-    "semantic_projection_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    "semantic_projection_sha256": "7e29cb2abcd076dead5a47b03360178f12ed28b5373920bf31f81a90945cee95"
   },
   "files": [
     {
