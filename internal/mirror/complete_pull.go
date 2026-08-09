@@ -16,15 +16,14 @@ import (
 )
 
 const (
-	completePullCheckpointSchema    = 1
-	maxCompletePullCheckpointBytes  = 64 << 20
-	maxCompletePullProgressBytes    = 4 << 10
-	maxCompletePullCheckpointIDs    = 1_000_000
-	maxCompletePullIDBytes          = 256
-	completePullJournalSchema       = 2
-	maxCompletePullJournalEntries   = 25
-	maxCompletePullJournalBytes     = 256 << 10
-	maxCompletePullJournalPathBytes = 4096
+	completePullCheckpointSchema   = 1
+	maxCompletePullCheckpointBytes = 64 << 20
+	maxCompletePullProgressBytes   = 4 << 10
+	maxCompletePullCheckpointIDs   = 1_000_000
+	maxCompletePullIDBytes         = 256
+	completePullJournalSchema      = 2
+	maxCompletePullJournalEntries  = 25
+	maxCompletePullJournalBytes    = 256 << 10
 )
 
 // CompletePullCheckpoint is a private, backend-neutral snapshot of one exact
@@ -137,12 +136,7 @@ func validateCompletePullJournalEntry(entry CompletePullJournalEntry) error {
 	if state.Version <= 0 || !validSHA256(state.Hash) {
 		return fmt.Errorf("%w: complete-pull journal state for %q has an invalid version or hash", domain.ErrCheckFailed, state.ID)
 	}
-	pathForOS := filepath.FromSlash(state.Path)
-	if state.Path == "" || len(state.Path) > maxCompletePullJournalPathBytes || strings.ContainsAny(state.Path, "\\:\x00") || filepath.IsAbs(pathForOS) {
-		return fmt.Errorf("%w: complete-pull journal state for %q has an invalid path", domain.ErrCheckFailed, state.ID)
-	}
-	clean := filepath.ToSlash(filepath.Clean(pathForOS))
-	if clean != state.Path || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || !strings.HasSuffix(clean, ".csf") {
+	if _, err := NewPublicArtifactPath(state.Path); err != nil || !strings.HasSuffix(state.Path, ".csf") {
 		return fmt.Errorf("%w: complete-pull journal state for %q has a non-canonical path", domain.ErrCheckFailed, state.ID)
 	}
 	return nil

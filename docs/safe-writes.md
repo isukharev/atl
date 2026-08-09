@@ -16,6 +16,11 @@ command so the shell-wide policy remains enabled afterwards.
 
 Mirror refresh, backend binding, three-way conflict handling, and created-object
 registration are covered in [durable mirrors and recovery](mirrors-and-recovery.md).
+Local mirror publication qualifies every artifact as either public or a
+pristine private base before it can cross from orchestration into durable
+filesystem code. Recovery repeats that qualification for persisted paths and
+still performs root-scoped, no-symlink I/O checks; a journal is not trusted
+merely because ATL wrote it previously.
 
 The shared transport never follows a redirect from a mutating HTTP request.
 This applies to every Jira and Confluence POST, PUT, PATCH, and DELETE: a 3xx is

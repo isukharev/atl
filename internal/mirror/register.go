@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"sort"
 	"strings"
 
@@ -19,7 +18,7 @@ import (
 // resource registration. Path uses canonical slash separators on every
 // platform. Data is published verbatim at Mode.
 type RegistrationArtifact struct {
-	Path string
+	Path ArtifactPath
 	Data []byte
 	Mode os.FileMode
 }
@@ -197,7 +196,7 @@ func (m *Mirror) prepareRegistration(state SyncState, baseExt string, baseBody [
 	if state.ID == "" {
 		return nil, preparedRegistrationArtifact{}, fmt.Errorf("%w: mirror registration identity is empty", domain.ErrCheckFailed)
 	}
-	if err := validateStagedPath(state.Path); err != nil || strings.HasPrefix(state.Path, ".atl/") {
+	if _, err := NewPublicArtifactPath(state.Path); err != nil {
 		return nil, preparedRegistrationArtifact{}, fmt.Errorf("%w: invalid mirror registration native path %q", domain.ErrCheckFailed, state.Path)
 	}
 	if baseExt == "" || baseExt == "." || !strings.HasPrefix(baseExt, ".") || strings.ContainsAny(baseExt, `/\\:`) || filepath.Ext(filepath.FromSlash(state.Path)) != baseExt {
@@ -215,24 +214,25 @@ func (m *Mirror) prepareRegistration(state SyncState, baseExt string, baseBody [
 	var native []byte
 	nativeFound := false
 	for _, artifact := range artifacts {
-		if err := validateStagedPath(artifact.Path); err != nil || strings.HasPrefix(artifact.Path, ".atl/") {
-			return nil, preparedRegistrationArtifact{}, fmt.Errorf("%w: invalid mirror registration artifact path %q", domain.ErrCheckFailed, artifact.Path)
+		rel, err := artifact.Path.relative(artifactPathClassPublic)
+		if err != nil {
+			return nil, preparedRegistrationArtifact{}, fmt.Errorf("%w: invalid mirror registration artifact path", domain.ErrCheckFailed)
 		}
 		if artifact.Mode != artifact.Mode.Perm() || artifact.Mode.Perm() == 0 {
-			return nil, preparedRegistrationArtifact{}, fmt.Errorf("%w: invalid mirror registration mode for %s", domain.ErrCheckFailed, artifact.Path)
+			return nil, preparedRegistrationArtifact{}, fmt.Errorf("%w: invalid mirror registration mode for %s", domain.ErrCheckFailed, rel)
 		}
-		key := registrationPathKey(artifact.Path)
+		key := registrationPathKey(rel)
 		if _, duplicate := seen[key]; duplicate {
-			return nil, preparedRegistrationArtifact{}, fmt.Errorf("%w: duplicate mirror registration artifact path %s", domain.ErrCheckFailed, artifact.Path)
+			return nil, preparedRegistrationArtifact{}, fmt.Errorf("%w: duplicate mirror registration artifact path %s", domain.ErrCheckFailed, rel)
 		}
 		seen[key] = struct{}{}
-		target := filepath.Join(m.Root, filepath.FromSlash(artifact.Path))
+		target := filepath.Join(m.Root, filepath.FromSlash(rel))
 		if !safepath.Within(m.Root, target) {
-			return nil, preparedRegistrationArtifact{}, fmt.Errorf("%w: mirror registration artifact escapes root: %s", domain.ErrCheckFailed, artifact.Path)
+			return nil, preparedRegistrationArtifact{}, fmt.Errorf("%w: mirror registration artifact escapes root: %s", domain.ErrCheckFailed, rel)
 		}
 		data := append([]byte(nil), artifact.Data...)
-		prepared = append(prepared, preparedRegistrationArtifact{rel: artifact.Path, path: target, data: data, mode: artifact.Mode})
-		if registrationPathsEqual(artifact.Path, state.Path) {
+		prepared = append(prepared, preparedRegistrationArtifact{rel: rel, path: target, data: data, mode: artifact.Mode})
+		if registrationPathsEqual(rel, state.Path) {
 			native = data
 			nativeFound = true
 		}
@@ -351,14 +351,10 @@ func rollbackRegistrationFiles(root string, created []preparedRegistrationArtifa
 
 func registrationPathKey(path string) string {
 	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))
-	// Windows and the default macOS filesystems are case-insensitive. Treat
-	// case-only aliases as collisions even when a particular macOS volume was
-	// formatted case-sensitive; the conservative refusal is portable and keeps
-	// one registration plan from acquiring two spellings of the same target.
-	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
-		return strings.ToLower(clean)
-	}
-	return clean
+	// Treat ASCII case aliases as collisions on every platform. A plan that is
+	// safe on a case-sensitive development volume must remain safe when moved to
+	// a case-insensitive supported filesystem.
+	return artifactPathKey(clean)
 }
 
 func registrationPathsEqual(a, b string) bool {

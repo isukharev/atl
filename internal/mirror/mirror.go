@@ -283,7 +283,7 @@ type commentSidecar struct {
 // derived Markdown views: publication may establish either these exact bytes
 // or absence, preserving the longstanding render-failure contract.
 type CompletePullArtifact struct {
-	Path       string
+	Path       ArtifactPath
 	Data       []byte
 	Mode       os.FileMode
 	Remove     bool
@@ -325,17 +325,9 @@ func (m *Mirror) PrepareCompletePullConfluenceComments(dir, slug string, page *d
 	}, mdOpts)
 }
 
-func mirrorRelativePath(root, target string) (string, error) {
-	rel, err := filepath.Rel(root, target)
-	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("%w: page artifact escapes mirror root: %s", domain.ErrCheckFailed, target)
-	}
-	return filepath.ToSlash(rel), nil
-}
-
 func (m *Mirror) preparePageFiles(dir, slug string, page *domain.Resource, refs []domain.Ref, cs *commentSidecar, mdOpts MDViewOpts) (SyncState, []CompletePullArtifact, error) {
 	csfPath := filepath.Join(dir, slug+".csf")
-	csfRel, err := mirrorRelativePath(m.Root, csfPath)
+	csfRel, err := PublicArtifactPathWithin(m.Root, csfPath)
 	if err != nil {
 		return SyncState{}, nil, err
 	}
@@ -344,7 +336,7 @@ func (m *Mirror) preparePageFiles(dir, slug string, page *domain.Resource, refs 
 	if root, parseErr := csf.Parse(page.Body); parseErr == nil {
 		md = RenderMarkdownOpts(root, refs, mdOpts)
 	}
-	mdRel, err := mirrorRelativePath(m.Root, filepath.Join(dir, slug+".md"))
+	mdRel, err := PublicArtifactPathWithin(m.Root, filepath.Join(dir, slug+".md"))
 	if err != nil {
 		return SyncState{}, nil, err
 	}
@@ -355,54 +347,29 @@ func (m *Mirror) preparePageFiles(dir, slug string, page *domain.Resource, refs 
 		Labels: page.Labels, Updated: page.Updated, Restricted: page.Restricted, Refs: refs,
 	}
 	if cs != nil {
-		commentsJSONRel, relErr := mirrorRelativePath(m.Root, filepath.Join(dir, slug+".comments.json"))
-		if relErr != nil {
-			return SyncState{}, nil, relErr
+		commentArtifacts, commentErr := m.prepareCompletePullCommentArtifacts(dir, slug, cs, mdOpts, &meta)
+		if commentErr != nil {
+			return SyncState{}, nil, commentErr
 		}
-		displayComments := cs.display
-		if mdOpts.CommentView != nil {
-			displayComments = mdOpts.CommentView
-		}
-		commentsMDRel, relErr := mirrorRelativePath(m.Root, filepath.Join(dir, slug+".comments.md"))
-		if relErr != nil {
-			return SyncState{}, nil, relErr
-		}
-		artifacts = append(artifacts,
-			CompletePullArtifact{Path: commentsJSONRel, Data: append([]byte(nil), cs.encoded...), Mode: 0o644},
-			CompletePullArtifact{Path: commentsMDRel, Data: RenderCommentsMarkdown(displayComments), Mode: 0o644, BestEffort: true},
-		)
-		meta.CommentsPulled = true
-		meta.CommentCount = len(cs.display)
-		meta.CommentsTruncated = cs.truncated
-		if cs.v2 != nil {
-			meta.CommentSidecarVersion = cs.v2.SchemaVersion
-			meta.CommentCount = cs.v2.Count
-			meta.CommentRootCount = cs.v2.RootCount
-			meta.CommentsComplete = boolPointer(cs.v2.CommentsComplete)
-			meta.CommentThreadsComplete = boolPointer(cs.v2.ThreadsComplete)
-			meta.CommentAnchorsComplete = boolPointer(cs.v2.AnchorsComplete)
-			meta.CommentPartialReasons = append([]string(nil), cs.v2.PartialReasons...)
-			for _, comment := range cs.v2.Comments {
-				if comment.Location == domain.ConfluenceCommentLocationInline && comment.Resolution == domain.ConfluenceCommentResolutionOpen {
-					meta.OpenInlineCommentCount++
-				}
-			}
-		}
+		artifacts = append(artifacts, commentArtifacts...)
 	}
 	mb, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
 		return SyncState{}, nil, err
 	}
-	metaRel, err := mirrorRelativePath(m.Root, filepath.Join(dir, slug+".meta.json"))
+	metaRel, err := PublicArtifactPathWithin(m.Root, filepath.Join(dir, slug+".meta.json"))
 	if err != nil {
 		return SyncState{}, nil, err
 	}
-	baseRel := filepath.ToSlash(filepath.Join(".atl", "base", safepath.Segment(page.ID)+".csf"))
+	baseRel, err := NewPrivateBaseArtifactPath(filepath.ToSlash(filepath.Join(".atl", "base", safepath.Segment(page.ID)+".csf")))
+	if err != nil {
+		return SyncState{}, nil, err
+	}
 	artifacts = append(artifacts,
 		CompletePullArtifact{Path: metaRel, Data: append(mb, '\n'), Mode: 0o644},
 		CompletePullArtifact{Path: baseRel, Data: append([]byte(nil), page.Body...), Mode: 0o600},
 	)
-	return SyncState{ID: page.ID, Version: page.Version, Hash: Hash(page.Body), Path: csfRel}, artifacts, nil
+	return SyncState{ID: page.ID, Version: page.Version, Hash: Hash(page.Body), Path: csfRel.String()}, artifacts, nil
 }
 
 // writePageFiles writes the page artifacts (.csf, .md view, .meta.json, base
@@ -415,7 +382,11 @@ func (m *Mirror) writePageFiles(dir, slug string, page *domain.Resource, refs []
 		return "", err
 	}
 	for _, artifact := range artifacts {
-		target := filepath.Join(m.Root, filepath.FromSlash(artifact.Path))
+		rel, pathErr := artifact.Path.relativeAny()
+		if pathErr != nil {
+			return "", pathErr
+		}
+		target := filepath.Join(m.Root, filepath.FromSlash(rel))
 		if err := safepath.MkdirAllWithin(m.Root, filepath.Dir(target), 0o755); err != nil {
 			return "", err
 		}

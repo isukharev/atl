@@ -2,6 +2,7 @@ package mirror
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -112,6 +113,29 @@ func TestCorruptSidecarFailsLoudly(t *testing.T) {
 	assertLoud("Write", m.Write(dir, slug, page, nil))
 	_, err = m.SyncedVersion(page.ID)
 	assertLoud("SyncedVersion", err)
+}
+
+func TestSidecarRejectsReservedPathAlias(t *testing.T) {
+	m := New(t.TempDir())
+	if err := m.EnsureScaffold(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(m.sidecarPath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sc := sidecarFile{Pages: map[string]SyncState{
+		"10": {ID: "10", Version: 1, Hash: strings.Repeat("a", 64), Path: ".ATL/base/10.csf"},
+	}}
+	b, err := json.Marshal(sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(m.sidecarPath(), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.SyncStates(); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("reserved path alias error=%v", err)
+	}
 }
 
 func TestSidecarAndBaseReadsRefuseDescendantSymlinks(t *testing.T) {

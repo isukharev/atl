@@ -29,6 +29,15 @@ type qualifiedCompletePullStore struct {
 	inventory *domain.ConfluenceCommentInventory
 }
 
+func mustPublicArtifactPath(t *testing.T, value string) mirror.ArtifactPath {
+	t.Helper()
+	qualified, err := mirror.NewPublicArtifactPath(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return qualified
+}
+
 func (s *qualifiedCompletePullStore) ListConfluenceComments(_ context.Context, _ string, _ domain.ConfluenceCommentReadOptions) (domain.ConfluenceCommentInventory, error) {
 	if s.inventory != nil {
 		return *s.inventory, nil
@@ -103,7 +112,7 @@ func seedCompletePullJournal(t *testing.T, root string, opts PullOpts, ids []str
 	}
 	state := mirror.SyncState{ID: page.ID, Version: page.Version, Hash: mirror.Hash(page.Body), Path: filepath.ToSlash(path)}
 	entry := mirror.CompletePullJournalEntry{State: state, View: viewStateOf(rs)}
-	if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, []mirror.CompletePullArtifact{{Path: state.Path, Data: page.Body, Mode: 0o644}}, nil); err != nil {
+	if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, []mirror.CompletePullArtifact{{Path: mustPublicArtifactPath(t, state.Path), Data: page.Body, Mode: 0o644}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.RecoverCompletePullPublication(checkpoint.SelectorSHA256, checkpoint, true); err != nil {
@@ -288,11 +297,11 @@ func TestCompletePullRecoversStagedPublicationBeforeQualificationWithoutSearchOr
 	if err != nil {
 		t.Fatal(err)
 	}
-	macroRel, err := filepath.Rel(root, confluenceJiraMacroPath(dir, slug))
+	macroRel, err := mirror.PublicArtifactPathWithin(root, confluenceJiraMacroPath(dir, slug))
 	if err != nil {
 		t.Fatal(err)
 	}
-	artifacts = append(artifacts, mirror.CompletePullArtifact{Path: filepath.ToSlash(macroRel), Remove: true})
+	artifacts = append(artifacts, mirror.CompletePullArtifact{Path: macroRel, Remove: true})
 	entry := mirror.CompletePullJournalEntry{State: state, View: viewStateOf(rs)}
 	if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, artifacts, nil); err != nil {
 		t.Fatal(err)

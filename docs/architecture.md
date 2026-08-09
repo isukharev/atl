@@ -395,6 +395,14 @@ owns layout, sidecar, baseline, and dirty/drift primitives. Plan inputs,
 exports, manifests, attachments, and caller-selected output files use
 bounded/atomic I/O where applicable.
 
+Transient registration and crash-recoverable publication APIs accept only
+constructed mirror-relative artifact paths. Public construction rejects the
+reserved `.atl` component, including ASCII case aliases; private construction
+admits only non-empty descendants of the exact `.atl/base/` subtree. Durable
+journals and sidecars keep their existing string bytes, but mirror reparses
+those strings as untrusted paths before recovery or filesystem use. Root-scoped
+resolution and symlink checks remain mandatory at the actual I/O boundary.
+
 Notable behaviors:
 
 - `ConfluenceLabelService`, `JiraWatcherService`, and `JiraWorklogService` are

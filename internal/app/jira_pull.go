@@ -76,15 +76,18 @@ type JiraIssueAsset struct {
 }
 
 func (s *JiraService) qualifyJiraPullView(root, dir, keySeg, mdPath string, pending *JiraPendingFields, localWiki []byte, rs RenderSettings, recordedView *mirror.ViewState) (*PullLocalAction, []byte, error) {
-	actual, err := safepath.ReadFileWithin(root, mdPath)
-	if os.IsNotExist(err) {
+	actual, readErr := safepath.ReadFileWithin(root, mdPath)
+	if os.IsNotExist(readErr) {
 		return nil, nil, nil
 	}
-	rel, _ := filepath.Rel(root, mdPath)
-	blocked := func(reason string) *PullLocalAction {
-		return &PullLocalAction{ID: keySeg, Path: filepath.ToSlash(rel), Status: pullLocalBlocked, Reason: reason, CurrentSHA256: mirror.Hash(actual)}
-	}
+	rel, err := mirror.PublicArtifactPathWithin(root, mdPath)
 	if err != nil {
+		return nil, nil, err
+	}
+	blocked := func(reason string) *PullLocalAction {
+		return &PullLocalAction{ID: keySeg, Path: rel.String(), Status: pullLocalBlocked, Reason: reason, CurrentSHA256: mirror.Hash(actual)}
+	}
+	if readErr != nil {
 		return blocked("derived_view_unreadable"), nil, nil
 	}
 	marker := jiraDocumentMarkerLine(string(actual))

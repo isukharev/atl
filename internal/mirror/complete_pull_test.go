@@ -24,7 +24,7 @@ func appendCompletePullJournalForTest(m *Mirror, checkpoint CompletePullCheckpoi
 	if err != nil {
 		return err
 	}
-	if err := m.PrepareCompletePullPublication(checkpoint, index, entry, true, []CompletePullArtifact{{Path: entry.State.Path, Data: body, Mode: 0o644}}, nil); err != nil {
+	if err := m.PrepareCompletePullPublication(checkpoint, index, entry, true, []CompletePullArtifact{{Path: mustArtifactPath(entry.State.Path), Data: body, Mode: 0o644}}, nil); err != nil {
 		return err
 	}
 	return m.RecoverCompletePullPublication(checkpoint.SelectorSHA256, checkpoint, true)
@@ -388,6 +388,9 @@ func TestCompletePullJournalRejectsCorruptMismatchedOrTamperedState(t *testing.T
 			"version": func(entry *CompletePullJournalEntry) { entry.State.Version = 0 },
 			"hash":    func(entry *CompletePullJournalEntry) { entry.State.Hash = "bad" },
 			"path":    func(entry *CompletePullJournalEntry) { entry.State.Path = "../escape.csf" },
+			"reserved path alias": func(entry *CompletePullJournalEntry) {
+				entry.State.Path = ".ATL/base/10.csf"
+			},
 			"absolute path": func(entry *CompletePullJournalEntry) {
 				entry.State.Path = filepath.Join(string(filepath.Separator), "escape.csf")
 			},

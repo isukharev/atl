@@ -122,15 +122,11 @@ func (m *Mirror) hasCompletePullPublicationStage(selectorSHA256 string) (bool, e
 }
 
 func validatePublicationPath(value string, allowPrivate bool) error {
-	pathForOS := filepath.FromSlash(value)
-	if value == "" || len(value) > maxCompletePullJournalPathBytes || filepath.IsAbs(pathForOS) || strings.ContainsAny(value, "\\:\x00") {
+	qualified, err := parseDurableArtifactPath(value)
+	if err != nil {
 		return fmt.Errorf("invalid publication path")
 	}
-	clean := filepath.ToSlash(filepath.Clean(pathForOS))
-	if clean != value || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
-		return fmt.Errorf("non-canonical publication path")
-	}
-	if strings.HasPrefix(clean, ".atl/") && (!allowPrivate || !strings.HasPrefix(clean, ".atl/base/")) {
+	if qualified.class == artifactPathClassPrivateBase && !allowPrivate {
 		return fmt.Errorf("publication path targets reserved private state")
 	}
 	return nil
@@ -403,22 +399,23 @@ func (m *Mirror) savePublicationIntent(dir string, intent completePullPublicatio
 }
 
 func (m *Mirror) stagePublicationArtifact(dir string, input CompletePullArtifact, sequence int, token string, ops completePullPublicationOps) (completePullPublicationArtifact, error) {
-	if err := validatePublicationPath(input.Path, true); err != nil {
-		return completePullPublicationArtifact{}, fmt.Errorf("%w: invalid complete-pull destination %q: %v", domain.ErrCheckFailed, input.Path, err)
+	rel, err := input.Path.relativeAny()
+	if err != nil {
+		return completePullPublicationArtifact{}, fmt.Errorf("%w: invalid complete-pull destination: %v", domain.ErrCheckFailed, err)
 	}
-	pre, err := publicationCurrent(m.Root, input.Path)
+	pre, err := publicationCurrent(m.Root, rel)
 	if err != nil {
 		return completePullPublicationArtifact{}, fmt.Errorf("%w: %v", domain.ErrCheckFailed, err)
 	}
-	out := completePullPublicationArtifact{Path: input.Path, Pre: pre, Remove: input.Remove, BestEffort: input.BestEffort}
+	out := completePullPublicationArtifact{Path: rel, Pre: pre, Remove: input.Remove, BestEffort: input.BestEffort}
 	if input.Remove {
 		if input.BestEffort || len(input.Data) != 0 || input.Mode != 0 {
-			return completePullPublicationArtifact{}, fmt.Errorf("%w: invalid complete-pull removal for %s", domain.ErrCheckFailed, input.Path)
+			return completePullPublicationArtifact{}, fmt.Errorf("%w: invalid complete-pull removal for %s", domain.ErrCheckFailed, rel)
 		}
 		return out, nil
 	}
 	if input.Mode != input.Mode.Perm() || input.Mode.Perm() == 0 {
-		return completePullPublicationArtifact{}, fmt.Errorf("%w: invalid complete-pull mode for %s", domain.ErrCheckFailed, input.Path)
+		return completePullPublicationArtifact{}, fmt.Errorf("%w: invalid complete-pull mode for %s", domain.ErrCheckFailed, rel)
 	}
 	out.Payload = fmt.Sprintf("payload-%04d", sequence)
 	out.Temp = completePullArtifactTemp(token, sequence)
@@ -439,12 +436,12 @@ func relocationPublicationArtifacts(m *Mirror, plan *PageRelocation) ([]Complete
 	if err != nil {
 		return nil, err
 	}
-	rel, err := mirrorRelativePath(m.Root, plan.tombstonePath)
+	rel, err := PublicArtifactPathWithin(m.Root, plan.tombstonePath)
 	if err != nil {
 		return nil, err
 	}
 	out := []CompletePullArtifact{{Path: rel, Data: append(tombstone, '\n'), Mode: 0o600}}
-	currentTombstone, err := publicationCurrent(m.Root, rel)
+	currentTombstone, err := publicationCurrent(m.Root, rel.String())
 	if err != nil {
 		return nil, err
 	}
@@ -457,14 +454,14 @@ func relocationPublicationArtifacts(m *Mirror, plan *PageRelocation) ([]Complete
 	}
 	if plan.sourcePresent {
 		for i, path := range []string{plan.oldCSF, plan.oldMD, plan.oldMeta} {
-			rel, err := mirrorRelativePath(m.Root, path)
+			rel, err := PublicArtifactPathWithin(m.Root, path)
 			if err != nil {
 				return nil, err
 			}
-			current, currentErr := publicationCurrent(m.Root, rel)
+			current, currentErr := publicationCurrent(m.Root, rel.String())
 			expected := []string{plan.csfHash, plan.mdHash, plan.metaHash}[i]
 			if currentErr != nil || !current.Present || current.SHA256 != expected {
-				return nil, fmt.Errorf("%w: relocation source %s changed after qualification; preserving it", domain.ErrCheckFailed, rel)
+				return nil, fmt.Errorf("%w: relocation source %s changed after qualification; preserving it", domain.ErrCheckFailed, rel.String())
 			}
 			out = append(out, CompletePullArtifact{Path: rel, Remove: true})
 		}
@@ -498,6 +495,9 @@ func (m *Mirror) prepareCompletePullPublicationWith(checkpoint CompletePullCheck
 	}
 	var inputBytes int64
 	for _, artifact := range append(append([]CompletePullArtifact(nil), artifacts...), retirement...) {
+		if _, pathErr := artifact.Path.relativeAny(); pathErr != nil {
+			return fmt.Errorf("%w: complete-pull publication contains an unqualified destination", domain.ErrCheckFailed)
+		}
 		if int64(len(artifact.Data)) > maxCompletePullPublicationBytes-inputBytes {
 			return fmt.Errorf("%w: complete-pull publication exceeds %d staged bytes", domain.ErrCheckFailed, maxCompletePullPublicationBytes)
 		}

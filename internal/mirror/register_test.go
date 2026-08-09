@@ -19,9 +19,9 @@ func registrationFixture(_ string) (SyncState, ViewState, []byte, []Registration
 	state := SyncState{ID: "NEW-1", Version: 3, Hash: Hash(native), Path: "SPACE/new.wiki"}
 	view := ViewState{Sections: []string{"metadata"}, DisplayTimeZone: "UTC"}
 	artifacts := []RegistrationArtifact{
-		{Path: state.Path, Data: native, Mode: 0o644},
-		{Path: "SPACE/new.md", Data: []byte("# New\n"), Mode: 0o644},
-		{Path: "SPACE/new.json", Data: []byte("{\"key\":\"NEW-1\"}\n"), Mode: 0o644},
+		{Path: mustArtifactPath(state.Path), Data: native, Mode: 0o644},
+		{Path: mustArtifactPath("SPACE/new.md"), Data: []byte("# New\n"), Mode: 0o644},
+		{Path: mustArtifactPath("SPACE/new.json"), Data: []byte("{\"key\":\"NEW-1\"}\n"), Mode: 0o644},
 	}
 	return state, view, native, artifacts
 }
@@ -34,11 +34,11 @@ func TestRegisterNewPublishesExactCompleteState(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, artifact := range artifacts {
-		got, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(artifact.Path)))
+		got, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(artifact.Path.String())))
 		if err != nil || !bytes.Equal(got, artifact.Data) {
 			t.Fatalf("artifact %s = %x, err=%v", artifact.Path, got, err)
 		}
-		info, err := os.Stat(filepath.Join(root, filepath.FromSlash(artifact.Path)))
+		info, err := os.Stat(filepath.Join(root, filepath.FromSlash(artifact.Path.String())))
 		if err != nil || info.Mode().Perm() != artifact.Mode {
 			t.Fatalf("artifact %s mode=%v err=%v", artifact.Path, info, err)
 		}
@@ -74,8 +74,8 @@ func TestRegisterNewAcceptsExactEmptyNativeBody(t *testing.T) {
 	m := New(root)
 	state := SyncState{ID: "EMPTY-1", Hash: Hash(nil), Path: "EMPTY/EMPTY-1.wiki"}
 	artifacts := []RegistrationArtifact{
-		{Path: state.Path, Data: nil, Mode: 0o644},
-		{Path: "EMPTY/EMPTY-1.md", Data: []byte("# Empty\n"), Mode: 0o644},
+		{Path: mustArtifactPath(state.Path), Data: nil, Mode: 0o644},
+		{Path: mustArtifactPath("EMPTY/EMPTY-1.md"), Data: []byte("# Empty\n"), Mode: 0o644},
 	}
 	if err := m.RegisterNew(state, ViewState{}, ".wiki", nil, artifacts); err != nil {
 		t.Fatal(err)
@@ -93,7 +93,12 @@ func TestRegisterNewRejectsInvalidPlansBeforeWriting(t *testing.T) {
 	}{
 		{name: "empty id", mutate: func(s *SyncState, _ *string, _ *[]byte, _ *[]RegistrationArtifact) { s.ID = "" }},
 		{name: "noncanonical state path", mutate: func(s *SyncState, _ *string, _ *[]byte, _ *[]RegistrationArtifact) { s.Path = "SPACE/../new.wiki" }},
-		{name: "reserved artifact", mutate: func(_ *SyncState, _ *string, _ *[]byte, a *[]RegistrationArtifact) { (*a)[1].Path = ".atl/other" }},
+		{name: "reserved artifact", mutate: func(_ *SyncState, _ *string, _ *[]byte, a *[]RegistrationArtifact) {
+			(*a)[1].Path = ArtifactPath{value: ".atl/other", class: artifactPathClassPublic}
+		}},
+		{name: "private artifact class", mutate: func(_ *SyncState, _ *string, _ *[]byte, a *[]RegistrationArtifact) {
+			(*a)[1].Path = mustArtifactPath(".atl/base/other.wiki")
+		}},
 		{name: "extension mismatch", mutate: func(_ *SyncState, e *string, _ *[]byte, _ *[]RegistrationArtifact) { *e = ".csf" }},
 		{name: "base mismatch", mutate: func(_ *SyncState, _ *string, b *[]byte, _ *[]RegistrationArtifact) { *b = []byte("different") }},
 		{name: "native missing", mutate: func(_ *SyncState, _ *string, _ *[]byte, a *[]RegistrationArtifact) { *a = (*a)[1:] }},
@@ -233,7 +238,7 @@ func TestRegisterNewRollsBackDefinitePublicationFailures(t *testing.T) {
 		t.Fatalf("error=%v, want ErrCheckFailed", err)
 	}
 	for _, artifact := range artifacts {
-		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(artifact.Path))); !os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(artifact.Path.String()))); !os.IsNotExist(err) {
 			t.Fatalf("artifact survived definite rollback: %s (%v)", artifact.Path, err)
 		}
 	}
@@ -284,7 +289,7 @@ func TestRegisterNewDistinguishesSidecarSaveOutcomes(t *testing.T) {
 			t.Fatalf("error=%v, want ErrCheckFailed", err)
 		}
 		for _, artifact := range artifacts {
-			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(artifact.Path))); !os.IsNotExist(err) {
+			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(artifact.Path.String()))); !os.IsNotExist(err) {
 				t.Fatalf("artifact survived definite sidecar failure: %s", artifact.Path)
 			}
 		}
@@ -332,7 +337,7 @@ func TestRegisterNewDistinguishesSidecarSaveOutcomes(t *testing.T) {
 			t.Fatalf("error=%v, want ambiguous check failure", err)
 		}
 		for _, artifact := range artifacts {
-			got, readErr := os.ReadFile(filepath.Join(root, filepath.FromSlash(artifact.Path)))
+			got, readErr := os.ReadFile(filepath.Join(root, filepath.FromSlash(artifact.Path.String())))
 			if readErr != nil || !bytes.Equal(got, artifact.Data) {
 				t.Fatalf("ambiguous artifact %s was not preserved", artifact.Path)
 			}
@@ -370,7 +375,7 @@ func TestRegisterNewNeverReportsStateWithoutExactFiles(t *testing.T) {
 	root := t.TempDir()
 	m := New(root)
 	state, view, base, artifacts := registrationFixture(root)
-	removed := filepath.Join(root, filepath.FromSlash(artifacts[1].Path))
+	removed := filepath.Join(root, filepath.FromSlash(artifacts[1].Path.String()))
 	err := m.registerNewWith(state, view, ".wiki", base, artifacts, registrationOps{
 		writeExclusive: safepath.WriteFileExclusiveWithin,
 		saveSidecar: func(sidecarFile) error {
@@ -387,7 +392,7 @@ func TestRegisterNewNeverReportsStateWithoutExactFiles(t *testing.T) {
 		t.Fatalf("missing artifact was recorded: ok=%t err=%v", ok, err)
 	}
 	for _, artifact := range artifacts {
-		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(artifact.Path))); !os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(artifact.Path.String()))); !os.IsNotExist(err) {
 			t.Fatalf("definite failure left artifact %s: %v", artifact.Path, err)
 		}
 	}
@@ -397,7 +402,7 @@ func TestRegisterNewRaceNeverRemovesNewlyOccupiedTarget(t *testing.T) {
 	root := t.TempDir()
 	m := New(root)
 	state, view, base, artifacts := registrationFixture(root)
-	racedTarget := filepath.Join(root, filepath.FromSlash(artifacts[1].Path))
+	racedTarget := filepath.Join(root, filepath.FromSlash(artifacts[1].Path.String()))
 	err := m.registerNewWith(state, view, ".wiki", base, artifacts, registrationOps{
 		writeExclusive: func(root, target string, data []byte, mode os.FileMode) error {
 			if target == racedTarget {
@@ -426,7 +431,7 @@ func TestRegisterNewDurabilityBarriersAreChildToRootAndStateLast(t *testing.T) {
 	root := t.TempDir()
 	m := New(root)
 	state, view, base, artifacts := registrationFixture(root)
-	artifacts[1].Path = "SPACE/nested/views/new.md"
+	artifacts[1].Path = mustArtifactPath("SPACE/nested/views/new.md")
 	var events []string
 	err := m.registerNewWith(state, view, ".wiki", base, artifacts, registrationOps{
 		writeExclusive: safepath.WriteFileExclusiveWithin,
@@ -506,7 +511,7 @@ func TestRegisterNewPreStateDurabilityFailureRollsBack(t *testing.T) {
 		t.Fatalf("pre-state barrier failure recorded state: ok=%t err=%v", ok, err)
 	}
 	for _, artifact := range artifacts {
-		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(artifact.Path))); !os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(artifact.Path.String()))); !os.IsNotExist(err) {
 			t.Fatalf("artifact survived pre-state barrier rollback: %s (%v)", artifact.Path, err)
 		}
 	}
@@ -542,7 +547,7 @@ func TestRegisterNewPostStateDurabilityFailurePreservesStateAndArtifacts(t *test
 		t.Fatalf("post-state barrier failure lost state: state=%+v ok=%t err=%v", got, ok, readErr)
 	}
 	for _, artifact := range artifacts {
-		got, readErr := os.ReadFile(filepath.Join(root, filepath.FromSlash(artifact.Path)))
+		got, readErr := os.ReadFile(filepath.Join(root, filepath.FromSlash(artifact.Path.String())))
 		if readErr != nil || !bytes.Equal(got, artifact.Data) {
 			t.Fatalf("post-state barrier failure changed artifact %s: %q err=%v", artifact.Path, got, readErr)
 		}
@@ -556,7 +561,7 @@ func TestRegisterNewRollbackDurabilityIsChildToRoot(t *testing.T) {
 	root := t.TempDir()
 	m := New(root)
 	state, view, base, artifacts := registrationFixture(root)
-	artifacts[1].Path = "SPACE/nested/views/new.md"
+	artifacts[1].Path = mustArtifactPath("SPACE/nested/views/new.md")
 	writes := 0
 	var synced []string
 	err := m.registerNewWith(state, view, ".wiki", base, artifacts, registrationOps{
@@ -585,7 +590,7 @@ func TestRegisterNewRollbackDurabilityIsChildToRoot(t *testing.T) {
 		t.Fatalf("rollback sync order:\n got %q\nwant %q", synced, want)
 	}
 	for _, artifact := range artifacts[:2] {
-		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(artifact.Path))); !os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(artifact.Path.String()))); !os.IsNotExist(err) {
 			t.Fatalf("rolled-back artifact remains: %s (%v)", artifact.Path, err)
 		}
 	}
@@ -595,7 +600,7 @@ func TestRegisterNewRollbackSyncFailureIsAmbiguousAndPreservesRacedBytes(t *test
 	root := t.TempDir()
 	m := New(root)
 	state, view, base, artifacts := registrationFixture(root)
-	racedTarget := filepath.Join(root, filepath.FromSlash(artifacts[1].Path))
+	racedTarget := filepath.Join(root, filepath.FromSlash(artifacts[1].Path.String()))
 	writes := 0
 	err := m.registerNewWith(state, view, ".wiki", base, artifacts, registrationOps{
 		writeExclusive: func(root, target string, data []byte, mode os.FileMode) error {
