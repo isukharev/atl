@@ -186,6 +186,9 @@ func NormalizeJiraInverseReferenceOptions(opts JiraInverseReferenceOptions) (Jir
 	if opts.Target == "" || len(opts.Target) > jiraInverseReferenceMaxTargetBytes || containsControl(opts.Target) {
 		return JiraInverseReferenceOptions{}, inverseReferenceUsage("target is outside the supported bounds")
 	}
+	if !validInverseReferenceTargetSyntax(opts.TargetKind, opts.Target) {
+		return JiraInverseReferenceOptions{}, inverseReferenceUsage("target is not a supported reference")
+	}
 	if opts.ScopeJQL == "" || len(opts.ScopeJQL) > jiraInverseReferenceMaxJQLBytes || containsControlExceptWhitespace(opts.ScopeJQL) {
 		return JiraInverseReferenceOptions{}, inverseReferenceUsage("scope JQL is outside the supported bounds")
 	}
@@ -274,7 +277,9 @@ func (s *JiraService) SearchInverseReferences(ctx context.Context, raw JiraInver
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
-	verifyInverseReferenceCandidates(readCtx, s.tr, snapshotReader, targetMeta, opts, selected, result)
+	if err := verifyInverseReferenceCandidates(readCtx, s.tr, snapshotReader, targetMeta, opts, selected, result); err != nil {
+		return nil, err
+	}
 	usage := budget.Usage()
 	result.Usage.Requests = usage.Attempts
 	result.Usage.ResponseBytes = usage.ResponseBytes

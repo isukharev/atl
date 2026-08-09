@@ -50,6 +50,41 @@ func TestSelectInverseReferencePageUsesQualifiedJQLAndRawCoordinates(t *testing.
 	}
 }
 
+func TestSelectInverseReferencePageDistinguishesMissingCollectionFromEmpty(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		response  string
+		wantError bool
+	}{
+		{name: "omitted", response: `{"startAt":0,"maxResults":50,"total":0}`, wantError: true},
+		{name: "null", response: `{"startAt":0,"maxResults":50,"total":0,"issues":null}`, wantError: true},
+		{name: "empty", response: `{"startAt":0,"maxResults":50,"total":0,"issues":[]}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(test.response))
+			}))
+			defer server.Close()
+
+			page, err := New(server.URL, "token", "test").SelectInverseReferencePage(context.Background(), domain.JiraInverseReferenceSelection{
+				JQL: "project = INV ORDER BY key ASC", MaxResults: 50,
+			})
+			if test.wantError {
+				if !errors.Is(err, domain.ErrCheckFailed) {
+					t.Fatalf("error = %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if page.Issues == nil || len(page.Issues) != 0 {
+				t.Fatalf("issues = %#v, want non-nil empty collection", page.Issues)
+			}
+		})
+	}
+}
+
 func TestReadInverseReferenceSnapshotKeepsMissingAndNullDistinct(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet || request.URL.Path != "/rest/api/2/issue/INV-4" {
@@ -174,6 +209,33 @@ func TestReadInverseReferenceSnapshotRejectsInvalidUTF8PropertyKey(t *testing.T)
 	})
 	if !errors.Is(err, domain.ErrCheckFailed) {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestReadInverseReferenceSnapshotRejectsInvalidUTF8Values(t *testing.T) {
+	for _, test := range []struct {
+		response          []byte
+		fieldIDs          []string
+		includeProperties bool
+	}{
+		{[]byte("{\"id\":\"10004\",\"key\":\"INV-4\",\"fields\":{\"customfield_1\":\""), []string{"customfield_1"}, false},
+		{[]byte("{\"id\":\"10004\",\"key\":\"INV-4\",\"fields\":{},\"properties\":{\"safe\":\""), nil, true},
+	} {
+		response := test.response
+		response = append(response, 0xff)
+		response = append(response, []byte("\"}}")...)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write(response)
+		}))
+		request := domain.JiraInverseReferenceSnapshotRequest{
+			Issue:    domain.JiraInverseReferenceIssueIdentity{ID: "10004", Key: "INV-4"},
+			FieldIDs: test.fieldIDs, IncludeProperties: test.includeProperties,
+		}
+		_, err := New(server.URL, "token", "test").ReadInverseReferenceSnapshot(context.Background(), request)
+		server.Close()
+		if !errors.Is(err, domain.ErrCheckFailed) {
+			t.Fatalf("error = %v", err)
+		}
 	}
 }
 

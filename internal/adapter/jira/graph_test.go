@@ -147,7 +147,10 @@ func TestReadIssueRemoteLinksRejectsUnboundedOrControlStructuredMetadata(t *test
 			{"id":"2","globalId":%q,"object":{"url":"https://docs.example.test/two"}},
 			{"id":"3","application":{"type":%q},"object":{"url":"https://docs.example.test/three"}},
 			{"id":"4","application":{"type":"example\u0001type"},"object":{"url":"https://docs.example.test/four"}},
-			{"id":"5","application":"not-an-object","object":{"url":"https://docs.example.test/five"}}
+			{"id":"5","application":"not-an-object","object":{"url":"https://docs.example.test/five"}},
+			{"id":"6","globalId":"pageId=4\ufffd","object":{"url":"https://docs.example.test/six"}},
+			{"id":"7","application":{"type":"com.example.docs\ufffd"},"object":{"url":"https://docs.example.test/seven"}},
+			{"id":"8","globalId":null,"application":null,"object":{"url":"https://docs.example.test/eight"}}
 		]`, longGlobalID, longApplicationType)
 	}))
 	defer server.Close()
@@ -156,11 +159,47 @@ func TestReadIssueRemoteLinksRejectsUnboundedOrControlStructuredMetadata(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inventory.Total != 5 || inventory.Unsupported != 4 || len(inventory.Links) != 1 {
+	if inventory.Total != 8 || inventory.Unsupported != 6 || len(inventory.Links) != 2 {
 		t.Fatalf("inventory = %#v", inventory)
 	}
-	if inventory.Links[0].GlobalID != "" || inventory.Links[0].ApplicationType != "" {
-		t.Fatalf("empty metadata should remain allowed: %#v", inventory.Links[0])
+	for _, link := range inventory.Links {
+		if link.GlobalID != "" || link.ApplicationType != "" {
+			t.Fatalf("empty metadata should remain allowed: %#v", link)
+		}
+	}
+}
+
+func TestReadIssueRemoteLinksRejectsMalformedObjectURLAfterPageID(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		response []byte
+	}{
+		{
+			name: "invalid UTF-8 byte",
+			response: append(
+				[]byte(`[{"id":"8","object":{"url":"https://docs.example.test/wiki/spaces/SAFE/pages/42/`),
+				append([]byte{0xff}, []byte(`"}}]`)...)...,
+			),
+		},
+		{
+			name:     "escaped replacement rune",
+			response: []byte(`[{"id":"9","object":{"url":"https://docs.example.test/wiki/spaces/SAFE/pages/42/\ufffd"}}]`),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write(test.response)
+			}))
+			defer server.Close()
+
+			inventory, err := New(server.URL, "token", "test").ReadIssueRemoteLinks(context.Background(), "PROJ-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if inventory.Total != 1 || inventory.Unsupported != 1 || len(inventory.Links) != 0 {
+				t.Fatalf("inventory = %#v", inventory)
+			}
+		})
 	}
 }
 

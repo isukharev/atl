@@ -21,6 +21,7 @@ type inverseReferenceTestTracker struct {
 	snapshotCalls  int
 	comments       map[string][]domain.Comment
 	commentsErr    error
+	commentCalls   int
 	worklogs       map[string]*domain.IssueWorklogList
 	worklogsErr    error
 	remoteLinks    map[string]domain.JiraRemoteLinkInventory
@@ -79,6 +80,7 @@ func (t *inverseReferenceTestTracker) ReadInverseReferenceSnapshot(ctx context.C
 }
 
 func (t *inverseReferenceTestTracker) ListComments(ctx context.Context, key string) ([]domain.Comment, error) {
+	t.commentCalls++
 	if err := t.consume(ctx); err != nil {
 		return nil, err
 	}
@@ -175,6 +177,34 @@ func TestInverseReferenceValidationPrecedesReaders(t *testing.T) {
 			value.MaxIssues = jiraInverseReferenceMaxIssues + 1
 			return value
 		}(),
+		func() JiraInverseReferenceOptions {
+			value := base
+			value.Target = "https://docs.example.test/wiki/spaces/SAFE/pages/42/" + string([]byte{0xff})
+			value.TargetKind = domain.JiraInverseReferenceTargetConfluencePage
+			return value
+		}(),
+		func() JiraInverseReferenceOptions {
+			value := base
+			value.Target = "https://docs.example.test/wiki/spaces/SAFE/pages/42/\uFFFD"
+			value.TargetKind = domain.JiraInverseReferenceTargetConfluencePage
+			return value
+		}(),
+		func() JiraInverseReferenceOptions {
+			value := base
+			value.Target = "https://docs.example.test/wiki/spaces/SAFE/pages/42/%FF"
+			value.TargetKind = domain.JiraInverseReferenceTargetConfluencePage
+			return value
+		}(),
+		func() JiraInverseReferenceOptions {
+			value := base
+			value.ScopeJQL += string([]byte{0xff})
+			return value
+		}(),
+		func() JiraInverseReferenceOptions {
+			value := base
+			value.ScopeJQL += " \uFFFD"
+			return value
+		}(),
 	}
 	for _, opts := range tests {
 		if _, err := service.SearchInverseReferences(t.Context(), opts); !errors.Is(err, domain.ErrUsage) {
@@ -257,6 +287,22 @@ func TestInverseReferencePaginationDriftAndCapAreQualified(t *testing.T) {
 			t.Fatalf("result=%+v err=%v", result, err)
 		}
 	})
+	t.Run("drift union exceeds issue cap", func(t *testing.T) {
+		opts := inverseReferenceTestOptions()
+		opts.MaxIssues = 2
+		tracker := &inverseReferenceTestTracker{
+			pages: []domain.JiraInverseReferencePage{
+				{StartAt: 0, MaxResults: 2, Total: 2, Issues: []domain.JiraInverseReferenceIssueIdentity{identity("1", "SAFE-1"), identity("2", "SAFE-2")}},
+				{StartAt: 0, MaxResults: 2, Total: 2, Issues: []domain.JiraInverseReferenceIssueIdentity{identity("3", "SAFE-3"), identity("4", "SAFE-4")}},
+			},
+			comments: map[string][]domain.Comment{"SAFE-1": {}, "SAFE-2": {}},
+		}
+		result, err := (&JiraService{tr: tracker}).SearchInverseReferences(t.Context(), opts)
+		if err != nil || result.Selection.Reason != JiraInverseReferenceReasonSelectionDrift || result.Complete ||
+			result.Counts.CandidateIssues != 4 || result.Counts.SelectedIssues != 2 || result.Counts.ScannedIssues != 4 || !result.Reconciliation.Counts {
+			t.Fatalf("result=%+v err=%v", result, err)
+		}
+	})
 	t.Run("cap", func(t *testing.T) {
 		opts := inverseReferenceTestOptions()
 		opts.MaxIssues = 2
@@ -304,6 +350,14 @@ func TestInverseReferenceConfluenceDirectAndStructuredMatchingNeverResolveDiscov
 	result, err = service.SearchInverseReferences(t.Context(), opts)
 	if err != nil || result.Complete || len(result.Matches) != 0 || result.AbsenceProven {
 		t.Fatalf("conflicting globalId result=%+v err=%v", result, err)
+	}
+
+	tracker.remoteLinks["SAFE-1"] = domain.JiraRemoteLinkInventory{Total: 1, Links: []domain.JiraRemoteLink{{ID: "7", ApplicationType: confluenceRemoteApplicationType,
+		ObjectURL: "https://docs.example.test/wiki/spaces/SAFE/pages/42/%FF", GlobalID: "appId=opaque&pageId=42"}}}
+	tracker.selections = nil
+	result, err = service.SearchInverseReferences(t.Context(), opts)
+	if err != nil || result.Complete || len(result.Matches) != 0 || result.AbsenceProven || result.SourceCounts[0].Partial != 1 {
+		t.Fatalf("malformed URL result=%+v err=%v", result, err)
 	}
 
 	for name, link := range map[string]domain.JiraRemoteLink{
@@ -478,6 +532,35 @@ func TestInverseReferenceSnapshotMissingNullFieldsAndDedup(t *testing.T) {
 			t.Fatalf("matches=%+v", result.Matches)
 		}
 	})
+	t.Run("exact fields and properties inspect nested content", func(t *testing.T) {
+		opts := inverseReferenceTestOptions()
+		opts.Sources = []domain.JiraInverseReferenceSource{domain.JiraInverseReferenceSourceFields, domain.JiraInverseReferenceSourceProperties}
+		opts.Fields = []string{"customfield_1"}
+		value := json.RawMessage(`{"content":"https://git.example.test/group/repo"}`)
+		tracker := &inverseReferenceTestTracker{pages: pages, snapshots: map[string]domain.JiraInverseReferenceSnapshot{
+			issue.Key: {
+				Issue:      issue,
+				Fields:     []domain.JiraInverseReferenceFieldSnapshot{{FieldID: "customfield_1", Present: true, Value: value}},
+				Properties: []domain.JiraInverseReferencePropertySnapshot{{Key: "opaque", Value: value}},
+			},
+		}}
+		result, err := (&JiraService{tr: tracker}).SearchInverseReferences(t.Context(), opts)
+		if err != nil || !result.Complete || len(result.Matches) != 2 || result.Matches[0].Source != domain.JiraInverseReferenceSourceFields || result.Matches[1].Source != domain.JiraInverseReferenceSourceProperties {
+			t.Fatalf("result=%+v err=%v", result, err)
+		}
+	})
+}
+
+func TestInverseReferenceVerificationCancellationStopsImmediately(t *testing.T) {
+	opts := inverseReferenceTestOptions()
+	issueA := domain.JiraInverseReferenceIssueIdentity{ID: "1", Key: "SAFE-1"}
+	issueB := domain.JiraInverseReferenceIssueIdentity{ID: "2", Key: "SAFE-2"}
+	page := domain.JiraInverseReferencePage{StartAt: 0, MaxResults: 10, Total: 2, Issues: []domain.JiraInverseReferenceIssueIdentity{issueA, issueB}}
+	tracker := &inverseReferenceTestTracker{pages: []domain.JiraInverseReferencePage{page, page}, commentsErr: context.Canceled}
+	result, err := (&JiraService{tr: tracker}).SearchInverseReferences(t.Context(), opts)
+	if result != nil || !errors.Is(err, context.Canceled) || tracker.commentCalls != 1 {
+		t.Fatalf("result=%+v err=%v comment_calls=%d", result, err, tracker.commentCalls)
+	}
 }
 
 func TestInverseReferenceEveryAuxiliarySourceAndErrorsAreQualified(t *testing.T) {

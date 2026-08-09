@@ -74,6 +74,14 @@ func (b *graphExtractBudget) consume(size int) bool {
 }
 
 func walkGraphValue(value any, pointer string, allowBare bool, budget *graphExtractBudget, visit func(any, string, bool)) {
+	walkGraphValueWithKeyPolicy(value, pointer, allowBare, true, budget, visit)
+}
+
+func walkInverseReferenceValue(value any, pointer string, allowBare bool, budget *graphExtractBudget, visit func(any, string, bool)) {
+	walkGraphValueWithKeyPolicy(value, pointer, allowBare, false, budget, visit)
+}
+
+func walkGraphValueWithKeyPolicy(value any, pointer string, allowBare, skipExcludedKeys bool, budget *graphExtractBudget, visit func(any, string, bool)) {
 	var walk func(any, string, int)
 	walk = func(current any, currentPointer string, depth int) {
 		if budget.Clipped {
@@ -139,7 +147,7 @@ func walkGraphValue(value any, pointer string, allowBare bool, budget *graphExtr
 			}
 			sort.Strings(keys)
 			for _, key := range keys {
-				if graphSkippedPathKeys[strings.ToLower(key)] {
+				if skipExcludedKeys && graphSkippedPathKeys[strings.ToLower(key)] {
 					continue
 				}
 				escapedKey := escapeJSONPointer(graphSafePointerToken(key))

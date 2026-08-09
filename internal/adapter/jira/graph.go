@@ -15,6 +15,7 @@ import (
 )
 
 const (
+	jiraRemoteLinkMaxObjectURLBytes       = 2048
 	jiraRemoteLinkMaxGlobalIDBytes        = 2048
 	jiraRemoteLinkMaxApplicationTypeBytes = 256
 )
@@ -64,8 +65,8 @@ func (j *Jira) ReadIssueRemoteLinks(ctx context.Context, key string) (domain.Jir
 		Relationship string          `json:"relationship"`
 		Application  json.RawMessage `json:"application"`
 		Object       struct {
-			URL   string `json:"url"`
-			Title string `json:"title"`
+			URL   json.RawMessage `json:"url"`
+			Title string          `json:"title"`
 		} `json:"object"`
 	}
 	path := "/rest/api/2/issue/" + url.PathEscape(strings.TrimSpace(key)) + "/remotelink"
@@ -78,14 +79,16 @@ func (j *Jira) ReadIssueRemoteLinks(ctx context.Context, key string) (domain.Jir
 	out := domain.JiraRemoteLinkInventory{Links: []domain.JiraRemoteLink{}, Total: len(response)}
 	seen := make(map[string]bool, len(response))
 	for _, link := range response {
+		objectURL, objectURLOK := decodeJiraRemoteLinkMetadata(link.Object.URL)
 		globalID, globalIDOK := decodeJiraRemoteLinkMetadata(link.GlobalID)
 		applicationType, applicationTypeOK := decodeJiraRemoteLinkApplicationType(link.Application)
-		parsed, err := url.Parse(link.Object.URL)
+		parsed, err := url.Parse(objectURL)
 		numericID, idErr := strconv.ParseInt(link.ID, 10, 64)
 		if idErr != nil || numericID <= 0 || seen[link.ID] || err != nil ||
 			(parsed.Scheme != "http" && parsed.Scheme != "https") ||
 			parsed.Hostname() == "" || parsed.User != nil ||
-			!globalIDOK || !applicationTypeOK ||
+			!objectURLOK || !globalIDOK || !applicationTypeOK ||
+			!validJiraRemoteLinkMetadata(objectURL, jiraRemoteLinkMaxObjectURLBytes) ||
 			!validJiraRemoteLinkMetadata(globalID, jiraRemoteLinkMaxGlobalIDBytes) ||
 			!validJiraRemoteLinkMetadata(applicationType, jiraRemoteLinkMaxApplicationTypeBytes) {
 			out.Unsupported++
@@ -95,7 +98,7 @@ func (j *Jira) ReadIssueRemoteLinks(ctx context.Context, key string) (domain.Jir
 		out.Links = append(out.Links, domain.JiraRemoteLink{
 			ID:              link.ID,
 			Relationship:    link.Relationship,
-			ObjectURL:       link.Object.URL,
+			ObjectURL:       objectURL,
 			ObjectTitle:     link.Object.Title,
 			GlobalID:        globalID,
 			ApplicationType: applicationType,
@@ -136,14 +139,14 @@ func decodeJiraRemoteLinkApplicationType(raw json.RawMessage) (string, bool) {
 	return decodeJiraRemoteLinkMetadata(application.Type)
 }
 
-// validJiraRemoteLinkMetadata admits an omitted structured value while keeping
-// a populated opaque identifier bounded and safe for content-free graph data.
+// validJiraRemoteLinkMetadata admits omitted optional metadata while keeping
+// populated URL and identity values bounded and safe for graph processing.
 func validJiraRemoteLinkMetadata(value string, maxBytes int) bool {
 	if len(value) > maxBytes || !utf8.ValidString(value) {
 		return false
 	}
 	for _, r := range value {
-		if unicode.IsControl(r) {
+		if unicode.IsControl(r) || r == utf8.RuneError {
 			return false
 		}
 	}

@@ -20,35 +20,47 @@ const (
 	confluenceRemoteApplicationType   = "com.atlassian.confluence"
 )
 
-func verifyInverseReferenceCandidates(ctx context.Context, tracker domain.Tracker, snapshotReader domain.JiraInverseReferenceSnapshotReader, target inverseReferenceTarget, opts JiraInverseReferenceOptions, selected []domain.JiraInverseReferenceIssueIdentity, result *JiraInverseReferenceResult) {
+func verifyInverseReferenceCandidates(ctx context.Context, tracker domain.Tracker, snapshotReader domain.JiraInverseReferenceSnapshotReader, target inverseReferenceTarget, opts JiraInverseReferenceOptions, selected []domain.JiraInverseReferenceIssueIdentity, result *JiraInverseReferenceResult) error {
 	issues := append([]domain.JiraInverseReferenceIssueIdentity(nil), selected...)
 	sortInverseReferenceIdentities(issues)
 	matchKeys := map[string]bool{}
 	for issueIndex, issue := range issues {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		outcomes := make(map[domain.JiraInverseReferenceSource]domain.JiraInverseReferenceSourceOutcome, len(opts.Sources))
 		issueMatches := []JiraInverseReferenceResultMatch{}
 		if sourceSelected(opts.Sources, domain.JiraInverseReferenceSourceDescription) ||
 			sourceSelected(opts.Sources, domain.JiraInverseReferenceSourceFields) ||
 			sourceSelected(opts.Sources, domain.JiraInverseReferenceSourceProperties) {
-			collectInverseReferenceSnapshot(ctx, snapshotReader, issue, target, opts, outcomes, &issueMatches)
+			if err := collectInverseReferenceSnapshot(ctx, snapshotReader, issue, target, opts, outcomes, &issueMatches); err != nil {
+				return err
+			}
 		}
 		for _, source := range opts.Sources {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if _, exists := outcomes[source]; exists {
 				continue
 			}
 			var outcome domain.JiraInverseReferenceSourceOutcome
 			var matches []JiraInverseReferenceResultMatch
+			var readErr error
 			switch source {
 			case domain.JiraInverseReferenceSourceComments:
-				outcome, matches = collectInverseReferenceComments(ctx, tracker, issue, target)
+				outcome, matches, readErr = collectInverseReferenceComments(ctx, tracker, issue, target)
 			case domain.JiraInverseReferenceSourceWorklogs:
-				outcome, matches = collectInverseReferenceWorklogs(ctx, tracker, issue, target)
+				outcome, matches, readErr = collectInverseReferenceWorklogs(ctx, tracker, issue, target)
 			case domain.JiraInverseReferenceSourceRemoteLinks:
-				outcome, matches = collectInverseReferenceRemoteLinks(ctx, tracker, issue, target)
+				outcome, matches, readErr = collectInverseReferenceRemoteLinks(ctx, tracker, issue, target)
 			case domain.JiraInverseReferenceSourceDevelopment:
-				outcome, matches = collectInverseReferenceDevelopment(ctx, tracker, issue, target)
+				outcome, matches, readErr = collectInverseReferenceDevelopment(ctx, tracker, issue, target)
 			default:
 				outcome = domain.JiraInverseReferenceSourceOutcome{Source: source, Status: domain.JiraInverseReferenceSourceUnsupported, Reason: domain.JiraInverseReferenceReasonNotSupported}
+			}
+			if readErr != nil {
+				return readErr
 			}
 			outcomes[source] = outcome
 			issueMatches = append(issueMatches, matches...)
@@ -96,9 +108,10 @@ func verifyInverseReferenceCandidates(ctx context.Context, tracker domain.Tracke
 		}
 		return left.TechnicalFieldID < right.TechnicalFieldID
 	})
+	return ctx.Err()
 }
 
-func collectInverseReferenceSnapshot(ctx context.Context, reader domain.JiraInverseReferenceSnapshotReader, issue domain.JiraInverseReferenceIssueIdentity, target inverseReferenceTarget, opts JiraInverseReferenceOptions, outcomes map[domain.JiraInverseReferenceSource]domain.JiraInverseReferenceSourceOutcome, matches *[]JiraInverseReferenceResultMatch) {
+func collectInverseReferenceSnapshot(ctx context.Context, reader domain.JiraInverseReferenceSnapshotReader, issue domain.JiraInverseReferenceIssueIdentity, target inverseReferenceTarget, opts JiraInverseReferenceOptions, outcomes map[domain.JiraInverseReferenceSource]domain.JiraInverseReferenceSourceOutcome, matches *[]JiraInverseReferenceResultMatch) error {
 	fieldIDs := append([]string(nil), opts.Fields...)
 	if sourceSelected(opts.Sources, domain.JiraInverseReferenceSourceDescription) && !inverseReferenceStringSelected(fieldIDs, "description") {
 		fieldIDs = append(fieldIDs, "description")
@@ -108,6 +121,9 @@ func collectInverseReferenceSnapshot(ctx context.Context, reader domain.JiraInve
 		Issue: issue, FieldIDs: fieldIDs, IncludeProperties: sourceSelected(opts.Sources, domain.JiraInverseReferenceSourceProperties),
 	})
 	if err != nil {
+		if cancelErr := inverseReferenceContextError(ctx, err); cancelErr != nil {
+			return cancelErr
+		}
 		for _, source := range []domain.JiraInverseReferenceSource{domain.JiraInverseReferenceSourceDescription, domain.JiraInverseReferenceSourceFields, domain.JiraInverseReferenceSourceProperties} {
 			if sourceSelected(opts.Sources, source) {
 				outcome := classifyInverseReferenceSourceError(err)
@@ -115,7 +131,7 @@ func collectInverseReferenceSnapshot(ctx context.Context, reader domain.JiraInve
 				outcomes[source] = outcome
 			}
 		}
-		return
+		return nil
 	}
 	if snapshot.Issue != issue {
 		for _, source := range []domain.JiraInverseReferenceSource{domain.JiraInverseReferenceSourceDescription, domain.JiraInverseReferenceSourceFields, domain.JiraInverseReferenceSourceProperties} {
@@ -123,7 +139,7 @@ func collectInverseReferenceSnapshot(ctx context.Context, reader domain.JiraInve
 				outcomes[source] = malformedInverseReferenceOutcome(source)
 			}
 		}
-		return
+		return nil
 	}
 	byField := make(map[string]domain.JiraInverseReferenceFieldSnapshot, len(snapshot.Fields))
 	requestedFields := make(map[string]bool, len(fieldIDs))
@@ -153,6 +169,7 @@ func collectInverseReferenceSnapshot(ctx context.Context, reader domain.JiraInve
 		outcomes[outcome.Source] = outcome
 		*matches = append(*matches, propertyMatches...)
 	}
+	return nil
 }
 
 func inverseReferenceStringSelected(values []string, wanted string) bool {
@@ -229,19 +246,22 @@ func matchInverseReferenceProperties(issue domain.JiraInverseReferenceIssueIdent
 	return outcome, matches
 }
 
-func collectInverseReferenceComments(ctx context.Context, tracker domain.Tracker, issue domain.JiraInverseReferenceIssueIdentity, target inverseReferenceTarget) (domain.JiraInverseReferenceSourceOutcome, []JiraInverseReferenceResultMatch) {
+func collectInverseReferenceComments(ctx context.Context, tracker domain.Tracker, issue domain.JiraInverseReferenceIssueIdentity, target inverseReferenceTarget) (domain.JiraInverseReferenceSourceOutcome, []JiraInverseReferenceResultMatch, error) {
 	source := domain.JiraInverseReferenceSourceComments
 	comments, err := tracker.ListComments(ctx, issue.Key)
 	if err != nil {
+		if cancelErr := inverseReferenceContextError(ctx, err); cancelErr != nil {
+			return domain.JiraInverseReferenceSourceOutcome{}, nil, cancelErr
+		}
 		outcome := classifyInverseReferenceSourceError(err)
 		outcome.Source = source
-		return outcome, nil
+		return outcome, nil, nil
 	}
 	if comments == nil || len(comments) > inverseReferenceMaxCollectionRows {
-		return malformedInverseReferenceOutcome(source), nil
+		return malformedInverseReferenceOutcome(source), nil, nil
 	}
 	if len(comments) == 0 {
-		return domain.JiraInverseReferenceSourceOutcome{Source: source, Status: domain.JiraInverseReferenceSourceEmpty}, nil
+		return domain.JiraInverseReferenceSourceOutcome{Source: source, Status: domain.JiraInverseReferenceSourceEmpty}, nil, nil
 	}
 	seen, malformed, matched := map[string]bool{}, false, false
 	budget := &graphExtractBudget{MaxBytes: jiraGraphMaxSourceBytes}
@@ -266,26 +286,29 @@ func collectInverseReferenceComments(ctx context.Context, tracker domain.Tracker
 	}
 	matches := inverseReferenceOptionalLiteralMatch(issue, source, matched)
 	setInverseReferenceMatchesComplete(matches, outcome)
-	return outcome, matches
+	return outcome, matches, nil
 }
 
-func collectInverseReferenceWorklogs(ctx context.Context, tracker domain.Tracker, issue domain.JiraInverseReferenceIssueIdentity, target inverseReferenceTarget) (domain.JiraInverseReferenceSourceOutcome, []JiraInverseReferenceResultMatch) {
+func collectInverseReferenceWorklogs(ctx context.Context, tracker domain.Tracker, issue domain.JiraInverseReferenceIssueIdentity, target inverseReferenceTarget) (domain.JiraInverseReferenceSourceOutcome, []JiraInverseReferenceResultMatch, error) {
 	source := domain.JiraInverseReferenceSourceWorklogs
 	reader, ok := tracker.(domain.IssueWorklogReader)
 	if !ok {
-		return unsupportedInverseReferenceOutcome(source), nil
+		return unsupportedInverseReferenceOutcome(source), nil, nil
 	}
 	inventory, err := reader.ListIssueWorklogs(ctx, issue.Key)
 	if err != nil {
+		if cancelErr := inverseReferenceContextError(ctx, err); cancelErr != nil {
+			return domain.JiraInverseReferenceSourceOutcome{}, nil, cancelErr
+		}
 		outcome := classifyInverseReferenceSourceError(err)
 		outcome.Source = source
-		return outcome, nil
+		return outcome, nil, nil
 	}
 	if inventory == nil || !inventory.Complete || inventory.Total < 0 || inventory.Total != len(inventory.Worklogs) || len(inventory.Worklogs) > inverseReferenceMaxCollectionRows {
-		return malformedInverseReferenceOutcome(source), nil
+		return malformedInverseReferenceOutcome(source), nil, nil
 	}
 	if inventory.Total == 0 {
-		return domain.JiraInverseReferenceSourceOutcome{Source: source, Status: domain.JiraInverseReferenceSourceEmpty}, nil
+		return domain.JiraInverseReferenceSourceOutcome{Source: source, Status: domain.JiraInverseReferenceSourceEmpty}, nil, nil
 	}
 	seen, malformed, matched := map[string]bool{}, false, false
 	budget := &graphExtractBudget{MaxBytes: jiraGraphMaxSourceBytes}
@@ -310,26 +333,29 @@ func collectInverseReferenceWorklogs(ctx context.Context, tracker domain.Tracker
 	}
 	matches := inverseReferenceOptionalLiteralMatch(issue, source, matched)
 	setInverseReferenceMatchesComplete(matches, outcome)
-	return outcome, matches
+	return outcome, matches, nil
 }
 
-func collectInverseReferenceRemoteLinks(ctx context.Context, tracker domain.Tracker, issue domain.JiraInverseReferenceIssueIdentity, target inverseReferenceTarget) (domain.JiraInverseReferenceSourceOutcome, []JiraInverseReferenceResultMatch) {
+func collectInverseReferenceRemoteLinks(ctx context.Context, tracker domain.Tracker, issue domain.JiraInverseReferenceIssueIdentity, target inverseReferenceTarget) (domain.JiraInverseReferenceSourceOutcome, []JiraInverseReferenceResultMatch, error) {
 	source := domain.JiraInverseReferenceSourceRemoteLinks
 	reader, ok := tracker.(domain.JiraRemoteLinkReader)
 	if !ok {
-		return unsupportedInverseReferenceOutcome(source), nil
+		return unsupportedInverseReferenceOutcome(source), nil, nil
 	}
 	inventory, err := reader.ReadIssueRemoteLinks(ctx, issue.Key)
 	if err != nil {
+		if cancelErr := inverseReferenceContextError(ctx, err); cancelErr != nil {
+			return domain.JiraInverseReferenceSourceOutcome{}, nil, cancelErr
+		}
 		outcome := classifyInverseReferenceSourceError(err)
 		outcome.Source = source
-		return outcome, nil
+		return outcome, nil, nil
 	}
 	if inventory.Total < 0 || inventory.Unsupported < 0 || inventory.Total != len(inventory.Links)+inventory.Unsupported || inventory.Total > inverseReferenceMaxCollectionRows {
-		return malformedInverseReferenceOutcome(source), nil
+		return malformedInverseReferenceOutcome(source), nil, nil
 	}
 	if inventory.Total == 0 {
-		return domain.JiraInverseReferenceSourceOutcome{Source: source, Status: domain.JiraInverseReferenceSourceEmpty}, nil
+		return domain.JiraInverseReferenceSourceOutcome{Source: source, Status: domain.JiraInverseReferenceSourceEmpty}, nil, nil
 	}
 	seen, malformed := map[string]bool{}, inventory.Unsupported > 0
 	matches := []JiraInverseReferenceResultMatch{}
@@ -380,27 +406,30 @@ func collectInverseReferenceRemoteLinks(ctx context.Context, tracker domain.Trac
 		outcome = malformedInverseReferenceOutcome(source)
 	}
 	setInverseReferenceMatchesComplete(matches, outcome)
-	return outcome, matches
+	return outcome, matches, nil
 }
 
-func collectInverseReferenceDevelopment(ctx context.Context, tracker domain.Tracker, issue domain.JiraInverseReferenceIssueIdentity, target inverseReferenceTarget) (domain.JiraInverseReferenceSourceOutcome, []JiraInverseReferenceResultMatch) {
+func collectInverseReferenceDevelopment(ctx context.Context, tracker domain.Tracker, issue domain.JiraInverseReferenceIssueIdentity, target inverseReferenceTarget) (domain.JiraInverseReferenceSourceOutcome, []JiraInverseReferenceResultMatch, error) {
 	source := domain.JiraInverseReferenceSourceDevelopment
 	reader, ok := tracker.(domain.JiraDevelopmentReader)
 	if !ok {
-		return unsupportedInverseReferenceOutcome(source), nil
+		return unsupportedInverseReferenceOutcome(source), nil, nil
 	}
 	if target.domain.Kind != domain.JiraInverseReferenceTargetGitLabProject {
-		return domain.JiraInverseReferenceSourceOutcome{Source: source, Status: domain.JiraInverseReferenceSourceEmpty}, nil
+		return domain.JiraInverseReferenceSourceOutcome{Source: source, Status: domain.JiraInverseReferenceSourceEmpty}, nil, nil
 	}
 	inventory, err := reader.ReadIssueDevelopment(ctx, issue.ID)
 	if err != nil {
+		if cancelErr := inverseReferenceContextError(ctx, err); cancelErr != nil {
+			return domain.JiraInverseReferenceSourceOutcome{}, nil, cancelErr
+		}
 		outcome := classifyInverseReferenceSourceError(err)
 		outcome.Source = source
-		return outcome, nil
+		return outcome, nil, nil
 	}
 	projection, valid := validateJiraDevelopmentInventory(inventory)
 	if !valid {
-		return malformedInverseReferenceOutcome(source), nil
+		return malformedInverseReferenceOutcome(source), nil, nil
 	}
 	matched := false
 	for _, project := range projection.projects {
@@ -420,12 +449,12 @@ func collectInverseReferenceDevelopment(ctx context.Context, tracker domain.Trac
 		outcome.Status = domain.JiraInverseReferenceSourceEmpty
 	}
 	if !matched {
-		return outcome, nil
+		return outcome, nil, nil
 	}
 	match := JiraInverseReferenceResultMatch{IssueKey: issue.Key, Relation: JiraInverseReferenceRelationDevelopment,
 		Direction: JiraInverseReferenceDirectionIssueToTarget, Source: source,
 		Stability: domain.ArtifactStabilityExperimentalAPI, Confidence: "exact", Complete: true}
-	return outcome, []JiraInverseReferenceResultMatch{match}
+	return outcome, []JiraInverseReferenceResultMatch{match}, nil
 }
 
 func matchInverseReferenceRawJSON(raw json.RawMessage, target inverseReferenceTarget, budget *graphExtractBudget) (bool, bool, bool) {
@@ -443,7 +472,7 @@ func matchInverseReferenceRawJSON(raw json.RawMessage, target inverseReferenceTa
 		return false, false, true
 	}
 	matched := false
-	walkGraphValue(value, "", true, budget, func(current any, _ string, _ bool) {
+	walkInverseReferenceValue(value, "", true, budget, func(current any, _ string, _ bool) {
 		if text, ok := current.(string); ok && inverseReferenceLiteralMatches(text, target) {
 			matched = true
 		}
@@ -487,7 +516,8 @@ func inverseReferenceLiteralMatches(text string, target inverseReferenceTarget) 
 func inverseReferenceConfluenceURLPageID(baseURL, raw string) (string, bool, bool) {
 	base, baseErr := url.Parse(baseURL)
 	candidate, err := url.Parse(raw)
-	if baseErr != nil || err != nil || !candidate.IsAbs() || candidate.User != nil || candidate.Host == "" {
+	if baseErr != nil || err != nil || !candidate.IsAbs() || candidate.User != nil || candidate.Host == "" ||
+		!validInverseReferenceURLComponents(candidate) {
 		return "", false, false
 	}
 	if !sameConfluenceOrigin(base, candidate) {
@@ -549,6 +579,16 @@ func setInverseReferenceMatchesComplete(matches []JiraInverseReferenceResultMatc
 	for index := range matches {
 		matches[index].Complete = complete
 	}
+}
+
+func inverseReferenceContextError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return nil
 }
 
 func malformedInverseReferenceOutcome(source domain.JiraInverseReferenceSource) domain.JiraInverseReferenceSourceOutcome {

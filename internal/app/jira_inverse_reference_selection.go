@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
@@ -32,6 +33,28 @@ type inverseReferenceTarget struct {
 		pageID  string
 	}
 	gitlab scmref.GitLabProject
+}
+
+func validInverseReferenceTargetSyntax(kind domain.JiraInverseReferenceTargetKind, raw string) bool {
+	switch kind {
+	case domain.JiraInverseReferenceTargetGitLabProject:
+		_, ok := scmref.ParseGitLabProject(raw)
+		return ok
+	case domain.JiraInverseReferenceTargetConfluencePage:
+		if isOpaquePageID(raw) {
+			return true
+		}
+		reference, err := url.Parse(raw)
+		if err != nil || reference.User != nil || !validInverseReferenceURLComponents(reference) {
+			return false
+		}
+		if reference.IsAbs() {
+			return (reference.Scheme == "https" || reference.Scheme == "http") && reference.Host != ""
+		}
+		return reference.Host == "" && strings.HasPrefix(reference.Path, "/")
+	default:
+		return false
+	}
 }
 
 func (s *JiraService) resolveInverseReferenceTarget(ctx context.Context, opts JiraInverseReferenceOptions) (domain.JiraInverseReferenceTarget, JiraInverseReferenceTargetResult, inverseReferenceTarget, error) {
@@ -106,12 +129,17 @@ func (s *JiraService) inverseConfluenceReferenceResolver() (ConfluencePageRefere
 }
 
 func resolveConfluenceReferenceOffline(baseRaw, reference string) (*ConfluencePageResolution, bool, error) {
-	if err := config.CheckSecureURL(strings.TrimSpace(baseRaw)); err != nil {
+	baseRaw = strings.TrimSpace(baseRaw)
+	if containsControl(baseRaw) {
 		return nil, false, fmt.Errorf("%w: configured Confluence origin is required", domain.ErrConfig)
 	}
-	base, err := url.Parse(strings.TrimSpace(baseRaw))
+	if err := config.CheckSecureURL(baseRaw); err != nil {
+		return nil, false, fmt.Errorf("%w: configured Confluence origin is required", domain.ErrConfig)
+	}
+	base, err := url.Parse(baseRaw)
 	if err != nil || base.Scheme == "" || base.Host == "" || base.User != nil ||
-		(base.Scheme != "https" && base.Scheme != "http") {
+		base.Opaque != "" || base.RawQuery != "" || base.ForceQuery || base.Fragment != "" ||
+		(base.Scheme != "https" && base.Scheme != "http") || !validInverseReferenceURLComponents(base) {
 		return nil, false, fmt.Errorf("%w: configured Confluence origin is required", domain.ErrConfig)
 	}
 	reference = strings.TrimSpace(reference)
@@ -119,7 +147,7 @@ func resolveConfluenceReferenceOffline(baseRaw, reference string) (*ConfluencePa
 		return &ConfluencePageResolution{ID: reference, Kind: "id"}, false, nil
 	}
 	u, err := url.Parse(reference)
-	if err != nil || u.User != nil {
+	if err != nil || u.User != nil || !validInverseReferenceURLComponents(u) {
 		return nil, false, inverseReferenceUsage("Confluence target is malformed")
 	}
 	abs := u.IsAbs()
@@ -143,6 +171,33 @@ func resolveConfluenceReferenceOffline(baseRaw, reference string) (*ConfluencePa
 		return nil, true, nil
 	}
 	return nil, false, inverseReferenceUsage("Confluence target is not a supported reference")
+}
+
+func validInverseReferenceURLComponents(value *url.URL) bool {
+	if value == nil {
+		return false
+	}
+	for _, escaped := range []string{value.EscapedPath(), value.EscapedFragment()} {
+		decoded, err := url.PathUnescape(escaped)
+		if err != nil || containsControl(decoded) {
+			return false
+		}
+	}
+	query, err := url.ParseQuery(value.RawQuery)
+	if err != nil {
+		return false
+	}
+	for key, values := range query {
+		if containsControl(key) {
+			return false
+		}
+		for _, current := range values {
+			if containsControl(current) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func redactInverseReferenceTargetError(err error) error {
@@ -204,9 +259,9 @@ func selectInverseReferenceCandidates(ctx context.Context, selector domain.JiraI
 		return first, secondPhase, stats
 	}
 	if firstTotal != secondTotal || !sameInverseReferenceIdentitySet(first, second) {
-		union := unionInverseReferenceIdentities(first, second, opts.MaxIssues)
-		if len(union) > stats.candidates {
-			stats.candidates = len(union)
+		union, observed := unionInverseReferenceIdentities(first, second, opts.MaxIssues)
+		if observed > stats.candidates {
+			stats.candidates = observed
 		}
 		return union, JiraInverseReferencePhase{Reason: JiraInverseReferenceReasonSelectionDrift}, stats
 	}
@@ -314,7 +369,7 @@ func sameInverseReferenceIdentitySet(left, right []domain.JiraInverseReferenceIs
 	return true
 }
 
-func unionInverseReferenceIdentities(left, right []domain.JiraInverseReferenceIssueIdentity, limit int) []domain.JiraInverseReferenceIssueIdentity {
+func unionInverseReferenceIdentities(left, right []domain.JiraInverseReferenceIssueIdentity, limit int) ([]domain.JiraInverseReferenceIssueIdentity, int) {
 	byID := map[string]domain.JiraInverseReferenceIssueIdentity{}
 	for _, issue := range append(append([]domain.JiraInverseReferenceIssueIdentity(nil), left...), right...) {
 		if existing, ok := byID[issue.ID]; !ok || issue.Key < existing.Key {
@@ -326,10 +381,11 @@ func unionInverseReferenceIdentities(left, right []domain.JiraInverseReferenceIs
 		out = append(out, issue)
 	}
 	sortInverseReferenceIdentities(out)
-	if len(out) > limit {
+	observed := len(out)
+	if observed > limit {
 		out = out[:limit]
 	}
-	return out
+	return out, observed
 }
 
 func sortInverseReferenceIdentities(issues []domain.JiraInverseReferenceIssueIdentity) {
@@ -359,8 +415,11 @@ func sourceSelected(sources []domain.JiraInverseReferenceSource, wanted domain.J
 }
 
 func containsControl(value string) bool {
+	if !utf8.ValidString(value) {
+		return true
+	}
 	for _, current := range value {
-		if unicode.IsControl(current) {
+		if unicode.IsControl(current) || current == utf8.RuneError {
 			return true
 		}
 	}
@@ -368,8 +427,11 @@ func containsControl(value string) bool {
 }
 
 func containsControlExceptWhitespace(value string) bool {
+	if !utf8.ValidString(value) {
+		return true
+	}
 	for _, current := range value {
-		if unicode.IsControl(current) && current != '\n' && current != '\r' && current != '\t' {
+		if current == utf8.RuneError || unicode.IsControl(current) && current != '\n' && current != '\r' && current != '\t' {
 			return true
 		}
 	}

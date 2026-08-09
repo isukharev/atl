@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -65,12 +66,12 @@ func ValidateGitLabProject(host, projectPath string) (GitLabProject, bool) {
 }
 
 func parseGitLabURL(raw string) (*url.URL, string, bool) {
-	if raw == "" || len(raw) > maxGitLabURLBytes {
+	if raw == "" || len(raw) > maxGitLabURLBytes || !utf8.ValidString(raw) || strings.ContainsRune(raw, utf8.RuneError) {
 		return nil, "", false
 	}
 	u, err := url.Parse(raw)
 	if err != nil || strings.ToLower(u.Scheme) != "https" || u.Opaque != "" || u.User != nil ||
-		u.Hostname() == "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(raw, "#") {
+		u.Hostname() == "" || strings.HasSuffix(u.Host, ":") || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(raw, "#") {
 		return nil, "", false
 	}
 	escaped := strings.Trim(u.EscapedPath(), "/")

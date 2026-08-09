@@ -45,6 +45,9 @@ func TestParseGitLabProjectRejectsUnsafeOrAmbiguousReferences(t *testing.T) {
 		"https://scm.example.test/group/%2Fproject",
 		"https://scm.example.test/group/../project",
 		"https://scm.example.test/group/project/-/commit/1",
+		"https://scm.example.test:/group/project",
+		"https://scm.\uFFFD.example.test/group/project",
+		"https://scm." + string([]byte{0xff}) + ".example.test/group/project",
 	} {
 		if _, ok := ParseGitLabProject(raw); ok {
 			t.Errorf("ParseGitLabProject(%q) unexpectedly succeeded", raw)

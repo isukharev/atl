@@ -55,6 +55,9 @@ func (j *Jira) SelectInverseReferencePage(ctx context.Context, selection domain.
 	if response.StartAt == nil || response.MaxResults == nil || response.Total == nil {
 		return domain.JiraInverseReferencePage{}, fmt.Errorf("%w: Jira inverse-reference search omitted pagination coordinates", domain.ErrCheckFailed)
 	}
+	if response.Issues == nil {
+		return domain.JiraInverseReferencePage{}, fmt.Errorf("%w: Jira inverse-reference search omitted its issue collection", domain.ErrCheckFailed)
+	}
 	page := domain.JiraInverseReferencePage{
 		StartAt: *response.StartAt, MaxResults: *response.MaxResults, Total: *response.Total,
 		Issues: make([]domain.JiraInverseReferenceIssueIdentity, 0, len(response.Issues)),
@@ -115,7 +118,7 @@ func (j *Jira) ReadInverseReferenceSnapshot(ctx context.Context, request domain.
 	}
 	for _, fieldID := range fieldIDs {
 		value, present := (*response.Fields)[fieldID]
-		if present && len(value) > inverseReferenceMaxValueBytes {
+		if present && !validInverseReferenceRawValue(value) {
 			return domain.JiraInverseReferenceSnapshot{}, fmt.Errorf("%w: Jira inverse-reference snapshot field value exceeds the supported bound", domain.ErrCheckFailed)
 		}
 		out.Fields = append(out.Fields, domain.JiraInverseReferenceFieldSnapshot{FieldID: fieldID, Present: present, Value: append(json.RawMessage(nil), value...)})
@@ -134,12 +137,16 @@ func (j *Jira) ReadInverseReferenceSnapshot(ctx context.Context, request domain.
 	out.Properties = make([]domain.JiraInverseReferencePropertySnapshot, 0, len(keys))
 	for _, key := range keys {
 		value := (*response.Properties)[key]
-		if !validInverseReferenceIdentifier(key, inverseReferenceMaxPropertyKeyBytes) || len(value) > inverseReferenceMaxValueBytes {
+		if !validInverseReferenceIdentifier(key, inverseReferenceMaxPropertyKeyBytes) || !validInverseReferenceRawValue(value) {
 			return domain.JiraInverseReferenceSnapshot{}, fmt.Errorf("%w: Jira inverse-reference snapshot property exceeds the supported bound", domain.ErrCheckFailed)
 		}
 		out.Properties = append(out.Properties, domain.JiraInverseReferencePropertySnapshot{Key: key, Value: append(json.RawMessage(nil), value...)})
 	}
 	return out, nil
+}
+
+func validInverseReferenceRawValue(value json.RawMessage) bool {
+	return len(value) <= inverseReferenceMaxValueBytes && utf8.Valid(value) && json.Valid(value)
 }
 
 func validInverseReferenceIdentifier(value string, maxBytes int) bool {
