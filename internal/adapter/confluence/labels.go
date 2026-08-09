@@ -10,7 +10,11 @@ import (
 	"github.com/isukharev/atl/internal/domain"
 )
 
-var _ domain.ContentLabelStore = (*Confluence)(nil)
+var (
+	_ domain.ContentLabelReader = (*Confluence)(nil)
+	_ domain.ContentLabelWriter = (*Confluence)(nil)
+	_ domain.ContentLabelStore  = (*Confluence)(nil)
+)
 
 // ListContentLabels follows Confluence's offset pagination until exhaustion.
 // A server that keeps advertising _links.next is bounded by the shared safety

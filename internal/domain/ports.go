@@ -183,13 +183,24 @@ type ContentLabel struct {
 	Label  string `json:"label,omitempty"`
 }
 
-// ContentLabelStore is an optional document-backend capability. Writes are
+// ContentLabelReader is the narrow complete label inventory capability.
+type ContentLabelReader interface {
+	ListContentLabels(ctx context.Context, id string) (labels []ContentLabel, truncated bool, err error)
+}
+
+// ContentLabelWriter is the narrow label mutation capability. Writes are
 // deliberately split into one POST for additions and one DELETE per removal;
 // generic HTTP retry must never replay either operation.
-type ContentLabelStore interface {
-	ListContentLabels(ctx context.Context, id string) (labels []ContentLabel, truncated bool, err error)
+type ContentLabelWriter interface {
 	AddContentLabels(ctx context.Context, id string, labels []ContentLabel) error
 	RemoveContentLabel(ctx context.Context, id, name string) error
+}
+
+// ContentLabelStore is the compatibility aggregate implemented by backends
+// that provide both focused label capabilities.
+type ContentLabelStore interface {
+	ContentLabelReader
+	ContentLabelWriter
 }
 
 // PageShortLinkResolver follows one same-origin Confluence tiny link and
@@ -509,13 +520,30 @@ type IssueWatcherList struct {
 	Truncated  bool           `json:"truncated,omitempty"`
 }
 
-// IssueWatcherStore is an optional Jira capability. POST/DELETE writes are
-// single-attempt operations; callers reconcile by re-reading instead of
-// replaying an ambiguous request.
-type IssueWatcherStore interface {
+// JiraCurrentUserReader is the focused authenticated-user capability used by
+// feature services that resolve an explicit "me" identity.
+type JiraCurrentUserReader interface {
+	CurrentUser(ctx context.Context) (*User, error)
+}
+
+// IssueWatcherReader is the narrow watcher inventory capability.
+type IssueWatcherReader interface {
 	ListIssueWatchers(ctx context.Context, key string) (*IssueWatcherList, error)
+}
+
+// IssueWatcherWriter is the narrow watcher mutation capability. POST/DELETE
+// writes are single-attempt operations; callers reconcile by re-reading
+// instead of replaying an ambiguous request.
+type IssueWatcherWriter interface {
 	AddIssueWatcher(ctx context.Context, key, username string) error
 	RemoveIssueWatcher(ctx context.Context, key, username string) error
+}
+
+// IssueWatcherStore is the compatibility aggregate implemented by backends
+// that provide both focused watcher capabilities.
+type IssueWatcherStore interface {
+	IssueWatcherReader
+	IssueWatcherWriter
 }
 
 // IssueWorklogAuthor is the compact Jira Data Center identity exposed with a
@@ -562,12 +590,19 @@ type IssueWorklogReader interface {
 	ListIssueWorklogs(ctx context.Context, key string) (*IssueWorklogList, error)
 }
 
-// IssueWorklogStore is an optional Jira capability. Add sends exactly one POST
-// with adjustEstimate=leave; ambiguous outcomes are reconciled by the app layer
-// through a fresh complete ListIssueWorklogs call and are never replayed.
+// IssueWorklogWriter is the narrow worklog mutation capability. Add sends
+// exactly one POST with adjustEstimate=leave; ambiguous outcomes are reconciled
+// by the app layer through a fresh complete ListIssueWorklogs call and are
+// never replayed.
+type IssueWorklogWriter interface {
+	AddIssueWorklog(ctx context.Context, key string, input IssueWorklogCreate) (*IssueWorklog, error)
+}
+
+// IssueWorklogStore is the compatibility aggregate implemented by backends
+// that provide both focused worklog capabilities.
 type IssueWorklogStore interface {
 	IssueWorklogReader
-	AddIssueWorklog(ctx context.Context, key string, input IssueWorklogCreate) (*IssueWorklog, error)
+	IssueWorklogWriter
 }
 
 // Board is an agile board (scrum/kanban) on Jira Software. ProjectKey is the

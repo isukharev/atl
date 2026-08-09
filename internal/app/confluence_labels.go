@@ -45,6 +45,28 @@ type ConfluenceLabelMutationResult struct {
 	Reconciled   bool                  `json:"reconciled,omitempty"`
 }
 
+// ConfluenceLabelReferenceResolver preserves the shared exact page-reference
+// qualification without making the label feature depend on the broad document
+// service or store.
+type ConfluenceLabelReferenceResolver func(context.Context, string) (*ConfluencePageResolution, error)
+
+type ConfluenceLabelDependencies struct {
+	Reader           domain.ContentLabelReader
+	Writer           domain.ContentLabelWriter
+	ResolveReference ConfluenceLabelReferenceResolver
+}
+
+// ConfluenceLabelService owns only content-label reads and guarded writes.
+type ConfluenceLabelService struct {
+	reader           domain.ContentLabelReader
+	writer           domain.ContentLabelWriter
+	resolveReference ConfluenceLabelReferenceResolver
+}
+
+func NewConfluenceLabelService(deps ConfluenceLabelDependencies) *ConfluenceLabelService {
+	return &ConfluenceLabelService{reader: deps.Reader, writer: deps.Writer, resolveReference: deps.ResolveReference}
+}
+
 type confluenceLabelWriteError struct {
 	message   string
 	cause     error
@@ -55,37 +77,47 @@ func (e *confluenceLabelWriteError) Error() string                  { return e.m
 func (e *confluenceLabelWriteError) Unwrap() error                  { return e.cause }
 func (e *confluenceLabelWriteError) DiagnosticAmbiguousWrite() bool { return e != nil && e.ambiguous }
 
-func (s *ConfluenceService) contentLabelStore() (domain.ContentLabelStore, error) {
-	store, ok := s.store.(domain.ContentLabelStore)
-	if !ok || store == nil {
+func (s *ConfluenceLabelService) contentLabelReader() (domain.ContentLabelReader, error) {
+	if s == nil || s.reader == nil {
 		return nil, fmt.Errorf("%w: configured document backend does not support content labels", domain.ErrCheckFailed)
 	}
-	return store, nil
+	return s.reader, nil
 }
 
-func (s *ConfluenceService) ListLabels(ctx context.Context, id string) (*ConfluenceLabelListResult, error) {
+func (s *ConfluenceLabelService) contentLabelMutationPorts() (domain.ContentLabelReader, domain.ContentLabelWriter, error) {
+	reader, err := s.contentLabelReader()
+	if err != nil || s.writer == nil {
+		return nil, nil, fmt.Errorf("%w: configured document backend does not support content labels", domain.ErrCheckFailed)
+	}
+	return reader, s.writer, nil
+}
+
+func (s *ConfluenceLabelService) ListLabels(ctx context.Context, id string) (*ConfluenceLabelListResult, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return nil, fmt.Errorf("%w: page id is required", domain.ErrUsage)
 	}
-	resolved, err := s.ResolvePageReference(ctx, id)
+	reader, err := s.contentLabelReader()
+	if err != nil {
+		return nil, err
+	}
+	if s.resolveReference == nil {
+		return nil, fmt.Errorf("%w: configured document backend cannot resolve page references", domain.ErrCheckFailed)
+	}
+	resolved, err := s.resolveReference(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	ctx = resolved.Context(ctx)
 	id = resolved.ID
-	store, err := s.contentLabelStore()
-	if err != nil {
-		return nil, err
-	}
-	labels, truncated, err := store.ListContentLabels(ctx, id)
+	labels, truncated, err := reader.ListContentLabels(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	return &ConfluenceLabelListResult{ID: id, Labels: labels, Count: len(labels), Complete: !truncated, Truncated: truncated}, nil
 }
 
-func (s *ConfluenceService) MutateLabelsGuarded(ctx context.Context, id string, opts ConfluenceLabelMutationOpts) (*ConfluenceLabelMutationResult, error) {
+func (s *ConfluenceLabelService) MutateLabelsGuarded(ctx context.Context, id string, opts ConfluenceLabelMutationOpts) (*ConfluenceLabelMutationResult, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return nil, fmt.Errorf("%w: page id is required", domain.ErrUsage)
@@ -98,14 +130,15 @@ func (s *ConfluenceService) MutateLabelsGuarded(ctx context.Context, id string, 
 	if err != nil {
 		return nil, err
 	}
-	if opts.Apply && strings.TrimSpace(opts.ExpectedProposalHash) == "" {
-		return nil, fmt.Errorf("%w: --expected-proposal-hash is required with --apply; run the dry-run first", domain.ErrUsage)
-	}
-	store, err := s.contentLabelStore()
+	policy, err := newGuardedWritePolicy(opts.Apply, opts.ExpectedProposalHash)
 	if err != nil {
 		return nil, err
 	}
-	currentRecords, truncated, err := store.ListContentLabels(ctx, id)
+	reader, writer, err := s.contentLabelMutationPorts()
+	if err != nil {
+		return nil, err
+	}
+	currentRecords, truncated, err := reader.ListContentLabels(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -125,24 +158,19 @@ func (s *ConfluenceService) MutateLabelsGuarded(ctx context.Context, id string, 
 	}
 	current := sortedContentLabels(currentRecords)
 	proposalHash := confluenceLabelProposalHash(id, operation, requested, currentRecords)
-	mode := "dry-run"
-	if opts.Apply {
-		mode = "apply"
-	}
+	decision := policy.decide(proposalHash, confluenceLabelGoalSatisfied(operation, requested, currentRecords))
 	result := &ConfluenceLabelMutationResult{
-		ID: id, Operation: operation, Mode: mode, Status: "would_apply",
-		Requested: requested, Current: current, ProposalHash: proposalHash, Complete: true,
+		ID: id, Operation: operation, Mode: decision.mode, Status: decision.status,
+		Requested: requested, Current: current, ProposalHash: decision.proposalHash, Complete: true,
 	}
-	if opts.Apply && strings.TrimSpace(opts.ExpectedProposalHash) != proposalHash {
-		result.Status = "blocked"
-		return result, fmt.Errorf("%w: label proposal changed since review: expected hash %q, got %q", domain.ErrCheckFailed, strings.TrimSpace(opts.ExpectedProposalHash), proposalHash)
+	if decision.hashMismatch {
+		return result, fmt.Errorf("%w: label proposal changed since review: expected hash %q, got %q", domain.ErrCheckFailed, policy.expectedHash, proposalHash)
 	}
-	if confluenceLabelGoalSatisfied(operation, requested, currentRecords) {
-		result.Status = "already_satisfied"
+	if decision.status == "already_satisfied" {
 		result.Final = current
 		return result, nil
 	}
-	if !opts.Apply {
+	if !decision.writeRequired {
 		return result, nil
 	}
 
@@ -153,13 +181,13 @@ func (s *ConfluenceService) MutateLabelsGuarded(ctx context.Context, id string, 
 		for index, name := range requested {
 			labels[index] = domain.ContentLabel{Prefix: "global", Name: name}
 		}
-		writeErr = store.AddContentLabels(domain.WithSingleAttempt(ctx), id, labels)
+		writeErr = writer.AddContentLabels(domain.WithSingleAttempt(ctx), id, labels)
 		if writeErr == nil {
 			successfulWrites = 1
 		}
 	} else {
 		for _, name := range requested {
-			if err := store.RemoveContentLabel(domain.WithSingleAttempt(ctx), id, name); err != nil {
+			if err := writer.RemoveContentLabel(domain.WithSingleAttempt(ctx), id, name); err != nil {
 				writeErr = err
 				break
 			}
@@ -167,7 +195,7 @@ func (s *ConfluenceService) MutateLabelsGuarded(ctx context.Context, id string, 
 		}
 	}
 
-	verified, verifyTruncated, verifyErr := store.ListContentLabels(ctx, id)
+	verified, verifyTruncated, verifyErr := reader.ListContentLabels(ctx, id)
 	if verifyErr != nil || verifyTruncated {
 		result.Status = "unknown"
 		cause := writeErr

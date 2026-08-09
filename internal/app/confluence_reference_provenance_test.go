@@ -12,7 +12,8 @@ import (
 
 // Reference provenance is fail-open if a caller extracts ID but forgets to
 // thread resolution.Context. Keep this oracle exact beside the write-clearance
-// inventory so every new caller requires an explicit review.
+// inventory so every direct or injected resolver caller requires an explicit
+// review.
 func TestEveryConfluenceReferenceResolutionThreadsProvenance(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -38,19 +39,19 @@ func TestEveryConfluenceReferenceResolutionThreadsProvenance(t *testing.T) {
 					return true
 				}
 				call, ok := assignment.Rhs[0].(*ast.CallExpr)
-				if !ok || !isResolvePageReferenceCall(call) {
+				if !ok || !isPageReferenceResolverCall(call) {
 					return true
 				}
 				resolved, ok := assignment.Lhs[0].(*ast.Ident)
 				if !ok {
-					t.Fatalf("%s:%s assigns ResolvePageReference to a non-identifier", entry.Name(), function.Name.Name)
+					t.Fatalf("%s:%s assigns page reference resolution to a non-identifier", entry.Name(), function.Name.Name)
 				}
 				if !threadsResolutionContextAfter(function.Body, assignment.End(), resolved.Name) {
-					t.Fatalf("%s:%s does not thread %s.Context(ctx) after ResolvePageReference", entry.Name(), function.Name.Name, resolved.Name)
+					t.Fatalf("%s:%s does not thread %s.Context(ctx) after page reference resolution", entry.Name(), function.Name.Name, resolved.Name)
 				}
 				key := entry.Name() + ":" + function.Name.Name
 				if callers[key] {
-					t.Fatalf("multiple ResolvePageReference calls in %s require a more precise oracle", key)
+					t.Fatalf("multiple page reference resolver calls in %s require a more precise oracle", key)
 				}
 				callers[key] = true
 				return true
@@ -62,9 +63,9 @@ func TestEveryConfluenceReferenceResolutionThreadsProvenance(t *testing.T) {
 	}
 }
 
-func isResolvePageReferenceCall(call *ast.CallExpr) bool {
+func isPageReferenceResolverCall(call *ast.CallExpr) bool {
 	selector, ok := call.Fun.(*ast.SelectorExpr)
-	return ok && selector.Sel.Name == "ResolvePageReference"
+	return ok && (selector.Sel.Name == "ResolvePageReference" || selector.Sel.Name == "resolveReference")
 }
 
 func threadsResolutionContextAfter(body *ast.BlockStmt, after token.Pos, resolved string) bool {

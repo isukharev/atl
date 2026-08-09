@@ -12,14 +12,14 @@ import (
 
 func TestGuardedWriteSingleAttemptPortInventory(t *testing.T) {
 	want := map[string]bool{
-		"confluence_labels.go:MutateLabelsGuarded:store:AddContentLabels":   true,
-		"confluence_labels.go:MutateLabelsGuarded:store:RemoveContentLabel": true,
-		"jira_watchers.go:MutateWatcherGuarded:store:AddIssueWatcher":       true,
-		"jira_watchers.go:MutateWatcherGuarded:store:RemoveIssueWatcher":    true,
-		"jira_worklogs.go:AddWorklogGuarded:store:AddIssueWorklog":          true,
-		"jira_field_set.go:SetFieldsGuarded:s.tr:SetFields":                 true,
-		"confluence_title.go:SetTitleGuarded:s.store:UpdatePage":            true,
-		"confluence_move.go:MoveGuarded:s.store:MovePage":                   true,
+		"confluence_labels.go:MutateLabelsGuarded:writer:AddContentLabels":   true,
+		"confluence_labels.go:MutateLabelsGuarded:writer:RemoveContentLabel": true,
+		"jira_watchers.go:MutateWatcherGuarded:writer:AddIssueWatcher":       true,
+		"jira_watchers.go:MutateWatcherGuarded:writer:RemoveIssueWatcher":    true,
+		"jira_worklogs.go:AddWorklogGuarded:writer:AddIssueWorklog":          true,
+		"jira_field_set.go:SetFieldsGuarded:s.tr:SetFields":                  true,
+		"confluence_title.go:SetTitleGuarded:s.store:UpdatePage":             true,
+		"confluence_move.go:MoveGuarded:s.store:MovePage":                    true,
 
 		// These bulk/mirror owners share port methods with the guarded paths,
 		// but their lifecycle semantics are deliberately outside this slice.

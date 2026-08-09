@@ -45,6 +45,24 @@ type JiraWatcherMutationResult struct {
 	Reconciled     bool                  `json:"reconciled,omitempty"`
 }
 
+type JiraWatcherDependencies struct {
+	Reader      domain.IssueWatcherReader
+	Writer      domain.IssueWatcherWriter
+	CurrentUser domain.JiraCurrentUserReader
+}
+
+// JiraWatcherService owns only watcher membership and optional current-user
+// resolution; unrelated tracker operations are deliberately unavailable.
+type JiraWatcherService struct {
+	reader      domain.IssueWatcherReader
+	writer      domain.IssueWatcherWriter
+	currentUser domain.JiraCurrentUserReader
+}
+
+func NewJiraWatcherService(deps JiraWatcherDependencies) *JiraWatcherService {
+	return &JiraWatcherService{reader: deps.Reader, writer: deps.Writer, currentUser: deps.CurrentUser}
+}
+
 type jiraWatcherWriteError struct {
 	message   string
 	cause     error
@@ -55,24 +73,31 @@ func (e *jiraWatcherWriteError) Error() string                  { return definit
 func (e *jiraWatcherWriteError) Unwrap() error                  { return e.cause }
 func (e *jiraWatcherWriteError) DiagnosticAmbiguousWrite() bool { return e != nil && e.ambiguous }
 
-func (s *JiraService) issueWatcherStore() (domain.IssueWatcherStore, error) {
-	store, ok := s.tr.(domain.IssueWatcherStore)
-	if !ok || store == nil {
+func (s *JiraWatcherService) issueWatcherReader() (domain.IssueWatcherReader, error) {
+	if s == nil || s.reader == nil {
 		return nil, fmt.Errorf("%w: configured tracker does not support issue watchers", domain.ErrCheckFailed)
 	}
-	return store, nil
+	return s.reader, nil
 }
 
-func (s *JiraService) ListWatchers(ctx context.Context, key string) (*JiraWatcherListResult, error) {
+func (s *JiraWatcherService) issueWatcherMutationPorts() (domain.IssueWatcherReader, domain.IssueWatcherWriter, error) {
+	reader, err := s.issueWatcherReader()
+	if err != nil || s.writer == nil {
+		return nil, nil, fmt.Errorf("%w: configured tracker does not support issue watchers", domain.ErrCheckFailed)
+	}
+	return reader, s.writer, nil
+}
+
+func (s *JiraWatcherService) ListWatchers(ctx context.Context, key string) (*JiraWatcherListResult, error) {
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return nil, fmt.Errorf("%w: issue key is required", domain.ErrUsage)
 	}
-	store, err := s.issueWatcherStore()
+	reader, err := s.issueWatcherReader()
 	if err != nil {
 		return nil, err
 	}
-	watchers, err := store.ListIssueWatchers(ctx, key)
+	watchers, err := reader.ListIssueWatchers(ctx, key)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +110,7 @@ func (s *JiraService) ListWatchers(ctx context.Context, key string) (*JiraWatche
 	}, nil
 }
 
-func (s *JiraService) MutateWatcherGuarded(ctx context.Context, key string, opts JiraWatcherMutationOpts) (*JiraWatcherMutationResult, error) {
+func (s *JiraWatcherService) MutateWatcherGuarded(ctx context.Context, key string, opts JiraWatcherMutationOpts) (*JiraWatcherMutationResult, error) {
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return nil, fmt.Errorf("%w: issue key is required", domain.ErrUsage)
@@ -104,13 +129,17 @@ func (s *JiraService) MutateWatcherGuarded(ctx context.Context, key string, opts
 	if identityChoices != 1 {
 		return nil, fmt.Errorf("%w: pass exactly one of --username or --me", domain.ErrUsage)
 	}
-	if opts.Apply && strings.TrimSpace(opts.ExpectedProposalHash) == "" {
-		return nil, fmt.Errorf("%w: --expected-proposal-hash is required with --apply; run the dry-run first", domain.ErrUsage)
+	policy, err := newGuardedWritePolicy(opts.Apply, opts.ExpectedProposalHash)
+	if err != nil {
+		return nil, err
 	}
 	username := opts.Username
 	identitySource := "username"
 	if opts.Me {
-		currentUser, err := s.tr.CurrentUser(ctx)
+		if s == nil || s.currentUser == nil {
+			return nil, fmt.Errorf("%w: configured tracker cannot resolve the current user", domain.ErrCheckFailed)
+		}
+		currentUser, err := s.currentUser.CurrentUser(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -120,15 +149,15 @@ func (s *JiraService) MutateWatcherGuarded(ctx context.Context, key string, opts
 		username = currentUser.Name
 		identitySource = "me"
 	}
-	username, err := normalizeJiraWatcherUsername(username)
+	username, err = normalizeJiraWatcherUsername(username)
 	if err != nil {
 		return nil, err
 	}
-	store, err := s.issueWatcherStore()
+	reader, writer, err := s.issueWatcherMutationPorts()
 	if err != nil {
 		return nil, err
 	}
-	currentState, err := store.ListIssueWatchers(ctx, key)
+	currentState, err := reader.ListIssueWatchers(ctx, key)
 	if err != nil {
 		return nil, err
 	}
@@ -137,38 +166,33 @@ func (s *JiraService) MutateWatcherGuarded(ctx context.Context, key string, opts
 	}
 	current := sortedIssueWatchers(currentState.Watchers)
 	proposalHash := jiraWatcherProposalHash(key, operation, username, current)
-	mode := "dry-run"
-	if opts.Apply {
-		mode = "apply"
-	}
+	decision := policy.decide(proposalHash, jiraWatcherGoalSatisfied(operation, username, current))
 	result := &JiraWatcherMutationResult{
-		Key: key, Operation: operation, Mode: mode, Status: "would_apply", Username: username,
-		IdentitySource: identitySource, Current: current, ProposalHash: proposalHash, Complete: true,
+		Key: key, Operation: operation, Mode: decision.mode, Status: decision.status, Username: username,
+		IdentitySource: identitySource, Current: current, ProposalHash: decision.proposalHash, Complete: true,
 	}
-	if opts.Apply && strings.TrimSpace(opts.ExpectedProposalHash) != proposalHash {
-		result.Status = "blocked"
-		return result, fmt.Errorf("%w: watcher proposal changed since review: expected hash %q, got %q", domain.ErrCheckFailed, strings.TrimSpace(opts.ExpectedProposalHash), proposalHash)
+	if decision.hashMismatch {
+		return result, fmt.Errorf("%w: watcher proposal changed since review: expected hash %q, got %q", domain.ErrCheckFailed, policy.expectedHash, proposalHash)
 	}
-	if jiraWatcherGoalSatisfied(operation, username, current) {
-		result.Status = "already_satisfied"
+	if decision.status == "already_satisfied" {
 		result.Final = current
 		return result, nil
 	}
-	if !opts.Apply {
+	if !decision.writeRequired {
 		return result, nil
 	}
 
 	var writeErr error
 	if operation == "add" {
-		writeErr = store.AddIssueWatcher(domain.WithSingleAttempt(ctx), key, username)
+		writeErr = writer.AddIssueWatcher(domain.WithSingleAttempt(ctx), key, username)
 	} else {
-		writeErr = store.RemoveIssueWatcher(domain.WithSingleAttempt(ctx), key, username)
+		writeErr = writer.RemoveIssueWatcher(domain.WithSingleAttempt(ctx), key, username)
 	}
 	if writeDefinitelyNotAttempted(writeErr) {
 		result.Status = "failed"
 		return result, &jiraWatcherWriteError{message: "Jira rejected the watcher update", cause: writeErr}
 	}
-	verifiedState, verifyErr := store.ListIssueWatchers(ctx, key)
+	verifiedState, verifyErr := reader.ListIssueWatchers(ctx, key)
 	if verifyErr != nil || verifiedState == nil || !verifiedState.Complete {
 		result.Status = "unknown"
 		cause := writeErr
