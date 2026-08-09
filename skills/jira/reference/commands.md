@@ -13,7 +13,11 @@ takes no Confluence-resolution or strictness input. Its reported
 `max_bytes` input separately bounds the encoded MCP result. Omitted or false
 `include_development` preserves the stable projection without treating absent
 Development as zero; true returns closed experimental SCM coordinates and omits
-Development-node URLs. ATL makes no GitLab request. A downstream read requires
+Development-node URLs. Omitted or explicit full projection keeps schema-v2
+bytes and requests unchanged. Compact schema v1 accepts the same
+`urls|scm|none` selection as CLI, after full collection; it defaults to URLs
+and adds SCM by default only with Development enabled. ATL makes no GitLab
+request. A downstream read requires
 exact owner-approved lowercase host equality and a separately authenticated
 read-only client, never Jira credentials. Use the CLI graph route for optional
 id/title-only Confluence resolution.
@@ -47,7 +51,7 @@ id/title-only Confluence resolution.
 | `jira issue worklog list <KEY>` | Read complete time entries | `-o text/id`; inspect `complete` |
 | `jira issue worklog add <KEY>` | Baseline-bound one-entry time preview/apply | `--time`, optional `--started`, `--from-file`; review `baseline_sha256`; `--apply`, `--expected-proposal-hash` |
 | `jira issue history <KEY>` | Qualified changelog with deterministic `summary`; inspect `complete`, separate missing/non-empty-id identity facts, summary consistency, and `last_changes` | repeat `--field`; `--since`, `--until`; `--summary-only` omits raw history and rejects explicit false |
-| `jira issue graph <KEY>` | Schema-v2 bounded graph with metadata-reconciled fields; depth zero is direct, while greater depths follow only exact structured Jira relations; optional phases resolve discovered Confluence id/title metadata or collect fail-closed Jira Development coordinates | `--depth` 0..3, `--resolve none|confluence`, `--include-development`, node/edge/evidence/request/byte limits, `--strict`, JSON or `-o text`; Development is experimental, never fetched from GitLab, and requires complete source qualification |
+| `jira issue graph <KEY>` | Full schema-v2 or compact schema-v1 bounded graph with metadata-reconciled fields; depth zero is direct, while greater depths follow only exact structured Jira relations; optional phases resolve discovered Confluence id/title metadata or collect fail-closed Jira Development coordinates | `--projection full|compact`; repeat/comma `--select urls|scm|none` for compact JSON; `scm` requires `--include-development`; `--depth` 0..3, `--resolve none|confluence`, node/edge/evidence/request/byte limits, `--strict`; Development is experimental and never fetched from GitLab |
 | `jira issue refs [KEY]` | Extract provenance-qualified artifact references with reconciled per-issue/top-level aggregates; field ids or exact names; JQL adds one complete comment listing per issue | `--jql`, `--fields`, aggregate `--limit` (0 all, negative invalid) |
 | `jira issue tree` | Build read-only epic-to-child grouping | `--jql`, `--epic-field`, `--fields`, aggregate `--limit` (0 all, negative invalid) |
 | `jira issue comment preview <KEY>` | GET-only baseline-bound append proposal | `--from-md`, `--from-file`; inspect body/baseline/proposal hashes |

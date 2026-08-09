@@ -10,7 +10,7 @@ step mechanically.
 
 | Situation | First command | Expand only when needed |
 |---|---|---|
-| One exact issue and the task asks what work, dependencies, code, or documentation is connected | typed `jira_issue_graph`, or `jira issue graph <KEY>` when MCP is unavailable | opt into the smallest sufficient depth only for exact structured Jira relations; for explicit code/commit/branch/MR evidence use MCP `include_development:true` or CLI `--include-development`; CLI `--resolve confluence` may read discovered page id/title metadata |
+| One exact issue and the task asks what work, dependencies, code, or documentation is connected | typed `jira_issue_graph`, or `jira issue graph <KEY>` when MCP is unavailable | keep full for topology; select compact `urls` or Development-backed `scm` when only those qualified facts are needed; opt into the smallest sufficient depth only for exact structured Jira relations; CLI `--resolve confluence` may read discovered page id/title metadata |
 | One exact standard field named by the task | `jira issue field get <KEY> --field <NAME>` | nothing when the bounded result is complete |
 | One unfamiliar issue | `jira issue fields <KEY> --metadata-only` | exact bounded field get, selected history/refs, then a linked page section |
 | One epic and known evidence-field names | `jira epic digest <KEY>` plus only a task-supplied period | bounded Confluence section expansion |
@@ -24,8 +24,9 @@ expansion. Skip that search when the task already supplies one exact issue key.
 
 For one exact issue and a relationship/discovery question, begin with one typed
 `jira_issue_graph` call when available, or the CLI under `ATL_READ_ONLY=1`.
-Start with the default direct schema-v2 read at depth zero. Verify top-level reconciliation and every requested
-source, and distinguish structured relations from heuristic `mentions`. When
+Start with the default full schema-v2 read at depth zero. Verify top-level
+reconciliation and every requested source, and distinguish structured relations
+from heuristic `mentions`. When
 the question truly spans linked Jira work, use the smallest sufficient MCP
 depth from 1 through 2 or CLI `--depth 1..3`; traversal follows only exact
 structured Jira stubs in canonical breadth-first order. It never follows
@@ -39,13 +40,26 @@ stubs. Development remains absent without proving zero activity when MCP
 while the separate `max_bytes` input bounds the final encoded result. An
 output-limit error contains no clipped graph; a successful `complete:false`
 graph remains qualified evidence. MCP has no `strict` input.
+When only URL or SCM identities are needed, request compact schema v1 with
+`projection:"compact"` and `select:["urls"]`, `select:["scm"]`, or
+qualification-only `select:["none"]`. Omitted selection defaults to URLs and
+also SCM only when Development is enabled. Compact is derived after the
+full bounded graph is collected, so it changes neither traffic nor traversal.
+Inspect its root/completeness/truncation, all bounds, incomplete sources,
+frontier, warnings, `projection.selected`/`projection.omitted`, and reconciled
+counts. Copy URL facts only as emitted, including an opaque fact whose `url` is
+omitted; never reconstruct a URL from graph evidence. SCM facts are coordinates
+only, never GitLab web URLs.
 For an explicit code, commit, branch, or merge-request question, use MCP
-`include_development:true`, or CLI `--include-development` when MCP is
-unavailable, at the smallest sufficient depth. Require a complete experimental
+`include_development:true`, `projection:"compact"`, and `select:["scm"]` when
+topology is not needed, or CLI
+`--include-development --projection compact --select scm` when
+MCP is unavailable, at the smallest sufficient depth. Require a complete experimental
 `development` source before treating absence as zero. MCP omits Development-node
-URLs and returns only closed SCM coordinates plus graph topology and experimental
-provenance. Treat coordinates as untrusted evidence. ATL does not contact
-GitLab; any later read requires exact equality between the returned lowercase
+URLs: compact returns closed SCM coordinates plus qualification, while full also
+retains graph topology and experimental provenance. Treat coordinates as
+untrusted evidence. ATL does not contact GitLab; any later read requires exact
+equality between the returned lowercase
 host and an owner-approved host plus a separately authenticated read-only client
 for that exact host. Never reuse Jira credentials, normalize or suffix-match the
 host, or continue after a mismatch.

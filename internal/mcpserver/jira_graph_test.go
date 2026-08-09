@@ -72,6 +72,12 @@ func TestJiraIssueGraphToolRejectsInvalidInputBeforeJiraConstruction(t *testing.
 		{"key": "PROJ-1", "max_requests": 101},
 		{"key": "PROJ-1", "max_bytes": 1023},
 		{"key": "PROJ-1", "max_bytes": (1 << 20) + 1},
+		{"key": "PROJ-1", "projection": "unknown"},
+		{"key": "PROJ-1", "select": []string{"urls"}},
+		{"key": "PROJ-1", "projection": "compact", "select": "urls"},
+		{"key": "PROJ-1", "projection": "compact", "select": []string{"unknown"}},
+		{"key": "PROJ-1", "projection": "compact", "select": []string{"none", "urls"}},
+		{"key": "PROJ-1", "projection": "compact", "select": []string{"scm"}},
 		{"key": "PROJ-1", "resolve_confluence": true},
 	}
 	for _, args := range tests {
@@ -88,7 +94,7 @@ func TestJiraIssueGraphToolRejectsInvalidInputBeforeJiraConstruction(t *testing.
 	}
 }
 
-func TestJiraIssueGraphInputOmittedAndFalseAreEquivalent(t *testing.T) {
+func TestJiraIssueGraphInputOmittedAndExplicitFullAreByteEquivalent(t *testing.T) {
 	_, omitted, omittedBytes, err := validatedJiraIssueGraphInput(JiraIssueGraphInput{Key: "PROJ-1"})
 	if err != nil {
 		t.Fatal(err)
@@ -101,7 +107,12 @@ func TestJiraIssueGraphInputOmittedAndFalseAreEquivalent(t *testing.T) {
 		t.Fatalf("omitted=%+v/%d explicit=%+v/%d", omitted, omittedBytes, explicit, explicitBytes)
 	}
 	var encoded [][]byte
-	for _, args := range []map[string]any{{"key": "PROJ-1"}, {"key": "PROJ-1", "include_development": false}} {
+	var content []string
+	for _, args := range []map[string]any{
+		{"key": "PROJ-1"},
+		{"key": "PROJ-1", "projection": "full"},
+		{"key": "PROJ-1", "include_development": false},
+	} {
 		reader := &recordingJiraReader{graphResult: validMCPGraphResult("PROJ-1", omitted, "discarded label")}
 		client, closeSessions := connectTestClient(t, New("test", Dependencies{
 			Jira: func() (JiraReader, error) { return reader, nil },
@@ -113,9 +124,37 @@ func TestJiraIssueGraphInputOmittedAndFalseAreEquivalent(t *testing.T) {
 			t.Fatal(marshalErr)
 		}
 		encoded = append(encoded, value)
+		content = append(content, result.Content[0].(*mcp.TextContent).Text)
 	}
-	if string(encoded[0]) != string(encoded[1]) {
-		t.Fatalf("omitted and explicit false outputs differ:\nomitted=%s\nfalse=%s", encoded[0], encoded[1])
+	for index := 1; index < len(encoded); index++ {
+		if string(encoded[0]) != string(encoded[index]) || content[0] != content[index] {
+			t.Fatalf("full-compatible output %d differs:\nomitted=%s\nexplicit=%s\nomitted text=%s\nexplicit text=%s",
+				index, encoded[0], encoded[index], content[0], content[index])
+		}
+	}
+}
+
+func TestJiraIssueGraphSCMSelectorRequiresDevelopmentBeforeJiraConstruction(t *testing.T) {
+	constructed := 0
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Jira: func() (JiraReader, error) {
+			constructed++
+			return nil, errors.New("unexpected construction")
+		},
+	}))
+	defer closeSessions()
+
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "jira_issue_graph",
+		Arguments: map[string]any{
+			"key": "PROJ-1", "projection": "compact", "select": []string{"scm"},
+		},
+	})
+	if err != nil || result == nil || !result.IsError || result.StructuredContent != nil {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if constructed != 0 {
+		t.Fatalf("SCM selector constructed Jira %d times", constructed)
 	}
 }
 
@@ -153,6 +192,146 @@ func TestJiraIssueGraphToolForwardsCustomBoundsAndReturnsIncompleteGraph(t *test
 	}
 	if out.Complete || len(out.Sources) != 8 || out.Sources[0].PartialReason != domain.ArtifactPartialRequestFailed {
 		t.Fatalf("incomplete output=%+v", out)
+	}
+}
+
+func TestJiraIssueGraphCompactProjectionPreservesQualification(t *testing.T) {
+	tests := []struct {
+		name  string
+		args  map[string]any
+		graph func(app.JiraIssueGraphOptions) *app.JiraIssueGraphResult
+		check func(*testing.T, *app.JiraIssueGraphCompactResult)
+	}{
+		{
+			name: "complete URL facts",
+			args: map[string]any{"key": "PROJ-1", "projection": "compact"},
+			graph: func(opts app.JiraIssueGraphOptions) *app.JiraIssueGraphResult {
+				return validMCPURLGraphResult("PROJ-1", opts)
+			},
+			check: func(t *testing.T, out *app.JiraIssueGraphCompactResult) {
+				t.Helper()
+				if !out.Complete || out.Truncated || len(out.Facts) != 1 || len(out.Sources) != 0 || len(out.Frontier) != 0 {
+					t.Fatalf("complete compact output=%+v", out)
+				}
+				fact := out.Facts[0]
+				if fact.Class != app.JiraIssueGraphSelectorURLs || fact.URL != "https://docs.example.test/runbook" || fact.SCM != nil {
+					t.Fatalf("URL fact=%+v", fact)
+				}
+			},
+		},
+		{
+			name: "qualification only empty facts",
+			args: map[string]any{"key": "PROJ-1", "projection": "compact", "select": []string{"none"}},
+			graph: func(opts app.JiraIssueGraphOptions) *app.JiraIssueGraphResult {
+				return validMCPGraphResult("PROJ-1", opts, "discarded label")
+			},
+			check: func(t *testing.T, out *app.JiraIssueGraphCompactResult) {
+				t.Helper()
+				if !out.Complete || len(out.Projection.Selected) != 0 ||
+					!reflect.DeepEqual(out.Projection.Omitted, []string{"urls", "scm"}) ||
+					len(out.Facts) != 0 || len(out.Sources) != 0 {
+					t.Fatalf("empty compact output=%+v", out)
+				}
+			},
+		},
+		{
+			name: "complete empty Development source",
+			args: map[string]any{
+				"key": "PROJ-1", "include_development": true,
+				"projection": "compact", "select": []string{"scm"},
+			},
+			graph: func(opts app.JiraIssueGraphOptions) *app.JiraIssueGraphResult {
+				opts.IncludeDevelopment = true
+				return validMCPGraphResult("PROJ-1", opts, "discarded label")
+			},
+			check: func(t *testing.T, out *app.JiraIssueGraphCompactResult) {
+				t.Helper()
+				if !out.Complete || !reflect.DeepEqual(out.Projection.Selected, []string{"scm"}) ||
+					len(out.Facts) != 0 || len(out.Sources) != 1 || out.Sources[0].Kind != "development" ||
+					out.Sources[0].Status != domain.ArtifactSourceEmpty || !out.Sources[0].Complete {
+					t.Fatalf("empty Development compact output=%+v", out)
+				}
+			},
+		},
+		{
+			name: "incomplete source",
+			args: map[string]any{"key": "PROJ-1", "projection": "compact"},
+			graph: func(opts app.JiraIssueGraphOptions) *app.JiraIssueGraphResult {
+				graph := validMCPGraphResult("PROJ-1", opts, "discarded label")
+				graph.Sources[0].Status = domain.ArtifactSourcePartial
+				graph.Sources[0].Complete = false
+				graph.Sources[0].PartialReason = domain.ArtifactPartialRequestFailed
+				graph.Complete = false
+				graph.Summary.IncompleteSourceCount = 1
+				graph.Summary.SourceStatusCounts["empty"]--
+				graph.Summary.SourceStatusCounts["partial"]++
+				graph.Warnings = []string{"one or more requested graph sources are incomplete"}
+				return graph
+			},
+			check: func(t *testing.T, out *app.JiraIssueGraphCompactResult) {
+				t.Helper()
+				if out.Complete || out.Truncated || len(out.Sources) != 1 || out.Sources[0].Complete ||
+					out.Sources[0].PartialReason != domain.ArtifactPartialRequestFailed ||
+					out.Summary.Projected.IncompleteSourceCount != 1 {
+					t.Fatalf("incomplete compact output=%+v", out)
+				}
+			},
+		},
+		{
+			name: "bounded frontier",
+			args: map[string]any{"key": "PROJ-1", "projection": "compact", "select": []string{"none"}},
+			graph: func(opts app.JiraIssueGraphOptions) *app.JiraIssueGraphResult {
+				graph := validMCPGraphResult("PROJ-1", opts, "discarded label")
+				graph.Truncated = true
+				graph.Bounds.FrontierCount = 1
+				graph.Frontier = []app.JiraIssueGraphFrontierItem{{
+					NodeID: "jira:issue:PROJ-2", Depth: 1, Reason: domain.ArtifactPartialOutputLimit,
+				}}
+				return graph
+			},
+			check: func(t *testing.T, out *app.JiraIssueGraphCompactResult) {
+				t.Helper()
+				if !out.Complete || !out.Truncated || len(out.Frontier) != 1 ||
+					out.Frontier[0].NodeID != "jira:issue:PROJ-2" ||
+					out.Frontier[0].Reason != domain.ArtifactPartialOutputLimit {
+					t.Fatalf("frontier compact output=%+v", out)
+				}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			opts := defaultMCPGraphOptions(0)
+			reader := &recordingJiraReader{graphResult: test.graph(opts)}
+			client, closeSessions := connectTestClient(t, New("test", Dependencies{
+				Jira: func() (JiraReader, error) { return reader, nil },
+			}))
+			defer closeSessions()
+			result := callToolOK(t, client, "jira_issue_graph", test.args)
+			encoded, err := json.Marshal(result.StructuredContent)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(encoded), "discarded label") || strings.Contains(string(encoded), `"label"`) {
+				t.Fatalf("compact output contains narrative label: %s", encoded)
+			}
+			var out app.JiraIssueGraphCompactResult
+			if err := json.Unmarshal(encoded, &out); err != nil {
+				t.Fatal(err)
+			}
+			if out.SchemaVersion != 1 || out.Projection.Name != "compact" || out.RootID != "jira:issue:PROJ-1" ||
+				!out.Summary.CollectedCountsMatchFull || !out.Summary.ProjectedFactCountMatchesFacts ||
+				!out.Summary.FactClassCountsMatchFacts || !out.Summary.ProjectedSourceCountMatchesSources ||
+				!out.Summary.SourceStatusCountsMatchSources || !out.Summary.IncompleteCountMatchesSources {
+				t.Fatalf("compact reconciliation=%+v", out)
+			}
+			test.check(t, &out)
+			wantOpts := defaultMCPGraphOptions(0)
+			wantOpts.IncludeDevelopment, _ = test.args["include_development"].(bool)
+			if !reflect.DeepEqual(reader.graphOpts, wantOpts) {
+				t.Fatalf("compact selectors changed collection opts=%+v want=%+v", reader.graphOpts, wantOpts)
+			}
+		})
 	}
 }
 
@@ -203,6 +382,39 @@ func TestJiraIssueGraphToolGatesDevelopmentAndOversizeOutput(t *testing.T) {
 		}
 	})
 
+	t.Run("compact Development coordinates omit web URLs", func(t *testing.T) {
+		opts := defaultMCPGraphOptions(0)
+		opts.IncludeDevelopment = true
+		reader := &recordingJiraReader{graphResult: validMCPDevelopmentGraphResult("PROJ-1", opts)}
+		client, closeSessions := connectTestClient(t, New("test", Dependencies{
+			Jira: func() (JiraReader, error) { return reader, nil },
+		}))
+		defer closeSessions()
+		result := callToolOK(t, client, "jira_issue_graph", map[string]any{
+			"key": "PROJ-1", "include_development": true, "projection": "compact",
+			"select": []string{"urls", "scm"},
+		})
+		encoded, err := json.Marshal(result.StructuredContent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(encoded), "https://git.example.test") {
+			t.Fatalf("compact Development web URL crossed projection: %s", encoded)
+		}
+		var out app.JiraIssueGraphCompactResult
+		if err := json.Unmarshal(encoded, &out); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(out.Projection.Selected, []string{"urls", "scm"}) || len(out.Facts) != 2 {
+			t.Fatalf("compact Development output=%+v", out)
+		}
+		for _, fact := range out.Facts {
+			if fact.Class != app.JiraIssueGraphSelectorSCM || fact.SCM == nil || fact.URL != "" {
+				t.Errorf("Development fact=%+v", fact)
+			}
+		}
+	})
+
 	t.Run("max bytes", func(t *testing.T) {
 		opts := defaultMCPGraphOptions(0)
 		reader := &recordingJiraReader{graphResult: validMCPGraphResult("PROJ-1", opts, "private")}
@@ -221,12 +433,64 @@ func TestJiraIssueGraphToolGatesDevelopmentAndOversizeOutput(t *testing.T) {
 			t.Fatalf("error=%q", text)
 		}
 	})
+
+	t.Run("compact max bytes", func(t *testing.T) {
+		opts := defaultMCPGraphOptions(0)
+		reader := &recordingJiraReader{graphResult: validMCPGraphResult("PROJ-1", opts, "private")}
+		client, closeSessions := connectTestClient(t, New("test", Dependencies{
+			Jira: func() (JiraReader, error) { return reader, nil },
+		}))
+		defer closeSessions()
+		result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+			Name: "jira_issue_graph", Arguments: map[string]any{
+				"key": "PROJ-1", "projection": "compact", "max_bytes": 1024,
+			},
+		})
+		if err != nil || !result.IsError || result.StructuredContent != nil {
+			t.Fatalf("result=%+v err=%v", result, err)
+		}
+		text := result.Content[0].(*mcp.TextContent).Text
+		if strings.Contains(text, "private") || !strings.Contains(text, "exceeds max_bytes") || !strings.Contains(text, "narrow_graph_or_raise_bound") {
+			t.Fatalf("error=%q", text)
+		}
+	})
+}
+
+func TestJiraIssueGraphCompactRunsExistingMCPValidatorBeforeProjection(t *testing.T) {
+	opts := defaultMCPGraphOptions(0)
+	graph := validMCPGraphResult("PROJ-1", opts, "discarded label")
+	const unsafeURL = "https://jira.example.test/browse/PROJ-1?token=private"
+	graph.Nodes[0].URL = unsafeURL
+	projection, err := app.NormalizeJiraIssueGraphProjection("compact", []string{"none"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.ProjectJiraIssueGraphCompact(graph, projection); err != nil {
+		t.Fatalf("fixture must pass the shared compact projector before MCP validation: %v", err)
+	}
+	reader := &recordingJiraReader{graphResult: graph}
+	client, closeSessions := connectTestClient(t, New("test", Dependencies{
+		Jira: func() (JiraReader, error) { return reader, nil },
+	}))
+	defer closeSessions()
+	result, err := client.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "jira_issue_graph", Arguments: map[string]any{
+			"key": "PROJ-1", "projection": "compact", "select": []string{"none"},
+		},
+	})
+	if err != nil || result == nil || !result.IsError || result.StructuredContent != nil {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	text := result.Content[0].(*mcp.TextContent).Text
+	if strings.Contains(text, unsafeURL) || !strings.Contains(text, "failed validation") {
+		t.Fatalf("error=%q", text)
+	}
 }
 
 func TestJiraIssueGraphToolSchemaHasNoExpansionOrNarrativeFields(t *testing.T) {
 	client, closeSessions := connectTestClient(t, New("test", Dependencies{}))
 	defer closeSessions()
-	for _, guidance := range []string{"jira_issue_graph", "depth 0..2", "performs no Confluence reads", "omits labels", "Development", "owner-approved host", "separately authenticated"} {
+	for _, guidance := range []string{"jira_issue_graph", "depth 0..2", "projection means full", "select accepts only urls, scm, or none", "scm requires include_development:true", "performs no Confluence reads", "omits labels", "Development", "never returns Development web URLs", "owner-approved host", "separately authenticated"} {
 		if !strings.Contains(client.InitializeResult().Instructions, guidance) {
 			t.Errorf("instructions omit %q", guidance)
 		}
@@ -239,10 +503,15 @@ func TestJiraIssueGraphToolSchemaHasNoExpansionOrNarrativeFields(t *testing.T) {
 		if tool.Name != "jira_issue_graph" {
 			continue
 		}
-		input, _ := json.Marshal(tool.InputSchema)
-		output, _ := json.Marshal(tool.OutputSchema)
-		if !strings.Contains(string(input), `"include_development"`) {
-			t.Errorf("input schema omits include_development: %s", input)
+		inputSchema, _ := tool.InputSchema.(map[string]any)
+		inputProperties, _ := inputSchema["properties"].(map[string]any)
+		input, _ := json.Marshal(inputSchema)
+		outputSchema, _ := tool.OutputSchema.(map[string]any)
+		output, _ := json.Marshal(outputSchema)
+		for _, expected := range []string{"include_development", "projection", "select"} {
+			if _, ok := inputProperties[expected]; !ok {
+				t.Errorf("input schema omits %s: %s", expected, input)
+			}
 		}
 		for _, forbidden := range []string{"resolve_confluence", "snippet", "raw"} {
 			if strings.Contains(string(input), forbidden) {
@@ -251,6 +520,35 @@ func TestJiraIssueGraphToolSchemaHasNoExpansionOrNarrativeFields(t *testing.T) {
 		}
 		if !strings.Contains(string(output), `"scm"`) || !strings.Contains(string(output), `"merge_request_state"`) {
 			t.Errorf("output schema omits closed SCM projection: %s", output)
+		}
+		branches, ok := outputSchema["oneOf"].([]any)
+		if outputSchema["type"] != "object" || !ok || len(branches) != 2 {
+			t.Fatalf("output schema is not a two-branch object union: %#v", outputSchema)
+		}
+		fullBranches, compactBranches := 0, 0
+		for index, rawBranch := range branches {
+			branch, _ := rawBranch.(map[string]any)
+			properties, _ := branch["properties"].(map[string]any)
+			if branch["type"] != "object" || branch["additionalProperties"] != false {
+				t.Errorf("output branch %d is not closed: %#v", index, branch)
+			}
+			if _, exists := properties["nodes"]; exists {
+				fullBranches++
+				if !schemaRequired(branch, "schema_version") || !schemaRequired(branch, "nodes") {
+					t.Errorf("full-v2 output branch is incomplete: %#v", branch)
+				}
+			}
+			if _, exists := properties["facts"]; exists {
+				compactBranches++
+				for _, required := range []string{"schema_version", "projection", "facts", "sources"} {
+					if !schemaRequired(branch, required) {
+						t.Errorf("compact-v1 output branch does not require %s: %#v", required, branch)
+					}
+				}
+			}
+		}
+		if fullBranches != 1 || compactBranches != 1 {
+			t.Errorf("output union full branches=%d compact branches=%d: %s", fullBranches, compactBranches, output)
 		}
 		for _, forbidden := range []string{`"label"`, "snippet", "narrative", `"message"`, `"email"`, `"avatar"`, `"file"`, `"diff"`, `"timestamp"`, `"raw"`} {
 			if strings.Contains(string(output), forbidden) {
@@ -444,6 +742,40 @@ func validMCPDevelopmentGraphResult(key string, opts app.JiraIssueGraphOptions) 
 	result.Summary.NodeCount = 3
 	result.Summary.EdgeCount = 2
 	result.Summary.EvidenceCount = 2
+	result.Summary.SourceStatusCounts["empty"]--
+	result.Summary.SourceStatusCounts["complete"]++
+	return result
+}
+
+func validMCPURLGraphResult(key string, opts app.JiraIssueGraphOptions) *app.JiraIssueGraphResult {
+	result := validMCPGraphResult(key, opts, "discarded URL source label")
+	const rawURL = "https://docs.example.test/runbook"
+	rootID := "jira:issue:" + key
+	urlID := "url:" + testJiraGraphHash(rawURL)
+	result.Nodes = append(result.Nodes, domain.ArtifactGraphNode{
+		ID: urlID, Kind: "url", Service: "external", URL: rawURL,
+		Label: "discarded URL label", State: domain.ArtifactNodeStub, Depth: 1,
+		Stability: domain.ArtifactStabilityHeuristic,
+	})
+	edge := domain.ArtifactGraphEdge{
+		From: rootID, To: urlID, Kind: "remote_link", Direction: "outbound",
+		Current: true, Confidence: "high", Stability: domain.ArtifactStabilityHeuristic,
+		Evidence: []domain.ArtifactGraphEvidence{{
+			Collector: "remote_links", SourceNodeID: rootID, SourceKind: "remote_link",
+			SourceID: "1", Extraction: "absolute_url",
+		}},
+	}
+	edge.ID = testJiraGraphEdgeID(edge)
+	result.Edges = []domain.ArtifactGraphEdge{edge}
+	for index := range result.Sources {
+		if result.Sources[index].Kind == "remote_links" {
+			result.Sources[index].Status = domain.ArtifactSourceComplete
+			result.Sources[index].Count = 1
+		}
+	}
+	result.Summary.NodeCount = 2
+	result.Summary.EdgeCount = 1
+	result.Summary.EvidenceCount = 1
 	result.Summary.SourceStatusCounts["empty"]--
 	result.Summary.SourceStatusCounts["complete"]++
 	return result

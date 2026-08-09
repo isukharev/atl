@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "projection": {
+    "name": "compact",
+    "selected": [
+      "urls",
+      "scm"
+    ],
+    "omitted": []
+  },
+  "root_id": "jira:issue:PROJ-1",
+  "complete": true,
+  "bounds": {
+    "requested_depth": 0,
+    "max_nodes": 100,
+    "max_edges": 500,
+    "max_evidence": 500,
+    "max_source_bytes": 1048576,
+    "expanded_node_count": 1,
+    "followed_node_count": 0,
+    "attempted_node_count": 1,
+    "max_requests": 100,
+    "requests_used": 8,
+    "max_response_bytes": 16777216,
+    "response_bytes_used": 1585,
+    "max_sources": 901,
+    "max_frontier": 100,
+    "include_development": true
+  },
+  "summary": {
+    "collected": {
+      "node_count": 8,
+      "edge_count": 7,
+      "evidence_count": 7,
+      "source_count": 9,
+      "incomplete_source_count": 0,
+      "source_status_counts": {
+        "complete": 3,
+        "empty": 6,
+        "forbidden": 0,
+        "partial": 0,
+        "skipped": 0,
+        "unsupported": 0
+      }
+    },
+    "projected": {
+      "fact_count": 4,
+      "source_count": 1,
+      "url_count": 0,
+      "scm_count": 4,
+      "incomplete_source_count": 0,
+      "source_status_counts": {
+        "complete": 1,
+        "empty": 0,
+        "forbidden": 0,
+        "partial": 0,
+        "skipped": 0,
+        "unsupported": 0
+      }
+    },
+    "collected_counts_match_full": true,
+    "projected_fact_count_matches_facts": true,
+    "fact_class_counts_match_facts": true,
+    "projected_source_count_matches_sources": true,
+    "source_status_counts_match_sources": true,
+    "incomplete_source_count_matches_sources": true
+  },
+  "facts": [
+    {
+      "class": "scm",
+      "node_id": "gitlab:branch:79e228365c819d4225cf50d5465e4d2b03b781f3c13c5f7edb4f6f5c3457e3bd:a5a09a06de20186e0f5af5d630f4f4e34234905a0784a6b6c1b0a8817f5ac975",
+      "kind": "gitlab_branch",
+      "scm": {
+        "host": "git.example.test",
+        "project_path": "platform/widget",
+        "branch_name": "feature/graph-proof"
+      },
+      "state": "stub",
+      "depth": 1,
+      "stability": "experimental_api",
+      "source_node_ids": [
+        "jira:issue:PROJ-1"
+      ]
+    },
+    {
+      "class": "scm",
+      "node_id": "gitlab:commit:79e228365c819d4225cf50d5465e4d2b03b781f3c13c5f7edb4f6f5c3457e3bd:0123456789abcdef0123456789abcdef01234567",
+      "kind": "gitlab_commit",
+      "scm": {
+        "host": "git.example.test",
+        "project_path": "platform/widget",
+        "commit_sha": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "state": "stub",
+      "depth": 1,
+      "stability": "experimental_api",
+      "source_node_ids": [
+        "jira:issue:PROJ-1"
+      ]
+    },
+    {
+      "class": "scm",
+      "node_id": "gitlab:merge_request:79e228365c819d4225cf50d5465e4d2b03b781f3c13c5f7edb4f6f5c3457e3bd:42",
+      "kind": "gitlab_merge_request",
+      "scm": {
+        "host": "git.example.test",
+        "project_path": "platform/widget",
+        "merge_request_iid": "42",
+        "merge_request_state": "open"
+      },
+      "state": "stub",
+      "depth": 1,
+      "stability": "experimental_api",
+      "source_node_ids": [
+        "jira:issue:PROJ-1"
+      ]
+    },
+    {
+      "class": "scm",
+      "node_id": "gitlab:project:79e228365c819d4225cf50d5465e4d2b03b781f3c13c5f7edb4f6f5c3457e3bd",
+      "kind": "gitlab_project",
+      "scm": {
+        "host": "git.example.test",
+        "project_path": "platform/widget"
+      },
+      "state": "stub",
+      "depth": 1,
+      "stability": "experimental_api",
+      "source_node_ids": [
+        "jira:issue:PROJ-1"
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "node_id": "jira:issue:PROJ-1",
+      "node_depth": 0,
+      "kind": "development",
+      "requested": true,
+      "status": "complete",
+      "complete": true,
+      "count": 3,
+      "stability": "experimental_api"
+    }
+  ]
+}

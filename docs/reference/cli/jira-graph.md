@@ -14,15 +14,19 @@ atl jira issue graph PROJ-1
 atl jira issue graph PROJ-1 --depth 2 --strict
 atl jira issue graph PROJ-1 --resolve confluence
 atl jira issue graph PROJ-1 --include-development
+atl jira issue graph PROJ-1 --projection compact
+atl jira issue graph PROJ-1 --include-development --projection compact --select urls,scm
 atl jira issue graph PROJ-1 -o text
 ```
 
-For a typed transient read, `jira_issue_graph` returns the same schema-v2 graph
-without a shell command. MCP v1 is deliberately Jira-only: it has no
+For a typed transient read, `jira_issue_graph` returns the same full or compact
+projection without a shell command; full schema v2 remains its default. MCP v1
+is deliberately Jira-only: it has no
 Confluence resolution input, always leaves discovered page identities as
 qualified stubs, and has no `strict` option. Supply `key`, optional `depth` from
 0 through 2, and optional `max_nodes`, `max_edges`, `max_requests`,
-`include_development`, and `max_bytes`. Nodes default to 50 and cap at 100;
+`include_development`, `projection`, `select`, and `max_bytes`. Nodes default to
+50 and cap at 100;
 edges default to 200 and cap at 500; physical requests default to 50 and cap at
 100. Evidence is fixed at 500 records and the aggregate buffered Jira response
 budget is fixed at 16777216 bytes; both appear in `bounds`, including
@@ -64,8 +68,37 @@ issue. Its `count` is commits + branches + merge requests; supporting project
 containers are excluded. With `--strict`, the graph is still emitted before
 exit 8. Omitting the flag preserves the prior request sequence and output bytes.
 
-The command always emits schema v2. With the default `--depth 0` and
-`--resolve none`, it expands only the seed. Jira issues, Confluence page
+`--projection` accepts `full` or `compact`. Omitting it or explicitly selecting
+`full` emits the existing schema-v2 bytes and makes the existing request
+sequence. `--select` is a repeatable, comma-separated closed selector with
+`urls`, `scm`, and qualification-only `none`; it is valid only with compact
+JSON. With no selector, compact selects `urls` and also selects `scm` only when
+`--include-development` is present. Explicit `scm` therefore requires
+`--include-development`; `none` cannot be combined with a fact selector.
+Repeated values are normalized and deduplicated into fixed `urls`, then `scm`
+order.
+Incompatible projection, selector, and output-format combinations fail before
+configuration, credentials, or network access.
+
+Compact schema v1 is derived only after the bounded full schema-v2 graph has
+been collected and validated. It preserves root identity, top-level
+completeness and truncation, every collection and transport bound, incomplete
+source qualification, the bounded frontier, warnings,
+`projection.selected`/`projection.omitted`, and reconciled counts. Selecting
+fewer facts or `none` changes no collector, request, traversal, or bound; lower
+graph bounds are not an output
+reduction mechanism. URL facts are copied only from canonical `url` nodes,
+including opaque nodes whose safe `url` is omitted, and are never rebuilt from
+evidence or labels. SCM facts contain only validated coordinates and
+never synthesize GitLab web URLs. A requested Development source retains its
+status and count even when it is complete-empty or incomplete and no SCM fact
+is emitted. `summary.collected` preserves the full graph counts;
+`summary.projected` and its reconciliation booleans qualify only the compact
+`facts` and retained `sources` inventories.
+
+The full projection emits schema v2; compact emits schema v1 and is JSON-only.
+With the default `--depth 0` and `--resolve none`, collection expands only the
+seed. Jira issues, Confluence page
 identities, attachments, and safe URL targets discovered from the seed remain
 depth-1 stubs; atl does not fetch a linked issue, resolve a page, download an
 attachment, or dereference an external URL. Omitting both flags, supplying
@@ -161,12 +194,12 @@ Edges distinguish structured relations (`jira_link`, hierarchy,
 `attached`, `remote_link`) from heuristic `mentions`. The same target may
 therefore have both a strong typed edge and a separate mention edge. Every edge
 has content-minimized evidence naming its collector and JSON pointer but never
-copies a source snippet. Text output preserves per-node source qualification,
+copies a source snippet. Full text output preserves per-node source qualification,
 transport accounting, and any bounded frontier, then renders escaped node/edge
 tables. For URL nodes, its node table includes the already-normalized public
 `url` value; non-URL, opaque, or sensitive identities keep that cell blank,
 and the renderer never reconstructs a URL from evidence or source content.
-JSON remains the canonical contract.
+JSON remains the canonical contract; compact has no text or id rendering.
 
 This command is additive. `jira issue refs` retains its existing URL-focused
 schema, flags, output bytes, and JQL behavior.

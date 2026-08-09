@@ -20,8 +20,10 @@ func jiraIssueGraphCmd() *cobra.Command {
 		maxBytes           int
 		strict             bool
 		includeDevelopment bool
+		projection         string
+		selectors          []string
 	)
-	graphOptions := func(cmd *cobra.Command) (app.JiraIssueGraphOptions, error) {
+	graphOptions := func(cmd *cobra.Command) (app.JiraIssueGraphOptions, app.JiraIssueGraphProjectionOptions, error) {
 		opts := app.JiraIssueGraphOptions{
 			Depth: depth, MaxNodes: maxNodes, MaxEdges: maxEdges,
 			MaxEvidence: maxEvidence, MaxRequests: maxRequests,
@@ -29,7 +31,7 @@ func jiraIssueGraphCmd() *cobra.Command {
 			IncludeDevelopment: includeDevelopment,
 		}
 		if resolve != "none" && resolve != "confluence" {
-			return opts, usageErr("--resolve must be none or confluence")
+			return opts, app.JiraIssueGraphProjectionOptions{}, usageErr("--resolve must be none or confluence")
 		}
 		for _, limit := range []struct {
 			flag  string
@@ -39,13 +41,22 @@ func jiraIssueGraphCmd() *cobra.Command {
 			{"max-requests", maxRequests}, {"max-bytes", maxBytes},
 		} {
 			if cmd.Flags().Changed(limit.flag) && limit.value <= 0 {
-				return opts, usageErr("--%s must be greater than zero", limit.flag)
+				return opts, app.JiraIssueGraphProjectionOptions{}, usageErr("--%s must be greater than zero", limit.flag)
 			}
 		}
 		if _, err := app.NormalizeJiraIssueGraphOptions(opts); err != nil {
-			return opts, err
+			return opts, app.JiraIssueGraphProjectionOptions{}, err
 		}
-		return opts, nil
+		projectionOpts, err := app.NormalizeJiraIssueGraphProjection(projection, selectors, includeDevelopment)
+		if err != nil {
+			return opts, projectionOpts, err
+		}
+		if projectionOpts.Projection == "compact" {
+			if output := cmd.Flag("output"); output != nil && output.Value.String() != "json" {
+				return opts, projectionOpts, usageErr("--projection compact requires --output json")
+			}
+		}
+		return opts, projectionOpts, nil
 	}
 	cmd := &cobra.Command{
 		Use:   "graph <KEY>",
@@ -56,11 +67,11 @@ func jiraIssueGraphCmd() *cobra.Command {
 			if err := cobra.ExactArgs(1)(cmd, args); err != nil {
 				return err
 			}
-			_, err := graphOptions(cmd)
+			_, _, err := graphOptions(cmd)
 			return err
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opts, err := graphOptions(cmd)
+			opts, projectionOpts, err := graphOptions(cmd)
 			if err != nil {
 				return err
 			}
@@ -72,7 +83,16 @@ func jiraIssueGraphCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := emit(cmd, result, func() string { return app.JiraIssueGraphMarkdown(result) }); err != nil {
+			output := any(result)
+			text := func() string { return app.JiraIssueGraphMarkdown(result) }
+			if projectionOpts.Projection == "compact" {
+				output, err = app.ProjectJiraIssueGraphCompact(result, projectionOpts)
+				if err != nil {
+					return err
+				}
+				text = nil
+			}
+			if err := emit(cmd, output, text); err != nil {
 				return err
 			}
 			if strict && !result.Complete {
@@ -90,6 +110,10 @@ func jiraIssueGraphCmd() *cobra.Command {
 	cmd.Flags().IntVar(&maxBytes, "max-bytes", 0, fmt.Sprintf("buffered response byte limit (default %d, max %d)", app.JiraIssueGraphDefaultResponseBytes, app.JiraIssueGraphMaxResponseBytes))
 	cmd.Flags().BoolVar(&strict, "strict", false, "emit the graph, then fail when any requested source is incomplete")
 	cmd.Flags().BoolVar(&includeDevelopment, "include-development", false, "include experimental Jira Development project/commit/branch/MR identities")
+	cmd.Flags().StringVar(&projection, "projection", "full", "JSON projection: full|compact")
+	cmd.Flags().StringSliceVar(&selectors, "select", nil, "compact facts: urls,scm,none (repeat or comma-separated)")
 	_ = cmd.RegisterFlagCompletionFunc("resolve", fixedComp("none", "confluence"))
+	_ = cmd.RegisterFlagCompletionFunc("projection", fixedComp("full", "compact"))
+	_ = cmd.RegisterFlagCompletionFunc("select", fixedComp("urls", "scm", "none"))
 	return cmd
 }
