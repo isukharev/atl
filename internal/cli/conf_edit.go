@@ -1,19 +1,13 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/isukharev/atl/internal/app"
-	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
-	"github.com/isukharev/atl/internal/safepath"
-	"github.com/isukharev/atl/internal/textedit"
 )
 
 // confEditCmd implements `conf edit`: precise, whitespace/invisible-tolerant
@@ -43,101 +37,26 @@ func confEditCmd() *cobra.Command {
 			if !cmd.Flags().Changed("new") && newFile == "" {
 				return usageErr("--new (or --new-file) is required (pass --new '' to delete the matched text)")
 			}
-			path, root, err := canonicalConfEditTarget(args[0])
+			result, err := app.EditConfluenceFile(app.ConfluenceEditOptions{
+				File:   args[0],
+				Old:    old,
+				New:    repl,
+				All:    all,
+				DryRun: dryRun,
+			})
+			if result != nil && result.CSFOK != nil && !*result.CSFOK {
+				fmt.Fprintln(cmd.ErrOrStderr(),
+					"warning: result is not well-formed CSF — fix before pushing (see problems)")
+			}
 			if err != nil {
 				return err
 			}
-			if root != "" {
-				release, lockErr := app.AcquireConfluenceMutation(root)
-				if lockErr != nil {
-					return lockErr
-				}
-				defer func() { _ = release() }()
-			}
-			var raw []byte
-			if root != "" {
-				raw, err = safepath.ReadFileWithin(root, path)
-			} else {
-				raw, err = os.ReadFile(path)
-			}
-			if err != nil {
-				kind := domain.ErrUsage
-				if root != "" {
-					kind = domain.ErrCheckFailed
-				}
-				return fmt.Errorf("%w: read edit target: %v", kind, err)
-			}
-
-			res, rerr := textedit.Replace(string(raw), old, repl, all)
-			if rerr != nil {
-				var amb *textedit.AmbiguousError
-				var nom *textedit.NoMatchError
-				switch {
-				case errors.As(rerr, &amb):
-					return fmt.Errorf("%w: %v", domain.ErrUsage, rerr)
-				case errors.As(rerr, &nom):
-					return fmt.Errorf("%w: %v", domain.ErrNotFound, rerr)
-				default:
-					return fmt.Errorf("%w: %v", domain.ErrUsage, rerr)
-				}
-			}
-
-			out := map[string]any{
-				"file":    args[0],
-				"pass":    string(res.Pass),
-				"count":   len(res.Matches),
-				"offsets": res.Matches,
-				"dry_run": dryRun,
-			}
-			// Show the spliced region so the caller can review exactly what
-			// changed (first match; ±40 bytes of context).
-			m := res.Matches[0]
-			out["region_before"] = quoteRegion(string(raw), m.Start, m.End)
-			out["region_after"] = quoteRegion(res.Text, m.Start, m.Start+len(repl))
-
-			if strings.HasSuffix(path, ".csf") {
-				problems := csf.Validate([]byte(res.Text))
-				out["csf_ok"] = !csf.HasErrors(problems)
-				if len(problems) > 0 {
-					out["problems"] = problems
-				}
-				if csf.HasErrors(problems) {
-					fmt.Fprintf(cmd.ErrOrStderr(),
-						"warning: result is not well-formed CSF — fix before pushing (see problems)\n")
-				}
-			}
-
-			if !dryRun {
-				mode := os.FileMode(0o644)
-				var info os.FileInfo
-				var serr error
-				if root != "" {
-					info, serr = safepath.StatWithin(root, path)
-				} else {
-					info, serr = os.Stat(path)
-				}
-				if serr != nil && root != "" {
-					return fmt.Errorf("%w: inspect edit target: %v", domain.ErrCheckFailed, serr)
-				}
-				if serr == nil {
-					mode = info.Mode()
-				}
-				var werr error
-				if root != "" {
-					werr = safepath.WriteFileWithin(root, path, []byte(res.Text), mode)
-				} else {
-					werr = safepath.WriteFileAtomic(path, []byte(res.Text), mode)
-				}
-				if werr != nil {
-					return werr
-				}
-			}
-			return emit(cmd, out, func() string {
+			return emit(cmd, result, func() string {
 				verb := "replaced"
 				if dryRun {
 					verb = "would replace"
 				}
-				return fmt.Sprintf("%s\t%s %d occurrence(s) via %s pass", args[0], verb, len(res.Matches), res.Pass)
+				return fmt.Sprintf("%s\t%s %d occurrence(s) via %s pass", result.File, verb, result.Count, result.Pass)
 			})
 		},
 	}
@@ -148,39 +67,6 @@ func confEditCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&all, "all", false, "replace every match instead of requiring a unique one")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "report the match without writing the file")
 	return cmd
-}
-
-// canonicalConfEditTarget makes symlink aliases participate in the lock of
-// their real mirror. A path lexically inside one mirror may not resolve outside
-// it (or into another mirror), because that would make the visible lock scope a
-// lie. The returned path is used for every target read and write.
-func canonicalConfEditTarget(target string) (path, root string, err error) {
-	abs, err := filepath.Abs(target)
-	if err != nil {
-		return "", "", err
-	}
-	real, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", "", fmt.Errorf("%w: edit target %q does not exist", domain.ErrNotFound, target)
-		}
-		return "", "", fmt.Errorf("%w: resolve edit target: %v", domain.ErrUsage, err)
-	}
-	lexicalRoot, lexicalMirror := app.MirrorRootOf(abs)
-	realRoot, realMirror := app.MirrorRootOf(real)
-	if lexicalMirror {
-		canonicalRoot, rootErr := filepath.EvalSymlinks(lexicalRoot)
-		if rootErr != nil {
-			return "", "", fmt.Errorf("%w: resolve mirror root: %v", domain.ErrCheckFailed, rootErr)
-		}
-		if !realMirror || canonicalRoot != realRoot {
-			return "", "", fmt.Errorf("%w: edit target resolves outside its visible mirror", domain.ErrCheckFailed)
-		}
-	}
-	if realMirror {
-		root = realRoot
-	}
-	return real, root, nil
 }
 
 // textFromFlagPair resolves an inline flag vs its --*-file variant.
