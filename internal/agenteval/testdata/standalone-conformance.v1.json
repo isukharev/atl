@@ -3,7 +3,7 @@
   "contract_version": "0.1.0-pre-release",
   "golden_bundle": {
     "path": "testdata/standalone-readability-golden.v1.json",
-    "sha256": "783d808aa97035d53337e4cf66c6038cb1c2d2959aa8e088eb8c0f11b1d06f2a"
+    "sha256": "c719d056fa9db000e4a61e84011755d58500f9b1fa3c3d56b07f34c2159e6802"
   },
   "readability": [
     {"namespace":"atl-profile","kind":"activation-reference","versions":[1,2]},

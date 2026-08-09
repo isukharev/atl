@@ -40,10 +40,10 @@
       "kind": "capability-catalog",
       "version": 1,
       "source_path": "testdata/capability-catalog.v1.json",
-      "source_sha256": "93cc25dd6c4d55e95ba25bc6abdb7fcc25b0bb7ccd828e28fe7748b34dbfe6cb",
+      "source_sha256": "296d53310a613873318315680f3d873899cc934b80f5142a5f8c038949b55f71",
       "expected_projection": {
         "schema_version": 1,
-        "capability_count": 57,
+        "capability_count": 58,
         "first_capability": "confluence.comment.list",
         "last_capability": "knowledge.confluence.sections"
       }
