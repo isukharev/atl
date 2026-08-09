@@ -44,14 +44,16 @@ loading broad command references:
 
 ```bash
 atl capabilities --task jira/evidence
+atl capabilities --task jira/setup
+atl capabilities --task jira/graph-evidence
 atl capabilities --task confluence/comments
 ```
 
-The closed task classes are `jira/evidence`, `jira/portfolio`,
-`jira/board-portfolio`, `jira/batch-analysis`, `jira/structure-planning`,
-`jira/edit`, `jira/mirror`, `confluence/evidence`,
-`confluence/table-analytics`, `confluence/comments`, `confluence/edit`, `confluence/mirror`, and
-`knowledge/search`. The result is a small ordered set
+The closed task classes are `confluence/comments`, `confluence/edit`,
+`confluence/evidence`, `confluence/mirror`, `confluence/table-analytics`,
+`jira/batch-analysis`, `jira/board-portfolio`, `jira/edit`, `jira/evidence`,
+`jira/graph-evidence`, `jira/mirror`, `jira/portfolio`, `jira/setup`,
+`jira/structure-planning`, and `knowledge/search`. The result is a small ordered set
 of stable capability ids with the real command path, backend access class,
 supported output modes, evidence/completeness semantics, and one focused skill
 reference. Load only the named focused skill/reference, then stop expanding the
