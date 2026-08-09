@@ -26,7 +26,10 @@ func appendCompletePullJournalForTest(m *Mirror, checkpoint CompletePullCheckpoi
 	if err != nil {
 		return err
 	}
-	if err := m.PrepareCompletePullPublication(checkpoint, index, entry, true, []CompletePullArtifact{{Path: mustArtifactPath(entry.State.Path), Data: body, Mode: 0o644}}, nil); err != nil {
+	if err := m.PrepareCompletePullPublication(checkpoint, index, entry, true, []CompletePullArtifact{
+		{Path: mustArtifactPath(entry.State.Path), Data: body, Mode: 0o644},
+		{Path: mustArtifactPath(confluenceCompletePullBasePath(entry)), Data: body, Mode: 0o600},
+	}, nil); err != nil {
 		return err
 	}
 	return m.RecoverCompletePullPublication(checkpoint.SelectorSHA256, checkpoint, true)

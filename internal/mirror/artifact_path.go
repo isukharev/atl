@@ -108,12 +108,24 @@ func parseDurableArtifactPath(value string) (ArtifactPath, error) {
 // parseDurablePublicStatePath accepts the one historical Windows spelling
 // written by Jira pull before public paths were canonicalized at construction.
 // Mixed separators and every normalized traversal/reserved alias still fail.
-func parseDurablePublicStatePath(value string) (ArtifactPath, error) {
+func parseDurablePublicStatePath(state SyncState) (ArtifactPath, error) {
+	value := state.Path
 	qualified, err := NewPublicArtifactPath(value)
 	if err == nil || !strings.Contains(value, `\`) || strings.Contains(value, "/") {
 		return qualified, err
 	}
-	return NewPublicArtifactPath(strings.ReplaceAll(value, `\`, "/"))
+	qualified, err = NewPublicArtifactPath(strings.ReplaceAll(value, `\`, "/"))
+	if err != nil {
+		return ArtifactPath{}, err
+	}
+	switch {
+	case state.Version == 0 && path.Ext(qualified.String()) == ".wiki" && path.Base(qualified.String()) == state.ID+".wiki":
+		return qualified, nil
+	case state.Version > 0 && positiveDecimalIdentity(state.ID) && path.Ext(qualified.String()) == ".csf":
+		return qualified, nil
+	default:
+		return ArtifactPath{}, fmt.Errorf("%w: legacy Windows state path does not match its resource identity", domain.ErrCheckFailed)
+	}
 }
 
 func (p ArtifactPath) relative(expected artifactPathClass) (string, error) {

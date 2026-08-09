@@ -296,6 +296,74 @@ func TestCompletePullPublicationRejectsMissingStageAndUnexpectedUserEdit(t *test
 		}
 	})
 
+	t.Run("missing private base in durable intent", func(t *testing.T) {
+		m, checkpoint, entry, artifacts := completePullPublicationFixture(t)
+		if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, artifacts, nil); err != nil {
+			t.Fatal(err)
+		}
+		dir, _ := m.completePullPublicationDir(checkpoint.SelectorSHA256)
+		intentPath := filepath.Join(dir, "intent.json")
+		b, err := os.ReadFile(intentPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var intent completePullPublicationIntent
+		if err := decodeCompletePullJSON(intentPath, b, &intent); err != nil {
+			t.Fatal(err)
+		}
+		intent.Artifacts[5].Path = "DOC/page/unbound.bin"
+		b, err = json.MarshalIndent(intent, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(intentPath, append(b, '\n'), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := m.RecoverCompletePullPublication(checkpoint.SelectorSHA256, checkpoint, true); !errors.Is(err, domain.ErrCheckFailed) {
+			t.Fatalf("error=%v", err)
+		}
+		if _, err := os.Stat(filepath.Join(m.Root, "DOC", "page", "unbound.bin")); !os.IsNotExist(err) {
+			t.Fatalf("unbound base payload was published: %v", err)
+		}
+	})
+
+	t.Run("self-consistent wrong private-base bytes in durable intent", func(t *testing.T) {
+		m, checkpoint, entry, artifacts := completePullPublicationFixture(t)
+		if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, artifacts, nil); err != nil {
+			t.Fatal(err)
+		}
+		dir, _ := m.completePullPublicationDir(checkpoint.SelectorSHA256)
+		intentPath := filepath.Join(dir, "intent.json")
+		b, err := os.ReadFile(intentPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var intent completePullPublicationIntent
+		if err := decodeCompletePullJSON(intentPath, b, &intent); err != nil {
+			t.Fatal(err)
+		}
+		wrong := []byte("self-consistent wrong base")
+		base := &intent.Artifacts[5]
+		base.SHA256 = Hash(wrong)
+		base.Size = int64(len(wrong))
+		if err := os.WriteFile(filepath.Join(dir, base.Payload), wrong, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		b, err = json.MarshalIndent(intent, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(intentPath, append(b, '\n'), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := m.RecoverCompletePullPublication(checkpoint.SelectorSHA256, checkpoint, true); !errors.Is(err, domain.ErrCheckFailed) {
+			t.Fatalf("error=%v", err)
+		}
+		if _, err := os.Stat(filepath.Join(m.Root, ".atl", "base", entry.State.ID+".csf")); !os.IsNotExist(err) {
+			t.Fatalf("wrong base payload was published: %v", err)
+		}
+	})
+
 	t.Run("third hash", func(t *testing.T) {
 		m, checkpoint, entry, artifacts := completePullPublicationFixture(t)
 		target := filepath.Join(m.Root, filepath.FromSlash(artifacts[0].Path.String()))
@@ -358,22 +426,37 @@ func TestCompletePullPublicationRejectsUnqualifiedPathBeforeStaging(t *testing.T
 }
 
 func TestConfluenceCompletePullRejectsWrongPrivateBaseBeforeStaging(t *testing.T) {
-	for _, mutate := range []func(*CompletePullArtifact){
-		func(artifact *CompletePullArtifact) { artifact.Path = mustArtifactPath(".atl/base/20.csf") },
-		func(artifact *CompletePullArtifact) { artifact.Mode = 0o644 },
+	for name, mutate := range map[string]func([]CompletePullArtifact) []CompletePullArtifact{
+		"wrong path": func(artifacts []CompletePullArtifact) []CompletePullArtifact {
+			artifacts[5].Path = mustArtifactPath(".atl/base/20.csf")
+			return artifacts
+		},
+		"wrong mode": func(artifacts []CompletePullArtifact) []CompletePullArtifact {
+			artifacts[5].Mode = 0o644
+			return artifacts
+		},
+		"wrong bytes": func(artifacts []CompletePullArtifact) []CompletePullArtifact {
+			artifacts[5].Data = []byte("different base")
+			return artifacts
+		},
+		"missing base": func(artifacts []CompletePullArtifact) []CompletePullArtifact {
+			return append(artifacts[:5], artifacts[6:]...)
+		},
 	} {
-		m, checkpoint, entry, artifacts := completePullPublicationFixture(t)
-		mutate(&artifacts[5])
-		if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, artifacts, nil); !errors.Is(err, domain.ErrCheckFailed) {
-			t.Fatalf("private-base mismatch error=%v", err)
-		}
-		dir, err := m.completePullPublicationDir(checkpoint.SelectorSHA256)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := os.Stat(dir); !os.IsNotExist(err) {
-			t.Fatalf("private-base mismatch created publication stage: %v", err)
-		}
+		t.Run(name, func(t *testing.T) {
+			m, checkpoint, entry, artifacts := completePullPublicationFixture(t)
+			artifacts = mutate(artifacts)
+			if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, artifacts, nil); !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("private-base mismatch error=%v", err)
+			}
+			dir, err := m.completePullPublicationDir(checkpoint.SelectorSHA256)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(dir); !os.IsNotExist(err) {
+				t.Fatalf("private-base mismatch created publication stage: %v", err)
+			}
+		})
 	}
 }
 

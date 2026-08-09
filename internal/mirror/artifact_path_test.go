@@ -72,13 +72,25 @@ func TestPublicArtifactPathWithinRejectsEscapeAndReservedAlias(t *testing.T) {
 
 func TestDurablePublicStatePathNormalizesOnlyLegacyWindowsSeparators(t *testing.T) {
 	t.Parallel()
-	qualified, err := parseDurablePublicStatePath(`PROJ\PROJ-1.wiki`)
+	qualified, err := parseDurablePublicStatePath(SyncState{ID: "PROJ-1", Path: `PROJ\PROJ-1.wiki`})
 	if err != nil || qualified.String() != "PROJ/PROJ-1.wiki" {
 		t.Fatalf("legacy path=%q err=%v", qualified.String(), err)
 	}
-	for _, value := range []string{`.ATL\base\10.csf`, `..\escape`, `mixed/path\file`} {
-		if _, err := parseDurablePublicStatePath(value); !errors.Is(err, domain.ErrCheckFailed) {
-			t.Fatalf("legacy path %q error=%v", value, err)
+	qualified, err = parseDurablePublicStatePath(SyncState{ID: "10", Version: 1, Path: `DOC\page\page.csf`})
+	if err != nil || qualified.String() != "DOC/page/page.csf" {
+		t.Fatalf("legacy Confluence path=%q err=%v", qualified.String(), err)
+	}
+	for _, state := range []SyncState{
+		{ID: "10", Version: 1, Path: `.ATL\base\10.csf`},
+		{ID: "PROJ-1", Path: `..\escape`},
+		{ID: "PROJ-1", Path: `mixed/path\file`},
+		{ID: "PROJ-1", Path: `PROJ\OTHER.wiki`},
+		{ID: "PROJ-1", Path: `PROJ\PROJ-1.csf`},
+		{ID: "10", Version: 1, Path: `DOC\page\page.txt`},
+		{ID: "page", Version: 1, Path: `DOC\page\page.csf`},
+	} {
+		if _, err := parseDurablePublicStatePath(state); !errors.Is(err, domain.ErrCheckFailed) {
+			t.Fatalf("legacy state %+v error=%v", state, err)
 		}
 	}
 }

@@ -159,6 +159,31 @@ func TestSidecarLoadsLegacyWindowsJiraPathCanonically(t *testing.T) {
 	}
 }
 
+func TestSidecarRejectsMalformedLegacyWindowsStatePaths(t *testing.T) {
+	for name, state := range map[string]SyncState{
+		"wrong Jira identity":        {ID: "PROJ-1", Path: `PROJ\OTHER.wiki`},
+		"wrong Jira extension":       {ID: "PROJ-1", Path: `PROJ\PROJ-1.csf`},
+		"wrong Confluence extension": {ID: "10", Version: 1, Path: `DOC\page\page.txt`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := New(t.TempDir())
+			if err := os.MkdirAll(filepath.Dir(m.sidecarPath()), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			b, err := json.Marshal(sidecarFile{Pages: map[string]SyncState{state.ID: state}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(m.sidecarPath(), b, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := m.SyncStates(); !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("malformed legacy state error=%v", err)
+			}
+		})
+	}
+}
+
 func TestSidecarAndBaseReadsRefuseDescendantSymlinks(t *testing.T) {
 	t.Run("sidecar directory", func(t *testing.T) {
 		root := t.TempDir()

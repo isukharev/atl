@@ -461,7 +461,11 @@ func (m *Mirror) prepareCompletePullPublicationWith(checkpoint CompletePullCheck
 	for _, artifact := range artifacts {
 		roles = append(roles, artifact.Role)
 	}
-	if checkpoint.Service == CompletePullServiceJira {
+	if checkpoint.Service == CompletePullServiceConfluence {
+		if err := validateConfluenceCompletePullPayloads(entry, artifacts); err != nil {
+			return fmt.Errorf("%w: %v", domain.ErrCheckFailed, err)
+		}
+	} else if checkpoint.Service == CompletePullServiceJira {
 		if err := validateJiraArtifactRoleCounts(roles); err != nil {
 			return fmt.Errorf("%w: %v", domain.ErrCheckFailed, err)
 		}

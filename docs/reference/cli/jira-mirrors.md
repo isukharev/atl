@@ -106,7 +106,8 @@ plus a pristine base copy (`.atl/base/<KEY>.wiki`), which `jira status` and
 older `atl` have no sidecar entry: those issues read as never-synced (and are
 not pushable) until re-pulled. Existing Jira sidecars written on Windows retain
 compatibility: backslash-separated public paths are normalized and revalidated
-when loaded, while all newly written paths use canonical `/` separators.
+against the recorded issue key, zero Jira version, and `.wiki` extension when
+loaded, while all newly written paths use canonical `/` separators.
 
 `<KEY>.json` shape:
 

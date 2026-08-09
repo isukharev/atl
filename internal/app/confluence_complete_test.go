@@ -38,6 +38,15 @@ func mustPublicArtifactPath(t *testing.T, value string) mirror.ArtifactPath {
 	return qualified
 }
 
+func mustPrivateBaseArtifactPath(t *testing.T, value string) mirror.ArtifactPath {
+	t.Helper()
+	qualified, err := mirror.NewPrivateBaseArtifactPath(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return qualified
+}
+
 func (s *qualifiedCompletePullStore) ListConfluenceComments(_ context.Context, _ string, _ domain.ConfluenceCommentReadOptions) (domain.ConfluenceCommentInventory, error) {
 	if s.inventory != nil {
 		return *s.inventory, nil
@@ -112,7 +121,10 @@ func seedCompletePullJournal(t *testing.T, root string, opts PullOpts, ids []str
 	}
 	state := mirror.SyncState{ID: page.ID, Version: page.Version, Hash: mirror.Hash(page.Body), Path: filepath.ToSlash(path)}
 	entry := mirror.CompletePullJournalEntry{State: state, View: viewStateOf(rs)}
-	if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, []mirror.CompletePullArtifact{{Path: mustPublicArtifactPath(t, state.Path), Data: page.Body, Mode: 0o644}}, nil); err != nil {
+	if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, []mirror.CompletePullArtifact{
+		{Path: mustPublicArtifactPath(t, state.Path), Data: page.Body, Mode: 0o644},
+		{Path: mustPrivateBaseArtifactPath(t, filepath.ToSlash(filepath.Join(".atl", "base", page.ID+".csf"))), Data: page.Body, Mode: 0o600},
+	}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.RecoverCompletePullPublication(checkpoint.SelectorSHA256, checkpoint, true); err != nil {

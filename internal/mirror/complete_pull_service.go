@@ -107,7 +107,7 @@ func validateCompletePullArtifactRole(service CompletePullService, entry Complet
 			return fmt.Errorf("legacy Confluence publication cannot persist an artifact role")
 		}
 		if qualified.class == artifactPathClassPrivateBase {
-			base := filepath.ToSlash(filepath.Join(".atl", "base", entry.State.ID+".csf"))
+			base := confluenceCompletePullBasePath(entry)
 			if qualified.String() != base || mode != 0o600 || remove || bestEffort {
 				return fmt.Errorf("Confluence pristine-base artifact does not match the accepted page identity")
 			}
@@ -241,7 +241,11 @@ func validateCompletePullPublication(intent completePullPublicationIntent, check
 		}
 		roles = append(roles, artifact.Role)
 	}
-	if intent.Service == CompletePullServiceJira {
+	if intent.Service == CompletePullServiceConfluence {
+		if err := validateConfluenceCompletePullIntent(intent.Entry, intent.Artifacts); err != nil {
+			return fmt.Errorf("%w: %v", domain.ErrCheckFailed, err)
+		}
+	} else if intent.Service == CompletePullServiceJira {
 		if err := validateJiraArtifactRoleCounts(roles); err != nil {
 			return fmt.Errorf("%w: %v", domain.ErrCheckFailed, err)
 		}

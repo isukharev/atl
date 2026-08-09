@@ -20,11 +20,13 @@ Local mirror publication qualifies every artifact as either public or a
 pristine private base before it can cross from orchestration into durable
 filesystem code. Recovery repeats that qualification for persisted paths and
 still performs root-scoped, no-symlink I/O checks; a journal is not trusted
-merely because ATL wrote it previously. Confluence admits only the exact
-mode-0600 `.atl/base/<page-id>.csf` private artifact for the accepted page.
+merely because ATL wrote it previously. Confluence requires exactly one native
+artifact and one mode-0600 `.atl/base/<page-id>.csf` private artifact, with both
+payload hashes bound to the accepted page state.
 Legacy Jira sidecar paths written with Windows separators are normalized only
-while loading and must still pass the canonical public-path boundary; new state
-always uses slash-separated paths.
+while loading, must match the state's ID/version/native extension, and must
+still pass the canonical public-path boundary; new state always uses
+slash-separated paths.
 Service-qualified complete-pull recovery never relaxes the established
 Confluence page/version/`.csf` rules to admit Jira. Jira uses its own durable
 variant, which binds immutable issue identity, mutable key and `.wiki` path,
