@@ -18,13 +18,16 @@ import (
 )
 
 const (
-	extensionWindowsRootAttempts     = 128
-	extensionWindowsRandomNameBytes  = 16
-	extensionWindowsFileAllAccess    = windows.STANDARD_RIGHTS_REQUIRED | windows.SYNCHRONIZE | 0x1ff
-	extensionWindowsAddSubdirectory  = 0x00000004
-	extensionWindowsDirectoryAccess  = windows.FILE_LIST_DIRECTORY | windows.FILE_TRAVERSE | windows.FILE_READ_ATTRIBUTES | windows.READ_CONTROL | windows.SYNCHRONIZE
-	extensionWindowsRootAccess       = extensionWindowsDirectoryAccess | windows.DELETE
-	extensionWindowsExecutableAccess = windows.FILE_GENERIC_READ | windows.FILE_GENERIC_EXECUTE | windows.READ_CONTROL
+	extensionWindowsRootAttempts                                   = 128
+	extensionWindowsRandomNameBytes                                = 16
+	extensionWindowsFileAllAccess                                  = windows.STANDARD_RIGHTS_REQUIRED | windows.SYNCHRONIZE | 0x1ff
+	extensionWindowsAddSubdirectory                                = 0x00000004
+	extensionWindowsDirectoryAccess                                = windows.FILE_LIST_DIRECTORY | windows.FILE_TRAVERSE | windows.FILE_READ_ATTRIBUTES | windows.READ_CONTROL | windows.SYNCHRONIZE
+	extensionWindowsRootAccess                                     = extensionWindowsDirectoryAccess | windows.DELETE
+	extensionWindowsExecutableAccess                               = windows.FILE_GENERIC_READ | windows.FILE_GENERIC_EXECUTE | windows.READ_CONTROL
+	extensionWindowsPrepareDirectory                               = extensionWindowsDirectoryAccess | windows.WRITE_DAC | windows.WRITE_OWNER
+	extensionWindowsPrepareExecutable                              = extensionWindowsExecutableAccess | windows.WRITE_DAC | windows.WRITE_OWNER
+	extensionWindowsPrivateSecurity   windows.SECURITY_INFORMATION = windows.OWNER_SECURITY_INFORMATION | windows.DACL_SECURITY_INFORMATION | windows.PROTECTED_DACL_SECURITY_INFORMATION
 )
 
 // extensionRuntimeRootGuard keeps both the selected temporary parent and the
@@ -142,7 +145,7 @@ func preparePrivateExtensionRuntimeDirectory(path string) error {
 	}
 	handle, err := openExtensionWindowsPath(
 		path,
-		extensionWindowsDirectoryAccess|windows.WRITE_DAC,
+		extensionWindowsPrepareDirectory,
 		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
 		true,
 	)
@@ -171,7 +174,7 @@ func preparePrivateExtensionRuntimeExecutable(path, expectedSHA256 string) (*ext
 	}
 	prepareHandle, err := openExtensionWindowsPath(
 		path,
-		extensionWindowsExecutableAccess|windows.WRITE_DAC,
+		extensionWindowsPrepareExecutable,
 		windows.FILE_SHARE_READ,
 		false,
 	)
@@ -325,7 +328,7 @@ func extensionPlatformEnvironment() (map[string]string, error) {
 }
 
 func applyExtensionWindowsPrivateACL(handle windows.Handle, directory bool) error {
-	sd, _, err := extensionWindowsPrivateSecurityDescriptor(directory)
+	sd, owner, err := extensionWindowsPrivateSecurityDescriptor(directory)
 	if err != nil {
 		return err
 	}
@@ -336,8 +339,8 @@ func applyExtensionWindowsPrivateACL(handle windows.Handle, directory bool) erro
 	if err := windows.SetSecurityInfo(
 		handle,
 		windows.SE_FILE_OBJECT,
-		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
-		nil,
+		extensionWindowsPrivateSecurity,
+		owner,
 		nil,
 		dacl,
 		nil,
@@ -345,6 +348,7 @@ func applyExtensionWindowsPrivateACL(handle windows.Handle, directory bool) erro
 		return err
 	}
 	runtime.KeepAlive(sd)
+	runtime.KeepAlive(owner)
 	return verifyExtensionWindowsHandle(handle, directory)
 }
 

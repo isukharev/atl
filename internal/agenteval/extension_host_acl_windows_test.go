@@ -35,8 +35,30 @@ func TestPrivateExtensionWindowsRuntimeACLsAreProtected(t *testing.T) {
 	if err := os.Mkdir(directory, 0o777); err != nil {
 		t.Fatalf("make working directory: %v", err)
 	}
+	user, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		t.Fatalf("current user: %v", err)
+	}
+	beforeOwner, err := extensionWindowsOwnerForTest(directory, true)
+	if err != nil {
+		t.Fatalf("working directory owner before preparation: %v", err)
+	}
+	beforeDiffers := !beforeOwner.Equals(user.User.Sid)
+	if beforeDiffers {
+		t.Log("working directory received a token-default owner distinct from the current user")
+	}
 	if err := preparePrivateExtensionRuntimeDirectory(directory); err != nil {
 		t.Fatalf("prepare working directory: %v", err)
+	}
+	afterOwner, err := extensionWindowsOwnerForTest(directory, true)
+	if err != nil {
+		t.Fatalf("working directory owner after preparation: %v", err)
+	}
+	if !afterOwner.Equals(user.User.Sid) {
+		t.Fatal("working directory preparation did not assign the current user as owner")
+	}
+	if beforeDiffers && afterOwner.Equals(beforeOwner) {
+		t.Fatal("working directory retained its distinct token-default owner")
 	}
 	if err := verifyPrivateWindowsPathForTest(directory, true); err != nil {
 		t.Fatalf("verify working directory: %v", err)
@@ -277,4 +299,32 @@ func verifyPrivateWindowsPathForTest(path string, directory bool) error {
 	verifyErr := verifyExtensionWindowsHandle(handle, directory)
 	closeErr := windows.CloseHandle(handle)
 	return errors.Join(verifyErr, closeErr)
+}
+
+func extensionWindowsOwnerForTest(path string, directory bool) (*windows.SID, error) {
+	access := uint32(extensionWindowsExecutableAccess)
+	share := uint32(windows.FILE_SHARE_READ)
+	if directory {
+		access = extensionWindowsDirectoryAccess
+		share = windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE | windows.FILE_SHARE_DELETE
+	}
+	handle, err := openExtensionWindowsPath(path, access, share, directory)
+	if err != nil {
+		return nil, err
+	}
+	sd, readErr := windows.GetSecurityInfo(handle, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
+	var ownerCopy *windows.SID
+	if readErr == nil && sd == nil {
+		readErr = errExtensionInvalidExecutable
+	}
+	if readErr == nil {
+		owner, _, ownerErr := sd.Owner()
+		if ownerErr != nil || owner == nil {
+			readErr = errors.Join(ownerErr, errExtensionInvalidExecutable)
+		} else {
+			ownerCopy, readErr = owner.Copy()
+		}
+	}
+	closeErr := windows.CloseHandle(handle)
+	return ownerCopy, errors.Join(readErr, closeErr)
 }
