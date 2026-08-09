@@ -14,6 +14,7 @@ import (
 
 func TestStableReadProductionInventory(t *testing.T) {
 	repository := filepath.Join("..", "..")
+	const capabilityReferenceChecker = "scripts/check-skill-routing/capability_references.go"
 	want := map[string]int{
 		"internal/agenteval/aggregate_root.go":              3,
 		"internal/agenteval/external_mcp_profile.go":        1,
@@ -35,6 +36,7 @@ func TestStableReadProductionInventory(t *testing.T) {
 		"internal/contentpolicy/source_windows.go":          1,
 		"internal/skillmeta/catalog.go":                     3,
 		"internal/skillrouting/contract.go":                 1,
+		capabilityReferenceChecker:                          1,
 		"scripts/gen-plugins/main.go":                       17,
 	}
 

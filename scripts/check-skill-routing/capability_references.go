@@ -12,6 +12,14 @@ import (
 )
 
 func validateCapabilityReferences(sourcePath string, definitions []capability.Definition) error {
+	return validateCapabilityReferencesWithRootOpener(sourcePath, definitions, os.OpenRoot)
+}
+
+func validateCapabilityReferencesWithRootOpener(
+	sourcePath string,
+	definitions []capability.Definition,
+	openRoot func(string) (*os.Root, error),
+) error {
 	rootInfo, err := os.Lstat(sourcePath)
 	if err != nil {
 		return fmt.Errorf("inspect capability skill source root: %w", err)
@@ -19,13 +27,13 @@ func validateCapabilityReferences(sourcePath string, definitions []capability.De
 	if !rootInfo.IsDir() || rootInfo.Mode()&fs.ModeSymlink != 0 {
 		return fmt.Errorf("capability skill source root must be a plain directory")
 	}
-	root, err := os.OpenRoot(sourcePath)
+	root, err := openRoot(sourcePath)
 	if err != nil {
 		return fmt.Errorf("open capability skill source root: %w", err)
 	}
 	defer func() { _ = root.Close() }()
 	openedInfo, err := root.Stat(".")
-	if err != nil || !openedInfo.IsDir() {
+	if err != nil || !openedInfo.IsDir() || !os.SameFile(rootInfo, openedInfo) {
 		return fmt.Errorf("capability skill source root changed while it was opened")
 	}
 

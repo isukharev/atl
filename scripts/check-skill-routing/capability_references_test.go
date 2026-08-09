@@ -20,6 +20,21 @@ func TestCapabilityReferencesResolveContainedRegularSourceFiles(t *testing.T) {
 	}
 }
 
+func TestCapabilityReferencesRejectReplacedSourceRoot(t *testing.T) {
+	original := capabilityReferenceFixture(t)
+	replacement := capabilityReferenceFixture(t)
+	definitions := []capability.Definition{
+		{ID: "jira.command", Skill: "jira", Reference: "reference/commands.md"},
+	}
+
+	err := validateCapabilityReferencesWithRootOpener(original, definitions, func(string) (*os.Root, error) {
+		return os.OpenRoot(replacement)
+	})
+	if err == nil || !strings.Contains(err.Error(), "changed while it was opened") {
+		t.Fatalf("error=%v want root identity change", err)
+	}
+}
+
 func TestCapabilityReferencesRejectPathAndFileDrift(t *testing.T) {
 	for _, test := range []struct {
 		name       string
