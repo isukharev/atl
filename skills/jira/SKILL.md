@@ -159,10 +159,10 @@ with the new pair — never against the old selector and old pair.
 
 ## Choose exactly one route
 
-For an unfamiliar goal, run `atl capabilities --task jira/evidence`,
-`jira/portfolio`, `jira/board-portfolio`, `jira/batch-analysis`,
-`jira/structure-planning`, `jira/mirror`, `jira/edit`, or the cross-service
-`knowledge/search` route, then load
+For an unfamiliar goal, run `atl capabilities --task jira/setup`,
+`jira/evidence`, `jira/graph-evidence`, `jira/portfolio`,
+`jira/board-portfolio`, `jira/batch-analysis`, `jira/structure-planning`,
+`jira/mirror`, `jira/edit`, or the cross-service `knowledge/search` route, then load
 exactly the returned reference. A
 capability route does not grant write authority.
 

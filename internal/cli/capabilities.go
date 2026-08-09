@@ -56,6 +56,7 @@ type capabilityRouting struct {
 
 func newCapabilitiesCmd() *cobra.Command {
 	var task, service, access, id string
+	taskClasses := capabilitydef.TaskClasses()
 	c := &cobra.Command{
 		Use:   "capabilities",
 		Short: "Query the versioned offline agent capability catalog",
@@ -78,11 +79,11 @@ func newCapabilitiesCmd() *cobra.Command {
 			})
 		},
 	}
-	c.Flags().StringVar(&task, "task", "", "exact task class (jira/evidence, jira/portfolio, jira/board-portfolio, jira/batch-analysis, jira/structure-planning, jira/edit, confluence/evidence, confluence/comments, confluence/table-analytics, confluence/edit, knowledge/search)")
+	c.Flags().StringVar(&task, "task", "", fmt.Sprintf("exact task class (%s)", strings.Join(taskClasses, ", ")))
 	c.Flags().StringVar(&service, "service", "", "exact service: jira|confluence")
 	c.Flags().StringVar(&access, "access", "", "exact access class: read-only|mutating")
 	c.Flags().StringVar(&id, "id", "", "exact capability id")
-	_ = c.RegisterFlagCompletionFunc("task", fixedComp("jira/evidence", "jira/portfolio", "jira/board-portfolio", "jira/batch-analysis", "jira/structure-planning", "jira/edit", "confluence/evidence", "confluence/comments", "confluence/table-analytics", "confluence/edit", "knowledge/search"))
+	_ = c.RegisterFlagCompletionFunc("task", fixedComp(taskClasses...))
 	_ = c.RegisterFlagCompletionFunc("service", fixedComp("jira", "confluence"))
 	_ = c.RegisterFlagCompletionFunc("access", fixedComp("read-only", "mutating"))
 	return c

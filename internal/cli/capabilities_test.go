@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -174,6 +175,27 @@ func TestCapabilityTaskRoutesStaySmallAndOrdered(t *testing.T) {
 				t.Fatalf("route expanded beyond bounded catalog contract: %v", ids)
 			}
 		})
+	}
+}
+
+func TestCapabilitiesTaskHelpAndCompletionUseExactCatalogProjection(t *testing.T) {
+	cmd := newCapabilitiesCmd()
+	want := capabilitydef.TaskClasses()
+	taskFlag := cmd.Flags().Lookup("task")
+	if taskFlag == nil {
+		t.Fatal("capabilities --task flag is missing")
+	}
+	wantUsage := fmt.Sprintf("exact task class (%s)", strings.Join(want, ", "))
+	if taskFlag.Usage != wantUsage {
+		t.Fatalf("task usage=%q want=%q", taskFlag.Usage, wantUsage)
+	}
+	completion, ok := cmd.GetFlagCompletionFunc("task")
+	if !ok || completion == nil {
+		t.Fatal("capabilities --task completion is missing")
+	}
+	got, _ := completion(cmd, nil, "")
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("task completion=%v want=%v", got, want)
 	}
 }
 

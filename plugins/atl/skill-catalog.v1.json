@@ -49,7 +49,7 @@
   "files": [
     {
       "path": "atl/SKILL.md",
-      "sha256": "9043064581b5210c06ca6b56f70f543c8a49ed328dc7ad907dba9a6fee7ce487"
+      "sha256": "fefc72e67673fb9c1e8242a83644da4ef527d241420e4895b943431adfd0d7c0"
     },
     {
       "path": "atl/agents/openai.yaml",
@@ -129,7 +129,7 @@
     },
     {
       "path": "jira/SKILL.md",
-      "sha256": "bb3916c48fbfa9af90ee4e22d051b8626bde0cca70f733656104d37058b3d1c5"
+      "sha256": "feb77418de0ee2acd7ab31e183ffe3bffad0068644873dbfdeb565b86db4fac5"
     },
     {
       "path": "jira/agents/openai.yaml",

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/isukharev/atl/internal/capability"
 	"github.com/isukharev/atl/internal/skillmeta"
 	"github.com/isukharev/atl/internal/skillrouting"
 )
@@ -48,6 +49,9 @@ func validateRepository(root string) (skillrouting.Summary, error) {
 	corpus, err := skillrouting.LoadCorpusFile(filepath.Join(root, "benchmarks", "agent-eval", "skill-routing.v1.json"))
 	if err != nil {
 		return skillrouting.Summary{}, err
+	}
+	if err := validateCapabilityReferences(sourceRoot, capability.Definitions()); err != nil {
+		return skillrouting.Summary{}, fmt.Errorf("validate capability skill references: %w", err)
 	}
 	return validateContracts(catalog, registry, corpus)
 }
