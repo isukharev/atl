@@ -227,6 +227,9 @@ func TestCommandBrokerRequiresOwnerOnlyAbsoluteWorkingDirectory(t *testing.T) {
 	if err := os.Mkdir(shared, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(shared, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	config.WorkingDirectory = shared
 	if _, err := StartCommandBroker(config); err == nil {
 		t.Fatal("non-owner-only working directory passed")
