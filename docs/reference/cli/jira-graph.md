@@ -4,6 +4,15 @@ Bounded typed graph traversal, reference extraction, and hierarchy projection.
 
 [Reference index](README.md) · [Documentation home](../../README.md)
 
+<!-- reference-navigation:start -->
+## Navigate this reference
+
+- [`atl jira issue graph`](#atl-jira-issue-graph)
+- [`atl jira issue reference search`](#atl-jira-issue-reference-search)
+- [`atl jira issue refs`](#atl-jira-issue-refs)
+- [`atl jira issue tree`](#atl-jira-issue-tree)
+<!-- reference-navigation:end -->
+
 ## `atl jira issue graph`
 
 Build one deterministic bounded work-artifact graph from an exact Jira issue:
@@ -203,6 +212,141 @@ JSON remains the canonical contract; compact has no text or id rendering.
 
 This command is additive. `jira issue refs` retains its existing URL-focused
 schema, flags, output bytes, and JQL behavior.
+
+## `atl jira issue reference search`
+
+Start from one exact GitLab project or Confluence page and search a
+caller-qualified Jira scope for issues that refer to it. This is a read-only,
+CLI-only capability: there is no typed MCP counterpart.
+
+```bash
+export ATL_READ_ONLY=1
+atl jira issue reference search \
+  --target 'https://gitlab.example.test/platform/widget' \
+  --target-kind gitlab-project \
+  --scope-jql 'project = DEMO' \
+  --mode exhaustive \
+  --sources description,comments,remote-links,development \
+  --max-issues 100 \
+  --max-requests 1000 \
+  --max-response-bytes 16777216 \
+  --strict
+
+atl jira issue reference search \
+  --target 12345678 \
+  --target-kind confluence-page \
+  --scope-jql 'project = DEMO' \
+  --mode exhaustive \
+  --sources description,fields,comments,remote-links \
+  --fields customfield_10001 \
+  --max-issues 100 \
+  --max-requests 500 \
+  --max-response-bytes 16777216
+```
+
+The command has no defaults that can turn a missing policy decision into a
+broad scan. It accepts no positional arguments and requires all of these
+inputs:
+
+| Flag | Contract |
+|---|---|
+| `--target` | exact target identity; at most 2048 bytes |
+| `--target-kind` | `gitlab-project` or `confluence-page` |
+| `--scope-jql` | caller-qualified predicate without `ORDER BY`; at most 16384 bytes |
+| `--mode` | `exhaustive` or `fast` |
+| `--sources` | repeatable/comma-separated `description`, `fields`, `comments`, `remote-links`, `worklogs`, `development`, or `properties` |
+| `--fields` | repeatable/comma-separated exact technical Jira field ids; required exactly when `fields` is selected, maximum 128 |
+| `--max-issues` | positive selected-issue bound, maximum 5000 |
+| `--max-requests` | positive shared physical-request bound, maximum 25000 |
+| `--max-response-bytes` | positive aggregate buffered-response bound, maximum 268435456 |
+| `--strict` | emit the qualified result, then exit 8 when it is incomplete |
+
+The scope is permission-relative and must contain the project, time, or other
+boundary appropriate to the caller. `atl` appends its own `ORDER BY key ASC`;
+supplying an ordering is rejected before configuration or network access.
+Sources and fields are normalized into deterministic order, and duplicate or
+unknown selectors fail at the same pre-configuration boundary.
+
+A GitLab target must be an exact HTTPS project URL, not a commit, branch, or
+merge-request URL. Host case, the default HTTPS port, and a trailing `.git` are
+canonicalized; the project path remains case-sensitive. A Confluence target
+may be an opaque content id or one of the same supported same-origin references
+as `conf page resolve`. A configured secure Confluence origin is required even
+for an id because it qualifies later URL comparisons. Id-bearing URLs and ids
+resolve offline. A caller-supplied display or short URL may use the configured
+Confluence identity resolver under the same single-attempt request/byte budget.
+
+`exhaustive` selects the full caller scope twice with the same ascending key
+order. Both passes must reach terminal pagination and return the same issue
+identity set before selection is complete. This detects candidate-set drift;
+it is not atomic snapshot isolation. `atl` then verifies every requested source
+for every selected issue. `fast` instead makes one target-derived narrowed Jira
+selection and is always returned as `selection.complete:false` with
+`reason:"mode_fast"`, even when every selected issue verifies successfully.
+It is useful for qualified discovery but can never prove absence.
+
+Each selected source is explicit and locally matched:
+
+| Source | Bounded evidence read |
+|---|---|
+| `description` | the exact Jira `description` field |
+| `fields` | only the exact technical ids supplied with `--fields` |
+| `comments` | the complete paginated comment-body inventory |
+| `remote-links` | Jira's supported remote-link inventory and coherent structured Confluence metadata |
+| `worklogs` | the complete worklog-comment inventory |
+| `development` | fail-closed Jira Development project, commit, branch, and merge-request coordinates; meaningful only for GitLab targets |
+| `properties` | the opt-in returned issue-property values; property keys never enter output |
+
+Description, selected fields, and properties inspect every bounded JSON string
+leaf. This differs deliberately from the broad graph walk: its privacy-excluded
+key list does not hide a value the caller selected exactly. Values remain
+local and are never copied into the result. Individual field/property values
+are capped at 65536 bytes, field/property walkers at 1048576 bytes, properties
+at 128 entries, and comment/worklog/remote-link inventories at 10000 entries.
+A malformed or clipped inventory remains visibly incomplete.
+
+Literal matching accepts only validated absolute links. GitLab project and
+modern `/-/` artifact URLs map to the canonical project. Confluence literals
+must be same-origin, direct id-bearing URLs for the resolved page. `atl` never
+resolves a display or short URL discovered in Jira content; select structured
+remote links where available or use a direct page-id URL. Duplicate
+observations collapse by issue, source, relation, and technical field id.
+
+The default schema-v1 JSON is content-free. It exposes a one-way opaque target
+id, normalized source/field selectors, independently qualified target,
+selection, and verification phases, candidate/scan/verification/match counts,
+per-source status and static reason counts, matches, a bounded frontier,
+reconciliation, physical request/byte usage, top-level `complete`, and
+`absence_proven`. A match contains only the Jira key, relation, fixed
+`issue_to_target` direction, source, optional technical field id, stability,
+confidence, and its source-derived completeness. It never contains the target
+coordinate, scope JQL, Jira numeric id, URL, title, source text, property key,
+application/user identity, or backend error.
+
+Source outcomes are `complete`, `empty`, `partial`, `forbidden`, `unsupported`,
+or `skipped`; only the first two are decisive. Source reason counts use the
+closed `request_failed`, `request_limit`, `byte_limit`, `malformed_response`,
+`field_missing`, `not_permitted`, `not_supported`, and `mode_fast` vocabulary.
+Phase reasons are the closed `mode_fast`, `request_limit`, `byte_limit`,
+`issue_limit`, `request_failed`, `malformed_response`, `selection_drift`, and
+`source_incomplete` vocabulary.
+Top-level `complete:true` requires exhaustive mode, complete selection and
+verification, and every count/source/match/usage reconciliation. Only
+`complete:true` with zero matches sets `absence_proven:true`.
+
+Without `--strict`, a usable incomplete result exits zero for inspection. With
+`--strict`, atl emits the same JSON or text and then exits **8**
+(`ErrCheckFailed`); retain that stdout and do not retry it as a missing result.
+`-o text` is an escaped match-only table with `KEY`, `RELATION`, `SOURCE`,
+`CONFIDENCE`, and `COMPLETE`; it omits the qualification needed for absence
+claims, so agents should use JSON. `-o id` is unsupported.
+
+`atl` never contacts GitLab, clones a repository, follows an artifact URL,
+forwards Jira credentials, or dereferences any URL found in Jira. Optional
+Confluence traffic is limited to resolving the caller-supplied display/short
+target identity; the command does not read page bodies or Confluence backlinks.
+Every Jira and optional Confluence read shares the emitted single-attempt
+request and buffered-response budget.
 
 ## `atl jira issue refs`
 

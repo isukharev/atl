@@ -40,6 +40,49 @@ bounded graph has been collected. It never reduces requests. Inspect compact
 warning, bound, and reconciliation fields before treating an empty fact list
 as absence.
 
+## Start from one external target
+
+Use the inverse-reference command when the starting point is one exact GitLab
+project or Confluence page and the result should be the Jira issues that refer
+to it. This route is CLI-only; there is no typed MCP counterpart.
+
+```sh
+export ATL_READ_ONLY=1
+atl jira issue reference search \
+  --target 'https://gitlab.example.test/platform/widget' \
+  --target-kind gitlab-project \
+  --scope-jql 'project = DEMO' \
+  --mode exhaustive \
+  --sources description,comments,remote-links,development \
+  --max-issues 100 \
+  --max-requests 1000 \
+  --max-response-bytes 16777216 \
+  --strict
+```
+
+Every policy choice is explicit: target, caller-qualified JQL scope, mode,
+source set, and issue/request/response-byte bounds. Select `fields` only with
+exact technical ids in `--fields`. Other source choices are `description`,
+`comments`, `remote-links`, `worklogs`, `development`, and `properties`.
+
+Use `exhaustive` when absence matters. It performs two terminal key-ordered
+selection passes, rejects selection drift, and verifies every selected source
+for every selected issue. This detects candidate-set drift but is not atomic
+snapshot isolation. Only a reconciled `complete:true` exhaustive result with
+zero matches sets `absence_proven:true`. `fast` uses one target-derived Jira
+selection and is always incomplete with `reason:"mode_fast"`; use it only for
+qualified discovery. `--strict` still emits the result before exit 8, so retain
+and inspect that JSON.
+
+The result contains issue keys and content-free qualification, never the raw
+target, JQL, URLs, titles, source text, property keys, or backend errors. ATL
+matches selected Jira values locally. It never contacts GitLab or dereferences
+a discovered URL. A caller-supplied Confluence display or short target may be
+resolved against the configured Confluence origin under the shared bounds;
+direct ids and id-bearing URLs avoid that request. Discovered Confluence values
+match only direct same-origin id-bearing links, and no page body or backlink
+query is made.
+
 ## Expand only structured Jira relations
 
 Use the smallest depth that answers the question:
@@ -130,4 +173,6 @@ make check-onboarding-docs
 See [the short graph demonstration](demos/jira-artifact-graph.md) for the exact
 user-facing sequence. Exhaustive flags and wire fields remain in the
 [command reference](reference/cli/jira-graph.md#atl-jira-issue-graph) and
-[output contract](reference/output/jira.md#jira-graphs-and-references).
+[output contract](reference/output/jira.md#jira-graphs-and-references). The
+inverse direction is specified under
+[`jira issue reference search`](reference/cli/jira-graph.md#atl-jira-issue-reference-search).

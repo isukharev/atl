@@ -108,8 +108,11 @@ an unqualified full page.
 Start with CQL/JQL discovery, then read only the selected object or fields.
 Use `atl jira issue graph KEY --depth 0` for structured links, hierarchy,
 documentation, attachments, or Development identities; add `--projection
-compact` for qualified URL/SCM JSON. Use `atl conf comment list --id ID` before
-expanding one exact thread. Both surfaces qualify incomplete evidence; graph
+compact` for qualified URL/SCM JSON. When the starting point is one GitLab
+project or Confluence page instead, use the CLI-only `atl jira issue reference
+search` with an explicit JQL scope, source set, mode, and limits; only a complete
+exhaustive result can prove absence. Use `atl conf comment list --id ID` before
+expanding one exact thread. These surfaces qualify incomplete evidence; graph
 text exposes safe URL-node identities in its `URL` column.
 
 Typed MCP offers smaller, read-only projections for agents. The CLI remains the

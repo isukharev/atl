@@ -10,6 +10,7 @@ step mechanically.
 | Situation | First command | Expand only when needed |
 |---|---|---|
 | One exact issue and the task asks what work, dependencies, code, or documentation is connected | typed `jira_issue_graph`, or `jira issue graph <KEY>` when MCP is unavailable | keep full for topology; select compact `urls` or Development-backed `scm` when only those qualified facts are needed; opt into the smallest sufficient depth only for exact structured Jira relations; CLI `--resolve confluence` may read discovered page id/title metadata |
+| One exact GitLab project or Confluence page and the task asks which Jira issues refer to it | `atl capabilities --task jira/inverse-reference`, then the returned CLI-only `jira issue reference search` route | choose the exact scope, sources, and bounds once; use exhaustive for absence or fast only for explicitly incomplete discovery |
 | One exact standard field named by the task | `jira issue field get <KEY> --field <NAME>` | nothing when the bounded result is complete |
 | One unfamiliar issue | `jira issue fields <KEY> --metadata-only` | exact bounded field get, selected history/refs, then a linked page section |
 | One epic and known evidence-field names | `jira epic digest <KEY>` plus only a task-supplied period | bounded Confluence section expansion |
@@ -72,6 +73,43 @@ completeness, while edge stability and confidence qualify each graph fact.
 Missing or invalid field names/schema makes `issue_fields` partial before the
 affected values are inspected; `issue_properties` uses `experimental_api`
 stability independently of whether its returned inventory is complete.
+
+## Search from an external target
+
+When the target is one GitLab project or Confluence page rather than a Jira
+issue, use exactly one CLI inverse-reference command; no typed MCP route exists:
+
+```bash
+export ATL_READ_ONLY=1
+atl jira issue reference search \
+  --target 12345678 \
+  --target-kind confluence-page \
+  --scope-jql 'project = DEMO' \
+  --mode exhaustive \
+  --sources description,fields,comments,remote-links \
+  --fields customfield_10001 \
+  --max-issues 100 \
+  --max-requests 500 \
+  --max-response-bytes 16777216 \
+  --strict
+```
+
+The task or reviewed workflow must supply the target, caller-qualified JQL,
+mode, source set, and all three bounds. `fields` requires exact technical ids;
+the complete source vocabulary is `description`, `fields`, `comments`,
+`remote-links`, `worklogs`, `development`, and `properties`. Use JSON and
+inspect target resolution, selection, verification, per-source counts,
+frontier, usage, and every reconciliation. Only an exhaustive
+`complete:true` result with `absence_proven:true` proves zero references. Fast
+mode always reports `mode_fast`; do not broaden, repeat, or combine fast calls
+into an absence claim. If strict mode exits 8, retain its emitted incomplete
+JSON and stop or narrow the policy inputs rather than treating stdout as lost.
+
+The result is content-free and matching is local. ATL never contacts GitLab or
+dereferences URLs found in Jira. Only resolution of a caller-supplied
+Confluence display or short target may contact the configured Confluence
+origin under the shared single-attempt bounds; an id or direct id-bearing URL
+avoids that request. The command reads no Confluence page body or backlinks.
 
 ## First-use epic flow
 

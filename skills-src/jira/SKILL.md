@@ -130,7 +130,35 @@ Treat `issue_fields:partial` as uninspected field evidence when Jira omits or
 malforms essential names/schema, and treat `issue_properties` as an
 `experimental_api` source even when its inventory is complete.
 Prefer CLI `--strict` when incomplete evidence must fail the workflow. For a
-reference-inventory question, call `jira_issue_refs` with exactly one issue
+target-to-issues question, run `atl capabilities --task
+jira/inverse-reference`, then use its CLI-only route; there is no typed MCP
+counterpart:
+
+```bash
+export ATL_READ_ONLY=1
+atl jira issue reference search \
+  --target 'https://gitlab.example.test/platform/widget' \
+  --target-kind gitlab-project \
+  --scope-jql 'project = DEMO' \
+  --mode exhaustive \
+  --sources description,comments,remote-links,development \
+  --max-issues 100 \
+  --max-requests 1000 \
+  --max-response-bytes 16777216 \
+  --strict
+```
+
+Keep target, caller-qualified scope, mode, sources, and all three bounds
+explicit. `fields` requires exact technical ids in `--fields`; the remaining
+source names are `description`, `comments`, `remote-links`, `worklogs`,
+`development`, and `properties`. Use JSON, retain it after strict exit 8, and
+require `complete:true` plus `absence_proven:true` before claiming no issue
+refers to the target. Fast mode is always incomplete with `mode_fast` and is
+only qualified discovery. ATL matches the selected Jira evidence locally: it
+never contacts GitLab or dereferences a discovered URL. Only a caller-supplied
+Confluence display or short target may use the configured Confluence resolver;
+prefer a page id or direct id-bearing URL for offline target resolution.
+For a reference-inventory question, call `jira_issue_refs` with exactly one issue
 `key`, or bounded `jql` plus `limit` from 1 through 25, and at most eight exact
 technical field ids. Use its per-issue and top-level reconciled summaries; raw
 URLs, issue summary/type, and source text are deliberately absent. JQL mode
@@ -174,7 +202,7 @@ with the new pair — never against the old selector and old pair.
 ## Choose exactly one route
 
 For an unfamiliar goal, run `atl capabilities --task jira/setup`,
-`jira/evidence`, `jira/graph-evidence`, `jira/portfolio`,
+`jira/evidence`, `jira/graph-evidence`, `jira/inverse-reference`, `jira/portfolio`,
 `jira/board-portfolio`, `jira/batch-analysis`, `jira/structure-planning`,
 `jira/mirror`, `jira/edit`, or the cross-service `knowledge/search` route, then load
 exactly the returned reference. A
@@ -187,6 +215,9 @@ capability route does not grant write authority.
   contract; do not guess flags or probe `--help`. The fully qualified
   single-field route documented below is the exception when the task supplies
   both the issue key and exact field selector.
+- One exact GitLab project or Confluence page to referring Jira issues:
+  [commands.md](reference/commands.md). This is the CLI-only
+  `jira/inverse-reference` route.
 - Quarter/department membership from boards or Structure:
   [portfolio-evidence.md](reference/portfolio-evidence.md).
 - JQL discovery and pagination: [jql.md](reference/jql.md).

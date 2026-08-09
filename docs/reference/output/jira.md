@@ -860,6 +860,125 @@ first, then returns `ErrCheckFailed` (exit 8) when `complete:false`. Only full
 schema v2 supports text; it adds transport usage, per-node source columns, and
 a frontier table when one exists.
 
+### Jira inverse-reference search
+
+`atl jira issue reference search` is a CLI-only, content-free search from one
+exact GitLab project or Confluence page into a caller-qualified Jira scope.
+There is no typed MCP result for this command. Its schema-v1 JSON shape is:
+
+```json
+{
+  "schema_version": 1,
+  "target": {
+    "kind": "gitlab_project",
+    "opaque_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "mode": "exhaustive",
+  "sources": ["development"],
+  "effective_field_ids": [],
+  "target_resolution": {"complete": true},
+  "selection": {"complete": true},
+  "verification": {"complete": true},
+  "counts": {
+    "selected_issues": 1,
+    "candidate_issues": 1,
+    "scanned_issues": 2,
+    "verified_issues": 1,
+    "matched_issues": 1,
+    "matches": 1
+  },
+  "source_counts": [
+    {
+      "source": "development",
+      "complete": 1,
+      "empty": 0,
+      "partial": 0,
+      "forbidden": 0,
+      "unsupported": 0,
+      "skipped": 0,
+      "total": 1,
+      "reconciled": true,
+      "reasons": []
+    }
+  ],
+  "matches": [
+    {
+      "issue_key": "DEMO-41",
+      "relation": "development_association",
+      "direction": "issue_to_target",
+      "source": "development",
+      "stability": "experimental_api",
+      "confidence": "exact",
+      "complete": true
+    }
+  ],
+  "frontier": {"phase": "complete", "verified_issues": 1},
+  "reconciliation": {
+    "counts": true,
+    "sources": true,
+    "matches": true,
+    "usage": true
+  },
+  "usage": {
+    "max_issues": 10,
+    "max_requests": 10,
+    "requests": 4,
+    "max_response_bytes": 65536,
+    "response_bytes": 1024,
+    "reconciled": true
+  },
+  "complete": true,
+  "absence_proven": false
+}
+```
+
+Wire names use underscores (`gitlab_project`, `confluence_page`, and
+`remote_links`) even though the corresponding CLI values use hyphens. Sources
+and `effective_field_ids` are normalized into deterministic order. The target
+is only a one-way opaque id. The result never contains the original target,
+scope JQL, Jira numeric ids, URLs, titles, source values, property keys,
+application or user identities, or backend error prose.
+
+The three phase objects qualify target resolution, selection, and verification
+independently. A phase has `complete` and, when incomplete, one closed static
+`reason`. `source_counts` reconciles every selected source across the selected
+issues into `complete`, `empty`, `partial`, `forbidden`, `unsupported`, and
+`skipped` buckets. Its reason counts use only `request_failed`,
+`request_limit`, `byte_limit`, `malformed_response`, `field_missing`,
+`not_permitted`, `not_supported`, and `mode_fast`. The fixed source order is the
+order in top-level `sources`.
+
+Matches are deduplicated by issue, source, relation, and optional technical
+field id. Literal values use `literal_mention` / `heuristic` / `high`;
+structured remote links use `structured_remote_link` / `public_api` / `exact`
+(or a qualified high-confidence fallback); Jira Development uses
+`development_association` / `experimental_api` / `exact`. Direction is always
+`issue_to_target`. Match `complete` is derived from its named source rather
+than asserting global completeness.
+
+`frontier` identifies the bounded phase that completed or stopped.
+`reconciliation` proves that emitted counts, sources, matches, and transport
+usage agree; `usage.reconciled` is true only when all four reconciliation
+classes hold. Top-level `complete:true` requires exhaustive mode, complete target
+resolution, both complete selection passes with a stable identity set,
+complete verification of every requested source, and every reconciliation.
+Only `complete:true` with no matches sets `absence_proven:true`. Fast mode is
+always `selection.complete:false` with `reason:"mode_fast"`, so it never proves
+absence.
+
+Without `--strict`, a usable incomplete JSON result may exit zero. With
+`--strict`, the same result is emitted before exit 8 and must be retained.
+Text output is only an escaped match table (`KEY`, `RELATION`, `SOURCE`,
+`CONFIDENCE`, `COMPLETE`) and cannot support an absence claim; id output is
+unsupported.
+
+The search never contacts GitLab or dereferences a URL discovered in Jira.
+Only resolution of a caller-supplied Confluence display or short target may
+contact the configured Confluence origin, under the same single-attempt request
+and response-byte budget. Confluence values found in Jira match only direct,
+same-origin, id-bearing links; the command reads neither page bodies nor
+Confluence backlinks.
+
 This contract change does not change `jira issue refs`; its exact JSON/text
 compatibility goldens remain independent.
 
