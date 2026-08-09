@@ -642,13 +642,11 @@ func TestReplaySafeMethodsFollowSameOriginRedirects(t *testing.T) {
 
 func TestRedactedHTTPTraceOmitsRequestIdentity(t *testing.T) {
 	var trace bytes.Buffer
-	SetTrace(&trace)
-	t.Cleanup(func() { SetTrace(nil) })
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, `{"ok":true}`)
 	}))
 	defer srv.Close()
-	c := New(srv.URL, "tok", "test")
+	c := New(srv.URL, "tok", "test", WithTrace(&trace))
 	ctx := domain.WithRedactedHTTPTrace(context.Background())
 	if _, err := c.Do(ctx, http.MethodGet, "/rest/api/2/issue/PRIVATE-9", nil, nil); err != nil {
 		t.Fatal(err)
@@ -1349,7 +1347,7 @@ func mustParse(t *testing.T, raw string) *neturl.URL {
 
 // TestNoVersionGate409 locks the backend-aware 409 semantics: by default a
 // 409 unwraps to ErrVersionConflict (the Confluence version gate), but a
-// client marked SetNoVersionGate (Jira — no version gate exists) keeps the
+// client built with WithGenericConflict (Jira — no version gate exists) keeps the
 // full APIError with NO version-conflict sentinel, so the CLI maps it to the
 // generic exit instead of suggesting a re-pull/--force recovery.
 func TestNoVersionGate409(t *testing.T) {
@@ -1365,8 +1363,7 @@ func TestNoVersionGate409(t *testing.T) {
 		t.Fatalf("default client: expected ErrVersionConflict, got %v", err)
 	}
 
-	ng := New(srv.URL, "tok", "test")
-	ng.SetNoVersionGate()
+	ng := New(srv.URL, "tok", "test", WithGenericConflict())
 	_, err = ng.Do(context.Background(), "GET", "/x", nil, nil)
 	if err == nil {
 		t.Fatal("expected error")

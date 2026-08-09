@@ -15,7 +15,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/isukharev/atl/internal/domain"
-	"github.com/isukharev/atl/internal/httpx"
 )
 
 const (
@@ -26,8 +25,6 @@ const (
 func TestReadIssueDevelopmentExactSequenceAndBothDetailTopologies(t *testing.T) {
 	var requests []string
 	var trace bytes.Buffer
-	httpx.SetTrace(&trace)
-	t.Cleanup(func() { httpx.SetTrace(nil) })
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r.URL.RequestURI())
 		switch r.URL.Path {
@@ -63,7 +60,7 @@ func TestReadIssueDevelopmentExactSequenceAndBothDetailTopologies(t *testing.T) 
 	}))
 	defer server.Close()
 
-	got, err := New(server.URL, "token", "test").ReadIssueDevelopment(context.Background(), "12345")
+	got, err := New(server.URL, "token", "test", WithTrace(&trace)).ReadIssueDevelopment(context.Background(), "12345")
 	if err != nil {
 		t.Fatal(err)
 	}

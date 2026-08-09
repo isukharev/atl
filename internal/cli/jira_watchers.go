@@ -16,7 +16,7 @@ func jiraWatcherService(cmd *cobra.Command) (*app.JiraWatcherService, error) {
 	if err != nil {
 		return nil, err
 	}
-	return compose.NewJiraWatchersWithWriteAuthorizer(cfg, version.Version, authorizer)
+	return compose.NewJiraWatchersWithWriteAuthorizer(cfg, version.Version, authorizer, invocationCompositionOptions(cmd)...)
 }
 
 func jiraIssueWatchersCmd() *cobra.Command {

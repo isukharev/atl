@@ -19,6 +19,7 @@ import (
 	"net/http"
 	neturl "net/url"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -58,31 +59,58 @@ type TLSOptions struct {
 // read resets it. A variable so tests can shrink it.
 var downloadIdleTimeout = 60 * time.Second
 
-// traceWriter, when non-nil, receives a one-line trace of every request and
-// response (method, URL, status). It is a package-level toggle set by the CLI's
-// --verbose/ATL_VERBOSE wiring before any request runs. The bearer token is
-// never written here. The RWMutex makes the toggle safe even if a future test
-// flips it while a request is in flight.
-var (
-	traceMu     sync.RWMutex
-	traceWriter io.Writer
-)
+// Option configures immutable, per-client transport behavior.
+type Option func(*clientOptions)
 
-// SetTrace enables (w != nil) or disables (w == nil) HTTP request tracing for
-// all clients. Pass a stderr-like writer to turn it on.
-func SetTrace(w io.Writer) {
-	traceMu.Lock()
-	traceWriter = w
-	traceMu.Unlock()
+type clientOptions struct {
+	trace                 io.Writer
+	genericConflict       bool
+	requireWriteClearance bool
 }
 
-func tracef(format string, a ...any) {
-	traceMu.RLock()
-	w := traceWriter
-	traceMu.RUnlock()
-	if w != nil {
-		fmt.Fprintf(w, format, a...)
+// WithTrace writes content-safe request and response trace lines to w. A nil
+// writer leaves tracing disabled for this client.
+func WithTrace(w io.Writer) Option {
+	if writerIsNil(w) {
+		w = nil
 	}
+	return func(options *clientOptions) { options.trace = w }
+}
+
+func writerIsNil(w io.Writer) bool {
+	if w == nil {
+		return true
+	}
+	value := reflect.ValueOf(w)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
+}
+
+// WithGenericConflict keeps HTTP 409 as a generic API error instead of mapping
+// it to the optimistic-version sentinel. Jira uses this because it has no
+// version gate with re-pull/force recovery.
+func WithGenericConflict() Option {
+	return func(options *clientOptions) { options.genericConflict = true }
+}
+
+// WithRequiredWriteClearance enables the last-hop assertion that every
+// non-replay-safe request carries reviewed write clearance or read intent.
+func WithRequiredWriteClearance() Option {
+	return func(options *clientOptions) { options.requireWriteClearance = true }
+}
+
+func resolveOptions(options []Option) clientOptions {
+	var resolved clientOptions
+	for _, option := range options {
+		if option != nil {
+			option(&resolved)
+		}
+	}
+	return resolved
 }
 
 func traceRequestURL(ctx context.Context, u *neturl.URL) string {
@@ -99,6 +127,15 @@ func traceResponsePath(ctx context.Context, path string) string {
 	return path
 }
 
+func (c *Client) tracef(format string, values ...any) {
+	if c.trace == nil {
+		return
+	}
+	c.traceMu.Lock()
+	defer c.traceMu.Unlock()
+	_, _ = fmt.Fprintf(c.trace, format, values...)
+}
+
 // Client is a per-backend HTTP client (one for Confluence, one for Jira).
 type Client struct {
 	base       string
@@ -109,11 +146,13 @@ type Client struct {
 	dl         *http.Client // streaming downloads: no whole-request timeout
 	ver        string       // CLI version, for User-Agent
 	scheduler  *Scheduler
-	// noVersionGate: this backend has no optimistic version gate, so an HTTP
+	trace      io.Writer
+	traceMu    sync.Mutex
+	// genericConflict: this backend has no optimistic version gate, so an HTTP
 	// 409 is a generic conflict (locked issue, workflow veto), NOT
 	// ErrVersionConflict — exit 5 would point the caller at a re-pull/--force
-	// recovery that does not exist there. Set by the Jira adapter.
-	noVersionGate bool
+	// recovery that does not exist there.
+	genericConflict bool
 	// requireWriteClearance enables the last-hop assertion for clients whose
 	// application policy wiring is complete. It remains false by default.
 	requireWriteClearance bool
@@ -130,50 +169,39 @@ func (*unclearedWriteError) DiagnosticWriteClearanceFailure() bool { return true
 
 var errUnclearedWrite error = &unclearedWriteError{}
 
-// SetNoVersionGate marks the backend as having no optimistic version gate:
-// an HTTP 409 keeps its full APIError (status and body) but carries no
-// ErrVersionConflict sentinel, so it maps to the generic exit code instead
-// of masquerading as a version conflict.
-func (c *Client) SetNoVersionGate() { c.noVersionGate = true }
-
-// RequireWriteClearance enables the last-hop assertion that every
-// non-replay-safe request carries reviewed write clearance or read intent.
-// Adapters call it only after their complete write inventory is guarded.
-func (c *Client) RequireWriteClearance() { c.requireWriteClearance = true }
-
 // New builds a client for a backend base URL with a bearer PAT.
-func New(base, token, version string) *Client {
-	return NewWithScheduler(base, token, version, nil)
+func New(base, token, version string, options ...Option) *Client {
+	return NewWithScheduler(base, token, version, nil, options...)
 }
 
 // NewWithScheduler builds a client whose every transport attempt shares the
 // supplied command-scoped concurrency/rate policy.
-func NewWithScheduler(base, token, version string, scheduler *Scheduler) *Client {
+func NewWithScheduler(base, token, version string, scheduler *Scheduler, options ...Option) *Client {
 	dlTransport := http.DefaultTransport.(*http.Transport).Clone()
 	dlTransport.ResponseHeaderTimeout = dlHeaderTimeout
-	return newWithScheduler(base, token, version, scheduler, http.DefaultTransport, dlTransport)
+	return newWithScheduler(base, token, version, scheduler, http.DefaultTransport, dlTransport, resolveOptions(options))
 }
 
 // NewWithSchedulerTLS builds a client with an isolated backend-specific trust
 // pool. An empty option preserves NewWithScheduler's exact transport shape.
-func NewWithSchedulerTLS(base, token, version string, scheduler *Scheduler, options TLSOptions) (*Client, error) {
-	if strings.TrimSpace(options.CABundle) == "" {
-		return NewWithScheduler(base, token, version, scheduler), nil
+func NewWithSchedulerTLS(base, token, version string, scheduler *Scheduler, tlsOptions TLSOptions, options ...Option) (*Client, error) {
+	if strings.TrimSpace(tlsOptions.CABundle) == "" {
+		return NewWithScheduler(base, token, version, scheduler, options...), nil
 	}
 	u, err := neturl.Parse(base)
 	if err != nil || !strings.EqualFold(u.Scheme, "https") {
 		return nil, fmt.Errorf("%w: configured CA bundle requires an https backend", domain.ErrConfig)
 	}
-	transport, err := transportWithCABundle(options.CABundle)
+	transport, err := transportWithCABundle(tlsOptions.CABundle)
 	if err != nil {
 		return nil, err
 	}
 	dlTransport := transport.Clone()
 	dlTransport.ResponseHeaderTimeout = dlHeaderTimeout
-	return newWithScheduler(base, token, version, scheduler, transport, dlTransport), nil
+	return newWithScheduler(base, token, version, scheduler, transport, dlTransport, resolveOptions(options)), nil
 }
 
-func newWithScheduler(base, token, version string, scheduler *Scheduler, transport http.RoundTripper, dlTransport http.RoundTripper) *Client {
+func newWithScheduler(base, token, version string, scheduler *Scheduler, transport http.RoundTripper, dlTransport http.RoundTripper, options clientOptions) *Client {
 	base = strings.TrimRight(base, "/")
 	host := ""
 	scheme := ""
@@ -214,12 +242,15 @@ func newWithScheduler(base, token, version string, scheduler *Scheduler, transpo
 		return nil
 	}
 	return &Client{
-		base:       base,
-		baseHost:   host,
-		baseScheme: scheme,
-		token:      token,
-		ver:        version,
-		scheduler:  scheduler,
+		base:                  base,
+		baseHost:              host,
+		baseScheme:            scheme,
+		token:                 token,
+		ver:                   version,
+		scheduler:             scheduler,
+		trace:                 options.trace,
+		genericConflict:       options.genericConflict,
+		requireWriteClearance: options.requireWriteClearance,
 		hc: &http.Client{
 			Transport:     scheduleTransport(readBudgetTransport{base: transport}, scheduler),
 			Timeout:       defaultTimeout,
@@ -488,7 +519,7 @@ func (c *Client) ResolveGET(ctx context.Context, path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	tracef("→ GET %s\n", traceRequestURL(ctx, req.URL))
+	c.tracef("→ GET %s\n", traceRequestURL(ctx, req.URL))
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		if resp != nil && resp.Body != nil {
@@ -504,7 +535,7 @@ func (c *Client) ResolveGET(ctx context.Context, path string) (string, error) {
 	if resp.Request != nil && resp.Request.URL != nil {
 		finalURL = resp.Request.URL
 	}
-	tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, finalURL.Path))
+	c.tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, finalURL.Path))
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return finalURL.String(), nil
 	}
@@ -513,7 +544,7 @@ func (c *Client) ResolveGET(ctx context.Context, path string) (string, error) {
 		return "", readErr
 	}
 	kind := classify(resp.StatusCode)
-	if c.noVersionGate && kind == domain.ErrVersionConflict {
+	if c.genericConflict && kind == domain.ErrVersionConflict {
 		kind = nil
 	}
 	return "", &APIError{Status: resp.StatusCode, Method: http.MethodGet, Path: path, Body: string(data), kind: kind}
@@ -547,17 +578,17 @@ func (c *Client) DoStreamSized(ctx context.Context, method, path string, r io.Re
 	if contentLength >= 0 {
 		req.ContentLength = contentLength
 	}
-	tracef("→ %s %s\n", method, traceRequestURL(ctx, req.URL))
+	c.tracef("→ %s %s\n", method, traceRequestURL(ctx, req.URL))
 	resp, err := c.dl.Do(req)
 	if err != nil {
-		tracef("× %s %s (transport error: %s)\n", method, traceRequestURL(ctx, req.URL), transportErrorCategory(err))
+		c.tracef("× %s %s (transport error: %s)\n", method, traceRequestURL(ctx, req.URL), transportErrorCategory(err))
 		if budgetErr := readBudgetExhaustion(err); budgetErr != nil {
 			return nil, budgetErr
 		}
 		return nil, transportError(method, req.URL, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, req.URL.Path))
+	c.tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, req.URL.Path))
 	data, err := readIdleResponseBody(ctx, resp.Body, jsonBodyCap, downloadIdleTimeout, cancel)
 	if err != nil {
 		return nil, err
@@ -566,7 +597,7 @@ func (c *Client) DoStreamSized(ctx context.Context, method, path string, r io.Re
 		return data, nil
 	}
 	kind := classify(resp.StatusCode)
-	if c.noVersionGate && kind == domain.ErrVersionConflict {
+	if c.genericConflict && kind == domain.ErrVersionConflict {
 		kind = nil
 	}
 	return nil, &APIError{Status: resp.StatusCode, Method: method, Path: path, Body: string(data), kind: kind}
@@ -597,10 +628,10 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 		if err != nil {
 			return nil, err
 		}
-		tracef("→ %s %s\n", method, traceRequestURL(ctx, req.URL))
+		c.tracef("→ %s %s\n", method, traceRequestURL(ctx, req.URL))
 		resp, err := c.hc.Do(req)
 		if err != nil {
-			tracef("× %s %s (transport error: %s)\n", method, traceRequestURL(ctx, req.URL), transportErrorCategory(err))
+			c.tracef("× %s %s (transport error: %s)\n", method, traceRequestURL(ctx, req.URL), transportErrorCategory(err))
 			if budgetErr := readBudgetExhaustion(err); budgetErr != nil {
 				return nil, budgetErr
 			}
@@ -613,7 +644,7 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 			lastErr = safeErr
 			continue // network error → retry
 		}
-		tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, req.URL.Path))
+		c.tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, req.URL.Path))
 		retryable := replaySafe(method) && transientRetryStatus(resp.StatusCode)
 		retryDelay := time.Duration(0)
 		if retryable {
@@ -628,7 +659,7 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 			return data, nil
 		}
 		kind := classify(resp.StatusCode)
-		if c.noVersionGate && kind == domain.ErrVersionConflict {
+		if c.genericConflict && kind == domain.ErrVersionConflict {
 			kind = nil // generic conflict on a backend without a version gate
 		}
 		apiErr := &APIError{Status: resp.StatusCode, Method: method, Path: path, Body: string(data), kind: kind}
@@ -930,18 +961,18 @@ func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, err
 			cancel()
 			return nil, err
 		}
-		tracef("→ GET %s\n", traceRequestURL(ctx, req.URL))
+		c.tracef("→ GET %s\n", traceRequestURL(ctx, req.URL))
 		resp, err := c.dl.Do(req)
 		if err != nil {
 			cancel()
-			tracef("× GET %s (transport error: %s)\n", traceRequestURL(ctx, req.URL), transportErrorCategory(err))
+			c.tracef("× GET %s (transport error: %s)\n", traceRequestURL(ctx, req.URL), transportErrorCategory(err))
 			if budgetErr := readBudgetExhaustion(err); budgetErr != nil {
 				return nil, budgetErr
 			}
 			lastErr = transportError(http.MethodGet, req.URL, err)
 			continue // GET is idempotent → retry
 		}
-		tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, req.URL.Path))
+		c.tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, req.URL.Path))
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			return newIdleReader(resp.Body, downloadIdleTimeout, cancel), nil
 		}
@@ -957,7 +988,7 @@ func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, err
 			return nil, rerr
 		}
 		kind := classify(resp.StatusCode)
-		if c.noVersionGate && kind == domain.ErrVersionConflict {
+		if c.genericConflict && kind == domain.ErrVersionConflict {
 			kind = nil
 		}
 		apiErr := &APIError{Status: resp.StatusCode, Method: http.MethodGet, Path: path, Body: string(data), kind: kind}

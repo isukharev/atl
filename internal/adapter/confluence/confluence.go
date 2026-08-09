@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"strconv"
 	"strings"
@@ -23,13 +24,24 @@ type Confluence struct {
 	identity   *confluenceIdentityCache
 }
 
-// Option configures transport-neutral adapter behavior.
-type Option func(*Confluence)
+// Option configures adapter behavior before its immutable HTTP client is built.
+type Option func(*adapterOptions)
+
+type adapterOptions struct {
+	authorizer domain.WriteAuthorizer
+	trace      io.Writer
+}
 
 // WithWriteAuthorizer enables content-scoped last-hop authorization. A nil
 // authorizer is equivalent to omitting the option.
 func WithWriteAuthorizer(authorizer domain.WriteAuthorizer) Option {
-	return func(cf *Confluence) { cf.authorizer = authorizer }
+	return func(options *adapterOptions) { options.authorizer = authorizer }
+}
+
+// WithTrace supplies a per-adapter HTTP trace sink. A nil writer leaves
+// tracing disabled.
+func WithTrace(w io.Writer) Option {
+	return func(options *adapterOptions) { options.trace = w }
 }
 
 // New builds a Confluence adapter for base URL with a PAT.
@@ -40,29 +52,45 @@ func New(base, token, version string, options ...Option) *Confluence {
 // NewWithScheduler shares a command-scoped request scheduler with every
 // Confluence transport path, including comments and streamed assets.
 func NewWithScheduler(base, token, version string, scheduler *httpx.Scheduler, options ...Option) *Confluence {
-	c := httpx.NewWithScheduler(base, token, version, scheduler)
-	return newWithClient(base, c, options...)
+	resolved := resolveAdapterOptions(options)
+	c := httpx.NewWithScheduler(base, token, version, scheduler, transportOptions(resolved)...)
+	return newWithClient(base, c, resolved)
 }
 
 // NewWithSchedulerTLS builds a Confluence adapter with backend-specific trust
 // material. Existing constructors preserve the default transport path.
 func NewWithSchedulerTLS(base, token, version string, scheduler *httpx.Scheduler, tlsOptions httpx.TLSOptions, options ...Option) (*Confluence, error) {
-	c, err := httpx.NewWithSchedulerTLS(base, token, version, scheduler, tlsOptions)
+	resolved := resolveAdapterOptions(options)
+	c, err := httpx.NewWithSchedulerTLS(base, token, version, scheduler, tlsOptions, transportOptions(resolved)...)
 	if err != nil {
 		return nil, err
 	}
-	return newWithClient(base, c, options...), nil
+	return newWithClient(base, c, resolved), nil
 }
 
-func newWithClient(base string, c *httpx.Client, options ...Option) *Confluence {
-	cf := &Confluence{c: c, base: strings.TrimRight(base, "/"), identity: newConfluenceIdentityCache()}
+func resolveAdapterOptions(options []Option) adapterOptions {
+	var resolved adapterOptions
 	for _, option := range options {
 		if option != nil {
-			option(cf)
+			option(&resolved)
 		}
 	}
-	c.RequireWriteClearance()
-	return cf
+	return resolved
+}
+
+func transportOptions(options adapterOptions) []httpx.Option {
+	resolved := []httpx.Option{httpx.WithRequiredWriteClearance()}
+	if options.trace != nil {
+		resolved = append(resolved, httpx.WithTrace(options.trace))
+	}
+	return resolved
+}
+
+func newWithClient(base string, c *httpx.Client, options adapterOptions) *Confluence {
+	return &Confluence{
+		c: c, base: strings.TrimRight(base, "/"), authorizer: options.authorizer,
+		identity: newConfluenceIdentityCache(),
+	}
 }
 
 var _ domain.DocStore = (*Confluence)(nil)

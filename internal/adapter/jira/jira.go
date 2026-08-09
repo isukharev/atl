@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"strconv"
 	"strings"
@@ -25,13 +26,24 @@ type Jira struct {
 	identity   *issueIdentityCache
 }
 
-// Option configures transport-neutral adapter behavior.
-type Option func(*Jira)
+// Option configures adapter behavior before its immutable HTTP client is built.
+type Option func(*adapterOptions)
+
+type adapterOptions struct {
+	authorizer domain.WriteAuthorizer
+	trace      io.Writer
+}
 
 // WithWriteAuthorizer enables content-scoped last-hop authorization. A nil
 // authorizer is equivalent to omitting the option.
 func WithWriteAuthorizer(authorizer domain.WriteAuthorizer) Option {
-	return func(j *Jira) { j.authorizer = authorizer }
+	return func(options *adapterOptions) { options.authorizer = authorizer }
+}
+
+// WithTrace supplies a per-adapter HTTP trace sink. A nil writer leaves
+// tracing disabled.
+func WithTrace(w io.Writer) Option {
+	return func(options *adapterOptions) { options.trace = w }
 }
 
 // New builds a Jira adapter for base URL with a PAT.
@@ -42,37 +54,49 @@ func New(base, token, version string, options ...Option) *Jira {
 // NewWithScheduler lets Confluence Jira-macro expansion share the exact same
 // command-scoped load boundary as the originating Confluence requests.
 func NewWithScheduler(base, token, version string, scheduler *httpx.Scheduler, options ...Option) *Jira {
-	c := httpx.NewWithScheduler(base, token, version, scheduler)
-	return newWithClient(base, c, options...)
+	resolved := resolveAdapterOptions(options)
+	c := httpx.NewWithScheduler(base, token, version, scheduler, transportOptions(resolved)...)
+	return newWithClient(base, c, resolved)
 }
 
 // NewWithSchedulerTLS builds a Jira adapter with backend-specific trust
 // material. Existing constructors remain error-free for the unset/default
 // transport path.
 func NewWithSchedulerTLS(base, token, version string, scheduler *httpx.Scheduler, tlsOptions httpx.TLSOptions, options ...Option) (*Jira, error) {
-	c, err := httpx.NewWithSchedulerTLS(base, token, version, scheduler, tlsOptions)
+	resolved := resolveAdapterOptions(options)
+	c, err := httpx.NewWithSchedulerTLS(base, token, version, scheduler, tlsOptions, transportOptions(resolved)...)
 	if err != nil {
 		return nil, err
 	}
-	return newWithClient(base, c, options...), nil
+	return newWithClient(base, c, resolved), nil
 }
 
-func newWithClient(base string, c *httpx.Client, options ...Option) *Jira {
-	// Jira DC has no optimistic version gate: a 409 is a generic conflict
-	// (locked issue, closed sprint, workflow veto), never a version conflict —
-	// exit 5's re-pull/--force remediation does not apply here.
-	c.SetNoVersionGate()
-	j := &Jira{c: c, base: strings.TrimRight(base, "/"), identity: newIssueIdentityCache()}
+func resolveAdapterOptions(options []Option) adapterOptions {
+	var resolved adapterOptions
 	for _, option := range options {
 		if option != nil {
-			option(j)
+			option(&resolved)
 		}
 	}
+	return resolved
+}
+
+func transportOptions(options adapterOptions) []httpx.Option {
+	resolved := []httpx.Option{httpx.WithGenericConflict(), httpx.WithRequiredWriteClearance()}
+	if options.trace != nil {
+		resolved = append(resolved, httpx.WithTrace(options.trace))
+	}
+	return resolved
+}
+
+func newWithClient(base string, c *httpx.Client, options adapterOptions) *Jira {
 	// Every mutating Jira transport site carries an explicit marker. Keeping
 	// the backstop enabled even without a configured policy catches omissions
 	// while the nil-authorizer fast path preserves request counts.
-	c.RequireWriteClearance()
-	return j
+	return &Jira{
+		c: c, base: strings.TrimRight(base, "/"), authorizer: options.authorizer,
+		identity: newIssueIdentityCache(),
+	}
 }
 
 var _ domain.Tracker = (*Jira)(nil)

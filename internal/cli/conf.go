@@ -71,7 +71,7 @@ func confService(cmd *cobra.Command) (*app.ConfluenceService, error) {
 	if err != nil {
 		return nil, err
 	}
-	return compose.NewConfluenceWithWriteAuthorizer(cfg, version.Version, authorizer)
+	return compose.NewConfluenceWithWriteAuthorizer(cfg, version.Version, authorizer, invocationCompositionOptions(cmd)...)
 }
 
 func confluenceCompositionInputs(cmd *cobra.Command) (*config.Config, domain.WriteAuthorizer, error) {
@@ -102,7 +102,7 @@ func confCommentMutationService(cmd *cobra.Command) (*app.ConfluenceService, err
 	if err != nil {
 		return nil, err
 	}
-	return compose.NewConfluenceCommentMutationsWithWriteAuthorizer(cfg, version.Version, *settings.Confluence, authorizer)
+	return compose.NewConfluenceCommentMutationsWithWriteAuthorizer(cfg, version.Version, *settings.Confluence, authorizer, invocationCompositionOptions(cmd)...)
 }
 
 func confScheduledService(cmd *cobra.Command, pagePrefetch, requestsPerSecond int) (*app.ConfluenceService, error) {
@@ -114,7 +114,7 @@ func confScheduledService(cmd *cobra.Command, pagePrefetch, requestsPerSecond in
 	if err != nil {
 		return nil, err
 	}
-	return compose.NewConfluenceScheduledWithWriteAuthorizer(cfg, version.Version, pagePrefetch, requestsPerSecond, authorizer)
+	return compose.NewConfluenceScheduledWithWriteAuthorizer(cfg, version.Version, pagePrefetch, requestsPerSecond, authorizer, invocationCompositionOptions(cmd)...)
 }
 
 func newConfCmd() *cobra.Command {

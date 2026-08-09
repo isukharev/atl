@@ -8,8 +8,8 @@ import (
 
 // NewConfluenceLabelsWithWriteAuthorizer composes only the label capability
 // ports plus the shared exact page-reference resolver used by label listing.
-func NewConfluenceLabelsWithWriteAuthorizer(cfg *config.Config, version string, authorizer domain.WriteAuthorizer) (*app.ConfluenceLabelService, error) {
-	cf, _, err := confluenceAdapter(cfg, version, 0, 0, authorizer)
+func NewConfluenceLabelsWithWriteAuthorizer(cfg *config.Config, version string, authorizer domain.WriteAuthorizer, options ...Option) (*app.ConfluenceLabelService, error) {
+	cf, _, err := confluenceAdapter(cfg, version, 0, 0, authorizer, resolveOptions(options))
 	if err != nil {
 		return nil, err
 	}
@@ -20,8 +20,8 @@ func NewConfluenceLabelsWithWriteAuthorizer(cfg *config.Config, version string, 
 }
 
 // NewJiraWatchersWithWriteAuthorizer composes the focused watcher feature.
-func NewJiraWatchersWithWriteAuthorizer(cfg *config.Config, version string, authorizer domain.WriteAuthorizer) (*app.JiraWatcherService, error) {
-	j, err := jiraAdapter(cfg, version, authorizer)
+func NewJiraWatchersWithWriteAuthorizer(cfg *config.Config, version string, authorizer domain.WriteAuthorizer, options ...Option) (*app.JiraWatcherService, error) {
+	j, err := jiraAdapter(cfg, version, authorizer, resolveOptions(options))
 	if err != nil {
 		return nil, err
 	}
@@ -29,8 +29,8 @@ func NewJiraWatchersWithWriteAuthorizer(cfg *config.Config, version string, auth
 }
 
 // NewJiraWorklogsWithWriteAuthorizer composes the focused worklog feature.
-func NewJiraWorklogsWithWriteAuthorizer(cfg *config.Config, version string, authorizer domain.WriteAuthorizer) (*app.JiraWorklogService, error) {
-	j, err := jiraAdapter(cfg, version, authorizer)
+func NewJiraWorklogsWithWriteAuthorizer(cfg *config.Config, version string, authorizer domain.WriteAuthorizer, options ...Option) (*app.JiraWorklogService, error) {
+	j, err := jiraAdapter(cfg, version, authorizer, resolveOptions(options))
 	if err != nil {
 		return nil, err
 	}
