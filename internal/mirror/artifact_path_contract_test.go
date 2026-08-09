@@ -78,6 +78,8 @@ func TestArtifactPathContractOracleRejectsRealSourceMutations(t *testing.T) {
 	}{
 		{name: "type alias", path: "internal/mirror/contract_alias.go", body: `package mirror; type EscapedArtifactPath = ArtifactPath`},
 		{name: "defined shadow type", path: "internal/mirror/contract_shadow.go", body: `package mirror; type escapedArtifactPath ArtifactPath; var escapedShadow = escapedArtifactPath{value: "x", class: artifactPathPublic}`},
+		{name: "anonymous ArtifactPath conversion", path: "internal/mirror/contract_anonymous_path.go", body: `package mirror; var escapedAnonymousArtifact = ArtifactPath(struct { value string; class artifactPathClass }{value: "x", class: artifactPathPublic})`},
+		{name: "anonymous DTO conversion", path: "internal/mirror/contract_anonymous_dto.go", body: `package mirror; import "os"; var escapedAnonymousDTO = CompletePullArtifact(struct { Path ArtifactPath; Data []byte; Mode os.FileMode; Remove bool; BestEffort bool }{})`},
 		{name: "function alias", path: "internal/mirror/contract_function_alias.go", body: `package mirror; var escapedArtifactConstructor = NewPublicArtifactPath`},
 		{name: "constructor wrapper", path: "internal/mirror/contract_wrapper.go", body: `package mirror; func escapedArtifactConstructor(v string) (ArtifactPath, error) { return NewPublicArtifactPath(v) }`},
 		{name: "raw field", path: "internal/mirror/contract_field.go", body: `package mirror; func escapedArtifactValue(p ArtifactPath) string { return p.value }`},
@@ -94,6 +96,8 @@ func TestArtifactPathContractOracleRejectsRealSourceMutations(t *testing.T) {
 		{name: "exported slice result", path: "internal/mirror/contract_exported_slice.go", body: `package mirror; func ArtifactPaths() []ArtifactPath { return nil }`},
 		{name: "exported map", path: "internal/mirror/contract_exported_map.go", body: `package mirror; var ArtifactByID map[string]ArtifactPath`},
 		{name: "exported anonymous result", path: "internal/mirror/contract_exported_anon.go", body: `package mirror; func ArtifactResult() struct { Artifact ArtifactPath } { return struct { Artifact ArtifactPath }{} }`},
+		{name: "exported generic constraint", path: "internal/mirror/contract_exported_generic.go", body: `package mirror; func ArtifactGeneric[T interface { ArtifactPath }]() {}`},
+		{name: "exported named generic constraint", path: "internal/mirror/contract_exported_generic_type.go", body: `package mirror; type ArtifactGenericType[T interface { ArtifactPath }] struct{}`},
 		{name: "cross package same name", path: "internal/contractconsumer/artifact_path_test.go", body: `package contractconsumer; import "github.com/isukharev/atl/internal/mirror"; func mustPublicArtifactPath(value string) (mirror.ArtifactPath, error) { return mirror.NewPublicArtifactPath(value) }`, want: "internal/contractconsumer/artifact_path_test.go"},
 		{name: "parse failure", path: "internal/mirror/contract_parse.go", body: `package mirror; func broken(`},
 		{name: "type failure", path: "internal/mirror/contract_type.go", body: `package mirror; var broken ArtifactPath = "raw"`},
@@ -109,6 +113,18 @@ func TestArtifactPathContractOracleRejectsRealSourceMutations(t *testing.T) {
 			}
 		})
 	}
+	t.Run("allowed method exposure removed", func(t *testing.T) {
+		observed := make(map[string]int, len(expectedArtifactContractExports))
+		for key, count := range expectedArtifactContractExports {
+			observed[key] = count
+		}
+		removed := mirrorImportPath + ".Mirror.PrepareCompletePullView"
+		delete(observed, removed)
+		violations := reconcileArtifactExportInventory(observed, expectedArtifactContractExports)
+		if !strings.Contains(strings.Join(violations, "\n"), "missing exported artifact-path surface: "+removed) {
+			t.Fatalf("export inventory accepted removed allowed method:\n%s", strings.Join(violations, "\n"))
+		}
+	})
 }
 
 func loadArtifactContractWorkspace(t *testing.T) artifactContractWorkspace {
@@ -415,8 +431,12 @@ func (workspace artifactContractWorkspace) analyze(overlays map[string][]byte) [
 					}
 				case *ast.CallExpr:
 					if checkedPackage.info.Types[value.Fun].IsType() {
-						if name, matched := artifactProtectedRepresentation(checkedPackage.info.Types[value].Type, protectedTypes); matched && !artifactExactProtectedType(checkedPackage.info.Types[value].Type, protectedTypes) {
-							violations = append(violations, fileName+":"+enclosingArtifactFunction(file, value.Pos())+": converts to shadow of "+name)
+						if name, matched := artifactProtectedRepresentation(checkedPackage.info.Types[value].Type, protectedTypes); matched {
+							kind := "shadow of "
+							if artifactExactProtectedType(checkedPackage.info.Types[value].Type, protectedTypes) {
+								kind = "protected type "
+							}
+							violations = append(violations, fileName+":"+enclosingArtifactFunction(file, value.Pos())+": converts to "+kind+name)
 						}
 					}
 					if object := artifactCalledObject(checkedPackage.info, value.Fun); object != nil {
@@ -495,16 +515,7 @@ func (workspace artifactContractWorkspace) analyze(overlays map[string][]byte) [
 			violations = append(violations, fmt.Sprintf("missing operation %s count=%d want=%d", key, got, want))
 		}
 	}
-	allowedExports := map[string]struct{}{
-		mirrorImportPath + ".ArtifactPath":                                 {},
-		mirrorImportPath + ".CompletePullArtifact":                         {},
-		mirrorImportPath + ".RegistrationArtifact":                         {},
-		mirrorImportPath + ".NewPublicArtifactPath":                        {},
-		mirrorImportPath + ".Mirror.RegisterNew":                           {},
-		mirrorImportPath + ".Mirror.PrepareCompletePullPublication":        {},
-		mirrorImportPath + ".Mirror.PrepareCompletePullView":               {},
-		mirrorImportPath + ".Mirror.PrepareCompletePullConfluenceComments": {},
-	}
+	observedExports := map[string]int{}
 	for importPath, checkedPackage := range checked {
 		for _, name := range checkedPackage.pkg.Scope().Names() {
 			if !ast.IsExported(name) {
@@ -513,9 +524,7 @@ func (workspace artifactContractWorkspace) analyze(overlays map[string][]byte) [
 			object := checkedPackage.pkg.Scope().Lookup(name)
 			key := importPath + "." + name
 			if artifactTypeExposed(object.Type(), artifactType) {
-				if _, allowed := allowedExports[key]; !allowed {
-					violations = append(violations, "unexpected exported artifact-path surface: "+key)
-				}
+				observedExports[key]++
 			}
 			typeName, _ := object.(*types.TypeName)
 			named, _ := types.Unalias(object.Type()).(*types.Named)
@@ -528,12 +537,11 @@ func (workspace artifactContractWorkspace) analyze(overlays map[string][]byte) [
 					continue
 				}
 				methodKey := importPath + "." + name + "." + method.Name()
-				if _, allowed := allowedExports[methodKey]; !allowed {
-					violations = append(violations, "unexpected exported artifact-path surface: "+methodKey)
-				}
+				observedExports[methodKey]++
 			}
 		}
 	}
+	violations = append(violations, reconcileArtifactExportInventory(observedExports, expectedArtifactContractExports)...)
 	constructor, _ := mirrorPackage.pkg.Scope().Lookup("NewPublicArtifactPath").(*types.Func)
 	if constructor == nil || !validPublicArtifactConstructorSignature(constructor.Type(), artifactType) {
 		violations = append(violations, "NewPublicArtifactPath signature changed or became class-selectable")
@@ -691,6 +699,9 @@ func artifactTypeExposedWithSeen(value, artifact types.Type, seen map[types.Type
 	seen[value] = struct{}{}
 	switch typed := value.(type) {
 	case *types.Named:
+		if artifactTypeParamListExposed(typed.TypeParams(), artifact, seen) || artifactTypeListExposed(typed.TypeArgs(), artifact, seen) {
+			return true
+		}
 		return artifactTypeExposedWithSeen(typed.Underlying(), artifact, seen)
 	case *types.Pointer:
 		return artifactTypeExposedWithSeen(typed.Elem(), artifact, seen)
@@ -726,7 +737,10 @@ func artifactTypeExposedWithSeen(value, artifact types.Type, seen map[types.Type
 			}
 		}
 	case *types.Signature:
-		return artifactTypeExposedWithSeen(typed.Params(), artifact, seen) || artifactTypeExposedWithSeen(typed.Results(), artifact, seen)
+		return artifactTypeParamListExposed(typed.TypeParams(), artifact, seen) ||
+			artifactTypeParamListExposed(typed.RecvTypeParams(), artifact, seen) ||
+			artifactTypeExposedWithSeen(typed.Params(), artifact, seen) ||
+			artifactTypeExposedWithSeen(typed.Results(), artifact, seen)
 	case *types.TypeParam:
 		return artifactTypeExposedWithSeen(typed.Constraint(), artifact, seen)
 	case *types.Union:
@@ -734,6 +748,30 @@ func artifactTypeExposedWithSeen(value, artifact types.Type, seen map[types.Type
 			if artifactTypeExposedWithSeen(typed.Term(index).Type(), artifact, seen) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func artifactTypeParamListExposed(parameters *types.TypeParamList, artifact types.Type, seen map[types.Type]struct{}) bool {
+	if parameters == nil {
+		return false
+	}
+	for index := range parameters.Len() {
+		if artifactTypeExposedWithSeen(parameters.At(index).Constraint(), artifact, seen) {
+			return true
+		}
+	}
+	return false
+}
+
+func artifactTypeListExposed(arguments *types.TypeList, artifact types.Type, seen map[types.Type]struct{}) bool {
+	if arguments == nil {
+		return false
+	}
+	for index := range arguments.Len() {
+		if artifactTypeExposedWithSeen(arguments.At(index), artifact, seen) {
+			return true
 		}
 	}
 	return false
@@ -766,6 +804,35 @@ func sortedUnique(values []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func reconcileArtifactExportInventory(observed, expected map[string]int) []string {
+	var violations []string
+	for key, count := range observed {
+		want, allowed := expected[key]
+		if !allowed {
+			violations = append(violations, "unexpected exported artifact-path surface: "+key)
+		} else if count != want {
+			violations = append(violations, fmt.Sprintf("exported artifact-path surface count changed: %s count=%d want=%d", key, count, want))
+		}
+	}
+	for key, want := range expected {
+		if _, present := observed[key]; !present {
+			violations = append(violations, fmt.Sprintf("missing exported artifact-path surface: %s count=0 want=%d", key, want))
+		}
+	}
+	return sortedUnique(violations)
+}
+
+var expectedArtifactContractExports = map[string]int{
+	mirrorImportPath + ".ArtifactPath":                                 1,
+	mirrorImportPath + ".CompletePullArtifact":                         1,
+	mirrorImportPath + ".RegistrationArtifact":                         1,
+	mirrorImportPath + ".NewPublicArtifactPath":                        1,
+	mirrorImportPath + ".Mirror.RegisterNew":                           1,
+	mirrorImportPath + ".Mirror.PrepareCompletePullPublication":        1,
+	mirrorImportPath + ".Mirror.PrepareCompletePullView":               1,
+	mirrorImportPath + ".Mirror.PrepareCompletePullConfluenceComments": 1,
 }
 
 var allowedArtifactContractOperations = qualifyArtifactContractOperations(map[string]int{
