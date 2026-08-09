@@ -160,7 +160,11 @@ func confSearchCmd() *cobra.Command {
 				var b strings.Builder
 				fmt.Fprintf(&b, "> CQL search; complete: %t; rows: %d.\n", result.Complete, result.Count)
 				if result.Truncated {
-					b.WriteString("> **Truncated:** continue with `next_cursor`; absence claims are not supported.\n")
+					if result.NextCursor != nil {
+						b.WriteString("> **Truncated:** continue with `next_cursor`; absence claims are not supported.\n")
+					} else {
+						b.WriteString("> **Truncated:** no safe continuation cursor; narrow the query or investigate terminal pagination evidence. Absence claims are not supported.\n")
+					}
 				}
 				rows := make([][]string, len(result.Results))
 				for i, h := range result.Results {

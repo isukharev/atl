@@ -25,8 +25,10 @@ atl conf page view <id-or-same-origin-url> --jira-macros off -o text # untrusted
 Do not combine `--cql` with convenience filters. Search requires CQL or at
 least one of `--space/--title/--label/--type`; paginate with `--cursor`.
 Require top-level `complete:true` before treating missing pages as evidence of
-absence; otherwise continue `next_cursor` or report the partial search. A
-numeric id returned here is already stable, so pass it directly to
+absence. A no-next page exactly at `limit` remains partial without trusted exact
+total evidence; continue `next_cursor` when present, otherwise narrow or
+investigate rather than inventing a cursor. A numeric id returned here is
+already stable, so pass it directly to
 `page outline`/`page section`/`page sections` and reserve `page resolve` for URLs or unknown
 references.
 When a section heading or occurrence came from `page outline`, pass that
@@ -89,9 +91,10 @@ before batched sidecar/progress commits. Recovery recognizes only exact,
 bounded intent/journal-owned temp residue, so a hard crash does not refetch or
 skip an accepted body. `--max-pages 0` means no configured cap in this
 mode, subject to local state-size/identity safety guards. `ORDER BY`, `--depth`,
-partial pagination, selection drift, duplicate ids, and local edits fail
-closed. `--restart-complete` is the explicit reviewed replacement path; absence
-from a snapshot never proves deletion.
+partial pagination (including a full no-next page without trusted terminal
+evidence), contradictory totals, selection drift, duplicate ids, and local
+edits fail closed. `--restart-complete` is the explicit reviewed replacement
+path; absence from a snapshot never proves deletion.
 
 Incremental pull instead exhausts pagination up to its explicit `--max-pages`
 safety cap (default 10000); hitting the cap or any partial response is exit 8

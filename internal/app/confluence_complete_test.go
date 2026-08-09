@@ -372,6 +372,43 @@ func TestCompletePullFailedRestartPreservesPreviousCheckpoint(t *testing.T) {
 	}
 }
 
+func TestCompletePullPartialRestartPreservesPreviousCheckpoint(t *testing.T) {
+	root := t.TempDir()
+	store := &completePullStore{
+		pullStore: &pullStore{
+			pages:   map[string]*domain.Resource{"10": completeTestPage("10"), "20": completeTestPage("20")},
+			getErrs: map[string]error{"20": domain.ErrForbidden},
+		},
+		searchSequence: []domain.PageSearchPage{completeSearchPage("10", "20"), completeSearchPage("10", "20")},
+	}
+	svc := &ConfluenceService{baseURL: confluenceTestBackendURL, store: store}
+	opts := PullOpts{CQL: "space = DOC", Into: root, Complete: true}
+	if _, err := svc.Pull(context.Background(), opts); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("seed error=%v", err)
+	}
+	m := mirror.New(root)
+	before, ok, err := m.CompletePullCheckpoint(selectorHash(opts.CQL))
+	if err != nil || !ok || before.NextIndex != 1 {
+		t.Fatalf("before=%+v ok=%v err=%v", before, ok, err)
+	}
+	store.getIDs = nil
+	store.searchSequence = []domain.PageSearchPage{{
+		Complete:      false,
+		PartialReason: "backend returned a full search page without terminal pagination evidence",
+	}}
+	opts.RestartComplete = true
+	if _, err := svc.Pull(context.Background(), opts); !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "terminal pagination evidence") {
+		t.Fatalf("restart error=%v", err)
+	}
+	after, ok, err := m.CompletePullCheckpoint(selectorHash(opts.CQL))
+	if err != nil || !ok || !reflect.DeepEqual(after, before) {
+		t.Fatalf("after=%+v before=%+v ok=%v err=%v", after, before, ok, err)
+	}
+	if len(store.getIDs) != 0 {
+		t.Fatalf("failed restart fetched bodies: %v", store.getIDs)
+	}
+}
+
 func TestCompletePullRejectsNegativeCapAtAppBoundary(t *testing.T) {
 	_, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: &completePullStore{pullStore: &pullStore{}}}).Pull(context.Background(), PullOpts{CQL: "type=page", Into: t.TempDir(), Complete: true, MaxPages: -1})
 	if !errors.Is(err, domain.ErrUsage) {

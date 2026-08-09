@@ -43,6 +43,21 @@ func TestConfluenceSearchQualifiedKeepsContinuationFailClosed(t *testing.T) {
 	}
 }
 
+func TestConfluenceSearchQualifiedPreservesIncompleteTerminalEvidence(t *testing.T) {
+	const reason = "backend returned a full search page without terminal pagination evidence"
+	store := &qualifiedSearchStore{page: domain.PageSearchPage{
+		Results:       []domain.PageRef{{ID: "42"}},
+		PartialReason: reason,
+	}}
+	result, err := (&ConfluenceService{store: store}).SearchQualified(context.Background(), "x", 1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Complete || !result.Truncated || result.Count != 1 || result.NextCursor != nil || result.PartialReason != reason {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
 func TestConfluenceSearchQualifiedDoesNotTrustLegacyTerminalCursor(t *testing.T) {
 	store := &recordingStore{pageRefs: []domain.PageRef{{ID: "42"}}}
 	result, err := (&ConfluenceService{store: store}).SearchQualified(context.Background(), "x", 10, "")

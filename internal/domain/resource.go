@@ -66,8 +66,9 @@ type PageRef struct {
 }
 
 // PageSearchPage is a completeness-qualified page of backend search results.
-// Complete is meaningful only when Next is empty: false means the backend
-// advertised more matches but supplied no safe continuation cursor.
+// Complete is meaningful only when Next is empty: false means the backend did
+// not provide enough trusted continuation or terminal evidence to qualify the
+// observed results as exhaustive.
 type PageSearchPage struct {
 	Results       []PageRef
 	Next          string

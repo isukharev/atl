@@ -58,6 +58,7 @@ func (cf *Confluence) SearchComplete(ctx context.Context, query string, limit in
 		Start      *int `json:"start"`
 		Size       int  `json:"size"`
 		TotalCount *int `json:"totalCount"`
+		TotalSize  *int `json:"totalSize"`
 		Links      struct {
 			Next string `json:"next"`
 			Base string `json:"base"`
@@ -89,16 +90,17 @@ func (cf *Confluence) SearchComplete(ctx context.Context, query string, limit in
 		page.PartialReason = "backend search pagination offset overflowed"
 		return page, nil
 	}
-	if resp.TotalCount != nil && *resp.TotalCount < 0 {
-		page.PartialReason = "backend reported a negative total match count"
+	total, hasTotal, totalReason := qualifiedSearchTotal(resp.TotalCount, resp.TotalSize)
+	if totalReason != "" {
+		page.PartialReason = totalReason
 		return page, nil
 	}
-	if resp.TotalCount != nil && end > *resp.TotalCount {
-		page.PartialReason = fmt.Sprintf("backend returned %d reachable matches beyond its reported total of %d", end, *resp.TotalCount)
+	if hasTotal && end > total {
+		page.PartialReason = fmt.Sprintf("backend returned %d reachable matches beyond its reported total of %d", end, total)
 		return page, nil
 	}
-	if resp.Links.Next != "" && resp.TotalCount != nil && end >= *resp.TotalCount {
-		page.PartialReason = fmt.Sprintf("backend advertised another page after reaching its reported total of %d matches", *resp.TotalCount)
+	if resp.Links.Next != "" && hasTotal && end >= total {
+		page.PartialReason = fmt.Sprintf("backend advertised another page after reaching its reported total of %d matches", total)
 		return page, nil
 	}
 	advance := pageCursor.advance(len(resp.Results), resp.Links.Next)
@@ -110,15 +112,43 @@ func (cf *Confluence) SearchComplete(ctx context.Context, query string, limit in
 		// never stalls at the same offset.
 		page.Next = strconv.Itoa(pageCursor.startAt())
 	}
-	page.Complete = advance == confluencePageExhausted
 	if advance == confluencePageStalled {
-		page.Complete = false
 		page.PartialReason = "backend returned an empty page with a next link"
-	} else if page.Next == "" && resp.TotalCount != nil && end < *resp.TotalCount {
-		page.Complete = false
-		page.PartialReason = fmt.Sprintf("backend reported %d total matches but only %d were reachable", *resp.TotalCount, end)
+		return page, nil
 	}
+	if page.Next != "" {
+		return page, nil
+	}
+	if hasTotal {
+		if end < total {
+			page.PartialReason = fmt.Sprintf("backend reported %d total matches but only %d were reachable", total, end)
+			return page, nil
+		}
+		page.Complete = true
+		return page, nil
+	}
+	if len(resp.Results) >= limit {
+		page.PartialReason = "backend returned a full search page without terminal pagination evidence"
+		return page, nil
+	}
+	page.Complete = true
 	return page, nil
+}
+
+func qualifiedSearchTotal(totalCount, totalSize *int) (int, bool, string) {
+	if totalCount != nil && *totalCount < 0 || totalSize != nil && *totalSize < 0 {
+		return 0, false, "backend reported a negative total match count"
+	}
+	if totalCount != nil && totalSize != nil && *totalCount != *totalSize {
+		return 0, false, "backend reported contradictory total match counts"
+	}
+	if totalCount != nil {
+		return *totalCount, true, ""
+	}
+	if totalSize != nil {
+		return *totalSize, true, ""
+	}
+	return 0, false, ""
 }
 
 // treePageCap bounds the returned hierarchy. treeScanCap separately bounds raw
