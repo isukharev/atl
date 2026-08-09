@@ -3,10 +3,14 @@ package app
 import (
 	"fmt"
 	"go/ast"
+	"go/build"
+	"go/importer"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -69,29 +73,53 @@ func TestAppProductionImportsStayTransportNeutral(t *testing.T) {
 // from using the whole config object to recover backend, policy, or TLS state.
 func TestAppConfigSelectorsStayRenderOnly(t *testing.T) {
 	sources := loadAppProductionSources(t)
-	configFields := loadConfigFields(t)
-	if errs := validateAppConfigSelectors(sources, configFields); len(errs) != 0 {
-		for _, err := range errs {
-			t.Error(err)
+	violations, err := validateAppConfigSelectors(sources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(violations) != 0 {
+		for _, violation := range violations {
+			t.Error(violation)
 		}
 	}
 }
 
-func TestAppConfigSelectorOracleRejectsEveryNonRenderField(t *testing.T) {
-	configFields := loadConfigFields(t)
-	for field := range configFields {
-		if allowedAppConfigSelectors[field] {
-			continue
-		}
-		t.Run(field, func(t *testing.T) {
-			source := fmt.Sprintf(`package app
-import settings %q
-type renderOwner struct { cfg *settings.Config }
-func leak(owner *renderOwner) { alias := owner.cfg; _ = alias.%s }
-`, appConfigImport, field)
-			errs := validateAppConfigSelectors(map[string]string{"render.go": source}, configFields)
-			if len(errs) != 1 || !strings.Contains(errs[0].Error(), "config.Config."+field) {
-				t.Fatalf("errors=%v, want forbidden selector %s", errs, field)
+func TestAppConfigSelectorOracleRejectsTypedLeakage(t *testing.T) {
+	tests := []struct {
+		name, field, declaration string
+	}{
+		{
+			name: "direct selector read", field: "JiraURL",
+			declaration: `func leak(value *settings.Config) { _ = value.JiraURL }`,
+		},
+		{
+			name: "local alias write", field: "ReadOnly",
+			declaration: `func leak(value *settings.Config) { alias := value; alias.ReadOnly = true }`,
+		},
+		{
+			name: "promoted anonymous embedding", field: "ConfluenceURL",
+			declaration: `type embedded struct { *settings.Config }
+func leak(value embedded) { _ = value.ConfluenceURL }`,
+		},
+		{
+			name: "type alias", field: "UpdateBaseURL",
+			declaration: `type configAlias = settings.Config
+func leak(value *configAlias) { _ = value.UpdateBaseURL }`,
+		},
+		{
+			name: "keyed composite literal", field: "Transport",
+			declaration: `func leak() { _ = settings.Config{Transport: nil} }`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			source := fmt.Sprintf("package app\nimport settings %q\n%s\n", appConfigImport, test.declaration)
+			violations, err := validateAppConfigSelectors(map[string]string{"render.go": source})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(violations) != 1 || !strings.Contains(violations[0].Error(), "config.Config."+test.field) {
+				t.Fatalf("violations=%v, want typed config.Config.%s", violations, test.field)
 			}
 		})
 	}
@@ -118,235 +146,241 @@ func loadAppProductionSources(t *testing.T) map[string]string {
 	return sources
 }
 
-func loadConfigFields(t *testing.T) map[string]bool {
-	t.Helper()
-	path := filepath.Join("..", "config", "config.go")
-	parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+func validateAppConfigSelectors(sources map[string]string) ([]error, error) {
+	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
-		t.Fatal(err)
+		return nil, err
 	}
-	fields := map[string]bool{}
-	for _, declaration := range parsed.Decls {
-		general, ok := declaration.(*ast.GenDecl)
-		if !ok || general.Tok != token.TYPE {
+	files := token.NewFileSet()
+	parsed := make([]*ast.File, 0, len(sources))
+	filenames := make([]string, 0, len(sources))
+	for filename := range sources {
+		filenames = append(filenames, filename)
+	}
+	sort.Strings(filenames)
+	for _, filename := range filenames {
+		file, err := parser.ParseFile(files, filename, sources[filename], 0)
+		if err != nil {
+			return nil, fmt.Errorf("parse %s: %w", filename, err)
+		}
+		parsed = append(parsed, file)
+	}
+
+	imports := newAppSourceImporter(root)
+	configPackage, err := imports.Import(appConfigImport)
+	if err != nil {
+		return nil, fmt.Errorf("load config package: %w", err)
+	}
+	configFields, err := configFieldObjects(configPackage)
+	if err != nil {
+		return nil, err
+	}
+	info := &types.Info{
+		Selections: map[*ast.SelectorExpr]*types.Selection{},
+		Uses:       map[*ast.Ident]types.Object{},
+	}
+	checker := types.Config{Importer: imports}
+	if _, err := checker.Check("github.com/isukharev/atl/internal/app", files, parsed, info); err != nil {
+		return nil, fmt.Errorf("type-check app sources: %w", err)
+	}
+
+	var violations []error
+	for selector, selection := range info.Selections {
+		field, ok := selection.Obj().(*types.Var)
+		if !ok || !configFields[field] || allowedAppConfigSelectors[field.Name()] {
 			continue
 		}
-		for _, spec := range general.Specs {
-			typeSpec, ok := spec.(*ast.TypeSpec)
-			if !ok || typeSpec.Name.Name != "Config" {
-				continue
-			}
-			structure, ok := typeSpec.Type.(*ast.StructType)
+		violations = append(violations, configSelectorViolation(files, selector.Pos(), field))
+	}
+	for _, file := range parsed {
+		ast.Inspect(file, func(node ast.Node) bool {
+			keyed, ok := node.(*ast.KeyValueExpr)
 			if !ok {
-				t.Fatal("config.Config is not a struct")
+				return true
 			}
-			for _, field := range structure.Fields.List {
-				for _, name := range field.Names {
-					fields[name.Name] = true
-				}
+			name, ok := keyed.Key.(*ast.Ident)
+			if !ok {
+				return true
 			}
-		}
+			field, ok := info.Uses[name].(*types.Var)
+			if !ok || !configFields[field] || allowedAppConfigSelectors[field.Name()] {
+				return true
+			}
+			violations = append(violations, configSelectorViolation(files, name.Pos(), field))
+			return true
+		})
+	}
+	sort.Slice(violations, func(i, j int) bool { return violations[i].Error() < violations[j].Error() })
+	return violations, nil
+}
+
+func configFieldObjects(pkg *types.Package) (map[*types.Var]bool, error) {
+	object, ok := pkg.Scope().Lookup("Config").(*types.TypeName)
+	if !ok {
+		return nil, fmt.Errorf("%s.Config type not found", appConfigImport)
+	}
+	named, ok := types.Unalias(object.Type()).(*types.Named)
+	if !ok {
+		return nil, fmt.Errorf("%s.Config is not named", appConfigImport)
+	}
+	structure, ok := named.Underlying().(*types.Struct)
+	if !ok {
+		return nil, fmt.Errorf("%s.Config is not a struct", appConfigImport)
+	}
+	fields := map[*types.Var]bool{}
+	for index := range structure.NumFields() {
+		field := structure.Field(index)
+		fields[field] = true
 	}
 	for selector := range allowedAppConfigSelectors {
-		if !fields[selector] {
-			t.Fatalf("allowed render selector %q is not a config.Config field", selector)
+		found := false
+		for field := range fields {
+			found = found || field.Name() == selector
+		}
+		if !found {
+			return nil, fmt.Errorf("allowed render selector %q is not a config.Config field", selector)
 		}
 	}
-	if len(fields) == 0 {
-		t.Fatal("config.Config fields not found")
+	return fields, nil
+}
+
+func configSelectorViolation(files *token.FileSet, position token.Pos, field *types.Var) error {
+	return fmt.Errorf("%s selects config.Config.%s (typed field %s.%s)",
+		files.Position(position), field.Name(), field.Pkg().Path(), field.Name())
+}
+
+type appSourceImporter struct {
+	root           string
+	stdlib         types.Importer
+	moduleVersions map[string]string
+	cache          map[string]*types.Package
+	loading        map[string]bool
+}
+
+func newAppSourceImporter(root string) *appSourceImporter {
+	return &appSourceImporter{
+		root: root, stdlib: importer.Default(), moduleVersions: readModuleVersions(root),
+		cache: map[string]*types.Package{}, loading: map[string]bool{},
 	}
-	return fields
 }
 
-type appConfigSource struct {
-	filename string
-	files    *token.FileSet
-	parsed   *ast.File
-	aliases  map[string]bool
-}
+func (i *appSourceImporter) Import(importPath string) (*types.Package, error) {
+	const modulePath = "github.com/isukharev/atl"
+	var directory string
+	if strings.HasPrefix(importPath, modulePath+"/") {
+		directory = filepath.Join(i.root, filepath.FromSlash(strings.TrimPrefix(importPath, modulePath+"/")))
+	} else {
+		pkg, standardErr := i.stdlib.Import(importPath)
+		if standardErr == nil {
+			return pkg, nil
+		}
+		var ok bool
+		directory, ok = i.modulePackageDirectory(importPath)
+		if !ok {
+			return nil, standardErr
+		}
+	}
+	if pkg := i.cache[importPath]; pkg != nil {
+		return pkg, nil
+	}
+	if i.loading[importPath] {
+		return nil, fmt.Errorf("unexpected source import cycle at %s", importPath)
+	}
+	i.loading[importPath] = true
+	defer delete(i.loading, importPath)
 
-func validateAppConfigSelectors(sources map[string]string, configFields map[string]bool) []error {
-	parsedSources := make([]appConfigSource, 0, len(sources))
-	configStructFields := map[string]map[string]bool{}
-	for filename, source := range sources {
-		files := token.NewFileSet()
-		parsed, err := parser.ParseFile(files, filename, source, 0)
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return nil, err
+	}
+	files := token.NewFileSet()
+	var parsed []*ast.File
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		matched, err := build.Default.MatchFile(directory, name)
 		if err != nil {
-			return []error{fmt.Errorf("parse %s: %w", filename, err)}
+			return nil, err
 		}
-		aliases := configAliases(parsed)
-		parsedSources = append(parsedSources, appConfigSource{filename: filename, files: files, parsed: parsed, aliases: aliases})
-		for _, declaration := range parsed.Decls {
-			general, ok := declaration.(*ast.GenDecl)
-			if !ok || general.Tok != token.TYPE {
-				continue
-			}
-			for _, spec := range general.Specs {
-				typeSpec, ok := spec.(*ast.TypeSpec)
-				if !ok {
-					continue
-				}
-				structure, ok := typeSpec.Type.(*ast.StructType)
-				if !ok {
-					continue
-				}
-				for _, field := range structure.Fields.List {
-					if !isConfigType(field.Type, aliases) {
-						continue
-					}
-					if configStructFields[typeSpec.Name.Name] == nil {
-						configStructFields[typeSpec.Name.Name] = map[string]bool{}
-					}
-					for _, name := range field.Names {
-						configStructFields[typeSpec.Name.Name][name.Name] = true
-					}
-				}
-			}
-		}
-	}
-
-	var errs []error
-	for _, source := range parsedSources {
-		for _, declaration := range source.parsed.Decls {
-			function, ok := declaration.(*ast.FuncDecl)
-			if !ok || function.Body == nil {
-				continue
-			}
-			environment := appFunctionTypes(function, source.aliases)
-			for changed := true; changed; {
-				changed = false
-				ast.Inspect(function.Body, func(node ast.Node) bool {
-					switch node := node.(type) {
-					case *ast.AssignStmt:
-						for index, left := range node.Lhs {
-							if index >= len(node.Rhs) {
-								break
-							}
-							name, ok := left.(*ast.Ident)
-							kind := appExpressionType(node.Rhs[index], environment, configStructFields, source.aliases)
-							if ok && kind != "" && environment[name.Name] != kind {
-								environment[name.Name] = kind
-								changed = true
-							}
-						}
-					case *ast.DeclStmt:
-						general, ok := node.Decl.(*ast.GenDecl)
-						if !ok {
-							break
-						}
-						for _, spec := range general.Specs {
-							value, ok := spec.(*ast.ValueSpec)
-							if !ok {
-								continue
-							}
-							kind := appTypeName(value.Type, source.aliases)
-							for index, name := range value.Names {
-								if kind == "" && index < len(value.Values) {
-									kind = appExpressionType(value.Values[index], environment, configStructFields, source.aliases)
-								}
-								if kind != "" && environment[name.Name] != kind {
-									environment[name.Name] = kind
-									changed = true
-								}
-							}
-						}
-					}
-					return true
-				})
-			}
-			ast.Inspect(function.Body, func(node ast.Node) bool {
-				selector, ok := node.(*ast.SelectorExpr)
-				if !ok || appExpressionType(selector.X, environment, configStructFields, source.aliases) != "config.Config" {
-					return true
-				}
-				if allowedAppConfigSelectors[selector.Sel.Name] {
-					return true
-				}
-				kind := "non-render selector"
-				if configFields[selector.Sel.Name] {
-					kind = "non-render field"
-				}
-				errs = append(errs, fmt.Errorf("%s:%d selects config.Config.%s (%s)",
-					source.filename, source.files.Position(selector.Pos()).Line, selector.Sel.Name, kind))
-				return true
-			})
-		}
-	}
-	return errs
-}
-
-func configAliases(file *ast.File) map[string]bool {
-	aliases := map[string]bool{}
-	for _, spec := range file.Imports {
-		path, err := strconv.Unquote(spec.Path.Value)
-		if err != nil || path != appConfigImport {
+		if !matched {
 			continue
 		}
-		name := "config"
-		if spec.Name != nil {
-			name = spec.Name.Name
+		file, err := parser.ParseFile(files, filepath.Join(directory, name), nil, 0)
+		if err != nil {
+			return nil, err
 		}
-		aliases[name] = true
+		parsed = append(parsed, file)
 	}
-	return aliases
+	if len(parsed) == 0 {
+		return nil, fmt.Errorf("no production Go sources for %s", importPath)
+	}
+	checker := types.Config{Importer: i}
+	pkg, err := checker.Check(importPath, files, parsed, nil)
+	if err != nil {
+		return nil, err
+	}
+	i.cache[importPath] = pkg
+	return pkg, nil
 }
 
-func appFunctionTypes(function *ast.FuncDecl, aliases map[string]bool) map[string]string {
-	environment := map[string]string{}
-	for _, fields := range []*ast.FieldList{function.Recv, function.Type.Params} {
-		if fields == nil {
+func readModuleVersions(root string) map[string]string {
+	data, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		return nil
+	}
+	versions := map[string]string{}
+	inRequire := false
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(strings.SplitN(line, "//", 2)[0])
+		switch {
+		case line == "require (":
+			inRequire = true
+			continue
+		case inRequire && line == ")":
+			inRequire = false
 			continue
 		}
-		for _, field := range fields.List {
-			kind := appTypeName(field.Type, aliases)
-			for _, name := range field.Names {
-				environment[name.Name] = kind
-			}
+		fields := strings.Fields(line)
+		if inRequire && len(fields) == 2 {
+			versions[fields[0]] = fields[1]
+		} else if len(fields) == 3 && fields[0] == "require" {
+			versions[fields[1]] = fields[2]
 		}
 	}
-	return environment
+	return versions
 }
 
-func appTypeName(expression ast.Expr, aliases map[string]bool) string {
-	for {
-		switch typed := expression.(type) {
-		case *ast.StarExpr:
-			expression = typed.X
-		case *ast.ParenExpr:
-			expression = typed.X
-		case *ast.Ident:
-			return typed.Name
-		case *ast.SelectorExpr:
-			base, ok := typed.X.(*ast.Ident)
-			if ok && aliases[base.Name] && typed.Sel.Name == "Config" {
-				return "config.Config"
-			}
-			return ""
-		default:
-			return ""
+func (i *appSourceImporter) modulePackageDirectory(importPath string) (string, bool) {
+	modulePath, version := "", ""
+	for candidate, candidateVersion := range i.moduleVersions {
+		if (importPath == candidate || strings.HasPrefix(importPath, candidate+"/")) && len(candidate) > len(modulePath) {
+			modulePath, version = candidate, candidateVersion
 		}
 	}
-}
-
-func isConfigType(expression ast.Expr, aliases map[string]bool) bool {
-	return appTypeName(expression, aliases) == "config.Config"
-}
-
-func appExpressionType(expression ast.Expr, environment map[string]string, configStructFields map[string]map[string]bool, aliases map[string]bool) string {
-	switch expression := expression.(type) {
-	case *ast.Ident:
-		return environment[expression.Name]
-	case *ast.ParenExpr:
-		return appExpressionType(expression.X, environment, configStructFields, aliases)
-	case *ast.UnaryExpr:
-		return appExpressionType(expression.X, environment, configStructFields, aliases)
-	case *ast.CompositeLit:
-		return appTypeName(expression.Type, aliases)
-	case *ast.SelectorExpr:
-		owner := appExpressionType(expression.X, environment, configStructFields, aliases)
-		if configStructFields[owner][expression.Sel.Name] {
-			return "config.Config"
+	if modulePath == "" {
+		return "", false
+	}
+	relative := strings.TrimPrefix(importPath, modulePath)
+	relative = strings.TrimPrefix(relative, "/")
+	for _, workspace := range filepath.SplitList(build.Default.GOPATH) {
+		directory := filepath.Join(workspace, "pkg", "mod", filepath.FromSlash(escapeModuleCache(modulePath)+"@"+escapeModuleCache(version)), filepath.FromSlash(relative))
+		if info, err := os.Stat(directory); err == nil && info.IsDir() {
+			return directory, true
 		}
 	}
-	return ""
+	return "", false
+}
+
+func escapeModuleCache(value string) string {
+	var escaped strings.Builder
+	for _, character := range value {
+		if character >= 'A' && character <= 'Z' {
+			escaped.WriteByte('!')
+			character += 'a' - 'A'
+		}
+		escaped.WriteRune(character)
+	}
+	return escaped.String()
 }
