@@ -72,14 +72,17 @@
     {"owner":"mirror","path":"internal/mirror/markdown.go","max_lines":1258,"rationale":"Keep derived Markdown rendering ownership at its measured file baseline."},
     {"owner":"mirror","path":"internal/mirror/mirror.go","max_lines":1056,"rationale":"Keep mirror layout, staging, sidecar, and load orchestration at its measured file baseline."},
     {"owner":"mirror","path":"internal/mirror/mirror.go","function":"(*Mirror).preparePageFiles","max_lines":71,"no_headroom":true,"rationale":"Keep native and derived page staging at its exact measured span."},
-    {"owner":"tooling","path":"scripts/check-docs-freshness/main.go","max_lines":973,"rationale":"Keep changed-path and documentation freshness validation at its measured file baseline."},
+    {"owner":"tooling","path":"scripts/check-docs-freshness/main.go","max_lines":996,"rationale":"Keep changed-path, impact selection, and documentation freshness validation at its measured file baseline."},
+    {"owner":"tooling","path":"scripts/check-docs-freshness/main.go","function":"validateImpactManifest","max_lines":69,"no_headroom":true,"rationale":"Keep maintainer-impact selector and exclusion validation at its exact measured span."},
     {"owner":"tooling","path":"scripts/check-docs-freshness/main.go","function":"validateRepository","max_lines":69,"no_headroom":true,"rationale":"Keep the documentation freshness orchestration entry point at its exact measured span."},
     {"owner":"tooling","path":"scripts/check-maintainability/main.go","max_lines":667,"rationale":"Keep the maintainability checker itself at its measured file baseline."},
     {"owner":"tooling","path":"scripts/check-maintainability/main.go","function":"validateManifest","max_lines":119,"no_headroom":true,"rationale":"Keep manifest validation orchestration at its exact measured span."},
-    {"owner":"tooling","path":"scripts/check-maintainer-contract/main.go","max_lines":1749,"rationale":"Keep maintainer-contract validation at its measured file baseline."},
+    {"owner":"tooling","path":"scripts/check-maintainer-contract/main.go","max_lines":1781,"rationale":"Keep maintainer-contract and evaluator-gate validation at its measured file baseline."},
+    {"owner":"tooling","path":"scripts/check-maintainer-contract/main.go","function":"validateEvaluatorCompatSelections","max_lines":92,"no_headroom":true,"rationale":"Keep evaluator compatibility selection completeness checks at their exact measured span."},
     {"owner":"tooling","path":"scripts/check-maintainer-contract/main.go","function":"validateRepository","max_lines":39,"no_headroom":true,"rationale":"Keep maintainer-contract repository validation at its exact measured span."},
-    {"owner":"tooling","path":"scripts/gen-plugins/main.go","max_lines":870,"rationale":"Keep generated client-plugin assembly at its measured file baseline."},
-    {"owner":"tooling","path":"scripts/gen-plugins/main.go","function":"run","max_lines":231,"no_headroom":true,"rationale":"Keep generated client-plugin orchestration at its exact measured span."}
+    {"owner":"tooling","path":"scripts/gen-plugins/main.go","max_lines":1009,"rationale":"Keep generated client-plugin rendering, checking, and publication at its measured file baseline."},
+    {"owner":"tooling","path":"scripts/gen-plugins/main.go","function":"checkGeneratedOutputs","max_lines":56,"no_headroom":true,"rationale":"Keep non-mutating generated-output verification at its exact measured span."},
+    {"owner":"tooling","path":"scripts/gen-plugins/main.go","function":"runMode","max_lines":252,"no_headroom":true,"rationale":"Keep generator mode dispatch, rendering, and publication orchestration at its exact measured span."}
   ],
   "package_totals": [
     {"owner":"adapter-confluence","path":"internal/adapter/confluence/","max_lines":3760,"rationale":"Keep total Confluence adapter production growth visible across reads and guarded writes."},
@@ -91,10 +94,10 @@
     {"owner":"httpx","path":"internal/httpx/","max_lines":1249,"rationale":"Keep shared transport, scheduler, and write-safety infrastructure at its measured package baseline."},
     {"owner":"mcp","path":"internal/mcpserver/","max_lines":3294,"rationale":"Keep total production growth in the MCP package visible even when registration and protocol owners are split."},
     {"owner":"mirror","path":"internal/mirror/","max_lines":6621,"rationale":"Keep durable mirror layout, publication, recovery, and derived-view production growth visible."},
-    {"owner":"tooling","path":"scripts/check-docs-freshness/","max_lines":973,"rationale":"Keep documentation freshness tooling at its measured production baseline."},
+    {"owner":"tooling","path":"scripts/check-docs-freshness/","max_lines":996,"rationale":"Keep documentation freshness and impact-selection tooling at its measured production baseline."},
     {"owner":"tooling","path":"scripts/check-maintainability/","max_lines":667,"rationale":"Keep maintainability checker production growth at its measured package baseline."},
-    {"owner":"tooling","path":"scripts/check-maintainer-contract/","max_lines":1749,"rationale":"Keep maintainer-contract tooling at its measured production baseline."},
-    {"owner":"tooling","path":"scripts/gen-plugins/","max_lines":870,"rationale":"Keep generated client-plugin tooling at its measured production baseline."}
+    {"owner":"tooling","path":"scripts/check-maintainer-contract/","max_lines":1781,"rationale":"Keep maintainer-contract and evaluator-gate tooling at its measured production baseline."},
+    {"owner":"tooling","path":"scripts/gen-plugins/","max_lines":1009,"rationale":"Keep generated client-plugin check and publication tooling at its measured production baseline."}
   ],
   "change_surface": {
     "path_prefixes": ["internal/", "scripts/"],
