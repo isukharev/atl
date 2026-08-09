@@ -21,10 +21,14 @@ Qualified Confluence reads, mirrors, comments, tables, page operations, and guar
 `atl conf search` returns
 `{schema_version:1,query,results,count,complete,truncated,partial_reason?,next_cursor}`.
 `complete:true` requires a qualified terminal backend page: no continuation
-cursor and no pagination anomaly. Legacy/unqualified stores remain
-`complete:false`, even with an empty cursor. `-o text` carries the same signal
-above a Markdown candidate table; `-o id` remains page ids only. Agents must
-continue a cursor or disclose partial search before making an absence claim.
+cursor and no pagination anomaly. A page exactly at the requested limit needs
+a supported exact total to prove exhaustion when no continuation is present;
+missing or contradictory terminal evidence remains `complete:false` with a
+static reason. Legacy/unqualified stores also remain `complete:false`, even
+with an empty cursor. `-o text` carries the same signal above a Markdown
+candidate table; `-o id` remains page ids only. Agents must continue a cursor,
+narrow or investigate an unresumable partial page, or disclose partial search
+before making an absence claim.
 
 ## Advisory Cloud-compatibility validation
 

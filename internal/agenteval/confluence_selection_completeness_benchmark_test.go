@@ -64,6 +64,13 @@ func TestRepositoryConfluenceSelectionCompletenessFixturesDriveProviderOracles(t
 		if len(fixture.Routes) != 1 {
 			t.Fatalf("holdout routes=%d want=1", len(fixture.Routes))
 		}
+		var page confluenceSelectionBackendSearchPage
+		if err := decodeStrict(bytes.NewReader(fixture.Routes[0].Body), &page); err != nil {
+			t.Fatal(err)
+		}
+		if page.TotalCount != nil || page.TotalSize == nil || *page.TotalSize != 5 {
+			t.Fatalf("holdout total evidence drifted: totalCount=%v totalSize=%v", page.TotalCount, page.TotalSize)
+		}
 		result, summary := runConfluenceSelectionSearchCLI(t, root, fixture)
 		if result.Query != confluenceSelectionHoldoutQuery || result.Count != 2 || result.Complete ||
 			!result.Truncated || result.NextCursor != nil || result.PartialReason != confluenceSelectionHoldoutReason {
@@ -123,7 +130,7 @@ func TestRepositoryConfluenceSelectionCompletenessFixtureMutationsFailClosed(t *
 		if err := decodeJSONDocument(fixture.Routes[0].Body, &body); err != nil {
 			t.Fatal(err)
 		}
-		body["totalCount"] = json.Number("2")
+		body["totalSize"] = json.Number("2")
 		mutated, err := json.Marshal(body)
 		if err != nil {
 			t.Fatal(err)
@@ -716,6 +723,7 @@ type confluenceSelectionBackendSearchPage struct {
 	} `json:"results"`
 	Size       int  `json:"size"`
 	TotalCount *int `json:"totalCount,omitempty"`
+	TotalSize  *int `json:"totalSize,omitempty"`
 	Links      struct {
 		Next string `json:"next,omitempty"`
 	} `json:"_links"`

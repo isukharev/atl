@@ -30,10 +30,12 @@ optional `partial_reason`, and nullable `next_cursor`. Each result carries
 least one convenience filter; the two modes cannot be combined.
 
 `complete:true` is emitted only when qualified backend pagination proves the
-page terminal. If `truncated:true`, continue with `--cursor` when present and
-do not treat missing hits as evidence of absence. `-o text` renders the same
-qualification followed by a Markdown candidate table; `-o id` emits only page
-ids.
+page terminal. A no-next page exactly at `--limit` remains incomplete unless a
+supported exact total proves the observed end is exhaustive. If
+`truncated:true`, continue with `--cursor` when present; without one, narrow the
+query or investigate the backend evidence. Do not treat missing hits as
+evidence of absence. `-o text` renders the same qualification followed by a
+Markdown candidate table; `-o id` emits only page ids.
 
 ```json
 {
@@ -178,7 +180,8 @@ Complete mode is the explicit historical bootstrap for a selector larger than
 the ordinary CQL/space caps. It exhausts qualified search pagination twice,
 requires the same unique page-id set in both passes, canonicalizes that set
 locally, and only then starts page-body GETs. Missing/duplicate identities,
-repeated cursors, unreachable advertised results, selection drift, or an
+repeated cursors, contradictory totals, a full no-next page without trusted
+terminal evidence, unreachable advertised results, selection drift, or an
 explicit cap fail with exit `8` before any body request or new checkpoint.
 User CQL containing `ORDER BY` is rejected; atl does not depend on an
 undocumented id-order guarantee from the backend.
@@ -233,9 +236,9 @@ after a complete successful run; older state without a bound absolute instant
 is rejected with guidance to preserve the old mirror. Results are paged until the
 backend proves exhaustion, then the metadata pass is repeated and its
 `(id,version,updated)` set must match before any body is fetched. Only
-`type=page` hits are admitted. A repeated cursor, unreachable advertised total,
-explicit cap, or malformed timestamp exits `8` and leaves the watermark
-unchanged. `ORDER BY` in user CQL is rejected because atl appends
+`type=page` hits are admitted. A repeated cursor, contradictory or unreachable
+advertised total, explicit cap, or malformed timestamp exits `8` and leaves the
+watermark unchanged. `ORDER BY` in user CQL is rejected because atl appends
 `lastmodified asc`; there is no dependency on an undocumented id tie-breaker.
 
 Before the first page body fetch/write, the entire selected local set is

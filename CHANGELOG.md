@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Confluence search now reconciles both supported exact-total fields and exact
+  values across pages, and keeps a full no-next result page incomplete unless
+  trusted terminal evidence proves exhaustion, so completeness-sensitive pulls
+  cannot publish a stable truncated prefix.
 - Added the already-normalized public URL-node identity to `jira issue graph -o
   text`; non-URL, opaque, and sensitive identities remain blank and JSON output
   is unchanged.

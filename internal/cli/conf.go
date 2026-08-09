@@ -157,18 +157,7 @@ func confSearchCmd() *cobra.Command {
 				return err
 			}
 			return emitID(cmd, result, func() string {
-				var b strings.Builder
-				fmt.Fprintf(&b, "> CQL search; complete: %t; rows: %d.\n", result.Complete, result.Count)
-				if result.Truncated {
-					b.WriteString("> **Truncated:** continue with `next_cursor`; absence claims are not supported.\n")
-				}
-				rows := make([][]string, len(result.Results))
-				for i, h := range result.Results {
-					rows[i] = []string{h.ID, fmt.Sprintf("v%d", h.Version), h.Space, h.Title, h.Excerpt}
-				}
-				b.WriteString("\n")
-				b.WriteString(app.MarkdownTable([]string{"ID", "Version", "Space", "Title", "Excerpt"}, rows))
-				return strings.TrimRight(b.String(), "\n")
+				return confluenceSearchText(result)
 			}, func() []string {
 				ids := make([]string, len(result.Results))
 				for i, h := range result.Results {
