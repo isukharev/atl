@@ -7,7 +7,17 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/compose"
+	"github.com/isukharev/atl/internal/version"
 )
+
+func jiraWatcherService(cmd *cobra.Command) (*app.JiraWatcherService, error) {
+	cfg, authorizer, err := jiraCompositionInputs(cmd)
+	if err != nil {
+		return nil, err
+	}
+	return compose.NewJiraWatchersWithWriteAuthorizer(cfg, version.Version, authorizer)
+}
 
 func jiraIssueWatchersCmd() *cobra.Command {
 	group := &cobra.Command{Use: "watchers", Short: "List or safely change issue watchers"}
@@ -16,7 +26,7 @@ func jiraIssueWatchersCmd() *cobra.Command {
 		Short: "List current issue watchers",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := jiraService(cmd)
+			svc, err := jiraWatcherService(cmd)
 			if err != nil {
 				return err
 			}
@@ -64,7 +74,7 @@ func jiraIssueWatcherMutationCmd(operation string) *cobra.Command {
 			if err := guardedWrite.validate(); err != nil {
 				return err
 			}
-			svc, err := jiraService(cmd)
+			svc, err := jiraWatcherService(cmd)
 			if err != nil {
 				return err
 			}

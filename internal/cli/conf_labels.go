@@ -7,7 +7,17 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/compose"
+	"github.com/isukharev/atl/internal/version"
 )
+
+func confLabelService(cmd *cobra.Command) (*app.ConfluenceLabelService, error) {
+	cfg, authorizer, err := confluenceCompositionInputs(cmd)
+	if err != nil {
+		return nil, err
+	}
+	return compose.NewConfluenceLabelsWithWriteAuthorizer(cfg, version.Version, authorizer)
+}
 
 func confPageLabelsCmd() *cobra.Command {
 	group := &cobra.Command{Use: "labels", Short: "List or safely change page labels"}
@@ -16,7 +26,7 @@ func confPageLabelsCmd() *cobra.Command {
 		Short: "List all labels on a page",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := confService(cmd)
+			svc, err := confLabelService(cmd)
 			if err != nil {
 				return err
 			}
@@ -53,7 +63,7 @@ func confPageLabelMutationCmd(operation string) *cobra.Command {
 			if err := guardedWrite.validate(); err != nil {
 				return err
 			}
-			svc, err := confService(cmd)
+			svc, err := confLabelService(cmd)
 			if err != nil {
 				return err
 			}
