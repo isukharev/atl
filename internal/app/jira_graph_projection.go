@@ -243,7 +243,7 @@ func ProjectJiraIssueGraphCompact(full *JiraIssueGraphResult, opts JiraIssueGrap
 
 	sources := make([]domain.ArtifactGraphSource, 0)
 	for _, source := range full.Sources {
-		if source.Complete && !(selected[JiraIssueGraphSelectorSCM] && source.Kind == "development") {
+		if source.Complete && (!selected[JiraIssueGraphSelectorSCM] || source.Kind != "development") {
 			continue
 		}
 		sources = append(sources, cloneJiraIssueGraphSource(source))
