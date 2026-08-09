@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"go/ast"
@@ -18,9 +19,90 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/isukharev/atl/internal/contentpolicy"
 	"github.com/isukharev/atl/internal/domain"
 )
+
+func TestCommandTreesKeepInvocationRuntimeIndependent(t *testing.T) {
+	for _, name := range policyRelevantEnvironment {
+		switch name {
+		case "PATH", "HOME", "USERPROFILE":
+			continue
+		default:
+			t.Setenv(name, "")
+		}
+	}
+	t.Setenv("ATL_NO_UPDATE", "1")
+	t.Setenv("ATL_CONFIG_DIR", t.TempDir())
+
+	t.Setenv("ATL_POLICY", `{"schema_version":1,"rules":[{"id":"allow-docs","effect":"allow","verbs":["update"],"resource":{"service":"jira","project":"DOC"}}]}`)
+	textRoot := newRoot()
+	textRoot.SetArgs([]string{"--output", "text", "--read-only", "doctor"})
+	var textOut, textErr bytes.Buffer
+	textRoot.SetOut(&textOut)
+	textRoot.SetErr(&textErr)
+
+	t.Setenv("ATL_POLICY", "")
+	jsonRoot := newRoot()
+	jsonRoot.SetArgs([]string{"--output", "json", "doctor"})
+	var jsonOut, jsonErr bytes.Buffer
+	jsonRoot.SetOut(&jsonOut)
+	jsonRoot.SetErr(&jsonErr)
+
+	ready := make(chan struct{}, 2)
+	release := make(chan struct{})
+	blockRun := func(root *cobra.Command) {
+		t.Helper()
+		doctor, _, err := root.Find([]string{"doctor"})
+		if err != nil {
+			t.Fatalf("find doctor command: %v", err)
+		}
+		original := doctor.RunE
+		doctor.RunE = func(cmd *cobra.Command, args []string) error {
+			ready <- struct{}{}
+			<-release
+			return original(cmd, args)
+		}
+	}
+	blockRun(textRoot)
+	blockRun(jsonRoot)
+
+	results := make(chan error, 2)
+	run := func(root *cobra.Command) {
+		results <- root.ExecuteContext(context.Background())
+	}
+	go run(textRoot)
+	go run(jsonRoot)
+	<-ready
+	<-ready
+	close(release)
+	for range 2 {
+		if err := <-results; err != nil && !errors.Is(err, domain.ErrCheckFailed) {
+			t.Fatalf("execute command tree: %v", err)
+		}
+	}
+
+	if got := textOut.String(); !strings.Contains(got, "safety: read_only=true status=available") ||
+		!strings.Contains(got, "content_policy: active=true") || strings.HasPrefix(strings.TrimSpace(got), "{") {
+		t.Fatalf("text/read-only/policy runtime crossed command trees: stdout=%q stderr=%q", got, textErr.String())
+	}
+	var result struct {
+		Safety struct {
+			ReadOnly bool `json:"read_only"`
+		} `json:"safety"`
+		ContentPolicy struct {
+			Active bool `json:"active"`
+		} `json:"content_policy"`
+	}
+	if err := json.Unmarshal(jsonOut.Bytes(), &result); err != nil {
+		t.Fatalf("JSON command tree output: %v; stdout=%q stderr=%q", err, jsonOut.String(), jsonErr.String())
+	}
+	if result.Safety.ReadOnly || result.ContentPolicy.Active {
+		t.Fatalf("JSON command tree inherited peer runtime: %+v", result)
+	}
+}
 
 func TestPolicyShowAndExplainAreOffline(t *testing.T) {
 	policy := `{"schema_version":1,"rules":[{"id":"allow-docs","effect":"allow","verbs":["update"],"resource":{"service":"jira","project":"DOC"}}]}`

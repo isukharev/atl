@@ -88,7 +88,7 @@
     {"owner":"adapter-confluence","path":"internal/adapter/confluence/","max_lines":3760,"rationale":"Keep total Confluence adapter production growth visible across reads and guarded writes."},
     {"owner":"adapter-jira","path":"internal/adapter/jira/","max_lines":3533,"rationale":"Keep total Jira adapter production growth visible across reads and guarded writes."},
     {"owner":"app","path":"internal/app/","max_lines":34854,"rationale":"Keep total production growth visible, including backend-scoped trust assembly, content-free Jira discovery projections, configured Epic Link resolution, and path-free doctor diagnostics."},
-    {"owner":"cli","path":"internal/cli/","max_lines":11169,"rationale":"Keep total CLI production growth visible across parsing, assembly, and output selection."},
+    {"owner":"cli","path":"internal/cli/","max_lines":11171,"rationale":"Keep total CLI production growth visible after isolating mutable invocation state per command tree."},
     {"owner":"contentpolicy","path":"internal/contentpolicy/","max_lines":1281,"rationale":"Keep policy parsing, resolved and deny-only evaluation, source-denial envelopes, freeze, static scope requirements, and hierarchy hazards at the reviewed public-surface total."},
     {"owner":"evaluator","path":"internal/agenteval/","max_lines":47625,"rationale":"Keep the complete evaluator module tree visible, including the reviewed synthetic-write policy projection, strict denial parser, and zero-request refusal scenario."},
     {"owner":"httpx","path":"internal/httpx/","max_lines":1249,"rationale":"Keep shared transport, scheduler, and write-safety infrastructure at its measured package baseline."},

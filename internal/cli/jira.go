@@ -13,12 +13,12 @@ import (
 	"github.com/isukharev/atl/internal/version"
 )
 
-func jiraService() (*app.JiraService, error) {
+func jiraService(cmd *cobra.Command) (*app.JiraService, error) {
 	cfg, err := loadConfig()
 	if err != nil {
 		return nil, err
 	}
-	authorizer, err := policyAuthorizerFor("jira", cfg.JiraURL)
+	authorizer, err := policyAuthorizerFor(invocationRuntimeFor(cmd), "jira", cfg.JiraURL)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +105,7 @@ func jiraMeCmd() *cobra.Command {
 		Short: "Show the authenticated Jira user",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -132,7 +132,7 @@ func jiraUserCmd() *cobra.Command {
 			if err := validatePageLimit(limit, 1000); err != nil {
 				return err
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -162,7 +162,7 @@ func jiraUserCmd() *cobra.Command {
 		Short: "Get a user by DC username",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -203,7 +203,7 @@ func jiraPullCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -313,7 +313,7 @@ func jiraStatusCmd() *cobra.Command {
 			svc := &app.JiraService{}
 			if remote {
 				var err error
-				svc, err = jiraService()
+				svc, err = jiraService(cmd)
 				if err != nil {
 					return err
 				}
@@ -383,7 +383,7 @@ func jiraSnapshotCmd() *cobra.Command {
 				if preflight == nil || preflightErr != nil || !preflight.Complete || !preflight.Reconciled {
 					result, snapshotErr = preflight, preflightErr
 				} else {
-					svc, err := jiraService()
+					svc, err := jiraService(cmd)
 					if err != nil {
 						return err
 					}
@@ -424,7 +424,7 @@ func jiraReconcileCmd() *cobra.Command {
 			Short: map[bool]string{false: "Read one issue and classify base/local/remote divergence", true: "Stage exact base/remote description artifacts without changing the working issue"}[stage],
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
-				svc, err := jiraService()
+				svc, err := jiraService(cmd)
 				if err != nil {
 					return err
 				}
@@ -460,7 +460,7 @@ func jiraPushCmd() *cobra.Command {
 			"fails closed and must be reconciled before writing.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -536,10 +536,10 @@ func jiraExportCmd() *cobra.Command {
 			if out == "" {
 				return usageErr("--out is required")
 			}
-			if out == "-" && outputFormat == "text" {
+			if out == "-" && invocationRuntimeFor(cmd).outputFormat == "text" {
 				return usageErr("-o text is not an artifact format for --out -; use --format and omit -o text")
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -625,7 +625,7 @@ func jiraPlanningReportCommand(use string) *cobra.Command {
 			if err := validateAggregateLimit(limit); err != nil {
 				return err
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -664,7 +664,7 @@ func jiraMetaCmds() []*cobra.Command {
 		Use:   "fields",
 		Short: "List qualified Jira fields without values",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -693,7 +693,7 @@ func jiraMetaCmds() []*cobra.Command {
 			if project == "" || field == "" {
 				return usageErr("--project and --field are required")
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -716,7 +716,7 @@ func jiraMetaCmds() []*cobra.Command {
 			if transKey == "" {
 				return usageErr("--key is required")
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -733,7 +733,7 @@ func jiraMetaCmds() []*cobra.Command {
 		Use:   "link-types",
 		Short: "List issue link types",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}

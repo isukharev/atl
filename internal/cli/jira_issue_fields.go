@@ -23,7 +23,7 @@ func jiraIssueFieldsCmd() *cobra.Command {
 			if metadataOnly && raw {
 				return usageErr("--metadata-only conflicts with --raw")
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}

@@ -50,18 +50,14 @@ func runCLIWithFailingStdoutEnv(t *testing.T, env map[string]string, cause error
 	return root.ExecuteContext(context.Background())
 }
 
-// withFormat sets the package-level output format for the duration of a test.
-// Not safe with t.Parallel (mutates a package var) — intentionally serial.
-func withFormat(t *testing.T, f string) {
-	t.Helper()
-	old := outputFormat
-	outputFormat = f
-	t.Cleanup(func() { outputFormat = old })
+func commandWithFormat(format string) *cobra.Command {
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.WithValue(context.Background(), invocationRuntimeContextKey{}, &invocationRuntime{outputFormat: format}))
+	return cmd
 }
 
 func TestEmitID_PrintsIdentifiersOnly(t *testing.T) {
-	withFormat(t, "id")
-	cmd := &cobra.Command{}
+	cmd := commandWithFormat("id")
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
 
@@ -77,8 +73,7 @@ func TestEmitID_PrintsIdentifiersOnly(t *testing.T) {
 }
 
 func TestEmitID_FallsBackToJSONWhenNotIDFormat(t *testing.T) {
-	withFormat(t, "json")
-	cmd := &cobra.Command{}
+	cmd := commandWithFormat("json")
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
 
@@ -92,9 +87,8 @@ func TestEmitID_FallsBackToJSONWhenNotIDFormat(t *testing.T) {
 }
 
 func TestEmitIDPropagatesWriterFailure(t *testing.T) {
-	withFormat(t, "id")
 	cause := errors.New("id stdout unavailable")
-	cmd := &cobra.Command{}
+	cmd := commandWithFormat("id")
 	cmd.SetOut(errWriter{cause: cause})
 
 	err := emitID(cmd, map[string]any{"ignored": true}, nil, func() []string { return []string{"ML-1"} })
@@ -104,9 +98,8 @@ func TestEmitIDPropagatesWriterFailure(t *testing.T) {
 }
 
 func TestEmitTextPropagatesWriterFailure(t *testing.T) {
-	withFormat(t, "text")
 	cause := errors.New("text stdout unavailable")
-	cmd := &cobra.Command{}
+	cmd := commandWithFormat("text")
 	cmd.SetOut(errWriter{cause: cause})
 
 	err := emit(cmd, map[string]any{"ignored": true}, func() string { return "result" })
@@ -116,8 +109,7 @@ func TestEmitTextPropagatesWriterFailure(t *testing.T) {
 }
 
 func TestEmit_RejectsIDFormatWhenUnsupported(t *testing.T) {
-	withFormat(t, "id")
-	cmd := &cobra.Command{}
+	cmd := commandWithFormat("id")
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
 
@@ -128,8 +120,7 @@ func TestEmit_RejectsIDFormatWhenUnsupported(t *testing.T) {
 }
 
 func TestEmitRejectsTextFormatWhenUnsupported(t *testing.T) {
-	withFormat(t, "text")
-	cmd := &cobra.Command{}
+	cmd := commandWithFormat("text")
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
 

@@ -16,7 +16,7 @@ func jiraIssueWatchersCmd() *cobra.Command {
 		Short: "List current issue watchers",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -64,7 +64,7 @@ func jiraIssueWatcherMutationCmd(operation string) *cobra.Command {
 			if err := guardedWrite.validate(); err != nil {
 				return err
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}

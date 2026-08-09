@@ -18,12 +18,12 @@ func jiraEpicCmd() *cobra.Command {
 			if _, err := app.ProjectJiraEpicDigest(nil, projection); err != nil {
 				return err
 			}
-			jira, err := jiraService()
+			jira, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
 			if opts.ExpandConfluence > 0 {
-				confluence, confErr := confService()
+				confluence, confErr := confService(cmd)
 				if confErr != nil {
 					return confErr
 				}

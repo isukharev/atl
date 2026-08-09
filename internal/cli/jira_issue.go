@@ -23,7 +23,7 @@ func jiraIssueCmd() *cobra.Command {
 		Short: "Get an issue",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -50,7 +50,7 @@ func jiraIssueCmd() *cobra.Command {
 			if err := validatePageLimit(limit, 1000); err != nil {
 				return err
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -77,7 +77,7 @@ func jiraIssueCmd() *cobra.Command {
 			if err := validatePageLimit(childrenLimit, 1000); err != nil {
 				return err
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -117,7 +117,7 @@ func jiraIssueCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -168,7 +168,7 @@ func jiraIssueCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -204,7 +204,7 @@ func jiraIssueCmd() *cobra.Command {
 			if !cmd.Flags().Changed("new") && edNewFile == "" {
 				return usageErr("--new (or --new-file) is required (pass --new '' to delete the matched text)")
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -256,7 +256,7 @@ func jiraIssueCmd() *cobra.Command {
 			if len(require) == 0 && len(warn) == 0 {
 				return usageErr("nothing to check: pass --require and/or --warn fields")
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -296,7 +296,7 @@ func jiraIssueCmd() *cobra.Command {
 		Short: "Preview or apply one reviewed permanent issue deletion",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -328,7 +328,7 @@ func jiraIssueCmd() *cobra.Command {
 			if len(add) == 0 && len(remove) == 0 {
 				return usageErr("pass --add and/or --remove")
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -357,7 +357,7 @@ func jiraIssueCmd() *cobra.Command {
 			if picked != 1 {
 				return usageErr("pass exactly one of --to <username>, --me, or --none")
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -392,7 +392,7 @@ func jiraIssueCmd() *cobra.Command {
 			if cmd.Flags().Changed("summary-only") && !historySummaryOnly {
 				return usageErr("--summary-only cannot be false; omit the flag to request raw history")
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -428,7 +428,7 @@ func jiraIssueCmd() *cobra.Command {
 			if epic == "" {
 				return usageErr("--epic is required")
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -446,7 +446,7 @@ func jiraIssueCmd() *cobra.Command {
 		Short: "Download image attachments to files (agent vision)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -473,7 +473,7 @@ func jiraIssueCmd() *cobra.Command {
 			if len(args) == 1 {
 				key = args[0]
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -502,7 +502,7 @@ func jiraIssueCmd() *cobra.Command {
 			if err := validateAggregateLimit(treeLimit); err != nil {
 				return err
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -549,7 +549,7 @@ func jiraIssueViewCmd() *cobra.Command {
 			if detected, ok := app.MirrorRootOf(configRoot); ok {
 				configRoot = detected
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -561,7 +561,7 @@ func jiraIssueViewCmd() *cobra.Command {
 				return err
 			}
 			warnRender(cmd.ErrOrStderr(), res.Warnings)
-			if outputFormat == "text" {
+			if invocationRuntimeFor(cmd).outputFormat == "text" {
 				_, err := io.WriteString(cmd.OutOrStdout(), res.Markdown)
 				return err
 			}
@@ -581,7 +581,7 @@ func jiraIssueAttachmentCmd() *cobra.Command {
 		Short: "List issue attachments",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -614,7 +614,7 @@ func jiraIssueAttachmentCmd() *cobra.Command {
 			if getID == "" {
 				return usageErr("--id is required")
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -639,7 +639,7 @@ func jiraIssueAttachmentCmd() *cobra.Command {
 			if uploadFile == "" {
 				return usageErr("--file is required")
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -745,7 +745,7 @@ func jiraLinkCmd() *cobra.Command {
 			if linkTo == "" || linkType == "" {
 				return usageErr("--to and --type are required")
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -763,7 +763,7 @@ func jiraLinkCmd() *cobra.Command {
 		Short: "List an issue's links (with link ids for deletion)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -792,7 +792,7 @@ func jiraLinkCmd() *cobra.Command {
 		Short: "Delete an issue link by id (see `link list`)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -808,7 +808,7 @@ func jiraLinkCmd() *cobra.Command {
 		Use:   "suggest",
 		Short: "Suggest missing links from a reviewed CSV plan without writing",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -842,7 +842,7 @@ func jiraIssuePlanCmd() *cobra.Command {
 		Use:   "apply",
 		Short: "Preview or apply a guarded CSV operation plan",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}

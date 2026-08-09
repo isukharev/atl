@@ -49,7 +49,7 @@ func jiraIssueFieldMutationCmd(applyCapable bool) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}

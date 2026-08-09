@@ -55,11 +55,11 @@ func policyShowCmd() *cobra.Command {
 		Use:   "show",
 		Short: "Show the frozen process policy and its effective grants",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			resolved, err := currentProcessPolicy.resolve()
+			resolved, err := invocationRuntimeFor(cmd).processPolicy.resolve()
 			if err != nil {
 				return classifyProcessPolicyLoadError(err)
 			}
-			result := buildPolicyShowResult(resolved)
+			result := buildPolicyShowResult(invocationRuntimeFor(cmd), resolved)
 			return emit(cmd, result, func() string { return policyShowText(result) })
 		},
 	}
@@ -100,7 +100,7 @@ func policyExplainCmd() *cobra.Command {
 			if err := validatePolicyExplainTarget(target); err != nil {
 				return err
 			}
-			resolved, err := currentProcessPolicy.resolve()
+			resolved, err := invocationRuntimeFor(cmd).processPolicy.resolve()
 			if err != nil {
 				return classifyProcessPolicyLoadError(err)
 			}
@@ -229,10 +229,10 @@ func splitNonBlank(value string) []string {
 	return out
 }
 
-func buildPolicyShowResult(resolved *contentpolicy.Resolved) policyShowResult {
+func buildPolicyShowResult(runtime *invocationRuntime, resolved *contentpolicy.Resolved) policyShowResult {
 	result := policyShowResult{
 		SchemaVersion: 1, Active: resolved != nil && len(resolved.Layers) != 0, Enforcement: "advisory",
-		ReadOnly: policyReadOnlyStatus{Active: currentReadOnlyPolicy}, Digest: policyDigestStatus{},
+		ReadOnly: policyReadOnlyStatus{Active: runtime.readOnlyPolicy}, Digest: policyDigestStatus{},
 		Grants:       summarizePolicyGrants(resolved),
 		Governs:      map[string]string{"jira": "guarded", "confluence": "guarded", "local_commands": "not_governed", "local_mirror": "not_governed", "reads": "not_governed"},
 		NotABoundary: "atl enforces these rules on the atl code path only; a process that can run atl can read the credential and call the REST API directly",
@@ -240,7 +240,7 @@ func buildPolicyShowResult(resolved *contentpolicy.Resolved) policyShowResult {
 	if result.ReadOnly.Active {
 		source := "configuration"
 		switch {
-		case readOnly:
+		case runtime.readOnly:
 			source = "flag"
 		case envReadOnly():
 			source = "environment"
@@ -279,7 +279,7 @@ func buildPolicyShowResult(resolved *contentpolicy.Resolved) policyShowResult {
 	if os.Getenv("ATL_NO_UPDATE") == "" {
 		result.AdvisoryBecause = append(result.AdvisoryBecause, "self_update_armed")
 	}
-	if currentProcessPolicy != nil && currentProcessPolicy.required && os.Getenv("ATL_POLICY_FILE") != "" && os.Getenv("ATL_POLICY_SHA256") != "" && policyHasCompleteBackendBinding(resolved) {
+	if runtime.processPolicy != nil && runtime.processPolicy.required && os.Getenv("ATL_POLICY_FILE") != "" && os.Getenv("ATL_POLICY_SHA256") != "" && policyHasCompleteBackendBinding(resolved) {
 		result.Enforcement = "sealed_unverified"
 	}
 	return result

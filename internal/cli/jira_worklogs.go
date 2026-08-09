@@ -20,7 +20,7 @@ func jiraIssueWorklogListCmd() *cobra.Command {
 		Short: "List the complete worklog history of an issue",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -68,7 +68,7 @@ func jiraIssueWorklogAddCmd() *cobra.Command {
 			if _, err := app.ValidateJiraWorklogComment(comment); err != nil {
 				return err
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}

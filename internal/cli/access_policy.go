@@ -859,7 +859,7 @@ func validateJiraIssueDeleteInvocation(cmd *cobra.Command, applyRequested bool) 
 	if !domain.ValidJiraIssueKey(key) {
 		return usageErr("issue key must be canonical (for example PROJ-1)")
 	}
-	if outputFormat == "id" {
+	if invocationRuntimeFor(cmd).outputFormat == "id" {
 		return usageErr("-o id is not supported for this command")
 	}
 	guardNames := []string{"confirm", "expected-updated", "expected-proposal-hash"}
@@ -895,7 +895,7 @@ func validateConfluenceAttachmentDeleteInvocation(cmd *cobra.Command, applyReque
 	if !domain.ValidConfluenceContentID(attachmentID) {
 		return usageErr("--id must be a positive numeric attachment id")
 	}
-	if outputFormat == "id" {
+	if invocationRuntimeFor(cmd).outputFormat == "id" {
 		return usageErr("-o id is not supported for this command")
 	}
 	guardNames := []string{"confirm", "expected-version", "expected-proposal-hash"}
@@ -935,7 +935,7 @@ func validateConfluencePageCopyInvocation(cmd *cobra.Command, applyRequested boo
 				return usageErr("--expected-version and --expected-proposal-hash require --apply")
 			}
 		}
-		if outputFormat == "id" {
+		if invocationRuntimeFor(cmd).outputFormat == "id" {
 			return usageErr("-o id is available only with --apply after the created page id is known")
 		}
 		return nil
@@ -976,10 +976,10 @@ func validateConfluencePageDeleteInvocation(cmd *cobra.Command, applyRequested b
 }
 
 func enforceContentPolicyPreflight(cmd *cobra.Command, args []string, registration commandRegistration) error {
-	if currentProcessPolicy == nil || len(registration.policyVerbs) == 0 {
+	if len(registration.policyVerbs) == 0 {
 		return nil
 	}
-	resolved, err := currentProcessPolicy.resolve()
+	resolved, err := invocationRuntimeFor(cmd).processPolicy.resolve()
 	if err != nil || resolved == nil || len(resolved.Layers) == 0 {
 		return err
 	}
