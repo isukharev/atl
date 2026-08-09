@@ -7,16 +7,29 @@ import (
 	"testing"
 
 	"github.com/isukharev/atl/internal/agenteval/core"
+	"github.com/isukharev/atl/internal/agenteval/extension"
 	profileatl "github.com/isukharev/atl/internal/agenteval/profile/atl"
 )
 
 func TestATLCoreProfileAdmitsCommittedSyntheticCorpus(t *testing.T) {
+	builtInExtension := atlBuiltInExtensionProfile{}
+	extensionDescriptor := builtInExtension.Capabilities()
+	if err := extension.ValidateDescriptor(extensionDescriptor); err != nil ||
+		extensionDescriptor.Role != extension.RoleProfile || len(extensionDescriptor.Operations) != 2 {
+		t.Fatalf("ATL extension descriptor=%+v err=%v", extensionDescriptor, err)
+	}
+	extensionDescriptor.Capabilities[0].State = extension.CapabilityUnknown
+	if atlExtensionProfileDescriptor().Capabilities[0].State != extension.CapabilitySupported {
+		t.Fatal("ATL extension descriptor is mutable")
+	}
+
 	profile, err := newATLCoreProfile(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	descriptor := profile.Descriptor()
-	if descriptor.ID != profileatl.ProfileID || len(descriptor.Capabilities) != CapabilityCatalogItemCount {
+	if descriptor.ID != profileatl.ProfileID || extensionDescriptor.ID != string(descriptor.ID) ||
+		len(descriptor.Capabilities) != CapabilityCatalogItemCount {
 		t.Fatalf("descriptor=%+v", descriptor)
 	}
 	catalog, err := PinnedCapabilityCatalog()
@@ -61,6 +74,9 @@ func TestATLCoreProfileAdmitsCommittedSyntheticCorpus(t *testing.T) {
 		contract, err := resolveRunContract(path)
 		if err != nil {
 			t.Fatalf("resolve committed run contract: %v", err)
+		}
+		if err := builtInExtension.Validate(contract); err != nil {
+			t.Fatalf("profile.validate rejected committed run contract: %v", err)
 		}
 		plan, err := projectATLRunContract(contract)
 		if err != nil {

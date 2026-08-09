@@ -31,6 +31,16 @@ before projection; no historical JSON bytes or digests are migrated by this
 split. Recursive import and vocabulary oracles enforce the dependency direction.
 Product onboarding checks use independent core test infrastructure so product
 packages never depend on the heavy evaluator.
+The root facade also owns the closed schema-v1 extension manifest/message
+boundary and its content-minimized conformance report. The repository-only
+`verify-extension-protocol --manifest FILE --adapter FILE --bundle FILE`
+command exercises that boundary as maintainer evidence; it is not the reserved
+standalone `compat verify` command and does not establish whole-product
+compatibility. Its local process host bounds framing, output, deadlines, and
+cleanup without providing ambient evaluator configuration. It does not enforce
+filesystem, network, credential, or general resource isolation on the host, so
+requirements that need those controls must refuse before spawn pending the
+qualified execution boundary owned by #1320.
 Selected-binary oracles also decode released Jira and Confluence evidence with
 evaluator-owned closed wire types. The retained offline mirror snapshot cohorts
 seed bounded, symlink-free templates into a private process runtime and
@@ -288,6 +298,10 @@ Ordinary product changes retain the small provider/backend-free
 `make agent-eval-compat` boundary; evaluator or corpus changes and release
 preparation require the full facade. Root `make test` and `make race`
 intentionally do not traverse the nested evaluator module.
+The compatibility selection includes the checked-in synthetic extension
+manifest, state-machine, process-host, and report tests. It does not invoke an
+arbitrary executable through `verify-extension-protocol`; doing so would exceed
+the provider-free gate until the qualified isolation boundary exists.
 
 The skill catalog is a versioned JSON companion in the selected Codex plugin
 package, not metadata reported by the ATL binary. The evaluator owns only its

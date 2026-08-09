@@ -36,6 +36,16 @@ claiming a standalone SDK. A recursive exact import ledger and vocabulary
 oracle enforce the direction; additional process, lifecycle, and distribution
 extraction remains subject to the issues and evidence gates that own it.
 
+The nested module's schema-v1 extension protocol is also implementation
+evidence, not extraction evidence. It defines a closed process seam for
+profiles, agent adapters, execution backends, graders, and reporters, plus an
+internal `verify-extension-protocol` maintainer command. The resulting report
+is scoped to framing and protocol behavior. The current local host does not
+enforce filesystem, network, credential, or general resource isolation for an
+arbitrary child, so it cannot satisfy the credential-free prototype below or
+the adoption gate's confinement requirements. Those claims remain blocked on
+the qualified execution boundary owned by #1320.
+
 | Evidence | Retained nested module | Separate repository now |
 |---|---|---|
 | Build boundary | Own `go.mod`, dependency lock, command, linter, and full build/test/race/vet/vulnerability/Windows gates; root recursive Go commands do not enter the module | Preserves isolation, but does not remove any required evaluator gate |

@@ -236,58 +236,64 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 	}
 
 	wantSchemas := map[string]standaloneArtifactCompatibility{
-		"activation-reference":     {current: PrivateActivationReferenceSchemaVersion, readable: []int{LegacyPrivateActivationReferenceSchemaVersion, PrivateActivationReferenceSchemaVersion}, emitted: []int{PrivateActivationReferenceSchemaVersion}},
-		"activation-report":        {current: PrivateActivationReportSchemaVersion, emitted: []int{LegacyPrivateActivationReportSchemaVersion, PrivateActivationReportSchemaVersion}},
-		"aggregate":                {current: AggregateSchemaVersion, emitted: []int{AggregateSchemaVersion}},
-		"capability-catalog":       {current: CapabilityCatalogSchemaVersion, readable: []int{CapabilityCatalogSchemaVersion}, emitted: []int{CapabilityCatalogSchemaVersion}, executable: []int{CapabilityCatalogSchemaVersion}},
-		"observation":              {current: ObservationSchemaVersion, readable: []int{ObservationSchemaVersion}, emitted: []int{ObservationSchemaVersion}, executable: []int{ObservationSchemaVersion}},
-		"private-plan":             {current: PrivatePlanSchemaVersion, readable: []int{LegacyPrivatePlanSchemaVersion, LegacyPromptBoundPrivatePlanSchemaVersion, LegacyCompleteActivationPrivatePlanSchemaVersion, LegacyActivationStudyPrivatePlanSchemaVersion, LegacyCalibratedPrivatePlanSchemaVersion, LegacyToolQualifiedPrivatePlanSchemaVersion, LegacyExecutableReviewPrivatePlanSchemaVersion, LegacyLiveWritePrivatePlanSchemaVersion, PrivatePlanSchemaVersion}, emitted: []int{PrivatePlanSchemaVersion}, executable: []int{PrivatePlanSchemaVersion}},
-		"private-workspace":        {current: PrivateWorkspaceSchemaVersion, readable: []int{LegacyPrivateWorkspaceSchemaVersion, LegacyActivationWorkspaceSchemaVersion, LegacyCalibratedWorkspaceSchemaVersion, PrivateWorkspaceSchemaVersion}, emitted: []int{PrivateWorkspaceSchemaVersion}, executable: []int{PrivateWorkspaceSchemaVersion}},
-		"qualitative-panel":        {current: QualitativePanelSchemaVersion, readable: []int{QualitativePanelSchemaVersion}, emitted: []int{QualitativePanelSchemaVersion}, executable: []int{QualitativePanelSchemaVersion}},
-		"result":                   {current: ResultSchemaVersion, readable: []int{LegacyResultSchemaVersion, PanelResultSchemaVersion, LegacyPromptBoundResultSchemaVersion, LegacyAttemptlessResultSchemaVersion, LegacyEvidenceResultSchemaVersion, ResultSchemaVersion}, emitted: []int{ResultSchemaVersion}, executable: []int{LegacyResultSchemaVersion, PanelResultSchemaVersion, LegacyPromptBoundResultSchemaVersion, LegacyAttemptlessResultSchemaVersion, LegacyEvidenceResultSchemaVersion, ResultSchemaVersion}},
-		"review":                   {current: ReviewSchemaVersion, readable: []int{LegacyReviewSchemaVersion, ReviewSchemaVersion}, emitted: []int{ReviewSchemaVersion}, executable: []int{LegacyReviewSchemaVersion, ReviewSchemaVersion}},
-		"rubric":                   {current: RubricSchemaVersion, readable: []int{RubricSchemaVersion}, executable: []int{RubricSchemaVersion}},
-		"run-spec":                 {current: RunSpecSchemaVersion, readable: []int{LegacyPromptChannelRunSpecVersion, LegacyRunSpecSchemaVersion, RunSpecSchemaVersion}, emitted: []int{RunSpecSchemaVersion}, executable: []int{LegacyPromptChannelRunSpecVersion, LegacyRunSpecSchemaVersion, RunSpecSchemaVersion}},
-		"scenario":                 {current: ScenarioSchemaVersion, readable: []int{ScenarioSchemaVersion}, emitted: []int{ScenarioSchemaVersion}, executable: []int{ScenarioSchemaVersion}},
-		"synthetic-root-aggregate": {current: SyntheticRootAggregateSchemaVersion, emitted: []int{SyntheticRootAggregateSchemaVersion}},
-		"synthetic-run-receipt":    {current: SyntheticRunReceiptSchemaVersion, readable: []int{SyntheticRunReceiptSchemaVersion}, emitted: []int{SyntheticRunReceiptSchemaVersion}, executable: []int{SyntheticRunReceiptSchemaVersion}},
+		standaloneContractKey("atl-profile", "activation-reference"):        {current: PrivateActivationReferenceSchemaVersion, readable: []int{LegacyPrivateActivationReferenceSchemaVersion, PrivateActivationReferenceSchemaVersion}, emitted: []int{PrivateActivationReferenceSchemaVersion}},
+		standaloneContractKey("atl-profile", "activation-report"):           {current: PrivateActivationReportSchemaVersion, emitted: []int{LegacyPrivateActivationReportSchemaVersion, PrivateActivationReportSchemaVersion}},
+		standaloneContractKey("atl-profile", "aggregate"):                   {current: AggregateSchemaVersion, emitted: []int{AggregateSchemaVersion}},
+		standaloneContractKey("atl-profile", "capability-catalog"):          {current: CapabilityCatalogSchemaVersion, readable: []int{CapabilityCatalogSchemaVersion}, emitted: []int{CapabilityCatalogSchemaVersion}, executable: []int{CapabilityCatalogSchemaVersion}},
+		standaloneContractKey("atl-profile", "observation"):                 {current: ObservationSchemaVersion, readable: []int{ObservationSchemaVersion}, emitted: []int{ObservationSchemaVersion}, executable: []int{ObservationSchemaVersion}},
+		standaloneContractKey("atl-profile", "private-plan"):                {current: PrivatePlanSchemaVersion, readable: []int{LegacyPrivatePlanSchemaVersion, LegacyPromptBoundPrivatePlanSchemaVersion, LegacyCompleteActivationPrivatePlanSchemaVersion, LegacyActivationStudyPrivatePlanSchemaVersion, LegacyCalibratedPrivatePlanSchemaVersion, LegacyToolQualifiedPrivatePlanSchemaVersion, LegacyExecutableReviewPrivatePlanSchemaVersion, LegacyLiveWritePrivatePlanSchemaVersion, PrivatePlanSchemaVersion}, emitted: []int{PrivatePlanSchemaVersion}, executable: []int{PrivatePlanSchemaVersion}},
+		standaloneContractKey("atl-profile", "private-workspace"):           {current: PrivateWorkspaceSchemaVersion, readable: []int{LegacyPrivateWorkspaceSchemaVersion, LegacyActivationWorkspaceSchemaVersion, LegacyCalibratedWorkspaceSchemaVersion, PrivateWorkspaceSchemaVersion}, emitted: []int{PrivateWorkspaceSchemaVersion}, executable: []int{PrivateWorkspaceSchemaVersion}},
+		standaloneContractKey("atl-profile", "qualitative-panel"):           {current: QualitativePanelSchemaVersion, readable: []int{QualitativePanelSchemaVersion}, emitted: []int{QualitativePanelSchemaVersion}, executable: []int{QualitativePanelSchemaVersion}},
+		standaloneContractKey("atl-profile", "result"):                      {current: ResultSchemaVersion, readable: []int{LegacyResultSchemaVersion, PanelResultSchemaVersion, LegacyPromptBoundResultSchemaVersion, LegacyAttemptlessResultSchemaVersion, LegacyEvidenceResultSchemaVersion, ResultSchemaVersion}, emitted: []int{ResultSchemaVersion}, executable: []int{LegacyResultSchemaVersion, PanelResultSchemaVersion, LegacyPromptBoundResultSchemaVersion, LegacyAttemptlessResultSchemaVersion, LegacyEvidenceResultSchemaVersion, ResultSchemaVersion}},
+		standaloneContractKey("atl-profile", "review"):                      {current: ReviewSchemaVersion, readable: []int{LegacyReviewSchemaVersion, ReviewSchemaVersion}, emitted: []int{ReviewSchemaVersion}, executable: []int{LegacyReviewSchemaVersion, ReviewSchemaVersion}},
+		standaloneContractKey("atl-profile", "rubric"):                      {current: RubricSchemaVersion, readable: []int{RubricSchemaVersion}, executable: []int{RubricSchemaVersion}},
+		standaloneContractKey("atl-profile", "run-spec"):                    {current: RunSpecSchemaVersion, readable: []int{LegacyPromptChannelRunSpecVersion, LegacyRunSpecSchemaVersion, RunSpecSchemaVersion}, emitted: []int{RunSpecSchemaVersion}, executable: []int{LegacyPromptChannelRunSpecVersion, LegacyRunSpecSchemaVersion, RunSpecSchemaVersion}},
+		standaloneContractKey("atl-profile", "scenario"):                    {current: ScenarioSchemaVersion, readable: []int{ScenarioSchemaVersion}, emitted: []int{ScenarioSchemaVersion}, executable: []int{ScenarioSchemaVersion}},
+		standaloneContractKey("atl-profile", "synthetic-root-aggregate"):    {current: SyntheticRootAggregateSchemaVersion, emitted: []int{SyntheticRootAggregateSchemaVersion}},
+		standaloneContractKey("atl-profile", "synthetic-run-receipt"):       {current: SyntheticRunReceiptSchemaVersion, readable: []int{SyntheticRunReceiptSchemaVersion}, emitted: []int{SyntheticRunReceiptSchemaVersion}, executable: []int{SyntheticRunReceiptSchemaVersion}},
+		standaloneContractKey("standalone", "adapter-manifest"):             {current: 1, readable: []int{1}, emitted: []int{1}, executable: []int{1}},
+		standaloneContractKey("standalone", "adapter-message"):              {current: 1, readable: []int{1}, emitted: []int{1}, executable: []int{1}},
+		standaloneContractKey("standalone", "extension-conformance-bundle"): {current: 1, readable: []int{1}, emitted: []int{1}, executable: []int{1}},
+		standaloneContractKey("standalone", "extension-conformance-report"): {current: 1, readable: []int{1}, emitted: []int{1}},
 	}
 	wantSchemaPolicies := map[string]standaloneArtifactPolicy{
-		"activation-reference":     {disposition: "preserve", privacy: "owner_private", migration: "compare_only", maxBytes: 1 << 20},
-		"activation-report":        {disposition: "write_only_projection", privacy: "content_minimized", migration: "compare_only", maxBytes: 0},
-		"aggregate":                {disposition: "write_only_projection", privacy: "content_minimized", migration: "compare_only", maxBytes: 1 << 20},
-		"capability-catalog":       {disposition: "preserve", privacy: "public", migration: "explicit", maxBytes: 1 << 20},
-		"observation":              {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: 1 << 20},
-		"private-plan":             {disposition: "preserve", privacy: "owner_private", migration: "compare_only", maxBytes: 4 << 20},
-		"private-workspace":        {disposition: "preserve", privacy: "owner_private", migration: "partial_explicit", maxBytes: 1 << 20},
-		"qualitative-panel":        {disposition: "preserve", privacy: "owner_private", migration: "explicit", maxBytes: 1 << 20},
-		"result":                   {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: 1 << 20},
-		"review":                   {disposition: "preserve", privacy: "owner_private", migration: "explicit", maxBytes: 1 << 20},
-		"rubric":                   {disposition: "preserve", privacy: "public_or_private", migration: "explicit", maxBytes: 1 << 20},
-		"run-spec":                 {disposition: "preserve", privacy: "public_or_private", migration: "explicit", maxBytes: 1 << 20},
-		"scenario":                 {disposition: "preserve", privacy: "public_or_private", migration: "explicit", maxBytes: 1 << 20},
-		"synthetic-root-aggregate": {disposition: "write_only_projection", privacy: "content_minimized", migration: "compare_only", maxBytes: 1 << 20},
-		"synthetic-run-receipt":    {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: 16 << 10},
+		standaloneContractKey("atl-profile", "activation-reference"):        {disposition: "preserve", privacy: "owner_private", migration: "compare_only", maxBytes: 1 << 20},
+		standaloneContractKey("atl-profile", "activation-report"):           {disposition: "write_only_projection", privacy: "content_minimized", migration: "compare_only", maxBytes: 0},
+		standaloneContractKey("atl-profile", "aggregate"):                   {disposition: "write_only_projection", privacy: "content_minimized", migration: "compare_only", maxBytes: 1 << 20},
+		standaloneContractKey("atl-profile", "capability-catalog"):          {disposition: "preserve", privacy: "public", migration: "explicit", maxBytes: 1 << 20},
+		standaloneContractKey("atl-profile", "observation"):                 {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: 1 << 20},
+		standaloneContractKey("atl-profile", "private-plan"):                {disposition: "preserve", privacy: "owner_private", migration: "compare_only", maxBytes: 4 << 20},
+		standaloneContractKey("atl-profile", "private-workspace"):           {disposition: "preserve", privacy: "owner_private", migration: "partial_explicit", maxBytes: 1 << 20},
+		standaloneContractKey("atl-profile", "qualitative-panel"):           {disposition: "preserve", privacy: "owner_private", migration: "explicit", maxBytes: 1 << 20},
+		standaloneContractKey("atl-profile", "result"):                      {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: 1 << 20},
+		standaloneContractKey("atl-profile", "review"):                      {disposition: "preserve", privacy: "owner_private", migration: "explicit", maxBytes: 1 << 20},
+		standaloneContractKey("atl-profile", "rubric"):                      {disposition: "preserve", privacy: "public_or_private", migration: "explicit", maxBytes: 1 << 20},
+		standaloneContractKey("atl-profile", "run-spec"):                    {disposition: "preserve", privacy: "public_or_private", migration: "explicit", maxBytes: 1 << 20},
+		standaloneContractKey("atl-profile", "scenario"):                    {disposition: "preserve", privacy: "public_or_private", migration: "explicit", maxBytes: 1 << 20},
+		standaloneContractKey("atl-profile", "synthetic-root-aggregate"):    {disposition: "write_only_projection", privacy: "content_minimized", migration: "compare_only", maxBytes: 1 << 20},
+		standaloneContractKey("atl-profile", "synthetic-run-receipt"):       {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: 16 << 10},
+		standaloneContractKey("standalone", "adapter-manifest"):             {disposition: "preserve", privacy: "public", migration: "explicit", maxBytes: 64 << 10},
+		standaloneContractKey("standalone", "adapter-message"):              {disposition: "preserve", privacy: "public_or_private", migration: "explicit", maxBytes: 1 << 20},
+		standaloneContractKey("standalone", "extension-conformance-bundle"): {disposition: "preserve", privacy: "public", migration: "explicit", maxBytes: 1 << 20},
+		standaloneContractKey("standalone", "extension-conformance-report"): {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: 1 << 20},
 	}
 	for _, schema := range contract.ArtifactSchemas {
-		if schema.Namespace != "atl-profile" {
-			t.Fatalf("existing artifact %q has namespace %q", schema.Kind, schema.Namespace)
-		}
-		want, ok := wantSchemas[schema.Kind]
+		key := standaloneContractKey(schema.Namespace, schema.Kind)
+		want, ok := wantSchemas[key]
 		if !ok {
-			t.Fatalf("unclassified artifact schema %q", schema.Kind)
+			t.Fatalf("unclassified artifact schema %q", key)
 		}
 		if schema.Current != want.current || !slices.Equal(schema.Readable, want.readable) ||
 			!slices.Equal(schema.Emitted, want.emitted) || !slices.Equal(schema.Executable, want.executable) {
 			t.Fatalf("artifact schema %q compatibility=%+v, want %+v", schema.Kind, schema, want)
 		}
-		wantPolicy, ok := wantSchemaPolicies[schema.Kind]
+		wantPolicy, ok := wantSchemaPolicies[key]
 		if !ok || schema.MaxBytes == nil || schema.Disposition != wantPolicy.disposition || schema.Privacy != wantPolicy.privacy ||
 			schema.Migration != wantPolicy.migration || *schema.MaxBytes != wantPolicy.maxBytes {
 			t.Fatalf("artifact schema %q policy=%+v, want %+v", schema.Kind, schema, wantPolicy)
 		}
-		delete(wantSchemas, schema.Kind)
-		delete(wantSchemaPolicies, schema.Kind)
+		delete(wantSchemas, key)
+		delete(wantSchemaPolicies, key)
 	}
 	if len(wantSchemas) != 0 {
 		t.Fatalf("standalone contract omitted artifact schemas: %v", wantSchemas)
@@ -335,7 +341,7 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 func TestStandaloneContractClassifiesCurrentCommandsAndArtifacts(t *testing.T) {
 	contract := loadStandaloneProductContractFixture(t)
 	commands := standaloneCoordinatorCommands(t, filepath.Join("cmd", "agent-eval", "main.go"))
-	if len(commands) != 14 || !slices.Equal(commands, contract.MaintainerCommands) {
+	if len(commands) != 15 || !slices.Equal(commands, contract.MaintainerCommands) {
 		t.Fatalf("coordinator commands=%v, contract=%v", commands, contract.MaintainerCommands)
 	}
 
@@ -409,6 +415,9 @@ func TestStandaloneContractClassifiesCurrentCommandsAndArtifacts(t *testing.T) {
 
 	schemas := make(map[string]standaloneArtifactSchema, len(contract.ArtifactSchemas))
 	for _, schema := range contract.ArtifactSchemas {
+		if schema.Namespace != "atl-profile" {
+			continue
+		}
 		schemas[schema.Kind] = schema
 	}
 	for _, behaviorSchema := range behavior.Schemas {

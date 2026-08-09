@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+
+	"github.com/isukharev/atl/internal/agenteval/extension"
 )
 
 type standaloneReadabilityGoldenFixture struct {
@@ -49,7 +51,7 @@ func loadStandaloneReadabilityGoldenFixture(t *testing.T, bundle standaloneGolde
 		key := standaloneVersionedContractKey(entry.Namespace, entry.Kind, entry.Version)
 		hasDocument := len(entry.Document) != 0
 		hasSource := entry.SourcePath != ""
-		if entry.Namespace != "atl-profile" || entry.Kind == "" || entry.Version < 1 || key <= previous || seen[key] ||
+		if !standaloneOneOf(entry.Namespace, "atl-profile", "standalone") || entry.Kind == "" || entry.Version < 1 || key <= previous || seen[key] ||
 			hasDocument == hasSource || len(entry.ExpectedProjection) == 0 {
 			t.Fatalf("invalid readability golden entry %q", key)
 		}
@@ -81,7 +83,52 @@ func loadStandaloneReadabilityGoldenFixture(t *testing.T, bundle standaloneGolde
 		previous = key
 		seen[key] = true
 	}
+	standaloneValidateExtensionGoldenBindings(t, fixture)
 	return fixture
+}
+
+func standaloneValidateExtensionGoldenBindings(t *testing.T, fixture standaloneReadabilityGoldenFixture) {
+	t.Helper()
+	manifestEntry, manifestOK := standaloneReadabilityGoldenEntryFor(fixture, standaloneVersionedContractKey("standalone", "adapter-manifest", 1))
+	bundleEntry, bundleOK := standaloneReadabilityGoldenEntryFor(fixture, standaloneVersionedContractKey("standalone", "extension-conformance-bundle", 1))
+	reportEntry, reportOK := standaloneReadabilityGoldenEntryFor(fixture, standaloneVersionedContractKey("standalone", "extension-conformance-report", 1))
+	if !manifestOK || !bundleOK || !reportOK {
+		t.Fatal("standalone extension readability sources are incomplete")
+	}
+	manifestData := standaloneGoldenDocument(t, manifestEntry)
+	manifest, err := extension.DecodeManifest(manifestData)
+	if err != nil {
+		t.Fatalf("decode bound extension manifest: %v", err)
+	}
+	bundleData := standaloneGoldenDocument(t, bundleEntry)
+	bundle, err := DecodeExtensionConformanceBundle(bundleData)
+	if err != nil {
+		t.Fatalf("decode bound extension bundle: %v", err)
+	}
+	report, err := DecodeExtensionConformanceReport(standaloneGoldenDocument(t, reportEntry))
+	if err != nil {
+		t.Fatalf("decode bound extension report: %v", err)
+	}
+	manifestDigest := sha256.Sum256(manifestData)
+	bundleDigest := sha256.Sum256(bundleData)
+	if bundle.ManifestSHA256 != hex.EncodeToString(manifestDigest[:]) || bundle.ExecutableSHA256 != manifest.ExecutableSHA256 ||
+		report.BundleSHA256 != hex.EncodeToString(bundleDigest[:]) || report.ManifestSHA256 != bundle.ManifestSHA256 ||
+		report.ExecutableSHA256 != bundle.ExecutableSHA256 || report.ComponentID != manifest.Component.ID ||
+		report.ComponentVersion != manifest.Component.Version || report.Role != manifest.Component.Role ||
+		len(report.Capabilities) != len(manifest.Component.Capabilities) || len(report.Cases) != len(bundle.Cases) {
+		t.Fatal("standalone extension readability identities are not transitively bound")
+	}
+	for index := range manifest.Component.Capabilities {
+		if report.Capabilities[index] != manifest.Component.Capabilities[index] {
+			t.Fatal("standalone extension readability capability claims are not bound")
+		}
+	}
+	for index := range bundle.Cases {
+		if report.Cases[index].ID != bundle.Cases[index].ID || report.Cases[index].Operation != bundle.Cases[index].Operation ||
+			report.Cases[index].Terminal != bundle.Cases[index].Expected.Type {
+			t.Fatal("standalone extension readability case identities are not bound")
+		}
+	}
 }
 
 func standaloneReadabilityGoldenEntryFor(fixture standaloneReadabilityGoldenFixture, key string) (standaloneReadabilityGoldenEntry, bool) {
@@ -120,6 +167,14 @@ func standaloneValidateReadabilityGolden(t *testing.T, entry standaloneReadabili
 
 func standaloneDecodeFutureReadabilityGolden(t *testing.T, entry standaloneReadabilityGoldenEntry, version int) error {
 	t.Helper()
+	if entry.Namespace == "standalone" {
+		data, err := standaloneMutateExtensionSchemaVersion(standaloneGoldenDocument(t, entry), version)
+		if err != nil {
+			return err
+		}
+		_, err = standaloneDecodeReadabilityProjection(t, entry, data)
+		return err
+	}
 	var document map[string]json.RawMessage
 	if err := json.Unmarshal(standaloneGoldenDocument(t, entry), &document); err != nil {
 		return err
@@ -131,6 +186,28 @@ func standaloneDecodeFutureReadabilityGolden(t *testing.T, entry standaloneReada
 	}
 	_, err = standaloneDecodeReadabilityProjection(t, entry, data)
 	return err
+}
+
+func standaloneMutateExtensionSchemaVersion(data []byte, version int) ([]byte, error) {
+	if version < 1 || len(data) < 2 || data[len(data)-1] != '\n' || bytes.Count(data, []byte{'\n'}) != 1 {
+		return nil, fmt.Errorf("extension readability source framing is invalid")
+	}
+	var identity struct {
+		Schema        string `json:"schema"`
+		SchemaVersion int    `json:"schema_version"`
+	}
+	if err := json.Unmarshal(data, &identity); err != nil || identity.Schema == "" || identity.SchemaVersion != 1 {
+		return nil, fmt.Errorf("extension readability source identity is invalid")
+	}
+	prefix := []byte(`{"schema":` + strconv.Quote(identity.Schema) + `,"schema_version":1,`)
+	if !bytes.HasPrefix(data, prefix) {
+		return nil, fmt.Errorf("extension readability source is not canonical")
+	}
+	futurePrefix := []byte(`{"schema":` + strconv.Quote(identity.Schema) + `,"schema_version":` + strconv.Itoa(version) + `,`)
+	future := make([]byte, 0, len(data)+len(futurePrefix)-len(prefix))
+	future = append(future, futurePrefix...)
+	future = append(future, data[len(prefix):]...)
+	return future, nil
 }
 
 func standaloneGoldenDocument(t *testing.T, entry standaloneReadabilityGoldenEntry) []byte {
@@ -158,9 +235,12 @@ func standaloneReadGoldenSource(t *testing.T, path, wantSHA256 string) []byte {
 func standaloneGoldenSourceAllowed(entry standaloneReadabilityGoldenEntry) bool {
 	switch entry.Kind {
 	case "activation-reference", "private-plan":
-		return entry.SourcePath == fmt.Sprintf("testdata/standalone-readability/%s-v%d.json", entry.Kind, entry.Version)
+		return entry.Namespace == "atl-profile" && entry.SourcePath == fmt.Sprintf("testdata/standalone-readability/%s-v%d.json", entry.Kind, entry.Version)
 	case "capability-catalog":
-		return entry.Version == CapabilityCatalogSchemaVersion && entry.SourcePath == "testdata/capability-catalog.v1.json"
+		return entry.Namespace == "atl-profile" && entry.Version == CapabilityCatalogSchemaVersion && entry.SourcePath == "testdata/capability-catalog.v1.json"
+	case "adapter-manifest", "adapter-message", "extension-conformance-bundle", "extension-conformance-report":
+		return entry.Namespace == "standalone" && entry.Version == 1 &&
+			entry.SourcePath == fmt.Sprintf("testdata/standalone-readability/%s-v1.json", entry.Kind)
 	default:
 		return false
 	}
@@ -176,6 +256,12 @@ func standaloneGoldenReaderSupportAllowed(entry standaloneReadabilityGoldenEntry
 
 func standaloneDecodeReadabilityProjection(t *testing.T, entry standaloneReadabilityGoldenEntry, data []byte) (map[string]any, error) {
 	t.Helper()
+	if entry.Namespace == "standalone" {
+		return standaloneDecodeExtensionReadabilityProjection(entry, data)
+	}
+	if entry.Namespace != "atl-profile" {
+		return nil, fmt.Errorf("unsupported readability golden namespace %q", entry.Namespace)
+	}
 	switch entry.Kind {
 	case "activation-reference":
 		stored, err := standaloneLoadActivationReferenceGolden(t, entry, data)
@@ -353,6 +439,96 @@ func standaloneDecodeReadabilityProjection(t *testing.T, entry standaloneReadabi
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported readability golden kind %q", entry.Kind)
+	}
+}
+
+func standaloneDecodeExtensionReadabilityProjection(entry standaloneReadabilityGoldenEntry, data []byte) (map[string]any, error) {
+	switch entry.Kind {
+	case "adapter-manifest":
+		manifest, err := extension.DecodeManifest(data)
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := extension.EncodeManifest(manifest)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("adapter manifest golden is not canonical")
+		}
+		return map[string]any{
+			"schema": manifest.Schema, "schema_version": manifest.SchemaVersion,
+			"contract_version": manifest.ContractVersion, "protocol_version": manifest.ProtocolVersions[0],
+			"component_id": manifest.Component.ID, "component_version": manifest.Component.Version,
+			"role": manifest.Component.Role, "operation_count": len(manifest.Component.Operations),
+			"capability_count": len(manifest.Component.Capabilities), "configuration_count": len(manifest.ConfigurationSchema),
+			"platform_count": len(manifest.Platforms), "requirement_count": len(manifest.Requirements),
+		}, nil
+	case "adapter-message":
+		frame, err := extension.DecodeFrameLine(data)
+		if err != nil {
+			return nil, err
+		}
+		if frame.Type != extension.MessageInitialize || frame.Initialize == nil {
+			return nil, fmt.Errorf("adapter message golden is not an initialize frame")
+		}
+		canonical, err := extension.EncodeFrameLine(frame)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("adapter message golden is not canonical")
+		}
+		return map[string]any{
+			"schema": frame.Schema, "schema_version": frame.SchemaVersion, "protocol_version": frame.ProtocolVersion,
+			"direction": frame.Direction, "sequence": frame.Sequence, "role": frame.Role, "type": frame.Type,
+			"component_id": frame.ComponentID, "component_version": frame.ComponentVersion,
+			"required_capability_count": len(frame.Initialize.RequiredCapabilities),
+		}, nil
+	case "extension-conformance-bundle":
+		bundle, err := DecodeExtensionConformanceBundle(data)
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := EncodeExtensionConformanceBundle(bundle)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("extension conformance bundle golden is not canonical")
+		}
+		canceledCases := 0
+		for _, testCase := range bundle.Cases {
+			if testCase.Expected.Type == "canceled" {
+				canceledCases++
+			}
+		}
+		return map[string]any{
+			"schema": bundle.Schema, "schema_version": bundle.SchemaVersion,
+			"contract_version": bundle.ContractVersion, "protocol_version": bundle.ProtocolVersion,
+			"case_count": len(bundle.Cases), "canceled_case_count": canceledCases,
+			"first_role":      bundle.Cases[0].Role,
+			"first_operation": bundle.Cases[0].Operation,
+			"last_operation":  bundle.Cases[len(bundle.Cases)-1].Operation,
+		}, nil
+	case "extension-conformance-report":
+		report, err := DecodeExtensionConformanceReport(data)
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := EncodeExtensionConformanceReport(report)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("extension conformance report golden is not canonical")
+		}
+		canceledCases := 0
+		for _, testCase := range report.Cases {
+			if testCase.Terminal == "canceled" {
+				canceledCases++
+			}
+		}
+		return map[string]any{
+			"schema": report.Schema, "schema_version": report.SchemaVersion, "scope": report.Scope,
+			"contract_version": report.ContractVersion, "protocol_version": report.ProtocolVersion,
+			"component_id": report.ComponentID, "component_version": report.ComponentVersion, "role": report.Role,
+			"capability_count": len(report.Capabilities), "cleanup_assurance": report.CleanupAssurance,
+			"case_count": len(report.Cases), "canceled_case_count": canceledCases,
+			"first_operation":     report.Cases[0].Operation,
+			"last_operation":      report.Cases[len(report.Cases)-1].Operation,
+			"protocol_conformant": report.ProtocolConformant,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported standalone readability golden kind %q", entry.Kind)
 	}
 }
 

@@ -17,7 +17,8 @@
     "validate-pair",
     "validate-run",
     "verify-atl-capabilities",
-    "verify-codex-skill-package"
+    "verify-codex-skill-package",
+    "verify-extension-protocol"
   ],
   "standalone_operations": [
     {"id":"capabilities","mode":"default","current_status":"maintainer_compat","maintainer_aliases":[],"standalone_status":"reserved","authority":"none","local_read":false,"local_write":false,"process_spawn":false,"provider_contact":false,"backend_contact":false,"network":false,"credential_access":false,"private_workspace_access":false},
@@ -83,7 +84,11 @@
     {"namespace":"atl-profile","kind":"run-spec","current":7,"readable":[5,6,7],"emitted":[7],"executable":[5,6,7],"disposition":"preserve","privacy":"public_or_private","migration":"explicit","max_bytes":1048576},
     {"namespace":"atl-profile","kind":"scenario","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"public_or_private","migration":"explicit","max_bytes":1048576},
     {"namespace":"atl-profile","kind":"synthetic-root-aggregate","current":2,"readable":[],"emitted":[2],"executable":[],"disposition":"write_only_projection","privacy":"content_minimized","migration":"compare_only","max_bytes":1048576},
-    {"namespace":"atl-profile","kind":"synthetic-run-receipt","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":16384}
+    {"namespace":"atl-profile","kind":"synthetic-run-receipt","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":16384},
+    {"namespace":"standalone","kind":"adapter-manifest","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"public","migration":"explicit","max_bytes":65536},
+    {"namespace":"standalone","kind":"adapter-message","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"public_or_private","migration":"explicit","max_bytes":1048576},
+    {"namespace":"standalone","kind":"extension-conformance-bundle","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"public","migration":"explicit","max_bytes":1048576},
+    {"namespace":"standalone","kind":"extension-conformance-report","current":1,"readable":[1],"emitted":[1],"executable":[],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":1048576}
   ],
   "artifact_classes": [
     {"id":"audit","privacy":"owner_private","disposition":"preserve"},

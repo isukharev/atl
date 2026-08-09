@@ -19,8 +19,10 @@ import (
 // local identifiers, test helpers, and implementation values are deliberately
 // outside this declaration-and-JSON-tag contract.
 func TestNeutralCoreVocabularyContract(t *testing.T) {
-	if err := validateNeutralCoreVocabulary("core"); err != nil {
-		t.Fatal(err)
+	for _, root := range []string{"core", "extension"} {
+		if err := validateNeutralCoreVocabulary(root); err != nil {
+			t.Fatalf("%s: %v", root, err)
+		}
 	}
 }
 

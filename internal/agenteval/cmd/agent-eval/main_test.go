@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/sha256"
 	"encoding/json"
@@ -19,8 +20,32 @@ import (
 	"github.com/isukharev/atl/internal/agenteval"
 )
 
+func TestMain(m *testing.M) {
+	if isExtensionProtocolCommandHelper() {
+		os.Exit(runExtensionProtocolCommandHelper())
+	}
+	os.Exit(m.Run())
+}
+
+func isExtensionProtocolCommandHelper() bool {
+	name := filepath.Base(os.Args[0])
+	if len(os.Args) != 1 || (name != "component" && name != "component.exe") {
+		return false
+	}
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		return false
+	}
+	executable, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		return false
+	}
+	return filepath.Base(workingDirectory) == "work" &&
+		filepath.Clean(filepath.Dir(workingDirectory)) == filepath.Clean(filepath.Dir(filepath.Dir(executable)))
+}
+
 func TestRunRejectsMissingAndUnknownCommands(t *testing.T) {
-	for _, args := range [][]string{nil, {"unknown"}, {"evaluate"}, {"aggregate"}, {"aggregate-root"}, {"aggregate-root", "one", "two"}, {"inventory"}, {"inventory", "one", "two"}, {"validate-pair"}, {"validate-pair", "one.json"}, {"verify-atl-capabilities"}, {"verify-atl-capabilities", "one", "two"}, {"verify-codex-skill-package"}, {"verify-codex-skill-package", "one", "two"}} {
+	for _, args := range [][]string{nil, {"unknown"}, {"evaluate"}, {"aggregate"}, {"aggregate-root"}, {"aggregate-root", "one", "two"}, {"inventory"}, {"inventory", "one", "two"}, {"validate-pair"}, {"validate-pair", "one.json"}, {"verify-atl-capabilities"}, {"verify-atl-capabilities", "one", "two"}, {"verify-codex-skill-package"}, {"verify-codex-skill-package", "one", "two"}, {"verify-extension-protocol"}, {"verify-extension-protocol", "--manifest", "manifest.json", "--adapter", "adapter"}, {"verify-extension-protocol", "--unknown"}, {"verify-extension-protocol", "manifest.json", "adapter", "bundle.json"}, {"verify-extension-protocol", "--manifest", "one", "--manifest", "two", "--adapter", "adapter", "--bundle", "bundle"}, {"verify-extension-protocol", "--manifest", "manifest", "--adapter", "one", "--adapter", "two", "--bundle", "bundle"}, {"verify-extension-protocol", "--manifest", "manifest", "--adapter", "adapter", "--bundle", "one", "--bundle", "two"}} {
 		if err := run(args); err == nil {
 			t.Fatalf("run(%v) succeeded", args)
 		}
@@ -31,6 +56,278 @@ func TestRunRejectsMissingAndUnknownCommands(t *testing.T) {
 	if err := run([]string{"validate", "does-not-exist.json"}); err == nil || !strings.Contains(err.Error(), "does-not-exist") {
 		t.Fatalf("err=%v", err)
 	}
+}
+
+func TestRunVerifyExtensionProtocolFlagErrorsDoNotEchoValues(t *testing.T) {
+	for _, name := range []string{"manifest", "adapter", "bundle"} {
+		marker := "private-value-must-not-be-echoed-" + name
+		args := []string{
+			"verify-extension-protocol",
+			"--manifest", "manifest.json",
+			"--adapter", "adapter",
+			"--bundle", "bundle.json",
+			"--" + name, marker,
+		}
+		err := run(args)
+		if err == nil || strings.Contains(err.Error(), marker) {
+			t.Fatalf("duplicate --%s error=%q", name, err)
+		}
+	}
+	const unknown = "private-unknown-flag-must-not-be-echoed"
+	if err := run([]string{"verify-extension-protocol", "--" + unknown}); err == nil || strings.Contains(err.Error(), unknown) {
+		t.Fatalf("unknown flag error=%q", err)
+	}
+}
+
+func TestRunVerifyExtensionProtocolEmitsDeterministicScopedReport(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable, err = filepath.Abs(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executableData, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executableSum := sha256.Sum256(executableData)
+	executableSHA256 := fmt.Sprintf("%x", executableSum)
+
+	manifestData, err := os.ReadFile(filepath.Join("..", "..", "testdata", "standalone-readability", "adapter-manifest-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestData = bytes.Replace(manifestData, []byte(strings.Repeat("a", 64)), []byte(executableSHA256), 1)
+	platform := fmt.Sprintf(`"os":%q,"architecture":%q`, runtime.GOOS, runtime.GOARCH)
+	manifestData = bytes.Replace(manifestData, []byte(`"os":"linux","architecture":"amd64"`), []byte(platform), 1)
+	manifestSum := sha256.Sum256(manifestData)
+	manifestSHA256 := fmt.Sprintf("%x", manifestSum)
+
+	bundleData, err := os.ReadFile(filepath.Join("..", "..", "testdata", "standalone-readability", "extension-conformance-bundle-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleData = bytes.Replace(bundleData,
+		[]byte("82cf6a3146d363c475ddb031c50dbba1505a72e7fdbd1595b210059af6d5547d"),
+		[]byte(manifestSHA256), 1)
+	bundleData = bytes.Replace(bundleData, []byte(strings.Repeat("a", 64)), []byte(executableSHA256), 1)
+
+	directory := t.TempDir()
+	manifestPath := filepath.Join(directory, "manifest.json")
+	bundlePath := filepath.Join(directory, "bundle.json")
+	if err := os.WriteFile(manifestPath, manifestData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bundlePath, bundleData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	first := captureRunOutput(t, []string{
+		"verify-extension-protocol", "--manifest", manifestPath,
+		"--adapter", executable, "--bundle", bundlePath,
+	})
+	second := captureRunOutput(t, []string{
+		"verify-extension-protocol", "--manifest", manifestPath,
+		"--adapter", executable, "--bundle", bundlePath,
+	})
+	if !bytes.Equal(first, second) {
+		t.Fatalf("nondeterministic reports:\nfirst=%s\nsecond=%s", first, second)
+	}
+	var report agenteval.ExtensionConformanceReport
+	if err := json.Unmarshal(first, &report); err != nil {
+		t.Fatalf("decode report: %v\n%s", err, first)
+	}
+	canonical, err := agenteval.EncodeExtensionConformanceReport(report)
+	if err != nil || !bytes.Equal(first, canonical) {
+		t.Fatalf("command report is not exact canonical bytes: err=%v\ncommand=%s\ncanonical=%s", err, first, canonical)
+	}
+	decoded, err := agenteval.DecodeExtensionConformanceReport(first)
+	if err != nil {
+		t.Fatalf("production report decoder rejected command bytes: %v", err)
+	}
+	roundTrip, err := agenteval.EncodeExtensionConformanceReport(decoded)
+	if err != nil || !bytes.Equal(first, roundTrip) {
+		t.Fatalf("production report round trip drifted: err=%v\ncommand=%s\nround-trip=%s", err, first, roundTrip)
+	}
+	if report.Scope != "extension_protocol" || !report.ProtocolConformant || report.Role != "profile" ||
+		len(report.Capabilities) != 2 || len(report.Cases) != 3 {
+		t.Fatalf("unexpected scoped report: %+v", report)
+	}
+	canceledCases := 0
+	for _, testCase := range report.Cases {
+		if testCase.Terminal == "canceled" {
+			canceledCases++
+		}
+	}
+	if canceledCases != 1 {
+		t.Fatalf("canceled cases=%d, report=%+v", canceledCases, report)
+	}
+	for _, forbidden := range []string{manifestPath, bundlePath, executable, directory, "session_id", "attempt_id", "stderr"} {
+		if bytes.Contains(first, []byte(forbidden)) {
+			t.Fatalf("content-minimized command report contains %q", forbidden)
+		}
+	}
+}
+
+func captureRunOutput(t *testing.T, args []string) []byte {
+	t.Helper()
+	previous := os.Stdout
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = writeEnd
+	runErr := run(args)
+	closeErr := writeEnd.Close()
+	os.Stdout = previous
+	var output bytes.Buffer
+	_, copyErr := io.Copy(&output, readEnd)
+	readCloseErr := readEnd.Close()
+	if runErr != nil || closeErr != nil || copyErr != nil || readCloseErr != nil {
+		t.Fatalf("run=%v close=%v copy=%v read-close=%v output=%s", runErr, closeErr, copyErr, readCloseErr, output.String())
+	}
+	return output.Bytes()
+}
+
+type extensionProtocolCommandFrame struct {
+	Schema           string                               `json:"schema"`
+	SchemaVersion    int                                  `json:"schema_version"`
+	ProtocolVersion  int                                  `json:"protocol_version"`
+	Direction        string                               `json:"direction"`
+	SessionID        string                               `json:"session_id"`
+	AttemptID        string                               `json:"attempt_id"`
+	Sequence         uint32                               `json:"sequence"`
+	Role             string                               `json:"role"`
+	ComponentID      string                               `json:"component_id"`
+	ComponentVersion string                               `json:"component_version"`
+	ExecutableSHA256 string                               `json:"executable_sha256"`
+	Type             string                               `json:"type"`
+	Initialize       *extensionProtocolCommandInitialize  `json:"initialize,omitempty"`
+	Initialized      *extensionProtocolCommandInitialized `json:"initialized,omitempty"`
+	Invoke           *extensionProtocolCommandInvoke      `json:"invoke,omitempty"`
+	Result           *extensionProtocolCommandResult      `json:"result,omitempty"`
+	Cancel           *extensionProtocolCommandControl     `json:"cancel,omitempty"`
+	Canceled         *extensionProtocolCommandControl     `json:"canceled,omitempty"`
+}
+
+type extensionProtocolCommandInitialize struct {
+	RequiredCapabilities []string `json:"required_capabilities"`
+}
+
+type extensionProtocolCommandInitialized struct {
+	SelectedProtocolVersion int                                  `json:"selected_protocol_version"`
+	Capabilities            []extensionProtocolCommandCapability `json:"capabilities"`
+}
+
+type extensionProtocolCommandCapability struct {
+	ID    string `json:"id"`
+	State string `json:"state"`
+}
+
+type extensionProtocolCommandInvoke struct {
+	InvocationID string `json:"invocation_id"`
+	Control      string `json:"control"`
+	Operation    string `json:"operation"`
+}
+
+type extensionProtocolCommandResult struct {
+	InvocationID string                             `json:"invocation_id"`
+	Operation    string                             `json:"operation"`
+	Outputs      []extensionProtocolCommandArtifact `json:"outputs"`
+}
+
+type extensionProtocolCommandControl struct {
+	InvocationID string `json:"invocation_id"`
+	Operation    string `json:"operation"`
+}
+
+type extensionProtocolCommandArtifact struct {
+	ID            string `json:"id"`
+	Schema        string `json:"schema"`
+	SchemaVersion int    `json:"schema_version"`
+	SHA256        string `json:"sha256"`
+	SizeBytes     uint64 `json:"size_bytes"`
+	Privacy       string `json:"privacy"`
+}
+
+func runExtensionProtocolCommandHelper() int {
+	reader := bufio.NewReader(os.Stdin)
+	initializeData, err := reader.ReadBytes('\n')
+	if err != nil {
+		return 81
+	}
+	var initialize extensionProtocolCommandFrame
+	if json.Unmarshal(initializeData, &initialize) != nil || initialize.Type != "initialize" || initialize.Initialize == nil {
+		return 82
+	}
+	capabilities := make([]extensionProtocolCommandCapability, len(initialize.Initialize.RequiredCapabilities))
+	for index, capability := range initialize.Initialize.RequiredCapabilities {
+		capabilities[index] = extensionProtocolCommandCapability{ID: capability, State: "supported"}
+	}
+	initialized := extensionProtocolCommandFrame{
+		Schema: initialize.Schema, SchemaVersion: initialize.SchemaVersion, ProtocolVersion: initialize.ProtocolVersion,
+		Direction: "extension_to_host", SessionID: initialize.SessionID, AttemptID: initialize.AttemptID,
+		Sequence: 2, Role: initialize.Role, ComponentID: initialize.ComponentID,
+		ComponentVersion: initialize.ComponentVersion, ExecutableSHA256: initialize.ExecutableSHA256,
+		Type: "initialized", Initialized: &extensionProtocolCommandInitialized{
+			SelectedProtocolVersion: 1, Capabilities: capabilities,
+		},
+	}
+	if json.NewEncoder(os.Stdout).Encode(initialized) != nil {
+		return 83
+	}
+	invokeData, err := reader.ReadBytes('\n')
+	if err != nil {
+		return 84
+	}
+	var invoke extensionProtocolCommandFrame
+	if json.Unmarshal(invokeData, &invoke) != nil || invoke.Type != "invoke" || invoke.Invoke == nil {
+		return 85
+	}
+	if invoke.Invoke.Control == "await_cancel" {
+		cancelData, readErr := reader.ReadBytes('\n')
+		if readErr != nil {
+			return 86
+		}
+		var cancel extensionProtocolCommandFrame
+		if json.Unmarshal(cancelData, &cancel) != nil || cancel.Type != "cancel" || cancel.Cancel == nil ||
+			cancel.Cancel.InvocationID != invoke.Invoke.InvocationID || cancel.Cancel.Operation != invoke.Invoke.Operation {
+			return 87
+		}
+		canceled := extensionProtocolCommandFrame{
+			Schema: cancel.Schema, SchemaVersion: cancel.SchemaVersion, ProtocolVersion: cancel.ProtocolVersion,
+			Direction: "extension_to_host", SessionID: cancel.SessionID, AttemptID: cancel.AttemptID,
+			Sequence: 5, Role: cancel.Role, ComponentID: cancel.ComponentID,
+			ComponentVersion: cancel.ComponentVersion, ExecutableSHA256: cancel.ExecutableSHA256,
+			Type: "canceled", Canceled: &extensionProtocolCommandControl{
+				InvocationID: cancel.Cancel.InvocationID, Operation: cancel.Cancel.Operation,
+			},
+		}
+		if json.NewEncoder(os.Stdout).Encode(canceled) != nil {
+			return 88
+		}
+		return 0
+	}
+	if invoke.Invoke.Control != "execute" {
+		return 89
+	}
+	result := extensionProtocolCommandFrame{
+		Schema: invoke.Schema, SchemaVersion: invoke.SchemaVersion, ProtocolVersion: invoke.ProtocolVersion,
+		Direction: "extension_to_host", SessionID: invoke.SessionID, AttemptID: invoke.AttemptID,
+		Sequence: 4, Role: invoke.Role, ComponentID: invoke.ComponentID,
+		ComponentVersion: invoke.ComponentVersion, ExecutableSHA256: invoke.ExecutableSHA256,
+		Type: "result", Result: &extensionProtocolCommandResult{
+			InvocationID: invoke.Invoke.InvocationID,
+			Operation:    invoke.Invoke.Operation,
+			Outputs:      []extensionProtocolCommandArtifact{},
+		},
+	}
+	if json.NewEncoder(os.Stdout).Encode(result) != nil {
+		return 90
+	}
+	return 0
 }
 
 func TestAllowedATLArgsMatchesReviewedShellTokens(t *testing.T) {

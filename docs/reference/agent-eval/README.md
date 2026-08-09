@@ -228,7 +228,24 @@ The internal `ATL_EVAL_*` registry, wrapper basenames, broker records, launch ar
 | `agent-eval/result` | Deterministic grading bound to scenario, observation, and grader |
 | `agent-eval/aggregate` | Comparable cohort summary with explicit denominators and exclusions |
 | `agent-eval/report` | Privacy-tiered projection of validated source artifacts |
-| `agent-eval/adapter-message` | Process message reserved for #1314; not stable yet |
+| `agent-eval/adapter-manifest` | Closed component identity, one declared role and its operations, capabilities, protocol versions, configuration keys, and executable binding |
+| `agent-eval/adapter-message` | One bounded process-protocol frame under the selected role, operation, session, and attempt identity |
+| `agent-eval/extension-conformance-bundle` | Content-addressed ordinary cases for every supported operation plus one synchronized cancellation case in the manifest's declared role |
+| `agent-eval/extension-conformance-report` | Content-minimized protocol-only result; never proof of whole-product compatibility or host confinement |
+
+The test-only compatibility ledger records each of those four families at
+generation 1. Manifest, message, and bundle generations are readable, emitted,
+and executable; reports are readable and emitted but never executable.
+Manifests are public and capped at 64 KiB, messages are
+`public_or_private` and capped at 1 MiB, bundles are public and capped at
+1 MiB, and reports are `content_minimized` and capped at 1 MiB. All four use
+`preserve` disposition and explicit migration. These pre-release registry rows
+do not make a distribution or command stable. Public conformance cases have
+nonnull configuration and input arrays, use only public input and expected
+output references, and require `output_privacy:"public"`. The machine rejects
+every non-public classification. Bundle authors remain responsible for using
+only genuinely public synthetic IDs and digests: structural validation cannot
+prove that a `public` label is truthful or make a low-entropy private value safe.
 
 Every stable artifact has a closed `schema` and positive integer `schema_version`. Contract, producer, component, and source identities are separate fields. Strict decoders reject duplicate keys, trailing values, invalid JSON encoding, unknown required vocabulary, and fields outside an explicit namespaced extension object. Invalid known schemas and unknown future schemas fail before mutation or execution.
 
@@ -244,9 +261,134 @@ Migration is preview/apply:
 
 ## Process boundary and durable attempts
 
-The planned public extension seam is bounded process/JSON, not the Go module, shell prose, or environment conventions. It requires explicit framing and version negotiation; component role/identity; capability constraints; byte, deadline, and process bounds; cancellation; structured terminal errors; and process-tree cleanup. Stdout is protocol-only and stderr cannot change an outcome.
+The pre-release extension seam is bounded process/JSON, not the Go module,
+shell prose, or environment conventions. Schema-v1 manifests and messages use
+contract version `0.1.0-pre-release` and process protocol version `1`. The
+closed protocol roles and their operations are:
 
-[#1314](https://github.com/isukharev/atl/issues/1314) owns message schemas and fixtures. Until it lands, no wrapper, launcher, proxy, or environment variable is a stable adapter protocol, and `agent-eval/adapter-message` remains reserved.
+| Role | Operations | Boundary |
+|---|---|---|
+| `profile` | `capabilities`, `validate` | Describes and validates one explicitly selected profile; it cannot register itself or widen an admitted plan |
+| `agent-adapter` | `execute`, `normalize`, `prepare` | Prepares and invokes the selected agent, then returns normalized observations; it does not own backend policy, grading, retries, or lifecycle |
+| `execution-backend` | `execute`, `prepare` | Applies the admitted filesystem, process, network, deadline, cleanup, and resource policy; it does not select the agent or decide replay |
+| `grader` | `grade`, `validate` | Validates its declared grading contract and returns check decisions with coverage and provenance; it does not execute the task or promote results |
+| `reporter` | `report`, `validate` | Produces a privacy-bounded projection from validated artifacts; it cannot synthesize evidence or widen visibility |
+
+One manifest binds one component ID and version, one role and its complete
+operation set, one capability-state claim per operation, executable digest,
+protocol versions, closed configuration schema, explicit platform pairs, and
+required host-enforcement controls. Configuration fields are only `boolean`,
+bounded `integer`, or closed `enum`; free-form strings, paths, URLs, arguments,
+environment values, and credentials are not manifest values. Role, operation,
+capability, configuration, platform, and requirement vocabularies are exact:
+duplicates, unsorted sets, unknown members, missing role operations, unknown
+future schemas, and unsupported protocol versions fail before process launch.
+The closed requirement IDs are `best_effort_process_group_cleanup`,
+`bounded_io`, `deadline`, `exact_environment`, `filesystem_isolation`,
+`network_isolation`, `private_working_directory`, `resource_limits`, and
+`termination_proof`. The current local host admits only the first four plus
+`private_working_directory`; the other four refuse before spawn.
+One process session selects the manifest's one declared role and one operation.
+An executable used for more than one role needs a separate manifest and session
+for every role; support is never inferred across roles.
+
+Protocol version 1 is UTF-8 JSON Lines. Each compact JSON object is followed by
+one LF and contains no embedded CR or LF. A frame is at most 1 MiB and a session
+is at most 4 MiB in each direction. After stable file reads, protocol
+verification runs under a shared outer deadline no greater than 15 minutes;
+each conformance case independently declares a positive deadline no greater
+than 15 minutes. Every frame binds schema/message/protocol
+versions, direction, SHA-256 session and attempt IDs, sequence, role, component
+ID and version, executable digest, one message type, and exactly its matching
+payload.
+The normal sequence is host `initialize` at 1, extension `initialized` at 2,
+host `invoke` at 3, and extension `result` or structured `error` at 4. An
+initialization error is sequence 2. After invoke, host `cancel` is sequence 4
+and extension `canceled` is sequence 5. Any other direction, sequence, payload,
+or terminal ordering is invalid. The host creates a fresh SHA-256
+`invocation_id` immediately before delivery; invoke, result, invoke-error,
+cancel, and canceled payloads carry that exact causal identity. It binds a
+terminal or acknowledgment to one invocation but grants no retry, replay, or
+lifecycle authority.
+
+Ordinary cases use invoke `control:"execute"`. Every conformance bundle also
+contains exactly one invoke `control:"await_cancel"` probe. The probe is a
+protocol-only synchronization case: the component must not execute the
+operation or emit result/error, must wait for the host's cancel frame, and may
+answer only with the matching `canceled` frame. This avoids a result-versus-
+cancel race while exercising the cancellation transition.
+
+Blank frames, partial final frames, duplicate keys, trailing values, unknown
+members, out-of-order messages, identity drift, and output after a terminal
+frame fail closed. Stdout is protocol-only. Stderr contents are never parsed as
+a protocol message and cannot determine an outcome; exceeding the 64 KiB bound
+fails closed. Invocation inputs and outputs are sorted identity,
+schema-version, digest, size, and
+privacy references; the protocol carries no artifact body or filesystem
+handle. Invocation policy explicitly bounds output count/bytes and privacy and
+names `replay_safe` or `non_replay_safe`; it never authorizes a retry.
+
+This synthetic initialization frame is one complete JSONL record:
+
+```jsonl named-agent-eval-extension-initialize
+{"schema":"agent-eval/adapter-message","schema_version":1,"protocol_version":1,"direction":"host_to_extension","session_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","attempt_id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","sequence":1,"role":"profile","component_id":"synthetic.profile","component_version":"v0.0.0","executable_sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","type":"initialize","initialize":{"offered_protocol_versions":[1],"required_capabilities":["profile.capabilities","profile.validate"]}}
+```
+
+The repository maintainer command is internal:
+
+```sh
+agent-eval verify-extension-protocol \
+  --manifest testdata/synthetic-adapter-manifest.json \
+  --adapter /tmp/agent-eval-synthetic/adapter \
+  --bundle testdata/synthetic-extension-conformance.json
+```
+
+It emits `agent-eval/extension-conformance-report@1` with scope
+`extension_protocol`. The report binds the contract, protocol, manifest,
+executable, component identity and version, declared role, complete exact capability claims,
+sorted closed case outcomes, and cleanup-assurance class by content-minimized
+values and SHA-256 identities. Ordinary cases cover exactly every `supported`
+operation, and one additional case proves the synchronized `canceled`
+transition. Each sorted case records only its ID, operation, terminal kind, and
+`passed` status. The report excludes input paths, arguments, environment values, process,
+session, attempt, and invocation IDs, stderr, task bodies, prompts, evidence
+bodies, and private task or fixture identities. It may echo only the public
+structural IDs declared by the admitted manifest and bundle, subject to the same
+authoring obligation above. It is not the reserved standalone `compat verify`
+command, does not emit whole-product `compatible:true`, and retains the current
+maintainer command's plain-error/exit-1 behavior until #1315.
+
+The local host copies an explicitly selected digest-bound executable into a
+fresh private runtime, supplies a closed synthetic environment and working
+directory, bounds framing, deadline, output, and process-tree cleanup, and
+removes that runtime after the session. Unix hosts, including macOS, ignore
+ambient `TMPDIR` and create the runtime beneath the canonical root-owned sticky
+`/tmp`. Owner, mode, and digest admission checks there use no-follow opens and
+held handles, but process execution remains path-based: it does not prove
+no-replace against a hostile same-UID process or provide same-UID sandbox
+isolation. Windows atomically creates the runtime beneath a held non-reparse OS
+temporary base with a protected current-user DACL, holds the base and runtime
+root identities, and keeps a no-write/delete share-mode executable guard
+through process start. It derives `SYSTEMROOT` and `WINDIR` from the OS instead
+of ambient values. These controls protect only the private runtime and admitted
+executable identity. They do **not** confine arbitrary filesystem, network, or
+credential access, enforce general resource isolation, or prove durable
+process-tree termination on any platform; a content-minimized report is not
+termination proof. The executable SHA-256 binds only the copied primary
+executable bytes; it neither authenticates a publisher nor transitively binds
+dynamic libraries or other runtime dependencies.
+Any requirement that needs those controls must refuse before spawn pending the
+qualified execution boundary in [#1320](https://github.com/isukharev/atl/issues/1320).
+Once the admitted process successfully starts, any handshake, protocol,
+terminal, or cleanup ambiguity produces the absorbing, no-replay `unknown`:
+without isolation, the child could already have side effects. Only a refusal
+proved before spawn remains a compatibility failure. Neither timeout,
+cancellation, an adapter acknowledgment, nor a missing process is enough to
+infer otherwise.
+
+The current ATL profile remains an explicitly composed built-in Go component.
+The `profile` protocol role does not turn it into a downloadable plugin, add a
+dynamic registry, or stabilize any internal `ATL_EVAL_*` environment input.
 
 The state registry is closed:
 
@@ -324,7 +466,7 @@ The future provider-free conformance suite must use a temporary synthetic projec
 
 ## Privacy, placement, and release
 
-Public fixtures are synthetic. Public projections exclude credentials, sessions, backend identities/URLs, private roots, absolute paths, prompts, response bodies, raw trajectories, tool arguments, proprietary content, and private case identities. A digest is not automatic anonymization; low-entropy or private-value digests remain private. Reporters cannot widen source privacy, and aggregates are not public merely because bodies are absent.
+Public fixtures are synthetic. Public projections exclude credentials, sessions, backend identities/URLs, private roots, absolute paths, prompts, response bodies, raw trajectories, tool arguments, proprietary content, and private task or fixture identities. A digest is not automatic anonymization; low-entropy or private-value digests remain private. Reporters cannot widen source privacy, and aggregates are not public merely because bodies are absent.
 
 Plans declare privacy class before execution; each component receives the minimum role projection. Unknown privacy classes, redaction failures, or incomplete provenance fail closed. Generic retries are only for proven replay-safe work. After commitment, timeout or cancellation is classified as `timed_out` or `canceled` only with the proof required above; a disconnect, missing receipt, or inadequate termination proof produces terminal `unknown` and exit class `outcome_unknown`.
 

@@ -40,7 +40,7 @@ func main() {
 
 func run(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-eval validate scenarios | validate-run specs | verify-atl-capabilities ATL_BINARY | verify-codex-skill-package PACKAGE_ROOT | inventory CORPUS_ROOT | validate-pair CLI_SPEC MCP_SPEC | validate-comparison-set SPEC SPEC [SPEC] | evaluate scenario observation | review-template options | assess options | aggregate results | aggregate-root ROOT | run options | private COMMAND options")
+		return fmt.Errorf("usage: agent-eval validate scenarios | validate-run specs | verify-atl-capabilities ATL_BINARY | verify-codex-skill-package PACKAGE_ROOT | verify-extension-protocol --manifest FILE --adapter FILE --bundle FILE | inventory CORPUS_ROOT | validate-pair CLI_SPEC MCP_SPEC | validate-comparison-set SPEC SPEC [SPEC] | evaluate scenario observation | review-template options | assess options | aggregate results | aggregate-root ROOT | run options | private COMMAND options")
 	}
 	switch args[0] {
 	case "private":
@@ -113,6 +113,32 @@ func run(args []string) error {
 			return err
 		}
 		return writeJSON(map[string]any{"schema_version": 1, "compatible": true})
+	case "verify-extension-protocol":
+		flags := flag.NewFlagSet("verify-extension-protocol", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		var manifestPath, adapterPath, bundlePath singleStringFlag
+		flags.Var(&manifestPath, "manifest", "extension manifest")
+		flags.Var(&adapterPath, "adapter", "extension adapter executable")
+		flags.Var(&bundlePath, "bundle", "extension conformance bundle")
+		if err := flags.Parse(args[1:]); err != nil {
+			return fmt.Errorf("verify-extension-protocol has invalid flags")
+		}
+		if manifestPath.duplicate || adapterPath.duplicate || bundlePath.duplicate {
+			return fmt.Errorf("verify-extension-protocol flags may be specified only once")
+		}
+		if flags.NArg() != 0 || manifestPath.value == "" || adapterPath.value == "" || bundlePath.value == "" {
+			return fmt.Errorf("verify-extension-protocol requires --manifest, --adapter, and --bundle")
+		}
+		report, err := agenteval.VerifyExtensionProtocolFiles(context.Background(), manifestPath.value, adapterPath.value, bundlePath.value)
+		if err != nil {
+			return err
+		}
+		encoded, err := agenteval.EncodeExtensionConformanceReport(report)
+		if err != nil {
+			return err
+		}
+		_, err = io.Copy(os.Stdout, bytes.NewReader(encoded))
+		return err
 	case "inventory":
 		if len(args) != 2 {
 			return fmt.Errorf("inventory requires exactly one corpus root")
@@ -349,4 +375,22 @@ func writeJSON(value any) error {
 	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(value)
+}
+
+type singleStringFlag struct {
+	value     string
+	seen      bool
+	duplicate bool
+}
+
+func (value *singleStringFlag) String() string { return value.value }
+
+func (value *singleStringFlag) Set(next string) error {
+	if value.seen {
+		value.duplicate = true
+		return nil
+	}
+	value.seen = true
+	value.value = next
+	return nil
 }
