@@ -99,7 +99,7 @@
     {"owner":"tooling","path":"scripts/gen-plugins/main.go","function":"runMode","max_lines":252,"no_headroom":true,"rationale":"Keep generator mode dispatch, rendering, and publication orchestration at its exact measured span."}
   ],
   "package_totals": [
-    {"owner":"adapter-confluence","path":"internal/adapter/confluence/","max_lines":3843,"rationale":"Keep total Confluence adapter production growth at the exact measured baseline after exhaustive checked pagination and immutable client construction."},
+    {"owner":"adapter-confluence","path":"internal/adapter/confluence/","max_lines":3851,"rationale":"Keep total Confluence adapter production growth at the exact measured baseline after exhaustive checked and total-qualified pagination."},
     {"owner":"adapter-jira","path":"internal/adapter/jira/","max_lines":3641,"rationale":"Keep total Jira adapter production growth at the exact measured baseline after exhaustive checked pagination and immutable client construction."},
     {"owner":"app","path":"internal/app/","max_lines":35438,"rationale":"Keep total app production growth visible after introducing focused label, watcher, and worklog services plus the pure guarded-write decision owner."},
     {"owner":"cli","path":"internal/cli/","max_lines":11136,"rationale":"Keep total CLI production growth at the exact measured baseline after invocation-local verbose trace injection."},

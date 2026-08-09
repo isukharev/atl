@@ -46,10 +46,11 @@ func TestConfluencePageCursorPreservesSignalOnlyPagination(t *testing.T) {
 
 func TestSearchCompleteRejectsNoncontiguousAndOverflowPages(t *testing.T) {
 	tests := []struct {
-		name       string
-		cursor     string
-		body       string
-		wantReason string
+		name         string
+		cursor       string
+		body         string
+		wantReason   string
+		wantComplete bool
 	}{
 		{
 			name:       "noncontiguous",
@@ -62,6 +63,33 @@ func TestSearchCompleteRejectsNoncontiguousAndOverflowPages(t *testing.T) {
 			cursor:     strconv.Itoa(math.MaxInt),
 			body:       `{"start":` + strconv.Itoa(math.MaxInt) + `,"results":[{"content":{"id":"1"}}],"_links":{"next":"/ignored"}}`,
 			wantReason: "overflowed",
+		},
+		{
+			name:       "negative total",
+			body:       `{"start":0,"totalCount":-1,"results":[],"_links":{}}`,
+			wantReason: "negative total",
+		},
+		{
+			name:       "end beyond total",
+			cursor:     "1",
+			body:       `{"start":1,"totalCount":2,"results":[{"content":{"id":"1"}},{"content":{"id":"2"}}],"_links":{}}`,
+			wantReason: "beyond its reported total",
+		},
+		{
+			name:       "next at total",
+			body:       `{"start":0,"totalCount":1,"results":[{"content":{"id":"1"}}],"_links":{"next":"/ignored"}}`,
+			wantReason: "after reaching its reported total",
+		},
+		{
+			name:       "terminal before total",
+			body:       `{"start":0,"totalCount":2,"results":[{"content":{"id":"1"}}],"_links":{}}`,
+			wantReason: "only 1 were reachable",
+		},
+		{
+			name:         "terminal exactly at MaxInt total",
+			cursor:       strconv.Itoa(math.MaxInt - 1),
+			body:         `{"start":` + strconv.Itoa(math.MaxInt-1) + `,"totalCount":` + strconv.Itoa(math.MaxInt) + `,"results":[{"content":{"id":"1"}}],"_links":{}}`,
+			wantComplete: true,
 		},
 	}
 	for _, test := range tests {
@@ -76,8 +104,8 @@ func TestSearchCompleteRejectsNoncontiguousAndOverflowPages(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if page.Complete || page.Next != "" || !strings.Contains(page.PartialReason, test.wantReason) {
-				t.Fatalf("page=%+v, want partial reason containing %q", page, test.wantReason)
+			if page.Complete != test.wantComplete || page.Next != "" || !strings.Contains(page.PartialReason, test.wantReason) {
+				t.Fatalf("page=%+v, want complete=%t reason containing %q", page, test.wantComplete, test.wantReason)
 			}
 		})
 	}

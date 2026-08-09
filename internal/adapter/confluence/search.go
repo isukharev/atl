@@ -93,6 +93,14 @@ func (cf *Confluence) SearchComplete(ctx context.Context, query string, limit in
 		page.PartialReason = "backend reported a negative total match count"
 		return page, nil
 	}
+	if resp.TotalCount != nil && end > *resp.TotalCount {
+		page.PartialReason = fmt.Sprintf("backend returned %d reachable matches beyond its reported total of %d", end, *resp.TotalCount)
+		return page, nil
+	}
+	if resp.Links.Next != "" && resp.TotalCount != nil && end >= *resp.TotalCount {
+		page.PartialReason = fmt.Sprintf("backend advertised another page after reaching its reported total of %d matches", *resp.TotalCount)
+		return page, nil
+	}
 	advance := pageCursor.advance(len(resp.Results), resp.Links.Next)
 	if advance == confluencePageMore {
 		// Advance by the number of results actually returned, not the requested
