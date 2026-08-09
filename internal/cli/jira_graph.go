@@ -51,8 +51,10 @@ func jiraIssueGraphCmd() *cobra.Command {
 		if err != nil {
 			return opts, projectionOpts, err
 		}
-		if projectionOpts.Projection == "compact" && outputFormat != "json" {
-			return opts, projectionOpts, usageErr("--projection compact requires --output json")
+		if projectionOpts.Projection == "compact" {
+			if output := cmd.Flag("output"); output != nil && output.Value.String() != "json" {
+				return opts, projectionOpts, usageErr("--projection compact requires --output json")
+			}
 		}
 		return opts, projectionOpts, nil
 	}
