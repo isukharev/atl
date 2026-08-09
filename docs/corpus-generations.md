@@ -18,10 +18,10 @@ durability of its parent. Every store directory is exactly `0700`, and every
 store file is exactly `0600`. A mode mismatch fails closed.
 
 The durable implementation is enabled on the package's exact POSIX build-tag
-set: AIX, Darwin, DragonFly BSD, FreeBSD, Linux, NetBSD, OpenBSD, and Solaris.
-Other platforms return the stable unsupported result instead of approximating
-the locking, link-count, or durability contract (`ErrUnsupported` in the
-internal library).
+set: Darwin, DragonFly BSD, FreeBSD, Linux, NetBSD, OpenBSD, and Solaris. Other
+platforms, including AIX and Windows, return the stable unsupported result
+instead of approximating the locking, link-count, or durability contract
+(`ErrUnsupported` in the internal library).
 
 "Immutable" means that ATL creates members exclusively, never overwrites a
 sealed generation, and detects later tampering before use. It does not protect
