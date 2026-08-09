@@ -9,8 +9,8 @@ import (
 
 func TestDefinitionsReturnsDefensiveCopy(t *testing.T) {
 	first := Definitions()
-	if len(first) != 57 {
-		t.Fatalf("definitions=%d want=57", len(first))
+	if len(first) != 58 {
+		t.Fatalf("definitions=%d want=58", len(first))
 	}
 	want := first[0]
 	first[0] = Definition{ID: "changed"}
@@ -27,7 +27,7 @@ func TestDefinitionsCanonicalMetadataDigestIsStable(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := sha256.Sum256(encoded)
-	const want = "1d36c04df8472b8738386df7661c1b76e429aacb4f45e7e082ec41ebb749c8c7"
+	const want = "ffea33c770b2d9ee79e6576511468461ba406f3b1ea8d63ac02e392464be7878"
 	if hex.EncodeToString(got[:]) != want {
 		t.Fatalf("definition metadata digest=%x", got)
 	}
@@ -51,8 +51,8 @@ func TestDefinitionsTransportMappings(t *testing.T) {
 			mappedMutating++
 		}
 	}
-	if mapped != 32 || cliOnly != 25 {
-		t.Fatalf("mapped=%d cli_only=%d want=32/25", mapped, cliOnly)
+	if mapped != 32 || cliOnly != 26 {
+		t.Fatalf("mapped=%d cli_only=%d want=32/26", mapped, cliOnly)
 	}
 	if mappedMutating != 0 {
 		t.Fatalf("mapped mutating definitions=%d want=0", mappedMutating)
@@ -110,5 +110,30 @@ func TestJiraIssueGraphHasOneJiraOnlyTypedRoute(t *testing.T) {
 	}
 	if graphCount != 1 {
 		t.Fatalf("jira.issue.graph definitions=%d want=1", graphCount)
+	}
+}
+
+func TestJiraInverseReferenceIsOneCLIOnlyRoute(t *testing.T) {
+	count := 0
+	for _, definition := range Definitions() {
+		if definition.ID == "knowledge.jira.inverse-reference" {
+			t.Fatal("inverse-reference search must not have a knowledge alias")
+		}
+		if definition.ID != "jira.issue.reference.search" {
+			continue
+		}
+		count++
+		if definition.CLICommand != "jira issue reference search" || definition.MCPTool != "" || definition.MCPScope != "" {
+			t.Fatalf("inverse-reference transports=%+v", definition)
+		}
+		if definition.Service != "jira" || definition.TaskClass != "jira/inverse-reference" ||
+			definition.Role != "primary" || definition.Priority != 10 || definition.Evidence != "qualified" ||
+			definition.Completeness != "per-source-and-selection" || definition.Skill != "jira" ||
+			definition.Reference != "reference/commands.md" {
+			t.Fatalf("inverse-reference route=%+v", definition)
+		}
+	}
+	if count != 1 {
+		t.Fatalf("jira.issue.reference.search definitions=%d want=1", count)
 	}
 }

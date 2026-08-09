@@ -6,7 +6,7 @@
     "stop": "stop expanding the route when sufficient complete evidence is available"
   },
   "selection": {
-    "count": 57
+    "count": 58
   },
   "capabilities": [
     {
@@ -811,6 +811,26 @@
       "completeness": "per-source-and-traversal",
       "skill": "jira",
       "reference": "reference/evidence-workflow.md"
+    },
+    {
+      "id": "jira.issue.reference.search",
+      "task_class": "jira/inverse-reference",
+      "service": "jira",
+      "role": "primary",
+      "priority": 10,
+      "summary": "Search a bounded typed target across caller-qualified Jira reference sources without emitting source content",
+      "command": "jira issue reference search",
+      "cli_command": "jira issue reference search",
+      "cli_only": true,
+      "access": "read-only",
+      "output_modes": [
+        "json",
+        "text"
+      ],
+      "evidence": "qualified",
+      "completeness": "per-source-and-selection",
+      "skill": "jira",
+      "reference": "reference/commands.md"
     },
     {
       "id": "jira.mirror.snapshot",

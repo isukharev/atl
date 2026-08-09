@@ -17,6 +17,7 @@ func TestTaskClassesIsExactSortedCatalogProjection(t *testing.T) {
 		"jira/edit",
 		"jira/evidence",
 		"jira/graph-evidence",
+		"jira/inverse-reference",
 		"jira/mirror",
 		"jira/portfolio",
 		"jira/setup",
