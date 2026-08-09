@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	confluenceCompletePullService    = "confluence"
+	confluenceCompletePullService    = mirror.CompletePullServiceConfluence
 	confluenceCompletePullBatch      = 25
 	confluenceCompletePullMaxIDs     = 1_000_000
 	confluenceCompletePullMaxIDBytes = 256

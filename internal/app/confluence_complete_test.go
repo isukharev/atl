@@ -3,10 +3,10 @@ package app
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -199,7 +199,7 @@ func TestCompletePullExactBatchSizeFinalizationIsIdempotent(t *testing.T) {
 	ids := make([]string, confluenceCompletePullBatch)
 	pages := make(map[string]*domain.Resource, len(ids))
 	for i := range ids {
-		ids[i] = fmt.Sprintf("%03d", i+1)
+		ids[i] = strconv.Itoa(i + 1)
 		pages[ids[i]] = completeTestPage(ids[i])
 	}
 	selection := completeSearchPage(ids...)
@@ -322,7 +322,7 @@ func TestCompletePullFlushesSharedStateOnlyAtBoundedBatchBoundary(t *testing.T) 
 	ids := make([]string, confluenceCompletePullBatch+1)
 	pages := make(map[string]*domain.Resource, len(ids))
 	for i := range ids {
-		ids[i] = fmt.Sprintf("%03d", i+1)
+		ids[i] = strconv.Itoa(i + 1)
 		pages[ids[i]] = completeTestPage(ids[i])
 	}
 	m := mirror.New(root)

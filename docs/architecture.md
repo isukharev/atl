@@ -402,6 +402,13 @@ admits only non-empty descendants of the exact `.atl/base/` subtree. Durable
 journals and sidecars keep their existing string bytes, but mirror reparses
 those strings as untrusted paths before recovery or filesystem use. Root-scoped
 resolution and symlink checks remain mandatory at the actual I/O boundary.
+The complete-pull transaction service is also closed: Confluence keeps its
+schema-2 journal/publication bytes and positive page-version contract, while a
+Jira transaction uses schema 3 with a positive immutable issue ID separate
+from its mutable key, version `0`, canonical `.wiki` state, and explicit
+`native|metadata|view|base|auxiliary` artifact roles. Cross-service schema,
+extension, identity, version, role, and path combinations fail before a
+destination is staged or accepted.
 
 Notable behaviors:
 

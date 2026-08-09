@@ -21,6 +21,10 @@ pristine private base before it can cross from orchestration into durable
 filesystem code. Recovery repeats that qualification for persisted paths and
 still performs root-scoped, no-symlink I/O checks; a journal is not trusted
 merely because ATL wrote it previously.
+Service-qualified complete-pull recovery never relaxes the established
+Confluence page/version/`.csf` rules to admit Jira. Jira uses its own durable
+variant, which binds immutable issue identity, mutable key and `.wiki` path,
+pristine base, raw snapshot, derived view, and the reviewed auxiliary roles.
 
 The shared transport never follows a redirect from a mutating HTTP request.
 This applies to every Jira and Confluence POST, PUT, PATCH, and DELETE: a 3xx is

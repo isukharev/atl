@@ -79,6 +79,61 @@ type jiraPullIssueOutcome struct {
 	view          *mirror.ViewState
 }
 
+func (s *JiraService) qualifyJiraPullView(root, dir, keySeg, mdPath string, pending *JiraPendingFields, localWiki []byte, rs RenderSettings, recordedView *mirror.ViewState) (*PullLocalAction, []byte, error) {
+	actual, readErr := safepath.ReadFileWithin(root, mdPath)
+	if os.IsNotExist(readErr) {
+		return nil, nil, nil
+	}
+	rel, err := mirror.PublicArtifactPathWithin(root, mdPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	blocked := func(reason string) *PullLocalAction {
+		return &PullLocalAction{ID: keySeg, Path: rel.String(), Status: pullLocalBlocked, Reason: reason, CurrentSHA256: mirror.Hash(actual)}
+	}
+	if readErr != nil {
+		return blocked("derived_view_unreadable"), nil, nil
+	}
+	marker := jiraDocumentMarkerLine(string(actual))
+	if marker != jiraIssueDocumentMarker {
+		// Legacy views can be migrated explicitly with `jira render`. Pull does
+		// not guess whether their editable regions are pristine, and future
+		// markers must never be downgraded by an older binary.
+		return blocked("derived_view_unqualified"), actual, nil
+	}
+
+	is, ok := loadIssueSnapshot(root, filepath.Join(dir, keySeg+".json"))
+	if !ok {
+		return blocked("derived_view_snapshot_unqualified"), actual, nil
+	}
+	base, present, baseErr := mirror.New(root).ReadBaseBodyExt(keySeg, wikiExt)
+	if baseErr != nil || !present {
+		return blocked("derived_view_baseline_unqualified"), actual, nil
+	}
+	display := issueWithPendingFields(is, pending)
+	display.Body = string(base)
+	if pending != nil && localWiki != nil {
+		display.Body = string(localWiki)
+	}
+	if recordedView != nil {
+		rs = settingsFromViewState(*recordedView)
+	}
+	related := loadEpicChildrenSidecar(root, epicChildrenPath(dir, keySeg))
+	if related != nil && !compatibleEpicSidecar(related, display.Key, rs.EpicField) {
+		related = nil
+	}
+	if related != nil && (rs.EpicField == "" || !isDirectEpicFieldID(rs.EpicField)) {
+		rs.EpicField = related.EpicField
+	}
+	expected := renderIssueMarkdownWithRelated(display, assetsOnDisk(root, dir, keySeg), related, rs)
+	if string(actual) != string(expected) {
+		action := blocked("derived_view_modified")
+		action.BaselineSHA256 = mirror.Hash(expected)
+		return action, actual, nil
+	}
+	return nil, actual, nil
+}
+
 func (s *JiraService) pullJiraIssue(ctx context.Context, req jiraPullIssueRequest) (jiraPullIssueOutcome, error) {
 	qualified, early, err := s.qualifyJiraPullIssue(req)
 	if err != nil {

@@ -284,6 +284,7 @@ type commentSidecar struct {
 // or absence, preserving the longstanding render-failure contract.
 type CompletePullArtifact struct {
 	Path       ArtifactPath
+	Role       CompletePullArtifactRole
 	Data       []byte
 	Mode       os.FileMode
 	Remove     bool

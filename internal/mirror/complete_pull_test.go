@@ -3,10 +3,10 @@ package mirror
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -17,7 +17,7 @@ import (
 const completePullTestWriteToken = "0123456789abcdef0123456789abcdef"
 
 func appendCompletePullJournalForTest(m *Mirror, checkpoint CompletePullCheckpoint, index int, entry CompletePullJournalEntry) error {
-	if err := validateCompletePullJournalEntry(entry); err != nil {
+	if err := validateCompletePullJournalEntry(checkpoint.Service, entry); err != nil {
 		return err
 	}
 	body, err := safepath.ReadFileWithin(m.Root, filepath.Join(m.Root, filepath.FromSlash(entry.State.Path)))
@@ -263,7 +263,7 @@ func TestCompletePullJournalRecoversEveryCrossFileBoundary(t *testing.T) {
 func TestCompletePullJournalIsPrivateBoundedAndConsecutive(t *testing.T) {
 	ids := make([]string, 26)
 	for i := range ids {
-		ids[i] = fmt.Sprintf("%02d", i+1)
+		ids[i] = strconv.Itoa(i + 1)
 	}
 	m, checkpoint, entries := completePullJournalFixture(t, ids...)
 	for i := 0; i < maxCompletePullJournalEntries; i++ {
