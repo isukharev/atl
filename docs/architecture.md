@@ -95,7 +95,8 @@ type Tracker interface {
 ```
 
 Adding a new backend (Notion, Linear, GitLab Issues) means writing a struct
-that satisfies one of these interfaces; no other package changes.
+that satisfies one of these interfaces, constructing it in `internal/compose`,
+and injecting the port into the applicable app service.
 
 **Optional capability ports.** Some features are not part of every backend's
 surface, so they live in their own narrow interfaces rather than bloating the
