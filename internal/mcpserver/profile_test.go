@@ -122,7 +122,7 @@ func TestDefaultProfilePreservesNewToolSchemasAndInstructions(t *testing.T) {
 	if string(legacyJSON) != string(profileJSON) {
 		t.Fatal("default profile changed the legacy tool inventory or schemas")
 	}
-	if got := sha256.Sum256(profileJSON); hex.EncodeToString(got[:]) != "2bbde0b1ca5e46af6b7eef0bed867db0295e665b3534ce7c688a057872f1fee0" {
+	if got := sha256.Sum256(profileJSON); hex.EncodeToString(got[:]) != "ec2ce9d02e6112930e7797fade016091156209dd2a0075c8707e3449911fe445" {
 		t.Fatalf("default tool contract hash=%x", got)
 	}
 	if legacyClient.InitializeResult().Instructions != Instructions ||
@@ -133,8 +133,8 @@ func TestDefaultProfilePreservesNewToolSchemasAndInstructions(t *testing.T) {
 
 func TestServiceProfileInstructionDigestsAreStable(t *testing.T) {
 	want := map[ServiceProfile]string{
-		ServiceDefault:    "c24f2df54a033d9771c4e6c265b028b1288f3670be5e7535fe8b79873957f732",
-		ServiceJira:       "f47c4eef57cf8d3c61a1bc12557144438471847f29ee7a9d7c9d2a28c77c0bd4",
+		ServiceDefault:    "7a267c90dff39e3bf8e664913b978eebf43968baa2280faf6341c55f17411016",
+		ServiceJira:       "50ce5c2d3f0fa71dff44762ab56f70ba3e284c2e099b949cf021bd30f6cb9764",
 		ServiceConfluence: "2bdb992eafb5621728515beecd4d4bbed979fa47367be5d4a08b35f284a0ee79",
 		ServiceOffline:    "9ab393f7baf37c2249e099d8c1682c00e4cd7768ed5211371b4f25888c6b7aaa",
 	}

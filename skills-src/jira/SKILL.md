@@ -82,11 +82,16 @@ metadata requests are independent. Read `complete` and any `partial_reason`
 before treating absence as evidence. Use the CLI `jira issue history` only
 when individual changes are themselves the required evidence. For a direct
 relationship question starting from one exact issue, prefer one typed
-`jira_issue_graph` call. It always emits schema v2: the default depth is zero,
-while `depth` 1..2 performs a bounded breadth-first walk that follows only exact
-structured Jira relations. MCP v1 is Jira-only and has no Confluence-resolution
-input; discovered page identities remain qualified stubs. Development stays
-absent without implying a zero when `include_development` is omitted or false.
+`jira_issue_graph` call. Its omitted/explicit full projection is the compatible
+schema-v2 graph; request compact schema v1 when only qualified URL or SCM facts
+are needed. Set `projection:"compact"`; its `select` array accepts `urls`,
+`scm`, or qualification-only `none`. Omitted selection defaults to `urls` and
+adds `scm` only with `include_development:true`. Explicit SCM requires the
+Development opt-in. The default depth is zero, while `depth` 1..2 performs a
+bounded breadth-first walk that follows only exact structured Jira relations.
+MCP v1 is Jira-only and has no Confluence-resolution input; discovered page
+identities remain qualified stubs. Development stays absent without implying a zero when
+`include_development` is omitted or false.
 Use the CLI `jira issue graph <KEY>` under inherited read-only policy when MCP
 is unavailable or when id/title-only Confluence metadata is explicitly
 required. In CLI text output, read a URL node's `URL` column only as the graph's
@@ -109,6 +114,13 @@ imply that a heuristic
 mention was fetched. On the CLI, use `--resolve confluence` only when id/title
 metadata for already discovered canonical pages is necessary; it does not read
 page bodies.
+Compact selection happens after full bounded collection and changes no request
+or traversal. Inspect `projection.selected`/`projection.omitted`, incomplete sources,
+frontier, warnings, and reconciled counts before using an empty fact list.
+URL facts come only from canonical URL nodes, including opaque facts whose
+`url` is omitted; never reconstruct them from labels or evidence. SCM facts are
+coordinates only, never GitLab web URLs. A requested Development source keeps
+its status/count even when empty or incomplete.
 For MCP, keep reported `bounds.max_response_bytes` (the fixed aggregate
 buffered Jira response budget) distinct from the `max_bytes` encoded-result
 input. An encoded-result overflow returns

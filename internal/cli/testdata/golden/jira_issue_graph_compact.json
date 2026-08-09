@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "projection": {
+    "name": "compact",
+    "selected": [
+      "urls"
+    ],
+    "omitted": [
+      "scm"
+    ]
+  },
+  "root_id": "jira:issue:PROJ-1",
+  "complete": true,
+  "bounds": {
+    "requested_depth": 0,
+    "max_nodes": 100,
+    "max_edges": 500,
+    "max_evidence": 500,
+    "max_source_bytes": 1048576,
+    "expanded_node_count": 1,
+    "followed_node_count": 0,
+    "attempted_node_count": 1,
+    "max_requests": 100,
+    "requests_used": 4,
+    "max_response_bytes": 16777216,
+    "response_bytes_used": 575,
+    "max_sources": 801,
+    "max_frontier": 100
+  },
+  "summary": {
+    "collected": {
+      "node_count": 4,
+      "edge_count": 3,
+      "evidence_count": 3,
+      "source_count": 8,
+      "incomplete_source_count": 0,
+      "source_status_counts": {
+        "complete": 2,
+        "empty": 6,
+        "forbidden": 0,
+        "partial": 0,
+        "skipped": 0,
+        "unsupported": 0
+      }
+    },
+    "projected": {
+      "fact_count": 0,
+      "source_count": 0,
+      "url_count": 0,
+      "scm_count": 0,
+      "incomplete_source_count": 0,
+      "source_status_counts": {
+        "complete": 0,
+        "empty": 0,
+        "forbidden": 0,
+        "partial": 0,
+        "skipped": 0,
+        "unsupported": 0
+      }
+    },
+    "collected_counts_match_full": true,
+    "projected_fact_count_matches_facts": true,
+    "fact_class_counts_match_facts": true,
+    "projected_source_count_matches_sources": true,
+    "source_status_counts_match_sources": true,
+    "incomplete_source_count_matches_sources": true
+  },
+  "facts": [],
+  "sources": []
+}
