@@ -33,7 +33,7 @@
     {"owner":"app","path":"internal/app/jira_pull.go","function":"(*JiraService).Pull","max_lines":173,"no_headroom":true,"rationale":"Keep the outer Jira pull coordinator at the exact reviewed phase-oriented span."},
     {"owner":"app","path":"internal/app/jira_structure.go","max_lines":1066,"rationale":"Keep Jira Structure orchestration at its measured file baseline."},
     {"owner":"app","path":"internal/app/jira_sync.go","max_lines":781,"rationale":"Keep Jira synchronization orchestration at its measured file baseline."},
-    {"owner":"cli","path":"internal/cli/access_policy.go","max_lines":1236,"rationale":"Keep access-policy command assembly, including inverse-reference read classification and offline corpus export, and output handling at its measured file baseline."},
+    {"owner":"cli","path":"internal/cli/access_policy.go","max_lines":1237,"rationale":"Keep access-policy command assembly, including inverse-reference read classification and offline corpus export, and output handling at its exact integrated baseline."},
     {"owner":"cli","path":"internal/cli/conf.go","max_lines":1346,"no_headroom":true,"rationale":"Keep Confluence command assembly at its exact measured span after extracting qualified search text projection."},
     {"owner":"cli","path":"internal/cli/conf_page.go","max_lines":550,"rationale":"Keep the focused Confluence page command surface within a reviewed allowance."},
     {"owner":"cli","path":"internal/cli/conf_page.go","function":"confPageCmd","max_lines":450,"rationale":"Keep the largest Confluence page command family within a reduced reviewed allowance."},
