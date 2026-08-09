@@ -87,14 +87,17 @@ Complete-project mode is deliberately separate from `--jql/--limit`: setting
 ordinary search as exhaustive. `--complete` accepts only one canonical project,
 requires an explicit `--max-issues`, uses the completeness-qualified Jira port,
 rejects repeated/non-advancing cursors, zero-progress continuation pages,
-duplicate or noncanonical numeric IDs, conflicting key mappings, a cap, or a
-terminal partial reason, and requires two passes with the same ID-to-key map
+duplicate or noncanonical numeric IDs, conflicting key mappings, a cap, a
+missing/changing exact backend total, a terminal count that differs from that
+total, or a terminal partial reason, and requires two passes with the same ID-to-key map
 before writing a checkpoint or issue payload. Numeric IDs are sorted by their
 integer spelling and become immutable selection identities; keys remain mutable
 paths. A later key/project change for an already tracked numeric ID is a
 hash-qualified relocation: the old native, snapshot, pristine derived view,
-base, and owned auxiliary files must still match, the sidecar key changes
-atomically, and only then are those exact old files retired. Missing issues are
+base, and inventoried owned auxiliary files must still match, the sidecar key
+changes atomically, and only then are those exact old files retired. A non-empty
+legacy `<KEY>.assets/` directory has no ownership inventory, so relocation stops
+and preserves it for manual reconciliation. Missing issues are
 retained; neither successful completion nor absence grants remote or local
 deletion authority.
 

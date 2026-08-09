@@ -17,7 +17,7 @@ import (
 // SyncState is the last-synced snapshot of one resource.
 type SyncState struct {
 	ID       string `json:"id"`
-	Identity string `json:"identity,omitempty"` // stable Jira numeric id; absent for Confluence and legacy Jira states
+	Identity string `json:"identity,omitempty"` // stable Jira numeric id when available; absent for Confluence and legacy Jira states
 	Version  int    `json:"version"`
 	Hash     string `json:"hash"`
 	Path     string `json:"path"` // rel to mirror root

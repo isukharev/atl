@@ -101,7 +101,8 @@ envelope and retain the private checkpoint. The hashes and all counts are conten
 checkpoint and bounded journal contain numeric issue identities and exact local
 publication state, never credentials, backend URLs, titles, descriptions, or
 raw fields. Stable numeric identity may move to a new key/path only through the
-qualified schema-4 relocation transaction. Completion proves the selected
+qualified schema-4 relocation transaction. A non-empty legacy asset directory
+without an ownership inventory blocks relocation and is preserved. Completion proves the selected
 project membership, not absence/deletion and not the separate local-integrity
 contract reported by `jira snapshot`.
 

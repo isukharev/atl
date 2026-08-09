@@ -36,6 +36,8 @@ numeric identity and an exact predecessor for key relocation. Recovery writes
 the new artifacts, atomically replaces the old sidecar key, and only then
 removes hash-matched old artifacts. Unknown, changed, partially present, or
 unowned files stop retirement and remain available for manual reconciliation.
+In particular, a non-empty legacy Jira `<KEY>.assets/` directory has no durable
+ownership inventory, blocks key relocation, and is preserved.
 Confluence retains its established progress-v1 bytes; Jira progress v2 carries
 an explicit service. If a crash leaves progress from the other service beside a
 new selection, recovery restarts that selection from zero instead of trusting

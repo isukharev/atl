@@ -164,3 +164,26 @@ func TestJiraCompletePullRelocationRejectsChangedOldArtifact(t *testing.T) {
 		t.Fatalf("changed source created replacement tree: %v", err)
 	}
 }
+
+func TestJiraCompletePullRelocationPreservesUninventoriedAssets(t *testing.T) {
+	m, _, entry, _, _ := jiraRelocationFixture(t)
+	assetPath := filepath.Join(m.Root, "OLD", "OLD-1.assets", "local.bin")
+	if err := safepath.MkdirAllWithin(m.Root, filepath.Dir(assetPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := safepath.WriteFileWithin(m.Root, assetPath, []byte("local asset"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := m.PlanJiraIssueRelocation(
+		"10001",
+		entry.State,
+		[]byte("<!-- atl:document jira-issue v3 -->\n\n# OLD-1\n"),
+	)
+	if plan != nil || !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("plan=%+v err=%v", plan, err)
+	}
+	if got, readErr := os.ReadFile(assetPath); readErr != nil || string(got) != "local asset" {
+		t.Fatalf("asset=%q err=%v", got, readErr)
+	}
+}

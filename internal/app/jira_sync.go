@@ -502,6 +502,22 @@ func (s *JiraService) refreshAfterPush(ctx context.Context, m *mirror.Mirror, wi
 	if snap.Fields == nil {
 		snap.Fields = map[string]any{}
 	}
+	previous, found, err := m.SyncStateOf(key)
+	if err != nil {
+		return err
+	}
+	var previousPtr *mirror.SyncState
+	if found {
+		previousPtr = &previous
+	}
+	observedIdentity := is.ID
+	if !canonicalPositiveNumericString(observedIdentity) {
+		observedIdentity = existing.ID
+	}
+	identity, err := jiraSyncIdentity(observedIdentity, previousPtr)
+	if err != nil {
+		return err
+	}
 	jb, err := json.MarshalIndent(snap, "", "  ")
 	if err != nil {
 		return err
@@ -531,7 +547,7 @@ func (s *JiraService) refreshAfterPush(ctx context.Context, m *mirror.Mirror, wi
 	if err != nil {
 		return err
 	}
-	batch.Record(mirror.SyncState{ID: key, Version: 0, Hash: mirror.Hash([]byte(is.Body)), Path: relWiki})
+	batch.Record(mirror.SyncState{ID: key, Identity: identity, Version: 0, Hash: mirror.Hash([]byte(is.Body)), Path: relWiki})
 	// Record the render settings the refreshed .md view was written with so a
 	// later `jira apply` reproduces the exact pristine view.
 	batch.RecordView(key, viewStateOf(rs))

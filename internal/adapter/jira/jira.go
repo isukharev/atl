@@ -234,6 +234,8 @@ func (j *Jira) searchPage(ctx context.Context, jql string, fields []string, limi
 		page.PartialReason = domain.IssueSearchPartialPaginationUnqualified
 		return page, nil
 	}
+	page.Total = *resp.Total
+	page.TotalKnown = true
 	if decision.state == jiraOffsetComplete {
 		page.Complete = true
 		return page, nil

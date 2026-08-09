@@ -204,22 +204,8 @@ func (m *Mirror) PlanJiraIssueRelocation(identity string, next SyncState, pristi
 	assetsDir := filepath.Join(m.Root, filepath.FromSlash(assetsRel))
 	entries, readDirErr := safepath.ReadDirWithin(m.Root, assetsDir)
 	if readDirErr == nil {
-		for _, entry := range entries {
-			if entry.IsDir() || entry.Type()&os.ModeType != 0 {
-				return nil, fmt.Errorf("%w: Jira relocation asset directory contains an unsupported entry", domain.ErrCheckFailed)
-			}
-			assetRel := assetsRel + "/" + entry.Name()
-			qualified, pathErr := NewPublicArtifactPath(assetRel)
-			if pathErr != nil {
-				return nil, pathErr
-			}
-			assetBytes, readErr := safepath.ReadFileWithin(m.Root, filepath.Join(m.Root, filepath.FromSlash(assetRel)))
-			if readErr != nil {
-				return nil, fmt.Errorf("%w: Jira relocation asset changed during qualification", domain.ErrCheckFailed)
-			}
-			plan.retire = append(plan.retire, jiraIssueRelocationArtifact{
-				artifact: CompletePullArtifact{Path: qualified, Role: CompletePullArtifactRoleAuxiliary, Remove: true}, hash: Hash(assetBytes),
-			})
+		if len(entries) != 0 {
+			return nil, fmt.Errorf("%w: Jira relocation asset directory has no ownership inventory", domain.ErrCheckFailed)
 		}
 	} else if !os.IsNotExist(readDirErr) {
 		return nil, fmt.Errorf("%w: inspect Jira relocation asset directory", domain.ErrCheckFailed)

@@ -418,6 +418,10 @@ func TestJiraCreateRegistrationUsesAuthoritativeReadback(t *testing.T) {
 	if err != nil || json.Unmarshal(snapshotBytes, &snapshot) != nil || snapshot.ID != "10007" {
 		t.Fatalf("snapshot=%+v bytes=%q err=%v", snapshot, snapshotBytes, err)
 	}
+	state, found, err := mirror.New(root).SyncStateOf("PROJ-7")
+	if err != nil || !found || state.Identity != "10007" {
+		t.Fatalf("registered state=%+v found=%t err=%v", state, found, err)
+	}
 }
 
 func TestCreatedRegistrationBackendMismatchStopsBeforeCreate(t *testing.T) {

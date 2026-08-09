@@ -27,6 +27,7 @@ type syncTracker struct {
 	getErr       error             // if set, GetIssue fails with it
 	getErrOnCall int               // if >0, only the N-th GetIssue fails (1-based) with getErr
 	updateErr    error
+	omitID       bool
 
 	getCalls    int
 	updateCalls int
@@ -51,7 +52,11 @@ func (tr *syncTracker) GetIssue(_ context.Context, key string, _ []string) (*dom
 	if tr.serverBodies != nil {
 		body = tr.serverBodies[key]
 	}
-	return &domain.Issue{Key: key, Project: "PROJ", Summary: "S", Status: "Open", Type: "Task", Body: body}, nil
+	id := "10001"
+	if tr.omitID {
+		id = ""
+	}
+	return &domain.Issue{ID: id, Key: key, Project: "PROJ", Summary: "S", Status: "Open", Type: "Task", Body: body}, nil
 }
 
 func (tr *syncTracker) Update(_ context.Context, key, summary string, body []byte, fields map[string]string) error {
@@ -77,7 +82,7 @@ func (tr *syncTracker) Update(_ context.Context, key, summary string, body []byt
 func setupPulled(t *testing.T, body string) (*JiraService, *syncTracker, string, string) {
 	t.Helper()
 	into := t.TempDir()
-	iss := domain.Issue{Key: "PROJ-1", Project: "PROJ", Summary: "S", Status: "Open", Type: "Task", Body: body}
+	iss := domain.Issue{ID: "10001", Key: "PROJ-1", Project: "PROJ", Summary: "S", Status: "Open", Type: "Task", Body: body}
 	tr := &syncTracker{searchIssues: []domain.Issue{iss}, serverBody: body}
 	svc := &JiraService{tr: tr, baseURL: jiraMirrorTestBackendURL}
 	if _, err := svc.Pull(context.Background(), JiraPullOpts{JQL: "project=PROJ", Into: into, Limit: 1}); err != nil {
@@ -123,6 +128,9 @@ func TestJiraPullRecordsSidecarAndBase(t *testing.T) {
 	}
 	if lw.Synced.Path != filepath.Join("PROJ", "PROJ-1.wiki") {
 		t.Fatalf("sidecar path = %q, want PROJ/PROJ-1.wiki", lw.Synced.Path)
+	}
+	if lw.Synced.Identity != "10001" {
+		t.Fatalf("sidecar identity = %q, want stable numeric ID", lw.Synced.Identity)
 	}
 }
 
@@ -261,6 +269,7 @@ func TestJiraPushDryRunByDefault(t *testing.T) {
 func TestJiraPushApplyWritesDescriptionOnly(t *testing.T) {
 	svc, tr, into, wikiPath := setupPulled(t, "before")
 	editWiki(t, wikiPath, "after")
+	tr.omitID = true
 
 	res, err := svc.Push(context.Background(), wikiPath, JiraPushOpts{Apply: true})
 	if err != nil {
@@ -289,6 +298,10 @@ func TestJiraPushApplyWritesDescriptionOnly(t *testing.T) {
 	}
 	if base, ok := mirror.New(into).BaseBodyExt("PROJ-1", ".wiki"); !ok || string(base) != "after" {
 		t.Fatalf("base after apply = %q ok=%v, want the pushed body", base, ok)
+	}
+	state, found, err := mirror.New(into).SyncStateOf("PROJ-1")
+	if err != nil || !found || state.Identity != "10001" {
+		t.Fatalf("post-push state=%+v found=%t err=%v", state, found, err)
 	}
 }
 

@@ -90,6 +90,7 @@ func collectJiraCompletePass(ctx context.Context, searcher domain.QualifiedIssue
 	seenCursors := map[string]bool{}
 	keys := map[string]string{}
 	keyOwners := map[string]string{}
+	expectedTotal := -1
 	for {
 		if seenCursors[cursor] {
 			return jiraCompletePass{}, fmt.Errorf("%w: complete Jira search repeated a pagination cursor", domain.ErrCheckFailed)
@@ -112,6 +113,17 @@ func collectJiraCompletePass(ctx context.Context, searcher domain.QualifiedIssue
 		if page.Next != "" && len(page.Issues) == 0 {
 			return jiraCompletePass{}, fmt.Errorf("%w: complete Jira search advertised continuation without progress", domain.ErrCheckFailed)
 		}
+		if page.Next == "" && !page.Complete {
+			return jiraCompletePass{}, &jiraCompleteIncompleteError{PartialReason: page.PartialReason}
+		}
+		if !page.TotalKnown || page.Total < 0 {
+			return jiraCompletePass{}, fmt.Errorf("%w: complete Jira search omitted its qualified exact total", domain.ErrCheckFailed)
+		}
+		if expectedTotal < 0 {
+			expectedTotal = page.Total
+		} else if page.Total != expectedTotal {
+			return jiraCompletePass{}, fmt.Errorf("%w: complete Jira search total changed across pages", domain.ErrCheckFailed)
+		}
 		for _, issue := range page.Issues {
 			if !canonicalPositiveNumericString(issue.ID) || !domain.ValidJiraIssueKey(issue.Key) || issue.Project != project || !strings.HasPrefix(issue.Key, project+"-") {
 				return jiraCompletePass{}, fmt.Errorf("%w: complete Jira search returned an issue outside the canonical project identity", domain.ErrCheckFailed)
@@ -131,9 +143,12 @@ func collectJiraCompletePass(ctx context.Context, searcher domain.QualifiedIssue
 				return jiraCompletePass{}, fmt.Errorf("%w: complete Jira selection exceeds the %d-identity local safety limit", domain.ErrCheckFailed, jiraCompletePullMaxIDs)
 			}
 		}
+		if len(keys) > expectedTotal {
+			return jiraCompletePass{}, fmt.Errorf("%w: complete Jira search returned more identities than its exact total", domain.ErrCheckFailed)
+		}
 		if page.Next == "" {
-			if !page.Complete {
-				return jiraCompletePass{}, &jiraCompleteIncompleteError{PartialReason: page.PartialReason}
+			if len(keys) != expectedTotal {
+				return jiraCompletePass{}, fmt.Errorf("%w: complete Jira search terminal count differs from its exact total", domain.ErrCheckFailed)
 			}
 			break
 		}

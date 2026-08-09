@@ -423,7 +423,9 @@ state/view and old artifact pre-images, atomically replaces the sidecar key,
 then retires only the persisted exact old files; recovery accepts either the
 predecessor or exact replacement state, never an unrelated midpoint. A crash after replacing a
 checkpoint with the other service's selection resets the stale progress prefix
-to zero. Cross-service schema, extension, identity, version, role, and path
+to zero. A non-empty legacy Jira asset directory is not inferred to be owned:
+it blocks key relocation and remains intact for manual reconciliation.
+Cross-service schema, extension, identity, version, role, and path
 combinations fail before a destination is staged or accepted.
 
 Notable behaviors:

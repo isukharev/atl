@@ -34,11 +34,11 @@ func (t *jiraCompleteTracker) SearchQualified(_ context.Context, _ string, field
 	switch cursor {
 	case "":
 		if len(issues) == 0 {
-			return domain.IssueSearchPage{Complete: true}, nil
+			return domain.IssueSearchPage{Complete: true, TotalKnown: true}, nil
 		}
-		return domain.IssueSearchPage{Issues: issues[:1], Next: "1"}, nil
+		return domain.IssueSearchPage{Issues: issues[:1], Next: "1", Total: len(issues), TotalKnown: true}, nil
 	case "1":
-		return domain.IssueSearchPage{Issues: issues[1:], Complete: true}, nil
+		return domain.IssueSearchPage{Issues: issues[1:], Complete: true, Total: len(issues), TotalKnown: true}, nil
 	default:
 		return domain.IssueSearchPage{}, errors.New("unexpected cursor")
 	}
@@ -256,4 +256,45 @@ type jiraCompletePartialTracker struct{ *jiraCompleteTracker }
 
 func (*jiraCompletePartialTracker) SearchQualified(context.Context, string, []string, int, string) (domain.IssueSearchPage, error) {
 	return domain.IssueSearchPage{PartialReason: domain.IssueSearchPartialPaginationStalled}, nil
+}
+
+type jiraCompleteTotalDriftTracker struct{ calls int }
+
+func (t *jiraCompleteTotalDriftTracker) SearchQualified(context.Context, string, []string, int, string) (domain.IssueSearchPage, error) {
+	t.calls++
+	if t.calls == 1 {
+		return domain.IssueSearchPage{Issues: completeJiraIssues()[:1], Next: "1", Total: 3, TotalKnown: true}, nil
+	}
+	return domain.IssueSearchPage{Issues: completeJiraIssues()[1:], Complete: true, Total: 2, TotalKnown: true}, nil
+}
+
+func TestJiraCompletePullRejectsCrossPageTotalDrift(t *testing.T) {
+	_, err := collectJiraCompletePass(t.Context(), &jiraCompleteTotalDriftTracker{}, "PROJ", 10)
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+type jiraCompleteFixedPageTracker struct{ page domain.IssueSearchPage }
+
+func (t *jiraCompleteFixedPageTracker) SearchQualified(context.Context, string, []string, int, string) (domain.IssueSearchPage, error) {
+	return t.page, nil
+}
+
+func TestJiraCompletePullRequiresQualifiedExactTotal(t *testing.T) {
+	searcher := &jiraCompleteFixedPageTracker{page: domain.IssueSearchPage{Complete: true}}
+	_, err := collectJiraCompletePass(t.Context(), searcher, "PROJ", 10)
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestJiraCompletePullRejectsTerminalCountDifferentFromTotal(t *testing.T) {
+	searcher := &jiraCompleteFixedPageTracker{page: domain.IssueSearchPage{
+		Issues: completeJiraIssues()[:1], Complete: true, Total: 2, TotalKnown: true,
+	}}
+	_, err := collectJiraCompletePass(t.Context(), searcher, "PROJ", 10)
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("err=%v", err)
+	}
 }
