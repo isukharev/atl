@@ -97,6 +97,11 @@ func TestFocusedGuardedWriteFeatureConformance(t *testing.T) {
 				t.Fatalf("blocked=%+v", blocked)
 			}
 
+			applied := test.exercise(preview.proposalHash, false)
+			if applied.err != nil || applied.mode != "apply" || applied.status != "applied" || applied.writes != 1 {
+				t.Fatalf("applied=%+v", applied)
+			}
+
 			unknown := test.exercise(preview.proposalHash, true)
 			var ambiguous interface{ DiagnosticAmbiguousWrite() bool }
 			if unknown.mode != "apply" || unknown.status != "unknown" || unknown.writes != 1 ||
