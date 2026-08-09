@@ -142,6 +142,39 @@ func TestReadInverseReferenceSnapshotLeavesPropertiesUnrequested(t *testing.T) {
 	}
 }
 
+func TestReadInverseReferenceSnapshotAllowsExplicitFieldsPlusDescription(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		requests++
+		if got := len(strings.Split(request.URL.Query().Get("fields"), ",")); got != inverseReferenceMaxFieldIDs {
+			t.Fatalf("field count = %d, want %d", got, inverseReferenceMaxFieldIDs)
+		}
+		_, _ = w.Write([]byte(`{"id":"10004","key":"INV-4","fields":{}}`))
+	}))
+	defer server.Close()
+
+	fieldIDs := make([]string, 0, inverseReferenceMaxFieldIDs)
+	for index := range inverseReferenceMaxFieldIDs - 1 {
+		fieldIDs = append(fieldIDs, fmt.Sprintf("customfield_%03d", index))
+	}
+	fieldIDs = append(fieldIDs, "description")
+	adapter := New(server.URL, "token", "test")
+	if _, err := adapter.ReadInverseReferenceSnapshot(context.Background(), domain.JiraInverseReferenceSnapshotRequest{
+		Issue: domain.JiraInverseReferenceIssueIdentity{ID: "10004", Key: "INV-4"}, FieldIDs: fieldIDs,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fieldIDs = append(fieldIDs, "one_field_too_many")
+	if _, err := adapter.ReadInverseReferenceSnapshot(context.Background(), domain.JiraInverseReferenceSnapshotRequest{
+		Issue: domain.JiraInverseReferenceIssueIdentity{ID: "10004", Key: "INV-4"}, FieldIDs: fieldIDs,
+	}); !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("overflow error = %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("backend requests = %d, want 1", requests)
+	}
+}
+
 func TestInverseReferenceReadsRespectReadBudget(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

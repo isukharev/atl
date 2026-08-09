@@ -16,7 +16,7 @@ import (
 
 const (
 	inverseReferenceMaxResults          = jiraSearchMaxResults
-	inverseReferenceMaxFieldIDs         = 128
+	inverseReferenceMaxFieldIDs         = 129 // 128 explicit fields plus the app's implicit description field.
 	inverseReferenceMaxProperties       = 128
 	inverseReferenceMaxValueBytes       = 64 << 10
 	inverseReferenceMaxFieldIDBytes     = 255

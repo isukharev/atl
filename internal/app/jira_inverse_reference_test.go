@@ -13,24 +13,25 @@ import (
 
 type inverseReferenceTestTracker struct {
 	domain.Tracker
-	pages           []domain.JiraInverseReferencePage
-	selectionErrs   map[int]error
-	selections      []domain.JiraInverseReferenceSelection
-	snapshots       map[string]domain.JiraInverseReferenceSnapshot
-	snapshotErr     error
-	snapshotCalls   int
-	comments        map[string][]domain.Comment
-	commentsErr     error
-	commentCalls    int
-	worklogs        map[string]*domain.IssueWorklogList
-	worklogsErr     error
-	remoteLinks     map[string]domain.JiraRemoteLinkInventory
-	remoteErr       error
-	development     map[string]domain.JiraDevelopmentInventory
-	developmentErr  error
-	consumeBytes    int64
-	budgets         []*domain.ReadBudget
-	untrustedTarget bool
+	pages            []domain.JiraInverseReferencePage
+	selectionErrs    map[int]error
+	selections       []domain.JiraInverseReferenceSelection
+	snapshots        map[string]domain.JiraInverseReferenceSnapshot
+	snapshotRequests []domain.JiraInverseReferenceSnapshotRequest
+	snapshotErr      error
+	snapshotCalls    int
+	comments         map[string][]domain.Comment
+	commentsErr      error
+	commentCalls     int
+	worklogs         map[string]*domain.IssueWorklogList
+	worklogsErr      error
+	remoteLinks      map[string]domain.JiraRemoteLinkInventory
+	remoteErr        error
+	development      map[string]domain.JiraDevelopmentInventory
+	developmentErr   error
+	consumeBytes     int64
+	budgets          []*domain.ReadBudget
+	untrustedTarget  bool
 }
 
 func (t *inverseReferenceTestTracker) consume(ctx context.Context) error {
@@ -72,6 +73,8 @@ func (t *inverseReferenceTestTracker) SelectInverseReferencePage(ctx context.Con
 
 func (t *inverseReferenceTestTracker) ReadInverseReferenceSnapshot(ctx context.Context, request domain.JiraInverseReferenceSnapshotRequest) (domain.JiraInverseReferenceSnapshot, error) {
 	t.snapshotCalls++
+	request.FieldIDs = append([]string(nil), request.FieldIDs...)
+	t.snapshotRequests = append(t.snapshotRequests, request)
 	if err := t.consume(ctx); err != nil {
 		return domain.JiraInverseReferenceSnapshot{}, err
 	}
@@ -307,6 +310,39 @@ func TestInverseReferenceConfluenceTargetThreadsResolutionProvenance(t *testing.
 				t.Fatalf("display URL resolver calls=%d", resolver.calls)
 			}
 		})
+	}
+}
+
+func TestInverseReferenceAllowsMaximumFieldsWithDescription(t *testing.T) {
+	opts := inverseReferenceTestOptions()
+	opts.Sources = []domain.JiraInverseReferenceSource{
+		domain.JiraInverseReferenceSourceDescription,
+		domain.JiraInverseReferenceSourceFields,
+	}
+	opts.Fields = make([]string, 0, jiraInverseReferenceMaxFields)
+	for index := range jiraInverseReferenceMaxFields {
+		opts.Fields = append(opts.Fields, fmt.Sprintf("customfield_%03d", index))
+	}
+	issue := domain.JiraInverseReferenceIssueIdentity{ID: "10001", Key: "SAFE-1"}
+	page := domain.JiraInverseReferencePage{StartAt: 0, MaxResults: 10, Total: 1, Issues: []domain.JiraInverseReferenceIssueIdentity{issue}}
+	fieldSnapshots := make([]domain.JiraInverseReferenceFieldSnapshot, 0, jiraInverseReferenceMaxFields+1)
+	for _, fieldID := range append(append([]string(nil), opts.Fields...), "description") {
+		fieldSnapshots = append(fieldSnapshots, domain.JiraInverseReferenceFieldSnapshot{
+			FieldID: fieldID, Present: true, Value: json.RawMessage(`""`),
+		})
+	}
+	tracker := &inverseReferenceTestTracker{
+		pages: []domain.JiraInverseReferencePage{page, page},
+		snapshots: map[string]domain.JiraInverseReferenceSnapshot{issue.Key: {
+			Issue: issue, Fields: fieldSnapshots,
+		}},
+	}
+	result, err := (&JiraService{tr: tracker}).SearchInverseReferences(t.Context(), opts)
+	if err != nil || !result.Complete || !result.AbsenceProven || len(tracker.snapshotRequests) != 1 {
+		t.Fatalf("result=%+v err=%v snapshot requests=%d", result, err, len(tracker.snapshotRequests))
+	}
+	if got := len(tracker.snapshotRequests[0].FieldIDs); got != jiraInverseReferenceMaxFields+1 {
+		t.Fatalf("snapshot field count=%d, want %d", got, jiraInverseReferenceMaxFields+1)
 	}
 }
 
