@@ -75,7 +75,7 @@
     {"owner":"tooling","path":"scripts/check-docs-freshness/main.go","max_lines":996,"rationale":"Keep changed-path, impact selection, and documentation freshness validation at its measured file baseline."},
     {"owner":"tooling","path":"scripts/check-docs-freshness/main.go","function":"validateImpactManifest","max_lines":69,"no_headroom":true,"rationale":"Keep maintainer-impact selector and exclusion validation at its exact measured span."},
     {"owner":"tooling","path":"scripts/check-docs-freshness/main.go","function":"validateRepository","max_lines":69,"no_headroom":true,"rationale":"Keep the documentation freshness orchestration entry point at its exact measured span."},
-    {"owner":"tooling","path":"scripts/check-maintainability/main.go","max_lines":667,"rationale":"Keep the maintainability checker itself at its measured file baseline."},
+    {"owner":"tooling","path":"scripts/check-maintainability/main.go","max_lines":673,"rationale":"Keep the maintainability checker itself at its measured file baseline."},
     {"owner":"tooling","path":"scripts/check-maintainability/main.go","function":"validateManifest","max_lines":119,"no_headroom":true,"rationale":"Keep manifest validation orchestration at its exact measured span."},
     {"owner":"tooling","path":"scripts/check-maintainer-contract/main.go","max_lines":1781,"rationale":"Keep maintainer-contract and evaluator-gate validation at its measured file baseline."},
     {"owner":"tooling","path":"scripts/check-maintainer-contract/main.go","function":"validateEvaluatorCompatSelections","max_lines":92,"no_headroom":true,"rationale":"Keep evaluator compatibility selection completeness checks at their exact measured span."},
@@ -95,7 +95,7 @@
     {"owner":"mcp","path":"internal/mcpserver/","max_lines":3294,"rationale":"Keep total production growth in the MCP package visible even when registration and protocol owners are split."},
     {"owner":"mirror","path":"internal/mirror/","max_lines":6621,"rationale":"Keep durable mirror layout, publication, recovery, and derived-view production growth visible."},
     {"owner":"tooling","path":"scripts/check-docs-freshness/","max_lines":996,"rationale":"Keep documentation freshness and impact-selection tooling at its measured production baseline."},
-    {"owner":"tooling","path":"scripts/check-maintainability/","max_lines":667,"rationale":"Keep maintainability checker production growth at its measured package baseline."},
+    {"owner":"tooling","path":"scripts/check-maintainability/","max_lines":673,"rationale":"Keep maintainability checker production growth at its measured package baseline."},
     {"owner":"tooling","path":"scripts/check-maintainer-contract/","max_lines":1781,"rationale":"Keep maintainer-contract and evaluator-gate tooling at its measured production baseline."},
     {"owner":"tooling","path":"scripts/gen-plugins/","max_lines":1009,"rationale":"Keep generated client-plugin check and publication tooling at its measured production baseline."}
   ],

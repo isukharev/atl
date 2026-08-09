@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -44,6 +45,49 @@ func TestRunReportsPhysicalFileAndFunctionSpans(t *testing.T) {
 	}
 	if got.ChangeSurface.ProductionFiles != 13 || len(got.ChangeSurface.LargeFiles) != 1 || got.ChangeSurface.LargeFiles[0].Path != "internal/app/a.go" {
 		t.Fatalf("unexpected change-surface report: %+v", got.ChangeSurface)
+	}
+}
+
+func TestRunRetainsLegacyJSONProjection(t *testing.T) {
+	root := writeMaintainabilityFixture(t)
+	var output bytes.Buffer
+	if err := run(root, &output); err != nil {
+		t.Fatal(err)
+	}
+	var repeated bytes.Buffer
+	if err := run(root, &repeated); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(output.Bytes(), repeated.Bytes()) {
+		t.Fatal("success JSON is not deterministic")
+	}
+
+	var wire map[string]any
+	if err := json.Unmarshal(output.Bytes(), &wire); err != nil {
+		t.Fatalf("decode generic report: %v\n%s", err, output.String())
+	}
+	legacyMeasurements, ok := wire["measurements"].([]any)
+	if !ok {
+		t.Fatalf("legacy measurements missing or invalid: %#v", wire["measurements"])
+	}
+	hotspots, ok := wire["hotspots"].([]any)
+	if !ok {
+		t.Fatalf("categorized hotspots missing or invalid: %#v", wire["hotspots"])
+	}
+	packageTotals, ok := wire["package_totals"].([]any)
+	if !ok {
+		t.Fatalf("categorized package_totals missing or invalid: %#v", wire["package_totals"])
+	}
+	wantMeasurements := append(append([]any(nil), hotspots...), packageTotals...)
+	if !reflect.DeepEqual(legacyMeasurements, wantMeasurements) {
+		t.Fatalf("legacy measurements differ from ordered hotspot and package measurements")
+	}
+	timing, ok := wire["timing"].(map[string]any)
+	if !ok {
+		t.Fatalf("categorized timing missing or invalid: %#v", wire["timing"])
+	}
+	if wire["timing_mode"] != timing["mode"] || wire["timing_observations"] != timing["observations"] {
+		t.Fatalf("legacy timing aliases differ: mode=%#v/%#v observations=%#v/%#v", wire["timing_mode"], timing["mode"], wire["timing_observations"], timing["observations"])
 	}
 }
 

@@ -112,11 +112,14 @@ type timingReport struct {
 }
 
 type report struct {
-	Status        string              `json:"status"`
-	Hotspots      []measurement       `json:"hotspots"`
-	PackageTotals []measurement       `json:"package_totals"`
-	ChangeSurface changeSurfaceReport `json:"change_surface"`
-	Timing        timingReport        `json:"timing"`
+	Status             string              `json:"status"`
+	Measurements       []measurement       `json:"measurements"`
+	TimingMode         string              `json:"timing_mode"`
+	TimingObservations int                 `json:"timing_observations"`
+	Hotspots           []measurement       `json:"hotspots"`
+	PackageTotals      []measurement       `json:"package_totals"`
+	ChangeSurface      changeSurfaceReport `json:"change_surface"`
+	Timing             timingReport        `json:"timing"`
 }
 
 var reviewedOwners = []owner{
@@ -149,11 +152,14 @@ func run(root string, output io.Writer) error {
 		return err
 	}
 	report := report{
-		Status:        "ok",
-		Hotspots:      hotspots,
-		PackageTotals: packageTotals,
-		ChangeSurface: changeSurface,
-		Timing:        timingReport{Mode: m.Timing.Mode, Observations: len(m.Timing.Observations)},
+		Status:             "ok",
+		Measurements:       append(append([]measurement(nil), hotspots...), packageTotals...),
+		TimingMode:         m.Timing.Mode,
+		TimingObservations: len(m.Timing.Observations),
+		Hotspots:           hotspots,
+		PackageTotals:      packageTotals,
+		ChangeSurface:      changeSurface,
+		Timing:             timingReport{Mode: m.Timing.Mode, Observations: len(m.Timing.Observations)},
 	}
 	encoder := json.NewEncoder(output)
 	encoder.SetIndent("", "  ")
