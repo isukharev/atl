@@ -97,7 +97,8 @@ func validateProviderReference(value string) error {
 	if strings.TrimSpace(value) != value || strings.Contains(value, "://") || strings.HasPrefix(value, "//") ||
 		strings.HasPrefix(lower, "http:") || strings.HasPrefix(lower, "https:") ||
 		strings.HasPrefix(lower, "mailto:") || strings.HasPrefix(lower, "file:") ||
-		strings.HasPrefix(lower, "data:") || strings.HasPrefix(lower, "javascript:") {
+		strings.HasPrefix(lower, "data:") || strings.HasPrefix(lower, "javascript:") ||
+		strings.HasPrefix(lower, "vbscript:") {
 		return reject(ReasonType)
 	}
 	return nil

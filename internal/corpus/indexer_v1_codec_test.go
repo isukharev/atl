@@ -262,6 +262,7 @@ func TestIndexerV1EdgeRequiresQualifiedOrUnresolvedTarget(t *testing.T) {
 		{name: "opaque HTTP URL reference", mutate: func(e *IndexerEdge) { e.Unresolved.Value = "HTTPS:backend.invalid/1" }, reason: ReasonType},
 		{name: "scheme relative URL reference", mutate: func(e *IndexerEdge) { e.Unresolved.Value = "//backend.invalid/1" }, reason: ReasonType},
 		{name: "active URL reference", mutate: func(e *IndexerEdge) { e.Unresolved.Value = "javascript:alert(1)" }, reason: ReasonType},
+		{name: "legacy active URL reference", mutate: func(e *IndexerEdge) { e.Unresolved.Value = "VbScRiPt:msgbox(1)" }, reason: ReasonType},
 		{name: "name on generic relation", mutate: func(e *IndexerEdge) { e.RelationName = "custom" }, reason: ReasonMembership},
 		{name: "invented relation", mutate: func(e *IndexerEdge) { e.Relation = "blocks" }, reason: ReasonType},
 		{name: "wrong id", mutate: func(e *IndexerEdge) { e.ID = digestByte('f') }, reason: ReasonDigest},
