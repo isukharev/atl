@@ -39,6 +39,27 @@ func TestNewJiraServiceProjectsPureDependencies(t *testing.T) {
 	}
 }
 
+func TestNewJiraServiceKeepsConfluenceGraphFactoryLazyAndAtMostOnce(t *testing.T) {
+	calls := 0
+	service := NewJiraService(JiraDependencies{
+		ConfluenceGraphFactory: func() (domain.ConfluenceGraphPageMetadataReader, string) {
+			calls++
+			return nil, string(DependencyCredentialsMissing)
+		},
+	})
+	if calls != 0 {
+		t.Fatalf("factory called during construction %d times", calls)
+	}
+	for range 2 {
+		if reader, reason := service.confluenceGraphMetadataReader(); reader != nil || reason != string(DependencyCredentialsMissing) {
+			t.Fatalf("reader=%v reason=%q", reader, reason)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("factory called %d times, want exactly once", calls)
+	}
+}
+
 func TestNewEnvironmentServiceKeepsClosedSetupStatuses(t *testing.T) {
 	service := NewEnvironmentService(&config.Config{}, EnvironmentDependencies{
 		JiraSetup: DependencyCredentialsMissing, ConfluenceSetup: DependencyInvalidConfiguration,

@@ -320,14 +320,50 @@ func VerifyJira(ctx context.Context, rawURL, token, version string, cfg *config.
 	return app.VerifyJira(ctx, client)
 }
 
-// DoctorRemoteDependencies provides the exact production credential and
-// metadata-reader assembly used by the app-owned diagnostic projection.
-func DoctorRemoteDependencies() app.DoctorRemoteDependencies {
-	return app.DoctorRemoteDependencies{
+// DoctorDependencies projects concrete configuration, credentials, and TLS
+// health into app-owned values. The reader closure captures the qualified
+// config so app never receives a config-shaped construction seam.
+func DoctorDependencies() app.DoctorDependencies {
+	cfgInspection := config.Inspect()
+	credentialInspection := auth.Inspect()
+	cfg := cfgInspection.Effective
+	transport := config.TransportProjection(cfg)
+	return app.DoctorDependencies{
+		Config: app.DoctorConfigInspection{
+			Status: cfgInspection.Status, Reason: cfgInspection.Reason,
+			DirectorySource: cfgInspection.DirectorySource,
+			File: app.DoctorFileInspection{
+				Present: cfgInspection.File.Present, Status: cfgInspection.File.Status,
+				OwnerOnly: cfgInspection.File.OwnerOnly, PermissionKnown: cfgInspection.File.PermissionKnown,
+			},
+			ConfluenceURL: cfg.ConfluenceURL, ConfluenceURLSource: cfgInspection.ConfluenceURLSource,
+			ConfluenceURLStatus: doctorURLStatus(cfg.ConfluenceURL),
+			JiraURL:             cfg.JiraURL, JiraURLSource: cfgInspection.JiraURLSource,
+			JiraURLStatus: doctorURLStatus(cfg.JiraURL),
+			ReadOnly:      cfg.ReadOnly,
+			Transport: app.DoctorTransport{
+				Confluence: doctorCABundle(cfg.CABundle(config.TransportServiceConfluence), transport.Confluence),
+				Jira:       doctorCABundle(cfg.CABundle(config.TransportServiceJira), transport.Jira),
+			},
+		},
+		Credentials: app.DoctorCredentialInspection{
+			Store: app.DoctorCredentialStore{
+				Present: credentialInspection.Store.Present, Status: credentialInspection.Store.Status,
+				OwnerOnly: credentialInspection.Store.OwnerOnly, PermissionKnown: credentialInspection.Store.PermissionKnown,
+			},
+			Confluence: app.DoctorCredential{
+				Present: credentialInspection.Confluence.Present,
+				Source:  credentialInspection.Confluence.Source, Status: credentialInspection.Confluence.Status,
+			},
+			Jira: app.DoctorCredential{
+				Present: credentialInspection.Jira.Present,
+				Source:  credentialInspection.Jira.Source, Status: credentialInspection.Jira.Status,
+			},
+		},
 		Token: func(service string) (string, error) {
 			return auth.Token(auth.Service(service))
 		},
-		Reader: func(service, rawURL, token, version string, cfg *config.Config) (domain.ServerMetadataReader, error) {
+		Reader: func(service, rawURL, token, version string) (domain.ServerMetadataReader, error) {
 			switch service {
 			case domain.ServerProductJira:
 				return jiraadapter.NewWithSchedulerTLS(rawURL, token, version, nil, jiraTLSOptions(cfg))
@@ -340,9 +376,35 @@ func DoctorRemoteDependencies() app.DoctorRemoteDependencies {
 	}
 }
 
+func doctorURLStatus(rawURL string) string {
+	if rawURL == "" {
+		return "not_configured"
+	}
+	if err := config.CheckSecureURL(rawURL); err != nil {
+		return "invalid"
+	}
+	return "valid"
+}
+
+func doctorCABundle(path string, summary config.BackendTransportSummary) app.DoctorCABundle {
+	out := app.DoctorCABundle{
+		Configured: summary.CABundleConfigured, Source: summary.CABundleSource, Status: "not_configured",
+	}
+	if !out.Configured {
+		return out
+	}
+	if err := httpx.ValidateCABundle(path); err != nil {
+		out.Status = "invalid"
+		out.Reason = "ca_bundle_invalid"
+		return out
+	}
+	out.Status = "available"
+	return out
+}
+
 // RunDoctor supplies production remote composition without changing the app's
 // content-free diagnostic and classification logic.
 func RunDoctor(ctx context.Context, opts app.DoctorOptions) (*app.DoctorResult, error) {
-	opts.RemoteDependencies = DoctorRemoteDependencies()
+	opts.Dependencies = DoctorDependencies()
 	return app.RunDoctor(ctx, opts)
 }

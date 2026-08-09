@@ -13,10 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/isukharev/atl/internal/auth"
-	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/domain"
-	"github.com/isukharev/atl/internal/httpx"
 	"github.com/isukharev/atl/internal/version"
 )
 
@@ -30,14 +27,57 @@ type DoctorOptions struct {
 	ContentPolicyActive      bool
 	ContentPolicyEnforcement string
 	ContentPolicyAdvisory    []string
-	RemoteDependencies       DoctorRemoteDependencies
+	Dependencies             DoctorDependencies
 }
 
-// DoctorRemoteDependencies are composed outside app so remote diagnostics use
-// only credential and metadata-reader ports here.
-type DoctorRemoteDependencies struct {
-	Token  func(service string) (string, error)
-	Reader func(service, rawURL, token, version string, cfg *config.Config) (domain.ServerMetadataReader, error)
+// DoctorDependencies is the transport-neutral projection supplied by the outer
+// composition owner. Effective URLs remain in-process and are never serialized.
+type DoctorDependencies struct {
+	Config      DoctorConfigInspection
+	Credentials DoctorCredentialInspection
+	Token       func(service string) (string, error)
+	Reader      func(service, rawURL, token, version string) (domain.ServerMetadataReader, error)
+}
+
+type DoctorConfigInspection struct {
+	Status              string
+	Reason              string
+	DirectorySource     string
+	File                DoctorFileInspection
+	ConfluenceURL       string
+	ConfluenceURLSource string
+	ConfluenceURLStatus string
+	JiraURL             string
+	JiraURLSource       string
+	JiraURLStatus       string
+	ReadOnly            bool
+	Transport           DoctorTransport
+}
+
+type DoctorFileInspection struct {
+	Present         bool   `json:"present"`
+	Status          string `json:"status"`
+	OwnerOnly       bool   `json:"owner_only"`
+	PermissionKnown bool   `json:"permission_known"`
+}
+
+type DoctorCredentialInspection struct {
+	Store      DoctorCredentialStore
+	Confluence DoctorCredential
+	Jira       DoctorCredential
+}
+
+type DoctorCredentialStore struct {
+	Present         bool   `json:"present"`
+	Status          string `json:"status"`
+	OwnerOnly       bool   `json:"owner_only"`
+	PermissionKnown bool   `json:"permission_known"`
+}
+
+type DoctorCredential struct {
+	Present bool   `json:"present"`
+	Source  string `json:"source"`
+	Status  string `json:"status"`
 }
 
 type DoctorResult struct {
@@ -64,13 +104,13 @@ type DoctorRuntime struct {
 }
 
 type DoctorConfig struct {
-	Status              string                `json:"status"`
-	Reason              string                `json:"reason,omitempty"`
-	DirectorySource     string                `json:"directory_source"`
-	File                config.FileInspection `json:"file"`
-	ConfluenceURLSource string                `json:"confluence_url_source"`
-	JiraURLSource       string                `json:"jira_url_source"`
-	Transport           DoctorTransport       `json:"transport"`
+	Status              string               `json:"status"`
+	Reason              string               `json:"reason,omitempty"`
+	DirectorySource     string               `json:"directory_source"`
+	File                DoctorFileInspection `json:"file"`
+	ConfluenceURLSource string               `json:"confluence_url_source"`
+	JiraURLSource       string               `json:"jira_url_source"`
+	Transport           DoctorTransport      `json:"transport"`
 }
 
 type DoctorTransport struct {
@@ -86,9 +126,9 @@ type DoctorCABundle struct {
 }
 
 type DoctorCredentials struct {
-	Store      auth.StoreInspection      `json:"store"`
-	Confluence auth.CredentialInspection `json:"confluence"`
-	Jira       auth.CredentialInspection `json:"jira"`
+	Store      DoctorCredentialStore `json:"store"`
+	Confluence DoctorCredential      `json:"confluence"`
+	Jira       DoctorCredential      `json:"jira"`
 }
 
 type DoctorSafety struct {
@@ -162,8 +202,8 @@ type DoctorProblem struct {
 // RunDoctor returns a complete, content-free aggregate. The returned error is
 // static and classified only after the result has been emitted by the CLI.
 func RunDoctor(ctx context.Context, opts DoctorOptions) (*DoctorResult, error) {
-	cfgInspection := config.Inspect()
-	authInspection := auth.Inspect()
+	cfgInspection := opts.Dependencies.Config
+	authInspection := opts.Dependencies.Credentials
 	build := version.Current()
 	result := &DoctorResult{
 		SchemaVersion: doctorSchemaVersion,
@@ -180,12 +220,10 @@ func RunDoctor(ctx context.Context, opts DoctorOptions) (*DoctorResult, error) {
 			File:                cfgInspection.File,
 			ConfluenceURLSource: cfgInspection.ConfluenceURLSource,
 			JiraURLSource:       cfgInspection.JiraURLSource,
-			Transport:           inspectDoctorTransport(cfgInspection.Effective),
+			Transport:           cfgInspection.Transport,
 		},
-		Credentials: DoctorCredentials{
-			Store: authInspection.Store, Confluence: authInspection.Confluence, Jira: authInspection.Jira,
-		},
-		Safety:        DoctorSafety{ReadOnly: opts.ReadOnlyPolicy || cfgInspection.Effective.ReadOnly, Status: "available"},
+		Credentials:   DoctorCredentials(authInspection),
+		Safety:        DoctorSafety{ReadOnly: opts.ReadOnlyPolicy || cfgInspection.ReadOnly, Status: "available"},
 		ContentPolicy: DoctorContentPolicy{Active: opts.ContentPolicyActive, Enforcement: opts.ContentPolicyEnforcement, AdvisoryBecause: append([]string(nil), opts.ContentPolicyAdvisory...)},
 		Plugin:        DoctorPlugin{Status: "not_observable", Reason: "host_does_not_expose_plugin_version"},
 	}
@@ -199,7 +237,7 @@ func RunDoctor(ctx context.Context, opts DoctorOptions) (*DoctorResult, error) {
 	evaluateLocalDoctor(result, cfgInspection, authInspection)
 	result.Mirror = inspectDoctorMirror(result)
 	if opts.Remote {
-		runDoctorRemote(ctx, result, cfgInspection, authInspection, opts.RemoteDependencies)
+		runDoctorRemote(ctx, result, cfgInspection, authInspection, opts.Dependencies)
 	}
 	finalizeDoctor(result)
 	if !result.Healthy {
@@ -208,7 +246,7 @@ func RunDoctor(ctx context.Context, opts DoctorOptions) (*DoctorResult, error) {
 	return result, nil
 }
 
-func evaluateLocalDoctor(result *DoctorResult, cfg config.Inspection, credentials auth.Inspection) {
+func evaluateLocalDoctor(result *DoctorResult, cfg DoctorConfigInspection, credentials DoctorCredentialInspection) {
 	switch cfg.Status {
 	case "invalid", "unavailable":
 		addDoctorProblem(result, "config.invalid", "error", cfg.Reason, "repair_configuration")
@@ -238,13 +276,13 @@ func evaluateLocalDoctor(result *DoctorResult, cfg config.Inspection, credential
 	}
 
 	result.Services.Confluence = localDoctorService(
-		cfg.Effective.ConfluenceURL, cfg.ConfluenceURLSource, credentials.Confluence,
+		cfg.ConfluenceURL, cfg.ConfluenceURLSource, cfg.ConfluenceURLStatus, credentials.Confluence,
 	)
 	result.Services.Jira = localDoctorService(
-		cfg.Effective.JiraURL, cfg.JiraURLSource, credentials.Jira,
+		cfg.JiraURL, cfg.JiraURLSource, cfg.JiraURLStatus, credentials.Jira,
 	)
-	evaluateDoctorService(result, "confluence", cfg.Effective.ConfluenceURL, result.Services.Confluence)
-	evaluateDoctorService(result, "jira", cfg.Effective.JiraURL, result.Services.Jira)
+	evaluateDoctorService(result, "confluence", cfg.ConfluenceURL, result.Services.Confluence)
+	evaluateDoctorService(result, "jira", cfg.JiraURL, result.Services.Jira)
 	if result.Services.Confluence.Status == "not_configured" && result.Services.Jira.Status == "not_configured" {
 		addDoctorProblem(result, "services.none_configured", "error", "no_backend_configured", "configure_backend")
 	}
@@ -253,29 +291,7 @@ func evaluateLocalDoctor(result *DoctorResult, cfg config.Inspection, credential
 	}
 }
 
-func inspectDoctorTransport(cfg *config.Config) DoctorTransport {
-	summary := config.TransportProjection(cfg)
-	return DoctorTransport{
-		Confluence: inspectDoctorCABundle(cfg.CABundle(config.TransportServiceConfluence), summary.Confluence),
-		Jira:       inspectDoctorCABundle(cfg.CABundle(config.TransportServiceJira), summary.Jira),
-	}
-}
-
-func inspectDoctorCABundle(path string, summary config.BackendTransportSummary) DoctorCABundle {
-	out := DoctorCABundle{Configured: summary.CABundleConfigured, Source: summary.CABundleSource, Status: "not_configured"}
-	if !out.Configured {
-		return out
-	}
-	if err := httpx.ValidateCABundle(path); err != nil {
-		out.Status = "invalid"
-		out.Reason = "ca_bundle_invalid"
-		return out
-	}
-	out.Status = "available"
-	return out
-}
-
-func localDoctorService(rawURL, source string, credential auth.CredentialInspection) DoctorService {
+func localDoctorService(rawURL, source, urlStatus string, credential DoctorCredential) DoctorService {
 	out := DoctorService{
 		URLStatus:        "not_configured",
 		URLSource:        source,
@@ -286,11 +302,7 @@ func localDoctorService(rawURL, source string, credential auth.CredentialInspect
 		Compatibility:    DoctorCompatibility{Status: "unknown", Evidence: "not_observed", Reason: "remote_metadata_not_requested"},
 	}
 	if rawURL != "" {
-		if err := config.CheckSecureURL(rawURL); err != nil {
-			out.URLStatus = "invalid"
-		} else {
-			out.URLStatus = "valid"
-		}
+		out.URLStatus = urlStatus
 	}
 	switch {
 	case out.URLStatus == "invalid":
@@ -305,7 +317,7 @@ func localDoctorService(rawURL, source string, credential auth.CredentialInspect
 	return out
 }
 
-func credentialStatus(value auth.CredentialInspection) string {
+func credentialStatus(value DoctorCredential) string {
 	switch value.Status {
 	case "available":
 		return "present"
@@ -316,7 +328,7 @@ func credentialStatus(value auth.CredentialInspection) string {
 	}
 }
 
-func credentialSource(value auth.CredentialInspection) string {
+func credentialSource(value DoctorCredential) string {
 	switch value.Source {
 	case "environment":
 		return "environment"
@@ -437,25 +449,24 @@ func doctorJiraMirror(snapshot *JiraMirrorSnapshot, err error) DoctorMirrorServi
 	return out
 }
 
-func runDoctorRemote(ctx context.Context, result *DoctorResult, cfg config.Inspection, credentials auth.Inspection, deps DoctorRemoteDependencies) {
+func runDoctorRemote(ctx context.Context, result *DoctorResult, cfg DoctorConfigInspection, credentials DoctorCredentialInspection, deps DoctorDependencies) {
 	if cfg.Status == "invalid" || cfg.Status == "unavailable" {
 		skipDoctorRemote(&result.Services.Jira, "configuration_preflight_failed")
 		skipDoctorRemote(&result.Services.Confluence, "configuration_preflight_failed")
 		return
 	}
-	runOneDoctorRemote(ctx, result, "jira", cfg.Effective.JiraURL, cfg.Effective, cfg.File, credentials.Store, &result.Services.Jira, deps)
-	runOneDoctorRemote(ctx, result, "confluence", cfg.Effective.ConfluenceURL, cfg.Effective, cfg.File, credentials.Store, &result.Services.Confluence, deps)
+	runOneDoctorRemote(ctx, result, "jira", cfg.JiraURL, cfg.File, credentials.Store, &result.Services.Jira, deps)
+	runOneDoctorRemote(ctx, result, "confluence", cfg.ConfluenceURL, cfg.File, credentials.Store, &result.Services.Confluence, deps)
 }
 
 func runOneDoctorRemote(
 	ctx context.Context,
 	result *DoctorResult,
 	service, rawURL string,
-	effective *config.Config,
-	configFile config.FileInspection,
-	credentialStore auth.StoreInspection,
+	configFile DoctorFileInspection,
+	credentialStore DoctorCredentialStore,
 	out *DoctorService,
-	deps DoctorRemoteDependencies,
+	deps DoctorDependencies,
 ) {
 	out.Remote.Requested = true
 	if out.Status != "ready" {
@@ -486,7 +497,7 @@ func runOneDoctorRemote(
 		return
 	}
 
-	reader, readerErr := deps.Reader(service, rawURL, token, result.CLI.Version, effective)
+	reader, readerErr := deps.Reader(service, rawURL, token, result.CLI.Version)
 	if readerErr != nil {
 		out.Remote.Status = "skipped"
 		out.Remote.Reason = "invalid_transport_configuration"
