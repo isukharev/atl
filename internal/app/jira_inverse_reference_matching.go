@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -22,7 +23,7 @@ const (
 	confluenceRemoteApplicationType   = "com.atlassian.confluence"
 )
 
-var inverseReferenceLiteralURLPattern = regexp.MustCompile("(?i)https?://[^\\s\\p{Z}\\p{Pe}\\p{Pf}<>\"')\\]}*`]+")
+var inverseReferenceLiteralURLPattern = regexp.MustCompile("(?i)https?://[^\\s\\p{Z}<>\"']+")
 
 func verifyInverseReferenceCandidates(ctx context.Context, tracker domain.Tracker, snapshotReader domain.JiraInverseReferenceSnapshotReader, target inverseReferenceTarget, opts JiraInverseReferenceOptions, selected []domain.JiraInverseReferenceIssueIdentity, result *JiraInverseReferenceResult) error {
 	issues := append([]domain.JiraInverseReferenceIssueIdentity(nil), selected...)
@@ -501,7 +502,7 @@ func inverseReferenceJSONEmpty(value any) bool {
 
 func inverseReferenceLiteralMatches(text string, target inverseReferenceTarget) bool {
 	for _, span := range inverseReferenceLiteralURLPattern.FindAllStringIndex(text, -1) {
-		raw := strings.TrimRight(text[span[0]:span[1]], ".,;:!?")
+		raw := trimInverseReferenceLiteralURL(text[span[0]:span[1]])
 		switch target.domain.Kind {
 		case domain.JiraInverseReferenceTargetGitLabProject:
 			if project, ok := inverseReferenceGitLabLiteralProject(raw); ok && project == target.gitlab {
@@ -515,6 +516,20 @@ func inverseReferenceLiteralMatches(text string, target inverseReferenceTarget) 
 		}
 	}
 	return false
+}
+
+func trimInverseReferenceLiteralURL(raw string) string {
+	for raw != "" {
+		last, size := utf8.DecodeLastRuneInString(raw)
+		if last == ']' && strings.Count(raw, "]") <= strings.Count(raw, "[") {
+			return raw
+		}
+		if !strings.ContainsRune(".,;:!?*`", last) && !unicode.Is(unicode.Pe, last) && !unicode.Is(unicode.Pf, last) {
+			return raw
+		}
+		raw = raw[:len(raw)-size]
+	}
+	return raw
 }
 
 func inverseReferenceGitLabLiteralProject(raw string) (scmref.GitLabProject, bool) {

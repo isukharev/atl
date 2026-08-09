@@ -663,6 +663,28 @@ func TestInverseReferenceLiteralFormattingBoundaries(t *testing.T) {
 	}
 }
 
+func TestInverseReferenceLiteralIPv6Host(t *testing.T) {
+	issue := domain.JiraInverseReferenceIssueIdentity{ID: "10001", Key: "SAFE-1"}
+	page := domain.JiraInverseReferencePage{StartAt: 0, MaxResults: 10, Total: 1, Issues: []domain.JiraInverseReferenceIssueIdentity{issue}}
+	for name, body := range map[string]string{
+		"plain":           "https://[2001:db8::1]/group/repo",
+		"closing bracket": "[https://[2001:db8::1]/group/repo]",
+	} {
+		t.Run(name, func(t *testing.T) {
+			opts := inverseReferenceTestOptions()
+			opts.Target = "https://[2001:db8::1]/group/repo"
+			tracker := &inverseReferenceTestTracker{
+				pages:    []domain.JiraInverseReferencePage{page, page},
+				comments: map[string][]domain.Comment{issue.Key: {{ID: "1", Body: body}}},
+			}
+			result, err := (&JiraService{tr: tracker}).SearchInverseReferences(t.Context(), opts)
+			if err != nil || !result.Complete || result.AbsenceProven || len(result.Matches) != 1 {
+				t.Fatalf("result=%+v err=%v", result, err)
+			}
+		})
+	}
+}
+
 func TestInverseReferenceGitLabArtifactQueryAndFragmentMatchLocally(t *testing.T) {
 	issue := domain.JiraInverseReferenceIssueIdentity{ID: "10001", Key: "SAFE-1"}
 	page := domain.JiraInverseReferencePage{StartAt: 0, MaxResults: 10, Total: 1, Issues: []domain.JiraInverseReferenceIssueIdentity{issue}}
