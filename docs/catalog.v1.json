@@ -22,6 +22,7 @@
     {"path":"docs/compatibility.md","lane":"operations","topic":"compatibility-matrix","landing_page":"docs/README.md","language":"en"},
     {"path":"docs/confluence-comments.md","lane":"start","topic":"confluence-comments","landing_page":"docs/README.md","language":"en"},
     {"path":"docs/context7.md","lane":"maintainers","topic":"context7-indexing","landing_page":"docs/README.md","language":"en"},
+    {"path":"docs/corpus-generations.md","lane":"concepts","topic":"sealed-corpus-generations","landing_page":"docs/architecture.md","language":"en"},
     {"path":"docs/csf-and-fragments.md","lane":"concepts","topic":"confluence-native-storage","landing_page":"docs/README.md","language":"en"},
     {"path":"docs/csf-markdown-testing.md","lane":"maintainers","topic":"durable-view-testing","landing_page":"docs/README.md","language":"en"},
     {"path":"docs/demos/README.md","lane":"start","topic":"reproducible-demo-index","landing_page":"docs/README.md","language":"en"},

@@ -49,6 +49,12 @@ cross-cutting (no import of adapters or CLI):
   internal/selfupdate, internal/version
 ```
 
+`internal/corpus` owns the backend-neutral filesystem boundary for creating,
+sealing, publishing, and verifying private corpus generations. It performs no
+backend I/O or rendering and remains separate from the existing aggregate
+`atl manifest create` path; see
+[Sealed corpus generations](corpus-generations.md).
+
 ---
 
 ## Package reference
