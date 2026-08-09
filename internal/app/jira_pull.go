@@ -247,233 +247,44 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 			// GetIssue, so a per-issue re-fetch would double the HTTP round trips
 			// for zero data gain (#65).
 			full := &selected[i]
-			dir := filepath.Join(into, safepath.Segment(full.Project))
-			// full.Key is server-supplied; sanitize it before using it as a
-			// filename and assert the result stays inside dir.
 			keySeg := safepath.Segment(full.Key)
-			mdPath := filepath.Join(dir, keySeg+".md")
-			if !safepath.Within(dir, mdPath) {
-				return res, fmt.Errorf("refusing unsafe issue key %q", full.Key)
+			var knownWiki *mirror.SyncState
+			if state, ok := trackedWiki[keySeg]; ok {
+				knownWiki = &state
 			}
-			wikiPath := filepath.Join(dir, keySeg+".wiki")
-			stop, issueErr := func() (bool, error) {
-				var pending *JiraPendingFields
-				var pendingErr error
-				if opts.DryRun {
-					pending, _, pendingErr = loadJiraPendingFieldsReadOnly(into, keySeg)
-				} else {
-					pending, _, pendingErr = loadJiraPendingFieldsLocked(into, keySeg)
-				}
-				if pendingErr != nil {
-					return false, pendingErr
-				}
-				if pendingErr := validatePendingFieldsEditable(pending, rs); pendingErr != nil {
-					return false, pendingErr
-				}
-				bodyForView := full.Body
-				preserveLocalWiki := false
-				rebindPendingWiki := false
-				var localWiki []byte
-				if pending != nil {
-					lw, loadedWiki, loadErr := m.LoadWiki(wikiPath)
-					if loadErr != nil {
-						return false, loadErr
-					}
-					localWiki = loadedWiki
-					if bindErr := validatePendingMirrorBinding(into, pending, lw, localWiki); bindErr != nil {
-						return false, bindErr
-					}
-					if lw.Dirty {
-						bodyForView = string(localWiki)
-						preserveLocalWiki = true
-					} else {
-						pending.BeforeWikiHash = mirror.Hash(localWiki)
-						pending.WikiHash = mirror.Hash([]byte(full.Body))
-						pending.WikiBody = full.Body
-						rebindPendingWiki = true
-					}
-				}
-
-				var recordedView *mirror.ViewState
-				if view, ok := recordedViews[keySeg]; ok {
-					recordedView = &view
-				}
-				viewAction, qualifiedMD, viewErr := s.qualifyJiraPullView(into, dir, keySeg, mdPath, pending, localWiki, rs, recordedView)
-				if viewErr != nil {
-					return false, viewErr
-				}
-				if viewAction != nil {
-					localActions = append(localActions, *viewAction)
-					rel, _ := filepath.Rel(into, mdPath)
-					relWiki, _ := filepath.Rel(into, wikiPath)
-					res.Issues = append(res.Issues, JiraPulled{Key: full.Key, Path: rel, WikiPath: relWiki, Status: pullLocalBlocked})
-					return limit > 0 && len(res.Issues) >= limit, nil
-				}
-
-				var nativeAction *PullLocalAction
-				if !preserveLocalWiki {
-					var known *mirror.SyncState
-					if state, ok := trackedWiki[keySeg]; ok {
-						known = &state
-					}
-					nativeAction, localWiki, pendingErr = qualifyPullNative(m, keySeg, wikiPath, wikiExt, opts.OverwriteLocal, opts.StashLocal, known)
-					if pendingErr != nil {
-						return false, pendingErr
-					}
-					if nativeAction != nil && nativeAction.Status == pullLocalBlocked {
-						localActions = append(localActions, *nativeAction)
-						rel, _ := filepath.Rel(into, mdPath)
-						relWiki, _ := filepath.Rel(into, wikiPath)
-						res.Issues = append(res.Issues, JiraPulled{Key: full.Key, Path: rel, WikiPath: relWiki, Status: pullLocalBlocked})
-						return limit > 0 && len(res.Issues) >= limit, nil
-					}
-				}
-				nativeExisted := localWiki != nil
-				viewExisted := qualifiedMD != nil
-				if opts.DryRun {
-					if nativeAction != nil {
-						localActions = append(localActions, *nativeAction)
-					}
-					rel, _ := filepath.Rel(into, mdPath)
-					relWiki, _ := filepath.Rel(into, wikiPath)
-					res.Issues = append(res.Issues, JiraPulled{Key: full.Key, Path: rel, WikiPath: relWiki, Status: "would_pull"})
-					return limit > 0 && len(res.Issues) >= limit, nil
-				}
-				if err := safepath.MkdirAllWithin(into, dir, 0o755); err != nil {
-					return false, err
-				}
-				if err := revalidatePullFile(into, wikiPath, localWiki, nativeExisted, keySeg, "native substrate"); err != nil {
-					localActions = append(localActions, PullLocalAction{ID: keySeg, Path: pullRelativePath(into, wikiPath), Status: pullLocalBlocked, Reason: "local_artifacts_changed"})
-					rel, _ := filepath.Rel(into, mdPath)
-					relWiki, _ := filepath.Rel(into, wikiPath)
-					res.Issues = append(res.Issues, JiraPulled{Key: full.Key, Path: rel, WikiPath: relWiki, Status: pullLocalBlocked})
-					return limit > 0 && len(res.Issues) >= limit, nil
-				}
-				if err := revalidatePullFile(into, mdPath, qualifiedMD, viewExisted, keySeg, "derived view"); err != nil {
-					localActions = append(localActions, PullLocalAction{ID: keySeg, Path: pullRelativePath(into, mdPath), Status: pullLocalBlocked, Reason: "local_artifacts_changed"})
-					rel, _ := filepath.Rel(into, mdPath)
-					relWiki, _ := filepath.Rel(into, wikiPath)
-					res.Issues = append(res.Issues, JiraPulled{Key: full.Key, Path: rel, WikiPath: relWiki, Status: pullLocalBlocked})
-					return limit > 0 && len(res.Issues) >= limit, nil
-				}
-				if nativeAction != nil && nativeAction.Status == pullLocalWouldStash {
-					stashPath, stashErr := m.SaveNativeStash("jira", keySeg, wikiExt, localWiki)
-					if stashErr != nil {
-						return false, stashErr
-					}
-					nativeAction.Status = pullLocalStashed
-					nativeAction.StashPath = stashPath
-					localActions = append(localActions, *nativeAction)
-				}
-				// Write the native Jira wiki body verbatim as the editable substrate
-				// (the .md beside it is a regenerated staging view; the .wiki mirrors
-				// the role .csf plays for Confluence). Written even when the body is
-				// empty so the substrate file always exists for a later edit/push.
-				if !safepath.Within(dir, wikiPath) {
-					return false, fmt.Errorf("refusing unsafe issue key %q", full.Key)
-				}
-				if !preserveLocalWiki {
-					if rebindPendingWiki {
-						if err := stageJiraPendingTransaction(into, pending); err != nil {
-							return false, err
-						}
-					}
-					if err := safepath.WriteFileWithin(into, wikiPath, []byte(full.Body), 0o644); err != nil {
-						return false, err
-					}
-					if nativeAction != nil && nativeAction.Status == pullLocalWouldOverwrite {
-						nativeAction.Status = pullLocalOverwritten
-						localActions = append(localActions, *nativeAction)
-					}
-					if rebindPendingWiki {
-						if err := commitJiraPendingTransaction(into, pending); err != nil {
-							return false, err
-						}
-					}
-				}
-				// Mirror image attachments (best-effort) before rendering so the .md
-				// links only the images that actually landed on disk.
-				var assets []JiraIssueAsset
-				if opts.Assets {
-					var skipped int
-					assets, skipped = s.mirrorIssueImages(ctx, into, dir, keySeg, full.Fields["attachment"])
-					res.AssetsSkipped += skipped
-				}
-				var related *JiraEpicChildrenSidecar
-				relatedPath := epicChildrenPath(dir, keySeg)
-				if sidecar, ok := relatedByEpic[full.Key]; ok {
-					related = &sidecar
-					if err := writeEpicChildrenSidecar(into, relatedPath, sidecar); err != nil {
-						return false, fmt.Errorf("epic children %s: %w", full.Key, err)
-					}
-				} else if rs.On(SecEpicChildren) {
-					// The issue is no longer an epic (or never was). Do not let a stale
-					// sidecar from an earlier pull resurrect an obsolete child list.
-					if err := safepath.RemoveWithin(into, relatedPath); err != nil && !os.IsNotExist(err) {
-						return false, fmt.Errorf("remove stale epic children %s: %w", full.Key, err)
-					}
-				}
-				viewIssue := issueWithPendingFields(full, pending)
-				if viewIssue == full {
-					copyIssue := *full
-					viewIssue = &copyIssue
-				}
-				viewIssue.Body = bodyForView
-				if err := revalidatePullFile(into, mdPath, qualifiedMD, viewExisted, keySeg, "derived view"); err != nil {
-					localActions = append(localActions, PullLocalAction{ID: keySeg, Path: pullRelativePath(into, mdPath), Status: pullLocalBlocked, Reason: "local_artifacts_changed"})
-					rel, _ := filepath.Rel(into, mdPath)
-					relWiki, _ := filepath.Rel(into, wikiPath)
-					res.Issues = append(res.Issues, JiraPulled{Key: full.Key, Path: rel, WikiPath: relWiki, Status: pullLocalBlocked})
-					return limit > 0 && len(res.Issues) >= limit, nil
-				}
-				if err := safepath.WriteFileWithin(into, mdPath, renderIssueMarkdownWithRelated(viewIssue, assets, related, rs), 0o644); err != nil {
-					return false, err
-				}
-				snap := JiraIssueSnapshot{Key: full.Key, ID: full.ID, Fields: full.Fields}
-				if snap.Fields == nil {
-					snap.Fields = map[string]any{}
-				}
-				// The snapshot is part of the pull contract: a failed write must not
-				// report the issue as pulled with a missing/stale .json (#65).
-				jb, err := json.MarshalIndent(snap, "", "  ")
-				if err != nil {
-					return false, fmt.Errorf("snapshot %s: %w", full.Key, err)
-				}
-				if err := safepath.WriteFileWithin(into, filepath.Join(dir, keySeg+".json"), append(jb, '\n'), 0o644); err != nil {
-					return false, fmt.Errorf("snapshot %s: %w", full.Key, err)
-				}
-				// Record the .wiki substrate in the sidecar + a pristine base copy so
-				// `jira status`/`jira push` can detect local edits and remote drift.
-				// Recorded only AFTER every issue artifact (.wiki/.md/.json) is on disk
-				// — a failed write above must not leave the issue marked synced by the
-				// deferred flush (conf parity: sidecar state follows the page files).
-				// Keyed by the sanitized issue key (the .wiki basename); Version stays 0
-				// — Jira has no server-side version gate. Only the .wiki body is tracked;
-				// the derived .md/.json/assets stay outside the sync state.
-				if err := m.SaveBaseExt(keySeg, []byte(full.Body), ".wiki"); err != nil {
-					return false, err
-				}
-				relWiki, _ := filepath.Rel(into, wikiPath)
-				state := mirror.SyncState{ID: keySeg, Version: 0, Hash: mirror.Hash([]byte(full.Body)), Path: relWiki}
-				batch.Record(state)
-				trackedWiki[keySeg] = state
-				// Record the render settings this .md view was written with so
-				// `jira apply` can reproduce the exact pristine view later.
-				view := viewStateOf(rs)
-				batch.RecordView(keySeg, view)
-				recordedViews[keySeg] = view
-				rel, _ := filepath.Rel(into, mdPath)
-				epicChildren := 0
-				if related != nil {
-					epicChildren = len(related.Children)
-				}
-				res.Issues = append(res.Issues, JiraPulled{Key: full.Key, Path: rel, WikiPath: relWiki, Assets: len(assets), EpicChildren: epicChildren})
-				return limit > 0 && len(res.Issues) >= limit, nil
-			}()
+			var recordedView *mirror.ViewState
+			if view, ok := recordedViews[keySeg]; ok {
+				recordedView = &view
+			}
+			var related *JiraEpicChildrenSidecar
+			if sidecar, ok := relatedByEpic[full.Key]; ok {
+				related = &sidecar
+			}
+			out, issueErr := s.pullJiraIssue(ctx, jiraPullIssueRequest{
+				root:                into,
+				issue:               full,
+				opts:                opts,
+				render:              rs,
+				mirror:              m,
+				batch:               batch,
+				knownWiki:           knownWiki,
+				recordedView:        recordedView,
+				related:             related,
+				epicChildrenEnabled: rs.On(SecEpicChildren),
+			})
+			localActions = append(localActions, out.actions...)
+			res.AssetsSkipped += out.assetsSkipped
 			if issueErr != nil {
 				return res, issueErr
 			}
-			if stop {
+			res.Issues = append(res.Issues, out.issue)
+			if out.state != nil {
+				trackedWiki[keySeg] = *out.state
+			}
+			if out.view != nil {
+				recordedViews[keySeg] = *out.view
+			}
+			if limit > 0 && len(res.Issues) >= limit {
 				break
 			}
 		}
