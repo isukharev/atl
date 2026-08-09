@@ -127,6 +127,7 @@ var reviewedOwners = []owner{
 	{ID: "adapter-jira", PathPrefixes: []string{"internal/adapter/jira/"}},
 	{ID: "app", PathPrefixes: []string{"internal/app/"}},
 	{ID: "cli", PathPrefixes: []string{"internal/cli/"}},
+	{ID: "compose", PathPrefixes: []string{"internal/compose/"}},
 	{ID: "contentpolicy", PathPrefixes: []string{"internal/contentpolicy/"}},
 	{ID: "evaluator", PathPrefixes: []string{"internal/agenteval/"}},
 	{ID: "httpx", PathPrefixes: []string{"internal/httpx/"}},
