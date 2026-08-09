@@ -37,14 +37,17 @@ const (
 	exitCheckFailed  = 8
 )
 
-var (
-	outputFormat              string
-	verbose                   bool
-	readOnly                  bool
-	currentReadOnlyPolicy     bool
-	currentProcessPolicy      *processPolicy
-	currentCommandPolicyWrite bool
-)
+type invocationRuntime struct {
+	outputFormat                                          string
+	verbose, readOnly, readOnlyPolicy, commandPolicyWrite bool
+	processPolicy                                         *processPolicy
+}
+
+type invocationRuntimeContextKey struct{}
+
+func invocationRuntimeFor(cmd *cobra.Command) *invocationRuntime {
+	return cmd.Context().Value(invocationRuntimeContextKey{}).(*invocationRuntime)
+}
 
 // Execute builds and runs the root command, mapping errors to exit codes.
 func Execute() {
@@ -55,7 +58,7 @@ func Execute() {
 	cmd, err := root.ExecuteContextC(ctx)
 	if err != nil {
 		code := codeFor(err)
-		writeErrorWithCommand(os.Stderr, outputFormat, err, code, recoveryOperation(cmd), cmd)
+		writeErrorWithCommand(os.Stderr, root.PersistentFlags().Lookup("output").Value.String(), err, code, recoveryOperation(cmd), cmd)
 		os.Exit(code)
 	}
 }
@@ -148,9 +151,7 @@ func classifyError(err error) (kind, remediation string) {
 }
 
 func newRoot() *cobra.Command {
-	currentProcessPolicy = newProcessPolicy()
-	currentCommandPolicyWrite = false
-	currentReadOnlyPolicy = false
+	runtime := &invocationRuntime{outputFormat: "json", processPolicy: newProcessPolicy()}
 	var topologyErr error
 	root := &cobra.Command{
 		Use:           "atl",
@@ -159,9 +160,9 @@ func newRoot() *cobra.Command {
 		SilenceErrors: true,
 		Version:       version.Version,
 	}
-	root.PersistentFlags().StringVarP(&outputFormat, "output", "o", "json", "output format: json|text|id")
-	root.PersistentFlags().BoolVar(&verbose, "verbose", false, "trace HTTP requests/responses to stderr (token never logged); also ATL_VERBOSE=1")
-	root.PersistentFlags().BoolVar(&readOnly, "read-only", false, "block every mutating command before credentials, stdin, or network access; also ATL_READ_ONLY=1")
+	root.PersistentFlags().StringVarP(&runtime.outputFormat, "output", "o", "json", "output format: json|text|id")
+	root.PersistentFlags().BoolVar(&runtime.verbose, "verbose", false, "trace HTTP requests/responses to stderr (token never logged); also ATL_VERBOSE=1")
+	root.PersistentFlags().BoolVar(&runtime.readOnly, "read-only", false, "block every mutating command before credentials, stdin, or network access; also ATL_READ_ONLY=1")
 	_ = root.RegisterFlagCompletionFunc("output", fixedComp("json", "text", "id"))
 	// A flag-parse failure (unknown flag, bad value) is a usage error: map it to
 	// exit 2, not the generic 1. Inherited by every subcommand.
@@ -172,15 +173,16 @@ func newRoot() *cobra.Command {
 	// Validate the global output format, then run a best-effort self-update check
 	// within its total startup budget. Update failures never fail the command.
 	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
-		currentCommandPolicyWrite = false
-		currentReadOnlyPolicy = false
+		cmd.SetContext(context.WithValue(cmd.Context(), invocationRuntimeContextKey{}, runtime))
+		runtime.commandPolicyWrite = false
+		runtime.readOnlyPolicy = false
 		if topologyErr != nil {
 			return &accessPolicyInvariantError{Command: topologyErr.Error()}
 		}
-		switch outputFormat {
+		switch runtime.outputFormat {
 		case "json", "text", "id":
 		default:
-			return usageErr("invalid --output %q (want json|text|id)", outputFormat)
+			return usageErr("invalid --output %q (want json|text|id)", runtime.outputFormat)
 		}
 		// Pure groups get a generated help-only RunE so Cobra cannot silently
 		// accept an unknown token through its legacy group argument behavior.
@@ -194,7 +196,7 @@ func newRoot() *cobra.Command {
 		}
 		// An explicit process policy is itself a pre-config safety boundary and
 		// keeps its established precedence over malformed mutation inputs.
-		if readOnly || envReadOnly() {
+		if runtime.readOnly || envReadOnly() {
 			if err := enforceAccessPolicy(cmd, true); err != nil {
 				return err
 			}
@@ -207,25 +209,25 @@ func newRoot() *cobra.Command {
 		}
 		path := commandRegistryPath(cmd.Root(), cmd)
 		if registration, ok := commandRegistry.nodes[path]; ok {
-			if err := currentProcessPolicy.requireActiveFor(registration); err != nil {
+			if err := runtime.processPolicy.requireActiveFor(registration); err != nil {
 				return err
 			}
 			if err := enforceContentPolicyPreflight(cmd, args, registration); err != nil {
 				return err
 			}
-			currentCommandPolicyWrite = registration.policyIdentity != policyIdentityNone
+			runtime.commandPolicyWrite = registration.policyIdentity != policyIdentityNone
 		}
-		policyEnabled, err := resolveReadOnlyPolicy(cmd, readOnly)
+		policyEnabled, err := resolveReadOnlyPolicy(cmd, runtime.readOnly)
 		if err != nil {
 			return err
 		}
 		if err := enforceAccessPolicy(cmd, policyEnabled); err != nil {
 			return err
 		}
-		currentReadOnlyPolicy = policyEnabled
+		runtime.readOnlyPolicy = policyEnabled
 		// --verbose (or ATL_VERBOSE) traces every HTTP request to stderr. The
 		// bearer token is never written. stdout stays reserved for the result.
-		if verbose || os.Getenv("ATL_VERBOSE") != "" {
+		if runtime.verbose || os.Getenv("ATL_VERBOSE") != "" {
 			httpx.SetTrace(cmd.ErrOrStderr())
 		}
 		if !policyEnabled {
@@ -313,7 +315,7 @@ func codeFor(err error) int {
 // rather than silently dumping JSON.
 func emit(cmd *cobra.Command, v any, text func() string) error {
 	w := cmd.OutOrStdout()
-	switch outputFormat {
+	switch invocationRuntimeFor(cmd).outputFormat {
 	case "text":
 		if text != nil {
 			_, err := fmt.Fprintln(w, text())
@@ -334,7 +336,7 @@ func emit(cmd *cobra.Command, v any, text func() string) error {
 // qualified aggregate, so they need the write cause to remain distinguishable
 // from the inspection cause in every supported output format.
 func emitSnapshot(cmd *cobra.Command, v any, text func() string) error {
-	if outputFormat == "text" && text != nil {
+	if invocationRuntimeFor(cmd).outputFormat == "text" && text != nil {
 		_, err := fmt.Fprintln(cmd.OutOrStdout(), text())
 		return err
 	}
@@ -408,7 +410,7 @@ func guardedMutationResultErr(mutationErr, emitErr error, attempted bool, operat
 // (`atl jira issue search --jql … -o id | xargs …`). For json/text it defers to
 // emit. ids must be non-nil for a command to advertise id support.
 func emitID(cmd *cobra.Command, v any, text func() string, ids func() []string) error {
-	if outputFormat == "id" {
+	if invocationRuntimeFor(cmd).outputFormat == "id" {
 		if ids == nil {
 			return usageErr("-o id is not supported for this command")
 		}

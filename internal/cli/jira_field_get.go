@@ -16,7 +16,7 @@ func jiraIssueFieldGetCmd() *cobra.Command {
 			"The compact projection removes user transport/PII noise and reports explicit byte completeness.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}

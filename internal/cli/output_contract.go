@@ -33,7 +33,7 @@ func classifyOutputModes(cmd *cobra.Command, modes commandOutputMode) {
 
 func enforceOutputContract(cmd *cobra.Command) error {
 	path := strings.TrimPrefix(cmd.CommandPath(), "atl ")
-	switch outputFormat {
+	switch invocationRuntimeFor(cmd).outputFormat {
 	case "text":
 		if cmd.Annotations[textOutputAnnotation] != "supported" {
 			return usageErr("-o text is not supported for %q; use -o json", path)

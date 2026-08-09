@@ -25,7 +25,7 @@ func jiraCommentCmd() *cobra.Command {
 		Short: "List an issue's comments",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -54,7 +54,7 @@ func jiraCommentCmd() *cobra.Command {
 		Short: "Delete a comment by id",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -96,7 +96,7 @@ func jiraCommentMutationCmd(applyCapable bool) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}

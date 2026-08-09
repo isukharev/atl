@@ -16,7 +16,7 @@ func confPageLabelsCmd() *cobra.Command {
 		Short: "List all labels on a page",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
@@ -53,7 +53,7 @@ func confPageLabelMutationCmd(operation string) *cobra.Command {
 			if err := guardedWrite.validate(); err != nil {
 				return err
 			}
-			svc, err := confService()
+			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}

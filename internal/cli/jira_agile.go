@@ -35,7 +35,7 @@ func jiraBoardCmd() *cobra.Command {
 			if err := validatePageLimit(limit, 50); err != nil {
 				return err
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -71,7 +71,7 @@ func jiraBoardCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -94,7 +94,7 @@ func jiraBoardCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -126,7 +126,7 @@ func jiraBoardCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -161,7 +161,7 @@ func jiraBoardCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -208,7 +208,7 @@ func boardIssuePageCmd(use, scope string, columns, view, jql, cursor *string, li
 			if err := validatePageLimit(*limit, 50); err != nil {
 				return err
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -261,7 +261,7 @@ func jiraSprintCmd() *cobra.Command {
 			if err := validatePageLimit(limit, 50); err != nil {
 				return err
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -291,7 +291,7 @@ func jiraSprintCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -314,7 +314,7 @@ func jiraSprintCmd() *cobra.Command {
 			if curBoard <= 0 {
 				return usageErr("--board must be a positive board id")
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -343,7 +343,7 @@ func jiraSprintCmd() *cobra.Command {
 			if err := validatePageLimit(issuesLimit, 50); err != nil {
 				return err
 			}
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -369,7 +369,7 @@ func jiraSprintCmd() *cobra.Command {
 				return err
 			}
 			keys := args[1:]
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
@@ -385,7 +385,7 @@ func jiraSprintCmd() *cobra.Command {
 		Short: "Move issues out of any sprint, back to the backlog",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := jiraService()
+			svc, err := jiraService(cmd)
 			if err != nil {
 				return err
 			}
