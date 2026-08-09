@@ -36,13 +36,24 @@ func TestLoginReplacesLooserPerms(t *testing.T) {
 	os.Unsetenv("ATL_JIRA_PAT")
 	os.Unsetenv("JIRA_PAT")
 	os.Unsetenv("TEST_JIRA_PAT")
-	if err := os.WriteFile(credPath(), []byte(`{"jira":"old"}`), 0o644); err != nil {
+	path := credPath()
+	if err := os.WriteFile(path, []byte(`{"jira":"old"}`), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := before.Mode().Perm(); perm != 0o644 {
+		t.Fatalf("fixture perm = %o, want 644", perm)
 	}
 	if err := Login(Jira, "new"); err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Stat(credPath())
+	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -132,6 +132,9 @@ func TestStageReconcileArtifactsRejectsPermissiveExistingArtifact(t *testing.T) 
 	if err := os.WriteFile(target, []byte("base"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(target, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if _, _, err := New(root).StageReconcileArtifacts("confluence", native, []byte("base"), []byte("theirs")); !errors.Is(err, domain.ErrCheckFailed) {
 		t.Fatalf("unsafe mode error = %v, want ErrCheckFailed", err)
 	}

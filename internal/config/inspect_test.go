@@ -31,7 +31,11 @@ func TestInspectMalformedFileStillKeepsEnvironmentOverride(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ATL_CONFIG_DIR", dir)
 	t.Setenv("ATL_JIRA_URL", "https://configured.example")
-	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{broken`), 0o644); err != nil {
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte(`{broken`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatal(err)
 	}
 

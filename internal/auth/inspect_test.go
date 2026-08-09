@@ -37,7 +37,11 @@ func TestInspectEnvironmentCredentialSurvivesMalformedStore(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ATL_CONFIG_DIR", dir)
 	t.Setenv("ATL_CONFLUENCE_PAT", "present")
-	if err := os.WriteFile(filepath.Join(dir, "credentials.json"), []byte(`{broken`), 0o644); err != nil {
+	path := filepath.Join(dir, "credentials.json")
+	if err := os.WriteFile(path, []byte(`{broken`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
