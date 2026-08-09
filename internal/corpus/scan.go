@@ -323,9 +323,9 @@ func scanExact(ctx context.Context, root *os.Root, directories map[string]struct
 		if !ok {
 			return reject(ReasonMembership)
 		}
-		var output io.Writer = io.Discard
-		if expectation.exact != nil {
-			output = nil
+		var output io.Writer
+		if expectation.exact == nil {
+			output = io.Discard
 		}
 		actual, data, err := inspectRegular(ctx, root, rel, expectation.limit, output)
 		if err != nil {

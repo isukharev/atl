@@ -687,7 +687,7 @@ func TestPublicationSurvivesAbruptProcessExitAfterRename(t *testing.T) {
 	}
 }
 
-func TestCorpusCrashHelper(t *testing.T) {
+func TestCorpusCrashHelper(_ *testing.T) {
 	if os.Getenv("ATL_CORPUS_CRASH_HELPER") != "1" {
 		return
 	}

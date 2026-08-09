@@ -27,5 +27,6 @@ func regularFileLinkCount(file *os.File) (uint64, error) {
 	if err := unix.Fstat(int(file.Fd()), &stat); err != nil {
 		return 0, err
 	}
-	return uint64(stat.Nlink), nil
+	// Nlink has platform-specific unsigned widths across this file's build set.
+	return uint64(stat.Nlink), nil //nolint:unconvert
 }

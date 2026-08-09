@@ -27,11 +27,11 @@ func FuzzStrictGenerationCodecs(f *testing.F) {
 		receiptBytes,
 		pointerBytes,
 		[]byte(`{"schema_version":1,"schema_version":2}`),
-		[]byte{0xff, 0x00, '{', '}'},
+		{0xff, 0x00, '{', '}'},
 	} {
 		f.Add(byte(kind%3), seed)
 	}
-	f.Fuzz(func(t *testing.T, kind byte, data []byte) {
+	f.Fuzz(func(_ *testing.T, kind byte, data []byte) {
 		switch kind % 3 {
 		case 0:
 			_, _ = parseManifest(data, Limits{MaxManifestBytes: 1 << 20})
@@ -47,7 +47,7 @@ func FuzzMemberSpecValidation(f *testing.F) {
 	for _, seed := range []string{"safe/member", "../escape", "dir\\file", "dir:name", "π/member"} {
 		f.Add(seed)
 	}
-	f.Fuzz(func(t *testing.T, value string) {
+	f.Fuzz(func(_ *testing.T, value string) {
 		_ = validateMemberSpec(MemberSpec{
 			Service: ServiceJira, StableID: "synthetic", Role: RoleNative, Path: value,
 		}, Limits{MaxPathBytes: 1024, MaxPathDepth: 32})
