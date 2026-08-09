@@ -59,6 +59,13 @@ func (s *Store) Publish(ctx context.Context, id string) (Summary, error) {
 		if err := s.syncAndRevalidatePinnedGeneration(ctx, target); err != nil {
 			return zero, err
 		}
+		observed, observedFound, err := s.readPointer()
+		if err != nil {
+			return zero, err
+		}
+		if !observedFound || observed != current {
+			return zero, reject(ReasonConcurrent)
+		}
 		if err := syncDirectory(s.root, "."); err != nil {
 			return zero, ErrOutcomeUnknown
 		}
