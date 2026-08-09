@@ -299,8 +299,8 @@ func TestClassifyImpactKeepsNestedEvaluatorIndependent(t *testing.T) {
 		path string
 		want string
 	}{
-		{path: "internal/agenteval/runner.go", want: "agent-eval-full,maintainability"},
-		{path: "internal/agenteval/Makefile", want: "agent-eval-full,maintainability,maintainer-contract"},
+		{path: "internal/agenteval/runner.go", want: "agent-eval-full,agent-eval-product-boundary,maintainability"},
+		{path: "internal/agenteval/Makefile", want: "agent-eval-full,agent-eval-product-boundary,maintainability,maintainer-contract"},
 	} {
 		checks, err := classifyImpact(manifest, nil, changedPathSet{
 			Paths:      []string{test.path},
