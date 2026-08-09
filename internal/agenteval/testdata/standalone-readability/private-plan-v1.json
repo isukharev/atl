@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "plan_id": "pln-00000000000000000000000000000001",
+  "run_set_alias": "comparison",
+  "contract_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "inputs_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "created_at": "2026-01-01T00:00:00Z",
+  "consent": {
+    "expires_at": "2026-01-02T00:00:00Z",
+    "provider_data_approved": true,
+    "external_upstream_approved": false
+  },
+  "repository_commit": "1111111111111111111111111111111111111111",
+  "repository_dirty": false,
+  "provider": "claude-code",
+  "model": "synthetic-model",
+  "max_estimated_cost_microusd": 1,
+  "qualitative_required": false,
+  "items": [
+    {
+      "spec_path": "cases/comparison/run.json",
+      "scenario_id": "contract-case",
+      "provider": "claude-code",
+      "variant": "baseline",
+      "surface": "atl-mcp",
+      "rubric_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  ]
+}

@@ -25,8 +25,9 @@ The released foundation and current `main` provide:
 - signed self-update and release provenance, contained filesystem writes,
   cross-platform Linux/macOS evidence, and a required Windows source-compile
   gate without a Windows support claim;
-- generated Claude Code and Codex skills plus deterministic public and private
-  evaluation contracts kept outside ordinary product test/package paths;
+- generated Claude Code and Codex skills plus deterministic ATL-profile public
+  corpus and owner-private evaluation contracts kept outside ordinary product
+  test/package paths;
 - explicit historical Confluence pulls beyond ordinary selector caps, bounded
   scheduling, durable resume/publication state, and advisory Cloud-compatibility
   inventory without a Cloud write-path claim.
@@ -37,6 +38,15 @@ The current release line is v0.7.1; published artifacts are identified by the
 exact signed release tag. New surface remains evidence- or concrete-workflow-
 gated; current owner and colleague use is valid product evidence and does not
 impose a user-count freeze.
+
+- Define and implement the local-first standalone agent evaluator through the
+  tracked [product program](https://github.com/isukharev/atl/issues/1311),
+  beginning with its
+  [pre-release compatibility contract](docs/reference/agent-eval/README.md).
+  The current nested maintainer evaluator and ATL-profile artifacts remain the
+  implementation baseline; a production CLI, generic core, adapters, benchmark,
+  extraction, distribution, and support become shipped only through their own
+  evidence gates.
 
 ## Next
 

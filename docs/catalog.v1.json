@@ -45,6 +45,7 @@
     {"path":"docs/mirrors-and-recovery.md","lane":"start","topic":"mirror-recovery","landing_page":"docs/README.md","language":"en"},
     {"path":"docs/network-egress.md","lane":"operations","topic":"network-egress","landing_page":"docs/README.md","language":"en"},
     {"path":"docs/plugins.md","lane":"maintainers","topic":"plugin-generation","landing_page":"docs/README.md","language":"en"},
+    {"path":"docs/reference/agent-eval/README.md","lane":"reference","topic":"standalone-agent-eval-contract","landing_page":"docs/README.md","language":"en","required_anchors":["standalone-agent-eval-contract","compatibility-policy"]},
     {"path":"docs/reference/cli/README.md","lane":"reference","topic":"cli-reference-index","landing_page":"docs/README.md","language":"en"},
     {"path":"docs/reference/cli/agent-interfaces.md","lane":"reference","topic":"cli-agent-interfaces","landing_page":"docs/reference/cli/README.md","language":"en"},
     {"path":"docs/reference/cli/common.md","lane":"reference","topic":"cli-common-conventions","landing_page":"docs/reference/cli/README.md","language":"en"},

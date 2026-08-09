@@ -68,6 +68,7 @@
     {"prefix":"cmd/","checks":["lint","package-boundary","test","vet"]},
     {"prefix":"docs/","checks":["context7-docs","docs-catalog"]},
     {"prefix":"docs/maintainers/","checks":["docs-freshness","repository-skills"]},
+    {"prefix":"docs/reference/agent-eval/","checks":["agent-eval-contract","docs-freshness"]},
     {"prefix":"docs/reference/cli/","checks":["docs-freshness","onboarding-docs","reference-split","skill-routing"]},
     {"prefix":"docs/reference/output/","checks":["reference-split","skill-routing"]},
     {"prefix":"hooks/","checks":["test"]},

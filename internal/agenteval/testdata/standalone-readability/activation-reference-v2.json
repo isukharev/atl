@@ -1,0 +1,173 @@
+{
+  "schema_version": 2,
+  "reference_alias": "synthetic-reference-v2",
+  "plan_id": "pln-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "plan_sha256": "578ef7e82f24a46f3f42e0c563427e22e125ef1c79a8d4f1818acdc32201485b",
+  "common_contract_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "run_tree_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "reference": {
+    "schema_version": 2,
+    "cells": [
+      {
+        "treatment": "implicit",
+        "eligibility": "supported",
+        "result_status": "pass",
+        "result_violation_count": 0,
+        "deterministic_pass": true,
+        "safety_complete": true,
+        "safety_violation_count": 0,
+        "review_status": "incomplete",
+        "metrics": [
+          {
+            "name": "deterministic_pass_bps",
+            "value": 10000
+          },
+          {
+            "name": "evidence_attempted_bps",
+            "value": 0
+          },
+          {
+            "name": "evidence_blocked_bps",
+            "value": 0
+          },
+          {
+            "name": "evidence_reported_none_bps",
+            "value": 10000
+          },
+          {
+            "name": "evidence_reported_unavailable_bps",
+            "value": 0
+          },
+          {
+            "name": "evidence_succeeded_bps",
+            "value": 0
+          },
+          {
+            "name": "evidence_unavailable_bps",
+            "value": 0
+          }
+        ]
+      },
+      {
+        "treatment": "explicit",
+        "eligibility": "supported",
+        "result_status": "pass",
+        "result_violation_count": 0,
+        "deterministic_pass": true,
+        "safety_complete": true,
+        "safety_violation_count": 0,
+        "review_status": "incomplete",
+        "metrics": [
+          {
+            "name": "deterministic_pass_bps",
+            "value": 10000
+          },
+          {
+            "name": "evidence_attempted_bps",
+            "value": 0
+          },
+          {
+            "name": "evidence_blocked_bps",
+            "value": 0
+          },
+          {
+            "name": "evidence_reported_none_bps",
+            "value": 10000
+          },
+          {
+            "name": "evidence_reported_unavailable_bps",
+            "value": 0
+          },
+          {
+            "name": "evidence_succeeded_bps",
+            "value": 0
+          },
+          {
+            "name": "evidence_unavailable_bps",
+            "value": 0
+          }
+        ]
+      },
+      {
+        "treatment": "developer",
+        "eligibility": "supported",
+        "result_status": "pass",
+        "result_violation_count": 0,
+        "deterministic_pass": true,
+        "safety_complete": true,
+        "safety_violation_count": 0,
+        "review_status": "incomplete",
+        "metrics": [
+          {
+            "name": "deterministic_pass_bps",
+            "value": 10000
+          },
+          {
+            "name": "evidence_attempted_bps",
+            "value": 0
+          },
+          {
+            "name": "evidence_blocked_bps",
+            "value": 0
+          },
+          {
+            "name": "evidence_reported_none_bps",
+            "value": 10000
+          },
+          {
+            "name": "evidence_reported_unavailable_bps",
+            "value": 0
+          },
+          {
+            "name": "evidence_succeeded_bps",
+            "value": 0
+          },
+          {
+            "name": "evidence_unavailable_bps",
+            "value": 0
+          }
+        ]
+      },
+      {
+        "treatment": "combined",
+        "eligibility": "supported",
+        "result_status": "pass",
+        "result_violation_count": 0,
+        "deterministic_pass": true,
+        "safety_complete": true,
+        "safety_violation_count": 0,
+        "review_status": "incomplete",
+        "metrics": [
+          {
+            "name": "deterministic_pass_bps",
+            "value": 10000
+          },
+          {
+            "name": "evidence_attempted_bps",
+            "value": 0
+          },
+          {
+            "name": "evidence_blocked_bps",
+            "value": 0
+          },
+          {
+            "name": "evidence_reported_none_bps",
+            "value": 10000
+          },
+          {
+            "name": "evidence_reported_unavailable_bps",
+            "value": 0
+          },
+          {
+            "name": "evidence_succeeded_bps",
+            "value": 0
+          },
+          {
+            "name": "evidence_unavailable_bps",
+            "value": 0
+          }
+        ]
+      }
+    ]
+  }
+}
