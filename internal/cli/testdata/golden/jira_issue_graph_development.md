@@ -27,10 +27,10 @@
 | jira:issue:PROJ-1 | jira_issue | resolved | 0 | true | Graph seed |  |  |  |  |  |
 | jira:attachment:4 | attachment | resolved | 1 | false | design.txt |  |  |  |  |  |
 | confluence:page:7 | confluence_page | stub | 1 | false |  |  |  |  |  |  |
-| gitlab:branch:79e228365c819d4225cf50d5465e4d2b03b781f3c13c5f7edb4f6f5c3457e3bd:a5a09a06de20186e0f5af5d630f4f4e34234905a0784a6b6c1b0a8817f5ac975 | gitlab_branch | stub | 1 | false |  | https://git.example.test/platform/widget/-/tree/feature%2Fgraph-proof | git.example.test | platform/widget | branch:feature/graph-proof |  |
-| gitlab:commit:79e228365c819d4225cf50d5465e4d2b03b781f3c13c5f7edb4f6f5c3457e3bd:0123456789abcdef0123456789abcdef01234567 | gitlab_commit | stub | 1 | false |  | https://git.example.test/platform/widget/-/commit/0123456789abcdef0123456789abcdef01234567 | git.example.test | platform/widget | commit:0123456789abcdef0123456789abcdef01234567 |  |
-| gitlab:merge_request:79e228365c819d4225cf50d5465e4d2b03b781f3c13c5f7edb4f6f5c3457e3bd:42 | gitlab_merge_request | stub | 1 | false |  | https://git.example.test/platform/widget/-/merge_requests/42 | git.example.test | platform/widget | merge_request:42 | open |
-| gitlab:project:79e228365c819d4225cf50d5465e4d2b03b781f3c13c5f7edb4f6f5c3457e3bd | gitlab_project | stub | 1 | false |  | https://git.example.test/platform/widget | git.example.test | platform/widget | project |  |
+| gitlab:branch:79e228365c819d4225cf50d5465e4d2b03b781f3c13c5f7edb4f6f5c3457e3bd:a5a09a06de20186e0f5af5d630f4f4e34234905a0784a6b6c1b0a8817f5ac975 | gitlab_branch | stub | 1 | false |  |  | git.example.test | platform/widget | branch:feature/graph-proof |  |
+| gitlab:commit:79e228365c819d4225cf50d5465e4d2b03b781f3c13c5f7edb4f6f5c3457e3bd:0123456789abcdef0123456789abcdef01234567 | gitlab_commit | stub | 1 | false |  |  | git.example.test | platform/widget | commit:0123456789abcdef0123456789abcdef01234567 |  |
+| gitlab:merge_request:79e228365c819d4225cf50d5465e4d2b03b781f3c13c5f7edb4f6f5c3457e3bd:42 | gitlab_merge_request | stub | 1 | false |  |  | git.example.test | platform/widget | merge_request:42 | open |
+| gitlab:project:79e228365c819d4225cf50d5465e4d2b03b781f3c13c5f7edb4f6f5c3457e3bd | gitlab_project | stub | 1 | false |  |  | git.example.test | platform/widget | project |  |
 | jira:issue:PROJ-2 | jira_issue | unresolved | 1 | false |  |  |  |  |  |  |
 
 ## Edges

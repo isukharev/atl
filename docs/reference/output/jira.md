@@ -666,10 +666,11 @@ fragments and default ports, and never emit query values. Sensitive or
 credential-like path segments make the URL an opaque identity without a raw
 URL. Dynamic property and nested-object tokens in evidence pointers are
 deterministic opaque tokens rather than source content. Text output
-contains the same qualification plus escaped source/node/edge tables. The node
-table's `URL` cell is populated only from the canonical graph node's public
-`url`; it remains blank for opaque/sensitive identities and is never rebuilt
-from evidence. `-o id` is rejected before configuration or network access.
+contains the same qualification plus escaped source/node/edge tables. For URL
+nodes, the node table's `URL` cell is populated only from the canonical graph
+node's public `url`; it remains blank for non-URL or opaque/sensitive identities
+and is never rebuilt from evidence. `-o id` is rejected before configuration or
+network access.
 
 Every graph invocation uses schema v2. Omitting traversal and resolution flags,
 explicit `--depth 0`, explicit `--resolve none`, or both explicit values keeps

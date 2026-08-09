@@ -89,9 +89,10 @@ input; discovered page identities remain qualified stubs. Development stays
 absent without implying a zero when `include_development` is omitted or false.
 Use the CLI `jira issue graph <KEY>` under inherited read-only policy when MCP
 is unavailable or when id/title-only Confluence metadata is explicitly
-required. In CLI text output, read the node `URL` column only as the graph's
-already-normalized public identity; a blank cell for an opaque or sensitive URL
-is intentional and must not be reconstructed from node ids or evidence.
+required. In CLI text output, read a URL node's `URL` column only as the graph's
+already-normalized public identity; a blank cell for a non-URL, opaque, or
+sensitive identity is intentional and must not be reconstructed from node ids
+or evidence.
 When the task explicitly asks for code, commit, branch, or merge-request
 evidence, set MCP `include_development:true`, or add CLI
 `--include-development` when MCP is unavailable, at the smallest sufficient
