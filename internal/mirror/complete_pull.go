@@ -145,6 +145,9 @@ func validateCompletePullJournalEntry(entry CompletePullJournalEntry) error {
 	if clean != state.Path || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || !strings.HasSuffix(clean, ".csf") {
 		return fmt.Errorf("%w: complete-pull journal state for %q has a non-canonical path", domain.ErrCheckFailed, state.ID)
 	}
+	if _, err := NewPublicArtifactPath(state.Path); err != nil {
+		return fmt.Errorf("%w: complete-pull journal state for %q has an unqualified public path", domain.ErrCheckFailed, state.ID)
+	}
 	return nil
 }
 

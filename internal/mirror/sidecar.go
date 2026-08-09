@@ -135,6 +135,11 @@ func (m *Mirror) loadSidecar() (sidecarFile, error) {
 	if sc.Staged == nil {
 		sc.Staged = map[string]StagedState{}
 	}
+	for id, state := range sc.Pages {
+		if _, err := NewPublicArtifactPath(state.Path); err != nil {
+			return sc, fmt.Errorf("%w: corrupt mirror sidecar %s: resource %q has an invalid public artifact path — fix the JSON or preserve and rebuild the sidecar", domain.ErrCheckFailed, m.sidecarPath(), id)
+		}
+	}
 	for id, state := range sc.Staged {
 		if err := validateStagedState(id, state); err != nil {
 			return sc, fmt.Errorf("%w: corrupt mirror sidecar %s: invalid staged lineage: %v — fix the JSON or delete the staged entry", domain.ErrCheckFailed, m.sidecarPath(), err)

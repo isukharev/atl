@@ -176,28 +176,40 @@ func (s *ConfluenceService) registerConfluenceReadback(ctx context.Context, m *m
 	if err != nil {
 		return confluenceRegistrationFailure(created, registration, "local_registration_failed", err)
 	}
-	nativeRel, _ := filepath.Rel(m.Root, filepath.Join(dir, slug+".csf"))
-	mdRel, _ := filepath.Rel(m.Root, filepath.Join(dir, slug+".md"))
-	metaRel, _ := filepath.Rel(m.Root, filepath.Join(dir, slug+".meta.json"))
+	nativeArtifactPath, nativeRel, err := createdRegistrationArtifactPath(m.Root, filepath.Join(dir, slug+".csf"))
+	if err != nil {
+		return confluenceRegistrationFailure(created, registration, "local_registration_failed", err)
+	}
+	mdArtifactPath, _, err := createdRegistrationArtifactPath(m.Root, filepath.Join(dir, slug+".md"))
+	if err != nil {
+		return confluenceRegistrationFailure(created, registration, "local_registration_failed", err)
+	}
+	metaArtifactPath, _, err := createdRegistrationArtifactPath(m.Root, filepath.Join(dir, slug+".meta.json"))
+	if err != nil {
+		return confluenceRegistrationFailure(created, registration, "local_registration_failed", err)
+	}
 	artifacts := []mirror.RegistrationArtifact{
-		{Path: filepath.ToSlash(nativeRel), Data: readback.Body, Mode: 0o644},
-		{Path: filepath.ToSlash(mdRel), Data: md, Mode: 0o644},
-		{Path: filepath.ToSlash(metaRel), Data: append(metaBytes, '\n'), Mode: 0o644},
+		{Path: nativeArtifactPath, Data: readback.Body, Mode: 0o644},
+		{Path: mdArtifactPath, Data: md, Mode: 0o644},
+		{Path: metaArtifactPath, Data: append(metaBytes, '\n'), Mode: 0o644},
 	}
 	if macroSidecar != nil {
 		macroBytes, encodeErr := encodeConfluenceJiraMacroSidecar(macroSidecar)
 		if encodeErr != nil {
 			return confluenceRegistrationFailure(created, registration, "local_registration_failed", encodeErr)
 		}
-		macroRel, _ := filepath.Rel(m.Root, confluenceJiraMacroPath(dir, slug))
-		artifacts = append(artifacts, mirror.RegistrationArtifact{Path: filepath.ToSlash(macroRel), Data: macroBytes, Mode: 0o600})
+		macroArtifactPath, _, pathErr := createdRegistrationArtifactPath(m.Root, confluenceJiraMacroPath(dir, slug))
+		if pathErr != nil {
+			return confluenceRegistrationFailure(created, registration, "local_registration_failed", pathErr)
+		}
+		artifacts = append(artifacts, mirror.RegistrationArtifact{Path: macroArtifactPath, Data: macroBytes, Mode: 0o600})
 	}
-	state := mirror.SyncState{ID: readback.ID, Version: readback.Version, Hash: mirror.Hash(readback.Body), Path: filepath.ToSlash(nativeRel)}
+	state := mirror.SyncState{ID: readback.ID, Version: readback.Version, Hash: mirror.Hash(readback.Body), Path: nativeRel}
 	if err := m.RegisterNew(state, viewStateOf(rs), ".csf", readback.Body, artifacts); err != nil {
 		return confluenceRegistrationFailure(created, registration, "local_registration_failed", err)
 	}
 	registration.Status = "registered"
-	registration.Path = filepath.ToSlash(nativeRel)
+	registration.Path = nativeRel
 	registration.Version = readback.Version
 	registration.SHA256 = state.Hash
 	return created, registration, nil
@@ -293,20 +305,29 @@ func (s *JiraService) createAndRegister(ctx context.Context, project, issueType,
 	if err != nil {
 		return jiraRegistrationFailure(created, registration, "local_registration_failed", err)
 	}
-	wikiRel, _ := filepath.Rel(root, wikiPath)
-	mdRel, _ := filepath.Rel(root, filepath.Join(dir, keySeg+".md"))
-	snapshotRel, _ := filepath.Rel(root, filepath.Join(dir, keySeg+".json"))
-	artifacts := []mirror.RegistrationArtifact{
-		{Path: filepath.ToSlash(wikiRel), Data: []byte(readback.Body), Mode: 0o644},
-		{Path: filepath.ToSlash(mdRel), Data: renderIssueMarkdown(readback, nil, rs), Mode: 0o644},
-		{Path: filepath.ToSlash(snapshotRel), Data: append(snapshotBytes, '\n'), Mode: 0o644},
+	wikiArtifactPath, wikiRel, err := createdRegistrationArtifactPath(root, wikiPath)
+	if err != nil {
+		return jiraRegistrationFailure(created, registration, "local_registration_failed", err)
 	}
-	state := mirror.SyncState{ID: keySeg, Version: 0, Hash: mirror.Hash([]byte(readback.Body)), Path: filepath.ToSlash(wikiRel)}
+	mdArtifactPath, _, err := createdRegistrationArtifactPath(root, filepath.Join(dir, keySeg+".md"))
+	if err != nil {
+		return jiraRegistrationFailure(created, registration, "local_registration_failed", err)
+	}
+	snapshotArtifactPath, _, err := createdRegistrationArtifactPath(root, filepath.Join(dir, keySeg+".json"))
+	if err != nil {
+		return jiraRegistrationFailure(created, registration, "local_registration_failed", err)
+	}
+	artifacts := []mirror.RegistrationArtifact{
+		{Path: wikiArtifactPath, Data: []byte(readback.Body), Mode: 0o644},
+		{Path: mdArtifactPath, Data: renderIssueMarkdown(readback, nil, rs), Mode: 0o644},
+		{Path: snapshotArtifactPath, Data: append(snapshotBytes, '\n'), Mode: 0o644},
+	}
+	state := mirror.SyncState{ID: keySeg, Version: 0, Hash: mirror.Hash([]byte(readback.Body)), Path: wikiRel}
 	if err := m.RegisterNew(state, viewStateOf(rs), wikiExt, []byte(readback.Body), artifacts); err != nil {
 		return jiraRegistrationFailure(created, registration, "local_registration_failed", err)
 	}
 	registration.Status = "registered"
-	registration.Path = filepath.ToSlash(wikiRel)
+	registration.Path = wikiRel
 	registration.SHA256 = state.Hash
 	return created, registration, nil
 }
@@ -318,6 +339,19 @@ func validateCreatedRegistrationPlatform(goos string) error {
 	default:
 		return nil
 	}
+}
+
+func createdRegistrationArtifactPath(root, target string) (mirror.ArtifactPath, string, error) {
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return mirror.ArtifactPath{}, "", fmt.Errorf("qualify mirror registration artifact: %w", err)
+	}
+	rel = filepath.ToSlash(rel)
+	path, err := mirror.NewPublicArtifactPath(rel)
+	if err != nil {
+		return mirror.ArtifactPath{}, "", err
+	}
+	return path, rel, nil
 }
 
 func validateCreatedJiraReadback(issue *domain.Issue, key, project, issueType string, projection []string) error {
@@ -359,7 +393,10 @@ func qualifyNewJiraRegistrationTarget(m *mirror.Mirror, root, dir, key string) e
 	if err != nil {
 		return err
 	}
-	wikiRel, _ := filepath.Rel(root, filepath.Join(dir, key+wikiExt))
+	wikiRel, err := filepath.Rel(root, filepath.Join(dir, key+wikiExt))
+	if err != nil {
+		return fmt.Errorf("qualify Jira registration target: %w", err)
+	}
 	for _, state := range states {
 		if state.ID == key || filepath.Clean(state.Path) == filepath.Clean(wikiRel) {
 			return fmt.Errorf("%w: issue key or canonical wiki path is already tracked", domain.ErrCheckFailed)

@@ -24,7 +24,11 @@ func appendCompletePullJournalForTest(m *Mirror, checkpoint CompletePullCheckpoi
 	if err != nil {
 		return err
 	}
-	if err := m.PrepareCompletePullPublication(checkpoint, index, entry, true, []CompletePullArtifact{{Path: entry.State.Path, Data: body, Mode: 0o644}}, nil); err != nil {
+	path, err := NewPublicArtifactPath(entry.State.Path)
+	if err != nil {
+		return err
+	}
+	if err := m.PrepareCompletePullPublication(checkpoint, index, entry, true, []CompletePullArtifact{{Path: path, Data: body, Mode: 0o644}}, nil); err != nil {
 		return err
 	}
 	return m.RecoverCompletePullPublication(checkpoint.SelectorSHA256, checkpoint, true)
@@ -391,6 +395,9 @@ func TestCompletePullJournalRejectsCorruptMismatchedOrTamperedState(t *testing.T
 			"absolute path": func(entry *CompletePullJournalEntry) {
 				entry.State.Path = filepath.Join(string(filepath.Separator), "escape.csf")
 			},
+			"exact private root": func(entry *CompletePullJournalEntry) { entry.State.Path = ".atl" },
+			"private base":       func(entry *CompletePullJournalEntry) { entry.State.Path = ".atl/base/10.csf" },
+			"private case alias": func(entry *CompletePullJournalEntry) { entry.State.Path = ".ATL/base/10.csf" },
 		} {
 			t.Run(name, func(t *testing.T) {
 				entry := entries[0]

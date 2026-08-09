@@ -103,7 +103,11 @@ func seedCompletePullJournal(t *testing.T, root string, opts PullOpts, ids []str
 	}
 	state := mirror.SyncState{ID: page.ID, Version: page.Version, Hash: mirror.Hash(page.Body), Path: filepath.ToSlash(path)}
 	entry := mirror.CompletePullJournalEntry{State: state, View: viewStateOf(rs)}
-	if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, []mirror.CompletePullArtifact{{Path: state.Path, Data: page.Body, Mode: 0o644}}, nil); err != nil {
+	artifactPath, err := mirror.NewPublicArtifactPath(state.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, []mirror.CompletePullArtifact{{Path: artifactPath, Data: page.Body, Mode: 0o644}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.RecoverCompletePullPublication(checkpoint.SelectorSHA256, checkpoint, true); err != nil {
@@ -292,7 +296,11 @@ func TestCompletePullRecoversStagedPublicationBeforeQualificationWithoutSearchOr
 	if err != nil {
 		t.Fatal(err)
 	}
-	artifacts = append(artifacts, mirror.CompletePullArtifact{Path: filepath.ToSlash(macroRel), Remove: true})
+	macroArtifactPath, err := mirror.NewPublicArtifactPath(filepath.ToSlash(macroRel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifacts = append(artifacts, mirror.CompletePullArtifact{Path: macroArtifactPath, Remove: true})
 	entry := mirror.CompletePullJournalEntry{State: state, View: viewStateOf(rs)}
 	if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, artifacts, nil); err != nil {
 		t.Fatal(err)

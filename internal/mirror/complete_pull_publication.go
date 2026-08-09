@@ -121,66 +121,6 @@ func (m *Mirror) hasCompletePullPublicationStage(selectorSHA256 string) (bool, e
 	return true, nil
 }
 
-func validatePublicationPath(value string, allowPrivate bool) error {
-	pathForOS := filepath.FromSlash(value)
-	if value == "" || len(value) > maxCompletePullJournalPathBytes || filepath.IsAbs(pathForOS) || strings.ContainsAny(value, "\\:\x00") {
-		return fmt.Errorf("invalid publication path")
-	}
-	clean := filepath.ToSlash(filepath.Clean(pathForOS))
-	if clean != value || clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
-		return fmt.Errorf("non-canonical publication path")
-	}
-	if strings.HasPrefix(clean, ".atl/") && (!allowPrivate || !strings.HasPrefix(clean, ".atl/base/")) {
-		return fmt.Errorf("publication path targets reserved private state")
-	}
-	return nil
-}
-
-func validatePublicationArtifact(artifact completePullPublicationArtifact, stageDir string, allowPrivate bool, token string, writeIndex int) error {
-	if err := validatePublicationPath(artifact.Path, allowPrivate); err != nil {
-		return err
-	}
-	if artifact.Pre.Present {
-		mode := os.FileMode(artifact.Pre.Mode)
-		if !validSHA256(artifact.Pre.SHA256) || mode != mode.Perm() || mode.Perm() == 0 {
-			return fmt.Errorf("invalid publication pre-image")
-		}
-	} else if artifact.Pre.SHA256 != "" || artifact.Pre.Mode != 0 {
-		return fmt.Errorf("absent publication pre-image has a hash")
-	}
-	if artifact.Remove {
-		if artifact.BestEffort || artifact.Payload != "" || artifact.SHA256 != "" || artifact.Size != 0 || artifact.Mode != 0 || artifact.Temp != "" {
-			return fmt.Errorf("invalid publication removal")
-		}
-		return nil
-	}
-	if artifact.Payload == "" || filepath.Base(artifact.Payload) != artifact.Payload || strings.ContainsAny(artifact.Payload, "/\\:\x00") {
-		return fmt.Errorf("invalid publication payload name")
-	}
-	if !validSHA256(artifact.SHA256) || artifact.Size < 0 || artifact.Size > maxCompletePullPublicationBytes {
-		return fmt.Errorf("invalid publication payload identity")
-	}
-	mode := os.FileMode(artifact.Mode)
-	if mode != mode.Perm() || mode.Perm() == 0 {
-		return fmt.Errorf("invalid publication artifact mode")
-	}
-	if artifact.Temp != completePullArtifactTemp(token, writeIndex) || !validCompletePullTempName(artifact.Temp) {
-		return fmt.Errorf("invalid publication temporary-file ownership")
-	}
-	if stageDir != "" {
-		payloadPath := filepath.Join(stageDir, artifact.Payload)
-		info, err := safepath.StatWithin(filepath.Dir(stageDir), payloadPath)
-		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || info.Size() != artifact.Size {
-			return fmt.Errorf("publication payload is missing or has unsafe metadata")
-		}
-		payload, err := safepath.ReadFileWithin(filepath.Dir(stageDir), payloadPath)
-		if err != nil || Hash(payload) != artifact.SHA256 {
-			return fmt.Errorf("publication payload is missing or changed")
-		}
-	}
-	return nil
-}
-
 func validateCompletePullPublication(intent completePullPublicationIntent, checkpoint CompletePullCheckpoint, stageDir string) error {
 	if intent.SchemaVersion != completePullPublicationSchema || intent.Service != checkpoint.Service || intent.SelectorSHA256 != checkpoint.SelectorSHA256 || intent.OptionsSHA256 != checkpoint.OptionsSHA256 || intent.SelectionSHA256 != checkpoint.SelectionSHA256 {
 		return fmt.Errorf("%w: complete-pull publication binding is invalid", domain.ErrCheckFailed)
@@ -206,17 +146,29 @@ func validateCompletePullPublication(intent completePullPublicationIntent, check
 	}
 	seen := make(map[string]struct{}, count)
 	var total int64
+	privateArtifacts := 0
 	tempNameBytes := len(completePullJournalTemp(intent.WriteToken)) + len(completePullSidecarTemp(intent.WriteToken)) + len(completePullProgressTemp(intent.WriteToken))
 	writeIndex := 0
-	validate := func(artifact completePullPublicationArtifact) error {
-		if err := validatePublicationArtifact(artifact, stageDir, true, intent.WriteToken, writeIndex); err != nil {
+	validate := func(artifact completePullPublicationArtifact, allowPrivate bool) error {
+		path, err := validatePublicationArtifact(artifact, stageDir, allowPrivate, intent.WriteToken, writeIndex)
+		if err != nil {
 			return err
+		}
+		if artifactPathIsPrivateBase(path) {
+			privateArtifacts++
+			expected := filepath.ToSlash(filepath.Join(".atl", "base", safepath.Segment(intent.Entry.State.ID)+filepath.Ext(filepath.FromSlash(intent.Entry.State.Path))))
+			if artifact.Path != expected || artifact.Remove || artifact.BestEffort || artifact.Mode != 0o600 {
+				return fmt.Errorf("private publication artifact is not the exact pristine base")
+			}
 		}
 		if !artifact.Remove {
 			tempNameBytes += len(artifact.Temp)
 			writeIndex++
 		}
-		key := registrationPathKey(artifact.Path)
+		key, err := artifactPathCollisionKey(path)
+		if err != nil {
+			return err
+		}
 		if _, duplicate := seen[key]; duplicate {
 			return fmt.Errorf("duplicate publication destination")
 		}
@@ -225,16 +177,19 @@ func validateCompletePullPublication(intent completePullPublicationIntent, check
 		return nil
 	}
 	for _, artifact := range intent.Artifacts {
-		if err := validate(artifact); err != nil {
+		if err := validate(artifact, true); err != nil {
 			return fmt.Errorf("%w: invalid complete-pull publication artifact: %v", domain.ErrCheckFailed, err)
 		}
 	}
 	if intent.Relocation != nil {
 		for _, artifact := range intent.Relocation.Artifacts {
-			if err := validate(artifact); err != nil {
+			if err := validate(artifact, false); err != nil {
 				return fmt.Errorf("%w: invalid complete-pull relocation artifact: %v", domain.ErrCheckFailed, err)
 			}
 		}
+	}
+	if privateArtifacts > 1 {
+		return fmt.Errorf("%w: complete-pull publication contains duplicate private base artifacts", domain.ErrCheckFailed)
 	}
 	if total > maxCompletePullPublicationBytes {
 		return fmt.Errorf("%w: complete-pull publication exceeds %d staged bytes", domain.ErrCheckFailed, maxCompletePullPublicationBytes)
@@ -360,33 +315,6 @@ func (m *Mirror) readPublicationIntent(selectorSHA256 string, checkpoint Complet
 	return intent, dir, true, nil
 }
 
-func publicationCurrent(root, rel string) (completePullPublicationPreState, error) {
-	target := filepath.Join(root, filepath.FromSlash(rel))
-	info, err := safepath.StatWithin(root, target)
-	if os.IsNotExist(err) {
-		return completePullPublicationPreState{}, nil
-	}
-	if err != nil || !info.Mode().IsRegular() {
-		return completePullPublicationPreState{}, fmt.Errorf("inspect publication destination %s: %v", rel, err)
-	}
-	b, err := safepath.ReadFileWithin(root, target)
-	if err != nil {
-		return completePullPublicationPreState{}, err
-	}
-	return completePullPublicationPreState{Present: true, SHA256: Hash(b), Mode: uint32(info.Mode().Perm())}, nil
-}
-
-func publicationMatchesPre(current, pre completePullPublicationPreState) bool {
-	return current == pre
-}
-
-func publicationMatchesPost(current completePullPublicationPreState, artifact completePullPublicationArtifact) bool {
-	if artifact.Remove || (artifact.BestEffort && !current.Present) {
-		return !current.Present
-	}
-	return current.Present && current.SHA256 == artifact.SHA256 && current.Mode == artifact.Mode
-}
-
 func (m *Mirror) savePublicationIntent(dir string, intent completePullPublicationIntent, ops completePullPublicationOps) error {
 	b, err := json.MarshalIndent(intent, "", "  ")
 	if err != nil {
@@ -402,35 +330,6 @@ func (m *Mirror) savePublicationIntent(dir string, intent completePullPublicatio
 	return ops.sync(m.Root, dir)
 }
 
-func (m *Mirror) stagePublicationArtifact(dir string, input CompletePullArtifact, sequence int, token string, ops completePullPublicationOps) (completePullPublicationArtifact, error) {
-	if err := validatePublicationPath(input.Path, true); err != nil {
-		return completePullPublicationArtifact{}, fmt.Errorf("%w: invalid complete-pull destination %q: %v", domain.ErrCheckFailed, input.Path, err)
-	}
-	pre, err := publicationCurrent(m.Root, input.Path)
-	if err != nil {
-		return completePullPublicationArtifact{}, fmt.Errorf("%w: %v", domain.ErrCheckFailed, err)
-	}
-	out := completePullPublicationArtifact{Path: input.Path, Pre: pre, Remove: input.Remove, BestEffort: input.BestEffort}
-	if input.Remove {
-		if input.BestEffort || len(input.Data) != 0 || input.Mode != 0 {
-			return completePullPublicationArtifact{}, fmt.Errorf("%w: invalid complete-pull removal for %s", domain.ErrCheckFailed, input.Path)
-		}
-		return out, nil
-	}
-	if input.Mode != input.Mode.Perm() || input.Mode.Perm() == 0 {
-		return completePullPublicationArtifact{}, fmt.Errorf("%w: invalid complete-pull mode for %s", domain.ErrCheckFailed, input.Path)
-	}
-	out.Payload = fmt.Sprintf("payload-%04d", sequence)
-	out.Temp = completePullArtifactTemp(token, sequence)
-	out.SHA256 = Hash(input.Data)
-	out.Size = int64(len(input.Data))
-	out.Mode = uint32(input.Mode.Perm())
-	if err := ops.write(m.Root, filepath.Join(dir, out.Payload), input.Data, 0o600); err != nil {
-		return completePullPublicationArtifact{}, err
-	}
-	return out, nil
-}
-
 func relocationPublicationArtifacts(m *Mirror, plan *PageRelocation) ([]CompletePullArtifact, error) {
 	if plan == nil {
 		return nil, nil
@@ -443,8 +342,12 @@ func relocationPublicationArtifacts(m *Mirror, plan *PageRelocation) ([]Complete
 	if err != nil {
 		return nil, err
 	}
-	out := []CompletePullArtifact{{Path: rel, Data: append(tombstone, '\n'), Mode: 0o600}}
-	currentTombstone, err := publicationCurrent(m.Root, rel)
+	tombstoneArtifactPath, err := NewPublicArtifactPath(rel)
+	if err != nil {
+		return nil, err
+	}
+	out := []CompletePullArtifact{{Path: tombstoneArtifactPath, Data: append(tombstone, '\n'), Mode: 0o600}}
+	currentTombstone, err := publicationCurrent(m.Root, tombstoneArtifactPath)
 	if err != nil {
 		return nil, err
 	}
@@ -461,12 +364,16 @@ func relocationPublicationArtifacts(m *Mirror, plan *PageRelocation) ([]Complete
 			if err != nil {
 				return nil, err
 			}
-			current, currentErr := publicationCurrent(m.Root, rel)
+			artifactPath, pathErr := NewPublicArtifactPath(rel)
+			if pathErr != nil {
+				return nil, pathErr
+			}
+			current, currentErr := publicationCurrent(m.Root, artifactPath)
 			expected := []string{plan.csfHash, plan.mdHash, plan.metaHash}[i]
 			if currentErr != nil || !current.Present || current.SHA256 != expected {
 				return nil, fmt.Errorf("%w: relocation source %s changed after qualification; preserving it", domain.ErrCheckFailed, rel)
 			}
-			out = append(out, CompletePullArtifact{Path: rel, Remove: true})
+			out = append(out, CompletePullArtifact{Path: artifactPath, Remove: true})
 		}
 	}
 	return out, nil
@@ -578,13 +485,20 @@ func (m *Mirror) prepareCompletePullPublicationWith(checkpoint CompletePullCheck
 }
 
 func (m *Mirror) publishArtifact(dir string, artifact completePullPublicationArtifact, ops completePullPublicationOps) error {
-	current, err := publicationCurrent(m.Root, artifact.Path)
+	path, err := artifactPathFromDurable(artifact.Path)
+	if err != nil {
+		return fmt.Errorf("%w: invalid durable complete-pull destination", domain.ErrCheckFailed)
+	}
+	target, err := artifactPathTarget(m.Root, path)
+	if err != nil {
+		return err
+	}
+	current, err := publicationCurrent(m.Root, path)
 	if err != nil {
 		return fmt.Errorf("%w: inspect complete-pull destination %s: %v", domain.ErrCheckFailed, artifact.Path, err)
 	}
 	if publicationMatchesPost(current, artifact) && !publicationMatchesPre(current, artifact.Pre) {
 		if !artifact.Remove {
-			target := filepath.Join(m.Root, filepath.FromSlash(artifact.Path))
 			if err := m.removeCompletePullOwnedResidue(target, artifact.Temp, artifact.Size, os.FileMode(artifact.Mode)); err != nil {
 				return err
 			}
@@ -592,13 +506,11 @@ func (m *Mirror) publishArtifact(dir string, artifact completePullPublicationArt
 		// The previous process may have completed the atomic mutation but died
 		// before its containing directories were synced or intent progress was
 		// advanced. Repeat the durability barrier before accepting the post-image.
-		target := filepath.Join(m.Root, filepath.FromSlash(artifact.Path))
 		return syncPublicationPath(m.Root, target, ops)
 	}
 	if !publicationMatchesPre(current, artifact.Pre) {
 		return fmt.Errorf("%w: complete-pull destination %s matches neither its reviewed pre-image nor staged post-image; preserving it", domain.ErrCheckFailed, artifact.Path)
 	}
-	target := filepath.Join(m.Root, filepath.FromSlash(artifact.Path))
 	if artifact.Remove {
 		if current.Present {
 			if err := ops.remove(m.Root, target); err != nil && !os.IsNotExist(err) {
@@ -625,7 +537,7 @@ func (m *Mirror) publishArtifact(dir string, artifact completePullPublicationArt
 	if err := syncPublicationPath(m.Root, target, ops); err != nil {
 		return err
 	}
-	current, err = publicationCurrent(m.Root, artifact.Path)
+	current, err = publicationCurrent(m.Root, path)
 	if err != nil || !publicationMatchesPost(current, artifact) {
 		return fmt.Errorf("%w: complete-pull destination %s did not reach its exact postcondition", domain.ErrCheckFailed, artifact.Path)
 	}
@@ -726,8 +638,9 @@ func (m *Mirror) cleanupCompletePullPublication(dir string, intent completePullP
 
 func (m *Mirror) verifyCommittedPublication(checkpoint CompletePullCheckpoint, intent completePullPublicationIntent) error {
 	for _, artifact := range intent.Artifacts {
-		current, err := publicationCurrent(m.Root, artifact.Path)
-		if err != nil || !publicationMatchesPost(current, artifact) {
+		path, pathErr := artifactPathFromDurable(artifact.Path)
+		current, err := publicationCurrent(m.Root, path)
+		if pathErr != nil || err != nil || !publicationMatchesPost(current, artifact) {
 			return fmt.Errorf("%w: committed complete-pull artifact %s does not match its exact postcondition", domain.ErrCheckFailed, artifact.Path)
 		}
 	}
@@ -741,8 +654,9 @@ func (m *Mirror) verifyCommittedPublication(checkpoint CompletePullCheckpoint, i
 			return fmt.Errorf("%w: committed complete-pull relocation has no exact view state", domain.ErrCheckFailed)
 		}
 		for _, artifact := range intent.Relocation.Artifacts {
-			current, err := publicationCurrent(m.Root, artifact.Path)
-			if err != nil || !publicationMatchesPost(current, artifact) {
+			path, pathErr := artifactPathFromDurable(artifact.Path)
+			current, err := publicationCurrent(m.Root, path)
+			if pathErr != nil || err != nil || !publicationMatchesPost(current, artifact) {
 				return fmt.Errorf("%w: committed complete-pull relocation artifact %s does not match its exact postcondition", domain.ErrCheckFailed, artifact.Path)
 			}
 		}

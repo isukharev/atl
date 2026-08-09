@@ -34,15 +34,15 @@ func completePullPublicationFixture(t *testing.T) (*Mirror, CompletePullCheckpoi
 	}
 	meta, _ := json.Marshal(Meta{ID: state.ID, Version: state.Version, Hash: state.Hash})
 	artifacts := []CompletePullArtifact{
-		{Path: state.Path, Data: body, Mode: 0o644},
-		{Path: "DOC/page/page.md", Data: []byte("# derived\n"), Mode: 0o644, BestEffort: true},
-		{Path: "DOC/page/page.comments.json", Data: []byte("{}\n"), Mode: 0o644},
-		{Path: "DOC/page/page.comments.md", Data: []byte("# Comments\n"), Mode: 0o644, BestEffort: true},
-		{Path: "DOC/page/page.meta.json", Data: append(meta, '\n'), Mode: 0o644},
-		{Path: ".atl/base/10.csf", Data: body, Mode: 0o600},
-		{Path: "DOC/page/page.assets/file.bin", Data: []byte{0, 1, 2}, Mode: 0o644},
-		{Path: "DOC/page/page.jira-macros.json", Data: []byte("{}\n"), Mode: 0o600},
-		{Path: "DOC/page/obsolete.jira-macros.json", Remove: true},
+		{Path: mustPublicArtifactPath(t, state.Path), Data: body, Mode: 0o644},
+		{Path: mustPublicArtifactPath(t, "DOC/page/page.md"), Data: []byte("# derived\n"), Mode: 0o644, BestEffort: true},
+		{Path: mustPublicArtifactPath(t, "DOC/page/page.comments.json"), Data: []byte("{}\n"), Mode: 0o644},
+		{Path: mustPublicArtifactPath(t, "DOC/page/page.comments.md"), Data: []byte("# Comments\n"), Mode: 0o644, BestEffort: true},
+		{Path: mustPublicArtifactPath(t, "DOC/page/page.meta.json"), Data: append(meta, '\n'), Mode: 0o644},
+		{Path: mustPrivateArtifactPath(t, ".atl/base/10.csf"), Data: body, Mode: 0o600},
+		{Path: mustPublicArtifactPath(t, "DOC/page/page.assets/file.bin"), Data: []byte{0, 1, 2}, Mode: 0o644},
+		{Path: mustPublicArtifactPath(t, "DOC/page/page.jira-macros.json"), Data: []byte("{}\n"), Mode: 0o600},
+		{Path: mustPublicArtifactPath(t, "DOC/page/obsolete.jira-macros.json"), Remove: true},
 	}
 	obsolete := filepath.Join(root, "DOC", "page", "obsolete.jira-macros.json")
 	if err := os.MkdirAll(filepath.Dir(obsolete), 0o755); err != nil {
@@ -60,16 +60,17 @@ func assertPublicationRecovered(t *testing.T, m *Mirror, checkpoint CompletePull
 		t.Fatalf("recover publication: %v", err)
 	}
 	for _, artifact := range artifacts {
-		path := filepath.Join(m.Root, filepath.FromSlash(artifact.Path))
+		artifactRel := artifactPathStringForTest(t, artifact.Path)
+		path := filepath.Join(m.Root, filepath.FromSlash(artifactRel))
 		got, err := os.ReadFile(path)
 		if artifact.Remove {
 			if !os.IsNotExist(err) {
-				t.Fatalf("removed artifact %s survived: %v", artifact.Path, err)
+				t.Fatalf("removed artifact %s survived: %v", artifactRel, err)
 			}
 			continue
 		}
 		if err != nil || !bytes.Equal(got, artifact.Data) {
-			t.Fatalf("artifact %s=%q err=%v", artifact.Path, got, err)
+			t.Fatalf("artifact %s=%q err=%v", artifactRel, got, err)
 		}
 	}
 	journal, found, err := m.loadCompletePullJournal(checkpoint.SelectorSHA256)
@@ -236,7 +237,7 @@ func TestCompletePullPublicationRejectsMissingStageAndUnexpectedUserEdit(t *test
 
 	t.Run("third hash", func(t *testing.T) {
 		m, checkpoint, entry, artifacts := completePullPublicationFixture(t)
-		target := filepath.Join(m.Root, filepath.FromSlash(artifacts[0].Path))
+		target := filepath.Join(m.Root, filepath.FromSlash(artifactPathStringForTest(t, artifacts[0].Path)))
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -351,10 +352,10 @@ func TestCompletePullPublicationRelocationRecoversStateThenExactRetirement(t *te
 			entry := CompletePullJournalEntry{State: state, View: ViewState{Sections: []string{"content"}}}
 			meta, _ := json.Marshal(Meta{ID: state.ID, Version: state.Version, Hash: state.Hash})
 			artifacts := []CompletePullArtifact{
-				{Path: state.Path, Data: body, Mode: 0o644},
-				{Path: filepath.ToSlash(filepath.Join("DOC", newSlug, newSlug+".md")), Data: []byte("new view"), Mode: 0o644, BestEffort: true},
-				{Path: filepath.ToSlash(filepath.Join("DOC", newSlug, newSlug+".meta.json")), Data: append(meta, '\n'), Mode: 0o644},
-				{Path: ".atl/base/10.csf", Data: body, Mode: 0o600},
+				{Path: mustPublicArtifactPath(t, state.Path), Data: body, Mode: 0o644},
+				{Path: mustPublicArtifactPath(t, filepath.ToSlash(filepath.Join("DOC", newSlug, newSlug+".md"))), Data: []byte("new view"), Mode: 0o644, BestEffort: true},
+				{Path: mustPublicArtifactPath(t, filepath.ToSlash(filepath.Join("DOC", newSlug, newSlug+".meta.json"))), Data: append(meta, '\n'), Mode: 0o644},
+				{Path: mustPrivateArtifactPath(t, ".atl/base/10.csf"), Data: body, Mode: 0o600},
 			}
 			checkpoint := CompletePullCheckpoint{Service: "confluence", SelectorSHA256: completePullTestHash, OptionsSHA256: strings.Repeat("b", 64), SelectionSHA256: strings.Repeat("c", 64), IDs: []string{"10"}}
 			if err := m.SaveCompletePullCheckpoint(checkpoint); err != nil {
@@ -442,10 +443,156 @@ func TestCompletePullPublicationPrivateBoundedAndContentMinimized(t *testing.T) 
 	m2, checkpoint2, entry2, _ := completePullPublicationFixture(t)
 	tooMany := make([]CompletePullArtifact, maxCompletePullPublicationArtifacts+1)
 	for i := range tooMany {
-		tooMany[i] = CompletePullArtifact{Path: fmt.Sprintf("DOC/remove-%04d", i), Remove: true}
+		tooMany[i] = CompletePullArtifact{Path: mustPublicArtifactPath(t, fmt.Sprintf("DOC/remove-%04d", i)), Remove: true}
 	}
 	if err := m2.PrepareCompletePullPublication(checkpoint2, 0, entry2, true, tooMany, nil); !errors.Is(err, domain.ErrCheckFailed) {
 		t.Fatalf("artifact bound error=%v", err)
+	}
+}
+
+func TestCompletePullPublicationDurableSchema2BytesRemainExact(t *testing.T) {
+	entry := CompletePullJournalEntry{
+		State: SyncState{ID: "10", Version: 3, Hash: "h", Path: "DOC/page.csf"},
+		View:  ViewState{Sections: []string{"content"}},
+	}
+	intent := completePullPublicationIntent{
+		SchemaVersion: 2, Service: "confluence", SelectorSHA256: "s",
+		OptionsSHA256: "o", SelectionSHA256: "q", Index: 1, Entry: entry,
+		Eligible: true,
+		Artifacts: []completePullPublicationArtifact{{
+			Path: "DOC/page.csf", Pre: completePullPublicationPreState{},
+			Payload: "payload-0000", SHA256: "digest", Size: 4, Mode: 0o644, Temp: ".tmp-token",
+		}},
+		WriteToken: "token",
+	}
+	gotIntent, err := json.MarshalIndent(intent, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantIntent := "{\n" +
+		"  \"schema_version\": 2,\n" +
+		"  \"service\": \"confluence\",\n" +
+		"  \"selector_sha256\": \"s\",\n" +
+		"  \"options_sha256\": \"o\",\n" +
+		"  \"selection_sha256\": \"q\",\n" +
+		"  \"index\": 1,\n" +
+		"  \"entry\": {\n" +
+		"    \"state\": {\n" +
+		"      \"id\": \"10\",\n" +
+		"      \"version\": 3,\n" +
+		"      \"hash\": \"h\",\n" +
+		"      \"path\": \"DOC/page.csf\"\n" +
+		"    },\n" +
+		"    \"view\": {\n" +
+		"      \"sections\": [\n" +
+		"        \"content\"\n" +
+		"      ]\n" +
+		"    }\n" +
+		"  },\n" +
+		"  \"checkpoint_eligible\": true,\n" +
+		"  \"artifacts\": [\n" +
+		"    {\n" +
+		"      \"path\": \"DOC/page.csf\",\n" +
+		"      \"pre\": {\n" +
+		"        \"present\": false\n" +
+		"      },\n" +
+		"      \"payload\": \"payload-0000\",\n" +
+		"      \"sha256\": \"digest\",\n" +
+		"      \"size\": 4,\n" +
+		"      \"mode\": 420,\n" +
+		"      \"temp\": \".tmp-token\"\n" +
+		"    }\n" +
+		"  ],\n" +
+		"  \"next\": 0,\n" +
+		"  \"write_token\": \"token\"\n" +
+		"}"
+	if string(gotIntent) != wantIntent {
+		t.Fatalf("schema-2 intent bytes changed:\n got %s\nwant %s", gotIntent, wantIntent)
+	}
+
+	journal := completePullJournal{
+		SchemaVersion: 1, Service: "confluence", SelectorSHA256: "s",
+		OptionsSHA256: "o", SelectionSHA256: "q", StartIndex: 1,
+		Entries: []CompletePullJournalEntry{entry}, WriteToken: "token",
+	}
+	gotJournal, err := json.MarshalIndent(journal, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantJournal := "{\n" +
+		"  \"schema_version\": 1,\n" +
+		"  \"service\": \"confluence\",\n" +
+		"  \"selector_sha256\": \"s\",\n" +
+		"  \"options_sha256\": \"o\",\n" +
+		"  \"selection_sha256\": \"q\",\n" +
+		"  \"start_index\": 1,\n" +
+		"  \"entries\": [\n" +
+		"    {\n" +
+		"      \"state\": {\n" +
+		"        \"id\": \"10\",\n" +
+		"        \"version\": 3,\n" +
+		"        \"hash\": \"h\",\n" +
+		"        \"path\": \"DOC/page.csf\"\n" +
+		"      },\n" +
+		"      \"view\": {\n" +
+		"        \"sections\": [\n" +
+		"          \"content\"\n" +
+		"        ]\n" +
+		"      }\n" +
+		"    }\n" +
+		"  ],\n" +
+		"  \"write_token\": \"token\"\n" +
+		"}"
+	if string(gotJournal) != wantJournal {
+		t.Fatalf("journal bytes changed:\n got %s\nwant %s", gotJournal, wantJournal)
+	}
+}
+
+func TestCompletePullPublicationReparsesDurableClassesAndBindsPrivateBase(t *testing.T) {
+	m, checkpoint, _, artifacts := completePullPublicationFixture(t)
+	entry := CompletePullJournalEntry{
+		State: SyncState{ID: "10", Version: 3, Hash: Hash(artifacts[0].Data), Path: "DOC/page/page.csf"},
+		View:  ViewState{Sections: []string{"content"}},
+	}
+	if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, artifacts, nil); err != nil {
+		t.Fatal(err)
+	}
+	baseIntent, dir, found, err := m.readPublicationIntent(checkpoint.SelectorSHA256, checkpoint, true)
+	if err != nil || !found {
+		t.Fatalf("intent found=%t err=%v", found, err)
+	}
+	for _, tc := range []struct {
+		name   string
+		mutate func(*completePullPublicationIntent)
+	}{
+		{name: "exact private root", mutate: func(v *completePullPublicationIntent) { v.Artifacts[0].Path = ".atl" }},
+		{name: "private case alias", mutate: func(v *completePullPublicationIntent) { v.Artifacts[0].Path = ".ATL/base/10.csf" }},
+		{name: "other private subtree", mutate: func(v *completePullPublicationIntent) { v.Artifacts[0].Path = ".atl/cache/10.csf" }},
+		{name: "base identity mismatch", mutate: func(v *completePullPublicationIntent) { v.Artifacts[5].Path = ".atl/base/20.csf" }},
+		{name: "base extension mismatch", mutate: func(v *completePullPublicationIntent) { v.Artifacts[5].Path = ".atl/base/10.wiki" }},
+		{name: "base removal", mutate: func(v *completePullPublicationIntent) {
+			v.Artifacts[5] = completePullPublicationArtifact{Path: ".atl/base/10.csf", Remove: true}
+		}},
+		{name: "base best effort", mutate: func(v *completePullPublicationIntent) { v.Artifacts[5].BestEffort = true }},
+		{name: "base permissive mode", mutate: func(v *completePullPublicationIntent) { v.Artifacts[5].Mode = 0o644 }},
+		{name: "private relocation", mutate: func(v *completePullPublicationIntent) {
+			v.Relocation = &completePullPublicationRelocation{Artifacts: []completePullPublicationArtifact{{Path: ".atl/base/10.csf", Remove: true}}}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, _ := json.Marshal(baseIntent)
+			var intent completePullPublicationIntent
+			if err := json.Unmarshal(encoded, &intent); err != nil {
+				t.Fatal(err)
+			}
+			tc.mutate(&intent)
+			if err := validateCompletePullPublication(intent, checkpoint, ""); !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("error=%v", err)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "intent.json")); err != nil {
+				t.Fatalf("durable intent evidence changed: %v", err)
+			}
+		})
 	}
 }
 
@@ -540,6 +687,127 @@ func TestCompletePullPublicationPreservesUnsafeOwnedDestinationResidue(t *testin
 	}
 }
 
+func TestCompletePullPublicationRevalidatesSymlinksAtStagingAndRecovery(t *testing.T) {
+	t.Run("final component at staging", func(t *testing.T) {
+		m, checkpoint, entry, artifacts := completePullPublicationFixture(t)
+		target := filepath.Join(m.Root, filepath.FromSlash(entry.State.Path))
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		outside := filepath.Join(t.TempDir(), "outside.csf")
+		if err := os.WriteFile(outside, []byte("outside"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, target); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+		if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, artifacts, nil); !errors.Is(err, domain.ErrCheckFailed) {
+			t.Fatalf("staging symlink error=%v", err)
+		}
+		if got, err := os.ReadFile(outside); err != nil || string(got) != "outside" {
+			t.Fatalf("staging followed final symlink: got=%q err=%v", got, err)
+		}
+	})
+
+	t.Run("parent after durable intent", func(t *testing.T) {
+		m, checkpoint, entry, artifacts := completePullPublicationFixture(t)
+		if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, artifacts, nil); err != nil {
+			t.Fatal(err)
+		}
+		doc := filepath.Join(m.Root, "DOC")
+		preserved := filepath.Join(m.Root, "DOC-preserved")
+		if err := os.Rename(doc, preserved); err != nil {
+			t.Fatal(err)
+		}
+		outside := t.TempDir()
+		outsideTarget := filepath.Join(outside, "page", "page.csf")
+		if err := os.MkdirAll(filepath.Dir(outsideTarget), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(outsideTarget, []byte("outside"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, doc); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+		if err := m.RecoverCompletePullPublication(checkpoint.SelectorSHA256, checkpoint, true); !errors.Is(err, domain.ErrCheckFailed) {
+			t.Fatalf("recovery symlink error=%v", err)
+		}
+		if got, err := os.ReadFile(outsideTarget); err != nil || string(got) != "outside" {
+			t.Fatalf("recovery followed parent symlink: got=%q err=%v", got, err)
+		}
+		dir, _ := m.completePullPublicationDir(checkpoint.SelectorSHA256)
+		if _, err := os.Stat(filepath.Join(dir, "intent.json")); err != nil {
+			t.Fatalf("recovery discarded durable evidence: %v", err)
+		}
+	})
+
+	t.Run("final component after durable intent", func(t *testing.T) {
+		m, checkpoint, entry, artifacts := completePullPublicationFixture(t)
+		if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, artifacts, nil); err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(m.Root, filepath.FromSlash(entry.State.Path))
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		outside := filepath.Join(t.TempDir(), "outside.csf")
+		if err := os.WriteFile(outside, []byte("outside"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, target); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+		if err := m.RecoverCompletePullPublication(checkpoint.SelectorSHA256, checkpoint, true); !errors.Is(err, domain.ErrCheckFailed) {
+			t.Fatalf("recovery final symlink error=%v", err)
+		}
+		if got, err := os.ReadFile(outside); err != nil || string(got) != "outside" {
+			t.Fatalf("recovery followed final symlink: got=%q err=%v", got, err)
+		}
+		dir, _ := m.completePullPublicationDir(checkpoint.SelectorSHA256)
+		if _, err := os.Stat(filepath.Join(dir, "intent.json")); err != nil {
+			t.Fatalf("recovery discarded durable evidence: %v", err)
+		}
+	})
+}
+
+func TestCompletePullPublicationRejectsPersistedUntrustedArtifactPathAndPreservesIntent(t *testing.T) {
+	for _, invalid := range []string{".atl", ".ATL/base/10.csf", ".atl/cache/10.csf", "../escape.csf"} {
+		t.Run(invalid, func(t *testing.T) {
+			m, checkpoint, entry, artifacts := completePullPublicationFixture(t)
+			if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, artifacts, nil); err != nil {
+				t.Fatal(err)
+			}
+			dir, _ := m.completePullPublicationDir(checkpoint.SelectorSHA256)
+			intentPath := filepath.Join(dir, "intent.json")
+			body, err := os.ReadFile(intentPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var intent completePullPublicationIntent
+			if err := json.Unmarshal(body, &intent); err != nil {
+				t.Fatal(err)
+			}
+			intent.Artifacts[0].Path = invalid
+			body, err = json.MarshalIndent(intent, "", "  ")
+			if err != nil {
+				t.Fatal(err)
+			}
+			body = append(body, '\n')
+			if err := os.WriteFile(intentPath, body, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := m.RecoverCompletePullPublication(checkpoint.SelectorSHA256, checkpoint, true); !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("persisted path %q error=%v", invalid, err)
+			}
+			got, err := os.ReadFile(intentPath)
+			if err != nil || !bytes.Equal(got, body) {
+				t.Fatalf("invalid durable intent evidence changed: got=%q err=%v", got, err)
+			}
+		})
+	}
+}
+
 func TestCompletePullJournalFirstWriteRequiresSurvivingIntent(t *testing.T) {
 	m, checkpoint, entries := completePullJournalFixture(t, "10")
 	if err := m.appendCompletePullJournalOwned(checkpoint, 0, entries[0], completePullTestWriteToken); !errors.Is(err, domain.ErrCheckFailed) {
@@ -572,7 +840,7 @@ func TestCompletePullPublicationCommittedIntentRequiresAcceptanceEvidence(t *tes
 		if artifact.Remove {
 			continue
 		}
-		target := filepath.Join(m.Root, filepath.FromSlash(artifact.Path))
+		target := filepath.Join(m.Root, filepath.FromSlash(artifactPathStringForTest(t, artifact.Path)))
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			t.Fatal(err)
 		}

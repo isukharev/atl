@@ -2,6 +2,7 @@ package mirror
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -339,6 +340,32 @@ func TestViewStateNilMapOnOldSidecar(t *testing.T) {
 	}
 	if vs, ok, _ := m.ViewStateOf("P1"); !ok || len(vs.Sections) != 1 {
 		t.Errorf("view not recorded onto old sidecar: %+v ok=%v", vs, ok)
+	}
+}
+
+func TestSidecarReparsesPersistedPagePathsAsUntrustedPublicArtifacts(t *testing.T) {
+	for _, path := range []string{"", ".", "../escape.csf", ".atl", ".atl/base/P1.csf", ".ATL/base/P1.csf", strings.Repeat("a", maxArtifactPathBytes+1)} {
+		t.Run(path, func(t *testing.T) {
+			m := New(t.TempDir())
+			if err := os.MkdirAll(filepath.Dir(m.sidecarPath()), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			body, err := json.Marshal(sidecarFile{Pages: map[string]SyncState{"P1": {ID: "P1", Path: path}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			body = append(body, '\n')
+			if err := os.WriteFile(m.sidecarPath(), body, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := m.SyncStates(); !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("path %q error=%v", path, err)
+			}
+			got, err := os.ReadFile(m.sidecarPath())
+			if err != nil || !bytes.Equal(got, body) {
+				t.Fatalf("invalid sidecar evidence changed: got=%q err=%v", got, err)
+			}
+		})
 	}
 }
 

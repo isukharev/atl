@@ -16,16 +16,17 @@ import (
 )
 
 // RegistrationArtifact is one already-rendered, mirror-relative file in a new
-// resource registration. Path uses canonical slash separators on every
-// platform. Data is published verbatim at Mode.
+// resource registration. Path is a constructed public artifact destination;
+// the registration owner constructs its private pristine base separately.
+// Data is published verbatim at Mode.
 type RegistrationArtifact struct {
-	Path string
+	Path ArtifactPath
 	Data []byte
 	Mode os.FileMode
 }
 
 type preparedRegistrationArtifact struct {
-	rel  string
+	rel  ArtifactPath
 	path string
 	data []byte
 	mode os.FileMode
@@ -215,24 +216,27 @@ func (m *Mirror) prepareRegistration(state SyncState, baseExt string, baseBody [
 	var native []byte
 	nativeFound := false
 	for _, artifact := range artifacts {
-		if err := validateStagedPath(artifact.Path); err != nil || strings.HasPrefix(artifact.Path, ".atl/") {
-			return nil, preparedRegistrationArtifact{}, fmt.Errorf("%w: invalid mirror registration artifact path %q", domain.ErrCheckFailed, artifact.Path)
+		if err := validateArtifactPath(artifact.Path); err != nil || !artifactPathIsPublic(artifact.Path) {
+			return nil, preparedRegistrationArtifact{}, fmt.Errorf("%w: invalid mirror registration artifact path", domain.ErrCheckFailed)
 		}
 		if artifact.Mode != artifact.Mode.Perm() || artifact.Mode.Perm() == 0 {
-			return nil, preparedRegistrationArtifact{}, fmt.Errorf("%w: invalid mirror registration mode for %s", domain.ErrCheckFailed, artifact.Path)
+			return nil, preparedRegistrationArtifact{}, fmt.Errorf("%w: invalid mirror registration mode", domain.ErrCheckFailed)
 		}
-		key := registrationPathKey(artifact.Path)
+		key, err := artifactPathCollisionKey(artifact.Path)
+		if err != nil {
+			return nil, preparedRegistrationArtifact{}, err
+		}
 		if _, duplicate := seen[key]; duplicate {
-			return nil, preparedRegistrationArtifact{}, fmt.Errorf("%w: duplicate mirror registration artifact path %s", domain.ErrCheckFailed, artifact.Path)
+			return nil, preparedRegistrationArtifact{}, fmt.Errorf("%w: duplicate mirror registration artifact path", domain.ErrCheckFailed)
 		}
 		seen[key] = struct{}{}
-		target := filepath.Join(m.Root, filepath.FromSlash(artifact.Path))
-		if !safepath.Within(m.Root, target) {
-			return nil, preparedRegistrationArtifact{}, fmt.Errorf("%w: mirror registration artifact escapes root: %s", domain.ErrCheckFailed, artifact.Path)
+		target, err := artifactPathTarget(m.Root, artifact.Path)
+		if err != nil {
+			return nil, preparedRegistrationArtifact{}, err
 		}
 		data := append([]byte(nil), artifact.Data...)
 		prepared = append(prepared, preparedRegistrationArtifact{rel: artifact.Path, path: target, data: data, mode: artifact.Mode})
-		if registrationPathsEqual(artifact.Path, state.Path) {
+		if artifactPathMatchesDurable(artifact.Path, state.Path) {
 			native = data
 			nativeFound = true
 		}
@@ -242,12 +246,19 @@ func (m *Mirror) prepareRegistration(state SyncState, baseExt string, baseBody [
 	}
 
 	baseRel := filepath.ToSlash(filepath.Join(".atl", "base", safepath.Segment(state.ID)+baseExt))
-	basePath := filepath.Join(m.Root, filepath.FromSlash(baseRel))
-	base := preparedRegistrationArtifact{rel: baseRel, path: basePath, data: append([]byte(nil), baseBody...), mode: 0o600}
+	baseArtifactPath, err := NewPrivateArtifactPath(baseRel)
+	if err != nil {
+		return nil, preparedRegistrationArtifact{}, err
+	}
+	basePath, err := artifactPathTarget(m.Root, baseArtifactPath)
+	if err != nil {
+		return nil, preparedRegistrationArtifact{}, err
+	}
+	base := preparedRegistrationArtifact{rel: baseArtifactPath, path: basePath, data: append([]byte(nil), baseBody...), mode: 0o600}
 	return prepared, base, nil
 }
 
-func validateRegistrationVacancy(sc sidecarFile, state SyncState, artifacts []preparedRegistrationArtifact, baseRel string) error {
+func validateRegistrationVacancy(sc sidecarFile, state SyncState, artifacts []preparedRegistrationArtifact, baseRel ArtifactPath) error {
 	if _, exists := sc.Pages[state.ID]; exists {
 		return fmt.Errorf("%w: mirror registration identity %q is already tracked", domain.ErrCheckFailed, state.ID)
 	}
@@ -257,23 +268,31 @@ func validateRegistrationVacancy(sc sidecarFile, state SyncState, artifacts []pr
 	if _, exists := sc.Staged[state.ID]; exists {
 		return fmt.Errorf("%w: mirror registration identity %q already has staged lineage", domain.ErrCheckFailed, state.ID)
 	}
-	claims := make(map[string]string, len(artifacts)+1)
+	claims := make(map[string]struct{}, len(artifacts)+1)
 	for _, artifact := range artifacts {
-		claims[registrationPathKey(artifact.rel)] = artifact.rel
+		key, err := artifactPathCollisionKey(artifact.rel)
+		if err != nil {
+			return err
+		}
+		claims[key] = struct{}{}
 	}
-	claims[registrationPathKey(baseRel)] = baseRel
+	baseKey, err := artifactPathCollisionKey(baseRel)
+	if err != nil {
+		return err
+	}
+	claims[baseKey] = struct{}{}
 	for id, existing := range sc.Pages {
-		if claimed, collision := claims[registrationPathKey(existing.Path)]; collision {
-			return fmt.Errorf("%w: mirror registration path %s collides with tracked identity %q", domain.ErrCheckFailed, claimed, id)
+		if _, collision := claims[registrationPathKey(existing.Path)]; collision {
+			return fmt.Errorf("%w: mirror registration path collides with tracked identity %q", domain.ErrCheckFailed, id)
 		}
 		existingBase := filepath.ToSlash(filepath.Join(".atl", "base", safepath.Segment(id)+filepath.Ext(filepath.FromSlash(existing.Path))))
-		if registrationPathsEqual(existingBase, baseRel) {
+		if artifactPathMatchesDurable(baseRel, existingBase) {
 			return fmt.Errorf("%w: mirror registration base path collides with tracked identity %q", domain.ErrCheckFailed, id)
 		}
 	}
 	for id, existing := range sc.Staged {
-		if claimed, collision := claims[registrationPathKey(existing.Path)]; collision {
-			return fmt.Errorf("%w: mirror registration path %s collides with staged identity %q", domain.ErrCheckFailed, claimed, id)
+		if _, collision := claims[registrationPathKey(existing.Path)]; collision {
+			return fmt.Errorf("%w: mirror registration path collides with staged identity %q", domain.ErrCheckFailed, id)
 		}
 	}
 	return nil

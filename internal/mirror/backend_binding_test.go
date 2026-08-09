@@ -178,7 +178,7 @@ func TestBackendBindingsSurviveLegacyMirrorWriters(t *testing.T) {
 	if err := batch.Flush(); err != nil {
 		t.Fatal(err)
 	}
-	state, view, base, artifacts := registrationFixture(m.Root)
+	state, view, base, artifacts := registrationFixture(t, m.Root)
 	if err := m.RegisterNew(state, view, ".wiki", base, artifacts); err != nil {
 		t.Fatal(err)
 	}
