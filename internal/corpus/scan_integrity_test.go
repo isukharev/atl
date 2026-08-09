@@ -27,6 +27,27 @@ func TestVerifyMissingExpectedMemberReportsMembershipIntegrity(t *testing.T) {
 	assertReason(t, err, ReasonMembership)
 }
 
+func TestExpectedMemberDisappearingAfterLookupReportsMembershipIntegrity(t *testing.T) {
+	root, store := newTestStore(t, Options{})
+	defer func() { _ = store.Close() }()
+	stage, generation := sealTestGeneration(t, store, "payload", "")
+	defer func() { _ = generation.Close() }()
+	relativePath := artifactsDir + "/item"
+	if _, err := generation.root.Lstat(relativePath); err != nil {
+		t.Fatalf("enumerate expected member: %v", err)
+	}
+	memberPath := filepath.Join(root, generationsDir, stage.ID(), relativePath)
+	if err := os.Remove(memberPath); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, inspectErr := inspectRegular(context.Background(), generation.root, relativePath, generation.limits.MaxMemberBytes, io.Discard)
+	if !errors.Is(inspectErr, os.ErrNotExist) {
+		t.Fatalf("inspect error = %v, want missing path", inspectErr)
+	}
+	assertReason(t, classifyExpectedFileError(inspectErr), ReasonMembership)
+}
+
 func TestCopyMemberMissingExpectedMemberReportsMembershipIntegrity(t *testing.T) {
 	root, store := newTestStore(t, Options{})
 	defer func() { _ = store.Close() }()
