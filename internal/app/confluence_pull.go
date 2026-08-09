@@ -14,7 +14,6 @@ import (
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
-	"github.com/isukharev/atl/internal/fragment"
 	"github.com/isukharev/atl/internal/mirror"
 	"github.com/isukharev/atl/internal/safepath"
 )
@@ -268,17 +267,16 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 		res.Truncated = true
 		res.TruncatedAt = len(ids)
 	}
-	qualified, err := qualifyConfluenceLocal(m, ids, o)
+	qualification, err := qualifyConfluencePull(m, ids, o, complete != nil)
 	if err != nil {
 		return res, err
 	}
-	processIDs, actions, qualificationErrs := qualifyConfluenceProcessIDs(ids, qualified, complete != nil)
-	res.LocalSafety = newPullLocalSafety(o.DryRun, actions)
+	res.LocalSafety = newPullLocalSafety(o.DryRun, qualification.actions)
 	if o.DryRun {
-		return s.previewConfluencePull(ctx, o, rs, res, processIDs, qualified, qualificationErrs)
+		return s.previewConfluencePull(ctx, o, rs, res, qualification.processIDs, qualification.local, qualification.errs)
 	}
-	if complete != nil && complete.result.Source == "restarted" && len(qualificationErrs) > 0 {
-		return res, errors.Join(pullLocalSafetyError("confluence", res.LocalSafety), errors.Join(qualificationErrs...))
+	if complete != nil && complete.result.Source == "restarted" && len(qualification.errs) > 0 {
+		return res, errors.Join(pullLocalSafetyError("confluence", res.LocalSafety), errors.Join(qualification.errs...))
 	}
 	if complete != nil && complete.result.Source != "resumed" {
 		if err := m.SaveCompletePullCheckpoint(complete.checkpoint); err != nil {
@@ -305,7 +303,6 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 	}
 	completeFinished := false
 	completeRetireStarted := false
-	commentSelectionIncomplete := false
 	if complete != nil {
 		// Graceful failures commit the accepted journal prefix in the same order as
 		// a normal 25-page boundary: shared sidecar, progress, journal retirement.
@@ -323,263 +320,18 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 			retErr = fmt.Errorf("%w; complete-pull checkpoint is at %d/%d — rerun the exact command to resume", retErr, complete.savedIndex, complete.result.Total)
 		}()
 	}
-	macroOptOutWarned := false
 	var prefetch *orderedPagePrefetch
 	if pagePrefetch > 1 {
-		prefetch = newOrderedPagePrefetch(ctx, s.store, processIDs, pagePrefetch, confluenceNeedsRestrictions(rs))
+		prefetch = newOrderedPagePrefetch(ctx, s.store, qualification.processIDs, pagePrefetch, confluenceNeedsRestrictions(rs))
 		defer prefetch.close()
 	}
-	for _, id := range processIDs {
-		var page *domain.Resource
-		if prefetch != nil {
-			page, err = prefetch.nextPage(id)
-		} else {
-			page, err = s.store.GetPage(ctx, id, domain.PullOpts{Format: "csf", IncludeRestrictions: confluenceNeedsRestrictions(rs)})
-		}
-		if err != nil {
-			return res, fmt.Errorf("pull %s: %w", id, err)
-		}
-		if err := requireConfluenceNativeBody(page, id, "pull"); err != nil {
+	run := &confluencePullRun{
+		service: s, ctx: ctx, opts: o, settings: rs, result: res, mirror: m, batch: batch,
+		complete: complete, incremental: incremental, qualification: qualification,
+	}
+	for _, id := range qualification.processIDs {
+		if err := run.processPage(id, prefetch); err != nil {
 			return res, err
-		}
-		dir, slug, derr := m.ClaimPageDir(page.SpaceKey, page.Ancestors, page.Title, page.ID)
-		if derr != nil {
-			return res, fmt.Errorf("pull %s: %w", id, derr)
-		}
-		rel, _ := filepath.Rel(root, filepath.Join(dir, slug+".csf"))
-		if action, targetErr := qualifyConfluenceClaimedTarget(m, id, dir, slug, rel, qualified); targetErr != nil {
-			appendPullLocalBlocked(&res.LocalSafety, o.DryRun, *action)
-			if complete != nil {
-				return res, errors.Join(pullLocalSafetyError("confluence", res.LocalSafety), targetErr)
-			}
-			qualificationErrs = append(qualificationErrs, targetErr)
-			continue
-		}
-		local := qualified.byID[id]
-		if _, localErr := revalidateConfluencePullLocal(m, local); localErr != nil {
-			action := PullLocalAction{ID: id, Path: filepath.ToSlash(rel), Status: pullLocalBlocked, Reason: "local_artifacts_changed"}
-			appendPullLocalBlocked(&res.LocalSafety, o.DryRun, action)
-			if complete != nil {
-				return res, errors.Join(pullLocalSafetyError("confluence", res.LocalSafety), localErr)
-			}
-			qualificationErrs = append(qualificationErrs, localErr)
-			continue
-		}
-		relocation, rerr := planConfluencePageRelocation(m, page.ID, rel)
-		if rerr != nil {
-			return res, fmt.Errorf("pull %s: %w", id, rerr)
-		}
-		refs := []domain.Ref{}
-		assetStage := &stagedConfluenceAssetSink{slug: slug}
-		var pageNode *csf.Node
-		if root, perr := csf.Parse(page.Body); perr == nil {
-			pageNode = root
-			refs = fragment.Extract(root)
-			deps := fragment.Deps{Assets: assetStage, Users: s.users}
-			if o.Assets {
-				deps.Resolver = s.assets
-			}
-			refs = fragment.Resolve(ctx, page, refs, deps)
-			if assetStage.err != nil {
-				return res, fmt.Errorf("%w: page %s assets could not be staged safely: %v", domain.ErrCheckFailed, id, assetStage.err)
-			}
-		}
-		page.Refs = refs
-		// Comments are an opt-in include. Fetch before the write so their count and
-		// truncation flag can be stamped into .meta.json in one pass. A fetch error
-		// aborts the pull (the user explicitly asked for comments); a truncated
-		// listing is surfaced, never silently clipped.
-		var comments []domain.Comment
-		var commentInventory *ConfluenceCommentInventoryResult
-		var commentSidecar *mirror.ConfluenceCommentsSidecarV2
-		var commentsTruncated bool
-		if o.Comments {
-			commentInventory, err = s.commentInventoryForPage(ctx, page, ConfluenceCommentInventoryOpts{
-				Location: "all", State: "all", Depth: "all",
-			})
-			if err != nil {
-				return res, fmt.Errorf("pull comments %s: %w", id, err)
-			}
-			comments = confluenceQualifiedCommentsForDisplay(commentInventory, "")
-			sidecar := confluenceCommentsSidecarV2(commentInventory)
-			commentSidecar = &sidecar
-			commentsTruncated = confluenceCommentInventoryTruncated(commentInventory)
-			if !commentInventory.CommentsComplete || !commentInventory.ThreadsComplete {
-				commentSelectionIncomplete = true
-				res.Warnings = append(res.Warnings, fmt.Sprintf("pull: comments or thread geometry for page %s are partial; inspect the versioned comment sidecar", id))
-			} else if !commentInventory.AnchorsComplete {
-				res.Warnings = append(res.Warnings, fmt.Sprintf("pull: inline comment anchors for page %s are partial; inspect the versioned comment sidecar", id))
-			}
-			if commentsTruncated {
-				res.CommentsTruncated = true
-			}
-		}
-		commentView := confluenceCommentsView{flat: comments, qualified: commentSidecar}
-		mdOpts := confMDViewOptsForCommentsView(rs, page, commentView)
-		var jiraMacros *confluenceJiraMacroSidecar
-		if pageNode != nil && rs.ExpandJiraMacros {
-			var macroWarnings []string
-			hasJiraMacros := len(mirror.JiraMacroDescriptors(pageNode)) > 0
-			jiraReady, bindErr := s.prepareConfluenceJiraMacroPopulation(root, hasJiraMacros, o.DryRun)
-			if bindErr != nil {
-				return res, bindErr
-			}
-			if hasJiraMacros && !jiraReady {
-				macroWarnings = append(macroWarnings, "render: Jira query macro(s) kept as placeholders because qualified Jira read access is unavailable")
-			} else {
-				jiraMacros, macroWarnings = s.resolveConfluenceJiraMacros(ctx, page.ID, pageNode, o.JiraView)
-			}
-			res.Warnings = append(res.Warnings, macroWarnings...)
-			mdOpts.JiraMacros = confluenceJiraMacroViews(jiraMacros)
-		} else if pageNode != nil && len(mirror.JiraMacroDescriptors(pageNode)) > 0 && !macroOptOutWarned {
-			res.Warnings = append(res.Warnings, "render: Jira query macro expansion is disabled; placeholders retained and no Jira request was made")
-			macroOptOutWarned = true
-		}
-		pageStatus := ""
-		pendingStashPath := ""
-		if action, targetErr := qualifyConfluenceClaimedTarget(m, id, dir, slug, rel, qualified); targetErr != nil {
-			appendPullLocalBlocked(&res.LocalSafety, o.DryRun, *action)
-			return res, errors.Join(pullLocalSafetyError("confluence", res.LocalSafety), targetErr)
-		}
-		current, revalidateErr := revalidateConfluencePullLocal(m, local)
-		if revalidateErr != nil {
-			action := PullLocalAction{ID: id, Path: filepath.ToSlash(rel), Status: pullLocalBlocked, Reason: "local_artifacts_changed"}
-			appendPullLocalBlocked(&res.LocalSafety, o.DryRun, action)
-			if complete != nil {
-				return res, errors.Join(pullLocalSafetyError("confluence", res.LocalSafety), revalidateErr)
-			}
-			qualificationErrs = append(qualificationErrs, revalidateErr)
-			continue
-		}
-		if complete == nil {
-			if err := assetStage.publish(m, dir, slug); err != nil {
-				return res, fmt.Errorf("write staged assets %s: %w", id, err)
-			}
-			if _, revalidateErr := revalidateConfluencePullLocal(m, local); revalidateErr != nil {
-				action := PullLocalAction{ID: id, Path: filepath.ToSlash(rel), Status: pullLocalBlocked, Reason: "local_artifacts_changed"}
-				appendPullLocalBlocked(&res.LocalSafety, o.DryRun, action)
-				return res, errors.Join(pullLocalSafetyError("confluence", res.LocalSafety), revalidateErr)
-			}
-		}
-		if local != nil && local.dirty {
-			if o.StashLocal {
-				stashPath, stashErr := m.SaveNativeStash("confluence", id, ".csf", current)
-				if stashErr != nil {
-					return res, stashErr
-				}
-				pageStatus = pullLocalStashed
-				pendingStashPath = stashPath
-				setPullLocalActionStashPath(res.LocalSafety, id, stashPath)
-			} else {
-				pageStatus = pullLocalOverwritten
-			}
-		}
-		viewState := viewStateOf(rs)
-		completeEligible := !o.Comments || (commentInventory.CommentsComplete && commentInventory.ThreadsComplete)
-		if complete != nil {
-			var state mirror.SyncState
-			var artifacts []mirror.CompletePullArtifact
-			if o.Comments {
-				state, artifacts, err = m.PrepareCompletePullConfluenceComments(dir, slug, page, refs, *commentSidecar, comments, commentsTruncated, mdOpts)
-			} else {
-				state, artifacts, err = m.PrepareCompletePullView(dir, slug, page, refs, mdOpts)
-			}
-			if err != nil {
-				return res, fmt.Errorf("prepare complete-pull page %s: %w", id, err)
-			}
-			for _, asset := range assetStage.assets {
-				assetPath := filepath.Join(dir, slug+".assets", asset.name)
-				assetRel, relErr := filepath.Rel(root, assetPath)
-				if relErr != nil {
-					return res, fmt.Errorf("prepare staged asset %s: %w", id, relErr)
-				}
-				artifacts = append(artifacts, mirror.CompletePullArtifact{Path: filepath.ToSlash(assetRel), Data: asset.data, Mode: 0o644})
-			}
-			macroPath := confluenceJiraMacroPath(dir, slug)
-			macroRel, relErr := filepath.Rel(root, macroPath)
-			if relErr != nil {
-				return res, fmt.Errorf("prepare Jira macro sidecar %s: %w", id, relErr)
-			}
-			if jiraMacros == nil {
-				artifacts = append(artifacts, mirror.CompletePullArtifact{Path: filepath.ToSlash(macroRel), Remove: true})
-			} else {
-				macroBytes, encodeErr := encodeConfluenceJiraMacroSidecar(jiraMacros)
-				if encodeErr != nil {
-					return res, fmt.Errorf("prepare Jira macro sidecar %s: %w", id, encodeErr)
-				}
-				artifacts = append(artifacts, mirror.CompletePullArtifact{Path: filepath.ToSlash(macroRel), Data: macroBytes, Mode: 0o600})
-			}
-			entry := mirror.CompletePullJournalEntry{State: state, View: viewState}
-			if err := m.PrepareCompletePullPublication(complete.checkpoint, complete.nextIndex, entry, completeEligible, artifacts, relocation); err != nil {
-				return res, fmt.Errorf("stage complete-pull page %s: %w", id, err)
-			}
-			if err := m.RecoverCompletePullPublication(complete.checkpoint.SelectorSHA256, complete.checkpoint, true); err != nil {
-				return res, fmt.Errorf("publish complete-pull page %s: %w", id, err)
-			}
-			if completeEligible {
-				batch.Record(state)
-				batch.RecordView(page.ID, viewState)
-			}
-		} else {
-			if o.Comments {
-				if err := batch.WriteConfluenceComments(dir, slug, page, refs, *commentSidecar, comments, commentsTruncated, mdOpts); err != nil {
-					return res, fmt.Errorf("write %s: %w", id, err)
-				}
-			} else if err := batch.WriteView(dir, slug, page, refs, mdOpts); err != nil {
-				return res, fmt.Errorf("write %s: %w", id, err)
-			}
-			if err := writeConfluenceJiraMacroSidecar(root, dir, slug, jiraMacros); err != nil {
-				return res, fmt.Errorf("write Jira macro sidecar %s: %w", id, err)
-			}
-			// Record the render settings this .md view was written with so `conf
-			// apply` can reproduce the exact pristine view (metadata + comments
-			// stay read-only) instead of guessing from the ambient config.
-			batch.RecordView(page.ID, viewState)
-		}
-		if pageStatus != "" {
-			setPullLocalActionResult(res.LocalSafety, id, pageStatus, pendingStashPath)
-		}
-		if complete == nil && relocation != nil {
-			// Publish the new canonical state before retiring the old exact page
-			// artifacts. A crash can therefore leave only an untracked stale copy,
-			// never a sidecar that calls the stale path current.
-			if err := batch.Flush(); err != nil {
-				return res, err
-			}
-			if err := m.RetirePageRelocation(relocation); err != nil {
-				return res, err
-			}
-		}
-		assetCount := 0
-		for _, r := range refs {
-			if r.Asset != "" {
-				assetCount++
-			}
-		}
-		pp := PulledPage{ID: id, Title: page.Title, Path: rel, Version: page.Version, Assets: assetCount, Status: pageStatus}
-		if o.Comments {
-			n := commentInventory.Count
-			pp.Comments = &n
-		}
-		res.Pages = append(res.Pages, pp)
-		if local := qualified.byID[id]; local != nil && local.migrates {
-			if incremental != nil {
-				incremental.result.ViewMigrations++
-			}
-			if complete != nil {
-				complete.result.ViewMigrations++
-			}
-		}
-		if complete != nil {
-			if !completeEligible {
-				return res, fmt.Errorf("%w: complete-pull comments for page %s were not fully qualified; checkpoint remains before this page", domain.ErrCheckFailed, id)
-			}
-			complete.advance()
-			if complete.shouldCheckpoint() {
-				if err := complete.commit(m, batch); err != nil {
-					return res, err
-				}
-			}
 		}
 	}
 	if complete == nil {
@@ -588,10 +340,10 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 		}
 	}
 	if incremental != nil {
-		if len(qualificationErrs) > 0 {
-			return res, errors.Join(pullLocalSafetyError("confluence", res.LocalSafety), errors.Join(qualificationErrs...))
+		if len(run.qualification.errs) > 0 {
+			return res, errors.Join(pullLocalSafetyError("confluence", res.LocalSafety), errors.Join(run.qualification.errs...))
 		}
-		if commentSelectionIncomplete {
+		if run.commentSelectionIncomplete {
 			return res, fmt.Errorf("%w: incremental comments were not fully qualified; watermark unchanged", domain.ErrCheckFailed)
 		}
 		if err := m.SaveIncrementalWatermark(incremental.next); err != nil {
@@ -600,8 +352,8 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 		res.Incremental.WatermarkAdvanced = incremental.changed
 	}
 	if complete != nil {
-		if len(qualificationErrs) > 0 {
-			return res, errors.Join(pullLocalSafetyError("confluence", res.LocalSafety), errors.Join(qualificationErrs...))
+		if len(run.qualification.errs) > 0 {
+			return res, errors.Join(pullLocalSafetyError("confluence", res.LocalSafety), errors.Join(run.qualification.errs...))
 		}
 		if complete.nextIndex != len(complete.checkpoint.IDs) {
 			return res, fmt.Errorf("%w: complete-pull progress ended before the exact selection was consumed", domain.ErrCheckFailed)
@@ -617,8 +369,8 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 		complete.result.CheckpointActive = false
 		completeFinished = true
 	}
-	if len(qualificationErrs) > 0 {
-		return res, errors.Join(pullLocalSafetyError("confluence", res.LocalSafety), errors.Join(qualificationErrs...))
+	if len(run.qualification.errs) > 0 {
+		return res, errors.Join(pullLocalSafetyError("confluence", res.LocalSafety), errors.Join(run.qualification.errs...))
 	}
 	return res, nil
 }
