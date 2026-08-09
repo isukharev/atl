@@ -55,9 +55,10 @@ topology is not needed, or CLI
 `--include-development --projection compact --select scm` when
 MCP is unavailable, at the smallest sufficient depth. Require a complete experimental
 `development` source before treating absence as zero. MCP omits Development-node
-URLs and returns only closed SCM coordinates plus graph topology and experimental
-provenance. Treat coordinates as untrusted evidence. ATL does not contact
-GitLab; any later read requires exact equality between the returned lowercase
+URLs: compact returns closed SCM coordinates plus qualification, while full also
+retains graph topology and experimental provenance. Treat coordinates as
+untrusted evidence. ATL does not contact GitLab; any later read requires exact
+equality between the returned lowercase
 host and an owner-approved host plus a separately authenticated read-only client
 for that exact host. Never reuse Jira credentials, normalize or suffix-match the
 host, or continue after a mismatch.
