@@ -66,7 +66,17 @@ func (s *Store) Publish(ctx context.Context, id string) (Summary, error) {
 		if !observedFound || observed != current {
 			return zero, reject(ReasonConcurrent)
 		}
+		if err := s.hit("before_idempotent_pointer_sync"); err != nil {
+			return zero, reject(ReasonIO)
+		}
 		if err := syncDirectory(s.root, "."); err != nil {
+			return zero, ErrOutcomeUnknown
+		}
+		if err := s.hit("after_pointer_sync"); err != nil {
+			return zero, ErrOutcomeUnknown
+		}
+		committed, ok, err := s.readPointer()
+		if err != nil || !ok || committed != current {
 			return zero, ErrOutcomeUnknown
 		}
 		return target.Summary(), nil

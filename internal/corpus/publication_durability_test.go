@@ -223,6 +223,53 @@ func TestPublishIdempotentRecoveryDetectsPointerDrift(t *testing.T) {
 	}
 }
 
+func TestPublishIdempotentRecoveryConfirmsPointerAfterRootSync(t *testing.T) {
+	root, store := newTestStore(t, Options{})
+	defer func() { _ = store.Close() }()
+	targetStage, target := sealTestGeneration(t, store, "target", "")
+	defer func() { _ = target.Close() }()
+	if _, err := store.Publish(context.Background(), targetStage.ID()); err != nil {
+		t.Fatal(err)
+	}
+	otherStage, other := sealTestGeneration(t, store, "other", "")
+	defer func() { _ = other.Close() }()
+	otherPointer, err := canonicalPointer(Pointer{
+		SchemaVersion: PointerSchemaV1, GenerationID: otherStage.ID(), GenerationDigest: other.Receipt().GenerationDigest,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fired := false
+	var writeErr error
+	store.testHook = func(step string) error {
+		if step == "before_idempotent_pointer_sync" && !fired {
+			fired = true
+			writeErr = os.WriteFile(filepath.Join(root, pointerFile), otherPointer, privateFileMode)
+			return writeErr
+		}
+		return nil
+	}
+	_, publishErr := store.Publish(context.Background(), targetStage.ID())
+	store.testHook = nil
+	if writeErr != nil {
+		t.Fatalf("replace pointer before idempotent root sync: %v", writeErr)
+	}
+	if !fired {
+		t.Fatal("idempotent root-sync boundary was not reached")
+	}
+	if !errors.Is(publishErr, ErrOutcomeUnknown) {
+		t.Fatalf("publish error = %v, want unknown outcome", publishErr)
+	}
+	selected, err := store.SelectCurrent(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = selected.Close() }()
+	if selected.ID() != otherStage.ID() {
+		t.Fatalf("selected generation = %s, want durable concurrent selection %s", selected.ID(), otherStage.ID())
+	}
+}
+
 func TestPublishInsideLockReopenErrorDoesNotPanic(t *testing.T) {
 	root, store := newTestStore(t, Options{})
 	defer func() { _ = store.Close() }()
