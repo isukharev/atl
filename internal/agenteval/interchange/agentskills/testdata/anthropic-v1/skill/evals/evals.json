@@ -1,0 +1,15 @@
+{
+  "skill_name": "report-helper",
+  "evals": [
+    {
+      "id": 7,
+      "prompt": "Write the synthetic status report.",
+      "expected_output": "A titled report with the configured status.",
+      "files": ["evals/files/status.txt"],
+      "expectations": [
+        "The title identifies a status report.",
+        "The body says the status is ready."
+      ]
+    }
+  ]
+}

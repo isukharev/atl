@@ -81,6 +81,7 @@
     {"path":".github/PULL_REQUEST_TEMPLATE.md","reason":"template"},
     {"prefix":".agents/skills/","reason":"repository-maintainer-skill"},
     {"prefix":"benchmarks/agent-eval/","except":["benchmarks/agent-eval/README.md"],"reason":"benchmark-material"},
+    {"prefix":"internal/agenteval/interchange/agentskills/testdata/","reason":"testdata"},
     {"prefix":"internal/cli/testdata/","reason":"testdata"},
     {"prefix":"plugins/atl/skills/","reason":"generated-client-skill"},
     {"prefix":"skills-src/","reason":"client-skill-source"},

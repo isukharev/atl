@@ -604,17 +604,28 @@ func TestCobraHelpAndCompletionBuiltinsRemainReadOnly(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
+				captured := make(chan struct {
+					data []byte
+					err  error
+				}, 1)
+				go func() {
+					data, readErr := io.ReadAll(read)
+					captured <- struct {
+						data []byte
+						err  error
+					}{data: data, err: readErr}
+				}()
 				original := os.Stdout
 				os.Stdout = write
 				_, code = runCLI(t, nil, tt.args...)
 				_ = write.Close()
 				os.Stdout = original
-				captured, readErr := io.ReadAll(read)
+				result := <-captured
 				_ = read.Close()
-				if readErr != nil {
-					t.Fatal(readErr)
+				if result.err != nil {
+					t.Fatal(result.err)
 				}
-				out = string(captured)
+				out = string(result.data)
 			} else {
 				out, code = runCLI(t, nil, tt.args...)
 			}

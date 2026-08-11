@@ -1,0 +1,8 @@
+{
+  "summary": {"passed": 2, "failed": 0, "total": 2, "pass_rate": 1},
+  "expectations": [
+    {"text": "The title identifies a status report.", "passed": true, "evidence": "The title is Status report."},
+    {"text": "The body says the status is ready.", "passed": true, "evidence": "The body states that the status is ready."}
+  ],
+  "timing": {"executor_duration_seconds": 0, "grader_duration_seconds": 0, "total_duration_seconds": 0}
+}

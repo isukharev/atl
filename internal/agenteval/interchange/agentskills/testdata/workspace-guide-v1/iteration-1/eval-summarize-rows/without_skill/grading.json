@@ -1,0 +1,7 @@
+{
+  "summary": {"passed": 0, "failed": 2, "total": 2, "pass_rate": 0},
+  "assertion_results": [
+    {"assertion": "The summary reports three rows.", "passed": false, "evidence": "The row count is absent."},
+    {"assertion": "The output contains no invented columns.", "passed": false, "evidence": "The output invents an unrelated column."}
+  ]
+}

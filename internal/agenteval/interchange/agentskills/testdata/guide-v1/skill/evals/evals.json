@@ -1,0 +1,21 @@
+{
+  "skill_name": "csv-helper",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Summarize the synthetic rows.",
+      "expected_output": "A concise summary with the row count.",
+      "files": ["evals/files/rows.csv"],
+      "assertions": [
+        "The summary reports three rows.",
+        "The output contains no invented columns."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Describe the available columns.",
+      "expected_output": "A list containing name and value.",
+      "files": []
+    }
+  ]
+}

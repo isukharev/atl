@@ -222,14 +222,17 @@ the integrated diff once; add a bounded follow-up only after a material finding,
 design change, or security-boundary fix.
 
 The evaluator module's production and test imports are recursively reviewed in
-`TestEvaluatorProductDependencyLedger`. Its only Go package owners are the
-root compatibility facade, neutral `core`, built-in `profile/atl`, and
-`cmd/agent-eval`; their machine-enforced direction is `core` to none,
-`profile/atl` to `core`, root to `core` plus `profile/atl`, and command to the
-exact root facade. The ledger records every module-self file, lane, target, and
-alias, rejects dot or blank self imports, and retains zero product-private
-imports. `TestNeutralCoreVocabularyContract` separately keeps exported core
-declarations and JSON tags free of product, transport-route, and dynamic
+`TestEvaluatorProductDependencyLedger`. Its Go package owners are the root
+compatibility facade, neutral `core`, process `extension`, built-in
+`profile/atl`, format-specific `interchange/agentskills`, and
+`cmd/agent-eval`. Their machine-enforced direction keeps `core` and `extension`
+as leaves, permits `profile/atl` and `interchange/agentskills` to import only
+`core`, permits the root facade to compose those owners, and permits the
+command to import only the exact root facade. The ledger records every
+module-self file, lane, target, and alias, rejects dot or blank self imports,
+and retains zero product-private imports. `TestNeutralCoreVocabularyContract`
+separately keeps exported core declarations and JSON tags free of product,
+transport-route, and dynamic
 registration vocabulary. Any package, edge, alias, or lane change requires
 deliberate review, and evaluator paths select the package-boundary gate through
 the maintainer impact map. `make agent-eval-compat` keeps the evaluator

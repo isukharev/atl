@@ -1,0 +1,8 @@
+{
+  "summary": {"passed": 2, "failed": 0, "total": 2, "pass_rate": 1},
+  "assertion_results": [
+    {"assertion": "The summary reports three rows.", "passed": true, "evidence": "The output says three synthetic rows are present."},
+    {"assertion": "The output contains no invented columns.", "passed": true, "evidence": "Only the synthetic input columns are discussed."}
+  ],
+  "feedback": {"review": "Synthetic output is concise."}
+}

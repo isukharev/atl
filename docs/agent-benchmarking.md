@@ -26,7 +26,11 @@ owns closed profile composition, capability admission, execution ports,
 assessment, and integer aggregation. `profile/atl` is the one built-in profile,
 while the root evaluator package remains the compatibility/composition facade
 for all existing durable DTOs, route policy, selected-binary checks, runners,
-and private workflows. Compatibility DTOs are strictly decoded and validated
+and private workflows. The format-specific `interchange/agentskills` leaf
+imports only the neutral core and projects bounded external authoring artifacts
+without gaining execution, lifecycle, grading, or privacy authority. The
+command continues to import only the root facade. Compatibility DTOs are
+strictly decoded and validated
 before projection; no historical JSON bytes or digests are migrated by this
 split. Recursive import and vocabulary oracles enforce the dependency direction.
 Product onboarding checks use independent core test infrastructure so product
@@ -265,6 +269,18 @@ make agent-eval-contract
 GOWORK=off go -C internal/agenteval build -o /tmp/agent-eval ./cmd/agent-eval
 /tmp/agent-eval inventory benchmarks/agent-eval
 ```
+
+The same source-built command routes the bounded pre-release standalone subset
+before its hidden maintainer commands. `version`, `capabilities`, `validate`,
+deterministic `grade`, `compare`, and `inspect` use closed JSON results/errors
+and exact exit classes. Agent Skills import captures either the pinned Guide or
+Anthropic skill/eval layout without execution; its separately classified
+export reconciles a captured workspace and writes only one new explicit local
+destination. These compatibility views are non-authoritative,
+provider/backend/network-free, and do not change the private benchmark
+lifecycle or make the evaluator part of the signed `atl` distribution. The
+[standalone contract](reference/agent-eval/README.md) owns their exact flags,
+authority, loss reporting, and pre-release status.
 
 `agent-eval-compat` is the small uncached product/evaluator boundary: it builds
 the current `atl`, requires its complete offline schema-v1 capability catalog

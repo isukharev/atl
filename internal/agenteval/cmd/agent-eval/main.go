@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -32,13 +33,24 @@ func main() {
 	if base == "env" {
 		os.Exit(runReviewedWriteEnv(os.Args[1:]))
 	}
+	if len(os.Args) == 1 {
+		writeStandaloneHelp(os.Stdout, nil)
+		return
+	}
 	if err := run(os.Args[1:]); err != nil {
+		var exit standaloneExitStatus
+		if errors.As(err, &exit) {
+			os.Exit(exit.code)
+		}
 		fmt.Fprintln(os.Stderr, "agent-eval:", err)
 		os.Exit(1)
 	}
 }
 
 func run(args []string) error {
+	if handled, err := runStandaloneCommand(args, os.Stdin, os.Stdout, os.Stderr); handled {
+		return err
+	}
 	if len(args) == 0 {
 		return fmt.Errorf("usage: agent-eval validate scenarios | validate-run specs | verify-atl-capabilities ATL_BINARY | verify-codex-skill-package PACKAGE_ROOT | verify-extension-protocol --manifest FILE --adapter FILE --bundle FILE | inventory CORPUS_ROOT | validate-pair CLI_SPEC MCP_SPEC | validate-comparison-set SPEC SPEC [SPEC] | evaluate scenario observation | review-template options | assess options | aggregate results | aggregate-root ROOT | run options | private COMMAND options")
 	}

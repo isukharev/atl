@@ -55,6 +55,16 @@ func TestTrackedMarkdownRejectsUnapprovedRoot(t *testing.T) {
 	requireErrorContains(t, err, "outside the approved documentation roots")
 }
 
+func TestApprovedMarkdownPathIncludesAgentSkillsFixturesOnly(t *testing.T) {
+	if !approvedMarkdownPath("internal/agenteval/interchange/agentskills/testdata/guide-v1/skill/SKILL.md") {
+		t.Fatal("Agent Skills Markdown fixture was not admitted")
+	}
+	if approvedMarkdownPath("internal/agenteval/interchange/other/testdata/SKILL.md") ||
+		approvedMarkdownPath("internal/agenteval/interchange/agentskills/source/SKILL.md") {
+		t.Fatal("unreviewed evaluator Markdown root was admitted")
+	}
+}
+
 func TestLoadCatalogRejectsUnknownFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "catalog.json")
 	if err := os.WriteFile(path, []byte(`{"schema_version":1,"documents":[],"exclusions":[],"extra":true}`), 0o600); err != nil {
