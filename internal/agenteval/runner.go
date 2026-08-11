@@ -127,6 +127,10 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 	if err := admitATLCoreRunContract(contract); err != nil {
 		return RunOutput{}, err
 	}
+	agentAdapter, err := builtInAgentAdapterFor(contract.spec.Provider)
+	if err != nil {
+		return RunOutput{}, err
+	}
 	outputRoot, err := PreparePrivateOutputRoot(options.OutputRoot, options.RepositoryRoot)
 	if err != nil {
 		return RunOutput{}, err
@@ -142,35 +146,8 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 		previewProviderBindings.externalMCPBearerTokenEnv = WrapperEnvExternalMCPToken
 		invocationSpec.AllowedMCPTools = []string{"reviewed_tool"}
 	}
-	previewConfinement := ProviderConfinement{}
-	if contract.spec.Provider == "codex" && contract.spec.EffectiveBackendMode() == BackendModePrivateLive {
-		previewConfinement.GuardMode = "mcp-with-skill-read"
-		previewConfinement.GuardCounterPath = "/private/guard-decisions.jsonl"
-		previewConfinement.WorkspaceReadRoot = "/private/workspace"
-		previewConfinement.AllowedReadRoots = []string{"/private/workspace"}
-		previewConfinement.SkillReadRoots = []string{"/private/workspace/.agents/skills"}
-		previewConfinement.AllowedMCPTools = claudeMCPToolNamesForServer(mcpServerName(invocationSpec), invocationSpec.AllowedMCPTools)
-		if contract.spec.ToolTransport == "cli" {
-			previewConfinement.GuardMode = "private-cli"
-			previewConfinement.AllowedReadRoots = []string{"/private/skill-read-root", "/private/workspace"}
-			previewConfinement.SkillReadRoots = []string{"/private/skill-read-root"}
-			previewConfinement.AllowedMCPTools = nil
-		}
-	}
-	if contract.spec.Provider == "codex" && contract.spec.EffectiveBackendMode() == BackendModePrivateLive && contract.spec.ToolTransport == "cli" {
-		previewConfinement.RequestDirectory = "/private/requests"
-		previewConfinement.ResponseDirectory = "/private/responses"
-	}
-	if isCodexSyntheticBrokerCLI(contract.spec) {
-		previewConfinement.GuardMode = "private-cli"
-		previewConfinement.GuardCounterPath = "/private/guard-decisions.jsonl"
-		previewConfinement.WorkspaceReadRoot = "/private/workspace"
-		previewConfinement.AllowedReadRoots = []string{"/private/workspace"}
-		previewConfinement.SkillReadRoots = []string{"/private/workspace/.agents/skills"}
-		previewConfinement.RequestDirectory = "/private/requests"
-		previewConfinement.ResponseDirectory = "/private/responses"
-	}
-	previewCommand, err := buildProviderCommand(invocationSpec, providerPreviewBinary(contract.spec.Provider), "<atl-binary>", "<guard>", "<workspace>", "<response-schema>", "<final-response>", pluginPreviewPath(contract.spec, options.PluginRoot), claudeGuardSettingsPath(contract.spec.Provider, "<guard-settings>"), claudeMCPConfigPath(contract.spec, "<mcp-config>"), previewConfinement, contract.responseSchema, previewProviderBindings)
+	previewConfinement := agentAdapter.previewConfinement(invocationSpec)
+	previewCommand, err := buildProviderCommand(invocationSpec, providerPreviewBinary(contract.spec.Provider), "<atl-binary>", "<guard>", "<workspace>", "<response-schema>", "<final-response>", pluginPreviewPath(contract.spec, options.PluginRoot), adapterGuardSettingsPath(contract.spec.Provider, "<guard-settings>"), adapterMCPConfigPath(contract.spec, "<mcp-config>"), previewConfinement, contract.responseSchema, previewProviderBindings)
 	if err != nil {
 		return RunOutput{}, err
 	}
@@ -250,10 +227,8 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 		}
 		return RunOutput{Preview: preview, Results: []Result{}}, nil
 	}
-	if contract.spec.Provider == "codex" && contract.spec.EffectiveToolTransport() != "mcp" {
-		if contract.spec.EffectiveBackendMode() != BackendModePrivateLive && !isCodexSyntheticBrokerCLI(contract.spec) {
-			return RunOutput{}, fmt.Errorf("codex synthetic model execution requires tool_transport=mcp; cli transport remains validate/dry-run only")
-		}
+	if err := agentAdapter.validateExecution(contract.spec); err != nil {
+		return RunOutput{}, err
 	}
 	if err := preflightSession.Commit(); err != nil {
 		return RunOutput{}, err
@@ -270,32 +245,29 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 	providerAuthSession := options.providerAuthSession
 	providerAuthSessionOwned := false
 	providerScratchRoot := options.ScratchRoot
-	if contract.spec.Provider == "codex" {
+	if agentAdapter.usesProviderRuntime() {
 		if providerScratchRoot == "" {
 			providerScratchRoot = filepath.Join(outputRoot, ".ephemeral")
 			if err := mkdirPrivate(providerScratchRoot); err != nil {
 				return RunOutput{}, fmt.Errorf("prepare isolated codex provider runtime")
 			}
 		}
-		if providerAuthSession == nil {
-			providerAuthSession, err = newCodexAuthSession(os.Environ())
-			if err != nil {
-				return RunOutput{}, err
-			}
-			providerAuthSessionOwned = true
+		providerAuthSession, providerAuthSessionOwned, err = agentAdapter.prepareAuthSession(os.Environ(), providerAuthSession)
+		if err != nil {
+			return RunOutput{}, err
 		}
 		defer func() {
 			if providerAuthSessionOwned {
 				returnErr = errors.Join(returnErr, providerAuthSession.Close())
 			}
 		}()
-	} else if providerAuthSession != nil {
-		return RunOutput{}, fmt.Errorf("isolated codex provider authentication is valid only for codex runs")
+	} else if _, _, err := agentAdapter.prepareAuthSession(nil, providerAuthSession); err != nil {
+		return RunOutput{}, err
 	}
 
 	var versionRuntime *providerRuntimeCapsule
 	if providerAuthSession != nil && options.qualifiedAgentVersion == "" {
-		versionRuntime, err = newCodexProviderRuntime(providerScratchRoot, providerAuthSession)
+		versionRuntime, err = agentAdapter.newProviderRuntime(providerScratchRoot, providerAuthSession)
 		if err != nil {
 			return RunOutput{}, err
 		}
@@ -332,7 +304,7 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 		attemptContract := contract.forAttempt()
 		var providerRuntime *providerRuntimeCapsule
 		if providerAuthSession != nil {
-			providerRuntime, err = newCodexProviderRuntime(providerScratchRoot, providerAuthSession)
+			providerRuntime, err = agentAdapter.newProviderRuntime(providerScratchRoot, providerAuthSession)
 			if err != nil {
 				return RunOutput{}, err
 			}
@@ -675,15 +647,23 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 	if err != nil {
 		return Result{}, err
 	}
+	agentAdapter, err := builtInAgentAdapterFor(contract.spec.Provider)
+	if err != nil {
+		return Result{}, err
+	}
 	if bindings.attemptSession != nil {
 		if err := beginRunAttempt(bindings.attemptSession); err != nil {
 			return Result{}, err
 		}
 	}
-	codexPrivateCLI := layout.codexPrivateCLI
-	codexSyntheticBrokerCLI := layout.codexSyntheticBrokerCLI
+	adapterContract, err := agentAdapterContractForAttempt(contract.spec, bindings.attemptSession)
+	if err != nil {
+		return Result{}, err
+	}
+	isolatedRuntimeCLI := layout.isolatedRuntimeCLI
+	syntheticBrokerCLI := layout.syntheticBrokerCLI
 	reviewedWriteCLI := layout.reviewedWriteCLI
-	codexBrokerCLI := layout.codexBrokerCLI
+	guardedBrokerCLI := layout.guardedBrokerCLI
 	gatewayBackedMCP := layout.gatewayBackedMCP
 	runDir := layout.runDir
 	workspace := layout.workspace
@@ -717,26 +697,20 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 	providerBindings := resources.providerBindings
 	mcpConfigPath := layout.mcpConfigPath
 
-	if codexPrivateCLI {
+	if isolatedRuntimeCLI {
 		if bindings.providerRuntime == nil {
 			return Result{}, fmt.Errorf("private codex CLI run requires an isolated provider runtime")
 		}
 		provisionContext, cancelProvision := context.WithTimeout(parent, 30*time.Second)
-		err := provisionCodexBenchmarkPlugin(provisionContext, bindings.agentBinary, bindings.pluginRoot, bindings.providerRuntime)
+		err := agentAdapter.provisionBenchmarkSkills(provisionContext, bindings.agentBinary, bindings.pluginRoot, bindings.providerRuntime)
 		cancelProvision()
 		if err != nil {
 			return Result{}, err
 		}
 	}
-	skillReadRoot := filepath.Join(bindings.pluginRoot, "skills")
-	if codexPrivateCLI {
-		skillReadRoot = bindings.providerRuntime.PluginSkillRoot()
-		if skillReadRoot == "" {
-			return Result{}, fmt.Errorf("private codex CLI run has no installed plugin skill root")
-		}
-	}
-	if contract.spec.Provider == "codex" && !codexPrivateCLI {
-		skillReadRoot = filepath.Join(workspace, ".agents", "skills")
+	skillReadRoot, err := agentAdapter.skillReadRoot(layout, workspace, filepath.Join(bindings.pluginRoot, "skills"), bindings.providerRuntime)
+	if err != nil {
+		return Result{}, err
 	}
 	reviewedReadRoots := []string{skillReadRoot, workspace}
 	reviewedSkillReadRoots := []string{skillReadRoot}
@@ -746,7 +720,7 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 		if err != nil {
 			return Result{}, fmt.Errorf("resolve private benchmark workspace: %w", err)
 		}
-		if contract.spec.Provider == "codex" && !codexPrivateCLI {
+		if agentAdapter.separatePrivateSkillRoot(layout) {
 			reviewedReadRoots = []string{canonicalWorkspace}
 			canonicalSkillReadRoot, canonicalErr := filepath.EvalSymlinks(skillReadRoot)
 			if canonicalErr != nil {
@@ -761,21 +735,7 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 			reviewedReadRoots = []string{canonicalSkillReadRoot, canonicalWorkspace}
 			reviewedSkillReadRoots = []string{canonicalSkillReadRoot}
 		}
-		if contract.spec.Provider == "codex" {
-			providerConfinement.GuardMode = "mcp-with-skill-read"
-			if codexPrivateCLI {
-				providerConfinement.GuardMode = "private-cli"
-			}
-			providerConfinement.GuardCounterPath = guardCounterPath
-			providerConfinement.WorkspaceReadRoot = canonicalWorkspace
-			providerConfinement.AllowedReadRoots = append([]string(nil), reviewedReadRoots...)
-			providerConfinement.SkillReadRoots = append([]string(nil), reviewedSkillReadRoots...)
-			providerConfinement.AllowedMCPTools = claudeMCPToolNamesForServer(mcpServerName(contract.spec), contract.spec.AllowedMCPTools)
-			if codexPrivateCLI {
-				providerConfinement.AllowedMCPTools = nil
-			}
-		}
-	} else if codexSyntheticBrokerCLI {
+	} else if syntheticBrokerCLI {
 		canonicalWorkspace, err = filepath.EvalSymlinks(workspace)
 		if err != nil {
 			return Result{}, fmt.Errorf("resolve synthetic benchmark workspace: %w", err)
@@ -786,20 +746,17 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 			return Result{}, fmt.Errorf("resolve synthetic benchmark skill read root: %w", canonicalErr)
 		}
 		reviewedSkillReadRoots = []string{canonicalSkillReadRoot}
-		providerConfinement.GuardMode = "private-cli"
-		providerConfinement.GuardCounterPath = guardCounterPath
-		providerConfinement.WorkspaceReadRoot = canonicalWorkspace
-		providerConfinement.AllowedReadRoots = append([]string(nil), reviewedReadRoots...)
-		providerConfinement.SkillReadRoots = append([]string(nil), reviewedSkillReadRoots...)
 	}
+	agentAdapter.applyConfinement(contract.spec, layout, &providerConfinement, guardCounterPath, canonicalWorkspace,
+		reviewedReadRoots, reviewedSkillReadRoots)
 	allowedReadRoots, _ := json.Marshal(reviewedReadRoots)
 	allowedSkillReadRoots, _ := json.Marshal(reviewedSkillReadRoots)
-	commandPlan, err := buildProviderCommand(contract.spec, bindings.agentBinary, bindings.atlBinary, guardPath, workspace, providerResponseSchemaPath, finalPath, claudePluginPath(contract.spec, bindings.pluginRoot), claudeGuardSettingsPath(contract.spec.Provider, settingsPath), mcpConfigPath, providerConfinement, contract.responseSchema, providerBindings)
+	commandPlan, err := buildProviderCommand(contract.spec, bindings.agentBinary, bindings.atlBinary, guardPath, workspace, providerResponseSchemaPath, finalPath, adapterPluginPath(contract.spec, bindings.pluginRoot), adapterGuardSettingsPath(contract.spec.Provider, settingsPath), mcpConfigPath, providerConfinement, contract.responseSchema, providerBindings)
 	if err != nil {
 		return Result{}, err
 	}
-	if codexBrokerCLI {
-		if err := runCodexConfinementPreflight(parent, bindings.agentBinary, workspace, probeExecutablePath, brokerManifestPath, providerConfinement, bindings.providerRuntime); err != nil {
+	if guardedBrokerCLI {
+		if err := agentAdapter.runConfinementPreflight(parent, bindings.agentBinary, workspace, probeExecutablePath, brokerManifestPath, providerConfinement, bindings.providerRuntime); err != nil {
 			return Result{}, err
 		}
 	}
@@ -862,7 +819,7 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 			environment[WrapperEnvGuardMode] = "mcp-with-skill-read"
 		}
 	}
-	if contract.spec.EffectiveSurface() == SurfaceExternalMCP && contract.spec.Provider == "codex" {
+	if agentAdapter.includeExternalMCPToken(contract.spec) {
 		environment[WrapperEnvExternalMCPToken] = backendEnvironment[WrapperEnvExternalMCPToken]
 	}
 	if contract.spec.EffectiveSurface() == SurfaceExternalMCP || gatewayBackedMCP {
@@ -872,21 +829,20 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 	environment[WrapperEnvMaxDelegations] = fmt.Sprintf("%d", contract.scenario.Budgets.MaxDelegations)
 	allowedCommands, _ := json.Marshal(contract.spec.AllowedATLCommands)
 	environment[WrapperEnvAllowedCommands] = string(allowedCommands)
-	allowedMCPTools, _ := json.Marshal(claudeMCPToolNamesForServer(mcpServerName(contract.spec), contract.spec.AllowedMCPTools))
+	allowedMCPTools, _ := json.Marshal(agentAdapter.reviewedMCPTools(contract.spec))
 	environment[WrapperEnvAllowedMCPTools] = string(allowedMCPTools)
 	environment[WrapperEnvAllowedReadRoots] = string(allowedReadRoots)
 	environment[WrapperEnvSkillReadRoots] = string(allowedSkillReadRoots)
-	if contract.spec.EffectiveBackendMode() == BackendModePrivateLive || codexSyntheticBrokerCLI {
+	if contract.spec.EffectiveBackendMode() == BackendModePrivateLive || syntheticBrokerCLI {
 		environment[WrapperEnvWorkspaceRoot] = canonicalWorkspace
 	}
 	environment["PATH"] = wrapperDir
-	if (contract.spec.Provider != "claude-code" || contract.spec.EffectiveToolTransport() != "mcp") && !codexSyntheticBrokerCLI {
+	if agentAdapter.inheritBackendEnvironment(contract.spec, layout) {
 		for name, value := range backendEnvironment {
 			environment[name] = value
 		}
 	}
-	if contract.spec.Provider == "claude-code" && contract.spec.EffectiveBackendMode() == BackendModeSynthetic &&
-		contract.spec.EffectiveToolTransport() == "cli" && contract.spec.AllowSyntheticWrites {
+	if agentAdapter.allowSyntheticCLIWrite(contract.spec) {
 		// Ordinary Claude synthetic-write prompts use the same plain `atl ...`
 		// form as their reviewed prefix policy. The proxy still requires the
 		// explicit write authority below and verifies both backend URLs are
@@ -940,7 +896,8 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 	if err != nil {
 		return Result{}, err
 	}
-	return finalizeHeadlessOutcome(headlessOutcomeInput{
+	agentObservationSHA256 := ""
+	result, err = finalizeHeadlessOutcome(headlessOutcomeInput{
 		contract:                contract,
 		trajectory:              trajectory,
 		workspace:               workspace,
@@ -953,7 +910,18 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 		attemptBindingSHA256:    bindings.attemptSession.plan.BindingSHA256,
 		attestation:             bindings.attestation,
 		receipt:                 bindings.receipt,
+		agentAdapterContract:    adapterContract,
+		agentAdapterAttemptID:   bindings.attemptSession.plan.AttemptID,
+		agentObservationSHA256:  &agentObservationSHA256,
 	})
+	processReceipt, bindingErr := bindAgentObservationReceipt(processReceipt, agentObservationSHA256)
+	if bindingErr != nil {
+		return Result{}, errors.Join(err, bindingErr)
+	}
+	if err != nil {
+		return Result{}, err
+	}
+	return result, nil
 }
 
 func bindSyntheticWorkspaceMirrors(ctx context.Context, atlBinary, workspace, configDir string, backendEnvironment map[string]string) error {
@@ -1468,15 +1436,12 @@ func pluginIdentity(root, provider string) (string, string, error) {
 }
 
 func providerPluginLayout(root, provider string) (manifest, skills string, err error) {
-	switch provider {
-	case "claude-code":
-		return filepath.Join(root, ".claude-plugin", "plugin.json"), filepath.Join(root, "skills"), nil
-	case "codex":
-		codexRoot := filepath.Join(root, "plugins", "atl")
-		return filepath.Join(codexRoot, ".codex-plugin", "plugin.json"), filepath.Join(codexRoot, "skills"), nil
-	default:
-		return "", "", fmt.Errorf("unsupported provider %q", provider)
+	adapter, err := builtInAgentAdapterFor(provider)
+	if err != nil {
+		return "", "", err
 	}
+	manifest, skills = adapter.pluginLayout(root)
+	return manifest, skills, nil
 }
 
 type digestTreeFile struct {
@@ -1860,37 +1825,41 @@ func shellSingleQuote(value string) string {
 func isSyntheticTypedMCP(spec RunSpec) bool {
 	return spec.EffectiveBackendMode() == BackendModeSynthetic && spec.EffectiveToolTransport() == "mcp"
 }
-func shouldInstallCodexBenchmarkSkills(spec RunSpec) bool {
-	privateCLI := spec.EffectiveBackendMode() == BackendModePrivateLive && spec.EffectiveToolTransport() == "cli"
-	return spec.Provider == "codex" && !privateCLI && !isSyntheticTypedMCP(spec)
+func shouldInstallBenchmarkSkills(spec RunSpec) bool {
+	adapter, err := builtInAgentAdapterFor(spec.Provider)
+	return err == nil && adapter.installBenchmarkSkills(spec)
 }
-func claudePluginPath(spec RunSpec, root string) string {
-	if spec.Provider == "claude-code" && !isSyntheticTypedMCP(spec) {
-		return root
+func adapterPluginPath(spec RunSpec, root string) string {
+	adapter, err := builtInAgentAdapterFor(spec.Provider)
+	if err != nil {
+		return ""
 	}
-	return ""
+	return adapter.pluginPath(spec, root)
 }
-func claudeGuardSettingsPath(provider, path string) string {
-	if provider == "claude-code" {
-		return path
+func adapterGuardSettingsPath(provider, path string) string {
+	adapter, err := builtInAgentAdapterFor(provider)
+	if err != nil {
+		return ""
 	}
-	return ""
+	return adapter.guardSettingsPath(path)
 }
-func claudeMCPConfigPath(spec RunSpec, path string) string {
-	if spec.Provider == "claude-code" && spec.ToolTransport == "mcp" {
-		return path
+func adapterMCPConfigPath(spec RunSpec, path string) string {
+	adapter, err := builtInAgentAdapterFor(spec.Provider)
+	if err != nil {
+		return ""
 	}
-	return ""
+	return adapter.mcpConfigPath(spec, path)
 }
 func pluginPreviewPath(spec RunSpec, root string) string {
-	if claudePluginPath(spec, root) == "" {
+	if adapterPluginPath(spec, root) == "" {
 		return ""
 	}
 	return "<plugin-root>"
 }
 func providerPreviewBinary(provider string) string {
-	if provider == "claude-code" {
-		return "claude"
+	adapter, err := builtInAgentAdapterFor(provider)
+	if err != nil {
+		return provider
 	}
-	return provider
+	return adapter.previewBinary()
 }

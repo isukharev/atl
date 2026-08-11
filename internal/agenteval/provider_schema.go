@@ -18,9 +18,14 @@ func providerResponseSchema(spec RunSpec, original []byte) ([]byte, error) {
 	if !json.Valid(original) {
 		return nil, fmt.Errorf("response schema is not valid JSON")
 	}
-	if spec.Provider != "codex" {
-		return append([]byte(nil), original...), nil
+	adapter, err := builtInAgentAdapterFor(spec.Provider)
+	if err != nil {
+		return nil, err
 	}
+	return adapter.projectResponseSchema(spec, original)
+}
+
+func projectCodexResponseSchema(spec RunSpec, original []byte) ([]byte, error) {
 	if err := validateJSONNoDuplicateKeys(original); err != nil {
 		return nil, fmt.Errorf("response schema is invalid: %w", err)
 	}

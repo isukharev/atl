@@ -319,6 +319,16 @@ artifact authority. Package-direction and exported-vocabulary tests enforce
 that the core cannot import the facade or the ATL profile, and that profile
 composition is explicit rather than `init`- or plugin-driven.
 
+The provider-neutral `agentadapter` leaf owns the current semantic adapter
+contract and observation model. The root facade composes two immutable built-in
+implementations and owns their legacy launch, parser, plugin-layout,
+confinement, and receipt projections. Admission binds the selected executable,
+configuration, reviewed implementation identity digest, complete capability claims, and
+configuration-key inventory before process entry. Unsupported activation,
+permission, trajectory, usage, transport, or orchestration requirements fail
+before spawn; a provider name or an installed binary is never evidence of
+support.
+
 ## Capability negotiation
 
 Capabilities are namespaced, versioned strings. Each required component reports exactly one state for every capability considered by the plan:
@@ -417,6 +427,8 @@ The internal `ATL_EVAL_*` registry, wrapper basenames, broker records, launch ar
 | `agent-eval/adapter-message` | One bounded process-protocol frame under the selected role, operation, session, and attempt identity |
 | `agent-eval/extension-conformance-bundle` | Content-addressed ordinary cases for every supported operation plus one synchronized cancellation case in the manifest's declared role |
 | `agent-eval/extension-conformance-report` | Content-minimized protocol-only result; never proof of whole-product compatibility or host confinement |
+| `agent-eval/agent-adapter-contract` | Content-minimized selected adapter identity, implementation/executable/configuration digests, complete semantic capability claims, and closed configuration-key inventory |
+| `agent-eval/agent-observation` | Content-minimized normalized activation, event graph, terminal state, parent/tree usage, consumed-child evidence, and explicit coverage issues |
 | `agent-eval/migration-preview` | Content-minimized reviewed binding of source, candidate, registry, migration implementation, graph, and counts |
 | `agent-eval/migration-result` | Content-minimized idempotent receipt for one applied reviewed migration |
 | `agent-eval/schema-registry` | Public closed inventory of artifact ownership, generations, policies, bounds, resources, and reviewed migration edges |
@@ -424,14 +436,17 @@ The internal `ATL_EVAL_*` registry, wrapper basenames, broker records, launch ar
 The compatibility ledger records project config, the schema registry, the two
 migration artifacts, the three durable attempt families
 (`agent-eval/attempt-ledger`, `agent-eval/attempt-plan`, and
-`agent-eval/attempt-event`), and each of the four extension families at
-generation 1. Project config, registry, attempt records, manifest, message, and
-bundle generations are readable, emitted, and executable; migration artifacts
-and extension reports are readable and emitted but never executable. Project config is
+`agent-eval/attempt-event`), each of the four extension families, and the
+semantic adapter contract and normalized observation at generation 1. Project
+config, registry, attempt records, manifest, message, bundle, and adapter
+contract generations are readable, emitted, and executable; migration
+artifacts, extension reports, and normalized agent observations are readable
+and emitted but never executable. Project config is
 `public_or_private` and capped at 64 KiB. Manifests are public and capped at
 64 KiB. Attempt headers are capped at 16 KiB and attempt plans and events at
 64 KiB per record; all three are `preserve`, `content_minimized`, and use
-explicit migration. Messages are
+explicit migration. Adapter contracts are `content_minimized` and capped at
+64 KiB; agent observations are `content_minimized` and capped at 1 MiB. Messages are
 `public_or_private` and capped at 1 MiB, bundles are public and capped at
 1 MiB, and reports are `content_minimized` and capped at 1 MiB. Migration
 previews and results are `content_minimized`, capped at 64 KiB, and preserved;
@@ -607,6 +622,50 @@ infer otherwise.
 The current ATL profile remains an explicitly composed built-in Go component.
 The `profile` protocol role does not turn it into a downloadable plugin, add a
 dynamic registry, or stabilize any internal `ATL_EVAL_*` environment input.
+
+For the `agent-adapter` role, the generic process manifest is only the transport
+contract. A session also binds one canonical
+`agent-eval/agent-adapter-contract@1`; its component ID/version, executable
+digest, supported process operations, and exact configuration-key names must
+match the manifest before spawn. The internal provider-free reference command
+is:
+
+```sh
+agent-eval verify-agent-adapter \
+  --manifest testdata/synthetic-agent-manifest.json \
+  --adapter /tmp/agent-eval-synthetic/adapter \
+  --bundle testdata/synthetic-agent-conformance.json \
+  --contract testdata/synthetic-agent-contract.json \
+  --ledger /tmp/agent-eval-synthetic/attempt-ledger
+```
+
+It executes the same strict bounded process host, creates one durable attempt
+per conformance case, and emits the canonical content-minimized extension
+report. Every receipt transitively binds the manifest, executable, semantic
+adapter contract, process session, and terminal protocol result. The command is
+still an internal protocol diagnostic: it is not `compat verify`, does not
+claim whole-product compatibility, and does not add filesystem, network,
+credential, resource, or durable termination confinement beyond the host
+limits described above.
+
+Normalized observations use a closed event graph with one primary node and at
+most two child levels. The graph distinguishes single-agent, generic-child,
+specialized-child, and parallel-child profiles; native, developer-instruction,
+forced-injection, combined, and unavailable activation; observed,
+self-reported, and unavailable use evidence; and observed, unknown,
+unsupported, and not-applicable metrics. Numeric zero is observed only when its
+metric state is `observed`.
+
+Parent and whole-tree usage are separate projections. A reported tree total is
+fully covered only when the event graph structurally attributes it to the
+primary and admitted child nodes. Legacy aggregate provider totals with no
+stable child identities are preserved as reported tree usage, but receive
+`tree_usage_unattributed` and `coverage:false`; they cannot be silently assigned
+to the parent or invented child attempts. An unknown terminal state is retained
+but makes coverage false. Handoff evidence contributes only
+when the child is terminal and explicitly marked consumed. Malformed ordering,
+orphans, cycles, depth, role/profile, capability-subset, duplicate, or
+incomplete-node violations likewise fail closed through explicit issues.
 
 The state registry is closed:
 

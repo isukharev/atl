@@ -2,7 +2,6 @@ package agenteval
 
 import (
 	"fmt"
-	"os"
 )
 
 type headlessTrajectoryCaptureInput struct {
@@ -61,12 +60,13 @@ func captureHeadlessTrajectory(input headlessTrajectoryCaptureInput) (headlessTr
 			}
 		}
 	}
-	var finalData []byte
-	if input.contract.spec.Provider == "codex" {
-		finalData, err = readBoundedFile(input.finalPath, 4<<20)
-		if err != nil {
-			return headlessTrajectory{}, err
-		}
+	adapter, err := builtInAgentAdapterFor(input.contract.spec.Provider)
+	if err != nil {
+		return headlessTrajectory{}, err
+	}
+	finalData, err := adapter.readFinal(input.finalPath)
+	if err != nil {
+		return headlessTrajectory{}, err
 	}
 	providerMetrics, final, err := ParseProviderOutput(input.contract.spec.Provider, transcriptData, finalData)
 	if err != nil {
@@ -111,11 +111,7 @@ func captureHeadlessTrajectory(input headlessTrajectoryCaptureInput) (headlessTr
 			return trajectory, err
 		}
 	}
-	if input.contract.spec.Provider == "claude-code" {
-		if err := writePrivateFile(input.finalPath, append(append([]byte(nil), final...), '\n')); err != nil {
-			return trajectory, err
-		}
-	} else if err := os.Chmod(input.finalPath, 0o600); err != nil {
+	if err := adapter.preserveFinal(input.finalPath, final); err != nil {
 		return trajectory, err
 	}
 	var failedATL int

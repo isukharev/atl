@@ -20,6 +20,9 @@ type headlessOutcomeInput struct {
 	attemptBindingSHA256    string
 	attestation             *syntheticRunAttestation
 	receipt                 *SyntheticRunReceipt
+	agentAdapterContract    *AgentAdapterContract
+	agentAdapterAttemptID   string
+	agentObservationSHA256  *string
 }
 
 func finalizeHeadlessOutcome(input headlessOutcomeInput) (Result, error) {
@@ -71,7 +74,10 @@ func finalizeHeadlessOutcome(input headlessOutcomeInput) (Result, error) {
 	}
 	providerMetrics.DurationMillis = input.durationMillis
 	providerMetrics.Coverage["duration_millis"] = true
-	if !providerMetrics.Coverage["estimated_cost_microusd"] && providerMetrics.Coverage["input_tokens"] && providerMetrics.Coverage["output_tokens"] {
+	pricingObserved := input.contract.spec.Pricing.InputMicroUSDPerMillionTokens > 0 &&
+		input.contract.spec.Pricing.OutputMicroUSDPerMillionTokens > 0
+	if !providerMetrics.Coverage["estimated_cost_microusd"] && providerMetrics.Coverage["input_tokens"] &&
+		providerMetrics.Coverage["output_tokens"] && pricingObserved {
 		cost, err := estimateCost(providerMetrics.InputTokens, providerMetrics.OutputTokens, input.contract.spec.Pricing)
 		if err != nil {
 			return Result{}, err
@@ -93,6 +99,21 @@ func finalizeHeadlessOutcome(input headlessOutcomeInput) (Result, error) {
 	providerMetrics.Coverage["remote_writes"] = trajectory.httpMethodsObserved
 	providerMetrics.Coverage["output_bytes"] = true
 	providerMetrics.Coverage["capability_families"] = familyCoverage
+	if input.agentAdapterContract != nil {
+		_, observationData, observationErr := normalizeBuiltInAgentObservation(
+			*input.agentAdapterContract, input.agentAdapterAttemptID, input.contract.spec, providerMetrics,
+			providerMetrics.SkillToolCalls > 0 || trajectory.guardSummary.SkillReadAdmissions > 0)
+		if observationErr != nil {
+			return Result{}, fmt.Errorf("normalize agent adapter observation: %w", observationErr)
+		}
+		if err := writePrivateFile(filepath.Join(input.runDir, agentAdapterObservationFileName), observationData); err != nil {
+			return Result{}, err
+		}
+		if input.agentObservationSHA256 == nil {
+			return Result{}, fmt.Errorf("agent adapter observation digest destination is missing")
+		}
+		*input.agentObservationSHA256 = sha256HexBytes(observationData)
+	}
 	capabilityFamilies := capabilityFamilySlice(familyValues)
 	if !familyCoverage {
 		capabilityFamilies = nil

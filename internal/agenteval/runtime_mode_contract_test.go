@@ -52,14 +52,14 @@ func TestEvaluatorRuntimeModeClosedReviewClassification(t *testing.T) {
 		{Name: "headless-synthetic", evaluatorRuntimeModeContract: evaluatorRuntimeModeContract{
 			SourceFile: "runner.go", EntryFunction: "RunHeadless",
 			ImmutableContractOwner: "RunHeadless", RuntimeOnlyBindings: "synthetic fixture and evaluator wrapper", MarkerSideEffect: "private output root marker and synthetic receipt",
-			ProviderBackendContact: "provider and synthetic mock backend", AuthOwner: "RunHeadless for Codex; provider process for Claude", CapsuleGranularity: "one provider capsule per repetition",
+			ProviderBackendContact: "provider and synthetic mock backend", AuthOwner: "RunHeadless through the selected adapter or the provider process", CapsuleGranularity: "one provider capsule per repetition",
 			PreProviderRoles: "input validation and executable attestation", AttemptBoundary: "immediately before provider spawn", SpawnCardinality: "one provider process per repetition",
 			Revalidation: "executable attestation before execution", CleanupOwner: "RunHeadless",
 		}},
 		{Name: "headless-private-live", evaluatorRuntimeModeContract: evaluatorRuntimeModeContract{
 			SourceFile: "runner.go", EntryFunction: "RunHeadless",
 			ImmutableContractOwner: "RunHeadless", RuntimeOnlyBindings: "private workspace, gateway, and evaluator wrapper", MarkerSideEffect: "private output root marker and run artifacts",
-			ProviderBackendContact: "provider and configured private backend", AuthOwner: "RunHeadless or shared ExecutePrivatePlan session", CapsuleGranularity: "one provider capsule per repetition",
+			ProviderBackendContact: "provider and configured private backend", AuthOwner: "RunHeadless through the selected adapter or shared ExecutePrivatePlan session", CapsuleGranularity: "one provider capsule per repetition",
 			PreProviderRoles: "private input validation and confinement preflight", AttemptBoundary: "immediately before provider spawn", SpawnCardinality: "one provider process per repetition",
 			Revalidation: "plugin package before private CLI spawn", CleanupOwner: "RunHeadless",
 		}},
@@ -517,7 +517,8 @@ func assertRuntimeModeDryRunReturnOrder(t *testing.T) {
 		t.Fatal("runtime mode contract invalid")
 	}
 	for _, matcher := range []evaluatorRuntimeCallMatcher{
-		identifierCall("newCodexAuthSession"), identifierCall("agentRuntimeVersion"), identifierCall("atlRuntimeVersion"), identifierCall("runHeadlessOnce"),
+		selectorCall("agentAdapter", "prepareAuthSession"), selectorCall("agentAdapter", "newProviderRuntime"),
+		identifierCall("agentRuntimeVersion"), identifierCall("atlRuntimeVersion"), identifierCall("runHeadlessOnce"),
 	} {
 		position := token.NoPos
 		ast.Inspect(body.Body, func(node ast.Node) bool {
@@ -622,7 +623,7 @@ func TestEvaluatorRuntimeModeHeadlessDryRunCreatesOnlyMarker(t *testing.T) {
 func TestEvaluatorRuntimeModeCommitmentAndProbeOrdering(t *testing.T) {
 	assertRuntimeModeCallOrder(t, "provider_attempt.go", "executeProviderAttemptWithSession",
 		identifierCall("commit"), identifierCall("revalidate"), selectorCall("command", "Start"), selectorCall("command", "Wait"))
-	assertRuntimeModeConditionalAssignment(t, "runner_provider.go", "executeAndCloseHeadlessProvider", "codexPrivateCLI", "revalidateProvider", "input", "bindings", "providerRuntime", "verifyPluginPackage")
+	assertRuntimeModeConditionalAssignment(t, "runner_provider.go", "executeAndCloseHeadlessProvider", "isolatedRuntimeCLI", "revalidateProvider", "input", "bindings", "providerRuntime", "verifyPluginPackage")
 	assertRuntimeModeCallCount(t, "runner_provider.go", "executeAndCloseHeadlessProvider", identifierCallWithArgumentPaths("executeProviderAttemptWithSession",
 		[]string{"input", "command"}, []string{"input", "bindings", "providerAttemptCommitted"}, []string{"revalidateProvider"}, []string{"input", "bindings", "attemptSession"}), 1)
 	assertRuntimeModeCallCount(t, "calibration.go", "RunCodexCLICalibration", identifierCallWithArgumentPaths("executeProviderAttemptWithSession",

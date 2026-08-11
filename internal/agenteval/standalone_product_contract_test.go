@@ -263,6 +263,8 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 		standaloneContractKey("atl-profile", "synthetic-run-receipt"):       {current: SyntheticRunReceiptSchemaVersion, readable: []int{SyntheticRunReceiptLegacySchemaVersion, SyntheticRunReceiptSchemaVersion}, emitted: []int{SyntheticRunReceiptSchemaVersion}, executable: []int{SyntheticRunReceiptLegacySchemaVersion, SyntheticRunReceiptSchemaVersion}},
 		standaloneContractKey("standalone", "adapter-manifest"):             {current: 1, readable: []int{1}, emitted: []int{1}, executable: []int{1}},
 		standaloneContractKey("standalone", "adapter-message"):              {current: 1, readable: []int{1}, emitted: []int{1}, executable: []int{1}},
+		standaloneContractKey("standalone", "agent-adapter-contract"):       {current: AgentAdapterSchemaVersion, readable: []int{AgentAdapterSchemaVersion}, emitted: []int{AgentAdapterSchemaVersion}, executable: []int{AgentAdapterSchemaVersion}},
+		standaloneContractKey("standalone", "agent-observation"):            {current: AgentAdapterSchemaVersion, readable: []int{AgentAdapterSchemaVersion}, emitted: []int{AgentAdapterSchemaVersion}},
 		standaloneContractKey("standalone", "attempt-event"):                {current: lifecycle.SchemaVersion, readable: []int{lifecycle.SchemaVersion}, emitted: []int{lifecycle.SchemaVersion}, executable: []int{lifecycle.SchemaVersion}},
 		standaloneContractKey("standalone", "attempt-ledger"):               {current: lifecycle.SchemaVersion, readable: []int{lifecycle.SchemaVersion}, emitted: []int{lifecycle.SchemaVersion}, executable: []int{lifecycle.SchemaVersion}},
 		standaloneContractKey("standalone", "attempt-plan"):                 {current: lifecycle.SchemaVersion, readable: []int{lifecycle.SchemaVersion}, emitted: []int{lifecycle.SchemaVersion}, executable: []int{lifecycle.SchemaVersion}},
@@ -293,6 +295,8 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 		standaloneContractKey("atl-profile", "synthetic-run-receipt"):       {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: 16 << 10},
 		standaloneContractKey("standalone", "adapter-manifest"):             {disposition: "preserve", privacy: "public", migration: "explicit", maxBytes: 64 << 10},
 		standaloneContractKey("standalone", "adapter-message"):              {disposition: "preserve", privacy: "public_or_private", migration: "explicit", maxBytes: 1 << 20},
+		standaloneContractKey("standalone", "agent-adapter-contract"):       {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: AgentAdapterContractMaxBytes},
+		standaloneContractKey("standalone", "agent-observation"):            {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: AgentAdapterObservationMaxBytes},
 		standaloneContractKey("standalone", "attempt-event"):                {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: lifecycle.MaxEventBytes},
 		standaloneContractKey("standalone", "attempt-ledger"):               {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: lifecycle.MaxHeaderBytes},
 		standaloneContractKey("standalone", "attempt-plan"):                 {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: lifecycle.MaxPlanBytes},
@@ -367,7 +371,7 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 func TestStandaloneContractClassifiesCurrentCommandsAndArtifacts(t *testing.T) {
 	contract := loadStandaloneProductContractFixture(t)
 	commands := standaloneCoordinatorCommands(t, filepath.Join("cmd", "agent-eval", "main.go"))
-	if len(commands) != 16 || !slices.Equal(commands, contract.MaintainerCommands) {
+	if len(commands) != 17 || !slices.Equal(commands, contract.MaintainerCommands) {
 		t.Fatalf("coordinator commands=%v, contract=%v", commands, contract.MaintainerCommands)
 	}
 

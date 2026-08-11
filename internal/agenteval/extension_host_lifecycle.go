@@ -1,6 +1,7 @@
 package agenteval
 
 import (
+	"bytes"
 	"context"
 	"errors"
 
@@ -33,19 +34,80 @@ func VerifyExtensionProtocolFiles(
 	if err != nil {
 		return ExtensionConformanceReport{}, errExtensionOutcomeUnknown
 	}
-	return verifyExtensionProtocol(ctx, manifestData, executablePath, nil, bundleData, store)
+	return verifyExtensionProtocol(ctx, manifestData, executablePath, nil, bundleData, store, "")
+}
+
+// VerifyAgentAdapterProtocolFiles applies the agent-adapter semantic contract
+// before invoking the generic process protocol verifier. It remains a scoped
+// protocol diagnostic and grants no filesystem, network, or credential
+// authority to the selected executable.
+func VerifyAgentAdapterProtocolFiles(
+	ctx context.Context,
+	manifestPath, executablePath, bundlePath, contractPath, ledgerRoot string,
+) (ExtensionConformanceReport, error) {
+	manifestData, err := readStableExtensionContractFile(manifestPath, extension.MaxManifestBytes)
+	if err != nil {
+		return ExtensionConformanceReport{}, errExtensionCompatibility
+	}
+	bundleData, err := readStableExtensionContractFile(bundlePath, extensionConformanceMaxBytes)
+	if err != nil {
+		return ExtensionConformanceReport{}, errExtensionCompatibility
+	}
+	contractData, err := readStableExtensionContractFile(contractPath, AgentAdapterContractMaxBytes)
+	if err != nil {
+		return ExtensionConformanceReport{}, errExtensionCompatibility
+	}
+	manifest, err := extension.DecodeManifest(manifestData)
+	if err != nil {
+		return ExtensionConformanceReport{}, errExtensionCompatibility
+	}
+	contract, err := DecodeAgentAdapterContract(bytes.NewReader(contractData))
+	if err != nil || validateAgentAdapterProcessBinding(manifest, contract) != nil {
+		return ExtensionConformanceReport{}, errExtensionCompatibility
+	}
+	store, err := openOrCreateAttemptLedgerStore(ledgerRoot)
+	if err != nil {
+		return ExtensionConformanceReport{}, errExtensionOutcomeUnknown
+	}
+	return verifyExtensionProtocol(ctx, manifestData, executablePath, nil, bundleData, store,
+		sha256HexBytes(contractData))
+}
+
+func validateAgentAdapterProcessBinding(manifest extension.Manifest, contract AgentAdapterContract) error {
+	if manifest.Component.Role != extension.RoleAgentAdapter || manifest.Component.ID != contract.AdapterID ||
+		manifest.Component.Version != contract.AdapterVersion || manifest.ExecutableSHA256 != contract.ExecutableSHA256 {
+		return errExtensionCompatibility
+	}
+	if len(manifest.Component.Operations) != 3 {
+		return errExtensionCompatibility
+	}
+	for _, claim := range manifest.Component.Capabilities {
+		if claim.State != extension.CapabilitySupported {
+			return errExtensionCompatibility
+		}
+	}
+	if len(manifest.ConfigurationSchema) != len(contract.ConfigurationKeys) {
+		return errExtensionCompatibility
+	}
+	for index := range manifest.ConfigurationSchema {
+		if manifest.ConfigurationSchema[index].Name != contract.ConfigurationKeys[index].Name ||
+			contract.ConfigurationKeys[index].Sensitive {
+			return errExtensionCompatibility
+		}
+	}
+	return nil
 }
 
 func prepareExtensionProtocolAttempts(
 	store *AttemptLedgerStore,
 	manifest extension.Manifest,
 	bundle ExtensionConformanceBundle,
-	manifestDigest, bundleDigest string,
+	manifestDigest, bundleDigest, adapterContractDigest string,
 ) ([]*DurableAttemptSession, func(), error) {
 	if store == nil {
 		return nil, func() {}, nil
 	}
-	sessions, err := prepareExtensionAttemptSessions(store, manifest, bundle, manifestDigest, bundleDigest)
+	sessions, err := prepareExtensionAttemptSessions(store, manifest, bundle, manifestDigest, bundleDigest, adapterContractDigest)
 	if err != nil {
 		return nil, nil, err
 	}

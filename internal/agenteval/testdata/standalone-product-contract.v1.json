@@ -17,6 +17,7 @@
     "validate-comparison-set",
     "validate-pair",
     "validate-run",
+    "verify-agent-adapter",
     "verify-atl-capabilities",
     "verify-codex-skill-package",
     "verify-extension-protocol"
@@ -92,6 +93,8 @@
     {"namespace":"atl-profile","kind":"synthetic-run-receipt","current":2,"readable":[1,2],"emitted":[2],"executable":[1,2],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":16384},
     {"namespace":"standalone","kind":"adapter-manifest","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"public","migration":"explicit","max_bytes":65536},
     {"namespace":"standalone","kind":"adapter-message","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"public_or_private","migration":"explicit","max_bytes":1048576},
+    {"namespace":"standalone","kind":"agent-adapter-contract","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":65536},
+    {"namespace":"standalone","kind":"agent-observation","current":1,"readable":[1],"emitted":[1],"executable":[],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":1048576},
     {"namespace":"standalone","kind":"attempt-event","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":65536},
     {"namespace":"standalone","kind":"attempt-ledger","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":16384},
     {"namespace":"standalone","kind":"attempt-plan","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":65536},

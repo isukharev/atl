@@ -8,14 +8,14 @@ import (
 
 type headlessAttemptLayout struct {
 	privateCLI              bool
-	codexPrivateCLI         bool
-	codexSyntheticBrokerCLI bool
-	codexSyntheticWriteCLI  bool
+	isolatedRuntimeCLI      bool
+	syntheticBrokerCLI      bool
+	syntheticBrokerWriteCLI bool
 	privateLiveWriteCLI     bool
 	reviewedWriteCLI        bool
-	codexBrokerCLI          bool
+	guardedBrokerCLI        bool
 	brokerCLI               bool
-	claudePrivateCLI        bool
+	directFinalCaptureCLI   bool
 	gatewayBackedMCP        bool
 	runDir                  string
 	workspace               string
@@ -41,17 +41,16 @@ type headlessAttemptLayout struct {
 }
 
 func prepareHeadlessAttemptLayout(contract resolvedRunContract, bindings runAttemptBindings) (headlessAttemptLayout, error) {
-	privateCLI := contract.spec.EffectiveBackendMode() == BackendModePrivateLive && contract.spec.EffectiveToolTransport() == "cli"
-	codexPrivateCLI := contract.spec.Provider == "codex" && privateCLI
-	codexSyntheticBrokerCLI := isCodexSyntheticBrokerCLI(contract.spec)
-	codexSyntheticWriteCLI := codexSyntheticBrokerCLI && contract.spec.AllowSyntheticWrites
-	privateLiveWriteCLI := privateCLI && contract.spec.AllowLiveWrites
-	reviewedWriteCLI := codexSyntheticWriteCLI || privateLiveWriteCLI
-	codexBrokerCLI := codexPrivateCLI || codexSyntheticBrokerCLI
-	brokerCLI := privateCLI || codexSyntheticBrokerCLI
-	claudePrivateCLI := contract.spec.Provider == "claude-code" && privateCLI
+	adapter, err := builtInAgentAdapterFor(contract.spec.Provider)
+	if err != nil {
+		return headlessAttemptLayout{}, err
+	}
+	policy := adapter.layoutPolicy(contract.spec)
+	privateCLI, isolatedRuntimeCLI := policy.privateCLI, policy.isolatedRuntimeCLI
+	syntheticBrokerCLI, syntheticBrokerWriteCLI := policy.syntheticBrokerCLI, policy.syntheticBrokerWriteCLI
+	privateLiveWriteCLI, reviewedWriteCLI := policy.privateLiveWriteCLI, policy.reviewedWriteCLI
+	guardedBrokerCLI, brokerCLI, directFinalCaptureCLI := policy.guardedBrokerCLI, policy.brokerCLI, policy.directFinalCaptureCLI
 	gatewayBackedMCP := gatewayBackedInternalMCP(contract.spec)
-	var err error
 	if err := validatePathComponentID("scenario id", contract.scenario.ID); err != nil {
 		return headlessAttemptLayout{}, err
 	}
@@ -82,7 +81,7 @@ func prepareHeadlessAttemptLayout(contract resolvedRunContract, bindings runAtte
 			return headlessAttemptLayout{}, err
 		}
 	}
-	if shouldInstallCodexBenchmarkSkills(contract.spec) {
+	if shouldInstallBenchmarkSkills(contract.spec) {
 		_, skillRoot, err := providerPluginLayout(bindings.pluginRoot, contract.spec.Provider)
 		if err != nil {
 			return headlessAttemptLayout{}, err
@@ -155,20 +154,20 @@ func prepareHeadlessAttemptLayout(contract resolvedRunContract, bindings runAtte
 		counterPath = filepath.Join(brokerRequestDirectory, "atl-invocations.jsonl")
 	}
 	cliResultDirectory := ""
-	if claudePrivateCLI {
+	if directFinalCaptureCLI {
 		cliResultDirectory = filepath.Join(evalDir, "cli-results")
 		if err := mkdirPrivate(cliResultDirectory); err != nil {
 			return headlessAttemptLayout{}, err
 		}
 	}
 	probeExecutablePath := ""
-	if codexBrokerCLI {
+	if guardedBrokerCLI {
 		probeExecutablePath = filepath.Join(wrapperDir, confinementProbeName())
 		if err := copyExecutable(bindings.wrapperExecutable, probeExecutablePath); err != nil {
 			return headlessAttemptLayout{}, err
 		}
 	}
-	if contract.spec.EffectiveBackendMode() == BackendModePrivateLive || codexSyntheticBrokerCLI {
+	if contract.spec.EffectiveBackendMode() == BackendModePrivateLive || syntheticBrokerCLI {
 		for _, reader := range []string{"cat", "sed", "wc"} {
 			if err := copyExecutable(bindings.wrapperExecutable, filepath.Join(wrapperDir, reader)); err != nil {
 				return headlessAttemptLayout{}, err
@@ -181,18 +180,15 @@ func prepareHeadlessAttemptLayout(contract resolvedRunContract, bindings runAtte
 		}
 	}
 	settingsPath := filepath.Join(runDir, "claude-settings.json")
-	var reviewedMCPTools []string
-	if contract.spec.Provider == "claude-code" && contract.spec.ToolTransport == "mcp" {
-		reviewedMCPTools = claudeMCPToolNamesForServer(mcpServerName(contract.spec), contract.spec.AllowedMCPTools)
-	}
+	reviewedMCPTools := adapter.reviewedMCPTools(contract.spec)
 	if err := writeClaudeGuardSettings(settingsPath, guardPath, mcpServerName(contract.spec), reviewedMCPTools); err != nil {
 		return headlessAttemptLayout{}, err
 	}
 	return headlessAttemptLayout{
-		privateCLI: privateCLI, codexPrivateCLI: codexPrivateCLI,
-		codexSyntheticBrokerCLI: codexSyntheticBrokerCLI, codexSyntheticWriteCLI: codexSyntheticWriteCLI,
+		privateCLI: privateCLI, isolatedRuntimeCLI: isolatedRuntimeCLI,
+		syntheticBrokerCLI: syntheticBrokerCLI, syntheticBrokerWriteCLI: syntheticBrokerWriteCLI,
 		privateLiveWriteCLI: privateLiveWriteCLI, reviewedWriteCLI: reviewedWriteCLI,
-		codexBrokerCLI: codexBrokerCLI, brokerCLI: brokerCLI, claudePrivateCLI: claudePrivateCLI,
+		guardedBrokerCLI: guardedBrokerCLI, brokerCLI: brokerCLI, directFinalCaptureCLI: directFinalCaptureCLI,
 		gatewayBackedMCP: gatewayBackedMCP,
 		runDir:           runDir, workspace: workspace,
 		taskContractSHA256: taskContractSHA256, executionContractSHA256: executionContractSHA256,
@@ -203,6 +199,6 @@ func prepareHeadlessAttemptLayout(contract resolvedRunContract, bindings runAtte
 		brokerRequestDirectory: brokerRequestDirectory, brokerResponseDirectory: brokerResponseDirectory,
 		cliResultDirectory: cliResultDirectory, probeExecutablePath: probeExecutablePath,
 		settingsPath: settingsPath, atlConfigDir: filepath.Join(evalDir, "atl-config"),
-		mcpConfigPath: claudeMCPConfigPath(contract.spec, filepath.Join(runDir, "claude-mcp.json")),
+		mcpConfigPath: adapterMCPConfigPath(contract.spec, filepath.Join(runDir, "claude-mcp.json")),
 	}, nil
 }

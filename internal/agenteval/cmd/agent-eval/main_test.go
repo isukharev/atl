@@ -56,6 +56,16 @@ func TestRunRejectsMissingAndUnknownCommands(t *testing.T) {
 	if err := run([]string{"validate", "does-not-exist.json"}); err == nil || !strings.Contains(err.Error(), "does-not-exist") {
 		t.Fatalf("err=%v", err)
 	}
+	for _, args := range [][]string{
+		{"verify-agent-adapter"},
+		{"verify-agent-adapter", "--manifest", "manifest", "--adapter", "adapter", "--bundle", "bundle", "--contract", "contract"},
+		{"verify-agent-adapter", "--unknown"},
+		{"verify-agent-adapter", "manifest", "adapter", "bundle", "contract", "ledger"},
+	} {
+		if err := run(args); err == nil {
+			t.Fatalf("run(%v) succeeded", args)
+		}
+	}
 }
 
 func TestRunVerifyExtensionProtocolFlagErrorsDoNotEchoValues(t *testing.T) {
@@ -76,6 +86,29 @@ func TestRunVerifyExtensionProtocolFlagErrorsDoNotEchoValues(t *testing.T) {
 	}
 	const unknown = "private-unknown-flag-must-not-be-echoed"
 	if err := run([]string{"verify-extension-protocol", "--" + unknown}); err == nil || strings.Contains(err.Error(), unknown) {
+		t.Fatalf("unknown flag error=%q", err)
+	}
+}
+
+func TestRunVerifyAgentAdapterFlagErrorsDoNotEchoValues(t *testing.T) {
+	for _, name := range []string{"manifest", "adapter", "bundle", "contract", "ledger"} {
+		marker := "private-value-must-not-be-echoed-" + name
+		args := []string{
+			"verify-agent-adapter",
+			"--manifest", "manifest.json",
+			"--adapter", "adapter",
+			"--bundle", "bundle.json",
+			"--contract", "contract.json",
+			"--ledger", "ledger",
+			"--" + name, marker,
+		}
+		err := run(args)
+		if err == nil || strings.Contains(err.Error(), marker) {
+			t.Fatalf("duplicate --%s error=%q", name, err)
+		}
+	}
+	const unknown = "private-unknown-agent-adapter-flag"
+	if err := run([]string{"verify-agent-adapter", "--" + unknown}); err == nil || strings.Contains(err.Error(), unknown) {
 		t.Fatalf("unknown flag error=%q", err)
 	}
 }
@@ -194,6 +227,117 @@ func TestRunVerifyExtensionProtocolEmitsDeterministicScopedReport(t *testing.T) 
 	for _, forbidden := range []string{manifestPath, bundlePath, executable, directory, "session_id", "attempt_id", "stderr"} {
 		if bytes.Contains(first, []byte(forbidden)) {
 			t.Fatalf("content-minimized command report contains %q", forbidden)
+		}
+	}
+}
+
+func TestRunVerifyAgentAdapterEmitsContractBoundReport(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable, err = filepath.Abs(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executableData, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executableSum := sha256.Sum256(executableData)
+	executableSHA256 := fmt.Sprintf("%x", executableSum)
+
+	manifestData, err := os.ReadFile(filepath.Join("..", "..", "testdata", "standalone-readability", "adapter-manifest-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacements := [][2]string{
+		{`"id":"synthetic.profile"`, `"id":"synthetic.agent"`},
+		{`"role":"profile"`, `"role":"agent-adapter"`},
+		{`"operations":["capabilities","validate"]`, `"operations":["execute","normalize","prepare"]`},
+		{`"capabilities":[{"id":"profile.capabilities","state":"supported"},{"id":"profile.validate","state":"supported"}]`,
+			`"capabilities":[{"id":"agent-adapter.execute","state":"supported"},{"id":"agent-adapter.normalize","state":"supported"},{"id":"agent-adapter.prepare","state":"supported"}]`},
+		{strings.Repeat("a", 64), executableSHA256},
+		{`"os":"linux","architecture":"amd64"`, fmt.Sprintf(`"os":%q,"architecture":%q`, runtime.GOOS, runtime.GOARCH)},
+	}
+	for _, replacement := range replacements {
+		updated := bytes.Replace(manifestData, []byte(replacement[0]), []byte(replacement[1]), 1)
+		if replacement[0] != replacement[1] && bytes.Equal(updated, manifestData) {
+			t.Fatalf("manifest replacement not found: %s", replacement[0])
+		}
+		manifestData = updated
+	}
+	manifestSum := sha256.Sum256(manifestData)
+	manifestSHA256 := fmt.Sprintf("%x", manifestSum)
+
+	bundleData, err := os.ReadFile(filepath.Join("..", "..", "testdata", "standalone-readability", "extension-conformance-bundle-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := agenteval.DecodeExtensionConformanceBundle(bundleData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executeCase, normalizeCase, prepareCase, cancelCase := bundle.Cases[0], bundle.Cases[0], bundle.Cases[0], bundle.Cases[2]
+	executeCase.ID, executeCase.Role, executeCase.Operation = "agent-execute", "agent-adapter", "execute"
+	normalizeCase.ID, normalizeCase.Role, normalizeCase.Operation = "agent-normalize", "agent-adapter", "normalize"
+	prepareCase.ID, prepareCase.Role, prepareCase.Operation = "agent-prepare", "agent-adapter", "prepare"
+	cancelCase.ID, cancelCase.Role, cancelCase.Operation = "zz-cancel-prepare", "agent-adapter", "prepare"
+	bundle.ManifestSHA256 = manifestSHA256
+	bundle.ExecutableSHA256 = executableSHA256
+	bundle.Cases = append(bundle.Cases[:0], executeCase, normalizeCase, prepareCase, cancelCase)
+	bundleData, err = agenteval.EncodeExtensionConformanceBundle(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	contractData, err := os.ReadFile(filepath.Join("..", "..", "testdata", "standalone-readability", "agent-adapter-contract-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, err := agenteval.DecodeAgentAdapterContract(bytes.NewReader(contractData))
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract.AdapterID = "synthetic.agent"
+	contract.AdapterVersion = "v0.0.0"
+	contract.ExecutableSHA256 = executableSHA256
+	contract.ConfigurationKeys = append(contract.ConfigurationKeys, contract.ConfigurationKeys[0])
+	for index, name := range []string{"enabled", "format", "workers"} {
+		contract.ConfigurationKeys[index].Name = name
+		contract.ConfigurationKeys[index].Sensitive = false
+	}
+	contractData, err = agenteval.EncodeAgentAdapterContract(contract)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(directory, "manifest.json")
+	bundlePath := filepath.Join(directory, "bundle.json")
+	contractPath := filepath.Join(directory, "contract.json")
+	ledgerPath := filepath.Join(directory, "ledger")
+	for path, data := range map[string][]byte{manifestPath: manifestData, bundlePath: bundleData, contractPath: contractData} {
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	output := captureRunOutput(t, []string{"verify-agent-adapter", "--manifest", manifestPath, "--adapter", executable,
+		"--bundle", bundlePath, "--contract", contractPath, "--ledger", ledgerPath})
+	report, err := agenteval.DecodeExtensionConformanceReport(output)
+	if err != nil || !report.ProtocolConformant || report.Role != "agent-adapter" || len(report.Cases) != 4 {
+		t.Fatalf("report=%+v err=%v", report, err)
+	}
+	ledger, err := agenteval.InspectAttemptLedger(ledgerPath)
+	if err != nil || !ledger.Complete || len(ledger.Attempts) != len(report.Cases) {
+		t.Fatalf("ledger=%+v err=%v", ledger, err)
+	}
+	for _, forbidden := range []string{manifestPath, bundlePath, contractPath, executable, directory, "session_id", "attempt_id", "stderr"} {
+		if bytes.Contains(output, []byte(forbidden)) {
+			t.Fatalf("content-minimized agent adapter report contains %q", forbidden)
 		}
 	}
 }

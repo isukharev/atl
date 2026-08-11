@@ -98,7 +98,7 @@ func verifyExtensionProtocol(
 	executablePath string,
 	arguments []string,
 	bundleData []byte,
-	attemptStore *AttemptLedgerStore,
+	attemptStore *AttemptLedgerStore, adapterContractDigest string,
 ) (ExtensionConformanceReport, error) {
 	verificationCtx, cancelVerification, err := extensionVerificationContext(ctx)
 	if err != nil {
@@ -143,7 +143,7 @@ func verifyExtensionProtocol(
 		Cases:            make([]ExtensionConformanceCaseReport, 0, len(bundle.Cases)),
 	}
 	attemptSessions, closePlannedAttempts, err := prepareExtensionProtocolAttempts(
-		attemptStore, manifest, bundle, manifestDigest, bundleDigest)
+		attemptStore, manifest, bundle, manifestDigest, bundleDigest, adapterContractDigest)
 	if err != nil {
 		return ExtensionConformanceReport{}, errExtensionOutcomeUnknown
 	}

@@ -37,7 +37,7 @@ func prepareHeadlessProviderResources(parent context.Context, contract resolvedR
 			resources.closeDeferred()
 		}
 	}()
-	if layout.codexBrokerCLI {
+	if layout.guardedBrokerCLI {
 		resources.providerConfinement.RequestDirectory = layout.brokerRequestDirectory
 		resources.providerConfinement.ResponseDirectory = layout.brokerResponseDirectory
 	}
@@ -143,7 +143,7 @@ func prepareHeadlessProviderResources(parent context.Context, contract resolvedR
 			}
 			brokerEnvironment["ATL_CONFIG_DIR"] = resources.atlConfigDir
 			brokerEnvironment["ATL_MIRROR_ROOT"] = layout.mirrorRoot
-			if layout.codexSyntheticWriteCLI {
+			if layout.syntheticBrokerWriteCLI {
 				brokerEnvironment[WrapperEnvAllowSyntheticWrites] = "1"
 			} else {
 				brokerEnvironment["ATL_READ_ONLY"] = "1"
@@ -165,7 +165,7 @@ func prepareHeadlessProviderResources(parent context.Context, contract resolvedR
 			RealBinary:   bindings.atlBinary, WorkingDirectory: layout.workspace, Policy: cliPolicy,
 			Environment:    flattenEnvironment(brokerEnvironment),
 			MaxStdoutBytes: maxStdout, MaxStderrBytes: 64 << 10, CommandTimeout: brokerTimeout,
-			AllowSyntheticWrites: layout.codexSyntheticWriteCLI,
+			AllowSyntheticWrites: layout.syntheticBrokerWriteCLI,
 			AllowReviewedWrites:  layout.reviewedWriteCLI,
 		})
 		if err != nil {
@@ -282,8 +282,8 @@ func executeAndCloseHeadlessProvider(input headlessProviderExecutionInput) headl
 	// durable storage and exec, so even a failed Start consumes the attempt.
 	// Revalidation remains private-CLI-only and occurs after that commitment.
 	var revalidateProvider func() error
-	codexPrivateCLI := input.layout.codexPrivateCLI
-	if codexPrivateCLI {
+	isolatedRuntimeCLI := input.layout.isolatedRuntimeCLI
+	if isolatedRuntimeCLI {
 		revalidateProvider = input.bindings.providerRuntime.verifyPluginPackage
 	}
 	attemptStage, terminationProven, terminalReceipt, runErr := executeProviderAttemptWithSession(

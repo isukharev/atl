@@ -63,6 +63,36 @@ func TestFinalizeHeadlessOutcomeSeparatesLegacyAndGenericInvocationMetrics(t *te
 	}
 }
 
+func TestFinalizeHeadlessOutcomeDoesNotImputeMissingCostFromZeroPricing(t *testing.T) {
+	contract := outcomeTestContract()
+	contract.spec.Provider = "claude-code"
+	contract.spec.Pricing = Pricing{}
+	contract.scenario.RequiredMetrics = []string{"interface_invocations", "backend_requests", "output_bytes", "duration_millis"}
+	contract.scenario.Budgets.MaxInterfaceInvocations = 1
+	contract.scenario.Budgets.MaxInputTokens = 20
+	contract.scenario.Budgets.MaxOutputTokens = 20
+	runDir := t.TempDir()
+	if err := os.Chmod(runDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	result, err := finalizeHeadlessOutcome(headlessOutcomeInput{
+		contract: contract,
+		trajectory: headlessTrajectory{providerMetrics: ProviderMetrics{
+			InputTokens: 10, OutputTokens: 5,
+			Coverage: map[string]bool{"input_tokens": true, "output_tokens": true}, CapabilityFamilyCoverage: true,
+		}, final: []byte(`{"answer":"ok"}`), methods: map[string]int{}, httpMethodsObserved: true},
+		workspace: t.TempDir(), runDir: runDir, durationMillis: 1,
+		runtime: Runtime{Provider: "claude-code", ATLVersion: "test"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Coverage["estimated_cost_microusd"] || result.Metrics.EstimatedCostMicroUSD != 0 {
+		t.Fatalf("missing cost was imputed as observed zero: coverage=%v value=%d",
+			result.Coverage["estimated_cost_microusd"], result.Metrics.EstimatedCostMicroUSD)
+	}
+}
+
 func TestFinalizeHeadlessOutcomeSortsAllViolationsAndBindsReceiptToExactResultBytes(t *testing.T) {
 	contract := outcomeTestContract()
 	contract.scenario.RequiredMetrics = []string{"interface_invocations", "backend_requests", "output_bytes", "duration_millis"}

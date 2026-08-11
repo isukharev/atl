@@ -52,7 +52,7 @@ func run(args []string) error {
 		return err
 	}
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-eval validate scenarios | validate-run specs | verify-atl-capabilities --ledger ROOT ATL_BINARY | verify-codex-skill-package PACKAGE_ROOT | verify-extension-protocol --manifest FILE --adapter FILE --bundle FILE --ledger ROOT | attempt-ledger COMMAND options | inventory CORPUS_ROOT | validate-pair CLI_SPEC MCP_SPEC | validate-comparison-set SPEC SPEC [SPEC] | evaluate scenario observation | review-template options | assess options | aggregate results | aggregate-root ROOT | run options | private COMMAND options")
+		return fmt.Errorf("usage: agent-eval validate scenarios | validate-run specs | verify-agent-adapter --manifest FILE --adapter FILE --bundle FILE --contract FILE --ledger ROOT | verify-atl-capabilities --ledger ROOT ATL_BINARY | verify-codex-skill-package PACKAGE_ROOT | verify-extension-protocol --manifest FILE --adapter FILE --bundle FILE --ledger ROOT | attempt-ledger COMMAND options | inventory CORPUS_ROOT | validate-pair CLI_SPEC MCP_SPEC | validate-comparison-set SPEC SPEC [SPEC] | evaluate scenario observation | review-template options | assess options | aggregate results | aggregate-root ROOT | run options | private COMMAND options")
 	}
 	switch args[0] {
 	case "private":
@@ -107,6 +107,8 @@ func run(args []string) error {
 			ids = append(ids, scenario.ID+"/"+spec.Provider+"/"+spec.Variant)
 		}
 		return writeJSON(map[string]any{"schema_version": 1, "valid_runs": ids})
+	case "verify-agent-adapter":
+		return runVerifyAgentAdapter(args[1:])
 	case "verify-atl-capabilities":
 		flags := flag.NewFlagSet("verify-atl-capabilities", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
