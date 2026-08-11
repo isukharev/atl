@@ -1,22 +1,35 @@
 # Standalone agent-eval contract
 
-Status: normative pre-release contract. Contract version: `0.1.0-pre-release`. No standalone distribution currently conforms to it.
+Status: normative pre-release contract. Contract version: `0.1.0-pre-release`.
+The repository source implements a bounded pre-release subset; no signed
+standalone distribution is released or stable.
 
 [Documentation home](../../README.md) ·
 [Evaluation methodology](../../agent-benchmarking.md) ·
 [Evaluator substrate decision](../../maintainers/agent-evaluator-substrates.md) ·
 [Roadmap](../../../ROADMAP.md)
 
-This document reserves the public boundary for a local-first standalone `agent-eval` product. “Must”, “must not”, “should”, and “may” are normative. The contract does not make an unreleased command available, expose an internal Go API, or authorize provider, backend, network, extraction, or release work.
+This document defines the public boundary for a local-first standalone
+`agent-eval` product. “Must”, “must not”, “should”, and “may” are normative.
+Source implementation does not expose an internal Go API, start the stable
+compatibility clock, or authorize provider, backend, network, release, or
+private-workspace work.
 
 ## Product status
 
 | Surface | Current status | Compatibility promise |
 |---|---|---|
-| Repository maintainer command at `internal/agenteval/cmd/agent-eval` | Implemented for ATL repository evaluation | Current command names, Go flags, plain-text errors, helper executable names, environment registry, and private-workspace operations are internal unless this document explicitly admits them |
-| Reserved standalone `agent-eval` product | Pre-release and not implemented | This document reserves its operation, schema, output, authority, and compatibility rules; conformance starts only when a distribution implements and tests them |
+| Repository maintainer command at `internal/agenteval/cmd/agent-eval` | Implemented for ATL repository evaluation | Historical command names, helper executable names, environment registry, and private-workspace operations remain internal unless this document explicitly admits them |
+| Source-built standalone coordinator in that command | `implemented_pre_release` for the rows marked `pre_release` below | The selected operations, JSON envelopes, exit classes, help, completion, project configuration, and one-request process surface are machine-tested; they are unsigned and carry no support or stable-compatibility promise |
+| Signed standalone `agent-eval` distribution | Not released | Compatibility starts only at `first-conforming-signed-standalone-release` after the complete distribution gate passes |
 
-The maintainer command remains valid implementation evidence, not an accidental public CLI. It currently writes plain diagnostics to stderr and normally maps every error to exit `1`. The production CLI, global flags, structured errors, and exit mapping are deferred to [#1315](https://github.com/isukharev/atl/issues/1315). Until that work passes conformance, callers must describe the standalone surface as **reserved**, not supported or stable.
+The coordinator now routes the explicitly admitted subset before the hidden
+maintainer dispatcher. Those operations emit the structured envelopes and exit
+classes below. Historical maintainer aliases keep their prior behavior and are
+not made public by this routing. Reserved rows fail with
+`compatibility_error` before configuration or authority acquisition. Callers
+may describe only the marked rows as **pre-release source implementations**;
+they must not call them stable, supported, or distributed.
 
 The repository implementation now contains an internal, in-memory neutral core
 and one explicitly composed ATL profile. The root evaluator package remains the
@@ -33,6 +46,7 @@ conformance claim.
 |---|---|
 | `stable` | Released, conformance-tested, and covered by this compatibility and deprecation policy |
 | `experimental` | Explicitly opt-in and namespaced; may change in a minor release but must not silently alter stable artifact meaning |
+| `pre_release` | Implemented and conformance-tested in repository source, but unsigned, unreleased, and outside the stable compatibility/support clock |
 | `internal` | Repository or implementation detail with no public compatibility promise |
 | `reserved` | Normatively shaped here but not shipped; callers must not probe for it or treat its spelling as implemented |
 
@@ -40,30 +54,51 @@ A surface is not stable merely because it exists in source, appears in help, has
 
 ## Operations and user journeys
 
-The standalone CLI reserves these command families. #1315 owns their exact flags and help. Each row below is an independent authority ceiling, not an implicit grant. `Y` means the dimension may be admitted only from the explicit invocation and resolved plan; `N` means the operation must be structurally unable to acquire it.
+Each row below is an independent authority ceiling, not an implicit grant.
+`pre_release` rows are implemented by the source coordinator; `reserved` rows
+refuse before configuration or authority. `Y` means the dimension may be
+admitted only from the explicit invocation and resolved plan; `N` means the
+operation must be structurally unable to acquire it.
 
-| ID | Mode | `authority` | `local_read` | `local_write` | `process_spawn` | `provider_contact` | `backend_contact` | `network` | `credential_access` | `private_workspace_access` |
-|---|---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `capabilities` | `default` | `none` | N | N | N | N | N | N | N | N |
-| `compare` | `default` | `local_read` | Y | N | N | N | N | N | N | N |
-| `compat verify` | `provider-free` | `verifier_execution` | Y | N | Y | N | N | N | N | N |
-| `grade` | `deterministic` | `verifier_execution` | Y | N | Y | N | N | N | N | N |
-| `grade` | `judge` | `provider_execution` | Y | N | Y | Y | N | Y | Y | N |
-| `import` | `default` | `local_write` | Y | Y | N | N | N | N | N | N |
-| `init` | `default` | `local_write` | N | Y | N | N | N | N | N | Y |
-| `inspect` | `default` | `local_read` | Y | N | N | N | N | N | N | N |
-| `migrate apply` | `default` | `local_write` | Y | Y | N | N | N | N | N | Y |
-| `migrate preview` | `default` | `local_read` | Y | N | N | N | N | N | N | Y |
-| `plan` | `default` | `local_write` | Y | Y | N | N | N | N | N | Y |
-| `reconcile` | `evidence-only` | `local_write` | Y | Y | N | N | N | N | N | Y |
-| `report` | `default` | `local_read` | Y | N | N | N | N | N | N | N |
-| `resume` | `default` | `agent_execution` | Y | Y | Y | Y | Y | Y | Y | Y |
-| `run` | `default` | `agent_execution` | Y | Y | Y | Y | Y | Y | Y | N |
-| `schema inspect` | `default` | `local_read` | Y | N | N | N | N | N | N | N |
-| `validate` | `default` | `local_read` | Y | N | N | N | N | N | N | N |
-| `version` | `default` | `none` | N | N | N | N | N | N | N | N |
+| ID | Mode | Status | `authority` | `local_read` | `local_write` | `process_spawn` | `provider_contact` | `backend_contact` | `network` | `credential_access` | `private_workspace_access` |
+|---|---|---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `capabilities` | `default` | `pre_release` | `none` | N | N | N | N | N | N | N | N |
+| `compare` | `default` | `pre_release` | `local_read` | Y | N | N | N | N | N | N | N |
+| `compat verify` | `provider-free` | `reserved` | `verifier_execution` | Y | N | Y | N | N | N | N | N |
+| `export` | `agent-skills` | `pre_release` | `local_write` | Y | Y | N | N | N | N | N | N |
+| `grade` | `deterministic` | `pre_release` | `verifier_execution` | Y | N | Y | N | N | N | N | N |
+| `grade` | `judge` | `reserved` | `provider_execution` | Y | N | Y | Y | N | Y | Y | N |
+| `import` | `agent-skills` | `pre_release` | `local_read` | Y | N | N | N | N | N | N | N |
+| `import` | `default` | `reserved` | `local_write` | Y | Y | N | N | N | N | N | N |
+| `init` | `default` | `reserved` | `local_write` | N | Y | N | N | N | N | N | Y |
+| `inspect` | `default` | `pre_release` | `local_read` | Y | N | N | N | N | N | N | N |
+| `migrate apply` | `default` | `reserved` | `local_write` | Y | Y | N | N | N | N | N | Y |
+| `migrate preview` | `default` | `reserved` | `local_read` | Y | N | N | N | N | N | N | Y |
+| `plan` | `default` | `reserved` | `local_write` | Y | Y | N | N | N | N | N | Y |
+| `reconcile` | `evidence-only` | `reserved` | `local_write` | Y | Y | N | N | N | N | N | Y |
+| `report` | `default` | `reserved` | `local_read` | Y | N | N | N | N | N | N | N |
+| `resume` | `default` | `reserved` | `agent_execution` | Y | Y | Y | Y | Y | Y | Y | Y |
+| `run` | `default` | `reserved` | `agent_execution` | Y | Y | Y | Y | Y | Y | Y | N |
+| `schema inspect` | `default` | `reserved` | `local_read` | Y | N | N | N | N | N | N | N |
+| `validate` | `default` | `pre_release` | `local_read` | Y | N | N | N | N | N | N | N |
+| `version` | `default` | `pre_release` | `none` | N | N | N | N | N | N | N | N |
 
-The user journeys follow directly from those ceilings. `init` creates only the explicit project. `import` writes a candidate without execution. `plan` writes an immutable plan to an explicit destination. `reconcile` may append only content-minimized local proof. `compare` and `report` consume existing local artifacts. Migration preview reads; apply writes a new explicit destination. `compat verify` may spawn an isolated verifier but remains provider-, backend-, network-, credential-, and private-workspace-free. Deterministic grading has the same no-contact verifier boundary. Judge grading is a distinct, explicit mode: it may receive provider, network, and credential authority, but never product-backend or private-workspace authority. `run` and `resume` receive only the individually admitted execution dimensions, and resume remains subject to the no-replay lifecycle below.
+The user journeys follow directly from those ceilings. Agent Skills import is
+read-only; its separately named export writes one non-authoritative
+compatibility view to a new explicit destination. The reserved generic
+`import` may eventually write a native candidate but is not implemented.
+`init` creates only the explicit project. `plan` writes an immutable plan to an
+explicit destination. `reconcile` may append only content-minimized local
+proof. `compare` and `report` consume existing local artifacts. Migration
+preview reads; apply writes a new explicit destination. `compat verify` may
+spawn an isolated verifier but remains provider-, backend-, network-,
+credential-, and private-workspace-free. Deterministic grading has the same
+no-contact verifier ceiling even though the current in-process implementation
+does not spawn. Judge grading is a distinct, explicit mode: it may receive
+provider, network, and credential authority, but never product-backend or
+private-workspace authority. `run` and `resume` receive only the individually
+admitted execution dimensions, and resume remains subject to the no-replay
+lifecycle below.
 
 Commands are non-interactive: no prompts, pagers, browsers, confirmation reads from stdin, or default provider selection. A local mutation requiring confirmation must receive all confirmation material in the original invocation and fail before writing when it is absent.
 
@@ -77,9 +112,29 @@ Configuration resolves in this exact high-to-low order:
 2. the project configuration selected for that invocation;
 3. environment values from an explicitly enabled, closed allowlist.
 
-Project configuration is loaded only from an exact `--config` path or the fixed configuration path inside an exact `--project` root. The CLI does not walk parents, inspect unrelated repository metadata, or merge user or system configuration implicitly. Relative paths resolve against the owning configuration file.
+Project configuration is loaded only from an exact `--config` path or
+`.agent-eval/config.json` inside an exact `--project` root. The CLI does not
+walk parents, inspect unrelated repository metadata, or merge user or system
+configuration implicitly. Schema `agent-eval/project-config@1` is capped at
+64 KiB and contains only optional `profile`, `model`, and `repetitions`
+identity defaults. It has no path, provider, backend, credential, network,
+private-root, or authority member. Explicit JSON `null`, duplicate or unknown
+members, trailing values, future generations, symlinks, non-regular files,
+unstable rereads, identifiers over 1,024 bytes, and repetitions outside
+`1..1000` fail closed.
+
+```json named-agent-eval-project-config
+{"schema":"agent-eval/project-config","schema_version":1,"contract_version":"0.1.0-pre-release","profile":"synthetic-local","model":"model-a","repetitions":3}
+```
 
 Environment input is disabled by default. Enabling it names a reviewed projection whose accepted names and value classes are visible in `agent-eval capabilities`. Unknown projected keys, malformed values, and duplicate configuration keys fail closed. The projection must not admit the current internal `ATL_EVAL_*` registry wholesale.
+
+The implemented `portable-v1` projection admits exactly
+`AGENT_EVAL_PROFILE`, `AGENT_EVAL_MODEL`, and `AGENT_EVAL_REPETITIONS` under
+the same bounds. Any other `AGENT_EVAL_*` name is an error. Agent Skills
+import/export deliberately accept neither project configuration nor the
+environment projection: their roots, baseline, format, mapping, and
+destination must all be explicit flags.
 
 Selection and authority remain separate:
 
@@ -90,11 +145,97 @@ Selection and authority remain separate:
 
 No command discovers any of these ambiently: provider credentials, an ATL backend, a private evaluation root, proxy settings, cloud metadata, or network authority. A private root is available only to a row with `private_workspace_access:Y` and only through an exact invocation input. Credentials are resolved only by an explicitly selected adapter after admission and never enter plans or public durable artifacts. Secret bytes are never echoed in errors, previews, or publication-safe digests.
 
+## Agent Skills interchange
+
+The `agent-skills` mode is a bounded compatibility adapter for two explicitly
+named upstream authoring layouts. It does not treat the Agent Skills packaging
+specification as an evaluator, runner, judge, sandbox, or environment
+contract. The reviewed inputs are the pinned
+[Agent Skills packaging and evaluation guide](https://github.com/agentskills/agentskills/tree/217be548739f21d6008915c29aefe320ea1a90af)
+and the pinned
+[Anthropic skill-creator schemas and aggregator](https://github.com/anthropics/skills/tree/f17010c9bb483898c1d9c9f42dde2b3a98889434/skills/skill-creator).
+Because those sources disagree in material ways, the adapter never silently
+merges their shapes.
+
+`import agent-skills` is read-only. It accepts `--format agent-skills`, one
+bounded `--skill-root`, an optional exact `--eval-root`, and an explicit
+`--baseline no-skill|previous-skill`. The previous-skill baseline also
+requires an exact `--previous-skill-root`; the no-skill baseline forbids it.
+The variants are:
+
+- `agentskills-guide-v1`: `evals/evals.json` uses `assertions`; benchmark
+  deltas are numeric and review feedback is a map.
+- `anthropic-skill-creator-v1`: `evals/evals.json` uses `expectations`;
+  benchmark rows and metadata use the pinned richer schema and string-valued
+  deltas.
+- `auto`: import-only detection from exactly one criteria spelling. Missing,
+  mixed, or ambiguous discriminators fail; export never accepts `auto`.
+
+Both importers strictly capture `SKILL.md`, the referenced bounded regular
+files, and the selected eval JSON without executing scripts or following
+symlinks. They retain exact source and normalized digests, prompt/check order,
+baseline identity, and missing-versus-zero metric states. A single source tree
+is capped at 64 MiB and 4,096 entries; individual JSON documents are capped at
+1 MiB, referenced files at 8 MiB, cases at 256, criteria at 255 per case, and
+workspace runs at 4,096. Repeated references and publication files are charged
+against aggregate bounds before their bytes are retained.
+
+`export agent-skills` is a separately classified local write. It requires one
+explicit variant, source import arguments, an exact workspace root, and an
+absolute clean destination that does not yet exist. For Guide workspaces, the
+caller supplies one repeated `--case-directory ID=iteration-N/eval-slug` for
+every imported case; every mapping must use the same positive iteration.
+Cells are `with_skill` and `without_skill`, or `old_skill` only for the
+explicit previous-skill baseline. `old_skill` is a reviewed ATL compatibility
+extension and is not inferred from the pinned Guide/aggregator layout.
+Anthropic workspaces use exact `eval-ID/<cell>/run-N` paths; the legacy
+`runs/eval-ID/...` spelling and mixed layouts are refused.
+
+Before publication, the adapter reconciles every grading result with the
+source assertion/expectation text, order, and count. Missing or empty criteria,
+partial verifier coverage, and mismatched benchmark cells block publication.
+The writer re-encodes only grading and benchmark JSON. When a source workspace
+is bound, it copies its already captured `outputs/**` and `timing.json` bytes
+exactly into the new destination; it never reopens an ambient output path.
+The report names source-only or unsupported timing detail, estimated cost,
+activation, verifier, runner, judge, sandbox, environment, model metadata,
+feedback, and notes instead of silently inventing their meaning.
+
+```sh named-agent-eval-agent-skills-import
+agent-eval import agent-skills \
+  --format agent-skills \
+  --variant agentskills-guide-v1 \
+  --skill-root ./skill \
+  --baseline no-skill
+```
+
+Every import/export result is content-minimized and every export says
+`authoritative:false`. Its counts and SHA-256 values are local comparison
+identities, not anonymization, publisher authentication, execution evidence,
+or publication approval. No prompt, output, feedback, model value, source
+path, or destination path is emitted in the command envelope.
+
+The new-destination writer uses contained, no-follow stable reads, exclusive
+file creation, exact byte/inventory rereads, and an incomplete marker. This
+detects cooperative process interruption and refuses observed identity drift;
+it is not an atomic transaction, a power-loss durability protocol, or
+protection from a hostile same-UID process renaming a parent. On failure it
+does not delete a possibly raced path. Callers must inspect or remove an
+incomplete destination themselves under separate authority.
+
 ## Output and error contract
 
 The standalone target uses JSON by default. A successful non-streaming command writes exactly one newline-terminated JSON object to stdout. Diagnostics go to stderr and never contaminate stdout. Human output requires explicit `--output text`; an unsupported projection fails before configuration, credentials, process launch, or network access.
 
-Stable success objects contain `schema`, `schema_version`, `contract_version`, `command`, `status`, and command-specific `result`. Stable error objects contain `schema`, `schema_version`, `contract_version`, `error`, `exit_class`, `kind`, and `retry_safe`. Typed local conditions—not provider or backend prose—select the error class.
+Pre-release success objects contain `schema`, `schema_version`,
+`contract_version`, `command`, `status`, and command-specific `result`.
+Pre-release error objects contain `schema`, `schema_version`,
+`contract_version`, `error`, `exit_class`, `kind`, `retry_safe`, and a closed
+`recovery` object. Typed local conditions—not provider or backend prose—select
+the error class. `agent-eval capabilities` reports exactly the machine-owned
+operation/mode rows above, including status, authority dimensions, ProcessAPI
+admission, and separate Agent Skills format variants; help/completion/process
+are meta surfaces rather than invented product operations.
 
 | Code | `exit_class` | Meaning |
 |---:|---|---|
@@ -111,7 +252,38 @@ Stable success objects contain `schema`, `schema_version`, `contract_version`, `
 | `10` | `outcome_unknown` | A non-replay-safe operation may have occurred and cannot be classified safely |
 | `11` | `interrupted` | Operation stopped before non-replay-safe commitment and is safe to resume |
 
-Unsupported or unknown required capability is `compatibility_error`, not a task failure. Policy refusal is not authentication failure. A known failed attempt may return `execution_failed`; its durable identity is not proof a retry is safe. The maintainer CLI is nonconforming until #1315, and a wrapper must not manufacture conformance by parsing its error strings.
+Unsupported or unknown required capability is `compatibility_error`, not a
+task failure. Policy refusal is not authentication failure. A known failed
+attempt may return `execution_failed`; its durable identity is not proof a
+retry is safe. Hidden maintainer routes retain their historical error behavior;
+a wrapper must not manufacture standalone conformance by parsing those strings.
+
+### One-request process surface
+
+`agent-eval process` accepts exactly one strictly decoded JSON request of at
+most 1 MiB and emits exactly one result or error envelope of at most 1 MiB.
+Unknown or duplicate members, explicit `null` arguments, invalid UTF-8,
+trailing values, nested collection/depth overflow, future schema or contract
+versions, and a second request fail closed. The only admitted operations are
+`version`, `capabilities`, `validate`, `compare`, and `inspect`; deterministic
+grade, Agent Skills import/export, meta commands, reserved operations, and all
+hidden maintainer routes are structurally refused.
+
+```json named-agent-eval-process-request
+{"schema":"agent-eval/process-request","schema_version":1,"contract_version":"0.1.0-pre-release","command":"version","mode":"execute","deadline_milliseconds":1000,"configuration":{"source":"none","environment":"none"},"arguments":[]}
+```
+
+Mode is `execute`, `dry-run`, or `explain`. Configuration is `none`, one exact
+config path, or one exact project root plus `none|portable-v1` environment;
+`version` and `capabilities` require all configuration fields to be `none`.
+The positive execution deadline is capped at 15 minutes and begins only after
+the complete bounded request is read and validated, so a caller must
+independently bound delivery of stdin. On expiry the coordinator cancels the
+in-process operation. Cooperative completion within 100 ms yields
+`interrupted,retry_safe:true`; otherwise it returns absorbing
+`outcome_unknown,retry_safe:false` while the uncooperative executor is not
+assumed stopped. No admitted ProcessAPI row has local-write, process, provider,
+backend, network, credential, or private-workspace authority.
 
 ## Compatibility policy
 
@@ -228,15 +400,18 @@ The internal `ATL_EVAL_*` registry, wrapper basenames, broker records, launch ar
 | `agent-eval/result` | Deterministic grading bound to scenario, observation, and grader |
 | `agent-eval/aggregate` | Comparable cohort summary with explicit denominators and exclusions |
 | `agent-eval/report` | Privacy-tiered projection of validated source artifacts |
+| `agent-eval/project-config` | Invocation-selected profile/model/repetition identity defaults; never authority, paths, credentials, or ambient discovery |
 | `agent-eval/adapter-manifest` | Closed component identity, one declared role and its operations, capabilities, protocol versions, configuration keys, and executable binding |
 | `agent-eval/adapter-message` | One bounded process-protocol frame under the selected role, operation, session, and attempt identity |
 | `agent-eval/extension-conformance-bundle` | Content-addressed ordinary cases for every supported operation plus one synchronized cancellation case in the manifest's declared role |
 | `agent-eval/extension-conformance-report` | Content-minimized protocol-only result; never proof of whole-product compatibility or host confinement |
 
-The test-only compatibility ledger records each of those four families at
-generation 1. Manifest, message, and bundle generations are readable, emitted,
-and executable; reports are readable and emitted but never executable.
-Manifests are public and capped at 64 KiB, messages are
+The test-only compatibility ledger records project config and each of those
+four extension families at generation 1. Project config, manifest, message,
+and bundle generations are readable, emitted, and executable; reports are
+readable and emitted but never executable. Project config is
+`public_or_private` and capped at 64 KiB. Manifests are public and capped at
+64 KiB, messages are
 `public_or_private` and capped at 1 MiB, bundles are public and capped at
 1 MiB, and reports are `content_minimized` and capped at 1 MiB. All four use
 `preserve` disposition and explicit migration. These pre-release registry rows
@@ -355,8 +530,9 @@ session, attempt, and invocation IDs, stderr, task bodies, prompts, evidence
 bodies, and private task or fixture identities. It may echo only the public
 structural IDs declared by the admitted manifest and bundle, subject to the same
 authoring obligation above. It is not the reserved standalone `compat verify`
-command, does not emit whole-product `compatible:true`, and retains the current
-maintainer command's plain-error/exit-1 behavior until #1315.
+command, does not emit whole-product `compatible:true`, and retains the hidden
+maintainer command's historical error behavior independently of the public
+pre-release coordinator.
 
 The local host copies an explicitly selected digest-bound executable into a
 fresh private runtime, supplies a closed synthetic environment and working
@@ -462,7 +638,15 @@ Numeric zero is a measurement only with `state:"observed"` and `coverage:true`. 
 
 A stable distribution publishes content-addressed synthetic fixtures. Provider-free conformance proves JSON/error/exit contracts; configuration precedence; no ambient authority discovery; pre-execution capability refusal; historical readability and future rejection; migration binding; missing-versus-zero behavior; component confinement; deterministic rereads; and no replay. This issue freezes the closed transition and proof vocabulary in test-only contract data; [#1317](https://github.com/isukharev/atl/issues/1317) owns its production ledger, recovery, and runtime conformance.
 
-The future provider-free conformance suite must use a temporary synthetic project, a closed environment, no provider/backend credentials, no configured private workspace, and no external network route. Its validation, import, migration-preview, comparison, and report fixtures must make provider/backend construction impossible and prove forward refusal before writes or process launch. The current test-only freeze does not claim those runtime boundaries are implemented.
+The current pre-release source conformance suite uses temporary synthetic
+projects, a closed environment, no provider/backend credentials, no configured
+private workspace, and no external network route. It executes every promoted
+row, reconciles runtime capabilities with the machine product contract, and
+proves reserved/ProcessAPI refusal before reading authority-bearing inputs.
+Agent Skills import/export additionally use only bounded local synthetic trees
+and one explicit new destination. Runtime conformance for the still-reserved
+lifecycle, native import, migration, reporting, provider-backed, and
+distribution surfaces remains future work.
 
 ## Privacy, placement, and release
 
@@ -472,4 +656,11 @@ Plans declare privacy class before execution; each component receives the minimu
 
 This contract does not move the evaluator. `internal/agenteval` remains an independent nested module; the root module must not add a `require`, `replace`, or tracked workspace for it. ATL behavior stays behind the selected-binary process/JSON boundary. Physical extraction remains governed by the [substrate decision](../../maintainers/agent-evaluator-substrates.md); this contract does not satisfy or authorize its gates.
 
-There is no standalone release, support window, public Go SDK, registry upload, or installation promise. [#1332](https://github.com/isukharev/atl/issues/1332) owns signed distribution and support. Stable status begins only at `first-conforming-signed-standalone-release` and requires a reviewed release identity, compatibility matrix, provider-free bundle, historical-readability evidence, security/support policy, and supported-platform statement. Until then, use the repository maintainer workflow and call the standalone surface pre-release and reserved.
+There is no standalone release, support window, public Go SDK, registry upload,
+or installation promise. [#1332](https://github.com/isukharev/atl/issues/1332)
+owns signed distribution and support. Stable status begins only at
+`first-conforming-signed-standalone-release` and requires a reviewed release
+identity, compatibility matrix, provider-free bundle, historical-readability
+evidence, security/support policy, and supported-platform statement. Until
+then, call only the marked source implementations pre-release and call every
+other row reserved.

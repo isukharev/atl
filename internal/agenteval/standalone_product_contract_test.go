@@ -202,6 +202,12 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 		{name: "unknown operation status", mutate: func(value *standaloneProductContractFixture) {
 			value.StandaloneOperations[0].CurrentStatus = "available"
 		}},
+		{name: "implemented operation left reserved", mutate: func(value *standaloneProductContractFixture) {
+			value.StandaloneOperations[0].StandaloneStatus = "reserved"
+		}},
+		{name: "pre-release status without implementation", mutate: func(value *standaloneProductContractFixture) {
+			value.StandaloneOperations[0].CurrentStatus = "maintainer_compat"
+		}},
 		{name: "unknown operation authority", mutate: func(value *standaloneProductContractFixture) { value.StandaloneOperations[0].Authority = "ambient" }},
 		{name: "unknown capability state", mutate: func(value *standaloneProductContractFixture) { value.CapabilityStates[0] = "accepted" }},
 		{name: "unknown metric state", mutate: func(value *standaloneProductContractFixture) { value.MetricStates[0] = "measured" }},
@@ -255,6 +261,7 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 		standaloneContractKey("standalone", "adapter-message"):              {current: 1, readable: []int{1}, emitted: []int{1}, executable: []int{1}},
 		standaloneContractKey("standalone", "extension-conformance-bundle"): {current: 1, readable: []int{1}, emitted: []int{1}, executable: []int{1}},
 		standaloneContractKey("standalone", "extension-conformance-report"): {current: 1, readable: []int{1}, emitted: []int{1}},
+		standaloneContractKey("standalone", "project-config"):               {current: StandaloneProjectConfigVersion, readable: []int{StandaloneProjectConfigVersion}, emitted: []int{StandaloneProjectConfigVersion}, executable: []int{StandaloneProjectConfigVersion}},
 	}
 	wantSchemaPolicies := map[string]standaloneArtifactPolicy{
 		standaloneContractKey("atl-profile", "activation-reference"):        {disposition: "preserve", privacy: "owner_private", migration: "compare_only", maxBytes: 1 << 20},
@@ -276,6 +283,7 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 		standaloneContractKey("standalone", "adapter-message"):              {disposition: "preserve", privacy: "public_or_private", migration: "explicit", maxBytes: 1 << 20},
 		standaloneContractKey("standalone", "extension-conformance-bundle"): {disposition: "preserve", privacy: "public", migration: "explicit", maxBytes: 1 << 20},
 		standaloneContractKey("standalone", "extension-conformance-report"): {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: 1 << 20},
+		standaloneContractKey("standalone", "project-config"):               {disposition: "preserve", privacy: "public_or_private", migration: "explicit", maxBytes: StandaloneProjectConfigMaxBytes},
 	}
 	for _, schema := range contract.ArtifactSchemas {
 		key := standaloneContractKey(schema.Namespace, schema.Kind)
@@ -354,10 +362,13 @@ func TestStandaloneContractClassifiesCurrentCommandsAndArtifacts(t *testing.T) {
 			aliasOwners[alias] = append(aliasOwners[alias], key)
 		}
 	}
-	for _, command := range []string{"run", "validate"} {
+	for command, want := range map[string]struct{ current, standalone string }{
+		"run":      {current: "maintainer_compat", standalone: "reserved"},
+		"validate": {current: "implemented_pre_release", standalone: "pre_release"},
+	} {
 		operation, ok := operationByID[standaloneOperationKey(command, "default")]
-		if !ok || operation.CurrentStatus != "maintainer_compat" || operation.StandaloneStatus != "reserved" {
-			t.Fatalf("current command %q classification=%+v", command, operation)
+		if !ok || operation.CurrentStatus != want.current || operation.StandaloneStatus != want.standalone {
+			t.Fatalf("current command %q classification=%+v, want %+v", command, operation, want)
 		}
 	}
 	wantAliasOwners := map[string][]string{
@@ -562,30 +573,32 @@ func TestStandaloneContractAuthorityMatrix(t *testing.T) {
 	}
 
 	type operationAuthority struct {
-		current, authority                                         string
+		current, standalone, authority                             string
 		localRead, localWrite, processSpawn                        bool
 		providerContact, backendContact, network, credentialAccess bool
 		privateWorkspaceAccess                                     bool
 	}
 	wantOperations := map[string]operationAuthority{
-		standaloneOperationKey("capabilities", "default"):        {current: "maintainer_compat", authority: "none"},
-		standaloneOperationKey("compare", "default"):             {current: "maintainer_compat", authority: "local_read", localRead: true},
-		standaloneOperationKey("compat verify", "provider-free"): {current: "maintainer_compat", authority: "verifier_execution", localRead: true, processSpawn: true},
-		standaloneOperationKey("grade", "deterministic"):         {current: "maintainer_compat", authority: "verifier_execution", localRead: true, processSpawn: true},
-		standaloneOperationKey("grade", "judge"):                 {current: "absent", authority: "provider_execution", localRead: true, processSpawn: true, providerContact: true, network: true, credentialAccess: true},
-		standaloneOperationKey("import", "default"):              {current: "absent", authority: "local_write", localRead: true, localWrite: true},
-		standaloneOperationKey("init", "default"):                {current: "private_maintainer_only", authority: "local_write", localWrite: true, privateWorkspaceAccess: true},
-		standaloneOperationKey("inspect", "default"):             {current: "maintainer_compat", authority: "local_read", localRead: true},
-		standaloneOperationKey("migrate apply", "default"):       {current: "private_maintainer_only", authority: "local_write", localRead: true, localWrite: true, privateWorkspaceAccess: true},
-		standaloneOperationKey("migrate preview", "default"):     {current: "private_maintainer_only", authority: "local_read", localRead: true, privateWorkspaceAccess: true},
-		standaloneOperationKey("plan", "default"):                {current: "private_maintainer_only", authority: "local_write", localRead: true, localWrite: true, privateWorkspaceAccess: true},
-		standaloneOperationKey("reconcile", "evidence-only"):     {current: "absent", authority: "local_write", localRead: true, localWrite: true, privateWorkspaceAccess: true},
-		standaloneOperationKey("report", "default"):              {current: "maintainer_compat", authority: "local_read", localRead: true},
-		standaloneOperationKey("resume", "default"):              {current: "private_maintainer_only", authority: "agent_execution", localRead: true, localWrite: true, processSpawn: true, providerContact: true, backendContact: true, network: true, credentialAccess: true, privateWorkspaceAccess: true},
-		standaloneOperationKey("run", "default"):                 {current: "maintainer_compat", authority: "agent_execution", localRead: true, localWrite: true, processSpawn: true, providerContact: true, backendContact: true, network: true, credentialAccess: true},
-		standaloneOperationKey("schema inspect", "default"):      {current: "absent", authority: "local_read", localRead: true},
-		standaloneOperationKey("validate", "default"):            {current: "maintainer_compat", authority: "local_read", localRead: true},
-		standaloneOperationKey("version", "default"):             {current: "absent", authority: "none"},
+		standaloneOperationKey("capabilities", "default"):        {current: "implemented_pre_release", standalone: "pre_release", authority: "none"},
+		standaloneOperationKey("compare", "default"):             {current: "implemented_pre_release", standalone: "pre_release", authority: "local_read", localRead: true},
+		standaloneOperationKey("compat verify", "provider-free"): {current: "maintainer_compat", standalone: "reserved", authority: "verifier_execution", localRead: true, processSpawn: true},
+		standaloneOperationKey("export", "agent-skills"):         {current: "implemented_pre_release", standalone: "pre_release", authority: "local_write", localRead: true, localWrite: true},
+		standaloneOperationKey("grade", "deterministic"):         {current: "implemented_pre_release", standalone: "pre_release", authority: "verifier_execution", localRead: true, processSpawn: true},
+		standaloneOperationKey("grade", "judge"):                 {current: "absent", standalone: "reserved", authority: "provider_execution", localRead: true, processSpawn: true, providerContact: true, network: true, credentialAccess: true},
+		standaloneOperationKey("import", "agent-skills"):         {current: "implemented_pre_release", standalone: "pre_release", authority: "local_read", localRead: true},
+		standaloneOperationKey("import", "default"):              {current: "absent", standalone: "reserved", authority: "local_write", localRead: true, localWrite: true},
+		standaloneOperationKey("init", "default"):                {current: "private_maintainer_only", standalone: "reserved", authority: "local_write", localWrite: true, privateWorkspaceAccess: true},
+		standaloneOperationKey("inspect", "default"):             {current: "implemented_pre_release", standalone: "pre_release", authority: "local_read", localRead: true},
+		standaloneOperationKey("migrate apply", "default"):       {current: "private_maintainer_only", standalone: "reserved", authority: "local_write", localRead: true, localWrite: true, privateWorkspaceAccess: true},
+		standaloneOperationKey("migrate preview", "default"):     {current: "private_maintainer_only", standalone: "reserved", authority: "local_read", localRead: true, privateWorkspaceAccess: true},
+		standaloneOperationKey("plan", "default"):                {current: "private_maintainer_only", standalone: "reserved", authority: "local_write", localRead: true, localWrite: true, privateWorkspaceAccess: true},
+		standaloneOperationKey("reconcile", "evidence-only"):     {current: "absent", standalone: "reserved", authority: "local_write", localRead: true, localWrite: true, privateWorkspaceAccess: true},
+		standaloneOperationKey("report", "default"):              {current: "maintainer_compat", standalone: "reserved", authority: "local_read", localRead: true},
+		standaloneOperationKey("resume", "default"):              {current: "private_maintainer_only", standalone: "reserved", authority: "agent_execution", localRead: true, localWrite: true, processSpawn: true, providerContact: true, backendContact: true, network: true, credentialAccess: true, privateWorkspaceAccess: true},
+		standaloneOperationKey("run", "default"):                 {current: "maintainer_compat", standalone: "reserved", authority: "agent_execution", localRead: true, localWrite: true, processSpawn: true, providerContact: true, backendContact: true, network: true, credentialAccess: true},
+		standaloneOperationKey("schema inspect", "default"):      {current: "absent", standalone: "reserved", authority: "local_read", localRead: true},
+		standaloneOperationKey("validate", "default"):            {current: "implemented_pre_release", standalone: "pre_release", authority: "local_read", localRead: true},
+		standaloneOperationKey("version", "default"):             {current: "implemented_pre_release", standalone: "pre_release", authority: "none"},
 	}
 	for _, operation := range contract.StandaloneOperations {
 		key := standaloneOperationKey(operation.ID, operation.Mode)
@@ -593,7 +606,7 @@ func TestStandaloneContractAuthorityMatrix(t *testing.T) {
 		if !ok {
 			t.Fatalf("operation %q has no reviewed authority classification", key)
 		}
-		if operation.CurrentStatus != want.current || operation.StandaloneStatus != "reserved" || operation.Authority != want.authority ||
+		if operation.CurrentStatus != want.current || operation.StandaloneStatus != want.standalone || operation.Authority != want.authority ||
 			standaloneBool(operation.LocalRead) != want.localRead || standaloneBool(operation.LocalWrite) != want.localWrite ||
 			standaloneBool(operation.ProcessSpawn) != want.processSpawn || standaloneBool(operation.ProviderContact) != want.providerContact ||
 			standaloneBool(operation.BackendContact) != want.backendContact || standaloneBool(operation.Network) != want.network ||
@@ -793,8 +806,9 @@ func validateStandaloneProductContractFixture(contract standaloneProductContract
 	for _, operation := range contract.StandaloneOperations {
 		key := standaloneOperationKey(operation.ID, operation.Mode)
 		if operation.ID == "" || operation.Mode == "" || key <= previous || seenOperations[key] ||
-			!standaloneOneOf(operation.CurrentStatus, "absent", "maintainer_compat", "private_maintainer_only") ||
-			operation.StandaloneStatus != "reserved" ||
+			!standaloneOneOf(operation.CurrentStatus, "absent", "implemented_pre_release", "maintainer_compat", "private_maintainer_only") ||
+			!standaloneOneOf(operation.StandaloneStatus, "pre_release", "reserved") ||
+			(operation.CurrentStatus == "implemented_pre_release") != (operation.StandaloneStatus == "pre_release") ||
 			!standaloneOneOf(operation.Authority, "agent_execution", "local_read", "local_write", "none", "provider_execution", "verifier_execution") ||
 			standaloneValidateSortedUniqueStrings("maintainer aliases", operation.MaintainerAliases, true) != nil ||
 			operation.LocalRead == nil || operation.LocalWrite == nil || operation.ProcessSpawn == nil || operation.ProviderContact == nil ||

@@ -108,7 +108,7 @@ func TestATLCoreEquivalenceReadableGenerations(t *testing.T) {
 	manifest := loadATLCoreEquivalenceManifest(t)
 	source := manifest.ReadabilitySource
 	goldens := loadStandaloneReadabilityGoldenFixture(t, standaloneGoldenBundle{Path: source.Path, SHA256: source.SHA256})
-	if len(goldens.Entries) != source.EntryCount || source.EntryCount != 36 {
+	if len(goldens.Entries) != source.EntryCount || source.EntryCount != 37 {
 		t.Fatalf("readability entries=%d, want %d", len(goldens.Entries), source.EntryCount)
 	}
 
@@ -425,7 +425,7 @@ func loadATLCoreEquivalenceManifest(t *testing.T) atlCoreEquivalenceManifest {
 	var manifest atlCoreEquivalenceManifest
 	decodeATLCoreEquivalenceJSON(t, data, &manifest)
 	if manifest.SchemaVersion != 1 || manifest.ReadabilitySource.Path != "testdata/standalone-readability-golden.v1.json" ||
-		manifest.ReadabilitySource.EntryCount != 36 || !standaloneValidSHA256(manifest.ReadabilitySource.SHA256) ||
+		manifest.ReadabilitySource.EntryCount != 37 || !standaloneValidSHA256(manifest.ReadabilitySource.SHA256) ||
 		!standaloneValidSHA256(manifest.ReadabilitySource.SemanticProjectionSHA256) ||
 		len(manifest.LegacyBaseline.RepositoryCommit) != 40 || !atlCoreEquivalenceHex(manifest.LegacyBaseline.RepositoryCommit) ||
 		!standaloneValidSHA256(manifest.LegacyBaseline.EvaluateSourceSHA256) ||

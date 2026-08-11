@@ -238,7 +238,7 @@ func standaloneGoldenSourceAllowed(entry standaloneReadabilityGoldenEntry) bool 
 		return entry.Namespace == "atl-profile" && entry.SourcePath == fmt.Sprintf("testdata/standalone-readability/%s-v%d.json", entry.Kind, entry.Version)
 	case "capability-catalog":
 		return entry.Namespace == "atl-profile" && entry.Version == CapabilityCatalogSchemaVersion && entry.SourcePath == "testdata/capability-catalog.v1.json"
-	case "adapter-manifest", "adapter-message", "extension-conformance-bundle", "extension-conformance-report":
+	case "adapter-manifest", "adapter-message", "extension-conformance-bundle", "extension-conformance-report", "project-config":
 		return entry.Namespace == "standalone" && entry.Version == 1 &&
 			entry.SourcePath == fmt.Sprintf("testdata/standalone-readability/%s-v1.json", entry.Kind)
 	default:
@@ -526,6 +526,24 @@ func standaloneDecodeExtensionReadabilityProjection(entry standaloneReadabilityG
 			"first_operation":     report.Cases[0].Operation,
 			"last_operation":      report.Cases[len(report.Cases)-1].Operation,
 			"protocol_conformant": report.ProtocolConformant,
+		}, nil
+	case "project-config":
+		config, err := DecodeStandaloneProjectConfig(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := EncodeStandaloneProjectConfig(config)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("project config golden is not canonical")
+		}
+		repetitions := 0
+		if config.Repetitions != nil {
+			repetitions = *config.Repetitions
+		}
+		return map[string]any{
+			"schema": config.Schema, "schema_version": config.SchemaVersion,
+			"contract_version": config.ContractVersion, "profile_configured": config.Profile != nil,
+			"model_configured": config.Model != nil, "repetitions": repetitions,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported standalone readability golden kind %q", entry.Kind)

@@ -1527,6 +1527,21 @@
         "last_operation": "validate",
         "protocol_conformant": true
       }
+    },
+    {
+      "namespace": "standalone",
+      "kind": "project-config",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/project-config-v1.json",
+      "source_sha256": "d448993dbaf544cbdb80487098245e6a26adcf55d2f41ea31f9390806221d965",
+      "expected_projection": {
+        "schema": "agent-eval/project-config",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "profile_configured": true,
+        "model_configured": true,
+        "repetitions": 3
+      }
     }
   ]
 }

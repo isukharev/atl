@@ -200,6 +200,8 @@ Start a new agent session after installation. The [agent setup guide](docs/agent
 covers focused skills, MCP/CLI routing, read-only policy, mirror placement, and
 version-skew recovery.
 
+[`agent-eval`](docs/reference/agent-eval/README.md) is pre-release.
+
 ## Safety and compatibility
 
 - `ATL_READ_ONLY=1` / `--read-only` blocks mutations before credentials, files,

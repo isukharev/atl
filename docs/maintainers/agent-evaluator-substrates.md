@@ -32,9 +32,16 @@ The module now separates an in-memory neutral `core` from the explicit built-in
 compatibility/composition facade and still owns durable schemas, selected-binary
 and route policy, execution, receipts, and private lifecycle code. This reduces
 generic API coupling without changing the physical-placement decision or
-claiming a standalone SDK. A recursive exact import ledger and vocabulary
+claiming a standalone SDK. A bounded `interchange/agentskills` leaf may project
+external authoring artifacts into `core`, but it owns no execution, lifecycle,
+grader, or sandbox semantics. A recursive exact import ledger and vocabulary
 oracle enforce the direction; additional process, lifecycle, and distribution
 extraction remains subject to the issues and evidence gates that own it.
+The repository command now also contains a machine-tested pre-release
+coordinator for local validation, deterministic grading, comparison,
+inspection, and Agent Skills import/export. That source surface is unsigned,
+does not expose the Go packages as an SDK, does not move the module, and does
+not satisfy the distribution or external-consumer gates below.
 
 The nested module's schema-v1 extension protocol is also implementation
 evidence, not extraction evidence. It defines a closed process seam for
@@ -101,9 +108,10 @@ allows that initiative to be proposed; it does not authorize a move.
 
 A standalone implementation or external substrate must first conform to the
 [normative pre-release agent-eval contract](../reference/agent-eval/README.md).
-That contract reserves the generic product boundary while this decision remains
-authoritative for repository placement, current ATL-profile behavior, and the
-evidence gates for extraction or adapter adoption.
+That contract defines the generic product boundary and marks the bounded rows
+implemented in repository source while this decision remains authoritative for
+repository placement, current ATL-profile behavior, and the evidence gates for
+extraction or adapter adoption.
 
 A replacement or hybrid must preserve all of these properties:
 

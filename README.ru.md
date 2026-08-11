@@ -210,6 +210,8 @@ codex plugin add atl@atl
 описывает focused skills, выбор MCP/CLI, read-only policy, размещение зеркала и
 восстановление после version skew.
 
+[`agent-eval`](docs/reference/agent-eval/README.md) находится в pre-release.
+
 ## Безопасность и совместимость
 
 - `ATL_READ_ONLY=1` / `--read-only` блокирует remote mutations до чтения

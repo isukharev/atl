@@ -3,7 +3,7 @@
   "contract_version": "0.1.0-pre-release",
   "golden_bundle": {
     "path": "testdata/standalone-readability-golden.v1.json",
-    "sha256": "d8abd2f0623ec80a4280ebe47995f5a0b761e34cc2f0a43addcb989da0d3b9e1"
+    "sha256": "0924b9da57c9a069a9f3057f1a34b11bd6f0549e0f7e9899faf3ae4349b209b7"
   },
   "readability": [
     {"namespace":"atl-profile","kind":"activation-reference","versions":[1,2]},
@@ -21,7 +21,8 @@
     {"namespace":"standalone","kind":"adapter-manifest","versions":[1]},
     {"namespace":"standalone","kind":"adapter-message","versions":[1]},
     {"namespace":"standalone","kind":"extension-conformance-bundle","versions":[1]},
-    {"namespace":"standalone","kind":"extension-conformance-report","versions":[1]}
+    {"namespace":"standalone","kind":"extension-conformance-report","versions":[1]},
+    {"namespace":"standalone","kind":"project-config","versions":[1]}
   ],
   "forward_rejection": [
     {"namespace":"atl-profile","kind":"activation-reference","version":3},
@@ -40,7 +41,8 @@
     {"namespace":"standalone","kind":"adapter-message","version":2},
     {"namespace":"standalone","kind":"extension-conformance-bundle","version":2},
     {"namespace":"standalone","kind":"extension-conformance-report","version":2},
-    {"namespace":"standalone","kind":"product-contract","version":2}
+    {"namespace":"standalone","kind":"product-contract","version":2},
+    {"namespace":"standalone","kind":"project-config","version":2}
   ],
   "metric_vectors": [
     {"id":"legacy-not-applicable-zero","representation":"atl-profile-legacy","present":true,"required":true,"state":"not_applicable","coverage":false,"value":0,"valid":false},

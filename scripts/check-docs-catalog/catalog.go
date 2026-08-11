@@ -158,7 +158,7 @@ func approvedMarkdownPath(path string) bool {
 	}
 	for _, prefix := range []string{
 		".agents/skills/", ".github/", "benchmarks/agent-eval/", "docs/", "internal/cli/testdata/",
-		"plugins/atl/skills/", "skills-src/", "skills/",
+		"internal/agenteval/interchange/agentskills/testdata/", "plugins/atl/skills/", "skills-src/", "skills/",
 	} {
 		if strings.HasPrefix(path, prefix) {
 			return true
