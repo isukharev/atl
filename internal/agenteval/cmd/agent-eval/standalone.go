@@ -41,13 +41,15 @@ type standaloneExitClass struct {
 }
 
 var (
-	standaloneUsageError          = standaloneExitClass{2, "usage_error", "command usage rejected", "fix_usage"}
-	standaloneConfigurationError  = standaloneExitClass{3, "configuration_error", "configuration rejected", "complete_configuration"}
-	standaloneInputError          = standaloneExitClass{4, "input_error", "input rejected", "fix_input"}
-	standaloneCompatibilityError  = standaloneExitClass{5, "compatibility_error", "operation unavailable", "select_compatible_component"}
-	standaloneInternalError       = standaloneExitClass{1, "internal_error", "internal failure", "report_bug"}
-	standaloneOutcomeUnknownError = standaloneExitClass{10, "outcome_unknown", "outcome unknown", "reconcile_outcome"}
-	standaloneInterruptedError    = standaloneExitClass{11, "interrupted", "operation interrupted", "resume"}
+	standaloneUsageError           = standaloneExitClass{2, "usage_error", "command usage rejected", "fix_usage"}
+	standaloneConfigurationError   = standaloneExitClass{3, "configuration_error", "configuration rejected", "complete_configuration"}
+	standaloneInputError           = standaloneExitClass{4, "input_error", "input rejected", "fix_input"}
+	standaloneCompatibilityError   = standaloneExitClass{5, "compatibility_error", "operation unavailable", "select_compatible_component"}
+	standalonePolicyDeniedError    = standaloneExitClass{6, "policy_denied", "policy denied", "request_authority"}
+	standaloneExecutionFailedError = standaloneExitClass{8, "execution_failed", "execution failed", "inspect_execution"}
+	standaloneInternalError        = standaloneExitClass{1, "internal_error", "internal failure", "report_bug"}
+	standaloneOutcomeUnknownError  = standaloneExitClass{10, "outcome_unknown", "outcome unknown", "reconcile_outcome"}
+	standaloneInterruptedError     = standaloneExitClass{11, "interrupted", "operation interrupted", "resume"}
 )
 
 var standaloneExitClassRegistry = [...]standaloneExitClass{
@@ -57,9 +59,9 @@ var standaloneExitClassRegistry = [...]standaloneExitClass{
 	standaloneConfigurationError,
 	standaloneInputError,
 	standaloneCompatibilityError,
-	{6, "policy_denied", "policy denied", "request_authority"},
+	standalonePolicyDeniedError,
 	{7, "authentication_failed", "authentication failed", "reauthenticate"},
-	{8, "execution_failed", "execution failed", "inspect_execution"},
+	standaloneExecutionFailedError,
 	{9, "check_failed", "check failed", "review_failed_check"},
 	standaloneOutcomeUnknownError,
 	standaloneInterruptedError,
@@ -162,6 +164,25 @@ func standaloneCommandTree() standaloneCommandDescriptor {
 		standaloneOptionDescriptor{Name: "--destination", Value: "ABSOLUTE_DIR", Description: "write one exact clean and previously nonexistent destination"},
 		standaloneOptionDescriptor{Name: "--case-directory", Value: "ID=iteration-N/eval-slug", Description: "bind each Guide case to one exact workspace directory; repeat as needed"},
 	)
+	schemaInspectOptions := []standaloneOptionDescriptor{
+		{Name: "--namespace", Value: "ID", Description: "select the exact schema namespace"},
+		{Name: "--kind", Value: "ID", Description: "select the exact artifact kind"},
+		{Name: "--output", Value: "json|text", Description: "select JSON (default) or explicit human output"},
+	}
+	migrationOptions := []standaloneOptionDescriptor{
+		{Name: "--namespace", Value: "ID", Description: "select the exact schema namespace"},
+		{Name: "--kind", Value: "ID", Description: "select the exact artifact kind"},
+		{Name: "--from", Value: "VERSION", Description: "select the exact source generation"},
+		{Name: "--to", Value: "VERSION", Description: "select the exact target generation"},
+		{Name: "--root", Value: "DIR", Description: "select the exact owner-private workspace root"},
+		{Name: "--repository-root", Value: "DIR", Description: "bind the exact repository root (default .)"},
+		{Name: "--output", Value: "json|text", Description: "select JSON (default) or explicit human output"},
+	}
+	migrationApplyOptions := append([]standaloneOptionDescriptor(nil), migrationOptions...)
+	migrationApplyOptions = append(migrationApplyOptions,
+		standaloneOptionDescriptor{Name: "--expected-preview-sha256", Value: "SHA256", Description: "bind the exact reviewed preview"},
+		standaloneOptionDescriptor{Name: "--confirm", Value: "MIGRATE", Description: "authorize the reviewed local mutation"},
+	)
 	return standaloneCommandDescriptor{
 		Name:    "agent-eval",
 		Summary: "validate, execute, and compare bounded agent evaluations",
@@ -192,11 +213,11 @@ func standaloneCommandTree() standaloneCommandDescriptor {
 			{Name: "report", Summary: "render a read-only standalone report", Usage: "agent-eval report --format FORMAT [options]", Options: common},
 			{Name: "inspect", Summary: "inspect configuration provenance or a benchmark corpus", Usage: "agent-eval inspect --kind configuration|corpus [options]", Examples: []string{"agent-eval inspect --kind configuration --project . --explain"}, Options: append([]standaloneOptionDescriptor{{Name: "--kind", Value: "configuration|corpus|artifact", Description: "inspection target"}, {Name: "--root", Value: "DIR", Description: "corpus root"}}, common...), Available: true, ProcessAPI: true},
 			{Name: "schema", Summary: "inspect standalone artifact schema support", Usage: "agent-eval schema <command>", Children: []standaloneCommandDescriptor{
-				{Name: "inspect", Summary: "inspect a versioned artifact schema", Usage: "agent-eval schema inspect [options]", Options: common},
+				{Name: "inspect", Summary: "inspect a versioned artifact schema", Usage: "agent-eval schema inspect --namespace ID --kind ID [--output json|text]", Options: schemaInspectOptions, Available: true, ProcessAPI: true},
 			}},
 			{Name: "migrate", Summary: "preview or apply an explicit artifact migration", Usage: "agent-eval migrate <command>", Children: []standaloneCommandDescriptor{
-				{Name: "preview", Summary: "produce a reviewed migration preview without changing source bytes", Usage: "agent-eval migrate preview [options]", Options: common},
-				{Name: "apply", Summary: "apply an exactly reviewed migration", Usage: "agent-eval migrate apply [options]", Options: common},
+				{Name: "preview", Summary: "produce a reviewed migration preview without changing source bytes", Usage: "agent-eval migrate preview --namespace ID --kind ID --from VERSION --to VERSION --root DIR [options]", Options: migrationOptions, Available: true, ProcessAPI: true},
+				{Name: "apply", Summary: "apply an exactly reviewed migration", Usage: "agent-eval migrate apply --namespace ID --kind ID --from VERSION --to VERSION --root DIR --expected-preview-sha256 SHA256 --confirm MIGRATE [options]", Options: migrationApplyOptions, Available: true, ProcessAPI: true},
 			}},
 			{Name: "compat", Summary: "verify provider-free component compatibility", Usage: "agent-eval compat <command>", Children: []standaloneCommandDescriptor{
 				{Name: "verify", Summary: "verify a selected local component", Usage: "agent-eval compat verify --target TARGET [options]", Options: append([]standaloneOptionDescriptor{{Name: "--target", Value: "atl|codex-skill-package|extension-protocol", Description: "selected compatibility target"}}, common...)},
@@ -467,6 +488,12 @@ func executeStandaloneContext(ctx context.Context, args []string) (standaloneOut
 		return standaloneExecuteAgentSkillsImport(ctx, commandArgs)
 	case "export agent-skills":
 		return standaloneExecuteAgentSkillsExport(ctx, commandArgs)
+	case "schema inspect":
+		return standaloneExecuteSchemaInspect(ctx, commandArgs)
+	case "migrate preview":
+		return standaloneExecuteMigrationPreview(ctx, commandArgs)
+	case "migrate apply":
+		return standaloneExecuteMigrationApply(ctx, commandArgs)
 	default:
 		return standaloneOutcome{}, standaloneFail(standaloneCompatibilityError, "operation_unavailable")
 	}
@@ -512,8 +539,11 @@ func standaloneExecuteVersion(args []string) (standaloneOutcome, *standaloneFail
 			{ID: "agent-skills-import-report", Version: agenteval.AgentSkillsImportReportVersion},
 			{ID: "command-error", Version: 1},
 			{ID: "command-result", Version: 1},
+			{ID: "migration-preview", Version: agenteval.StandaloneMigrationArtifactVersion},
+			{ID: "migration-result", Version: agenteval.StandaloneMigrationArtifactVersion},
 			{ID: "process-request", Version: 1},
 			{ID: "project-config", Version: 1},
+			{ID: "schema-registry", Version: agenteval.StandaloneSchemaRegistryVersion},
 		},
 		Protocols: []standaloneSupportedVersion{
 			{ID: "extension", Version: 1},
@@ -580,9 +610,12 @@ func standaloneProductCapabilities() []standaloneCapability {
 		"import/agent-skills": {
 			formats: []string{standaloneAgentSkillsVariantAuto, standaloneAgentSkillsVariantGuide, standaloneAgentSkillsVariantAnthropic},
 		},
-		"inspect/default":  {processAPI: true},
-		"validate/default": {processAPI: true},
-		"version/default":  {processAPI: true},
+		"inspect/default":         {processAPI: true},
+		"migrate apply/default":   {processAPI: true},
+		"migrate preview/default": {processAPI: true},
+		"schema inspect/default":  {processAPI: true},
+		"validate/default":        {processAPI: true},
+		"version/default":         {processAPI: true},
 	}
 	profiles := standaloneAuthorityProfiles()
 	capabilities := make([]standaloneCapability, 0, len(profiles))

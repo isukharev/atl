@@ -19,9 +19,6 @@ func TestStandaloneUnavailableCommandsFailBeforeConfigurationOrAuthority(t *test
 		{"resume", "--config", marker},
 		{"reconcile", "--config", marker},
 		{"report", "--config", marker},
-		{"schema", "inspect", "--config", marker},
-		{"migrate", "preview", "--config", marker},
-		{"migrate", "apply", "--config", marker},
 		{"compat", "verify", "--target", "atl", "--config", marker},
 		{"grade", "--mode", "judge", "--scenario", marker, "--observation", marker, "--config", marker},
 	} {
@@ -85,11 +82,11 @@ func TestStandaloneProcessAPIAuthorityRatchet(t *testing.T) {
 		command := strings.Join(path, " ")
 		processCommands[command] = true
 		authority, found := standaloneAuthorityProfileFor(command, "default")
-		if !found || !standaloneProcessAuthorityAllowed(authority.standaloneAuthorityDimensions) {
+		if !found || !standaloneProcessAuthorityAllowed(command, authority.standaloneAuthorityDimensions) {
 			t.Fatalf("unsafe ProcessAPI descriptor %q: found=%t authority=%+v", command, found, authority)
 		}
 	})
-	for _, command := range []string{"version", "capabilities", "validate", "compare", "inspect"} {
+	for _, command := range []string{"version", "capabilities", "validate", "compare", "inspect", "schema inspect", "migrate preview", "migrate apply"} {
 		if !processCommands[command] {
 			t.Fatalf("safe ProcessAPI command %q missing from ratchet: %v", command, processCommands)
 		}

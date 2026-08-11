@@ -221,6 +221,15 @@ vocabulary. The standalone contract preserves their historical meaning under
 the `atl-profile` namespace and requires an explicit reviewed migration for any
 new generic representation.
 
+The embedded standalone schema registry is the exhaustive machine authority
+for every durable evaluator family: owner, current/readable/emitted/executable
+generations, privacy, disposition, byte bound, schema resource, and migration
+policy. The product-contract fixture is checked as an exact projection of that
+registry. Registry membership never makes legacy evidence executable, and a
+readable generation without a reviewed migration edge remains read-only under
+its declared comparison or preservation policy. The only current edge is the
+owner-private workspace v3 to v4 migration described below.
+
 Scenario files describe task class, capabilities, required oracle checks, and
 hard budgets. Zero is a real zero rather than an unbounded sentinel. This makes
 remote writes, model turns, and cost explicit in every scenario. A synthetic
@@ -1618,11 +1627,16 @@ calibrated schema v3 rather than the
 legacy per-surface state.
 
 A healthy workspace-manifest v3 remains inspectable but is read-only for new
-plans. The maintainer command `agent-eval private migrate` first emits a
-content-bound schema-v4 projection without changing the workspace; apply
-requires that exact migration digest and `MIGRATE`. The projection changes only
-the manifest schema version. Executable reviewer settings and their reserve are
-an explicit subsequent v4 configuration choice and are bound by the fresh plan.
+plans. The pre-release standalone `schema inspect` command exposes the
+content-addressed registry entry. `migrate preview` first emits a
+content-minimized source/candidate/implementation/registry binding without
+changing the workspace; `migrate apply` requires that exact preview digest and
+`MIGRATE`. Apply retains the exact v3 bytes in the migration archive, installs
+only the canonical v4 bytes, and records one exclusive idempotent receipt. The
+projection changes only the manifest schema version. The existing
+`agent-eval private migrate` route remains the maintainer compatibility alias.
+Executable reviewer settings and their reserve are an explicit subsequent v4
+configuration choice and are bound by the fresh plan.
 
 One activation-study plan and one consent bind the common contract, all four
 exact treatment contracts, tool-availability qualification contract and

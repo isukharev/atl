@@ -509,7 +509,15 @@ func runPrivateStudyCommand(args []string, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		return writePrivateJSON(out, report)
+		data, err := agenteval.EncodePrivateActivationReport(report)
+		if err != nil {
+			return err
+		}
+		written, err := out.Write(data)
+		if err == nil && written != len(data) {
+			err = io.ErrShortWrite
+		}
+		return err
 	case "promote":
 		flags := privateFlagSet("private study promote")
 		var root, repositoryRoot, reference, confirm string

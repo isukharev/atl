@@ -37,6 +37,38 @@
     },
     {
       "namespace": "atl-profile",
+      "kind": "activation-report",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/activation-report-v1.json",
+      "source_sha256": "6c62bff5e33add73c26ed38aed49ea861011cb0dc7bb63ada7821474113d0375",
+      "expected_projection": {
+        "schema_version": 1,
+        "treatment_count": 4,
+        "metric_count": 0,
+        "contrast_count": 0,
+        "capture_eligible": true,
+        "causal_eligible": false,
+        "promotion_eligible": false
+      }
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "activation-report",
+      "version": 2,
+      "source_path": "testdata/standalone-readability/activation-report-v2.json",
+      "source_sha256": "964c7e9b462923cf60525663b8604a929f3ae168a12accee025d6141455fb506",
+      "expected_projection": {
+        "schema_version": 2,
+        "treatment_count": 4,
+        "metric_count": 24,
+        "contrast_count": 0,
+        "capture_eligible": true,
+        "causal_eligible": false,
+        "promotion_eligible": false
+      }
+    },
+    {
+      "namespace": "atl-profile",
       "kind": "capability-catalog",
       "version": 1,
       "source_path": "testdata/capability-catalog.v1.json",
@@ -1663,6 +1695,46 @@
     },
     {
       "namespace": "standalone",
+      "kind": "migration-preview",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/migration-preview-v1.json",
+      "source_sha256": "c5eafe120cad03fd84df59ec021ed4a16921e8c26b5dfb35fdcfcbc9f2556d78",
+      "expected_projection": {
+        "schema": "agent-eval/migration-preview",
+        "schema_version": 1,
+        "status": "ready",
+        "namespace": "atl-profile",
+        "kind": "private-workspace",
+        "from": 3,
+        "to": 4,
+        "privacy": "owner_private",
+        "count_count": 3,
+        "preview_digest_bound": true,
+        "registry_digest_bound": true,
+        "implementation_digest_bound": true
+      }
+    },
+    {
+      "namespace": "standalone",
+      "kind": "migration-result",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/migration-result-v1.json",
+      "source_sha256": "46e9c61b2db32c04792b8e747e139f741ec688ce7421d3bc5eae544800021063",
+      "expected_projection": {
+        "schema": "agent-eval/migration-result",
+        "schema_version": 1,
+        "status": "migrated",
+        "namespace": "atl-profile",
+        "kind": "private-workspace",
+        "from": 3,
+        "to": 4,
+        "preview_digest_bound": true,
+        "registry_digest_bound": true,
+        "implementation_digest_bound": true
+      }
+    },
+    {
+      "namespace": "standalone",
       "kind": "project-config",
       "version": 1,
       "source_path": "testdata/standalone-readability/project-config-v1.json",
@@ -1674,6 +1746,22 @@
         "profile_configured": true,
         "model_configured": true,
         "repetitions": 3
+      }
+    },
+    {
+      "namespace": "standalone",
+      "kind": "schema-registry",
+      "version": 1,
+      "source_path": "schemaregistry/registry.v1.json",
+      "source_sha256": "e3f84c665ce6aa11dba2b9648d758eabd233fd1479149541ce90546835a38360",
+      "expected_projection": {
+        "schema": "agent-eval/schema-registry",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "entry_count": 28,
+        "first_schema": "atl-profile/activation-reference",
+        "last_schema": "standalone/schema-registry",
+        "migration_edge_count": 1
       }
     }
   ]

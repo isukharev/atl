@@ -3,10 +3,11 @@
   "contract_version": "0.1.0-pre-release",
   "golden_bundle": {
     "path": "testdata/standalone-readability-golden.v1.json",
-    "sha256": "438f18c0d56514ffbb0020773f5f2260fcef72ac92eb1545c327be63a50db2a1"
+    "sha256": "d001264c56c7df3a3d683469d52ee4ee1565a9404b00cd8cc19feeb815ec8cfe"
   },
   "readability": [
     {"namespace":"atl-profile","kind":"activation-reference","versions":[1,2]},
+    {"namespace":"atl-profile","kind":"activation-report","versions":[1,2]},
     {"namespace":"atl-profile","kind":"capability-catalog","versions":[1]},
     {"namespace":"atl-profile","kind":"observation","versions":[5]},
     {"namespace":"atl-profile","kind":"private-plan","versions":[1,2,3,4,5,6,7,8,9]},
@@ -27,10 +28,14 @@
     {"namespace":"standalone","kind":"attempt-plan","versions":[1]},
     {"namespace":"standalone","kind":"extension-conformance-bundle","versions":[1]},
     {"namespace":"standalone","kind":"extension-conformance-report","versions":[1]},
-    {"namespace":"standalone","kind":"project-config","versions":[1]}
+    {"namespace":"standalone","kind":"migration-preview","versions":[1]},
+    {"namespace":"standalone","kind":"migration-result","versions":[1]},
+    {"namespace":"standalone","kind":"project-config","versions":[1]},
+    {"namespace":"standalone","kind":"schema-registry","versions":[1]}
   ],
   "forward_rejection": [
     {"namespace":"atl-profile","kind":"activation-reference","version":3},
+    {"namespace":"atl-profile","kind":"activation-report","version":3},
     {"namespace":"atl-profile","kind":"capability-catalog","version":2},
     {"namespace":"atl-profile","kind":"observation","version":6},
     {"namespace":"atl-profile","kind":"private-plan","version":10},
@@ -51,8 +56,11 @@
     {"namespace":"standalone","kind":"attempt-plan","version":2},
     {"namespace":"standalone","kind":"extension-conformance-bundle","version":2},
     {"namespace":"standalone","kind":"extension-conformance-report","version":2},
+    {"namespace":"standalone","kind":"migration-preview","version":2},
+    {"namespace":"standalone","kind":"migration-result","version":2},
     {"namespace":"standalone","kind":"product-contract","version":2},
-    {"namespace":"standalone","kind":"project-config","version":2}
+    {"namespace":"standalone","kind":"project-config","version":2},
+    {"namespace":"standalone","kind":"schema-registry","version":2}
   ],
   "metric_vectors": [
     {"id":"legacy-not-applicable-zero","representation":"atl-profile-legacy","present":true,"required":true,"state":"not_applicable","coverage":false,"value":0,"valid":false},

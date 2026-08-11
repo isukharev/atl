@@ -339,28 +339,35 @@ func loadPrivateWorkspaceMigration(root, repository string, allowRecoverable boo
 	if err != nil {
 		return privateWorkspaceMigrationMaterial{}, err
 	}
+	status := "ready"
+	if currentExists {
+		status = "recoverable"
+	}
+	preview, err := buildPrivateWorkspaceMigrationPreview(sourceData, candidateData, counts, status)
+	if err != nil {
+		return privateWorkspaceMigrationMaterial{}, err
+	}
+	return privateWorkspaceMigrationMaterial{root: root, rootInfo: rootInfo, legacyPath: legacyPath, currentPath: currentPath,
+		stagePath: stagePath, archivePath: archivePath, sourcePath: sourcePath, sourceData: sourceData, sourceInfo: sourceInfo,
+		candidateInfo: candidateInfo, candidateData: candidateData, recoverable: currentExists,
+		sourceLegacy: legacyExists && !duplicateStageRecovery, staged: stageExists, duplicateLegacy: duplicateStageRecovery,
+		archived: archiveExists, manifest: manifest, protectedTree: protectedTree, preview: preview}, nil
+}
+
+func buildPrivateWorkspaceMigrationPreview(sourceData, candidateData []byte, counts PrivateWorkspaceCounts, status string) (PrivateWorkspaceMigrationPreview, error) {
 	contract := privateWorkspaceMigrationContract{Domain: privateWorkspaceMigrationDomain, SchemaVersion: PrivateWorkspaceMigrationSchemaVersion,
 		FromSchemaVersion: LegacyCalibratedWorkspaceSchemaVersion, ToSchemaVersion: PrivateWorkspaceSchemaVersion,
 		SourceName: LegacyCalibratedWorkspaceManifestName, CandidateName: PrivateWorkspaceManifestName,
 		SourceSHA256: sha256HexBytes(sourceData), CandidateSHA256: sha256HexBytes(candidateData)}
 	contractData, err := json.Marshal(contract)
 	if err != nil {
-		return privateWorkspaceMigrationMaterial{}, privateWorkspaceMigrationError("contract", err)
+		return PrivateWorkspaceMigrationPreview{}, privateWorkspaceMigrationError("contract", err)
 	}
-	status := "ready"
-	if currentExists {
-		status = "recoverable"
-	}
-	preview := PrivateWorkspaceMigrationPreview{SchemaVersion: PrivateWorkspaceMigrationSchemaVersion, Status: status,
+	return PrivateWorkspaceMigrationPreview{SchemaVersion: PrivateWorkspaceMigrationSchemaVersion, Status: status,
 		FromSchemaVersion: contract.FromSchemaVersion, ToSchemaVersion: contract.ToSchemaVersion,
 		SourceSHA256: contract.SourceSHA256, CandidateSHA256: contract.CandidateSHA256,
 		MigrationSHA256: sha256HexBytes(contractData), PreservedRunSets: counts.RunSets,
-		PreservedSpecRefs: counts.SpecReferences, PreservedRunRecords: counts.IncompleteRuns + counts.CompletedRuns + counts.PrunedRuns}
-	return privateWorkspaceMigrationMaterial{root: root, rootInfo: rootInfo, legacyPath: legacyPath, currentPath: currentPath,
-		stagePath: stagePath, archivePath: archivePath, sourcePath: sourcePath, sourceData: sourceData, sourceInfo: sourceInfo,
-		candidateInfo: candidateInfo, candidateData: candidateData, recoverable: currentExists,
-		sourceLegacy: legacyExists && !duplicateStageRecovery, staged: stageExists, duplicateLegacy: duplicateStageRecovery,
-		archived: archiveExists, manifest: manifest, protectedTree: protectedTree, preview: preview}, nil
+		PreservedSpecRefs: counts.SpecReferences, PreservedRunRecords: counts.IncompleteRuns + counts.CompletedRuns + counts.PrunedRuns}, nil
 }
 
 func validatePrivateWorkspaceMigrationHealth(root, repository string, manifest PrivateWorkspaceManifest, allowStage bool) (PrivateWorkspaceCounts, error) {
