@@ -332,11 +332,14 @@ func assertStandaloneCapabilitiesMatchProductContract(t *testing.T, capabilities
 		t.Fatalf("capability rows=%d contract rows=%d", len(capabilities), len(contract.StandaloneOperations))
 	}
 	processAPI := map[string]bool{
-		"capabilities/default": true,
-		"compare/default":      true,
-		"inspect/default":      true,
-		"validate/default":     true,
-		"version/default":      true,
+		"capabilities/default":    true,
+		"compare/default":         true,
+		"inspect/default":         true,
+		"migrate apply/default":   true,
+		"migrate preview/default": true,
+		"schema inspect/default":  true,
+		"validate/default":        true,
+		"version/default":         true,
 	}
 	formats := map[string][]string{
 		"export/agent-skills": {standaloneAgentSkillsVariantGuide, standaloneAgentSkillsVariantAnthropic},

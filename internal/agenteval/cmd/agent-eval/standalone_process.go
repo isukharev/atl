@@ -185,13 +185,13 @@ func standaloneValidateProcessRequest(request standaloneProcessRequest) ([]strin
 		return nil, standaloneFail(standaloneCompatibilityError, "operation_unavailable")
 	}
 	authority, found := standaloneAuthorityProfileFor(commandPath, "default")
-	if !found || !standaloneProcessAuthorityAllowed(authority.standaloneAuthorityDimensions) {
+	if !found || !standaloneProcessAuthorityAllowed(commandPath, authority.standaloneAuthorityDimensions) {
 		return nil, standaloneFail(standaloneCompatibilityError, "operation_unavailable")
 	}
 	if !standaloneInvocation(args) {
 		return nil, standaloneFail(standaloneCompatibilityError, "operation_unavailable")
 	}
-	if commandPath == "version" || commandPath == "capabilities" {
+	if commandPath == "version" || commandPath == "capabilities" || commandPath == "schema inspect" || strings.HasPrefix(commandPath, "migrate ") {
 		if request.Configuration.Source != "none" || request.Configuration.Path != "" || request.Configuration.Environment != "none" {
 			return nil, standaloneFail(standaloneConfigurationError, "configuration_not_allowed")
 		}
@@ -228,10 +228,18 @@ func standaloneValidateProcessRequest(request standaloneProcessRequest) ([]strin
 	return args, nil
 }
 
-func standaloneProcessAuthorityAllowed(authority standaloneAuthorityDimensions) bool {
-	return !authority.LocalWrite && !authority.ProcessSpawn && !authority.ProviderContact &&
-		!authority.BackendContact && !authority.Network && !authority.CredentialAccess &&
-		!authority.PrivateWorkspaceAccess
+func standaloneProcessAuthorityAllowed(command string, authority standaloneAuthorityDimensions) bool {
+	if authority.ProcessSpawn || authority.ProviderContact || authority.BackendContact || authority.Network || authority.CredentialAccess {
+		return false
+	}
+	switch command {
+	case "migrate apply":
+		return authority.LocalRead && authority.LocalWrite && authority.PrivateWorkspaceAccess
+	case "migrate preview":
+		return authority.LocalRead && !authority.LocalWrite && authority.PrivateWorkspaceAccess
+	default:
+		return !authority.LocalWrite && !authority.PrivateWorkspaceAccess
+	}
 }
 
 func standaloneProcessForbiddenMaintainerCommand(command string) bool {

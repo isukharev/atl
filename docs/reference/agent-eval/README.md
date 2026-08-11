@@ -72,14 +72,14 @@ operation must be structurally unable to acquire it.
 | `import` | `default` | `reserved` | `local_write` | Y | Y | N | N | N | N | N | N |
 | `init` | `default` | `reserved` | `local_write` | N | Y | N | N | N | N | N | Y |
 | `inspect` | `default` | `pre_release` | `local_read` | Y | N | N | N | N | N | N | N |
-| `migrate apply` | `default` | `reserved` | `local_write` | Y | Y | N | N | N | N | N | Y |
-| `migrate preview` | `default` | `reserved` | `local_read` | Y | N | N | N | N | N | N | Y |
+| `migrate apply` | `default` | `pre_release` | `local_write` | Y | Y | N | N | N | N | N | Y |
+| `migrate preview` | `default` | `pre_release` | `local_read` | Y | N | N | N | N | N | N | Y |
 | `plan` | `default` | `reserved` | `local_write` | Y | Y | N | N | N | N | N | Y |
 | `reconcile` | `evidence-only` | `reserved` | `local_write` | Y | Y | N | N | N | N | N | Y |
 | `report` | `default` | `reserved` | `local_read` | Y | N | N | N | N | N | N | N |
 | `resume` | `default` | `reserved` | `agent_execution` | Y | Y | Y | Y | Y | Y | Y | Y |
 | `run` | `default` | `reserved` | `agent_execution` | Y | Y | Y | Y | Y | Y | Y | N |
-| `schema inspect` | `default` | `reserved` | `local_read` | Y | N | N | N | N | N | N | N |
+| `schema inspect` | `default` | `pre_release` | `local_read` | Y | N | N | N | N | N | N | N |
 | `validate` | `default` | `pre_release` | `local_read` | Y | N | N | N | N | N | N | N |
 | `version` | `default` | `pre_release` | `none` | N | N | N | N | N | N | N | N |
 
@@ -90,7 +90,9 @@ compatibility view to a new explicit destination. The reserved generic
 `init` creates only the explicit project. `plan` writes an immutable plan to an
 explicit destination. `reconcile` may append only content-minimized local
 proof. `compare` and `report` consume existing local artifacts. Migration
-preview reads; apply writes a new explicit destination. `compat verify` may
+preview reads only the explicitly named private root; apply preserves the
+reviewed source bytes in the root's archive, installs the current candidate,
+and writes one content-minimized receipt. `compat verify` may
 spawn an isolated verifier but remains provider-, backend-, network-,
 credential-, and private-workspace-free. Deterministic grading has the same
 no-contact verifier ceiling even though the current in-process implementation
@@ -383,11 +385,19 @@ Existing evaluator artifacts retain their bytes and meaning under logical identi
 | `atl-profile/private-review-attempt@1..2` | v1–v2 | v2 | v1–v2 | `preserve`; `owner_private`; `compare_only`; v1 is historical evidence without a generic attempt binding |
 | `atl-profile/private-review-receipt@1..2` | v1–v2 | v2 | v1–v2 | `preserve`; `owner_private`; `compare_only`; v1 is historical evidence without a generic attempt binding |
 | `atl-profile/activation-reference@1..2` | v1–v2 | v2 | — | `preserve`; `owner_private`; `compare_only` reference envelope |
-| `atl-profile/activation-report@1..2` | — | v1–v2 | — | `write_only_projection`; `content_minimized`; `compare_only` |
+| `atl-profile/activation-report@1..2` | v1–v2 | v1–v2 | — | `preserve`; `content_minimized`; `compare_only` |
 
-Here, “readable” means accepted by the exact generation reader, “emitted” means the maintained evaluator can write that generation, and “executable” means the generation may enter its existing execution path. An empty column is a deliberate refusal, not missing registry data. In particular, a write-only aggregate or report can be compared only under its named projection contract; it cannot be reintroduced as source evidence or treated as a readable canonical artifact.
+Here, “readable” means accepted by the exact generation reader, “emitted” means the maintained evaluator can write that generation, and “executable” means the generation may enter its existing execution path. An empty column is a deliberate refusal, not missing registry data. In particular, a write-only aggregate can be compared only under its named projection contract; it cannot be reintroduced as source evidence or treated as a readable canonical artifact.
 
-[#1318](https://github.com/isukharev/atl/issues/1318) owns the exhaustive registry. Until then, existing decoders and tests remain authoritative for exact readable generations. This namespace does not make every readable artifact executable, comparable, promotable, or public.
+The embedded closed schema registry is the sole machine authority for every
+artifact family, owner, generation set, byte bound, privacy class,
+disposition, schema resource, and migration policy. The standalone product
+contract is an exact projection of that registry, not a second inventory. A
+content-addressed inspection reports the family entry and its migration graph;
+changing an owner, bound, policy, resource, edge, or implementation identity
+changes the registry digest and fails the compatibility oracle. Registry
+membership does not make a readable artifact executable, comparable,
+promotable, or public.
 
 The internal `ATL_EVAL_*` registry, wrapper basenames, broker records, launch arguments, and package-local Go types remain internal even when tests serialize them.
 
@@ -407,20 +417,26 @@ The internal `ATL_EVAL_*` registry, wrapper basenames, broker records, launch ar
 | `agent-eval/adapter-message` | One bounded process-protocol frame under the selected role, operation, session, and attempt identity |
 | `agent-eval/extension-conformance-bundle` | Content-addressed ordinary cases for every supported operation plus one synchronized cancellation case in the manifest's declared role |
 | `agent-eval/extension-conformance-report` | Content-minimized protocol-only result; never proof of whole-product compatibility or host confinement |
+| `agent-eval/migration-preview` | Content-minimized reviewed binding of source, candidate, registry, migration implementation, graph, and counts |
+| `agent-eval/migration-result` | Content-minimized idempotent receipt for one applied reviewed migration |
+| `agent-eval/schema-registry` | Public closed inventory of artifact ownership, generations, policies, bounds, resources, and reviewed migration edges |
 
-The test-only compatibility ledger records project config, the three durable
-attempt families (`agent-eval/attempt-ledger`, `agent-eval/attempt-plan`, and
+The compatibility ledger records project config, the schema registry, the two
+migration artifacts, the three durable attempt families
+(`agent-eval/attempt-ledger`, `agent-eval/attempt-plan`, and
 `agent-eval/attempt-event`), and each of the four extension families at
-generation 1. Project config, attempt records, manifest, message, and bundle
-generations are readable, emitted, and executable; extension reports are
-readable and emitted but never executable. Project config is
+generation 1. Project config, registry, attempt records, manifest, message, and
+bundle generations are readable, emitted, and executable; migration artifacts
+and extension reports are readable and emitted but never executable. Project config is
 `public_or_private` and capped at 64 KiB. Manifests are public and capped at
 64 KiB. Attempt headers are capped at 16 KiB and attempt plans and events at
 64 KiB per record; all three are `preserve`, `content_minimized`, and use
 explicit migration. Messages are
 `public_or_private` and capped at 1 MiB, bundles are public and capped at
-1 MiB, and reports are `content_minimized` and capped at 1 MiB. All four use
-`preserve` disposition and explicit migration. These pre-release registry rows
+1 MiB, and reports are `content_minimized` and capped at 1 MiB. Migration
+previews and results are `content_minimized`, capped at 64 KiB, and preserved;
+the public registry is capped at 1 MiB. All use explicit migration. These
+pre-release registry rows
 do not make a distribution or command stable. Public conformance cases have
 nonnull configuration and input arrays, use only public input and expected
 output references, and require `output_privacy:"public"`. The machine rejects
@@ -432,13 +448,33 @@ Every stable artifact has a closed `schema` and positive integer `schema_version
 
 Source bytes are immutable evidence. Import may create a normalized candidate but records the source identity and digest and never overwrites it. Migration never relabels an old hash as belonging to new bytes.
 
-Migration is preview/apply:
+Migration is preview/apply. The current registry contains exactly one reviewed
+edge, `atl-profile/private-workspace` v3 to v4. Every other historical readable
+generation is inspectable under its declared policy but has no inferred
+migration path.
 
-1. `migrate preview` strictly reads one named source and target without provider, backend, private-root discovery, or network access.
-2. It reports source/candidate identities, domain-separated digests, transformations, preserved counts, and any loss or eligibility change without sensitive content.
-3. `migrate apply` requires the unchanged source, target, preview digest, explicit destination, and explicit apply confirmation in one invocation.
-4. Apply revalidates, writes a new artifact atomically, and records provenance; it never silently replaces the source.
-5. Lossy conversion requires a separately named projection that cannot be mistaken for the source.
+1. `schema inspect --namespace <namespace> --kind <kind> --output json`
+   reads only the embedded public registry and reports its content hashes.
+2. `migrate preview --namespace atl-profile --kind private-workspace --from 3
+   --to 4 --root <absolute-private-root> --repository-root <root> --output
+   json` strictly reads the explicitly selected root without provider, backend,
+   credential, or network authority. It reports source/candidate,
+   implementation, graph, registry, and preview digests plus preserved counts,
+   never artifact contents or paths.
+3. `migrate apply` requires the same arguments plus the unchanged
+   `--expected-preview-sha256` and `--confirm MIGRATE` in the original
+   invocation. Confirmation is never read interactively.
+4. Apply revalidates every binding, uses the owner-private workspace lock,
+   preserves the exact v3 bytes in the migration archive, installs only the
+   canonical v4 candidate, syncs the durability boundaries, and records one
+   exclusive content-minimized receipt under the selected private root.
+5. Repeating the reviewed apply returns the same receipt. Missing, changed,
+   stale, ambiguous, interrupted, future, unversioned, or conflicting state
+   fails closed without replacing preserved evidence or inventing fields.
+6. The same three operations are available through the strict one-request
+   Process API. A deadline after entry without a completion acknowledgement is
+   `outcome_unknown` and must not trigger automatic replay; the stored receipt
+   and workspace state support an explicit idempotent recovery invocation.
 
 ## Process boundary and durable attempts
 

@@ -245,7 +245,7 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 
 	wantSchemas := map[string]standaloneArtifactCompatibility{
 		standaloneContractKey("atl-profile", "activation-reference"):        {current: PrivateActivationReferenceSchemaVersion, readable: []int{LegacyPrivateActivationReferenceSchemaVersion, PrivateActivationReferenceSchemaVersion}, emitted: []int{PrivateActivationReferenceSchemaVersion}},
-		standaloneContractKey("atl-profile", "activation-report"):           {current: PrivateActivationReportSchemaVersion, emitted: []int{LegacyPrivateActivationReportSchemaVersion, PrivateActivationReportSchemaVersion}},
+		standaloneContractKey("atl-profile", "activation-report"):           {current: PrivateActivationReportSchemaVersion, readable: []int{LegacyPrivateActivationReportSchemaVersion, PrivateActivationReportSchemaVersion}, emitted: []int{LegacyPrivateActivationReportSchemaVersion, PrivateActivationReportSchemaVersion}},
 		standaloneContractKey("atl-profile", "aggregate"):                   {current: AggregateSchemaVersion, emitted: []int{AggregateSchemaVersion}},
 		standaloneContractKey("atl-profile", "capability-catalog"):          {current: CapabilityCatalogSchemaVersion, readable: []int{CapabilityCatalogSchemaVersion}, emitted: []int{CapabilityCatalogSchemaVersion}, executable: []int{CapabilityCatalogSchemaVersion}},
 		standaloneContractKey("atl-profile", "observation"):                 {current: ObservationSchemaVersion, readable: []int{ObservationSchemaVersion}, emitted: []int{ObservationSchemaVersion}, executable: []int{ObservationSchemaVersion}},
@@ -268,11 +268,14 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 		standaloneContractKey("standalone", "attempt-plan"):                 {current: lifecycle.SchemaVersion, readable: []int{lifecycle.SchemaVersion}, emitted: []int{lifecycle.SchemaVersion}, executable: []int{lifecycle.SchemaVersion}},
 		standaloneContractKey("standalone", "extension-conformance-bundle"): {current: 1, readable: []int{1}, emitted: []int{1}, executable: []int{1}},
 		standaloneContractKey("standalone", "extension-conformance-report"): {current: 1, readable: []int{1}, emitted: []int{1}},
+		standaloneContractKey("standalone", "migration-preview"):            {current: StandaloneMigrationArtifactVersion, readable: []int{StandaloneMigrationArtifactVersion}, emitted: []int{StandaloneMigrationArtifactVersion}},
+		standaloneContractKey("standalone", "migration-result"):             {current: StandaloneMigrationArtifactVersion, readable: []int{StandaloneMigrationArtifactVersion}, emitted: []int{StandaloneMigrationArtifactVersion}},
 		standaloneContractKey("standalone", "project-config"):               {current: StandaloneProjectConfigVersion, readable: []int{StandaloneProjectConfigVersion}, emitted: []int{StandaloneProjectConfigVersion}, executable: []int{StandaloneProjectConfigVersion}},
+		standaloneContractKey("standalone", "schema-registry"):              {current: StandaloneSchemaRegistryVersion, readable: []int{StandaloneSchemaRegistryVersion}, emitted: []int{StandaloneSchemaRegistryVersion}, executable: []int{StandaloneSchemaRegistryVersion}},
 	}
 	wantSchemaPolicies := map[string]standaloneArtifactPolicy{
 		standaloneContractKey("atl-profile", "activation-reference"):        {disposition: "preserve", privacy: "owner_private", migration: "compare_only", maxBytes: 1 << 20},
-		standaloneContractKey("atl-profile", "activation-report"):           {disposition: "write_only_projection", privacy: "content_minimized", migration: "compare_only", maxBytes: 0},
+		standaloneContractKey("atl-profile", "activation-report"):           {disposition: "preserve", privacy: "content_minimized", migration: "compare_only", maxBytes: PrivateActivationReportMaxBytes},
 		standaloneContractKey("atl-profile", "aggregate"):                   {disposition: "write_only_projection", privacy: "content_minimized", migration: "compare_only", maxBytes: 1 << 20},
 		standaloneContractKey("atl-profile", "capability-catalog"):          {disposition: "preserve", privacy: "public", migration: "explicit", maxBytes: 1 << 20},
 		standaloneContractKey("atl-profile", "observation"):                 {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: 1 << 20},
@@ -295,7 +298,10 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 		standaloneContractKey("standalone", "attempt-plan"):                 {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: lifecycle.MaxPlanBytes},
 		standaloneContractKey("standalone", "extension-conformance-bundle"): {disposition: "preserve", privacy: "public", migration: "explicit", maxBytes: 1 << 20},
 		standaloneContractKey("standalone", "extension-conformance-report"): {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: 1 << 20},
+		standaloneContractKey("standalone", "migration-preview"):            {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: StandaloneMigrationArtifactMaxBytes},
+		standaloneContractKey("standalone", "migration-result"):             {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: StandaloneMigrationArtifactMaxBytes},
 		standaloneContractKey("standalone", "project-config"):               {disposition: "preserve", privacy: "public_or_private", migration: "explicit", maxBytes: StandaloneProjectConfigMaxBytes},
+		standaloneContractKey("standalone", "schema-registry"):              {disposition: "preserve", privacy: "public", migration: "explicit", maxBytes: StandaloneSchemaRegistryMaxBytes},
 	}
 	for _, schema := range contract.ArtifactSchemas {
 		key := standaloneContractKey(schema.Namespace, schema.Kind)
@@ -602,14 +608,14 @@ func TestStandaloneContractAuthorityMatrix(t *testing.T) {
 		standaloneOperationKey("import", "default"):              {current: "absent", standalone: "reserved", authority: "local_write", localRead: true, localWrite: true},
 		standaloneOperationKey("init", "default"):                {current: "private_maintainer_only", standalone: "reserved", authority: "local_write", localWrite: true, privateWorkspaceAccess: true},
 		standaloneOperationKey("inspect", "default"):             {current: "implemented_pre_release", standalone: "pre_release", authority: "local_read", localRead: true},
-		standaloneOperationKey("migrate apply", "default"):       {current: "private_maintainer_only", standalone: "reserved", authority: "local_write", localRead: true, localWrite: true, privateWorkspaceAccess: true},
-		standaloneOperationKey("migrate preview", "default"):     {current: "private_maintainer_only", standalone: "reserved", authority: "local_read", localRead: true, privateWorkspaceAccess: true},
+		standaloneOperationKey("migrate apply", "default"):       {current: "implemented_pre_release", standalone: "pre_release", authority: "local_write", localRead: true, localWrite: true, privateWorkspaceAccess: true},
+		standaloneOperationKey("migrate preview", "default"):     {current: "implemented_pre_release", standalone: "pre_release", authority: "local_read", localRead: true, privateWorkspaceAccess: true},
 		standaloneOperationKey("plan", "default"):                {current: "private_maintainer_only", standalone: "reserved", authority: "local_write", localRead: true, localWrite: true, privateWorkspaceAccess: true},
 		standaloneOperationKey("reconcile", "evidence-only"):     {current: "maintainer_compat", standalone: "reserved", authority: "local_write", localRead: true, localWrite: true, privateWorkspaceAccess: true},
 		standaloneOperationKey("report", "default"):              {current: "maintainer_compat", standalone: "reserved", authority: "local_read", localRead: true},
 		standaloneOperationKey("resume", "default"):              {current: "private_maintainer_only", standalone: "reserved", authority: "agent_execution", localRead: true, localWrite: true, processSpawn: true, providerContact: true, backendContact: true, network: true, credentialAccess: true, privateWorkspaceAccess: true},
 		standaloneOperationKey("run", "default"):                 {current: "maintainer_compat", standalone: "reserved", authority: "agent_execution", localRead: true, localWrite: true, processSpawn: true, providerContact: true, backendContact: true, network: true, credentialAccess: true},
-		standaloneOperationKey("schema inspect", "default"):      {current: "absent", standalone: "reserved", authority: "local_read", localRead: true},
+		standaloneOperationKey("schema inspect", "default"):      {current: "implemented_pre_release", standalone: "pre_release", authority: "local_read", localRead: true},
 		standaloneOperationKey("validate", "default"):            {current: "implemented_pre_release", standalone: "pre_release", authority: "local_read", localRead: true},
 		standaloneOperationKey("version", "default"):             {current: "implemented_pre_release", standalone: "pre_release", authority: "none"},
 	}

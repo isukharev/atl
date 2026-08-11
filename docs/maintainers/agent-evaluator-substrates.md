@@ -135,6 +135,8 @@ A replacement or hybrid must preserve all of these properties:
 - scorer independence from both the agent and the execution framework;
 - hard request, process, output, deadline, and cost admission bounds;
 - readable versioned historical artifacts;
+- one closed content-addressed schema registry for artifact ownership,
+  generations, privacy, bounds, resources, and reviewed migration edges;
 - a materially smaller maintenance and release surface than the current module.
 
 ## Evidence boundary

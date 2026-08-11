@@ -168,8 +168,8 @@ func standaloneValidateReadabilityGolden(t *testing.T, entry standaloneReadabili
 
 func standaloneDecodeFutureReadabilityGolden(t *testing.T, entry standaloneReadabilityGoldenEntry, version int) error {
 	t.Helper()
-	if entry.Namespace == "standalone" {
-		data, err := standaloneMutateExtensionSchemaVersion(standaloneGoldenDocument(t, entry), version)
+	if entry.Namespace == "standalone" || entry.Kind == "activation-report" {
+		data, err := standaloneMutateCanonicalSchemaVersion(standaloneGoldenDocument(t, entry), entry.Version, version)
 		if err != nil {
 			return err
 		}
@@ -189,26 +189,16 @@ func standaloneDecodeFutureReadabilityGolden(t *testing.T, entry standaloneReada
 	return err
 }
 
-func standaloneMutateExtensionSchemaVersion(data []byte, version int) ([]byte, error) {
-	if version < 1 || len(data) < 2 || data[len(data)-1] != '\n' || bytes.Count(data, []byte{'\n'}) != 1 {
-		return nil, fmt.Errorf("extension readability source framing is invalid")
+func standaloneMutateCanonicalSchemaVersion(data []byte, current, future int) ([]byte, error) {
+	if current < 1 || future < 1 || len(data) < 2 || data[len(data)-1] != '\n' || bytes.Count(data, []byte{'\n'}) != 1 {
+		return nil, fmt.Errorf("readability source framing is invalid")
 	}
-	var identity struct {
-		Schema        string `json:"schema"`
-		SchemaVersion int    `json:"schema_version"`
+	currentMember := []byte(`"schema_version":` + strconv.Itoa(current))
+	if bytes.Count(data, currentMember) != 1 {
+		return nil, fmt.Errorf("readability source schema identity is not canonical")
 	}
-	if err := json.Unmarshal(data, &identity); err != nil || identity.Schema == "" || identity.SchemaVersion != 1 {
-		return nil, fmt.Errorf("extension readability source identity is invalid")
-	}
-	prefix := []byte(`{"schema":` + strconv.Quote(identity.Schema) + `,"schema_version":1,`)
-	if !bytes.HasPrefix(data, prefix) {
-		return nil, fmt.Errorf("extension readability source is not canonical")
-	}
-	futurePrefix := []byte(`{"schema":` + strconv.Quote(identity.Schema) + `,"schema_version":` + strconv.Itoa(version) + `,`)
-	future := make([]byte, 0, len(data)+len(futurePrefix)-len(prefix))
-	future = append(future, futurePrefix...)
-	future = append(future, data[len(prefix):]...)
-	return future, nil
+	futureMember := []byte(`"schema_version":` + strconv.Itoa(future))
+	return bytes.Replace(data, currentMember, futureMember, 1), nil
 }
 
 func standaloneGoldenDocument(t *testing.T, entry standaloneReadabilityGoldenEntry) []byte {
@@ -235,13 +225,16 @@ func standaloneReadGoldenSource(t *testing.T, path, wantSHA256 string) []byte {
 
 func standaloneGoldenSourceAllowed(entry standaloneReadabilityGoldenEntry) bool {
 	switch entry.Kind {
-	case "activation-reference", "private-plan", "private-review-attempt", "private-review-receipt":
+	case "activation-reference", "activation-report", "private-plan", "private-review-attempt", "private-review-receipt":
 		return entry.Namespace == "atl-profile" && entry.SourcePath == fmt.Sprintf("testdata/standalone-readability/%s-v%d.json", entry.Kind, entry.Version)
 	case "capability-catalog":
 		return entry.Namespace == "atl-profile" && entry.Version == CapabilityCatalogSchemaVersion && entry.SourcePath == "testdata/capability-catalog.v1.json"
-	case "adapter-manifest", "adapter-message", "attempt-event", "attempt-ledger", "attempt-plan", "extension-conformance-bundle", "extension-conformance-report", "project-config":
+	case "adapter-manifest", "adapter-message", "attempt-event", "attempt-ledger", "attempt-plan", "extension-conformance-bundle", "extension-conformance-report", "migration-preview", "migration-result", "project-config":
 		return entry.Namespace == "standalone" && entry.Version == 1 &&
 			entry.SourcePath == fmt.Sprintf("testdata/standalone-readability/%s-v1.json", entry.Kind)
+	case "schema-registry":
+		return entry.Namespace == "standalone" && entry.Version == StandaloneSchemaRegistryVersion &&
+			entry.SourcePath == "schemaregistry/registry.v1.json"
 	default:
 		return false
 	}
@@ -277,6 +270,25 @@ func standaloneDecodeReadabilityProjection(t *testing.T, entry standaloneReadabi
 			"reference_alias": stored.ReferenceAlias, "plan_id": stored.PlanID,
 			"reference_version": stored.Reference.SchemaVersion, "cell_count": len(stored.Reference.Cells),
 			"causal_eligible": gates.CausalEligible, "promotion_eligible": gates.PromotionEligible,
+		}, nil
+	case "activation-report":
+		report, err := DecodePrivateActivationReport(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := EncodePrivateActivationReport(report)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("activation report golden is not canonical")
+		}
+		metricCount := 0
+		for _, treatment := range report.Treatments {
+			metricCount += len(treatment.Metrics)
+		}
+		return map[string]any{
+			"schema_version": report.SchemaVersion, "treatment_count": len(report.Treatments),
+			"metric_count": metricCount, "contrast_count": len(report.Contrasts),
+			"capture_eligible": report.Gates.CaptureEligible, "causal_eligible": report.Gates.CausalEligible,
+			"promotion_eligible": report.Gates.PromotionEligible,
 		}, nil
 	case "capability-catalog":
 		catalog, err := DecodeCapabilityCatalog(bytes.NewReader(data))
@@ -598,6 +610,36 @@ func standaloneDecodeExtensionReadabilityProjection(entry standaloneReadabilityG
 			"last_operation":      report.Cases[len(report.Cases)-1].Operation,
 			"protocol_conformant": report.ProtocolConformant,
 		}, nil
+	case "migration-preview":
+		preview, err := DecodeStandaloneMigrationPreview(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := EncodeStandaloneMigrationPreview(preview)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("migration preview golden is not canonical")
+		}
+		return map[string]any{
+			"schema": preview.Schema, "schema_version": preview.SchemaVersion, "status": preview.Status,
+			"namespace": preview.Namespace, "kind": preview.Kind, "from": preview.From, "to": preview.To,
+			"privacy": preview.Privacy, "count_count": len(preview.Counts), "preview_digest_bound": preview.PreviewSHA256 != "",
+			"registry_digest_bound": preview.RegistrySHA256 != "", "implementation_digest_bound": preview.ImplementationSHA256 != "",
+		}, nil
+	case "migration-result":
+		result, err := DecodeStandaloneMigrationResult(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := EncodeStandaloneMigrationResult(result)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("migration result golden is not canonical")
+		}
+		return map[string]any{
+			"schema": result.Schema, "schema_version": result.SchemaVersion, "status": result.Status,
+			"namespace": result.Namespace, "kind": result.Kind, "from": result.From, "to": result.To,
+			"preview_digest_bound": result.PreviewSHA256 != "", "registry_digest_bound": result.RegistrySHA256 != "",
+			"implementation_digest_bound": result.ImplementationSHA256 != "",
+		}, nil
 	case "project-config":
 		config, err := DecodeStandaloneProjectConfig(bytes.NewReader(data))
 		if err != nil {
@@ -615,6 +657,26 @@ func standaloneDecodeExtensionReadabilityProjection(entry standaloneReadabilityG
 			"schema": config.Schema, "schema_version": config.SchemaVersion,
 			"contract_version": config.ContractVersion, "profile_configured": config.Profile != nil,
 			"model_configured": config.Model != nil, "repetitions": repetitions,
+		}, nil
+	case "schema-registry":
+		registry, err := DecodeStandaloneSchemaRegistry(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := EncodeStandaloneSchemaRegistry(registry)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("schema registry golden is not canonical")
+		}
+		edgeCount := 0
+		for _, entry := range registry.Entries {
+			edgeCount += len(entry.MigrationEdges)
+		}
+		return map[string]any{
+			"schema": registry.Schema, "schema_version": registry.SchemaVersion,
+			"contract_version": registry.ContractVersion, "entry_count": len(registry.Entries),
+			"first_schema":         registry.Entries[0].Namespace + "/" + registry.Entries[0].Kind,
+			"last_schema":          registry.Entries[len(registry.Entries)-1].Namespace + "/" + registry.Entries[len(registry.Entries)-1].Kind,
+			"migration_edge_count": edgeCount,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported standalone readability golden kind %q", entry.Kind)
