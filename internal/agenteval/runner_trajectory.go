@@ -72,10 +72,11 @@ func captureHeadlessTrajectory(input headlessTrajectoryCaptureInput) (headlessTr
 	if err != nil {
 		return headlessTrajectory{}, err
 	}
+	trajectory := headlessTrajectory{providerMetrics: providerMetrics, final: final}
 	if input.contract.spec.EffectiveSurface() == SurfaceExternalMCP {
 		for _, data := range [][]byte{finalData, final} {
 			if containsCanary(data, input.externalCanaries) {
-				return headlessTrajectory{}, fmt.Errorf("external MCP protected material reached the final provider artifact")
+				return trajectory, fmt.Errorf("external MCP protected material reached the final provider artifact")
 			}
 		}
 	}
@@ -85,12 +86,12 @@ func captureHeadlessTrajectory(input headlessTrajectoryCaptureInput) (headlessTr
 	if input.contract.spec.EffectiveSurface() == SurfaceExternalMCP {
 		externalCalls, externalFailures, externalDenials, externalOutputBytes, externalFamilies, err = readExternalMCPAudit(input.externalAuditPath)
 		if err != nil {
-			return headlessTrajectory{}, err
+			return trajectory, err
 		}
 	}
 	proxyRecords, err := readProxyRecords(input.counterPath)
 	if err != nil {
-		return headlessTrajectory{}, err
+		return trajectory, err
 	}
 	var methods map[string]int
 	unexpected := 0
@@ -102,20 +103,20 @@ func captureHeadlessTrajectory(input headlessTrajectoryCaptureInput) (headlessTr
 	} else if input.liveGateway != nil {
 		methods, duplicateRequests, httpMethodsObserved, err = closeAndReadLiveGatewayRecords(input.liveGateway)
 		if err != nil {
-			return headlessTrajectory{}, err
+			return trajectory, err
 		}
 	} else {
 		methods, duplicateRequests, httpMethodsObserved, err = readLiveHTTPRecords(input.httpGuardPath)
 		if err != nil {
-			return headlessTrajectory{}, err
+			return trajectory, err
 		}
 	}
 	if input.contract.spec.Provider == "claude-code" {
 		if err := writePrivateFile(input.finalPath, append(append([]byte(nil), final...), '\n')); err != nil {
-			return headlessTrajectory{}, err
+			return trajectory, err
 		}
 	} else if err := os.Chmod(input.finalPath, 0o600); err != nil {
-		return headlessTrajectory{}, err
+		return trajectory, err
 	}
 	var failedATL int
 	cliExitCodes := make([]int, 0, len(proxyRecords))
@@ -127,7 +128,7 @@ func captureHeadlessTrajectory(input headlessTrajectoryCaptureInput) (headlessTr
 		}
 		errorContract, classified, contractErr := record.errorContract()
 		if contractErr != nil {
-			return headlessTrajectory{}, contractErr
+			return trajectory, contractErr
 		}
 		if classified {
 			cliErrorContracts = append(cliErrorContracts, errorContract)
@@ -135,7 +136,7 @@ func captureHeadlessTrajectory(input headlessTrajectoryCaptureInput) (headlessTr
 	}
 	guardSummary, err := readGuardDecisionSummary(input.guardCounterPath)
 	if err != nil {
-		return headlessTrajectory{}, err
+		return trajectory, err
 	}
 	guardDenials := guardSummary.Denials
 	atlInvocations := len(proxyRecords) + providerMetrics.MCPToolCalls
@@ -150,21 +151,18 @@ func captureHeadlessTrajectory(input headlessTrajectoryCaptureInput) (headlessTr
 		providerMetrics.MCPToolCalls = externalCalls
 		providerMetrics.FailedMCPToolCalls = externalFailures
 	}
-	return headlessTrajectory{
-		providerMetrics:     providerMetrics,
-		final:               final,
-		proxyRecords:        proxyRecords,
-		methods:             methods,
-		unexpected:          unexpected,
-		duplicateRequests:   duplicateRequests,
-		httpMethodsObserved: httpMethodsObserved,
-		failedATL:           failedATL,
-		guardDenials:        guardDenials,
-		atlInvocations:      atlInvocations,
-		cliExitCodes:        cliExitCodes,
-		cliErrorContracts:   cliErrorContracts,
-		guardSummary:        guardSummary,
-		externalOutputBytes: externalOutputBytes,
-		externalFamilies:    externalFamilies,
-	}, nil
+	trajectory.proxyRecords = proxyRecords
+	trajectory.methods = methods
+	trajectory.unexpected = unexpected
+	trajectory.duplicateRequests = duplicateRequests
+	trajectory.httpMethodsObserved = httpMethodsObserved
+	trajectory.failedATL = failedATL
+	trajectory.guardDenials = guardDenials
+	trajectory.atlInvocations = atlInvocations
+	trajectory.cliExitCodes = cliExitCodes
+	trajectory.cliErrorContracts = cliErrorContracts
+	trajectory.guardSummary = guardSummary
+	trajectory.externalOutputBytes = externalOutputBytes
+	trajectory.externalFamilies = externalFamilies
+	return trajectory, nil
 }

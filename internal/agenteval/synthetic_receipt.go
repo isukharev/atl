@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	SyntheticRunReceiptSchemaVersion = 1
-	syntheticRunReceiptFileName      = "run-receipt.json"
-	maxSyntheticRunReceiptBytes      = 16 << 10
+	SyntheticRunReceiptLegacySchemaVersion = 1
+	SyntheticRunReceiptSchemaVersion       = 2
+	syntheticRunReceiptFileName            = "run-receipt.json"
+	maxSyntheticRunReceiptBytes            = 16 << 10
 )
 
 // SyntheticRunReceipt binds one current synthetic result to the exact task,
@@ -31,6 +32,7 @@ type SyntheticRunReceipt struct {
 	ATLExecutableSHA256     string `json:"atl_executable_sha256"`
 	WrapperExecutableSHA256 string `json:"wrapper_executable_sha256"`
 	ResultSHA256            string `json:"result_sha256"`
+	AttemptBindingSHA256    string `json:"attempt_binding_sha256,omitempty"`
 }
 
 type syntheticExecutableDigests struct {
@@ -45,12 +47,16 @@ type syntheticRunAttestation struct {
 }
 
 func (r SyntheticRunReceipt) Validate() error {
-	if r.SchemaVersion != SyntheticRunReceiptSchemaVersion ||
+	if (r.SchemaVersion != SyntheticRunReceiptLegacySchemaVersion && r.SchemaVersion != SyntheticRunReceiptSchemaVersion) ||
 		validatePathComponentID("scenario id", r.ScenarioID) != nil ||
 		(r.Provider != "codex" && r.Provider != "claude-code") ||
 		validatePathComponentID("run variant", r.Variant) != nil ||
 		r.Repetitions < 1 || r.Repetitions > 20 ||
 		r.Repetition < 1 || r.Repetition > r.Repetitions {
+		return fmt.Errorf("invalid synthetic run receipt")
+	}
+	if (r.SchemaVersion == SyntheticRunReceiptLegacySchemaVersion && r.AttemptBindingSHA256 != "") ||
+		(r.SchemaVersion == SyntheticRunReceiptSchemaVersion && !validSHA256(r.AttemptBindingSHA256)) {
 		return fmt.Errorf("invalid synthetic run receipt")
 	}
 	for _, digest := range []string{
@@ -241,7 +247,7 @@ func syntheticExecutionContractSHA256(attestation *syntheticRunAttestation, task
 	return sha256HexBytes(append([]byte("atl-agent-eval-synthetic-execution-v1\x00"), canonical...)), nil
 }
 
-func newSyntheticRunReceipt(attestation *syntheticRunAttestation, loaded resolvedRunContract, runtime Runtime, repetition int, taskSHA256, executionSHA256 string, resultData []byte) (SyntheticRunReceipt, error) {
+func newSyntheticRunReceipt(attestation *syntheticRunAttestation, loaded resolvedRunContract, runtime Runtime, repetition int, taskSHA256, executionSHA256, attemptBindingSHA256 string, resultData []byte) (SyntheticRunReceipt, error) {
 	if attestation == nil {
 		return SyntheticRunReceipt{}, nil
 	}
@@ -254,6 +260,7 @@ func newSyntheticRunReceipt(attestation *syntheticRunAttestation, loaded resolve
 		ATLExecutableSHA256:     attestation.executables.atl,
 		WrapperExecutableSHA256: attestation.executables.wrapper,
 		ResultSHA256:            sha256HexBytes(resultData),
+		AttemptBindingSHA256:    attemptBindingSHA256,
 	}
 	if err := receipt.Validate(); err != nil {
 		return SyntheticRunReceipt{}, err

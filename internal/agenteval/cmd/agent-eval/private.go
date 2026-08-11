@@ -125,7 +125,8 @@ func runPrivateCommand(args []string, out io.Writer) error {
 		}
 		report, err := privateQualifyCodexCLI(context.Background(), agenteval.CodexCLIToolAvailabilityOptions{
 			AgentBinary: agentBinary, ScratchRoot: filepath.Join(canonicalRoot, ".ephemeral"), Model: model,
-			Reasoning: reasoning, TimeoutSeconds: timeoutSeconds,
+			AttemptLedgerRoot: filepath.Join(canonicalRoot, "reports", "tool-availability-attempt-ledger"),
+			Reasoning:         reasoning, TimeoutSeconds: timeoutSeconds,
 		})
 		if err != nil {
 			return err

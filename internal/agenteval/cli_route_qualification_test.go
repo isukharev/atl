@@ -204,7 +204,7 @@ func TestClaudeRouteProbeUsesAutomaticPermissions(t *testing.T) {
 
 func TestQualifyCLIRouteRejectsUnboundOptions(t *testing.T) {
 	base := CLIRouteQualificationOptions{Provider: "codex", Surface: SurfaceCLISkill,
-		AgentBinary: "agent", ScratchRoot: "scratch", Model: "synthetic-model", TimeoutSeconds: 10}
+		AgentBinary: "agent", ScratchRoot: "scratch", AttemptLedgerRoot: "ledger", Model: "synthetic-model", TimeoutSeconds: 10}
 	for name, mutate := range map[string]func(*CLIRouteQualificationOptions){
 		"provider": func(value *CLIRouteQualificationOptions) { value.Provider = "openai" },
 		"surface":  func(value *CLIRouteQualificationOptions) { value.Surface = SurfaceATLMCP },
@@ -300,7 +300,8 @@ func TestQualifyCLIRouteCapturesOneExactModelRequestPerProvider(t *testing.T) {
 			}
 			report, err := QualifyCLIRoute(context.Background(), CLIRouteQualificationOptions{
 				Provider: test.provider, Surface: SurfaceCLISkill, AgentBinary: agent, ScratchRoot: scratch,
-				Model: "synthetic-model", AllowedTools: []string{"Bash(atl *)", "Skill"}, TimeoutSeconds: 20,
+				AttemptLedgerRoot: attemptLedgerRootForTest(t),
+				Model:             "synthetic-model", AllowedTools: []string{"Bash(atl *)", "Skill"}, TimeoutSeconds: 20,
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -415,7 +416,8 @@ func TestQualifyCLIRouteTerminatesTheChildAfterCapture(t *testing.T) {
 	// end it, and it must do so well inside the bounded timeout.
 	report, err := QualifyCLIRoute(context.Background(), CLIRouteQualificationOptions{
 		Provider: "claude-code", Surface: SurfaceCLISkill, AgentBinary: agent, ScratchRoot: scratch,
-		Model: "synthetic-model", AllowedTools: []string{"Bash(atl *)"}, TimeoutSeconds: 60,
+		AttemptLedgerRoot: attemptLedgerRootForTest(t),
+		Model:             "synthetic-model", AllowedTools: []string{"Bash(atl *)"}, TimeoutSeconds: 60,
 	})
 	if err != nil || !report.Supported() || report.Route != "bash" {
 		t.Fatalf("report=%+v err=%v", report, err)
@@ -435,7 +437,8 @@ func TestQualifyCLIRouteTimesOutClosedWithoutAModelRequest(t *testing.T) {
 	}
 	report, err := QualifyCLIRoute(context.Background(), CLIRouteQualificationOptions{
 		Provider: "codex", Surface: SurfaceCLISkill, AgentBinary: agent, ScratchRoot: scratch,
-		Model: "synthetic-model", TimeoutSeconds: 1,
+		AttemptLedgerRoot: attemptLedgerRootForTest(t),
+		Model:             "synthetic-model", TimeoutSeconds: 1,
 	})
 	if err != nil || report.Validate() != nil || report.Status != CLIRouteQualificationProcessFailed ||
 		report.RequestObserved || report.SyntheticRequests != 0 {
@@ -483,7 +486,8 @@ func TestQualifyCLIRouteKeepsAmbientClaudeCredentialsOutOfTheProbe(t *testing.T)
 			}
 			report, err := QualifyCLIRoute(context.Background(), CLIRouteQualificationOptions{
 				Provider: "claude-code", Surface: SurfaceCLISkill, AgentBinary: agent, ScratchRoot: scratch,
-				Model: "synthetic-model", AllowedTools: []string{"Bash(atl *)"}, TimeoutSeconds: 20,
+				AttemptLedgerRoot: attemptLedgerRootForTest(t),
+				Model:             "synthetic-model", AllowedTools: []string{"Bash(atl *)"}, TimeoutSeconds: 20,
 			})
 			if err != nil || report.Validate() != nil || report.Status != test.want {
 				t.Fatalf("report=%+v err=%v want=%s", report, err, test.want)

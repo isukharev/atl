@@ -265,7 +265,7 @@ func standaloneInvocation(args []string) bool {
 
 func standaloneLegacyInvocation(args []string) bool {
 	switch args[0] {
-	case "aggregate", "aggregate-root", "assess", "evaluate", "inventory", "private",
+	case "aggregate", "aggregate-root", "assess", "attempt-ledger", "evaluate", "inventory", "private",
 		"review-template", "validate-comparison-set", "validate-pair", "validate-run",
 		"verify-atl-capabilities", "verify-codex-skill-package", "verify-extension-protocol":
 		return true

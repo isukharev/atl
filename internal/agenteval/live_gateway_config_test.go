@@ -455,7 +455,7 @@ func callGatewaySelectedATL(t *testing.T, environment map[string]string, invocat
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := VerifyATLCapabilityCatalog(ctx, binary.canonicalPath); err != nil {
+	if err := VerifyATLCapabilityCatalog(ctx, binary.canonicalPath, attemptLedgerRootForTest(t)); err != nil {
 		t.Fatal(err)
 	}
 	runtimeRoot := privateSyntheticATLScratch(t)

@@ -45,7 +45,7 @@ func isExtensionProtocolCommandHelper() bool {
 }
 
 func TestRunRejectsMissingAndUnknownCommands(t *testing.T) {
-	for _, args := range [][]string{nil, {"unknown"}, {"evaluate"}, {"aggregate"}, {"aggregate-root"}, {"aggregate-root", "one", "two"}, {"inventory"}, {"inventory", "one", "two"}, {"validate-pair"}, {"validate-pair", "one.json"}, {"verify-atl-capabilities"}, {"verify-atl-capabilities", "one", "two"}, {"verify-codex-skill-package"}, {"verify-codex-skill-package", "one", "two"}, {"verify-extension-protocol"}, {"verify-extension-protocol", "--manifest", "manifest.json", "--adapter", "adapter"}, {"verify-extension-protocol", "--unknown"}, {"verify-extension-protocol", "manifest.json", "adapter", "bundle.json"}, {"verify-extension-protocol", "--manifest", "one", "--manifest", "two", "--adapter", "adapter", "--bundle", "bundle"}, {"verify-extension-protocol", "--manifest", "manifest", "--adapter", "one", "--adapter", "two", "--bundle", "bundle"}, {"verify-extension-protocol", "--manifest", "manifest", "--adapter", "adapter", "--bundle", "one", "--bundle", "two"}} {
+	for _, args := range [][]string{nil, {"unknown"}, {"evaluate"}, {"aggregate"}, {"aggregate-root"}, {"aggregate-root", "one", "two"}, {"inventory"}, {"inventory", "one", "two"}, {"validate-pair"}, {"validate-pair", "one.json"}, {"attempt-ledger"}, {"attempt-ledger", "unknown"}, {"attempt-ledger", "inspect"}, {"attempt-ledger", "reconcile", "--root", "root"}, {"verify-atl-capabilities"}, {"verify-atl-capabilities", "one", "two"}, {"verify-codex-skill-package"}, {"verify-codex-skill-package", "one", "two"}, {"verify-extension-protocol"}, {"verify-extension-protocol", "--manifest", "manifest.json", "--adapter", "adapter"}, {"verify-extension-protocol", "--unknown"}, {"verify-extension-protocol", "manifest.json", "adapter", "bundle.json"}, {"verify-extension-protocol", "--manifest", "one", "--manifest", "two", "--adapter", "adapter", "--bundle", "bundle"}, {"verify-extension-protocol", "--manifest", "manifest", "--adapter", "one", "--adapter", "two", "--bundle", "bundle"}, {"verify-extension-protocol", "--manifest", "manifest", "--adapter", "adapter", "--bundle", "one", "--bundle", "two"}} {
 		if err := run(args); err == nil {
 			t.Fatalf("run(%v) succeeded", args)
 		}
@@ -59,13 +59,14 @@ func TestRunRejectsMissingAndUnknownCommands(t *testing.T) {
 }
 
 func TestRunVerifyExtensionProtocolFlagErrorsDoNotEchoValues(t *testing.T) {
-	for _, name := range []string{"manifest", "adapter", "bundle"} {
+	for _, name := range []string{"manifest", "adapter", "bundle", "ledger"} {
 		marker := "private-value-must-not-be-echoed-" + name
 		args := []string{
 			"verify-extension-protocol",
 			"--manifest", "manifest.json",
 			"--adapter", "adapter",
 			"--bundle", "bundle.json",
+			"--ledger", "ledger",
 			"--" + name, marker,
 		}
 		err := run(args)
@@ -115,8 +116,13 @@ func TestRunVerifyExtensionProtocolEmitsDeterministicScopedReport(t *testing.T) 
 	bundleData = bytes.Replace(bundleData, []byte(strings.Repeat("a", 64)), []byte(executableSHA256), 1)
 
 	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	manifestPath := filepath.Join(directory, "manifest.json")
 	bundlePath := filepath.Join(directory, "bundle.json")
+	ledgerPath := filepath.Join(directory, "ledger")
+	secondLedgerPath := filepath.Join(directory, "second-ledger")
 	if err := os.WriteFile(manifestPath, manifestData, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -126,11 +132,11 @@ func TestRunVerifyExtensionProtocolEmitsDeterministicScopedReport(t *testing.T) 
 
 	first := captureRunOutput(t, []string{
 		"verify-extension-protocol", "--manifest", manifestPath,
-		"--adapter", executable, "--bundle", bundlePath,
+		"--adapter", executable, "--bundle", bundlePath, "--ledger", ledgerPath,
 	})
 	second := captureRunOutput(t, []string{
 		"verify-extension-protocol", "--manifest", manifestPath,
-		"--adapter", executable, "--bundle", bundlePath,
+		"--adapter", executable, "--bundle", bundlePath, "--ledger", secondLedgerPath,
 	})
 	if !bytes.Equal(first, second) {
 		t.Fatalf("nondeterministic reports:\nfirst=%s\nsecond=%s", first, second)
@@ -163,6 +169,27 @@ func TestRunVerifyExtensionProtocolEmitsDeterministicScopedReport(t *testing.T) 
 	}
 	if canceledCases != 1 {
 		t.Fatalf("canceled cases=%d, report=%+v", canceledCases, report)
+	}
+	ledger, err := agenteval.InspectAttemptLedger(ledgerPath)
+	if err != nil || !ledger.Complete || len(ledger.Attempts) != 3 {
+		t.Fatalf("extension attempt ledger=%+v err=%v", ledger, err)
+	}
+	inspectData := captureRunOutput(t, []string{"attempt-ledger", "inspect", "--root", ledgerPath})
+	var commandLedger agenteval.AttemptLedgerReport
+	if err := json.Unmarshal(inspectData, &commandLedger); err != nil || commandLedger.LedgerID != ledger.LedgerID ||
+		len(commandLedger.Attempts) != len(ledger.Attempts) {
+		t.Fatalf("attempt-ledger inspect output=%s report=%+v err=%v", inspectData, commandLedger, err)
+	}
+	states := map[string]int{}
+	for _, attempt := range ledger.Attempts {
+		states[attempt.State]++
+	}
+	if states["succeeded"] != 2 || states["canceled"] != 1 {
+		t.Fatalf("extension attempt states=%v", states)
+	}
+	if err := run([]string{"verify-extension-protocol", "--manifest", manifestPath,
+		"--adapter", executable, "--bundle", bundlePath, "--ledger", ledgerPath}); err == nil {
+		t.Fatal("terminal extension cases were replayed in the same ledger")
 	}
 	for _, forbidden := range []string{manifestPath, bundlePath, executable, directory, "session_id", "attempt_id", "stderr"} {
 		if bytes.Contains(first, []byte(forbidden)) {
@@ -414,7 +441,7 @@ func TestRunAggregateRootEmitsCompleteSyntheticEnvelope(t *testing.T) {
 	}
 	resultDigest := sha256.Sum256(data)
 	receipt := agenteval.SyntheticRunReceipt{
-		SchemaVersion: agenteval.SyntheticRunReceiptSchemaVersion,
+		SchemaVersion: agenteval.SyntheticRunReceiptLegacySchemaVersion,
 		ScenarioID:    scenario.ID, Provider: "codex", Variant: "baseline",
 		Repetition: 1, Repetitions: 1,
 		TaskContractSHA256: strings.Repeat("b", 64), ExecutionContractSHA256: strings.Repeat("c", 64),

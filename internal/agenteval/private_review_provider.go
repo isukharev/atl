@@ -57,7 +57,7 @@ type claudeReviewRuntime struct {
 }
 
 func runPrivateReviewProvider(ctx context.Context, root, packet, agentBinary string, reviewer Reviewer,
-	execution PrivateReviewerExecution, _ []byte, finalData, rubricData []byte, rubric Rubric,
+	execution PrivateReviewerExecution, _ []byte, finalData, rubricData []byte, rubric Rubric, attempt *DurableAttemptSession,
 ) (result privateReviewProviderResult, returnErr error) {
 	agent, _, err := inspectPrivateAgentBinary(agentBinary, "")
 	if err != nil {
@@ -184,7 +184,11 @@ func runPrivateReviewProvider(ctx context.Context, root, packet, agentBinary str
 	stderr := &boundedCommandBuffer{maximum: 1 << 20}
 	command.Stdout = stdout
 	command.Stderr = stderr
-	runErr := command.Run()
+	_, terminationOK, processReceipt, runErr := executeProviderAttemptWithSession(command, nil, nil, attempt)
+	result.terminationOK = terminationOK
+	result.processReceipt = processReceipt
+	result.timedOut = errors.Is(deadline.Err(), context.DeadlineExceeded)
+	result.canceled = errors.Is(ctx.Err(), context.Canceled) && !result.timedOut
 	observation := proxy.Observation()
 	result.ModelRequests = observation.ModelRequests
 	result.Auxiliary = observation.AuxiliaryRequests

@@ -336,6 +336,60 @@
     },
     {
       "namespace": "atl-profile",
+      "kind": "private-review-attempt",
+      "version": 1,
+      "expected_projection": {
+        "schema_version": 1,
+        "reviewer_kind": "codex",
+        "attempt_bound": false
+      },
+      "source_path": "testdata/standalone-readability/private-review-attempt-v1.json",
+      "source_sha256": "81e9b014bd798242c12ffc24a3754ee063a7a682aec6fce62e13c11d0801e1a9"
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "private-review-attempt",
+      "version": 2,
+      "expected_projection": {
+        "schema_version": 2,
+        "reviewer_kind": "codex",
+        "attempt_bound": true
+      },
+      "source_path": "testdata/standalone-readability/private-review-attempt-v2.json",
+      "source_sha256": "967a1220b556b433f126f104c7883a2221f93594ee6bf13ab652d1d7efc7ea32"
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "private-review-receipt",
+      "version": 1,
+      "expected_projection": {
+        "schema_version": 1,
+        "reviewer_kind": "codex",
+        "status": "terminal-failed",
+        "attempt_bound": false,
+        "cost_known": false,
+        "model_requests": 0
+      },
+      "source_path": "testdata/standalone-readability/private-review-receipt-v1.json",
+      "source_sha256": "378423aa781babf5d63c1dc9e984863417a214dc5d490c27eccc085c42f168c2"
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "private-review-receipt",
+      "version": 2,
+      "expected_projection": {
+        "schema_version": 2,
+        "reviewer_kind": "codex",
+        "status": "terminal-failed",
+        "attempt_bound": true,
+        "cost_known": false,
+        "model_requests": 0
+      },
+      "source_path": "testdata/standalone-readability/private-review-receipt-v2.json",
+      "source_sha256": "ee119256c664aad425c3d56dd940fac882b0d035031b618eecdd7fcf4fc427b6"
+    },
+    {
+      "namespace": "atl-profile",
       "kind": "private-workspace",
       "version": 1,
       "document": {
@@ -1439,11 +1493,42 @@
         "result_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
       },
       "expected_projection": {
+        "schema_version": 1,
         "scenario_id": "contract-case",
         "provider": "codex",
         "variant": "baseline",
         "repetition": 1,
-        "repetitions": 1
+        "repetitions": 1,
+        "attempt_bound": false
+      }
+    },
+    {
+      "namespace": "atl-profile",
+      "kind": "synthetic-run-receipt",
+      "version": 2,
+      "document": {
+        "schema_version": 2,
+        "scenario_id": "contract-case",
+        "provider": "codex",
+        "variant": "baseline",
+        "repetition": 1,
+        "repetitions": 1,
+        "task_contract_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "execution_contract_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "agent_executable_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "atl_executable_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "wrapper_executable_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "result_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "attempt_binding_sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+      },
+      "expected_projection": {
+        "schema_version": 2,
+        "scenario_id": "contract-case",
+        "provider": "codex",
+        "variant": "baseline",
+        "repetition": 1,
+        "repetitions": 1,
+        "attempt_bound": true
       }
     },
     {
@@ -1484,6 +1569,54 @@
         "component_id": "synthetic.profile",
         "component_version": "v0.0.0",
         "required_capability_count": 2
+      }
+    },
+    {
+      "namespace": "standalone",
+      "kind": "attempt-event",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/attempt-event-v1.json",
+      "source_sha256": "8bc804ad2c3893ff5c52209b710f90745a4b2a86cadf3c0f78b2711709169cbf",
+      "expected_projection": {
+        "schema": "agent-eval/attempt-event",
+        "schema_version": 1,
+        "sequence": 1,
+        "from": "planned",
+        "to": "committed",
+        "proof_count": 1,
+        "error_class": "none",
+        "usage_state": "unknown"
+      }
+    },
+    {
+      "namespace": "standalone",
+      "kind": "attempt-ledger",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/attempt-ledger-v1.json",
+      "source_sha256": "70df1646b55d332e485ad56c1a09634c3a60cca3e6d3113979fa32a0e32a0983",
+      "expected_projection": {
+        "schema": "agent-eval/attempt-ledger",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "ledger_id": "a48b6c9c384e4a330149ed39ea67eea878eb2d58733b28ec666855b7ec48f758",
+        "header_digest_bound": true
+      }
+    },
+    {
+      "namespace": "standalone",
+      "kind": "attempt-plan",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/attempt-plan-v1.json",
+      "source_sha256": "59162424da94083b171cc8f7bee09ec248a0800ef179faa1380543c17d08eede",
+      "expected_projection": {
+        "schema": "agent-eval/attempt-plan",
+        "schema_version": 1,
+        "ordinal": 1,
+        "privacy": "content_minimized",
+        "identity_count": 10,
+        "reconciled": false,
+        "binding_digest_bound": true,
+        "plan_digest_bound": true
       }
     },
     {

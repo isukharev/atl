@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/isukharev/atl/internal/agenteval/lifecycle"
 )
 
 const providerAttemptHelperEnv = "ATL_PROVIDER_ATTEMPT_HELPER"
@@ -161,6 +163,85 @@ func TestExecuteProviderAttemptNilCommand(t *testing.T) {
 	}
 	if commitCalls != 0 {
 		t.Fatalf("commit calls = %d, want 0", commitCalls)
+	}
+}
+
+func TestExecuteProviderAttemptConsumesDurableSessionBeforeSpawn(t *testing.T) {
+	store := newAttemptLedgerForTest(t)
+	plan, err := store.Allocate(testAttemptBinding())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := NewDurableAttemptSession(store, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "executions")
+	command := providerAttemptHelperCommand(t, marker, 0)
+	stage, terminationProven, processReceipt, err := executeProviderAttemptWithSession(command, nil, nil, session)
+	if err != nil || stage != providerAttemptStageComplete || !terminationProven || !validSHA256(processReceipt) {
+		t.Fatalf("durable execution: stage=%v termination=%t receipt=%q err=%v", stage, terminationProven, processReceipt, err)
+	}
+	inspection, err := store.Inspect(plan.AttemptID)
+	if err != nil || inspection.Projection.State != lifecycle.StateRunning || !validSHA256(inspection.Projection.ProcessSHA256) {
+		t.Fatalf("running transition missing: inspection=%+v err=%v", inspection, err)
+	}
+	if err := session.Succeed(processReceipt, lifecycle.UnknownUsage()); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err = store.Inspect(plan.AttemptID)
+	if err != nil || inspection.Projection.State != lifecycle.StateSucceeded || !inspection.Projection.Terminal {
+		t.Fatalf("terminal transition missing: inspection=%+v err=%v", inspection, err)
+	}
+}
+
+func TestExecuteProviderAttemptStartFailureIsDurablyTerminal(t *testing.T) {
+	store := newAttemptLedgerForTest(t)
+	plan, err := store.Allocate(testAttemptBinding())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := NewDurableAttemptSession(store, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(filepath.Join(t.TempDir(), "missing"))
+	stage, _, _, err := executeProviderAttemptWithSession(command, nil, nil, session)
+	if err == nil || stage != providerAttemptStageStart {
+		t.Fatalf("start failure: stage=%v err=%v", stage, err)
+	}
+	inspection, inspectErr := store.Inspect(plan.AttemptID)
+	if inspectErr != nil || inspection.Projection.State != lifecycle.StateFailed || !inspection.Projection.Terminal {
+		t.Fatalf("start failure not terminal: inspection=%+v err=%v", inspection, inspectErr)
+	}
+}
+
+func TestExecuteProviderAttemptBridgesLegacyCommitAfterGenericCommit(t *testing.T) {
+	store := newAttemptLedgerForTest(t)
+	plan, err := store.Allocate(testAttemptBinding())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := NewDurableAttemptSession(store, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "executions")
+	wantErr := errors.New("legacy commit failed")
+	command := providerAttemptHelperCommand(t, marker, 0)
+	stage, _, _, err := executeProviderAttemptWithSession(command, func() error {
+		inspection, inspectErr := store.Inspect(plan.AttemptID)
+		if inspectErr != nil || inspection.Projection.State != lifecycle.StateCommitted {
+			t.Fatalf("legacy commit ran before generic commitment: %+v %v", inspection, inspectErr)
+		}
+		return wantErr
+	}, nil, session)
+	if !errors.Is(err, wantErr) || stage != providerAttemptStageCommit || command.Process != nil {
+		t.Fatalf("legacy commit failure: stage=%v process=%v err=%v", stage, command.Process, err)
+	}
+	inspection, err := store.Inspect(plan.AttemptID)
+	if err != nil || inspection.Projection.State != lifecycle.StateFailed {
+		t.Fatalf("generic attempt was not closed before spawn: %+v %v", inspection, err)
 	}
 }
 

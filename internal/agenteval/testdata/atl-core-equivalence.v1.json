@@ -9,9 +9,9 @@
   },
   "readability_source": {
     "path": "testdata/standalone-readability-golden.v1.json",
-    "sha256": "0924b9da57c9a069a9f3057f1a34b11bd6f0549e0f7e9899faf3ae4349b209b7",
-    "entry_count": 37,
-    "semantic_projection_sha256": "8364dc57a8806be98d999a411a33be5af520d9eeb1c5047335f9453a1daf32d6"
+    "sha256": "438f18c0d56514ffbb0020773f5f2260fcef72ac92eb1545c327be63a50db2a1",
+    "entry_count": 45,
+    "semantic_projection_sha256": "84543518e7b4545494d0a75fe871eb6b0d13f7e5d2195ec488b85e0f790e928c"
   },
   "files": [
     {
@@ -42,13 +42,13 @@
       "id": "receipt-case",
       "role": "input",
       "path": "testdata/atl-core-equivalence-receipt.v1.json",
-      "sha256": "baf18cca8de311d55e5bd3bc596897359e79b410d74722a5328ba3c917f6b3b6"
+      "sha256": "f9fd1b8408f2899abac83d8542f82f52a9e043e23f206ddfe35e225f2a77be6f"
     },
     {
       "id": "receipt-observed-zero",
       "role": "expected",
       "path": "testdata/atl-core-equivalence-receipt-observed-zero.json",
-      "sha256": "f3d7fc25af89402be5576f12268e0234a81d7551160528f843652a1cbe0b3109"
+      "sha256": "bc3b21caea354db1aad9aa9e35b12d2877412bc560d9bb0f25d26c116c1b906d"
     },
     {
       "id": "result-all-deterministic-gates",

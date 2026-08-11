@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/isukharev/atl/internal/agenteval/lifecycle"
 )
 
 func TestVerifyATLCapabilityCatalogUsesExactBoundedOfflineCommand(t *testing.T) {
@@ -37,7 +39,7 @@ func TestVerifyATLCapabilityCatalogUsesExactBoundedOfflineCommand(t *testing.T) 
 	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := VerifyATLCapabilityCatalog(context.Background(), binary); err != nil {
+	if err := VerifyATLCapabilityCatalog(context.Background(), binary, attemptLedgerRootForTest(t)); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -56,17 +58,22 @@ func TestVerifyATLCapabilityCatalogRejectsSemanticDriftAndTimeout(t *testing.T) 
 	if err := os.WriteFile(binary, []byte("#!/bin/sh\n/bin/cat \""+catalogPath+"\"\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := VerifyATLCapabilityCatalog(context.Background(), binary); err == nil || !strings.Contains(err.Error(), "differs from the pinned") {
+	if err := VerifyATLCapabilityCatalog(context.Background(), binary, attemptLedgerRootForTest(t)); err == nil || !strings.Contains(err.Error(), "differs from the pinned") {
 		t.Fatalf("semantic drift error=%v", err)
 	}
 
 	if err := os.WriteFile(binary, []byte("#!/bin/sh\nexec /bin/sleep 10\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
 	defer cancel()
-	if err := VerifyATLCapabilityCatalog(ctx, binary); err == nil || !strings.Contains(err.Error(), "did not complete") {
+	ledgerRoot := attemptLedgerRootForTest(t)
+	if err := VerifyATLCapabilityCatalog(ctx, binary, ledgerRoot); err == nil || !strings.Contains(err.Error(), "did not complete") {
 		t.Fatalf("timeout error=%v", err)
+	}
+	report, err := InspectAttemptLedger(ledgerRoot)
+	if err != nil || len(report.Attempts) != 1 || report.Attempts[0].State != string(lifecycle.StateTimedOut) {
+		t.Fatalf("timeout lifecycle=%+v err=%v", report, err)
 	}
 
 	line := strings.Repeat("x", 127) + "\n"
@@ -78,7 +85,7 @@ func TestVerifyATLCapabilityCatalogRejectsSemanticDriftAndTimeout(t *testing.T) 
 			if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			if err := VerifyATLCapabilityCatalog(context.Background(), binary); err == nil || !strings.Contains(err.Error(), "exceeded its output bound") {
+			if err := VerifyATLCapabilityCatalog(context.Background(), binary, attemptLedgerRootForTest(t)); err == nil || !strings.Contains(err.Error(), "exceeded its output bound") {
 				t.Fatalf("overflow error=%v", err)
 			}
 		})
@@ -93,13 +100,13 @@ func TestVerifyATLCapabilityCatalogReportsBoundedFailureDetails(t *testing.T) {
 	if err := os.WriteFile(binary, []byte("#!/bin/sh\nprintf 'diagnostic-detail' >&2\nexit 23\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	err := VerifyATLCapabilityCatalog(context.Background(), binary)
+	err := VerifyATLCapabilityCatalog(context.Background(), binary, attemptLedgerRootForTest(t))
 	if err == nil || !strings.Contains(err.Error(), "exit 23") || !strings.Contains(err.Error(), "diagnostic-detail") {
 		t.Fatalf("preflight error=%v, want exit code and stderr detail", err)
 	}
 }
 
-func TestRunHeadlessChecksSelectedATLCatalogBeforeCreatingOutput(t *testing.T) {
+func TestRunHeadlessChecksSelectedATLCatalogInsideDurablePreflight(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell fixture is Unix-only")
 	}
@@ -145,8 +152,14 @@ func TestRunHeadlessChecksSelectedATLCatalogBeforeCreatingOutput(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), "capability catalog") {
 				t.Fatalf("preflight error=%v", err)
 			}
-			if _, statErr := os.Stat(outputRoot); !os.IsNotExist(statErr) {
-				t.Fatalf("output root was created before catalog preflight: %v", statErr)
+			report, reportErr := InspectAttemptLedger(filepath.Join(outputRoot, "attempt-ledger"))
+			if reportErr != nil || len(report.Attempts) < 2 || report.Attempts[0].State != string(lifecycle.StateFailed) {
+				t.Fatalf("failed preflight ledger=%+v err=%v", report, reportErr)
+			}
+			for _, attempt := range report.Attempts[1:] {
+				if attempt.State != string(lifecycle.StateCanceled) {
+					t.Fatalf("unstarted attempt was not canceled: %+v", report)
+				}
 			}
 		})
 	}

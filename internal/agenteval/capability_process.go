@@ -18,10 +18,38 @@ const capabilityCatalogProcessTimeout = 5 * time.Second
 // exposed by the exact ATL executable selected for that run. The command is
 // offline, bounded, single-attempt, and receives no ambient ATL configuration
 // or backend credentials.
-func VerifyATLCapabilityCatalog(ctx context.Context, binary string) error {
+func VerifyATLCapabilityCatalog(ctx context.Context, binary, ledgerRoot string) (returnErr error) {
 	executable, err := resolveCapabilityCatalogExecutable(binary)
 	if err != nil {
 		return err
+	}
+	digest, err := digestSyntheticExecutable(executable, privateAgentBinaryMaxBytes)
+	if err != nil {
+		return err
+	}
+	contract, err := contentMinimizedAttemptDigest("atl-capability-catalog-contract", struct {
+		ExecutableSHA256 string `json:"executable_sha256"`
+		CatalogSHA256    string `json:"catalog_sha256"`
+	}{digest, sha256HexBytes(pinnedCapabilityCatalogJSON)})
+	if err != nil {
+		return err
+	}
+	session, err := prepareQualificationAttemptSession(ledgerRoot, "atl-capability-catalog", "binary-sha256:"+digest,
+		contract, "not_applicable", int(capabilityCatalogProcessTimeout/time.Second))
+	if err != nil {
+		return err
+	}
+	terminationOK, receipt, verifyErr := verifyATLCapabilityCatalogWithSession(ctx, executable, session)
+	return errors.Join(verifyErr, finalizeQualificationAttempt(session, struct {
+		Compatible bool `json:"compatible"`
+	}{verifyErr == nil}, terminationOK, receipt,
+		errors.Is(verifyErr, context.DeadlineExceeded), errors.Is(verifyErr, context.Canceled), verifyErr))
+}
+
+func verifyATLCapabilityCatalogWithSession(ctx context.Context, binary string, session *DurableAttemptSession) (bool, string, error) {
+	executable, err := resolveCapabilityCatalogExecutable(binary)
+	if err != nil {
+		return false, "", err
 	}
 
 	commandCtx, cancel := context.WithTimeout(ctx, capabilityCatalogProcessTimeout)
@@ -33,34 +61,35 @@ func VerifyATLCapabilityCatalog(ctx context.Context, binary string) error {
 	command.Env = capabilityCatalogProcessEnvironment()
 	command.Stdout = stdout
 	command.Stderr = stderr
-	if err := command.Run(); err != nil {
+	_, terminationOK, receipt, runErr := executeProviderAttemptWithSession(command, nil, nil, session)
+	if runErr != nil {
 		if errors.Is(commandCtx.Err(), context.DeadlineExceeded) || errors.Is(commandCtx.Err(), context.Canceled) {
-			return fmt.Errorf("ATL capability catalog preflight did not complete: %w", commandCtx.Err())
+			return terminationOK, receipt, fmt.Errorf("ATL capability catalog preflight did not complete: %w", commandCtx.Err())
 		}
 		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if errors.As(runErr, &exitErr) {
 			detail := strings.TrimSpace(stderr.data.String())
 			if len(detail) > 512 {
 				detail = detail[:512] + "…"
 			}
 			if detail != "" {
-				return fmt.Errorf("ATL capability catalog preflight failed with exit %d: %s", exitErr.ExitCode(), detail)
+				return terminationOK, receipt, fmt.Errorf("ATL capability catalog preflight failed with exit %d: %s", exitErr.ExitCode(), detail)
 			}
-			return fmt.Errorf("ATL capability catalog preflight failed with exit %d", exitErr.ExitCode())
+			return terminationOK, receipt, fmt.Errorf("ATL capability catalog preflight failed with exit %d", exitErr.ExitCode())
 		}
-		return fmt.Errorf("ATL capability catalog preflight failed: %w", err)
+		return terminationOK, receipt, fmt.Errorf("ATL capability catalog preflight failed: %w", runErr)
 	}
 	if stdout.overflow || stderr.overflow {
-		return fmt.Errorf("ATL capability catalog preflight exceeded its output bound")
+		return terminationOK, receipt, fmt.Errorf("ATL capability catalog preflight exceeded its output bound")
 	}
 	catalog, err := DecodeCapabilityCatalog(&stdout.data)
 	if err != nil {
-		return fmt.Errorf("ATL capability catalog preflight: %w", err)
+		return terminationOK, receipt, fmt.Errorf("ATL capability catalog preflight: %w", err)
 	}
 	if err := VerifyPinnedCapabilityCatalog(catalog); err != nil {
-		return fmt.Errorf("ATL capability catalog preflight: %w", err)
+		return terminationOK, receipt, fmt.Errorf("ATL capability catalog preflight: %w", err)
 	}
-	return nil
+	return terminationOK, receipt, nil
 }
 
 func resolveCapabilityCatalogExecutable(binary string) (string, error) {

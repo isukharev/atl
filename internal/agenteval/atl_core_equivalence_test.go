@@ -101,6 +101,7 @@ type atlCoreEquivalenceReceiptFixture struct {
 	AgentExecutableSHA256   string `json:"agent_executable_sha256"`
 	ATLExecutableSHA256     string `json:"atl_executable_sha256"`
 	WrapperExecutableSHA256 string `json:"wrapper_executable_sha256"`
+	AttemptBindingSHA256    string `json:"attempt_binding_sha256"`
 	ExpectedReceiptFile     string `json:"expected_receipt_file"`
 }
 
@@ -108,7 +109,7 @@ func TestATLCoreEquivalenceReadableGenerations(t *testing.T) {
 	manifest := loadATLCoreEquivalenceManifest(t)
 	source := manifest.ReadabilitySource
 	goldens := loadStandaloneReadabilityGoldenFixture(t, standaloneGoldenBundle{Path: source.Path, SHA256: source.SHA256})
-	if len(goldens.Entries) != source.EntryCount || source.EntryCount != 37 {
+	if len(goldens.Entries) != source.EntryCount || source.EntryCount != 45 {
 		t.Fatalf("readability entries=%d, want %d", len(goldens.Entries), source.EntryCount)
 	}
 
@@ -393,7 +394,7 @@ func TestATLCoreEquivalenceSyntheticReceiptBytes(t *testing.T) {
 	}
 	receipt, err := newSyntheticRunReceipt(
 		attestation, loaded, result.Runtime, fixture.Repetition,
-		fixture.TaskContractSHA256, fixture.ExecutionContractSHA256, resultData,
+		fixture.TaskContractSHA256, fixture.ExecutionContractSHA256, fixture.AttemptBindingSHA256, resultData,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -425,7 +426,7 @@ func loadATLCoreEquivalenceManifest(t *testing.T) atlCoreEquivalenceManifest {
 	var manifest atlCoreEquivalenceManifest
 	decodeATLCoreEquivalenceJSON(t, data, &manifest)
 	if manifest.SchemaVersion != 1 || manifest.ReadabilitySource.Path != "testdata/standalone-readability-golden.v1.json" ||
-		manifest.ReadabilitySource.EntryCount != 37 || !standaloneValidSHA256(manifest.ReadabilitySource.SHA256) ||
+		manifest.ReadabilitySource.EntryCount != 45 || !standaloneValidSHA256(manifest.ReadabilitySource.SHA256) ||
 		!standaloneValidSHA256(manifest.ReadabilitySource.SemanticProjectionSHA256) ||
 		len(manifest.LegacyBaseline.RepositoryCommit) != 40 || !atlCoreEquivalenceHex(manifest.LegacyBaseline.RepositoryCommit) ||
 		!standaloneValidSHA256(manifest.LegacyBaseline.EvaluateSourceSHA256) ||

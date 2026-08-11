@@ -191,7 +191,7 @@ const (
             -run '^(TestExtensionManifestV1IsClosed|TestExtensionProtocolV1StateMachineIsClosed)$' -count=1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go -C internal/agenteval test . ` + "`" + `
-            -run '^(TestExtensionHostAdmissionMaterializesNativeExecutableWithClosedEnvironment|TestExtensionHostAdmissionRejectsUnsafeExecutable|TestExtensionProcessHostBoundsAndCleanup|TestVerifyExtensionProtocolReportIsContentMinimized|TestPrivateExtensionWindowsRuntimeACLsAreProtected|TestPrivateExtensionWindowsRootGuardBlocksDeleteUntilClose|TestPrivateExtensionWindowsRuntimeRootAcceptsTrailingBaseSeparator|TestPrivateExtensionWindowsExecutableGuardBlocksReplacementAndLaunchesAdmittedBytes|TestPrivateExtensionWindowsRejectsPermissiveOrInheritedACL|TestPrivateExtensionWindowsRejectsReparseDirectory|TestExtensionPlatformEnvironmentIgnoresAmbientWindowsDirectory)$' -count=1
+            -run '^(TestAttemptLedgerWindowsFailsClosedBeforeExtensionProcessEntry|TestExtensionHostAdmissionMaterializesNativeExecutableWithClosedEnvironment|TestExtensionHostAdmissionRejectsUnsafeExecutable|TestExtensionProcessHostBoundsAndCleanup|TestVerifyExtensionProtocolReportIsContentMinimized|TestPrivateExtensionWindowsRuntimeACLsAreProtected|TestPrivateExtensionWindowsRootGuardBlocksDeleteUntilClose|TestPrivateExtensionWindowsRuntimeRootAcceptsTrailingBaseSeparator|TestPrivateExtensionWindowsExecutableGuardBlocksReplacementAndLaunchesAdmittedBytes|TestPrivateExtensionWindowsRejectsPermissiveOrInheritedACL|TestPrivateExtensionWindowsRejectsReparseDirectory|TestExtensionPlatformEnvironmentIgnoresAmbientWindowsDirectory)$' -count=1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`
 	ciProvenanceStepContract = `      - name: Verify stamped build provenance
         run: |
@@ -749,7 +749,7 @@ ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
 		"contract: compat-oracles unit\n",
 		"$(GO_ENV) go run ./cmd/agent-eval validate ",
 		"$(GO_ENV) go run ./cmd/agent-eval validate-run ",
-		"$(GO_ENV) go run ./cmd/agent-eval verify-atl-capabilities $(ATL_BINARY) >/dev/null\n",
+		"$(GO_ENV) go run ./cmd/agent-eval verify-atl-capabilities --ledger \"$$ledger_parent/attempt-ledger\" $(ATL_BINARY) >/dev/null\n",
 		"$(GO_ENV) go run ./cmd/agent-eval verify-codex-skill-package $(REPOSITORY_ROOT)/plugins/atl >/dev/null\n",
 		"\t@set -eu; \\\n\t\ttmp=\"$$(mktemp \"$(CURDIR)/testdata/.capability-catalog.XXXXXX\")\"; \\\n",
 	} {

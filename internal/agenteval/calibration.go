@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/isukharev/atl/internal/agenteval/lifecycle"
 )
 
 const (
@@ -73,6 +75,7 @@ type CodexCLICalibrationOptions struct {
 	Pricing                  Pricing
 	providerAuthSession      *codexAuthSession
 	providerAttemptCommitted func() error
+	attemptSession           *DurableAttemptSession
 }
 
 // CodexCLICalibrationReceipt is content-free evidence that the actual Codex
@@ -329,6 +332,56 @@ func RunCodexCLICalibration(parent context.Context, options CodexCLICalibrationO
 	if err := requirePrivateDirectory("calibration output root", outputRoot); err != nil {
 		return receipt, err
 	}
+	attemptSession := options.attemptSession
+	if attemptSession == nil {
+		attemptSession, err = prepareCalibrationAttemptSession(outputRoot, contract, options)
+		if err != nil {
+			return receipt, err
+		}
+	}
+	var terminationProven, timedOut, canceled bool
+	var terminalReceipt string
+	defer func() {
+		inspection, inspectErr := attemptSession.store.Inspect(attemptSession.plan.AttemptID)
+		if inspectErr != nil {
+			returnErr = joinAttemptLifecycleError(returnErr, inspectErr)
+			return
+		}
+		if inspection.Projection.Terminal {
+			return
+		}
+		usage := calibrationAttemptUsage(receipt)
+		var lifecycleErr error
+		switch {
+		case inspection.Projection.State == lifecycle.StatePlanned:
+			lifecycleErr = attemptSession.Cancel(false, usage)
+		case timedOut:
+			lifecycleErr = attemptSession.Timeout(terminationProven, usage)
+		case canceled:
+			lifecycleErr = attemptSession.Cancel(terminationProven, usage)
+		case returnErr == nil && terminationProven:
+			receiptDigest, digestErr := contentMinimizedAttemptDigest("calibration-receipt", receipt)
+			if digestErr == nil {
+				receiptDigest, digestErr = contentMinimizedAttemptDigest("completed-calibration", []string{terminalReceipt, receiptDigest})
+			}
+			if digestErr != nil {
+				lifecycleErr = attemptSession.Unknown(lifecycle.ErrorInternal, usage)
+			} else {
+				lifecycleErr = attemptSession.Succeed(receiptDigest, usage)
+			}
+		case terminationProven && terminalReceipt != "":
+			lifecycleErr = attemptSession.Fail(terminalReceipt, usage)
+		default:
+			lifecycleErr = attemptSession.Unknown(lifecycle.ErrorTerminationAmbiguous, usage)
+		}
+		returnErr = joinAttemptLifecycleError(returnErr, lifecycleErr)
+	}()
+	if err := attemptSession.Commit(); err != nil {
+		return receipt, err
+	}
+	if err := attemptSession.SpawnIntent(); err != nil {
+		return receipt, joinAttemptLifecycleError(err, attemptSession.FailBeforeSpawn())
+	}
 	runDir := filepath.Join(outputRoot, "provider-calibration")
 	if err := mkdirPrivateWithin(outputRoot, runDir); err != nil {
 		return receipt, err
@@ -475,7 +528,11 @@ func RunCodexCLICalibration(parent context.Context, options CodexCLICalibrationO
 	command.Env = flattenEnvironment(environment)
 
 	started := time.Now()
-	attemptStage, runErr := executeProviderAttempt(command, options.providerAttemptCommitted, providerRuntime.verifyPluginPackage)
+	attemptStage, terminationProven, terminalReceipt, runErr := executeProviderAttemptWithSession(
+		command, options.providerAttemptCommitted, providerRuntime.verifyPluginPackage, attemptSession,
+	)
+	timedOut = errors.Is(ctx.Err(), context.DeadlineExceeded)
+	canceled = errors.Is(parent.Err(), context.Canceled) && !timedOut
 	if runErr != nil && attemptStage == providerAttemptStageCommit {
 		_ = transcript.Close()
 		_ = stderr.Close()

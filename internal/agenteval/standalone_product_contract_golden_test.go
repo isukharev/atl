@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/isukharev/atl/internal/agenteval/extension"
+	"github.com/isukharev/atl/internal/agenteval/lifecycle"
 )
 
 type standaloneReadabilityGoldenFixture struct {
@@ -234,11 +235,11 @@ func standaloneReadGoldenSource(t *testing.T, path, wantSHA256 string) []byte {
 
 func standaloneGoldenSourceAllowed(entry standaloneReadabilityGoldenEntry) bool {
 	switch entry.Kind {
-	case "activation-reference", "private-plan":
+	case "activation-reference", "private-plan", "private-review-attempt", "private-review-receipt":
 		return entry.Namespace == "atl-profile" && entry.SourcePath == fmt.Sprintf("testdata/standalone-readability/%s-v%d.json", entry.Kind, entry.Version)
 	case "capability-catalog":
 		return entry.Namespace == "atl-profile" && entry.Version == CapabilityCatalogSchemaVersion && entry.SourcePath == "testdata/capability-catalog.v1.json"
-	case "adapter-manifest", "adapter-message", "extension-conformance-bundle", "extension-conformance-report", "project-config":
+	case "adapter-manifest", "adapter-message", "attempt-event", "attempt-ledger", "attempt-plan", "extension-conformance-bundle", "extension-conformance-report", "project-config":
 		return entry.Namespace == "standalone" && entry.Version == 1 &&
 			entry.SourcePath == fmt.Sprintf("testdata/standalone-readability/%s-v1.json", entry.Kind)
 	default:
@@ -418,6 +419,33 @@ func standaloneDecodeReadabilityProjection(t *testing.T, entry standaloneReadabi
 			"allow_live_writes":    spec.AllowLiveWrites, "cli_rule_count": len(spec.AllowedCLICommands),
 			"gateway_route_count": gatewayRouteCount,
 		}, nil
+	case "private-review-attempt":
+		var attempt privateReviewAttempt
+		if decodePrivateLifecycleJSON(data, &attempt) != nil {
+			return nil, fmt.Errorf("private review attempt golden is invalid")
+		}
+		canonical, err := encodePrivateReviewAttempt(attempt)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("private review attempt golden is not canonical")
+		}
+		return map[string]any{
+			"schema_version": attempt.SchemaVersion, "reviewer_kind": attempt.ReviewerKind,
+			"attempt_bound": attempt.AttemptBindingSHA256 != "",
+		}, nil
+	case "private-review-receipt":
+		var receipt privateReviewReceipt
+		if decodePrivateLifecycleJSON(data, &receipt) != nil {
+			return nil, fmt.Errorf("private review receipt golden is invalid")
+		}
+		canonical, err := encodePrivateReviewReceipt(receipt, PrivateReviewerExecution{})
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("private review receipt golden is not canonical")
+		}
+		return map[string]any{
+			"schema_version": receipt.SchemaVersion, "reviewer_kind": receipt.ReviewerKind,
+			"status": receipt.Status, "attempt_bound": receipt.AttemptBindingSHA256 != "",
+			"cost_known": receipt.CostKnown, "model_requests": receipt.ModelRequests,
+		}, nil
 	case "scenario":
 		scenario, err := DecodeScenario(bytes.NewReader(data))
 		if err != nil {
@@ -434,8 +462,9 @@ func standaloneDecodeReadabilityProjection(t *testing.T, entry standaloneReadabi
 			return nil, err
 		}
 		return map[string]any{
-			"scenario_id": receipt.ScenarioID, "provider": receipt.Provider, "variant": receipt.Variant,
+			"schema_version": receipt.SchemaVersion, "scenario_id": receipt.ScenarioID, "provider": receipt.Provider, "variant": receipt.Variant,
 			"repetition": receipt.Repetition, "repetitions": receipt.Repetitions,
+			"attempt_bound": receipt.AttemptBindingSHA256 != "",
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported readability golden kind %q", entry.Kind)
@@ -478,6 +507,48 @@ func standaloneDecodeExtensionReadabilityProjection(entry standaloneReadabilityG
 			"direction": frame.Direction, "sequence": frame.Sequence, "role": frame.Role, "type": frame.Type,
 			"component_id": frame.ComponentID, "component_version": frame.ComponentVersion,
 			"required_capability_count": len(frame.Initialize.RequiredCapabilities),
+		}, nil
+	case "attempt-event":
+		event, err := lifecycle.DecodeEvent(data)
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := lifecycle.EncodeEvent(event)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("attempt event golden is not canonical")
+		}
+		return map[string]any{
+			"schema": event.Schema, "schema_version": event.SchemaVersion, "sequence": event.Sequence,
+			"from": event.From, "to": event.To, "proof_count": len(event.Proofs),
+			"error_class": event.Evidence.ErrorClass, "usage_state": event.Evidence.Usage.InputTokens.State,
+		}, nil
+	case "attempt-ledger":
+		header, err := lifecycle.DecodeHeader(data)
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := lifecycle.EncodeHeader(header)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("attempt ledger golden is not canonical")
+		}
+		return map[string]any{
+			"schema": header.Schema, "schema_version": header.SchemaVersion,
+			"contract_version": header.ContractVersion, "ledger_id": header.LedgerID,
+			"header_digest_bound": header.HeaderSHA256 != "",
+		}, nil
+	case "attempt-plan":
+		plan, err := lifecycle.DecodePlan(data)
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := lifecycle.EncodePlan(plan)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("attempt plan golden is not canonical")
+		}
+		return map[string]any{
+			"schema": plan.Schema, "schema_version": plan.SchemaVersion, "ordinal": plan.Ordinal,
+			"privacy": plan.Binding.Privacy, "identity_count": 10, "reconciled": plan.PredecessorAttemptID != "",
+			"binding_digest_bound": plan.BindingSHA256 != "", "plan_digest_bound": plan.PlanSHA256 != "",
 		}, nil
 	case "extension-conformance-bundle":
 		bundle, err := DecodeExtensionConformanceBundle(data)

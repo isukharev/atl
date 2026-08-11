@@ -43,6 +43,17 @@ inspection, and Agent Skills import/export. That source surface is unsigned,
 does not expose the Go packages as an SDK, does not move the module, and does
 not satisfy the distribution or external-consumer gates below.
 
+The root facade now composes a neutral append-only `lifecycle` leaf. Direct
+runs allocate their complete ordered roster before process entry; extension,
+review, calibration, qualification, and selected-binary paths use the same
+durable session; and aggregate reconstruction requires current receipts to bind
+exactly one successful attempt. The store retains verified prefixes and makes
+ambiguous tails terminal `unknown` to inspection rather than replayable work.
+Private activation remains the stricter consent/order owner and keeps its
+historical state bytes. This closes the current no-retry/failed-attempt
+retention requirement without making the lifecycle package a public SDK or
+granting an external substrate replay authority.
+
 The nested module's schema-v1 extension protocol is also implementation
 evidence, not extraction evidence. It defines a closed process seam for
 profiles, agent adapters, execution backends, graders, and reporters, plus an

@@ -136,7 +136,7 @@ jobs:
             -run '^(TestExtensionManifestV1IsClosed|TestExtensionProtocolV1StateMachineIsClosed)$' -count=1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go -C internal/agenteval test . `
-            -run '^(TestExtensionHostAdmissionMaterializesNativeExecutableWithClosedEnvironment|TestExtensionHostAdmissionRejectsUnsafeExecutable|TestExtensionProcessHostBoundsAndCleanup|TestVerifyExtensionProtocolReportIsContentMinimized|TestPrivateExtensionWindowsRuntimeACLsAreProtected|TestPrivateExtensionWindowsRootGuardBlocksDeleteUntilClose|TestPrivateExtensionWindowsRuntimeRootAcceptsTrailingBaseSeparator|TestPrivateExtensionWindowsExecutableGuardBlocksReplacementAndLaunchesAdmittedBytes|TestPrivateExtensionWindowsRejectsPermissiveOrInheritedACL|TestPrivateExtensionWindowsRejectsReparseDirectory|TestExtensionPlatformEnvironmentIgnoresAmbientWindowsDirectory)$' -count=1
+            -run '^(TestAttemptLedgerWindowsFailsClosedBeforeExtensionProcessEntry|TestExtensionHostAdmissionMaterializesNativeExecutableWithClosedEnvironment|TestExtensionHostAdmissionRejectsUnsafeExecutable|TestExtensionProcessHostBoundsAndCleanup|TestVerifyExtensionProtocolReportIsContentMinimized|TestPrivateExtensionWindowsRuntimeACLsAreProtected|TestPrivateExtensionWindowsRootGuardBlocksDeleteUntilClose|TestPrivateExtensionWindowsRuntimeRootAcceptsTrailingBaseSeparator|TestPrivateExtensionWindowsExecutableGuardBlocksReplacementAndLaunchesAdmittedBytes|TestPrivateExtensionWindowsRejectsPermissiveOrInheritedACL|TestPrivateExtensionWindowsRejectsReparseDirectory|TestExtensionPlatformEnvironmentIgnoresAmbientWindowsDirectory)$' -count=1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   lint:

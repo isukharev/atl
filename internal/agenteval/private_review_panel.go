@@ -357,6 +357,12 @@ func validatePrivatePanelPacket(root, packet string, resultData, finalData, rubr
 		allowed["result.json"] = true
 	}
 	for _, entry := range entries {
+		if entry.Name() == "attempt-ledger" {
+			if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+				return privatePlanError("review_packet_drift")
+			}
+			continue
+		}
 		if !allowed[entry.Name()] || entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
 			return privatePlanError("review_packet_drift")
 		}

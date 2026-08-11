@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "panel_contract_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "reviewer_id": "reviewer-01",
+  "reviewer_kind": "codex",
+  "reviewer_model": "synthetic-model",
+  "reviewer_execution_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "agent_identity": "binary-sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "status": "terminal-failed",
+  "model_requests": 0,
+  "auxiliary_requests": 0,
+  "input_tools": 0,
+  "forwarded_tools": 0,
+  "tool_outputs": 0,
+  "cost_known": false,
+  "completed_at": "2026-01-02T03:04:06Z"
+}

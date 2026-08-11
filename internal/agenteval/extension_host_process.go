@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/isukharev/atl/internal/agenteval/extension"
+	"github.com/isukharev/atl/internal/agenteval/lifecycle"
 )
 
 const (
@@ -269,6 +270,10 @@ func (e *extensionProcessStartError) Error() string { return errExtensionSpawnFa
 func (e *extensionProcessStartError) Unwrap() error { return errExtensionSpawnFailed }
 
 func startExtensionProcess(admitted admittedExtensionExecutable, arguments []string) (*extensionProcessSession, error) {
+	return startExtensionProcessWithSession(admitted, arguments, nil)
+}
+
+func startExtensionProcessWithSession(admitted admittedExtensionExecutable, arguments []string, attempt *DurableAttemptSession) (*extensionProcessSession, error) {
 	if err := validateExtensionArguments(arguments); err != nil {
 		return nil, err
 	}
@@ -306,7 +311,11 @@ func startExtensionProcess(admitted admittedExtensionExecutable, arguments []str
 		_ = stdin.Close()
 		_ = stdout.Close()
 		_ = tree.close()
-		return nil, &extensionProcessStartError{}
+		startErr := &extensionProcessStartError{}
+		if attempt != nil {
+			return nil, joinAttemptLifecycleError(startErr, attempt.FailBeforeSpawn())
+		}
+		return nil, startErr
 	}
 	childStdinCloseErr := childStdin.Close()
 	childStdoutCloseErr := childStdout.Close()
@@ -325,15 +334,38 @@ func startExtensionProcess(admitted admittedExtensionExecutable, arguments []str
 	}()
 	if err := admitted.executableGuard.close(); err != nil {
 		_ = session.cleanup(extensionCancelGrace)
-		return nil, &extensionProcessStartError{possibleEntry: true}
+		startErr := &extensionProcessStartError{possibleEntry: true}
+		if attempt != nil {
+			return nil, joinAttemptLifecycleError(startErr, attempt.Unknown(lifecycle.ErrorCleanupAmbiguous, UnknownAttemptUsage()))
+		}
+		return nil, startErr
 	}
 	if childStdinCloseErr != nil || childStdoutCloseErr != nil {
 		_ = session.cleanup(extensionCancelGrace)
-		return nil, &extensionProcessStartError{possibleEntry: true}
+		startErr := &extensionProcessStartError{possibleEntry: true}
+		if attempt != nil {
+			return nil, joinAttemptLifecycleError(startErr, attempt.Unknown(lifecycle.ErrorCleanupAmbiguous, UnknownAttemptUsage()))
+		}
+		return nil, startErr
 	}
 	if err := tree.attach(); err != nil {
 		_ = session.cleanup(extensionCancelGrace)
-		return nil, &extensionProcessStartError{possibleEntry: true}
+		startErr := &extensionProcessStartError{possibleEntry: true}
+		if attempt != nil {
+			return nil, joinAttemptLifecycleError(startErr, attempt.Unknown(lifecycle.ErrorCleanupAmbiguous, UnknownAttemptUsage()))
+		}
+		return nil, startErr
+	}
+	if attempt != nil {
+		identity, err := processAttemptIdentity(attempt.plan, command)
+		if err == nil {
+			err = attempt.Running(identity)
+		}
+		if err != nil {
+			_ = session.cleanup(extensionCancelGrace)
+			return nil, joinAttemptLifecycleError(&extensionProcessStartError{possibleEntry: true},
+				attempt.Unknown(lifecycle.ErrorInternal, UnknownAttemptUsage()))
+		}
 	}
 	return session, nil
 }

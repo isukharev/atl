@@ -20,6 +20,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/isukharev/atl/internal/agenteval/lifecycle"
 )
 
 type RunOptions struct {
@@ -125,11 +127,6 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 	if err := admitATLCoreRunContract(contract); err != nil {
 		return RunOutput{}, err
 	}
-	if contract.spec.EffectiveSurface() == SurfaceATLMCP {
-		if err := VerifyATLCapabilityCatalog(ctx, options.ATLBinary); err != nil {
-			return RunOutput{}, err
-		}
-	}
 	outputRoot, err := PreparePrivateOutputRoot(options.OutputRoot, options.RepositoryRoot)
 	if err != nil {
 		return RunOutput{}, err
@@ -191,12 +188,83 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 		OutputRoot:                     "<private-output-root>",
 		QualitativeRubricID:            contract.rubric.ID,
 	}
+	pluginVersion, skillDigest, err := pluginIdentity(options.PluginRoot, contract.spec.Provider)
+	if err != nil {
+		return RunOutput{}, err
+	}
+	allAttemptSessions, err := prepareRunAttemptSessions(outputRoot, contract, options, skillDigest)
+	if err != nil {
+		return RunOutput{}, err
+	}
+	if len(allAttemptSessions) != contract.spec.Repetitions+1 {
+		return RunOutput{}, attemptLedgerError("run_roster")
+	}
+	preflightSession := allAttemptSessions[0]
+	attemptSessions := allAttemptSessions[1:]
+	defer func() {
+		inspection, inspectErr := preflightSession.store.Inspect(preflightSession.plan.AttemptID)
+		if inspectErr != nil {
+			returnErr = joinAttemptLifecycleError(returnErr, inspectErr)
+			return
+		}
+		if inspection.Projection.State == lifecycle.StatePlanned {
+			returnErr = joinAttemptLifecycleError(returnErr,
+				preflightSession.Cancel(false, inspection.Projection.Usage))
+		} else if !inspection.Projection.Terminal {
+			returnErr = joinAttemptLifecycleError(returnErr,
+				preflightSession.Unknown(lifecycle.ErrorTerminationAmbiguous, inspection.Projection.Usage))
+		}
+	}()
+	defer func() {
+		for _, session := range attemptSessions {
+			inspection, inspectErr := session.store.Inspect(session.plan.AttemptID)
+			if inspectErr != nil {
+				returnErr = joinAttemptLifecycleError(returnErr, inspectErr)
+				continue
+			}
+			if inspection.Projection.State == lifecycle.StatePlanned {
+				returnErr = joinAttemptLifecycleError(returnErr, session.Cancel(false, inspection.Projection.Usage))
+			}
+		}
+	}()
+	preflightProcessReceipt := ""
 	if options.DryRun {
+		if contract.spec.EffectiveSurface() == SurfaceATLMCP {
+			preflightProcessReceipt, err = verifyRunCapabilityPreflight(ctx, options.ATLBinary, preflightSession)
+			if err != nil {
+				return RunOutput{}, err
+			}
+			receipt, err := contentMinimizedAttemptDigest("run-dry-run-preflight", struct {
+				PluginVersion        string `json:"plugin_version"`
+				SkillDigest          string `json:"skill_digest"`
+				ProcessReceiptSHA256 string `json:"process_receipt_sha256"`
+			}{pluginVersion, skillDigest, preflightProcessReceipt})
+			if err != nil {
+				return RunOutput{}, err
+			}
+			if err := preflightSession.Succeed(receipt, lifecycle.UnknownUsage()); err != nil {
+				return RunOutput{}, err
+			}
+		} else if err := preflightSession.Cancel(false, lifecycle.UnknownUsage()); err != nil {
+			return RunOutput{}, err
+		}
 		return RunOutput{Preview: preview, Results: []Result{}}, nil
 	}
 	if contract.spec.Provider == "codex" && contract.spec.EffectiveToolTransport() != "mcp" {
 		if contract.spec.EffectiveBackendMode() != BackendModePrivateLive && !isCodexSyntheticBrokerCLI(contract.spec) {
 			return RunOutput{}, fmt.Errorf("codex synthetic model execution requires tool_transport=mcp; cli transport remains validate/dry-run only")
+		}
+	}
+	if err := preflightSession.Commit(); err != nil {
+		return RunOutput{}, err
+	}
+	if err := preflightSession.SpawnIntent(); err != nil {
+		return RunOutput{}, joinAttemptLifecycleError(err, preflightSession.FailBeforeSpawn())
+	}
+	if contract.spec.EffectiveSurface() == SurfaceATLMCP {
+		preflightProcessReceipt, err = verifyRunCapabilityPreflight(ctx, options.ATLBinary, preflightSession)
+		if err != nil {
+			return RunOutput{}, err
 		}
 	}
 	providerAuthSession := options.providerAuthSession
@@ -243,11 +311,19 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 	if err != nil {
 		return RunOutput{}, fmt.Errorf("atl version: %w", err)
 	}
-	pluginVersion, skillDigest, err := pluginIdentity(options.PluginRoot, contract.spec.Provider)
+	preflightReceipt, err := contentMinimizedAttemptDigest("run-preflight-receipt", struct {
+		AgentVersion         string `json:"agent_version"`
+		ATLVersion           string `json:"atl_version"`
+		PluginVersion        string `json:"plugin_version"`
+		SkillDigest          string `json:"skill_digest"`
+		ProcessReceiptSHA256 string `json:"process_receipt_sha256,omitempty"`
+	}{agentVersion, atlVersion, pluginVersion, skillDigest, preflightProcessReceipt})
 	if err != nil {
 		return RunOutput{}, err
 	}
-
+	if err := preflightSession.Succeed(preflightReceipt, lifecycle.UnknownUsage()); err != nil {
+		return RunOutput{}, err
+	}
 	results := make([]Result, 0, contract.spec.Repetitions)
 	receipts := make([]SyntheticRunReceipt, 0, contract.spec.Repetitions)
 	var totalCost int64
@@ -275,7 +351,8 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 			},
 			externalProfile: externalProfile, providerRuntime: providerRuntime,
 			attestation: attestation, providerAttemptCommitted: options.providerAttemptCommitted,
-			receipt: &receipt,
+			attemptSession: attemptSessions[repetition-1],
+			receipt:        &receipt,
 		})
 		if providerRuntime != nil {
 			runErr = errors.Join(runErr, providerRuntime.Close())
@@ -585,27 +662,23 @@ func ValidateRunSpecFile(path string) (RunSpec, Scenario, error) {
 	return contract.spec, contract.scenario, nil
 }
 
-type runAttemptBindings struct {
-	outputRoot               string
-	repetition               int
-	agentBinary              string
-	atlBinary                string
-	pluginRoot               string
-	wrapperExecutable        string
-	liveConfigDir            string
-	scratchRoot              string
-	runtime                  Runtime
-	externalProfile          ExternalMCPProfile
-	providerRuntime          *providerRuntimeCapsule
-	attestation              *syntheticRunAttestation
-	providerAttemptCommitted func() error
-	receipt                  *SyntheticRunReceipt
-}
-
-func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindings runAttemptBindings) (Result, error) {
+func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindings runAttemptBindings) (result Result, returnErr error) {
+	var terminationProven, timedOut bool
+	var processReceipt string
+	attemptUsage := lifecycle.UnknownUsage()
+	if bindings.attemptSession != nil {
+		defer func() {
+			returnErr = finalizeRunAttempt(parent, bindings.attemptSession, result, returnErr, terminationProven, processReceipt, timedOut, attemptUsage)
+		}()
+	}
 	layout, err := prepareHeadlessAttemptLayout(contract, bindings)
 	if err != nil {
 		return Result{}, err
+	}
+	if bindings.attemptSession != nil {
+		if err := beginRunAttempt(bindings.attemptSession); err != nil {
+			return Result{}, err
+		}
 	}
 	codexPrivateCLI := layout.codexPrivateCLI
 	codexSyntheticBrokerCLI := layout.codexSyntheticBrokerCLI
@@ -825,6 +898,9 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 		contract: contract, bindings: bindings, layout: layout, resources: resources,
 		command: command, transcript: transcript, stderr: stderr, ctx: ctx, cancel: cancel,
 	})
+	terminationProven = execution.terminationProven
+	processReceipt = execution.terminalReceipt
+	timedOut = execution.timedOut
 	if execution.gatewayCloseErr != nil {
 		return Result{}, fmt.Errorf("close private-live gateway: %w", execution.gatewayCloseErr)
 	}
@@ -860,6 +936,7 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 		backend:           resources.backend,
 		liveGateway:       resources.liveGateway,
 	})
+	attemptUsage = providerMetricsAttemptUsage(trajectory.providerMetrics, contract.spec.Pricing)
 	if err != nil {
 		return Result{}, err
 	}
@@ -873,6 +950,7 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 		repetition:              bindings.repetition,
 		taskContractSHA256:      taskContractSHA256,
 		executionContractSHA256: executionContractSHA256,
+		attemptBindingSHA256:    bindings.attemptSession.plan.BindingSHA256,
 		attestation:             bindings.attestation,
 		receipt:                 bindings.receipt,
 	})

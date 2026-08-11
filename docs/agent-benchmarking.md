@@ -980,15 +980,24 @@ probe boundaries. Descriptive ownership fields are review evidence rather than
 a claim that every prose dimension can be projected mechanically from Go. None
 of this is a new public schema or runtime registry.
 
-Headless dry-run validates inputs and creates or verifies the private output
-root marker, then returns before authentication, version probes, backend setup,
-provider capsules, or model execution. Synthetic and private-live treatments
-use one provider attempt per repetition after their preflight and durable
-commitment boundary. Provider calibration is a separate backend-free,
-single-attempt private-plan precondition. Automated review commits its panel
-slot earlier—after the pristine-template check but before reloading review
-inputs—so later setup failures still consume that slot. Tool-availability,
-CLI-route, and confinement probes remain distinct single-purpose processes;
+Headless execution writes one generic append-only attempt ledger beneath the
+marked output root. It allocates the complete preflight-plus-repetition roster
+before the first evaluation-component process entry; local output-root admission
+may still invoke the content-minimized repository-ignore check. Parallel completion
+therefore cannot reorder or select attempt identities. Dry-run still returns before authentication, version
+probes, backend setup, provider capsules, or model execution: its local
+preflight closes successfully and every unused treatment plan closes as proven
+precommit `canceled`.
+
+Synthetic and private-live treatments use one provider attempt per repetition
+after their preflight and durable commitment boundary. Provider calibration is
+a separate backend-free, single-attempt private-plan precondition. Automated
+review validates the pristine template and source inputs, allocates a generic
+owner-private attempt and commits it, writes the historical execution-attempt
+record, then persists spawn intent before provider entry. Later setup or receipt failures
+therefore remain consumed and terminal. Tool-availability, CLI-route,
+capability, extension, and selected-binary probes are distinct
+single-purpose processes, but each consumes the same durable session contract;
 offline validation and aggregate-root reading contact no provider or backend.
 
 The evaluator wrapper has a closed set of explicit worker basename routes for
@@ -1012,23 +1021,25 @@ model and repetition overrides, and the per-attempt cost partition, are applied
 to copies. Provider command bindings contain only ephemeral command-construction
 values such as the loopback external-MCP endpoint and its token environment
 name. Per-attempt bindings contain the repetition's paths, runtime capsule,
-attestation, durable-attempt callback, and receipt destination. Runtime values
+attestation, generic durable session, stricter private-attempt callback, and
+receipt destination. Runtime values
 therefore cannot enter durable run-spec JSON or hashes accidentally. Exact
 preview bytes, failure precedence, and the commitment/revalidation/spawn order
 are characterization-tested. Calibration, review, aggregate, and probe
 lifecycles remain separate because their admission, commitment, and cleanup
 contracts differ.
 
-Headless treatment and provider calibration share one smaller process boundary:
-optional durable commitment, optional installed-package revalidation, one
-`Start`, and one `Wait` only after a successful start. The internal primitive
-returns the exact failed or completed stage and the raw error. Each owner still
+Headless treatment, provider calibration, automated review, capability checks,
+and the two qualification probes share one smaller process boundary: durable
+commitment, optional stricter-owner commitment, optional installed-package
+revalidation, durable spawn intent, one `Start`, bounded process-tree identity,
+one `Wait` only after a successful start, and a content-minimized terminal
+receipt. The internal primitive returns the exact failed or completed stage,
+termination assurance, receipt digest, and raw error. Each owner still
 constructs its command and environment, maps errors and timeouts, retains its
 own artifacts, and closes its own broker, gateway, proxy, output, capsule, and
-authentication resources. Calibration, private-plan lifecycle, review, probes,
-and aggregation therefore do not share an executor. This is an explicit
-no-change boundary: extending the primitive into setup, cleanup, or failure
-classification would merge contracts that deliberately differ.
+authentication resources. Setup and owner-specific cleanup therefore remain
+separate even though the irrevocable process boundary and ledger are shared.
 
 The runner creates a fresh private workspace per repetition. Synthetic typed-MCP
 runs expose only the reviewed MCP inventory: they neither install the Codex

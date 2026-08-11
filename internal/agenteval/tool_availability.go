@@ -39,11 +39,12 @@ const (
 )
 
 type CodexCLIToolAvailabilityOptions struct {
-	AgentBinary    string
-	ScratchRoot    string
-	Model          string
-	Reasoning      string
-	TimeoutSeconds int
+	AgentBinary       string
+	ScratchRoot       string
+	AttemptLedgerRoot string
+	Model             string
+	Reasoning         string
+	TimeoutSeconds    int
 }
 
 // CodexCLIToolAvailabilityReport is a content-free qualification of the exact
@@ -120,7 +121,7 @@ type codexToolProbeRequest struct {
 // bounded request from the exact native Codex binary and immediately returns a
 // fixed assistant response.
 func QualifyCodexCLIToolAvailability(parent context.Context, options CodexCLIToolAvailabilityOptions) (report CodexCLIToolAvailabilityReport, returnErr error) {
-	if parent == nil || options.AgentBinary == "" || options.ScratchRoot == "" || options.Model == "" ||
+	if parent == nil || options.AgentBinary == "" || options.ScratchRoot == "" || options.AttemptLedgerRoot == "" || options.Model == "" ||
 		options.TimeoutSeconds < 0 || options.TimeoutSeconds > maxCodexToolProbeTimeout {
 		return report, fmt.Errorf("codex cli tool availability requires agent, private scratch, model, and a bounded timeout")
 	}
@@ -181,6 +182,17 @@ func QualifyCodexCLIToolAvailability(parent context.Context, options CodexCLIToo
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second, IdleTimeout: 5 * time.Second}
 	serveDone := make(chan error, 1)
 	go func() { serveDone <- server.Serve(listener) }()
+	attempt, err := prepareQualificationAttemptSession(options.AttemptLedgerRoot, "tool-availability", agent.identity,
+		base.ContractSHA256, []string{options.Model, options.Reasoning}, options.TimeoutSeconds)
+	if err != nil {
+		return report, err
+	}
+	var terminationOK, timedOut, canceled bool
+	var processReceipt string
+	defer func() {
+		returnErr = joinAttemptLifecycleError(returnErr,
+			finalizeQualificationAttempt(attempt, report, terminationOK, processReceipt, timedOut, canceled, returnErr))
+	}()
 
 	args := codexToolProbeArgs(options, runtime.workspace, baseURL)
 	ctx, cancel := context.WithTimeout(parent, time.Duration(options.TimeoutSeconds)*time.Second)
@@ -192,7 +204,9 @@ func QualifyCodexCLIToolAvailability(parent context.Context, options CodexCLIToo
 	stderr := &cappedCommandOutput{limit: maxCodexToolProbeOutputBytes}
 	command.Stdout = stdout
 	command.Stderr = stderr
-	runErr := command.Run()
+	_, terminationOK, processReceipt, runErr := executeProviderAttemptWithSession(command, nil, nil, attempt)
+	timedOut = errors.Is(ctx.Err(), context.DeadlineExceeded)
+	canceled = errors.Is(parent.Err(), context.Canceled) && !timedOut
 	cancel()
 	shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	shutdownErr := server.Shutdown(shutdownContext)

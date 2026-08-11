@@ -52,11 +52,13 @@ func run(args []string) error {
 		return err
 	}
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-eval validate scenarios | validate-run specs | verify-atl-capabilities ATL_BINARY | verify-codex-skill-package PACKAGE_ROOT | verify-extension-protocol --manifest FILE --adapter FILE --bundle FILE | inventory CORPUS_ROOT | validate-pair CLI_SPEC MCP_SPEC | validate-comparison-set SPEC SPEC [SPEC] | evaluate scenario observation | review-template options | assess options | aggregate results | aggregate-root ROOT | run options | private COMMAND options")
+		return fmt.Errorf("usage: agent-eval validate scenarios | validate-run specs | verify-atl-capabilities --ledger ROOT ATL_BINARY | verify-codex-skill-package PACKAGE_ROOT | verify-extension-protocol --manifest FILE --adapter FILE --bundle FILE --ledger ROOT | attempt-ledger COMMAND options | inventory CORPUS_ROOT | validate-pair CLI_SPEC MCP_SPEC | validate-comparison-set SPEC SPEC [SPEC] | evaluate scenario observation | review-template options | assess options | aggregate results | aggregate-root ROOT | run options | private COMMAND options")
 	}
 	switch args[0] {
 	case "private":
 		return runPrivateCommand(args[1:], os.Stdout)
+	case "attempt-ledger":
+		return runAttemptLedgerCommand(args[1:])
 	case "validate":
 		if len(args) < 2 {
 			return fmt.Errorf("validate requires at least one scenario")
@@ -106,10 +108,14 @@ func run(args []string) error {
 		}
 		return writeJSON(map[string]any{"schema_version": 1, "valid_runs": ids})
 	case "verify-atl-capabilities":
-		if len(args) != 2 {
-			return fmt.Errorf("verify-atl-capabilities requires exactly one ATL executable")
+		flags := flag.NewFlagSet("verify-atl-capabilities", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		var ledgerPath singleStringFlag
+		flags.Var(&ledgerPath, "ledger", "durable attempt ledger")
+		if err := flags.Parse(args[1:]); err != nil || ledgerPath.duplicate || flags.NArg() != 1 || ledgerPath.value == "" {
+			return fmt.Errorf("verify-atl-capabilities requires --ledger and exactly one ATL executable")
 		}
-		if err := agenteval.VerifyATLCapabilityCatalog(context.Background(), args[1]); err != nil {
+		if err := agenteval.VerifyATLCapabilityCatalog(context.Background(), flags.Arg(0), ledgerPath.value); err != nil {
 			return err
 		}
 		return writeJSON(map[string]any{"schema_version": 1, "compatible": true})
@@ -128,20 +134,21 @@ func run(args []string) error {
 	case "verify-extension-protocol":
 		flags := flag.NewFlagSet("verify-extension-protocol", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
-		var manifestPath, adapterPath, bundlePath singleStringFlag
+		var manifestPath, adapterPath, bundlePath, ledgerPath singleStringFlag
 		flags.Var(&manifestPath, "manifest", "extension manifest")
 		flags.Var(&adapterPath, "adapter", "extension adapter executable")
 		flags.Var(&bundlePath, "bundle", "extension conformance bundle")
+		flags.Var(&ledgerPath, "ledger", "durable attempt ledger")
 		if err := flags.Parse(args[1:]); err != nil {
 			return fmt.Errorf("verify-extension-protocol has invalid flags")
 		}
-		if manifestPath.duplicate || adapterPath.duplicate || bundlePath.duplicate {
+		if manifestPath.duplicate || adapterPath.duplicate || bundlePath.duplicate || ledgerPath.duplicate {
 			return fmt.Errorf("verify-extension-protocol flags may be specified only once")
 		}
-		if flags.NArg() != 0 || manifestPath.value == "" || adapterPath.value == "" || bundlePath.value == "" {
-			return fmt.Errorf("verify-extension-protocol requires --manifest, --adapter, and --bundle")
+		if flags.NArg() != 0 || manifestPath.value == "" || adapterPath.value == "" || bundlePath.value == "" || ledgerPath.value == "" {
+			return fmt.Errorf("verify-extension-protocol requires --manifest, --adapter, --bundle, and --ledger")
 		}
-		report, err := agenteval.VerifyExtensionProtocolFiles(context.Background(), manifestPath.value, adapterPath.value, bundlePath.value)
+		report, err := agenteval.VerifyExtensionProtocolFiles(context.Background(), manifestPath.value, adapterPath.value, bundlePath.value, ledgerPath.value)
 		if err != nil {
 			return err
 		}
@@ -330,6 +337,39 @@ func run(args []string) error {
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
+}
+
+func runAttemptLedgerCommand(args []string) error {
+	if len(args) == 0 || (args[0] != "inspect" && args[0] != "reconcile") {
+		return fmt.Errorf("attempt-ledger requires inspect or reconcile")
+	}
+	flags := flag.NewFlagSet("attempt-ledger "+args[0], flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	var rootPath, attemptID, evidenceSHA256 singleStringFlag
+	flags.Var(&rootPath, "root", "owner-private attempt ledger root")
+	if args[0] == "reconcile" {
+		flags.Var(&attemptID, "attempt", "unknown predecessor attempt id")
+		flags.Var(&evidenceSHA256, "evidence", "content-minimized reconciliation evidence digest")
+	}
+	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 || rootPath.duplicate || rootPath.value == "" ||
+		attemptID.duplicate || evidenceSHA256.duplicate {
+		return fmt.Errorf("attempt-ledger %s has invalid flags", args[0])
+	}
+	if args[0] == "inspect" {
+		report, err := agenteval.InspectAttemptLedger(rootPath.value)
+		if err != nil {
+			return err
+		}
+		return writeJSON(report)
+	}
+	if attemptID.value == "" || evidenceSHA256.value == "" {
+		return fmt.Errorf("attempt-ledger reconcile requires --root, --attempt, and --evidence")
+	}
+	report, err := agenteval.ReconcileAttemptLedger(rootPath.value, attemptID.value, evidenceSHA256.value)
+	if err != nil {
+		return err
+	}
+	return writeJSON(report)
 }
 
 func readRubric(path string) (agenteval.Rubric, error) {
