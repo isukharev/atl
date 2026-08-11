@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/isukharev/atl/internal/agenteval/lifecycle"
 )
 
 func TestAggregateSyntheticOutputRootCompleteStableInventory(t *testing.T) {
@@ -44,6 +46,90 @@ func TestAggregateSyntheticOutputRootCompleteStableInventory(t *testing.T) {
 	if third, err := AggregateSyntheticOutputRoot(changedRoot); err != nil || third.SourceSHA256 == first.SourceSHA256 {
 		t.Fatalf("third=%+v err=%v", third, err)
 	}
+}
+
+func TestAggregateSyntheticOutputRootConsumesDeterministicLifecycleProjection(t *testing.T) {
+	requireSyntheticRootPermissionChecks(t)
+	first, err := AggregateSyntheticOutputRoot(newLifecycleSyntheticOutputRoot(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := AggregateSyntheticOutputRoot(newLifecycleSyntheticOutputRoot(t))
+	if err != nil || first.SourceSHA256 != second.SourceSHA256 {
+		t.Fatalf("lifecycle projection is not deterministic: first=%+v second=%+v err=%v", first, second, err)
+	}
+}
+
+func TestAggregateSyntheticOutputRootRejectsUnboundCurrentReceipts(t *testing.T) {
+	requireSyntheticRootPermissionChecks(t)
+	result := syntheticRootTestResult(t)
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, string)
+	}{
+		{name: "ledger missing", mutate: func(t *testing.T, root string) {
+			t.Helper()
+			if err := os.Rename(filepath.Join(root, "attempt-ledger"), filepath.Join(t.TempDir(), "detached-ledger")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "binding mismatch", mutate: func(t *testing.T, root string) {
+			t.Helper()
+			bindSyntheticRootReceipt(t, root, result, 1, strings.Repeat("f", 64))
+		}},
+		{name: "binding reused", mutate: func(t *testing.T, root string) {
+			t.Helper()
+			first := readSyntheticRootReceipt(t, root, result, 1)
+			bindSyntheticRootReceipt(t, root, result, 2, first.AttemptBindingSHA256)
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := newLifecycleSyntheticOutputRoot(t)
+			test.mutate(t, root)
+			_, err := AggregateSyntheticOutputRoot(root)
+			assertClosedSyntheticRootError(t, err, "invalid_lifecycle", root, result.ScenarioID)
+		})
+	}
+}
+
+func newLifecycleSyntheticOutputRoot(t *testing.T) string {
+	t.Helper()
+	result := syntheticRootTestResult(t)
+	root := newSyntheticOutputRoot(t)
+	writeSyntheticRootResultForCohort(t, root, 1, 2, result)
+	writeSyntheticRootResultForCohort(t, root, 2, 2, result)
+	store, err := CreateAttemptLedgerStore(filepath.Join(root, "attempt-ledger"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindings := []lifecycle.Binding{testAttemptBinding(), testAttemptBinding(), testAttemptBinding()}
+	for index := range bindings {
+		bindings[index].Identity.TaskSHA256 = contentMinimizedDigestForTest(t, index+100)
+	}
+	plans, err := store.AllocateRoster(bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, plan := range plans {
+		session, err := NewDurableAttemptSession(store, plan)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := session.Commit(); err != nil {
+			t.Fatal(err)
+		}
+		if err := session.SpawnIntent(); err != nil {
+			t.Fatal(err)
+		}
+		if err := session.Succeed(contentMinimizedDigestForTest(t, index), lifecycle.UnknownUsage()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for index, plan := range plans[1:] {
+		bindSyntheticRootReceipt(t, root, result, index+1, plan.BindingSHA256)
+	}
+	return root
 }
 
 func TestAggregateSyntheticOutputRootRejectsUnsafeOrIncompleteRoots(t *testing.T) {
@@ -398,6 +484,36 @@ func TestAggregateSyntheticOutputRootRereadsExactReceiptBytes(t *testing.T) {
 	assertClosedSyntheticRootError(t, err, "changed_during_read", root, result.ScenarioID)
 }
 
+func TestAggregateSyntheticOutputRootRereadsExactLifecycleBytes(t *testing.T) {
+	requireSyntheticRootPermissionChecks(t)
+	root := newLifecycleSyntheticOutputRoot(t)
+	result := syntheticRootTestResult(t)
+	eventPath := filepath.Join(root, "attempt-ledger", attemptLedgerAttempts, attemptLedgerOrdinalName(1),
+		attemptLedgerEvents, attemptLedgerEventName(3))
+	info, err := os.Stat(eventPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = aggregateSyntheticOutputRootWithHooks(root, nil, func() {
+		data, readErr := os.ReadFile(eventPath)
+		if readErr != nil || len(data) < 4 || data[len(data)-1] != '\n' || data[len(data)-2] != '}' || data[len(data)-3] != '"' {
+			t.Fatalf("read lifecycle event: bytes=%d err=%v", len(data), readErr)
+		}
+		if data[len(data)-4] == '0' {
+			data[len(data)-4] = '1'
+		} else {
+			data[len(data)-4] = '0'
+		}
+		if writeErr := os.WriteFile(eventPath, data, 0o600); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+		if timeErr := os.Chtimes(eventPath, info.ModTime(), info.ModTime()); timeErr != nil {
+			t.Fatal(timeErr)
+		}
+	})
+	assertClosedSyntheticRootError(t, err, "changed_during_read", root, result.ScenarioID)
+}
+
 func TestAggregateSyntheticOutputRootFailsClosedWithoutPermissionProof(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows-specific fail-closed guarantee")
@@ -444,7 +560,7 @@ func writeSyntheticRootResultForCohort(t *testing.T, root string, run, repetitio
 	t.Helper()
 	data := writeSyntheticRootResultAt(t, syntheticRootResultPath(root, result, run), result)
 	receipt := SyntheticRunReceipt{
-		SchemaVersion: SyntheticRunReceiptSchemaVersion,
+		SchemaVersion: SyntheticRunReceiptLegacySchemaVersion,
 		ScenarioID:    result.ScenarioID, Provider: result.Runtime.Provider, Variant: result.Variant,
 		Repetition: run, Repetitions: repetitions,
 		TaskContractSHA256: strings.Repeat("b", 64), ExecutionContractSHA256: strings.Repeat("c", 64),
@@ -457,6 +573,20 @@ func writeSyntheticRootResultForCohort(t *testing.T, root string, run, repetitio
 	}
 	writePrivateTestFile(t, filepath.Join(filepath.Dir(syntheticRootResultPath(root, result, run)), syntheticRunReceiptFileName), receiptData)
 	return data
+}
+
+func bindSyntheticRootReceipt(t *testing.T, root string, result Result, run int, bindingSHA256 string) {
+	t.Helper()
+	receipt := readSyntheticRootReceipt(t, root, result, run)
+	receipt.SchemaVersion = SyntheticRunReceiptSchemaVersion
+	receipt.AttemptBindingSHA256 = bindingSHA256
+	data, err := encodeSyntheticRunReceipt(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(syntheticRootReceiptPath(root, result, run), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func writeSyntheticRootResultAt(t *testing.T, resultPath string, result Result) []byte {

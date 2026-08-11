@@ -17,6 +17,7 @@ type headlessOutcomeInput struct {
 	repetition              int
 	taskContractSHA256      string
 	executionContractSHA256 string
+	attemptBindingSHA256    string
 	attestation             *syntheticRunAttestation
 	receipt                 *SyntheticRunReceipt
 }
@@ -163,7 +164,8 @@ func finalizeHeadlessOutcome(input headlessOutcomeInput) (Result, error) {
 		if input.receipt == nil {
 			return Result{}, fmt.Errorf("synthetic run receipt destination is missing")
 		}
-		*input.receipt, err = newSyntheticRunReceipt(input.attestation, input.contract, input.runtime, input.repetition, input.taskContractSHA256, input.executionContractSHA256, encoded)
+		*input.receipt, err = newSyntheticRunReceipt(input.attestation, input.contract, input.runtime, input.repetition,
+			input.taskContractSHA256, input.executionContractSHA256, input.attemptBindingSHA256, encoded)
 		if err != nil {
 			return Result{}, err
 		}

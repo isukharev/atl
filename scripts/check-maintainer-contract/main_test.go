@@ -573,7 +573,11 @@ compat-oracles: product-atl
 	@test -x "$(ATL_BINARY)"
 	$(GO_ENV) go run ./cmd/agent-eval validate fixture >/dev/null
 	$(GO_ENV) go run ./cmd/agent-eval validate-run fixture >/dev/null
-	$(GO_ENV) go run ./cmd/agent-eval verify-atl-capabilities $(ATL_BINARY) >/dev/null
+	@set -eu; \
+		ledger_parent="$$(mktemp -d)"; \
+		trap 'rm -rf "$$ledger_parent"' EXIT; \
+		chmod 0700 "$$ledger_parent"; \
+		$(GO_ENV) go run ./cmd/agent-eval verify-atl-capabilities --ledger "$$ledger_parent/attempt-ledger" $(ATL_BINARY) >/dev/null
 	$(GO_ENV) go run ./cmd/agent-eval verify-codex-skill-package $(REPOSITORY_ROOT)/plugins/atl >/dev/null
 
 .PHONY: compat

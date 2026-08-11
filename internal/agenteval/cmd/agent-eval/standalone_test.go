@@ -121,6 +121,7 @@ func TestStandaloneMaintainerRoutingUsesExplicitPublicSelectors(t *testing.T) {
 		{"aggregate", []string{"aggregate", "result.json"}},
 		{"aggregate-root", []string{"aggregate-root", "root"}},
 		{"assess", []string{"assess"}},
+		{"attempt-ledger", []string{"attempt-ledger", "inspect", "--root", "ledger"}},
 		{"evaluate", []string{"evaluate", "scenario", "observation"}},
 		{"inventory", []string{"inventory", "corpus"}},
 		{"private", []string{"private", "status"}},
@@ -134,7 +135,7 @@ func TestStandaloneMaintainerRoutingUsesExplicitPublicSelectors(t *testing.T) {
 		{"validate-run", []string{"validate-run", "spec.json"}},
 		{"verify-atl-capabilities", []string{"verify-atl-capabilities", "atl"}},
 		{"verify-codex-skill-package", []string{"verify-codex-skill-package", "root"}},
-		{"verify-extension-protocol", []string{"verify-extension-protocol", "--manifest", "m", "--adapter", "a", "--bundle", "b"}},
+		{"verify-extension-protocol", []string{"verify-extension-protocol", "--manifest", "m", "--adapter", "a", "--bundle", "b", "--ledger", "l"}},
 	}
 	for _, invocation := range legacy {
 		if standaloneInvocation(invocation.args) {

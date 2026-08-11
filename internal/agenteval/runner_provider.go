@@ -248,6 +248,8 @@ type headlessProviderExecutionSummary struct {
 	runErr             error
 	closeTranscriptErr error
 	closeStderrErr     error
+	terminationProven  bool
+	terminalReceipt    string
 }
 
 func executeAndCloseHeadlessProvider(input headlessProviderExecutionInput) headlessProviderExecutionSummary {
@@ -284,7 +286,9 @@ func executeAndCloseHeadlessProvider(input headlessProviderExecutionInput) headl
 	if codexPrivateCLI {
 		revalidateProvider = input.bindings.providerRuntime.verifyPluginPackage
 	}
-	attemptStage, runErr := executeProviderAttempt(input.command, input.bindings.providerAttemptCommitted, revalidateProvider)
+	attemptStage, terminationProven, terminalReceipt, runErr := executeProviderAttemptWithSession(
+		input.command, input.bindings.providerAttemptCommitted, revalidateProvider, input.bindings.attemptSession,
+	)
 	if runErr != nil && attemptStage == providerAttemptStageCommit {
 		runErr = fmt.Errorf("persist provider attempt boundary: %w", runErr)
 	}
@@ -312,5 +316,6 @@ func executeAndCloseHeadlessProvider(input headlessProviderExecutionInput) headl
 		externalCloseErr: externalCloseErr, timedOut: input.ctx.Err() == context.DeadlineExceeded,
 		guardAborted: guardAborted.Load(), runErr: runErr,
 		closeTranscriptErr: closeTranscriptErr, closeStderrErr: closeStderrErr,
+		terminationProven: terminationProven, terminalReceipt: terminalReceipt,
 	}
 }

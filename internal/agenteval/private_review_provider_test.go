@@ -16,6 +16,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/isukharev/atl/internal/agenteval/lifecycle"
 )
 
 func TestPrivateReviewProxyStripsCodexAndClaudeTools(t *testing.T) {
@@ -359,7 +361,7 @@ func TestPrivateReviewReceiptRejectsWrappedCost(t *testing.T) {
 	if err != nil || cost <= execution.MaxEstimatedCostMicroUSD {
 		t.Fatalf("cost=%d err=%v", cost, err)
 	}
-	receipt := privateReviewReceipt{SchemaVersion: privateReviewReceiptSchemaVersion, PlanSHA256: digest, PanelContractSHA256: digest,
+	receipt := privateReviewReceipt{SchemaVersion: privateReviewLegacySchemaVersion, PlanSHA256: digest, PanelContractSHA256: digest,
 		ReviewerID: "reviewer-01", ReviewerKind: "codex", ReviewerModel: "review-model", ReviewerExecutionSHA256: digest,
 		AgentIdentity: "binary-sha256:" + digest, Status: "succeeded", ModelRequests: 1, InputTokens: 2, OutputTokens: 2,
 		EstimatedCostMicroUSD: 0, CostKnown: true, ReviewSHA256: digest, CompletedAt: time.Now().UTC().Format(time.RFC3339Nano)}
@@ -469,7 +471,7 @@ func TestAutomatedPrivateReviewIsReceiptedTerminalAndAssessable(t *testing.T) {
 	oldRunner := privateReviewRunProvider
 	var calls atomic.Int64
 	privateReviewRunProvider = func(_ context.Context, root, packet, _ string, reviewer Reviewer, _ PrivateReviewerExecution,
-		_ []byte, _, _ []byte, rubric Rubric,
+		_ []byte, _, _ []byte, rubric Rubric, _ *DurableAttemptSession,
 	) (privateReviewProviderResult, error) {
 		calls.Add(1)
 		templateData, err := os.ReadFile(filepath.Join(packet, "review.json"))
@@ -489,7 +491,8 @@ func TestAutomatedPrivateReviewIsReceiptedTerminalAndAssessable(t *testing.T) {
 			return privateReviewProviderResult{}, err
 		}
 		return privateReviewProviderResult{Review: review, AgentIdentity: "binary-sha256:" + strings.Repeat("a", 64),
-			ModelRequests: 1, InputTools: 4, InputTokens: 10, OutputTokens: 5, CostKnown: true, EstimatedCost: 1}, nil
+			ModelRequests: 1, InputTools: 4, InputTokens: 10, OutputTokens: 5, CostKnown: true, EstimatedCost: 1,
+			processReceipt: strings.Repeat("d", 64), terminationOK: true}, nil
 	}
 	defer func() { privateReviewRunProvider = oldRunner }()
 	for index, reviewer := range panel.Reviewers {
@@ -525,8 +528,9 @@ func TestAutomatedPrivateReviewIsReceiptedTerminalAndAssessable(t *testing.T) {
 func TestAutomatedPrivateReviewFailureCannotReplayOrAssess(t *testing.T) {
 	fixture, panel, preview, packets := newExecutablePrivateReviewFixture(t)
 	oldRunner := privateReviewRunProvider
-	privateReviewRunProvider = func(context.Context, string, string, string, Reviewer, PrivateReviewerExecution, []byte, []byte, []byte, Rubric) (privateReviewProviderResult, error) {
-		return privateReviewProviderResult{AgentIdentity: "binary-sha256:" + strings.Repeat("b", 64), ModelRequests: 1}, errors.New("synthetic terminal failure")
+	privateReviewRunProvider = func(context.Context, string, string, string, Reviewer, PrivateReviewerExecution, []byte, []byte, []byte, Rubric, *DurableAttemptSession) (privateReviewProviderResult, error) {
+		return privateReviewProviderResult{AgentIdentity: "binary-sha256:" + strings.Repeat("b", 64), ModelRequests: 1,
+			processReceipt: strings.Repeat("d", 64), terminationOK: true}, errors.New("synthetic terminal failure")
 	}
 	defer func() { privateReviewRunProvider = oldRunner }()
 	options := PrivateReviewRunOptions{Root: fixture.root, RepositoryRoot: fixture.repository, PlanID: preview.PlanID,
@@ -542,6 +546,25 @@ func TestAutomatedPrivateReviewFailureCannotReplayOrAssess(t *testing.T) {
 	if _, err := AssessPrivateReview(PrivateReviewAssessOptions{Root: fixture.root, RepositoryRoot: fixture.repository,
 		PlanID: preview.PlanID, Surface: SurfaceATLMCP, ReviewerID: packets[0].ReviewerID}); err == nil || !strings.Contains(err.Error(), "review_receipt") {
 		t.Fatalf("assessment err=%v", err)
+	}
+}
+
+func TestPrivateReviewClosesUncommittedAttemptWithoutExecution(t *testing.T) {
+	store := newAttemptLedgerForTest(t)
+	plan, err := store.Allocate(testAttemptBinding())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := NewDurableAttemptSession(store, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := finalizePrivateReviewAttempt(session, privateReviewProviderResult{}, errors.New("pre-commit failure")); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := store.Inspect(plan.AttemptID)
+	if err != nil || inspection.Projection.State != lifecycle.StateCanceled || !inspection.Projection.Terminal {
+		t.Fatalf("inspection=%+v err=%v", inspection, err)
 	}
 }
 
@@ -578,7 +601,7 @@ func TestAutomatedPrivateReviewReportsUnreceiptedTerminalFailure(t *testing.T) {
 	oldRunner := privateReviewRunProvider
 	oldCommit := privateReviewCommitReceipt
 	privateReviewRunProvider = func(_ context.Context, root, packet, _ string, _ Reviewer, _ PrivateReviewerExecution,
-		_ []byte, _, _ []byte, rubric Rubric,
+		_ []byte, _, _ []byte, rubric Rubric, _ *DurableAttemptSession,
 	) (privateReviewProviderResult, error) {
 		templateData, err := os.ReadFile(filepath.Join(packet, "review.json"))
 		if err != nil {
@@ -594,7 +617,8 @@ func TestAutomatedPrivateReviewReportsUnreceiptedTerminalFailure(t *testing.T) {
 		encoded, _ := json.Marshal(review)
 		completed, err := writeCompletedPrivateReview(root, packet, templateWithZeroScores(review), rubric, encoded)
 		return privateReviewProviderResult{Review: completed, AgentIdentity: "binary-sha256:" + strings.Repeat("c", 64),
-			ModelRequests: 1, InputTokens: 10, OutputTokens: 5, CostKnown: true, EstimatedCost: 1}, err
+			ModelRequests: 1, InputTokens: 10, OutputTokens: 5, CostKnown: true, EstimatedCost: 1,
+			processReceipt: strings.Repeat("d", 64), terminationOK: true}, err
 	}
 	privateReviewCommitReceipt = func(string, string, []byte) error { return errors.New("synthetic receipt failure") }
 	defer func() {

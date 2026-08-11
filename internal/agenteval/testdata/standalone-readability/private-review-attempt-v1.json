@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "panel_contract_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "reviewer_id": "reviewer-01",
+  "reviewer_kind": "codex",
+  "reviewer_model": "synthetic-model",
+  "reviewer_execution_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "started_at": "2026-01-02T03:04:05Z"
+}

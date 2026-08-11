@@ -99,7 +99,8 @@ func TestFinalizeHeadlessOutcomeSortsAllViolationsAndBindsReceiptToExactResultBy
 		workspace: t.TempDir(), runDir: runDir, durationMillis: 7,
 		runtime: Runtime{Provider: "codex", ATLVersion: "test"}, repetition: 1,
 		taskContractSHA256: strings.Repeat("d", 64), executionContractSHA256: strings.Repeat("e", 64),
-		attestation: attestation, receipt: &receipt,
+		attemptBindingSHA256: strings.Repeat("f", 64),
+		attestation:          attestation, receipt: &receipt,
 	})
 	if err != nil {
 		t.Fatal(err)

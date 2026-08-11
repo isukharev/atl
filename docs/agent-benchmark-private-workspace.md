@@ -241,7 +241,7 @@ source searches or raw workspace enumeration.
 | Execute | `private run` | Reviewed model and reviewed backend routes | Writes one candidate run | Exact plan SHA-256 and `RUN`; a write-bound plan requires `RUN-WRITES` |
 | Recover study | `private study recover` | None | Closes an interrupted study without replaying the provider after the operator establishes provider-process quiescence | Exact plan SHA-256 and `PROVIDER_STOPPED_RECOVER` |
 | Prepare review | `private review prepare` | None | Copies one result, answer, rubric, and hash-bound template into an owner-only packet | Completed plan and explicit surface; every panel member before assessment |
-| Run review | `private review run` | One reviewed model request; no backend or model tools | Commits one terminal attempt and content-free receipt | Complete executable roster, exact plan hash, reviewer binary, and `RUN-REVIEW` |
+| Run review | `private review run` | One reviewed model request; no backend or model tools | Commits one generic owner-private attempt plus the bound historical review slot and content-free receipt | Complete executable roster, exact plan hash, reviewer binary, and `RUN-REVIEW` |
 | Assess | `private review assess` | None | Records one member; the last member writes one median consensus | Completed bounded review and, for executable panels, a valid no-tools cost receipt |
 | Promote | `private baseline set` | None | Adds an immutable compact baseline and updates `current` | Complete assessed run without panel disagreement and `BASELINE` |
 | Compare | `private compare` | None | Read-only; emits aggregate deltas | Compatible contract/runtime and review mode |
@@ -808,6 +808,10 @@ cost already incurred.
 Workspace-manifest v1 comparisons remain readable. Legacy activation
 workspace-manifest v2, outer private-plan v8/v7/v6/v5/v4, outer execution-state
 v2, and nested lifecycle plan/event v1 artifacts remain readable for inspection.
+Private automated-review execution-attempt and execution-receipt schema v1
+pairs remain compare-only assessment inputs; new review execution emits schema
+v2 plus the generic owner-private ledger and never upgrades those historical
+bytes in place.
 Plan v8 predates the bound CLI-route qualification; v5 predates the bound
 tool-availability result; v4 also predates calibration.
 Legacy activation artifacts are explicitly
@@ -1155,7 +1159,13 @@ shape drift, redirects, and a second model request. It never retains prompt,
 answer, rubric, model output, authentication, URL, or error text in the
 receipt. The receipt contains only source bindings, binary identity, request
 counts, zero-tool evidence, tokens, estimated cost, and terminal status.
-Ambiguous or failed attempts are terminal and are never replayed automatically.
+Current execution-attempt and execution-receipt records are schema v2 and bind
+the exact generic attempt-plan digest. The same review packet contains an
+owner-private `attempt-ledger/`; assessment requires its single bound attempt
+to be complete and `succeeded`. Historical schema-v1 attempt/receipt pairs
+remain readable for their existing assessment path without inventing a generic
+binding, but are never rewritten as v2. Ambiguous or failed attempts are
+terminal and are never replayed automatically.
 Codex reviewers use the same owner-only file-backed authentication boundary as
 private candidate runs. Claude Code reviewers prefer an explicitly supplied
 `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_AUTH_TOKEN`, or `ANTHROPIC_API_KEY`; when

@@ -110,14 +110,18 @@ type selectedSyntheticATLBinary struct {
 // SyntheticATLProcess owns one bounded selected-binary lifecycle and its
 // evaluator synthetic backend. Call Close even after a CLI or MCP failure.
 type SyntheticATLProcess struct {
-	config        SyntheticATLProcessConfig
-	binary        selectedSyntheticATLBinary
-	scratchRoot   string
-	runtimeRoot   string
-	workspaceRoot string
-	environment   []string
-	backend       *MockBackend
-	mcp           *boundedMCPCommand
+	config           SyntheticATLProcessConfig
+	binary           selectedSyntheticATLBinary
+	scratchRoot      string
+	runtimeRoot      string
+	workspaceRoot    string
+	environment      []string
+	backend          *MockBackend
+	mcp              *boundedMCPCommand
+	attemptSession   *DurableAttemptSession
+	preflightReceipt string
+	startErr         error
+	operationFailed  bool
 
 	mu              sync.Mutex
 	closed          bool
@@ -142,39 +146,60 @@ func StartSyntheticATLProcess(ctx context.Context, input SyntheticATLProcessConf
 	if err != nil {
 		return nil, err
 	}
-	if err := VerifyATLCapabilityCatalog(ctx, binary.canonicalPath); err != nil {
+	attemptSession, err := prepareSyntheticATLProcessAttemptSession(config, binary)
+	if err != nil {
 		return nil, err
 	}
-	if err := binary.verify(); err != nil {
+	if err := attemptSession.Commit(); err != nil {
 		return nil, err
+	}
+	if err := attemptSession.SpawnIntent(); err != nil {
+		return nil, joinAttemptLifecycleError(err, attemptSession.FailBeforeSpawn())
+	}
+	terminationOK, preflightReceipt, err := verifyATLCapabilityCatalogWithSession(ctx, binary.canonicalPath, attemptSession)
+	if err != nil {
+		return nil, errors.Join(err, finalizeQualificationAttempt(attemptSession, struct {
+			Compatible bool `json:"compatible"`
+		}{false}, terminationOK, preflightReceipt, errors.Is(err, context.DeadlineExceeded),
+			errors.Is(err, context.Canceled), err))
+	}
+	failBeforeProcess := func(startErr error) (*SyntheticATLProcess, error) {
+		return nil, errors.Join(startErr, finalizeQualificationAttempt(attemptSession, struct {
+			Compatible bool `json:"compatible"`
+		}{false}, terminationOK, preflightReceipt, false, false, startErr))
+	}
+	if err := binary.verify(); err != nil {
+		return failBeforeProcess(err)
 	}
 
 	if err := requirePrivateDirectory("synthetic ATL scratch root", config.ScratchRoot); err != nil {
-		return nil, err
+		return failBeforeProcess(err)
 	}
 	scratchRoot, err := filepath.EvalSymlinks(config.ScratchRoot)
 	if err != nil {
-		return nil, fmt.Errorf("resolve synthetic ATL scratch root")
+		return failBeforeProcess(fmt.Errorf("resolve synthetic ATL scratch root"))
 	}
 	runtimeRoot, err := os.MkdirTemp(scratchRoot, ".atl-process-")
 	if err != nil {
-		return nil, fmt.Errorf("create synthetic ATL runtime")
+		return failBeforeProcess(fmt.Errorf("create synthetic ATL runtime"))
 	}
 	if err := os.Chmod(runtimeRoot, 0o700); err != nil {
 		_ = os.RemoveAll(runtimeRoot)
-		return nil, fmt.Errorf("protect synthetic ATL runtime")
+		return failBeforeProcess(fmt.Errorf("protect synthetic ATL runtime"))
 	}
 	inside, pathErr := pathWithin(scratchRoot, runtimeRoot)
 	if pathErr != nil || !inside {
 		_ = os.RemoveAll(runtimeRoot)
-		return nil, fmt.Errorf("synthetic ATL runtime escaped its scratch root")
+		return failBeforeProcess(fmt.Errorf("synthetic ATL runtime escaped its scratch root"))
 	}
 	process := &SyntheticATLProcess{
 		config: config, binary: binary, scratchRoot: scratchRoot, runtimeRoot: runtimeRoot,
+		attemptSession: attemptSession, preflightReceipt: preflightReceipt,
 		cliCounts: map[string]int{}, mcpCounts: map[string]int{},
 		syntheticWrites: syntheticWrites, mcpExactBudgets: exactBudgets, mcpExactCounts: map[string]int{},
 	}
 	fail := func(startErr error) (*SyntheticATLProcess, error) {
+		process.startErr = startErr
 		return nil, errors.Join(startErr, process.Close())
 	}
 	for _, directory := range []string{
@@ -659,9 +684,11 @@ func (p *SyntheticATLProcess) runCLIBytesLocked(ctx context.Context, args []stri
 		p.config.Timeout, p.config.MaxStdoutBytes, p.config.MaxStderrBytes,
 	)
 	if verifyErr := p.binary.verify(); verifyErr != nil {
+		p.operationFailed = true
 		return SyntheticCLIBytesResult{}, verifyErr
 	}
 	if runErr != nil {
+		p.operationFailed = true
 		return SyntheticCLIBytesResult{}, runErr
 	}
 	return SyntheticCLIBytesResult{
@@ -713,65 +740,18 @@ func (p *SyntheticATLProcess) CallMCPJSON(ctx context.Context, invocation MCPInv
 	p.mcpCounts[invocation.Tool]++
 	result, callErr := p.mcp.call(ctx, invocation)
 	if verifyErr := p.binary.verify(); verifyErr != nil {
+		p.operationFailed = true
 		return SyntheticMCPResult{}, verifyErr
 	}
 	if callErr != nil {
+		p.operationFailed = true
 		return SyntheticMCPResult{}, callErr
 	}
 	return result, nil
-}
-
-// Summary returns a content-free snapshot of backend and admission counts.
-func (p *SyntheticATLProcess) Summary() SyntheticATLProcessSummary {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	methods, unexpected, duplicates := p.backend.Summary()
-	return SyntheticATLProcessSummary{
-		HTTPMethods: methods, UnexpectedRequests: unexpected, DuplicateRequests: duplicates,
-		CLIInvocations: cloneSyntheticCounts(p.cliCounts),
-		MCPInvocations: cloneSyntheticCounts(p.mcpCounts),
-	}
-}
-
-func cloneSyntheticCounts(source map[string]int) map[string]int {
-	clone := make(map[string]int, len(source))
-	for name, count := range source {
-		clone[name] = count
-	}
-	return clone
 }
 
 // RequestSequenceComplete reports whether the evaluator-owned backend accepted
 // every configured ordered request.
 func (p *SyntheticATLProcess) RequestSequenceComplete() bool {
 	return p.backend.RequestSequenceComplete()
-}
-
-// Close is idempotent. It stops the MCP child first, then the backend, checks
-// the selected binary binding one final time, and removes only the unique
-// runtime child created by StartSyntheticATLProcess.
-func (p *SyntheticATLProcess) Close() error {
-	p.closeOnce.Do(func() {
-		p.mu.Lock()
-		defer p.mu.Unlock()
-		p.closed = true
-		var closeErr error
-		if p.mcp != nil {
-			closeErr = errors.Join(closeErr, p.mcp.Close())
-		}
-		if p.backend != nil {
-			p.backend.Close()
-		}
-		closeErr = errors.Join(closeErr, p.binary.verify())
-		if p.runtimeRoot != "" {
-			inside, err := pathWithin(p.scratchRoot, p.runtimeRoot)
-			if err != nil || !inside {
-				closeErr = errors.Join(closeErr, fmt.Errorf("synthetic ATL runtime cleanup path is invalid"))
-			} else if err := os.RemoveAll(p.runtimeRoot); err != nil {
-				closeErr = errors.Join(closeErr, fmt.Errorf("remove synthetic ATL runtime"))
-			}
-		}
-		p.closeErr = closeErr
-	})
-	return p.closeErr
 }

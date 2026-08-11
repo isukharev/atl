@@ -11,12 +11,15 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/isukharev/atl/internal/agenteval/lifecycle"
 )
 
 const (
 	PrivateReviewRunConfirmation            = "RUN-REVIEW"
-	privateReviewAttemptSchemaVersion       = 1
-	privateReviewReceiptSchemaVersion       = 1
+	privateReviewLegacySchemaVersion        = 1
+	privateReviewAttemptSchemaVersion       = 2
+	privateReviewReceiptSchemaVersion       = 2
 	privateReviewProviderOutputLimit  int64 = 16 << 20
 )
 
@@ -50,6 +53,7 @@ type privateReviewAttempt struct {
 	ReviewerKind            string `json:"reviewer_kind"`
 	ReviewerModel           string `json:"reviewer_model"`
 	ReviewerExecutionSHA256 string `json:"reviewer_execution_sha256"`
+	AttemptBindingSHA256    string `json:"attempt_binding_sha256,omitempty"`
 	StartedAt               string `json:"started_at"`
 }
 
@@ -61,6 +65,7 @@ type privateReviewReceipt struct {
 	ReviewerKind            string `json:"reviewer_kind"`
 	ReviewerModel           string `json:"reviewer_model"`
 	ReviewerExecutionSHA256 string `json:"reviewer_execution_sha256"`
+	AttemptBindingSHA256    string `json:"attempt_binding_sha256,omitempty"`
 	AgentIdentity           string `json:"agent_identity"`
 	Status                  string `json:"status"`
 	ModelRequests           int    `json:"model_requests"`
@@ -88,6 +93,10 @@ type privateReviewProviderResult struct {
 	OutputTokens   int64
 	CostKnown      bool
 	EstimatedCost  int64
+	processReceipt string
+	terminationOK  bool
+	timedOut       bool
+	canceled       bool
 }
 
 var (
@@ -100,7 +109,7 @@ var (
 // RunPrivateReview consumes one prepared automated panel slot. The attempt is
 // durably committed before the provider process starts, so a crash or ambiguous
 // response can never be replayed automatically.
-func RunPrivateReview(ctx context.Context, options PrivateReviewRunOptions) (PrivateReviewExecutionSummary, error) {
+func RunPrivateReview(ctx context.Context, options PrivateReviewRunOptions) (summary PrivateReviewExecutionSummary, returnErr error) {
 	if options.Confirm != PrivateReviewRunConfirmation || !privatePlanIDRE.MatchString(options.PlanID) ||
 		!validSHA256(options.ExpectedPlanSHA256) || !validRunSurface(options.Surface) ||
 		!identifierRE.MatchString(options.ReviewerID) || options.AgentBinary == "" ||
@@ -151,10 +160,23 @@ func RunPrivateReview(ctx context.Context, options PrivateReviewRunOptions) (Pri
 	if err := validatePrivateReviewTemplatePristine(root, packet); err != nil {
 		return PrivateReviewExecutionSummary{}, err
 	}
+	resultData, finalData, rubricData, _, rubric, err := loadPrivateReviewInputs(root, surface)
+	if err != nil {
+		return PrivateReviewExecutionSummary{}, err
+	}
 	executionDigest, err := privateReviewerExecutionSHA256(execution)
 	if err != nil {
 		return PrivateReviewExecutionSummary{}, err
 	}
+	attemptSession, err := preparePrivateReviewAttemptSession(packet, source, surface, reviewer, execution,
+		options.AgentBinary, resultData, finalData, rubricData)
+	if err != nil {
+		return PrivateReviewExecutionSummary{}, err
+	}
+	result := privateReviewProviderResult{}
+	defer func() {
+		returnErr = joinAttemptLifecycleError(returnErr, finalizePrivateReviewAttempt(attemptSession, result, returnErr))
+	}()
 	now := options.Now.UTC()
 	if options.Now.IsZero() {
 		now = time.Now().UTC()
@@ -162,19 +184,20 @@ func RunPrivateReview(ctx context.Context, options PrivateReviewRunOptions) (Pri
 	attempt := privateReviewAttempt{SchemaVersion: privateReviewAttemptSchemaVersion, PlanSHA256: source.PlanSHA256,
 		PanelContractSHA256: surface.QualitativePanelContractSHA256, ReviewerID: reviewer.ID,
 		ReviewerKind: reviewer.Kind, ReviewerModel: reviewer.Model, ReviewerExecutionSHA256: executionDigest,
-		StartedAt: now.Format(time.RFC3339Nano)}
+		AttemptBindingSHA256: attemptSession.plan.BindingSHA256,
+		StartedAt:            now.Format(time.RFC3339Nano)}
+	if err := attemptSession.Commit(); err != nil {
+		return PrivateReviewExecutionSummary{}, err
+	}
 	attemptData, err := encodePrivateReviewAttempt(attempt)
 	if err != nil || hardenedWriteFileExclusiveWithin(root, attemptPath, attemptData, 0o600) != nil {
-		return PrivateReviewExecutionSummary{}, privatePlanError("review_run_commit")
+		return PrivateReviewExecutionSummary{}, joinAttemptLifecycleError(
+			privatePlanError("review_run_commit"), attemptSession.FailBeforeSpawn())
 	}
-
-	resultData, finalData, rubricData, _, rubric, loadErr := loadPrivateReviewInputs(root, surface)
-	result := privateReviewProviderResult{}
-	if loadErr == nil {
-		result, err = privateReviewRunProvider(ctx, root, packet, options.AgentBinary, reviewer, execution, resultData, finalData, rubricData, rubric)
-	} else {
-		err = loadErr
+	if err := attemptSession.SpawnIntent(); err != nil {
+		return PrivateReviewExecutionSummary{}, joinAttemptLifecycleError(err, attemptSession.FailBeforeSpawn())
 	}
+	result, err = privateReviewRunProvider(ctx, root, packet, options.AgentBinary, reviewer, execution, resultData, finalData, rubricData, rubric, attemptSession)
 	status := "succeeded"
 	if err != nil {
 		status = "terminal-failed"
@@ -186,7 +209,8 @@ func RunPrivateReview(ctx context.Context, options PrivateReviewRunOptions) (Pri
 	receipt := privateReviewReceipt{SchemaVersion: privateReviewReceiptSchemaVersion, PlanSHA256: source.PlanSHA256,
 		PanelContractSHA256: surface.QualitativePanelContractSHA256, ReviewerID: reviewer.ID,
 		ReviewerKind: reviewer.Kind, ReviewerModel: reviewer.Model, ReviewerExecutionSHA256: executionDigest,
-		AgentIdentity: result.AgentIdentity, Status: status, ModelRequests: result.ModelRequests,
+		AttemptBindingSHA256: attemptSession.plan.BindingSHA256,
+		AgentIdentity:        result.AgentIdentity, Status: status, ModelRequests: result.ModelRequests,
 		AuxiliaryRequests: result.Auxiliary, InputTools: result.InputTools, ForwardedTools: result.ForwardedTools,
 		ToolOutputs: result.ToolOutputs, InputTokens: result.InputTokens, OutputTokens: result.OutputTokens,
 		EstimatedCostMicroUSD: result.EstimatedCost, CostKnown: result.CostKnown,
@@ -202,10 +226,116 @@ func RunPrivateReview(ctx context.Context, options PrivateReviewRunOptions) (Pri
 		receipt.Status = "terminal-unreceipted"
 		return privateReviewExecutionSummary(source, surface, reviewer, receipt), errors.Join(err, privatePlanError("review_receipt_write"))
 	}
+	if result.processReceipt != "" {
+		result.processReceipt, receiptErr = contentMinimizedAttemptDigest("private-review-completed", []string{result.processReceipt, sha256HexBytes(receiptData)})
+		if receiptErr != nil {
+			return privateReviewExecutionSummary(source, surface, reviewer, receipt), receiptErr
+		}
+	}
 	if err != nil {
 		return privateReviewExecutionSummary(source, surface, reviewer, receipt), err
 	}
 	return privateReviewExecutionSummary(source, surface, reviewer, receipt), nil
+}
+
+func preparePrivateReviewAttemptSession(packet string, source PrivateBaselineSource, surface PrivateBaselineSurfaceSource,
+	reviewer Reviewer, execution PrivateReviewerExecution, agentBinary string, resultData, finalData, rubricData []byte,
+) (*DurableAttemptSession, error) {
+	agent, _, err := inspectPrivateAgentBinary(agentBinary, "")
+	if err != nil {
+		return nil, privatePlanError("review_agent_binary")
+	}
+	digest := func(domain string, value any) (string, error) {
+		return contentMinimizedAttemptDigest("private-review-"+domain, value)
+	}
+	task, err := digest("task", struct {
+		Surface, Treatment                      string
+		ResultSHA256, FinalSHA256, RubricSHA256 string
+	}{surface.Surface, surface.CellID, sha256HexBytes(resultData), sha256HexBytes(finalData), sha256HexBytes(rubricData)})
+	if err != nil {
+		return nil, err
+	}
+	skill, err := digest("skill", []string{source.PlanSHA256, surface.SkillActivation, surface.CellID})
+	if err != nil {
+		return nil, err
+	}
+	model, err := digest("model", []string{reviewer.Kind, reviewer.Model, execution.Reasoning})
+	if err != nil {
+		return nil, err
+	}
+	environment, err := digest("environment", []string{surface.QualitativePanelContractSHA256, surface.ExecutionReceiptSHA256})
+	if err != nil {
+		return nil, err
+	}
+	grader, err := digest("grader", []string{reviewer.ID, surface.QualitativePanelContractSHA256})
+	if err != nil {
+		return nil, err
+	}
+	budgets, err := digest("budgets", execution)
+	if err != nil {
+		return nil, err
+	}
+	adapter, err := digest("adapter", []string{"private-review-provider-v1", reviewer.Kind, agent.identity})
+	if err != nil {
+		return nil, err
+	}
+	authority, err := digest("authority", struct {
+		Provider, Network bool
+		Backend, Tools    bool
+	}{true, true, false, false})
+	if err != nil {
+		return nil, err
+	}
+	binding := lifecycle.Binding{Privacy: lifecycle.PrivacyOwnerPrivate, Identity: lifecycle.Identity{
+		ExperimentSHA256: source.PlanSHA256, TaskSHA256: task, SkillSHA256: skill,
+		AgentSHA256: strings.TrimPrefix(agent.identity, "binary-sha256:"), ModelSHA256: model,
+		EnvironmentSHA256: environment, GraderSHA256: grader, BudgetsSHA256: budgets,
+		AdapterSHA256: adapter, AuthoritySHA256: authority,
+	}}
+	store, err := openOrCreateAttemptLedgerStore(filepath.Join(packet, "attempt-ledger"))
+	if err != nil {
+		return nil, err
+	}
+	if err := store.RecoverIncomplete(); err != nil {
+		return nil, err
+	}
+	plans, err := store.AllocateRoster([]lifecycle.Binding{binding})
+	if err != nil {
+		return nil, err
+	}
+	return NewDurableAttemptSession(store, plans[0])
+}
+
+func finalizePrivateReviewAttempt(session *DurableAttemptSession, result privateReviewProviderResult, runErr error) error {
+	inspection, err := session.store.Inspect(session.plan.AttemptID)
+	if err != nil || inspection.Projection.Terminal {
+		return err
+	}
+	if inspection.Projection.State == lifecycle.StatePlanned {
+		return session.Cancel(false, inspection.Projection.Usage)
+	}
+	usage := lifecycle.UnknownUsage()
+	if result.CostKnown && result.EstimatedCost >= 0 {
+		usage.EstimatedCostMicroUSD = lifecycle.ObservedMetric(uint64(result.EstimatedCost)) // #nosec G115 -- guarded nonnegative.
+	}
+	if result.InputTokens >= 0 && result.ModelRequests > 0 {
+		usage.InputTokens = lifecycle.ObservedMetric(uint64(result.InputTokens)) // #nosec G115 -- guarded nonnegative.
+	}
+	if result.OutputTokens >= 0 && result.ModelRequests > 0 {
+		usage.OutputTokens = lifecycle.ObservedMetric(uint64(result.OutputTokens)) // #nosec G115 -- guarded nonnegative.
+	}
+	switch {
+	case runErr == nil && result.terminationOK && validSHA256(result.processReceipt):
+		return session.Succeed(result.processReceipt, usage)
+	case result.timedOut:
+		return session.Timeout(result.terminationOK, usage)
+	case result.canceled:
+		return session.Cancel(result.terminationOK, usage)
+	case result.terminationOK && validSHA256(result.processReceipt):
+		return session.Fail(result.processReceipt, usage)
+	default:
+		return session.Unknown(lifecycle.ErrorTerminationAmbiguous, usage)
+	}
 }
 
 func validatePrivateReviewTemplatePristine(root, packet string) error {
@@ -250,7 +380,10 @@ func privateReviewerExecutionSHA256(execution PrivateReviewerExecution) (string,
 }
 
 func encodePrivateReviewAttempt(attempt privateReviewAttempt) ([]byte, error) {
-	if attempt.SchemaVersion != privateReviewAttemptSchemaVersion || !validSHA256(attempt.PlanSHA256) ||
+	if (attempt.SchemaVersion != privateReviewLegacySchemaVersion && attempt.SchemaVersion != privateReviewAttemptSchemaVersion) ||
+		(attempt.SchemaVersion == privateReviewLegacySchemaVersion && attempt.AttemptBindingSHA256 != "") ||
+		(attempt.SchemaVersion == privateReviewAttemptSchemaVersion && !validSHA256(attempt.AttemptBindingSHA256)) ||
+		!validSHA256(attempt.PlanSHA256) ||
 		!validSHA256(attempt.PanelContractSHA256) || !identifierRE.MatchString(attempt.ReviewerID) ||
 		(attempt.ReviewerKind != "codex" && attempt.ReviewerKind != "claude-code") || attempt.ReviewerModel == "" ||
 		!validSHA256(attempt.ReviewerExecutionSHA256) {
@@ -267,7 +400,10 @@ func encodePrivateReviewAttempt(attempt privateReviewAttempt) ([]byte, error) {
 }
 
 func encodePrivateReviewReceipt(receipt privateReviewReceipt, execution PrivateReviewerExecution) ([]byte, error) {
-	if receipt.SchemaVersion != privateReviewReceiptSchemaVersion || !validSHA256(receipt.PlanSHA256) ||
+	if (receipt.SchemaVersion != privateReviewLegacySchemaVersion && receipt.SchemaVersion != privateReviewReceiptSchemaVersion) ||
+		(receipt.SchemaVersion == privateReviewLegacySchemaVersion && receipt.AttemptBindingSHA256 != "") ||
+		(receipt.SchemaVersion == privateReviewReceiptSchemaVersion && !validSHA256(receipt.AttemptBindingSHA256)) ||
+		!validSHA256(receipt.PlanSHA256) ||
 		!validSHA256(receipt.PanelContractSHA256) || !identifierRE.MatchString(receipt.ReviewerID) ||
 		(receipt.ReviewerKind != "codex" && receipt.ReviewerKind != "claude-code") || receipt.ReviewerModel == "" ||
 		!validSHA256(receipt.ReviewerExecutionSHA256) || receipt.ModelRequests < 0 || receipt.ModelRequests > 1 ||
@@ -383,8 +519,24 @@ func validatePrivateReviewReceiptForAssessment(root string, source PrivateBaseli
 	if err != nil || !bytes.Equal(canonicalReceipt, receiptData) || receipt.Status != "succeeded" ||
 		receipt.PlanSHA256 != source.PlanSHA256 || receipt.PanelContractSHA256 != surface.QualitativePanelContractSHA256 ||
 		receipt.ReviewerID != reviewer.ID || receipt.ReviewerKind != reviewer.Kind || receipt.ReviewerModel != reviewer.Model ||
-		receipt.ReviewerExecutionSHA256 != executionDigest || receipt.ReviewSHA256 != sha256HexBytes(reviewData) {
+		receipt.ReviewerExecutionSHA256 != executionDigest || receipt.ReviewSHA256 != sha256HexBytes(reviewData) ||
+		receipt.SchemaVersion != attempt.SchemaVersion || receipt.AttemptBindingSHA256 != attempt.AttemptBindingSHA256 {
 		return privatePlanError("review_receipt")
+	}
+	if receipt.SchemaVersion == privateReviewLegacySchemaVersion {
+		return nil
+	}
+	store, err := OpenAttemptLedgerStore(filepath.Join(packet, "attempt-ledger"))
+	if err != nil {
+		return privatePlanError("review_attempt_ledger")
+	}
+	inspections, err := store.InspectAll()
+	if err != nil || len(inspections) != 1 || !inspections[0].Complete ||
+		inspections[0].Projection.State != lifecycle.StateSucceeded || !inspections[0].Projection.Terminal ||
+		inspections[0].Plan.Binding.Privacy != lifecycle.PrivacyOwnerPrivate ||
+		inspections[0].Plan.Binding.Identity.ExperimentSHA256 != source.PlanSHA256 ||
+		inspections[0].Plan.BindingSHA256 != receipt.AttemptBindingSHA256 {
+		return privatePlanError("review_attempt_ledger")
 	}
 	return nil
 }

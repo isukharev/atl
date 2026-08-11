@@ -46,4 +46,17 @@ func TestCaptureHeadlessTrajectoryRejectsExternalCanaryAndUsesProxyAuditMetrics(
 		len(trajectory.proxyRecords) != 0 || trajectory.cliExitCodes != nil || trajectory.cliErrorContracts != nil {
 		t.Fatalf("trajectory=%+v", trajectory)
 	}
+	writeTestFile(t, auditPath, "{\"invalid\":true}\n", 0o600)
+	partial, err := captureHeadlessTrajectory(input)
+	if err == nil {
+		t.Fatal("invalid external audit was accepted")
+	}
+	usage := providerMetricsAttemptUsage(partial.providerMetrics, Pricing{
+		InputMicroUSDPerMillionTokens: 1_000_000, OutputMicroUSDPerMillionTokens: 1_000_000,
+	})
+	if usage.InputTokens.Value == nil || *usage.InputTokens.Value != 10 ||
+		usage.OutputTokens.Value == nil || *usage.OutputTokens.Value != 2 ||
+		usage.EstimatedCostMicroUSD.Value == nil || *usage.EstimatedCostMicroUSD.Value != 12 {
+		t.Fatalf("partial usage=%+v err=%v", usage, err)
+	}
 }

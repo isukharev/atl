@@ -5,14 +5,18 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/isukharev/atl/internal/agenteval/lifecycle"
 )
 
 const (
@@ -134,6 +138,14 @@ func aggregateSyntheticOutputRoot(root string, afterInitialInventory, afterPrima
 
 	hash := sha256.New()
 	_, _ = hash.Write([]byte("atl-agent-eval-synthetic-root-v2\x00"))
+	lifecycleProjection, lifecycleBindings, err := syntheticAttemptLedgerProjection(root, len(slots))
+	if err != nil {
+		return SyntheticRootAggregate{}, err
+	}
+	if len(lifecycleProjection) != 0 {
+		_, _ = hash.Write([]byte("attempt-ledger-v1\x00"))
+		_, _ = hash.Write(lifecycleProjection)
+	}
 	var length [8]byte
 	results := make([]Result, 0, len(slots))
 	evidence := make([]syntheticRunEvidence, 0, len(slots))
@@ -141,6 +153,7 @@ func aggregateSyntheticOutputRoot(root string, afterInitialInventory, afterPrima
 	scenarioTasks := map[string]string{}
 	resultDigests := make(map[string][sha256.Size]byte, len(slots))
 	receiptDigests := make(map[string][sha256.Size]byte, len(slots))
+	usedLifecycleBindings := make(map[string]bool, len(slots))
 	totalBytes := int64(0)
 	for _, slot := range slots {
 		data, err := readStableRootFile(rootHandle, slot.path, slot.info, maxContractBytes)
@@ -179,6 +192,16 @@ func aggregateSyntheticOutputRoot(root string, afterInitialInventory, afterPrima
 		receipt, err := decodeSyntheticRunReceiptBytes(receiptData)
 		if err != nil || !syntheticReceiptMatchesResult(receipt, result, data, slot.scenario, slot.provider, slot.variant, slot.repetition) {
 			return SyntheticRootAggregate{}, rejectSyntheticRoot("invalid_receipt")
+		}
+		if receipt.SchemaVersion == SyntheticRunReceiptLegacySchemaVersion {
+			if lifecycleBindings != nil {
+				return SyntheticRootAggregate{}, rejectSyntheticRoot("invalid_lifecycle")
+			}
+		} else if lifecycleBindings == nil || !lifecycleBindings[receipt.AttemptBindingSHA256] ||
+			usedLifecycleBindings[receipt.AttemptBindingSHA256] {
+			return SyntheticRootAggregate{}, rejectSyntheticRoot("invalid_lifecycle")
+		} else {
+			usedLifecycleBindings[receipt.AttemptBindingSHA256] = true
 		}
 		if result.EffectiveCategory() == BenchmarkCategoryNeutralCommon {
 			if previous, exists := scenarioTasks[slot.scenario]; exists && previous != receipt.TaskContractSHA256 {
@@ -222,6 +245,9 @@ func aggregateSyntheticOutputRoot(root string, afterInitialInventory, afterPrima
 			_, _ = hash.Write(artifact.data)
 		}
 	}
+	if lifecycleBindings != nil && len(usedLifecycleBindings) != len(lifecycleBindings) {
+		return SyntheticRootAggregate{}, rejectSyntheticRoot("invalid_lifecycle")
+	}
 	for cohortPath, identity := range cohorts {
 		if lenRunsForSyntheticCohort(slots, cohortPath) != identity.runs {
 			return SyntheticRootAggregate{}, rejectSyntheticRoot("incomplete_cohort")
@@ -237,6 +263,10 @@ func aggregateSyntheticOutputRoot(root string, afterInitialInventory, afterPrima
 	}
 	if afterPrimaryRead != nil {
 		afterPrimaryRead()
+	}
+	verifiedLifecycleProjection, _, lifecycleErr := syntheticAttemptLedgerProjection(root, len(slots))
+	if lifecycleErr != nil || !bytes.Equal(lifecycleProjection, verifiedLifecycleProjection) {
+		return SyntheticRootAggregate{}, rejectSyntheticRoot("changed_during_read")
 	}
 	finalEntries, finalSlots, err := syntheticRootInventory(rootHandle)
 	if err != nil || !sameSyntheticRootInventory(entries, finalEntries) {
@@ -288,6 +318,83 @@ func aggregateSyntheticOutputRoot(root string, afterInitialInventory, afterPrima
 	return output, nil
 }
 
+type syntheticAttemptProjection struct {
+	Ordinal       uint32          `json:"ordinal"`
+	BindingSHA256 string          `json:"binding_sha256"`
+	State         lifecycle.State `json:"state"`
+	Usage         lifecycle.Usage `json:"usage"`
+	ReceiptSHA256 string          `json:"receipt_sha256,omitempty"`
+}
+
+func syntheticAttemptLedgerProjection(root string, resultCount int) ([]byte, map[string]bool, error) {
+	ledgerRoot := filepath.Join(root, "attempt-ledger")
+	info, err := os.Lstat(ledgerRoot)
+	if os.IsNotExist(err) {
+		return nil, nil, nil
+	}
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return nil, nil, rejectSyntheticRoot("invalid_lifecycle")
+	}
+	absolute, err := filepath.Abs(ledgerRoot)
+	if err != nil {
+		return nil, nil, rejectSyntheticRoot("invalid_lifecycle")
+	}
+	store, err := OpenAttemptLedgerStore(absolute)
+	if err != nil {
+		return nil, nil, rejectSyntheticRoot("invalid_lifecycle")
+	}
+	inspections, err := store.InspectAll()
+	if err != nil || len(inspections) == 0 {
+		return nil, nil, rejectSyntheticRoot("invalid_lifecycle")
+	}
+	projection := make([]syntheticAttemptProjection, 0, len(inspections))
+	type experimentProjection struct {
+		seenPreflight bool
+		canceled      bool
+	}
+	experiments := make(map[string]experimentProjection)
+	resultBindings := make(map[string]bool, resultCount)
+	for _, inspection := range inspections {
+		state := inspection.Projection.State
+		if !inspection.Complete || !inspection.Projection.Terminal ||
+			(state != lifecycle.StateSucceeded && state != lifecycle.StateCanceled) {
+			return nil, nil, rejectSyntheticRoot("invalid_lifecycle")
+		}
+		experiment := inspection.Plan.Binding.Identity.ExperimentSHA256
+		group := experiments[experiment]
+		if !group.seenPreflight {
+			if state != lifecycle.StateSucceeded {
+				return nil, nil, rejectSyntheticRoot("invalid_lifecycle")
+			}
+			group.seenPreflight = true
+		} else {
+			if group.canceled && state != lifecycle.StateCanceled {
+				return nil, nil, rejectSyntheticRoot("invalid_lifecycle")
+			}
+			if state == lifecycle.StateCanceled {
+				group.canceled = true
+			} else {
+				if resultBindings[inspection.Plan.BindingSHA256] {
+					return nil, nil, rejectSyntheticRoot("invalid_lifecycle")
+				}
+				resultBindings[inspection.Plan.BindingSHA256] = true
+			}
+		}
+		experiments[experiment] = group
+		projection = append(projection, syntheticAttemptProjection{Ordinal: inspection.Plan.Ordinal,
+			BindingSHA256: inspection.Plan.BindingSHA256, State: state, Usage: inspection.Projection.Usage,
+			ReceiptSHA256: inspection.Projection.ReceiptSHA256})
+	}
+	if len(resultBindings) != resultCount {
+		return nil, nil, rejectSyntheticRoot("invalid_lifecycle")
+	}
+	data, err := json.Marshal(projection)
+	if err != nil {
+		return nil, nil, rejectSyntheticRoot("invalid_lifecycle")
+	}
+	return data, resultBindings, nil
+}
+
 func syntheticRootInventory(root *os.Root) ([]syntheticRootEntry, []syntheticResultSlot, error) {
 	return syntheticRootInventoryWithLimit(root, maxSyntheticRootResults)
 }
@@ -323,6 +430,9 @@ func syntheticRootInventoryWithLimit(root *os.Root, maxResults int) ([]synthetic
 		entryPath := path.Clean(strings.ReplaceAll(name, "\\", "/"))
 		if !fs.ValidPath(entryPath) {
 			return rejectSyntheticRoot("invalid_layout")
+		}
+		if entryPath == "attempt-ledger" && info.IsDir() {
+			return fs.SkipDir
 		}
 		entries = append(entries, syntheticRootEntry{path: entryPath, info: info})
 		parts := strings.Split(entryPath, "/")

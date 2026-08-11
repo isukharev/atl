@@ -601,8 +601,17 @@ func TestEvaluatorRuntimeModeHeadlessDryRunCreatesOnlyMarker(t *testing.T) {
 			entries = append(entries, filepath.ToSlash(relative))
 		}
 		return nil
-	}); err != nil || len(entries) != 1 || entries[0] != privateOutputRootMarker {
+	}); err != nil || len(entries) < 2 || entries[0] != privateOutputRootMarker || entries[1] != "attempt-ledger" {
 		t.Fatal("runtime mode contract invalid")
+	}
+	ledger, err := InspectAttemptLedger(filepath.Join(outputRoot, "attempt-ledger"))
+	if err != nil || len(ledger.Attempts) < 2 || ledger.Attempts[0].State != "canceled" {
+		t.Fatal("runtime mode contract invalid")
+	}
+	for _, attempt := range ledger.Attempts[1:] {
+		if attempt.State != "canceled" {
+			t.Fatal("runtime mode contract invalid")
+		}
 	}
 	if data, err := os.ReadFile(logPath); err == nil || len(data) != 0 {
 		t.Fatal("runtime mode contract invalid")
@@ -611,21 +620,26 @@ func TestEvaluatorRuntimeModeHeadlessDryRunCreatesOnlyMarker(t *testing.T) {
 }
 
 func TestEvaluatorRuntimeModeCommitmentAndProbeOrdering(t *testing.T) {
-	assertRuntimeModeCallOrder(t, "provider_attempt.go", "executeProviderAttempt",
+	assertRuntimeModeCallOrder(t, "provider_attempt.go", "executeProviderAttemptWithSession",
 		identifierCall("commit"), identifierCall("revalidate"), selectorCall("command", "Start"), selectorCall("command", "Wait"))
 	assertRuntimeModeConditionalAssignment(t, "runner_provider.go", "executeAndCloseHeadlessProvider", "codexPrivateCLI", "revalidateProvider", "input", "bindings", "providerRuntime", "verifyPluginPackage")
-	assertRuntimeModeCallCount(t, "runner_provider.go", "executeAndCloseHeadlessProvider", identifierCallWithArgumentPaths("executeProviderAttempt",
-		[]string{"input", "command"}, []string{"input", "bindings", "providerAttemptCommitted"}, []string{"revalidateProvider"}), 1)
-	assertRuntimeModeCallCount(t, "calibration.go", "RunCodexCLICalibration", identifierCallWithArgumentPaths("executeProviderAttempt",
-		[]string{"command"}, []string{"options", "providerAttemptCommitted"}, []string{"providerRuntime", "verifyPluginPackage"}), 1)
+	assertRuntimeModeCallCount(t, "runner_provider.go", "executeAndCloseHeadlessProvider", identifierCallWithArgumentPaths("executeProviderAttemptWithSession",
+		[]string{"input", "command"}, []string{"input", "bindings", "providerAttemptCommitted"}, []string{"revalidateProvider"}, []string{"input", "bindings", "attemptSession"}), 1)
+	assertRuntimeModeCallCount(t, "calibration.go", "RunCodexCLICalibration", identifierCallWithArgumentPaths("executeProviderAttemptWithSession",
+		[]string{"command"}, []string{"options", "providerAttemptCommitted"}, []string{"providerRuntime", "verifyPluginPackage"}, []string{"attemptSession"}), 1)
 	assertRuntimeModeCallOrder(t, "private_review_runner.go", "RunPrivateReview",
-		identifierCallWithIdentifierArgument("hardenedWriteFileExclusiveWithin", "attemptPath"), identifierCall("loadPrivateReviewInputs"), identifierCall("privateReviewRunProvider"))
+		identifierCall("loadPrivateReviewInputs"), identifierCall("preparePrivateReviewAttemptSession"),
+		selectorCall("attemptSession", "Commit"),
+		identifierCallWithIdentifierArgument("hardenedWriteFileExclusiveWithin", "attemptPath"),
+		selectorCall("attemptSession", "SpawnIntent"), identifierCall("privateReviewRunProvider"))
 	assertRuntimeModeCallOrder(t, "tool_availability.go", "QualifyCodexCLIToolAvailability",
-		identifierCall("preparePrivateProbeAgent"), selectorCall("command", "Run"))
+		identifierCall("preparePrivateProbeAgent"), identifierCall("prepareQualificationAttemptSession"),
+		identifierCall("executeProviderAttemptWithSession"))
 	assertRuntimeModeCallOrder(t, "cli_route_qualification.go", "QualifyCLIRoute",
-		identifierCall("preparePrivateProbeAgent"), selectorCall("command", "Run"))
+		identifierCall("preparePrivateProbeAgent"), identifierCall("prepareQualificationAttemptSession"),
+		identifierCall("executeProviderAttemptWithSession"))
 	assertRuntimeModeCallOrder(t, "runner_provider.go", "executeAndCloseHeadlessProvider",
-		identifierCall("executeProviderAttempt"),
+		identifierCall("executeProviderAttemptWithSession"),
 		selectorCallWithReceiverPath([]string{"input", "resources", "commandBroker"}, "Close"),
 		selectorCallWithReceiverPath([]string{"input", "resources", "liveGateway"}, "Close"),
 		selectorCallWithReceiverPath([]string{"input", "resources", "externalProxy"}, "closeBounded"),

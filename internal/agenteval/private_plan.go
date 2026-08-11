@@ -932,10 +932,11 @@ func qualifyPrivateActivationAgent(ctx context.Context, root string, material pr
 		return CodexCLIToolAvailabilityReport{}, privatePlanError("tool_availability_contract")
 	}
 	options := CodexCLIToolAvailabilityOptions{
-		AgentBinary: material.agent.canonicalPath,
-		ScratchRoot: filepath.Join(root, ".ephemeral"),
-		Model:       material.calibration.Model,
-		Reasoning:   material.calibration.Reasoning,
+		AgentBinary:       material.agent.canonicalPath,
+		ScratchRoot:       filepath.Join(root, ".ephemeral"),
+		AttemptLedgerRoot: filepath.Join(root, "reports", "tool-availability-attempt-ledger"),
+		Model:             material.calibration.Model,
+		Reasoning:         material.calibration.Reasoning,
 	}
 	report, err := privatePlanQualifyCodexCLI(ctx, options)
 	if err != nil {
@@ -971,6 +972,7 @@ func qualifyPrivateCLIRoute(ctx context.Context, root string, material privatePl
 	options := *material.cliRoute
 	options.AgentBinary = material.agent.canonicalPath
 	options.ScratchRoot = filepath.Join(root, ".ephemeral")
+	options.AttemptLedgerRoot = filepath.Join(root, "reports", "cli-route-attempt-ledger")
 	report, err := privatePlanQualifyCLIRoute(ctx, options)
 	if err != nil {
 		return CLIRouteQualificationReport{}, privatePlanError("cli_route_execution")

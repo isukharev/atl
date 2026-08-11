@@ -377,9 +377,11 @@ Existing evaluator artifacts retain their bytes and meaning under logical identi
 | `atl-profile/run-spec@5..7` | v5–v7 | v7 | v5–v7 | `preserve`; `public_or_private`; `explicit` migration |
 | `atl-profile/scenario@1` | v1 | v1 | v1 | `preserve`; `public_or_private`; `explicit` migration |
 | `atl-profile/synthetic-root-aggregate@2` | — | v2 | — | `write_only_projection`; `content_minimized`; `compare_only` |
-| `atl-profile/synthetic-run-receipt@1` | v1 | v1 | v1 | `preserve`; `content_minimized`; `explicit` migration |
+| `atl-profile/synthetic-run-receipt@1..2` | v1–v2 | v2 | v1–v2 | `preserve`; `content_minimized`; `explicit` migration; v1 is readable legacy evidence without an attempt binding |
 | `atl-profile/private-workspace@1..4` | v1–v4 | v4 | v4 | `preserve`; `owner_private`; `partial_explicit` migration; v1–v3 are readable only |
 | `atl-profile/private-plan@1..9` | v1–v9 | v9 | v9 | `preserve`; `owner_private`; `compare_only`; v1–v8 are readable only |
+| `atl-profile/private-review-attempt@1..2` | v1–v2 | v2 | v1–v2 | `preserve`; `owner_private`; `compare_only`; v1 is historical evidence without a generic attempt binding |
+| `atl-profile/private-review-receipt@1..2` | v1–v2 | v2 | v1–v2 | `preserve`; `owner_private`; `compare_only`; v1 is historical evidence without a generic attempt binding |
 | `atl-profile/activation-reference@1..2` | v1–v2 | v2 | — | `preserve`; `owner_private`; `compare_only` reference envelope |
 | `atl-profile/activation-report@1..2` | — | v1–v2 | — | `write_only_projection`; `content_minimized`; `compare_only` |
 
@@ -406,12 +408,16 @@ The internal `ATL_EVAL_*` registry, wrapper basenames, broker records, launch ar
 | `agent-eval/extension-conformance-bundle` | Content-addressed ordinary cases for every supported operation plus one synchronized cancellation case in the manifest's declared role |
 | `agent-eval/extension-conformance-report` | Content-minimized protocol-only result; never proof of whole-product compatibility or host confinement |
 
-The test-only compatibility ledger records project config and each of those
-four extension families at generation 1. Project config, manifest, message,
-and bundle generations are readable, emitted, and executable; reports are
+The test-only compatibility ledger records project config, the three durable
+attempt families (`agent-eval/attempt-ledger`, `agent-eval/attempt-plan`, and
+`agent-eval/attempt-event`), and each of the four extension families at
+generation 1. Project config, attempt records, manifest, message, and bundle
+generations are readable, emitted, and executable; extension reports are
 readable and emitted but never executable. Project config is
 `public_or_private` and capped at 64 KiB. Manifests are public and capped at
-64 KiB, messages are
+64 KiB. Attempt headers are capped at 16 KiB and attempt plans and events at
+64 KiB per record; all three are `preserve`, `content_minimized`, and use
+explicit migration. Messages are
 `public_or_private` and capped at 1 MiB, bundles are public and capped at
 1 MiB, and reports are `content_minimized` and capped at 1 MiB. All four use
 `preserve` disposition and explicit migration. These pre-release registry rows
@@ -620,7 +626,61 @@ The allowed transition relation is also closed:
 
 Every unlisted state pair is rejected. Every terminal state, including `unknown`, is absorbing. Only `planned` work may resume automatically, and only with `complete_ledger`, `immutable_plan`, and `no_commit`. No state permits same-ID replay. Reconciliation appends content-minimized local proof without changing the original state; it may support an explicit plan decision for a new attempt identity, never refine, resume, or repeat the original attempt. In particular, cancel or timeout after commitment becomes `canceled` or `timed_out` only with the listed `non_execution_proof` or `termination_proof`; without it, the only safe terminal transition is `unknown`.
 
-[#1317](https://github.com/isukharev/atl/issues/1317) owns ledger and recovery implementation. This document freezes transition meaning but does not claim current conformance.
+The current pre-release implementation enforces this relation in the neutral
+`lifecycle` package and stores one owner-private append-only directory ledger.
+The store bounds attempts and events, uses canonical one-line JSON, assigns
+monotonic ordinals itself, hash-binds every plan and event, fsyncs before
+advancing, rereads every append, and serializes readers and writers through an
+advisory lock. It refuses Windows storage before creation because the current
+durability primitive requires directory fsync; Windows decoding and compile
+coverage remain available, but no weaker durable-write claim is made. The
+owner-private root is the trust anchor: this store does not claim isolation
+from a hostile process already running as the same OS user.
+
+`RunHeadless` writes the complete preflight-plus-repetition roster beneath the
+selected output root before its first evaluation-component process entry; the
+content-minimized repository-ignore check remains part of local output-root
+admission. Extension conformance,
+capability verification, calibration, CLI-route and tool-availability probes,
+selected-binary synthetic execution, and automated private review enter
+through the same session owner on hosts where the persistent ledger can prove
+its owner-only and directory-durability contract. Current synthetic run receipts are v2 and bind
+their result to the exact attempt binding; v1 receipts remain readable only for
+historical roots that contain no generic ledger. Aggregate reconstruction
+rejects a missing, reused, mismatched, nonterminal, or incomplete current
+binding. Private activation remains the stricter ordering/consent authority;
+its generic ledger is nested in each raw run and its execution receipt binds
+the resulting aggregate. Automated review writes its generic ledger inside
+the owner-private review packet. Historical private records are not rewritten.
+
+The current persistent ledger is implemented on Unix hosts and fails closed on
+Windows before any evaluation-component process entry. In particular, the
+internal `verify-extension-protocol` file facade returns `outcome_unknown`
+before admitting the executable when it cannot create that ledger. Hosted
+Windows tests continue to exercise the bounded extension process protocol and
+separately prove this no-entry refusal; they do not manufacture an in-memory or
+weaker durable record. Windows persistence remains unsupported until directory
+entry durability and owner-only storage have a runtime-proved implementation.
+
+On a clean nonterminal prefix, recovery closes `planned` as proven
+precommit `canceled` and closes every postcommit state as absorbing `unknown`;
+it never launches work. A torn or corrupt tail remains byte-for-byte on disk,
+the inspection projection reports terminal `unknown` plus a closed tail code,
+and append/replay stays blocked. Evidence-only reconciliation creates a new
+linked plan and never mutates the unknown predecessor. The internal maintainer
+surface is:
+
+```sh
+agent-eval attempt-ledger inspect --root /absolute/owner-private/attempt-ledger
+agent-eval attempt-ledger reconcile \
+  --root /absolute/owner-private/attempt-ledger \
+  --attempt aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  --evidence bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+```
+
+These commands emit content-minimized reports only. They are the current
+maintainer alias for reserved standalone `reconcile/evidence-only`, not a
+stable public lifecycle CLI and not authority to replay the predecessor.
 
 ## Missing evidence and provider-free conformance
 
@@ -636,7 +696,7 @@ Every unlisted state pair is rejected. Every terminal state, including `unknown`
 
 Numeric zero is a measurement only with `state:"observed"` and `coverage:true`. The legacy `coverage:false,value:0` pair is a compatibility placeholder, never an observed zero and never input to a numeric summary. `not_applicable` is an explicit state, not missing coverage. Aggregates report each state count, summarize only observed values, and never change denominators or impute silently. Capability state, attempt outcome, metric state, coverage, and numeric value are independent.
 
-A stable distribution publishes content-addressed synthetic fixtures. Provider-free conformance proves JSON/error/exit contracts; configuration precedence; no ambient authority discovery; pre-execution capability refusal; historical readability and future rejection; migration binding; missing-versus-zero behavior; component confinement; deterministic rereads; and no replay. This issue freezes the closed transition and proof vocabulary in test-only contract data; [#1317](https://github.com/isukharev/atl/issues/1317) owns its production ledger, recovery, and runtime conformance.
+A stable distribution publishes content-addressed synthetic fixtures. Provider-free conformance proves JSON/error/exit contracts; configuration precedence; no ambient authority discovery; pre-execution capability refusal; historical readability and future rejection; migration binding; missing-versus-zero behavior; component confinement; deterministic rereads; and no replay. The current source suite additionally exercises the production ledger and transition matrix, crashes a subprocess immediately before and after every allowed append, verifies conservative recovery, and inventories every production process-entry call against its durable owner. This remains pre-release source evidence, not a signed-distribution compatibility promise.
 
 The current pre-release source conformance suite uses temporary synthetic
 projects, a closed environment, no provider/backend credentials, no configured

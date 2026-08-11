@@ -59,12 +59,13 @@ const (
 // backend URL, credential, gateway, or fixture field: qualification must not be
 // able to reach a backend even by accident.
 type CLIRouteQualificationOptions struct {
-	Provider    string
-	Surface     string
-	AgentBinary string
-	ScratchRoot string
-	Model       string
-	Reasoning   string
+	Provider          string
+	Surface           string
+	AgentBinary       string
+	ScratchRoot       string
+	AttemptLedgerRoot string
+	Model             string
+	Reasoning         string
 	// AllowedTools is the reviewed permission-rule inventory of the CLI item.
 	AllowedTools []string
 	// The remaining identities reproduce or bind the reviewed launch without
@@ -173,7 +174,7 @@ func (r *cliRouteProbeRuntime) Close() error {
 // and never retries, so a run can neither continue nor bill after capture.
 func QualifyCLIRoute(parent context.Context, options CLIRouteQualificationOptions) (report CLIRouteQualificationReport, returnErr error) {
 	if parent == nil || !validCLIRouteProvider(options.Provider) || options.Surface != SurfaceCLISkill ||
-		options.AgentBinary == "" || options.ScratchRoot == "" || options.Model == "" ||
+		options.AgentBinary == "" || options.ScratchRoot == "" || options.AttemptLedgerRoot == "" || options.Model == "" ||
 		options.TimeoutSeconds < 0 || options.TimeoutSeconds > maxCLIRouteProbeTimeout {
 		return report, fmt.Errorf("cli route qualification requires provider, surface, agent, private scratch, model, and a bounded timeout")
 	}
@@ -277,6 +278,17 @@ func QualifyCLIRoute(parent context.Context, options CLIRouteQualificationOption
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second, IdleTimeout: 5 * time.Second}
 	serveDone := make(chan error, 1)
 	go func() { serveDone <- server.Serve(listener) }()
+	attempt, err := prepareQualificationAttemptSession(options.AttemptLedgerRoot, "cli-route", agent.identity,
+		base.ContractSHA256, []string{options.Provider, options.Model, options.Reasoning}, options.TimeoutSeconds)
+	if err != nil {
+		return report, err
+	}
+	var terminationOK, timedOut, canceled bool
+	var processReceipt string
+	defer func() {
+		returnErr = joinAttemptLifecycleError(returnErr,
+			finalizeQualificationAttempt(attempt, report, terminationOK, processReceipt, timedOut, canceled, returnErr))
+	}()
 
 	command := exec.CommandContext(ctx, probeAgent.canonicalPath, cliRouteProbeArgs(options, runtime.workspace, route.baseURL)...)
 	command.Dir = runtime.workspace
@@ -288,7 +300,9 @@ func QualifyCLIRoute(parent context.Context, options CLIRouteQualificationOption
 	command.Stderr = stderr
 	// The child is deliberately terminated after the first captured request, so
 	// its exit status carries no qualification signal.
-	_ = command.Run()
+	_, terminationOK, processReceipt, _ = executeProviderAttemptWithSession(command, nil, nil, attempt)
+	timedOut = errors.Is(ctx.Err(), context.DeadlineExceeded)
+	canceled = errors.Is(parent.Err(), context.Canceled) && !timedOut
 	cancel()
 	shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	shutdownErr := server.Shutdown(shutdownContext)

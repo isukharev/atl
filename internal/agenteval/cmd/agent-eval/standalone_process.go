@@ -236,7 +236,7 @@ func standaloneProcessAuthorityAllowed(authority standaloneAuthorityDimensions) 
 
 func standaloneProcessForbiddenMaintainerCommand(command string) bool {
 	switch command {
-	case "aggregate", "aggregate-root", "assess", "evaluate", "inventory", "private",
+	case "aggregate", "aggregate-root", "assess", "attempt-ledger", "evaluate", "inventory", "private",
 		"review-template", "validate-comparison-set", "validate-pair", "validate-run",
 		"verify-atl-capabilities", "verify-codex-skill-package", "verify-extension-protocol":
 		return true

@@ -177,7 +177,8 @@ func TestQualifyCodexCLIToolAvailabilityUsesOneCredentialFreeSyntheticRequest(t 
 				t.Fatal(err)
 			}
 			report, err := QualifyCodexCLIToolAvailability(context.Background(), CodexCLIToolAvailabilityOptions{
-				AgentBinary: agent, ScratchRoot: scratch, Model: "synthetic-model", TimeoutSeconds: 10,
+				AgentBinary: agent, ScratchRoot: scratch, AttemptLedgerRoot: attemptLedgerRootForTest(t),
+				Model: "synthetic-model", TimeoutSeconds: 10,
 			})
 			if err != nil {
 				t.Fatal(err)

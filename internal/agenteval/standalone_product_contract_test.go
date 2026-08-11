@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/isukharev/atl/internal/agenteval/lifecycle"
 )
 
 const (
@@ -248,6 +250,8 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 		standaloneContractKey("atl-profile", "capability-catalog"):          {current: CapabilityCatalogSchemaVersion, readable: []int{CapabilityCatalogSchemaVersion}, emitted: []int{CapabilityCatalogSchemaVersion}, executable: []int{CapabilityCatalogSchemaVersion}},
 		standaloneContractKey("atl-profile", "observation"):                 {current: ObservationSchemaVersion, readable: []int{ObservationSchemaVersion}, emitted: []int{ObservationSchemaVersion}, executable: []int{ObservationSchemaVersion}},
 		standaloneContractKey("atl-profile", "private-plan"):                {current: PrivatePlanSchemaVersion, readable: []int{LegacyPrivatePlanSchemaVersion, LegacyPromptBoundPrivatePlanSchemaVersion, LegacyCompleteActivationPrivatePlanSchemaVersion, LegacyActivationStudyPrivatePlanSchemaVersion, LegacyCalibratedPrivatePlanSchemaVersion, LegacyToolQualifiedPrivatePlanSchemaVersion, LegacyExecutableReviewPrivatePlanSchemaVersion, LegacyLiveWritePrivatePlanSchemaVersion, PrivatePlanSchemaVersion}, emitted: []int{PrivatePlanSchemaVersion}, executable: []int{PrivatePlanSchemaVersion}},
+		standaloneContractKey("atl-profile", "private-review-attempt"):      {current: privateReviewAttemptSchemaVersion, readable: []int{privateReviewLegacySchemaVersion, privateReviewAttemptSchemaVersion}, emitted: []int{privateReviewAttemptSchemaVersion}, executable: []int{privateReviewLegacySchemaVersion, privateReviewAttemptSchemaVersion}},
+		standaloneContractKey("atl-profile", "private-review-receipt"):      {current: privateReviewReceiptSchemaVersion, readable: []int{privateReviewLegacySchemaVersion, privateReviewReceiptSchemaVersion}, emitted: []int{privateReviewReceiptSchemaVersion}, executable: []int{privateReviewLegacySchemaVersion, privateReviewReceiptSchemaVersion}},
 		standaloneContractKey("atl-profile", "private-workspace"):           {current: PrivateWorkspaceSchemaVersion, readable: []int{LegacyPrivateWorkspaceSchemaVersion, LegacyActivationWorkspaceSchemaVersion, LegacyCalibratedWorkspaceSchemaVersion, PrivateWorkspaceSchemaVersion}, emitted: []int{PrivateWorkspaceSchemaVersion}, executable: []int{PrivateWorkspaceSchemaVersion}},
 		standaloneContractKey("atl-profile", "qualitative-panel"):           {current: QualitativePanelSchemaVersion, readable: []int{QualitativePanelSchemaVersion}, emitted: []int{QualitativePanelSchemaVersion}, executable: []int{QualitativePanelSchemaVersion}},
 		standaloneContractKey("atl-profile", "result"):                      {current: ResultSchemaVersion, readable: []int{LegacyResultSchemaVersion, PanelResultSchemaVersion, LegacyPromptBoundResultSchemaVersion, LegacyAttemptlessResultSchemaVersion, LegacyEvidenceResultSchemaVersion, ResultSchemaVersion}, emitted: []int{ResultSchemaVersion}, executable: []int{LegacyResultSchemaVersion, PanelResultSchemaVersion, LegacyPromptBoundResultSchemaVersion, LegacyAttemptlessResultSchemaVersion, LegacyEvidenceResultSchemaVersion, ResultSchemaVersion}},
@@ -256,9 +260,12 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 		standaloneContractKey("atl-profile", "run-spec"):                    {current: RunSpecSchemaVersion, readable: []int{LegacyPromptChannelRunSpecVersion, LegacyRunSpecSchemaVersion, RunSpecSchemaVersion}, emitted: []int{RunSpecSchemaVersion}, executable: []int{LegacyPromptChannelRunSpecVersion, LegacyRunSpecSchemaVersion, RunSpecSchemaVersion}},
 		standaloneContractKey("atl-profile", "scenario"):                    {current: ScenarioSchemaVersion, readable: []int{ScenarioSchemaVersion}, emitted: []int{ScenarioSchemaVersion}, executable: []int{ScenarioSchemaVersion}},
 		standaloneContractKey("atl-profile", "synthetic-root-aggregate"):    {current: SyntheticRootAggregateSchemaVersion, emitted: []int{SyntheticRootAggregateSchemaVersion}},
-		standaloneContractKey("atl-profile", "synthetic-run-receipt"):       {current: SyntheticRunReceiptSchemaVersion, readable: []int{SyntheticRunReceiptSchemaVersion}, emitted: []int{SyntheticRunReceiptSchemaVersion}, executable: []int{SyntheticRunReceiptSchemaVersion}},
+		standaloneContractKey("atl-profile", "synthetic-run-receipt"):       {current: SyntheticRunReceiptSchemaVersion, readable: []int{SyntheticRunReceiptLegacySchemaVersion, SyntheticRunReceiptSchemaVersion}, emitted: []int{SyntheticRunReceiptSchemaVersion}, executable: []int{SyntheticRunReceiptLegacySchemaVersion, SyntheticRunReceiptSchemaVersion}},
 		standaloneContractKey("standalone", "adapter-manifest"):             {current: 1, readable: []int{1}, emitted: []int{1}, executable: []int{1}},
 		standaloneContractKey("standalone", "adapter-message"):              {current: 1, readable: []int{1}, emitted: []int{1}, executable: []int{1}},
+		standaloneContractKey("standalone", "attempt-event"):                {current: lifecycle.SchemaVersion, readable: []int{lifecycle.SchemaVersion}, emitted: []int{lifecycle.SchemaVersion}, executable: []int{lifecycle.SchemaVersion}},
+		standaloneContractKey("standalone", "attempt-ledger"):               {current: lifecycle.SchemaVersion, readable: []int{lifecycle.SchemaVersion}, emitted: []int{lifecycle.SchemaVersion}, executable: []int{lifecycle.SchemaVersion}},
+		standaloneContractKey("standalone", "attempt-plan"):                 {current: lifecycle.SchemaVersion, readable: []int{lifecycle.SchemaVersion}, emitted: []int{lifecycle.SchemaVersion}, executable: []int{lifecycle.SchemaVersion}},
 		standaloneContractKey("standalone", "extension-conformance-bundle"): {current: 1, readable: []int{1}, emitted: []int{1}, executable: []int{1}},
 		standaloneContractKey("standalone", "extension-conformance-report"): {current: 1, readable: []int{1}, emitted: []int{1}},
 		standaloneContractKey("standalone", "project-config"):               {current: StandaloneProjectConfigVersion, readable: []int{StandaloneProjectConfigVersion}, emitted: []int{StandaloneProjectConfigVersion}, executable: []int{StandaloneProjectConfigVersion}},
@@ -270,6 +277,8 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 		standaloneContractKey("atl-profile", "capability-catalog"):          {disposition: "preserve", privacy: "public", migration: "explicit", maxBytes: 1 << 20},
 		standaloneContractKey("atl-profile", "observation"):                 {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: 1 << 20},
 		standaloneContractKey("atl-profile", "private-plan"):                {disposition: "preserve", privacy: "owner_private", migration: "compare_only", maxBytes: 4 << 20},
+		standaloneContractKey("atl-profile", "private-review-attempt"):      {disposition: "preserve", privacy: "owner_private", migration: "compare_only", maxBytes: maxReviewBytes},
+		standaloneContractKey("atl-profile", "private-review-receipt"):      {disposition: "preserve", privacy: "owner_private", migration: "compare_only", maxBytes: maxReviewBytes},
 		standaloneContractKey("atl-profile", "private-workspace"):           {disposition: "preserve", privacy: "owner_private", migration: "partial_explicit", maxBytes: 1 << 20},
 		standaloneContractKey("atl-profile", "qualitative-panel"):           {disposition: "preserve", privacy: "owner_private", migration: "explicit", maxBytes: 1 << 20},
 		standaloneContractKey("atl-profile", "result"):                      {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: 1 << 20},
@@ -281,6 +290,9 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 		standaloneContractKey("atl-profile", "synthetic-run-receipt"):       {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: 16 << 10},
 		standaloneContractKey("standalone", "adapter-manifest"):             {disposition: "preserve", privacy: "public", migration: "explicit", maxBytes: 64 << 10},
 		standaloneContractKey("standalone", "adapter-message"):              {disposition: "preserve", privacy: "public_or_private", migration: "explicit", maxBytes: 1 << 20},
+		standaloneContractKey("standalone", "attempt-event"):                {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: lifecycle.MaxEventBytes},
+		standaloneContractKey("standalone", "attempt-ledger"):               {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: lifecycle.MaxHeaderBytes},
+		standaloneContractKey("standalone", "attempt-plan"):                 {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: lifecycle.MaxPlanBytes},
 		standaloneContractKey("standalone", "extension-conformance-bundle"): {disposition: "preserve", privacy: "public", migration: "explicit", maxBytes: 1 << 20},
 		standaloneContractKey("standalone", "extension-conformance-report"): {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: 1 << 20},
 		standaloneContractKey("standalone", "project-config"):               {disposition: "preserve", privacy: "public_or_private", migration: "explicit", maxBytes: StandaloneProjectConfigMaxBytes},
@@ -349,7 +361,7 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 func TestStandaloneContractClassifiesCurrentCommandsAndArtifacts(t *testing.T) {
 	contract := loadStandaloneProductContractFixture(t)
 	commands := standaloneCoordinatorCommands(t, filepath.Join("cmd", "agent-eval", "main.go"))
-	if len(commands) != 15 || !slices.Equal(commands, contract.MaintainerCommands) {
+	if len(commands) != 16 || !slices.Equal(commands, contract.MaintainerCommands) {
 		t.Fatalf("coordinator commands=%v, contract=%v", commands, contract.MaintainerCommands)
 	}
 
@@ -375,6 +387,7 @@ func TestStandaloneContractClassifiesCurrentCommandsAndArtifacts(t *testing.T) {
 		"aggregate":                  {standaloneOperationKey("compare", "default")},
 		"aggregate-root":             {standaloneOperationKey("compare", "default")},
 		"assess":                     {standaloneOperationKey("grade", "deterministic")},
+		"attempt-ledger":             {standaloneOperationKey("reconcile", "evidence-only")},
 		"evaluate":                   {standaloneOperationKey("grade", "deterministic")},
 		"inventory":                  {standaloneOperationKey("inspect", "default")},
 		"private":                    {standaloneOperationKey("init", "default"), standaloneOperationKey("migrate apply", "default"), standaloneOperationKey("migrate preview", "default"), standaloneOperationKey("plan", "default"), standaloneOperationKey("resume", "default")},
@@ -592,7 +605,7 @@ func TestStandaloneContractAuthorityMatrix(t *testing.T) {
 		standaloneOperationKey("migrate apply", "default"):       {current: "private_maintainer_only", standalone: "reserved", authority: "local_write", localRead: true, localWrite: true, privateWorkspaceAccess: true},
 		standaloneOperationKey("migrate preview", "default"):     {current: "private_maintainer_only", standalone: "reserved", authority: "local_read", localRead: true, privateWorkspaceAccess: true},
 		standaloneOperationKey("plan", "default"):                {current: "private_maintainer_only", standalone: "reserved", authority: "local_write", localRead: true, localWrite: true, privateWorkspaceAccess: true},
-		standaloneOperationKey("reconcile", "evidence-only"):     {current: "absent", standalone: "reserved", authority: "local_write", localRead: true, localWrite: true, privateWorkspaceAccess: true},
+		standaloneOperationKey("reconcile", "evidence-only"):     {current: "maintainer_compat", standalone: "reserved", authority: "local_write", localRead: true, localWrite: true, privateWorkspaceAccess: true},
 		standaloneOperationKey("report", "default"):              {current: "maintainer_compat", standalone: "reserved", authority: "local_read", localRead: true},
 		standaloneOperationKey("resume", "default"):              {current: "private_maintainer_only", standalone: "reserved", authority: "agent_execution", localRead: true, localWrite: true, processSpawn: true, providerContact: true, backendContact: true, network: true, credentialAccess: true, privateWorkspaceAccess: true},
 		standaloneOperationKey("run", "default"):                 {current: "maintainer_compat", standalone: "reserved", authority: "agent_execution", localRead: true, localWrite: true, processSpawn: true, providerContact: true, backendContact: true, network: true, credentialAccess: true},

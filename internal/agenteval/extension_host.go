@@ -92,36 +92,13 @@ type ExtensionConformanceReport struct {
 	ProtocolConformant bool                             `json:"protocol_conformant"`
 }
 
-type ExtensionConformanceCaseReport struct {
-	ID        string              `json:"id"`
-	Operation extension.Operation `json:"operation"`
-	Terminal  string              `json:"terminal"`
-	Status    string              `json:"status"`
-}
-
-// VerifyExtensionProtocolFiles runs the internal protocol-only conformance
-// command. It does not claim a sandbox or whole-product compatibility.
-func VerifyExtensionProtocolFiles(
-	ctx context.Context,
-	manifestPath, executablePath, bundlePath string,
-) (ExtensionConformanceReport, error) {
-	manifestData, err := readStableExtensionContractFile(manifestPath, extension.MaxManifestBytes)
-	if err != nil {
-		return ExtensionConformanceReport{}, errExtensionCompatibility
-	}
-	bundleData, err := readStableExtensionContractFile(bundlePath, extensionConformanceMaxBytes)
-	if err != nil {
-		return ExtensionConformanceReport{}, errExtensionCompatibility
-	}
-	return verifyExtensionProtocol(ctx, manifestData, executablePath, nil, bundleData)
-}
-
 func verifyExtensionProtocol(
 	ctx context.Context,
 	manifestData []byte,
 	executablePath string,
 	arguments []string,
 	bundleData []byte,
+	attemptStore *AttemptLedgerStore,
 ) (ExtensionConformanceReport, error) {
 	verificationCtx, cancelVerification, err := extensionVerificationContext(ctx)
 	if err != nil {
@@ -165,8 +142,14 @@ func verifyExtensionProtocol(
 		CleanupAssurance: extensionCleanupAssurance(),
 		Cases:            make([]ExtensionConformanceCaseReport, 0, len(bundle.Cases)),
 	}
+	attemptSessions, closePlannedAttempts, err := prepareExtensionProtocolAttempts(
+		attemptStore, manifest, bundle, manifestDigest, bundleDigest)
+	if err != nil {
+		return ExtensionConformanceReport{}, errExtensionOutcomeUnknown
+	}
+	defer closePlannedAttempts()
 	bundleInvocationEntered := false
-	for _, testCase := range bundle.Cases {
+	for caseIndex, testCase := range bundle.Cases {
 		caseCtx, cancelCase, err := extensionContextDeadline(ctx, time.Duration(testCase.DeadlineMilliseconds)*time.Millisecond)
 		if err != nil {
 			if bundleInvocationEntered {
@@ -197,9 +180,20 @@ func verifyExtensionProtocol(
 			}
 			return ExtensionConformanceReport{}, errExtensionCompatibility
 		}
-		caseReport, assurance, err := runExtensionConformanceCase(caseCtx, admitted, arguments, manifest, testCase)
+		attempt, attemptErr := beginExtensionProtocolAttempt(attemptSessions, caseIndex)
+		if attemptErr != nil {
+			_ = admitted.remove()
+			cancelCase()
+			return ExtensionConformanceReport{}, errExtensionOutcomeUnknown
+		}
+		caseReport, assurance, err := runExtensionConformanceCase(caseCtx, admitted, arguments, manifest, testCase, attempt)
 		removeErr := admitted.remove()
 		cancelCase()
+		if attempt != nil {
+			if lifecycleErr := finalizeExtensionAttempt(attempt, testCase, caseReport, assurance, err, removeErr); lifecycleErr != nil {
+				return ExtensionConformanceReport{}, errExtensionOutcomeUnknown
+			}
+		}
 		if removeErr != nil {
 			return ExtensionConformanceReport{}, errExtensionOutcomeUnknown
 		}
@@ -234,6 +228,7 @@ func runExtensionConformanceCase(
 	arguments []string,
 	manifest extension.Manifest,
 	testCase ExtensionConformanceCase,
+	attempt *DurableAttemptSession,
 ) (ExtensionConformanceCaseReport, string, error) {
 	if err := parent.Err(); err != nil {
 		return ExtensionConformanceCaseReport{}, "", errExtensionCompatibility
@@ -243,9 +238,14 @@ func runExtensionConformanceCase(
 	if err != nil {
 		return ExtensionConformanceCaseReport{}, "", errExtensionCompatibility
 	}
-	attemptID, err := randomExtensionIdentity()
-	if err != nil {
-		return ExtensionConformanceCaseReport{}, "", errExtensionCompatibility
+	attemptID := ""
+	if attempt != nil {
+		attemptID = attempt.plan.AttemptID
+	} else {
+		attemptID, err = randomExtensionIdentity()
+		if err != nil {
+			return ExtensionConformanceCaseReport{}, "", errExtensionCompatibility
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return ExtensionConformanceCaseReport{}, "", errExtensionCompatibility
@@ -257,7 +257,7 @@ func runExtensionConformanceCase(
 	if err := ctx.Err(); err != nil {
 		return ExtensionConformanceCaseReport{}, "", errExtensionCompatibility
 	}
-	process, err := startExtensionProcess(admitted, arguments)
+	process, err := startExtensionProcessWithSession(admitted, arguments, attempt)
 	if err != nil {
 		var startError *extensionProcessStartError
 		if errors.As(err, &startError) && startError.possibleEntry {
