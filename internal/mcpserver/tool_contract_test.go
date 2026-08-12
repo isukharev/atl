@@ -18,8 +18,8 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 	if initialized == nil || initialized.Instructions != Instructions || initialized.ServerInfo.Name != "atl" {
 		t.Fatalf("initialize=%+v", initialized)
 	}
-	if initialized.ProtocolVersion != "2025-11-25" {
-		t.Fatalf("protocol version=%q want 2025-11-25", initialized.ProtocolVersion)
+	if initialized.ProtocolVersion != modernMCPProtocolVersion {
+		t.Fatalf("protocol version=%q want %s", initialized.ProtocolVersion, modernMCPProtocolVersion)
 	}
 	if !strings.Contains(initialized.Instructions, "columns (preferred), fields, or projection") {
 		t.Fatalf("initialize instructions do not disambiguate Jira search field selection: %q", initialized.Instructions)
