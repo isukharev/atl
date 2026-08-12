@@ -294,7 +294,10 @@ func TestExtensionProcessHostBoundsAndCleanup(t *testing.T) {
 		}
 		cleanup := session.cleanup(extensionCancelGrace)
 		if cleanup.assurance != extensionCleanupAssurance() || !cleanup.complete || cleanup.err != nil {
-			t.Fatalf("descendant cleanup=%+v", cleanup)
+			t.Fatalf(
+				"descendant cleanup assurance=%q complete=%t wait error=%v cleanup error=%v",
+				cleanup.assurance, cleanup.complete, cleanup.waitErr, cleanup.err,
+			)
 		}
 		time.Sleep(time.Second)
 		if _, err := os.Stat(marker); !os.IsNotExist(err) {

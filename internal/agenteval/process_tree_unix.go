@@ -41,5 +41,5 @@ func (t *boundedProcessTree) signal(signal syscall.Signal) error {
 	if errors.Is(err, syscall.ESRCH) {
 		return nil
 	}
-	return err
+	return normalizeProcessGroupSignalError(t.command.Process.Pid, err)
 }
