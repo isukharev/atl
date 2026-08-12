@@ -7,43 +7,44 @@ import (
 	"github.com/isukharev/atl/internal/agenteval/grading"
 )
 
-// LegacyGradingDescriptor binds every ATL RunCheck spelling to one neutral
-// deterministic grading family. It is a compatibility projection: ATL keeps
-// its historical JSON bytes while the generic contract owns grading authority.
+// LegacyGradingDescriptor classifies every ATL RunCheck spelling by its
+// nearest neutral evidence family. It is a migration inventory, not a semantic
+// translation: the historical ATL evaluator retains grading authority until a
+// typed adapter can express and prove each exact legacy rule.
 type LegacyGradingDescriptor struct {
-	Kind   string
-	Family grading.CheckKind
+	Kind           string
+	EvidenceFamily grading.CheckKind
 }
 
 var legacyGradingCatalog = []LegacyGradingDescriptor{
-	{Kind: "atl_all_succeeded", Family: grading.CheckPolicy},
-	{Kind: "atl_failures_equals", Family: grading.CheckPolicy},
-	{Kind: "atl_invocations_max", Family: grading.CheckBudget},
-	{Kind: "atl_invocations_min", Family: grading.CheckBudget},
-	{Kind: "capability_families_equal", Family: grading.CheckToolSequence},
-	{Kind: "capability_sequence_equal", Family: grading.CheckToolSequence},
-	{Kind: "cli_error_contracts_equal", Family: grading.CheckCommandOutput},
-	{Kind: "cli_exit_codes_equal", Family: grading.CheckCommandExit},
-	{Kind: "delegations_min", Family: grading.CheckBudget},
-	{Kind: "delegations_none", Family: grading.CheckPolicy},
-	{Kind: "guard_no_denials", Family: grading.CheckPolicy},
-	{Kind: "http_methods_equal", Family: grading.CheckActionSequence},
-	{Kind: "http_methods_observed", Family: grading.CheckActionSequence},
-	{Kind: "interface_all_succeeded", Family: grading.CheckPolicy},
-	{Kind: "interface_failures_equals", Family: grading.CheckPolicy},
-	{Kind: "interface_invocations_max", Family: grading.CheckBudget},
-	{Kind: "interface_invocations_min", Family: grading.CheckBudget},
-	{Kind: "json_array_min_items", Family: grading.CheckJSONSchema},
-	{Kind: "json_equals", Family: grading.CheckJSONValue},
-	{Kind: "json_equals_workspace_json", Family: grading.CheckJSONValue},
-	{Kind: "json_present", Family: grading.CheckJSONSchema},
-	{Kind: "json_string_equals_optional_period", Family: grading.CheckJSONValue},
-	{Kind: "mcp_invocations_equal", Family: grading.CheckToolSequence},
-	{Kind: "mcp_invocations_multiset_equal", Family: grading.CheckToolSequence},
-	{Kind: "mcp_route_one_of", Family: grading.CheckActionSequence},
-	{Kind: "mock_no_unexpected", Family: grading.CheckPolicy},
-	{Kind: "skill_invocations_min", Family: grading.CheckSkillUse},
-	{Kind: "workspace_file_sha256", Family: grading.CheckFileSHA256},
+	{Kind: "atl_all_succeeded", EvidenceFamily: grading.CheckPolicy},
+	{Kind: "atl_failures_equals", EvidenceFamily: grading.CheckPolicy},
+	{Kind: "atl_invocations_max", EvidenceFamily: grading.CheckBudget},
+	{Kind: "atl_invocations_min", EvidenceFamily: grading.CheckBudget},
+	{Kind: "capability_families_equal", EvidenceFamily: grading.CheckToolSequence},
+	{Kind: "capability_sequence_equal", EvidenceFamily: grading.CheckToolSequence},
+	{Kind: "cli_error_contracts_equal", EvidenceFamily: grading.CheckCommandOutput},
+	{Kind: "cli_exit_codes_equal", EvidenceFamily: grading.CheckCommandExit},
+	{Kind: "delegations_min", EvidenceFamily: grading.CheckBudget},
+	{Kind: "delegations_none", EvidenceFamily: grading.CheckPolicy},
+	{Kind: "guard_no_denials", EvidenceFamily: grading.CheckPolicy},
+	{Kind: "http_methods_equal", EvidenceFamily: grading.CheckActionSequence},
+	{Kind: "http_methods_observed", EvidenceFamily: grading.CheckActionSequence},
+	{Kind: "interface_all_succeeded", EvidenceFamily: grading.CheckPolicy},
+	{Kind: "interface_failures_equals", EvidenceFamily: grading.CheckPolicy},
+	{Kind: "interface_invocations_max", EvidenceFamily: grading.CheckBudget},
+	{Kind: "interface_invocations_min", EvidenceFamily: grading.CheckBudget},
+	{Kind: "json_array_min_items", EvidenceFamily: grading.CheckJSONSchema},
+	{Kind: "json_equals", EvidenceFamily: grading.CheckJSONValue},
+	{Kind: "json_equals_workspace_json", EvidenceFamily: grading.CheckJSONValue},
+	{Kind: "json_present", EvidenceFamily: grading.CheckJSONSchema},
+	{Kind: "json_string_equals_optional_period", EvidenceFamily: grading.CheckJSONValue},
+	{Kind: "mcp_invocations_equal", EvidenceFamily: grading.CheckToolSequence},
+	{Kind: "mcp_invocations_multiset_equal", EvidenceFamily: grading.CheckToolSequence},
+	{Kind: "mcp_route_one_of", EvidenceFamily: grading.CheckActionSequence},
+	{Kind: "mock_no_unexpected", EvidenceFamily: grading.CheckPolicy},
+	{Kind: "skill_invocations_min", EvidenceFamily: grading.CheckSkillUse},
+	{Kind: "workspace_file_sha256", EvidenceFamily: grading.CheckFileSHA256},
 }
 
 func LegacyGradingCatalog() []LegacyGradingDescriptor {
@@ -57,5 +58,5 @@ func LegacyGradingFamily(kind string) (grading.CheckKind, bool) {
 	if !found {
 		return "", false
 	}
-	return legacyGradingCatalog[index].Family, true
+	return legacyGradingCatalog[index].EvidenceFamily, true
 }

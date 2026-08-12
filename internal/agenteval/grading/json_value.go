@@ -3,7 +3,6 @@ package grading
 import (
 	"bytes"
 	"encoding/json"
-	"math/big"
 	"strconv"
 	"strings"
 )
@@ -77,12 +76,48 @@ func jsonValueHasType(value any, want JSONType) bool {
 		return ok
 	case JSONTypeInteger:
 		number, ok := value.(json.Number)
-		if !ok {
-			return false
-		}
-		parsed, _, err := big.ParseFloat(number.String(), 10, 256, big.ToNearestEven)
-		return err == nil && parsed.IsInt()
+		return ok && jsonNumberIsInteger(number.String())
 	default:
 		return false
 	}
+}
+
+func jsonNumberIsInteger(value string) bool {
+	unsigned := strings.TrimPrefix(value, "-")
+	exponent := 0
+	if position := strings.IndexAny(unsigned, "eE"); position >= 0 {
+		exponent = boundedDecimalExponent(unsigned[position+1:], len(unsigned)+1)
+		unsigned = unsigned[:position]
+	}
+	fractionDigits := 0
+	if point := strings.IndexByte(unsigned, '.'); point >= 0 {
+		fractionDigits = len(unsigned) - point - 1
+		unsigned = unsigned[:point] + unsigned[point+1:]
+	}
+	scale := fractionDigits - exponent
+	if scale <= 0 {
+		return true
+	}
+	if scale > len(unsigned) {
+		return strings.Trim(unsigned, "0") == ""
+	}
+	return strings.Trim(unsigned[len(unsigned)-scale:], "0") == ""
+}
+
+func boundedDecimalExponent(value string, limit int) int {
+	sign := 1
+	if strings.HasPrefix(value, "+") {
+		value = value[1:]
+	} else if strings.HasPrefix(value, "-") {
+		sign = -1
+		value = value[1:]
+	}
+	result := 0
+	for _, digit := range value {
+		if result > (limit-int(digit-'0'))/10 {
+			return sign * limit
+		}
+		result = result*10 + int(digit-'0')
+	}
+	return sign * result
 }

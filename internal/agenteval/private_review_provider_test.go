@@ -371,6 +371,29 @@ func TestPrivateReviewReceiptRejectsWrappedCost(t *testing.T) {
 	}
 }
 
+func TestLegacyPrivateReviewReceiptRetainsHistoricalTokenReadability(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	execution := PrivateReviewerExecution{ReviewerID: "reviewer-01", Reasoning: "high", TimeoutSeconds: 30,
+		Pricing: Pricing{InputMicroUSDPerMillionTokens: 1, OutputMicroUSDPerMillionTokens: 1}, MaxEstimatedCostMicroUSD: 100}
+	inputTokens := int64(grading.MaxTokens + 1)
+	cost, err := estimateCost(inputTokens, 1, execution.Pricing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := privateReviewReceipt{SchemaVersion: privateReviewLegacySchemaVersion, PlanSHA256: digest, PanelContractSHA256: digest,
+		ReviewerID: "reviewer-01", ReviewerKind: "codex", ReviewerModel: "review-model", ReviewerExecutionSHA256: digest,
+		AgentIdentity: "binary-sha256:" + digest, Status: "succeeded", ModelRequests: 1, InputTokens: inputTokens, OutputTokens: 1,
+		EstimatedCostMicroUSD: cost, CostKnown: true, ReviewSHA256: digest, CompletedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	if _, err := encodePrivateReviewReceipt(receipt, execution); err != nil {
+		t.Fatalf("legacy high-token receipt became unreadable: %v", err)
+	}
+	receipt.SchemaVersion = privateReviewReceiptSchemaVersion
+	receipt.AttemptBindingSHA256 = digest
+	if _, err := encodePrivateReviewReceipt(receipt, execution); err == nil {
+		t.Fatal("current receipt exceeded the generic token bound")
+	}
+}
+
 func TestPrivateClaudeReviewArgsDisableToolsWithoutStructuredOutputTool(t *testing.T) {
 	args := privateClaudeReviewArgs(Reviewer{Kind: "claude-code", Model: "review-model"}, PrivateReviewerExecution{
 		Reasoning: "high", MaxEstimatedCostMicroUSD: 10_000,

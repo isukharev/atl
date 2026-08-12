@@ -20,6 +20,7 @@ const (
 	MaxEvidenceItems      = 4096
 	MaxChecks             = 256
 	MaxIdentifierBytes    = 128
+	MaxReviewerModelBytes = 2048
 	MaxRelativePathBytes  = 1024
 	MaxExpectedJSONBytes  = 256 << 10
 	MaxScriptInstructions = 4096
@@ -470,7 +471,8 @@ type Disagreement struct {
 }
 
 // DeterministicComparison binds a separately validated deterministic receipt
-// used only to surface cross-authority disagreement.
+// used only to surface cross-authority disagreement. Pairs are sorted and may
+// name each judge check at most once.
 type DeterministicComparison struct {
 	Plan    Plan             `json:"plan"`
 	Receipt Receipt          `json:"receipt"`

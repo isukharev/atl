@@ -44,7 +44,8 @@ func AssessReviews(ctx context.Context, admitted AdmittedPlan, evidence *Prepare
 		usage = addUsage(usage, review.Usage)
 		for decisionIndex, decision := range review.Decisions {
 			check := admitted.plan.Checks[decisionIndex]
-			if !citationsBelongToEvidence(evidence, decision.Citations, check.Visibility) ||
+			if len(decision.Citations) > int(admitted.contract.Limits.MaxCitationsPerCheck) ||
+				!citationsBelongToEvidence(evidence, decision.Citations, check.Visibility) ||
 				!qualitativeCitationsAdmitted(check, decision.Citations) {
 				return Receipt{}, evidenceError("review_citation")
 			}
@@ -69,6 +70,9 @@ func AssessReviews(ctx context.Context, admitted AdmittedPlan, evidence *Prepare
 		citations := make([]Citation, 0, len(allCitations[check.ID]))
 		for citation := range allCitations[check.ID] {
 			citations = append(citations, citation)
+		}
+		if len(citations) > int(admitted.contract.Limits.MaxCitationsPerCheck) {
+			return Receipt{}, policyError("review_citations")
 		}
 		sort.Slice(citations, func(i, j int) bool {
 			if citations[i].EvidenceID != citations[j].EvidenceID {
@@ -97,9 +101,8 @@ func AssessReviews(ctx context.Context, admitted AdmittedPlan, evidence *Prepare
 			judgeByID[decision.CheckID] = decision
 		}
 		for index, pair := range deterministic.Pairs {
-			if !validIdentifier(pair.JudgeCheckID) || !validIdentifier(pair.DeterministicCheckID) || index > 0 &&
-				(deterministic.Pairs[index-1].JudgeCheckID > pair.JudgeCheckID || deterministic.Pairs[index-1].JudgeCheckID == pair.JudgeCheckID &&
-					deterministic.Pairs[index-1].DeterministicCheckID >= pair.DeterministicCheckID) {
+			if !validIdentifier(pair.JudgeCheckID) || !validIdentifier(pair.DeterministicCheckID) ||
+				index > 0 && deterministic.Pairs[index-1].JudgeCheckID >= pair.JudgeCheckID {
 				return Receipt{}, contractError("deterministic_comparison_pair")
 			}
 			judgeDecision, judgeOK := judgeByID[pair.JudgeCheckID]
@@ -118,6 +121,7 @@ func AssessReviews(ctx context.Context, admitted AdmittedPlan, evidence *Prepare
 		}
 		return disagreements[i].Kind < disagreements[j].Kind
 	})
+	disagreements = slices.Compact(disagreements)
 	receipt := newReceipt(admitted, evidence, decisions, reviewers, usage, disagreements)
 	if err := validateProducedReceipt(admitted, receipt); err != nil {
 		return Receipt{}, err

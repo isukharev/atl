@@ -247,7 +247,7 @@ func validatePrivatePanelGradingContract(panel privateQualitativeReviewPanelCont
 	return nil
 }
 
-func validatePrivatePlanGradingPanel(panel privateQualitativeReviewPanelContract) error {
+func validatePrivatePlanGradingPanel(schemaVersion int, panel privateQualitativeReviewPanelContract) error {
 	workspacePanel := PrivateQualitativeReviewPanel{Method: panel.Method, Reviewers: panel.Reviewers,
 		MaxCriterionRangeBPS: panel.MaxCriterionRangeBPS, Executions: panel.Executions}
 	if panel.BlindAssignmentSHA256 != "" {
@@ -256,5 +256,8 @@ func validatePrivatePlanGradingPanel(panel privateQualitativeReviewPanelContract
 	if workspacePanel.validate() != nil {
 		return privatePlanError("qualitative_panel")
 	}
-	return validatePrivatePanelGradingContract(panel)
+	if schemaVersion == PrivatePlanSchemaVersion {
+		return validatePrivatePanelGradingContract(panel)
+	}
+	return nil
 }

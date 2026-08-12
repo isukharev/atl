@@ -414,8 +414,12 @@ func encodePrivateReviewReceipt(receipt privateReviewReceipt, execution PrivateR
 		(receipt.ReviewerKind != "codex" && receipt.ReviewerKind != "claude-code") || receipt.ReviewerModel == "" ||
 		!validSHA256(receipt.ReviewerExecutionSHA256) || receipt.ModelRequests < 0 || receipt.ModelRequests > 1 ||
 		receipt.AuxiliaryRequests < 0 || receipt.InputTools < 0 || receipt.ForwardedTools < 0 || receipt.ToolOutputs < 0 ||
-		receipt.InputTokens < 0 || receipt.InputTokens > grading.MaxTokens || receipt.OutputTokens < 0 || receipt.OutputTokens > grading.MaxTokens ||
+		receipt.InputTokens < 0 || receipt.OutputTokens < 0 ||
 		receipt.EstimatedCostMicroUSD < 0 {
+		return nil, privatePlanError("review_receipt")
+	}
+	if receipt.SchemaVersion == privateReviewReceiptSchemaVersion &&
+		(receipt.InputTokens > grading.MaxTokens || receipt.OutputTokens > grading.MaxTokens) {
 		return nil, privatePlanError("review_receipt")
 	}
 	if _, err := time.Parse(time.RFC3339Nano, receipt.CompletedAt); err != nil {

@@ -83,8 +83,15 @@ func AssessOfflineGradingReviews(ctx context.Context, admitted grading.AdmittedP
 	return grading.AssessReviews(ctx, admitted, evidence, reviews, comparison)
 }
 
-func NewReceiptCoreGrader(task core.Task, plan GradingPlan, receipt GradeReceipt) (*grading.CoreGrader, error) {
-	return grading.NewCoreGrader(task, plan, receipt)
+func NewReceiptCoreGrader(identity core.AttemptIdentity, task core.Task, fixture core.Fixture, treatment core.Treatment,
+	plan GradingPlan, receipt GradeReceipt,
+) (*grading.CoreGrader, error) {
+	return grading.NewCoreGrader(identity, task, fixture, treatment, plan, receipt)
+}
+
+func CoreGradingAttemptSHA256(identity core.AttemptIdentity, task core.Task, fixture core.Fixture,
+	treatment core.Treatment) (string, error) {
+	return grading.CoreAttemptInputSHA256(identity, task, fixture, treatment)
 }
 
 func BindGradingPlan(binding lifecycle.Binding, plan GradingPlan) (lifecycle.Binding, error) {

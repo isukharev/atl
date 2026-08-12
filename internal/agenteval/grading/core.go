@@ -2,6 +2,7 @@ package grading
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 
@@ -12,12 +13,19 @@ import (
 // the neutral core grading port. It executes no grader code and reads no raw
 // evidence during Grade.
 type CoreGrader struct {
-	task    core.Task
-	receipt Receipt
+	identity  core.AttemptIdentity
+	task      core.Task
+	fixture   core.Fixture
+	treatment core.Treatment
+	receipt   Receipt
 }
 
-func NewCoreGrader(task core.Task, plan Plan, receipt Receipt) (*CoreGrader, error) {
-	if err := ValidateReceipt(plan, receipt); err != nil || len(task.Checks) != len(plan.Checks) {
+func NewCoreGrader(identity core.AttemptIdentity, task core.Task, fixture core.Fixture, treatment core.Treatment,
+	plan Plan, receipt Receipt,
+) (*CoreGrader, error) {
+	inputSHA, inputErr := CoreAttemptInputSHA256(identity, task, fixture, treatment)
+	if err := ValidateReceipt(plan, receipt); err != nil || inputErr != nil || plan.InputProjectionSHA256 != inputSHA ||
+		len(task.Checks) != len(plan.Checks) {
 		return nil, contractError("core_grader")
 	}
 	ownedTask := task
@@ -30,7 +38,10 @@ func NewCoreGrader(task core.Task, plan Plan, receipt Receipt) (*CoreGrader, err
 			return nil, contractError("core_check_binding")
 		}
 	}
-	return &CoreGrader{task: ownedTask, receipt: cloneReceipt(receipt)}, nil
+	ownedTreatment := treatment
+	ownedTreatment.Skills = slices.Clone(treatment.Skills)
+	return &CoreGrader{identity: identity, task: ownedTask, fixture: fixture, treatment: ownedTreatment,
+		receipt: cloneReceipt(receipt)}, nil
 }
 
 func (g *CoreGrader) Grade(ctx context.Context, input core.AttemptInput, observation core.Observation) (core.Grade, error) {
@@ -41,7 +52,8 @@ func (g *CoreGrader) Grade(ctx context.Context, input core.AttemptInput, observa
 		return core.Grade{}, err
 	}
 	task := input.Task()
-	if task.ID != g.task.ID || !slices.Equal(task.Checks, g.task.Checks) || len(observation.Checks) != len(g.receipt.Decisions) {
+	if input.Identity() != g.identity || !equalCoreTask(task, g.task) || input.Fixture() != g.fixture ||
+		!equalCoreTreatment(input.Treatment(), g.treatment) || len(observation.Checks) != len(g.receipt.Decisions) {
 		return core.Grade{}, newError(ErrorExecution, ErrExecution)
 	}
 	grade := core.Grade{Checks: make([]core.CheckGrade, len(g.receipt.Decisions))}
@@ -54,6 +66,56 @@ func (g *CoreGrader) Grade(ctx context.Context, input core.AttemptInput, observa
 		grade.Checks[index] = core.CheckGrade{ID: observed.ID, Presence: presence, Passed: decision.Passed}
 	}
 	return grade, nil
+}
+
+// CoreAttemptInputSHA256 binds a receipt-backed grader to one exact core
+// attempt, including the fixture omitted from core.AttemptIdentity.
+func CoreAttemptInputSHA256(identity core.AttemptIdentity, task core.Task, fixture core.Fixture, treatment core.Treatment) (string, error) {
+	if identity.Plan == "" || identity.Task != task.ID || identity.Treatment != treatment.ID || identity.Ordinal == 0 || fixture.ID == "" {
+		return "", contractError("core_attempt")
+	}
+	type checkProjection struct {
+		ID     string `json:"id"`
+		Weight uint32 `json:"weight"`
+	}
+	type taskProjection struct {
+		ID                   string              `json:"id"`
+		RequiredCapabilities []core.CapabilityID `json:"required_capabilities"`
+		Checks               []checkProjection   `json:"checks"`
+		Resources            []core.ResourceID   `json:"resources"`
+		Evidence             []core.EvidenceID   `json:"evidence"`
+	}
+	checks := make([]checkProjection, len(task.Checks))
+	for index, check := range task.Checks {
+		checks[index] = checkProjection{ID: string(check.ID), Weight: check.Weight}
+	}
+	skills := make([]string, len(treatment.Skills))
+	for index, skill := range treatment.Skills {
+		skills[index] = string(skill.ID)
+	}
+	projection := struct {
+		Plan      string         `json:"plan"`
+		Task      taskProjection `json:"task"`
+		Fixture   string         `json:"fixture"`
+		Treatment string         `json:"treatment"`
+		Skills    []string       `json:"skills"`
+		Ordinal   uint32         `json:"ordinal"`
+	}{string(identity.Plan), taskProjection{string(task.ID), slices.Clone(task.RequiredCapabilities), checks,
+		slices.Clone(task.Resources), slices.Clone(task.Evidence)}, string(fixture.ID), string(treatment.ID), skills, identity.Ordinal}
+	data, err := json.Marshal(projection)
+	if err != nil {
+		return "", contractError("core_attempt")
+	}
+	return hashDomain("core-attempt-input", data), nil
+}
+
+func equalCoreTask(left, right core.Task) bool {
+	return left.ID == right.ID && slices.Equal(left.RequiredCapabilities, right.RequiredCapabilities) &&
+		slices.Equal(left.Checks, right.Checks) && slices.Equal(left.Resources, right.Resources) && slices.Equal(left.Evidence, right.Evidence)
+}
+
+func equalCoreTreatment(left, right core.Treatment) bool {
+	return left.ID == right.ID && slices.Equal(left.Skills, right.Skills)
 }
 
 func (g *CoreGrader) Receipt() Receipt {

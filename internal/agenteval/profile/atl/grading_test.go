@@ -15,10 +15,10 @@ func TestLegacyATLCheckCatalogIsClosedDeterministicAndImmutable(t *testing.T) {
 	}
 	kinds := grading.CheckKinds()
 	for index, descriptor := range catalog {
-		if index > 0 && catalog[index-1].Kind >= descriptor.Kind || !slices.Contains(kinds, descriptor.Family) {
+		if index > 0 && catalog[index-1].Kind >= descriptor.Kind || !slices.Contains(kinds, descriptor.EvidenceFamily) {
 			t.Fatalf("descriptor[%d]=%+v", index, descriptor)
 		}
-		if family, ok := profileatl.LegacyGradingFamily(descriptor.Kind); !ok || family != descriptor.Family {
+		if family, ok := profileatl.LegacyGradingFamily(descriptor.Kind); !ok || family != descriptor.EvidenceFamily {
 			t.Fatalf("lookup %q=%q,%t", descriptor.Kind, family, ok)
 		}
 	}

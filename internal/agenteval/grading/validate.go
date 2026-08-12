@@ -141,6 +141,9 @@ func Admit(contract Contract, plan Plan) (AdmittedPlan, error) {
 	if err := ValidatePlan(plan); err != nil {
 		return AdmittedPlan{}, err
 	}
+	if !planWithinContractLimits(contract, plan) {
+		return AdmittedPlan{}, policyError("plan_limits")
+	}
 	policy := contract.Modes[slices.Index(closedModes, plan.Mode)]
 	if policy.Support != SupportSupported {
 		return AdmittedPlan{}, newError(ErrorUnsupported, fmt.Errorf("%w: mode %s", ErrUnsupported, plan.Mode))
@@ -165,6 +168,18 @@ func Admit(contract Contract, plan Plan) (AdmittedPlan, error) {
 		return AdmittedPlan{}, err
 	}
 	return AdmittedPlan{contract: cloneContract(contract), plan: clonePlan(plan), planSHA: planSHA}, nil
+}
+
+func planWithinContractLimits(contract Contract, plan Plan) bool {
+	if len(plan.Checks) > int(contract.Limits.MaxChecks) || len(plan.Script) > int(contract.Limits.MaxScriptInstructions) {
+		return false
+	}
+	for _, check := range plan.Checks {
+		if check.Qualitative != nil && len(check.Qualitative.EvidenceIDs) > int(contract.Limits.MaxCitationsPerCheck) {
+			return false
+		}
+	}
+	return true
 }
 
 func ValidatePlan(plan Plan) error {
@@ -395,7 +410,7 @@ func validReviewer(reviewer Reviewer) bool {
 		return reviewer.Model == "" && reviewer.EnvironmentSHA256 == "" && reviewer.MaxInputTokens == 0 && reviewer.MaxOutputTokens == 0 &&
 			reviewer.MaxEstimatedCostMicroUSD == 0
 	case ReviewerModel:
-		return validText(reviewer.Model, MaxIdentifierBytes) && validSHA256(reviewer.EnvironmentSHA256) && reviewer.MaxInputTokens > 0 &&
+		return validText(reviewer.Model, MaxReviewerModelBytes) && validSHA256(reviewer.EnvironmentSHA256) && reviewer.MaxInputTokens > 0 &&
 			reviewer.MaxOutputTokens > 0 && reviewer.MaxEstimatedCostMicroUSD > 0
 	default:
 		return false

@@ -146,7 +146,8 @@ func EvaluateScript(ctx context.Context, admitted AdmittedPlan, backend executio
 			stack = stack[:len(stack)-1]
 			check := checks[instruction.CheckID]
 			decision := Decision{CheckID: check.ID, Presence: PresenceUnknown, Authority: AuthorityScript, Citations: []Citation{}}
-			if value.presence == PresenceObserved && citationsMatchVisibility(evidence, value.citations, check.Visibility) {
+			if value.presence == PresenceObserved && citationsMatchVisibility(evidence, value.citations, check.Visibility,
+				int(admitted.contract.Limits.MaxCitationsPerCheck)) {
 				decision.Presence = PresenceObserved
 				decision.Passed = value.value
 				decision.Citations = value.citations
@@ -229,8 +230,8 @@ func combineScriptValues(left, right scriptValue, and bool) scriptValue {
 	return scriptValue{presence: PresenceObserved, value: value, citations: citations}
 }
 
-func citationsMatchVisibility(evidence *PreparedEvidence, citations []Citation, visibility Visibility) bool {
-	if len(citations) == 0 || len(citations) > MaxCitationsPerCheck {
+func citationsMatchVisibility(evidence *PreparedEvidence, citations []Citation, visibility Visibility, maximum int) bool {
+	if len(citations) == 0 || len(citations) > maximum || len(citations) > MaxCitationsPerCheck {
 		return false
 	}
 	for _, citation := range citations {

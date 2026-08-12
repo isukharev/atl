@@ -3,6 +3,11 @@ package grading
 import "slices"
 
 func validateProducedReceipt(admitted AdmittedPlan, receipt Receipt) error {
+	for _, decision := range receipt.Decisions {
+		if len(decision.Citations) > int(admitted.contract.Limits.MaxCitationsPerCheck) {
+			return policyError("receipt_citations")
+		}
+	}
 	data, err := EncodeReceipt(admitted.plan, receipt)
 	if err != nil {
 		return err

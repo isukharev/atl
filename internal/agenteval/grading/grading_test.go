@@ -65,6 +65,35 @@ func TestGradingContractV1IsClosedCanonicalAndImmutable(t *testing.T) {
 	if err := grading.ValidateContract(drift); err == nil {
 		t.Fatal("built-in capability drift passed")
 	}
+
+	bounded := contract
+	bounded.GraderID = "bounded-grader"
+	bounded.Limits.MaxChecks = 1
+	_, manyChecks := deterministicFixture(t)
+	manyChecks.ContractSHA256, _ = grading.ContractSHA256(bounded)
+	if _, err := grading.Admit(bounded, manyChecks); !errors.Is(err, grading.ErrPolicy) {
+		t.Fatalf("contract max_checks was not enforced: %v", err)
+	}
+	bounded.Limits.MaxChecks = grading.MaxChecks
+	bounded.Limits.MaxScriptInstructions = 1
+	backendSHA, _ := grading.ReferenceBackendSHA256()
+	zero := int64(0)
+	_, script := deterministicOneCheckFixture(t)
+	script.ContractSHA256, _ = grading.ContractSHA256(bounded)
+	script.Mode = grading.ModeScriptDSL
+	script.ExecutionBackendSHA256 = backendSHA
+	script.Script = []grading.ScriptInstruction{{Operation: grading.ScriptCommandExitEquals, EvidenceID: "proof", Integer: &zero},
+		{Operation: grading.ScriptEmit, CheckID: "mechanical"}}
+	if _, err := grading.Admit(bounded, script); !errors.Is(err, grading.ErrPolicy) {
+		t.Fatalf("contract script limit was not enforced: %v", err)
+	}
+	bounded.Limits.MaxScriptInstructions = grading.MaxScriptInstructions
+	bounded.Limits.MaxCitationsPerCheck = 1
+	judge := judgeFixture(t, bounded)
+	judge.Checks[0].Qualitative.EvidenceIDs = []string{"proof", "unused"}
+	if _, err := grading.Admit(bounded, judge); !errors.Is(err, grading.ErrPolicy) {
+		t.Fatalf("contract citation limit was not enforced: %v", err)
+	}
 }
 
 func TestDeterministicGradersCoverMechanicalFamiliesAndFailClosed(t *testing.T) {
@@ -103,6 +132,17 @@ func TestDeterministicGradersCoverMechanicalFamiliesAndFailClosed(t *testing.T) 
 	toolReceipt, err := grading.EvaluateDeterministic(context.Background(), admitted, toolEvidence)
 	if err != nil || decisionByID(t, toolReceipt, "09-tool-sequence").Passed || !decisionByID(t, toolReceipt, "10-action-sequence").Passed {
 		t.Fatalf("sequence authority drift receipt=%+v err=%v", toolReceipt, err)
+	}
+	fractional := mechanicalEvidence()
+	fractional.Files[1].Data = []byte(`{"count":9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999.5}`)
+	fractionalEvidence, err := grading.PrepareEvidence(context.Background(), admitted, fractional)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fractionalEvidence.Destroy()
+	fractionalReceipt, err := grading.EvaluateDeterministic(context.Background(), admitted, fractionalEvidence)
+	if err != nil || decisionByID(t, fractionalReceipt, "05-json-schema").Passed {
+		t.Fatalf("large fractional JSON value passed as integer: receipt=%+v err=%v", fractionalReceipt, err)
 	}
 	planData, err := grading.EncodePlan(plan)
 	if err != nil {
@@ -297,6 +337,28 @@ func TestOfflineJudgeIsBlindEvidenceBoundBoundedAndPreservesDisagreement(t *test
 		len(receipt.Disagreements) != 2 || receipt.Usage.InputTokens.Value != 50 {
 		t.Fatalf("judge receipt=%+v", receipt)
 	}
+	twoPlan := deterministicPlan
+	twoPlan.Checks = append(slices.Clone(deterministicPlan.Checks), grading.Check{ID: "mechanical-two", Kind: grading.CheckFileSHA256,
+		Visibility: grading.VisibilityHidden, FileSHA256: &grading.FileSHA256Rule{EvidenceID: "proof", ExpectedSHA256: fileSHA}})
+	two, err := grading.Admit(contract, twoPlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	twoReceipt, err := grading.EvaluateDeterministic(context.Background(), two, prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := grading.ValidateReceipt(twoPlan, twoReceipt); err != nil {
+		t.Fatalf("two-check receipt invalid: %v: %v", err, errors.Unwrap(err))
+	}
+	if _, err := grading.AssessReviews(context.Background(), judge, prepared, reviews, &grading.DeterministicComparison{
+		Plan: twoPlan, Receipt: twoReceipt, Pairs: []grading.ComparisonPair{
+			{JudgeCheckID: "quality", DeterministicCheckID: "mechanical"},
+			{JudgeCheckID: "quality", DeterministicCheckID: "mechanical-two"},
+		},
+	}); err == nil {
+		t.Fatal("many-to-one deterministic comparison was accepted")
+	}
 	drift := reviews
 	drift[0] = reviewFixture("model-b", false, citation, strings.Repeat("f", 64), 30)
 	if _, err := grading.AssessReviews(context.Background(), judge, prepared, drift, nil); err == nil {
@@ -334,6 +396,15 @@ func TestOfflineJudgeIsBlindEvidenceBoundBoundedAndPreservesDisagreement(t *test
 
 func TestCoreGraderPreservesCoverageAndReceiptAuthority(t *testing.T) {
 	contract, plan := deterministicOneCheckFixture(t)
+	task := core.Task{ID: "task", Checks: []core.Check{{ID: "mechanical", Weight: 1}}}
+	fixture := core.Fixture{ID: "fixture"}
+	treatment := core.Treatment{ID: "treatment"}
+	identity := core.AttemptIdentity{Plan: "plan", Task: task.ID, Treatment: treatment.ID, Ordinal: 1}
+	inputSHA, err := grading.CoreAttemptInputSHA256(identity, task, fixture, treatment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan.InputProjectionSHA256 = inputSHA
 	admitted, err := grading.Admit(contract, plan)
 	if err != nil {
 		t.Fatal(err)
@@ -349,8 +420,7 @@ func TestCoreGraderPreservesCoverageAndReceiptAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evaluate core: %v: %v", err, errors.Unwrap(err))
 	}
-	task := core.Task{ID: "task", Checks: []core.Check{{ID: "mechanical", Weight: 1}}}
-	grader, err := grading.NewCoreGrader(task, plan, receipt)
+	grader, err := grading.NewCoreGrader(identity, task, fixture, treatment, plan, receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +431,7 @@ func TestCoreGraderPreservesCoverageAndReceiptAuthority(t *testing.T) {
 	}
 	engine, _ := core.NewEngine(registry)
 	result, err := engine.Run(context.Background(), core.Plan{ID: "plan", Profile: "grading", Task: task,
-		Fixture: core.Fixture{ID: "fixture"}, Treatment: core.Treatment{ID: "treatment"}, Attempts: 1})
+		Fixture: fixture, Treatment: treatment, Attempts: 1})
 	if err != nil || result.Attempts[0].Outcome != core.OutcomeSucceeded || result.Attempts[0].Score.BasisPoints != 10_000 {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
@@ -369,6 +439,10 @@ func TestCoreGraderPreservesCoverageAndReceiptAuthority(t *testing.T) {
 	copy.Decisions[0].Passed = false
 	if !grader.Receipt().Decisions[0].Passed {
 		t.Fatal("receipt accessor returned mutable storage")
+	}
+	if _, err := engine.Run(context.Background(), core.Plan{ID: "plan", Profile: "grading", Task: task,
+		Fixture: fixture, Treatment: treatment, Attempts: 2}); err == nil {
+		t.Fatal("one-attempt receipt was replayed for another ordinal")
 	}
 }
 
