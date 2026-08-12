@@ -190,6 +190,7 @@ type JSONValueRule struct {
 type JSONType string
 
 const (
+	JSONTypeAny     JSONType = "any"
 	JSONTypeArray   JSONType = "array"
 	JSONTypeBoolean JSONType = "boolean"
 	JSONTypeInteger JSONType = "integer"
@@ -200,9 +201,10 @@ const (
 )
 
 type JSONField struct {
-	Pointer  string   `json:"pointer"`
-	Type     JSONType `json:"type"`
-	Required bool     `json:"required"`
+	Pointer      string   `json:"pointer"`
+	Type         JSONType `json:"type"`
+	Required     bool     `json:"required"`
+	MinimumItems uint32   `json:"minimum_items,omitempty"`
 }
 
 type JSONSchemaRule struct {
@@ -248,9 +250,10 @@ type TreeDiffRule struct {
 }
 
 type SequenceRule struct {
-	EvidenceID           string   `json:"evidence_id"`
-	Expected             []string `json:"expected"`
-	MinimumSimilarityBPS uint32   `json:"minimum_similarity_bps"`
+	EvidenceID           string     `json:"evidence_id"`
+	Expected             []string   `json:"expected"`
+	Alternatives         [][]string `json:"alternatives,omitempty"`
+	MinimumSimilarityBPS uint32     `json:"minimum_similarity_bps"`
 }
 
 type CountRule struct {

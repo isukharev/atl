@@ -61,6 +61,10 @@ func GraderContractSHA256(contract GraderContract) (string, error) {
 
 func GradingPlanSHA256(plan GradingPlan) (string, error) { return grading.PlanSHA256(plan) }
 
+func GradeReceiptSHA256(plan GradingPlan, receipt GradeReceipt) (string, error) {
+	return grading.ReceiptSHA256(plan, receipt)
+}
+
 func AdmitGradingPlan(contract GraderContract, plan GradingPlan) (grading.AdmittedPlan, error) {
 	return grading.Admit(contract, plan)
 }
@@ -84,9 +88,9 @@ func AssessOfflineGradingReviews(ctx context.Context, admitted grading.AdmittedP
 }
 
 func NewReceiptCoreGrader(identity core.AttemptIdentity, task core.Task, fixture core.Fixture, treatment core.Treatment,
-	plan GradingPlan, receipt GradeReceipt,
+	admitted grading.AdmittedPlan, receipt GradeReceipt,
 ) (*grading.CoreGrader, error) {
-	return grading.NewCoreGrader(identity, task, fixture, treatment, plan, receipt)
+	return grading.NewCoreGrader(identity, task, fixture, treatment, admitted, receipt)
 }
 
 func CoreGradingAttemptSHA256(identity core.AttemptIdentity, task core.Task, fixture core.Fixture,

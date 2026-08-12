@@ -329,6 +329,30 @@ exit 2
 		observation.TreeUsage.InputTokens.Value == nil || *observation.TreeUsage.InputTokens.Value != 100 {
 		t.Fatalf("agent observation=%+v err=%v", observation, err)
 	}
+	runDirectory := filepath.Dir(observationPath)
+	gradingPlanData, err := os.ReadFile(filepath.Join(runDirectory, privateGradingPlanName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gradingPlan, err := DecodeGradingPlan(bytes.NewReader(gradingPlanData))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gradingReceiptData, err := os.ReadFile(filepath.Join(runDirectory, privateGradeReceiptName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gradingReceipt, err := DecodeGradeReceipt(bytes.NewReader(gradingReceiptData), gradingPlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gradingPlanSHA256, err := GradingPlanSHA256(gradingPlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GradeReceiptSHA256(gradingPlan, gradingReceipt); err != nil {
+		t.Fatal(err)
+	}
 	ledger, err := OpenAttemptLedgerStore(filepath.Join(outputRoot, "attempt-ledger"))
 	if err != nil {
 		t.Fatal(err)
@@ -337,15 +361,16 @@ exit 2
 	if err != nil {
 		t.Fatal(err)
 	}
-	adapterBound := false
+	adapterBound, gradingBound := false, false
 	for _, inspection := range inspections {
 		if inspection.Plan.BindingSHA256 == mcpReceipt.AttemptBindingSHA256 {
 			adapterBound = inspection.Plan.Binding.Identity.AdapterSHA256 == adapterDigest &&
 				inspection.Projection.Terminal && validSHA256(inspection.Projection.ReceiptSHA256)
+			gradingBound = inspection.Plan.Binding.Identity.GraderSHA256 == gradingPlanSHA256
 		}
 	}
-	if !adapterBound {
-		t.Fatal("synthetic receipt did not transitively bind the adapter contract and terminal observation")
+	if !adapterBound || !gradingBound {
+		t.Fatal("synthetic receipt did not transitively bind the adapter observation and grading artifacts")
 	}
 	aggregate, err := AggregateSyntheticOutputRoot(outputRoot)
 	if err != nil {

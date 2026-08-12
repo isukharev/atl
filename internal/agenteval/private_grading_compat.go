@@ -3,6 +3,8 @@ package agenteval
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,10 +16,14 @@ import (
 )
 
 const (
-	privateGradingPlanName   = "grading-plan.v1.json"
-	privateGradeReceiptName  = "grade-receipt.v1.json"
-	privateGradingEvidenceID = "candidate-output"
+	privateGradingPlanName       = "grading-plan.v1.json"
+	privateGradeReceiptName      = "grade-receipt.v1.json"
+	privatePanelGradingPlanName  = "panel-grading-plan.v1.json"
+	privatePanelGradeReceiptName = "panel-grade-receipt.v1.json"
+	privateGradingEvidenceID     = "candidate-output"
 )
+
+var errPrivateGradingLegacyBounds = errors.New("legacy review usage is outside the generic grading contract")
 
 func privatePanelGradingPlan(contract privateQualitativeReviewPanelContract, rubric Rubric, surface PrivateBaselineSurfaceSource,
 	resultData, finalData []byte,
@@ -35,8 +41,9 @@ func privatePanelGradingPlan(contract privateQualitativeReviewPanelContract, rub
 	}
 	checks := make([]grading.Check, len(rubric.Criteria))
 	for index, criterion := range rubric.Criteria {
-		checks[index] = grading.Check{ID: criterion.ID, Kind: grading.CheckQualitative, Visibility: grading.VisibilityHidden,
-			Qualitative: &grading.QualitativeRule{RubricCriterionID: criterion.ID, EvidenceIDs: []string{privateGradingEvidenceID}}}
+		criterionID := privateGradingCriterionID(criterion.ID)
+		checks[index] = grading.Check{ID: criterionID, Kind: grading.CheckQualitative, Visibility: grading.VisibilityHidden,
+			Qualitative: &grading.QualitativeRule{RubricCriterionID: criterionID, EvidenceIDs: []string{privateGradingEvidenceID}}}
 	}
 	sort.Slice(checks, func(i, j int) bool { return checks[i].ID < checks[j].ID })
 	inputSHA, err := contentMinimizedAttemptDigest("private-panel-grading-input", []string{
@@ -126,7 +133,7 @@ func assessPrivatePanelWithGrading(root string, source PrivateBaselineSource, su
 	}
 	rubricByID := make(map[string]RubricCriterion, len(rubric.Criteria))
 	for _, criterion := range rubric.Criteria {
-		rubricByID[criterion.ID] = criterion
+		rubricByID[privateGradingCriterionID(criterion.ID)] = criterion
 	}
 	legacyByID := make(map[string]Review, len(reviews))
 	for _, review := range reviews {
@@ -140,7 +147,7 @@ func assessPrivatePanelWithGrading(root string, source PrivateBaselineSource, su
 		}
 		scores := make(map[string]int, len(legacy.Criteria))
 		for _, score := range legacy.Criteria {
-			scores[score.ID] = score.Score
+			scores[privateGradingCriterionID(score.ID)] = score.Score
 		}
 		decisions := make([]grading.ReviewDecision, len(plan.Checks))
 		for checkIndex, check := range plan.Checks {
@@ -163,9 +170,13 @@ func assessPrivatePanelWithGrading(root string, source PrivateBaselineSource, su
 	}
 	receipt, err := grading.AssessReviews(context.Background(), admitted, prepared, genericReviews, nil)
 	if err != nil {
-		return grading.Plan{}, grading.Receipt{}, privatePlanError("grading_assessment")
+		return grading.Plan{}, grading.Receipt{}, fmt.Errorf("%w: %v", privatePlanError("grading_assessment"), err)
 	}
 	return plan, receipt, nil
+}
+
+func privateGradingCriterionID(id string) string {
+	return "rubric-check-" + sha256HexBytes([]byte(id))
 }
 
 func privatePanelGradingUsage(root string, source PrivateBaselineSource, surface PrivateBaselineSurfaceSource,
@@ -184,8 +195,13 @@ func privatePanelGradingUsage(root string, source PrivateBaselineSource, surface
 	var receipt privateReviewReceipt
 	if decodePrivateLifecycleJSON(attemptData, &attempt) != nil || decodePrivateLifecycleJSON(receiptData, &receipt) != nil ||
 		receipt.Status != "succeeded" || receipt.ReviewerID != reviewer.ID || receipt.InputTokens < 1 || receipt.OutputTokens < 1 ||
-		receipt.InputTokens > grading.MaxTokens || receipt.OutputTokens > grading.MaxTokens || !receipt.CostKnown ||
-		receipt.EstimatedCostMicroUSD < 1 || uint64(receipt.EstimatedCostMicroUSD) > reviewer.MaxEstimatedCostMicroUSD {
+		!receipt.CostKnown || receipt.EstimatedCostMicroUSD < 1 || uint64(receipt.EstimatedCostMicroUSD) > reviewer.MaxEstimatedCostMicroUSD {
+		return grading.Usage{}, privatePlanError("grading_usage")
+	}
+	if receipt.InputTokens > grading.MaxTokens || receipt.OutputTokens > grading.MaxTokens {
+		if receipt.SchemaVersion == privateReviewLegacySchemaVersion {
+			return grading.Usage{}, errPrivateGradingLegacyBounds
+		}
 		return grading.Usage{}, privatePlanError("grading_usage")
 	}
 	started, startErr := time.Parse(time.RFC3339Nano, attempt.StartedAt)
@@ -214,8 +230,8 @@ func writePrivatePanelGradingArtifacts(root, runDirectory string, plan grading.P
 		name string
 		data []byte
 	}{
-		{name: privateGradingPlanName, data: planData},
-		{name: privateGradeReceiptName, data: receiptData},
+		{name: privatePanelGradingPlanName, data: planData},
+		{name: privatePanelGradeReceiptName, data: receiptData},
 	}
 	for _, artifact := range artifacts {
 		path := filepath.Join(runDirectory, artifact.name)

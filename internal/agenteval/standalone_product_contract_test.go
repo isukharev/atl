@@ -273,7 +273,7 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 		standaloneContractKey("standalone", "execution-backend-contract"):   {current: executionbackend.SchemaVersion, readable: []int{executionbackend.SchemaVersion}, emitted: []int{executionbackend.SchemaVersion}, executable: []int{executionbackend.SchemaVersion}},
 		standaloneContractKey("standalone", "extension-conformance-bundle"): {current: 1, readable: []int{1}, emitted: []int{1}, executable: []int{1}},
 		standaloneContractKey("standalone", "extension-conformance-report"): {current: 1, readable: []int{1}, emitted: []int{1}},
-		standaloneContractKey("standalone", "grade-receipt"):                {current: grading.SchemaVersion, readable: []int{grading.SchemaVersion}, emitted: []int{grading.SchemaVersion}},
+		standaloneContractKey("standalone", "grade-receipt"):                {current: grading.SchemaVersion, readable: []int{grading.SchemaVersion}, emitted: []int{grading.SchemaVersion}, executable: []int{grading.SchemaVersion}},
 		standaloneContractKey("standalone", "grader-contract"):              {current: grading.SchemaVersion, readable: []int{grading.SchemaVersion}, emitted: []int{grading.SchemaVersion}, executable: []int{grading.SchemaVersion}},
 		standaloneContractKey("standalone", "grading-plan"):                 {current: grading.SchemaVersion, readable: []int{grading.SchemaVersion}, emitted: []int{grading.SchemaVersion}, executable: []int{grading.SchemaVersion}},
 		standaloneContractKey("standalone", "migration-preview"):            {current: StandaloneMigrationArtifactVersion, readable: []int{StandaloneMigrationArtifactVersion}, emitted: []int{StandaloneMigrationArtifactVersion}},

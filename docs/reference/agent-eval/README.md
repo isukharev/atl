@@ -460,11 +460,13 @@ adapter contract, normalized observation, execution-backend contract, trial
 plan, trial receipt, grader contract, grading plan, and grade receipt at
 generation 1. Project config, registry, attempt
 records, manifest, message, bundle, adapter contract, execution-backend
-contract, and trial-plan generations are readable, emitted, and executable;
+contract, trial-plan, and grade-receipt generations are readable, emitted, and executable;
 migration artifacts, extension reports, normalized agent observations, and
-trial receipts are readable and emitted but never executable. Grader contracts
-and grading plans are readable, emitted, and executable; grade receipts are
-readable and emitted but never executable. Project config is
+trial receipts are readable and emitted but never executable. Grader contracts,
+grading plans, and grade receipts are readable, emitted, and executable. A
+grade receipt may enter grading only with its exact admitted plan and attempt
+identity; it cannot launch a process, select a provider, or acquire authority
+by itself. Project config is
 `public_or_private` and capped at 64 KiB. Manifests are public and capped at
 64 KiB. Attempt headers are capped at 16 KiB and attempt plans and events at
 64 KiB per record; all three are `preserve`, `content_minimized`, and use
@@ -732,6 +734,15 @@ count. Missing, inaccessible, wrong-visibility, or destroyed evidence is
 only a content-minimized citation catalog. Receipts preserve each declared
 dimension independently—there is no universal weighted score—and record both
 reviewer disagreement and deterministic-versus-judge disagreement.
+
+Current ATL run checks use this boundary rather than a second scoring switch.
+Before each attempt, the compatibility facade translates the closed ATL check
+set into one content-addressed deterministic grading plan bound to the attempt
+identity. After execution it projects the final response, audited counters and
+sequences, and declared workspace artifacts into immutable evidence; the
+neutral grader alone decides every check. The owner-private run directory keeps
+the canonical plan and receipt, and the terminal lifecycle receipt binds the
+grade-receipt digest. Historical result JSON remains unchanged.
 
 The internal semantic process diagnostic is:
 

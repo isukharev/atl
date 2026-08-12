@@ -2,7 +2,7 @@ package agenteval
 
 import (
 	"bytes"
-	"crypto/sha256"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1153,112 +1153,23 @@ func evaluateRunChecksWithCLIErrorContracts(
 	mcpInvocationsObserved bool,
 	cliErrorContracts []CLIErrorContract,
 ) (map[string]bool, error) {
-	var document any
-	if err := json.Unmarshal(final, &document); err != nil {
-		return nil, fmt.Errorf("decode structured final response: %w", err)
+	plan, err := newATLGradingPlan(checks, workspace, "")
+	if err != nil {
+		return nil, err
 	}
-	results := make(map[string]bool, len(checks))
-	for _, check := range checks {
-		switch check.Kind {
-		case "atl_invocations_min", "interface_invocations_min":
-			results[check.Name] = atlInvocations >= check.Minimum
-		case "skill_invocations_min":
-			target, _ := skillInvocationTarget(check.Expected)
-			observed := skillInvocations
-			if target != "" {
-				observed = skillInvocationsByName[target]
-			}
-			results[check.Name] = observed >= check.Minimum
-		case "atl_invocations_max", "interface_invocations_max":
-			results[check.Name] = atlInvocations <= check.Maximum
-		case "atl_all_succeeded", "interface_all_succeeded":
-			results[check.Name] = failedATL == 0
-		case "atl_failures_equals", "interface_failures_equals":
-			expected, _ := expectedATLFailureCount(check.Expected)
-			results[check.Name] = failedATL == expected
-		case "cli_exit_codes_equal":
-			expected, _ := expectedCLIExitCodes(check.Expected)
-			results[check.Name] = slices.Equal(cliExitCodes, expected)
-		case "cli_error_contracts_equal":
-			expected, _ := expectedCLIErrorContracts(check.Expected)
-			results[check.Name] = slices.Equal(cliErrorContracts, expected)
-		case "mock_no_unexpected":
-			results[check.Name] = unexpectedRequests == 0
-		case "delegations_min":
-			results[check.Name] = delegations >= check.Minimum
-		case "guard_no_denials":
-			results[check.Name] = guardDenials == 0
-		case "delegations_none":
-			results[check.Name] = delegations == 0
-		case "http_methods_observed":
-			results[check.Name] = httpMethodsObserved
-		case "http_methods_equal":
-			expected, _ := expectedHTTPMethods(check.Expected)
-			results[check.Name] = httpMethodsObserved && equalHTTPMethods(httpMethods, expected)
-		case "capability_families_equal":
-			expected, _ := expectedCapabilityFamilies(check.Expected)
-			results[check.Name] = capabilityFamiliesObserved && equalCapabilityFamilyExpectations(expected, capabilityFamilies)
-		case "capability_sequence_equal":
-			expected, _ := expectedCapabilitySequence(check.Expected)
-			results[check.Name] = capabilityFamiliesObserved && slices.Equal(expected, capabilitySequence)
-		case "mcp_invocations_equal":
-			expected, _ := expectedMCPInvocations(check.Expected)
-			results[check.Name] = mcpInvocationsObserved && equalMCPInvocations(expected, mcpInvocations)
-		case "mcp_invocations_multiset_equal":
-			expected, _ := expectedMCPInvocations(check.Expected)
-			results[check.Name] = mcpInvocationsObserved && equalMCPInvocationMultisets(expected, mcpInvocations)
-		case "mcp_route_one_of":
-			alternatives, _ := expectedMCPRouteAlternatives(check.Expected)
-			results[check.Name] = httpMethodsObserved &&
-				mcpInvocationsObserved &&
-				mcpRouteMatches(alternatives, httpMethods, mcpInvocations)
-		case "json_present":
-			_, ok := resolveJSONPointer(document, check.Pointer)
-			results[check.Name] = ok
-		case "json_array_min_items":
-			actual, ok := resolveJSONPointer(document, check.Pointer)
-			values, arrayOK := actual.([]any)
-			results[check.Name] = ok && arrayOK && len(values) >= check.Minimum
-		case "json_equals":
-			actual, ok := resolveJSONPointer(document, check.Pointer)
-			if !ok {
-				results[check.Name] = false
-				continue
-			}
-			var expected any
-			if err := json.Unmarshal(check.Expected, &expected); err != nil {
-				return nil, err
-			}
-			actualJSON, _ := json.Marshal(actual)
-			expectedJSON, _ := json.Marshal(expected)
-			results[check.Name] = bytes.Equal(actualJSON, expectedJSON)
-		case "json_string_equals_optional_period":
-			actual, ok := resolveJSONPointer(document, check.Pointer)
-			actualString, stringOK := actual.(string)
-			expected, _ := expectedOptionalPeriodString(check.Expected)
-			results[check.Name] = ok && stringOK &&
-				(actualString == expected || actualString == expected+".")
-		case "json_equals_workspace_json":
-			actual, ok := resolveJSONPointer(document, check.Pointer)
-			if !ok {
-				results[check.Name] = false
-				continue
-			}
-			expectation, _ := workspaceJSONExpectationFrom(check.Expected)
-			expected, ok := readWorkspaceJSONPointer(workspace, expectation)
-			if !ok {
-				results[check.Name] = false
-				continue
-			}
-			actualJSON, _ := json.Marshal(actual)
-			expectedJSON, _ := json.Marshal(expected)
-			results[check.Name] = bytes.Equal(actualJSON, expectedJSON)
-		case "workspace_file_sha256":
-			expectation, _ := workspaceFileSHA256ExpectationFrom(check.Expected)
-			results[check.Name] = workspaceFileMatchesSHA256(workspace, expectation)
-		}
+	evaluation, err := evaluateATLChecksWithPlan(context.Background(), plan, checks, atlGradingObservation{
+		final: final, workspace: workspace, atlInvocations: atlInvocations, failedATL: failedATL,
+		unexpectedRequests: unexpectedRequests, skillInvocations: skillInvocations,
+		skillInvocationsByName: skillInvocationsByName, delegations: delegations, guardDenials: guardDenials,
+		httpMethods: httpMethods, httpMethodsObserved: httpMethodsObserved, cliExitCodes: cliExitCodes,
+		capabilityFamilies: capabilityFamilies, capabilityFamiliesObserved: capabilityFamiliesObserved,
+		capabilitySequence: capabilitySequence, mcpInvocations: mcpInvocations,
+		mcpInvocationsObserved: mcpInvocationsObserved, cliErrorContracts: cliErrorContracts,
+	})
+	if err != nil {
+		return nil, err
 	}
-	return results, nil
+	return evaluation.checks, nil
 }
 
 func expectedOptionalPeriodString(raw json.RawMessage) (string, bool) {
@@ -1302,23 +1213,6 @@ func expectedCapabilityFamilies(raw json.RawMessage) ([]capabilityFamilyExpectat
 		}
 	}
 	return expected, true
-}
-
-func equalCapabilityFamilyExpectations(expected []capabilityFamilyExpectation, observed []CapabilityFamilyMetric) bool {
-	normalized, err := normalizeCapabilityFamilies(observed)
-	if err != nil || len(expected) != len(normalized) {
-		return false
-	}
-	for index, want := range expected {
-		got := normalized[index]
-		if want.Family != got.Family ||
-			want.Invocations != got.Invocations ||
-			want.Successes != got.Successes ||
-			want.Failures != got.Failures {
-			return false
-		}
-	}
-	return true
 }
 
 func expectedCapabilitySequence(raw json.RawMessage) ([]string, bool) {
@@ -1368,20 +1262,6 @@ func workspaceFileSHA256ExpectationFrom(raw json.RawMessage) (workspaceFileSHA25
 		return workspaceFileSHA256Expectation{}, false
 	}
 	return value, true
-}
-
-func workspaceFileMatchesSHA256(workspace string, expectation workspaceFileSHA256Expectation) bool {
-	target := filepath.Join(workspace, filepath.FromSlash(expectation.Path))
-	info, err := hardenedStatWithin(workspace, target)
-	if err != nil || !info.Mode().IsRegular() || info.Size() > maxWorkspaceArtifactBytes {
-		return false
-	}
-	data, err := hardenedReadFileWithinLimit(workspace, target, maxWorkspaceArtifactBytes)
-	if err != nil {
-		return false
-	}
-	digest := sha256.Sum256(data)
-	return fmt.Sprintf("%x", digest) == expectation.SHA256
 }
 
 func workspaceJSONExpectationFrom(raw json.RawMessage) (workspaceJSONExpectation, bool) {

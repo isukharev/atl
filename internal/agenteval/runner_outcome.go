@@ -1,6 +1,7 @@
 package agenteval
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -23,6 +24,8 @@ type headlessOutcomeInput struct {
 	agentAdapterContract    *AgentAdapterContract
 	agentAdapterAttemptID   string
 	agentObservationSHA256  *string
+	gradingPlan             GradingPlan
+	gradingReceiptSHA256    *string
 }
 
 func finalizeHeadlessOutcome(input headlessOutcomeInput) (Result, error) {
@@ -118,14 +121,39 @@ func finalizeHeadlessOutcome(input headlessOutcomeInput) (Result, error) {
 	if !familyCoverage {
 		capabilityFamilies = nil
 	}
-	checks, err := evaluateRunChecksWithCLIErrorContracts(
-		input.contract.spec.Checks, trajectory.final, input.workspace, trajectory.atlInvocations, trajectory.failedATL, trajectory.unexpected,
-		providerMetrics.SkillToolCalls+trajectory.guardSummary.SkillReadAdmissions,
-		providerMetrics.SkillToolCallsByName, providerMetrics.Delegations, trajectory.guardDenials,
-		trajectory.methods, trajectory.httpMethodsObserved, trajectory.cliExitCodes, capabilityFamilies, familyCoverage,
-		capabilitySequence, providerMetrics.MCPInvocations,
-		familyCoverage && providerMetrics.MCPInvocationCoverage, trajectory.cliErrorContracts,
-	)
+	gradingEvaluation, err := evaluateATLChecksWithPlan(context.Background(), input.gradingPlan, input.contract.spec.Checks,
+		atlGradingObservation{final: trajectory.final, workspace: input.workspace, atlInvocations: trajectory.atlInvocations,
+			failedATL: trajectory.failedATL, unexpectedRequests: trajectory.unexpected,
+			skillInvocations:       providerMetrics.SkillToolCalls + trajectory.guardSummary.SkillReadAdmissions,
+			skillInvocationsByName: providerMetrics.SkillToolCallsByName, delegations: providerMetrics.Delegations,
+			guardDenials: trajectory.guardDenials, httpMethods: trajectory.methods,
+			httpMethodsObserved: trajectory.httpMethodsObserved, cliExitCodes: trajectory.cliExitCodes,
+			capabilityFamilies: capabilityFamilies, capabilityFamiliesObserved: familyCoverage,
+			capabilitySequence: capabilitySequence, mcpInvocations: providerMetrics.MCPInvocations,
+			mcpInvocationsObserved: familyCoverage && providerMetrics.MCPInvocationCoverage,
+			cliErrorContracts:      trajectory.cliErrorContracts})
+	if err != nil {
+		return Result{}, err
+	}
+	checks := gradingEvaluation.checks
+	planData, err := EncodeGradingPlan(gradingEvaluation.plan)
+	if err != nil {
+		return Result{}, err
+	}
+	receiptData, err := EncodeGradeReceipt(gradingEvaluation.plan, gradingEvaluation.receipt)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := writePrivateFile(filepath.Join(input.runDir, privateGradingPlanName), planData); err != nil {
+		return Result{}, err
+	}
+	if err := writePrivateFile(filepath.Join(input.runDir, privateGradeReceiptName), receiptData); err != nil {
+		return Result{}, err
+	}
+	if input.gradingReceiptSHA256 == nil {
+		return Result{}, fmt.Errorf("grading receipt digest destination is missing")
+	}
+	*input.gradingReceiptSHA256, err = GradeReceiptSHA256(gradingEvaluation.plan, gradingEvaluation.receipt)
 	if err != nil {
 		return Result{}, err
 	}

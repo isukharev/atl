@@ -73,6 +73,9 @@ func evaluateMechanicalCheck(check Check, evidence *PreparedEvidence, authority 
 				selected, found := resolveJSONPointer(value, field.Pointer)
 				if field.Required && !found || found && !jsonValueHasType(selected, field.Type) {
 					passed = false
+				} else if found && field.MinimumItems != 0 {
+					items, array := selected.([]any)
+					passed = passed && array && len(items) >= int(field.MinimumItems)
 				}
 			}
 			return observed(check.JSONSchema.EvidenceID, passed)
@@ -100,16 +103,12 @@ func evaluateMechanicalCheck(check Check, evidence *PreparedEvidence, authority 
 	case CheckToolSequence:
 		ref, ok := evidence.reference(check.ToolSequence.EvidenceID, check.Visibility, EvidenceSequence)
 		if ok {
-			return observed(check.ToolSequence.EvidenceID,
-				sequenceSimilarityBPS(evidence.set.Sequences[ref.index].Values, check.ToolSequence.Expected) >=
-					check.ToolSequence.MinimumSimilarityBPS)
+			return observed(check.ToolSequence.EvidenceID, sequenceRuleMatches(evidence.set.Sequences[ref.index].Values, check.ToolSequence))
 		}
 	case CheckActionSequence:
 		ref, ok := evidence.reference(check.ActionSequence.EvidenceID, check.Visibility, EvidenceSequence)
 		if ok {
-			return observed(check.ActionSequence.EvidenceID,
-				sequenceSimilarityBPS(evidence.set.Sequences[ref.index].Values, check.ActionSequence.Expected) >=
-					check.ActionSequence.MinimumSimilarityBPS)
+			return observed(check.ActionSequence.EvidenceID, sequenceRuleMatches(evidence.set.Sequences[ref.index].Values, check.ActionSequence))
 		}
 	case CheckSkillActivation:
 		ref, ok := evidence.reference(check.SkillActivation.EvidenceID, check.Visibility, EvidenceCounter)
@@ -136,6 +135,13 @@ func evaluateMechanicalCheck(check Check, evidence *PreparedEvidence, authority 
 		}
 	}
 	return decision
+}
+
+func sequenceRuleMatches(observed []string, rule *SequenceRule) bool {
+	if rule.Alternatives != nil {
+		return slices.ContainsFunc(rule.Alternatives, func(expected []string) bool { return slices.Equal(observed, expected) })
+	}
+	return sequenceSimilarityBPS(observed, rule.Expected) >= rule.MinimumSimilarityBPS
 }
 
 // sequenceSimilarityBPS is the symmetric LCS similarity

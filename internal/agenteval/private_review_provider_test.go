@@ -558,7 +558,7 @@ func TestAutomatedPrivateReviewIsReceiptedTerminalAndAssessable(t *testing.T) {
 			break
 		}
 	}
-	planData, err := os.ReadFile(filepath.Join(runDirectory, privateGradingPlanName))
+	planData, err := os.ReadFile(filepath.Join(runDirectory, privatePanelGradingPlanName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -566,7 +566,7 @@ func TestAutomatedPrivateReviewIsReceiptedTerminalAndAssessable(t *testing.T) {
 	if err != nil || gradingPlan.Mode != grading.ModeJudgeAssessment || gradingPlan.Judge == nil || len(gradingPlan.Judge.Reviewers) != 3 {
 		t.Fatalf("grading plan=%+v err=%v", gradingPlan, err)
 	}
-	receiptData, err := os.ReadFile(filepath.Join(runDirectory, privateGradeReceiptName))
+	receiptData, err := os.ReadFile(filepath.Join(runDirectory, privatePanelGradeReceiptName))
 	if err != nil {
 		t.Fatal(err)
 	}

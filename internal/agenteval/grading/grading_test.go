@@ -351,13 +351,14 @@ func TestOfflineJudgeIsBlindEvidenceBoundBoundedAndPreservesDisagreement(t *test
 	if err := grading.ValidateReceipt(twoPlan, twoReceipt); err != nil {
 		t.Fatalf("two-check receipt invalid: %v: %v", err, errors.Unwrap(err))
 	}
-	if _, err := grading.AssessReviews(context.Background(), judge, prepared, reviews, &grading.DeterministicComparison{
+	manyReceipt, err := grading.AssessReviews(context.Background(), judge, prepared, reviews, &grading.DeterministicComparison{
 		Plan: twoPlan, Receipt: twoReceipt, Pairs: []grading.ComparisonPair{
 			{JudgeCheckID: "quality", DeterministicCheckID: "mechanical"},
 			{JudgeCheckID: "quality", DeterministicCheckID: "mechanical-two"},
 		},
-	}); err == nil {
-		t.Fatal("many-to-one deterministic comparison was accepted")
+	})
+	if err != nil || len(manyReceipt.Disagreements) != 2 {
+		t.Fatalf("many-to-one comparison did not retain one disagreement per kind: receipt=%+v err=%v", manyReceipt, err)
 	}
 	drift := reviews
 	drift[0] = reviewFixture("model-b", false, citation, strings.Repeat("f", 64), 30)
@@ -420,7 +421,15 @@ func TestCoreGraderPreservesCoverageAndReceiptAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evaluate core: %v: %v", err, errors.Unwrap(err))
 	}
-	grader, err := grading.NewCoreGrader(identity, task, fixture, treatment, plan, receipt)
+	receiptData, err := grading.EncodeReceipt(plan, receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err = grading.DecodeReceipt(bytes.NewReader(receiptData), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grader, err := grading.NewCoreGrader(identity, task, fixture, treatment, admitted, receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -443,6 +452,9 @@ func TestCoreGraderPreservesCoverageAndReceiptAuthority(t *testing.T) {
 	if _, err := engine.Run(context.Background(), core.Plan{ID: "plan", Profile: "grading", Task: task,
 		Fixture: fixture, Treatment: treatment, Attempts: 2}); err == nil {
 		t.Fatal("one-attempt receipt was replayed for another ordinal")
+	}
+	if _, err := grading.NewCoreGrader(identity, task, fixture, treatment, grading.AdmittedPlan{}, receipt); err == nil {
+		t.Fatal("receipt-backed core grader accepted a plan that bypassed contract admission")
 	}
 }
 

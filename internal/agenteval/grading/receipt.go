@@ -3,6 +3,9 @@ package grading
 import "slices"
 
 func validateProducedReceipt(admitted AdmittedPlan, receipt Receipt) error {
+	if len(receipt.Evidence) > int(admitted.contract.Limits.MaxEvidenceItems) {
+		return policyError("receipt_evidence")
+	}
 	for _, decision := range receipt.Decisions {
 		if len(decision.Citations) > int(admitted.contract.Limits.MaxCitationsPerCheck) {
 			return policyError("receipt_citations")

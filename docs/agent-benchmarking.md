@@ -360,6 +360,13 @@ estimated cost, duration, and disagreement. Missing evidence is unknown and
 cannot pass, and each rubric criterion admits only its preregistered evidence
 IDs. Canonical grader/plan/receipt artifacts keep raw evidence and
 prompts out of the durable receipt.
+The retained ATL compatibility path now preregisters every current `RunCheck`
+as one of those neutral mechanical checks before the attempt. Product-specific
+telemetry is projected into immutable evidence only after execution, while the
+generic deterministic grader owns the pass decisions. Each run stores the
+canonical grading plan and content-minimized receipt in its owner-private
+directory and binds the receipt digest into the terminal attempt lifecycle;
+the historical result wire stays byte-compatible.
 Its CLI boundary has one shared admission, accounting, executable-attestation,
 deadline, and output-bound path: strict JSON callers add one-value and
 duplicate-key rejection after execution, while byte callers preserve stdout
@@ -678,13 +685,15 @@ migrated. See [Private agent-benchmark workspace](agent-benchmark-private-worksp
 for the panel manifest and operator flow.
 
 Executable private panels additionally emit owner-private canonical
-`grading-plan.v1.json` and `grade-receipt.v1.json` beside the existing review
-artifacts. The generic plan binds the same rubric, blind assignment, panel,
-execution receipt, result/final projection, reviewer models, and cost ceilings;
-the receipt binds each completed reviewer attempt's measured tokens, estimated
-cost, duration, evidence citation, and disagreement. Existing manual and
-historical review generations retain their original bytes and semantics rather
-than receiving synthetic receipts.
+`panel-grading-plan.v1.json` and `panel-grade-receipt.v1.json` beside the
+existing review artifacts. The distinct names prevent panel assessment from
+colliding with the mechanical grading artifacts for the same run. The generic
+plan binds the same rubric, blind assignment, panel, execution receipt,
+result/final projection, reviewer models, and cost ceilings; the receipt binds
+each completed reviewer attempt's measured tokens, estimated cost, duration,
+evidence citation, and disagreement. Existing manual and historical review
+generations retain their original bytes and semantics rather than receiving
+synthetic receipts.
 
 Current assessments emit result schema v8, review schema v2, and aggregate
 schema v7. Current decoders retain read compatibility with promptless evidence

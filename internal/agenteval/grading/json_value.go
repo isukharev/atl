@@ -57,6 +57,8 @@ func jsonValueEqual(value any, expected json.RawMessage) bool {
 
 func jsonValueHasType(value any, want JSONType) bool {
 	switch want {
+	case JSONTypeAny:
+		return true
 	case JSONTypeNull:
 		return value == nil
 	case JSONTypeBoolean:

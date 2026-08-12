@@ -9,9 +9,9 @@
   },
   "readability_source": {
     "path": "testdata/standalone-readability-golden.v1.json",
-    "sha256": "a17c8f8d325fb695d3dfcd45385fdf9005b27a97edde4615aa373d2f8e9fb592",
+    "sha256": "7a838ac16e73aaf9a9513ea76eab1722adc49c7ca6f7fb5941f6ca190a646443",
     "entry_count": 58,
-    "semantic_projection_sha256": "def14d5c9f94f92a03389186e70c4d39e95cd8dd88bc67b42b27821de375394c"
+    "semantic_projection_sha256": "3c1fd45b02ef809f64fbd90123c041d5e6c36cfcddcb6970ac8bb3719535ba63"
   },
   "files": [
     {

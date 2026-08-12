@@ -3,6 +3,7 @@ package agenteval
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -42,6 +43,9 @@ func TestFinalizeHeadlessOutcomeSeparatesLegacyAndGenericInvocationMetrics(t *te
 			if err := os.Chmod(runDir, 0o700); err != nil {
 				t.Fatal(err)
 			}
+			workspace := t.TempDir()
+			gradingPlan := outcomeTestGradingPlan(t, contract, workspace)
+			gradingReceiptSHA256 := ""
 			result, err := finalizeHeadlessOutcome(headlessOutcomeInput{
 				contract: contract,
 				trajectory: headlessTrajectory{
@@ -49,8 +53,9 @@ func TestFinalizeHeadlessOutcomeSeparatesLegacyAndGenericInvocationMetrics(t *te
 					final:           []byte(`{"answer":"ok"}`), methods: map[string]int{}, httpMethodsObserved: true,
 					atlInvocations: 2,
 				},
-				workspace: t.TempDir(), runDir: runDir, durationMillis: 1,
-				runtime: Runtime{Provider: "codex", ATLVersion: "test"},
+				workspace: workspace, runDir: runDir, durationMillis: 1,
+				runtime:     Runtime{Provider: "codex", ATLVersion: "test"},
+				gradingPlan: gradingPlan, gradingReceiptSHA256: &gradingReceiptSHA256,
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -59,7 +64,27 @@ func TestFinalizeHeadlessOutcomeSeparatesLegacyAndGenericInvocationMetrics(t *te
 				result.Metrics.InterfaceInvocations != 2 || result.Coverage["atl_invocations"] != test.wantATLCoverage {
 				t.Fatalf("result=%+v", result)
 			}
+			assertOutcomeGradingArtifacts(t, runDir, gradingReceiptSHA256)
 		})
+	}
+}
+
+func TestBindHeadlessOutcomeReceiptsPreservesFailureOrdering(t *testing.T) {
+	process, observation, grade := strings.Repeat("1", 64), strings.Repeat("2", 64), strings.Repeat("3", 64)
+	wantObservation, err := bindAgentObservationReceipt(process, observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantComplete, err := bindGradingReceipt(wantObservation, grade)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := bindHeadlessOutcomeReceipts(process, observation, grade, nil); err != nil || got != wantComplete {
+		t.Fatalf("completed binding=%q err=%v", got, err)
+	}
+	outcomeErr := os.ErrInvalid
+	if got, err := bindHeadlessOutcomeReceipts(process, observation, "", outcomeErr); !errors.Is(err, outcomeErr) || got != wantObservation {
+		t.Fatalf("failed binding=%q err=%v", got, err)
 	}
 }
 
@@ -75,14 +100,18 @@ func TestFinalizeHeadlessOutcomeDoesNotImputeMissingCostFromZeroPricing(t *testi
 	if err := os.Chmod(runDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	workspace := t.TempDir()
+	gradingPlan := outcomeTestGradingPlan(t, contract, workspace)
+	gradingReceiptSHA256 := ""
 	result, err := finalizeHeadlessOutcome(headlessOutcomeInput{
 		contract: contract,
 		trajectory: headlessTrajectory{providerMetrics: ProviderMetrics{
 			InputTokens: 10, OutputTokens: 5,
 			Coverage: map[string]bool{"input_tokens": true, "output_tokens": true}, CapabilityFamilyCoverage: true,
 		}, final: []byte(`{"answer":"ok"}`), methods: map[string]int{}, httpMethodsObserved: true},
-		workspace: t.TempDir(), runDir: runDir, durationMillis: 1,
-		runtime: Runtime{Provider: "claude-code", ATLVersion: "test"},
+		workspace: workspace, runDir: runDir, durationMillis: 1,
+		runtime:     Runtime{Provider: "claude-code", ATLVersion: "test"},
+		gradingPlan: gradingPlan, gradingReceiptSHA256: &gradingReceiptSHA256,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -115,6 +144,9 @@ func TestFinalizeHeadlessOutcomeSortsAllViolationsAndBindsReceiptToExactResultBy
 		t.Fatal(err)
 	}
 	var receipt SyntheticRunReceipt
+	workspace := t.TempDir()
+	gradingPlan := outcomeTestGradingPlan(t, contract, workspace)
+	gradingReceiptSHA256 := ""
 	result, err := finalizeHeadlessOutcome(headlessOutcomeInput{
 		contract: contract,
 		trajectory: headlessTrajectory{
@@ -126,11 +158,12 @@ func TestFinalizeHeadlessOutcomeSortsAllViolationsAndBindsReceiptToExactResultBy
 			final: []byte(`{"answer":"ok"}`), methods: map[string]int{}, httpMethodsObserved: true,
 			atlInvocations: 2,
 		},
-		workspace: t.TempDir(), runDir: runDir, durationMillis: 7,
+		workspace: workspace, runDir: runDir, durationMillis: 7,
 		runtime: Runtime{Provider: "codex", ATLVersion: "test"}, repetition: 1,
 		taskContractSHA256: strings.Repeat("d", 64), executionContractSHA256: strings.Repeat("e", 64),
 		attemptBindingSHA256: strings.Repeat("f", 64),
 		attestation:          attestation, receipt: &receipt,
+		gradingPlan: gradingPlan, gradingReceiptSHA256: &gradingReceiptSHA256,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -161,6 +194,39 @@ func TestFinalizeHeadlessOutcomeSortsAllViolationsAndBindsReceiptToExactResultBy
 	}
 	if _, err := os.Stat(filepath.Join(runDir, syntheticRunReceiptFileName)); !os.IsNotExist(err) {
 		t.Fatalf("finalizer persisted receipt before outer revalidation: %v", err)
+	}
+}
+
+func outcomeTestGradingPlan(t *testing.T, contract resolvedRunContract, workspace string) GradingPlan {
+	t.Helper()
+	plan, err := newATLGradingPlan(contract.spec.Checks, workspace, strings.Repeat("9", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return plan
+}
+
+func assertOutcomeGradingArtifacts(t *testing.T, runDir, wantReceiptSHA256 string) {
+	t.Helper()
+	planData, err := os.ReadFile(filepath.Join(runDir, privateGradingPlanName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := DecodeGradingPlan(bytes.NewReader(planData))
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiptData, err := os.ReadFile(filepath.Join(runDir, privateGradeReceiptName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := DecodeGradeReceipt(bytes.NewReader(receiptData), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := GradeReceiptSHA256(plan, receipt)
+	if err != nil || got != wantReceiptSHA256 {
+		t.Fatalf("grading receipt digest=%q want=%q err=%v", got, wantReceiptSHA256, err)
 	}
 }
 

@@ -89,7 +89,7 @@ func AssessReviews(ctx context.Context, admitted AdmittedPlan, evidence *Prepare
 	if deterministic != nil {
 		if err := ValidateReceipt(deterministic.Plan, deterministic.Receipt); err != nil || deterministic.Receipt.EvidenceSHA256 != evidence.digest ||
 			deterministic.Receipt.InputProjectionSHA256 != admitted.plan.InputProjectionSHA256 || deterministic.Plan.Mode != ModeDeterministic ||
-			deterministic.Pairs == nil || len(deterministic.Pairs) == 0 || len(deterministic.Pairs) > len(admitted.plan.Checks) {
+			deterministic.Pairs == nil || len(deterministic.Pairs) == 0 || len(deterministic.Pairs) > len(deterministic.Plan.Checks) {
 			return Receipt{}, contractError("deterministic_comparison")
 		}
 		byID := make(map[string]Decision, len(deterministic.Receipt.Decisions))
@@ -102,7 +102,9 @@ func AssessReviews(ctx context.Context, admitted AdmittedPlan, evidence *Prepare
 		}
 		for index, pair := range deterministic.Pairs {
 			if !validIdentifier(pair.JudgeCheckID) || !validIdentifier(pair.DeterministicCheckID) ||
-				index > 0 && deterministic.Pairs[index-1].JudgeCheckID >= pair.JudgeCheckID {
+				index > 0 && (deterministic.Pairs[index-1].JudgeCheckID > pair.JudgeCheckID ||
+					deterministic.Pairs[index-1].JudgeCheckID == pair.JudgeCheckID &&
+						deterministic.Pairs[index-1].DeterministicCheckID >= pair.DeterministicCheckID) {
 				return Receipt{}, contractError("deterministic_comparison_pair")
 			}
 			judgeDecision, judgeOK := judgeByID[pair.JudgeCheckID]

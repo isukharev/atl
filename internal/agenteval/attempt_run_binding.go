@@ -50,7 +50,7 @@ func runAttemptBinding(contract resolvedRunContract, options RunOptions, skillDi
 	if err != nil {
 		return lifecycle.Binding{}, err
 	}
-	grader, err := digest("grader", contract.rubric)
+	grader, err := digest("grader-not-applicable", "not_applicable")
 	if err != nil {
 		return lifecycle.Binding{}, err
 	}

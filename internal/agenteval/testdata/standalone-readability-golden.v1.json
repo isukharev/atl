@@ -1758,9 +1758,9 @@
       "kind": "grade-receipt",
       "version": 1,
       "source_path": "testdata/standalone-readability/grade-receipt-v1.json",
-      "source_sha256": "d535182ffb6259310c54fb5f4fcfbcb3b65e783c9b73d3ad764b67298a4edc12",
+      "source_sha256": "f29d6a0090773985238e9b0358da3817457f967a66d356932f14e6b9635df0e3",
       "reader_support_path": "testdata/standalone-readability/grading-plan-v1.json",
-      "reader_support_sha256": "e6cef348391641b75550081cf8f257a4ffc927f9e182b9ea36e13ad21577744c",
+      "reader_support_sha256": "abc4f828d24a6571a9d827c2ac858b62ab5d793a60f50375713330e0adff48f2",
       "expected_projection": {
         "schema": "agent-eval/grade-receipt",
         "schema_version": 1,
@@ -1780,7 +1780,7 @@
       "kind": "grader-contract",
       "version": 1,
       "source_path": "testdata/standalone-readability/grader-contract-v1.json",
-      "source_sha256": "0efb88f2fbd5e8dfc9e134b37bee56b1e4829d4fc1f6d5eede2be623a688d94d",
+      "source_sha256": "c36a16dcb8233a5c3446a0bde2bdcf0ff4590dc8d6df1fce303ef43759b0c6f4",
       "expected_projection": {
         "schema": "agent-eval/grader-contract",
         "schema_version": 1,
@@ -1798,9 +1798,9 @@
       "kind": "grading-plan",
       "version": 1,
       "source_path": "testdata/standalone-readability/grading-plan-v1.json",
-      "source_sha256": "e6cef348391641b75550081cf8f257a4ffc927f9e182b9ea36e13ad21577744c",
+      "source_sha256": "abc4f828d24a6571a9d827c2ac858b62ab5d793a60f50375713330e0adff48f2",
       "reader_support_path": "testdata/standalone-readability/grader-contract-v1.json",
-      "reader_support_sha256": "0efb88f2fbd5e8dfc9e134b37bee56b1e4829d4fc1f6d5eede2be623a688d94d",
+      "reader_support_sha256": "c36a16dcb8233a5c3446a0bde2bdcf0ff4590dc8d6df1fce303ef43759b0c6f4",
       "expected_projection": {
         "schema": "agent-eval/grading-plan",
         "schema_version": 1,
@@ -1874,7 +1874,7 @@
       "kind": "schema-registry",
       "version": 1,
       "source_path": "schemaregistry/registry.v1.json",
-      "source_sha256": "be1a6bfe275ef94a4294702bce71ba69e727059828382627eba81d043e8157ac",
+      "source_sha256": "9eb32a5b68fda1a45740ed600d6bb8583a41d2543c5da85ee59d473124b3cc39",
       "expected_projection": {
         "schema": "agent-eval/schema-registry",
         "schema_version": 1,

@@ -165,14 +165,3 @@ func expectedMCPRouteAlternatives(raw json.RawMessage) ([]mcpRouteExpectation, b
 	}
 	return alternatives, true
 }
-
-func mcpRouteMatches(
-	alternatives []mcpRouteExpectation,
-	httpMethods map[string]int,
-	invocations []MCPInvocation,
-) bool {
-	return slices.ContainsFunc(alternatives, func(alternative mcpRouteExpectation) bool {
-		return equalHTTPMethods(alternative.HTTPMethods, httpMethods) &&
-			equalMCPInvocations(alternative.Invocations, invocations)
-	})
-}

@@ -94,11 +94,13 @@ host or an external substrate is hermetic.
 The neutral `grading` leaf owns closed grader, plan, and receipt schemas plus
 deterministic checks, a bounded typed verifier DSL, and offline blinded-review
 assessment. It imports only neutral core and execution-backend owners. The ATL
-profile classifies every legacy run-check kind by its nearest neutral evidence
-family, but the historical switch retains exact grading authority until a typed
-semantic adapter can express and prove each rule. The root compatibility facade
-preserves historical result bytes and adds generic owner-private receipts for
-current executable private panels. Out-of-tree
+profile classifies every legacy run-check kind by the exact neutral evidence
+family used by the compatibility adapter. That adapter preregisters each
+current ATL check as a generic deterministic plan, projects product observations
+into immutable typed evidence, and delegates every pass decision to the neutral
+grader. The plan is bound before the attempt; its content-minimized receipt is
+retained with the historical result and bound into the terminal lifecycle
+receipt. Out-of-tree
 grader conformance proves framing, strict bounds, errors, cancellation, and two
 identical synthetic grade cases; it remains protocol-only and cannot consume
 hidden evidence through the unsandboxed local process host.

@@ -21,10 +21,11 @@ type CoreGrader struct {
 }
 
 func NewCoreGrader(identity core.AttemptIdentity, task core.Task, fixture core.Fixture, treatment core.Treatment,
-	plan Plan, receipt Receipt,
+	admitted AdmittedPlan, receipt Receipt,
 ) (*CoreGrader, error) {
+	plan := admitted.plan
 	inputSHA, inputErr := CoreAttemptInputSHA256(identity, task, fixture, treatment)
-	if err := ValidateReceipt(plan, receipt); err != nil || inputErr != nil || plan.InputProjectionSHA256 != inputSHA ||
+	if err := validateProducedReceipt(admitted, receipt); err != nil || inputErr != nil || plan.InputProjectionSHA256 != inputSHA ||
 		len(task.Checks) != len(plan.Checks) {
 		return nil, contractError("core_grader")
 	}

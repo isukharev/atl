@@ -77,11 +77,13 @@ func cloneCheck(value Check) Check {
 	if value.ToolSequence != nil {
 		copy := *value.ToolSequence
 		copy.Expected = slices.Clone(copy.Expected)
+		copy.Alternatives = cloneSequenceAlternatives(copy.Alternatives)
 		value.ToolSequence = &copy
 	}
 	if value.ActionSequence != nil {
 		copy := *value.ActionSequence
 		copy.Expected = slices.Clone(copy.Expected)
+		copy.Alternatives = cloneSequenceAlternatives(copy.Alternatives)
 		value.ActionSequence = &copy
 	}
 	if value.SkillActivation != nil {
@@ -106,6 +108,17 @@ func cloneCheck(value Check) Check {
 		value.Qualitative = &copy
 	}
 	return value
+}
+
+func cloneSequenceAlternatives(value [][]string) [][]string {
+	if value == nil {
+		return nil
+	}
+	result := make([][]string, len(value))
+	for index := range value {
+		result[index] = slices.Clone(value[index])
+	}
+	return result
 }
 
 func cloneReview(value Review) Review {

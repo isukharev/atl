@@ -8,7 +8,7 @@ import (
 	"github.com/isukharev/atl/internal/agenteval/executionbackend"
 )
 
-const maxRuleValue = 1 << 50
+const maxRuleValue = ^uint64(0)
 
 func CheckKinds() []CheckKind { return slices.Clone(closedCheckKinds) }
 func Modes() []Mode           { return slices.Clone(closedModes) }
@@ -53,7 +53,7 @@ func BuiltinContract() (Contract, error) {
 
 func builtinIdentities() (string, string) {
 	return hashDomain("builtin-grading-implementation", []byte("closed-v1")),
-		hashDomain("builtin-grading-content", []byte("deterministic+typed-script+offline-panel/v1"))
+		hashDomain("builtin-grading-content", []byte("deterministic+uint64-rules+json-cardinality+sequence-alternatives+typed-script+offline-panel/v1"))
 }
 
 func builtinModes() []ModePolicy {
@@ -227,8 +227,14 @@ func planRuleItemsWithinBound(checks []Check) bool {
 			count += len(check.TreeDiff.Expected)
 		case CheckToolSequence:
 			count += len(check.ToolSequence.Expected)
+			for _, alternative := range check.ToolSequence.Alternatives {
+				count += len(alternative)
+			}
 		case CheckActionSequence:
 			count += len(check.ActionSequence.Expected)
+			for _, alternative := range check.ActionSequence.Alternatives {
+				count += len(alternative)
+			}
 		case CheckQualitative:
 			count += len(check.Qualitative.EvidenceIDs)
 		}
@@ -276,7 +282,9 @@ func validateCheck(check Check) error {
 			return contractError("json_schema")
 		}
 		for index, field := range check.JSONSchema.Fields {
-			if !validJSONPointer(field.Pointer) || !field.Type.valid() || index > 0 && check.JSONSchema.Fields[index-1].Pointer >= field.Pointer {
+			if !validJSONPointer(field.Pointer) || !field.Type.valid() || field.MinimumItems > MaxEvidenceItems ||
+				(field.MinimumItems != 0 && (field.Type != JSONTypeArray || !field.Required)) ||
+				index > 0 && check.JSONSchema.Fields[index-1].Pointer >= field.Pointer {
 				return contractError("json_schema_field")
 			}
 		}
@@ -369,6 +377,27 @@ func validSequenceRule(rule *SequenceRule) bool {
 	for _, value := range rule.Expected {
 		if !validText(value, MaxRelativePathBytes) {
 			return false
+		}
+	}
+	if rule.Alternatives != nil {
+		if len(rule.Alternatives) < 2 || len(rule.Alternatives) > MaxSequenceItems || len(rule.Expected) != 0 ||
+			rule.MinimumSimilarityBPS != 10_000 {
+			return false
+		}
+		var total int
+		for index, alternative := range rule.Alternatives {
+			if alternative == nil || len(alternative) > MaxSequenceItems || index > 0 && slices.Compare(rule.Alternatives[index-1], alternative) >= 0 {
+				return false
+			}
+			total += len(alternative)
+			if total > MaxEvidenceItems {
+				return false
+			}
+			for _, value := range alternative {
+				if !validText(value, MaxRelativePathBytes) {
+					return false
+				}
+			}
 		}
 	}
 	return true

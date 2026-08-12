@@ -152,7 +152,7 @@ func (p Presence) valid() bool {
 func (v Visibility) valid() bool { return v == VisibilityPublic || v == VisibilityHidden }
 
 func (t JSONType) valid() bool {
-	return t == JSONTypeArray || t == JSONTypeBoolean || t == JSONTypeInteger || t == JSONTypeNull || t == JSONTypeNumber ||
+	return t == JSONTypeAny || t == JSONTypeArray || t == JSONTypeBoolean || t == JSONTypeInteger || t == JSONTypeNull || t == JSONTypeNumber ||
 		t == JSONTypeObject || t == JSONTypeString
 }
 
