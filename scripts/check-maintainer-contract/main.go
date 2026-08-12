@@ -180,7 +180,7 @@ const (
           env -u GOROOT GOTOOLCHAIN=auto GOWORK=off go -C internal/agenteval test ./extension \
             -run '^(TestExtensionManifestV1IsClosed|TestExtensionProtocolV1StateMachineIsClosed)$' -count=1
           env -u GOROOT GOTOOLCHAIN=auto GOWORK=off go -C internal/agenteval test . \
-            -run '^(TestExtensionHostAdmissionMaterializesNativeExecutableWithClosedEnvironment|TestExtensionHostAdmissionRejectsUnsafeExecutable|TestExtensionProcessHostBoundsAndCleanup|TestVerifyExtensionProtocolReportIsContentMinimized|TestPrivateExtensionRuntimeRootUsesTrustedSystemTemporaryDirectory|TestPrivateExtensionRuntimePathsAreOwnerOnly|TestPrivateExtensionRuntimeRejectsSymlinks|TestExtensionPlatformEnvironmentIsEmptyOnUnix)$' -count=1`
+            -run '^(TestExtensionHostAdmissionMaterializesNativeExecutableWithClosedEnvironment|TestExtensionHostAdmissionRejectsUnsafeExecutable|TestExtensionProcessHostBoundsAndCleanup|TestDarwinZombieOnlyProcessGroupSignal|TestVerifyExtensionProtocolReportIsContentMinimized|TestPrivateExtensionRuntimeRootUsesTrustedSystemTemporaryDirectory|TestPrivateExtensionRuntimePathsAreOwnerOnly|TestPrivateExtensionRuntimeRejectsSymlinks|TestExtensionPlatformEnvironmentIsEmptyOnUnix)$' -count=1`
 	extensionProtocolWindowsRuntimeStepContract = `      - name: Extension protocol runtime
         shell: pwsh
         run: |
