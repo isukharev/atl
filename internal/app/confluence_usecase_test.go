@@ -304,6 +304,15 @@ type downloadStore struct {
 	rc io.ReadCloser
 }
 
+func (s *downloadStore) RevalidateAttachmentDownload(_ context.Context, pageID, filename string, version int) (domain.ConfluenceAttachmentDownloadEvidence, error) {
+	if version == 0 {
+		version = 1
+	}
+	return domain.ConfluenceAttachmentDownloadEvidence{
+		AttachmentID: "21", PageID: pageID, Filename: filename, Version: version,
+	}, nil
+}
+
 func (s *downloadStore) DownloadAttachment(context.Context, string, string, int) (io.ReadCloser, error) {
 	return s.rc, nil
 }

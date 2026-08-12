@@ -483,10 +483,10 @@ func TestTreePaginates(t *testing.T) {
 	page1 := `{"results":[
 		{"id":"1","title":"Root","space":{"key":"DOC"},"version":{"number":1}},
 		{"id":"2","title":"Child","space":{"key":"DOC"},"version":{"number":1},"ancestors":[{"id":"1","title":"Root"}]}
-	],"_links":{"next":"/rest/api/content/search?start=2"}}`
+	],"start":0,"limit":200,"size":2,"totalSize":3,"_links":{"next":"/rest/api/content/search?start=2"}}`
 	page2 := `{"results":[
 		{"id":"3","title":"Grandchild","space":{"key":"DOC"},"version":{"number":1},"ancestors":[{"id":"1","title":"Root"},{"id":"2","title":"Child"}]}
-	],"_links":{}}`
+	],"start":2,"limit":200,"size":1,"totalSize":3,"_links":{}}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, r.URL.RequestURI())
 		w.Header().Set("Content-Type", "application/json")
@@ -530,7 +530,7 @@ func TestTreeDepthFilter(t *testing.T) {
 	body := `{"results":[
 		{"id":"1","title":"Root","space":{"key":"DOC"},"version":{"number":1}},
 		{"id":"2","title":"Child","space":{"key":"DOC"},"version":{"number":1},"ancestors":[{"id":"1","title":"Root"}]}
-	],"_links":{}}`
+	],"start":0,"limit":200,"size":2,"totalSize":2,"_links":{}}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(body))
@@ -554,7 +554,7 @@ func TestTreeEmptyResultsStops(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls++
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"results":[],"_links":{"next":"/rest/api/content/search?start=0"}}`))
+		_, _ = w.Write([]byte(`{"results":[],"start":0,"limit":200,"size":0,"totalSize":1,"_links":{"next":"/rest/api/content/search?start=0"}}`))
 	}))
 	defer srv.Close()
 
@@ -1576,7 +1576,7 @@ func TestSearchError(t *testing.T) {
 // are reported: a space larger than treeScanCap must yield truncated=true, and a
 // listing that ends exactly when the server is exhausted must not.
 func TestTreeReportsTruncationAtCap(t *testing.T) {
-	pageJSON := func(start, n int, next bool) string {
+	pageJSON := func(start, n, total int, next bool) string {
 		var b strings.Builder
 		b.WriteString(`{"results":[`)
 		for i := 0; i < n; i++ {
@@ -1585,7 +1585,7 @@ func TestTreeReportsTruncationAtCap(t *testing.T) {
 			}
 			fmt.Fprintf(&b, `{"id":"%d","title":"P%d","space":{"key":"DOC"},"version":{"number":1},"ancestors":[{"id":"root"}]}`, start+i, start+i)
 		}
-		b.WriteString(`],"_links":{`)
+		fmt.Fprintf(&b, `],"start":%d,"limit":%d,"size":%d,"totalSize":%d,"_links":{`, start, n, n, total)
 		if next {
 			b.WriteString(`"next":"/rest/api/content/search?start=x"`)
 		}
@@ -1597,7 +1597,7 @@ func TestTreeReportsTruncationAtCap(t *testing.T) {
 		requests++
 		start, _ := strconv.Atoi(r.URL.Query().Get("start"))
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(pageJSON(start, 200, true))) // always claims more
+		_, _ = w.Write([]byte(pageJSON(start, 200, treeScanCap+1, true))) // always claims more
 	}))
 	defer srv.Close()
 
@@ -1619,7 +1619,7 @@ func TestTreeReportsTruncationAtCap(t *testing.T) {
 	// Exhausted exactly at the end: no next link → not truncated.
 	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(pageJSON(0, 3, false)))
+		_, _ = w.Write([]byte(pageJSON(0, 3, 3, false)))
 	}))
 	defer srv2.Close()
 	cf2 := &Confluence{c: newTestClient(srv2.URL), base: srv2.URL}
@@ -1635,7 +1635,7 @@ func TestTreeReportsTruncationAtCap(t *testing.T) {
 	// raw-row scan cap.
 	srv3 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(pageJSON(0, treePageCap+1, false)))
+		_, _ = w.Write([]byte(pageJSON(0, treePageCap+1, treePageCap+1, false)))
 	}))
 	defer srv3.Close()
 	cf3 := &Confluence{c: newTestClient(srv3.URL), base: srv3.URL}
@@ -1650,7 +1650,7 @@ func TestTreeReportsTruncationAtCap(t *testing.T) {
 	// Reaching the cap exactly on a terminal response is still proven exhaustion.
 	srv4 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(pageJSON(0, treePageCap, false)))
+		_, _ = w.Write([]byte(pageJSON(0, treePageCap, treePageCap, false)))
 	}))
 	defer srv4.Close()
 	cf4 := &Confluence{c: newTestClient(srv4.URL), base: srv4.URL}
@@ -1682,7 +1682,7 @@ func TestTreeDepthFilterDoesNotConsumeResultBudget(t *testing.T) {
 			}
 			fmt.Fprintf(&body, `{"id":"%d","title":"P%d","space":{"key":"DOC"},"version":{"number":1},"ancestors":%s}`, id, id, ancestors)
 		}
-		body.WriteString(`],"_links":{`)
+		fmt.Fprintf(&body, `],"start":%d,"limit":200,"size":200,"totalSize":%d,"_links":{`, start, totalRows)
 		if start+200 < totalRows {
 			body.WriteString(`"next":"/rest/api/content/search?start=next"`)
 		}

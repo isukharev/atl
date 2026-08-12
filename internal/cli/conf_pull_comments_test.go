@@ -148,12 +148,17 @@ func TestConfPullAssetPublicationFailureEmitsQualifiedResultBeforeError(t *testi
 			_, _ = w.Write([]byte("image bytes"))
 			return
 		}
+		if strings.Contains(r.URL.Path, "/child/comment") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"results":[],"start":0,"limit":100,"size":0,"_links":{}}`))
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(page))
 	}))
 	t.Cleanup(srv.Close)
 
-	out, stderr, code := runCLIFull(t, confEnv(srv), "conf", "pull", "--id", "100", "--into", root, "--assets")
+	out, stderr, code := runCLIFull(t, confEnv(srv), "conf", "pull", "--id", "100", "--into", root, "--assets", "--comments")
 	if code == exitOK {
 		t.Fatalf("publication failure exited 0: stdout=%q stderr=%q", out, stderr)
 	}
@@ -161,13 +166,61 @@ func TestConfPullAssetPublicationFailureEmitsQualifiedResultBeforeError(t *testi
 	if err := json.Unmarshal([]byte(out), &result); err != nil {
 		t.Fatalf("decode asset publication failure: %v\n%s", err, out)
 	}
-	assets := result.Includes[0]
-	if assets.Dimension != app.ConfluencePullIncludeAssets || assets.Qualification != app.ConfluencePullIncludeFailed ||
-		assets.Complete == nil || *assets.Complete || assets.Reason != app.ConfluencePullIncludeReasonStagingFailed {
-		t.Fatalf("assets include=%+v stdout=%q stderr=%q", assets, out, stderr)
+	for _, include := range result.Includes {
+		if include.Qualification != app.ConfluencePullIncludeFailed || include.Complete == nil || *include.Complete ||
+			include.Reason != app.ConfluencePullIncludeReasonStagingFailed {
+			t.Fatalf("staged include=%+v stdout=%q stderr=%q", include, out, stderr)
+		}
 	}
 	if result.LocalSafety != nil {
 		t.Fatalf("asset publication failure added local_safety: %+v", result.LocalSafety)
+	}
+}
+
+func TestConfPullCommentPublicationFailureEmitsQualifiedResultBeforeError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not enforce the chmod-based publication fault fixture")
+	}
+	root := t.TempDir()
+	pageDir := filepath.Join(root, "ENG", "alpha")
+	if err := os.MkdirAll(pageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(pageDir, 0o755) })
+	page := pageJSON("100", "Alpha", 3, sampleCSF)
+	commentReads := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(r.URL.Path, "/child/comment") {
+			commentReads++
+			if commentReads == 3 {
+				if err := os.Chmod(pageDir, 0o555); err != nil {
+					http.Error(w, "synthetic setup failed", http.StatusInternalServerError)
+					return
+				}
+			}
+			_, _ = w.Write([]byte(`{"results":[],"start":0,"limit":100,"size":0,"_links":{}}`))
+			return
+		}
+		_, _ = w.Write([]byte(page))
+	}))
+	t.Cleanup(srv.Close)
+
+	out, stderr, code := runCLIFull(t, confEnv(srv), "conf", "pull", "--id", "100", "--into", root, "--comments")
+	if code == exitOK {
+		t.Fatalf("publication failure exited 0: stdout=%q stderr=%q", out, stderr)
+	}
+	var result app.PullResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("decode comment publication failure: %v\n%s", err, out)
+	}
+	comments := result.Includes[1]
+	if comments.Dimension != app.ConfluencePullIncludeComments || comments.Qualification != app.ConfluencePullIncludeFailed ||
+		comments.Complete == nil || *comments.Complete || comments.Reason != app.ConfluencePullIncludeReasonStagingFailed {
+		t.Fatalf("comments include=%+v stdout=%q stderr=%q", comments, out, stderr)
+	}
+	if result.Includes[0].Qualification != app.ConfluencePullIncludeNotRequested || result.LocalSafety != nil {
+		t.Fatalf("unrelated result state=%+v", result)
 	}
 }
 

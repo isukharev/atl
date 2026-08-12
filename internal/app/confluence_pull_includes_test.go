@@ -63,6 +63,42 @@ func TestConfluencePullIncludesQualifyActualAssetCoverage(t *testing.T) {
 	}
 }
 
+func TestConfluencePullIncludesQualifyPublishedEmptyAndNonemptyComments(t *testing.T) {
+	rootID := "c1"
+	for _, tc := range []struct {
+		name      string
+		inventory domain.ConfluenceCommentInventory
+		wantCount int
+	}{
+		{name: "empty", inventory: completeQualifiedComments(), wantCount: 0},
+		{name: "nonempty", inventory: completeQualifiedComments(domain.ConfluenceCommentRecord{
+			ID: rootID, PageID: "100", RootID: &rootID, Relation: domain.ConfluenceCommentRelationRoot,
+			Location: domain.ConfluenceCommentLocationFooter, Resolution: domain.ConfluenceCommentResolutionOpen,
+			Version: 1, BodyStorage: "<p>comment</p>",
+		}), wantCount: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base := &pullStore{pages: map[string]*domain.Resource{
+				"100": {ID: "100", Title: "Alpha", SpaceKey: "DOC", Version: 1, Body: []byte(`<p>body</p>`)},
+			}}
+			store := &qualifiedPullStore{pullStore: base, inventory: tc.inventory}
+			result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(
+				t.Context(), PullOpts{ID: "100", Into: t.TempDir(), Comments: true},
+			)
+			if err != nil {
+				t.Fatalf("Pull: %v", err)
+			}
+			comments := confluencePullInclude(t, result, ConfluencePullIncludeComments)
+			if comments.Qualification != ConfluencePullIncludeQualified || !comments.Requested || comments.Complete == nil || !*comments.Complete || comments.Reason != "" {
+				t.Fatalf("comments include=%+v, want published complete evidence", comments)
+			}
+			if len(result.Pages) != 1 || result.Pages[0].Comments == nil || *result.Pages[0].Comments != tc.wantCount {
+				t.Fatalf("pages=%+v, want published comment count %d", result.Pages, tc.wantCount)
+			}
+		})
+	}
+}
+
 func TestConfluencePullIncludesReportFailedRequestedRead(t *testing.T) {
 	store := &pullStore{
 		pages: map[string]*domain.Resource{
@@ -127,27 +163,29 @@ func TestConfluencePullIncludeRecordRejectsOpenOrMissingReason(t *testing.T) {
 	}
 }
 
-func TestConfluencePullAssetPublicationFailureOverridesQualifiedOnlyForStagedAssets(t *testing.T) {
+func TestConfluencePullPublicationFailureDemotesOnlyStagedIncludes(t *testing.T) {
 	result := &PullResult{}
-	result.Includes, result.includeProgress = newConfluencePullIncludes(PullOpts{Assets: true}, 1)
-	if err := result.recordConfluencePullInclude(ConfluencePullIncludeAssets, ConfluencePullIncludeQualified, ""); err != nil {
-		t.Fatal(err)
-	}
-	run := &confluencePullRun{opts: PullOpts{Assets: true}, result: result}
+	result.Includes, result.includeProgress = newConfluencePullIncludes(PullOpts{Assets: true, Comments: true}, 1)
+	run := &confluencePullRun{opts: PullOpts{Assets: true, Comments: true}, result: result}
 	syntheticErr := errors.New("synthetic publication failure")
-	if got := run.assetPublicationError(&stagedConfluenceAssetSink{}, syntheticErr); !errors.Is(got, syntheticErr) {
+	if got := run.failStagedConfluencePullIncludes(nil, syntheticErr); !errors.Is(got, syntheticErr) {
 		t.Fatalf("empty-stage error=%v", got)
 	}
-	if include := confluencePullInclude(t, result, ConfluencePullIncludeAssets); include.Qualification != ConfluencePullIncludeQualified {
+	if include := confluencePullInclude(t, result, ConfluencePullIncludeAssets); include.Qualification != ConfluencePullIncludeDeferred {
 		t.Fatalf("generic publication failure changed empty asset stage: %+v", include)
 	}
-	stage := &stagedConfluenceAssetSink{assets: []stagedConfluenceAsset{{name: "image.png", data: []byte("image")}}}
-	if got := run.assetPublicationError(stage, syntheticErr); !errors.Is(got, syntheticErr) {
-		t.Fatalf("asset publication error=%v", got)
+	evidence := []domain.ConfluencePullIncludeEvidence{
+		confluencePullIncludeEvidence(ConfluencePullIncludeAssets, ConfluencePullIncludeQualified, ""),
+		confluencePullIncludeEvidence(ConfluencePullIncludeComments, ConfluencePullIncludeQualified, ""),
 	}
-	include := confluencePullInclude(t, result, ConfluencePullIncludeAssets)
-	if include.Qualification != ConfluencePullIncludeFailed || include.Complete == nil || *include.Complete ||
-		include.Reason != ConfluencePullIncludeReasonStagingFailed {
-		t.Fatalf("asset publication failure include=%+v", include)
+	if got := run.failStagedConfluencePullIncludes(evidence, syntheticErr); !errors.Is(got, syntheticErr) {
+		t.Fatalf("publication error=%v", got)
+	}
+	for _, dimension := range []string{ConfluencePullIncludeAssets, ConfluencePullIncludeComments} {
+		include := confluencePullInclude(t, result, dimension)
+		if include.Qualification != ConfluencePullIncludeFailed || include.Complete == nil || *include.Complete ||
+			include.Reason != ConfluencePullIncludeReasonStagingFailed {
+			t.Fatalf("%s publication failure include=%+v", dimension, include)
+		}
 	}
 }

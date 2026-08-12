@@ -44,6 +44,8 @@ type confluencePullRun struct {
 
 	commentSelectionIncomplete bool
 	macroOptOutWarned          bool
+	pendingIncludeEvidence     [][]domain.ConfluencePullIncludeEvidence
+	ordinaryFinalized          bool
 }
 
 type confluencePullFetchedPage struct {
@@ -68,6 +70,7 @@ type confluencePullPreparedPage struct {
 	mdOpts            mirror.MDViewOpts
 	jiraMacros        *confluenceJiraMacroSidecar
 	completeEligible  bool
+	includeEvidence   []domain.ConfluencePullIncludeEvidence
 }
 
 type confluencePullRevalidatedPage struct {
@@ -77,10 +80,11 @@ type confluencePullRevalidatedPage struct {
 
 type confluencePullStagedPage struct {
 	*confluencePullRevalidatedPage
-	status           string
-	pendingStashPath string
-	viewState        mirror.ViewState
-	syncState        mirror.SyncState
+	status            string
+	pendingStashPath  string
+	viewState         mirror.ViewState
+	syncState         mirror.SyncState
+	includesPublished bool
 }
 
 func (r *confluencePullRun) processPage(id string, prefetch *orderedPagePrefetch) error {
@@ -94,13 +98,17 @@ func (r *confluencePullRun) processPage(id string, prefetch *orderedPagePrefetch
 	}
 	revalidated, err := r.revalidatePage(prepared)
 	if err != nil || revalidated == nil {
-		return err
+		return r.failStagedConfluencePullIncludes(prepared.includeEvidence, err)
 	}
 	staged, err := r.stagePage(revalidated)
 	if err != nil {
-		return err
+		return r.failStagedConfluencePullIncludes(prepared.includeEvidence, err)
 	}
-	return r.publishPage(staged)
+	err = r.publishPage(staged)
+	if err != nil && !staged.includesPublished {
+		return r.failStagedConfluencePullIncludes(prepared.includeEvidence, err)
+	}
+	return err
 }
 
 func (r *confluencePullRun) fetchPage(id string, prefetch *orderedPagePrefetch) (*confluencePullFetchedPage, error) {
@@ -155,6 +163,7 @@ func (r *confluencePullRun) preparePage(fetched *confluencePullFetchedPage) (*co
 	page := fetched.page
 	refs := []domain.Ref{}
 	assetStage := &stagedConfluenceAssetSink{slug: fetched.slug}
+	includeEvidence := []domain.ConfluencePullIncludeEvidence{}
 	var pageNode *csf.Node
 	assetIncludeQualification := ConfluencePullIncludeQualified
 	assetIncludeReason := ""
@@ -190,9 +199,7 @@ func (r *confluencePullRun) preparePage(fetched *confluencePullFetchedPage) (*co
 		assetIncludeReason = ConfluencePullIncludeReasonResolutionIncomplete
 	}
 	if r.opts.Assets {
-		if err := r.result.recordConfluencePullInclude(ConfluencePullIncludeAssets, assetIncludeQualification, assetIncludeReason); err != nil {
-			return nil, err
-		}
+		includeEvidence = append(includeEvidence, confluencePullIncludeEvidence(ConfluencePullIncludeAssets, assetIncludeQualification, assetIncludeReason))
 	}
 	page.Refs = refs
 
@@ -222,7 +229,7 @@ func (r *confluencePullRun) preparePage(fetched *confluencePullFetchedPage) (*co
 				if qualificationErr := r.result.recordConfluencePullInclude(ConfluencePullIncludeComments, ConfluencePullIncludeFailed, ConfluencePullIncludeReasonReadFailed); qualificationErr != nil {
 					return nil, qualificationErr
 				}
-				return nil, fmt.Errorf("pull comments %s: %w", fetched.id, err)
+				return nil, r.failStagedConfluencePullIncludes(includeEvidence, fmt.Errorf("pull comments %s: %w", fetched.id, err))
 			}
 		}
 		commentQualification := ConfluencePullIncludeQualified
@@ -231,9 +238,7 @@ func (r *confluencePullRun) preparePage(fetched *confluencePullFetchedPage) (*co
 			commentQualification = ConfluencePullIncludePartial
 			commentReason = ConfluencePullIncludeReasonInventoryIncomplete
 		}
-		if err := r.result.recordConfluencePullInclude(ConfluencePullIncludeComments, commentQualification, commentReason); err != nil {
-			return nil, err
-		}
+		includeEvidence = append(includeEvidence, confluencePullIncludeEvidence(ConfluencePullIncludeComments, commentQualification, commentReason))
 		comments = confluenceQualifiedCommentsForDisplay(commentInventory, "")
 		sidecar := confluenceCommentsSidecarV2(commentInventory)
 		commentSidecar = &sidecar
@@ -301,7 +306,7 @@ func (r *confluencePullRun) preparePage(fetched *confluencePullFetchedPage) (*co
 		hasJiraMacros := len(mirror.JiraMacroDescriptors(pageNode)) > 0
 		jiraReady, err := r.service.prepareConfluenceJiraMacroPopulation(r.result.Root, hasJiraMacros, r.opts.DryRun)
 		if err != nil {
-			return nil, err
+			return nil, r.failStagedConfluencePullIncludes(includeEvidence, err)
 		}
 		if hasJiraMacros && !jiraReady {
 			macroWarnings = append(macroWarnings, "render: Jira query macro(s) kept as placeholders because qualified Jira read access is unavailable")
@@ -329,6 +334,7 @@ func (r *confluencePullRun) preparePage(fetched *confluencePullFetchedPage) (*co
 		comments: comments, commentsTruncated: commentsTruncated,
 		mdOpts: mdOpts, jiraMacros: jiraMacros,
 		completeEligible: commentEligible && attachmentEligible,
+		includeEvidence:  includeEvidence,
 	}, nil
 }
 
@@ -353,7 +359,7 @@ func (r *confluencePullRun) revalidatePage(prepared *confluencePullPreparedPage)
 func (r *confluencePullRun) stagePage(revalidated *confluencePullRevalidatedPage) (*confluencePullStagedPage, error) {
 	if r.complete == nil {
 		if err := revalidated.assetStage.publish(r.mirror, revalidated.dir, revalidated.slug); err != nil {
-			return nil, r.assetPublicationError(revalidated.assetStage, fmt.Errorf("write staged assets %s: %w", revalidated.id, err))
+			return nil, fmt.Errorf("write staged assets %s: %w", revalidated.id, err)
 		}
 		if _, err := revalidateConfluencePullLocal(r.mirror, revalidated.local); err != nil {
 			action := PullLocalAction{ID: revalidated.id, Path: filepath.ToSlash(revalidated.rel), Status: pullLocalBlocked, Reason: "local_artifacts_changed"}
@@ -411,7 +417,7 @@ func (r *confluencePullRun) stagePage(revalidated *confluencePullRevalidatedPage
 		assetPath := filepath.Join(revalidated.dir, revalidated.slug+".assets", asset.name)
 		assetRel, err := mirror.PublicArtifactPathWithin(r.result.Root, assetPath)
 		if err != nil {
-			return nil, r.assetPublicationError(revalidated.assetStage, fmt.Errorf("prepare staged asset %s: %w", revalidated.id, err))
+			return nil, fmt.Errorf("prepare staged asset %s: %w", revalidated.id, err)
 		}
 		artifacts = append(artifacts, mirror.CompletePullArtifact{Path: assetRel, Data: asset.data, Mode: 0o644})
 	}
@@ -429,9 +435,13 @@ func (r *confluencePullRun) stagePage(revalidated *confluencePullRevalidatedPage
 		}
 		artifacts = append(artifacts, mirror.CompletePullArtifact{Path: macroRel, Data: macroBytes, Mode: 0o600})
 	}
-	entry := mirror.CompletePullJournalEntry{State: state, View: staged.viewState}
+	// A non-nil empty slice is intentional: JSON null decodes a *[]T back to
+	// nil, which would make a current-schema page with no requested includes
+	// indistinguishable from a legacy journal entry that has no evidence.
+	includeEvidence := append(make([]domain.ConfluencePullIncludeEvidence, 0, len(revalidated.includeEvidence)), revalidated.includeEvidence...)
+	entry := mirror.CompletePullJournalEntry{State: state, View: staged.viewState, Includes: &includeEvidence}
 	if err := r.mirror.PrepareCompletePullPublication(r.complete.checkpoint, r.complete.nextIndex, entry, revalidated.completeEligible, artifacts, revalidated.relocation); err != nil {
-		return nil, r.assetPublicationError(revalidated.assetStage, fmt.Errorf("stage complete-pull page %s: %w", revalidated.id, err))
+		return nil, fmt.Errorf("stage complete-pull page %s: %w", revalidated.id, err)
 	}
 	staged.syncState = state
 	return staged, nil
@@ -440,8 +450,12 @@ func (r *confluencePullRun) stagePage(revalidated *confluencePullRevalidatedPage
 func (r *confluencePullRun) publishPage(staged *confluencePullStagedPage) error {
 	if r.complete != nil {
 		if err := r.mirror.RecoverCompletePullPublication(r.complete.checkpoint.SelectorSHA256, r.complete.checkpoint, true); err != nil {
-			return r.assetPublicationError(staged.assetStage, fmt.Errorf("publish complete-pull page %s: %w", staged.id, err))
+			return fmt.Errorf("publish complete-pull page %s: %w", staged.id, err)
 		}
+		if err := r.recordPublishedConfluencePullIncludes(staged.includeEvidence); err != nil {
+			return err
+		}
+		staged.includesPublished = true
 		if staged.completeEligible {
 			r.batch.Record(staged.syncState)
 			r.batch.RecordView(staged.page.ID, staged.viewState)
@@ -499,24 +513,55 @@ func (r *confluencePullRun) publishPage(staged *confluencePullStagedPage) error 
 		if !staged.completeEligible {
 			return fmt.Errorf("%w: complete-pull comments for page %s were not fully qualified; checkpoint remains before this page", domain.ErrCheckFailed, staged.id)
 		}
-		r.complete.advance()
+		if err := r.complete.advance(staged.includeEvidence); err != nil {
+			return err
+		}
 		if r.complete.shouldCheckpoint() {
 			if err := r.complete.commit(r.mirror, r.batch); err != nil {
 				return err
 			}
 		}
+	} else {
+		r.pendingIncludeEvidence = append(r.pendingIncludeEvidence, append([]domain.ConfluencePullIncludeEvidence(nil), staged.includeEvidence...))
 	}
 	return nil
 }
 
-func (r *confluencePullRun) assetPublicationError(stage *stagedConfluenceAssetSink, err error) error {
-	if !r.opts.Assets || stage == nil || len(stage.assets) == 0 {
+func (r *confluencePullRun) recordPublishedConfluencePullIncludes(values []domain.ConfluencePullIncludeEvidence) error {
+	for _, value := range values {
+		if err := r.result.recordConfluencePullInclude(value.Dimension, value.Qualification, value.Reason); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *confluencePullRun) failStagedConfluencePullIncludes(values []domain.ConfluencePullIncludeEvidence, cause error) error {
+	for _, value := range values {
+		if err := r.result.recordConfluencePullInclude(value.Dimension, ConfluencePullIncludeFailed, ConfluencePullIncludeReasonStagingFailed); err != nil {
+			cause = errors.Join(cause, err)
+		}
+	}
+	return cause
+}
+
+func (r *confluencePullRun) flushOrdinaryPull() error {
+	if r.ordinaryFinalized {
+		return nil
+	}
+	r.ordinaryFinalized = true
+	if err := r.batch.Flush(); err != nil {
+		for _, values := range r.pendingIncludeEvidence {
+			_ = r.failStagedConfluencePullIncludes(values, nil)
+		}
+		r.pendingIncludeEvidence = nil
 		return err
 	}
-	if qualificationErr := r.result.recordConfluencePullInclude(
-		ConfluencePullIncludeAssets, ConfluencePullIncludeFailed, ConfluencePullIncludeReasonStagingFailed,
-	); qualificationErr != nil {
-		return errors.Join(err, qualificationErr)
+	for _, values := range r.pendingIncludeEvidence {
+		if err := r.recordPublishedConfluencePullIncludes(values); err != nil {
+			return err
+		}
 	}
-	return err
+	r.pendingIncludeEvidence = nil
+	return nil
 }

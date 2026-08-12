@@ -198,6 +198,7 @@ func (cf *Confluence) TreeQualified(ctx context.Context, request domain.Confluen
 	}
 	cursor := confluencePageCursor{}
 	scanned := 0
+	qualifiedTotal := -1
 	for {
 		q := url.Values{}
 		q.Set("cql", "space="+cqlQuote(request.Space)+" and type=page")
@@ -205,10 +206,12 @@ func (cf *Confluence) TreeQualified(ctx context.Context, request domain.Confluen
 		q.Set("limit", "200")
 		q.Set("start", strconv.Itoa(cursor.startAt()))
 		var resp struct {
-			Results *[]content `json:"results"`
-			Start   *int       `json:"start"`
-			Size    *int       `json:"size"`
-			Links   struct {
+			Results   *[]content `json:"results"`
+			Start     *int       `json:"start"`
+			Limit     *int       `json:"limit"`
+			Size      *int       `json:"size"`
+			TotalSize *int       `json:"totalSize"`
+			Links     *struct {
 				Next string `json:"next"`
 			} `json:"_links"`
 		}
@@ -224,14 +227,24 @@ func (cf *Confluence) TreeQualified(ctx context.Context, request domain.Confluen
 				return result, err
 			}
 		}
-		if resp.Results == nil {
+		if resp.Results == nil || resp.Start == nil || resp.Limit == nil || resp.Size == nil ||
+			resp.TotalSize == nil || resp.Links == nil {
 			return partial(domain.ConfluenceTreePartialPaginationUnqualified)
 		}
 		results := *resp.Results
-		if resp.Start != nil && *resp.Start != cursor.startAt() {
+		if *resp.Start < 0 || *resp.Start != cursor.startAt() || *resp.Limit <= 0 ||
+			*resp.Size < 0 || *resp.Size != len(results) || *resp.Size > *resp.Limit || *resp.TotalSize < 0 {
 			return partial(domain.ConfluenceTreePartialPaginationUnqualified)
 		}
-		if resp.Size != nil && *resp.Size != len(results) {
+		if qualifiedTotal < 0 {
+			qualifiedTotal = *resp.TotalSize
+		} else if *resp.TotalSize != qualifiedTotal {
+			return partial(domain.ConfluenceTreePartialPaginationUnqualified)
+		}
+		end, bounded := cursor.checkedEnd(len(results))
+		if !bounded || end > qualifiedTotal ||
+			(resp.Links.Next == "" && end != qualifiedTotal) ||
+			(resp.Links.Next != "" && end >= qualifiedTotal) {
 			return partial(domain.ConfluenceTreePartialPaginationUnqualified)
 		}
 		remaining := request.MaxScannedItems - scanned

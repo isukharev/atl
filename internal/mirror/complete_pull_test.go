@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -197,9 +196,10 @@ func TestCompletePullCheckpointDoesNotReuseProgressAcrossServices(t *testing.T) 
 				t.Fatal(err)
 			}
 			if tc.old == CompletePullServiceConfluence {
-				want := fmt.Sprintf("{\n  \"schema_version\": 1,\n  \"selector_sha256\": %q,\n  \"options_sha256\": %q,\n  \"selection_sha256\": %q,\n  \"next_index\": 1\n}\n", checkpoint.SelectorSHA256, checkpoint.OptionsSHA256, checkpoint.SelectionSHA256)
-				if string(progressBytes) != want {
-					t.Fatalf("legacy Confluence progress bytes changed:\n%s", progressBytes)
+				if !bytes.Contains(progressBytes, []byte(`"schema_version": 3`)) ||
+					!bytes.Contains(progressBytes, []byte(`"service": "confluence"`)) ||
+					!bytes.Contains(progressBytes, []byte(`"evidence_complete": false`)) {
+					t.Fatalf("Confluence progress is not service-qualified with explicit include evidence:\n%s", progressBytes)
 				}
 			}
 			if tc.old == CompletePullServiceJira && (!bytes.Contains(progressBytes, []byte(`"schema_version": 2`)) || !bytes.Contains(progressBytes, []byte(`"service": "jira"`))) {

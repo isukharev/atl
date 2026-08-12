@@ -1192,7 +1192,7 @@ func readConfluenceFooterCommentBody(path string) ([]byte, error) {
 }
 
 func confAttachmentCmd() *cobra.Command {
-	c := &cobra.Command{Use: "attachment", Short: "Attachment list/get/upload/delete"}
+	c := &cobra.Command{Use: "attachment", Short: "Attachment search/list/get/upload/delete"}
 
 	var listID string
 	var listExpectedVersion int
@@ -1320,7 +1320,7 @@ func confAttachmentCmd() *cobra.Command {
 	del.Flags().StringVar(&delAttConfirm, "confirm", "", "must be exactly DELETE with --apply")
 	delAttGuard.register(del)
 
-	c.AddCommand(list, get, upload, del)
+	c.AddCommand(confAttachmentDiscoveryCmd(), list, get, upload, del)
 	return c
 }
 

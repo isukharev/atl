@@ -510,6 +510,15 @@ func boundedAttachmentInventoryOutput(value *app.ConfluenceAttachmentInventoryVi
 		"Confluence attachment inventory exceeds max_bytes; raise the bound")
 }
 
+func boundedConfluenceAttachmentDiscoveryOutput(value *app.ConfluenceAttachmentDiscoveryResult, maxBytes int) error {
+	if err := availableResult(value, "Confluence attachment discovery"); err != nil {
+		return err
+	}
+	return boundedOutput(value, maxBytes,
+		"encode Confluence attachment discovery",
+		"Confluence attachment discovery exceeds max_bytes; narrow the scope or lower max_items before raising the bound")
+}
+
 func boundedConfluenceCommentOutput(value any, maxBytes int) error {
 	if err := availableResult(value, "Confluence comment result"); err != nil {
 		return err

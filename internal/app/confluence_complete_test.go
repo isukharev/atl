@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -289,14 +290,22 @@ func TestCompletePullResumesDurablePrefixWithoutSearchOrRefetch(t *testing.T) {
 		},
 		searchSequence: []domain.PageSearchPage{completeSearchPage("10", "20", "30"), completeSearchPage("10", "20", "30")},
 	}
-	opts := PullOpts{CQL: "space = DOC", Into: root, Complete: true}
-	if _, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), opts); !errors.Is(err, domain.ErrForbidden) || !strings.Contains(err.Error(), "checkpoint is at 2/3") {
-		t.Fatalf("first pull error=%v", err)
+	opts := PullOpts{CQL: "space = DOC", Into: root, Complete: true, Assets: true}
+	firstResult, firstErr := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(context.Background(), opts)
+	if !errors.Is(firstErr, domain.ErrForbidden) || !strings.Contains(firstErr.Error(), "checkpoint is at 2/3") {
+		t.Fatalf("first pull error=%v", firstErr)
+	}
+	firstAssets := confluencePullInclude(t, firstResult, ConfluencePullIncludeAssets)
+	if firstAssets.Qualification != ConfluencePullIncludePartial || firstAssets.Complete == nil || *firstAssets.Complete || firstAssets.Reason != ConfluencePullIncludeReasonNotAttempted {
+		t.Fatalf("first assets include=%+v, want published 2/3 prefix", firstAssets)
 	}
 	selectorSHA256 := selectorHash("space = DOC")
 	checkpoint, ok, err := mirror.New(root).CompletePullCheckpoint(selectorSHA256)
 	if err != nil || !ok || checkpoint.NextIndex != 2 {
 		t.Fatalf("checkpoint=%+v ok=%v err=%v", checkpoint, ok, err)
+	}
+	if !checkpoint.Includes.EvidenceComplete || checkpoint.Includes.Assets.Published != 2 || checkpoint.Includes.Assets.Partial != 0 {
+		t.Fatalf("checkpoint includes=%+v, want durable qualified asset prefix", checkpoint.Includes)
 	}
 	if !reflect.DeepEqual(store.getIDs, []string{"10", "20", "30"}) {
 		t.Fatalf("first getIDs=%v", store.getIDs)
@@ -310,6 +319,50 @@ func TestCompletePullResumesDurablePrefixWithoutSearchOrRefetch(t *testing.T) {
 	}
 	if result.Complete.Source != "resumed" || len(result.Pages) != 1 || result.Pages[0].ID != "30" || !reflect.DeepEqual(store.getIDs, []string{"30"}) || len(store.queries) != 0 {
 		t.Fatalf("result=%+v pages=%+v queries=%v getIDs=%v", result.Complete, result.Pages, store.queries, store.getIDs)
+	}
+	assets := confluencePullInclude(t, result, ConfluencePullIncludeAssets)
+	if assets.Qualification != ConfluencePullIncludeQualified || assets.Complete == nil || !*assets.Complete || assets.Reason != "" {
+		t.Fatalf("resumed assets include=%+v, want aggregate proof for all three pages", assets)
+	}
+}
+
+func TestCompletePullLegacyResumeDoesNotFabricateIncludeEvidence(t *testing.T) {
+	root := t.TempDir()
+	store := &completePullStore{
+		pullStore: &pullStore{
+			pages:   map[string]*domain.Resource{"10": completeTestPage("10"), "20": completeTestPage("20")},
+			getErrs: map[string]error{"20": domain.ErrForbidden},
+		},
+		searchSequence: []domain.PageSearchPage{completeSearchPage("10", "20"), completeSearchPage("10", "20")},
+	}
+	opts := PullOpts{CQL: "space = DOC", Into: root, Complete: true, Assets: true}
+	if _, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(t.Context(), opts); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("first pull error=%v", err)
+	}
+	selectorSHA256 := selectorHash(opts.CQL)
+	checkpoint, ok, err := mirror.New(root).CompletePullCheckpoint(selectorSHA256)
+	if err != nil || !ok || checkpoint.NextIndex != 1 {
+		t.Fatalf("checkpoint=%+v ok=%t err=%v", checkpoint, ok, err)
+	}
+	legacyProgress := fmt.Sprintf(`{"schema_version":1,"selector_sha256":%q,"options_sha256":%q,"selection_sha256":%q,"next_index":1}`,
+		checkpoint.SelectorSHA256, checkpoint.OptionsSHA256, checkpoint.SelectionSHA256)
+	progressPath := filepath.Join(root, ".atl", "complete-pulls", selectorSHA256+".progress.json")
+	if err := os.WriteFile(progressPath, []byte(legacyProgress), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	delete(store.getErrs, "20")
+	store.getIDs = nil
+	store.queries = nil
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(t.Context(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assets := confluencePullInclude(t, result, ConfluencePullIncludeAssets)
+	if assets.Qualification != ConfluencePullIncludePartial || assets.Complete == nil || *assets.Complete || assets.Reason != ConfluencePullIncludeReasonNotAttempted {
+		t.Fatalf("legacy-resumed assets=%+v, want explicit unknown prefix", assets)
+	}
+	if !reflect.DeepEqual(store.getIDs, []string{"20"}) || len(store.queries) != 0 {
+		t.Fatalf("getIDs=%v queries=%v", store.getIDs, store.queries)
 	}
 }
 

@@ -190,6 +190,7 @@ M local-write-updatable local-direct none none - json,text conf apply
 M remote-write preview-apply delete confluence-page-flag apply,confirm,expected-proposal-hash,expected-version pre-config confluence-attachment-delete json conf attachment delete
 R remote-download json,text conf attachment get
 R remote-read json,text,id conf attachment list
+R remote-read-caller-bounded json,text,id conf attachment search
 M remote-write-with-local remote-direct create confluence-page-flag - json conf attachment upload
 M remote-write-with-local remote-direct create confluence-space - json,text,id conf blog create
 M remote-write-with-local preview-apply comment confluence-page-arg apply,expected-proposal-hash command generic json,text conf comment add
@@ -229,7 +230,7 @@ M local-write-updatable local-direct none none - json,text conf reconcile stage
 R local-write-updatable json,text conf render
 R remote-read-fixed json,text,id conf search
 R optional-remote-read json,text conf snapshot
-R remote-read json,text conf space tree
+R remote-read-caller-bounded json,text conf space tree
 R optional-remote-read json,text conf status
 R remote-read-local json,text conf table extract
 R remote-read json,text conf table summary

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/mirror"
 )
 
 const (
@@ -57,11 +58,42 @@ type confluencePullIncludeProgress struct {
 	expected int
 	dryRun   bool
 
-	requested map[string]bool
-	attempted map[string]int
-	partial   map[string]int
-	failed    map[string]int
-	reasons   map[string]string
+	requested          map[string]bool
+	attempted          map[string]int
+	partial            map[string]int
+	failed             map[string]int
+	reasons            map[string]string
+	evidenceIncomplete bool
+}
+
+func (r *PullResult) restoreConfluencePullIncludes(checkpoint mirror.CompletePullCheckpoint) error {
+	progress := r.includeProgress
+	if progress == nil {
+		return fmt.Errorf("%w: Confluence pull include progress is unavailable", domain.ErrCheckFailed)
+	}
+	progress.evidenceIncomplete = !checkpoint.Includes.EvidenceComplete && checkpoint.NextIndex > 0
+	for dimension, aggregate := range map[string]mirror.CompletePullIncludeAggregate{
+		ConfluencePullIncludeAssets: checkpoint.Includes.Assets, ConfluencePullIncludeComments: checkpoint.Includes.Comments,
+	} {
+		if !progress.requested[dimension] {
+			if aggregate != (mirror.CompletePullIncludeAggregate{}) {
+				return fmt.Errorf("%w: complete-pull checkpoint contains evidence for an unrequested include", domain.ErrCheckFailed)
+			}
+			continue
+		}
+		if checkpoint.Includes.EvidenceComplete && aggregate.Published != checkpoint.NextIndex {
+			return fmt.Errorf("%w: complete-pull include evidence does not cover its durable prefix", domain.ErrCheckFailed)
+		}
+		progress.attempted[dimension] = aggregate.Published
+		progress.partial[dimension] = aggregate.Partial
+		progress.reasons[dimension] = aggregate.Reason
+	}
+	r.finalizeConfluencePullIncludes()
+	return nil
+}
+
+func confluencePullIncludeEvidence(dimension, qualification, reason string) domain.ConfluencePullIncludeEvidence {
+	return domain.ConfluencePullIncludeEvidence{Dimension: dimension, Qualification: qualification, Reason: reason}
 }
 
 func newConfluencePullIncludes(opts PullOpts, expected int) ([]ConfluencePullInclude, *confluencePullIncludeProgress) {
@@ -162,6 +194,13 @@ func (r *PullResult) finalizeConfluencePullIncludes() {
 			include.Qualification = ConfluencePullIncludeFailed
 			include.Complete = confluencePullIncludeComplete(false)
 			include.Reason = progress.reasons[include.Dimension]
+		case progress.evidenceIncomplete:
+			include.Qualification = ConfluencePullIncludePartial
+			include.Complete = confluencePullIncludeComplete(false)
+			// Missing evidence for an accepted legacy prefix dominates any
+			// qualified or partial suffix: the aggregate cannot explain that
+			// prefix and must retain the explicit migration reason.
+			include.Reason = ConfluencePullIncludeReasonNotAttempted
 		case progress.attempted[include.Dimension] == 0 && progress.expected > 0:
 			include.Qualification = ConfluencePullIncludeDeferred
 			include.Reason = ConfluencePullIncludeReasonNotAttempted

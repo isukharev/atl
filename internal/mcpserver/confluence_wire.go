@@ -53,6 +53,20 @@ type ConfluenceAttachmentListInput struct {
 	MaxBytes            int    `json:"max_bytes,omitempty" jsonschema:"maximum encoded result bytes from 1024 to 1048576; default 131072"`
 }
 
+// ConfluenceAttachmentSearchInput exposes the same mandatory transport and
+// orchestration bounds as the application use case. deadline_ms is an integer
+// to keep the typed wire independent of Go duration syntax.
+type ConfluenceAttachmentSearchInput struct {
+	Space            string `json:"space,omitempty" jsonschema:"optional exact Confluence space key"`
+	CQL              string `json:"cql,omitempty" jsonschema:"optional additional CQL filter; ORDER BY is forbidden"`
+	Cursor           string `json:"cursor,omitempty" jsonschema:"opaque query-bound live offset cursor from a previous result; not a snapshot token"`
+	MaxItems         int    `json:"max_items" jsonschema:"required attachment item bound from 1 to 10000"`
+	MaxRequests      int    `json:"max_requests" jsonschema:"required physical request bound from 1 to 100"`
+	MaxResponseBytes int64  `json:"max_response_bytes" jsonschema:"required aggregate backend response-byte bound from 1 to 268435456"`
+	DeadlineMillis   int64  `json:"deadline_ms" jsonschema:"required wall-clock deadline in milliseconds from 1 to 600000"`
+	MaxBytes         int    `json:"max_bytes,omitempty" jsonschema:"maximum encoded result bytes from 1024 to 1048576; default 131072"`
+}
+
 // ConfluenceCommentListInput deliberately accepts a page id rather than the
 // general Confluence reference grammar. This keeps URLs, paths, and titles out
 // of both the request and every closed failure path. The backend request bound

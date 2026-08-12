@@ -14,12 +14,13 @@ import (
 )
 
 const (
-	completePullPublicationSchema       = 2 // legacy Confluence schema; bytes are immutable
-	completePullJiraPublicationSchema   = 3 // legacy Jira schema without stable sidecar identity/relocation
-	completePullJiraPublicationSchema4  = 4
-	maxCompletePullPublicationArtifacts = 2048
-	maxCompletePullPublicationBytes     = 256 << 20
-	maxCompletePullPublicationIntent    = 16 << 20
+	completePullPublicationSchema           = 2 // legacy Confluence schema; bytes are immutable
+	completePullJiraPublicationSchema       = 3 // legacy Jira schema without stable sidecar identity/relocation
+	completePullJiraPublicationSchema4      = 4
+	completePullConfluencePublicationSchema = 5
+	maxCompletePullPublicationArtifacts     = 2048
+	maxCompletePullPublicationBytes         = 256 << 20
+	maxCompletePullPublicationIntent        = 16 << 20
 )
 
 type completePullPublicationPreState struct {
