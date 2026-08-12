@@ -20,6 +20,8 @@ const (
 	corpusDocumentsStableID = "indexer-v1-documents"
 	corpusEdgesStableID     = "indexer-v1-edges"
 	corpusReceiptStableID   = "indexer-v1-receipt"
+	corpusArtifactsStableID = "indexer-v2-artifacts"
+	corpusReceiptV2StableID = "indexer-v2-receipt"
 	corpusCaptureStableID   = "capture-v1-receipt"
 )
 
@@ -45,10 +47,10 @@ type CorpusExportOptions struct {
 // selectors, backend origins, object identities, titles, and bodies stay only
 // inside the private generation.
 type CorpusExportResult struct {
-	SchemaVersion int                   `json:"schema_version"`
-	Reused        bool                  `json:"reused"`
-	Projection    corpus.IndexerReceipt `json:"projection"`
-	Generation    corpus.Summary        `json:"generation"`
+	SchemaVersion int                     `json:"schema_version"`
+	Reused        bool                    `json:"reused"`
+	Projection    corpus.IndexerReceiptV2 `json:"projection"`
+	Generation    corpus.Summary          `json:"generation"`
 }
 
 type corpusExportMember struct {
@@ -57,7 +59,7 @@ type corpusExportMember struct {
 }
 
 type corpusProjectionBundle struct {
-	receipt        corpus.IndexerReceipt
+	receipt        corpus.IndexerReceiptV2
 	members        []corpusExportMember
 	qualifications []corpus.Qualification
 }
@@ -70,7 +72,7 @@ type corpusExportSource struct {
 }
 
 // ExportCorpus constructs, seals, and atomically publishes one deterministic
-// indexer-v1 projection from pristine local mirror baselines. It never reads
+// indexer-v2 projection from pristine local mirror baselines. It never reads
 // ambient working native/Markdown files and never performs backend I/O.
 func ExportCorpus(ctx context.Context, options CorpusExportOptions) (*CorpusExportResult, error) {
 	if ctx == nil {
@@ -133,7 +135,7 @@ func ExportCorpus(ctx context.Context, options CorpusExportOptions) (*CorpusExpo
 		equivalent := corpusGenerationEquivalent(current, bundle, options)
 		if equivalent {
 			result := &CorpusExportResult{
-				SchemaVersion: corpus.IndexerSchemaV1,
+				SchemaVersion: corpus.IndexerSchemaV2,
 				Reused:        true, Projection: bundle.receipt, Generation: current.Summary(),
 			}
 			_ = current.Close()
@@ -157,7 +159,7 @@ func ExportCorpus(ctx context.Context, options CorpusExportOptions) (*CorpusExpo
 		}
 	}
 	generation, err := stage.Seal(ctx, corpus.SealOptions{
-		ProjectionSchema:  corpus.IndexerSchemaV1,
+		ProjectionSchema:  corpus.IndexerSchemaV2,
 		GeneratorVersion:  options.GeneratorVersion,
 		BuildState:        options.BuildState,
 		PredecessorDigest: predecessor,
@@ -198,7 +200,7 @@ func ExportCorpus(ctx context.Context, options CorpusExportOptions) (*CorpusExpo
 		return nil, corpusExportFailure("publish generation", err)
 	}
 	return &CorpusExportResult{
-		SchemaVersion: corpus.IndexerSchemaV1,
+		SchemaVersion: corpus.IndexerSchemaV2,
 		Reused:        reused,
 		Projection:    bundle.receipt,
 		Generation:    summary,
@@ -300,17 +302,8 @@ func validateCorpusCaptureSource(snapshot *mirror.CorpusSnapshot, receipt corpus
 	if err != nil || selection != receipt.SelectionDigest {
 		return corpus.ErrIntegrity
 	}
-	states := make(map[corpus.CaptureDimension]corpus.CaptureDimensionState, len(receipt.Dimensions))
-	for _, dimension := range receipt.Dimensions {
-		states[dimension.Dimension] = dimension.State
-	}
-	if states[corpus.CaptureNative] != corpus.CaptureComplete || states[corpus.CaptureMetadata] != corpus.CaptureComplete {
-		return corpus.ErrIntegrity
-	}
-	for _, optional := range []corpus.CaptureDimension{corpus.CaptureComments, corpus.CaptureAttachments} {
-		if states[optional] != corpus.CaptureNotRequested {
-			return corpus.ErrIntegrity
-		}
+	if err := validateCorpusCaptureDimensions(snapshot, receipt.Dimensions); err != nil {
+		return err
 	}
 	return corpus.VerifyCaptureReceipt(receipt, limits)
 }
@@ -341,7 +334,7 @@ func corpusGenerationEquivalent(generation *corpus.Generation, bundle corpusProj
 		return false
 	}
 	manifest := generation.Manifest()
-	if manifest.ProjectionSchema != corpus.IndexerSchemaV1 || manifest.GeneratorVersion != options.GeneratorVersion ||
+	if manifest.ProjectionSchema != corpus.IndexerSchemaV2 || manifest.GeneratorVersion != options.GeneratorVersion ||
 		manifest.BuildState != options.BuildState || manifest.TombstoneDigest != "" ||
 		!sameCorpusQualifications(manifest.Qualifications, bundle.qualifications) || len(manifest.Members) != len(bundle.members) {
 		return false

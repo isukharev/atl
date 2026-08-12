@@ -93,20 +93,31 @@ func CorpusBuildFailure(phase CorpusBuildPhase, err error) error {
 }
 
 type CorpusBuildOptions struct {
-	Root               string
-	Initialize         bool
-	Restart            bool
-	JiraProject        string
-	MaxJiraIssues      int
-	ConfluenceSpace    string
-	MaxConfluencePages int
-	MaxRequests        int
-	MaxResponseBytes   int64
-	MaxMembers         int
-	MaxGenerationBytes int64
-	Deadline           time.Duration
-	MaxInFlight        int
-	RequestsPerSecond  int
+	Root                      string
+	Initialize                bool
+	Restart                   bool
+	JiraProject               string
+	MaxJiraIssues             int
+	ConfluenceSpace           string
+	MaxConfluencePages        int
+	MaxRequests               int
+	MaxResponseBytes          int64
+	MaxMembers                int
+	MaxGenerationBytes        int64
+	Deadline                  time.Duration
+	MaxInFlight               int
+	RequestsPerSecond         int
+	Comments                  bool
+	MaxCommentPagesPerItem    int
+	MaxCommentsPerItem        int
+	Attachments               bool
+	MaxAttachmentPagesPerItem int
+	MaxAttachmentsPerItem     int
+	AttachmentBodies          bool
+	AttachmentMediaTypes      []string
+	MaxAttachmentBytes        int64
+	MaxTotalAttachmentBytes   int64
+	AllowPartialEvidence      bool
 }
 
 type CorpusBuildDependencies struct {
@@ -134,24 +145,25 @@ type CorpusBuildResult struct {
 	Usage         corpus.CaptureUsage        `json:"usage"`
 	ElapsedMS     int64                      `json:"elapsed_ms"`
 	Reused        bool                       `json:"reused"`
-	Projection    corpus.IndexerReceipt      `json:"projection"`
+	Projection    corpus.IndexerReceiptV2    `json:"projection"`
 	Generation    corpus.Summary             `json:"generation"`
 }
 
 type corpusBuildBinding struct {
-	JiraProject        string            `json:"jira_project,omitempty"`
-	MaxJiraIssues      int               `json:"max_jira_issues,omitempty"`
-	ConfluenceSpace    string            `json:"confluence_space,omitempty"`
-	MaxConfluencePages int               `json:"max_confluence_pages,omitempty"`
-	MaxRequests        int               `json:"max_requests"`
-	MaxResponseBytes   int64             `json:"max_response_bytes"`
-	MaxMembers         int               `json:"max_members"`
-	MaxGenerationBytes int64             `json:"max_generation_bytes"`
-	DeadlineNanos      int64             `json:"deadline_nanos"`
-	MaxInFlight        int               `json:"max_in_flight"`
-	RequestsPerSecond  int               `json:"requests_per_second"`
-	GeneratorVersion   string            `json:"generator_version"`
-	BuildState         corpus.BuildState `json:"build_state"`
+	JiraProject        string                `json:"jira_project,omitempty"`
+	MaxJiraIssues      int                   `json:"max_jira_issues,omitempty"`
+	ConfluenceSpace    string                `json:"confluence_space,omitempty"`
+	MaxConfluencePages int                   `json:"max_confluence_pages,omitempty"`
+	MaxRequests        int                   `json:"max_requests"`
+	MaxResponseBytes   int64                 `json:"max_response_bytes"`
+	MaxMembers         int                   `json:"max_members"`
+	MaxGenerationBytes int64                 `json:"max_generation_bytes"`
+	DeadlineNanos      int64                 `json:"deadline_nanos"`
+	MaxInFlight        int                   `json:"max_in_flight"`
+	RequestsPerSecond  int                   `json:"requests_per_second"`
+	GeneratorVersion   string                `json:"generator_version"`
+	BuildState         corpus.BuildState     `json:"build_state"`
+	Evidence           corpusEvidenceBinding `json:"evidence"`
 }
 
 // ValidateCorpusBuildOptions checks the complete static command contract. It
@@ -195,7 +207,7 @@ func ValidateCorpusBuildOptions(options CorpusBuildOptions) error {
 		options.RequestsPerSecond <= 0 || options.RequestsPerSecond > corpusBuildMaxRequestsRate {
 		return fmt.Errorf("%w: corpus build bounds are invalid", domain.ErrUsage)
 	}
-	return nil
+	return validateCorpusEvidenceOptions(options)
 }
 
 func validCorpusConfluenceSpace(value string) bool {

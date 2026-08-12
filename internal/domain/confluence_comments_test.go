@@ -21,7 +21,7 @@ func TestConfluenceCommentEnumsSeparateResolvedSelectorFromLocation(t *testing.T
 	if ValidConfluenceCommentLocation(ConfluenceCommentLocation("resolved")) {
 		t.Fatal("resolved must not be an emitted semantic location")
 	}
-	for _, reason := range []string{ConfluenceCommentPartialPageLimit, ConfluenceCommentPartialAnchorAmbiguous, ConfluenceCommentPartialLegacyUnqualified} {
+	for _, reason := range []string{ConfluenceCommentPartialPageLimit, ConfluenceCommentPartialAnchorAmbiguous, ConfluenceCommentPartialForbidden, ConfluenceCommentPartialLegacyUnqualified} {
 		if !ValidConfluenceCommentPartialReason(reason) {
 			t.Fatalf("static reason %q is not valid", reason)
 		}

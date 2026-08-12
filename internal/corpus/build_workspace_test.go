@@ -80,6 +80,60 @@ func TestBuildWorkspacePersistsAttemptActiveAndReceipt(t *testing.T) {
 	}
 }
 
+func TestBuildWorkspaceMigratesLegacyActivePathWithoutAmbiguousCoexistence(t *testing.T) {
+	root := privateBuildWorkspaceRoot(t)
+	workspace, err := InitializeBuildWorkspace(context.Background(), root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attemptID, _, err := workspace.BeginAttempt([]Service{ServiceJira})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacySource := buildWorkspaceActive(attemptID, mustCaptureReceipt(t, validCaptureReceiptInput()))
+	legacyBytes, err := marshalCanonical(buildActiveV1Projection(legacySource))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, buildActiveFileV1), legacyBytes, privateFileMode); err != nil {
+		t.Fatal(err)
+	}
+	loaded, found, err := workspace.LoadActive()
+	if err != nil || !found || loaded.SchemaVersion != BuildActiveSchemaV1 {
+		t.Fatalf("legacy active=%#v found=%t error=%v", loaded, found, err)
+	}
+	loaded.SchemaVersion = BuildActiveSchemaV2
+	workspace.store.testHook = func(step string) error {
+		if step == "after_build_active_current_sync" {
+			return errors.New("fault")
+		}
+		return nil
+	}
+	if err := workspace.SaveActive(loaded); !errors.Is(err, ErrOutcomeUnknown) {
+		t.Fatalf("migration outcome = %v", err)
+	}
+	workspace.store.testHook = nil
+	if current, found, err := workspace.LoadActive(); err != nil || !found || current.SchemaVersion != BuildActiveSchemaV2 {
+		t.Fatalf("coexisting migration active=%#v found=%t error=%v", current, found, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, buildActiveFileV1)); err != nil {
+		t.Fatalf("legacy active missing at ambiguous migration boundary: %v", err)
+	}
+	if err := workspace.SaveActive(loaded); err != nil {
+		t.Fatalf("migration reconciliation: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, buildActiveFileV1)); !os.IsNotExist(err) {
+		t.Fatalf("legacy active path survived migration: %v", err)
+	}
+	if info, err := os.Stat(filepath.Join(root, buildActiveFile)); err != nil || !exactRegularMode(info.Mode(), privateFileMode) {
+		t.Fatalf("current active mode=%v error=%v", infoMode(info), err)
+	}
+	loaded, found, err = workspace.LoadActive()
+	if err != nil || !found || loaded.SchemaVersion != BuildActiveSchemaV2 {
+		t.Fatalf("current active=%#v found=%t error=%v", loaded, found, err)
+	}
+}
+
 func TestBuildWorkspaceSerializesWritersAndReleasesOnClose(t *testing.T) {
 	root := privateBuildWorkspaceRoot(t)
 	first, err := InitializeBuildWorkspace(context.Background(), root, Options{})
@@ -332,6 +386,26 @@ func TestBuildWorkspaceFailsClosedOnPartialOrTamperedState(t *testing.T) {
 		}
 	})
 
+	for name, data := range map[string][]byte{
+		"unversioned active": []byte("{}\n"),
+		"future active":      []byte("{\"schema_version\":3}\n"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := privateBuildWorkspaceRoot(t)
+			workspace, err := InitializeBuildWorkspace(context.Background(), root, Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = workspace.Close()
+			if err := os.WriteFile(filepath.Join(root, buildActiveFile), data, privateFileMode); err != nil {
+				t.Fatal(err)
+			}
+			if workspace, err := OpenBuildWorkspace(context.Background(), root, Options{}); err == nil || workspace != nil {
+				t.Fatalf("workspace=%#v err=%v", workspace, err)
+			}
+		})
+	}
+
 	t.Run("mismatched receipt", func(t *testing.T) {
 		root := privateBuildWorkspaceRoot(t)
 		workspace, err := InitializeBuildWorkspace(context.Background(), root, Options{})
@@ -367,7 +441,7 @@ func privateBuildWorkspaceRoot(t *testing.T) string {
 func buildWorkspaceActive(attemptID string, receipt CaptureReceipt) BuildActive {
 	started := time.Date(2026, 1, 2, 3, 0, 0, 0, time.UTC)
 	return BuildActive{
-		SchemaVersion: BuildActiveSchemaV1, AttemptID: attemptID, Status: BuildAttemptActive,
+		SchemaVersion: BuildActiveSchemaV2, AttemptID: attemptID, Status: BuildAttemptActive,
 		OptionsDigest: digestByte('9'),
 		Services:      []BuildServiceState{{Service: ServiceJira, SelectorDigest: receipt.SelectorDigest}},
 		StartedAt:     NewBuildActiveTime(started), Deadline: NewBuildActiveTime(started.Add(time.Hour)),

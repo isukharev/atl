@@ -19,7 +19,7 @@ func newCorpusCmd() *cobra.Command {
 	var initializeStore, allowUnreconciled bool
 	export := &cobra.Command{
 		Use:   "export",
-		Short: "Project pristine local mirrors into a sealed indexer-v1 generation",
+		Short: "Project pristine local mirrors into a sealed indexer-v2 generation",
 		Args: func(_ *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErr("corpus export accepts no positional arguments")
@@ -126,6 +126,17 @@ func newCorpusCmd() *cobra.Command {
 	build.Flags().DurationVar(&buildOptions.Deadline, "deadline", 0, "absolute attempt duration budget")
 	build.Flags().IntVar(&buildOptions.MaxInFlight, "max-in-flight", 0, "shared concurrent HTTP attempt cap")
 	build.Flags().IntVar(&buildOptions.RequestsPerSecond, "requests-per-second", 0, "shared HTTP start-rate cap")
+	build.Flags().BoolVar(&buildOptions.Comments, "comments", false, "capture qualified comments for every selected item")
+	build.Flags().IntVar(&buildOptions.MaxCommentPagesPerItem, "max-comment-pages-per-item", 0, "comment page cap for each selected item")
+	build.Flags().IntVar(&buildOptions.MaxCommentsPerItem, "max-comments-per-item", 0, "comment count cap for each selected item")
+	build.Flags().BoolVar(&buildOptions.Attachments, "attachments", false, "capture qualified attachment inventories")
+	build.Flags().IntVar(&buildOptions.MaxAttachmentPagesPerItem, "max-attachment-pages-per-item", 0, "attachment page cap for each selected item")
+	build.Flags().IntVar(&buildOptions.MaxAttachmentsPerItem, "max-attachments-per-item", 0, "attachment count cap for each selected item")
+	build.Flags().BoolVar(&buildOptions.AttachmentBodies, "attachment-bodies", false, "capture allowlisted native attachment bodies")
+	build.Flags().StringArrayVar(&buildOptions.AttachmentMediaTypes, "attachment-media-type", nil, "exact allowed attachment MIME type (repeatable)")
+	build.Flags().Int64Var(&buildOptions.MaxAttachmentBytes, "max-attachment-bytes", 0, "per-attachment body byte cap")
+	build.Flags().Int64Var(&buildOptions.MaxTotalAttachmentBytes, "max-total-attachment-bytes", 0, "generation-wide attachment body byte cap")
+	build.Flags().BoolVar(&buildOptions.AllowPartialEvidence, "allow-partial-evidence", false, "publish requested evidence with explicit partial qualifications")
 
 	group.AddCommand(build, export)
 	return group

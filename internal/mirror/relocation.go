@@ -13,8 +13,10 @@ import (
 
 // PageRelocation is an immutable, hash-bound plan for retiring one page's old
 // primary artifacts after its replacement path and sidecar state are durable.
-// Descendant directories, assets, comment caches, and unrelated files are
-// deliberately outside the plan and are never recursively removed.
+// Descendant directories, render assets, comment caches, and unrelated files
+// are deliberately outside the plan and are never recursively removed. An
+// exact qualified attachment inventory and only the body files it owns may be
+// included explicitly.
 type PageRelocation struct {
 	id, newRel      string
 	oldCSF, oldMD   string
@@ -25,6 +27,13 @@ type PageRelocation struct {
 	tombstoneHash   string
 	tombstoneExists bool
 	sourcePresent   bool
+	owned           []pageRelocationArtifact
+	attachmentDir   string
+}
+
+type pageRelocationArtifact struct {
+	path string
+	hash string
 }
 
 type relocationTombstone struct {
@@ -62,7 +71,10 @@ func (m *Mirror) PlanPageRelocation(id, newRel string, pristineMD []byte) (*Page
 		return nil, fmt.Errorf("%w: inspect relocation ownership marker %s: %v", domain.ErrCheckFailed, oldTombstone, err)
 	}
 	newCSF := filepath.Join(m.Root, filepath.FromSlash(newRel))
-	for _, target := range []string{newCSF, strings.TrimSuffix(newCSF, ".csf") + ".md", strings.TrimSuffix(newCSF, ".csf") + ".meta.json"} {
+	newBase := strings.TrimSuffix(newCSF, ".csf")
+	for _, target := range []string{
+		newCSF, newBase + ".md", newBase + ".meta.json", newBase + ".attachments.json", newBase + ".attachments",
+	} {
 		if _, err := safepath.ReadFileWithin(m.Root, target); err == nil {
 			return nil, fmt.Errorf("%w: relocation target %s already contains a page artifact; preserve both copies and resolve the collision manually", domain.ErrCheckFailed, target)
 		} else if !os.IsNotExist(err) {
@@ -135,12 +147,78 @@ func (m *Mirror) PlanPageRelocation(id, newRel string, pristineMD []byte) (*Page
 		}
 		return nil, fmt.Errorf("%w: tracked relocation view %s has unapplied Markdown edits; preserve/apply them before re-pulling", domain.ErrCheckFailed, oldMD)
 	}
-	return &PageRelocation{
+	plan := &PageRelocation{
 		id: id, newRel: newRel, oldCSF: oldCSF, oldMD: oldMD, oldMeta: oldMeta,
 		csfHash: Hash(csfBytes), mdHash: Hash(mdBytes), metaHash: Hash(metaBytes),
 		tombstonePath: oldTombstone, tombstoneHash: oldTombstoneHash, tombstoneExists: oldTombstoneExists,
 		sourcePresent: true,
-	}, nil
+	}
+	if err := m.planConfluenceAttachmentRelocation(plan, strings.TrimSuffix(oldCSF, ".csf"), st, metaBytes); err != nil {
+		return nil, err
+	}
+	return plan, nil
+}
+
+func (m *Mirror) planConfluenceAttachmentRelocation(plan *PageRelocation, oldBase string, state SyncState, metadata []byte) error {
+	sidecarPath := oldBase + ".attachments.json"
+	sidecarBytes, sidecarErr := safepath.ReadFileWithin(m.Root, sidecarPath)
+	expectedBodies := map[string]string{}
+	if sidecarErr == nil {
+		attachments, decodeErr := DecodeAttachmentSidecarV1(sidecarBytes)
+		binding, found, bindingErr := m.BackendBinding(CorpusSnapshotConfluence)
+		if bindingErr != nil {
+			return bindingErr
+		}
+		if decodeErr != nil || !found || attachments.Service != CorpusSnapshotConfluence || attachments.OriginSHA256 != binding.OriginSHA256 ||
+			attachments.ParentID != state.ID || attachments.ParentVersion != state.Version || attachments.ParentRevision != "" ||
+			attachments.NativeSHA256 != state.Hash || attachments.MetadataSHA256 != Hash(metadata) {
+			return fmt.Errorf("%w: Confluence relocation attachment evidence does not prove ownership by the old page", domain.ErrCheckFailed)
+		}
+		plan.owned = append(plan.owned, pageRelocationArtifact{path: sidecarPath, hash: Hash(sidecarBytes)})
+		rootRelative, err := filepath.Rel(m.Root, oldBase)
+		if err != nil {
+			return fmt.Errorf("%w: qualify Confluence relocation attachment root", domain.ErrCheckFailed)
+		}
+		bodyPrefix := filepath.ToSlash(rootRelative) + ".attachments/"
+		for _, attachment := range attachments.Attachments {
+			if attachment.Body.State != AttachmentBodyCaptured {
+				continue
+			}
+			bodyPath := filepath.ToSlash(attachment.Body.Path)
+			if !strings.HasPrefix(bodyPath, bodyPrefix) {
+				return fmt.Errorf("%w: Confluence relocation attachment body is outside the old page", domain.ErrCheckFailed)
+			}
+			absolute := filepath.Join(m.Root, filepath.FromSlash(bodyPath))
+			body, readErr := safepath.ReadFileWithin(m.Root, absolute)
+			if readErr != nil || int64(len(body)) != attachment.Body.Size || Hash(body) != attachment.Body.SHA256 {
+				return fmt.Errorf("%w: Confluence relocation attachment body is missing or changed", domain.ErrCheckFailed)
+			}
+			plan.owned = append(plan.owned, pageRelocationArtifact{path: absolute, hash: attachment.Body.SHA256})
+			expectedBodies[filepath.Base(absolute)] = attachment.Body.SHA256
+		}
+	} else if !os.IsNotExist(sidecarErr) {
+		return fmt.Errorf("%w: inspect Confluence relocation attachment evidence", domain.ErrCheckFailed)
+	}
+	plan.attachmentDir = oldBase + ".attachments"
+	entries, readDirErr := safepath.ReadDirWithin(m.Root, plan.attachmentDir)
+	if readDirErr == nil {
+		if len(entries) != len(expectedBodies) {
+			return fmt.Errorf("%w: Confluence relocation attachment directory differs from its ownership inventory", domain.ErrCheckFailed)
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				return fmt.Errorf("%w: Confluence relocation attachment directory contains an unowned entry", domain.ErrCheckFailed)
+			}
+			if _, present := expectedBodies[entry.Name()]; !present {
+				return fmt.Errorf("%w: Confluence relocation attachment directory contains an unowned entry", domain.ErrCheckFailed)
+			}
+		}
+	} else if !os.IsNotExist(readDirErr) {
+		return fmt.Errorf("%w: inspect Confluence relocation attachment directory", domain.ErrCheckFailed)
+	} else if len(expectedBodies) != 0 {
+		return fmt.Errorf("%w: Confluence relocation attachment directory is missing", domain.ErrCheckFailed)
+	}
+	return nil
 }
 
 // RetirePageRelocation revalidates the reviewed source hashes, then removes
@@ -172,6 +250,9 @@ func (m *Mirror) RetirePageRelocation(plan *PageRelocation) error {
 	}
 	artifacts := []struct{ path, hash string }{
 		{plan.oldCSF, plan.csfHash}, {plan.oldMD, plan.mdHash}, {plan.oldMeta, plan.metaHash},
+	}
+	for _, owned := range plan.owned {
+		artifacts = append(artifacts, struct{ path, hash string }{owned.path, owned.hash})
 	}
 	// Preserve directory ownership before removing the primary meta. Otherwise
 	// a later page with the same slug could inherit this page's retained
@@ -211,6 +292,9 @@ func (m *Mirror) RetirePageRelocation(plan *PageRelocation) error {
 				return fmt.Errorf("%w: retire old page artifact %s: %v", domain.ErrCheckFailed, artifact.path, err)
 			}
 		}
+	}
+	if plan.attachmentDir != "" {
+		_ = safepath.RemoveWithin(m.Root, plan.attachmentDir)
 	}
 	// os.Remove semantics through RemoveWithin are non-recursive. Ignore a
 	// non-empty directory: it may contain descendants, assets, comment caches,

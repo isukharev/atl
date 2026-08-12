@@ -61,10 +61,10 @@ func (t *jiraCompleteTracker) GetIssue(_ context.Context, key string, _ []string
 func completeJiraIssues() []domain.Issue {
 	return []domain.Issue{
 		{ID: "9", Key: "PROJ-9", Project: "PROJ", Summary: "nine", Body: "native nine", Fields: map[string]any{
-			"project": map[string]any{"key": "PROJ"}, "summary": "nine", "description": "native nine",
+			"project": map[string]any{"key": "PROJ"}, "summary": "nine", "description": "native nine", "issuelinks": []any{},
 		}},
 		{ID: "10", Key: "PROJ-10", Project: "PROJ", Summary: "ten", Body: "native ten", Fields: map[string]any{
-			"project": map[string]any{"key": "PROJ"}, "summary": "ten", "description": "native ten",
+			"project": map[string]any{"key": "PROJ"}, "summary": "ten", "description": "native ten", "issuelinks": []any{},
 		}},
 	}
 }

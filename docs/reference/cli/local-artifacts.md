@@ -35,8 +35,8 @@ Flags:
 
 Capture one nominated Jira project, one nominated Confluence space, or both
 into separate private attempt mirrors, reconcile each qualified complete pull
-with its pristine provider-ID inventory, project canonical `indexer-v1`
-members, and atomically select one sealed `ready` generation. The command never
+with its pristine provider-ID inventory, project canonical `indexer-v2`
+members, and atomically select one sealed generation. The command never
 discovers projects or spaces and never sends a mutating backend request.
 
 The caller creates the owner-only trust root. Initialization is explicit and
@@ -51,7 +51,11 @@ atl corpus build \
   --confluence-space DOCS --max-confluence-pages 5000 \
   --max-requests 20000 --max-response-bytes 4294967296 \
   --max-members 100000 --max-generation-bytes 8589934592 \
-  --deadline 2h --max-in-flight 4 --requests-per-second 20
+  --deadline 2h --max-in-flight 4 --requests-per-second 20 \
+  --comments --max-comment-pages-per-item 32 --max-comments-per-item 1000 \
+  --attachments --max-attachment-pages-per-item 32 --max-attachments-per-item 1000 \
+  --attachment-bodies --attachment-media-type application/pdf \
+  --max-attachment-bytes 67108864 --max-total-attachment-bytes 268435456
 ```
 
 Later captures omit `--initialize`. `--read-only` or `ATL_READ_ONLY=1` is a
@@ -68,9 +72,14 @@ services share the same attempt, response-byte, concurrency, and start-rate
 guards. Captures run sequentially and record independent windows; a two-service
 generation never claims one remote atomic instant. The derived view is fixed to
 the minimal profile with Confluence Jira-macro expansion off. Comments and
-attachments are recorded as `not_requested` in this command version. Even with
-`--verbose`, request URLs and response paths are rendered as `<redacted>` so a
-selector or object identity cannot enter the trace.
+attachment inventories are opt-in and otherwise remain `not_requested`.
+Requested Jira comments use the dedicated paginated endpoint; both services
+bind comment and attachment evidence to the exact parent identity/revision in
+the generation. Attachment bodies are separately opt-in, use only
+adapter-qualified references, require an exact repeatable MIME allowlist, and
+stream through contained owner-private files. Narrative URLs are never
+fetched. Even with `--verbose`, request URLs and response paths are rendered as
+`<redacted>` so a selector or object identity cannot enter the trace.
 
 | flag | description |
 |---|---|
@@ -82,12 +91,30 @@ selector or object identity cannot enter the trace.
 | `--confluence-space` | canonical Confluence space key; optional when Jira is selected |
 | `--max-confluence-pages` | required Confluence selection cap, `1..100000`, only with `--confluence-space` |
 | `--max-requests` | aggregate physical HTTP-attempt cap, `1..10000000` |
-| `--max-response-bytes` | aggregate buffered response-byte cap, `1..68719476736` |
+| `--max-response-bytes` | aggregate consumed response-byte cap, including streamed bodies, `1..68719476736` |
 | `--max-members` | sealed member and per-snapshot item guard, `1..100000` |
 | `--max-generation-bytes` | sealed generation and per-snapshot byte guard, `1..68719476736` |
 | `--deadline` | original attempt duration, greater than zero and at most `24h` |
 | `--max-in-flight` | shared concurrent physical-attempt cap, `1..8` |
 | `--requests-per-second` | shared request-start cap, `1..1000` |
+| `--comments` | request qualified comments for every selected issue/page |
+| `--max-comment-pages-per-item` | required with `--comments`, `1..100` |
+| `--max-comments-per-item` | required with `--comments`, `1..10000` |
+| `--attachments` | request qualified attachment inventories for every selected issue/page |
+| `--max-attachment-pages-per-item` | required with `--attachments`, `1..100` |
+| `--max-attachments-per-item` | required with `--attachments`, `1..10000` |
+| `--attachment-bodies` | capture allowlisted native attachment bytes; requires `--attachments` |
+| `--attachment-media-type` | exact lowercase MIME type; repeatable, no wildcards/parameters, at most 64 values |
+| `--max-attachment-bytes` | required per-body bound, `1..67108864` |
+| `--max-total-attachment-bytes` | required generation-wide body bound, at least the per-body bound and at most `268435456` |
+| `--allow-partial-evidence` | permit requested incomplete/forbidden evidence with explicit `partial` readiness; strict failure is the default |
+
+Pagination or parent drift, size/hash mismatch, interrupted download, and a
+requested body outside a count/byte bound prevent publication by default. With
+`--allow-partial-evidence`, only closed reasons and states are sealed and the
+generation is visibly `partial`, never `ready`. A MIME exclusion is a complete
+policy decision. Binary bytes remain distinct `asset` members and are never
+embedded in Markdown or JSONL.
 
 An ordinary returned read error durably records consumed budget and permits an
 exact resume with unchanged options and the original deadline. A hard process
@@ -113,7 +140,7 @@ the exact durability and privacy model.
 ## `atl corpus export`
 
 Project the pristine baselines of one or two initialized mirrors into a private,
-sealed `indexer-v1` generation. This command is deliberately zero-egress: it
+sealed `indexer-v2` generation. This command is deliberately zero-egress: it
 does not load global configuration or credentials, contact a backend, or check
 for updates. It reads `.atl` baselines and correlated metadata, not ambient
 working `.csf`, `.wiki`, or `.md` edits.

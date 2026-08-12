@@ -40,6 +40,9 @@ func attachmentServer(t *testing.T, handler http.HandlerFunc) *Confluence {
 // Natural exhaustion is the only path that may report a complete inventory.
 func TestListAttachmentsQualifiedCompleteAcrossPages(t *testing.T) {
 	cf := attachmentServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("expand"); got != "version,metadata" {
+			t.Fatalf("legacy expand=%q", got)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Query().Get("start") == "0" {
 			_, _ = w.Write([]byte(attachmentPage("/rest/api/content/300/child/attachment?start=2", "a1", "a2")))
@@ -73,6 +76,26 @@ func TestListAttachmentsQualifiedEmptyIsCompleteAndNonNil(t *testing.T) {
 	}
 	if !inventory.Complete || inventory.PartialReason != "" || len(inventory.Attachments) != 0 {
 		t.Fatalf("inventory=%+v", inventory)
+	}
+}
+
+func TestListAttachmentsQualifiedBoundedUsesExplicitLimitsAndStableMetadata(t *testing.T) {
+	requests := 0
+	cf := attachmentServer(t, func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		if got := r.URL.Query().Get("expand"); got != "version,metadata,history.createdBy" {
+			t.Fatalf("expand=%q", got)
+		}
+		_, _ = w.Write([]byte(`{"results":[{"id":"7","title":"a.bin","metadata":{"mediaType":"application/octet-stream"},"extensions":{"fileSize":3},"version":{"number":2},"history":{"createdDate":"2026-01-01","createdBy":{"userKey":"stable","username":"user","displayName":"Fixture"}}}],"_links":{"next":"/rest/api/content/300/child/attachment?start=1"}}`))
+	})
+	inventory, err := cf.ListAttachmentsQualifiedBounded(t.Context(), "300", domain.AttachmentReadOptions{MaxPages: 1, MaxItems: 2})
+	if err != nil || inventory.Complete || inventory.PartialReason != domain.AttachmentPartialPageLimit || requests != 1 {
+		t.Fatalf("inventory=%+v requests=%d error=%v", inventory, requests, err)
+	}
+	attachment := inventory.Attachments[0]
+	if attachment.ID != "7" || attachment.Version != 2 || attachment.AuthorKey != "stable" || attachment.Created != "2026-01-01" {
+		t.Fatalf("attachment=%+v", attachment)
 	}
 }
 
@@ -187,6 +210,7 @@ func TestListAttachmentsQualifiedPropagatesBackendErrors(t *testing.T) {
 // The adapter satisfies both the legacy port method and the optional qualified
 // capability, which is what lets the application layer select at runtime.
 var (
-	_ domain.DocStore                  = (*Confluence)(nil)
-	_ domain.QualifiedAttachmentLister = (*Confluence)(nil)
+	_ domain.DocStore                         = (*Confluence)(nil)
+	_ domain.QualifiedAttachmentLister        = (*Confluence)(nil)
+	_ domain.BoundedQualifiedAttachmentLister = (*Confluence)(nil)
 )

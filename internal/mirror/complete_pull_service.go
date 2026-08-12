@@ -183,7 +183,10 @@ func validateCompletePullArtifactRole(service CompletePullService, entry Complet
 		case CompletePullArtifactRoleBase:
 			validRemoval = validRemoval && rel == filepath.ToSlash(filepath.Join(".atl", "base", previous.ID+".wiki")) && qualified.class == artifactPathClassPrivateBase
 		case CompletePullArtifactRoleAuxiliary:
-			validRemoval = validRemoval && qualified.class == artifactPathClassPublic && (rel == previousStem+".epic-children.json" || strings.HasPrefix(rel, previousStem+".assets/"))
+			validRemoval = validRemoval && qualified.class == artifactPathClassPublic &&
+				(rel == previousStem+".epic-children.json" || rel == previousStem+".comments.json" ||
+					rel == previousStem+".attachments.json" || strings.HasPrefix(rel, previousStem+".assets/") ||
+					strings.HasPrefix(rel, previousStem+".attachments/"))
 		default:
 			validRemoval = false
 		}
@@ -215,7 +218,10 @@ func validateCompletePullArtifactRole(service CompletePullService, entry Complet
 		}
 	case CompletePullArtifactRoleAuxiliary:
 		epic := stem + ".epic-children.json"
+		comments := stem + ".comments.json"
+		attachments := stem + ".attachments.json"
 		assetPrefix := stem + ".assets/"
+		attachmentPrefix := stem + ".attachments/"
 		switch {
 		case rel == epic && qualified.class == artifactPathClassPublic && !bestEffort:
 			if remove {
@@ -226,6 +232,8 @@ func validateCompletePullArtifactRole(service CompletePullService, entry Complet
 				return fmt.Errorf("invalid Jira auxiliary mode")
 			}
 		case strings.HasPrefix(rel, assetPrefix) && qualified.class == artifactPathClassPublic && !remove && !bestEffort && mode == 0o644:
+		case (rel == comments || rel == attachments) && writable(rel, artifactPathClassPublic, 0o600, false):
+		case strings.HasPrefix(rel, attachmentPrefix) && qualified.class == artifactPathClassPublic && !remove && !bestEffort && mode == 0o600:
 		default:
 			return fmt.Errorf("invalid Jira auxiliary artifact")
 		}

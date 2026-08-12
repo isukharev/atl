@@ -23,11 +23,12 @@ const (
 )
 
 type jiraCompletePullBinding struct {
-	Fields         []string         `json:"fields"`
-	Render         mirror.ViewState `json:"render"`
-	OverwriteLocal bool             `json:"overwrite_local"`
-	StashLocal     bool             `json:"stash_local"`
-	MaxIssues      int              `json:"max_issues"`
+	Fields         []string               `json:"fields"`
+	Render         mirror.ViewState       `json:"render"`
+	OverwriteLocal bool                   `json:"overwrite_local"`
+	StashLocal     bool                   `json:"stash_local"`
+	MaxIssues      int                    `json:"max_issues"`
+	Evidence       *corpusEvidenceBinding `json:"evidence,omitempty"`
 }
 
 type jiraCompletePass struct {
@@ -71,10 +72,16 @@ func jiraCompleteSelectorHash(project string) (string, error) {
 }
 
 func jiraCompleteOptionsHash(opts JiraPullOpts, fields []string, view mirror.ViewState) (string, error) {
-	return confluenceCompleteHashJSON(jiraCompletePullBinding{
+	binding := jiraCompletePullBinding{
 		Fields: append([]string(nil), fields...), Render: view,
 		OverwriteLocal: opts.OverwriteLocal, StashLocal: opts.StashLocal, MaxIssues: opts.MaxIssues,
-	})
+	}
+	if opts.evidence != nil {
+		evidence := opts.evidence.binding
+		evidence.AttachmentMediaTypes = append([]string{}, evidence.AttachmentMediaTypes...)
+		binding.Evidence = &evidence
+	}
+	return confluenceCompleteHashJSON(binding)
 }
 
 func jiraNumericIdentityLess(left, right string) bool {
@@ -308,7 +315,14 @@ func jiraCompleteTargetCollision(m *mirror.Mirror, identity string, paths jiraPu
 		}
 		return nil
 	}
-	for _, path := range []string{paths.snapshot, paths.epicChildren, filepath.Join(paths.dir, paths.keySeg+".assets"), filepath.Join(m.Root, ".atl", "base", paths.keySeg+wikiExt)} {
+	for _, path := range []string{
+		paths.snapshot, paths.epicChildren,
+		strings.TrimSuffix(paths.wiki, wikiExt) + ".comments.json",
+		strings.TrimSuffix(paths.wiki, wikiExt) + ".attachments.json",
+		filepath.Join(paths.dir, paths.keySeg+".attachments"),
+		filepath.Join(paths.dir, paths.keySeg+".assets"),
+		filepath.Join(m.Root, ".atl", "base", paths.keySeg+wikiExt),
+	} {
 		if _, statErr := safepath.StatWithin(m.Root, path); statErr == nil {
 			return fmt.Errorf("%w: untracked complete Jira target contains local artifacts", domain.ErrCheckFailed)
 		} else if !os.IsNotExist(statErr) {
@@ -531,13 +545,21 @@ func (s *JiraService) pullJiraComplete(ctx context.Context, opts JiraPullOpts) (
 		if qualified.pending != nil {
 			return res, fmt.Errorf("%w: complete Jira pull cannot replace an issue with pending field edits", domain.ErrCheckFailed)
 		}
+		state, view, artifacts, prepareErr := prepareJiraCompleteArtifacts(issue, paths, settings)
+		if prepareErr != nil {
+			return res, prepareErr
+		}
+		evidence, evidenceErr := s.captureJiraCorpusEvidence(ctx, m, issue, paths, opts.evidence)
+		if evidenceErr != nil {
+			return res, evidenceErr
+		}
 		if err := revalidatePullFile(root, paths.wiki, qualified.localWiki, qualified.nativeExisted, paths.keySeg, "native substrate"); err != nil {
 			return res, err
 		}
 		if err := revalidatePullFile(root, paths.markdown, qualified.qualifiedView, qualified.viewExisted, paths.keySeg, "derived view"); err != nil {
 			return res, err
 		}
-		state, view, artifacts, prepareErr := prepareJiraCompleteArtifacts(issue, paths, settings)
+		artifacts, prepareErr = finalizeJiraCorpusEvidence(m, issue, paths, state, artifacts, evidence)
 		if prepareErr != nil {
 			return res, prepareErr
 		}

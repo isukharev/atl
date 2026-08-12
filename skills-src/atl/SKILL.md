@@ -429,6 +429,15 @@ root and repeat exact options without `--restart`; the verified generation may
 already be current, so let ATL reconcile the visible pointer and active record.
 Build and restart never grant backend-write or cleanup authority.
 
+Comments and attachment inventories are opt-in and require explicit per-item
+page/count bounds. Native attachment bodies additionally require
+`--attachment-bodies`, one or more exact repeatable `--attachment-media-type`
+values, and per-item plus generation-wide byte bounds. Do not use wildcards or
+derive media types from filenames. Strict mode is the default; use
+`--allow-partial-evidence` only when the consumer accepts visibly partial
+qualification. Binary `asset` members stay separate from Markdown/JSONL, and
+ATL never follows narrative URLs, performs OCR, or expands archives.
+
 ## Reacting to results
 
 `atl` prints JSON to stdout by default. Use `-o text` only where the command

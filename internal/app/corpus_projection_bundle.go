@@ -11,11 +11,20 @@ func assembleCorpusProjectionBundle(sources []corpusExportSource, indexed []corp
 	qualifications := make([]corpus.IndexerQualification, 0, len(indexed))
 	for _, source := range indexed {
 		if source.source.capture != nil {
+			state := corpus.QualificationReady
+			reasons := []corpus.QualificationReason{}
+			for _, dimension := range source.source.capture.Dimensions {
+				if dimension.State == corpus.CapturePartial {
+					state = corpus.QualificationPartial
+					reasons = []corpus.QualificationReason{corpus.QualificationIncompletePull}
+					break
+				}
+			}
 			qualifications = append(qualifications, corpus.IndexerQualification{
-				Service: source.source.service, State: corpus.QualificationReady,
+				Service: source.source.service, State: state,
 				Basis: corpus.QualificationReceipt, ScopeDigest: source.source.capture.ScopeDigest,
 				SourceReceiptDigest: source.source.capture.ReceiptDigest,
-				Reasons:             []corpus.QualificationReason{},
+				Reasons:             reasons,
 			})
 		} else {
 			reasons := []corpus.QualificationReason{corpus.QualificationLegacyMirror}
@@ -43,15 +52,32 @@ func assembleCorpusProjectionBundle(sources []corpusExportSource, indexed []corp
 	if err != nil {
 		return corpusProjectionBundle{}, fmt.Errorf("encode corpus edges: %w", err)
 	}
-	receipt, err := corpus.BuildIndexerReceipt(qualifications, builder.documents, builder.edges, builder.markdown, limits)
+	artifactBytes, err := corpus.CanonicalIndexerArtifacts(builder.artifacts, limits)
+	if err != nil {
+		return corpusProjectionBundle{}, fmt.Errorf("encode corpus artifacts: %w", err)
+	}
+	legacyReceipt, err := corpus.BuildIndexerReceipt(qualifications, builder.documents, builder.edges, builder.markdown, limits)
+	if err != nil {
+		return corpusProjectionBundle{}, fmt.Errorf("build legacy corpus projection receipt: %w", err)
+	}
+	legacyReceiptBytes, err := corpus.CanonicalIndexerReceipt(legacyReceipt, limits)
+	if err != nil {
+		return corpusProjectionBundle{}, fmt.Errorf("encode legacy corpus projection receipt: %w", err)
+	}
+	if err := corpus.VerifyIndexerBundle(legacyReceipt, builder.documents, builder.edges, builder.markdown, limits); err != nil {
+		return corpusProjectionBundle{}, err
+	}
+	receipt, err := corpus.BuildIndexerReceiptV2(qualifications, builder.documents, builder.edges, builder.markdown,
+		builder.artifacts, builder.artifactFiles, limits)
 	if err != nil {
 		return corpusProjectionBundle{}, fmt.Errorf("build corpus projection receipt: %w", err)
 	}
-	receiptBytes, err := corpus.CanonicalIndexerReceipt(receipt, limits)
+	receiptBytes, err := corpus.CanonicalIndexerReceiptV2(receipt, limits)
 	if err != nil {
 		return corpusProjectionBundle{}, fmt.Errorf("encode corpus projection receipt: %w", err)
 	}
-	if err := corpus.VerifyIndexerBundle(receipt, builder.documents, builder.edges, builder.markdown, limits); err != nil {
+	if err := corpus.VerifyIndexerBundleV2(receipt, builder.documents, builder.edges, builder.markdown,
+		builder.artifacts, builder.artifactFiles, limits); err != nil {
 		return corpusProjectionBundle{}, err
 	}
 
@@ -63,7 +89,9 @@ func assembleCorpusProjectionBundle(sources []corpusExportSource, indexed []corp
 	members := []corpusExportMember{
 		{spec: corpus.MemberSpec{Service: inventoryService, StableID: corpusDocumentsStableID, Role: corpus.RoleDocument, Path: prefix + "documents.indexer-v1.jsonl"}, data: documentsBytes},
 		{spec: corpus.MemberSpec{Service: inventoryService, StableID: corpusEdgesStableID, Role: corpus.RoleEdges, Path: prefix + "edges.indexer-v1.jsonl"}, data: edgesBytes},
-		{spec: corpus.MemberSpec{Service: inventoryService, StableID: corpusReceiptStableID, Role: corpus.RoleMetadata, Path: prefix + "receipt.indexer-v1.json"}, data: receiptBytes},
+		{spec: corpus.MemberSpec{Service: inventoryService, StableID: corpusArtifactsStableID, Role: corpus.RoleMetadata, Path: prefix + "artifacts.indexer-v2.jsonl"}, data: artifactBytes},
+		{spec: corpus.MemberSpec{Service: inventoryService, StableID: corpusReceiptStableID, Role: corpus.RoleMetadata, Path: prefix + "receipt.indexer-v1.json"}, data: legacyReceiptBytes},
+		{spec: corpus.MemberSpec{Service: inventoryService, StableID: corpusReceiptV2StableID, Role: corpus.RoleMetadata, Path: prefix + "receipt.indexer-v2.json"}, data: receiptBytes},
 	}
 	for _, source := range sources {
 		if source.capture == nil {
@@ -85,6 +113,19 @@ func assembleCorpusProjectionBundle(sources []corpusExportSource, indexed []corp
 		members = append(members, corpusExportMember{
 			spec: corpus.MemberSpec{Service: document.Service, StableID: document.ID, Role: corpus.RoleDocument, Path: document.MarkdownPath},
 			data: data,
+		})
+	}
+	for _, artifact := range builder.artifacts {
+		if artifact.Status != corpus.ArtifactBodyCaptured {
+			continue
+		}
+		data, ok := builder.files[artifact.Path]
+		if !ok {
+			return corpusProjectionBundle{}, fmt.Errorf("captured corpus artifact member is missing")
+		}
+		members = append(members, corpusExportMember{
+			spec: corpus.MemberSpec{Service: artifact.Service, StableID: artifact.DocumentID, Role: corpus.RoleAsset, Path: artifact.Path},
+			data: append([]byte(nil), data...),
 		})
 	}
 	sortCorpusExportMembers(members)
@@ -109,7 +150,7 @@ func assembleCorpusProjectionBundle(sources []corpusExportSource, indexed []corp
 		}
 		storeQualifications = append(storeQualifications, corpus.Qualification{
 			Service:       qualification.Service,
-			ReceiptSchema: corpus.IndexerReceiptSchemaV1,
+			ReceiptSchema: corpus.IndexerReceiptSchemaV2,
 			ScopeDigest:   qualification.ScopeDigest,
 			// A structural legacy snapshot has no independent selector receipt.
 			// Reusing the exact snapshot scope here is explicit and remains

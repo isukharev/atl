@@ -27,11 +27,16 @@ write authorizer. Unselected service credentials are not loaded.
 
 One command-scoped scheduler and one physical read budget cover principal
 qualification, retries, redirects, both complete selections, and body reads.
-The absolute deadline and cumulative request/response-byte usage are persisted
-in the active attempt, so an ordinary resume cannot reset them. Jira and
-Confluence capture sequentially into separate attempt roots and carry separate
-start/completion times. A generation containing both services proves two
-qualified captures; it does not claim a remote transaction or one shared
+The absolute deadline, cumulative request/response-byte usage, and cumulative
+attachment-body byte usage are persisted in the active attempt. Validated
+per-service body counters prevent ordinary resume, adopted receipts, or
+repeated restart of the same options from resetting the generation-wide bound.
+The counter advances for a successfully streamed, size-validated body even if
+a later parent check, sidecar step, or mirror publication fails; failed or
+size-mismatched streams release their reservation.
+Jira and Confluence capture sequentially into separate attempt roots and carry
+separate start/completion times. A generation containing both services proves
+two qualified captures; it does not claim a remote transaction or one shared
 snapshot instant.
 
 Each service receipt binds only content-free evidence: service, principal-scope
@@ -47,7 +52,22 @@ The build fixes rendering to the minimal profile, UTC display semantics, and
 disabled Confluence Jira-macro expansion, independently of global or local
 presentation config. Native bodies are identity-checked and stored verbatim;
 Markdown and JSONL are derived only after the pristine snapshots reconcile.
-This command version records comments and attachments as `not_requested`.
+Comments and attachments default to `not_requested`. When selected, the
+capture receipt records each dimension as `complete` or `partial`; an exact
+empty inventory is complete rather than omitted. Jira comments use a dedicated
+bounded endpoint, and both services bind evidence to the captured parent stable
+identity and revision. Attachment inventory is independent of body capture.
+Bodies require an exact MIME allowlist plus per-item and generation-wide count
+and byte limits. ATL streams only adapter-qualified attachment references into
+contained owner-private files, validates declared/actual size and SHA-256, and
+never crawls narrative URLs, expands archives, performs OCR, or executes
+content.
+
+Strict mode refuses any requested incomplete inventory or body outcome. The
+explicit `--allow-partial-evidence` policy may seal closed forbidden, failed,
+truncated, or limit reasons, but the capture qualification and generation
+readiness are `partial`. Excluded media types are a complete policy outcome;
+they do not claim that bytes were captured.
 
 Only after every requested receipt is durable does the build produce canonical
 documents/edges, seal the exact generation inventory, atomically publish the
@@ -76,10 +96,12 @@ begin the next bounded capture.
 No build path deletes attempts, stages, or generations. Retention and garbage
 collection require a separate policy.
 
-## Indexer-v1 projection
+## Indexer-v2 projection
 
-The projection contains canonical JSONL document and edge inventories, clean
-Markdown members, and a canonical content-free projection receipt. Stable
+The projection preserves canonical indexer-v1 JSONL document and edge
+inventories and clean Markdown members, then adds an
+`artifacts.indexer-v2.jsonl` inventory and an indexer-v2 content-free receipt.
+The v1 receipt remains present for legacy readers. Stable
 document identities bind backend-origin digest, service, object kind, and
 numeric provider id; mutable keys, titles, paths, and presentation fields do not
 change identity. Edges either name an included stable identity or preserve one
@@ -88,12 +110,25 @@ bounded unresolved key, title, or numeric id. Raw backend URLs are rejected.
 Jira issues, comments, attachments, hierarchy, typed issue links, and body
 references are projected when their correlated pristine evidence exists.
 Confluence pages, comments, attachments, hierarchy, page references, and Jira
-macros are treated similarly. A two-source export can therefore emit relative
+macros are treated similarly. Qualified attachment filenames resolve page
+references only when they select one stable attachment identity; ambiguous or
+title/key-only targets remain explicit unresolved references. A two-source
+export can therefore emit relative
 Markdown links and typed cross-service edges without fetching discovered
 targets. Render failure is explicit and does not substitute native bytes into
 Markdown. A null issue-link field or malformed Jira issue-link row makes
 relation evidence unavailable or partial; only an actual empty array proves an
 exact empty relation set, and silently dropped transport rows never do.
+
+Every attachment has one stable attachment document, one exact
+`attachment_owner` edge, and one artifact record. The record carries body
+status, exact media type, declared size, parent/inventory lineage, and—only for
+`captured`—a contained relative asset path, byte size, and SHA-256. The v2
+receipt binds the unchanged document/edge/Markdown digests plus artifact count,
+bytes, and digest. A captured record without exactly one matching sealed
+`asset` member, or an asset member without a matching record, fails validation.
+Inline render assets remain a separate mirror/view class and cannot satisfy
+this canonical attachment contract.
 
 Every document carries per-category evidence and conservative visibility.
 Absence of a Jira issue-security level is not evidence of unrestricted access.
@@ -135,7 +170,7 @@ This synthetic, content-free example shows the v1 namespace after publication:
 owner-only-root/
   .build.lock
   .publish.lock
-  active.v1.json
+  active.v2.json
   current.v1.json
   attempts/
     fedcba9876543210fedcba9876543210/
@@ -153,9 +188,12 @@ owner-only-root/
 
 Random attempt and generation identifiers carry no host, backend, selector, or
 object identity. `attempts/` contains active and retained native mirrors and is
-private. `active.v1.json` and capture receipts are content-free but remain
-owner-only recovery records. `.build.lock` serializes build attempts and is
-crash-scoped. `artifacts/` contains the private sealed member files.
+private. `active.v2.json` and capture receipts are content-free but remain
+owner-only recovery records. A canonical `active.v1.json` interrupted record
+is reconciled against its validated snapshots and migrated atomically; an
+unversioned or future record fails closed. `.build.lock` serializes build
+attempts and is crash-scoped. `artifacts/` contains the private sealed member
+files.
 `manifest.v1.json` is also private because it is the exact inventory: it
 contains member service, stable identity, role, relative path, size, mode, and
 digest.

@@ -100,6 +100,39 @@ func FuzzStrictIndexerCodecs(f *testing.F) {
 	})
 }
 
+func FuzzStrictIndexerV2Codecs(f *testing.F) {
+	documents, edges, markdown, artifact, member, qualifications := validIndexerV2Bundle(f)
+	artifacts, err := CanonicalIndexerArtifacts([]IndexerArtifact{artifact}, Limits{})
+	if err != nil {
+		f.Fatal(err)
+	}
+	receipt, err := BuildIndexerReceiptV2(qualifications, documents, edges, markdown,
+		[]IndexerArtifact{artifact}, []ArtifactMember{member}, Limits{})
+	if err != nil {
+		f.Fatal(err)
+	}
+	receiptBytes, err := CanonicalIndexerReceiptV2(receipt, Limits{})
+	if err != nil {
+		f.Fatal(err)
+	}
+	for kind, seed := range [][]byte{
+		artifacts,
+		receiptBytes,
+		[]byte(`{"schema_version":2,"schema_version":3}`),
+		{0xff, 0x00, '{', '}'},
+	} {
+		f.Add(byte(kind%2), seed)
+	}
+	f.Fuzz(func(_ *testing.T, kind byte, data []byte) {
+		limits := Limits{MaxMembers: 1_000, MaxMemberBytes: 1 << 20, MaxTotalBytes: 1 << 20, MaxManifestBytes: 1 << 20, MaxPathBytes: 1_024, MaxPathDepth: 32}
+		if kind%2 == 0 {
+			_, _ = ParseIndexerArtifacts(data, limits)
+		} else {
+			_, _ = ParseIndexerReceiptV2(data, limits)
+		}
+	})
+}
+
 func FuzzStrictCaptureReceiptCodec(f *testing.F) {
 	receipt, err := BuildCaptureReceipt(validCaptureReceiptInput(), Limits{})
 	if err != nil {
