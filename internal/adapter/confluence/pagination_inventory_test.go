@@ -18,7 +18,7 @@ func TestConfluencePaginationOwnerInventoryIsClosed(t *testing.T) {
 	want := map[string][]string{
 		"comments_qualified.go:ListConfluenceComments": {"advance", "requestStart", "startAt", "startAt"},
 		"confluence.go:HistoryQualified":               {"advance", "requestStart", "startAt"},
-		"extras.go:ListAttachmentsQualifiedBounded":    {"advance", "requestStart", "startAt"},
+		"extras.go:listAttachmentsQualified":           {"advance", "requestStart", "startAt"},
 		"extras.go:ListComments":                       {"advance", "requestStart", "startAt"},
 		"labels.go:ListContentLabels":                  {"advance", "requestStart", "startAt"},
 		"pagination.go:advance":                        {"checkedEnd"},
@@ -134,8 +134,8 @@ confluence.go:confluenceWebURL:range:1
 confluence.go:resolveAdapterOptions:range:1
 confluence.go:toResource:range:1
 confluence.go:toResource:range:2
-extras.go:ListAttachmentsQualifiedBounded:for:1
-extras.go:ListAttachmentsQualifiedBounded:range:1
+extras.go:listAttachmentsQualified:for:1
+extras.go:listAttachmentsQualified:range:1
 extras.go:ListComments:for:1
 extras.go:ListComments:range:1
 graph_metadata.go:canonicalConfluenceGraphPageID:range:1
@@ -157,7 +157,7 @@ func TestConfluenceProductionLoopInventoryIsClosed(t *testing.T) {
 	pagination := map[string]bool{
 		"comments_qualified.go:ListConfluenceComments:for:1": true,
 		"confluence.go:HistoryQualified:for:1":               true,
-		"extras.go:ListAttachmentsQualifiedBounded:for:1":    true,
+		"extras.go:listAttachmentsQualified:for:1":           true,
 		"extras.go:ListComments:for:1":                       true,
 		"labels.go:ListContentLabels:for:1":                  true,
 		"search.go:Tree:for:1":                               true,

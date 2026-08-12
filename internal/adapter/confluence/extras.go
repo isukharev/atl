@@ -178,13 +178,19 @@ func (cf *Confluence) ListAttachments(ctx context.Context, id string) ([]domain.
 // The item cap is enforced per attachment, so the returned slice never exceeds
 // it silently.
 func (cf *Confluence) ListAttachmentsQualified(ctx context.Context, id string) (domain.AttachmentInventory, error) {
-	return cf.ListAttachmentsQualifiedBounded(ctx, id, domain.AttachmentReadOptions{MaxPages: maxPages, MaxItems: maxItems})
+	return cf.listAttachmentsQualified(ctx, id, domain.AttachmentReadOptions{MaxPages: maxPages, MaxItems: maxItems}, false)
 }
 
+// ListAttachmentsQualifiedBounded preserves evidence metadata under explicit
+// caller-supplied limits without changing the legacy inventory request shape.
 func (cf *Confluence) ListAttachmentsQualifiedBounded(ctx context.Context, id string, options domain.AttachmentReadOptions) (domain.AttachmentInventory, error) {
 	if err := domain.ValidateAttachmentReadOptions(options); err != nil {
 		return domain.AttachmentInventory{}, err
 	}
+	return cf.listAttachmentsQualified(ctx, id, options, true)
+}
+
+func (cf *Confluence) listAttachmentsQualified(ctx context.Context, id string, options domain.AttachmentReadOptions, includeEvidence bool) (domain.AttachmentInventory, error) {
 	cursor := confluencePageCursor{}
 	out := []domain.Attachment{}
 	partial := func(reason string) (domain.AttachmentInventory, error) {
@@ -227,7 +233,11 @@ func (cf *Confluence) ListAttachmentsQualifiedBounded(ctx context.Context, id st
 			} `json:"_links"`
 		}
 		q := url.Values{}
-		q.Set("expand", "version,metadata,history.createdBy")
+		expand := "version,metadata"
+		if includeEvidence {
+			expand += ",history.createdBy"
+		}
+		q.Set("expand", expand)
 		q.Set("limit", "200")
 		q.Set("start", strconv.Itoa(cursor.startAt()))
 		path := "/rest/api/content/" + url.PathEscape(id) + "/child/attachment?" + q.Encode()

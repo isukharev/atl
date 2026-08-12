@@ -40,6 +40,9 @@ func attachmentServer(t *testing.T, handler http.HandlerFunc) *Confluence {
 // Natural exhaustion is the only path that may report a complete inventory.
 func TestListAttachmentsQualifiedCompleteAcrossPages(t *testing.T) {
 	cf := attachmentServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("expand"); got != "version,metadata" {
+			t.Fatalf("legacy expand=%q", got)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Query().Get("start") == "0" {
 			_, _ = w.Write([]byte(attachmentPage("/rest/api/content/300/child/attachment?start=2", "a1", "a2")))
