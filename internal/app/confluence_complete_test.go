@@ -140,7 +140,7 @@ func completeTestPage(id string) *domain.Resource {
 func completeSearchPage(ids ...string) domain.PageSearchPage {
 	refs := make([]domain.PageRef, 0, len(ids))
 	for _, id := range ids {
-		refs = append(refs, domain.PageRef{ID: id})
+		refs = append(refs, domain.PageRef{ID: id, Space: "DOC"})
 	}
 	return domain.PageSearchPage{Results: refs, Complete: true}
 }
@@ -168,6 +168,58 @@ func TestCompletePullQualifiesCanonicalSelectionBeforeBodies(t *testing.T) {
 	}
 	if _, ok, err := mirror.New(root).CompletePullCheckpoint(result.Complete.SelectorSHA256); err != nil || ok {
 		t.Fatalf("completed checkpoint ok=%v err=%v", ok, err)
+	}
+}
+
+func TestCompletePullSpaceSelectorRejectsSearchOverReturnBeforeBodies(t *testing.T) {
+	root := t.TempDir()
+	selection := domain.PageSearchPage{
+		Results: []domain.PageRef{{ID: "10", Space: "OTHER"}}, Complete: true,
+	}
+	store := &completePullStore{
+		pullStore:      &pullStore{pages: map[string]*domain.Resource{"10": completeTestPage("10")}},
+		searchSequence: []domain.PageSearchPage{selection},
+	}
+
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(
+		context.Background(), PullOpts{Space: "DOC", Into: root, Complete: true},
+	)
+	if !errors.Is(err, domain.ErrCheckFailed) || result != nil || len(store.getIDs) != 0 {
+		t.Fatalf("result=%+v err=%v getIDs=%v", result, err, store.getIDs)
+	}
+}
+
+func TestCompletePullRejectsFetchedBodyOutsideQualifiedSelection(t *testing.T) {
+	for name, mutate := range map[string]func(*domain.Resource){
+		"identity": func(page *domain.Resource) { page.ID = "11" },
+		"space":    func(page *domain.Resource) { page.SpaceKey = "OTHER" },
+		"type":     func(page *domain.Resource) { page.Type = "blogpost" },
+	} {
+		for _, mode := range []struct {
+			name   string
+			dryRun bool
+		}{{name: "pull"}, {name: "dry_run", dryRun: true}} {
+			t.Run(name+"/"+mode.name, func(t *testing.T) {
+				root := t.TempDir()
+				page := completeTestPage("10")
+				mutate(page)
+				selection := completeSearchPage("10")
+				store := &completePullStore{
+					pullStore:      &pullStore{pages: map[string]*domain.Resource{"10": page}},
+					searchSequence: []domain.PageSearchPage{selection, selection},
+				}
+
+				result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(
+					context.Background(), PullOpts{Space: "DOC", Into: root, Complete: true, DryRun: mode.dryRun},
+				)
+				if !errors.Is(err, domain.ErrCheckFailed) || result == nil || len(result.Pages) != 0 {
+					t.Fatalf("result=%+v err=%v", result, err)
+				}
+				if _, statErr := os.Stat(filepath.Join(root, "DOC")); !os.IsNotExist(statErr) {
+					t.Fatalf("unqualified body created public directory: %v", statErr)
+				}
+			})
+		}
 	}
 }
 

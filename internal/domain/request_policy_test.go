@@ -17,6 +17,35 @@ func TestNewReadBudgetRejectsNegativeLimits(t *testing.T) {
 	}
 }
 
+func TestNewReadBudgetWithUsageResumesExactCounters(t *testing.T) {
+	budget, err := NewReadBudgetWithUsage(3, 10, ReadBudgetUsage{Attempts: 2, ResponseBytes: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := budget.Usage(); got != (ReadBudgetUsage{Attempts: 2, ResponseBytes: 7}) {
+		t.Fatalf("usage = %#v", got)
+	}
+	if err := budget.TakeAttempt(); err != nil {
+		t.Fatal(err)
+	}
+	if err := budget.TakeAttempt(); err != ErrReadAttemptBudgetExhausted {
+		t.Fatalf("attempt exhaustion = %v", err)
+	}
+	remaining, finish, err := budget.BeginResponse(context.Background())
+	if err != nil || remaining != 3 {
+		t.Fatalf("remaining=%d err=%v", remaining, err)
+	}
+	finish(3)
+	if got := budget.Usage(); got != (ReadBudgetUsage{Attempts: 3, ResponseBytes: 10}) {
+		t.Fatalf("final usage = %#v", got)
+	}
+	for _, usage := range []ReadBudgetUsage{{Attempts: -1}, {Attempts: 4}, {ResponseBytes: -1}, {ResponseBytes: 11}} {
+		if budget, err := NewReadBudgetWithUsage(3, 10, usage); err == nil || budget != nil {
+			t.Fatalf("usage=%#v budget=%#v err=%v", usage, budget, err)
+		}
+	}
+}
+
 func TestReadBudgetContextIsOptIn(t *testing.T) {
 	ctx := context.Background()
 	if got := ReadBudgetFromContext(ctx); got != nil {

@@ -40,6 +40,7 @@ func TestStableReadProductionInventory(t *testing.T) {
 		"internal/agenteval/synthetic_receipt.go":                   2,
 		"internal/cli/profile_revalidation.go":                      1,
 		"internal/contentpolicy/source_windows.go":                  1,
+		"internal/corpus/build_workspace.go":                        3,
 		"internal/corpus/publication.go":                            1,
 		"internal/corpus/scan.go":                                   9,
 		"internal/corpus/store.go":                                  3,

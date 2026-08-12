@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/jiramap"
 	"github.com/isukharev/atl/internal/mirror"
 	"github.com/isukharev/atl/internal/safepath"
 )
@@ -339,6 +340,28 @@ func prepareJiraCompleteArtifacts(issue *domain.Issue, paths jiraPullIssuePaths,
 	return state, view, artifacts, nil
 }
 
+// limitJiraCompleteIssueProjection keeps exact callers independent of a Jira
+// backend that returns fields outside the requested projection. Rebuilding the
+// typed issue from the filtered raw map prevents those extra fields from
+// changing either the durable snapshot or a derived view. Every exact field
+// must also be present so a partial response cannot qualify as complete. A nil
+// projection is the ordinary complete-pull compatibility path and remains
+// unrestricted.
+func limitJiraCompleteIssueProjection(issue *domain.Issue, exactFields []string) (*domain.Issue, error) {
+	if issue == nil || exactFields == nil {
+		return issue, nil
+	}
+	fields := make(map[string]any, len(exactFields))
+	for _, field := range exactFields {
+		value, ok := issue.Fields[field]
+		if !ok {
+			return nil, fmt.Errorf("%w: exact Jira response omitted a mandatory field", domain.ErrCheckFailed)
+		}
+		fields[field] = value
+	}
+	return jiramap.Issue(issue.ID, issue.Key, fields), nil
+}
+
 func (s *JiraService) pullJiraComplete(ctx context.Context, opts JiraPullOpts) (result *JiraPullResult, retErr error) {
 	project, err := jiraCompleteProject(opts.Project)
 	if err != nil {
@@ -361,7 +384,7 @@ func (s *JiraService) pullJiraComplete(ctx context.Context, opts JiraPullOpts) (
 	if err := prepareMirrorBackendPopulation(root, "jira", s.baseURL, wikiExt, opts.DryRun); err != nil {
 		return res, err
 	}
-	settings, warnings := ResolveRender(s.cfg, root, opts.Render, "jira")
+	settings, warnings := resolveRenderExact(s.cfg, root, opts.Render, "jira", opts.exactRender)
 	settings, err = s.resolveRenderFieldSelectors(ctx, settings)
 	if err != nil {
 		return res, err
@@ -377,7 +400,7 @@ func (s *JiraService) pullJiraComplete(ctx context.Context, opts JiraPullOpts) (
 		}
 		extra = fieldDefIDs(resolved)
 	}
-	fields := jiraPullFields(extra, settings)
+	fields := jiraCompletePullFields(opts, extra, settings)
 	res.Warnings = warnings
 	m := mirror.New(root)
 	if !opts.DryRun {
@@ -463,6 +486,13 @@ func (s *JiraService) pullJiraComplete(ctx context.Context, opts JiraPullOpts) (
 		}
 		if selectedKey := selection.keys[identity]; selectedKey != "" && selectedKey != issue.Key {
 			return res, fmt.Errorf("%w: Jira issue key changed after the qualified selection passes", domain.ErrCheckFailed)
+		}
+		issue, fetchErr = limitJiraCompleteIssueProjection(issue, opts.exactFields)
+		if fetchErr != nil {
+			return res, fetchErr
+		}
+		if issue.Project != project {
+			return res, fmt.Errorf("%w: exact Jira projection omitted or changed the selected project", domain.ErrCheckFailed)
 		}
 		paths, pathErr := qualifyJiraPullIssuePaths(root, issue)
 		if pathErr != nil {
@@ -580,4 +610,11 @@ func (s *JiraService) pullJiraComplete(ctx context.Context, opts JiraPullOpts) (
 		selection.result.Remaining = 0
 	}
 	return res, pullLocalSafetyError("Jira", res.LocalSafety)
+}
+
+func jiraCompletePullFields(opts JiraPullOpts, extra []string, settings RenderSettings) []string {
+	if opts.exactFields != nil {
+		return append([]string(nil), opts.exactFields...)
+	}
+	return jiraPullFields(extra, settings)
 }

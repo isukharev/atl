@@ -20,6 +20,7 @@ const (
 	corpusDocumentsStableID = "indexer-v1-documents"
 	corpusEdgesStableID     = "indexer-v1-edges"
 	corpusReceiptStableID   = "indexer-v1-receipt"
+	corpusCaptureStableID   = "capture-v1-receipt"
 )
 
 // CorpusExportOptions selects already-initialized local mirrors and one
@@ -35,6 +36,9 @@ type CorpusExportOptions struct {
 	BuildState        corpus.BuildState
 	Limits            corpus.Limits
 	SnapshotLimits    mirror.CorpusSnapshotLimits
+	// CaptureReceipts upgrades every selected source from structural evidence to
+	// a ready qualification. When non-empty, the set must cover all sources.
+	CaptureReceipts []corpus.CaptureReceipt
 }
 
 // CorpusExportResult is content-free. It is safe for normal CLI stdout: paths,
@@ -59,8 +63,10 @@ type corpusProjectionBundle struct {
 }
 
 type corpusExportSource struct {
-	service  corpus.Service
-	snapshot *mirror.CorpusSnapshot
+	service      corpus.Service
+	snapshot     *mirror.CorpusSnapshot
+	capture      *corpus.CaptureReceipt
+	captureBytes []byte
 }
 
 // ExportCorpus constructs, seals, and atomically publishes one deterministic
@@ -200,6 +206,16 @@ func ExportCorpus(ctx context.Context, options CorpusExportOptions) (*CorpusExpo
 }
 
 func beginCorpusExportSources(options CorpusExportOptions) ([]corpusExportSource, []*mirrorSnapshotLock, error) {
+	captures := make(map[corpus.Service]corpus.CaptureReceipt, len(options.CaptureReceipts))
+	for _, receipt := range options.CaptureReceipts {
+		if err := corpus.VerifyCaptureReceipt(receipt, options.Limits); err != nil {
+			return nil, nil, corpusExportFailure("verify capture receipt", err)
+		}
+		if _, duplicate := captures[receipt.Service]; duplicate {
+			return nil, nil, corpusExportFailure("verify capture receipt set", corpus.ErrIntegrity)
+		}
+		captures[receipt.Service] = receipt
+	}
 	requested := []struct {
 		service         corpus.Service
 		snapshotService string
@@ -234,12 +250,69 @@ func beginCorpusExportSources(options CorpusExportOptions) ([]corpusExportSource
 			_, _ = finishCorpusExportGuards(guards)
 			return nil, nil, corpusExportFailure("capture pristine mirror snapshot", err)
 		}
-		sources = append(sources, corpusExportSource{service: request.service, snapshot: snapshot})
+		source := corpusExportSource{service: request.service, snapshot: snapshot}
+		if receipt, present := captures[request.service]; present {
+			if err := validateCorpusCaptureSource(snapshot, receipt, options.Limits); err != nil {
+				_, _ = finishCorpusExportGuards(guards)
+				return nil, nil, corpusExportFailure("reconcile capture receipt", err)
+			}
+			canonical, err := corpus.CanonicalCaptureReceipt(receipt, options.Limits)
+			if err != nil {
+				_, _ = finishCorpusExportGuards(guards)
+				return nil, nil, corpusExportFailure("encode capture receipt", err)
+			}
+			receiptCopy := receipt
+			receiptCopy.Dimensions = append([]corpus.CaptureDimensionEvidence(nil), receipt.Dimensions...)
+			source.capture = &receiptCopy
+			source.captureBytes = canonical
+			delete(captures, request.service)
+		}
+		sources = append(sources, source)
 	}
 	if len(sources) == 0 {
 		return nil, nil, fmt.Errorf("%w: corpus export requires --jira, --confluence, or both", domain.ErrUsage)
 	}
+	if len(options.CaptureReceipts) != 0 {
+		if len(captures) != 0 || len(options.CaptureReceipts) != len(sources) {
+			_, _ = finishCorpusExportGuards(guards)
+			return nil, nil, corpusExportFailure("verify capture receipt set", corpus.ErrIntegrity)
+		}
+		for _, source := range sources {
+			if source.capture == nil {
+				_, _ = finishCorpusExportGuards(guards)
+				return nil, nil, corpusExportFailure("verify capture receipt set", corpus.ErrIntegrity)
+			}
+		}
+	}
 	return sources, guards, nil
+}
+
+func validateCorpusCaptureSource(snapshot *mirror.CorpusSnapshot, receipt corpus.CaptureReceipt, limits corpus.Limits) error {
+	if snapshot == nil || !snapshot.Reconciled() || string(receipt.Service) != snapshot.Service() ||
+		receipt.SnapshotDigest != snapshot.Fingerprint() || receipt.Total != snapshot.Len() || receipt.Completed != snapshot.Len() {
+		return corpus.ErrIntegrity
+	}
+	providerIDs := make([]string, 0, snapshot.Len())
+	for _, item := range snapshot.Inventory() {
+		providerIDs = append(providerIDs, item.ProviderID)
+	}
+	selection, err := corpus.CaptureSelectionDigest(receipt.Service, providerIDs)
+	if err != nil || selection != receipt.SelectionDigest {
+		return corpus.ErrIntegrity
+	}
+	states := make(map[corpus.CaptureDimension]corpus.CaptureDimensionState, len(receipt.Dimensions))
+	for _, dimension := range receipt.Dimensions {
+		states[dimension.Dimension] = dimension.State
+	}
+	if states[corpus.CaptureNative] != corpus.CaptureComplete || states[corpus.CaptureMetadata] != corpus.CaptureComplete {
+		return corpus.ErrIntegrity
+	}
+	for _, optional := range []corpus.CaptureDimension{corpus.CaptureComments, corpus.CaptureAttachments} {
+		if states[optional] != corpus.CaptureNotRequested {
+			return corpus.ErrIntegrity
+		}
+	}
+	return corpus.VerifyCaptureReceipt(receipt, limits)
 }
 
 func finishCorpusExportGuards(guards []*mirrorSnapshotLock) (bool, error) {

@@ -127,17 +127,8 @@ func confluenceAdapter(cfg *config.Config, version string, maxInFlight, requests
 	if maxInFlight == 0 && requestsPerSecond != 0 {
 		return nil, nil, fmt.Errorf("%w: request pacing requires a positive in-flight bound", domain.ErrUsage)
 	}
-	if cfg == nil || cfg.ConfluenceURL == "" {
-		return nil, nil, fmt.Errorf("%w: Confluence URL not set — run `atl config set --confluence-url https://confluence.example.com` (or export ATL_CONFLUENCE_URL); see `atl auth status`", domain.ErrConfig)
-	}
-	if err := config.CheckSecureURL(cfg.ConfluenceURL); err != nil {
-		return nil, nil, fmt.Errorf("%w: %w", domain.ErrUsage, err)
-	}
-	token, err := auth.Token(auth.Confluence)
+	token, err := confluenceAdapterCredentials(cfg)
 	if err != nil {
-		if errors.Is(err, auth.ErrNoToken) {
-			return nil, nil, fmt.Errorf("%w: %v", domain.ErrConfig, err)
-		}
 		return nil, nil, err
 	}
 	var scheduler *httpx.Scheduler
@@ -147,11 +138,8 @@ func confluenceAdapter(cfg *config.Config, version string, maxInFlight, requests
 			return nil, nil, fmt.Errorf("%w: invalid request schedule: %v", domain.ErrUsage, err)
 		}
 	}
-	cf, err := confluenceadapter.NewWithSchedulerTLS(cfg.ConfluenceURL, token, version, scheduler, confluenceTLSOptions(cfg), confluenceOptions(authorizer, resolved)...)
-	if err != nil {
-		return nil, nil, err
-	}
-	return cf, scheduler, nil
+	cf, err := newConfluenceAdapterScheduled(cfg, token, version, scheduler, authorizer, resolved)
+	return cf, scheduler, err
 }
 
 func optionalJiraReadScheduled(cfg *config.Config, version string, scheduler *httpx.Scheduler, resolved options) (domain.Tracker, string) {

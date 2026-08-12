@@ -91,6 +91,34 @@ type RenderSettings struct {
 	ExpandJiraMacros bool
 }
 
+func cloneRenderSettings(settings RenderSettings) RenderSettings {
+	copy := settings
+	copy.Sections = make(map[string]bool, len(settings.Sections))
+	for name, enabled := range settings.Sections {
+		copy.Sections[name] = enabled
+	}
+	copy.CustomFields = append([]string(nil), settings.CustomFields...)
+	copy.FieldViews = append([]config.JiraFieldView(nil), settings.FieldViews...)
+	copy.PageFields = append([]config.ConfluenceFieldView(nil), settings.PageFields...)
+	return copy
+}
+
+func resolveRenderExact(global *config.Config, root string, override config.RenderService, backend string, exact *RenderSettings) (RenderSettings, []string) {
+	if exact != nil {
+		return cloneRenderSettings(*exact), nil
+	}
+	return ResolveRender(global, root, override, backend)
+}
+
+// corpusBuildRenderSettings returns the exact, presentation-independent view
+// used by qualified corpus capture. It deliberately ignores global and local
+// render configuration.
+func corpusBuildRenderSettings(backend string) RenderSettings {
+	settings, _ := computeSettingsWithDisplayTimeZone(backend, config.RenderService{Profile: "minimal", JiraMacros: "off"}, "UTC")
+	settings.ExpandJiraMacros = false
+	return settings
+}
+
 // On reports whether a section is enabled.
 func (rs RenderSettings) On(name string) bool { return rs.Sections[name] }
 

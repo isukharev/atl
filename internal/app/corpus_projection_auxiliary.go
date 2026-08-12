@@ -45,6 +45,9 @@ func (builder *corpusProjectionBuilder) projectConfluenceComments(
 	visibility corpus.Visibility,
 	visibilityEvidence corpus.Evidence,
 ) (corpus.Evidence, error) {
+	if corpusCaptureDimensionNotRequested(source, corpus.CaptureComments) {
+		return corpusNotRequested(corpus.EvidenceComments), nil
+	}
 	var metadata mirror.Meta
 	if err := json.Unmarshal(item.Metadata.Data, &metadata); err != nil {
 		return corpus.Evidence{}, err
@@ -197,6 +200,9 @@ func (builder *corpusProjectionBuilder) projectJiraComments(
 	visibility corpus.Visibility,
 	visibilityEvidence corpus.Evidence,
 ) (corpus.Evidence, error) {
+	if corpusCaptureDimensionNotRequested(source, corpus.CaptureComments) {
+		return corpusNotRequested(corpus.EvidenceComments), nil
+	}
 	raw, present := fields["comment"]
 	if !present {
 		return corpusNotRequested(corpus.EvidenceComments), nil
@@ -295,6 +301,9 @@ func (builder *corpusProjectionBuilder) projectJiraAttachments(
 	visibility corpus.Visibility,
 	visibilityEvidence corpus.Evidence,
 ) (corpus.Evidence, error) {
+	if corpusCaptureDimensionNotRequested(source, corpus.CaptureAttachments) {
+		return corpusNotRequested(corpus.EvidenceAttachments), nil
+	}
 	raw, present := fields["attachment"]
 	if !present {
 		return corpusNotRequested(corpus.EvidenceAttachments), nil
@@ -333,6 +342,18 @@ func (builder *corpusProjectionBuilder) projectJiraAttachments(
 		}
 	}
 	return corpusComplete(corpus.EvidenceAttachments, len(attachments)), nil
+}
+
+func corpusCaptureDimensionNotRequested(source corpusExportSource, dimension corpus.CaptureDimension) bool {
+	if source.capture == nil {
+		return false
+	}
+	for _, evidence := range source.capture.Dimensions {
+		if evidence.Dimension == dimension {
+			return evidence.State == corpus.CaptureNotRequested
+		}
+	}
+	return false
 }
 
 func corpusAuxiliaryWithSuffix(values []mirror.CorpusSnapshotFile, suffix string) (mirror.CorpusSnapshotFile, bool) {

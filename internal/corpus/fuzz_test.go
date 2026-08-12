@@ -100,6 +100,50 @@ func FuzzStrictIndexerCodecs(f *testing.F) {
 	})
 }
 
+func FuzzStrictCaptureReceiptCodec(f *testing.F) {
+	receipt, err := BuildCaptureReceipt(validCaptureReceiptInput(), Limits{})
+	if err != nil {
+		f.Fatal(err)
+	}
+	canonical, err := CanonicalCaptureReceipt(receipt, Limits{})
+	if err != nil {
+		f.Fatal(err)
+	}
+	for _, seed := range [][]byte{
+		canonical,
+		[]byte(`{"schema_version":1,"schema_version":2}`),
+		{0xff, 0x00, '{', '}'},
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(_ *testing.T, data []byte) {
+		_, _ = ParseCaptureReceipt(data, Limits{
+			MaxMembers: 1_000, MaxMemberBytes: 1 << 20, MaxTotalBytes: 1 << 20,
+			MaxManifestBytes: 1 << 20, MaxPathBytes: 1_024, MaxPathDepth: 32,
+		})
+	})
+}
+
+func FuzzStrictBuildActiveCodec(f *testing.F) {
+	canonical, err := CanonicalBuildActive(validBuildActive(), Limits{})
+	if err != nil {
+		f.Fatal(err)
+	}
+	for _, seed := range [][]byte{
+		canonical,
+		[]byte(`{"schema_version":1,"schema_version":2}`),
+		{0xff, 0x00, '{', '}'},
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(_ *testing.T, data []byte) {
+		_, _ = ParseBuildActive(data, Limits{
+			MaxMembers: 1_000, MaxMemberBytes: 1 << 20, MaxTotalBytes: 1 << 20,
+			MaxManifestBytes: 1 << 20, MaxPathBytes: 1_024, MaxPathDepth: 32,
+		})
+	})
+}
+
 func validReceiptForFuzz(t testing.TB, manifest Manifest) Receipt {
 	t.Helper()
 	manifestBytes, err := canonicalManifest(manifest, Limits{})

@@ -68,7 +68,7 @@ func executeCLIRaw(t *testing.T, env map[string]string, args ...string) (stdout,
 	}
 	var outBuf, errBuf bytes.Buffer
 	root := newRoot()
-	root.SetArgs(args)
+	setRootExecutionArgs(root, args)
 	root.SetOut(&outBuf)
 	root.SetErr(&errBuf)
 	execErr = root.ExecuteContext(context.Background())

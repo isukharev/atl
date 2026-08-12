@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -239,6 +238,7 @@ R json,text completion powershell
 R json,text completion zsh
 M local-direct none none - json config set
 R json,text config show
+R json,text corpus build
 R json,text corpus export
 R json,text doctor
 R json,text environment inspect
@@ -1225,13 +1225,4 @@ func enforceAccessPolicy(cmd *cobra.Command, enabled bool) error {
 		return &readOnlyPolicyError{Command: cmd.CommandPath()}
 	}
 	return nil
-}
-
-func envReadOnly() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("ATL_READ_ONLY"))) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
-		return false
-	}
 }

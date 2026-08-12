@@ -111,7 +111,7 @@ func (r *confluencePullRun) fetchPage(id string, prefetch *orderedPagePrefetch) 
 	if err != nil {
 		return nil, fmt.Errorf("pull %s: %w", id, err)
 	}
-	if err := requireConfluenceNativeBody(page, id, "pull"); err != nil {
+	if err := requireConfluencePullProjection(page, id, "pull", r.opts); err != nil {
 		return nil, err
 	}
 	dir, slug, err := r.mirror.ClaimPageDir(page.SpaceKey, page.Ancestors, page.Title, page.ID)

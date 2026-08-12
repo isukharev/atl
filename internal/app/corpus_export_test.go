@@ -9,12 +9,138 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/isukharev/atl/internal/backendid"
 	"github.com/isukharev/atl/internal/corpus"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/mirror"
 )
+
+func TestExportCorpusPublishesReadyQualifiedCapture(t *testing.T) {
+	mirrorRoot := t.TempDir()
+	seedCorpusExportJira(t, mirrorRoot, "EX-1", "10001", "EX/EX-1.wiki", []byte("body"), map[string]any{
+		"summary": "Issue", "project": map[string]any{"key": "EX"},
+		"comment": map[string]any{"startAt": 0, "total": 1, "comments": []any{map[string]any{
+			"id": "20001", "body": "unrequested comment",
+		}}},
+		"attachment": []any{map[string]any{"id": "30001", "filename": "unrequested.txt"}},
+	})
+	capture := corpusExportCaptureReceipt(t, corpus.ServiceJira, mirrorRoot)
+	storeRoot := t.TempDir()
+	if err := os.Chmod(storeRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	result, err := ExportCorpus(context.Background(), CorpusExportOptions{
+		JiraRoot: mirrorRoot, StoreRoot: storeRoot, InitializeStore: true,
+		GeneratorVersion: "test-v1", BuildState: corpus.BuildStateClean,
+		CaptureReceipts: []corpus.CaptureReceipt{capture},
+	})
+	if err != nil {
+		t.Fatalf("ExportCorpus: %v", err)
+	}
+	if result.Projection.Readiness != corpus.ProjectionReady || len(result.Projection.Qualifications) != 1 ||
+		result.Projection.Qualifications[0].State != corpus.QualificationReady ||
+		result.Projection.Qualifications[0].SourceReceiptDigest != capture.ReceiptDigest ||
+		result.Projection.Counts.Documents != 1 ||
+		result.Generation.Totals.Members != 5 {
+		t.Fatalf("qualified result = %#v", result)
+	}
+
+	store, err := corpus.Open(storeRoot, corpus.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err := store.SelectCurrent(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := selected.Manifest()
+	if len(manifest.Qualifications) != 1 || manifest.Qualifications[0].ReceiptSchema != corpus.CaptureReceiptSchemaV1 ||
+		manifest.Qualifications[0].SelectorDigest != capture.SelectorDigest ||
+		manifest.Qualifications[0].ReceiptDigest != capture.ReceiptDigest {
+		t.Fatalf("generation qualifications = %#v", manifest.Qualifications)
+	}
+	var documentBytes bytes.Buffer
+	if _, err := selected.CopyMember(context.Background(), corpus.ServiceJira, corpusDocumentsStableID, corpus.RoleDocument, &documentBytes); err != nil {
+		t.Fatal(err)
+	}
+	documents, err := corpus.ParseIndexerDocuments(documentBytes.Bytes(), corpus.Limits{})
+	if err != nil || len(documents) != 1 || documents[0].Evidence[0].Status != corpus.EvidenceNotRequested ||
+		documents[0].Evidence[2].Status != corpus.EvidenceNotRequested {
+		t.Fatalf("qualified documents=%#v error=%v", documents, err)
+	}
+	var receiptBytes bytes.Buffer
+	if _, err := selected.CopyMember(context.Background(), corpus.ServiceJira, corpusCaptureStableID, corpus.RoleMetadata, &receiptBytes); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := corpus.ParseCaptureReceipt(receiptBytes.Bytes(), corpus.Limits{})
+	if err != nil || parsed.ReceiptDigest != capture.ReceiptDigest {
+		t.Fatalf("sealed capture receipt = %#v, %v", parsed, err)
+	}
+	_ = selected.Close()
+	_ = store.Close()
+
+	again, err := ExportCorpus(context.Background(), CorpusExportOptions{
+		JiraRoot: mirrorRoot, StoreRoot: storeRoot,
+		GeneratorVersion: "test-v1", BuildState: corpus.BuildStateClean,
+		CaptureReceipts: []corpus.CaptureReceipt{capture},
+	})
+	if err != nil || !again.Reused || again.Generation.GenerationDigest != result.Generation.GenerationDigest {
+		t.Fatalf("qualified reuse = %#v, %v", again, err)
+	}
+}
+
+func TestExportCorpusRejectsCaptureMismatchAndMixedQualificationBeforeStoreWrites(t *testing.T) {
+	jiraRoot := t.TempDir()
+	seedCorpusExportJira(t, jiraRoot, "EX-1", "10001", "EX/EX-1.wiki", []byte("body"), map[string]any{"summary": "Issue"})
+	confluenceRoot := t.TempDir()
+	seedCorpusExportConfluence(t, confluenceRoot, "20001", "DOC/page.csf", []byte("<p>body</p>"), mirror.Meta{
+		ID: "20001", Title: "Page", Space: "DOC", Version: 1,
+	})
+	capture := corpusExportCaptureReceipt(t, corpus.ServiceJira, jiraRoot)
+	unsupportedEvidence := corpusExportCaptureReceiptWithDimensions(t, corpus.ServiceJira, jiraRoot, []corpus.CaptureDimensionEvidence{
+		{Dimension: corpus.CaptureNative, State: corpus.CaptureComplete},
+		{Dimension: corpus.CaptureMetadata, State: corpus.CaptureComplete},
+		{Dimension: corpus.CaptureComments, State: corpus.CaptureComplete},
+		{Dimension: corpus.CaptureAttachments, State: corpus.CaptureNotRequested},
+	})
+
+	for name, options := range map[string]CorpusExportOptions{
+		"selection mismatch": {
+			JiraRoot: jiraRoot, CaptureReceipts: []corpus.CaptureReceipt{func() corpus.CaptureReceipt {
+				changed := capture
+				changed.SelectionDigest = strings.Repeat("f", 64)
+				return changed
+			}()},
+		},
+		"mixed source set": {
+			JiraRoot: jiraRoot, ConfluenceRoot: confluenceRoot,
+			CaptureReceipts: []corpus.CaptureReceipt{capture},
+		},
+		"unsupported optional evidence": {
+			JiraRoot: jiraRoot, CaptureReceipts: []corpus.CaptureReceipt{unsupportedEvidence},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			storeRoot := t.TempDir()
+			if err := os.Chmod(storeRoot, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			options.StoreRoot = storeRoot
+			options.InitializeStore = true
+			options.GeneratorVersion = "test-v1"
+			options.BuildState = corpus.BuildStateClean
+			if _, err := ExportCorpus(context.Background(), options); !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("error = %v", err)
+			}
+			entries, err := os.ReadDir(storeRoot)
+			if err != nil || len(entries) != 0 {
+				t.Fatalf("store entries=%d err=%v", len(entries), err)
+			}
+		})
+	}
+}
 
 func TestExportCorpusPublishesAndReusesExactJiraProjection(t *testing.T) {
 	mirrorRoot := t.TempDir()
@@ -541,6 +667,48 @@ func recordCorpusExportState(t *testing.T, m *mirror.Mirror, state mirror.SyncSt
 	if err := batch.Flush(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func corpusExportCaptureReceipt(t *testing.T, service corpus.Service, root string) corpus.CaptureReceipt {
+	return corpusExportCaptureReceiptWithDimensions(t, service, root, []corpus.CaptureDimensionEvidence{
+		{Dimension: corpus.CaptureNative, State: corpus.CaptureComplete},
+		{Dimension: corpus.CaptureMetadata, State: corpus.CaptureComplete},
+		{Dimension: corpus.CaptureComments, State: corpus.CaptureNotRequested},
+		{Dimension: corpus.CaptureAttachments, State: corpus.CaptureNotRequested},
+	})
+}
+
+func corpusExportCaptureReceiptWithDimensions(t *testing.T, service corpus.Service, root string, dimensions []corpus.CaptureDimensionEvidence) corpus.CaptureReceipt {
+	t.Helper()
+	snapshot, err := mirror.New(root).BeginCorpusSnapshot(string(service), mirror.CorpusSnapshotOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	providerIDs := make([]string, 0, snapshot.Len())
+	for _, item := range snapshot.Inventory() {
+		providerIDs = append(providerIDs, item.ProviderID)
+	}
+	selection, err := corpus.CaptureSelectionDigest(service, providerIDs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope, err := corpus.PrincipalScopeDigest(service, snapshot.OriginSHA256(), "synthetic-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	receipt, err := corpus.BuildCaptureReceipt(corpus.CaptureReceiptInput{
+		Service: service, ScopeDigest: scope,
+		SelectorDigest: strings.Repeat("a", 64), OptionsDigest: strings.Repeat("b", 64),
+		SelectionDigest: selection, SnapshotDigest: snapshot.Fingerprint(),
+		StartedAt: started, CompletedAt: started.Add(time.Minute),
+		Total: snapshot.Len(), Completed: snapshot.Len(), Usage: corpus.CaptureUsage{Attempts: 3, ResponseBytes: 1024},
+		Dimensions: dimensions,
+	}, corpus.Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return receipt
 }
 
 func writeCorpusExportJSON(t *testing.T, root, relative string, value any) {

@@ -57,6 +57,11 @@ backend I/O or rendering and remains separate from the existing aggregate
 `internal/app` owns the zero-egress projection from locked pristine Jira and
 Confluence mirror snapshots into the canonical indexer-v1 members; the CLI only
 parses local roots and emits the content-free receipt and generation summary.
+The same app layer owns qualified corpus-build orchestration over transport-
+neutral Jira/Confluence services and `internal/corpus` recovery state.
+`internal/compose` alone constructs the selected concrete adapters, shares one
+request scheduler between them, loads only selected credentials, and injects
+the build's deny-all write authorizer.
 
 ---
 

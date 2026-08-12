@@ -6,12 +6,75 @@ owned by `internal/corpus`; it accepts already-produced member streams and does
 not fetch from Jira or Confluence or interpret backend selectors. The
 `atl corpus export` application path separately projects pristine local mirror
 baselines into those member streams without configuration, credentials, or
-network access.
+network access. `atl corpus build` is the explicit remote-read orchestrator: it
+captures nominated qualified selections into private attempts and invokes the
+same projection and publication boundary only after every selected service
+reconciles.
 
 This format is separate from [`atl manifest create`](reference/cli/local-artifacts.md),
 whose aggregate mirror manifest and behavior are unchanged. See the
 [`atl corpus export` reference](reference/cli/local-artifacts.md#atl-corpus-export)
 and package ownership in [Architecture](architecture.md).
+
+## Qualified capture and publication
+
+`atl corpus build` selects only the caller-nominated Jira project and/or
+Confluence space. It does not enumerate containers, follow discovered targets,
+infer deleted objects, or perform any backend write. The command requires an
+invocation-wide `--read-only` or `ATL_READ_ONLY=1` policy before loading
+configuration or credentials. Every selected adapter also receives a deny-all
+write authorizer. Unselected service credentials are not loaded.
+
+One command-scoped scheduler and one physical read budget cover principal
+qualification, retries, redirects, both complete selections, and body reads.
+The absolute deadline and cumulative request/response-byte usage are persisted
+in the active attempt, so an ordinary resume cannot reset them. Jira and
+Confluence capture sequentially into separate attempt roots and carry separate
+start/completion times. A generation containing both services proves two
+qualified captures; it does not claim a remote transaction or one shared
+snapshot instant.
+
+Each service receipt binds only content-free evidence: service, principal-scope
+digest, selector/options/selection/snapshot digests, capture window, exact
+total/completed count, pull usage, and closed native/metadata/comments/
+attachments states. The scope hashes the qualified backend origin and stable
+authenticated principal; neither value is persisted in cleartext. Ready
+publication requires the complete-pull selection digest and total to match the
+full provider-ID inventory and pristine snapshot fingerprint. Local mirror
+health alone cannot upgrade structural evidence to ready.
+
+The build fixes rendering to the minimal profile, UTC display semantics, and
+disabled Confluence Jira-macro expansion, independently of global or local
+presentation config. Native bodies are identity-checked and stored verbatim;
+Markdown and JSONL are derived only after the pristine snapshots reconcile.
+This command version records comments and attachments as `not_requested`.
+
+Only after every requested receipt is durable does the build produce canonical
+documents/edges, seal the exact generation inventory, atomically publish the
+same-filesystem current pointer, and verify that selection. The previous
+generation is never removed. A consumer opens only the sealed current
+generation and has no reason to inspect active attempts.
+
+Recovery is deliberately asymmetric:
+
+- a returned remote error records known cumulative usage and leaves the exact
+  attempt resumable under its original options and deadline;
+- a process loss while `remote_in_flight` is durable is ambiguous and cannot be
+  replayed automatically;
+- explicit `--restart` first recovers the old service publication/journal,
+  marks that attempt retained, then starts a fresh random attempt; and
+- a completed active record remains as content-free recovery evidence.
+
+If the generation is selected but the final completed active-record barrier
+cannot be confirmed, the command reports `publish/outcome_unknown`. The current
+pointer may already name that fully verified generation. Preserve the root and
+repeat the exact command without `--restart`: ATL resolves the visible current
+generation and active record under their normal verification rules. Depending
+on which completed barrier survived, this may resume local reconciliation or
+begin the next bounded capture.
+
+No build path deletes attempts, stages, or generations. Retention and garbage
+collection require a separate policy.
 
 ## Indexer-v1 projection
 
@@ -70,8 +133,17 @@ This synthetic, content-free example shows the v1 namespace after publication:
 
 ```text
 owner-only-root/
+  .build.lock
   .publish.lock
+  active.v1.json
   current.v1.json
+  attempts/
+    fedcba9876543210fedcba9876543210/
+      confluence/
+      jira/
+      receipts/
+        confluence.capture.v1.json
+        jira.capture.v1.json
   generations/
     0123456789abcdef0123456789abcdef/
       artifacts/
@@ -79,10 +151,14 @@ owner-only-root/
       receipt.v1.json
 ```
 
-The random generation identifier carries no host, backend, selector, or object
-identity. `artifacts/` contains the private member files. `manifest.v1.json` is
-also private because it is the exact inventory: it contains member service,
-stable identity, role, relative path, size, mode, and digest.
+Random attempt and generation identifiers carry no host, backend, selector, or
+object identity. `attempts/` contains active and retained native mirrors and is
+private. `active.v1.json` and capture receipts are content-free but remain
+owner-only recovery records. `.build.lock` serializes build attempts and is
+crash-scoped. `artifacts/` contains the private sealed member files.
+`manifest.v1.json` is also private because it is the exact inventory: it
+contains member service, stable identity, role, relative path, size, mode, and
+digest.
 
 `receipt.v1.json` is written only after the generation is complete and is the
 content-free seal marker. `current.v1.json` is the content-free selection
@@ -196,5 +272,7 @@ classification even if reconciliation was cancelled or timed out; preserve the
 store and do not infer rollback or success.
 
 Cleanup and garbage collection, backend I/O, rendering, retention policy, and
-backup are outside this format. Those responsibilities require separate owners
-and must not mutate sealed generations in place.
+backup are outside the sealed-store format. `corpus build` owns bounded backend
+reads and derived rendering before it crosses that format boundary; retention
+remains separate. None of those responsibilities may mutate sealed generations
+in place.

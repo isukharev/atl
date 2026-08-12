@@ -405,6 +405,23 @@ evidence, and do not use `--allow-unreconciled` outside diagnostics. Preserve
 the store when an error reports an unknown durable outcome; do not infer either
 rollback or successful publication.
 
+**On-demand qualified corpus:** use `atl corpus build` only for caller-nominated
+Jira projects and/or Confluence spaces when an indexer requires
+`readiness:ready`. Create the exact-`0700` root outside the source checkout,
+set `ATL_READ_ONLY=1`, and supply every finite selection, request,
+response-byte, generation, deadline, concurrency, and rate bound documented by
+`atl corpus build --help`. The command reads only selected configured backends,
+uses one shared transport budget, captures independent service windows, fixes
+minimal rendering with Jira-macro expansion off, and publishes only after all
+capture receipts reconcile. Feed consumers only the sealed current generation;
+never index `attempts/`. Repeat exact options after a known returned read
+failure. If recovery reports `phase=recover reason=outcome_unknown`, preserve
+the root and use explicit `--restart`; do not infer or automatically replay the
+in-flight remote phase. For `phase=publish reason=outcome_unknown`, preserve the
+root and repeat exact options without `--restart`; the verified generation may
+already be current, so let ATL reconcile the visible pointer and active record.
+Build and restart never grant backend-write or cleanup authority.
+
 ## Reacting to results
 
 `atl` prints JSON to stdout by default. Use `-o text` only where the command
