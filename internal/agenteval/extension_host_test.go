@@ -89,7 +89,7 @@ func TestVerifyExtensionProtocolReportIsContentMinimized(t *testing.T) {
 			// The hosted Windows contour continues to prove the process protocol
 			// itself. The public file facade fails closed before process entry on
 			// Windows until the persistent ledger can prove directory durability.
-			return verifyExtensionProtocol(context.Background(), manifestData, executable, nil, bundleData, nil)
+			return verifyExtensionProtocol(context.Background(), manifestData, executable, nil, bundleData, nil, "")
 		}
 		return VerifyExtensionProtocolFiles(context.Background(), manifestPath, executable, bundlePath, ledgerRoot)
 	}
@@ -168,7 +168,7 @@ func testExtensionUnsupportedIsolationRefusesBeforeExecutableAdmission(t *testin
 		t.Fatal(err)
 	}
 	missingExecutable := t.TempDir() + string(os.PathSeparator) + "missing-component"
-	if _, err := verifyExtensionProtocol(context.Background(), manifestData, missingExecutable, nil, bundleData, nil); !errors.Is(err, errExtensionUnsupportedPolicy) {
+	if _, err := verifyExtensionProtocol(context.Background(), manifestData, missingExecutable, nil, bundleData, nil, ""); !errors.Is(err, errExtensionUnsupportedPolicy) {
 		t.Fatalf("unsupported filesystem isolation reached executable admission: %v", err)
 	}
 }
@@ -215,7 +215,7 @@ func testExtensionHostileCasesDoNotReplay(t *testing.T) {
 			}
 			counter := t.TempDir() + string(os.PathSeparator) + "spawns"
 			arguments := []string{"-test.run=^TestExtensionProtocolHostileHelper$", "--", test.mode, counter}
-			_, gotErr := verifyExtensionProtocol(context.Background(), manifestData, executable, arguments, bundleData, nil)
+			_, gotErr := verifyExtensionProtocol(context.Background(), manifestData, executable, arguments, bundleData, nil, "")
 			if !errors.Is(gotErr, test.want) {
 				t.Fatalf("error=%v, want %v", gotErr, test.want)
 			}
@@ -264,7 +264,7 @@ func testExtensionBundlePrefixIsAbsorbingUnknown(t *testing.T) {
 	}
 	counter := t.TempDir() + string(os.PathSeparator) + "spawns"
 	arguments := []string{"-test.run=^TestExtensionProtocolHostileHelper$", "--", "second-handshake-fails", counter}
-	if _, err := verifyExtensionProtocol(context.Background(), manifestData, executable, arguments, bundleData, nil); !errors.Is(err, errExtensionOutcomeUnknown) {
+	if _, err := verifyExtensionProtocol(context.Background(), manifestData, executable, arguments, bundleData, nil, ""); !errors.Is(err, errExtensionOutcomeUnknown) {
 		t.Fatalf("successful non-replay-safe prefix did not make later admission failure unknown: %v", err)
 	}
 	data, err := os.ReadFile(counter)
@@ -296,7 +296,7 @@ func testExtensionCanceledContextRefusesBeforeSpawn(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	arguments := []string{"-test.run=^TestExtensionProtocolHostileHelper$", "--", "missing-terminal", counter}
-	if _, err := verifyExtensionProtocol(ctx, manifestData, executable, arguments, bundleData, nil); !errors.Is(err, errExtensionCompatibility) {
+	if _, err := verifyExtensionProtocol(ctx, manifestData, executable, arguments, bundleData, nil, ""); !errors.Is(err, errExtensionCompatibility) {
 		t.Fatalf("canceled pre-spawn verification error=%v", err)
 	}
 	if _, err := os.Stat(counter); !os.IsNotExist(err) {

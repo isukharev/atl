@@ -33,6 +33,22 @@ command continues to import only the root facade. Compatibility DTOs are
 strictly decoded and validated
 before projection; no historical JSON bytes or digests are migrated by this
 split. Recursive import and vocabulary oracles enforce the dependency direction.
+
+The provider-neutral `agentadapter` leaf owns the closed semantic adapter
+contract and normalized observation graph. The root facade explicitly composes
+an immutable two-entry built-in registry and keeps compatibility-sensitive
+argv construction, output parsing, schema projection, skill installation,
+runtime layout, confinement, and receipt binding behind those entries. The
+runner negotiates the selected adapter's complete capability set before spawn
+and durably binds both its semantic contract and normalized observation.
+Provider-specific launch selection is not a switch in the generic runner.
+
+An observation keeps parent and whole-tree usage separate. Fully attributable
+single-agent totals retain coverage; legacy aggregate totals without stable
+child identities are preserved with `tree_usage_unattributed` and cannot be
+invented as child attempts or merged into parent usage. Activation evidence is
+also explicit: native, developer instructions, forced injection, combined, and
+unavailable are distinct, and missing usage remains unknown rather than zero.
 Product onboarding checks use independent core test infrastructure so product
 packages never depend on the heavy evaluator.
 The root facade also owns the closed schema-v1 extension manifest/message
@@ -45,6 +61,11 @@ cleanup without providing ambient evaluator configuration. It does not enforce
 filesystem, network, credential, or general resource isolation on the host, so
 requirements that need those controls must refuse before spawn pending the
 qualified execution boundary owned by #1320.
+For agent processes, the repository-only
+`verify-agent-adapter --manifest FILE --adapter FILE --bundle FILE --contract FILE --ledger DIR`
+adds the semantic adapter contract and append-only attempt binding to that same
+transport host. It is still provider-free protocol evidence, not a sandbox or
+permission to contact a configured provider or backend.
 Selected-binary oracles also decode released Jira and Confluence evidence with
 evaluator-owned closed wire types. The retained offline mirror snapshot cohorts
 seed bounded, symlink-free templates into a private process runtime and

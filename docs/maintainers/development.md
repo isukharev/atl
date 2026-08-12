@@ -224,9 +224,10 @@ design change, or security-boundary fix.
 The evaluator module's production and test imports are recursively reviewed in
 `TestEvaluatorProductDependencyLedger`. Its Go package owners are the root
 compatibility facade, neutral `core`, process `extension`, built-in
-`profile/atl`, format-specific `interchange/agentskills`, schema metadata leaf
+`profile/atl`, neutral semantic `agentadapter`, format-specific
+`interchange/agentskills`, schema metadata leaf
 `schemaregistry`, and `cmd/agent-eval`. Their machine-enforced direction keeps
-`core` and `extension` as leaves, keeps `schemaregistry` dependency-free,
+`core`, `extension`, and `agentadapter` as leaves, keeps `schemaregistry` dependency-free,
 permits `profile/atl` and `interchange/agentskills` to import only `core`,
 permits the root facade to compose those owners, and permits the command to
 import only the exact root facade. The ledger records every

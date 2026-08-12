@@ -154,7 +154,7 @@ func prepareCalibrationAttemptSession(outputRoot string, contract CodexCLICalibr
 	return NewDurableAttemptSession(store, plans[0])
 }
 
-func prepareExtensionAttemptSessions(store *AttemptLedgerStore, manifest extension.Manifest, bundle ExtensionConformanceBundle, manifestDigest, bundleDigest string) ([]*DurableAttemptSession, error) {
+func prepareExtensionAttemptSessions(store *AttemptLedgerStore, manifest extension.Manifest, bundle ExtensionConformanceBundle, manifestDigest, bundleDigest, adapterContractDigest string) ([]*DurableAttemptSession, error) {
 	if store == nil || !validSHA256(manifestDigest) || !validSHA256(bundleDigest) {
 		return nil, attemptLedgerError("extension_binding")
 	}
@@ -171,6 +171,16 @@ func prepareExtensionAttemptSessions(store *AttemptLedgerStore, manifest extensi
 	}{manifest.Requirements, manifest.Platforms})
 	if err != nil {
 		return nil, err
+	}
+	adapterIdentity := manifestDigest
+	if adapterContractDigest != "" {
+		if !validSHA256(adapterContractDigest) || manifest.Component.Role != extension.RoleAgentAdapter {
+			return nil, attemptLedgerError("extension_adapter_binding")
+		}
+		adapterIdentity, err = contentMinimizedAttemptDigest("agent-adapter-process-binding", []string{manifestDigest, adapterContractDigest})
+		if err != nil {
+			return nil, err
+		}
 	}
 	bindings := make([]lifecycle.Binding, len(bundle.Cases))
 	for index, testCase := range bundle.Cases {
@@ -203,7 +213,7 @@ func prepareExtensionAttemptSessions(store *AttemptLedgerStore, manifest extensi
 		bindings[index] = lifecycle.Binding{Privacy: lifecycle.PrivacyContentMinimized, Identity: lifecycle.Identity{
 			ExperimentSHA256: bundleDigest, TaskSHA256: task, SkillSHA256: none,
 			AgentSHA256: manifest.ExecutableSHA256, ModelSHA256: none, EnvironmentSHA256: environment,
-			GraderSHA256: grader, BudgetsSHA256: budgets, AdapterSHA256: manifestDigest, AuthoritySHA256: authority,
+			GraderSHA256: grader, BudgetsSHA256: budgets, AdapterSHA256: adapterIdentity, AuthoritySHA256: authority,
 		}}
 	}
 	plans, err := store.AllocateRoster(bindings)

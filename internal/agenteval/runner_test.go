@@ -315,6 +315,38 @@ exit 2
 		cliReceipt.ExecutionContractSHA256 == mcpReceipt.ExecutionContractSHA256 {
 		t.Fatalf("synthetic receipts do not separate task and execution identity: cli=%+v mcp=%+v", cliReceipt, mcpReceipt)
 	}
+	adapterContract, adapterDigest, err := builtInAgentAdapterContract(spec, mcpReceipt.AgentExecutableSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observationPath := filepath.Join(outputRoot, scenario.ID, "claude-code", "typed-mcp", "run-01", agentAdapterObservationFileName)
+	observationData, err := os.ReadFile(observationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, err := DecodeAgentAdapterObservation(bytes.NewReader(observationData), adapterContract)
+	if err != nil || !observation.Coverage || observation.AdapterContractSHA256 != adapterDigest ||
+		observation.TreeUsage.InputTokens.Value == nil || *observation.TreeUsage.InputTokens.Value != 100 {
+		t.Fatalf("agent observation=%+v err=%v", observation, err)
+	}
+	ledger, err := OpenAttemptLedgerStore(filepath.Join(outputRoot, "attempt-ledger"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspections, err := ledger.InspectAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapterBound := false
+	for _, inspection := range inspections {
+		if inspection.Plan.BindingSHA256 == mcpReceipt.AttemptBindingSHA256 {
+			adapterBound = inspection.Plan.Binding.Identity.AdapterSHA256 == adapterDigest &&
+				inspection.Projection.Terminal && validSHA256(inspection.Projection.ReceiptSHA256)
+		}
+	}
+	if !adapterBound {
+		t.Fatal("synthetic receipt did not transitively bind the adapter contract and terminal observation")
+	}
 	aggregate, err := AggregateSyntheticOutputRoot(outputRoot)
 	if err != nil {
 		t.Fatal(err)
@@ -625,7 +657,7 @@ func assertProviderFailureRetention(t *testing.T, runDir string) {
 			t.Fatalf("retained failure artifact %s mode=%v", name, info.Mode().Perm())
 		}
 	}
-	for _, name := range []string{"result.json", syntheticRunReceiptFileName} {
+	for _, name := range []string{"result.json", agentAdapterObservationFileName, syntheticRunReceiptFileName} {
 		if _, err := os.Stat(filepath.Join(runDir, name)); !os.IsNotExist(err) {
 			t.Fatalf("failed provider created success artifact %s: %v", name, err)
 		}
@@ -700,10 +732,10 @@ func TestBenchmarkInstructionSurfacesExcludeSyntheticTypedMCP(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := shouldInstallCodexBenchmarkSkills(test.spec); got != test.wantCodexSkills {
+			if got := shouldInstallBenchmarkSkills(test.spec); got != test.wantCodexSkills {
 				t.Fatalf("Codex skills=%v want=%v", got, test.wantCodexSkills)
 			}
-			if got := claudePluginPath(test.spec, "/plugin"); (got != "") != test.wantClaudePlugin {
+			if got := adapterPluginPath(test.spec, "/plugin"); (got != "") != test.wantClaudePlugin {
 				t.Fatalf("Claude plugin=%q want present=%v", got, test.wantClaudePlugin)
 			}
 		})

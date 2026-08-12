@@ -191,7 +191,7 @@ func validateRegistry(registry Registry) error {
 	if registry.Schema != Schema || registry.SchemaVersion != SchemaVersion || registry.ContractVersion != ContractVersion || registry.Entries == nil || len(registry.Entries) == 0 {
 		return ErrInvalidRegistry
 	}
-	owners := map[string]bool{"atl-profile": true, "extension": true, "lifecycle": true, "standalone": true}
+	owners := map[string]bool{"agentadapter": true, "atl-profile": true, "extension": true, "lifecycle": true, "standalone": true}
 	dispositions := map[string]bool{"preserve": true, "write_only_projection": true}
 	privacy := map[string]bool{"content_minimized": true, "owner_private": true, "public": true, "public_or_private": true}
 	migrations := map[string]bool{"compare_only": true, "explicit": true, "partial_explicit": true}

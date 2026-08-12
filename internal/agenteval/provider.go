@@ -77,191 +77,205 @@ func buildProviderCommand(spec RunSpec, agentBinary, atlBinary, guardPath, works
 	if err != nil {
 		return ProviderCommand{}, err
 	}
-	switch spec.Provider {
-	case "claude-code":
-		toolNames, allowedTools := claudeReviewedToolInventory(spec.AllowedTools,
-			spec.EffectiveBackendMode() == BackendModePrivateLive && spec.ToolTransport == "cli")
-		settingSources := "project"
-		if spec.EffectiveBackendMode() == BackendModePrivateLive {
-			settingSources = ""
+	adapter, err := builtInAgentAdapterFor(spec.Provider)
+	if err != nil {
+		return ProviderCommand{}, err
+	}
+	return adapter.buildCommand(providerCommandInput{spec: spec, agentBinary: agentBinary, atlBinary: atlBinary,
+		guardPath: guardPath, workspace: workspace, schemaPath: schemaPath, finalPath: finalPath, pluginRoot: pluginRoot,
+		settingsPath: settingsPath, mcpConfigPath: mcpConfigPath, confinement: confinement,
+		responseSchema: projectedResponseSchema, bindings: bindings})
+}
+
+func buildClaudeProviderCommand(input providerCommandInput) (ProviderCommand, error) {
+	spec, agentBinary, atlBinary, guardPath := input.spec, input.agentBinary, input.atlBinary, input.guardPath
+	pluginRoot, settingsPath, mcpConfigPath := input.pluginRoot, input.settingsPath, input.mcpConfigPath
+	projectedResponseSchema := input.responseSchema
+	toolNames, allowedTools := claudeReviewedToolInventory(spec.AllowedTools,
+		spec.EffectiveBackendMode() == BackendModePrivateLive && spec.ToolTransport == "cli")
+	settingSources := "project"
+	if spec.EffectiveBackendMode() == BackendModePrivateLive {
+		settingSources = ""
+	}
+	if spec.ToolTransport == "mcp" {
+		if atlBinary == "" || guardPath == "" || mcpConfigPath == "" {
+			return ProviderCommand{}, fmt.Errorf("claude mcp transport requires atl, guard, and MCP config paths")
 		}
-		if spec.ToolTransport == "mcp" {
-			if atlBinary == "" || guardPath == "" || mcpConfigPath == "" {
-				return ProviderCommand{}, fmt.Errorf("claude mcp transport requires atl, guard, and MCP config paths")
-			}
-			// Current Claude Code documents --tools as a built-in-only inventory
-			// filter that does not affect MCP discovery. Pass an explicit empty
-			// inventory so the model never sees a built-in fallback route. Dynamic
-			// MCP permissions remain in the generated private settings, and the
-			// matcher-less guard independently fails closed on every tool call.
-			toolNames = nil
-		}
-		args := []string{
-			"-p", "--output-format", "stream-json", "--verbose",
-			"--no-session-persistence", "--model", spec.Model,
-			"--max-budget-usd", formatMicroUSD(spec.MaxEstimatedCostMicroUSD),
-			"--permission-mode", "auto", "--strict-mcp-config", "--no-chrome",
-			"--setting-sources", settingSources,
-		}
-		args = append(args, "--tools", strings.Join(toolNames, ","))
-		if spec.ToolTransport != "mcp" {
-			args = append(args,
-				"--allowed-tools", strings.Join(allowedTools, ","),
-			)
-		}
-		args = append(args, "--json-schema", string(projectedResponseSchema))
-		if spec.ToolTransport == "mcp" {
-			args = append(args, "--mcp-config", mcpConfigPath)
-		}
-		if spec.Reasoning != "" {
-			args = append(args, "--effort", spec.Reasoning)
-		}
-		if pluginRoot != "" {
-			args = append(args, "--plugin-dir", pluginRoot)
-		}
-		if settingsPath != "" {
-			args = append(args, "--settings", settingsPath)
-		}
-		return ProviderCommand{Path: agentBinary, Args: args}, nil
-	case "codex":
-		environmentProjection := wrapperProjectionSyntheticCLI
-		sandboxMode := "read-only"
-		if spec.ToolTransport == "mcp" {
-			environmentProjection = wrapperProjectionMCP
-			if spec.EffectiveSurface() == SurfaceExternalMCP {
-				environmentProjection = wrapperProjectionExternalMCP
-			}
-			if spec.EffectiveBackendMode() == BackendModePrivateLive {
-				environmentProjection = wrapperProjectionPrivateMCP
-				if spec.EffectiveSurface() == SurfaceExternalMCP {
-					environmentProjection = wrapperProjectionPrivateExternalMCP
-				}
-			}
-		}
-		confinedCLI := isCodexConfinedCLI(spec)
-		privateCLI := spec.EffectiveBackendMode() == BackendModePrivateLive || spec.EffectiveBackendMode() == BackendModeProviderCalibration
-		if confinedCLI {
-			sandboxMode = "workspace-write"
-			environmentProjection = wrapperProjectionConfinedCLI
-			if spec.EffectiveBackendMode() == BackendModePrivateLive && spec.AllowLiveWrites {
-				environmentProjection = wrapperProjectionPrivateReviewedWriteCLI
-			} else if spec.EffectiveBackendMode() == BackendModeSynthetic && spec.AllowSyntheticWrites {
-				environmentProjection = wrapperProjectionSyntheticWriteCLI
-			}
-		}
-		includeOnly := renderWrapperEnvironmentProjection(environmentProjection)
-		args := []string{
-			"exec", "--json", "--ephemeral", "--strict-config",
-			"--skip-git-repo-check",
-			"--model", spec.Model,
-		}
-		if !privateCLI {
-			args = append(args, "--ignore-user-config")
-		}
-		// Provider-managed remote tools are outside the reviewed benchmark
-		// surface. Disable them explicitly rather than relying on a clean home:
-		// account-side Apps or browser/computer capabilities may otherwise be
-		// discovered after authentication. The built-in shell and the exact MCP
-		// server configured below remain available and are still hook-guarded.
-		args = append(args, codexDisabledProviderFeatureArgs()...)
-		if privateCLI {
-			args = append(args, codexLocalExecutionRouteArgs()...)
-		}
-		if !confinedCLI {
-			args = append(args, "--sandbox", sandboxMode)
-		}
+		// Current Claude Code documents --tools as a built-in-only inventory
+		// filter that does not affect MCP discovery. Pass an explicit empty
+		// inventory so the model never sees a built-in fallback route. Dynamic
+		// MCP permissions remain in the generated private settings, and the
+		// matcher-less guard independently fails closed on every tool call.
+		toolNames = nil
+	}
+	args := []string{
+		"-p", "--output-format", "stream-json", "--verbose",
+		"--no-session-persistence", "--model", spec.Model,
+		"--max-budget-usd", formatMicroUSD(spec.MaxEstimatedCostMicroUSD),
+		"--permission-mode", "auto", "--strict-mcp-config", "--no-chrome",
+		"--setting-sources", settingSources,
+	}
+	args = append(args, "--tools", strings.Join(toolNames, ","))
+	if spec.ToolTransport != "mcp" {
 		args = append(args,
-			"-C", workspace,
-			"--output-schema", schemaPath, "--output-last-message", finalPath,
-			"-c", `project_doc_max_bytes=0`,
-			"-c", `shell_environment_policy.inherit="all"`,
-			"-c", `shell_environment_policy.include_only=`+includeOnly,
+			"--allowed-tools", strings.Join(allowedTools, ","),
 		)
-		if spec.ToolTransport == "mcp" {
-			if atlBinary == "" || guardPath == "" {
-				return ProviderCommand{}, fmt.Errorf("codex mcp transport requires atl and guard executables")
-			}
+	}
+	args = append(args, "--json-schema", string(projectedResponseSchema))
+	if spec.ToolTransport == "mcp" {
+		args = append(args, "--mcp-config", mcpConfigPath)
+	}
+	if spec.Reasoning != "" {
+		args = append(args, "--effort", spec.Reasoning)
+	}
+	if pluginRoot != "" {
+		args = append(args, "--plugin-dir", pluginRoot)
+	}
+	if settingsPath != "" {
+		args = append(args, "--settings", settingsPath)
+	}
+	return ProviderCommand{Path: agentBinary, Args: args}, nil
+}
+
+func buildCodexProviderCommand(input providerCommandInput) (ProviderCommand, error) {
+	spec, agentBinary, atlBinary, guardPath := input.spec, input.agentBinary, input.atlBinary, input.guardPath
+	workspace, schemaPath, finalPath := input.workspace, input.schemaPath, input.finalPath
+	confinement, bindings := input.confinement, input.bindings
+	environmentProjection := wrapperProjectionSyntheticCLI
+	sandboxMode := "read-only"
+	if spec.ToolTransport == "mcp" {
+		environmentProjection = wrapperProjectionMCP
+		if spec.EffectiveSurface() == SurfaceExternalMCP {
+			environmentProjection = wrapperProjectionExternalMCP
+		}
+		if spec.EffectiveBackendMode() == BackendModePrivateLive {
+			environmentProjection = wrapperProjectionPrivateMCP
 			if spec.EffectiveSurface() == SurfaceExternalMCP {
-				if bindings.externalMCPServerURL == "" || bindings.externalMCPBearerTokenEnv == "" {
-					return ProviderCommand{}, fmt.Errorf("codex external MCP requires a local proxy")
-				}
-				hookConfig, err := codexDenyNonMCPHook(guardPath, spec, confinement)
-				if err != nil {
-					return ProviderCommand{}, err
-				}
-				args = append(args,
-					"--dangerously-bypass-hook-trust", "-c", `web_search="disabled"`,
-					"-c", `mcp_servers.external_ro.url=`+strconv.Quote(bindings.externalMCPServerURL),
-					"-c", `mcp_servers.external_ro.bearer_token_env_var=`+strconv.Quote(bindings.externalMCPBearerTokenEnv),
-					"-c", `mcp_servers.external_ro.required=true`,
-					"-c", `mcp_servers.external_ro.enabled_tools=`+quotedStringList(spec.AllowedMCPTools),
-					"-c", `mcp_servers.external_ro.default_tools_approval_mode="approve"`,
-					"-c", hookConfig,
-				)
-			} else {
-				hookConfig, err := codexDenyNonMCPHook(guardPath, spec, confinement)
-				if err != nil {
-					return ProviderCommand{}, err
-				}
-				// A private-live internal MCP child is bound to the disposable
-				// loopback config alone: it must not inherit upstream URL, PAT, or
-				// insecure-transport names. The legacy product HTTP hook is not
-				// projected into any MCP child.
-				mcpEnvVars := `["ATL_READ_ONLY","ATL_NO_UPDATE","ATL_CONFIG_DIR","ATL_MIRROR_ROOT","ATL_JIRA_URL","ATL_CONFLUENCE_URL","ATL_JIRA_PAT","ATL_CONFLUENCE_PAT","ATL_ALLOW_INSECURE"]`
-				if gatewayBackedInternalMCP(spec) {
-					mcpEnvVars = quotedStringList(gatewayMCPEnvironmentNames)
-				}
-				args = append(args,
-					"--dangerously-bypass-hook-trust",
-					"-c", `web_search="disabled"`,
-					"-c", `mcp_servers.atl.command=`+strconv.Quote(atlBinary),
-					"-c", `mcp_servers.atl.args=`+quotedStringList(mcpChildArgs(spec)),
-					"-c", `mcp_servers.atl.required=true`,
-					"-c", `mcp_servers.atl.enabled_tools=`+quotedStringList(spec.AllowedMCPTools),
-					"-c", `mcp_servers.atl.default_tools_approval_mode="approve"`,
-					"-c", `mcp_servers.atl.env_vars=`+mcpEnvVars,
-					"-c", hookConfig,
-				)
+				environmentProjection = wrapperProjectionPrivateExternalMCP
 			}
 		}
-		if confinedCLI {
-			if guardPath == "" {
-				return ProviderCommand{}, fmt.Errorf("codex confined cli transport requires a guard executable")
+	}
+	confinedCLI := isCodexConfinedCLI(spec)
+	privateCLI := spec.EffectiveBackendMode() == BackendModePrivateLive || spec.EffectiveBackendMode() == BackendModeProviderCalibration
+	if confinedCLI {
+		sandboxMode = "workspace-write"
+		environmentProjection = wrapperProjectionConfinedCLI
+		if spec.EffectiveBackendMode() == BackendModePrivateLive && spec.AllowLiveWrites {
+			environmentProjection = wrapperProjectionPrivateReviewedWriteCLI
+		} else if spec.EffectiveBackendMode() == BackendModeSynthetic && spec.AllowSyntheticWrites {
+			environmentProjection = wrapperProjectionSyntheticWriteCLI
+		}
+	}
+	includeOnly := renderWrapperEnvironmentProjection(environmentProjection)
+	args := []string{
+		"exec", "--json", "--ephemeral", "--strict-config",
+		"--skip-git-repo-check",
+		"--model", spec.Model,
+	}
+	if !privateCLI {
+		args = append(args, "--ignore-user-config")
+	}
+	// Provider-managed remote tools are outside the reviewed benchmark
+	// surface. Disable them explicitly rather than relying on a clean home:
+	// account-side Apps or browser/computer capabilities may otherwise be
+	// discovered after authentication. The built-in shell and the exact MCP
+	// server configured below remain available and are still hook-guarded.
+	args = append(args, codexDisabledProviderFeatureArgs()...)
+	if privateCLI {
+		args = append(args, codexLocalExecutionRouteArgs()...)
+	}
+	if !confinedCLI {
+		args = append(args, "--sandbox", sandboxMode)
+	}
+	args = append(args,
+		"-C", workspace,
+		"--output-schema", schemaPath, "--output-last-message", finalPath,
+		"-c", `project_doc_max_bytes=0`,
+		"-c", `shell_environment_policy.inherit="all"`,
+		"-c", `shell_environment_policy.include_only=`+includeOnly,
+	)
+	if spec.ToolTransport == "mcp" {
+		if atlBinary == "" || guardPath == "" {
+			return ProviderCommand{}, fmt.Errorf("codex mcp transport requires atl and guard executables")
+		}
+		if spec.EffectiveSurface() == SurfaceExternalMCP {
+			if bindings.externalMCPServerURL == "" || bindings.externalMCPBearerTokenEnv == "" {
+				return ProviderCommand{}, fmt.Errorf("codex external MCP requires a local proxy")
 			}
 			hookConfig, err := codexDenyNonMCPHook(guardPath, spec, confinement)
 			if err != nil {
 				return ProviderCommand{}, err
 			}
-			confinementArgs, err := codexConfinementConfigArgs(confinement, true)
+			args = append(args,
+				"--dangerously-bypass-hook-trust", "-c", `web_search="disabled"`,
+				"-c", `mcp_servers.external_ro.url=`+strconv.Quote(bindings.externalMCPServerURL),
+				"-c", `mcp_servers.external_ro.bearer_token_env_var=`+strconv.Quote(bindings.externalMCPBearerTokenEnv),
+				"-c", `mcp_servers.external_ro.required=true`,
+				"-c", `mcp_servers.external_ro.enabled_tools=`+quotedStringList(spec.AllowedMCPTools),
+				"-c", `mcp_servers.external_ro.default_tools_approval_mode="approve"`,
+				"-c", hookConfig,
+			)
+		} else {
+			hookConfig, err := codexDenyNonMCPHook(guardPath, spec, confinement)
+			if err != nil {
+				return ProviderCommand{}, err
+			}
+			// A private-live internal MCP child is bound to the disposable
+			// loopback config alone: it must not inherit upstream URL, PAT, or
+			// insecure-transport names. The legacy product HTTP hook is not
+			// projected into any MCP child.
+			mcpEnvVars := `["ATL_READ_ONLY","ATL_NO_UPDATE","ATL_CONFIG_DIR","ATL_MIRROR_ROOT","ATL_JIRA_URL","ATL_CONFLUENCE_URL","ATL_JIRA_PAT","ATL_CONFLUENCE_PAT","ATL_ALLOW_INSECURE"]`
+			if gatewayBackedInternalMCP(spec) {
+				mcpEnvVars = quotedStringList(gatewayMCPEnvironmentNames)
+			}
+			args = append(args,
+				"--dangerously-bypass-hook-trust",
+				"-c", `web_search="disabled"`,
+				"-c", `mcp_servers.atl.command=`+strconv.Quote(atlBinary),
+				"-c", `mcp_servers.atl.args=`+quotedStringList(mcpChildArgs(spec)),
+				"-c", `mcp_servers.atl.required=true`,
+				"-c", `mcp_servers.atl.enabled_tools=`+quotedStringList(spec.AllowedMCPTools),
+				"-c", `mcp_servers.atl.default_tools_approval_mode="approve"`,
+				"-c", `mcp_servers.atl.env_vars=`+mcpEnvVars,
+				"-c", hookConfig,
+			)
+		}
+	}
+	if confinedCLI {
+		if guardPath == "" {
+			return ProviderCommand{}, fmt.Errorf("codex confined cli transport requires a guard executable")
+		}
+		hookConfig, err := codexDenyNonMCPHook(guardPath, spec, confinement)
+		if err != nil {
+			return ProviderCommand{}, err
+		}
+		confinementArgs, err := codexConfinementConfigArgs(confinement, true)
+		if err != nil {
+			return ProviderCommand{}, err
+		}
+		args = append(args,
+			"--ignore-rules", "--dangerously-bypass-hook-trust",
+			"-c", `approval_policy="never"`,
+			"-c", `web_search="disabled"`,
+			"-c", hookConfig,
+		)
+		if privateCLI {
+			developerInstructions, err := codexPrivateCLIInstructions(spec)
 			if err != nil {
 				return ProviderCommand{}, err
 			}
 			args = append(args,
-				"--ignore-rules", "--dangerously-bypass-hook-trust",
-				"-c", `approval_policy="never"`,
-				"-c", `web_search="disabled"`,
-				"-c", hookConfig,
+				"-c", `plugins."atl@atl".enabled=true`,
+				"-c", `developer_instructions=`+strconv.Quote(developerInstructions),
 			)
-			if privateCLI {
-				developerInstructions, err := codexPrivateCLIInstructions(spec)
-				if err != nil {
-					return ProviderCommand{}, err
-				}
-				args = append(args,
-					"-c", `plugins."atl@atl".enabled=true`,
-					"-c", `developer_instructions=`+strconv.Quote(developerInstructions),
-				)
-			}
-			args = append(args, confinementArgs...)
 		}
-		if spec.Reasoning != "" {
-			args = append(args, "-c", "model_reasoning_effort="+strconv.Quote(spec.Reasoning))
-		}
-		args = append(args, "-")
-		return ProviderCommand{Path: agentBinary, Args: args}, nil
-	default:
-		return ProviderCommand{}, fmt.Errorf("unsupported provider %q", spec.Provider)
+		args = append(args, confinementArgs...)
 	}
+	if spec.Reasoning != "" {
+		args = append(args, "-c", "model_reasoning_effort="+strconv.Quote(spec.Reasoning))
+	}
+	args = append(args, "-")
+	return ProviderCommand{Path: agentBinary, Args: args}, nil
 }
 
 func mcpChildArgs(spec RunSpec) []string {
@@ -270,12 +284,6 @@ func mcpChildArgs(spec RunSpec) []string {
 		args = append(args, "--service", spec.MCPServiceProfile)
 	}
 	return args
-}
-
-func isCodexConfinedCLI(spec RunSpec) bool {
-	mode := spec.EffectiveBackendMode()
-	return spec.Provider == "codex" && spec.EffectiveToolTransport() == "cli" &&
-		(mode == BackendModePrivateLive || mode == BackendModeProviderCalibration || isCodexSyntheticBrokerCLI(spec))
 }
 
 func codexPrivateCLIInstructions(spec RunSpec) (string, error) {
@@ -579,21 +587,11 @@ func claudeToolNames(rules []string) []string {
 }
 
 func ParseProviderOutput(provider string, transcript, finalFile []byte) (ProviderMetrics, []byte, error) {
-	switch provider {
-	case "claude-code":
-		return parseClaudeOutput(transcript)
-	case "codex":
-		metrics, err := parseCodexOutput(transcript)
-		if err != nil {
-			return ProviderMetrics{}, nil, err
-		}
-		if len(bytes.TrimSpace(finalFile)) == 0 {
-			return ProviderMetrics{}, nil, fmt.Errorf("codex final response is empty")
-		}
-		return metrics, bytes.TrimSpace(finalFile), nil
-	default:
-		return ProviderMetrics{}, nil, fmt.Errorf("unsupported provider %q", provider)
+	adapter, err := builtInAgentAdapterFor(provider)
+	if err != nil {
+		return ProviderMetrics{}, nil, err
 	}
+	return adapter.parseOutput(transcript, finalFile)
 }
 
 func parseClaudeOutput(data []byte) (ProviderMetrics, []byte, error) {

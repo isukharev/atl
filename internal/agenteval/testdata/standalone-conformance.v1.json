@@ -3,7 +3,7 @@
   "contract_version": "0.1.0-pre-release",
   "golden_bundle": {
     "path": "testdata/standalone-readability-golden.v1.json",
-    "sha256": "d001264c56c7df3a3d683469d52ee4ee1565a9404b00cd8cc19feeb815ec8cfe"
+    "sha256": "4751c2f9f9e7e0448e4941cbbaf879a6a032b66628b974e7b4d36900f141e987"
   },
   "readability": [
     {"namespace":"atl-profile","kind":"activation-reference","versions":[1,2]},
@@ -23,6 +23,8 @@
     {"namespace":"atl-profile","kind":"synthetic-run-receipt","versions":[1,2]},
     {"namespace":"standalone","kind":"adapter-manifest","versions":[1]},
     {"namespace":"standalone","kind":"adapter-message","versions":[1]},
+    {"namespace":"standalone","kind":"agent-adapter-contract","versions":[1]},
+    {"namespace":"standalone","kind":"agent-observation","versions":[1]},
     {"namespace":"standalone","kind":"attempt-event","versions":[1]},
     {"namespace":"standalone","kind":"attempt-ledger","versions":[1]},
     {"namespace":"standalone","kind":"attempt-plan","versions":[1]},
@@ -51,6 +53,8 @@
     {"namespace":"atl-profile","kind":"synthetic-run-receipt","version":3},
     {"namespace":"standalone","kind":"adapter-manifest","version":2},
     {"namespace":"standalone","kind":"adapter-message","version":2},
+    {"namespace":"standalone","kind":"agent-adapter-contract","version":2},
+    {"namespace":"standalone","kind":"agent-observation","version":2},
     {"namespace":"standalone","kind":"attempt-event","version":2},
     {"namespace":"standalone","kind":"attempt-ledger","version":2},
     {"namespace":"standalone","kind":"attempt-plan","version":2},

@@ -37,6 +37,13 @@ external authoring artifacts into `core`, but it owns no execution, lifecycle,
 grader, or sandbox semantics. A recursive exact import ledger and vocabulary
 oracle enforce the direction; additional process, lifecycle, and distribution
 extraction remains subject to the issues and evidence gates that own it.
+The neutral `agentadapter` leaf owns the semantic agent contract and normalized
+observation graph. It imports no evaluator package. The root facade composes its
+two immutable built-in adapters, binds their reviewed implementation identity,
+executable, and configuration digests before spawn, and retains legacy launch
+and receipt compatibility. This
+is a typed seam inside the nested module, not a downloadable plugin registry or
+an extraction decision.
 The repository command now also contains a machine-tested pre-release
 coordinator for local validation, deterministic grading, comparison,
 inspection, and Agent Skills import/export. That source surface is unsigned,
@@ -63,6 +70,13 @@ enforce filesystem, network, credential, or general resource isolation for an
 arbitrary child, so it cannot satisfy the credential-free prototype below or
 the adoption gate's confinement requirements. Those claims remain blocked on
 the qualified execution boundary owned by #1320.
+The narrower internal `verify-agent-adapter` command layers the semantic
+adapter contract and durable attempt receipts over that host. It proves that an
+out-of-module process can negotiate the agent role, normal execution,
+normalization, preparation, cancellation, bounded I/O, malformed-frame refusal,
+cleanup reporting, and receipt identities without importing evaluator Go code.
+It deliberately inherits the same confinement nonclaims and cannot be promoted
+to whole-product compatibility by itself.
 
 | Evidence | Retained nested module | Separate repository now |
 |---|---|---|

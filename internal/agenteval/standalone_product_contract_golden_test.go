@@ -63,7 +63,7 @@ func loadStandaloneReadabilityGoldenFixture(t *testing.T, bundle standaloneGolde
 			t.Fatalf("readability golden entry %q has an unexpected source digest", key)
 		}
 		hasReaderSupport := entry.ReaderSupportPath != "" || entry.ReaderSupportSHA256 != ""
-		if entry.Kind == "activation-reference" {
+		if entry.Kind == "activation-reference" || entry.Kind == "agent-observation" {
 			if !hasReaderSupport || !standaloneGoldenReaderSupportAllowed(entry) || !standaloneValidSHA256(entry.ReaderSupportSHA256) {
 				t.Fatalf("readability golden entry %q has invalid reader support", key)
 			}
@@ -85,7 +85,30 @@ func loadStandaloneReadabilityGoldenFixture(t *testing.T, bundle standaloneGolde
 		seen[key] = true
 	}
 	standaloneValidateExtensionGoldenBindings(t, fixture)
+	standaloneValidateAgentAdapterGoldenBindings(t, fixture)
 	return fixture
+}
+
+func standaloneValidateAgentAdapterGoldenBindings(t *testing.T, fixture standaloneReadabilityGoldenFixture) {
+	t.Helper()
+	contractEntry, contractOK := standaloneReadabilityGoldenEntryFor(fixture, standaloneVersionedContractKey("standalone", "agent-adapter-contract", 1))
+	observationEntry, observationOK := standaloneReadabilityGoldenEntryFor(fixture, standaloneVersionedContractKey("standalone", "agent-observation", 1))
+	if !contractOK || !observationOK || observationEntry.ReaderSupportPath != contractEntry.SourcePath ||
+		observationEntry.ReaderSupportSHA256 != contractEntry.SourceSHA256 {
+		t.Fatal("standalone agent adapter readability sources are not transitively bound")
+	}
+	contract, err := DecodeAgentAdapterContract(bytes.NewReader(standaloneGoldenDocument(t, contractEntry)))
+	if err != nil {
+		t.Fatalf("decode bound agent adapter contract: %v", err)
+	}
+	observation, err := DecodeAgentAdapterObservation(bytes.NewReader(standaloneGoldenDocument(t, observationEntry)), contract)
+	if err != nil {
+		t.Fatalf("decode bound agent adapter observation: %v", err)
+	}
+	contractSHA256, err := AgentAdapterContractSHA256(contract)
+	if err != nil || observation.AdapterContractSHA256 != contractSHA256 {
+		t.Fatal("standalone agent adapter observation does not bind its contract")
+	}
 }
 
 func standaloneValidateExtensionGoldenBindings(t *testing.T, fixture standaloneReadabilityGoldenFixture) {
@@ -229,7 +252,7 @@ func standaloneGoldenSourceAllowed(entry standaloneReadabilityGoldenEntry) bool 
 		return entry.Namespace == "atl-profile" && entry.SourcePath == fmt.Sprintf("testdata/standalone-readability/%s-v%d.json", entry.Kind, entry.Version)
 	case "capability-catalog":
 		return entry.Namespace == "atl-profile" && entry.Version == CapabilityCatalogSchemaVersion && entry.SourcePath == "testdata/capability-catalog.v1.json"
-	case "adapter-manifest", "adapter-message", "attempt-event", "attempt-ledger", "attempt-plan", "extension-conformance-bundle", "extension-conformance-report", "migration-preview", "migration-result", "project-config":
+	case "adapter-manifest", "adapter-message", "agent-adapter-contract", "agent-observation", "attempt-event", "attempt-ledger", "attempt-plan", "extension-conformance-bundle", "extension-conformance-report", "migration-preview", "migration-result", "project-config":
 		return entry.Namespace == "standalone" && entry.Version == 1 &&
 			entry.SourcePath == fmt.Sprintf("testdata/standalone-readability/%s-v1.json", entry.Kind)
 	case "schema-registry":
@@ -241,6 +264,9 @@ func standaloneGoldenSourceAllowed(entry standaloneReadabilityGoldenEntry) bool 
 }
 
 func standaloneGoldenReaderSupportAllowed(entry standaloneReadabilityGoldenEntry) bool {
+	if entry.Namespace == "standalone" && entry.Kind == "agent-observation" && entry.Version == 1 {
+		return entry.ReaderSupportPath == "testdata/standalone-readability/agent-adapter-contract-v1.json"
+	}
 	want := map[int]string{
 		LegacyPrivateActivationReferenceSchemaVersion: "testdata/standalone-readability/private-plan-v4.json",
 		PrivateActivationReferenceSchemaVersion:       "testdata/standalone-readability/activation-plan-v9.json",
@@ -251,7 +277,7 @@ func standaloneGoldenReaderSupportAllowed(entry standaloneReadabilityGoldenEntry
 func standaloneDecodeReadabilityProjection(t *testing.T, entry standaloneReadabilityGoldenEntry, data []byte) (map[string]any, error) {
 	t.Helper()
 	if entry.Namespace == "standalone" {
-		return standaloneDecodeExtensionReadabilityProjection(entry, data)
+		return standaloneDecodeExtensionReadabilityProjection(t, entry, data)
 	}
 	if entry.Namespace != "atl-profile" {
 		return nil, fmt.Errorf("unsupported readability golden namespace %q", entry.Namespace)
@@ -483,7 +509,8 @@ func standaloneDecodeReadabilityProjection(t *testing.T, entry standaloneReadabi
 	}
 }
 
-func standaloneDecodeExtensionReadabilityProjection(entry standaloneReadabilityGoldenEntry, data []byte) (map[string]any, error) {
+func standaloneDecodeExtensionReadabilityProjection(t *testing.T, entry standaloneReadabilityGoldenEntry, data []byte) (map[string]any, error) {
+	t.Helper()
 	switch entry.Kind {
 	case "adapter-manifest":
 		manifest, err := extension.DecodeManifest(data)
@@ -519,6 +546,58 @@ func standaloneDecodeExtensionReadabilityProjection(entry standaloneReadabilityG
 			"direction": frame.Direction, "sequence": frame.Sequence, "role": frame.Role, "type": frame.Type,
 			"component_id": frame.ComponentID, "component_version": frame.ComponentVersion,
 			"required_capability_count": len(frame.Initialize.RequiredCapabilities),
+		}, nil
+	case "agent-adapter-contract":
+		contract, err := DecodeAgentAdapterContract(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := EncodeAgentAdapterContract(contract)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("agent adapter contract golden is not canonical")
+		}
+		supported, sensitive := 0, 0
+		for _, capability := range contract.Capabilities {
+			if capability.Support == "supported" {
+				supported++
+			}
+		}
+		for _, key := range contract.ConfigurationKeys {
+			if key.Sensitive {
+				sensitive++
+			}
+		}
+		return map[string]any{
+			"schema": contract.Schema, "schema_version": contract.SchemaVersion,
+			"contract_version": contract.ContractVersion, "adapter_id": contract.AdapterID,
+			"adapter_version": contract.AdapterVersion, "capability_count": len(contract.Capabilities),
+			"supported_capability_count": supported, "configuration_key_count": len(contract.ConfigurationKeys),
+			"sensitive_configuration_key_count": sensitive,
+		}, nil
+	case "agent-observation":
+		contractData := standaloneReadGoldenSource(t, entry.ReaderSupportPath, entry.ReaderSupportSHA256)
+		contract, err := DecodeAgentAdapterContract(bytes.NewReader(contractData))
+		if err != nil {
+			return nil, err
+		}
+		observation, err := DecodeAgentAdapterObservation(bytes.NewReader(data), contract)
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := EncodeAgentAdapterObservation(contract, observation)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("agent observation golden is not canonical")
+		}
+		return map[string]any{
+			"schema": observation.Schema, "schema_version": observation.SchemaVersion,
+			"contract_version": observation.ContractVersion, "attempt_bound": observation.AttemptID != "",
+			"adapter_contract_bound": observation.AdapterContractSHA256 != "", "profile": observation.Profile,
+			"event_count": len(observation.Events), "coverage": observation.Coverage, "issue_count": len(observation.Issues),
+			"parent_input_state":            observation.ParentUsage.InputTokens.State,
+			"parent_input_value":            *observation.ParentUsage.InputTokens.Value,
+			"tree_input_state":              observation.TreeUsage.InputTokens.State,
+			"tree_input_value":              *observation.TreeUsage.InputTokens.Value,
+			"consumed_child_evidence_state": observation.ConsumedChildEvidence.State,
 		}, nil
 	case "attempt-event":
 		event, err := lifecycle.DecodeEvent(data)

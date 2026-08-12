@@ -66,7 +66,7 @@ func runAttemptBinding(contract resolvedRunContract, options RunOptions, skillDi
 	if err != nil {
 		return lifecycle.Binding{}, err
 	}
-	adapter, err := digest("adapter", []string{contract.spec.Provider, agentDigest})
+	_, adapter, err := builtInAgentAdapterContract(contract.spec, agentDigest)
 	if err != nil {
 		return lifecycle.Binding{}, err
 	}

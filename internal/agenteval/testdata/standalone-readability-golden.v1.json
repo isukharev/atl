@@ -1605,6 +1605,49 @@
     },
     {
       "namespace": "standalone",
+      "kind": "agent-adapter-contract",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/agent-adapter-contract-v1.json",
+      "source_sha256": "1e8cc9367fd5a5221cadb7bb416ccbf834973033b37c7d73889ff384a704732c",
+      "expected_projection": {
+        "schema": "agent-eval/agent-adapter-contract",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "adapter_id": "synthetic.agent",
+        "adapter_version": "v1.0.0",
+        "capability_count": 18,
+        "supported_capability_count": 18,
+        "configuration_key_count": 2,
+        "sensitive_configuration_key_count": 1
+      }
+    },
+    {
+      "namespace": "standalone",
+      "kind": "agent-observation",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/agent-observation-v1.json",
+      "source_sha256": "da92cf1f2e957ddfcd4872eb7d8ec12ae94ccd1b934bec5c9279569fc8a8d246",
+      "reader_support_path": "testdata/standalone-readability/agent-adapter-contract-v1.json",
+      "reader_support_sha256": "1e8cc9367fd5a5221cadb7bb416ccbf834973033b37c7d73889ff384a704732c",
+      "expected_projection": {
+        "schema": "agent-eval/agent-observation",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "attempt_bound": true,
+        "adapter_contract_bound": true,
+        "profile": "single",
+        "event_count": 2,
+        "coverage": true,
+        "issue_count": 0,
+        "parent_input_state": "observed",
+        "parent_input_value": 0,
+        "tree_input_state": "observed",
+        "tree_input_value": 0,
+        "consumed_child_evidence_state": "not_applicable"
+      }
+    },
+    {
+      "namespace": "standalone",
       "kind": "attempt-event",
       "version": 1,
       "source_path": "testdata/standalone-readability/attempt-event-v1.json",
@@ -1753,12 +1796,12 @@
       "kind": "schema-registry",
       "version": 1,
       "source_path": "schemaregistry/registry.v1.json",
-      "source_sha256": "e3f84c665ce6aa11dba2b9648d758eabd233fd1479149541ce90546835a38360",
+      "source_sha256": "5b7fd01c9f6f63cba1b4e0925ca215d2b43defe7fdb983d36e9c94d1245c571d",
       "expected_projection": {
         "schema": "agent-eval/schema-registry",
         "schema_version": 1,
         "contract_version": "0.1.0-pre-release",
-        "entry_count": 28,
+        "entry_count": 30,
         "first_schema": "atl-profile/activation-reference",
         "last_schema": "standalone/schema-registry",
         "migration_edge_count": 1
