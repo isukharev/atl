@@ -23,6 +23,7 @@ func TestJiraPaginationOwnerInventoryIsClosed(t *testing.T) {
 		"agile.go:boardIssuePage":                         {"agileNext", "requestStartAt"},
 		"create_metadata.go:readCreateFields":             {"advance", "matches", "requestStartAt", "requested", "requested"},
 		"create_metadata.go:readCreateIssueTypes":         {"advance", "matches", "requestStartAt", "requested", "requested"},
+		"evidence.go:ListJiraCommentsQualified":           {"advance", "matches", "requestStartAt", "requested"},
 		"inverse_reference.go:SelectInverseReferencePage": {"requestStartAt"},
 		"jira.go:CompleteChangelog":                       {"advance", "matches", "requestStartAt", "requested", "requested", "requested"},
 		"jira.go:ListComments":                            {"advance", "matches", "requestStartAt", "requested", "requested", "requested", "requested", "requested", "requested", "requested", "requested", "requested", "requested"},
@@ -132,6 +133,9 @@ development.go:parseDevelopmentArtifact:for:1
 development.go:parseDevelopmentArtifact:range:1
 development.go:parseDevelopmentArtifact:range:2
 development.go:validDevelopmentBranch:range:1
+evidence.go:ListJiraAttachmentsQualified:range:1
+evidence.go:ListJiraCommentsQualified:for:1
+evidence.go:ListJiraCommentsQualified:range:1
 graph.go:ReadIssueRemoteLinks:range:1
 graph.go:validJiraRemoteLinkMetadata:range:1
 inverse_reference.go:ReadInverseReferenceSnapshot:range:1
@@ -184,6 +188,7 @@ func TestJiraProductionLoopInventoryIsClosed(t *testing.T) {
 	pagination := map[string]bool{
 		"create_metadata.go:readCreateFields:for:1":     true,
 		"create_metadata.go:readCreateIssueTypes:for:1": true,
+		"evidence.go:ListJiraCommentsQualified:for:1":   true,
 		"jira.go:CompleteChangelog:for:1":               true,
 		"jira.go:ListComments:for:1":                    true,
 		"worklogs.go:ListIssueWorklogs:for:1":           true,

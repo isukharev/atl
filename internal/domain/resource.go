@@ -114,13 +114,17 @@ type PageMeta struct {
 
 // Attachment describes a page/issue attachment.
 type Attachment struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	MediaType string `json:"mediaType"`
-	FileSize  int64  `json:"fileSize"`
-	Version   int    `json:"version"`
-	Comment   string `json:"comment,omitempty"`
-	DownPath  string `json:"-"` // backend download path (relative to base)
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	MediaType  string `json:"mediaType"`
+	FileSize   int64  `json:"fileSize"`
+	Version    int    `json:"version"`
+	Comment    string `json:"comment,omitempty"`
+	Created    string `json:"created,omitempty"`
+	Author     string `json:"author,omitempty"`
+	AuthorName string `json:"-"` // stable Jira Data Center username when available
+	AuthorKey  string `json:"-"` // stable Jira Data Center user key when available
+	DownPath   string `json:"-"` // backend download path (relative to base)
 }
 
 // Comment is a page or issue comment.
@@ -130,6 +134,8 @@ type Comment struct {
 	AuthorName  string `json:"-"` // stable Jira Data Center username when available
 	AuthorKey   string `json:"-"` // stable Jira Data Center user key when available
 	Created     string `json:"created"`
+	Updated     string `json:"updated,omitempty"`
+	ParentID    string `json:"parent_id,omitempty"`
 	Body        string `json:"body"`
 	BodyStorage string `json:"body_storage,omitempty"` // native CSF when available; Body remains the plain fallback
 }
