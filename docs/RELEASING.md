@@ -193,6 +193,8 @@ Then in the GitHub UI, double-check:
 # context7.json previousVersions (keep at most 20 entries):
 #   .claude-plugin/plugin.json          ("version": "X.Y.Z")
 #   plugins/atl/.codex-plugin/plugin.json
+# Then run make gen-plugins so each generated .mcp.json carries its consuming
+# manifest's product-version marker; do not edit that marker by hand.
 # Then, from main:
 TAG="v$(cat VERSION)"
 git tag "$TAG"

@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added generated plugin-to-binary MCP startup markers with an independently
+  versioned interface contract and product-version claim. Incompatible marked
+  startup now exits as a content-free usage error before config, credentials,
+  dependency construction, or network access; bare standalone and legacy
+  unmarked invocation remain supported but explicitly unverified.
 - Added read-only `atl corpus build` orchestration for nominated Jira projects
   and Confluence spaces, with qualified capture receipts, one shared physical
   request/byte/deadline budget, retained crash recovery, and atomic publication

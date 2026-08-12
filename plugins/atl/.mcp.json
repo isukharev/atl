@@ -4,7 +4,9 @@
       "command": "atl",
       "args": [
         "mcp",
-        "serve"
+        "serve",
+        "--plugin-interface-contract=1",
+        "--plugin-product-version=0.7.1"
       ]
     }
   }

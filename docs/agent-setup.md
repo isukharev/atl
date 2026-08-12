@@ -95,8 +95,20 @@ policy disabled.
 
 ## Version skew and fallback
 
-Plugin skills and the CLI release under the same version. If a documented
-command is unknown:
+Plugin skills and the CLI release under the same product version. Generated
+plugin MCP definitions pass a separate interface-contract marker and their
+manifest product version to `atl mcp serve`. An incompatible marked interface
+fails with exit `2` before config, credentials, dependency construction, or
+network access. Product-version mismatch is computed separately and does not
+reject an otherwise compatible interface. The startup gate does not emit that
+product status at runtime: compare `atl version` with the installed plugin or
+manifest version when diagnosing skew.
+
+A newly generated plugin used with an older binary fails through that binary's
+normal unknown-flag parsing. An older unmarked plugin used with a newer binary
+cannot be distinguished from supported standalone `atl mcp serve`, so it is
+accepted as `unverified`; symmetric rejection is not claimed. If a documented
+command is unknown or marked MCP startup is refused:
 
 1. run `atl version`;
 2. inspect the installed plugin version;

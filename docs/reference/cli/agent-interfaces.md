@@ -141,6 +141,19 @@ JSON. Install through the
 Claude Code/Codex plugin or see [mcp.md](../../mcp.md) for the exact tools, bounds,
 standalone Codex config, and CLI fallback guidance.
 
+Committed Claude Code and Codex plugin definitions add hidden generated
+`plugin-interface-contract` and `plugin-product-version` startup markers. The
+interface marker is the compatibility gate: an incompatible marked invocation
+is a value-free usage failure (exit `2`) before config, credentials, dependency
+construction, or network access. The product marker is evaluated separately as
+`match` or `mismatch` and never rejects a compatible interface, but the startup
+gate does not emit that status at runtime. Compare `atl version` with the
+installed plugin or manifest version when diagnosing skew. A bare
+standalone invocation, or an indistinguishable older unmarked plugin, remains
+supported with both facts `unverified`. A newer marked plugin used with an old
+binary fails through that binary's ordinary unknown-flag path; no symmetric
+old-plugin/new-binary rejection is claimed.
+
 Omitting `--service` preserves the complete twenty-three-tool inventory and existing
 instructions. The closed Jira/Confluence/offline profiles expose 11/12/2 tools;
 `offline` contains only the two no-argument mirror snapshots and

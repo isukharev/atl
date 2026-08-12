@@ -190,8 +190,7 @@ transition и удаления требуют выведенных expected-зн
 
 ## Кодинг-агенты
 
-Репозиторий поставляет согласованные плагины для Claude Code и Codex, а также
-typed read-only MCP server.
+Плагины Claude Code и Codex включают typed read-only MCP.
 
 Claude Code:
 
@@ -208,9 +207,9 @@ codex plugin marketplace add isukharev/atl
 codex plugin add atl@atl
 ```
 
-После установки начните новую сессию агента. [Руководство по настройке агента](docs/agent-setup.md)
-описывает focused skills, выбор MCP/CLI, read-only policy, размещение зеркала и
-восстановление после version skew.
+После установки начните новую сессию. [Руководство по настройке агента](docs/agent-setup.md)
+описывает routing, safety, зеркала, version skew и pre-config проверку
+совместимости плагина с бинарником; отдельный `atl mcp serve` поддерживается.
 
 [`agent-eval`](docs/reference/agent-eval/README.md) находится в pre-release.
 

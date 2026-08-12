@@ -33,6 +33,7 @@ func TestRunNormalizesGeneratedModesUnderRestrictiveUmask(t *testing.T) {
 		filepath.Join("skills", "demo", "SKILL.md"),
 		filepath.Join("plugins", "atl", "skills", "demo", "SKILL.md"),
 		codexSkillCatalogPath,
+		rootMCPConfigPath,
 		pluginMCPConfigPath,
 	} {
 		info, err := os.Stat(path)
@@ -40,7 +41,7 @@ func TestRunNormalizesGeneratedModesUnderRestrictiveUmask(t *testing.T) {
 			t.Fatalf("generated mode for %s = %v, err=%v", path, info, err)
 		}
 	}
-	rootMCPData, err := os.ReadFile(rootMCPConfigName)
+	rootMCPData, err := os.ReadFile(rootMCPConfigPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,6 +50,6 @@ func TestRunNormalizesGeneratedModesUnderRestrictiveUmask(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(pluginMCPData) != string(rootMCPData) {
-		t.Fatal("published plugin MCP config does not match its source")
+		t.Fatal("matching manifest versions did not produce matching MCP configs")
 	}
 }

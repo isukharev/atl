@@ -56,6 +56,16 @@ constructs no backend. Unknown tools and malformed outer requests remain
 JSON-RPC protocol errors. Schema-valid application failures retain their
 existing tool-specific envelopes.
 
+Generated plugin startup markers are validated before the MCP protocol starts.
+An incomplete, repeated, malformed, or incompatible marked invocation leaves
+stdout empty and uses the ordinary content-free CLI `usage_error` envelope on
+stderr with exit `2`; it is not an MCP tool result. Interface compatibility and
+the separately computed plugin-product `match`/`mismatch` fact do not derive
+from MCP `serverInfo`, and the startup gate emits no runtime product status.
+Its `name` and `version` remain the running binary's
+self-reported wire identity, not verification of the plugin package, invocation
+marker, or executable provenance.
+
 `atl mcp serve --service jira|confluence|offline` selects one closed reviewed
 inventory. Omission preserves the default twenty-three tools and instruction bytes.
 Every profile exposes the fixed `application/json` resource

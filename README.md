@@ -180,8 +180,7 @@ configuration or backend access.
 
 ## Coding agents
 
-The repository ships matching Claude Code and Codex plugins plus a typed
-read-only MCP server.
+Claude Code and Codex plugins include typed read-only MCP.
 
 Claude Code:
 
@@ -198,9 +197,9 @@ codex plugin marketplace add isukharev/atl
 codex plugin add atl@atl
 ```
 
-Start a new agent session after installation. The [agent setup guide](docs/agent-setup.md)
-covers focused skills, MCP/CLI routing, read-only policy, mirror placement, and
-version-skew recovery.
+Restart after installing. The [agent setup guide](docs/agent-setup.md) covers
+routing, safety, mirrors, skew, and the pre-config plugin/binary gate;
+standalone `atl mcp serve` remains supported.
 
 [`agent-eval`](docs/reference/agent-eval/README.md) is pre-release.
 
