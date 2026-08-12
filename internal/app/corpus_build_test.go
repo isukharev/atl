@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -59,6 +60,7 @@ type corpusBuildConfluenceStore struct {
 	identity   domain.ConfluenceUserIdentity
 	currentErr error
 	budgeted   bool
+	pageMu     sync.Mutex
 }
 
 func (store *corpusBuildConfluenceStore) CurrentConfluenceUser(ctx context.Context) (domain.ConfluenceUserIdentity, error) {
@@ -88,6 +90,8 @@ func (store *corpusBuildConfluenceStore) GetPage(ctx context.Context, id string,
 			return nil, err
 		}
 	}
+	store.pageMu.Lock()
+	defer store.pageMu.Unlock()
 	return store.completePullStore.GetPage(ctx, id, options)
 }
 
