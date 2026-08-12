@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/isukharev/atl/internal/agenteval/executionbackend"
 	"github.com/isukharev/atl/internal/agenteval/extension"
 	"github.com/isukharev/atl/internal/agenteval/lifecycle"
 )
@@ -71,6 +72,76 @@ func VerifyAgentAdapterProtocolFiles(
 	}
 	return verifyExtensionProtocol(ctx, manifestData, executablePath, nil, bundleData, store,
 		sha256HexBytes(contractData))
+}
+
+// VerifyExecutionBackendProtocolFiles validates one non-hermetic process
+// implementation against both the shared process protocol and the neutral
+// backend contract. This diagnostic never upgrades an arbitrary child to
+// isolated or hermetic; those assurances require backend-owned enforcement.
+func VerifyExecutionBackendProtocolFiles(
+	ctx context.Context,
+	manifestPath, executablePath, bundlePath, contractPath, planPath, ledgerRoot string,
+) (ExtensionConformanceReport, error) {
+	manifestData, err := readStableExtensionContractFile(manifestPath, extension.MaxManifestBytes)
+	if err != nil {
+		return ExtensionConformanceReport{}, errExtensionCompatibility
+	}
+	bundleData, err := readStableExtensionContractFile(bundlePath, extensionConformanceMaxBytes)
+	if err != nil {
+		return ExtensionConformanceReport{}, errExtensionCompatibility
+	}
+	contractData, err := readStableExtensionContractFile(contractPath, executionbackend.MaxContractBytes)
+	if err != nil {
+		return ExtensionConformanceReport{}, errExtensionCompatibility
+	}
+	planData, err := readStableExtensionContractFile(planPath, executionbackend.MaxPlanBytes)
+	if err != nil {
+		return ExtensionConformanceReport{}, errExtensionCompatibility
+	}
+	manifest, err := extension.DecodeManifest(manifestData)
+	if err != nil {
+		return ExtensionConformanceReport{}, errExtensionCompatibility
+	}
+	contract, err := executionbackend.DecodeContract(bytes.NewReader(contractData))
+	if err != nil {
+		return ExtensionConformanceReport{}, errExtensionCompatibility
+	}
+	plan, err := executionbackend.DecodePlan(bytes.NewReader(planData))
+	if err != nil {
+		return ExtensionConformanceReport{}, errExtensionCompatibility
+	}
+	if _, err := executionbackend.Admit(contract, plan); err != nil || validateExecutionBackendProcessBinding(manifest, contract, plan) != nil {
+		return ExtensionConformanceReport{}, errExtensionCompatibility
+	}
+	semanticDigest, err := contentMinimizedAttemptDigest("execution-backend-process-contract", []string{sha256HexBytes(contractData), sha256HexBytes(planData)})
+	if err != nil {
+		return ExtensionConformanceReport{}, errExtensionCompatibility
+	}
+	store, err := openOrCreateAttemptLedgerStore(ledgerRoot)
+	if err != nil {
+		return ExtensionConformanceReport{}, errExtensionOutcomeUnknown
+	}
+	return verifyExtensionProtocol(ctx, manifestData, executablePath, nil, bundleData, store, semanticDigest)
+}
+
+func validateExecutionBackendProcessBinding(manifest extension.Manifest, contract executionbackend.Contract, plan executionbackend.Plan) error {
+	if manifest.Component.Role != extension.RoleExecutionBackend || manifest.Component.ID != contract.BackendID ||
+		manifest.Component.Version != contract.BackendVersion || manifest.ExecutableSHA256 != contract.ContentSHA256 ||
+		contract.Assurance != executionbackend.AssuranceLocalProcess || plan.Program.Kind != executionbackend.ProgramExternalAdapter ||
+		len(manifest.Component.Operations) != 2 {
+		return errExtensionCompatibility
+	}
+	for _, claim := range manifest.Component.Capabilities {
+		if claim.State != extension.CapabilitySupported {
+			return errExtensionCompatibility
+		}
+	}
+	for _, field := range manifest.ConfigurationSchema {
+		if field.Required {
+			return errExtensionCompatibility
+		}
+	}
+	return nil
 }
 
 func validateAgentAdapterProcessBinding(manifest extension.Manifest, contract AgentAdapterContract) error {

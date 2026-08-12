@@ -643,18 +643,24 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 			returnErr = finalizeRunAttempt(parent, bindings.attemptSession, result, returnErr, terminationProven, processReceipt, timedOut, attemptUsage)
 		}()
 	}
-	layout, err := prepareHeadlessAttemptLayout(contract, bindings)
+	backendAdmission, err := localExecutionBackendPlanForAttempt(contract, bindings)
 	if err != nil {
 		return Result{}, err
 	}
+	layout, err := prepareHeadlessAttemptLayout(contract, bindings, backendAdmission)
+	if err != nil {
+		return Result{}, err
+	}
+	bindings.agentBinary = layout.admittedAgentBinary
+	bindings.atlBinary = layout.admittedATLBinary
+	bindings.pluginRoot = layout.admittedPluginRoot
+	bindings.wrapperExecutable = layout.admittedWrapper
 	agentAdapter, err := builtInAgentAdapterFor(contract.spec.Provider)
 	if err != nil {
 		return Result{}, err
 	}
-	if bindings.attemptSession != nil {
-		if err := beginRunAttempt(bindings.attemptSession); err != nil {
-			return Result{}, err
-		}
+	if err := beginLocalExecutionBackendAttempt(contract, bindings, layout, backendAdmission); err != nil {
+		return Result{}, err
 	}
 	adapterContract, err := agentAdapterContractForAttempt(contract.spec, bindings.attemptSession)
 	if err != nil {
@@ -697,16 +703,8 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 	providerBindings := resources.providerBindings
 	mcpConfigPath := layout.mcpConfigPath
 
-	if isolatedRuntimeCLI {
-		if bindings.providerRuntime == nil {
-			return Result{}, fmt.Errorf("private codex CLI run requires an isolated provider runtime")
-		}
-		provisionContext, cancelProvision := context.WithTimeout(parent, 30*time.Second)
-		err := agentAdapter.provisionBenchmarkSkills(provisionContext, bindings.agentBinary, bindings.pluginRoot, bindings.providerRuntime)
-		cancelProvision()
-		if err != nil {
-			return Result{}, err
-		}
+	if err := provisionHeadlessBenchmarkSkills(parent, isolatedRuntimeCLI, agentAdapter, contract, bindings, backendAdmission); err != nil {
+		return Result{}, err
 	}
 	skillReadRoot, err := agentAdapter.skillReadRoot(layout, workspace, filepath.Join(bindings.pluginRoot, "skills"), bindings.providerRuntime)
 	if err != nil {
@@ -755,10 +753,9 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 	if err != nil {
 		return Result{}, err
 	}
-	if guardedBrokerCLI {
-		if err := agentAdapter.runConfinementPreflight(parent, bindings.agentBinary, workspace, probeExecutablePath, brokerManifestPath, providerConfinement, bindings.providerRuntime); err != nil {
-			return Result{}, err
-		}
+	if err := runHeadlessConfinementPreflight(parent, guardedBrokerCLI, agentAdapter, contract, bindings,
+		backendAdmission, workspace, probeExecutablePath, brokerManifestPath, providerConfinement); err != nil {
+		return Result{}, err
 	}
 	commandPlan, err = resolveProviderLaunch(commandPlan)
 	if err != nil {
@@ -853,6 +850,9 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 	execution := executeAndCloseHeadlessProvider(headlessProviderExecutionInput{
 		contract: contract, bindings: bindings, layout: layout, resources: resources,
 		command: command, transcript: transcript, stderr: stderr, ctx: ctx, cancel: cancel,
+		revalidateBeforeSpawn: func() error {
+			return verifyLocalExecutionBackendLaunch(contract, bindings, backendAdmission)
+		},
 	})
 	terminationProven = execution.terminationProven
 	processReceipt = execution.terminalReceipt
@@ -1637,10 +1637,15 @@ func flattenEnvironment(values map[string]string) []string {
 }
 
 func copyExecutable(source, target string) error {
-	data, err := readBoundedFile(source, 128<<20)
+	return copyExecutableWithLimit(source, target, 128<<20)
+}
+
+func copyExecutableWithLimit(source, target string, limit int64) error {
+	data, err := readBoundedFile(source, limit)
 	if err != nil {
 		return err
 	}
+	defer clear(data)
 	file, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
 	if err != nil {
 		return err

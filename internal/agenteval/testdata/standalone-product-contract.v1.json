@@ -20,6 +20,7 @@
     "verify-agent-adapter",
     "verify-atl-capabilities",
     "verify-codex-skill-package",
+    "verify-execution-backend",
     "verify-extension-protocol"
   ],
   "standalone_operations": [
@@ -44,11 +45,7 @@
     {"id":"validate","mode":"default","current_status":"implemented_pre_release","maintainer_aliases":["validate","validate-run"],"standalone_status":"pre_release","authority":"local_read","local_read":true,"local_write":false,"process_spawn":false,"provider_contact":false,"backend_contact":false,"network":false,"credential_access":false,"private_workspace_access":false},
     {"id":"version","mode":"default","current_status":"implemented_pre_release","maintainer_aliases":[],"standalone_status":"pre_release","authority":"none","local_read":false,"local_write":false,"process_spawn":false,"provider_contact":false,"backend_contact":false,"network":false,"credential_access":false,"private_workspace_access":false}
   ],
-  "configuration": {
-    "precedence": ["flags", "project_file", "opt_in_environment"],
-    "unknown_keys": "reject",
-    "ambient_authority": []
-  },
+  "configuration": {"precedence":["flags","project_file","opt_in_environment"],"unknown_keys":"reject","ambient_authority":[]},
   "roles": [
     {"id":"agent-adapter","owns":["agent invocation","activation evidence","normalized usage"],"does_not_own":["admission policy","attempt lifecycle","scoring authority"]},
     {"id":"atl-profile","owns":["ATL compatibility artifacts","selected-binary qualification","Jira and Confluence evidence"],"does_not_own":["generic core vocabulary","standalone release policy"]},
@@ -57,8 +54,8 @@
     {"id":"reporter","owns":["read-only projections","format conformance","privacy-tier enforcement"],"does_not_own":["canonical results","threshold policy","raw evidence authority"]},
     {"id":"standalone-core","owns":["public contracts","experiment plans","attempt lifecycle","admission policy","canonical results and aggregates"],"does_not_own":["ATL product behavior","agent-client semantics","backend enforcement claims"]}
   ],
-  "capability_states": ["not_applicable", "supported", "unknown", "unsupported"],
-  "metric_states": ["not_applicable", "observed", "unknown", "unsupported"],
+  "capability_states": ["not_applicable","supported","unknown","unsupported"],
+  "metric_states": ["not_applicable","observed","unknown","unsupported"],
   "exit_classes": [
     {"code":0,"id":"success"},
     {"code":1,"id":"internal_error"},
@@ -98,12 +95,15 @@
     {"namespace":"standalone","kind":"attempt-event","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":65536},
     {"namespace":"standalone","kind":"attempt-ledger","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":16384},
     {"namespace":"standalone","kind":"attempt-plan","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":65536},
+    {"namespace":"standalone","kind":"execution-backend-contract","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":65536},
     {"namespace":"standalone","kind":"extension-conformance-bundle","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"public","migration":"explicit","max_bytes":1048576},
     {"namespace":"standalone","kind":"extension-conformance-report","current":1,"readable":[1],"emitted":[1],"executable":[],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":1048576},
     {"namespace":"standalone","kind":"migration-preview","current":1,"readable":[1],"emitted":[1],"executable":[],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":65536},
     {"namespace":"standalone","kind":"migration-result","current":1,"readable":[1],"emitted":[1],"executable":[],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":65536},
     {"namespace":"standalone","kind":"project-config","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"public_or_private","migration":"explicit","max_bytes":65536},
-    {"namespace":"standalone","kind":"schema-registry","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"public","migration":"explicit","max_bytes":1048576}
+    {"namespace":"standalone","kind":"schema-registry","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"public","migration":"explicit","max_bytes":1048576},
+    {"namespace":"standalone","kind":"trial-plan","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":262144},
+    {"namespace":"standalone","kind":"trial-receipt","current":1,"readable":[1],"emitted":[1],"executable":[],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":65536}
   ],
   "artifact_classes": [
     {"id":"audit","privacy":"owner_private","disposition":"preserve"},
@@ -175,18 +175,6 @@
     {"from":"spawning","to":"timed_out","proof_sets":[["durable_deadline","non_execution_proof"],["durable_deadline","termination_proof"]]},
     {"from":"spawning","to":"unknown","proof_sets":[["incomplete_terminal_evidence"]]}
   ],
-  "attempt_recovery": {
-    "unknown_mutable": false,
-    "same_identity_replay": false,
-    "reconcile_mode": "append_evidence_and_authorize_new_identity_only"
-  },
-  "compatibility_policy": {
-    "strict_unknown_fields": true,
-    "additive_members_require_schema_bump": true,
-    "source_bytes_preserved": true,
-    "migration_requires_reviewed_preview": true,
-    "minimum_deprecation_releases": 2,
-    "minimum_deprecation_days": 180,
-    "root_module_link_forbidden": true
-  }
+  "attempt_recovery": {"unknown_mutable":false,"same_identity_replay":false,"reconcile_mode":"append_evidence_and_authorize_new_identity_only"},
+  "compatibility_policy": {"strict_unknown_fields":true,"additive_members_require_schema_bump":true,"source_bytes_preserved":true,"migration_requires_reviewed_preview":true,"minimum_deprecation_releases":2,"minimum_deprecation_days":180,"root_module_link_forbidden":true}
 }

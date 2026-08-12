@@ -15,11 +15,13 @@ func runAttemptBinding(contract resolvedRunContract, options RunOptions, skillDi
 	if err != nil {
 		return lifecycle.Binding{}, err
 	}
-	if !validSHA256(skillDigest) {
-		skillDigest, err = contentMinimizedAttemptDigest("skill-identity", skillDigest)
-		if err != nil {
-			return lifecycle.Binding{}, err
-		}
+	skillDigest, err = normalizedRunSkillDigest(skillDigest)
+	if err != nil {
+		return lifecycle.Binding{}, err
+	}
+	pluginDigest, err := digestProviderPluginRoot(options.PluginRoot, contract.spec)
+	if err != nil {
+		return lifecycle.Binding{}, err
 	}
 	digest := func(domain string, value any) (string, error) { return contentMinimizedAttemptDigest(domain, value) }
 	experiment, err := digest("experiment", struct {
@@ -44,13 +46,7 @@ func runAttemptBinding(contract resolvedRunContract, options RunOptions, skillDi
 	if err != nil {
 		return lifecycle.Binding{}, err
 	}
-	environment, err := digest("environment", struct {
-		BackendMode   string `json:"backend_mode"`
-		Surface       string `json:"surface"`
-		ToolTransport string `json:"tool_transport"`
-		ATL           string `json:"atl_sha256"`
-		Wrapper       string `json:"wrapper_sha256"`
-	}{contract.spec.EffectiveBackendMode(), contract.spec.EffectiveSurface(), contract.spec.EffectiveToolTransport(), atlDigest, wrapperDigest})
+	_, _, environment, err := localExecutionBackendTrialPlan(contract.forAttempt(), skillDigest, pluginDigest, atlDigest, wrapperDigest)
 	if err != nil {
 		return lifecycle.Binding{}, err
 	}

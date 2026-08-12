@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/isukharev/atl/internal/agenteval/executionbackend"
 	"github.com/isukharev/atl/internal/agenteval/extension"
 	"github.com/isukharev/atl/internal/agenteval/lifecycle"
 )
@@ -63,7 +64,7 @@ func loadStandaloneReadabilityGoldenFixture(t *testing.T, bundle standaloneGolde
 			t.Fatalf("readability golden entry %q has an unexpected source digest", key)
 		}
 		hasReaderSupport := entry.ReaderSupportPath != "" || entry.ReaderSupportSHA256 != ""
-		if entry.Kind == "activation-reference" || entry.Kind == "agent-observation" {
+		if entry.Kind == "activation-reference" || entry.Kind == "agent-observation" || entry.Kind == "trial-plan" || entry.Kind == "trial-receipt" {
 			if !hasReaderSupport || !standaloneGoldenReaderSupportAllowed(entry) || !standaloneValidSHA256(entry.ReaderSupportSHA256) {
 				t.Fatalf("readability golden entry %q has invalid reader support", key)
 			}
@@ -86,7 +87,34 @@ func loadStandaloneReadabilityGoldenFixture(t *testing.T, bundle standaloneGolde
 	}
 	standaloneValidateExtensionGoldenBindings(t, fixture)
 	standaloneValidateAgentAdapterGoldenBindings(t, fixture)
+	standaloneValidateExecutionBackendGoldenBindings(t, fixture)
 	return fixture
+}
+
+func standaloneValidateExecutionBackendGoldenBindings(t *testing.T, fixture standaloneReadabilityGoldenFixture) {
+	t.Helper()
+	contractEntry, contractOK := standaloneReadabilityGoldenEntryFor(fixture, standaloneVersionedContractKey("standalone", "execution-backend-contract", 1))
+	planEntry, planOK := standaloneReadabilityGoldenEntryFor(fixture, standaloneVersionedContractKey("standalone", "trial-plan", 1))
+	receiptEntry, receiptOK := standaloneReadabilityGoldenEntryFor(fixture, standaloneVersionedContractKey("standalone", "trial-receipt", 1))
+	if !contractOK || !planOK || !receiptOK || planEntry.ReaderSupportPath != contractEntry.SourcePath ||
+		planEntry.ReaderSupportSHA256 != contractEntry.SourceSHA256 || receiptEntry.ReaderSupportPath != planEntry.SourcePath ||
+		receiptEntry.ReaderSupportSHA256 != planEntry.SourceSHA256 {
+		t.Fatal("standalone execution backend readability sources are not transitively bound")
+	}
+	contract, err := executionbackend.DecodeContract(bytes.NewReader(standaloneGoldenDocument(t, contractEntry)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := executionbackend.DecodePlan(bytes.NewReader(standaloneGoldenDocument(t, planEntry)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executionbackend.Admit(contract, plan); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executionbackend.DecodeReceipt(bytes.NewReader(standaloneGoldenDocument(t, receiptEntry)), plan); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func standaloneValidateAgentAdapterGoldenBindings(t *testing.T, fixture standaloneReadabilityGoldenFixture) {
@@ -252,7 +280,7 @@ func standaloneGoldenSourceAllowed(entry standaloneReadabilityGoldenEntry) bool 
 		return entry.Namespace == "atl-profile" && entry.SourcePath == fmt.Sprintf("testdata/standalone-readability/%s-v%d.json", entry.Kind, entry.Version)
 	case "capability-catalog":
 		return entry.Namespace == "atl-profile" && entry.Version == CapabilityCatalogSchemaVersion && entry.SourcePath == "testdata/capability-catalog.v1.json"
-	case "adapter-manifest", "adapter-message", "agent-adapter-contract", "agent-observation", "attempt-event", "attempt-ledger", "attempt-plan", "extension-conformance-bundle", "extension-conformance-report", "migration-preview", "migration-result", "project-config":
+	case "adapter-manifest", "adapter-message", "agent-adapter-contract", "agent-observation", "attempt-event", "attempt-ledger", "attempt-plan", "execution-backend-contract", "extension-conformance-bundle", "extension-conformance-report", "migration-preview", "migration-result", "project-config", "trial-plan", "trial-receipt":
 		return entry.Namespace == "standalone" && entry.Version == 1 &&
 			entry.SourcePath == fmt.Sprintf("testdata/standalone-readability/%s-v1.json", entry.Kind)
 	case "schema-registry":
@@ -264,6 +292,12 @@ func standaloneGoldenSourceAllowed(entry standaloneReadabilityGoldenEntry) bool 
 }
 
 func standaloneGoldenReaderSupportAllowed(entry standaloneReadabilityGoldenEntry) bool {
+	if entry.Namespace == "standalone" && entry.Kind == "trial-plan" && entry.Version == 1 {
+		return entry.ReaderSupportPath == "testdata/standalone-readability/execution-backend-contract-v1.json"
+	}
+	if entry.Namespace == "standalone" && entry.Kind == "trial-receipt" && entry.Version == 1 {
+		return entry.ReaderSupportPath == "testdata/standalone-readability/trial-plan-v1.json"
+	}
 	if entry.Namespace == "standalone" && entry.Kind == "agent-observation" && entry.Version == 1 {
 		return entry.ReaderSupportPath == "testdata/standalone-readability/agent-adapter-contract-v1.json"
 	}
@@ -641,6 +675,24 @@ func standaloneDecodeExtensionReadabilityProjection(t *testing.T, entry standalo
 			"privacy": plan.Binding.Privacy, "identity_count": 10, "reconciled": plan.PredecessorAttemptID != "",
 			"binding_digest_bound": plan.BindingSHA256 != "", "plan_digest_bound": plan.PlanSHA256 != "",
 		}, nil
+	case "execution-backend-contract":
+		contract, err := executionbackend.DecodeContract(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := executionbackend.EncodeContract(contract)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("execution backend contract golden is not canonical")
+		}
+		supported := 0
+		for _, capability := range contract.Capabilities {
+			if capability.Support == executionbackend.SupportSupported {
+				supported++
+			}
+		}
+		return map[string]any{"schema": contract.Schema, "schema_version": contract.SchemaVersion, "contract_version": contract.ContractVersion,
+			"backend_id": contract.BackendID, "backend_version": contract.BackendVersion, "assurance": contract.Assurance,
+			"capability_count": len(contract.Capabilities), "supported_capability_count": supported}, nil
 	case "extension-conformance-bundle":
 		bundle, err := DecodeExtensionConformanceBundle(data)
 		if err != nil {
@@ -757,6 +809,44 @@ func standaloneDecodeExtensionReadabilityProjection(t *testing.T, entry standalo
 			"last_schema":          registry.Entries[len(registry.Entries)-1].Namespace + "/" + registry.Entries[len(registry.Entries)-1].Kind,
 			"migration_edge_count": edgeCount,
 		}, nil
+	case "trial-plan":
+		plan, err := executionbackend.DecodePlan(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		contractData := standaloneReadGoldenSource(t, entry.ReaderSupportPath, entry.ReaderSupportSHA256)
+		contract, err := executionbackend.DecodeContract(bytes.NewReader(contractData))
+		if err != nil {
+			return nil, err
+		}
+		if _, err := executionbackend.Admit(contract, plan); err != nil {
+			return nil, err
+		}
+		canonical, err := executionbackend.EncodePlan(plan)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("trial plan golden is not canonical")
+		}
+		return map[string]any{"schema": plan.Schema, "schema_version": plan.SchemaVersion, "contract_version": plan.ContractVersion,
+			"requirement_count": len(plan.Requirements), "mount_count": len(plan.Mounts), "network": plan.Network.Mode,
+			"credentials": plan.Credentials.Mode, "verifier_mode": plan.VerifierMode, "artifact_count": len(plan.Artifacts), "program": plan.Program.Kind}, nil
+	case "trial-receipt":
+		planData := standaloneReadGoldenSource(t, entry.ReaderSupportPath, entry.ReaderSupportSHA256)
+		plan, err := executionbackend.DecodePlan(bytes.NewReader(planData))
+		if err != nil {
+			return nil, err
+		}
+		receipt, err := executionbackend.DecodeReceipt(bytes.NewReader(data), plan)
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := executionbackend.EncodeReceipt(plan, receipt)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("trial receipt golden is not canonical")
+		}
+		return map[string]any{"schema": receipt.Schema, "schema_version": receipt.SchemaVersion, "contract_version": receipt.ContractVersion,
+			"verdict": receipt.Verdict, "input_bytes": receipt.InputBytes, "input_entries": receipt.InputEntries,
+			"operations": receipt.Operations, "artifact_count": len(receipt.Artifacts), "termination": receipt.Termination, "cleanup": receipt.Cleanup,
+			"network": receipt.Network, "credentials": receipt.Credentials}, nil
 	default:
 		return nil, fmt.Errorf("unsupported standalone readability golden kind %q", entry.Kind)
 	}

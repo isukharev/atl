@@ -1696,6 +1696,23 @@
     },
     {
       "namespace": "standalone",
+      "kind": "execution-backend-contract",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/execution-backend-contract-v1.json",
+      "source_sha256": "19a0a44f4813a6bf2c9372d0105b71ed39b49cb9b7a628cba1d6f71da1b7fc5b",
+      "expected_projection": {
+        "schema": "agent-eval/execution-backend-contract",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "backend_id": "reference-hermetic",
+        "backend_version": "1",
+        "assurance": "hermetic_reference",
+        "capability_count": 23,
+        "supported_capability_count": 14
+      }
+    },
+    {
+      "namespace": "standalone",
       "kind": "extension-conformance-bundle",
       "version": 1,
       "source_path": "testdata/standalone-readability/extension-conformance-bundle-v1.json",
@@ -1796,15 +1813,59 @@
       "kind": "schema-registry",
       "version": 1,
       "source_path": "schemaregistry/registry.v1.json",
-      "source_sha256": "5b7fd01c9f6f63cba1b4e0925ca215d2b43defe7fdb983d36e9c94d1245c571d",
+      "source_sha256": "54b4fa56c8194cca6d63021abdbb66a266025119ce2d0421623b48d2d79714b0",
       "expected_projection": {
         "schema": "agent-eval/schema-registry",
         "schema_version": 1,
         "contract_version": "0.1.0-pre-release",
-        "entry_count": 30,
+        "entry_count": 33,
         "first_schema": "atl-profile/activation-reference",
-        "last_schema": "standalone/schema-registry",
+        "last_schema": "standalone/trial-receipt",
         "migration_edge_count": 1
+      }
+    },
+    {
+      "namespace": "standalone",
+      "kind": "trial-plan",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/trial-plan-v1.json",
+      "source_sha256": "91428b607a2ea85b4c0d12743d7c0311eaa68a9ae399b5ad904b2b44f456e5e4",
+      "reader_support_path": "testdata/standalone-readability/execution-backend-contract-v1.json",
+      "reader_support_sha256": "19a0a44f4813a6bf2c9372d0105b71ed39b49cb9b7a628cba1d6f71da1b7fc5b",
+      "expected_projection": {
+        "schema": "agent-eval/trial-plan",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "requirement_count": 14,
+        "mount_count": 3,
+        "network": "deny",
+        "credentials": "none",
+        "verifier_mode": "separate_copy",
+        "artifact_count": 1,
+        "program": "reference_copy"
+      }
+    },
+    {
+      "namespace": "standalone",
+      "kind": "trial-receipt",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/trial-receipt-v1.json",
+      "source_sha256": "20cc4014e5ca781d3f958773440f4fc9bcfe4e8efc6b348d3a5aea069d573f12",
+      "reader_support_path": "testdata/standalone-readability/trial-plan-v1.json",
+      "reader_support_sha256": "91428b607a2ea85b4c0d12743d7c0311eaa68a9ae399b5ad904b2b44f456e5e4",
+      "expected_projection": {
+        "schema": "agent-eval/trial-receipt",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "verdict": "succeeded",
+        "input_bytes": 21,
+        "input_entries": 3,
+        "operations": 1,
+        "artifact_count": 1,
+        "termination": "observed",
+        "cleanup": "observed",
+        "network": "observed",
+        "credentials": "observed"
       }
     }
   ]

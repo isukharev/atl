@@ -7,40 +7,47 @@ import (
 )
 
 type headlessAttemptLayout struct {
-	privateCLI              bool
-	isolatedRuntimeCLI      bool
-	syntheticBrokerCLI      bool
-	syntheticBrokerWriteCLI bool
-	privateLiveWriteCLI     bool
-	reviewedWriteCLI        bool
-	guardedBrokerCLI        bool
-	brokerCLI               bool
-	directFinalCaptureCLI   bool
-	gatewayBackedMCP        bool
-	runDir                  string
-	workspace               string
-	taskContractSHA256      string
-	executionContractSHA256 string
-	providerResponseSchema  string
-	finalPath               string
-	transcriptPath          string
-	stderrPath              string
-	evalDir                 string
-	mirrorRoot              string
-	counterPath             string
-	guardCounterPath        string
-	wrapperDir              string
-	guardPath               string
-	brokerRequestDirectory  string
-	brokerResponseDirectory string
-	cliResultDirectory      string
-	probeExecutablePath     string
-	settingsPath            string
-	atlConfigDir            string
-	mcpConfigPath           string
+	privateCLI               bool
+	isolatedRuntimeCLI       bool
+	syntheticBrokerCLI       bool
+	syntheticBrokerWriteCLI  bool
+	privateLiveWriteCLI      bool
+	reviewedWriteCLI         bool
+	guardedBrokerCLI         bool
+	brokerCLI                bool
+	directFinalCaptureCLI    bool
+	gatewayBackedMCP         bool
+	runDir                   string
+	workspace                string
+	workspaceAdmissionSHA256 string
+	taskContractSHA256       string
+	executionContractSHA256  string
+	providerResponseSchema   string
+	finalPath                string
+	transcriptPath           string
+	stderrPath               string
+	evalDir                  string
+	mirrorRoot               string
+	counterPath              string
+	guardCounterPath         string
+	wrapperDir               string
+	guardPath                string
+	brokerRequestDirectory   string
+	brokerResponseDirectory  string
+	cliResultDirectory       string
+	probeExecutablePath      string
+	settingsPath             string
+	atlConfigDir             string
+	mcpConfigPath            string
+	admittedAgentBinary      string
+	admittedATLBinary        string
+	admittedPluginRoot       string
+	admittedWrapper          string
 }
 
-func prepareHeadlessAttemptLayout(contract resolvedRunContract, bindings runAttemptBindings) (headlessAttemptLayout, error) {
+func prepareHeadlessAttemptLayout(contract resolvedRunContract, bindings runAttemptBindings,
+	backendAdmission *localExecutionBackendAttemptAdmission,
+) (headlessAttemptLayout, error) {
 	adapter, err := builtInAgentAdapterFor(contract.spec.Provider)
 	if err != nil {
 		return headlessAttemptLayout{}, err
@@ -74,6 +81,34 @@ func prepareHeadlessAttemptLayout(contract resolvedRunContract, bindings runAtte
 	if err := copyWorkspace(contract.workspaceTemplate, workspace); err != nil {
 		return headlessAttemptLayout{}, err
 	}
+	if err := verifyExecutionBackendWorkspaceCopy(workspace, backendAdmission); err != nil {
+		return headlessAttemptLayout{}, err
+	}
+	evalDir := filepath.Join(runDir, ".atl-eval")
+	if err := mkdirPrivate(evalDir); err != nil {
+		return headlessAttemptLayout{}, err
+	}
+	admittedPluginRoot := bindings.pluginRoot
+	admittedATLBinary := bindings.atlBinary
+	if backendAdmission != nil {
+		admittedRoot := filepath.Join(evalDir, "admitted")
+		if err := mkdirPrivate(admittedRoot); err != nil {
+			return headlessAttemptLayout{}, err
+		}
+		admittedPluginRoot = filepath.Join(admittedRoot, "plugin")
+		if err := copyProviderPluginRoot(bindings.pluginRoot, admittedPluginRoot, contract.spec); err != nil {
+			return headlessAttemptLayout{}, err
+		}
+		if err := verifyExecutionBackendPluginCopy(admittedPluginRoot, contract.spec, bindings.runtime.PluginVersion,
+			backendAdmission); err != nil {
+			return headlessAttemptLayout{}, err
+		}
+		admittedATLBinary = filepath.Join(admittedRoot, "atl"+filepath.Ext(bindings.atlBinary))
+		if err := copyExecutionBackendExecutable(bindings.atlBinary, admittedATLBinary, backendAdmission.atlSHA256,
+			privateAgentBinaryMaxBytes); err != nil {
+			return headlessAttemptLayout{}, err
+		}
+	}
 	taskContractSHA256 := ""
 	if bindings.attestation != nil {
 		taskContractSHA256, err = syntheticTaskContractSHA256(contract, workspace)
@@ -82,12 +117,23 @@ func prepareHeadlessAttemptLayout(contract resolvedRunContract, bindings runAtte
 		}
 	}
 	if shouldInstallBenchmarkSkills(contract.spec) {
-		_, skillRoot, err := providerPluginLayout(bindings.pluginRoot, contract.spec.Provider)
+		_, skillRoot, err := providerPluginLayout(admittedPluginRoot, contract.spec.Provider)
 		if err != nil {
 			return headlessAttemptLayout{}, err
 		}
-		if err := copyWorkspace(skillRoot, filepath.Join(workspace, ".agents", "skills")); err != nil {
+		copiedSkillRoot := filepath.Join(workspace, ".agents", "skills")
+		if err := copyWorkspace(skillRoot, copiedSkillRoot); err != nil {
 			return headlessAttemptLayout{}, fmt.Errorf("install benchmark skills: %w", err)
+		}
+		if err := verifyExecutionBackendSkillCopy(copiedSkillRoot, backendAdmission); err != nil {
+			return headlessAttemptLayout{}, err
+		}
+	}
+	workspaceAdmissionSHA256 := ""
+	if backendAdmission != nil {
+		workspaceAdmissionSHA256, err = digestWorkspaceTree(workspace)
+		if err != nil {
+			return headlessAttemptLayout{}, err
 		}
 	}
 	responseSchemaPath := filepath.Join(runDir, "response-schema.json")
@@ -115,10 +161,6 @@ func prepareHeadlessAttemptLayout(contract resolvedRunContract, bindings runAtte
 	finalPath := filepath.Join(runDir, "final.json")
 	transcriptPath := filepath.Join(runDir, "transcript.jsonl")
 	stderrPath := filepath.Join(runDir, "agent.stderr")
-	evalDir := filepath.Join(runDir, ".atl-eval")
-	if err := mkdirPrivate(evalDir); err != nil {
-		return headlessAttemptLayout{}, err
-	}
 	mirrorRoot := filepath.Join(evalDir, "mirror")
 	if contract.spec.EffectiveBackendMode() == BackendModeSynthetic && contract.spec.EffectiveSurface() == SurfaceATLMCP {
 		resolvedMirrorRoot, rootErr := syntheticMCPMirrorRoot(workspace, mirrorRoot)
@@ -133,11 +175,12 @@ func prepareHeadlessAttemptLayout(contract resolvedRunContract, bindings runAtte
 	if err := mkdirPrivate(wrapperDir); err != nil {
 		return headlessAttemptLayout{}, err
 	}
-	if err := copyExecutable(bindings.wrapperExecutable, filepath.Join(wrapperDir, wrapperName())); err != nil {
+	admittedWrapper := filepath.Join(wrapperDir, wrapperName())
+	if err := copyExecutionBackendWrapper(bindings.wrapperExecutable, admittedWrapper, backendAdmission); err != nil {
 		return headlessAttemptLayout{}, err
 	}
 	guardPath := filepath.Join(wrapperDir, guardName())
-	if err := copyExecutable(bindings.wrapperExecutable, guardPath); err != nil {
+	if err := copyExecutionBackendWrapper(bindings.wrapperExecutable, guardPath, backendAdmission); err != nil {
 		return headlessAttemptLayout{}, err
 	}
 	brokerRequestDirectory := ""
@@ -163,19 +206,19 @@ func prepareHeadlessAttemptLayout(contract resolvedRunContract, bindings runAtte
 	probeExecutablePath := ""
 	if guardedBrokerCLI {
 		probeExecutablePath = filepath.Join(wrapperDir, confinementProbeName())
-		if err := copyExecutable(bindings.wrapperExecutable, probeExecutablePath); err != nil {
+		if err := copyExecutionBackendWrapper(bindings.wrapperExecutable, probeExecutablePath, backendAdmission); err != nil {
 			return headlessAttemptLayout{}, err
 		}
 	}
 	if contract.spec.EffectiveBackendMode() == BackendModePrivateLive || syntheticBrokerCLI {
 		for _, reader := range []string{"cat", "sed", "wc"} {
-			if err := copyExecutable(bindings.wrapperExecutable, filepath.Join(wrapperDir, reader)); err != nil {
+			if err := copyExecutionBackendWrapper(bindings.wrapperExecutable, filepath.Join(wrapperDir, reader), backendAdmission); err != nil {
 				return headlessAttemptLayout{}, err
 			}
 		}
 	}
 	if reviewedWriteCLI {
-		if err := copyExecutable(bindings.wrapperExecutable, filepath.Join(wrapperDir, "env")); err != nil {
+		if err := copyExecutionBackendWrapper(bindings.wrapperExecutable, filepath.Join(wrapperDir, "env"), backendAdmission); err != nil {
 			return headlessAttemptLayout{}, err
 		}
 	}
@@ -190,7 +233,7 @@ func prepareHeadlessAttemptLayout(contract resolvedRunContract, bindings runAtte
 		privateLiveWriteCLI: privateLiveWriteCLI, reviewedWriteCLI: reviewedWriteCLI,
 		guardedBrokerCLI: guardedBrokerCLI, brokerCLI: brokerCLI, directFinalCaptureCLI: directFinalCaptureCLI,
 		gatewayBackedMCP: gatewayBackedMCP,
-		runDir:           runDir, workspace: workspace,
+		runDir:           runDir, workspace: workspace, workspaceAdmissionSHA256: workspaceAdmissionSHA256,
 		taskContractSHA256: taskContractSHA256, executionContractSHA256: executionContractSHA256,
 		providerResponseSchema: providerResponseSchemaPath,
 		finalPath:              finalPath, transcriptPath: transcriptPath, stderrPath: stderrPath,
@@ -199,6 +242,8 @@ func prepareHeadlessAttemptLayout(contract resolvedRunContract, bindings runAtte
 		brokerRequestDirectory: brokerRequestDirectory, brokerResponseDirectory: brokerResponseDirectory,
 		cliResultDirectory: cliResultDirectory, probeExecutablePath: probeExecutablePath,
 		settingsPath: settingsPath, atlConfigDir: filepath.Join(evalDir, "atl-config"),
-		mcpConfigPath: adapterMCPConfigPath(contract.spec, filepath.Join(runDir, "claude-mcp.json")),
+		mcpConfigPath:       adapterMCPConfigPath(contract.spec, filepath.Join(runDir, "claude-mcp.json")),
+		admittedAgentBinary: bindings.agentBinary, admittedATLBinary: admittedATLBinary,
+		admittedPluginRoot: admittedPluginRoot, admittedWrapper: admittedWrapper,
 	}, nil
 }

@@ -78,6 +78,19 @@ cleanup reporting, and receipt identities without importing evaluator Go code.
 It deliberately inherits the same confinement nonclaims and cannot be promoted
 to whole-product compatibility by itself.
 
+The neutral `executionbackend` leaf now supplies a bounded in-memory hermetic
+reference and a separate `local_process` projection for the retained ATL
+runner. The reference has no process, filesystem, environment, network, or
+credential entry point; it operates on canonical content-addressed snapshots,
+copies declared artifacts, isolates the verifier by cloning bytes, and binds
+its plan into the append-only attempt lifecycle. The local projection instead
+declares ambient network/credentials and every unproved isolation/resource
+dimension, so it preserves current runner behavior without an assurance
+upgrade. `verify-execution-backend` composes the semantic contract and plan
+with the existing process protocol, but remains protocol-only for arbitrary
+children. This is a qualified reference boundary, not evidence that the legacy
+host or an external substrate is hermetic.
+
 | Evidence | Retained nested module | Separate repository now |
 |---|---|---|
 | Build boundary | Own `go.mod`, dependency lock, command, linter, and full build/test/race/vet/vulnerability/Windows gates; root recursive Go commands do not enter the module | Preserves isolation, but does not remove any required evaluator gate |
