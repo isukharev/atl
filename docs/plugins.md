@@ -15,25 +15,28 @@ skills-src/                 ← SOURCE OF TRUTH: edit here, and only here
 skills/                     ← GENERATED: the Claude Code plugin (openai.yaml omitted)
 plugins/atl/skills/         ← GENERATED: the Codex plugin (openai.yaml included)
 
-.mcp.json                   ← shared local read-only MCP server definition
-plugins/atl/.mcp.json       ← generated copy for the Codex plugin
+.mcp.json                   ← generated Claude plugin MCP definition
+plugins/atl/.mcp.json       ← generated Codex plugin MCP definition
 
 scripts/gen-plugins/        the generator (Go; unit-tested)
+internal/plugincontract/    compiled interface owner shared by generator and CLI
 ```
 
-Both output trees and the Codex MCP copy are committed — the Claude Code marketplace serves `skills/`
-straight from the repo, so they cannot be gitignored. Every generated `.md`
-carries a header comment naming its source file; if you find yourself editing a
-file with that header, stop and edit the `skills-src/` original instead.
+Both output trees and both MCP definitions are committed — the Claude Code
+marketplace serves `skills/` and the root manifest consumes root `.mcp.json`,
+so they cannot be gitignored. Every generated `.md` carries a header comment
+naming its source file; if you find yourself editing a file with that header,
+stop and edit the `skills-src/` original instead.
 
 ## The edit loop
 
 1. Edit files under `skills-src/`.
-2. `make gen-plugins` — regenerates both output trees wholesale and refreshes
-   the Codex `.mcp.json` copy and versioned skill-catalog companion.
+2. `make gen-plugins` — regenerates both output trees wholesale, both manifest-
+   bound `.mcp.json` definitions, and the versioned skill-catalog companion.
 3. Commit **every generated output in the same PR**. When MCP config changes,
-   commit root `.mcp.json`, the generated Codex copy, and both manifest
-   references too.
+   commit root `.mcp.json` and the generated Codex definition. The generator
+   verifies that both consuming manifests retain the exact `./.mcp.json`
+   reference.
 
 CI runs `make check-plugins` (validate metadata and routing, regenerate, then
 `git status --porcelain` over the outputs), so malformed metadata and stale or
@@ -142,5 +145,9 @@ installed inventory drift.
 Plugin manifests are **not** generated: `.claude-plugin/plugin.json` (Claude)
 and `plugins/atl/.codex-plugin/plugin.json` (Codex). Their `version` fields are
 the update triggers on user machines — bump **both** to the CLI version in the
-release prep commit (see `docs/RELEASING.md`); a stale version means installed
-plugins silently never update.
+release prep commit and run `make gen-plugins` (see `docs/RELEASING.md`); a
+stale version means installed plugins silently never update. Each generated
+MCP invocation derives its product-version marker directly from its consuming
+manifest, so there is no third release version to synchronize manually. Its
+separate interface marker comes from `internal/plugincontract.InterfaceVersion`,
+the same compiled owner used by the binary startup check.

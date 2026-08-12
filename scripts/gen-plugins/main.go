@@ -1,22 +1,12 @@
-// Command gen-plugins renders the agent-plugin skill trees from the single
-// source of truth in skills-src/.
+// Command gen-plugins renders agent-plugin skill trees from skills-src/.
 //
-// skills-src/ holds plain SKILL.md / reference *.md files with a handful of
-// {{var}} placeholders for the few strings that differ per platform, plus
-// codex-only agents/openai.yaml metadata. This tool substitutes the
-// per-platform values and writes two committed output trees:
+// It substitutes platform placeholders and writes two committed trees:
 //
 //	skills/             the Claude Code plugin (openai.yaml omitted)
 //	plugins/atl/skills/ the Codex plugin (openai.yaml copied verbatim)
 //
-// It also copies the repository .mcp.json into the Codex plugin package.
-// Output trees are regenerated wholesale (target dirs are recreated), while
-// companion files use contained atomic replacement. Each generated .md carries
-// a header comment pointing back at its source, and an unresolved {{var}} or an
-// unexpected source file type is a hard error so a typo cannot silently ship
-// half-rendered text. CI runs `make check-plugins`, which uses this command's
-// --check mode to compare the rendered snapshot with the committed outputs
-// without rewriting them.
+// It derives each committed .mcp.json from its consuming manifest and checks or
+// atomically publishes all generated outputs.
 package main
 
 import (
@@ -34,25 +24,25 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/isukharev/atl/internal/plugincontract"
 	"github.com/isukharev/atl/internal/skillmeta"
 	"github.com/isukharev/atl/internal/skillrouting"
 )
 
 const (
-	srcRoot               = "skills-src"
-	routingCorpus         = "benchmarks/agent-eval/skill-routing.v1.json"
-	rootMCPConfigName     = ".mcp.json"
-	pluginMCPConfigPath   = "plugins/atl/.mcp.json"
-	codexSkillCatalogName = "skill-catalog.v1.json"
-	maxSourceBytes        = 8 << 20
-	codexCatalogSchema    = 1
-	maxCodexCatalogBytes  = 1 << 20
-	maxCodexCatalogSkills = 256
-	maxCodexCatalogFiles  = 4096
-	maxCodexSkillName     = 64
-	maxCodexSkillPath     = 512
-	maxCodexSkillFile     = 8 << 20
-	maxCodexSkillTree     = 64 << 20
+	srcRoot                                = "skills-src"
+	routingCorpus                          = "benchmarks/agent-eval/skill-routing.v1.json"
+	rootMCPConfigPath, pluginMCPConfigPath = ".mcp.json", "plugins/atl/.mcp.json"
+	codexSkillCatalogName                  = "skill-catalog.v1.json"
+	maxSourceBytes, maxManifestBytes       = 8 << 20, 1 << 20
+	codexCatalogSchema                     = 1
+	maxCodexCatalogBytes                   = 1 << 20
+	maxCodexCatalogSkills                  = 256
+	maxCodexCatalogFiles                   = 4096
+	maxCodexSkillName                      = 64
+	maxCodexSkillPath                      = 512
+	maxCodexSkillFile                      = 8 << 20
+	maxCodexSkillTree                      = 64 << 20
 )
 
 type platform struct {
@@ -136,10 +126,9 @@ var (
 // as monospace and the jira skill documents that syntax).
 var varRe = regexp.MustCompile(`\{\{atl\.([a-z_]+)\}\}`)
 
-// Test seams exercise source and publication replacement windows. Production
-// runs leave both nil.
 var (
 	afterSourceSnapshotValidated func()
+	afterFirstPluginManifestRead func()
 	beforeOutputIdentityRebind   func(platformName string)
 	afterGeneratedTempClosed     func(name string)
 	beforeGeneratedPublishRename func(temporary, destination string)
@@ -210,7 +199,7 @@ func runMode(check bool) error {
 			return fmt.Errorf("source entry %s is not a regular file", path)
 		}
 		rel := filepath.FromSlash(path)
-		data, err := readSourceFile(sourceRoot, rel, info)
+		data, err := readSourceFile(sourceRoot, rel, info, maxSourceBytes)
 		if err != nil {
 			return fmt.Errorf("read source entry %s: %w", path, err)
 		}
@@ -222,9 +211,8 @@ func runMode(check bool) error {
 		return err
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].rel < files[j].rel })
-
-	// Validate the exact immutable snapshot that will be rendered for both
-	// providers. A later source-tree mutation cannot change publication bytes.
+	// Validate the immutable snapshot rendered for both providers so later
+	// source mutations cannot change publication bytes.
 	catalog, err := skillmeta.LoadSnapshot(snapshot)
 	if err != nil {
 		return fmt.Errorf("validate source skill metadata: %w", err)
@@ -247,10 +235,7 @@ func runMode(check bool) error {
 	if afterSourceSnapshotValidated != nil {
 		afterSourceSnapshotValidated()
 	}
-
-	// Render every source for every platform in memory before replacing any
-	// committed tree. Unknown file types, placeholder drift, or malformed
-	// frontmatter therefore leave both existing outputs intact.
+	// Render every source in memory before replacing committed trees.
 	rendered := make([][]renderedFile, len(platforms))
 	codexPlatformIndex := -1
 	for platformIndex, pl := range platforms {
@@ -278,19 +263,20 @@ func runMode(check bool) error {
 	if err != nil {
 		return fmt.Errorf("build codex skill catalog: %w", err)
 	}
-
 	repositoryRoot, err := os.OpenRoot(".")
 	if err != nil {
 		return fmt.Errorf("open repository root: %w", err)
 	}
 	defer func() { _ = repositoryRoot.Close() }()
-	rootMCPConfigData, err := readExpectedRepositoryFile(repositoryRoot, rootMCPConfigName)
+	claudeManifestData, codexManifestData, err := readPluginManifests(repositoryRoot)
 	if err != nil {
-		return fmt.Errorf("read plugin MCP config source: %w", err)
+		return fmt.Errorf("read plugin manifests: %w", err)
 	}
-	// Validate every output path before replacing the first tree. This keeps a
-	// symlinked intermediate directory from redirecting publication and keeps
-	// one invalid platform target from partially regenerating the other.
+	rootMCPConfigData, pluginMCPConfigData, err := plugincontract.GeneratedMCPConfigs(claudeManifestData, codexManifestData)
+	if err != nil {
+		return fmt.Errorf("build plugin MCP configs: %w", err)
+	}
+	// Validate every output path before replacing the first tree.
 	for _, pl := range platforms {
 		if err := validateOutputRoot(repositoryRoot, pl.outRoot); err != nil {
 			return fmt.Errorf("validate %s output root: %w", pl.name, err)
@@ -298,6 +284,9 @@ func runMode(check bool) error {
 	}
 	if err := validateGeneratedFileDestination(repositoryRoot, codexSkillCatalogPath); err != nil {
 		return fmt.Errorf("validate codex skill catalog output: %w", err)
+	}
+	if err := validateGeneratedFileDestination(repositoryRoot, rootMCPConfigPath); err != nil {
+		return fmt.Errorf("validate root plugin MCP config output: %w", err)
 	}
 	if err := validateGeneratedFileDestination(repositoryRoot, pluginMCPConfigPath); err != nil {
 		return fmt.Errorf("validate plugin MCP config output: %w", err)
@@ -319,12 +308,11 @@ func runMode(check bool) error {
 		}
 	}()
 	if check {
-		if err := checkGeneratedOutputs(repositoryRoot, targets, rendered, codexSkillCatalogData, rootMCPConfigData); err != nil {
+		if err := checkGeneratedOutputs(repositoryRoot, targets, rendered, codexSkillCatalogData, rootMCPConfigData, pluginMCPConfigData); err != nil {
 			return fmt.Errorf("generated plugin outputs are stale or hand-edited (edit %s/, run 'make gen-plugins', and commit every generated output): %w", srcRoot, err)
 		}
 		return nil
 	}
-
 	published := make([]publishedOutput, 0, len(targets))
 	closePublished := func() error {
 		var first error
@@ -379,9 +367,7 @@ func runMode(check bool) error {
 		}
 		published = append(published, publishedOutput{target: target, root: outputRoot})
 	}
-	// Keep every published root pinned until both trees are complete. Otherwise
-	// an earlier provider path could be replaced while a later tree is written
-	// and the generator could return success for a path it no longer owns.
+	// Keep every published root pinned until both trees are complete.
 	for _, output := range published {
 		pathInfo, pathErr := output.target.parent.Lstat(output.target.base)
 		openedInfo, openedErr := output.root.Stat(".")
@@ -405,7 +391,10 @@ func runMode(check bool) error {
 	if err := verifyPublishedSkillTree(codexOutputRoot, rendered[codexPlatformIndex]); err != nil {
 		return fmt.Errorf("verify codex skill tree before companion publication: %w", err)
 	}
-	if err := writeGeneratedFile(codexOutputParent, filepath.Base(pluginMCPConfigPath), rootMCPConfigData); err != nil {
+	if err := writeGeneratedFile(repositoryRoot, rootMCPConfigPath, rootMCPConfigData); err != nil {
+		return fmt.Errorf("publish root plugin MCP config: %w", err)
+	}
+	if err := writeGeneratedFile(codexOutputParent, filepath.Base(pluginMCPConfigPath), pluginMCPConfigData); err != nil {
 		return fmt.Errorf("publish plugin MCP config: %w", err)
 	}
 	if beforeCodexCatalogPublish != nil {
@@ -426,7 +415,7 @@ func runMode(check bool) error {
 	return nil
 }
 
-func checkGeneratedOutputs(repositoryRoot *os.Root, targets []outputTarget, rendered [][]renderedFile, codexSkillCatalogData, rootMCPConfigData []byte) error {
+func checkGeneratedOutputs(repositoryRoot *os.Root, targets []outputTarget, rendered [][]renderedFile, codexSkillCatalogData, rootMCPConfigData, pluginMCPConfigData []byte) error {
 	opened := make([]publishedOutput, 0, len(targets))
 	defer func() {
 		for _, output := range opened {
@@ -457,8 +446,8 @@ func checkGeneratedOutputs(repositoryRoot *os.Root, targets []outputTarget, rend
 	if err := verifyExpectedGeneratedFile(repositoryRoot, codexSkillCatalogPath, codexSkillCatalogData); err != nil {
 		return fmt.Errorf("check codex skill catalog: %w", err)
 	}
-	if err := verifyExpectedGeneratedFile(repositoryRoot, pluginMCPConfigPath, rootMCPConfigData); err != nil {
-		return fmt.Errorf("check plugin MCP config: %w", err)
+	if err := verifyExpectedPluginMCPConfigs(repositoryRoot, rootMCPConfigData, pluginMCPConfigData); err != nil {
+		return err
 	}
 
 	// Retain pinned roots until every output has been checked, then rebind each
@@ -477,36 +466,49 @@ func checkGeneratedOutputs(repositoryRoot *os.Root, targets []outputTarget, rend
 	if err := verifyExpectedGeneratedFile(repositoryRoot, codexSkillCatalogPath, codexSkillCatalogData); err != nil {
 		return fmt.Errorf("check codex skill catalog: %w", err)
 	}
-	if err := verifyExpectedGeneratedFile(repositoryRoot, pluginMCPConfigPath, rootMCPConfigData); err != nil {
-		return fmt.Errorf("check plugin MCP config: %w", err)
-	}
-	return nil
+	// Rebind both companion paths after tree checks so a replacement cannot
+	// inherit an earlier pinned-root success. Root and packaged configurations
+	// remain independently verified.
+	return verifyExpectedPluginMCPConfigs(repositoryRoot, rootMCPConfigData, pluginMCPConfigData)
 }
 
-func readExpectedRepositoryFile(root *os.Root, name string) ([]byte, error) {
-	info, err := root.Lstat(name)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 {
-		return nil, fmt.Errorf("expected a regular file")
+func verifyExpectedPluginMCPConfigs(root *os.Root, rootData, pluginData []byte) error {
+	if err := verifyExpectedGeneratedFile(root, rootMCPConfigPath, rootData); err != nil {
+		return fmt.Errorf("check root plugin MCP config: %w", err)
 	}
-	file, err := root.Open(name)
-	if err != nil {
-		return nil, err
+	return verifyExpectedGeneratedFile(root, pluginMCPConfigPath, pluginData)
+}
+
+func readPluginManifests(root *os.Root) (claude, codex []byte, err error) {
+	names := [...]string{".claude-plugin/plugin.json", "plugins/atl/.codex-plugin/plugin.json"}
+	var result [2][]byte
+	var initial [2]fs.FileInfo
+	for index, name := range names {
+		info, err := root.Lstat(name)
+		if err != nil || !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 {
+			return nil, nil, fmt.Errorf("expected a regular file")
+		}
+		initial[index] = info
+		result[index], err = readSourceFile(root, name, info, maxManifestBytes)
+		if err != nil {
+			return nil, nil, fmt.Errorf("read bounded plugin manifest")
+		}
+		if index == 0 && afterFirstPluginManifestRead != nil {
+			afterFirstPluginManifestRead()
+		}
 	}
-	defer func() { _ = file.Close() }()
-	openedInfo, err := file.Stat()
-	if err != nil || !openedInfo.Mode().IsRegular() || !os.SameFile(info, openedInfo) {
-		return nil, fmt.Errorf("file identity changed")
+	for index, name := range names {
+		current, rereadErr := readSourceFile(root, name, initial[index], maxManifestBytes)
+		if rereadErr != nil || !bytes.Equal(result[index], current) {
+			return nil, nil, fmt.Errorf("plugin manifest snapshot changed while paired manifests were read")
+		}
 	}
-	data, err := io.ReadAll(io.LimitReader(file, maxSourceBytes+1))
-	if err != nil {
-		return nil, err
+	claudeFinal, claudeErr := root.Lstat(names[0])
+	codexFinal, codexErr := root.Lstat(names[1])
+	if claudeErr != nil || codexErr != nil || !os.SameFile(initial[0], claudeFinal) || !os.SameFile(initial[1], codexFinal) {
+		return nil, nil, fmt.Errorf("plugin manifest path changed while it was read")
 	}
-	finalInfo, err := file.Stat()
-	if err != nil || !os.SameFile(openedInfo, finalInfo) || finalInfo.Size() != int64(len(data)) ||
-		!finalInfo.ModTime().Equal(openedInfo.ModTime()) || len(data) > maxSourceBytes {
-		return nil, fmt.Errorf("file changed while it was read")
-	}
-	return data, nil
+	return result[0], result[1], nil
 }
 
 func verifyExpectedGeneratedFile(root *os.Root, name string, data []byte) error {
@@ -886,9 +888,7 @@ func validateOutputRoot(root *os.Root, path string) error {
 	return nil
 }
 
-// renderFile returns the bytes to write for one source file on one platform,
-// or nil when the file is intentionally not emitted for that platform.
-func readSourceFile(root *os.Root, rel string, expected fs.FileInfo) ([]byte, error) {
+func readSourceFile(root *os.Root, rel string, expected fs.FileInfo, maxBytes int64) ([]byte, error) {
 	file, err := root.Open(rel)
 	if err != nil {
 		return nil, err
@@ -901,12 +901,12 @@ func readSourceFile(root *os.Root, rel string, expected fs.FileInfo) ([]byte, er
 	if !info.Mode().IsRegular() || !os.SameFile(expected, info) {
 		return nil, fmt.Errorf("source entry changed after validation")
 	}
-	data, err := io.ReadAll(io.LimitReader(file, maxSourceBytes+1))
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
 	if err != nil {
 		return nil, err
 	}
-	if len(data) > maxSourceBytes {
-		return nil, fmt.Errorf("source entry exceeds %d bytes", maxSourceBytes)
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("source entry exceeds %d bytes", maxBytes)
 	}
 	finalInfo, err := file.Stat()
 	if err != nil || !os.SameFile(info, finalInfo) || finalInfo.Size() != int64(len(data)) || !finalInfo.ModTime().Equal(info.ModTime()) {

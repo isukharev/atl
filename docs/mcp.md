@@ -28,6 +28,30 @@ atl mcp serve --service confluence
 atl mcp serve --service offline
 ```
 
+## Plugin-to-binary startup contract
+
+The committed Claude Code and Codex plugin definitions start the same command
+with two hidden generated markers: an interface-contract version from the
+binary's compiled contract owner and a product version derived directly from
+the consuming plugin manifest. The interface contract, not product-version
+equality, decides startup compatibility.
+
+An incompatible marked invocation exits `2` as a content-free usage error
+before config, credentials, dependency construction, or network access, with no
+protocol bytes on stdout. A compatible interface continues when the plugin and
+binary product versions differ. The startup gate does not emit the product
+`match` or `mismatch` status at runtime; compare `atl version` with the
+installed plugin or manifest version when diagnosing skew.
+MCP `serverInfo` is only the running server's self-reported name/version and is
+not treated as verified plugin, marker, or executable identity.
+
+A newly generated plugin used with an older binary fails through ordinary
+unknown-flag parsing. Bare standalone invocation remains supported. Therefore
+an older unmarked plugin used with a newer binary is indistinguishable from
+standalone use and remains explicitly `unverified`; atl does not claim a
+symmetric fail-closed guard. Update the older side and restart the agent session
+when marked startup is refused or product versions are known to differ.
+
 The closed profiles expose 11/12/2 tools for Jira/Confluence/offline
 respectively. `offline` exposes only
 `jira_mirror_snapshot` and `confluence_mirror_snapshot` and constructs neither

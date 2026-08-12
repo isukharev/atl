@@ -465,6 +465,14 @@ func TestRunCheckRejectsDriftWithoutMutation(t *testing.T) {
 			},
 		},
 		{
+			name: "stale root MCP config",
+			mutate: func(t *testing.T) {
+				if err := os.WriteFile(rootMCPConfigPath, []byte("{}\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
 			name: "stale MCP config",
 			mutate: func(t *testing.T) {
 				if err := os.WriteFile(pluginMCPConfigPath, []byte("{}\n"), 0o644); err != nil {
@@ -637,6 +645,60 @@ func TestRunRendersTheValidatedSourceSnapshot(t *testing.T) {
 		if bytes.Contains(data, []byte("changed after validation")) || !bytes.Contains(data, []byte("# Demo")) {
 			t.Fatalf("%s was not rendered from the validated snapshot", path)
 		}
+	}
+}
+
+func TestRunRejectsSameMetadataPairedManifestMutationBeforePublication(t *testing.T) {
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(original) })
+	writeValidGeneratorSkill(t)
+	writeGeneratorSentinels(t)
+	const packagedSentinel = "packaged MCP sentinel\n"
+	if err := os.WriteFile(pluginMCPConfigPath, []byte(packagedSentinel), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	manifestPath := filepath.FromSlash(".claude-plugin/plugin.json")
+	initialInfo, err := os.Stat(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterFirstPluginManifestRead = func() {
+		data, readErr := os.ReadFile(manifestPath)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		mutated := bytes.Replace(data, []byte(`"version":"1.2.3"`), []byte(`"version":"9.9.9"`), 1)
+		if bytes.Equal(data, mutated) || len(data) != len(mutated) {
+			t.Fatal("manifest mutation must change bytes without changing size")
+		}
+		if writeErr := os.WriteFile(manifestPath, mutated, initialInfo.Mode().Perm()); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+		if timeErr := os.Chtimes(manifestPath, initialInfo.ModTime(), initialInfo.ModTime()); timeErr != nil {
+			t.Fatal(timeErr)
+		}
+		mutatedInfo, statErr := os.Stat(manifestPath)
+		if statErr != nil || !os.SameFile(initialInfo, mutatedInfo) || mutatedInfo.Size() != initialInfo.Size() || !mutatedInfo.ModTime().Equal(initialInfo.ModTime()) {
+			t.Fatalf("mutation did not preserve identity/size/mtime: info=%v err=%v", mutatedInfo, statErr)
+		}
+	}
+	t.Cleanup(func() { afterFirstPluginManifestRead = nil })
+
+	if err := run(); err == nil || !strings.Contains(err.Error(), "manifest snapshot changed") {
+		t.Fatalf("same-metadata paired manifest mutation passed: %v", err)
+	}
+	assertGeneratorSentinels(t)
+	data, err := os.ReadFile(pluginMCPConfigPath)
+	if err != nil || string(data) != packagedSentinel {
+		t.Fatalf("packaged MCP output was touched: data=%q err=%v", data, err)
 	}
 }
 
@@ -902,8 +964,12 @@ func writeValidGeneratorSkill(t *testing.T) {
 	for path, data := range map[string]string{
 		filepath.Join(skillRoot, "SKILL.md"):              skill,
 		filepath.Join(skillRoot, "agents", "openai.yaml"): metadata,
-		rootMCPConfigName:                                 "{\"mcpServers\":{}}\n",
+		".claude-plugin/plugin.json":                      "{\"version\":\"1.2.3\",\"mcpServers\":\"./.mcp.json\"}\n",
+		"plugins/atl/.codex-plugin/plugin.json":           "{\"version\":\"1.2.3\",\"mcpServers\":\"./.mcp.json\"}\n",
 	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -934,6 +1000,7 @@ func writeGeneratorSentinels(t *testing.T) {
 		filepath.Join("skills", "keep"):                   "claude sentinel",
 		filepath.Join("plugins", "atl", "skills", "keep"): "codex sentinel",
 		filepath.FromSlash(codexSkillCatalogPath):         "catalog sentinel",
+		rootMCPConfigPath:                                 "root MCP sentinel",
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
@@ -950,6 +1017,7 @@ func assertGeneratorSentinels(t *testing.T) {
 		filepath.Join("skills", "keep"):                   "claude sentinel",
 		filepath.Join("plugins", "atl", "skills", "keep"): "codex sentinel",
 		filepath.FromSlash(codexSkillCatalogPath):         "catalog sentinel",
+		rootMCPConfigPath:                                 "root MCP sentinel",
 	} {
 		data, err := os.ReadFile(path)
 		if err != nil || string(data) != want {
@@ -996,7 +1064,7 @@ func snapshotGeneratedOutputs(t *testing.T) map[string]string {
 			t.Fatal(err)
 		}
 	}
-	for _, name := range []string{codexSkillCatalogPath, pluginMCPConfigPath} {
+	for _, name := range []string{codexSkillCatalogPath, rootMCPConfigPath, pluginMCPConfigPath} {
 		if err := snapshotGeneratedPath(snapshot, name); err != nil {
 			t.Fatal(err)
 		}

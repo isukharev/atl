@@ -24,14 +24,13 @@ func newMCPCommand() *cobra.Command {
 		},
 	}
 	serve.Flags().Var(&service, "service", "closed service profile: jira|confluence|offline (omit for the default combined profile)")
+	bindMCPPluginStartup(serve, version.Version)
 	_ = serve.RegisterFlagCompletionFunc("service", fixedComp("jira", "confluence", "offline"))
 	group.AddCommand(serve)
 	return group
 }
 
-// mcpServiceFlag rejects repeated occurrences instead of accepting pflag's
-// usual last-value-wins behavior. This keeps malformed profile selection out of
-// server and production-dependency construction.
+// mcpServiceFlag rejects repeats before server/dependency construction.
 type mcpServiceFlag struct {
 	profile mcpserver.ServiceProfile
 	set     bool
