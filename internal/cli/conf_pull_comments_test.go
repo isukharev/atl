@@ -3,8 +3,10 @@ package cli
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -54,6 +56,118 @@ func TestConfPull_NoCommentsNoCommentRequest(t *testing.T) {
 		if r.method == http.MethodGet && strings.HasSuffix(r.path, "/child/comment") {
 			t.Errorf("pull without --comments hit the comment endpoint: %+v", r)
 		}
+	}
+	var result app.PullResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("decode pull result: %v", err)
+	}
+	for _, include := range result.Includes {
+		if include.Requested || include.Qualification != app.ConfluencePullIncludeNotRequested || include.Complete != nil || include.Reason != "" {
+			t.Fatalf("unrequested include=%+v, want not_requested", include)
+		}
+	}
+}
+
+func TestConfPullPreviewDefersIncludesWithoutCommentOrAssetGETs(t *testing.T) {
+	cs := newConfServer(t)
+	cs.page = pageJSON("100", "Alpha", 3, `<p>image</p><ac:image><ri:attachment ri:filename="image.png"/></ac:image>`)
+	cs.commentsByLocation = qualifiedCommentResponses()
+
+	out, code := runCLI(t, confEnv(cs.srv), "conf", "pull", "--id", "100", "--into", t.TempDir(), "--dry-run", "--assets", "--comments")
+	if code != exitOK {
+		t.Fatalf("preview exit=%d stdout=%q", code, out)
+	}
+	var result app.PullResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("decode preview result: %v", err)
+	}
+	for _, include := range result.Includes {
+		if !include.Requested || include.Qualification != app.ConfluencePullIncludeDeferred || include.Complete != nil || include.Reason != app.ConfluencePullIncludeReasonPreviewDeferred {
+			t.Fatalf("preview include=%+v, want deferred", include)
+		}
+	}
+	for _, request := range cs.requests() {
+		if strings.Contains(request.path, "/child/comment") || strings.Contains(request.path, "/download/attachments/") {
+			t.Fatalf("preview made deferred include GET: %+v", request)
+		}
+	}
+}
+
+func TestConfPullPreviewTextQualifiesDeferredIncludes(t *testing.T) {
+	cs := newConfServer(t)
+	cs.page = pageJSON("100", "Alpha", 3, sampleCSF)
+	out, code := runCLI(t, confEnv(cs.srv), "conf", "pull", "--id", "100", "--into", t.TempDir(), "--dry-run", "--assets", "--comments", "-o", "text")
+	if code != exitOK || !strings.Contains(out, "include: assets requested=true qualification=deferred reason=preview_deferred") ||
+		!strings.Contains(out, "include: comments requested=true qualification=deferred reason=preview_deferred") {
+		t.Fatalf("preview text exit=%d output=%q", code, out)
+	}
+}
+
+func TestConfPullFailedIncludeEmitsQualifiedResultBeforeError(t *testing.T) {
+	cs := newConfServer(t)
+	cs.page = pageJSON("100", "Alpha", 3, sampleCSF)
+	cs.commentsByLocation = map[string]string{
+		"footer":   "{",
+		"inline":   `{"results":[],"start":0,"limit":100,"size":0,"_links":{}}`,
+		"resolved": `{"results":[],"start":0,"limit":100,"size":0,"_links":{}}`,
+	}
+
+	out, _, code := runCLIFull(t, confEnv(cs.srv), "conf", "pull", "--id", "100", "--into", t.TempDir(), "--comments")
+	if code != exitGeneric {
+		t.Fatalf("failed include exit=%d stdout=%q", code, out)
+	}
+	var result app.PullResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("decode failed-include result: %v\n%s", err, out)
+	}
+	if !result.HasFailedInclude() {
+		t.Fatalf("result=%+v, want failed include", result)
+	}
+	if result.LocalSafety != nil {
+		t.Fatalf("failed optional read added local_safety: %+v", result.LocalSafety)
+	}
+}
+
+func TestConfPullAssetPublicationFailureEmitsQualifiedResultBeforeError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not enforce the chmod-based publication fault fixture")
+	}
+	root := t.TempDir()
+	pageDir := filepath.Join(root, "ENG", "alpha")
+	if err := os.MkdirAll(pageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(pageDir, 0o755) })
+	page := pageJSON("100", "Alpha", 3, `<p>image</p><ac:image><ri:attachment ri:filename="image.png"/></ac:image>`)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/download/attachments/") {
+			if err := os.Chmod(pageDir, 0o555); err != nil {
+				http.Error(w, "synthetic setup failed", http.StatusInternalServerError)
+				return
+			}
+			_, _ = w.Write([]byte("image bytes"))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(page))
+	}))
+	t.Cleanup(srv.Close)
+
+	out, stderr, code := runCLIFull(t, confEnv(srv), "conf", "pull", "--id", "100", "--into", root, "--assets")
+	if code == exitOK {
+		t.Fatalf("publication failure exited 0: stdout=%q stderr=%q", out, stderr)
+	}
+	var result app.PullResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("decode asset publication failure: %v\n%s", err, out)
+	}
+	assets := result.Includes[0]
+	if assets.Dimension != app.ConfluencePullIncludeAssets || assets.Qualification != app.ConfluencePullIncludeFailed ||
+		assets.Complete == nil || *assets.Complete || assets.Reason != app.ConfluencePullIncludeReasonStagingFailed {
+		t.Fatalf("assets include=%+v stdout=%q stderr=%q", assets, out, stderr)
+	}
+	if result.LocalSafety != nil {
+		t.Fatalf("asset publication failure added local_safety: %+v", result.LocalSafety)
 	}
 }
 

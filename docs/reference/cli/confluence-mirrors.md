@@ -68,11 +68,14 @@ Flags:
 
 ## `atl conf space tree`
 
-Return the page hierarchy of a space. `depth 0` means unlimited.
+Return a caller-bounded page hierarchy prefix for one space. `depth 0` means
+unlimited depth, not unlimited work.
 
-```
+```bash
 atl conf space tree --space DOCS
-atl conf space tree --space DOCS --depth 2
+atl conf space tree --space DOCS --depth 2 \
+  --max-items 500 --max-scanned-items 5000 \
+  --max-requests 25 --max-response-bytes 16777216 --deadline 30s
 ```
 
 Flags:
@@ -81,12 +84,53 @@ Flags:
 |---|---|
 | `--space` | space key (required) |
 | `--depth` | maximum depth (0 = unlimited) |
+| `--max-items` | returned page limit (default and max 2000) |
+| `--max-scanned-items` | raw backend row limit, including depth-filtered rows (default and max 20000) |
+| `--max-requests` | physical HTTP attempt limit (default and max 100) |
+| `--max-response-bytes` | aggregate buffered response-byte limit (default 67108864; max 268435456) |
+| `--deadline` | wall-clock traversal deadline (default 2m; max 10m) |
 
-The listing returns at most 2000 pages that match the requested depth while
-independently scanning at most 20000 raw pages. Depth-filtered descendants do
-not consume the result budget. If either bound prevents proving a complete
-listing, the JSON result carries `"truncated": true` and a `warning:` line goes
-to stderr.
+The schema-v1 result carries `space`, `depth`, `count`, `complete`, optional
+`partial_reason`, `consistency`, the selected and consumed `bounds`, and a
+non-null `pages` array. `consistency` is always `live_unproven`: Confluence
+offset pagination supplies no snapshot token, so even `complete:true` proves
+only that this bounded live traversal reached a terminal page.
+
+```json
+{
+  "schema_version": 1,
+  "space": "DOCS",
+  "depth": 0,
+  "count": 1,
+  "complete": false,
+  "truncated": true,
+  "partial_reason": "request_limit",
+  "consistency": "live_unproven",
+  "bounds": {
+    "max_items": 2000,
+    "max_scanned_items": 20000,
+    "max_requests": 1,
+    "max_response_bytes": 67108864,
+    "deadline_ms": 120000,
+    "scanned_items": 1,
+    "requests_used": 1,
+    "response_bytes_used": 160
+  },
+  "pages": [
+    {"id":"12345678","title":"Home","space":"DOCS","version":7}
+  ]
+}
+```
+
+`truncated:true` is retained as the compatibility alias for `complete:false`.
+The item and scan bounds are enforced in the Confluence adapter. The request
+and aggregate response-byte counters are charged at the physical HTTP
+transport below orchestration, and the deadline is carried through every
+request. Generic read retries are disabled for this traversal. A partial result
+uses one static reason: `item_limit`, `scan_limit`, `request_limit`,
+`response_byte_limit`, `deadline`, `pagination_stalled`,
+`pagination_unqualified`, or `legacy_unqualified`. It is a prefix and never
+proves an omitted page absent; a `warning:` line also goes to stderr.
 
 ## `atl conf pull`
 
@@ -155,6 +199,21 @@ Flags:
 | `--render-exclude` | comma-separated sections to remove from the profile |
 
 At most one of `--id`, `--cql`, `--space` may be given.
+
+Every JSON pull result carries an ordered `includes` array with exactly the
+`assets` and `comments` dimensions. Each row exposes `requested`,
+`qualification`, proof-only `complete`, and an optional closed `reason`. An
+omitted flag is `qualification:not_requested`. Requested preview work is
+`deferred` with `reason:preview_deferred`; preview performs no comment-list or
+asset-download GET for those dimensions. Actual work is `qualified` with
+`complete:true` only when that dimension completed for every selected page.
+Incomplete coverage is `partial`, `complete:false`, with
+`resolution_incomplete`, `inventory_incomplete`, or `not_attempted`; a read or
+safe-staging error is `failed`, `complete:false`, with `read_failed` or
+`staging_failed`. A failed include result is emitted before the original
+non-zero error. Text output renders the same rows as stable `include:` lines.
+This qualification is additive: a clean actual pull still omits
+`local_safety`.
 
 Pull is non-destructive by default. Before each page-body GET, atl reconciles
 the tracked path, sidecar hash, pristine base, native `.csf`, metadata, and

@@ -9,5 +9,18 @@
       "assets": 0,
       "comments": 2
     }
+  ],
+  "includes": [
+    {
+      "dimension": "assets",
+      "requested": false,
+      "qualification": "not_requested"
+    },
+    {
+      "dimension": "comments",
+      "requested": true,
+      "qualification": "qualified",
+      "complete": true
+    }
   ]
 }

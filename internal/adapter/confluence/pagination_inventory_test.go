@@ -25,7 +25,7 @@ func TestConfluencePaginationOwnerInventoryIsClosed(t *testing.T) {
 		"labels.go:ListContentLabels":                     {"advance", "requestStart", "startAt"},
 		"pagination.go:advance":                           {"checkedEnd"},
 		"search.go:SearchComplete":                        {"advance", "checkedEnd", "requestStart", "startAt"},
-		"search.go:Tree":                                  {"advance", "requestStart", "startAt"},
+		"search.go:TreeQualified":                         {"advance", "requestStart", "startAt", "startAt"},
 	}
 	tracked := map[string]bool{"advance": true, "checkedEnd": true, "startAt": true}
 	got := map[string][]string{}
@@ -154,8 +154,8 @@ mirror_metadata.go:PlanPageMetadataBatches:for:1
 mirror_metadata.go:PlanPageMetadataBatches:for:2
 mirror_metadata.go:ReadPageMetadataBatch:range:1
 search.go:SearchComplete:range:1
-search.go:Tree:for:1
-search.go:Tree:range:1
+search.go:TreeQualified:for:1
+search.go:TreeQualified:range:1
 search.go:stripHTML:range:1
 server_metadata.go:confluenceBuildNumber:range:1
 server_metadata.go:legacyConfluenceIdentity:range:1
@@ -171,7 +171,7 @@ func TestConfluenceProductionLoopInventoryIsClosed(t *testing.T) {
 		"extras.go:listAttachmentsQualified:for:1":              true,
 		"extras.go:ListComments:for:1":                          true,
 		"labels.go:ListContentLabels:for:1":                     true,
-		"search.go:Tree:for:1":                                  true,
+		"search.go:TreeQualified:for:1":                         true,
 	}
 	want := classifiedConfluenceLoops(strings.Fields(confluenceProductionLoopKeys), pagination)
 	got := map[string]string{}

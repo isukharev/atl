@@ -8,6 +8,7 @@ Qualified Confluence reads, mirrors, comments, tables, page operations, and guar
 ## Navigate this reference
 
 - [Qualified Confluence search page](#qualified-confluence-search-page)
+- [Qualified Confluence space tree](#qualified-confluence-space-tree)
 - [Advisory Cloud-compatibility validation](#advisory-cloud-compatibility-validation)
 - [Confluence mirrors and page operations](#confluence-mirrors-and-page-operations)
 - [Mirror status, diff, reconciliation, and plans](#mirror-status-diff-reconciliation-and-plans)
@@ -29,6 +30,24 @@ with an empty cursor. `-o text` carries the same signal above a Markdown
 candidate table; `-o id` remains page ids only. Agents must continue a cursor,
 narrow or investigate an unresumable partial page, or disclose partial search
 before making an absence claim.
+
+## Qualified Confluence space tree
+
+`atl conf space tree` emits
+`{schema_version:1,space,depth,count,complete,truncated?,partial_reason?,consistency,bounds,pages}`.
+`pages` is always an array. `bounds` records both the selected item, scanned-row,
+physical-request, aggregate response-byte, and deadline ceilings and the
+observed `scanned_items`, `requests_used`, and `response_bytes_used`.
+
+`truncated:true` remains the compatibility alias for `complete:false` and is
+omitted on complete results. `complete:true` requires terminal offset-pagination evidence before any bound
+or pagination anomaly intervenes. It does not claim a snapshot:
+`consistency` is always `live_unproven`. A false value carries exactly one
+static `partial_reason`: `item_limit`, `scan_limit`, `request_limit`,
+`response_byte_limit`, `deadline`, `pagination_stalled`,
+`pagination_unqualified`, or `legacy_unqualified`. Physical attempts and
+buffered response bytes are charged below the application loop through the
+command-scoped read budget. A partial page prefix never proves absence.
 
 ## Advisory Cloud-compatibility validation
 
@@ -257,6 +276,34 @@ refuses the listing with exit `8` unless the page is currently at that version,
 before any attachment request is issued, and reports only the expected and
 current integers. `0` (the default) disables the gate; a negative value is a
 usage error (exit `2`).
+
+`atl conf attachment get --id <PAGE-ID> --name <FILENAME> [--version N]`
+emits the deliberately non-exact schema-v1 download acknowledgement after its
+atomic contained write:
+
+```json
+{
+  "schema_version": 1,
+  "page_id": "12345",
+  "name": "diagram.png",
+  "output_name": "diagram.png",
+  "requested_attachment_version": 2,
+  "selector": "page_filename_attachment_version",
+  "attachment_id_bound": false,
+  "identity_revalidated": false,
+  "page_version_gated": false,
+  "path": "assets/diagram.png"
+}
+```
+
+`name` preserves the exact caller selector; `output_name` is the safe contained
+basename written beneath `--into`. A positive requested version uses selector
+`page_filename_attachment_version` and binds that tuple. `0` is floating latest
+and instead reports `page_filename_latest`; it does not claim a version was
+observed. This route does not
+download by attachment content id, repeat the attachment inventory immediately
+before the byte read, or gate a page version, so those three booleans remain
+false. Text output remains the written path.
 
 `atl conf attachment delete --page-id <PAGE-ID> --id <ATTACHMENT-ID>` emits the
 guarded schema-v1 proposal:
@@ -500,16 +547,36 @@ raw cause remains non-unwrappable and no category includes cause text.
 objects. Each carries `id`, `title`, `path`, `version`, `assets`, and — only when
 `--comments` was passed — a `comments` count (omitted otherwise, so the shape is
 unchanged without the flag; an explicit `"comments": 0` means the fetch ran and
-found none, distinguishable from "not fetched"):
+found none, distinguishable from "not fetched"). The top-level `includes`
+array is always present in stable `assets`, `comments` order:
 
 ```json
 {
   "root": "mirror",
   "pages": [
     { "id": "100", "title": "Alpha", "path": "DOCS/alpha/alpha.csf", "version": 3, "assets": 0, "comments": 2 }
+  ],
+  "includes": [
+    {"dimension":"assets","requested":false,"qualification":"not_requested"},
+    {"dimension":"comments","requested":true,"qualification":"qualified","complete":true}
   ]
 }
 ```
+
+`qualification` is from the closed set `not_requested`, `deferred`,
+`qualified`, `partial`, or `failed`. `complete` is omitted until actual work
+proves coverage or proves it incomplete. Preview leaves requested
+assets/comments `deferred`, omits `complete`, sets
+`reason:preview_deferred`, and makes no comment-list or asset-download GET.
+Actual pulls aggregate each dimension across all selected pages:
+`qualified,complete:true` proves coverage; `partial,complete:false` uses
+`resolution_incomplete`, `inventory_incomplete`, or `not_attempted`; and
+`failed,complete:false` uses `read_failed` or `staging_failed`. No backend text
+or request estimate enters `reason`. When a failed include aborts the pull, the
+qualified result is emitted before the original mapped non-zero error. Text
+output carries the same fields on stable `include:` lines. A clean actual result
+continues to omit `local_safety`; this array does not manufacture a safety
+refusal.
 
 Both pull families add `local_safety` only for `--dry-run`, an explicit native
 recovery, or a refusal. Its stable shape is:
@@ -618,6 +685,10 @@ earlier invocation:
   "root": "mirror",
   "pages": [
     {"id":"300","title":"Gamma","path":"DOCS/gamma/gamma.csf","version":2,"assets":0}
+  ],
+  "includes": [
+    {"dimension":"assets","requested":false,"qualification":"not_requested"},
+    {"dimension":"comments","requested":false,"qualification":"not_requested"}
   ],
   "complete_pull": {
     "selector_sha256": "<sha256>",

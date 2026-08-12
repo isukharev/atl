@@ -18,6 +18,7 @@ import (
 type prefetchStore struct {
 	domain.DocStore
 	delays        map[string]time.Duration
+	bodies        map[string][]byte
 	errs          map[string]error
 	refs          []domain.PageRef
 	treeTruncated bool
@@ -74,6 +75,9 @@ func (s *prefetchStore) GetPage(ctx context.Context, id string, _ domain.PullOpt
 	}
 	page := completeTestPage(id)
 	page.Title = "Shared"
+	if body, ok := s.bodies[id]; ok {
+		page.Body = append([]byte(nil), body...)
+	}
 	page.BodyPresent = true
 	return page, nil
 }
@@ -223,6 +227,41 @@ func TestOrdinaryPullSchedulingPreservesSelectorAndWriteOrder(t *testing.T) {
 				t.Fatalf("truncated=%t at=%d, want %t", result.Truncated, result.TruncatedAt, tc.wantTruncated)
 			}
 		})
+	}
+}
+
+type selectivePrefetchAssetResolver struct{}
+
+func (selectivePrefetchAssetResolver) Resolve(_ context.Context, page *domain.Resource, _ domain.Ref) ([]byte, string, error) {
+	if page.ID == "20" {
+		return nil, "", errors.New("synthetic unresolved asset")
+	}
+	return []byte("image bytes"), "image.png", nil
+}
+
+func TestOrdinaryScheduledPrefetchAggregatesIncludeQualificationAcrossPages(t *testing.T) {
+	body := []byte(`<p>image</p><ac:image><ri:attachment ri:filename="image.png"/></ac:image>`)
+	store := &prefetchStore{
+		delays: map[string]time.Duration{"10": 30 * time.Millisecond, "20": 30 * time.Millisecond, "30": 30 * time.Millisecond},
+		bodies: map[string][]byte{"10": body, "20": body, "30": body},
+		refs:   []domain.PageRef{{ID: "10"}, {ID: "20"}, {ID: "30"}},
+	}
+	result, err := (&ConfluenceService{
+		baseURL: confluenceTestBackendURL, store: store, assets: selectivePrefetchAssetResolver{}, requestMaxInFlight: 3,
+	}).Pull(t.Context(), PullOpts{Space: "DOC", Into: t.TempDir(), Assets: true, PagePrefetch: 3})
+	if err != nil {
+		t.Fatalf("scheduled pull: %v", err)
+	}
+	if store.peak.Load() != 3 || len(result.Pages) != 3 {
+		t.Fatalf("peak=%d pages=%d", store.peak.Load(), len(result.Pages))
+	}
+	assets := confluencePullInclude(t, result, ConfluencePullIncludeAssets)
+	if !assets.Requested || assets.Qualification != ConfluencePullIncludePartial || assets.Complete == nil || *assets.Complete || assets.Reason != ConfluencePullIncludeReasonResolutionIncomplete {
+		t.Fatalf("aggregated assets include=%+v", assets)
+	}
+	comments := confluencePullInclude(t, result, ConfluencePullIncludeComments)
+	if comments.Requested || comments.Qualification != ConfluencePullIncludeNotRequested || comments.Complete != nil {
+		t.Fatalf("comments include=%+v", comments)
 	}
 }
 

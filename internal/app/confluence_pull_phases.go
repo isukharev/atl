@@ -156,6 +156,8 @@ func (r *confluencePullRun) preparePage(fetched *confluencePullFetchedPage) (*co
 	refs := []domain.Ref{}
 	assetStage := &stagedConfluenceAssetSink{slug: fetched.slug}
 	var pageNode *csf.Node
+	assetIncludeQualification := ConfluencePullIncludeQualified
+	assetIncludeReason := ""
 	if root, err := csf.Parse(page.Body); err == nil {
 		pageNode = root
 		refs = fragment.Extract(root)
@@ -168,7 +170,28 @@ func (r *confluencePullRun) preparePage(fetched *confluencePullFetchedPage) (*co
 		}
 		refs = fragment.Resolve(r.ctx, page, refs, deps)
 		if assetStage.err != nil {
+			if err := r.result.recordConfluencePullInclude(ConfluencePullIncludeAssets, ConfluencePullIncludeFailed, ConfluencePullIncludeReasonStagingFailed); err != nil {
+				return nil, err
+			}
 			return nil, fmt.Errorf("%w: page %s assets could not be staged safely: %v", domain.ErrCheckFailed, fetched.id, assetStage.err)
+		}
+		if r.opts.Assets {
+			for _, ref := range refs {
+				if (ref.Kind == domain.RefDrawio || ref.Kind == domain.RefImage) && ref.Asset == "" {
+					assetIncludeQualification = ConfluencePullIncludePartial
+					assetIncludeReason = ConfluencePullIncludeReasonResolutionIncomplete
+				}
+			}
+		}
+	} else if r.opts.Assets {
+		// Native bytes remain pullable when best-effort CSF parsing fails, but
+		// the requested asset inventory cannot be called exhaustive.
+		assetIncludeQualification = ConfluencePullIncludePartial
+		assetIncludeReason = ConfluencePullIncludeReasonResolutionIncomplete
+	}
+	if r.opts.Assets {
+		if err := r.result.recordConfluencePullInclude(ConfluencePullIncludeAssets, assetIncludeQualification, assetIncludeReason); err != nil {
+			return nil, err
 		}
 	}
 	page.Refs = refs
@@ -196,8 +219,20 @@ func (r *confluencePullRun) preparePage(fetched *confluencePullFetchedPage) (*co
 				errors.Is(err, domain.ErrForbidden) {
 				commentInventory = forbiddenConfluenceCommentInventory(page, commentOptions)
 			} else {
+				if qualificationErr := r.result.recordConfluencePullInclude(ConfluencePullIncludeComments, ConfluencePullIncludeFailed, ConfluencePullIncludeReasonReadFailed); qualificationErr != nil {
+					return nil, qualificationErr
+				}
 				return nil, fmt.Errorf("pull comments %s: %w", fetched.id, err)
 			}
+		}
+		commentQualification := ConfluencePullIncludeQualified
+		commentReason := ""
+		if !commentInventory.CommentsComplete || !commentInventory.ThreadsComplete || !commentInventory.AnchorsComplete {
+			commentQualification = ConfluencePullIncludePartial
+			commentReason = ConfluencePullIncludeReasonInventoryIncomplete
+		}
+		if err := r.result.recordConfluencePullInclude(ConfluencePullIncludeComments, commentQualification, commentReason); err != nil {
+			return nil, err
 		}
 		comments = confluenceQualifiedCommentsForDisplay(commentInventory, "")
 		sidecar := confluenceCommentsSidecarV2(commentInventory)
@@ -318,7 +353,7 @@ func (r *confluencePullRun) revalidatePage(prepared *confluencePullPreparedPage)
 func (r *confluencePullRun) stagePage(revalidated *confluencePullRevalidatedPage) (*confluencePullStagedPage, error) {
 	if r.complete == nil {
 		if err := revalidated.assetStage.publish(r.mirror, revalidated.dir, revalidated.slug); err != nil {
-			return nil, fmt.Errorf("write staged assets %s: %w", revalidated.id, err)
+			return nil, r.assetPublicationError(revalidated.assetStage, fmt.Errorf("write staged assets %s: %w", revalidated.id, err))
 		}
 		if _, err := revalidateConfluencePullLocal(r.mirror, revalidated.local); err != nil {
 			action := PullLocalAction{ID: revalidated.id, Path: filepath.ToSlash(revalidated.rel), Status: pullLocalBlocked, Reason: "local_artifacts_changed"}
@@ -376,7 +411,7 @@ func (r *confluencePullRun) stagePage(revalidated *confluencePullRevalidatedPage
 		assetPath := filepath.Join(revalidated.dir, revalidated.slug+".assets", asset.name)
 		assetRel, err := mirror.PublicArtifactPathWithin(r.result.Root, assetPath)
 		if err != nil {
-			return nil, fmt.Errorf("prepare staged asset %s: %w", revalidated.id, err)
+			return nil, r.assetPublicationError(revalidated.assetStage, fmt.Errorf("prepare staged asset %s: %w", revalidated.id, err))
 		}
 		artifacts = append(artifacts, mirror.CompletePullArtifact{Path: assetRel, Data: asset.data, Mode: 0o644})
 	}
@@ -396,7 +431,7 @@ func (r *confluencePullRun) stagePage(revalidated *confluencePullRevalidatedPage
 	}
 	entry := mirror.CompletePullJournalEntry{State: state, View: staged.viewState}
 	if err := r.mirror.PrepareCompletePullPublication(r.complete.checkpoint, r.complete.nextIndex, entry, revalidated.completeEligible, artifacts, revalidated.relocation); err != nil {
-		return nil, fmt.Errorf("stage complete-pull page %s: %w", revalidated.id, err)
+		return nil, r.assetPublicationError(revalidated.assetStage, fmt.Errorf("stage complete-pull page %s: %w", revalidated.id, err))
 	}
 	staged.syncState = state
 	return staged, nil
@@ -405,7 +440,7 @@ func (r *confluencePullRun) stagePage(revalidated *confluencePullRevalidatedPage
 func (r *confluencePullRun) publishPage(staged *confluencePullStagedPage) error {
 	if r.complete != nil {
 		if err := r.mirror.RecoverCompletePullPublication(r.complete.checkpoint.SelectorSHA256, r.complete.checkpoint, true); err != nil {
-			return fmt.Errorf("publish complete-pull page %s: %w", staged.id, err)
+			return r.assetPublicationError(staged.assetStage, fmt.Errorf("publish complete-pull page %s: %w", staged.id, err))
 		}
 		if staged.completeEligible {
 			r.batch.Record(staged.syncState)
@@ -472,4 +507,16 @@ func (r *confluencePullRun) publishPage(staged *confluencePullStagedPage) error 
 		}
 	}
 	return nil
+}
+
+func (r *confluencePullRun) assetPublicationError(stage *stagedConfluenceAssetSink, err error) error {
+	if !r.opts.Assets || stage == nil || len(stage.assets) == 0 {
+		return err
+	}
+	if qualificationErr := r.result.recordConfluencePullInclude(
+		ConfluencePullIncludeAssets, ConfluencePullIncludeFailed, ConfluencePullIncludeReasonStagingFailed,
+	); qualificationErr != nil {
+		return errors.Join(err, qualificationErr)
+	}
+	return err
 }

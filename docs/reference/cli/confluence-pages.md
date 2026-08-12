@@ -587,7 +587,30 @@ current version integers; `0` (the default) disables the gate.
 
 Attachment `get --version N` downloads that attachment revision; `0` (the
 default) selects the latest revision. This is an attachment-version selector,
-not the page-version gate used by `attachment list` and guarded deletion.
+not the page-version gate used by `attachment list` and guarded deletion. JSON
+emits `{schema_version:1,page_id,name,output_name,requested_attachment_version,selector,
+attachment_id_bound,identity_revalidated,page_version_gated,path}`. The
+selector is `page_filename_attachment_version` only for a positive version;
+the default floating-latest request uses `page_filename_latest`. `name`
+preserves the exact caller selector while `output_name` is its safe contained
+basename. All three guarantee booleans are `false`. The route binds a resolved
+page id and filename, plus a requested attachment version only when positive,
+but it does not bind a content id, immediately
+revalidate the inventory, or gate the page version. Text output remains the
+written path.
+
+Global attachment discovery is intentionally not exposed. In the official
+[Confluence Data Center 10.2.14 Swagger](https://developer.atlassian.com/server/confluence/10.2.14.swagger.v3.json),
+the typed attachment collection is scoped to
+[`/content/{id}/child/attachment`](https://developer.atlassian.com/server/confluence/rest/v10214/api-group-attachments/),
+while the [CQL search resource](https://developer.atlassian.com/server/confluence/rest/v10214/api-group-search/)
+uses live `start`/`limit` continuation and a generic search entity without a
+stable snapshot token. The same specification exposes no attachment-content-id
+binary GET. That is insufficient to promise bounded global typed parent and
+attachment identity plus an ID-bound download, so ATL ships neither a global
+attachment CLI leaf nor a global MCP projection. Use the known-page qualified
+inventory above; its MCP projection remains metadata-only and omits download
+paths, comments, and binary bytes.
 
 Uploads stream the selected file without buffering it and send the exact multipart
 `Content-Length`, preserving compatibility with intermediaries that reject chunked uploads.

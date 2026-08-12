@@ -273,8 +273,9 @@ func (cf *Confluence) listAttachmentsQualified(ctx context.Context, id string, o
 }
 
 // DownloadAttachment streams attachment bytes. version<=0 means latest. The
-// download path /download/attachments/<pageID>/<filename>?version=<v> is what
-// the draw.io PNG preview uses for an exact revision (verified).
+// download path /download/attachments/<pageID>/<filename>?version=<v> is also
+// used by draw.io previews. It binds the selector tuple but is not an ID-bound
+// attachment read and does not prove a concurrent page version.
 func (cf *Confluence) DownloadAttachment(ctx context.Context, pageID, filename string, version int) (io.ReadCloser, error) {
 	p := "/download/attachments/" + url.PathEscape(pageID) + "/" + url.PathEscape(filename)
 	if version > 0 {
