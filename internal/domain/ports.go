@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"fmt"
 	"io"
 )
 
@@ -157,6 +158,31 @@ type AttachmentInventory struct {
 // stays the compatibility surface for workflows that only need the slice.
 type QualifiedAttachmentLister interface {
 	ListAttachmentsQualified(ctx context.Context, id string) (AttachmentInventory, error)
+}
+
+const (
+	AttachmentReadMaxPages = 100
+	AttachmentReadMaxItems = 100_000
+)
+
+type AttachmentReadOptions struct {
+	MaxPages int
+	MaxItems int
+}
+
+// BoundedQualifiedAttachmentLister is the explicit-limit variant used by
+// finite corpus captures. The compatibility lister above retains its fixed
+// historical bounds for existing callers.
+type BoundedQualifiedAttachmentLister interface {
+	ListAttachmentsQualifiedBounded(ctx context.Context, id string, options AttachmentReadOptions) (AttachmentInventory, error)
+}
+
+func ValidateAttachmentReadOptions(options AttachmentReadOptions) error {
+	if options.MaxPages <= 0 || options.MaxPages > AttachmentReadMaxPages ||
+		options.MaxItems <= 0 || options.MaxItems > AttachmentReadMaxItems {
+		return fmt.Errorf("%w: attachment page or item bound is invalid", ErrUsage)
+	}
+	return nil
 }
 
 // ConfluenceTimeSemanticsReader is the narrow, optional metadata capability

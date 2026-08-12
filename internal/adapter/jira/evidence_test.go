@@ -88,7 +88,7 @@ func TestListJiraAttachmentsQualifiedMapsExactField(t *testing.T) {
 		_, _ = writer.Write([]byte(`{"id":"10001","fields":{"attachment":[{"id":"7","filename":"a.bin","mimeType":"application/octet-stream","size":3,"created":"2026-01-01","content":"/secure/attachment/7/a.bin","author":{"name":"user","key":"stable","displayName":"Fixture"}}]}}`))
 	}))
 	t.Cleanup(server.Close)
-	inventory, err := newTestJira(server).ListJiraAttachmentsQualified(t.Context(), "10001")
+	inventory, err := newTestJira(server).ListJiraAttachmentsQualified(t.Context(), "10001", domain.JiraAttachmentReadOptions{MaxItems: 10})
 	if err != nil || !inventory.Complete || len(inventory.Attachments) != 1 {
 		t.Fatalf("inventory=%+v error=%v", inventory, err)
 	}
@@ -104,7 +104,7 @@ func TestListJiraAttachmentsQualifiedDistinguishesUnavailableField(t *testing.T)
 			writer.Header().Set("Content-Type", "application/json")
 			_, _ = writer.Write([]byte(`{"id":"10001","fields":` + fields + `}`))
 		}))
-		inventory, err := newTestJira(server).ListJiraAttachmentsQualified(context.Background(), "10001")
+		inventory, err := newTestJira(server).ListJiraAttachmentsQualified(context.Background(), "10001", domain.JiraAttachmentReadOptions{MaxItems: 10})
 		server.Close()
 		if err != nil || inventory.Complete || inventory.Attachments == nil || inventory.PartialReason != domain.JiraAttachmentPartialFieldUnavailable {
 			t.Fatalf("fields=%s inventory=%+v error=%v", fields, inventory, err)
@@ -123,10 +123,22 @@ func TestListJiraAttachmentsQualifiedRejectsParentAndDuplicateIdentity(t *testin
 				_, _ = writer.Write([]byte(response))
 			}))
 			t.Cleanup(server.Close)
-			inventory, err := newTestJira(server).ListJiraAttachmentsQualified(t.Context(), "10001")
+			inventory, err := newTestJira(server).ListJiraAttachmentsQualified(t.Context(), "10001", domain.JiraAttachmentReadOptions{MaxItems: 10})
 			if !errors.Is(err, domain.ErrCheckFailed) || inventory.Attachments != nil {
 				t.Fatalf("inventory=%+v error=%v", inventory, err)
 			}
 		})
+	}
+}
+
+func TestListJiraAttachmentsQualifiedReportsItemLimit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"id":"10001","fields":{"attachment":[{"id":"7","filename":"a","size":1},{"id":"8","filename":"b","size":1}]}}`))
+	}))
+	t.Cleanup(server.Close)
+	inventory, err := newTestJira(server).ListJiraAttachmentsQualified(t.Context(), "10001", domain.JiraAttachmentReadOptions{MaxItems: 1})
+	if err != nil || inventory.Complete || inventory.PartialReason != domain.JiraAttachmentPartialItemLimit || len(inventory.Attachments) != 1 {
+		t.Fatalf("inventory=%+v error=%v", inventory, err)
 	}
 }

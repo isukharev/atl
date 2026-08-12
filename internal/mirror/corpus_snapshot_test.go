@@ -20,8 +20,6 @@ func TestCorpusSnapshotCapturesConfluencePristineEvidenceOnly(t *testing.T) {
 	writeCorpusTestFile(t, root, "SPACE/page/page.md", []byte("ambient Markdown edit"))
 	commentsPath := "SPACE/page/page.comments.json"
 	writeCorpusTestFile(t, root, commentsPath, []byte("{\"comments\":[]}\n"))
-	attachmentsPath := "SPACE/page/page.attachments.json"
-	writeCorpusTestFile(t, root, attachmentsPath, []byte("{\"attachments\":[]}\n"))
 
 	snapshot, err := m.BeginCorpusSnapshot(CorpusSnapshotConfluence, CorpusSnapshotOptions{})
 	if err != nil {
@@ -44,7 +42,7 @@ func TestCorpusSnapshotCapturesConfluencePristineEvidenceOnly(t *testing.T) {
 		string(item.Native.Data) != "<p>pristine</p>" || item.Native.Path != state.Path {
 		t.Fatalf("captured item = %#v", item)
 	}
-	if len(item.Auxiliaries) != 2 || item.Auxiliaries[0].Path != commentsPath || item.Auxiliaries[1].Path != attachmentsPath {
+	if len(item.Auxiliaries) != 1 || item.Auxiliaries[0].Path != commentsPath {
 		t.Fatalf("captured auxiliaries = %#v", item.Auxiliaries)
 	}
 	if _, err := snapshot.ReadItem(-1); !errors.Is(err, domain.ErrCheckFailed) {
@@ -86,7 +84,6 @@ func TestCorpusSnapshotCapturesJiraNumericIdentityAndIgnoresPendingPayload(t *te
 	writeCorpusTestFile(t, root, "EX/EX-1.md", []byte("ambient Markdown"))
 	writeCorpusTestFile(t, root, "EX/EX-1.epic-children.json", []byte("{\"issues\":[]}\n"))
 	writeCorpusTestFile(t, root, "EX/EX-1.comments.json", []byte("{\"comments\":[]}\n"))
-	writeCorpusTestFile(t, root, "EX/EX-1.attachments.json", []byte("{\"attachments\":[]}\n"))
 	// Export must not decode or adopt pending Jira proposals.
 	writeCorpusTestFile(t, root, ".atl/pending/jira/EX-1.json", []byte("opaque pending bytes are not JSON"))
 
@@ -102,9 +99,8 @@ func TestCorpusSnapshotCapturesJiraNumericIdentityAndIgnoresPendingPayload(t *te
 		item.Version != 0 || string(item.Native.Data) != "h1. pristine" {
 		t.Fatalf("captured Jira item = %#v", item)
 	}
-	if len(item.Auxiliaries) != 3 || !strings.HasSuffix(item.Auxiliaries[0].Path, ".comments.json") ||
-		!strings.HasSuffix(item.Auxiliaries[1].Path, ".attachments.json") ||
-		!strings.HasSuffix(item.Auxiliaries[2].Path, ".epic-children.json") {
+	if len(item.Auxiliaries) != 2 || !strings.HasSuffix(item.Auxiliaries[0].Path, ".comments.json") ||
+		!strings.HasSuffix(item.Auxiliaries[1].Path, ".epic-children.json") {
 		t.Fatalf("captured Jira auxiliaries = %#v", item.Auxiliaries)
 	}
 

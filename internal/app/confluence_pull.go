@@ -47,6 +47,7 @@ type PullOpts struct {
 	PagePrefetch      int
 	RequestsPerSecond int
 	exactRender       *RenderSettings
+	evidence          *corpusPullEvidenceOptions
 }
 
 // PulledPage is one mirrored page.

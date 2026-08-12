@@ -33,6 +33,7 @@ type JiraPullOpts struct {
 	Render          config.RenderService
 	exactRender     *RenderSettings
 	exactFields     []string
+	evidence        *corpusPullEvidenceOptions
 }
 
 // JiraPullResult is the pull summary. Optional fields preserve the ordinary

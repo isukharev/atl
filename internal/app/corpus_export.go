@@ -300,17 +300,8 @@ func validateCorpusCaptureSource(snapshot *mirror.CorpusSnapshot, receipt corpus
 	if err != nil || selection != receipt.SelectionDigest {
 		return corpus.ErrIntegrity
 	}
-	states := make(map[corpus.CaptureDimension]corpus.CaptureDimensionState, len(receipt.Dimensions))
-	for _, dimension := range receipt.Dimensions {
-		states[dimension.Dimension] = dimension.State
-	}
-	if states[corpus.CaptureNative] != corpus.CaptureComplete || states[corpus.CaptureMetadata] != corpus.CaptureComplete {
-		return corpus.ErrIntegrity
-	}
-	for _, optional := range []corpus.CaptureDimension{corpus.CaptureComments, corpus.CaptureAttachments} {
-		if states[optional] != corpus.CaptureNotRequested {
-			return corpus.ErrIntegrity
-		}
+	if err := validateCorpusCaptureDimensions(snapshot, receipt.Dimensions); err != nil {
+		return err
 	}
 	return corpus.VerifyCaptureReceipt(receipt, limits)
 }

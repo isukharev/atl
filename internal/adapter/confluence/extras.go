@@ -178,15 +178,22 @@ func (cf *Confluence) ListAttachments(ctx context.Context, id string) ([]domain.
 // The item cap is enforced per attachment, so the returned slice never exceeds
 // it silently.
 func (cf *Confluence) ListAttachmentsQualified(ctx context.Context, id string) (domain.AttachmentInventory, error) {
+	return cf.ListAttachmentsQualifiedBounded(ctx, id, domain.AttachmentReadOptions{MaxPages: maxPages, MaxItems: maxItems})
+}
+
+func (cf *Confluence) ListAttachmentsQualifiedBounded(ctx context.Context, id string, options domain.AttachmentReadOptions) (domain.AttachmentInventory, error) {
+	if err := domain.ValidateAttachmentReadOptions(options); err != nil {
+		return domain.AttachmentInventory{}, err
+	}
 	cursor := confluencePageCursor{}
 	out := []domain.Attachment{}
 	partial := func(reason string) (domain.AttachmentInventory, error) {
 		return domain.AttachmentInventory{Attachments: out, PartialReason: reason}, nil
 	}
-	for page := 0; page < maxPages; page++ {
+	for page := 0; page < options.MaxPages; page++ {
 		// Reaching a later iteration means the previous page both advertised more
 		// and made progress, so a filled collection is provably a prefix.
-		if len(out) >= maxItems {
+		if len(out) >= options.MaxItems {
 			return partial(domain.AttachmentPartialItemLimit)
 		}
 		var resp struct {
@@ -203,6 +210,14 @@ func (cf *Confluence) ListAttachmentsQualified(ctx context.Context, id string) (
 				Version struct {
 					Number int `json:"number"`
 				} `json:"version"`
+				History struct {
+					CreatedDate string `json:"createdDate"`
+					CreatedBy   struct {
+						UserKey     string `json:"userKey"`
+						Username    string `json:"username"`
+						DisplayName string `json:"displayName"`
+					} `json:"createdBy"`
+				} `json:"history"`
 				Links struct {
 					Download string `json:"download"`
 				} `json:"_links"`
@@ -212,7 +227,7 @@ func (cf *Confluence) ListAttachmentsQualified(ctx context.Context, id string) (
 			} `json:"_links"`
 		}
 		q := url.Values{}
-		q.Set("expand", "version,metadata")
+		q.Set("expand", "version,metadata,history.createdBy")
 		q.Set("limit", "200")
 		q.Set("start", strconv.Itoa(cursor.startAt()))
 		path := "/rest/api/content/" + url.PathEscape(id) + "/child/attachment?" + q.Encode()
@@ -220,7 +235,7 @@ func (cf *Confluence) ListAttachmentsQualified(ctx context.Context, id string) (
 			return domain.AttachmentInventory{}, err
 		}
 		for _, r := range resp.Results {
-			if len(out) >= maxItems {
+			if len(out) >= options.MaxItems {
 				// One response carried more rows than the cap allows; stop exactly at
 				// the cap instead of silently exceeding it.
 				return partial(domain.AttachmentPartialItemLimit)
@@ -229,6 +244,8 @@ func (cf *Confluence) ListAttachmentsQualified(ctx context.Context, id string) (
 				ID: r.ID, Title: r.Title, MediaType: r.Metadata.MediaType,
 				FileSize: r.Extensions.FileSize, Version: r.Version.Number,
 				Comment: r.Extensions.Comment, DownPath: r.Links.Download,
+				Created: r.History.CreatedDate, Author: r.History.CreatedBy.DisplayName,
+				AuthorName: r.History.CreatedBy.Username, AuthorKey: r.History.CreatedBy.UserKey,
 			})
 		}
 		switch cursor.advance(len(resp.Results), resp.Links.Next) {

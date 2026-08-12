@@ -14,6 +14,8 @@ const (
 	JiraCommentPartialPaginationStalled = "pagination_stalled"
 
 	JiraAttachmentPartialFieldUnavailable = "field_unavailable"
+	JiraAttachmentPartialItemLimit        = "item_limit"
+	JiraAttachmentReadMaxItems            = 10_000
 )
 
 // JiraCommentReadOptions makes the qualified comment read finite at both the
@@ -53,10 +55,14 @@ type JiraAttachmentInventory struct {
 	PartialReason string
 }
 
+type JiraAttachmentReadOptions struct {
+	MaxItems int
+}
+
 // QualifiedJiraAttachmentReader is an optional tracker capability for exact
 // attachment-field evidence. issueID is the provider-stable numeric identity.
 type QualifiedJiraAttachmentReader interface {
-	ListJiraAttachmentsQualified(context.Context, string) (JiraAttachmentInventory, error)
+	ListJiraAttachmentsQualified(context.Context, string, JiraAttachmentReadOptions) (JiraAttachmentInventory, error)
 }
 
 func ValidJiraCommentPartialReason(reason string) bool {
@@ -115,7 +121,7 @@ func ValidateJiraAttachmentInventory(inventory JiraAttachmentInventory) error {
 		if inventory.PartialReason != "" {
 			return fmt.Errorf("%w: complete Jira attachment inventory has a partial reason", ErrCheckFailed)
 		}
-	} else if inventory.PartialReason != JiraAttachmentPartialFieldUnavailable {
+	} else if inventory.PartialReason != JiraAttachmentPartialFieldUnavailable && inventory.PartialReason != JiraAttachmentPartialItemLimit {
 		return fmt.Errorf("%w: partial Jira attachment inventory has an invalid reason", ErrCheckFailed)
 	}
 	seen := make(map[string]struct{}, len(inventory.Attachments))
@@ -127,6 +133,13 @@ func ValidateJiraAttachmentInventory(inventory JiraAttachmentInventory) error {
 			return fmt.Errorf("%w: Jira attachment inventory repeats an identity", ErrCheckFailed)
 		}
 		seen[attachment.ID] = struct{}{}
+	}
+	return nil
+}
+
+func ValidateJiraAttachmentReadOptions(options JiraAttachmentReadOptions) error {
+	if options.MaxItems <= 0 || options.MaxItems > JiraAttachmentReadMaxItems {
+		return fmt.Errorf("%w: Jira attachment item bound is invalid", ErrUsage)
 	}
 	return nil
 }

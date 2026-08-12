@@ -16,6 +16,8 @@ const confluenceAttachmentInventorySchemaVersion = 1
 // attachment request is issued.
 type ConfluenceAttachmentInventoryOpts struct {
 	ExpectedPageVersion int
+	MaxPages            int
+	MaxItems            int
 }
 
 // ConfluenceAttachmentInventoryResult is the qualified attachment listing.
@@ -80,13 +82,34 @@ func (s *ConfluenceService) AttachmentInventory(ctx context.Context, reference s
 	if opts.ExpectedPageVersion > 0 && opts.ExpectedPageVersion != meta.Version {
 		return nil, &ConfluencePageVersionMismatchError{Expected: opts.ExpectedPageVersion, Current: meta.Version}
 	}
+	return s.attachmentInventoryForParent(ctx, meta.ID, meta.Version, opts)
+}
+
+// attachmentInventoryForParent binds an inventory to a page snapshot already
+// reconciled by the caller. Complete pull uses it to avoid a second metadata
+// read whose page bytes could differ from the native substrate being staged.
+func (s *ConfluenceService) attachmentInventoryForParent(ctx context.Context, pageID string, pageVersion int, opts ConfluenceAttachmentInventoryOpts) (*ConfluenceAttachmentInventoryResult, error) {
+	if strings.TrimSpace(pageID) == "" || pageVersion <= 0 ||
+		opts.ExpectedPageVersion > 0 && opts.ExpectedPageVersion != pageVersion {
+		return nil, fmt.Errorf("%w: Confluence attachment parent is not reconciled", domain.ErrCheckFailed)
+	}
+	var err error
 	inventory := domain.AttachmentInventory{PartialReason: domain.AttachmentPartialLegacyUnqualified}
-	if qualified, ok := s.store.(domain.QualifiedAttachmentLister); ok {
-		inventory, err = qualified.ListAttachmentsQualified(ctx, meta.ID)
+	if opts.MaxPages > 0 || opts.MaxItems > 0 {
+		if err := domain.ValidateAttachmentReadOptions(domain.AttachmentReadOptions{MaxPages: opts.MaxPages, MaxItems: opts.MaxItems}); err != nil {
+			return nil, err
+		}
+		bounded, ok := s.store.(domain.BoundedQualifiedAttachmentLister)
+		if !ok {
+			return nil, fmt.Errorf("%w: backend cannot enforce explicit attachment bounds", domain.ErrCheckFailed)
+		}
+		inventory, err = bounded.ListAttachmentsQualifiedBounded(ctx, pageID, domain.AttachmentReadOptions{MaxPages: opts.MaxPages, MaxItems: opts.MaxItems})
+	} else if qualified, ok := s.store.(domain.QualifiedAttachmentLister); ok {
+		inventory, err = qualified.ListAttachmentsQualified(ctx, pageID)
 	} else {
 		// A legacy store proves nothing about exhaustion, so the inventory stays
 		// partial rather than being promoted to complete evidence.
-		inventory.Attachments, err = s.store.ListAttachments(ctx, meta.ID)
+		inventory.Attachments, err = s.store.ListAttachments(ctx, pageID)
 		if inventory.Attachments == nil {
 			inventory.Attachments = []domain.Attachment{}
 		}
@@ -99,7 +122,7 @@ func (s *ConfluenceService) AttachmentInventory(ctx context.Context, reference s
 	}
 	return &ConfluenceAttachmentInventoryResult{
 		SchemaVersion: confluenceAttachmentInventorySchemaVersion,
-		PageID:        meta.ID, PageVersion: meta.Version,
+		PageID:        pageID, PageVersion: pageVersion,
 		Count: len(inventory.Attachments), Complete: inventory.Complete,
 		PartialReason: inventory.PartialReason, Attachments: inventory.Attachments,
 	}, nil

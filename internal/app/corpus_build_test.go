@@ -206,11 +206,11 @@ func TestCorpusBuildOneServiceDoesNotFabricateAbsentBackend(t *testing.T) {
 		t.Fatalf("receipt found=%t err=%v", found, err)
 	}
 	expectedOptions, err := service.captureOptionsDigest(corpus.ServiceJira, options)
-	validationErr := validateAdoptedCorpusCapture(attemptRoot, active.Services[0], receipt, expectedOptions, active.Deadline, corpusBuildLimits(options))
+	validationErr := validateAdoptedCorpusCapture(attemptRoot, active.Services[0], receipt, expectedOptions, active.Deadline, options, corpusBuildLimits(options))
 	if err != nil || validationErr != nil {
 		t.Fatalf("valid adoption options=%q receipt_options=%q state=%#v receipt=%#v digest_error=%v validation_error=%v", expectedOptions, receipt.OptionsDigest, active.Services[0], receipt, err, validationErr)
 	}
-	if err := validateAdoptedCorpusCapture(attemptRoot, active.Services[0], receipt, strings.Repeat("f", 64), active.Deadline, corpusBuildLimits(options)); !errors.Is(err, corpus.ErrIntegrity) {
+	if err := validateAdoptedCorpusCapture(attemptRoot, active.Services[0], receipt, strings.Repeat("f", 64), active.Deadline, options, corpusBuildLimits(options)); !errors.Is(err, corpus.ErrIntegrity) {
 		t.Fatalf("mismatched options adoption error=%v", err)
 	}
 	changedDimensions := receipt
@@ -220,7 +220,7 @@ func TestCorpusBuildOneServiceDoesNotFabricateAbsentBackend(t *testing.T) {
 			changedDimensions.Dimensions[index].State = corpus.CaptureComplete
 		}
 	}
-	if err := validateAdoptedCorpusCapture(attemptRoot, active.Services[0], changedDimensions, expectedOptions, active.Deadline, corpusBuildLimits(options)); !errors.Is(err, corpus.ErrIntegrity) {
+	if err := validateAdoptedCorpusCapture(attemptRoot, active.Services[0], changedDimensions, expectedOptions, active.Deadline, options, corpusBuildLimits(options)); !errors.Is(err, corpus.ErrIntegrity) {
 		t.Fatalf("widened evidence adoption error=%v", err)
 	}
 	deadline, err := time.Parse(time.RFC3339Nano, active.Deadline)
@@ -240,7 +240,7 @@ func TestCorpusBuildOneServiceDoesNotFabricateAbsentBackend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validateAdoptedCorpusCapture(attemptRoot, active.Services[0], late, expectedOptions, active.Deadline, corpusBuildLimits(options)); !errors.Is(err, corpus.ErrIntegrity) {
+	if err := validateAdoptedCorpusCapture(attemptRoot, active.Services[0], late, expectedOptions, active.Deadline, options, corpusBuildLimits(options)); !errors.Is(err, corpus.ErrIntegrity) {
 		t.Fatalf("late receipt adoption error=%v", err)
 	}
 }
@@ -249,9 +249,9 @@ func TestCorpusBuildJiraUsesExactMinimalFieldProjection(t *testing.T) {
 	options := corpusBuildTestOptions("/synthetic/private-root")
 	options.JiraProject = "PROJ"
 	options.MaxJiraIssues = 2
-	pull := corpusBuildJiraPullOptions("/synthetic/attempt", options)
+	pull := corpusBuildJiraPullOptions("/synthetic/attempt", options, newCorpusPullEvidenceOptions(options))
 	fields := jiraCompletePullFields(pull, []string{"comment"}, *pull.exactRender)
-	if got, want := strings.Join(fields, ","), "summary,description,project"; got != want {
+	if got, want := strings.Join(fields, ","), "summary,description,project,issuelinks"; got != want {
 		t.Fatalf("fields=%q want=%q", got, want)
 	}
 }
@@ -522,6 +522,48 @@ func TestValidateCorpusBuildOptionsRejectsInvalidBoundsAndSelectorsWithoutEffect
 			}
 			if strings.Contains(err.Error(), "private\nspace") || (options.Root != "" && strings.Contains(err.Error(), options.Root)) {
 				t.Fatalf("validation leaked caller value: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateCorpusBuildEvidencePolicy(t *testing.T) {
+	base := corpusBuildTestOptions("/synthetic/private-root")
+	base.JiraProject, base.MaxJiraIssues = "PROJ", 2
+	valid := base
+	valid.Comments, valid.MaxCommentPagesPerItem, valid.MaxCommentsPerItem = true, 2, 10
+	valid.Attachments, valid.MaxAttachmentPagesPerItem, valid.MaxAttachmentsPerItem = true, 2, 10
+	valid.AttachmentBodies = true
+	valid.AttachmentMediaTypes = []string{"application/octet-stream", "text/plain"}
+	valid.MaxAttachmentBytes, valid.MaxTotalAttachmentBytes = 1024, 4096
+	if err := ValidateCorpusBuildOptions(valid); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*CorpusBuildOptions){
+		"comment bound without selection":    func(options *CorpusBuildOptions) { options.Comments = false },
+		"attachment bound without selection": func(options *CorpusBuildOptions) { options.Attachments = false },
+		"body without attachment": func(options *CorpusBuildOptions) {
+			options.Attachments = false
+			options.MaxAttachmentPagesPerItem = 0
+			options.MaxAttachmentsPerItem = 0
+		},
+		"wildcard MIME": func(options *CorpusBuildOptions) { options.AttachmentMediaTypes = []string{"application/*"} },
+		"parameterized MIME": func(options *CorpusBuildOptions) {
+			options.AttachmentMediaTypes = []string{"text/plain; charset=utf-8"}
+		},
+		"duplicate MIME":              func(options *CorpusBuildOptions) { options.AttachmentMediaTypes = []string{"text/plain", "text/plain"} },
+		"aggregate smaller than item": func(options *CorpusBuildOptions) { options.MaxTotalAttachmentBytes = options.MaxAttachmentBytes - 1 },
+		"partial without evidence": func(options *CorpusBuildOptions) {
+			*options = base
+			options.AllowPartialEvidence = true
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			options := valid
+			options.AttachmentMediaTypes = append([]string{}, valid.AttachmentMediaTypes...)
+			mutate(&options)
+			if err := ValidateCorpusBuildOptions(options); !errors.Is(err, domain.ErrUsage) {
+				t.Fatalf("error=%v", err)
 			}
 		})
 	}

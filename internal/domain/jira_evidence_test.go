@@ -64,6 +64,10 @@ func TestValidateJiraAttachmentInventory(t *testing.T) {
 	if err := ValidateJiraAttachmentInventory(partial); err != nil {
 		t.Fatal(err)
 	}
+	limited := JiraAttachmentInventory{Attachments: []Attachment{{ID: "1", Title: "a.bin"}}, PartialReason: JiraAttachmentPartialItemLimit}
+	if err := ValidateJiraAttachmentInventory(limited); err != nil {
+		t.Fatal(err)
+	}
 	for name, value := range map[string]JiraAttachmentInventory{
 		"nil collection":   {Complete: true},
 		"unknown partial":  {Attachments: []Attachment{}, PartialReason: "other"},

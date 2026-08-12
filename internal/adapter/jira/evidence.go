@@ -137,9 +137,12 @@ func validatedJiraCommentInventory(inventory domain.JiraCommentInventory) (domai
 // distinguishes an omitted/null field from a proven-empty array. It returns
 // download references only as opaque adapter metadata; this method never
 // dereferences them.
-func (j *Jira) ListJiraAttachmentsQualified(ctx context.Context, issueID string) (domain.JiraAttachmentInventory, error) {
+func (j *Jira) ListJiraAttachmentsQualified(ctx context.Context, issueID string, options domain.JiraAttachmentReadOptions) (domain.JiraAttachmentInventory, error) {
 	if strings.TrimSpace(issueID) == "" {
 		return domain.JiraAttachmentInventory{}, fmt.Errorf("%w: Jira attachment read requires an issue id", domain.ErrUsage)
+	}
+	if err := domain.ValidateJiraAttachmentReadOptions(options); err != nil {
+		return domain.JiraAttachmentInventory{}, err
 	}
 	var response struct {
 		ID     string                     `json:"id"`
@@ -175,12 +178,19 @@ func (j *Jira) ListJiraAttachmentsQualified(ctx context.Context, issueID string)
 		return domain.JiraAttachmentInventory{}, fmt.Errorf("%w: Jira attachment field is malformed", domain.ErrCheckFailed)
 	}
 	attachments := make([]domain.Attachment, 0, len(values))
+	partial := len(values) > options.MaxItems
+	if partial {
+		values = values[:options.MaxItems]
+	}
 	for _, value := range values {
 		attachments = append(attachments, domain.Attachment{
 			ID: value.ID, Title: value.Filename, MediaType: value.MimeType, FileSize: value.Size,
 			Created: value.Created, Author: value.Author.DisplayName, AuthorName: value.Author.Name,
 			AuthorKey: value.Author.Key, DownPath: value.Content,
 		})
+	}
+	if partial {
+		return validatedJiraAttachmentInventory(domain.JiraAttachmentInventory{Attachments: attachments, PartialReason: domain.JiraAttachmentPartialItemLimit})
 	}
 	return validatedJiraAttachmentInventory(domain.JiraAttachmentInventory{Attachments: attachments, Complete: true})
 }

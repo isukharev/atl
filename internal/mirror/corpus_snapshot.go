@@ -285,6 +285,7 @@ func (m *Mirror) captureCorpusSnapshotAuxiliaries(service, nativePath, ext strin
 	}
 	out := []CorpusSnapshotFile{}
 	var total int64
+	var attachmentSidecar []byte
 	for _, suffix := range suffixes {
 		path := stem + suffix
 		data, err := safepath.ReadFileWithinLimit(m.Root, filepath.Join(m.Root, filepath.FromSlash(path)), limits.MaxAuxiliaryBytes)
@@ -299,6 +300,30 @@ func (m *Mirror) captureCorpusSnapshotAuxiliaries(service, nativePath, ext strin
 		}
 		total += int64(len(data))
 		out = append(out, CorpusSnapshotFile{Path: path, Data: append([]byte(nil), data...), SHA256: Hash(data)})
+		if suffix == ".attachments.json" {
+			attachmentSidecar = data
+		}
+	}
+	if attachmentSidecar != nil {
+		decoded, err := DecodeAttachmentSidecarV1(attachmentSidecar)
+		if err != nil || decoded.Service != service {
+			return nil, 0, corpusSnapshotError("attachment inventory is invalid or misbound")
+		}
+		for _, attachment := range decoded.Attachments {
+			if attachment.Body.State != AttachmentBodyCaptured {
+				continue
+			}
+			path := attachment.Body.Path
+			data, err := safepath.ReadFileWithinLimit(m.Root, filepath.Join(m.Root, filepath.FromSlash(path)), limits.MaxAuxiliaryBytes)
+			if err != nil || int64(len(data)) != attachment.Body.Size || Hash(data) != attachment.Body.SHA256 {
+				return nil, 0, corpusSnapshotError("attachment body is missing, unreadable, or mismatched")
+			}
+			if int64(len(data)) > limits.MaxTotalBytes-total {
+				return nil, 0, corpusSnapshotError("attachment bodies exceed the aggregate byte bound")
+			}
+			total += int64(len(data))
+			out = append(out, CorpusSnapshotFile{Path: path, Data: append([]byte(nil), data...), SHA256: Hash(data)})
+		}
 	}
 	return out, total, nil
 }

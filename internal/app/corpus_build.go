@@ -54,6 +54,7 @@ func (service *CorpusBuildService) Build(ctx context.Context, options CorpusBuil
 		DeadlineNanos: options.Deadline.Nanoseconds(), MaxInFlight: options.MaxInFlight,
 		RequestsPerSecond: options.RequestsPerSecond,
 		GeneratorVersion:  service.generatorVersion, BuildState: service.buildState,
+		Evidence: corpusEvidenceBindingFromOptions(options),
 	})
 	if err != nil {
 		return nil, CorpusBuildFailure(CorpusBuildPhaseValidate, err)
@@ -77,9 +78,10 @@ func (service *CorpusBuildService) Build(ctx context.Context, options CorpusBuil
 	buildCtx = domain.WithReadBudget(buildCtx, budget)
 	buildCtx = domain.WithRedactedHTTPTrace(buildCtx)
 
+	evidence := newCorpusPullEvidenceOptions(options)
 	receipts := make([]corpus.CaptureReceipt, 0, len(active.Services))
 	for index := range active.Services {
-		receipt, captureErr := service.captureService(buildCtx, workspace, &active, index, options, budget, limits)
+		receipt, captureErr := service.captureService(buildCtx, workspace, &active, index, options, evidence, budget, limits)
 		if captureErr != nil {
 			return nil, captureErr
 		}
@@ -291,7 +293,7 @@ func corpusBuildServices(options CorpusBuildOptions) ([]corpus.Service, []corpus
 	return services, states, nil
 }
 
-func (service *CorpusBuildService) captureService(ctx context.Context, workspace *corpus.BuildWorkspace, active *corpus.BuildActive, index int, options CorpusBuildOptions, budget *domain.ReadBudget, limits corpus.Limits) (corpus.CaptureReceipt, error) {
+func (service *CorpusBuildService) captureService(ctx context.Context, workspace *corpus.BuildWorkspace, active *corpus.BuildActive, index int, options CorpusBuildOptions, evidence *corpusPullEvidenceOptions, budget *domain.ReadBudget, limits corpus.Limits) (corpus.CaptureReceipt, error) {
 	state := &active.Services[index]
 	expectedOptionsDigest, err := service.captureOptionsDigest(state.Service, options)
 	if err != nil {
@@ -306,7 +308,7 @@ func (service *CorpusBuildService) captureService(ctx context.Context, workspace
 		return corpus.CaptureReceipt{}, CorpusBuildFailure(CorpusBuildPhaseWorkspace, err)
 	}
 	if found {
-		if err := validateAdoptedCorpusCapture(root, *state, existing, expectedOptionsDigest, active.Deadline, limits); err != nil {
+		if err := validateAdoptedCorpusCapture(root, *state, existing, expectedOptionsDigest, active.Deadline, options, limits); err != nil {
 			return corpus.CaptureReceipt{}, CorpusBuildFailure(CorpusBuildPhaseSnapshot, err)
 		}
 	}
@@ -340,9 +342,9 @@ func (service *CorpusBuildService) captureService(ctx context.Context, workspace
 	if remoteErr == nil && !found {
 		switch state.Service {
 		case corpus.ServiceConfluence:
-			pullResult, remoteErr = service.captureConfluence(ctx, root, options)
+			pullResult, remoteErr = service.captureConfluence(ctx, root, options, evidence)
 		case corpus.ServiceJira:
-			pullResult, remoteErr = service.captureJira(ctx, root, options)
+			pullResult, remoteErr = service.captureJira(ctx, root, options, evidence)
 		default:
 			remoteErr = corpus.ErrIntegrity
 		}
@@ -374,7 +376,7 @@ func (service *CorpusBuildService) captureService(ctx context.Context, workspace
 		return existing, nil
 	}
 
-	receipt, err := buildCorpusCaptureReceipt(ctx, root, *state, expectedOptionsDigest, pullResult, limits, service.now().UTC())
+	receipt, err := buildCorpusCaptureReceipt(ctx, root, *state, expectedOptionsDigest, pullResult, options, limits, service.now().UTC())
 	if err != nil {
 		return corpus.CaptureReceipt{}, CorpusBuildFailure(CorpusBuildPhaseSnapshot, err)
 	}
@@ -421,8 +423,8 @@ func (service *CorpusBuildService) currentScope(ctx context.Context, selected co
 	return corpus.PrincipalScopeDigest(selected, origin, principal)
 }
 
-func (service *CorpusBuildService) captureConfluence(ctx context.Context, root string, options CorpusBuildOptions) (*CompletePullResult, error) {
-	pull := corpusBuildConfluencePullOptions(root, options)
+func (service *CorpusBuildService) captureConfluence(ctx context.Context, root string, options CorpusBuildOptions, evidence *corpusPullEvidenceOptions) (*CompletePullResult, error) {
+	pull := corpusBuildConfluencePullOptions(root, options, evidence)
 	result, err := service.confluence.Pull(ctx, pull)
 	if err != nil {
 		return nil, err
@@ -433,8 +435,8 @@ func (service *CorpusBuildService) captureConfluence(ctx context.Context, root s
 	return result.Complete, nil
 }
 
-func (service *CorpusBuildService) captureJira(ctx context.Context, root string, options CorpusBuildOptions) (*CompletePullResult, error) {
-	pull := corpusBuildJiraPullOptions(root, options)
+func (service *CorpusBuildService) captureJira(ctx context.Context, root string, options CorpusBuildOptions, evidence *corpusPullEvidenceOptions) (*CompletePullResult, error) {
+	pull := corpusBuildJiraPullOptions(root, options, evidence)
 	result, err := service.jira.Pull(ctx, pull)
 	if err != nil {
 		return nil, err
@@ -448,35 +450,44 @@ func (service *CorpusBuildService) captureJira(ctx context.Context, root string,
 func (service *CorpusBuildService) captureOptionsDigest(selected corpus.Service, options CorpusBuildOptions) (string, error) {
 	switch selected {
 	case corpus.ServiceConfluence:
-		pull := corpusBuildConfluencePullOptions("", options)
+		pull := corpusBuildConfluencePullOptions("", options, newCorpusPullEvidenceOptions(options))
 		return completePullOptionsHash(service.confluence.cfg, pull, *pull.exactRender)
 	case corpus.ServiceJira:
-		pull := corpusBuildJiraPullOptions("", options)
+		pull := corpusBuildJiraPullOptions("", options, newCorpusPullEvidenceOptions(options))
 		return jiraCompleteOptionsHash(pull, jiraCompletePullFields(pull, nil, *pull.exactRender), viewStateOf(*pull.exactRender))
 	default:
 		return "", corpus.ErrIntegrity
 	}
 }
 
-func corpusBuildConfluencePullOptions(root string, options CorpusBuildOptions) PullOpts {
+func corpusBuildConfluencePullOptions(root string, options CorpusBuildOptions, evidence *corpusPullEvidenceOptions) PullOpts {
 	settings := corpusBuildRenderSettings("confluence")
 	return PullOpts{
 		Space: options.ConfluenceSpace, Into: root, Complete: true, MaxPages: options.MaxConfluencePages,
 		PagePrefetch: options.MaxInFlight, RequestsPerSecond: options.RequestsPerSecond,
-		exactRender: &settings,
+		exactRender: &settings, Comments: options.Comments, evidence: evidence,
 	}
 }
 
-func corpusBuildJiraPullOptions(root string, options CorpusBuildOptions) JiraPullOpts {
+func corpusBuildJiraPullOptions(root string, options CorpusBuildOptions, evidence *corpusPullEvidenceOptions) JiraPullOpts {
 	settings := corpusBuildRenderSettings("jira")
 	return JiraPullOpts{
 		Project: options.JiraProject, Into: root, Complete: true, MaxIssues: options.MaxJiraIssues,
 		exactRender: &settings,
-		exactFields: []string{"summary", "description", "project"},
+		exactFields: corpusBuildJiraFields(options), evidence: evidence,
 	}
 }
 
-func buildCorpusCaptureReceipt(ctx context.Context, root string, state corpus.BuildServiceState, optionsDigest string, complete *CompletePullResult, limits corpus.Limits, completed time.Time) (corpus.CaptureReceipt, error) {
+func corpusBuildJiraFields(options CorpusBuildOptions) []string {
+	fields := []string{"summary", "description", "project"}
+	if options.Comments || options.Attachments {
+		fields = append(fields, "updated")
+	}
+	fields = append(fields, "issuelinks")
+	return fields
+}
+
+func buildCorpusCaptureReceipt(ctx context.Context, root string, state corpus.BuildServiceState, optionsDigest string, complete *CompletePullResult, options CorpusBuildOptions, limits corpus.Limits, completed time.Time) (corpus.CaptureReceipt, error) {
 	if complete == nil || !complete.Complete || complete.CheckpointActive || complete.Remaining != 0 ||
 		complete.Completed != complete.Total || complete.Total < 0 || complete.SelectorSHA256 != state.SelectorDigest {
 		return corpus.CaptureReceipt{}, corpus.ErrIntegrity
@@ -501,6 +512,10 @@ func buildCorpusCaptureReceipt(ctx context.Context, root string, state corpus.Bu
 	if err := snapshot.Revalidate(); err != nil {
 		return corpus.CaptureReceipt{}, err
 	}
+	dimensions, err := corpusCaptureDimensionsForSnapshot(snapshot, options)
+	if err != nil {
+		return corpus.CaptureReceipt{}, err
+	}
 	started, err := time.Parse(time.RFC3339Nano, state.StartedAt)
 	if err != nil || ctx.Err() != nil {
 		return corpus.CaptureReceipt{}, errors.Join(err, ctx.Err())
@@ -510,17 +525,17 @@ func buildCorpusCaptureReceipt(ctx context.Context, root string, state corpus.Bu
 		SelectorDigest: state.SelectorDigest, OptionsDigest: optionsDigest,
 		SelectionDigest: selection, SnapshotDigest: snapshot.Fingerprint(),
 		StartedAt: started, CompletedAt: completed, Total: complete.Total, Completed: complete.Completed,
-		Usage: state.Usage, Dimensions: corpusBuildDimensions(),
+		Usage: state.Usage, Dimensions: dimensions,
 	}, limits)
 }
 
-func validateAdoptedCorpusCapture(root string, state corpus.BuildServiceState, receipt corpus.CaptureReceipt, expectedOptionsDigest, attemptDeadline string, limits corpus.Limits) error {
+func validateAdoptedCorpusCapture(root string, state corpus.BuildServiceState, receipt corpus.CaptureReceipt, expectedOptionsDigest, attemptDeadline string, options CorpusBuildOptions, limits corpus.Limits) error {
 	completed, completedErr := time.Parse(time.RFC3339Nano, receipt.CompletedAt)
 	deadline, deadlineErr := time.Parse(time.RFC3339Nano, attemptDeadline)
 	if receipt.Service != state.Service || receipt.SelectorDigest != state.SelectorDigest ||
 		state.ScopeDigest == "" || receipt.ScopeDigest != state.ScopeDigest || receipt.StartedAt != state.StartedAt ||
 		receipt.Usage != state.Usage || receipt.OptionsDigest != expectedOptionsDigest ||
-		!reflect.DeepEqual(receipt.Dimensions, corpusBuildDimensions()) || completedErr != nil || deadlineErr != nil || completed.After(deadline) {
+		completedErr != nil || deadlineErr != nil || completed.After(deadline) {
 		return corpus.ErrIntegrity
 	}
 	snapshot, err := mirror.New(root).BeginCorpusSnapshot(string(state.Service), mirror.CorpusSnapshotOptions{
@@ -528,6 +543,10 @@ func validateAdoptedCorpusCapture(root string, state corpus.BuildServiceState, r
 	})
 	if err != nil {
 		return err
+	}
+	dimensions, err := corpusCaptureDimensionsForSnapshot(snapshot, options)
+	if err != nil || !reflect.DeepEqual(receipt.Dimensions, dimensions) {
+		return corpus.ErrIntegrity
 	}
 	return validateCorpusCaptureSource(snapshot, receipt, limits)
 }
@@ -567,15 +586,6 @@ func saveCorpusBuildActive(workspace *corpus.BuildWorkspace, active corpus.Build
 		return workspace.SaveActive(active)
 	}
 	return errors.Join(err, loadErr)
-}
-
-func corpusBuildDimensions() []corpus.CaptureDimensionEvidence {
-	return []corpus.CaptureDimensionEvidence{
-		{Dimension: corpus.CaptureAttachments, State: corpus.CaptureNotRequested},
-		{Dimension: corpus.CaptureComments, State: corpus.CaptureNotRequested},
-		{Dimension: corpus.CaptureMetadata, State: corpus.CaptureComplete},
-		{Dimension: corpus.CaptureNative, State: corpus.CaptureComplete},
-	}
 }
 
 func corpusBuildTimes(active corpus.BuildActive) (time.Time, time.Time, error) {

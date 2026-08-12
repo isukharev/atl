@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
+	"strings"
 
 	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
@@ -60,6 +62,7 @@ type confluencePullPreparedPage struct {
 	assetStage        *stagedConfluenceAssetSink
 	commentInventory  *ConfluenceCommentInventoryResult
 	commentSidecar    *mirror.ConfluenceCommentsSidecarV2
+	attachmentCapture *corpusAttachmentCapture
 	comments          []domain.Comment
 	commentsTruncated bool
 	mdOpts            mirror.MDViewOpts
@@ -177,9 +180,14 @@ func (r *confluencePullRun) preparePage(fetched *confluencePullFetchedPage) (*co
 	var commentsTruncated bool
 	if r.opts.Comments {
 		var err error
-		commentInventory, err = r.service.commentInventoryForPage(r.ctx, page, ConfluenceCommentInventoryOpts{
+		commentOptions := ConfluenceCommentInventoryOpts{
 			Location: "all", State: "all", Depth: "all",
-		})
+		}
+		if r.opts.evidence != nil && r.opts.evidence.binding.Comments {
+			commentOptions.MaxPages = r.opts.evidence.binding.MaxCommentPagesPerItem
+			commentOptions.MaxItems = r.opts.evidence.binding.MaxCommentsPerItem
+		}
+		commentInventory, err = r.service.commentInventoryForPage(r.ctx, page, commentOptions)
 		if err != nil {
 			return nil, fmt.Errorf("pull comments %s: %w", fetched.id, err)
 		}
@@ -195,6 +203,50 @@ func (r *confluencePullRun) preparePage(fetched *confluencePullFetchedPage) (*co
 		}
 		if commentsTruncated {
 			r.result.CommentsTruncated = true
+		}
+		if r.opts.evidence != nil && r.opts.evidence.binding.Comments && !r.opts.evidence.binding.AllowPartialEvidence && !commentInventory.Complete {
+			return nil, fmt.Errorf("%w: requested Confluence comments are incomplete", domain.ErrCheckFailed)
+		}
+	}
+
+	var attachmentCapture *corpusAttachmentCapture
+	if r.opts.evidence != nil && r.opts.evidence.binding.Attachments {
+		attachmentOptions := ConfluenceAttachmentInventoryOpts{
+			ExpectedPageVersion: page.Version,
+			MaxPages:            r.opts.evidence.binding.MaxAttachmentPagesPerItem,
+			MaxItems:            r.opts.evidence.binding.MaxAttachmentsPerItem,
+		}
+		attachmentInventory, err := r.service.attachmentInventoryForParent(r.ctx, page.ID, page.Version, attachmentOptions)
+		var inventory domain.AttachmentInventory
+		if err != nil {
+			if r.opts.evidence.binding.AllowPartialEvidence && errors.Is(err, domain.ErrForbidden) {
+				inventory = domain.AttachmentInventory{Attachments: []domain.Attachment{}, PartialReason: mirror.AttachmentInventoryForbidden}
+			} else {
+				return nil, fmt.Errorf("pull attachment inventory %s: %w", fetched.id, err)
+			}
+		} else {
+			inventory = domain.AttachmentInventory{
+				Attachments: attachmentInventory.Attachments, Complete: attachmentInventory.Complete,
+				PartialReason: attachmentInventory.PartialReason,
+			}
+		}
+		stem := strings.TrimSuffix(fetched.rel, ".csf")
+		captured, err := captureCorpusAttachments(r.ctx, r.result.Root, mirror.CorpusSnapshotConfluence, page.ID, stem, inventory, r.opts.evidence,
+			func(ctx context.Context, attachment domain.Attachment) (io.ReadCloser, error) {
+				return r.service.store.DownloadAttachment(ctx, page.ID, attachment.Title, attachment.Version)
+			})
+		if err != nil {
+			return nil, fmt.Errorf("pull attachment bodies %s: %w", fetched.id, err)
+		}
+		attachmentCapture = &captured
+	}
+	if r.opts.evidence != nil && (r.opts.evidence.binding.Comments || r.opts.evidence.binding.Attachments) {
+		current, err := r.service.store.GetMeta(r.ctx, page.ID)
+		if err != nil {
+			return nil, fmt.Errorf("revalidate evidence parent %s: %w", fetched.id, err)
+		}
+		if current == nil || current.ID != page.ID || current.Version != page.Version {
+			return nil, fmt.Errorf("%w: Confluence evidence parent changed during capture", domain.ErrCheckFailed)
 		}
 	}
 
@@ -220,12 +272,20 @@ func (r *confluencePullRun) preparePage(fetched *confluencePullFetchedPage) (*co
 		r.macroOptOutWarned = true
 	}
 
+	commentEligible := !r.opts.Comments || (commentInventory.CommentsComplete && commentInventory.ThreadsComplete)
+	if r.opts.evidence != nil && r.opts.evidence.binding.Comments {
+		commentEligible = r.opts.evidence.binding.AllowPartialEvidence || commentInventory.Complete
+	}
+	attachmentEligible := attachmentCapture == nil ||
+		(r.opts.evidence != nil && (r.opts.evidence.binding.AllowPartialEvidence ||
+			attachmentCapture.inventoryComplete && attachmentCapture.bodiesState != mirror.AttachmentBodiesPartial))
 	return &confluencePullPreparedPage{
 		confluencePullFetchedPage: fetched,
 		refs:                      refs, assetStage: assetStage, commentInventory: commentInventory,
-		commentSidecar: commentSidecar, comments: comments, commentsTruncated: commentsTruncated,
+		commentSidecar: commentSidecar, attachmentCapture: attachmentCapture,
+		comments: comments, commentsTruncated: commentsTruncated,
 		mdOpts: mdOpts, jiraMacros: jiraMacros,
-		completeEligible: !r.opts.Comments || (commentInventory.CommentsComplete && commentInventory.ThreadsComplete),
+		completeEligible: commentEligible && attachmentEligible,
 	}, nil
 }
 
@@ -288,6 +348,21 @@ func (r *confluencePullRun) stagePage(revalidated *confluencePullRevalidatedPage
 	}
 	if err != nil {
 		return nil, fmt.Errorf("prepare complete-pull page %s: %w", revalidated.id, err)
+	}
+	if revalidated.attachmentCapture != nil {
+		stem := strings.TrimSuffix(state.Path, ".csf")
+		metadata, metadataErr := completePullArtifactData(artifacts, stem+".meta.json")
+		if metadataErr != nil {
+			return nil, fmt.Errorf("prepare attachment metadata %s: %w", revalidated.id, metadataErr)
+		}
+		attachmentArtifacts, attachmentErr := finalizeCorpusAttachmentCapture(
+			r.mirror, mirror.CorpusSnapshotConfluence, stem, revalidated.page.ID, revalidated.page.Version, "",
+			state.Hash, mirror.Hash(metadata), *revalidated.attachmentCapture,
+		)
+		if attachmentErr != nil {
+			return nil, fmt.Errorf("prepare attachment evidence %s: %w", revalidated.id, attachmentErr)
+		}
+		artifacts = append(artifacts, attachmentArtifacts...)
 	}
 	for _, asset := range revalidated.assetStage.assets {
 		assetPath := filepath.Join(revalidated.dir, revalidated.slug+".assets", asset.name)

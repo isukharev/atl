@@ -43,7 +43,7 @@ func newCorpusBuildCLIServer(t *testing.T) *corpusBuildCLIServer {
 		case "/rest/api/2/search":
 			fmt.Fprint(writer, `{"issues":[{"id":"100","key":"ENG-1","fields":{"project":{"key":"ENG"}}}],"startAt":0,"maxResults":100,"total":1}`)
 		case "/rest/api/2/issue/100":
-			fmt.Fprint(writer, `{"id":"100","key":"ENG-1","fields":{"summary":"Private issue title","description":"private jira body","status":{"name":"Open"},"issuetype":{"name":"Task"},"project":{"key":"ENG"}}}`)
+			fmt.Fprint(writer, `{"id":"100","key":"ENG-1","fields":{"summary":"Private issue title","description":"private jira body","status":{"name":"Open"},"issuetype":{"name":"Task"},"project":{"key":"ENG"},"issuelinks":[]}}`)
 		default:
 			http.Error(writer, "private unexpected backend path", http.StatusTeapot)
 		}
@@ -214,7 +214,7 @@ func TestCorpusBuildCLIUsesGETOnlySharedBudgetAndContentFreeOutput(t *testing.T)
 		if !strings.HasPrefix(request, http.MethodGet+" ") {
 			t.Fatalf("non-read request: %s", request)
 		}
-		for _, presentationField := range []string{"priority", "fixVersions", "comment", "attachment", "issuelinks"} {
+		for _, presentationField := range []string{"priority", "fixVersions", "comment", "attachment"} {
 			if strings.Contains(request, presentationField) {
 				t.Fatalf("ambient full render policy widened corpus capture: %s", request)
 			}
@@ -222,6 +222,15 @@ func TestCorpusBuildCLIUsesGETOnlySharedBudgetAndContentFreeOutput(t *testing.T)
 		if strings.Contains(request, "/comment") {
 			t.Fatalf("ambient full render policy widened corpus capture: %s", request)
 		}
+	}
+	foundLinks := false
+	for _, request := range requests {
+		if strings.Contains(request, "/rest/api/2/issue/") && strings.Contains(request, "issuelinks") {
+			foundLinks = true
+		}
+	}
+	if !foundLinks {
+		t.Fatalf("Jira capture did not request structured issue links: %v", requests)
 	}
 	for _, private := range []string{
 		root, server.server.URL, "ENG", "Private Person", "Private page title", "Private issue title",
