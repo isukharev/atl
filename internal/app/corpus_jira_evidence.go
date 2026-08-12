@@ -16,7 +16,7 @@ type corpusJiraEvidence struct {
 	attachments *corpusAttachmentCapture
 }
 
-func (service *JiraService) captureJiraCorpusEvidence(
+func (s *JiraService) captureJiraCorpusEvidence(
 	ctx context.Context,
 	m *mirror.Mirror,
 	issue *domain.Issue,
@@ -32,14 +32,14 @@ func (service *JiraService) captureJiraCorpusEvidence(
 	}
 	evidence := &corpusJiraEvidence{}
 	if options.binding.Comments {
-		sidecar, err := service.captureJiraCorpusComments(ctx, issue.ID, revision, options)
+		sidecar, err := s.captureJiraCorpusComments(ctx, issue.ID, revision, options)
 		if err != nil {
 			return nil, err
 		}
 		evidence.comments = sidecar
 	}
 	if options.binding.Attachments {
-		inventory, err := service.readJiraCorpusAttachments(ctx, issue.ID, options)
+		inventory, err := s.readJiraCorpusAttachments(ctx, issue.ID, options)
 		if err != nil {
 			return nil, err
 		}
@@ -49,14 +49,14 @@ func (service *JiraService) captureJiraCorpusEvidence(
 				if strings.TrimSpace(attachment.DownPath) == "" {
 					return nil, fmt.Errorf("%w: Jira attachment download reference is unavailable", domain.ErrCheckFailed)
 				}
-				return service.tr.StreamAttachment(ctx, attachment.DownPath)
+				return s.tr.StreamAttachment(ctx, attachment.DownPath)
 			})
 		if err != nil {
 			return nil, err
 		}
 		evidence.attachments = &capture
 	}
-	current, err := service.tr.GetIssue(ctx, issue.ID, []string{"updated"})
+	current, err := s.tr.GetIssue(ctx, issue.ID, []string{"updated"})
 	if err != nil {
 		return nil, err
 	}
@@ -66,8 +66,8 @@ func (service *JiraService) captureJiraCorpusEvidence(
 	return evidence, nil
 }
 
-func (service *JiraService) captureJiraCorpusComments(ctx context.Context, issueID, revision string, options *corpusPullEvidenceOptions) (*mirror.JiraCommentsSidecarV1, error) {
-	reader, ok := service.tr.(domain.QualifiedJiraCommentReader)
+func (s *JiraService) captureJiraCorpusComments(ctx context.Context, issueID, revision string, options *corpusPullEvidenceOptions) (*mirror.JiraCommentsSidecarV1, error) {
+	reader, ok := s.tr.(domain.QualifiedJiraCommentReader)
 	if !ok {
 		if !options.binding.AllowPartialEvidence {
 			return nil, fmt.Errorf("%w: backend cannot qualify Jira comments", domain.ErrCheckFailed)
@@ -114,8 +114,8 @@ func unavailableJiraCommentsSidecar(issueID, revision, reason string) *mirror.Ji
 	}
 }
 
-func (service *JiraService) readJiraCorpusAttachments(ctx context.Context, issueID string, options *corpusPullEvidenceOptions) (domain.AttachmentInventory, error) {
-	reader, ok := service.tr.(domain.QualifiedJiraAttachmentReader)
+func (s *JiraService) readJiraCorpusAttachments(ctx context.Context, issueID string, options *corpusPullEvidenceOptions) (domain.AttachmentInventory, error) {
+	reader, ok := s.tr.(domain.QualifiedJiraAttachmentReader)
 	if !ok {
 		if !options.binding.AllowPartialEvidence {
 			return domain.AttachmentInventory{}, fmt.Errorf("%w: backend cannot qualify Jira attachments", domain.ErrCheckFailed)
@@ -129,7 +129,7 @@ func (service *JiraService) readJiraCorpusAttachments(ctx context.Context, issue
 		}
 		return domain.AttachmentInventory{}, err
 	}
-	return domain.AttachmentInventory{Attachments: inventory.Attachments, Complete: inventory.Complete, PartialReason: inventory.PartialReason}, nil
+	return domain.AttachmentInventory(inventory), nil
 }
 
 func corpusJiraParentRevision(issue *domain.Issue) string {
