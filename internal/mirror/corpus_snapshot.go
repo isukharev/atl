@@ -314,6 +314,10 @@ func (m *Mirror) captureCorpusSnapshotAuxiliaries(service, nativePath, ext strin
 				continue
 			}
 			path := attachment.Body.Path
+			expectedPath := stem + ".attachments/" + attachment.ID + ".body"
+			if path != expectedPath {
+				return nil, 0, corpusSnapshotError("attachment body belongs to another snapshot item")
+			}
 			data, err := safepath.ReadFileWithinLimit(m.Root, filepath.Join(m.Root, filepath.FromSlash(path)), limits.MaxAuxiliaryBytes)
 			if err != nil || int64(len(data)) != attachment.Body.Size || Hash(data) != attachment.Body.SHA256 {
 				return nil, 0, corpusSnapshotError("attachment body is missing, unreadable, or mismatched")

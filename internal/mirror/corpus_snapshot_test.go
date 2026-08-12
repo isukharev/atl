@@ -229,6 +229,36 @@ func TestCorpusSnapshotRejectsCorruptOrMisboundEvidence(t *testing.T) {
 		_, err := m.BeginCorpusSnapshot(CorpusSnapshotConfluence, CorpusSnapshotOptions{})
 		assertCorpusSnapshotRejected(t, err)
 	})
+	t.Run("attachment body cross stem", func(t *testing.T) {
+		root := t.TempDir()
+		m := New(root)
+		binding := testBackendBinding(t, CorpusSnapshotJira, "https://backend.example.test")
+		if created, err := m.BindBackend(binding); err != nil || !created {
+			t.Fatalf("BindBackend = %t, %v", created, err)
+		}
+		state := seedCorpusJira(t, m, "EX-1", "10001", "EX/EX-1.wiki", []byte("base"))
+		metadata, err := os.ReadFile(filepath.Join(root, "EX", "EX-1.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := []byte("abc")
+		sidecar, err := EncodeAttachmentSidecarV1(AttachmentSidecarV1{
+			SchemaVersion: AttachmentSidecarSchemaV1, Service: CorpusSnapshotJira, OriginSHA256: binding.OriginSHA256,
+			ParentID: "10001", ParentRevision: "2026-01-01", NativeSHA256: state.Hash, MetadataSHA256: Hash(metadata),
+			InventoryComplete: true, BodiesState: AttachmentBodiesComplete, Complete: true, Count: 1,
+			PartialReasons: []AttachmentPartialReason{}, Attachments: []AttachmentSidecarRecord{{
+				ID: "7", Filename: "a.bin", DeclaredSize: int64(len(body)),
+				Body: AttachmentSidecarBody{State: AttachmentBodyCaptured, Path: "EX/OTHER-2.attachments/7.body", Size: int64(len(body)), SHA256: Hash(body)},
+			}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeCorpusTestFile(t, root, "EX/EX-1.attachments.json", sidecar)
+		writeCorpusTestFile(t, root, "EX/OTHER-2.attachments/7.body", body)
+		_, err = m.BeginCorpusSnapshot(CorpusSnapshotJira, CorpusSnapshotOptions{})
+		assertCorpusSnapshotRejected(t, err)
+	})
 	t.Run("duplicate sidecar key", func(t *testing.T) {
 		root := t.TempDir()
 		m := New(root)
