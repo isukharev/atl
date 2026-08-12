@@ -67,17 +67,33 @@ func TestSyntheticMCPDecoderPreservesApplicationErrorEvidence(t *testing.T) {
 
 func TestSyntheticMCPToolInventoryRejectsDrift(t *testing.T) {
 	expected := map[string]bool{"jira_fields": true, "jira_issue_search": true}
-	if err := validateSyntheticMCPToolInventory([]byte(`{"tools":[{"name":"jira_fields"},{"name":"jira_issue_search"}]}`), expected); err != nil {
+	if err := validateSyntheticMCPToolInventory([]byte(`{"tools":[{"name":"jira_fields"},{"name":"jira_issue_search"}],"ttlMs":0,"cacheScope":"public"}`), expected); err != nil {
 		t.Fatalf("released inventory rejected: %v", err)
 	}
 	for name, result := range map[string]string{
-		"missing":      `{"tools":[{"name":"jira_fields"}]}`,
-		"unexpected":   `{"tools":[{"name":"jira_fields"},{"name":"jira_board_view"}]}`,
-		"duplicate":    `{"tools":[{"name":"jira_fields"},{"name":"jira_fields"}]}`,
-		"cursor":       `{"tools":[{"name":"jira_fields"},{"name":"jira_issue_search"}],"nextCursor":"more"}`,
-		"bad entry":    `{"tools":[{}, {"name":"jira_issue_search"}]}`,
-		"duplicates":   `{"tools":[{"name":"jira_fields","name":"jira_fields"},{"name":"jira_issue_search"}]}`,
-		"not an array": `{"tools":{}}`,
+		"missing":          `{"tools":[{"name":"jira_fields"}],"ttlMs":0,"cacheScope":"public"}`,
+		"unexpected":       `{"tools":[{"name":"jira_fields"},{"name":"jira_board_view"}],"ttlMs":0,"cacheScope":"public"}`,
+		"duplicate":        `{"tools":[{"name":"jira_fields"},{"name":"jira_fields"}],"ttlMs":0,"cacheScope":"public"}`,
+		"cursor":           `{"tools":[{"name":"jira_fields"},{"name":"jira_issue_search"}],"ttlMs":0,"cacheScope":"public","nextCursor":"more"}`,
+		"unknown member":   `{"tools":[{"name":"jira_fields"},{"name":"jira_issue_search"}],"ttlMs":0,"cacheScope":"public","unknown":true}`,
+		"missing ttl":      `{"tools":[{"name":"jira_fields"},{"name":"jira_issue_search"}],"cacheScope":"public"}`,
+		"null ttl":         `{"tools":[{"name":"jira_fields"},{"name":"jira_issue_search"}],"ttlMs":null,"cacheScope":"public"}`,
+		"string ttl":       `{"tools":[{"name":"jira_fields"},{"name":"jira_issue_search"}],"ttlMs":"0","cacheScope":"public"}`,
+		"fractional ttl":   `{"tools":[{"name":"jira_fields"},{"name":"jira_issue_search"}],"ttlMs":0.5,"cacheScope":"public"}`,
+		"decimal zero ttl": `{"tools":[{"name":"jira_fields"},{"name":"jira_issue_search"}],"ttlMs":0.0,"cacheScope":"public"}`,
+		"negative ttl":     `{"tools":[{"name":"jira_fields"},{"name":"jira_issue_search"}],"ttlMs":-1,"cacheScope":"public"}`,
+		"negative zero":    `{"tools":[{"name":"jira_fields"},{"name":"jira_issue_search"}],"ttlMs":-0,"cacheScope":"public"}`,
+		"positive ttl":     `{"tools":[{"name":"jira_fields"},{"name":"jira_issue_search"}],"ttlMs":1,"cacheScope":"public"}`,
+		"overflow ttl":     `{"tools":[{"name":"jira_fields"},{"name":"jira_issue_search"}],"ttlMs":9223372036854775808,"cacheScope":"public"}`,
+		"missing scope":    `{"tools":[{"name":"jira_fields"},{"name":"jira_issue_search"}],"ttlMs":0}`,
+		"null scope":       `{"tools":[{"name":"jira_fields"},{"name":"jira_issue_search"}],"ttlMs":0,"cacheScope":null}`,
+		"private scope":    `{"tools":[{"name":"jira_fields"},{"name":"jira_issue_search"}],"ttlMs":0,"cacheScope":"private"}`,
+		"unknown scope":    `{"tools":[{"name":"jira_fields"},{"name":"jira_issue_search"}],"ttlMs":0,"cacheScope":"shared"}`,
+		"duplicate ttl":    `{"tools":[{"name":"jira_fields"},{"name":"jira_issue_search"}],"ttlMs":0,"ttlMs":0,"cacheScope":"public"}`,
+		"duplicate scope":  `{"tools":[{"name":"jira_fields"},{"name":"jira_issue_search"}],"ttlMs":0,"cacheScope":"public","cacheScope":"public"}`,
+		"bad entry":        `{"tools":[{}, {"name":"jira_issue_search"}],"ttlMs":0,"cacheScope":"public"}`,
+		"duplicates":       `{"tools":[{"name":"jira_fields","name":"jira_fields"},{"name":"jira_issue_search"}],"ttlMs":0,"cacheScope":"public"}`,
+		"not an array":     `{"tools":{},"ttlMs":0,"cacheScope":"public"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := validateSyntheticMCPToolInventory([]byte(result), expected); err == nil {

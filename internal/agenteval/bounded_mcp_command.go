@@ -415,8 +415,19 @@ func validateSyntheticMCPToolInventory(result json.RawMessage, expected map[stri
 		return fmt.Errorf("tool inventory contains duplicate JSON members")
 	}
 	var document map[string]json.RawMessage
-	if err := decodeStrictJSONObject(result, &document); err != nil || len(document) != 1 || document["tools"] == nil {
+	if err := decodeStrictJSONObject(result, &document); err != nil || len(document) != 3 ||
+		document["tools"] == nil || document["ttlMs"] == nil || document["cacheScope"] == nil {
 		return fmt.Errorf("tool inventory is not one closed tools result")
+	}
+	ttlRaw := bytes.TrimSpace(document["ttlMs"])
+	var ttlMS int64
+	if len(ttlRaw) == 0 || bytes.Equal(ttlRaw, []byte("null")) || ttlRaw[0] == '-' ||
+		json.Unmarshal(ttlRaw, &ttlMS) != nil || ttlMS != 0 {
+		return fmt.Errorf("tool inventory has an invalid ATL cache TTL")
+	}
+	var cacheScope string
+	if json.Unmarshal(document["cacheScope"], &cacheScope) != nil || cacheScope != "public" {
+		return fmt.Errorf("tool inventory has an invalid ATL cache scope")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(document["tools"]))
 	var tools []json.RawMessage

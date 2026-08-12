@@ -403,7 +403,7 @@ if [ "$1" = "mcp" ]; then
   printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"fake","version":"1"}}}'
   IFS= read -r initialized || exit 91
   IFS= read -r listed || exit 92
-  printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"jira_mirror_snapshot"}]}}'
+  printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"jira_mirror_snapshot"}],"ttlMs":0,"cacheScope":"public"}}'
   while IFS= read -r ignored; do :; done
   exit 0
 fi
@@ -1181,7 +1181,7 @@ func syntheticMCPToolInventoryResponse(profile string) string {
 	for index, name := range names {
 		tools[index] = map[string]string{"name": name}
 	}
-	result, err := json.Marshal(map[string]any{"tools": tools})
+	result, err := json.Marshal(map[string]any{"tools": tools, "ttlMs": 0, "cacheScope": "public"})
 	if err != nil {
 		panic(err)
 	}
