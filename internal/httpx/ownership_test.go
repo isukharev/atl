@@ -18,9 +18,11 @@ func TestTransportResponsibilityOwnersStayClosed(t *testing.T) {
 			"(*Client).classifyAttempt", "(*Client).classifyResult", "attemptResult",
 		},
 		"body.go": {
-			"(*idleReader).Close", "(*idleReader).Read", "(*idleReader).watchdog", "BinBodyCap", "ReadCapped",
+			"(*idleReader).Close", "(*idleReader).Read", "(*idleReader).watchdog",
+			"(*readBudgetStream).Close", "(*readBudgetStream).Read", "(*readBudgetStream).begin", "(*readBudgetStream).closeUnderlying", "(*readBudgetStream).finishUsage",
+			"BinBodyCap", "ReadCapped",
 			"downloadIdleTimeout", "idleReader", "jsonBodyCap", "newIdleReader", "readBody", "readBudgetExhaustion",
-			"readIdleResponseBody", "readResponseBody", "readResponseBodyWith",
+			"newReadBudgetStream", "readBudgetStream", "readIdleResponseBody", "readResponseBody", "readResponseBodyWith",
 		},
 		"client.go": {
 			"(*Client).Base", "(*Client).Do", "(*Client).DoStream", "(*Client).DoStreamSized", "(*Client).DoWithBodyLimit",

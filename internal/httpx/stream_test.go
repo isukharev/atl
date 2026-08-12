@@ -199,3 +199,112 @@ func TestReadCappedRefusesOversize(t *testing.T) {
 		t.Fatal("oversize body must error, not truncate")
 	}
 }
+
+func TestGetStreamChargesSuccessfulBodyToSharedReadBudget(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(writer, "abc")
+	}))
+	t.Cleanup(server.Close)
+	budget, err := domain.NewReadBudget(1, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := New(server.URL, "token", "test").GetStream(domain.WithReadBudget(t.Context(), budget), "/body")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, readErr := io.ReadAll(stream)
+	closeErr := stream.Close()
+	if readErr != nil || closeErr != nil || string(data) != "abc" {
+		t.Fatalf("data=%q read=%v close=%v", data, readErr, closeErr)
+	}
+	if usage := budget.Usage(); usage != (domain.ReadBudgetUsage{Attempts: 1, ResponseBytes: 3}) {
+		t.Fatalf("usage=%+v", usage)
+	}
+}
+
+func TestGetStreamBudgetNeverReturnsOverflowByte(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(writer, "abcd")
+	}))
+	t.Cleanup(server.Close)
+	budget, err := domain.NewReadBudget(1, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := New(server.URL, "token", "test").GetStream(domain.WithReadBudget(t.Context(), budget), "/body")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, readErr := io.ReadAll(stream)
+	_ = stream.Close()
+	if !errors.Is(readErr, domain.ErrReadResponseBudgetExhausted) || string(data) != "abc" {
+		t.Fatalf("data=%q error=%v", data, readErr)
+	}
+	if usage := budget.Usage(); usage != (domain.ReadBudgetUsage{Attempts: 1, ResponseBytes: 3}) {
+		t.Fatalf("usage=%+v", usage)
+	}
+}
+
+func TestGetStreamEarlyCloseReleasesBudgetedResponseTurn(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(writer, "body")
+	}))
+	t.Cleanup(server.Close)
+	budget, err := domain.NewReadBudget(2, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := New(server.URL, "token", "test")
+	ctx := domain.WithReadBudget(t.Context(), budget)
+	first, err := client.GetStream(ctx, "/first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	one := make([]byte, 1)
+	if n, readErr := first.Read(one); n != 1 || readErr != nil {
+		t.Fatalf("first read=%d error=%v", n, readErr)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.GetStream(ctx, "/second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, readErr := io.ReadAll(second)
+	closeErr := second.Close()
+	if readErr != nil || closeErr != nil || string(data) != "body" {
+		t.Fatalf("data=%q read=%v close=%v", data, readErr, closeErr)
+	}
+	if usage := budget.Usage(); usage != (domain.ReadBudgetUsage{Attempts: 2, ResponseBytes: 5}) {
+		t.Fatalf("usage=%+v", usage)
+	}
+}
+
+func TestGetStreamZeroBudgetAcceptsOnlyEmptyBody(t *testing.T) {
+	for name, body := range map[string]string{"empty": "", "nonempty": "x"} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				_, _ = io.WriteString(writer, body)
+			}))
+			t.Cleanup(server.Close)
+			budget, err := domain.NewReadBudget(1, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stream, err := New(server.URL, "token", "test").GetStream(domain.WithReadBudget(t.Context(), budget), "/body")
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, readErr := io.ReadAll(stream)
+			_ = stream.Close()
+			if body == "" && (readErr != nil || len(data) != 0) {
+				t.Fatalf("empty data=%q error=%v", data, readErr)
+			}
+			if body != "" && (!errors.Is(readErr, domain.ErrReadResponseBudgetExhausted) || len(data) != 0) {
+				t.Fatalf("nonempty data=%q error=%v", data, readErr)
+			}
+		})
+	}
+}
