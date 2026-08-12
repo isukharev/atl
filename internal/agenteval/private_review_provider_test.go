@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/isukharev/atl/internal/agenteval/grading"
 	"github.com/isukharev/atl/internal/agenteval/lifecycle"
 )
 
@@ -523,6 +524,48 @@ func TestAutomatedPrivateReviewIsReceiptedTerminalAndAssessable(t *testing.T) {
 			t.Fatalf("summary=%+v", summary)
 		}
 	}
+	completed, err := LoadCompletedPrivateRun(fixture.root, fixture.repository, preview.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runDirectory string
+	for _, surface := range completed.Surfaces {
+		if surface.Surface == SurfaceATLMCP {
+			runDirectory = surface.RunDirectory
+			break
+		}
+	}
+	planData, err := os.ReadFile(filepath.Join(runDirectory, privateGradingPlanName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gradingPlan, err := grading.DecodePlan(bytes.NewReader(planData))
+	if err != nil || gradingPlan.Mode != grading.ModeJudgeAssessment || gradingPlan.Judge == nil || len(gradingPlan.Judge.Reviewers) != 3 {
+		t.Fatalf("grading plan=%+v err=%v", gradingPlan, err)
+	}
+	receiptData, err := os.ReadFile(filepath.Join(runDirectory, privateGradeReceiptName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gradingReceipt, err := grading.DecodeReceipt(bytes.NewReader(receiptData), gradingPlan)
+	if err != nil || gradingReceipt.Status != grading.ReceiptComplete || len(gradingReceipt.Reviewers) != 3 ||
+		gradingReceipt.Usage.InputTokens.Presence != grading.PresenceObserved || len(gradingReceipt.Evidence) != 1 {
+		t.Fatalf("grading receipt=%+v err=%v", gradingReceipt, err)
+	}
+	gradingPlanSHA, err := grading.PlanSHA256(gradingPlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, packet := range packets {
+		store, err := OpenAttemptLedgerStore(filepath.Join(fixture.root, filepath.FromSlash(packet.Packet), "attempt-ledger"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		inspections, err := store.InspectAll()
+		if err != nil || len(inspections) != 1 || inspections[0].Plan.Binding.Identity.GraderSHA256 != gradingPlanSHA {
+			t.Fatalf("grading lifecycle binding=%+v err=%v", inspections, err)
+		}
+	}
 }
 
 func TestAutomatedPrivateReviewFailureCannotReplayOrAssess(t *testing.T) {
@@ -644,6 +687,14 @@ func newExecutablePrivateReviewFixture(t *testing.T) (privatePlanTestFixture, Pr
 	t.Helper()
 	fixture := newPrivatePlanTestFixture(t, false, false)
 	panel := privateReviewTestPanel()
+	panel.BlindAssignment = "cases/study/blind-assignment.txt"
+	blindPath := filepath.Join(fixture.root, filepath.FromSlash(panel.BlindAssignment))
+	if err := os.MkdirAll(filepath.Dir(blindPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(blindPath, []byte("candidate-a\ncandidate-b\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	panel.Reviewers[1].Kind = "claude-code"
 	for _, reviewer := range panel.Reviewers {
 		panel.Executions = append(panel.Executions, PrivateReviewerExecution{ReviewerID: reviewer.ID, Reasoning: "high", TimeoutSeconds: 30,

@@ -460,6 +460,9 @@ func (s RunSpec) Validate() error {
 			return fmt.Errorf("duplicate run check %q", check.Name)
 		}
 		seenChecks[check.Name] = struct{}{}
+		if !legacyGradeKind(check.Kind) {
+			return fmt.Errorf("unsupported run check kind %q", check.Kind)
+		}
 		if check.Kind != "atl_invocations_max" && check.Kind != "interface_invocations_max" && check.Maximum != 0 {
 			return fmt.Errorf("run check %q does not accept maximum", check.Name)
 		}
@@ -1132,10 +1135,7 @@ func evaluateRunChecksWithMCPInvocations(
 	)
 }
 
-// evaluateRunChecksWithCLIErrorContracts is the single evaluation body. The
-// narrower entry points above stay source-compatible and pass no CLI error
-// contracts, so only the runner — which revalidates its audit first — can make
-// a cli_error_contracts_equal oracle pass.
+// Only the runner supplies its separately validated CLI error contracts.
 func evaluateRunChecksWithCLIErrorContracts(
 	checks []RunCheck,
 	final []byte,

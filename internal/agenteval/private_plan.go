@@ -1259,7 +1259,7 @@ func buildPrivateQualitativePanelMaterial(root string, runSet PrivateWorkspaceRu
 		}
 		assignment = data
 	}
-	if neutral && len(assignment) == 0 {
+	if (neutral || len(panel.Executions) != 0) && len(assignment) == 0 {
 		return nil, nil, nil, privatePlanError("blind_assignment")
 	}
 	contract := &privateQualitativeReviewPanelContract{
@@ -2358,12 +2358,7 @@ func validatePrivateQualitativeReviewPanelContract(panel privateQualitativeRevie
 		}
 		seen[reviewer.ID] = struct{}{}
 	}
-	workspacePanel := PrivateQualitativeReviewPanel{Method: panel.Method, Reviewers: panel.Reviewers,
-		MaxCriterionRangeBPS: panel.MaxCriterionRangeBPS, Executions: panel.Executions}
-	if workspacePanel.validate() != nil {
-		return privatePlanError("qualitative_panel")
-	}
-	return nil
+	return validatePrivatePlanGradingPanel(panel)
 }
 
 func privateReviewerExecutionCost(executions []PrivateReviewerExecution) (int64, bool) {

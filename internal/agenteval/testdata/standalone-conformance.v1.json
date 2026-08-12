@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_version": "0.1.0-pre-release",
-  "golden_bundle": {"path":"testdata/standalone-readability-golden.v1.json","sha256":"dd47cdc13ff61f484ba8af2dde008d59e38aaf4c9810e76e35e7324e12b79255"},
+  "golden_bundle": {"path":"testdata/standalone-readability-golden.v1.json","sha256":"a17c8f8d325fb695d3dfcd45385fdf9005b27a97edde4615aa373d2f8e9fb592"},
   "readability": [
     {"namespace":"atl-profile","kind":"activation-reference","versions":[1,2]},
     {"namespace":"atl-profile","kind":"activation-report","versions":[1,2]},
@@ -28,6 +28,9 @@
     {"namespace":"standalone","kind":"execution-backend-contract","versions":[1]},
     {"namespace":"standalone","kind":"extension-conformance-bundle","versions":[1]},
     {"namespace":"standalone","kind":"extension-conformance-report","versions":[1]},
+    {"namespace":"standalone","kind":"grade-receipt","versions":[1]},
+    {"namespace":"standalone","kind":"grader-contract","versions":[1]},
+    {"namespace":"standalone","kind":"grading-plan","versions":[1]},
     {"namespace":"standalone","kind":"migration-preview","versions":[1]},
     {"namespace":"standalone","kind":"migration-result","versions":[1]},
     {"namespace":"standalone","kind":"project-config","versions":[1]},
@@ -61,6 +64,9 @@
     {"namespace":"standalone","kind":"execution-backend-contract","version":2},
     {"namespace":"standalone","kind":"extension-conformance-bundle","version":2},
     {"namespace":"standalone","kind":"extension-conformance-report","version":2},
+    {"namespace":"standalone","kind":"grade-receipt","version":2},
+    {"namespace":"standalone","kind":"grader-contract","version":2},
+    {"namespace":"standalone","kind":"grading-plan","version":2},
     {"namespace":"standalone","kind":"migration-preview","version":2},
     {"namespace":"standalone","kind":"migration-result","version":2},
     {"namespace":"standalone","kind":"product-contract","version":2},

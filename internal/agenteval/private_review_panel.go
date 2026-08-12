@@ -130,6 +130,12 @@ func assessPrivatePanelReview(root string, source PrivateBaselineSource, surface
 		if assessErr != nil {
 			return PrivateReviewSummary{}, privatePlanError("assessment")
 		}
+		if len(contract.Executions) != 0 {
+			gradingPlan, gradingReceipt, gradingErr := assessPrivatePanelWithGrading(root, source, surface, contract, rubric, resultData, finalData, reviews)
+			if gradingErr != nil || writePrivatePanelGradingArtifacts(root, surface.RunDirectory, gradingPlan, gradingReceipt) != nil {
+				return PrivateReviewSummary{}, privatePlanError("grading_assessment")
+			}
+		}
 		encoded, encodeErr := json.MarshalIndent(panelResult, "", "  ")
 		if encodeErr != nil {
 			return PrivateReviewSummary{}, privatePlanError("assessment_encode")

@@ -438,13 +438,16 @@ The internal `ATL_EVAL_*` registry, wrapper basenames, broker records, launch ar
 | `agent-eval/project-config` | Invocation-selected profile/model/repetition identity defaults; never authority, paths, credentials, or ambient discovery |
 | `agent-eval/adapter-manifest` | Closed component identity, one declared role and its operations, capabilities, protocol versions, configuration keys, and executable binding |
 | `agent-eval/adapter-message` | One bounded process-protocol frame under the selected role, operation, session, and attempt identity |
-| `agent-eval/extension-conformance-bundle` | Content-addressed ordinary cases for every supported operation plus one synchronized cancellation case in the manifest's declared role |
+| `agent-eval/extension-conformance-bundle` | Content-addressed ordinary cases for every supported operation, the grader's required identical repeat, and one synchronized cancellation case in the manifest's declared role |
 | `agent-eval/extension-conformance-report` | Content-minimized protocol-only result; never proof of whole-product compatibility or host confinement |
 | `agent-eval/agent-adapter-contract` | Content-minimized selected adapter identity, implementation/executable/configuration digests, complete semantic capability claims, and closed configuration-key inventory |
 | `agent-eval/agent-observation` | Content-minimized normalized activation, event graph, terminal state, parent/tree usage, consumed-child evidence, and explicit coverage issues |
 | `agent-eval/execution-backend-contract` | Complete capability claims plus implementation/content identity and assurance class for one selected backend |
 | `agent-eval/trial-plan` | Content-addressed definition, fixture, skill, policy, resource, artifact, program, and verifier admission for one trial |
 | `agent-eval/trial-receipt` | Content-minimized terminal verdict, input/resource usage, artifact identities, verifier evidence, cleanup, network, credential, and termination coverage |
+| `agent-eval/grader-contract` | Complete check-family, mode, implementation/content identity, authority, and limit claims for one grader |
+| `agent-eval/grading-plan` | Preregistered input, environment, check, hidden-verifier, rubric, blind-assignment, reviewer, and resource identities |
+| `agent-eval/grade-receipt` | Content-minimized per-check coverage, evidence citations, reviewer provenance, usage, and disagreements |
 | `agent-eval/migration-preview` | Content-minimized reviewed binding of source, candidate, registry, migration implementation, graph, and counts |
 | `agent-eval/migration-result` | Content-minimized idempotent receipt for one applied reviewed migration |
 | `agent-eval/schema-registry` | Public closed inventory of artifact ownership, generations, policies, bounds, resources, and reviewed migration edges |
@@ -454,18 +457,24 @@ migration artifacts, the three durable attempt families
 (`agent-eval/attempt-ledger`, `agent-eval/attempt-plan`, and
 `agent-eval/attempt-event`), each of the four extension families, the semantic
 adapter contract, normalized observation, execution-backend contract, trial
-plan, and trial receipt at generation 1. Project config, registry, attempt
+plan, trial receipt, grader contract, grading plan, and grade receipt at
+generation 1. Project config, registry, attempt
 records, manifest, message, bundle, adapter contract, execution-backend
 contract, and trial-plan generations are readable, emitted, and executable;
 migration artifacts, extension reports, normalized agent observations, and
-trial receipts are readable and emitted but never executable. Project config is
+trial receipts are readable and emitted but never executable. Grader contracts
+and grading plans are readable, emitted, and executable; grade receipts are
+readable and emitted but never executable. Project config is
 `public_or_private` and capped at 64 KiB. Manifests are public and capped at
 64 KiB. Attempt headers are capped at 16 KiB and attempt plans and events at
 64 KiB per record; all three are `preserve`, `content_minimized`, and use
 explicit migration. Adapter contracts are `content_minimized` and capped at
 64 KiB; agent observations are `content_minimized` and capped at 1 MiB.
 Execution-backend contracts and receipts are `content_minimized` and capped at
-64 KiB; trial plans are `content_minimized` and capped at 256 KiB. Messages are
+64 KiB; trial plans are `content_minimized` and capped at 256 KiB. Grader
+contracts are `content_minimized` and capped at 64 KiB; grading plans are
+`public_or_private` and capped at 1 MiB; grade receipts are
+`content_minimized` and capped at 4 MiB. Messages are
 `public_or_private` and capped at 1 MiB, bundles are public and capped at
 1 MiB, and reports are `content_minimized` and capped at 1 MiB. Migration
 previews and results are `content_minimized`, capped at 64 KiB, and preserved;
@@ -599,7 +608,8 @@ It emits `agent-eval/extension-conformance-report@1` with scope
 executable, component identity and version, declared role, complete exact capability claims,
 sorted closed case outcomes, and cleanup-assurance class by content-minimized
 values and SHA-256 identities. Ordinary cases cover exactly every `supported`
-operation, and one additional case proves the synchronized `canceled`
+operation; a grader has one additional identical `grade` case, and one
+additional case proves the synchronized `canceled`
 transition. Each sorted case records only its ID, operation, terminal kind, and
 `passed` status. The report excludes input paths, arguments, environment values, process,
 session, attempt, and invocation IDs, stderr, task bodies, prompts, evidence
@@ -702,6 +712,46 @@ fresh/read-only snapshot, declared-artifact, deadline/storage, separate-copy
 verifier, and logical-cleanup requirements. Its timeout/cancel receipt closes
 an empty logical process tree. CPU, memory, process-count, arbitrary-command,
 and arbitrary-filesystem enforcement are intentionally unsupported.
+
+The neutral grading boundary has three authority tiers. `deterministic`
+evaluates typed mechanical checks in-process. `script_dsl` interprets a closed,
+bounded boolean DSL over the same immutable evidence snapshot and admits only
+the exact `reference-hermetic` backend identity; it never executes a shell,
+host script, or arbitrary bytecode. `judge_assessment` accepts only completed
+offline three- or five-member reviews. It launches no provider, grants no
+tools, and requires a fixed rubric, blind-assignment digest, reviewer/model and
+environment identities, per-reviewer token/cost bounds, and content-addressed
+citations for every decision. Each qualitative criterion preregisters its exact
+sorted evidence-ID projection; a reviewer cannot cite another captured item.
+
+The closed mechanical families are file existence/metadata/SHA-256, JSON value
+and schema fields, command exit and output digest, tree diff, tool and action
+sequence, skill activation and use, resource budget, and policy violation
+count. Missing, inaccessible, wrong-visibility, or destroyed evidence is
+`unknown`; it cannot pass. The evidence snapshot owns cloned bytes and exposes
+only a content-minimized citation catalog. Receipts preserve each declared
+dimension independently—there is no universal weighted score—and record both
+reviewer disagreement and deterministic-versus-judge disagreement.
+
+The internal semantic process diagnostic is:
+
+```sh
+agent-eval verify-grader \
+  --manifest testdata/synthetic-grader-manifest.json \
+  --grader /tmp/agent-eval-synthetic/grader \
+  --bundle testdata/synthetic-grader-conformance.json \
+  --contract testdata/synthetic-grader-contract.json \
+  --ledger /tmp/agent-eval-synthetic/attempt-ledger
+```
+
+It binds the grader contract into every durable conformance attempt and
+requires two distinct grade cases with identical configuration, input
+references, policy, and expected terminal output, plus validate and synchronized
+cancel coverage. This proves deterministic process behavior only for the
+public synthetic references in that bundle. It does not authorize the process
+to read hidden evidence and does not upgrade the local process host to an
+isolated verifier. Arbitrary external grader execution remains refused until
+an execution backend can enforce the declared isolation.
 
 Normalized observations use a closed event graph with one primary node and at
 most two child levels. The graph distinguishes single-agent, generic-child,

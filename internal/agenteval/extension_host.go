@@ -98,7 +98,7 @@ func verifyExtensionProtocol(
 	executablePath string,
 	arguments []string,
 	bundleData []byte,
-	attemptStore *AttemptLedgerStore, adapterContractDigest string,
+	attemptStore *AttemptLedgerStore, componentContractDigest string,
 ) (ExtensionConformanceReport, error) {
 	verificationCtx, cancelVerification, err := extensionVerificationContext(ctx)
 	if err != nil {
@@ -143,7 +143,7 @@ func verifyExtensionProtocol(
 		Cases:            make([]ExtensionConformanceCaseReport, 0, len(bundle.Cases)),
 	}
 	attemptSessions, closePlannedAttempts, err := prepareExtensionProtocolAttempts(
-		attemptStore, manifest, bundle, manifestDigest, bundleDigest, adapterContractDigest)
+		attemptStore, manifest, bundle, manifestDigest, bundleDigest, componentContractDigest)
 	if err != nil {
 		return ExtensionConformanceReport{}, errExtensionOutcomeUnknown
 	}
@@ -439,12 +439,7 @@ func extensionPlatformMatches(platforms []extension.Platform) bool {
 }
 
 func validateExtensionBundleAgainstManifest(bundle ExtensionConformanceBundle, manifest extension.Manifest) error {
-	wantOperations := make([]extension.Operation, 0, len(manifest.Component.Capabilities))
-	for _, operation := range manifest.Component.Operations {
-		if extension.OperationSupported(manifest, operation) {
-			wantOperations = append(wantOperations, operation)
-		}
-	}
+	wantOperations := extensionConformanceExpectedOperations(manifest.Component)
 	initialize, err := extension.NewInitialize(manifest, stringsRepeatHex('a'), stringsRepeatHex('b'))
 	if err != nil {
 		return errExtensionCompatibility
@@ -677,12 +672,7 @@ func ValidateExtensionConformanceReport(value ExtensionConformanceReport) error 
 		len(value.Cases) == 0 || len(value.Cases) > extension.MaxCollectionEntries {
 		return errExtensionInvalidReport
 	}
-	wantOperations := make([]extension.Operation, 0, len(value.Capabilities))
-	for _, operation := range descriptor.Operations {
-		if extension.OperationSupported(extension.Manifest{Component: descriptor}, operation) {
-			wantOperations = append(wantOperations, operation)
-		}
-	}
+	wantOperations := extensionConformanceExpectedOperations(descriptor)
 	gotOperations := make([]extension.Operation, 0, len(value.Cases))
 	cancellationCases := 0
 	previous := ""

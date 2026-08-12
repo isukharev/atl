@@ -52,7 +52,7 @@ func run(args []string) error {
 		return err
 	}
 	if len(args) == 0 {
-		return fmt.Errorf("usage: agent-eval validate scenarios | validate-run specs | verify-agent-adapter --manifest FILE --adapter FILE --bundle FILE --contract FILE --ledger ROOT | verify-execution-backend --manifest FILE --backend FILE --bundle FILE --contract FILE --plan FILE --ledger ROOT | verify-atl-capabilities --ledger ROOT ATL_BINARY | verify-codex-skill-package PACKAGE_ROOT | verify-extension-protocol --manifest FILE --adapter FILE --bundle FILE --ledger ROOT | attempt-ledger COMMAND options | inventory CORPUS_ROOT | validate-pair CLI_SPEC MCP_SPEC | validate-comparison-set SPEC SPEC [SPEC] | evaluate scenario observation | review-template options | assess options | aggregate results | aggregate-root ROOT | run options | private COMMAND options")
+		return fmt.Errorf("usage: agent-eval validate scenarios | validate-run specs | verify-agent-adapter --manifest FILE --adapter FILE --bundle FILE --contract FILE --ledger ROOT | verify-execution-backend --manifest FILE --backend FILE --bundle FILE --contract FILE --plan FILE --ledger ROOT | verify-grader --manifest FILE --grader FILE --bundle FILE --contract FILE --ledger ROOT | verify-atl-capabilities --ledger ROOT ATL_BINARY | verify-codex-skill-package PACKAGE_ROOT | verify-extension-protocol --manifest FILE --adapter FILE --bundle FILE --ledger ROOT | attempt-ledger COMMAND options | inventory CORPUS_ROOT | validate-pair CLI_SPEC MCP_SPEC | validate-comparison-set SPEC SPEC [SPEC] | evaluate scenario observation | review-template options | assess options | aggregate results | aggregate-root ROOT | run options | private COMMAND options")
 	}
 	switch args[0] {
 	case "private":
@@ -111,6 +111,8 @@ func run(args []string) error {
 		return runVerifyAgentAdapter(args[1:])
 	case "verify-execution-backend":
 		return runVerifyExecutionBackend(args[1:])
+	case "verify-grader":
+		return runVerifyGrader(args[1:])
 	case "verify-atl-capabilities":
 		flags := flag.NewFlagSet("verify-atl-capabilities", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)

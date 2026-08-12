@@ -715,6 +715,8 @@ func TestPrivatePlanBindsQualitativePanelBeforeExecution(t *testing.T) {
 func TestLegacyExecutableReviewPlanRemainsReadable(t *testing.T) {
 	fixture := newPrivatePlanTestFixture(t, false, false)
 	panel := testPrivateQualitativePanel()
+	panel.BlindAssignment = "cases/blind-assignment.txt"
+	writeTestFile(t, filepath.Join(fixture.root, "cases", "blind-assignment.txt"), "opaque assignment\n", 0o600)
 	for _, reviewer := range panel.Reviewers {
 		panel.Executions = append(panel.Executions, PrivateReviewerExecution{
 			ReviewerID: reviewer.ID, Reasoning: "high", TimeoutSeconds: 60,

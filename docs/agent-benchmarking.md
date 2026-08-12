@@ -348,6 +348,18 @@ gaps. The internal
 `verify-execution-backend` process command proves only manifest/protocol/
 contract/plan agreement for a selected executable; it does not upgrade that
 child to hermetic assurance.
+The provider-neutral grading contract likewise separates mechanical truth,
+typed hidden verification, and irreducibly qualitative assessment.
+Deterministic checks cover file, JSON, command, tree, tool/action sequence,
+skill activation/use, budget, and policy evidence. The typed verifier is a
+bounded boolean DSL over an owned immutable snapshot, not a host script; it
+admits only the exact hermetic reference identity. Offline judge assessment
+launches no provider, requires a fixed rubric and blinded assignment, grants no
+tools, and records reviewer/model/environment identity, citations, tokens,
+estimated cost, duration, and disagreement. Missing evidence is unknown and
+cannot pass, and each rubric criterion admits only its preregistered evidence
+IDs. Canonical grader/plan/receipt artifacts keep raw evidence and
+prompts out of the durable receipt.
 Its CLI boundary has one shared admission, accounting, executable-attestation,
 deadline, and output-bound path: strict JSON callers add one-value and
 duplicate-key rejection after execution, while byte callers preserve stdout
@@ -664,6 +676,15 @@ blind assignment are bound before provider execution. Legacy singleton and
 panel results are deliberately comparison-incompatible rather than silently
 migrated. See [Private agent-benchmark workspace](agent-benchmark-private-workspace.md)
 for the panel manifest and operator flow.
+
+Executable private panels additionally emit owner-private canonical
+`grading-plan.v1.json` and `grade-receipt.v1.json` beside the existing review
+artifacts. The generic plan binds the same rubric, blind assignment, panel,
+execution receipt, result/final projection, reviewer models, and cost ceilings;
+the receipt binds each completed reviewer attempt's measured tokens, estimated
+cost, duration, evidence citation, and disagreement. Existing manual and
+historical review generations retain their original bytes and semantics rather
+than receiving synthetic receipts.
 
 Current assessments emit result schema v8, review schema v2, and aggregate
 schema v7. Current decoders retain read compatibility with promptless evidence

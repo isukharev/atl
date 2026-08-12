@@ -22,6 +22,7 @@ const (
 	evaluatorCoreImportPath             = evaluatorModuleImportPath + "/core"
 	evaluatorExecutionBackendImportPath = evaluatorModuleImportPath + "/executionbackend"
 	evaluatorExtensionImportPath        = evaluatorModuleImportPath + "/extension"
+	evaluatorGradingImportPath          = evaluatorModuleImportPath + "/grading"
 	evaluatorLifecycleImportPath        = evaluatorModuleImportPath + "/lifecycle"
 	evaluatorAgentSkillsImportPath      = evaluatorModuleImportPath + "/interchange/agentskills"
 	evaluatorATLImportPath              = evaluatorModuleImportPath + "/profile/atl"
@@ -36,6 +37,7 @@ const (
 	evaluatorCorePackage             evaluatorPackage = "core"
 	evaluatorExecutionBackendPackage evaluatorPackage = "executionbackend"
 	evaluatorExtensionPackage        evaluatorPackage = "extension"
+	evaluatorGradingPackage          evaluatorPackage = "grading"
 	evaluatorLifecyclePackage        evaluatorPackage = "lifecycle"
 	evaluatorAgentSkillsPackage      evaluatorPackage = "interchange/agentskills"
 	evaluatorATLPackage              evaluatorPackage = "profile/atl"
@@ -49,6 +51,7 @@ var evaluatorPackages = []evaluatorPackage{
 	evaluatorCorePackage,
 	evaluatorExecutionBackendPackage,
 	evaluatorExtensionPackage,
+	evaluatorGradingPackage,
 	evaluatorLifecyclePackage,
 	evaluatorAgentSkillsPackage,
 	evaluatorATLPackage,
@@ -73,9 +76,9 @@ type evaluatorDependencyLedger map[evaluatorDependencyLane][]evaluatorDependency
 // import, alias, and file ledger. The scan is recursive and parses every Go
 // source file regardless of build constraints. The evaluator retains zero
 // root-product-private imports; module-self imports must also satisfy the
-// independently enforced agentadapter + core + executionbackend + extension + lifecycle -> none, interchange/agentskills +
-// profile/atl -> core, root -> agentadapter + core + executionbackend +
-// extension + interchange/agentskills + lifecycle + profile/atl +
+// independently enforced agentadapter + core + executionbackend + extension + lifecycle -> none, grading -> core +
+// executionbackend, interchange/agentskills -> core, profile/atl -> core + grading, root -> agentadapter + core + executionbackend +
+// extension + grading + interchange/agentskills + lifecycle + profile/atl +
 // schemaregistry, and cmd/agent-eval -> exact root
 // DAG. The schema registry is a declaration-only leaf.
 func TestEvaluatorProductDependencyLedger(t *testing.T) {
@@ -85,14 +88,20 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 			{File: "agent_adapter_contract.go", Path: evaluatorAgentAdapterImportPath},
 			{File: "agent_adapter_observation.go", Path: evaluatorAgentAdapterImportPath},
 			{File: "atl_core_profile.go", Path: evaluatorCoreImportPath},
+			{File: "grading_contract.go", Path: evaluatorCoreImportPath},
 			{File: "execution_backend_contract.go", Path: evaluatorExecutionBackendImportPath},
 			{File: "execution_backend_local.go", Path: evaluatorExecutionBackendImportPath},
 			{File: "extension_host_lifecycle.go", Path: evaluatorExecutionBackendImportPath},
+			{File: "grading_contract.go", Path: evaluatorExecutionBackendImportPath},
 			{File: "atl_core_profile.go", Path: evaluatorExtensionImportPath},
 			{File: "attempt_session.go", Path: evaluatorExtensionImportPath},
 			{File: "extension_host.go", Path: evaluatorExtensionImportPath},
 			{File: "extension_host_lifecycle.go", Path: evaluatorExtensionImportPath},
 			{File: "extension_host_process.go", Path: evaluatorExtensionImportPath},
+			{File: "extension_host_lifecycle.go", Path: evaluatorGradingImportPath},
+			{File: "grading_contract.go", Path: evaluatorGradingImportPath},
+			{File: "private_grading_compat.go", Path: evaluatorGradingImportPath},
+			{File: "private_review_runner.go", Path: evaluatorGradingImportPath},
 			{File: "agent_skills_interchange.go", Path: evaluatorAgentSkillsImportPath},
 			{File: "aggregate_root.go", Path: evaluatorLifecycleImportPath},
 			{File: "attempt_ledger.go", Path: evaluatorLifecycleImportPath},
@@ -103,11 +112,13 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 			{File: "execution_backend_contract.go", Path: evaluatorLifecycleImportPath},
 			{File: "extension_host_lifecycle.go", Path: evaluatorLifecycleImportPath},
 			{File: "extension_host_process.go", Path: evaluatorLifecycleImportPath},
+			{File: "grading_contract.go", Path: evaluatorLifecycleImportPath},
 			{File: "private_review_runner.go", Path: evaluatorLifecycleImportPath},
 			{File: "provider_attempt.go", Path: evaluatorLifecycleImportPath},
 			{File: "runner.go", Path: evaluatorLifecycleImportPath},
 			{File: "synthetic_atl_process_lifecycle.go", Path: evaluatorLifecycleImportPath},
 			{File: "atl_core_profile.go", Path: evaluatorATLImportPath, Alias: "profileatl"},
+			{File: "atl_grading_compat.go", Path: evaluatorATLImportPath, Alias: "profileatl"},
 			{File: "schema_registry.go", Path: evaluatorSchemaImportPath},
 		},
 		{Package: evaluatorRootPackage, Tests: true}: {
@@ -124,11 +135,17 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 			{File: "execution_backend_process_test.go", Path: evaluatorExtensionImportPath},
 			{File: "extension_host_process_test.go", Path: evaluatorExtensionImportPath},
 			{File: "extension_host_test.go", Path: evaluatorExtensionImportPath},
+			{File: "grading_contract_test.go", Path: evaluatorExtensionImportPath},
 			{File: "standalone_product_contract_golden_test.go", Path: evaluatorExtensionImportPath},
+			{File: "grading_contract_test.go", Path: evaluatorGradingImportPath},
+			{File: "private_review_provider_test.go", Path: evaluatorGradingImportPath},
+			{File: "standalone_product_contract_golden_test.go", Path: evaluatorGradingImportPath},
+			{File: "standalone_product_contract_test.go", Path: evaluatorGradingImportPath},
 			{File: "aggregate_root_test.go", Path: evaluatorLifecycleImportPath},
 			{File: "attempt_ledger_test.go", Path: evaluatorLifecycleImportPath},
 			{File: "capability_process_test.go", Path: evaluatorLifecycleImportPath},
 			{File: "execution_backend_contract_test.go", Path: evaluatorLifecycleImportPath},
+			{File: "grading_contract_test.go", Path: evaluatorLifecycleImportPath},
 			{File: "private_review_provider_test.go", Path: evaluatorLifecycleImportPath},
 			{File: "provider_attempt_test.go", Path: evaluatorLifecycleImportPath},
 			{File: "standalone_product_contract_golden_test.go", Path: evaluatorLifecycleImportPath},
@@ -145,8 +162,18 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 		{Package: evaluatorExecutionBackendPackage, Tests: true}: {},
 		{Package: evaluatorExtensionPackage}:                     {},
 		{Package: evaluatorExtensionPackage, Tests: true}:        {},
-		{Package: evaluatorLifecyclePackage}:                     {},
-		{Package: evaluatorLifecyclePackage, Tests: true}:        {},
+		{Package: evaluatorGradingPackage}: {
+			{File: "grading/core.go", Path: evaluatorCoreImportPath},
+			{File: "grading/script.go", Path: evaluatorExecutionBackendImportPath},
+			{File: "grading/validate.go", Path: evaluatorExecutionBackendImportPath},
+		},
+		{Package: evaluatorGradingPackage, Tests: true}: {
+			{File: "grading/grading_test.go", Path: evaluatorCoreImportPath},
+			{File: "grading/grading_test.go", Path: evaluatorExecutionBackendImportPath},
+			{File: "grading/grading_test.go", Path: evaluatorGradingImportPath},
+		},
+		{Package: evaluatorLifecyclePackage}:              {},
+		{Package: evaluatorLifecyclePackage, Tests: true}: {},
 		{Package: evaluatorAgentSkillsPackage}: {
 			{File: "interchange/agentskills/contract.go", Path: evaluatorCoreImportPath},
 			{File: "interchange/agentskills/project.go", Path: evaluatorCoreImportPath},
@@ -156,9 +183,12 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 		},
 		{Package: evaluatorATLPackage}: {
 			{File: "profile/atl/profile.go", Path: evaluatorCoreImportPath},
+			{File: "profile/atl/grading.go", Path: evaluatorGradingImportPath},
 		},
 		{Package: evaluatorATLPackage, Tests: true}: {
 			{File: "profile/atl/profile_test.go", Path: evaluatorCoreImportPath},
+			{File: "profile/atl/grading_test.go", Path: evaluatorGradingImportPath},
+			{File: "profile/atl/grading_test.go", Path: evaluatorATLImportPath, Alias: "profileatl"},
 			{File: "profile/atl/profile_test.go", Path: evaluatorATLImportPath, Alias: "profileatl"},
 		},
 		{Package: evaluatorSchemaPackage}:              {},
@@ -167,6 +197,7 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 			{File: "cmd/agent-eval/agent_adapter.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/command_broker.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/execution_backend.go", Path: evaluatorModuleImportPath},
+			{File: "cmd/agent-eval/grader.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/main.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/private.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/proxy.go", Path: evaluatorModuleImportPath},
@@ -561,6 +592,8 @@ func evaluatorPackageForDirectory(directory string) (evaluatorPackage, bool) {
 		return evaluatorExecutionBackendPackage, true
 	case string(evaluatorExtensionPackage):
 		return evaluatorExtensionPackage, true
+	case string(evaluatorGradingPackage):
+		return evaluatorGradingPackage, true
 	case string(evaluatorLifecyclePackage):
 		return evaluatorLifecyclePackage, true
 	case string(evaluatorAgentSkillsPackage):
@@ -588,6 +621,8 @@ func evaluatorPackageForImport(path string) (evaluatorPackage, bool) {
 		return evaluatorExecutionBackendPackage, true
 	case evaluatorExtensionImportPath:
 		return evaluatorExtensionPackage, true
+	case evaluatorGradingImportPath:
+		return evaluatorGradingPackage, true
 	case evaluatorLifecycleImportPath:
 		return evaluatorLifecyclePackage, true
 	case evaluatorAgentSkillsImportPath:
@@ -608,6 +643,7 @@ func validateEvaluatorPackageName(owner evaluatorPackage, tests bool, file, got 
 		evaluatorRootPackage: "agenteval", evaluatorAgentAdapterPackage: "agentadapter", evaluatorCorePackage: "core",
 		evaluatorExecutionBackendPackage: "executionbackend",
 		evaluatorExtensionPackage:        "extension",
+		evaluatorGradingPackage:          "grading",
 		evaluatorLifecyclePackage:        "lifecycle",
 		evaluatorAgentSkillsPackage:      "agentskills",
 		evaluatorATLPackage:              "atl",
@@ -659,7 +695,7 @@ func parsedEvaluatorImports(owner evaluatorPackage, tests bool, file string, par
 func evaluatorPackageEdgeAllowed(owner, target evaluatorPackage) bool {
 	switch owner {
 	case evaluatorRootPackage:
-		return target == evaluatorAgentAdapterPackage || target == evaluatorCorePackage || target == evaluatorExecutionBackendPackage || target == evaluatorExtensionPackage || target == evaluatorLifecyclePackage || target == evaluatorAgentSkillsPackage || target == evaluatorATLPackage || target == evaluatorSchemaPackage
+		return target == evaluatorAgentAdapterPackage || target == evaluatorCorePackage || target == evaluatorExecutionBackendPackage || target == evaluatorExtensionPackage || target == evaluatorGradingPackage || target == evaluatorLifecyclePackage || target == evaluatorAgentSkillsPackage || target == evaluatorATLPackage || target == evaluatorSchemaPackage
 	case evaluatorAgentAdapterPackage:
 		return false
 	case evaluatorCorePackage:
@@ -668,12 +704,14 @@ func evaluatorPackageEdgeAllowed(owner, target evaluatorPackage) bool {
 		return false
 	case evaluatorExtensionPackage:
 		return false
+	case evaluatorGradingPackage:
+		return target == evaluatorCorePackage || target == evaluatorExecutionBackendPackage
 	case evaluatorLifecyclePackage:
 		return false
 	case evaluatorAgentSkillsPackage:
 		return target == evaluatorCorePackage
 	case evaluatorATLPackage:
-		return target == evaluatorCorePackage
+		return target == evaluatorCorePackage || target == evaluatorGradingPackage
 	case evaluatorSchemaPackage:
 		return false
 	case evaluatorCommandOwner:
@@ -694,16 +732,17 @@ func writeEvaluatorDependencyFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	files := map[string]string{
-		"facade.go":                              "package agenteval\n\nimport (\n\t\"" + evaluatorAgentAdapterImportPath + "\"\n\t\"" + evaluatorCoreImportPath + "\"\n\t\"" + evaluatorExecutionBackendImportPath + "\"\n\t\"" + evaluatorExtensionImportPath + "\"\n\t\"" + evaluatorLifecycleImportPath + "\"\n\t\"" + evaluatorAgentSkillsImportPath + "\"\n\t\"" + evaluatorSchemaImportPath + "\"\n)\n",
+		"facade.go":                              "package agenteval\n\nimport (\n\t\"" + evaluatorAgentAdapterImportPath + "\"\n\t\"" + evaluatorCoreImportPath + "\"\n\t\"" + evaluatorExecutionBackendImportPath + "\"\n\t\"" + evaluatorExtensionImportPath + "\"\n\t\"" + evaluatorGradingImportPath + "\"\n\t\"" + evaluatorLifecycleImportPath + "\"\n\t\"" + evaluatorAgentSkillsImportPath + "\"\n\t\"" + evaluatorSchemaImportPath + "\"\n)\n",
 		"agentadapter/contract.go":               "package agentadapter\n",
 		"core/core.go":                           "package core\n",
 		"executionbackend/contract.go":           "package executionbackend\n",
 		"core/core_test.go":                      "package core_test\n\nimport \"" + evaluatorCoreImportPath + "\"\n",
 		"extension/extension.go":                 "package extension\n",
 		"extension/extension_test.go":            "package extension\n",
+		"grading/grading.go":                     "package grading\n\nimport (\n\t\"" + evaluatorCoreImportPath + "\"\n\t\"" + evaluatorExecutionBackendImportPath + "\"\n)\n",
 		"lifecycle/lifecycle.go":                 "package lifecycle\n",
 		"interchange/agentskills/agentskills.go": "package agentskills\n\nimport \"" + evaluatorCoreImportPath + "\"\n",
-		"profile/atl/atl.go":                     "package atl\n\nimport \"" + evaluatorCoreImportPath + "\"\n",
+		"profile/atl/atl.go":                     "package atl\n\nimport (\n\t\"" + evaluatorCoreImportPath + "\"\n\t\"" + evaluatorGradingImportPath + "\"\n)\n",
 		"schemaregistry/registry.go":             "package schemaregistry\n",
 		"cmd/agent-eval/main.go":                 "package main\n\nimport \"" + evaluatorModuleImportPath + "\"\n",
 	}
