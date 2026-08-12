@@ -335,23 +335,16 @@ func setRootExecutionArgs(root *cobra.Command, args []string) {
 			}
 			continue
 		}
-		for _, topLevel := range root.Commands() {
-			if !commandTokenMatches(topLevel, argument) {
-				continue
-			}
-			if topLevel.Name() != "corpus" || index+1 >= len(args) {
-				return
-			}
-			for _, child := range topLevel.Commands() {
-				if child.Name() == "build" && commandTokenMatches(child, args[index+1]) {
-					if root.Annotations == nil {
-						root.Annotations = map[string]string{}
-					}
-					root.Annotations[corpusBuildInvocationAnnotation] = "required"
-				}
-				return
-			}
+		topLevel := matchingCommand(root.Commands(), argument)
+		if topLevel == nil || topLevel.Name() != "corpus" || index+1 >= len(args) {
 			return
+		}
+		child := matchingCommand(topLevel.Commands(), args[index+1])
+		if child != nil && child.Name() == "build" {
+			if root.Annotations == nil {
+				root.Annotations = map[string]string{}
+			}
+			root.Annotations[corpusBuildInvocationAnnotation] = "required"
 		}
 		return
 	}
@@ -372,6 +365,15 @@ func rootFlagConsumesNext(root *cobra.Command, argument string) bool {
 
 func commandTokenMatches(command *cobra.Command, token string) bool {
 	return token == command.Name() || slices.Contains(command.Aliases, token)
+}
+
+func matchingCommand(commands []*cobra.Command, token string) *cobra.Command {
+	for _, command := range commands {
+		if commandTokenMatches(command, token) {
+			return command
+		}
+	}
+	return nil
 }
 
 func codeFor(err error) int {
