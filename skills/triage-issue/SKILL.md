@@ -55,7 +55,12 @@ atl jira issue get KEY-123 \
 ```
 
 Keep the search `page` qualification and compare only the fields required by
-the duplicate rule. Fetch comments separately only after an open duplicate is
+the duplicate rule. A plausible positive hit can be inspected immediately, and
+only a confirmed open-duplicate/comment path may stop early. Before either
+create path—**Regression** or **New**—resume every search with its exact
+`page.next_cursor` until `page.complete:true`. If any search stays truncated or
+incomplete, report that duplicate absence is unproven and do not propose or
+create a new issue. Fetch comments separately only after an open duplicate is
 selected; do not pull comments or attachments into every candidate read.
 
 Then tell the user

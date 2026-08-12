@@ -249,7 +249,7 @@
     },
     {
       "path": "status-report/SKILL.md",
-      "sha256": "43d36bfa9a30686719d139a5e73019aacd8ac5010272467c25f4c0650df928e3"
+      "sha256": "7009433cafd479b48239da54014af1cbb1f0e1b677280d9cbc84d50ef5dd8de9"
     },
     {
       "path": "status-report/agents/openai.yaml",
@@ -257,7 +257,7 @@
     },
     {
       "path": "triage-issue/SKILL.md",
-      "sha256": "42321280172c0d30c5507cb4f110710a9311108ff1809214ee37fcc7023343b7"
+      "sha256": "cf01a265d0e2a6f46ad199b9e8f05e718ee4c8b22211f3fb5d750d0b1f458fe1"
     },
     {
       "path": "triage-issue/agents/openai.yaml",
