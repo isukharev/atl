@@ -338,7 +338,11 @@ func validateIndexerBundleV2(
 	for _, document := range documents {
 		documentByID[document.ID] = document
 	}
-	ownerEdges := make(map[string]string)
+	type attachmentOwner struct {
+		parentID      string
+		inventoryPath string
+	}
+	ownerEdges := make(map[string]attachmentOwner)
 	for _, edge := range edges {
 		if edge.Relation != EdgeAttachmentOwner {
 			continue
@@ -352,7 +356,10 @@ func validateIndexerBundleV2(
 		if _, duplicate := ownerEdges[edge.SourceID]; duplicate {
 			return "", 0, reject(ReasonMembership)
 		}
-		ownerEdges[edge.SourceID] = edge.TargetID
+		ownerEdges[edge.SourceID] = attachmentOwner{
+			parentID:      edge.TargetID,
+			inventoryPath: edge.Evidence.Path,
+		}
 	}
 	memberByID, capturedBytes, err := validateArtifactMembers(artifactMembers, limits)
 	if err != nil {
@@ -365,10 +372,19 @@ func validateIndexerBundleV2(
 		}
 		attachment, attachmentPresent := documentByID[artifact.DocumentID]
 		parent, parentPresent := documentByID[artifact.ParentID]
+		owner := ownerEdges[artifact.DocumentID]
 		if !attachmentPresent || attachment.Kind != ObjectAttachment || attachment.Service != artifact.Service ||
 			!parentPresent || parent.Service != artifact.Service || (parent.Kind != ObjectIssue && parent.Kind != ObjectPage) ||
-			ownerEdges[artifact.DocumentID] != artifact.ParentID {
+			owner.parentID != artifact.ParentID {
 			return "", 0, reject(ReasonMembership)
+		}
+		if owner.inventoryPath != artifact.Source.InventoryPath ||
+			attachment.Source.Path != artifact.Source.InventoryPath ||
+			attachment.Source.MetadataSHA256 != artifact.Source.InventorySHA256 ||
+			attachment.Source.NativeSHA256 != artifact.Source.ParentNativeSHA256 ||
+			parent.Source.NativeSHA256 != artifact.Source.ParentNativeSHA256 ||
+			parent.Source.MetadataSHA256 != artifact.Source.ParentMetadataSHA256 {
+			return "", 0, reject(ReasonLineage)
 		}
 		if _, duplicate := artifactByID[artifact.DocumentID]; duplicate {
 			return "", 0, reject(ReasonMembership)

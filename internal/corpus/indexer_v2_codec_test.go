@@ -77,6 +77,12 @@ func TestIndexerV2RejectsArtifactMembershipAndStatusDrift(t *testing.T) {
 		"unknown status": func(value *IndexerArtifact, _ *ArtifactMember) { value.Status = "unknown" },
 		"member digest":  func(_ *IndexerArtifact, value *ArtifactMember) { value.SHA256 = digestByte('f') },
 		"wrong parent":   func(value *IndexerArtifact, _ *ArtifactMember) { value.ParentID = digestByte('f') },
+		"inventory path lineage": func(value *IndexerArtifact, _ *ArtifactMember) {
+			value.Source.InventoryPath = "EX/other.attachments.json"
+		},
+		"inventory digest lineage": func(value *IndexerArtifact, _ *ArtifactMember) { value.Source.InventorySHA256 = digestByte('f') },
+		"parent native lineage":    func(value *IndexerArtifact, _ *ArtifactMember) { value.Source.ParentNativeSHA256 = digestByte('f') },
+		"parent metadata lineage":  func(value *IndexerArtifact, _ *ArtifactMember) { value.Source.ParentMetadataSHA256 = digestByte('f') },
 	} {
 		t.Run(name, func(t *testing.T) {
 			changedArtifact, changedMember := artifact, member
@@ -94,6 +100,47 @@ func TestIndexerV2RejectsArtifactMembershipAndStatusDrift(t *testing.T) {
 	if _, err := BuildIndexerReceiptV2(qualifications, documents, edges, markdown,
 		[]IndexerArtifact{artifact}, []ArtifactMember{}, Limits{}); !errors.Is(err, ErrIntegrity) {
 		t.Fatalf("missing artifact member error = %v", err)
+	}
+}
+
+func TestIndexerV2RejectsArtifactSourceEvidenceDrift(t *testing.T) {
+	for name, mutate := range map[string]func([]IndexerDocument, []IndexerEdge) error{
+		"attachment inventory path": func(documents []IndexerDocument, _ []IndexerEdge) error {
+			documents[1].Source.Path = "EX/other.attachments.json"
+			return nil
+		},
+		"attachment inventory digest": func(documents []IndexerDocument, _ []IndexerEdge) error {
+			documents[1].Source.MetadataSHA256 = digestByte('f')
+			return nil
+		},
+		"attachment parent native": func(documents []IndexerDocument, _ []IndexerEdge) error {
+			documents[1].Source.NativeSHA256 = digestByte('f')
+			return nil
+		},
+		"parent native": func(documents []IndexerDocument, _ []IndexerEdge) error {
+			documents[0].Source.NativeSHA256 = digestByte('f')
+			return nil
+		},
+		"parent metadata": func(documents []IndexerDocument, _ []IndexerEdge) error {
+			documents[0].Source.MetadataSHA256 = digestByte('f')
+			return nil
+		},
+		"owner evidence path": func(_ []IndexerDocument, edges []IndexerEdge) error {
+			edges[0].Evidence.Path = "EX/other.attachments.json"
+			id, err := DeriveEdgeID(edges[0])
+			edges[0].ID = id
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			documents, edges, markdown, artifact, member, qualifications := validIndexerV2Bundle(t)
+			if err := mutate(documents, edges); err != nil {
+				t.Fatal(err)
+			}
+			_, err := BuildIndexerReceiptV2(qualifications, documents, edges, markdown,
+				[]IndexerArtifact{artifact}, []ArtifactMember{member}, Limits{})
+			assertReason(t, err, ReasonLineage)
+		})
 	}
 }
 
@@ -188,7 +235,7 @@ func validIndexerV2Bundle(t testing.TB) ([]IndexerDocument, []IndexerEdge, []Mar
 	attachment := IndexerDocument{
 		SchemaVersion: IndexerSchemaV1, ID: attachmentID, Service: ServiceJira, Kind: ObjectAttachment,
 		Title: "synthetic.bin", Container: "EX", Labels: []string{},
-		Source:     SourceLineage{Path: "EX/EX-1.attachments.json", NativeSHA256: digestByte('b'), MetadataSHA256: digestByte('c')},
+		Source:     SourceLineage{Path: "EX/EX-1.attachments.json", NativeSHA256: digestByte('b'), MetadataSHA256: digestByte('d')},
 		BodySHA256: rawSHA256(""), RenderStatus: RenderUnsupported, Visibility: VisibilityUnknown,
 		Evidence: []Evidence{
 			{Kind: EvidenceAttachments, Status: EvidenceUnsupported, Reasons: []EvidenceReason{EvidenceUnsupportedReason}},

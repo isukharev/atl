@@ -401,7 +401,7 @@ func (builder *corpusProjectionBuilder) projectJiraAttachments(
 	if !ok {
 		return corpusUnavailable(corpus.EvidenceAttachments, corpus.EvidenceCorrupt), nil
 	}
-	lineage := corpus.SourceLineage{Path: item.Metadata.Path, NativeSHA256: item.Metadata.SHA256, MetadataSHA256: item.Metadata.SHA256}
+	lineage := corpus.SourceLineage{Path: item.Metadata.Path, NativeSHA256: item.Native.SHA256, MetadataSHA256: item.Metadata.SHA256}
 	for _, rawAttachment := range attachments {
 		attachment, ok := rawAttachment.(map[string]any)
 		if !ok {
@@ -519,7 +519,7 @@ func (builder *corpusProjectionBuilder) projectQualifiedAttachments(
 	default:
 		return corpus.Evidence{}, fmt.Errorf("qualified attachment service is unsupported")
 	}
-	lineage := corpus.SourceLineage{Path: sidecar.Path, NativeSHA256: item.Native.SHA256, MetadataSHA256: item.Metadata.SHA256}
+	lineage := corpus.SourceLineage{Path: sidecar.Path, NativeSHA256: item.Native.SHA256, MetadataSHA256: sidecar.SHA256}
 	for _, attachment := range decoded.Attachments {
 		stableID, idErr := corpus.StableObjectID(source.snapshot.OriginSHA256(), source.service, corpus.ObjectAttachment, attachment.ID)
 		if idErr != nil {
