@@ -22,6 +22,7 @@ linked guide is translated.
 | Use repeatable Jira and Confluence workflows | [Agent recipes](agent-recipes.md) | Runnable task-oriented examples |
 | Edit and publish safely | [Safe writes](safe-writes.md) | Reviewed native diff and guarded apply |
 | Refresh, adopt, or recover a mirror | [Mirrors and recovery](mirrors-and-recovery.md) | Non-destructive refresh and three-way evidence |
+| Build an owner-private corpus in a disposable container | [Corpus dev-container](corpus-devcontainer.md) | Bounded read-only capture and sealed indexer handoff outside the checkout |
 | Trace Jira links, docs, and code identities | [Jira artifact graph](jira-artifact-graph.md) | Bounded relationship graph with completeness |
 | Read or change Confluence discussions | [Confluence comments](confluence-comments.md) | Qualified threads and guarded mutations |
 | Recover from an error | [Troubleshooting](troubleshooting.md) | Exit-code-first remediation |
@@ -56,6 +57,7 @@ Read these when you need the model behind a workflow rather than one command.
 | [CSF and fragments](csf-and-fragments.md) | Native Confluence bytes, versioned staging views, opaque content, and resolution |
 | [Jira guarded writeback](jira-guarded-writeback.md) | Baselines, proposal hashes, drift checks, and fail-closed write behavior |
 | [Sealed corpus generations](corpus-generations.md) | Qualified on-demand capture, zero-egress export, private attempts, and atomic indexer selection |
+| [Corpus dev-container](corpus-devcontainer.md) | Pinned runtime, mounted secrets, private roots, sealed handoff, and optional semantic indexing |
 | [Project roadmap](../ROADMAP.md) | Product direction: shipped foundation, now, next, and later |
 
 <a id="canonical-references"></a>

@@ -157,6 +157,57 @@ func TestCorpusDiffRejectsStrayArgumentsBeforeLocalState(t *testing.T) {
 	}
 }
 
+func TestCorpusHandoffIsContentFreeZeroEgressAndExplicit(t *testing.T) {
+	storeRoot := seedCLICorpusQualifiedDiffStore(t)
+	configRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configRoot, "config.json"), []byte(`{"read_only":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests.Add(1) }))
+	defer server.Close()
+	env := map[string]string{"ATL_CONFIG_DIR": configRoot, "ATL_UPDATE_URL": server.URL, "ATL_NO_UPDATE": ""}
+
+	out, _, execErr := executeCLIRaw(t, env, "corpus", "handoff", "--store", storeRoot)
+	if execErr != nil {
+		t.Fatalf("corpus handoff error=%v output=%s", execErr, out)
+	}
+	var result app.CorpusHandoffResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil || result.Qualification != "sealed" ||
+		result.HandoffArtifactWritten || requests.Load() != 0 {
+		t.Fatalf("result=%#v error=%v requests=%d", result, err, requests.Load())
+	}
+	for _, private := range []string{storeRoot, "SECRET-OLD", "PRIVATE/SECRET-OLD.wiki", "credential canary"} {
+		if strings.Contains(out, private) {
+			t.Fatalf("content-free output contains %q: %s", private, out)
+		}
+	}
+
+	artifactRoot := t.TempDir()
+	if err := os.Chmod(artifactRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	artifactPath := filepath.Join(artifactRoot, "handoff.json")
+	out, _, execErr = executeCLIRaw(t, env, "corpus", "handoff", "--store", storeRoot, "--handoff-artifact", artifactPath)
+	if execErr != nil {
+		t.Fatalf("artifact handoff error=%v output=%s", execErr, out)
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil || !result.HandoffArtifactWritten || strings.Contains(out, artifactPath) {
+		t.Fatalf("artifact result=%#v error=%v output=%s", result, err, out)
+	}
+	artifactBytes, err := os.ReadFile(artifactPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handoff, err := corpus.ParseIndexerHandoff(artifactBytes, corpus.Limits{})
+	if err != nil || handoff.Documents.StableID != corpus.IndexerDocumentsStableID {
+		t.Fatalf("handoff=%#v error=%v", handoff, err)
+	}
+	if _, _, execErr = executeCLIRaw(t, env, "corpus", "handoff", "--store", storeRoot, "--handoff-artifact", artifactPath); execErr == nil || codeFor(execErr) != exitCheckFailed {
+		t.Fatalf("exclusive artifact error=%v", execErr)
+	}
+}
+
 func seedCLICorpusJira(t *testing.T, root string) {
 	t.Helper()
 	seedCLICorpusJiraItem(t, root, "EX-1", "10001", "EX/EX-1.wiki", "Synthetic")

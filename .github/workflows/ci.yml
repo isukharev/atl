@@ -79,6 +79,45 @@ jobs:
       - name: Windows source cross-compile
         if: matrix.os == 'ubuntu-latest'
         run: make check-windows-compile
+      - name: Private corpus devcontainer contract
+        if: matrix.os == 'ubuntu-latest'
+        run: make check-corpus-devcontainer
+
+  corpus-devcontainer:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Build exact runtime smoke binaries
+        run: |
+          make build
+          mkdir -p tmp
+          env -u GOROOT GOTOOLCHAIN=auto GOWORK=off CGO_ENABLED=0 \
+            go build -trimpath -o tmp/corpus-devcontainer-check ./scripts/check-corpus-devcontainer
+      - name: Install locked Dev Containers CLI
+        run: |
+          install -d "$RUNNER_TEMP/atl-devcontainers-cli"
+          cp scripts/check-corpus-devcontainer/package.json \
+            scripts/check-corpus-devcontainer/package-lock.json \
+            "$RUNNER_TEMP/atl-devcontainers-cli/"
+          npm ci --prefix "$RUNNER_TEMP/atl-devcontainers-cli" \
+            --ignore-scripts --audit=false --fund=false
+      - name: Pinned private corpus runtime
+        env:
+          ATL_VERSION: v0.7.1
+          ATL_ASSET_SHA256: 33d113fc3e8c90f485293b3e0100cfd8877beccf646536692d31c00e5558ab5a
+        run: |
+          cli="$RUNNER_TEMP/atl-devcontainers-cli/node_modules/.bin/devcontainer"
+          "$cli" up \
+            --workspace-folder "$GITHUB_WORKSPACE" \
+            --config "$GITHUB_WORKSPACE/examples/corpus-devcontainer/.devcontainer/devcontainer.json" \
+            --frozen-lockfile
+          "$cli" exec --workspace-folder "$GITHUB_WORKSPACE" \
+            scripts/check-corpus-devcontainer/container-smoke.sh
 
   agent-eval:
     runs-on: ubuntu-latest

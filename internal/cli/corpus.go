@@ -92,6 +92,35 @@ func newCorpusCmd() *cobra.Command {
 	diff.Flags().StringVar(&diffStoreRoot, "store", "", "existing owner-only sealed-generation store root")
 	diff.Flags().StringVar(&identityArtifact, "identity-artifact", "", "exclusive identity-bearing artifact path under an existing 0700 parent")
 
+	var handoffStoreRoot, handoffArtifact string
+	handoff := &cobra.Command{
+		Use:   "handoff",
+		Short: "Verify a qualified sealed document inventory for an indexer",
+		Args: func(_ *cobra.Command, args []string) error {
+			if len(args) != 0 {
+				return usageErr("corpus handoff accepts no positional arguments")
+			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			result, err := app.PrepareCorpusHandoff(cmd.Context(), app.CorpusHandoffOptions{
+				StoreRoot: handoffStoreRoot, HandoffArtifact: handoffArtifact,
+			})
+			if err != nil {
+				return err
+			}
+			return emit(cmd, result, func() string {
+				return fmt.Sprintf(
+					"qualification=%s generation=%s projection_schema=%d members=%d bytes=%d handoff_artifact_written=%t",
+					result.Qualification, result.Generation.GenerationDigest, result.Generation.ProjectionSchema,
+					result.Generation.Totals.Members, result.Generation.Totals.Bytes, result.HandoffArtifactWritten,
+				)
+			})
+		},
+	}
+	handoff.Flags().StringVar(&handoffStoreRoot, "store", "", "existing owner-only sealed-generation store root")
+	handoff.Flags().StringVar(&handoffArtifact, "handoff-artifact", "", "exclusive private document-route artifact path under an existing 0700 parent outside the store")
+
 	var buildOptions app.CorpusBuildOptions
 	build := &cobra.Command{
 		Use:   "build",
@@ -172,6 +201,6 @@ func newCorpusCmd() *cobra.Command {
 	build.Flags().Int64Var(&buildOptions.MaxTotalAttachmentBytes, "max-total-attachment-bytes", 0, "generation-wide attachment body byte cap")
 	build.Flags().BoolVar(&buildOptions.AllowPartialEvidence, "allow-partial-evidence", false, "publish requested evidence with explicit partial qualifications")
 
-	group.AddCommand(build, diff, export)
+	group.AddCommand(build, diff, export, handoff)
 	return group
 }

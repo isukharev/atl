@@ -1,0 +1,8 @@
+{
+  "name": "atl-corpus-devcontainer-ci",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "@devcontainers/cli": "0.88.0"
+  }
+}

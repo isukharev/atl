@@ -28,6 +28,8 @@ See also: [CLI reference](reference/cli/README.md) · [self-update.md](self-upda
 | Jira Development identities | Explicit CLI `jira issue graph --include-development` or typed MCP `jira_issue_graph` with `include_development:true`; one summary and zero to 24 detail GETs per expanded Jira issue | Configured Jira origin with the Jira PAT; returned GitLab coordinates receive no request | Omit the option or use false to preserve the stable request set. Compact CLI output and both MCP branches omit Development-node web URLs; full CLI preserves its existing canonical URLs. None of these output forms fetches them. ATL never contacts GitLab, follows artifact URLs, clones repositories, or forwards Jira credentials. Any downstream read requires exact owner-approved lowercase host equality and a separately authenticated read-only client. |
 | Jira graph Confluence resolution | Explicit CLI `jira issue graph --resolve confluence` only | Optional configured Confluence origin receives one id/title-only GET per discovered canonical page id | Keep `--resolve none` when metadata resolution is unnecessary. MCP v1 exposes no Confluence-resolution input. |
 | Qualified corpus build | Explicit `corpus build` with one nominated Jira project and/or Confluence space | Only the selected configured origins receive principal, qualified complete-selection, and native body GETs under one shared attempt/response-byte/deadline/scheduler budget | The command requires invocation-wide `--read-only` or `ATL_READ_ONLY=1`, fixes minimal rendering, disables Jira-macro expansion, injects deny-all write authorization, and fully redacts verbose routes. Use offline `corpus export` when current mirrors are sufficient. |
+| Sealed corpus handoff | Explicit local `corpus handoff` | No destination and no credentials; only the selected sealed generation is read | Keep the optional identity-bearing artifact outside the store under an owner-only parent. The command does not launch an indexer. |
+| Corpus dev-container release install | Creation of the supported runtime template | Pinned base/feature registries, the exact ATL GitHub release asset, and GitHub attestation verification; no Jira or Confluence PAT is used | Pre-provision a separately verified binary when policy forbids install-time egress. Never add backend credentials to the image or build inputs. |
 | Setup doctor | Explicit `doctor --remote` | One Jira version GET; one Confluence version GET plus, only after `404`, one bodyless reachability HEAD to the same configured origin | Omit `--remote` for the fully offline diagnostic. |
 | Environment inspection | Explicit `environment inspect` | At most three metadata GETs across configured Jira/Confluence services | Do not run it offline; reuse previously reviewed environment evidence. |
 | MCP evidence tools | An agent explicitly calls one of the registered tools | Same configured Jira/Confluence origins and host-scoped PATs | Do not call a remote tool in a no-backend session. Merely starting the MCP server makes no request and skips self-update. |
@@ -87,21 +89,36 @@ atl conf diff mirror/page.csf
 atl jira render mirror-jira
 atl corpus export --jira mirror-jira --store private-corpus
 atl corpus diff --store private-corpus
+atl corpus handoff --store private-corpus
 ```
 
-`atl corpus export` and `atl corpus diff` are stronger than the general
+`atl corpus export`, `atl corpus diff`, and `atl corpus handoff` are stronger than the general
 local-command guidance below: they skip self-update, configuration, and
 credential loading by construction and perform no backend request. Export
 reads only pristine mirror evidence and writes the requested owner-private
 local store. Diff verifies only sealed local generations and writes identities
-only when an exclusive private artifact is explicitly requested. The store and
-identity artifact are sensitive even though normal command output is
-content-free.
+only when an exclusive private artifact is explicitly requested. Handoff
+verifies one qualified current document inventory and likewise writes its
+private route only on request. The store and both artifact types are sensitive
+even though normal command output is content-free.
 
 `atl corpus build` is not air-gapped: it intentionally reads the nominated
 configured backends. Its mandatory read-only policy blocks backend mutation but
 does not block network access. Do not substitute it for `corpus export` in a
 no-egress environment.
+
+The corpus dev-container adds two boundaries outside ordinary ATL startup. Its
+post-create installer contacts the pinned release/provenance endpoints, and
+its wrapper makes qualified `corpus build` the first and only remote operation
+against the nominated backends. The complete static selector/bound contract is
+therefore validated before any request. `ATL_NO_UPDATE=1` prevents a separate
+update request, and an `env -i` allowlist excludes ambient proxies and trust
+overrides. A downstream semantic indexer such as Graphify is not
+an ATL request path and may transmit the staged document inventory to its own
+configured model provider. Use a loopback model plus container network policy
+for zero semantic egress; the wrapper's explicit approval variable is an
+acknowledgement, not a firewall. See
+[Owner-private corpus in a development container](corpus-devcontainer.md).
 
 `version`, `capabilities`, help/completion, `auth`, `config`, and `profile`
 commands skip self-update by construction. The render, validate, diff, status,

@@ -1,0 +1,15 @@
+{
+  "name": "atl private corpus runtime",
+  "image": "mcr.microsoft.com/devcontainers/base:bookworm@sha256:73d85a96694a2cadca1ba3fcb5721f2312a64f1d571dd86f6c77e10a708931dc",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "containerEnv": {
+    "ATL_VERSION": "${localEnv:ATL_VERSION}",
+    "ATL_ASSET_SHA256": "${localEnv:ATL_ASSET_SHA256}",
+    "ATL_READ_ONLY": "1",
+    "ATL_NO_UPDATE": "1"
+  },
+  "postCreateCommand": "sh ${containerWorkspaceFolder}/examples/corpus-devcontainer/install-atl.sh",
+  "remoteUser": "vscode"
+}

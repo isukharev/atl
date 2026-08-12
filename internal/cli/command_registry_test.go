@@ -63,6 +63,7 @@ config show
 corpus build
 corpus diff
 corpus export
+corpus handoff
 doctor
 environment inspect
 help

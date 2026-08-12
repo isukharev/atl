@@ -114,6 +114,7 @@
     {"id":"local-corpus-build","document":"docs/reference/cli/local-artifacts.md","evidence":"## `atl corpus build`","commands":["corpus build"]},
     {"id":"local-corpus-diff","document":"docs/reference/cli/local-artifacts.md","evidence":"## `atl corpus diff`","commands":["corpus diff"]},
     {"id":"local-corpus-export","document":"docs/reference/cli/local-artifacts.md","evidence":"## `atl corpus export`","commands":["corpus export"]},
+    {"id":"local-corpus-handoff","document":"docs/reference/cli/local-artifacts.md","evidence":"## `atl corpus handoff`","commands":["corpus handoff"]},
     {"id":"local-manifest","document":"docs/reference/cli/local-artifacts.md","evidence":"## `atl manifest create`","commands":["manifest create"]}
   ],
   "mutation_profiles": [

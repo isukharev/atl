@@ -241,6 +241,7 @@ R json,text config show
 R json,text corpus build
 R json,text corpus diff
 R json,text corpus export
+R json,text corpus handoff
 R json,text doctor
 R json,text environment inspect
 R json,text help

@@ -200,6 +200,30 @@ func FuzzStrictGenerationDeltaCodecs(f *testing.F) {
 	})
 }
 
+func FuzzStrictIndexerHandoffCodec(f *testing.F) {
+	handoff, err := BuildIndexerHandoff(strings.Repeat("1", 32), digestByte('a'), IndexerSchemaV2, validIndexerHandoffMember(), Limits{})
+	if err != nil {
+		f.Fatal(err)
+	}
+	canonical, err := CanonicalIndexerHandoff(handoff, Limits{})
+	if err != nil {
+		f.Fatal(err)
+	}
+	for _, seed := range [][]byte{
+		canonical,
+		[]byte(`{"schema_version":1,"schema_version":2}`),
+		{0xff, 0x00, '{', '}'},
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(_ *testing.T, data []byte) {
+		_, _ = ParseIndexerHandoff(data, Limits{
+			MaxMembers: 1_000, MaxMemberBytes: 1 << 20, MaxTotalBytes: 1 << 20,
+			MaxManifestBytes: 1 << 20, MaxPathBytes: 1_024, MaxPathDepth: 32,
+		})
+	})
+}
+
 func FuzzStrictBuildActiveCodec(f *testing.F) {
 	canonical, err := CanonicalBuildActive(validBuildActive(), Limits{})
 	if err != nil {

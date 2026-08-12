@@ -13,8 +13,8 @@
 **Lossless local workflows for Jira and Confluence Server/Data Center.**
 
 `atl` lets people and coding agents inspect, mirror, diff, and update
-Atlassian content locally. Native Confluence `.csf` and Jira `.wiki` bytes
-remain the write substrate; Markdown is only a readable staging view. Remote
+Atlassian content. Native Confluence `.csf` and Jira `.wiki` bytes remain the
+write substrate; Markdown is a staging view. Remote
 writes require explicit version, baseline, or proposal gates.
 
 ```sh
@@ -38,17 +38,15 @@ read-only policy until one exact write proposal has been reviewed.
 | Mirror, edit, and publish safely | [Safe writes](docs/safe-writes.md) |
 | Refresh or recover an existing mirror | [Mirrors and recovery](docs/mirrors-and-recovery.md) |
 | Compare qualified generations | [Sealed corpus generations](docs/corpus-generations.md) |
+| Build a private corpus in a container | [Corpus dev-container](docs/corpus-devcontainer.md) |
 | Discover Jira projects, create schema, and [links](docs/jira-artifact-graph.md) | [Jira commands](docs/reference/cli/README.md) |
 | Read or change Confluence discussions | [Qualified comments](docs/confluence-comments.md) |
 | See the core guarantees without credentials | [Reproducible demos](docs/demos/README.md) |
 | Diagnose setup, access, or conflict errors | [Troubleshooting](docs/troubleshooting.md) |
 
-The [task-first documentation index](docs/README.md) leads to focused workflows.
-Use the [command reference](docs/reference/cli/README.md) or
-[output contract](docs/reference/output/README.md) when exact flags or wire
-fields matter.
-
-See [corpus builds and diffs](docs/corpus-generations.md).
+The [documentation index](docs/README.md) leads to workflows. Use the
+[command](docs/reference/cli/README.md) or
+[output](docs/reference/output/README.md) reference for exact flags and wire fields.
 
 ## Install
 
