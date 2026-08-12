@@ -50,14 +50,8 @@ func connectRawMCPPeer(t *testing.T) *rawMCPPeer {
 
 func (p *rawMCPPeer) call(raw string) *jsonrpc.Response {
 	p.t.Helper()
-	message, err := jsonrpc.DecodeMessage([]byte(raw))
-	if err != nil {
-		p.t.Fatalf("decode request: %v", err)
-	}
-	if err := p.connection.Write(p.ctx, message); err != nil {
-		p.t.Fatalf("write request: %v", err)
-	}
-	message, err = p.connection.Read(p.ctx)
+	p.write(raw)
+	message, err := p.connection.Read(p.ctx)
 	if err != nil {
 		p.t.Fatalf("read response: %v", err)
 	}
@@ -66,6 +60,17 @@ func (p *rawMCPPeer) call(raw string) *jsonrpc.Response {
 		p.t.Fatalf("response type=%T", message)
 	}
 	return response
+}
+
+func (p *rawMCPPeer) write(raw string) {
+	p.t.Helper()
+	message, err := jsonrpc.DecodeMessage([]byte(raw))
+	if err != nil {
+		p.t.Fatalf("decode request: %v", err)
+	}
+	if err := p.connection.Write(p.ctx, message); err != nil {
+		p.t.Fatalf("write request: %v", err)
+	}
 }
 
 func TestServerSupportsModernDiscoveryWithoutInitialize(t *testing.T) {
@@ -110,6 +115,7 @@ func TestServerPreservesLegacyInitializeFallback(t *testing.T) {
 	if result.ProtocolVersion != legacyMCPProtocolVersion || result.ServerInfo == nil || result.ServerInfo.Name != "atl" {
 		t.Fatalf("initialize result=%+v", result)
 	}
+	peer.write(`{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}`)
 	listed := peer.call(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`)
 	if listed.Error != nil || len(listed.Result) == 0 {
 		t.Fatalf("legacy tools/list result=%s error=%v", listed.Result, listed.Error)
