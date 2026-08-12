@@ -9,7 +9,9 @@ import (
 )
 
 const (
-	expectedManifestMCPServers = "./.mcp.json"
+	expectedManifestMCPServers      = "./.mcp.json"
+	codexMCPProtocolEnvironmentName = "CODEX_MCP_PROTOCOL_VERSION"
+	codexMCPProtocolVersion         = "2026-07-28"
 )
 
 type pluginManifest struct {
@@ -22,8 +24,9 @@ type generatedMCPConfig struct {
 }
 
 type generatedMCPServer struct {
-	Command string   `json:"command"`
-	Args    []string `json:"args"`
+	Command string            `json:"command"`
+	Args    []string          `json:"args"`
+	Env     map[string]string `json:"env"`
 }
 
 // GeneratedMCPConfigs derives each invocation from the manifest that consumes
@@ -65,7 +68,7 @@ func generatedMCPConfigForManifest(data []byte) ([]byte, error) {
 			"mcp", "serve",
 			"--" + InterfaceFlagName + "=" + strconv.Itoa(InterfaceVersion),
 			"--" + ProductFlagName + "=" + manifest.Version,
-		}},
+		}, Env: map[string]string{codexMCPProtocolEnvironmentName: codexMCPProtocolVersion}},
 	}}
 	rendered, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {

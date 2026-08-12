@@ -97,6 +97,16 @@ constructs no backend. Unknown tools and malformed outer requests remain
 JSON-RPC protocol errors. Schema-valid application failures retain their
 existing tool-specific envelopes.
 
+ATL supports stateless `2026-07-28` discovery and the legacy `2025-11-25`
+initialize/initialized handshake. Its complete tool catalog is returned in one
+page with no cursor. Every `tools/list` result requires numeric integral
+`ttlMs:0` and `cacheScope:"public"`. The legacy selected-ATL envelope contains
+exactly `tools`, `ttlMs`, and `cacheScope`; the modern response additionally
+contains that era's `resultType` and server `_meta`. The strict evaluator
+rejects missing, null, fractional, negative, non-zero, or overflowing TTLs,
+unknown scopes, cursors, duplicate members, and other top-level members on the
+legacy selected-binary path.
+
 Generated plugin startup markers are validated before the MCP protocol starts.
 An incomplete, repeated, malformed, or incompatible marked invocation leaves
 stdout empty and uses the ordinary content-free CLI `usage_error` envelope on
@@ -106,6 +116,12 @@ from MCP `serverInfo`, and the startup gate emits no runtime product status.
 Its `name` and `version` remain the running binary's
 self-reported wire identity, not verification of the plugin package, invocation
 marker, or executable provenance.
+
+The generated server environment contains exactly the public
+`CODEX_MCP_PROTOCOL_VERSION=2026-07-28` marker. Codex 0.147 selects modern mode
+only when its user-controlled under-development `mcp_2026_07_28` feature is
+also enabled; feature only or marker only selects legacy. The plugin cannot
+enable the feature, and the marker itself proves no identity or provenance.
 
 `atl mcp serve --service jira|confluence|offline` selects one closed reviewed
 inventory. Omission preserves the default twenty-three tools and instruction bytes.

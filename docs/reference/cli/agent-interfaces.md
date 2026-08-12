@@ -231,6 +231,13 @@ JSON. Install through the
 Claude Code/Codex plugin or see [mcp.md](../../mcp.md) for the exact tools, bounds,
 standalone Codex config, and CLI fallback guidance.
 
+The server is dual-era. Modern `2026-07-28` clients use stateless
+`server/discover` and list tools without initialize; legacy `2025-11-25`
+clients retain initialize/initialized. Unsupported future versions fail with
+structured requested/supported version data. The closed one-page `tools/list`
+result has no cursor and always carries `ttlMs:0` plus
+`cacheScope:"public"`.
+
 Committed Claude Code and Codex plugin definitions add hidden generated
 `plugin-interface-contract` and `plugin-product-version` startup markers. The
 interface marker is the compatibility gate: an incompatible marked invocation
@@ -243,6 +250,13 @@ standalone invocation, or an indistinguishable older unmarked plugin, remains
 supported with both facts `unverified`. A newer marked plugin used with an old
 binary fails through that binary's ordinary unknown-flag path; no symmetric
 old-plugin/new-binary rejection is claimed.
+
+Generated definitions also set exactly
+`CODEX_MCP_PROTOCOL_VERSION=2026-07-28`. On Codex 0.147 that per-server marker
+and the user-controlled under-development global `mcp_2026_07_28` feature are
+both required for modern mode; either alone remains legacy. The plugin cannot
+enable the global feature. The marker selects client protocol behavior and is
+not identity, authentication, or provenance evidence.
 
 Omitting `--service` preserves the complete twenty-three-tool inventory and existing
 instructions. The closed Jira/Confluence/offline profiles expose 11/12/2 tools;

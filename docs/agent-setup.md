@@ -34,6 +34,19 @@ Start a new Codex session and invoke the explicit `setup` skill from `/skills`
 or with `$setup`. Optional workflow personalization is separate and
 consent-gated through `$onboarding`; setup is complete without it.
 
+The generated plugin supplies the per-server
+`CODEX_MCP_PROTOCOL_VERSION=2026-07-28` marker. Codex 0.147 uses modern
+stateless MCP only when the user also enables its under-development global
+feature and restarts:
+
+```sh
+codex features enable mcp_2026_07_28
+```
+
+Marker only or feature only remains on the supported legacy handshake. The
+plugin cannot enable the global feature, and the marker selects client protocol
+behavior rather than authenticating ATL or proving package provenance.
+
 ## Choose the execution surface
 
 | Need | Preferred surface | Why |
@@ -97,12 +110,18 @@ policy disabled.
 
 Plugin skills and the CLI release under the same product version. Generated
 plugin MCP definitions pass a separate interface-contract marker and their
-manifest product version to `atl mcp serve`. An incompatible marked interface
+manifest product version to `atl mcp serve`; they also set the public Codex
+protocol-mode marker described above. An incompatible marked interface
 fails with exit `2` before config, credentials, dependency construction, or
 network access. Product-version mismatch is computed separately and does not
 reject an otherwise compatible interface. The startup gate does not emit that
 product status at runtime: compare `atl version` with the installed plugin or
 manifest version when diagnosing skew.
+
+Protocol selection is independent of those startup checks. ATL remains
+dual-era: modern `2026-07-28` uses `server/discover`, while legacy
+`2025-11-25` uses initialize/initialized. Its one-page tool inventory carries
+the required `ttlMs:0` and `cacheScope:"public"` cache fields in both eras.
 
 A newly generated plugin used with an older binary fails through that binary's
 normal unknown-flag parsing. An older unmarked plugin used with a newer binary

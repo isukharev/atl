@@ -15,8 +15,8 @@ skills-src/                 ← SOURCE OF TRUTH: edit here, and only here
 skills/                     ← GENERATED: the Claude Code plugin (openai.yaml omitted)
 plugins/atl/skills/         ← GENERATED: the Codex plugin (openai.yaml included)
 
-.mcp.json                   ← generated Claude plugin MCP definition
-plugins/atl/.mcp.json       ← generated Codex plugin MCP definition
+.mcp.json                   ← generated Claude plugin MCP definition and public protocol marker
+plugins/atl/.mcp.json       ← generated Codex plugin MCP definition and public protocol marker
 
 scripts/gen-plugins/        the generator (Go; unit-tested)
 internal/plugincontract/    compiled interface owner shared by generator and CLI
@@ -36,7 +36,8 @@ stop and edit the `skills-src/` original instead.
 3. Commit **every generated output in the same PR**. When MCP config changes,
    commit root `.mcp.json` and the generated Codex definition. The generator
    verifies that both consuming manifests retain the exact `./.mcp.json`
-   reference.
+   reference and emits exactly the reviewed public protocol environment marker,
+   never credentials or inherited environment names.
 
 CI runs `make check-plugins` (validate metadata and routing, regenerate, then
 `git status --porcelain` over the outputs), so malformed metadata and stale or
@@ -126,6 +127,14 @@ malformed scalar forms, and wrong default-prompt targets. Repository contract
 tests and private benchmark provisioning separately reject generated or
 installed inventory drift.
 
+Both generated `.mcp.json` files set only
+`CODEX_MCP_PROTOCOL_VERSION=2026-07-28` in the server's `env` object. This is a
+Codex client-mode selector, not an ATL identity or provenance claim. Modern
+Codex 0.147 operation additionally requires the user-controlled,
+under-development global `mcp_2026_07_28` feature; the generated plugin cannot
+enable it, and either gate alone leaves the client on ATL's supported legacy
+handshake.
+
 ## How to extend
 
 - **New platform-specific string:** add a `{{atl.<name>}}` placeholder in the
@@ -155,4 +164,6 @@ stale version means installed plugins silently never update. Each generated
 MCP invocation derives its product-version marker directly from its consuming
 manifest, so there is no third release version to synchronize manually. Its
 separate interface marker comes from `internal/plugincontract.InterfaceVersion`,
-the same compiled owner used by the binary startup check.
+the same compiled owner used by the binary startup check. The protocol marker
+is release-independent generated configuration and does not require a plugin
+manifest version bump.
