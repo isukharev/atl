@@ -304,6 +304,25 @@ func TestJiraQualifiedEvidenceProjectsIndexerV2Artifacts(t *testing.T) {
 		result.Projection.Counts.Documents != 6 || result.Projection.Counts.Artifacts != 2 || result.Projection.Counts.ArtifactBytes != 6 {
 		t.Fatalf("projection=%#v", result)
 	}
+	snapshot, err := mirror.New(mirrorRoot).BeginCorpusSnapshot(mirror.CorpusSnapshotJira, mirror.CorpusSnapshotOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	documentLineageByInventory := make(map[string]corpus.SourceLineage)
+	artifactLineageByInventory := make(map[string]corpus.ArtifactSourceLineage)
+	for _, item := range snapshot.Inventory() {
+		sidecar, present := corpusAuxiliaryWithSuffix(item.Auxiliaries, ".attachments.json")
+		if !present {
+			t.Fatalf("attachment sidecar missing from snapshot item %#v", item)
+		}
+		documentLineageByInventory[sidecar.Path] = corpus.SourceLineage{
+			Path: sidecar.Path, NativeSHA256: item.Native.SHA256, MetadataSHA256: item.Metadata.SHA256,
+		}
+		artifactLineageByInventory[sidecar.Path] = corpus.ArtifactSourceLineage{
+			InventoryPath: sidecar.Path, InventorySHA256: sidecar.SHA256,
+			ParentNativeSHA256: item.Native.SHA256, ParentMetadataSHA256: item.Metadata.SHA256,
+		}
+	}
 	documents, edges := readCorpusExportProjection(t, storeRoot, corpus.ServiceJira)
 	comments, attachments, owners := 0, 0, 0
 	for _, document := range documents {
@@ -319,8 +338,9 @@ func TestJiraQualifiedEvidenceProjectsIndexerV2Artifacts(t *testing.T) {
 			}
 		case corpus.ObjectAttachment:
 			attachments++
-			if !strings.HasSuffix(document.Source.Path, ".attachments.json") {
-				t.Fatalf("attachment lineage=%#v", document.Source)
+			want, present := documentLineageByInventory[document.Source.Path]
+			if !present || document.Source != want {
+				t.Fatalf("attachment lineage=%#v want=%#v", document.Source, want)
 			}
 		}
 	}
@@ -354,9 +374,10 @@ func TestJiraQualifiedEvidenceProjectsIndexerV2Artifacts(t *testing.T) {
 		t.Fatalf("artifacts=%#v error=%v", artifacts, err)
 	}
 	for _, artifact := range artifacts {
+		wantLineage, present := artifactLineageByInventory[artifact.Source.InventoryPath]
 		if artifact.Status != corpus.ArtifactBodyCaptured || artifact.Size != 3 || artifact.DeclaredSize != 3 ||
-			!strings.HasPrefix(artifact.Path, "artifacts/jira/") || !strings.HasSuffix(artifact.Source.InventoryPath, ".attachments.json") {
-			t.Fatalf("artifact=%#v", artifact)
+			!strings.HasPrefix(artifact.Path, "artifacts/jira/") || !present || artifact.Source != wantLineage {
+			t.Fatalf("artifact=%#v want_lineage=%#v", artifact, wantLineage)
 		}
 		var body bytes.Buffer
 		if _, err := selected.CopyMember(t.Context(), corpus.ServiceJira, artifact.DocumentID, corpus.RoleAsset, &body); err != nil || body.String() != "abc" {

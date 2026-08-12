@@ -341,6 +341,7 @@ func validateIndexerBundleV2(
 	type attachmentOwner struct {
 		parentID      string
 		inventoryPath string
+		qualified     bool
 	}
 	ownerEdges := make(map[string]attachmentOwner)
 	for _, edge := range edges {
@@ -353,12 +354,19 @@ func validateIndexerBundleV2(
 			!parentPresent || parent.Service != attachment.Service || (parent.Kind != ObjectIssue && parent.Kind != ObjectPage) {
 			return "", 0, reject(ReasonMembership)
 		}
+		qualified := edge.Confidence == ConfidenceExact && edge.Evidence.Fragment == "attachment-owner"
+		legacy := edge.Confidence == ConfidenceReported && edge.Evidence.Fragment == "fields.attachment" &&
+			attachment.Service == ServiceJira && parent.Kind == ObjectIssue
+		if edge.Direction != DirectionOutbound || edge.Evidence.Kind != EvidenceAttachments || (!qualified && !legacy) {
+			return "", 0, reject(ReasonMembership)
+		}
 		if _, duplicate := ownerEdges[edge.SourceID]; duplicate {
 			return "", 0, reject(ReasonMembership)
 		}
 		ownerEdges[edge.SourceID] = attachmentOwner{
 			parentID:      edge.TargetID,
 			inventoryPath: edge.Evidence.Path,
+			qualified:     qualified,
 		}
 	}
 	memberByID, capturedBytes, err := validateArtifactMembers(artifactMembers, limits)
@@ -380,10 +388,21 @@ func validateIndexerBundleV2(
 		}
 		if owner.inventoryPath != artifact.Source.InventoryPath ||
 			attachment.Source.Path != artifact.Source.InventoryPath ||
-			attachment.Source.MetadataSHA256 != artifact.Source.InventorySHA256 ||
-			attachment.Source.NativeSHA256 != artifact.Source.ParentNativeSHA256 ||
 			parent.Source.NativeSHA256 != artifact.Source.ParentNativeSHA256 ||
 			parent.Source.MetadataSHA256 != artifact.Source.ParentMetadataSHA256 {
+			return "", 0, reject(ReasonLineage)
+		}
+		// The established v1 attachment lineage uses parent digests for
+		// qualified sidecars and the Jira metadata inventory digest for both
+		// legacy digest fields. ArtifactSourceLineage carries the missing half.
+		if owner.qualified {
+			if attachment.Source.NativeSHA256 != artifact.Source.ParentNativeSHA256 ||
+				attachment.Source.MetadataSHA256 != artifact.Source.ParentMetadataSHA256 {
+				return "", 0, reject(ReasonLineage)
+			}
+		} else if attachment.Source.NativeSHA256 != artifact.Source.InventorySHA256 ||
+			attachment.Source.MetadataSHA256 != artifact.Source.InventorySHA256 ||
+			attachment.Source.MetadataSHA256 != artifact.Source.ParentMetadataSHA256 {
 			return "", 0, reject(ReasonLineage)
 		}
 		if _, duplicate := artifactByID[artifact.DocumentID]; duplicate {

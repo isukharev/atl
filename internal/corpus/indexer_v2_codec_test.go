@@ -70,6 +70,75 @@ func TestIndexerV2PreservesStrictV1ReceiptBoundary(t *testing.T) {
 	}
 }
 
+func TestIndexerV2PreservesEstablishedV1AttachmentDocumentAndReceiptBytes(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		legacy       bool
+		documentHash string
+		receiptHash  string
+	}{
+		{
+			name:         "qualified",
+			documentHash: "8be3aaad7a2cbc67283d6ee8d41179562e2ce947a502978a3305005e0181411d",
+			receiptHash:  "6be43c2813346993e73c1b818b357e0961dbb4c5e8a534b3fa447d8c7ede8595",
+		},
+		{
+			name:         "legacy",
+			legacy:       true,
+			documentHash: "64355ec13075622054ea467dd36624f34bdb0f7a798dd7c73715a18351d14878",
+			receiptHash:  "c312545c1b67f240cc27ac09235c3bb6da7a803d1d0412da5a14c8cef5529bad",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			documents, edges, markdown, _, _, qualifications := validIndexerV2Bundle(t)
+			if test.legacy {
+				documents, edges, markdown, _, qualifications = validLegacyIndexerV2Bundle(t)
+			}
+			documentBytes, err := CanonicalIndexerDocuments([]IndexerDocument{documents[1]}, Limits{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			receipt, err := BuildIndexerReceipt(qualifications, documents, edges, markdown, Limits{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			receiptBytes, err := CanonicalIndexerReceipt(receipt, Limits{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := rawSHA256(string(documentBytes)); got != test.documentHash {
+				t.Fatalf("document bytes hash = %s, want %s", got, test.documentHash)
+			}
+			if got := rawSHA256(string(receiptBytes)); got != test.receiptHash {
+				t.Fatalf("receipt bytes hash = %s, want %s", got, test.receiptHash)
+			}
+		})
+	}
+}
+
+func TestIndexerV2AcceptsClosedAttachmentOwnerShapes(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		legacy bool
+	}{
+		{name: "qualified"},
+		{name: "legacy", legacy: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			documents, edges, markdown, artifact, member, qualifications := validIndexerV2Bundle(t)
+			members := []ArtifactMember{member}
+			if test.legacy {
+				documents, edges, markdown, artifact, qualifications = validLegacyIndexerV2Bundle(t)
+				members = []ArtifactMember{}
+			}
+			if _, err := BuildIndexerReceiptV2(qualifications, documents, edges, markdown,
+				[]IndexerArtifact{artifact}, members, Limits{}); err != nil {
+				t.Fatalf("BuildIndexerReceiptV2: %v", err)
+			}
+		})
+	}
+}
+
 func TestIndexerV2RejectsArtifactMembershipAndStatusDrift(t *testing.T) {
 	documents, edges, markdown, artifact, member, qualifications := validIndexerV2Bundle(t)
 	for name, mutate := range map[string]func(*IndexerArtifact, *ArtifactMember){
@@ -77,12 +146,6 @@ func TestIndexerV2RejectsArtifactMembershipAndStatusDrift(t *testing.T) {
 		"unknown status": func(value *IndexerArtifact, _ *ArtifactMember) { value.Status = "unknown" },
 		"member digest":  func(_ *IndexerArtifact, value *ArtifactMember) { value.SHA256 = digestByte('f') },
 		"wrong parent":   func(value *IndexerArtifact, _ *ArtifactMember) { value.ParentID = digestByte('f') },
-		"inventory path lineage": func(value *IndexerArtifact, _ *ArtifactMember) {
-			value.Source.InventoryPath = "EX/other.attachments.json"
-		},
-		"inventory digest lineage": func(value *IndexerArtifact, _ *ArtifactMember) { value.Source.InventorySHA256 = digestByte('f') },
-		"parent native lineage":    func(value *IndexerArtifact, _ *ArtifactMember) { value.Source.ParentNativeSHA256 = digestByte('f') },
-		"parent metadata lineage":  func(value *IndexerArtifact, _ *ArtifactMember) { value.Source.ParentMetadataSHA256 = digestByte('f') },
 	} {
 		t.Run(name, func(t *testing.T) {
 			changedArtifact, changedMember := artifact, member
@@ -103,29 +166,41 @@ func TestIndexerV2RejectsArtifactMembershipAndStatusDrift(t *testing.T) {
 	}
 }
 
-func TestIndexerV2RejectsArtifactSourceEvidenceDrift(t *testing.T) {
-	for name, mutate := range map[string]func([]IndexerDocument, []IndexerEdge) error{
-		"attachment inventory path": func(documents []IndexerDocument, _ []IndexerEdge) error {
+func TestIndexerV2RejectsQualifiedArtifactSourceLineageDrift(t *testing.T) {
+	for name, mutate := range map[string]func([]IndexerDocument, []IndexerEdge, *IndexerArtifact) error{
+		"artifact inventory path": func(_ []IndexerDocument, _ []IndexerEdge, artifact *IndexerArtifact) error {
+			artifact.Source.InventoryPath = "EX/other.attachments.json"
+			return nil
+		},
+		"attachment inventory path": func(documents []IndexerDocument, _ []IndexerEdge, _ *IndexerArtifact) error {
 			documents[1].Source.Path = "EX/other.attachments.json"
 			return nil
 		},
-		"attachment inventory digest": func(documents []IndexerDocument, _ []IndexerEdge) error {
+		"attachment parent metadata": func(documents []IndexerDocument, _ []IndexerEdge, _ *IndexerArtifact) error {
 			documents[1].Source.MetadataSHA256 = digestByte('f')
 			return nil
 		},
-		"attachment parent native": func(documents []IndexerDocument, _ []IndexerEdge) error {
+		"attachment parent native": func(documents []IndexerDocument, _ []IndexerEdge, _ *IndexerArtifact) error {
 			documents[1].Source.NativeSHA256 = digestByte('f')
 			return nil
 		},
-		"parent native": func(documents []IndexerDocument, _ []IndexerEdge) error {
+		"artifact parent native": func(_ []IndexerDocument, _ []IndexerEdge, artifact *IndexerArtifact) error {
+			artifact.Source.ParentNativeSHA256 = digestByte('f')
+			return nil
+		},
+		"artifact parent metadata": func(_ []IndexerDocument, _ []IndexerEdge, artifact *IndexerArtifact) error {
+			artifact.Source.ParentMetadataSHA256 = digestByte('f')
+			return nil
+		},
+		"parent native": func(documents []IndexerDocument, _ []IndexerEdge, _ *IndexerArtifact) error {
 			documents[0].Source.NativeSHA256 = digestByte('f')
 			return nil
 		},
-		"parent metadata": func(documents []IndexerDocument, _ []IndexerEdge) error {
+		"parent metadata": func(documents []IndexerDocument, _ []IndexerEdge, _ *IndexerArtifact) error {
 			documents[0].Source.MetadataSHA256 = digestByte('f')
 			return nil
 		},
-		"owner evidence path": func(_ []IndexerDocument, edges []IndexerEdge) error {
+		"owner evidence path": func(_ []IndexerDocument, edges []IndexerEdge, _ *IndexerArtifact) error {
 			edges[0].Evidence.Path = "EX/other.attachments.json"
 			id, err := DeriveEdgeID(edges[0])
 			edges[0].ID = id
@@ -134,7 +209,7 @@ func TestIndexerV2RejectsArtifactSourceEvidenceDrift(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			documents, edges, markdown, artifact, member, qualifications := validIndexerV2Bundle(t)
-			if err := mutate(documents, edges); err != nil {
+			if err := mutate(documents, edges, &artifact); err != nil {
 				t.Fatal(err)
 			}
 			_, err := BuildIndexerReceiptV2(qualifications, documents, edges, markdown,
@@ -144,23 +219,80 @@ func TestIndexerV2RejectsArtifactSourceEvidenceDrift(t *testing.T) {
 	}
 }
 
-func TestIndexerV2RequiresExactlyOneMatchingAttachmentOwner(t *testing.T) {
+func TestIndexerV2BindsQualifiedInventoryDigestInV2Receipt(t *testing.T) {
 	documents, edges, markdown, artifact, member, qualifications := validIndexerV2Bundle(t)
-
-	sameOwner := edges[0]
-	sameOwner.Direction = DirectionInbound
-	var err error
-	sameOwner.ID, err = DeriveEdgeID(sameOwner)
+	receipt, err := BuildIndexerReceiptV2(qualifications, documents, edges, markdown,
+		[]IndexerArtifact{artifact}, []ArtifactMember{member}, Limits{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := BuildIndexerReceipt(qualifications, documents, append(edges, sameOwner), markdown, Limits{}); err != nil {
-		t.Fatalf("v1 compatibility rejected duplicate owner shape: %v", err)
+	artifact.Source.InventorySHA256 = digestByte('f')
+	if _, err := BuildIndexerReceiptV2(qualifications, documents, edges, markdown,
+		[]IndexerArtifact{artifact}, []ArtifactMember{member}, Limits{}); err != nil {
+		t.Fatalf("independently valid inventory digest: %v", err)
 	}
-	if _, err := BuildIndexerReceiptV2(qualifications, documents, append(edges, sameOwner), markdown,
-		[]IndexerArtifact{artifact}, []ArtifactMember{member}, Limits{}); !errors.Is(err, ErrIntegrity) {
-		t.Fatalf("duplicate same-owner edge error = %v", err)
+	assertReason(t, VerifyIndexerBundleV2(receipt, documents, edges, markdown,
+		[]IndexerArtifact{artifact}, []ArtifactMember{member}, Limits{}), ReasonDigest)
+}
+
+func TestIndexerV2RejectsLegacyArtifactSourceLineageDrift(t *testing.T) {
+	for name, mutate := range map[string]func([]IndexerDocument, *IndexerArtifact){
+		"inventory digest": func(_ []IndexerDocument, artifact *IndexerArtifact) {
+			artifact.Source.InventorySHA256 = digestByte('f')
+		},
+		"attachment native": func(documents []IndexerDocument, _ *IndexerArtifact) {
+			documents[1].Source.NativeSHA256 = digestByte('f')
+		},
+		"attachment metadata": func(documents []IndexerDocument, _ *IndexerArtifact) {
+			documents[1].Source.MetadataSHA256 = digestByte('f')
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			documents, edges, markdown, artifact, qualifications := validLegacyIndexerV2Bundle(t)
+			mutate(documents, &artifact)
+			_, err := BuildIndexerReceiptV2(qualifications, documents, edges, markdown,
+				[]IndexerArtifact{artifact}, []ArtifactMember{}, Limits{})
+			assertReason(t, err, ReasonLineage)
+		})
 	}
+}
+
+func TestIndexerV2RejectsAttachmentOwnerShape(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*IndexerEdge)
+		reason Reason
+	}{
+		{name: "inbound direction", mutate: func(edge *IndexerEdge) { edge.Direction = DirectionInbound }, reason: ReasonMembership},
+		{name: "unknown direction", mutate: func(edge *IndexerEdge) { edge.Direction = DirectionUnknown }, reason: ReasonMembership},
+		{name: "structural confidence", mutate: func(edge *IndexerEdge) { edge.Confidence = ConfidenceStructural }, reason: ReasonMembership},
+		{name: "wrong confidence", mutate: func(edge *IndexerEdge) { edge.Confidence = ConfidenceReported }, reason: ReasonMembership},
+		{name: "comments evidence", mutate: func(edge *IndexerEdge) { edge.Evidence.Kind = EvidenceComments }, reason: ReasonMembership},
+		{name: "wrong fragment", mutate: func(edge *IndexerEdge) { edge.Evidence.Fragment = "fields.attachment" }, reason: ReasonMembership},
+		{name: "empty fragment", mutate: func(edge *IndexerEdge) { edge.Evidence.Fragment = "" }, reason: ReasonMembership},
+		{name: "mismatched path", mutate: func(edge *IndexerEdge) { edge.Evidence.Path = "EX/other.attachments.json" }, reason: ReasonLineage},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			documents, edges, markdown, artifact, member, qualifications := validIndexerV2Bundle(t)
+			test.mutate(&edges[0])
+			var err error
+			edges[0].ID, err = DeriveEdgeID(edges[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = BuildIndexerReceiptV2(qualifications, documents, edges, markdown,
+				[]IndexerArtifact{artifact}, []ArtifactMember{member}, Limits{})
+			assertReason(t, err, test.reason)
+		})
+	}
+}
+
+func TestIndexerV2RequiresExactlyOneMatchingAttachmentOwner(t *testing.T) {
+	documents, edges, markdown, artifact, member, qualifications := validIndexerV2Bundle(t)
+	_, err := BuildIndexerReceiptV2(qualifications, documents, []IndexerEdge{}, markdown,
+		[]IndexerArtifact{artifact}, []ArtifactMember{member}, Limits{})
+	assertReason(t, err, ReasonMembership)
 
 	secondOwner := documents[0]
 	secondOwner.ID = digestByte('f')
@@ -173,15 +305,19 @@ func TestIndexerV2RequiresExactlyOneMatchingAttachmentOwner(t *testing.T) {
 		Size: int64(len(secondOwner.Text)), SHA256: secondOwner.MarkdownSHA256,
 	})
 	differentOwner := edges[0]
-	differentOwner.Direction = DirectionInbound
 	differentOwner.TargetID = secondOwner.ID
 	differentOwner.ID, err = DeriveEdgeID(differentOwner)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := BuildIndexerReceipt(qualifications, documents, append(edges, differentOwner), markdown, Limits{}); err != nil {
+		t.Fatalf("v1 compatibility rejected two owner candidates: %v", err)
+	}
 	if _, err := BuildIndexerReceiptV2(qualifications, documents, append(edges, differentOwner), markdown,
-		[]IndexerArtifact{artifact}, []ArtifactMember{member}, Limits{}); !errors.Is(err, ErrIntegrity) {
-		t.Fatalf("duplicate different-owner edge error = %v", err)
+		[]IndexerArtifact{artifact}, []ArtifactMember{member}, Limits{}); err == nil {
+		t.Fatal("multiple owner edges accepted")
+	} else {
+		assertReason(t, err, ReasonMembership)
 	}
 }
 
@@ -235,7 +371,7 @@ func validIndexerV2Bundle(t testing.TB) ([]IndexerDocument, []IndexerEdge, []Mar
 	attachment := IndexerDocument{
 		SchemaVersion: IndexerSchemaV1, ID: attachmentID, Service: ServiceJira, Kind: ObjectAttachment,
 		Title: "synthetic.bin", Container: "EX", Labels: []string{},
-		Source:     SourceLineage{Path: "EX/EX-1.attachments.json", NativeSHA256: digestByte('b'), MetadataSHA256: digestByte('d')},
+		Source:     SourceLineage{Path: "EX/EX-1.attachments.json", NativeSHA256: digestByte('b'), MetadataSHA256: digestByte('c')},
 		BodySHA256: rawSHA256(""), RenderStatus: RenderUnsupported, Visibility: VisibilityUnknown,
 		Evidence: []Evidence{
 			{Kind: EvidenceAttachments, Status: EvidenceUnsupported, Reasons: []EvidenceReason{EvidenceUnsupportedReason}},
@@ -274,4 +410,26 @@ func validIndexerV2Bundle(t testing.TB) ([]IndexerDocument, []IndexerEdge, []Mar
 		ScopeDigest: digestByte('a'), Reasons: []QualificationReason{QualificationLegacyMirror},
 	}}
 	return []IndexerDocument{owner, attachment}, []IndexerEdge{edge}, markdown, artifact, member, qualifications
+}
+
+func validLegacyIndexerV2Bundle(t testing.TB) ([]IndexerDocument, []IndexerEdge, []MarkdownMember, IndexerArtifact, []IndexerQualification) {
+	t.Helper()
+	documents, edges, markdown, artifact, _, qualifications := validIndexerV2Bundle(t)
+	documents[1].Source = SourceLineage{
+		Path: "EX/EX-1.json", NativeSHA256: digestByte('c'), MetadataSHA256: digestByte('c'),
+	}
+	edges[0].Confidence = ConfidenceReported
+	edges[0].Evidence = EdgeEvidence{Kind: EvidenceAttachments, Path: "EX/EX-1.json", Fragment: "fields.attachment"}
+	var err error
+	edges[0].ID, err = DeriveEdgeID(edges[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact.Status = ArtifactBodyNotRequested
+	artifact.Path = ""
+	artifact.Size = 0
+	artifact.SHA256 = ""
+	artifact.Source.InventoryPath = "EX/EX-1.json"
+	artifact.Source.InventorySHA256 = digestByte('c')
+	return documents, edges, markdown, artifact, qualifications
 }

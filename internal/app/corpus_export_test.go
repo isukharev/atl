@@ -155,6 +155,11 @@ func TestExportCorpusPublishesAndReusesExactJiraProjection(t *testing.T) {
 		"attachment": []any{map[string]any{"id": "30001", "filename": "notes.txt"}},
 	}
 	seedCorpusExportJira(t, mirrorRoot, "EX-1", "10001", "EX/EX-1.wiki", body, fields)
+	metadataBytes, err := os.ReadFile(filepath.Join(mirrorRoot, "EX", "EX-1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadataSHA256 := mirror.Hash(metadataBytes)
 	writeCorpusExportFile(t, mirrorRoot, "EX/EX-1.wiki", []byte("ambient native edit"))
 	writeCorpusExportFile(t, mirrorRoot, "EX/EX-1.md", []byte("ambient Markdown edit"))
 
@@ -191,15 +196,39 @@ func TestExportCorpusPublishesAndReusesExactJiraProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var issue corpus.IndexerDocument
+	var issue, attachment corpus.IndexerDocument
 	for _, document := range documents {
-		if document.Kind == corpus.ObjectIssue {
+		switch document.Kind {
+		case corpus.ObjectIssue:
 			issue = document
+		case corpus.ObjectAttachment:
+			attachment = document
 		}
 	}
 	if issue.ID == "" || issue.Title != "Synthetic\ufffdsummary" || issue.Text != "# Pristine body\n\n[related](EX-2)" ||
 		strings.Contains(issue.Text, "Synthetic summary") || issue.Visibility != corpus.VisibilityUnknown {
 		t.Fatalf("issue projection = %#v", issue)
+	}
+	wantAttachmentLineage := corpus.SourceLineage{
+		Path: "EX/EX-1.json", NativeSHA256: metadataSHA256, MetadataSHA256: metadataSHA256,
+	}
+	if attachment.ID == "" || attachment.Source != wantAttachmentLineage {
+		t.Fatalf("legacy attachment lineage = %#v, want %#v", attachment.Source, wantAttachmentLineage)
+	}
+	var artifactBytes bytes.Buffer
+	if _, err := selected.CopyMember(context.Background(), corpus.ServiceJira, corpusArtifactsStableID, corpus.RoleMetadata, &artifactBytes); err != nil {
+		t.Fatal(err)
+	}
+	artifacts, err := corpus.ParseIndexerArtifacts(artifactBytes.Bytes(), corpus.Limits{})
+	if err != nil || len(artifacts) != 1 {
+		t.Fatalf("legacy artifacts=%#v error=%v", artifacts, err)
+	}
+	wantArtifactLineage := corpus.ArtifactSourceLineage{
+		InventoryPath: "EX/EX-1.json", InventorySHA256: metadataSHA256,
+		ParentNativeSHA256: mirror.Hash(body), ParentMetadataSHA256: metadataSHA256,
+	}
+	if artifacts[0].Source != wantArtifactLineage {
+		t.Fatalf("legacy artifact lineage = %#v, want %#v", artifacts[0].Source, wantArtifactLineage)
 	}
 	if err := selected.Close(); err != nil {
 		t.Fatal(err)
