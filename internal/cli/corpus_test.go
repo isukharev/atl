@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,8 +10,11 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/backendid"
+	"github.com/isukharev/atl/internal/corpus"
 	"github.com/isukharev/atl/internal/mirror"
 )
 
@@ -83,7 +87,82 @@ func TestCorpusExportRejectsStrayArgumentsBeforeLocalState(t *testing.T) {
 	}
 }
 
+func TestCorpusDiffIsContentFreeZeroEgressAndWritesOnlyExplicitPrivateArtifact(t *testing.T) {
+	storeRoot := seedCLICorpusQualifiedDiffStore(t)
+	configRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configRoot, "config.json"), []byte(`{"read_only":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests.Add(1) }))
+	defer server.Close()
+	env := map[string]string{"ATL_CONFIG_DIR": configRoot, "ATL_UPDATE_URL": server.URL, "ATL_NO_UPDATE": ""}
+
+	out, _, execErr := executeCLIRaw(t, env, "corpus", "diff", "--store", storeRoot)
+	if execErr != nil {
+		t.Fatalf("corpus diff error=%v output=%s", execErr, out)
+	}
+	var result app.CorpusGenerationDiffResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out)
+	}
+	if result.SchemaVersion != app.CorpusGenerationDiffSchemaV1 || result.Qualification != "qualified" ||
+		result.Counts.Added != 1 || result.Counts.Tombstoned != 1 || result.IdentityArtifactWritten || requests.Load() != 0 {
+		t.Fatalf("result=%#v requests=%d", result, requests.Load())
+	}
+	for _, private := range []string{storeRoot, "SECRET-OLD", "PRIVATE/SECRET-OLD.wiki", "credential canary"} {
+		if strings.Contains(out, private) {
+			t.Fatalf("content-free output contains %q: %s", private, out)
+		}
+	}
+
+	artifactDir := t.TempDir()
+	if err := os.Chmod(artifactDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	artifactPath := filepath.Join(artifactDir, "identities.json")
+	out, _, execErr = executeCLIRaw(t, env, "corpus", "diff", "--store", storeRoot, "--identity-artifact", artifactPath)
+	if execErr != nil {
+		t.Fatalf("artifact diff error=%v output=%s", execErr, out)
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil || !result.IdentityArtifactWritten || strings.Contains(out, artifactPath) {
+		t.Fatalf("artifact result=%#v error=%v output=%s", result, err, out)
+	}
+	artifactBytes, err := os.ReadFile(artifactPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := corpus.ParseGenerationDiffArtifact(artifactBytes, corpus.Limits{})
+	if err != nil || artifact.Counts.Added != 1 || artifact.Counts.Tombstoned != 1 {
+		t.Fatalf("artifact=%#v error=%v", artifact, err)
+	}
+	if info, err := os.Stat(artifactPath); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("artifact mode=%v error=%v", info, err)
+	}
+
+	out, _, execErr = executeCLIRaw(t, env, "corpus", "diff", "--store", storeRoot, "--identity-artifact", artifactPath)
+	if execErr == nil || codeFor(execErr) != exitCheckFailed || out != "" || strings.Contains(execErr.Error(), artifactPath) {
+		t.Fatalf("exclusive refusal output=%q error=%v", out, execErr)
+	}
+	preserved, err := os.ReadFile(artifactPath)
+	if err != nil || string(preserved) != string(artifactBytes) {
+		t.Fatalf("artifact was replaced error=%v", err)
+	}
+}
+
+func TestCorpusDiffRejectsStrayArgumentsBeforeLocalState(t *testing.T) {
+	out, _, err := executeCLIRaw(t, nil, "corpus", "diff", "private-canary")
+	if err == nil || codeFor(err) != exitUsage || strings.Contains(out, "private-canary") || strings.Contains(err.Error(), "private-canary") {
+		t.Fatalf("stray argument output=%q error=%v", out, err)
+	}
+}
+
 func seedCLICorpusJira(t *testing.T, root string) {
+	t.Helper()
+	seedCLICorpusJiraItem(t, root, "EX-1", "10001", "EX/EX-1.wiki", "Synthetic")
+}
+
+func seedCLICorpusJiraItem(t *testing.T, root, key, providerID, relative, title string) {
 	t.Helper()
 	m := mirror.New(root)
 	origin, err := backendid.OriginSHA256("https://backend.example.test")
@@ -93,18 +172,18 @@ func seedCLICorpusJira(t *testing.T, root string) {
 	if _, err := m.BindBackend(mirror.BackendBinding{Service: mirror.CorpusSnapshotJira, OriginSHA256: origin}); err != nil {
 		t.Fatal(err)
 	}
-	body := []byte("h1. Synthetic")
-	state := mirror.SyncState{ID: "EX-1", Hash: mirror.Hash(body), Path: "EX/EX-1.wiki"}
+	body := []byte("h1. " + title)
+	state := mirror.SyncState{ID: key, Hash: mirror.Hash(body), Path: relative}
 	if err := m.SaveBaseExt(state.ID, body, ".wiki"); err != nil {
 		t.Fatal(err)
 	}
 	metadata, err := json.Marshal(map[string]any{
-		"key": "EX-1", "id": "10001", "fields": map[string]any{"summary": "Synthetic"},
+		"key": key, "id": providerID, "fields": map[string]any{"summary": title},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	target := filepath.Join(root, "EX", "EX-1.json")
+	target := filepath.Join(root, strings.TrimSuffix(filepath.FromSlash(relative), ".wiki")+".json")
 	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -119,4 +198,70 @@ func seedCLICorpusJira(t *testing.T, root string) {
 	if err := batch.Flush(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func seedCLICorpusQualifiedDiffStore(t *testing.T) string {
+	t.Helper()
+	beforeRoot := t.TempDir()
+	seedCLICorpusJiraItem(t, beforeRoot, "SECRET-OLD", "10001", "PRIVATE/SECRET-OLD.wiki", "Private before")
+	afterRoot := t.TempDir()
+	seedCLICorpusJiraItem(t, afterRoot, "SECRET-NEW", "10002", "PRIVATE/SECRET-NEW.wiki", "Private after")
+	storeRoot := t.TempDir()
+	if err := os.Chmod(storeRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	beforeCapture := cliCorpusCaptureReceipt(t, beforeRoot)
+	if _, err := app.ExportCorpus(context.Background(), app.CorpusExportOptions{
+		JiraRoot: beforeRoot, StoreRoot: storeRoot, InitializeStore: true,
+		GeneratorVersion: "test-v1", BuildState: corpus.BuildStateClean,
+		CaptureReceipts: []corpus.CaptureReceipt{beforeCapture},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	afterCapture := cliCorpusCaptureReceipt(t, afterRoot)
+	if _, err := app.ExportCorpus(context.Background(), app.CorpusExportOptions{
+		JiraRoot: afterRoot, StoreRoot: storeRoot,
+		GeneratorVersion: "test-v1", BuildState: corpus.BuildStateClean,
+		CaptureReceipts: []corpus.CaptureReceipt{afterCapture},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return storeRoot
+}
+
+func cliCorpusCaptureReceipt(t *testing.T, root string) corpus.CaptureReceipt {
+	t.Helper()
+	snapshot, err := mirror.New(root).BeginCorpusSnapshot(mirror.CorpusSnapshotJira, mirror.CorpusSnapshotOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	providerIDs := make([]string, 0, snapshot.Len())
+	for _, item := range snapshot.Inventory() {
+		providerIDs = append(providerIDs, item.ProviderID)
+	}
+	selection, err := corpus.CaptureSelectionDigest(corpus.ServiceJira, providerIDs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope, err := corpus.PrincipalScopeDigest(corpus.ServiceJira, snapshot.OriginSHA256(), "synthetic-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
+	receipt, err := corpus.BuildCaptureReceipt(corpus.CaptureReceiptInput{
+		Service: corpus.ServiceJira, ScopeDigest: scope,
+		SelectorDigest: strings.Repeat("a", 64), OptionsDigest: strings.Repeat("b", 64),
+		SelectionDigest: selection, SnapshotDigest: snapshot.Fingerprint(),
+		StartedAt: started, CompletedAt: started.Add(time.Minute), Total: snapshot.Len(), Completed: snapshot.Len(),
+		Dimensions: []corpus.CaptureDimensionEvidence{
+			{Dimension: corpus.CaptureAttachments, State: corpus.CaptureNotRequested},
+			{Dimension: corpus.CaptureComments, State: corpus.CaptureNotRequested},
+			{Dimension: corpus.CaptureMetadata, State: corpus.CaptureComplete},
+			{Dimension: corpus.CaptureNative, State: corpus.CaptureComplete},
+		},
+	}, corpus.Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return receipt
 }

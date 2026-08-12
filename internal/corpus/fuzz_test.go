@@ -1,6 +1,8 @@
 package corpus
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 	"testing"
 )
@@ -154,6 +156,47 @@ func FuzzStrictCaptureReceiptCodec(f *testing.F) {
 			MaxMembers: 1_000, MaxMemberBytes: 1 << 20, MaxTotalBytes: 1 << 20,
 			MaxManifestBytes: 1 << 20, MaxPathBytes: 1_024, MaxPathDepth: 32,
 		})
+	})
+}
+
+func FuzzStrictGenerationDeltaCodecs(f *testing.F) {
+	document := normalizeDocument(validIndexerDocument(f))
+	delta, err := BuildGenerationDelta(strings.Repeat("1", 32), digestByte('a'), digestByte('b'), digestByte('c'),
+		[]GenerationDeltaBinding{validGenerationDeltaBinding(ServiceJira)}, []IndexerDocument{document}, []IndexerDocument{}, Limits{})
+	if err != nil {
+		f.Fatal(err)
+	}
+	deltaBytes, err := CanonicalGenerationDelta(delta, Limits{})
+	if err != nil {
+		f.Fatal(err)
+	}
+	deltaSum := sha256.Sum256(deltaBytes)
+	artifact, err := BuildGenerationDiffArtifact(delta, digestByte('d'), hex.EncodeToString(deltaSum[:]), Limits{})
+	if err != nil {
+		f.Fatal(err)
+	}
+	artifactBytes, err := CanonicalGenerationDiffArtifact(artifact, Limits{})
+	if err != nil {
+		f.Fatal(err)
+	}
+	for kind, seed := range [][]byte{
+		deltaBytes,
+		artifactBytes,
+		[]byte(`{"schema_version":1,"schema_version":2}`),
+		{0xff, 0x00, '{', '}'},
+	} {
+		f.Add(byte(kind%2), seed)
+	}
+	f.Fuzz(func(_ *testing.T, kind byte, data []byte) {
+		limits := Limits{
+			MaxMembers: 1_000, MaxMemberBytes: 1 << 20, MaxTotalBytes: 1 << 20,
+			MaxManifestBytes: 1 << 20, MaxPathBytes: 1_024, MaxPathDepth: 32,
+		}
+		if kind%2 == 0 {
+			_, _ = ParseGenerationDelta(data, limits)
+		} else {
+			_, _ = ParseGenerationDiffArtifact(data, limits)
+		}
 	})
 }
 

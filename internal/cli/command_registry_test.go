@@ -61,6 +61,7 @@ conf table extract
 conf table summary
 config show
 corpus build
+corpus diff
 corpus export
 doctor
 environment inspect
@@ -273,8 +274,8 @@ func TestCommandRegistryPreservesReviewedOutputModes(t *testing.T) {
 	}
 	walk(root)
 
-	if leafCount != 168 || textCount != 143 || idCount != 34 {
-		t.Fatalf("leaves/text/id=%d/%d/%d want=168/143/34", leafCount, textCount, idCount)
+	if leafCount != 169 || textCount != 144 || idCount != 34 {
+		t.Fatalf("leaves/text/id=%d/%d/%d want=169/144/34", leafCount, textCount, idCount)
 	}
 	for path := range reviewedTextOutputCommandPaths {
 		if !seen[path] {

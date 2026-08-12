@@ -202,6 +202,37 @@ func VerifyIndexerBundleV2(
 	return nil
 }
 
+// VerifyIndexerDocumentsV2 proves that the exact canonical document inventory
+// is the one named by a schema-v2 projection receipt. It is intentionally
+// narrower than VerifyIndexerBundleV2 for generation-lineage consumers that do
+// not need to copy private edge, Markdown, or asset bytes.
+func VerifyIndexerDocumentsV2(receipt IndexerReceiptV2, documents []IndexerDocument, limits Limits) error {
+	limits, err := normalizeLimits(limits)
+	if err != nil {
+		return err
+	}
+	if err := validateIndexerReceiptV2(receipt, limits); err != nil {
+		return err
+	}
+	_, qualified, err := validateIndexerQualifications(receipt.Qualifications)
+	if err != nil {
+		return err
+	}
+	canonical, err := CanonicalIndexerDocuments(documents, limits)
+	if err != nil {
+		return err
+	}
+	for _, document := range documents {
+		if _, present := qualified[document.Service]; !present {
+			return reject(ReasonMembership)
+		}
+	}
+	if receipt.Counts.Documents != len(documents) || receipt.DocumentsDigest != domainHash(indexerDocumentsDomain, canonical) {
+		return reject(ReasonDigest)
+	}
+	return nil
+}
+
 func validateIndexerArtifact(artifact IndexerArtifact, limits Limits) error {
 	if artifact.SchemaVersion != IndexerSchemaV2 {
 		return reject(ReasonSchema)

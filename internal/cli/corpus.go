@@ -58,6 +58,40 @@ func newCorpusCmd() *cobra.Command {
 	export.Flags().BoolVar(&initializeStore, "initialize-store", false, "initialize an existing empty 0700 store root")
 	export.Flags().BoolVar(&allowUnreconciled, "allow-unreconciled", false, "diagnostic export of pristine bases despite staged lineage (always non-ready)")
 
+	var diffStoreRoot, identityArtifact string
+	diff := &cobra.Command{
+		Use:   "diff",
+		Short: "Verify the current qualified generation membership delta",
+		Args: func(_ *cobra.Command, args []string) error {
+			if len(args) != 0 {
+				return usageErr("corpus diff accepts no positional arguments")
+			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			result, err := app.DiffCorpusGeneration(cmd.Context(), app.CorpusGenerationDiffOptions{
+				StoreRoot: diffStoreRoot, IdentityArtifact: identityArtifact,
+			})
+			if err != nil {
+				return err
+			}
+			return emit(cmd, result, func() string {
+				summary := fmt.Sprintf(
+					"qualification=%s added=%d retained=%d changed=%d tombstoned=%d predecessor=%s successor=%s tombstone=%s identity_artifact_written=%t",
+					result.Qualification, result.Counts.Added, result.Counts.Retained, result.Counts.Changed,
+					result.Counts.Tombstoned, result.PredecessorGenerationDigest,
+					result.SuccessorGenerationDigest, result.TombstoneDigest, result.IdentityArtifactWritten,
+				)
+				if result.Reason != "" {
+					summary += " reason=" + string(result.Reason)
+				}
+				return summary
+			})
+		},
+	}
+	diff.Flags().StringVar(&diffStoreRoot, "store", "", "existing owner-only sealed-generation store root")
+	diff.Flags().StringVar(&identityArtifact, "identity-artifact", "", "exclusive identity-bearing artifact path under an existing 0700 parent")
+
 	var buildOptions app.CorpusBuildOptions
 	build := &cobra.Command{
 		Use:   "build",
@@ -138,6 +172,6 @@ func newCorpusCmd() *cobra.Command {
 	build.Flags().Int64Var(&buildOptions.MaxTotalAttachmentBytes, "max-total-attachment-bytes", 0, "generation-wide attachment body byte cap")
 	build.Flags().BoolVar(&buildOptions.AllowPartialEvidence, "allow-partial-evidence", false, "publish requested evidence with explicit partial qualifications")
 
-	group.AddCommand(build, export)
+	group.AddCommand(build, diff, export)
 	return group
 }

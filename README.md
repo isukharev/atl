@@ -37,7 +37,7 @@ read-only policy until one exact write proposal has been reviewed.
 | Give a coding agent safe access | [Agent setup](docs/agent-setup.md) |
 | Mirror, edit, and publish safely | [Safe writes](docs/safe-writes.md) |
 | Refresh or recover an existing mirror | [Mirrors and recovery](docs/mirrors-and-recovery.md) |
-| Build a qualified indexer corpus | [Sealed corpus generations](docs/corpus-generations.md) |
+| Compare qualified generations | [Sealed corpus generations](docs/corpus-generations.md) |
 | Discover Jira projects, create schema, and [links](docs/jira-artifact-graph.md) | [Jira commands](docs/reference/cli/README.md) |
 | Read or change Confluence discussions | [Qualified comments](docs/confluence-comments.md) |
 | See the core guarantees without credentials | [Reproducible demos](docs/demos/README.md) |
@@ -48,7 +48,7 @@ Use the [command reference](docs/reference/cli/README.md) or
 [output contract](docs/reference/output/README.md) when exact flags or wire
 fields matter.
 
-See [corpus builds](docs/corpus-generations.md).
+See [corpus builds and diffs](docs/corpus-generations.md).
 
 ## Install
 

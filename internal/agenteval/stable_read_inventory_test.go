@@ -44,6 +44,7 @@ func TestStableReadProductionInventory(t *testing.T) {
 		"internal/corpus/publication.go":                            1,
 		"internal/corpus/scan.go":                                   9,
 		"internal/corpus/store.go":                                  3,
+		"internal/safepath/private_exclusive.go":                    1,
 		"internal/skillmeta/catalog.go":                             3,
 		"internal/skillrouting/contract.go":                         1,
 		capabilityReferenceChecker:                                  1,
