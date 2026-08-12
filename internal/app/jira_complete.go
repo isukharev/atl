@@ -343,19 +343,23 @@ func prepareJiraCompleteArtifacts(issue *domain.Issue, paths jiraPullIssuePaths,
 // limitJiraCompleteIssueProjection keeps exact callers independent of a Jira
 // backend that returns fields outside the requested projection. Rebuilding the
 // typed issue from the filtered raw map prevents those extra fields from
-// changing either the durable snapshot or a derived view. A nil projection is
-// the ordinary complete-pull compatibility path and remains unrestricted.
-func limitJiraCompleteIssueProjection(issue *domain.Issue, exactFields []string) *domain.Issue {
+// changing either the durable snapshot or a derived view. Every exact field
+// must also be present so a partial response cannot qualify as complete. A nil
+// projection is the ordinary complete-pull compatibility path and remains
+// unrestricted.
+func limitJiraCompleteIssueProjection(issue *domain.Issue, exactFields []string) (*domain.Issue, error) {
 	if issue == nil || exactFields == nil {
-		return issue
+		return issue, nil
 	}
 	fields := make(map[string]any, len(exactFields))
 	for _, field := range exactFields {
-		if value, ok := issue.Fields[field]; ok {
-			fields[field] = value
+		value, ok := issue.Fields[field]
+		if !ok {
+			return nil, fmt.Errorf("%w: exact Jira response omitted a mandatory field", domain.ErrCheckFailed)
 		}
+		fields[field] = value
 	}
-	return jiramap.Issue(issue.ID, issue.Key, fields)
+	return jiramap.Issue(issue.ID, issue.Key, fields), nil
 }
 
 func (s *JiraService) pullJiraComplete(ctx context.Context, opts JiraPullOpts) (result *JiraPullResult, retErr error) {
@@ -483,7 +487,10 @@ func (s *JiraService) pullJiraComplete(ctx context.Context, opts JiraPullOpts) (
 		if selectedKey := selection.keys[identity]; selectedKey != "" && selectedKey != issue.Key {
 			return res, fmt.Errorf("%w: Jira issue key changed after the qualified selection passes", domain.ErrCheckFailed)
 		}
-		issue = limitJiraCompleteIssueProjection(issue, opts.exactFields)
+		issue, fetchErr = limitJiraCompleteIssueProjection(issue, opts.exactFields)
+		if fetchErr != nil {
+			return res, fetchErr
+		}
 		if issue.Project != project {
 			return res, fmt.Errorf("%w: exact Jira projection omitted or changed the selected project", domain.ErrCheckFailed)
 		}

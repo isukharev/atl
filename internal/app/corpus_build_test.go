@@ -202,11 +202,11 @@ func TestCorpusBuildOneServiceDoesNotFabricateAbsentBackend(t *testing.T) {
 		t.Fatalf("receipt found=%t err=%v", found, err)
 	}
 	expectedOptions, err := service.captureOptionsDigest(corpus.ServiceJira, options)
-	validationErr := validateAdoptedCorpusCapture(attemptRoot, active.Services[0], receipt, expectedOptions, corpusBuildLimits(options))
+	validationErr := validateAdoptedCorpusCapture(attemptRoot, active.Services[0], receipt, expectedOptions, active.Deadline, corpusBuildLimits(options))
 	if err != nil || validationErr != nil {
 		t.Fatalf("valid adoption options=%q receipt_options=%q state=%#v receipt=%#v digest_error=%v validation_error=%v", expectedOptions, receipt.OptionsDigest, active.Services[0], receipt, err, validationErr)
 	}
-	if err := validateAdoptedCorpusCapture(attemptRoot, active.Services[0], receipt, strings.Repeat("f", 64), corpusBuildLimits(options)); !errors.Is(err, corpus.ErrIntegrity) {
+	if err := validateAdoptedCorpusCapture(attemptRoot, active.Services[0], receipt, strings.Repeat("f", 64), active.Deadline, corpusBuildLimits(options)); !errors.Is(err, corpus.ErrIntegrity) {
 		t.Fatalf("mismatched options adoption error=%v", err)
 	}
 	changedDimensions := receipt
@@ -216,8 +216,28 @@ func TestCorpusBuildOneServiceDoesNotFabricateAbsentBackend(t *testing.T) {
 			changedDimensions.Dimensions[index].State = corpus.CaptureComplete
 		}
 	}
-	if err := validateAdoptedCorpusCapture(attemptRoot, active.Services[0], changedDimensions, expectedOptions, corpusBuildLimits(options)); !errors.Is(err, corpus.ErrIntegrity) {
+	if err := validateAdoptedCorpusCapture(attemptRoot, active.Services[0], changedDimensions, expectedOptions, active.Deadline, corpusBuildLimits(options)); !errors.Is(err, corpus.ErrIntegrity) {
 		t.Fatalf("widened evidence adoption error=%v", err)
+	}
+	deadline, err := time.Parse(time.RFC3339Nano, active.Deadline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err := time.Parse(time.RFC3339Nano, receipt.StartedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	late, err := corpus.BuildCaptureReceipt(corpus.CaptureReceiptInput{
+		Service: receipt.Service, ScopeDigest: receipt.ScopeDigest, SelectorDigest: receipt.SelectorDigest,
+		OptionsDigest: receipt.OptionsDigest, SelectionDigest: receipt.SelectionDigest, SnapshotDigest: receipt.SnapshotDigest,
+		StartedAt: started, CompletedAt: deadline.Add(time.Nanosecond), Total: receipt.Total, Completed: receipt.Completed,
+		Usage: receipt.Usage, Dimensions: receipt.Dimensions,
+	}, corpusBuildLimits(options))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateAdoptedCorpusCapture(attemptRoot, active.Services[0], late, expectedOptions, active.Deadline, corpusBuildLimits(options)); !errors.Is(err, corpus.ErrIntegrity) {
+		t.Fatalf("late receipt adoption error=%v", err)
 	}
 }
 

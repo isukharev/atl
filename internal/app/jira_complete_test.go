@@ -149,6 +149,35 @@ func TestJiraCompletePullExactProjectionDropsOverReturnedFields(t *testing.T) {
 	}
 }
 
+func TestJiraCompletePullExactProjectionRejectsOmittedMandatoryFields(t *testing.T) {
+	for _, omitted := range []string{"summary", "description", "project"} {
+		t.Run(omitted, func(t *testing.T) {
+			root := t.TempDir()
+			fields := map[string]any{
+				"project": map[string]any{"key": "PROJ"}, "summary": "nine", "description": "native nine",
+			}
+			delete(fields, omitted)
+			issue := domain.Issue{
+				ID: "9", Key: "PROJ-9", Project: "PROJ", Summary: "nine", Body: "native nine", Fields: fields,
+			}
+			tracker := &jiraCompleteTracker{
+				passIssues: [][]domain.Issue{{issue}, {issue}}, getIssues: map[string]*domain.Issue{"9": &issue},
+			}
+			settings := corpusBuildRenderSettings("jira")
+			result, err := (&JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}).Pull(t.Context(), JiraPullOpts{
+				Complete: true, Project: "PROJ", MaxIssues: 1, Into: root,
+				exactRender: &settings, exactFields: []string{"summary", "description", "project"},
+			})
+			if !errors.Is(err, domain.ErrCheckFailed) || result == nil || len(result.Issues) != 0 {
+				t.Fatalf("result=%+v err=%v", result, err)
+			}
+			if _, statErr := os.Stat(filepath.Join(root, "PROJ")); !os.IsNotExist(statErr) {
+				t.Fatalf("incomplete projection created public directory: %v", statErr)
+			}
+		})
+	}
+}
+
 func TestJiraCompletePullResumesWithoutRepublishingAcceptedPrefix(t *testing.T) {
 	root := t.TempDir()
 	tracker := newCompleteJiraTracker()

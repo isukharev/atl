@@ -76,8 +76,10 @@ func TestCorpusBuildRequiresExplicitReadOnlyBeforeConfigOrEffects(t *testing.T) 
 	environment["ATL_CONFIG_DIR"] = configRoot
 
 	stdout, _, err := executeCLIRaw(t, environment, corpusBuildCLIArgs(root, true)...)
-	if err == nil || !errors.Is(err, domain.ErrUsage) || stdout != "" ||
-		!strings.Contains(err.Error(), "requires explicit --read-only") || len(server.snapshotRequests()) != 0 {
+	var closed *app.CorpusBuildError
+	if err == nil || !errors.Is(err, domain.ErrUsage) || !errors.As(err, &closed) ||
+		closed.Phase != app.CorpusBuildPhaseValidate || closed.Reason != app.CorpusBuildReasonUsage ||
+		err.Error() != "corpus build failed: phase=validate reason=usage" || stdout != "" || len(server.snapshotRequests()) != 0 {
 		t.Fatalf("stdout=%q err=%v requests=%v", stdout, err, server.snapshotRequests())
 	}
 	for _, private := range []string{configRoot, server.server.URL, "private-jira-token"} {
@@ -94,7 +96,10 @@ func TestCorpusBuildRequiresExplicitReadOnlyBeforeConfigOrEffects(t *testing.T) 
 		}
 	}
 	stdout, _, err = executeCLIRaw(t, environment, invalid...)
-	if err == nil || !errors.Is(err, domain.ErrUsage) || stdout != "" || len(server.snapshotRequests()) != 0 {
+	closed = nil
+	if err == nil || !errors.Is(err, domain.ErrUsage) || !errors.As(err, &closed) ||
+		closed.Phase != app.CorpusBuildPhaseValidate || closed.Reason != app.CorpusBuildReasonUsage ||
+		err.Error() != "corpus build failed: phase=validate reason=usage" || stdout != "" || len(server.snapshotRequests()) != 0 {
 		t.Fatalf("static validation stdout=%q err=%v requests=%v", stdout, err, server.snapshotRequests())
 	}
 
@@ -103,6 +108,28 @@ func TestCorpusBuildRequiresExplicitReadOnlyBeforeConfigOrEffects(t *testing.T) 
 	if err == nil || !errors.Is(err, domain.ErrUsage) || strings.Contains(err.Error(), "requires explicit --read-only") ||
 		len(server.snapshotRequests()) != 0 {
 		t.Fatalf("environment policy stdout=%q err=%v requests=%v", stdout, err, server.snapshotRequests())
+	}
+}
+
+func TestCorpusBuildFlagParseUsesClosedEnvelopeBeforeEffects(t *testing.T) {
+	server := newCorpusBuildCLIServer(t)
+	stdout, _, err := executeCLIRaw(t, server.environment(), "--read-only", "corpus", "build", "--max-requests", "invalid")
+	var closed *app.CorpusBuildError
+	if err == nil || !errors.Is(err, domain.ErrUsage) || !errors.As(err, &closed) ||
+		closed.Phase != app.CorpusBuildPhaseValidate || closed.Reason != app.CorpusBuildReasonUsage ||
+		err.Error() != "corpus build failed: phase=validate reason=usage" || stdout != "" || len(server.snapshotRequests()) != 0 {
+		t.Fatalf("stdout=%q err=%v requests=%v", stdout, err, server.snapshotRequests())
+	}
+}
+
+func TestCorpusBuildPositionalArgumentUsesClosedEnvelopeBeforeEffects(t *testing.T) {
+	server := newCorpusBuildCLIServer(t)
+	stdout, _, err := executeCLIRaw(t, server.environment(), "--read-only", "corpus", "build", "unexpected")
+	var closed *app.CorpusBuildError
+	if err == nil || !errors.Is(err, domain.ErrUsage) || !errors.As(err, &closed) ||
+		closed.Phase != app.CorpusBuildPhaseValidate || closed.Reason != app.CorpusBuildReasonUsage ||
+		err.Error() != "corpus build failed: phase=validate reason=usage" || stdout != "" || len(server.snapshotRequests()) != 0 {
+		t.Fatalf("stdout=%q err=%v requests=%v", stdout, err, server.snapshotRequests())
 	}
 }
 

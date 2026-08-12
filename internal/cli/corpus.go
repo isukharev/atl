@@ -60,18 +60,21 @@ func newCorpusCmd() *cobra.Command {
 
 	var buildOptions app.CorpusBuildOptions
 	build := &cobra.Command{
-		Use:         "build",
-		Short:       "Capture qualified remote selections into one sealed generation",
-		Annotations: map[string]string{explicitReadOnlyAnnotation: "required"},
+		Use:   "build",
+		Short: "Capture qualified remote selections into one sealed generation",
+		Annotations: map[string]string{
+			explicitReadOnlyAnnotation:       "required",
+			corpusBuildClosedErrorAnnotation: "required",
+		},
 		Args: func(_ *cobra.Command, args []string) error {
 			if len(args) != 0 {
-				return usageErr("corpus build accepts no positional arguments")
+				return app.CorpusBuildFailure(app.CorpusBuildPhaseValidate, usageErr("corpus build accepts no positional arguments"))
 			}
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := app.ValidateCorpusBuildOptions(buildOptions); err != nil {
-				return err
+				return app.CorpusBuildFailure(app.CorpusBuildPhaseValidate, err)
 			}
 			cfg, err := loadConfig()
 			if err != nil {

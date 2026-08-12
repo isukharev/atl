@@ -566,11 +566,12 @@ func (s *ConfluenceService) prepareCompletePullDryRun(ctx context.Context, m *mi
 	if !ok {
 		return nil, fmt.Errorf("%w: backend cannot qualify search completeness for complete pull", domain.ErrCheckFailed)
 	}
-	first, err := collectCompletePullIDs(ctx, searcher, query, o.MaxPages)
+	expectedSpace := completePullExpectedSpace(o)
+	first, err := collectCompletePullIDsForSpace(ctx, searcher, query, o.MaxPages, expectedSpace)
 	if err != nil {
 		return nil, err
 	}
-	second, err := collectCompletePullIDs(ctx, searcher, query, o.MaxPages)
+	second, err := collectCompletePullIDsForSpace(ctx, searcher, query, o.MaxPages, expectedSpace)
 	if err != nil {
 		return nil, err
 	}

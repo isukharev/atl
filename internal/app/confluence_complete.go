@@ -136,11 +136,12 @@ func (s *ConfluenceService) prepareCompletePull(ctx context.Context, m *mirror.M
 	if !ok {
 		return nil, fmt.Errorf("%w: backend cannot qualify search completeness for complete pull", domain.ErrCheckFailed)
 	}
-	first, err := collectCompletePullIDs(ctx, searcher, query, o.MaxPages)
+	expectedSpace := completePullExpectedSpace(o)
+	first, err := collectCompletePullIDsForSpace(ctx, searcher, query, o.MaxPages, expectedSpace)
 	if err != nil {
 		return nil, err
 	}
-	second, err := collectCompletePullIDs(ctx, searcher, query, o.MaxPages)
+	second, err := collectCompletePullIDsForSpace(ctx, searcher, query, o.MaxPages, expectedSpace)
 	if err != nil {
 		return nil, err
 	}
@@ -173,6 +174,10 @@ func newCompleteSelection(checkpoint mirror.CompletePullCheckpoint, source strin
 }
 
 func collectCompletePullIDs(ctx context.Context, searcher domain.CompletePageSearcher, query string, maxPages int) ([]string, error) {
+	return collectCompletePullIDsForSpace(ctx, searcher, query, maxPages, "")
+}
+
+func collectCompletePullIDsForSpace(ctx context.Context, searcher domain.CompletePageSearcher, query string, maxPages int, expectedSpace string) ([]string, error) {
 	cursor := ""
 	seenCursors := map[string]bool{}
 	seenIDs := map[string]bool{}
@@ -187,6 +192,9 @@ func collectCompletePullIDs(ctx context.Context, searcher domain.CompletePageSea
 			return nil, err
 		}
 		for _, hit := range page.Results {
+			if expectedSpace != "" && hit.Space != expectedSpace {
+				return nil, fmt.Errorf("%w: complete-pull search result is outside the selected space", domain.ErrCheckFailed)
+			}
 			if strings.TrimSpace(hit.ID) == "" {
 				return nil, fmt.Errorf("%w: complete-pull search result omitted page id", domain.ErrCheckFailed)
 			}
@@ -225,6 +233,13 @@ func collectCompletePullIDs(ctx context.Context, searcher domain.CompletePageSea
 	}
 	sort.Strings(ids)
 	return ids, nil
+}
+
+func completePullExpectedSpace(o PullOpts) string {
+	if strings.TrimSpace(o.CQL) == "" {
+		return strings.TrimSpace(o.Space)
+	}
+	return ""
 }
 
 func (selection *confluenceCompleteSelection) advance() {

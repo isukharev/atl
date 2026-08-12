@@ -306,7 +306,7 @@ func (service *CorpusBuildService) captureService(ctx context.Context, workspace
 		return corpus.CaptureReceipt{}, CorpusBuildFailure(CorpusBuildPhaseWorkspace, err)
 	}
 	if found {
-		if err := validateAdoptedCorpusCapture(root, *state, existing, expectedOptionsDigest, limits); err != nil {
+		if err := validateAdoptedCorpusCapture(root, *state, existing, expectedOptionsDigest, active.Deadline, limits); err != nil {
 			return corpus.CaptureReceipt{}, CorpusBuildFailure(CorpusBuildPhaseSnapshot, err)
 		}
 	}
@@ -514,11 +514,13 @@ func buildCorpusCaptureReceipt(ctx context.Context, root string, state corpus.Bu
 	}, limits)
 }
 
-func validateAdoptedCorpusCapture(root string, state corpus.BuildServiceState, receipt corpus.CaptureReceipt, expectedOptionsDigest string, limits corpus.Limits) error {
+func validateAdoptedCorpusCapture(root string, state corpus.BuildServiceState, receipt corpus.CaptureReceipt, expectedOptionsDigest, attemptDeadline string, limits corpus.Limits) error {
+	completed, completedErr := time.Parse(time.RFC3339Nano, receipt.CompletedAt)
+	deadline, deadlineErr := time.Parse(time.RFC3339Nano, attemptDeadline)
 	if receipt.Service != state.Service || receipt.SelectorDigest != state.SelectorDigest ||
 		state.ScopeDigest == "" || receipt.ScopeDigest != state.ScopeDigest || receipt.StartedAt != state.StartedAt ||
 		receipt.Usage != state.Usage || receipt.OptionsDigest != expectedOptionsDigest ||
-		!reflect.DeepEqual(receipt.Dimensions, corpusBuildDimensions()) {
+		!reflect.DeepEqual(receipt.Dimensions, corpusBuildDimensions()) || completedErr != nil || deadlineErr != nil || completed.After(deadline) {
 		return corpus.ErrIntegrity
 	}
 	snapshot, err := mirror.New(root).BeginCorpusSnapshot(string(state.Service), mirror.CorpusSnapshotOptions{

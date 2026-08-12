@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/compose"
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/diagnostic"
@@ -35,6 +36,8 @@ const (
 	exitForbidden    = 6
 	exitConfig       = 7
 	exitCheckFailed  = 8
+
+	corpusBuildClosedErrorAnnotation = "atl.corpus.build.closed_error"
 )
 
 type invocationRuntime struct {
@@ -174,13 +177,14 @@ func newRoot() *cobra.Command {
 	_ = root.RegisterFlagCompletionFunc("output", fixedComp("json", "text", "id"))
 	// A flag-parse failure (unknown flag, bad value) is a usage error: map it to
 	// exit 2, not the generic 1. Inherited by every subcommand.
-	root.SetFlagErrorFunc(func(_ *cobra.Command, e error) error {
-		return usageErr("%v", e)
+	root.SetFlagErrorFunc(func(cmd *cobra.Command, e error) error {
+		return closeCorpusBuildCLIError(cmd, usageErr("%v", e))
 	})
 	root.AddCommand(newConfCmd(), newJiraCmd(), newCorpusCmd(), newMirrorCmd(), newCapabilitiesCmd(), newCompatibilityCmd(), newDoctorCmd(), newEnvironmentCmd(), newMCPCommand(), newAuthCmd(), newConfigCmd(), newProfileCmd(), newManifestCmd(), newPolicyCmd(), newVersionCmd())
 	// Validate the global output format, then run a best-effort self-update check
 	// within its total startup budget. Update failures never fail the command.
-	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) (retErr error) {
+		defer func() { retErr = closeCorpusBuildCLIError(cmd, retErr) }()
 		cmd.SetContext(context.WithValue(cmd.Context(), invocationRuntimeContextKey{}, runtime))
 		runtime.commandPolicyWrite = false
 		runtime.readOnlyPolicy = false
@@ -287,11 +291,27 @@ func normalizeArgs(c *cobra.Command) {
 		inner := policy
 		sub.Args = func(cmd *cobra.Command, args []string) error {
 			if err := inner(cmd, args); err != nil {
+				if cmd.Annotations[corpusBuildClosedErrorAnnotation] == "required" {
+					return closeCorpusBuildCLIError(cmd, err)
+				}
 				return usageErr("%v", err)
 			}
 			return nil
 		}
 	}
+}
+
+func closeCorpusBuildCLIError(cmd *cobra.Command, err error) error {
+	if err == nil || cmd == nil || cmd.Annotations[corpusBuildClosedErrorAnnotation] != "required" {
+		return err
+	}
+	// Corpus builds intentionally expose only a closed phase/reason envelope,
+	// including Cobra argument and persistent preflight failures.
+	var closed *app.CorpusBuildError
+	if errors.As(err, &closed) {
+		return err
+	}
+	return app.CorpusBuildFailure(app.CorpusBuildPhaseValidate, err)
 }
 
 func codeFor(err error) int {
