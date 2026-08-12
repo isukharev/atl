@@ -13,6 +13,7 @@ import (
 
 	"github.com/isukharev/atl/internal/agenteval/executionbackend"
 	"github.com/isukharev/atl/internal/agenteval/extension"
+	"github.com/isukharev/atl/internal/agenteval/grading"
 	"github.com/isukharev/atl/internal/agenteval/lifecycle"
 )
 
@@ -64,7 +65,8 @@ func loadStandaloneReadabilityGoldenFixture(t *testing.T, bundle standaloneGolde
 			t.Fatalf("readability golden entry %q has an unexpected source digest", key)
 		}
 		hasReaderSupport := entry.ReaderSupportPath != "" || entry.ReaderSupportSHA256 != ""
-		if entry.Kind == "activation-reference" || entry.Kind == "agent-observation" || entry.Kind == "trial-plan" || entry.Kind == "trial-receipt" {
+		if entry.Kind == "activation-reference" || entry.Kind == "agent-observation" || entry.Kind == "grade-receipt" ||
+			entry.Kind == "grading-plan" || entry.Kind == "trial-plan" || entry.Kind == "trial-receipt" {
 			if !hasReaderSupport || !standaloneGoldenReaderSupportAllowed(entry) || !standaloneValidSHA256(entry.ReaderSupportSHA256) {
 				t.Fatalf("readability golden entry %q has invalid reader support", key)
 			}
@@ -88,7 +90,34 @@ func loadStandaloneReadabilityGoldenFixture(t *testing.T, bundle standaloneGolde
 	standaloneValidateExtensionGoldenBindings(t, fixture)
 	standaloneValidateAgentAdapterGoldenBindings(t, fixture)
 	standaloneValidateExecutionBackendGoldenBindings(t, fixture)
+	standaloneValidateGradingGoldenBindings(t, fixture)
 	return fixture
+}
+
+func standaloneValidateGradingGoldenBindings(t *testing.T, fixture standaloneReadabilityGoldenFixture) {
+	t.Helper()
+	contractEntry, contractOK := standaloneReadabilityGoldenEntryFor(fixture, standaloneVersionedContractKey("standalone", "grader-contract", 1))
+	planEntry, planOK := standaloneReadabilityGoldenEntryFor(fixture, standaloneVersionedContractKey("standalone", "grading-plan", 1))
+	receiptEntry, receiptOK := standaloneReadabilityGoldenEntryFor(fixture, standaloneVersionedContractKey("standalone", "grade-receipt", 1))
+	if !contractOK || !planOK || !receiptOK || planEntry.ReaderSupportPath != contractEntry.SourcePath ||
+		planEntry.ReaderSupportSHA256 != contractEntry.SourceSHA256 || receiptEntry.ReaderSupportPath != planEntry.SourcePath ||
+		receiptEntry.ReaderSupportSHA256 != planEntry.SourceSHA256 {
+		t.Fatal("standalone grading readability sources are not transitively bound")
+	}
+	contract, err := grading.DecodeContract(bytes.NewReader(standaloneGoldenDocument(t, contractEntry)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := grading.DecodePlan(bytes.NewReader(standaloneGoldenDocument(t, planEntry)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := grading.Admit(contract, plan); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := grading.DecodeReceipt(bytes.NewReader(standaloneGoldenDocument(t, receiptEntry)), plan); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func standaloneValidateExecutionBackendGoldenBindings(t *testing.T, fixture standaloneReadabilityGoldenFixture) {
@@ -280,7 +309,7 @@ func standaloneGoldenSourceAllowed(entry standaloneReadabilityGoldenEntry) bool 
 		return entry.Namespace == "atl-profile" && entry.SourcePath == fmt.Sprintf("testdata/standalone-readability/%s-v%d.json", entry.Kind, entry.Version)
 	case "capability-catalog":
 		return entry.Namespace == "atl-profile" && entry.Version == CapabilityCatalogSchemaVersion && entry.SourcePath == "testdata/capability-catalog.v1.json"
-	case "adapter-manifest", "adapter-message", "agent-adapter-contract", "agent-observation", "attempt-event", "attempt-ledger", "attempt-plan", "execution-backend-contract", "extension-conformance-bundle", "extension-conformance-report", "migration-preview", "migration-result", "project-config", "trial-plan", "trial-receipt":
+	case "adapter-manifest", "adapter-message", "agent-adapter-contract", "agent-observation", "attempt-event", "attempt-ledger", "attempt-plan", "execution-backend-contract", "extension-conformance-bundle", "extension-conformance-report", "grade-receipt", "grader-contract", "grading-plan", "migration-preview", "migration-result", "project-config", "trial-plan", "trial-receipt":
 		return entry.Namespace == "standalone" && entry.Version == 1 &&
 			entry.SourcePath == fmt.Sprintf("testdata/standalone-readability/%s-v1.json", entry.Kind)
 	case "schema-registry":
@@ -297,6 +326,12 @@ func standaloneGoldenReaderSupportAllowed(entry standaloneReadabilityGoldenEntry
 	}
 	if entry.Namespace == "standalone" && entry.Kind == "trial-receipt" && entry.Version == 1 {
 		return entry.ReaderSupportPath == "testdata/standalone-readability/trial-plan-v1.json"
+	}
+	if entry.Namespace == "standalone" && entry.Kind == "grading-plan" && entry.Version == 1 {
+		return entry.ReaderSupportPath == "testdata/standalone-readability/grader-contract-v1.json"
+	}
+	if entry.Namespace == "standalone" && entry.Kind == "grade-receipt" && entry.Version == 1 {
+		return entry.ReaderSupportPath == "testdata/standalone-readability/grading-plan-v1.json"
 	}
 	if entry.Namespace == "standalone" && entry.Kind == "agent-observation" && entry.Version == 1 {
 		return entry.ReaderSupportPath == "testdata/standalone-readability/agent-adapter-contract-v1.json"
@@ -740,6 +775,91 @@ func standaloneDecodeExtensionReadabilityProjection(t *testing.T, entry standalo
 			"first_operation":     report.Cases[0].Operation,
 			"last_operation":      report.Cases[len(report.Cases)-1].Operation,
 			"protocol_conformant": report.ProtocolConformant,
+		}, nil
+	case "grader-contract":
+		contract, err := grading.DecodeContract(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := grading.EncodeContract(contract)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("grader contract golden is not canonical")
+		}
+		supportedModes, supportedCapabilities := 0, 0
+		for _, policy := range contract.Modes {
+			if policy.Support == grading.SupportSupported {
+				supportedModes++
+			}
+		}
+		for _, capability := range contract.Capabilities {
+			if capability.Support == grading.SupportSupported {
+				supportedCapabilities++
+			}
+		}
+		return map[string]any{
+			"schema": contract.Schema, "schema_version": contract.SchemaVersion, "contract_version": contract.ContractVersion,
+			"grader_id": contract.GraderID, "grader_version": contract.GraderVersion, "mode_count": len(contract.Modes),
+			"supported_mode_count": supportedModes, "capability_count": len(contract.Capabilities),
+			"supported_capability_count": supportedCapabilities,
+		}, nil
+	case "grading-plan":
+		contractData := standaloneReadGoldenSource(t, entry.ReaderSupportPath, entry.ReaderSupportSHA256)
+		contract, err := grading.DecodeContract(bytes.NewReader(contractData))
+		if err != nil {
+			return nil, err
+		}
+		plan, err := grading.DecodePlan(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		if _, err := grading.Admit(contract, plan); err != nil {
+			return nil, err
+		}
+		canonical, err := grading.EncodePlan(plan)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("grading plan golden is not canonical")
+		}
+		hidden, reviewers := 0, 0
+		for _, check := range plan.Checks {
+			if check.Visibility == grading.VisibilityHidden {
+				hidden++
+			}
+		}
+		if plan.Judge != nil {
+			reviewers = len(plan.Judge.Reviewers)
+		}
+		return map[string]any{
+			"schema": plan.Schema, "schema_version": plan.SchemaVersion, "contract_version": plan.ContractVersion,
+			"mode": plan.Mode, "check_count": len(plan.Checks), "hidden_check_count": hidden,
+			"script_instruction_count": len(plan.Script), "reviewer_count": reviewers,
+			"contract_bound": plan.ContractSHA256 != "", "input_bound": plan.InputProjectionSHA256 != "",
+		}, nil
+	case "grade-receipt":
+		planData := standaloneReadGoldenSource(t, entry.ReaderSupportPath, entry.ReaderSupportSHA256)
+		plan, err := grading.DecodePlan(bytes.NewReader(planData))
+		if err != nil {
+			return nil, err
+		}
+		receipt, err := grading.DecodeReceipt(bytes.NewReader(data), plan)
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := grading.EncodeReceipt(plan, receipt)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("grade receipt golden is not canonical")
+		}
+		observed := 0
+		for _, decision := range receipt.Decisions {
+			if decision.Presence == grading.PresenceObserved {
+				observed++
+			}
+		}
+		return map[string]any{
+			"schema": receipt.Schema, "schema_version": receipt.SchemaVersion, "contract_version": receipt.ContractVersion,
+			"status": receipt.Status, "evidence_count": len(receipt.Evidence), "decision_count": len(receipt.Decisions),
+			"observed_decision_count": observed, "reviewer_count": len(receipt.Reviewers),
+			"disagreement_count": len(receipt.Disagreements), "plan_bound": receipt.PlanSHA256 != "",
+			"evidence_bound": receipt.EvidenceSHA256 != "",
 		}, nil
 	case "migration-preview":
 		preview, err := DecodeStandaloneMigrationPreview(bytes.NewReader(data))

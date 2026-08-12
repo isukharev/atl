@@ -246,7 +246,7 @@ func standaloneProcessForbiddenMaintainerCommand(command string) bool {
 	switch command {
 	case "aggregate", "aggregate-root", "assess", "attempt-ledger", "evaluate", "inventory", "private",
 		"review-template", "validate-comparison-set", "validate-pair", "validate-run",
-		"verify-agent-adapter", "verify-atl-capabilities", "verify-codex-skill-package", "verify-execution-backend", "verify-extension-protocol":
+		"verify-agent-adapter", "verify-atl-capabilities", "verify-codex-skill-package", "verify-execution-backend", "verify-extension-protocol", "verify-grader":
 		return true
 	default:
 		return false

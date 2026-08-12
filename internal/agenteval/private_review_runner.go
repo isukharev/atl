@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/isukharev/atl/internal/agenteval/grading"
 	"github.com/isukharev/atl/internal/agenteval/lifecycle"
 )
 
@@ -168,7 +169,7 @@ func RunPrivateReview(ctx context.Context, options PrivateReviewRunOptions) (sum
 	if err != nil {
 		return PrivateReviewExecutionSummary{}, err
 	}
-	attemptSession, err := preparePrivateReviewAttemptSession(packet, source, surface, reviewer, execution,
+	attemptSession, err := preparePrivateReviewAttemptSession(packet, source, surface, contract, reviewer, execution, rubric,
 		options.AgentBinary, resultData, finalData, rubricData)
 	if err != nil {
 		return PrivateReviewExecutionSummary{}, err
@@ -239,7 +240,8 @@ func RunPrivateReview(ctx context.Context, options PrivateReviewRunOptions) (sum
 }
 
 func preparePrivateReviewAttemptSession(packet string, source PrivateBaselineSource, surface PrivateBaselineSurfaceSource,
-	reviewer Reviewer, execution PrivateReviewerExecution, agentBinary string, resultData, finalData, rubricData []byte,
+	contract privateQualitativeReviewPanelContract, reviewer Reviewer, execution PrivateReviewerExecution, rubric Rubric,
+	agentBinary string, resultData, finalData, rubricData []byte,
 ) (*DurableAttemptSession, error) {
 	agent, _, err := inspectPrivateAgentBinary(agentBinary, "")
 	if err != nil {
@@ -267,7 +269,11 @@ func preparePrivateReviewAttemptSession(packet string, source PrivateBaselineSou
 	if err != nil {
 		return nil, err
 	}
-	grader, err := digest("grader", []string{reviewer.ID, surface.QualitativePanelContractSHA256})
+	_, gradingPlan, err := privatePanelGradingPlan(contract, rubric, surface, resultData, finalData)
+	if err != nil {
+		return nil, err
+	}
+	grader, err := grading.PlanSHA256(gradingPlan)
 	if err != nil {
 		return nil, err
 	}
@@ -408,7 +414,12 @@ func encodePrivateReviewReceipt(receipt privateReviewReceipt, execution PrivateR
 		(receipt.ReviewerKind != "codex" && receipt.ReviewerKind != "claude-code") || receipt.ReviewerModel == "" ||
 		!validSHA256(receipt.ReviewerExecutionSHA256) || receipt.ModelRequests < 0 || receipt.ModelRequests > 1 ||
 		receipt.AuxiliaryRequests < 0 || receipt.InputTools < 0 || receipt.ForwardedTools < 0 || receipt.ToolOutputs < 0 ||
-		receipt.InputTokens < 0 || receipt.OutputTokens < 0 || receipt.EstimatedCostMicroUSD < 0 {
+		receipt.InputTokens < 0 || receipt.OutputTokens < 0 ||
+		receipt.EstimatedCostMicroUSD < 0 {
+		return nil, privatePlanError("review_receipt")
+	}
+	if receipt.SchemaVersion == privateReviewReceiptSchemaVersion &&
+		(receipt.InputTokens > grading.MaxTokens || receipt.OutputTokens > grading.MaxTokens) {
 		return nil, privatePlanError("review_receipt")
 	}
 	if _, err := time.Parse(time.RFC3339Nano, receipt.CompletedAt); err != nil {

@@ -1259,7 +1259,7 @@ func buildPrivateQualitativePanelMaterial(root string, runSet PrivateWorkspaceRu
 		}
 		assignment = data
 	}
-	if neutral && len(assignment) == 0 {
+	if (neutral || len(panel.Executions) != 0) && len(assignment) == 0 {
 		return nil, nil, nil, privatePlanError("blind_assignment")
 	}
 	contract := &privateQualitativeReviewPanelContract{
@@ -2167,7 +2167,7 @@ func validatePrivatePlan(plan privatePlan, expectedID string) error {
 		return privatePlanError("plan_kind")
 	}
 	if plan.QualitativeReviewPanel != nil {
-		if !plan.QualitativeRequired || validatePrivateQualitativeReviewPanelContract(*plan.QualitativeReviewPanel) != nil {
+		if !plan.QualitativeRequired || validatePrivateQualitativeReviewPanelContract(plan.SchemaVersion, *plan.QualitativeReviewPanel) != nil {
 			return privatePlanError("qualitative_panel")
 		}
 		if len(plan.QualitativeReviewPanel.Executions) != 0 && !privatePlanHasExecutableReviewShape(plan.SchemaVersion) {
@@ -2342,7 +2342,7 @@ func validPrivatePlanPromptIdentity(schemaVersion int, item privatePlanItem) boo
 		item.SkillActivation == SkillActivationDeveloper || item.SkillActivation == SkillActivationCombined
 }
 
-func validatePrivateQualitativeReviewPanelContract(panel privateQualitativeReviewPanelContract) error {
+func validatePrivateQualitativeReviewPanelContract(schemaVersion int, panel privateQualitativeReviewPanelContract) error {
 	policy := QualitativePanelPolicy{SchemaVersion: QualitativePanelSchemaVersion, Method: panel.Method,
 		ExpectedReviewers: len(panel.Reviewers), MaxCriterionRangeBPS: panel.MaxCriterionRangeBPS}
 	if policy.Validate() != nil || (panel.BlindAssignmentSHA256 != "" && !validSHA256(panel.BlindAssignmentSHA256)) {
@@ -2358,12 +2358,7 @@ func validatePrivateQualitativeReviewPanelContract(panel privateQualitativeRevie
 		}
 		seen[reviewer.ID] = struct{}{}
 	}
-	workspacePanel := PrivateQualitativeReviewPanel{Method: panel.Method, Reviewers: panel.Reviewers,
-		MaxCriterionRangeBPS: panel.MaxCriterionRangeBPS, Executions: panel.Executions}
-	if workspacePanel.validate() != nil {
-		return privatePlanError("qualitative_panel")
-	}
-	return nil
+	return validatePrivatePlanGradingPanel(schemaVersion, panel)
 }
 
 func privateReviewerExecutionCost(executions []PrivateReviewerExecution) (int64, bool) {

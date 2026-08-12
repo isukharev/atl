@@ -3,6 +3,7 @@ package agenteval
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -129,6 +130,17 @@ func assessPrivatePanelReview(root string, source PrivateBaselineSource, surface
 		panelResult, assessErr := AssessQualitativeReviewSet(result, resultData, finalData, rubric, policy, reviews)
 		if assessErr != nil {
 			return PrivateReviewSummary{}, privatePlanError("assessment")
+		}
+		if len(contract.Executions) != 0 {
+			gradingPlan, gradingReceipt, gradingErr := assessPrivatePanelWithGrading(root, source, surface, contract, rubric, resultData, finalData, reviews)
+			if gradingErr != nil && !errors.Is(gradingErr, errPrivateGradingLegacyBounds) {
+				return PrivateReviewSummary{}, fmt.Errorf("%w: %v", privatePlanError("grading_assessment"), gradingErr)
+			}
+			if gradingErr == nil {
+				if writeErr := writePrivatePanelGradingArtifacts(root, surface.RunDirectory, gradingPlan, gradingReceipt); writeErr != nil {
+					return PrivateReviewSummary{}, fmt.Errorf("%w: %v", privatePlanError("grading_assessment"), writeErr)
+				}
+			}
 		}
 		encoded, encodeErr := json.MarshalIndent(panelResult, "", "  ")
 		if encodeErr != nil {

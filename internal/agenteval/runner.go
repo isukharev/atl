@@ -169,11 +169,11 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 	if err != nil {
 		return RunOutput{}, err
 	}
-	allAttemptSessions, err := prepareRunAttemptSessions(outputRoot, contract, options, skillDigest)
+	allAttemptSessions, gradingPlans, err := prepareRunAttemptSessions(outputRoot, contract, options, skillDigest)
 	if err != nil {
 		return RunOutput{}, err
 	}
-	if len(allAttemptSessions) != contract.spec.Repetitions+1 {
+	if len(allAttemptSessions) != contract.spec.Repetitions+1 || len(gradingPlans) != contract.spec.Repetitions {
 		return RunOutput{}, attemptLedgerError("run_roster")
 	}
 	preflightSession := allAttemptSessions[0]
@@ -324,6 +324,7 @@ func RunHeadless(ctx context.Context, options RunOptions) (output RunOutput, ret
 			externalProfile: externalProfile, providerRuntime: providerRuntime,
 			attestation: attestation, providerAttemptCommitted: options.providerAttemptCommitted,
 			attemptSession: attemptSessions[repetition-1],
+			gradingPlan:    gradingPlans[repetition-1],
 			receipt:        &receipt,
 		})
 		if providerRuntime != nil {
@@ -897,6 +898,7 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 		return Result{}, err
 	}
 	agentObservationSHA256 := ""
+	gradingReceiptSHA256 := ""
 	result, err = finalizeHeadlessOutcome(headlessOutcomeInput{
 		contract:                contract,
 		trajectory:              trajectory,
@@ -913,15 +915,31 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 		agentAdapterContract:    adapterContract,
 		agentAdapterAttemptID:   bindings.attemptSession.plan.AttemptID,
 		agentObservationSHA256:  &agentObservationSHA256,
+		gradingPlan:             bindings.gradingPlan, gradingReceiptSHA256: &gradingReceiptSHA256,
 	})
-	processReceipt, bindingErr := bindAgentObservationReceipt(processReceipt, agentObservationSHA256)
-	if bindingErr != nil {
-		return Result{}, errors.Join(err, bindingErr)
-	}
+	processReceipt, err = bindHeadlessOutcomeReceipts(processReceipt, agentObservationSHA256, gradingReceiptSHA256, err)
 	if err != nil {
 		return Result{}, err
 	}
 	return result, nil
+}
+
+func bindHeadlessOutcomeReceipts(processReceipt, observationSHA256, gradingSHA256 string, outcomeErr error) (string, error) {
+	bound, err := bindAgentObservationReceipt(processReceipt, observationSHA256)
+	if err != nil {
+		return "", errors.Join(outcomeErr, err)
+	}
+	if outcomeErr != nil {
+		return bound, outcomeErr
+	}
+	return bindGradingReceipt(bound, gradingSHA256)
+}
+
+func bindGradingReceipt(processReceipt, gradingReceiptSHA256 string) (string, error) {
+	if !validSHA256(processReceipt) || !validSHA256(gradingReceiptSHA256) {
+		return "", fmt.Errorf("bind grading receipt: invalid digest")
+	}
+	return contentMinimizedAttemptDigest("graded-process-receipt", []string{processReceipt, gradingReceiptSHA256})
 }
 
 func bindSyntheticWorkspaceMirrors(ctx context.Context, atlBinary, workspace, configDir string, backendEnvironment map[string]string) error {

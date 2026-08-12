@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/isukharev/atl/internal/agenteval/extension"
+	"github.com/isukharev/atl/internal/agenteval/grading"
 	"github.com/isukharev/atl/internal/agenteval/lifecycle"
 )
 
@@ -40,26 +41,28 @@ type runAttemptBindings struct {
 	providerAttemptCommitted func() error
 	attemptSession           *DurableAttemptSession
 	receipt                  *SyntheticRunReceipt
+	gradingPlan              grading.Plan
 }
 
-func prepareRunAttemptSessions(outputRoot string, contract resolvedRunContract, options RunOptions, skillDigest string) ([]*DurableAttemptSession, error) {
+func prepareRunAttemptSessions(outputRoot string, contract resolvedRunContract, options RunOptions, skillDigest string) ([]*DurableAttemptSession, []grading.Plan, error) {
 	ledgerRoot := filepath.Join(outputRoot, "attempt-ledger")
 	store, err := openOrCreateAttemptLedgerStore(ledgerRoot)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := store.RecoverIncomplete(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	binding, err := runAttemptBinding(contract, options, skillDigest)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	bindings := make([]lifecycle.Binding, contract.spec.Repetitions+1)
+	gradingPlans := make([]grading.Plan, contract.spec.Repetitions)
 	bindings[0] = binding
 	bindings[0].Identity.TaskSHA256, err = contentMinimizedAttemptDigest("preflight-task", binding.Identity.TaskSHA256)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for index := 1; index < len(bindings); index++ {
 		bindings[index] = binding
@@ -68,21 +71,30 @@ func prepareRunAttemptSessions(outputRoot string, contract resolvedRunContract, 
 			Repetition int    `json:"repetition"`
 		}{binding.Identity.TaskSHA256, index})
 		if err != nil {
-			return nil, err
+			return nil, nil, err
+		}
+		gradingPlans[index-1], err = newATLGradingPlan(contract.spec.Checks, contract.workspaceTemplate,
+			bindings[index].Identity.TaskSHA256)
+		if err != nil {
+			return nil, nil, err
+		}
+		bindings[index], err = BindGradingPlan(bindings[index], gradingPlans[index-1])
+		if err != nil {
+			return nil, nil, err
 		}
 	}
 	plans, err := store.AllocateRoster(bindings)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	sessions := make([]*DurableAttemptSession, len(plans))
 	for index, plan := range plans {
 		sessions[index], err = NewDurableAttemptSession(store, plan)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return sessions, nil
+	return sessions, gradingPlans, nil
 }
 
 func prepareCalibrationAttemptSession(outputRoot string, contract CodexCLICalibrationContract, options CodexCLICalibrationOptions) (*DurableAttemptSession, error) {
@@ -154,7 +166,7 @@ func prepareCalibrationAttemptSession(outputRoot string, contract CodexCLICalibr
 	return NewDurableAttemptSession(store, plans[0])
 }
 
-func prepareExtensionAttemptSessions(store *AttemptLedgerStore, manifest extension.Manifest, bundle ExtensionConformanceBundle, manifestDigest, bundleDigest, adapterContractDigest string) ([]*DurableAttemptSession, error) {
+func prepareExtensionAttemptSessions(store *AttemptLedgerStore, manifest extension.Manifest, bundle ExtensionConformanceBundle, manifestDigest, bundleDigest, componentContractDigest string) ([]*DurableAttemptSession, error) {
 	if store == nil || !validSHA256(manifestDigest) || !validSHA256(bundleDigest) {
 		return nil, attemptLedgerError("extension_binding")
 	}
@@ -173,18 +185,29 @@ func prepareExtensionAttemptSessions(store *AttemptLedgerStore, manifest extensi
 		return nil, err
 	}
 	adapterIdentity := manifestDigest
-	if adapterContractDigest != "" {
-		if !validSHA256(adapterContractDigest) ||
-			(manifest.Component.Role != extension.RoleAgentAdapter && manifest.Component.Role != extension.RoleExecutionBackend) {
-			return nil, attemptLedgerError("extension_adapter_binding")
+	graderIdentity := ""
+	if componentContractDigest != "" {
+		if !validSHA256(componentContractDigest) ||
+			(manifest.Component.Role != extension.RoleAgentAdapter && manifest.Component.Role != extension.RoleExecutionBackend &&
+				manifest.Component.Role != extension.RoleGrader) {
+			return nil, attemptLedgerError("extension_component_binding")
 		}
-		domain := "agent-adapter-process-binding"
-		if manifest.Component.Role == extension.RoleExecutionBackend {
+		domain := "grader-process-binding"
+		switch manifest.Component.Role {
+		case extension.RoleAgentAdapter:
+			domain = "agent-adapter-process-binding"
+		case extension.RoleExecutionBackend:
 			domain = "execution-backend-process-binding"
 		}
-		adapterIdentity, err = contentMinimizedAttemptDigest(domain, []string{manifestDigest, adapterContractDigest})
+		boundIdentity, digestErr := contentMinimizedAttemptDigest(domain, []string{manifestDigest, componentContractDigest})
+		err = digestErr
 		if err != nil {
 			return nil, err
+		}
+		if manifest.Component.Role == extension.RoleGrader {
+			graderIdentity = boundIdentity
+		} else {
+			adapterIdentity = boundIdentity
 		}
 	}
 	bindings := make([]lifecycle.Binding, len(bundle.Cases))
@@ -202,9 +225,12 @@ func prepareExtensionAttemptSessions(store *AttemptLedgerStore, manifest extensi
 		}
 		grader := none
 		if manifest.Component.Role == extension.RoleGrader {
-			grader, digestErr = contentMinimizedAttemptDigest("extension-grader", manifest.Component.Capabilities)
-			if digestErr != nil {
-				return nil, digestErr
+			grader = graderIdentity
+			if grader == "" {
+				grader, digestErr = contentMinimizedAttemptDigest("extension-grader", manifest.Component.Capabilities)
+				if digestErr != nil {
+					return nil, digestErr
+				}
 			}
 		}
 		authority, digestErr := contentMinimizedAttemptDigest("extension-authority", struct {

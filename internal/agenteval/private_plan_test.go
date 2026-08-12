@@ -715,6 +715,8 @@ func TestPrivatePlanBindsQualitativePanelBeforeExecution(t *testing.T) {
 func TestLegacyExecutableReviewPlanRemainsReadable(t *testing.T) {
 	fixture := newPrivatePlanTestFixture(t, false, false)
 	panel := testPrivateQualitativePanel()
+	panel.BlindAssignment = "cases/blind-assignment.txt"
+	writeTestFile(t, filepath.Join(fixture.root, "cases", "blind-assignment.txt"), "opaque assignment\n", 0o600)
 	for _, reviewer := range panel.Reviewers {
 		panel.Executions = append(panel.Executions, PrivateReviewerExecution{
 			ReviewerID: reviewer.ID, Reasoning: "high", TimeoutSeconds: 60,
@@ -746,8 +748,14 @@ func TestLegacyExecutableReviewPlanRemainsReadable(t *testing.T) {
 		t.Fatalf("plan=%+v err=%v", plan, err)
 	}
 	plan.SchemaVersion = LegacyExecutableReviewPrivatePlanSchemaVersion
+	plan.QualitativeReviewPanel.BlindAssignmentSHA256 = ""
+	plan.QualitativeReviewPanel.Reviewers[0].Model = strings.Repeat("😀", 256)
 	if err := validatePrivatePlan(plan, plan.PlanID); err != nil {
 		t.Fatalf("legacy executable-review plan was not readable: %v", err)
+	}
+	plan.SchemaVersion = PrivatePlanSchemaVersion
+	if err := validatePrivatePlan(plan, plan.PlanID); err == nil {
+		t.Fatal("current executable-review plan omitted its blind assignment")
 	}
 }
 

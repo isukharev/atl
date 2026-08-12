@@ -65,6 +65,10 @@ func TestRunRejectsMissingAndUnknownCommands(t *testing.T) {
 		{"verify-execution-backend", "--manifest", "manifest", "--backend", "backend", "--bundle", "bundle", "--contract", "contract", "--plan", "plan"},
 		{"verify-execution-backend", "--unknown"},
 		{"verify-execution-backend", "manifest", "backend", "bundle", "contract", "plan", "ledger"},
+		{"verify-grader"},
+		{"verify-grader", "--manifest", "manifest", "--grader", "grader", "--bundle", "bundle", "--contract", "contract"},
+		{"verify-grader", "--unknown"},
+		{"verify-grader", "manifest", "grader", "bundle", "contract", "ledger"},
 	} {
 		if err := run(args); err == nil {
 			t.Fatalf("run(%v) succeeded", args)
@@ -129,6 +133,22 @@ func TestRunVerifyExecutionBackendFlagErrorsDoNotEchoValues(t *testing.T) {
 	}
 	const unknown = "private-unknown-execution-backend-flag"
 	if err := run([]string{"verify-execution-backend", "--" + unknown}); err == nil || strings.Contains(err.Error(), unknown) {
+		t.Fatalf("unknown flag error=%q", err)
+	}
+}
+
+func TestRunVerifyGraderFlagErrorsDoNotEchoValues(t *testing.T) {
+	for _, name := range []string{"manifest", "grader", "bundle", "contract", "ledger"} {
+		marker := "private-value-must-not-be-echoed-" + name
+		args := []string{"verify-grader", "--manifest", "manifest.json", "--grader", "grader", "--bundle", "bundle.json",
+			"--contract", "contract.json", "--ledger", "ledger", "--" + name, marker}
+		err := run(args)
+		if err == nil || strings.Contains(err.Error(), marker) {
+			t.Fatalf("duplicate --%s error=%q", name, err)
+		}
+	}
+	const unknown = "private-unknown-grader-flag"
+	if err := run([]string{"verify-grader", "--" + unknown}); err == nil || strings.Contains(err.Error(), unknown) {
 		t.Fatalf("unknown flag error=%q", err)
 	}
 }

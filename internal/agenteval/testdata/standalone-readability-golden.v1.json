@@ -1755,6 +1755,67 @@
     },
     {
       "namespace": "standalone",
+      "kind": "grade-receipt",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/grade-receipt-v1.json",
+      "source_sha256": "f29d6a0090773985238e9b0358da3817457f967a66d356932f14e6b9635df0e3",
+      "reader_support_path": "testdata/standalone-readability/grading-plan-v1.json",
+      "reader_support_sha256": "abc4f828d24a6571a9d827c2ac858b62ab5d793a60f50375713330e0adff48f2",
+      "expected_projection": {
+        "schema": "agent-eval/grade-receipt",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "status": "complete",
+        "evidence_count": 1,
+        "decision_count": 1,
+        "observed_decision_count": 1,
+        "reviewer_count": 0,
+        "disagreement_count": 0,
+        "plan_bound": true,
+        "evidence_bound": true
+      }
+    },
+    {
+      "namespace": "standalone",
+      "kind": "grader-contract",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/grader-contract-v1.json",
+      "source_sha256": "c36a16dcb8233a5c3446a0bde2bdcf0ff4590dc8d6df1fce303ef43759b0c6f4",
+      "expected_projection": {
+        "schema": "agent-eval/grader-contract",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "grader_id": "builtin-grading",
+        "grader_version": "1",
+        "mode_count": 3,
+        "supported_mode_count": 3,
+        "capability_count": 15,
+        "supported_capability_count": 15
+      }
+    },
+    {
+      "namespace": "standalone",
+      "kind": "grading-plan",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/grading-plan-v1.json",
+      "source_sha256": "abc4f828d24a6571a9d827c2ac858b62ab5d793a60f50375713330e0adff48f2",
+      "reader_support_path": "testdata/standalone-readability/grader-contract-v1.json",
+      "reader_support_sha256": "c36a16dcb8233a5c3446a0bde2bdcf0ff4590dc8d6df1fce303ef43759b0c6f4",
+      "expected_projection": {
+        "schema": "agent-eval/grading-plan",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "mode": "deterministic",
+        "check_count": 1,
+        "hidden_check_count": 0,
+        "script_instruction_count": 0,
+        "reviewer_count": 0,
+        "contract_bound": true,
+        "input_bound": true
+      }
+    },
+    {
+      "namespace": "standalone",
       "kind": "migration-preview",
       "version": 1,
       "source_path": "testdata/standalone-readability/migration-preview-v1.json",
@@ -1813,12 +1874,12 @@
       "kind": "schema-registry",
       "version": 1,
       "source_path": "schemaregistry/registry.v1.json",
-      "source_sha256": "54b4fa56c8194cca6d63021abdbb66a266025119ce2d0421623b48d2d79714b0",
+      "source_sha256": "9eb32a5b68fda1a45740ed600d6bb8583a41d2543c5da85ee59d473124b3cc39",
       "expected_projection": {
         "schema": "agent-eval/schema-registry",
         "schema_version": 1,
         "contract_version": "0.1.0-pre-release",
-        "entry_count": 33,
+        "entry_count": 36,
         "first_schema": "atl-profile/activation-reference",
         "last_schema": "standalone/trial-receipt",
         "migration_edge_count": 1

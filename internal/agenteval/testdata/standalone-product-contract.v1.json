@@ -21,7 +21,8 @@
     "verify-atl-capabilities",
     "verify-codex-skill-package",
     "verify-execution-backend",
-    "verify-extension-protocol"
+    "verify-extension-protocol",
+    "verify-grader"
   ],
   "standalone_operations": [
     {"id":"capabilities","mode":"default","current_status":"implemented_pre_release","maintainer_aliases":[],"standalone_status":"pre_release","authority":"none","local_read":false,"local_write":false,"process_spawn":false,"provider_contact":false,"backend_contact":false,"network":false,"credential_access":false,"private_workspace_access":false},
@@ -98,6 +99,9 @@
     {"namespace":"standalone","kind":"execution-backend-contract","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":65536},
     {"namespace":"standalone","kind":"extension-conformance-bundle","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"public","migration":"explicit","max_bytes":1048576},
     {"namespace":"standalone","kind":"extension-conformance-report","current":1,"readable":[1],"emitted":[1],"executable":[],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":1048576},
+    {"namespace":"standalone","kind":"grade-receipt","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":4194304},
+    {"namespace":"standalone","kind":"grader-contract","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":65536},
+    {"namespace":"standalone","kind":"grading-plan","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"public_or_private","migration":"explicit","max_bytes":1048576},
     {"namespace":"standalone","kind":"migration-preview","current":1,"readable":[1],"emitted":[1],"executable":[],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":65536},
     {"namespace":"standalone","kind":"migration-result","current":1,"readable":[1],"emitted":[1],"executable":[],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":65536},
     {"namespace":"standalone","kind":"project-config","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"public_or_private","migration":"explicit","max_bytes":65536},

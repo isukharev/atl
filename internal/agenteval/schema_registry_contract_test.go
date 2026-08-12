@@ -70,6 +70,8 @@ func standaloneSchemaOwner(namespace, kind string) string {
 		return "agentadapter"
 	case "execution-backend-contract", "trial-plan", "trial-receipt":
 		return "executionbackend"
+	case "grade-receipt", "grader-contract", "grading-plan":
+		return "grading"
 	case "adapter-manifest", "adapter-message", "extension-conformance-bundle", "extension-conformance-report":
 		return "extension"
 	case "attempt-event", "attempt-ledger", "attempt-plan":

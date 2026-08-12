@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/isukharev/atl/internal/agenteval/executionbackend"
+	"github.com/isukharev/atl/internal/agenteval/grading"
 	"github.com/isukharev/atl/internal/agenteval/lifecycle"
 )
 
@@ -272,6 +273,9 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 		standaloneContractKey("standalone", "execution-backend-contract"):   {current: executionbackend.SchemaVersion, readable: []int{executionbackend.SchemaVersion}, emitted: []int{executionbackend.SchemaVersion}, executable: []int{executionbackend.SchemaVersion}},
 		standaloneContractKey("standalone", "extension-conformance-bundle"): {current: 1, readable: []int{1}, emitted: []int{1}, executable: []int{1}},
 		standaloneContractKey("standalone", "extension-conformance-report"): {current: 1, readable: []int{1}, emitted: []int{1}},
+		standaloneContractKey("standalone", "grade-receipt"):                {current: grading.SchemaVersion, readable: []int{grading.SchemaVersion}, emitted: []int{grading.SchemaVersion}, executable: []int{grading.SchemaVersion}},
+		standaloneContractKey("standalone", "grader-contract"):              {current: grading.SchemaVersion, readable: []int{grading.SchemaVersion}, emitted: []int{grading.SchemaVersion}, executable: []int{grading.SchemaVersion}},
+		standaloneContractKey("standalone", "grading-plan"):                 {current: grading.SchemaVersion, readable: []int{grading.SchemaVersion}, emitted: []int{grading.SchemaVersion}, executable: []int{grading.SchemaVersion}},
 		standaloneContractKey("standalone", "migration-preview"):            {current: StandaloneMigrationArtifactVersion, readable: []int{StandaloneMigrationArtifactVersion}, emitted: []int{StandaloneMigrationArtifactVersion}},
 		standaloneContractKey("standalone", "migration-result"):             {current: StandaloneMigrationArtifactVersion, readable: []int{StandaloneMigrationArtifactVersion}, emitted: []int{StandaloneMigrationArtifactVersion}},
 		standaloneContractKey("standalone", "project-config"):               {current: StandaloneProjectConfigVersion, readable: []int{StandaloneProjectConfigVersion}, emitted: []int{StandaloneProjectConfigVersion}, executable: []int{StandaloneProjectConfigVersion}},
@@ -307,6 +311,9 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 		standaloneContractKey("standalone", "execution-backend-contract"):   {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: executionbackend.MaxContractBytes},
 		standaloneContractKey("standalone", "extension-conformance-bundle"): {disposition: "preserve", privacy: "public", migration: "explicit", maxBytes: 1 << 20},
 		standaloneContractKey("standalone", "extension-conformance-report"): {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: 1 << 20},
+		standaloneContractKey("standalone", "grade-receipt"):                {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: grading.MaxReceiptBytes},
+		standaloneContractKey("standalone", "grader-contract"):              {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: grading.MaxContractBytes},
+		standaloneContractKey("standalone", "grading-plan"):                 {disposition: "preserve", privacy: "public_or_private", migration: "explicit", maxBytes: grading.MaxPlanBytes},
 		standaloneContractKey("standalone", "migration-preview"):            {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: StandaloneMigrationArtifactMaxBytes},
 		standaloneContractKey("standalone", "migration-result"):             {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: StandaloneMigrationArtifactMaxBytes},
 		standaloneContractKey("standalone", "project-config"):               {disposition: "preserve", privacy: "public_or_private", migration: "explicit", maxBytes: StandaloneProjectConfigMaxBytes},
@@ -378,7 +385,7 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 func TestStandaloneContractClassifiesCurrentCommandsAndArtifacts(t *testing.T) {
 	contract := loadStandaloneProductContractFixture(t)
 	commands := standaloneCoordinatorCommands(t, filepath.Join("cmd", "agent-eval", "main.go"))
-	if len(commands) != 18 || !slices.Equal(commands, contract.MaintainerCommands) {
+	if len(commands) != 19 || !slices.Equal(commands, contract.MaintainerCommands) {
 		t.Fatalf("coordinator commands=%v, contract=%v", commands, contract.MaintainerCommands)
 	}
 
