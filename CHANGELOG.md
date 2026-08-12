@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added read-only `atl corpus build` orchestration for nominated Jira projects
+  and Confluence spaces, with qualified capture receipts, one shared physical
+  request/byte/deadline budget, retained crash recovery, and atomic publication
+  of a single ready sealed generation.
 - Added zero-egress `atl corpus export` for canonical indexer-v1 documents,
   typed edges, relative Markdown, qualification receipts, and immutable private
   generations built from pristine Jira and Confluence mirror evidence.

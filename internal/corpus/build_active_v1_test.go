@@ -60,10 +60,25 @@ func TestBuildActiveRejectsStrictAndSemanticViolations(t *testing.T) {
 		{name: "attempt limit", mutate: func(a *BuildActive) { a.MaxAttempts = 0 }, reason: ReasonBounds},
 		{name: "usage attempts", mutate: func(a *BuildActive) { a.Usage.Attempts = a.MaxAttempts + 1 }, reason: ReasonBounds},
 		{name: "usage bytes", mutate: func(a *BuildActive) { a.Usage.ResponseBytes = a.MaxResponseBytes + 1 }, reason: ReasonBounds},
+		{name: "service usage exceeds aggregate", mutate: func(a *BuildActive) { a.Usage.Attempts = 4 }, reason: ReasonLineage},
 		{name: "response limit", mutate: func(a *BuildActive) { a.MaxResponseBytes = maxCaptureResponseBytes + 1 }, reason: ReasonBounds},
 		{name: "nil services", mutate: func(a *BuildActive) { a.Services = nil }, reason: ReasonMembership},
 		{name: "unsorted services", mutate: func(a *BuildActive) { a.Services[0], a.Services[1] = a.Services[1], a.Services[0] }, reason: ReasonMembership},
 		{name: "receipt without scope", mutate: func(a *BuildActive) { a.Services[0].ScopeDigest = "" }, reason: ReasonDigest},
+		{name: "usage without service start", mutate: func(a *BuildActive) {
+			a.Services[0].StartedAt = ""
+			a.Services[0].ScopeDigest = ""
+			a.Services[0].ReceiptDigest = ""
+		}, reason: ReasonLineage},
+		{name: "service starts before attempt", mutate: func(a *BuildActive) {
+			a.Services[0].StartedAt = NewBuildActiveTime(time.Date(2026, 8, 12, 9, 59, 59, 0, time.UTC))
+		}, reason: ReasonLineage},
+		{name: "remote service without start", mutate: func(a *BuildActive) {
+			a.Services[1].StartedAt = ""
+			a.Services[1].ScopeDigest = ""
+			a.Services[1].ReceiptDigest = ""
+			a.Services[1].Usage = CaptureUsage{}
+		}, reason: ReasonLineage},
 		{name: "unknown remote service", mutate: func(a *BuildActive) { a.RemoteService = "aggregate" }, reason: ReasonMembership},
 		{name: "remote service without flight", mutate: func(a *BuildActive) { a.RemoteInFlight = false }, reason: ReasonMembership},
 		{name: "completed in flight", mutate: func(a *BuildActive) { a.Status = BuildAttemptCompleted }, reason: ReasonMembership},
@@ -96,8 +111,8 @@ func validBuildActive() BuildActive {
 		AttemptID:     strings.Repeat("1", 32), Status: BuildAttemptActive,
 		OptionsDigest: digestByte('a'),
 		Services: []BuildServiceState{
-			{Service: ServiceConfluence, SelectorDigest: digestByte('b'), ScopeDigest: digestByte('c'), ReceiptDigest: digestByte('d')},
-			{Service: ServiceJira, SelectorDigest: digestByte('e'), ScopeDigest: digestByte('f'), ReceiptDigest: digestByte('1')},
+			{Service: ServiceConfluence, SelectorDigest: digestByte('b'), ScopeDigest: digestByte('c'), StartedAt: NewBuildActiveTime(started), Usage: CaptureUsage{Attempts: 2, ResponseBytes: 1000}, ReceiptDigest: digestByte('d')},
+			{Service: ServiceJira, SelectorDigest: digestByte('e'), ScopeDigest: digestByte('f'), StartedAt: NewBuildActiveTime(started), Usage: CaptureUsage{Attempts: 3, ResponseBytes: 2000}, ReceiptDigest: digestByte('1')},
 		},
 		StartedAt: NewBuildActiveTime(started), Deadline: NewBuildActiveTime(started.Add(time.Hour)),
 		MaxAttempts: 100, MaxResponseBytes: 1 << 20,

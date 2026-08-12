@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -100,6 +101,50 @@ func TestJiraCompletePullPublishesTwoPassNumericSelection(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(root, "PROJ", key+ext)); err != nil {
 				t.Fatalf("missing %s%s: %v", key, ext, err)
 			}
+		}
+	}
+}
+
+func TestJiraCompletePullExactProjectionDropsOverReturnedFields(t *testing.T) {
+	root := t.TempDir()
+	issue := domain.Issue{
+		ID: "9", Key: "PROJ-9", Project: "PROJ", Summary: "nine", Body: "native nine",
+		Status: "Over-returned", Comments: []domain.Comment{{ID: "20001", Body: "extra"}},
+		Links: []domain.IssueLink{{ID: "30001", Type: "blocks", Direction: "outward", Key: "PROJ-10"}},
+		Fields: map[string]any{
+			"project": map[string]any{"key": "PROJ"}, "summary": "nine", "description": "native nine",
+			"status":     map[string]any{"name": "Over-returned"},
+			"comment":    map[string]any{"comments": []any{map[string]any{"id": "20001", "body": "extra"}}},
+			"attachment": []any{map[string]any{"id": "40001", "filename": "extra.txt"}},
+			"issuelinks": []any{map[string]any{"id": "30001"}},
+		},
+	}
+	tracker := &jiraCompleteTracker{
+		passIssues: [][]domain.Issue{{issue}, {issue}},
+		getIssues:  map[string]*domain.Issue{"9": &issue},
+	}
+	settings := corpusBuildRenderSettings("jira")
+	_, err := (&JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}).Pull(t.Context(), JiraPullOpts{
+		Complete: true, Project: "PROJ", MaxIssues: 1, Into: root,
+		exactRender: &settings, exactFields: []string{"summary", "description", "project"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(root, "PROJ", "PROJ-9.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot JiraIssueSnapshot
+	if err := json.Unmarshal(b, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Fields) != 3 || snapshot.Fields["summary"] != "nine" || snapshot.Fields["description"] != "native nine" {
+		t.Fatalf("exact snapshot fields=%#v", snapshot.Fields)
+	}
+	for _, field := range []string{"status", "comment", "attachment", "issuelinks"} {
+		if _, found := snapshot.Fields[field]; found {
+			t.Fatalf("over-returned field %q survived exact projection", field)
 		}
 	}
 }

@@ -103,6 +103,39 @@ first payload publication and resumes only an accepted durable suffix. It
 retains objects absent from a later selection and never grants deletion or
 remote-write authority.
 
+## Recover an on-demand corpus build
+
+Use `corpus build` when an indexer needs one ready generation rather than a
+working mirror. Its attempt mirrors are private recovery state, not consumer
+input:
+
+```sh
+export ATL_READ_ONLY=1
+atl corpus build --root /private/indexer-corpus \
+  --jira-project EXAMPLE --max-jira-issues 5000 \
+  --max-requests 10000 --max-response-bytes 2147483648 \
+  --max-members 100000 --max-generation-bytes 4294967296 \
+  --deadline 1h --max-in-flight 4 --requests-per-second 20
+```
+
+Repeat the exact command after an ordinary returned read failure. ATL resumes
+the retained attempt with its original deadline and cumulative request/byte
+usage. Do not edit an attempt mirror or point an indexer at it.
+
+If recovery reports `phase=recover reason=outcome_unknown`, the process stopped
+while a remote read phase was marked in flight. ATL refuses to guess whether
+that phase completed. Preserve the root and rerun the same selection and bounds
+with `--restart`; ATL first reconciles local complete-pull state, retains the
+old attempt, and then begins a fresh one. Restart does not delete a prior
+generation or switch `current.v1.json` until the fresh capture, projection,
+seal, and pointer verification all succeed.
+
+`phase=publish reason=outcome_unknown` is different: a verified generation may
+already be current while the final completed attempt record lacks a confirmed
+durability barrier. Preserve the root and repeat the exact command without
+`--restart`; ATL verifies the visible current generation and active record
+before deciding whether to resume recovery or begin the next bounded capture.
+
 ## Reconcile local and remote changes
 
 After a version conflict, do not begin with a bare pull. Preserve the local
@@ -168,6 +201,8 @@ atl jira pull --jql 'key = RETURNED-1' --limit 1 \
 | Missing or mismatched backend binding | Stop before network; inspect and bind only the intended service/root |
 | Remote create with `not_registered` | Do not replay; pull only the returned identity after fixing local state |
 | `outcome_unknown` after any write | Retain evidence and reconcile; never infer absence or retry automatically |
+| Corpus build returned a known read failure | Rerun exact options; deadline and cumulative budgets do not reset |
+| Corpus build `recover/outcome_unknown` | Preserve the root and use explicit `--restart`; never auto-replay the in-flight read |
 
 For large, incremental, or resumable selections, see the exact
 [`conf pull`](reference/cli/confluence-mirrors.md#atl-conf-pull) and

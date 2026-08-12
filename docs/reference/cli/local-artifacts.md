@@ -31,6 +31,85 @@ Flags:
 | `--include` | comma-separated include flags to record |
 | `--command` | command string to record (default `atl manifest create`) |
 
+## `atl corpus build`
+
+Capture one nominated Jira project, one nominated Confluence space, or both
+into separate private attempt mirrors, reconcile each qualified complete pull
+with its pristine provider-ID inventory, project canonical `indexer-v1`
+members, and atomically select one sealed `ready` generation. The command never
+discovers projects or spaces and never sends a mutating backend request.
+
+The caller creates the owner-only trust root. Initialization is explicit and
+works only for an empty directory with exact mode `0700`:
+
+```bash
+install -d -m 0700 /private/indexer-corpus
+export ATL_READ_ONLY=1
+atl corpus build \
+  --root /private/indexer-corpus --initialize \
+  --jira-project EXAMPLE --max-jira-issues 5000 \
+  --confluence-space DOCS --max-confluence-pages 5000 \
+  --max-requests 20000 --max-response-bytes 4294967296 \
+  --max-members 100000 --max-generation-bytes 8589934592 \
+  --deadline 2h --max-in-flight 4 --requests-per-second 20
+```
+
+Later captures omit `--initialize`. `--read-only` or `ATL_READ_ONLY=1` is a
+mandatory invocation input, not merely a compatible global configuration
+value. ATL checks that requirement before configuration, credentials,
+self-update, or network access. Only selected services load a PAT and construct
+a client for their configured URL. Local attempt and generation writes still
+occur under the named root.
+
+Every bound is finite and required. Reaching a request, response-byte,
+deadline, selection, snapshot, member, or generation-byte limit prevents
+publication. Physical retries and redirect hops count as attempts, and both
+services share the same attempt, response-byte, concurrency, and start-rate
+guards. Captures run sequentially and record independent windows; a two-service
+generation never claims one remote atomic instant. The derived view is fixed to
+the minimal profile with Confluence Jira-macro expansion off. Comments and
+attachments are recorded as `not_requested` in this command version. Even with
+`--verbose`, request URLs and response paths are rendered as `<redacted>` so a
+selector or object identity cannot enter the trace.
+
+| flag | description |
+|---|---|
+| `--root` | existing owner-only corpus root (required) |
+| `--initialize` | initialize an existing empty exact-`0700` root; mutually exclusive with `--restart` |
+| `--restart` | recover the interrupted attempt's local journal, retain it, and begin a fresh attempt |
+| `--jira-project` | canonical uppercase Jira project key; optional when Confluence is selected |
+| `--max-jira-issues` | required Jira selection cap, `1..100000`, only with `--jira-project` |
+| `--confluence-space` | canonical Confluence space key; optional when Jira is selected |
+| `--max-confluence-pages` | required Confluence selection cap, `1..100000`, only with `--confluence-space` |
+| `--max-requests` | aggregate physical HTTP-attempt cap, `1..10000000` |
+| `--max-response-bytes` | aggregate buffered response-byte cap, `1..68719476736` |
+| `--max-members` | sealed member and per-snapshot item guard, `1..100000` |
+| `--max-generation-bytes` | sealed generation and per-snapshot byte guard, `1..68719476736` |
+| `--deadline` | original attempt duration, greater than zero and at most `24h` |
+| `--max-in-flight` | shared concurrent physical-attempt cap, `1..8` |
+| `--requests-per-second` | shared request-start cap, `1..1000` |
+
+An ordinary returned read error durably records consumed budget and permits an
+exact resume with unchanged options and the original deadline. A hard process
+loss while `remote_in_flight` is set has an ambiguous remote read outcome and
+is never replayed automatically: rerun with `--restart`. Restart first recovers
+service-owned local publication/journal state, marks the old attempt retained,
+then creates a random fresh attempt. It never deletes attempts, generations, or
+the previous current pointer. A completed active record is also retained.
+
+If publication selects and verifies a generation but the final completed
+active-record barrier cannot be confirmed, the command returns
+`phase=publish reason=outcome_unknown`. The current pointer may already name
+that generation. Preserve the root and repeat the exact command without
+`--restart`; ATL verifies the visible current generation and active record
+before resuming recovery or beginning the next bounded capture.
+
+Consumers open only `current.v1.json` through the sealed-generation reader.
+They never inspect `attempts/`, active records, or working mirror files. Keep
+the entire root outside source repositories and any index that could publish
+private data. See [Sealed corpus generations](../../corpus-generations.md) for
+the exact durability and privacy model.
+
 ## `atl corpus export`
 
 Project the pristine baselines of one or two initialized mirrors into a private,

@@ -202,6 +202,9 @@ func newRoot() *cobra.Command {
 		if err := enforceOutputContract(cmd); err != nil {
 			return err
 		}
+		if cmd.Annotations[explicitReadOnlyAnnotation] == "required" && !runtime.readOnly && !envReadOnly() {
+			return usageErr("corpus build requires explicit --read-only or ATL_READ_ONLY=1")
+		}
 		// An explicit process policy is itself a pre-config safety boundary and
 		// keeps its established precedence over malformed mutation inputs.
 		if runtime.readOnly || envReadOnly() {

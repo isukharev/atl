@@ -48,6 +48,8 @@ Use the [command reference](docs/reference/cli/README.md) or
 [output contract](docs/reference/output/README.md) when exact flags or wire
 fields matter.
 
+See [corpus builds](docs/corpus-generations.md).
+
 ## Install
 
 Linux and macOS release binaries are available for amd64 and arm64.

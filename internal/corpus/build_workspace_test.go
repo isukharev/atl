@@ -51,6 +51,9 @@ func TestBuildWorkspacePersistsAttemptActiveAndReceipt(t *testing.T) {
 		t.Fatalf("idempotent receipt save: %v", err)
 	}
 	active.Services[0].ScopeDigest = receipt.ScopeDigest
+	active.Services[0].StartedAt = receipt.StartedAt
+	active.Services[0].Usage = receipt.Usage
+	active.Usage = receipt.Usage
 	active.Services[0].ReceiptDigest = receipt.ReceiptDigest
 	if err := workspace.SaveActive(active); err != nil {
 		t.Fatal(err)
@@ -96,6 +99,37 @@ func TestBuildWorkspaceSerializesWritersAndReleasesOnClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = second.Close()
+}
+
+func TestBuildWorkspaceRejectsLockPathReplacementAfterAcquire(t *testing.T) {
+	root := privateBuildWorkspaceRoot(t)
+	workspace, err := InitializeBuildWorkspace(context.Background(), root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := workspace.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err := Open(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	store.testHook = func(step string) error {
+		if step != "after_build_lock_acquired" {
+			return nil
+		}
+		replacement := filepath.Join(root, ".replacement-build-lock")
+		if err := os.WriteFile(replacement, nil, privateFileMode); err != nil {
+			return err
+		}
+		if err := os.Rename(replacement, filepath.Join(root, buildLockFile)); err != nil {
+			return err
+		}
+		return nil
+	}
+	_, err = lockBuildFile(context.Background(), store)
+	assertReason(t, err, ReasonConcurrent)
 }
 
 func TestBuildWorkspaceActiveDurabilityBoundaries(t *testing.T) {
@@ -157,7 +191,120 @@ func TestBuildWorkspaceActiveDurabilityBoundaries(t *testing.T) {
 	if err != nil || !found || loaded.Usage.Attempts != 1 {
 		t.Fatalf("renamed active=%#v found=%t err=%v", loaded, found, err)
 	}
+
+	active.Usage.Attempts = 2
+	workspace.store.testHook = func(step string) error {
+		if step == "after_build_active_sync" {
+			return errors.New("fault")
+		}
+		return nil
+	}
+	if err := workspace.SaveActive(active); !errors.Is(err, ErrOutcomeUnknown) {
+		t.Fatalf("post-sync error = %v", err)
+	}
+	workspace.store.testHook = nil
+	loaded, found, err = workspace.LoadActive()
+	if err != nil || !found || loaded.Usage.Attempts != 2 {
+		t.Fatalf("synced active=%#v found=%t err=%v", loaded, found, err)
+	}
+	if err := workspace.SaveActive(active); err != nil {
+		t.Fatalf("idempotent active durability barrier: %v", err)
+	}
 	_ = workspace.Close()
+}
+
+func TestBuildWorkspaceReceiptDurabilityBoundaries(t *testing.T) {
+	for _, step := range []string{"after_build_receipt_link", "after_build_receipt_sync"} {
+		t.Run(step, func(t *testing.T) {
+			root := privateBuildWorkspaceRoot(t)
+			workspace, err := InitializeBuildWorkspace(context.Background(), root, Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			attemptID, _, err := workspace.BeginAttempt([]Service{ServiceJira})
+			if err != nil {
+				t.Fatal(err)
+			}
+			receipt := mustCaptureReceipt(t, validCaptureReceiptInput())
+			workspace.store.testHook = func(current string) error {
+				if current == step {
+					return errors.New("fault")
+				}
+				return nil
+			}
+			if err := workspace.SaveCaptureReceipt(attemptID, receipt); !errors.Is(err, ErrOutcomeUnknown) {
+				t.Fatalf("save error=%v", err)
+			}
+			workspace.store.testHook = nil
+			persisted, found, err := workspace.LoadCaptureReceipt(attemptID, ServiceJira)
+			if err != nil || !found || persisted.ReceiptDigest != receipt.ReceiptDigest {
+				t.Fatalf("persisted=%#v found=%t err=%v", persisted, found, err)
+			}
+			if err := workspace.SaveCaptureReceipt(attemptID, receipt); err != nil {
+				t.Fatalf("idempotent resolution: %v", err)
+			}
+			_ = workspace.Close()
+		})
+	}
+}
+
+func TestBuildWorkspaceIdempotentReceiptSaveRepeatsDurabilityBarrier(t *testing.T) {
+	root := privateBuildWorkspaceRoot(t)
+	workspace, err := InitializeBuildWorkspace(context.Background(), root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = workspace.Close() }()
+	attemptID, _, err := workspace.BeginAttempt([]Service{ServiceJira})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := mustCaptureReceipt(t, validCaptureReceiptInput())
+	if err := workspace.SaveCaptureReceipt(attemptID, receipt); err != nil {
+		t.Fatal(err)
+	}
+	barriers := 0
+	workspace.store.testHook = func(step string) error {
+		if step == "after_build_receipt_sync" {
+			barriers++
+		}
+		return nil
+	}
+	if err := workspace.SaveCaptureReceipt(attemptID, receipt); err != nil {
+		t.Fatal(err)
+	}
+	if barriers != 1 {
+		t.Fatalf("idempotent durability barriers=%d want=1", barriers)
+	}
+}
+
+func TestBuildWorkspaceRejectsReceiptCompletedAfterAttemptDeadline(t *testing.T) {
+	root := privateBuildWorkspaceRoot(t)
+	workspace, err := InitializeBuildWorkspace(context.Background(), root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = workspace.Close() }()
+	attemptID, _, err := workspace.BeginAttempt([]Service{ServiceJira})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := mustCaptureReceipt(t, validCaptureReceiptInput())
+	if err := workspace.SaveCaptureReceipt(attemptID, receipt); err != nil {
+		t.Fatal(err)
+	}
+	active := buildWorkspaceActive(attemptID, receipt)
+	active.Services[0].ScopeDigest = receipt.ScopeDigest
+	active.Services[0].StartedAt = receipt.StartedAt
+	active.Services[0].Usage = receipt.Usage
+	active.Services[0].ReceiptDigest = receipt.ReceiptDigest
+	active.Usage = receipt.Usage
+	started, err := time.Parse(time.RFC3339Nano, receipt.StartedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active.Deadline = NewBuildActiveTime(started.Add(30 * time.Second))
+	assertReason(t, workspace.SaveActive(active), ReasonLineage)
 }
 
 func TestBuildWorkspaceFailsClosedOnPartialOrTamperedState(t *testing.T) {
@@ -221,7 +368,7 @@ func privateBuildWorkspaceRoot(t *testing.T) string {
 }
 
 func buildWorkspaceActive(attemptID string, receipt CaptureReceipt) BuildActive {
-	started := time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC)
+	started := time.Date(2026, 1, 2, 3, 0, 0, 0, time.UTC)
 	return BuildActive{
 		SchemaVersion: BuildActiveSchemaV1, AttemptID: attemptID, Status: BuildAttemptActive,
 		OptionsDigest: digestByte('9'),

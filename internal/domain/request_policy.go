@@ -80,15 +80,30 @@ type ReadBudget struct {
 // NewReadBudget constructs a finite physical-attempt and aggregate
 // response-byte budget. Zero is a valid closed limit for either dimension.
 func NewReadBudget(maxAttempts int, maxResponseBytes int64) (*ReadBudget, error) {
+	return NewReadBudgetWithUsage(maxAttempts, maxResponseBytes, ReadBudgetUsage{})
+}
+
+// NewReadBudgetWithUsage resumes a command-scoped budget from durably recorded
+// physical usage. It is intentionally stricter than a fresh budget: initial
+// counters must already fit within the unchanged original maxima.
+func NewReadBudgetWithUsage(maxAttempts int, maxResponseBytes int64, usage ReadBudgetUsage) (*ReadBudget, error) {
 	if maxAttempts < 0 {
 		return nil, fmt.Errorf("read attempt budget must be non-negative")
 	}
 	if maxResponseBytes < 0 {
 		return nil, fmt.Errorf("read response-byte budget must be non-negative")
 	}
+	if usage.Attempts < 0 || usage.Attempts > maxAttempts {
+		return nil, fmt.Errorf("initial read attempt usage is out of bounds")
+	}
+	if usage.ResponseBytes < 0 || usage.ResponseBytes > maxResponseBytes {
+		return nil, fmt.Errorf("initial read response-byte usage is out of bounds")
+	}
 	b := &ReadBudget{
 		maxAttempts:      maxAttempts,
+		attempts:         usage.Attempts,
 		maxResponseBytes: maxResponseBytes,
+		responseBytes:    usage.ResponseBytes,
 		responseGate:     make(chan struct{}, 1),
 	}
 	b.responseGate <- struct{}{}

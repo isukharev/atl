@@ -19,10 +19,12 @@ const (
 // backend. ScopeDigest appears after principal qualification; ReceiptDigest
 // appears only after exact mirror reconciliation and receipt persistence.
 type BuildServiceState struct {
-	Service        Service `json:"service"`
-	SelectorDigest string  `json:"selector_digest"`
-	ScopeDigest    string  `json:"scope_digest,omitempty"`
-	ReceiptDigest  string  `json:"receipt_digest,omitempty"`
+	Service        Service      `json:"service"`
+	SelectorDigest string       `json:"selector_digest"`
+	ScopeDigest    string       `json:"scope_digest,omitempty"`
+	StartedAt      string       `json:"started_at,omitempty"`
+	Usage          CaptureUsage `json:"usage"`
+	ReceiptDigest  string       `json:"receipt_digest,omitempty"`
 }
 
 // BuildActive is the canonical crash-recovery record for one retained attempt.
@@ -119,6 +121,8 @@ func validateBuildActive(active BuildActive, limits Limits) error {
 	if active.Services == nil || len(active.Services) == 0 || len(active.Services) > 2 {
 		return reject(ReasonMembership)
 	}
+	var serviceAttempts int
+	var serviceBytes int64
 	for index, state := range active.Services {
 		if !validQualificationService(state.Service) {
 			return reject(ReasonType)
@@ -131,16 +135,39 @@ func validateBuildActive(active BuildActive, limits Limits) error {
 		}
 		if state.ScopeDigest != "" && !isLowerSHA256(state.ScopeDigest) ||
 			state.ReceiptDigest != "" && !isLowerSHA256(state.ReceiptDigest) ||
-			state.ReceiptDigest != "" && state.ScopeDigest == "" {
+			state.ReceiptDigest != "" && (state.ScopeDigest == "" || state.StartedAt == "") {
 			return reject(ReasonDigest)
 		}
+		if state.StartedAt != "" {
+			captureStarted, err := parseCanonicalCaptureTime(state.StartedAt)
+			if err != nil || captureStarted.Before(started) || !captureStarted.Before(deadline) {
+				return reject(ReasonLineage)
+			}
+		} else if state.ScopeDigest != "" || state.Usage.Attempts != 0 || state.Usage.ResponseBytes != 0 || state.ReceiptDigest != "" {
+			return reject(ReasonLineage)
+		}
+		if state.Usage.Attempts < 0 || state.Usage.ResponseBytes < 0 ||
+			state.Usage.Attempts > active.MaxAttempts-serviceAttempts ||
+			state.Usage.ResponseBytes > active.MaxResponseBytes-serviceBytes {
+			return reject(ReasonBounds)
+		}
+		serviceAttempts += state.Usage.Attempts
+		serviceBytes += state.Usage.ResponseBytes
 		if active.Status == BuildAttemptCompleted && (state.ScopeDigest == "" || state.ReceiptDigest == "") {
 			return reject(ReasonMembership)
 		}
 	}
+	if serviceAttempts > active.Usage.Attempts || serviceBytes > active.Usage.ResponseBytes {
+		return reject(ReasonLineage)
+	}
 	if active.RemoteInFlight {
 		if active.Status != BuildAttemptActive || !buildActiveHasService(active, active.RemoteService) {
 			return reject(ReasonMembership)
+		}
+		for _, state := range active.Services {
+			if state.Service == active.RemoteService && state.StartedAt == "" {
+				return reject(ReasonLineage)
+			}
 		}
 	} else if active.RemoteService != "" {
 		return reject(ReasonMembership)

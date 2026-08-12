@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/compose"
 	"github.com/isukharev/atl/internal/corpus"
 	"github.com/isukharev/atl/internal/version"
 )
@@ -56,6 +57,73 @@ func newCorpusCmd() *cobra.Command {
 	export.Flags().StringVar(&storeRoot, "store", "", "existing owner-only sealed-generation store root")
 	export.Flags().BoolVar(&initializeStore, "initialize-store", false, "initialize an existing empty 0700 store root")
 	export.Flags().BoolVar(&allowUnreconciled, "allow-unreconciled", false, "diagnostic export of pristine bases despite staged lineage (always non-ready)")
-	group.AddCommand(export)
+
+	var buildOptions app.CorpusBuildOptions
+	build := &cobra.Command{
+		Use:         "build",
+		Short:       "Capture qualified remote selections into one sealed generation",
+		Annotations: map[string]string{explicitReadOnlyAnnotation: "required"},
+		Args: func(_ *cobra.Command, args []string) error {
+			if len(args) != 0 {
+				return usageErr("corpus build accepts no positional arguments")
+			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if err := app.ValidateCorpusBuildOptions(buildOptions); err != nil {
+				return err
+			}
+			cfg, err := loadConfig()
+			if err != nil {
+				return app.CorpusBuildFailure(app.CorpusBuildPhaseValidate, err)
+			}
+			build := version.Current()
+			state := corpus.BuildStateUnknown
+			switch build.BuildState {
+			case "clean":
+				state = corpus.BuildStateClean
+			case "dirty":
+				state = corpus.BuildStateModified
+			}
+			service, err := compose.NewCorpusBuild(cfg, compose.CorpusBuildSelection{
+				Jira: buildOptions.JiraProject != "", Confluence: buildOptions.ConfluenceSpace != "",
+				MaxInFlight: buildOptions.MaxInFlight, RequestsPerSecond: buildOptions.RequestsPerSecond,
+				GeneratorVersion: build.Version, BuildState: state,
+			}, invocationCompositionOptions(cmd)...)
+			if err != nil {
+				return app.CorpusBuildFailure(app.CorpusBuildPhaseValidate, err)
+			}
+			result, err := service.Build(cmd.Context(), buildOptions)
+			if err != nil {
+				return err
+			}
+			return emit(cmd, result, func() string {
+				publication := "published"
+				if result.Reused {
+					publication = "reused"
+				}
+				return fmt.Sprintf("generation=%s readiness=%s services=%d documents=%d edges=%d source=%s publication=%s elapsed_ms=%d",
+					result.Generation.GenerationDigest, result.Projection.Readiness, len(result.Services),
+					result.Projection.Counts.Documents, result.Projection.Counts.Edges,
+					result.Source, publication, result.ElapsedMS)
+			})
+		},
+	}
+	build.Flags().StringVar(&buildOptions.Root, "root", "", "existing owner-only corpus root")
+	build.Flags().BoolVar(&buildOptions.Initialize, "initialize", false, "initialize an existing empty 0700 corpus root")
+	build.Flags().BoolVar(&buildOptions.Restart, "restart", false, "recover and retain an interrupted attempt, then start a fresh capture")
+	build.Flags().StringVar(&buildOptions.JiraProject, "jira-project", "", "canonical Jira project key")
+	build.Flags().IntVar(&buildOptions.MaxJiraIssues, "max-jira-issues", 0, "exact positive Jira selection cap")
+	build.Flags().StringVar(&buildOptions.ConfluenceSpace, "confluence-space", "", "canonical Confluence space key")
+	build.Flags().IntVar(&buildOptions.MaxConfluencePages, "max-confluence-pages", 0, "exact positive Confluence selection cap")
+	build.Flags().IntVar(&buildOptions.MaxRequests, "max-requests", 0, "aggregate physical HTTP attempt cap")
+	build.Flags().Int64Var(&buildOptions.MaxResponseBytes, "max-response-bytes", 0, "aggregate buffered HTTP response-byte cap")
+	build.Flags().IntVar(&buildOptions.MaxMembers, "max-members", 0, "sealed generation member cap")
+	build.Flags().Int64Var(&buildOptions.MaxGenerationBytes, "max-generation-bytes", 0, "sealed generation byte cap")
+	build.Flags().DurationVar(&buildOptions.Deadline, "deadline", 0, "absolute attempt duration budget")
+	build.Flags().IntVar(&buildOptions.MaxInFlight, "max-in-flight", 0, "shared concurrent HTTP attempt cap")
+	build.Flags().IntVar(&buildOptions.RequestsPerSecond, "requests-per-second", 0, "shared HTTP start-rate cap")
+
+	group.AddCommand(build, export)
 	return group
 }

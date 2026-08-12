@@ -308,7 +308,7 @@ func validateCorpusCaptureSource(snapshot *mirror.CorpusSnapshot, receipt corpus
 		return corpus.ErrIntegrity
 	}
 	for _, optional := range []corpus.CaptureDimension{corpus.CaptureComments, corpus.CaptureAttachments} {
-		if states[optional] != corpus.CaptureComplete && states[optional] != corpus.CaptureNotRequested {
+		if states[optional] != corpus.CaptureNotRequested {
 			return corpus.ErrIntegrity
 		}
 	}

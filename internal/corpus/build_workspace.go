@@ -28,6 +28,15 @@ type BuildWorkspace struct {
 	closed bool
 }
 
+// SelectCurrent verifies and pins the generation selected by the ordinary
+// corpus pointer while the build workspace lock remains held.
+func (workspace *BuildWorkspace) SelectCurrent(ctx context.Context) (*Generation, error) {
+	if err := workspace.ensureOpen(); err != nil {
+		return nil, err
+	}
+	return workspace.store.SelectCurrent(ctx)
+}
+
 // InitializeBuildWorkspace initializes an existing empty 0700 trust root. A
 // partial bootstrap is deliberately not repaired by OpenBuildWorkspace.
 func InitializeBuildWorkspace(ctx context.Context, rootPath string, opts Options) (*BuildWorkspace, error) {
@@ -140,6 +149,20 @@ func lockBuildFile(ctx context.Context, store *Store) (func() error, error) {
 			return nil, reject(ReasonIO)
 		}
 		if acquired {
+			if err := store.hit("after_build_lock_acquired"); err != nil {
+				_ = unlock()
+				_ = file.Close()
+				return nil, reject(ReasonIO)
+			}
+			current, pathErr := store.root.Lstat(buildLockFile)
+			locked, statErr := file.Stat()
+			links, linkErr := regularFileLinkCount(file)
+			if pathErr != nil || statErr != nil || linkErr != nil || links != 1 ||
+				!os.SameFile(current, locked) || !exactRegularMode(locked.Mode(), privateFileMode) {
+				_ = unlock()
+				_ = file.Close()
+				return nil, reject(ReasonConcurrent)
+			}
 			return func() error {
 				unlockErr := unlock()
 				closeErr := file.Close()
@@ -344,7 +367,7 @@ func (workspace *BuildWorkspace) SaveCaptureReceipt(attemptID string, receipt Ca
 	rel := buildReceiptPath(attemptID, receipt.Service)
 	if existing, err := readRegularBytes(workspace.store.root, rel, maxCaptureReceiptBytes); err == nil {
 		if bytes.Equal(existing, data) {
-			return nil
+			return workspace.syncCaptureReceipt(attemptID)
 		}
 		return reject(ReasonConcurrent)
 	} else if !os.IsNotExist(err) {
@@ -360,10 +383,20 @@ func (workspace *BuildWorkspace) SaveCaptureReceipt(attemptID string, receipt Ca
 	if !linked {
 		return reject(ReasonIO)
 	}
+	if err := workspace.store.hit("after_build_receipt_link"); err != nil {
+		return ErrOutcomeUnknown
+	}
+	return workspace.syncCaptureReceipt(attemptID)
+}
+
+func (workspace *BuildWorkspace) syncCaptureReceipt(attemptID string) error {
 	for _, directory := range []string{buildAttemptPath(attemptID) + "/" + buildReceiptsDir, buildAttemptPath(attemptID), buildAttemptsDir, "."} {
 		if err := syncDirectory(workspace.store.root, directory); err != nil {
 			return ErrOutcomeUnknown
 		}
+	}
+	if err := workspace.store.hit("after_build_receipt_sync"); err != nil {
+		return ErrOutcomeUnknown
 	}
 	return nil
 }
@@ -421,6 +454,10 @@ func (workspace *BuildWorkspace) recoverActiveTemp() error {
 }
 
 func (workspace *BuildWorkspace) validateActiveAttempt(active BuildActive) error {
+	_, deadline, err := buildActiveTimes(active)
+	if err != nil {
+		return err
+	}
 	attempt := buildAttemptPath(active.AttemptID)
 	if err := verifyDirectory(workspace.store.root, attempt); err != nil {
 		return reject(ReasonMembership)
@@ -436,11 +473,26 @@ func (workspace *BuildWorkspace) validateActiveAttempt(active BuildActive) error
 			continue
 		}
 		receipt, found, err := workspace.LoadCaptureReceipt(active.AttemptID, state.Service)
-		if err != nil || !found || receipt.ReceiptDigest != state.ReceiptDigest || receipt.ScopeDigest != state.ScopeDigest || receipt.SelectorDigest != state.SelectorDigest {
+		completed, completedErr := parseCanonicalCaptureTime(receipt.CompletedAt)
+		if err != nil || !found || receipt.ReceiptDigest != state.ReceiptDigest || receipt.ScopeDigest != state.ScopeDigest ||
+			receipt.SelectorDigest != state.SelectorDigest || receipt.StartedAt != state.StartedAt || receipt.Usage != state.Usage ||
+			completedErr != nil || completed.After(deadline) {
 			return reject(ReasonLineage)
 		}
 	}
 	return nil
+}
+
+func buildActiveTimes(active BuildActive) (time.Time, time.Time, error) {
+	started, err := parseCanonicalCaptureTime(active.StartedAt)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	deadline, err := parseCanonicalCaptureTime(active.Deadline)
+	if err != nil || !deadline.After(started) {
+		return time.Time{}, time.Time{}, reject(ReasonLineage)
+	}
+	return started, deadline, nil
 }
 
 func validBuildServices(services []Service) bool {

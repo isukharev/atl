@@ -31,6 +31,8 @@ type JiraPullOpts struct {
 	OverwriteLocal  bool
 	StashLocal      bool
 	Render          config.RenderService
+	exactRender     *RenderSettings
+	exactFields     []string
 }
 
 // JiraPullResult is the pull summary. Optional fields preserve the ordinary
