@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -38,6 +39,7 @@ const (
 	exitCheckFailed  = 8
 
 	corpusBuildClosedErrorAnnotation = "atl.corpus.build.closed_error"
+	corpusBuildInvocationAnnotation  = "atl.corpus.build.invocation"
 )
 
 type invocationRuntime struct {
@@ -66,6 +68,7 @@ func Execute() {
 	defer stop()
 
 	root := newRoot()
+	setRootExecutionArgs(root, os.Args[1:])
 	cmd, err := root.ExecuteContextC(ctx)
 	if err != nil {
 		code := codeFor(err)
@@ -302,7 +305,7 @@ func normalizeArgs(c *cobra.Command) {
 }
 
 func closeCorpusBuildCLIError(cmd *cobra.Command, err error) error {
-	if err == nil || cmd == nil || cmd.Annotations[corpusBuildClosedErrorAnnotation] != "required" {
+	if err == nil || cmd == nil || !corpusBuildCLIErrorClosed(cmd) {
 		return err
 	}
 	// Corpus builds intentionally expose only a closed phase/reason envelope,
@@ -312,6 +315,62 @@ func closeCorpusBuildCLIError(cmd *cobra.Command, err error) error {
 		return err
 	}
 	return app.CorpusBuildFailure(app.CorpusBuildPhaseValidate, err)
+}
+
+func corpusBuildCLIErrorClosed(cmd *cobra.Command) bool {
+	return cmd.Annotations[corpusBuildClosedErrorAnnotation] == "required" ||
+		cmd.Root().Annotations[corpusBuildInvocationAnnotation] == "required"
+}
+
+func setRootExecutionArgs(root *cobra.Command, args []string) {
+	root.SetArgs(args)
+	for index := 0; index < len(args); index++ {
+		argument := args[index]
+		if argument == "--" {
+			return
+		}
+		if strings.HasPrefix(argument, "-") {
+			if rootFlagConsumesNext(root, argument) {
+				index++
+			}
+			continue
+		}
+		for _, topLevel := range root.Commands() {
+			if !commandTokenMatches(topLevel, argument) {
+				continue
+			}
+			if topLevel.Name() != "corpus" || index+1 >= len(args) {
+				return
+			}
+			for _, child := range topLevel.Commands() {
+				if child.Name() == "build" && commandTokenMatches(child, args[index+1]) {
+					if root.Annotations == nil {
+						root.Annotations = map[string]string{}
+					}
+					root.Annotations[corpusBuildInvocationAnnotation] = "required"
+				}
+				return
+			}
+			return
+		}
+	}
+}
+
+func rootFlagConsumesNext(root *cobra.Command, argument string) bool {
+	if strings.HasPrefix(argument, "--") {
+		name, _, hasValue := strings.Cut(strings.TrimPrefix(argument, "--"), "=")
+		flag := root.PersistentFlags().Lookup(name)
+		return flag != nil && !hasValue && flag.NoOptDefVal == ""
+	}
+	if len(argument) != 2 || argument[0] != '-' {
+		return false
+	}
+	flag := root.PersistentFlags().ShorthandLookup(string(argument[1]))
+	return flag != nil && flag.NoOptDefVal == ""
+}
+
+func commandTokenMatches(command *cobra.Command, token string) bool {
+	return token == command.Name() || slices.Contains(command.Aliases, token)
 }
 
 func codeFor(err error) int {

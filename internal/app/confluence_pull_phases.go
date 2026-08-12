@@ -111,13 +111,7 @@ func (r *confluencePullRun) fetchPage(id string, prefetch *orderedPagePrefetch) 
 	if err != nil {
 		return nil, fmt.Errorf("pull %s: %w", id, err)
 	}
-	if r.complete != nil {
-		expectedSpace := completePullExpectedSpace(r.opts)
-		if page == nil || page.ID != id || page.Type != "page" || expectedSpace != "" && page.SpaceKey != expectedSpace {
-			return nil, fmt.Errorf("%w: fetched Confluence content no longer matches the qualified complete selection", domain.ErrCheckFailed)
-		}
-	}
-	if err := requireConfluenceNativeBody(page, id, "pull"); err != nil {
+	if err := requireConfluencePullProjection(page, id, "pull", r.opts); err != nil {
 		return nil, err
 	}
 	dir, slug, err := r.mirror.ClaimPageDir(page.SpaceKey, page.Ancestors, page.Title, page.ID)

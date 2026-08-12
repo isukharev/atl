@@ -122,6 +122,49 @@ func TestCorpusBuildFlagParseUsesClosedEnvelopeBeforeEffects(t *testing.T) {
 	}
 }
 
+func TestCorpusBuildFlagBeforeCommandPathUsesClosedEnvelopeOnlyForBuild(t *testing.T) {
+	server := newCorpusBuildCLIServer(t)
+	stdout, _, err := executeCLIRaw(t, server.environment(), "--definitely-unknown", "corpus", "build")
+	var closed *app.CorpusBuildError
+	if err == nil || !errors.Is(err, domain.ErrUsage) || !errors.As(err, &closed) ||
+		closed.Phase != app.CorpusBuildPhaseValidate || closed.Reason != app.CorpusBuildReasonUsage ||
+		err.Error() != "corpus build failed: phase=validate reason=usage" || stdout != "" || len(server.snapshotRequests()) != 0 {
+		t.Fatalf("stdout=%q err=%v requests=%v", stdout, err, server.snapshotRequests())
+	}
+
+	stdout, _, err = executeCLIRaw(t, server.environment(), "--definitely-unknown", "doctor")
+	closed = nil
+	if err == nil || !errors.Is(err, domain.ErrUsage) || errors.As(err, &closed) || stdout != "" || len(server.snapshotRequests()) != 0 {
+		t.Fatalf("non-build stdout=%q err=%v requests=%v", stdout, err, server.snapshotRequests())
+	}
+}
+
+func TestSetRootExecutionArgsIdentifiesCorpusBuildIntent(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{name: "direct", args: []string{"corpus", "build"}, want: true},
+		{name: "unknown flag", args: []string{"--unknown", "corpus", "build"}, want: true},
+		{name: "inline global value", args: []string{"--output=json", "corpus", "build"}, want: true},
+		{name: "separate global value", args: []string{"--output", "corpus", "build"}},
+		{name: "short global value", args: []string{"-o", "corpus", "build"}},
+		{name: "other top level", args: []string{"doctor", "corpus", "build"}},
+		{name: "other corpus leaf", args: []string{"corpus", "export"}},
+		{name: "argument terminator", args: []string{"--", "corpus", "build"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := newRoot()
+			setRootExecutionArgs(root, tc.args)
+			got := root.Annotations[corpusBuildInvocationAnnotation] == "required"
+			if got != tc.want {
+				t.Fatalf("intent=%v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCorpusBuildPositionalArgumentUsesClosedEnvelopeBeforeEffects(t *testing.T) {
 	server := newCorpusBuildCLIServer(t)
 	stdout, _, err := executeCLIRaw(t, server.environment(), "--read-only", "corpus", "build", "unexpected")

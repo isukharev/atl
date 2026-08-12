@@ -493,7 +493,7 @@ func (s *ConfluenceService) previewConfluencePull(ctx context.Context, o PullOpt
 		if err != nil {
 			return res, fmt.Errorf("preview pull %s: %w", id, err)
 		}
-		if err := requireConfluenceNativeBody(page, id, "pull preview"); err != nil {
+		if err := requireConfluencePullProjection(page, id, "pull preview", o); err != nil {
 			return res, err
 		}
 		status := "would_pull"
@@ -566,12 +566,11 @@ func (s *ConfluenceService) prepareCompletePullDryRun(ctx context.Context, m *mi
 	if !ok {
 		return nil, fmt.Errorf("%w: backend cannot qualify search completeness for complete pull", domain.ErrCheckFailed)
 	}
-	expectedSpace := completePullExpectedSpace(o)
-	first, err := collectCompletePullIDsForSpace(ctx, searcher, query, o.MaxPages, expectedSpace)
+	first, err := collectCompletePullIDsForSpace(ctx, searcher, query, o.MaxPages, completePullExpectedSpace(o))
 	if err != nil {
 		return nil, err
 	}
-	second, err := collectCompletePullIDsForSpace(ctx, searcher, query, o.MaxPages, expectedSpace)
+	second, err := collectCompletePullIDsForSpace(ctx, searcher, query, o.MaxPages, completePullExpectedSpace(o))
 	if err != nil {
 		return nil, err
 	}

@@ -242,6 +242,16 @@ func completePullExpectedSpace(o PullOpts) string {
 	return ""
 }
 
+func requireConfluencePullProjection(page *domain.Resource, id, operation string, o PullOpts) error {
+	if o.Complete {
+		expectedSpace := completePullExpectedSpace(o)
+		if page == nil || page.ID != id || page.Type != "page" || expectedSpace != "" && page.SpaceKey != expectedSpace {
+			return fmt.Errorf("%w: fetched Confluence content no longer matches the qualified complete selection", domain.ErrCheckFailed)
+		}
+	}
+	return requireConfluenceNativeBody(page, id, operation)
+}
+
 func (selection *confluenceCompleteSelection) advance() {
 	selection.nextIndex++
 	selection.result.Completed = selection.nextIndex

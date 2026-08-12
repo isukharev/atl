@@ -195,26 +195,31 @@ func TestCompletePullRejectsFetchedBodyOutsideQualifiedSelection(t *testing.T) {
 		"space":    func(page *domain.Resource) { page.SpaceKey = "OTHER" },
 		"type":     func(page *domain.Resource) { page.Type = "blogpost" },
 	} {
-		t.Run(name, func(t *testing.T) {
-			root := t.TempDir()
-			page := completeTestPage("10")
-			mutate(page)
-			selection := completeSearchPage("10")
-			store := &completePullStore{
-				pullStore:      &pullStore{pages: map[string]*domain.Resource{"10": page}},
-				searchSequence: []domain.PageSearchPage{selection, selection},
-			}
+		for _, mode := range []struct {
+			name   string
+			dryRun bool
+		}{{name: "pull"}, {name: "dry_run", dryRun: true}} {
+			t.Run(name+"/"+mode.name, func(t *testing.T) {
+				root := t.TempDir()
+				page := completeTestPage("10")
+				mutate(page)
+				selection := completeSearchPage("10")
+				store := &completePullStore{
+					pullStore:      &pullStore{pages: map[string]*domain.Resource{"10": page}},
+					searchSequence: []domain.PageSearchPage{selection, selection},
+				}
 
-			result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(
-				context.Background(), PullOpts{Space: "DOC", Into: root, Complete: true},
-			)
-			if !errors.Is(err, domain.ErrCheckFailed) || result == nil || len(result.Pages) != 0 {
-				t.Fatalf("result=%+v err=%v", result, err)
-			}
-			if _, statErr := os.Stat(filepath.Join(root, "DOC")); !os.IsNotExist(statErr) {
-				t.Fatalf("unqualified body created public directory: %v", statErr)
-			}
-		})
+				result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(
+					context.Background(), PullOpts{Space: "DOC", Into: root, Complete: true, DryRun: mode.dryRun},
+				)
+				if !errors.Is(err, domain.ErrCheckFailed) || result == nil || len(result.Pages) != 0 {
+					t.Fatalf("result=%+v err=%v", result, err)
+				}
+				if _, statErr := os.Stat(filepath.Join(root, "DOC")); !os.IsNotExist(statErr) {
+					t.Fatalf("unqualified body created public directory: %v", statErr)
+				}
+			})
+		}
 	}
 }
 
