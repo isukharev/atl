@@ -143,3 +143,112 @@ func TestStreamCorpusAttachmentRejectsSymlinkedStaging(t *testing.T) {
 		t.Fatalf("outside entries=%v error=%v", entries, readErr)
 	}
 }
+
+func TestCaptureCorpusAttachmentsQualifiesEveryInventoryOutcome(t *testing.T) {
+	for name, test := range map[string]struct {
+		service string
+		reason  string
+		want    mirror.AttachmentPartialReason
+	}{
+		"page limit":         {mirror.CorpusSnapshotConfluence, domain.AttachmentPartialPageLimit, mirror.AttachmentReasonInventoryPageLimit},
+		"item limit":         {mirror.CorpusSnapshotConfluence, domain.AttachmentPartialItemLimit, mirror.AttachmentReasonInventoryItemLimit},
+		"pagination stalled": {mirror.CorpusSnapshotConfluence, domain.AttachmentPartialPaginationStalled, mirror.AttachmentReasonInventoryStalled},
+		"legacy":             {mirror.CorpusSnapshotConfluence, domain.AttachmentPartialLegacyUnqualified, mirror.AttachmentReasonInventoryLegacy},
+		"jira field":         {mirror.CorpusSnapshotJira, domain.JiraAttachmentPartialFieldUnavailable, mirror.AttachmentReasonInventoryField},
+		"forbidden":          {mirror.CorpusSnapshotJira, mirror.AttachmentInventoryForbidden, mirror.AttachmentReasonInventoryForbidden},
+		"unsupported":        {mirror.CorpusSnapshotJira, mirror.AttachmentInventoryUnsupported, mirror.AttachmentReasonInventoryUnsupported},
+	} {
+		t.Run(name, func(t *testing.T) {
+			options := corpusAttachmentTestOptions(true)
+			options.binding.AttachmentBodies = false
+			inventory := corpusAttachmentTestInventory(3)
+			inventory.Complete = false
+			inventory.PartialReason = test.reason
+			capture, err := captureCorpusAttachments(t.Context(), t.TempDir(), test.service, "9", "items/one", inventory, options,
+				func(context.Context, domain.Attachment) (io.ReadCloser, error) {
+					t.Fatal("body opened when body capture was not requested")
+					return nil, nil
+				})
+			if err != nil || capture.bodiesState != mirror.AttachmentBodiesNotRequested ||
+				len(capture.partialReasons) != 1 || capture.partialReasons[0] != test.want ||
+				capture.records[0].Body.State != mirror.AttachmentBodyNotRequested {
+				t.Fatalf("capture=%+v error=%v", capture, err)
+			}
+		})
+	}
+
+	options := corpusAttachmentTestOptions(true)
+	inventory := corpusAttachmentTestInventory(3)
+	inventory.Complete = false
+	inventory.PartialReason = "future-reason"
+	if _, err := captureCorpusAttachments(t.Context(), t.TempDir(), mirror.CorpusSnapshotJira, "9", "items/one", inventory, options, nil); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("unknown inventory reason error=%v", err)
+	}
+	options = corpusAttachmentTestOptions(false)
+	inventory.PartialReason = domain.AttachmentPartialItemLimit
+	if _, err := captureCorpusAttachments(t.Context(), t.TempDir(), mirror.CorpusSnapshotJira, "9", "items/one", inventory, options, nil); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("strict incomplete inventory error=%v", err)
+	}
+}
+
+func TestCaptureCorpusAttachmentsRecordsBodyOpenOutcomes(t *testing.T) {
+	for name, test := range map[string]struct {
+		openErr    error
+		partial    bool
+		wantState  mirror.AttachmentBodyState
+		wantReason mirror.AttachmentBodyReason
+		wantErr    bool
+	}{
+		"forbidden partial": {domain.ErrForbidden, true, mirror.AttachmentBodyForbidden, mirror.AttachmentBodyReasonForbidden, false},
+		"failed partial":    {errors.New("synthetic read failure"), true, mirror.AttachmentBodyFailed, mirror.AttachmentBodyReasonFailed, false},
+		"failed strict":     {errors.New("synthetic read failure"), false, "", "", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			capture, err := captureCorpusAttachments(t.Context(), t.TempDir(), mirror.CorpusSnapshotJira, "9", "items/one",
+				corpusAttachmentTestInventory(3), corpusAttachmentTestOptions(test.partial),
+				func(context.Context, domain.Attachment) (io.ReadCloser, error) { return nil, test.openErr })
+			if test.wantErr {
+				if !errors.Is(err, domain.ErrCheckFailed) {
+					t.Fatalf("error=%v", err)
+				}
+				return
+			}
+			if err != nil || capture.bodiesState != mirror.AttachmentBodiesPartial || len(capture.records) != 1 ||
+				capture.records[0].Body.State != test.wantState || capture.records[0].Body.Reason != test.wantReason {
+				t.Fatalf("capture=%+v error=%v", capture, err)
+			}
+		})
+	}
+}
+
+func TestCaptureCorpusAttachmentsRejectsUnavailableInputsAndUnsafeIdentity(t *testing.T) {
+	inventory := corpusAttachmentTestInventory(3)
+	if _, err := captureCorpusAttachments(t.Context(), t.TempDir(), mirror.CorpusSnapshotJira, "9", "items/one", inventory, nil, nil); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("nil policy error=%v", err)
+	}
+	options := corpusAttachmentTestOptions(true)
+	options.budget = nil
+	if _, err := captureCorpusAttachments(t.Context(), t.TempDir(), mirror.CorpusSnapshotJira, "9", "items/one", inventory, options, nil); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("missing budget error=%v", err)
+	}
+	options = corpusAttachmentTestOptions(true)
+	if _, err := captureCorpusAttachments(t.Context(), t.TempDir(), mirror.CorpusSnapshotJira, "9", "items/one", domain.AttachmentInventory{}, options, nil); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("nil inventory error=%v", err)
+	}
+	inventory = corpusAttachmentTestInventory(3)
+	inventory.Attachments[0].ID = "../outside"
+	if _, err := captureCorpusAttachments(t.Context(), t.TempDir(), mirror.CorpusSnapshotJira, "9", "items/one", inventory, options,
+		func(context.Context, domain.Attachment) (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader("abc")), nil
+		}); err == nil {
+		t.Fatal("unsafe attachment identity was accepted")
+	}
+}
+
+func TestCorpusAttachmentPartialReasonsRemainUnique(t *testing.T) {
+	capture := corpusAttachmentCapture{partialReasons: []mirror.AttachmentPartialReason{mirror.AttachmentReasonBodyFailed}}
+	if err := capture.notePartial(corpusAttachmentTestOptions(true), mirror.AttachmentReasonBodyFailed); err != nil ||
+		len(capture.partialReasons) != 1 || capture.bodiesState != mirror.AttachmentBodiesPartial {
+		t.Fatalf("capture=%+v error=%v", capture, err)
+	}
+}

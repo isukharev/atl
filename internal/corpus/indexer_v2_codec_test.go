@@ -97,6 +97,45 @@ func TestIndexerV2RejectsArtifactMembershipAndStatusDrift(t *testing.T) {
 	}
 }
 
+func TestIndexerV2ArtifactBodyReasonMatrixIsClosed(t *testing.T) {
+	valid := []struct {
+		status ArtifactBodyStatus
+		reason ArtifactBodyReason
+	}{
+		{ArtifactBodyCaptured, ""},
+		{ArtifactBodyNotRequested, ""},
+		{ArtifactBodyExcluded, ArtifactReasonMediaTypeExcluded},
+		{ArtifactBodyExcluded, ArtifactReasonCountLimit},
+		{ArtifactBodyExcluded, ArtifactReasonItemLimit},
+		{ArtifactBodyExcluded, ArtifactReasonAggregateLimit},
+		{ArtifactBodyForbidden, ArtifactReasonForbidden},
+		{ArtifactBodyFailed, ArtifactReasonFailed},
+		{ArtifactBodyFailed, ArtifactReasonSizeMismatch},
+	}
+	for _, value := range valid {
+		if !validArtifactBodyStatus(value.status) || !validArtifactBodyReason(value.reason, value.status) {
+			t.Fatalf("rejected status=%q reason=%q", value.status, value.reason)
+		}
+	}
+	if validArtifactBodyStatus("future") {
+		t.Fatal("future artifact body status was accepted")
+	}
+	for _, value := range []struct {
+		status ArtifactBodyStatus
+		reason ArtifactBodyReason
+	}{
+		{ArtifactBodyCaptured, ArtifactReasonFailed},
+		{ArtifactBodyExcluded, ArtifactReasonForbidden},
+		{ArtifactBodyForbidden, ""},
+		{ArtifactBodyFailed, ArtifactReasonCountLimit},
+		{"future", ""},
+	} {
+		if validArtifactBodyReason(value.reason, value.status) {
+			t.Fatalf("accepted status=%q reason=%q", value.status, value.reason)
+		}
+	}
+}
+
 func validIndexerV2Bundle(t testing.TB) ([]IndexerDocument, []IndexerEdge, []MarkdownMember, IndexerArtifact, ArtifactMember, []IndexerQualification) {
 	t.Helper()
 	owner := normalizeDocument(validIndexerDocument(t))

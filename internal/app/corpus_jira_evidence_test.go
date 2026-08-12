@@ -92,6 +92,58 @@ func newJiraCorpusEvidenceTracker() *jiraCorpusEvidenceTracker {
 	}
 }
 
+func TestJiraCorpusEvidenceReaderQualificationMatrix(t *testing.T) {
+	legacy := &JiraService{tr: newCompleteJiraTracker(), baseURL: jiraMirrorTestBackendURL}
+	if _, err := legacy.captureJiraCorpusComments(t.Context(), "9", "revision", jiraCorpusEvidenceOptions(false)); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("strict legacy comments error=%v", err)
+	}
+	comments, err := legacy.captureJiraCorpusComments(t.Context(), "9", "revision", jiraCorpusEvidenceOptions(true))
+	if err != nil || comments.Complete || comments.PartialReason != mirror.JiraCommentsPartialUnsupported || comments.Comments == nil {
+		t.Fatalf("comments=%+v error=%v", comments, err)
+	}
+	if _, err := legacy.readJiraCorpusAttachments(t.Context(), "9", jiraCorpusEvidenceOptions(false)); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("strict legacy attachments error=%v", err)
+	}
+	attachments, err := legacy.readJiraCorpusAttachments(t.Context(), "9", jiraCorpusEvidenceOptions(true))
+	if err != nil || attachments.Complete || attachments.PartialReason != mirror.AttachmentInventoryUnsupported || attachments.Attachments == nil {
+		t.Fatalf("attachments=%+v error=%v", attachments, err)
+	}
+
+	tracker := newJiraCorpusEvidenceTracker()
+	tracker.commentErr = domain.ErrForbidden
+	tracker.attachmentErr = domain.ErrForbidden
+	service := &JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}
+	comments, err = service.captureJiraCorpusComments(t.Context(), "9", "revision", jiraCorpusEvidenceOptions(true))
+	if err != nil || comments.PartialReason != mirror.JiraCommentsPartialForbidden {
+		t.Fatalf("forbidden comments=%+v error=%v", comments, err)
+	}
+	attachments, err = service.readJiraCorpusAttachments(t.Context(), "9", jiraCorpusEvidenceOptions(true))
+	if err != nil || attachments.PartialReason != mirror.AttachmentInventoryForbidden {
+		t.Fatalf("forbidden attachments=%+v error=%v", attachments, err)
+	}
+	if _, err := service.captureJiraCorpusComments(t.Context(), "9", "revision", jiraCorpusEvidenceOptions(false)); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("strict forbidden comments error=%v", err)
+	}
+	if _, err := service.readJiraCorpusAttachments(t.Context(), "9", jiraCorpusEvidenceOptions(false)); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("strict forbidden attachments error=%v", err)
+	}
+}
+
+func TestCaptureJiraCorpusCommentsNormalizesReplyRootAndRejectsIncomplete(t *testing.T) {
+	tracker := newJiraCorpusEvidenceTracker()
+	tracker.comments.Comments[0].ParentID = "0"
+	service := &JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}
+	comments, err := service.captureJiraCorpusComments(t.Context(), "9", "revision", jiraCorpusEvidenceOptions(false))
+	if err != nil || !comments.Complete || len(comments.Comments) != 1 || comments.Comments[0].ParentID != "" {
+		t.Fatalf("comments=%+v error=%v", comments, err)
+	}
+	tracker.comments.Complete = false
+	tracker.comments.PartialReason = domain.JiraCommentPartialItemLimit
+	if _, err := service.captureJiraCorpusComments(t.Context(), "9", "revision", jiraCorpusEvidenceOptions(false)); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("incomplete comments error=%v", err)
+	}
+}
+
 func jiraCorpusEvidenceOptions(allowPartial bool) *corpusPullEvidenceOptions {
 	options := CorpusBuildOptions{
 		Comments: true, MaxCommentPagesPerItem: 2, MaxCommentsPerItem: 10,
