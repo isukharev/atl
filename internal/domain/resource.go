@@ -120,8 +120,8 @@ type Attachment struct {
 	FileSize   int64  `json:"fileSize"`
 	Version    int    `json:"version"`
 	Comment    string `json:"comment,omitempty"`
-	Created    string `json:"created,omitempty"`
-	Author     string `json:"author,omitempty"`
+	Created    string `json:"-"` // corpus evidence timestamp when available
+	Author     string `json:"-"` // corpus evidence display name when available
 	AuthorName string `json:"-"` // stable Jira Data Center username when available
 	AuthorKey  string `json:"-"` // stable Jira Data Center user key when available
 	DownPath   string `json:"-"` // backend download path (relative to base)
@@ -134,8 +134,8 @@ type Comment struct {
 	AuthorName  string `json:"-"` // stable Jira Data Center username when available
 	AuthorKey   string `json:"-"` // stable Jira Data Center user key when available
 	Created     string `json:"created"`
-	Updated     string `json:"updated,omitempty"`
-	ParentID    string `json:"parent_id,omitempty"`
+	Updated     string `json:"-"` // qualified corpus evidence timestamp when available
+	ParentID    string `json:"-"` // qualified corpus reply parent when available
 	Body        string `json:"body"`
 	BodyStorage string `json:"body_storage,omitempty"` // native CSF when available; Body remains the plain fallback
 }
