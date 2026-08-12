@@ -353,6 +353,7 @@ func setRootExecutionArgs(root *cobra.Command, args []string) {
 			}
 			return
 		}
+		return
 	}
 }
 

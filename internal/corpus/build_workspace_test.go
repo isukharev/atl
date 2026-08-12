@@ -123,10 +123,7 @@ func TestBuildWorkspaceRejectsLockPathReplacementAfterAcquire(t *testing.T) {
 		if err := os.WriteFile(replacement, nil, privateFileMode); err != nil {
 			return err
 		}
-		if err := os.Rename(replacement, filepath.Join(root, buildLockFile)); err != nil {
-			return err
-		}
-		return nil
+		return os.Rename(replacement, filepath.Join(root, buildLockFile))
 	}
 	_, err = lockBuildFile(context.Background(), store)
 	assertReason(t, err, ReasonConcurrent)

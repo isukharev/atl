@@ -53,7 +53,7 @@ func CanonicalBuildActive(active BuildActive, limits Limits) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := validateBuildActive(active, limits); err != nil {
+	if err := validateBuildActive(active); err != nil {
 		return nil, err
 	}
 	data, err := marshalCanonical(active)
@@ -91,7 +91,7 @@ func ParseBuildActive(data []byte, limits Limits) (BuildActive, error) {
 	return active, nil
 }
 
-func validateBuildActive(active BuildActive, limits Limits) error {
+func validateBuildActive(active BuildActive) error {
 	if active.SchemaVersion != BuildActiveSchemaV1 {
 		return reject(ReasonSchema)
 	}
@@ -118,7 +118,7 @@ func validateBuildActive(active BuildActive, limits Limits) error {
 		active.Usage.ResponseBytes < 0 || active.Usage.ResponseBytes > active.MaxResponseBytes {
 		return reject(ReasonBounds)
 	}
-	if active.Services == nil || len(active.Services) == 0 || len(active.Services) > 2 {
+	if len(active.Services) == 0 || len(active.Services) > 2 {
 		return reject(ReasonMembership)
 	}
 	var serviceAttempts int

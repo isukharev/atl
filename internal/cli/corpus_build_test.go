@@ -137,6 +137,12 @@ func TestCorpusBuildFlagBeforeCommandPathUsesClosedEnvelopeOnlyForBuild(t *testi
 	if err == nil || !errors.Is(err, domain.ErrUsage) || errors.As(err, &closed) || stdout != "" || len(server.snapshotRequests()) != 0 {
 		t.Fatalf("non-build stdout=%q err=%v requests=%v", stdout, err, server.snapshotRequests())
 	}
+
+	stdout, _, err = executeCLIRaw(t, server.environment(), "--definitely-unknown=value", "stray", "corpus", "build")
+	closed = nil
+	if err == nil || !errors.Is(err, domain.ErrUsage) || errors.As(err, &closed) || stdout != "" || len(server.snapshotRequests()) != 0 {
+		t.Fatalf("unknown-command stdout=%q err=%v requests=%v", stdout, err, server.snapshotRequests())
+	}
 }
 
 func TestSetRootExecutionArgsIdentifiesCorpusBuildIntent(t *testing.T) {
@@ -151,6 +157,7 @@ func TestSetRootExecutionArgsIdentifiesCorpusBuildIntent(t *testing.T) {
 		{name: "separate global value", args: []string{"--output", "corpus", "build"}},
 		{name: "short global value", args: []string{"-o", "corpus", "build"}},
 		{name: "other top level", args: []string{"doctor", "corpus", "build"}},
+		{name: "unknown top level", args: []string{"--unknown=value", "stray", "corpus", "build"}},
 		{name: "other corpus leaf", args: []string{"corpus", "export"}},
 		{name: "argument terminator", args: []string{"--", "corpus", "build"}},
 	} {
