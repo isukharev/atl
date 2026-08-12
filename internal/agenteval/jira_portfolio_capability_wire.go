@@ -85,7 +85,7 @@ func validateJiraPortfolioCapabilityMembers(data []byte) error {
 func validateJiraPortfolioCapabilityItemMembers(item map[string]json.RawMessage, owner string) error {
 	base := []string{
 		"id", "task_class", "service", "role", "priority", "summary", "command", "cli_command",
-		"cli_only", "access", "output_modes", "evidence", "completeness", "skill", "reference",
+		"cli_only", "access", "effect_profile", "output_modes", "evidence", "completeness", "skill", "reference",
 	}
 	var cliOnly bool
 	if raw, ok := item["cli_only"]; !ok || jiraWorkflowNull(raw) || json.Unmarshal(raw, &cliOnly) != nil {

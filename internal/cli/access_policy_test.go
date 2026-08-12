@@ -45,6 +45,9 @@ func TestCommandRegistryExactlyMatchesTree(t *testing.T) {
 			}
 		}
 		if registered && registration.traits&commandLeaf != 0 {
+			if got := cmd.Annotations[effectProfileAnnotation]; got != registration.effectProfile || got == "" {
+				t.Errorf("%s effect profile=%q want=%q", cmd.CommandPath(), got, registration.effectProfile)
+			}
 			access := cmd.Annotations[accessAnnotation]
 			if access != "read-only" && access != "mutating" {
 				t.Errorf("%s access=%q", cmd.CommandPath(), access)
@@ -85,18 +88,18 @@ func TestCommandRegistryExactlyMatchesTree(t *testing.T) {
 
 func TestMutationProfileShapesAreEnforced(t *testing.T) {
 	for name, row := range map[string]string{
-		"preview without apply":   "M preview-apply update jira-issue-arg expected-proposal-hash command generic json unsafe",
-		"dedicated without guard": "M dedicated-apply update jira-issue-arg - json unsafe",
-		"plan without guard":      "M plan update jira-plan - json unsafe",
-		"direct with guard":       "M remote-direct update jira-issue-arg confirm command generic json unsafe",
-		"invalid requirement":     "M preview-apply update jira-issue-arg apply,unknown command generic json unsafe",
-		"invalid phase":           "M preview-apply update jira-issue-arg apply unknown generic json unsafe",
-		"invalid family":          "M preview-apply update jira-issue-arg apply command unknown json unsafe",
-		"special command phase":   "M preview-apply update jira-issue-arg apply command confluence-page-delete json unsafe",
-		"verbs without identity":  "M remote-direct update none - json unsafe",
-		"identity without verbs":  "M remote-direct none jira-issue-arg - json unsafe",
-		"unknown verb":            "M remote-direct read jira-issue-arg - json unsafe",
-		"unknown identity":        "M remote-direct update guessed - json unsafe",
+		"preview without apply":   "M remote-write preview-apply update jira-issue-arg expected-proposal-hash command generic json unsafe",
+		"dedicated without guard": "M remote-write dedicated-apply update jira-issue-arg - json unsafe",
+		"plan without guard":      "M remote-write plan update jira-plan - json unsafe",
+		"direct with guard":       "M remote-write remote-direct update jira-issue-arg confirm command generic json unsafe",
+		"invalid requirement":     "M remote-write preview-apply update jira-issue-arg apply,unknown command generic json unsafe",
+		"invalid phase":           "M remote-write preview-apply update jira-issue-arg apply unknown generic json unsafe",
+		"invalid family":          "M remote-write preview-apply update jira-issue-arg apply command unknown json unsafe",
+		"special command phase":   "M remote-write preview-apply update jira-issue-arg apply command confluence-page-delete json unsafe",
+		"verbs without identity":  "M remote-write remote-direct update none - json unsafe",
+		"identity without verbs":  "M remote-write remote-direct none jira-issue-arg - json unsafe",
+		"unknown verb":            "M remote-write remote-direct read jira-issue-arg - json unsafe",
+		"unknown identity":        "M remote-write remote-direct update guessed - json unsafe",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := parseCommandRegistry(row); err == nil {

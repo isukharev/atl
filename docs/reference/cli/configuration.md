@@ -139,6 +139,9 @@ JSON output:
 ```json
 {
   "read_only": false,
+  "configured_read_only": false,
+  "effective_read_only": true,
+  "read_only_source": "environment",
   "confluence_url": "https://confluence.example.com",
   "jira_url": "https://jira.example.com",
   "update_base_url": "",
@@ -184,6 +187,14 @@ JSON output:
   }
 }
 ```
+
+The legacy `read_only` field continues to mean the persisted configured value;
+`configured_read_only` is its explicit alias. `effective_read_only` is the
+monotonic process value after the CLI flag, environment, and configuration are
+combined. `read_only_source` is the highest-precedence active source:
+`flag|environment|configuration|none`. A false flag cannot mask a true
+environment or configured guard. These fields describe the existing hard
+preflight; they do not enforce a second policy path.
 
 `mirror.active_root` is present only when `ATL_MIRROR_ROOT` is set. Explicit
 `--into` flags still override the default for each pull or inspection command.
@@ -264,6 +275,7 @@ Run one privacy-safe setup diagnostic:
 ```bash
 atl doctor
 atl doctor --remote
+atl doctor --service jira --remote
 atl doctor -o text
 ```
 
@@ -274,6 +286,19 @@ policy, optional content-free mirror health, and the fact that plugin version
 is not observable from the CLI. It emits no backend URL or hostname,
 filesystem path, token, environment-variable name, identity, object id, mirror
 content, or raw parser/backend error.
+
+`--service all|jira|confluence` defaults to `all`. A single-service selection
+scopes which service's URL, CA-bundle, mirror, compatibility, and optional
+remote checks contribute to health; the sibling service remains explicit with
+status `not_selected`. Its CA-bundle `configured` and `source` fields retain
+the safe common-config facts, while validation status is `not_selected` and
+the configured path is not opened. Common configuration parsing/file-permission and
+credential-store safety checks always run, so selecting one service cannot
+hide a shared unsafe file.
+
+`safety.read_only` retains its legacy effective meaning. The adjacent
+`configured_read_only`, `effective_read_only`, and `read_only_source` fields use
+the same projection and closed source precedence as `config show`.
 
 `--remote` requires a parseable global configuration, then evaluates each
 service independently. A URL or credential sourced from a file whose

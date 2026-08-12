@@ -19,15 +19,48 @@ import (
 
 const doctorSchemaVersion = 1
 
+const (
+	DoctorServiceAll        = "all"
+	DoctorServiceJira       = "jira"
+	DoctorServiceConfluence = "confluence"
+)
+
 var safeServerVersion = regexp.MustCompile(`^[0-9]{1,3}\.[0-9]{1,3}(\.[0-9]{1,4})?(-[0-9A-Za-z]{1,16})?$`)
 
 type DoctorOptions struct {
 	Remote                   bool
-	ReadOnlyPolicy           bool
+	Service                  string
+	ReadOnlyFlag             bool
+	ReadOnlyEnvironment      bool
 	ContentPolicyActive      bool
 	ContentPolicyEnforcement string
 	ContentPolicyAdvisory    []string
 	Dependencies             DoctorDependencies
+}
+
+// ReadOnlyProjection preserves the configured setting separately from the
+// monotonic process-effective guard. Source is a closed highest-precedence
+// projection: flag, environment, configuration, or none.
+type ReadOnlyProjection struct {
+	ConfiguredReadOnly bool   `json:"configured_read_only"`
+	EffectiveReadOnly  bool   `json:"effective_read_only"`
+	ReadOnlySource     string `json:"read_only_source"`
+}
+
+// ProjectReadOnly returns the shared configured/effective/source projection
+// used by config, doctor, and policy inspection. It is informational; command
+// enforcement remains at the existing CLI preflight boundary.
+func ProjectReadOnly(configured, flag, environment bool) ReadOnlyProjection {
+	projection := ReadOnlyProjection{ConfiguredReadOnly: configured, EffectiveReadOnly: configured || flag || environment, ReadOnlySource: "none"}
+	switch {
+	case flag:
+		projection.ReadOnlySource = "flag"
+	case environment:
+		projection.ReadOnlySource = "environment"
+	case configured:
+		projection.ReadOnlySource = "configuration"
+	}
+	return projection
 }
 
 // DoctorDependencies is the transport-neutral projection supplied by the outer
@@ -83,6 +116,7 @@ type DoctorCredential struct {
 type DoctorResult struct {
 	SchemaVersion int                 `json:"schema_version"`
 	Mode          string              `json:"mode"`
+	Service       string              `json:"service"`
 	Complete      bool                `json:"complete"`
 	Healthy       bool                `json:"healthy"`
 	Status        string              `json:"status"`
@@ -132,8 +166,11 @@ type DoctorCredentials struct {
 }
 
 type DoctorSafety struct {
-	ReadOnly bool   `json:"read_only"`
-	Status   string `json:"status"`
+	ReadOnly           bool   `json:"read_only"`
+	ConfiguredReadOnly bool   `json:"configured_read_only"`
+	EffectiveReadOnly  bool   `json:"effective_read_only"`
+	ReadOnlySource     string `json:"read_only_source"`
+	Status             string `json:"status"`
 }
 
 type DoctorContentPolicy struct {
@@ -202,12 +239,18 @@ type DoctorProblem struct {
 // RunDoctor returns a complete, content-free aggregate. The returned error is
 // static and classified only after the result has been emitted by the CLI.
 func RunDoctor(ctx context.Context, opts DoctorOptions) (*DoctorResult, error) {
+	service, err := normalizeDoctorService(opts.Service)
+	if err != nil {
+		return nil, err
+	}
 	cfgInspection := opts.Dependencies.Config
 	authInspection := opts.Dependencies.Credentials
 	build := version.Current()
+	readOnly := ProjectReadOnly(cfgInspection.ReadOnly, opts.ReadOnlyFlag, opts.ReadOnlyEnvironment)
 	result := &DoctorResult{
 		SchemaVersion: doctorSchemaVersion,
 		Mode:          "offline",
+		Service:       service,
 		Complete:      true,
 		Healthy:       true,
 		Status:        "pass",
@@ -222,8 +265,11 @@ func RunDoctor(ctx context.Context, opts DoctorOptions) (*DoctorResult, error) {
 			JiraURLSource:       cfgInspection.JiraURLSource,
 			Transport:           cfgInspection.Transport,
 		},
-		Credentials:   DoctorCredentials(authInspection),
-		Safety:        DoctorSafety{ReadOnly: opts.ReadOnlyPolicy || cfgInspection.ReadOnly, Status: "available"},
+		Credentials: DoctorCredentials(authInspection),
+		Safety: DoctorSafety{
+			ReadOnly: readOnly.EffectiveReadOnly, ConfiguredReadOnly: readOnly.ConfiguredReadOnly,
+			EffectiveReadOnly: readOnly.EffectiveReadOnly, ReadOnlySource: readOnly.ReadOnlySource, Status: "available",
+		},
 		ContentPolicy: DoctorContentPolicy{Active: opts.ContentPolicyActive, Enforcement: opts.ContentPolicyEnforcement, AdvisoryBecause: append([]string(nil), opts.ContentPolicyAdvisory...)},
 		Plugin:        DoctorPlugin{Status: "not_observable", Reason: "host_does_not_expose_plugin_version"},
 	}
@@ -234,10 +280,10 @@ func RunDoctor(ctx context.Context, opts DoctorOptions) (*DoctorResult, error) {
 		result.Mode = "remote"
 	}
 
-	evaluateLocalDoctor(result, cfgInspection, authInspection)
-	result.Mirror = inspectDoctorMirror(result)
+	evaluateLocalDoctor(result, cfgInspection, authInspection, service)
+	result.Mirror = inspectDoctorMirror(result, service)
 	if opts.Remote {
-		runDoctorRemote(ctx, result, cfgInspection, authInspection, opts.Dependencies)
+		runDoctorRemote(ctx, result, cfgInspection, authInspection, opts.Dependencies, service)
 	}
 	finalizeDoctor(result)
 	if !result.Healthy {
@@ -246,7 +292,24 @@ func RunDoctor(ctx context.Context, opts DoctorOptions) (*DoctorResult, error) {
 	return result, nil
 }
 
-func evaluateLocalDoctor(result *DoctorResult, cfg DoctorConfigInspection, credentials DoctorCredentialInspection) {
+func normalizeDoctorService(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return DoctorServiceAll, nil
+	}
+	switch value {
+	case DoctorServiceAll, DoctorServiceJira, DoctorServiceConfluence:
+		return value, nil
+	default:
+		return "", fmt.Errorf("%w: doctor service must be all, jira, or confluence", domain.ErrUsage)
+	}
+}
+
+func doctorServiceSelected(selection, service string) bool {
+	return selection == DoctorServiceAll || selection == service
+}
+
+func evaluateLocalDoctor(result *DoctorResult, cfg DoctorConfigInspection, credentials DoctorCredentialInspection, selection string) {
 	switch cfg.Status {
 	case "invalid", "unavailable":
 		addDoctorProblem(result, "config.invalid", "error", cfg.Reason, "repair_configuration")
@@ -270,25 +333,61 @@ func evaluateLocalDoctor(result *DoctorResult, cfg DoctorConfigInspection, crede
 		{service: "confluence", bundle: result.Config.Transport.Confluence},
 		{service: "jira", bundle: result.Config.Transport.Jira},
 	} {
+		if !doctorServiceSelected(selection, check.service) {
+			continue
+		}
 		if check.bundle.Status == "invalid" {
 			addDoctorProblem(result, "transport."+check.service+".ca_bundle", "error", check.bundle.Reason, "repair_configuration")
 		}
 	}
 
-	result.Services.Confluence = localDoctorService(
-		cfg.ConfluenceURL, cfg.ConfluenceURLSource, cfg.ConfluenceURLStatus, credentials.Confluence,
-	)
-	result.Services.Jira = localDoctorService(
-		cfg.JiraURL, cfg.JiraURLSource, cfg.JiraURLStatus, credentials.Jira,
-	)
-	evaluateDoctorService(result, "confluence", cfg.ConfluenceURL, result.Services.Confluence)
-	evaluateDoctorService(result, "jira", cfg.JiraURL, result.Services.Jira)
-	if result.Services.Confluence.Status == "not_configured" && result.Services.Jira.Status == "not_configured" {
+	result.Services.Confluence = unselectedDoctorService()
+	result.Services.Jira = unselectedDoctorService()
+	if doctorServiceSelected(selection, DoctorServiceConfluence) {
+		result.Services.Confluence = localDoctorService(
+			cfg.ConfluenceURL, cfg.ConfluenceURLSource, cfg.ConfluenceURLStatus, credentials.Confluence,
+		)
+		evaluateDoctorService(result, DoctorServiceConfluence, cfg.ConfluenceURL, result.Services.Confluence)
+	}
+	if doctorServiceSelected(selection, DoctorServiceJira) {
+		result.Services.Jira = localDoctorService(
+			cfg.JiraURL, cfg.JiraURLSource, cfg.JiraURLStatus, credentials.Jira,
+		)
+		evaluateDoctorService(result, DoctorServiceJira, cfg.JiraURL, result.Services.Jira)
+	}
+	if selectedDoctorServicesNotConfigured(result.Services, selection) {
 		addDoctorProblem(result, "services.none_configured", "error", "no_backend_configured", "configure_backend")
 	}
 	if build := result.CLI; build.Version == "dev" || build.Commit == "unknown" || build.BuildState == "unknown" {
 		addDoctorProblem(result, "cli.provenance", "advisory", "build_provenance_incomplete", "use_release_build")
 	}
+}
+
+func unselectedDoctorService() DoctorService {
+	return DoctorService{
+		URLStatus: "not_selected", URLSource: "not_selected",
+		CredentialStatus: "not_selected", CredentialSource: "not_selected", Status: "not_selected",
+		Remote:        DoctorRemote{Status: "not_requested"},
+		Compatibility: DoctorCompatibility{Status: "unknown", Evidence: "not_observed", Reason: "service_not_selected"},
+	}
+}
+
+func selectedDoctorServicesNotConfigured(services DoctorServices, selection string) bool {
+	selected := 0
+	notConfigured := 0
+	if doctorServiceSelected(selection, DoctorServiceJira) {
+		selected++
+		if services.Jira.Status == "not_configured" {
+			notConfigured++
+		}
+	}
+	if doctorServiceSelected(selection, DoctorServiceConfluence) {
+		selected++
+		if services.Confluence.Status == "not_configured" {
+			notConfigured++
+		}
+	}
+	return selected != 0 && selected == notConfigured
 }
 
 func localDoctorService(rawURL, source, urlStatus string, credential DoctorCredential) DoctorService {
@@ -368,11 +467,17 @@ func isLoopbackDoctorHost(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-func inspectDoctorMirror(result *DoctorResult) DoctorMirror {
+func inspectDoctorMirror(result *DoctorResult, selection string) DoctorMirror {
 	out := DoctorMirror{
 		Source: "not_found", Status: "not_found",
-		Confluence: DoctorMirrorService{Status: "not_found"},
-		Jira:       DoctorMirrorService{Status: "not_found"},
+		Confluence: DoctorMirrorService{Status: "not_selected"},
+		Jira:       DoctorMirrorService{Status: "not_selected"},
+	}
+	if doctorServiceSelected(selection, DoctorServiceConfluence) {
+		out.Confluence.Status = "not_found"
+	}
+	if doctorServiceSelected(selection, DoctorServiceJira) {
+		out.Jira.Status = "not_found"
 	}
 	root := strings.TrimSpace(os.Getenv("ATL_MIRROR_ROOT"))
 	if root != "" {
@@ -397,20 +502,57 @@ func inspectDoctorMirror(result *DoctorResult) DoctorMirror {
 		out.Source = "ancestor"
 	}
 
-	confSnapshot, confErr := SnapshotConfluenceMirror(root)
-	out.Confluence = doctorConfluenceMirror(confSnapshot, confErr)
-	jiraSnapshot, jiraErr := SnapshotJiraMirror(root)
-	out.Jira = doctorJiraMirror(jiraSnapshot, jiraErr)
-	if out.Confluence.Status == "unhealthy" || out.Jira.Status == "unhealthy" {
+	if doctorServiceSelected(selection, DoctorServiceConfluence) {
+		confSnapshot, confErr := SnapshotConfluenceMirror(root)
+		out.Confluence = doctorConfluenceMirror(confSnapshot, confErr)
+	}
+	if doctorServiceSelected(selection, DoctorServiceJira) {
+		jiraSnapshot, jiraErr := SnapshotJiraMirror(root)
+		out.Jira = doctorJiraMirror(jiraSnapshot, jiraErr)
+	}
+	selected := selectedDoctorMirrorServices(out, selection)
+	if anyDoctorMirrorStatus(selected, "unhealthy") {
 		out.Status = "unhealthy"
 		addDoctorProblem(result, "mirror.integrity", "error", "mirror_integrity_failed", "inspect_mirror_snapshot")
-	} else if out.Confluence.Status == "empty" && out.Jira.Status == "empty" {
+	} else if allDoctorMirrorStatus(selected, "empty") {
 		out.Status = "empty"
 		addDoctorProblem(result, "mirror.empty", "advisory", "mirror_has_no_tracked_items", "pull_service_content")
 	} else {
 		out.Status = "healthy"
 	}
 	return out
+}
+
+func selectedDoctorMirrorServices(mirror DoctorMirror, selection string) []DoctorMirrorService {
+	var selected []DoctorMirrorService
+	if doctorServiceSelected(selection, DoctorServiceJira) {
+		selected = append(selected, mirror.Jira)
+	}
+	if doctorServiceSelected(selection, DoctorServiceConfluence) {
+		selected = append(selected, mirror.Confluence)
+	}
+	return selected
+}
+
+func anyDoctorMirrorStatus(services []DoctorMirrorService, status string) bool {
+	for _, service := range services {
+		if service.Status == status {
+			return true
+		}
+	}
+	return false
+}
+
+func allDoctorMirrorStatus(services []DoctorMirrorService, status string) bool {
+	if len(services) == 0 {
+		return false
+	}
+	for _, service := range services {
+		if service.Status != status {
+			return false
+		}
+	}
+	return true
 }
 
 func doctorConfluenceMirror(snapshot *ConfluenceMirrorSnapshot, err error) DoctorMirrorService {
@@ -449,14 +591,22 @@ func doctorJiraMirror(snapshot *JiraMirrorSnapshot, err error) DoctorMirrorServi
 	return out
 }
 
-func runDoctorRemote(ctx context.Context, result *DoctorResult, cfg DoctorConfigInspection, credentials DoctorCredentialInspection, deps DoctorDependencies) {
+func runDoctorRemote(ctx context.Context, result *DoctorResult, cfg DoctorConfigInspection, credentials DoctorCredentialInspection, deps DoctorDependencies, selection string) {
 	if cfg.Status == "invalid" || cfg.Status == "unavailable" {
-		skipDoctorRemote(&result.Services.Jira, "configuration_preflight_failed")
-		skipDoctorRemote(&result.Services.Confluence, "configuration_preflight_failed")
+		if doctorServiceSelected(selection, DoctorServiceJira) {
+			skipDoctorRemote(&result.Services.Jira, "configuration_preflight_failed")
+		}
+		if doctorServiceSelected(selection, DoctorServiceConfluence) {
+			skipDoctorRemote(&result.Services.Confluence, "configuration_preflight_failed")
+		}
 		return
 	}
-	runOneDoctorRemote(ctx, result, "jira", cfg.JiraURL, cfg.File, credentials.Store, &result.Services.Jira, deps)
-	runOneDoctorRemote(ctx, result, "confluence", cfg.ConfluenceURL, cfg.File, credentials.Store, &result.Services.Confluence, deps)
+	if doctorServiceSelected(selection, DoctorServiceJira) {
+		runOneDoctorRemote(ctx, result, DoctorServiceJira, cfg.JiraURL, cfg.File, credentials.Store, &result.Services.Jira, deps)
+	}
+	if doctorServiceSelected(selection, DoctorServiceConfluence) {
+		runOneDoctorRemote(ctx, result, DoctorServiceConfluence, cfg.ConfluenceURL, cfg.File, credentials.Store, &result.Services.Confluence, deps)
+	}
 }
 
 func runOneDoctorRemote(

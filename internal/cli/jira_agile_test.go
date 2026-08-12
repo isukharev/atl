@@ -48,6 +48,9 @@ func TestJiraBoardList_EmitsFiltersAndID(t *testing.T) {
 	var res struct {
 		Boards     []domain.Board `json:"boards"`
 		NextCursor string         `json:"next_cursor"`
+		Count      int            `json:"count"`
+		Complete   bool           `json:"complete"`
+		Truncated  bool           `json:"truncated"`
 	}
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		t.Fatalf("decode boards: %v\n%s", err, out)
@@ -58,6 +61,9 @@ func TestJiraBoardList_EmitsFiltersAndID(t *testing.T) {
 	// List commands expose a pagination cursor (empty here: isLast=true).
 	if res.NextCursor != "" {
 		t.Errorf("next_cursor = %q, want \"\" (isLast)", res.NextCursor)
+	}
+	if res.Count != 1 || !res.Complete || res.Truncated {
+		t.Fatalf("board completeness=%+v", res)
 	}
 	// The project filter goes out as projectKeyOrId (the DC param name).
 	var saw bool
@@ -255,7 +261,7 @@ func TestJiraSprintCurrent_RejectsZeroBoard(t *testing.T) {
 // boundary, not a silent empty result.
 func TestJiraSprintCurrent_NoneExit4(t *testing.T) {
 	js := newJiraServer(t)
-	js.route(http.MethodGet, "/rest/agile/1.0/board/5/sprint", http.StatusOK, `{"values":[]}`)
+	js.route(http.MethodGet, "/rest/agile/1.0/board/5/sprint", http.StatusOK, `{"startAt":0,"total":0,"isLast":true,"values":[]}`)
 
 	out, code := runCLI(t, jiraEnv(js.srv), "jira", "sprint", "current", "--board", "5")
 	if code != exitNotFound {
@@ -277,6 +283,9 @@ func TestJiraSprintList_EmitsStateAndID(t *testing.T) {
 	var res struct {
 		Sprints    []domain.Sprint `json:"sprints"`
 		NextCursor string          `json:"next_cursor"`
+		Count      int             `json:"count"`
+		Complete   bool            `json:"complete"`
+		Truncated  bool            `json:"truncated"`
 	}
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		t.Fatalf("decode sprints: %v\n%s", err, out)
@@ -287,6 +296,9 @@ func TestJiraSprintList_EmitsStateAndID(t *testing.T) {
 	if res.NextCursor != "" {
 		t.Errorf("next_cursor = %q, want \"\" (isLast)", res.NextCursor)
 	}
+	if res.Count != 1 || !res.Complete || res.Truncated {
+		t.Fatalf("sprint completeness=%+v", res)
+	}
 	// The state filter reaches the wire.
 	var saw bool
 	for _, r := range js.requests() {
@@ -296,6 +308,39 @@ func TestJiraSprintList_EmitsStateAndID(t *testing.T) {
 	}
 	if !saw {
 		t.Errorf("expected state=active on the wire, got %+v", js.requests())
+	}
+}
+
+func TestJiraBoardAndSprintListsExposePartialPageAccounting(t *testing.T) {
+	js := newJiraServer(t)
+	js.route(http.MethodGet, "/rest/agile/1.0/board", http.StatusOK, `{"maxResults":1,"startAt":0,"total":2,"isLast":false,"values":[{"id":5,"name":"ENG board","type":"scrum"}]}`)
+	js.route(http.MethodGet, "/rest/agile/1.0/board/5/sprint", http.StatusOK, `{"maxResults":1,"startAt":0,"total":2,"isLast":false,"values":[{"id":7,"state":"active","name":"Sprint 3","originBoardId":5}]}`)
+
+	boardOut, code := runCLI(t, jiraEnv(js.srv), "jira", "board", "list", "--limit", "1")
+	if code != exitOK {
+		t.Fatalf("board list exit=%d output=%s", code, boardOut)
+	}
+	var boards jiraBoardListResult
+	if err := json.Unmarshal([]byte(boardOut), &boards); err != nil {
+		t.Fatal(err)
+	}
+	if boards.Count != 1 || boards.Complete || !boards.Truncated || boards.NextCursor != "1" {
+		t.Fatalf("board partial accounting=%+v", boards)
+	}
+
+	sprintOut, code := runCLI(t, jiraEnv(js.srv), "jira", "sprint", "list", "--board", "5", "--limit", "1")
+	if code != exitOK {
+		t.Fatalf("sprint list exit=%d output=%s", code, sprintOut)
+	}
+	var sprints jiraSprintListResult
+	if err := json.Unmarshal([]byte(sprintOut), &sprints); err != nil {
+		t.Fatal(err)
+	}
+	if sprints.Count != 1 || sprints.Complete || !sprints.Truncated || sprints.NextCursor != "1" {
+		t.Fatalf("sprint partial accounting=%+v", sprints)
+	}
+	if got := len(js.requests()); got != 2 {
+		t.Fatalf("physical requests=%d want=2", got)
 	}
 }
 

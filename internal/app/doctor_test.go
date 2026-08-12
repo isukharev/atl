@@ -2,10 +2,36 @@ package app
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/isukharev/atl/internal/domain"
 )
+
+func TestProjectReadOnlyPrecedenceMatrix(t *testing.T) {
+	tests := []struct {
+		name                          string
+		configured, flag, environment bool
+		want                          ReadOnlyProjection
+	}{
+		{name: "none", want: ReadOnlyProjection{ReadOnlySource: "none"}},
+		{name: "configuration", configured: true, want: ReadOnlyProjection{ConfiguredReadOnly: true, EffectiveReadOnly: true, ReadOnlySource: "configuration"}},
+		{name: "environment", environment: true, want: ReadOnlyProjection{EffectiveReadOnly: true, ReadOnlySource: "environment"}},
+		{name: "environment over configuration", configured: true, environment: true, want: ReadOnlyProjection{ConfiguredReadOnly: true, EffectiveReadOnly: true, ReadOnlySource: "environment"}},
+		{name: "flag", flag: true, want: ReadOnlyProjection{EffectiveReadOnly: true, ReadOnlySource: "flag"}},
+		{name: "flag over configuration", configured: true, flag: true, want: ReadOnlyProjection{ConfiguredReadOnly: true, EffectiveReadOnly: true, ReadOnlySource: "flag"}},
+		{name: "flag over environment", flag: true, environment: true, want: ReadOnlyProjection{EffectiveReadOnly: true, ReadOnlySource: "flag"}},
+		{name: "flag over all", configured: true, flag: true, environment: true, want: ReadOnlyProjection{ConfiguredReadOnly: true, EffectiveReadOnly: true, ReadOnlySource: "flag"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := ProjectReadOnly(test.configured, test.flag, test.environment)
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("ProjectReadOnly(%t,%t,%t)=%+v want=%+v", test.configured, test.flag, test.environment, got, test.want)
+			}
+		})
+	}
+}
 
 func TestDoctorMetadataNormalizationIsClosed(t *testing.T) {
 	if got := normalizeServerVersion("9.12.7"); got != "9.12.7" {

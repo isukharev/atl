@@ -53,6 +53,49 @@ func agileNext(endpoint string, cursor *jiraOffsetCursor, returned, count, total
 	return strconv.Itoa(decision.next), nil
 }
 
+type agileValuesPage[T any] struct {
+	StartAt *int  `json:"startAt"`
+	Total   *int  `json:"total"`
+	IsLast  *bool `json:"isLast"`
+	Values  *[]T  `json:"values"`
+}
+
+func qualifiedAgileValuesPage[T any](endpoint string, cursor *jiraOffsetCursor, page agileValuesPage[T]) ([]T, string, error) {
+	if page.StartAt == nil {
+		return nil, "", fmt.Errorf("%w: Jira %s omitted or nullified startAt", domain.ErrCheckFailed, endpoint)
+	}
+	if page.Total == nil {
+		return nil, "", fmt.Errorf("%w: Jira %s omitted or nullified total", domain.ErrCheckFailed, endpoint)
+	}
+	if page.IsLast == nil {
+		return nil, "", fmt.Errorf("%w: Jira %s omitted or nullified isLast", domain.ErrCheckFailed, endpoint)
+	}
+	if page.Values == nil {
+		return nil, "", fmt.Errorf("%w: Jira %s omitted or nullified values", domain.ErrCheckFailed, endpoint)
+	}
+	if *page.StartAt < 0 || *page.Total < 0 || !cursor.matches(*page.StartAt) {
+		return nil, "", fmt.Errorf("%w: Jira %s returned invalid pagination at offset %d", domain.ErrCheckFailed, endpoint, cursor.requested())
+	}
+	values := *page.Values
+	decision := cursor.advance(len(values), page.Total)
+	if decision.state == jiraOffsetOverflow || decision.state == jiraOffsetBeyondTotal {
+		return nil, "", fmt.Errorf("%w: Jira %s returned invalid pagination at offset %d", domain.ErrCheckFailed, endpoint, cursor.requested())
+	}
+	if *page.IsLast {
+		if decision.state != jiraOffsetComplete {
+			return nil, "", fmt.Errorf("%w: Jira %s returned conflicting total and isLast pagination", domain.ErrCheckFailed, endpoint)
+		}
+		return values, "", nil
+	}
+	if decision.state == jiraOffsetComplete {
+		return nil, "", fmt.Errorf("%w: Jira %s returned conflicting total and isLast pagination", domain.ErrCheckFailed, endpoint)
+	}
+	if decision.state == jiraOffsetStalled {
+		return nil, "", fmt.Errorf("%w: Jira %s pagination made no progress at offset %d", domain.ErrCheckFailed, endpoint, cursor.requested())
+	}
+	return values, strconv.Itoa(decision.next), nil
+}
+
 // agileLimit clamps the page size to the Agile API's bounds (max 50).
 func agileLimit(limit int) int {
 	if limit <= 0 || limit > 50 {
@@ -87,21 +130,19 @@ func (j *Jira) Boards(ctx context.Context, project string, limit int, cursor str
 	if project != "" {
 		q.Set("projectKeyOrId", project)
 	}
-	var resp struct {
-		StartAt int        `json:"startAt"`
-		Total   int        `json:"total"`
-		IsLast  *bool      `json:"isLast"`
-		Values  []boardDTO `json:"values"`
-	}
+	var resp agileValuesPage[boardDTO]
 	if err := j.c.GetJSON(ctx, "/rest/agile/1.0/board?"+q.Encode(), &resp); err != nil {
 		return nil, "", err
 	}
-	out := make([]domain.Board, 0, len(resp.Values))
-	for _, b := range resp.Values {
+	values, next, err := qualifiedAgileValuesPage("board listing", &jiraOffsetCursor{startAt: startAt}, resp)
+	if err != nil {
+		return nil, "", err
+	}
+	out := make([]domain.Board, 0, len(values))
+	for _, b := range values {
 		out = append(out, b.toDomain())
 	}
-	next, err := agileNext("board listing", &jiraOffsetCursor{startAt: startAt}, resp.StartAt, len(resp.Values), resp.Total, resp.IsLast)
-	return out, next, err
+	return out, next, nil
 }
 
 // Board fetches one board by id.
@@ -260,21 +301,19 @@ func (j *Jira) Sprints(ctx context.Context, boardID int, state string, limit int
 	if state != "" {
 		q.Set("state", state)
 	}
-	var resp struct {
-		StartAt int         `json:"startAt"`
-		Total   int         `json:"total"`
-		IsLast  *bool       `json:"isLast"`
-		Values  []sprintDTO `json:"values"`
-	}
+	var resp agileValuesPage[sprintDTO]
 	if err := j.c.GetJSON(ctx, "/rest/agile/1.0/board/"+strconv.Itoa(boardID)+"/sprint?"+q.Encode(), &resp); err != nil {
 		return nil, "", err
 	}
-	out := make([]domain.Sprint, 0, len(resp.Values))
-	for _, s := range resp.Values {
+	values, next, err := qualifiedAgileValuesPage("sprint listing", &jiraOffsetCursor{startAt: startAt}, resp)
+	if err != nil {
+		return nil, "", err
+	}
+	out := make([]domain.Sprint, 0, len(values))
+	for _, s := range values {
 		out = append(out, s.toDomain())
 	}
-	next, err := agileNext("sprint listing", &jiraOffsetCursor{startAt: startAt}, resp.StartAt, len(resp.Values), resp.Total, resp.IsLast)
-	return out, next, err
+	return out, next, nil
 }
 
 // Sprint fetches one sprint by id.

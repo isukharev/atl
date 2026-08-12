@@ -219,11 +219,13 @@ func reviewedOutputModes(path string) []string {
 func TestCommandRegistryOutputModeShapesAreEnforced(t *testing.T) {
 	for name, row := range map[string]string{
 		"read missing modes":     "R unsafe",
-		"mutation missing modes": "M remote-direct - unsafe",
-		"missing json":           "R text unsafe",
-		"noncanonical order":     "R json,id,text unsafe",
-		"duplicate mode":         "R json,text,text unsafe",
-		"unknown mode":           "R json,xml unsafe",
+		"mutation missing modes": "M remote-write remote-direct - unsafe",
+		"missing effect":         "R json safe",
+		"unknown effect":         "R guessed json safe",
+		"missing json":           "R pure text unsafe",
+		"noncanonical order":     "R pure json,id,text unsafe",
+		"duplicate mode":         "R pure json,text,text unsafe",
+		"unknown mode":           "R pure json,xml unsafe",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := parseCommandRegistry(row); err == nil {
@@ -232,7 +234,7 @@ func TestCommandRegistryOutputModeShapesAreEnforced(t *testing.T) {
 		})
 	}
 
-	registry, err := parseCommandRegistry("R json,text,id safe")
+	registry, err := parseCommandRegistry("R pure json,text,id safe")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -47,23 +47,24 @@ type CapabilityCatalogSelection struct {
 }
 
 type CapabilityCatalogItem struct {
-	ID           string   `json:"id"`
-	TaskClass    string   `json:"task_class"`
-	Service      string   `json:"service"`
-	Role         string   `json:"role"`
-	Priority     int      `json:"priority"`
-	Summary      string   `json:"summary"`
-	Command      string   `json:"command"`
-	CLICommand   string   `json:"cli_command"`
-	MCPTool      string   `json:"mcp_tool,omitempty"`
-	MCPScope     string   `json:"mcp_scope,omitempty"`
-	CLIOnly      bool     `json:"cli_only"`
-	Access       string   `json:"access"`
-	OutputModes  []string `json:"output_modes"`
-	Evidence     string   `json:"evidence"`
-	Completeness string   `json:"completeness"`
-	Skill        string   `json:"skill"`
-	Reference    string   `json:"reference"`
+	ID            string   `json:"id"`
+	TaskClass     string   `json:"task_class"`
+	Service       string   `json:"service"`
+	Role          string   `json:"role"`
+	Priority      int      `json:"priority"`
+	Summary       string   `json:"summary"`
+	Command       string   `json:"command"`
+	CLICommand    string   `json:"cli_command"`
+	MCPTool       string   `json:"mcp_tool,omitempty"`
+	MCPScope      string   `json:"mcp_scope,omitempty"`
+	CLIOnly       bool     `json:"cli_only"`
+	Access        string   `json:"access"`
+	EffectProfile string   `json:"effect_profile"`
+	OutputModes   []string `json:"output_modes"`
+	Evidence      string   `json:"evidence"`
+	Completeness  string   `json:"completeness"`
+	Skill         string   `json:"skill"`
+	Reference     string   `json:"reference"`
 }
 
 var (
@@ -249,7 +250,7 @@ func validateCapabilityCatalogMemberSets(data []byte) error {
 	}
 	baseMembers := []string{
 		"id", "task_class", "service", "role", "priority", "summary", "command", "cli_command",
-		"cli_only", "access", "output_modes", "evidence", "completeness", "skill", "reference",
+		"cli_only", "access", "effect_profile", "output_modes", "evidence", "completeness", "skill", "reference",
 	}
 	for index, item := range items {
 		members := baseMembers
@@ -290,7 +291,7 @@ func (i CapabilityCatalogItem) validate() error {
 	}{
 		{"id", i.ID}, {"task_class", i.TaskClass}, {"service", i.Service}, {"role", i.Role},
 		{"summary", i.Summary}, {"command", i.Command}, {"cli_command", i.CLICommand},
-		{"access", i.Access}, {"evidence", i.Evidence}, {"completeness", i.Completeness},
+		{"access", i.Access}, {"effect_profile", i.EffectProfile}, {"evidence", i.Evidence}, {"completeness", i.Completeness},
 		{"skill", i.Skill}, {"reference", i.Reference},
 	}
 	for _, field := range stringsToValidate {

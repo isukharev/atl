@@ -12,9 +12,21 @@ import (
 
 func newDoctorCmd() *cobra.Command {
 	var remote bool
+	var service string
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Diagnose setup safely (offline by default)",
+		Args: func(cmd *cobra.Command, args []string) error {
+			if err := cobra.NoArgs(cmd, args); err != nil {
+				return err
+			}
+			switch service {
+			case app.DoctorServiceAll, app.DoctorServiceJira, app.DoctorServiceConfluence:
+				return nil
+			default:
+				return usageErr("--service must be all, jira, or confluence")
+			}
+		},
 		Long: "Report build, configuration, credential, safety, and mirror health without\n" +
 			"printing URLs, hostnames, paths, identities, tokens, or mirrored content.\n" +
 			"The default is fully offline. --remote adds one single-attempt version probe\n" +
@@ -25,9 +37,11 @@ func newDoctorCmd() *cobra.Command {
 			if err != nil {
 				return classifyProcessPolicyLoadError(err)
 			}
-			policy := buildPolicyShowResult(invocationRuntimeFor(cmd), resolved)
+			readOnly := app.ProjectReadOnly(false, invocationRuntimeFor(cmd).readOnly, envReadOnly())
+			policy := buildPolicyShowResult(invocationRuntimeFor(cmd), resolved, readOnly)
 			result, doctorErr := compose.RunDoctor(cmd.Context(), app.DoctorOptions{
-				Remote: remote, ReadOnlyPolicy: invocationRuntimeFor(cmd).readOnly || envReadOnly(), ContentPolicyActive: policy.Active,
+				Remote: remote, Service: service,
+				ReadOnlyFlag: invocationRuntimeFor(cmd).readOnly, ReadOnlyEnvironment: envReadOnly(), ContentPolicyActive: policy.Active,
 				ContentPolicyEnforcement: policy.Enforcement, ContentPolicyAdvisory: policy.AdvisoryBecause,
 			}, invocationCompositionOptions(cmd)...)
 			emitErr := emitSnapshot(cmd, result, func() string { return doctorText(result) })
@@ -35,13 +49,15 @@ func newDoctorCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&remote, "remote", false, "make bounded version/reachability probes for ready backends")
+	cmd.Flags().StringVar(&service, "service", app.DoctorServiceAll, "scope service health and probes: all|jira|confluence")
+	_ = cmd.RegisterFlagCompletionFunc("service", fixedComp(app.DoctorServiceAll, app.DoctorServiceJira, app.DoctorServiceConfluence))
 	return cmd
 }
 
 func doctorText(result *app.DoctorResult) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "schema_version: %d\nstatus: %s\nhealthy: %t\ncomplete: %t\nmode: %s\n",
-		result.SchemaVersion, result.Status, result.Healthy, result.Complete, result.Mode)
+	fmt.Fprintf(&b, "schema_version: %d\nstatus: %s\nhealthy: %t\ncomplete: %t\nmode: %s\nservice: %s\n",
+		result.SchemaVersion, result.Status, result.Healthy, result.Complete, result.Mode, result.Service)
 	fmt.Fprintf(&b, "cli: version=%s commit=%s build_state=%s\n", result.CLI.Version, result.CLI.Commit, result.CLI.BuildState)
 	fmt.Fprintf(&b, "runtime: os=%s arch=%s\n", result.Runtime.OS, result.Runtime.Arch)
 	fmt.Fprintf(&b, "config: status=%s reason=%s source=%s confluence_url_source=%s jira_url_source=%s\n",
@@ -63,7 +79,9 @@ func doctorText(result *app.DoctorResult) string {
 		result.Credentials.Jira.Present, result.Credentials.Jira.Status, result.Credentials.Jira.Source)
 	fmt.Fprintf(&b, "credentials_confluence: present=%t status=%s source=%s\n",
 		result.Credentials.Confluence.Present, result.Credentials.Confluence.Status, result.Credentials.Confluence.Source)
-	fmt.Fprintf(&b, "safety: read_only=%t status=%s\n", result.Safety.ReadOnly, result.Safety.Status)
+	fmt.Fprintf(&b, "safety: read_only=%t configured=%t effective=%t source=%s status=%s\n",
+		result.Safety.ReadOnly, result.Safety.ConfiguredReadOnly, result.Safety.EffectiveReadOnly,
+		result.Safety.ReadOnlySource, result.Safety.Status)
 	fmt.Fprintf(&b, "content_policy: active=%t enforcement=%s advisory_because=%s\n", result.ContentPolicy.Active, result.ContentPolicy.Enforcement, strings.Join(result.ContentPolicy.AdvisoryBecause, ","))
 	writeDoctorServiceText(&b, "jira", result.Services.Jira)
 	writeDoctorServiceText(&b, "confluence", result.Services.Confluence)

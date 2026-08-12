@@ -3,10 +3,12 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/domain"
 )
 
 func TestDoctorOfflineEmitsQualifiedAggregate(t *testing.T) {
@@ -318,6 +321,124 @@ func TestDoctorLocalSiblingFailureDoesNotBlockReadyRemoteService(t *testing.T) {
 		got.Services.Confluence.Remote.Status != "skipped" ||
 		got.Services.Confluence.Remote.Reason != "service_not_ready" {
 		t.Fatalf("result=%+v", got)
+	}
+}
+
+func TestDoctorServiceScopesSiblingChecksAndRemoteProbes(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		requests++
+		if request.URL.Path != "/rest/api/2/serverInfo" {
+			t.Errorf("unexpected request path %q", request.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"version":"9.12.7","deploymentType":"Data Center"}`))
+	}))
+	t.Cleanup(server.Close)
+	configDir := t.TempDir()
+	privateCAPath := filepath.Join(configDir, "unused-private-ca.pem")
+	configBody := `{"transport":{"confluence":{"ca_bundle":` + strconv.Quote(privateCAPath) + `}}}`
+	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(configBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, code := runCLI(t, map[string]string{
+		"ATL_CONFIG_DIR": configDir,
+		"ATL_JIRA_URL":   server.URL, "ATL_JIRA_PAT": "jira-secret",
+	}, "doctor", "--service", "jira", "--remote")
+	if code != exitOK || requests != 1 {
+		t.Fatalf("exit=%d requests=%d output=%s", code, requests, out)
+	}
+	var got app.DoctorResult
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Service != app.DoctorServiceJira || got.Services.Jira.Remote.Status != "available" ||
+		got.Services.Confluence.Status != "not_selected" || got.Services.Confluence.URLStatus != "not_selected" ||
+		got.Mirror.Confluence.Status != "not_selected" || !got.Config.Transport.Confluence.Configured ||
+		got.Config.Transport.Confluence.Source != "config_file" || got.Config.Transport.Confluence.Status != "not_selected" ||
+		got.Config.Transport.Confluence.Reason != "" {
+		t.Fatalf("scoped doctor=%+v", got)
+	}
+	if strings.Contains(out, privateCAPath) || strings.Contains(out, "transport.confluence.ca_bundle") {
+		t.Fatalf("unselected sibling affected or leaked into output: %s", out)
+	}
+}
+
+func TestDoctorServiceKeepsCommonCredentialSafetyChecks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX owner-only permission contract")
+	}
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, "credentials.json"), []byte(`{"confluence":"stored"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, code := runCLI(t, map[string]string{
+		"ATL_CONFIG_DIR": configDir,
+		"ATL_JIRA_URL":   "http://127.0.0.1:1", "ATL_JIRA_PAT": "jira-secret",
+	}, "doctor", "--service", "jira")
+	if code != exitCheckFailed {
+		t.Fatalf("exit=%d output=%s", code, out)
+	}
+	var got app.DoctorResult
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, problem := range got.Problems {
+		found = found || problem.ID == "credentials.permissions"
+	}
+	if !found || got.Services.Confluence.Status != "not_selected" {
+		t.Fatalf("common credential check or sibling projection missing: %+v", got)
+	}
+}
+
+func TestDoctorRejectsUnknownServiceBeforeRemoteEffects(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
+	t.Cleanup(server.Close)
+	out, code := runCLI(t, map[string]string{
+		"ATL_JIRA_URL": server.URL, "ATL_JIRA_PAT": "jira-secret",
+	}, "doctor", "--service", "other", "--remote")
+	if code != exitUsage || requests != 0 || out != "" {
+		t.Fatalf("exit=%d requests=%d output=%q", code, requests, out)
+	}
+}
+
+func TestDoctorRejectsUnknownServiceBeforePersistentPreRun(t *testing.T) {
+	root := newRoot()
+	preRuns := 0
+	root.PersistentPreRunE = func(*cobra.Command, []string) error {
+		preRuns++
+		return nil
+	}
+	root.SetArgs([]string{"doctor", "--service", "other"})
+	if err := root.ExecuteContext(context.Background()); !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("error = %v, want ErrUsage", err)
+	}
+	if preRuns != 0 {
+		t.Fatalf("persistent pre-runs = %d, want 0", preRuns)
+	}
+}
+
+func TestDoctorRejectsPositionalArgumentBeforePersistentPreRun(t *testing.T) {
+	out, code := runCLI(t, nil, "doctor", "extra")
+	if code != exitUsage || out != "" {
+		t.Fatalf("exit=%d output=%q", code, out)
+	}
+
+	root := newRoot()
+	preRuns := 0
+	root.PersistentPreRunE = func(*cobra.Command, []string) error {
+		preRuns++
+		return nil
+	}
+	root.SetArgs([]string{"doctor", "extra"})
+	if err := root.ExecuteContext(context.Background()); !errors.Is(err, domain.ErrUsage) ||
+		codeFor(err) != exitUsage || !strings.Contains(err.Error(), "unknown command") {
+		t.Fatalf("error = %v code=%d, want positional-argument usage error", err, codeFor(err))
+	}
+	if preRuns != 0 {
+		t.Fatalf("persistent pre-runs = %d, want 0", preRuns)
 	}
 }
 

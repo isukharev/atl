@@ -11,6 +11,22 @@ import (
 	"github.com/isukharev/atl/internal/domain"
 )
 
+type jiraBoardListResult struct {
+	Boards     []domain.Board `json:"boards"`
+	NextCursor string         `json:"next_cursor"`
+	Count      int            `json:"count"`
+	Complete   bool           `json:"complete"`
+	Truncated  bool           `json:"truncated"`
+}
+
+type jiraSprintListResult struct {
+	Sprints    []domain.Sprint `json:"sprints"`
+	NextCursor string          `json:"next_cursor"`
+	Count      int             `json:"count"`
+	Complete   bool            `json:"complete"`
+	Truncated  bool            `json:"truncated"`
+}
+
 // atoiArg parses a positional integer argument (a board or sprint id), mapping a
 // non-numeric value to a usage error (exit 2) before any network call.
 func atoiArg(name, s string) (int, error) {
@@ -43,8 +59,13 @@ func jiraBoardCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return emitID(cmd, map[string]any{"boards": boards, "next_cursor": next}, func() string {
+			result := jiraBoardListResult{
+				Boards: boards, NextCursor: next, Count: len(boards),
+				Complete: next == "", Truncated: next != "",
+			}
+			return emitID(cmd, result, func() string {
 				var b strings.Builder
+				fmt.Fprintf(&b, "count=%d\tcomplete=%t\ttruncated=%t\n", result.Count, result.Complete, result.Truncated)
 				for _, bd := range boards {
 					fmt.Fprintf(&b, "%d\t%s\t%s\t%s\n", bd.ID, bd.Type, bd.ProjectKey, bd.Name)
 				}
@@ -269,8 +290,13 @@ func jiraSprintCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return emitID(cmd, map[string]any{"sprints": sprints, "next_cursor": next}, func() string {
-				return sprintLines(sprints)
+			result := jiraSprintListResult{
+				Sprints: sprints, NextCursor: next, Count: len(sprints),
+				Complete: next == "", Truncated: next != "",
+			}
+			return emitID(cmd, result, func() string {
+				return fmt.Sprintf("count=%d\tcomplete=%t\ttruncated=%t\n%s",
+					result.Count, result.Complete, result.Truncated, sprintLines(sprints))
 			}, func() []string {
 				return sprintIDs(sprints)
 			})

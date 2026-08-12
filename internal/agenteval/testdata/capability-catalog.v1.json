@@ -22,6 +22,7 @@
       "mcp_scope": "Canonical page id, optional provenance version gate, closed selectors and bounds; body-free comment metadata only.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read-capped",
       "output_modes": [
         "json",
         "text"
@@ -44,6 +45,7 @@
       "mcp_scope": "Canonical page and comment ids, optional provenance version gate, item/output bounds, and exact plain-text bodies; no native storage or anchor selection.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read-capped",
       "output_modes": [
         "json",
         "text"
@@ -64,6 +66,7 @@
       "cli_command": "conf comment preview",
       "cli_only": true,
       "access": "read-only",
+      "effect_profile": "remote-read-with-local",
       "output_modes": [
         "json",
         "text"
@@ -84,6 +87,7 @@
       "cli_command": "conf comment add",
       "cli_only": true,
       "access": "mutating",
+      "effect_profile": "remote-write-with-local",
       "output_modes": [
         "json",
         "text"
@@ -104,6 +108,7 @@
       "cli_command": "conf comment mutation preview",
       "cli_only": true,
       "access": "read-only",
+      "effect_profile": "remote-read-with-local",
       "output_modes": [
         "json"
       ],
@@ -123,6 +128,7 @@
       "cli_command": "conf comment mutation apply",
       "cli_only": true,
       "access": "mutating",
+      "effect_profile": "remote-write-with-local",
       "output_modes": [
         "json"
       ],
@@ -142,6 +148,7 @@
       "cli_command": "conf pull",
       "cli_only": true,
       "access": "read-only",
+      "effect_profile": "remote-pull",
       "output_modes": [
         "json",
         "text"
@@ -162,6 +169,7 @@
       "cli_command": "conf diff",
       "cli_only": true,
       "access": "read-only",
+      "effect_profile": "local-read-updatable",
       "output_modes": [
         "json",
         "text"
@@ -182,6 +190,7 @@
       "cli_command": "conf plan create",
       "cli_only": true,
       "access": "read-only",
+      "effect_profile": "local-write-updatable",
       "output_modes": [
         "json",
         "text"
@@ -202,6 +211,7 @@
       "cli_command": "conf plan preview",
       "cli_only": true,
       "access": "read-only",
+      "effect_profile": "remote-read-with-local",
       "output_modes": [
         "json",
         "text"
@@ -222,6 +232,7 @@
       "cli_command": "conf plan apply",
       "cli_only": true,
       "access": "mutating",
+      "effect_profile": "remote-write-local",
       "output_modes": [
         "json",
         "text"
@@ -244,6 +255,7 @@
       "mcp_scope": "Exact numeric or same-origin reference resolution; no fuzzy match.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read",
       "output_modes": [
         "json",
         "text",
@@ -267,6 +279,7 @@
       "mcp_scope": "Body-free governance projection without labels, ancestors, URLs, principals, or content.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read",
       "output_modes": [
         "json",
         "text"
@@ -289,6 +302,7 @@
       "mcp_scope": "Bounded completeness-qualified heading inventory.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read-fixed",
       "output_modes": [
         "json",
         "text"
@@ -311,6 +325,7 @@
       "mcp_scope": "Bounded exact section with provenance-dependent page-version gate.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read-fixed",
       "output_modes": [
         "json",
         "text"
@@ -333,6 +348,7 @@
       "mcp_scope": "One-to-32 ordered sections from one revision with aggregate caps.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read-fixed",
       "output_modes": [
         "json",
         "text"
@@ -353,6 +369,7 @@
       "cli_command": "conf page view",
       "cli_only": true,
       "access": "read-only",
+      "effect_profile": "remote-read",
       "output_modes": [
         "json",
         "text"
@@ -375,6 +392,7 @@
       "mcp_scope": "Version-gated metadata-only inventory; no bytes, paths, or comments.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read",
       "output_modes": [
         "json",
         "text",
@@ -398,6 +416,7 @@
       "mcp_scope": "Fixed-shape content-free offline snapshot at the owner-configured root; no selectable path.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "optional-remote-read",
       "output_modes": [
         "json",
         "text"
@@ -420,6 +439,7 @@
       "mcp_scope": "Bounded content-free structural summary with page-version evidence.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read",
       "output_modes": [
         "json",
         "text"
@@ -442,6 +462,7 @@
       "mcp_scope": "One selected typed table only; no all-table or alternate-format workflow.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read-local",
       "output_modes": [
         "json",
         "text"
@@ -462,6 +483,7 @@
       "cli_command": "jira export",
       "cli_only": true,
       "access": "read-only",
+      "effect_profile": "remote-read-local",
       "output_modes": [
         "json",
         "text"
@@ -484,6 +506,7 @@
       "mcp_scope": "Value-free field catalog/qualification with optional summary-only projection.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read",
       "output_modes": [
         "json",
         "text"
@@ -506,6 +529,7 @@
       "mcp_scope": "Task alias to bounded transient normalized board snapshot.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read-capped",
       "output_modes": [
         "json",
         "text",
@@ -529,6 +553,7 @@
       "mcp_scope": "Task alias to bounded explicit-source digest.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read-capped",
       "output_modes": [
         "json",
         "text"
@@ -549,6 +574,7 @@
       "cli_command": "jira issue fields",
       "cli_only": true,
       "access": "read-only",
+      "effect_profile": "remote-read",
       "output_modes": [
         "json",
         "text"
@@ -569,6 +595,7 @@
       "cli_command": "jira issue field preview",
       "cli_only": true,
       "access": "read-only",
+      "effect_profile": "remote-read-with-local",
       "output_modes": [
         "json",
         "text"
@@ -589,6 +616,7 @@
       "cli_command": "jira issue field set",
       "cli_only": true,
       "access": "mutating",
+      "effect_profile": "remote-write-with-local",
       "output_modes": [
         "json",
         "text"
@@ -609,6 +637,7 @@
       "cli_command": "jira issue worklog list",
       "cli_only": true,
       "access": "read-only",
+      "effect_profile": "remote-read",
       "output_modes": [
         "json",
         "text",
@@ -630,6 +659,7 @@
       "cli_command": "jira issue worklog add",
       "cli_only": true,
       "access": "mutating",
+      "effect_profile": "remote-write-with-local",
       "output_modes": [
         "json",
         "text"
@@ -650,6 +680,7 @@
       "cli_command": "jira issue plan apply",
       "cli_only": true,
       "access": "mutating",
+      "effect_profile": "remote-write-with-local",
       "output_modes": [
         "json",
         "text"
@@ -672,6 +703,7 @@
       "mcp_scope": "Bounded IssueList page; one selector alias and encoded-result cap.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read-fixed",
       "output_modes": [
         "json",
         "text",
@@ -693,6 +725,7 @@
       "cli_command": "jira issue fields",
       "cli_only": true,
       "access": "read-only",
+      "effect_profile": "remote-read",
       "output_modes": [
         "json",
         "text"
@@ -715,6 +748,7 @@
       "mcp_scope": "Bounded digest with explicit include sources; no Confluence expansion.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read-capped",
       "output_modes": [
         "json",
         "text"
@@ -737,6 +771,7 @@
       "mcp_scope": "Exact compact field evidence with stricter typed byte bound.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read",
       "output_modes": [
         "json",
         "text"
@@ -759,6 +794,7 @@
       "mcp_scope": "Summary/counts and source qualification only; no raw URLs, summary, type, or narrative; not a route when references themselves are required.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read",
       "output_modes": [
         "json",
         "text"
@@ -781,6 +817,7 @@
       "mcp_scope": "Summary projection and selected-field last_changes only; no raw changelog rows; not a route when individual changes are required.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read",
       "output_modes": [
         "json",
         "text"
@@ -803,6 +840,7 @@
       "mcp_scope": "Jira-only schema-v2 graph with structural traversal, qualified sources, fixed request/response/result bounds, and optional bounded experimental SCM identities; no Confluence or GitLab reads.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read-caller-bounded",
       "output_modes": [
         "json",
         "text"
@@ -823,6 +861,7 @@
       "cli_command": "jira issue reference search",
       "cli_only": true,
       "access": "read-only",
+      "effect_profile": "remote-read-caller-bounded",
       "output_modes": [
         "json",
         "text"
@@ -845,6 +884,7 @@
       "mcp_scope": "Fixed-shape content-free offline snapshot at the owner-configured root; no selectable path.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "optional-remote-read",
       "output_modes": [
         "json",
         "text"
@@ -865,6 +905,7 @@
       "cli_command": "jira board list",
       "cli_only": true,
       "access": "read-only",
+      "effect_profile": "remote-read",
       "output_modes": [
         "json",
         "text",
@@ -888,6 +929,7 @@
       "mcp_scope": "Bounded transient normalized board/backlog snapshot.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read-capped",
       "output_modes": [
         "json",
         "text",
@@ -911,6 +953,7 @@
       "mcp_scope": "Metadata projection limited to id, name, and read-only state.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read",
       "output_modes": [
         "json",
         "text",
@@ -932,6 +975,7 @@
       "cli_command": "jira structure folders",
       "cli_only": true,
       "access": "read-only",
+      "effect_profile": "remote-read",
       "output_modes": [
         "json",
         "text",
@@ -955,6 +999,7 @@
       "mcp_scope": "Normalized bounded hierarchy/subtree with typed fields and optional forest gate.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read",
       "output_modes": [
         "json",
         "text",
@@ -978,6 +1023,7 @@
       "mcp_scope": "Task alias to bounded explicit-source digest; no Confluence expansion.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read-capped",
       "output_modes": [
         "json",
         "text"
@@ -1000,6 +1046,7 @@
       "mcp_scope": "One bounded exact section with provenance-dependent page-version gate.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read-fixed",
       "output_modes": [
         "json",
         "text"
@@ -1020,6 +1067,7 @@
       "cli_command": "jira project list",
       "cli_only": true,
       "access": "read-only",
+      "effect_profile": "remote-read",
       "output_modes": [
         "json",
         "text",
@@ -1041,6 +1089,7 @@
       "cli_command": "jira issue create-check",
       "cli_only": true,
       "access": "read-only",
+      "effect_profile": "remote-read",
       "output_modes": [
         "json",
         "text"
@@ -1061,6 +1110,7 @@
       "cli_command": "jira structure rows",
       "cli_only": true,
       "access": "read-only",
+      "effect_profile": "remote-read",
       "output_modes": [
         "json",
         "text",
@@ -1082,6 +1132,7 @@
       "cli_command": "jira structure values",
       "cli_only": true,
       "access": "read-only",
+      "effect_profile": "remote-read",
       "output_modes": [
         "json"
       ],
@@ -1101,6 +1152,7 @@
       "cli_command": "jira export",
       "cli_only": true,
       "access": "read-only",
+      "effect_profile": "remote-read-local",
       "output_modes": [
         "json",
         "text"
@@ -1123,6 +1175,7 @@
       "mcp_scope": "Task alias to bounded IssueList page; one selector alias and encoded-result cap.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read-fixed",
       "output_modes": [
         "json",
         "text",
@@ -1146,6 +1199,7 @@
       "mcp_scope": "Bounded qualified CQL candidate page without page bodies.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read-fixed",
       "output_modes": [
         "json",
         "text",
@@ -1169,6 +1223,7 @@
       "mcp_scope": "Task alias to exact compact field evidence with typed byte bound.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read",
       "output_modes": [
         "json",
         "text"
@@ -1191,6 +1246,7 @@
       "mcp_scope": "Task alias to bounded completeness-qualified heading inventory.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read-fixed",
       "output_modes": [
         "json",
         "text"
@@ -1213,6 +1269,7 @@
       "mcp_scope": "Task alias to bounded exact section with conditional version binding.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read-fixed",
       "output_modes": [
         "json",
         "text"
@@ -1235,6 +1292,7 @@
       "mcp_scope": "Task alias to bounded ordered multi-section projection with aggregate reconciliation.",
       "cli_only": false,
       "access": "read-only",
+      "effect_profile": "remote-read-fixed",
       "output_modes": [
         "json",
         "text"

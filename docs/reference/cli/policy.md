@@ -28,6 +28,15 @@ and remain available under `ATL_READ_ONLY=1`.
   governed;
 - `advisory_because`, including a missing digest pin or backend binding.
 
+The nested `read_only.active` field retains its legacy effective meaning, and
+legacy `read_only.source` remains the active source or `null` when inactive.
+`read_only.configured_read_only`, `read_only.effective_read_only`, and
+`read_only.read_only_source` make the configured value, monotonic process value,
+and its highest-precedence source explicit. The source vocabulary is
+`flag|environment|configuration|none`, with flag before environment before
+configuration. This is an informational projection of the existing global
+preflight, not content-policy enforcement.
+
 `enforcement` is `advisory` or `sealed_unverified`; it never claims that an
 in-process policy is an independently enforced security boundary.
 
