@@ -99,3 +99,24 @@ func TestOptionalRemoteReadIsOneCanonicalUnionProfile(t *testing.T) {
 		t.Fatalf("optional remote profile id count=%d dimension count=%d, want 1/1", matchingID, matchingDimensions)
 	}
 }
+
+func TestReviewedMutationProfilesClassifyConfigurationAndArtifacts(t *testing.T) {
+	tests := []struct {
+		id            string
+		configuration string
+		artifact      string
+	}{
+		{id: EffectCredentialWrite, configuration: "read", artifact: "none"},
+		{id: EffectLocalArtifact, configuration: "none", artifact: "required"},
+		{id: EffectLocalArtifactConfig, configuration: "read", artifact: "required"},
+		{id: EffectRemoteWriteLocal, configuration: "read", artifact: "possible"},
+	}
+	for _, test := range tests {
+		t.Run(test.id, func(t *testing.T) {
+			profile, ok := EffectProfileByID(test.id)
+			if !ok || profile.Configuration != test.configuration || profile.LocalArtifact != test.artifact {
+				t.Fatalf("profile=%+v/%t want configuration=%q local_artifact=%q", profile, ok, test.configuration, test.artifact)
+			}
+		})
+	}
+}

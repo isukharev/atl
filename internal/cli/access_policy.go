@@ -340,10 +340,10 @@ R local-read json,text mirror backend status
 M local-write dedicated-apply none none from-file,candidate-hash,expected-current-hash pre-config generic json,text profile apply
 R local-prose json,text profile guidance
 R local-read json,text profile preview
-M local-artifact local-direct none none - json,text profile revalidate
+M local-artifact-config-read local-direct none none - json,text profile revalidate
 R local-read json,text profile revalidation status
 R local-read json,text profile show
-M local-artifact local-direct none none - json,text profile suggest
+M local-artifact-config-read local-direct none none - json,text profile suggest
 M local-write dedicated-apply none none from-file,suggestion-hash,candidate-hash,expected-current-hash pre-config generic json,text profile suggestion apply
 M local-write local-direct none none - json,text profile suggestion reject
 R local-read json,text profile suggestion review

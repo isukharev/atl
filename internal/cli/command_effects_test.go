@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	capabilitydef "github.com/isukharev/atl/internal/capability"
+	"github.com/isukharev/atl/internal/domain"
 )
 
 func TestCommandEffectCatalogClassifiesEveryExecutableLeaf(t *testing.T) {
@@ -119,6 +121,111 @@ func TestOptionalRemoteProfileMapsExactlyToLocalFirstMirrorInspections(t *testin
 		if remote == nil || remote.Value.Type() != "bool" || remote.DefValue != "false" {
 			t.Fatalf("%q remote flag=%+v, want explicit optional bool default false", path, remote)
 		}
+	}
+}
+
+func TestConfigurationReadingOfflineMutatorsMapExactlyToTheirExecutionPath(t *testing.T) {
+	catalog, err := buildCommandEffectCatalog(commandEffectSelection{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantByProfile := map[string][]string{
+		capabilitydef.EffectCredentialWrite:     {"auth logout"},
+		capabilitydef.EffectLocalArtifact:       {"corpus export"},
+		capabilitydef.EffectLocalArtifactConfig: {"profile revalidate", "profile suggest"},
+	}
+	gotByProfile := map[string][]string{}
+	for _, command := range catalog.Commands {
+		if _, reviewed := wantByProfile[command.EffectProfile]; reviewed {
+			gotByProfile[command.EffectProfile] = append(gotByProfile[command.EffectProfile], command.Command)
+		}
+	}
+	if !reflect.DeepEqual(gotByProfile, wantByProfile) {
+		t.Fatalf("reviewed profile reverse mappings=%v want=%v", gotByProfile, wantByProfile)
+	}
+	for _, profileID := range []string{capabilitydef.EffectCredentialWrite, capabilitydef.EffectLocalArtifactConfig} {
+		profile, ok := capabilitydef.EffectProfileByID(profileID)
+		if !ok || profile.Configuration != "read" {
+			t.Fatalf("profile %q=%+v/%t, want configuration read", profileID, profile, ok)
+		}
+	}
+	configFree, ok := capabilitydef.EffectProfileByID(capabilitydef.EffectLocalArtifact)
+	if !ok || configFree.Configuration != "none" {
+		t.Fatalf("config-free artifact profile=%+v/%t", configFree, ok)
+	}
+
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{"read_only":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commands := []struct {
+		path string
+		args []string
+	}{
+		{path: "auth logout", args: []string{"auth", "logout", "--service", "jira"}},
+		{path: "profile revalidate", args: []string{"profile", "revalidate", "--from-file", filepath.Join(configDir, "missing-revalidation.json"), "--out", filepath.Join(configDir, "revalidated.json")}},
+		{path: "profile suggest", args: []string{"profile", "suggest", "--from-file", filepath.Join(configDir, "missing-observations.json"), "--out", filepath.Join(configDir, "suggestion.json")}},
+	}
+	for _, command := range commands {
+		t.Run(command.path, func(t *testing.T) {
+			stdout, _, execErr := executeCLIRaw(t, map[string]string{"ATL_CONFIG_DIR": configDir}, command.args...)
+			if !errors.Is(execErr, domain.ErrConfig) || codeFor(execErr) != exitConfig || stdout != "" {
+				t.Fatalf("error=%v exit=%d stdout=%q, want configuration read before command effects", execErr, codeFor(execErr), stdout)
+			}
+		})
+	}
+}
+
+func TestRemoteWriteLocalPossibleArtifactsMapToExactRegistrationLeaves(t *testing.T) {
+	catalog, err := buildCommandEffectCatalog(commandEffectSelection{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProfileCommands := []string{
+		"conf page copy",
+		"conf page create",
+		"conf plan apply",
+		"conf push",
+		"jira issue create",
+		"jira push",
+	}
+	var gotProfileCommands []string
+	for _, command := range catalog.Commands {
+		if command.EffectProfile == capabilitydef.EffectRemoteWriteLocal {
+			gotProfileCommands = append(gotProfileCommands, command.Command)
+		}
+	}
+	if !reflect.DeepEqual(gotProfileCommands, wantProfileCommands) {
+		t.Fatalf("remote-write-local commands=%v want=%v", gotProfileCommands, wantProfileCommands)
+	}
+	profile, ok := capabilitydef.EffectProfileByID(capabilitydef.EffectRemoteWriteLocal)
+	if !ok || profile.LocalEffect != "write" || profile.LocalArtifact != "possible" {
+		t.Fatalf("remote-write-local profile=%+v/%t, want local write with possible artifact", profile, ok)
+	}
+
+	root := newRoot()
+	wantRegistrationCommands := []string{"conf page copy", "conf page create", "jira issue create"}
+	var gotRegistrationCommands []string
+	for _, command := range catalog.Commands {
+		leaf, args, findErr := root.Find(strings.Fields(command.Command))
+		if findErr != nil || len(args) != 0 {
+			t.Fatalf("find %q command=%v args=%v err=%v", command.Command, leaf, args, findErr)
+		}
+		register := leaf.Flags().Lookup("register")
+		if register == nil {
+			continue
+		}
+		into := leaf.Flags().Lookup("into")
+		if register.Value.Type() != "bool" || register.DefValue != "false" || into == nil || into.DefValue != "" {
+			t.Fatalf("%q registration flags register=%+v into=%+v", command.Command, register, into)
+		}
+		if command.EffectProfile != capabilitydef.EffectRemoteWriteLocal {
+			t.Fatalf("registration-capable command %q uses profile %q", command.Command, command.EffectProfile)
+		}
+		gotRegistrationCommands = append(gotRegistrationCommands, command.Command)
+	}
+	if !reflect.DeepEqual(gotRegistrationCommands, wantRegistrationCommands) {
+		t.Fatalf("registration-capable commands=%v want=%v", gotRegistrationCommands, wantRegistrationCommands)
 	}
 }
 
