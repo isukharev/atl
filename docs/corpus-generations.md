@@ -27,11 +27,16 @@ write authorizer. Unselected service credentials are not loaded.
 
 One command-scoped scheduler and one physical read budget cover principal
 qualification, retries, redirects, both complete selections, and body reads.
-The absolute deadline and cumulative request/response-byte usage are persisted
-in the active attempt, so an ordinary resume cannot reset them. Jira and
-Confluence capture sequentially into separate attempt roots and carry separate
-start/completion times. A generation containing both services proves two
-qualified captures; it does not claim a remote transaction or one shared
+The absolute deadline, cumulative request/response-byte usage, and cumulative
+attachment-body byte usage are persisted in the active attempt. Validated
+per-service body counters prevent ordinary resume, adopted receipts, or
+repeated restart of the same options from resetting the generation-wide bound.
+The counter advances for a successfully streamed, size-validated body even if
+a later parent check, sidecar step, or mirror publication fails; failed or
+size-mismatched streams release their reservation.
+Jira and Confluence capture sequentially into separate attempt roots and carry
+separate start/completion times. A generation containing both services proves
+two qualified captures; it does not claim a remote transaction or one shared
 snapshot instant.
 
 Each service receipt binds only content-free evidence: service, principal-scope
@@ -165,7 +170,7 @@ This synthetic, content-free example shows the v1 namespace after publication:
 owner-only-root/
   .build.lock
   .publish.lock
-  active.v1.json
+  active.v2.json
   current.v1.json
   attempts/
     fedcba9876543210fedcba9876543210/
@@ -183,9 +188,12 @@ owner-only-root/
 
 Random attempt and generation identifiers carry no host, backend, selector, or
 object identity. `attempts/` contains active and retained native mirrors and is
-private. `active.v1.json` and capture receipts are content-free but remain
-owner-only recovery records. `.build.lock` serializes build attempts and is
-crash-scoped. `artifacts/` contains the private sealed member files.
+private. `active.v2.json` and capture receipts are content-free but remain
+owner-only recovery records. A canonical `active.v1.json` interrupted record
+is reconciled against its validated snapshots and migrated atomically; an
+unversioned or future record fails closed. `.build.lock` serializes build
+attempts and is crash-scoped. `artifacts/` contains the private sealed member
+files.
 `manifest.v1.json` is also private because it is the exact inventory: it
 contains member service, stable identity, role, relative path, size, mode, and
 digest.

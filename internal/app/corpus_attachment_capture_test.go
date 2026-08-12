@@ -37,8 +37,9 @@ func corpusAttachmentTestInventory(size int64) domain.AttachmentInventory {
 func TestCaptureCorpusAttachmentsStreamsVerifiedBody(t *testing.T) {
 	root := t.TempDir()
 	opened := 0
+	options := corpusAttachmentTestOptions(false)
 	capture, err := captureCorpusAttachments(t.Context(), root, mirror.CorpusSnapshotJira, "9", "PROJ/PROJ-1",
-		corpusAttachmentTestInventory(3), corpusAttachmentTestOptions(false),
+		corpusAttachmentTestInventory(3), options,
 		func(context.Context, domain.Attachment) (io.ReadCloser, error) {
 			opened++
 			return io.NopCloser(strings.NewReader("abc")), nil
@@ -47,7 +48,8 @@ func TestCaptureCorpusAttachmentsStreamsVerifiedBody(t *testing.T) {
 		t.Fatal(err)
 	}
 	if opened != 1 || capture.bodiesState != mirror.AttachmentBodiesComplete || len(capture.payloads) != 1 ||
-		string(capture.payloads[0].data) != "abc" || capture.records[0].Body.Size != 3 || capture.records[0].Body.SHA256 != mirror.Hash([]byte("abc")) {
+		string(capture.payloads[0].data) != "abc" || capture.records[0].Body.Size != 3 || capture.records[0].Body.SHA256 != mirror.Hash([]byte("abc")) ||
+		options.budget.usage() != 3 {
 		t.Fatalf("capture=%+v opened=%d", capture, opened)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".atl", "corpus-attachment-staging", "9", "7.body")); !os.IsNotExist(err) {
@@ -115,11 +117,13 @@ func TestCaptureCorpusAttachmentsRecordsStreamFailuresOnlyInPartialMode(t *testi
 		"close": {&corpusAttachmentTestReadCloser{Reader: strings.NewReader("abc"), closeErr: errors.New("close failed")}, mirror.AttachmentBodyReasonFailed},
 	} {
 		t.Run(name, func(t *testing.T) {
+			options := corpusAttachmentTestOptions(true)
 			capture, err := captureCorpusAttachments(t.Context(), t.TempDir(), mirror.CorpusSnapshotJira, "9", "PROJ/PROJ-1",
-				corpusAttachmentTestInventory(3), corpusAttachmentTestOptions(true),
+				corpusAttachmentTestInventory(3), options,
 				func(context.Context, domain.Attachment) (io.ReadCloser, error) { return test.reader, nil })
 			if err != nil || capture.bodiesState != mirror.AttachmentBodiesPartial || len(capture.payloads) != 0 ||
-				capture.records[0].Body.State != mirror.AttachmentBodyFailed || capture.records[0].Body.Reason != test.wantReason {
+				capture.records[0].Body.State != mirror.AttachmentBodyFailed || capture.records[0].Body.Reason != test.wantReason ||
+				options.budget.usage() != 0 {
 				t.Fatalf("capture=%+v error=%v", capture, err)
 			}
 		})

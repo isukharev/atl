@@ -97,6 +97,47 @@ func TestIndexerV2RejectsArtifactMembershipAndStatusDrift(t *testing.T) {
 	}
 }
 
+func TestIndexerV2RequiresExactlyOneMatchingAttachmentOwner(t *testing.T) {
+	documents, edges, markdown, artifact, member, qualifications := validIndexerV2Bundle(t)
+
+	sameOwner := edges[0]
+	sameOwner.Direction = DirectionInbound
+	var err error
+	sameOwner.ID, err = DeriveEdgeID(sameOwner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := BuildIndexerReceipt(qualifications, documents, append(edges, sameOwner), markdown, Limits{}); err != nil {
+		t.Fatalf("v1 compatibility rejected duplicate owner shape: %v", err)
+	}
+	if _, err := BuildIndexerReceiptV2(qualifications, documents, append(edges, sameOwner), markdown,
+		[]IndexerArtifact{artifact}, []ArtifactMember{member}, Limits{}); !errors.Is(err, ErrIntegrity) {
+		t.Fatalf("duplicate same-owner edge error = %v", err)
+	}
+
+	secondOwner := documents[0]
+	secondOwner.ID = digestByte('f')
+	secondOwner.Key = "EX-2"
+	secondOwner.Source.Path = "jira/EX-2.wiki"
+	secondOwner.MarkdownPath = "jira/EX-2.md"
+	documents = append(documents, secondOwner)
+	markdown = append(markdown, MarkdownMember{
+		DocumentID: secondOwner.ID, Path: secondOwner.MarkdownPath,
+		Size: int64(len(secondOwner.Text)), SHA256: secondOwner.MarkdownSHA256,
+	})
+	differentOwner := edges[0]
+	differentOwner.Direction = DirectionInbound
+	differentOwner.TargetID = secondOwner.ID
+	differentOwner.ID, err = DeriveEdgeID(differentOwner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := BuildIndexerReceiptV2(qualifications, documents, append(edges, differentOwner), markdown,
+		[]IndexerArtifact{artifact}, []ArtifactMember{member}, Limits{}); !errors.Is(err, ErrIntegrity) {
+		t.Fatalf("duplicate different-owner edge error = %v", err)
+	}
+}
+
 func TestIndexerV2ArtifactBodyReasonMatrixIsClosed(t *testing.T) {
 	valid := []struct {
 		status ArtifactBodyStatus

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/isukharev/atl/internal/corpus"
 	"github.com/isukharev/atl/internal/domain"
 )
 
@@ -65,21 +66,43 @@ func (budget *corpusAttachmentCaptureBudget) release(size int64) {
 	budget.mu.Unlock()
 }
 
+func (budget *corpusAttachmentCaptureBudget) usage() int64 {
+	if budget == nil {
+		return 0
+	}
+	budget.mu.Lock()
+	defer budget.mu.Unlock()
+	return budget.reserved
+}
+
 type corpusPullEvidenceOptions struct {
 	binding corpusEvidenceBinding
 	budget  *corpusAttachmentCaptureBudget
 }
 
 func newCorpusPullEvidenceOptions(options CorpusBuildOptions) *corpusPullEvidenceOptions {
+	evidence, _ := newCorpusPullEvidenceOptionsWithUsage(options, 0)
+	return evidence
+}
+
+func newCorpusPullEvidenceOptionsWithUsage(options CorpusBuildOptions, attachmentBodyBytes int64) (*corpusPullEvidenceOptions, error) {
 	binding := corpusEvidenceBindingFromOptions(options)
 	if !binding.Comments && !binding.Attachments {
-		return nil
+		if attachmentBodyBytes != 0 {
+			return nil, corpus.ErrIntegrity
+		}
+		return nil, nil
 	}
 	var budget *corpusAttachmentCaptureBudget
 	if binding.AttachmentBodies {
-		budget = &corpusAttachmentCaptureBudget{maximum: binding.MaxTotalAttachmentBytes}
+		if attachmentBodyBytes < 0 || attachmentBodyBytes > binding.MaxTotalAttachmentBytes {
+			return nil, corpus.ErrIntegrity
+		}
+		budget = &corpusAttachmentCaptureBudget{maximum: binding.MaxTotalAttachmentBytes, reserved: attachmentBodyBytes}
+	} else if attachmentBodyBytes != 0 {
+		return nil, corpus.ErrIntegrity
 	}
-	return &corpusPullEvidenceOptions{binding: binding, budget: budget}
+	return &corpusPullEvidenceOptions{binding: binding, budget: budget}, nil
 }
 
 func corpusEvidenceBindingFromOptions(options CorpusBuildOptions) corpusEvidenceBinding {

@@ -78,7 +78,10 @@ func (service *CorpusBuildService) Build(ctx context.Context, options CorpusBuil
 	buildCtx = domain.WithReadBudget(buildCtx, budget)
 	buildCtx = domain.WithRedactedHTTPTrace(buildCtx)
 
-	evidence := newCorpusPullEvidenceOptions(options)
+	evidence, err := newCorpusPullEvidenceOptionsWithUsage(options, active.AttachmentBodyBytes)
+	if err != nil {
+		return nil, CorpusBuildFailure(CorpusBuildPhaseRecover, err)
+	}
 	receipts := make([]corpus.CaptureReceipt, 0, len(active.Services))
 	for index := range active.Services {
 		receipt, captureErr := service.captureService(buildCtx, workspace, &active, index, options, evidence, budget, limits)
@@ -180,7 +183,7 @@ func (service *CorpusBuildService) prepareAttempt(ctx context.Context, workspace
 		if options.Restart {
 			return corpus.BuildActive{}, "", fmt.Errorf("%w: no corpus build attempt exists to restart", domain.ErrUsage)
 		}
-		return service.beginAttempt(workspace, options, optionsDigest, "new")
+		return service.beginAttempt(workspace, options, optionsDigest, "new", 0)
 	}
 	if active.OptionsDigest == optionsDigest {
 		if err := validateCorpusBuildActiveBinding(active, options); err != nil {
@@ -200,7 +203,7 @@ func (service *CorpusBuildService) prepareAttempt(ctx context.Context, workspace
 		if !matches {
 			return corpus.BuildActive{}, "", corpus.ErrIntegrity
 		}
-		return service.beginAttempt(workspace, options, optionsDigest, "new")
+		return service.beginAttempt(workspace, options, optionsDigest, "new", 0)
 	}
 	if active.Status == corpus.BuildAttemptFailed && !options.Restart {
 		return corpus.BuildActive{}, "", fmt.Errorf("%w: failed corpus build attempt requires --restart", domain.ErrCheckFailed)
@@ -215,6 +218,16 @@ func (service *CorpusBuildService) prepareAttempt(ctx context.Context, workspace
 		if err := recoverCorpusBuildAttempt(workspace, active); err != nil {
 			return corpus.BuildActive{}, "", err
 		}
+		if _, err := reconcileCorpusBuildAttachmentUsage(workspace, &active, true); err != nil {
+			return corpus.BuildActive{}, "", err
+		}
+		carryAttachmentBytes := int64(0)
+		if active.OptionsDigest == optionsDigest {
+			if err := validateCorpusBuildActiveBinding(active, options); err != nil {
+				return corpus.BuildActive{}, "", err
+			}
+			carryAttachmentBytes = active.AttachmentBodyBytes
+		}
 		active.Status = corpus.BuildAttemptFailed
 		active.RemoteInFlight = false
 		active.RemoteService = ""
@@ -222,10 +235,22 @@ func (service *CorpusBuildService) prepareAttempt(ctx context.Context, workspace
 		if err := saveCorpusBuildActive(workspace, active); err != nil {
 			return corpus.BuildActive{}, "", err
 		}
-		return service.beginAttempt(workspace, options, optionsDigest, "restarted")
+		return service.beginAttempt(workspace, options, optionsDigest, "restarted", carryAttachmentBytes)
 	}
 	if active.OptionsDigest != optionsDigest {
 		return corpus.BuildActive{}, "", corpus.ErrIntegrity
+	}
+	migrated, err := reconcileCorpusBuildAttachmentUsage(workspace, &active, false)
+	if err != nil {
+		return corpus.BuildActive{}, "", err
+	}
+	if err := validateCorpusBuildActiveBinding(active, options); err != nil {
+		return corpus.BuildActive{}, "", err
+	}
+	if migrated {
+		if err := saveCorpusBuildActive(workspace, active); err != nil {
+			return corpus.BuildActive{}, "", err
+		}
 	}
 	return active, "resumed", nil
 }
@@ -233,7 +258,10 @@ func (service *CorpusBuildService) prepareAttempt(ctx context.Context, workspace
 func validateCorpusBuildActiveBinding(active corpus.BuildActive, options CorpusBuildOptions) error {
 	started, deadline, err := corpusBuildTimes(active)
 	if err != nil || deadline.Sub(started) != options.Deadline ||
-		active.MaxAttempts != options.MaxRequests || active.MaxResponseBytes != options.MaxResponseBytes {
+		active.MaxAttempts != options.MaxRequests || active.MaxResponseBytes != options.MaxResponseBytes ||
+		active.AttachmentBodyBytes < 0 ||
+		options.AttachmentBodies && active.AttachmentBodyBytes > options.MaxTotalAttachmentBytes ||
+		!options.AttachmentBodies && active.AttachmentBodyBytes != 0 {
 		return corpus.ErrIntegrity
 	}
 	_, expected, err := corpusBuildServices(options)
@@ -249,7 +277,7 @@ func validateCorpusBuildActiveBinding(active corpus.BuildActive, options CorpusB
 	return nil
 }
 
-func (service *CorpusBuildService) beginAttempt(workspace *corpus.BuildWorkspace, options CorpusBuildOptions, optionsDigest, source string) (corpus.BuildActive, string, error) {
+func (service *CorpusBuildService) beginAttempt(workspace *corpus.BuildWorkspace, options CorpusBuildOptions, optionsDigest, source string, attachmentBodyBytes int64) (corpus.BuildActive, string, error) {
 	services, states, err := corpusBuildServices(options)
 	if err != nil {
 		return corpus.BuildActive{}, "", err
@@ -260,11 +288,11 @@ func (service *CorpusBuildService) beginAttempt(workspace *corpus.BuildWorkspace
 	}
 	started := service.now().UTC()
 	active := corpus.BuildActive{
-		SchemaVersion: corpus.BuildActiveSchemaV1, AttemptID: attemptID, Status: corpus.BuildAttemptActive,
+		SchemaVersion: corpus.BuildActiveSchemaV2, AttemptID: attemptID, Status: corpus.BuildAttemptActive,
 		OptionsDigest: optionsDigest, Services: states,
 		StartedAt: corpus.NewBuildActiveTime(started), Deadline: corpus.NewBuildActiveTime(started.Add(options.Deadline)),
 		MaxAttempts: options.MaxRequests, MaxResponseBytes: options.MaxResponseBytes,
-		Usage: corpus.CaptureUsage{}, RemoteInFlight: false,
+		Usage: corpus.CaptureUsage{}, AttachmentBodyBytes: attachmentBodyBytes, RemoteInFlight: false,
 	}
 	if err := saveCorpusBuildActive(workspace, active); err != nil {
 		return corpus.BuildActive{}, "", err
@@ -350,6 +378,14 @@ func (service *CorpusBuildService) captureService(ctx context.Context, workspace
 			remoteErr = corpus.ErrIntegrity
 		}
 	}
+	attachmentBodyBytes := active.AttachmentBodyBytes
+	if evidence != nil && evidence.budget != nil {
+		attachmentBodyBytes = evidence.budget.usage()
+	}
+	attachmentUsageErr := reconcileCorpusBuildServiceAttachmentUsage(root, active, index, attachmentBodyBytes)
+	if attachmentUsageErr != nil {
+		remoteErr = errors.Join(remoteErr, attachmentUsageErr)
+	}
 	after := budget.Usage()
 	delta := corpus.CaptureUsage{Attempts: after.Attempts - pullStartedUsage.Attempts, ResponseBytes: after.ResponseBytes - pullStartedUsage.ResponseBytes}
 	active.Usage = corpusUsage(after)
@@ -357,8 +393,10 @@ func (service *CorpusBuildService) captureService(ctx context.Context, workspace
 		state.Usage.Attempts += delta.Attempts
 		state.Usage.ResponseBytes += delta.ResponseBytes
 	}
-	active.RemoteInFlight = false
-	active.RemoteService = ""
+	active.RemoteInFlight = attachmentUsageErr != nil
+	if attachmentUsageErr == nil {
+		active.RemoteService = ""
+	}
 	if saveErr := saveCorpusBuildActive(workspace, *active); saveErr != nil {
 		return corpus.CaptureReceipt{}, CorpusBuildFailure(CorpusBuildPhaseWorkspace, errors.Join(remoteErr, saveErr))
 	}

@@ -340,9 +340,19 @@ func validateIndexerBundleV2(
 	}
 	ownerEdges := make(map[string]string)
 	for _, edge := range edges {
-		if edge.Relation == EdgeAttachmentOwner && edge.TargetID != "" {
-			ownerEdges[edge.SourceID] = edge.TargetID
+		if edge.Relation != EdgeAttachmentOwner {
+			continue
 		}
+		attachment, attachmentPresent := documentByID[edge.SourceID]
+		parent, parentPresent := documentByID[edge.TargetID]
+		if edge.TargetID == "" || !attachmentPresent || attachment.Kind != ObjectAttachment ||
+			!parentPresent || parent.Service != attachment.Service || (parent.Kind != ObjectIssue && parent.Kind != ObjectPage) {
+			return "", 0, reject(ReasonMembership)
+		}
+		if _, duplicate := ownerEdges[edge.SourceID]; duplicate {
+			return "", 0, reject(ReasonMembership)
+		}
+		ownerEdges[edge.SourceID] = edge.TargetID
 	}
 	memberByID, capturedBytes, err := validateArtifactMembers(artifactMembers, limits)
 	if err != nil {
@@ -378,6 +388,11 @@ func validateIndexerBundleV2(
 			if _, present := artifactByID[id]; !present {
 				return "", 0, reject(ReasonMembership)
 			}
+		}
+	}
+	for id := range ownerEdges {
+		if _, present := artifactByID[id]; !present {
+			return "", 0, reject(ReasonMembership)
 		}
 	}
 	if len(memberByID) != 0 {

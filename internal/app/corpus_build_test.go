@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +24,7 @@ type corpusBuildJiraTracker struct {
 	comments    domain.JiraCommentInventory
 	attachments domain.JiraAttachmentInventory
 	body        string
+	bodyReads   int
 }
 
 func (tracker *corpusBuildJiraTracker) ListJiraCommentsQualified(ctx context.Context, issueID string, options domain.JiraCommentReadOptions) (domain.JiraCommentInventory, error) {
@@ -69,6 +71,7 @@ func (tracker *corpusBuildJiraTracker) StreamAttachment(ctx context.Context, pat
 			return nil, err
 		}
 	}
+	tracker.bodyReads++
 	return io.NopCloser(strings.NewReader(tracker.body)), nil
 }
 
@@ -416,6 +419,150 @@ func TestCorpusBuildResumesExactAttemptWithoutResettingGuards(t *testing.T) {
 	}
 }
 
+func TestCorpusBuildResumePreservesGenerationAttachmentBodyBudget(t *testing.T) {
+	setup := func(t *testing.T, partial bool) (string, *corpusBuildJiraTracker, *confluenceCorpusEvidenceStore, *CorpusBuildService, CorpusBuildOptions) {
+		t.Helper()
+		root := corpusBuildPrivateRoot(t)
+		jira := newCorpusBuildJiraFixture(false)
+		for _, issue := range jira.getIssues {
+			issue.Fields["updated"] = "2026-01-01"
+		}
+		jira.attachments = domain.JiraAttachmentInventory{Complete: true, Attachments: []domain.Attachment{{
+			ID: "7", Title: "a.bin", MediaType: "application/octet-stream", FileSize: 3,
+			DownPath: "/secure/attachment/7/a.bin",
+		}}}
+		jira.body, jira.getErrorAt = "abc", "9"
+		confluence := newConfluenceCorpusEvidenceStore()
+		service := newCorpusBuildTestService(jira, confluence)
+		options := corpusBuildTestOptions(root)
+		options.Initialize = true
+		options.ConfluenceSpace, options.MaxConfluencePages = "DOC", 1
+		options.JiraProject, options.MaxJiraIssues = "PROJ", 2
+		options.Attachments, options.MaxAttachmentPagesPerItem, options.MaxAttachmentsPerItem = true, 2, 10
+		options.AttachmentBodies = true
+		options.AttachmentMediaTypes = []string{"application/octet-stream"}
+		options.MaxAttachmentBytes, options.MaxTotalAttachmentBytes = 4, 4
+		options.AllowPartialEvidence = partial
+		return root, jira, confluence, service, options
+	}
+
+	for _, partial := range []bool{false, true} {
+		name := "strict"
+		if partial {
+			name = "explicit-partial"
+		}
+		t.Run(name, func(t *testing.T) {
+			root, jira, confluence, service, options := setup(t, partial)
+
+			if result, err := service.Build(t.Context(), options); result != nil || err == nil {
+				t.Fatalf("interrupted result=%#v error=%v", result, err)
+			}
+			active := loadCorpusBuildActiveForTest(t, root, options)
+			if active.SchemaVersion != corpus.BuildActiveSchemaV2 || active.AttachmentBodyBytes != 3 ||
+				active.Services[0].Service != corpus.ServiceConfluence || active.Services[0].AttachmentBodyBytes != 3 ||
+				active.Services[1].AttachmentBodyBytes != 0 || confluence.bodyReads != 1 || jira.bodyReads != 0 {
+				t.Fatalf("interrupted active=%#v body_reads=%d/%d", active, confluence.bodyReads, jira.bodyReads)
+			}
+			if !partial {
+				writeLegacyCorpusBuildActiveForTest(t, root, active)
+			}
+
+			jira.getErrorAt = ""
+			options.Initialize = false
+			result, err := service.Build(t.Context(), options)
+			if partial {
+				if err != nil || result == nil || result.Source != "resumed" || result.Projection.Readiness != corpus.ProjectionPartial ||
+					result.Projection.Counts.ArtifactBytes != 3 {
+					t.Fatalf("partial result=%#v error=%v", result, err)
+				}
+			} else if result != nil || !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("strict result=%#v error=%v", result, err)
+			}
+			active = loadCorpusBuildActiveForTest(t, root, options)
+			if active.SchemaVersion != corpus.BuildActiveSchemaV2 || active.AttachmentBodyBytes != 3 ||
+				active.Services[0].AttachmentBodyBytes != 3 || active.Services[1].AttachmentBodyBytes != 0 ||
+				confluence.bodyReads != 1 || jira.bodyReads != 0 {
+				t.Fatalf("resumed active=%#v body_reads=%d/%d", active, confluence.bodyReads, jira.bodyReads)
+			}
+			if _, err := os.Stat(filepath.Join(root, "active.v1.json")); !os.IsNotExist(err) {
+				t.Fatalf("legacy active path survived migration: %v", err)
+			}
+		})
+	}
+
+	t.Run("repeated-restart", func(t *testing.T) {
+		root, jira, confluence, service, options := setup(t, true)
+		if result, err := service.Build(t.Context(), options); result != nil || err == nil {
+			t.Fatalf("initial result=%#v error=%v", result, err)
+		}
+		options.Initialize, options.Restart = false, true
+		confluence.searchSequence = []domain.PageSearchPage{completeSearchPage("10"), completeSearchPage("10")}
+		if result, err := service.Build(t.Context(), options); result != nil || err == nil {
+			t.Fatalf("first restart result=%#v error=%v", result, err)
+		}
+		active := loadCorpusBuildActiveForTest(t, root, options)
+		if active.AttachmentBodyBytes != 3 || active.Services[0].AttachmentBodyBytes != 0 ||
+			active.Services[1].AttachmentBodyBytes != 0 || confluence.bodyReads != 1 || jira.bodyReads != 0 {
+			t.Fatalf("first restart active=%#v body_reads=%d/%d", active, confluence.bodyReads, jira.bodyReads)
+		}
+
+		jira.getErrorAt = ""
+		confluence.searchSequence = []domain.PageSearchPage{completeSearchPage("10"), completeSearchPage("10")}
+		result, err := service.Build(t.Context(), options)
+		if err != nil || result == nil || result.Source != "restarted" || result.Projection.Readiness != corpus.ProjectionPartial ||
+			result.Projection.Counts.ArtifactBytes != 0 {
+			t.Fatalf("second restart result=%#v error=%v", result, err)
+		}
+		active = loadCorpusBuildActiveForTest(t, root, options)
+		if active.AttachmentBodyBytes != 3 || active.Services[0].AttachmentBodyBytes != 0 ||
+			active.Services[1].AttachmentBodyBytes != 0 || confluence.bodyReads != 1 || jira.bodyReads != 0 {
+			t.Fatalf("second restart active=%#v body_reads=%d/%d", active, confluence.bodyReads, jira.bodyReads)
+		}
+	})
+}
+
+func TestCorpusBuildChargesSuccessfulBodyBeforePublicationFailure(t *testing.T) {
+	root := corpusBuildPrivateRoot(t)
+	confluence := newConfluenceCorpusEvidenceStore()
+	confluence.driftAfterRead = true
+	service := newCorpusBuildTestService(nil, confluence)
+	options := corpusBuildTestOptions(root)
+	options.Initialize = true
+	options.ConfluenceSpace, options.MaxConfluencePages = "DOC", 1
+	options.Attachments, options.MaxAttachmentPagesPerItem, options.MaxAttachmentsPerItem = true, 2, 10
+	options.AttachmentBodies = true
+	options.AttachmentMediaTypes = []string{"application/octet-stream"}
+	options.MaxAttachmentBytes, options.MaxTotalAttachmentBytes = 3, 3
+
+	if result, err := service.Build(t.Context(), options); result != nil || !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("initial result=%#v error=%v", result, err)
+	}
+	active := loadCorpusBuildActiveForTest(t, root, options)
+	if active.AttachmentBodyBytes != 3 || active.Services[0].AttachmentBodyBytes != 3 || confluence.bodyReads != 1 {
+		t.Fatalf("initial active=%#v body_reads=%d", active, confluence.bodyReads)
+	}
+
+	options.Initialize = false
+	confluence.searchSequence = []domain.PageSearchPage{completeSearchPage("10"), completeSearchPage("10")}
+	if result, err := service.Build(t.Context(), options); result != nil || !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("resume result=%#v error=%v", result, err)
+	}
+	active = loadCorpusBuildActiveForTest(t, root, options)
+	if active.AttachmentBodyBytes != 3 || active.Services[0].AttachmentBodyBytes != 3 || confluence.bodyReads != 1 {
+		t.Fatalf("resumed active=%#v body_reads=%d", active, confluence.bodyReads)
+	}
+
+	options.Restart = true
+	confluence.searchSequence = []domain.PageSearchPage{completeSearchPage("10"), completeSearchPage("10")}
+	if result, err := service.Build(t.Context(), options); result != nil || !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("restart result=%#v error=%v", result, err)
+	}
+	active = loadCorpusBuildActiveForTest(t, root, options)
+	if active.AttachmentBodyBytes != 3 || active.Services[0].AttachmentBodyBytes != 0 || confluence.bodyReads != 1 {
+		t.Fatalf("restarted active=%#v body_reads=%d", active, confluence.bodyReads)
+	}
+}
+
 func TestCorpusBuildResumeRejectsPrincipalScopeDrift(t *testing.T) {
 	root := corpusBuildPrivateRoot(t)
 	tracker := newCorpusBuildJiraFixture(false)
@@ -714,7 +861,7 @@ func TestCorpusBuildActiveBindingRejectsGuardAndSelectorDrift(t *testing.T) {
 	}
 	started := time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC)
 	base := corpus.BuildActive{
-		SchemaVersion: corpus.BuildActiveSchemaV1, AttemptID: strings.Repeat("1", 32),
+		SchemaVersion: corpus.BuildActiveSchemaV2, AttemptID: strings.Repeat("1", 32),
 		Status: corpus.BuildAttemptActive, OptionsDigest: strings.Repeat("a", 64), Services: services,
 		StartedAt: corpus.NewBuildActiveTime(started), Deadline: corpus.NewBuildActiveTime(started.Add(options.Deadline)),
 		MaxAttempts: options.MaxRequests, MaxResponseBytes: options.MaxResponseBytes,
@@ -762,7 +909,7 @@ func newCorpusBuildConfluenceFixture(budgeted bool) *corpusBuildConfluenceStore 
 	}
 }
 
-func newCorpusBuildTestService(jira *corpusBuildJiraTracker, confluence *corpusBuildConfluenceStore) *CorpusBuildService {
+func newCorpusBuildTestService(jira *corpusBuildJiraTracker, confluence domain.DocStore) *CorpusBuildService {
 	dependencies := CorpusBuildDependencies{
 		GeneratorVersion: "test-v1", BuildState: corpus.BuildStateClean,
 		Now: time.Now,
@@ -794,4 +941,68 @@ func corpusBuildPrivateRoot(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return root
+}
+
+func loadCorpusBuildActiveForTest(t *testing.T, root string, options CorpusBuildOptions) corpus.BuildActive {
+	t.Helper()
+	workspace, err := corpus.OpenBuildWorkspace(t.Context(), root, corpus.Options{Limits: corpusBuildLimits(options)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = workspace.Close() }()
+	active, found, err := workspace.LoadActive()
+	if err != nil || !found {
+		t.Fatalf("active found=%t error=%v", found, err)
+	}
+	return active
+}
+
+func writeLegacyCorpusBuildActiveForTest(t *testing.T, root string, active corpus.BuildActive) {
+	t.Helper()
+	type legacyService struct {
+		Service        corpus.Service      `json:"service"`
+		SelectorDigest string              `json:"selector_digest"`
+		ScopeDigest    string              `json:"scope_digest,omitempty"`
+		StartedAt      string              `json:"started_at,omitempty"`
+		Usage          corpus.CaptureUsage `json:"usage"`
+		ReceiptDigest  string              `json:"receipt_digest,omitempty"`
+	}
+	type legacyActive struct {
+		SchemaVersion    int                       `json:"schema_version"`
+		AttemptID        string                    `json:"attempt_id"`
+		Status           corpus.BuildAttemptStatus `json:"status"`
+		OptionsDigest    string                    `json:"options_digest"`
+		Services         []legacyService           `json:"services"`
+		StartedAt        string                    `json:"started_at"`
+		Deadline         string                    `json:"deadline"`
+		MaxAttempts      int                       `json:"max_attempts"`
+		MaxResponseBytes int64                     `json:"max_response_bytes"`
+		Usage            corpus.CaptureUsage       `json:"usage"`
+		RemoteInFlight   bool                      `json:"remote_in_flight"`
+		RemoteService    corpus.Service            `json:"remote_service,omitempty"`
+		GenerationDigest string                    `json:"generation_digest,omitempty"`
+	}
+	services := make([]legacyService, len(active.Services))
+	for index, state := range active.Services {
+		services[index] = legacyService{
+			Service: state.Service, SelectorDigest: state.SelectorDigest, ScopeDigest: state.ScopeDigest,
+			StartedAt: state.StartedAt, Usage: state.Usage, ReceiptDigest: state.ReceiptDigest,
+		}
+	}
+	legacy := legacyActive{
+		SchemaVersion: corpus.BuildActiveSchemaV1, AttemptID: active.AttemptID, Status: active.Status,
+		OptionsDigest: active.OptionsDigest, Services: services, StartedAt: active.StartedAt, Deadline: active.Deadline,
+		MaxAttempts: active.MaxAttempts, MaxResponseBytes: active.MaxResponseBytes, Usage: active.Usage,
+		RemoteInFlight: active.RemoteInFlight, RemoteService: active.RemoteService, GenerationDigest: active.GenerationDigest,
+	}
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(root, "active.v2.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "active.v1.json"), append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }

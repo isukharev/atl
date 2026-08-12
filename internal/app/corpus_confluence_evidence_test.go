@@ -23,11 +23,16 @@ type confluenceCorpusEvidenceStore struct {
 	comments       domain.ConfluenceCommentInventory
 	commentErr     error
 	body           string
+	identity       domain.ConfluenceUserIdentity
 	metaVersion    int
 	driftAfterRead bool
 	inventoryReads int
 	bodyReads      int
 	commentReads   int
+}
+
+func (store *confluenceCorpusEvidenceStore) CurrentConfluenceUser(context.Context) (domain.ConfluenceUserIdentity, error) {
+	return store.identity, nil
 }
 
 func (store *confluenceCorpusEvidenceStore) ListConfluenceComments(_ context.Context, id string, options domain.ConfluenceCommentReadOptions) (domain.ConfluenceCommentInventory, error) {
@@ -74,7 +79,7 @@ func newConfluenceCorpusEvidenceStore() *confluenceCorpusEvidenceStore {
 			ID: "7", Title: "a.bin", MediaType: "application/octet-stream", FileSize: 3, Version: 2,
 			Created: "2026-01-01", AuthorKey: "stable",
 		}}},
-		body: "abc", metaVersion: 3,
+		body: "abc", identity: domain.ConfluenceUserIdentity{ID: "fixture-confluence-principal", DisplayName: "Fixture User"}, metaVersion: 3,
 	}
 }
 

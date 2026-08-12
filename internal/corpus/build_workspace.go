@@ -12,11 +12,12 @@ import (
 )
 
 const (
-	buildAttemptsDir = "attempts"
-	buildActiveFile  = "active.v1.json"
-	buildActiveTemp  = ".active.next"
-	buildLockFile    = ".build.lock"
-	buildReceiptsDir = "receipts"
+	buildAttemptsDir  = "attempts"
+	buildActiveFileV1 = "active.v1.json"
+	buildActiveFile   = "active.v2.json"
+	buildActiveTemp   = ".active.next"
+	buildLockFile     = ".build.lock"
+	buildReceiptsDir  = "receipts"
 )
 
 // BuildWorkspace owns the crash-safe attempt namespace beside an ordinary
@@ -319,6 +320,17 @@ func (workspace *BuildWorkspace) SaveActive(active BuildActive) error {
 	if err := workspace.store.hit("after_build_active_rename"); err != nil {
 		return ErrOutcomeUnknown
 	}
+	// Make the current record durable before retiring the legacy recovery
+	// owner. A crash may leave both records, but never a migration gap.
+	if err := syncDirectory(workspace.store.root, "."); err != nil {
+		return ErrOutcomeUnknown
+	}
+	if err := workspace.store.hit("after_build_active_current_sync"); err != nil {
+		return ErrOutcomeUnknown
+	}
+	if err := workspace.store.root.Remove(buildActiveFileV1); err != nil && !os.IsNotExist(err) {
+		return ErrOutcomeUnknown
+	}
 	if err := syncDirectory(workspace.store.root, "."); err != nil {
 		return ErrOutcomeUnknown
 	}
@@ -333,7 +345,32 @@ func (workspace *BuildWorkspace) LoadActive() (BuildActive, bool, error) {
 	if err := workspace.ensureOpen(); err != nil {
 		return BuildActive{}, false, err
 	}
-	data, err := readRegularBytes(workspace.store.root, buildActiveFile, maxCaptureReceiptBytes)
+	active, currentFound, err := workspace.loadActiveFile(buildActiveFile, BuildActiveSchemaV2)
+	if err != nil {
+		return BuildActive{}, false, err
+	}
+	legacy, legacyFound, err := workspace.loadActiveFile(buildActiveFileV1, BuildActiveSchemaV1)
+	if err != nil {
+		return BuildActive{}, false, err
+	}
+	if !currentFound && !legacyFound {
+		return BuildActive{}, false, nil
+	}
+	if currentFound && legacyFound && !sameLegacyBuildActive(legacy, active) {
+		return BuildActive{}, false, reject(ReasonLineage)
+	}
+	if !currentFound {
+		active = legacy
+	}
+	if err := workspace.validateActiveAttempt(active); err != nil {
+		return BuildActive{}, false, err
+	}
+	return active, true, nil
+
+}
+
+func (workspace *BuildWorkspace) loadActiveFile(path string, schema int) (BuildActive, bool, error) {
+	data, err := readRegularBytes(workspace.store.root, path, maxCaptureReceiptBytes)
 	if os.IsNotExist(err) {
 		return BuildActive{}, false, nil
 	}
@@ -344,11 +381,16 @@ func (workspace *BuildWorkspace) LoadActive() (BuildActive, bool, error) {
 	if err != nil {
 		return BuildActive{}, false, err
 	}
-	if err := workspace.validateActiveAttempt(active); err != nil {
-		return BuildActive{}, false, err
+	if active.SchemaVersion != schema {
+		return BuildActive{}, false, reject(ReasonSchema)
 	}
 	return active, true, nil
+}
 
+func sameLegacyBuildActive(legacy, current BuildActive) bool {
+	legacyBytes, legacyErr := marshalCanonical(buildActiveV1Projection(legacy))
+	currentBytes, currentErr := marshalCanonical(buildActiveV1Projection(current))
+	return legacyErr == nil && currentErr == nil && bytes.Equal(legacyBytes, currentBytes)
 }
 
 // SaveCaptureReceipt persists one canonical receipt exclusively. Repeating the
