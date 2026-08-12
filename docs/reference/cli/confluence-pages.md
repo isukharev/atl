@@ -22,6 +22,7 @@ Read and mutate page lifecycle, metadata, labels, hierarchy, blogs, attachments,
 - [`atl conf page list`](#atl-conf-page-list)
 - [`atl conf page open`](#atl-conf-page-open)
 - [`atl conf page copy`](#atl-conf-page-copy)
+- [`atl conf attachment search`](#atl-conf-attachment-search)
 - [`atl conf attachment {list,get,upload,delete}`](#atl-conf-attachment-listgetuploaddelete)
 - [`atl conf me`](#atl-conf-me)
 <!-- reference-navigation:end -->
@@ -553,6 +554,55 @@ The entire copy leaf is mutating-classified, so `ATL_READ_ONLY=1` blocks its
 GET-only preview as well as apply. Remove the policy only within an explicitly
 reviewed copy workflow; do not weaken it globally.
 
+## `atl conf attachment search`
+
+Search typed attachment metadata across Confluence Server/Data Center without
+first knowing a page. Every execution bound is mandatory:
+
+```bash
+atl conf attachment search --space DOCS \
+  --max-items 100 --max-requests 5 \
+  --max-response-bytes 8388608 --deadline 20s
+
+atl conf attachment search --cql 'creator = currentUser()' \
+  --max-items 100 --max-requests 5 \
+  --max-response-bytes 8388608 --deadline 20s
+```
+
+Flags:
+
+| flag | description |
+|---|---|
+| `--space` | optional exact space-key scope |
+| `--cql` | optional additional CQL predicate; `ORDER BY` is refused |
+| `--cursor` | opaque backend/query/space-bound live offset returned by a partial result |
+| `--max-items` | required returned-item bound (`1..10000`) |
+| `--max-requests` | required physical HTTP-attempt bound (`1..100`) |
+| `--max-response-bytes` | required aggregate buffered-response bound (`1..268435456`) |
+| `--deadline` | required wall-clock bound (positive, at most `10m`) |
+
+The schema-v1 result carries `qualification`, `complete`, optional closed
+`reason`, `consistency:"live_unproven"`, a content-free `scope_sha256`,
+`start_offset`, optional `next_cursor`, `count`, optional qualified
+`total_size`, exact selected/consumed `bounds`, and an `attachments` array.
+Each row contains only attachment id/title/type/version, parent container
+id/type/version, space key, media type, and file size. It contains no body,
+comment, URL, download path, or binary bytes. `-o id` emits attachment ids;
+`-o text` begins with the same qualification and continuation evidence.
+
+`complete` means this one bounded live traversal reached terminal,
+coordinate-consistent search evidence. It is not a snapshot claim. A partial
+result has one of `item_limit`, `request_limit`, `response_byte_limit`,
+`deadline`, `pagination_stalled`, or `pagination_unqualified` and an opaque
+continuation for the next checked offset. The cursor is bound to the configured
+backend plus exact space/CQL scope, but pagination may drift between calls.
+`failed` uses only `read_failed` or `validation_failed`, never advertises a
+continuation, is emitted before the mapped non-zero CLI error, and is not safe
+to resume as a prefix. Server-provided next links and attachment URLs are never
+followed. The adapter uses the Server/Data Center
+[CQL content-search resource](https://developer.atlassian.com/server/confluence/rest/v10214/api-group-search/)
+with `type=attachment`; this endpoint is not for Confluence Cloud.
+
 ## `atl conf attachment {list,get,upload,delete}`
 
 Manage page attachments. Permanent `delete` is preview-first, binds one exact
@@ -585,32 +635,30 @@ observed. A positive value refuses the read with exit `8` when the page has
 moved, before any attachment request is made, and reports only the expected and
 current version integers; `0` (the default) disables the gate.
 
-Attachment `get --version N` downloads that attachment revision; `0` (the
-default) selects the latest revision. This is an attachment-version selector,
-not the page-version gate used by `attachment list` and guarded deletion. JSON
-emits `{schema_version:1,page_id,name,output_name,requested_attachment_version,selector,
-attachment_id_bound,identity_revalidated,page_version_gated,path}`. The
-selector is `page_filename_attachment_version` only for a positive version;
-the default floating-latest request uses `page_filename_latest`. `name`
-preserves the exact caller selector while `output_name` is its safe contained
-basename. All three guarantee booleans are `false`. The route binds a resolved
-page id and filename, plus a requested attachment version only when positive,
-but it does not bind a content id, immediately
-revalidate the inventory, or gate the page version. Text output remains the
-written path.
+Attachment `get --version N` immediately revalidates one unambiguous exact
+filename match through the Server/Data Center
+[page attachment collection](https://developer.atlassian.com/server/confluence/rest/v10214/api-group-attachments/)
+under the resolved page id. A positive `N` additionally
+revalidates that attachment version. With `0` (the default), ATL observes the
+current positive attachment version and uses that positive value in the actual
+download request; the byte GET is never left floating latest. The metadata
+phase, reference resolution, and one binary attempt share a five-attempt
+single-attempt request budget; metadata responses are capped at 2 MiB aggregate
+and the metadata phase at 15 seconds. An absent/ambiguous filename, incomplete
+metadata page, version mismatch, or exhausted bound fails before the binary GET
+and before creating the output directory.
 
-Global attachment discovery is intentionally not exposed. In the official
-[Confluence Data Center 10.2.14 Swagger](https://developer.atlassian.com/server/confluence/10.2.14.swagger.v3.json),
-the typed attachment collection is scoped to
-[`/content/{id}/child/attachment`](https://developer.atlassian.com/server/confluence/rest/v10214/api-group-attachments/),
-while the [CQL search resource](https://developer.atlassian.com/server/confluence/rest/v10214/api-group-search/)
-uses live `start`/`limit` continuation and a generic search entity without a
-stable snapshot token. The same specification exposes no attachment-content-id
-binary GET. That is insufficient to promise bounded global typed parent and
-attachment identity plus an ID-bound download, so ATL ships neither a global
-attachment CLI leaf nor a global MCP projection. Use the known-page qualified
-inventory above; its MCP projection remains metadata-only and omits download
-paths, comments, and binary bytes.
+JSON emits `{schema_version:1,page_id,name,output_name,
+requested_attachment_version,observed_attachment_id,
+observed_attachment_version,selector,attachment_id_bound,
+identity_revalidated,page_version_gated,path}`. `name` preserves the exact
+caller selector and `output_name` is its safe contained basename.
+`identity_revalidated:true` means only the tuple `resolved page id + exact
+caller filename + positive observed attachment version` was checked immediately
+before the version-addressed GET. The binary route still addresses
+page+filename+version, so `attachment_id_bound:false`; no page version was
+caller-gated, so `page_version_gated:false`. Metadata and bytes are not one
+transaction or snapshot. Text output remains the written path.
 
 Uploads stream the selected file without buffering it and send the exact multipart
 `Content-Length`, preserving compatibility with intermediaries that reject chunked uploads.

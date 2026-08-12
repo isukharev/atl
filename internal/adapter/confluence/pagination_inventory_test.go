@@ -16,16 +16,18 @@ import (
 
 func TestConfluencePaginationOwnerInventoryIsClosed(t *testing.T) {
 	want := map[string][]string{
-		"comments_qualified.go:ListConfluenceComments":    {"advance", "requestStart", "startAt", "startAt"},
-		"confluence.go:HistoryQualified":                  {"advance", "requestStart", "startAt"},
-		"corpus_metadata.go:ReadConfluenceCorpusMetadata": {"advance", "advance", "requestStart", "startAt", "startAt"},
-		"corpus_metadata.go:qualifiedCorpusMetadataPage":  {"checkedEnd"},
-		"extras.go:listAttachmentsQualified":              {"advance", "requestStart", "startAt"},
-		"extras.go:ListComments":                          {"advance", "requestStart", "startAt"},
-		"labels.go:ListContentLabels":                     {"advance", "requestStart", "startAt"},
-		"pagination.go:advance":                           {"checkedEnd"},
-		"search.go:SearchComplete":                        {"advance", "checkedEnd", "requestStart", "startAt"},
-		"search.go:TreeQualified":                         {"advance", "requestStart", "startAt", "startAt"},
+		"attachment_discovery.go:DiscoverAttachmentsQualified":             {"advance", "checkedEnd", "requestStart", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt"},
+		"attachment_download_revalidation.go:RevalidateAttachmentDownload": {"requestStart"},
+		"comments_qualified.go:ListConfluenceComments":                     {"advance", "requestStart", "startAt", "startAt"},
+		"confluence.go:HistoryQualified":                                   {"advance", "requestStart", "startAt"},
+		"corpus_metadata.go:ReadConfluenceCorpusMetadata":                  {"advance", "advance", "requestStart", "startAt", "startAt"},
+		"corpus_metadata.go:qualifiedCorpusMetadataPage":                   {"checkedEnd"},
+		"extras.go:listAttachmentsQualified":                               {"advance", "requestStart", "startAt"},
+		"extras.go:ListComments":                                           {"advance", "requestStart", "startAt"},
+		"labels.go:ListContentLabels":                                      {"advance", "requestStart", "startAt"},
+		"pagination.go:advance":                                            {"checkedEnd"},
+		"search.go:SearchComplete":                                         {"advance", "checkedEnd", "requestStart", "startAt"},
+		"search.go:TreeQualified":                                          {"advance", "checkedEnd", "requestStart", "startAt", "startAt"},
 	}
 	tracked := map[string]bool{"advance": true, "checkedEnd": true, "startAt": true}
 	got := map[string][]string{}
@@ -77,6 +79,8 @@ func TestConfluencePaginationOwnerInventoryIsClosed(t *testing.T) {
 }
 
 const confluenceProductionLoopKeys = `
+attachment_discovery.go:DiscoverAttachmentsQualified:for:1
+attachment_discovery.go:DiscoverAttachmentsQualified:range:1
 authorization.go:authorizeHierarchy:range:1
 authorization.go:authorizeMoveHierarchy:range:1
 authorization.go:containsID:range:1
@@ -165,13 +169,14 @@ server_metadata.go:legacyConfluenceIdentity:range:3
 
 func TestConfluenceProductionLoopInventoryIsClosed(t *testing.T) {
 	pagination := map[string]bool{
-		"comments_qualified.go:ListConfluenceComments:for:1":    true,
-		"confluence.go:HistoryQualified:for:1":                  true,
-		"corpus_metadata.go:ReadConfluenceCorpusMetadata:for:1": true,
-		"extras.go:listAttachmentsQualified:for:1":              true,
-		"extras.go:ListComments:for:1":                          true,
-		"labels.go:ListContentLabels:for:1":                     true,
-		"search.go:TreeQualified:for:1":                         true,
+		"attachment_discovery.go:DiscoverAttachmentsQualified:for:1": true,
+		"comments_qualified.go:ListConfluenceComments:for:1":         true,
+		"confluence.go:HistoryQualified:for:1":                       true,
+		"corpus_metadata.go:ReadConfluenceCorpusMetadata:for:1":      true,
+		"extras.go:listAttachmentsQualified:for:1":                   true,
+		"extras.go:ListComments:for:1":                               true,
+		"labels.go:ListContentLabels:for:1":                          true,
+		"search.go:TreeQualified:for:1":                              true,
 	}
 	want := classifiedConfluenceLoops(strings.Fields(confluenceProductionLoopKeys), pagination)
 	got := map[string]string{}

@@ -40,19 +40,22 @@ func completePullJournalSchemaFor(service CompletePullService) int {
 	if service == CompletePullServiceJira {
 		return completePullJiraJournalSchema4
 	}
-	return completePullJournalSchema
+	return completePullConfluenceJournalSchema
 }
 
 func completePullPublicationSchemaFor(service CompletePullService) int {
 	if service == CompletePullServiceJira {
 		return completePullJiraPublicationSchema4
 	}
-	return completePullPublicationSchema
+	return completePullConfluencePublicationSchema
 }
 
 func completePullJournalSchemaForEntry(service CompletePullService, entry CompletePullJournalEntry) int {
 	if service == CompletePullServiceJira && entry.State.Identity == "" && entry.Previous == nil {
 		return completePullJiraJournalSchema
+	}
+	if service == CompletePullServiceConfluence && entry.Includes == nil {
+		return completePullJournalSchema
 	}
 	return completePullJournalSchemaFor(service)
 }
@@ -61,6 +64,9 @@ func completePullPublicationSchemaForEntry(service CompletePullService, entry Co
 	if service == CompletePullServiceJira && entry.State.Identity == "" && entry.Previous == nil {
 		return completePullJiraPublicationSchema
 	}
+	if service == CompletePullServiceConfluence && entry.Includes == nil {
+		return completePullPublicationSchema
+	}
 	return completePullPublicationSchemaFor(service)
 }
 
@@ -68,14 +74,29 @@ func validCompletePullJournalSchema(service CompletePullService, schema int) boo
 	if service == CompletePullServiceJira {
 		return schema == completePullJiraJournalSchema || schema == completePullJiraJournalSchema4
 	}
-	return service == CompletePullServiceConfluence && schema == completePullJournalSchema
+	return service == CompletePullServiceConfluence && (schema == completePullJournalSchema || schema == completePullConfluenceJournalSchema)
 }
 
 func validCompletePullPublicationSchema(service CompletePullService, schema int) bool {
 	if service == CompletePullServiceJira {
 		return schema == completePullJiraPublicationSchema || schema == completePullJiraPublicationSchema4
 	}
-	return service == CompletePullServiceConfluence && schema == completePullPublicationSchema
+	return service == CompletePullServiceConfluence && (schema == completePullPublicationSchema || schema == completePullConfluencePublicationSchema)
+}
+
+func validateCompletePullConfluenceEntrySchema(schema int, entry CompletePullJournalEntry) error {
+	switch schema {
+	case completePullJournalSchema:
+		if entry.Includes != nil {
+			return fmt.Errorf("%w: legacy Confluence complete-pull schema contains future include evidence", domain.ErrCheckFailed)
+		}
+	case completePullConfluenceJournalSchema:
+		if entry.Includes == nil {
+			return fmt.Errorf("%w: current Confluence complete-pull schema omits include evidence", domain.ErrCheckFailed)
+		}
+		return validateCompletePullIncludeEvidence(*entry.Includes)
+	}
+	return nil
 }
 
 func validateCompletePullJiraEntrySchema(schema int, entry CompletePullJournalEntry) error {
@@ -98,15 +119,17 @@ func completePullProgressSchemaFor(service CompletePullService) int {
 	if service == CompletePullServiceJira {
 		return completePullJiraProgressSchema
 	}
-	return completePullProgressSchema
+	return completePullConfluenceProgressSchema
 }
 
 func validCompletePullProgressService(checkpoint, progress CompletePullService) bool {
-	return checkpoint == CompletePullServiceConfluence && progress == "" || checkpoint == CompletePullServiceJira && progress == CompletePullServiceJira
+	return checkpoint == CompletePullServiceConfluence && progress == CompletePullServiceConfluence ||
+		checkpoint == CompletePullServiceJira && progress == CompletePullServiceJira
 }
 
 func staleCompletePullProgressService(checkpoint CompletePullService, progress completePullProgress) bool {
 	return checkpoint == CompletePullServiceJira && progress.SchemaVersion == completePullProgressSchema && progress.Service == "" ||
+		checkpoint == CompletePullServiceJira && progress.SchemaVersion == completePullConfluenceProgressSchema && progress.Service == CompletePullServiceConfluence ||
 		checkpoint == CompletePullServiceConfluence && progress.SchemaVersion == completePullJiraProgressSchema && progress.Service == CompletePullServiceJira
 }
 
@@ -135,7 +158,7 @@ func validateCompletePullJournalEntry(service CompletePullService, entry Complet
 			return fmt.Errorf("%w: complete-pull Confluence journal state is invalid", domain.ErrCheckFailed)
 		}
 	case CompletePullServiceJira:
-		if !positiveDecimalIdentity(entry.Identity) || state.Version != 0 || safepath.Segment(state.ID) != state.ID || filepath.Base(filepath.FromSlash(state.Path)) != state.ID+".wiki" || (state.Identity != "" && state.Identity != entry.Identity) {
+		if entry.Includes != nil || !positiveDecimalIdentity(entry.Identity) || state.Version != 0 || safepath.Segment(state.ID) != state.ID || filepath.Base(filepath.FromSlash(state.Path)) != state.ID+".wiki" || (state.Identity != "" && state.Identity != entry.Identity) {
 			return fmt.Errorf("%w: complete-pull Jira journal identity, key, version, or native path is invalid", domain.ErrCheckFailed)
 		}
 		if entry.Previous != nil {
@@ -269,6 +292,8 @@ func validateCompletePullPublication(intent completePullPublicationIntent, check
 		if err := validateCompletePullJiraEntrySchema(intent.SchemaVersion, intent.Entry); err != nil {
 			return err
 		}
+	} else if err := validateCompletePullConfluenceEntrySchema(intent.SchemaVersion, intent.Entry); err != nil {
+		return err
 	}
 	if intent.Index < checkpoint.NextIndex || intent.Index >= len(checkpoint.IDs) {
 		return fmt.Errorf("%w: complete-pull publication index is outside the pending selection", domain.ErrCheckFailed)

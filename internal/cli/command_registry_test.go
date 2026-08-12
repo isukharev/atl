@@ -22,6 +22,7 @@ completion zsh
 conf apply
 conf attachment get
 conf attachment list
+conf attachment search
 conf blog create
 conf comment add
 conf comment list
@@ -164,6 +165,7 @@ version
 var reviewedIDOutputCommandPaths = reviewedOutputPathSet(`
 capabilities
 conf attachment list
+conf attachment search
 conf blog create
 conf page copy
 conf page list
@@ -280,8 +282,8 @@ func TestCommandRegistryPreservesReviewedOutputModes(t *testing.T) {
 	}
 	walk(root)
 
-	if leafCount != 173 || textCount != 148 || idCount != 34 {
-		t.Fatalf("leaves/text/id=%d/%d/%d want=173/148/34", leafCount, textCount, idCount)
+	if leafCount != 174 || textCount != 149 || idCount != 35 {
+		t.Fatalf("leaves/text/id=%d/%d/%d want=174/149/35", leafCount, textCount, idCount)
 	}
 	for path := range reviewedTextOutputCommandPaths {
 		if !seen[path] {

@@ -193,6 +193,26 @@ func ValidateAttachmentReadOptions(options AttachmentReadOptions) error {
 	return nil
 }
 
+// ConfluenceAttachmentDownloadEvidence is the metadata-only result of an
+// immediate pre-download selector check. It binds one exact attachment title
+// and positive version to its containing content id; it does not make the
+// subsequent filename-based binary route attachment-id exact or transactional.
+type ConfluenceAttachmentDownloadEvidence struct {
+	AttachmentID string
+	PageID       string
+	Filename     string
+	Version      int
+}
+
+// QualifiedConfluenceAttachmentDownloadRevalidator is the narrow Server/Data
+// Center capability used before a known-page filename download. Implementations
+// must reject absent or ambiguous filename matches and validate a requested
+// historical version when version is positive. The caller supplies a finite
+// ReadBudget, deadline, and single-attempt policy through ctx.
+type QualifiedConfluenceAttachmentDownloadRevalidator interface {
+	RevalidateAttachmentDownload(ctx context.Context, pageID, filename string, version int) (ConfluenceAttachmentDownloadEvidence, error)
+}
+
 // ConfluenceTimeSemanticsReader is the narrow, optional metadata capability
 // used by environment diagnostics. It must perform only the current-user GET;
 // a user timezone is an observed preference, not proof of CQL parser semantics.

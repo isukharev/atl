@@ -254,8 +254,17 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 	}
 	// Effective settings for this root keep default/minimal views byte-identical;
 	// only `full` (or an explicit include) adds metadata/comments.
-	res := newConfluencePullResult(root, warns, o, len(ids))
+	expectedIncludes := len(ids)
+	if complete != nil {
+		expectedIncludes = len(complete.checkpoint.IDs)
+	}
+	res := newConfluencePullResult(root, warns, o, expectedIncludes)
 	defer res.finalizeConfluencePullIncludes()
+	if complete != nil && !o.DryRun {
+		if err := res.restoreConfluencePullIncludes(complete.checkpoint); err != nil {
+			return res, err
+		}
+	}
 	if scheduled {
 		maxInFlight := s.requestMaxInFlight
 		if maxInFlight == 0 {
@@ -304,9 +313,6 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 	if err != nil {
 		return nil, err
 	}
-	if complete == nil {
-		defer func() { _ = batch.Flush() }()
-	}
 	completeFinished := false
 	completeRetireStarted := false
 	if complete != nil {
@@ -335,13 +341,20 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 		service: s, ctx: ctx, opts: o, settings: rs, result: res, mirror: m, batch: batch,
 		complete: complete, incremental: incremental, qualification: qualification,
 	}
+	if complete == nil {
+		defer func() {
+			if err := run.flushOrdinaryPull(); err != nil {
+				retErr = errors.Join(retErr, err)
+			}
+		}()
+	}
 	for _, id := range qualification.processIDs {
 		if err := run.processPage(id, prefetch); err != nil {
 			return res, err
 		}
 	}
 	if complete == nil {
-		if err := batch.Flush(); err != nil {
+		if err := run.flushOrdinaryPull(); err != nil {
 			return res, err
 		}
 	}
@@ -585,7 +598,10 @@ func (s *ConfluenceService) prepareCompletePullDryRun(ctx context.Context, m *mi
 	if err != nil {
 		return nil, err
 	}
-	checkpoint = mirror.CompletePullCheckpoint{Service: confluenceCompletePullService, SelectorSHA256: selectorSHA256, OptionsSHA256: optionsSHA256, SelectionSHA256: selectionSHA256, IDs: second}
+	checkpoint = mirror.CompletePullCheckpoint{
+		Service: confluenceCompletePullService, SelectorSHA256: selectorSHA256, OptionsSHA256: optionsSHA256,
+		SelectionSHA256: selectionSHA256, IDs: second, Includes: mirror.CompletePullIncludeProgress{EvidenceComplete: true},
+	}
 	source := "new"
 	if found {
 		source = "restarted"

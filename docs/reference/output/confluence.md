@@ -9,6 +9,7 @@ Qualified Confluence reads, mirrors, comments, tables, page operations, and guar
 
 - [Qualified Confluence search page](#qualified-confluence-search-page)
 - [Qualified Confluence space tree](#qualified-confluence-space-tree)
+- [Bounded Confluence attachment discovery](#bounded-confluence-attachment-discovery)
 - [Advisory Cloud-compatibility validation](#advisory-cloud-compatibility-validation)
 - [Confluence mirrors and page operations](#confluence-mirrors-and-page-operations)
 - [Mirror status, diff, reconciliation, and plans](#mirror-status-diff-reconciliation-and-plans)
@@ -41,13 +42,48 @@ observed `scanned_items`, `requests_used`, and `response_bytes_used`.
 
 `truncated:true` remains the compatibility alias for `complete:false` and is
 omitted on complete results. `complete:true` requires terminal offset-pagination evidence before any bound
-or pagination anomaly intervenes. It does not claim a snapshot:
+or pagination anomaly intervenes. Every page must contain non-null
+`results`, `start`, `limit`, `size`, total, and links fields with consistent
+coordinates; the total must remain stable and the terminal remainder must be
+exact. Equality with an item or scanned-row cap does not make an otherwise
+terminal page partial. It does not claim a snapshot:
 `consistency` is always `live_unproven`. A false value carries exactly one
 static `partial_reason`: `item_limit`, `scan_limit`, `request_limit`,
 `response_byte_limit`, `deadline`, `pagination_stalled`,
 `pagination_unqualified`, or `legacy_unqualified`. Physical attempts and
 buffered response bytes are charged below the application loop through the
 command-scoped read budget. A partial page prefix never proves absence.
+
+## Bounded Confluence attachment discovery
+
+`atl conf attachment search` emits
+`{schema_version:1,qualification,complete,reason?,consistency,scope_sha256,
+start_offset,next_cursor?,count,total_size?,bounds,attachments}`. The
+`attachments` member is always an array and each row is the metadata-only shape
+`{id,title,type,version,container_id,container_type,container_version,space,
+media_type,file_size}`. No URL, download path, comment, body, or binary data is
+projected.
+
+`qualification` is `complete`, `partial`, or `failed`.
+`complete:true` requires strict stable-total terminal search coordinates but
+still reports `consistency:"live_unproven"`: Confluence supplies an offset, not
+a snapshot token. Partial results use a closed reason (`item_limit`,
+`request_limit`, `response_byte_limit`, `deadline`, `pagination_stalled`, or
+`pagination_unqualified`) and a query/backend/space-bound opaque next cursor.
+That cursor is a checked live offset, not stable snapshot identity. Failed
+results use `read_failed` or `validation_failed`, omit `next_cursor`, and are
+emitted before the CLI returns its mapped non-zero error. The MCP projection
+uses this same validated DTO and marks such a structured result as a tool error;
+it never turns a backend failure into success.
+
+Every invocation requires explicit `max_items`, `max_requests`,
+`max_response_bytes`, and deadline bounds. `bounds` reports those selections
+and physical `requests_used`/buffered `response_bytes_used`. Request admission
+is enforced below orchestration, generic retries and redirects are disabled,
+and server-provided continuation/attachment URLs are never fetched. The wire
+shape is qualified against the official Server/Data Center
+[REST specification](https://developer.atlassian.com/server/confluence/10.2.14.swagger.v3.json);
+`-o id` contains only attachment ids.
 
 ## Advisory Cloud-compatibility validation
 
@@ -288,22 +324,33 @@ atomic contained write:
   "name": "diagram.png",
   "output_name": "diagram.png",
   "requested_attachment_version": 2,
+  "observed_attachment_id": "67890",
+  "observed_attachment_version": 2,
   "selector": "page_filename_attachment_version",
   "attachment_id_bound": false,
-  "identity_revalidated": false,
+  "identity_revalidated": true,
   "page_version_gated": false,
   "path": "assets/diagram.png"
 }
 ```
 
 `name` preserves the exact caller selector; `output_name` is the safe contained
-basename written beneath `--into`. A positive requested version uses selector
-`page_filename_attachment_version` and binds that tuple. `0` is floating latest
-and instead reports `page_filename_latest`; it does not claim a version was
-observed. This route does not
-download by attachment content id, repeat the attachment inventory immediately
-before the byte read, or gate a page version, so those three booleans remain
-false. Text output remains the written path.
+basename written beneath `--into`. A positive request uses
+`page_filename_attachment_version`. For requested version `0`, the selector is
+`page_filename_latest`, but metadata revalidation must observe one unambiguous
+current positive version and the binary GET uses that positive value; requested
+and observed versions remain separate fields.
+
+The metadata/reference phase is bounded at five single-attempt physical
+requests, 2 MiB of aggregate metadata response bytes, and 15 seconds. An
+absent/duplicate exact filename, incomplete inventory, mismatched historical
+version, or exhausted bound performs no binary GET and no output write.
+`identity_revalidated:true` claims only the immediately checked selector tuple
+`resolved page id + exact caller filename + positive attachment version`.
+The binary route itself remains page+filename+version, not attachment-id bound,
+and no page version gate, transaction, or snapshot exists; therefore
+`attachment_id_bound:false` and `page_version_gated:false`. Text output remains
+the written path.
 
 `atl conf attachment delete --page-id <PAGE-ID> --id <ATTACHMENT-ID>` emits the
 guarded schema-v1 proposal:
@@ -577,6 +624,15 @@ qualified result is emitted before the original mapped non-zero error. Text
 output carries the same fields on stable `include:` lines. A clean actual result
 continues to omit `local_safety`; this array does not manufacture a safety
 refusal.
+
+Evidence becomes `qualified` or `partial` only after the page and every staged
+artifact for that dimension are durably published. A comment-sidecar, asset,
+page, or shared batch publication failure demotes the dimensions staged for the
+affected page to `failed/staging_failed` before the non-zero result is emitted.
+Complete-pull progress and journals persist a versioned content-free aggregate
+for the durable prefix. Current state restores it across resume; legacy state
+with an accepted prefix but no include evidence is explicitly
+`partial/not_attempted`, never fabricated as complete.
 
 Both pull families add `local_safety` only for `--dry-run`, an explicit native
 recovery, or a refusal. Its stable shape is:

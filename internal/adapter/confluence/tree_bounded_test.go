@@ -21,7 +21,7 @@ func TestTreeQualifiedPhysicalRequestBudgetStopsBelowOrchestration(t *testing.T)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"results":[{"id":"1","title":"Page","space":{"key":"DOC"},"version":{"number":1}}],"start":0,"size":1,"_links":{"next":"ignored"}}`))
+		_, _ = w.Write([]byte(`{"results":[{"id":"1","title":"Page","space":{"key":"DOC"},"version":{"number":1}}],"start":0,"limit":200,"size":1,"totalSize":2,"_links":{"next":"ignored"}}`))
 	}))
 	t.Cleanup(srv.Close)
 	budget, err := domain.NewReadBudget(1, 1<<20)
@@ -75,23 +75,59 @@ func TestTreeQualifiedItemLimitAndPaginationCoordinatesAreClosed(t *testing.T) {
 	}{
 		{
 			name:  "item limit",
-			body:  `{"results":[{"id":"1"},{"id":"2"},{"id":"3"}],"start":0,"size":3,"_links":{}}`,
+			body:  `{"results":[{"id":"1"},{"id":"2"},{"id":"3"}],"start":0,"limit":200,"size":3,"totalSize":3,"_links":{}}`,
 			items: 2, reason: domain.ConfluenceTreePartialItemLimit,
 		},
 		{
 			name:  "noncontiguous start",
-			body:  `{"results":[{"id":"1"}],"start":7,"size":1,"_links":{}}`,
+			body:  `{"results":[{"id":"1"}],"start":7,"limit":200,"size":1,"totalSize":8,"_links":{}}`,
 			items: 0, reason: domain.ConfluenceTreePartialPaginationUnqualified,
 		},
 		{
 			name:  "contradictory size",
-			body:  `{"results":[{"id":"1"}],"start":0,"size":2,"_links":{}}`,
+			body:  `{"results":[{"id":"1"}],"start":0,"limit":200,"size":2,"totalSize":1,"_links":{}}`,
 			items: 0, reason: domain.ConfluenceTreePartialPaginationUnqualified,
 		},
 		{
 			name:  "missing result collection",
-			body:  `{"start":0,"size":0,"_links":{}}`,
+			body:  `{"start":0,"limit":200,"size":0,"totalSize":0,"_links":{}}`,
 			items: 0, reason: domain.ConfluenceTreePartialPaginationUnqualified,
+		},
+		{
+			name: "missing coordinates", body: `{"results":[],"_links":{}}`,
+			reason: domain.ConfluenceTreePartialPaginationUnqualified,
+		},
+		{
+			name: "null coordinates", body: `{"results":[],"start":null,"limit":null,"size":null,"totalSize":null,"_links":null}`,
+			reason: domain.ConfluenceTreePartialPaginationUnqualified,
+		},
+		{
+			name: "negative start", body: `{"results":[],"start":-1,"limit":200,"size":0,"totalSize":0,"_links":{}}`,
+			reason: domain.ConfluenceTreePartialPaginationUnqualified,
+		},
+		{
+			name: "negative size", body: `{"results":[],"start":0,"limit":200,"size":-1,"totalSize":0,"_links":{}}`,
+			reason: domain.ConfluenceTreePartialPaginationUnqualified,
+		},
+		{
+			name: "negative total", body: `{"results":[],"start":0,"limit":200,"size":0,"totalSize":-1,"_links":{}}`,
+			reason: domain.ConfluenceTreePartialPaginationUnqualified,
+		},
+		{
+			name: "zero limit", body: `{"results":[],"start":0,"limit":0,"size":0,"totalSize":0,"_links":{}}`,
+			reason: domain.ConfluenceTreePartialPaginationUnqualified,
+		},
+		{
+			name: "size exceeds limit", body: `{"results":[{"id":"1"},{"id":"2"}],"start":0,"limit":1,"size":2,"totalSize":2,"_links":{}}`,
+			reason: domain.ConfluenceTreePartialPaginationUnqualified,
+		},
+		{
+			name: "terminal remainder", body: `{"results":[{"id":"1"}],"start":0,"limit":200,"size":1,"totalSize":2,"_links":{}}`,
+			reason: domain.ConfluenceTreePartialPaginationUnqualified,
+		},
+		{
+			name: "next beyond total", body: `{"results":[{"id":"1"}],"start":0,"limit":200,"size":1,"totalSize":1,"_links":{"next":"ignored"}}`,
+			reason: domain.ConfluenceTreePartialPaginationUnqualified,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -113,6 +149,26 @@ func TestTreeQualifiedItemLimitAndPaginationCoordinatesAreClosed(t *testing.T) {
 	}
 }
 
+func TestTreeQualifiedRejectsChangingTotalBeforeConsumingConflictingPage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("start") == "0" {
+			_, _ = w.Write([]byte(`{"results":[{"id":"1"}],"start":0,"limit":1,"size":1,"totalSize":2,"_links":{"next":"ignored"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"results":[{"id":"2"}],"start":1,"limit":1,"size":1,"totalSize":3,"_links":{"next":"ignored"}}`))
+	}))
+	t.Cleanup(srv.Close)
+	result, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).TreeQualified(t.Context(), boundedTreeRequest())
+	if err != nil {
+		t.Fatalf("TreeQualified: %v", err)
+	}
+	if result.Complete || result.PartialReason != domain.ConfluenceTreePartialPaginationUnqualified ||
+		len(result.Pages) != 1 || result.Pages[0].ID != "1" || result.ScannedItems != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
 func TestTreeQualifiedTerminalStalledAndScanLimitAreDistinct(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -125,23 +181,23 @@ func TestTreeQualifiedTerminalStalledAndScanLimitAreDistinct(t *testing.T) {
 		reason      string
 	}{
 		{
-			name: "terminal", body: `{"results":[{"id":"1"}],"start":0,"size":1,"_links":{}}`,
+			name: "terminal", body: `{"results":[{"id":"1"}],"start":0,"limit":200,"size":1,"totalSize":1,"_links":{}}`,
 			maxItems: 10, maxScanned: 20, wantPages: 1, wantScanned: 1, complete: true,
 		},
 		{
-			name: "terminal at exact item limit", body: `{"results":[{"id":"1"},{"id":"2"}],"start":0,"size":2,"_links":{}}`,
+			name: "terminal at exact item limit", body: `{"results":[{"id":"1"},{"id":"2"}],"start":0,"limit":200,"size":2,"totalSize":2,"_links":{}}`,
 			maxItems: 2, maxScanned: 20, wantPages: 2, wantScanned: 2, complete: true,
 		},
 		{
-			name: "terminal at exact scan limit", body: `{"results":[{"id":"1"},{"id":"2"}],"start":0,"size":2,"_links":{}}`,
+			name: "terminal at exact scan limit", body: `{"results":[{"id":"1"},{"id":"2"}],"start":0,"limit":200,"size":2,"totalSize":2,"_links":{}}`,
 			maxItems: 10, maxScanned: 2, wantPages: 2, wantScanned: 2, complete: true,
 		},
 		{
-			name: "stalled", body: `{"results":[],"start":0,"size":0,"_links":{"next":"ignored"}}`,
+			name: "stalled", body: `{"results":[],"start":0,"limit":200,"size":0,"totalSize":1,"_links":{"next":"ignored"}}`,
 			maxItems: 10, maxScanned: 20, reason: domain.ConfluenceTreePartialPaginationStalled,
 		},
 		{
-			name: "scan limit", body: `{"results":[{"id":"1"},{"id":"2"}],"start":0,"size":2,"_links":{}}`,
+			name: "scan limit", body: `{"results":[{"id":"1"},{"id":"2"}],"start":0,"limit":200,"size":2,"totalSize":2,"_links":{}}`,
 			maxItems: 10, maxScanned: 1, wantPages: 1, wantScanned: 1, reason: domain.ConfluenceTreePartialScanLimit,
 		},
 	} {

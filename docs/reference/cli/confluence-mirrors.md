@@ -123,7 +123,12 @@ only that this bounded live traversal reached a terminal page.
 ```
 
 `truncated:true` is retained as the compatibility alias for `complete:false`.
-The item and scan bounds are enforced in the Confluence adapter. The request
+`complete:true` additionally requires present, non-null, non-negative and
+mutually consistent backend `start`, `limit`, `size`, total, result collection,
+and links evidence on every page. The terminal row count must exactly exhaust
+the stable total; a terminal page that exactly fills either item cap remains
+complete, while a missing/null/changing total or conflicting continuation is
+`pagination_unqualified`. The item and scan bounds are enforced in the Confluence adapter. The request
 and aggregate response-byte counters are charged at the physical HTTP
 transport below orchestration, and the deadline is carried through every
 request. Generic read retries are disabled for this traversal. A partial result
@@ -214,6 +219,16 @@ safe-staging error is `failed`, `complete:false`, with `read_failed` or
 non-zero error. Text output renders the same rows as stable `include:` lines.
 This qualification is additive: a clean actual pull still omits
 `local_safety`.
+
+Actual include evidence is recorded only after the corresponding native page,
+derived view, comment sidecars, and staged assets are durably published. A
+shared staging/flush/publication failure demotes every requested dimension
+staged for that page to `failed/staging_failed`; already published dimensions
+remain evidence. Complete-pull progress persists only content-free aggregate
+include counts/reasons beside the immutable selection and restores them on
+resume. Legacy progress without this evidence is accepted for compatibility
+but the unknown durable prefix remains `partial/not_attempted`; it is never
+upgraded to `complete:true` by the resumed suffix.
 
 Pull is non-destructive by default. Before each page-body GET, atl reconciles
 the tracked path, sidecar hash, pristine base, native `.csf`, metadata, and

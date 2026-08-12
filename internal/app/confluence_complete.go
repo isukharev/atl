@@ -163,6 +163,7 @@ func (s *ConfluenceService) prepareCompletePull(ctx context.Context, m *mirror.M
 	checkpoint = mirror.CompletePullCheckpoint{
 		Service: confluenceCompletePullService, SelectorSHA256: selectorSHA256,
 		OptionsSHA256: optionsSHA256, SelectionSHA256: selectionSHA256, IDs: second,
+		Includes: mirror.CompletePullIncludeProgress{EvidenceComplete: true},
 	}
 	source := "new"
 	if found {
@@ -260,10 +261,14 @@ func requireConfluencePullProjection(page *domain.Resource, id, operation string
 	return requireConfluenceNativeBody(page, id, operation)
 }
 
-func (selection *confluenceCompleteSelection) advance() {
+func (selection *confluenceCompleteSelection) advance(evidence []domain.ConfluencePullIncludeEvidence) error {
+	if err := selection.checkpoint.Includes.RecordPublished(evidence); err != nil {
+		return err
+	}
 	selection.nextIndex++
 	selection.result.Completed = selection.nextIndex
 	selection.result.Remaining = selection.result.Total - selection.nextIndex
+	return nil
 }
 
 func (selection *confluenceCompleteSelection) shouldCheckpoint() bool {

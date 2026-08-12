@@ -16,7 +16,7 @@ func TestConfSpaceTreeEmitsQualifiedPhysicalBudgetUsage(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"results":[{"id":"1","title":"Root","space":{"key":"DOC"},"version":{"number":1}}],"start":0,"size":1,"_links":{"next":"ignored"}}`))
+		_, _ = w.Write([]byte(`{"results":[{"id":"1","title":"Root","space":{"key":"DOC"},"version":{"number":1}}],"start":0,"limit":100,"size":1,"totalSize":2,"_links":{"next":"ignored"}}`))
 	}))
 	t.Cleanup(srv.Close)
 	out, stderr, code := runCLIFull(t, confEnv(srv), "conf", "space", "tree", "--space", "DOC",
