@@ -163,41 +163,6 @@ func localConfluenceTargetError(operation, target string, err error) error {
 	return fmt.Errorf("%w: inspect %s target %q: %v", domain.ErrCheckFailed, operation, target, err)
 }
 
-// DownloadAttachment streams a page attachment by filename into outDir (an
-// atomic write: an interrupted transfer never leaves a truncated file).
-// Returns the written file path.
-func (s *ConfluenceService) DownloadAttachment(ctx context.Context, pageID, filename string, version int, outDir string) (string, error) {
-	resolved, err := s.ResolvePageReference(ctx, pageID)
-	if err != nil {
-		return "", err
-	}
-	ctx = resolved.Context(ctx)
-	pageID = resolved.ID
-	if outDir == "" {
-		outDir = "."
-	}
-	safeName, ok := safepath.Base(filename)
-	if !ok {
-		return "", fmt.Errorf("%w: unsafe attachment filename %q", domain.ErrUsage, filename)
-	}
-	p := filepath.Join(outDir, safeName)
-	if !safepath.Within(outDir, p) {
-		return "", fmt.Errorf("%w: attachment path would escape output directory", domain.ErrUsage)
-	}
-	rc, err := s.store.DownloadAttachment(ctx, pageID, filename, version)
-	if err != nil {
-		return "", err // fail before MkdirAll: a 404 must not leave an empty outDir
-	}
-	defer rc.Close()
-	if err := safepath.MkdirAllWithin(outDir, outDir, 0o755); err != nil {
-		return "", err
-	}
-	if _, err := safepath.WriteReaderAtomicWithin(outDir, p, rc, 0o644); err != nil {
-		return "", err
-	}
-	return p, nil
-}
-
 // UploadAttachment streams filePath as an attachment to the given page.
 func (s *ConfluenceService) UploadAttachment(ctx context.Context, pageID, filePath, comment string) (*domain.Attachment, error) {
 	f, err := os.Open(filePath)

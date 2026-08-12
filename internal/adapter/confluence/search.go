@@ -2,6 +2,7 @@ package confluence
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -167,38 +168,85 @@ const (
 // up to treeScanCap backend rows; truncated is true when either cap or stalled
 // pagination stopped the listing before exhaustion.
 func (cf *Confluence) Tree(ctx context.Context, space string, depth int) ([]domain.PageRef, bool, error) {
+	page, err := cf.TreeQualified(ctx, domain.ConfluenceTreeRequest{
+		Space: space, Depth: depth, MaxItems: treePageCap, MaxScannedItems: treeScanCap,
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	return page.Pages, !page.Complete, nil
+}
+
+// TreeQualified returns one caller-bounded hierarchy prefix. Item and scan
+// limits are enforced here; physical request and aggregate response-byte
+// limits are enforced by httpx from the ReadBudget carried in ctx. Confluence
+// exposes live offset pagination rather than a snapshot token, so Consistency
+// never claims a transaction even when pagination is exhausted.
+func (cf *Confluence) TreeQualified(ctx context.Context, request domain.ConfluenceTreeRequest) (domain.ConfluenceTreePage, error) {
+	result := domain.ConfluenceTreePage{
+		Pages: []domain.PageRef{}, Consistency: domain.ConfluenceTreeConsistencyLiveUnproven,
+	}
+	if request.MaxItems <= 0 || request.MaxItems > treePageCap {
+		return result, fmt.Errorf("%w: Confluence tree item limit must be between 1 and %d", domain.ErrUsage, treePageCap)
+	}
+	if request.MaxScannedItems <= 0 || request.MaxScannedItems > treeScanCap {
+		return result, fmt.Errorf("%w: Confluence tree scan limit must be between 1 and %d", domain.ErrUsage, treeScanCap)
+	}
+	partial := func(reason string) (domain.ConfluenceTreePage, error) {
+		result.PartialReason = reason
+		return result, nil
+	}
 	cursor := confluencePageCursor{}
 	scanned := 0
-	var out []domain.PageRef
 	for {
 		q := url.Values{}
-		q.Set("cql", "space="+cqlQuote(space)+" and type=page")
+		q.Set("cql", "space="+cqlQuote(request.Space)+" and type=page")
 		q.Set("expand", "ancestors,version,space")
 		q.Set("limit", "200")
 		q.Set("start", strconv.Itoa(cursor.startAt()))
 		var resp struct {
-			Results []content `json:"results"`
-			Size    int       `json:"size"`
+			Results *[]content `json:"results"`
+			Start   *int       `json:"start"`
+			Size    *int       `json:"size"`
 			Links   struct {
 				Next string `json:"next"`
 			} `json:"_links"`
 		}
 		if err := cf.c.GetJSON(ctx, "/rest/api/content/search?"+q.Encode(), &resp); err != nil {
-			return nil, false, err
+			switch {
+			case errors.Is(err, domain.ErrReadAttemptBudgetExhausted):
+				return partial(domain.ConfluenceTreePartialRequestLimit)
+			case errors.Is(err, domain.ErrReadResponseBudgetExhausted):
+				return partial(domain.ConfluenceTreePartialResponseByteLimit)
+			case errors.Is(ctx.Err(), context.DeadlineExceeded):
+				return partial(domain.ConfluenceTreePartialDeadline)
+			default:
+				return result, err
+			}
 		}
-		remaining := treeScanCap - scanned
-		resultCount := len(resp.Results)
+		if resp.Results == nil {
+			return partial(domain.ConfluenceTreePartialPaginationUnqualified)
+		}
+		results := *resp.Results
+		if resp.Start != nil && *resp.Start != cursor.startAt() {
+			return partial(domain.ConfluenceTreePartialPaginationUnqualified)
+		}
+		if resp.Size != nil && *resp.Size != len(results) {
+			return partial(domain.ConfluenceTreePartialPaginationUnqualified)
+		}
+		remaining := request.MaxScannedItems - scanned
+		resultCount := len(results)
 		if resultCount > remaining {
 			resultCount = remaining
 		}
 		scanned += resultCount
 		outputOverflow := false
-		for _, ct := range resp.Results[:resultCount] {
+		for _, ct := range results[:resultCount] {
 			d := 0
 			if ct.Ancestors != nil {
 				d = len(*ct.Ancestors)
 			}
-			if depth > 0 && d >= depth {
+			if request.Depth > 0 && d >= request.Depth {
 				continue
 			}
 			pr := domain.PageRef{ID: ct.ID, Title: ct.Title, Space: ct.Space.Key, Version: ct.Version.Number}
@@ -207,26 +255,31 @@ func (cf *Confluence) Tree(ctx context.Context, space string, depth int) ([]doma
 					pr.Parent = (*ct.Ancestors)[n-1].ID
 				}
 			}
-			if len(out) < treePageCap {
-				out = append(out, pr)
+			if len(result.Pages) < request.MaxItems {
+				result.Pages = append(result.Pages, pr)
 			} else {
 				outputOverflow = true
 			}
 		}
-		if len(resp.Results) > remaining {
-			return out, true, nil // the response itself exceeded the scan cap
+		result.ScannedItems = scanned
+		if len(results) > remaining {
+			return partial(domain.ConfluenceTreePartialScanLimit)
 		}
 		if outputOverflow {
-			return out, true, nil
+			return partial(domain.ConfluenceTreePartialItemLimit)
 		}
-		switch cursor.advance(len(resp.Results), resp.Links.Next) {
+		switch cursor.advance(len(results), resp.Links.Next) {
 		case confluencePageExhausted:
-			return out, false, nil
+			result.Complete = true
+			return result, nil
 		case confluencePageStalled:
-			return out, true, nil
+			return partial(domain.ConfluenceTreePartialPaginationStalled)
 		}
-		if scanned >= treeScanCap {
-			return out, true, nil // cap hit with more pages remaining
+		if len(result.Pages) >= request.MaxItems {
+			return partial(domain.ConfluenceTreePartialItemLimit)
+		}
+		if scanned >= request.MaxScannedItems {
+			return partial(domain.ConfluenceTreePartialScanLimit)
 		}
 	}
 }

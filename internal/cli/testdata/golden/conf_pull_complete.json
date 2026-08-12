@@ -9,6 +9,18 @@
       "assets": 0
     }
   ],
+  "includes": [
+    {
+      "dimension": "assets",
+      "requested": false,
+      "qualification": "not_requested"
+    },
+    {
+      "dimension": "comments",
+      "requested": false,
+      "qualification": "not_requested"
+    }
+  ],
   "complete_pull": {
     "selector_sha256": "<SHA256>",
     "selection_sha256": "<SHA256>",

@@ -177,42 +177,29 @@ func confSearchCmd() *cobra.Command {
 	return cmd
 }
 
+// confSpaceCmd keeps command assembly here while bounded traversal helpers live in conf_tree.go.
 func confSpaceCmd() *cobra.Command {
 	c := &cobra.Command{Use: "space", Short: "Space-level operations"}
-	var space string
-	var depth int
+	var opts app.ConfluenceTreeOpts
 	tree := &cobra.Command{
 		Use:   "tree",
 		Short: "Print the page hierarchy of a space",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if space == "" {
-				return usageErr("--space is required")
+			if err := normalizeConfluenceTreeCommand(cmd, &opts); err != nil {
+				return err
 			}
-			svc, err := confService(cmd)
+			result, err := readConfluenceTreeCommand(cmd, opts)
 			if err != nil {
 				return err
 			}
-			refs, truncated, err := svc.Tree(cmd.Context(), space, depth)
-			if err != nil {
-				return err
-			}
-			out := map[string]any{"pages": refs}
-			if truncated {
-				out["truncated"] = true
-				fmt.Fprintf(cmd.ErrOrStderr(),
-					"warning: space listing truncated at %d pages (safety cap) — the rest is NOT shown\n", len(refs))
-			}
-			return emit(cmd, out, func() string {
-				var b strings.Builder
-				for _, r := range refs {
-					fmt.Fprintf(&b, "%s\t%s\t(parent %s)\n", r.ID, r.Title, r.Parent)
-				}
-				return strings.TrimRight(b.String(), "\n")
+			warnConfluenceTreePartial(cmd, result)
+			return emit(cmd, result, func() string {
+				return confluenceTreeText(result.Pages)
 			})
 		},
 	}
-	tree.Flags().StringVar(&space, "space", "", "space key")
-	tree.Flags().IntVar(&depth, "depth", 0, "max depth (0 = unlimited)")
+	registerConfluenceTreeFlags(tree, &opts)
 	c.AddCommand(tree)
 	return c
 }
@@ -295,7 +282,7 @@ func confPullCmd() *cobra.Command {
 				return err
 			}
 			res, err := svc.Pull(cmd.Context(), o)
-			if err != nil && (res == nil || res.LocalSafety == nil || !errors.Is(err, domain.ErrCheckFailed)) {
+			if err != nil && (res == nil || (!res.HasFailedInclude() && (res.LocalSafety == nil || !errors.Is(err, domain.ErrCheckFailed)))) {
 				return err
 			}
 			// Warn on stderr (never stdout — that would corrupt the JSON result).
@@ -304,6 +291,16 @@ func confPullCmd() *cobra.Command {
 			emitErr := emit(cmd, res, func() string {
 				var b strings.Builder
 				fmt.Fprintf(&b, "mirror: %s (%d pages)\n", res.Root, len(res.Pages))
+				for _, include := range res.Includes {
+					fmt.Fprintf(&b, "include: %s requested=%t qualification=%s", include.Dimension, include.Requested, include.Qualification)
+					if include.Complete != nil {
+						fmt.Fprintf(&b, " complete=%t", *include.Complete)
+					}
+					if include.Reason != "" {
+						fmt.Fprintf(&b, " reason=%s", include.Reason)
+					}
+					b.WriteByte('\n')
+				}
 				appendPullLocalSafetyText(&b, res.LocalSafety)
 				if res.Incremental != nil {
 					inc := res.Incremental
@@ -1249,16 +1246,19 @@ func confAttachmentCmd() *cobra.Command {
 			if getPageID == "" || getName == "" {
 				return usageErr("--id and --name are required")
 			}
+			if getVersion < 0 {
+				return usageErr("--version must be non-negative")
+			}
 			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
-			path, err := svc.DownloadAttachment(cmd.Context(), getPageID, getName, getVersion, getInto)
+			result, err := svc.DownloadAttachmentKnownPage(cmd.Context(), getPageID, getName, getVersion, getInto)
 			if err != nil {
 				return err
 			}
-			return emit(cmd, map[string]string{"path": path, "name": getName}, func() string {
-				return path
+			return emit(cmd, result, func() string {
+				return result.Path
 			})
 		},
 	}

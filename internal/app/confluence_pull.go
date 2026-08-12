@@ -70,11 +70,12 @@ type PulledPage struct {
 
 // PullResult is the pull summary.
 type PullResult struct {
-	Root        string                 `json:"root"`
-	Pages       []PulledPage           `json:"pages"`
-	Incremental *IncrementalPullResult `json:"incremental,omitempty"`
-	Complete    *CompletePullResult    `json:"complete_pull,omitempty"`
-	LocalSafety *PullLocalSafety       `json:"local_safety,omitempty"`
+	Root        string                  `json:"root"`
+	Pages       []PulledPage            `json:"pages"`
+	Includes    []ConfluencePullInclude `json:"includes"`
+	Incremental *IncrementalPullResult  `json:"incremental,omitempty"`
+	Complete    *CompletePullResult     `json:"complete_pull,omitempty"`
+	LocalSafety *PullLocalSafety        `json:"local_safety,omitempty"`
 	// Truncated is true when a --cql selection hit the silent pagination cap, so
 	// some matching pages were NOT mirrored. TruncatedAt is the cap that was hit
 	// (the number of ids collected). Both are omitted from JSON in the common,
@@ -85,11 +86,10 @@ type PullResult struct {
 	// adapter's fetch cap, so its mirrored comments sidecar is incomplete. The CLI
 	// surfaces it as a stderr warning; omitted otherwise so the shape is unchanged.
 	CommentsTruncated bool `json:"comments_truncated,omitempty"`
-	// Warnings carries advisory render-resolution messages (unknown section names,
-	// malformed local config). Not serialized (the pull JSON shape is unchanged by
-	// profiles); the CLI prints it on stderr.
-	Warnings   []string        `json:"-"`
-	Scheduling *PullScheduling `json:"scheduling,omitempty"`
+	// Warnings are advisory render-resolution messages; CLI-only and not serialized.
+	Warnings        []string        `json:"-"`
+	Scheduling      *PullScheduling `json:"scheduling,omitempty"`
+	includeProgress *confluencePullIncludeProgress
 }
 
 // PullScheduling reports the exact opt-in load policy. PagePrefetch overlaps
@@ -252,10 +252,10 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 			return nil, err
 		}
 	}
-	// Resolve the effective render settings for THIS mirror root (local config
-	// lives under it). Default/minimal keep the body-only view byte-identical to
-	// today; only `full` (or an explicit include) adds metadata/comments.
-	res := &PullResult{Root: root, Warnings: warns}
+	// Effective settings for this root keep default/minimal views byte-identical;
+	// only `full` (or an explicit include) adds metadata/comments.
+	res := newConfluencePullResult(root, warns, o, len(ids))
+	defer res.finalizeConfluencePullIncludes()
 	if scheduled {
 		maxInFlight := s.requestMaxInFlight
 		if maxInFlight == 0 {
