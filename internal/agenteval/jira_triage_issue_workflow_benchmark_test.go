@@ -26,6 +26,7 @@ type triageCandidate struct {
 
 type triageCohort struct {
 	directory, project, signature, component, trigger string
+	candidateFields                                   string
 	queries                                           []string
 	queryKeys                                         [][]string
 	candidates                                        []triageCandidate
@@ -40,6 +41,7 @@ type triageCohort struct {
 var triageCohorts = []triageCohort{
 	{
 		directory: triagePrimaryDirectory, project: "LAB", signature: "CacheRefreshError", component: "Cache", trigger: "token rotation",
+		candidateFields: "summary,description,status,issuetype,project",
 		queries: []string{
 			`project = LAB AND text ~ "CacheRefreshError refresh token" AND type = Bug ORDER BY updated DESC`,
 			`project = LAB AND summary ~ "cache refresh" AND type = Bug ORDER BY updated DESC`,
@@ -55,6 +57,7 @@ var triageCohorts = []triageCohort{
 	},
 	{
 		directory: triageHoldoutDirectory, project: "OPS", signature: "LeaseRenewalError", component: "Indexer", trigger: "lease renewal",
+		candidateFields: "summary,description,status,issuetype,project,assignee,reporter,labels,issuelinks,comment,attachment",
 		queries: []string{
 			`project = OPS AND text ~ "LeaseRenewalError retry storm" AND type = Bug ORDER BY updated DESC`,
 			`project = OPS AND summary ~ "indexer retry" AND type = Bug ORDER BY updated DESC`,
@@ -357,7 +360,7 @@ func assertTriageFixtureTopology(t *testing.T, fixture MockFixture, cohort triag
 				t.Fatalf("search route drifted: %+v", route)
 			}
 		case strings.HasPrefix(route.Name, "candidate"):
-			if route.Method != "GET" || !strings.Contains(route.Path, "/issue/") || route.QueryEquals["fields"] == "" {
+			if route.Method != "GET" || !strings.Contains(route.Path, "/issue/") || route.QueryEquals["fields"] != cohort.candidateFields {
 				t.Fatalf("candidate route drifted: %+v", route)
 			}
 		case route.Name == "create":
@@ -595,6 +598,12 @@ func TestRepositoryJiraTriageIssueSamplingPromptsAndPolicies(t *testing.T) {
 					t.Fatal(err)
 				}
 				assertTriagePolicyAlternativesAndMutations(t, policy, root == holdoutRoot)
+			} else {
+				cohort := triageCohorts[0]
+				if root == holdoutRoot {
+					cohort = triageCohorts[1]
+				}
+				assertTriageClaudeCandidateCommands(t, prompt, spec, cohort)
 			}
 		}
 		if primary.Provider == "claude-code" {
@@ -635,6 +644,29 @@ func assertTriagePromptBoundary(t *testing.T, prompt []byte, provider string) {
 	}
 }
 
+func assertTriageClaudeCandidateCommands(t *testing.T, prompt []byte, spec RunSpec, cohort triageCohort) {
+	t.Helper()
+	for _, candidate := range cohort.candidates {
+		command := "atl jira issue get " + candidate.key
+		if cohort.directory == triagePrimaryDirectory {
+			command += " --fields " + cohort.candidateFields
+		}
+		command += " --"
+		if !slices.Contains(spec.AllowedATLCommands, command) {
+			t.Fatalf("Claude policy does not contain exact candidate command %q: %v", command, spec.AllowedATLCommands)
+		}
+		if !strings.Contains(string(prompt), "\n"+command+"\n") {
+			t.Fatalf("Claude prompt does not contain exact candidate command %q", command)
+		}
+		if cohort.directory == triagePrimaryDirectory {
+			broad := "atl jira issue get " + candidate.key + " --"
+			if slices.Contains(spec.AllowedATLCommands, broad) || strings.Contains(string(prompt), "\n"+broad+"\n") {
+				t.Fatalf("Claude primary workflow admitted broad candidate command %q", broad)
+			}
+		}
+	}
+}
+
 func assertTriagePolicyAlternativesAndMutations(t *testing.T, policy CLICommandPolicy, holdout bool) {
 	t.Helper()
 	names := map[string]int{}
@@ -658,14 +690,24 @@ func assertTriagePolicyAlternativesAndMutations(t *testing.T, policy CLICommandP
 			t.Fatalf("exact branch-neutral alternative denied: %v", argv)
 		}
 	}
+	wrongCandidate := []string{"jira", "issue", "get", "WRONG-1"}
+	if !holdout {
+		wrongCandidate = append(wrongCandidate, "--fields", triageCohorts[0].candidateFields)
+	}
 	mutations := [][]string{
 		{"jira", "issue", "search", "--jql", specific + " changed", "--limit", "10", "--columns", triageColumns},
 		{"jira", "issue", "search", "--jql", specific, "--limit", "11", "--columns", triageColumns},
 		{"jira", "issue", "search", "--jql", specific, "--limit", "10", "--columns", "key,summary,status"},
-		{"jira", "issue", "get", "WRONG-1"},
+		wrongCandidate,
 		{"jira", "issue", "create", "--project", project, "--type", "Bug", "--summary", summary + " changed", "--from-md", "new-bug.md"},
 		{"jira", "issue", "comment", "add", key, "--from-md", "wrong.md"},
 		{"jira", "issue", "comment", "add", "WRONG-1", "--from-md", "duplicate-comment.md"},
+	}
+	if !holdout {
+		mutations = append(mutations,
+			[]string{"jira", "issue", "get", "LAB-41"},
+			[]string{"jira", "issue", "get", "LAB-41", "--fields", "summary,status"},
+		)
 	}
 	for _, argv := range mutations {
 		if slices.ContainsFunc(policy.Rules, func(rule CLICommandRule) bool { return matchCLICommandRule(rule, argv) }) {

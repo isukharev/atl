@@ -111,8 +111,9 @@ hash + `--confirm APPLY`. A plan is a
 private review artifact; any blocked/stale entry means zero initial PUTs, and an
 `unknown` partial outcome must never be replayed automatically.
 
-Jira note: Jira issue updates have **no version gate** (last-writer-wins). Run `jira issue get`
-immediately before an `update` to avoid blindly overwriting someone else's change. The mirror
+Jira note: Jira issue updates have **no version gate** (last-writer-wins). Run
+`jira issue get <KEY> --fields <exact-fields-being-updated>` immediately before
+an `update` to avoid blindly overwriting someone else's change. The mirror
 write-back path — edit the `.md` view, `jira apply`, then `jira status` / `jira push` (or edit
 `<KEY>.wiki` directly as a fallback) — adds the equivalent guard in
 software: `jira push` is dry-run by default and refuses on drift with exit `8`, never exit `5`.

@@ -46,11 +46,58 @@ field names only when discovery found them:
 ```sh
 export ATL_READ_ONLY=1
 atl jira epic digest PROJ-1 --since 2026-07-01 --until 2026-07-07 \
-  --status-field 'Delivery Notes' --dod-field 'Definition of Done'
+  --status-field 'Delivery Notes' --dod-field 'Definition of Done' \
+  --projection compact
 ```
 
-Require top-level and named `sources.*.complete`; preserve every warning and
-staleness reason. For multiple epics, run one bounded digest per key.
+Require `complete:true` for every named source requested by the report;
+preserve every warning and staleness reason plus `projection.omitted` and
+`projection.clipped`. Compact omits `children.list`, so when the report needs
+issue-key traceability for individual child completions, owners, or risks,
+expand only that evidence through the paginated IssueList contract:
+
+<!-- atl:read-only-shell -->
+```sh
+export ATL_READ_ONLY=1
+atl jira issue children PROJ-1 \
+  --columns key,summary,status,assignee,priority,updated --limit 100
+```
+
+Follow `page.next_cursor` until `page.complete:true`, or label those details
+partial. Expand a required clipped field through its focused bounded read; do
+not repeat the digest in full output. For multiple epics, run one bounded
+digest per key.
+
+`issue children` cannot recover linked blockers. If
+`projection.omitted` contains `link_summary.blockers[remaining]`, or the report
+otherwise needs a complete direct-blocker inventory, read the root's bounded
+qualified link topology instead:
+
+<!-- atl:read-only-shell -->
+```sh
+export ATL_READ_ONLY=1
+atl jira issue graph PROJ-1 --depth 0 --projection full --strict
+```
+
+Use only exact `jira_link` edges whose type and direction match the blocker
+relationship required by the report. Require top-level `complete:true`, a
+complete `issue_links` source for the root, and reconciled graph counts. Strict
+exit 8 leaves qualified partial evidence on stdout, but does not satisfy this
+workflow's complete-inventory gate.
+Then fetch status and owner data for the selected blocker keys in one bounded
+IssueList rather than broad per-issue reads:
+
+<!-- atl:read-only-shell -->
+```sh
+export ATL_READ_ONLY=1
+atl jira issue search --jql 'key in (BLOCK-1, BLOCK-2) ORDER BY key' \
+  --columns key,summary,status,assignee,priority,updated --limit 2
+```
+
+Require `page.complete:true` and exact set equality between the selected
+blocker keys and returned `rows[].key`. Preserve every missing key as
+owner/status unavailable and label that evidence partial rather than silently
+dropping it.
 
 For a sprint, resolve it and page the shared IssueList projection:
 
