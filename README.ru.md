@@ -220,9 +220,10 @@ codex plugin marketplace add isukharev/atl
 codex plugin add atl@atl
 ```
 
-После установки начните новую сессию. [Руководство по настройке агента](docs/agent-setup.md)
-описывает routing, safety, зеркала, version skew и pre-config проверку
-совместимости плагина с бинарником; отдельный `atl mcp serve` поддерживается.
+После установки начните новую сессию. ATL поддерживает MCP `2026-07-28` и
+`2025-11-25`. [Руководство по настройке агента](docs/agent-setup.md) описывает
+safety, зеркала, version skew, startup gates и modern opt-in Codex;
+отдельный `atl mcp serve` поддерживается.
 
 [`agent-eval`](docs/reference/agent-eval/README.md) находится в pre-release.
 

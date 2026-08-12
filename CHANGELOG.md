@@ -14,6 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added service-scoped `doctor` health, explicit configured/effective/source
   read-only reporting, and a complete offline informational command-effect
   catalog for safe agent routing.
+- Upgraded the MCP Go SDK to v1.7.0 and added raw stdio coverage for stateless
+  `2026-07-28` discovery, legacy `2025-11-25` initialize fallback, structured
+  future-version rejection, protocol-clean output, and the closed cacheable
+  tool inventory with `ttlMs:0` and `cacheScope:"public"`.
+- Generated plugin MCP definitions now include the public per-server
+  `CODEX_MCP_PROTOCOL_VERSION=2026-07-28` marker. Codex 0.147 modern mode still
+  requires the separate user-controlled under-development `mcp_2026_07_28`
+  feature; either gate alone remains legacy, and the marker is not an identity
+  or provenance claim.
 - Added generated plugin-to-binary MCP startup markers with an independently
   versioned interface contract and product-version claim. Incompatible marked
   startup now exits as a content-free usage error before config, credentials,

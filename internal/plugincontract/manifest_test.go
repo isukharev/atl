@@ -54,7 +54,9 @@ func assertGeneratedMCPArgs(t *testing.T, data []byte, productVersion string) {
 	want := []string{
 		"mcp", "serve", "--" + InterfaceFlagName + "=1", "--" + ProductFlagName + "=" + productVersion,
 	}
-	if !ok || server.Command != "atl" || !reflect.DeepEqual(server.Args, want) || !strings.HasSuffix(string(data), "\n") {
+	wantEnv := map[string]string{codexMCPProtocolEnvironmentName: codexMCPProtocolVersion}
+	if len(config.MCPServers) != 1 || !ok || server.Command != "atl" || !reflect.DeepEqual(server.Args, want) ||
+		!reflect.DeepEqual(server.Env, wantEnv) || !strings.HasSuffix(string(data), "\n") {
 		t.Fatalf("generated MCP config=%s, want args=%v", data, want)
 	}
 }

@@ -10,6 +10,22 @@ summarize an existing durable mirror without exposing its paths or content.
 Keep the CLI for mirror creation/content/status/diff, raw Structure
 forest/values, exports, offline diff/plan workflows, and all guarded writes.
 
+## Protocol eras and cache contract
+
+The server uses MCP Go SDK v1.7 and deliberately supports both protocol eras.
+Modern clients use stateless `2026-07-28` discovery and can call `tools/list`
+without `initialize`. Legacy clients retain the `2025-11-25`
+`initialize` → `notifications/initialized` handshake. A future unsupported
+version receives the structured `UnsupportedProtocolVersion` error with the
+requested version and ATL's supported versions; the server does not present
+that response as a legacy peer.
+
+The inventory is one closed, non-paginated page. Every `tools/list` result
+includes `ttlMs:0` and `cacheScope:"public"`: clients should treat it as
+immediately stale, and the inventory contains no user-specific state. The
+legacy result has exactly `tools`, `ttlMs`, and `cacheScope`; the modern wire
+also carries the modern completion and server metadata required by that era.
+
 ## Closed service profiles and capability resource
 
 The default command keeps the complete twenty-three-tool catalog and its existing
@@ -44,6 +60,15 @@ binary product versions differ. The startup gate does not emit the product
 installed plugin or manifest version when diagnosing skew.
 MCP `serverInfo` is only the running server's self-reported name/version and is
 not treated as verified plugin, marker, or executable identity.
+
+Both generated plugin definitions set exactly the public per-server
+`CODEX_MCP_PROTOCOL_VERSION=2026-07-28` environment marker in addition to the
+two startup arguments. For Codex 0.147, modern mode requires that marker and
+the user-controlled, under-development global `mcp_2026_07_28` feature. Marker
+only or feature only remains on the legacy handshake. The plugin supplies only
+the per-server marker and cannot enable the user's global feature. This marker
+selects Codex client behavior; it does not authenticate ATL or prove plugin,
+binary, or package provenance.
 
 A newly generated plugin used with an older binary fails through ordinary
 unknown-flag parsing. Bare standalone invocation remains supported. Therefore
@@ -632,7 +657,16 @@ installed `atl` binary as `atl mcp serve`. Install/configure the binary through
 the shipped setup skill, ensure `atl` is on `PATH`, then start a new agent
 session so the plugin can initialize the server. Existing host-scoped atl
 credentials remain in the normal config directory; the plugin does not contain
-or copy credentials.
+or copy credentials. The generated definition supplies the per-server modern
+protocol marker, but only the user can opt into Codex's global
+`mcp_2026_07_28` feature:
+
+```sh
+codex features enable mcp_2026_07_28
+```
+
+Restart Codex after changing the feature. Without both gates, Codex continues
+to use ATL's supported legacy handshake.
 
 The MCP server remains read-only even when the ordinary CLI is not under
 `ATL_READ_ONLY=1`. For a session that may also invoke CLI commands, keep the
@@ -648,9 +682,14 @@ claude
 Without the plugin, register the stdio server directly:
 
 ```bash
-codex mcp add atl -- atl mcp serve
+codex mcp add --env CODEX_MCP_PROTOCOL_VERSION=2026-07-28 atl -- atl mcp serve
 codex mcp list
 ```
+
+That registration supplies the per-server marker. To opt into modern mode,
+also run `codex features enable mcp_2026_07_28` and restart Codex. The feature
+is under development; marker only or feature only remains legacy, and ATL
+continues to support both eras.
 
 For an explicit allowlist and inherited atl environment names, use
 `~/.codex/config.toml` (or trusted project `.codex/config.toml`):
@@ -659,6 +698,7 @@ For an explicit allowlist and inherited atl environment names, use
 [mcp_servers.atl]
 command = "atl"
 args = ["mcp", "serve"]
+env = { CODEX_MCP_PROTOCOL_VERSION = "2026-07-28" }
 required = true
 enabled_tools = [
   "jira_fields",
@@ -744,6 +784,11 @@ protocol frames. It skips self-update at startup so no unrelated update request
 can alter initialization or corrupt protocol output. Authentication/config is
 loaded lazily per tool call, allowing the configured Jira or Confluence sibling
 to work when the other service is absent.
+
+Raw stdio compatibility covers stateless `server/discover` followed by
+`tools/list`, the complete legacy initialize/initialized sequence, structured
+future-version rejection, one response per request, clean stderr, and the
+non-empty closed tool inventory in both eras.
 
 Cancellation propagates from the MCP client into the application request. HTTP
 auth scoping, redirect/downgrade checks, retry policy, pagination completeness,
