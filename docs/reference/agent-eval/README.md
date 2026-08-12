@@ -329,6 +329,19 @@ permission, trajectory, usage, transport, or orchestration requirements fail
 before spawn; a provider name or an installed binary is never evidence of
 support.
 
+The provider-neutral `executionbackend` leaf owns the current execution
+contract, admitted trial plan, and content-minimized trial receipt. A closed
+in-memory reference backend consumes only caller-supplied, content-addressed
+USTAR snapshots, exposes no process, filesystem, environment, network, or
+credential API, copies only declared artifacts, and gives its deterministic
+verifier a separate clone after the agent-facing state is closed. Unsupported
+or unknown capability claims and mismatched policy fail while the durable
+attempt is still `planned`. The existing ATL runner is projected separately as
+`local_process`: ambient network and credentials are explicit, unavailable
+CPU/memory/process and verifier-isolation guarantees remain unsupported, and
+the projection can never be reported as hermetic merely because protocol
+conformance passed.
+
 ## Capability negotiation
 
 Capabilities are namespaced, versioned strings. Each required component reports exactly one state for every capability considered by the plan:
@@ -429,6 +442,9 @@ The internal `ATL_EVAL_*` registry, wrapper basenames, broker records, launch ar
 | `agent-eval/extension-conformance-report` | Content-minimized protocol-only result; never proof of whole-product compatibility or host confinement |
 | `agent-eval/agent-adapter-contract` | Content-minimized selected adapter identity, implementation/executable/configuration digests, complete semantic capability claims, and closed configuration-key inventory |
 | `agent-eval/agent-observation` | Content-minimized normalized activation, event graph, terminal state, parent/tree usage, consumed-child evidence, and explicit coverage issues |
+| `agent-eval/execution-backend-contract` | Complete capability claims plus implementation/content identity and assurance class for one selected backend |
+| `agent-eval/trial-plan` | Content-addressed definition, fixture, skill, policy, resource, artifact, program, and verifier admission for one trial |
+| `agent-eval/trial-receipt` | Content-minimized terminal verdict, artifact identities, verifier evidence, cleanup, network, credential, and termination coverage |
 | `agent-eval/migration-preview` | Content-minimized reviewed binding of source, candidate, registry, migration implementation, graph, and counts |
 | `agent-eval/migration-result` | Content-minimized idempotent receipt for one applied reviewed migration |
 | `agent-eval/schema-registry` | Public closed inventory of artifact ownership, generations, policies, bounds, resources, and reviewed migration edges |
@@ -436,17 +452,20 @@ The internal `ATL_EVAL_*` registry, wrapper basenames, broker records, launch ar
 The compatibility ledger records project config, the schema registry, the two
 migration artifacts, the three durable attempt families
 (`agent-eval/attempt-ledger`, `agent-eval/attempt-plan`, and
-`agent-eval/attempt-event`), each of the four extension families, and the
-semantic adapter contract and normalized observation at generation 1. Project
-config, registry, attempt records, manifest, message, bundle, and adapter
-contract generations are readable, emitted, and executable; migration
-artifacts, extension reports, and normalized agent observations are readable
-and emitted but never executable. Project config is
+`agent-eval/attempt-event`), each of the four extension families, the semantic
+adapter contract, normalized observation, execution-backend contract, trial
+plan, and trial receipt at generation 1. Project config, registry, attempt
+records, manifest, message, bundle, adapter contract, execution-backend
+contract, and trial-plan generations are readable, emitted, and executable;
+migration artifacts, extension reports, normalized agent observations, and
+trial receipts are readable and emitted but never executable. Project config is
 `public_or_private` and capped at 64 KiB. Manifests are public and capped at
 64 KiB. Attempt headers are capped at 16 KiB and attempt plans and events at
 64 KiB per record; all three are `preserve`, `content_minimized`, and use
 explicit migration. Adapter contracts are `content_minimized` and capped at
-64 KiB; agent observations are `content_minimized` and capped at 1 MiB. Messages are
+64 KiB; agent observations are `content_minimized` and capped at 1 MiB.
+Execution-backend contracts and receipts are `content_minimized` and capped at
+64 KiB; trial plans are `content_minimized` and capped at 256 KiB. Messages are
 `public_or_private` and capped at 1 MiB, bundles are public and capped at
 1 MiB, and reports are `content_minimized` and capped at 1 MiB. Migration
 previews and results are `content_minimized`, capped at 64 KiB, and preserved;
@@ -610,8 +629,9 @@ process-tree termination on any platform; a content-minimized report is not
 termination proof. The executable SHA-256 binds only the copied primary
 executable bytes; it neither authenticates a publisher nor transitively binds
 dynamic libraries or other runtime dependencies.
-Any requirement that needs those controls must refuse before spawn pending the
-qualified execution boundary in [#1320](https://github.com/isukharev/atl/issues/1320).
+Any arbitrary process requirement that needs those controls must still refuse
+before spawn. The qualified hermetic reference below deliberately avoids a
+child process; it does not retrofit confinement onto this local host.
 Once the admitted process successfully starts, any handshake, protocol,
 terminal, or cleanup ambiguity produces the absorbing, no-replay `unknown`:
 without isolation, the child could already have side effects. Only a refusal
@@ -647,6 +667,32 @@ still an internal protocol diagnostic: it is not `compat verify`, does not
 claim whole-product compatibility, and does not add filesystem, network,
 credential, resource, or durable termination confinement beyond the host
 limits described above.
+
+For the `execution-backend` role, the generic process manifest is likewise
+only the transport contract. The semantic diagnostic additionally binds one
+canonical `agent-eval/execution-backend-contract@1` and one admitted
+`agent-eval/trial-plan@1` before spawn:
+
+```sh
+agent-eval verify-execution-backend \
+  --manifest testdata/synthetic-backend-manifest.json \
+  --backend /tmp/agent-eval-synthetic/backend \
+  --bundle testdata/synthetic-backend-conformance.json \
+  --contract testdata/synthetic-backend-contract.json \
+  --plan testdata/synthetic-trial-plan.json \
+  --ledger /tmp/agent-eval-synthetic/attempt-ledger
+```
+
+The manifest ID/version/executable, role operations, supported protocol
+capabilities, semantic contract, and external-adapter plan must agree exactly.
+The resulting extension report and durable case receipts are protocol-only;
+they retain the declared `local_process` gaps and do not claim sandbox or
+hermetic assurance. By contrast, the built-in `reference-hermetic` backend is
+an in-memory test oracle. It admits only exact network-deny, no-credential,
+fresh/read-only snapshot, declared-artifact, deadline/storage, separate-copy
+verifier, and logical-cleanup requirements. Its timeout/cancel receipt closes
+an empty logical process tree. CPU, memory, process-count, arbitrary-command,
+and arbitrary-filesystem enforcement are intentionally unsupported.
 
 Normalized observations use a closed event graph with one primary node and at
 most two child levels. The graph distinguishes single-agent, generic-child,

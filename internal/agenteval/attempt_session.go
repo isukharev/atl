@@ -174,10 +174,15 @@ func prepareExtensionAttemptSessions(store *AttemptLedgerStore, manifest extensi
 	}
 	adapterIdentity := manifestDigest
 	if adapterContractDigest != "" {
-		if !validSHA256(adapterContractDigest) || manifest.Component.Role != extension.RoleAgentAdapter {
+		if !validSHA256(adapterContractDigest) ||
+			(manifest.Component.Role != extension.RoleAgentAdapter && manifest.Component.Role != extension.RoleExecutionBackend) {
 			return nil, attemptLedgerError("extension_adapter_binding")
 		}
-		adapterIdentity, err = contentMinimizedAttemptDigest("agent-adapter-process-binding", []string{manifestDigest, adapterContractDigest})
+		domain := "agent-adapter-process-binding"
+		if manifest.Component.Role == extension.RoleExecutionBackend {
+			domain = "execution-backend-process-binding"
+		}
+		adapterIdentity, err = contentMinimizedAttemptDigest(domain, []string{manifestDigest, adapterContractDigest})
 		if err != nil {
 			return nil, err
 		}
@@ -436,6 +441,25 @@ func (session *DurableAttemptSession) Plan() lifecycle.Plan { return session.pla
 func (session *DurableAttemptSession) Commit() error {
 	_, err := session.store.Append(session.plan.AttemptID, lifecycle.StateCommitted,
 		[]lifecycle.Proof{lifecycle.ProofDurableCommit}, attemptEvidenceWithUsage(lifecycle.ErrorNone, lifecycle.UnknownUsage()))
+	return err
+}
+
+func (session *DurableAttemptSession) Unsupported() error {
+	return session.precommitTerminal(lifecycle.StateUnsupported, lifecycle.ErrorUnsupported, lifecycle.ProofDurableCapabilityRefusal)
+}
+
+func (session *DurableAttemptSession) PolicyDenied() error {
+	return session.precommitTerminal(lifecycle.StatePolicyDenied, lifecycle.ErrorPolicyDenied, lifecycle.ProofDurablePolicyRefusal)
+}
+
+func (session *DurableAttemptSession) precommitTerminal(to lifecycle.State, code string, proof lifecycle.Proof) error {
+	inspection, err := session.store.Inspect(session.plan.AttemptID)
+	if err != nil || inspection.Projection.State != lifecycle.StatePlanned {
+		return attemptLedgerError("precommit_terminal", err)
+	}
+	_, err = session.store.Append(session.plan.AttemptID, to,
+		[]lifecycle.Proof{lifecycle.ProofCompleteLedger, proof, lifecycle.ProofNoCommit},
+		attemptEvidenceWithUsage(code, inspection.Projection.Usage))
 	return err
 }
 

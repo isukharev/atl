@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isukharev/atl/internal/agenteval/executionbackend"
 	"github.com/isukharev/atl/internal/agenteval/lifecycle"
 )
 
@@ -268,12 +269,15 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 		standaloneContractKey("standalone", "attempt-event"):                {current: lifecycle.SchemaVersion, readable: []int{lifecycle.SchemaVersion}, emitted: []int{lifecycle.SchemaVersion}, executable: []int{lifecycle.SchemaVersion}},
 		standaloneContractKey("standalone", "attempt-ledger"):               {current: lifecycle.SchemaVersion, readable: []int{lifecycle.SchemaVersion}, emitted: []int{lifecycle.SchemaVersion}, executable: []int{lifecycle.SchemaVersion}},
 		standaloneContractKey("standalone", "attempt-plan"):                 {current: lifecycle.SchemaVersion, readable: []int{lifecycle.SchemaVersion}, emitted: []int{lifecycle.SchemaVersion}, executable: []int{lifecycle.SchemaVersion}},
+		standaloneContractKey("standalone", "execution-backend-contract"):   {current: executionbackend.SchemaVersion, readable: []int{executionbackend.SchemaVersion}, emitted: []int{executionbackend.SchemaVersion}, executable: []int{executionbackend.SchemaVersion}},
 		standaloneContractKey("standalone", "extension-conformance-bundle"): {current: 1, readable: []int{1}, emitted: []int{1}, executable: []int{1}},
 		standaloneContractKey("standalone", "extension-conformance-report"): {current: 1, readable: []int{1}, emitted: []int{1}},
 		standaloneContractKey("standalone", "migration-preview"):            {current: StandaloneMigrationArtifactVersion, readable: []int{StandaloneMigrationArtifactVersion}, emitted: []int{StandaloneMigrationArtifactVersion}},
 		standaloneContractKey("standalone", "migration-result"):             {current: StandaloneMigrationArtifactVersion, readable: []int{StandaloneMigrationArtifactVersion}, emitted: []int{StandaloneMigrationArtifactVersion}},
 		standaloneContractKey("standalone", "project-config"):               {current: StandaloneProjectConfigVersion, readable: []int{StandaloneProjectConfigVersion}, emitted: []int{StandaloneProjectConfigVersion}, executable: []int{StandaloneProjectConfigVersion}},
 		standaloneContractKey("standalone", "schema-registry"):              {current: StandaloneSchemaRegistryVersion, readable: []int{StandaloneSchemaRegistryVersion}, emitted: []int{StandaloneSchemaRegistryVersion}, executable: []int{StandaloneSchemaRegistryVersion}},
+		standaloneContractKey("standalone", "trial-plan"):                   {current: executionbackend.SchemaVersion, readable: []int{executionbackend.SchemaVersion}, emitted: []int{executionbackend.SchemaVersion}, executable: []int{executionbackend.SchemaVersion}},
+		standaloneContractKey("standalone", "trial-receipt"):                {current: executionbackend.SchemaVersion, readable: []int{executionbackend.SchemaVersion}, emitted: []int{executionbackend.SchemaVersion}},
 	}
 	wantSchemaPolicies := map[string]standaloneArtifactPolicy{
 		standaloneContractKey("atl-profile", "activation-reference"):        {disposition: "preserve", privacy: "owner_private", migration: "compare_only", maxBytes: 1 << 20},
@@ -300,12 +304,15 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 		standaloneContractKey("standalone", "attempt-event"):                {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: lifecycle.MaxEventBytes},
 		standaloneContractKey("standalone", "attempt-ledger"):               {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: lifecycle.MaxHeaderBytes},
 		standaloneContractKey("standalone", "attempt-plan"):                 {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: lifecycle.MaxPlanBytes},
+		standaloneContractKey("standalone", "execution-backend-contract"):   {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: executionbackend.MaxContractBytes},
 		standaloneContractKey("standalone", "extension-conformance-bundle"): {disposition: "preserve", privacy: "public", migration: "explicit", maxBytes: 1 << 20},
 		standaloneContractKey("standalone", "extension-conformance-report"): {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: 1 << 20},
 		standaloneContractKey("standalone", "migration-preview"):            {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: StandaloneMigrationArtifactMaxBytes},
 		standaloneContractKey("standalone", "migration-result"):             {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: StandaloneMigrationArtifactMaxBytes},
 		standaloneContractKey("standalone", "project-config"):               {disposition: "preserve", privacy: "public_or_private", migration: "explicit", maxBytes: StandaloneProjectConfigMaxBytes},
 		standaloneContractKey("standalone", "schema-registry"):              {disposition: "preserve", privacy: "public", migration: "explicit", maxBytes: StandaloneSchemaRegistryMaxBytes},
+		standaloneContractKey("standalone", "trial-plan"):                   {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: executionbackend.MaxPlanBytes},
+		standaloneContractKey("standalone", "trial-receipt"):                {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: executionbackend.MaxReceiptBytes},
 	}
 	for _, schema := range contract.ArtifactSchemas {
 		key := standaloneContractKey(schema.Namespace, schema.Kind)
@@ -371,7 +378,7 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 func TestStandaloneContractClassifiesCurrentCommandsAndArtifacts(t *testing.T) {
 	contract := loadStandaloneProductContractFixture(t)
 	commands := standaloneCoordinatorCommands(t, filepath.Join("cmd", "agent-eval", "main.go"))
-	if len(commands) != 17 || !slices.Equal(commands, contract.MaintainerCommands) {
+	if len(commands) != 18 || !slices.Equal(commands, contract.MaintainerCommands) {
 		t.Fatalf("coordinator commands=%v, contract=%v", commands, contract.MaintainerCommands)
 	}
 

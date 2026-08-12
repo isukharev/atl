@@ -643,6 +643,9 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 			returnErr = finalizeRunAttempt(parent, bindings.attemptSession, result, returnErr, terminationProven, processReceipt, timedOut, attemptUsage)
 		}()
 	}
+	if err := localExecutionBackendPlanForAttempt(contract, bindings); err != nil {
+		return Result{}, err
+	}
 	layout, err := prepareHeadlessAttemptLayout(contract, bindings)
 	if err != nil {
 		return Result{}, err

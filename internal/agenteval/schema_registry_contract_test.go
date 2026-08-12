@@ -68,6 +68,8 @@ func standaloneSchemaOwner(namespace, kind string) string {
 	switch kind {
 	case "agent-adapter-contract", "agent-observation":
 		return "agentadapter"
+	case "execution-backend-contract", "trial-plan", "trial-receipt":
+		return "executionbackend"
 	case "adapter-manifest", "adapter-message", "extension-conformance-bundle", "extension-conformance-report":
 		return "extension"
 	case "attempt-event", "attempt-ledger", "attempt-plan":

@@ -1,10 +1,7 @@
 {
   "schema_version": 1,
   "contract_version": "0.1.0-pre-release",
-  "golden_bundle": {
-    "path": "testdata/standalone-readability-golden.v1.json",
-    "sha256": "4751c2f9f9e7e0448e4941cbbaf879a6a032b66628b974e7b4d36900f141e987"
-  },
+  "golden_bundle": {"path":"testdata/standalone-readability-golden.v1.json","sha256":"c39a3ca471707d035672fc25335fc1af6f63c5778335341ccd5a4edd845e91ab"},
   "readability": [
     {"namespace":"atl-profile","kind":"activation-reference","versions":[1,2]},
     {"namespace":"atl-profile","kind":"activation-report","versions":[1,2]},
@@ -28,12 +25,15 @@
     {"namespace":"standalone","kind":"attempt-event","versions":[1]},
     {"namespace":"standalone","kind":"attempt-ledger","versions":[1]},
     {"namespace":"standalone","kind":"attempt-plan","versions":[1]},
+    {"namespace":"standalone","kind":"execution-backend-contract","versions":[1]},
     {"namespace":"standalone","kind":"extension-conformance-bundle","versions":[1]},
     {"namespace":"standalone","kind":"extension-conformance-report","versions":[1]},
     {"namespace":"standalone","kind":"migration-preview","versions":[1]},
     {"namespace":"standalone","kind":"migration-result","versions":[1]},
     {"namespace":"standalone","kind":"project-config","versions":[1]},
-    {"namespace":"standalone","kind":"schema-registry","versions":[1]}
+    {"namespace":"standalone","kind":"schema-registry","versions":[1]},
+    {"namespace":"standalone","kind":"trial-plan","versions":[1]},
+    {"namespace":"standalone","kind":"trial-receipt","versions":[1]}
   ],
   "forward_rejection": [
     {"namespace":"atl-profile","kind":"activation-reference","version":3},
@@ -58,13 +58,16 @@
     {"namespace":"standalone","kind":"attempt-event","version":2},
     {"namespace":"standalone","kind":"attempt-ledger","version":2},
     {"namespace":"standalone","kind":"attempt-plan","version":2},
+    {"namespace":"standalone","kind":"execution-backend-contract","version":2},
     {"namespace":"standalone","kind":"extension-conformance-bundle","version":2},
     {"namespace":"standalone","kind":"extension-conformance-report","version":2},
     {"namespace":"standalone","kind":"migration-preview","version":2},
     {"namespace":"standalone","kind":"migration-result","version":2},
     {"namespace":"standalone","kind":"product-contract","version":2},
     {"namespace":"standalone","kind":"project-config","version":2},
-    {"namespace":"standalone","kind":"schema-registry","version":2}
+    {"namespace":"standalone","kind":"schema-registry","version":2},
+    {"namespace":"standalone","kind":"trial-plan","version":2},
+    {"namespace":"standalone","kind":"trial-receipt","version":2}
   ],
   "metric_vectors": [
     {"id":"legacy-not-applicable-zero","representation":"atl-profile-legacy","present":true,"required":true,"state":"not_applicable","coverage":false,"value":0,"valid":false},

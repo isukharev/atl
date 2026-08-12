@@ -330,6 +330,18 @@ The process oracle uses only synthetic loopback endpoints, closed invocation
 policies, bounded protocol/output bytes, deadlines, an attested private
 executable copy, process-tree cleanup, and an isolated child environment; it
 does not inherit configured backend credentials.
+The evaluator also has a provider-neutral execution-backend contract. Its
+`reference-hermetic` implementation is a deterministic in-memory oracle over
+canonical content-addressed USTAR snapshots: it exposes no ambient filesystem,
+process, environment, network, or credential surface, copies only declared
+artifacts, and grades from a separate byte clone. Unsupported isolation or
+resource requirements refuse before durable commit. Existing ATL runs retain
+their behavior through a distinct `local_process` projection whose ambient
+network/credential access and unproved CPU, memory, process-count, verifier,
+and termination guarantees remain explicit. The internal
+`verify-execution-backend` process command proves only manifest/protocol/
+contract/plan agreement for a selected executable; it does not upgrade that
+child to hermetic assurance.
 Its CLI boundary has one shared admission, accounting, executable-attestation,
 deadline, and output-bound path: strict JSON callers add one-value and
 duplicate-key rejection after execution, while byte callers preserve stdout
