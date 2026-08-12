@@ -54,7 +54,7 @@ func TestCorpusExportBypassesConfigCredentialsAndSelfUpdate(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &result); err != nil {
 		t.Fatalf("decode output: %v\n%s", err, out)
 	}
-	if result.SchemaVersion != 1 || result.Reused || result.Projection.Readiness != "partial" || requests.Load() != 0 {
+	if result.SchemaVersion != 2 || result.Reused || result.Projection.Readiness != "partial" || requests.Load() != 0 {
 		t.Fatalf("result=%#v requests=%d", result, requests.Load())
 	}
 	for _, private := range []string{mirrorRoot, storeRoot, "Synthetic", "backend.example.test", "credential canary"} {

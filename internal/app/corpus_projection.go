@@ -41,9 +41,12 @@ type corpusProjectionBuilder struct {
 	documents     []corpus.IndexerDocument
 	edges         []corpus.IndexerEdge
 	markdown      []corpus.MarkdownMember
+	artifacts     []corpus.IndexerArtifact
+	artifactFiles []corpus.ArtifactMember
 	files         map[string][]byte
 	documentsSeen map[string]struct{}
 	edgesSeen     map[string]struct{}
+	artifactsSeen map[string]struct{}
 
 	jiraByKey           map[string]string
 	confluenceByID      map[string]string
@@ -85,8 +88,10 @@ func projectCorpusSnapshots(ctx context.Context, sources []corpusExportSource, l
 func indexCorpusSnapshotSources(ctx context.Context, sources []corpusExportSource) ([]corpusIndexedSource, *corpusProjectionBuilder, error) {
 	builder := &corpusProjectionBuilder{
 		documents: []corpus.IndexerDocument{}, edges: []corpus.IndexerEdge{}, markdown: []corpus.MarkdownMember{},
+		artifacts: []corpus.IndexerArtifact{}, artifactFiles: []corpus.ArtifactMember{},
 		files: make(map[string][]byte), documentsSeen: make(map[string]struct{}), edgesSeen: make(map[string]struct{}),
-		jiraByKey: make(map[string]string), confluenceByID: make(map[string]string),
+		artifactsSeen: make(map[string]struct{}),
+		jiraByKey:     make(map[string]string), confluenceByID: make(map[string]string),
 		confluenceByTitle: make(map[string]string), confluenceAmbiguous: make(map[string]bool),
 	}
 	indexed := make([]corpusIndexedSource, 0, len(sources))
@@ -181,6 +186,10 @@ func (builder *corpusProjectionBuilder) projectConfluenceItem(source corpusExpor
 		}
 		relationsEvidence = corpusComplete(corpus.EvidenceRelations, 0)
 	}
+	attachmentTargets, err := corpusConfluenceAttachmentTargets(source, item)
+	if err != nil {
+		return err
+	}
 
 	relationCount := 0
 	if metadata.Parent != "" {
@@ -218,8 +227,7 @@ func (builder *corpusProjectionBuilder) projectConfluenceItem(source corpusExpor
 			targetID = builder.jiraByKey[strings.ToUpper(reference.Title)]
 			value = strings.ToUpper(reference.Title)
 		case corpus.ObjectAttachment:
-			// Confluence metadata does not expose a stable attachment ID in
-			// this mirror shape, so preserve the filename as unresolved.
+			targetID = attachmentTargets[reference.Title]
 		default:
 			continue
 		}
@@ -240,6 +248,10 @@ func (builder *corpusProjectionBuilder) projectConfluenceItem(source corpusExpor
 	if err != nil {
 		return err
 	}
+	attachmentsEvidence, err := builder.projectConfluenceAttachments(source, indexed, item, visibility, visibilityEvidence)
+	if err != nil {
+		return err
+	}
 
 	document := corpus.IndexerDocument{
 		SchemaVersion: corpus.IndexerSchemaV1, ID: indexed.stableID, Service: corpus.ServiceConfluence, Kind: corpus.ObjectPage,
@@ -247,7 +259,7 @@ func (builder *corpusProjectionBuilder) projectConfluenceItem(source corpusExpor
 		Updated: corpusCanonicalTimestamp(metadata.Updated), Labels: corpusSortedUnique(metadata.Labels), Source: lineage,
 		Text: text, RenderStatus: renderStatus, MarkdownPath: indexed.markdownPath, Visibility: visibility,
 		Evidence: corpusEvidenceSet(
-			corpusUnsupported(corpus.EvidenceAttachments), bodyEvidence, commentsEvidence,
+			attachmentsEvidence, bodyEvidence, commentsEvidence,
 			corpusComplete(corpus.EvidenceHierarchy, corpusBoolCount(metadata.Parent != "")),
 			corpusComplete(corpus.EvidenceMetadata, 1), relationsEvidence, visibilityEvidence,
 		),
@@ -432,6 +444,29 @@ func (builder *corpusProjectionBuilder) addEdge(edge corpus.IndexerEdge) error {
 	return nil
 }
 
+func (builder *corpusProjectionBuilder) addArtifact(artifact corpus.IndexerArtifact, data []byte) error {
+	if _, duplicate := builder.artifactsSeen[artifact.DocumentID]; duplicate {
+		return fmt.Errorf("duplicate corpus artifact identity")
+	}
+	builder.artifactsSeen[artifact.DocumentID] = struct{}{}
+	builder.artifacts = append(builder.artifacts, artifact)
+	if artifact.Status == corpus.ArtifactBodyCaptured {
+		if int64(len(data)) != artifact.Size || corpusBytesSHA256(data) != artifact.SHA256 {
+			return fmt.Errorf("captured corpus artifact bytes are mismatched")
+		}
+		if _, duplicate := builder.files[artifact.Path]; duplicate {
+			return fmt.Errorf("duplicate corpus artifact path")
+		}
+		builder.files[artifact.Path] = append([]byte(nil), data...)
+		builder.artifactFiles = append(builder.artifactFiles, corpus.ArtifactMember{
+			DocumentID: artifact.DocumentID, Path: artifact.Path, Size: artifact.Size, SHA256: artifact.SHA256,
+		})
+	} else if data != nil {
+		return fmt.Errorf("uncaptured corpus artifact has bytes")
+	}
+	return nil
+}
+
 func (builder *corpusProjectionBuilder) linkResolver(source corpusIndexedItem) mirror.MarkdownLinkResolver {
 	return func(target string) (string, bool) {
 		switch {
@@ -597,6 +632,10 @@ func corpusPartial(kind corpus.EvidenceKind, count int, reasons ...corpus.Eviden
 
 func corpusUnavailable(kind corpus.EvidenceKind, reasons ...corpus.EvidenceReason) corpus.Evidence {
 	return corpus.Evidence{Kind: kind, Status: corpus.EvidenceUnavailable, Reasons: corpusSortedReasons(reasons)}
+}
+
+func corpusForbidden(kind corpus.EvidenceKind) corpus.Evidence {
+	return corpus.Evidence{Kind: kind, Status: corpus.EvidenceForbidden, Reasons: []corpus.EvidenceReason{corpus.EvidenceRestrictedReason}}
 }
 
 func corpusNotRequested(kind corpus.EvidenceKind) corpus.Evidence {

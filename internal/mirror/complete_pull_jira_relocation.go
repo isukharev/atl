@@ -142,6 +142,7 @@ func (m *Mirror) PlanJiraIssueRelocation(identity string, next SyncState, pristi
 	view := tracked.View
 	plan.previous = CompletePullPreviousState{State: previous, View: &view}
 	var snapshot jiraIdentitySnapshot
+	var snapshotBytes []byte
 	for _, owned := range oldPublic {
 		path, pathErr := NewPublicArtifactPath(owned.path)
 		if pathErr != nil {
@@ -160,6 +161,7 @@ func (m *Mirror) PlanJiraIssueRelocation(identity string, next SyncState, pristi
 			if json.Unmarshal(b, &snapshot) != nil || snapshot.Key != previous.ID || snapshot.ID != identity || len(snapshot.Fields) == 0 || bytes.Equal(bytes.TrimSpace(snapshot.Fields), []byte("null")) {
 				return nil, fmt.Errorf("%w: Jira relocation snapshot does not prove the old key and stable identity", domain.ErrCheckFailed)
 			}
+			snapshotBytes = append([]byte(nil), b...)
 		case CompletePullArtifactRoleView:
 			if !bytes.Equal(b, pristineOldMD) {
 				return nil, fmt.Errorf("%w: Jira relocation source has unapplied or unqualified Markdown edits", domain.ErrCheckFailed)
@@ -200,6 +202,9 @@ func (m *Mirror) PlanJiraIssueRelocation(identity string, next SyncState, pristi
 	} else if !os.IsNotExist(readErr) {
 		return nil, fmt.Errorf("%w: inspect Jira relocation auxiliary", domain.ErrCheckFailed)
 	}
+	if err := m.planJiraEvidenceRelocation(plan, oldStem, identity, previous, snapshot, snapshotBytes); err != nil {
+		return nil, err
+	}
 	assetsRel := oldStem + ".assets"
 	assetsDir := filepath.Join(m.Root, filepath.FromSlash(assetsRel))
 	entries, readDirErr := safepath.ReadDirWithin(m.Root, assetsDir)
@@ -217,6 +222,7 @@ func (m *Mirror) PlanJiraIssueRelocation(identity string, next SyncState, pristi
 	newStem := strings.TrimSuffix(next.Path, ".wiki")
 	for _, rel := range []string{
 		next.Path, newStem + ".json", newStem + ".md", newStem + ".epic-children.json", newStem + ".assets",
+		newStem + ".comments.json", newStem + ".attachments.json", newStem + ".attachments",
 		filepath.ToSlash(filepath.Join(".atl", "base", next.ID+".wiki")),
 	} {
 		qualified, pathErr := parseDurableArtifactPath(rel)
@@ -231,6 +237,115 @@ func (m *Mirror) PlanJiraIssueRelocation(identity string, next SyncState, pristi
 		plan.newAbsent = append(plan.newAbsent, qualified)
 	}
 	return plan, nil
+}
+
+func (m *Mirror) planJiraEvidenceRelocation(
+	plan *JiraIssueRelocation,
+	oldStem, identity string,
+	previous SyncState,
+	snapshot jiraIdentitySnapshot,
+	snapshotBytes []byte,
+) error {
+	if plan == nil || len(snapshotBytes) == 0 {
+		return fmt.Errorf("%w: Jira relocation evidence has no parent snapshot", domain.ErrCheckFailed)
+	}
+	binding, found, err := m.BackendBinding(CorpusSnapshotJira)
+	if err != nil {
+		return err
+	}
+	metadataHash := Hash(snapshotBytes)
+	parentRevision := jiraRelocationRevision(snapshot.Fields)
+	commentsPath := oldStem + ".comments.json"
+	commentsBytes, commentsErr := safepath.ReadFileWithin(m.Root, filepath.Join(m.Root, filepath.FromSlash(commentsPath)))
+	if commentsErr == nil {
+		comments, decodeErr := DecodeJiraCommentsSidecarV1(commentsBytes)
+		if decodeErr != nil || !found || comments.OriginSHA256 != binding.OriginSHA256 || comments.ParentID != identity ||
+			comments.ParentRevision != parentRevision || comments.NativeSHA256 != previous.Hash || comments.MetadataSHA256 != metadataHash {
+			return fmt.Errorf("%w: Jira relocation comment evidence does not prove ownership by the old issue", domain.ErrCheckFailed)
+		}
+		if err := appendJiraRelocationFile(plan, commentsPath, CompletePullArtifactRoleAuxiliary, commentsBytes); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(commentsErr) {
+		return fmt.Errorf("%w: inspect Jira relocation comment evidence", domain.ErrCheckFailed)
+	}
+
+	attachmentsPath := oldStem + ".attachments.json"
+	attachmentsBytes, attachmentsErr := safepath.ReadFileWithin(m.Root, filepath.Join(m.Root, filepath.FromSlash(attachmentsPath)))
+	expectedBodies := map[string]string{}
+	if attachmentsErr == nil {
+		attachments, decodeErr := DecodeAttachmentSidecarV1(attachmentsBytes)
+		if decodeErr != nil || !found || attachments.OriginSHA256 != binding.OriginSHA256 || attachments.Service != CorpusSnapshotJira ||
+			attachments.ParentID != identity || attachments.ParentVersion != 0 || attachments.ParentRevision != parentRevision ||
+			attachments.NativeSHA256 != previous.Hash || attachments.MetadataSHA256 != metadataHash {
+			return fmt.Errorf("%w: Jira relocation attachment evidence does not prove ownership by the old issue", domain.ErrCheckFailed)
+		}
+		if err := appendJiraRelocationFile(plan, attachmentsPath, CompletePullArtifactRoleAuxiliary, attachmentsBytes); err != nil {
+			return err
+		}
+		bodyPrefix := oldStem + ".attachments/"
+		for _, attachment := range attachments.Attachments {
+			if attachment.Body.State != AttachmentBodyCaptured {
+				continue
+			}
+			if !strings.HasPrefix(attachment.Body.Path, bodyPrefix) {
+				return fmt.Errorf("%w: Jira relocation attachment body is outside the old issue", domain.ErrCheckFailed)
+			}
+			body, readErr := safepath.ReadFileWithin(m.Root, filepath.Join(m.Root, filepath.FromSlash(attachment.Body.Path)))
+			if readErr != nil || int64(len(body)) != attachment.Body.Size || Hash(body) != attachment.Body.SHA256 {
+				return fmt.Errorf("%w: Jira relocation attachment body is missing or changed", domain.ErrCheckFailed)
+			}
+			if err := appendJiraRelocationFile(plan, attachment.Body.Path, CompletePullArtifactRoleAuxiliary, body); err != nil {
+				return err
+			}
+			expectedBodies[filepath.Base(filepath.FromSlash(attachment.Body.Path))] = attachment.Body.SHA256
+		}
+	} else if !os.IsNotExist(attachmentsErr) {
+		return fmt.Errorf("%w: inspect Jira relocation attachment evidence", domain.ErrCheckFailed)
+	}
+	attachmentsDir := filepath.Join(m.Root, filepath.FromSlash(oldStem+".attachments"))
+	entries, readDirErr := safepath.ReadDirWithin(m.Root, attachmentsDir)
+	if readDirErr == nil {
+		if len(entries) != len(expectedBodies) {
+			return fmt.Errorf("%w: Jira relocation attachment directory differs from its ownership inventory", domain.ErrCheckFailed)
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				return fmt.Errorf("%w: Jira relocation attachment directory contains an unowned entry", domain.ErrCheckFailed)
+			}
+			if _, present := expectedBodies[entry.Name()]; !present {
+				return fmt.Errorf("%w: Jira relocation attachment directory contains an unowned entry", domain.ErrCheckFailed)
+			}
+		}
+	} else if !os.IsNotExist(readDirErr) {
+		return fmt.Errorf("%w: inspect Jira relocation attachment directory", domain.ErrCheckFailed)
+	} else if len(expectedBodies) != 0 {
+		return fmt.Errorf("%w: Jira relocation attachment directory is missing", domain.ErrCheckFailed)
+	}
+	return nil
+}
+
+func appendJiraRelocationFile(plan *JiraIssueRelocation, rel string, role CompletePullArtifactRole, data []byte) error {
+	path, err := NewPublicArtifactPath(rel)
+	if err != nil {
+		return err
+	}
+	plan.retire = append(plan.retire, jiraIssueRelocationArtifact{
+		artifact: CompletePullArtifact{Path: path, Role: role, Remove: true}, hash: Hash(data),
+	})
+	return nil
+}
+
+func jiraRelocationRevision(fields json.RawMessage) string {
+	var values map[string]any
+	if json.Unmarshal(fields, &values) != nil {
+		return ""
+	}
+	revision, _ := values["updated"].(string)
+	if strings.TrimSpace(revision) != revision {
+		return ""
+	}
+	return revision
 }
 
 func (m *Mirror) jiraRelocationArtifacts(plan *JiraIssueRelocation) ([]CompletePullArtifact, error) {

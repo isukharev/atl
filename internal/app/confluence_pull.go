@@ -455,9 +455,8 @@ func qualifyConfluenceClaimedTarget(m *mirror.Mirror, id, dir, slug, rel string,
 		return action, fmt.Errorf("%w: inspect untracked pull target for page %s: %v", domain.ErrCheckFailed, id, err)
 	}
 	owned := map[string]bool{
-		slug + ".csf": true, slug + ".md": true, slug + ".meta.json": true,
-		slug + ".comments.json": true, slug + ".comments.md": true,
-		slug + ".jira-macros.json": true, slug + ".assets": true,
+		slug + ".csf": true, slug + ".md": true, slug + ".meta.json": true, slug + ".comments.json": true, slug + ".comments.md": true,
+		slug + ".attachments.json": true, slug + ".attachments": true, slug + ".jira-macros.json": true, slug + ".assets": true,
 		slug + ".relocated.json": true,
 	}
 	for _, entry := range entries {

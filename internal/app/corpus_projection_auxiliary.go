@@ -10,6 +10,7 @@ import (
 
 	"github.com/isukharev/atl/internal/corpus"
 	"github.com/isukharev/atl/internal/csf"
+	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/fragment"
 	"github.com/isukharev/atl/internal/mirror"
 )
@@ -90,6 +91,11 @@ func (builder *corpusProjectionBuilder) projectConfluenceComments(
 		}
 		if decoded.V2.Complete {
 			return corpusComplete(corpus.EvidenceComments, count), nil
+		}
+		for _, reason := range decoded.V2.PartialReasons {
+			if reason == domain.ConfluenceCommentPartialForbidden {
+				return corpusForbidden(corpus.EvidenceComments), nil
+			}
 		}
 		reasons := []corpus.EvidenceReason{corpus.EvidenceUnresolved}
 		for _, reason := range decoded.V2.PartialReasons {
@@ -203,6 +209,9 @@ func (builder *corpusProjectionBuilder) projectJiraComments(
 	if corpusCaptureDimensionNotRequested(source, corpus.CaptureComments) {
 		return corpusNotRequested(corpus.EvidenceComments), nil
 	}
+	if sidecar, present := corpusAuxiliaryWithSuffix(item.Auxiliaries, ".comments.json"); present {
+		return builder.projectQualifiedJiraComments(source, owner, item, sidecar, visibility, visibilityEvidence)
+	}
 	raw, present := fields["comment"]
 	if !present {
 		return corpusNotRequested(corpus.EvidenceComments), nil
@@ -293,6 +302,83 @@ func (builder *corpusProjectionBuilder) projectJiraComments(
 	return corpusPartial(corpus.EvidenceComments, len(rawComments), reasons...), nil
 }
 
+func (builder *corpusProjectionBuilder) projectQualifiedJiraComments(
+	source corpusExportSource,
+	owner corpusIndexedItem,
+	item mirror.CorpusSnapshotItem,
+	sidecar mirror.CorpusSnapshotFile,
+	visibility corpus.Visibility,
+	visibilityEvidence corpus.Evidence,
+) (corpus.Evidence, error) {
+	decoded, err := mirror.DecodeJiraCommentsSidecarV1(sidecar.Data)
+	if err != nil || decoded.OriginSHA256 != source.snapshot.OriginSHA256() || decoded.ParentID != item.ProviderID ||
+		decoded.ParentRevision != corpusJiraSnapshotRevision(item.Metadata.Data) || decoded.NativeSHA256 != item.Native.SHA256 ||
+		decoded.MetadataSHA256 != item.Metadata.SHA256 {
+		return corpus.Evidence{}, fmt.Errorf("qualified Jira comment sidecar is misbound")
+	}
+	lineage := corpus.SourceLineage{Path: sidecar.Path, NativeSHA256: item.Native.SHA256, MetadataSHA256: item.Metadata.SHA256}
+	targets := make(map[string]string, len(decoded.Comments))
+	for _, comment := range decoded.Comments {
+		stableID, idErr := corpus.StableObjectID(source.snapshot.OriginSHA256(), corpus.ServiceJira, corpus.ObjectComment, comment.ID)
+		if idErr != nil {
+			return corpus.Evidence{}, idErr
+		}
+		targets[comment.ID] = stableID
+	}
+	for _, comment := range decoded.Comments {
+		stableID := targets[comment.ID]
+		markdownPath := corpusMarkdownPath(corpus.ServiceJira, stableID)
+		text, status, bodyEvidence := corpusRenderJiraWiki([]byte(comment.Body), builder.jiraLinkResolver(corpusIndexedItem{
+			stableID: stableID, markdownPath: markdownPath, container: owner.container,
+		}))
+		relationCount := 1
+		if err := builder.addEdge(corpus.IndexerEdge{
+			SchemaVersion: corpus.IndexerSchemaV1, SourceID: stableID, Relation: corpus.EdgeCommentOwner,
+			Direction: corpus.DirectionOutbound, TargetID: owner.stableID,
+			Confidence: corpus.ConfidenceExact, Evidence: corpus.EdgeEvidence{Kind: corpus.EvidenceComments, Path: sidecar.Path, Fragment: "comment-owner"},
+		}); err != nil {
+			return corpus.Evidence{}, err
+		}
+		if comment.ParentID != "" {
+			parentStableID := targets[comment.ParentID]
+			if err := builder.addEdge(corpus.IndexerEdge{
+				SchemaVersion: corpus.IndexerSchemaV1, SourceID: stableID, Relation: corpus.EdgeCommentReply,
+				Direction: corpus.DirectionOutbound, TargetID: parentStableID,
+				Unresolved: corpusReferenceIfEmpty(parentStableID, corpus.ServiceJira, corpus.ObjectComment, comment.ParentID),
+				Confidence: corpus.ConfidenceExact, Evidence: corpus.EdgeEvidence{Kind: corpus.EvidenceComments, Path: sidecar.Path, Fragment: "comment-reply"},
+			}); err != nil {
+				return corpus.Evidence{}, err
+			}
+			relationCount++
+		}
+		updated := comment.UpdatedAt
+		if updated == "" {
+			updated = comment.CreatedAt
+		}
+		if err := builder.addDocument(corpus.IndexerDocument{
+			SchemaVersion: corpus.IndexerSchemaV1, ID: stableID, Service: corpus.ServiceJira, Kind: corpus.ObjectComment,
+			Container: owner.container, Updated: corpusCanonicalTimestamp(updated), Labels: []string{}, Source: lineage,
+			Text: text, RenderStatus: status, MarkdownPath: markdownPath, Visibility: visibility,
+			Evidence: corpusEvidenceSet(corpusUnsupported(corpus.EvidenceAttachments), bodyEvidence, corpusUnsupported(corpus.EvidenceComments),
+				corpusComplete(corpus.EvidenceHierarchy, 1), corpusComplete(corpus.EvidenceMetadata, 1),
+				corpusComplete(corpus.EvidenceRelations, relationCount), visibilityEvidence),
+		}); err != nil {
+			return corpus.Evidence{}, err
+		}
+	}
+	if decoded.Complete {
+		return corpusComplete(corpus.EvidenceComments, decoded.Count), nil
+	}
+	switch decoded.PartialReason {
+	case mirror.JiraCommentsPartialForbidden:
+		return corpusForbidden(corpus.EvidenceComments), nil
+	case mirror.JiraCommentsPartialUnsupported:
+		return corpusUnsupported(corpus.EvidenceComments), nil
+	default:
+		return corpusPartial(corpus.EvidenceComments, decoded.Count, corpus.EvidenceTruncated), nil
+	}
+}
+
 func (builder *corpusProjectionBuilder) projectJiraAttachments(
 	source corpusExportSource,
 	owner corpusIndexedItem,
@@ -303,6 +389,9 @@ func (builder *corpusProjectionBuilder) projectJiraAttachments(
 ) (corpus.Evidence, error) {
 	if corpusCaptureDimensionNotRequested(source, corpus.CaptureAttachments) {
 		return corpusNotRequested(corpus.EvidenceAttachments), nil
+	}
+	if sidecar, present := corpusAuxiliaryWithSuffix(item.Auxiliaries, ".attachments.json"); present {
+		return builder.projectQualifiedAttachments(source, owner, item, sidecar, visibility, visibilityEvidence)
 	}
 	raw, present := fields["attachment"]
 	if !present {
@@ -340,8 +429,216 @@ func (builder *corpusProjectionBuilder) projectJiraAttachments(
 		}); err != nil {
 			return corpus.Evidence{}, err
 		}
+		if err := builder.addArtifact(corpus.IndexerArtifact{
+			SchemaVersion: corpus.IndexerSchemaV2, DocumentID: stableID, Service: corpus.ServiceJira, ParentID: owner.stableID,
+			MediaType:    corpusPresentation(corpusStringValue(attachment["mimeType"])),
+			DeclaredSize: corpusInt64Value(attachment["size"]), Status: corpus.ArtifactBodyNotRequested,
+			Source: corpus.ArtifactSourceLineage{
+				InventoryPath: item.Metadata.Path, InventorySHA256: item.Metadata.SHA256,
+				ParentNativeSHA256: item.Native.SHA256, ParentMetadataSHA256: item.Metadata.SHA256,
+			},
+		}, nil); err != nil {
+			return corpus.Evidence{}, err
+		}
 	}
 	return corpusComplete(corpus.EvidenceAttachments, len(attachments)), nil
+}
+
+func (builder *corpusProjectionBuilder) projectConfluenceAttachments(
+	source corpusExportSource,
+	owner corpusIndexedItem,
+	item mirror.CorpusSnapshotItem,
+	visibility corpus.Visibility,
+	visibilityEvidence corpus.Evidence,
+) (corpus.Evidence, error) {
+	if corpusCaptureDimensionNotRequested(source, corpus.CaptureAttachments) {
+		return corpusNotRequested(corpus.EvidenceAttachments), nil
+	}
+	sidecar, present := corpusAuxiliaryWithSuffix(item.Auxiliaries, ".attachments.json")
+	if !present {
+		return corpusUnsupported(corpus.EvidenceAttachments), nil
+	}
+	return builder.projectQualifiedAttachments(source, owner, item, sidecar, visibility, visibilityEvidence)
+}
+
+func corpusConfluenceAttachmentTargets(source corpusExportSource, item mirror.CorpusSnapshotItem) (map[string]string, error) {
+	targets := map[string]string{}
+	if source.service != corpus.ServiceConfluence || corpusCaptureDimensionNotRequested(source, corpus.CaptureAttachments) {
+		return targets, nil
+	}
+	sidecar, present := corpusAuxiliaryWithSuffix(item.Auxiliaries, ".attachments.json")
+	if !present {
+		return targets, nil
+	}
+	decoded, err := mirror.DecodeAttachmentSidecarV1(sidecar.Data)
+	if err != nil || decoded.Service != mirror.CorpusSnapshotConfluence || decoded.OriginSHA256 != source.snapshot.OriginSHA256() ||
+		decoded.ParentID != item.ProviderID || decoded.ParentVersion != item.Version || decoded.ParentRevision != "" ||
+		decoded.NativeSHA256 != item.Native.SHA256 || decoded.MetadataSHA256 != item.Metadata.SHA256 {
+		return nil, fmt.Errorf("qualified Confluence attachment sidecar is misbound")
+	}
+	ambiguous := map[string]bool{}
+	for _, attachment := range decoded.Attachments {
+		stableID, idErr := corpus.StableObjectID(source.snapshot.OriginSHA256(), source.service, corpus.ObjectAttachment, attachment.ID)
+		if idErr != nil {
+			return nil, idErr
+		}
+		if previous, exists := targets[attachment.Filename]; exists && previous != stableID {
+			ambiguous[attachment.Filename] = true
+		} else {
+			targets[attachment.Filename] = stableID
+		}
+	}
+	for filename := range ambiguous {
+		delete(targets, filename)
+	}
+	return targets, nil
+}
+
+func (builder *corpusProjectionBuilder) projectQualifiedAttachments(
+	source corpusExportSource,
+	owner corpusIndexedItem,
+	item mirror.CorpusSnapshotItem,
+	sidecar mirror.CorpusSnapshotFile,
+	visibility corpus.Visibility,
+	visibilityEvidence corpus.Evidence,
+) (corpus.Evidence, error) {
+	decoded, err := mirror.DecodeAttachmentSidecarV1(sidecar.Data)
+	if err != nil || decoded.Service != string(source.service) || decoded.OriginSHA256 != source.snapshot.OriginSHA256() ||
+		decoded.ParentID != item.ProviderID || decoded.NativeSHA256 != item.Native.SHA256 || decoded.MetadataSHA256 != item.Metadata.SHA256 {
+		return corpus.Evidence{}, fmt.Errorf("qualified attachment sidecar is misbound")
+	}
+	switch source.service {
+	case corpus.ServiceConfluence:
+		if decoded.ParentVersion != item.Version || decoded.ParentRevision != "" {
+			return corpus.Evidence{}, fmt.Errorf("qualified Confluence attachment sidecar is misbound")
+		}
+	case corpus.ServiceJira:
+		if decoded.ParentVersion != 0 || decoded.ParentRevision != corpusJiraSnapshotRevision(item.Metadata.Data) {
+			return corpus.Evidence{}, fmt.Errorf("qualified Jira attachment sidecar is misbound")
+		}
+	default:
+		return corpus.Evidence{}, fmt.Errorf("qualified attachment service is unsupported")
+	}
+	lineage := corpus.SourceLineage{Path: sidecar.Path, NativeSHA256: item.Native.SHA256, MetadataSHA256: item.Metadata.SHA256}
+	for _, attachment := range decoded.Attachments {
+		stableID, idErr := corpus.StableObjectID(source.snapshot.OriginSHA256(), source.service, corpus.ObjectAttachment, attachment.ID)
+		if idErr != nil {
+			return corpus.Evidence{}, idErr
+		}
+		if err := builder.addEdge(corpus.IndexerEdge{
+			SchemaVersion: corpus.IndexerSchemaV1, SourceID: stableID, Relation: corpus.EdgeAttachmentOwner,
+			Direction: corpus.DirectionOutbound, TargetID: owner.stableID,
+			Confidence: corpus.ConfidenceExact, Evidence: corpus.EdgeEvidence{Kind: corpus.EvidenceAttachments, Path: sidecar.Path, Fragment: "attachment-owner"},
+		}); err != nil {
+			return corpus.Evidence{}, err
+		}
+		version := ""
+		if attachment.Version > 0 {
+			version = fmt.Sprint(attachment.Version)
+		}
+		if err := builder.addDocument(corpus.IndexerDocument{
+			SchemaVersion: corpus.IndexerSchemaV1, ID: stableID, Service: source.service, Kind: corpus.ObjectAttachment,
+			Title: corpusPresentation(attachment.Filename), Container: owner.container, Version: version,
+			Updated: corpusCanonicalTimestamp(attachment.CreatedAt), Labels: []string{}, Source: lineage,
+			RenderStatus: corpus.RenderUnsupported, Visibility: visibility,
+			Evidence: corpusEvidenceSet(corpusUnsupported(corpus.EvidenceAttachments), corpusUnsupported(corpus.EvidenceBody),
+				corpusUnsupported(corpus.EvidenceComments), corpusComplete(corpus.EvidenceHierarchy, 1), corpusComplete(corpus.EvidenceMetadata, 1),
+				corpusComplete(corpus.EvidenceRelations, 1), visibilityEvidence),
+		}); err != nil {
+			return corpus.Evidence{}, err
+		}
+		status, reason, mapErr := corpusArtifactBodyState(attachment.Body)
+		if mapErr != nil {
+			return corpus.Evidence{}, mapErr
+		}
+		artifact := corpus.IndexerArtifact{
+			SchemaVersion: corpus.IndexerSchemaV2, DocumentID: stableID, Service: source.service, ParentID: owner.stableID,
+			MediaType: corpusPresentation(attachment.MediaType), DeclaredSize: attachment.DeclaredSize,
+			Status: status, Reason: reason,
+			Source: corpus.ArtifactSourceLineage{
+				InventoryPath: sidecar.Path, InventorySHA256: sidecar.SHA256,
+				ParentNativeSHA256: item.Native.SHA256, ParentMetadataSHA256: item.Metadata.SHA256,
+			},
+		}
+		var body []byte
+		if attachment.Body.State == mirror.AttachmentBodyCaptured {
+			captured, present := corpusAuxiliaryAtPath(item.Auxiliaries, attachment.Body.Path)
+			if !present || captured.SHA256 != attachment.Body.SHA256 || int64(len(captured.Data)) != attachment.Body.Size {
+				return corpus.Evidence{}, fmt.Errorf("qualified attachment body is missing or mismatched")
+			}
+			artifact.Path = "artifacts/" + string(source.service) + "/" + stableID + ".body"
+			artifact.Size = attachment.Body.Size
+			artifact.SHA256 = attachment.Body.SHA256
+			body = captured.Data
+		}
+		if err := builder.addArtifact(artifact, body); err != nil {
+			return corpus.Evidence{}, err
+		}
+	}
+	if decoded.Complete {
+		return corpusComplete(corpus.EvidenceAttachments, decoded.Count), nil
+	}
+	if !decoded.InventoryComplete {
+		switch decoded.InventoryPartialReason {
+		case mirror.AttachmentInventoryForbidden:
+			return corpusForbidden(corpus.EvidenceAttachments), nil
+		case mirror.AttachmentInventoryUnsupported:
+			return corpusUnsupported(corpus.EvidenceAttachments), nil
+		}
+	}
+	reason := corpus.EvidenceUnresolved
+	for _, partial := range decoded.PartialReasons {
+		switch partial {
+		case mirror.AttachmentReasonInventoryPageLimit, mirror.AttachmentReasonInventoryItemLimit,
+			mirror.AttachmentReasonBodyCountLimit, mirror.AttachmentReasonBodyItemLimit, mirror.AttachmentReasonBodyAggregateLimit:
+			reason = corpus.EvidenceTruncated
+		}
+	}
+	return corpusPartial(corpus.EvidenceAttachments, decoded.Count, reason), nil
+}
+
+func corpusArtifactBodyState(body mirror.AttachmentSidecarBody) (corpus.ArtifactBodyStatus, corpus.ArtifactBodyReason, error) {
+	status := corpus.ArtifactBodyStatus(body.State)
+	reason := corpus.ArtifactBodyReason(body.Reason)
+	switch status {
+	case corpus.ArtifactBodyCaptured, corpus.ArtifactBodyExcluded, corpus.ArtifactBodyForbidden,
+		corpus.ArtifactBodyFailed, corpus.ArtifactBodyNotRequested:
+		return status, reason, nil
+	default:
+		return "", "", fmt.Errorf("qualified attachment body state is unsupported")
+	}
+}
+
+func corpusAuxiliaryAtPath(values []mirror.CorpusSnapshotFile, path string) (mirror.CorpusSnapshotFile, bool) {
+	for _, value := range values {
+		if value.Path == path {
+			return value, true
+		}
+	}
+	return mirror.CorpusSnapshotFile{}, false
+}
+
+func corpusInt64Value(value any) int64 {
+	switch current := value.(type) {
+	case float64:
+		if current >= 0 && current < 9223372036854775808.0 && current == float64(int64(current)) {
+			return int64(current)
+		}
+	case int:
+		if current >= 0 {
+			return int64(current)
+		}
+	case int64:
+		if current >= 0 {
+			return current
+		}
+	case json.Number:
+		parsed, err := current.Int64()
+		if err == nil && parsed >= 0 {
+			return parsed
+		}
+	}
+	return 0
 }
 
 func corpusCaptureDimensionNotRequested(source corpusExportSource, dimension corpus.CaptureDimension) bool {

@@ -245,6 +245,98 @@ func TestPageRelocationRefusesForeignOwnershipMarkerWithoutOverwrite(t *testing.
 	}
 }
 
+func TestPageRelocationRetiresOnlyQualifiedCanonicalAttachmentBodies(t *testing.T) {
+	m := New(t.TempDir())
+	origin := "sha256:" + strings.Repeat("a", 64)
+	if _, err := m.BindBackend(BackendBinding{Service: CorpusSnapshotConfluence, OriginSHA256: origin}); err != nil {
+		t.Fatal(err)
+	}
+	old := relocationPage("Old attachment page")
+	oldDir, oldSlug, _ := m.ClaimPageDir(old.SpaceKey, nil, old.Title, old.ID)
+	if err := m.Write(oldDir, oldSlug, old, nil); err != nil {
+		t.Fatal(err)
+	}
+	oldMD, _ := os.ReadFile(filepath.Join(oldDir, oldSlug+".md"))
+	oldMeta, _ := os.ReadFile(filepath.Join(oldDir, oldSlug+".meta.json"))
+	body := []byte("abc")
+	oldBase, err := filepath.Rel(m.Root, filepath.Join(oldDir, oldSlug))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bodyRel := filepath.ToSlash(oldBase) + ".attachments/7.body"
+	sidecar, err := EncodeAttachmentSidecarV1(AttachmentSidecarV1{
+		SchemaVersion: AttachmentSidecarSchemaV1, Service: CorpusSnapshotConfluence, OriginSHA256: origin,
+		ParentID: old.ID, ParentVersion: old.Version, NativeSHA256: Hash(old.Body), MetadataSHA256: Hash(oldMeta),
+		InventoryComplete: true, BodiesState: AttachmentBodiesComplete, Complete: true, Count: 1,
+		PartialReasons: []AttachmentPartialReason{}, Attachments: []AttachmentSidecarRecord{{
+			ID: "7", Version: 2, Filename: "a.bin", DeclaredSize: 3,
+			Body: AttachmentSidecarBody{State: AttachmentBodyCaptured, Path: bodyRel, Size: 3, SHA256: Hash(body)},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(oldDir, oldSlug+".attachments"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(m.Root, filepath.FromSlash(bodyRel)), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(oldDir, oldSlug+".attachments.json"), sidecar, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	updated := relocationPage("New attachment page")
+	updated.Version = 2
+	newDir, newSlug, _ := m.ClaimPageDir(updated.SpaceKey, nil, updated.Title, updated.ID)
+	newRel, _ := filepath.Rel(m.Root, filepath.Join(newDir, newSlug+".csf"))
+	plan, err := m.PlanPageRelocation(old.ID, newRel, oldMD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publication, err := relocationPublicationArtifacts(m, plan)
+	if err != nil || len(publication) != 6 {
+		t.Fatalf("publication=%#v error=%v", publication, err)
+	}
+	if err := m.Write(newDir, newSlug, updated, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RetirePageRelocation(plan); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{
+		filepath.Join(oldDir, oldSlug+".attachments.json"), filepath.Join(m.Root, filepath.FromSlash(bodyRel)),
+	} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("retired canonical attachment remains at %s: %v", path, err)
+		}
+	}
+}
+
+func TestPageRelocationRefusesUninventoriedCanonicalAttachmentBody(t *testing.T) {
+	m := New(t.TempDir())
+	page := relocationPage("Old attachment collision")
+	dir, slug, _ := m.ClaimPageDir(page.SpaceKey, nil, page.Title, page.ID)
+	if err := m.Write(dir, slug, page, nil); err != nil {
+		t.Fatal(err)
+	}
+	attachmentDir := filepath.Join(dir, slug+".attachments")
+	if err := os.MkdirAll(attachmentDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(attachmentDir, "local.body"), []byte("preserve"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	newDir, newSlug := m.PageDir(page.SpaceKey, nil, "New attachment collision")
+	newRel, _ := filepath.Rel(m.Root, filepath.Join(newDir, newSlug+".csf"))
+	oldMD, _ := os.ReadFile(filepath.Join(dir, slug+".md"))
+	if plan, err := m.PlanPageRelocation(page.ID, newRel, oldMD); plan != nil || !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("plan=%#v error=%v", plan, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(attachmentDir, "local.body")); err != nil || string(got) != "preserve" {
+		t.Fatalf("unowned body=%q error=%v", got, err)
+	}
+}
+
 func TestLoadCSFDoesNotAttachStateFromDifferentPath(t *testing.T) {
 	m := New(t.TempDir())
 	page := relocationPage("Tracked")

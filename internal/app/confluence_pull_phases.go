@@ -189,7 +189,12 @@ func (r *confluencePullRun) preparePage(fetched *confluencePullFetchedPage) (*co
 		}
 		commentInventory, err = r.service.commentInventoryForPage(r.ctx, page, commentOptions)
 		if err != nil {
-			return nil, fmt.Errorf("pull comments %s: %w", fetched.id, err)
+			if r.opts.evidence != nil && r.opts.evidence.binding.Comments && r.opts.evidence.binding.AllowPartialEvidence &&
+				errors.Is(err, domain.ErrForbidden) {
+				commentInventory = forbiddenConfluenceCommentInventory(page, commentOptions)
+			} else {
+				return nil, fmt.Errorf("pull comments %s: %w", fetched.id, err)
+			}
 		}
 		comments = confluenceQualifiedCommentsForDisplay(commentInventory, "")
 		sidecar := confluenceCommentsSidecarV2(commentInventory)

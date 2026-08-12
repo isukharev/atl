@@ -427,10 +427,7 @@ func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, err
 		}
 		c.tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, req.URL.Path))
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			if budget := domain.ReadBudgetFromContext(ctx); budget != nil {
-				return newReadBudgetStream(ctx, resp.Body, downloadIdleTimeout, cancel, budget), nil
-			}
-			return newIdleReader(resp.Body, downloadIdleTimeout, cancel), nil
+			return newDownloadStream(ctx, resp.Body, cancel), nil
 		}
 		result := c.classifyAttempt(http.MethodGet, resp)
 		data, rerr := readResponseBody(ctx, resp.Body, jsonBodyCap)

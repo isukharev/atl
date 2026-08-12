@@ -399,6 +399,17 @@ func relocationPublicationArtifacts(m *Mirror, plan *PageRelocation) ([]Complete
 			}
 			out = append(out, CompletePullArtifact{Path: rel, Remove: true})
 		}
+		for _, owned := range plan.owned {
+			rel, err := PublicArtifactPathWithin(m.Root, owned.path)
+			if err != nil {
+				return nil, err
+			}
+			current, currentErr := publicationCurrent(m.Root, rel.String())
+			if currentErr != nil || !current.Present || current.SHA256 != owned.hash {
+				return nil, fmt.Errorf("%w: relocation source %s changed after qualification; preserving it", domain.ErrCheckFailed, rel.String())
+			}
+			out = append(out, CompletePullArtifact{Path: rel, Remove: true})
+		}
 	}
 	return out, nil
 }

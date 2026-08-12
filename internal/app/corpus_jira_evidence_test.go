@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isukharev/atl/internal/corpus"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/mirror"
 )
@@ -193,6 +195,135 @@ func TestJiraCorpusEvidencePartialPolicyIsExplicit(t *testing.T) {
 			if readErr != nil || decodeErr != nil || decoded.Complete || decoded.PartialReason != domain.JiraCommentPartialPageLimit {
 				t.Fatalf("decoded=%+v read=%v decode=%v", decoded, readErr, decodeErr)
 			}
+			capture := corpusExportCaptureReceiptWithDimensions(t, corpus.ServiceJira, root, []corpus.CaptureDimensionEvidence{
+				{Dimension: corpus.CaptureNative, State: corpus.CaptureComplete},
+				{Dimension: corpus.CaptureMetadata, State: corpus.CaptureComplete},
+				{Dimension: corpus.CaptureComments, State: corpus.CapturePartial},
+				{Dimension: corpus.CaptureAttachments, State: corpus.CaptureComplete},
+			})
+			storeRoot := t.TempDir()
+			if err := os.Chmod(storeRoot, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			exported, err := ExportCorpus(t.Context(), CorpusExportOptions{
+				JiraRoot: root, StoreRoot: storeRoot, InitializeStore: true,
+				GeneratorVersion: "test-v2", BuildState: corpus.BuildStateClean,
+				CaptureReceipts: []corpus.CaptureReceipt{capture},
+			})
+			if err != nil || exported.Projection.Readiness != corpus.ProjectionPartial ||
+				len(exported.Projection.Qualifications) != 1 || exported.Projection.Qualifications[0].State != corpus.QualificationPartial ||
+				len(exported.Projection.Qualifications[0].Reasons) != 1 || exported.Projection.Qualifications[0].Reasons[0] != corpus.QualificationIncompletePull {
+				t.Fatalf("partial projection=%#v error=%v", exported, err)
+			}
 		})
+	}
+}
+
+func TestJiraQualifiedEvidenceProjectsIndexerV2Artifacts(t *testing.T) {
+	mirrorRoot := t.TempDir()
+	tracker := newJiraCorpusEvidenceTracker()
+	_, err := (&JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}).Pull(t.Context(), JiraPullOpts{
+		Complete: true, Project: "PROJ", MaxIssues: 2, Into: mirrorRoot,
+		exactFields: []string{"summary", "description", "project", "updated", "issuelinks"},
+		evidence:    jiraCorpusEvidenceOptions(false),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	capture := corpusExportCaptureReceiptWithDimensions(t, corpus.ServiceJira, mirrorRoot, []corpus.CaptureDimensionEvidence{
+		{Dimension: corpus.CaptureNative, State: corpus.CaptureComplete},
+		{Dimension: corpus.CaptureMetadata, State: corpus.CaptureComplete},
+		{Dimension: corpus.CaptureComments, State: corpus.CaptureComplete},
+		{Dimension: corpus.CaptureAttachments, State: corpus.CaptureComplete},
+	})
+	storeRoot := t.TempDir()
+	if err := os.Chmod(storeRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	result, err := ExportCorpus(t.Context(), CorpusExportOptions{
+		JiraRoot: mirrorRoot, StoreRoot: storeRoot, InitializeStore: true,
+		GeneratorVersion: "test-v2", BuildState: corpus.BuildStateClean,
+		CaptureReceipts: []corpus.CaptureReceipt{capture},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SchemaVersion != corpus.IndexerSchemaV2 || result.Projection.Readiness != corpus.ProjectionReady ||
+		result.Projection.Counts.Documents != 6 || result.Projection.Counts.Artifacts != 2 || result.Projection.Counts.ArtifactBytes != 6 {
+		t.Fatalf("projection=%#v", result)
+	}
+	documents, edges := readCorpusExportProjection(t, storeRoot, corpus.ServiceJira)
+	comments, attachments, owners := 0, 0, 0
+	for _, document := range documents {
+		switch document.Kind {
+		case corpus.ObjectIssue:
+			if document.Evidence[0].Status != corpus.EvidenceComplete || document.Evidence[2].Status != corpus.EvidenceComplete {
+				t.Fatalf("issue evidence=%#v", document.Evidence)
+			}
+		case corpus.ObjectComment:
+			comments++
+			if !strings.HasSuffix(document.Source.Path, ".comments.json") {
+				t.Fatalf("comment lineage=%#v", document.Source)
+			}
+		case corpus.ObjectAttachment:
+			attachments++
+			if !strings.HasSuffix(document.Source.Path, ".attachments.json") {
+				t.Fatalf("attachment lineage=%#v", document.Source)
+			}
+		}
+	}
+	for _, edge := range edges {
+		if (edge.Relation == corpus.EdgeCommentOwner || edge.Relation == corpus.EdgeAttachmentOwner) && edge.Confidence == corpus.ConfidenceExact {
+			owners++
+		}
+	}
+	if comments != 2 || attachments != 2 || owners != 4 {
+		t.Fatalf("documents=%#v edges=%#v", documents, edges)
+	}
+	store, err := corpus.Open(storeRoot, corpus.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	selected, err := store.SelectCurrent(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = selected.Close() }()
+	if selected.Manifest().ProjectionSchema != corpus.IndexerSchemaV2 {
+		t.Fatalf("manifest=%#v", selected.Manifest())
+	}
+	var artifactBytes bytes.Buffer
+	if _, err := selected.CopyMember(t.Context(), corpus.ServiceJira, corpusArtifactsStableID, corpus.RoleMetadata, &artifactBytes); err != nil {
+		t.Fatal(err)
+	}
+	artifacts, err := corpus.ParseIndexerArtifacts(artifactBytes.Bytes(), corpus.Limits{})
+	if err != nil || len(artifacts) != 2 {
+		t.Fatalf("artifacts=%#v error=%v", artifacts, err)
+	}
+	for _, artifact := range artifacts {
+		if artifact.Status != corpus.ArtifactBodyCaptured || artifact.Size != 3 || artifact.DeclaredSize != 3 ||
+			!strings.HasPrefix(artifact.Path, "artifacts/jira/") || !strings.HasSuffix(artifact.Source.InventoryPath, ".attachments.json") {
+			t.Fatalf("artifact=%#v", artifact)
+		}
+		var body bytes.Buffer
+		if _, err := selected.CopyMember(t.Context(), corpus.ServiceJira, artifact.DocumentID, corpus.RoleAsset, &body); err != nil || body.String() != "abc" {
+			t.Fatalf("body=%q error=%v", body.String(), err)
+		}
+	}
+	var receiptBytes bytes.Buffer
+	if _, err := selected.CopyMember(t.Context(), corpus.ServiceJira, corpusReceiptV2StableID, corpus.RoleMetadata, &receiptBytes); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := corpus.ParseIndexerReceiptV2(receiptBytes.Bytes(), corpus.Limits{})
+	if err != nil || receipt.ArtifactsDigest != result.Projection.ArtifactsDigest {
+		t.Fatalf("receipt=%#v error=%v", receipt, err)
+	}
+	var legacyReceiptBytes bytes.Buffer
+	if _, err := selected.CopyMember(t.Context(), corpus.ServiceJira, corpusReceiptStableID, corpus.RoleMetadata, &legacyReceiptBytes); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := corpus.ParseIndexerReceipt(legacyReceiptBytes.Bytes(), corpus.Limits{}); err != nil {
+		t.Fatalf("legacy receipt: %v", err)
 	}
 }

@@ -43,7 +43,7 @@ func TestExportCorpusPublishesReadyQualifiedCapture(t *testing.T) {
 		result.Projection.Qualifications[0].State != corpus.QualificationReady ||
 		result.Projection.Qualifications[0].SourceReceiptDigest != capture.ReceiptDigest ||
 		result.Projection.Counts.Documents != 1 ||
-		result.Generation.Totals.Members != 5 {
+		result.Generation.Totals.Members != 7 {
 		t.Fatalf("qualified result = %#v", result)
 	}
 
@@ -171,7 +171,7 @@ func TestExportCorpusPublishesAndReusesExactJiraProjection(t *testing.T) {
 		t.Fatalf("ExportCorpus: %v", err)
 	}
 	if result.Reused || result.Projection.Readiness != corpus.ProjectionPartial ||
-		result.Projection.Counts.Documents != 3 || result.Generation.Totals.Members != 5 {
+		result.Projection.Counts.Documents != 3 || result.Generation.Totals.Members != 7 {
 		t.Fatalf("first export = %#v", result)
 	}
 
@@ -532,7 +532,7 @@ func TestExportCorpusKeepsConfluenceRenderFailureExplicit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Projection.Counts.Documents != 1 || result.Projection.Counts.MarkdownFiles != 0 || result.Generation.Totals.Members != 3 {
+	if result.Projection.Counts.Documents != 1 || result.Projection.Counts.MarkdownFiles != 0 || result.Generation.Totals.Members != 5 {
 		t.Fatalf("render-failed counts = %#v / %#v", result.Projection.Counts, result.Generation.Totals)
 	}
 	documents, _ := readCorpusExportProjection(t, storeRoot, corpus.ServiceConfluence)

@@ -146,6 +146,7 @@ const (
 	ConfluenceCommentPartialAnchorMissing               = "anchor_missing"
 	ConfluenceCommentPartialAnchorAmbiguous             = "anchor_ambiguous"
 	ConfluenceCommentPartialEndpointUnavailable         = "endpoint_unavailable"
+	ConfluenceCommentPartialForbidden                   = "forbidden"
 	ConfluenceCommentPartialLegacyUnqualified           = "legacy_unqualified"
 	ConfluenceCommentDiagnosticOrphanMarker             = "orphan_marker"
 	ConfluenceCommentDiagnosticOriginalSelectionChanged = "original_selection_changed"
@@ -170,6 +171,7 @@ func ValidConfluenceCommentPartialReason(reason string) bool {
 		ConfluenceCommentPartialAnchorMissing,
 		ConfluenceCommentPartialAnchorAmbiguous,
 		ConfluenceCommentPartialEndpointUnavailable,
+		ConfluenceCommentPartialForbidden,
 		ConfluenceCommentPartialLegacyUnqualified:
 		return true
 	}

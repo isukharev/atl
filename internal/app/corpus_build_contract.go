@@ -145,7 +145,7 @@ type CorpusBuildResult struct {
 	Usage         corpus.CaptureUsage        `json:"usage"`
 	ElapsedMS     int64                      `json:"elapsed_ms"`
 	Reused        bool                       `json:"reused"`
-	Projection    corpus.IndexerReceipt      `json:"projection"`
+	Projection    corpus.IndexerReceiptV2    `json:"projection"`
 	Generation    corpus.Summary             `json:"generation"`
 }
 

@@ -71,8 +71,8 @@ stderr.
       "completed_at": "2026-08-12T12:00:03Z",
       "usage": {"attempts": 6, "response_bytes": 4096},
       "dimensions": [
-        {"dimension": "attachments", "state": "not_requested"},
-        {"dimension": "comments", "state": "not_requested"},
+        {"dimension": "attachments", "state": "complete"},
+        {"dimension": "comments", "state": "complete"},
         {"dimension": "metadata", "state": "complete"},
         {"dimension": "native", "state": "complete"}
       ]
@@ -82,8 +82,8 @@ stderr.
   "elapsed_ms": 3000,
   "reused": false,
   "projection": {
-    "schema_version": 1,
-    "projection_schema": 1,
+    "schema_version": 2,
+    "projection_schema": 2,
     "readiness": "ready",
     "qualifications": [
       {
@@ -95,17 +95,25 @@ stderr.
         "reasons": []
       }
     ],
-    "counts": {"documents": 2, "edges": 2, "markdown_files": 2, "markdown_bytes": 42},
+    "counts": {
+      "documents": 4,
+      "edges": 4,
+      "markdown_files": 3,
+      "markdown_bytes": 84,
+      "artifacts": 1,
+      "artifact_bytes": 1024
+    },
     "documents_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
     "edges_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
     "markdown_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "artifacts_digest": "abababababababababababababababababababababababababababababababab",
     "projection_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
   },
   "generation": {
     "generation_digest": "1111111111111111111111111111111111111111111111111111111111111111",
     "manifest_schema": 1,
     "receipt_schema": 1,
-    "projection_schema": 1,
+    "projection_schema": 2,
     "generator_version": "0.0.0-dev",
     "build_state": "unknown",
     "services": ["jira"],
@@ -129,6 +137,13 @@ the normal error envelope. Phases are `validate`, `workspace`, `recover`,
 The wrapped stable sentinel still selects the normal exit class.
 No partially captured service result is emitted as success.
 
+Comments and attachments are `not_requested` unless their flags are present.
+Requested exact empty inventories are `complete`. With strict policy, any
+requested partial or forbidden outcome fails before generation publication.
+With `--allow-partial-evidence`, service dimensions and projection
+qualification both report `partial`; they are never promoted to `ready`.
+Attachment bodies contribute to `artifact_bytes` only when captured.
+
 On a normal resumable failure, rerunning the exact command continues the
 retained attempt under its original deadline and cumulative budget. A
 `recover/outcome_unknown` result caused by `remote_in_flight` requires explicit
@@ -148,11 +163,11 @@ origins, object identities, titles, bodies, or member paths to stdout:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "reused": false,
   "projection": {
-    "schema_version": 1,
-    "projection_schema": 1,
+    "schema_version": 2,
+    "projection_schema": 2,
     "readiness": "partial",
     "qualifications": [
       {
@@ -163,17 +178,25 @@ origins, object identities, titles, bodies, or member paths to stdout:
         "reasons": ["legacy_mirror"]
       }
     ],
-    "counts": {"documents": 3, "edges": 2, "markdown_files": 2, "markdown_bytes": 42},
+    "counts": {
+      "documents": 3,
+      "edges": 2,
+      "markdown_files": 2,
+      "markdown_bytes": 42,
+      "artifacts": 0,
+      "artifact_bytes": 0
+    },
     "documents_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "edges_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
     "markdown_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "artifacts_digest": "abababababababababababababababababababababababababababababababab",
     "projection_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
   "generation": {
     "generation_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
     "manifest_schema": 1,
     "receipt_schema": 1,
-    "projection_schema": 1,
+    "projection_schema": 2,
     "generator_version": "0.0.0-dev",
     "build_state": "unknown",
     "services": ["jira"],
@@ -189,3 +212,13 @@ identity. Errors remain content-free and use the normal stable CLI exit classes.
 An unreconciled seal or pointer write additionally retains the stable
 durable-outcome-unknown classification so callers do not mistake ambiguity for
 a definite pre-write failure.
+
+The private generation retains byte-compatible `documents.indexer-v1.jsonl`,
+`edges.indexer-v1.jsonl`, and `receipt.indexer-v1.json` members for legacy
+readers. Indexer-v2 adds `artifacts.indexer-v2.jsonl`,
+`receipt.indexer-v2.json`, and one `asset` member for each record whose closed
+body status is `captured`. Artifact records contain a stable attachment and
+parent identity, exact source lineage, media type, declared size, closed body
+status/reason, and, for captured bytes only, a contained path/size/SHA-256.
+Unrequested, excluded, forbidden, and failed bodies never name a valid-looking
+asset path.

@@ -18,8 +18,13 @@ func jiraRelocationFixture(t *testing.T) (*Mirror, CompletePullCheckpoint, Compl
 	if err := m.EnsureScaffold(); err != nil {
 		t.Fatal(err)
 	}
+	origin := "sha256:" + strings.Repeat("a", 64)
+	if _, err := m.BindBackend(BackendBinding{Service: CorpusSnapshotJira, OriginSHA256: origin}); err != nil {
+		t.Fatal(err)
+	}
 	oldBody := []byte("old native\n")
 	oldMD := []byte("<!-- atl:document jira-issue v3 -->\n\n# OLD-1\n")
+	oldSnapshot := []byte("{\n  \"key\": \"OLD-1\",\n  \"id\": \"10001\",\n  \"fields\": {\"updated\": \"2026-01-01\"}\n}\n")
 	oldState := SyncState{ID: "OLD-1", Identity: "10001", Hash: Hash(oldBody), Path: "OLD/OLD-1.wiki"}
 	oldView := ViewState{Sections: []string{"description"}}
 	if err := os.MkdirAll(filepath.Join(m.Root, "OLD"), 0o755); err != nil {
@@ -28,9 +33,41 @@ func jiraRelocationFixture(t *testing.T) (*Mirror, CompletePullCheckpoint, Compl
 	for rel, data := range map[string][]byte{
 		oldState.Path:    oldBody,
 		"OLD/OLD-1.md":   oldMD,
-		"OLD/OLD-1.json": []byte("{\n  \"key\": \"OLD-1\",\n  \"id\": \"10001\",\n  \"fields\": {}\n}\n"),
+		"OLD/OLD-1.json": oldSnapshot,
 	} {
 		if err := safepath.WriteFileWithin(m.Root, filepath.Join(m.Root, filepath.FromSlash(rel)), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	comments, err := EncodeJiraCommentsSidecarV1(JiraCommentsSidecarV1{
+		SchemaVersion: JiraCommentsSidecarSchemaV1, Service: CorpusSnapshotJira, OriginSHA256: origin,
+		ParentID: "10001", ParentRevision: "2026-01-01", NativeSHA256: oldState.Hash, MetadataSHA256: Hash(oldSnapshot),
+		Complete: true, Count: 0, TotalKnown: true, PageCount: 1, Comments: []JiraCommentsSidecarComment{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("abc")
+	attachments, err := EncodeAttachmentSidecarV1(AttachmentSidecarV1{
+		SchemaVersion: AttachmentSidecarSchemaV1, Service: CorpusSnapshotJira, OriginSHA256: origin,
+		ParentID: "10001", ParentRevision: "2026-01-01", NativeSHA256: oldState.Hash, MetadataSHA256: Hash(oldSnapshot),
+		InventoryComplete: true, BodiesState: AttachmentBodiesComplete, Complete: true, Count: 1,
+		PartialReasons: []AttachmentPartialReason{}, Attachments: []AttachmentSidecarRecord{{
+			ID: "7", Filename: "a.bin", DeclaredSize: 3,
+			Body: AttachmentSidecarBody{State: AttachmentBodyCaptured, Path: "OLD/OLD-1.attachments/7.body", Size: 3, SHA256: Hash(body)},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rel, data := range map[string][]byte{
+		"OLD/OLD-1.comments.json": comments, "OLD/OLD-1.attachments.json": attachments,
+		"OLD/OLD-1.attachments/7.body": body,
+	} {
+		if err := safepath.MkdirAllWithin(m.Root, filepath.Dir(filepath.Join(m.Root, filepath.FromSlash(rel))), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := safepath.WriteFileWithin(m.Root, filepath.Join(m.Root, filepath.FromSlash(rel)), data, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -93,7 +130,10 @@ func assertJiraRelocationRecovered(t *testing.T, m *Mirror, checkpoint CompleteP
 	if err != nil || !found || state != entry.State {
 		t.Fatalf("new state=%+v found=%t err=%v", state, found, err)
 	}
-	for _, rel := range []string{"OLD/OLD-1.wiki", "OLD/OLD-1.md", "OLD/OLD-1.json", ".atl/base/OLD-1.wiki"} {
+	for _, rel := range []string{
+		"OLD/OLD-1.wiki", "OLD/OLD-1.md", "OLD/OLD-1.json", ".atl/base/OLD-1.wiki",
+		"OLD/OLD-1.comments.json", "OLD/OLD-1.attachments.json", "OLD/OLD-1.attachments/7.body",
+	} {
 		if _, err := os.Stat(filepath.Join(m.Root, filepath.FromSlash(rel))); !os.IsNotExist(err) {
 			t.Fatalf("retired artifact %s remains: %v", rel, err)
 		}
@@ -109,6 +149,7 @@ func TestJiraCompletePullRelocationRecoversEveryDurableBoundary(t *testing.T) {
 	steps := []string{
 		"staged_payloads", "intent", "artifact:0", "artifact:1", "artifact:2", "artifact:3",
 		"fully_published", "state", "relocation:0", "relocation:1", "relocation:2", "relocation:3",
+		"relocation:4", "relocation:5", "relocation:6",
 		"accepted", "committed", "retired",
 	}
 	for _, step := range steps {

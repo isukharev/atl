@@ -111,7 +111,8 @@ func (service *CorpusBuildService) Build(ctx context.Context, options CorpusBuil
 	if err != nil {
 		return nil, CorpusBuildFailure(CorpusBuildPhasePublish, err)
 	}
-	if exported.Projection.Readiness != corpus.ProjectionReady {
+	if exported.Projection.Readiness != corpus.ProjectionReady &&
+		!(options.AllowPartialEvidence && exported.Projection.Readiness == corpus.ProjectionPartial) {
 		return nil, CorpusBuildFailure(CorpusBuildPhasePublish, corpus.ErrIntegrity)
 	}
 	active.Status = corpus.BuildAttemptCompleted

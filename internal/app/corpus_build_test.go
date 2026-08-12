@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"strings"
 	"sync"
@@ -16,9 +17,59 @@ import (
 
 type corpusBuildJiraTracker struct {
 	*jiraCompleteTracker
-	user       *domain.User
-	currentErr error
-	budgeted   bool
+	user        *domain.User
+	currentErr  error
+	budgeted    bool
+	comments    domain.JiraCommentInventory
+	attachments domain.JiraAttachmentInventory
+	body        string
+}
+
+func (tracker *corpusBuildJiraTracker) ListJiraCommentsQualified(ctx context.Context, issueID string, options domain.JiraCommentReadOptions) (domain.JiraCommentInventory, error) {
+	if tracker.budgeted {
+		if err := consumeCorpusBuildRead(ctx, 17); err != nil {
+			return domain.JiraCommentInventory{}, err
+		}
+	}
+	if (issueID != "9" && issueID != "10") || options.MaxPages != 2 || options.MaxItems != 10 {
+		return domain.JiraCommentInventory{}, errors.New("unexpected configured fixture comment qualification")
+	}
+	inventory := tracker.comments
+	inventory.Comments = append([]domain.Comment{}, inventory.Comments...)
+	if issueID == "10" && len(inventory.Comments) != 0 {
+		inventory.Comments[0].ID = "6"
+	}
+	return inventory, nil
+}
+
+func (tracker *corpusBuildJiraTracker) ListJiraAttachmentsQualified(ctx context.Context, issueID string, options domain.JiraAttachmentReadOptions) (domain.JiraAttachmentInventory, error) {
+	if tracker.budgeted {
+		if err := consumeCorpusBuildRead(ctx, 19); err != nil {
+			return domain.JiraAttachmentInventory{}, err
+		}
+	}
+	if (issueID != "9" && issueID != "10") || options.MaxItems != 10 {
+		return domain.JiraAttachmentInventory{}, errors.New("unexpected configured fixture attachment qualification")
+	}
+	inventory := tracker.attachments
+	inventory.Attachments = append([]domain.Attachment{}, inventory.Attachments...)
+	if issueID == "10" && len(inventory.Attachments) != 0 {
+		inventory.Attachments[0].ID = "8"
+		inventory.Attachments[0].DownPath = "/secure/attachment/8/a.bin"
+	}
+	return inventory, nil
+}
+
+func (tracker *corpusBuildJiraTracker) StreamAttachment(ctx context.Context, path string) (io.ReadCloser, error) {
+	if path != "/secure/attachment/7/a.bin" && path != "/secure/attachment/8/a.bin" {
+		return nil, errors.New("unexpected configured fixture attachment reference")
+	}
+	if tracker.budgeted {
+		if err := consumeCorpusBuildRead(ctx, int64(len(tracker.body))); err != nil {
+			return nil, err
+		}
+	}
+	return io.NopCloser(strings.NewReader(tracker.body)), nil
 }
 
 func (tracker *corpusBuildJiraTracker) CurrentUser(ctx context.Context) (*domain.User, error) {
@@ -242,6 +293,90 @@ func TestCorpusBuildOneServiceDoesNotFabricateAbsentBackend(t *testing.T) {
 	}
 	if err := validateAdoptedCorpusCapture(attemptRoot, active.Services[0], late, expectedOptions, active.Deadline, options, corpusBuildLimits(options)); !errors.Is(err, corpus.ErrIntegrity) {
 		t.Fatalf("late receipt adoption error=%v", err)
+	}
+}
+
+func TestCorpusBuildPublishesQualifiedJiraEvidenceAndArtifacts(t *testing.T) {
+	root := corpusBuildPrivateRoot(t)
+	tracker := newCorpusBuildJiraFixture(true)
+	for _, issue := range tracker.getIssues {
+		issue.Fields["updated"] = "2026-01-01"
+	}
+	tracker.comments = domain.JiraCommentInventory{
+		Complete: true, Total: 1, TotalKnown: true, PageCount: 1,
+		Comments: []domain.Comment{{ID: "5", Body: "configured fixture comment"}},
+	}
+	tracker.attachments = domain.JiraAttachmentInventory{Complete: true, Attachments: []domain.Attachment{{
+		ID: "7", Title: "a.bin", MediaType: "application/octet-stream", FileSize: 3,
+		DownPath: "/secure/attachment/7/a.bin",
+	}}}
+	tracker.body = "abc"
+	service := newCorpusBuildTestService(tracker, nil)
+	options := corpusBuildTestOptions(root)
+	options.Initialize = true
+	options.JiraProject, options.MaxJiraIssues = "PROJ", 2
+	options.Comments, options.MaxCommentPagesPerItem, options.MaxCommentsPerItem = true, 2, 10
+	options.Attachments, options.MaxAttachmentPagesPerItem, options.MaxAttachmentsPerItem = true, 2, 10
+	options.AttachmentBodies = true
+	options.AttachmentMediaTypes = []string{"application/octet-stream"}
+	options.MaxAttachmentBytes, options.MaxTotalAttachmentBytes = 16, 64
+
+	result, err := service.Build(t.Context(), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Projection.Readiness != corpus.ProjectionReady || result.Projection.Counts.Artifacts != 2 ||
+		result.Projection.Counts.ArtifactBytes != 6 || len(result.Services) != 1 ||
+		result.Services[0].Dimensions[0] != (corpus.CaptureDimensionEvidence{Dimension: corpus.CaptureAttachments, State: corpus.CaptureComplete}) ||
+		result.Services[0].Dimensions[1] != (corpus.CaptureDimensionEvidence{Dimension: corpus.CaptureComments, State: corpus.CaptureComplete}) {
+		t.Fatalf("result=%#v", result)
+	}
+	store, err := corpus.Open(root, corpus.Options{Limits: corpusBuildLimits(options)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	selected, err := store.SelectCurrent(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = selected.Close() }()
+	assetMembers := 0
+	for _, member := range selected.Manifest().Members {
+		if member.Role == corpus.RoleAsset {
+			assetMembers++
+		}
+	}
+	if assetMembers != 2 {
+		t.Fatalf("manifest=%#v", selected.Manifest())
+	}
+}
+
+func TestCorpusBuildExplicitPartialEvidencePublishesPartialGeneration(t *testing.T) {
+	root := corpusBuildPrivateRoot(t)
+	tracker := newCorpusBuildJiraFixture(true)
+	for _, issue := range tracker.getIssues {
+		issue.Fields["updated"] = "2026-01-01"
+	}
+	tracker.comments = domain.JiraCommentInventory{
+		Comments: []domain.Comment{{ID: "5", Body: "bounded prefix"}},
+		Total:    2, TotalKnown: true, PageCount: 1, PartialReason: domain.JiraCommentPartialPageLimit,
+	}
+	service := newCorpusBuildTestService(tracker, nil)
+	options := corpusBuildTestOptions(root)
+	options.Initialize = true
+	options.JiraProject, options.MaxJiraIssues = "PROJ", 2
+	options.Comments, options.MaxCommentPagesPerItem, options.MaxCommentsPerItem = true, 2, 10
+	options.AllowPartialEvidence = true
+
+	result, err := service.Build(t.Context(), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Projection.Readiness != corpus.ProjectionPartial || len(result.Projection.Qualifications) != 1 ||
+		result.Projection.Qualifications[0].State != corpus.QualificationPartial ||
+		len(result.Services) != 1 || result.Services[0].Dimensions[1].State != corpus.CapturePartial {
+		t.Fatalf("result=%#v", result)
 	}
 }
 

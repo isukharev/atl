@@ -19,7 +19,7 @@ func newCorpusCmd() *cobra.Command {
 	var initializeStore, allowUnreconciled bool
 	export := &cobra.Command{
 		Use:   "export",
-		Short: "Project pristine local mirrors into a sealed indexer-v1 generation",
+		Short: "Project pristine local mirrors into a sealed indexer-v2 generation",
 		Args: func(_ *cobra.Command, args []string) error {
 			if len(args) != 0 {
 				return usageErr("corpus export accepts no positional arguments")
