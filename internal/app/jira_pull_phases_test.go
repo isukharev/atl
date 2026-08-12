@@ -1,10 +1,12 @@
 package app
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/mirror"
 	"github.com/isukharev/atl/internal/safepath"
 )
 
@@ -70,5 +72,18 @@ func TestJiraPullSnapshotBytesUsesEmptyFieldsObject(t *testing.T) {
 	want := "{\n  \"key\": \"PROJ-1\",\n  \"id\": \"10001\",\n  \"fields\": {}\n}\n"
 	if string(got) != want {
 		t.Fatalf("nil fields changed snapshot shape\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestJiraSyncIdentityPreservesAndBindsStableNumericID(t *testing.T) {
+	previous := mirror.SyncState{ID: "PROJ-1", Identity: "10001"}
+	for _, observed := range []string{"", "opaque"} {
+		got, err := jiraSyncIdentity(observed, &previous)
+		if err != nil || got != "10001" {
+			t.Fatalf("observed=%q identity=%q err=%v", observed, got, err)
+		}
+	}
+	if _, err := jiraSyncIdentity("10002", &previous); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("mismatch err=%v", err)
 	}
 }

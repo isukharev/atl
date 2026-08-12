@@ -35,13 +35,20 @@ atl jira pull --jql "project=PROJ" --fields customfield_10001,customfield_10002
 atl jira pull --jql "project=PROJ and status=Open" --assets
 # inspect what a refresh would do without changing the mirror
 atl jira pull --jql "project=PROJ" --into my-jira-mirror --dry-run
+# prove and resume one complete project snapshot (the cap is mandatory)
+atl jira pull --complete --project PROJ --max-issues 5000 \
+  --into my-jira-mirror
 ```
 
 Flags:
 
 | flag | description |
 |---|---|
-| `--jql` | JQL query (required) |
+| `--jql` | JQL query (required outside complete mode) |
+| `--complete` | qualify two exhaustive passes over one exact `--project`, then publish the immutable numeric-ID selection through a resumable local transaction |
+| `--project` | canonical uppercase project key; required with `--complete`, rejected otherwise |
+| `--max-issues` | explicit positive complete-selection cap (maximum 1,000,000); required with `--complete`, rejected otherwise |
+| `--restart-complete` | after recovering any owned publication/journal, replace an unfinished complete selection with two fresh exhaustive passes; requires `--complete` |
 | `--into` | output root directory (default `mirror-jira`) |
 | `--limit` | max issues (0 = all; default 100) |
 | `--fields` | extra comma-separated fields to include in JSON snapshots; core fields needed for rendering are always included |
@@ -74,6 +81,51 @@ overwrite/stash recovery is limited to a native edit with intact sidecar/base
 evidence. Use `jira apply` or `jira push` for intentional work; use
 `--stash-local` when discarding the working native bytes only after retaining an
 exact content-addressed copy.
+
+Complete-project mode is deliberately separate from `--jql/--limit`: setting
+`--limit 0` still means only “no caller count cap” and does not relabel the
+ordinary search as exhaustive. `--complete` accepts only one canonical project,
+requires an explicit `--max-issues`, uses the completeness-qualified Jira port,
+rejects repeated/non-advancing cursors, zero-progress continuation pages,
+duplicate or noncanonical numeric IDs, conflicting key mappings, a cap, a
+missing/changing exact backend total, a terminal count that differs from that
+total, or a terminal partial reason, and requires two passes with the same ID-to-key map
+before writing a checkpoint or issue payload. Numeric IDs are sorted by their
+integer spelling and become immutable selection identities; keys remain mutable
+paths. A later key/project change for an already tracked numeric ID is a
+hash-qualified relocation: the old native, snapshot, pristine derived view,
+base, and inventoried owned auxiliary files must still match, the sidecar key
+changes atomically, and only then are those exact old files retired. A non-empty
+legacy `<KEY>.assets/` directory has no ownership inventory, so relocation stops
+and preserves it for manual reconciliation. Missing issues are
+retained; neither successful completion nor absence grants remote or local
+deletion authority.
+
+Once a numeric Jira identity is present in the sidecar, ordinary pull and push
+also bind the mutable key to that identity. A mismatch is rejected before pull
+preview/local publication or push preview/backend mutation; `--force` does not
+override this identity boundary.
+
+An interrupted run resumes the exact suffix from private mode-`0600`
+`.atl/complete-pulls/` state. Selector, effective fields/render policy,
+overwrite/stash policy, and the explicit cap are hash-bound. The control state
+contains hashes, numeric IDs, key/path publication state, and bounded progress,
+but no credential, backend URL, title, body, or raw field value. A graceful
+failure commits only the already accepted journal prefix; crash recovery
+replays the exact staged local transaction without repeating an accepted issue
+GET. `--restart-complete` never skips recovery of that owned transaction.
+`--dry-run` performs the same selection, payload, path, local-edit, and
+relocation qualification without writing mirror/checkpoint/stash state.
+
+The first complete-project slice intentionally rejects `--assets` and the
+opt-in `epic_children` render section because their independent pagination and
+binary evidence are not yet part of this completeness receipt. Ordinary pulls
+retain both behaviors unchanged. `ATL_READ_ONLY=1` permits complete pull: it
+performs backend reads and local mirror writes only; apply/push and every remote
+mutation remain prohibited. Complete-selector evidence is also distinct from
+`jira snapshot` integrity: the former proves remote project membership for one
+selection, while the latter proves the consistency of local files already on
+disk.
 
 Output layout:
 

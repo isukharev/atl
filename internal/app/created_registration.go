@@ -322,7 +322,11 @@ func (s *JiraService) createAndRegister(ctx context.Context, project, issueType,
 		{Path: mdRel, Data: renderIssueMarkdown(readback, nil, rs), Mode: 0o644},
 		{Path: snapshotRel, Data: append(snapshotBytes, '\n'), Mode: 0o644},
 	}
-	state := mirror.SyncState{ID: keySeg, Version: 0, Hash: mirror.Hash([]byte(readback.Body)), Path: wikiRel.String()}
+	identity, err := jiraSyncIdentity(readback.ID, nil)
+	if err != nil {
+		return jiraRegistrationFailure(created, registration, "local_registration_failed", err)
+	}
+	state := mirror.SyncState{ID: keySeg, Identity: identity, Version: 0, Hash: mirror.Hash([]byte(readback.Body)), Path: wikiRel.String()}
 	if err := m.RegisterNew(state, viewStateOf(rs), wikiExt, []byte(readback.Body), artifacts); err != nil {
 		return jiraRegistrationFailure(created, registration, "local_registration_failed", err)
 	}

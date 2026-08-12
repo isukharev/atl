@@ -392,6 +392,7 @@ func validateCorpusSnapshotMetadata(service string, state SyncState, data []byte
 		}
 		if err := decodeCorpusSnapshotJSON(data, &metadata); err != nil ||
 			metadata.Key == "" || safepath.Segment(metadata.Key) != state.ID ||
+			(state.Identity != "" && metadata.ID != state.Identity) ||
 			!validCorpusProviderID(metadata.ID) || !corpusJSONObject(metadata.Fields) {
 			return "", corpusSnapshotError("Jira metadata is invalid or misbound")
 		}

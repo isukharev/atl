@@ -68,6 +68,44 @@ downloaded. Both `assets` and `assets_skipped` are `omitempty`: a default (no `-
 `--assets` pull where nothing was skipped, produce the same shapes as before. The raw `<KEY>.json`
 snapshot is never modified by `--assets` — it mirrors Jira's response and carries no local file paths.
 
+With `--complete`, the ordinary top-level fields remain and `complete_pull`
+binds the qualified project selection and durable prefix:
+
+```json
+{
+  "into": "mirror-jira",
+  "issues": [
+    {"key":"PROJ-2","path":"PROJ/PROJ-2.md","wiki_path":"PROJ/PROJ-2.wiki"}
+  ],
+  "complete_pull": {
+    "selector_sha256": "<sha256>",
+    "selection_sha256": "<sha256>",
+    "source": "resumed",
+    "complete": true,
+    "total": 2,
+    "completed": 2,
+    "remaining": 0,
+    "checkpoint_active": false
+  }
+}
+```
+
+`source` is `new|resumed|restarted`. `issues[]` contains only payloads fetched
+by this invocation, whereas `completed` includes an accepted prefix recovered
+from an earlier run. Success has `complete:true`, `remaining:0`, and
+`checkpoint_active:false`. A terminal incomplete search emits
+`complete:false`, omits `selection_sha256`, includes one closed static
+`partial_reason`, and exits with the normal check-failed class without writing
+issue payloads or a new checkpoint. Other failures use the normal error
+envelope and retain the private checkpoint. The hashes and all counts are content-free. The
+checkpoint and bounded journal contain numeric issue identities and exact local
+publication state, never credentials, backend URLs, titles, descriptions, or
+raw fields. Stable numeric identity may move to a new key/path only through the
+qualified schema-4 relocation transaction. A non-empty legacy asset directory
+without an ownership inventory blocks relocation and is preserved. Completion proves the selected
+project membership, not absence/deletion and not the separate local-integrity
+contract reported by `jira snapshot`.
+
 When the opt-in `epic_children` render section is enabled, epic issue objects
 gain an `epic_children` count (omitted at zero) and the mirror gains
 `<KEY>.epic-children.json`:

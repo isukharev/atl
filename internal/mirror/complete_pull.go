@@ -24,7 +24,8 @@ const (
 	maxCompletePullCheckpointIDs   = 1_000_000
 	maxCompletePullIDBytes         = 256
 	completePullJournalSchema      = 2 // legacy Confluence schema; bytes are immutable
-	completePullJiraJournalSchema  = 3
+	completePullJiraJournalSchema  = 3 // legacy Jira schema without stable sidecar identity/relocation
+	completePullJiraJournalSchema4 = 4
 	maxCompletePullJournalEntries  = 25
 	maxCompletePullJournalBytes    = 256 << 10
 )
@@ -57,9 +58,10 @@ type completePullProgress struct {
 // and credentials remain in their existing private artifacts; recovery needs
 // only the exact sidecar state and view policy that were pending in memory.
 type CompletePullJournalEntry struct {
-	Identity string    `json:"identity,omitempty"`
-	State    SyncState `json:"state"`
-	View     ViewState `json:"view"`
+	Identity string                     `json:"identity,omitempty"`
+	State    SyncState                  `json:"state"`
+	View     ViewState                  `json:"view"`
+	Previous *CompletePullPreviousState `json:"previous,omitempty"`
 }
 
 type completePullJournal struct {
@@ -131,7 +133,7 @@ func validateCompletePullCheckpoint(value CompletePullCheckpoint, expectedSelect
 }
 
 func validateCompletePullJournal(journal completePullJournal, checkpoint CompletePullCheckpoint) error {
-	if !validCompletePullService(journal.Service) || journal.SchemaVersion != completePullJournalSchemaFor(journal.Service) {
+	if !validCompletePullService(journal.Service) || !validCompletePullJournalSchema(journal.Service, journal.SchemaVersion) {
 		return fmt.Errorf("%w: unsupported complete-pull journal schema %d", domain.ErrCheckFailed, journal.SchemaVersion)
 	}
 	if journal.Service != checkpoint.Service || journal.SelectorSHA256 != checkpoint.SelectorSHA256 || journal.OptionsSHA256 != checkpoint.OptionsSHA256 || journal.SelectionSHA256 != checkpoint.SelectionSHA256 {
@@ -146,6 +148,9 @@ func validateCompletePullJournal(journal completePullJournal, checkpoint Complet
 	seen := make(map[string]struct{}, len(journal.Entries))
 	for i, entry := range journal.Entries {
 		if err := validateCompletePullJournalEntry(checkpoint.Service, entry); err != nil {
+			return err
+		}
+		if err := validateCompletePullJiraEntrySchema(journal.SchemaVersion, entry); err != nil {
 			return err
 		}
 		expected := checkpoint.IDs[journal.StartIndex+i]
@@ -274,7 +279,7 @@ func (m *Mirror) appendCompletePullJournalOwned(checkpoint CompletePullCheckpoin
 			return fmt.Errorf("%w: complete-pull journal must begin at durable checkpoint progress", domain.ErrCheckFailed)
 		}
 		journal = completePullJournal{
-			SchemaVersion: completePullJournalSchemaFor(checkpoint.Service), Service: checkpoint.Service,
+			SchemaVersion: completePullJournalSchemaForEntry(checkpoint.Service, entry), Service: checkpoint.Service,
 			SelectorSHA256: checkpoint.SelectorSHA256, OptionsSHA256: checkpoint.OptionsSHA256,
 			SelectionSHA256: checkpoint.SelectionSHA256, StartIndex: index,
 			Entries: []CompletePullJournalEntry{}, WriteToken: ownerToken,
@@ -353,6 +358,12 @@ func (m *Mirror) verifyCompletePullJournalArtifacts(journal completePullJournal)
 }
 
 func (m *Mirror) mergeCompletePullJournal(journal completePullJournal) error {
+	if journal.Service == CompletePullServiceJira {
+		if err := m.mergeCompletePullEntriesOwned(journal.Entries, completePullSidecarTemp(journal.WriteToken)); err != nil {
+			return err
+		}
+		return syncPublicationPath(m.Root, m.sidecarPath(), defaultCompletePullPublicationOps())
+	}
 	pages := make(map[string]SyncState, len(journal.Entries))
 	views := make(map[string]ViewState, len(journal.Entries))
 	staged := make(map[string]*StagedState, len(journal.Entries))

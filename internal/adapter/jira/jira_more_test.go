@@ -522,10 +522,11 @@ func TestSearchQualifiedDistinguishesExhaustionContinuationAndStall(t *testing.T
 		wantNext       string
 		wantReason     string
 		wantIssueCount int
+		wantTotalKnown bool
 	}{
-		{name: "exhausted", body: searchPage(t, 0, 50, 1, "X-1"), wantComplete: true, wantIssueCount: 1},
-		{name: "continuation", body: searchPage(t, 0, 50, 2, "X-1"), wantNext: "1", wantIssueCount: 1},
-		{name: "stalled", body: searchPage(t, 0, 50, 2), wantReason: domain.IssueSearchPartialPaginationStalled},
+		{name: "exhausted", body: searchPage(t, 0, 50, 1, "X-1"), wantComplete: true, wantIssueCount: 1, wantTotalKnown: true},
+		{name: "continuation", body: searchPage(t, 0, 50, 2, "X-1"), wantNext: "1", wantIssueCount: 1, wantTotalKnown: true},
+		{name: "stalled", body: searchPage(t, 0, 50, 2), wantReason: domain.IssueSearchPartialPaginationStalled, wantTotalKnown: true},
 		{name: "wrong offset", body: searchPage(t, 0, 50, 2, "X-1"), cursor: "1", wantReason: domain.IssueSearchPartialPaginationUnqualified, wantIssueCount: 1},
 		{name: "missing metadata", body: `{"issues":[]}`, wantReason: domain.IssueSearchPartialPaginationUnqualified},
 		{name: "overflow-sized offset", body: searchPage(t, math.MaxInt, 1, math.MaxInt, "X-1"), cursor: strconv.Itoa(math.MaxInt), wantReason: domain.IssueSearchPartialPaginationUnqualified, wantIssueCount: 1},
@@ -543,7 +544,7 @@ func TestSearchQualifiedDistinguishesExhaustionContinuationAndStall(t *testing.T
 				t.Fatal(err)
 			}
 			if page.Complete != tc.wantComplete || page.Next != tc.wantNext ||
-				page.PartialReason != tc.wantReason || len(page.Issues) != tc.wantIssueCount {
+				page.PartialReason != tc.wantReason || len(page.Issues) != tc.wantIssueCount || page.TotalKnown != tc.wantTotalKnown {
 				t.Fatalf("page=%+v", page)
 			}
 		})

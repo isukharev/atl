@@ -363,6 +363,15 @@ shell/workspace configuration implicitly.
   mirror write. If intentionally resetting only qualified native bytes, prefer
   `--stash-local` for an immutable exact copy; `--overwrite-local` discards
   them. Neither flag overrides derived-view or baseline-integrity failures.
+- For a disposable indexer/dev-container corpus that must cover one whole Jira
+  project, use `jira pull --complete --project <PROJECT> --max-issues <BOUND>
+  --into <PRIVATE_ROOT>`. Require `complete_pull.complete:true`; ordinary
+  `--limit 0` does not prove exhaustion. Re-run the exact command to resume an
+  active checkpoint, or use `--restart-complete` only after preserving local
+  edits and intentionally requesting two fresh selection passes. Complete mode
+  currently excludes `--assets` and `epic_children`; never infer deletion from
+  a missing selected identity. Keep the mirror outside the source checkout and
+  never commit `.atl` or corporate mirror content.
 - Keep one mirror root and one body surface for the complete cycle. Never mix
   unapplied `.md` edits with direct `.wiki` edits. `.json`, generated metadata,
   comments/links/attachments, sidecars, and `.atl` state are readonly.

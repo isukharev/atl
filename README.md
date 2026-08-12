@@ -151,8 +151,8 @@ changes local bytes and remains mutation-classified during dry-run; the scoped
 use dry-run, stash, or explicit overwrite recovery. Mirrors are bound to a
 content-minimized backend identity to prevent accidental cross-instance push.
 
-Jira follows the same local pattern with native `.wiki` files, `jira pull`,
-`jira status`, `jira apply`, `jira reconcile preview`, and `jira push`.
+Jira uses native `.wiki` files; see [Jira mirrors](docs/reference/cli/jira-mirrors.md)
+for ordinary and qualified resumable project pulls, apply, reconcile, and push.
 
 ### 3. Preview, apply once, reconcile
 

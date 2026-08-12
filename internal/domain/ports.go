@@ -437,6 +437,8 @@ type IssueSearchPage struct {
 	Next          string
 	Complete      bool
 	PartialReason string
+	Total         int
+	TotalKnown    bool
 }
 
 // QualifiedIssueSearcher is the narrow optional tracker capability used by

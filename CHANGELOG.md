@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bounded one-request process mode, deterministic local validation/grading/
   comparison/inspection, and non-authoritative Agent Skills Guide/Anthropic
   import and new-destination export.
+- Added qualified, resumable Jira complete-project pulls with an explicit issue
+  cap, two stable numeric-ID passes bound to one exact backend total, crash-safe
+  publication, and hash-bound key relocation that preserves uninventoried
+  assets while retaining ordinary JQL pull behavior. Ordinary pull and push
+  now reject a key-to-numeric-ID mismatch before any local or remote write.
 - Added a shared schema-v1 compact projection for `jira issue graph` CLI and
   MCP output, preserving qualification while selecting safe URL or SCM facts;
   omitted full output remains compatible.

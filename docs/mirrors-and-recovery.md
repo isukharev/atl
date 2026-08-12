@@ -67,6 +67,10 @@ Use pull dry-run when a mirror may contain local work:
 atl conf pull --space EXAMPLE --into "$ATL_WORKSPACE_ROOT" --dry-run
 atl jira pull --jql 'project = EXAMPLE order by key' \
   --into "$ATL_WORKSPACE_ROOT" --limit 0 --dry-run
+# Use this separate mode when downstream indexing requires proven whole-project
+# membership rather than an uncapped ordinary JQL walk.
+atl jira pull --complete --project EXAMPLE --max-issues 5000 \
+  --into "$ATL_WORKSPACE_ROOT" --dry-run
 ```
 
 Normal pull is non-destructive. For each tracked object ATL reconciles the
@@ -91,6 +95,13 @@ Neither flag bypasses an edited Markdown view, a missing/corrupt baseline,
 future-format view, path drift, or inconsistent state. Apply or otherwise
 preserve supported `.md` work before refreshing; do not use overwrite as a
 generic repair switch.
+
+For Jira, `--limit 0` removes only the client count cap. It does not prove
+terminal pagination and has no resumable selector checkpoint. Complete-project
+mode instead requires two identical qualified numeric-ID passes before its
+first payload publication and resumes only an accepted durable suffix. It
+retains objects absent from a later selection and never grants deletion or
+remote-write authority.
 
 ## Reconcile local and remote changes
 

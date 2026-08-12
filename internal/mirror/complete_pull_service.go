@@ -38,16 +38,60 @@ func validCompletePullService(service CompletePullService) bool {
 
 func completePullJournalSchemaFor(service CompletePullService) int {
 	if service == CompletePullServiceJira {
-		return completePullJiraJournalSchema
+		return completePullJiraJournalSchema4
 	}
 	return completePullJournalSchema
 }
 
 func completePullPublicationSchemaFor(service CompletePullService) int {
 	if service == CompletePullServiceJira {
-		return completePullJiraPublicationSchema
+		return completePullJiraPublicationSchema4
 	}
 	return completePullPublicationSchema
+}
+
+func completePullJournalSchemaForEntry(service CompletePullService, entry CompletePullJournalEntry) int {
+	if service == CompletePullServiceJira && entry.State.Identity == "" && entry.Previous == nil {
+		return completePullJiraJournalSchema
+	}
+	return completePullJournalSchemaFor(service)
+}
+
+func completePullPublicationSchemaForEntry(service CompletePullService, entry CompletePullJournalEntry) int {
+	if service == CompletePullServiceJira && entry.State.Identity == "" && entry.Previous == nil {
+		return completePullJiraPublicationSchema
+	}
+	return completePullPublicationSchemaFor(service)
+}
+
+func validCompletePullJournalSchema(service CompletePullService, schema int) bool {
+	if service == CompletePullServiceJira {
+		return schema == completePullJiraJournalSchema || schema == completePullJiraJournalSchema4
+	}
+	return service == CompletePullServiceConfluence && schema == completePullJournalSchema
+}
+
+func validCompletePullPublicationSchema(service CompletePullService, schema int) bool {
+	if service == CompletePullServiceJira {
+		return schema == completePullJiraPublicationSchema || schema == completePullJiraPublicationSchema4
+	}
+	return service == CompletePullServiceConfluence && schema == completePullPublicationSchema
+}
+
+func validateCompletePullJiraEntrySchema(schema int, entry CompletePullJournalEntry) error {
+	if schema == completePullJiraJournalSchema || schema == completePullJiraPublicationSchema {
+		if entry.State.Identity != "" || entry.Previous != nil {
+			return fmt.Errorf("%w: legacy Jira complete-pull schema contains future identity or relocation state", domain.ErrCheckFailed)
+		}
+		return nil
+	}
+	if schema == completePullJiraJournalSchema4 || schema == completePullJiraPublicationSchema4 {
+		if entry.State.Identity != entry.Identity {
+			return fmt.Errorf("%w: Jira complete-pull stable sidecar identity does not match its selected identity", domain.ErrCheckFailed)
+		}
+		return nil
+	}
+	return nil
 }
 
 func completePullProgressSchemaFor(service CompletePullService) int {
@@ -87,12 +131,18 @@ func validateCompletePullJournalEntry(service CompletePullService, entry Complet
 	}
 	switch service {
 	case CompletePullServiceConfluence:
-		if entry.Identity != "" || !positiveDecimalIdentity(state.ID) || state.Version <= 0 || !strings.HasSuffix(state.Path, ".csf") {
+		if entry.Identity != "" || state.Identity != "" || entry.Previous != nil || !positiveDecimalIdentity(state.ID) || state.Version <= 0 || !strings.HasSuffix(state.Path, ".csf") {
 			return fmt.Errorf("%w: complete-pull Confluence journal state is invalid", domain.ErrCheckFailed)
 		}
 	case CompletePullServiceJira:
-		if !positiveDecimalIdentity(entry.Identity) || state.Version != 0 || safepath.Segment(state.ID) != state.ID || filepath.Base(filepath.FromSlash(state.Path)) != state.ID+".wiki" {
+		if !positiveDecimalIdentity(entry.Identity) || state.Version != 0 || safepath.Segment(state.ID) != state.ID || filepath.Base(filepath.FromSlash(state.Path)) != state.ID+".wiki" || (state.Identity != "" && state.Identity != entry.Identity) {
 			return fmt.Errorf("%w: complete-pull Jira journal identity, key, version, or native path is invalid", domain.ErrCheckFailed)
+		}
+		if entry.Previous != nil {
+			previous := entry.Previous.State
+			if state.Identity != entry.Identity || entry.Previous.View == nil || previous.ID == "" || previous.ID == state.ID || previous.Version != 0 || !validSHA256(previous.Hash) || safepath.Segment(previous.ID) != previous.ID || filepath.Base(filepath.FromSlash(previous.Path)) != previous.ID+".wiki" || (previous.Identity != "" && previous.Identity != entry.Identity) {
+				return fmt.Errorf("%w: complete-pull Jira relocation predecessor is invalid", domain.ErrCheckFailed)
+			}
 		}
 	default:
 		return fmt.Errorf("%w: complete-pull journal service is invalid", domain.ErrCheckFailed)
@@ -119,6 +169,29 @@ func validateCompletePullArtifactRole(service CompletePullService, entry Complet
 	state := entry.State
 	stem := strings.TrimSuffix(state.Path, ".wiki")
 	rel := qualified.String()
+	if remove && entry.Previous != nil {
+		previous := entry.Previous.State
+		previousStem := strings.TrimSuffix(previous.Path, ".wiki")
+		validRemoval := mode == 0 && !bestEffort
+		switch role {
+		case CompletePullArtifactRoleNative:
+			validRemoval = validRemoval && rel == previous.Path && qualified.class == artifactPathClassPublic
+		case CompletePullArtifactRoleMetadata:
+			validRemoval = validRemoval && rel == previousStem+".json" && qualified.class == artifactPathClassPublic
+		case CompletePullArtifactRoleView:
+			validRemoval = validRemoval && rel == previousStem+".md" && qualified.class == artifactPathClassPublic
+		case CompletePullArtifactRoleBase:
+			validRemoval = validRemoval && rel == filepath.ToSlash(filepath.Join(".atl", "base", previous.ID+".wiki")) && qualified.class == artifactPathClassPrivateBase
+		case CompletePullArtifactRoleAuxiliary:
+			validRemoval = validRemoval && qualified.class == artifactPathClassPublic && (rel == previousStem+".epic-children.json" || strings.HasPrefix(rel, previousStem+".assets/"))
+		default:
+			validRemoval = false
+		}
+		if !validRemoval {
+			return fmt.Errorf("invalid Jira relocation retirement artifact")
+		}
+		return nil
+	}
 	writable := func(path string, class artifactPathClass, wantMode uint32, wantBestEffort bool) bool {
 		return rel == path && qualified.class == class && !remove && mode == wantMode && bestEffort == wantBestEffort
 	}
@@ -181,8 +254,13 @@ func validateJiraArtifactRoleCounts(roles []CompletePullArtifactRole) error {
 }
 
 func validateCompletePullPublication(intent completePullPublicationIntent, checkpoint CompletePullCheckpoint, stageDir string) error {
-	if !validCompletePullService(intent.Service) || intent.SchemaVersion != completePullPublicationSchemaFor(intent.Service) || intent.Service != checkpoint.Service || intent.SelectorSHA256 != checkpoint.SelectorSHA256 || intent.OptionsSHA256 != checkpoint.OptionsSHA256 || intent.SelectionSHA256 != checkpoint.SelectionSHA256 {
+	if !validCompletePullService(intent.Service) || !validCompletePullPublicationSchema(intent.Service, intent.SchemaVersion) || intent.Service != checkpoint.Service || intent.SelectorSHA256 != checkpoint.SelectorSHA256 || intent.OptionsSHA256 != checkpoint.OptionsSHA256 || intent.SelectionSHA256 != checkpoint.SelectionSHA256 {
 		return fmt.Errorf("%w: complete-pull publication binding is invalid", domain.ErrCheckFailed)
+	}
+	if intent.Service == CompletePullServiceJira {
+		if err := validateCompletePullJiraEntrySchema(intent.SchemaVersion, intent.Entry); err != nil {
+			return err
+		}
 	}
 	if intent.Index < checkpoint.NextIndex || intent.Index >= len(checkpoint.IDs) {
 		return fmt.Errorf("%w: complete-pull publication index is outside the pending selection", domain.ErrCheckFailed)
@@ -202,8 +280,9 @@ func validateCompletePullPublication(intent completePullPublicationIntent, check
 	}
 	count := len(intent.Artifacts)
 	if intent.Relocation != nil {
-		if intent.Service != CompletePullServiceConfluence {
-			return fmt.Errorf("%w: Jira complete-pull publication cannot contain a Confluence relocation", domain.ErrCheckFailed)
+		if (intent.Service == CompletePullServiceConfluence && intent.Entry.Previous != nil) ||
+			(intent.Service == CompletePullServiceJira && intent.Entry.Previous == nil) {
+			return fmt.Errorf("%w: complete-pull relocation does not match its service-specific predecessor", domain.ErrCheckFailed)
 		}
 		count += len(intent.Relocation.Artifacts)
 		if intent.Relocation.Next < 0 || intent.Relocation.Next > len(intent.Relocation.Artifacts) {

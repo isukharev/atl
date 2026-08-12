@@ -27,9 +27,10 @@ const (
 // Completed includes the durable prefix recovered from a previous invocation.
 type CompletePullResult struct {
 	SelectorSHA256   string `json:"selector_sha256"`
-	SelectionSHA256  string `json:"selection_sha256"`
+	SelectionSHA256  string `json:"selection_sha256,omitempty"`
 	Source           string `json:"source"`
 	Complete         bool   `json:"complete"`
+	PartialReason    string `json:"partial_reason,omitempty"`
 	Total            int    `json:"total"`
 	Completed        int    `json:"completed"`
 	Remaining        int    `json:"remaining"`

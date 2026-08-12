@@ -160,8 +160,8 @@ derived view: используйте его dry-run, stash или явное ove
 content-minimized identity backend, поэтому зеркало staging нельзя случайно
 отправить в другой настроенный instance.
 
-Для Jira действует тот же локальный цикл с нативными `.wiki`-файлами,
-`jira pull`, `jira status`, `jira apply`, `jira reconcile preview` и `jira push`.
+Jira использует нативные `.wiki`-файлы; обычный цикл и qualified resumable pull,
+apply, reconcile и push описаны в разделе [Jira mirrors](docs/reference/cli/jira-mirrors.md).
 
 ### 3. Выполните preview, примените один раз и сверьте результат
 

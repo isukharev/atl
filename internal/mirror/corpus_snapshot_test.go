@@ -174,9 +174,40 @@ func TestCorpusSnapshotRejectsCorruptOrMisboundEvidence(t *testing.T) {
 		root := t.TempDir()
 		m := New(root)
 		bindCorpusSnapshotTestBackend(t, m, CorpusSnapshotJira)
-		seedCorpusJira(t, m, "EX-1", "not-numeric", "EX/EX-1.wiki", []byte("base"))
+		state := seedCorpusJira(t, m, "EX-1", "10001", "EX/EX-1.wiki", []byte("base"))
+		state.Identity = ""
+		writeCorpusState(t, m, state)
+		writeCorpusJSON(t, root, "EX/EX-1.json", map[string]any{
+			"key": "EX-1", "id": "not-numeric", "fields": map[string]any{"summary": "Synthetic issue"},
+		})
 		_, err := m.BeginCorpusSnapshot(CorpusSnapshotJira, CorpusSnapshotOptions{})
 		assertCorpusSnapshotRejected(t, err)
+	})
+	t.Run("Jira sidecar identity mismatch", func(t *testing.T) {
+		root := t.TempDir()
+		m := New(root)
+		bindCorpusSnapshotTestBackend(t, m, CorpusSnapshotJira)
+		state := seedCorpusJira(t, m, "EX-1", "10001", "EX/EX-1.wiki", []byte("base"))
+		state.Identity = "10002"
+		writeCorpusState(t, m, state)
+		_, err := m.BeginCorpusSnapshot(CorpusSnapshotJira, CorpusSnapshotOptions{})
+		assertCorpusSnapshotRejected(t, err)
+	})
+	t.Run("legacy Jira sidecar without identity", func(t *testing.T) {
+		root := t.TempDir()
+		m := New(root)
+		bindCorpusSnapshotTestBackend(t, m, CorpusSnapshotJira)
+		state := seedCorpusJira(t, m, "EX-1", "10001", "EX/EX-1.wiki", []byte("base"))
+		state.Identity = ""
+		writeCorpusState(t, m, state)
+		snapshot, err := m.BeginCorpusSnapshot(CorpusSnapshotJira, CorpusSnapshotOptions{})
+		if err != nil {
+			t.Fatalf("BeginCorpusSnapshot legacy Jira sidecar: %v", err)
+		}
+		item, err := snapshot.ReadItem(0)
+		if err != nil || item.ProviderID != "10001" {
+			t.Fatalf("legacy Jira snapshot item = %#v, %v", item, err)
+		}
 	})
 	t.Run("Jira path misbound", func(t *testing.T) {
 		root := t.TempDir()
@@ -272,7 +303,7 @@ func seedCorpusConfluence(t *testing.T, m *Mirror, id, path string, body []byte)
 
 func seedCorpusJira(t *testing.T, m *Mirror, key, providerID, path string, body []byte) SyncState {
 	t.Helper()
-	state := SyncState{ID: key, Version: 0, Hash: Hash(body), Path: path}
+	state := SyncState{ID: key, Identity: providerID, Version: 0, Hash: Hash(body), Path: path}
 	if err := m.SaveBaseExt(key, body, ".wiki"); err != nil {
 		t.Fatal(err)
 	}

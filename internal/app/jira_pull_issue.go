@@ -41,6 +41,7 @@ type jiraPullIssuePaths struct {
 type jiraPullQualifiedIssue struct {
 	request           jiraPullIssueRequest
 	paths             jiraPullIssuePaths
+	identity          string
 	pending           *JiraPendingFields
 	bodyForView       string
 	preserveLocalWiki bool
@@ -183,6 +184,10 @@ func (s *JiraService) qualifyJiraPullIssue(req jiraPullIssueRequest) (*jiraPullQ
 	if err != nil {
 		return nil, nil, err
 	}
+	identity, err := jiraSyncIdentity(req.issue.ID, req.knownWiki)
+	if err != nil {
+		return nil, nil, err
+	}
 	var pending *JiraPendingFields
 	if req.opts.DryRun {
 		pending, _, err = loadJiraPendingFieldsReadOnly(req.root, paths.keySeg)
@@ -199,6 +204,7 @@ func (s *JiraService) qualifyJiraPullIssue(req jiraPullIssueRequest) (*jiraPullQ
 	qualified := &jiraPullQualifiedIssue{
 		request:     req,
 		paths:       paths,
+		identity:    identity,
 		pending:     pending,
 		bodyForView: req.issue.Body,
 	}
@@ -287,6 +293,13 @@ func qualifyJiraPullIssuePaths(root string, issue *domain.Issue) (jiraPullIssueP
 }
 
 func revalidateJiraPullIssue(qualified *jiraPullQualifiedIssue) (*jiraPullRevalidatedIssue, *jiraPullIssueOutcome, error) {
+	identity, err := jiraSyncIdentity(qualified.request.issue.ID, qualified.request.knownWiki)
+	if err != nil || identity != qualified.identity {
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, nil, fmt.Errorf("%w: Jira stable identity changed during pull qualification", domain.ErrCheckFailed)
+	}
 	if err := safepath.MkdirAllWithin(qualified.request.root, qualified.paths.dir, 0o755); err != nil {
 		return nil, nil, err
 	}
@@ -395,6 +408,23 @@ func jiraPullSnapshotBytes(issue *domain.Issue) ([]byte, error) {
 	return append(jb, '\n'), nil
 }
 
+func jiraSyncIdentity(observed string, previous *mirror.SyncState) (string, error) {
+	identity := ""
+	if previous != nil && previous.Identity != "" {
+		if !canonicalPositiveNumericString(previous.Identity) {
+			return "", fmt.Errorf("%w: Jira mirror has an invalid stable identity", domain.ErrCheckFailed)
+		}
+		identity = previous.Identity
+	}
+	if !canonicalPositiveNumericString(observed) {
+		return identity, nil
+	}
+	if identity != "" && identity != observed {
+		return "", fmt.Errorf("%w: Jira stable identity changed for the tracked issue key", domain.ErrCheckFailed)
+	}
+	return observed, nil
+}
+
 func publishJiraPullIssue(candidate *jiraPullPublishCandidate) (jiraPullIssueOutcome, error) {
 	fetched := candidate.fetched
 	qualified := fetched.staged.revalidated.qualified
@@ -402,7 +432,7 @@ func publishJiraPullIssue(candidate *jiraPullPublishCandidate) (jiraPullIssueOut
 	if err := req.mirror.SaveBaseExt(qualified.paths.keySeg, []byte(req.issue.Body), wikiExt); err != nil {
 		return jiraPullIssueOutcome{}, err
 	}
-	state := mirror.SyncState{ID: qualified.paths.keySeg, Version: 0, Hash: mirror.Hash([]byte(req.issue.Body)), Path: qualified.paths.wikiRel.String()}
+	state := mirror.SyncState{ID: qualified.paths.keySeg, Identity: qualified.identity, Version: 0, Hash: mirror.Hash([]byte(req.issue.Body)), Path: qualified.paths.wikiRel.String()}
 	req.batch.Record(state)
 	view := viewStateOf(req.render)
 	req.batch.RecordView(qualified.paths.keySeg, view)
