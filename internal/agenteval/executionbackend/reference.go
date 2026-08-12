@@ -223,7 +223,8 @@ func RunReference(ctx context.Context, admitted AdmittedPlan, inputs ReferenceIn
 		return RunResult{}, fmt.Errorf("%w: input entries", ErrPolicy)
 	}
 	if err := contextCause(runContext); err != nil {
-		return interruptedResult(plan, admitted.planSHA, err)
+		return interruptedReceipt(plan, admitted.planSHA, declaredInputSHA256(plan.Mounts), referenceInputBytes(inputs),
+			referenceInputEntries(definitions, fixture, skill), 0, err)
 	}
 	if !mountDigestsMatch(plan.Mounts, definitions.digest, fixture.digest, skill.digest) {
 		return RunResult{}, fmt.Errorf("%w: input identity", ErrPolicy)
@@ -231,7 +232,8 @@ func RunReference(ctx context.Context, admitted AdmittedPlan, inputs ReferenceIn
 	inputSHA := combinedInputSHA256(definitions, fixture, skill)
 	if plan.Program.Kind == ProgramWaitForCancel {
 		<-runContext.Done()
-		return interruptedReceipt(plan, admitted.planSHA, inputSHA, runContext.Err())
+		return interruptedReceipt(plan, admitted.planSHA, inputSHA, referenceInputBytes(inputs), referenceInputEntries(definitions, fixture, skill), 1,
+			runContext.Err())
 	}
 	source := map[MountID]*snapshot{MountDefinitions: definitions, MountFixture: fixture, MountSkill: skill}[plan.Program.SourceMount]
 	content, err := source.read(plan.Program.SourcePath)
@@ -252,7 +254,8 @@ func RunReference(ctx context.Context, admitted AdmittedPlan, inputs ReferenceIn
 	clearArtifactMap(verifierArtifacts)
 	if err := contextCause(runContext); err != nil {
 		clearArtifacts(resultArtifacts)
-		return interruptedReceipt(plan, admitted.planSHA, inputSHA, err)
+		return interruptedReceipt(plan, admitted.planSHA, inputSHA, referenceInputBytes(inputs),
+			referenceInputEntries(definitions, fixture, skill), 1, err)
 	}
 	receiptArtifacts := make([]ReceiptArtifact, len(resultArtifacts))
 	for index, artifact := range resultArtifacts {
@@ -264,6 +267,7 @@ func RunReference(ctx context.Context, admitted AdmittedPlan, inputs ReferenceIn
 	}
 	receipt := Receipt{Schema: ReceiptSchema, SchemaVersion: SchemaVersion, ContractVersion: ContractVersion,
 		ContractSHA256: plan.ContractSHA256, PlanSHA256: admitted.planSHA, InputSHA256: inputSHA,
+		InputBytes: referenceInputBytes(inputs), InputEntries: referenceInputEntries(definitions, fixture, skill), Operations: 1,
 		Artifacts: receiptArtifacts, ArtifactSetSHA256: artifactSetSHA256(receiptArtifacts), Verdict: verdict,
 		VerifierEvidenceSHA256: verifierEvidenceSHA256(plan.Verifier, receiptArtifacts, passed),
 		Termination:            PresenceObserved, Cleanup: PresenceObserved, Network: PresenceObserved, Credentials: PresenceObserved}
@@ -301,6 +305,18 @@ func referenceSnapshotsWithinEntryLimit(limit uint32, values ...*snapshot) bool 
 	return entries <= uint64(limit)
 }
 
+func referenceInputBytes(inputs ReferenceInputs) uint64 {
+	return uint64(len(inputs.Fixture)) + uint64(len(inputs.Skill)) + uint64(len(inputs.Definitions))
+}
+
+func referenceInputEntries(values ...*snapshot) uint32 {
+	entries := uint64(0)
+	for _, value := range values {
+		entries += uint64(len(value.entries))
+	}
+	return uint32(entries) // #nosec G115 -- admitted aggregate is bounded by MaxSnapshotEntries.
+}
+
 func verifyReference(verifier Verifier, artifacts map[string][]byte) bool {
 	if verifier.Kind != VerifierSHA256Equals {
 		return false
@@ -310,12 +326,13 @@ func verifyReference(verifier Verifier, artifacts map[string][]byte) bool {
 }
 
 func interruptedResult(plan Plan, planSHA string, err error) (RunResult, error) {
-	return interruptedReceipt(plan, planSHA, declaredInputSHA256(plan.Mounts), err)
+	return interruptedReceipt(plan, planSHA, declaredInputSHA256(plan.Mounts), 0, 0, 0, err)
 }
 
-func interruptedReceipt(plan Plan, planSHA, inputSHA string, err error) (RunResult, error) {
+func interruptedReceipt(plan Plan, planSHA, inputSHA string, inputBytes uint64, inputEntries, operations uint32, err error) (RunResult, error) {
 	receipt := Receipt{Schema: ReceiptSchema, SchemaVersion: SchemaVersion, ContractVersion: ContractVersion,
-		ContractSHA256: plan.ContractSHA256, PlanSHA256: planSHA, InputSHA256: inputSHA, Artifacts: []ReceiptArtifact{},
+		ContractSHA256: plan.ContractSHA256, PlanSHA256: planSHA, InputSHA256: inputSHA,
+		InputBytes: inputBytes, InputEntries: inputEntries, Operations: operations, Artifacts: []ReceiptArtifact{},
 		ArtifactSetSHA256: artifactSetSHA256([]ReceiptArtifact{}), Verdict: VerdictUnknown,
 		Termination: PresenceObserved,
 		Cleanup:     PresenceObserved, Network: PresenceObserved, Credentials: PresenceObserved}
@@ -393,11 +410,17 @@ func receiptVerifierDecision(verifier Verifier, artifacts []ReceiptArtifact) (bo
 
 func unknownEvidenceSHA256(receipt Receipt) string {
 	data, _ := json.Marshal(struct {
-		Termination Presence `json:"termination"`
-		Cleanup     Presence `json:"cleanup"`
-		Network     Presence `json:"network"`
-		Credentials Presence `json:"credentials"`
-	}{receipt.Termination, receipt.Cleanup, receipt.Network, receipt.Credentials})
+		InputSHA256       string   `json:"input_sha256"`
+		InputBytes        uint64   `json:"input_bytes"`
+		InputEntries      uint32   `json:"input_entries"`
+		Operations        uint32   `json:"operations"`
+		ArtifactSetSHA256 string   `json:"artifact_set_sha256"`
+		Termination       Presence `json:"termination"`
+		Cleanup           Presence `json:"cleanup"`
+		Network           Presence `json:"network"`
+		Credentials       Presence `json:"credentials"`
+	}{receipt.InputSHA256, receipt.InputBytes, receipt.InputEntries, receipt.Operations, receipt.ArtifactSetSHA256,
+		receipt.Termination, receipt.Cleanup, receipt.Network, receipt.Credentials})
 	return hashDomain("unknown-evidence", data)
 }
 

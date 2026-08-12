@@ -88,6 +88,9 @@ func TestHermeticReferenceBackendCancellationClosesEmptyProcessTree(t *testing.T
 	if result.Receipt.InputSHA256 != declaredInputSHA256(waitPlan.Mounts) {
 		t.Fatalf("interrupted input identity=%q", result.Receipt.InputSHA256)
 	}
+	if result.Receipt.InputBytes == 0 || result.Receipt.InputEntries != 3 || result.Receipt.Operations != 1 {
+		t.Fatalf("interrupted usage=%+v", result.Receipt)
+	}
 }
 
 func TestHermeticReferenceBackendRejectsUndeclaredOrOversizedArtifacts(t *testing.T) {
@@ -179,6 +182,26 @@ func TestExecutionBackendReceiptCoverageAndUnknownEvidenceFailClosed(t *testing.
 	if err := ValidateReceipt(plan, coverageDrift); err == nil {
 		t.Fatal("hermetic coverage drift passed")
 	}
+	inputDrift := result.Receipt
+	inputDrift.InputSHA256 = strings.Repeat("0", 64)
+	if err := ValidateReceipt(plan, inputDrift); err == nil {
+		t.Fatal("receipt with a forged input identity passed")
+	}
+	inputUsageDrift := result.Receipt
+	inputUsageDrift.InputBytes = plan.Resources.MaxInputBytes + 1
+	if err := ValidateReceipt(plan, inputUsageDrift); err == nil {
+		t.Fatal("receipt exceeded the input-byte budget")
+	}
+	inputUsageDrift = result.Receipt
+	inputUsageDrift.InputEntries = plan.Resources.MaxEntries + 1
+	if err := ValidateReceipt(plan, inputUsageDrift); err == nil {
+		t.Fatal("receipt exceeded the input-entry budget")
+	}
+	operationDrift := result.Receipt
+	operationDrift.Operations = 0
+	if err := ValidateReceipt(plan, operationDrift); err == nil {
+		t.Fatal("terminal receipt claimed no operation")
+	}
 	verdictDrift := result.Receipt
 	verdictDrift.Artifacts = append([]ReceiptArtifact{}, result.Receipt.Artifacts...)
 	verdictDrift.Artifacts[0].SHA256 = strings.Repeat("0", 64)
@@ -191,8 +214,41 @@ func TestExecutionBackendReceiptCoverageAndUnknownEvidenceFailClosed(t *testing.
 	unknown.Verdict = VerdictUnknown
 	unknown.Artifacts = []ReceiptArtifact{}
 	unknown.ArtifactSetSHA256 = artifactSetSHA256(unknown.Artifacts)
-	unknown.VerifierEvidenceSHA256 = strings.Repeat("f", 64)
+	unknown.VerifierEvidenceSHA256 = unknownEvidenceSHA256(unknown)
+	if err := ValidateReceipt(plan, unknown); err != nil {
+		t.Fatalf("valid unknown receipt: %v", err)
+	}
+	unknown.InputBytes++
 	if err := ValidateReceipt(plan, unknown); err == nil {
-		t.Fatal("unbound unknown evidence passed")
+		t.Fatal("unknown usage changed without changing its evidence")
+	}
+
+	bounded := plan
+	bounded.Artifacts = append([]ArtifactDeclaration{}, plan.Artifacts...)
+	bounded.Artifacts = append(bounded.Artifacts, ArtifactDeclaration{ID: "second", MaxBytes: 1, Privacy: PrivacyPublic})
+	bounded.Resources.MaxArtifacts = 2
+	bounded.Resources.MaxOperations = 2
+	bounded.Resources.MaxOutputBytes = 1
+	forged := result.Receipt
+	forged.PlanSHA256, _ = PlanSHA256(bounded)
+	forged.Artifacts = []ReceiptArtifact{{ID: "result", SHA256: plan.Verifier.ExpectedSHA256, Bytes: 1},
+		{ID: "second", SHA256: strings.Repeat("1", 64), Bytes: 1}}
+	forged.ArtifactSetSHA256 = artifactSetSHA256(forged.Artifacts)
+	forged.VerifierEvidenceSHA256 = verifierEvidenceSHA256(bounded.Verifier, forged.Artifacts, true)
+	if err := ValidateReceipt(bounded, forged); err == nil {
+		t.Fatal("receipt exceeded the aggregate output-byte budget")
+	}
+	bounded.Resources.MaxOutputBytes = 2
+	bounded.Resources.MaxArtifacts = 1
+	forged.PlanSHA256, _ = PlanSHA256(bounded)
+	if err := ValidateReceipt(bounded, forged); err == nil {
+		t.Fatal("receipt exceeded the artifact budget")
+	}
+	bounded.Resources.MaxArtifacts = 2
+	bounded.Resources.MaxOperations = 1
+	forged.PlanSHA256, _ = PlanSHA256(bounded)
+	forged.Operations = 2
+	if err := ValidateReceipt(bounded, forged); err == nil {
+		t.Fatal("receipt exceeded the operation budget")
 	}
 }

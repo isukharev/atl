@@ -844,7 +844,8 @@ func standaloneDecodeExtensionReadabilityProjection(t *testing.T, entry standalo
 			return nil, fmt.Errorf("trial receipt golden is not canonical")
 		}
 		return map[string]any{"schema": receipt.Schema, "schema_version": receipt.SchemaVersion, "contract_version": receipt.ContractVersion,
-			"verdict": receipt.Verdict, "artifact_count": len(receipt.Artifacts), "termination": receipt.Termination, "cleanup": receipt.Cleanup,
+			"verdict": receipt.Verdict, "input_bytes": receipt.InputBytes, "input_entries": receipt.InputEntries,
+			"operations": receipt.Operations, "artifact_count": len(receipt.Artifacts), "termination": receipt.Termination, "cleanup": receipt.Cleanup,
 			"network": receipt.Network, "credentials": receipt.Credentials}, nil
 	default:
 		return nil, fmt.Errorf("unsupported standalone readability golden kind %q", entry.Kind)

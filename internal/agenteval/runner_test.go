@@ -389,8 +389,14 @@ exit 2
 	}
 	server := mcpConfig.Servers["atl"]
 	configuredATL, configuredErr := filepath.EvalSymlinks(server.Command)
-	wantATL, wantErr := filepath.EvalSymlinks(fakeATL)
-	if configuredErr != nil || wantErr != nil || configuredATL != wantATL || len(server.Args) != 2 || server.Args[0] != "mcp" || server.Args[1] != "serve" || server.Env["ATL_READ_ONLY"] != "1" || server.Env["ATL_JIRA_PAT"] != "synthetic-jira-token" || !server.AlwaysLoad {
+	configuredDigest, digestErr := digestSyntheticExecutable(configuredATL, privateAgentBinaryMaxBytes)
+	wantDigest, wantErr := digestSyntheticExecutable(fakeATL, privateAgentBinaryMaxBytes)
+	wantParent := filepath.Join(outputRoot, scenario.ID, "claude-code", "typed-mcp", "run-01", ".atl-eval", "admitted")
+	inside, insideErr := pathWithin(wantParent, configuredATL)
+	if configuredErr != nil || digestErr != nil || wantErr != nil || insideErr != nil || !inside ||
+		configuredATL == fakeATL || configuredDigest != wantDigest || len(server.Args) != 2 || server.Args[0] != "mcp" ||
+		server.Args[1] != "serve" || server.Env["ATL_READ_ONLY"] != "1" ||
+		server.Env["ATL_JIRA_PAT"] != "synthetic-jira-token" || !server.AlwaysLoad {
 		t.Fatalf("MCP config is not bound to the reviewed child: %+v", server)
 	}
 	settingsData, err := os.ReadFile(filepath.Join(outputRoot, scenario.ID, "claude-code", "typed-mcp", "run-01", "claude-settings.json"))

@@ -444,7 +444,7 @@ The internal `ATL_EVAL_*` registry, wrapper basenames, broker records, launch ar
 | `agent-eval/agent-observation` | Content-minimized normalized activation, event graph, terminal state, parent/tree usage, consumed-child evidence, and explicit coverage issues |
 | `agent-eval/execution-backend-contract` | Complete capability claims plus implementation/content identity and assurance class for one selected backend |
 | `agent-eval/trial-plan` | Content-addressed definition, fixture, skill, policy, resource, artifact, program, and verifier admission for one trial |
-| `agent-eval/trial-receipt` | Content-minimized terminal verdict, artifact identities, verifier evidence, cleanup, network, credential, and termination coverage |
+| `agent-eval/trial-receipt` | Content-minimized terminal verdict, input/resource usage, artifact identities, verifier evidence, cleanup, network, credential, and termination coverage |
 | `agent-eval/migration-preview` | Content-minimized reviewed binding of source, candidate, registry, migration implementation, graph, and counts |
 | `agent-eval/migration-result` | Content-minimized idempotent receipt for one applied reviewed migration |
 | `agent-eval/schema-registry` | Public closed inventory of artifact ownership, generations, policies, bounds, resources, and reviewed migration edges |
@@ -687,7 +687,16 @@ The manifest ID/version/executable, role operations, supported protocol
 capabilities, semantic contract, and external-adapter plan must agree exactly.
 The resulting extension report and durable case receipts are protocol-only;
 they retain the declared `local_process` gaps and do not claim sandbox or
-hermetic assurance. By contrast, the built-in `reference-hermetic` backend is
+hermetic assurance. The retained local runner copies the provider-relevant
+plugin/marketplace projection, the selected ATL binary, the evaluation wrapper,
+the initial workspace, and installed benchmark skills into the owned attempt
+tree and revalidates their identities at the durable commit boundary. It also
+stable-reads the selected agent launcher again immediately before each launcher
+entry. The launcher still executes by its selected path so package-managed
+scripts, native companions, dynamic libraries, and other transitive runtime
+dependencies keep working; a hostile same-UID path replacement between that
+read and process entry remains unproved and is one reason this backend stays
+`local_process`. By contrast, the built-in `reference-hermetic` backend is
 an in-memory test oracle. It admits only exact network-deny, no-credential,
 fresh/read-only snapshot, declared-artifact, deadline/storage, separate-copy
 verifier, and logical-cleanup requirements. Its timeout/cancel receipt closes

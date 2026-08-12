@@ -27,6 +27,37 @@ type headlessProviderResources struct {
 	temporaryConfigDir  string
 }
 
+func provisionHeadlessBenchmarkSkills(parent context.Context, enabled bool, adapter builtInAgentAdapter,
+	contract resolvedRunContract, bindings runAttemptBindings, admission *localExecutionBackendAttemptAdmission,
+) error {
+	if !enabled {
+		return nil
+	}
+	if bindings.providerRuntime == nil {
+		return fmt.Errorf("private codex CLI run requires an isolated provider runtime")
+	}
+	if err := verifyLocalExecutionBackendLaunch(contract, bindings, admission); err != nil {
+		return err
+	}
+	provisionContext, cancel := context.WithTimeout(parent, 30*time.Second)
+	defer cancel()
+	return adapter.provisionBenchmarkSkills(provisionContext, bindings.agentBinary, bindings.pluginRoot, bindings.providerRuntime)
+}
+
+func runHeadlessConfinementPreflight(parent context.Context, enabled bool, adapter builtInAgentAdapter,
+	contract resolvedRunContract, bindings runAttemptBindings, admission *localExecutionBackendAttemptAdmission,
+	workspace, probeExecutablePath, brokerManifestPath string, confinement ProviderConfinement,
+) error {
+	if !enabled {
+		return nil
+	}
+	if err := verifyLocalExecutionBackendLaunch(contract, bindings, admission); err != nil {
+		return err
+	}
+	return adapter.runConfinementPreflight(parent, bindings.agentBinary, workspace, probeExecutablePath,
+		brokerManifestPath, confinement, bindings.providerRuntime)
+}
+
 func prepareHeadlessProviderResources(parent context.Context, contract resolvedRunContract, bindings runAttemptBindings, layout headlessAttemptLayout) (_ *headlessProviderResources, returnErr error) {
 	resources := &headlessProviderResources{
 		backendEnvironment: map[string]string{},
@@ -227,15 +258,16 @@ func (resources *headlessProviderResources) closeDeferred() {
 }
 
 type headlessProviderExecutionInput struct {
-	contract   resolvedRunContract
-	bindings   runAttemptBindings
-	layout     headlessAttemptLayout
-	resources  *headlessProviderResources
-	command    *exec.Cmd
-	transcript *os.File
-	stderr     *os.File
-	ctx        context.Context
-	cancel     context.CancelFunc
+	contract              resolvedRunContract
+	bindings              runAttemptBindings
+	layout                headlessAttemptLayout
+	resources             *headlessProviderResources
+	command               *exec.Cmd
+	transcript            *os.File
+	stderr                *os.File
+	ctx                   context.Context
+	cancel                context.CancelFunc
+	revalidateBeforeSpawn func() error
 }
 
 type headlessProviderExecutionSummary struct {
@@ -285,6 +317,18 @@ func executeAndCloseHeadlessProvider(input headlessProviderExecutionInput) headl
 	isolatedRuntimeCLI := input.layout.isolatedRuntimeCLI
 	if isolatedRuntimeCLI {
 		revalidateProvider = input.bindings.providerRuntime.verifyPluginPackage
+	}
+	if input.revalidateBeforeSpawn != nil {
+		providerRevalidate := revalidateProvider
+		revalidateProvider = func() error {
+			if err := input.revalidateBeforeSpawn(); err != nil {
+				return err
+			}
+			if providerRevalidate != nil {
+				return providerRevalidate()
+			}
+			return nil
+		}
 	}
 	attemptStage, terminationProven, terminalReceipt, runErr := executeProviderAttemptWithSession(
 		input.command, input.bindings.providerAttemptCommitted, revalidateProvider, input.bindings.attemptSession,

@@ -1850,7 +1850,7 @@
       "kind": "trial-receipt",
       "version": 1,
       "source_path": "testdata/standalone-readability/trial-receipt-v1.json",
-      "source_sha256": "a7a51a98297c9ef2ca57b71627ffaa837a603a58d72e14f9dad45340142c21cd",
+      "source_sha256": "20cc4014e5ca781d3f958773440f4fc9bcfe4e8efc6b348d3a5aea069d573f12",
       "reader_support_path": "testdata/standalone-readability/trial-plan-v1.json",
       "reader_support_sha256": "91428b607a2ea85b4c0d12743d7c0311eaa68a9ae399b5ad904b2b44f456e5e4",
       "expected_projection": {
@@ -1858,6 +1858,9 @@
         "schema_version": 1,
         "contract_version": "0.1.0-pre-release",
         "verdict": "succeeded",
+        "input_bytes": 21,
+        "input_entries": 3,
+        "operations": 1,
         "artifact_count": 1,
         "termination": "observed",
         "cleanup": "observed",

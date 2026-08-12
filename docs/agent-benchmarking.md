@@ -338,7 +338,13 @@ artifacts, and grades from a separate byte clone. Unsupported isolation or
 resource requirements refuse before durable commit. Existing ATL runs retain
 their behavior through a distinct `local_process` projection whose ambient
 network/credential access and unproved CPU, memory, process-count, verifier,
-and termination guarantees remain explicit. The internal
+and termination guarantees remain explicit. That path snapshots only the
+provider-relevant plugin/marketplace tree plus the selected ATL and wrapper
+bytes; it does not recursively copy the repository. It revalidates the selected
+agent launcher before every launcher entry but executes the original path to
+preserve package-managed scripts and native companions, so hostile same-UID
+replacement and transitive runtime dependencies remain explicit unproved local
+gaps. The internal
 `verify-execution-backend` process command proves only manifest/protocol/
 contract/plan agreement for a selected executable; it does not upgrade that
 child to hermetic assurance.

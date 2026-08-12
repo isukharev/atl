@@ -279,6 +279,9 @@ type Receipt struct {
 	ContractSHA256         string            `json:"contract_sha256"`
 	PlanSHA256             string            `json:"plan_sha256"`
 	InputSHA256            string            `json:"input_sha256"`
+	InputBytes             uint64            `json:"input_bytes"`
+	InputEntries           uint32            `json:"input_entries"`
+	Operations             uint32            `json:"operations"`
 	Artifacts              []ReceiptArtifact `json:"artifacts"`
 	ArtifactSetSHA256      string            `json:"artifact_set_sha256"`
 	Verdict                Verdict           `json:"verdict"`
@@ -442,24 +445,35 @@ func ValidatePlan(plan Plan) error {
 func ValidateReceipt(plan Plan, receipt Receipt) error {
 	planSHA, err := PlanSHA256(plan)
 	if err != nil || receipt.Schema != ReceiptSchema || receipt.SchemaVersion != SchemaVersion || receipt.ContractVersion != ContractVersion ||
-		receipt.ContractSHA256 != plan.ContractSHA256 || receipt.PlanSHA256 != planSHA || !validSHA256(receipt.InputSHA256) ||
-		receipt.Artifacts == nil || len(receipt.Artifacts) > len(plan.Artifacts) || !validSHA256(receipt.ArtifactSetSHA256) ||
+		receipt.ContractSHA256 != plan.ContractSHA256 || receipt.PlanSHA256 != planSHA ||
+		receipt.InputSHA256 != declaredInputSHA256(plan.Mounts) || receipt.Artifacts == nil ||
+		receipt.InputBytes > plan.Resources.MaxInputBytes || receipt.InputEntries > plan.Resources.MaxEntries ||
+		receipt.Operations > plan.Resources.MaxOperations || len(receipt.Artifacts) > len(plan.Artifacts) ||
+		len(receipt.Artifacts) > int(plan.Resources.MaxArtifacts) || !validSHA256(receipt.ArtifactSetSHA256) ||
 		!receipt.Verdict.valid() || !validSHA256(receipt.VerifierEvidenceSHA256) || !receipt.Termination.valid() ||
 		!receipt.Cleanup.valid() || !receipt.Network.valid() || !receipt.Credentials.valid() {
 		return contractError("receipt_shape")
 	}
+	var outputBytes uint64
 	for index, artifact := range receipt.Artifacts {
 		if !validIdentifier(artifact.ID) || !validSHA256(artifact.SHA256) || artifact.Bytes > MaxArtifactBytes ||
 			index > 0 && receipt.Artifacts[index-1].ID >= artifact.ID || !declaresArtifact(plan.Artifacts, artifact.ID) ||
 			artifact.Bytes > declaration(plan.Artifacts, artifact.ID).MaxBytes {
 			return contractError("receipt_artifacts")
 		}
+		if artifact.Bytes > plan.Resources.MaxOutputBytes-outputBytes {
+			return contractError("receipt_output_bytes")
+		}
+		outputBytes += artifact.Bytes
 	}
 	if receipt.ArtifactSetSHA256 != artifactSetSHA256(receipt.Artifacts) {
 		return contractError("receipt_artifact_set")
 	}
 	switch receipt.Verdict {
 	case VerdictSucceeded, VerdictFailed:
+		if receipt.Operations == 0 {
+			return contractError("receipt_operations")
+		}
 		if passed, known := receiptVerifierDecision(plan.Verifier, receipt.Artifacts); known && passed != (receipt.Verdict == VerdictSucceeded) {
 			return contractError("receipt_verdict")
 		}
@@ -472,6 +486,7 @@ func ValidateReceipt(plan Plan, receipt Receipt) error {
 		}
 	case VerdictNotApplicable:
 		if len(receipt.Artifacts) != 0 || receipt.VerifierEvidenceSHA256 != hashDomain("not-applicable", nil) ||
+			receipt.InputBytes != 0 || receipt.InputEntries != 0 || receipt.Operations != 0 ||
 			receipt.Termination != PresenceNotApplicable || receipt.Cleanup != PresenceNotApplicable ||
 			receipt.Network != PresenceNotApplicable || receipt.Credentials != PresenceNotApplicable {
 			return contractError("receipt_not_applicable")

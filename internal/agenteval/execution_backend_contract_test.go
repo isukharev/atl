@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -125,7 +126,7 @@ func TestLocalExecutionBackendIsBoundAndExplicitlyNonHermetic(t *testing.T) {
 		scenario: Scenario{ID: "synthetic-task"}, prompt: []byte("prompt"), providerPrompt: []byte("provider"),
 		responseSchema: []byte("{}"), workspaceTemplate: workspace}
 	digest := strings.Repeat("a", 64)
-	backend, plan, first, err := localExecutionBackendTrialPlan(contract, digest, strings.Repeat("b", 64), strings.Repeat("c", 64))
+	backend, plan, first, err := localExecutionBackendTrialPlan(contract, digest, strings.Repeat("d", 64), strings.Repeat("b", 64), strings.Repeat("c", 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,19 +154,160 @@ func TestLocalExecutionBackendIsBoundAndExplicitlyNonHermetic(t *testing.T) {
 	}
 	policyDrift := contract
 	policyDrift.spec.ToolTransport = "mcp"
-	_, _, policyDigest, err := localExecutionBackendTrialPlan(policyDrift, digest, strings.Repeat("b", 64), strings.Repeat("c", 64))
+	_, _, policyDigest, err := localExecutionBackendTrialPlan(policyDrift, digest, strings.Repeat("d", 64), strings.Repeat("b", 64), strings.Repeat("c", 64))
 	if err != nil || policyDigest == first {
 		t.Fatalf("policy digest=%q original=%q err=%v", policyDigest, first, err)
+	}
+	fixtureDrift := contract
+	fixtureDrift.fixture = &MockFixture{SchemaVersion: MockFixtureSchemaVersion, JiraContext: "/jira", ConfluenceContext: "/wiki",
+		Routes: []MockRoute{{Method: "GET", Path: "/jira/item", Status: 200, Body: []byte(`{}`)}}}
+	_, _, fixtureDigest, err := localExecutionBackendTrialPlan(fixtureDrift, digest, strings.Repeat("d", 64), strings.Repeat("b", 64), strings.Repeat("c", 64))
+	if err != nil || fixtureDigest == first {
+		t.Fatalf("fixture digest=%q original=%q err=%v", fixtureDigest, first, err)
 	}
 	if err := os.WriteFile(workspace+"/input.txt", []byte("two"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, _, second, err := localExecutionBackendTrialPlan(contract, digest, strings.Repeat("b", 64), strings.Repeat("c", 64))
+	_, _, second, err := localExecutionBackendTrialPlan(contract, digest, strings.Repeat("d", 64), strings.Repeat("b", 64), strings.Repeat("c", 64))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first == second {
 		t.Fatal("workspace drift retained local backend plan identity")
+	}
+}
+
+func TestLocalExecutionBackendRejectsChangedCopiedInputsBeforeCommit(t *testing.T) {
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	if err := os.Mkdir(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "input.txt"), []byte("admitted"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	skill := filepath.Join(t.TempDir(), "skill")
+	if err := os.Mkdir(skill, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skill, "SKILL.md"), []byte("admitted"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	skillDigest, err := digestTree(skill)
+	if err != nil {
+		t.Fatal(err)
+	}
+	skillDigest, err = normalizedRunSkillDigest(skillDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract := resolvedRunContract{spec: RunSpec{TimeoutSeconds: 30, BackendMode: BackendModeSynthetic, Surface: SurfaceCLISkill},
+		scenario: Scenario{ID: "synthetic-task"}, prompt: []byte("prompt"), providerPrompt: []byte("provider"),
+		responseSchema: []byte("{}"), workspaceTemplate: workspace}
+	pluginDigest := "sha256:" + strings.Repeat("d", 64)
+	_, plan, _, err := localExecutionBackendTrialPlan(contract, skillDigest, pluginDigest, strings.Repeat("b", 64), strings.Repeat("c", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	admission := &localExecutionBackendAttemptAdmission{plan: plan, skillSHA256: skillDigest, pluginSHA256: pluginDigest,
+		atlSHA256: strings.Repeat("b", 64), wrapperSHA256: strings.Repeat("c", 64)}
+
+	if err := os.WriteFile(filepath.Join(workspace, "input.txt"), []byte("changed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	copiedWorkspace := filepath.Join(t.TempDir(), "copied-workspace")
+	if err := copyWorkspace(workspace, copiedWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyExecutionBackendWorkspaceCopy(copiedWorkspace, admission); err == nil {
+		t.Fatal("changed workspace bytes matched the admitted fixture")
+	}
+
+	if err := os.WriteFile(filepath.Join(skill, "SKILL.md"), []byte("changed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	copiedSkill := filepath.Join(t.TempDir(), "copied-skill")
+	if err := copyWorkspace(skill, copiedSkill); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyExecutionBackendSkillCopy(copiedSkill, admission); err == nil {
+		t.Fatal("changed skill bytes matched the admitted skill")
+	}
+
+	wrapper := filepath.Join(t.TempDir(), "wrapper")
+	if err := os.WriteFile(wrapper, []byte("changed"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyExecutionBackendWrapper(wrapper, filepath.Join(t.TempDir(), "copied-wrapper"), admission); err == nil {
+		t.Fatal("changed wrapper bytes matched the admitted executable")
+	}
+}
+
+func TestLocalExecutionBackendCopiesOnlyProviderPluginInputs(t *testing.T) {
+	for _, provider := range []string{"codex", "claude-code"} {
+		t.Run(provider, func(t *testing.T) {
+			spec := RunSpec{Provider: provider}
+			root := t.TempDir()
+			writeTestPluginTrees(t, root, "0.4.0", "Synthetic skill.")
+			unrelated := filepath.Join(root, "private", "runs", "unrelated.txt")
+			if err := os.MkdirAll(filepath.Dir(unrelated), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(unrelated, []byte("must not enter the admitted snapshot"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			want, err := digestProviderPluginRoot(root, spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			target := filepath.Join(root, "private", "runs", "run-01", ".atl-eval", "admitted", "plugin")
+			if err := copyProviderPluginRoot(root, target, spec); err != nil {
+				t.Fatal(err)
+			}
+			got, err := digestProviderPluginRoot(target, spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != want {
+				t.Fatalf("copied provider plugin digest=%q want=%q", got, want)
+			}
+			if _, err := os.Lstat(filepath.Join(target, "private")); !os.IsNotExist(err) {
+				t.Fatalf("admitted snapshot copied unrelated repository state: %v", err)
+			}
+		})
+	}
+}
+
+func TestLocalExecutionBackendAcceptsCodexSnapshotWithoutMarketplace(t *testing.T) {
+	mcpSpec := RunSpec{Provider: "codex", BackendMode: BackendModeSynthetic, Surface: SurfaceATLMCP, ToolTransport: "mcp"}
+	root := t.TempDir()
+	writeTestPluginTrees(t, root, "0.4.0", "Synthetic skill.")
+	if err := os.RemoveAll(filepath.Join(root, ".agents")); err != nil {
+		t.Fatal(err)
+	}
+	want, err := digestProviderPluginRoot(root, mcpSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "plugin")
+	if err := copyProviderPluginRoot(root, target, mcpSpec); err != nil {
+		t.Fatal(err)
+	}
+	got, err := digestProviderPluginRoot(target, mcpSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("minimal codex plugin digest=%q want=%q", got, want)
+	}
+	if _, err := os.Lstat(filepath.Join(target, ".agents", "plugins")); !os.IsNotExist(err) {
+		t.Fatalf("minimal codex snapshot invented a marketplace: %v", err)
+	}
+	privateCLISpec := RunSpec{Provider: "codex", BackendMode: BackendModePrivateLive, Surface: SurfaceCLISkill, ToolTransport: "cli"}
+	if _, err := digestProviderPluginRoot(root, privateCLISpec); err == nil {
+		t.Fatal("private codex CLI admitted a missing marketplace")
+	}
+	if err := copyProviderPluginRoot(root, filepath.Join(t.TempDir(), "private-cli-plugin"), privateCLISpec); err == nil {
+		t.Fatal("private codex CLI copied a missing marketplace")
 	}
 }
 

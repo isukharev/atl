@@ -19,6 +19,10 @@ func runAttemptBinding(contract resolvedRunContract, options RunOptions, skillDi
 	if err != nil {
 		return lifecycle.Binding{}, err
 	}
+	pluginDigest, err := digestProviderPluginRoot(options.PluginRoot, contract.spec)
+	if err != nil {
+		return lifecycle.Binding{}, err
+	}
 	digest := func(domain string, value any) (string, error) { return contentMinimizedAttemptDigest(domain, value) }
 	experiment, err := digest("experiment", struct {
 		Spec     RunSpec  `json:"spec"`
@@ -42,7 +46,7 @@ func runAttemptBinding(contract resolvedRunContract, options RunOptions, skillDi
 	if err != nil {
 		return lifecycle.Binding{}, err
 	}
-	_, _, environment, err := localExecutionBackendTrialPlan(contract.forAttempt(), skillDigest, atlDigest, wrapperDigest)
+	_, _, environment, err := localExecutionBackendTrialPlan(contract.forAttempt(), skillDigest, pluginDigest, atlDigest, wrapperDigest)
 	if err != nil {
 		return lifecycle.Binding{}, err
 	}
