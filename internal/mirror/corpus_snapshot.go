@@ -279,9 +279,9 @@ func (m *Mirror) captureCorpusSnapshotAuxiliaries(service, nativePath, ext strin
 	var suffixes []string
 	switch service {
 	case CorpusSnapshotConfluence:
-		suffixes = []string{".comments.json", ".jira-macros.json"}
+		suffixes = []string{".comments.json", ".attachments.json", ".jira-macros.json"}
 	case CorpusSnapshotJira:
-		suffixes = []string{".epic-children.json"}
+		suffixes = []string{".comments.json", ".attachments.json", ".epic-children.json"}
 	}
 	out := []CorpusSnapshotFile{}
 	var total int64

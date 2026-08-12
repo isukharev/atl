@@ -37,6 +37,30 @@ func seedSlugs(f *testing.F) {
 	}
 }
 
+func FuzzJiraCommentsSidecarDecoder(f *testing.F) {
+	seed, err := EncodeJiraCommentsSidecarV1(jiraCommentsSidecarFixture())
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(seed)
+	f.Add([]byte(`{"schema_version":1}`))
+	f.Fuzz(func(_ *testing.T, data []byte) {
+		_, _ = DecodeJiraCommentsSidecarV1(data)
+	})
+}
+
+func FuzzAttachmentSidecarDecoder(f *testing.F) {
+	seed, err := EncodeAttachmentSidecarV1(confluenceCapturedAttachmentSidecarFixture())
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(seed)
+	f.Add([]byte(`{"schema_version":1}`))
+	f.Fuzz(func(_ *testing.T, data []byte) {
+		_, _ = DecodeAttachmentSidecarV1(data)
+	})
+}
+
 // FuzzSlugify asserts the directory-slug invariants for ANY title: non-empty,
 // at most 80 runes, and free of path separators.
 func FuzzSlugify(f *testing.F) {
