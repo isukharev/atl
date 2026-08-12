@@ -100,14 +100,14 @@ type AgentSkillsExportReport struct {
 // returns only the bounded compatibility projection. It does not execute or
 // write the imported project.
 func InspectAgentSkillsImport(options AgentSkillsImportOptions) (AgentSkillsImportReport, error) {
-	result, err := agentskills.Import(agentskills.ImportRequest{
-		SkillRoot: options.SkillRoot, EvalRoot: options.EvalRoot,
-		PreviousSkillRoot: options.PreviousSkillRoot,
-		Format:            agentskills.Format(options.Format), Baseline: agentskills.Baseline(options.Baseline),
-	})
+	result, err := agentskills.Import(agentSkillsImportRequest(options))
 	if err != nil {
 		return AgentSkillsImportReport{}, err
 	}
+	return agentSkillsImportReport(result), nil
+}
+
+func agentSkillsImportReport(result agentskills.ImportResult) AgentSkillsImportReport {
 	report := AgentSkillsImportReport{
 		Schema: AgentSkillsImportReportSchema, SchemaVersion: AgentSkillsImportReportVersion,
 		ContractVersion: StandaloneContractVersion, Format: string(result.Experiment.Format),
@@ -133,7 +133,7 @@ func InspectAgentSkillsImport(options AgentSkillsImportOptions) (AgentSkillsImpo
 			Count: entry.Count, BlocksExecution: entry.BlocksExecution,
 		})
 	}
-	return report, nil
+	return report
 }
 
 // ExportAgentSkillsWorkspace strictly captures an imported source and an

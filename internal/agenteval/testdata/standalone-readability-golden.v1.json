@@ -1648,6 +1648,28 @@
     },
     {
       "namespace": "standalone",
+      "kind": "analysis-plan",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/analysis-plan-v1.json",
+      "source_sha256": "2b77c080974206f478081b98b1dc9d8a07cc18aaba1e0ffcfa480c20f97d46c3",
+      "expected_projection": {
+        "schema": "agent-eval/analysis-plan",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "confidence_basis_points": 9500,
+        "minimum_inference_blocks": 2,
+        "bootstrap_samples": 1000,
+        "repeated_attempt_kind": "none",
+        "metric_count": 2,
+        "comparison_count": 1,
+        "primary_metric": "outcome",
+        "digest_bound": true,
+        "stage_count": 8,
+        "primary_stage": ""
+      }
+    },
+    {
+      "namespace": "standalone",
       "kind": "attempt-event",
       "version": 1,
       "source_path": "testdata/standalone-readability/attempt-event-v1.json",
@@ -1709,6 +1731,62 @@
         "assurance": "hermetic_reference",
         "capability_count": 23,
         "supported_capability_count": 14
+      }
+    },
+    {
+      "namespace": "standalone",
+      "kind": "experiment-capability-contract",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/experiment-capability-contract-v1.json",
+      "source_sha256": "1121d23439495802abf4d37e3263d3cea99a3062010f4bf431231138064b0011",
+      "expected_projection": {
+        "schema": "agent-eval/experiment-capability-contract",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "runtime_binding_count": 9,
+        "capability_count": 32,
+        "supported_capability_count": 32,
+        "digest_bound": true
+      }
+    },
+    {
+      "namespace": "standalone",
+      "kind": "experiment-design",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/experiment-design-v1.json",
+      "source_sha256": "943d9a5fdd9dd627a669229ecfc1e85effae2f734da9336dfccdde2357ff9e71",
+      "expected_projection": {
+        "schema": "agent-eval/experiment-design",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "compatibility_profile": "none",
+        "treatment_count": 2,
+        "negative_control_count": 0,
+        "stratum_count": 1,
+        "block_count": 2,
+        "ordering": "williams",
+        "stopping": "fixed_roster",
+        "digest_bound": true
+      }
+    },
+    {
+      "namespace": "standalone",
+      "kind": "experiment-manifest",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/experiment-manifest-v1.json",
+      "source_sha256": "4e74bae198a4bb659af498451224b59753827973eb052b021e0c16e5d27bd133",
+      "expected_projection": {
+        "schema": "agent-eval/experiment-manifest",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "required_capability_count": 14,
+        "treatment_count": 2,
+        "block_count": 2,
+        "trial_count": 4,
+        "pair_count": 2,
+        "position_balance_complete": true,
+        "component_digests_bound": true,
+        "manifest_digest_bound": true
       }
     },
     {
@@ -1874,14 +1952,14 @@
       "kind": "schema-registry",
       "version": 1,
       "source_path": "schemaregistry/registry.v1.json",
-      "source_sha256": "9eb32a5b68fda1a45740ed600d6bb8583a41d2543c5da85ee59d473124b3cc39",
+      "source_sha256": "9b81fd01479545d30c545e97a73e2f2408a6d5a99fd21343ad60cb38fc837bbc",
       "expected_projection": {
         "schema": "agent-eval/schema-registry",
         "schema_version": 1,
         "contract_version": "0.1.0-pre-release",
-        "entry_count": 36,
+        "entry_count": 41,
         "first_schema": "atl-profile/activation-reference",
-        "last_schema": "standalone/trial-receipt",
+        "last_schema": "standalone/trial-record",
         "migration_edge_count": 1
       }
     },
@@ -1927,6 +2005,29 @@
         "cleanup": "observed",
         "network": "observed",
         "credentials": "observed"
+      }
+    },
+    {
+      "namespace": "standalone",
+      "kind": "trial-record",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/trial-record-v1.json",
+      "source_sha256": "4f88f2a7f69b547f3b465be1a14af65309ef26c99895f5912fa8b9291fbf4c8d",
+      "reader_support_path": "testdata/standalone-readability/experiment-manifest-v1.json",
+      "reader_support_sha256": "4e74bae198a4bb659af498451224b59753827973eb052b021e0c16e5d27bd133",
+      "expected_projection": {
+        "schema": "agent-eval/trial-record",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "lifecycle_state": "succeeded",
+        "eligibility": "supported",
+        "exclusion": "none",
+        "stage_count": 8,
+        "observed_stage_count": 8,
+        "metric_count": 2,
+        "observed_metric_count": 2,
+        "outcome": 1,
+        "record_digest_bound": true
       }
     }
   ]

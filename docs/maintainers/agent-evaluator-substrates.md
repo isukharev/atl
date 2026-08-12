@@ -61,6 +61,16 @@ historical state bytes. This closes the current no-retry/failed-attempt
 retention requirement without making the lifecycle package a public SDK or
 granting an external substrate replay authority.
 
+The neutral `experiment` leaf is another execution-free owner. It imports no
+evaluator package and freezes complete capability claims, explicit treatment
+and control material, preregistered analysis identity, balanced block order,
+the trial roster, and content-minimized observations in five strict v1
+artifacts. The root facade alone composes Agent Skills case digests, the
+append-only lifecycle roster, and private activation-study compatibility. The
+leaf is not a scheduler, runner, statistical engine, report generator, or
+standalone command; those consumers must accept its canonical manifest and
+trial-record bytes without reconstructing experiment identities.
+
 The nested module's schema-v1 extension protocol is also implementation
 evidence, not extraction evidence. It defines a closed process seam for
 profiles, agent adapters, execution backends, graders, and reporters, plus an

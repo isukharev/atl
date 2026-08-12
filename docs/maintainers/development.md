@@ -225,12 +225,12 @@ The evaluator module's production and test imports are recursively reviewed in
 `TestEvaluatorProductDependencyLedger`. Its Go package owners are the root
 compatibility facade, neutral `core`, process `extension`, built-in
 `profile/atl`, neutral semantic `agentadapter`, neutral execution policy and
-reference leaf `executionbackend`, neutral append-only `lifecycle`, neutral
-grading contract and evaluator `grading`, format-specific
+reference leaf `executionbackend`, neutral causal-design leaf `experiment`,
+neutral append-only `lifecycle`, neutral grading contract and evaluator `grading`, format-specific
 `interchange/agentskills`, schema metadata leaf
 `schemaregistry`, and `cmd/agent-eval`. Their machine-enforced direction keeps
-`core`, `extension`, `agentadapter`, `executionbackend`, and `lifecycle` as
-leaves, keeps `schemaregistry` dependency-free, permits `grading` to import
+`core`, `extension`, `agentadapter`, `executionbackend`, `experiment`, and
+`lifecycle` as leaves, keeps `schemaregistry` dependency-free, permits `grading` to import
 only `core` and `executionbackend`, permits `profile/atl` to import `core` and
 `grading`, and permits `interchange/agentskills` to import only `core`,
 permits the root facade to compose those owners, and permits the command to
