@@ -40,15 +40,16 @@ infer support from ordinary `doctor`, a nearby patch, or an HTTP error shape.
 Compatibility providers accept no arbitrary endpoint/header/payload overrides
 and are not MCP routes.
 
-For an unfamiliar Jira/Confluence task, query the exact offline route before
-loading broad command references:
+For an unfamiliar Jira/Confluence task that is not already governed by a
+reviewed exact-command workflow, query the exact offline route before loading
+broad command references:
 
 ```bash
-atl capabilities --task jira/evidence
-atl capabilities --task jira/setup
-atl capabilities --task jira/graph-evidence
-atl capabilities --task jira/inverse-reference
-atl capabilities --task confluence/comments
+atl capabilities --task jira/evidence -o text
+atl capabilities --task jira/setup -o text
+atl capabilities --task jira/graph-evidence -o text
+atl capabilities --task jira/inverse-reference -o text
+atl capabilities --task confluence/comments -o text
 ```
 
 The closed task classes are `confluence/comments`, `confluence/edit`,
@@ -57,9 +58,11 @@ The closed task classes are `confluence/comments`, `confluence/edit`,
 `jira/graph-evidence`, `jira/inverse-reference`, `jira/mirror`, `jira/portfolio`, `jira/setup`,
 `jira/structure-planning`, and `knowledge/search`. The result is a small ordered set
 of stable capability ids with the real command path, backend access class,
-supported output modes, evidence/completeness semantics, and one focused skill
-reference. Load only the named focused skill/reference, then stop expanding the
-route once sufficient complete evidence is available. Use exact filters only;
+evidence/completeness semantics, and one focused skill reference. The text view
+omits output modes, bounded MCP scope, and CLI-only metadata; use default JSON
+when that routing decision needs them. Load only the named focused
+skill/reference, then stop expanding the route once sufficient complete
+evidence is available. Use exact filters only;
 an unknown task/id is a loud not-found result, not a prompt for fuzzy guessing.
 `capabilities` is local/offline and works without valid config or credentials.
 The additive `confluence/comments` route keeps qualified list, exact thread,
@@ -137,10 +140,14 @@ version gate.
    editing or repeatable offline access,
    read the rendered `.md` to locate, and edit there (merge back with `conf apply` / `jira apply`),
    opening the raw substrate only for what the md surface can't express.
-   Keep live reads slim too: `--fields` on Jira gets, `--columns` on Jira issue lists, `-o id` for piping, and a `| jq`
-   projection when only a few values are needed — include Jira `attachment` when you need the
+   Keep live reads slim too: `--fields` on Jira gets, `--columns` on Jira issue lists, and
+   command-native summary or compact projections before any local shaping — include Jira
+   `attachment` when you need the
    presence/names of files, but avoid a bare `issue get` because it drags the whole comment thread
    into context.
+   [context-efficient-output.md](reference/context-efficient-output.md) gives the output-mode and
+   qualification rules plus the safe `jq` fallback; never add a pipe to a guarded exact-command
+   workflow.
    Pull is non-destructive: local native or derived-view edits are preserved,
    clean siblings continue, and a blocked selection exits 8 with content-free
    `local_safety` evidence. Use `pull --dry-run` to inspect a refresh. Use
@@ -301,9 +308,10 @@ Recent additions expand both surfaces — check the focused skills for full flag
 - `--verbose` / `ATL_VERBOSE=1` — trace every HTTP request/response to stderr (token never logged).
 - Shell completion for fixed-value flags (e.g. `--output`, `--format`, `--status`) is registered.
   Help and completion remain usable while global read-only policy is active.
-- `capabilities --task <exact-class>` — offline bounded task routing; JSON by
-  default, Markdown with `-o text`, or stable capability ids with `-o id`; JSON
-  also states any bounded MCP route/scope or an explicit CLI-only boundary.
+- `capabilities --task <exact-class> -o text` — compact offline task routing;
+  use default JSON only when the routing decision needs the omitted bounded MCP
+  scope, output modes, or explicit CLI-only metadata, and `-o id` only when
+  stable capability ids alone are sufficient.
 - `mcp serve --service jira|confluence|offline` — standalone closed read-only
   profiles; omission preserves the plugin's complete default inventory.
 

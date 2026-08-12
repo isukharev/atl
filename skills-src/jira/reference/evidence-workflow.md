@@ -10,7 +10,7 @@ step mechanically.
 | Situation | First command | Expand only when needed |
 |---|---|---|
 | One exact issue and the task asks what work, dependencies, code, or documentation is connected | typed `jira_issue_graph`, or `jira issue graph <KEY>` when MCP is unavailable | keep full for topology; select compact `urls` or Development-backed `scm` when only those qualified facts are needed; opt into the smallest sufficient depth only for exact structured Jira relations; CLI `--resolve confluence` may read discovered page id/title metadata |
-| One exact GitLab project or Confluence page and the task asks which Jira issues refer to it | `atl capabilities --task jira/inverse-reference`, then the returned CLI-only `jira issue reference search` route | choose the exact scope, sources, and bounds once; use exhaustive for absence or fast only for explicitly incomplete discovery |
+| One exact GitLab project or Confluence page and the task asks which Jira issues refer to it | `atl capabilities --task jira/inverse-reference -o text`, then the returned CLI-only `jira issue reference search` route | choose the exact scope, sources, and bounds once; use exhaustive for absence or fast only for explicitly incomplete discovery |
 | One exact standard field named by the task | `jira issue field get <KEY> --field <NAME>` | nothing when the bounded result is complete |
 | One unfamiliar issue | `jira issue fields <KEY> --metadata-only` | exact bounded field get, selected history/refs, then a linked page section |
 | One epic and known evidence-field names | `jira epic digest <KEY>` plus only a task-supplied period | bounded Confluence section expansion |

@@ -11,11 +11,18 @@ Confluence Storage Format (CSF) as the write substrate. `atl` prints JSON by
 default. Durable document markers may use LF or CRLF; atl normalizes only the
 marker line and never treats whole-document newline conversion as neutral.
 
-For an unfamiliar goal, run `atl capabilities --task confluence/evidence`,
-`confluence/table-analytics`, `confluence/comments`, `confluence/mirror`, `confluence/edit`, or the cross-service
-`knowledge/search` route, then load exactly the
+For an unfamiliar goal that is not already governed by a reviewed exact-command
+workflow, run `atl capabilities --task <exact-class> -o text` with
+`confluence/evidence`, `confluence/table-analytics`,
+`confluence/comments`, `confluence/mirror`, `confluence/edit`, or the
+cross-service `knowledge/search` class, then load exactly the
 reference named by the result. A
 capability route does not grant write authority.
+
+When a bounded JSON result still exceeds the active decision, load
+[context-efficient-output.md](../atl/reference/context-efficient-output.md)
+for the safe output-mode and local-projection rules. Do not add pipes or
+redirections to a guarded exact-command workflow.
 
 ## Establish the safety boundary
 

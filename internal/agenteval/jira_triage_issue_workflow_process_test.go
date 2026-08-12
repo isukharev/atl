@@ -90,7 +90,7 @@ func executeJiraTriagePrimaryProcess(
 
 	issues := make([]JiraTriageIssueGet, 0, len(cohort.candidates))
 	for _, expected := range cohort.candidates {
-		result := callJiraTriageCLIJSON(t, process, triageIssueGetCommand(expected.key))
+		result := callJiraTriageCLIJSON(t, process, triageIssueGetCommand(cohort, expected.key))
 		exits = append(exits, result.ExitCode)
 		issue, err := DecodeJiraTriageIssueGet(bytes.NewReader(result.JSON))
 		if err != nil {
@@ -165,8 +165,12 @@ func triageSearchCommand(cohort triageCohort, index int) []string {
 	return []string{"jira", "issue", "search", "--jql", cohort.queries[index], "--limit", "10", "--columns", triageColumns}
 }
 
-func triageIssueGetCommand(key string) []string {
-	return []string{"jira", "issue", "get", key}
+func triageIssueGetCommand(cohort triageCohort, key string) []string {
+	args := []string{"jira", "issue", "get", key}
+	if cohort.directory == triagePrimaryDirectory {
+		args = append(args, "--fields", cohort.candidateFields)
+	}
+	return args
 }
 
 func triageCreateCommand(cohort triageCohort) []string {
@@ -212,7 +216,7 @@ func assertJiraTriagePrimaryProcessAdmissionRefused(
 		assertJiraTriagePreBackendRefusal(t, process)
 	}
 	process := startJiraTriagePrimaryProcess(t, root, fixture, cohort, policy)
-	if _, err := process.RunSyntheticWriteCLIJSON(t.Context(), triageIssueGetCommand(cohort.candidates[0].key)...); err == nil {
+	if _, err := process.RunSyntheticWriteCLIJSON(t.Context(), triageIssueGetCommand(cohort, cohort.candidates[0].key)...); err == nil {
 		t.Fatal("selected triage read was admitted through the synthetic write entry point")
 	}
 	assertJiraTriagePreBackendRefusal(t, process)

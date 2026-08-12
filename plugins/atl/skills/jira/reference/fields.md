@@ -132,12 +132,12 @@ accepts a body file. Compose it in Jira wiki markup, **not Markdown** — see
 1. **Seed** a working file from the current description:
    - from the pulled snapshot: read `~/.atl/<workspace>/<PROJECT>/<KEY>.json` → its `description`
      field, OR
-   - `atl jira issue get <KEY>` → the `description` field.
+   - `atl jira issue get <KEY> --fields description` → the `description` field.
    Write that wiki text to a scratch file, e.g. `PROJ-1.description.wiki`.
 2. **Edit** `PROJ-1.description.wiki` with normal file tools (Read/Edit) — ideal for big epics.
 3. **Apply** (re-`get` first, since there's no version gate):
    ```bash
-   atl jira issue get PROJ-1            # confirm nobody changed it since you seeded
+   atl jira issue get PROJ-1 --fields description  # confirm it did not change since seeding
    atl jira issue update PROJ-1 --from-file PROJ-1.description.wiki
    ```
 

@@ -49,11 +49,15 @@
   "files": [
     {
       "path": "atl/SKILL.md",
-      "sha256": "8ab6945b9d8cbed6a14112ccca1ba91074b0367af1aa5f8c9d087202a08eca02"
+      "sha256": "863b74518d04fc1dc39b234069964b394ebd08a2a75bf9981d8e1eaa3839bf5d"
     },
     {
       "path": "atl/agents/openai.yaml",
       "sha256": "7d958657b9328f8b85c3c8bba183b86613a9f1f02727ceed7d56d3a293d36ed6"
+    },
+    {
+      "path": "atl/reference/context-efficient-output.md",
+      "sha256": "3d4911accf7c8b69b26ea1b4565aefa40c2c269b5aea2304a7af6032306b172b"
     },
     {
       "path": "atl/reference/delegation.md",
@@ -81,11 +85,11 @@
     },
     {
       "path": "atl/reference/workflow.md",
-      "sha256": "8acc9d3f64be6eaa2bc82b977a4f957c74e370c0cf786ce3900b027e11b154c6"
+      "sha256": "4eaa28d925b35c46e168bfb36c0ed98abd684af6a73835bdb2738e46c5b21044"
     },
     {
       "path": "confluence/SKILL.md",
-      "sha256": "70c0077acaad23a642a3f1f36853c44193df0039a5f0f8146f5099f37d7d12a6"
+      "sha256": "75551a2edd86a5f8d47ac97f8887f10fd33b5edf7b9583bdc188feef1e42d257"
     },
     {
       "path": "confluence/agents/openai.yaml",
@@ -129,7 +133,7 @@
     },
     {
       "path": "jira/SKILL.md",
-      "sha256": "2a0a5c4cd2e70ca1214b2dbe30248c030d1829b8d3a356089c8fc21189c05aaf"
+      "sha256": "a40ac066b545bab62b5492341d132a640a4605ea617af5e5627a91c2c6b7aadc"
     },
     {
       "path": "jira/agents/openai.yaml",
@@ -153,7 +157,7 @@
     },
     {
       "path": "jira/reference/evidence-workflow.md",
-      "sha256": "43bcc31c3a54256b905319d76b85e3114a9988c6e6c805f4f81026ec279a696a"
+      "sha256": "3e4d3b9283d86df9879086f4def5cdf63751df121d2383a95a21b9422b8a1bd4"
     },
     {
       "path": "jira/reference/extended-capabilities.md",
@@ -161,7 +165,7 @@
     },
     {
       "path": "jira/reference/fields.md",
-      "sha256": "8e4562acd6cad562a8b5cfc4139120778faee0c794d4d833c9da94980b4d081e"
+      "sha256": "c49f409efa7b34a62ba864da08b83528d99451b019a6ba8d1960c2539a1d1b45"
     },
     {
       "path": "jira/reference/jql.md",
@@ -181,7 +185,7 @@
     },
     {
       "path": "jira/reference/wiki-markup.md",
-      "sha256": "04a435969048c7c0ce7e4525d7511fd08ef4d00d37fbf16cd1dde47fe93cda30"
+      "sha256": "f804faa4300d34f3a7805b29d1f466df9ff00b2c4310be5e57f3769516e20855"
     },
     {
       "path": "meeting-tasks/SKILL.md",
@@ -213,7 +217,7 @@
     },
     {
       "path": "search-knowledge/SKILL.md",
-      "sha256": "d0f0e631214f006455fd942ce58f63de1780386b9d9e8e6a14bcedff44eee4dd"
+      "sha256": "ad67ef74d6852aedbc1f5a3b69060dea02bc0d35dc23ffaf71d4e8a285b7c29c"
     },
     {
       "path": "search-knowledge/agents/openai.yaml",
@@ -245,7 +249,7 @@
     },
     {
       "path": "status-report/SKILL.md",
-      "sha256": "4baa920bfc287c090d08e2e21d2f27b762f9e4131bce567c352441750530e1cd"
+      "sha256": "43d36bfa9a30686719d139a5e73019aacd8ac5010272467c25f4c0650df928e3"
     },
     {
       "path": "status-report/agents/openai.yaml",
@@ -253,7 +257,7 @@
     },
     {
       "path": "triage-issue/SKILL.md",
-      "sha256": "18f3b387d4bae8b816ac20e754709ca0357d175f8e272abed736f4a67ccfb8a1"
+      "sha256": "42321280172c0d30c5507cb4f110710a9311108ff1809214ee37fcc7023343b7"
     },
     {
       "path": "triage-issue/agents/openai.yaml",

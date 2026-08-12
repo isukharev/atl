@@ -17,13 +17,14 @@ shell/file inspection commands.
 
 **Preflight:** `atl` must be installed and configured. If `command -v atl` fails
 or a command exits `7` ("not configured"), run `/atl:setup` and stop.
-For an unfamiliar mixed-backend question, inspect the bounded offline route
-once before loading any broader reference:
+For an unfamiliar mixed-backend question that is not already governed by a
+reviewed exact-command workflow, inspect the bounded offline route once before
+loading any broader reference:
 
 <!-- atl:read-only-shell -->
 ```sh
 export ATL_READ_ONLY=1
-atl capabilities --task knowledge/search
+atl capabilities --task knowledge/search -o text
 ```
 
 ## Workflow
@@ -72,7 +73,8 @@ known space/project scope into the query.
 ```sh
 export ATL_READ_ONLY=1
 atl conf search --cql 'siteSearch ~ "billing retry queue"' --limit 15
-atl jira issue search --jql 'text ~ "billing retry queue" ORDER BY updated DESC' --limit 15
+atl jira issue search --jql 'text ~ "billing retry queue" ORDER BY updated DESC' \
+  --columns key,summary,status,updated --limit 15
 ```
 
 CQL fallbacks: `text ~ "..."`, then `title ~ "..."`. Scope with `space = KEY`
@@ -88,7 +90,8 @@ cursor:
 ```sh
 export ATL_READ_ONLY=1
 atl conf search --cql 'siteSearch ~ "billing retry queue"' --limit 15 --cursor '<next-cursor>'
-atl jira issue search --jql 'text ~ "billing retry queue" ORDER BY updated DESC' --limit 15 --cursor '<next-cursor>'
+atl jira issue search --jql 'text ~ "billing retry queue" ORDER BY updated DESC' \
+  --columns key,summary,status,updated --limit 15 --cursor '<next-cursor>'
 ```
 
 ### 3. Read bounded Confluence evidence
@@ -103,13 +106,18 @@ section `heading` as the exact outline `title`, without Markdown `#` prefixes.
 <!-- atl:read-only-shell -->
 ```sh
 export ATL_READ_ONLY=1
-atl conf page outline '<search-result-id>' -o text
-atl conf page section '<search-result-id>' --heading 'Retries' --max-bytes 32768 -o text
+atl conf page outline '<search-result-id>'
+atl conf page section '<search-result-id>' --heading 'Retries' --max-bytes 32768 \
+  --expected-version '<outline-version>'
 atl conf page sections '<search-result-id>' --heading 'Retries' --heading 'Limits' \
-  --max-bytes 65536 -o text
+  --max-bytes 65536 --expected-version '<outline-version>'
 ```
 
-Require `complete:true`. A duplicate heading needs explicit `--occurrence`;
+Keep these selection reads as JSON: `-o text` would hide completeness and the
+section version gate needed for the decision. Require the outline's
+`complete:true`, then copy its exact positive `version` into
+`--expected-version`. Require each section result to report `complete:true` and
+`page_version_gated:true`. A duplicate heading needs explicit `--occurrence`;
 `truncated:true` means the omitted tail is not evidence of absence.
 When several headings from one page are relevant, prefer `page sections` (or
 `confluence_page_sections`) so they share one version-bound snapshot instead of
@@ -134,7 +142,7 @@ canonical URL or SCM facts and never reconstruct an omitted URL identity.
 ```sh
 export ATL_READ_ONLY=1
 atl jira issue fields KEY-123 --metadata-only
-atl jira issue field get KEY-123 --field 'Delivery Notes'
+atl jira issue field get KEY-123 --field 'Delivery Notes' --max-bytes 16384
 atl jira issue refs KEY-123 --fields 'Delivery Notes'
 atl jira issue history KEY-123 --field 'Delivery Notes' --since 2026-07-01 --summary-only
 ```
@@ -157,7 +165,8 @@ narrative, comments, history, and refs.
 ```sh
 export ATL_READ_ONLY=1
 atl conf page view '<id-or-url>' -o text
-atl jira issue get KEY-123
+atl jira issue get KEY-123 \
+  --fields summary,status,issuetype,description,labels,updated,resolution
 atl jira issue comment list KEY-123 -o text
 ```
 

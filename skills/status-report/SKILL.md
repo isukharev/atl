@@ -46,11 +46,28 @@ field names only when discovery found them:
 ```sh
 export ATL_READ_ONLY=1
 atl jira epic digest PROJ-1 --since 2026-07-01 --until 2026-07-07 \
-  --status-field 'Delivery Notes' --dod-field 'Definition of Done'
+  --status-field 'Delivery Notes' --dod-field 'Definition of Done' \
+  --projection compact
 ```
 
-Require top-level and named `sources.*.complete`; preserve every warning and
-staleness reason. For multiple epics, run one bounded digest per key.
+Require `complete:true` for every named source requested by the report;
+preserve every warning and staleness reason plus `projection.omitted` and
+`projection.clipped`. Compact
+omits `children.list`, so when the report needs issue-key traceability for
+individual completions, blockers, owners, or risks, expand only that evidence
+through the paginated IssueList contract:
+
+<!-- atl:read-only-shell -->
+```sh
+export ATL_READ_ONLY=1
+atl jira issue children PROJ-1 \
+  --columns key,summary,status,assignee,priority,updated --limit 100
+```
+
+Follow `page.next_cursor` until `page.complete:true`, or label those details
+partial. Expand a required clipped field through its focused bounded read; do
+not repeat the digest in full output. For multiple epics, run one bounded
+digest per key.
 
 For a sprint, resolve it and page the shared IssueList projection:
 

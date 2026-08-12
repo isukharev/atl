@@ -73,6 +73,8 @@ also sidesteps all escaping.
 
 ## Checking your output
 
-After a write, `atl jira issue get <KEY>` returns the stored body — confirm the markup landed as
-intended (especially after composing a long description). The pulled `<KEY>.md` view renders the
-wiki body for human reading, but the wiki text itself is what you author and push.
+After a write, `atl jira issue get <KEY> --fields description` returns the stored
+body without comments or attachments — confirm the markup landed as intended
+(especially after composing a long description). The pulled `<KEY>.md` view
+renders the wiki body for human reading, but the wiki text itself is what you
+author and push.

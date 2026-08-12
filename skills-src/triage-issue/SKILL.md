@@ -25,8 +25,12 @@ query variants from specific to broad.
 <!-- atl:read-only-shell -->
 ```sh
 export ATL_READ_ONLY=1
-atl jira issue search --jql 'project = KEY AND text ~ "NullPointerException PaymentProcessor" AND type = Bug ORDER BY created DESC' --limit 10
-atl jira issue search --jql 'project = KEY AND summary ~ "timeout checkout" ORDER BY updated DESC' --limit 10
+atl jira issue search \
+  --jql 'project = KEY AND text ~ "NullPointerException PaymentProcessor" AND type = Bug ORDER BY created DESC' \
+  --limit 10 --columns key,summary,status,issuetype,updated
+atl jira issue search \
+  --jql 'project = KEY AND summary ~ "timeout checkout" ORDER BY updated DESC' \
+  --limit 10 --columns key,summary,status,issuetype,updated
 ```
 
 Useful refinements:
@@ -45,8 +49,13 @@ Compare promising hits before proposing any write:
 <!-- atl:read-only-shell -->
 ```sh
 export ATL_READ_ONLY=1
-atl jira issue get KEY-123
+atl jira issue get KEY-123 \
+  --fields summary,status,issuetype,description,labels,components,updated,resolution
 ```
+
+Keep the search `page` qualification and compare only the fields required by
+the duplicate rule. Fetch comments separately only after an open duplicate is
+selected; do not pull comments or attachments into every candidate read.
 
 Then tell the user
 which case this is and what you propose:

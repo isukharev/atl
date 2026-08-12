@@ -6,8 +6,8 @@ Run these read commands in order:
 
 atl jira issue search --jql 'project = LAB AND text ~ "CacheRefreshError refresh token" AND type = Bug ORDER BY updated DESC' --limit 10 --columns key,summary,status,updated
 atl jira issue search --jql 'project = LAB AND summary ~ "cache refresh" AND type = Bug ORDER BY updated DESC' --limit 10 --columns key,summary,status,updated
-atl jira issue get LAB-41
-atl jira issue get LAB-52
+atl jira issue get LAB-41 --fields summary,description,status,issuetype,project
+atl jira issue get LAB-52 --fields summary,description,status,issuetype,project
 
 The two mutually exclusive reviewed write choices are exact. If the rule selects create, run only:
 
