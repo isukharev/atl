@@ -81,17 +81,24 @@ func projectCorpusSnapshots(ctx context.Context, sources []corpusExportSource, l
 
 	qualifications := make([]corpus.IndexerQualification, 0, len(indexed))
 	for _, source := range indexed {
-		reasons := []corpus.QualificationReason{corpus.QualificationLegacyMirror}
-		if !source.source.snapshot.Reconciled() {
-			reasons = append(reasons, corpus.QualificationUnreconciled)
+		if source.source.capture != nil {
+			qualifications = append(qualifications, corpus.IndexerQualification{
+				Service: source.source.service, State: corpus.QualificationReady,
+				Basis: corpus.QualificationReceipt, ScopeDigest: source.source.capture.ScopeDigest,
+				SourceReceiptDigest: source.source.capture.ReceiptDigest,
+				Reasons:             []corpus.QualificationReason{},
+			})
+		} else {
+			reasons := []corpus.QualificationReason{corpus.QualificationLegacyMirror}
+			if !source.source.snapshot.Reconciled() {
+				reasons = append(reasons, corpus.QualificationUnreconciled)
+			}
+			qualifications = append(qualifications, corpus.IndexerQualification{
+				Service: source.source.service, State: corpus.QualificationPartial,
+				Basis: corpus.QualificationStructural, ScopeDigest: source.source.snapshot.Fingerprint(),
+				Reasons: reasons,
+			})
 		}
-		qualifications = append(qualifications, corpus.IndexerQualification{
-			Service:     source.source.service,
-			State:       corpus.QualificationPartial,
-			Basis:       corpus.QualificationStructural,
-			ScopeDigest: source.source.snapshot.Fingerprint(),
-			Reasons:     reasons,
-		})
 	}
 	sort.Slice(qualifications, func(i, j int) bool { return qualifications[i].Service < qualifications[j].Service })
 	for _, document := range builder.documents {
@@ -129,6 +136,18 @@ func projectCorpusSnapshots(ctx context.Context, sources []corpusExportSource, l
 		{spec: corpus.MemberSpec{Service: inventoryService, StableID: corpusEdgesStableID, Role: corpus.RoleEdges, Path: prefix + "edges.indexer-v1.jsonl"}, data: edgesBytes},
 		{spec: corpus.MemberSpec{Service: inventoryService, StableID: corpusReceiptStableID, Role: corpus.RoleMetadata, Path: prefix + "receipt.indexer-v1.json"}, data: receiptBytes},
 	}
+	for _, source := range sources {
+		if source.capture == nil {
+			continue
+		}
+		members = append(members, corpusExportMember{
+			spec: corpus.MemberSpec{
+				Service: source.service, StableID: corpusCaptureStableID, Role: corpus.RoleMetadata,
+				Path: "capture/" + string(source.service) + "/receipt.capture-v1.json",
+			},
+			data: append([]byte(nil), source.captureBytes...),
+		})
+	}
 	for _, document := range builder.documents {
 		data, ok := builder.files[document.MarkdownPath]
 		if !ok {
@@ -144,6 +163,21 @@ func projectCorpusSnapshots(ctx context.Context, sources []corpusExportSource, l
 	receiptDigest := corpusBytesSHA256(receiptBytes)
 	storeQualifications := make([]corpus.Qualification, 0, len(receipt.Qualifications))
 	for _, qualification := range receipt.Qualifications {
+		var source *corpusExportSource
+		for index := range sources {
+			if sources[index].service == qualification.Service {
+				source = &sources[index]
+				break
+			}
+		}
+		if source != nil && source.capture != nil {
+			storeQualifications = append(storeQualifications, corpus.Qualification{
+				Service: qualification.Service, ReceiptSchema: corpus.CaptureReceiptSchemaV1,
+				ScopeDigest: source.capture.ScopeDigest, SelectorDigest: source.capture.SelectorDigest,
+				ProjectionDigest: receipt.ProjectionDigest, ReceiptDigest: source.capture.ReceiptDigest,
+			})
+			continue
+		}
 		storeQualifications = append(storeQualifications, corpus.Qualification{
 			Service:       qualification.Service,
 			ReceiptSchema: corpus.IndexerReceiptSchemaV1,
