@@ -115,6 +115,7 @@ var corpusDevcontainerJobContract = []string{
 	"            --config \"$GITHUB_WORKSPACE/examples/corpus-devcontainer/.devcontainer/devcontainer.json\" \\",
 	"            --frozen-lockfile",
 	"          \"$cli\" exec --workspace-folder \"$GITHUB_WORKSPACE\" \\",
+	"            --config \"$GITHUB_WORKSPACE/examples/corpus-devcontainer/.devcontainer/devcontainer.json\" \\",
 	"            scripts/check-corpus-devcontainer/container-smoke.sh",
 }
 

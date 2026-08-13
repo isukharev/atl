@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -18,6 +19,7 @@ func TestRepositoryCorpusDevcontainerTemplate(t *testing.T) {
 	if err := validateTemplate(root); err != nil {
 		t.Fatal(err)
 	}
+	requireLinuxRuntime(t)
 	if err := runHermeticSmoke(root); err != nil {
 		t.Fatal(err)
 	}
@@ -125,6 +127,7 @@ func TestCorpusDevcontainerWorkflowBindsContractsToExactJob(t *testing.T) {
 }
 
 func TestBootstrapRefusesSourceOverlapBeforeATL(t *testing.T) {
+	requireLinuxRuntime(t)
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -155,6 +158,7 @@ func TestBootstrapRefusesSourceOverlapBeforeATL(t *testing.T) {
 }
 
 func TestBootstrapRefusesSourceContainedPrivateInputBeforeATL(t *testing.T) {
+	requireLinuxRuntime(t)
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -204,5 +208,12 @@ func TestBootstrapRefusesSourceContainedPrivateInputBeforeATL(t *testing.T) {
 	}
 	if _, err := os.Lstat(marker); !os.IsNotExist(err) {
 		t.Fatalf("ATL was invoked before private-input refusal: %v", err)
+	}
+}
+
+func requireLinuxRuntime(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("corpus devcontainer runtime is Linux-only")
 	}
 }
