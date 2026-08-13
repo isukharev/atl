@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,6 +34,7 @@ func TestStandaloneFrozenAuthorityProfiles(t *testing.T) {
 		"report/default":              "local_read/10000000",
 		"resume/default":              "agent_execution/11111111",
 		"run/default":                 "agent_execution/11111110",
+		"run/reference":               "local_write/11000000",
 		"schema inspect/default":      "local_read/10000000",
 		"validate/default":            "local_read/10000000",
 		"version/default":             "none/00000000",
@@ -232,6 +234,27 @@ func TestStandaloneCoordinatorWholeProcessStructuredFailures(t *testing.T) {
 			assertStandaloneError(t, stderr, test.exitClass.id, test.kind, false)
 			if strings.Contains(stderr, "private-command") {
 				t.Fatalf("structured failure leaked invocation: %s", stderr)
+			}
+		})
+	}
+}
+
+func TestStandaloneReferenceFailureClassesPreserveThePublicationBoundary(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		failure   *standaloneFailure
+		exitClass standaloneExitClass
+		kind      string
+		retrySafe bool
+	}{
+		{name: "invalid input", failure: standaloneReferenceInputFailure("invalid_reference_bundle"), exitClass: standaloneInputError, kind: "invalid_reference_bundle", retrySafe: true},
+		{name: "unsupported profile", failure: standaloneReferenceRunFailure(context.Background(), agenteval.ErrSequentialReferenceUnsupported), exitClass: standaloneCompatibilityError, kind: "reference_profile_unsupported", retrySafe: true},
+		{name: "pre-authority interruption", failure: standaloneReferenceRunFailure(context.Background(), context.Canceled), exitClass: standaloneInterruptedError, kind: "execution_canceled", retrySafe: true},
+		{name: "post-authority unknown", failure: standaloneReferenceRunFailure(context.Background(), agenteval.ErrSequentialReferenceOutcomeUnknown), exitClass: standaloneOutcomeUnknownError, kind: "reference_outcome_unknown", retrySafe: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if test.failure == nil || test.failure.class != test.exitClass || test.failure.kind != test.kind || test.failure.retrySafe != test.retrySafe {
+				t.Fatalf("failure=%+v", test.failure)
 			}
 		})
 	}

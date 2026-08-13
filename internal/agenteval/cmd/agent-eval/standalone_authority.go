@@ -53,6 +53,7 @@ func standaloneAuthorityProfiles() []standaloneAuthorityProfile {
 		{Operation: "report", Mode: "default", Command: "report", Authority: "local_read", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true}},
 		{Operation: "resume", Mode: "default", Command: "resume", Authority: "agent_execution", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true, ProcessSpawn: true, ProviderContact: true, BackendContact: true, Network: true, CredentialAccess: true, PrivateWorkspaceAccess: true}},
 		{Operation: "run", Mode: "default", Command: "run", Authority: "agent_execution", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true, ProcessSpawn: true, ProviderContact: true, BackendContact: true, Network: true, CredentialAccess: true}},
+		{Operation: "run", Mode: "reference", Command: "run", Authority: "local_write", Supported: true, standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true}},
 		{Operation: "schema inspect", Mode: "default", Command: "schema inspect", Authority: "local_read", Supported: true, ProcessAPI: true, standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true}},
 		{Operation: "validate", Mode: "default", Command: "validate", Authority: "local_read", Supported: true, ProcessAPI: true, standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true}},
 		{Operation: "version", Mode: "default", Command: "version", Authority: "none", Supported: true, ProcessAPI: true},

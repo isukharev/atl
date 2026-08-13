@@ -32,10 +32,12 @@ may describe only the marked rows as **pre-release source implementations**;
 they must not call them stable, supported, or distributed.
 
 The source tree also contains a neutral experiment compiler and its versioned
-artifact readers. This slice adds no standalone operation, help entry,
-capability row, or one-request process route. A later command owner may consume
-the canonical artifacts unchanged, but source availability alone does not make
-an experiment command implemented or grant runner authority.
+artifact readers. The coordinator exposes exactly one composed execution row,
+`run/reference`: it consumes an already compiled canonical manifest plus one
+closed sequential-reference bundle and writes one new local publication. It
+does not expose a general experiment planner, configurable runner, resume path,
+or one-request process route. Other experiment source availability does not
+make an operation implemented or grant runner authority.
 
 The repository implementation now contains an internal, in-memory neutral core
 and one explicitly composed ATL profile. The root evaluator package remains the
@@ -85,6 +87,7 @@ operation must be structurally unable to acquire it.
 | `report` | `default` | `reserved` | `local_read` | Y | N | N | N | N | N | N | N |
 | `resume` | `default` | `reserved` | `agent_execution` | Y | Y | Y | Y | Y | Y | Y | Y |
 | `run` | `default` | `reserved` | `agent_execution` | Y | Y | Y | Y | Y | Y | Y | N |
+| `run` | `reference` | `pre_release` | `local_write` | Y | Y | N | N | N | N | N | N |
 | `schema inspect` | `default` | `pre_release` | `local_read` | Y | N | N | N | N | N | N | N |
 | `validate` | `default` | `pre_release` | `local_read` | Y | N | N | N | N | N | N | N |
 | `version` | `default` | `pre_release` | `none` | N | N | N | N | N | N | N | N |
@@ -104,9 +107,12 @@ credential-, and private-workspace-free. Deterministic grading has the same
 no-contact verifier ceiling even though the current in-process implementation
 does not spawn. Judge grading is a distinct, explicit mode: it may receive
 provider, network, and credential authority, but never product-backend or
-private-workspace authority. `run` and `resume` receive only the individually
-admitted execution dimensions, and resume remains subject to the no-replay
-lifecycle below.
+private-workspace authority. The exact `run/reference` profile has only local
+read/write authority: it cannot spawn a process, contact a provider or product
+backend, use a network, discover credentials, or open a private workspace.
+Generic `run` and `resume` remain reserved, receive only the individually
+admitted execution dimensions if later implemented, and remain subject to the
+no-replay lifecycle below.
 
 Commands are non-interactive: no prompts, pagers, browsers, confirmation reads from stdin, or default provider selection. A local mutation requiring confirmation must receive all confirmation material in the original invocation and fail before writing when it is absent.
 
@@ -278,8 +284,8 @@ trailing values, nested collection/depth overflow, future schema or contract
 versions, and a second request fail closed. The exact admitted operations are
 `version`, `capabilities`, `validate`, `compare`, `inspect`, `schema inspect`,
 `migrate preview`, and `migrate apply`; deterministic grade, Agent Skills
-import/export, meta commands, reserved operations, and all hidden maintainer
-routes are structurally refused.
+import/export, `run/reference`, meta commands, reserved operations, and all
+hidden maintainer routes are structurally refused.
 
 ```json named-agent-eval-process-request
 {"schema":"agent-eval/process-request","schema_version":1,"contract_version":"0.1.0-pre-release","command":"version","mode":"execute","deadline_milliseconds":1000,"configuration":{"source":"none","environment":"none"},"arguments":[]}
@@ -375,6 +381,43 @@ The generic experiment families are `public_or_private`, but a manifest
 projected from an owner-private activation study remains owner-private. A digest
 is a comparison identity, not anonymization or permission to publish source
 material.
+
+### Sequential provider-free reference run
+
+The source coordinator accepts only the exact compiled reference profile: one
+reference treatment, one current-skill candidate, and one separately authored
+near-miss control in the manifest's fixed balanced order. Before creating the
+destination it strictly decodes and clones the complete manifest, grading plan,
+three execution plans, and all content-addressed input archives; it rejects any
+unknown or unsupported capability or profile drift. The in-memory reference
+adapter, hermetic reference backend, append-only lifecycle, and deterministic
+grader then execute at most one attempt at a time in manifest order.
+
+```shell named-agent-eval-sequential-reference-run
+agent-eval run --mode reference \
+  --manifest /absolute/experiment-manifest.json \
+  --bundle /absolute/sequential-reference-bundle.json \
+  --destination /absolute/new-reference-output
+```
+
+The destination must be absolute, clean, and absent. It receives the exact
+manifest, one durable attempt ledger, and a manifest-ordered directory of
+canonical observation, execution-plan/receipt, grading-plan/receipt, lifecycle,
+and trial-record artifacts. Raw copied artifact bytes never enter the result or
+publication. A completion marker is removed only after exact reread and
+transitive binding validation. Any failure after destination creation is
+`outcome_unknown,retry_safe:false`; the marker and ledger remain and the same
+destination is never replayed. Cancellation and timeout are terminal only
+under the lifecycle evidence actually recorded. The success envelope exposes
+only the manifest digest and trial/success/failure counts.
+
+This profile is provider-free, not a general sandbox claim. The implementation
+uses the existing Unix durable ledger and therefore refuses before destination
+creation on Windows.
+Held-root identity checks and exclusive writes protect the publication from
+path drift detectable by the process, but they do not prove isolation from a
+hostile same-UID process. A digest binds the declared bytes; it is not
+anonymization or permission to publish a private bundle.
 
 ## Capability negotiation
 
@@ -490,6 +533,7 @@ The internal `ATL_EVAL_*` registry, wrapper basenames, broker records, launch ar
 | `agent-eval/migration-preview` | Content-minimized reviewed binding of source, candidate, registry, migration implementation, graph, and counts |
 | `agent-eval/migration-result` | Content-minimized idempotent receipt for one applied reviewed migration |
 | `agent-eval/schema-registry` | Public closed inventory of artifact ownership, generations, policies, bounds, resources, and reviewed migration edges |
+| `agent-eval/sequential-reference-bundle` | Exact manifest binding, deterministic grading plan, three admitted reference execution plans, and bounded content-addressed input snapshots for `run/reference` |
 
 The compatibility ledger records project config, the schema registry, the five
 experiment artifacts, the two
@@ -497,8 +541,8 @@ migration artifacts, the three durable attempt families
 (`agent-eval/attempt-ledger`, `agent-eval/attempt-plan`, and
 `agent-eval/attempt-event`), each of the four extension families, the semantic
 adapter contract, normalized observation, execution-backend contract, trial
-plan, trial receipt, grader contract, grading plan, and grade receipt at
-generation 1. Project config, registry, experiment capability/design/analysis
+plan, trial receipt, grader contract, grading plan, grade receipt, and the
+sequential-reference bundle at generation 1. Project config, registry, experiment capability/design/analysis
 and manifest, attempt records, adapter manifest, message, bundle, adapter contract, execution-backend
 contract, trial-plan, and grade-receipt generations are readable, emitted, and executable;
 experiment trial records, migration artifacts, extension reports, normalized agent observations, and
@@ -515,15 +559,18 @@ explicit migration. Adapter contracts are `content_minimized` and capped at
 Experiment capability contracts are `public_or_private` and capped at 64 KiB;
 experiment designs and analysis plans are `public_or_private` and capped at
 1 MiB; compiled manifests are `public_or_private` and capped at 16 MiB; trial
-records are `content_minimized` and capped at 1 MiB. Executable experiment
+records are `content_minimized` and capped at 1 MiB. The sequential-reference
+bundle is `public_or_private`, capped at 64 MiB, preserved, and readable,
+emitted, and executable only by the exact reference composition. Executable experiment
 rows may enter only the compiler and planned-roster composition path described
 above; they do not authorize process launch. Execution-backend contracts and receipts are `content_minimized` and capped at
 64 KiB; trial plans are `content_minimized` and capped at 256 KiB. Grader
 contracts are `content_minimized` and capped at 64 KiB; grading plans are
 `public_or_private` and capped at 1 MiB; grade receipts are
 `content_minimized` and capped at 4 MiB. Messages are
-`public_or_private` and capped at 1 MiB, bundles are public and capped at
-1 MiB, and reports are `content_minimized` and capped at 1 MiB. Migration
+`public_or_private` and capped at 1 MiB, extension conformance bundles are
+public and capped at 1 MiB, and reports are `content_minimized` and capped at
+1 MiB. Migration
 previews and results are `content_minimized`, capped at 64 KiB, and preserved;
 the public registry is capped at 1 MiB. All use explicit migration. These
 pre-release registry rows

@@ -60,7 +60,10 @@ func TestStandalonePublicPreReleaseWholeProcessConformance(t *testing.T) {
 		version := requireStandaloneWholeProcessJSONSuccess(t, []string{"version"}, "", "version")
 		var result standaloneVersionResult
 		decodeStandaloneWholeProcessResult(t, version.Result, &result)
-		wantSchemas := map[string]bool{"agent-skills-import-report": false, "agent-skills-export-report": false}
+		wantSchemas := map[string]bool{
+			"agent-skills-import-report": false, "agent-skills-export-report": false,
+			"sequential-reference-bundle": false,
+		}
 		for _, schema := range result.Schemas {
 			if _, ok := wantSchemas[schema.ID]; ok && schema.Version == 1 {
 				wantSchemas[schema.ID] = true
@@ -92,6 +95,61 @@ func TestStandalonePublicPreReleaseWholeProcessConformance(t *testing.T) {
 		requireStandaloneWholeProcessJSONSuccess(t, []string{
 			"inspect", "--kind", "configuration",
 		}, "", "inspect")
+	})
+
+	t.Run("sequential reference run", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("the durable attempt ledger is not yet available on Windows")
+		}
+		manifestPath, bundlePath := standaloneSequentialReferenceFixturePaths(t)
+		destination := filepath.Join(t.TempDir(), "reference-output")
+		args := []string{
+			"run", "--mode", "reference", "--manifest", manifestPath,
+			"--bundle", bundlePath, "--destination", destination,
+		}
+		run := requireStandaloneWholeProcessJSONSuccess(t, args, "", "run")
+		var summary standaloneReferenceRunResult
+		decodeStandaloneWholeProcessResult(t, run.Result, &summary)
+		if summary.ManifestSHA256 == "" || summary.Trials != 18 || summary.Succeeded != 18 || summary.Failed != 0 {
+			t.Fatalf("sequential reference summary=%+v", summary)
+		}
+		publication, err := agenteval.InspectSequentialReferencePublication(destination)
+		if err != nil || publication.ManifestSHA256 != summary.ManifestSHA256 || len(publication.Trials) != summary.Trials {
+			t.Fatalf("published reference run=%+v err=%v", publication, err)
+		}
+		assertStandaloneContentMinimized(t, string(run.Result), manifestPath, bundlePath, destination,
+			"synthetic public case", "Synthetic public skill")
+
+		code, stdout, stderr := runStandaloneCoordinatorProcess(t, args)
+		if code != standaloneInputError.code || stdout != "" {
+			t.Fatalf("destination reuse: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+		}
+		assertStandaloneError(t, stderr, standaloneInputError.id, "reference_run_rejected", true)
+
+		malformedDestination := filepath.Join(t.TempDir(), "malformed-output")
+		malformedArgs := []string{
+			"run", "--mode", "reference", "--manifest", manifestPath,
+			"--bundle", manifestPath, "--destination", malformedDestination,
+		}
+		code, stdout, stderr = runStandaloneCoordinatorProcess(t, malformedArgs)
+		if code != standaloneInputError.code || stdout != "" {
+			t.Fatalf("malformed bundle: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+		}
+		assertStandaloneError(t, stderr, standaloneInputError.id, "invalid_reference_bundle", true)
+		assertStandaloneContentMinimized(t, stderr, manifestPath, malformedDestination)
+		if _, err := os.Lstat(malformedDestination); !os.IsNotExist(err) {
+			t.Fatalf("malformed bundle acquired destination authority: %v", err)
+		}
+
+		relativeArgs := []string{
+			"run", "--mode", "reference", "--manifest", manifestPath,
+			"--bundle", bundlePath, "--destination", "relative-reference-output",
+		}
+		code, stdout, stderr = runStandaloneCoordinatorProcess(t, relativeArgs)
+		if code != standaloneInputError.code || stdout != "" {
+			t.Fatalf("relative destination: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+		}
+		assertStandaloneError(t, stderr, standaloneInputError.id, "reference_run_rejected", true)
 	})
 
 	t.Run("Guide and Anthropic imports", func(t *testing.T) {
@@ -216,6 +274,7 @@ func TestStandalonePublicPreReleaseWholeProcessConformance(t *testing.T) {
 			{command: "grade", arguments: standaloneProcessArguments{"--mode", "deterministic", "--scenario", marker, "--observation", marker}},
 			{command: "import", arguments: standaloneProcessArguments{"agent-skills", "--format", "agent-skills", "--variant", "auto", "--skill-root", marker, "--baseline", "no-skill"}},
 			{command: "export", arguments: standaloneProcessArguments{"agent-skills", "--format", "agent-skills", "--variant", "agentskills-guide-v1", "--skill-root", marker, "--baseline", "no-skill", "--workspace-root", marker, "--destination", marker, "--case-directory", "1=iteration-1/eval-example"}},
+			{command: "run", arguments: standaloneProcessArguments{"--mode", "reference", "--manifest", marker, "--bundle", marker, "--destination", marker}},
 		}
 		for _, refusal := range refusals {
 			request.Command, request.Arguments = refusal.command, refusal.arguments
@@ -243,7 +302,14 @@ func TestStandalonePublicPreReleaseWholeProcessConformance(t *testing.T) {
 				t.Fatalf("export help admitted auto mode: %s", stdout)
 			}
 		}
-		code, stdout, stderr := runStandaloneCoordinatorProcess(t, []string{"completion", "powershell"})
+		code, stdout, stderr := runStandaloneCoordinatorProcess(t, []string{"help", "run"})
+		if code != 0 || stderr != "" || !strings.Contains(stdout, "Modes:\n  reference") ||
+			!strings.Contains(stdout, "--manifest") || !strings.Contains(stdout, "--bundle") ||
+			!strings.Contains(stdout, "--destination") || strings.Contains(stdout, "--config") ||
+			strings.Contains(stdout, "--dry-run") || strings.Contains(stdout, "--plan") {
+			t.Fatalf("run help: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+		}
+		code, stdout, stderr = runStandaloneCoordinatorProcess(t, []string{"completion", "powershell"})
 		if code != 0 || stderr != "" || !strings.Contains(stdout, `"import" { $children = @("agent-skills"); break }`) ||
 			!strings.Contains(stdout, `"export" { $children = @("agent-skills"); break }`) ||
 			!strings.Contains(stdout, `"import agent-skills --variant" { $children = @("auto", "agentskills-guide-v1", "anthropic-skill-creator-v1"); break }`) ||
@@ -252,6 +318,17 @@ func TestStandalonePublicPreReleaseWholeProcessConformance(t *testing.T) {
 			t.Fatalf("PowerShell Agent Skills completion: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 		}
 	})
+}
+
+func standaloneSequentialReferenceFixturePaths(t *testing.T) (string, string) {
+	t.Helper()
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate sequential reference fixtures")
+	}
+	root := filepath.Dir(currentFile)
+	return filepath.Join(root, "testdata", "sequential-reference-manifest-v1.json"),
+		filepath.Join(root, "..", "..", "testdata", "standalone-readability", "sequential-reference-bundle-v1.json")
 }
 
 func TestStandaloneAgentSkillsCLIAdmissionIsClosed(t *testing.T) {

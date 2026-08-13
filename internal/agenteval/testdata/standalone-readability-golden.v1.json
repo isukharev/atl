@@ -1952,15 +1952,31 @@
       "kind": "schema-registry",
       "version": 1,
       "source_path": "schemaregistry/registry.v1.json",
-      "source_sha256": "9b81fd01479545d30c545e97a73e2f2408a6d5a99fd21343ad60cb38fc837bbc",
+      "source_sha256": "2a45dd2f5cfa3e3851f56f0903441a55ae0d6cac86339a26146dae7d14d44950",
       "expected_projection": {
         "schema": "agent-eval/schema-registry",
         "schema_version": 1,
         "contract_version": "0.1.0-pre-release",
-        "entry_count": 41,
+        "entry_count": 42,
         "first_schema": "atl-profile/activation-reference",
         "last_schema": "standalone/trial-record",
         "migration_edge_count": 1
+      }
+    },
+    {
+      "namespace": "standalone",
+      "kind": "sequential-reference-bundle",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/sequential-reference-bundle-v1.json",
+      "source_sha256": "ab31c8280c37498fa46ad01c944d7dd52f82df830fdefce256a41d40f88cbf10",
+      "expected_projection": {
+        "schema": "agent-eval/sequential-reference-bundle",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "manifest_bound": true,
+        "grading_plan_bound": true,
+        "treatment_count": 3,
+        "total_input_bytes": 21504
       }
     },
     {

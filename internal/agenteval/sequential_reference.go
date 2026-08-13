@@ -16,8 +16,9 @@ import (
 )
 
 var (
-	ErrSequentialReference            = errors.New("sequential_reference_invalid")
-	ErrSequentialReferenceUnsupported = errors.New("sequential_reference_unsupported")
+	ErrSequentialReference               = errors.New("sequential_reference_invalid")
+	ErrSequentialReferenceUnsupported    = errors.New("sequential_reference_unsupported")
+	ErrSequentialReferenceOutcomeUnknown = errors.New("sequential_reference_outcome_unknown")
 )
 
 // SequentialReferenceTreatment supplies the already-authored execution plan
@@ -540,6 +541,14 @@ func sequentialReferenceError(code string, cause error) error {
 
 func unsupportedSequentialReference(code string, cause error) error {
 	joined := errors.Join(ErrSequentialReference, ErrSequentialReferenceUnsupported)
+	if cause == nil {
+		return fmt.Errorf("%w: %s", joined, code)
+	}
+	return fmt.Errorf("%w: %s: %w", joined, code, cause)
+}
+
+func unknownSequentialReference(code string, cause error) error {
+	joined := errors.Join(ErrSequentialReference, ErrSequentialReferenceOutcomeUnknown)
 	if cause == nil {
 		return fmt.Errorf("%w: %s", joined, code)
 	}

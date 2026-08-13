@@ -135,6 +135,7 @@ type standaloneCommandDescriptor struct {
 func standaloneCommandTree() standaloneCommandDescriptor {
 	gradeModes := standaloneOperationModes("grade", true)
 	reservedGradeModes := standaloneOperationModes("grade", false)
+	runModes := standaloneOperationModes("run", true)
 	importFormats := standaloneOperationFormats("import", "agent-skills")
 	exportFormats := standaloneOperationFormats("export", "agent-skills")
 	common := []standaloneOptionDescriptor{
@@ -210,7 +211,7 @@ func standaloneCommandTree() standaloneCommandDescriptor {
 			}},
 			{Name: "validate", Summary: "validate project, scenario, or run-spec inputs without network access", Usage: "agent-eval validate --kind scenario|run-spec --input FILE [--input FILE ...] [options]", Examples: []string{"agent-eval validate --kind scenario --input scenario.json"}, Options: append([]standaloneOptionDescriptor{{Name: "--kind", Value: "scenario|run-spec", Description: "input contract"}, {Name: "--input", Value: "FILE", Description: "bounded input; repeat for additional inputs"}}, common...)},
 			{Name: "plan", Summary: "create an immutable execution plan", Usage: "agent-eval plan [options]", Options: common},
-			{Name: "run", Summary: "execute a reviewed standalone plan", Usage: "agent-eval run --plan FILE [options]", Options: append([]standaloneOptionDescriptor{{Name: "--plan", Value: "FILE", Description: "reviewed immutable plan"}}, common...)},
+			{Name: "run", Summary: "execute one admitted standalone profile sequentially", Usage: "agent-eval run --mode reference --manifest FILE --bundle FILE --destination ABSOLUTE_DIR [--output json|text]", Modes: runModes, Examples: []string{"agent-eval run --mode reference --manifest manifest.json --bundle reference-bundle.json --destination /absolute/new-output"}, Options: []standaloneOptionDescriptor{{Name: "--mode", Value: strings.Join(runModes, "|"), Description: "supported execution profile"}, {Name: "--manifest", Value: "FILE", Description: "compiled immutable experiment manifest"}, {Name: "--bundle", Value: "FILE", Description: "bounded sequential reference inputs"}, {Name: "--destination", Value: "ABSOLUTE_DIR", Description: "one exact clean and previously nonexistent destination"}, {Name: "--output", Value: "json|text", Description: "select JSON (default) or explicit human output"}}},
 			{Name: "resume", Summary: "resume only an attempt whose durable evidence permits it", Usage: "agent-eval resume [options]", Options: common},
 			{Name: "reconcile", Summary: "append evidence without replaying an ambiguous identity", Usage: "agent-eval reconcile [options]", Options: common},
 			{Name: "grade", Summary: "grade an observation with a deterministic evaluator", Usage: "agent-eval grade --mode deterministic --scenario FILE --observation FILE [options]", ReservedModes: reservedGradeModes, Examples: []string{"agent-eval grade --mode deterministic --scenario scenario.json --observation observation.json"}, Options: append([]standaloneOptionDescriptor{{Name: "--mode", Value: strings.Join(gradeModes, "|"), Description: "supported grading authority"}, {Name: "--scenario", Value: "FILE", Description: "scenario contract"}, {Name: "--observation", Value: "FILE", Description: "observation contract"}}, common...)},
@@ -521,6 +522,8 @@ func executeStandaloneContext(ctx context.Context, args []string) (standaloneOut
 		return standaloneExecuteCompare(ctx, commandArgs)
 	case "inspect":
 		return standaloneExecuteInspect(ctx, commandArgs)
+	case "run":
+		return standaloneExecuteReferenceRun(ctx, commandArgs)
 	case "import agent-skills":
 		return standaloneExecuteAgentSkillsImport(ctx, commandArgs)
 	case "export agent-skills":
@@ -581,6 +584,7 @@ func standaloneExecuteVersion(args []string) (standaloneOutcome, *standaloneFail
 			{ID: "process-request", Version: 1},
 			{ID: "project-config", Version: 1},
 			{ID: "schema-registry", Version: agenteval.StandaloneSchemaRegistryVersion},
+			{ID: "sequential-reference-bundle", Version: agenteval.SequentialReferenceSchemaVersion},
 		},
 		Protocols: []standaloneSupportedVersion{
 			{ID: "extension", Version: 1},

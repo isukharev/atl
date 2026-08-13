@@ -48,7 +48,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   closed JSON results/errors and exit classes, exact project configuration,
   bounded one-request process mode, deterministic local validation/grading/
   comparison/inspection, and non-authoritative Agent Skills Guide/Anthropic
-  import and new-destination export.
+  import and new-destination export. Its exact `run/reference` profile now
+  composes a compiled causal manifest, in-memory provider-free adapter/backend,
+  durable no-replay lifecycle, deterministic grader, and one new canonical
+  content-minimized publication without process, provider, backend, network,
+  credential, or private-workspace authority.
 - Added qualified, resumable Jira complete-project pulls with an explicit issue
   cap, two stable numeric-ID passes bound to one exact backend total, crash-safe
   publication, and hash-bound key relocation that preserves uninventoried

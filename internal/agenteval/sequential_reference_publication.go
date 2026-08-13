@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 
 	"github.com/isukharev/atl/internal/agenteval/agentadapter"
@@ -54,6 +55,9 @@ func RunSequentialReferenceToNewDestination(ctx context.Context, destination str
 		return SequentialReferenceResult{}, err
 	}
 	defer prepared.destroy()
+	if runtime.GOOS == "windows" {
+		return SequentialReferenceResult{}, unsupportedSequentialReference("attempt_ledger", ErrAttemptLedgerUnsupported)
+	}
 	manifestData, err := experiment.EncodeManifest(prepared.manifest)
 	if err != nil {
 		return SequentialReferenceResult{}, sequentialReferenceError("manifest_encode", err)
@@ -65,14 +69,14 @@ func RunSequentialReferenceToNewDestination(ctx context.Context, destination str
 	defer publication.close()
 	store, err := CreateSequentialReferenceAttemptStore(filepath.Join(destination, sequentialReferenceLedgerDirectory), prepared.manifest)
 	if err != nil || !publication.stable() {
-		return SequentialReferenceResult{}, sequentialReferenceError("attempt_store_create", err)
+		return SequentialReferenceResult{}, unknownSequentialReference("attempt_store_create", err)
 	}
 	result, runErr := prepared.run(ctx, store, publication.writeTrial)
 	if runErr != nil {
-		return result, runErr
+		return result, unknownSequentialReference("run", runErr)
 	}
 	if err := publication.finish(prepared.manifest, store, result); err != nil {
-		return result, err
+		return result, unknownSequentialReference("finish", err)
 	}
 	return result, nil
 }
@@ -143,16 +147,16 @@ func createSequentialReferencePublication(destination string, manifest experimen
 	}()
 	publication.manifest = manifest
 	if err := writeSequentialReferenceFile(publication.root, sequentialReferenceMarkerName, []byte(manifest.ManifestSHA256+"\n")); err != nil {
-		return nil, sequentialReferenceError("publication_marker", err)
+		return nil, unknownSequentialReference("publication_marker", err)
 	}
 	if err := writeSequentialReferenceFile(publication.root, sequentialReferenceManifestName, manifestData); err != nil {
-		return nil, sequentialReferenceError("manifest_write", err)
+		return nil, unknownSequentialReference("manifest_write", err)
 	}
 	if err := publication.root.Mkdir(sequentialReferenceTrialsDirectory, 0o700); err != nil {
-		return nil, sequentialReferenceError("trials_create", err)
+		return nil, unknownSequentialReference("trials_create", err)
 	}
 	if err := syncSequentialReferenceDirectory(publication.root, "."); err != nil || !publication.stable() {
-		return nil, sequentialReferenceError("publication_create", err)
+		return nil, unknownSequentialReference("publication_create", err)
 	}
 	failed = false
 	return publication, nil
@@ -187,6 +191,7 @@ func prepareSequentialReferencePublicationPath(destination string, create bool) 
 	if !sequentialReferenceRootStable(parentPath, parentInfo, parent) {
 		return nil, sequentialReferenceError("destination_parent_changed", nil)
 	}
+	created := false
 	if create {
 		if _, err := parent.Lstat(base); err == nil || !errors.Is(err, fs.ErrNotExist) {
 			return nil, sequentialReferenceError("destination_exists", err)
@@ -194,23 +199,31 @@ func prepareSequentialReferencePublicationPath(destination string, create bool) 
 		if err := parent.Mkdir(base, 0o700); err != nil {
 			return nil, sequentialReferenceError("destination_create", err)
 		}
+		created = true
 	}
 	createdInfo, err := parent.Lstat(base)
 	if err != nil || !createdInfo.IsDir() || createdInfo.Mode()&fs.ModeSymlink != 0 || createdInfo.Mode().Perm() != 0o700 {
-		return nil, sequentialReferenceError("destination_shape", err)
+		return nil, sequentialReferencePublicationPathError("destination_shape", err, created)
 	}
 	root, err := parent.OpenRoot(base)
 	if err != nil {
-		return nil, sequentialReferenceError("destination_open", err)
+		return nil, sequentialReferencePublicationPathError("destination_open", err, created)
 	}
 	publication := &sequentialReferencePublication{destination: destination, parentPath: parentPath, base: base,
 		parentInfo: parentInfo, createdInfo: createdInfo, parent: parent, root: root}
 	if !publication.stable() {
 		_ = root.Close()
-		return nil, sequentialReferenceError("destination_changed", nil)
+		return nil, sequentialReferencePublicationPathError("destination_changed", nil, created)
 	}
 	failed = false
 	return publication, nil
+}
+
+func sequentialReferencePublicationPathError(code string, cause error, created bool) error {
+	if created {
+		return unknownSequentialReference(code, cause)
+	}
+	return sequentialReferenceError(code, cause)
 }
 
 func (publication *sequentialReferencePublication) close() {

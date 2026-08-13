@@ -451,7 +451,7 @@ func standaloneGoldenSourceAllowed(entry standaloneReadabilityGoldenEntry) bool 
 		return entry.Namespace == "atl-profile" && entry.SourcePath == fmt.Sprintf("testdata/standalone-readability/%s-v%d.json", entry.Kind, entry.Version)
 	case "capability-catalog":
 		return entry.Namespace == "atl-profile" && entry.Version == CapabilityCatalogSchemaVersion && entry.SourcePath == "testdata/capability-catalog.v1.json"
-	case "adapter-manifest", "adapter-message", "agent-adapter-contract", "agent-observation", "analysis-plan", "attempt-event", "attempt-ledger", "attempt-plan", "execution-backend-contract", "experiment-capability-contract", "experiment-design", "experiment-manifest", "extension-conformance-bundle", "extension-conformance-report", "grade-receipt", "grader-contract", "grading-plan", "migration-preview", "migration-result", "project-config", "trial-plan", "trial-receipt", "trial-record":
+	case "adapter-manifest", "adapter-message", "agent-adapter-contract", "agent-observation", "analysis-plan", "attempt-event", "attempt-ledger", "attempt-plan", "execution-backend-contract", "experiment-capability-contract", "experiment-design", "experiment-manifest", "extension-conformance-bundle", "extension-conformance-report", "grade-receipt", "grader-contract", "grading-plan", "migration-preview", "migration-result", "project-config", "sequential-reference-bundle", "trial-plan", "trial-receipt", "trial-record":
 		return entry.Namespace == "standalone" && entry.Version == 1 &&
 			entry.SourcePath == fmt.Sprintf("testdata/standalone-readability/%s-v1.json", entry.Kind)
 	case "schema-registry":
@@ -1168,6 +1168,28 @@ func standaloneDecodeExtensionReadabilityProjection(t *testing.T, entry standalo
 			"first_schema":         registry.Entries[0].Namespace + "/" + registry.Entries[0].Kind,
 			"last_schema":          registry.Entries[len(registry.Entries)-1].Namespace + "/" + registry.Entries[len(registry.Entries)-1].Kind,
 			"migration_edge_count": edgeCount,
+		}, nil
+	case "sequential-reference-bundle":
+		bundle, err := DecodeSequentialReferenceBundle(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := EncodeSequentialReferenceBundle(bundle)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("sequential reference bundle golden is not canonical")
+		}
+		gradingSHA256, err := GradingPlanSHA256(bundle.GradingPlan)
+		if err != nil {
+			return nil, err
+		}
+		totalInputBytes := 0
+		for _, treatment := range bundle.Treatments {
+			totalInputBytes += len(treatment.Inputs.Definitions) + len(treatment.Inputs.Fixture) + len(treatment.Inputs.Skill)
+		}
+		return map[string]any{
+			"schema": bundle.Schema, "schema_version": bundle.SchemaVersion, "contract_version": bundle.ContractVersion,
+			"manifest_bound": bundle.ManifestSHA256 != "", "grading_plan_bound": gradingSHA256 != "",
+			"treatment_count": len(bundle.Treatments), "total_input_bytes": totalInputBytes,
 		}, nil
 	case "trial-plan":
 		plan, err := executionbackend.DecodePlan(bytes.NewReader(data))

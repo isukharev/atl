@@ -245,6 +245,7 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 			{File: "cmd/agent-eval/standalone_agentskills.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/standalone_config.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/standalone_operations.go", Path: evaluatorModuleImportPath},
+			{File: "cmd/agent-eval/standalone_reference.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/standalone_schema.go", Path: evaluatorModuleImportPath},
 		},
 		{Package: evaluatorCommandOwner, Tests: true}: {
