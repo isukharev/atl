@@ -12,12 +12,13 @@ atl conf search --space <KEY> --title '<substring>' --type page --limit 25
 atl conf space tree --space <KEY> [--depth N]
 atl conf page list --space <KEY> [--status current|archived|trashed]
 atl conf page resolve <id-or-same-origin-url> -o id
-atl conf page outline <id-or-same-origin-url>
-atl conf page section <id-or-same-origin-url> --heading '<exact>' \
-  --expected-version <outline-version> -o text
-atl conf page sections <id-or-same-origin-url> \
+atl conf page outline <resolved-id>
+atl conf page section <resolved-id> --heading '<exact>' --max-bytes 65536 \
+  --expected-version <outline-version>
+atl conf page sections <resolved-id> \
   --heading '<first>' --heading '<second>' \
-  --occurrence 0 --occurrence 2 --expected-version <outline-version> -o text
+  --occurrence 0 --occurrence 2 --max-bytes 131072 \
+  --expected-version <outline-version>
 atl conf page view <id-or-same-origin-url> --jira-view default -o text
 atl conf page view <id-or-same-origin-url> --jira-macros off -o text # untrusted/heavy page: placeholders only
 ```
@@ -43,6 +44,10 @@ value per heading (`0` still requires uniqueness). Its aggregate `--max-bytes`
 is divided deterministically in request order and unused capacity carries
 forward. Require `reconciled:true`, matching requested/returned counts, and
 `complete:true`; text output concatenates the selected Markdown in that order.
+Keep JSON while making the selection decision because text omits version-gate,
+completeness, truncation, and reconciliation members. Extract the selected
+Markdown locally only after those fields pass; do not rerun the page read in a
+second format.
 
 Use transient `page view` only for one-off readonly work. For a mirror:
 

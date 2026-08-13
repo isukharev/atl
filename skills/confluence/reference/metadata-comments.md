@@ -127,13 +127,21 @@ unverifiable response as `unknown` and never replay the POST automatically.
 Comments are non-idempotent POSTs. Prepare the CSF body in an owner-only private
 file, not argv or a public workspace file:
 
+<!-- atl:read-only-shell -->
 ```bash
+export ATL_READ_ONLY=1
 atl conf validate <private-comment.csf>
 atl conf comment list --id <page-id>
 atl conf comment list --id <page-id> --location inline --state open --depth all
 atl conf comment thread --id <page-id> --comment-id <comment-id>
-ATL_READ_ONLY=1 atl conf comment preview --id <page-id> --from-file <private-comment.csf>
-atl conf comment add --id <page-id> --from-file <private-comment.csf> --apply \
+atl conf comment preview --id <page-id> --from-file <private-comment.csf>
+```
+
+After separate approval of that exact proposal, remove the inherited guard for
+the one mutating command only:
+
+```bash
+env -u ATL_READ_ONLY atl conf comment add --id <page-id> --from-file <private-comment.csf> --apply \
   --expected-proposal-hash <reviewed-hash>
 ```
 

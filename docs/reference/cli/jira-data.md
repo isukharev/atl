@@ -36,8 +36,15 @@ atl jira export --jql "project=PROJ" --format csv --fields customfield_10001 --o
 atl jira export --jql "project=PROJ" --format csv --out raw.csv --raw-csv # unsafe in spreadsheets
 atl jira export --jql "project=PROJ" --format json --out issues.json --limit 10000
 atl jira export --keys PROJ-1,PROJ-2 --batch-size 100 --out selected.jsonl
-atl jira export --keys PROJ-1,PROJ-2 --fields "Delivery Notes" --out - | jq -s '.'
-atl jira export --ids 10001,10002 --format json --out - | jq 'map(.key)'
+atl jira export --keys PROJ-1,PROJ-2 --fields status,customfield_10001 --format json --out selected.json
+jq -c '
+(["PROJ-1","PROJ-2"]) as $requested |
+([.issues[].key]) as $returned |
+{
+  manifest:(.manifest|{query_mode,row_order,missing_identity_behavior,fields,limit,count}),
+  selector_reconciliation:{requested:$requested,returned:$returned,missing:($requested-$returned)},
+  issues:[.issues[]|{key,evidence:.fields.customfield_10001}]
+}' selected.json
 atl jira export diff old.jsonl new.jsonl
 ```
 
@@ -74,6 +81,14 @@ relative order, and `--limit` counts only emitted rows. File manifests declare
 buffered only one configured batch at a time, with a 64 MiB reorder-buffer cap
 that asks the caller to reduce `--batch-size`; JQL JSONL/CSV stays streaming.
 
+A successful file export proves that ATL completed and atomically committed
+the artifact. Its receipt and manifest do not contain backend-qualified
+`complete`, `truncated`, or `partial_reason` fields. For `--keys`/`--ids`, keep
+the requested identities and reconcile them against emitted rows; an omitted
+identity may be missing or inaccessible. For `--jql`, use qualified paged
+search instead when an exhaustive or absence claim is required. `--limit 0`
+removes the caller cap but does not add backend completeness evidence.
+
 With `--out -`, stdout contains **only** the artifact: one object per line for
 JSONL, a JSON array for `--format json`, or CSV bytes. No manifest, command
 result object, or trailing status line is emitted, and no filesystem artifact is
@@ -85,6 +100,12 @@ formula neutralization. A streaming request can have written a prefix before a
 later backend failure, so pipelines must check atl's exit status and discard
 stdout on non-zero exit. Display-name fields resolve fail-closed before the
 first search and the artifact uses their stable ids.
+
+When local shaping is required, prefer native file output followed by `jq -c`
+as above. An `--out - | jq` pipeline can print a plausible partial projection
+when the streaming producer fails late; `pipefail` keeps that producer failure
+from becoming a successful pipeline but may report another failing stage's
+status, and it cannot retract bytes already printed.
 
 `jira export diff` compares compact JSONL/JSON/CSV exports by issue key (or id
 when key is absent) and reports deterministic `added`, `removed`, and `changed`
@@ -122,6 +143,14 @@ Output includes per-issue `score`, `max_score`, `level` (`good|warn|poor`),
 `gaps`, extracted `refs`, and `children` for epic rows when `--epic-field` is
 set. Reference kinds are deterministic categories such as `doc`, `design`,
 `jira`, `chat`, and `link`.
+
+A positive `--limit` deliberately bounds the selection, but this result shape
+does not carry a separate completeness/truncation envelope. Treat it as a
+sample and do not infer that omitted gaps, references, or issues are absent.
+`--limit 0` removes the caller cap and asks the legacy collector to exhaust
+pagination, but the result still cannot prove backend completeness because it
+does not surface source qualification. `--csv` keeps reusable rows in an
+artifact but neither adds that proof nor suppresses full JSON stdout.
 
 ## `atl jira fields`
 

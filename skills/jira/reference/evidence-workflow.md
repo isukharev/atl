@@ -204,14 +204,29 @@ exists.
 export ATL_READ_ONLY=1
 atl jira export \
   --keys PROJ-1,PROJ-2,PROJ-3 \
-  --fields 'Delivery Notes,Impact' \
-  --format json --out - |
-  jq 'map({key, status: .fields.status.name, evidence: .fields.customfield_10001})'
+  --fields status,customfield_10001,customfield_10002 \
+  --format json --out <private-dir>/selected.json
+jq -c '
+(["PROJ-1","PROJ-2","PROJ-3"]) as $requested |
+([.issues[].key]) as $returned |
+{
+  manifest:(.manifest|{query_mode,row_order,missing_identity_behavior,fields,limit,count}),
+  selector_reconciliation:{requested:$requested,returned:$returned,missing:($requested-$returned)},
+  issues:[.issues[]|{key,status:.fields.status.name,evidence:.fields.customfield_10001}]
+}' \
+  <private-dir>/selected.json
 ```
 
-The stdout artifact is valid only when atl exits zero. Discard a streamed
-prefix after any failure. Use JSONL for larger sets and keep `--fields` narrow;
-do not substitute `*all` or raw user objects.
+Filter only after the native export exits zero; that proves ATL finished and
+atomically committed the file, not that Jira exposed a complete selection. The
+manifest has no completeness or partial-reason fields. For explicit keys or
+ids, retain the requested identities and reconcile them with returned rows as
+above; a `missing` identity may be absent or merely inaccessible. A JQL export
+cannot support an exhaustive absence claim without separately qualified search
+pages. Use JSONL for larger sets and keep `--fields` narrow; do not substitute
+`*all` or raw user objects. An `--out - | jq` pipeline is not equivalent: a
+late producer failure can print a plausible partial projection before the shell
+reports failure.
 
 ## Expand linked Confluence evidence narrowly
 
@@ -220,10 +235,10 @@ number of safe references when the heading is already known.
 
 ```sh
 export ATL_READ_ONLY=1
-atl conf page resolve '<same-origin-page-or-short-url>'
-atl conf page outline '<same-origin-page-or-short-url>'
-atl conf page section '<same-origin-page-or-short-url>' \
-  --heading 'Metrics' --max-bytes 65536 -o text
+atl conf page resolve '<same-origin-page-or-short-url>' -o id
+atl conf page outline <resolved-id>
+atl conf page section <resolved-id> \
+  --heading 'Metrics' --max-bytes 65536 --expected-version <outline-version>
 
 atl jira epic digest PROJ-1 --quarter 2026-Q2 \
   --status-field 'Delivery Notes' \
@@ -233,7 +248,10 @@ atl jira epic digest PROJ-1 --quarter 2026-Q2 \
 The quarter in this expansion example is task-supplied. It is not a default to
 infer for an undated request.
 
-Honor section and source completeness. `refs.complete` also becomes false when
+Resolve a URL once and reuse the stable id. Keep section JSON until its
+version gate, completeness, truncation, byte accounting, and Markdown have all
+been consumed; do not rerun it as text. Honor section and source completeness.
+`refs.complete` also becomes false when
 a contributing status/DoD/comment/description value was clipped; inspect
 `count_truncated` and `text_truncated` before treating absence as evidence. Do
 not fetch a whole long page merely to regex-slice Markdown, and never guess a

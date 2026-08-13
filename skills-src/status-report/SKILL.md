@@ -116,19 +116,22 @@ full issue bodies for counting:
 ```sh
 export ATL_READ_ONLY=1
 atl jira issue search --jql 'project = KEY AND statusCategory = Done AND resolved >= -7d' \
-  --columns key,summary,status,assignee,priority,updated --limit 100
+  --columns key,summary,status,updated --limit 100
 atl jira issue search --jql 'project = KEY AND statusCategory != Done' \
-  --columns key,summary,status,assignee,priority,updated --limit 100
+  --columns key,status,assignee,priority,updated --limit 100
 atl jira issue search --jql 'project = KEY AND priority in (Highest, High) AND statusCategory != Done ORDER BY priority DESC' \
   --columns key,summary,status,assignee,priority,updated --limit 100
 atl jira issue search --jql 'project = KEY AND created >= -7d' \
-  --columns key,summary,status,assignee,priority,created --limit 100
+  --columns key,summary,status,created --limit 100
 ```
 
 Status names vary per instance ("Blocked" is often a flag, not a status). Check
 returned values before building on them. For every IssueList inspect
 `page.complete`, `page.truncated`, and `page.next_cursor`; paginate or state the
 incomplete scope instead of treating a limit as absence.
+Each bucket asks only for fields used by its decision; do not widen all four
+projections to one superset or re-fetch an issue body merely because a key
+appears in more than one bucket.
 
 ### 4. Analyze
 

@@ -48,6 +48,11 @@ rerun `make gen-plugins` to reconstruct it. The same target runs
 `<!-- atl:read-only-shell -->` must begin with the inherited
 `export ATL_READ_ONLY=1` guard. Designated read-only workflow skills also have
 minimum marker coverage, so deleting all markers cannot make the check pass.
+The same check scans every shipped skill-source shell fence for a command-position
+`atl ... | jq` pipeline, requires a `bash` fence, and requires `set -o pipefail`
+earlier in that fence. This prevents a successful local projection from hiding
+ATL's structured non-zero exit without advertising non-portable syntax as
+POSIX `sh`.
 
 ## Placeholders
 

@@ -23,8 +23,12 @@ from later observations or revalidating schema facts.
 
 ## Core workflow
 
-1. Check `atl version`, `atl config show`, `atl auth status`, and `atl profile show`. Report only
-   readiness and whether a profile exists; never print credentials.
+1. Check only `atl version` and metadata-only `atl profile show`. Report whether
+   the executable and a saved profile exist. Do not run `doctor`, load config or
+   auth details, or inspect profile data at this stage: `doctor` can discover and
+   read an existing local mirror even though its stdout is sanitized. Defer
+   backend readiness to the first exact resource read approved in step 3; if that
+   read reports missing config or auth, run `$setup` and stop.
 2. Interview briefly: services used, common read/edit flows, preferred mirror location, typical
    selectors, important fields/sections, and whether a team onboarding source applies. Confirm the
    answers that will become `preferences`. Resolve a chosen mirror location to a canonical absolute
@@ -65,8 +69,22 @@ from later observations or revalidating schema facts.
    means "no memory default", not "reset runtime": preview any runtime reset as a separate action,
    and report when no exact reset command exists. Never edit a shell profile or claim
    synchronization without approval and verification. Prefer global render defaults; use `--local`
-   only for a deliberate mirror-specific override. Also inspect `atl config show |
-   jq '.jira_list_views'`. Propose source-aware named list views when repeated
+   only for a deliberate mirror-specific override. At this separately approved
+   runtime-sync stage, inspect only the resolved render and mirror fields needed
+   for comparison. Legacy `config show.read_only` and
+   `configured_read_only` are persisted configuration rather than the effective
+   environment/flag policy. When that policy matters, select
+   `effective_read_only` and `read_only_source` instead:
+
+   <!-- atl:read-only-shell -->
+   ```bash
+   export ATL_READ_ONLY=1
+   set -o pipefail
+   atl config show |
+    jq -c '{effective_read_only,read_only_source,render,jira_list_views,jira_list_views_error,render_provenance,local_config_path,mirror}'
+   ```
+
+   Propose source-aware named list views when repeated
    Jira/Structure columns were confirmed during onboarding. Preview the exact
    global `atl config set jira.list_views.<name> '<JSON>'` command and execute
    only after separate approval; explicit command columns remain the one-off

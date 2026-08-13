@@ -22,18 +22,23 @@ or a command exits `7` ("not configured"), run `{{atl.setup_cmd}}` and stop.
 ```sh
 export ATL_READ_ONLY=1
 atl conf page view <id> -o text
-# Or, for a long/multi-section spec:
+# For a long/multi-section spec, keep the full source in a local artifact:
 atl conf pull --id <id> --into <dir> # long/multi-section spec; then read .md
 ```
 
-For a long or multi-section spec, use the second command and read the generated
-`.md`.
+For a structured page, first use `page outline` and one version-gated `page
+sections` call only when the selected headings cover the complete specification
+scope. Otherwise use the full view for a short page or the second command for a
+long page, then read the generated `.md` in bounded local sections. Do not omit
+requirements merely to reduce context, and do not print the pull's full JSON or
+native `.csf` into the conversation.
 If the target Jira project key is not given, discover visible candidates with
 `atl jira project list` and ask the user to select one; do not guess from names.
 Then run `atl jira issue types --project KEY` and use only an exact returned
-type. Before proposing fields, run
-`atl jira issue create-check --project KEY --type '<type id or exact name>'`.
-These reads replace probing with `issue create` (many instances lack "Story").
+type. Before proposing fields, run `jira issue create-check` once for each
+distinct exact Epic/child type you will use, then reuse that metadata across
+the batch. These reads replace probing with `issue create` (many instances lack
+"Story").
 
 ### 2. Analyze and propose — no writes
 
@@ -49,7 +54,8 @@ into a ticket. Wait for approval or edits.
 ### 3. Create the Epic first
 
 ```sh
-atl jira issue create --project KEY --type Epic --summary '<epic name>' --from-md epic.md
+env -u ATL_READ_ONLY atl jira issue create --project KEY --type '<exact epic type>' \
+  --summary '<epic name>' --from-md epic.md
 ```
 
 Epic description: one-paragraph goal, a link back to the spec page, success
@@ -60,17 +66,22 @@ criteria. Capture the returned key — every child needs it.
 Per ticket, sequentially (so a failure can't silently orphan half the batch):
 
 ```sh
-atl jira issue create --project KEY --type Task --summary '<verb-first title>' --from-md t1.md
-atl jira issue link-epic KEY-101 --epic KEY-100
+env -u ATL_READ_ONLY atl jira issue create --project KEY --type '<exact child type>' \
+  --summary '<verb-first title>' --from-md t1.md
+env -u ATL_READ_ONLY atl jira issue link-epic KEY-101 --epic KEY-100
 ```
 
 Ticket description template: Context (1–2 sentences + spec section) / Scope /
 Acceptance criteria (checklist) / Out of scope. Titles start with a verb:
 "Add…", "Migrate…", "Expose…".
 
-If a create fails mid-run: **stop**, report every key created so far, and ask
-how to proceed. `atl` never retries POSTs (no double-create risk) — do not
-retry blindly yourself either.
+Keep a ledger for every child: `created`, `linked`, or
+`created-but-unlinked`. If a create fails mid-run: **stop**, report every key
+created so far, and ask how to proceed. `atl` never retries POSTs (no
+double-create risk) — do not retry blindly yourself either. If `link-epic`
+fails or is ambiguous after a child key was returned, preserve that key,
+re-read only its configured epic field, and recover only the link after review;
+never recreate the child.
 
 ### 5. Summarize
 
