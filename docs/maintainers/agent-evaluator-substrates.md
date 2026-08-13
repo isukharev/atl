@@ -51,6 +51,17 @@ reference run. That source surface is unsigned,
 does not expose the Go packages as an SDK, does not move the module, and does
 not satisfy the distribution or external-consumer gates below.
 
+Agent Skills structural admission has a separate, opt-in lifecycle-security
+rule pack. It is static analysis over the already captured bundle bytes, not a
+runner or sandbox: it cannot execute content, resolve providers, download,
+contact a network, or discover credentials. The pack reports closed rule and
+evidence identities plus complete per-file coverage; unsupported content and
+unsuppressed findings block the static layer. Suppressions are exact
+rule/evidence/file/digest bindings with a closed rationale and explicit expiry,
+and a clean report never proves runtime safety. This boundary deliberately
+remains separate from the structural digest and from the report formats owned
+by future JUnit/SARIF/HTML issues.
+
 The root facade now composes a neutral append-only `lifecycle` leaf. Direct
 runs allocate their complete ordered roster before process entry; extension,
 review, calibration, qualification, and selected-binary paths use the same
