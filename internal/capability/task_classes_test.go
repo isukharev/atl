@@ -7,10 +7,12 @@ import (
 
 func TestTaskClassesIsExactSortedCatalogProjection(t *testing.T) {
 	want := []string{
+		"confluence/attachment-discovery",
 		"confluence/comments",
 		"confluence/edit",
 		"confluence/evidence",
 		"confluence/mirror",
+		"confluence/space-hierarchy",
 		"confluence/table-analytics",
 		"jira/batch-analysis",
 		"jira/board-portfolio",

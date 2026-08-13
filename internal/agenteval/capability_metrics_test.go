@@ -90,6 +90,9 @@ func TestCapabilityFamiliesAreGenericAndPrivacySafe(t *testing.T) {
 	if family, ok := CapabilityFamilyForMCP("confluence_mirror_snapshot"); !ok || family != "confluence.mirror.snapshot" {
 		t.Fatalf("MCP Confluence mirror snapshot family=%q ok=%t", family, ok)
 	}
+	if family, ok := CapabilityFamilyForMCP("confluence_attachment_search"); !ok || family != "confluence.attachment.search" {
+		t.Fatalf("MCP Confluence attachment discovery family=%q ok=%t", family, ok)
+	}
 	if family, ok := CapabilityFamilyForMCP("confluence_comment_list"); !ok || family != "confluence.comment.list" {
 		t.Fatalf("MCP Confluence comment list family=%q ok=%t", family, ok)
 	}
@@ -141,6 +144,7 @@ func TestCapabilityFamiliesAreGenericAndPrivacySafe(t *testing.T) {
 		{[]string{"conf", "page", "history", "--id", "123"}, "confluence.page.history"},
 		{[]string{"conf", "page", "view", "123"}, "confluence.page.view"},
 		{[]string{"conf", "attachment", "list", "--id", "123"}, "confluence.attachment.list"},
+		{[]string{"conf", "attachment", "search", "--space", "DEMO", "--max-items", "10", "--max-requests", "2"}, "confluence.attachment.search"},
 		{[]string{"conf", "pull", "--id", "123", "--into", "mirror"}, "confluence.pull"},
 		{[]string{"conf", "status", "mirror", "--remote"}, "confluence.status"},
 	} {
@@ -240,6 +244,21 @@ func TestConfluenceCommentCLIAndMCPShareNeutralDataCapabilities(t *testing.T) {
 			if !slices.Equal(capabilities, []string{test.want}) {
 				t.Fatalf("command=%q tool=%q capabilities=%v", test.command, test.tool, capabilities)
 			}
+		}
+	}
+}
+
+func TestConfluenceAttachmentSearchCLIAndMCPShareNeutralDataCapability(t *testing.T) {
+	for _, spec := range []RunSpec{
+		{AllowedATLCommands: []string{"atl conf attachment search --space DEMO --max-items 10 --max-requests 2"}},
+		{AllowedMCPTools: []string{"confluence_attachment_search"}},
+	} {
+		capabilities, err := deriveRunDataCapabilities(spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(capabilities, []string{"confluence.attachment.search"}) {
+			t.Fatalf("capabilities=%v", capabilities)
 		}
 	}
 }
@@ -369,6 +388,7 @@ func TestEvidenceReadCapabilityFamiliesNormalize(t *testing.T) {
 		"confluence.page.history",
 		"confluence.page.view",
 		"confluence.attachment.list",
+		"confluence.attachment.search",
 	} {
 		t.Run(family, func(t *testing.T) {
 			metrics, err := normalizeCapabilityFamilies([]CapabilityFamilyMetric{{

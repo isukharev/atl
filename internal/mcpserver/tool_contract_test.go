@@ -70,7 +70,7 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"confluence_attachment_list", "confluence_comment_list", "confluence_comment_thread", "confluence_mirror_snapshot",
+		"confluence_attachment_list", "confluence_attachment_search", "confluence_comment_list", "confluence_comment_thread", "confluence_mirror_snapshot",
 		"confluence_page_meta", "confluence_page_outline", "confluence_page_resolve", "confluence_page_section", "confluence_page_sections", "confluence_search",
 		"confluence_table_extract", "confluence_table_summary",
 		"jira_board_view", "jira_epic_digest", "jira_fields", "jira_issue_field_get", "jira_issue_graph",
@@ -333,6 +333,49 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 			}
 			if !strings.Contains(tool.Description, "untrusted evidence") {
 				t.Errorf("tool %s must mark attachment titles untrusted: %q", tool.Name, tool.Description)
+			}
+		}
+		if tool.Name == "confluence_attachment_search" {
+			properties, _ := input["properties"].(map[string]any)
+			for _, required := range []string{"max_items", "max_requests", "max_response_bytes", "deadline_ms"} {
+				if !schemaRequired(input, required) {
+					t.Errorf("tool %s must require %s: %#v", tool.Name, required, tool.InputSchema)
+				}
+			}
+			for _, optional := range []string{"space", "cql", "cursor", "max_bytes"} {
+				if _, ok := properties[optional]; !ok || schemaRequired(input, optional) {
+					t.Errorf("tool %s must expose optional %s: %#v", tool.Name, optional, tool.InputSchema)
+				}
+			}
+			for _, forbidden := range []string{"reference", "page_id", "attachment_id", "filename", "download", "comment", "url"} {
+				if _, exists := properties[forbidden]; exists {
+					t.Errorf("tool %s must not expose %s: %#v", tool.Name, forbidden, tool.InputSchema)
+				}
+			}
+			output, _ := tool.OutputSchema.(map[string]any)
+			for _, required := range []string{"schema_version", "qualification", "complete", "consistency", "scope_sha256", "start_offset", "count", "bounds", "attachments"} {
+				if !schemaRequired(output, required) {
+					t.Errorf("tool %s output must require %s: %#v", tool.Name, required, tool.OutputSchema)
+				}
+			}
+			for _, optional := range []string{"reason", "next_cursor", "total_size"} {
+				if schemaRequired(output, optional) {
+					t.Errorf("tool %s output %s must stay optional: %#v", tool.Name, optional, tool.OutputSchema)
+				}
+			}
+			encoded, marshalErr := json.Marshal(tool.OutputSchema)
+			if marshalErr != nil {
+				t.Fatal(marshalErr)
+			}
+			for _, forbidden := range []string{`"body"`, `"comment"`, `"download`, `"path"`, `"url"`} {
+				if bytes.Contains(encoded, []byte(forbidden)) {
+					t.Errorf("tool %s output schema advertises %s: %s", tool.Name, forbidden, encoded)
+				}
+			}
+			for _, guidance := range []string{"complete/partial/failed", "query-bound", "never returns attachment bytes", "URLs"} {
+				if !strings.Contains(tool.Description, guidance) {
+					t.Errorf("tool %s description omits %q: %q", tool.Name, guidance, tool.Description)
+				}
 			}
 		}
 		if tool.Name == "confluence_comment_list" || tool.Name == "confluence_comment_thread" {

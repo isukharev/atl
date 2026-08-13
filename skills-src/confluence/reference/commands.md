@@ -8,7 +8,11 @@ or an exact command/flag. Return to the main skill for any write sequence.
 ```bash
 atl conf search --cql '<CQL>' --limit 25
 atl conf search --space <KEY> --title '<substring>' --type page --limit 25
-atl conf space tree --space <KEY> [--depth N]
+atl conf attachment search --space <KEY> --max-items 100 --max-requests 5 \
+  --max-response-bytes 8388608 --deadline 20s
+atl conf space tree --space <KEY> [--depth N] --max-items 500 \
+  --max-scanned-items 5000 --max-requests 25 \
+  --max-response-bytes 16777216 --deadline 30s
 atl conf page list --space <KEY> [--status current|archived|trashed]
 atl conf page resolve <id-or-same-origin-url> -o id
 atl conf page outline <resolved-id>
@@ -31,6 +35,12 @@ investigate rather than inventing a cursor. A numeric id returned here is
 already stable, so pass it directly to
 `page outline`/`page section`/`page sections` and reserve `page resolve` for URLs or unknown
 references.
+Attachment search is the caller-bounded, page-unknown metadata route. It
+requires explicit item, physical-request, aggregate-response-byte, and deadline
+bounds and returns closed complete/partial/failed qualification plus a
+query-bound live-offset continuation. Rows contain only attachment and parent
+metadata: no bytes, comments, paths, or URLs. Complete requires a stable total
+and exact terminal end; failed contains no rows, total, or cursor.
 When a section heading or occurrence came from `page outline`, pass that
 outline's exact `version` through `--expected-version`. On a wider-bound
 section recovery, pass the first section result's version. Omit the flag only
@@ -80,10 +90,19 @@ case/whitespace normalization, includes descendant headings, and requires
 `--occurrence N` for duplicates. Check `complete`; `--max-bytes` truncates only
 at whole rendered blocks and a truncated section is not complete evidence.
 
-Ordinary `--cql` caps at 1000 pages; `--space` and tree cap at 2000. A capped result has
+Ordinary `--cql` caps at 1000 pages and `--space` at 2000. A capped result has
 `truncated:true` and a stderr warning. Narrow the selection, or use explicit
 `--complete` when the task needs a full historical mirror; never treat a capped
 result as complete.
+
+`conf space tree` separately enforces returned-item, scanned-row,
+physical-request, aggregate-response-byte, and deadline bounds; the required
+space key must be valid UTF-8 and at most 255 bytes. Require
+present, stable, non-null offset/limit/size/total/results/links evidence and an
+exact terminal remainder for `complete:true`. Any bound or pagination anomaly
+returns a qualified live prefix with one closed partial reason; it never proves
+an omitted page absent. Each physical page asks for at most 200 rows and never
+more than the remaining scanned-row allowance.
 
 Complete pull performs two exhaustive, completeness-qualified metadata passes
 and requires the same canonical unique-id set before body reads. It stores a
@@ -208,7 +227,7 @@ identifier per line.
 | Command | Purpose | Key flags |
 |---|---|---|
 | `conf search` | Find a qualified bounded page (`complete`/`truncated`) | `--cql` or convenience filters, `--limit 1..100` (0 invalid), `--cursor` |
-| `conf space tree` | Space hierarchy | `--space`, `--depth` |
+| `conf space tree` | Strictly qualified caller-bounded space hierarchy prefix | `--space`, `--depth`, `--max-items`, `--max-scanned-items`, `--max-requests`, `--max-response-bytes`, `--deadline` |
 | `conf page resolve|outline|section|sections|list|get|view|meta|history|open` | Reference resolution and page reads; `history` is qualified (`complete`/`partial_reason`) | outline before long reads; section uses exact heading/occurrence/byte cap and `--expected-version`; sections preserves ordered selectors from one version-bound snapshot under one aggregate cap; view supports `--jira-view`, `--jira-macros`; judge history absence only on `complete:true` |
 | `conf page labels list <ID>` | Complete page-label read | no write; inspect `complete` |
 | `conf page labels add\|remove <ID> <LABEL>...` | Guarded label preview/apply | `--apply`, `--expected-proposal-hash` |
@@ -232,7 +251,8 @@ identifier per line.
 | `conf push` | Version-gated write | file/dir, `--dry-run`, `--force`, `--into` |
 | `conf comment list|thread` | Qualified schema-v2 thread/anchor reads; `list` filters location/state/depth and supports an expected page version, while `thread` selects one exact comment | page id, comment id, read filters |
 | `conf comment preview|add` | Reviewed root-footer creation; `preview` is read-only, `add` is mutating-classified and dry-run by default | page id, exact native-CSF file (≤1 MiB); `add --apply --expected-proposal-hash` for one POST |
-| `conf attachment list|get|upload|delete` | Attachments; `list` is qualified and permanent delete is guarded preview/apply | page/id/name/version/file/into; delete uses `--page-id`, `--id`, then `--apply --confirm DELETE --expected-version --expected-proposal-hash` |
+| `conf attachment search` | Page-unknown completeness-qualified metadata discovery | optional `--space`/`--cql`/`--cursor`; required `--max-items`, `--max-requests`, `--max-response-bytes`, `--deadline` |
+| `conf attachment list|get|upload|delete` | Known-page attachments; `list` is qualified, `get` is size-bounded, and permanent delete is guarded preview/apply | page/id/name/version/file/into; get accepts `--max-bytes` (64 MiB default, 1 GiB max); delete uses `--page-id`, `--id`, then `--apply --confirm DELETE --expected-version --expected-proposal-hash` |
 | `conf table summary` | Content-free table inventory with exact structural/style cardinalities and reconciliation | selector, `--table` |
 | `conf table extract` | Table export | selector, `--format`, `--raw-csv` |
 | `conf me` | Authenticated user | none |

@@ -21,7 +21,7 @@ func TestCommandEffectCatalogClassifiesEveryExecutableLeaf(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.SchemaVersion != commandEffectCatalogSchemaVersion || catalog.Enforcement != "informational" || catalog.Selection.Count != 173 {
+	if catalog.SchemaVersion != commandEffectCatalogSchemaVersion || catalog.Enforcement != "informational" || catalog.Selection.Count != 174 {
 		t.Fatalf("catalog metadata=%+v", catalog)
 	}
 	profiles := capabilitydef.EffectProfiles()
@@ -68,6 +68,28 @@ func TestCommandEffectCatalogReferencesCuratedCapabilitiesByCommand(t *testing.T
 	}
 	if _, err := buildCommandEffectCatalog(commandEffectSelection{Command: "jira unknown"}); err == nil {
 		t.Fatal("unknown exact command selection succeeded")
+	}
+}
+
+func TestCallerBoundedConfluenceReadsMapToExactCapabilities(t *testing.T) {
+	tests := []struct {
+		command      string
+		capabilityID string
+	}{
+		{command: "conf attachment search", capabilityID: "confluence.attachment.search"},
+		{command: "conf space tree", capabilityID: "confluence.space.tree"},
+	}
+	for _, test := range tests {
+		t.Run(test.command, func(t *testing.T) {
+			catalog, err := buildCommandEffectCatalog(commandEffectSelection{Command: test.command})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(catalog.Commands) != 1 || catalog.Commands[0].EffectProfile != capabilitydef.EffectRemoteReadCaller ||
+				!reflect.DeepEqual(catalog.Commands[0].CapabilityIDs, []string{test.capabilityID}) {
+				t.Fatalf("catalog=%+v", catalog)
+			}
+		})
 	}
 }
 

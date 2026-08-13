@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added caller-bounded `conf attachment search` and typed
+  `confluence_attachment_search` for completeness-qualified, metadata-only
+  Server/Data Center attachment discovery without a known page, with
+  query-bound continuation and closed complete/partial/failed results.
+- Added caller-bounded `conf space tree` hierarchy evidence with strict
+  offset-pagination qualification, physical request/response/deadline limits,
+  and explicit incomplete-prefix reasons.
+- Added proof-bearing `assets` and `comments` include rows to Confluence pull
+  results, including deferred preview work, durable publication qualification,
+  and closed partial/failure reasons.
 - Added service-scoped `doctor` health, explicit configured/effective/source
   read-only reporting, and a complete offline informational command-effect
   catalog for safe agent routing.
@@ -85,6 +95,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bounded `conf attachment get` with caller-selectable `--max-bytes` (64 MiB
+  default, 1 GiB maximum), version-specific size admission before binary I/O,
+  separate bounded metadata and binary phases, and explicit acknowledgement
+  fields for the observed size and selected ceiling. The download remains
+  page+filename+attachment-version revalidated, not attachment-id bound or
+  page-version gated; bounded opaque/URL/path page selectors, UTF-8 filenames,
+  and the byte ceiling are validated before configuration or dependency access.
 - Made shipped agent workflows consume CLI results context-efficiently: route
   discovery now uses compact text, Jira reads use producer-side fields and
   semantic compact projections, Confluence selection keeps JSON completeness

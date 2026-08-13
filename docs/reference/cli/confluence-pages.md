@@ -587,18 +587,23 @@ The schema-v1 result carries `qualification`, `complete`, optional closed
 `total_size`, exact selected/consumed `bounds`, and an `attachments` array.
 Each row contains only attachment id/title/type/version, parent container
 id/type/version, space key, media type, and file size. It contains no body,
-comment, URL, download path, or binary bytes. `-o id` emits attachment ids;
+comment, URL, download path, or binary bytes. Attachment and container ids are
+bounded opaque `[A-Za-z0-9_-]{1,256}` identifiers, not numbers to parse or
+increment. `-o id` emits attachment ids;
 `-o text` begins with the same qualification and continuation evidence.
 
 `complete` means this one bounded live traversal reached terminal,
-coordinate-consistent search evidence. It is not a snapshot claim. A partial
-result has one of `item_limit`, `request_limit`, `response_byte_limit`,
-`deadline`, `pagination_stalled`, or `pagination_unqualified` and an opaque
-continuation for the next checked offset. The cursor is bound to the configured
-backend plus exact space/CQL scope, but pagination may drift between calls.
+coordinate-consistent search evidence and always includes a stable non-null
+`total_size` whose exact terminal end matches the returned prefix. It is not a
+snapshot claim. A partial result has one of `item_limit`, `request_limit`,
+`response_byte_limit`, `deadline`, `pagination_stalled`, or
+`pagination_unqualified` and an opaque continuation for the next checked
+offset. The cursor is bound to the configured backend plus exact space/CQL
+scope, but pagination may drift between calls.
 `failed` uses only `read_failed` or `validation_failed`, never advertises a
-continuation, is emitted before the mapped non-zero CLI error, and is not safe
-to resume as a prefix. Server-provided next links and attachment URLs are never
+continuation or `total_size`, and has `count:0` with an empty `attachments`
+array. It is emitted before the mapped non-zero CLI error and is not safe to
+resume as a prefix. Server-provided next links and attachment URLs are never
 followed. The adapter uses the Server/Data Center
 [CQL content-search resource](https://developer.atlassian.com/server/confluence/rest/v10214/api-group-search/)
 with `type=attachment`; this endpoint is not for Confluence Cloud.
@@ -612,8 +617,8 @@ uses one transport attempt on apply, and refuses redirects.
 ```bash
 atl conf attachment list --id 12345678                       # qualified inventory; -o id → ids
 atl conf attachment list --id 12345678 --expected-version 7  # refuse unless the page is at v7
-atl conf attachment get --id 12345678 --name diagram.png --into ./assets
-atl conf attachment get --id 12345678 --name diagram.png --version 2 --into ./assets
+atl conf attachment get --id 12345678 --name diagram.png --into ./assets --max-bytes 67108864
+atl conf attachment get --id 12345678 --name diagram.png --version 2 --into ./assets --max-bytes 1073741824
 atl conf attachment upload --id 12345678 --file ./diagram.png [--comment 'v2']
 atl conf attachment delete --page-id 12345678 --id <ATTACHMENT-ID>
 atl conf attachment delete --page-id 12345678 --id <ATTACHMENT-ID> \
@@ -635,6 +640,11 @@ observed. A positive value refuses the read with exit `8` when the page has
 moved, before any attachment request is made, and reports only the expected and
 current version integers; `0` (the default) disables the gate.
 
+For attachment `get`, `--name` must be nonblank valid UTF-8 and at most 255
+bytes. `--id` accepts a bounded opaque `[A-Za-z0-9_-]{1,256}` page id, an
+absolute HTTP(S) URL, or a root-relative path. These selectors and
+`--max-bytes` are validated before config, backend, or path access.
+
 Attachment `get --version N` immediately revalidates one unambiguous exact
 filename match through the Server/Data Center
 [page attachment collection](https://developer.atlassian.com/server/confluence/rest/v10214/api-group-attachments/)
@@ -642,15 +652,31 @@ under the resolved page id. A positive `N` additionally
 revalidates that attachment version. With `0` (the default), ATL observes the
 current positive attachment version and uses that positive value in the actual
 download request; the byte GET is never left floating latest. The metadata
-phase, reference resolution, and one binary attempt share a five-attempt
-single-attempt request budget; metadata responses are capped at 2 MiB aggregate
-and the metadata phase at 15 seconds. An absent/ambiguous filename, incomplete
-metadata page, version mismatch, or exhausted bound fails before the binary GET
+resolution and revalidation phase has a caller-derived 15-second deadline,
+2 MiB aggregate response cap, and at most five physical attempts. Ordinary
+reference resolution may use its bounded read retry and safe same-origin
+redirect handling; the immediate metadata revalidator calls are
+single-attempt. That phase is canceled before binary transfer begins.
+
+`--max-bytes` defaults to 67108864 (64 MiB) and accepts `1..1073741824`
+(1 GiB). The CLI validates it before config, backend, or path access. Metadata
+must report a present non-negative version-specific `fileSize`; a historical
+version's size takes precedence over any current record. A size above the
+selected ceiling, an absent/ambiguous filename, incomplete metadata page,
+version mismatch, or exhausted metadata bound fails before the binary request
 and before creating the output directory.
+
+The binary phase starts from the original caller context with a separate limit
+of five physical attempts. Generic replay retries are disabled, while only
+finite same-origin, scheme-safe redirects are permitted inside that budget.
+Binary transfer is outside the metadata 15-second/2-MiB budget and must contain
+exactly the admitted number of bytes, including an `N+1` overrun probe. A
+short, long, canceled, or close-failed transfer preserves any existing
+destination and leaves no temporary file.
 
 JSON emits `{schema_version:1,page_id,name,output_name,
 requested_attachment_version,observed_attachment_id,
-observed_attachment_version,selector,attachment_id_bound,
+observed_attachment_version,observed_file_size,max_bytes,selector,attachment_id_bound,
 identity_revalidated,page_version_gated,path}`. `name` preserves the exact
 caller selector and `output_name` is its safe contained basename.
 `identity_revalidated:true` means only the tuple `resolved page id + exact

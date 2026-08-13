@@ -31,7 +31,7 @@ add only `resultType:"complete"` plus server `_meta`.
 
 ## Closed service profiles and capability resource
 
-The default command keeps the complete twenty-three-tool catalog and its existing
+The default command keeps the complete twenty-four-tool catalog and its existing
 instructions:
 
 ```bash
@@ -80,7 +80,7 @@ standalone use and remains explicitly `unverified`; atl does not claim a
 symmetric fail-closed guard. Update the older side and restart the agent session
 when marked startup is refused or product versions are known to differ.
 
-The closed profiles expose 11/12/2 tools for Jira/Confluence/offline
+The closed profiles expose 11/13/2 tools for Jira/Confluence/offline
 respectively. `offline` exposes only
 `jira_mirror_snapshot` and `confluence_mirror_snapshot` and constructs neither
 backend. The flag is not an arbitrary allowlist: unknown or repeated values
@@ -122,6 +122,7 @@ The v1 surface is an explicit allowlist:
 | `confluence_page_section` | Read one exact Markdown section | optional `expected_page_version` binding; default 32 KiB, maximum 1 MiB |
 | `confluence_page_sections` | Read 1..32 ordered Markdown sections from one page snapshot | optional `expected_page_version` binding; default 256 KiB aggregate content, maximum 1 MiB; independent encoded-result ceiling |
 | `confluence_attachment_list` | Qualify one page's attachment inventory | requires a positive `expected_page_version`; metadata only; default 128 KiB, maximum 1 MiB encoded result |
+| `confluence_attachment_search` | Search attachment metadata without first knowing a page | mandatory 1..10000 item, 1..100 physical-request, 1..268435456 aggregate-response-byte, and 1..600000 ms deadline bounds; default 128 KiB/maximum 1 MiB encoded result |
 | `confluence_table_summary` | Inspect content-free table structure | reports page version; default 128 KiB, maximum 1 MiB encoded result |
 | `confluence_table_extract` | Read one exact expanded table | selected table required; summary-derived indexes require its version; default 256 KiB, maximum 1 MiB encoded result |
 | `confluence_mirror_snapshot` | Summarize local Confluence mirror health without content | no arguments; exact owner-configured root; offline fixed-shape counts |
@@ -518,6 +519,26 @@ mistaken for a complete one. First raise `max_bytes` deliberately; if the full
 inventory still exceeds the 1 MiB MCP ceiling, use
 `atl conf attachment list --id <page-id> --expected-version <version>` instead.
 
+Use `confluence_attachment_search` when the caller does not yet know the page.
+It accepts optional exact `space` and additional `cql` scope, forbids `ORDER
+BY`, and requires explicit `max_items`, `max_requests`,
+`max_response_bytes`, and `deadline_ms`; optional `max_bytes` bounds the final
+encoded result. The closed result contains only attachment and parent-container
+metadata, versions, media type, file size, content-free `scope_sha256`, consumed
+bounds, and qualification. It contains no bytes, comments, local paths,
+download paths, dedicated URLs, or arbitrary backend fields. Attachment and
+container ids use the bounded opaque `[A-Za-z0-9_-]{1,256}` read grammar.
+
+`qualification:"complete"` requires `complete:true`, no reason or cursor, and
+a present stable `total_size` exactly reconciled with the terminal prefix.
+`partial` requires `complete:false`, one closed limiter reason, and an opaque
+cursor bound to the exact backend/space/CQL scope and next checked offset.
+`failed` requires `count:0`, an empty `attachments` array, no `total_size` or
+cursor, and only `read_failed` or `validation_failed`; it is also marked as an
+MCP tool error. Missing, null, unknown, duplicate, malformed, or contradictory
+members reject the result whole. Pagination remains live and
+`consistency:"live_unproven"`, so a cursor is not snapshot identity.
+
 For table evidence, call `confluence_table_summary` first without `table` to
 inventory every table without returning cell content. A direct inventory may
 omit `expected_page_version`; when re-reading a summary at a revision already
@@ -723,6 +744,7 @@ enabled_tools = [
   "confluence_page_section",
   "confluence_page_sections",
   "confluence_attachment_list",
+  "confluence_attachment_search",
   "confluence_table_summary",
   "confluence_table_extract",
   "confluence_mirror_snapshot",

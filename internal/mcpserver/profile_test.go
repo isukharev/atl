@@ -21,8 +21,8 @@ import (
 func TestClosedServiceProfilesExposeExactInventories(t *testing.T) {
 	jiraProfileTools := mappedToolsForService(t, "jira")
 	confluenceProfileTools := mappedToolsForService(t, "confluence")
-	if len(jiraProfileTools) != 11 || len(confluenceProfileTools) != 12 {
-		t.Fatalf("shared capability inventories jira=%d confluence=%d want=11/12", len(jiraProfileTools), len(confluenceProfileTools))
+	if len(jiraProfileTools) != 11 || len(confluenceProfileTools) != 13 {
+		t.Fatalf("shared capability inventories jira=%d confluence=%d want=11/13", len(jiraProfileTools), len(confluenceProfileTools))
 	}
 	tests := []struct {
 		name         string
@@ -122,7 +122,7 @@ func TestDefaultProfilePreservesNewToolSchemasAndInstructions(t *testing.T) {
 	if string(legacyJSON) != string(profileJSON) {
 		t.Fatal("default profile changed the legacy tool inventory or schemas")
 	}
-	if got := sha256.Sum256(profileJSON); hex.EncodeToString(got[:]) != "ec2ce9d02e6112930e7797fade016091156209dd2a0075c8707e3449911fe445" {
+	if got := sha256.Sum256(profileJSON); hex.EncodeToString(got[:]) != "557766338f71b4814aa02ae046faed99746cc594e65c95eb7e2ea840ec34b3a9" {
 		t.Fatalf("default tool contract hash=%x", got)
 	}
 	if legacyClient.InitializeResult().Instructions != Instructions ||
@@ -133,9 +133,9 @@ func TestDefaultProfilePreservesNewToolSchemasAndInstructions(t *testing.T) {
 
 func TestServiceProfileInstructionDigestsAreStable(t *testing.T) {
 	want := map[ServiceProfile]string{
-		ServiceDefault:    "7a267c90dff39e3bf8e664913b978eebf43968baa2280faf6341c55f17411016",
+		ServiceDefault:    "597bcaf0f7c500f492a6c222f0a8a1d557b07a04fc59c207a776f227763c7b4a",
 		ServiceJira:       "50ce5c2d3f0fa71dff44762ab56f70ba3e284c2e099b949cf021bd30f6cb9764",
-		ServiceConfluence: "2bdb992eafb5621728515beecd4d4bbed979fa47367be5d4a08b35f284a0ee79",
+		ServiceConfluence: "8c44ef6db40ecdf4af22b91a8716210c669bbebb4ae0ab1d72f6cb6cbd56eb1d",
 		ServiceOffline:    "9ab393f7baf37c2249e099d8c1682c00e4cd7768ed5211371b4f25888c6b7aaa",
 	}
 	for profile, expected := range want {

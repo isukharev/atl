@@ -136,8 +136,8 @@ func TestCapabilityMappingsReconcileWithRegisteredToolInventory(t *testing.T) {
 			t.Errorf("registered MCP tool %q has no curated capability mapping", name)
 		}
 	}
-	if len(registered) != 23 || len(covered) != len(registered) {
-		t.Fatalf("registered=%d covered=%d want=23/23", len(registered), len(covered))
+	if len(registered) != 24 || len(covered) != len(registered) {
+		t.Fatalf("registered=%d covered=%d want=24/24", len(registered), len(covered))
 	}
 }
 

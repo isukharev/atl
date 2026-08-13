@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "jira_context": "/jira",
+  "confluence_context": "/wiki",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/wiki/rest/api/content/search",
+      "query_equals": {
+        "cql": "type = attachment and space = \"OPS\" and (mediaType = \"application/pdf\")",
+        "expand": "container.version,extensions,metadata,space,version",
+        "limit": "1",
+        "start": "0"
+      },
+      "status": 200,
+      "body": {
+        "results": [
+          {"id":"att_holdout-31","title":"operating-guide.pdf","type":"attachment","version":{"number":5},"container":{"id":"page_ops-30","type":"page","version":{"number":9}},"space":{"key":"OPS"},"metadata":{"mediaType":"application/pdf"},"extensions":{"fileSize":8192}}
+        ],
+        "start": 0,
+        "limit": 1,
+        "size": 1,
+        "totalSize": 2,
+        "_links": {"next":"/rest/api/content/search?start=1"}
+      }
+    }
+  ]
+}

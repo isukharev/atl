@@ -23,6 +23,11 @@ func confAttachmentDiscoveryCmd() *cobra.Command {
 					return usageErr("--" + name + " is required")
 				}
 			}
+			normalized, err := app.NormalizeConfluenceAttachmentDiscoveryOpts(opts)
+			if err != nil {
+				return err
+			}
+			opts = normalized
 			service, err := confService(cmd)
 			if err != nil {
 				return err

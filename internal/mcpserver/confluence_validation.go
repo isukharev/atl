@@ -514,6 +514,13 @@ func boundedConfluenceAttachmentDiscoveryOutput(value *app.ConfluenceAttachmentD
 	if err := availableResult(value, "Confluence attachment discovery"); err != nil {
 		return err
 	}
+	if value.Qualification == app.ConfluenceAttachmentDiscoveryComplete && value.TotalSize == nil {
+		return fmt.Errorf("%w: complete Confluence attachment discovery has no reconciled total", domain.ErrCheckFailed)
+	}
+	if value.Qualification == app.ConfluenceAttachmentDiscoveryFailed &&
+		(value.Count != 0 || len(value.Attachments) != 0 || value.TotalSize != nil || value.NextCursor != "") {
+		return fmt.Errorf("%w: failed Confluence attachment discovery contains prefix evidence", domain.ErrCheckFailed)
+	}
 	return boundedOutput(value, maxBytes,
 		"encode Confluence attachment discovery",
 		"Confluence attachment discovery exceeds max_bytes; narrow the scope or lower max_items before raising the bound")

@@ -18,12 +18,13 @@ The exact tools are:
   `jira_mirror_snapshot`;
 - `confluence_search`, `confluence_page_resolve`, `confluence_page_meta`,
   `confluence_page_outline`, `confluence_page_section`, `confluence_attachment_list`,
+  `confluence_attachment_search`,
   `confluence_page_sections`, `confluence_comment_list`, `confluence_comment_thread`,
   `confluence_table_summary`, `confluence_table_extract`,
   `confluence_mirror_snapshot`.
 
 The plugin starts the complete default inventory. For a standalone session,
-`atl mcp serve --service jira|confluence|offline` selects a closed 11/12/2 tool
+`atl mcp serve --service jira|confluence|offline` selects a closed 11/13/2 tool
 profile; it is not an arbitrary allowlist. The fixed offline
 `atl://capabilities` resource reports which curated CLI routes have a bounded
 typed mapping, its narrower scope, or an explicit CLI-only boundary. A mapping
@@ -290,6 +291,19 @@ only when `complete:true`; a `complete:false` inventory carries a static
 clipped. Raise `max_bytes` deliberately; if the inventory still exceeds the
 1 MiB ceiling, use the qualified CLI attachment listing.
 
+Use `confluence_attachment_search` when the page is not yet known. Supply every
+execution bound (`max_items`, `max_requests`, `max_response_bytes`, and
+`deadline_ms`) plus optional exact space/additional CQL scope; `ORDER BY` is
+forbidden. The result exposes attachment and parent-container metadata only,
+with no bytes, comments, paths, URLs, or arbitrary backend fields. Its ids use
+the bounded opaque `[A-Za-z0-9_-]{1,256}` read grammar. Complete
+qualification requires a present stable `total_size` and exact terminal end.
+A partial result requires one closed limiter and a canonical cursor bound to
+the exact query scope and next checked offset. A failed result is also a tool
+error and has zero rows, no total, and no cursor. Missing, null, unknown, or
+contradictory members invalidate the entire result. The traversal is live, not
+a snapshot; never treat its cursor as stable snapshot identity.
+
 Use the CLI instead when the task needs raw changelog rows, raw Structure
 forest/values, Structure
 pull/export, durable pull/mirror files, mirror content/status/diff, exports,
@@ -321,6 +335,13 @@ Example attachment-evidence route:
 ```text
 confluence_page_section (complete, but the substance is an attachment marker)
   -> confluence_attachment_list (same reference + that page version)
+```
+
+Example attachment-discovery route:
+
+```text
+confluence_attachment_search (explicit execution bounds; complete or qualified prefix)
+  -> confluence_page_meta (only for one selected parent page)
 ```
 
 Example table route:

@@ -187,6 +187,14 @@ func registerConfluenceTools(server *mcp.Server, deps Dependencies) {
 			if in.DeadlineMillis < 1 || in.DeadlineMillis > app.ConfluenceAttachmentDiscoveryMaxDeadline.Milliseconds() {
 				return nil, nil, classifiedConfluenceAttachmentDiscoveryRead(fmt.Errorf("%w: deadline_ms is outside its bound", domain.ErrUsage))
 			}
+			opts, err := app.NormalizeConfluenceAttachmentDiscoveryOpts(app.ConfluenceAttachmentDiscoveryOpts{
+				Space: in.Space, CQL: in.CQL, Cursor: in.Cursor, MaxItems: in.MaxItems,
+				MaxRequests: in.MaxRequests, MaxResponseBytes: in.MaxResponseBytes,
+				Deadline: time.Duration(in.DeadlineMillis) * time.Millisecond,
+			})
+			if err != nil {
+				return nil, nil, classifiedConfluenceAttachmentDiscoveryRead(err)
+			}
 			confluence, err := confluenceReader(deps)
 			if err != nil {
 				return nil, nil, classifiedConfluenceAttachmentDiscoveryRead(err)
@@ -197,11 +205,7 @@ func registerConfluenceTools(server *mcp.Server, deps Dependencies) {
 			if !ok {
 				return nil, nil, classifiedConfluenceAttachmentDiscoveryRead(fmt.Errorf("%w: Confluence attachment discovery is unavailable", domain.ErrConfig))
 			}
-			out, readErr := discoverer.DiscoverAttachments(ctx, app.ConfluenceAttachmentDiscoveryOpts{
-				Space: in.Space, CQL: in.CQL, Cursor: in.Cursor, MaxItems: in.MaxItems,
-				MaxRequests: in.MaxRequests, MaxResponseBytes: in.MaxResponseBytes,
-				Deadline: time.Duration(in.DeadlineMillis) * time.Millisecond,
-			})
+			out, readErr := discoverer.DiscoverAttachments(ctx, opts)
 			if out == nil {
 				return nil, nil, classifiedConfluenceAttachmentDiscoveryRead(readErr)
 			}

@@ -6292,6 +6292,23 @@ func TestToolErrorClassifierMatrixIsExact(t *testing.T) {
 			},
 		},
 		{
+			name: "attachment_discovery", classify: classifiedConfluenceAttachmentDiscoveryRead,
+			want: []classifierExpectation{
+				{message: "invalid Confluence attachment discovery request"},
+				{message: "Confluence attachment discovery is not configured"},
+				{message: "Confluence attachment discovery authentication failed"},
+				{message: "Confluence attachment discovery access is forbidden"},
+				{message: "Confluence attachment discovery scope was not found"},
+				{message: "Confluence attachment discovery failed"},
+				{message: "Confluence attachment discovery failed validation"},
+				{message: "Confluence attachment discovery exceeds the selected output bound", remediation: "narrow_selection_or_raise_bound"},
+				{message: "Confluence attachment discovery rate limit was exhausted"},
+				{message: "Confluence attachment discovery API request failed"},
+				{message: "Confluence attachment discovery transport failed"},
+				{message: "Confluence attachment discovery failed"},
+			},
+		},
+		{
 			name: "confluence_comments", classify: classifiedConfluenceCommentRead,
 			want: []classifierExpectation{
 				{message: "invalid Confluence comment request"},
@@ -6343,8 +6360,8 @@ func TestToolErrorClassifierMatrixIsExact(t *testing.T) {
 			},
 		},
 	}
-	if len(matrix) != 12 {
-		t.Fatalf("classifier matrix has %d rows, want 12 current families", len(matrix))
+	if len(matrix) != 13 {
+		t.Fatalf("classifier matrix has %d rows, want 13 current families", len(matrix))
 	}
 
 	for _, entry := range matrix {
@@ -6398,6 +6415,7 @@ func TestToolErrorPoliciesAlwaysHaveClientMessages(t *testing.T) {
 		{name: "table", policy: confluenceTableReadPolicy},
 		{name: "section", policy: confluenceSectionReadPolicy},
 		{name: "attachment_inventory", policy: confluenceAttachmentInventoryReadPolicy},
+		{name: "attachment_discovery", policy: confluenceAttachmentDiscoveryReadPolicy},
 		{name: "confluence_comments", policy: confluenceCommentReadPolicy},
 		{name: "structure", policy: jiraStructureReadPolicy},
 		{name: "mirror", policy: mirrorReadPolicy},

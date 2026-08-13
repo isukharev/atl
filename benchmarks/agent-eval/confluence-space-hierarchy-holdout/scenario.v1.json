@@ -1,0 +1,9 @@
+{
+  "schema_version":1,"id":"confluence.synthetic-space-hierarchy-holdout-v1","category":"surface-native","task_class":"confluence/space-hierarchy",
+  "description":"Preserve partial qualification when a caller item bound stops a live hierarchy before terminal pagination evidence.","data_class":"synthetic",
+  "required_capabilities":["confluence.space.tree"],
+  "required_checks":["atl_succeeded","complete_correct","count_correct","guard_clean","http_exact","mock_clean","no_delegation","qualification_correct","route_exact","schema_version_exact","used_atl"],
+  "required_semantic_checks":["complete_correct","count_correct","qualification_correct","schema_version_exact"],
+  "required_metrics":["agent_turns","tool_calls","atl_invocations","delegations","backend_requests","duplicate_backend_requests","remote_writes","output_bytes","input_tokens","output_tokens","main_thread_input_tokens","main_thread_output_tokens","estimated_cost_microusd","duration_millis","capability_families"],
+  "budgets":{"max_agent_turns":5,"max_tool_calls":2,"max_atl_invocations":1,"max_delegations":0,"max_backend_requests":1,"max_duplicate_backend_requests":0,"max_remote_writes":0,"max_output_bytes":32768,"max_input_tokens":120000,"max_output_tokens":4000,"max_main_thread_input_tokens":120000,"max_main_thread_output_tokens":4000,"max_estimated_cost_microusd":4000000,"max_duration_millis":300000,"allowed_http_methods":["GET"]}
+}

@@ -9,8 +9,8 @@ import (
 
 func TestDefinitionsReturnsDefensiveCopy(t *testing.T) {
 	first := Definitions()
-	if len(first) != 58 {
-		t.Fatalf("definitions=%d want=58", len(first))
+	if len(first) != 60 {
+		t.Fatalf("definitions=%d want=60", len(first))
 	}
 	want := first[0]
 	first[0] = Definition{ID: "changed"}
@@ -27,7 +27,7 @@ func TestDefinitionsCanonicalMetadataDigestIsStable(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := sha256.Sum256(encoded)
-	const want = "ffea33c770b2d9ee79e6576511468461ba406f3b1ea8d63ac02e392464be7878"
+	const want = "ac7521f491b6127a3a4d5a1d1aa56fabe872819706365c797b00cbc10f625d4a"
 	if hex.EncodeToString(got[:]) != want {
 		t.Fatalf("definition metadata digest=%x", got)
 	}
@@ -51,11 +51,50 @@ func TestDefinitionsTransportMappings(t *testing.T) {
 			mappedMutating++
 		}
 	}
-	if mapped != 32 || cliOnly != 26 {
-		t.Fatalf("mapped=%d cli_only=%d want=32/26", mapped, cliOnly)
+	if mapped != 33 || cliOnly != 27 {
+		t.Fatalf("mapped=%d cli_only=%d want=33/27", mapped, cliOnly)
 	}
 	if mappedMutating != 0 {
 		t.Fatalf("mapped mutating definitions=%d want=0", mappedMutating)
+	}
+}
+
+func TestConfluenceAttachmentDiscoveryIsOneMappedPrimaryRoute(t *testing.T) {
+	const scope = "Caller-bounded live Server/Data Center attachment-metadata prefix with closed complete, partial, or failed qualification and query-bound continuation; no bytes, comments, paths, or URLs."
+	var matches []Definition
+	for _, definition := range Definitions() {
+		if definition.TaskClass == "confluence/attachment-discovery" || definition.ID == "confluence.attachment.search" {
+			matches = append(matches, definition)
+		}
+	}
+	if len(matches) != 1 {
+		t.Fatalf("attachment-discovery routes=%d want=1: %+v", len(matches), matches)
+	}
+	got := matches[0]
+	if got.ID != "confluence.attachment.search" || got.Service != "confluence" || got.Role != "primary" ||
+		got.Priority != 10 || got.CLICommand != "conf attachment search" || got.MCPTool != "confluence_attachment_search" ||
+		got.MCPScope != scope || got.Evidence != "qualified" || got.Completeness != "explicit" ||
+		got.Skill != "confluence" || got.Reference != "reference/tables-attachments.md" {
+		t.Fatalf("attachment-discovery route=%+v", got)
+	}
+}
+
+func TestConfluenceSpaceHierarchyIsOneCLIOnlyPrimaryRoute(t *testing.T) {
+	var matches []Definition
+	for _, definition := range Definitions() {
+		if definition.TaskClass == "confluence/space-hierarchy" || definition.ID == "confluence.space.tree" {
+			matches = append(matches, definition)
+		}
+	}
+	if len(matches) != 1 {
+		t.Fatalf("space-hierarchy routes=%d want=1: %+v", len(matches), matches)
+	}
+	got := matches[0]
+	if got.ID != "confluence.space.tree" || got.Service != "confluence" || got.Role != "primary" ||
+		got.Priority != 10 || got.CLICommand != "conf space tree" || got.MCPTool != "" || got.MCPScope != "" ||
+		got.Evidence != "qualified" || got.Completeness != "explicit" || got.Skill != "confluence" ||
+		got.Reference != "reference/commands.md" {
+		t.Fatalf("space-hierarchy route=%+v", got)
 	}
 }
 

@@ -33,15 +33,19 @@ atl capabilities --task jira/batch-analysis -o text
 atl capabilities --task jira/structure-planning -o text
 atl capabilities --task jira/edit -o text
 atl capabilities --task jira/mirror -o text
+atl capabilities --task confluence/attachment-discovery -o text
 atl capabilities --task confluence/table-analytics -o text
 atl capabilities --task confluence/comments -o text
 atl capabilities --task confluence/mirror -o text
+atl capabilities --task confluence/space-hierarchy -o text
 atl capabilities --task knowledge/search -o text
 atl capabilities --id confluence.page.section
 ```
 
-Supported task classes are `confluence/comments`, `confluence/edit`,
-`confluence/evidence`, `confluence/mirror`, `confluence/table-analytics`,
+Supported task classes are `confluence/attachment-discovery`,
+`confluence/comments`, `confluence/edit`,
+`confluence/evidence`, `confluence/mirror`, `confluence/space-hierarchy`,
+`confluence/table-analytics`,
 `jira/batch-analysis`, `jira/board-portfolio`, `jira/edit`, `jira/evidence`,
 `jira/graph-evidence`, `jira/inverse-reference`, `jira/mirror`, `jira/portfolio`, `jira/setup`,
 `jira/structure-planning`, and `knowledge/search`. Exact `--service` and `--access
@@ -56,10 +60,12 @@ the comparison.
 
 ```json capability-task-classes
 [
+  "confluence/attachment-discovery",
   "confluence/comments",
   "confluence/edit",
   "confluence/evidence",
   "confluence/mirror",
+  "confluence/space-hierarchy",
   "confluence/table-analytics",
   "jira/batch-analysis",
   "jira/board-portfolio",
@@ -74,6 +80,11 @@ the comparison.
   "knowledge/search"
 ]
 ```
+
+Attachment discovery and space hierarchy are singleton task classes. They
+route respectively to `conf attachment search` (and its narrower typed MCP
+mapping) and CLI-only `conf space tree`; neither is folded into the broader
+`confluence/evidence` route.
 
 For `jira/evidence`, the ordered route starts with `jira issue search` for
 broad candidate discovery before exact per-issue field qualification and
@@ -167,7 +178,7 @@ network request or self-update.
 
 The schema-v1 effect result is
 `{schema_version,enforcement,selection,profiles,commands}`. `enforcement` is
-always `informational`. Every one of the 170 executable leaves has exactly one
+always `informational`. Every one of the 171 executable leaves has exactly one
 `effect_profile` in the canonical command registry, and a newly constructed
 leaf fails startup validation until classified. Each command row includes its
 path, access class, output modes, optional mutation profile, and any curated
@@ -221,7 +232,7 @@ atl mcp serve --service confluence
 atl mcp serve --service offline
 ```
 
-The default process registers twenty-three explicit Jira/Confluence evidence tools and no
+The default process registers twenty-four explicit Jira/Confluence evidence tools and no
 mutation, shell, arbitrary-file, mirror-write, or raw-REST tool. Two no-argument
 tools inspect only an explicit valid `ATL_MIRROR_ROOT`, offline, and return
 content-free mirror health counts. Stdout is
@@ -258,8 +269,8 @@ both required for modern mode; either alone remains legacy. The plugin cannot
 enable the global feature. The marker selects client protocol behavior and is
 not identity, authentication, or provenance evidence.
 
-Omitting `--service` preserves the complete twenty-three-tool inventory and existing
-instructions. The closed Jira/Confluence/offline profiles expose 11/12/2 tools;
+Omitting `--service` preserves the complete twenty-four-tool inventory and existing
+instructions. The closed Jira/Confluence/offline profiles expose 11/13/2 tools;
 `offline` contains only the two no-argument mirror snapshots and
 constructs no backend reader. Unknown or repeated service selections fail
 before dependency construction. All profiles also publish one fixed

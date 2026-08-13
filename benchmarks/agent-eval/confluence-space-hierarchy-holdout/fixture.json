@@ -1,0 +1,12 @@
+{
+  "schema_version":1,"jira_context":"/jira","confluence_context":"/wiki",
+  "routes":[{
+    "method":"GET","path":"/wiki/rest/api/content/search",
+    "query_equals":{"cql":"space=\"OPS\" and type=page","expand":"ancestors,version,space","limit":"20","start":"0"},
+    "status":200,
+    "body":{"results":[
+      {"id":"page_service-30","type":"page","title":"Service","space":{"key":"OPS"},"version":{"number":6},"ancestors":[]},
+      {"id":"page_alerts-31","type":"page","title":"Alerts","space":{"key":"OPS"},"version":{"number":3},"ancestors":[{"id":"page_service-30","title":"Service"}]}
+    ],"start":0,"limit":20,"size":2,"totalSize":3,"_links":{"next":"/rest/api/content/search?start=2"}}
+  }]
+}
