@@ -20,37 +20,42 @@ type standaloneAuthorityDimensions struct {
 }
 
 type standaloneAuthorityProfile struct {
-	Operation string `json:"operation"`
-	Mode      string `json:"mode"`
-	Authority string `json:"authority"`
+	Operation  string   `json:"operation"`
+	Mode       string   `json:"mode"`
+	Authority  string   `json:"authority"`
+	Command    string   `json:"-"`
+	Supported  bool     `json:"-"`
+	ProcessAPI bool     `json:"-"`
+	Formats    []string `json:"-"`
 	standaloneAuthorityDimensions
 }
 
-// standaloneAuthorityProfiles is a fresh projection of the frozen standalone
-// product contract. Preview and explain output never infer authority from the
-// implementation path that happened to run.
+// standaloneAuthorityProfiles is the canonical executable-operation registry.
+// Help, routing, capabilities, Process API admission, preview, and explain
+// output project fresh values from this one authority ceiling instead of
+// inferring authority from the implementation path that happened to run.
 func standaloneAuthorityProfiles() []standaloneAuthorityProfile {
 	return []standaloneAuthorityProfile{
-		{Operation: "capabilities", Mode: "default", Authority: "none"},
-		{Operation: "compare", Mode: "default", Authority: "local_read", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true}},
-		{Operation: "compat verify", Mode: "provider-free", Authority: "verifier_execution", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, ProcessSpawn: true}},
-		{Operation: "export", Mode: "agent-skills", Authority: "local_write", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true}},
-		{Operation: "grade", Mode: "deterministic", Authority: "verifier_execution", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, ProcessSpawn: true}},
-		{Operation: "grade", Mode: "judge", Authority: "provider_execution", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, ProcessSpawn: true, ProviderContact: true, Network: true, CredentialAccess: true}},
-		{Operation: "import", Mode: "agent-skills", Authority: "local_read", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true}},
+		{Operation: "capabilities", Mode: "default", Command: "capabilities", Authority: "none", Supported: true, ProcessAPI: true},
+		{Operation: "compare", Mode: "default", Command: "compare", Authority: "local_read", Supported: true, ProcessAPI: true, standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true}},
+		{Operation: "compat verify", Mode: "provider-free", Command: "compat verify", Authority: "verifier_execution", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, ProcessSpawn: true}},
+		{Operation: "export", Mode: "agent-skills", Command: "export agent-skills", Authority: "local_write", Supported: true, Formats: []string{standaloneAgentSkillsVariantGuide, standaloneAgentSkillsVariantAnthropic}, standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true}},
+		{Operation: "grade", Mode: "deterministic", Command: "grade", Authority: "verifier_execution", Supported: true, standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, ProcessSpawn: true}},
+		{Operation: "grade", Mode: "judge", Command: "grade", Authority: "provider_execution", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, ProcessSpawn: true, ProviderContact: true, Network: true, CredentialAccess: true}},
+		{Operation: "import", Mode: "agent-skills", Command: "import agent-skills", Authority: "local_read", Supported: true, Formats: []string{standaloneAgentSkillsVariantAuto, standaloneAgentSkillsVariantGuide, standaloneAgentSkillsVariantAnthropic}, standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true}},
 		{Operation: "import", Mode: "default", Authority: "local_write", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true}},
-		{Operation: "init", Mode: "default", Authority: "local_write", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalWrite: true, PrivateWorkspaceAccess: true}},
-		{Operation: "inspect", Mode: "default", Authority: "local_read", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true}},
-		{Operation: "migrate apply", Mode: "default", Authority: "local_write", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true, PrivateWorkspaceAccess: true}},
-		{Operation: "migrate preview", Mode: "default", Authority: "local_read", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, PrivateWorkspaceAccess: true}},
-		{Operation: "plan", Mode: "default", Authority: "local_write", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true, PrivateWorkspaceAccess: true}},
-		{Operation: "reconcile", Mode: "evidence-only", Authority: "local_write", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true, PrivateWorkspaceAccess: true}},
-		{Operation: "report", Mode: "default", Authority: "local_read", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true}},
-		{Operation: "resume", Mode: "default", Authority: "agent_execution", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true, ProcessSpawn: true, ProviderContact: true, BackendContact: true, Network: true, CredentialAccess: true, PrivateWorkspaceAccess: true}},
-		{Operation: "run", Mode: "default", Authority: "agent_execution", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true, ProcessSpawn: true, ProviderContact: true, BackendContact: true, Network: true, CredentialAccess: true}},
-		{Operation: "schema inspect", Mode: "default", Authority: "local_read", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true}},
-		{Operation: "validate", Mode: "default", Authority: "local_read", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true}},
-		{Operation: "version", Mode: "default", Authority: "none"},
+		{Operation: "init", Mode: "default", Command: "init", Authority: "local_write", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalWrite: true, PrivateWorkspaceAccess: true}},
+		{Operation: "inspect", Mode: "default", Command: "inspect", Authority: "local_read", Supported: true, ProcessAPI: true, standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true}},
+		{Operation: "migrate apply", Mode: "default", Command: "migrate apply", Authority: "local_write", Supported: true, ProcessAPI: true, standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true, PrivateWorkspaceAccess: true}},
+		{Operation: "migrate preview", Mode: "default", Command: "migrate preview", Authority: "local_read", Supported: true, ProcessAPI: true, standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, PrivateWorkspaceAccess: true}},
+		{Operation: "plan", Mode: "default", Command: "plan", Authority: "local_write", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true, PrivateWorkspaceAccess: true}},
+		{Operation: "reconcile", Mode: "evidence-only", Command: "reconcile", Authority: "local_write", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true, PrivateWorkspaceAccess: true}},
+		{Operation: "report", Mode: "default", Command: "report", Authority: "local_read", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true}},
+		{Operation: "resume", Mode: "default", Command: "resume", Authority: "agent_execution", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true, ProcessSpawn: true, ProviderContact: true, BackendContact: true, Network: true, CredentialAccess: true, PrivateWorkspaceAccess: true}},
+		{Operation: "run", Mode: "default", Command: "run", Authority: "agent_execution", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true, ProcessSpawn: true, ProviderContact: true, BackendContact: true, Network: true, CredentialAccess: true}},
+		{Operation: "schema inspect", Mode: "default", Command: "schema inspect", Authority: "local_read", Supported: true, ProcessAPI: true, standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true}},
+		{Operation: "validate", Mode: "default", Command: "validate", Authority: "local_read", Supported: true, ProcessAPI: true, standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true}},
+		{Operation: "version", Mode: "default", Command: "version", Authority: "none", Supported: true, ProcessAPI: true},
 	}
 }
 
@@ -61,6 +66,37 @@ func standaloneAuthorityProfileFor(operation, mode string) (standaloneAuthorityP
 		}
 	}
 	return standaloneAuthorityProfile{}, false
+}
+
+func standaloneCommandRegistryState(command string) (available, processAPI bool, found bool) {
+	for _, profile := range standaloneAuthorityProfiles() {
+		if profile.Command != command {
+			continue
+		}
+		found = true
+		available = available || profile.Supported
+		processAPI = processAPI || profile.Supported && profile.ProcessAPI
+	}
+	return available, processAPI, found
+}
+
+func standaloneOperationModes(operation string, supported bool) []string {
+	result := make([]string, 0)
+	for _, profile := range standaloneAuthorityProfiles() {
+		if profile.Operation == operation && profile.Supported == supported && profile.Mode != "default" {
+			result = append(result, profile.Mode)
+		}
+	}
+	sort.Strings(result)
+	return result
+}
+
+func standaloneOperationFormats(operation, mode string) []string {
+	profile, ok := standaloneAuthorityProfileFor(operation, mode)
+	if !ok || !profile.Supported {
+		return nil
+	}
+	return append([]string(nil), profile.Formats...)
 }
 
 type standaloneInputEvidence struct {

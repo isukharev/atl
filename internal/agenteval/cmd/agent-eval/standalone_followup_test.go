@@ -2,7 +2,10 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
 	"testing"
 
@@ -75,7 +78,11 @@ func TestStandaloneFlagAndEnvironmentIdentifiersMatchProjectConfigBound(t *testi
 func TestStandaloneProcessAPIAuthorityRatchet(t *testing.T) {
 	root := standaloneCommandTree()
 	processCommands := make(map[string]bool)
+	descriptors := make(map[string]standaloneCommandDescriptor)
 	standaloneWalkDescriptors(root, nil, func(path []string, descriptor standaloneCommandDescriptor) {
+		if len(descriptor.Children) == 0 {
+			descriptors[strings.Join(path, " ")] = descriptor
+		}
 		if !descriptor.ProcessAPI {
 			return
 		}
@@ -96,6 +103,70 @@ func TestStandaloneProcessAPIAuthorityRatchet(t *testing.T) {
 			t.Fatalf("%q retained ProcessAPI despite disallowed authority", command)
 		}
 	}
+	for _, profile := range standaloneAuthorityProfiles() {
+		if profile.Command == "" {
+			continue
+		}
+		descriptor, found := descriptors[profile.Command]
+		available, processAPI, registered := standaloneCommandRegistryState(profile.Command)
+		if !found || !registered || descriptor.Available != available || descriptor.ProcessAPI != processAPI {
+			t.Fatalf("registry/descriptor drift for %q: descriptor=%+v state=%t/%t registered=%t",
+				profile.Command, descriptor, available, processAPI, registered)
+		}
+	}
+
+	var gradeHelp bytes.Buffer
+	if !writeStandaloneHelp(&gradeHelp, []string{"grade"}) {
+		t.Fatal("grade help unavailable")
+	}
+	if !strings.Contains(gradeHelp.String(), "--mode deterministic") ||
+		!strings.Contains(gradeHelp.String(), "Reserved modes (unavailable):\n  judge") ||
+		strings.Contains(gradeHelp.String(), "deterministic|judge") {
+		t.Fatalf("grade help did not distinguish supported and reserved modes:\n%s", gradeHelp.String())
+	}
+
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate standalone Process API reference")
+	}
+	reference, err := os.ReadFile(filepath.Join(filepath.Dir(currentFile), "..", "..", "..", "..",
+		"docs", "reference", "agent-eval", "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const processSentence = "The exact admitted operations are"
+	start := strings.Index(string(reference), processSentence)
+	if start < 0 {
+		t.Fatal("Process API reference omitted the canonical admitted-operation sentence")
+	}
+	paragraph := string(reference)[start+len(processSentence):]
+	if end := strings.IndexByte(paragraph, ';'); end >= 0 {
+		paragraph = paragraph[:end]
+	} else {
+		t.Fatal("Process API admitted-operation sentence is not closed")
+	}
+	gotReference := standaloneBacktickValues(paragraph)
+	wantReference := make([]string, 0)
+	for _, profile := range standaloneAuthorityProfiles() {
+		if profile.Supported && profile.ProcessAPI {
+			wantReference = append(wantReference, profile.Command)
+		}
+	}
+	gotReference = standaloneSortedUnique(gotReference)
+	wantReference = standaloneSortedUnique(wantReference)
+	if strings.Join(gotReference, "\x00") != strings.Join(wantReference, "\x00") {
+		t.Fatalf("Process API reference=%v registry=%v", gotReference, wantReference)
+	}
+}
+
+func standaloneBacktickValues(value string) []string {
+	parts := strings.Split(value, "`")
+	result := make([]string, 0, len(parts)/2)
+	for index := 1; index < len(parts); index += 2 {
+		result = append(result, parts[index])
+	}
+	sort.Strings(result)
+	return result
 }
 
 func TestStandalonePowerShellAndZshCompletionInsertOnlyStateChildren(t *testing.T) {

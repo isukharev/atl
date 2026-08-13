@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
-	"slices"
 	"strings"
 	"testing"
 
@@ -331,25 +331,11 @@ func assertStandaloneCapabilitiesMatchProductContract(t *testing.T, capabilities
 	if len(capabilities) != len(contract.StandaloneOperations) {
 		t.Fatalf("capability rows=%d contract rows=%d", len(capabilities), len(contract.StandaloneOperations))
 	}
-	processAPI := map[string]bool{
-		"capabilities/default":    true,
-		"compare/default":         true,
-		"inspect/default":         true,
-		"migrate apply/default":   true,
-		"migrate preview/default": true,
-		"schema inspect/default":  true,
-		"validate/default":        true,
-		"version/default":         true,
-	}
-	formats := map[string][]string{
-		"export/agent-skills": {standaloneAgentSkillsVariantGuide, standaloneAgentSkillsVariantAnthropic},
-		"import/agent-skills": {standaloneAgentSkillsVariantAuto, standaloneAgentSkillsVariantGuide, standaloneAgentSkillsVariantAnthropic},
-	}
 	for index, operation := range contract.StandaloneOperations {
 		capability := capabilities[index]
-		key := operation.ID + "/" + operation.Mode
+		wantSupported := operation.CurrentStatus == "implemented_pre_release" && operation.StandaloneStatus == "pre_release"
 		wantStatus := "unsupported"
-		if operation.CurrentStatus == "implemented_pre_release" && operation.StandaloneStatus == "pre_release" {
+		if wantSupported {
 			wantStatus = "supported"
 		}
 		wantDimensions := standaloneAuthorityDimensions{
@@ -357,9 +343,14 @@ func assertStandaloneCapabilitiesMatchProductContract(t *testing.T, capabilities
 			ProviderContact: operation.ProviderContact, BackendContact: operation.BackendContact, Network: operation.Network,
 			CredentialAccess: operation.CredentialAccess, PrivateWorkspaceAccess: operation.PrivateWorkspaceAccess,
 		}
+		profile, ok := standaloneAuthorityProfileFor(operation.ID, operation.Mode)
+		if !ok || profile.Supported != wantSupported || profile.Authority != operation.Authority ||
+			profile.standaloneAuthorityDimensions != wantDimensions {
+			t.Fatalf("registry[%d]=%+v contract=%+v", index, profile, operation)
+		}
 		if capability.Command != operation.ID || capability.Mode != operation.Mode || capability.Status != wantStatus ||
 			capability.Authority != operation.Authority || capability.Dimensions != wantDimensions ||
-			capability.ProcessAPI != processAPI[key] || !slices.Equal(capability.Formats, formats[key]) {
+			capability.ProcessAPI != profile.ProcessAPI || !reflect.DeepEqual(capability.Formats, profile.Formats) {
 			t.Fatalf("capability[%d]=%+v contract=%+v", index, capability, operation)
 		}
 	}

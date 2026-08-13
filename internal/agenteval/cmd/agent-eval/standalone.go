@@ -117,21 +117,26 @@ type standaloneOptionDescriptor struct {
 }
 
 type standaloneCommandDescriptor struct {
-	Name       string
-	Summary    string
-	Usage      string
-	Modes      []string
-	Examples   []string
-	Options    []standaloneOptionDescriptor
-	Available  bool
-	ProcessAPI bool
-	Children   []standaloneCommandDescriptor
+	Name          string
+	Summary       string
+	Usage         string
+	Modes         []string
+	ReservedModes []string
+	Examples      []string
+	Options       []standaloneOptionDescriptor
+	Available     bool
+	ProcessAPI    bool
+	Children      []standaloneCommandDescriptor
 }
 
 // standaloneCommandTree returns a fresh value tree. Callers cannot mutate the
 // canonical command registry, while help, completion, routing, and
 // capabilities all consume the same descriptors.
 func standaloneCommandTree() standaloneCommandDescriptor {
+	gradeModes := standaloneOperationModes("grade", true)
+	reservedGradeModes := standaloneOperationModes("grade", false)
+	importFormats := standaloneOperationFormats("import", "agent-skills")
+	exportFormats := standaloneOperationFormats("export", "agent-skills")
 	common := []standaloneOptionDescriptor{
 		{Name: "--config", Value: "FILE", Description: "read exactly one project config (maximum 64 KiB)"},
 		{Name: "--project", Value: "DIR", Description: "read DIR/.agent-eval/config.json without parent walking"},
@@ -145,7 +150,7 @@ func standaloneCommandTree() standaloneCommandDescriptor {
 	}
 	agentSkillsImportOptions := []standaloneOptionDescriptor{
 		{Name: "--format", Value: "agent-skills", Description: "select the Agent Skills interchange"},
-		{Name: "--variant", Value: "auto|agentskills-guide-v1|anthropic-skill-creator-v1", Description: "select or safely detect the documented source variant"},
+		{Name: "--variant", Value: strings.Join(importFormats, "|"), Description: "select or safely detect the documented source variant"},
 		{Name: "--skill-root", Value: "DIR", Description: "read one exact bounded skill tree"},
 		{Name: "--eval-root", Value: "DIR", Description: "optionally select the exact evaluation source root"},
 		{Name: "--baseline", Value: "no-skill|previous-skill", Description: "select the explicit comparison baseline"},
@@ -155,7 +160,7 @@ func standaloneCommandTree() standaloneCommandDescriptor {
 	agentSkillsExportOptions := append([]standaloneOptionDescriptor(nil), agentSkillsImportOptions...)
 	for index := range agentSkillsExportOptions {
 		if agentSkillsExportOptions[index].Name == "--variant" {
-			agentSkillsExportOptions[index].Value = "agentskills-guide-v1|anthropic-skill-creator-v1"
+			agentSkillsExportOptions[index].Value = strings.Join(exportFormats, "|")
 			agentSkillsExportOptions[index].Description = "select the exact documented workspace variant"
 		}
 	}
@@ -183,7 +188,7 @@ func standaloneCommandTree() standaloneCommandDescriptor {
 		standaloneOptionDescriptor{Name: "--expected-preview-sha256", Value: "SHA256", Description: "bind the exact reviewed preview"},
 		standaloneOptionDescriptor{Name: "--confirm", Value: "MIGRATE", Description: "authorize the reviewed local mutation"},
 	)
-	return standaloneCommandDescriptor{
+	root := standaloneCommandDescriptor{
 		Name:    "agent-eval",
 		Summary: "validate, execute, and compare bounded agent evaluations",
 		Usage:   "agent-eval <command> [options]",
@@ -194,30 +199,30 @@ func standaloneCommandTree() standaloneCommandDescriptor {
 		},
 		Available: true,
 		Children: []standaloneCommandDescriptor{
-			{Name: "capabilities", Summary: "report supported standalone operations without reading configuration", Usage: "agent-eval capabilities [--output json|text]", Available: true, ProcessAPI: true},
-			{Name: "version", Summary: "report build, schema, and protocol identity without reading configuration", Usage: "agent-eval version [--output json|text]", Available: true, ProcessAPI: true},
+			{Name: "capabilities", Summary: "report supported standalone operations without reading configuration", Usage: "agent-eval capabilities [--output json|text]"},
+			{Name: "version", Summary: "report build, schema, and protocol identity without reading configuration", Usage: "agent-eval version [--output json|text]"},
 			{Name: "init", Summary: "initialize a standalone evaluation project", Usage: "agent-eval init [options]", Options: common},
 			{Name: "import", Summary: "inspect a selected external evaluation representation without writing", Usage: "agent-eval import <command>", Children: []standaloneCommandDescriptor{
-				{Name: "agent-skills", Summary: "inspect a bounded Agent Skills source without execution or writes", Usage: "agent-eval import agent-skills --format agent-skills --variant VARIANT --skill-root DIR --baseline BASELINE [options]", Modes: []string{"auto", "agentskills-guide-v1", "anthropic-skill-creator-v1"}, Examples: []string{"agent-eval import agent-skills --format agent-skills --variant auto --skill-root ./skill --baseline no-skill"}, Options: agentSkillsImportOptions, Available: true},
+				{Name: "agent-skills", Summary: "inspect a bounded Agent Skills source without execution or writes", Usage: "agent-eval import agent-skills --format agent-skills --variant VARIANT --skill-root DIR --baseline BASELINE [options]", Modes: importFormats, Examples: []string{"agent-eval import agent-skills --format agent-skills --variant auto --skill-root ./skill --baseline no-skill"}, Options: agentSkillsImportOptions},
 			}},
 			{Name: "export", Summary: "write a non-authoritative compatibility view to one new destination", Usage: "agent-eval export <command>", Children: []standaloneCommandDescriptor{
-				{Name: "agent-skills", Summary: "export a captured Agent Skills workspace without executing it", Usage: "agent-eval export agent-skills --format agent-skills --variant VARIANT --skill-root DIR --baseline BASELINE --workspace-root DIR --destination ABSOLUTE_DIR [options]", Modes: []string{"agentskills-guide-v1", "anthropic-skill-creator-v1"}, Examples: []string{"agent-eval export agent-skills --format agent-skills --variant agentskills-guide-v1 --skill-root ./skill --baseline no-skill --workspace-root ./workspace --destination /absolute/new-output --case-directory 1=iteration-1/eval-example"}, Options: agentSkillsExportOptions, Available: true},
+				{Name: "agent-skills", Summary: "export a captured Agent Skills workspace without executing it", Usage: "agent-eval export agent-skills --format agent-skills --variant VARIANT --skill-root DIR --baseline BASELINE --workspace-root DIR --destination ABSOLUTE_DIR [options]", Modes: exportFormats, Examples: []string{"agent-eval export agent-skills --format agent-skills --variant agentskills-guide-v1 --skill-root ./skill --baseline no-skill --workspace-root ./workspace --destination /absolute/new-output --case-directory 1=iteration-1/eval-example"}, Options: agentSkillsExportOptions},
 			}},
-			{Name: "validate", Summary: "validate project, scenario, or run-spec inputs without network access", Usage: "agent-eval validate --kind scenario|run-spec --input FILE [--input FILE ...] [options]", Examples: []string{"agent-eval validate --kind scenario --input scenario.json"}, Options: append([]standaloneOptionDescriptor{{Name: "--kind", Value: "scenario|run-spec", Description: "input contract"}, {Name: "--input", Value: "FILE", Description: "bounded input; repeat for additional inputs"}}, common...), Available: true, ProcessAPI: true},
+			{Name: "validate", Summary: "validate project, scenario, or run-spec inputs without network access", Usage: "agent-eval validate --kind scenario|run-spec --input FILE [--input FILE ...] [options]", Examples: []string{"agent-eval validate --kind scenario --input scenario.json"}, Options: append([]standaloneOptionDescriptor{{Name: "--kind", Value: "scenario|run-spec", Description: "input contract"}, {Name: "--input", Value: "FILE", Description: "bounded input; repeat for additional inputs"}}, common...)},
 			{Name: "plan", Summary: "create an immutable execution plan", Usage: "agent-eval plan [options]", Options: common},
 			{Name: "run", Summary: "execute a reviewed standalone plan", Usage: "agent-eval run --plan FILE [options]", Options: append([]standaloneOptionDescriptor{{Name: "--plan", Value: "FILE", Description: "reviewed immutable plan"}}, common...)},
 			{Name: "resume", Summary: "resume only an attempt whose durable evidence permits it", Usage: "agent-eval resume [options]", Options: common},
 			{Name: "reconcile", Summary: "append evidence without replaying an ambiguous identity", Usage: "agent-eval reconcile [options]", Options: common},
-			{Name: "grade", Summary: "grade an observation with a deterministic evaluator", Usage: "agent-eval grade --mode deterministic --scenario FILE --observation FILE [options]", Examples: []string{"agent-eval grade --mode deterministic --scenario scenario.json --observation observation.json"}, Options: append([]standaloneOptionDescriptor{{Name: "--mode", Value: "deterministic|judge", Description: "grading authority"}, {Name: "--scenario", Value: "FILE", Description: "scenario contract"}, {Name: "--observation", Value: "FILE", Description: "observation contract"}}, common...), Available: true},
-			{Name: "compare", Summary: "compare or aggregate content-minimized result artifacts", Usage: "agent-eval compare --kind results|root [options]", Options: append([]standaloneOptionDescriptor{{Name: "--kind", Value: "results|root|pair|set", Description: "comparison contract"}, {Name: "--input", Value: "FILE", Description: "result input; repeat for additional inputs"}, {Name: "--root", Value: "DIR", Description: "marked synthetic result root"}}, common...), Available: true, ProcessAPI: true},
+			{Name: "grade", Summary: "grade an observation with a deterministic evaluator", Usage: "agent-eval grade --mode deterministic --scenario FILE --observation FILE [options]", ReservedModes: reservedGradeModes, Examples: []string{"agent-eval grade --mode deterministic --scenario scenario.json --observation observation.json"}, Options: append([]standaloneOptionDescriptor{{Name: "--mode", Value: strings.Join(gradeModes, "|"), Description: "supported grading authority"}, {Name: "--scenario", Value: "FILE", Description: "scenario contract"}, {Name: "--observation", Value: "FILE", Description: "observation contract"}}, common...)},
+			{Name: "compare", Summary: "compare or aggregate content-minimized result artifacts", Usage: "agent-eval compare --kind results|root [options]", Options: append([]standaloneOptionDescriptor{{Name: "--kind", Value: "results|root|pair|set", Description: "comparison contract"}, {Name: "--input", Value: "FILE", Description: "result input; repeat for additional inputs"}, {Name: "--root", Value: "DIR", Description: "marked synthetic result root"}}, common...)},
 			{Name: "report", Summary: "render a read-only standalone report", Usage: "agent-eval report --format FORMAT [options]", Options: common},
-			{Name: "inspect", Summary: "inspect configuration provenance or a benchmark corpus", Usage: "agent-eval inspect --kind configuration|corpus [options]", Examples: []string{"agent-eval inspect --kind configuration --project . --explain"}, Options: append([]standaloneOptionDescriptor{{Name: "--kind", Value: "configuration|corpus|artifact", Description: "inspection target"}, {Name: "--root", Value: "DIR", Description: "corpus root"}}, common...), Available: true, ProcessAPI: true},
+			{Name: "inspect", Summary: "inspect configuration provenance or a benchmark corpus", Usage: "agent-eval inspect --kind configuration|corpus [options]", Examples: []string{"agent-eval inspect --kind configuration --project . --explain"}, Options: append([]standaloneOptionDescriptor{{Name: "--kind", Value: "configuration|corpus|artifact", Description: "inspection target"}, {Name: "--root", Value: "DIR", Description: "corpus root"}}, common...)},
 			{Name: "schema", Summary: "inspect standalone artifact schema support", Usage: "agent-eval schema <command>", Children: []standaloneCommandDescriptor{
-				{Name: "inspect", Summary: "inspect a versioned artifact schema", Usage: "agent-eval schema inspect --namespace ID --kind ID [--output json|text]", Options: schemaInspectOptions, Available: true, ProcessAPI: true},
+				{Name: "inspect", Summary: "inspect a versioned artifact schema", Usage: "agent-eval schema inspect --namespace ID --kind ID [--output json|text]", Options: schemaInspectOptions},
 			}},
 			{Name: "migrate", Summary: "preview or apply an explicit artifact migration", Usage: "agent-eval migrate <command>", Children: []standaloneCommandDescriptor{
-				{Name: "preview", Summary: "produce a reviewed migration preview without changing source bytes", Usage: "agent-eval migrate preview --namespace ID --kind ID --from VERSION --to VERSION --root DIR [options]", Options: migrationOptions, Available: true, ProcessAPI: true},
-				{Name: "apply", Summary: "apply an exactly reviewed migration", Usage: "agent-eval migrate apply --namespace ID --kind ID --from VERSION --to VERSION --root DIR --expected-preview-sha256 SHA256 --confirm MIGRATE [options]", Options: migrationApplyOptions, Available: true, ProcessAPI: true},
+				{Name: "preview", Summary: "produce a reviewed migration preview without changing source bytes", Usage: "agent-eval migrate preview --namespace ID --kind ID --from VERSION --to VERSION --root DIR [options]", Options: migrationOptions},
+				{Name: "apply", Summary: "apply an exactly reviewed migration", Usage: "agent-eval migrate apply --namespace ID --kind ID --from VERSION --to VERSION --root DIR --expected-preview-sha256 SHA256 --confirm MIGRATE [options]", Options: migrationApplyOptions},
 			}},
 			{Name: "compat", Summary: "verify provider-free component compatibility", Usage: "agent-eval compat <command>", Children: []standaloneCommandDescriptor{
 				{Name: "verify", Summary: "verify a selected local component", Usage: "agent-eval compat verify --target TARGET [options]", Options: append([]standaloneOptionDescriptor{{Name: "--target", Value: "atl|codex-skill-package|extension-protocol", Description: "selected compatibility target"}}, common...)},
@@ -231,6 +236,22 @@ func standaloneCommandTree() standaloneCommandDescriptor {
 			{Name: "process", Summary: "execute exactly one bounded, strictly decoded JSON request", Usage: "agent-eval process", Available: true},
 			{Name: "help", Summary: "show root, parent, or leaf help", Usage: "agent-eval help [command [subcommand]]", Available: true},
 		},
+	}
+	standaloneBindCommandRegistry(&root, nil)
+	return root
+}
+
+func standaloneBindCommandRegistry(descriptor *standaloneCommandDescriptor, path []string) {
+	for index := range descriptor.Children {
+		child := &descriptor.Children[index]
+		childPath := append(append([]string(nil), path...), child.Name)
+		if len(child.Children) == 0 {
+			if available, processAPI, found := standaloneCommandRegistryState(strings.Join(childPath, " ")); found {
+				child.Available = available
+				child.ProcessAPI = processAPI
+			}
+		}
+		standaloneBindCommandRegistry(child, childPath)
 	}
 }
 
@@ -407,6 +428,13 @@ func writeStandaloneHelp(writer io.Writer, path []string) bool {
 		fmt.Fprintln(writer)
 		fmt.Fprintln(writer, "Modes:")
 		for _, mode := range descriptor.Modes {
+			fmt.Fprintln(writer, "  "+mode)
+		}
+	}
+	if len(descriptor.ReservedModes) > 0 {
+		fmt.Fprintln(writer)
+		fmt.Fprintln(writer, "Reserved modes (unavailable):")
+		for _, mode := range descriptor.ReservedModes {
 			fmt.Fprintln(writer, "  "+mode)
 		}
 	}
@@ -596,40 +624,17 @@ func standaloneExecuteCapabilities(args []string) (standaloneOutcome, *standalon
 }
 
 func standaloneProductCapabilities() []standaloneCapability {
-	type availability struct {
-		processAPI bool
-		formats    []string
-	}
-	implemented := map[string]availability{
-		"capabilities/default": {processAPI: true},
-		"compare/default":      {processAPI: true},
-		"export/agent-skills": {
-			formats: []string{standaloneAgentSkillsVariantGuide, standaloneAgentSkillsVariantAnthropic},
-		},
-		"grade/deterministic": {},
-		"import/agent-skills": {
-			formats: []string{standaloneAgentSkillsVariantAuto, standaloneAgentSkillsVariantGuide, standaloneAgentSkillsVariantAnthropic},
-		},
-		"inspect/default":         {processAPI: true},
-		"migrate apply/default":   {processAPI: true},
-		"migrate preview/default": {processAPI: true},
-		"schema inspect/default":  {processAPI: true},
-		"validate/default":        {processAPI: true},
-		"version/default":         {processAPI: true},
-	}
 	profiles := standaloneAuthorityProfiles()
 	capabilities := make([]standaloneCapability, 0, len(profiles))
 	for _, profile := range profiles {
-		key := profile.Operation + "/" + profile.Mode
-		available, ok := implemented[key]
 		status := "unsupported"
-		if ok {
+		if profile.Supported {
 			status = "supported"
 		}
 		capabilities = append(capabilities, standaloneCapability{
 			Command: profile.Operation, Mode: profile.Mode, Status: status,
 			Authority: profile.Authority, Dimensions: profile.standaloneAuthorityDimensions,
-			Formats: append([]string(nil), available.formats...), ProcessAPI: ok && available.processAPI,
+			Formats: append([]string(nil), profile.Formats...), ProcessAPI: profile.Supported && profile.ProcessAPI,
 		})
 	}
 	return capabilities
