@@ -3,7 +3,6 @@ package agenteval
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"reflect"
@@ -76,18 +75,15 @@ type sequentialReferencePrepared struct {
 	treatments      map[string]*sequentialReferenceTreatment
 }
 
-// CreateSequentialReferenceAttemptStore creates a deterministic ledger for a
-// clean publication. The manifest digest supplies the fixed 32-byte ledger
-// nonce, so identical declared inputs yield identical attempt identities.
+// CreateSequentialReferenceAttemptStore creates a fresh physical-attempt
+// ledger for one clean publication. Logical manifest/trial identities remain
+// stable, while the random ledger identity prevents cross-destination replay
+// of an AttemptID.
 func CreateSequentialReferenceAttemptStore(root string, manifest ExperimentManifest) (*AttemptLedgerStore, error) {
 	if err := experiment.ValidateManifest(manifest); err != nil {
 		return nil, sequentialReferenceError("manifest", err)
 	}
-	nonce, err := hex.DecodeString(manifest.ManifestSHA256)
-	if err != nil || len(nonce) != 32 {
-		return nil, sequentialReferenceError("manifest_identity", err)
-	}
-	return CreateAttemptLedgerStore(root, bytes.NewReader(nonce))
+	return CreateAttemptLedgerStore(root, nil)
 }
 
 // RunSequentialReference executes the fully pre-admitted roster one attempt at
@@ -190,7 +186,8 @@ func prepareSequentialReference(ctx context.Context, manifest experiment.Manifes
 			}
 			return nil, sequentialReferenceError("execution_admission", admitErr)
 		}
-		if admitted.SHA256() != ownedManifest.Treatments[index].ExecutionBindingSHA256 || !sequentialReferenceExecutionPlanSupported(plan) {
+		if admitted.SHA256() != ownedManifest.Treatments[index].ExecutionBindingSHA256 ||
+			!sequentialReferenceExecutionPlanSupported(ownedManifest, ownedManifest.Treatments[index], plan) {
 			return nil, unsupportedSequentialReference("execution_profile", nil)
 		}
 		ownedInputs, prepareErr := executionbackend.PrepareReferenceInputs(ctx, admitted, treatmentInput.Inputs)
@@ -211,10 +208,6 @@ func (prepared *sequentialReferencePrepared) run(ctx context.Context, store *Att
 ) (SequentialReferenceResult, error) {
 	if store == nil {
 		return SequentialReferenceResult{}, sequentialReferenceError("attempt_store", nil)
-	}
-	wantHeader, err := sequentialReferenceLedgerHeader(prepared.manifest.ManifestSHA256)
-	if err != nil || store.Header().HeaderSHA256 != wantHeader.HeaderSHA256 {
-		return SequentialReferenceResult{}, sequentialReferenceError("attempt_store_identity", err)
 	}
 	bindings, err := ExperimentAttemptBindings(prepared.manifest)
 	if err != nil {
@@ -509,14 +502,6 @@ func sequentialReferenceLifecycleUsage() lifecycle.Usage {
 		InputTokens:           lifecycle.ObservedMetric(0),
 		OutputTokens:          lifecycle.ObservedMetric(0),
 	}
-}
-
-func sequentialReferenceLedgerHeader(manifestSHA256 string) (lifecycle.LedgerHeader, error) {
-	nonce, err := hex.DecodeString(manifestSHA256)
-	if err != nil || len(nonce) != 32 {
-		return lifecycle.LedgerHeader{}, sequentialReferenceError("manifest_identity", err)
-	}
-	return lifecycle.NewHeader(bytes.NewReader(nonce))
 }
 
 func (prepared *sequentialReferencePrepared) destroy() {

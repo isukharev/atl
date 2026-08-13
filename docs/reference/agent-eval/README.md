@@ -389,9 +389,13 @@ reference treatment, one current-skill candidate, and one separately authored
 near-miss control in the manifest's fixed balanced order. Before creating the
 destination it strictly decodes and clones the complete manifest, grading plan,
 three execution plans, and all content-addressed input archives; it rejects any
-unknown or unsupported capability or profile drift. The in-memory reference
-adapter, hermetic reference backend, append-only lifecycle, and deterministic
-grader then execute at most one attempt at a time in manifest order.
+unknown or unsupported capability or profile drift. Each treatment role is
+also bound to its exact source mount and declared case, skill, or separately
+authored control digest; recompiling a manifest cannot substitute fixture bytes
+for the candidate or control while retaining a conforming reference run. The
+in-memory reference adapter, hermetic reference backend, append-only lifecycle,
+and deterministic grader then execute at most one attempt at a time in manifest
+order. The only admitted backend program is the bounded `reference_copy` form.
 
 ```shell named-agent-eval-sequential-reference-run
 agent-eval run --mode reference \
@@ -405,11 +409,17 @@ manifest, one durable attempt ledger, and a manifest-ordered directory of
 canonical observation, execution-plan/receipt, grading-plan/receipt, lifecycle,
 and trial-record artifacts. Raw copied artifact bytes never enter the result or
 publication. A completion marker is removed only after exact reread and
-transitive binding validation. Any failure after destination creation is
-`outcome_unknown,retry_safe:false`; the marker and ledger remain and the same
-destination is never replayed. Cancellation and timeout are terminal only
-under the lifecycle evidence actually recorded. The success envelope exposes
-only the manifest digest and trial/success/failure counts.
+transitive binding validation, and its removal is the final fallible
+process-visible commit operation. Once that marker has been durably
+established, every returned run or finish failure is
+`outcome_unknown,retry_safe:false` and retains it plus any ledger state already
+created; a process or power interruption may conservatively retain the marker
+after all result bytes were written. The same destination is never replayed.
+Each new destination receives a fresh random ledger identity and therefore
+fresh physical attempt IDs, while manifest, treatment, trial, outcome, and
+artifact semantics remain deterministic. Cancellation and timeout are terminal
+only under the lifecycle evidence actually recorded. The success envelope
+exposes only the manifest digest and trial/success/failure counts.
 
 This profile is provider-free, not a general sandbox claim. The implementation
 uses the existing Unix durable ledger and therefore refuses before destination

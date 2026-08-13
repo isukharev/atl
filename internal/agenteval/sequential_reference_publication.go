@@ -42,11 +42,13 @@ type sequentialReferencePublication struct {
 	createdInfo fs.FileInfo
 	parent      *os.Root
 	root        *os.Root
+	testHook    func(string) error
 }
 
 // RunSequentialReferenceToNewDestination pre-admits all inputs before creating
-// an exact new destination. A failed or interrupted run retains its marker and
-// durable ledger; it is never resumed or replayed by this entry point.
+// an exact new destination. Once its marker is established, a failed or
+// interrupted run retains it and any durable ledger state; this entry point
+// never resumes or replays that destination.
 func RunSequentialReferenceToNewDestination(ctx context.Context, destination string, manifest ExperimentManifest,
 	bundle SequentialReferenceBundle,
 ) (SequentialReferenceResult, error) {
@@ -108,10 +110,6 @@ func InspectSequentialReferencePublication(destination string) (SequentialRefere
 	if err != nil {
 		return SequentialReferenceResult{}, sequentialReferenceError("attempt_store_open", err)
 	}
-	wantHeader, err := sequentialReferenceLedgerHeader(manifest.ManifestSHA256)
-	if err != nil || store.Header().HeaderSHA256 != wantHeader.HeaderSHA256 {
-		return SequentialReferenceResult{}, sequentialReferenceError("attempt_store_identity", err)
-	}
 	inspections, err := store.InspectAll()
 	assignments := sequentialReferenceAssignments(manifest)
 	if err != nil || len(inspections) != len(assignments) {
@@ -157,6 +155,9 @@ func createSequentialReferencePublication(destination string, manifest experimen
 	}
 	if err := syncSequentialReferenceDirectory(publication.root, "."); err != nil || !publication.stable() {
 		return nil, unknownSequentialReference("publication_create", err)
+	}
+	if err := publication.syncParent(); err != nil || !publication.stable() {
+		return nil, unknownSequentialReference("publication_parent_sync", err)
 	}
 	failed = false
 	return publication, nil
@@ -363,24 +364,39 @@ func (publication *sequentialReferencePublication) finish(manifest experiment.Ma
 	if err := publication.validateShape(len(result.Trials), true); err != nil || !publication.stable() {
 		return sequentialReferenceError("publication_shape", err)
 	}
-	if err := publication.root.Remove(sequentialReferenceMarkerName); err != nil {
-		return sequentialReferenceError("publication_complete", err)
-	}
 	if err := syncSequentialReferenceDirectory(publication.root, "."); err != nil {
 		return sequentialReferenceError("publication_sync", err)
 	}
-	parentDirectory, err := publication.parent.Open(".")
-	if err != nil {
-		return sequentialReferenceError("publication_parent_sync", err)
-	}
-	syncErr, closeErr := parentDirectory.Sync(), parentDirectory.Close()
-	if err := errors.Join(syncErr, closeErr); err != nil {
+	if err := publication.syncParent(); err != nil {
 		return sequentialReferenceError("publication_parent_sync", err)
 	}
 	if !publication.stable() {
 		return sequentialReferenceError("publication_changed", nil)
 	}
-	return publication.validateShape(len(result.Trials), false)
+	if err := publication.validateShape(len(result.Trials), true); err != nil {
+		return sequentialReferenceError("publication_shape", err)
+	}
+	if publication.testHook != nil {
+		if err := publication.testHook("before_marker_remove"); err != nil {
+			return sequentialReferenceError("publication_complete", err)
+		}
+	}
+	// Removing the already-durable incomplete marker is the final
+	// process-visible commit. There are deliberately no fallible operations
+	// after it: a crash may conservatively retain the marker, but an error can
+	// never be returned with a markerless publication.
+	if err := publication.root.Remove(sequentialReferenceMarkerName); err != nil {
+		return sequentialReferenceError("publication_complete", err)
+	}
+	return nil
+}
+
+func (publication *sequentialReferencePublication) syncParent() error {
+	parentDirectory, err := publication.parent.Open(".")
+	if err != nil {
+		return err
+	}
+	return errors.Join(parentDirectory.Sync(), parentDirectory.Close())
 }
 
 func errSequentialReferenceArtifactDrift(left, right SequentialReferenceTrialArtifacts) error {
@@ -506,7 +522,8 @@ func validateSequentialReferenceArtifactChain(manifest experiment.Manifest, assi
 		return err
 	}
 	admittedExecution, err := executionbackend.Admit(backend, artifacts.ExecutionPlan)
-	if err != nil || admittedExecution.SHA256() != treatment.ExecutionBindingSHA256 || !sequentialReferenceExecutionPlanSupported(artifacts.ExecutionPlan) {
+	if err != nil || admittedExecution.SHA256() != treatment.ExecutionBindingSHA256 ||
+		!sequentialReferenceExecutionPlanSupported(manifest, treatment, artifacts.ExecutionPlan) {
 		return sequentialReferenceError("execution_binding", err)
 	}
 	wantGrading, err := NewSequentialReferenceGradingPlan(artifacts.GradingPlan.InputProjectionSHA256)

@@ -1968,7 +1968,7 @@
       "kind": "sequential-reference-bundle",
       "version": 1,
       "source_path": "testdata/standalone-readability/sequential-reference-bundle-v1.json",
-      "source_sha256": "ab31c8280c37498fa46ad01c944d7dd52f82df830fdefce256a41d40f88cbf10",
+      "source_sha256": "65b8e4e252661efca16b5c5c18683b5f42e2bb2c2b18eae5ea6bbb5c717b3dcf",
       "expected_projection": {
         "schema": "agent-eval/sequential-reference-bundle",
         "schema_version": 1,

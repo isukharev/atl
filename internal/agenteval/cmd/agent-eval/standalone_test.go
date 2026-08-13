@@ -665,6 +665,10 @@ func TestStandaloneCompletionIsGeneratedFromPublicDescriptors(t *testing.T) {
 				t.Fatalf("%s completion exposed hidden route %q", shell, hidden)
 			}
 		}
+		if !strings.Contains(first.String(), "run --mode") || strings.Contains(first.String(), "run --variant") ||
+			!strings.Contains(first.String(), "reference") {
+			t.Fatalf("%s completion did not preserve the run/reference selector: %s", shell, first.String())
+		}
 	}
 }
 

@@ -342,10 +342,18 @@ bytes and distinct digests.
 
 The root facade pre-admits the complete fixed reference profile, allocates its
 manifest roster as planned lifecycle members, and runs at most one in-memory
-reference attempt at a time in manifest order. It retains canonical
+reference attempt at a time in manifest order. The reference, candidate, and
+control roles are cross-bound to their fixture, skill, and separately authored
+control bytes before the destination is created; only bounded
+`reference_copy` plans are admitted. It retains canonical
 observation, execution, grading, lifecycle, and trial-record artifacts under a
-new-destination completion marker; post-creation ambiguity is no-replay
-`outcome_unknown`. Once any
+new-destination completion marker; any returned post-creation ambiguity retains
+that marker and is no-replay `outcome_unknown`. Removing the marker is the final
+fallible process-visible commit step, so a crash may conservatively leave an
+otherwise complete destination marked incomplete. Every new destination gets
+a fresh ledger identity and fresh physical attempt IDs; deterministic logical
+manifest, treatment, trial, and outcome projections do not authorize physical
+attempt-ID reuse. Once any
 member commits, changing repetition policy, order, exclusions, stopping, or
 other manifest-bound material conflicts rather than extending the experiment.
 Historical private four-cell activation studies project only treatment classes

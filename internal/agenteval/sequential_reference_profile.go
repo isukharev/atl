@@ -216,16 +216,51 @@ func capabilityForSequentialTreatment(treatment experiment.TreatmentRequest) exp
 	}
 }
 
-func sequentialReferenceExecutionPlanSupported(plan executionbackend.Plan) bool {
+func sequentialReferenceExecutionPlanSupported(manifest experiment.Manifest, treatment experiment.Treatment, plan executionbackend.Plan) bool {
 	if plan.Network.Mode != executionbackend.NetworkDeny || plan.Credentials.Mode != executionbackend.CredentialsNone {
 		return false
 	}
-	switch plan.Program.Kind {
-	case executionbackend.ProgramReferenceCopy:
-		return len(plan.Artifacts) == 1 && plan.Artifacts[0].Privacy == executionbackend.PrivacyPublic
-	case executionbackend.ProgramWaitForCancel:
-		return len(plan.Artifacts) == 0
+	if plan.Program.Kind != executionbackend.ProgramReferenceCopy || len(plan.Mounts) != 3 || len(plan.Artifacts) != 1 ||
+		plan.Artifacts[0].Privacy != executionbackend.PrivacyPublic || plan.Verifier.Kind != executionbackend.VerifierSHA256Equals ||
+		plan.Verifier.ArtifactID != plan.Program.ArtifactID || plan.Mounts[0].ID != executionbackend.MountDefinitions ||
+		plan.Mounts[1].ID != executionbackend.MountFixture ||
+		plan.Mounts[1].ContentSHA256 != manifest.Design.Case.FixtureSHA256 || plan.Mounts[2].ID != executionbackend.MountSkill {
+		return false
+	}
+	candidateSkill := ""
+	for _, candidate := range manifest.Treatments {
+		if candidate.Role == experiment.RoleCandidate {
+			candidateSkill = candidate.SkillSHA256
+			break
+		}
+	}
+	if candidateSkill == "" || plan.Mounts[2].ContentSHA256 != candidateSkill {
+		return false
+	}
+	sourceSHA, err := sequentialReferenceSourceIdentity(plan)
+	if err != nil || sourceSHA != manifest.Design.Case.SourceSHA256 {
+		return false
+	}
+	switch treatment.Role {
+	case experiment.RoleReference:
+		return plan.Program.SourceMount == executionbackend.MountFixture &&
+			plan.Verifier.ExpectedSHA256 == manifest.Design.Case.CaseSHA256
+	case experiment.RoleCandidate:
+		return plan.Program.SourceMount == executionbackend.MountSkill && treatment.SkillSHA256 == plan.Mounts[2].ContentSHA256
+	case experiment.RoleControl:
+		return plan.Program.SourceMount == executionbackend.MountFixture && plan.Verifier.ExpectedSHA256 == treatment.ControlSHA256
 	default:
 		return false
 	}
+}
+
+func sequentialReferenceSourceIdentity(plan executionbackend.Plan) (string, error) {
+	if len(plan.Mounts) != 3 {
+		return "", sequentialReferenceError("execution_mounts", nil)
+	}
+	return contentMinimizedAttemptDigest("sequential-reference-source", struct {
+		DefinitionsSHA256 string `json:"definitions_sha256"`
+		FixtureSHA256     string `json:"fixture_sha256"`
+		SkillSHA256       string `json:"skill_sha256"`
+	}{plan.Mounts[0].ContentSHA256, plan.Mounts[1].ContentSHA256, plan.Mounts[2].ContentSHA256})
 }

@@ -103,8 +103,16 @@ func TestSequentialReferenceRunsCanonicalAgentSkillsRosterAndBindsEveryArtifact(
 	if err != nil {
 		t.Fatalf("run second reference roster: %v", err)
 	}
-	if !reflect.DeepEqual(first, second) {
-		t.Fatal("identical declared inputs changed publication-safe identities or projections")
+	assertSequentialReferenceLogicalProjectionEqual(t, first, second)
+
+	driftedManifest, driftedBundle := sequentialReferenceRoleDriftFixture(t, manifest, bundle)
+	destination := filepath.Join(t.TempDir(), "must-not-exist")
+	if _, err := RunSequentialReferenceToNewDestination(context.Background(), destination, driftedManifest, driftedBundle); err == nil ||
+		!errors.Is(err, ErrSequentialReferenceUnsupported) {
+		t.Fatalf("role/mount drift error=%v", err)
+	}
+	if _, err := os.Lstat(destination); !os.IsNotExist(err) {
+		t.Fatalf("role/mount refusal acquired destination authority: %v", err)
 	}
 	encoded, err := jsonMarshalForSequentialReferenceTest(first)
 	if err != nil {
@@ -174,9 +182,10 @@ func TestSequentialReferencePublicationIsExactNewCanonicalAndStrictlyReadable(t 
 	}
 	secondDestination := filepath.Join(parent, "second")
 	second, err := RunSequentialReferenceToNewDestination(context.Background(), secondDestination, manifest, bundle)
-	if err != nil || !reflect.DeepEqual(first, second) {
-		t.Fatalf("second publication changed result: equal=%t err=%v", reflect.DeepEqual(first, second), err)
+	if err != nil {
+		t.Fatalf("publish second: %v", err)
 	}
+	assertSequentialReferenceLogicalProjectionEqual(t, first, second)
 	missingReceipt := filepath.Join(secondDestination, sequentialReferenceTrialsDirectory, attemptLedgerOrdinalName(1), sequentialReferenceGradeReceiptName)
 	if err := os.Remove(missingReceipt); err != nil {
 		t.Fatal(err)
@@ -239,6 +248,48 @@ func TestSequentialReferencePublicationIsExactNewCanonicalAndStrictlyReadable(t 
 	}
 	if _, err := InspectSequentialReferencePublication(firstDestination); err == nil {
 		t.Fatal("self-consistent observation/profile drift was accepted")
+	}
+
+	prepared, err := prepareSequentialReference(context.Background(), manifest, bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer prepared.destroy()
+	manifestData, err := experiment.EncodeManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commitDestination := filepath.Join(parent, "commit-interrupted")
+	publication, err := createSequentialReferencePublication(commitDestination, manifest, manifestData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer publication.close()
+	store, err := CreateSequentialReferenceAttemptStore(filepath.Join(commitDestination, sequentialReferenceLedgerDirectory), manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commitResult, err := prepared.run(context.Background(), store, publication.writeTrial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publication.testHook = func(stage string) error {
+		if stage == "before_marker_remove" {
+			return errors.New("synthetic completion interruption")
+		}
+		return nil
+	}
+	if err := publication.finish(manifest, store, commitResult); err == nil {
+		t.Fatal("completion interruption was accepted")
+	}
+	if _, err := os.Lstat(filepath.Join(commitDestination, sequentialReferenceMarkerName)); err != nil {
+		t.Fatalf("completion interruption lost durable marker: %v", err)
+	}
+	if _, err := InspectSequentialReferencePublication(commitDestination); err == nil {
+		t.Fatal("completion-interrupted publication was accepted")
+	}
+	if _, err := RunSequentialReferenceToNewDestination(context.Background(), commitDestination, manifest, bundle); err == nil {
+		t.Fatal("completion-interrupted publication was replayed")
 	}
 
 	canceledContext, cancel := context.WithCancel(context.Background())
@@ -368,7 +419,7 @@ func TestSequentialReferenceCapabilityDriftRefusesBeforeDestinationAuthority(t *
 	}
 }
 
-func TestSequentialReferenceCommittedCancellationIsTerminalIncompleteAndNeverReplayed(t *testing.T) {
+func TestSequentialReferenceCommittedInterruptionsAreTerminalIncompleteAndNeverReplayed(t *testing.T) {
 	manifest, bundle := sequentialReferenceFixture(t)
 	prepared, err := prepareSequentialReference(context.Background(), manifest, bundle)
 	if err != nil {
@@ -379,46 +430,53 @@ func TestSequentialReferenceCommittedCancellationIsTerminalIncompleteAndNeverRep
 	if err != nil {
 		t.Fatal(err)
 	}
-	destination := filepath.Join(t.TempDir(), "interrupted")
-	publication, err := createSequentialReferencePublication(destination, manifest, manifestData)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer publication.close()
-	store, err := CreateSequentialReferenceAttemptStore(filepath.Join(destination, sequentialReferenceLedgerDirectory), manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	canceled, cancel := context.WithCancel(context.Background())
-	cancel()
-	partial, err := prepared.run(canceled, store, publication.writeTrial)
-	if err == nil || len(partial.Trials) != 1 || partial.Trials[0].TrialRecord.LifecycleState != experiment.LifecycleCanceled ||
-		partial.Trials[0].TrialRecord.Exclusion != experiment.ExclusionLifecycleIncomplete || partial.Trials[0].GradeReceipt != nil {
-		t.Fatalf("partial=%+v err=%v", partial, err)
-	}
-	marker, err := os.ReadFile(filepath.Join(destination, sequentialReferenceMarkerName))
-	if err != nil || string(marker) != manifest.ManifestSHA256+"\n" {
-		t.Fatalf("incomplete marker=%q err=%v", marker, err)
-	}
-	if _, err := os.Stat(filepath.Join(destination, sequentialReferenceTrialsDirectory, attemptLedgerOrdinalName(1), sequentialReferenceTrialRecordName)); err != nil {
-		t.Fatalf("terminal trial record was not retained: %v", err)
-	}
-	inspections, err := store.InspectAll()
-	if err != nil || len(inspections) != len(sequentialReferenceAssignments(manifest)) ||
-		inspections[0].Projection.State != lifecycle.StateCanceled || !inspections[0].Projection.Terminal ||
-		inspections[1].Projection.State != lifecycle.StatePlanned {
-		t.Fatalf("ledger=%+v err=%v", inspections, err)
-	}
-	if _, err := InspectSequentialReferencePublication(destination); err == nil {
-		t.Fatal("incomplete publication was accepted")
-	}
-	if _, err := RunSequentialReferenceToNewDestination(context.Background(), destination, manifest, bundle); err == nil {
-		t.Fatal("ambiguous destination was replayed")
+	for _, test := range []struct {
+		name   string
+		ctx    context.Context
+		state  experiment.LifecycleState
+		ledger lifecycle.State
+	}{
+		{name: "canceled", ctx: canceledSequentialReferenceContext(), state: experiment.LifecycleCanceled, ledger: lifecycle.StateCanceled},
+		{name: "timed_out", ctx: expiredSequentialReferenceContext(t), state: experiment.LifecycleTimedOut, ledger: lifecycle.StateTimedOut},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			destination := filepath.Join(t.TempDir(), "interrupted")
+			publication, createErr := createSequentialReferencePublication(destination, manifest, manifestData)
+			if createErr != nil {
+				t.Fatal(createErr)
+			}
+			defer publication.close()
+			store, createErr := CreateSequentialReferenceAttemptStore(filepath.Join(destination, sequentialReferenceLedgerDirectory), manifest)
+			if createErr != nil {
+				t.Fatal(createErr)
+			}
+			partial, runErr := prepared.run(test.ctx, store, publication.writeTrial)
+			if runErr == nil || len(partial.Trials) != 1 || partial.Trials[0].TrialRecord.LifecycleState != test.state ||
+				partial.Trials[0].TrialRecord.Exclusion != experiment.ExclusionLifecycleIncomplete || partial.Trials[0].GradeReceipt != nil {
+				t.Fatalf("partial=%+v err=%v", partial, runErr)
+			}
+			marker, readErr := os.ReadFile(filepath.Join(destination, sequentialReferenceMarkerName))
+			if readErr != nil || string(marker) != manifest.ManifestSHA256+"\n" {
+				t.Fatalf("incomplete marker=%q err=%v", marker, readErr)
+			}
+			inspections, inspectErr := store.InspectAll()
+			if inspectErr != nil || len(inspections) != len(sequentialReferenceAssignments(manifest)) ||
+				inspections[0].Projection.State != test.ledger || !inspections[0].Projection.Terminal ||
+				inspections[1].Projection.State != lifecycle.StatePlanned {
+				t.Fatalf("ledger=%+v err=%v", inspections, inspectErr)
+			}
+			if _, inspectErr := InspectSequentialReferencePublication(destination); inspectErr == nil {
+				t.Fatal("incomplete publication was accepted")
+			}
+			if _, replayErr := RunSequentialReferenceToNewDestination(context.Background(), destination, manifest, bundle); replayErr == nil {
+				t.Fatal("ambiguous destination was replayed")
+			}
+		})
 	}
 }
 
 func TestSequentialReferencePublishedCancellationIsOutcomeUnknownAndNeverReplayed(t *testing.T) {
-	manifest, bundle := sequentialReferenceWaitFixture(t)
+	manifest, bundle := sequentialReferenceFixture(t)
 	destination := filepath.Join(t.TempDir(), "interrupted-publication")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -468,70 +526,105 @@ func TestSequentialReferencePublishedCancellationIsOutcomeUnknownAndNeverReplaye
 	}
 }
 
-func sequentialReferenceWaitFixture(t *testing.T) (experiment.Manifest, SequentialReferenceBundle) {
+func canceledSequentialReferenceContext() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return ctx
+}
+
+func expiredSequentialReferenceContext(t *testing.T) context.Context {
 	t.Helper()
-	manifest, bundle := sequentialReferenceFixture(t)
-	oldTreatment := bundle.Treatments[0]
-	oldPlanSHA, err := executionbackend.PlanSHA256(oldTreatment.Plan)
-	if err != nil {
-		t.Fatal(err)
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	cancel()
+	return ctx
+}
+
+func assertSequentialReferenceLogicalProjectionEqual(t *testing.T, first, second SequentialReferenceResult) {
+	t.Helper()
+	if first.ManifestSHA256 != second.ManifestSHA256 || len(first.Trials) != len(second.Trials) {
+		t.Fatalf("logical result shape drifted: first=%s/%d second=%s/%d", first.ManifestSHA256, len(first.Trials), second.ManifestSHA256, len(second.Trials))
 	}
-	waitPlan := oldTreatment.Plan
-	waitPlan.Program = executionbackend.Program{Kind: executionbackend.ProgramWaitForCancel}
-	waitPlan.Artifacts = []executionbackend.ArtifactDeclaration{}
-	waitPlan.Verifier = executionbackend.Verifier{Kind: executionbackend.VerifierProfileDecision}
-	waitPlan.Resources.MaxArtifacts = 0
-	newPlanSHA, err := executionbackend.PlanSHA256(waitPlan)
-	if err != nil {
-		t.Fatal(err)
+	for index := range first.Trials {
+		left, right := first.Trials[index], second.Trials[index]
+		if left.AttemptPlan.AttemptID == right.AttemptPlan.AttemptID || left.AttemptPlan.LedgerID == right.AttemptPlan.LedgerID ||
+			left.AttemptPlan.PlanSHA256 == right.AttemptPlan.PlanSHA256 || left.TrialRecord.RecordSHA256 == right.TrialRecord.RecordSHA256 {
+			t.Fatalf("trial[%d] reused a physical attempt identity", index)
+		}
+		if left.TrialRecord.TrialID != right.TrialRecord.TrialID || left.TrialRecord.BlockID != right.TrialRecord.BlockID ||
+			left.TrialRecord.TreatmentID != right.TrialRecord.TreatmentID || left.TrialRecord.LifecycleState != right.TrialRecord.LifecycleState ||
+			left.TrialRecord.Eligibility != right.TrialRecord.Eligibility || left.TrialRecord.Exclusion != right.TrialRecord.Exclusion ||
+			!reflect.DeepEqual(left.TrialRecord.Stages, right.TrialRecord.Stages) ||
+			!reflect.DeepEqual(left.TrialRecord.Metrics, right.TrialRecord.Metrics) ||
+			!reflect.DeepEqual(left.AttemptPlan.Binding, right.AttemptPlan.Binding) ||
+			!reflect.DeepEqual(left.ExecutionPlan, right.ExecutionPlan) || !reflect.DeepEqual(left.ExecutionReceipt, right.ExecutionReceipt) ||
+			!reflect.DeepEqual(left.GradingPlan, right.GradingPlan) || !reflect.DeepEqual(left.GradeReceipt, right.GradeReceipt) {
+			t.Fatalf("trial[%d] changed a logical identity or projection", index)
+		}
 	}
+}
+
+func sequentialReferenceRoleDriftFixture(t *testing.T, manifest experiment.Manifest,
+	bundle SequentialReferenceBundle,
+) (experiment.Manifest, SequentialReferenceBundle) {
+	t.Helper()
 	design := manifest.Design
 	design.DesignSHA256 = ""
 	design.Treatments = slices.Clone(design.Treatments)
+	byBinding := make(map[string]SequentialReferenceTreatment, len(bundle.Treatments))
+	for _, treatment := range bundle.Treatments {
+		planSHA, err := executionbackend.PlanSHA256(treatment.Plan)
+		if err != nil {
+			t.Fatal(err)
+		}
+		byBinding[planSHA] = treatment
+	}
 	replaced := false
 	for index := range design.Treatments {
-		if design.Treatments[index].ExecutionBindingSHA256 == oldPlanSHA {
-			design.Treatments[index].ExecutionBindingSHA256 = newPlanSHA
-			replaced = true
+		if design.Treatments[index].Role != experiment.RoleCandidate {
+			continue
 		}
+		oldBinding := design.Treatments[index].ExecutionBindingSHA256
+		candidate, ok := byBinding[oldBinding]
+		if !ok {
+			t.Fatal("candidate execution binding is absent")
+		}
+		delete(byBinding, oldBinding)
+		candidate.Plan.Program.SourceMount = executionbackend.MountFixture
+		candidate.Plan.Program.SourcePath = "case.txt"
+		candidate.Plan.Verifier.ExpectedSHA256 = sequentialReferenceBytesSHA("synthetic public case\n")
+		candidate.Plan.Resources.DeadlineMillis--
+		newBinding, err := executionbackend.PlanSHA256(candidate.Plan)
+		if err != nil {
+			t.Fatal(err)
+		}
+		design.Treatments[index].ExecutionBindingSHA256 = newBinding
+		byBinding[newBinding] = candidate
+		replaced = true
 	}
 	if !replaced {
-		t.Fatal("wait fixture did not find its execution binding")
+		t.Fatal("candidate treatment is absent")
 	}
+	var err error
 	design, err = experiment.SealDesign(design)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("seal role-drift design: %v", err)
 	}
 	manifest, err = experiment.Compile(design, manifest.CapabilityContract, manifest.AnalysisPlan)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("compile role-drift manifest: %v", err)
 	}
-	plans := make(map[string]executionbackend.Plan, len(bundle.Treatments))
-	inputs := make(map[string]ExecutionBackendReferenceInputs, len(bundle.Treatments))
-	for _, treatment := range bundle.Treatments {
-		planSHA, digestErr := executionbackend.PlanSHA256(treatment.Plan)
-		if digestErr != nil {
-			t.Fatal(digestErr)
-		}
-		plans[planSHA] = treatment.Plan
-		inputs[planSHA] = treatment.Inputs
-	}
-	delete(plans, oldPlanSHA)
-	delete(inputs, oldPlanSHA)
-	plans[newPlanSHA] = waitPlan
-	inputs[newPlanSHA] = oldTreatment.Inputs
 	treatments := make([]SequentialReferenceTreatment, len(manifest.Treatments))
 	for index, treatment := range manifest.Treatments {
-		plan, planOK := plans[treatment.ExecutionBindingSHA256]
-		input, inputOK := inputs[treatment.ExecutionBindingSHA256]
-		if !planOK || !inputOK {
-			t.Fatalf("wait fixture lost treatment binding %s", treatment.ExecutionBindingSHA256)
+		input, ok := byBinding[treatment.ExecutionBindingSHA256]
+		if !ok {
+			t.Fatalf("recompiled treatment binding %s is absent", treatment.ExecutionBindingSHA256)
 		}
-		treatments[index] = SequentialReferenceTreatment{TreatmentID: treatment.ID, Plan: plan, Inputs: input}
+		input.TreatmentID = treatment.ID
+		treatments[index] = input
 	}
 	bundle, err = NewSequentialReferenceBundle(manifest, bundle.GradingPlan, treatments)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("build role-drift bundle: %v", err)
 	}
 	return manifest, bundle
 }
@@ -571,6 +664,10 @@ func sequentialReferenceFixture(t *testing.T) (experiment.Manifest, SequentialRe
 	referencePlanSHA, _ := executionbackend.PlanSHA256(referencePlan)
 	candidatePlanSHA, _ := executionbackend.PlanSHA256(candidatePlan)
 	controlPlanSHA, _ := executionbackend.PlanSHA256(controlPlan)
+	sourceSHA, err := sequentialReferenceSourceIdentity(referencePlan)
+	if err != nil {
+		t.Fatal(err)
+	}
 	capability, err := SequentialReferenceExperimentCapabilityContract()
 	if err != nil {
 		t.Fatal(err)
@@ -584,9 +681,9 @@ func sequentialReferenceFixture(t *testing.T) (experiment.Manifest, SequentialRe
 	if err != nil {
 		t.Fatal(err)
 	}
-	caseSHA := rootExperimentDigest("sequential-reference-case")
+	caseSHA := sequentialReferenceBytesSHA("synthetic public case\n")
 	caseBinding := experiment.CaseBinding{
-		SourceKind: experiment.SourceAgentSkills, SourceSHA256: rootExperimentDigest("sequential-reference-agent-skills-source"),
+		SourceKind: experiment.SourceAgentSkills, SourceSHA256: sourceSHA,
 		CaseSHA256: caseSHA, TaskSHA256: taskSHA, FixtureSHA256: fixtureSHA, GradingPlanSHA256: gradingSHA,
 	}
 	reference := experiment.ArmSelector{Condition: experiment.ConditionNone, ActivationChannel: experiment.ChannelImplicit,
@@ -617,7 +714,7 @@ func sequentialReferenceFixture(t *testing.T) (experiment.Manifest, SequentialRe
 				ControlProvenance: experiment.ControlFromSource, ExecutionBindingSHA256: referencePlanSHA},
 			{Arm: candidate, Role: experiment.RoleCandidate, SkillSHA256: skillSHA, DistractorSHA256: []string{}, ControlSHA256: caseSHA,
 				ControlProvenance: experiment.ControlFromSource, ExecutionBindingSHA256: candidatePlanSHA, ExpectedActivation: true},
-			{Arm: control, Role: experiment.RoleControl, DistractorSHA256: []string{}, ControlSHA256: rootExperimentDigest("sequential-reference-negative-control"),
+			{Arm: control, Role: experiment.RoleControl, DistractorSHA256: []string{}, ControlSHA256: sequentialReferenceBytesSHA("separately authored negative control\n"),
 				ControlProvenance: experiment.ControlSeparatelyAuthored, ExecutionBindingSHA256: controlPlanSHA},
 		},
 		Strata:   []experiment.StratumRequest{{BindingSHA256: rootExperimentDigest("sequential-reference-stratum"), Blocks: 6}},
