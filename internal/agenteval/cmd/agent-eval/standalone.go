@@ -214,7 +214,7 @@ func standaloneCommandTree() standaloneCommandDescriptor {
 			{Name: "resume", Summary: "resume only an attempt whose durable evidence permits it", Usage: "agent-eval resume [options]", Options: common},
 			{Name: "reconcile", Summary: "append evidence without replaying an ambiguous identity", Usage: "agent-eval reconcile [options]", Options: common},
 			{Name: "grade", Summary: "grade an observation with a deterministic evaluator", Usage: "agent-eval grade --mode deterministic --scenario FILE --observation FILE [options]", ReservedModes: reservedGradeModes, Examples: []string{"agent-eval grade --mode deterministic --scenario scenario.json --observation observation.json"}, Options: append([]standaloneOptionDescriptor{{Name: "--mode", Value: strings.Join(gradeModes, "|"), Description: "supported grading authority"}, {Name: "--scenario", Value: "FILE", Description: "scenario contract"}, {Name: "--observation", Value: "FILE", Description: "observation contract"}}, common...)},
-			{Name: "compare", Summary: "compare or aggregate content-minimized result artifacts", Usage: "agent-eval compare --kind results|root [options]", Options: append([]standaloneOptionDescriptor{{Name: "--kind", Value: "results|root|pair|set", Description: "comparison contract"}, {Name: "--input", Value: "FILE", Description: "result input; repeat for additional inputs"}, {Name: "--root", Value: "DIR", Description: "marked synthetic result root"}}, common...)},
+			{Name: "compare", Summary: "compare or aggregate content-minimized result artifacts", Usage: "agent-eval compare --kind results|root [options]", Options: append([]standaloneOptionDescriptor{{Name: "--kind", Value: "results|root", Description: "supported comparison contract"}, {Name: "--input", Value: "FILE", Description: "result input; repeat for additional inputs"}, {Name: "--root", Value: "DIR", Description: "marked synthetic result root"}}, common...)},
 			{Name: "report", Summary: "render a read-only standalone report", Usage: "agent-eval report --format FORMAT [options]", Options: common},
 			{Name: "inspect", Summary: "inspect configuration provenance or a benchmark corpus", Usage: "agent-eval inspect --kind configuration|corpus [options]", Examples: []string{"agent-eval inspect --kind configuration --project . --explain"}, Options: append([]standaloneOptionDescriptor{{Name: "--kind", Value: "configuration|corpus|artifact", Description: "inspection target"}, {Name: "--root", Value: "DIR", Description: "corpus root"}}, common...)},
 			{Name: "schema", Summary: "inspect standalone artifact schema support", Usage: "agent-eval schema <command>", Children: []standaloneCommandDescriptor{
@@ -416,7 +416,7 @@ func writeStandaloneHelp(writer io.Writer, path []string) bool {
 		fmt.Fprintln(writer, "Commands:")
 		for _, child := range descriptor.Children {
 			status := ""
-			if len(child.Children) == 0 && !child.Available {
+			if !standaloneDescriptorCompletable(child) {
 				status = " (reserved)"
 			}
 			fmt.Fprintf(writer, "  %-14s %s%s\n", child.Name, child.Summary, status)

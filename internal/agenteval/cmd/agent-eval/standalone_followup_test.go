@@ -105,6 +105,9 @@ func TestStandaloneProcessAPIAuthorityRatchet(t *testing.T) {
 	}
 	for _, profile := range standaloneAuthorityProfiles() {
 		if profile.Command == "" {
+			if available, processAPI, registered := standaloneCommandRegistryState(profile.Command); available || processAPI || registered {
+				t.Fatalf("commandless registry row acquired command state: %+v", profile)
+			}
 			continue
 		}
 		descriptor, found := descriptors[profile.Command]
@@ -129,6 +132,31 @@ func TestStandaloneProcessAPIAuthorityRatchet(t *testing.T) {
 	if !writeStandaloneHelp(&reservedHelp, []string{"compat", "verify"}) ||
 		!strings.Contains(reservedHelp.String(), "Status:\n  reserved (unavailable)") {
 		t.Fatalf("reserved command help did not label its status:\n%s", reservedHelp.String())
+	}
+	var rootHelp bytes.Buffer
+	if !writeStandaloneHelp(&rootHelp, nil) || strings.Contains(rootHelp.String(), "Status:") ||
+		!strings.Contains(rootHelp.String(), "compat         verify provider-free component compatibility (reserved)") {
+		t.Fatalf("root help operation status/classification drift:\n%s", rootHelp.String())
+	}
+	var compareHelp bytes.Buffer
+	if !writeStandaloneHelp(&compareHelp, []string{"compare"}) ||
+		!strings.Contains(compareHelp.String(), "--kind results|root") ||
+		strings.Contains(compareHelp.String(), "results|root|pair|set") {
+		t.Fatalf("compare help advertised an unavailable kind:\n%s", compareHelp.String())
+	}
+
+	rootChildren := standaloneCompletionNodes()[0].children
+	wantRootChildren := []string{
+		"capabilities", "version", "import", "export", "validate", "grade", "compare", "inspect",
+		"schema", "migrate", "completion", "process", "help",
+	}
+	if strings.Join(rootChildren, "\x00") != strings.Join(wantRootChildren, "\x00") {
+		t.Fatalf("root completion children=%v, want %v", rootChildren, wantRootChildren)
+	}
+	for _, node := range standaloneCompletionNodes() {
+		if strings.Join(node.path, " ") == "compat" && len(node.children) != 0 {
+			t.Fatalf("reserved compat completion exposed children: %+v", node)
+		}
 	}
 
 	_, currentFile, _, ok := runtime.Caller(0)
