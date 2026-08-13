@@ -49,7 +49,7 @@
   "files": [
     {
       "path": "atl/SKILL.md",
-      "sha256": "3dc825749ed4132f5557e0ab6da37a4fb38a550364c65a2e49fcefb95a551558"
+      "sha256": "be851d36493be015061648b6ebc20318300547b7323107d43ec9de77cfec58e9"
     },
     {
       "path": "atl/agents/openai.yaml",
@@ -77,11 +77,11 @@
     },
     {
       "path": "atl/reference/mcp.md",
-      "sha256": "75c1dfd16db5c6a9feafd84ed6c5a117f32aa9e32080b90b2666a4e3a28763f7"
+      "sha256": "a27b250fa8cc902dc2b170d5be13b6a092fe39102eb60796d777b2ee3482cb03"
     },
     {
       "path": "atl/reference/mental-model.md",
-      "sha256": "a531e1bf922e15b1b170438f8730d72b31233c387cc5ef1c656579a2b92b5cde"
+      "sha256": "2029596c5f37e17114c25a8330a470860d6bcfc169e4341240e152d12b7ac642"
     },
     {
       "path": "atl/reference/workflow.md",
@@ -89,7 +89,7 @@
     },
     {
       "path": "confluence/SKILL.md",
-      "sha256": "75551a2edd86a5f8d47ac97f8887f10fd33b5edf7b9583bdc188feef1e42d257"
+      "sha256": "7e904afb7b7a8e70620e2b3f401ce5436985ee09639c38f580cc3687afbe4649"
     },
     {
       "path": "confluence/agents/openai.yaml",
@@ -97,7 +97,7 @@
     },
     {
       "path": "confluence/reference/commands.md",
-      "sha256": "c018c29b3037c1562b9128fc9af9ce92217cf04579b33ab9a81a9c07cc7c3476"
+      "sha256": "af5371dab67eaa13a8692e67b48a88339dc6bd8fb41a7a6661c298a9df11d403"
     },
     {
       "path": "confluence/reference/csf-authoring.md",
@@ -125,11 +125,11 @@
     },
     {
       "path": "confluence/reference/sync.md",
-      "sha256": "eb07b97bee9cd3e083b5f171aa89fa934079897f2033a82fd0e5e264066377a1"
+      "sha256": "5e92ed11001afe632a1f5083ace1fe27544717d5c6d870dd1aa9323cff9485b8"
     },
     {
       "path": "confluence/reference/tables-attachments.md",
-      "sha256": "bdd46a830c3f9235e9fc82fa706abc9c6bd95acf7a725240fe09ed1d715188af"
+      "sha256": "f0025d5d5024302523528e166ccda56207672849afa36fef17fce1c2079e373a"
     },
     {
       "path": "jira/SKILL.md",
