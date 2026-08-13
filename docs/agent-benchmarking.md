@@ -347,7 +347,10 @@ control roles are cross-bound to their fixture, skill, and separately authored
 control bytes before the destination is created; only bounded
 `reference_copy` plans are admitted. It retains canonical
 observation, execution, grading, lifecycle, and trial-record artifacts under a
-new-destination completion marker; any returned post-creation ambiguity retains
+new-destination completion marker. Completed inspection uses an existing
+read-only ledger lock and requires the exact physical roster with no temporary
+member or crash-tail ordinal; generic recovery tolerance is not accepted by
+analysis. Any returned post-creation ambiguity retains
 that marker and is no-replay `outcome_unknown`. Removing the marker is the final
 fallible process-visible commit step, so a crash may conservatively leave an
 otherwise complete destination marked incomplete. Every new destination gets
@@ -362,6 +365,39 @@ contracts or paths. The neutral compiler leaf itself remains execution-free,
 and the exact reference composition performs no paired inference, multiplicity
 adjustment, effect calculation, reporting, holdout, tuning, or promotion that
 later consumers own.
+
+The separate provider-free comparison consumer now owns that first bounded
+analysis step. `agent-eval compare --kind experiment --root <completed-root>`
+reuses the strict completed-publication reader, analyzes only its canonical
+manifest and trial-record multiset, and emits a content-minimized
+`agent-eval/analysis-report@1`. Binary dimensions use the exact two-sided
+binomial McNemar form and retain both opaque-pair-bound Boolean observations so
+their cells and deterministic intervals are replayable; count metrics retain exact opaque-pair-bound signed
+deltas, derive mean/median and
+`(candidate_higher-reference_higher)/complete_pairs`, and use the exact sign
+test; preregistered confirmatory families use Holm step-down adjustment over
+the fixed planned family, treating unavailable/descriptive slots as probability
+one rather than shrinking multiplicity after observing missingness.
+Bootstrap intervals, missing/duplicate/excluded pair coverage, activation and
+funnel summaries, Pareto axes, and fixed-roster pass@k/pass-power-k projections
+are deterministic, manifest-bound, and kept separate per declared
+randomization stratum. Fixed-roster pass estimates are absent unless the exact
+declared roster is complete; a repeated-attempt policy of `none` emits no pass
+rows, while `all` requires an outcome metric. Exact per-trial multiplicity and
+record-level exclusion projections bind pair coverage. Clean singletons also
+retain closed stage presence/Boolean values and metric presence/binary values,
+so shared-endpoint reasons and labeled activation, funnel-transition, and
+fixed-roster pass summaries are recomputed exactly; count-metric values and
+source bodies remain omitted. Activation totals reconcile with load-stage
+funnels. Before reading trial records, the comparison consumer also rejects a
+preregistered `k` or non-compatibility inference minimum that fits only the
+aggregate design and not every stratum's per-treatment roster; it never pools
+strata to make such a threshold fit. Zero-pair and below-minimum results stay
+insufficient or descriptive. The report reader requires its exact manifest
+support and rechecks every retained plan-vocabulary binding; its digest is not
+publisher authentication. This consumer does not execute, discover data,
+select a holdout, tune, promote, or convert a statistical result into an
+automatic product decision.
 
 `agent-eval-compat` is the small uncached product/evaluator boundary: it builds
 the current `atl`, requires its complete offline schema-v1 capability catalog

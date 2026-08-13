@@ -81,7 +81,7 @@ func TestStandaloneVersionAndCapabilitiesAreStableAndConfigurationFree(t *testin
 		t.Fatal(err)
 	}
 	if version.Schema != standaloneResultSchema || version.SchemaVersion != 1 || version.ContractVersion != standaloneContractVersion ||
-		version.Command != "version" || version.Status != "completed" || len(version.Result.Schemas) != 10 || len(version.Result.Protocols) != 2 {
+		version.Command != "version" || version.Status != "completed" || len(version.Result.Schemas) != 11 || len(version.Result.Protocols) != 2 {
 		t.Fatalf("version envelope=%+v", version)
 	}
 
@@ -601,6 +601,26 @@ func TestStandaloneProcessIsOneRequestStrictBoundedAndVersioned(t *testing.T) {
 	buffer := &standaloneBoundedBuffer{maximum: 4}
 	if written, err := buffer.Write([]byte("12345")); err == nil || written != 4 || !buffer.overflow || buffer.Len() != 4 {
 		t.Fatalf("bounded write: written=%d err=%v overflow=%t len=%d", written, err, buffer.overflow, buffer.Len())
+	}
+
+	valid.DeadlineMilliseconds = 1000
+	data, err = json.Marshal(valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var oversizedStdout, oversizedStderr bytes.Buffer
+	failure = runStandaloneProcessWithExecutor(strings.NewReader(string(data)), &oversizedStdout, &oversizedStderr, nil,
+		func(context.Context, []string) (standaloneOutcome, *standaloneFailure) {
+			return standaloneOutcome{command: "compare", status: "completed", result: map[string]string{
+				"content_minimized_analysis_report": strings.Repeat("x", standaloneProcessMaxResponseBytes),
+			}}, nil
+		})
+	if failure == nil || failure.class != standaloneInternalError || failure.kind != "process_response_too_large" || oversizedStderr.Len() != 0 {
+		t.Fatalf("oversized response failure=%+v stdout=%q stderr=%q", failure, oversizedStdout.String(), oversizedStderr.String())
+	}
+	assertStandaloneError(t, oversizedStdout.String(), standaloneInternalError.id, "process_response_too_large", false)
+	if strings.Contains(oversizedStdout.String(), strings.Repeat("x", 32)) {
+		t.Fatal("ProcessAPI leaked a partial oversized analysis response")
 	}
 }
 

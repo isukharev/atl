@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -508,4 +509,84 @@ func replaceStandaloneArgument(arguments []string, oldValue, newValue string) []
 		}
 	}
 	panic(fmt.Sprintf("standalone test argument %q missing", oldValue))
+}
+
+func TestStandaloneExperimentComparisonConsumesCompletedReferencePublication(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the durable attempt ledger is not yet available on Windows")
+	}
+	manifestPath, bundlePath := standaloneSequentialReferenceFixturePaths(t)
+	destination := filepath.Join(t.TempDir(), "analysis-output")
+	requireStandaloneWholeProcessJSONSuccess(t, []string{
+		"run", "--mode", "reference", "--manifest", manifestPath,
+		"--bundle", bundlePath, "--destination", destination,
+	}, "", "run")
+	if _, err := agenteval.AnalyzeSequentialReferencePublication(destination); err != nil {
+		code, _ := agenteval.AnalysisErrorCodeOf(err)
+		t.Fatalf("root analysis code=%s err=%v", code, err)
+	}
+	arguments := []string{"compare", "--kind", "experiment", "--root", destination}
+	direct := requireStandaloneWholeProcessJSONSuccess(t, arguments, "", "compare")
+	var directReport agenteval.AnalysisReport
+	decodeStandaloneWholeProcessResult(t, direct.Result, &directReport)
+	if directReport.Schema != agenteval.AnalysisReportSchema || directReport.Coverage.ExpectedRecords != 18 ||
+		directReport.Coverage.CompletePairs != 6 || directReport.Coverage.ExcludedPairs != 0 {
+		t.Fatalf("analysis report=%+v", directReport)
+	}
+	request := standaloneProcessRequest{
+		Schema: "agent-eval/process-request", SchemaVersion: 1, ContractVersion: standaloneContractVersion,
+		Command: "compare", Mode: "execute", DeadlineMilliseconds: 15_000,
+		Configuration: standaloneProcessConfiguration{Source: "none", Environment: "none"},
+		Arguments:     standaloneProcessArguments{"--kind", "experiment", "--root", destination},
+	}
+	data, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	processed := requireStandaloneWholeProcessJSONSuccess(t, []string{"process"}, string(data), "compare")
+	var processReport agenteval.AnalysisReport
+	decodeStandaloneWholeProcessResult(t, processed.Result, &processReport)
+	if !reflect.DeepEqual(directReport, processReport) {
+		t.Fatal("ProcessAPI analysis drifted from direct CLI analysis")
+	}
+	assertStandaloneContentMinimized(t, string(direct.Result), manifestPath, bundlePath, destination,
+		"synthetic public case", "Synthetic public skill", "SKILL.md", "case.txt", "control.txt")
+	if err := os.WriteFile(filepath.Join(destination, ".sequential-reference-incomplete"), []byte("incomplete\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runStandaloneCoordinatorProcess(t, arguments)
+	if code != standaloneInputError.code || stdout != "" {
+		t.Fatalf("incomplete publication: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	assertStandaloneError(t, stderr, standaloneInputError.id, "invalid_experiment_publication", false)
+	assertStandaloneContentMinimized(t, stderr, destination)
+}
+
+func TestStandaloneExperimentComparisonPreservesAnalysisInterruption(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := agenteval.AnalyzeSequentialReferencePublicationContext(ctx, filepath.Join(t.TempDir(), "must-not-be-read"))
+	failure := standaloneAnalysisFailure(err)
+	if failure == nil || failure.class != standaloneInterruptedError || failure.kind != "analysis_interrupted" || !failure.retrySafe {
+		t.Fatalf("failure=%+v err=%v", failure, err)
+	}
+}
+
+func TestStandaloneExperimentComparisonDoesNotMisclassifyInternalReportDrift(t *testing.T) {
+	manifestData, err := os.ReadFile(filepath.Join("..", "..", "testdata", "standalone-readability", "experiment-manifest-v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := agenteval.DecodeExperimentManifest(strings.NewReader(string(manifestData)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = agenteval.DecodeAnalysisReport(strings.NewReader("{}\n"), manifest)
+	if code, ok := agenteval.AnalysisErrorCodeOf(err); !ok || code != agenteval.AnalysisErrorInvalidReport {
+		t.Fatalf("setup err=%v code=%s", err, code)
+	}
+	failure := standaloneAnalysisFailure(err)
+	if failure == nil || failure.class != standaloneInternalError || failure.kind != "analysis_internal" || failure.retrySafe {
+		t.Fatalf("failure=%+v", failure)
+	}
 }

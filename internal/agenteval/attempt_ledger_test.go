@@ -2,6 +2,7 @@ package agenteval
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -235,6 +236,51 @@ func TestAttemptLedgerInterruptedWritesRemainRecoverable(t *testing.T) {
 	if err != nil || inspection.Projection.State != lifecycle.StateCommitted {
 		t.Fatalf("written event was not recoverable: %+v %v", inspection, err)
 	}
+}
+
+func TestAttemptLedgerRejectsAndCancelsBoundedCrashTailFallback(t *testing.T) {
+	store := newAttemptLedgerForTest(t)
+	attemptRoot := store.attemptRoot(1)
+	if err := os.Mkdir(attemptRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(attemptRoot, attemptLedgerEvents), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"unexpected-a", "unexpected-b", "unexpected-c"} {
+		if err := os.WriteFile(filepath.Join(attemptRoot, name), []byte("unexpected"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if inspections, err := store.InspectAll(); err == nil || len(inspections) != 1 || !errors.Is(err, ErrAttemptLedgerIncomplete) {
+		t.Fatalf("overflowed crash tail inspections=%+v err=%v", inspections, err)
+	}
+	ctx := &attemptLedgerCancelContext{remaining: 10, done: make(chan struct{})}
+	if inspections, err := store.InspectAllContext(ctx); !errors.Is(err, context.Canceled) || len(inspections) != 0 || !ctx.canceled {
+		t.Fatalf("crash-tail cancellation inspections=%+v err=%v canceled=%t remaining=%d", inspections, err, ctx.canceled, ctx.remaining)
+	}
+}
+
+type attemptLedgerCancelContext struct {
+	remaining int
+	done      chan struct{}
+	canceled  bool
+}
+
+func (ctx *attemptLedgerCancelContext) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (ctx *attemptLedgerCancelContext) Done() <-chan struct{}       { return ctx.done }
+func (ctx *attemptLedgerCancelContext) Value(any) any               { return nil }
+func (ctx *attemptLedgerCancelContext) Err() error {
+	if ctx.canceled {
+		return context.Canceled
+	}
+	ctx.remaining--
+	if ctx.remaining <= 0 {
+		ctx.canceled = true
+		close(ctx.done)
+		return context.Canceled
+	}
+	return nil
 }
 
 func TestAttemptLedgerEnsureRosterCompletesOnlyExactPlannedPrefix(t *testing.T) {

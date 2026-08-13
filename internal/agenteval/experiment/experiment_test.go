@@ -593,6 +593,14 @@ func TestExperimentCodecsAreClosedCanonicalAndFutureRejecting(t *testing.T) {
 	analysisBytes, _ := EncodeAnalysisPlan(analysis)
 	manifestBytes, _ := EncodeManifest(manifest)
 	recordBytes, _ := EncodeTrialRecord(manifest, record)
+	validator, err := NewTrialRecordValidator(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validatedRecord, err := validator.Decode(bytes.NewReader(recordBytes))
+	if err != nil || !reflect.DeepEqual(validatedRecord, record) {
+		t.Fatalf("prevalidated trial decode err=%v equal=%t", err, reflect.DeepEqual(validatedRecord, record))
+	}
 	roundTrips := []struct {
 		name string
 		data []byte

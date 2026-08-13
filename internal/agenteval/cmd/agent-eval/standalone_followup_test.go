@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"sort"
 	"strings"
@@ -140,8 +141,8 @@ func TestStandaloneProcessAPIAuthorityRatchet(t *testing.T) {
 	}
 	var compareHelp bytes.Buffer
 	if !writeStandaloneHelp(&compareHelp, []string{"compare"}) ||
-		!strings.Contains(compareHelp.String(), "--kind results|root") ||
-		strings.Contains(compareHelp.String(), "results|root|pair|set") {
+		!strings.Contains(compareHelp.String(), "--kind experiment|results|root") ||
+		strings.Contains(compareHelp.String(), "experiment|results|root|pair|set") {
 		t.Fatalf("compare help advertised an unavailable kind:\n%s", compareHelp.String())
 	}
 
@@ -153,10 +154,20 @@ func TestStandaloneProcessAPIAuthorityRatchet(t *testing.T) {
 	if strings.Join(rootChildren, "\x00") != strings.Join(wantRootChildren, "\x00") {
 		t.Fatalf("root completion children=%v, want %v", rootChildren, wantRootChildren)
 	}
+	compareKindsFound := false
 	for _, node := range standaloneCompletionNodes() {
+		if strings.Join(node.path, " ") == "compare --kind" {
+			compareKindsFound = true
+			if !reflect.DeepEqual(node.children, []string{"experiment", "results", "root"}) {
+				t.Fatalf("compare kind completion=%v", node.children)
+			}
+		}
 		if strings.Join(node.path, " ") == "compat" && len(node.children) != 0 {
 			t.Fatalf("reserved compat completion exposed children: %+v", node)
 		}
+	}
+	if !compareKindsFound {
+		t.Fatal("compare kind completion is missing")
 	}
 
 	_, currentFile, _, ok := runtime.Caller(0)

@@ -15,6 +15,11 @@ var (
 	standaloneApplyMigration   = agenteval.ApplyStandaloneSchemaMigration
 )
 
+type standaloneSupportedVersion struct {
+	ID      string `json:"id"`
+	Version int    `json:"version"`
+}
+
 func standaloneExecuteSchemaInspect(ctx context.Context, args []string) (standaloneOutcome, *standaloneFailure) {
 	parsed, failure := parseStandaloneFlags(args, map[string]standaloneFlagSpec{
 		"namespace": {takesValue: true}, "kind": {takesValue: true}, "output": {takesValue: true},

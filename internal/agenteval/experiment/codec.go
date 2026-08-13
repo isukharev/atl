@@ -98,12 +98,23 @@ func EncodeTrialRecord(manifest Manifest, record TrialRecord) ([]byte, error) {
 }
 
 func DecodeTrialRecord(reader io.Reader, manifest Manifest) (TrialRecord, error) {
+	validator, err := NewTrialRecordValidator(manifest)
+	if err != nil {
+		return TrialRecord{}, err
+	}
+	return validator.Decode(reader)
+}
+
+// Decode reads one canonical trial record against an already-authenticated
+// manifest. Reusing the validator keeps batch consumers from re-deriving the
+// manifest registry for every member.
+func (validator *TrialRecordValidator) Decode(reader io.Reader) (TrialRecord, error) {
 	var record TrialRecord
 	data, err := readCanonical(reader, MaxTrialBytes, ErrorInvalidTrial)
-	if err != nil || decodeClosed(data, &record) != nil || ValidateTrialRecord(manifest, record) != nil {
+	if err != nil || decodeClosed(data, &record) != nil || validator.Validate(record) != nil {
 		return TrialRecord{}, contractError(ErrorInvalidTrial, err)
 	}
-	canonical, err := EncodeTrialRecord(manifest, record)
+	canonical, err := encodeCanonical(record, MaxTrialBytes, ErrorInvalidTrial)
 	if err != nil || !bytes.Equal(data, canonical) {
 		return TrialRecord{}, contractError(ErrorInvalidTrial, err)
 	}

@@ -226,19 +226,21 @@ The evaluator module's production and test imports are recursively reviewed in
 compatibility facade, neutral `core`, process `extension`, built-in
 `profile/atl`, neutral semantic `agentadapter`, neutral execution policy and
 reference leaf `executionbackend`, neutral causal-design leaf `experiment`,
-neutral append-only `lifecycle`, neutral grading contract and evaluator `grading`, format-specific
-`interchange/agentskills`, schema metadata leaf
-`schemaregistry`, and `cmd/agent-eval`. Their machine-enforced direction keeps
-`core`, `extension`, `agentadapter`, `executionbackend`, `experiment`, and
-`lifecycle` as leaves, keeps `schemaregistry` dependency-free, permits `grading` to import
-only `core` and `executionbackend`, permits `profile/atl` to import `core` and
-`grading`, and permits `interchange/agentskills` to import only `core`,
-permits the root facade to compose those owners, and permits the command to
-import only the exact root facade. The ledger records every
+neutral analysis leaf `analysis`, neutral append-only `lifecycle`, neutral
+grading contract and evaluator `grading`, format-specific
+`interchange/agentskills`, schema metadata leaf `schemaregistry`, and
+`cmd/agent-eval`. Their machine-enforced direction keeps `core`, `extension`,
+`agentadapter`, `executionbackend`, `experiment`, and `lifecycle` as leaves,
+keeps `schemaregistry` dependency-free, permits `analysis` to import only
+`experiment`, permits `grading` to import only `core` and `executionbackend`,
+permits `profile/atl` to import `core` and `grading`, permits
+`interchange/agentskills` to import only `core`, permits the root facade to
+compose those owners including `analysis`, and permits the command to import
+only the exact root facade. The ledger records every
 module-self file, lane, target, and alias, rejects dot or blank self imports,
 and retains zero product-private imports. `TestNeutralCoreVocabularyContract`
-separately keeps exported core declarations and JSON tags free of product,
-transport-route, and dynamic
+separately keeps exported declarations and JSON tags in the reusable neutral
+packages, including `analysis`, free of product, transport-route, and dynamic
 registration vocabulary. Any package, edge, alias, or lane change requires
 deliberate review, and evaluator paths select the package-boundary gate through
 the maintainer impact map. `make agent-eval-compat` keeps the evaluator

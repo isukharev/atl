@@ -1,6 +1,7 @@
 package agenteval
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -111,22 +112,65 @@ func CreateAttemptLedgerStore(root string, random io.Reader) (*AttemptLedgerStor
 }
 
 func OpenAttemptLedgerStore(root string) (*AttemptLedgerStore, error) {
+	return OpenAttemptLedgerStoreContext(context.Background(), root)
+}
+
+func OpenAttemptLedgerStoreContext(ctx context.Context, root string) (*AttemptLedgerStore, error) {
+	if err := attemptLedgerContextError(ctx); err != nil {
+		return nil, err
+	}
 	absRoot, err := filepath.Abs(root)
 	if err != nil || absRoot != filepath.Clean(root) || runtime.GOOS == "windows" {
 		return nil, attemptLedgerError("open", ErrAttemptLedgerUnsupported, err)
 	}
-	return openAttemptLedgerStoreUnlocked(absRoot)
+	return openAttemptLedgerStoreUnlockedContext(ctx, absRoot)
 }
 
-func openAttemptLedgerStoreUnlocked(absRoot string) (*AttemptLedgerStore, error) {
-	if err := requirePrivateDirectory("attempt ledger", absRoot); err != nil {
-		return nil, attemptLedgerError("root", err)
+// OpenAttemptLedgerStoreStrictContext opens a completed-publication ledger
+// without creating or tolerating recovery-only temporary members. The caller
+// must subsequently use InspectAllStrictContext while holding no write
+// authority over the source tree.
+func OpenAttemptLedgerStoreStrictContext(ctx context.Context, root string) (*AttemptLedgerStore, error) {
+	if err := attemptLedgerContextError(ctx); err != nil {
+		return nil, err
 	}
-	header, err := readAttemptLedgerHeader(absRoot)
+	absRoot, err := filepath.Abs(root)
+	if err != nil || absRoot != filepath.Clean(root) || runtime.GOOS == "windows" {
+		return nil, attemptLedgerError("strict_open", ErrAttemptLedgerUnsupported, err)
+	}
+	if err := requirePrivateDirectory("attempt ledger", absRoot); err != nil {
+		return nil, attemptLedgerError("strict_root", err)
+	}
+	top, err := hardenedReadDirWithinLimitContext(ctx, absRoot, absRoot, 3)
+	if err != nil || !attemptLedgerEntryNamesEqual(top, []string{attemptLedgerLockName, attemptLedgerAttempts, attemptLedgerHeaderName}) {
+		return nil, attemptLedgerError("strict_top_level", err)
+	}
+	header, err := readAttemptLedgerHeaderContext(ctx, absRoot)
 	if err != nil {
 		return nil, err
 	}
-	if err := validateAttemptLedgerTopLevel(absRoot); err != nil {
+	return &AttemptLedgerStore{root: absRoot, header: header}, nil
+}
+
+func openAttemptLedgerStoreUnlocked(absRoot string) (*AttemptLedgerStore, error) {
+	return openAttemptLedgerStoreUnlockedContext(context.Background(), absRoot)
+}
+
+func openAttemptLedgerStoreUnlockedContext(ctx context.Context, absRoot string) (*AttemptLedgerStore, error) {
+	if err := attemptLedgerContextError(ctx); err != nil {
+		return nil, err
+	}
+	if err := requirePrivateDirectory("attempt ledger", absRoot); err != nil {
+		return nil, attemptLedgerError("root", err)
+	}
+	if err := attemptLedgerContextError(ctx); err != nil {
+		return nil, err
+	}
+	header, err := readAttemptLedgerHeaderContext(ctx, absRoot)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateAttemptLedgerTopLevelContext(ctx, absRoot); err != nil {
 		return nil, err
 	}
 	return &AttemptLedgerStore{root: absRoot, header: header}, nil
@@ -398,12 +442,22 @@ func (store *AttemptLedgerStore) Inspect(attemptID string) (AttemptLedgerInspect
 }
 
 func (store *AttemptLedgerStore) InspectAll() ([]AttemptLedgerInspection, error) {
+	return store.InspectAllContext(context.Background())
+}
+
+func (store *AttemptLedgerStore) InspectAllContext(ctx context.Context) ([]AttemptLedgerInspection, error) {
+	if err := attemptLedgerContextError(ctx); err != nil {
+		return nil, err
+	}
 	lock, err := store.lock()
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = lock.Unlock() }()
-	return store.readAllLocked()
+	if err := attemptLedgerContextError(ctx); err != nil {
+		return nil, err
+	}
+	return store.readAllLockedContext(ctx)
 }
 
 func (store *AttemptLedgerStore) lock() (*hardenedFileLock, error) {
@@ -417,8 +471,104 @@ func (store *AttemptLedgerStore) lock() (*hardenedFileLock, error) {
 	return lock, nil
 }
 
+func (store *AttemptLedgerStore) readOnlyLock() (*hardenedFileLock, error) {
+	lock, acquired, err := hardenedTryReadOnlyLockFileWithin(store.root, filepath.Join(store.root, attemptLedgerLockName))
+	if err != nil {
+		return nil, attemptLedgerError("read_lock", err)
+	}
+	if !acquired {
+		return nil, ErrAttemptLedgerBusy
+	}
+	return lock, nil
+}
+
+// InspectAllStrictContext is the read-only completed-publication contour. In
+// contrast with recovery inspection it requires the physical ledger tree to
+// contain exactly expectedAttempts committed entries: no ignored temporary,
+// crash-tail, or uncommitted ordinal is accepted. The exact expected roster is
+// also the directory-read bound, so an oversized physical tree is rejected
+// before any unexpected attempt is decoded.
+func (store *AttemptLedgerStore) InspectAllStrictContext(ctx context.Context, expectedAttempts int) ([]AttemptLedgerInspection, error) {
+	if err := attemptLedgerContextError(ctx); err != nil {
+		return nil, err
+	}
+	if expectedAttempts <= 0 || expectedAttempts > lifecycle.MaxAttempts {
+		return nil, attemptLedgerError("strict_expected_attempts")
+	}
+	lock, err := store.readOnlyLock()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = lock.Unlock() }()
+	return store.readAllStrictLockedContext(ctx, expectedAttempts)
+}
+
+func (store *AttemptLedgerStore) readAllStrictLockedContext(ctx context.Context, expectedAttempts int) ([]AttemptLedgerInspection, error) {
+	top, err := hardenedReadDirWithinLimitContext(ctx, store.root, store.root, 3)
+	if err != nil || !attemptLedgerEntryNamesEqual(top, []string{attemptLedgerLockName, attemptLedgerAttempts, attemptLedgerHeaderName}) {
+		return nil, attemptLedgerError("strict_top_level", err)
+	}
+	attemptsRoot := filepath.Join(store.root, attemptLedgerAttempts)
+	entries, err := hardenedReadDirWithinLimitContext(ctx, store.root, attemptsRoot, expectedAttempts)
+	if err != nil || len(entries) != expectedAttempts {
+		return nil, attemptLedgerError("strict_attempts", err)
+	}
+	result := make([]AttemptLedgerInspection, 0, len(entries))
+	for index, entry := range entries {
+		if err := attemptLedgerContextError(ctx); err != nil {
+			return result, err
+		}
+		ordinal := uint32(index + 1)
+		info, infoErr := entry.Info()
+		if infoErr != nil || entry.Name() != attemptLedgerOrdinalName(ordinal) || !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 ||
+			!privateWorkspaceDirectoryMode(info.Mode()) {
+			return result, attemptLedgerError("strict_attempt_order", ErrAttemptLedgerIncomplete)
+		}
+		attemptRoot := store.attemptRoot(ordinal)
+		attemptEntries, readErr := hardenedReadDirWithinLimitContext(ctx, store.root, attemptRoot, 2)
+		if readErr != nil || !attemptLedgerEntryNamesEqual(attemptEntries, []string{attemptLedgerEvents, attemptLedgerPlanName}) {
+			return result, attemptLedgerError("strict_attempt_shape", readErr)
+		}
+		inspection, inspectErr := store.inspectOrdinalLockedContext(ctx, ordinal)
+		if inspectErr != nil || !inspection.Complete {
+			return append(result, inspection), attemptLedgerError("strict_attempt_incomplete", inspectErr)
+		}
+		eventsRoot := filepath.Join(attemptRoot, attemptLedgerEvents)
+		events, readErr := hardenedReadDirWithinLimitContext(ctx, store.root, eventsRoot, lifecycle.MaxEvents)
+		if readErr != nil || len(events) != len(inspection.Events) {
+			return append(result, inspection), attemptLedgerError("strict_events", readErr)
+		}
+		for eventIndex, event := range events {
+			if event.Name() != attemptLedgerEventName(uint32(eventIndex+1)) || event.IsDir() || event.Type()&os.ModeSymlink != 0 {
+				return append(result, inspection), attemptLedgerError("strict_event_order", ErrAttemptLedgerIncomplete)
+			}
+		}
+		result = append(result, inspection)
+	}
+	return result, nil
+}
+
+func attemptLedgerEntryNamesEqual(entries []os.DirEntry, want []string) bool {
+	if len(entries) != len(want) {
+		return false
+	}
+	for index := range want {
+		if entries[index].Name() != want[index] || entries[index].Type()&os.ModeSymlink != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func (store *AttemptLedgerStore) readAllLocked() ([]AttemptLedgerInspection, error) {
-	entries, err := hardenedReadDirWithin(store.root, filepath.Join(store.root, attemptLedgerAttempts))
+	return store.readAllLockedContext(context.Background())
+}
+
+func (store *AttemptLedgerStore) readAllLockedContext(ctx context.Context) ([]AttemptLedgerInspection, error) {
+	if err := attemptLedgerContextError(ctx); err != nil {
+		return nil, err
+	}
+	entries, err := hardenedReadDirWithinLimitContext(ctx, store.root, filepath.Join(store.root, attemptLedgerAttempts), lifecycle.MaxAttempts+1)
 	if err != nil {
 		return nil, attemptLedgerError("attempts_read", err)
 	}
@@ -431,16 +581,28 @@ func (store *AttemptLedgerStore) readAllLocked() ([]AttemptLedgerInspection, err
 	}
 	result := make([]AttemptLedgerInspection, 0, len(entries))
 	for index, entry := range entries {
+		if err := attemptLedgerContextError(ctx); err != nil {
+			return result, err
+		}
 		ordinal := uint32(index + 1)
 		info, infoErr := entry.Info()
 		if infoErr != nil || entry.Name() != attemptLedgerOrdinalName(ordinal) || !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 ||
 			!privateWorkspaceDirectoryMode(info.Mode()) {
 			return result, attemptLedgerError("attempt_order", ErrAttemptLedgerIncomplete)
 		}
-		inspection, inspectErr := store.inspectOrdinalLocked(ordinal)
+		inspection, inspectErr := store.inspectOrdinalLockedContext(ctx, ordinal)
 		if inspectErr != nil {
-			if index == len(entries)-1 && inspection.Plan.AttemptID == "" && store.uncommittedAttemptDirectoryLocked(ordinal) {
-				return result, nil
+			if contextErr := attemptLedgerContextError(ctx); contextErr != nil {
+				return result, contextErr
+			}
+			if index == len(entries)-1 && inspection.Plan.AttemptID == "" {
+				uncommitted := store.uncommittedAttemptDirectoryLockedContext(ctx, ordinal)
+				if contextErr := attemptLedgerContextError(ctx); contextErr != nil {
+					return result, contextErr
+				}
+				if uncommitted {
+					return result, nil
+				}
 			}
 			return append(result, inspection), inspectErr
 		}
@@ -466,13 +628,20 @@ func (store *AttemptLedgerStore) inspectIDLocked(attemptID string) (AttemptLedge
 }
 
 func (store *AttemptLedgerStore) inspectOrdinalLocked(ordinal uint32) (AttemptLedgerInspection, error) {
+	return store.inspectOrdinalLockedContext(context.Background(), ordinal)
+}
+
+func (store *AttemptLedgerStore) inspectOrdinalLockedContext(ctx context.Context, ordinal uint32) (AttemptLedgerInspection, error) {
 	result := AttemptLedgerInspection{Complete: false}
 	incomplete := func(code string, causes ...error) (AttemptLedgerInspection, error) {
 		result.TailCode = code
 		return result, incompleteAttemptLedger(code, causes...)
 	}
 	attemptRoot := store.attemptRoot(ordinal)
-	entries, err := hardenedReadDirWithin(store.root, attemptRoot)
+	if err := attemptLedgerContextError(ctx); err != nil {
+		return result, err
+	}
+	entries, err := hardenedReadDirWithinLimitContext(ctx, store.root, attemptRoot, 3)
 	if err == nil {
 		entries, err = committedAttemptLedgerEntries(entries, 2)
 	}
@@ -484,7 +653,7 @@ func (store *AttemptLedgerStore) inspectOrdinalLocked(ordinal uint32) (AttemptLe
 	if err != nil || !privateWorkspaceDirectoryMode(eventsInfo.Mode()) {
 		return incomplete("events_mode", err)
 	}
-	planData, err := readAttemptLedgerFile(store.root, filepath.Join(attemptRoot, attemptLedgerPlanName), lifecycle.MaxPlanBytes)
+	planData, err := readAttemptLedgerFileContext(ctx, store.root, filepath.Join(attemptRoot, attemptLedgerPlanName), lifecycle.MaxPlanBytes)
 	if err != nil {
 		return incomplete("plan_read", err)
 	}
@@ -493,11 +662,14 @@ func (store *AttemptLedgerStore) inspectOrdinalLocked(ordinal uint32) (AttemptLe
 		return incomplete("plan_decode", err)
 	}
 	result.Plan = plan
+	if err := attemptLedgerContextError(ctx); err != nil {
+		return result, err
+	}
 	projection, err := lifecycle.InitialProjection(plan)
 	if err != nil {
 		return result, incompleteAttemptLedger("plan_projection", err)
 	}
-	eventEntries, err := hardenedReadDirWithin(store.root, filepath.Join(attemptRoot, attemptLedgerEvents))
+	eventEntries, err := hardenedReadDirWithinLimitContext(ctx, store.root, filepath.Join(attemptRoot, attemptLedgerEvents), lifecycle.MaxEvents+1)
 	if err == nil {
 		eventEntries, err = committedAttemptLedgerEntries(eventEntries, lifecycle.MaxEvents)
 	}
@@ -506,12 +678,16 @@ func (store *AttemptLedgerStore) inspectOrdinalLocked(ordinal uint32) (AttemptLe
 		return incomplete("events_read", err)
 	}
 	for index, entry := range eventEntries {
+		if err := attemptLedgerContextError(ctx); err != nil {
+			result.Projection = projection
+			return result, err
+		}
 		sequence := uint32(index + 1)
 		if entry.Name() != attemptLedgerEventName(sequence) || entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
 			result.Projection, result.TailCode = projection, "event_order"
 			return result, incompleteAttemptLedger("event_order")
 		}
-		data, readErr := readAttemptLedgerFile(store.root, filepath.Join(attemptRoot, attemptLedgerEvents, entry.Name()), lifecycle.MaxEventBytes)
+		data, readErr := readAttemptLedgerFileContext(ctx, store.root, filepath.Join(attemptRoot, attemptLedgerEvents, entry.Name()), lifecycle.MaxEventBytes)
 		if readErr != nil {
 			result.Projection, result.TailCode = projection, "event_read"
 			return result, incompleteAttemptLedger("event_read", readErr)
@@ -528,6 +704,10 @@ func (store *AttemptLedgerStore) inspectOrdinalLocked(ordinal uint32) (AttemptLe
 		}
 		result.Events = append(result.Events, event)
 	}
+	if err := attemptLedgerContextError(ctx); err != nil {
+		result.Projection = projection
+		return result, err
+	}
 	result.Projection = projection
 	result.Complete = true
 	return result, nil
@@ -537,8 +717,8 @@ func (store *AttemptLedgerStore) attemptRoot(ordinal uint32) string {
 	return filepath.Join(store.root, attemptLedgerAttempts, attemptLedgerOrdinalName(ordinal))
 }
 
-func readAttemptLedgerHeader(root string) (lifecycle.LedgerHeader, error) {
-	data, err := readAttemptLedgerFile(root, filepath.Join(root, attemptLedgerHeaderName), lifecycle.MaxHeaderBytes)
+func readAttemptLedgerHeaderContext(ctx context.Context, root string) (lifecycle.LedgerHeader, error) {
+	data, err := readAttemptLedgerFileContext(ctx, root, filepath.Join(root, attemptLedgerHeaderName), lifecycle.MaxHeaderBytes)
 	if err != nil {
 		return lifecycle.LedgerHeader{}, attemptLedgerError("header_read", err)
 	}
@@ -549,16 +729,33 @@ func readAttemptLedgerHeader(root string) (lifecycle.LedgerHeader, error) {
 	return header, nil
 }
 
-func readAttemptLedgerFile(root, path string, maximum int) ([]byte, error) {
+func readAttemptLedgerFileContext(ctx context.Context, root, path string, maximum int) ([]byte, error) {
+	if err := attemptLedgerContextError(ctx); err != nil {
+		return nil, err
+	}
 	info, err := hardenedStatWithin(root, path)
 	if err != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) {
 		return nil, attemptLedgerError("file_mode", err)
 	}
-	return hardenedReadFileWithinLimit(root, path, int64(maximum))
+	data, err := hardenedReadFileWithinLimitContext(ctx, root, path, int64(maximum))
+	if err != nil {
+		return nil, err
+	}
+	if err := attemptLedgerContextError(ctx); err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
-func validateAttemptLedgerTopLevel(root string) error {
-	entries, err := hardenedReadDirWithin(root, root)
+func attemptLedgerContextError(ctx context.Context) error {
+	if ctx == nil {
+		return context.Canceled
+	}
+	return ctx.Err()
+}
+
+func validateAttemptLedgerTopLevelContext(ctx context.Context, root string) error {
+	entries, err := hardenedReadDirWithinLimitContext(ctx, root, root, 4)
 	if err != nil {
 		return attemptLedgerError("top_level", err)
 	}
@@ -662,12 +859,19 @@ func (store *AttemptLedgerStore) prepareAttemptDirectoryLocked(ordinal uint32) e
 }
 
 func (store *AttemptLedgerStore) uncommittedAttemptDirectoryLocked(ordinal uint32) bool {
+	return store.uncommittedAttemptDirectoryLockedContext(context.Background(), ordinal)
+}
+
+func (store *AttemptLedgerStore) uncommittedAttemptDirectoryLockedContext(ctx context.Context, ordinal uint32) bool {
+	if attemptLedgerContextError(ctx) != nil {
+		return false
+	}
 	attemptRoot := store.attemptRoot(ordinal)
 	info, err := hardenedStatWithin(store.root, attemptRoot)
 	if err != nil || !info.IsDir() || !privateWorkspaceDirectoryMode(info.Mode()) {
 		return false
 	}
-	entries, err := hardenedReadDirWithin(store.root, attemptRoot)
+	entries, err := hardenedReadDirWithinLimitContext(ctx, store.root, attemptRoot, 2)
 	if err != nil {
 		return false
 	}
@@ -685,7 +889,7 @@ func (store *AttemptLedgerStore) uncommittedAttemptDirectoryLocked(ordinal uint3
 	if err != nil || !privateWorkspaceDirectoryMode(eventsInfo.Mode()) {
 		return false
 	}
-	events, err := hardenedReadDirWithin(store.root, filepath.Join(attemptRoot, attemptLedgerEvents))
+	events, err := hardenedReadDirWithinLimitContext(ctx, store.root, filepath.Join(attemptRoot, attemptLedgerEvents), 1)
 	if err != nil {
 		return false
 	}

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_version": "0.1.0-pre-release",
-  "golden_bundle": {"path":"testdata/standalone-readability-golden.v1.json","sha256":"ae16dbb1364d8db37a94b117306093f0e9a376274edc92f21200d9ede027dc14"},
+  "golden_bundle": {"path":"testdata/standalone-readability-golden.v1.json","sha256":"bf60c4470da121107eb500746c423092ea7349b8ea2fc3b20be90b5acdea684a"},
   "readability": [
     {"namespace":"atl-profile","kind":"activation-reference","versions":[1,2]},
     {"namespace":"atl-profile","kind":"activation-report","versions":[1,2]},
@@ -23,6 +23,7 @@
     {"namespace":"standalone","kind":"agent-adapter-contract","versions":[1]},
     {"namespace":"standalone","kind":"agent-observation","versions":[1]},
     {"namespace":"standalone","kind":"analysis-plan","versions":[1]},
+    {"namespace":"standalone","kind":"analysis-report","versions":[1]},
     {"namespace":"standalone","kind":"attempt-event","versions":[1]},
     {"namespace":"standalone","kind":"attempt-ledger","versions":[1]},
     {"namespace":"standalone","kind":"attempt-plan","versions":[1]},
@@ -65,6 +66,7 @@
     {"namespace":"standalone","kind":"agent-adapter-contract","version":2},
     {"namespace":"standalone","kind":"agent-observation","version":2},
     {"namespace":"standalone","kind":"analysis-plan","version":2},
+    {"namespace":"standalone","kind":"analysis-report","version":2},
     {"namespace":"standalone","kind":"attempt-event","version":2},
     {"namespace":"standalone","kind":"attempt-ledger","version":2},
     {"namespace":"standalone","kind":"attempt-plan","version":2},

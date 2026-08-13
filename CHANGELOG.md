@@ -80,7 +80,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   composes a compiled causal manifest, in-memory provider-free adapter/backend,
   durable no-replay lifecycle, deterministic grader, and one new canonical
   content-minimized publication without process, provider, backend, network,
-  credential, or private-workspace authority.
+  credential, or private-workspace authority. Completed reference publications
+  can now be compared with manifest-bound paired statistics, explicit coverage,
+  deterministic intervals, Holm adjustment, activation/funnel summaries, and
+  fixed-roster repeated-attempt estimates without execution authority. The
+  content-minimized report retains exact closed stage and binary-metric
+  projections only for clean singleton trials, making shared-endpoint coverage
+  and labeled summary feasibility reproducible without retaining source bodies
+  or absolute count metrics.
 - Added qualified, resumable Jira complete-project pulls with an explicit issue
   cap, two stable numeric-ID passes bound to one exact backend total, crash-safe
   publication, and hash-bound key relocation that preserves uninventoried

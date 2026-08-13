@@ -429,6 +429,14 @@ func validateManifestShape(manifest Manifest, requireDigest bool) error {
 }
 
 func validateTrialRecordShape(manifest Manifest, record TrialRecord, requireDigest bool) error {
+	assignment, ok := manifestAssignment(manifest, record.TrialID)
+	if !ok {
+		return contractError(ErrorInvalidTrial, errInvalidValue)
+	}
+	return validateTrialRecordShapeForAssignment(manifest, record, requireDigest, assignment)
+}
+
+func validateTrialRecordShapeForAssignment(manifest Manifest, record TrialRecord, requireDigest bool, assignment manifestAssignmentValue) error {
 	if record.Schema != TrialSchema || record.SchemaVersion != SchemaVersion || record.ContractVersion != ContractVersion ||
 		record.ManifestSHA256 != manifest.ManifestSHA256 || !validDigest(record.AttemptPlanSHA256) ||
 		record.Stages == nil || record.Metrics == nil ||
@@ -437,8 +445,7 @@ func validateTrialRecordShape(manifest Manifest, record TrialRecord, requireDige
 		!validDigest(record.LifecycleEventSHA256) {
 		return contractError(ErrorInvalidTrial, errInvalidValue)
 	}
-	assignment, ok := manifestAssignment(manifest, record.TrialID)
-	if !ok || assignment.BlockID != record.BlockID || assignment.TreatmentID != record.TreatmentID {
+	if assignment.BlockID != record.BlockID || assignment.TreatmentID != record.TreatmentID {
 		return contractError(ErrorInvalidTrial, errInvalidValue)
 	}
 	if err := validateTrialStatus(record); err != nil {
