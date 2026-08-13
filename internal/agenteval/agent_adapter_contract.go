@@ -39,6 +39,14 @@ func AgentAdapterContractSHA256(contract AgentAdapterContract) (string, error) {
 	return agentadapter.ContractSHA256(contract)
 }
 
+func AgentAdapterObservationSHA256(contract AgentAdapterContract, observation AgentAdapterObservation) (string, error) {
+	return agentadapter.ObservationSHA256(contract, observation)
+}
+
+func SequentialReferenceAgentAdapterContract() (AgentAdapterContract, error) {
+	return agentadapter.ReferenceContract()
+}
+
 func builtInAgentAdapterContract(spec RunSpec, agentSHA256 string) (agentadapter.Contract, string, error) {
 	adapter, err := builtInAgentAdapterFor(spec.Provider)
 	if err != nil {

@@ -46,7 +46,8 @@ is a typed seam inside the nested module, not a downloadable plugin registry or
 an extraction decision.
 The repository command now also contains a machine-tested pre-release
 coordinator for local validation, deterministic grading, comparison,
-inspection, and Agent Skills import/export. That source surface is unsigned,
+inspection, Agent Skills import/export, and one exact sequential provider-free
+reference run. That source surface is unsigned,
 does not expose the Go packages as an SDK, does not move the module, and does
 not satisfy the distribution or external-consumer gates below.
 
@@ -66,8 +67,13 @@ evaluator package and freezes complete capability claims, explicit treatment
 and control material, preregistered analysis identity, balanced block order,
 the trial roster, and content-minimized observations in five strict v1
 artifacts. The root facade alone composes Agent Skills case digests, the
-append-only lifecycle roster, and private activation-study compatibility. The
-leaf is not a scheduler, runner, statistical engine, report generator, or
+append-only lifecycle roster, private activation-study compatibility, and one
+closed `run/reference` profile over the in-memory reference adapter/backend and
+deterministic grader. That composition consumes a canonical manifest and a
+bounded bundle, runs one attempt at a time, and publishes a strict no-replay
+artifact chain to one new destination without provider, backend, network,
+credential, process, or private-root authority. The neutral leaf is not a
+scheduler, runner, statistical engine, report generator, or
 standalone command; those consumers must accept its canonical manifest and
 trial-record bytes without reconstructing experiment identities.
 

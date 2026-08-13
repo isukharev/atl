@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_version": "0.1.0-pre-release",
-  "golden_bundle": {"path":"testdata/standalone-readability-golden.v1.json","sha256":"463673cd7d729629530073a370a5afb07ef74dc9cd262af89dfa50c0c7865df6"},
+  "golden_bundle": {"path":"testdata/standalone-readability-golden.v1.json","sha256":"8adf1b22df3eb80862fd40f71c07fdfe45ad155e02e3f4777b546678288ae2a2"},
   "readability": [
     {"namespace":"atl-profile","kind":"activation-reference","versions":[1,2]},
     {"namespace":"atl-profile","kind":"activation-report","versions":[1,2]},
@@ -39,6 +39,7 @@
     {"namespace":"standalone","kind":"migration-result","versions":[1]},
     {"namespace":"standalone","kind":"project-config","versions":[1]},
     {"namespace":"standalone","kind":"schema-registry","versions":[1]},
+    {"namespace":"standalone","kind":"sequential-reference-bundle","versions":[1]},
     {"namespace":"standalone","kind":"trial-plan","versions":[1]},
     {"namespace":"standalone","kind":"trial-receipt","versions":[1]},
     {"namespace":"standalone","kind":"trial-record","versions":[1]}
@@ -81,6 +82,7 @@
     {"namespace":"standalone","kind":"product-contract","version":2},
     {"namespace":"standalone","kind":"project-config","version":2},
     {"namespace":"standalone","kind":"schema-registry","version":2},
+    {"namespace":"standalone","kind":"sequential-reference-bundle","version":2},
     {"namespace":"standalone","kind":"trial-plan","version":2},
     {"namespace":"standalone","kind":"trial-receipt","version":2},
     {"namespace":"standalone","kind":"trial-record","version":2}

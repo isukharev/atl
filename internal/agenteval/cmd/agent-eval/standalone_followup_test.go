@@ -98,7 +98,7 @@ func TestStandaloneProcessAPIAuthorityRatchet(t *testing.T) {
 			t.Fatalf("safe ProcessAPI command %q missing from ratchet: %v", command, processCommands)
 		}
 	}
-	for _, command := range []string{"grade", "import agent-skills", "export agent-skills"} {
+	for _, command := range []string{"grade", "import agent-skills", "export agent-skills", "run"} {
 		if processCommands[command] {
 			t.Fatalf("%q retained ProcessAPI despite disallowed authority", command)
 		}
@@ -147,7 +147,7 @@ func TestStandaloneProcessAPIAuthorityRatchet(t *testing.T) {
 
 	rootChildren := standaloneCompletionNodes()[0].children
 	wantRootChildren := []string{
-		"capabilities", "version", "import", "export", "validate", "grade", "compare", "inspect",
+		"capabilities", "version", "import", "export", "validate", "run", "grade", "compare", "inspect",
 		"schema", "migrate", "completion", "process", "help",
 	}
 	if strings.Join(rootChildren, "\x00") != strings.Join(wantRootChildren, "\x00") {

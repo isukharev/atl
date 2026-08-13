@@ -312,11 +312,15 @@ lifecycle or make the evaluator part of the signed `atl` distribution. The
 [standalone contract](reference/agent-eval/README.md) owns their exact flags,
 authority, loss reporting, and pre-release status.
 
-The evaluator also has a neutral causal-experiment compiler, but this change
-does not add an experiment command to that source-built coordinator. The
-compiler consumes either one bounded Agent Skills case projection or one native
-case identity plus an explicit complete capability contract. It emits strict
-schema-v1 capability, design, analysis-plan, manifest, and trial-record bytes.
+The evaluator also has a neutral causal-experiment compiler. The source-built
+coordinator now composes exactly one execution surface from it:
+`run --mode reference` accepts an already compiled manifest plus a closed
+sequential-reference bundle and writes one new local publication. It does not
+plan a new experiment, select an agent or backend, resume an attempt, or admit
+the one-request Process API. The compiler consumes either one bounded Agent
+Skills case projection or one native case identity plus an explicit complete
+capability contract. It emits strict schema-v1 capability, design,
+analysis-plan, manifest, and trial-record bytes.
 The manifest binds none/current/previous/forced/autonomous/retrieved/distractor
 treatments, activation channels, separately authored control digests, skill and
 distractor identities, runtime components, strata, balanced Williams order,
@@ -336,15 +340,28 @@ answer from the skill under test. Near-miss, irrelevant, unsupported-domain,
 stale-version, and adversarial controls therefore require separately authored
 bytes and distinct digests.
 
-The root facade can allocate the complete manifest roster as planned lifecycle
-members and can finish only an exact crash-interrupted planned prefix. Once any
+The root facade pre-admits the complete fixed reference profile, allocates its
+manifest roster as planned lifecycle members, and runs at most one in-memory
+reference attempt at a time in manifest order. The reference, candidate, and
+control roles are cross-bound to their fixture, skill, and separately authored
+control bytes before the destination is created; only bounded
+`reference_copy` plans are admitted. It retains canonical
+observation, execution, grading, lifecycle, and trial-record artifacts under a
+new-destination completion marker; any returned post-creation ambiguity retains
+that marker and is no-replay `outcome_unknown`. Removing the marker is the final
+fallible process-visible commit step, so a crash may conservatively leave an
+otherwise complete destination marked incomplete. Every new destination gets
+a fresh ledger identity and fresh physical attempt IDs; deterministic logical
+manifest, treatment, trial, and outcome projections do not authorize physical
+attempt-ID reuse. Once any
 member commits, changing repetition policy, order, exclusions, stopping, or
 other manifest-bound material conflicts rather than extending the experiment.
 Historical private four-cell activation studies project only treatment classes
 and digests, retaining comparable treatment identities without exposing prompt
-contracts or paths. This boundary neither executes a trial nor performs the
-paired inference, multiplicity adjustment, effect calculation, reporting,
-holdout, tuning, or promotion that later consumers own.
+contracts or paths. The neutral compiler leaf itself remains execution-free,
+and the exact reference composition performs no paired inference, multiplicity
+adjustment, effect calculation, reporting, holdout, tuning, or promotion that
+later consumers own.
 
 `agent-eval-compat` is the small uncached product/evaluator boundary: it builds
 the current `atl`, requires its complete offline schema-v1 capability catalog

@@ -17,8 +17,8 @@ func standaloneCompletionNodes() []standaloneCompletionNode {
 	nodes := []standaloneCompletionNode{{path: nil, summary: root.Summary, children: standaloneChildNames(root)}}
 	standaloneWalkDescriptors(root, nil, func(path []string, descriptor standaloneCommandDescriptor) {
 		nodes = append(nodes, standaloneCompletionNode{path: append([]string(nil), path...), summary: descriptor.Summary, children: standaloneChildNames(descriptor)})
-		if len(descriptor.Modes) != 0 {
-			variantPath := append(append([]string(nil), path...), "--variant")
+		if len(descriptor.Modes) != 0 && descriptor.ModeFlag != "" {
+			variantPath := append(append([]string(nil), path...), descriptor.ModeFlag)
 			nodes = append(nodes, standaloneCompletionNode{
 				path: variantPath, summary: "select a documented compatibility variant",
 				children: append([]string(nil), descriptor.Modes...),

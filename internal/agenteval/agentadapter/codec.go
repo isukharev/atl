@@ -46,6 +46,16 @@ func DecodeObservation(reader io.Reader, contract Contract) (Observation, error)
 	return observation, nil
 }
 
+// ObservationSHA256 returns the content identity of one canonical normalized
+// observation under its exact adapter contract.
+func ObservationSHA256(contract Contract, observation Observation) (string, error) {
+	data, err := EncodeObservation(contract, observation)
+	if err != nil {
+		return "", err
+	}
+	return hashDomain("observation", data), nil
+}
+
 func encodeCanonical(value any, limit int64) ([]byte, error) {
 	data, err := json.Marshal(value)
 	if err != nil || int64(len(data))+1 > limit {
