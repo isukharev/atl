@@ -135,6 +135,22 @@ func TestProjectJUnitAnalysisRequiresManifestBoundValidation(t *testing.T) {
 	}
 }
 
+func TestProjectJUnitRejectsAggregateBoundsBeforeMaterialization(t *testing.T) {
+	tooManyResults := make([]Result, JUnitMaxTestCases+1)
+	if _, err := ProjectJUnitResults(tooManyResults, nil); err == nil || !errors.Is(err, ErrInvalidJUnitInput) {
+		t.Fatalf("oversized result set was not rejected before projection: %v", err)
+	}
+
+	tooManyDimensions := AnalysisReport{Comparisons: []analysis.ComparisonResult{{
+		Binary: make([]analysis.BinaryResult, JUnitMaxTestCases),
+	}}}
+	if _, err := ProjectJUnitResultsWithManifests(
+		[]Result{{}}, []AnalysisReport{tooManyDimensions}, []ExperimentManifest{{}},
+	); err == nil || !errors.Is(err, ErrInvalidJUnitInput) {
+		t.Fatalf("oversized paired input was not rejected before manifest validation: %v", err)
+	}
+}
+
 func TestJUnitPairCoverageMixedReasonsCannotBecomeUnsupported(t *testing.T) {
 	report := AnalysisReport{Coverage: analysis.Coverage{Pairs: []analysis.PairCoverage{{
 		PairID: "pair-a", BlockID: "block-a", StratumID: "stratum-a", ComparisonID: "comparison-a",

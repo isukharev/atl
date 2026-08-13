@@ -15,14 +15,15 @@ import (
 // closed when reports are supplied rather than silently projecting unchecked
 // analysis data.
 //
-// Each AnalysisReport must have already passed DecodeAnalysisReport (or
-// analysis.ValidateReportForManifest) with its owning manifest. AnalysisReport
-// deliberately carries no manifest, so this facade can enforce only the
-// self-contained schema, digest-shape, and paired-decision preconditions below;
-// it cannot prove the report-to-manifest binding itself.
+// AnalysisReport deliberately carries no manifest, so this compatibility
+// entry point refuses reports instead of pretending it can prove their
+// binding. Use ProjectJUnitResultsWithManifests for paired analysis.
 func ProjectJUnitResults(results []Result, reports []AnalysisReport) (JUnitReport, error) {
 	if len(reports) != 0 {
 		return JUnitReport{}, fmt.Errorf("%w: analysis manifest required", ErrInvalidJUnitInput)
+	}
+	if err := validateJUnitProjectionBounds(len(results), nil); err != nil {
+		return JUnitReport{}, err
 	}
 	return projectJUnitResults(results, nil)
 }
@@ -36,12 +37,43 @@ func ProjectJUnitResultsWithManifests(results []Result, reports []AnalysisReport
 	if len(reports) == 0 || len(reports) != len(manifests) {
 		return JUnitReport{}, fmt.Errorf("%w: analysis reports and manifests must be paired", ErrInvalidJUnitInput)
 	}
+	if err := validateJUnitProjectionBounds(len(results), reports); err != nil {
+		return JUnitReport{}, err
+	}
 	for index := range reports {
 		if err := analysis.ValidateReportForManifest(manifests[index], reports[index]); err != nil {
 			return JUnitReport{}, fmt.Errorf("analysis report %d is not manifest-bound: %w", index, ErrInvalidJUnitInput)
 		}
 	}
 	return projectJUnitResults(results, reports)
+}
+
+// validateJUnitProjectionBounds rejects an aggregate that cannot fit in the
+// bounded JUnit document before any source result is copied or any
+// manifest-bound report is deeply validated. Each canonical comparison
+// dimension produces exactly one projected decision, so the structural
+// dimension count is a safe lower bound for the eventual testcase count.
+func validateJUnitProjectionBounds(resultCount int, reports []AnalysisReport) error {
+	if resultCount < 0 || resultCount > JUnitMaxTestCases {
+		return fmt.Errorf("%w: result bounds", ErrInvalidJUnitInput)
+	}
+	total := resultCount
+	for _, report := range reports {
+		for _, comparison := range report.Comparisons {
+			if len(comparison.Binary) > JUnitMaxTestCases-total {
+				return fmt.Errorf("%w: aggregate testcase bounds", ErrInvalidJUnitInput)
+			}
+			total += len(comparison.Binary)
+			if len(comparison.Continuous) > JUnitMaxTestCases-total {
+				return fmt.Errorf("%w: aggregate testcase bounds", ErrInvalidJUnitInput)
+			}
+			total += len(comparison.Continuous)
+		}
+	}
+	if total == 0 {
+		return fmt.Errorf("%w: input bounds", ErrInvalidJUnitInput)
+	}
+	return nil
 }
 
 func projectJUnitResults(results []Result, reports []AnalysisReport) (JUnitReport, error) {
