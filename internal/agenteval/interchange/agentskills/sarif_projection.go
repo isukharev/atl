@@ -248,8 +248,8 @@ func (report SARIFProjection) Validate() error {
 		return err
 	}
 	if !sameSARIFProperty(run.Properties, "agent-eval.rule_pack_id", LifecycleSecurityRulePackID) ||
-		!sameSARIFProperty(run.Properties, "agent-eval.rule_pack_version", uint32(LifecycleSecurityRulePackVersion)) ||
-		!sameSARIFProperty(run.Properties, "agent-eval.security_version", uint32(LifecycleSecurityAdmissionVersion)) ||
+		!sameSARIFProperty(run.Properties, "agent-eval.rule_pack_version", LifecycleSecurityRulePackVersion) ||
+		!sameSARIFProperty(run.Properties, "agent-eval.security_version", LifecycleSecurityAdmissionVersion) ||
 		!sameSARIFProperty(run.Properties, "agent-eval.structure_version", uint32(StructuralAdmissionVersion)) ||
 		!sameSARIFProperty(run.Properties, "agent-eval.runtime_safety_proven", false) {
 		return errors.New("invalid sarif run identities")
@@ -422,10 +422,10 @@ func validateSARIFProperties(properties map[string]any, allowed map[string]sarif
 				return errors.New("invalid sarif boolean property")
 			}
 		case sarifUintProperty:
-			switch value.(type) {
+			switch value := value.(type) {
 			case uint32, uint64:
 			case int:
-				if value.(int) < 0 {
+				if value < 0 {
 					return errors.New("invalid sarif integer property")
 				}
 			default:
