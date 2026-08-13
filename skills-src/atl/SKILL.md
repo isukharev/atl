@@ -27,10 +27,14 @@ This skill orients you. For the actual command flows, use the focused skills:
 
 If `atl` is not installed (`command -v atl` fails), tell the user to run `{{atl.setup_cmd}}` first.
 If setup or mirror health is uncertain, run offline `atl doctor` before
-identity-bearing status output. Use `atl doctor --remote` only when backend
-metadata access is intended; it makes one single-attempt version GET per ready
-service, with one additional bodyless Confluence reachability HEAD only after a
-missing version route, and never reads content or identities. Treat emitted error-severity
+identity-bearing status output. Use `atl doctor --service jira|confluence` when
+only one backend should contribute to health, and append `--remote` only when
+backend metadata access is intended. Remote mode makes one single-attempt
+version GET per ready selected service, with one additional bodyless Confluence
+reachability HEAD only after a missing version route, and never reads content
+or identities. Read `safety.configured_read_only`, `effective_read_only`, and
+`read_only_source` together; the source is exactly
+`flag|environment|configuration|none`. Treat emitted error-severity
 `problems[]` as a stop signal even though the qualified report remains on
 stdout.
 For an explicitly requested version-pinned Data Center workflow, qualify its
@@ -64,6 +68,11 @@ skill/reference, then stop expanding the route once sufficient complete
 evidence is available. Use exact filters only;
 an unknown task/id is a loud not-found result, not a prompt for fuzzy guessing.
 `capabilities` is local/offline and works without valid config or credentials.
+When the effect boundary of one exact leaf matters, use `atl capabilities
+--effects --command "<command>"`; use `atl capabilities --effects` only when the
+complete catalog is actually needed. These static profiles are informational
+upper bounds across successful invocations. They neither authorize nor enforce
+execution, and they do not replace read-only or guarded-write policy.
 The additive `confluence/comments` route keeps qualified list, exact thread,
 guarded preview, and guarded add separate. Its list/thread entries have narrower
 read-only MCP mappings; preview/add are CLI-only and do not become plugin
@@ -311,6 +320,9 @@ Recent additions expand both surfaces — check the focused skills for full flag
   use default JSON only when the routing decision needs the omitted bounded MCP
   scope, output modes, or explicit CLI-only metadata, and `-o id` only when
   stable capability ids alone are sufficient.
+- `capabilities --effects [--command "<exact leaf>"]` — offline static effect
+  upper bounds for every executable leaf; informational only, never authority
+  or enforcement.
 - `mcp serve --service jira|confluence|offline` — standalone closed read-only
   profiles; omission preserves the plugin's complete default inventory.
 

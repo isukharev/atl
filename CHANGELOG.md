@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added service-scoped `doctor` health, explicit configured/effective/source
+  read-only reporting, and a complete offline informational command-effect
+  catalog for safe agent routing.
 - Added generated plugin-to-binary MCP startup markers with an independently
   versioned interface contract and product-version claim. Incompatible marked
   startup now exits as a content-free usage error before config, credentials,
