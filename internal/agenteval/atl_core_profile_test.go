@@ -66,8 +66,14 @@ func TestATLCoreProfileAdmitsCommittedSyntheticCorpus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(paths) != 226 {
-		t.Fatalf("committed run specs=%d, want 226", len(paths))
+	wantRunSpecs := 0
+	for _, version := range loadEvaluatorBehaviorContract(t).CorpusVersions {
+		if version.Artifact == "run_spec" {
+			wantRunSpecs += version.Count
+		}
+	}
+	if wantRunSpecs == 0 || len(paths) != wantRunSpecs {
+		t.Fatalf("committed run specs=%d, want %d from the behavior contract", len(paths), wantRunSpecs)
 	}
 	identities := make(map[core.PlanID]string, len(paths))
 	for _, path := range paths {

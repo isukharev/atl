@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -29,9 +30,15 @@ func TestSyntheticMCPServeArgsPreserveDefaultProfileOmission(t *testing.T) {
 			}
 		})
 	}
-	defaultTools, ok := syntheticMCPToolsForService("default")
-	if !ok || len(defaultTools) != 23 || !defaultTools["jira_fields"] || !defaultTools["confluence_page_section"] {
-		t.Fatalf("default synthetic MCP inventory=%v ok=%t", defaultTools, ok)
+	defaultTools, defaultOK := syntheticMCPToolsForService("default")
+	jiraTools, jiraOK := syntheticMCPToolsForService("jira")
+	confluenceTools, confluenceOK := syntheticMCPToolsForService("confluence")
+	wantDefault := maps.Clone(jiraTools)
+	maps.Copy(wantDefault, confluenceTools)
+	if !defaultOK || !jiraOK || !confluenceOK || len(defaultTools) != 24 || len(confluenceTools) != 13 ||
+		!confluenceTools["confluence_attachment_search"] || !maps.Equal(defaultTools, wantDefault) {
+		t.Fatalf("synthetic MCP inventories: default=%v jira=%v Confluence=%v ok=%t/%t/%t",
+			defaultTools, jiraTools, confluenceTools, defaultOK, jiraOK, confluenceOK)
 	}
 	if _, ok := syntheticMCPToolsForService("all"); ok {
 		t.Fatal("unknown synthetic MCP service was accepted")
