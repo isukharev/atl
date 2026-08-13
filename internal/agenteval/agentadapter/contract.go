@@ -126,6 +126,9 @@ func ValidateContract(contract Contract) error {
 			return contractError("configuration_keys")
 		}
 	}
+	if contract.AdapterID == referenceAdapterID && !referenceContractMatches(contract) {
+		return contractError("reference_identity")
+	}
 	return nil
 }
 

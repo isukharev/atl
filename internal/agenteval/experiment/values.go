@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -67,6 +68,10 @@ var closedExclusions = map[ExclusionReason]bool{
 	ExclusionGradeIncomplete:       true,
 	ExclusionCoverageMismatch:      true,
 }
+
+// Capabilities returns the complete closed capability vocabulary in canonical
+// order. Callers receive an owned slice.
+func Capabilities() []CapabilityID { return slices.Clone(closedCapabilities) }
 
 func validDigest(value string) bool {
 	if len(value) != sha256.Size*2 || strings.ToLower(value) != value {
