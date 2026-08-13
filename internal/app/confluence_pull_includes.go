@@ -152,6 +152,33 @@ func (r *PullResult) recordConfluencePullInclude(dimension, qualification, reaso
 	return nil
 }
 
+// demotePublishedConfluencePullIncludes changes already-counted publication
+// evidence into a failed result without counting the same page twice. This is
+// used when a later durability barrier fails after page publication succeeded.
+func (r *PullResult) demotePublishedConfluencePullIncludes(values []domain.ConfluencePullIncludeEvidence) error {
+	progress := r.includeProgress
+	if progress == nil {
+		return fmt.Errorf("%w: Confluence pull include progress is unavailable", domain.ErrCheckFailed)
+	}
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if !validConfluencePullIncludeRecord(value.Dimension, ConfluencePullIncludeFailed, ConfluencePullIncludeReasonStagingFailed) {
+			return fmt.Errorf("%w: Confluence pull include qualification is invalid", domain.ErrCheckFailed)
+		}
+		if _, duplicate := seen[value.Dimension]; duplicate {
+			continue
+		}
+		seen[value.Dimension] = struct{}{}
+		if !progress.requested[value.Dimension] || progress.dryRun {
+			continue
+		}
+		progress.failed[value.Dimension] = 1
+		progress.reasons[value.Dimension] = ConfluencePullIncludeReasonStagingFailed
+	}
+	r.finalizeConfluencePullIncludes()
+	return nil
+}
+
 func validConfluencePullIncludeRecord(dimension, qualification, reason string) bool {
 	if dimension != ConfluencePullIncludeAssets && dimension != ConfluencePullIncludeComments {
 		return false

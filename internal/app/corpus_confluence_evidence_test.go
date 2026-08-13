@@ -20,6 +20,7 @@ type confluenceCorpusEvidenceStore struct {
 	*completePullStore
 	inventory      domain.AttachmentInventory
 	inventoryErr   error
+	bodyErr        error
 	comments       domain.ConfluenceCommentInventory
 	commentErr     error
 	body           string
@@ -64,6 +65,9 @@ func (store *confluenceCorpusEvidenceStore) DownloadAttachment(_ context.Context
 	if pageID != "10" || filename != "a.bin" || version != 2 {
 		return nil, errors.New("unexpected attachment download")
 	}
+	if store.bodyErr != nil {
+		return nil, store.bodyErr
+	}
 	return io.NopCloser(strings.NewReader(store.body)), nil
 }
 
@@ -85,6 +89,15 @@ func newConfluenceCorpusEvidenceStore() *confluenceCorpusEvidenceStore {
 
 func confluenceCorpusEvidenceOptions(partial bool) *corpusPullEvidenceOptions {
 	return newCorpusPullEvidenceOptions(CorpusBuildOptions{
+		Attachments: true, MaxAttachmentPagesPerItem: 2, MaxAttachmentsPerItem: 10,
+		AttachmentBodies: true, AttachmentMediaTypes: []string{"application/octet-stream"},
+		MaxAttachmentBytes: 16, MaxTotalAttachmentBytes: 64, AllowPartialEvidence: partial,
+	})
+}
+
+func confluenceCombinedCorpusEvidenceOptions(partial bool) *corpusPullEvidenceOptions {
+	return newCorpusPullEvidenceOptions(CorpusBuildOptions{
+		Comments: true, MaxCommentPagesPerItem: 2, MaxCommentsPerItem: 10,
 		Attachments: true, MaxAttachmentPagesPerItem: 2, MaxAttachmentsPerItem: 10,
 		AttachmentBodies: true, AttachmentMediaTypes: []string{"application/octet-stream"},
 		MaxAttachmentBytes: 16, MaxTotalAttachmentBytes: 64, AllowPartialEvidence: partial,
@@ -123,16 +136,47 @@ func TestConfluenceCompletePullPublishesQualifiedAttachmentEvidence(t *testing.T
 	}
 }
 
+func TestConfluenceCompletePullPublishesCombinedCommentsAndAttachments(t *testing.T) {
+	root := t.TempDir()
+	store := newConfluenceCorpusEvidenceStore()
+	store.comments = completeQualifiedComments()
+	result, err := (&ConfluenceService{store: store, baseURL: confluenceTestBackendURL}).Pull(t.Context(), PullOpts{
+		Complete: true, Space: "DOC", MaxPages: 1, Into: root, Comments: true,
+		evidence: confluenceCombinedCorpusEvidenceOptions(false),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Complete == nil || !result.Complete.Complete || store.commentReads != 1 || store.inventoryReads != 1 || store.bodyReads != 1 {
+		t.Fatalf("result=%+v reads=%d/%d/%d", result.Complete, store.commentReads, store.inventoryReads, store.bodyReads)
+	}
+	comments := confluencePullInclude(t, result, ConfluencePullIncludeComments)
+	if comments.Qualification != ConfluencePullIncludeQualified || comments.Complete == nil || !*comments.Complete {
+		t.Fatalf("comments include=%+v", comments)
+	}
+	stem := strings.TrimSuffix(filepath.Join(root, filepath.FromSlash(result.Pages[0].Path)), ".csf")
+	for _, suffix := range []string{".comments.json", ".attachments.json"} {
+		if info, statErr := os.Stat(stem + suffix); statErr != nil || !info.Mode().IsRegular() {
+			t.Fatalf("artifact %s info=%v error=%v", suffix, info, statErr)
+		}
+	}
+}
+
 func TestConfluenceAttachmentParentDriftPreventsPublication(t *testing.T) {
 	root := t.TempDir()
 	store := newConfluenceCorpusEvidenceStore()
+	store.comments = completeQualifiedComments()
 	store.driftAfterRead = true
 	result, err := (&ConfluenceService{store: store, baseURL: confluenceTestBackendURL}).Pull(t.Context(), PullOpts{
-		Complete: true, Space: "DOC", MaxPages: 1, Into: root,
-		evidence: confluenceCorpusEvidenceOptions(false),
+		Complete: true, Space: "DOC", MaxPages: 1, Into: root, Comments: true,
+		evidence: confluenceCombinedCorpusEvidenceOptions(false),
 	})
 	if !errors.Is(err, domain.ErrCheckFailed) || result == nil || result.Complete == nil || result.Complete.Complete {
 		t.Fatalf("result=%+v error=%v", result, err)
+	}
+	comments := confluencePullInclude(t, result, ConfluencePullIncludeComments)
+	if comments.Qualification != ConfluencePullIncludeFailed || comments.Reason != ConfluencePullIncludeReasonReadFailed || !result.HasFailedInclude() {
+		t.Fatalf("comments include=%+v", comments)
 	}
 	var published []string
 	walkErr := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
@@ -146,6 +190,39 @@ func TestConfluenceAttachmentParentDriftPreventsPublication(t *testing.T) {
 	})
 	if walkErr != nil || len(published) != 0 {
 		t.Fatalf("published=%v error=%v", published, walkErr)
+	}
+}
+
+func TestConfluenceAttachmentReadFailuresCloseStagedCommentEvidence(t *testing.T) {
+	for _, failure := range []string{"inventory", "body"} {
+		t.Run(failure, func(t *testing.T) {
+			root := t.TempDir()
+			store := newConfluenceCorpusEvidenceStore()
+			store.comments = completeQualifiedComments()
+			if failure == "inventory" {
+				store.inventoryErr = errors.New("synthetic attachment inventory failure")
+			} else {
+				store.bodyErr = errors.New("synthetic attachment body failure")
+			}
+			result, err := (&ConfluenceService{store: store, baseURL: confluenceTestBackendURL}).Pull(t.Context(), PullOpts{
+				Complete: true, Space: "DOC", MaxPages: 1, Into: root, Comments: true,
+				evidence: confluenceCombinedCorpusEvidenceOptions(false),
+			})
+			if err == nil || result == nil || result.Complete == nil || result.Complete.Complete {
+				t.Fatalf("result=%+v error=%v", result, err)
+			}
+			comments := confluencePullInclude(t, result, ConfluencePullIncludeComments)
+			if comments.Qualification != ConfluencePullIncludeFailed || comments.Complete == nil || *comments.Complete ||
+				comments.Reason != ConfluencePullIncludeReasonStagingFailed || !result.HasFailedInclude() {
+				t.Fatalf("comments include=%+v", comments)
+			}
+			if store.commentReads != 1 || store.inventoryReads != 1 {
+				t.Fatalf("reads comments=%d inventory=%d bodies=%d", store.commentReads, store.inventoryReads, store.bodyReads)
+			}
+			if failure == "inventory" && store.bodyReads != 0 || failure == "body" && store.bodyReads != 1 {
+				t.Fatalf("failure=%s body reads=%d", failure, store.bodyReads)
+			}
+		})
 	}
 }
 
@@ -237,10 +314,18 @@ func TestConfluenceForbiddenCommentsRemainExplicitInPartialProjection(t *testing
 				if !errors.Is(err, domain.ErrForbidden) || result == nil || result.Complete == nil || result.Complete.Complete {
 					t.Fatalf("result=%#v error=%v", result, err)
 				}
+				comments := confluencePullInclude(t, result, ConfluencePullIncludeComments)
+				if comments.Qualification != ConfluencePullIncludeFailed || comments.Reason != ConfluencePullIncludeReasonReadFailed || !result.HasFailedInclude() {
+					t.Fatalf("comments include=%+v", comments)
+				}
 				return
 			}
 			if err != nil || result.Complete == nil || !result.Complete.Complete || backend.commentReads != 1 {
 				t.Fatalf("result=%#v reads=%d error=%v", result, backend.commentReads, err)
+			}
+			comments := confluencePullInclude(t, result, ConfluencePullIncludeComments)
+			if comments.Qualification != ConfluencePullIncludePartial || comments.Complete == nil || *comments.Complete || comments.Reason != ConfluencePullIncludeReasonInventoryIncomplete {
+				t.Fatalf("comments include=%+v", comments)
 			}
 			var sidecarPath string
 			walkErr := filepath.WalkDir(mirrorRoot, func(path string, entry os.DirEntry, err error) error {
@@ -278,5 +363,44 @@ func TestConfluenceForbiddenCommentsRemainExplicitInPartialProjection(t *testing
 				t.Fatalf("documents=%#v", documents)
 			}
 		})
+	}
+}
+
+func TestConfluenceStrictIncompleteCommentsReturnClosedPartialEvidence(t *testing.T) {
+	mirrorRoot := t.TempDir()
+	backend := newConfluenceCorpusEvidenceStore()
+	backend.comments = completeQualifiedComments()
+	backend.comments.CommentsComplete = false
+	backend.comments.PartialReasons = []string{domain.ConfluenceCommentPartialPageLimit}
+	options := newCorpusPullEvidenceOptions(CorpusBuildOptions{
+		Comments: true, MaxCommentPagesPerItem: 2, MaxCommentsPerItem: 10,
+	})
+
+	result, err := (&ConfluenceService{store: backend, baseURL: confluenceTestBackendURL}).Pull(t.Context(), PullOpts{
+		Complete: true, Space: "DOC", MaxPages: 1, Into: mirrorRoot, Comments: true, evidence: options,
+	})
+	if !errors.Is(err, domain.ErrCheckFailed) || result == nil || result.Complete == nil || result.Complete.Complete {
+		t.Fatalf("result=%#v error=%v", result, err)
+	}
+	comments := confluencePullInclude(t, result, ConfluencePullIncludeComments)
+	if comments.Qualification != ConfluencePullIncludePartial || comments.Complete == nil || *comments.Complete ||
+		comments.Reason != ConfluencePullIncludeReasonInventoryIncomplete {
+		t.Fatalf("comments include=%+v", comments)
+	}
+	if backend.commentReads != 1 {
+		t.Fatalf("comment reads=%d", backend.commentReads)
+	}
+	var sidecars []string
+	walkErr := filepath.WalkDir(mirrorRoot, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() && strings.HasSuffix(path, ".comments.json") {
+			sidecars = append(sidecars, path)
+		}
+		return nil
+	})
+	if walkErr != nil || len(sidecars) != 0 {
+		t.Fatalf("sidecars=%v error=%v", sidecars, walkErr)
 	}
 }

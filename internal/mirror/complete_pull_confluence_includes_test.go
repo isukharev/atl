@@ -1,9 +1,11 @@
 package mirror
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -103,6 +105,139 @@ func TestConfluenceCompletePullProgressRejectsUnversionedAndFuture(t *testing.T)
 	}
 }
 
+func TestConfluenceCompletePullProgressHandlesEmptyEvidenceHonestly(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		includes     string
+		nextIndex    int
+		wantErr      bool
+		wantComplete bool
+	}{
+		{name: "omitted", wantErr: true},
+		{name: "null", includes: `,"includes":null`, wantErr: true},
+		{name: "empty object with legacy prefix", includes: `,"includes":{}`, nextIndex: 1},
+		{name: "empty object without prefix", includes: `,"includes":{}`, wantComplete: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := New(t.TempDir())
+			if err := m.EnsureScaffold(); err != nil {
+				t.Fatal(err)
+			}
+			checkpoint := CompletePullCheckpoint{
+				Service: CompletePullServiceConfluence, SelectorSHA256: completePullTestHash,
+				OptionsSHA256: strings.Repeat("b", 64), SelectionSHA256: strings.Repeat("c", 64), IDs: []string{"10"},
+				Includes: CompletePullIncludeProgress{EvidenceComplete: true},
+			}
+			if err := m.SaveCompletePullCheckpoint(checkpoint); err != nil {
+				t.Fatal(err)
+			}
+			path, _ := m.completePullProgressPath(completePullTestHash)
+			body := fmt.Sprintf(`{"schema_version":3,"service":"confluence","selector_sha256":%q,"options_sha256":%q,"selection_sha256":%q,"next_index":%d%s}`,
+				checkpoint.SelectorSHA256, checkpoint.OptionsSHA256, checkpoint.SelectionSHA256, tc.nextIndex, tc.includes)
+			if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got, found, err := m.CompletePullCheckpoint(checkpoint.SelectorSHA256)
+			if tc.wantErr {
+				if !errors.Is(err, domain.ErrCheckFailed) {
+					t.Fatalf("checkpoint=%+v found=%t error=%v", got, found, err)
+				}
+				return
+			}
+			if err != nil || !found || got.NextIndex != tc.nextIndex || got.Includes.EvidenceComplete != tc.wantComplete ||
+				got.Includes.Assets != (CompletePullIncludeAggregate{}) || got.Includes.Comments != (CompletePullIncludeAggregate{}) {
+				t.Fatalf("checkpoint=%+v found=%t error=%v", got, found, err)
+			}
+		})
+	}
+}
+
+func TestConfluenceCompletePullIncludeProgressCannotRegressOrFabricateEvidence(t *testing.T) {
+	newCheckpoint := func(t *testing.T, root string, progress CompletePullIncludeProgress, nextIndex int) (*Mirror, CompletePullCheckpoint) {
+		t.Helper()
+		m := New(root)
+		checkpoint := CompletePullCheckpoint{
+			Service: CompletePullServiceConfluence, SelectorSHA256: completePullTestHash,
+			OptionsSHA256: strings.Repeat("b", 64), SelectionSHA256: strings.Repeat("c", 64), IDs: []string{"10", "20"},
+			NextIndex: nextIndex, Includes: progress,
+		}
+		if err := m.SaveCompletePullCheckpoint(checkpoint); err != nil {
+			t.Fatal(err)
+		}
+		return m, checkpoint
+	}
+
+	t.Run("erase current evidence", func(t *testing.T) {
+		m, checkpoint := newCheckpoint(t, t.TempDir(), CompletePullIncludeProgress{
+			EvidenceComplete: true, Comments: CompletePullIncludeAggregate{Published: 1},
+		}, 1)
+		checkpoint.Includes.Comments = CompletePullIncludeAggregate{}
+		if err := m.SaveCompletePullCheckpoint(checkpoint); !errors.Is(err, domain.ErrCheckFailed) {
+			t.Fatalf("erase error=%v", err)
+		}
+	})
+
+	t.Run("leave requested suffix uncovered", func(t *testing.T) {
+		m, checkpoint := newCheckpoint(t, t.TempDir(), CompletePullIncludeProgress{
+			EvidenceComplete: true, Comments: CompletePullIncludeAggregate{Published: 1},
+		}, 1)
+		checkpoint.NextIndex = 2
+		if err := m.SaveCompletePullCheckpoint(checkpoint); !errors.Is(err, domain.ErrCheckFailed) {
+			t.Fatalf("uncovered suffix error=%v", err)
+		}
+		got, found, err := m.CompletePullCheckpoint(checkpoint.SelectorSHA256)
+		if err != nil || !found || got.NextIndex != 1 || got.Includes.Comments.Published != 1 {
+			t.Fatalf("checkpoint=%+v found=%t error=%v", got, found, err)
+		}
+	})
+
+	t.Run("advance unrequested dimension without evidence", func(t *testing.T) {
+		m, checkpoint := newCheckpoint(t, t.TempDir(), CompletePullIncludeProgress{EvidenceComplete: true}, 0)
+		checkpoint.NextIndex = 1
+		if err := m.SaveCompletePullCheckpoint(checkpoint); err != nil {
+			t.Fatalf("unrequested advance error=%v", err)
+		}
+		got, found, err := m.CompletePullCheckpoint(checkpoint.SelectorSHA256)
+		if err != nil || !found || got.NextIndex != 1 || !got.Includes.EvidenceComplete ||
+			got.Includes.Comments != (CompletePullIncludeAggregate{}) || got.Includes.Assets != (CompletePullIncludeAggregate{}) {
+			t.Fatalf("checkpoint=%+v found=%t error=%v", got, found, err)
+		}
+	})
+
+	t.Run("improve legacy prefix", func(t *testing.T) {
+		m, checkpoint := newCheckpoint(t, t.TempDir(), CompletePullIncludeProgress{}, 1)
+		checkpoint.NextIndex = 2
+		checkpoint.Includes = CompletePullIncludeProgress{
+			EvidenceComplete: true, Comments: CompletePullIncludeAggregate{Published: 1},
+		}
+		if err := m.SaveCompletePullCheckpoint(checkpoint); !errors.Is(err, domain.ErrCheckFailed) {
+			t.Fatalf("improvement error=%v", err)
+		}
+	})
+
+	t.Run("attach evidence to legacy page", func(t *testing.T) {
+		m, checkpoint := newCheckpoint(t, t.TempDir(), CompletePullIncludeProgress{}, 1)
+		checkpoint.NextIndex = 2
+		checkpoint.Includes.Comments = CompletePullIncludeAggregate{Published: 2}
+		if err := m.SaveCompletePullCheckpoint(checkpoint); !errors.Is(err, domain.ErrCheckFailed) {
+			t.Fatalf("fabrication error=%v", err)
+		}
+	})
+
+	t.Run("extend legacy prefix conservatively", func(t *testing.T) {
+		m, checkpoint := newCheckpoint(t, t.TempDir(), CompletePullIncludeProgress{}, 1)
+		checkpoint.NextIndex = 2
+		checkpoint.Includes.Comments = CompletePullIncludeAggregate{Published: 1}
+		if err := m.SaveCompletePullCheckpoint(checkpoint); err != nil {
+			t.Fatalf("extension error=%v", err)
+		}
+		got, found, err := m.CompletePullCheckpoint(checkpoint.SelectorSHA256)
+		if err != nil || !found || got.NextIndex != 2 || got.Includes.EvidenceComplete || got.Includes.Comments.Published != 1 {
+			t.Fatalf("checkpoint=%+v found=%t error=%v", got, found, err)
+		}
+	})
+}
+
 func TestConfluenceCompletePullJournalRestoresIncludeAggregate(t *testing.T) {
 	m, checkpoint, entries := completePullJournalFixture(t, "10")
 	checkpoint.Includes.EvidenceComplete = true
@@ -135,5 +270,52 @@ func TestConfluenceCompletePullLegacyJournalDemotesAggregateEvidence(t *testing.
 	got, err := m.RecoverCompletePullJournal(checkpoint.SelectorSHA256, checkpoint, true)
 	if err != nil || got.NextIndex != 1 || got.Includes.EvidenceComplete {
 		t.Fatalf("got=%+v err=%v", got, err)
+	}
+}
+
+func TestConfluenceCompletePullCurrentJournalAndPublicationKeepEmptyEvidenceNonNull(t *testing.T) {
+	m, checkpoint, entry, artifacts := completePullPublicationFixture(t)
+	empty := make([]domain.ConfluencePullIncludeEvidence, 0)
+	entry.Includes = &empty
+	if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, artifacts, nil); err != nil {
+		t.Fatal(err)
+	}
+	dir, _ := m.completePullPublicationDir(checkpoint.SelectorSHA256)
+	intentPath := filepath.Join(dir, "intent.json")
+	intentBytes, err := os.ReadFile(intentPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(intentBytes), `"schema_version": 5`) ||
+		!strings.Contains(string(intentBytes), `"includes": []`) || strings.Contains(string(intentBytes), `"includes": null`) {
+		t.Fatalf("intent=%s", intentBytes)
+	}
+	if err := m.RecoverCompletePullPublication(checkpoint.SelectorSHA256, checkpoint, true); err != nil {
+		t.Fatal(err)
+	}
+	journalPath, _ := m.completePullJournalPath(checkpoint.SelectorSHA256)
+	journalBytes, err := os.ReadFile(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(journalBytes), `"schema_version": 5`) ||
+		!strings.Contains(string(journalBytes), `"includes": []`) || strings.Contains(string(journalBytes), `"includes": null`) {
+		t.Fatalf("journal=%s", journalBytes)
+	}
+
+	var journal completePullJournal
+	if err := json.Unmarshal(journalBytes, &journal); err != nil {
+		t.Fatal(err)
+	}
+	journal.Entries[0].Includes = nil
+	corrupt, err := json.Marshal(journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(journalPath, corrupt, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.RecoverCompletePullJournal(checkpoint.SelectorSHA256, checkpoint, true); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("missing current evidence error=%v", err)
 	}
 }

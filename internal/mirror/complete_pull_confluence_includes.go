@@ -32,6 +32,9 @@ func validateCompletePullIncludeProgress(value CompletePullIncludeProgress, next
 		if aggregate.Published < 0 || aggregate.Partial < 0 || aggregate.Partial > aggregate.Published || aggregate.Published > nextIndex {
 			return fmt.Errorf("%w: complete-pull %s include progress is outside its durable prefix", domain.ErrCheckFailed, dimension)
 		}
+		if value.EvidenceComplete && aggregate.Published != 0 && aggregate.Published != nextIndex {
+			return fmt.Errorf("%w: complete-pull %s include evidence does not cover its durable prefix", domain.ErrCheckFailed, dimension)
+		}
 		if aggregate.Partial == 0 && aggregate.Reason != "" {
 			return fmt.Errorf("%w: complete-pull %s include progress has a reason without partial evidence", domain.ErrCheckFailed, dimension)
 		}
@@ -40,6 +43,41 @@ func validateCompletePullIncludeProgress(value CompletePullIncludeProgress, next
 			if !domain.ValidConfluencePullIncludeEvidence(evidence) {
 				return fmt.Errorf("%w: complete-pull %s include progress has an invalid reason", domain.ErrCheckFailed, dimension)
 			}
+		}
+	}
+	return nil
+}
+
+// validateCompletePullIncludeAdvance keeps one immutable selection's evidence
+// monotonic. A stale writer may neither erase a durable prefix nor attach new
+// evidence to pages that were already accepted without it. A legacy journal
+// may conservatively demote EvidenceComplete while advancing the prefix.
+func validateCompletePullIncludeAdvance(previous CompletePullIncludeProgress, previousIndex int, next CompletePullIncludeProgress, nextIndex int) error {
+	if nextIndex < previousIndex {
+		return fmt.Errorf("%w: complete-pull progress cannot move behind its durable prefix", domain.ErrCheckFailed)
+	}
+	delta := nextIndex - previousIndex
+	if !previous.EvidenceComplete && next.EvidenceComplete {
+		return fmt.Errorf("%w: complete-pull include evidence cannot improve an unqualified durable prefix", domain.ErrCheckFailed)
+	}
+	if previous.EvidenceComplete && !next.EvidenceComplete && delta == 0 {
+		return fmt.Errorf("%w: complete-pull include evidence cannot change without advancing its durable prefix", domain.ErrCheckFailed)
+	}
+	for dimension, pair := range map[string][2]CompletePullIncludeAggregate{
+		domain.ConfluencePullIncludeAssets:   {previous.Assets, next.Assets},
+		domain.ConfluencePullIncludeComments: {previous.Comments, next.Comments},
+	} {
+		before, after := pair[0], pair[1]
+		publishedDelta := after.Published - before.Published
+		partialDelta := after.Partial - before.Partial
+		if publishedDelta < 0 || partialDelta < 0 {
+			return fmt.Errorf("%w: complete-pull %s include evidence cannot be erased", domain.ErrCheckFailed, dimension)
+		}
+		if publishedDelta > delta || partialDelta > publishedDelta {
+			return fmt.Errorf("%w: complete-pull %s include evidence exceeds newly durable progress", domain.ErrCheckFailed, dimension)
+		}
+		if partialDelta == 0 && after.Reason != before.Reason {
+			return fmt.Errorf("%w: complete-pull %s include reason changed without new partial evidence", domain.ErrCheckFailed, dimension)
 		}
 	}
 	return nil
