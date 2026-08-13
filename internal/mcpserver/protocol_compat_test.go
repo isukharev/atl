@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"reflect"
 	"slices"
 	"sync"
 	"testing"
@@ -163,6 +164,10 @@ func TestServerStdioSupportsModernDiscoveryWithoutInitialize(t *testing.T) {
 
 	listed := process.call(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"modern-stdio-test","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}`, 2)
 	assertRawStdioToolInventory(t, listed, true)
+	resources := process.call(`{"jsonrpc":"2.0","id":3,"method":"resources/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"modern-stdio-test","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}`, 3)
+	assertRawStdioResourceInventory(t, resources, true)
+	read := process.call(`{"jsonrpc":"2.0","id":4,"method":"resources/read","params":{"uri":"atl://capabilities","_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"modern-stdio-test","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}`, 4)
+	assertRawStdioCapabilitiesResource(t, read, true)
 	process.close()
 }
 
@@ -182,6 +187,10 @@ func TestServerStdioPreservesLegacyInitializeFallback(t *testing.T) {
 	process.notify(`{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}`)
 	listed := process.call(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`, 2)
 	assertRawStdioToolInventory(t, listed, false)
+	resources := process.call(`{"jsonrpc":"2.0","id":3,"method":"resources/list","params":{}}`, 3)
+	assertRawStdioResourceInventory(t, resources, false)
+	read := process.call(`{"jsonrpc":"2.0","id":4,"method":"resources/read","params":{"uri":"atl://capabilities"}}`, 4)
+	assertRawStdioCapabilitiesResource(t, read, false)
 	process.close()
 }
 
@@ -345,38 +354,13 @@ func (p *rawMCPStdioProcess) close() {
 
 func assertRawStdioToolInventory(t *testing.T, response *jsonrpc.Response, modern bool) {
 	t.Helper()
-	if response.Error != nil {
-		t.Fatalf("tools/list error: %v", response.Error)
+	document := assertRawStdioCachedResult(t, response, "tools/list", "tools", modern)
+	var tools []*mcp.Tool
+	if err := json.Unmarshal(document["tools"], &tools); err != nil {
+		t.Fatalf("decode tools/list inventory: %v", err)
 	}
-	var document map[string]json.RawMessage
-	if err := json.Unmarshal(response.Result, &document); err != nil {
-		t.Fatalf("decode tools/list result: %v", err)
-	}
-	for _, member := range []string{"tools", "ttlMs", "cacheScope"} {
-		if document[member] == nil {
-			t.Fatalf("tools/list result=%s, missing %s", response.Result, member)
-		}
-	}
-	wantMembers := 3
-	if modern {
-		wantMembers = 5
-		var resultType string
-		if err := json.Unmarshal(document["resultType"], &resultType); err != nil || resultType != "complete" || document["_meta"] == nil {
-			t.Fatalf("modern tools/list result omitted completion or server metadata: %s", response.Result)
-		}
-	}
-	if len(document) != wantMembers {
-		t.Fatalf("tools/list result has unexpected members: %s", response.Result)
-	}
-	var result mcp.ListToolsResult
-	if err := json.Unmarshal(response.Result, &result); err != nil {
-		t.Fatalf("decode tools/list result: %v", err)
-	}
-	if result.TTLMs != 0 || result.CacheScope != "public" || result.NextCursor != "" {
-		t.Fatalf("tools/list cache or cursor contract=%+v", result)
-	}
-	got := make([]string, 0, len(result.Tools))
-	for _, tool := range result.Tools {
+	got := make([]string, 0, len(tools))
+	for _, tool := range tools {
 		got = append(got, tool.Name)
 	}
 	slices.Sort(got)
@@ -384,6 +368,102 @@ func assertRawStdioToolInventory(t *testing.T, response *jsonrpc.Response, moder
 	if !slices.Equal(got, want) {
 		t.Fatalf("stdio tool inventory=%v want=%v", got, want)
 	}
+}
+
+func assertRawStdioResourceInventory(t *testing.T, response *jsonrpc.Response, modern bool) {
+	t.Helper()
+	document := assertRawStdioCachedResult(t, response, "resources/list", "resources", modern)
+	var resources []map[string]string
+	if err := json.Unmarshal(document["resources"], &resources); err != nil {
+		t.Fatalf("decode resources/list inventory: %v", err)
+	}
+	want := []map[string]string{{
+		"uri":         CapabilitiesResourceURI,
+		"name":        "atl-capabilities",
+		"title":       "atl capability routes",
+		"description": "Static content-free CLI and MCP capability routing metadata.",
+		"mimeType":    capabilitiesResourceMIMEType,
+	}}
+	if !reflect.DeepEqual(resources, want) {
+		t.Fatalf("stdio resource inventory=%v want=%v", resources, want)
+	}
+}
+
+func assertRawStdioCapabilitiesResource(t *testing.T, response *jsonrpc.Response, modern bool) {
+	t.Helper()
+	document := assertRawStdioCachedResult(t, response, "resources/read", "contents", modern)
+	var rawContents []map[string]json.RawMessage
+	if err := json.Unmarshal(document["contents"], &rawContents); err != nil {
+		t.Fatalf("decode resources/read contents: %v", err)
+	}
+	if len(rawContents) != 1 || !slices.Equal(rawJSONMemberNames(rawContents[0]), []string{"mimeType", "text", "uri"}) {
+		t.Fatalf("resources/read content shape=%s", document["contents"])
+	}
+	var contents []struct {
+		URI      string `json:"uri"`
+		MIMEType string `json:"mimeType"`
+		Text     string `json:"text"`
+	}
+	if err := json.Unmarshal(document["contents"], &contents); err != nil {
+		t.Fatalf("decode resources/read text content: %v", err)
+	}
+	if contents[0].URI != CapabilitiesResourceURI || contents[0].MIMEType != capabilitiesResourceMIMEType {
+		t.Fatalf("resources/read content=%+v", contents[0])
+	}
+	assertCapabilitiesResourceJSON(t, contents[0].Text)
+}
+
+func assertRawStdioCachedResult(t *testing.T, response *jsonrpc.Response, method, payloadMember string, modern bool) map[string]json.RawMessage {
+	t.Helper()
+	if response.Error != nil {
+		t.Fatalf("%s error: %v", method, response.Error)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(response.Result, &document); err != nil {
+		t.Fatalf("decode %s result: %v", method, err)
+	}
+	wantMembers := []string{"cacheScope", payloadMember, "ttlMs"}
+	if modern {
+		wantMembers = append(wantMembers, "_meta", "resultType")
+		slices.Sort(wantMembers)
+	}
+	if got := rawJSONMemberNames(document); !slices.Equal(got, wantMembers) {
+		t.Fatalf("%s members=%v want=%v: %s", method, got, wantMembers, response.Result)
+	}
+	var ttlMs int
+	if err := json.Unmarshal(document["ttlMs"], &ttlMs); err != nil || ttlMs != 0 {
+		t.Fatalf("%s ttlMs=%s: %v", method, document["ttlMs"], err)
+	}
+	var cacheScope string
+	if err := json.Unmarshal(document["cacheScope"], &cacheScope); err != nil || cacheScope != "public" {
+		t.Fatalf("%s cacheScope=%s: %v", method, document["cacheScope"], err)
+	}
+	if modern {
+		var resultType string
+		if err := json.Unmarshal(document["resultType"], &resultType); err != nil || resultType != "complete" {
+			t.Fatalf("%s resultType=%s: %v", method, document["resultType"], err)
+		}
+		var meta map[string]any
+		if err := json.Unmarshal(document["_meta"], &meta); err != nil {
+			t.Fatalf("decode %s _meta: %v", method, err)
+		}
+		wantMeta := map[string]any{
+			mcp.MetaKeyServerInfo: map[string]any{"name": "atl", "version": "test"},
+		}
+		if !reflect.DeepEqual(meta, wantMeta) {
+			t.Fatalf("%s _meta=%v want=%v", method, meta, wantMeta)
+		}
+	}
+	return document
+}
+
+func rawJSONMemberNames(document map[string]json.RawMessage) []string {
+	members := make([]string, 0, len(document))
+	for member := range document {
+		members = append(members, member)
+	}
+	slices.Sort(members)
+	return members
 }
 
 func TestMCPRawStdioProcessHelper(_ *testing.T) {
