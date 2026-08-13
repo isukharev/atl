@@ -109,6 +109,7 @@ func TestReviewedMutationProfilesClassifyConfigurationAndArtifacts(t *testing.T)
 		{id: EffectCredentialWrite, configuration: "read", artifact: "none"},
 		{id: EffectLocalArtifact, configuration: "none", artifact: "required"},
 		{id: EffectLocalArtifactConfig, configuration: "read", artifact: "required"},
+		{id: EffectLocalOptionalWrite, configuration: "none", artifact: "possible"},
 		{id: EffectRemoteWriteLocal, configuration: "read", artifact: "possible"},
 	}
 	for _, test := range tests {

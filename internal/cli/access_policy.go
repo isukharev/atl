@@ -243,6 +243,7 @@ R generator json,text completion zsh
 M config-write local-direct none none - json config set
 R config-read json,text config show
 R corpus-build json,text corpus build
+R local-read-optional-artifact json,text corpus diff
 R local-artifact json,text corpus export
 R local-artifact json,text corpus handoff
 R diagnostic json,text doctor

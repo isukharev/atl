@@ -38,6 +38,7 @@ const (
 	EffectLocalArtifact        = "local-artifact"
 	EffectLocalArtifactConfig  = "local-artifact-config-read"
 	EffectLocalProse           = "local-prose"
+	EffectLocalOptionalWrite   = "local-read-optional-artifact"
 	EffectLocalReadUpdatable   = "local-read-updatable"
 	EffectLocalWriteUpdatable  = "local-write-updatable"
 	EffectOptionalRemoteRead   = "optional-remote-read"
@@ -69,6 +70,7 @@ var effectProfiles = []EffectProfile{
 	{ID: EffectLocalArtifactConfig, Summary: "read and write a caller-selected local artifact after inspecting configuration", RemoteEffect: "none", LocalEffect: "write", CredentialAccess: "none", NetworkBound: "none", ProcessEffect: "none", ReplayClass: "non_replay_safe", OutputKind: "data", LocalArtifact: "required", Configuration: "read", SelfUpdate: "disabled"},
 	{ID: EffectLocalProse, Summary: "read bounded local state and emit human-oriented guidance", RemoteEffect: "none", LocalEffect: "read", CredentialAccess: "none", NetworkBound: "none", ProcessEffect: "none", ReplayClass: "replay_safe", OutputKind: "prose", LocalArtifact: "none", Configuration: "none", SelfUpdate: "disabled"},
 	{ID: EffectLocalRead, Summary: "inspect bounded local state", RemoteEffect: "none", LocalEffect: "read", CredentialAccess: "none", NetworkBound: "none", ProcessEffect: "none", ReplayClass: "replay_safe", OutputKind: "data", LocalArtifact: "none", Configuration: "none", SelfUpdate: "disabled"},
+	{ID: EffectLocalOptionalWrite, Summary: "emit content-free sealed-corpus differences and optionally write an owner-private identity artifact", RemoteEffect: "none", LocalEffect: "write", CredentialAccess: "none", NetworkBound: "none", ProcessEffect: "none", ReplayClass: "non_replay_safe", OutputKind: "data", LocalArtifact: "possible", Configuration: "none", SelfUpdate: "disabled"},
 	{ID: EffectLocalReadUpdatable, Summary: "inspect bounded local state with startup update eligible", RemoteEffect: "none", LocalEffect: "read", CredentialAccess: "none", NetworkBound: "none", ProcessEffect: "none", ReplayClass: "replay_safe", OutputKind: "data", LocalArtifact: "none", Configuration: "read", SelfUpdate: "possible"},
 	{ID: EffectLocalWrite, Summary: "update bounded local state", RemoteEffect: "none", LocalEffect: "write", CredentialAccess: "none", NetworkBound: "none", ProcessEffect: "none", ReplayClass: "non_replay_safe", OutputKind: "data", LocalArtifact: "none", Configuration: "read", SelfUpdate: "disabled"},
 	{ID: EffectLocalWriteUpdatable, Summary: "update a local artifact with startup update eligible", RemoteEffect: "none", LocalEffect: "write", CredentialAccess: "none", NetworkBound: "none", ProcessEffect: "none", ReplayClass: "non_replay_safe", OutputKind: "data", LocalArtifact: "required", Configuration: "read", SelfUpdate: "possible"},

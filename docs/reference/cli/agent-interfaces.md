@@ -167,7 +167,7 @@ network request or self-update.
 
 The schema-v1 effect result is
 `{schema_version,enforcement,selection,profiles,commands}`. `enforcement` is
-always `informational`. Every one of the 168 executable leaves has exactly one
+always `informational`. Every one of the 169 executable leaves has exactly one
 `effect_profile` in the canonical command registry, and a newly constructed
 leaf fails startup validation until classified. Each command row includes its
 path, access class, output modes, optional mutation profile, and any curated
