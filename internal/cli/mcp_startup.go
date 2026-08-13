@@ -6,9 +6,14 @@ import (
 	"github.com/isukharev/atl/internal/plugincontract"
 )
 
-// bindMCPPluginStartup validates markers before pre-runs and dependencies.
-func bindMCPPluginStartup(cmd *cobra.Command, binaryProductVersion string) {
+// bindMCPPluginStartup validates markers before pre-runs and dependencies and
+// retains the resulting content-free status in this command invocation only.
+func bindMCPPluginStartup(cmd *cobra.Command, binaryProductVersion string) func() plugincontract.StartupStatus {
 	var interfaceContracts, productVersions []string
+	status := plugincontract.StartupStatus{
+		InterfaceContract: plugincontract.InterfaceUnverified,
+		ProductVersion:    plugincontract.ProductUnverified,
+	}
 	cmd.Flags().StringArrayVar(&interfaceContracts, plugincontract.InterfaceFlagName, nil, "generated plugin interface-contract marker")
 	cmd.Flags().StringArrayVar(&productVersions, plugincontract.ProductFlagName, nil, "generated plugin product-version marker")
 	_ = cmd.Flags().MarkHidden(plugincontract.InterfaceFlagName)
@@ -17,7 +22,7 @@ func bindMCPPluginStartup(cmd *cobra.Command, binaryProductVersion string) {
 		if err := cobra.NoArgs(cmd, args); err != nil {
 			return err
 		}
-		_, err := plugincontract.Evaluate(plugincontract.Markers{
+		evaluated, err := plugincontract.Evaluate(plugincontract.Markers{
 			InterfaceContracts: interfaceContracts,
 			ProductVersions:    productVersions,
 		}, binaryProductVersion)
@@ -27,6 +32,8 @@ func bindMCPPluginStartup(cmd *cobra.Command, binaryProductVersion string) {
 		if err != nil {
 			return usageErr("invalid plugin startup markers")
 		}
+		status = evaluated
 		return nil
 	}
+	return func() plugincontract.StartupStatus { return status }
 }

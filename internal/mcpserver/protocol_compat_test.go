@@ -168,6 +168,8 @@ func TestServerStdioSupportsModernDiscoveryWithoutInitialize(t *testing.T) {
 	assertRawStdioResourceInventory(t, resources, true)
 	read := process.call(`{"jsonrpc":"2.0","id":4,"method":"resources/read","params":{"uri":"atl://capabilities","_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"modern-stdio-test","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}`, 4)
 	assertRawStdioCapabilitiesResource(t, read, true)
+	runtime := process.call(`{"jsonrpc":"2.0","id":5,"method":"resources/read","params":{"uri":"atl://runtime","_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientInfo":{"name":"modern-stdio-test","version":"1"},"io.modelcontextprotocol/clientCapabilities":{}}}}`, 5)
+	assertRawStdioRuntimeResource(t, runtime, true)
 	process.close()
 }
 
@@ -191,6 +193,8 @@ func TestServerStdioPreservesLegacyInitializeFallback(t *testing.T) {
 	assertRawStdioResourceInventory(t, resources, false)
 	read := process.call(`{"jsonrpc":"2.0","id":4,"method":"resources/read","params":{"uri":"atl://capabilities"}}`, 4)
 	assertRawStdioCapabilitiesResource(t, read, false)
+	runtime := process.call(`{"jsonrpc":"2.0","id":5,"method":"resources/read","params":{"uri":"atl://runtime"}}`, 5)
+	assertRawStdioRuntimeResource(t, runtime, false)
 	process.close()
 }
 
@@ -383,6 +387,12 @@ func assertRawStdioResourceInventory(t *testing.T, response *jsonrpc.Response, m
 		"title":       "atl capability routes",
 		"description": "Static content-free CLI and MCP capability routing metadata.",
 		"mimeType":    capabilitiesResourceMIMEType,
+	}, {
+		"uri":         RuntimeResourceURI,
+		"name":        runtimeResourceName,
+		"title":       runtimeResourceTitle,
+		"description": runtimeResourceDescription,
+		"mimeType":    runtimeResourceMIMEType,
 	}}
 	if !reflect.DeepEqual(resources, want) {
 		t.Fatalf("stdio resource inventory=%v want=%v", resources, want)
@@ -391,7 +401,7 @@ func assertRawStdioResourceInventory(t *testing.T, response *jsonrpc.Response, m
 
 func assertRawStdioCapabilitiesResource(t *testing.T, response *jsonrpc.Response, modern bool) {
 	t.Helper()
-	document := assertRawStdioCachedResult(t, response, "resources/read", "contents", modern)
+	document := assertRawStdioCachedResult(t, response, "resources/read", "contents", modern, "public")
 	var rawContents []map[string]json.RawMessage
 	if err := json.Unmarshal(document["contents"], &rawContents); err != nil {
 		t.Fatalf("decode resources/read contents: %v", err)
@@ -413,7 +423,35 @@ func assertRawStdioCapabilitiesResource(t *testing.T, response *jsonrpc.Response
 	assertCapabilitiesResourceJSON(t, contents[0].Text)
 }
 
-func assertRawStdioCachedResult(t *testing.T, response *jsonrpc.Response, method, payloadMember string, modern bool) map[string]json.RawMessage {
+func assertRawStdioRuntimeResource(t *testing.T, response *jsonrpc.Response, modern bool) {
+	t.Helper()
+	document := assertRawStdioCachedResult(t, response, "resources/read", "contents", modern, "private")
+	var rawContents []map[string]json.RawMessage
+	if err := json.Unmarshal(document["contents"], &rawContents); err != nil {
+		t.Fatalf("decode runtime resources/read contents: %v", err)
+	}
+	if len(rawContents) != 1 || !slices.Equal(rawJSONMemberNames(rawContents[0]), []string{"mimeType", "text", "uri"}) {
+		t.Fatalf("runtime resources/read content shape=%s", document["contents"])
+	}
+	var contents []struct {
+		URI      string `json:"uri"`
+		MIMEType string `json:"mimeType"`
+		Text     string `json:"text"`
+	}
+	if err := json.Unmarshal(document["contents"], &contents); err != nil {
+		t.Fatalf("decode runtime resources/read text content: %v", err)
+	}
+	if contents[0].URI != RuntimeResourceURI || contents[0].MIMEType != runtimeResourceMIMEType {
+		t.Fatalf("runtime resources/read content=%+v", contents[0])
+	}
+	want := `{"schema_version":1,"access":"hard_read_only","lifecycle":"startup_only","change_activation":"restart_required","service_profile":"offline","global_read_only_policy":{"configured_read_only":false,"effective_read_only":false,"read_only_source":"none"},"plugin":{"interface_contract":"unverified","product_version":"unverified"}}`
+	if contents[0].Text != want {
+		t.Fatalf("runtime resources/read text=%s want=%s", contents[0].Text, want)
+	}
+	assertRuntimeResourceJSON(t, contents[0].Text)
+}
+
+func assertRawStdioCachedResult(t *testing.T, response *jsonrpc.Response, method, payloadMember string, modern bool, wantCacheScope ...string) map[string]json.RawMessage {
 	t.Helper()
 	if response.Error != nil {
 		t.Fatalf("%s error: %v", method, response.Error)
@@ -435,7 +473,11 @@ func assertRawStdioCachedResult(t *testing.T, response *jsonrpc.Response, method
 		t.Fatalf("%s ttlMs=%s: %v", method, document["ttlMs"], err)
 	}
 	var cacheScope string
-	if err := json.Unmarshal(document["cacheScope"], &cacheScope); err != nil || cacheScope != "public" {
+	wantScope := "public"
+	if len(wantCacheScope) == 1 {
+		wantScope = wantCacheScope[0]
+	}
+	if err := json.Unmarshal(document["cacheScope"], &cacheScope); err != nil || cacheScope != wantScope {
 		t.Fatalf("%s cacheScope=%s: %v", method, document["cacheScope"], err)
 	}
 	if modern {
