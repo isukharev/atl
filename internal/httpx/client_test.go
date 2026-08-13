@@ -528,6 +528,113 @@ func TestSingleAttemptContextDoesNotFollowRedirect(t *testing.T) {
 	}
 }
 
+func TestNoReplayRetriesRequiresBudgetBeforeBufferedOrStreamRequest(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		_, _ = io.WriteString(w, "ok")
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "tok", "test")
+	ctx := domain.WithNoReplayRetries(context.Background())
+	if _, err := c.Do(ctx, http.MethodGet, "/buffered", nil, nil); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("buffered error = %v, want ErrCheckFailed", err)
+	}
+	if _, err := c.GetStream(ctx, "/stream"); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("stream error = %v, want ErrCheckFailed", err)
+	}
+	if got := hits.Load(); got != 0 {
+		t.Fatalf("unbudgeted no-replay policy made %d requests, want 0", got)
+	}
+}
+
+func TestNoReplayRetriesPreservesBudgetedRedirectsWithoutRetry(t *testing.T) {
+	var retryHits atomic.Int32
+	var streamRetryHits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/redirect":
+			http.Redirect(w, r, "/terminal", http.StatusFound)
+		case "/terminal":
+			_, _ = io.WriteString(w, "ok")
+		case "/retry":
+			retryHits.Add(1)
+			w.WriteHeader(http.StatusServiceUnavailable)
+		case "/stream-retry":
+			streamRetryHits.Add(1)
+			w.WriteHeader(http.StatusServiceUnavailable)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "tok", "test")
+	budget := mustReadBudget(t, 2, 1024)
+	ctx := domain.WithNoReplayRetries(domain.WithReadBudget(context.Background(), budget))
+	data, err := c.Do(ctx, http.MethodGet, "/redirect", nil, nil)
+	if err != nil || string(data) != "ok" || budget.Usage().Attempts != 2 {
+		t.Fatalf("redirect data=%q err=%v usage=%+v", data, err, budget.Usage())
+	}
+	retryBudget := mustReadBudget(t, 2, 1024)
+	retryCtx := domain.WithNoReplayRetries(domain.WithReadBudget(context.Background(), retryBudget))
+	if _, err := c.Do(retryCtx, http.MethodGet, "/retry", nil, nil); err == nil {
+		t.Fatal("transient response unexpectedly retried to success")
+	}
+	if retryHits.Load() != 1 || retryBudget.Usage().Attempts != 1 {
+		t.Fatalf("retry hits=%d usage=%+v", retryHits.Load(), retryBudget.Usage())
+	}
+	streamBudget := mustReadBudget(t, 2, 1024)
+	streamCtx := domain.WithNoReplayRetries(domain.WithReadBudget(context.Background(), streamBudget))
+	if stream, err := c.GetStream(streamCtx, "/stream-retry"); err == nil || stream != nil {
+		t.Fatalf("stream=%v err=%v, want one transient failure", stream, err)
+	}
+	if streamRetryHits.Load() != 1 || streamBudget.Usage().Attempts != 1 {
+		t.Fatalf("stream retry hits=%d usage=%+v", streamRetryHits.Load(), streamBudget.Usage())
+	}
+}
+
+func TestNoReplayStreamRedirectBudgetAdmitsFifthTerminalAndRefusesSixth(t *testing.T) {
+	for _, terminal := range []int{4, 5} {
+		name := "fifth terminal succeeds"
+		if terminal == 5 {
+			name = "sixth request refused"
+		}
+		t.Run(name, func(t *testing.T) {
+			var hits atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits.Add(1)
+				var step int
+				if _, err := fmt.Sscanf(r.URL.Path, "/%d", &step); err != nil {
+					t.Fatalf("path=%q: %v", r.URL.Path, err)
+				}
+				if step < terminal {
+					http.Redirect(w, r, fmt.Sprintf("/%d", step+1), http.StatusFound)
+					return
+				}
+				_, _ = io.WriteString(w, "ok")
+			}))
+			defer srv.Close()
+			budget := mustReadBudget(t, 5, 16)
+			ctx := domain.WithNoReplayRetries(domain.WithReadBudget(context.Background(), budget))
+			stream, err := New(srv.URL, "tok", "test").GetStream(ctx, "/0")
+			if terminal == 5 {
+				if !errors.Is(err, domain.ErrReadAttemptBudgetExhausted) || stream != nil || hits.Load() != 5 {
+					t.Fatalf("stream=%v err=%v hits=%d usage=%+v", stream, err, hits.Load(), budget.Usage())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, readErr := io.ReadAll(stream)
+			closeErr := stream.Close()
+			if readErr != nil || closeErr != nil || string(data) != "ok" || hits.Load() != 5 || budget.Usage().Attempts != 5 {
+				t.Fatalf("data=%q read=%v close=%v hits=%d usage=%+v", data, readErr, closeErr, hits.Load(), budget.Usage())
+			}
+		})
+	}
+}
+
 func TestMutatingMethodsNeverFollowRedirects(t *testing.T) {
 	methods := []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete}
 	statuses := []int{

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/isukharev/atl/internal/domain"
 )
@@ -22,6 +23,7 @@ const (
 	confluenceTreeMaxResponseBytes       = 256 << 20
 	confluenceTreeDefaultDeadline        = 2 * time.Minute
 	confluenceTreeMaxDeadline            = 10 * time.Minute
+	confluenceTreeMaxSpaceBytes          = 255
 )
 
 const (
@@ -35,6 +37,7 @@ const (
 	ConfluenceTreeMaxResponseBytes       = confluenceTreeMaxResponseBytes
 	ConfluenceTreeDefaultDeadline        = confluenceTreeDefaultDeadline
 	ConfluenceTreeMaxDeadline            = confluenceTreeMaxDeadline
+	ConfluenceTreeMaxSpaceBytes          = confluenceTreeMaxSpaceBytes
 )
 
 // ConfluenceTreeOpts selects and bounds one hierarchy traversal. Zero values
@@ -88,8 +91,9 @@ func NormalizeConfluenceTreeOpts(opts ConfluenceTreeOpts) (ConfluenceTreeOpts, e
 		return value, nil
 	}
 	var err error
-	if strings.TrimSpace(opts.Space) == "" {
-		return opts, fmt.Errorf("%w: Confluence tree space is required", domain.ErrUsage)
+	opts.Space = strings.TrimSpace(opts.Space)
+	if opts.Space == "" || !utf8.ValidString(opts.Space) || len(opts.Space) > confluenceTreeMaxSpaceBytes {
+		return opts, fmt.Errorf("%w: Confluence tree space is required, valid UTF-8, and at most %d bytes", domain.ErrUsage, confluenceTreeMaxSpaceBytes)
 	}
 	if opts.Depth < 0 {
 		return opts, fmt.Errorf("%w: Confluence tree depth must be non-negative", domain.ErrUsage)
@@ -200,8 +204,9 @@ func validateConfluenceTreePage(page domain.ConfluenceTreePage, opts ConfluenceT
 	}
 	seen := make(map[string]struct{}, len(page.Pages))
 	for _, ref := range page.Pages {
-		if ref.ID == "" {
-			return fmt.Errorf("%w: Confluence tree contains an empty page id", domain.ErrCheckFailed)
+		if !domain.ValidConfluenceReadID(ref.ID) || strings.TrimSpace(ref.Title) == "" || ref.Space != opts.Space || ref.Version <= 0 ||
+			(ref.Parent != "" && (!domain.ValidConfluenceReadID(ref.Parent) || ref.Parent == ref.ID)) {
+			return fmt.Errorf("%w: Confluence tree contains invalid page metadata", domain.ErrCheckFailed)
 		}
 		if _, duplicate := seen[ref.ID]; duplicate {
 			return fmt.Errorf("%w: Confluence tree contains a duplicate page id", domain.ErrCheckFailed)

@@ -23,7 +23,7 @@ func TestConfAttachmentSearchEmitsBoundedMetadataOnlyResult(t *testing.T) {
 			t.Fatalf("request=%q", r.URL.RequestURI())
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"results":[` + cliAttachmentDiscoveryRow + `],"start":0,"limit":1,"size":1,"totalSize":1,"_links":{}}`))
+		_, _ = w.Write([]byte(`{"results":[` + cliAttachmentDiscoveryRow + `],"start":0,"limit":1,"size":1,"totalCount":1,"_links":{}}`))
 	}))
 	t.Cleanup(srv.Close)
 	out, stderr, code := runCLIFull(t, confEnv(srv), attachmentDiscoveryCLIArgs()...)

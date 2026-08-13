@@ -7,6 +7,7 @@ import (
 )
 
 type singleAttemptContextKey struct{}
+type noReplayRetriesContextKey struct{}
 type redactHTTPTraceContextKey struct{}
 type readBudgetContextKey struct{}
 type writeClearanceContextKey struct{}
@@ -200,6 +201,21 @@ func WithSingleAttempt(ctx context.Context) context.Context {
 func SingleAttempt(ctx context.Context) bool {
 	requested, _ := ctx.Value(singleAttemptContextKey{}).(bool)
 	return requested
+}
+
+// WithNoReplayRetries disables the generic replay-safe retry loop while
+// retaining the ordinary redirect policy. Redirects remain limited by the
+// caller's physical ReadBudget and the transport's origin/scheme checks.
+func WithNoReplayRetries(ctx context.Context) context.Context {
+	return context.WithValue(ctx, noReplayRetriesContextKey{}, true)
+}
+
+// NoReplayRetries reports whether generic retry replay is disabled. A
+// SingleAttempt context is also non-retrying, but additionally refuses every
+// redirect after the first physical request.
+func NoReplayRetries(ctx context.Context) bool {
+	requested, _ := ctx.Value(noReplayRetriesContextKey{}).(bool)
+	return requested || SingleAttempt(ctx)
 }
 
 // WithWriteClearance records that an application authorization decision

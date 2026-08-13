@@ -72,11 +72,12 @@ func (cf *Confluence) DiscoverAttachmentsQualified(ctx context.Context, request 
 					FileSize *int64 `json:"fileSize"`
 				} `json:"extensions"`
 			} `json:"results"`
-			Start     *int `json:"start"`
-			Limit     *int `json:"limit"`
-			Size      *int `json:"size"`
-			TotalSize *int `json:"totalSize"`
-			Links     *struct {
+			Start      *int                             `json:"start"`
+			Limit      *int                             `json:"limit"`
+			Size       *int                             `json:"size"`
+			TotalCount confluenceContentSearchWireTotal `json:"totalCount"`
+			TotalSize  confluenceContentSearchWireTotal `json:"totalSize"`
+			Links      *struct {
 				Next string `json:"next"`
 			} `json:"_links"`
 		}
@@ -92,19 +93,22 @@ func (cf *Confluence) DiscoverAttachmentsQualified(ctx context.Context, request 
 				return result, err
 			}
 		}
-		if response.Results == nil || response.Start == nil || response.Limit == nil || response.Size == nil ||
-			response.TotalSize == nil || response.Links == nil {
+		if response.Results == nil || response.Start == nil || response.Limit == nil || response.Size == nil || response.Links == nil {
 			return partial(domain.ConfluenceAttachmentDiscoveryPartialPaginationUnqualified, cursor.startAt())
 		}
 		rows := *response.Results
 		if *response.Start < 0 || *response.Start != cursor.startAt() || *response.Limit <= 0 || *response.Limit > pageLimit ||
-			*response.Size < 0 || *response.Size != len(rows) || *response.Size > *response.Limit || len(rows) > pageLimit || *response.TotalSize < 0 {
+			*response.Size < 0 || *response.Size != len(rows) || *response.Size > *response.Limit || len(rows) > pageLimit {
+			return partial(domain.ConfluenceAttachmentDiscoveryPartialPaginationUnqualified, cursor.startAt())
+		}
+		total, totalOK := qualifiedConfluenceContentSearchTotal(response.TotalCount, response.TotalSize)
+		if !totalOK {
 			return partial(domain.ConfluenceAttachmentDiscoveryPartialPaginationUnqualified, cursor.startAt())
 		}
 		if qualifiedTotal < 0 {
-			qualifiedTotal = *response.TotalSize
+			qualifiedTotal = total
 			result.TotalSize = intPointer(qualifiedTotal)
-		} else if *response.TotalSize != qualifiedTotal {
+		} else if total != qualifiedTotal {
 			result.TotalSize = nil
 			return partial(domain.ConfluenceAttachmentDiscoveryPartialPaginationUnqualified, cursor.startAt())
 		}
@@ -179,8 +183,9 @@ func qualifiedConfluenceAttachmentMetadata(
 		space == nil || space.Key == nil || metadata == nil || metadata.MediaType == nil || extensions == nil || extensions.FileSize == nil {
 		return domain.ConfluenceAttachmentMetadata{}, false
 	}
-	if !domain.ValidConfluenceContentID(*id) || strings.TrimSpace(*title) == "" || *contentType != "attachment" || *version.Number <= 0 ||
-		!domain.ValidConfluenceContentID(*container.ID) || (*container.Type != "page" && *container.Type != "blogpost") || *container.Version.Number <= 0 ||
+	if !domain.ValidConfluenceReadID(*id) || strings.TrimSpace(*title) == "" || *contentType != "attachment" || *version.Number <= 0 ||
+		!domain.ValidConfluenceReadID(*container.ID) || (*container.Type != "page" && *container.Type != "blogpost") || *container.Version.Number <= 0 ||
+		*id == *container.ID ||
 		strings.TrimSpace(*space.Key) == "" || strings.TrimSpace(*metadata.MediaType) == "" || *extensions.FileSize < 0 ||
 		(strings.TrimSpace(expectedSpace) != "" && *space.Key != strings.TrimSpace(expectedSpace)) {
 		return domain.ConfluenceAttachmentMetadata{}, false

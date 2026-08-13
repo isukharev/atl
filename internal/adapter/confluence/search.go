@@ -199,19 +199,29 @@ func (cf *Confluence) TreeQualified(ctx context.Context, request domain.Confluen
 	cursor := confluencePageCursor{}
 	scanned := 0
 	qualifiedTotal := -1
+	seen := make(map[string]struct{})
 	for {
+		remainingScan := request.MaxScannedItems - scanned
+		if remainingScan <= 0 {
+			return partial(domain.ConfluenceTreePartialScanLimit)
+		}
+		pageLimit := 200
+		if remainingScan < pageLimit {
+			pageLimit = remainingScan
+		}
 		q := url.Values{}
 		q.Set("cql", "space="+cqlQuote(request.Space)+" and type=page")
 		q.Set("expand", "ancestors,version,space")
-		q.Set("limit", "200")
+		q.Set("limit", strconv.Itoa(pageLimit))
 		q.Set("start", strconv.Itoa(cursor.startAt()))
 		var resp struct {
-			Results   *[]content `json:"results"`
-			Start     *int       `json:"start"`
-			Limit     *int       `json:"limit"`
-			Size      *int       `json:"size"`
-			TotalSize *int       `json:"totalSize"`
-			Links     *struct {
+			Results    *[]content                       `json:"results"`
+			Start      *int                             `json:"start"`
+			Limit      *int                             `json:"limit"`
+			Size       *int                             `json:"size"`
+			TotalCount confluenceContentSearchWireTotal `json:"totalCount"`
+			TotalSize  confluenceContentSearchWireTotal `json:"totalSize"`
+			Links      *struct {
 				Next string `json:"next"`
 			} `json:"_links"`
 		}
@@ -227,18 +237,22 @@ func (cf *Confluence) TreeQualified(ctx context.Context, request domain.Confluen
 				return result, err
 			}
 		}
-		if resp.Results == nil || resp.Start == nil || resp.Limit == nil || resp.Size == nil ||
-			resp.TotalSize == nil || resp.Links == nil {
+		if resp.Results == nil || resp.Start == nil || resp.Limit == nil || resp.Size == nil || resp.Links == nil {
 			return partial(domain.ConfluenceTreePartialPaginationUnqualified)
 		}
 		results := *resp.Results
-		if *resp.Start < 0 || *resp.Start != cursor.startAt() || *resp.Limit <= 0 ||
-			*resp.Size < 0 || *resp.Size != len(results) || *resp.Size > *resp.Limit || *resp.TotalSize < 0 {
+		if *resp.Start < 0 || *resp.Start != cursor.startAt() || *resp.Limit <= 0 || *resp.Limit > pageLimit ||
+			*resp.Size < 0 || *resp.Size != len(results) || *resp.Size > *resp.Limit ||
+			len(results) > pageLimit {
+			return partial(domain.ConfluenceTreePartialPaginationUnqualified)
+		}
+		total, totalOK := qualifiedConfluenceContentSearchTotal(resp.TotalCount, resp.TotalSize)
+		if !totalOK {
 			return partial(domain.ConfluenceTreePartialPaginationUnqualified)
 		}
 		if qualifiedTotal < 0 {
-			qualifiedTotal = *resp.TotalSize
-		} else if *resp.TotalSize != qualifiedTotal {
+			qualifiedTotal = total
+		} else if total != qualifiedTotal {
 			return partial(domain.ConfluenceTreePartialPaginationUnqualified)
 		}
 		end, bounded := cursor.checkedEnd(len(results))
@@ -247,37 +261,40 @@ func (cf *Confluence) TreeQualified(ctx context.Context, request domain.Confluen
 			(resp.Links.Next != "" && end >= qualifiedTotal) {
 			return partial(domain.ConfluenceTreePartialPaginationUnqualified)
 		}
-		remaining := request.MaxScannedItems - scanned
-		resultCount := len(results)
-		if resultCount > remaining {
-			resultCount = remaining
-		}
-		scanned += resultCount
+		pageSeen := make(map[string]struct{}, len(results))
+		pageRefs := make([]domain.PageRef, 0, len(results))
 		outputOverflow := false
-		for _, ct := range results[:resultCount] {
-			d := 0
-			if ct.Ancestors != nil {
-				d = len(*ct.Ancestors)
+		for _, ct := range results {
+			if !qualifiedConfluenceTreeContent(ct, request.Space) {
+				return partial(domain.ConfluenceTreePartialPaginationUnqualified)
 			}
+			if _, duplicate := seen[ct.ID]; duplicate {
+				return partial(domain.ConfluenceTreePartialPaginationUnqualified)
+			}
+			if _, duplicate := pageSeen[ct.ID]; duplicate {
+				return partial(domain.ConfluenceTreePartialPaginationUnqualified)
+			}
+			pageSeen[ct.ID] = struct{}{}
+			d := len(*ct.Ancestors)
 			if request.Depth > 0 && d >= request.Depth {
 				continue
 			}
 			pr := domain.PageRef{ID: ct.ID, Title: ct.Title, Space: ct.Space.Key, Version: ct.Version.Number}
-			if ct.Ancestors != nil {
-				if n := len(*ct.Ancestors); n > 0 {
-					pr.Parent = (*ct.Ancestors)[n-1].ID
-				}
+			if n := len(*ct.Ancestors); n > 0 {
+				pr.Parent = (*ct.Ancestors)[n-1].ID
 			}
-			if len(result.Pages) < request.MaxItems {
-				result.Pages = append(result.Pages, pr)
+			if len(result.Pages)+len(pageRefs) < request.MaxItems {
+				pageRefs = append(pageRefs, pr)
 			} else {
 				outputOverflow = true
 			}
 		}
-		result.ScannedItems = scanned
-		if len(results) > remaining {
-			return partial(domain.ConfluenceTreePartialScanLimit)
+		for id := range pageSeen {
+			seen[id] = struct{}{}
 		}
+		scanned += len(results)
+		result.Pages = append(result.Pages, pageRefs...)
+		result.ScannedItems = scanned
 		if outputOverflow {
 			return partial(domain.ConfluenceTreePartialItemLimit)
 		}
@@ -295,6 +312,60 @@ func (cf *Confluence) TreeQualified(ctx context.Context, request domain.Confluen
 			return partial(domain.ConfluenceTreePartialScanLimit)
 		}
 	}
+}
+
+func qualifiedConfluenceTreeContent(ct content, expectedSpace string) bool {
+	if !domain.ValidConfluenceReadID(ct.ID) || ct.Type != "page" || strings.TrimSpace(ct.Title) == "" ||
+		ct.Space.Key != expectedSpace || ct.Version.Number <= 0 || ct.Ancestors == nil {
+		return false
+	}
+	ancestors := make(map[string]struct{}, len(*ct.Ancestors))
+	for _, ancestor := range *ct.Ancestors {
+		if !domain.ValidConfluenceReadID(ancestor.ID) || ancestor.ID == ct.ID {
+			return false
+		}
+		if _, duplicate := ancestors[ancestor.ID]; duplicate {
+			return false
+		}
+		ancestors[ancestor.ID] = struct{}{}
+	}
+	return true
+}
+
+type confluenceContentSearchWireTotal struct {
+	present bool
+	valid   bool
+	value   int64
+}
+
+func (total *confluenceContentSearchWireTotal) UnmarshalJSON(data []byte) error {
+	total.present = true
+	parsed, err := strconv.ParseUint(string(data), 10, 64)
+	if err != nil || parsed > uint64(1<<63-1) {
+		return nil
+	}
+	total.valid = true
+	total.value = int64(parsed)
+	return nil
+}
+
+func qualifiedConfluenceContentSearchTotal(totalCount, totalSize confluenceContentSearchWireTotal) (int, bool) {
+	if !totalCount.present && !totalSize.present {
+		return 0, false
+	}
+	if (totalCount.present && !totalCount.valid) || (totalSize.present && !totalSize.valid) ||
+		(totalCount.present && totalSize.present && totalCount.value != totalSize.value) {
+		return 0, false
+	}
+	value := totalCount.value
+	if !totalCount.present {
+		value = totalSize.value
+	}
+	converted := int(value)
+	if converted < 0 || int64(converted) != value {
+		return 0, false
+	}
+	return converted, true
 }
 
 func firstNonEmpty(a, b string) string {

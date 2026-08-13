@@ -53,6 +53,19 @@ func TestResolveConfluenceDirectPageReferences(t *testing.T) {
 	}
 }
 
+func TestValidConfluencePageReferenceInputKeepsPublicReadForms(t *testing.T) {
+	for _, value := range []string{"opaque_ID-7", "/x/AwAG", "https://docs.example.test/display/DOC/Page"} {
+		if !ValidConfluencePageReferenceInput(value) {
+			t.Fatalf("ValidConfluencePageReferenceInput(%q)=false", value)
+		}
+	}
+	for _, value := range []string{"", "  ", "bad.id", "relative/path", "mailto:user@example.test", "https://user@example.test/page"} {
+		if ValidConfluencePageReferenceInput(value) {
+			t.Fatalf("ValidConfluencePageReferenceInput(%q)=true", value)
+		}
+	}
+}
+
 func TestResolveConfluenceReferenceNormalizesDefaultHTTPSPort(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -109,6 +122,15 @@ func TestResolveConfluenceDisplayReferenceExactAndAmbiguous(t *testing.T) {
 	}
 	if len(store.searches) != 1 || !strings.Contains(store.searches[0], `space = "ENG"`) || !strings.Contains(store.searches[0], `title = "Delivery Notes"`) {
 		t.Fatalf("searches=%v", store.searches)
+	}
+	store.refs = []domain.PageRef{{ID: "opaque_ID-7"}}
+	result, err = service.ResolvePageReference(context.Background(), "/display/ENG/Opaque")
+	if err != nil || result.ID != "opaque_ID-7" {
+		t.Fatalf("opaque resolved result=%+v err=%v", result, err)
+	}
+	store.refs = []domain.PageRef{{ID: "."}}
+	if _, err := service.ResolvePageReference(context.Background(), "/display/ENG/Invalid"); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("invalid resolved id err=%v", err)
 	}
 
 	store.refs = []domain.PageRef{{ID: "42"}, {ID: "43"}}
