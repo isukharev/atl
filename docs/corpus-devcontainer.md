@@ -22,7 +22,8 @@ runtime wrapper enforces these locations:
 | Location | Contents and rule |
 |---|---|
 | source checkout | Scripts and source only; corpus, index, secret, CA, and provider roots must not overlap it through a direct path or symlink alias |
-| `/tmp/atl-context.XXXXXX` | Fresh exact-`0700` runtime with private config, attempts, sealed store, handoff, diagnostics, and an indexer-only document copy |
+| `/tmp/atl-context.XXXXXX` | Fresh exact-`0700` runtime with private config, attempts, the disposable sealed store when caching is off, handoff, diagnostics, and an indexer-only document copy |
+| optional cache root | Caller-created persistent exact-`0700` directory owned by the current user; it must be a physical non-symlink path outside source, index, runtime/context, selector, secret, and CA mounts |
 | index root | Caller-created, empty exact-`0700` directory outside both source and runtime roots |
 | mounted inputs | Caller-owned regular files with mode `0400` or `0600`; backend URLs and PATs enter only selected ATL child environments, while project/space selectors necessarily become ATL child arguments inside the private container |
 
@@ -43,6 +44,13 @@ routes, read-only/no-update controls, a fixed system path, and the optional
 mounted CA file. Ambient legacy aliases, integration credentials, trust/update
 overrides, process policy, mirror routing, and proxies cannot become fallback
 inputs.
+
+The optional persistent cache stores plaintext corpus generations. Use an
+encrypted host volume or equivalent platform guarantee when encryption at rest
+is required; ATL and this template do not supply it. The ATL corpus cache ends
+at the sealed corpus boundary. Graphify graphs, embeddings, vectors, model
+caches, and other downstream index state remain external in the separately
+selected index root and never enter `ATL_CACHE_ROOT`.
 
 ## Disposable cold start
 
@@ -113,6 +121,47 @@ export ATL_REQUESTS_PER_SECOND=20
 sh examples/corpus-devcontainer/run-corpus.sh
 ```
 
+## Optional persistent cache
+
+Omit `ATL_CACHE_ROOT` to keep the cold-start command and handoff exactly as
+shown above. Cache-related environment values are ignored when the root is
+absent, so an ambient setting cannot silently change the existing disposable
+workflow.
+
+To reuse compatible sealed generations across container restarts, mount one
+dedicated owner-private volume at an absolute physical path, create the mount
+root before running, and supply the cache controls together:
+
+```sh named-private-corpus-devcontainer-cache
+install -d -m 0700 /var/lib/atl-corpus-cache
+
+export ATL_CACHE_ROOT=/var/lib/atl-corpus-cache
+export ATL_INITIALIZE_CACHE=1
+export ATL_CACHE_MAX_REQUESTS=2000
+export ATL_CACHE_MAX_RESPONSE_BYTES=1073741824
+export ATL_CACHE_DEADLINE=30m
+
+sh examples/corpus-devcontainer/run-corpus.sh
+```
+
+`ATL_INITIALIZE_CACHE` must be exactly `0` or `1`: use `1` only to initialize a
+new store, then use `0` for later runs. The three cache probe bounds are
+required positive/finite values whenever the cache is selected; they are
+separate from the ordinary cold-capture request, response-byte, and deadline
+limits. The wrapper appends the cache arguments only in this branch. When
+`ATL_CA_FILE` is non-empty, it passes the selected backend's mounted CA as its explicit qualified
+`ATL_JIRA_CA_BUNDLE` and/or `ATL_CONFLUENCE_CA_BUNDLE`, while retaining
+`SSL_CERT_FILE`; an ambient trust override is never accepted as cache identity.
+Without a mounted CA, no backend-specific CA variable is set: system trust may
+support a cold publication, but it is not a qualified trust identity and must
+never authorize a cache hit.
+
+The root may not be a symlink or traverse one, and same/ancestor/descendant
+aliases with the source, index, runtime parent, allocated runtime, or any
+selector, secret, attachment-policy, or CA file are rejected before ATL runs.
+The indexer still receives only its isolated verified document copy and never
+receives the cache root or any cache control.
+
 For Confluence, provide `ATL_CONFLUENCE_URL_FILE`,
 `ATL_CONFLUENCE_PAT_FILE`, `ATL_CONFLUENCE_SPACE_FILE`, and
 `ATL_MAX_CONFLUENCE_PAGES`. Both services may be selected in one run, but their
@@ -156,9 +205,9 @@ A successful run prints one content-free result:
 Diagnostics stay inside the owner-private runtime. A failed build or handoff
 never invokes the indexer. No in-progress generation becomes current, and an
 already selected generation is never evidence that the remote backend will not
-change later. Preserve a failed persistent runtime when the underlying ATL
-error reports an ambiguous outcome; do not infer rollback and do not replay a
-remote read automatically.
+change later. On any failure or ambiguous outcome, preserve both the allocated
+runtime and the persistent cache. Do not infer rollback, delete either root, or
+replay a remote read automatically.
 
 The default `ATL_CONTEXT_PARENT=/tmp` is disposable with the container, but the
 wrapper deliberately does not delete it while the container is alive. This
@@ -168,6 +217,38 @@ container path as `ATL_CONTEXT_PARENT`. Each invocation still allocates a new
 `atl-context.XXXXXX` child; it does not silently resume or overwrite an older
 run. Cleanup belongs to the owner of that exact directory after verifying that
 no recovery evidence or needed generation remains.
+
+Inspect a persistent store locally with content-free status output; this does
+not contact a backend:
+
+```sh named-private-corpus-cache-status
+atl corpus cache status --store "$ATL_CACHE_ROOT"
+```
+
+Retention is a separate destructive lifecycle, never part of the wrapper and
+never automatic. First create and review an owner-private hash-bound plan, then
+pass its reported digest explicitly to apply:
+
+```sh named-private-corpus-cache-retention
+umask 077
+retention_root=$(mktemp -d /tmp/atl-cache-retention.XXXXXX)
+plan_artifact="$retention_root/plan.json"
+atl corpus cache retention preview \
+  --store "$ATL_CACHE_ROOT" \
+  --retain-predecessors 2 \
+  --plan-artifact "$plan_artifact"
+
+expected_plan_digest=REPLACE_WITH_DIGEST_FROM_PREVIEW
+atl corpus cache retention apply \
+  --store "$ATL_CACHE_ROOT" \
+  --plan-artifact "$plan_artifact" \
+  --expected-plan-digest "$expected_plan_digest" \
+  --apply
+```
+
+Keep the plan private, review the exact policy before applying it, and preserve
+the cache if apply reports failure or ambiguity. A status inspection or a
+successful new build is not cleanup authority.
 
 ## Sealed handoff and indexers
 
@@ -222,10 +303,12 @@ vector, cache, and model outputs inherit the corpus privacy boundary.
 
 `make check-corpus-devcontainer` is hermetic: it uses synthetic content, a
 loopback Jira server, a fake release boundary, and a stub indexer. It asserts
-the exact read-only request set, zero requests for an invalid Jira selector,
-source-tree cleanliness, modes, sealed-only handoff, failed-build isolation,
-clean child environments, tag/version-bound installer verification, and
-Graphify refusal of forged-loopback userinfo without contacting configured
+the exact unchanged no-cache argv, the opt-in cache argv and persistent handoff,
+cache path/mode/symlink/overlap refusal, cache-bound trust and environment
+isolation, the exact read-only request set, zero requests for an invalid Jira
+selector, source-tree cleanliness, modes, sealed-only handoff, failed-build
+isolation, clean child environments, tag/version-bound installer verification,
+and Graphify refusal of forged-loopback userinfo without contacting configured
 backends or an external model. The Linux container lane separately exercises
 the pinned Dev Container image, locked feature, exact lockfile-installed CLI,
 and the same runtime scripts. Neither check grants authority for a live

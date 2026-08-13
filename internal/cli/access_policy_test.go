@@ -143,6 +143,7 @@ none|none|conf reconcile stage
 none|none|compatibility clear
 none|none|compatibility pin
 none|none|config set
+none|none|corpus cache retention apply
 none|none|jira apply
 update|jira-issue-arg|jira issue assign
 create|jira-issue-arg|jira issue attachment upload
@@ -204,6 +205,7 @@ local-direct|-|conf reconcile stage
 local-direct|-|compatibility clear
 local-direct|-|compatibility pin
 local-direct|-|config set
+dedicated-apply|apply,expected-plan-digest|corpus cache retention apply
 local-direct|-|jira apply
 remote-direct|-|jira issue assign
 remote-direct|-|jira issue attachment upload
@@ -252,6 +254,7 @@ local-direct|-|profile suggestion reject
 	standardGuardNames := []string{
 		"apply", "confirm", "expected-proposal-hash", "expected-version", "expected-parent",
 		"expected-updated", "expected-backend-sha256", "candidate-hash", "expected-current-hash",
+		"expected-plan-digest",
 	}
 	var walk func(*cobra.Command)
 	walk = func(cmd *cobra.Command) {
@@ -322,8 +325,8 @@ local-direct|-|profile suggestion reject
 			t.Errorf("reviewed mutating command %q lost its executable classification", path)
 		}
 	}
-	if len(seen) != 51 {
-		t.Fatalf("executable mutating commands=%d want=51", len(seen))
+	if len(seen) != 52 {
+		t.Fatalf("executable mutating commands=%d want=52", len(seen))
 	}
 	if len(wantPolicy) != len(seen) {
 		t.Fatalf("reviewed policy rows=%d mutators=%d", len(wantPolicy), len(seen))

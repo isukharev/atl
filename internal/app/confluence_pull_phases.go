@@ -159,7 +159,10 @@ func (r *confluencePullRun) preparePage(fetched *confluencePullFetchedPage) (*co
 	if root, err := csf.Parse(page.Body); err == nil {
 		pageNode = root
 		refs = fragment.Extract(root)
-		deps := fragment.Deps{Assets: assetStage, Users: r.service.users}
+		deps := fragment.Deps{Assets: assetStage}
+		if !r.opts.deterministicRawUsers {
+			deps.Users = r.service.users
+		}
 		if r.opts.Assets {
 			deps.Resolver = r.service.assets
 		}

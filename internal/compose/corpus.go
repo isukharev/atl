@@ -14,12 +14,14 @@ import (
 // CorpusBuildSelection is the already-validated, content-free composition
 // projection. Only selected backends load credentials or construct clients.
 type CorpusBuildSelection struct {
-	Jira              bool
-	Confluence        bool
-	MaxInFlight       int
-	RequestsPerSecond int
-	GeneratorVersion  string
-	BuildState        corpus.BuildState
+	Jira                bool
+	Confluence          bool
+	MaxInFlight         int
+	RequestsPerSecond   int
+	GeneratorVersion    string
+	GeneratorCommit     string
+	BuildState          corpus.BuildState
+	QualifiedCacheTrust bool
 }
 
 // NewCorpusBuild composes one shared physical-request scheduler and injects a
@@ -27,6 +29,9 @@ type CorpusBuildSelection struct {
 func NewCorpusBuild(cfg *config.Config, selection CorpusBuildSelection, values ...Option) (*app.CorpusBuildService, error) {
 	if !selection.Jira && !selection.Confluence {
 		return nil, fmt.Errorf("%w: corpus build requires a selected backend", domain.ErrUsage)
+	}
+	if selection.QualifiedCacheTrust && (!selection.Confluence || selection.Jira) {
+		return nil, fmt.Errorf("%w: qualified cache trust requires sole Confluence selection", domain.ErrUsage)
 	}
 	if selection.MaxInFlight <= 0 || selection.RequestsPerSecond <= 0 {
 		return nil, fmt.Errorf("%w: corpus build requires a finite request schedule", domain.ErrUsage)
@@ -39,15 +44,31 @@ func NewCorpusBuild(cfg *config.Config, selection CorpusBuildSelection, values .
 	authorizer := corpusDenyAllWrites{}
 	dependencies := app.CorpusBuildDependencies{
 		GeneratorVersion: selection.GeneratorVersion,
+		GeneratorCommit:  selection.GeneratorCommit,
 		BuildState:       selection.BuildState,
 	}
 	if selection.Confluence {
-		adapter, err := confluenceAdapterScheduled(cfg, selection.GeneratorVersion, scheduler, authorizer, resolved)
+		token, err := confluenceAdapterCredentials(cfg)
+		if err != nil {
+			return nil, err
+		}
+		var adapterTLS httpx.TLSOptions
+		if selection.QualifiedCacheTrust && !selection.Jira && cfg != nil && cfg.CABundle(config.TransportServiceConfluence) != "" {
+			var trustDigest string
+			adapterTLS, trustDigest, err = httpx.QualifiedTLSOptions(cfg.CABundle(config.TransportServiceConfluence))
+			if err != nil {
+				return nil, err
+			}
+			dependencies.ConfluenceTrustDigest = trustDigest
+		} else {
+			adapterTLS = confluenceTLSOptions(cfg)
+		}
+		adapter, err := newConfluenceAdapterScheduledTLS(cfg, token, selection.GeneratorVersion, scheduler, authorizer, resolved, adapterTLS)
 		if err != nil {
 			return nil, err
 		}
 		dependencies.Confluence = app.NewConfluenceService(app.ConfluenceDependencies{
-			Store: adapter, Users: adapter.ResolveUser, Assets: adapter,
+			Store: adapter, CorpusMetadata: adapter, Users: adapter.ResolveUser, Assets: adapter,
 			BaseURL: cfg.ConfluenceURL, Verifier: adapter, Config: cfg,
 			RequestMaxInFlight: selection.MaxInFlight, RequestsPerSecond: selection.RequestsPerSecond,
 		})

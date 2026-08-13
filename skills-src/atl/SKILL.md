@@ -450,6 +450,31 @@ root and repeat exact options without `--restart`; the verified generation may
 already be current, so let ATL reconcile the visible pointer and active record.
 Build and restart never grant backend-write or cleanup authority.
 
+For optional cross-container reuse, add a separate exact-`0700`
+`--cache-root` plus all three positive `--cache-max-requests`,
+`--cache-max-response-bytes`, and `--cache-deadline` guards. Initialize that
+empty root once with `--initialize-cache`; keep it outside the disposable
+workspace, source checkout, and downstream index. The first cache contract can
+reuse only an unchanged sole-Confluence capture with comments and attachments
+off, exact clean generator and configured-CA trust, matching principal/scope,
+selector/options/schemas, and two equal complete metadata passes. Jira, mixed,
+changed, system-trust-only, incomplete, or unqualified cases remain cold. The
+cache stores plaintext sealed content; require an encrypted volume when at-rest
+encryption is policy. A changed cache selection starts a new bounded target;
+preserve the workspace so ATL's one-way recovery marker can reconcile any
+older workspace/cache transition instead of deleting or rewriting it by hand.
+
+Inspect with `atl corpus cache status --store STORE` (or its exact local
+`corpus cache doctor` alias). Retention is never part of build: write a private exclusive plan with
+`atl corpus cache retention preview --store STORE --retain-predecessors N
+--plan-artifact FILE`, review its counts and private artifact, then run
+`atl corpus cache retention apply` only with the same file, emitted
+`--expected-plan-digest`, and `--apply`. Preserve cache and plan on any ambiguous
+apply; repeat the exact plan for recovery. Status and replacement preview
+refuse while plan-bound cleanup is pending. Never remove quarantine state by
+hand or treat status, a successful build, tombstones, or unsealed stages as
+deletion authority.
+
 Comments and attachment inventories are opt-in and require explicit per-item
 page/count bounds. Native attachment bodies additionally require
 `--attachment-bodies`, one or more exact repeatable `--attachment-media-type`

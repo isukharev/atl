@@ -21,7 +21,7 @@ func TestCommandEffectCatalogClassifiesEveryExecutableLeaf(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.SchemaVersion != commandEffectCatalogSchemaVersion || catalog.Enforcement != "informational" || catalog.Selection.Count != 170 {
+	if catalog.SchemaVersion != commandEffectCatalogSchemaVersion || catalog.Enforcement != "informational" || catalog.Selection.Count != 173 {
 		t.Fatalf("catalog metadata=%+v", catalog)
 	}
 	profiles := capabilitydef.EffectProfiles()
@@ -154,7 +154,7 @@ func TestConfigurationReadingOfflineMutatorsMapExactlyToTheirExecutionPath(t *te
 	}
 	wantByProfile := map[string][]string{
 		capabilitydef.EffectCredentialWrite:     {"auth logout"},
-		capabilitydef.EffectLocalArtifact:       {"corpus export"},
+		capabilitydef.EffectLocalArtifact:       {"corpus cache retention preview", "corpus export"},
 		capabilitydef.EffectLocalArtifactConfig: {"profile revalidate", "profile suggest"},
 		capabilitydef.EffectLocalOptionalWrite:  {"corpus diff", "corpus handoff"},
 	}
@@ -195,6 +195,32 @@ func TestConfigurationReadingOfflineMutatorsMapExactlyToTheirExecutionPath(t *te
 			stdout, _, execErr := executeCLIRaw(t, map[string]string{"ATL_CONFIG_DIR": configDir}, command.args...)
 			if !errors.Is(execErr, domain.ErrConfig) || codeFor(execErr) != exitConfig || stdout != "" {
 				t.Fatalf("error=%v exit=%d stdout=%q, want configuration read before command effects", execErr, codeFor(execErr), stdout)
+			}
+		})
+	}
+}
+
+func TestCorpusCacheEffectProfilesMatchOfflineLifecycle(t *testing.T) {
+	want := map[string]string{
+		"corpus cache retention apply":   capabilitydef.EffectLocalWrite,
+		"corpus cache retention preview": capabilitydef.EffectLocalArtifact,
+		"corpus cache status":            capabilitydef.EffectLocalRead,
+	}
+	for commandPath, profileID := range want {
+		t.Run(commandPath, func(t *testing.T) {
+			catalog, err := buildCommandEffectCatalog(commandEffectSelection{Command: commandPath})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(catalog.Commands) != 1 || len(catalog.Profiles) != 1 {
+				t.Fatalf("%s catalog=%+v", commandPath, catalog)
+			}
+			command, profile := catalog.Commands[0], catalog.Profiles[0]
+			if command.EffectProfile != profileID || profile.ID != profileID ||
+				profile.RemoteEffect != "none" || profile.CredentialAccess != "none" ||
+				profile.NetworkBound != "none" || profile.ProcessEffect != "none" ||
+				profile.SelfUpdate != "disabled" {
+				t.Fatalf("%s command=%+v profile=%+v", commandPath, command, profile)
 			}
 		})
 	}

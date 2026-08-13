@@ -127,6 +127,7 @@ type content struct {
 	} `json:"version"`
 	Ancestors *[]struct {
 		ID    string `json:"id"`
+		Type  string `json:"type"`
 		Title string `json:"title"`
 	} `json:"ancestors"`
 	Body struct {
@@ -137,28 +138,24 @@ type content struct {
 			Value *string `json:"value"`
 		} `json:"view"`
 	} `json:"body"`
-	Metadata struct {
-		Labels struct {
-			Results []struct {
-				Name string `json:"name"`
-			} `json:"results"`
-		} `json:"labels"`
+	Metadata *struct {
+		Labels *qualifiedEmbeddedPage[contentLabelJSON] `json:"labels"`
 	} `json:"metadata"`
 	Restrictions *struct {
 		Read *struct {
 			Restrictions *struct {
-				User  *restrictionSubjects `json:"user"`
-				Group *restrictionSubjects `json:"group"`
+				User  *qualifiedEmbeddedPage[json.RawMessage] `json:"user"`
+				Group *qualifiedEmbeddedPage[json.RawMessage] `json:"group"`
 			} `json:"restrictions"`
 		} `json:"read"`
 	} `json:"restrictions"`
-	Links struct {
+	Links *struct {
 		WebUI string `json:"webui"`
 	} `json:"_links"`
 }
 
-type restrictionSubjects struct {
-	Results *[]json.RawMessage `json:"results"`
+type contentLabelJSON struct {
+	Name string `json:"name"`
 }
 
 // restrictionState returns nil unless the expanded response explicitly
@@ -191,10 +188,10 @@ func (ct *content) toResource(base, body string) *domain.Resource {
 			r.Parent = (*ct.Ancestors)[n-1].ID
 		}
 	}
-	for _, l := range ct.Metadata.Labels.Results {
-		r.Labels = append(r.Labels, l.Name)
+	r.Labels = append(r.Labels, ct.labelValues()...)
+	if ct.Links != nil {
+		r.URL = confluenceWebURL(base, ct.Links.WebUI)
 	}
-	r.URL = confluenceWebURL(base, ct.Links.WebUI)
 	return r
 }
 
@@ -300,11 +297,11 @@ func (cf *Confluence) GetMeta(ctx context.Context, id string) (*domain.PageMeta,
 			m.AncestorIDs = append(m.AncestorIDs, a.ID)
 		}
 	}
-	for _, l := range ct.Metadata.Labels.Results {
-		m.Labels = append(m.Labels, l.Name)
-	}
+	m.Labels = append(m.Labels, ct.labelValues()...)
 	m.Restrictions = ct.restrictionState()
-	m.URL = confluenceWebURL(cf.base, ct.Links.WebUI)
+	if ct.Links != nil {
+		m.URL = confluenceWebURL(cf.base, ct.Links.WebUI)
+	}
 	if identity, err := identityFromMeta(m, id, domain.WriteScopeRequirements{Space: true, Ancestors: true}); err == nil && cf.identity != nil {
 		cf.identity.put(identity)
 	}

@@ -4,6 +4,19 @@ Local manifest generation, backend-identity hashing, and sealed indexer corpora.
 
 [Reference index](README.md) · [Documentation home](../../README.md)
 
+<!-- reference-navigation:start -->
+## Navigate this reference
+
+- [`atl manifest create`](#atl-manifest-create)
+- [`atl corpus build`](#atl-corpus-build)
+- [`atl corpus cache status`](#atl-corpus-cache-status)
+- [`atl corpus cache retention preview`](#atl-corpus-cache-retention-preview)
+- [`atl corpus cache retention apply`](#atl-corpus-cache-retention-apply)
+- [`atl corpus diff`](#atl-corpus-diff)
+- [`atl corpus handoff`](#atl-corpus-handoff)
+- [`atl corpus export`](#atl-corpus-export)
+<!-- reference-navigation:end -->
+
 ## `atl manifest create`
 
 Write a backend-identity-hashed manifest for a local mirror or snapshot root. The manifest
@@ -65,6 +78,47 @@ self-update, or network access. Only selected services load a PAT and construct
 a client for their configured URL. Local attempt and generation writes still
 occur under the named root.
 
+An optional cache uses a second, independently selected owner-only root. The
+workspace remains disposable; only immutable sealed generations and their
+atomic current pointer persist in the cache. The roots must be physically
+distinct, non-aliased, and neither may contain the other. Initialize a new
+empty cache once, then omit `--initialize-cache`:
+
+```bash
+install -d -m 0700 /private/indexer-workspace /private/indexer-cache
+atl corpus build \
+  --root /private/indexer-workspace --initialize \
+  --cache-root /private/indexer-cache --initialize-cache \
+  --cache-max-requests 2000 --cache-max-response-bytes 1073741824 \
+  --cache-deadline 30m \
+  --confluence-space DOCS --max-confluence-pages 5000 \
+  --max-requests 20000 --max-response-bytes 4294967296 \
+  --max-members 100000 --max-generation-bytes 8589934592 \
+  --deadline 2h --max-in-flight 4 --requests-per-second 20
+```
+
+The first cache contract accelerates only an unchanged, sole-Confluence
+selection without comments or attachments. A hit requires one verified sealed
+generation whose cache binding matches the exact clean ATL commit, configured
+CA bytes, backend/principal scope, selector, capture options, schemas, complete
+receipt, projection, and deterministic raw user-reference policy. ATL performs
+two equal complete metadata observations under the separate cache-probe budget;
+they qualify membership, version, update time, title, hierarchy, labels,
+restriction state, and canonical page URL without downloading native bodies.
+It then re-confirms that the current pointer still selects the verified
+generation.
+
+Any changed, incompatible, incomplete, unqualified, dirty-build, or unknown
+trust state takes the complete cold-capture path. Only after those body reads
+may ordinary publication reuse an exact projection or seal a new immutable
+generation. Jira, mixed-service, comments, and attachment captures are always
+cold in this version. System trust may support that cold capture, but only an
+explicit configured Confluence CA bundle is a qualified cache trust identity;
+the reusable sole-Confluence route uses those exact configured roots. Cache
+selections that are always cold preserve ordinary additive configured-CA
+transport behavior. No-cache invocations keep their existing arguments and
+behavior.
+
 Every bound is finite and required. Reaching a request, response-byte,
 deadline, selection, snapshot, member, or generation-byte limit prevents
 publication. Physical retries and redirect hops count as attempts, and both
@@ -86,6 +140,11 @@ fetched. Even with `--verbose`, request URLs and response paths are rendered as
 | `--root` | existing owner-only corpus root (required) |
 | `--initialize` | initialize an existing empty exact-`0700` root; mutually exclusive with `--restart` |
 | `--restart` | recover the interrupted attempt's local journal, retain it, and begin a fresh attempt |
+| `--cache-root` | optional existing owner-only sealed-generation cache, independent of `--root` |
+| `--initialize-cache` | initialize an existing empty exact-`0700` cache root; requires `--cache-root` |
+| `--cache-max-requests` | separate cache-probe physical HTTP-attempt cap; positive and required with `--cache-root` |
+| `--cache-max-response-bytes` | separate cache-probe response-byte cap; positive and required with `--cache-root` |
+| `--cache-deadline` | separate per-phase cache-probe duration; positive, at most `24h`, and required with `--cache-root` |
 | `--jira-project` | canonical uppercase Jira project key; optional when Confluence is selected |
 | `--max-jira-issues` | required Jira selection cap, `1..100000`, only with `--jira-project` |
 | `--confluence-space` | canonical Confluence space key; optional when Jira is selected |
@@ -123,6 +182,14 @@ is never replayed automatically: rerun with `--restart`. Restart first recovers
 service-owned local publication/journal state, marks the old attempt retained,
 then creates a random fresh attempt. It never deletes attempts, generations, or
 the previous current pointer. A completed active record is also retained.
+Changing cache selection starts a new bounded attempt after verifying the
+recorded publication target when that target is still selected. If a completed
+record names a cache root that the new command no longer selects, the changed-
+options run does not misread the workspace or replacement cache as that old
+target; it retains the old attempt and starts the new workspace/cache target.
+Once cache-aware recovery schema v3 exists, later no-cache attempts keep that
+one-way marker with an explicit workspace target so a v3-to-v2 downgrade cannot
+strand recovery.
 
 If publication selects and verifies a generation but the final completed
 active-record barrier cannot be confirmed, the command returns
@@ -136,6 +203,106 @@ They never inspect `attempts/`, active records, or working mirror files. Keep
 the entire root outside source repositories and any index that could publish
 private data. See [Sealed corpus generations](../../corpus-generations.md) for
 the exact durability and privacy model.
+
+The cache is plaintext private storage. ATL does not encrypt it; use an
+encrypted volume or equivalent platform guarantee when encryption at rest is
+required. Downstream Graphify, embedding, vector, and model caches remain
+outside the ATL cache root.
+
+## `atl corpus cache status`
+
+Verify the complete local cache inventory and current binding without loading
+configuration, credentials, or a backend:
+
+```bash
+atl corpus cache status --store /private/indexer-cache
+```
+
+`atl corpus cache doctor` is an exact alias for the same local verification;
+it has no broader repair or backend capability.
+
+The command fully verifies every sealed generation, counts retained unsealed
+stages, validates the current generation and its tombstone lineage, and reports
+the binding category `absent`, `unsupported`, `ineligible`, or `reusable`.
+Ordinary output contains only booleans, categories, and counts—never a cache
+path, generation identity/digest, selector, backend, principal, title, or body.
+It does not repair, publish, or delete anything.
+
+| flag | description |
+|---|---|
+| `--store` | existing owner-only sealed-generation cache root (required) |
+
+## `atl corpus cache retention preview`
+
+Construct one exact finite retention decision under the publication lock and
+write it to a new private review artifact:
+
+```bash
+install -d -m 0700 /private/cache-review
+atl corpus cache retention preview \
+  --store /private/indexer-cache \
+  --retain-predecessors 2 \
+  --plan-artifact /private/cache-review/retention.v1.json
+```
+
+The current generation is always protected. At least its immediate predecessor
+is protected so the active delta remains usable; a larger depth preserves a
+longer rollback window. Every other fully verified sealed generation is an
+explicit candidate. Unsealed stages are counted and bound into the plan but
+are never deletion candidates.
+
+Stdout exposes only counts, the self-digested plan token, and whether the
+artifact was written. The canonical `0600` artifact itself contains private
+generation IDs/digests and a digest binding to the canonical cache root used
+by preview. Its parent must already be exact `0700`, its target must not exist,
+and it must be outside the cache through direct and symlink aliases. Keep it
+private and review the policy and candidate count before apply.
+
+| flag | description |
+|---|---|
+| `--store` | existing owner-only sealed-generation cache root (required) |
+| `--retain-predecessors` | positive number of active predecessors to protect; minimum `1` |
+| `--plan-artifact` | absent private output path under an existing owner-only parent outside the cache (required) |
+
+## `atl corpus cache retention apply`
+
+Apply only the exact reviewed plan and digest:
+
+```bash
+atl corpus cache retention apply \
+  --store /private/indexer-cache \
+  --plan-artifact /private/cache-review/retention.v1.json \
+  --expected-plan-digest 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+  --apply
+```
+
+`--apply` and the expected digest are mandatory pre-configuration guards. The
+command then honors the global read-only policy because it deletes local
+bytes. It performs no backend request. Under the publication lock it reopens
+and verifies the plan, current pointer, complete generation inventory,
+protected lineage, filesystem identities, and unsealed-stage digest before
+each removal. Current and protected generations are never candidates, and a
+generation path exchange cannot redirect recursive deletion into another
+generation or outside the cache.
+
+A candidate is first moved with one plan-bound same-parent rename inside the
+generation namespace and that parent is synced before recursive cleanup.
+Partial cleanup therefore remains recognizable after process restart. A
+missing subset of original candidates is accepted only as resumption of the
+same exact plan; any other drift fails closed before deletion when possible.
+An error after that rename may report an unknown durable outcome: preserve the
+cache and plan and repeat the same exact apply to reconcile. Cache status,
+publication, new stages, and replacement previews deliberately refuse while a
+pending quarantine exists, so do not use status as recovery evidence, generate
+a replacement plan, or infer rollback. The command never deletes unsealed
+stages, workspaces, mirrors, indexes, or backend objects.
+
+| flag | description |
+|---|---|
+| `--store` | exact cache root used by preview (required) |
+| `--plan-artifact` | reviewed private canonical plan outside the cache (required) |
+| `--expected-plan-digest` | exact lowercase SHA-256 token emitted by preview (required) |
+| `--apply` | authorize deletion of only the reviewed inactive candidates (required) |
 
 ## `atl corpus diff`
 

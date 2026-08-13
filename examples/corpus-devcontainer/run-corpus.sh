@@ -20,6 +20,20 @@ require_owner_directory() {
 	[ "$(stat -c '%u' "$path")" = "$(id -u)" ] || fail "$2 must be owned by the current user"
 }
 
+resolve_owner_directory() {
+	path=$1
+	case "$path" in
+		/*) ;;
+		*) fail "$2 must be absolute" ;;
+	esac
+	[ -d "$path" ] && [ ! -L "$path" ] || fail "$2 must be an existing non-symlink directory"
+	resolved=$(realpath -e "$path" 2>/dev/null) || fail "$2 could not be resolved"
+	logical=$(realpath -se "$path" 2>/dev/null) || fail "$2 could not be resolved without symlinks"
+	[ "$resolved" = "$logical" ] || fail "$2 must not traverse symlinks"
+	require_owner_directory "$resolved" "$2"
+	printf '%s' "$resolved"
+}
+
 absolute_directory() {
 	case "$1" in
 		/*) ;;
@@ -63,6 +77,9 @@ resolve_private_file() {
 			"$boundary"|"$boundary/"*) fail "$2 overlaps a protected boundary" ;;
 		esac
 	done
+	if [ -n "${cache_root:-}" ]; then
+		reject_overlap "$cache_root" "$resolved" "cache root"
+	fi
 	printf '%s' "$resolved"
 }
 
@@ -128,6 +145,21 @@ reject_overlap "$context_root" "$source_root" "runtime root"
 reject_overlap "$index_root" "$source_root" "index root"
 reject_overlap "$index_root" "$context_root" "index root"
 
+cache_root=
+initialize_cache=
+if [ -n "${ATL_CACHE_ROOT:-}" ]; then
+	cache_root=$(resolve_owner_directory "$ATL_CACHE_ROOT" "ATL_CACHE_ROOT")
+	reject_overlap "$cache_root" "$source_root" "cache root"
+	reject_overlap "$cache_root" "$index_root" "cache root"
+	reject_overlap "$cache_root" "$context_parent" "cache root"
+	reject_overlap "$cache_root" "$context_root" "cache root"
+	initialize_cache=${ATL_INITIALIZE_CACHE:-}
+	require_toggle "$initialize_cache" "ATL_INITIALIZE_CACHE"
+	require_positive_number "${ATL_CACHE_MAX_REQUESTS:-}" "ATL_CACHE_MAX_REQUESTS"
+	require_positive_number "${ATL_CACHE_MAX_RESPONSE_BYTES:-}" "ATL_CACHE_MAX_RESPONSE_BYTES"
+	[ -n "${ATL_CACHE_DEADLINE:-}" ] || fail "ATL_CACHE_DEADLINE is required"
+fi
+
 config_root="$context_root/config"
 home_root="$context_root/home"
 corpus_root="$context_root/corpus"
@@ -187,6 +219,58 @@ run_atl() {
 		"$atl_bin" "$@"
 }
 
+run_cache_atl() {
+	if [ -z "$ca_file" ]; then
+		run_atl "$@"
+	elif [ -n "$jira_project" ] && [ -n "$confluence_space" ]; then
+		env -i \
+			HOME="$home_root" \
+			PATH=/usr/local/bin:/usr/bin:/bin \
+			TMPDIR="$context_root" \
+			ATL_CONFIG_DIR="$config_root" \
+			ATL_READ_ONLY=1 \
+			ATL_NO_UPDATE=1 \
+			ATL_JIRA_URL="$jira_url" \
+			ATL_JIRA_PAT="$jira_pat" \
+			ATL_CONFLUENCE_URL="$confluence_url" \
+			ATL_CONFLUENCE_PAT="$confluence_pat" \
+			ATL_JIRA_CA_BUNDLE="$ca_file" \
+			ATL_CONFLUENCE_CA_BUNDLE="$ca_file" \
+			SSL_CERT_FILE="$ca_file" \
+			"$atl_bin" "$@"
+	elif [ -n "$jira_project" ]; then
+		env -i \
+			HOME="$home_root" \
+			PATH=/usr/local/bin:/usr/bin:/bin \
+			TMPDIR="$context_root" \
+			ATL_CONFIG_DIR="$config_root" \
+			ATL_READ_ONLY=1 \
+			ATL_NO_UPDATE=1 \
+			ATL_JIRA_URL="$jira_url" \
+			ATL_JIRA_PAT="$jira_pat" \
+			ATL_CONFLUENCE_URL="$confluence_url" \
+			ATL_CONFLUENCE_PAT="$confluence_pat" \
+			ATL_JIRA_CA_BUNDLE="$ca_file" \
+			SSL_CERT_FILE="$ca_file" \
+			"$atl_bin" "$@"
+	else
+		env -i \
+			HOME="$home_root" \
+			PATH=/usr/local/bin:/usr/bin:/bin \
+			TMPDIR="$context_root" \
+			ATL_CONFIG_DIR="$config_root" \
+			ATL_READ_ONLY=1 \
+			ATL_NO_UPDATE=1 \
+			ATL_JIRA_URL="$jira_url" \
+			ATL_JIRA_PAT="$jira_pat" \
+			ATL_CONFLUENCE_URL="$confluence_url" \
+			ATL_CONFLUENCE_PAT="$confluence_pat" \
+			ATL_CONFLUENCE_CA_BUNDLE="$ca_file" \
+			SSL_CERT_FILE="$ca_file" \
+			"$atl_bin" "$@"
+	fi
+}
+
 run_local_atl() {
 	env -i \
 		HOME="$home_root" \
@@ -215,6 +299,16 @@ set -- corpus build \
 	--deadline "$ATL_DEADLINE" \
 	--max-in-flight "$ATL_MAX_IN_FLIGHT" \
 	--requests-per-second "$ATL_REQUESTS_PER_SECOND"
+if [ -n "$cache_root" ]; then
+	set -- "$@" --cache-root "$cache_root"
+	if [ "$initialize_cache" = 1 ]; then
+		set -- "$@" --initialize-cache
+	fi
+	set -- "$@" \
+		--cache-max-requests "$ATL_CACHE_MAX_REQUESTS" \
+		--cache-max-response-bytes "$ATL_CACHE_MAX_RESPONSE_BYTES" \
+		--cache-deadline "$ATL_CACHE_DEADLINE"
+fi
 if [ -n "$jira_project" ]; then
 	set -- "$@" --jira-project "$jira_project" --max-jira-issues "$ATL_MAX_JIRA_ISSUES"
 fi
@@ -252,11 +346,17 @@ if [ "$attachment_bodies" = 1 ]; then
 	done <"$ATL_ATTACHMENT_MEDIA_TYPES_FILE"
 fi
 
-run_atl "$@" >"$context_root/build-result.json" || fail "corpus build failed; indexer was not invoked"
+if [ -n "$cache_root" ]; then
+	run_cache_atl "$@" >"$context_root/build-result.json" || fail "corpus build failed; indexer was not invoked"
+	sealed_store=$cache_root
+else
+	run_atl "$@" >"$context_root/build-result.json" || fail "corpus build failed; indexer was not invoked"
+	sealed_store=$corpus_root
+fi
 # The remaining phases are local and use clean-room child environments. The
 # shell retains mounted values only in its own private process until exit.
 handoff_artifact="$handoff_root/current.indexer-handoff.v1.json"
-run_local_atl corpus handoff --store "$corpus_root" --handoff-artifact "$handoff_artifact" >"$context_root/handoff-result.json" || fail "sealed handoff verification failed"
+run_local_atl corpus handoff --store "$sealed_store" --handoff-artifact "$handoff_artifact" >"$context_root/handoff-result.json" || fail "sealed handoff verification failed"
 
 generation_id=$(jq -er '
 	select(
@@ -277,7 +377,7 @@ document_rel=$(jq -er '.documents.path' "$handoff_artifact") || fail "handoff do
 document_digest=$(jq -er '.documents.sha256 | select(test("^[0-9a-f]{64}$"))' "$handoff_artifact") || fail "handoff document digest is invalid"
 document_size=$(jq -er '.documents.size' "$handoff_artifact") || fail "handoff document size is missing"
 generation_digest=$(jq -er '.generation_digest' "$handoff_artifact") || fail "handoff generation digest is missing"
-generation_root="$corpus_root/generations/$generation_id"
+generation_root="$sealed_store/generations/$generation_id"
 document_candidate="$generation_root/artifacts/$document_rel"
 [ ! -L "$document_candidate" ] || fail "sealed document member must not be a symlink"
 document_path=$(realpath -e "$document_candidate") || fail "sealed document member is missing"

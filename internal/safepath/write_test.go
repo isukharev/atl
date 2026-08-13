@@ -806,6 +806,59 @@ func TestWriteFileExclusivePrivateOutsideRootRejectsParentSwapAfterResolution(t 
 	}
 }
 
+func TestReadFilePrivateOutsideRootRequiresStableOwnerOnlyArtifact(t *testing.T) {
+	protected := t.TempDir()
+	private := t.TempDir()
+	if err := os.Chmod(protected, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(private, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(private, "plan.json")
+	if err := os.WriteFile(target, []byte("plan\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadFilePrivateOutsideRoot(protected, target, 5)
+	if err != nil || string(got) != "plan\n" {
+		t.Fatalf("read=%q error=%v", got, err)
+	}
+	if _, err := ReadFilePrivateOutsideRoot(protected, target, 4); !errors.Is(err, ErrUnsafePrivatePath) {
+		t.Fatalf("bounded read error=%v", err)
+	}
+	if err := os.Chmod(target, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadFilePrivateOutsideRoot(protected, target, 16); !errors.Is(err, ErrUnsafePrivatePath) {
+		t.Fatalf("unsafe mode error=%v", err)
+	}
+}
+
+func TestReadFilePrivateOutsideRootRejectsAliasesAndSpecialFiles(t *testing.T) {
+	protected := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Chmod(protected, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	inside := filepath.Join(protected, "plan.json")
+	if err := os.WriteFile(inside, []byte("private"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadFilePrivateOutsideRoot(protected, inside, 16); !errors.Is(err, ErrUnsafePrivatePath) {
+		t.Fatalf("inside error=%v", err)
+	}
+	alias := filepath.Join(outside, "alias")
+	if err := os.Symlink(inside, alias); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadFilePrivateOutsideRoot(protected, alias, 16); !errors.Is(err, ErrUnsafePrivatePath) {
+		t.Fatalf("symlink error=%v", err)
+	}
+}
+
 // TestWithinRelError targets the filepath.Rel error branch (Within line ~114):
 // Rel returns an error when one path is absolute and the other is relative, so
 // the two cannot be made relative to each other.

@@ -75,6 +75,8 @@ func parseMutationGuardRequirement(value string) (mutationGuardRequirement, bool
 		return mutationGuardCandidateHash, true
 	case "expected-current-hash":
 		return mutationGuardExpectedCurrentHash, true
+	case "expected-plan-digest":
+		return mutationGuardExpectedPlanDigest, true
 	default:
 		return 0, false
 	}
@@ -104,6 +106,8 @@ func mutationGuardRequirementName(requirement mutationGuardRequirement) (string,
 		return "candidate-hash", true
 	case mutationGuardExpectedCurrentHash:
 		return "expected-current-hash", true
+	case mutationGuardExpectedPlanDigest:
+		return "expected-plan-digest", true
 	default:
 		return "", false
 	}
@@ -123,7 +127,8 @@ func mutationGuardRequirementPresence(requirement mutationGuardRequirement) (mut
 		mutationGuardFromFile,
 		mutationGuardSuggestionHash,
 		mutationGuardCandidateHash,
-		mutationGuardExpectedCurrentHash:
+		mutationGuardExpectedCurrentHash,
+		mutationGuardExpectedPlanDigest:
 		return mutationGuardPresenceNonBlank, true
 	default:
 		return 0, false

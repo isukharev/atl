@@ -61,6 +61,9 @@ conf table extract
 conf table summary
 config show
 corpus build
+corpus cache retention apply
+corpus cache retention preview
+corpus cache status
 corpus diff
 corpus export
 corpus handoff
@@ -277,8 +280,8 @@ func TestCommandRegistryPreservesReviewedOutputModes(t *testing.T) {
 	}
 	walk(root)
 
-	if leafCount != 170 || textCount != 145 || idCount != 34 {
-		t.Fatalf("leaves/text/id=%d/%d/%d want=170/145/34", leafCount, textCount, idCount)
+	if leafCount != 173 || textCount != 148 || idCount != 34 {
+		t.Fatalf("leaves/text/id=%d/%d/%d want=173/148/34", leafCount, textCount, idCount)
 	}
 	for path := range reviewedTextOutputCommandPaths {
 		if !seen[path] {

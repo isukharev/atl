@@ -26,6 +26,7 @@ const (
 // cfg holds non-secret render configuration; backend access goes through ports.
 type ConfluenceService struct {
 	store           domain.DocStore
+	corpusMetadata  domain.QualifiedConfluenceCorpusMetadataReader
 	users           domain.UserResolver
 	assets          domain.AssetResolver
 	baseURL         string
@@ -48,6 +49,7 @@ type ConfluenceService struct {
 // already qualified by the outer composition owner.
 type ConfluenceDependencies struct {
 	Store                     domain.DocStore
+	CorpusMetadata            domain.QualifiedConfluenceCorpusMetadataReader
 	Users                     domain.UserResolver
 	Assets                    domain.AssetResolver
 	BaseURL                   string
@@ -70,7 +72,7 @@ func NewConfluenceService(deps ConfluenceDependencies) *ConfluenceService {
 		activation = &copy
 	}
 	return &ConfluenceService{
-		store: deps.Store, users: deps.Users, assets: deps.Assets,
+		store: deps.Store, corpusMetadata: deps.CorpusMetadata, users: deps.Users, assets: deps.Assets,
 		baseURL: deps.BaseURL, verifier: deps.Verifier, cfg: deps.Config,
 		jiraBaseURL:        deps.JiraBaseURL,
 		jiraReadFactory:    deps.JiraReadFactory,

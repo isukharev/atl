@@ -45,6 +45,10 @@ ATL_REQUESTS_PER_SECOND=10 \
 ATL_CAPTURE_COMMENTS=0 \
 ATL_CAPTURE_ATTACHMENTS=0 \
 ATL_CAPTURE_ATTACHMENT_BODIES=0 \
+ATL_INITIALIZE_CACHE=not-a-toggle-without-cache \
+ATL_CACHE_MAX_REQUESTS=not-a-number-without-cache \
+ATL_CACHE_MAX_RESPONSE_BYTES=not-a-number-without-cache \
+ATL_CACHE_DEADLINE= \
 SSL_CERT_DIR=/synthetic/ambient-certificates \
 HTTPS_PROXY=http://ambient-proxy.example.test:8080 \
 HTTP_PROXY=http://ambient-proxy.example.test:8080 \
@@ -64,6 +68,11 @@ UNRELATED_SECRET=synthetic-container-unrelated-secret-canary \
 find "$context_parent" -type d ! -perm 0700 -print -quit | grep -q . && fail "runtime directory is not private"
 argv_log=$(find "$context_parent" -type f -name atl-argv.log -print -quit)
 [ -n "$argv_log" ] && [ "$(wc -l <"$argv_log" | tr -d ' ')" = 2 ] || fail "ATL command boundary drifted"
+runtime_root=${argv_log%/atl-argv.log}
+expected_build="corpus build --root $runtime_root/corpus --initialize --max-requests 100 --max-response-bytes 1048576 --max-members 1000 --max-generation-bytes 10485760 --deadline 5m --max-in-flight 2 --requests-per-second 10 --jira-project EXAMPLE --max-jira-issues 10"
+expected_handoff="corpus handoff --store $runtime_root/corpus --handoff-artifact $runtime_root/handoff/current.indexer-handoff.v1.json"
+[ "$(sed -n '1p' "$argv_log")" = "$expected_build" ] || fail "no-cache build argv drifted"
+[ "$(sed -n '2p' "$argv_log")" = "$expected_handoff" ] || fail "no-cache handoff argv drifted"
 grep -R -F "$secret" "$context_parent" "$index_root" "$stdout" "$stderr" >/dev/null 2>&1 &&
 	fail "runtime secret entered generated state"
 

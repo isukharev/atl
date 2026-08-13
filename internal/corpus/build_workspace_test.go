@@ -386,9 +386,14 @@ func TestBuildWorkspaceFailsClosedOnPartialOrTamperedState(t *testing.T) {
 		}
 	})
 
-	for name, data := range map[string][]byte{
-		"unversioned active": []byte("{}\n"),
-		"future active":      []byte("{\"schema_version\":3}\n"),
+	for name, fixture := range map[string]struct {
+		path string
+		data []byte
+	}{
+		"unversioned active schema": {path: buildActiveFile, data: []byte("{}\n")},
+		"future active schema":      {path: buildActiveFileV3, data: []byte("{\"schema_version\":4}\n")},
+		"unversioned active file":   {path: "active.json", data: []byte("{}\n")},
+		"future active file":        {path: "active.v4.json", data: []byte("{}\n")},
 	} {
 		t.Run(name, func(t *testing.T) {
 			root := privateBuildWorkspaceRoot(t)
@@ -397,7 +402,7 @@ func TestBuildWorkspaceFailsClosedOnPartialOrTamperedState(t *testing.T) {
 				t.Fatal(err)
 			}
 			_ = workspace.Close()
-			if err := os.WriteFile(filepath.Join(root, buildActiveFile), data, privateFileMode); err != nil {
+			if err := os.WriteFile(filepath.Join(root, fixture.path), fixture.data, privateFileMode); err != nil {
 				t.Fatal(err)
 			}
 			if workspace, err := OpenBuildWorkspace(context.Background(), root, Options{}); err == nil || workspace != nil {
@@ -405,6 +410,57 @@ func TestBuildWorkspaceFailsClosedOnPartialOrTamperedState(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("future active file after open", func(t *testing.T) {
+		root := privateBuildWorkspaceRoot(t)
+		workspace, err := InitializeBuildWorkspace(context.Background(), root, Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = workspace.Close() }()
+		attemptID, _, err := workspace.BeginAttempt([]Service{ServiceJira})
+		if err != nil {
+			t.Fatal(err)
+		}
+		active := buildWorkspaceActive(attemptID, mustCaptureReceipt(t, validCaptureReceiptInput()))
+		if err := workspace.SaveActive(active); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "active.v4.json"), []byte("{}\n"), privateFileMode); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := workspace.LoadActive(); !errors.Is(err, ErrIntegrity) {
+			t.Fatalf("load error=%v", err)
+		}
+		if err := workspace.SaveActive(active); !errors.Is(err, ErrIntegrity) {
+			t.Fatalf("save error=%v", err)
+		}
+	})
+
+	t.Run("future active file preserves recovery temp", func(t *testing.T) {
+		root := privateBuildWorkspaceRoot(t)
+		workspace, err := InitializeBuildWorkspace(context.Background(), root, Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := workspace.Close(); err != nil {
+			t.Fatal(err)
+		}
+		for path, data := range map[string][]byte{
+			"active.v4.json": {},
+			buildActiveTemp:  {},
+		} {
+			if err := os.WriteFile(filepath.Join(root, path), data, privateFileMode); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if reopened, err := OpenBuildWorkspace(context.Background(), root, Options{}); err == nil || reopened != nil {
+			t.Fatalf("workspace=%#v error=%v", reopened, err)
+		}
+		if _, err := os.Stat(filepath.Join(root, buildActiveTemp)); err != nil {
+			t.Fatalf("recovery temp was mutated before future-marker refusal: %v", err)
+		}
+	})
 
 	t.Run("mismatched receipt", func(t *testing.T) {
 		root := privateBuildWorkspaceRoot(t)

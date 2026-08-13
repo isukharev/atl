@@ -29,9 +29,13 @@ const (
 // owner-private sealed-generation store. Export is deliberately independent of
 // global configuration, credentials, adapters, and backend clients.
 type CorpusExportOptions struct {
-	JiraRoot          string
-	ConfluenceRoot    string
-	StoreRoot         string
+	JiraRoot       string
+	ConfluenceRoot string
+	StoreRoot      string
+	// Store pins an already-open publication target for callers that must bind
+	// recovery and publication to the same filesystem object. It is mutually
+	// exclusive with StoreRoot and remains caller-owned.
+	Store             *corpus.Store
 	InitializeStore   bool
 	AllowUnreconciled bool
 	GeneratorVersion  string
@@ -41,6 +45,9 @@ type CorpusExportOptions struct {
 	// CaptureReceipts upgrades every selected source from structural evidence to
 	// a ready qualification. When non-empty, the set must cover all sources.
 	CaptureReceipts []corpus.CaptureReceipt
+	// CacheBinding, when present, is a strict content-free eligibility proof
+	// sealed inside the immutable generation. Ordinary exports leave it nil.
+	CacheBinding *corpus.CacheBindingV1
 }
 
 // CorpusExportResult is content-free. It is safe for normal CLI stdout: paths,
@@ -78,8 +85,11 @@ func ExportCorpus(ctx context.Context, options CorpusExportOptions) (*CorpusExpo
 	if ctx == nil {
 		return nil, fmt.Errorf("%w: corpus export requires a context", domain.ErrUsage)
 	}
-	if strings.TrimSpace(options.StoreRoot) == "" {
+	if options.Store == nil && strings.TrimSpace(options.StoreRoot) == "" {
 		return nil, fmt.Errorf("%w: corpus export requires --store", domain.ErrUsage)
+	}
+	if options.Store != nil && (strings.TrimSpace(options.StoreRoot) != "" || options.InitializeStore) {
+		return nil, fmt.Errorf("%w: corpus export accepts one publication store", domain.ErrUsage)
 	}
 	if strings.TrimSpace(options.GeneratorVersion) == "" {
 		return nil, fmt.Errorf("%w: corpus export requires a generator version", domain.ErrUsage)
@@ -100,6 +110,16 @@ func ExportCorpus(ctx context.Context, options CorpusExportOptions) (*CorpusExpo
 	}()
 
 	bundle, err := projectCorpusSnapshots(ctx, sources, options.Limits)
+	if err == nil && options.CacheBinding != nil {
+		var bindingBytes []byte
+		bindingBytes, err = corpus.CanonicalCacheBindingV1(*options.CacheBinding, options.Limits)
+		if err == nil {
+			bundle.members = append(bundle.members, corpusExportMember{
+				spec: corpus.CacheBindingMemberSpec(), data: bindingBytes,
+			})
+			sortCorpusExportMembers(bundle.members)
+		}
+	}
 	if err == nil {
 		for _, source := range sources {
 			if validateErr := source.snapshot.Revalidate(); validateErr != nil {
@@ -123,11 +143,13 @@ func ExportCorpus(ctx context.Context, options CorpusExportOptions) (*CorpusExpo
 		return nil, corpusExportFailure("validate projected generation bounds", err)
 	}
 
-	store, err := openCorpusExportStore(options)
+	store, closeStore, err := openCorpusExportStore(options)
 	if err != nil {
 		return nil, corpusExportFailure("open sealed generation store", err)
 	}
-	defer func() { _ = store.Close() }()
+	if closeStore {
+		defer func() { _ = store.Close() }()
+	}
 
 	current, currentErr := store.SelectCurrent(ctx)
 	predecessor := ""
@@ -193,6 +215,12 @@ func ExportCorpus(ctx context.Context, options CorpusExportOptions) (*CorpusExpo
 	}
 	if err != nil {
 		return nil, corpusExportFailure("seal generation", err)
+	}
+	if options.CacheBinding != nil {
+		if err := corpus.VerifyCacheBindingV1(*options.CacheBinding, generation); err != nil {
+			_ = generation.Close()
+			return nil, corpusExportFailure("verify sealed cache binding", err)
+		}
 	}
 	wantDigest := generation.Receipt().GenerationDigest
 	if closeErr := generation.Close(); closeErr != nil {
@@ -347,12 +375,17 @@ func finishCorpusExportGuards(guards []*mirrorSnapshotLock) (bool, error) {
 	return retry, result
 }
 
-func openCorpusExportStore(options CorpusExportOptions) (*corpus.Store, error) {
+func openCorpusExportStore(options CorpusExportOptions) (*corpus.Store, bool, error) {
+	if options.Store != nil {
+		return options.Store, false, nil
+	}
 	storeOptions := corpus.Options{Limits: options.Limits}
 	if options.InitializeStore {
-		return corpus.Initialize(options.StoreRoot, storeOptions)
+		store, err := corpus.Initialize(options.StoreRoot, storeOptions)
+		return store, true, err
 	}
-	return corpus.Open(options.StoreRoot, storeOptions)
+	store, err := corpus.Open(options.StoreRoot, storeOptions)
+	return store, true, err
 }
 
 func corpusGenerationEquivalent(generation *corpus.Generation, bundle corpusProjectionBundle, options CorpusExportOptions) bool {

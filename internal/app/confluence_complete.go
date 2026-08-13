@@ -39,13 +39,14 @@ type CompletePullResult struct {
 }
 
 type completePullBinding struct {
-	Assets           bool                   `json:"assets"`
-	Comments         bool                   `json:"comments"`
-	Render           mirror.ViewState       `json:"render"`
-	ExpandJiraMacros bool                   `json:"expand_jira_macros"`
-	JiraView         string                 `json:"jira_view,omitempty"`
-	JiraMacroColumns []string               `json:"jira_macro_columns,omitempty"`
-	Evidence         *corpusEvidenceBinding `json:"evidence,omitempty"`
+	Assets            bool                   `json:"assets"`
+	Comments          bool                   `json:"comments"`
+	Render            mirror.ViewState       `json:"render"`
+	ExpandJiraMacros  bool                   `json:"expand_jira_macros"`
+	JiraView          string                 `json:"jira_view,omitempty"`
+	JiraMacroColumns  []string               `json:"jira_macro_columns,omitempty"`
+	Evidence          *corpusEvidenceBinding `json:"evidence,omitempty"`
+	RawUserReferences bool                   `json:"raw_user_references,omitempty"`
 }
 
 type confluenceCompleteSelection struct {
@@ -67,6 +68,7 @@ func confluenceCompleteHashJSON(value any) (string, error) {
 func completePullOptionsHash(cfg *config.Config, o PullOpts, rs RenderSettings) (string, error) {
 	binding := completePullBinding{
 		Assets: o.Assets, Comments: o.Comments, Render: viewStateOf(rs), ExpandJiraMacros: rs.ExpandJiraMacros,
+		RawUserReferences: o.deterministicRawUsers,
 	}
 	if o.evidence != nil {
 		evidence := o.evidence.binding

@@ -96,6 +96,11 @@ type CorpusBuildOptions struct {
 	Root                      string
 	Initialize                bool
 	Restart                   bool
+	CacheRoot                 string
+	InitializeCache           bool
+	CacheMaxRequests          int
+	CacheMaxResponseBytes     int64
+	CacheDeadline             time.Duration
 	JiraProject               string
 	MaxJiraIssues             int
 	ConfluenceSpace           string
@@ -121,11 +126,13 @@ type CorpusBuildOptions struct {
 }
 
 type CorpusBuildDependencies struct {
-	Jira             *JiraService
-	Confluence       *ConfluenceService
-	GeneratorVersion string
-	BuildState       corpus.BuildState
-	Now              func() time.Time
+	Jira                  *JiraService
+	Confluence            *ConfluenceService
+	GeneratorVersion      string
+	GeneratorCommit       string
+	BuildState            corpus.BuildState
+	ConfluenceTrustDigest string
+	Now                   func() time.Time
 }
 
 type CorpusBuildServiceResult struct {
@@ -147,6 +154,16 @@ type CorpusBuildResult struct {
 	Reused        bool                       `json:"reused"`
 	Projection    corpus.IndexerReceiptV2    `json:"projection"`
 	Generation    corpus.Summary             `json:"generation"`
+	Cache         *CorpusBuildCacheResult    `json:"cache,omitempty"`
+}
+
+// CorpusBuildCacheResult is deliberately content-free. It reports only the
+// closed cache decision and the separately bounded probe usage; backend,
+// selector, principal, object, and filesystem identities never enter stdout.
+type CorpusBuildCacheResult struct {
+	Status     string              `json:"status"`
+	Reason     string              `json:"reason"`
+	ProbeUsage corpus.CaptureUsage `json:"probe_usage"`
 }
 
 type corpusBuildBinding struct {
@@ -164,6 +181,9 @@ type corpusBuildBinding struct {
 	GeneratorVersion   string                `json:"generator_version"`
 	BuildState         corpus.BuildState     `json:"build_state"`
 	Evidence           corpusEvidenceBinding `json:"evidence"`
+	CachePublication   bool                  `json:"cache_publication,omitempty"`
+	GeneratorCommit    string                `json:"generator_commit,omitempty"`
+	TrustDigest        string                `json:"trust_digest,omitempty"`
 }
 
 // ValidateCorpusBuildOptions checks the complete static command contract. It
@@ -174,6 +194,16 @@ func ValidateCorpusBuildOptions(options CorpusBuildOptions) error {
 	}
 	if options.Initialize && options.Restart {
 		return fmt.Errorf("%w: --initialize and --restart are mutually exclusive", domain.ErrUsage)
+	}
+	cacheEnabled := strings.TrimSpace(options.CacheRoot) != ""
+	if !cacheEnabled {
+		if options.InitializeCache || options.CacheMaxRequests != 0 || options.CacheMaxResponseBytes != 0 || options.CacheDeadline != 0 {
+			return fmt.Errorf("%w: cache policy requires --cache-root", domain.ErrUsage)
+		}
+	} else if options.CacheMaxRequests <= 0 || options.CacheMaxRequests > corpusBuildMaxRequests ||
+		options.CacheMaxResponseBytes <= 0 || options.CacheMaxResponseBytes > corpusBuildMaxResponse ||
+		options.CacheDeadline <= 0 || options.CacheDeadline > corpusBuildMaxDeadline {
+		return fmt.Errorf("%w: cache probe bounds are invalid", domain.ErrUsage)
 	}
 	selectedJira := options.JiraProject != ""
 	selectedConfluence := options.ConfluenceSpace != ""

@@ -19,7 +19,7 @@ func reconcileCorpusBuildAttachmentUsage(
 		return false, corpus.ErrIntegrity
 	}
 	legacy := active.SchemaVersion == corpus.BuildActiveSchemaV1
-	if !legacy && active.SchemaVersion != corpus.BuildActiveSchemaV2 {
+	if !legacy && active.SchemaVersion != corpus.BuildActiveSchemaV2 && active.SchemaVersion != corpus.BuildActiveSchemaV3 {
 		return false, corpus.ErrIntegrity
 	}
 	carry, err := corpusBuildAttachmentCarry(*active)
@@ -62,7 +62,9 @@ func reconcileCorpusBuildAttachmentUsage(
 		changed = true
 		active.AttachmentBodyBytes = total
 	}
-	active.SchemaVersion = corpus.BuildActiveSchemaV2
+	if legacy {
+		active.SchemaVersion = corpus.BuildActiveSchemaV2
+	}
 	return changed, nil
 }
 
@@ -72,7 +74,7 @@ func reconcileCorpusBuildAttachmentUsage(
 // owner of the counter: a successfully streamed body may fail before its
 // sidecar/publication becomes visible and must still remain charged.
 func reconcileCorpusBuildServiceAttachmentUsage(root string, active *corpus.BuildActive, index int, attachmentBodyBytes int64) error {
-	if active == nil || active.SchemaVersion != corpus.BuildActiveSchemaV2 || index < 0 || index >= len(active.Services) {
+	if active == nil || active.SchemaVersion != corpus.BuildActiveSchemaV2 && active.SchemaVersion != corpus.BuildActiveSchemaV3 || index < 0 || index >= len(active.Services) {
 		return corpus.ErrIntegrity
 	}
 	if attachmentBodyBytes < active.AttachmentBodyBytes || attachmentBodyBytes > corpusBuildMaxAttachmentTotalBytes {
