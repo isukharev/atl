@@ -32,8 +32,10 @@ does not imply that all CLI output formats or raw evidence are available.
 
 ATL remains dual-era. Modern `2026-07-28` clients use stateless
 `server/discover`; legacy `2025-11-25` clients use initialize/initialized. The
-one-page tool inventory has no cursor and carries `ttlMs:0` with
-`cacheScope:"public"` in both eras.
+one-page tool and resource inventories and resource reads carry `ttlMs:0` with
+`cacheScope:"public"` in both eras. Legacy results contain only the payload
+plus those cache fields; modern results also carry completion and server
+metadata.
 
 Generated plugin startup carries separate interface-contract and manifest
 product-version markers. An incompatible marked interface fails as a

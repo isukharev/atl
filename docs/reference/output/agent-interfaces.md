@@ -107,6 +107,13 @@ rejects missing, null, fractional, negative, non-zero, or overflowing TTLs,
 unknown scopes, cursors, duplicate members, and other top-level members on the
 legacy selected-binary path.
 
+The fixed `resources/list` inventory and `resources/read` result use the same
+cache envelope in both eras. Legacy results contain exactly their payload
+member (`resources` or `contents`), `ttlMs:0`, and `cacheScope:"public"`.
+Modern results add only `resultType:"complete"` and server `_meta`. The
+capability resource body remains the static schema-v1 JSON described below;
+the cache fields do not weaken its closed content contract.
+
 Generated plugin startup markers are validated before the MCP protocol starts.
 An incomplete, repeated, malformed, or incompatible marked invocation leaves
 stdout empty and uses the ordinary content-free CLI `usage_error` envelope on
