@@ -3,8 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -107,7 +105,8 @@ func validateTemplate(repositoryRoot string) error {
 
 	required := map[string][]string{
 		"install-atl.sh": {
-			"ATL_ASSET_SHA256", "gh attestation verify", "--signer-workflow", "--source-ref \"refs/tags/${version}\"",
+			"ATL_ASSET_SHA256", "api.github.com/repos/isukharev/atl/attestations/sha256:${checksum}",
+			"gh attestation verify", "--bundle", "--hostname github.com", "--signer-workflow", "--source-ref \"refs/tags/${version}\"",
 			".version == $expected", "releases/download/${version}",
 		},
 		"run-corpus.sh": {
@@ -189,101 +188,6 @@ func runHermeticSmokeWithATL(repositoryRoot, currentATL string) error {
 		return err
 	}
 	return runRealBootstrapSmoke(root, temporary, currentATL)
-}
-
-func runInstallSmoke(repositoryRoot, temporary string) error {
-	fakeBin := filepath.Join(temporary, "install-tools")
-	installRoot := filepath.Join(temporary, "installed")
-	if err := os.Mkdir(fakeBin, 0o700); err != nil {
-		return err
-	}
-	release := filepath.Join(temporary, "release-atl")
-	if err := writeExecutable(release, "#!/bin/sh\n[ \"$1\" = version ]\nprintf '%s\\n' '{\"version\":\"1.2.3\",\"commit\":\"synthetic\",\"build_state\":\"clean\"}'\n"); err != nil {
-		return err
-	}
-	if err := writeExecutable(filepath.Join(fakeBin, "curl"), fakeCurlScript); err != nil {
-		return err
-	}
-	if err := writeExecutable(filepath.Join(fakeBin, "gh"), fakeGHScript); err != nil {
-		return err
-	}
-	data, err := os.ReadFile(release)
-	if err != nil {
-		return err
-	}
-	sum := sha256.Sum256(data)
-	ghLog := filepath.Join(temporary, "gh.log")
-	environment := []string{
-		"PATH=" + fakeBin + string(os.PathListSeparator) + os.Getenv("PATH"),
-		"HOME=" + temporary,
-		"ATL_VERSION=v1.2.3",
-		"ATL_ASSET_SHA256=" + hex.EncodeToString(sum[:]),
-		"ATL_INSTALL_DIR=" + installRoot,
-		"ATL_FAKE_RELEASE_BINARY=" + release,
-		"ATL_FAKE_GH_LOG=" + ghLog,
-	}
-	stdout, stderr, runErr := runCommand(filepath.Join(repositoryRoot, exampleRelative, "install-atl.sh"), environment)
-	if runErr != nil {
-		return fmt.Errorf("install smoke: %w: %s", runErr, stderr)
-	}
-	if strings.Contains(stdout+stderr, temporary) || !strings.Contains(stdout, "verified pinned ATL release") {
-		return errors.New("installer output is not content-free")
-	}
-	installed, err := os.ReadFile(filepath.Join(installRoot, "atl"))
-	if err != nil || !bytes.Equal(installed, data) {
-		return errors.New("installer did not preserve the attested binary")
-	}
-	logBytes, err := os.ReadFile(ghLog)
-	if err != nil || !bytes.Contains(logBytes, []byte("attestation verify")) ||
-		!bytes.Contains(logBytes, []byte(".github/workflows/release.yml")) ||
-		!bytes.Contains(logBytes, []byte("--source-ref refs/tags/v1.2.3")) {
-		return errors.New("installer did not invoke the pinned provenance check")
-	}
-	rejectedRoot := filepath.Join(temporary, "rejected-install")
-	rejectedEnvironment := []string{
-		"PATH=" + fakeBin + string(os.PathListSeparator) + os.Getenv("PATH"),
-		"HOME=" + temporary,
-		"ATL_VERSION=v1.2.3",
-		"ATL_ASSET_SHA256=" + hex.EncodeToString(sum[:]),
-		"ATL_INSTALL_DIR=" + rejectedRoot,
-		"ATL_FAKE_RELEASE_BINARY=" + release,
-		"ATL_FAKE_GH_LOG=" + ghLog,
-		"ATL_FAKE_GH_FAIL=1",
-	}
-	stdout, stderr, runErr = runCommand(filepath.Join(repositoryRoot, exampleRelative, "install-atl.sh"), rejectedEnvironment)
-	if runErr == nil || stdout != "" || !strings.Contains(stderr, "release provenance verification failed") {
-		return errors.New("installer accepted a failed provenance verification")
-	}
-	if _, err := os.Lstat(filepath.Join(rejectedRoot, "atl")); !os.IsNotExist(err) {
-		return errors.New("installer published a binary after failed provenance verification")
-	}
-	mismatchedRelease := filepath.Join(temporary, "mismatched-release-atl")
-	if err := writeExecutable(mismatchedRelease, "#!/bin/sh\n[ \"$1\" = version ]\nprintf '%s\\n' '{\"version\":\"9.9.9\",\"commit\":\"synthetic\",\"build_state\":\"clean\"}'\n"); err != nil {
-		return err
-	}
-	mismatchedBytes, err := os.ReadFile(mismatchedRelease)
-	if err != nil {
-		return err
-	}
-	mismatchedSum := sha256.Sum256(mismatchedBytes)
-	mismatchedRoot := filepath.Join(temporary, "mismatched-install")
-	mismatchedEnvironment := []string{
-		"PATH=" + fakeBin + string(os.PathListSeparator) + os.Getenv("PATH"),
-		"HOME=" + temporary,
-		"ATL_VERSION=v1.2.3",
-		"ATL_ASSET_SHA256=" + hex.EncodeToString(mismatchedSum[:]),
-		"ATL_INSTALL_DIR=" + mismatchedRoot,
-		"ATL_FAKE_RELEASE_BINARY=" + mismatchedRelease,
-		"ATL_FAKE_GH_LOG=" + ghLog,
-	}
-	stdout, stderr, runErr = runCommand(filepath.Join(repositoryRoot, exampleRelative, "install-atl.sh"), mismatchedEnvironment)
-	if runErr == nil || stdout != "" || !strings.Contains(stderr, "verified binary version does not match ATL_VERSION") {
-		return errors.New("installer accepted an attested binary from a different release version")
-	}
-	if _, err := os.Lstat(filepath.Join(mismatchedRoot, "atl")); !os.IsNotExist(err) {
-		return errors.New("installer published a version-mismatched binary")
-	}
-	return nil
 }
 
 func runBootstrapSmoke(repositoryRoot, temporary string) error {
@@ -719,23 +623,3 @@ func installFakeATL(repositoryRoot, target string) error {
 	}
 	return writeExecutable(target, string(data))
 }
-
-const fakeCurlScript = `#!/bin/sh
-set -eu
-output=
-while [ "$#" -gt 0 ]; do
-	if [ "$1" = -o ]; then
-		shift
-		output=$1
-	fi
-	shift
-done
-[ -n "$output" ]
-cp "$ATL_FAKE_RELEASE_BINARY" "$output"
-`
-
-const fakeGHScript = `#!/bin/sh
-set -eu
-printf '%s\n' "$*" >"$ATL_FAKE_GH_LOG"
-[ -z "${ATL_FAKE_GH_FAIL:-}" ] || exit 9
-`

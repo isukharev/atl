@@ -53,8 +53,11 @@ release asset. Keep `.devcontainer-lock.json` beside `devcontainer.json`; the
 CLI can enforce it with its frozen-lockfile mode. Hosted CI installs one exact
 `@devcontainers/cli` dependency graph with `npm ci`; it does not delegate to an
 action that downloads a floating CLI. The post-create installer checks the
-supplied checksum, GitHub build provenance bound to `refs/tags/<ATL_VERSION>`,
-and the binary's reported version before publishing it.
+supplied checksum, retrieves a bounded attestation bundle anonymously through
+GitHub's public digest API, verifies it offline in an isolated GitHub CLI
+environment with provenance bound to `refs/tags/<ATL_VERSION>`, and checks the
+binary's reported version before publishing it. No GitHub, Jira, or Confluence
+token enters the verifier.
 
 Start the container from the repository root:
 
