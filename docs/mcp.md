@@ -25,6 +25,9 @@ includes `ttlMs:0` and `cacheScope:"public"`: clients should treat it as
 immediately stale, and the inventory contains no user-specific state. The
 legacy result has exactly `tools`, `ttlMs`, and `cacheScope`; the modern wire
 also carries the modern completion and server metadata required by that era.
+`resources/list` and `resources/read` use the same envelope: their legacy
+payload member is respectively `resources` or `contents`, and modern results
+add only `resultType:"complete"` plus server `_meta`.
 
 ## Closed service profiles and capability resource
 
@@ -786,9 +789,10 @@ loaded lazily per tool call, allowing the configured Jira or Confluence sibling
 to work when the other service is absent.
 
 Raw stdio compatibility covers stateless `server/discover` followed by
-`tools/list`, the complete legacy initialize/initialized sequence, structured
-future-version rejection, one response per request, clean stderr, and the
-non-empty closed tool inventory in both eras.
+`tools/list`, `resources/list`, and `resources/read`; the complete legacy
+initialize/initialized sequence with the same three calls; structured
+future-version rejection; one response per request; clean stderr; and closed
+tool/resource inventories in both eras.
 
 Cancellation propagates from the MCP client into the application request. HTTP
 auth scoping, redirect/downgrade checks, retry policy, pagination completeness,
