@@ -85,8 +85,8 @@ var corpusDevcontainerJobContract = []string{
 	"    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'",
 	"    runs-on: ubuntu-latest",
 	"    steps:",
-	"      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
-	"      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16",
+	"      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
+	"      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0",
 	"        with:",
 	"          go-version-file: go.mod",
 	"          check-latest: true",
@@ -204,26 +204,16 @@ func isWorkflowJobHeader(line string) bool {
 }
 
 func activeWorkflowLines(job []byte) []string {
-	lines := make([]string, 0)
-	for _, raw := range bytes.Split(job, []byte("\n")) {
+	rawLines := bytes.Split(job, []byte("\n"))
+	for len(rawLines) > 0 && strings.TrimSpace(string(rawLines[len(rawLines)-1])) == "" {
+		rawLines = rawLines[:len(rawLines)-1]
+	}
+	lines := make([]string, 0, len(rawLines))
+	for _, raw := range rawLines {
 		line := strings.TrimSuffix(string(raw), "\r")
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		line = stripWorkflowComment(line)
-		if strings.TrimSpace(line) != "" {
-			lines = append(lines, line)
-		}
+		lines = append(lines, line)
 	}
 	return lines
-}
-
-func stripWorkflowComment(line string) string {
-	if comment := strings.Index(line, " #"); comment >= 0 {
-		line = line[:comment]
-	}
-	return strings.TrimRight(line, " \t")
 }
 
 func runGraphifyPolicySmoke(repositoryRoot, temporary string) error {

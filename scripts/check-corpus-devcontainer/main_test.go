@@ -53,6 +53,45 @@ func TestCorpusDevcontainerWorkflowBindsContractsToExactJob(t *testing.T) {
 	if err := validateCorpusDevcontainerWorkflow(workflow); err != nil {
 		t.Fatalf("repository workflow: %v", err)
 	}
+	job, err := workflowJobBlock(workflow, "corpus-devcontainer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobLines := bytes.Split(job, []byte("\n"))
+	continuations := 0
+	for index, line := range jobLines {
+		if !bytes.HasSuffix(line, []byte(`\`)) {
+			continue
+		}
+		continuations++
+		commentedLines := append([][]byte(nil), jobLines[:index+1]...)
+		commentedLines = append(commentedLines, []byte("            # synthetic shell comment drift"))
+		commentedLines = append(commentedLines, jobLines[index+1:]...)
+		commentedJob := bytes.Join(commentedLines, []byte("\n"))
+		commentedWorkflow := bytes.Replace(workflow, job, commentedJob, 1)
+		if err := validateCorpusDevcontainerWorkflow(commentedWorkflow); err == nil {
+			t.Errorf("full-line shell comment after continuation %d was accepted", continuations)
+		}
+		blankLines := append([][]byte(nil), jobLines[:index+1]...)
+		blankLines = append(blankLines, []byte("            "))
+		blankLines = append(blankLines, jobLines[index+1:]...)
+		blankJob := bytes.Join(blankLines, []byte("\n"))
+		blankWorkflow := bytes.Replace(workflow, job, blankJob, 1)
+		if err := validateCorpusDevcontainerWorkflow(blankWorkflow); err == nil {
+			t.Errorf("blank shell line after continuation %d was accepted", continuations)
+		}
+
+		inlineLines := append([][]byte(nil), jobLines...)
+		inlineLines[index] = append(append([]byte(nil), line...), []byte(" # synthetic shell comment drift")...)
+		inlineJob := bytes.Join(inlineLines, []byte("\n"))
+		inlineWorkflow := bytes.Replace(workflow, job, inlineJob, 1)
+		if err := validateCorpusDevcontainerWorkflow(inlineWorkflow); err == nil {
+			t.Errorf("inline shell comment after continuation %d was accepted", continuations)
+		}
+	}
+	if continuations == 0 {
+		t.Fatal("repository corpus devcontainer job has no shell continuations")
+	}
 
 	const header = "  corpus-devcontainer:\n"
 	const relocated = `  corpus-devcontainer:
