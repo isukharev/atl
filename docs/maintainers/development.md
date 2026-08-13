@@ -197,6 +197,14 @@ tidy, Windows, and bilateral `make agent-eval-product-boundary` gates. Do not
 add a root module dependency, a root `replace`, or a tracked `go.work` to make
 root recursive commands traverse the evaluator.
 
+The complete race lane retains every package under `-race -count=1` and has a
+45-minute package failure cap. The pull-request evaluator job has a separate
+75-minute outer cap so unit, lint, vet, vulnerability, Windows, and boundary
+checks still have bounded room after a slow race pass. These are failure caps,
+not performance targets; hosted durations remain observe-only maintainability
+evidence and sustained growth should be addressed by a separately reviewed
+suite split rather than by omitting checks.
+
 The standalone compatibility facade runs its exact evaluator test selection
 recursively across every active package plus the product wire and
 selected-binary process and fixture oracles. Selected test names must be

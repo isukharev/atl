@@ -24,7 +24,7 @@ unit: product-atl
 
 .PHONY: race
 race: product-atl
-	$(GO_ENV) go test -race ./... -count=1 -timeout=30m
+	$(GO_ENV) go test -race ./... -count=1 -timeout=45m
 
 .PHONY: lint
 lint:
