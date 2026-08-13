@@ -680,6 +680,44 @@ func TestWriteFileExclusivePrivateRejectsExistingSymlink(t *testing.T) {
 	}
 }
 
+func TestWriteFileExclusivePrivateRejectsInvalidPreconditionsBeforeCreatingTarget(t *testing.T) {
+	privateDir := t.TempDir()
+	if err := os.Chmod(privateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(privateDir, "artifact.json")
+
+	if err := WriteFileExclusivePrivateOutsideRoot(" \t", target, []byte("secret"), 0o600); !errors.Is(err, ErrUnsafePrivatePath) {
+		t.Fatalf("empty protected root error=%v", err)
+	}
+	if err := WriteFileExclusivePrivateOutsideRoot(filepath.Join(t.TempDir(), "missing"), target, []byte("secret"), 0o600); !errors.Is(err, ErrUnsafePrivatePath) {
+		t.Fatalf("missing protected root error=%v", err)
+	}
+
+	missingTarget := filepath.Join(privateDir, "missing", "artifact.json")
+	if err := WriteFileExclusivePrivate(missingTarget, []byte("secret"), 0o600); err == nil {
+		t.Fatal("missing target parent unexpectedly accepted")
+	}
+
+	protected := t.TempDir()
+	if err := os.Chmod(protected, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	hookErr := errors.New("synthetic validation failure")
+	if err := writeFileExclusivePrivateWithHook(protected, target, []byte("secret"), 0o600, func() error {
+		return hookErr
+	}); !errors.Is(err, hookErr) {
+		t.Fatalf("validation hook error=%v", err)
+	}
+
+	if _, err := os.Lstat(target); !os.IsNotExist(err) {
+		t.Fatalf("refused target exists: %v", err)
+	}
+	if _, err := os.Lstat(missingTarget); !os.IsNotExist(err) {
+		t.Fatalf("missing-parent target exists: %v", err)
+	}
+}
+
 func TestWriteFileExclusivePrivateOutsideRootRejectsDirectAndAliasedDescendants(t *testing.T) {
 	protected := t.TempDir()
 	if err := os.Chmod(protected, 0o700); err != nil {
