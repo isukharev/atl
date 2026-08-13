@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `2026-07-28` discovery, legacy `2025-11-25` initialize fallback, structured
   future-version rejection, protocol-clean output, and the closed cacheable
   tool inventory with `ttlMs:0` and `cacheScope:"public"`.
+- Added immutable content-free `atl://runtime` metadata to every MCP service
+  profile, capturing the startup-only hard read-only boundary, selected
+  profile, global read-only policy/source, and plugin compatibility. The
+  process-private read is non-cacheable across invocations, and changes require
+  a restart.
 - Generated plugin MCP definitions now include the public per-server
   `CODEX_MCP_PROTOCOL_VERSION=2026-07-28` marker. Codex 0.147 modern mode still
   requires the separate user-controlled under-development `mcp_2026_07_28`

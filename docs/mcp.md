@@ -25,9 +25,12 @@ includes `ttlMs:0` and `cacheScope:"public"`: clients should treat it as
 immediately stale, and the inventory contains no user-specific state. The
 legacy result has exactly `tools`, `ttlMs`, and `cacheScope`; the modern wire
 also carries the modern completion and server metadata required by that era.
-`resources/list` and `resources/read` use the same envelope: their legacy
-payload member is respectively `resources` or `contents`, and modern results
-add only `resultType:"complete"` plus server `_meta`.
+`resources/list` remains public and immediately stale with `ttlMs:0` and
+`cacheScope:"public"`. Every `resources/read` result also has `ttlMs:0`;
+`atl://capabilities` is public, while the invocation-specific
+`atl://runtime` result has `cacheScope:"private"`. Legacy results contain the
+payload member (`resources` or `contents`) plus those cache fields. Modern
+results add only `resultType:"complete"` and server `_meta`.
 
 ## Closed service profiles and capability resource
 
@@ -58,9 +61,9 @@ equality, decides startup compatibility.
 An incompatible marked invocation exits `2` as a content-free usage error
 before config, credentials, dependency construction, or network access, with no
 protocol bytes on stdout. A compatible interface continues when the plugin and
-binary product versions differ. The startup gate does not emit the product
-`match` or `mismatch` status at runtime; compare `atl version` with the
-installed plugin or manifest version when diagnosing skew.
+binary product versions differ. The runtime resource exposes only the closed
+`match` or `mismatch` classification, never either version; compare `atl
+version` with the installed plugin or manifest when diagnosing skew.
 MCP `serverInfo` is only the running server's self-reported name/version and is
 not treated as verified plugin, marker, or executable identity.
 
@@ -88,13 +91,73 @@ fail before dependency construction. Scoped instructions retain the common
 read-only, untrusted-evidence, completeness, no-shell, and no-arbitrary-file
 rules while mentioning only tools present in that profile.
 
-Every profile advertises one fixed `application/json` resource at
-`atl://capabilities`. It returns only static capability identity and ordering,
-the CLI command, an optional bounded MCP route and its scope, and the explicit
+Every profile advertises two fixed `application/json` resources.
+`atl://capabilities` returns only static capability identity and ordering, the
+CLI command, an optional bounded MCP route and its scope, and the explicit
 CLI-only fact. It accepts no arguments and reads no config, credentials,
 backend, mirror path, or user content. A mapping is not full CLI equivalence:
 for example, Jira reference and history mappings are summary projections and
 do not return raw URLs or changelog rows.
+
+The runtime resource descriptor is exactly:
+
+```json
+{
+  "uri": "atl://runtime",
+  "name": "atl-runtime",
+  "title": "atl runtime safety projection",
+  "description": "Immutable content-free startup safety and compatibility metadata for this atl MCP invocation.",
+  "mimeType": "application/json"
+}
+```
+
+Its exact schema-v1 body is:
+
+```json
+{
+  "schema_version": 1,
+  "access": "hard_read_only",
+  "lifecycle": "startup_only",
+  "change_activation": "restart_required",
+  "service_profile": "default",
+  "global_read_only_policy": {
+    "configured_read_only": false,
+    "effective_read_only": false,
+    "read_only_source": "none"
+  },
+  "plugin": {
+    "interface_contract": "unverified",
+    "product_version": "unverified"
+  }
+}
+```
+
+`service_profile` is exactly `default|jira|confluence|offline`.
+`read_only_source` is `flag|environment|configuration|none`, with the global
+`--read-only` flag taking precedence over `ATL_READ_ONLY`, then persisted
+configuration. `plugin.interface_contract` is `unverified|compatible`, and
+`plugin.product_version` is `unverified|match|mismatch`.
+
+The `access` field describes the structural MCP boundary: every profile is
+hard read-only whether or not the separately reported global CLI policy is
+enabled. `configured_read_only` comes only from persisted configuration;
+`effective_read_only` and its source also account for the invocation flag and
+`ATL_READ_ONLY`. The snapshot is captured once before stdio begins. A malformed
+persisted config or incompatible plugin interface marker fails before any protocol
+output. Later config, environment, or plugin changes do not alter a running
+server; restart it to activate them.
+
+For example, an MCP client can inspect the projection once after connecting:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"atl://runtime"}}
+```
+
+Treat the returned `ttlMs:0`, `cacheScope:"private"` result as a process-local
+observation: do not share it or reuse it for another server process. Within
+that one process the content is immutable, so polling cannot discover a
+change. Reading this resource after construction performs no config,
+environment, credential, filesystem-content, dependency, or backend access.
 
 ## Tools
 
@@ -806,8 +869,10 @@ jira_structure_get
 
 `atl mcp serve` is a long-running stdio process. Stdout is reserved for MCP
 protocol frames. It skips self-update at startup so no unrelated update request
-can alter initialization or corrupt protocol output. Authentication/config is
-loaded lazily per tool call, allowing the configured Jira or Confluence sibling
+can alter initialization or corrupt protocol output. Persisted configuration is
+parsed once before stdio to capture the runtime read-only projection; malformed
+configuration fails before protocol output. Backend clients and credentials
+remain lazy per tool call, allowing the configured Jira or Confluence sibling
 to work when the other service is absent.
 
 Raw stdio compatibility covers stateless `server/discover` followed by
