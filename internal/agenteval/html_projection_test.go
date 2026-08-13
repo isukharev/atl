@@ -422,6 +422,51 @@ func TestProjectHTMLCanonicalizesEquivalentFractions(t *testing.T) {
 	}
 }
 
+func TestHTMLRejectsZeroDenominatorWithoutPanic(t *testing.T) {
+	invalidReport := func() HTMLReport {
+		report, err := ProjectHTML(validHTMLProjectionInput())
+		if err != nil {
+			t.Fatalf("ProjectHTML(valid) error = %v", err)
+		}
+		report.Activation[0].Precision = &HTMLFraction{Numerator: 0, Denominator: 0}
+		return report
+	}
+	tests := []struct {
+		name string
+		call func() error
+	}{
+		{name: "project", call: func() error {
+			input := validHTMLProjectionInput()
+			input.Activation[0].Precision = &HTMLFraction{Numerator: 0, Denominator: 0}
+			_, err := ProjectHTML(input)
+			return err
+		}},
+		{name: "validate", call: func() error {
+			return invalidReport().Validate()
+		}},
+		{name: "encode", call: func() error {
+			_, err := EncodeHTML(invalidReport())
+			return err
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var err error
+			func() {
+				defer func() {
+					if recovered := recover(); recovered != nil {
+						t.Fatalf("unexpected panic: %v", recovered)
+					}
+				}()
+				err = test.call()
+			}()
+			if !errors.Is(err, ErrInvalidHTMLProjection) {
+				t.Fatalf("error = %v, want ErrInvalidHTMLProjection", err)
+			}
+		})
+	}
+}
+
 func validHTMLProjectionInput() HTMLProjectionInput {
 	input := HTMLProjectionInput{
 		Provenance: HTMLProvenance{
