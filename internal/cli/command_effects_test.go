@@ -71,6 +71,29 @@ func TestCommandEffectCatalogReferencesCuratedCapabilitiesByCommand(t *testing.T
 	}
 }
 
+func TestCommandEffectCatalogTextIsStableAndContentFree(t *testing.T) {
+	catalog := commandEffectCatalog{Commands: []commandEffect{
+		{
+			Command:       "conf page get",
+			Access:        "read-only",
+			EffectProfile: capabilitydef.EffectRemoteRead,
+			CapabilityIDs: []string{"confluence.page.get"},
+		},
+		{
+			Command:       "version",
+			Access:        "read-only",
+			EffectProfile: capabilitydef.EffectPure,
+		},
+	}}
+	want := "| Command | Access | Effect profile | Capability IDs |\n" +
+		"| --- | --- | --- | --- |\n" +
+		"| `atl conf page get` | read-only | `remote-read` | confluence.page.get |\n" +
+		"| `atl version` | read-only | `pure` |  |"
+	if got := commandEffectCatalogText(catalog); got != want {
+		t.Fatalf("effect catalog text:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 func TestMCPServeEffectProfilePreservesHardReadOnlyBoundary(t *testing.T) {
 	catalog, err := buildCommandEffectCatalog(commandEffectSelection{Command: "mcp serve"})
 	if err != nil {
