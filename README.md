@@ -200,10 +200,9 @@ codex plugin marketplace add isukharev/atl
 codex plugin add atl@atl
 ```
 
-Restart after installing. ATL supports MCP `2026-07-28` and `2025-11-25`. The
-[agent setup guide](docs/agent-setup.md) covers routing, safety, mirrors, skew,
-the plugin/binary startup gate, and Codex's modern opt-in; standalone `atl mcp
-serve` remains supported.
+Restart after installing. ATL supports MCP `2026-07-28` and `2025-11-25`;
+[agent setup](docs/agent-setup.md) covers routing, safety, mirrors,
+plugin/binary gates, Codex opt-in, and standalone use.
 
 [`agent-eval`](docs/reference/agent-eval/README.md) is pre-release.
 
