@@ -5,6 +5,8 @@ package agenteval
 import (
 	"errors"
 	"fmt"
+	"math"
+	"strconv"
 	"syscall"
 	"testing"
 )
@@ -72,7 +74,7 @@ func TestNormalizeExhaustedProcessGroupError(t *testing.T) {
 		}
 	})
 
-	for _, test := range []struct {
+	tests := []struct {
 		name        string
 		pgid        int
 		signalErr   error
@@ -85,10 +87,21 @@ func TestNormalizeExhaustedProcessGroupError(t *testing.T) {
 		{name: "inspection failure", pgid: target, signalErr: permissionErr, inspectErr: errors.New("inspection failed"), wantInspect: true},
 		{name: "live member", pgid: target, signalErr: permissionErr, members: []processGroupMember{{pid: target, pgrp: target}}, wantInspect: true},
 		{name: "mismatched member", pgid: target, signalErr: permissionErr, members: []processGroupMember{{pid: target, pgrp: target + 1, zombie: true}}, wantInspect: true},
-	} {
+	}
+	if strconv.IntSize > 32 {
+		tests = append(tests, struct {
+			name        string
+			pgid        int
+			signalErr   error
+			members     []processGroupMember
+			inspectErr  error
+			wantInspect bool
+		}{name: "target exceeds Darwin process-group width", pgid: int(int64(math.MaxInt32) + 1), signalErr: permissionErr})
+	}
+	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			inspected := false
-			got := normalizeExhaustedProcessGroupError(test.pgid, test.signalErr, func(pgid int32) ([]processGroupMember, error) {
+			got := normalizeExhaustedProcessGroupError(test.pgid, test.signalErr, func(_ int32) ([]processGroupMember, error) {
 				inspected = true
 				return test.members, test.inspectErr
 			})

@@ -4,6 +4,7 @@ package agenteval
 
 import (
 	"errors"
+	"math"
 	"syscall"
 )
 
@@ -19,10 +20,10 @@ func normalizeExhaustedProcessGroupError(pgid int, signalErr error, inspect proc
 	if !errors.Is(signalErr, syscall.EPERM) {
 		return signalErr
 	}
-	target := int32(pgid)
-	if target <= 0 || int(target) != pgid || inspect == nil {
+	if pgid <= 0 || pgid > math.MaxInt32 || inspect == nil {
 		return signalErr
 	}
+	target := int32(pgid) // #nosec G115 -- pgid is explicitly bounded to the positive int32 range above.
 	members, err := inspect(target)
 	if err != nil || !processGroupExhausted(target, members) {
 		return signalErr
