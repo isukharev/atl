@@ -29,9 +29,12 @@ func TestTransportResponsibilityOwnersStayClosed(t *testing.T) {
 		},
 		"client.go": {
 			"(*Client).Base", "(*Client).Do", "(*Client).DoStream", "(*Client).DoStreamSized", "(*Client).DoWithBodyLimit",
-			"(*Client).GetJSON", "(*Client).GetJSONUseNumber", "(*Client).GetStream", "(*Client).ResolveGET", "(*Client).SendJSON",
+			"(*Client).GetJSON", "(*Client).GetJSONUseNumber", "(*Client).ResolveGET", "(*Client).SendJSON",
 			"(*Client).do", "Client", "New", "NewWithScheduler", "NewWithSchedulerTLS", "defaultTimeout", "newWithScheduler",
 			"unmarshal", "userAgent",
+		},
+		"download.go": {
+			"(*Client).GetStream", "validateNoReplayReadBudget",
 		},
 		"errors.go": {
 			"(*APIError).Error", "(*APIError).HTTPStatus", "(*APIError).Unwrap", "(*TransportError).Error", "(*TransportError).Format",

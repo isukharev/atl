@@ -53,11 +53,15 @@ atl capabilities --task jira/evidence -o text
 atl capabilities --task jira/setup -o text
 atl capabilities --task jira/graph-evidence -o text
 atl capabilities --task jira/inverse-reference -o text
+atl capabilities --task confluence/attachment-discovery -o text
 atl capabilities --task confluence/comments -o text
+atl capabilities --task confluence/space-hierarchy -o text
 ```
 
-The closed task classes are `confluence/comments`, `confluence/edit`,
-`confluence/evidence`, `confluence/mirror`, `confluence/table-analytics`,
+The closed task classes are `confluence/attachment-discovery`,
+`confluence/comments`, `confluence/edit`, `confluence/evidence`,
+`confluence/mirror`, `confluence/space-hierarchy`,
+`confluence/table-analytics`,
 `jira/batch-analysis`, `jira/board-portfolio`, `jira/edit`, `jira/evidence`,
 `jira/graph-evidence`, `jira/inverse-reference`, `jira/mirror`, `jira/portfolio`, `jira/setup`,
 `jira/structure-planning`, and `knowledge/search`. The result is a small ordered set
@@ -78,6 +82,10 @@ The additive `confluence/comments` route keeps qualified list, exact thread,
 guarded preview, and guarded add separate. Its list/thread entries have narrower
 read-only MCP mappings; preview/add are CLI-only and do not become plugin
 mutations.
+`confluence/attachment-discovery` is the singleton metadata-search route with a
+narrower typed MCP mapping; `confluence/space-hierarchy` is the singleton
+CLI-only bounded tree route. Do not substitute the broader
+`confluence/evidence` class for either.
 For an exact Jira Structure id in the `jira/portfolio` route, use
 `jira structure get` for metadata qualification before a bounded view. Retain
 only id, name, and read-only state for the decision; do not propagate owner,
@@ -111,12 +119,12 @@ only when an external tool needs exact private base/theirs artifacts.
 When the installed plugin exposes `atl` MCP tools, prefer them for transient,
 bounded evidence reads: typed arguments remove shell construction and the
 server registers no mutation or arbitrary-filesystem tool. Load
-[mcp.md](reference/mcp.md) for its exact twenty-three-tool route and CLI fallback
+[mcp.md](reference/mcp.md) for its exact twenty-four-tool route and CLI fallback
 boundary. Use bounded Structure metadata/view through MCP. For content-free
 health counts of an existing durable mirror, use the no-argument mirror snapshot
 tool only when the owner has configured `ATL_MIRROR_ROOT`. Continue using the
 CLI for raw Structure forest/values, mirror content/status/diff, exports,
-diff/plan, attachments, and every guarded write.
+diff/plan, attachment content/downloads/uploads, and every guarded write.
 
 ## Mental model
 
@@ -341,10 +349,12 @@ opt-in ordered `conf pull --page-prefetch` plus a shared
 `--requests-per-second` transport boundary for ordinary CQL/space and
 complete/incremental mirrors
 while every local write/checkpoint remains serial;
-`conf page list --space [--status]`, `conf page
-open --id`, guarded `conf page copy --id --title [--space] [--parent]
-[--register --into] [--apply --expected-version --expected-proposal-hash]`, `conf attachment
-{list,get,upload}`, guarded permanent `conf attachment delete --page-id --id
+`conf page list --space [--status]`, caller-bounded qualified `conf space tree`,
+`conf page open --id`, guarded `conf page copy --id --title [--space]
+[--parent] [--register --into]
+[--apply --expected-version --expected-proposal-hash]`, metadata-only
+`conf attachment search`, `conf attachment {list,get,upload}`, guarded permanent
+`conf attachment delete --page-id --id
 [--apply --confirm DELETE --expected-version --expected-proposal-hash]`, `conf me`, `conf search --space/--title/--label/--type`
 convenience filters (no `--cql` needed), `.md` view renders internal links as `[[Title]]`.
 

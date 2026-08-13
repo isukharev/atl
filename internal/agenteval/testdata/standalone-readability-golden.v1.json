@@ -72,11 +72,11 @@
       "kind": "capability-catalog",
       "version": 1,
       "source_path": "testdata/capability-catalog.v1.json",
-      "source_sha256": "c6f279eae2ec0b6243423facea125c373e8224f50763c92a0dd9eba096a1afd7",
+      "source_sha256": "c865fd7d4062683c26d6fa216ddefe61378309fb4c4960aac08e005868953332",
       "expected_projection": {
         "schema_version": 1,
-        "capability_count": 58,
-        "first_capability": "confluence.comment.list",
+        "capability_count": 60,
+        "first_capability": "confluence.attachment.search",
         "last_capability": "knowledge.confluence.sections"
       }
     },
