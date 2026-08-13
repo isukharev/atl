@@ -3,15 +3,44 @@ package app
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/mirror"
 )
 
 type failingConfluenceAssetResolver struct{}
 
 func (failingConfluenceAssetResolver) Resolve(context.Context, *domain.Resource, domain.Ref) ([]byte, string, error) {
 	return nil, "", errors.New("synthetic asset read failure")
+}
+
+type callbackQualifiedPullStore struct {
+	*pullStore
+	inventory domain.ConfluenceCommentInventory
+	callback  func()
+}
+
+func (s *callbackQualifiedPullStore) ListConfluenceComments(_ context.Context, _ string, _ domain.ConfluenceCommentReadOptions) (domain.ConfluenceCommentInventory, error) {
+	if s.callback != nil {
+		s.callback()
+	}
+	return s.inventory, nil
+}
+
+type callbackQualifiedCompletePullStore struct {
+	*completePullStore
+	inventory domain.ConfluenceCommentInventory
+	callback  func()
+}
+
+func (s *callbackQualifiedCompletePullStore) ListConfluenceComments(_ context.Context, _ string, _ domain.ConfluenceCommentReadOptions) (domain.ConfluenceCommentInventory, error) {
+	if s.callback != nil {
+		s.callback()
+	}
+	return s.inventory, nil
 }
 
 func confluencePullInclude(t *testing.T, result *PullResult, dimension string) ConfluencePullInclude {
@@ -118,6 +147,176 @@ func TestConfluencePullIncludesReportFailedRequestedRead(t *testing.T) {
 	}
 	if !result.HasFailedInclude() {
 		t.Fatal("failed include was not observable to the CLI")
+	}
+}
+
+func TestConfluencePullReadFailureDemotesOnlyActuallyStagedSiblingAssets(t *testing.T) {
+	bodyWithAsset := []byte(`<ac:image><ri:attachment ri:filename="image.png"/></ac:image>`)
+	for _, tc := range []struct {
+		name       string
+		body       []byte
+		wantAssets string
+	}{
+		{name: "no staged assets", body: []byte(`<p>body</p>`), wantAssets: ConfluencePullIncludeDeferred},
+		{name: "staged asset", body: bodyWithAsset, wantAssets: ConfluencePullIncludeFailed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &pullStore{
+				pages: map[string]*domain.Resource{
+					"100": {ID: "100", Title: "Alpha", SpaceKey: "DOC", Version: 1, Body: tc.body},
+				},
+				commentsErr: errors.New("synthetic comment read failure"),
+			}
+			result, err := (&ConfluenceService{
+				baseURL: confluenceTestBackendURL, store: store, assets: staticConfluenceAssetResolver{},
+			}).Pull(t.Context(), PullOpts{ID: "100", Into: t.TempDir(), Assets: true, Comments: true})
+			if err == nil {
+				t.Fatal("Pull unexpectedly succeeded")
+			}
+			comments := confluencePullInclude(t, result, ConfluencePullIncludeComments)
+			if comments.Qualification != ConfluencePullIncludeFailed || comments.Reason != ConfluencePullIncludeReasonReadFailed {
+				t.Fatalf("comments include=%+v", comments)
+			}
+			assets := confluencePullInclude(t, result, ConfluencePullIncludeAssets)
+			if assets.Qualification != tc.wantAssets {
+				t.Fatalf("assets include=%+v, want %q", assets, tc.wantAssets)
+			}
+			if tc.wantAssets == ConfluencePullIncludeDeferred {
+				if assets.Complete != nil || assets.Reason != ConfluencePullIncludeReasonNotAttempted {
+					t.Fatalf("unstaged assets include=%+v", assets)
+				}
+			} else if assets.Complete == nil || *assets.Complete || assets.Reason != ConfluencePullIncludeReasonStagingFailed {
+				t.Fatalf("staged assets include=%+v", assets)
+			}
+		})
+	}
+}
+
+func TestConfluencePullCommentPublicationAndFlushFailuresStayVisible(t *testing.T) {
+	for _, failure := range []string{"comment publication", "sidecar flush"} {
+		t.Run(failure, func(t *testing.T) {
+			root := t.TempDir()
+			page := &domain.Resource{ID: "100", Title: "Alpha", SpaceKey: "DOC", Version: 1, Body: []byte(`<p>body</p>`)}
+			store := &callbackQualifiedPullStore{
+				pullStore: &pullStore{pages: map[string]*domain.Resource{"100": page}},
+				inventory: completeQualifiedComments(),
+			}
+			store.callback = func() {
+				switch failure {
+				case "comment publication":
+					dir, slug := mirror.New(root).PageDir(page.SpaceKey, page.Ancestors, page.Title)
+					if err := os.MkdirAll(filepath.Join(dir, slug+".comments.json"), 0o755); err != nil {
+						t.Fatal(err)
+					}
+				case "sidecar flush":
+					statePath := filepath.Join(root, ".atl", "state.json")
+					if err := os.MkdirAll(statePath, 0o700); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(
+				t.Context(), PullOpts{ID: "100", Into: root, Assets: true, Comments: true},
+			)
+			if err == nil || result == nil || !result.HasFailedInclude() {
+				t.Fatalf("result=%+v error=%v", result, err)
+			}
+			comments := confluencePullInclude(t, result, ConfluencePullIncludeComments)
+			if comments.Qualification != ConfluencePullIncludeFailed || comments.Complete == nil || *comments.Complete || comments.Reason != ConfluencePullIncludeReasonStagingFailed {
+				t.Fatalf("comments include=%+v", comments)
+			}
+			assets := confluencePullInclude(t, result, ConfluencePullIncludeAssets)
+			if assets.Qualification != ConfluencePullIncludeDeferred || assets.Complete != nil || assets.Reason != ConfluencePullIncludeReasonNotAttempted {
+				t.Fatalf("unstaged assets include=%+v", assets)
+			}
+		})
+	}
+}
+
+func TestConfluenceCompletePullStagingAndProgressFlushFailuresDemoteComments(t *testing.T) {
+	for _, failure := range []string{"publication staging", "journal flush", "progress flush"} {
+		t.Run(failure, func(t *testing.T) {
+			root := t.TempDir()
+			page := completeTestPage("10")
+			selection := completeSearchPage("10")
+			store := &callbackQualifiedCompletePullStore{
+				completePullStore: &completePullStore{
+					pullStore:      &pullStore{pages: map[string]*domain.Resource{"10": page}},
+					searchSequence: []domain.PageSearchPage{selection, selection},
+				},
+				inventory: completeQualifiedComments(),
+			}
+			selector, _, selectorErr := completePullSelector(PullOpts{Space: "DOC", Complete: true})
+			if selectorErr != nil {
+				t.Fatal(selectorErr)
+			}
+			selectorSHA256 := selectorHash(selector)
+			store.callback = func() {
+				switch failure {
+				case "publication staging":
+					dir, slug := mirror.New(root).PageDir(page.SpaceKey, page.Ancestors, page.Title)
+					if err := os.MkdirAll(filepath.Join(dir, slug+".comments.json"), 0o755); err != nil {
+						t.Fatal(err)
+					}
+				case "journal flush":
+					journalPath := filepath.Join(root, ".atl", "complete-pulls", selectorSHA256+".journal.json")
+					if err := os.Mkdir(journalPath, 0o700); err != nil {
+						t.Fatal(err)
+					}
+				case "progress flush":
+					progressPath := filepath.Join(root, ".atl", "complete-pulls", selectorSHA256+".progress.json")
+					if err := os.Remove(progressPath); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Mkdir(progressPath, 0o700); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(
+				t.Context(), PullOpts{Space: "DOC", Into: root, Complete: true, Assets: true, Comments: true},
+			)
+			if err == nil || result == nil || !result.HasFailedInclude() {
+				t.Fatalf("result=%+v error=%v", result, err)
+			}
+			comments := confluencePullInclude(t, result, ConfluencePullIncludeComments)
+			if comments.Qualification != ConfluencePullIncludeFailed || comments.Complete == nil || *comments.Complete || comments.Reason != ConfluencePullIncludeReasonStagingFailed {
+				t.Fatalf("comments include=%+v", comments)
+			}
+			assets := confluencePullInclude(t, result, ConfluencePullIncludeAssets)
+			if failure != "progress flush" {
+				if assets.Qualification != ConfluencePullIncludeDeferred || assets.Complete != nil || assets.Reason != ConfluencePullIncludeReasonNotAttempted {
+					t.Fatalf("unpublished empty assets include=%+v", assets)
+				}
+			} else if assets.Qualification != ConfluencePullIncludeQualified || assets.Complete == nil || !*assets.Complete || assets.Reason != "" {
+				t.Fatalf("durably published empty assets include=%+v", assets)
+			}
+
+			if failure != "progress flush" {
+				return
+			}
+			progressPath := filepath.Join(root, ".atl", "complete-pulls", selectorSHA256+".progress.json")
+			if err := os.Remove(progressPath); err != nil {
+				t.Fatal(err)
+			}
+			store.callback = nil
+			store.getIDs = nil
+			store.queries = nil
+			resumed, resumeErr := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(
+				t.Context(), PullOpts{Space: "DOC", Into: root, Complete: true, Assets: true, Comments: true},
+			)
+			if resumeErr != nil || resumed.Complete == nil || !resumed.Complete.Complete || len(store.getIDs) != 0 || len(store.queries) != 0 {
+				t.Fatalf("resumed=%+v getIDs=%v queries=%v error=%v", resumed, store.getIDs, store.queries, resumeErr)
+			}
+			comments = confluencePullInclude(t, resumed, ConfluencePullIncludeComments)
+			if comments.Qualification != ConfluencePullIncludeQualified || comments.Complete == nil || !*comments.Complete {
+				t.Fatalf("resumed comments include=%+v", comments)
+			}
+			assets = confluencePullInclude(t, resumed, ConfluencePullIncludeAssets)
+			if assets.Qualification != ConfluencePullIncludeQualified || assets.Complete == nil || !*assets.Complete {
+				t.Fatalf("resumed assets include=%+v", assets)
+			}
+		})
 	}
 }
 

@@ -495,6 +495,9 @@ func (m *Mirror) CompletePullCheckpoint(selectorSHA256 string) (CompletePullChec
 		return CompletePullCheckpoint{}, false, err
 	}
 	if staleCompletePullProgressService(value.Service, progress) {
+		if value.Service == CompletePullServiceConfluence {
+			value.Includes.EvidenceComplete = true
+		}
 		return value, true, nil
 	}
 	legacyConfluence := value.Service == CompletePullServiceConfluence && progress.SchemaVersion == completePullProgressSchema && progress.Service == ""
@@ -506,6 +509,9 @@ func (m *Mirror) CompletePullCheckpoint(selectorSHA256 string) (CompletePullChec
 		// A crash after atomically replacing a restarted selection can leave the
 		// previous tiny progress sidecar. Replaying from zero is conservative;
 		// trusting or rejecting that stale prefix would make recovery worse.
+		if value.Service == CompletePullServiceConfluence {
+			value.Includes.EvidenceComplete = true
+		}
 		return value, true, nil
 	}
 	if progress.NextIndex < 0 || progress.NextIndex > len(value.IDs) {
@@ -521,6 +527,12 @@ func (m *Mirror) CompletePullCheckpoint(selectorSHA256 string) (CompletePullChec
 			value.Includes = *progress.Includes
 			if err := validateCompletePullIncludeProgress(value.Includes, value.NextIndex); err != nil {
 				return CompletePullCheckpoint{}, false, fmt.Errorf("%w in %s", err, progressPath)
+			}
+			if value.NextIndex == 0 && value.Includes == (CompletePullIncludeProgress{}) {
+				// There is no accepted prefix whose evidence could be unknown.
+				// Normalize an explicit empty current object the same way as an
+				// absent legacy progress file, without improving any durable page.
+				value.Includes.EvidenceComplete = true
 			}
 		}
 	} else if progress.Includes != nil {
@@ -561,6 +573,18 @@ func (m *Mirror) SaveCompletePullCheckpoint(value CompletePullCheckpoint) error 
 		return err
 	}
 	selectionChanged := !found || existing.Service != value.Service || existing.OptionsSHA256 != value.OptionsSHA256 || existing.SelectionSHA256 != value.SelectionSHA256 || !reflect.DeepEqual(existing.IDs, value.IDs)
+	if !selectionChanged && value.Service == CompletePullServiceConfluence {
+		current, currentFound, currentErr := m.CompletePullCheckpoint(value.SelectorSHA256)
+		if currentErr != nil {
+			return currentErr
+		}
+		if !currentFound {
+			return fmt.Errorf("%w: complete-pull immutable selection disappeared while saving progress", domain.ErrCheckFailed)
+		}
+		if err := validateCompletePullIncludeAdvance(current.Includes, current.NextIndex, value.Includes, value.NextIndex); err != nil {
+			return err
+		}
+	}
 	publicationFound, publicationErr := m.hasCompletePullPublicationStage(value.SelectorSHA256)
 	if publicationErr != nil {
 		return publicationErr

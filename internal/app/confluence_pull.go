@@ -315,6 +315,7 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 	}
 	completeFinished := false
 	completeRetireStarted := false
+	var run *confluencePullRun
 	if complete != nil {
 		// Graceful failures commit the accepted journal prefix in the same order as
 		// a normal 25-page boundary: shared sidecar, progress, journal retirement.
@@ -326,8 +327,14 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 				retErr = fmt.Errorf("%w; complete-pull completion cleanup was interrupted — rerun the exact command to reconcile private resume state", retErr)
 				return
 			}
-			if err := complete.commit(m, batch); err != nil {
-				retErr = errors.Join(retErr, fmt.Errorf("save complete-pull mirror progress: %w", err))
+			var commitErr error
+			if run != nil {
+				commitErr = run.commitCompletePull()
+			} else {
+				commitErr = complete.commit(m, batch)
+			}
+			if commitErr != nil {
+				retErr = errors.Join(retErr, fmt.Errorf("save complete-pull mirror progress: %w", commitErr))
 			}
 			retErr = fmt.Errorf("%w; complete-pull checkpoint is at %d/%d — rerun the exact command to resume", retErr, complete.savedIndex, complete.result.Total)
 		}()
@@ -337,7 +344,7 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 		prefetch = newOrderedPagePrefetch(ctx, s.store, qualification.processIDs, pagePrefetch, confluenceNeedsRestrictions(rs))
 		defer prefetch.close()
 	}
-	run := &confluencePullRun{
+	run = &confluencePullRun{
 		service: s, ctx: ctx, opts: o, settings: rs, result: res, mirror: m, batch: batch,
 		complete: complete, incremental: incremental, qualification: qualification,
 	}
@@ -377,7 +384,7 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 		if complete.nextIndex != len(complete.checkpoint.IDs) {
 			return res, fmt.Errorf("%w: complete-pull progress ended before the exact selection was consumed", domain.ErrCheckFailed)
 		}
-		if err := complete.commit(m, batch); err != nil {
+		if err := run.commitCompletePull(); err != nil {
 			return res, err
 		}
 		completeRetireStarted = true
