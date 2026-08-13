@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -346,6 +347,9 @@ func TestExtensionHostNativeHelper(_ *testing.T) {
 		if len(os.Args) != separator+4 {
 			os.Exit(94)
 		}
+		// Keep both helper processes alive through the graceful interrupt so
+		// this oracle deterministically exercises the hard group-kill path.
+		signal.Ignore(os.Interrupt)
 		command := exec.Command(os.Args[0], append(extensionHostHelperArgs("descendant-child"), os.Args[separator+3])...)
 		command.Env = os.Environ()
 		if err := command.Start(); err != nil {
