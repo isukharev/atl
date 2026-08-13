@@ -366,7 +366,7 @@ func EncodeHTML(report HTMLReport) ([]byte, error) {
 	if err := normalized.Validate(); err != nil {
 		return nil, err
 	}
-	view := htmlTemplateView{Report: normalized, CSP: htmlCSP(), Styles: template.CSS(htmlStyles)}
+	view := htmlTemplateView{Report: normalized, CSP: htmlCSP(), Styles: template.CSS(htmlStyles)} // #nosec G203 -- htmlStyles is a package-owned constant with no caller-controlled bytes.
 	var body bytes.Buffer
 	if err := htmlReportTemplate.Execute(&body, view); err != nil {
 		return nil, fmt.Errorf("%w: render", ErrInvalidHTMLProjection)
@@ -423,10 +423,7 @@ func (report HTMLReport) validateBody() error {
 	if err := validateHTMLResources(report.Resources, strata); err != nil {
 		return err
 	}
-	if err := validateHTMLLift(report.Lift, strata); err != nil {
-		return err
-	}
-	return nil
+	return validateHTMLLift(report.Lift, strata)
 }
 
 func (provenance HTMLProvenance) validate(safety HTMLSafetySummary) error {
@@ -780,7 +777,13 @@ func htmlIntersectionLowerBound(left, right, universe uint32) uint32 {
 	if sum <= uint64(universe) {
 		return 0
 	}
-	return uint32(sum - uint64(universe))
+	difference := sum - uint64(universe)
+	if difference > uint64(^uint32(0)) {
+		// This is reachable only for callers that bypass the validated count
+		// bounds. Preserve a safe bounded result rather than wrapping.
+		return ^uint32(0)
+	}
+	return uint32(difference) // #nosec G115 -- explicit max-uint32 guard above.
 }
 
 func compareHTMLFractions(left, right HTMLFraction) int {
