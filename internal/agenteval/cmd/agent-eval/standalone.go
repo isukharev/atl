@@ -402,6 +402,15 @@ func writeStandaloneHelp(writer io.Writer, path []string) bool {
 	fmt.Fprintln(writer)
 	fmt.Fprintln(writer, "Usage:")
 	fmt.Fprintln(writer, "  "+descriptor.Usage)
+	if _, _, registered := standaloneCommandRegistryState(strings.Join(path, " ")); registered {
+		status := "reserved (unavailable)"
+		if descriptor.Available {
+			status = "pre-release (supported)"
+		}
+		fmt.Fprintln(writer)
+		fmt.Fprintln(writer, "Status:")
+		fmt.Fprintln(writer, "  "+status)
+	}
 	if len(descriptor.Children) > 0 {
 		fmt.Fprintln(writer)
 		fmt.Fprintln(writer, "Commands:")
