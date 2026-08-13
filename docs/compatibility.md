@@ -78,7 +78,7 @@ an upgrade.
 | Windows | Not currently supported | Source cross-compilation is CI-verified; Windows remains unsupported pending runtime, install, update, and recovery evidence |
 | Homebrew | Supported | Release-owned formula and checksum |
 | Release installer | Supported on Linux/macOS | SHA-256 verification; signed update trust documented separately |
-| Source build | Supported with Go 1.26.5+ | Maintainer toolchain contract and CI |
+| Source build | Supported with Go 1.26.6+ | Maintainer toolchain contract and CI |
 
 The release binary is static and has no runtime Go dependency.
 

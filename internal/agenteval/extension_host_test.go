@@ -468,7 +468,7 @@ func buildOutOfPackageExtensionSample(t *testing.T) string {
 		t.Fatal(err)
 	}
 	moduleRoot := t.TempDir()
-	if err := os.WriteFile(filepath.Join(moduleRoot, "go.mod"), []byte("module example.invalid/agent-eval-extension-sample\n\ngo 1.26.5\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(moduleRoot, "go.mod"), []byte("module example.invalid/agent-eval-extension-sample\n\ngo 1.26.6\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(moduleRoot, "main.go"), source, 0o600); err != nil {

@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-const fixtureGoVersion = "1.26.5"
+const fixtureGoVersion = "1.26.6"
 
 const graphifyConstraintsFixture = `# Resolved with uv 0.12.2 for graphifyy 0.9.34 on Python 3.11.
 networkx==3.6.1
@@ -436,7 +436,7 @@ func TestReleaseMatrixIgnoresOptionalStepBlockScalar(t *testing.T) {
 func TestGoDirectiveRequiresExactPatch(t *testing.T) {
 	for name, contents := range map[string]string{
 		"minor only": "module example.test/project\n\ngo 1.26\n",
-		"duplicate":  "module example.test/project\n\ngo 1.26.5\ngo 1.26.5\n",
+		"duplicate":  "module example.test/project\n\ngo 1.26.6\ngo 1.26.6\n",
 		"missing":    "module example.test/project\n",
 	} {
 		t.Run(name, func(t *testing.T) {

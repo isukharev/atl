@@ -102,7 +102,7 @@ are canonical in the focused references. Do not reconstruct them from memory.
 
 Start with the read-only preflight and check-selection table in
 [Development and verification](docs/maintainers/development.md). Requires the
-exact Go patch declared by the applicable module's `go.mod` (currently 1.26.5+).
+exact Go patch declared by the applicable module's `go.mod` (currently 1.26.6+).
 
 Core gates:
 
