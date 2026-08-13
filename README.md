@@ -113,21 +113,9 @@ attachments, or Development identities; add `--projection compact` for
 qualified URL/SCM JSON. From one GitLab project or Confluence page, use CLI-only
 `atl jira issue reference search` with explicit JQL scope, sources, mode, and
 limits; only a complete exhaustive result proves absence. Run `atl conf comment
-list --id ID` before expanding one thread. Use `atl conf attachment search`
-with explicit item/request/byte/deadline bounds when the page is not yet known;
-it returns metadata only and distinguishes complete, partial, and failed
-evidence. Use `atl conf space tree --space KEY` for a bounded, strictly
-qualified hierarchy prefix. These surfaces qualify incomplete evidence; graph
-text exposes safe URL-node identities in its `URL` column.
-
-Known-page attachment downloads accept `--max-bytes` (64 MiB by default,
-maximum 1 GiB). ATL revalidates page, exact filename, and attachment version,
-then refuses a reported version-specific `fileSize` above the selected ceiling
-before requesting binary bytes or creating the destination directory. The
-filename must be nonblank valid UTF-8 of at most 255 bytes; the page selector
-accepts a bounded opaque id, absolute HTTP(S) URL, or root-relative path. These
-inputs are validated before configuration or dependency access. The selector
-is not attachment-id bound and does not gate the page version.
+list --id ID` before expanding one thread. These attachment/tree/graph surfaces
+qualify incomplete evidence; text exposes safe URL-node identities in its `URL`
+column.
 
 Typed MCP offers smaller, read-only projections for agents. The CLI remains the
 route for native bodies, durable mirrors, large bounded traversals, exports,
