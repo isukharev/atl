@@ -6,9 +6,33 @@
     "stop": "stop expanding the route when sufficient complete evidence is available"
   },
   "selection": {
-    "count": 58
+    "count": 60
   },
   "capabilities": [
+    {
+      "id": "confluence.attachment.search",
+      "task_class": "confluence/attachment-discovery",
+      "service": "confluence",
+      "role": "primary",
+      "priority": 10,
+      "summary": "Search a caller-bounded completeness-qualified attachment-metadata prefix without first knowing a page",
+      "command": "conf attachment search",
+      "cli_command": "conf attachment search",
+      "mcp_tool": "confluence_attachment_search",
+      "mcp_scope": "Caller-bounded live Server/Data Center attachment-metadata prefix with closed complete, partial, or failed qualification and query-bound continuation; no bytes, comments, paths, or URLs.",
+      "cli_only": false,
+      "access": "read-only",
+      "effect_profile": "remote-read-caller-bounded",
+      "output_modes": [
+        "json",
+        "text",
+        "id"
+      ],
+      "evidence": "qualified",
+      "completeness": "explicit",
+      "skill": "confluence",
+      "reference": "reference/tables-attachments.md"
+    },
     {
       "id": "confluence.comment.list",
       "task_class": "confluence/comments",
@@ -425,6 +449,27 @@
       "completeness": "reconciled",
       "skill": "confluence",
       "reference": "reference/sync.md"
+    },
+    {
+      "id": "confluence.space.tree",
+      "task_class": "confluence/space-hierarchy",
+      "service": "confluence",
+      "role": "primary",
+      "priority": 10,
+      "summary": "Read a caller-bounded completeness-qualified page-hierarchy prefix for one space",
+      "command": "conf space tree",
+      "cli_command": "conf space tree",
+      "cli_only": true,
+      "access": "read-only",
+      "effect_profile": "remote-read-caller-bounded",
+      "output_modes": [
+        "json",
+        "text"
+      ],
+      "evidence": "qualified",
+      "completeness": "explicit",
+      "skill": "confluence",
+      "reference": "reference/commands.md"
     },
     {
       "id": "confluence.table.summary",

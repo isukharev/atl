@@ -17,6 +17,24 @@ atl conf pull --id <id> --assets --into <absolute-root>
 # add --comments only when comment context is required
 ```
 
+Every pull result has stable `assets` and `comments` include rows. Read
+`requested` and `qualification` first; `complete` is proof-only and is omitted
+until work has actually proved complete or incomplete. Omitted flags are
+`not_requested`. Requested dry-run work is `deferred` with
+`reason:preview_deferred` and performs no comment-list or asset-download GET.
+Actual complete publication is `qualified,complete:true`; incomplete coverage
+is `partial,complete:false` with `resolution_incomplete`,
+`inventory_incomplete`, or `not_attempted`; read/publication failure is
+`failed,complete:false` with `read_failed` or `staging_failed`. No backend prose
+belongs in `reason`.
+
+Qualification advances only after the page and all staged artifacts for that
+dimension are durably published. A page, sidecar, asset, shared flush, or
+publication failure demotes every affected staged dimension to
+`failed/staging_failed` before the original non-zero error. Restored legacy
+progress without include evidence is `partial/not_attempted`, never proof of a
+complete durable prefix.
+
 On an existing root, run remote status before pulling. Preserve local edits;
 refresh only a clean remote-drifted mirror. Mirror identity and view state live
 under the nearest `.atl`; never edit or copy that state by hand.

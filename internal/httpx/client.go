@@ -148,6 +148,9 @@ func (c *Client) Base() string { return c.base }
 // path may be absolute (starts with http) or relative to base. JSON responses
 // are bounded at jsonBodyCap.
 func (c *Client) Do(ctx context.Context, method, path string, body []byte, headers map[string]string) ([]byte, error) {
+	if err := validateNoReplayReadBudget(ctx); err != nil {
+		return nil, err
+	}
 	return c.do(ctx, method, path, body, headers, jsonBodyCap)
 }
 
@@ -157,6 +160,9 @@ func (c *Client) Do(ctx context.Context, method, path string, body []byte, heade
 // trace-redaction, status, and aggregate read-budget policies. Callers must use
 // a positive limit no larger than the ordinary JSON cap.
 func (c *Client) DoWithBodyLimit(ctx context.Context, method, path string, body []byte, headers map[string]string, maxBytes int64) ([]byte, error) {
+	if err := validateNoReplayReadBudget(ctx); err != nil {
+		return nil, err
+	}
 	if maxBytes <= 0 || maxBytes > jsonBodyCap {
 		return nil, fmt.Errorf("invalid response body limit")
 	}
@@ -261,9 +267,6 @@ func (c *Client) DoStreamSized(ctx context.Context, method, path string, r io.Re
 // response body; exceeding it is an error, not a silent truncation. Binary
 // downloads use GetStream instead.
 func (c *Client) do(ctx context.Context, method, path string, body []byte, headers map[string]string, maxBytes int64) ([]byte, error) {
-	if domain.NoReplayRetries(ctx) && !domain.SingleAttempt(ctx) && domain.ReadBudgetFromContext(ctx) == nil {
-		return nil, fmt.Errorf("%w: no-replay read requires a finite physical-attempt budget", domain.ErrCheckFailed)
-	}
 	url, err := c.resolveURL(path)
 	if err != nil {
 		return nil, err
@@ -384,81 +387,6 @@ func (c *Client) SendJSON(ctx context.Context, method, path string, in, out any)
 		return nil
 	}
 	return unmarshal(data, out)
-}
-
-// GetStream GETs path and returns the response body as a stream (binary
-// downloads). Retries/backoff apply only until the 2xx headers arrive; the
-// body is then consumed by the caller, bounded by an inactivity deadline
-// (each read resets it) instead of the JSON client's whole-request timeout —
-// a large transfer on a slow link is limited by stalls, not total wall-clock,
-// and is never buffered in RAM here. The caller must Close the stream. A
-// transport error mid-body is not retried (the partial read cannot be
-// transparently resumed).
-func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, error) {
-	if domain.NoReplayRetries(ctx) && !domain.SingleAttempt(ctx) && domain.ReadBudgetFromContext(ctx) == nil {
-		return nil, fmt.Errorf("%w: no-replay read requires a finite physical-attempt budget", domain.ErrCheckFailed)
-	}
-	url, err := c.resolveURL(path)
-	if err != nil {
-		return nil, err
-	}
-	var lastErr error
-	skipBackoff := false
-	retries := maxRetries
-	if domain.NoReplayRetries(ctx) {
-		retries = 0
-	}
-	for attempt := 0; attempt <= retries; attempt++ {
-		if attempt > 0 && !skipBackoff {
-			if !sleep(ctx, backoff(attempt)) {
-				return nil, ctx.Err()
-			}
-		}
-		skipBackoff = false
-		// A per-attempt cancel lets the idle watchdog abort a stalled body
-		// without touching the caller's context.
-		rctx, cancel := context.WithCancel(ctx)
-		req, err := c.newRequest(rctx, http.MethodGet, url, nil, map[string]string{"Accept": "*/*"})
-		if err != nil {
-			cancel()
-			return nil, err
-		}
-		c.tracef("→ GET %s\n", traceRequestURL(ctx, req.URL))
-		resp, err := c.dl.Do(req)
-		if err != nil {
-			cancel()
-			c.tracef("× GET %s (transport error: %s)\n", traceRequestURL(ctx, req.URL), transportErrorCategory(err))
-			if budgetErr := readBudgetExhaustion(err); budgetErr != nil {
-				return nil, budgetErr
-			}
-			lastErr = transportError(http.MethodGet, req.URL, err)
-			continue // GET is idempotent → retry
-		}
-		c.tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, req.URL.Path))
-		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			return newDownloadStream(ctx, resp.Body, cancel), nil
-		}
-		result := c.classifyAttempt(http.MethodGet, resp)
-		data, rerr := readResponseBody(ctx, resp.Body, jsonBodyCap)
-		resp.Body.Close()
-		cancel()
-		if rerr != nil {
-			return nil, rerr
-		}
-		apiErr := &APIError{Status: resp.StatusCode, Method: http.MethodGet, Path: path, Body: string(data), kind: result.kind}
-		if result.retryable && !domain.NoReplayRetries(ctx) {
-			lastErr = apiErr
-			if result.retryDelay > 0 {
-				if !sleep(ctx, result.retryDelay) {
-					return nil, ctx.Err()
-				}
-				skipBackoff = true
-			}
-			continue
-		}
-		return nil, apiErr
-	}
-	return nil, lastErr
 }
 
 func unmarshal(data []byte, out any) error {

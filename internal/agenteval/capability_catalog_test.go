@@ -86,6 +86,10 @@ func TestDecodeCapabilityCatalogFailsClosed(t *testing.T) {
 
 func TestVerifyPinnedCapabilityCatalogChecksEveryWireField(t *testing.T) {
 	base := mustPinnedCapabilityCatalog(t)
+	cliOnlyIndex := slices.IndexFunc(base.Capabilities, func(item CapabilityCatalogItem) bool { return item.CLIOnly })
+	if cliOnlyIndex < 0 {
+		t.Fatal("pinned capability catalog has no CLI-only item")
+	}
 	mutations := map[string]func(*CapabilityCatalog){
 		"routing":   func(c *CapabilityCatalog) { c.Routing.Stop += "." },
 		"selection": func(c *CapabilityCatalog) { c.Selection.Count-- },
@@ -101,7 +105,7 @@ func TestVerifyPinnedCapabilityCatalogChecksEveryWireField(t *testing.T) {
 		},
 		"mcp tool":       func(c *CapabilityCatalog) { c.Capabilities[0].MCPTool += "_changed" },
 		"mcp scope":      func(c *CapabilityCatalog) { c.Capabilities[0].MCPScope += "." },
-		"cli only":       func(c *CapabilityCatalog) { c.Capabilities[2].CLIOnly = false },
+		"cli only":       func(c *CapabilityCatalog) { c.Capabilities[cliOnlyIndex].CLIOnly = false },
 		"access":         func(c *CapabilityCatalog) { c.Capabilities[2].Access = "mutating" },
 		"effect profile": func(c *CapabilityCatalog) { c.Capabilities[0].EffectProfile += "-changed" },
 		"output modes":   func(c *CapabilityCatalog) { c.Capabilities[0].OutputModes = []string{"json"} },

@@ -130,7 +130,11 @@ func TestRepositoryConfluenceSpaceHierarchySelectedProcess(t *testing.T) {
 				}
 			})
 			result, err := process.RunCLIJSON(t.Context(), test.args...)
-			if err != nil || result.ExitCode != 0 || len(result.Stderr) != 0 {
+			wantStderr := []byte(nil)
+			if !test.wantComplete {
+				wantStderr = []byte("warning: space listing is partial after 2 pages (item_limit) — omitted pages are NOT proven absent\n")
+			}
+			if err != nil || result.ExitCode != 0 || !bytes.Equal(result.Stderr, wantStderr) {
 				t.Fatalf("selected tree failed: result=%+v err=%v", result, err)
 			}
 			view, err := DecodeConfluenceSpaceTreeView(bytes.NewReader(result.JSON))

@@ -30,8 +30,8 @@
     {"name":"scenario","readable":[1],"emitted":[1],"executable":[1]}
   ],
   "corpus_versions": [
-    {"artifact":"scenario","version":1,"count":111},
-    {"artifact":"run_spec","version":6,"count":218},
+    {"artifact":"scenario","version":1,"count":115},
+    {"artifact":"run_spec","version":6,"count":226},
     {"artifact":"run_spec","version":7,"count":8}
   ],
   "pair_identity": {
@@ -44,6 +44,7 @@
       {"name":"paginated_search_legacy","primary":["run.cli.claude.json","run.mcp.claude.json"],"holdout":["run.mcp.claude.json","run.mcp.codex.json"]}
     ],
     "pairs": [
+      {"primary":"confluence-attachment-discovery-mcp","run_file_set":"mcp"},
       {"primary":"confluence-attachment-evidence-mcp","run_file_set":"mcp"},
       {"primary":"confluence-comment-routing-mcp","run_file_set":"mcp","scenario_exceptions":["required_checks","required_semantic_checks","budgets"]},
       {"primary":"confluence-csv-formula-safety","run_file_set":"cli"},
@@ -57,6 +58,7 @@
       {"primary":"confluence-section-bound-recovery-mcp","run_file_set":"mcp","scenario_exceptions":["budgets"]},
       {"primary":"confluence-section-version-bound-mcp","run_file_set":"mcp","scenario_exceptions":["required_checks","required_semantic_checks"]},
       {"primary":"confluence-selection-completeness","run_file_set":"cli","scenario_exceptions":["budgets"]},
+      {"primary":"confluence-space-hierarchy","run_file_set":"cli"},
       {"primary":"confluence-stale-not-found-mcp","run_file_set":"mcp"},
       {"primary":"confluence-table-analytics-mcp","run_file_set":"mcp","scenario_exceptions":["required_checks","required_semantic_checks"]},
       {"primary":"confluence-table-selection-recovery-mcp","run_file_set":"mcp"},
