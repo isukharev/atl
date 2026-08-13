@@ -1,0 +1,8 @@
+{
+  "type":"object","additionalProperties":false,
+  "properties":{
+    "schema_version":{"type":"integer","const":1},"complete":{"type":"boolean"},"qualification":{"type":"string","enum":["complete","partial"]},"count":{"type":"integer","minimum":0},
+    "relations":{"type":"array","items":{"type":"object","additionalProperties":false,"properties":{"page_id":{"type":"string"},"parent_id":{"type":["string","null"]}},"required":["page_id","parent_id"]}}
+  },
+  "required":["schema_version","complete","qualification","count","relations"]
+}

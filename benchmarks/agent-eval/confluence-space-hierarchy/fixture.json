@@ -1,0 +1,13 @@
+{
+  "schema_version":1,"jira_context":"/jira","confluence_context":"/wiki",
+  "routes":[{
+    "method":"GET","path":"/wiki/rest/api/content/search",
+    "query_equals":{"cql":"space=\"DOC\" and type=page","expand":"ancestors,version,space","limit":"20","start":"0"},
+    "status":200,
+    "body":{"results":[
+      {"id":"page_root-10","type":"page","title":"Operations","space":{"key":"DOC"},"version":{"number":3},"ancestors":[]},
+      {"id":"page_runbooks-11","type":"page","title":"Runbooks","space":{"key":"DOC"},"version":{"number":2},"ancestors":[{"id":"page_root-10","title":"Operations"}]},
+      {"id":"page_recovery-12","type":"page","title":"Recovery","space":{"key":"DOC"},"version":{"number":4},"ancestors":[{"id":"page_root-10","title":"Operations"},{"id":"page_runbooks-11","title":"Runbooks"}]}
+    ],"start":0,"limit":20,"size":3,"totalSize":3,"_links":{}}
+  }]
+}

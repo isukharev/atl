@@ -60,15 +60,28 @@ and CSV still stream to stdout.
 ## Attachments
 
 ```bash
+atl conf attachment search --space <key> --max-items 100 --max-requests 5 \
+  --max-response-bytes 8388608 --deadline 20s
 atl conf attachment list --id <page-id>
 atl conf attachment list --id <page-id> --expected-version <N>
-atl conf attachment get --id <page-id> --name <filename> [--version N] --into <dir>
+atl conf attachment get --id <page-id> --name <filename> [--version N] \
+  --into <dir> [--max-bytes N]
 atl conf attachment upload --id <page-id> --file <path> [--comment <text>]
 atl conf attachment delete --page-id <page-id> --id <attachment-id>
 atl conf attachment delete --page-id <page-id> --id <attachment-id> \
   --apply --confirm DELETE --expected-version <N> \
   --expected-proposal-hash <reviewed-hash>
 ```
+
+Use `search` only for page-unknown discovery. Every execution bound is
+mandatory; optional exact space/additional CQL and an opaque cursor define the
+scope. The result contains bounded attachment and parent-container metadata
+only, never bytes, comments, paths, or URLs. Treat attachment and container ids
+as bounded opaque `[A-Za-z0-9_-]{1,256}` values. Require closed qualification:
+complete has a present stable total and exact terminal end; partial has one
+closed limiter and a query-bound next-offset cursor; failed has zero rows and
+no total or cursor. Missing, null, unknown, or contradictory members invalidate
+the result.
 
 `list` returns the qualified inventory `{schema_version, page_id, page_version,
 count, complete, partial_reason?, attachments:[...]}`. Successful JSON listings
@@ -84,6 +97,26 @@ observed: a positive value refuses the read with exit `8` when the page has
 moved, before any attachment request, and reports only the expected and current
 version integers. Use it whenever the inventory must correspond to a specific
 page read.
+
+`get` revalidates the resolved page, exact filename, and positive attachment
+version immediately before requesting version-addressed bytes. It is not bound
+to the attachment id and does not gate the page version. `--name` is nonblank
+valid UTF-8 up to 255 bytes; `--id` accepts a bounded opaque
+`[A-Za-z0-9_-]{1,256}` page id, absolute HTTP(S) URL, or root-relative path.
+`--max-bytes` defaults to 67108864 (64 MiB) and accepts `1..1073741824` (1 GiB).
+CLI validates all three before config, backend, or path access. A present
+non-negative version-specific `fileSize` is required, historical size wins, and an
+over-ceiling value fails before binary request or directory creation.
+
+Metadata resolution/revalidation has its own 15-second, 2-MiB,
+five-physical-attempt budget; normal resolution may use bounded read retry and
+safe same-origin redirects, while immediate revalidators are single-attempt.
+Its context is canceled before binary transfer. Binary uses the original caller
+context and a separate five-physical-attempt budget, disables generic replay
+retry, permits only finite same-origin scheme-safe redirects, and must read
+exactly the reported size including an overrun probe. Short, long, canceled, or
+close-failed transfers preserve an existing destination and leave no temporary
+file.
 
 Attachment deletion is permanent and preview-first. Preview requires an exact
 current page plus two independently complete qualified attachment inventories

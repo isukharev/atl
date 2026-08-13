@@ -82,7 +82,7 @@ Flags:
 
 | flag | description |
 |---|---|
-| `--space` | space key (required) |
+| `--space` | non-empty UTF-8 space key (required; at most 255 bytes) |
 | `--depth` | maximum depth (0 = unlimited) |
 | `--max-items` | returned page limit (default and max 2000) |
 | `--max-scanned-items` | raw backend row limit, including depth-filtered rows (default and max 20000) |
@@ -95,6 +95,8 @@ The schema-v1 result carries `space`, `depth`, `count`, `complete`, optional
 non-null `pages` array. `consistency` is always `live_unproven`: Confluence
 offset pagination supplies no snapshot token, so even `complete:true` proves
 only that this bounded live traversal reached a terminal page.
+Page and parent ids are bounded opaque `[A-Za-z0-9_-]{1,256}` identifiers; do
+not parse them as integers.
 
 ```json
 {
@@ -134,7 +136,9 @@ transport below orchestration, and the deadline is carried through every
 request. Generic read retries are disabled for this traversal. A partial result
 uses one static reason: `item_limit`, `scan_limit`, `request_limit`,
 `response_byte_limit`, `deadline`, `pagination_stalled`,
-`pagination_unqualified`, or `legacy_unqualified`. It is a prefix and never
+`pagination_unqualified`, or `legacy_unqualified`. Each backend page requests
+at most 200 rows and never more than the remaining scanned-row allowance. The
+result is a prefix and never
 proves an omitted page absent; a `warning:` line also goes to stderr.
 
 ## `atl conf pull`

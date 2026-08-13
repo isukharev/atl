@@ -24,6 +24,7 @@ func TestToolProfileAndConfigClassifierBindings(t *testing.T) {
 	}
 	bindings := []binding{
 		{"confluence_attachment_list", ServiceConfluence, false, map[string]any{"reference": "42", "expected_page_version": 1}, "Confluence attachment inventory service is not configured"},
+		{"confluence_attachment_search", ServiceConfluence, false, map[string]any{"max_items": 1, "max_requests": 1, "max_response_bytes": 1024, "deadline_ms": 1000}, "Confluence attachment discovery is not configured"},
 		{"confluence_comment_list", ServiceConfluence, false, map[string]any{"page_id": "42"}, "Confluence comment service is not configured"},
 		{"confluence_comment_thread", ServiceConfluence, false, map[string]any{"page_id": "42", "comment_id": "7"}, "Confluence comment service is not configured"},
 		{"confluence_mirror_snapshot", ServiceConfluence, true, map[string]any{}, "local mirror root is not configured or is invalid"},
@@ -47,8 +48,8 @@ func TestToolProfileAndConfigClassifierBindings(t *testing.T) {
 		{"jira_structure_get", ServiceJira, false, map[string]any{"structure_id": 1}, "Jira Structure service is not configured"},
 		{"jira_structure_view", ServiceJira, false, map[string]any{"structure_id": 1}, "Jira Structure service is not configured"},
 	}
-	if len(bindings) != 23 {
-		t.Fatalf("binding rows=%d want=23", len(bindings))
+	if len(bindings) != 24 {
+		t.Fatalf("binding rows=%d want=24", len(bindings))
 	}
 
 	wantProfile := map[ServiceProfile][]string{

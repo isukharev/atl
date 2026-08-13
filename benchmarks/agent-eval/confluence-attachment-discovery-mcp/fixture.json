@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "jira_context": "/jira",
+  "confluence_context": "/wiki",
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/wiki/rest/api/content/search",
+      "query_equals": {
+        "cql": "type = attachment and space = \"DOC\" and (creator = currentUser())",
+        "expand": "container.version,extensions,metadata,space,version",
+        "limit": "2",
+        "start": "0"
+      },
+      "status": 200,
+      "body": {
+        "results": [
+          {"id":"att_A-21","title":"release-notes.pdf","type":"attachment","version":{"number":3},"container":{"id":"page_root-10","type":"page","version":{"number":7}},"space":{"key":"DOC"},"metadata":{"mediaType":"application/pdf"},"extensions":{"fileSize":4096}},
+          {"id":"att_B-22","title":"service-diagram.png","type":"attachment","version":{"number":2},"container":{"id":"page_child-11","type":"page","version":{"number":4}},"space":{"key":"DOC"},"metadata":{"mediaType":"image/png"},"extensions":{"fileSize":2048}}
+        ],
+        "start": 0,
+        "limit": 2,
+        "size": 2,
+        "totalSize": 2,
+        "_links": {}
+      }
+    }
+  ]
+}

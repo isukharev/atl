@@ -62,17 +62,20 @@ start_offset,next_cursor?,count,total_size?,bounds,attachments}`. The
 `attachments` member is always an array and each row is the metadata-only shape
 `{id,title,type,version,container_id,container_type,container_version,space,
 media_type,file_size}`. No URL, download path, comment, body, or binary data is
-projected.
+projected. Attachment and container ids use the bounded opaque
+`[A-Za-z0-9_-]{1,256}` read grammar.
 
 `qualification` is `complete`, `partial`, or `failed`.
 `complete:true` requires strict stable-total terminal search coordinates but
-still reports `consistency:"live_unproven"`: Confluence supplies an offset, not
-a snapshot token. Partial results use a closed reason (`item_limit`,
+also requires a present non-null `total_size` equal to the exact terminal end.
+It still reports `consistency:"live_unproven"`: Confluence supplies an offset,
+not a snapshot token. Partial results use a closed reason (`item_limit`,
 `request_limit`, `response_byte_limit`, `deadline`, `pagination_stalled`, or
 `pagination_unqualified`) and a query/backend/space-bound opaque next cursor.
 That cursor is a checked live offset, not stable snapshot identity. Failed
-results use `read_failed` or `validation_failed`, omit `next_cursor`, and are
-emitted before the CLI returns its mapped non-zero error. The MCP projection
+results use `read_failed` or `validation_failed`, require `count:0` and an empty
+`attachments` array, omit both `total_size` and `next_cursor`, and are emitted
+before the CLI returns its mapped non-zero error. The MCP projection
 uses this same validated DTO and marks such a structured result as a tool error;
 it never turns a backend failure into success.
 
@@ -313,7 +316,8 @@ before any attachment request is issued, and reports only the expected and
 current integers. `0` (the default) disables the gate; a negative value is a
 usage error (exit `2`).
 
-`atl conf attachment get --id <PAGE-ID> --name <FILENAME> [--version N]`
+`atl conf attachment get --id <PAGE-ID> --name <FILENAME> [--version N]
+[--max-bytes N]`
 emits the deliberately non-exact schema-v1 download acknowledgement after its
 atomic contained write:
 
@@ -326,6 +330,8 @@ atomic contained write:
   "requested_attachment_version": 2,
   "observed_attachment_id": "67890",
   "observed_attachment_version": 2,
+  "observed_file_size": 1048576,
+  "max_bytes": 67108864,
   "selector": "page_filename_attachment_version",
   "attachment_id_bound": false,
   "identity_revalidated": true,
@@ -341,10 +347,30 @@ basename written beneath `--into`. A positive request uses
 current positive version and the binary GET uses that positive value; requested
 and observed versions remain separate fields.
 
-The metadata/reference phase is bounded at five single-attempt physical
-requests, 2 MiB of aggregate metadata response bytes, and 15 seconds. An
-absent/duplicate exact filename, incomplete inventory, mismatched historical
-version, or exhausted bound performs no binary GET and no output write.
+`--max-bytes` defaults to 67108864 (64 MiB) and accepts `1..1073741824`
+(1 GiB). The exact `--name` must be nonblank valid UTF-8 of at most 255 bytes;
+`--id` accepts a bounded opaque `[A-Za-z0-9_-]{1,256}` page id, an absolute
+HTTP(S) URL, or a root-relative path. All three inputs are validated before
+config, backend, and path access.
+`observed_file_size` is the required non-negative `fileSize` for the selected
+attachment version, with historical metadata taking precedence, and
+`max_bytes` echoes the selected ceiling. A reported size above that ceiling
+performs no binary request and does not create the destination directory.
+
+The metadata/reference phase is bounded at five physical attempts, 2 MiB of
+aggregate response bytes, and 15 seconds. Normal reference resolution may use
+bounded read retry and safe same-origin redirects; only the immediate
+revalidator calls are single-attempt. Its context is canceled before the
+binary phase. An absent/duplicate exact filename, incomplete inventory,
+mismatched historical version, or exhausted bound performs no binary request
+and no output write.
+
+Binary transfer starts from the original caller context and has a separate
+five-physical-attempt budget. It disables generic replay retry while permitting
+only finite same-origin, scheme-safe redirects, and it is outside the metadata
+15-second/2-MiB budget. Exactly `observed_file_size` bytes must be read, with an
+additional one-byte overrun probe; short, long, canceled, or close-failed
+transfers preserve any existing destination and leave no temporary file.
 `identity_revalidated:true` claims only the immediately checked selector tuple
 `resolved page id + exact caller filename + positive attachment version`.
 The binary route itself remains page+filename+version, not attachment-id bound,

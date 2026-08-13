@@ -1,0 +1,11 @@
+{
+  "schema_version":1,"id":"confluence-space-hierarchy-holdout-answer","scenario_id":"confluence.synthetic-space-hierarchy-holdout-v1","minimum_score_bps":8500,
+  "criteria":[
+    {"id":"bounded_route","description":"The exact caller-bounded hierarchy command is used once.","maximum":4,"minimum":4,"weight":25},
+    {"id":"qualification","description":"The item-limited prefix is never presented as a complete hierarchy.","maximum":4,"minimum":4,"weight":30},
+    {"id":"hierarchy","description":"Every reported parent relation matches the returned prefix.","maximum":4,"minimum":4,"weight":25},
+    {"id":"scope","description":"No omitted page or parent is claimed absent.","maximum":4,"minimum":4,"weight":15},
+    {"id":"concision","description":"The answer contains only the requested JSON projection.","maximum":4,"minimum":3,"weight":5}
+  ],
+  "allowed_finding_ids":["missing_qualification","premature_decision","route_amplification","unsupported_claim","verbose"]
+}

@@ -92,3 +92,35 @@ func TestConfAttachmentSearchRequiresAllCallerBoundsBeforeConfiguration(t *testi
 		}
 	}
 }
+
+func TestConfAttachmentSearchInvalidOptionsFailBeforeConfiguration(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "negative items", args: []string{"--max-items", "-1"}},
+		{name: "oversize items", args: []string{"--max-items", "10001"}},
+		{name: "negative requests", args: []string{"--max-requests", "-1"}},
+		{name: "oversize requests", args: []string{"--max-requests", "101"}},
+		{name: "negative response bytes", args: []string{"--max-response-bytes", "-1"}},
+		{name: "oversize response bytes", args: []string{"--max-response-bytes", "268435457"}},
+		{name: "negative deadline", args: []string{"--deadline", "-1s"}},
+		{name: "oversize deadline", args: []string{"--deadline", "10m1ns"}},
+		{name: "ordered CQL", args: []string{"--cql", "creator=currentUser() ORDER BY created"}},
+		{name: "oversize CQL", args: []string{"--cql", strings.Repeat("c", 16385)}},
+		{name: "invalid UTF-8 CQL", args: []string{"--cql", string([]byte{0xff})}},
+		{name: "oversize space", args: []string{"--space", strings.Repeat("s", 256)}},
+		{name: "invalid UTF-8 space", args: []string{"--space", string([]byte{0xff})}},
+		{name: "oversize cursor", args: []string{"--cursor", strings.Repeat("c", 2049)}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			args := attachmentDiscoveryCLIArgs()
+			args = append(args, test.args...)
+			out, code := runCLI(t, nil, args...)
+			if code != exitUsage || out != "" {
+				t.Fatalf("exit=%d stdout=%q", code, out)
+			}
+		})
+	}
+}

@@ -84,7 +84,7 @@ and add remain CLI-only, and catalog entries do not grant write authority.
 
 `atl mcp serve` is a separate stdio protocol transport, so global CLI output
 flags and process exit envelopes do not apply to individual tool calls. Each of
-the twenty-three registered tools has inferred input/output JSON Schema and returns
+the twenty-four registered tools has inferred input/output JSON Schema and returns
 typed `structuredContent`; compatible clients may also expose the SDK's text
 projection. Tool failures set the MCP error result and contain a JSON text
 object with stable `kind`, `remediation`, diagnostic `message`, and versioned
@@ -131,7 +131,7 @@ also enabled; feature only or marker only selects legacy. The plugin cannot
 enable the feature, and the marker itself proves no identity or provenance.
 
 `atl mcp serve --service jira|confluence|offline` selects one closed reviewed
-inventory. Omission preserves the default twenty-three tools and instruction bytes.
+inventory. Omission preserves the default twenty-four tools and instruction bytes.
 Every profile exposes the fixed `application/json` resource
 `atl://capabilities`; its static schema-v1 content contains capability
 identity, task class/service/role/priority, CLI command, optional MCP tool/scope, and
@@ -158,6 +158,22 @@ cap with remediation `use_cli_conf_page_meta`. URLs, labels, ancestors,
 restriction principals, page bodies, and arbitrary backend expansion fields
 are absent by construction, and every failure class uses a static content-free
 message.
+
+`confluence_attachment_search` returns the strict schema-v1 metadata-only
+projection `{schema_version,qualification,complete,reason?,consistency,
+scope_sha256,start_offset,next_cursor?,count,total_size?,bounds,attachments}`.
+Every row is exactly `{id,title,type,version,container_id,container_type,
+container_version,space,media_type,file_size}`; bytes, comments, paths, URLs,
+and arbitrary backend expansion fields are absent. All four execution bounds
+are required and `bounds` reconciles their selected and consumed values.
+
+Complete results require a present stable `total_size`, exact terminal
+coordinates, no reason, and no cursor. Partial results require one closed
+limiter reason and a canonical cursor bound to the query scope and next offset.
+Failed results require `count:0`, an empty attachment array, no total or cursor,
+and a closed failure reason; the MCP result is also marked unsuccessful.
+Missing, null, unknown, duplicate, or contradictory members fail strict
+decoding instead of weakening the qualification.
 
 `confluence_comment_list` and `confluence_comment_thread` return exact
 schema-v1 projections with top-level

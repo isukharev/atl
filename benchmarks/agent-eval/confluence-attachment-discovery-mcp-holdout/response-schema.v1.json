@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"type":"integer","const":1},
+    "qualification": {"type":"string","enum":["complete","partial","failed"]},
+    "complete": {"type":"boolean"},
+    "count": {"type":"integer","minimum":0},
+    "filename": {"type":"string"},
+    "membership": {"type":"string","enum":["present","absent","undetermined"]},
+    "absence_proven": {"type":"boolean"},
+    "attachment_bytes_read": {"type":"boolean"}
+  },
+  "required": ["schema_version","qualification","complete","count","filename","membership","absence_proven","attachment_bytes_read"]
+}

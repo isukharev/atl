@@ -71,3 +71,17 @@ func TestConfSpaceTreeInvalidSelectionBoundsFailBeforeConfiguration(t *testing.T
 		}
 	}
 }
+
+func TestConfSpaceTreeSpaceKeyBoundsFailBeforeConfiguration(t *testing.T) {
+	for name, space := range map[string]string{
+		"oversize":     strings.Repeat("s", 256),
+		"invalid_utf8": string([]byte{0xff}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			out, code := runCLI(t, nil, "conf", "space", "tree", "--space", space)
+			if code != exitUsage || out != "" {
+				t.Fatalf("exit=%d stdout=%q", code, out)
+			}
+		})
+	}
+}
