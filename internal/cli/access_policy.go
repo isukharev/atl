@@ -245,7 +245,7 @@ R config-read json,text config show
 R corpus-build json,text corpus build
 R local-read-optional-artifact json,text corpus diff
 R local-artifact json,text corpus export
-R local-artifact json,text corpus handoff
+R local-read-optional-artifact json,text corpus handoff
 R diagnostic json,text doctor
 R diagnostic json,text environment inspect
 R prose json,text help

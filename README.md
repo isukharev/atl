@@ -181,7 +181,7 @@ configuration or backend access.
 
 Claude Code and Codex plugins include typed read-only MCP.
 
-Before routing, inspect offline upper bounds with `atl capabilities --effects`
+Inspect offline upper bounds with `atl capabilities --effects`
 or `--effects --command "jira issue search"`; they are informational, not
 authorization or enforcement.
 

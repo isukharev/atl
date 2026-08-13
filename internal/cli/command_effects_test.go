@@ -21,7 +21,7 @@ func TestCommandEffectCatalogClassifiesEveryExecutableLeaf(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.SchemaVersion != commandEffectCatalogSchemaVersion || catalog.Enforcement != "informational" || catalog.Selection.Count != 169 {
+	if catalog.SchemaVersion != commandEffectCatalogSchemaVersion || catalog.Enforcement != "informational" || catalog.Selection.Count != 170 {
 		t.Fatalf("catalog metadata=%+v", catalog)
 	}
 	profiles := capabilitydef.EffectProfiles()
@@ -156,7 +156,7 @@ func TestConfigurationReadingOfflineMutatorsMapExactlyToTheirExecutionPath(t *te
 		capabilitydef.EffectCredentialWrite:     {"auth logout"},
 		capabilitydef.EffectLocalArtifact:       {"corpus export"},
 		capabilitydef.EffectLocalArtifactConfig: {"profile revalidate", "profile suggest"},
-		capabilitydef.EffectLocalOptionalWrite:  {"corpus diff"},
+		capabilitydef.EffectLocalOptionalWrite:  {"corpus diff", "corpus handoff"},
 	}
 	gotByProfile := map[string][]string{}
 	for _, command := range catalog.Commands {
@@ -200,32 +200,43 @@ func TestConfigurationReadingOfflineMutatorsMapExactlyToTheirExecutionPath(t *te
 	}
 }
 
-func TestCorpusDiffEffectProfileMatchesOptionalPrivateArtifactPath(t *testing.T) {
-	catalog, err := buildCommandEffectCatalog(commandEffectSelection{Command: "corpus diff"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(catalog.Commands) != 1 || len(catalog.Profiles) != 1 {
-		t.Fatalf("corpus diff catalog=%+v", catalog)
-	}
-	command, profile := catalog.Commands[0], catalog.Profiles[0]
-	if command.Access != "read-only" || command.EffectProfile != capabilitydef.EffectLocalOptionalWrite ||
-		profile.RemoteEffect != "none" || profile.LocalEffect != "write" ||
-		profile.CredentialAccess != "none" || profile.NetworkBound != "none" ||
-		profile.ProcessEffect != "none" || profile.ReplayClass != "non_replay_safe" ||
-		profile.OutputKind != "data" || profile.LocalArtifact != "possible" ||
-		profile.Configuration != "none" || profile.SelfUpdate != "disabled" {
-		t.Fatalf("corpus diff command=%+v profile=%+v", command, profile)
-	}
+func TestCorpusInspectionEffectProfileMatchesOptionalPrivateArtifactPaths(t *testing.T) {
+	for _, test := range []struct {
+		command string
+		args    []string
+		flag    string
+	}{
+		{command: "corpus diff", args: []string{"corpus", "diff"}, flag: "identity-artifact"},
+		{command: "corpus handoff", args: []string{"corpus", "handoff"}, flag: "handoff-artifact"},
+	} {
+		t.Run(test.command, func(t *testing.T) {
+			catalog, err := buildCommandEffectCatalog(commandEffectSelection{Command: test.command})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(catalog.Commands) != 1 || len(catalog.Profiles) != 1 {
+				t.Fatalf("%s catalog=%+v", test.command, catalog)
+			}
+			command, profile := catalog.Commands[0], catalog.Profiles[0]
+			if command.Access != "read-only" || command.EffectProfile != capabilitydef.EffectLocalOptionalWrite ||
+				profile.RemoteEffect != "none" || profile.LocalEffect != "write" ||
+				profile.CredentialAccess != "none" || profile.NetworkBound != "none" ||
+				profile.ProcessEffect != "none" || profile.ReplayClass != "non_replay_safe" ||
+				profile.OutputKind != "data" || profile.LocalArtifact != "possible" ||
+				profile.Configuration != "none" || profile.SelfUpdate != "disabled" {
+				t.Fatalf("%s command=%+v profile=%+v", test.command, command, profile)
+			}
 
-	root := newRoot()
-	leaf, args, findErr := root.Find([]string{"corpus", "diff"})
-	if findErr != nil || len(args) != 0 {
-		t.Fatalf("find corpus diff command=%v args=%v err=%v", leaf, args, findErr)
-	}
-	artifact := leaf.Flags().Lookup("identity-artifact")
-	if artifact == nil || artifact.DefValue != "" {
-		t.Fatalf("identity artifact flag=%+v, want optional empty default", artifact)
+			root := newRoot()
+			leaf, args, findErr := root.Find(test.args)
+			if findErr != nil || len(args) != 0 {
+				t.Fatalf("find %s command=%v args=%v err=%v", test.command, leaf, args, findErr)
+			}
+			artifact := leaf.Flags().Lookup(test.flag)
+			if artifact == nil || artifact.DefValue != "" {
+				t.Fatalf("%s flag=%+v, want optional empty default", test.flag, artifact)
+			}
+		})
 	}
 }
 
