@@ -264,6 +264,44 @@ Only an acknowledged DELETE followed by exact numeric-id not-found evidence is
 permission-relative read cannot find the issue. Retain the result and never
 retry the deletion automatically.
 
+## Local corpus cache retention
+
+Corpus retention deletes only inactive local sealed-generation directories; it
+never writes to Jira or Confluence. The apply leaf is still mutation-classified
+and `ATL_READ_ONLY=1` blocks it. Keep the private review artifact outside the
+cache and create it without disabling the policy:
+
+```sh
+atl corpus cache retention preview \
+  --store /private/indexer-cache \
+  --retain-predecessors 2 \
+  --plan-artifact /private/cache-review/retention.v1.json
+```
+
+Review the reported protected/candidate counts and keep the identity-bearing
+`0600` plan private. Temporarily remove the process-wide read-only policy only
+for the exact reviewed apply:
+
+```sh
+env -u ATL_READ_ONLY atl corpus cache retention apply \
+  --store /private/indexer-cache \
+  --plan-artifact /private/cache-review/retention.v1.json \
+  --expected-plan-digest '<exact digest from preview>' \
+  --apply
+```
+
+Apply revalidates the exact plan, current pointer, protected predecessor chain,
+sealed inventory, unsealed-stage inventory, containment, and filesystem
+identities under the publication lock. It cannot delete current, a protected
+last-good predecessor, an unsealed stage, another root, a mirror, an index, or
+a backend object. It commits each candidate to one plan-bound quarantine name
+with a same-parent rename and directory sync before recursive cleanup, so an
+interrupted partial cleanup remains resumable after restart. If apply fails
+after that rename, the outcome may be ambiguous: preserve both cache and plan,
+then repeat the same plan and digest to reconcile. Status and replacement
+preview intentionally refuse while quarantine is pending. Do not infer
+rollback, authorize broader cleanup, or remove a quarantine by hand.
+
 ## Pre-write checklist
 
 - The backend and object were freshly identified.

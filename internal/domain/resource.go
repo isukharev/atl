@@ -89,6 +89,33 @@ type ConfluencePageMetadataBatch struct {
 	PartialReason string
 }
 
+// ConfluenceCorpusMetadata is one exact, non-body page projection used only by
+// the principal-scoped corpus cache. Ancestors and AncestorIDs are ordered
+// root-to-parent; Parent is the final ancestor id or empty for a top-level page.
+type ConfluenceCorpusMetadata struct {
+	ID          string
+	Type        string
+	Title       string
+	Space       string
+	Version     int
+	Updated     string
+	Parent      string
+	Ancestors   []string
+	AncestorIDs []string
+	Labels      []string
+	Restricted  bool
+	URL         string
+}
+
+// ConfluenceCorpusMetadataInventory is one bounded whole-space observation.
+// Complete is false only when the caller's explicit page cap prevented a full
+// inventory; malformed, omitted, duplicate, or clipped backend evidence is an
+// error instead of an incomplete result.
+type ConfluenceCorpusMetadataInventory struct {
+	Rows     []ConfluenceCorpusMetadata
+	Complete bool
+}
+
 const ConfluencePageMetadataPartialPaginationUnqualified = "pagination_unqualified"
 
 // ValidConfluencePageMetadataPartialReason reports whether reason is safe to

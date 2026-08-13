@@ -146,7 +146,8 @@ func (store *corpusBuildConfluenceStore) GetPage(ctx context.Context, id string,
 	}
 	store.pageMu.Lock()
 	defer store.pageMu.Unlock()
-	return store.completePullStore.GetPage(ctx, id, options)
+	page, err := store.completePullStore.GetPage(ctx, id, options)
+	return page, err
 }
 
 func consumeCorpusBuildRead(ctx context.Context, size int64) error {

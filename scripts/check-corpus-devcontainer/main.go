@@ -112,7 +112,8 @@ func validateTemplate(repositoryRoot string) error {
 		"run-corpus.sh": {
 			"umask 077", "mktemp -d \"$context_parent/atl-context.XXXXXX\"", "ATL_READ_ONLY=1", "ATL_NO_UPDATE=1",
 			"env -i", "corpus build", "corpus handoff", "resolve_private_file", "ATL_JIRA_URL=\"$jira_url\"",
-			"documents.indexer-v1.txt",
+			"documents.indexer-v1.txt", "ATL_CACHE_ROOT", "--cache-root", "ATL_INITIALIZE_CACHE", "--initialize-cache",
+			"--cache-max-requests", "--cache-max-response-bytes", "--cache-deadline",
 		},
 		"graphify-indexer.sh": {"GRAPHIFY_BIN", "is_loopback_ollama_endpoint", "--out \"$ATL_INDEX_ROOT\"", "--no-cluster", "ATL_APPROVE_SEMANTIC_EGRESS"},
 	}
@@ -128,6 +129,7 @@ func validateTemplate(repositoryRoot string) error {
 		bytes.Contains(contents["run-corpus.sh"], []byte("doctor --remote")) ||
 		bytes.Contains(contents["run-corpus.sh"], []byte("jira issue search")) ||
 		bytes.Contains(contents["run-corpus.sh"], []byte("conf search")) ||
+		bytes.Contains(contents["run-corpus.sh"], []byte("ATL_CACHE_ROOT=\"$cache_root\"")) ||
 		bytes.Contains(contents["run-corpus.sh"], []byte("export ATL_JIRA_URL")) ||
 		bytes.Contains(contents["run-corpus.sh"], []byte("export ATL_JIRA_PAT")) ||
 		bytes.Contains(contents["run-corpus.sh"], []byte("export ATL_CONFLUENCE_URL")) ||
@@ -175,19 +177,24 @@ func runHermeticSmokeWithATL(repositoryRoot, currentATL string) error {
 	if err := os.Chmod(temporary, 0o700); err != nil {
 		return err
 	}
-	if err := runInstallSmoke(root, temporary); err != nil {
-		return err
+	steps := []struct {
+		name string
+		run  func() error
+	}{
+		{name: "install", run: func() error { return runInstallSmoke(root, temporary) }},
+		{name: "no-cache fake bootstrap", run: func() error { return runBootstrapSmoke(root, temporary) }},
+		{name: "cache fake bootstrap", run: func() error { return runCacheBootstrapSmoke(root, temporary) }},
+		{name: "cache path security", run: func() error { return runCachePathSecuritySmoke(root, temporary) }},
+		{name: "failed bootstrap", run: func() error { return runFailedBootstrapSmoke(root, temporary) }},
+		{name: "Graphify policy", run: func() error { return runGraphifyPolicySmoke(root, temporary) }},
+		{name: "real bootstrap", run: func() error { return runRealBootstrapSmoke(root, temporary, currentATL) }},
 	}
-	if err := runBootstrapSmoke(root, temporary); err != nil {
-		return err
+	for _, step := range steps {
+		if err := step.run(); err != nil {
+			return fmt.Errorf("%s: %w", step.name, err)
+		}
 	}
-	if err := runFailedBootstrapSmoke(root, temporary); err != nil {
-		return err
-	}
-	if err := runGraphifyPolicySmoke(root, temporary); err != nil {
-		return err
-	}
-	return runRealBootstrapSmoke(root, temporary, currentATL)
+	return nil
 }
 
 func runBootstrapSmoke(repositoryRoot, temporary string) error {
@@ -246,6 +253,10 @@ func runBootstrapSmoke(repositoryRoot, temporary string) error {
 		"ATL_CAPTURE_COMMENTS=0",
 		"ATL_CAPTURE_ATTACHMENTS=0",
 		"ATL_CAPTURE_ATTACHMENT_BODIES=0",
+		"ATL_INITIALIZE_CACHE=not-a-toggle-without-cache",
+		"ATL_CACHE_MAX_REQUESTS=not-a-number-without-cache",
+		"ATL_CACHE_MAX_RESPONSE_BYTES=not-a-number-without-cache",
+		"ATL_CACHE_DEADLINE=",
 		"CONFLUENCE_URL=https://ambient-backend.example.test",
 		"CONFLUENCE_PAT=synthetic-ambient-secret-canary",
 		"TEST_CONFLUENCE_PAT=synthetic-integration-secret-canary",
@@ -282,7 +293,7 @@ func runBootstrapSmoke(repositoryRoot, temporary string) error {
 	if err := verifyPrivateTree(indexRoot); err != nil {
 		return err
 	}
-	if err := verifyFakeATLCommands(contextParent, 2); err != nil {
+	if err := verifyNoCacheFakeATLCommands(contextParent); err != nil {
 		return err
 	}
 	for _, scanRoot := range []string{contextParent, indexRoot, sourceRoot} {
@@ -502,7 +513,17 @@ func runRealBootstrapSmoke(repositoryRoot, temporary, currentATL string) error {
 	}
 	stdout, stderr, runErr := runCommand(filepath.Join(repositoryRoot, exampleRelative, "run-corpus.sh"), environment)
 	if runErr != nil {
-		return fmt.Errorf("real bootstrap smoke: %w: %s", runErr, stderr)
+		mu.Lock()
+		requestCount := len(requests)
+		mu.Unlock()
+		workspaceEntries := -1
+		if runtimeRoot, rootErr := onlyRuntimeRoot(contextParent); rootErr == nil {
+			if entries, readErr := os.ReadDir(filepath.Join(runtimeRoot, "corpus")); readErr == nil {
+				workspaceEntries = len(entries)
+			}
+		}
+		return fmt.Errorf("real bootstrap smoke: %w: backend_requests=%d workspace_entries=%d: %s",
+			runErr, requestCount, workspaceEntries, stderr)
 	}
 	if strings.TrimSpace(stdout) != `{"schema_version":1,"status":"complete","handoff":"sealed","indexer":"completed"}` || stderr != "" {
 		return fmt.Errorf("unexpected real bootstrap output stdout=%q stderr=%q", stdout, stderr)

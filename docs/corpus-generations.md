@@ -93,8 +93,78 @@ generation and active record under their normal verification rules. Depending
 on which completed barrier survived, this may resume local reconciliation or
 begin the next bounded capture.
 
-No build path deletes attempts, stages, or generations. Retention and garbage
-collection require a separate policy.
+No build path deletes attempts, stages, or generations. Retention is a separate
+explicit review/apply lifecycle described below.
+
+## Principal-scoped cache and finite retention
+
+`atl corpus build` remains disposable by default. `--cache-root` selects a
+second owner-private store only when the caller also supplies independent
+probe request, response-byte, and deadline bounds. The build workspace and
+cache must be distinct, non-aliased roots with neither nested inside the other.
+The workspace keeps active attempts and recovery state; the cache keeps only
+immutable sealed generations, the normal atomic current pointer, and a cache
+binding sealed as one metadata member. A caller that needs encryption at rest
+must provide an encrypted volume or platform guarantee—ATL stores plaintext.
+
+The schema-v1 cache binding is Confluence-only and content-minimized. It binds
+the complete capture receipt to the service, backend/principal scope digest,
+selector and options digests, selection and metadata inventory digests, exact
+clean generator version/commit, manifest/receipt/capture/projection schemas,
+configured trust bytes, total membership, and deterministic raw user-reference
+projection. Digests can still correlate private configurations, so the binding
+stays inside the private sealed generation and is not ordinary status output.
+Unknown/dirty generator state, system-only trust, missing metadata capability,
+or incomplete evidence produces a valid but explicitly ineligible binding.
+
+The first hit path is intentionally narrow: exactly one Confluence space, with
+comments and attachments off. ATL fully verifies the selected sealed
+generation and binding, requalifies the current principal, then performs two
+equal complete metadata passes under the separate probe budget. Each pass
+proves exact membership, versions, update times, titles, ordered hierarchy,
+labels, restriction state, and canonical URLs without reading page bodies. A
+hit is allowed only when both passes equal each other and the sealed binding;
+ATL finally rechecks the current pointer under the publication lock. Jira,
+mixed-service builds, optional evidence, metadata drift, schema/options/scope
+drift, unqualified nested results, and every ambiguous condition take the full
+cold-capture path. Only after the body reads may ordinary publication reuse an
+exact existing projection or seal a new generation. These cases never infer
+member-level reuse or absence from a timestamp.
+
+Configured Confluence CA bytes are read once, validated as certificates,
+digested, and used as the exclusive in-memory trust pool for this qualified
+cache-hit route. The path is not retained. System trust can still support a
+cold capture when no bundle is selected, but cannot authorize a cross-run hit.
+Always-cold cache selections retain ordinary additive CA behavior; the
+no-cache transport and publication path remain unchanged.
+
+Cache inspection is local and content-free. `corpus cache status` and its exact
+`corpus cache doctor` alias verify all sealed generations, count unsealed
+stages, validate current delta lineage, and report only aggregate counts plus a
+closed binding category. They do not repair or prune anything.
+
+Retention has a private schema-v1 plan and a counts-only public status. Preview
+runs under the publication lock, fully verifies the exact inventory, protects
+current plus at least its immediate predecessor, and binds the canonical cache
+root, every remaining sealed candidate, and every unsealed-stage identity into
+one self-digest. The exclusive `0600` review artifact is outside the cache and
+contains generation IDs/digests plus the private root binding; unsealed stages
+are never candidates. A deeper predecessor policy preserves a larger rollback
+window.
+
+Apply requires that exact artifact, digest, and `--apply`. Under the same lock
+it revalidates the pointer, protected closure, complete namespace, sealed
+bytes, and filesystem identities before each contained removal. Logical
+deletion is one plan-bound same-parent rename inside `generations/`, followed
+by a parent-directory durability barrier. Recursive cleanup then acts only
+through the pinned renamed directory; an interrupted partial cleanup is a
+monotonic state that the same plan can resume after process restart. A missing
+candidate subset is accepted solely for exact crash resume; every other drift
+fails closed. Once a quarantine name exists, publication, new stages, status,
+and replacement previews return outcome-unknown. Preserve the cache and
+private plan and repeat the same exact apply; status is available again only
+after reconciliation. Retention never removes current/protected generations,
+unsealed attempts, mirrors, downstream indexes, or backend objects.
 
 ## Indexer-v2 projection
 
@@ -208,7 +278,8 @@ This synthetic, content-free example shows the v1 namespace after publication:
 owner-only-root/
   .build.lock
   .publish.lock
-  active.v2.json
+  active.v2.json          # ordinary workspace-only recovery owner
+  # or active.v3.json     # one-way workspace/cache publication owner
   current.v1.json
   attempts/
     fedcba9876543210fedcba9876543210/
@@ -226,12 +297,18 @@ owner-only-root/
 
 Random attempt and generation identifiers carry no host, backend, selector, or
 object identity. `attempts/` contains active and retained native mirrors and is
-private. `active.v2.json` and capture receipts are content-free but remain
-owner-only recovery records. A canonical `active.v1.json` interrupted record
-is reconciled against its validated snapshots and migrated atomically; an
-unversioned or future record fails closed. `.build.lock` serializes build
-attempts and is crash-scoped. `artifacts/` contains the private sealed member
-files.
+private. `active.v2.json`, `active.v3.json`, and capture receipts are
+content-free but remain owner-only recovery records. V2 remains the exact
+ordinary no-cache shape until a build selects or inherits the v3 publication
+boundary. V3 is then the one-way recovery owner and explicitly names either
+the workspace or a digest-bound cache target. Its durable replacement precedes
+retirement of v2/v1, so a process loss may leave an older valid record beside
+v3; v3 owns recovery and the next exact save removes the older marker. A
+canonical `active.v1.json` interrupted record is reconciled against its
+validated snapshots and migrated atomically; an unversioned or future active
+filename or schema fails closed before recovery state is changed. `.build.lock`
+serializes build attempts and is crash-scoped.
+`artifacts/` contains the private sealed member files.
 `manifest.v1.json` is also private because it is the exact inventory: it
 contains member service, stable identity, role, relative path, size, mode, and
 digest.
@@ -347,8 +424,9 @@ reconcile, the content-free error retains the stable durable-outcome-unknown
 classification even if reconciliation was cancelled or timed out; preserve the
 store and do not infer rollback or success.
 
-Cleanup and garbage collection, backend I/O, rendering, retention policy, and
+Backend I/O, rendering, retention policy selection, downstream cleanup, and
 backup are outside the sealed-store format. `corpus build` owns bounded backend
 reads and derived rendering before it crosses that format boundary; retention
-remains separate. None of those responsibilities may mutate sealed generations
-in place.
+remains a separately guarded cache lifecycle. Retention removes only exact
+inactive generation directories and never mutates a surviving sealed
+generation in place.

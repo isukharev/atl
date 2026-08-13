@@ -40,7 +40,7 @@ Pull записывает файлы локального зеркала, но �
 | Безопасно зеркалировать, править и публиковать | [Безопасная запись](docs/safe-writes.md) |
 | Обновить или восстановить существующее зеркало | [Зеркала и восстановление](docs/mirrors-and-recovery.md) |
 | Сравнить квалифицированные поколения | [Запечатанные поколения корпуса](docs/corpus-generations.md) |
-| Собрать приватный корпус в disposable-контейнере | [Corpus dev-container](docs/corpus-devcontainer.md) |
+| Собрать/переиспользовать приватный корпус в disposable-контейнере | [Corpus dev-container](docs/corpus-devcontainer.md) |
 | Найти проекты, схему создания и [связи Jira](docs/jira-artifact-graph.md) | [Команды Jira](docs/reference/cli/README.md) |
 | Прочитать или изменить обсуждения Confluence | [Квалифицированные комментарии](docs/confluence-comments.md) |
 | Увидеть основные гарантии без credentials | [Воспроизводимые демо](docs/demos/README.md) |

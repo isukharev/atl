@@ -25,6 +25,34 @@ type expectedFile struct {
 	limit  int64
 }
 
+func verifiedDirectoryNames(root *os.Root, rel string) ([]string, error) {
+	directory, info, err := openVerifiedDirectory(root, rel)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0)
+	for {
+		entries, readErr := directory.ReadDir(1)
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			_ = directory.Close()
+			return nil, reject(ReasonIO)
+		}
+		if len(entries) == 0 {
+			break
+		}
+		names = append(names, entries[0].Name())
+	}
+	if err := directory.Close(); err != nil {
+		return nil, reject(ReasonIO)
+	}
+	final, err := root.Lstat(rel)
+	if err != nil || !os.SameFile(info, final) || !exactDirectoryMode(final.Mode()) {
+		return nil, reject(ReasonConcurrent)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
 func classifyExpectedFileError(err error) error {
 	if errors.Is(err, os.ErrNotExist) {
 		return reject(ReasonMembership)

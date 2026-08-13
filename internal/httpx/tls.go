@@ -1,8 +1,10 @@
 package httpx
 
 import (
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,6 +24,37 @@ const (
 // in returned errors or diagnostics.
 type TLSOptions struct {
 	CABundle string
+	rootCAs  *x509.CertPool
+}
+
+// QualifiedTLSOptions reads and validates one configured CA bundle, binds a
+// digest to those exact bytes, and retains an exclusive trust pool constructed
+// from the same in-memory bytes. The path is never retained or diagnosed.
+func QualifiedTLSOptions(path string) (TLSOptions, string, error) {
+	if strings.TrimSpace(path) == "" {
+		return TLSOptions{}, "", nil
+	}
+	bundle, err := readCABundle(path)
+	if err != nil {
+		return TLSOptions{}, "", err
+	}
+	pool, err := exclusiveCertPool(bundle)
+	if err != nil {
+		return TLSOptions{}, "", err
+	}
+	digest := sha256.Sum256(bundle)
+	return TLSOptions{rootCAs: pool}, hex.EncodeToString(digest[:]), nil
+}
+
+func (options TLSOptions) configured() bool {
+	return options.rootCAs != nil || strings.TrimSpace(options.CABundle) != ""
+}
+
+func (options TLSOptions) transport() (*http.Transport, error) {
+	if options.rootCAs != nil {
+		return transportWithCertPool(options.rootCAs.Clone(), true), nil
+	}
+	return transportWithCABundle(options.CABundle)
 }
 
 func transportWithCABundle(path string) (*http.Transport, error) {
@@ -36,15 +69,31 @@ func transportWithCABundle(path string) (*http.Transport, error) {
 	if !pool.AppendCertsFromPEM(bundle) {
 		return nil, fmt.Errorf("%w: configured CA bundle contains no certificates", domain.ErrConfig)
 	}
+	return transportWithCertPool(pool, false), nil
+}
+
+func transportWithCertPool(pool *x509.CertPool, exclusive bool) *http.Transport {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	tlsConfig := &tls.Config{}
-	if transport.TLSClientConfig != nil {
+	if !exclusive && transport.TLSClientConfig != nil {
 		tlsConfig = transport.TLSClientConfig.Clone()
 	}
 	tlsConfig.RootCAs = pool
 	tlsConfig.MinVersion = tls.VersionTLS12
 	transport.TLSClientConfig = tlsConfig
-	return transport, nil
+	return transport
+}
+
+func exclusiveCertPool(bundle []byte) (*x509.CertPool, error) {
+	pool := x509.NewCertPool()
+	// Match the established configured-bundle grammar: PEM comments and other
+	// non-certificate text do not become trust anchors. The qualified digest
+	// still binds every exact input byte, while the effective pool is exclusive
+	// rather than additive with ambient/system roots.
+	if !pool.AppendCertsFromPEM(bundle) {
+		return nil, fmt.Errorf("%w: configured CA bundle contains no certificates", domain.ErrConfig)
+	}
+	return pool, nil
 }
 
 // ValidateCABundle checks configured trust material without constructing a
@@ -81,6 +130,9 @@ func readCABundle(path string) ([]byte, error) {
 	}
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("%w: configured CA bundle is not a regular file", domain.ErrConfig)
+	}
+	if !os.SameFile(preInfo, info) {
+		return nil, fmt.Errorf("%w: configured CA bundle changed during validation", domain.ErrConfig)
 	}
 	if info.Size() > caBundleMaxSize {
 		return nil, fmt.Errorf("%w: configured CA bundle exceeds the 4 MiB limit", domain.ErrConfig)

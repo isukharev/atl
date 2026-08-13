@@ -23,6 +23,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   requires the separate user-controlled under-development `mcp_2026_07_28`
   feature; either gate alone remains legacy, and the marker is not an identity
   or provenance claim.
+- Added an opt-in principal-scoped Confluence generation cache with exact
+  clean-build/configured-trust bindings, two complete metadata observations,
+  immutable cold fallback, content-free local status, and a hash-bound finite
+  retention preview/apply lifecycle whose plan-bound same-parent quarantine
+  resumes partial cleanup after restart. A one-way target-bound recovery marker
+  preserves restart across workspace/cache transitions, and unknown future
+  marker filenames fail closed before local recovery mutation. Jira,
+  mixed-service, optional-evidence, unqualified, and system-trust-only captures
+  remain cold.
 - Added generated plugin-to-binary MCP startup markers with an independently
   versioned interface contract and product-version claim. Incompatible marked
   startup now exits as a content-free usage error before config, credentials,

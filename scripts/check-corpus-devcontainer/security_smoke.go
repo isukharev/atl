@@ -369,28 +369,6 @@ func runInvalidSelectorReadScopeSmoke(repositoryRoot, atlBinary, backendURL, sec
 	return nil
 }
 
-func verifyFakeATLCommands(contextParent string, expected int) error {
-	entries, err := os.ReadDir(contextParent)
-	if err != nil || len(entries) != 1 || !entries[0].IsDir() {
-		return errors.New("fake ATL runtime root count drifted")
-	}
-	logBytes, err := os.ReadFile(filepath.Join(contextParent, entries[0].Name(), "atl-argv.log"))
-	if err != nil {
-		return err
-	}
-	lines := strings.Split(strings.TrimSuffix(string(logBytes), "\n"), "\n")
-	if len(lines) != expected || !strings.HasPrefix(lines[0], "corpus build ") ||
-		!strings.HasPrefix(lines[len(lines)-1], "corpus handoff ") {
-		return errors.New("fake ATL command boundary drifted")
-	}
-	for _, line := range lines {
-		if strings.HasPrefix(line, "doctor ") || strings.HasPrefix(line, "jira issue ") || strings.HasPrefix(line, "conf search ") {
-			return errors.New("wrapper performed a remote preflight before corpus validation")
-		}
-	}
-	return nil
-}
-
 func shellSingleQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }

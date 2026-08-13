@@ -48,6 +48,10 @@ type PullOpts struct {
 	RequestsPerSecond int
 	exactRender       *RenderSettings
 	evidence          *corpusPullEvidenceOptions
+	// deterministicRawUsers keeps cache-qualified projections independent of
+	// mutable directory display names. It is private and can only be selected by
+	// the corpus builder; the complete-pull options receipt binds it explicitly.
+	deterministicRawUsers bool
 }
 
 // PulledPage is one mirrored page.
@@ -323,7 +327,7 @@ func (s *ConfluenceService) Pull(ctx context.Context, o PullOpts) (result *PullR
 		}()
 	}
 	var prefetch *orderedPagePrefetch
-	if pagePrefetch > 1 {
+	if pagePrefetch > 1 && !o.deterministicRawUsers {
 		prefetch = newOrderedPagePrefetch(ctx, s.store, qualification.processIDs, pagePrefetch, confluenceNeedsRestrictions(rs))
 		defer prefetch.close()
 	}

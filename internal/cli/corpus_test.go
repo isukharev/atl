@@ -208,6 +208,105 @@ func TestCorpusHandoffIsContentFreeZeroEgressAndExplicit(t *testing.T) {
 	}
 }
 
+func TestCorpusCacheLifecycleIsContentFreeZeroEgressAndExactApply(t *testing.T) {
+	storeRoot := seedCLICorpusQualifiedDiffStore(t)
+	latestRoot := t.TempDir()
+	seedCLICorpusJiraItem(t, latestRoot, "SECRET-LATEST", "10003", "PRIVATE/SECRET-LATEST.wiki", "Private latest")
+	if _, err := app.ExportCorpus(context.Background(), app.CorpusExportOptions{
+		JiraRoot: latestRoot, StoreRoot: storeRoot,
+		GeneratorVersion: "test-v1", BuildState: corpus.BuildStateClean,
+		CaptureReceipts: []corpus.CaptureReceipt{cliCorpusCaptureReceipt(t, latestRoot)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	configRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configRoot, "config.json"), []byte(`{"read_only":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configRoot, "credentials.json"), []byte("credential canary"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests.Add(1) }))
+	defer server.Close()
+	env := map[string]string{"ATL_CONFIG_DIR": configRoot, "ATL_UPDATE_URL": server.URL, "ATL_NO_UPDATE": ""}
+
+	statusOut, _, execErr := executeCLIRaw(t, env, "corpus", "cache", "status", "--store", storeRoot)
+	if execErr != nil {
+		t.Fatalf("cache status error=%v output=%s", execErr, statusOut)
+	}
+	var status app.CorpusCacheStatusResult
+	if err := json.Unmarshal([]byte(statusOut), &status); err != nil || !status.Current || status.Binding != "unsupported" ||
+		status.Retention.SealedGenerations != 3 || status.Retention.CandidateGenerations != 1 {
+		t.Fatalf("status=%#v error=%v output=%s", status, err, statusOut)
+	}
+	doctorOut, _, execErr := executeCLIRaw(t, env, "corpus", "cache", "doctor", "--store", storeRoot)
+	if execErr != nil || doctorOut != statusOut {
+		t.Fatalf("cache doctor error=%v output=%s", execErr, doctorOut)
+	}
+
+	artifactRoot := t.TempDir()
+	if err := os.Chmod(artifactRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	artifactPath := filepath.Join(artifactRoot, "retention-plan.json")
+	previewOut, _, execErr := executeCLIRaw(t, env,
+		"corpus", "cache", "retention", "preview", "--store", storeRoot,
+		"--retain-predecessors", "1", "--plan-artifact", artifactPath)
+	if execErr != nil {
+		t.Fatalf("retention preview error=%v output=%s", execErr, previewOut)
+	}
+	var preview app.CorpusCacheRetentionPreviewResult
+	if err := json.Unmarshal([]byte(previewOut), &preview); err != nil || !preview.PlanArtifactWritten ||
+		preview.Status.CandidateGenerations != 1 || len(preview.PlanDigest) != 64 {
+		t.Fatalf("preview=%#v error=%v output=%s", preview, err, previewOut)
+	}
+	if info, err := os.Stat(artifactPath); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("plan mode=%v error=%v", info, err)
+	}
+
+	missingApplyOut, _, missingApplyErr := executeCLIRaw(t, env,
+		"corpus", "cache", "retention", "apply", "--store", storeRoot,
+		"--plan-artifact", artifactPath, "--expected-plan-digest", preview.PlanDigest)
+	if missingApplyErr == nil || codeFor(missingApplyErr) != exitUsage || missingApplyOut != "" {
+		t.Fatalf("missing apply output=%q error=%v", missingApplyOut, missingApplyErr)
+	}
+	// A destructive local apply honors the global read-only policy, so it must
+	// decode config after its exact review guards pass. Keep the config valid
+	// for the apply itself while retaining poisoned credential and update inputs.
+	if err := os.WriteFile(filepath.Join(configRoot, "config.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	applyOut, _, execErr := executeCLIRaw(t, env,
+		"corpus", "cache", "retention", "apply", "--store", storeRoot,
+		"--plan-artifact", artifactPath, "--expected-plan-digest", preview.PlanDigest, "--apply")
+	if execErr != nil {
+		t.Fatalf("retention apply error=%v output=%s", execErr, applyOut)
+	}
+	var applied app.CorpusCacheRetentionApplyResult
+	if err := json.Unmarshal([]byte(applyOut), &applied); err != nil || !applied.Status.Complete || applied.Status.RemovedThisApply != 1 {
+		t.Fatalf("apply=%#v error=%v output=%s", applied, err, applyOut)
+	}
+	finalOut, _, execErr := executeCLIRaw(t, env, "corpus", "cache", "status", "--store", storeRoot)
+	if execErr != nil {
+		t.Fatalf("final cache status error=%v output=%s", execErr, finalOut)
+	}
+	if err := json.Unmarshal([]byte(finalOut), &status); err != nil || status.Retention.SealedGenerations != 2 ||
+		status.Retention.CandidateGenerations != 0 || requests.Load() != 0 {
+		t.Fatalf("final status=%#v error=%v requests=%d", status, err, requests.Load())
+	}
+	combined := statusOut + doctorOut + previewOut + applyOut + finalOut
+	for _, private := range []string{
+		storeRoot, latestRoot, artifactRoot, artifactPath, "SECRET-OLD", "SECRET-LATEST",
+		"PRIVATE/SECRET-LATEST.wiki", "Private latest", "credential canary", server.URL,
+	} {
+		if strings.Contains(combined, private) {
+			t.Fatalf("cache lifecycle output contains %q: %s", private, combined)
+		}
+	}
+}
+
 func seedCLICorpusJira(t *testing.T, root string) {
 	t.Helper()
 	seedCLICorpusJiraItem(t, root, "EX-1", "10001", "EX/EX-1.wiki", "Synthetic")

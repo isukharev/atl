@@ -12,12 +12,14 @@ import (
 )
 
 const (
-	buildAttemptsDir  = "attempts"
-	buildActiveFileV1 = "active.v1.json"
-	buildActiveFile   = "active.v2.json"
-	buildActiveTemp   = ".active.next"
-	buildLockFile     = ".build.lock"
-	buildReceiptsDir  = "receipts"
+	buildAttemptsDir        = "attempts"
+	buildActiveFileV1       = "active.v1.json"
+	buildActiveFile         = "active.v2.json"
+	buildActiveFileV3       = "active.v3.json"
+	buildActiveFamilyPrefix = "active."
+	buildActiveTemp         = ".active.next"
+	buildLockFile           = ".build.lock"
+	buildReceiptsDir        = "receipts"
 )
 
 // BuildWorkspace owns the crash-safe attempt namespace beside an ordinary
@@ -113,6 +115,10 @@ func lockBuildWorkspace(ctx context.Context, store *Store) (*BuildWorkspace, err
 		return nil, err
 	}
 	workspace := &BuildWorkspace{store: store, unlock: unlock}
+	if err := workspace.validateActiveMarkerNamespace(); err != nil {
+		_ = workspace.Close()
+		return nil, err
+	}
 	if err := workspace.recoverActiveTemp(); err != nil {
 		_ = workspace.Close()
 		return nil, err
@@ -282,6 +288,9 @@ func (workspace *BuildWorkspace) SaveActive(active BuildActive) error {
 	if err := workspace.ensureOpen(); err != nil {
 		return err
 	}
+	if err := workspace.validateActiveMarkerNamespace(); err != nil {
+		return err
+	}
 	data, err := CanonicalBuildActive(active, workspace.store.limits)
 	if err != nil {
 		return err
@@ -291,6 +300,14 @@ func (workspace *BuildWorkspace) SaveActive(active BuildActive) error {
 	}
 	if err := workspace.recoverActiveTemp(); err != nil {
 		return err
+	}
+	target := buildActiveFile
+	if active.SchemaVersion == BuildActiveSchemaV3 {
+		target = buildActiveFileV3
+	} else if _, err := workspace.store.root.Lstat(buildActiveFileV3); err == nil {
+		return reject(ReasonLineage)
+	} else if !os.IsNotExist(err) {
+		return reject(ReasonIO)
 	}
 	file, err := workspace.store.root.OpenFile(buildActiveTemp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, privateFileMode)
 	if err != nil {
@@ -314,7 +331,7 @@ func (workspace *BuildWorkspace) SaveActive(active BuildActive) error {
 	if err := workspace.store.hit("after_build_active_temp_sync"); err != nil {
 		return reject(ReasonIO)
 	}
-	if err := workspace.store.root.Rename(buildActiveTemp, buildActiveFile); err != nil {
+	if err := workspace.store.root.Rename(buildActiveTemp, target); err != nil {
 		return reject(ReasonIO)
 	}
 	if err := workspace.store.hit("after_build_active_rename"); err != nil {
@@ -328,8 +345,14 @@ func (workspace *BuildWorkspace) SaveActive(active BuildActive) error {
 	if err := workspace.store.hit("after_build_active_current_sync"); err != nil {
 		return ErrOutcomeUnknown
 	}
-	if err := workspace.store.root.Remove(buildActiveFileV1); err != nil && !os.IsNotExist(err) {
-		return ErrOutcomeUnknown
+	retired := []string{buildActiveFileV1}
+	if active.SchemaVersion == BuildActiveSchemaV3 {
+		retired = append(retired, buildActiveFile)
+	}
+	for _, path := range retired {
+		if err := workspace.store.root.Remove(path); err != nil && !os.IsNotExist(err) {
+			return ErrOutcomeUnknown
+		}
 	}
 	if err := syncDirectory(workspace.store.root, "."); err != nil {
 		return ErrOutcomeUnknown
@@ -345,7 +368,14 @@ func (workspace *BuildWorkspace) LoadActive() (BuildActive, bool, error) {
 	if err := workspace.ensureOpen(); err != nil {
 		return BuildActive{}, false, err
 	}
-	active, currentFound, err := workspace.loadActiveFile(buildActiveFile, BuildActiveSchemaV2)
+	if err := workspace.validateActiveMarkerNamespace(); err != nil {
+		return BuildActive{}, false, err
+	}
+	active, currentFound, err := workspace.loadActiveFile(buildActiveFileV3, BuildActiveSchemaV3)
+	if err != nil {
+		return BuildActive{}, false, err
+	}
+	previous, previousFound, err := workspace.loadActiveFile(buildActiveFile, BuildActiveSchemaV2)
 	if err != nil {
 		return BuildActive{}, false, err
 	}
@@ -353,13 +383,21 @@ func (workspace *BuildWorkspace) LoadActive() (BuildActive, bool, error) {
 	if err != nil {
 		return BuildActive{}, false, err
 	}
-	if !currentFound && !legacyFound {
+	if !currentFound && !previousFound && !legacyFound {
 		return BuildActive{}, false, nil
 	}
-	if currentFound && legacyFound && !sameLegacyBuildActive(legacy, active) {
+	// Schema v3 is a one-way recovery owner. SaveActive makes it durable before
+	// retiring v2/v1, so a crash may leave a valid older record for a different
+	// attempt after an option or publication-target transition. Once v3 exists,
+	// its bytes unambiguously own recovery; a later exact v3 save removes the
+	// stale records. Before v3 exists, v1/v2 coexistence remains projection-
+	// equivalent because that older migration has no stronger marker.
+	if !currentFound && legacyFound && previousFound && !sameLegacyBuildActive(legacy, previous) {
 		return BuildActive{}, false, reject(ReasonLineage)
 	}
-	if !currentFound {
+	if !currentFound && previousFound {
+		active = previous
+	} else if !currentFound {
 		active = legacy
 	}
 	if err := workspace.validateActiveAttempt(active); err != nil {
@@ -367,6 +405,24 @@ func (workspace *BuildWorkspace) LoadActive() (BuildActive, bool, error) {
 	}
 	return active, true, nil
 
+}
+
+func (workspace *BuildWorkspace) validateActiveMarkerNamespace() error {
+	names, err := verifiedDirectoryNames(workspace.store.root, ".")
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		if !strings.HasPrefix(name, buildActiveFamilyPrefix) {
+			continue
+		}
+		switch name {
+		case buildActiveFileV1, buildActiveFile, buildActiveFileV3:
+		default:
+			return reject(ReasonSchema)
+		}
+	}
+	return nil
 }
 
 func (workspace *BuildWorkspace) loadActiveFile(path string, schema int) (BuildActive, bool, error) {

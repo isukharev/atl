@@ -13,6 +13,9 @@ const (
 	// BuildActiveSchemaV2 adds durable generation-wide and per-service
 	// attachment-body byte usage.
 	BuildActiveSchemaV2 = 2
+	// BuildActiveSchemaV3 binds cache recovery to an independently qualified
+	// publication root without changing schema-v2 workspace-only bytes.
+	BuildActiveSchemaV3 = 3
 )
 
 type BuildAttemptStatus string
@@ -21,6 +24,14 @@ const (
 	BuildAttemptActive    BuildAttemptStatus = "active"
 	BuildAttemptCompleted BuildAttemptStatus = "completed"
 	BuildAttemptFailed    BuildAttemptStatus = "failed"
+)
+
+// PublicationTarget is the closed store selected for a build publication.
+type PublicationTarget string
+
+const (
+	PublicationTargetWorkspace PublicationTarget = "workspace"
+	PublicationTargetCache     PublicationTarget = "cache"
 )
 
 // BuildServiceState is the content-free durable progress for one selected
@@ -44,20 +55,22 @@ type BuildServiceState struct {
 // It contains no raw selector, origin, principal, object identity, local path,
 // title, or body.
 type BuildActive struct {
-	SchemaVersion       int                 `json:"schema_version"`
-	AttemptID           string              `json:"attempt_id"`
-	Status              BuildAttemptStatus  `json:"status"`
-	OptionsDigest       string              `json:"options_digest"`
-	Services            []BuildServiceState `json:"services"`
-	StartedAt           string              `json:"started_at"`
-	Deadline            string              `json:"deadline"`
-	MaxAttempts         int                 `json:"max_attempts"`
-	MaxResponseBytes    int64               `json:"max_response_bytes"`
-	Usage               CaptureUsage        `json:"usage"`
-	AttachmentBodyBytes int64               `json:"attachment_body_bytes"`
-	RemoteInFlight      bool                `json:"remote_in_flight"`
-	RemoteService       Service             `json:"remote_service,omitempty"`
-	GenerationDigest    string              `json:"generation_digest,omitempty"`
+	SchemaVersion         int                 `json:"schema_version"`
+	AttemptID             string              `json:"attempt_id"`
+	Status                BuildAttemptStatus  `json:"status"`
+	OptionsDigest         string              `json:"options_digest"`
+	Services              []BuildServiceState `json:"services"`
+	StartedAt             string              `json:"started_at"`
+	Deadline              string              `json:"deadline"`
+	MaxAttempts           int                 `json:"max_attempts"`
+	MaxResponseBytes      int64               `json:"max_response_bytes"`
+	Usage                 CaptureUsage        `json:"usage"`
+	AttachmentBodyBytes   int64               `json:"attachment_body_bytes"`
+	RemoteInFlight        bool                `json:"remote_in_flight"`
+	RemoteService         Service             `json:"remote_service,omitempty"`
+	PublicationTarget     PublicationTarget   `json:"publication_target,omitempty"`
+	PublicationRootDigest string              `json:"publication_root_digest,omitempty"`
+	GenerationDigest      string              `json:"generation_digest,omitempty"`
 }
 
 // CanonicalBuildActive returns strict current-schema active-record bytes.
@@ -66,7 +79,7 @@ func CanonicalBuildActive(active BuildActive, limits Limits) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if active.SchemaVersion != BuildActiveSchemaV2 {
+	if active.SchemaVersion != BuildActiveSchemaV2 && active.SchemaVersion != BuildActiveSchemaV3 {
 		return nil, reject(ReasonSchema)
 	}
 	if err := validateBuildActive(active); err != nil {
@@ -123,6 +136,11 @@ func ParseBuildActive(data []byte, limits Limits) (BuildActive, error) {
 			return BuildActive{}, err
 		}
 		canonical, err = CanonicalBuildActive(active, limits)
+	case BuildActiveSchemaV3:
+		if err := decodeStrictObject(data, &active); err != nil {
+			return BuildActive{}, err
+		}
+		canonical, err = CanonicalBuildActive(active, limits)
 	default:
 		return BuildActive{}, reject(ReasonSchema)
 	}
@@ -137,11 +155,29 @@ func ParseBuildActive(data []byte, limits Limits) (BuildActive, error) {
 }
 
 func validateBuildActive(active BuildActive) error {
-	if active.SchemaVersion != BuildActiveSchemaV1 && active.SchemaVersion != BuildActiveSchemaV2 {
+	if active.SchemaVersion != BuildActiveSchemaV1 && active.SchemaVersion != BuildActiveSchemaV2 && active.SchemaVersion != BuildActiveSchemaV3 {
 		return reject(ReasonSchema)
 	}
 	if active.SchemaVersion == BuildActiveSchemaV1 && active.AttachmentBodyBytes != 0 {
 		return reject(ReasonSchema)
+	}
+	if active.SchemaVersion < BuildActiveSchemaV3 {
+		if active.PublicationTarget != "" || active.PublicationRootDigest != "" {
+			return reject(ReasonSchema)
+		}
+	} else {
+		switch active.PublicationTarget {
+		case PublicationTargetWorkspace:
+			if active.PublicationRootDigest != "" {
+				return reject(ReasonLineage)
+			}
+		case PublicationTargetCache:
+			if !isLowerSHA256(active.PublicationRootDigest) {
+				return reject(ReasonDigest)
+			}
+		default:
+			return reject(ReasonType)
+		}
 	}
 	if err := validGenerationID(active.AttemptID); err != nil {
 		return err

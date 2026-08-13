@@ -15,11 +15,13 @@ import (
 )
 
 type CorpusBuildService struct {
-	jira             *JiraService
-	confluence       *ConfluenceService
-	generatorVersion string
-	buildState       corpus.BuildState
-	now              func() time.Time
+	jira                  *JiraService
+	confluence            *ConfluenceService
+	generatorVersion      string
+	generatorCommit       string
+	buildState            corpus.BuildState
+	confluenceTrustDigest string
+	now                   func() time.Time
 }
 
 func NewCorpusBuildService(dependencies CorpusBuildDependencies) *CorpusBuildService {
@@ -29,23 +31,53 @@ func NewCorpusBuildService(dependencies CorpusBuildDependencies) *CorpusBuildSer
 	}
 	return &CorpusBuildService{
 		jira: dependencies.Jira, confluence: dependencies.Confluence,
-		generatorVersion: dependencies.GeneratorVersion, buildState: dependencies.BuildState, now: now,
+		generatorVersion: dependencies.GeneratorVersion, generatorCommit: dependencies.GeneratorCommit,
+		buildState: dependencies.BuildState, confluenceTrustDigest: dependencies.ConfluenceTrustDigest, now: now,
 	}
 }
 
 // Build captures every selected service sequentially under one shared budget,
 // reconciles exact pristine inventories, and publishes one ready generation.
 func (service *CorpusBuildService) Build(ctx context.Context, options CorpusBuildOptions) (*CorpusBuildResult, error) {
+	commandStarted := time.Now().UTC()
+	if service != nil && service.now != nil {
+		commandStarted = service.now().UTC()
+	}
 	if err := service.validateOptions(ctx, options); err != nil {
 		return nil, CorpusBuildFailure(CorpusBuildPhaseValidate, err)
 	}
 	limits := corpusBuildLimits(options)
+	cacheEnabled := corpusCacheEnabled(options)
+	if cacheEnabled {
+		if err := corpus.ValidateIndependentRoots(options.Root, options.CacheRoot); err != nil {
+			return nil, CorpusBuildFailure(CorpusBuildPhaseValidate, err)
+		}
+	}
 	workspace, err := openCorpusBuildWorkspace(ctx, options, limits)
 	if err != nil {
 		return nil, CorpusBuildFailure(CorpusBuildPhaseWorkspace, err)
 	}
 	defer func() { _ = workspace.Close() }()
+	var cacheStore *corpus.Store
+	var cacheProbe *corpusCacheProbe
+	if cacheEnabled {
+		cacheStore, err = openCorpusBuildCache(options, limits)
+		if err != nil {
+			return nil, CorpusBuildFailure(CorpusBuildPhaseWorkspace, err)
+		}
+		defer func() { _ = cacheStore.Close() }()
+		cacheProbe, err = newCorpusCacheProbe(options)
+		if err != nil {
+			return nil, CorpusBuildFailure(CorpusBuildPhaseValidate, err)
+		}
+	}
 
+	generatorCommit := ""
+	trustDigest := ""
+	if cacheEnabled {
+		generatorCommit = service.generatorCommit
+		trustDigest = service.confluenceTrustDigest
+	}
 	optionsDigest, err := confluenceCompleteHashJSON(corpusBuildBinding{
 		JiraProject: options.JiraProject, MaxJiraIssues: options.MaxJiraIssues,
 		ConfluenceSpace: options.ConfluenceSpace, MaxConfluencePages: options.MaxConfluencePages,
@@ -54,12 +86,39 @@ func (service *CorpusBuildService) Build(ctx context.Context, options CorpusBuil
 		DeadlineNanos: options.Deadline.Nanoseconds(), MaxInFlight: options.MaxInFlight,
 		RequestsPerSecond: options.RequestsPerSecond,
 		GeneratorVersion:  service.generatorVersion, BuildState: service.buildState,
-		Evidence: corpusEvidenceBindingFromOptions(options),
+		Evidence:         corpusEvidenceBindingFromOptions(options),
+		CachePublication: cacheEnabled, GeneratorCommit: generatorCommit, TrustDigest: trustDigest,
 	})
 	if err != nil {
 		return nil, CorpusBuildFailure(CorpusBuildPhaseValidate, err)
 	}
-	active, source, err := service.prepareAttempt(ctx, workspace, options, optionsDigest)
+	cacheMissReason := ""
+	if cacheEnabled && CorpusBuildCacheFastPathEligible(options) {
+		persisted, found, loadErr := workspace.LoadActive()
+		if loadErr != nil {
+			return nil, CorpusBuildFailure(CorpusBuildPhaseRecover, loadErr)
+		}
+		if !found || persisted.Status == corpus.BuildAttemptCompleted && persisted.OptionsDigest == optionsDigest {
+			if found {
+				if bindingErr := validateCorpusBuildActiveBinding(persisted, options); bindingErr != nil {
+					return nil, CorpusBuildFailure(CorpusBuildPhaseRecover, bindingErr)
+				}
+			}
+			cached, reason, hitErr := service.tryCorpusCacheHit(ctx, cacheStore, options, cacheProbe, limits)
+			if hitErr != nil {
+				return nil, CorpusBuildFailure(CorpusBuildPhaseRecover, hitErr)
+			}
+			if cached != nil {
+				if found && persisted.GenerationDigest != cached.Generation.GenerationDigest {
+					return nil, CorpusBuildFailure(CorpusBuildPhaseRecover, corpus.ErrIntegrity)
+				}
+				cached.ElapsedMS = maxInt64(0, service.now().UTC().Sub(commandStarted).Milliseconds())
+				return cached, nil
+			}
+			cacheMissReason = reason
+		}
+	}
+	active, source, err := service.prepareAttempt(ctx, workspace, cacheStore, options, optionsDigest)
 	if err != nil {
 		return nil, CorpusBuildFailure(CorpusBuildPhaseRecover, err)
 	}
@@ -91,6 +150,7 @@ func (service *CorpusBuildService) Build(ctx context.Context, options CorpusBuil
 		receipts = append(receipts, receipt)
 	}
 	var jiraRoot, confluenceRoot string
+	var confluenceReceipt *corpus.CaptureReceipt
 	for _, state := range active.Services {
 		attemptRoot, rootErr := workspace.AttemptRoot(active.AttemptID, state.Service)
 		if rootErr != nil {
@@ -105,11 +165,31 @@ func (service *CorpusBuildService) Build(ctx context.Context, options CorpusBuil
 			return nil, CorpusBuildFailure(CorpusBuildPhaseWorkspace, corpus.ErrIntegrity)
 		}
 	}
+	for index := range receipts {
+		if receipts[index].Service == corpus.ServiceConfluence {
+			confluenceReceipt = &receipts[index]
+		}
+	}
+	var cacheBinding *corpus.CacheBindingV1
+	if CorpusBuildCacheFastPathEligible(options) {
+		if confluenceReceipt == nil {
+			return nil, CorpusBuildFailure(CorpusBuildPhaseSnapshot, corpus.ErrIntegrity)
+		}
+		cacheBinding, err = service.buildCorpusCacheBinding(ctx, confluenceRoot, *confluenceReceipt, options, cacheProbe, limits)
+		if err != nil {
+			return nil, CorpusBuildFailure(CorpusBuildPhaseSnapshot, err)
+		}
+	}
 
+	storeRoot := options.Root
+	if cacheEnabled {
+		storeRoot = ""
+	}
 	exported, err := ExportCorpus(buildCtx, CorpusExportOptions{
 		JiraRoot: jiraRoot, ConfluenceRoot: confluenceRoot,
-		StoreRoot: options.Root, GeneratorVersion: service.generatorVersion, BuildState: service.buildState,
+		StoreRoot: storeRoot, Store: cacheStore, GeneratorVersion: service.generatorVersion, BuildState: service.buildState,
 		Limits: limits, SnapshotLimits: corpusBuildSnapshotLimits(options), CaptureReceipts: receipts,
+		CacheBinding: cacheBinding,
 	})
 	if err != nil {
 		return nil, CorpusBuildFailure(CorpusBuildPhasePublish, err)
@@ -136,6 +216,14 @@ func (service *CorpusBuildService) Build(ctx context.Context, options CorpusBuil
 		ElapsedMS: maxInt64(0, now.Sub(started).Milliseconds()), Reused: exported.Reused,
 		Projection: exported.Projection, Generation: exported.Generation,
 		Services: make([]CorpusBuildServiceResult, 0, len(receipts)),
+	}
+	if cacheEnabled {
+		if cacheMissReason == "" {
+			cacheMissReason = corpusCacheReasonIncompatible
+		}
+		result.Cache = &CorpusBuildCacheResult{
+			Status: corpusCacheStatusPublished, Reason: cacheMissReason, ProbeUsage: cacheProbe.usage(),
+		}
 	}
 	for _, receipt := range receipts {
 		result.Services = append(result.Services, CorpusBuildServiceResult{
@@ -174,7 +262,7 @@ func openCorpusBuildWorkspace(ctx context.Context, options CorpusBuildOptions, l
 	return corpus.OpenBuildWorkspace(ctx, options.Root, storeOptions)
 }
 
-func (service *CorpusBuildService) prepareAttempt(ctx context.Context, workspace *corpus.BuildWorkspace, options CorpusBuildOptions, optionsDigest string) (corpus.BuildActive, string, error) {
+func (service *CorpusBuildService) prepareAttempt(ctx context.Context, workspace *corpus.BuildWorkspace, cacheStore *corpus.Store, options CorpusBuildOptions, optionsDigest string) (corpus.BuildActive, string, error) {
 	active, found, err := workspace.LoadActive()
 	if err != nil {
 		return corpus.BuildActive{}, "", err
@@ -183,7 +271,7 @@ func (service *CorpusBuildService) prepareAttempt(ctx context.Context, workspace
 		if options.Restart {
 			return corpus.BuildActive{}, "", fmt.Errorf("%w: no corpus build attempt exists to restart", domain.ErrUsage)
 		}
-		return service.beginAttempt(workspace, options, optionsDigest, "new", 0)
+		return service.beginAttempt(workspace, options, optionsDigest, "new", 0, 0)
 	}
 	if active.OptionsDigest == optionsDigest {
 		if err := validateCorpusBuildActiveBinding(active, options); err != nil {
@@ -194,16 +282,22 @@ func (service *CorpusBuildService) prepareAttempt(ctx context.Context, workspace
 		if options.Restart {
 			return corpus.BuildActive{}, "", fmt.Errorf("%w: completed corpus build has no interrupted attempt to restart", domain.ErrUsage)
 		}
-		selected, err := workspace.SelectCurrent(ctx)
+		selected, available, err := selectCorpusBuildCompletedGeneration(ctx, workspace, cacheStore, active, options)
+		if !available && err == nil && active.OptionsDigest != optionsDigest {
+			return service.beginAttempt(workspace, options, optionsDigest, "new", 0, active.SchemaVersion)
+		}
 		if err != nil {
 			return corpus.BuildActive{}, "", err
+		}
+		if !available {
+			return corpus.BuildActive{}, "", corpus.ErrIntegrity
 		}
 		matches := selected.Receipt().GenerationDigest == active.GenerationDigest
 		_ = selected.Close()
 		if !matches {
 			return corpus.BuildActive{}, "", corpus.ErrIntegrity
 		}
-		return service.beginAttempt(workspace, options, optionsDigest, "new", 0)
+		return service.beginAttempt(workspace, options, optionsDigest, "new", 0, active.SchemaVersion)
 	}
 	if active.Status == corpus.BuildAttemptFailed && !options.Restart {
 		return corpus.BuildActive{}, "", fmt.Errorf("%w: failed corpus build attempt requires --restart", domain.ErrCheckFailed)
@@ -235,7 +329,7 @@ func (service *CorpusBuildService) prepareAttempt(ctx context.Context, workspace
 		if err := saveCorpusBuildActive(workspace, active); err != nil {
 			return corpus.BuildActive{}, "", err
 		}
-		return service.beginAttempt(workspace, options, optionsDigest, "restarted", carryAttachmentBytes)
+		return service.beginAttempt(workspace, options, optionsDigest, "restarted", carryAttachmentBytes, active.SchemaVersion)
 	}
 	if active.OptionsDigest != optionsDigest {
 		return corpus.BuildActive{}, "", corpus.ErrIntegrity
@@ -255,29 +349,7 @@ func (service *CorpusBuildService) prepareAttempt(ctx context.Context, workspace
 	return active, "resumed", nil
 }
 
-func validateCorpusBuildActiveBinding(active corpus.BuildActive, options CorpusBuildOptions) error {
-	started, deadline, err := corpusBuildTimes(active)
-	if err != nil || deadline.Sub(started) != options.Deadline ||
-		active.MaxAttempts != options.MaxRequests || active.MaxResponseBytes != options.MaxResponseBytes ||
-		active.AttachmentBodyBytes < 0 ||
-		options.AttachmentBodies && active.AttachmentBodyBytes > options.MaxTotalAttachmentBytes ||
-		!options.AttachmentBodies && active.AttachmentBodyBytes != 0 {
-		return corpus.ErrIntegrity
-	}
-	_, expected, err := corpusBuildServices(options)
-	if err != nil || len(active.Services) != len(expected) {
-		return corpus.ErrIntegrity
-	}
-	for index := range expected {
-		if active.Services[index].Service != expected[index].Service ||
-			active.Services[index].SelectorDigest != expected[index].SelectorDigest {
-			return corpus.ErrIntegrity
-		}
-	}
-	return nil
-}
-
-func (service *CorpusBuildService) beginAttempt(workspace *corpus.BuildWorkspace, options CorpusBuildOptions, optionsDigest, source string, attachmentBodyBytes int64) (corpus.BuildActive, string, error) {
+func (service *CorpusBuildService) beginAttempt(workspace *corpus.BuildWorkspace, options CorpusBuildOptions, optionsDigest, source string, attachmentBodyBytes int64, previousSchema int) (corpus.BuildActive, string, error) {
 	services, states, err := corpusBuildServices(options)
 	if err != nil {
 		return corpus.BuildActive{}, "", err
@@ -287,12 +359,27 @@ func (service *CorpusBuildService) beginAttempt(workspace *corpus.BuildWorkspace
 		return corpus.BuildActive{}, "", err
 	}
 	started := service.now().UTC()
+	schemaVersion := corpus.BuildActiveSchemaV2
+	publicationTarget := corpus.PublicationTarget("")
+	publicationRootDigest := ""
+	if corpusCacheEnabled(options) || previousSchema == corpus.BuildActiveSchemaV3 {
+		schemaVersion = corpus.BuildActiveSchemaV3
+		publicationTarget = corpus.PublicationTargetWorkspace
+		if corpusCacheEnabled(options) {
+			publicationTarget = corpus.PublicationTargetCache
+			publicationRootDigest, err = corpus.RootIdentityDigest(options.CacheRoot)
+			if err != nil {
+				return corpus.BuildActive{}, "", err
+			}
+		}
+	}
 	active := corpus.BuildActive{
-		SchemaVersion: corpus.BuildActiveSchemaV2, AttemptID: attemptID, Status: corpus.BuildAttemptActive,
+		SchemaVersion: schemaVersion, AttemptID: attemptID, Status: corpus.BuildAttemptActive,
 		OptionsDigest: optionsDigest, Services: states,
 		StartedAt: corpus.NewBuildActiveTime(started), Deadline: corpus.NewBuildActiveTime(started.Add(options.Deadline)),
 		MaxAttempts: options.MaxRequests, MaxResponseBytes: options.MaxResponseBytes,
 		Usage: corpus.CaptureUsage{}, AttachmentBodyBytes: attachmentBodyBytes, RemoteInFlight: false,
+		PublicationTarget: publicationTarget, PublicationRootDigest: publicationRootDigest,
 	}
 	if err := saveCorpusBuildActive(workspace, active); err != nil {
 		return corpus.BuildActive{}, "", err
@@ -500,11 +587,13 @@ func (service *CorpusBuildService) captureOptionsDigest(selected corpus.Service,
 }
 
 func corpusBuildConfluencePullOptions(root string, options CorpusBuildOptions, evidence *corpusPullEvidenceOptions) PullOpts {
-	settings := corpusBuildRenderSettings("confluence")
+	cacheProjection := strings.TrimSpace(options.CacheRoot) != ""
+	settings := corpusBuildConfluenceRenderSettings(cacheProjection)
 	return PullOpts{
 		Space: options.ConfluenceSpace, Into: root, Complete: true, MaxPages: options.MaxConfluencePages,
 		PagePrefetch: options.MaxInFlight, RequestsPerSecond: options.RequestsPerSecond,
 		exactRender: &settings, Comments: options.Comments, evidence: evidence,
+		deterministicRawUsers: cacheProjection,
 	}
 }
 

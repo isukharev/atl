@@ -63,14 +63,14 @@ func NewWithScheduler(base, token, version string, scheduler *Scheduler, options
 // NewWithSchedulerTLS builds a client with an isolated backend-specific trust
 // pool. An empty option preserves NewWithScheduler's exact transport shape.
 func NewWithSchedulerTLS(base, token, version string, scheduler *Scheduler, tlsOptions TLSOptions, options ...Option) (*Client, error) {
-	if strings.TrimSpace(tlsOptions.CABundle) == "" {
+	if !tlsOptions.configured() {
 		return NewWithScheduler(base, token, version, scheduler, options...), nil
 	}
 	u, err := neturl.Parse(base)
 	if err != nil || !strings.EqualFold(u.Scheme, "https") {
 		return nil, fmt.Errorf("%w: configured CA bundle requires an https backend", domain.ErrConfig)
 	}
-	transport, err := transportWithCABundle(tlsOptions.CABundle)
+	transport, err := tlsOptions.transport()
 	if err != nil {
 		return nil, err
 	}

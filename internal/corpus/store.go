@@ -245,6 +245,14 @@ func (s *Store) Begin() (*Stage, error) {
 	if err := s.ensureRoot(); err != nil {
 		return nil, err
 	}
+	unlock, err := s.lockPublication(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = unlock() }()
+	if err := s.requireNoRetentionQuarantine(); err != nil {
+		return nil, err
+	}
 	for attempt := 0; attempt < 8; attempt++ {
 		id, err := randomToken(16)
 		if err != nil {
@@ -383,6 +391,14 @@ func (s *Stage) Seal(ctx context.Context, opts SealOptions) (generation *Generat
 	}()
 	if s.sealed || s.failed {
 		return nil, ErrAlreadyExists
+	}
+	unlock, err := s.store.lockPublication(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = unlock() }()
+	if err := s.store.requireNoRetentionQuarantine(); err != nil {
+		return nil, err
 	}
 	genRoot, err := s.openStageRoot()
 	if err != nil {

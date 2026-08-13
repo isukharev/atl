@@ -9,6 +9,7 @@ Local manifest and sealed-corpus result shapes.
 
 - [Manifest creation](#manifest-creation)
 - [Corpus build](#corpus-build)
+- [Corpus cache lifecycle](#corpus-cache-lifecycle)
 - [Corpus generation diff](#corpus-generation-diff)
 - [Corpus handoff](#corpus-handoff)
 - [Corpus export](#corpus-export)
@@ -91,6 +92,11 @@ stderr.
   "usage": {"attempts": 7, "response_bytes": 4352},
   "elapsed_ms": 3000,
   "reused": false,
+  "cache": {
+    "status": "published",
+    "reason": "empty",
+    "probe_usage": {"attempts": 2, "response_bytes": 1024}
+  },
   "projection": {
     "schema_version": 2,
     "projection_schema": 2,
@@ -132,13 +138,21 @@ stderr.
 }
 ```
 
-`source` is `new`, `resumed`, or `restarted`. `reused:true` means exact
-recovery found an equivalent already-selected generation; otherwise a
-successful result identifies the newly selected generation. `usage` includes
-principal checks and all selected services. A service's usage covers only its
-qualified complete pull, so the sum of service usage can be lower than the
-aggregate. Capture windows remain separate and do not imply a cross-service
-remote transaction.
+Without `--cache-root`, `cache` is absent and `source` is `new`, `resumed`, or
+`restarted`. `reused:true` means exact recovery found an equivalent
+already-selected generation. With a cache, a metadata-only hit reports
+`source:"cache"`, `reused:true`, `cache.status:"hit"`,
+`cache.reason:"exact"`, and a reused service status. A cold publication reports
+`cache.status:"published"` and one closed reason: `empty`, `incompatible`,
+`changed`, `ineligible`, or `unqualified`. The cache object never contains a
+selector, backend, principal, filesystem path, object identity, or title/body.
+
+`usage` includes the ordinary principal checks and selected-service capture.
+`cache.probe_usage` is the separately bounded principal/metadata observation;
+on a hit it is also the aggregate `usage`, while no native bodies are read. A
+service's usage covers only its qualified complete pull, so the sum of service
+usage can be lower than the aggregate. Capture windows remain separate and do
+not imply a cross-service remote transaction.
 
 Failures expose only `corpus build failed: phase=<closed> reason=<closed>` in
 the normal error envelope. Phases are `validate`, `workspace`, `recover`,
@@ -164,6 +178,92 @@ the completed attempt record did not reach a confirmed durability barrier;
 repeat exact options without `--restart` so ATL can verify the visible current
 generation and active record before it resumes recovery or starts another
 bounded capture.
+
+## Corpus cache lifecycle
+
+`atl corpus cache status --store DIR` (also available as the exact local alias
+`atl corpus cache doctor`) returns aggregate local verification only:
+
+```json
+{
+  "schema_version": 1,
+  "initialized": true,
+  "current": true,
+  "binding": "reusable",
+  "retention": {
+    "schema_version": 1,
+    "sealed_generations": 4,
+    "protected_generations": 2,
+    "candidate_generations": 2,
+    "unsealed_stages": 1,
+    "removed_this_apply": 0,
+    "deleted_candidates": 0,
+    "remaining_candidates": 2,
+    "complete": false
+  }
+}
+```
+
+`binding` is `absent` when there is no current pointer, `unsupported` for a
+generation without a cache binding, `ineligible` for a valid sealed no-reuse
+binding, or `reusable`. The retention object is counts-only. It contains no
+generation identity/digest, cache path, selector, backend, principal, title,
+or body.
+
+`atl corpus cache retention preview` writes the identity-bearing plan only to
+the explicit private artifact and returns:
+
+```json
+{
+  "schema_version": 1,
+  "status": {
+    "schema_version": 1,
+    "sealed_generations": 4,
+    "protected_generations": 2,
+    "candidate_generations": 2,
+    "unsealed_stages": 1,
+    "removed_this_apply": 0,
+    "deleted_candidates": 0,
+    "remaining_candidates": 2,
+    "complete": false
+  },
+  "plan_digest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "plan_artifact_written": true
+}
+```
+
+The plan digest is an apply token derived from private inventory, so do not use
+it as an object identifier or publish it as evidence. The plan artifact carries
+generation IDs/digests plus a binding to the canonical cache root and remains
+private even though ordinary output does not.
+
+`atl corpus cache retention apply` returns only the resulting counts:
+
+```json
+{
+  "schema_version": 1,
+  "status": {
+    "schema_version": 1,
+    "sealed_generations": 2,
+    "protected_generations": 2,
+    "candidate_generations": 2,
+    "unsealed_stages": 1,
+    "removed_this_apply": 2,
+    "deleted_candidates": 2,
+    "remaining_candidates": 0,
+    "complete": true
+  }
+}
+```
+
+`removed_this_apply` is the number removed by this invocation;
+`deleted_candidates` is the total reviewed candidate set, including candidates
+already absent during exact crash resume. Any failure after a removal can be
+durably ambiguous and emits no partial success object. Preserve the cache and
+review artifact, then repeat the same expected plan digest rather than
+inferring rollback. A plan-bound quarantine name makes cache status and other
+publication lifecycle operations return durable-outcome-unknown until that
+exact apply finishes; no partial status object is emitted.
 
 ## Corpus generation diff
 

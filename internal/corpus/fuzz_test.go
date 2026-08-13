@@ -244,6 +244,79 @@ func FuzzStrictBuildActiveCodec(f *testing.F) {
 	})
 }
 
+func FuzzStrictCacheBindingCodec(f *testing.F) {
+	receipt := confluenceCaptureReceipt(f)
+	binding := mustCacheBinding(f, CacheBindingInput{
+		Service: ServiceConfluence, ScopeDigest: receipt.ScopeDigest,
+		SelectorDigest: receipt.SelectorDigest, OptionsDigest: receipt.OptionsDigest,
+		BuildState: BuildStateModified, ManifestSchema: ManifestSchemaV1,
+		ReceiptSchema: ReceiptSchemaV1, ProjectionSchema: IndexerSchemaV2,
+		CaptureSchema: CaptureReceiptSchemaV1, SelectionDigest: receipt.SelectionDigest,
+		Total: receipt.Total, IneligibleReason: CacheIneligibleBuildNotClean,
+	})
+	canonical, err := CanonicalCacheBindingV1(binding, Limits{})
+	if err != nil {
+		f.Fatal(err)
+	}
+	for _, seed := range [][]byte{
+		canonical,
+		[]byte(`{"schema_version":1,"schema_version":2}`),
+		{0xff, 0x00, '{', '}'},
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(_ *testing.T, data []byte) {
+		_, _ = ParseCacheBindingV1(data, Limits{
+			MaxMembers: 1_000, MaxMemberBytes: 1 << 20, MaxTotalBytes: 1 << 20,
+			MaxManifestBytes: 1 << 20, MaxPathBytes: 1_024, MaxPathDepth: 32,
+		})
+	})
+}
+
+func FuzzStrictRetentionPlanCodec(f *testing.F) {
+	firstID, secondID, currentID := strings.Repeat("1", 32), strings.Repeat("2", 32), strings.Repeat("3", 32)
+	firstDigest, secondDigest, currentDigest := digestByte('a'), digestByte('b'), digestByte('c')
+	plan := RetentionPlanV1{
+		SchemaVersion: RetentionPlanSchemaV1,
+		RootDigest:    digestByte('d'),
+		Current:       Pointer{SchemaVersion: PointerSchemaV1, GenerationID: currentID, GenerationDigest: currentDigest},
+		Policy:        RetentionPolicyV1{SchemaVersion: RetentionPolicySchemaV1, RetainPredecessors: 1},
+		Inventory: []RetentionInventoryRecordV1{
+			{GenerationID: firstID, GenerationDigest: firstDigest, Totals: Totals{Members: 1, Bytes: 1}},
+			{GenerationID: secondID, GenerationDigest: secondDigest, PredecessorGenerationID: firstID, PredecessorGenerationDigest: firstDigest, Totals: Totals{Members: 1, Bytes: 1}},
+			{GenerationID: currentID, GenerationDigest: currentDigest, PredecessorGenerationID: secondID, PredecessorGenerationDigest: secondDigest, Totals: Totals{Members: 1, Bytes: 1}},
+		},
+		Protected: []RetentionGenerationRefV1{
+			{GenerationID: currentID, GenerationDigest: currentDigest},
+			{GenerationID: secondID, GenerationDigest: secondDigest},
+		},
+		Candidates:              []RetentionGenerationRefV1{{GenerationID: firstID, GenerationDigest: firstDigest}},
+		UnsealedInventoryDigest: retentionUnsealedInventoryDigest(nil),
+	}
+	var err error
+	plan.PlanDigest, err = retentionPlanDigest(plan)
+	if err != nil {
+		f.Fatal(err)
+	}
+	canonical, err := CanonicalRetentionPlanV1(plan, Limits{})
+	if err != nil {
+		f.Fatal(err)
+	}
+	for _, seed := range [][]byte{
+		canonical,
+		[]byte(`{"schema_version":1,"schema_version":2}`),
+		{0xff, 0x00, '{', '}'},
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(_ *testing.T, data []byte) {
+		_, _ = ParseRetentionPlanV1(data, Limits{
+			MaxMembers: 1_000, MaxMemberBytes: 1 << 20, MaxTotalBytes: 1 << 20,
+			MaxManifestBytes: 1 << 20, MaxPathBytes: 1_024, MaxPathDepth: 32,
+		})
+	})
+}
+
 func validReceiptForFuzz(t testing.TB, manifest Manifest) Receipt {
 	t.Helper()
 	manifestBytes, err := canonicalManifest(manifest, Limits{})

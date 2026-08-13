@@ -115,6 +115,14 @@ type QualifiedConfluencePageMetadataBatchReader interface {
 	ReadPageMetadataBatch(ctx context.Context, ids []string) (ConfluencePageMetadataBatch, error)
 }
 
+// QualifiedConfluenceCorpusMetadataReader is the cache-specific, non-body
+// capability for one bounded, exhaustive observation of a Confluence space.
+// Implementations fail closed when hierarchy, labels, restriction state, URL,
+// target identity, or pagination evidence is not exact.
+type QualifiedConfluenceCorpusMetadataReader interface {
+	ReadConfluenceCorpusMetadata(ctx context.Context, space string, maxPages int) (ConfluenceCorpusMetadataInventory, error)
+}
+
 // Attachment inventories name their limiter through this closed set of static
 // identifiers. Each value is a compile-time literal that never interpolates a
 // page id, title, filename, URL, body, or backend text, so a client can branch

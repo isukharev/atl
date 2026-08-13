@@ -175,28 +175,29 @@ func TestMutationGuardSpecsPreserveReviewedPhasesAndFamilies(t *testing.T) {
 		family mutationGuardFamily
 	}
 	want := map[string]expectedGuard{
-		"conf attachment delete":      {mutationGuardPreConfig, mutationGuardConfluenceAttachmentDelete},
-		"conf comment add":            {mutationGuardCommandOwned, mutationGuardGeneric},
-		"conf comment mutation apply": {mutationGuardPreConfig, mutationGuardGeneric},
-		"conf page copy":              {mutationGuardPreConfig, mutationGuardConfluencePageCopy},
-		"conf page delete":            {mutationGuardPreConfig, mutationGuardConfluencePageDelete},
-		"conf page labels add":        {mutationGuardCommandOwned, mutationGuardGeneric},
-		"conf page labels remove":     {mutationGuardCommandOwned, mutationGuardGeneric},
-		"conf page move":              {mutationGuardCommandOwned, mutationGuardGeneric},
-		"conf page title set":         {mutationGuardCommandOwned, mutationGuardGeneric},
-		"conf plan apply":             {mutationGuardCommandOwned, mutationGuardGeneric},
-		"jira issue comment add":      {mutationGuardCommandOwned, mutationGuardGeneric},
-		"jira issue delete":           {mutationGuardPreConfig, mutationGuardJiraIssueDelete},
-		"jira issue field set":        {mutationGuardCommandOwned, mutationGuardGeneric},
-		"jira issue plan apply":       {mutationGuardCommandOwned, mutationGuardGeneric},
-		"jira issue transition":       {mutationGuardCommandOwned, mutationGuardGeneric},
-		"jira issue watchers add":     {mutationGuardCommandOwned, mutationGuardGeneric},
-		"jira issue watchers remove":  {mutationGuardCommandOwned, mutationGuardGeneric},
-		"jira issue worklog add":      {mutationGuardCommandOwned, mutationGuardGeneric},
-		"jira push":                   {mutationGuardCommandOwned, mutationGuardGeneric},
-		"mirror backend bind":         {mutationGuardPreConfigOnApply, mutationGuardGeneric},
-		"profile apply":               {mutationGuardPreConfig, mutationGuardGeneric},
-		"profile suggestion apply":    {mutationGuardPreConfig, mutationGuardGeneric},
+		"conf attachment delete":       {mutationGuardPreConfig, mutationGuardConfluenceAttachmentDelete},
+		"conf comment add":             {mutationGuardCommandOwned, mutationGuardGeneric},
+		"conf comment mutation apply":  {mutationGuardPreConfig, mutationGuardGeneric},
+		"conf page copy":               {mutationGuardPreConfig, mutationGuardConfluencePageCopy},
+		"conf page delete":             {mutationGuardPreConfig, mutationGuardConfluencePageDelete},
+		"conf page labels add":         {mutationGuardCommandOwned, mutationGuardGeneric},
+		"conf page labels remove":      {mutationGuardCommandOwned, mutationGuardGeneric},
+		"conf page move":               {mutationGuardCommandOwned, mutationGuardGeneric},
+		"conf page title set":          {mutationGuardCommandOwned, mutationGuardGeneric},
+		"conf plan apply":              {mutationGuardCommandOwned, mutationGuardGeneric},
+		"corpus cache retention apply": {mutationGuardPreConfig, mutationGuardGeneric},
+		"jira issue comment add":       {mutationGuardCommandOwned, mutationGuardGeneric},
+		"jira issue delete":            {mutationGuardPreConfig, mutationGuardJiraIssueDelete},
+		"jira issue field set":         {mutationGuardCommandOwned, mutationGuardGeneric},
+		"jira issue plan apply":        {mutationGuardCommandOwned, mutationGuardGeneric},
+		"jira issue transition":        {mutationGuardCommandOwned, mutationGuardGeneric},
+		"jira issue watchers add":      {mutationGuardCommandOwned, mutationGuardGeneric},
+		"jira issue watchers remove":   {mutationGuardCommandOwned, mutationGuardGeneric},
+		"jira issue worklog add":       {mutationGuardCommandOwned, mutationGuardGeneric},
+		"jira push":                    {mutationGuardCommandOwned, mutationGuardGeneric},
+		"mirror backend bind":          {mutationGuardPreConfigOnApply, mutationGuardGeneric},
+		"profile apply":                {mutationGuardPreConfig, mutationGuardGeneric},
+		"profile suggestion apply":     {mutationGuardPreConfig, mutationGuardGeneric},
 	}
 
 	seen := 0
@@ -223,8 +224,8 @@ func TestMutationGuardSpecsPreserveReviewedPhasesAndFamilies(t *testing.T) {
 			}
 		}
 	}
-	if seen != 22 || len(want) != 22 {
-		t.Fatalf("typed guarded commands=%d reviewed=%d want=22", seen, len(want))
+	if seen != 23 || len(want) != 23 {
+		t.Fatalf("typed guarded commands=%d reviewed=%d want=23", seen, len(want))
 	}
 	for path := range want {
 		registration, ok := commandRegistry.nodes[path]
@@ -250,6 +251,7 @@ func TestMutationGuardRequirementsPreserveReviewedPresenceSemantics(t *testing.T
 		mutationGuardSuggestionHash:        {"suggestion-hash", mutationGuardPresenceNonBlank},
 		mutationGuardCandidateHash:         {"candidate-hash", mutationGuardPresenceNonBlank},
 		mutationGuardExpectedCurrentHash:   {"expected-current-hash", mutationGuardPresenceNonBlank},
+		mutationGuardExpectedPlanDigest:    {"expected-plan-digest", mutationGuardPresenceNonBlank},
 	}
 	for requirement, expected := range want {
 		name, ok := mutationGuardRequirementName(requirement)
@@ -261,8 +263,8 @@ func TestMutationGuardRequirementsPreserveReviewedPresenceSemantics(t *testing.T
 			t.Errorf("requirement %d presence=%d valid=%v want=%d", requirement, presence, ok, expected.presence)
 		}
 	}
-	if len(want) != int(mutationGuardExpectedCurrentHash) {
-		t.Fatalf("reviewed requirements=%d enum extent=%d", len(want), mutationGuardExpectedCurrentHash)
+	if len(want) != int(mutationGuardExpectedPlanDigest) {
+		t.Fatalf("reviewed requirements=%d enum extent=%d", len(want), mutationGuardExpectedPlanDigest)
 	}
 }
 

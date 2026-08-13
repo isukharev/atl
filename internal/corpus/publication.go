@@ -37,6 +37,9 @@ func (s *Store) Publish(ctx context.Context, id string) (Summary, error) {
 	if err := s.ensureRoot(); err != nil {
 		return zero, err
 	}
+	if err := s.requireNoRetentionQuarantine(); err != nil {
+		return zero, err
+	}
 	// Verification before waiting for the process lock is only an early reject.
 	// Pin and verify the target again inside the serialized CAS window so a
 	// publisher never relies on bytes observed while another publication ran.
@@ -196,6 +199,60 @@ func (s *Store) SelectCurrent(ctx context.Context) (*Generation, error) {
 		return nil, reject(ReasonDigest)
 	}
 	return generation, nil
+}
+
+// ConfirmCurrent serializes with publication, fully revalidates the caller's
+// pinned generation, and proves that the exact pointer did not change across
+// that verification. The corpus layer performs filesystem work only; callers
+// must complete every remote check before entering this lock window.
+func (s *Store) ConfirmCurrent(ctx context.Context, generation *Generation) error {
+	if err := contextError(ctx); err != nil {
+		return err
+	}
+	if generation == nil {
+		return reject(ReasonType)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	generation.mu.Lock()
+	defer generation.mu.Unlock()
+	if generation.closed {
+		return reject(ReasonType)
+	}
+	if err := s.ensureRoot(); err != nil {
+		return err
+	}
+	unlock, err := s.lockPublication(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = unlock() }()
+
+	pointer, found, err := s.readPointer()
+	if err != nil {
+		return err
+	}
+	want := Pointer{
+		SchemaVersion: PointerSchemaV1, GenerationID: generation.id,
+		GenerationDigest: generation.receipt.GenerationDigest,
+	}
+	if !found || pointer != want {
+		return reject(ReasonConcurrent)
+	}
+	if err := s.revalidatePinnedGeneration(ctx, generation); err != nil {
+		return err
+	}
+	if err := s.hit("after_confirm_current_revalidate"); err != nil {
+		return reject(ReasonIO)
+	}
+	observed, observedFound, err := s.readPointer()
+	if err != nil {
+		return err
+	}
+	if !observedFound || observed != pointer {
+		return reject(ReasonConcurrent)
+	}
+	return nil
 }
 
 func (s *Store) openGeneration(ctx context.Context, id string) (*Generation, error) {

@@ -65,6 +65,7 @@ const (
 	mutationGuardSuggestionHash
 	mutationGuardCandidateHash
 	mutationGuardExpectedCurrentHash
+	mutationGuardExpectedPlanDigest
 )
 
 type mutationGuardPresence uint8
@@ -243,6 +244,9 @@ R generator json,text completion zsh
 M config-write local-direct none none - json config set
 R config-read json,text config show
 R corpus-build json,text corpus build
+R local-artifact json,text corpus cache retention preview
+M local-write dedicated-apply none none apply,expected-plan-digest pre-config generic json,text corpus cache retention apply
+R local-read json,text corpus cache status
 R local-read-optional-artifact json,text corpus diff
 R local-artifact json,text corpus export
 R local-read-optional-artifact json,text corpus handoff

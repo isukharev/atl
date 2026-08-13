@@ -51,7 +51,7 @@ func TestTransportResponsibilityOwnersStayClosed(t *testing.T) {
 			"NewScheduler", "Scheduler", "scheduleTransport", "scheduledBody", "scheduledRoundTripper", "transientRetryStatus",
 		},
 		"tls.go": {
-			"TLSOptions", "ValidateCABundle", "caBundleMaxSize", "dlHeaderTimeout", "readCABundle", "transportWithCABundle",
+			"(TLSOptions).configured", "(TLSOptions).transport", "QualifiedTLSOptions", "TLSOptions", "ValidateCABundle", "caBundleMaxSize", "dlHeaderTimeout", "exclusiveCertPool", "readCABundle", "transportWithCABundle", "transportWithCertPool",
 		},
 		"transport.go": {
 			"(*Client).newRequest", "(*Client).newRequestReader", "(*Client).resolveURL", "(readBudgetTransport).RoundTrip", "readBudgetTransport",

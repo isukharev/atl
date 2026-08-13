@@ -369,7 +369,14 @@ func TestDoctorServiceKeepsCommonCredentialSafetyChecks(t *testing.T) {
 		t.Skip("POSIX owner-only permission contract")
 	}
 	configDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(configDir, "credentials.json"), []byte(`{"confluence":"stored"}`), 0o644); err != nil {
+	credentialsPath := filepath.Join(configDir, "credentials.json")
+	if err := os.WriteFile(credentialsPath, []byte(`{"confluence":"stored"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The high-risk gate intentionally runs beneath an owner-only umask. Set
+	// the unsafe fixture mode explicitly so this safety oracle cannot become a
+	// false negative when creation masks group/world bits.
+	if err := os.Chmod(credentialsPath, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out, code := runCLI(t, map[string]string{

@@ -119,6 +119,15 @@ func corpusBuildRenderSettings(backend string) RenderSettings {
 	return settings
 }
 
+func corpusBuildConfluenceRenderSettings(cacheProjection bool) RenderSettings {
+	settings := corpusBuildRenderSettings("confluence")
+	if cacheProjection {
+		settings.Sections[SecPageFields] = true
+		settings.PageFields = []config.ConfluenceFieldView{{ID: "restricted", ShowEmpty: true}}
+	}
+	return settings
+}
+
 // On reports whether a section is enabled.
 func (rs RenderSettings) On(name string) bool { return rs.Sections[name] }
 

@@ -39,7 +39,7 @@ func TestBuildActiveRejectsStrictAndSemanticViolations(t *testing.T) {
 	for name, data := range map[string][]byte{
 		"duplicate":               []byte(strings.Replace(text, `{"schema_version":2,`, `{"schema_version":2,"schema_version":2,`, 1)),
 		"unknown":                 []byte(strings.Replace(text, `{"schema_version":2,`, `{"unknown":1,"schema_version":2,`, 1)),
-		"future":                  []byte(strings.Replace(text, `"schema_version":2`, `"schema_version":3`, 1)),
+		"future":                  []byte(strings.Replace(text, `"schema_version":2`, `"schema_version":4`, 1)),
 		"unversioned":             []byte(strings.Replace(text, `"schema_version":2,`, ``, 1)),
 		"missing aggregate usage": []byte(strings.Replace(text, `,"attachment_body_bytes":9`, ``, 1)),
 		"missing service usage":   []byte(strings.Replace(text, `,"attachment_body_bytes":3`, ``, 1)),
