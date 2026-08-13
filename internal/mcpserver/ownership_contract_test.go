@@ -21,7 +21,7 @@ func TestMCPSourceOwnersStaySeparated(t *testing.T) {
 		"ConfluenceSearchInput":              "confluence_wire.go",
 		"JiraIssueSearchInput":               "jira_wire.go",
 		"NewForService":                      "server.go",
-		"ServeService":                       "server.go",
+		"ServeService":                       "stdio.go",
 		"normalizeSDKSchemaValidationErrors": "schema.go",
 		"validateConfluenceSectionsResult":   "confluence_validation.go",
 		"validateStructureView":              "jira_validation.go",

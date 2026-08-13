@@ -30,19 +30,33 @@ profile; it is not an arbitrary allowlist. The fixed offline
 `atl://capabilities` resource reports which curated CLI routes have a bounded
 typed mapping, its narrower scope, or an explicit CLI-only boundary. A mapping
 does not imply that all CLI output formats or raw evidence are available.
+Every profile also exposes the content-free `atl://runtime` startup snapshot:
+`{schema_version:1,access:"hard_read_only",lifecycle:"startup_only",change_activation:"restart_required",service_profile,global_read_only_policy:{configured_read_only,effective_read_only,read_only_source},plugin:{interface_contract,product_version}}`.
+The profile is `default|jira|confluence|offline`, the policy source is
+`flag|environment|configuration|none`, the interface is
+`unverified|compatible`, and product status is `unverified|match|mismatch`.
+Read it once for a new server process before relying on profile, global-policy,
+or plugin-skew facts. Its hard read-only access is structural and distinct from
+the nested global CLI policy.
 
 ATL remains dual-era. Modern `2026-07-28` clients use stateless
 `server/discover`; legacy `2025-11-25` clients use initialize/initialized. The
 one-page tool and resource inventories and resource reads carry `ttlMs:0` with
-`cacheScope:"public"` in both eras. Legacy results contain only the payload
-plus those cache fields; modern results also carry completion and server
-metadata.
+`cacheScope:"public"` in both eras, except that an `atl://runtime` read is
+private. Legacy results contain only the payload plus those cache fields;
+modern results also carry completion and server metadata. Do not share or
+reuse the private runtime result across processes. It is immutable within one
+process, and config, environment, or marker changes require restart rather
+than polling.
 
 Generated plugin startup carries separate interface-contract and manifest
 product-version markers. An incompatible marked interface fails as a
 content-free usage error before config, credentials, dependencies, or network;
-a compatible product-version mismatch does not block startup. A new plugin
-against an old binary fails as an unknown flag. Bare standalone and
+a compatible product-version mismatch does not block startup. The runtime
+resource reports only `unverified|compatible` interface and
+`unverified|match|mismatch` product classifications, never versions. Malformed
+persisted configuration also fails before protocol output. A new plugin against
+an old binary fails as an unknown flag. Bare standalone and
 indistinguishable old-plugin/new-binary invocation remain supported but
 `unverified`; do not claim symmetric rejection. MCP `serverInfo` is
 self-reported wire identity, not verification of the plugin or executable.
