@@ -288,8 +288,9 @@ type confluenceSelectionPullWire struct {
 		Version int    `json:"version"`
 		Assets  int    `json:"assets"`
 	} `json:"pages"`
-	Truncated   bool `json:"truncated,omitempty"`
-	TruncatedAt int  `json:"truncated_at,omitempty"`
+	Includes    []confluenceSelectionPullIncludeWire `json:"includes"`
+	Truncated   bool                                 `json:"truncated,omitempty"`
+	TruncatedAt int                                  `json:"truncated_at,omitempty"`
 }
 
 type confluenceSelectionSearchWire struct {
@@ -519,8 +520,8 @@ func runConfluenceSelectionPullCLI(
 	if result.ExitCode != 0 || !bytes.Equal(result.Stderr, []byte(wantStderr)) {
 		t.Fatalf("selected pull exit=%d stderr=%q", result.ExitCode, result.Stderr)
 	}
-	var wire confluenceSelectionPullWire
-	if err := decodeStrict(bytes.NewReader(result.JSON), &wire); err != nil {
+	wire, err := decodeConfluenceSelectionPullWire(result.JSON)
+	if err != nil {
 		t.Fatalf("decode selected Confluence pull wire: %v", err)
 	}
 	if wire.Root != "selection-mirror" {
