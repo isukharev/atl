@@ -40,7 +40,7 @@ func TestModuleBoundaryRejectsLayoutAndDependencyMutations(t *testing.T) {
 		{
 			name: "extra tracked module",
 			mutate: func(t *testing.T, root string) {
-				writeFixtureFile(t, root, "tools/extra/go.mod", "module example.test/extra\n\ngo 1.26.5\n")
+				writeFixtureFile(t, root, "tools/extra/go.mod", "module example.test/extra\n\ngo 1.26.6\n")
 				stageAll(t, root)
 			},
 			want: "tracked go.mod layout",
@@ -55,7 +55,7 @@ func TestModuleBoundaryRejectsLayoutAndDependencyMutations(t *testing.T) {
 		{
 			name: "tracked workspace",
 			mutate: func(t *testing.T, root string) {
-				writeFixtureFile(t, root, "go.work", "go 1.26.5\n")
+				writeFixtureFile(t, root, "go.work", "go 1.26.6\n")
 				stageAll(t, root)
 			},
 			want: "tracked workspace file",
@@ -63,7 +63,7 @@ func TestModuleBoundaryRejectsLayoutAndDependencyMutations(t *testing.T) {
 		{
 			name: "Go patch drift",
 			mutate: func(t *testing.T, root string) {
-				replaceFixtureFile(t, root, evaluatorModuleDir+"/go.mod", "go 1.26.5", "go 1.26.4")
+				replaceFixtureFile(t, root, evaluatorModuleDir+"/go.mod", "go 1.26.6", "go 1.26.4")
 			},
 			want: "go patch drift",
 		},
@@ -213,8 +213,8 @@ func writeModuleFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	files := map[string]string{
-		"go.mod":                                       "module " + rootModulePath + "\n\ngo 1.26.5\n",
-		evaluatorModuleDir + "/go.mod":                 "module " + evaluatorModulePath + "\n\ngo 1.26.5\n",
+		"go.mod":                                       "module " + rootModulePath + "\n\ngo 1.26.6\n",
+		evaluatorModuleDir + "/go.mod":                 "module " + evaluatorModulePath + "\n\ngo 1.26.6\n",
 		"cmd/atl/main.go":                              "package main\n",
 		"internal/product/product.go":                  "package product\n",
 		evaluatorModuleDir + "/runner.go":              "package agenteval\n\nimport (\n\t\"" + evaluatorModulePath + "/core\"\n\t\"" + evaluatorModulePath + "/extension\"\n\t\"" + evaluatorModulePath + "/profile/atl\"\n)\n",
