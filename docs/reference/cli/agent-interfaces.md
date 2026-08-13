@@ -248,15 +248,18 @@ clients retain initialize/initialized. Unsupported future versions fail with
 structured requested/supported version data. The closed one-page `tools/list`
 result has no cursor and always carries `ttlMs:0` plus
 `cacheScope:"public"`.
+`resources/list` has the same public zero-TTL cache contract. Resource reads
+also have `ttlMs:0`: `atl://capabilities` is public and `atl://runtime` is
+private in both protocol eras.
 
 Committed Claude Code and Codex plugin definitions add hidden generated
 `plugin-interface-contract` and `plugin-product-version` startup markers. The
 interface marker is the compatibility gate: an incompatible marked invocation
 is a value-free usage failure (exit `2`) before config, credentials, dependency
 construction, or network access. The product marker is evaluated separately as
-`match` or `mismatch` and never rejects a compatible interface, but the startup
-gate does not emit that status at runtime. Compare `atl version` with the
-installed plugin or manifest version when diagnosing skew. A bare
+`match` or `mismatch` and never rejects a compatible interface. The runtime
+resource exposes that closed classification without either version; compare
+`atl version` with the installed plugin or manifest when diagnosing skew. A bare
 standalone invocation, or an indistinguishable older unmarked plugin, remains
 supported with both facts `unverified`. A newer marked plugin used with an old
 binary fails through that binary's ordinary unknown-flag path; no symmetric
@@ -273,11 +276,28 @@ Omitting `--service` preserves the complete twenty-four-tool inventory and exist
 instructions. The closed Jira/Confluence/offline profiles expose 11/13/2 tools;
 `offline` contains only the two no-argument mirror snapshots and
 constructs no backend reader. Unknown or repeated service selections fail
-before dependency construction. All profiles also publish one fixed
-`application/json` resource, `atl://capabilities`, containing only static
+before dependency construction. All profiles publish two fixed
+`application/json` resources. `atl://capabilities` contains only static
 capability ids, ordering, CLI routes, bounded MCP mappings/scopes, and CLI-only
 facts. Reading it loads no config, credentials, backend, mirror path, or user
 content.
+
+The second descriptor is URI `atl://runtime`, name `atl-runtime`, title `atl
+runtime safety projection`, description `Immutable content-free startup safety
+and compatibility metadata for this atl MCP invocation.`, and MIME type
+`application/json`. Its schema-v1 content records `access:"hard_read_only"`,
+`lifecycle:"startup_only"`, `change_activation:"restart_required"`, the exact
+`default|jira|confluence|offline` service profile, the configured/effective
+global read-only policy and `flag|environment|configuration|none` source, and
+closed plugin interface/product classifications.
+
+The hard MCP boundary is independent of the global policy. Persisted config,
+the global `--read-only` flag, `ATL_READ_ONLY`, and plugin markers are captured
+once before stdio; malformed config and incompatible interface markers fail before
+protocol output. A running projection does not reread config or environment
+and changes activate only after restart. See the [output
+contract](../output/agent-interfaces.md#mcp-tool-results) for the exact JSON and
+private zero-TTL cache semantics.
 
 `confluence_page_meta` is the body-free governance read: it returns only
 schema/page identity, title, space, a positive version, an optional update

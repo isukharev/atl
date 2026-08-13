@@ -180,11 +180,11 @@ configuration or backend access.
 
 ## Coding agents
 
-Claude Code and Codex plugins include typed read-only MCP.
+Plugins include typed read-only MCP and immutable, process-private
+`atl://runtime` startup safety. Read it once; policy or plugin changes require
+restart.
 
-Inspect offline upper bounds with `atl capabilities --effects`
-or `--effects --command "jira issue search"`; they are informational, not
-authorization or enforcement.
+`atl capabilities --effects` reports offline upper bounds, not authorization.
 
 Claude Code:
 
@@ -201,9 +201,8 @@ codex plugin marketplace add isukharev/atl
 codex plugin add atl@atl
 ```
 
-Restart after installing. ATL supports MCP `2026-07-28` and `2025-11-25`;
-[agent setup](docs/agent-setup.md) covers routing, safety, mirrors,
-plugin/binary gates, Codex opt-in, and standalone use.
+Restart after installing. [Agent setup](docs/agent-setup.md) covers MCP
+`2026-07-28`/`2025-11-25`, routing, safety, plugin gates, and standalone use.
 
 [`agent-eval`](docs/reference/agent-eval/README.md) is pre-release.
 

@@ -107,22 +107,57 @@ rejects missing, null, fractional, negative, non-zero, or overflowing TTLs,
 unknown scopes, cursors, duplicate members, and other top-level members on the
 legacy selected-binary path.
 
-The fixed `resources/list` inventory and `resources/read` result use the same
-cache envelope in both eras. Legacy results contain exactly their payload
-member (`resources` or `contents`), `ttlMs:0`, and `cacheScope:"public"`.
-Modern results add only `resultType:"complete"` and server `_meta`. The
-capability resource body remains the static schema-v1 JSON described below;
-the cache fields do not weaken its closed content contract.
+The fixed `resources/list` inventory uses `ttlMs:0` and
+`cacheScope:"public"` in both eras. Every `resources/read` result also has
+`ttlMs:0`; `atl://capabilities` has `cacheScope:"public"`, while
+`atl://runtime` has `cacheScope:"private"`. Legacy results contain exactly
+`contents`, `ttlMs`, and `cacheScope`; modern results add only
+`resultType:"complete"` and server `_meta`. The discovery descriptor remains
+public even for the private runtime read.
+
+The `atl://runtime` content is exactly:
+
+```json
+{
+  "schema_version": 1,
+  "access": "hard_read_only",
+  "lifecycle": "startup_only",
+  "change_activation": "restart_required",
+  "service_profile": "default",
+  "global_read_only_policy": {
+    "configured_read_only": false,
+    "effective_read_only": false,
+    "read_only_source": "none"
+  },
+  "plugin": {
+    "interface_contract": "unverified",
+    "product_version": "unverified"
+  }
+}
+```
+
+`service_profile` is `default|jira|confluence|offline`;
+`read_only_source` is `flag|environment|configuration|none`;
+`interface_contract` is `unverified|compatible`; and `product_version` is
+`unverified|match|mismatch`. `access:"hard_read_only"` describes the immutable
+tool boundary, not the separately projected global CLI policy. The snapshot is
+captured once before stdio, and `restart_required` means later config,
+environment, or marker changes cannot alter it. A resource read performs no
+post-construction config, environment, credential, filesystem-content,
+dependency, or backend access. The private zero-TTL result must not be shared
+or reused for another server process, although repeated reads within one
+process return the same content.
 
 Generated plugin startup markers are validated before the MCP protocol starts.
 An incomplete, repeated, malformed, or incompatible marked invocation leaves
 stdout empty and uses the ordinary content-free CLI `usage_error` envelope on
 stderr with exit `2`; it is not an MCP tool result. Interface compatibility and
 the separately computed plugin-product `match`/`mismatch` fact do not derive
-from MCP `serverInfo`, and the startup gate emits no runtime product status.
-Its `name` and `version` remain the running binary's
-self-reported wire identity, not verification of the plugin package, invocation
-marker, or executable provenance.
+from MCP `serverInfo`; `atl://runtime` exposes only the closed classification,
+never either compared version. Its `name` and `version` remain the running
+binary's self-reported wire identity, not verification of the plugin package,
+invocation marker, or executable provenance.
+Malformed persisted configuration also fails before any protocol output.
 
 The generated server environment contains exactly the public
 `CODEX_MCP_PROTOCOL_VERSION=2026-07-28` marker. Codex 0.147 selects modern mode
@@ -132,11 +167,14 @@ enable the feature, and the marker itself proves no identity or provenance.
 
 `atl mcp serve --service jira|confluence|offline` selects one closed reviewed
 inventory. Omission preserves the default twenty-four tools and instruction bytes.
-Every profile exposes the fixed `application/json` resource
-`atl://capabilities`; its static schema-v1 content contains capability
-identity, task class/service/role/priority, CLI command, optional MCP tool/scope, and
-CLI-only state. The resource accepts no parameters and performs no config,
-credential, backend, mirror-path, or content read.
+Every profile exposes the fixed `application/json` resources
+`atl://capabilities` and `atl://runtime`. The static capability schema-v1
+content contains capability identity, task class/service/role/priority, CLI
+command, optional MCP tool/scope, and CLI-only state. It accepts no parameters
+and performs no config, credential, backend, mirror-path, or content read. The
+runtime descriptor is named `atl-runtime`, titled `atl runtime safety
+projection`, and described as `Immutable content-free startup safety and
+compatibility metadata for this atl MCP invocation.`
 For transport/API failures, `message` is deliberately coarse and omits backend
 paths, query values, and response bodies.
 

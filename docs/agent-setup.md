@@ -78,6 +78,16 @@ ATL_NO_UPDATE=1 atl mcp serve --service offline
 The default `atl mcp serve` inventory is still read-only. See [mcp.md](mcp.md)
 for exact tools and output limits.
 
+At the start of a connection, read `atl://runtime` once to confirm the selected
+`default|jira|confluence|offline` profile, global read-only policy/source, and
+plugin compatibility classification. Its `access:"hard_read_only"` field is
+the structural MCP guarantee; the nested global policy is separate and may be
+inactive. The content-free snapshot is captured before stdio and cannot change
+within that server process. Its read result is `ttlMs:0` and
+`cacheScope:"private"`: retain it only as an observation of that process, and
+restart the server after changing persisted config, `ATL_READ_ONLY`, the global
+`--read-only` flag, or plugin startup markers.
+
 ## Keep the mirror out of the code repository
 
 Agree on one explicit mirror directory and persist it in the agent's private
@@ -114,14 +124,18 @@ manifest product version to `atl mcp serve`; they also set the public Codex
 protocol-mode marker described above. An incompatible marked interface
 fails with exit `2` before config, credentials, dependency construction, or
 network access. Product-version mismatch is computed separately and does not
-reject an otherwise compatible interface. The startup gate does not emit that
-product status at runtime: compare `atl version` with the installed plugin or
-manifest version when diagnosing skew.
+reject an otherwise compatible interface. `atl://runtime` reports only the
+closed `unverified|match|mismatch` product classification, not either version;
+compare `atl version` with the installed plugin or manifest when diagnosing
+skew. Malformed persisted configuration also fails before protocol output.
 
 Protocol selection is independent of those startup checks. ATL remains
 dual-era: modern `2026-07-28` uses `server/discover`, while legacy
 `2025-11-25` uses initialize/initialized. Its one-page tool inventory carries
 the required `ttlMs:0` and `cacheScope:"public"` cache fields in both eras.
+Resource discovery and `atl://capabilities` reads remain public; the
+invocation-specific `atl://runtime` read is private, with `ttlMs:0`, in both
+eras.
 
 A newly generated plugin used with an older binary fails through that binary's
 normal unknown-flag parsing. An older unmarked plugin used with a newer binary

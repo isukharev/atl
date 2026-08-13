@@ -195,7 +195,9 @@ transition и удаления требуют выведенных expected-зн
 
 ## Кодинг-агенты
 
-Плагины Claude Code и Codex включают typed read-only MCP.
+Плагины включают typed read-only MCP и неизменяемый process-private snapshot
+`atl://runtime`. Прочитайте его один раз; изменения policy или плагина требуют
+restart.
 
 Перед выбором маршрута проверьте статическую границу эффектов команды:
 
@@ -222,10 +224,9 @@ codex plugin marketplace add isukharev/atl
 codex plugin add atl@atl
 ```
 
-После установки начните новую сессию. ATL поддерживает MCP `2026-07-28` и
-`2025-11-25`. [Руководство по настройке агента](docs/agent-setup.md) описывает
-safety, зеркала, version skew, startup gates и modern opt-in Codex;
-отдельный `atl mcp serve` поддерживается.
+После установки начните новую сессию. [Руководство по настройке
+агента](docs/agent-setup.md) описывает MCP `2026-07-28`/`2025-11-25`, safety,
+startup gates, modern opt-in Codex и отдельный `atl mcp serve`.
 
 [`agent-eval`](docs/reference/agent-eval/README.md) находится в pre-release.
 
