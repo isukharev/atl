@@ -72,18 +72,19 @@ const (
 type ErrorCode string
 
 const (
-	ErrorInvalidRequest     ErrorCode = "invalid_request"
-	ErrorInvalidRoot        ErrorCode = "invalid_root"
-	ErrorUnstableSource     ErrorCode = "unstable_source"
-	ErrorLimitExceeded      ErrorCode = "limit_exceeded"
-	ErrorInvalidSkill       ErrorCode = "invalid_skill"
-	ErrorInvalidEvals       ErrorCode = "invalid_evals"
-	ErrorInvalidWorkspace   ErrorCode = "invalid_workspace"
-	ErrorInvalidProjection  ErrorCode = "invalid_projection"
-	ErrorInvalidExport      ErrorCode = "invalid_export"
-	ErrorInvalidPublication ErrorCode = "invalid_publication"
-	ErrorInvalidDestination ErrorCode = "invalid_destination"
-	ErrorPublicationFailed  ErrorCode = "publication_failed"
+	ErrorInvalidRequest        ErrorCode = "invalid_request"
+	ErrorInvalidRoot           ErrorCode = "invalid_root"
+	ErrorUnstableSource        ErrorCode = "unstable_source"
+	ErrorLimitExceeded         ErrorCode = "limit_exceeded"
+	ErrorInvalidSkill          ErrorCode = "invalid_skill"
+	ErrorInvalidEvals          ErrorCode = "invalid_evals"
+	ErrorInvalidWorkspace      ErrorCode = "invalid_workspace"
+	ErrorInvalidProjection     ErrorCode = "invalid_projection"
+	ErrorInvalidExport         ErrorCode = "invalid_export"
+	ErrorInvalidPublication    ErrorCode = "invalid_publication"
+	ErrorInvalidDestination    ErrorCode = "invalid_destination"
+	ErrorPublicationFailed     ErrorCode = "publication_failed"
+	ErrorInvalidSecurityPolicy ErrorCode = "invalid_security_policy"
 )
 
 // Error retains an inspectable cause without rendering it.

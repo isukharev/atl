@@ -143,53 +143,68 @@ type structuralAdmissionHooks struct {
 	limits   *StructuralLimits
 }
 
+// structuralAdmissionCapture keeps the private, already validated bytes alive
+// only while a caller that explicitly requested the security layer scans them.
+// It is deliberately not part of StructuralAdmission: the v1 structural
+// result remains content-minimized and callers cannot accidentally reopen an
+// ambient bundle path after admission.
+type structuralAdmissionCapture struct {
+	admission StructuralAdmission
+	sources   []structuralSource
+}
+
 func admitStructureWithHooks(request ImportRequest, hooks structuralAdmissionHooks) (StructuralAdmission, error) {
+	capture, err := admitStructureCaptureWithHooks(request, hooks)
+	return capture.admission, err
+}
+
+func admitStructureCaptureWithHooks(request ImportRequest, hooks structuralAdmissionHooks) (structuralAdmissionCapture, error) {
 	base := newStructuralAdmissionWithLimits(hooks.limits)
 	if !validAdmissionRequest(request) {
-		return StructuralAdmission{}, contractError(ErrorInvalidRequest, nil)
+		return structuralAdmissionCapture{}, contractError(ErrorInvalidRequest, nil)
 	}
 	budget := newStructuralCaptureBudget(base.Limits)
 
 	skillTree, refusal := captureStructuralTree(request.SkillRoot, "skill", budget, hooks.skill)
 	if refusal != nil {
-		return refuseStructuralSource(base, refusal), nil
+		return structuralAdmissionCapture{admission: refuseStructuralSource(base, refusal)}, nil
 	}
 	skillDocument, ok := skillTree.files["SKILL.md"]
 	if !ok {
-		return refuseStructuralAdmission(base, FindingSkillManifestMissing, "skill", "SKILL.md"), nil
+		return structuralAdmissionCapture{admission: refuseStructuralAdmission(base, FindingSkillManifestMissing, "skill", "SKILL.md")}, nil
 	}
 	metadata, err := parseSkillMetadata(skillDocument.data)
 	if err != nil {
-		return refuseStructuralAdmission(base, FindingSkillManifestInvalid, "skill", "SKILL.md"), nil
+		return structuralAdmissionCapture{admission: refuseStructuralAdmission(base, FindingSkillManifestInvalid, "skill", "SKILL.md")}, nil
 	}
 
 	evalSelection, refusal, err := selectAdmissionEvals(request, skillTree, budget, hooks.evals)
 	if refusal != nil {
-		return refuseStructuralSource(base, refusal), nil
+		return structuralAdmissionCapture{admission: refuseStructuralSource(base, refusal)}, nil
 	}
 	if err != nil {
-		return StructuralAdmission{}, err
+		return structuralAdmissionCapture{}, err
 	}
 	manifest, ok := evalSelection.tree.files[evalSelection.manifestPath]
 	if !ok {
-		return refuseStructuralAdmission(base, FindingEvalManifestMissing,
-			evalSelection.namespace, evalSelection.manifestPath), nil
+		return structuralAdmissionCapture{admission: refuseStructuralAdmission(base, FindingEvalManifestMissing,
+			evalSelection.namespace, evalSelection.manifestPath)}, nil
 	}
 	decoded, err := decodeEvals(manifest.data, request.Format)
 	if err != nil {
-		return refuseStructuralAdmission(base, FindingEvalManifestInvalid,
-			evalSelection.namespace, evalSelection.manifestPath), nil
+		return structuralAdmissionCapture{admission: refuseStructuralAdmission(base, FindingEvalManifestInvalid,
+			evalSelection.namespace, evalSelection.manifestPath)}, nil
 	}
 	if decoded.skillName != metadata.name {
-		return refuseStructuralAdmission(base, FindingEvalManifestInvalid,
-			evalSelection.namespace, evalSelection.manifestPath), nil
+		return structuralAdmissionCapture{admission: refuseStructuralAdmission(base, FindingEvalManifestInvalid,
+			evalSelection.namespace, evalSelection.manifestPath)}, nil
 	}
 
 	evalReferences := make(map[string]struct{})
 	for _, source := range decoded.cases {
 		for _, location := range source.files {
 			if _, exists := skillTree.files[location]; !exists {
-				return refuseStructuralAdmission(base, FindingEvalReferenceMissing, "skill", location), nil
+				return structuralAdmissionCapture{admission: refuseStructuralAdmission(base, FindingEvalReferenceMissing, "skill", location)}, nil
 			}
 			evalReferences[location] = struct{}{}
 		}
@@ -209,15 +224,15 @@ func admitStructureWithHooks(request ImportRequest, hooks structuralAdmissionHoo
 			request.PreviousSkillRoot, "previous", budget, hooks.previous,
 		)
 		if previousRefusal != nil {
-			return refuseStructuralSource(base, previousRefusal), nil
+			return structuralAdmissionCapture{admission: refuseStructuralSource(base, previousRefusal)}, nil
 		}
 		previousDocument, ok := previousTree.files["SKILL.md"]
 		if !ok {
-			return refuseStructuralAdmission(base, FindingSkillManifestMissing, "previous", "SKILL.md"), nil
+			return structuralAdmissionCapture{admission: refuseStructuralAdmission(base, FindingSkillManifestMissing, "previous", "SKILL.md")}, nil
 		}
 		previousMetadata, err := parseSkillMetadata(previousDocument.data)
 		if err != nil || previousMetadata.name != metadata.name {
-			return refuseStructuralAdmission(base, FindingSkillManifestInvalid, "previous", "SKILL.md"), nil
+			return structuralAdmissionCapture{admission: refuseStructuralAdmission(base, FindingSkillManifestInvalid, "previous", "SKILL.md")}, nil
 		}
 		sources = append(sources, structuralSource{
 			namespace: "previous", tree: previousTree, skillManifest: "SKILL.md",
@@ -226,12 +241,12 @@ func admitStructureWithHooks(request ImportRequest, hooks structuralAdmissionHoo
 
 	entries, refusal := structuralEntries(sources, base.Limits)
 	if refusal != nil {
-		return refuseStructuralSource(base, refusal), nil
+		return structuralAdmissionCapture{admission: refuseStructuralSource(base, refusal)}, nil
 	}
 	base.Admitted = true
 	base.Entries = entries
 	base.TreeSHA256 = digestStructuralTree(base.PolicySHA256, entries)
-	return base, nil
+	return structuralAdmissionCapture{admission: base, sources: sources}, nil
 }
 
 type admissionEvalSelection struct {

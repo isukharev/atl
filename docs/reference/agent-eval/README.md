@@ -194,6 +194,18 @@ is capped at 64 MiB and 4,096 entries; individual JSON documents are capped at
 workspace runs at 4,096. Repeated references and publication files are charged
 against aggregate bounds before their bytes are retained.
 
+The internal structural admission path may be composed with the separately
+versioned lifecycle-security rule pack. That static layer scans the same
+already-captured bytes, never reopens bundle paths, executes content, resolves
+providers, downloads, contacts a network, or discovers credentials. Its
+content-minimized report covers every admitted regular file as scanned text or
+an explicit unsupported status, with a closed file-type classification;
+unsupported coverage and every unsuppressed
+finding block the layer. Exact suppressions bind one rule/evidence pair, one
+logical file, the structural bundle digest, a closed rationale, and an
+explicit expiry date. A clean report is not runtime-safety proof, and the
+security report is not a SARIF or hosted-scanner interface.
+
 `export agent-skills` is a separately classified local write. It requires one
 explicit variant, source import arguments, an exact workspace root, and an
 absolute clean destination that does not yet exist. For Guide workspaces, the
