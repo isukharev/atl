@@ -139,6 +139,28 @@ func TestIndexerV2AcceptsClosedAttachmentOwnerShapes(t *testing.T) {
 	}
 }
 
+func TestVerifyIndexerDocumentsV2BindsDocumentServicesToQualifications(t *testing.T) {
+	documents, edges, markdown, artifact, member, qualifications := validIndexerV2Bundle(t)
+	receipt, err := BuildIndexerReceiptV2(qualifications, documents, edges, markdown,
+		[]IndexerArtifact{artifact}, []ArtifactMember{member}, Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.Qualifications = append([]IndexerQualification(nil), receipt.Qualifications...)
+	receipt.Qualifications[0].Service = ServiceConfluence
+	limits, err := normalizeLimits(Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.ProjectionDigest, err = indexerProjectionDigestV2(receipt, limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyIndexerDocumentsV2(receipt, documents, Limits{}); !errors.Is(err, ErrIntegrity) {
+		t.Fatalf("cross-service document verification error=%v", err)
+	}
+}
+
 func TestIndexerV2RejectsArtifactMembershipAndStatusDrift(t *testing.T) {
 	documents, edges, markdown, artifact, member, qualifications := validIndexerV2Bundle(t)
 	for name, mutate := range map[string]func(*IndexerArtifact, *ArtifactMember){
@@ -357,6 +379,26 @@ func TestIndexerV2ArtifactBodyReasonMatrixIsClosed(t *testing.T) {
 		if validArtifactBodyReason(value.reason, value.status) {
 			t.Fatalf("accepted status=%q reason=%q", value.status, value.reason)
 		}
+	}
+}
+
+func TestVerifyIndexerDocumentsV2RejectsInventorySwap(t *testing.T) {
+	documents, edges, markdown, artifact, member, qualifications := validIndexerV2Bundle(t)
+	receipt, err := BuildIndexerReceiptV2(qualifications, documents, edges, markdown,
+		[]IndexerArtifact{artifact}, []ArtifactMember{member}, Limits{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyIndexerDocumentsV2(receipt, documents, Limits{}); err != nil {
+		t.Fatal(err)
+	}
+	swapped := append([]IndexerDocument(nil), documents...)
+	swapped[0].Title += " changed"
+	if err := VerifyIndexerDocumentsV2(receipt, swapped, Limits{}); !errors.Is(err, ErrIntegrity) {
+		t.Fatalf("swapped error=%v", err)
+	}
+	if err := VerifyIndexerDocumentsV2(receipt, documents[:1], Limits{}); !errors.Is(err, ErrIntegrity) {
+		t.Fatalf("truncated error=%v", err)
 	}
 }
 

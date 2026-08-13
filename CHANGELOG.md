@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   startup now exits as a content-free usage error before config, credentials,
   dependency construction, or network access; bare standalone and legacy
   unmarked invocation remain supported but explicitly unverified.
+- Added zero-egress `atl corpus diff` with selector/scope/options-qualified
+  stable-identity membership deltas, receipt-bound tombstone digests,
+  content-free counts by default, and an explicit exclusive owner-private
+  identity artifact. Tombstones retire derived index membership only and never
+  claim or perform backend deletion.
 - Added read-only `atl corpus build` orchestration for nominated Jira projects
   and Confluence spaces, with qualified capture receipts, one shared physical
   request/byte/deadline budget, retained crash recovery, and atomic publication

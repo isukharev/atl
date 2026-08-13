@@ -413,6 +413,15 @@ evidence, and do not use `--allow-unreconciled` outside diagnostics. Preserve
 the store when an error reports an unknown durable outcome; do not infer either
 rollback or successful publication.
 
+To retire stale derived index entries, run `atl corpus diff --store STORE` only
+against the sealed current pointer. Its default output is content-free and a
+`tombstoned` count means absence from one compatible qualified successor, not
+backend deletion. Request stable identities only with `--identity-artifact`
+under an existing owner-only parent outside the sealed store; ATL refuses
+store-contained and symlink-aliased destinations and never replaces the target.
+Keep that artifact private. The command never deletes a mirror, generation,
+index, or remote object.
+
 **On-demand qualified corpus:** use `atl corpus build` only for caller-nominated
 Jira projects and/or Confluence spaces when an indexer requires
 `readiness:ready`. Create the exact-`0700` root outside the source checkout,

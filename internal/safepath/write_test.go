@@ -625,6 +625,187 @@ func TestWriteFileAtomicPrivateChecksOpenedSymlinkTargetMode(t *testing.T) {
 	}
 }
 
+func TestWriteFileExclusivePrivateNeverReplacesAndRequiresOwnerOnlyParent(t *testing.T) {
+	privateDir := t.TempDir()
+	if err := os.Chmod(privateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(privateDir, "artifact.json")
+	if err := WriteFileExclusivePrivate(target, []byte("first\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFileExclusivePrivate(target, []byte("second\n"), 0o600); !os.IsExist(err) {
+		t.Fatalf("replacement error=%v", err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil || string(data) != "first\n" {
+		t.Fatalf("artifact=%q error=%v", data, err)
+	}
+	info, err := os.Stat(target)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode=%v error=%v", info, err)
+	}
+
+	publicDir := t.TempDir()
+	if err := os.Chmod(publicDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFileExclusivePrivate(filepath.Join(publicDir, "artifact.json"), []byte("x"), 0o600); !errors.Is(err, ErrUnsafePrivatePath) {
+		t.Fatalf("public parent error=%v", err)
+	}
+	if err := WriteFileExclusivePrivate(filepath.Join(privateDir, "group.json"), []byte("x"), 0o640); !errors.Is(err, ErrUnsafePrivatePath) {
+		t.Fatalf("group-readable artifact error=%v", err)
+	}
+}
+
+func TestWriteFileExclusivePrivateRejectsExistingSymlink(t *testing.T) {
+	privateDir := t.TempDir()
+	if err := os.Chmod(privateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.json")
+	if err := os.WriteFile(outside, []byte("preserve"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(privateDir, "artifact.json")
+	if err := os.Symlink(outside, target); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if err := WriteFileExclusivePrivate(target, []byte("secret"), 0o600); !os.IsExist(err) {
+		t.Fatalf("symlink refusal error=%v", err)
+	}
+	data, err := os.ReadFile(outside)
+	if err != nil || string(data) != "preserve" {
+		t.Fatalf("outside=%q error=%v", data, err)
+	}
+}
+
+func TestWriteFileExclusivePrivateRejectsInvalidPreconditionsBeforeCreatingTarget(t *testing.T) {
+	privateDir := t.TempDir()
+	if err := os.Chmod(privateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(privateDir, "artifact.json")
+
+	if err := WriteFileExclusivePrivateOutsideRoot(" \t", target, []byte("secret"), 0o600); !errors.Is(err, ErrUnsafePrivatePath) {
+		t.Fatalf("empty protected root error=%v", err)
+	}
+	if err := WriteFileExclusivePrivateOutsideRoot(filepath.Join(t.TempDir(), "missing"), target, []byte("secret"), 0o600); !errors.Is(err, ErrUnsafePrivatePath) {
+		t.Fatalf("missing protected root error=%v", err)
+	}
+
+	missingTarget := filepath.Join(privateDir, "missing", "artifact.json")
+	if err := WriteFileExclusivePrivate(missingTarget, []byte("secret"), 0o600); err == nil {
+		t.Fatal("missing target parent unexpectedly accepted")
+	}
+
+	protected := t.TempDir()
+	if err := os.Chmod(protected, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	hookErr := errors.New("synthetic validation failure")
+	if err := writeFileExclusivePrivateWithHook(protected, target, []byte("secret"), 0o600, func() error {
+		return hookErr
+	}); !errors.Is(err, hookErr) {
+		t.Fatalf("validation hook error=%v", err)
+	}
+
+	if _, err := os.Lstat(target); !os.IsNotExist(err) {
+		t.Fatalf("refused target exists: %v", err)
+	}
+	if _, err := os.Lstat(missingTarget); !os.IsNotExist(err) {
+		t.Fatalf("missing-parent target exists: %v", err)
+	}
+}
+
+func TestWriteFileExclusivePrivateOutsideRootRejectsDirectAndAliasedDescendants(t *testing.T) {
+	protected := t.TempDir()
+	if err := os.Chmod(protected, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(protected, "sealed")
+	if err := os.Mkdir(nested, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, parent := range map[string]string{
+		"direct": nested,
+		"root":   protected,
+	} {
+		t.Run(name, func(t *testing.T) {
+			target := filepath.Join(parent, "artifact.json")
+			if err := WriteFileExclusivePrivateOutsideRoot(protected, target, []byte("secret"), 0o600); !errors.Is(err, ErrUnsafePrivatePath) {
+				t.Fatalf("overlap error=%v", err)
+			}
+			if _, err := os.Lstat(target); !os.IsNotExist(err) {
+				t.Fatalf("overlap target exists: %v", err)
+			}
+		})
+	}
+
+	aliasParent := t.TempDir()
+	if err := os.Chmod(aliasParent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(aliasParent, "sealed-alias")
+	if err := os.Symlink(nested, alias); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	aliasTarget := filepath.Join(alias, "artifact.json")
+	if err := WriteFileExclusivePrivateOutsideRoot(protected, aliasTarget, []byte("secret"), 0o600); !errors.Is(err, ErrUnsafePrivatePath) {
+		t.Fatalf("alias overlap error=%v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(nested, "artifact.json")); !os.IsNotExist(err) {
+		t.Fatalf("aliased overlap target exists: %v", err)
+	}
+
+	outside := t.TempDir()
+	if err := os.Chmod(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	outsideTarget := filepath.Join(outside, "artifact.json")
+	if err := WriteFileExclusivePrivateOutsideRoot(protected, outsideTarget, []byte("allowed"), 0o600); err != nil {
+		t.Fatalf("outside write error=%v", err)
+	}
+}
+
+func TestWriteFileExclusivePrivateOutsideRootRejectsParentSwapAfterResolution(t *testing.T) {
+	protected := t.TempDir()
+	if err := os.Chmod(protected, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sealed := filepath.Join(protected, "sealed")
+	if err := os.Mkdir(sealed, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	outsideRoot := t.TempDir()
+	if err := os.Chmod(outsideRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Join(outsideRoot, "review")
+	if err := os.Mkdir(parent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	original := filepath.Join(outsideRoot, "review-original")
+	target := filepath.Join(parent, "artifact.json")
+	err := writeFileExclusivePrivateWithHook(protected, target, []byte("secret"), 0o600, func() error {
+		if err := os.Rename(parent, original); err != nil {
+			return err
+		}
+		return os.Symlink(sealed, parent)
+	})
+	if err != nil && errors.Is(err, os.ErrPermission) {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if !errors.Is(err, ErrUnsafePrivatePath) {
+		t.Fatalf("parent-swap error=%v", err)
+	}
+	for _, candidate := range []string{filepath.Join(sealed, "artifact.json"), filepath.Join(original, "artifact.json")} {
+		if _, statErr := os.Lstat(candidate); !os.IsNotExist(statErr) {
+			t.Fatalf("refused parent-swap target exists at %s: %v", candidate, statErr)
+		}
+	}
+}
+
 // TestWithinRelError targets the filepath.Rel error branch (Within line ~114):
 // Rel returns an error when one path is absolute and the other is relative, so
 // the two cannot be made relative to each other.

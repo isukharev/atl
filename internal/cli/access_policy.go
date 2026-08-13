@@ -239,6 +239,7 @@ R json,text completion zsh
 M local-direct none none - json config set
 R json,text config show
 R json,text corpus build
+R json,text corpus diff
 R json,text corpus export
 R json,text doctor
 R json,text environment inspect

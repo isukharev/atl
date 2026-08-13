@@ -131,7 +131,12 @@ func ExportCorpus(ctx context.Context, options CorpusExportOptions) (*CorpusExpo
 
 	current, currentErr := store.SelectCurrent(ctx)
 	predecessor := ""
+	tombstoneDigest := ""
 	if currentErr == nil {
+		if verifyErr := verifyCorpusGenerationTombstoneState(ctx, store, current, options.Limits); verifyErr != nil {
+			_ = current.Close()
+			return nil, corpusExportFailure("verify current generation delta", verifyErr)
+		}
 		equivalent := corpusGenerationEquivalent(current, bundle, options)
 		if equivalent {
 			result := &CorpusExportResult{
@@ -142,11 +147,24 @@ func ExportCorpus(ctx context.Context, options CorpusExportOptions) (*CorpusExpo
 			return result, nil
 		}
 		predecessor = current.Receipt().GenerationDigest
+		deltaMember, deltaErr := deriveCorpusGenerationDelta(ctx, current, bundle, options.Limits)
+		if deltaErr != nil {
+			_ = current.Close()
+			return nil, corpusExportFailure("derive qualified generation delta", deltaErr)
+		}
+		if deltaMember != nil {
+			bundle.members = append(bundle.members, *deltaMember)
+			sortCorpusExportMembers(bundle.members)
+			tombstoneDigest = corpusBytesSHA256(deltaMember.data)
+		}
 		if closeErr := current.Close(); closeErr != nil {
 			return nil, corpusExportFailure("close current generation", closeErr)
 		}
 	} else if !errors.Is(currentErr, corpus.ErrNoCurrent) {
 		return nil, corpusExportFailure("verify current generation", currentErr)
+	}
+	if err := preflightCorpusExportMembers(bundle.members, options.Limits); err != nil {
+		return nil, corpusExportFailure("validate qualified generation delta bounds", err)
 	}
 
 	stage, err := store.Begin()
@@ -164,6 +182,7 @@ func ExportCorpus(ctx context.Context, options CorpusExportOptions) (*CorpusExpo
 		BuildState:        options.BuildState,
 		PredecessorDigest: predecessor,
 		Qualifications:    bundle.qualifications,
+		TombstoneDigest:   tombstoneDigest,
 	})
 	if errors.Is(err, corpus.ErrOutcomeUnknown) {
 		sealErr := err
@@ -188,10 +207,17 @@ func ExportCorpus(ctx context.Context, options CorpusExportOptions) (*CorpusExpo
 			if selected.ID() == stage.ID() && selected.Receipt().GenerationDigest == wantDigest {
 				summary = selected.Summary()
 				err = nil
-			} else if corpusGenerationEquivalent(selected, bundle, options) {
-				summary = selected.Summary()
-				err = nil
-				reused = true
+			} else {
+				selectErr = verifyCorpusGenerationTombstoneState(ctx, store, selected, options.Limits)
+				if selectErr == nil && corpusGenerationEquivalent(selected, bundle, options) {
+					summary = selected.Summary()
+					err = nil
+					reused = true
+				}
+				if selectErr != nil {
+					_ = selected.Close()
+					return nil, corpusExportFailure("verify concurrent generation delta", selectErr)
+				}
 			}
 			_ = selected.Close()
 		}
@@ -335,26 +361,42 @@ func corpusGenerationEquivalent(generation *corpus.Generation, bundle corpusProj
 	}
 	manifest := generation.Manifest()
 	if manifest.ProjectionSchema != corpus.IndexerSchemaV2 || manifest.GeneratorVersion != options.GeneratorVersion ||
-		manifest.BuildState != options.BuildState || manifest.TombstoneDigest != "" ||
-		!sameCorpusQualifications(manifest.Qualifications, bundle.qualifications) || len(manifest.Members) != len(bundle.members) {
+		manifest.BuildState != options.BuildState ||
+		!sameCorpusQualifications(manifest.Qualifications, bundle.qualifications) {
 		return false
 	}
 	expected := make(map[string]corpus.Member, len(bundle.members))
 	for _, member := range bundle.members {
+		if member.spec.Role == corpus.RoleTombstone {
+			continue
+		}
 		expected[corpusMemberKey(member.spec)] = corpus.Member{
 			Service: member.spec.Service, StableID: member.spec.StableID, Role: member.spec.Role,
 			Path: member.spec.Path, Size: int64(len(member.data)), Mode: 0o600, SHA256: corpusBytesSHA256(member.data),
 		}
 	}
+	matched := 0
+	tombstones := 0
 	for _, member := range manifest.Members {
+		if member.Role == corpus.RoleTombstone {
+			tombstones++
+			continue
+		}
 		want, ok := expected[corpusMemberKey(corpus.MemberSpec{
 			Service: member.Service, StableID: member.StableID, Role: member.Role, Path: member.Path,
 		})]
 		if !ok || want != member {
 			return false
 		}
+		matched++
 	}
-	return true
+	if matched != len(expected) {
+		return false
+	}
+	if manifest.TombstoneDigest == "" {
+		return tombstones == 0
+	}
+	return tombstones == 1
 }
 
 func sameCorpusQualifications(left, right []corpus.Qualification) bool {

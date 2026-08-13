@@ -137,6 +137,44 @@ the entire root outside source repositories and any index that could publish
 private data. See [Sealed corpus generations](../../corpus-generations.md) for
 the exact durability and privacy model.
 
+## `atl corpus diff`
+
+Verify the current sealed generation and its exact predecessor, then report a
+selector-bound membership delta. A delta exists only when both generations
+carry complete capture receipts for the same services, backend/principal
+scope, selector, membership-affecting options, capture dimensions, and
+projection schema. Structural, partial, forbidden, truncated, or changed-scope
+evidence never produces tombstones.
+
+```bash
+atl corpus diff --store /private/indexer-corpus
+
+install -d -m 0700 /private/corpus-review
+atl corpus diff --store /private/indexer-corpus \
+  --identity-artifact /private/corpus-review/generation-diff.json
+```
+
+Default JSON and text are content-free: they contain qualification, the closed
+reason `absent_from_qualified_generation`, added/retained/changed/tombstoned
+counts, generation digests, and the sealed delta digest. Stable object
+identities are available only through the explicit artifact. Its parent must
+already be owner-only and outside the sealed store (including through symlink
+aliases), the target must not exist, and ATL creates the file as `0600` without
+replacement. Treat that artifact as private even though it
+contains no titles, bodies, selectors, URLs, or member paths.
+
+| flag | description |
+|---|---|
+| `--store` | existing owner-only sealed-generation store root (required) |
+| `--identity-artifact` | optional absent output path under an existing owner-only parent outside the sealed store; writes identity-bearing canonical JSON as `0600` |
+
+The command skips configuration, credentials, self-update, and backend access.
+It does not delete or rewrite mirrors, attempts, generations, artifacts,
+indexes, or remote objects. `tombstoned` means only that a stable identity is
+absent from the compatible successor membership; it is not proof of physical
+backend deletion. A later reappearance is `added` for that direct transition
+and is not labelled as a backend restore event.
+
 ## `atl corpus export`
 
 Project the pristine baselines of one or two initialized mirrors into a private,

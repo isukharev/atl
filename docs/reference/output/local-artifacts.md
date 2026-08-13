@@ -155,6 +155,49 @@ repeat exact options without `--restart` so ATL can verify the visible current
 generation and active record before it resumes recovery or starts another
 bounded capture.
 
+## Corpus generation diff
+
+`atl corpus diff --store DIR` returns only content-free transition evidence:
+
+```json
+{
+  "schema_version": 1,
+  "qualification": "qualified",
+  "reason": "absent_from_qualified_generation",
+  "counts": {
+    "added": 3,
+    "retained": 120,
+    "changed": 8,
+    "tombstoned": 2
+  },
+  "predecessor_generation_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "successor_generation_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "tombstone_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "identity_artifact_written": false
+}
+```
+
+The output never includes stable identities, paths, keys, titles, selectors,
+backend origins, principals, or body bytes. Counts classify the exact direct
+transition. A surviving stable identity whose key, title, hierarchy, path, or
+content changed is `changed`, not tombstoned. A predecessor-only identity uses
+the sole closed reason `absent_from_qualified_generation`; that reason is
+index-membership evidence, not a backend-deletion claim.
+
+With `--identity-artifact PATH`, successful output changes only
+`identity_artifact_written` to `true`. The exclusive `0600` artifact adds the
+stable identity records, per-record predecessor/successor document digests,
+qualified service bindings, and both final generation digests. ATL refuses an
+existing target, a parent that is not owner-only, or any direct/symlink-aliased
+destination inside the sealed store. Artifact failures expose
+only a closed operation category and never echo the path. No artifact is
+created by default.
+
+The command fails closed when the current generation lacks exactly one valid
+delta member, when its predecessor cannot be fully verified, or when capture,
+projection, inventory, digest, or direct-lineage evidence differs. It emits no
+partial identity result.
+
 ## Corpus export
 
 `atl corpus export` returns only schema, qualification, digest, count, build,

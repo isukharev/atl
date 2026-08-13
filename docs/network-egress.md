@@ -86,13 +86,17 @@ atl conf render mirror
 atl conf diff mirror/page.csf
 atl jira render mirror-jira
 atl corpus export --jira mirror-jira --store private-corpus
+atl corpus diff --store private-corpus
 ```
 
-`atl corpus export` is stronger than the general local-command guidance below:
-it skips self-update, configuration, and credential loading by construction and
-performs no backend request. It reads only pristine mirror evidence and writes
-the requested owner-private local store. The store is sensitive even though
-normal command output is content-free.
+`atl corpus export` and `atl corpus diff` are stronger than the general
+local-command guidance below: they skip self-update, configuration, and
+credential loading by construction and perform no backend request. Export
+reads only pristine mirror evidence and writes the requested owner-private
+local store. Diff verifies only sealed local generations and writes identities
+only when an exclusive private artifact is explicitly requested. The store and
+identity artifact are sensitive even though normal command output is
+content-free.
 
 `atl corpus build` is not air-gapped: it intentionally reads the nominated
 configured backends. Its mandatory read-only policy blocks backend mutation but

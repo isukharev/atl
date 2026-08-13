@@ -145,6 +145,44 @@ beginning a stage. Working `.csf`, `.wiki`, and `.md` files are ignored. Staged
 lineage is refused by default; `--allow-unreconciled` is diagnostic and can
 never produce a ready projection.
 
+## Qualified generation deltas
+
+When a new projection follows a compatible qualified current generation, ATL
+seals one canonical generation-delta member into the successor and binds its
+SHA-256 through `tombstone_digest` in both manifest and receipt. Compatibility
+requires the same ordered services, capture schema, principal-scope digest,
+selector digest, membership-affecting options digest, capture-dimension states,
+and indexer-v2 projection schema. Both captures must be terminal, complete, and
+receipt-qualified. Selection and snapshot digests may differ because membership
+is precisely what the delta compares.
+
+The comparison joins canonical documents only by their provider-derived stable
+identity. It never joins by Jira key, Confluence title, filename, hierarchy
+path, or mirror path. Each identity is exactly one of `added`, `retained`,
+`changed`, or `tombstoned`; records are stable-ID ordered and bind canonical
+predecessor/successor document digests. `tombstoned` has the sole reason
+`absent_from_qualified_generation`. It means an index consumer may retire that
+identity from its derived view of this selector. It does not prove physical
+deletion, permission loss, or a restore event. Reappearance in a later direct
+transition is simply `added`.
+
+Structural mirrors, partial dimensions, incompatible services, scope,
+selector, options, or schema still may produce their ordinary explicitly
+qualified generation, but no delta member or tombstone digest is attached.
+Malformed claimed delta state instead blocks reuse and publication: ATL never
+silently trusts a receipt swap, missing member, changed inventory, duplicate
+identity, or predecessor-lineage mismatch.
+
+`atl corpus diff` reopens the current generation and exact predecessor through
+the sealed reader, rederives the canonical delta, and compares the bytes before
+returning counts and digests. The default result is content-free. An explicit
+identity artifact is created exclusively as `0600` beneath an already
+owner-only parent outside the sealed store, including outside every symlink
+alias of that store; it is never replaced and remains private. The command makes
+no backend request and has no deletion or pruning path. Mirrors, attempts,
+prior generations, asset members, downstream indexes, and remote content are
+untouched.
+
 ## Trust root and platform boundary
 
 The caller creates the trust root before initialization. It must be an existing,
