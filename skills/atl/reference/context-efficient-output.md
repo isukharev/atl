@@ -42,9 +42,15 @@ data. Use the command's focused output reference or the result-family map below.
 | Result family | Keep before making a decision |
 |---|---|
 | Jira IssueList | `schema_version`, `source`, `selection`, `projection`, `page`, and required row identity/order/content: `rows[].id`, `key`, `position`, `values`, and source-specific `context` as applicable |
+| Qualified Confluence search | `schema_version`, `query`, `count`, `complete`, `truncated`, `partial_reason`, `next_cursor`, and selected result identity/version plus the fields needed for ranking |
+| Legacy Confluence page list or space tree | Retain the caller's space/status/depth/limit/cursor selection, returned page identity/version/parent data, and `next_cursor` or `truncated` when emitted. These shapes have no `complete`/`partial_reason` envelope, so an empty page or absent continuation does not prove exhaustive absence. |
 | Confluence outline, section, or table | identity and `version`; version-gate state; `complete`, `truncated`, and `partial_reason`; byte/count reconciliation; selected content |
+| Confluence comments | page identity/version and gate state; query; `complete` plus comment/thread/anchor completeness and partial reasons; counts/capabilities; selected comment identity, ancestry, state, anchor, and body only when required |
 | Jira field evidence | issue/update provenance, field identity and presence, `complete`, `truncated`, byte accounting, and `value` |
 | Graph, aggregate, or inverse-reference evidence | top-level and per-source completeness, bounds, projection metadata, reconciled summaries, frontier/warnings, and the required facts |
+| Mirror snapshot or diff | service/root identity, remote-read state, `complete`, every reconciliation flag, anomaly counts or selected object state, hashes, and warnings |
+| Mutation preview or receipt | target identity and baseline/version, mode/status, `complete`, proposal/body hashes, expected gates, consequences, recovery state, and process exit |
+| Streamed or bulk artifact | exact selector and field projection from the command/manifest, producer exit, returned identity reconciliation, format/path, and only the locally selected records |
 | Failure or refusal | stderr JSON `kind`, numeric `code`, `remediation`, and closed `recovery`; stdout only when that command documents qualified evidence on a non-zero strict result |
 
 Prefer ATL's emitted summaries and reconciliation booleans over recounting a
@@ -54,7 +60,7 @@ partial result into a false absence claim.
 ## Safe local JSON shaping
 
 Use a shell projection only in a read-only workflow that permits ordinary
-pipes. Preserve ATL's exit status and keep the qualification envelope:
+pipes. Keep an ATL failure visible and retain the qualification envelope:
 
 ```bash
 export ATL_READ_ONLY=1
@@ -62,6 +68,16 @@ set -o pipefail
 atl jira issue search --jql '<narrow JQL>' \
   --columns key,summary,status,updated --limit 10 |
   jq -c '{schema_version,source,selection,projection,page,rows:[.rows[]|{id,key,position,values,context}]}'
+```
+
+The equivalent Confluence discovery projection keeps the search qualification
+instead of returning a bare page array:
+
+```bash
+export ATL_READ_ONLY=1
+set -o pipefail
+atl conf search --cql '<narrow CQL>' --limit 10 |
+  jq -c '{schema_version,query,count,complete,truncated,partial_reason,next_cursor,results:[.results[]|{id,title,space,version,updated}]}'
 ```
 
 `jq -c` removes presentation whitespace; selecting fields can remove semantics.
@@ -75,11 +91,18 @@ the client consume its bounded JSON directly. A pipe filters stdout only;
 stderr remains visible. Without `pipefail`, a successful `jq` can mask an ATL
 failure, including an intentional strict exit.
 
-For a complete payload that must be reused, prefer a command's native file
-export and retain any small receipt it returns. Otherwise use an owner-approved
-private or ignored artifact only when persistence is intended, and read later
-projections rather than printing the whole file. Both explicit artifacts and
-client spill-files retain plaintext data and need the same privacy treatment.
+For a payload that must be reused intact, prefer a command's native file export
+and retain any small receipt it returns. This is mandatory before local
+filtering of a streamed export: even with `pipefail`, a late producer failure
+can let `jq` print a plausible prefix before the shell reports failure. Write
+the artifact first, require ATL exit zero, then run `jq -c` or another streaming
+reader against the file. Compare requested and returned identities when the
+artifact contract omits inaccessible explicit keys.
+
+Otherwise use an owner-approved private or ignored artifact only when
+persistence is intended, and read later projections rather than printing the
+whole file. Both explicit artifacts and client spill-files retain plaintext
+data and need the same privacy treatment.
 
 Automatic truncation, spill-to-disk, and conversation compaction happen after
 the command produced its result. Treat them as recovery mechanisms, not as a

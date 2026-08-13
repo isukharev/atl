@@ -66,8 +66,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Made shipped agent workflows consume CLI results context-efficiently: route
   discovery now uses compact text, Jira reads use producer-side fields and
   semantic compact projections, Confluence selection keeps JSON completeness
-  and version gates, and local `jq` guidance preserves qualification and exit
-  status.
+  and version gates, and local `jq` guidance preserves qualification and makes
+  producer failures visible. A thirty-journey follow-up adds artifact-first
+  bulk filtering, Scrum/Kanban-specific dashboard reads, reused creation
+  metadata, and a static guard against `atl`-to-`jq` examples that can mask the
+  producer exit.
 - Confluence search now reconciles both supported exact-total fields and exact
   values across pages, and keeps a full no-next result page incomplete unless
   trusted terminal evidence proves exhaustion, so completeness-sensitive pulls

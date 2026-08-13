@@ -326,6 +326,12 @@ JSONL, aggregate JSON, and CSV, for files and artifact-only stdout. Explicit
 selection buffering is bounded to one generated batch and 64 MiB of encoded
 issue data; the global 250,000 identity safety cap remains in force.
 
+The export receipt and manifest prove local producer completion and describe
+emitted rows; they do not contain backend-qualified `complete`, `truncated`, or
+`partial_reason` fields. Reconcile explicit requested keys/ids against returned
+identities, treating omissions as missing-or-inaccessible. A JQL export, even
+with `limit: 0`, cannot by itself qualify exhaustive selection or absence.
+
 The backend hostname and PAT are never written to the manifest.
 
 ## Jira export comparison, reports, and field catalogs
@@ -382,6 +388,12 @@ When `--csv FILE` is passed, the same command writes a deterministic CSV sidecar
 and includes `csv_path` in the JSON result. Formula-leading cells are
 apostrophe-prefixed by default; `--raw-csv` requires `--csv` and disables that
 protection for trusted non-spreadsheet consumers.
+
+This legacy shape has no separate selection-completeness member. A positive
+`--limit` is a bounded sample, so consumers must not use it for whole-scope
+absence claims. `--limit 0` removes the caller cap and asks the collector to
+exhaust pagination, but does not add source qualification or prove backend
+completeness. The CSV sidecar changes storage, not selection qualification.
 
 `atl jira fields` and typed MCP `jira_fields` share one value-free catalog
 contract:

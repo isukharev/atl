@@ -25,8 +25,9 @@ atl auth status
 Atlassian Cloud email/API-token authentication is not supported. For scripts,
 inspect configuration without exposing credentials:
 
-```sh
-atl config show | jq '{jira_url, confluence_url, jira_list_views}'
+```bash
+set -o pipefail
+atl config show | jq -c '{jira_url, confluence_url, jira_list_views}'
 ```
 
 ## Find and read Jira issues without creating a mirror
@@ -73,9 +74,11 @@ facts under `context`, and completeness under `page`:
 
 Read JSON rows and pagination explicitly:
 
-```sh
-atl jira issue search --jql 'project = PROJ ORDER BY key' --limit 50 |
-  jq '{issues: [.rows[] | {key, summary: .values.summary}], next: .page.next_cursor}'
+```bash
+set -o pipefail
+atl jira issue search --jql 'project = PROJ ORDER BY key' \
+  --columns key,summary --limit 50 |
+  jq -c '{schema_version,source,selection,projection,page,rows:[.rows[]|{id,key,position,values,context}]}'
 ```
 
 Transient views are read-only. Do not save their Markdown into a mirror or feed
@@ -97,12 +100,14 @@ For a first analysis of an unfamiliar epic:
 
 ```sh
 atl --read-only jira issue fields PROJ-42 --metadata-only
-atl --read-only jira issue field get PROJ-42 --field 'Delivery Notes'
+atl --read-only jira issue field get PROJ-42 \
+  --field 'Delivery Notes' --max-bytes 16384
 
 atl --read-only jira epic digest PROJ-42 \
   --quarter 2026-Q2 \
   --status-field 'Delivery Notes' \
-  --dod-field 'Definition of Done'
+  --dod-field 'Definition of Done' \
+  --projection compact
 ```
 
 The first command omits empty fields and all values. Choose an exact field name
@@ -115,39 +120,57 @@ comments, blockers, refs, and explainable staleness. It deliberately does not
 write management prose. Inspect every `sources.<name>.complete`; an incomplete
 source means an absent fact is unproven.
 
-For a non-epic issue, qualify only the evidence field and period you need:
+For a non-epic issue, qualify only the evidence field and period you need.
+Omit `--summary-only` only when individual history rows are part of the answer:
 
 ```sh
 atl --read-only jira issue history PROJ-43 \
-  --field 'Delivery Notes' --since 2026-04-01 --until 2026-06-30
+  --field 'Delivery Notes' --since 2026-04-01 --until 2026-06-30 \
+  --summary-only
 atl --read-only jira issue refs PROJ-43 --fields 'Delivery Notes'
 ```
 
 Use `last_changes` rather than list position. For several keys, avoid shell
-loops and durable manifests:
+loops. When a local projection is needed, let ATL atomically commit a private
+file artifact before shaping it, so a late streaming failure cannot expose a
+plausible partial `jq` result:
 
 ```sh
 atl --read-only jira export \
   --keys PROJ-42,PROJ-43,PROJ-44 \
-  --fields 'Delivery Notes,Impact' \
-  --format json --out - |
-  jq 'map({key, status: .fields.status.name, evidence: .fields.customfield_10001})'
+  --fields status,customfield_10001,customfield_10002 \
+  --format json --out <private-dir>/selected.json
+jq -c '
+(["PROJ-42","PROJ-43","PROJ-44"]) as $requested |
+([.issues[].key]) as $returned |
+{
+  manifest:(.manifest|{query_mode,row_order,missing_identity_behavior,fields,limit,count}),
+  selector_reconciliation:{requested:$requested,returned:$returned,missing:($requested-$returned)},
+  issues:[.issues[]|{key,status:.fields.status.name,evidence:.fields.customfield_10001}]
+}' \
+  <private-dir>/selected.json
 ```
 
-Accept streamed stdout only on exit zero. Keep fields narrow; JSONL is the
-bounded choice for larger selections.
+A zero exit proves that ATL finished and committed the local artifact; the
+manifest describes emitted rows but has no backend completeness fields. For
+explicit keys or ids, compare the requested and returned identities as above;
+`missing` means missing *or inaccessible*, not proven absent. For JQL, use a
+qualified paged search when exhaustive selection matters. If direct streamed
+stdout is used for a small unfiltered result, accept it only on exit zero. Keep
+fields narrow; a native JSONL artifact plus local streaming selection is the
+bounded choice for larger sets.
 
 Expand Confluence only after a reference is known, and only to the requested
 section:
 
 ```sh
-atl --read-only conf page resolve '<same-origin-page-or-short-url>'
-atl --read-only conf page outline '<same-origin-page-or-short-url>'
-atl --read-only conf page section '<same-origin-page-or-short-url>' \
-  --heading 'Metrics' --max-bytes 65536 --expected-version <outline-version> -o text
-atl --read-only conf page sections '<same-origin-page-or-short-url>' \
+atl --read-only conf page resolve '<same-origin-page-or-short-url>' -o id
+atl --read-only conf page outline <resolved-id>
+atl --read-only conf page section <resolved-id> \
+  --heading 'Metrics' --max-bytes 65536 --expected-version <outline-version>
+atl --read-only conf page sections <resolved-id> \
   --heading 'Metrics' --heading 'Risks' \
-  --max-bytes 131072 --expected-version <outline-version> -o text
+  --max-bytes 131072 --expected-version <outline-version>
 ```
 
 Because the heading was chosen from the outline, bind the section to the exact
@@ -183,13 +206,13 @@ route below.
 
 ```bash
 export ATL_READ_ONLY=1
-atl capabilities --task jira/portfolio
+atl capabilities --task jira/portfolio -o text
 atl jira fields -o text
 atl jira board view 5 --scope board \
   --columns key,summary,status,issuetype,updated,customfield_10001,customfield_10002
 atl jira epic digest PROJ-42 --quarter 2026-Q2 \
   --include identity,status-field,history \
-  --status-field customfield_10002
+  --status-field customfield_10002 --projection compact
 atl conf page section '<same-origin-page-url>' --heading Results --max-bytes 32768
 ```
 
@@ -219,8 +242,9 @@ Built-in `default` and `full` projections are present in effective config.
 Create a custom source-aware projection only for a repeated workflow; explicit
 `--columns` or Structure `--fields` still wins for one call.
 
-```sh
-atl config show | jq '.jira_list_views'
+```bash
+set -o pipefail
+atl config show | jq -c '.jira_list_views'
 
 atl config set jira.list_views.planning '{
   "description":"Planning review",
@@ -295,13 +319,18 @@ analysis; `-o text` produces Markdown tables; exports support JSONL for stream
 processing.
 
 ```sh
-atl jira board list --project PROJ
-atl jira board view 5 --view full -o text
-atl jira board export 5 --format jsonl --out board.jsonl
-jq -s '[.[] | select(.row.values.status != "Done")]' board.jsonl
+atl jira board list --project PROJ --limit 50
+atl jira board view 5 --scope board \
+  --columns position,key,summary,status,board.column,assignee,priority,updated
+atl jira board export 5 \
+  --columns position,key,summary,status,board.column,assignee,priority,updated \
+  --format jsonl --out board.jsonl
+jq -c 'select(.row.values.status != "Done") | {schema_version,board_id,board_name,board_type,scope,projection,row_count,complete,truncated,backlog_fetched,row}' \
+  board.jsonl
 
 atl jira structure folders 123 -o text
-atl jira structure view 123 --folder-path 'Plans / Quarter' --view full -o text
+atl jira structure view 123 --folder-path 'Plans / Quarter' \
+  --fields key,summary,status,assignee,priority,updated
 atl jira structure view 123 --folder-id 100 \
   --expected-forest-signature 55 --expected-forest-version 7
 atl jira structure export 123 \

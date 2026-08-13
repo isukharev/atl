@@ -21,9 +21,19 @@ Pasted text as-is, or use a guarded Confluence read:
 <!-- atl:read-only-shell -->
 ```sh
 export ATL_READ_ONLY=1
-atl conf search --cql 'title ~ "<meeting title>"' --limit 5 # when id is unknown
-atl conf page view <id> -o text
+atl conf search --cql 'title ~ "<meeting title>" AND type = page' --limit 5 # when id is unknown
+atl conf page outline <selected-id>
+atl conf page sections <selected-id> \
+  --heading '<actions heading>' --heading '<decisions heading>' \
+  --max-bytes 65536 --expected-version <outline-version>
 ```
+
+Use the exact selected id after search. A positive match may be selected early,
+but before claiming that no page exists, follow `next_cursor` until
+`complete:true` or narrow the query. Use the outline/sections path only when
+dedicated headings cover the notes needed for action extraction; otherwise
+read the complete page once with `atl conf page view <selected-id> -o text`.
+Never omit unstructured discussion merely to save context.
 
 ### 2. Extract action items
 
@@ -40,23 +50,38 @@ back.
 ### 3. Resolve assignees (Server/DC uses usernames)
 
 <!-- atl:read-only-shell -->
-```sh
+```bash
 export ATL_READ_ONLY=1
-atl jira user search 'Alex Doe'
+set -o pipefail
+atl jira user search 'Alex Doe' --limit 10 |
+  jq -c '{users:[.users[]|{name,key,displayName,active}]}'
 ```
 
 Ambiguous or missing match → leave the task unassigned and flag it. Never
-guess between two people.
+guess between two people. This lookup is a bounded candidate surface without a
+completeness envelope, so an empty result does not prove that no user exists.
 
 ### 4. Present for approval
 
 A table: # / summary / assignee (or ⚠ unresolved) / due date / source line.
-Ask for the target project key if unknown. Wait for confirmation or edits.
+Ask for the target project key if unknown. Before presenting fields, qualify
+the issue type and create screen once for the whole batch:
+
+<!-- atl:read-only-shell -->
+```sh
+export ATL_READ_ONLY=1
+atl jira issue types --project KEY
+atl jira issue create-check --project KEY --type '<exact returned type>'
+```
+
+Require complete metadata and reuse it for every item; do not repeat schema
+discovery per task. Wait for confirmation or edits.
 
 ### 5. Create tasks — sequentially
 
 ```sh
-atl jira issue create --project KEY --type Task --summary '<verb-first action>' --from-md item.md \
+env -u ATL_READ_ONLY atl jira issue create --project KEY --type '<exact returned type>' \
+  --summary '<verb-first action>' --from-md item.md \
   --field 'assignee={"name":"<username>"}' --field duedate=<YYYY-MM-DD>
 ```
 
@@ -74,7 +99,7 @@ once with the reviewed hash:
 
 ```sh
 ATL_READ_ONLY=1 atl conf comment preview --id <pageId> --from-file follow-ups.csf
-atl conf comment add --id <pageId> --from-file follow-ups.csf \
+env -u ATL_READ_ONLY atl conf comment add --id <pageId> --from-file follow-ups.csf \
   --apply --expected-proposal-hash <reviewed-hash>
 ```
 

@@ -63,6 +63,19 @@ incomplete, report that duplicate absence is unproven and do not propose or
 create a new issue. Fetch comments separately only after an open duplicate is
 selected; do not pull comments or attachments into every candidate read.
 
+For a closed candidate that may prove a regression, add one compact temporal
+check only after selecting it:
+
+<!-- atl:read-only-shell -->
+```sh
+export ATL_READ_ONLY=1
+atl jira issue history KEY-123 --field status --summary-only
+```
+
+Require `complete:true` and use `last_changes`; do not classify a regression
+from the current resolution alone or fetch raw history rows when the summary is
+sufficient.
+
 Then tell the user
 which case this is and what you propose:
 

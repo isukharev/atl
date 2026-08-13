@@ -26,31 +26,50 @@ or a command exits `7` ("not configured"), run `$setup` and stop.
 <!-- atl:read-only-shell -->
 ```sh
 export ATL_READ_ONLY=1
-atl jira board list --project KEY          # find the board id
-atl jira sprint current --board <id>       # exit 4 = no active sprint
+atl jira board list --project KEY --limit 50 # skip when the exact id is supplied
+atl jira board config <id>                   # route by Scrum/Kanban and real columns
 ```
 
-On exit 4, offer the latest closed sprint (`atl jira sprint list --board <id>
---state closed`) or a plain JQL scope instead. If the user gave a project or
-filter rather than a board, go straight to JQL.
+When discovery is ambiguous, follow each exact `next_cursor` until the returned
+page says `complete:true`; do not repeatedly list boards after the id is known.
+Treat that qualified flag, not merely an empty cursor, as evidence that the
+discovery list is terminal. If it is false when absence matters, ask for an
+exact id. For Scrum, read the active sprint; on exit 4 offer the latest closed
+sprint or a plain JQL scope.
+For Kanban, do not invent a sprint—use the normalized board snapshot. If the
+user gave a project or filter rather than a board, go straight to JQL.
 
 ### 2. Fetch the data
 
 <!-- atl:read-only-shell -->
 ```sh
 export ATL_READ_ONLY=1
-atl jira sprint issues <sprintId> --columns position,key,summary,status,assignee,priority,issuetype,updated
+# Scrum
+atl jira sprint current --board <id>
+atl jira sprint issues <sprintId> \
+  --columns position,key,summary,status,assignee,priority,issuetype,updated \
+  --limit 50
+
+# Kanban or another complete board-scope dashboard: keep bulk rows out of chat.
+atl jira board export <id> --scope all --limit 0 \
+  --columns position,key,summary,status,board.column,assignee,priority,issuetype,updated \
+  --format jsonl --out <private-dir>/board.jsonl
 ```
 
-The Agile API caps each call at 50 — paginate with `--cursor` until exhausted.
-JQL fallback:
-`atl jira issue search --jql 'project = KEY AND sprint in openSprints()' --limit 100`.
+Choose one branch, not both. The sprint API caps each call at 50 — paginate
+with `--cursor` until exhausted. A native board export returns a small receipt;
+process its qualified JSONL locally rather than printing the whole snapshot.
+JQL fallback: `atl jira issue search --jql 'project = KEY AND sprint in
+openSprints()' --columns key,summary,status,assignee,priority,issuetype,updated
+--limit 100`.
 If anything is still truncated, say so **on the dashboard** — never present a
 partial picture as complete.
 
 ### 3. Compute locally (no further API calls)
 
-- Status columns: To Do / In Progress / In Review / Done — counts and rows.
+- Status columns: use the board's configured ordered columns and keep unmapped
+  statuses explicit. Only label a To Do / In Progress / In Review / Done
+  grouping as heuristic when there is no board configuration.
 - **Attention signals**: in-progress items not updated for 2+ days; unassigned
   non-Done work; high-priority items not started; WIP concentration (one
   assignee holding several in-flight items).
@@ -72,8 +91,15 @@ Layout, in order: header (sprint name, dates, done/total progress bar);
 a "needs attention" strip — each signal with issue key and one-line reason;
 status columns with compact cards (key, truncated summary, assignee, priority
 marker); per-assignee load table; appendix (board/sprint id or JQL, fetch time,
-truncation notes). Link keys to `<jira-url>/browse/KEY` — the base URL comes
-from `atl config show`.
+truncation notes). Link keys to `<jira-url>/browse/KEY`. Read only the base URL
+with a failure-visible local projection:
+
+<!-- atl:read-only-shell -->
+```bash
+export ATL_READ_ONLY=1
+set -o pipefail
+atl config show | jq -r '.jira_url'
+```
 
 ### 5. Close the loop
 

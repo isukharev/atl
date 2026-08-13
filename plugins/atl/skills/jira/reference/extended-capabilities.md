@@ -8,9 +8,16 @@ Load only the section needed for the current task.
 ```bash
 atl jira export --jql '<JQL>' --format jsonl --out issues.jsonl
 atl jira export --jql '<JQL>' --format csv --out issues.csv
-atl jira export --keys PROJ-1,PROJ-2 --batch-size 100 --out selected.jsonl
-atl jira export --keys PROJ-1,PROJ-2 --fields "Delivery Notes" --out - | jq -s '.'
-atl jira export --keys PROJ-1,PROJ-2 --format json --out - | jq 'map(.key)'
+atl jira export --keys PROJ-1,PROJ-2 --batch-size 100 \
+  --fields status,customfield_10001 --format json --out selected.json
+jq -c '
+(["PROJ-1","PROJ-2"]) as $requested |
+([.issues[].key]) as $returned |
+{
+  manifest:(.manifest|{query_mode,row_order,missing_identity_behavior,fields,limit,count}),
+  selector_reconciliation:{requested:$requested,returned:$returned,missing:($requested-$returned)},
+  issues:[.issues[]|{key,evidence:.fields.customfield_10001}]
+}' selected.json
 atl jira export diff old.jsonl new.jsonl
 ```
 
@@ -23,17 +30,19 @@ trusted non-spreadsheet consumer.
 Prefer `--keys`/`--ids` when downstream position matters: all formats preserve
 the de-duplicated first-occurrence selector order across Jira pages and generated
 batches. Missing/inaccessible identities are omitted, so compare returned
-`key`/`id` values when absence matters; do not infer that output position is a
-placeholder. User-authored `--jql` remains in Jira's returned order. File
-manifests record these policies as `row_order` and
-`missing_identity_behavior`. Reordering buffers one batch up to 64 MiB; reduce
-`--batch-size` if atl refuses an unusually wide batch.
+`key`/`id` values with the retained request; a missing identity is not proof of
+absence, and output position is not a placeholder. User-authored `--jql`
+remains in Jira's returned order. File manifests record these policies as
+`row_order` and `missing_identity_behavior`. Reordering buffers one batch up to
+64 MiB; reduce `--batch-size` if atl refuses an unusually wide batch.
 
-Use `--out -` for transient analysis: stdout is only JSONL, a bare JSON array,
-or CSV, with no manifest/result envelope and no created files. Choose it with
-`--format` and omit `-o text`, which is not an artifact format. Display names in
-`--fields` resolve to ids before search. Always honor the exit code and discard
-a streamed prefix after non-zero exit.
+Use `--out -` for small transient analysis that is consumed directly: stdout
+is only JSONL, a bare JSON array, or CSV, with no manifest/result envelope and
+no created files. Choose it with `--format` and omit `-o text`, which is not an
+artifact format. Display names in `--fields` resolve to ids before search.
+Always honor the exit code and discard a streamed prefix after non-zero exit.
+Do not pipe streamed stdout to `jq`: write through native `--out`, require the
+small receipt/zero exit, then filter the artifact as above.
 
 ## Epic evidence digest
 
@@ -81,6 +90,9 @@ Use `attachment get` for any file type, `attachment upload` to add a file, and
 `images` when visual inspection needs only image attachments. A malformed or
 empty successful backend upload response is exit `8`; because the mutation may
 have committed, inspect the attachment list and do not retry blindly.
+The current attachment list is useful for selecting an exact id, but it has no
+explicit completeness member; do not treat an empty list as proof that no
+attachment exists.
 
 ## Planning quality reports
 
@@ -92,7 +104,13 @@ atl jira quality-report --jql '<JQL>'
 
 Reports deterministic `score`, `level`, `gaps`, artifact `refs`, and optional
 epic `children`. Use `issue refs` for links only and `issue tree` for normalized
-epic/child structure only.
+epic/child structure only. A positive `--limit` is a caller-bounded sample and
+the current result has no separate selection-completeness member; never use it
+for a whole-scope absence claim. `--limit 0` removes the caller cap and asks the
+legacy collector to exhaust pagination, but the result still cannot prove
+backend completeness because it loses source qualification. Even with `--csv`,
+stdout retains the full JSON report; the artifact is for reuse, not a
+context-suppression mode.
 
 ## Boards and sprints
 
@@ -111,7 +129,7 @@ atl jira board export 5 --format jsonl --out board.jsonl
 atl jira sprint list --board 5 --state active
 atl jira sprint get 7
 atl jira sprint current --board 5
-atl jira sprint issues 7 --columns position,key,summary,status
+atl jira sprint issues 7 --columns position,key,summary,status --limit 50
 atl jira sprint add 7 PROJ-1 PROJ-2
 atl jira sprint remove PROJ-1
 ```
