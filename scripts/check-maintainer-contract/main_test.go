@@ -150,6 +150,7 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 		{name: "nested evaluator environment", path: "internal/agenteval/Makefile", old: "GOWORK=off", replacement: "GOWORK=on", want: "workspace-independent environment"},
 		{name: "nested full gate", path: "internal/agenteval/Makefile", old: "full: tidy-check build race lint vet vuln contract windows product-boundary", replacement: "full: tidy-check build race lint vet vuln contract windows", want: "exact \"full\" gate"},
 		{name: "nested contract repeats compatibility tests", path: "internal/agenteval/Makefile", old: "contract: compat-oracles unit\n", replacement: "contract: compat unit\n", want: "exact \"contract\" gate"},
+		{name: "nested race timeout drift", path: "internal/agenteval/Makefile", old: "-timeout=45m", replacement: "-timeout=30m", want: "exact \"race\" gate"},
 		{name: "nested compatibility test omission", path: "internal/agenteval/Makefile", old: "COMPAT_TEST_COUNT := 4", replacement: "COMPAT_TEST_COUNT := 5", want: "selects 4 compatibility tests, want 5"},
 		{name: "nested wires package recursion", path: "internal/agenteval/Makefile", old: "go test ./... -run '$(COMPAT_TESTS_WIRES)'", replacement: "go test . -run '$(COMPAT_TESTS_WIRES)'", want: "compatibility and deterministic contract commands"},
 		{name: "nested mirror package recursion", path: "internal/agenteval/Makefile", old: "go test ./... -run '$(COMPAT_TESTS_MIRROR)'", replacement: "go test . -run '$(COMPAT_TESTS_MIRROR)'", want: "compatibility and deterministic contract commands"},
@@ -160,7 +161,8 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 		{name: "root module boundary", path: "Makefile", old: "go run ./scripts/check-module-boundary -root .", replacement: "echo skipped", want: "exact two-module boundary gate"},
 		{name: "nested ignored failures", path: "internal/agenteval/Makefile", old: ".PHONY: build", replacement: ".IGNORE: build\n.PHONY: build", want: "failure propagation"},
 		{name: "capability catalog generation fail open", path: "internal/agenteval/Makefile", old: "@set -eu;", replacement: "@set +e;", want: "compatibility and deterministic contract commands"},
-		{name: "ci evaluator job condition", path: ".github/workflows/ci.yml", old: "  agent-eval:\n    runs-on", replacement: "  agent-eval:\n    if: false\n    runs-on", want: "ci agent-eval job must be unconditional"},
+		{name: "ci evaluator job condition", path: ".github/workflows/ci.yml", old: "  agent-eval:\n    timeout-minutes: 75\n    runs-on", replacement: "  agent-eval:\n    if: false\n    timeout-minutes: 75\n    runs-on", want: "ci agent-eval job must be unconditional"},
+		{name: "ci evaluator timeout drift", path: ".github/workflows/ci.yml", old: "    timeout-minutes: 75", replacement: "    timeout-minutes: 30", want: "ci agent-eval job must retain timeout-minutes: 75"},
 		{name: "ci evaluator fail-open fallback", path: ".github/workflows/ci.yml", old: "          mode=full", replacement: "          mode=compat", want: "exact required workflow block"},
 		{name: "ci evaluator internal tree coverage", path: ".github/workflows/ci.yml", old: ".claude-plugin .mcp.json cmd internal scripts", replacement: ".claude-plugin .mcp.json cmd scripts", want: "exact required workflow block"},
 		{name: "ci evaluator allowed failure", path: ".github/workflows/ci.yml", old: "        run: make agent-eval-full", replacement: "        run: make agent-eval-full\n        continue-on-error: true", want: "exact required workflow block"},
@@ -526,7 +528,7 @@ unit: product-atl
 
 .PHONY: race
 race: product-atl
-	$(GO_ENV) go test -race ./... -count=1 -timeout=30m
+	$(GO_ENV) go test -race ./... -count=1 -timeout=45m
 
 .PHONY: lint
 lint:
@@ -620,6 +622,7 @@ jobs:
     steps:
       - run: true
   agent-eval:
+    timeout-minutes: 75
     runs-on: ubuntu-latest
     steps:
 ` + agentEvalCheckoutStepContract + "\n" + setupGoStepContract + "\n" + agentEvalImpactStepContract + "\n" + agentEvalCompatStepContract + "\n" + agentEvalFullStepContract + `
