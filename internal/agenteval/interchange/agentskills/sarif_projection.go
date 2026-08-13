@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -29,6 +30,11 @@ type SARIFProjection struct {
 	Schema  string     `json:"$schema"`
 	Version string     `json:"version"`
 	Runs    []SARIFRun `json:"runs"`
+
+	// integrity is an in-process attestation of the canonical projection. It
+	// is intentionally not serialized; callers must obtain a projection from
+	// ProjectSARIF or DecodeSARIF before encoding it.
+	integrity string
 }
 
 // SARIFReport is the descriptive alias used by callers that prefer report
@@ -58,11 +64,19 @@ type SARIFRule struct {
 }
 
 type SARIFResult struct {
-	RuleID     string          `json:"ruleId"`
-	Level      string          `json:"level"`
-	Message    SARIFMessage    `json:"message"`
-	Locations  []SARIFLocation `json:"locations,omitempty"`
-	Properties map[string]any  `json:"properties,omitempty"`
+	RuleID       string             `json:"ruleId"`
+	Level        string             `json:"level"`
+	Message      SARIFMessage       `json:"message"`
+	Locations    []SARIFLocation    `json:"locations,omitempty"`
+	Suppressions []SARIFSuppression `json:"suppressions"`
+	Properties   map[string]any     `json:"properties,omitempty"`
+}
+
+// SARIFSuppression records the standard SARIF suppression semantics without
+// carrying a free-form justification or source evidence.
+type SARIFSuppression struct {
+	Kind   string `json:"kind"`
+	Status string `json:"status"`
 }
 
 type SARIFMessage struct {
@@ -103,9 +117,10 @@ func ProjectSARIF(admission LifecycleSecurityAdmission) (SARIFProjection, error)
 	}
 	if !admission.Security.Complete {
 		results = append(results, SARIFResult{
-			RuleID:  sarifCoverageIncompleteRule,
-			Level:   "error",
-			Message: SARIFMessage{Text: "lifecycle security coverage incomplete"},
+			RuleID:       sarifCoverageIncompleteRule,
+			Level:        "error",
+			Message:      SARIFMessage{Text: "lifecycle security coverage incomplete"},
+			Suppressions: []SARIFSuppression{},
 			Properties: map[string]any{
 				"agent-eval.blocks_execution": true,
 				"agent-eval.confidence":       "deterministic",
@@ -137,20 +152,23 @@ func ProjectSARIF(admission LifecycleSecurityAdmission) (SARIFProjection, error)
 		Tool:    SARIFTool{Driver: SARIFDriver{Name: sarifToolName, Version: sarifToolVersion, Rules: rules}},
 		Results: results,
 		Properties: map[string]any{
-			"agent-eval.blocks_execution":      admission.BlocksExecution(),
-			"agent-eval.bundle_sha256":         admission.Security.BundleSHA256,
-			"agent-eval.policy_sha256":         admission.Structure.PolicySHA256,
-			"agent-eval.rule_pack_id":          admission.Security.RulePackID,
-			"agent-eval.rule_pack_sha256":      admission.Security.RulePackSHA256,
-			"agent-eval.rule_pack_version":     admission.Security.RulePackVersion,
-			"agent-eval.security_complete":     admission.Security.Complete,
-			"agent-eval.security_version":      admission.Security.Version,
-			"agent-eval.structure_tree_sha256": admission.Structure.TreeSHA256,
-			"agent-eval.structure_version":     admission.Structure.Version,
-			"agent-eval.runtime_safety_proven": admission.RuntimeSafetyProven,
+			"agent-eval.blocks_execution":        admission.BlocksExecution(),
+			"agent-eval.bundle_sha256":           admission.Security.BundleSHA256,
+			"agent-eval.policy_sha256":           admission.Security.PolicySHA256,
+			"agent-eval.rule_pack_id":            admission.Security.RulePackID,
+			"agent-eval.rule_pack_sha256":        admission.Security.RulePackSHA256,
+			"agent-eval.rule_pack_version":       admission.Security.RulePackVersion,
+			"agent-eval.security_complete":       admission.Security.Complete,
+			"agent-eval.security_version":        admission.Security.Version,
+			"agent-eval.structure_policy_sha256": admission.Structure.PolicySHA256,
+			"agent-eval.structure_tree_sha256":   admission.Structure.TreeSHA256,
+			"agent-eval.structure_version":       admission.Structure.Version,
+			"agent-eval.runtime_safety_proven":   admission.RuntimeSafetyProven,
 		},
 	}
-	return SARIFProjection{Schema: SARIFSchema, Version: SARIFVersion, Runs: []SARIFRun{run}}, nil
+	report := SARIFProjection{Schema: SARIFSchema, Version: SARIFVersion, Runs: []SARIFRun{run}}
+	report.integrity = sarifProjectionIntegrity(report)
+	return report, nil
 }
 
 // EncodeSARIF serializes a validated projection with stable field order,
@@ -189,6 +207,7 @@ func DecodeSARIF(reader io.Reader) (SARIFProjection, error) {
 		return SARIFProjection{}, contractError(ErrorInvalidProjection, nil)
 	}
 	normalizeSARIFNumericProperties(&report)
+	report.integrity = sarifProjectionIntegrity(report)
 	canonical, err := EncodeSARIF(report)
 	if err != nil || !bytes.Equal(data, canonical) {
 		return SARIFProjection{}, contractError(ErrorInvalidProjection, nil)
@@ -240,7 +259,7 @@ func (report SARIFProjection) Validate() error {
 	if bundleOK && treeOK && bundle != "" && tree != "" && bundle != tree {
 		return errors.New("sarif bundle and structure identities disagree")
 	}
-	for _, key := range []string{"agent-eval.policy_sha256", "agent-eval.rule_pack_sha256"} {
+	for _, key := range []string{"agent-eval.policy_sha256", "agent-eval.rule_pack_sha256", "agent-eval.structure_policy_sha256"} {
 		value, ok := run.Properties[key].(string)
 		if !ok || !validDigest(value) {
 			return errors.New("invalid sarif required digest")
@@ -294,6 +313,51 @@ func (report SARIFProjection) Validate() error {
 			return err
 		}
 	}
+	if err := validateSARIFResultSet(run); err != nil {
+		return err
+	}
+	if report.integrity == "" || report.integrity != sarifProjectionIntegrity(report) {
+		return errors.New("sarif projection integrity mismatch")
+	}
+	return nil
+}
+
+// validateSARIFResultSet keeps the serialized aggregate state authoritative.
+// Individual result validation alone would allow a caller to remove all
+// blocking results (or the incomplete-coverage result) and then claim a clean
+// run. The exact rule/result set also prevents orphaned rule definitions.
+func validateSARIFResultSet(run SARIFRun) error {
+	declaredBlocks, ok := run.Properties["agent-eval.blocks_execution"].(bool)
+	if !ok {
+		return errors.New("missing sarif blocking state")
+	}
+	complete, ok := run.Properties["agent-eval.security_complete"].(bool)
+	if !ok {
+		return errors.New("missing sarif completion state")
+	}
+	blocking := false
+	hasIncomplete := false
+	resultRules := make(map[string]struct{}, len(run.Results))
+	for _, result := range run.Results {
+		resultRules[result.RuleID] = struct{}{}
+		if value, ok := result.Properties["agent-eval.blocks_execution"].(bool); ok && value {
+			blocking = true
+		}
+		if result.RuleID == sarifCoverageIncompleteRule {
+			hasIncomplete = true
+		}
+	}
+	if declaredBlocks != blocking || hasIncomplete == complete {
+		return errors.New("sarif aggregate state disagrees with results")
+	}
+	if len(resultRules) != len(run.Tool.Driver.Rules) {
+		return errors.New("sarif rules do not match results")
+	}
+	for _, rule := range run.Tool.Driver.Rules {
+		if _, ok := resultRules[rule.ID]; !ok {
+			return errors.New("sarif rule has no result")
+		}
+	}
 	return nil
 }
 
@@ -304,17 +368,18 @@ type sarifRuleKind struct {
 }
 
 var sarifRunPropertyNames = map[string]sarifPropertyType{
-	"agent-eval.blocks_execution":      sarifBoolProperty,
-	"agent-eval.bundle_sha256":         sarifDigestProperty,
-	"agent-eval.policy_sha256":         sarifDigestProperty,
-	"agent-eval.rule_pack_id":          sarifStringProperty,
-	"agent-eval.rule_pack_sha256":      sarifDigestProperty,
-	"agent-eval.rule_pack_version":     sarifUintProperty,
-	"agent-eval.runtime_safety_proven": sarifBoolProperty,
-	"agent-eval.security_complete":     sarifBoolProperty,
-	"agent-eval.security_version":      sarifUintProperty,
-	"agent-eval.structure_tree_sha256": sarifDigestProperty,
-	"agent-eval.structure_version":     sarifUintProperty,
+	"agent-eval.blocks_execution":        sarifBoolProperty,
+	"agent-eval.bundle_sha256":           sarifDigestProperty,
+	"agent-eval.policy_sha256":           sarifDigestProperty,
+	"agent-eval.rule_pack_id":            sarifStringProperty,
+	"agent-eval.rule_pack_sha256":        sarifDigestProperty,
+	"agent-eval.rule_pack_version":       sarifUintProperty,
+	"agent-eval.runtime_safety_proven":   sarifBoolProperty,
+	"agent-eval.security_complete":       sarifBoolProperty,
+	"agent-eval.security_version":        sarifUintProperty,
+	"agent-eval.structure_policy_sha256": sarifDigestProperty,
+	"agent-eval.structure_tree_sha256":   sarifDigestProperty,
+	"agent-eval.structure_version":       sarifUintProperty,
 }
 
 var sarifRulePropertyNames = map[string]sarifPropertyType{
@@ -448,7 +513,7 @@ func validateStructuralForSARIF(admission StructuralAdmission) error {
 			return errors.New("structural entries are not sorted")
 		}
 		previous = entry.Location
-		if !validSARIFLocation(entry.Location) || !validDigest(entry.EntrySHA256) || entry.EntrySHA256 != digestStructuralEntry(entry) {
+		if !validSARIFLogicalLocation(entry.Location) || !validDigest(entry.EntrySHA256) || entry.EntrySHA256 != digestStructuralEntry(entry) {
 			return errors.New("invalid structural entry")
 		}
 		relative := sarifRelativeLocation(entry.Location)
@@ -481,7 +546,7 @@ func validateStructuralForSARIF(admission StructuralAdmission) error {
 }
 
 func validateStructuralFinding(finding StructuralFinding) error {
-	if !validSARIFLocation(finding.Location) {
+	if !validSARIFLogicalLocation(finding.Location) {
 		return errors.New("invalid structural finding location")
 	}
 	switch finding.Code {
@@ -510,7 +575,7 @@ func validateSARIFCoverage(coverage []LifecycleSecurityCoverage, complete bool) 
 			return errors.New("security coverage is not sorted")
 		}
 		previous = item.Location
-		if !validSARIFLocation(item.Location) || !validDigest(item.ContentSHA256) || item.SizeBytes > MaxFileBytes {
+		if !validSARIFLogicalLocation(item.Location) || !validDigest(item.ContentSHA256) || item.SizeBytes > MaxFileBytes {
 			return errors.New("invalid security coverage")
 		}
 		switch item.Status {
@@ -578,7 +643,7 @@ func validateSARIFFindings(findings []LifecycleSecurityFinding) error {
 		previous = key
 		descriptor, ok := lifecycleSecurityRuleDescriptor(finding.RuleID, finding.Evidence)
 		if !ok || descriptor.severity != finding.Severity || descriptor.confidence != finding.Confidence ||
-			!validSARIFLocation(finding.Location) {
+			!validSARIFLogicalLocation(finding.Location) {
 			return errors.New("invalid security finding")
 		}
 	}
@@ -612,6 +677,11 @@ func validSARIFRuleID(value string) bool {
 }
 
 func validSARIFLocation(value string) bool {
+	decoded, ok := sarifLocationUnescape(value)
+	return ok && validSARIFLogicalLocation(decoded) && sarifLocationURI(decoded) == value
+}
+
+func validSARIFLogicalLocation(value string) bool {
 	for _, namespace := range []string{"skill", "evals", "previous"} {
 		if value == namespace {
 			return true
@@ -622,6 +692,61 @@ func validSARIFLocation(value string) bool {
 		}
 	}
 	return false
+}
+
+func sarifLocationURI(value string) string {
+	const hex = "0123456789ABCDEF"
+	var escaped strings.Builder
+	for index := 0; index < len(value); index++ {
+		character := value[index]
+		if character == '/' ||
+			(character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') || strings.ContainsRune("-._~", rune(character)) {
+			escaped.WriteByte(character)
+			continue
+		}
+		escaped.WriteByte('%')
+		escaped.WriteByte(hex[character>>4])
+		escaped.WriteByte(hex[character&0x0f])
+	}
+	return escaped.String()
+}
+
+func sarifLocationUnescape(value string) (string, bool) {
+	decoded := make([]byte, 0, len(value))
+	for index := 0; index < len(value); index++ {
+		if value[index] != '%' {
+			decoded = append(decoded, value[index])
+			continue
+		}
+		if index+2 >= len(value) {
+			return "", false
+		}
+		high, highOK := sarifHexValue(value[index+1])
+		low, lowOK := sarifHexValue(value[index+2])
+		if !highOK || !lowOK {
+			return "", false
+		}
+		decoded = append(decoded, high<<4|low)
+		index += 2
+	}
+	if !utf8.Valid(decoded) {
+		return "", false
+	}
+	return string(decoded), true
+}
+
+func sarifHexValue(value byte) (byte, bool) {
+	switch {
+	case value >= '0' && value <= '9':
+		return value - '0', true
+	case value >= 'a' && value <= 'f':
+		return value - 'a' + 10, true
+	case value >= 'A' && value <= 'F':
+		return value - 'A' + 10, true
+	default:
+		return 0, false
+	}
 }
 
 func sarifRelativeLocation(value string) string {
@@ -651,6 +776,7 @@ func validateSARIFRuleDefinition(rule SARIFRule) error {
 func validateSARIFResultDefinition(result SARIFResult) error {
 	if result.RuleID == sarifCoverageIncompleteRule {
 		if result.Level != "error" || result.Message.Text != "lifecycle security coverage incomplete" || len(result.Locations) != 0 ||
+			result.Suppressions == nil || len(result.Suppressions) != 0 ||
 			!sameSARIFProperty(result.Properties, "agent-eval.blocks_execution", true) ||
 			!sameSARIFProperty(result.Properties, "agent-eval.confidence", "deterministic") ||
 			!sameSARIFProperty(result.Properties, "agent-eval.suppressed", false) {
@@ -660,6 +786,7 @@ func validateSARIFResultDefinition(result SARIFResult) error {
 	}
 	if strings.HasPrefix(result.RuleID, "structural/") {
 		if result.Level != "error" || result.Message.Text != "structural admission refusal" || len(result.Locations) != 1 ||
+			result.Suppressions == nil || len(result.Suppressions) != 0 ||
 			!sameSARIFProperty(result.Properties, "agent-eval.blocks_execution", true) ||
 			!sameSARIFProperty(result.Properties, "agent-eval.confidence", "deterministic") ||
 			!sameSARIFProperty(result.Properties, "agent-eval.severity", "error") ||
@@ -683,6 +810,13 @@ func validateSARIFResultDefinition(result SARIFResult) error {
 	if !severityOK || !confidenceOK || !evidenceOK || !suppressedOK ||
 		!sameSARIFProperty(result.Properties, "agent-eval.blocks_execution", !suppressed) {
 		return errors.New("invalid sarif security properties")
+	}
+	if suppressed {
+		if result.Suppressions == nil || len(result.Suppressions) != 1 || result.Suppressions[0].Kind != "external" || result.Suppressions[0].Status != "accepted" {
+			return errors.New("invalid sarif suppression")
+		}
+	} else if result.Suppressions == nil || len(result.Suppressions) != 0 {
+		return errors.New("unexpected sarif suppression")
 	}
 	descriptor, ok := lifecycleSecurityRuleDescriptor(LifecycleSecurityRuleID(result.RuleID), LifecycleSecurityEvidence(evidence))
 	if !ok || severity != string(descriptor.severity) || confidence != string(descriptor.confidence) {
@@ -714,7 +848,8 @@ func sameSARIFProperty(properties map[string]any, key string, want any) bool {
 func sarifStructuralResult(finding StructuralFinding, ruleID string) SARIFResult {
 	return SARIFResult{
 		RuleID: ruleID, Level: "error", Message: SARIFMessage{Text: "structural admission refusal"},
-		Locations: []SARIFLocation{{PhysicalLocation: SARIFPhysicalLocation{ArtifactLocation: SARIFArtifactLocation{URI: finding.Location}}}},
+		Locations:    []SARIFLocation{{PhysicalLocation: SARIFPhysicalLocation{ArtifactLocation: SARIFArtifactLocation{URI: sarifLocationURI(finding.Location)}}}},
+		Suppressions: []SARIFSuppression{},
 		Properties: map[string]any{
 			"agent-eval.blocks_execution": true,
 			"agent-eval.class":            string(finding.Class),
@@ -726,9 +861,10 @@ func sarifStructuralResult(finding StructuralFinding, ruleID string) SARIFResult
 }
 
 func sarifSecurityResult(finding LifecycleSecurityFinding) SARIFResult {
-	return SARIFResult{
+	result := SARIFResult{
 		RuleID: string(finding.RuleID), Level: "error", Message: SARIFMessage{Text: "lifecycle security finding"},
-		Locations: []SARIFLocation{{PhysicalLocation: SARIFPhysicalLocation{ArtifactLocation: SARIFArtifactLocation{URI: finding.Location}}}},
+		Locations:    []SARIFLocation{{PhysicalLocation: SARIFPhysicalLocation{ArtifactLocation: SARIFArtifactLocation{URI: sarifLocationURI(finding.Location)}}}},
+		Suppressions: []SARIFSuppression{},
 		Properties: map[string]any{
 			"agent-eval.blocks_execution": !finding.Suppressed,
 			"agent-eval.class":            "lifecycle_security",
@@ -738,6 +874,10 @@ func sarifSecurityResult(finding LifecycleSecurityFinding) SARIFResult {
 			"agent-eval.suppressed":       finding.Suppressed,
 		},
 	}
+	if finding.Suppressed {
+		result.Suppressions = []SARIFSuppression{{Kind: "external", Status: "accepted"}}
+	}
+	return result
 }
 
 func sarifResultKey(result SARIFResult) string {
@@ -775,4 +915,13 @@ func uniqueSARIFRules(rules []SARIFRule) []SARIFRule {
 		}
 	}
 	return unique
+}
+
+func sarifProjectionIntegrity(report SARIFProjection) string {
+	report.integrity = ""
+	data, err := json.Marshal(report)
+	if err != nil {
+		return ""
+	}
+	return digestBytes(data)
 }

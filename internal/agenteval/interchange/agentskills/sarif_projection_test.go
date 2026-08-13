@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -75,7 +76,7 @@ func TestEncodeSARIFGoldenEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "{\"$schema\":\"https://json.schemastore.org/sarif-2.1.0.json\",\"version\":\"2.1.0\",\"runs\":[{\"tool\":{\"driver\":{\"name\":\"atl-agent-eval\",\"version\":\"1\",\"rules\":[]}},\"properties\":{\"agent-eval.blocks_execution\":false,\"agent-eval.bundle_sha256\":\"742e6b20d03d77dc32d8cac5a9fe1380c56b6206ed83708f1905682823f14dd6\",\"agent-eval.policy_sha256\":\"153bf54724c0fafb445b844c0cfc975f8d4bd57d50a74798e15ecbc69b7faeea\",\"agent-eval.rule_pack_id\":\"lifecycle-security/v1\",\"agent-eval.rule_pack_sha256\":\"f038b365163879422a3bdeed808997098c77f01bd8419428ed2d03dced32156f\",\"agent-eval.rule_pack_version\":1,\"agent-eval.runtime_safety_proven\":false,\"agent-eval.security_complete\":true,\"agent-eval.security_version\":1,\"agent-eval.structure_tree_sha256\":\"742e6b20d03d77dc32d8cac5a9fe1380c56b6206ed83708f1905682823f14dd6\",\"agent-eval.structure_version\":1}}]}\n"
+	want := "{\"$schema\":\"https://json.schemastore.org/sarif-2.1.0.json\",\"version\":\"2.1.0\",\"runs\":[{\"tool\":{\"driver\":{\"name\":\"atl-agent-eval\",\"version\":\"1\",\"rules\":[]}},\"properties\":{\"agent-eval.blocks_execution\":false,\"agent-eval.bundle_sha256\":\"742e6b20d03d77dc32d8cac5a9fe1380c56b6206ed83708f1905682823f14dd6\",\"agent-eval.policy_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"agent-eval.rule_pack_id\":\"lifecycle-security/v1\",\"agent-eval.rule_pack_sha256\":\"f038b365163879422a3bdeed808997098c77f01bd8419428ed2d03dced32156f\",\"agent-eval.rule_pack_version\":1,\"agent-eval.runtime_safety_proven\":false,\"agent-eval.security_complete\":true,\"agent-eval.security_version\":1,\"agent-eval.structure_policy_sha256\":\"153bf54724c0fafb445b844c0cfc975f8d4bd57d50a74798e15ecbc69b7faeea\",\"agent-eval.structure_tree_sha256\":\"742e6b20d03d77dc32d8cac5a9fe1380c56b6206ed83708f1905682823f14dd6\",\"agent-eval.structure_version\":1}}]}\n"
 	if string(encoded) != want {
 		t.Fatalf("SARIF golden drifted:\n%s", encoded)
 	}
@@ -119,6 +120,77 @@ func TestProjectSARIFMapsSecurityFindingsWithoutPrivateEvidence(t *testing.T) {
 		if bytes.Contains(encoded, []byte(marker)) {
 			t.Fatalf("SARIF leaked marker %q: %s", marker, encoded)
 		}
+	}
+}
+
+func TestProjectSARIFUsesStandardSuppressionAndEscapesLocations(t *testing.T) {
+	admission := syntheticFindingSARIFAdmission()
+	admission.Security.Findings[0].Location = "skill/scripts/space #?.sh"
+	admission.Security.Coverage[0].Location = admission.Security.Findings[0].Location
+	admission.Structure.Entries[0].Location = admission.Security.Findings[0].Location
+	admission.Structure.Entries[0].EntrySHA256 = digestStructuralEntry(admission.Structure.Entries[0])
+	admission.Structure.TreeSHA256 = digestStructuralTree(admission.Structure.PolicySHA256, admission.Structure.Entries)
+	admission.Security.BundleSHA256 = admission.Structure.TreeSHA256
+	admission.Security.Findings[0].Suppressed = true
+	report, err := ProjectSARIF(admission)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Runs[0].Results) != 1 {
+		t.Fatalf("results = %#v", report.Runs[0].Results)
+	}
+	result := report.Runs[0].Results[0]
+	if result.Locations[0].PhysicalLocation.ArtifactLocation.URI != "skill/scripts/space%20%23%3F.sh" {
+		t.Fatalf("location was not URI escaped: %#v", result.Locations)
+	}
+	if len(result.Suppressions) != 1 || result.Suppressions[0].Kind != "external" {
+		t.Fatalf("standard suppression = %#v", result.Suppressions)
+	}
+	if value, ok := result.Properties["agent-eval.blocks_execution"].(bool); !ok || value {
+		t.Fatalf("suppressed result still blocks: %#v", result.Properties)
+	}
+	if _, err := EncodeSARIF(report); err != nil {
+		t.Fatalf("suppressed SARIF did not encode: %v", err)
+	}
+}
+
+func TestProjectSARIFMixedSuppressionUsesUniformSARIFArrays(t *testing.T) {
+	admission := syntheticFindingSARIFAdmission()
+	admission.Security.Findings = append(admission.Security.Findings, LifecycleSecurityFinding{
+		RuleID: LifecycleSecurityRuleCredentialLike, Severity: LifecycleSecuritySeverityCritical,
+		Confidence: LifecycleSecurityConfidenceHigh, Evidence: LifecycleSecurityEvidencePrivateKeyHeader,
+		Location: "skill/scripts/bootstrap.sh", Suppressed: true,
+	})
+	sort.Slice(admission.Security.Findings, func(left, right int) bool {
+		return lifecycleSecurityFindingKey(admission.Security.Findings[left]) < lifecycleSecurityFindingKey(admission.Security.Findings[right])
+	})
+	report, err := ProjectSARIF(admission)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := EncodeSARIF(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(encoded, []byte(`"suppressions":[]`)) || !bytes.Contains(encoded, []byte(`"status":"accepted"`)) {
+		t.Fatalf("mixed suppression semantics were not explicit: %s", encoded)
+	}
+	if _, err := DecodeSARIF(bytes.NewReader(encoded)); err != nil {
+		t.Fatalf("mixed suppression SARIF did not round-trip: %v", err)
+	}
+}
+
+func TestEncodeSARIFRejectsAuthoritativeStateTampering(t *testing.T) {
+	projection := mustProjectSARIF(t, syntheticFindingSARIFAdmission())
+	projection.Runs[0].Results = nil
+	projection.Runs[0].Tool.Driver.Rules = nil
+	if _, err := EncodeSARIF(projection); err == nil || !isSARIFProjectionError(err) {
+		t.Fatalf("removed blocking result was accepted: %v", err)
+	}
+	projection = mustProjectSARIF(t, syntheticFindingSARIFAdmission())
+	projection.Runs[0].Properties["agent-eval.blocks_execution"] = false
+	if _, err := EncodeSARIF(projection); err == nil || !isSARIFProjectionError(err) {
+		t.Fatalf("weakened aggregate state was accepted: %v", err)
 	}
 }
 
