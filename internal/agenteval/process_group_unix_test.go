@@ -89,6 +89,7 @@ func TestNormalizeExhaustedProcessGroupError(t *testing.T) {
 		{name: "mismatched member", pgid: target, signalErr: permissionErr, members: []processGroupMember{{pid: target, pgrp: target + 1, zombie: true}}, wantInspect: true},
 	}
 	if strconv.IntSize > 32 {
+		oversizedTarget := int64(math.MaxInt32) + 1
 		tests = append(tests, struct {
 			name        string
 			pgid        int
@@ -96,7 +97,7 @@ func TestNormalizeExhaustedProcessGroupError(t *testing.T) {
 			members     []processGroupMember
 			inspectErr  error
 			wantInspect bool
-		}{name: "target exceeds Darwin process-group width", pgid: int(int64(math.MaxInt32) + 1), signalErr: permissionErr})
+		}{name: "target exceeds Darwin process-group width", pgid: int(oversizedTarget), signalErr: permissionErr})
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
