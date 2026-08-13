@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	corpusDocumentsStableID = "indexer-v1-documents"
+	corpusDocumentsStableID = corpus.IndexerDocumentsStableID
 	corpusEdgesStableID     = "indexer-v1-edges"
 	corpusReceiptStableID   = "indexer-v1-receipt"
 	corpusArtifactsStableID = "indexer-v2-artifacts"

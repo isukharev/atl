@@ -4,6 +4,16 @@ Local manifest and sealed-corpus result shapes.
 
 [Reference index](README.md) · [Documentation home](../../README.md)
 
+<!-- reference-navigation:start -->
+## Navigate this reference
+
+- [Manifest creation](#manifest-creation)
+- [Corpus build](#corpus-build)
+- [Corpus generation diff](#corpus-generation-diff)
+- [Corpus handoff](#corpus-handoff)
+- [Corpus export](#corpus-export)
+<!-- reference-navigation:end -->
+
 ## Manifest creation
 
 `atl manifest create --root DIR` writes a backend-identity-hashed local manifest and returns
@@ -197,6 +207,57 @@ The command fails closed when the current generation lacks exactly one valid
 delta member, when its predecessor cannot be fully verified, or when capture,
 projection, inventory, digest, or direct-lineage evidence differs. It emits no
 partial identity result.
+
+## Corpus handoff
+
+`atl corpus handoff --store DIR` returns one content-free verification summary:
+
+```json
+{
+  "schema_version": 1,
+  "qualification": "sealed",
+  "generation": {
+    "generation_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "manifest_schema": 1,
+    "receipt_schema": 1,
+    "projection_schema": 2,
+    "generator_version": "0.0.0-dev",
+    "build_state": "clean",
+    "services": ["jira"],
+    "totals": {"members": 6, "bytes": 2048}
+  },
+  "handoff_artifact_written": false
+}
+```
+
+The result never includes the generation ID, paths, member identities,
+selectors, backend origins, principals, titles, or bodies. With
+`--handoff-artifact PATH`, only `handoff_artifact_written` changes to `true`.
+The exclusive canonical `0600` artifact has this private schema:
+
+```json
+{
+  "schema_version": 1,
+  "generation_id": "11111111111111111111111111111111",
+  "generation_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "projection_schema": 2,
+  "documents": {
+    "service": "jira",
+    "stable_id": "indexer-v1-documents",
+    "role": "document",
+    "path": "projection/jira/documents.indexer-v1.jsonl",
+    "size": 1024,
+    "mode": 384,
+    "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  }
+}
+```
+
+Canonical parsing is strict and rejects unknown/trailing fields, unsupported
+schemas, invalid routes, modes or digests, and a document member that is not
+the one supported inventory. ATL refuses an existing artifact, an unsafe
+parent, or a direct/symlink-aliased destination inside the sealed store.
+Artifact failures remain content-free and do not echo the path.
 
 ## Corpus export
 

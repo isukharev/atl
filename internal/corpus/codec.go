@@ -451,7 +451,9 @@ func validateMembers(members []Member, limits Limits) (int64, []Service, error) 
 	foldedPaths := make(map[string]struct{}, len(members))
 	services := make([]Service, 0, 2)
 	var total int64
-	for i, member := range members {
+	var previous Member
+	havePrevious := false
+	for _, member := range members {
 		spec := MemberSpec{
 			Service:  member.Service,
 			StableID: member.StableID,
@@ -470,9 +472,11 @@ func validateMembers(members []Member, limits Limits) (int64, []Service, error) 
 		if !isLowerSHA256(member.SHA256) {
 			return 0, nil, reject(ReasonDigest)
 		}
-		if i > 0 && compareMemberTuple(members[i-1], member) >= 0 {
+		if havePrevious && compareMemberTuple(previous, member) >= 0 {
 			return 0, nil, reject(ReasonMembership)
 		}
+		previous = member
+		havePrevious = true
 		if _, exists := paths[member.Path]; exists {
 			return 0, nil, reject(ReasonMembership)
 		}

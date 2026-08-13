@@ -1,8 +1,9 @@
 package corpus
 
 const (
-	IndexerSchemaV1        = 1
-	IndexerReceiptSchemaV1 = 1
+	IndexerSchemaV1          = 1
+	IndexerReceiptSchemaV1   = 1
+	IndexerDocumentsStableID = "indexer-v1-documents"
 )
 
 // ObjectKind is the closed logical object namespace used to derive stable

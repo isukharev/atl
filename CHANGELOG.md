@@ -16,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   startup now exits as a content-free usage error before config, credentials,
   dependency construction, or network access; bare standalone and legacy
   unmarked invocation remain supported but explicitly unverified.
+- Added a pinned Linux dev-container corpus template with tag/version-bound
+  release provenance verification, an exact lockfile-installed container CLI,
+  clean-room child environments, runtime-only secret files, owner-private temporary roots,
+  bounded read-only capture, sealed document-only indexer handoff, a local
+  zero-egress stub, and an explicit semantic-egress gate for optional Graphify.
+- Added zero-egress `atl corpus handoff` to verify one qualified current
+  generation and create an exclusive owner-private route to its canonical
+  document inventory without exposing identities or paths on stdout.
 - Added zero-egress `atl corpus diff` with selector/scope/options-qualified
   stable-identity membership deltas, receipt-bound tombstone digests,
   content-free counts by default, and an explicit exclusive owner-private

@@ -447,6 +447,22 @@ derive media types from filenames. Strict mode is the default; use
 qualification. Binary `asset` members stay separate from Markdown/JSONL, and
 ATL never follows narrative URLs, performs OCR, or expands archives.
 
+**Disposable private indexing:** use the checked-in corpus dev-container only
+when an indexer needs an on-demand qualified snapshot. Mount backend URLs,
+PATs, selectors, and an optional CA as owner-private runtime files; never put
+their values in the image, container spec, arguments, source checkout, or
+logs. Keep the exact-`0700` runtime, empty index root, and source checkout
+disjoint. The wrapper forces read-only/no-update mode, requires every finite
+bound, makes the statically validated build its first remote operation, and
+starts ATL/indexer children from explicit clean environments. It invokes the
+indexer only after `atl corpus handoff` verifies one sealed canonical document
+inventory. The handoff artifact must be outside the store and remains private.
+Graphify is optional and not bundled: use an explicit absolute binary, never
+use `--code-only`, and require reviewed egress plus an external network policy
+for every endpoint that is not an exact loopback HTTP host and port.
+See `docs/corpus-devcontainer.md` for cold start, persistence, cleanup, and
+privacy details.
+
 ## Reacting to results
 
 `atl` prints JSON to stdout by default. Use `-o text` only where the command

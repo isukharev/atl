@@ -540,7 +540,7 @@ func validateBootstrap(root string) error {
 	if err := validateWindowsCompileWorkflow(ci); err != nil {
 		return err
 	}
-	if err := validateWorkflowJobSet(ci, "ci", "test", "agent-eval", "agent-eval-extension-windows", "lint", "govulncheck", "smoke"); err != nil {
+	if err := validateWorkflowJobSet(ci, "ci", "test", "corpus-devcontainer", "agent-eval", "agent-eval-extension-windows", "lint", "govulncheck", "smoke"); err != nil {
 		return err
 	}
 	testJob, err := workflowJob(ci, "test")

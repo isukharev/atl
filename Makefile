@@ -125,6 +125,10 @@ check-repository-skills:
 check-context7-docs:
 	$(GO_ENV) go run ./scripts/check-context7-docs
 
+.PHONY: check-corpus-devcontainer
+check-corpus-devcontainer:
+	$(GO_ENV) go run ./scripts/check-corpus-devcontainer -root .
+
 .PHONY: update-reference-navigation
 update-reference-navigation:
 	$(GO_ENV) go run ./scripts/check-context7-docs -write-navigation

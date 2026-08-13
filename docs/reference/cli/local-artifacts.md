@@ -175,6 +175,40 @@ absent from the compatible successor membership; it is not proof of physical
 backend deletion. A later reappearance is `added` for that direct transition
 and is not labelled as a backend restore event.
 
+## `atl corpus handoff`
+
+Verify the current sealed generation, require a qualified `indexer-v2`
+projection, and identify exactly one canonical document inventory for a
+downstream indexer. The command is zero-egress: it skips self-update,
+configuration, credentials, and backend access.
+
+Ordinary output is content-free and does not expose the generation ID, member
+path, or stable identity. Request the route only through an explicit private
+artifact:
+
+```bash
+install -d -m 0700 /private/indexer-handoff
+atl corpus handoff --store /private/indexer-corpus \
+  --handoff-artifact /private/indexer-handoff/current.v1.json
+```
+
+The artifact parent must already be owner-only and outside the sealed store,
+including through symlink aliases. The target must not exist. ATL creates the
+canonical artifact exclusively as `0600` and never replaces it. It contains
+the generation identity and digest plus the document member's service, stable
+ID, relative path, mode, size, and SHA-256, so treat it as private.
+
+| flag | description |
+|---|---|
+| `--store` | existing owner-only sealed-generation store root (required) |
+| `--handoff-artifact` | optional absent output path under an existing owner-only parent outside the store; writes the private canonical document route as `0600` |
+
+The command does not execute an indexer or grant it access to the store. A
+consumer must reopen or copy only the named member under its own containment,
+mode, size, and digest checks. The supported dev-container wrapper performs
+those checks and stages a separate copy; see
+[Owner-private corpus in a development container](../../corpus-devcontainer.md).
+
 ## `atl corpus export`
 
 Project the pristine baselines of one or two initialized mirrors into a private,
