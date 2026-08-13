@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_version": "0.1.0-pre-release",
-  "golden_bundle": {"path":"testdata/standalone-readability-golden.v1.json","sha256":"7a838ac16e73aaf9a9513ea76eab1722adc49c7ca6f7fb5941f6ca190a646443"},
+  "golden_bundle": {"path":"testdata/standalone-readability-golden.v1.json","sha256":"16023460962d5a148994bc851dc461b80c36e9272c0f7a383d00823b02375694"},
   "readability": [
     {"namespace":"atl-profile","kind":"activation-reference","versions":[1,2]},
     {"namespace":"atl-profile","kind":"activation-report","versions":[1,2]},
@@ -22,10 +22,14 @@
     {"namespace":"standalone","kind":"adapter-message","versions":[1]},
     {"namespace":"standalone","kind":"agent-adapter-contract","versions":[1]},
     {"namespace":"standalone","kind":"agent-observation","versions":[1]},
+    {"namespace":"standalone","kind":"analysis-plan","versions":[1]},
     {"namespace":"standalone","kind":"attempt-event","versions":[1]},
     {"namespace":"standalone","kind":"attempt-ledger","versions":[1]},
     {"namespace":"standalone","kind":"attempt-plan","versions":[1]},
     {"namespace":"standalone","kind":"execution-backend-contract","versions":[1]},
+    {"namespace":"standalone","kind":"experiment-capability-contract","versions":[1]},
+    {"namespace":"standalone","kind":"experiment-design","versions":[1]},
+    {"namespace":"standalone","kind":"experiment-manifest","versions":[1]},
     {"namespace":"standalone","kind":"extension-conformance-bundle","versions":[1]},
     {"namespace":"standalone","kind":"extension-conformance-report","versions":[1]},
     {"namespace":"standalone","kind":"grade-receipt","versions":[1]},
@@ -36,7 +40,8 @@
     {"namespace":"standalone","kind":"project-config","versions":[1]},
     {"namespace":"standalone","kind":"schema-registry","versions":[1]},
     {"namespace":"standalone","kind":"trial-plan","versions":[1]},
-    {"namespace":"standalone","kind":"trial-receipt","versions":[1]}
+    {"namespace":"standalone","kind":"trial-receipt","versions":[1]},
+    {"namespace":"standalone","kind":"trial-record","versions":[1]}
   ],
   "forward_rejection": [
     {"namespace":"atl-profile","kind":"activation-reference","version":3},
@@ -58,10 +63,14 @@
     {"namespace":"standalone","kind":"adapter-message","version":2},
     {"namespace":"standalone","kind":"agent-adapter-contract","version":2},
     {"namespace":"standalone","kind":"agent-observation","version":2},
+    {"namespace":"standalone","kind":"analysis-plan","version":2},
     {"namespace":"standalone","kind":"attempt-event","version":2},
     {"namespace":"standalone","kind":"attempt-ledger","version":2},
     {"namespace":"standalone","kind":"attempt-plan","version":2},
     {"namespace":"standalone","kind":"execution-backend-contract","version":2},
+    {"namespace":"standalone","kind":"experiment-capability-contract","version":2},
+    {"namespace":"standalone","kind":"experiment-design","version":2},
+    {"namespace":"standalone","kind":"experiment-manifest","version":2},
     {"namespace":"standalone","kind":"extension-conformance-bundle","version":2},
     {"namespace":"standalone","kind":"extension-conformance-report","version":2},
     {"namespace":"standalone","kind":"grade-receipt","version":2},
@@ -73,7 +82,8 @@
     {"namespace":"standalone","kind":"project-config","version":2},
     {"namespace":"standalone","kind":"schema-registry","version":2},
     {"namespace":"standalone","kind":"trial-plan","version":2},
-    {"namespace":"standalone","kind":"trial-receipt","version":2}
+    {"namespace":"standalone","kind":"trial-receipt","version":2},
+    {"namespace":"standalone","kind":"trial-record","version":2}
   ],
   "metric_vectors": [
     {"id":"legacy-not-applicable-zero","representation":"atl-profile-legacy","present":true,"required":true,"state":"not_applicable","coverage":false,"value":0,"valid":false},

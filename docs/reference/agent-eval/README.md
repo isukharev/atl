@@ -31,6 +31,12 @@ not made public by this routing. Reserved rows fail with
 may describe only the marked rows as **pre-release source implementations**;
 they must not call them stable, supported, or distributed.
 
+The source tree also contains a neutral experiment compiler and its versioned
+artifact readers. This slice adds no standalone operation, help entry,
+capability row, or one-request process route. A later command owner may consume
+the canonical artifacts unchanged, but source availability alone does not make
+an experiment command implemented or grant runner authority.
+
 The repository implementation now contains an internal, in-memory neutral core
 and one explicitly composed ATL profile. The root evaluator package remains the
 compatibility facade for every historical JSON generation, provider runner,
@@ -342,6 +348,27 @@ CPU/memory/process and verifier-isolation guarantees remain unsupported, and
 the projection can never be reported as hermetic merely because protocol
 conformance passed.
 
+The provider-neutral `experiment` leaf owns five closed schema-v1 artifacts:
+the complete runtime capability contract, preregistered design, analysis-plan
+identity, compiled manifest, and content-minimized trial record. The compiler
+requires exact supported claims for every selected condition, activation
+channel, funnel stage, and metric before it produces a manifest. It preserves
+none/current/previous/forced/autonomous/retrieved/distractor cells, requires
+separately authored digest-bound negative controls, and never derives prompts,
+assertions, controls, or expected answers from the skill under test. Williams
+blocks bind order while treatment identities exclude analysis role and order;
+forced-oracle treatments are never classified as autonomous routing. The root
+facade projects bounded Agent Skills identities and historical private
+four-cell activation plans, then may allocate the complete planned lifecycle
+roster. This boundary executes no agent, schedules no trial, computes no
+statistical result, emits no report, and acquires no provider, backend,
+credential, network, or private-root authority.
+
+The generic experiment families are `public_or_private`, but a manifest
+projected from an owner-private activation study remains owner-private. A digest
+is a comparison identity, not anonymization or permission to publish source
+material.
+
 ## Capability negotiation
 
 Capabilities are namespaced, versioned strings. Each required component reports exactly one state for every capability considered by the plan:
@@ -436,6 +463,11 @@ The internal `ATL_EVAL_*` registry, wrapper basenames, broker records, launch ar
 | `agent-eval/aggregate` | Comparable cohort summary with explicit denominators and exclusions |
 | `agent-eval/report` | Privacy-tiered projection of validated source artifacts |
 | `agent-eval/project-config` | Invocation-selected profile/model/repetition identity defaults; never authority, paths, credentials, or ambient discovery |
+| `agent-eval/experiment-capability-contract` | Complete agent, model, environment, adapter, execution-backend, grader, harness, budget, authority, treatment, channel, funnel-observation, and metric capability claims |
+| `agent-eval/experiment-design` | Immutable case, explicit treatments and separately authored controls, strata, balanced order seed, stopping rule, and capability/analysis bindings |
+| `agent-eval/analysis-plan` | Preregistered comparison roles, funnel-stage and metric identities/families, repeated-attempt policy, exclusions, confidence/bootstrap parameters, and multiplicity identity; not an analysis result |
+| `agent-eval/experiment-manifest` | Canonical treatment, balanced block/order, pair, trial-roster, capability, design, and analysis-plan handoff |
+| `agent-eval/trial-record` | Content-minimized lifecycle, eligibility, exclusion, separately qualified funnel-stage observations, metric observations, and source receipt identities for one manifest member |
 | `agent-eval/adapter-manifest` | Closed component identity, one declared role and its operations, capabilities, protocol versions, configuration keys, and executable binding |
 | `agent-eval/adapter-message` | One bounded process-protocol frame under the selected role, operation, session, and attempt identity |
 | `agent-eval/extension-conformance-bundle` | Content-addressed ordinary cases for every supported operation, the grader's required identical repeat, and one synchronized cancellation case in the manifest's declared role |
@@ -452,16 +484,17 @@ The internal `ATL_EVAL_*` registry, wrapper basenames, broker records, launch ar
 | `agent-eval/migration-result` | Content-minimized idempotent receipt for one applied reviewed migration |
 | `agent-eval/schema-registry` | Public closed inventory of artifact ownership, generations, policies, bounds, resources, and reviewed migration edges |
 
-The compatibility ledger records project config, the schema registry, the two
+The compatibility ledger records project config, the schema registry, the five
+experiment artifacts, the two
 migration artifacts, the three durable attempt families
 (`agent-eval/attempt-ledger`, `agent-eval/attempt-plan`, and
 `agent-eval/attempt-event`), each of the four extension families, the semantic
 adapter contract, normalized observation, execution-backend contract, trial
 plan, trial receipt, grader contract, grading plan, and grade receipt at
-generation 1. Project config, registry, attempt
-records, manifest, message, bundle, adapter contract, execution-backend
+generation 1. Project config, registry, experiment capability/design/analysis
+and manifest, attempt records, adapter manifest, message, bundle, adapter contract, execution-backend
 contract, trial-plan, and grade-receipt generations are readable, emitted, and executable;
-migration artifacts, extension reports, normalized agent observations, and
+experiment trial records, migration artifacts, extension reports, normalized agent observations, and
 trial receipts are readable and emitted but never executable. Grader contracts,
 grading plans, and grade receipts are readable, emitted, and executable. A
 grade receipt may enter grading only with its exact admitted plan and attempt
@@ -472,7 +505,12 @@ by itself. Project config is
 64 KiB per record; all three are `preserve`, `content_minimized`, and use
 explicit migration. Adapter contracts are `content_minimized` and capped at
 64 KiB; agent observations are `content_minimized` and capped at 1 MiB.
-Execution-backend contracts and receipts are `content_minimized` and capped at
+Experiment capability contracts are `public_or_private` and capped at 64 KiB;
+experiment designs and analysis plans are `public_or_private` and capped at
+1 MiB; compiled manifests are `public_or_private` and capped at 16 MiB; trial
+records are `content_minimized` and capped at 1 MiB. Executable experiment
+rows may enter only the compiler and planned-roster composition path described
+above; they do not authorize process launch. Execution-backend contracts and receipts are `content_minimized` and capped at
 64 KiB; trial plans are `content_minimized` and capped at 256 KiB. Grader
 contracts are `content_minimized` and capped at 64 KiB; grading plans are
 `public_or_private` and capped at 1 MiB; grade receipts are

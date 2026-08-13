@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -233,6 +234,54 @@ func TestAttemptLedgerInterruptedWritesRemainRecoverable(t *testing.T) {
 	inspection, err := store.Inspect(all[0].Plan.AttemptID)
 	if err != nil || inspection.Projection.State != lifecycle.StateCommitted {
 		t.Fatalf("written event was not recoverable: %+v %v", inspection, err)
+	}
+}
+
+func TestAttemptLedgerEnsureRosterCompletesOnlyExactPlannedPrefix(t *testing.T) {
+	store := newAttemptLedgerForTest(t)
+	bindings := []lifecycle.Binding{testAttemptBinding(), testAttemptBinding(), testAttemptBinding()}
+	for index := range bindings {
+		bindings[index].Identity.TaskSHA256 = contentMinimizedDigestForTest(t, index+900)
+	}
+	stop := errors.New("synthetic roster interruption")
+	writes := 0
+	store.testHook = func(point string) error {
+		if point == "after_plan_write" {
+			writes++
+			if writes == 2 {
+				return stop
+			}
+		}
+		return nil
+	}
+	if plans, err := store.EnsureRoster(bindings); err == nil || plans != nil {
+		t.Fatalf("interrupted roster unexpectedly succeeded: plans=%+v err=%v", plans, err)
+	}
+	store.testHook = nil
+	plans, err := store.EnsureRoster(bindings)
+	if err != nil || len(plans) != len(bindings) {
+		t.Fatalf("exact planned prefix was not completed: plans=%+v err=%v", plans, err)
+	}
+	again, err := store.EnsureRoster(bindings)
+	if err != nil || !reflect.DeepEqual(plans, again) {
+		t.Fatalf("completed roster was not idempotent: again=%+v err=%v", again, err)
+	}
+
+	mutated := append([]lifecycle.Binding{}, bindings...)
+	mutated[1].Identity.TaskSHA256 = contentMinimizedDigestForTest(t, 999)
+	if _, err := store.EnsureRoster(mutated); !errors.Is(err, ErrAttemptLedgerConflict) {
+		t.Fatalf("mutated roster was accepted: %v", err)
+	}
+
+	partialStore := newAttemptLedgerForTest(t)
+	first, err := partialStore.EnsureRoster(bindings[:1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendAttemptEventForTest(t, partialStore, first[0], lifecycle.StateCommitted,
+		[]lifecycle.Proof{lifecycle.ProofDurableCommit}, attemptEvidence(lifecycle.ErrorNone))
+	if _, err := partialStore.EnsureRoster(bindings); !errors.Is(err, ErrAttemptLedgerConflict) {
+		t.Fatalf("committed partial roster was extended: %v", err)
 	}
 }
 

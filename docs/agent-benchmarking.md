@@ -312,6 +312,40 @@ lifecycle or make the evaluator part of the signed `atl` distribution. The
 [standalone contract](reference/agent-eval/README.md) owns their exact flags,
 authority, loss reporting, and pre-release status.
 
+The evaluator also has a neutral causal-experiment compiler, but this change
+does not add an experiment command to that source-built coordinator. The
+compiler consumes either one bounded Agent Skills case projection or one native
+case identity plus an explicit complete capability contract. It emits strict
+schema-v1 capability, design, analysis-plan, manifest, and trial-record bytes.
+The manifest binds none/current/previous/forced/autonomous/retrieved/distractor
+treatments, activation channels, separately authored control digests, skill and
+distractor identities, runtime components, strata, balanced Williams order,
+fixed roster/safety-only stopping, exact comparison roles, metric families,
+exclusions, repeated-attempt policy, and the future analysis policy before any
+attempt may commit. Every preregistered pass-at-k value must fit the fixed
+per-treatment roster. A forced-oracle cell is never autonomous evidence, and a
+retrieved-absent or negative-control load remains separate from task outcome.
+
+Every selected funnel signal—candidate recall, selection, load, instruction,
+reference and script access, useful adherence, and verifier outcome—requires a
+supported capability and has its own observed/unknown/unsupported/not-applicable
+state. Outcome, tokens, estimated cost, and duration are separate declared
+metrics; lifecycle success is not task success, and observed zero is not
+missing. The compiler never generates a control, prompt, assertion, or expected
+answer from the skill under test. Near-miss, irrelevant, unsupported-domain,
+stale-version, and adversarial controls therefore require separately authored
+bytes and distinct digests.
+
+The root facade can allocate the complete manifest roster as planned lifecycle
+members and can finish only an exact crash-interrupted planned prefix. Once any
+member commits, changing repetition policy, order, exclusions, stopping, or
+other manifest-bound material conflicts rather than extending the experiment.
+Historical private four-cell activation studies project only treatment classes
+and digests, retaining comparable treatment identities without exposing prompt
+contracts or paths. This boundary neither executes a trial nor performs the
+paired inference, multiplicity adjustment, effect calculation, reporting,
+holdout, tuning, or promotion that later consumers own.
+
 `agent-eval-compat` is the small uncached product/evaluator boundary: it builds
 the current `atl`, requires its complete offline schema-v1 capability catalog
 to equal the evaluator's pinned released artifact, checks the exact CLI-error

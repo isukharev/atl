@@ -205,6 +205,57 @@ func (store *AttemptLedgerStore) AllocateRoster(bindings []lifecycle.Binding) ([
 	return result, nil
 }
 
+// EnsureRoster atomically validates the immutable binding prefix already
+// present in the ledger and completes only a crash-interrupted planned roster.
+// Once any existing member has left planned, an incomplete or changed roster
+// is rejected: committed execution can never authorize new repetitions or a
+// different order.
+func (store *AttemptLedgerStore) EnsureRoster(bindings []lifecycle.Binding) ([]lifecycle.Plan, error) {
+	if len(bindings) == 0 || len(bindings) > lifecycle.MaxAttempts {
+		return nil, attemptLedgerError("roster_limit")
+	}
+	lock, err := store.lock()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = lock.Unlock() }()
+	existing, err := store.readAllLocked()
+	if err != nil {
+		return nil, err
+	}
+	if len(existing) > len(bindings) {
+		return nil, attemptLedgerError("roster_length", ErrAttemptLedgerConflict)
+	}
+	result := make([]lifecycle.Plan, 0, len(bindings))
+	for index, inspection := range existing {
+		if index >= len(bindings) {
+			return nil, attemptLedgerError("roster_length", ErrAttemptLedgerConflict)
+		}
+		want, planErr := lifecycle.NewPlan(store.header, uint32(index+1), bindings[index]) // #nosec G115,G602 -- the local guard proves the binding index and MaxAttempts bounds the ordinal.
+		if planErr != nil || inspection.Plan.PlanSHA256 != want.PlanSHA256 {
+			return nil, attemptLedgerError("roster_binding", ErrAttemptLedgerConflict, planErr)
+		}
+		result = append(result, inspection.Plan)
+	}
+	if len(existing) == len(bindings) {
+		return result, nil
+	}
+	for _, inspection := range existing {
+		if inspection.Projection.State != lifecycle.StatePlanned {
+			return nil, attemptLedgerError("roster_committed", ErrAttemptLedgerConflict)
+		}
+	}
+	for index := len(existing); index < len(bindings); index++ {
+		ordinal := uint32(index + 1) // #nosec G115 -- bindings are bounded by lifecycle.MaxAttempts.
+		plan, writeErr := store.writePlanLocked(ordinal, bindings[index], "", "")
+		if writeErr != nil {
+			return nil, writeErr
+		}
+		result = append(result, plan)
+	}
+	return result, nil
+}
+
 func (store *AttemptLedgerStore) writePlanLocked(ordinal uint32, binding lifecycle.Binding, predecessorAttemptID, reconciliationSHA256 string) (lifecycle.Plan, error) {
 	var plan lifecycle.Plan
 	var err error
