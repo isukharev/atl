@@ -120,9 +120,15 @@ func TestStandaloneProcessAPIAuthorityRatchet(t *testing.T) {
 		t.Fatal("grade help unavailable")
 	}
 	if !strings.Contains(gradeHelp.String(), "--mode deterministic") ||
+		!strings.Contains(gradeHelp.String(), "Status:\n  pre-release (supported)") ||
 		!strings.Contains(gradeHelp.String(), "Reserved modes (unavailable):\n  judge") ||
 		strings.Contains(gradeHelp.String(), "deterministic|judge") {
 		t.Fatalf("grade help did not distinguish supported and reserved modes:\n%s", gradeHelp.String())
+	}
+	var reservedHelp bytes.Buffer
+	if !writeStandaloneHelp(&reservedHelp, []string{"compat", "verify"}) ||
+		!strings.Contains(reservedHelp.String(), "Status:\n  reserved (unavailable)") {
+		t.Fatalf("reserved command help did not label its status:\n%s", reservedHelp.String())
 	}
 
 	_, currentFile, _, ok := runtime.Caller(0)
