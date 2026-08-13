@@ -160,10 +160,7 @@ func validateTemplate(repositoryRoot string) error {
 			return fmt.Errorf("%s syntax: %w: %s", relative, syntaxErr, strings.TrimSpace(string(output)))
 		}
 	}
-	if err := validateLockedDevcontainersCLI(root); err != nil {
-		return err
-	}
-	return nil
+	return validateLockedDevcontainersCLI(root)
 }
 
 func runHermeticSmokeWithATL(repositoryRoot, currentATL string) error {
@@ -175,7 +172,7 @@ func runHermeticSmokeWithATL(repositoryRoot, currentATL string) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(temporary)
+	defer func() { _ = os.RemoveAll(temporary) }()
 	if err := os.Chmod(temporary, 0o700); err != nil {
 		return err
 	}
@@ -469,10 +466,7 @@ func runFailedBootstrapSmoke(repositoryRoot, temporary string) error {
 	if err := verifyPrivateTree(contextParent); err != nil {
 		return err
 	}
-	if err := verifyPrivateTree(indexRoot); err != nil {
-		return err
-	}
-	return nil
+	return verifyPrivateTree(indexRoot)
 }
 
 func runRealBootstrapSmoke(repositoryRoot, temporary, currentATL string) error {

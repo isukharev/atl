@@ -33,12 +33,12 @@ func validateLockedDevcontainersCLI(root string) error {
 		Dependencies map[string]string `json:"dependencies"`
 	}
 	if err := strictJSON(manifestBytes, &manifest); err != nil {
-		return fmt.Errorf("Dev Containers CLI manifest: %w", err)
+		return fmt.Errorf("dev containers CLI manifest: %w", err)
 	}
 	const cliVersion = "0.88.0"
 	if manifest.Name != "atl-corpus-devcontainer-ci" || !manifest.Private || manifest.Version != "1.0.0" ||
 		len(manifest.Dependencies) != 1 || manifest.Dependencies["@devcontainers/cli"] != cliVersion {
-		return errors.New("Dev Containers CLI manifest is not exact-pinned")
+		return errors.New("dev containers CLI manifest is not exact-pinned")
 	}
 	lockBytes, err := os.ReadFile(lockPath)
 	if err != nil {
@@ -61,7 +61,7 @@ func validateLockedDevcontainersCLI(root string) error {
 		} `json:"packages"`
 	}
 	if err := strictJSON(lockBytes, &lock); err != nil {
-		return fmt.Errorf("Dev Containers CLI lock: %w", err)
+		return fmt.Errorf("dev containers CLI lock: %w", err)
 	}
 	rootPackage, rootOK := lock.Packages[""]
 	cliPackage, cliOK := lock.Packages["node_modules/@devcontainers/cli"]
@@ -71,20 +71,159 @@ func validateLockedDevcontainersCLI(root string) error {
 		cliPackage.Resolved != "https://registry.npmjs.org/@devcontainers/cli/-/cli-0.88.0.tgz" ||
 		cliPackage.Integrity != "sha512-sMkruPy/icfov20mdQh2EjFYZogxvMEZptDEvg5/eMBIUOr2xr+8wlsI7nvDR6EJxoBjqoasXqgRGbiMqbaJ1w==" ||
 		cliPackage.Bin["devcontainer"] != "devcontainer.js" {
-		return errors.New("Dev Containers CLI lock is not exact-pinned")
+		return errors.New("dev containers CLI lock is not exact-pinned")
 	}
 	workflow, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "ci.yml"))
 	if err != nil {
 		return err
 	}
-	if bytes.Contains(workflow, []byte("devcontainers/ci@")) ||
-		!bytes.Contains(workflow, []byte("npm ci --prefix \"$RUNNER_TEMP/atl-devcontainers-cli\"")) ||
-		!bytes.Contains(workflow, []byte("scripts/check-corpus-devcontainer/package-lock.json")) ||
-		!bytes.Contains(workflow, []byte("node_modules/.bin/devcontainer")) ||
-		!bytes.Contains(workflow, []byte("--frozen-lockfile")) {
-		return errors.New("corpus devcontainer CI does not use the locked CLI")
+	return validateCorpusDevcontainerWorkflow(workflow)
+}
+
+var corpusDevcontainerJobContract = []string{
+	"  corpus-devcontainer:",
+	"    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'",
+	"    runs-on: ubuntu-latest",
+	"    steps:",
+	"      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+	"      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16",
+	"        with:",
+	"          go-version-file: go.mod",
+	"          check-latest: true",
+	"      - name: Build exact runtime smoke binaries",
+	"        run: |",
+	"          make build",
+	"          mkdir -p tmp",
+	"          env -u GOROOT GOTOOLCHAIN=auto GOWORK=off CGO_ENABLED=0 \\",
+	"            go build -trimpath -o tmp/corpus-devcontainer-check ./scripts/check-corpus-devcontainer",
+	"      - name: Install locked Dev Containers CLI",
+	"        run: |",
+	"          install -d \"$RUNNER_TEMP/atl-devcontainers-cli\"",
+	"          cp scripts/check-corpus-devcontainer/package.json \\",
+	"            scripts/check-corpus-devcontainer/package-lock.json \\",
+	"            \"$RUNNER_TEMP/atl-devcontainers-cli/\"",
+	"          npm ci --prefix \"$RUNNER_TEMP/atl-devcontainers-cli\" \\",
+	"            --ignore-scripts --audit=false --fund=false",
+	"      - name: Pinned private corpus runtime",
+	"        env:",
+	"          ATL_VERSION: v0.7.1",
+	"          ATL_ASSET_SHA256: 33d113fc3e8c90f485293b3e0100cfd8877beccf646536692d31c00e5558ab5a",
+	"        run: |",
+	"          cli=\"$RUNNER_TEMP/atl-devcontainers-cli/node_modules/.bin/devcontainer\"",
+	"          \"$cli\" up \\",
+	"            --workspace-folder \"$GITHUB_WORKSPACE\" \\",
+	"            --config \"$GITHUB_WORKSPACE/examples/corpus-devcontainer/.devcontainer/devcontainer.json\" \\",
+	"            --frozen-lockfile",
+	"          \"$cli\" exec --workspace-folder \"$GITHUB_WORKSPACE\" \\",
+	"            scripts/check-corpus-devcontainer/container-smoke.sh",
+}
+
+func validateCorpusDevcontainerWorkflow(workflow []byte) error {
+	job, err := workflowJobBlock(workflow, "corpus-devcontainer")
+	if err != nil {
+		return err
+	}
+	if bytes.Contains(job, []byte("\t")) {
+		return errors.New("corpus devcontainer CI job contains tab indentation")
+	}
+	lines := activeWorkflowLines(job)
+	if len(lines) != len(corpusDevcontainerJobContract) {
+		return errors.New("corpus devcontainer CI job contract drifted")
+	}
+	for index, want := range corpusDevcontainerJobContract {
+		if lines[index] != want {
+			return fmt.Errorf("corpus devcontainer CI job contract drifted at line %d", index+1)
+		}
 	}
 	return nil
+}
+
+func workflowJobBlock(workflow []byte, name string) ([]byte, error) {
+	lines := bytes.Split(workflow, []byte("\n"))
+	jobsStart := -1
+	jobsEnd := len(lines)
+	for index, raw := range lines {
+		line := strings.TrimSuffix(string(raw), "\r")
+		if line == "jobs:" {
+			if jobsStart >= 0 {
+				return nil, errors.New("CI workflow contains duplicate jobs mappings")
+			}
+			jobsStart = index + 1
+			continue
+		}
+		if jobsStart >= 0 && strings.TrimSpace(line) != "" && !strings.HasPrefix(strings.TrimSpace(line), "#") &&
+			line[0] != ' ' && line[0] != '\t' {
+			jobsEnd = index
+			break
+		}
+	}
+	if jobsStart < 0 {
+		return nil, errors.New("CI workflow is missing jobs mapping")
+	}
+	header := "  " + name + ":"
+	start := -1
+	for index := jobsStart; index < jobsEnd; index++ {
+		line := strings.TrimSuffix(string(lines[index]), "\r")
+		if line != header {
+			continue
+		}
+		if start >= 0 {
+			return nil, fmt.Errorf("CI workflow contains duplicate %s jobs", name)
+		}
+		start = index
+	}
+	if start < 0 {
+		return nil, fmt.Errorf("CI workflow is missing %s job", name)
+	}
+	end := jobsEnd
+	for index := start + 1; index < jobsEnd; index++ {
+		line := strings.TrimSuffix(string(lines[index]), "\r")
+		if isWorkflowJobHeader(line) {
+			end = index
+			break
+		}
+	}
+	return bytes.Join(lines[start:end], []byte("\n")), nil
+}
+
+func isWorkflowJobHeader(line string) bool {
+	if len(line) < 4 || line[:2] != "  " || line[2] == ' ' || !strings.HasSuffix(line, ":") {
+		return false
+	}
+	name := strings.TrimSuffix(line[2:], ":")
+	if name == "" {
+		return false
+	}
+	for _, character := range name {
+		if (character < 'a' || character > 'z') && (character < 'A' || character > 'Z') &&
+			(character < '0' || character > '9') && character != '-' && character != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+func activeWorkflowLines(job []byte) []string {
+	lines := make([]string, 0)
+	for _, raw := range bytes.Split(job, []byte("\n")) {
+		line := strings.TrimSuffix(string(raw), "\r")
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		line = stripWorkflowComment(line)
+		if strings.TrimSpace(line) != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+func stripWorkflowComment(line string) string {
+	if comment := strings.Index(line, " #"); comment >= 0 {
+		line = line[:comment]
+	}
+	return strings.TrimRight(line, " \t")
 }
 
 func runGraphifyPolicySmoke(repositoryRoot, temporary string) error {
@@ -118,10 +257,10 @@ func runGraphifyPolicySmoke(repositoryRoot, temporary string) error {
 	}
 	stdout, stderr, runErr := runCommand(wrapper, append(append([]string(nil), baseEnvironment...), "GRAPHIFY_BACKEND=remote-provider"))
 	if runErr == nil || stdout != "" || !strings.Contains(stderr, "semantic provider egress is not approved") {
-		return errors.New("Graphify wrapper accepted unapproved semantic egress")
+		return errors.New("graphify wrapper accepted unapproved semantic egress")
 	}
 	if _, err := os.Lstat(logPath); !os.IsNotExist(err) {
-		return errors.New("Graphify executable ran before semantic egress approval")
+		return errors.New("graphify executable ran before semantic egress approval")
 	}
 	for _, endpoint := range []string{
 		"http://127.0.0.1:11434@semantic.example.test",
@@ -132,10 +271,10 @@ func runGraphifyPolicySmoke(repositoryRoot, temporary string) error {
 		attempt := append(append([]string(nil), baseEnvironment...), "GRAPHIFY_BACKEND=ollama", "OLLAMA_HOST="+endpoint)
 		stdout, stderr, runErr = runCommand(wrapper, attempt)
 		if runErr == nil || stdout != "" || !strings.Contains(stderr, "non-loopback semantic egress is not approved") {
-			return fmt.Errorf("Graphify wrapper accepted a forged loopback endpoint %q", endpoint)
+			return fmt.Errorf("graphify wrapper accepted a forged loopback endpoint %q", endpoint)
 		}
 		if _, err := os.Lstat(logPath); !os.IsNotExist(err) {
-			return errors.New("Graphify executable ran for a forged loopback endpoint")
+			return errors.New("graphify executable ran for a forged loopback endpoint")
 		}
 	}
 	approvedLocal := append(append([]string(nil), baseEnvironment...), "GRAPHIFY_BACKEND=ollama", "OLLAMA_HOST=http://127.0.0.1:11434")
@@ -145,10 +284,10 @@ func runGraphifyPolicySmoke(repositoryRoot, temporary string) error {
 	}
 	stdout, stderr, runErr = runCommand(wrapper, approvedLocal)
 	if runErr == nil || stdout != "" || !strings.Contains(stderr, "exactly one document") {
-		return errors.New("Graphify wrapper accepted an extra native input")
+		return errors.New("graphify wrapper accepted an extra native input")
 	}
 	if _, err := os.Lstat(logPath); !os.IsNotExist(err) {
-		return errors.New("Graphify executable ran with an extra native input")
+		return errors.New("graphify executable ran with an extra native input")
 	}
 	if err := os.Remove(extra); err != nil {
 		return err
@@ -170,7 +309,7 @@ func runGraphifyPolicySmoke(repositoryRoot, temporary string) error {
 	}
 	want := "extract " + inputRoot + " --out " + indexRoot + " --backend=ollama --no-cluster\n"
 	if string(arguments) != want || bytes.Contains(arguments, []byte("--code-only")) {
-		return errors.New("Graphify wrapper document-only argument boundary drifted")
+		return errors.New("graphify wrapper document-only argument boundary drifted")
 	}
 	return nil
 }
@@ -180,7 +319,7 @@ func runInvalidSelectorReadScopeSmoke(repositoryRoot, atlBinary, backendURL, sec
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(root)
+	defer func() { _ = os.RemoveAll(root) }()
 	if err := os.Chmod(root, 0o700); err != nil {
 		return err
 	}

@@ -13,8 +13,14 @@ import (
 )
 
 func treeDigest(root string) (string, error) {
+	rootHandle, err := os.OpenRoot(root)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = rootHandle.Close() }()
+
 	entries := make([]string, 0)
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+	err = fs.WalkDir(rootHandle.FS(), ".", func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -22,13 +28,9 @@ func treeDigest(root string) (string, error) {
 		if err != nil {
 			return err
 		}
-		relative, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		record := fmt.Sprintf("%s:%o:%d", filepath.ToSlash(relative), info.Mode(), info.Size())
+		record := fmt.Sprintf("%s:%o:%d", filepath.ToSlash(path), info.Mode(), info.Size())
 		if info.Mode().IsRegular() {
-			data, err := os.ReadFile(path)
+			data, err := rootHandle.ReadFile(path)
 			if err != nil {
 				return err
 			}
@@ -47,7 +49,12 @@ func treeDigest(root string) (string, error) {
 }
 
 func verifyPrivateTree(root string) error {
-	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+	rootHandle, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rootHandle.Close() }()
+	return fs.WalkDir(rootHandle.FS(), ".", func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -72,23 +79,37 @@ func verifyPrivateTree(root string) error {
 }
 
 func containsMarker(path, marker string) (bool, error) {
-	info, err := os.Lstat(path)
+	parent, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = parent.Close() }()
+	name := filepath.Base(path)
+	info, err := parent.Lstat(name)
 	if err != nil {
 		return false, err
 	}
 	if info.Mode().IsRegular() {
-		data, err := os.ReadFile(path)
+		data, err := parent.ReadFile(name)
 		return bytes.Contains(data, []byte(marker)), err
 	}
+	if !info.IsDir() {
+		return false, nil
+	}
+	rootHandle, err := parent.OpenRoot(name)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = rootHandle.Close() }()
 	found := false
-	err = filepath.WalkDir(path, func(candidate string, entry fs.DirEntry, walkErr error) error {
+	err = fs.WalkDir(rootHandle.FS(), ".", func(candidate string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 		if !entry.Type().IsRegular() {
 			return nil
 		}
-		data, err := os.ReadFile(candidate)
+		data, err := rootHandle.ReadFile(candidate)
 		if err != nil {
 			return err
 		}

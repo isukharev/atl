@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"os"
@@ -37,6 +38,50 @@ func TestStrictJSONRejectsTrailingValue(t *testing.T) {
 		if err := strictJSON([]byte(input), &target); err == nil || errors.Is(err, io.EOF) {
 			t.Fatalf("trailing input %q error=%v", input, err)
 		}
+	}
+}
+
+func TestCorpusDevcontainerWorkflowBindsContractsToExactJob(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateCorpusDevcontainerWorkflow(workflow); err != nil {
+		t.Fatalf("repository workflow: %v", err)
+	}
+
+	const header = "  corpus-devcontainer:\n"
+	const relocated = `  corpus-devcontainer:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - run: true
+
+  relocated-corpus-runtime:
+`
+	workflowWithRelocatedContracts := bytes.Replace(workflow, []byte(header), []byte(relocated), 1)
+	if bytes.Equal(workflowWithRelocatedContracts, workflow) {
+		t.Fatal("corpus devcontainer job header fixture was not replaced")
+	}
+	if err := validateCorpusDevcontainerWorkflow(workflowWithRelocatedContracts); err == nil {
+		t.Fatal("contracts relocated to another job were accepted")
+	}
+
+	var commented strings.Builder
+	commented.WriteString("jobs:\n")
+	commented.WriteString(relocated[:strings.Index(relocated, "\n  relocated-corpus-runtime:")])
+	commented.WriteByte('\n')
+	for _, line := range corpusDevcontainerJobContract {
+		commented.WriteString("      # ")
+		commented.WriteString(line)
+		commented.WriteByte('\n')
+	}
+	if err := validateCorpusDevcontainerWorkflow([]byte(commented.String())); err == nil {
+		t.Fatal("contracts present only in comments were accepted")
 	}
 }
 
