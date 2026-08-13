@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +17,10 @@ type qualifiedConfluenceTreeStore struct {
 	page    domain.ConfluenceTreePage
 }
 
+func qualifiedTreePageRef(id string) domain.PageRef {
+	return domain.PageRef{ID: id, Title: "Page " + id, Space: "DOC", Version: 1}
+}
+
 func (s *qualifiedConfluenceTreeStore) TreeQualified(ctx context.Context, request domain.ConfluenceTreeRequest) (domain.ConfluenceTreePage, error) {
 	s.request = request
 	s.budget = domain.ReadBudgetFromContext(ctx)
@@ -25,7 +30,7 @@ func (s *qualifiedConfluenceTreeStore) TreeQualified(ctx context.Context, reques
 
 func TestConfluenceTreeQualifiedInstallsAndReportsCallerBudget(t *testing.T) {
 	store := &qualifiedConfluenceTreeStore{page: domain.ConfluenceTreePage{
-		Pages: []domain.PageRef{{ID: "1"}}, ScannedItems: 1, Complete: true,
+		Pages: []domain.PageRef{qualifiedTreePageRef("1")}, ScannedItems: 1, Complete: true,
 		Consistency: domain.ConfluenceTreeConsistencyLiveUnproven,
 	}}
 	result, err := (&ConfluenceService{store: store}).TreeQualified(t.Context(), ConfluenceTreeOpts{
@@ -47,22 +52,24 @@ func TestConfluenceTreeQualifiedInstallsAndReportsCallerBudget(t *testing.T) {
 }
 
 func TestNormalizeConfluenceTreeOptsKeepsFiniteDefaultsAndBounds(t *testing.T) {
-	got, err := NormalizeConfluenceTreeOpts(ConfluenceTreeOpts{Space: "DOC"})
+	got, err := NormalizeConfluenceTreeOpts(ConfluenceTreeOpts{Space: "  DOC  "})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.MaxItems != ConfluenceTreeDefaultMaxItems || got.MaxScannedItems != ConfluenceTreeDefaultMaxScannedItems ||
+	if got.Space != "DOC" || got.MaxItems != ConfluenceTreeDefaultMaxItems || got.MaxScannedItems != ConfluenceTreeDefaultMaxScannedItems ||
 		got.MaxRequests != ConfluenceTreeDefaultMaxRequests || got.MaxResponseBytes != ConfluenceTreeDefaultResponseBytes ||
 		got.Deadline != ConfluenceTreeDefaultDeadline {
 		t.Fatalf("defaults=%+v", got)
 	}
 	for name, opts := range map[string]ConfluenceTreeOpts{
-		"space":    {},
-		"items":    {Space: "DOC", MaxItems: ConfluenceTreeMaxItems + 1},
-		"scan":     {Space: "DOC", MaxScannedItems: ConfluenceTreeMaxScannedItems + 1},
-		"requests": {Space: "DOC", MaxRequests: ConfluenceTreeMaxRequests + 1},
-		"bytes":    {Space: "DOC", MaxResponseBytes: ConfluenceTreeMaxResponseBytes + 1},
-		"deadline": {Space: "DOC", Deadline: ConfluenceTreeMaxDeadline + time.Nanosecond},
+		"space":               {},
+		"invalid space UTF-8": {Space: string([]byte{0xff})},
+		"oversize space":      {Space: strings.Repeat("x", ConfluenceTreeMaxSpaceBytes+1)},
+		"items":               {Space: "DOC", MaxItems: ConfluenceTreeMaxItems + 1},
+		"scan":                {Space: "DOC", MaxScannedItems: ConfluenceTreeMaxScannedItems + 1},
+		"requests":            {Space: "DOC", MaxRequests: ConfluenceTreeMaxRequests + 1},
+		"bytes":               {Space: "DOC", MaxResponseBytes: ConfluenceTreeMaxResponseBytes + 1},
+		"deadline":            {Space: "DOC", Deadline: ConfluenceTreeMaxDeadline + time.Nanosecond},
 	} {
 		if _, err := NormalizeConfluenceTreeOpts(opts); err == nil {
 			t.Errorf("%s bound unexpectedly accepted", name)
@@ -72,12 +79,66 @@ func TestNormalizeConfluenceTreeOptsKeepsFiniteDefaultsAndBounds(t *testing.T) {
 
 func TestConfluenceTreeQualifiedRejectsPortBoundViolation(t *testing.T) {
 	store := &qualifiedConfluenceTreeStore{page: domain.ConfluenceTreePage{
-		Pages: []domain.PageRef{{ID: "1"}, {ID: "2"}}, ScannedItems: 2, Complete: true,
+		Pages: []domain.PageRef{qualifiedTreePageRef("1"), qualifiedTreePageRef("2")}, ScannedItems: 2, Complete: true,
 		Consistency: domain.ConfluenceTreeConsistencyLiveUnproven,
 	}}
 	if _, err := (&ConfluenceService{store: store}).TreeQualified(t.Context(), ConfluenceTreeOpts{
 		Space: "DOC", MaxItems: 1,
 	}); err == nil {
 		t.Fatal("qualified port exceeded the caller item bound")
+	}
+}
+
+func TestConfluenceTreeQualifiedRejectsInvalidCustomPortMetadata(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		ref  domain.PageRef
+	}{
+		{name: "invalid id", ref: domain.PageRef{ID: ".", Title: "Page", Space: "DOC", Version: 1}},
+		{name: "blank title", ref: domain.PageRef{ID: "1", Title: " ", Space: "DOC", Version: 1}},
+		{name: "wrong space", ref: domain.PageRef{ID: "1", Title: "Page", Space: "OTHER", Version: 1}},
+		{name: "zero version", ref: domain.PageRef{ID: "1", Title: "Page", Space: "DOC"}},
+		{name: "invalid parent", ref: domain.PageRef{ID: "1", Title: "Page", Space: "DOC", Version: 1, Parent: "."}},
+		{name: "self parent", ref: domain.PageRef{ID: "1", Title: "Page", Space: "DOC", Version: 1, Parent: "1"}},
+		{name: "oversize opaque parent", ref: domain.PageRef{ID: "1", Title: "Page", Space: "DOC", Version: 1, Parent: strings.Repeat("x", 257)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &qualifiedConfluenceTreeStore{page: domain.ConfluenceTreePage{
+				Pages: []domain.PageRef{tc.ref}, ScannedItems: 1, Complete: true,
+				Consistency: domain.ConfluenceTreeConsistencyLiveUnproven,
+			}}
+			if _, err := (&ConfluenceService{store: store}).TreeQualified(t.Context(), ConfluenceTreeOpts{Space: "DOC"}); err == nil {
+				t.Fatal("invalid custom-port metadata was accepted")
+			}
+		})
+	}
+}
+
+func TestConfluenceTreeQualifiedAcceptsOpaqueCustomPortMetadata(t *testing.T) {
+	ref := qualifiedTreePageRef("page_opaque-1")
+	ref.Parent = "parent_opaque-1"
+	store := &qualifiedConfluenceTreeStore{page: domain.ConfluenceTreePage{
+		Pages: []domain.PageRef{ref}, ScannedItems: 1, Complete: true,
+		Consistency: domain.ConfluenceTreeConsistencyLiveUnproven,
+	}}
+	result, err := (&ConfluenceService{store: store}).TreeQualified(t.Context(), ConfluenceTreeOpts{Space: "DOC"})
+	if err != nil || result.Count != 1 || result.Pages[0].Parent != "parent_opaque-1" {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+}
+
+type legacyConfluenceTreeStore struct {
+	domain.DocStore
+	pages []domain.PageRef
+}
+
+func (s *legacyConfluenceTreeStore) Tree(context.Context, string, int) ([]domain.PageRef, bool, error) {
+	return s.pages, true, nil
+}
+
+func TestConfluenceTreeLegacyFallbackRejectsUnqualifiedRows(t *testing.T) {
+	store := &legacyConfluenceTreeStore{pages: []domain.PageRef{{ID: "1"}}}
+	if _, err := (&ConfluenceService{store: store}).TreeQualified(t.Context(), ConfluenceTreeOpts{Space: "DOC"}); err == nil {
+		t.Fatal("legacy tree row without exact metadata was accepted")
 	}
 }

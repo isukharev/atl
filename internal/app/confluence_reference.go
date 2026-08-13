@@ -41,11 +41,29 @@ func (s *ConfluenceService) ResolvePageReference(ctx context.Context, reference 
 	return s.resolvePageReference(ctx, strings.TrimSpace(reference), true)
 }
 
-func (s *ConfluenceService) resolvePageReference(ctx context.Context, reference string, allowShort bool) (*ConfluencePageResolution, error) {
-	if reference == "" {
-		return nil, fmt.Errorf("%w: Confluence page reference is required", domain.ErrUsage)
+// ValidConfluencePageReferenceInput reports whether reference has one of the
+// public read-selector forms: a bounded opaque id, an absolute HTTP(S) URL, or
+// a root-relative path. Origin and context-path checks remain service-owned.
+func ValidConfluencePageReferenceInput(reference string) bool {
+	reference = strings.TrimSpace(reference)
+	if domain.ValidConfluenceReadID(reference) {
+		return true
 	}
-	if isOpaquePageID(reference) {
+	u, err := url.Parse(reference)
+	if err != nil || u.User != nil {
+		return false
+	}
+	if u.IsAbs() {
+		return (strings.EqualFold(u.Scheme, "http") || strings.EqualFold(u.Scheme, "https")) && u.Host != ""
+	}
+	return u.Host == "" && strings.HasPrefix(u.Path, "/")
+}
+
+func (s *ConfluenceService) resolvePageReference(ctx context.Context, reference string, allowShort bool) (*ConfluencePageResolution, error) {
+	if !ValidConfluencePageReferenceInput(reference) {
+		return nil, fmt.Errorf("%w: Confluence page reference must be an opaque id, absolute URL, or root-relative path", domain.ErrUsage)
+	}
+	if domain.ValidConfluenceReadID(reference) {
 		return &ConfluencePageResolution{ID: reference, Kind: "id"}, nil
 	}
 	base, err := url.Parse(strings.TrimSpace(s.baseURL))
@@ -87,6 +105,9 @@ func (s *ConfluenceService) resolvePageReference(ctx context.Context, reference 
 		}
 		if len(refs) != 1 || next != "" {
 			return nil, fmt.Errorf("%w: Confluence display reference is ambiguous", domain.ErrCheckFailed)
+		}
+		if !domain.ValidConfluenceReadID(refs[0].ID) {
+			return nil, fmt.Errorf("%w: Confluence display reference returned an invalid page id", domain.ErrCheckFailed)
 		}
 		return &ConfluencePageResolution{ID: refs[0].ID, Kind: "display", NetworkRequests: 1, Space: space, Title: title, untrusted: true}, nil
 	}
@@ -200,15 +221,7 @@ func isDecimalID(value string) bool {
 }
 
 func isOpaquePageID(value string) bool {
-	if len(value) == 0 || len(value) > 256 {
-		return false
-	}
-	for _, char := range value {
-		if (char < 'a' || char > 'z') && (char < 'A' || char > 'Z') && (char < '0' || char > '9') && char != '_' && char != '-' {
-			return false
-		}
-	}
-	return true
+	return domain.ValidConfluenceReadID(value)
 }
 
 func cqlQuoted(value string) string {

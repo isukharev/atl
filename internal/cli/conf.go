@@ -1238,22 +1238,36 @@ func confAttachmentCmd() *cobra.Command {
 
 	var getPageID, getName, getInto string
 	var getVersion int
+	var getMaxBytes int64
 	get := &cobra.Command{
 		Use:   "get",
 		Short: "Download an attachment to a directory",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if getPageID == "" || getName == "" {
+			if strings.TrimSpace(getPageID) == "" || getName == "" {
 				return usageErr("--id and --name are required")
+			}
+			if !app.ValidConfluencePageReferenceInput(getPageID) {
+				return usageErr("--id must be an opaque id, absolute URL, or root-relative path")
+			}
+			if !app.ValidConfluenceAttachmentDownloadFilename(getName) {
+				return usageErr(fmt.Sprintf("--name must be nonblank valid UTF-8 and at most %d bytes", app.ConfluenceAttachmentDownloadMaxFilenameBytes))
 			}
 			if getVersion < 0 {
 				return usageErr("--version must be non-negative")
+			}
+			if cmd.Flags().Changed("max-bytes") && getMaxBytes <= 0 {
+				return usageErr("--max-bytes must be greater than zero")
+			}
+			options, err := app.NormalizeConfluenceAttachmentDownloadOptions(app.ConfluenceAttachmentDownloadOptions{MaxBytes: getMaxBytes})
+			if err != nil {
+				return err
 			}
 			svc, err := confService(cmd)
 			if err != nil {
 				return err
 			}
-			result, err := svc.DownloadAttachmentKnownPage(cmd.Context(), getPageID, getName, getVersion, getInto)
+			result, err := svc.DownloadAttachmentKnownPageWithOptions(cmd.Context(), getPageID, getName, getVersion, getInto, options)
 			if err != nil {
 				return err
 			}
@@ -1265,6 +1279,8 @@ func confAttachmentCmd() *cobra.Command {
 	get.Flags().StringVar(&getPageID, "id", "", "page id or supported same-origin URL")
 	get.Flags().StringVar(&getName, "name", "", "attachment filename")
 	get.Flags().IntVar(&getVersion, "version", 0, "attachment version (0 = latest)")
+	get.Flags().Int64Var(&getMaxBytes, "max-bytes", app.ConfluenceAttachmentDownloadDefaultMaxBytes,
+		fmt.Sprintf("maximum attachment bytes (default %d, max %d)", app.ConfluenceAttachmentDownloadDefaultMaxBytes, app.ConfluenceAttachmentDownloadMaxBytes))
 	get.Flags().StringVar(&getInto, "into", ".", "output directory")
 
 	var uploadPageID, uploadFile, uploadComment string

@@ -73,3 +73,19 @@ func TestCanonicalIdentifierPredicatesMatchLegacyLanguages(t *testing.T) {
 		}
 	}
 }
+
+func TestConfluenceReadIDIsBoundedOpaqueWithoutWeakeningWriteID(t *testing.T) {
+	for _, value := range []string{"1", "opaque_ID-7", strings.Repeat("a", 256)} {
+		if !ValidConfluenceReadID(value) {
+			t.Fatalf("ValidConfluenceReadID(%q)=false", value)
+		}
+	}
+	for _, value := range []string{"", "bad/id", " space", "a.b", strings.Repeat("a", 257)} {
+		if ValidConfluenceReadID(value) {
+			t.Fatalf("ValidConfluenceReadID(%q)=true", value)
+		}
+	}
+	if ValidConfluenceContentID("opaque_ID-7") {
+		t.Fatal("opaque read id unexpectedly passed guarded write predicate")
+	}
+}

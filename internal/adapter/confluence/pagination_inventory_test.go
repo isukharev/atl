@@ -16,7 +16,7 @@ import (
 
 func TestConfluencePaginationOwnerInventoryIsClosed(t *testing.T) {
 	want := map[string][]string{
-		"attachment_discovery.go:DiscoverAttachmentsQualified":             {"advance", "checkedEnd", "requestStart", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt"},
+		"attachment_discovery.go:DiscoverAttachmentsQualified":             {"advance", "checkedEnd", "requestStart", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt", "startAt"},
 		"attachment_download_revalidation.go:RevalidateAttachmentDownload": {"requestStart"},
 		"comments_qualified.go:ListConfluenceComments":                     {"advance", "requestStart", "startAt", "startAt"},
 		"confluence.go:HistoryQualified":                                   {"advance", "requestStart", "startAt"},
@@ -160,6 +160,8 @@ mirror_metadata.go:ReadPageMetadataBatch:range:1
 search.go:SearchComplete:range:1
 search.go:TreeQualified:for:1
 search.go:TreeQualified:range:1
+search.go:TreeQualified:range:2
+search.go:qualifiedConfluenceTreeContent:range:1
 search.go:stripHTML:range:1
 server_metadata.go:confluenceBuildNumber:range:1
 server_metadata.go:legacyConfluenceIdentity:range:1

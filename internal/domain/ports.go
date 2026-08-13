@@ -202,13 +202,16 @@ type ConfluenceAttachmentDownloadEvidence struct {
 	PageID       string
 	Filename     string
 	Version      int
+	FileSize     int64
 }
 
 // QualifiedConfluenceAttachmentDownloadRevalidator is the narrow Server/Data
 // Center capability used before a known-page filename download. Implementations
 // must reject absent or ambiguous filename matches and validate a requested
 // historical version when version is positive. The caller supplies a finite
-// ReadBudget, deadline, and single-attempt policy through ctx.
+// ReadBudget and deadline through ctx. The application applies SingleAttempt
+// only while invoking this immediate revalidator; reference resolution before
+// it retains bounded ordinary read redirect/retry behavior.
 type QualifiedConfluenceAttachmentDownloadRevalidator interface {
 	RevalidateAttachmentDownload(ctx context.Context, pageID, filename string, version int) (ConfluenceAttachmentDownloadEvidence, error)
 }

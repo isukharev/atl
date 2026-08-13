@@ -481,12 +481,12 @@ func TestHistoryForbidden(t *testing.T) {
 func TestTreePaginates(t *testing.T) {
 	var paths []string
 	page1 := `{"results":[
-		{"id":"1","title":"Root","space":{"key":"DOC"},"version":{"number":1}},
-		{"id":"2","title":"Child","space":{"key":"DOC"},"version":{"number":1},"ancestors":[{"id":"1","title":"Root"}]}
-	],"start":0,"limit":200,"size":2,"totalSize":3,"_links":{"next":"/rest/api/content/search?start=2"}}`
+		{"id":"1","type":"page","title":"Root","space":{"key":"DOC"},"version":{"number":1},"ancestors":[]},
+		{"id":"2","type":"page","title":"Child","space":{"key":"DOC"},"version":{"number":1},"ancestors":[{"id":"1","title":"Root"}]}
+	],"start":0,"limit":200,"size":2,"totalCount":3,"_links":{"next":"/rest/api/content/search?start=2"}}`
 	page2 := `{"results":[
-		{"id":"3","title":"Grandchild","space":{"key":"DOC"},"version":{"number":1},"ancestors":[{"id":"1","title":"Root"},{"id":"2","title":"Child"}]}
-	],"start":2,"limit":200,"size":1,"totalSize":3,"_links":{}}`
+		{"id":"3","type":"page","title":"Grandchild","space":{"key":"DOC"},"version":{"number":1},"ancestors":[{"id":"1","title":"Root"},{"id":"2","title":"Child"}]}
+	],"start":2,"limit":200,"size":1,"totalCount":3,"_links":{}}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, r.URL.RequestURI())
 		w.Header().Set("Content-Type", "application/json")
@@ -528,9 +528,9 @@ func TestTreePaginates(t *testing.T) {
 // is >= depth. With depth=1, only top-level pages (0 ancestors) survive.
 func TestTreeDepthFilter(t *testing.T) {
 	body := `{"results":[
-		{"id":"1","title":"Root","space":{"key":"DOC"},"version":{"number":1}},
-		{"id":"2","title":"Child","space":{"key":"DOC"},"version":{"number":1},"ancestors":[{"id":"1","title":"Root"}]}
-	],"start":0,"limit":200,"size":2,"totalSize":2,"_links":{}}`
+		{"id":"1","type":"page","title":"Root","space":{"key":"DOC"},"version":{"number":1},"ancestors":[]},
+		{"id":"2","type":"page","title":"Child","space":{"key":"DOC"},"version":{"number":1},"ancestors":[{"id":"1","title":"Root"}]}
+	],"start":0,"limit":200,"size":2,"totalCount":2,"_links":{}}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(body))
@@ -554,7 +554,7 @@ func TestTreeEmptyResultsStops(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls++
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"results":[],"start":0,"limit":200,"size":0,"totalSize":1,"_links":{"next":"/rest/api/content/search?start=0"}}`))
+		_, _ = w.Write([]byte(`{"results":[],"start":0,"limit":200,"size":0,"totalCount":1,"_links":{"next":"/rest/api/content/search?start=0"}}`))
 	}))
 	defer srv.Close()
 
@@ -1583,9 +1583,9 @@ func TestTreeReportsTruncationAtCap(t *testing.T) {
 			if i > 0 {
 				b.WriteString(",")
 			}
-			fmt.Fprintf(&b, `{"id":"%d","title":"P%d","space":{"key":"DOC"},"version":{"number":1},"ancestors":[{"id":"root"}]}`, start+i, start+i)
+			fmt.Fprintf(&b, `{"id":"%d","type":"page","title":"P%d","space":{"key":"DOC"},"version":{"number":1},"ancestors":[{"id":"root"}]}`, start+i, start+i)
 		}
-		fmt.Fprintf(&b, `],"start":%d,"limit":%d,"size":%d,"totalSize":%d,"_links":{`, start, n, n, total)
+		fmt.Fprintf(&b, `],"start":%d,"limit":%d,"size":%d,"totalCount":%d,"_links":{`, start, n, n, total)
 		if next {
 			b.WriteString(`"next":"/rest/api/content/search?start=x"`)
 		}
@@ -1643,14 +1643,19 @@ func TestTreeReportsTruncationAtCap(t *testing.T) {
 	if err != nil || !truncated3 {
 		t.Fatalf("oversized terminal page must report truncation: %v %v", truncated3, err)
 	}
-	if len(got3) != treePageCap {
-		t.Fatalf("oversized terminal page retained %d rows, want exact cap %d", len(got3), treePageCap)
+	if len(got3) != 0 {
+		t.Fatalf("oversized terminal page retained %d unqualified rows, want 0", len(got3))
 	}
 
 	// Reaching the cap exactly on a terminal response is still proven exhaustion.
-	srv4 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv4 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start, _ := strconv.Atoi(r.URL.Query().Get("start"))
+		n := 200
+		if remaining := treePageCap - start; remaining < n {
+			n = remaining
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(pageJSON(0, treePageCap, treePageCap, false)))
+		_, _ = w.Write([]byte(pageJSON(start, n, treePageCap, start+n < treePageCap)))
 	}))
 	defer srv4.Close()
 	cf4 := &Confluence{c: newTestClient(srv4.URL), base: srv4.URL}
@@ -1680,9 +1685,9 @@ func TestTreeDepthFilterDoesNotConsumeResultBudget(t *testing.T) {
 			if index == 0 {
 				ancestors = `[]`
 			}
-			fmt.Fprintf(&body, `{"id":"%d","title":"P%d","space":{"key":"DOC"},"version":{"number":1},"ancestors":%s}`, id, id, ancestors)
+			fmt.Fprintf(&body, `{"id":"%d","type":"page","title":"P%d","space":{"key":"DOC"},"version":{"number":1},"ancestors":%s}`, id, id, ancestors)
 		}
-		fmt.Fprintf(&body, `],"start":%d,"limit":200,"size":200,"totalSize":%d,"_links":{`, start, totalRows)
+		fmt.Fprintf(&body, `],"start":%d,"limit":200,"size":200,"totalCount":%d,"_links":{`, start, totalRows)
 		if start+200 < totalRows {
 			body.WriteString(`"next":"/rest/api/content/search?start=next"`)
 		}

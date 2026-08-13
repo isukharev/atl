@@ -168,6 +168,9 @@ func (c *Client) DoWithBodyLimit(ctx context.Context, method, path string, body 
 // same-origin short-link resolution; callers must still validate the returned
 // path as an application-level reference.
 func (c *Client) ResolveGET(ctx context.Context, path string) (string, error) {
+	if domain.NoReplayRetries(ctx) && !domain.SingleAttempt(ctx) && domain.ReadBudgetFromContext(ctx) == nil {
+		return "", fmt.Errorf("%w: no-replay read requires a finite physical-attempt budget", domain.ErrCheckFailed)
+	}
 	resolved, err := c.resolveURL(path)
 	if err != nil {
 		return "", err
@@ -258,6 +261,9 @@ func (c *Client) DoStreamSized(ctx context.Context, method, path string, r io.Re
 // response body; exceeding it is an error, not a silent truncation. Binary
 // downloads use GetStream instead.
 func (c *Client) do(ctx context.Context, method, path string, body []byte, headers map[string]string, maxBytes int64) ([]byte, error) {
+	if domain.NoReplayRetries(ctx) && !domain.SingleAttempt(ctx) && domain.ReadBudgetFromContext(ctx) == nil {
+		return nil, fmt.Errorf("%w: no-replay read requires a finite physical-attempt budget", domain.ErrCheckFailed)
+	}
 	url, err := c.resolveURL(path)
 	if err != nil {
 		return nil, err
@@ -265,7 +271,7 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 	var lastErr error
 	skipBackoff := false
 	retries := maxRetries
-	if domain.SingleAttempt(ctx) {
+	if domain.NoReplayRetries(ctx) {
 		retries = 0
 	}
 	for attempt := 0; attempt <= retries; attempt++ {
@@ -308,7 +314,7 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 		apiErr := &APIError{Status: resp.StatusCode, Method: method, Path: path, Body: string(data), kind: result.kind}
 		// A response does not prove that a write was uncommitted. Only replay-safe
 		// reads retry generically; write endpoints must reconcile explicitly.
-		if result.retryable {
+		if result.retryable && !domain.NoReplayRetries(ctx) {
 			lastErr = apiErr
 			if result.retryDelay > 0 {
 				if !sleep(ctx, result.retryDelay) {
@@ -389,6 +395,9 @@ func (c *Client) SendJSON(ctx context.Context, method, path string, in, out any)
 // transport error mid-body is not retried (the partial read cannot be
 // transparently resumed).
 func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, error) {
+	if domain.NoReplayRetries(ctx) && !domain.SingleAttempt(ctx) && domain.ReadBudgetFromContext(ctx) == nil {
+		return nil, fmt.Errorf("%w: no-replay read requires a finite physical-attempt budget", domain.ErrCheckFailed)
+	}
 	url, err := c.resolveURL(path)
 	if err != nil {
 		return nil, err
@@ -396,7 +405,7 @@ func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, err
 	var lastErr error
 	skipBackoff := false
 	retries := maxRetries
-	if domain.SingleAttempt(ctx) {
+	if domain.NoReplayRetries(ctx) {
 		retries = 0
 	}
 	for attempt := 0; attempt <= retries; attempt++ {
@@ -437,7 +446,7 @@ func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, err
 			return nil, rerr
 		}
 		apiErr := &APIError{Status: resp.StatusCode, Method: http.MethodGet, Path: path, Body: string(data), kind: result.kind}
-		if result.retryable {
+		if result.retryable && !domain.NoReplayRetries(ctx) {
 			lastErr = apiErr
 			if result.retryDelay > 0 {
 				if !sleep(ctx, result.retryDelay) {

@@ -6,11 +6,13 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/isukharev/atl/internal/domain"
 )
 
 const confluenceAttachmentDownloadMatchLimit = 2
+const confluenceAttachmentDownloadMaxFilenameBytes = 255
 
 type confluenceAttachmentDownloadMetadata struct {
 	ID      *string `json:"id"`
@@ -23,6 +25,9 @@ type confluenceAttachmentDownloadMetadata struct {
 		ID   *string `json:"id"`
 		Type *string `json:"type"`
 	} `json:"container"`
+	Extensions *struct {
+		FileSize *int64 `json:"fileSize"`
+	} `json:"extensions"`
 }
 
 // RevalidateAttachmentDownload resolves one exact filename inside a known
@@ -33,11 +38,12 @@ func (cf *Confluence) RevalidateAttachmentDownload(ctx context.Context, pageID, 
 	if domain.ReadBudgetFromContext(ctx) == nil || !domain.SingleAttempt(ctx) {
 		return domain.ConfluenceAttachmentDownloadEvidence{}, fmt.Errorf("%w: attachment download revalidation requires a bounded single-attempt context", domain.ErrCheckFailed)
 	}
-	if !domain.ValidConfluenceContentID(pageID) || strings.TrimSpace(filename) == "" || requestedVersion < 0 {
+	if !domain.ValidConfluenceReadID(pageID) || strings.TrimSpace(filename) == "" || !utf8.ValidString(filename) ||
+		len(filename) > confluenceAttachmentDownloadMaxFilenameBytes || requestedVersion < 0 {
 		return domain.ConfluenceAttachmentDownloadEvidence{}, fmt.Errorf("%w: attachment download selector is invalid", domain.ErrUsage)
 	}
 	query := url.Values{}
-	query.Set("expand", "container,version")
+	query.Set("expand", "container,extensions,version")
 	query.Set("filename", filename)
 	query.Set("limit", strconv.Itoa(confluenceAttachmentDownloadMatchLimit))
 	query.Set("start", "0")
@@ -74,9 +80,13 @@ func (cf *Confluence) RevalidateAttachmentDownload(ctx context.Context, pageID, 
 	if requestedVersion == 0 || requestedVersion == current.Version {
 		return current, nil
 	}
+	if requestedVersion > current.Version {
+		return domain.ConfluenceAttachmentDownloadEvidence{}, fmt.Errorf("%w: requested attachment version is newer than the revalidated current version", domain.ErrCheckFailed)
+	}
 
 	query = url.Values{}
-	query.Set("expand", "container,version")
+	query.Set("expand", "container,extensions,version")
+	query.Set("status", "historical")
 	query.Set("version", strconv.Itoa(requestedVersion))
 	var historical confluenceAttachmentDownloadMetadata
 	if err := cf.c.GetJSON(ctx, "/rest/api/content/"+url.PathEscape(current.AttachmentID)+"?"+query.Encode(), &historical); err != nil {
@@ -91,14 +101,15 @@ func (cf *Confluence) RevalidateAttachmentDownload(ctx context.Context, pageID, 
 
 func qualifiedConfluenceAttachmentDownloadMetadata(value confluenceAttachmentDownloadMetadata, pageID, filename string) (domain.ConfluenceAttachmentDownloadEvidence, bool) {
 	if value.ID == nil || value.Title == nil || value.Type == nil || value.Version == nil || value.Version.Number == nil ||
-		value.Container == nil || value.Container.ID == nil || value.Container.Type == nil {
+		value.Container == nil || value.Container.ID == nil || value.Container.Type == nil ||
+		value.Extensions == nil || value.Extensions.FileSize == nil {
 		return domain.ConfluenceAttachmentDownloadEvidence{}, false
 	}
-	if !domain.ValidConfluenceContentID(*value.ID) || *value.Title != filename || *value.Type != "attachment" || *value.Version.Number <= 0 ||
-		*value.Container.ID != pageID || (*value.Container.Type != "page" && *value.Container.Type != "blogpost") {
+	if !domain.ValidConfluenceReadID(*value.ID) || *value.Title != filename || *value.Type != "attachment" || *value.Version.Number <= 0 ||
+		*value.ID == pageID || *value.Container.ID != pageID || (*value.Container.Type != "page" && *value.Container.Type != "blogpost") || *value.Extensions.FileSize < 0 {
 		return domain.ConfluenceAttachmentDownloadEvidence{}, false
 	}
 	return domain.ConfluenceAttachmentDownloadEvidence{
-		AttachmentID: *value.ID, PageID: pageID, Filename: filename, Version: *value.Version.Number,
+		AttachmentID: *value.ID, PageID: pageID, Filename: filename, Version: *value.Version.Number, FileSize: *value.Extensions.FileSize,
 	}, true
 }

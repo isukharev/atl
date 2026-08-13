@@ -161,11 +161,12 @@ func TestValidateConfluenceAttachmentDiscoveryResultFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	total := 1
 	result := &ConfluenceAttachmentDiscoveryResult{
 		SchemaVersion: ConfluenceAttachmentDiscoverySchemaVersion,
 		Qualification: ConfluenceAttachmentDiscoveryComplete, Complete: true,
 		Consistency: domain.ConfluenceAttachmentDiscoveryConsistencyLiveUnproven,
-		ScopeSHA256: hash, Count: 1,
+		ScopeSHA256: hash, Count: 1, TotalSize: &total,
 		Bounds: ConfluenceAttachmentDiscoveryBounds{
 			MaxItems: 1, MaxRequests: 1, MaxResponseBytes: 1, DeadlineMillis: 1,
 		},
@@ -179,7 +180,12 @@ func TestValidateConfluenceAttachmentDiscoveryResultFailsClosed(t *testing.T) {
 		"failed cursor": func(r *ConfluenceAttachmentDiscoveryResult) {
 			r.Qualification, r.Complete, r.Reason, r.NextCursor = ConfluenceAttachmentDiscoveryFailed, false, ConfluenceAttachmentDiscoveryReadFailed, "not-resumable"
 		},
-		"negative size": func(r *ConfluenceAttachmentDiscoveryResult) { r.Attachments[0].FileSize = -1 },
+		"negative size":               func(r *ConfluenceAttachmentDiscoveryResult) { r.Attachments[0].FileSize = -1 },
+		"attachment equals container": func(r *ConfluenceAttachmentDiscoveryResult) { r.Attachments[0].ID = r.Attachments[0].ContainerID },
+		"complete missing total":      func(r *ConfluenceAttachmentDiscoveryResult) { r.TotalSize = nil },
+		"failed retained content": func(r *ConfluenceAttachmentDiscoveryResult) {
+			r.Qualification, r.Complete, r.Reason = ConfluenceAttachmentDiscoveryFailed, false, ConfluenceAttachmentDiscoveryReadFailed
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := *result

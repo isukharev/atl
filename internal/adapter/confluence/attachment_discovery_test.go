@@ -26,7 +26,7 @@ func TestDiscoverAttachmentsQualifiedUsesValidatedLocalOffsetContinuation(t *tes
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Query().Get("start") == "0" {
-			_, _ = w.Write([]byte(`{"results":[` + attachmentDiscoveryRow + `],"start":0,"limit":2,"size":1,"totalSize":2,"_links":{"next":"https://foreign.invalid/never-follow"}}`))
+			_, _ = w.Write([]byte(`{"results":[` + attachmentDiscoveryRow + `],"start":0,"limit":2,"size":1,"totalCount":2,"_links":{"next":"https://foreign.invalid/never-follow"}}`))
 			return
 		}
 		row := strings.ReplaceAll(attachmentDiscoveryRow, `"21"`, `"22"`)
@@ -69,7 +69,7 @@ func TestDiscoverAttachmentsQualifiedTerminalAtExactItemLimitWins(t *testing.T) 
 		t.Run(tc.name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"results":[` + attachmentDiscoveryRow + `],"start":0,"limit":1,"size":1,"totalSize":` +
+				_, _ = w.Write([]byte(`{"results":[` + attachmentDiscoveryRow + `],"start":0,"limit":1,"size":1,"totalCount":` +
 					string(rune('0'+tc.total)) + `,"_links":{"next":"` + tc.next + `"}}`))
 			}))
 			t.Cleanup(srv.Close)
@@ -89,7 +89,7 @@ func TestDiscoverAttachmentsQualifiedBudgetsReturnQualifiedPrefix(t *testing.T) 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"results":[` + attachmentDiscoveryRow + `],"start":0,"limit":2,"size":1,"totalSize":2,"_links":{"next":"ignored"}}`))
+		_, _ = w.Write([]byte(`{"results":[` + attachmentDiscoveryRow + `],"start":0,"limit":2,"size":1,"totalCount":2,"_links":{"next":"ignored"}}`))
 	}))
 	t.Cleanup(srv.Close)
 	budget, err := domain.NewReadBudget(1, 1<<20)
@@ -111,10 +111,16 @@ func TestDiscoverAttachmentsQualifiedBudgetsReturnQualifiedPrefix(t *testing.T) 
 
 func TestDiscoverAttachmentsQualifiedRejectsMalformedMetadataAndCoordinates(t *testing.T) {
 	for _, body := range []string{
-		`{"results":[],"start":null,"limit":1,"size":0,"totalSize":0,"_links":{}}`,
-		`{"results":[],"start":0,"limit":1,"size":0,"totalSize":1,"_links":{}}`,
-		`{"results":[` + strings.ReplaceAll(attachmentDiscoveryRow, `"type":"attachment"`, `"type":"page"`) + `],"start":0,"limit":1,"size":1,"totalSize":1,"_links":{}}`,
-		`{"results":[` + strings.ReplaceAll(attachmentDiscoveryRow, `"key":"DOC"`, `"key":"OTHER"`) + `],"start":0,"limit":1,"size":1,"totalSize":1,"_links":{}}`,
+		`{"results":[],"start":0,"limit":1,"size":0,"_links":{}}`,
+		`{"results":[],"start":0,"limit":1,"size":0,"totalCount":null,"totalSize":null,"_links":{}}`,
+		`{"results":[],"start":0,"limit":1,"size":0,"totalCount":null,"totalSize":0,"_links":{}}`,
+		`{"results":[],"start":0,"limit":1,"size":0,"totalCount":0,"totalSize":1,"_links":{}}`,
+		`{"results":[],"start":0,"limit":1,"size":0,"totalCount":9223372036854775808,"_links":{}}`,
+		`{"results":[],"start":null,"limit":1,"size":0,"totalCount":0,"_links":{}}`,
+		`{"results":[],"start":0,"limit":1,"size":0,"totalCount":1,"_links":{}}`,
+		`{"results":[` + strings.ReplaceAll(attachmentDiscoveryRow, `"type":"attachment"`, `"type":"page"`) + `],"start":0,"limit":1,"size":1,"totalCount":1,"_links":{}}`,
+		`{"results":[` + strings.ReplaceAll(attachmentDiscoveryRow, `"key":"DOC"`, `"key":"OTHER"`) + `],"start":0,"limit":1,"size":1,"totalCount":1,"_links":{}}`,
+		`{"results":[` + strings.Replace(attachmentDiscoveryRow, `"id":"21"`, `"id":"10"`, 1) + `],"start":0,"limit":1,"size":1,"totalCount":1,"_links":{}}`,
 	} {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
@@ -131,6 +137,51 @@ func TestDiscoverAttachmentsQualifiedRejectsMalformedMetadataAndCoordinates(t *t
 	}
 }
 
+func TestDiscoverAttachmentsQualifiedTotalAliasWireContract(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		totals   string
+		complete bool
+	}{
+		{name: "official only", totals: `"totalCount":1`, complete: true},
+		{name: "observed only", totals: `"totalSize":1`, complete: true},
+		{name: "equal dual", totals: `"totalCount":1,"totalSize":1`, complete: true},
+		{name: "null official", totals: `"totalCount":null,"totalSize":1`},
+		{name: "null observed", totals: `"totalCount":1,"totalSize":null`},
+		{name: "conflict", totals: `"totalCount":1,"totalSize":2`},
+		{name: "fraction", totals: `"totalCount":1.0`},
+		{name: "overflow", totals: `"totalCount":9223372036854775808`},
+		{name: "missing"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				comma := ""
+				if tc.totals != "" {
+					comma = "," + tc.totals
+				}
+				_, _ = w.Write([]byte(`{"results":[` + attachmentDiscoveryRow + `],"start":0,"limit":1,"size":1` + comma + `,"_links":{}}`))
+			}))
+			defer srv.Close()
+			page, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).DiscoverAttachmentsQualified(
+				t.Context(), domain.ConfluenceAttachmentDiscoveryRequest{MaxItems: 1})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.complete {
+				if !page.Complete || len(page.Attachments) != 1 || page.TotalSize == nil || *page.TotalSize != 1 {
+					t.Fatalf("page=%+v", page)
+				}
+				return
+			}
+			if page.Complete || page.PartialReason != domain.ConfluenceAttachmentDiscoveryPartialPaginationUnqualified ||
+				len(page.Attachments) != 0 || page.NextStart == nil || *page.NextStart != 0 {
+				t.Fatalf("page=%+v", page)
+			}
+		})
+	}
+}
+
 func TestDiscoverAttachmentsQualifiedRejectsFinalPageOverCallerItemBound(t *testing.T) {
 	requests := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -139,7 +190,7 @@ func TestDiscoverAttachmentsQualifiedRejectsFinalPageOverCallerItemBound(t *test
 		second := strings.ReplaceAll(strings.ReplaceAll(attachmentDiscoveryRow, `"21"`, `"22"`), `"diagram.png"`, `"two.png"`)
 		_, _ = w.Write([]byte(`{"results":[` +
 			attachmentDiscoveryRow + `,` + second +
-			`],"start":0,"limit":2,"size":2,"totalSize":2,"_links":{}}`))
+			`],"start":0,"limit":2,"size":2,"totalCount":2,"_links":{}}`))
 	}))
 	t.Cleanup(srv.Close)
 	result, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).DiscoverAttachmentsQualified(

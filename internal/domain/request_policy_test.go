@@ -83,6 +83,21 @@ func TestWriteClearanceAndReadIntentAreIndependentOptInMarkers(t *testing.T) {
 	}
 }
 
+func TestNoReplayRetriesIsIndependentFromSingleAttempt(t *testing.T) {
+	ctx := context.Background()
+	if NoReplayRetries(ctx) || SingleAttempt(ctx) {
+		t.Fatal("background context unexpectedly carries retry policy")
+	}
+	noReplay := WithNoReplayRetries(ctx)
+	if !NoReplayRetries(noReplay) || SingleAttempt(noReplay) {
+		t.Fatal("no-replay policy unexpectedly became single-attempt")
+	}
+	single := WithSingleAttempt(ctx)
+	if !NoReplayRetries(single) || !SingleAttempt(single) {
+		t.Fatal("single-attempt policy did not also disable retries")
+	}
+}
+
 func TestReadBudgetConcurrentCountersNeverExceedLimits(t *testing.T) {
 	const (
 		attemptLimit = 37

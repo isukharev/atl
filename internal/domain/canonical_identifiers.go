@@ -5,6 +5,23 @@ import (
 	"strings"
 )
 
+// ValidConfluenceReadID reports whether value is the bounded opaque content-id
+// language accepted by Confluence read routes and page-reference resolution.
+// Guarded write paths deliberately retain the stricter positive-decimal
+// ValidConfluenceContentID predicate below.
+func ValidConfluenceReadID(value string) bool {
+	if len(value) == 0 || len(value) > 256 {
+		return false
+	}
+	for _, char := range value {
+		if (char < 'a' || char > 'z') && (char < 'A' || char > 'Z') &&
+			(char < '0' || char > '9') && char != '_' && char != '-' {
+			return false
+		}
+	}
+	return true
+}
+
 // ValidConfluenceContentID reports whether value is the canonical positive
 // decimal spelling accepted by guarded Confluence write paths.
 func ValidConfluenceContentID(value string) bool {

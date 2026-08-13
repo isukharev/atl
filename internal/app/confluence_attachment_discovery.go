@@ -194,7 +194,7 @@ func ValidateConfluenceAttachmentDiscoveryResult(result *ConfluenceAttachmentDis
 	}
 	switch result.Qualification {
 	case ConfluenceAttachmentDiscoveryComplete:
-		if !result.Complete || result.Reason != "" || result.NextCursor != "" {
+		if !result.Complete || result.Reason != "" || result.NextCursor != "" || result.TotalSize == nil {
 			return fmt.Errorf("%w: complete Confluence attachment discovery is not reconciled", domain.ErrCheckFailed)
 		}
 	case ConfluenceAttachmentDiscoveryPartial:
@@ -202,7 +202,8 @@ func ValidateConfluenceAttachmentDiscoveryResult(result *ConfluenceAttachmentDis
 			return fmt.Errorf("%w: partial Confluence attachment discovery is not reconciled", domain.ErrCheckFailed)
 		}
 	case ConfluenceAttachmentDiscoveryFailed:
-		if result.Complete || (result.Reason != ConfluenceAttachmentDiscoveryReadFailed && result.Reason != ConfluenceAttachmentDiscoveryValidationFailed) || result.NextCursor != "" {
+		if result.Complete || (result.Reason != ConfluenceAttachmentDiscoveryReadFailed && result.Reason != ConfluenceAttachmentDiscoveryValidationFailed) ||
+			result.NextCursor != "" || result.Count != 0 || len(result.Attachments) != 0 || result.TotalSize != nil {
 			return fmt.Errorf("%w: failed Confluence attachment discovery is not reconciled", domain.ErrCheckFailed)
 		}
 	default:
@@ -282,9 +283,9 @@ func validateConfluenceAttachmentDiscoveryPage(page domain.ConfluenceAttachmentD
 }
 
 func validConfluenceAttachmentMetadata(item domain.ConfluenceAttachmentMetadata) bool {
-	return domain.ValidConfluenceContentID(item.ID) && strings.TrimSpace(item.Title) != "" && item.Type == "attachment" && item.Version > 0 &&
-		domain.ValidConfluenceContentID(item.ContainerID) && (item.ContainerType == "page" || item.ContainerType == "blogpost") &&
-		item.ContainerVersion > 0 && strings.TrimSpace(item.Space) != "" && strings.TrimSpace(item.MediaType) != "" && item.FileSize >= 0
+	return domain.ValidConfluenceReadID(item.ID) && strings.TrimSpace(item.Title) != "" && item.Type == "attachment" && item.Version > 0 &&
+		domain.ValidConfluenceReadID(item.ContainerID) && (item.ContainerType == "page" || item.ContainerType == "blogpost") &&
+		item.ID != item.ContainerID && item.ContainerVersion > 0 && strings.TrimSpace(item.Space) != "" && strings.TrimSpace(item.MediaType) != "" && item.FileSize >= 0
 }
 
 func confluenceAttachmentDiscoveryScopeHash(backend, space, cql string) (string, error) {
