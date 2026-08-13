@@ -56,7 +56,7 @@ func TestProjectHTMLIsDeterministicAndContentMinimized(t *testing.T) {
 		t.Fatalf("invalid output bounds or terminator: length=%d", len(encoded))
 	}
 	goldenDigest := sha256.Sum256(encoded)
-	if got := hex.EncodeToString(goldenDigest[:]); got != "681f1a5d6b7f6012c0151b4a8e697a765f4f4835f7452f867a4ccbeaf090b64c" {
+	if got := hex.EncodeToString(goldenDigest[:]); got != "31cd55ae131e80dac4beab3615438a316aa9913a6d773d5d97e940d5973415a2" {
 		t.Fatalf("golden HTML changed: got %s", got)
 	}
 	if !strings.Contains(string(encoded), report.ProjectionSHA256) {
@@ -64,6 +64,11 @@ func TestProjectHTMLIsDeterministicAndContentMinimized(t *testing.T) {
 	}
 	if !strings.Contains(string(encoded), htmlStyles) {
 		t.Fatal("fixed stylesheet is missing")
+	}
+	for _, label := range []string{"False activation", "Unnecessary load", "Security bundle", "Security policy", "Rule pack"} {
+		if !strings.Contains(string(encoded), label) {
+			t.Errorf("rendered report is missing %q", label)
+		}
 	}
 	if !strings.Contains(html.UnescapeString(string(encoded)), "default-src 'none'") {
 		t.Fatal("CSP is missing default-src none")
@@ -250,6 +255,21 @@ func TestProjectHTMLRejectsPooledOrIncompleteStrata(t *testing.T) {
 		{name: "nested funnel bound", mutate: func(input *HTMLProjectionInput) {
 			input.Funnels[0].Stages = make([]HTMLFunnelStage, len(htmlStages)+1)
 		}},
+		{name: "resource reference dominates but candidate is declared", mutate: func(input *HTMLProjectionInput) {
+			input.Resources[0].Candidate.P50 = input.Resources[0].Reference.P50 + 1
+			input.Resources[0].Candidate.P90 = input.Resources[0].Reference.P90 + 1
+		}},
+		{name: "resource tradeoff but candidate is declared", mutate: func(input *HTMLProjectionInput) {
+			input.Resources[0].Candidate.P50 = input.Resources[0].Reference.P50 - 1
+			input.Resources[0].Candidate.P90 = input.Resources[0].Reference.P90 + 1
+		}},
+		{name: "resource equal but candidate is declared", mutate: func(input *HTMLProjectionInput) {
+			input.Resources[0].Candidate.P50 = input.Resources[0].Reference.P50
+			input.Resources[0].Candidate.P90 = input.Resources[0].Reference.P90
+		}},
+		{name: "resource unavailable but candidate is declared", mutate: func(input *HTMLProjectionInput) {
+			input.Resources[0].Candidate = HTMLResourceValue{}
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -327,17 +347,24 @@ func TestHTMLSafetyStateMappingIsFailClosed(t *testing.T) {
 		}, blocks: true},
 		{name: "incomplete coverage", setup: func(input *HTMLProjectionInput) {
 			input.Safety.SecurityStatus = HTMLSafetyIncomplete
-			input.Safety.CoverageComplete = false
+			input.Safety.SecurityCoverageComplete = false
 			input.Safety.BlocksExecution = true
 		}, blocks: true},
 		{name: "unavailable security", setup: func(input *HTMLProjectionInput) {
 			input.Safety.SecurityStatus = HTMLSafetyUnavailable
-			input.Safety.CoverageComplete = false
+			input.Safety.SecurityCoverageComplete = false
 			input.Safety.BlocksExecution = true
 			input.Provenance.SecurityBundleSHA256 = ""
 			input.Provenance.SecurityPolicySHA256 = ""
 			input.Provenance.RulePackSHA256 = ""
 		}, blocks: true},
+		{name: "complete suppressed findings", setup: func(input *HTMLProjectionInput) {
+			input.Safety.SecurityStatus = HTMLSafetyCompleteSuppressed
+			input.Safety.SecurityFindingCount = 2
+			input.Safety.SuppressedFindings = 2
+			input.Safety.SecurityCoverageComplete = true
+			input.Safety.BlocksExecution = false
+		}, blocks: false},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -351,6 +378,47 @@ func TestHTMLSafetyStateMappingIsFailClosed(t *testing.T) {
 				t.Fatalf("BlocksExecution = %v, want %v", report.Safety.BlocksExecution, test.blocks)
 			}
 		})
+	}
+}
+
+func TestProjectHTMLCanonicalizesEquivalentFractions(t *testing.T) {
+	canonicalInput := validHTMLProjectionInput()
+	canonical, err := ProjectHTML(canonicalInput)
+	if err != nil {
+		t.Fatalf("ProjectHTML(canonical) error = %v", err)
+	}
+	if canonical.Lift[0].Effect != (HTMLFraction{Numerator: 1, Denominator: 2}) ||
+		canonical.Funnels[0].Stages[0].Rate == nil || *canonical.Funnels[0].Stages[0].Rate != (HTMLFraction{Numerator: 1, Denominator: 1}) {
+		t.Fatalf("ProjectHTML did not reduce fractions: lift=%v funnel=%v", canonical.Lift[0].Effect, canonical.Funnels[0].Stages[0].Rate)
+	}
+	canonicalBytes, err := EncodeHTML(canonical)
+	if err != nil {
+		t.Fatalf("EncodeHTML(canonical) error = %v", err)
+	}
+
+	equivalentInput := validHTMLProjectionInput()
+	equivalentInput.Lift[0].Effect = HTMLFraction{Numerator: 2, Denominator: 4}
+	equivalentInput.Lift[0].Interval.Lower = HTMLFraction{Numerator: -2, Denominator: 4}
+	equivalentInput.Lift[0].Interval.Upper = HTMLFraction{Numerator: 6, Denominator: 8}
+	equivalentInput.Activation[0].Precision = htmlTestFraction(14, 16)
+	equivalentInput.Funnels[0].Stages[0].Rate = htmlTestFraction(22, 22)
+	equivalentInput.Funnels[0].Stages[0].Conversion = htmlTestFraction(22, 22)
+	equivalent, err := ProjectHTML(equivalentInput)
+	if err != nil {
+		t.Fatalf("ProjectHTML(equivalent) error = %v", err)
+	}
+	equivalentBytes, err := EncodeHTML(equivalent)
+	if err != nil {
+		t.Fatalf("EncodeHTML(equivalent) error = %v", err)
+	}
+	if !bytes.Equal(canonicalBytes, equivalentBytes) || canonical.ProjectionSHA256 != equivalent.ProjectionSHA256 {
+		t.Fatal("equivalent fractions changed canonical HTML or projection digest")
+	}
+
+	mutated := canonical
+	mutated.Lift[0].Effect = HTMLFraction{Numerator: 2, Denominator: 4}
+	if _, err := EncodeHTML(mutated); err != nil {
+		t.Fatalf("EncodeHTML() rejected equivalent caller fraction: %v", err)
 	}
 }
 
@@ -382,7 +450,7 @@ func validHTMLProjectionInput() HTMLProjectionInput {
 			{ComparisonOrdinal: 1, StratumOrdinal: 2, Kind: HTMLDimensionMetric, Dimension: HTMLDimensionOutcome, Status: HTMLInferenceDescriptive, CompletePairs: 6, ExcludedPairs: 3, Effect: HTMLFraction{Numerator: -1, Denominator: 4}, Regression: true, Pareto: HTMLParetoTradeoff},
 			{ComparisonOrdinal: 2, StratumOrdinal: 1, Kind: HTMLDimensionMetric, Dimension: HTMLDimensionDuration, Status: HTMLInferenceInsufficient, ExcludedPairs: 2, Effect: HTMLFraction{Denominator: 1}, Pareto: HTMLParetoUnavailable},
 		},
-		Safety: HTMLSafetySummary{StructureStatus: HTMLSafetyAdmitted, SecurityStatus: HTMLSafetyClean, CoverageComplete: true},
+		Safety: HTMLSafetySummary{StructureStatus: HTMLSafetyAdmitted, SecurityStatus: HTMLSafetyClean, SecurityCoverageComplete: true},
 	}
 	for _, stratum := range []uint32{1, 2} {
 		input.Funnels = append(input.Funnels, htmlTestFunnel(stratum, HTMLRoleReference, 10+stratum))

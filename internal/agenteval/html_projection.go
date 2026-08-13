@@ -148,11 +148,12 @@ const (
 type HTMLSafetyStatus string
 
 const (
-	HTMLSafetyAdmitted    HTMLSafetyStatus = "admitted"
-	HTMLSafetyClean       HTMLSafetyStatus = "clean"
-	HTMLSafetyBlocked     HTMLSafetyStatus = "blocked"
-	HTMLSafetyIncomplete  HTMLSafetyStatus = "incomplete"
-	HTMLSafetyUnavailable HTMLSafetyStatus = "unavailable"
+	HTMLSafetyAdmitted           HTMLSafetyStatus = "admitted"
+	HTMLSafetyClean              HTMLSafetyStatus = "clean"
+	HTMLSafetyCompleteSuppressed HTMLSafetyStatus = "complete_suppressed"
+	HTMLSafetyBlocked            HTMLSafetyStatus = "blocked"
+	HTMLSafetyIncomplete         HTMLSafetyStatus = "incomplete"
+	HTMLSafetyUnavailable        HTMLSafetyStatus = "unavailable"
 )
 
 // HTMLFraction retains exact bounded values without floating-point drift.
@@ -255,9 +256,11 @@ type HTMLSafetySummary struct {
 	StructureFindingCount uint32           `json:"structure_finding_count"`
 	SecurityFindingCount  uint32           `json:"security_finding_count"`
 	SuppressedFindings    uint32           `json:"suppressed_findings"`
-	CoverageComplete      bool             `json:"coverage_complete"`
-	BlocksExecution       bool             `json:"blocks_execution"`
-	RuntimeSafetyProven   bool             `json:"runtime_safety_proven"`
+	// SecurityCoverageComplete describes lifecycle-security rule coverage;
+	// analysis strata coverage is represented independently by HTMLCoverageRow.
+	SecurityCoverageComplete bool `json:"security_coverage_complete"`
+	BlocksExecution          bool `json:"blocks_execution"`
+	RuntimeSafetyProven      bool `json:"runtime_safety_proven"`
 }
 
 // HTMLProjectionInput is the only input accepted by ProjectHTML. It is a
@@ -307,6 +310,7 @@ func ProjectHTML(input HTMLProjectionInput) (HTMLReport, error) {
 		Activation: cloneHTMLActivation(input.Activation), Funnels: cloneHTMLFunnels(input.Funnels),
 		Failures: cloneHTMLFailures(input.Failures), Resources: cloneHTMLResources(input.Resources),
 	}
+	normalizeHTMLFractions(&report)
 	normalizeHTMLReport(&report)
 	if err := report.validateBody(); err != nil {
 		return HTMLReport{}, err
@@ -343,10 +347,12 @@ func validateHTMLProjectionInputBounds(input HTMLProjectionInput) error {
 // Validate rejects a mutated, reordered, future, private, or internally
 // inconsistent projection. EncodeHTML calls it before producing any bytes.
 func (report HTMLReport) Validate() error {
-	if err := report.validateBody(); err != nil {
+	normalized := cloneHTMLReport(report)
+	normalizeHTMLFractions(&normalized)
+	if err := normalized.validateBody(); err != nil {
 		return err
 	}
-	if !validHTMLDigest(report.ProjectionSHA256) || report.ProjectionSHA256 != htmlReportDigest(report) {
+	if !validHTMLDigest(report.ProjectionSHA256) || report.ProjectionSHA256 != htmlReportDigest(normalized) {
 		return fmt.Errorf("%w: projection digest", ErrInvalidHTMLProjection)
 	}
 	return nil
@@ -355,10 +361,12 @@ func (report HTMLReport) Validate() error {
 // EncodeHTML produces one canonical UTF-8 document with a final LF. It never
 // writes a file and has no network, process, provider, or credential effects.
 func EncodeHTML(report HTMLReport) ([]byte, error) {
-	if err := report.Validate(); err != nil {
+	normalized := cloneHTMLReport(report)
+	normalizeHTMLFractions(&normalized)
+	if err := normalized.Validate(); err != nil {
 		return nil, err
 	}
-	view := htmlTemplateView{Report: report, CSP: htmlCSP(), Styles: template.CSS(htmlStyles)}
+	view := htmlTemplateView{Report: normalized, CSP: htmlCSP(), Styles: template.CSS(htmlStyles)}
 	var body bytes.Buffer
 	if err := htmlReportTemplate.Execute(&body, view); err != nil {
 		return nil, fmt.Errorf("%w: render", ErrInvalidHTMLProjection)
@@ -458,20 +466,37 @@ func validateHTMLSafety(s HTMLSafetySummary) error {
 			return fmt.Errorf("%w: safety bounds", ErrInvalidHTMLProjection)
 		}
 	}
-	if s.SecurityStatus == HTMLSafetyClean && (s.SecurityFindingCount != 0 || s.SuppressedFindings != 0 || !s.CoverageComplete) {
-		return fmt.Errorf("%w: clean security state", ErrInvalidHTMLProjection)
+	if s.SuppressedFindings > s.SecurityFindingCount {
+		return fmt.Errorf("%w: suppressed security findings", ErrInvalidHTMLProjection)
 	}
-	if s.SecurityStatus == HTMLSafetyIncomplete && s.CoverageComplete {
-		return fmt.Errorf("%w: incomplete security state", ErrInvalidHTMLProjection)
-	}
-	if s.SecurityStatus == HTMLSafetyUnavailable && s.CoverageComplete {
-		return fmt.Errorf("%w: unavailable security state", ErrInvalidHTMLProjection)
+	switch s.SecurityStatus {
+	case HTMLSafetyClean:
+		if s.SecurityFindingCount != 0 || s.SuppressedFindings != 0 || !s.SecurityCoverageComplete {
+			return fmt.Errorf("%w: clean security state", ErrInvalidHTMLProjection)
+		}
+	case HTMLSafetyCompleteSuppressed:
+		if s.SecurityFindingCount == 0 || s.SuppressedFindings != s.SecurityFindingCount || !s.SecurityCoverageComplete {
+			return fmt.Errorf("%w: suppressed security state", ErrInvalidHTMLProjection)
+		}
+	case HTMLSafetyBlocked:
+		if s.SecurityCoverageComplete && s.SecurityFindingCount == s.SuppressedFindings {
+			return fmt.Errorf("%w: blocked security state", ErrInvalidHTMLProjection)
+		}
+	case HTMLSafetyIncomplete:
+		if s.SecurityCoverageComplete {
+			return fmt.Errorf("%w: incomplete security state", ErrInvalidHTMLProjection)
+		}
+	case HTMLSafetyUnavailable:
+		if s.SecurityCoverageComplete || s.SecurityFindingCount != 0 || s.SuppressedFindings != 0 {
+			return fmt.Errorf("%w: unavailable security state", ErrInvalidHTMLProjection)
+		}
 	}
 	// A blocked, incomplete, or unavailable static safety layer is fail-closed.
-	// Only an admitted structure and a complete clean security scan can make
-	// the report execution-eligible; this remains a static finding, never a
-	// runtime-safety proof.
-	wantBlocks := s.StructureStatus != HTMLSafetyAdmitted || s.SecurityStatus != HTMLSafetyClean
+	// Only an admitted structure and a complete clean/suppressed security scan
+	// can make the report execution-eligible; this remains a static finding,
+	// never a runtime-safety proof.
+	wantBlocks := s.StructureStatus != HTMLSafetyAdmitted ||
+		(s.SecurityStatus != HTMLSafetyClean && s.SecurityStatus != HTMLSafetyCompleteSuppressed)
 	if s.BlocksExecution != wantBlocks {
 		return fmt.Errorf("%w: safety block state", ErrInvalidHTMLProjection)
 	}
@@ -622,7 +647,7 @@ func validateHTMLResources(rows []HTMLResourceRow, strata map[uint32]struct{}) e
 		if err := validateHTMLResourceValue(row.Candidate); err != nil {
 			return err
 		}
-		if !htmlPareto(row.Pareto) || (!row.Reference.Available || !row.Candidate.Available) != (row.Pareto == HTMLParetoUnavailable) {
+		if !htmlPareto(row.Pareto) || row.Pareto != htmlResourcePareto(row.Reference, row.Candidate) {
 			return fmt.Errorf("%w: resource pareto", ErrInvalidHTMLProjection)
 		}
 	}
@@ -645,6 +670,26 @@ func validateHTMLResourceValue(value HTMLResourceValue) error {
 		return fmt.Errorf("%w: resource coverage", ErrInvalidHTMLProjection)
 	}
 	return nil
+}
+
+func htmlResourcePareto(reference, candidate HTMLResourceValue) HTMLParetoRelation {
+	if !reference.Available || !candidate.Available {
+		return HTMLParetoUnavailable
+	}
+	candidateNoWorse := candidate.P50 <= reference.P50 && candidate.P90 <= reference.P90
+	referenceNoWorse := reference.P50 <= candidate.P50 && reference.P90 <= candidate.P90
+	candidateBetter := candidate.P50 < reference.P50 || candidate.P90 < reference.P90
+	referenceBetter := reference.P50 < candidate.P50 || reference.P90 < candidate.P90
+	switch {
+	case candidateNoWorse && candidateBetter:
+		return HTMLParetoCandidateDominates
+	case referenceNoWorse && referenceBetter:
+		return HTMLParetoReferenceDominates
+	case !candidateBetter && !referenceBetter:
+		return HTMLParetoEqual
+	default:
+		return HTMLParetoTradeoff
+	}
 }
 
 func validateHTMLLift(rows []HTMLLiftRow, strata map[uint32]struct{}) error {
@@ -716,7 +761,12 @@ func validateHTMLDerivedRate(value *HTMLFraction, numerator, denominator uint32)
 		}
 		return nil
 	}
-	if value == nil || value.Numerator != int64(numerator) || value.Denominator != uint64(denominator) {
+	if value == nil {
+		return fmt.Errorf("%w: derived rate", ErrInvalidHTMLProjection)
+	}
+	want := new(big.Rat).SetFrac(new(big.Int).SetUint64(uint64(numerator)), new(big.Int).SetUint64(uint64(denominator)))
+	got := new(big.Rat).SetFrac(big.NewInt(value.Numerator), new(big.Int).SetUint64(value.Denominator))
+	if got.Cmp(want) != 0 {
 		return fmt.Errorf("%w: derived rate", ErrInvalidHTMLProjection)
 	}
 	return validateHTMLRate(value)
@@ -823,7 +873,7 @@ func htmlStructureStatus(value HTMLSafetyStatus) bool {
 	return value == HTMLSafetyAdmitted || value == HTMLSafetyBlocked || value == HTMLSafetyIncomplete || value == HTMLSafetyUnavailable
 }
 func htmlSecurityStatus(value HTMLSafetyStatus) bool {
-	return value == HTMLSafetyClean || value == HTMLSafetyBlocked || value == HTMLSafetyIncomplete || value == HTMLSafetyUnavailable
+	return value == HTMLSafetyClean || value == HTMLSafetyCompleteSuppressed || value == HTMLSafetyBlocked || value == HTMLSafetyIncomplete || value == HTMLSafetyUnavailable
 }
 
 func validHTMLDigest(value string) bool {
@@ -914,6 +964,60 @@ func cloneHTMLResources(rows []HTMLResourceRow) []HTMLResourceRow {
 	return append([]HTMLResourceRow(nil), rows...)
 }
 
+func cloneHTMLReport(report HTMLReport) HTMLReport {
+	result := report
+	result.Coverage = cloneHTMLCoverage(report.Coverage)
+	result.Lift = cloneHTMLLift(report.Lift)
+	result.Activation = cloneHTMLActivation(report.Activation)
+	result.Funnels = cloneHTMLFunnels(report.Funnels)
+	result.Failures = cloneHTMLFailures(report.Failures)
+	result.Resources = cloneHTMLResources(report.Resources)
+	return result
+}
+
+// normalizeHTMLFractions reduces equivalent bounded fractions before validation,
+// digesting, and rendering. Invalid bounds are intentionally left unchanged so
+// validation still rejects them rather than turning an oversized value valid.
+func normalizeHTMLFractions(report *HTMLReport) {
+	for index := range report.Lift {
+		normalizeHTMLFractionValue(&report.Lift[index].Effect)
+		if report.Lift[index].Interval != nil {
+			normalizeHTMLFractionValue(&report.Lift[index].Interval.Lower)
+			normalizeHTMLFractionValue(&report.Lift[index].Interval.Upper)
+		}
+	}
+	for index := range report.Activation {
+		normalizeHTMLFraction(report.Activation[index].Precision)
+		normalizeHTMLFraction(report.Activation[index].Recall)
+		normalizeHTMLFraction(report.Activation[index].FalseActivation)
+		normalizeHTMLFraction(report.Activation[index].UnnecessaryLoad)
+	}
+	for index := range report.Funnels {
+		for stage := range report.Funnels[index].Stages {
+			normalizeHTMLFraction(report.Funnels[index].Stages[stage].Rate)
+			normalizeHTMLFraction(report.Funnels[index].Stages[stage].Conversion)
+		}
+	}
+}
+
+func normalizeHTMLFraction(value *HTMLFraction) {
+	if value != nil {
+		normalizeHTMLFractionValue(value)
+	}
+}
+
+func normalizeHTMLFractionValue(value *HTMLFraction) {
+	if value == nil || value.Denominator == 0 || value.Denominator > HTMLMaxCount || value.Numerator < -HTMLMaxMetric || value.Numerator > HTMLMaxMetric {
+		return
+	}
+	rat := new(big.Rat).SetFrac(big.NewInt(value.Numerator), new(big.Int).SetUint64(value.Denominator))
+	if !rat.Num().IsInt64() || !rat.Denom().IsUint64() {
+		return
+	}
+	value.Numerator = rat.Num().Int64()
+	value.Denominator = rat.Denom().Uint64()
+}
+
 func (fraction HTMLFraction) String() string {
 	return strconv.FormatInt(fraction.Numerator, 10) + "/" + strconv.FormatUint(fraction.Denominator, 10)
 }
@@ -934,10 +1038,10 @@ type htmlTemplateView struct {
 var htmlReportTemplate = template.Must(template.New("agent-eval-html-report").Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="{{.CSP}}"><style>{{.Styles}}</style><title>Agent evaluation report</title></head><body>
 <header><h1>Agent evaluation report</h1><p class="notice">Non-authoritative offline projection. Canonical JSON remains the source of truth.</p></header>
-<section><h2>Artifact provenance</h2><table><tr><th>Source class</th><td>{{.Report.Provenance.SourceClass}}</td></tr><tr><th>Privacy</th><td>{{.Report.Provenance.Privacy}}</td></tr><tr><th>Manifest</th><td><code>{{.Report.Provenance.ManifestSHA256}}</code></td></tr><tr><th>Analysis plan</th><td><code>{{.Report.Provenance.AnalysisPlanSHA256}}</code></td></tr><tr><th>Input set</th><td><code>{{.Report.Provenance.InputSetSHA256}}</code></td></tr><tr><th>Analysis report</th><td><code>{{.Report.Provenance.AnalysisReportSHA256}}</code></td></tr><tr><th>Aggregate</th><td><code>{{.Report.Provenance.AggregateSHA256}}</code></td></tr><tr><th>Projection</th><td><code>{{.Report.ProjectionSHA256}}</code></td></tr></table></section>
+<section><h2>Artifact provenance</h2><table><tr><th>Source class</th><td>{{.Report.Provenance.SourceClass}}</td></tr><tr><th>Privacy</th><td>{{.Report.Provenance.Privacy}}</td></tr><tr><th>Manifest</th><td><code>{{.Report.Provenance.ManifestSHA256}}</code></td></tr><tr><th>Analysis plan</th><td><code>{{.Report.Provenance.AnalysisPlanSHA256}}</code></td></tr><tr><th>Input set</th><td><code>{{.Report.Provenance.InputSetSHA256}}</code></td></tr><tr><th>Analysis report</th><td><code>{{.Report.Provenance.AnalysisReportSHA256}}</code></td></tr><tr><th>Aggregate</th><td><code>{{.Report.Provenance.AggregateSHA256}}</code></td></tr><tr><th>Structure tree</th><td>{{if .Report.Provenance.StructureTreeSHA256}}<code>{{.Report.Provenance.StructureTreeSHA256}}</code>{{else}}not available{{end}}</td></tr><tr><th>Security bundle</th><td>{{if .Report.Provenance.SecurityBundleSHA256}}<code>{{.Report.Provenance.SecurityBundleSHA256}}</code>{{else}}not available{{end}}</td></tr><tr><th>Security policy</th><td>{{if .Report.Provenance.SecurityPolicySHA256}}<code>{{.Report.Provenance.SecurityPolicySHA256}}</code>{{else}}not available{{end}}</td></tr><tr><th>Rule pack</th><td>{{if .Report.Provenance.RulePackSHA256}}<code>{{.Report.Provenance.RulePackSHA256}}</code>{{else}}not available{{end}}</td></tr><tr><th>Projection</th><td><code>{{.Report.ProjectionSHA256}}</code></td></tr></table></section>
 <section><h2>Treatment lift and uncertainty</h2><table><tr><th>Comparison</th><th>Stratum</th><th>Dimension</th><th>Status</th><th>Effect</th><th>Interval</th><th>Regression</th><th>Pareto</th></tr>{{range .Report.Lift}}<tr><td>{{.ComparisonOrdinal}}</td><td>{{.StratumOrdinal}}</td><td>{{.Kind}} / {{.Dimension}}</td><td>{{.Status}}</td><td>{{.Effect.Numerator}}/{{.Effect.Denominator}}</td><td>{{if .Interval}}{{.Interval.Lower.Numerator}}/{{.Interval.Lower.Denominator}} — {{.Interval.Upper.Numerator}}/{{.Interval.Upper.Denominator}} ({{.Interval.ConfidenceBasisPoints}} bps){{else}}not available{{end}}</td><td>{{.Regression}}</td><td>{{.Pareto}}</td></tr>{{end}}</table></section>
-<section><h2>Activation funnel</h2>{{range .Report.Activation}}<h3>Stratum {{.StratumOrdinal}}</h3><table><tr><th>Observed</th><th>Missing</th><th>True positive</th><th>False positive</th><th>True negative</th><th>False negative</th><th>Precision</th><th>Recall</th></tr><tr><td>{{.Observed}}</td><td>{{.Missing}}</td><td>{{.TruePositive}}</td><td>{{.FalsePositive}}</td><td>{{.TrueNegative}}</td><td>{{.FalseNegative}}</td><td>{{if .Precision}}{{.Precision.Numerator}}/{{.Precision.Denominator}}{{else}}not available{{end}}</td><td>{{if .Recall}}{{.Recall.Numerator}}/{{.Recall.Denominator}}{{else}}not available{{end}}</td></tr></table>{{end}}{{range .Report.Funnels}}<h3>Stratum {{.StratumOrdinal}} — {{.Role}}</h3><table><tr><th>Stage</th><th>Observed</th><th>Reached</th><th>Eligible transitions</th><th>Converted</th><th>Rate</th><th>Conversion</th></tr>{{range .Stages}}<tr><td>{{.Stage}}</td><td>{{.Observed}}</td><td>{{.Reached}}</td><td>{{.EligibleTransitions}}</td><td>{{.Converted}}</td><td>{{if .Rate}}{{.Rate.Numerator}}/{{.Rate.Denominator}}{{else}}not available{{end}}</td><td>{{if .Conversion}}{{.Conversion.Numerator}}/{{.Conversion.Denominator}}{{else}}not available{{end}}</td></tr>{{end}}</table>{{end}}</section>
+<section><h2>Activation funnel</h2>{{range .Report.Activation}}<h3>Stratum {{.StratumOrdinal}}</h3><table><tr><th>Observed</th><th>Missing</th><th>True positive</th><th>False positive</th><th>True negative</th><th>False negative</th><th>Precision</th><th>Recall</th><th>False activation</th><th>Unnecessary load</th></tr><tr><td>{{.Observed}}</td><td>{{.Missing}}</td><td>{{.TruePositive}}</td><td>{{.FalsePositive}}</td><td>{{.TrueNegative}}</td><td>{{.FalseNegative}}</td><td>{{if .Precision}}{{.Precision.Numerator}}/{{.Precision.Denominator}}{{else}}not available{{end}}</td><td>{{if .Recall}}{{.Recall.Numerator}}/{{.Recall.Denominator}}{{else}}not available{{end}}</td><td>{{if .FalseActivation}}{{.FalseActivation.Numerator}}/{{.FalseActivation.Denominator}}{{else}}not available{{end}}</td><td>{{if .UnnecessaryLoad}}{{.UnnecessaryLoad.Numerator}}/{{.UnnecessaryLoad.Denominator}}{{else}}not available{{end}}</td></tr></table>{{end}}{{range .Report.Funnels}}<h3>Stratum {{.StratumOrdinal}} — {{.Role}}</h3><table><tr><th>Stage</th><th>Observed</th><th>Reached</th><th>Eligible transitions</th><th>Converted</th><th>Rate</th><th>Conversion</th></tr>{{range .Stages}}<tr><td>{{.Stage}}</td><td>{{.Observed}}</td><td>{{.Reached}}</td><td>{{.EligibleTransitions}}</td><td>{{.Converted}}</td><td>{{if .Rate}}{{.Rate.Numerator}}/{{.Rate.Denominator}}{{else}}not available{{end}}</td><td>{{if .Conversion}}{{.Conversion.Numerator}}/{{.Conversion.Denominator}}{{else}}not available{{end}}</td></tr>{{end}}</table>{{end}}</section>
 <section><h2>Coverage and failure taxonomy</h2>{{range .Report.Coverage}}<h3>Stratum {{.StratumOrdinal}}</h3><p>Expected {{.ExpectedRecords}}, received {{.ReceivedRecords}}, unique {{.UniqueRecords}}, missing {{.MissingRecords}}, duplicate {{.DuplicateRecords}}, complete pairs {{.CompletePairs}}, excluded pairs {{.ExcludedPairs}}; complete={{.Complete}}</p>{{end}}{{range .Report.Failures}}<table><caption>Stratum {{.StratumOrdinal}}</caption><tr><th>Failure class</th><th>Count</th></tr>{{range .Failures}}<tr><td>{{.Code}}</td><td>{{.Count}}</td></tr>{{end}}</table>{{end}}</section>
 <section><h2>Resource Pareto views</h2>{{range .Report.Resources}}<table><caption>Stratum {{.StratumOrdinal}} — {{.Axis}} — {{.Pareto}}</caption><tr><th>Treatment</th><th>Available</th><th>Observed runs</th><th>P50</th><th>P90</th></tr><tr><td>reference</td><td>{{.Reference.Available}}</td><td>{{.Reference.ObservedRuns}}</td><td>{{.Reference.P50}}</td><td>{{.Reference.P90}}</td></tr><tr><td>candidate</td><td>{{.Candidate.Available}}</td><td>{{.Candidate.ObservedRuns}}</td><td>{{.Candidate.P50}}</td><td>{{.Candidate.P90}}</td></tr></table>{{end}}</section>
-<section><h2>Safety states</h2><table><tr><th>Structural admission</th><td>{{.Report.Safety.StructureStatus}}</td></tr><tr><th>Lifecycle security</th><td>{{.Report.Safety.SecurityStatus}}</td></tr><tr><th>Structure findings</th><td>{{.Report.Safety.StructureFindingCount}}</td></tr><tr><th>Security findings</th><td>{{.Report.Safety.SecurityFindingCount}}</td></tr><tr><th>Suppressed findings</th><td>{{.Report.Safety.SuppressedFindings}}</td></tr><tr><th>Coverage complete</th><td>{{.Report.Safety.CoverageComplete}}</td></tr><tr><th>Blocks execution</th><td>{{.Report.Safety.BlocksExecution}}</td></tr><tr><th>Runtime safety proven</th><td>{{.Report.Safety.RuntimeSafetyProven}}</td></tr></table></section>
+<section><h2>Safety states</h2><table><tr><th>Structural admission</th><td>{{.Report.Safety.StructureStatus}}</td></tr><tr><th>Lifecycle security</th><td>{{.Report.Safety.SecurityStatus}}</td></tr><tr><th>Structure findings</th><td>{{.Report.Safety.StructureFindingCount}}</td></tr><tr><th>Security findings</th><td>{{.Report.Safety.SecurityFindingCount}}</td></tr><tr><th>Suppressed findings</th><td>{{.Report.Safety.SuppressedFindings}}</td></tr><tr><th>Security coverage complete</th><td>{{.Report.Safety.SecurityCoverageComplete}}</td></tr><tr><th>Blocks execution</th><td>{{.Report.Safety.BlocksExecution}}</td></tr><tr><th>Runtime safety proven</th><td>{{.Report.Safety.RuntimeSafetyProven}}</td></tr></table></section>
 </body></html>`))
