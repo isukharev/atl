@@ -43,9 +43,10 @@ type SyntheticATLProcessConfig struct {
 	WorkspaceTemplate   string
 	SyntheticWriteRules SyntheticWriteRules
 	// VerifyMCPToolInventory performs the extra bounded tools/list profile
-	// attestation before admitted MCP calls. Mirror templates require it; other
-	// high-volume synthetic cohorts retain their already-reviewed admission
-	// boundary without paying this per-process compatibility cost.
+	// attestation before admitted MCP calls. Every MCP run independently attests
+	// the small runtime resource contract; this option remains only for the much
+	// larger tool descriptor inventory. Mirror templates require it, while other
+	// high-volume cohorts retain their reviewed performance choice.
 	VerifyMCPToolInventory bool
 	CLIPolicy              CLICommandPolicy
 	MCPService             string
@@ -257,6 +258,12 @@ func StartSyntheticATLProcess(ctx context.Context, input SyntheticATLProcessConf
 			config.MaxMCPBytes, config.MaxStderrBytes,
 		)
 		if err != nil {
+			return fail(err)
+		}
+		if err := process.binary.verify(); err != nil {
+			return fail(err)
+		}
+		if err := process.mcp.verifyRuntimeResourceContract(ctx, config.MCPService); err != nil {
 			return fail(err)
 		}
 		if err := process.binary.verify(); err != nil {
