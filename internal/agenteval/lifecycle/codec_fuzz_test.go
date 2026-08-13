@@ -2,8 +2,10 @@ package lifecycle
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -257,6 +259,7 @@ func addLifecycleCodecSeeds(f *testing.F, canonical []byte, maximum int, digestF
 	f.Add(append([]byte(" "), canonical...))
 	f.Add(bytes.Replace(canonical, []byte(","), []byte(", "), 1))
 	f.Add(bytes.Replace(canonical, []byte(","), []byte(",\n"), 1))
+	f.Add(lifecycleFuzzReorderMembers(canonical))
 	f.Add(append(bytes.TrimSuffix(bytes.Clone(canonical), []byte("\n")), []byte("{}\n")...))
 	f.Add(append(bytes.Repeat([]byte{'x'}, maximum), '\n'))
 	f.Add(lifecycleFuzzDepthSeed())
@@ -276,8 +279,38 @@ func lifecycleFuzzCorruptDigest(canonical []byte, field string) []byte {
 	if index < 0 {
 		return append([]byte(" "), canonical...)
 	}
-	result[index+len(prefix)] = 'z'
+	digestOffset := index + len(prefix)
+	if result[digestOffset] == 'a' {
+		result[digestOffset] = 'b'
+	} else {
+		result[digestOffset] = 'a'
+	}
 	return result
+}
+
+func lifecycleFuzzReorderMembers(canonical []byte) []byte {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(bytes.TrimSpace(canonical), &members); err != nil || len(members) < 2 {
+		return append([]byte(" "), canonical...)
+	}
+	keys := make([]string, 0, len(members))
+	for key := range members {
+		keys = append(keys, key)
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(keys)))
+	var reordered bytes.Buffer
+	reordered.WriteByte('{')
+	for index, key := range keys {
+		if index != 0 {
+			reordered.WriteByte(',')
+		}
+		encodedKey, _ := json.Marshal(key)
+		reordered.Write(encodedKey)
+		reordered.WriteByte(':')
+		reordered.Write(members[key])
+	}
+	reordered.WriteString("}\n")
+	return reordered.Bytes()
 }
 
 func assertLifecycleFuzzContractError(t *testing.T, err error) {
