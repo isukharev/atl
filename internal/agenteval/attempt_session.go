@@ -395,7 +395,7 @@ func prepareSyntheticATLProcessAttemptSession(config SyntheticATLProcessConfig, 
 	if err != nil {
 		return nil, err
 	}
-	adapter, err := digest("adapter", []string{"selected-atl-process-v1", binary.sha256})
+	adapter, err := digest("adapter", []string{"selected-atl-process-v2", binary.sha256})
 	if err != nil {
 		return nil, err
 	}

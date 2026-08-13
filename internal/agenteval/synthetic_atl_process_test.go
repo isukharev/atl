@@ -403,7 +403,7 @@ func TestSyntheticATLProcessRejectsOfflineToolInventoryMismatch(t *testing.T) {
 	}
 	root := privateSyntheticScratch(t)
 	binary := filepath.Join(root, "atl-fake")
-	writeSyntheticExecutable(t, binary, "#!/bin/sh\n"+testATLCapabilityCatalogHandler()+`
+	writeSyntheticExecutable(t, binary, syntheticATLTestScript(`
 if [ "$1" = "mcp" ]; then
   [ "$4" = "offline" ] || exit 89
   IFS= read -r initialize || exit 90
@@ -415,7 +415,7 @@ if [ "$1" = "mcp" ]; then
   exit 0
 fi
 exit 93
-`)
+`))
 	scratch := filepath.Join(root, "scratch")
 	if err := os.Mkdir(scratch, 0o700); err != nil {
 		t.Fatal(err)
@@ -1147,15 +1147,50 @@ func writeSyntheticExecutable(t *testing.T, path, data string) {
 }
 
 func syntheticATLTestScript(body string) string {
-	return "#!/bin/sh\n" + testATLCapabilityCatalogHandler() + body
+	return "#!/bin/sh\n" + testATLCapabilityCatalogHandler() + testSyntheticMCPRuntimeResourceHandler() +
+		injectSyntheticMCPRuntimePreflight(body)
 }
 
 func syntheticATLTestScriptWithToolInventory(body string) string {
+	body = injectSyntheticMCPRuntimePreflight(body)
+	body = strings.ReplaceAll(body, "IFS= read -r call", `IFS= read -r listed || exit 127
+  case "$listed" in *'"method":"tools/list"'*) ;; *) exit 127 ;; esac
+  synthetic_mcp_tools_list "$4"
+  IFS= read -r call`)
+	body = strings.ReplaceAll(body, `"id":4`, `"id":5`)
+	return "#!/bin/sh\n" + testATLCapabilityCatalogHandler() + testSyntheticMCPRuntimeResourceHandler() +
+		testSyntheticMCPToolInventoryHandler() + body
+}
+
+func injectSyntheticMCPRuntimePreflight(body string) string {
 	body = strings.ReplaceAll(body, "IFS= read -r initialized", `IFS= read -r initialized
-  IFS= read -r listed || exit 127
-  synthetic_mcp_tools_list "$4"`)
-	body = strings.ReplaceAll(body, `"id":2`, `"id":3`)
-	return "#!/bin/sh\n" + testATLCapabilityCatalogHandler() + testSyntheticMCPToolInventoryHandler() + body
+  IFS= read -r resources_list || exit 127
+  case "$resources_list" in *'"method":"resources/list"'*) ;; *) exit 127 ;; esac
+  synthetic_mcp_resources_list
+  IFS= read -r runtime_read || exit 127
+  case "$runtime_read" in *'"method":"resources/read"'*'"uri":"atl://runtime"'*) ;; *) exit 127 ;; esac
+  synthetic_mcp_runtime_read "$4"`)
+	return strings.ReplaceAll(body, `"id":2`, `"id":4`)
+}
+
+func testSyntheticMCPRuntimeResourceHandler() string {
+	var script strings.Builder
+	script.WriteString("synthetic_mcp_resources_list() {\n  printf '%s\\n' '")
+	script.WriteString(`{"jsonrpc":"2.0","id":2,"result":`)
+	script.Write(syntheticMCPResourceInventoryResultForTest())
+	script.WriteString("}'\n}\nsynthetic_mcp_runtime_read() {\n  case \"$1\" in\n")
+	for _, profile := range []string{"default", "jira", "confluence", "offline"} {
+		caseLabel := profile
+		if profile == "default" {
+			caseLabel = "\"\"|default"
+		}
+		script.WriteString("    " + caseLabel + ") printf '%s\\n' '")
+		script.WriteString(`{"jsonrpc":"2.0","id":3,"result":`)
+		script.Write(syntheticMCPRuntimeReadResultForTest(profile, "private", nil))
+		script.WriteString("}' ;;\n")
+	}
+	script.WriteString("    *) exit 127 ;;\n  esac\n}\n")
+	return script.String()
 }
 
 func testSyntheticMCPToolInventoryHandler() string {
@@ -1192,7 +1227,7 @@ func syntheticMCPToolInventoryResponse(profile string) string {
 	if err != nil {
 		panic(err)
 	}
-	return `{"jsonrpc":"2.0","id":2,"result":` + string(result) + `}`
+	return `{"jsonrpc":"2.0","id":4,"result":` + string(result) + `}`
 }
 
 func minimalSyntheticFixture() MockFixture {
