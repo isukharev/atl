@@ -615,6 +615,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
 ` + checkoutStepContract + "\n" + setupGoStepContract + "\n" + buildStepContract + "\n" + ciProvenanceStepContract + "\n" + vetStepContract + "\n" + extensionProtocolRuntimeStepContract + "\n" + coreGateStepContract + "\n" + windowsCompileStepContract + `
+  corpus-devcontainer:
+    runs-on: ubuntu-latest
+    steps:
+      - run: true
   agent-eval:
     runs-on: ubuntu-latest
     steps:
