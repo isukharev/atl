@@ -8,6 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/contentpolicy"
 	"github.com/isukharev/atl/internal/domain"
 )
@@ -26,8 +28,11 @@ type policyShowResult struct {
 }
 
 type policyReadOnlyStatus struct {
-	Active bool `json:"active"`
-	Source any  `json:"source"`
+	Active             bool   `json:"active"`
+	Source             any    `json:"source"`
+	ConfiguredReadOnly bool   `json:"configured_read_only"`
+	EffectiveReadOnly  bool   `json:"effective_read_only"`
+	ReadOnlySource     string `json:"read_only_source"`
 }
 
 type policyDigestStatus struct {
@@ -59,7 +64,12 @@ func policyShowCmd() *cobra.Command {
 			if err != nil {
 				return classifyProcessPolicyLoadError(err)
 			}
-			result := buildPolicyShowResult(invocationRuntimeFor(cmd), resolved)
+			cfg, err := config.LoadForEdit()
+			if err != nil {
+				return err
+			}
+			readOnly := app.ProjectReadOnly(cfg.ReadOnly, invocationRuntimeFor(cmd).readOnly, envReadOnly())
+			result := buildPolicyShowResult(invocationRuntimeFor(cmd), resolved, readOnly)
 			return emit(cmd, result, func() string { return policyShowText(result) })
 		},
 	}
@@ -229,23 +239,23 @@ func splitNonBlank(value string) []string {
 	return out
 }
 
-func buildPolicyShowResult(runtime *invocationRuntime, resolved *contentpolicy.Resolved) policyShowResult {
+func buildPolicyShowResult(runtime *invocationRuntime, resolved *contentpolicy.Resolved, readOnly app.ReadOnlyProjection) policyShowResult {
+	var legacyReadOnlySource any
+	if readOnly.EffectiveReadOnly {
+		legacyReadOnlySource = readOnly.ReadOnlySource
+	}
 	result := policyShowResult{
 		SchemaVersion: 1, Active: resolved != nil && len(resolved.Layers) != 0, Enforcement: "advisory",
-		ReadOnly: policyReadOnlyStatus{Active: runtime.readOnlyPolicy}, Digest: policyDigestStatus{},
+		ReadOnly: policyReadOnlyStatus{
+			Active: readOnly.EffectiveReadOnly, Source: legacyReadOnlySource, ConfiguredReadOnly: readOnly.ConfiguredReadOnly,
+			EffectiveReadOnly: readOnly.EffectiveReadOnly, ReadOnlySource: readOnly.ReadOnlySource,
+		},
+		Digest:       policyDigestStatus{},
 		Grants:       summarizePolicyGrants(resolved),
 		Governs:      map[string]string{"jira": "guarded", "confluence": "guarded", "local_commands": "not_governed", "local_mirror": "not_governed", "reads": "not_governed"},
 		NotABoundary: "atl enforces these rules on the atl code path only; a process that can run atl can read the credential and call the REST API directly",
 	}
 	if result.ReadOnly.Active {
-		source := "configuration"
-		switch {
-		case runtime.readOnly:
-			source = "flag"
-		case envReadOnly():
-			source = "environment"
-		}
-		result.ReadOnly.Source = source
 		for service := range result.Grants {
 			for verb := range result.Grants[service] {
 				result.Grants[service][verb] = []string{}
@@ -393,7 +403,9 @@ func stringSetContains(values []string, wanted string) bool {
 }
 
 func policyShowText(result policyShowResult) string {
-	return fmt.Sprintf("active: %t\nenforcement: %s\nsource: %v\n", result.Active, result.Enforcement, result.Source)
+	return fmt.Sprintf("active: %t\nenforcement: %s\nsource: %v\nread_only_active: %t\nconfigured_read_only: %t\neffective_read_only: %t\nread_only_source: %s\n",
+		result.Active, result.Enforcement, result.Source, result.ReadOnly.Active,
+		result.ReadOnly.ConfiguredReadOnly, result.ReadOnly.EffectiveReadOnly, result.ReadOnly.ReadOnlySource)
 }
 
 func policyExplainText(result policyExplainResult) string {

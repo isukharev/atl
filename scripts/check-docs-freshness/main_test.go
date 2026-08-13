@@ -17,7 +17,7 @@ func TestRepositoryDocumentationFreshness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Commands == 0 || result.Flags == 0 || result.Routes == 0 || result.MutationProfiles == 0 || result.ImpactRules == 0 {
+	if result.Commands == 0 || result.Flags == 0 || result.Routes == 0 || result.TaskClasses == 0 || result.MutationProfiles == 0 || result.ImpactRules == 0 {
 		t.Fatalf("incomplete report: %+v", result)
 	}
 }

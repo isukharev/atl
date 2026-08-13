@@ -82,23 +82,27 @@ Windows и Atlassian Cloud пока не поддерживаются; пере�
 atl config set --jira-url https://jira.example.com
 atl auth login --service jira
 atl auth status
-atl doctor --remote
+atl doctor --service jira --remote
 
 export ATL_READ_ONLY=1
 atl jira issue search --jql 'order by updated DESC' --limit 5
 ```
 
 `auth login` читает bearer PAT из скрытого prompt, stdin или файла — никогда из
-argv. Без явного `--remote` команда `doctor` работает offline. Remote-режим
+argv. Без явного `--remote` команда `doctor` работает offline; `--service
+jira|confluence` ограничивает проверку здоровья одним backend. Remote-режим
 выполняет ограниченные проверки продукта и версии, не читая body страниц или
-задач. По умолчанию результат выводится как JSON; логи и ошибки остаются в
-stderr.
+задач. Privacy-safe результат `safety` явно показывает настроенное и эффективное
+read-only состояние, а также точный источник
+`flag|environment|configuration|none`. По умолчанию результат выводится как
+JSON; логи и ошибки остаются в stderr.
 
 Для Confluence:
 
 ```sh
 atl config set --confluence-url https://confluence.example.com
 atl auth login --service confluence
+atl doctor --service confluence --remote
 export ATL_READ_ONLY=1
 atl conf search --cql 'type = page' --limit 5
 ```
@@ -190,6 +194,16 @@ transition и удаления требуют выведенных expected-зн
 ## Кодинг-агенты
 
 Плагины Claude Code и Codex включают typed read-only MCP.
+
+Перед выбором маршрута проверьте статическую границу эффектов команды:
+
+```sh
+atl capabilities --effects
+atl capabilities --effects --command "jira issue search"
+```
+
+Этот каталог работает offline и не читает credentials. Профили задают только
+информационные верхние границы, а не разрешение или enforcement выполнения.
 
 Claude Code:
 

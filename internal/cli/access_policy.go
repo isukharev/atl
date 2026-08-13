@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/isukharev/atl/internal/app"
+	capabilitydef "github.com/isukharev/atl/internal/capability"
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/contentpolicy"
 	"github.com/isukharev/atl/internal/domain"
@@ -16,6 +17,7 @@ import (
 const (
 	accessAnnotation          = "atl.access"
 	commandRoleAnnotation     = "atl.command.role"
+	effectProfileAnnotation   = "atl.effect.profile"
 	mutationProfileAnnotation = "atl.mutation.profile"
 	commandRoleGroup          = "group"
 	commandRoleLeaf           = "leaf"
@@ -99,6 +101,7 @@ type mutationGuardSpec struct {
 
 type commandRegistration struct {
 	traits         commandTrait
+	effectProfile  string
 	profile        mutationProfile
 	guard          mutationGuardSpec
 	outputModes    commandOutputMode
@@ -168,8 +171,9 @@ func accessPolicyInvariantMetadata(err error) (string, bool) {
 }
 
 // commandRegistry is the single reviewed command contract. Read-only rows use
-// "R <output-modes> <path>". Mutating rows declare
-// "M <profile> <verbs> <identity-source>" before their mutation guard. Local
+// "R <effect-profile> <output-modes> <path>". Mutating rows declare
+// "M <effect-profile> <mutation-profile> <verbs> <identity-source>" before
+// their mutation guard. Local
 // commands use the explicit "none none" pair. Unguarded rows then use "-";
 // guarded rows declare requirements, phase, and family. Output modes are
 // explicit and canonical: json, json,text, json,id, or
@@ -177,373 +181,177 @@ func accessPolicyInvariantMetadata(err error) (string, bool) {
 // Cobra tree is checked bidirectionally for groups, leaves, and the two
 // intentional hybrids.
 var commandRegistry, commandRegistryErr = parseCommandRegistry(`
-M local-direct none none - json,text auth login
-M local-direct none none - json auth logout
-R json,text auth status
-R json,text,id capabilities
-M local-direct none none - json,text conf apply
-M preview-apply delete confluence-page-flag apply,confirm,expected-proposal-hash,expected-version pre-config confluence-attachment-delete json conf attachment delete
-R json,text conf attachment get
-R json,text,id conf attachment list
-M remote-direct create confluence-page-flag - json conf attachment upload
-M remote-direct create confluence-space - json,text,id conf blog create
-M preview-apply comment confluence-page-arg apply,expected-proposal-hash command generic json,text conf comment add
-R json,text conf comment list
-M dedicated-apply comment confluence-page-flag apply,expected-proposal-hash pre-config generic json conf comment mutation apply
-R json conf comment mutation preview
-R json,text conf comment preview
-R json,text conf comment thread
-R json,text conf diff
-M local-direct none none - json,text conf edit
-R json,text conf me
-M preview-apply create confluence-space apply,expected-proposal-hash,expected-version pre-config confluence-page-copy json,id conf page copy
-M remote-direct create confluence-space - json conf page create
-M preview-apply delete confluence-page-flag apply,confirm,expected-proposal-hash,expected-version pre-config confluence-page-delete json conf page delete
-R json,text conf page get
-R json,text conf page history
-M preview-apply update confluence-page-arg apply,expected-proposal-hash command generic json,text conf page labels add
-R json,text conf page labels list
-M preview-apply update confluence-page-arg apply,expected-proposal-hash command generic json,text conf page labels remove
-R json,text,id conf page list
-R json,text conf page meta
-M preview-apply update,move confluence-page-arg apply,expected-proposal-hash,expected-version,expected-parent command generic json,text conf page move
-R json,text conf page open
-R json,text conf page outline
-R json,text,id conf page resolve
-R json,text conf page section
-R json,text conf page sections
-M preview-apply update confluence-page-arg apply,expected-proposal-hash,expected-version command generic json,text conf page title set
-R json,text conf page view
-M plan update confluence-plan confirm,expected-proposal-hash command generic json,text conf plan apply
-R json,text conf plan create
-R json,text conf plan preview
-R json,text conf pull
-M remote-direct update confluence-mirror - json,text conf push
-R json,text conf reconcile preview
-M local-direct none none - json,text conf reconcile stage
-R json,text conf render
-R json,text,id conf search
-R json,text conf snapshot
-R json,text conf space tree
-R json,text conf status
-R json,text conf table extract
-R json,text conf table summary
-R json conf validate
-M local-direct none none - json compatibility clear
-M local-direct none none - json compatibility pin
-R json,text compatibility status
-R json,text completion bash
-R json,text completion fish
-R json,text completion powershell
-R json,text completion zsh
-M local-direct none none - json config set
-R json,text config show
-R json,text corpus build
-R json,text corpus diff
-R json,text corpus export
-R json,text corpus handoff
-R json,text doctor
-R json,text environment inspect
-R json,text help
-M local-direct none none - json,text jira apply
-R json,text,id jira board backlog
-R json,text,id jira board config
-R json,text jira board export
-R json,text,id jira board get
-R json,text,id jira board issues
-R json,text,id jira board list
-R json,text,id jira board view
-R json,text jira epic digest
-R json,text jira export
-R json,text jira export diff
-R json,text jira field-options
-R json,text jira fields
-M remote-direct update jira-issue-arg - json,text jira issue assign
-R json,text jira issue attachment get
-R json,text,id jira issue attachment list
-M remote-direct create jira-issue-arg - json jira issue attachment upload
-R json,text jira issue check
-R json,text,id jira issue children
-M preview-apply comment jira-issue-arg apply,expected-proposal-hash command generic json,text jira issue comment add
-M remote-direct delete jira-issue-arg - json jira issue comment delete
-R json,text,id jira issue comment list
-R json,text jira issue comment preview
-M remote-direct create jira-project-flag - json,text,id jira issue create
-R json,text jira issue create-check
-M preview-apply delete jira-issue-arg apply,confirm,expected-proposal-hash,expected-updated pre-config jira-issue-delete json jira issue delete
-M remote-direct update,move? jira-issue-arg - json,text jira issue edit
-R json,text jira issue field get
-R json,text jira issue field preview
-M preview-apply update,move? jira-issue-arg apply,expected-proposal-hash,expected-updated command generic json,text jira issue field set
-R json,text jira issue fields
-R json,text jira issue get
-R json,text jira issue graph
-R json,text jira issue history
-R json jira issue images
-M remote-direct update jira-issue-arg - json jira issue labels
-M remote-direct update jira-two-issue-args - json jira issue link add
-M remote-direct delete jira-link-id - json jira issue link delete
-R json,text,id jira issue link list
-R json,text jira issue link suggest
-M remote-direct update jira-two-issue-args - json jira issue link-epic
-M plan update jira-plan apply,confirm command generic json,text jira issue plan apply
-R json,text jira issue refs
-R json,text jira issue reference search
-R json,text,id jira issue search
-M preview-apply transition,comment? jira-issue-arg apply,expected-proposal-hash command generic json,text jira issue transition
-R json,text jira issue transition preview
-R json,text jira issue tree
-R json,text,id jira issue types
-M remote-direct update,move? jira-issue-arg - json jira issue update
-R json,text jira issue view
-M preview-apply update jira-issue-arg apply,expected-proposal-hash command generic json,text jira issue watchers add
-R json,text jira issue watchers list
-M preview-apply update jira-issue-arg apply,expected-proposal-hash command generic json,text jira issue watchers remove
-M preview-apply update jira-issue-arg apply,expected-proposal-hash command generic json,text jira issue worklog add
-R json,text,id jira issue worklog list
-R json,text jira link-types
-R json,text,id jira me
-R json,text jira planning report
-R json,text,id jira project list
-R json,text jira pull
-M preview-apply update jira-mirror apply command generic json,text jira push
-R json,text jira reconcile preview
-M local-direct none none - json,text jira reconcile stage
-R json,text jira quality-report
-R json,text jira render
-M remote-direct update jira-sprint-issues - json jira sprint add
-R json,text,id jira sprint current
-R json,text,id jira sprint get
-R json,text,id jira sprint issues
-R json,text,id jira sprint list
-M remote-direct update jira-sprint-issues - json jira sprint remove
-R json,text jira snapshot
-R json,text jira status
-R json,text jira structure export
-R json,text,id jira structure folders
-R json,text jira structure forest
-R json,text,id jira structure get
-R json,text,id jira structure pull-issues
-R json,text,id jira structure rows
-R json jira structure values
-R json,text,id jira structure view
-R json,text jira transitions
-R json,text,id jira user get
-R json,text,id jira user search
-R json,text manifest create
-R json mcp serve
-M preview-apply none none apply,expected-backend-sha256,confirm pre-config-on-apply generic json,text mirror backend bind
-R json,text mirror backend status
-M dedicated-apply none none from-file,candidate-hash,expected-current-hash pre-config generic json,text profile apply
-R json,text profile guidance
-R json,text profile preview
-M local-direct none none - json,text profile revalidate
-R json,text profile revalidation status
-R json,text profile show
-M local-direct none none - json,text profile suggest
-M dedicated-apply none none from-file,suggestion-hash,candidate-hash,expected-current-hash pre-config generic json,text profile suggestion apply
-M local-direct none none - json,text profile suggestion reject
-R json,text profile suggestion review
-R json,text policy show
-R json,text policy explain
-R json,text version
+M setup local-direct none none - json,text auth login
+M credential-write local-direct none none - json auth logout
+R credential-read json,text auth status
+R pure json,text,id capabilities
+M local-write-updatable local-direct none none - json,text conf apply
+M remote-write preview-apply delete confluence-page-flag apply,confirm,expected-proposal-hash,expected-version pre-config confluence-attachment-delete json conf attachment delete
+R remote-download json,text conf attachment get
+R remote-read json,text,id conf attachment list
+M remote-write-with-local remote-direct create confluence-page-flag - json conf attachment upload
+M remote-write-with-local remote-direct create confluence-space - json,text,id conf blog create
+M remote-write-with-local preview-apply comment confluence-page-arg apply,expected-proposal-hash command generic json,text conf comment add
+R remote-read-capped json,text conf comment list
+M remote-write-with-local dedicated-apply comment confluence-page-flag apply,expected-proposal-hash pre-config generic json conf comment mutation apply
+R remote-read-with-local json conf comment mutation preview
+R remote-read-with-local json,text conf comment preview
+R remote-read-capped json,text conf comment thread
+R local-read-updatable json,text conf diff
+M local-write-updatable local-direct none none - json,text conf edit
+R remote-read json,text conf me
+M remote-write-local preview-apply create confluence-space apply,expected-proposal-hash,expected-version pre-config confluence-page-copy json,id conf page copy
+M remote-write-local remote-direct create confluence-space - json conf page create
+M remote-write preview-apply delete confluence-page-flag apply,confirm,expected-proposal-hash,expected-version pre-config confluence-page-delete json conf page delete
+R remote-read json,text conf page get
+R remote-read json,text conf page history
+M remote-write preview-apply update confluence-page-arg apply,expected-proposal-hash command generic json,text conf page labels add
+R remote-read json,text conf page labels list
+M remote-write preview-apply update confluence-page-arg apply,expected-proposal-hash command generic json,text conf page labels remove
+R remote-read json,text,id conf page list
+R remote-read json,text conf page meta
+M remote-write preview-apply update,move confluence-page-arg apply,expected-proposal-hash,expected-version,expected-parent command generic json,text conf page move
+R remote-open json,text conf page open
+R remote-read-fixed json,text conf page outline
+R remote-read json,text,id conf page resolve
+R remote-read-fixed json,text conf page section
+R remote-read-fixed json,text conf page sections
+M remote-write-with-local preview-apply update confluence-page-arg apply,expected-proposal-hash,expected-version command generic json,text conf page title set
+R remote-read json,text conf page view
+M remote-write-local plan update confluence-plan confirm,expected-proposal-hash command generic json,text conf plan apply
+R local-write-updatable json,text conf plan create
+R remote-read-with-local json,text conf plan preview
+R remote-pull json,text conf pull
+M remote-write-local remote-direct update confluence-mirror - json,text conf push
+R remote-read-with-local json,text conf reconcile preview
+M local-write-updatable local-direct none none - json,text conf reconcile stage
+R local-write-updatable json,text conf render
+R remote-read-fixed json,text,id conf search
+R optional-remote-read json,text conf snapshot
+R remote-read json,text conf space tree
+R optional-remote-read json,text conf status
+R remote-read-local json,text conf table extract
+R remote-read json,text conf table summary
+R local-read-updatable json conf validate
+M local-write local-direct none none - json compatibility clear
+M local-write local-direct none none - json compatibility pin
+R diagnostic json,text compatibility status
+R generator json,text completion bash
+R generator json,text completion fish
+R generator json,text completion powershell
+R generator json,text completion zsh
+M config-write local-direct none none - json config set
+R config-read json,text config show
+R corpus-build json,text corpus build
+R local-read-optional-artifact json,text corpus diff
+R local-artifact json,text corpus export
+R local-read-optional-artifact json,text corpus handoff
+R diagnostic json,text doctor
+R diagnostic json,text environment inspect
+R prose json,text help
+M local-write-updatable local-direct none none - json,text jira apply
+R remote-read json,text,id jira board backlog
+R remote-read json,text,id jira board config
+R remote-read-local json,text jira board export
+R remote-read json,text,id jira board get
+R remote-read json,text,id jira board issues
+R remote-read json,text,id jira board list
+R remote-read-capped json,text,id jira board view
+R remote-read-capped json,text jira epic digest
+R remote-read-local json,text jira export
+R local-read-updatable json,text jira export diff
+R remote-read json,text jira field-options
+R remote-read json,text jira fields
+M remote-write remote-direct update jira-issue-arg - json,text jira issue assign
+R remote-download json,text jira issue attachment get
+R remote-read json,text,id jira issue attachment list
+M remote-write-with-local remote-direct create jira-issue-arg - json jira issue attachment upload
+R remote-read json,text jira issue check
+R remote-read json,text,id jira issue children
+M remote-write-with-local preview-apply comment jira-issue-arg apply,expected-proposal-hash command generic json,text jira issue comment add
+M remote-write remote-direct delete jira-issue-arg - json jira issue comment delete
+R remote-read json,text,id jira issue comment list
+R remote-read-with-local json,text jira issue comment preview
+M remote-write-local remote-direct create jira-project-flag - json,text,id jira issue create
+R remote-read json,text jira issue create-check
+M remote-write preview-apply delete jira-issue-arg apply,confirm,expected-proposal-hash,expected-updated pre-config jira-issue-delete json jira issue delete
+M remote-write-with-local remote-direct update,move? jira-issue-arg - json,text jira issue edit
+R remote-read json,text jira issue field get
+R remote-read-with-local json,text jira issue field preview
+M remote-write-with-local preview-apply update,move? jira-issue-arg apply,expected-proposal-hash,expected-updated command generic json,text jira issue field set
+R remote-read json,text jira issue fields
+R remote-read json,text jira issue get
+R remote-read-caller-bounded json,text jira issue graph
+R remote-read json,text jira issue history
+R remote-download json jira issue images
+M remote-write remote-direct update jira-issue-arg - json jira issue labels
+M remote-write remote-direct update jira-two-issue-args - json jira issue link add
+M remote-write remote-direct delete jira-link-id - json jira issue link delete
+R remote-read json,text,id jira issue link list
+R remote-read-with-local json,text jira issue link suggest
+M remote-write remote-direct update jira-two-issue-args - json jira issue link-epic
+M remote-write-with-local plan update jira-plan apply,confirm command generic json,text jira issue plan apply
+R remote-read json,text jira issue refs
+R remote-read-caller-bounded json,text jira issue reference search
+R remote-read-fixed json,text,id jira issue search
+M remote-write preview-apply transition,comment? jira-issue-arg apply,expected-proposal-hash command generic json,text jira issue transition
+R remote-read json,text jira issue transition preview
+R remote-read json,text jira issue tree
+R remote-read json,text,id jira issue types
+M remote-write-with-local remote-direct update,move? jira-issue-arg - json jira issue update
+R remote-read json,text jira issue view
+M remote-write preview-apply update jira-issue-arg apply,expected-proposal-hash command generic json,text jira issue watchers add
+R remote-read json,text jira issue watchers list
+M remote-write preview-apply update jira-issue-arg apply,expected-proposal-hash command generic json,text jira issue watchers remove
+M remote-write-with-local preview-apply update jira-issue-arg apply,expected-proposal-hash command generic json,text jira issue worklog add
+R remote-read json,text,id jira issue worklog list
+R remote-read json,text jira link-types
+R remote-read json,text,id jira me
+R remote-read-local json,text jira planning report
+R remote-read json,text,id jira project list
+R remote-pull json,text jira pull
+M remote-write-local preview-apply update jira-mirror apply command generic json,text jira push
+R remote-read-with-local json,text jira reconcile preview
+M local-write-updatable local-direct none none - json,text jira reconcile stage
+R remote-read-local json,text jira quality-report
+R local-write-updatable json,text jira render
+M remote-write remote-direct update jira-sprint-issues - json jira sprint add
+R remote-read json,text,id jira sprint current
+R remote-read json,text,id jira sprint get
+R remote-read json,text,id jira sprint issues
+R remote-read json,text,id jira sprint list
+M remote-write remote-direct update jira-sprint-issues - json jira sprint remove
+R optional-remote-read json,text jira snapshot
+R optional-remote-read json,text jira status
+R remote-read-local json,text jira structure export
+R remote-read json,text,id jira structure folders
+R remote-read json,text jira structure forest
+R remote-read json,text,id jira structure get
+R remote-read json,text,id jira structure pull-issues
+R remote-read json,text,id jira structure rows
+R remote-read json jira structure values
+R remote-read json,text,id jira structure view
+R remote-read json,text jira transitions
+R remote-read json,text,id jira user get
+R remote-read json,text,id jira user search
+R local-write-updatable json,text manifest create
+R stdio-server json mcp serve
+M local-write preview-apply none none apply,expected-backend-sha256,confirm pre-config-on-apply generic json,text mirror backend bind
+R local-read json,text mirror backend status
+M local-write dedicated-apply none none from-file,candidate-hash,expected-current-hash pre-config generic json,text profile apply
+R local-prose json,text profile guidance
+R local-read json,text profile preview
+M local-artifact-config-read local-direct none none - json,text profile revalidate
+R local-read json,text profile revalidation status
+R local-read json,text profile show
+M local-artifact-config-read local-direct none none - json,text profile suggest
+M local-write dedicated-apply none none from-file,suggestion-hash,candidate-hash,expected-current-hash pre-config generic json,text profile suggestion apply
+M local-write local-direct none none - json,text profile suggestion reject
+R local-read json,text profile suggestion review
+R config-read json,text policy show
+R config-read json,text policy explain
+R pure json,text version
 `)
-
-func validMutationProfile(profile mutationProfile) bool {
-	switch profile {
-	case mutationLocalDirect, mutationRemoteDirect, mutationPreviewApply, mutationDedicatedApply, mutationPlan:
-		return true
-	default:
-		return false
-	}
-}
-
-func parsePolicyVerbs(value string) ([]policyVerb, bool) {
-	if value == "none" {
-		return nil, true
-	}
-	parts := strings.Split(value, ",")
-	verbs := make([]policyVerb, 0, len(parts))
-	seen := map[domain.WriteVerb]bool{}
-	for _, part := range parts {
-		conditional := strings.HasSuffix(part, "?")
-		name := strings.TrimSuffix(part, "?")
-		verb := domain.WriteVerb(name)
-		if !domain.ValidWriteVerb(verb) || seen[verb] {
-			return nil, false
-		}
-		seen[verb] = true
-		verbs = append(verbs, policyVerb{verb: verb, conditional: conditional})
-	}
-	return verbs, len(verbs) != 0
-}
-
-func parsePolicyIdentity(value string) (policyIdentitySource, bool) {
-	identity := policyIdentitySource(value)
-	switch identity {
-	case policyIdentityNone, policyIdentityJiraIssueArg, policyIdentityJiraProjectFlag,
-		policyIdentityJiraTwoIssueArgs, policyIdentityJiraLinkID, policyIdentityJiraPlan,
-		policyIdentityJiraSprintIssues, policyIdentityJiraMirror,
-		policyIdentityConfluencePageFlag, policyIdentityConfluencePageArg,
-		policyIdentityConfluenceSpace, policyIdentityConfluencePlan, policyIdentityConfluenceMirror:
-		return identity, true
-	default:
-		return "", false
-	}
-}
-
-func parseMutationGuardRequirement(value string) (mutationGuardRequirement, bool) {
-	switch value {
-	case "apply":
-		return mutationGuardApply, true
-	case "confirm":
-		return mutationGuardConfirm, true
-	case "expected-proposal-hash":
-		return mutationGuardExpectedProposalHash, true
-	case "expected-version":
-		return mutationGuardExpectedVersion, true
-	case "expected-parent":
-		return mutationGuardExpectedParent, true
-	case "expected-updated":
-		return mutationGuardExpectedUpdated, true
-	case "expected-backend-sha256":
-		return mutationGuardExpectedBackendSHA256, true
-	case "from-file":
-		return mutationGuardFromFile, true
-	case "suggestion-hash":
-		return mutationGuardSuggestionHash, true
-	case "candidate-hash":
-		return mutationGuardCandidateHash, true
-	case "expected-current-hash":
-		return mutationGuardExpectedCurrentHash, true
-	default:
-		return 0, false
-	}
-}
-
-func mutationGuardRequirementName(requirement mutationGuardRequirement) (string, bool) {
-	switch requirement {
-	case mutationGuardApply:
-		return "apply", true
-	case mutationGuardConfirm:
-		return "confirm", true
-	case mutationGuardExpectedProposalHash:
-		return "expected-proposal-hash", true
-	case mutationGuardExpectedVersion:
-		return "expected-version", true
-	case mutationGuardExpectedParent:
-		return "expected-parent", true
-	case mutationGuardExpectedUpdated:
-		return "expected-updated", true
-	case mutationGuardExpectedBackendSHA256:
-		return "expected-backend-sha256", true
-	case mutationGuardFromFile:
-		return "from-file", true
-	case mutationGuardSuggestionHash:
-		return "suggestion-hash", true
-	case mutationGuardCandidateHash:
-		return "candidate-hash", true
-	case mutationGuardExpectedCurrentHash:
-		return "expected-current-hash", true
-	default:
-		return "", false
-	}
-}
-
-func mutationGuardRequirementPresence(requirement mutationGuardRequirement) (mutationGuardPresence, bool) {
-	switch requirement {
-	case mutationGuardApply:
-		return mutationGuardPresenceTrue, true
-	case mutationGuardExpectedParent:
-		return mutationGuardPresenceExplicit, true
-	case mutationGuardConfirm,
-		mutationGuardExpectedProposalHash,
-		mutationGuardExpectedVersion,
-		mutationGuardExpectedUpdated,
-		mutationGuardExpectedBackendSHA256,
-		mutationGuardFromFile,
-		mutationGuardSuggestionHash,
-		mutationGuardCandidateHash,
-		mutationGuardExpectedCurrentHash:
-		return mutationGuardPresenceNonBlank, true
-	default:
-		return 0, false
-	}
-}
-
-func mutationGuardRequirementNames(requirements []mutationGuardRequirement) []string {
-	if len(requirements) == 0 {
-		return nil
-	}
-	names := make([]string, 0, len(requirements))
-	for _, requirement := range requirements {
-		name, ok := mutationGuardRequirementName(requirement)
-		if !ok {
-			continue
-		}
-		names = append(names, name)
-	}
-	return names
-}
-
-func parseMutationGuardPhase(value string) (mutationGuardPhase, bool) {
-	switch value {
-	case "command":
-		return mutationGuardCommandOwned, true
-	case "pre-config":
-		return mutationGuardPreConfig, true
-	case "pre-config-on-apply":
-		return mutationGuardPreConfigOnApply, true
-	default:
-		return 0, false
-	}
-}
-
-func parseMutationGuardFamily(value string) (mutationGuardFamily, bool) {
-	switch value {
-	case "generic":
-		return mutationGuardGeneric, true
-	case "confluence-attachment-delete":
-		return mutationGuardConfluenceAttachmentDelete, true
-	case "confluence-page-copy":
-		return mutationGuardConfluencePageCopy, true
-	case "confluence-page-delete":
-		return mutationGuardConfluencePageDelete, true
-	case "jira-issue-delete":
-		return mutationGuardJiraIssueDelete, true
-	default:
-		return 0, false
-	}
-}
-
-func parseCommandOutputModes(value string) (commandOutputMode, bool) {
-	switch value {
-	case "json":
-		return commandOutputJSON, true
-	case "json,text":
-		return commandOutputJSON | commandOutputText, true
-	case "json,id":
-		return commandOutputJSON | commandOutputID, true
-	case "json,text,id":
-		return commandOutputJSON | commandOutputText | commandOutputID, true
-	default:
-		return 0, false
-	}
-}
-
-func commandOutputModeNames(modes commandOutputMode) []string {
-	var out []string
-	if modes&commandOutputJSON != 0 {
-		out = append(out, "json")
-	}
-	if modes&commandOutputText != 0 {
-		out = append(out, "text")
-	}
-	if modes&commandOutputID != 0 {
-		out = append(out, "id")
-	}
-	return out
-}
 
 func parseCommandRegistry(value string) (commandRegistryState, error) {
 	registry := commandRegistryState{nodes: map[string]commandRegistration{"": {traits: commandGroup}}}
@@ -557,39 +365,47 @@ func parseCommandRegistry(value string) (commandRegistryState, error) {
 		registration.policyIdentity = policyIdentityNone
 		var pathFields []string
 		switch {
-		case len(fields) >= 3 && fields[0] == "R":
+		case len(fields) >= 4 && fields[0] == "R":
 			registration.traits = commandLeaf
-			var ok bool
-			registration.outputModes, ok = parseCommandOutputModes(fields[1])
-			if !ok {
-				return commandRegistryState{}, fmt.Errorf("registry line %d has invalid output modes %q", lineNumber+1, fields[1])
+			registration.effectProfile = fields[1]
+			if _, ok := capabilitydef.EffectProfileByID(registration.effectProfile); !ok {
+				return commandRegistryState{}, fmt.Errorf("registry line %d has invalid effect profile %q", lineNumber+1, fields[1])
 			}
-			pathFields = fields[2:]
-		case len(fields) >= 7 && fields[0] == "M":
+			var ok bool
+			registration.outputModes, ok = parseCommandOutputModes(fields[2])
+			if !ok {
+				return commandRegistryState{}, fmt.Errorf("registry line %d has invalid output modes %q", lineNumber+1, fields[2])
+			}
+			pathFields = fields[3:]
+		case len(fields) >= 8 && fields[0] == "M":
 			registration.traits = commandLeaf | commandMutating
-			registration.profile = mutationProfile(fields[1])
+			registration.effectProfile = fields[1]
+			if _, ok := capabilitydef.EffectProfileByID(registration.effectProfile); !ok {
+				return commandRegistryState{}, fmt.Errorf("registry line %d has invalid effect profile %q", lineNumber+1, fields[1])
+			}
+			registration.profile = mutationProfile(fields[2])
 			if !validMutationProfile(registration.profile) {
-				return commandRegistryState{}, fmt.Errorf("registry line %d has invalid mutation profile %q", lineNumber+1, fields[1])
+				return commandRegistryState{}, fmt.Errorf("registry line %d has invalid mutation profile %q", lineNumber+1, fields[2])
 			}
 			var ok bool
-			registration.policyVerbs, ok = parsePolicyVerbs(fields[2])
+			registration.policyVerbs, ok = parsePolicyVerbs(fields[3])
 			if !ok {
-				return commandRegistryState{}, fmt.Errorf("registry line %d has invalid policy verbs %q", lineNumber+1, fields[2])
+				return commandRegistryState{}, fmt.Errorf("registry line %d has invalid policy verbs %q", lineNumber+1, fields[3])
 			}
-			registration.policyIdentity, ok = parsePolicyIdentity(fields[3])
+			registration.policyIdentity, ok = parsePolicyIdentity(fields[4])
 			if !ok {
-				return commandRegistryState{}, fmt.Errorf("registry line %d has invalid policy identity %q", lineNumber+1, fields[3])
+				return commandRegistryState{}, fmt.Errorf("registry line %d has invalid policy identity %q", lineNumber+1, fields[4])
 			}
 			if (len(registration.policyVerbs) == 0) != (registration.policyIdentity == policyIdentityNone) {
 				return commandRegistryState{}, fmt.Errorf("registry line %d must declare policy verbs and identity together, or none none", lineNumber+1)
 			}
-			outputIndex := 5
-			pathIndex := 6
-			if fields[4] != "-" {
-				if len(fields) < 9 {
+			outputIndex := 6
+			pathIndex := 7
+			if fields[5] != "-" {
+				if len(fields) < 10 {
 					return commandRegistryState{}, fmt.Errorf("registry line %d guarded mutation has invalid shape", lineNumber+1)
 				}
-				for _, name := range strings.Split(fields[4], ",") {
+				for _, name := range strings.Split(fields[5], ",") {
 					requirement, ok := parseMutationGuardRequirement(name)
 					if !ok {
 						return commandRegistryState{}, fmt.Errorf("registry line %d has invalid guard requirement %q", lineNumber+1, name)
@@ -597,16 +413,16 @@ func parseCommandRegistry(value string) (commandRegistryState, error) {
 					registration.guard.requirements = append(registration.guard.requirements, requirement)
 				}
 				var ok bool
-				registration.guard.phase, ok = parseMutationGuardPhase(fields[5])
+				registration.guard.phase, ok = parseMutationGuardPhase(fields[6])
 				if !ok {
-					return commandRegistryState{}, fmt.Errorf("registry line %d has invalid guard phase %q", lineNumber+1, fields[5])
+					return commandRegistryState{}, fmt.Errorf("registry line %d has invalid guard phase %q", lineNumber+1, fields[6])
 				}
-				registration.guard.family, ok = parseMutationGuardFamily(fields[6])
+				registration.guard.family, ok = parseMutationGuardFamily(fields[7])
 				if !ok {
-					return commandRegistryState{}, fmt.Errorf("registry line %d has invalid guard family %q", lineNumber+1, fields[6])
+					return commandRegistryState{}, fmt.Errorf("registry line %d has invalid guard family %q", lineNumber+1, fields[7])
 				}
-				outputIndex = 7
-				pathIndex = 8
+				outputIndex = 8
+				pathIndex = 9
 			}
 			registration.outputModes, ok = parseCommandOutputModes(fields[outputIndex])
 			if !ok {
@@ -707,6 +523,7 @@ func finalizeCommandTree(root *cobra.Command) error {
 			cmd.Annotations[commandRoleAnnotation] = commandRoleHybrid
 		}
 		if registration.traits&commandLeaf != 0 {
+			cmd.Annotations[effectProfileAnnotation] = registration.effectProfile
 			classifyOutputModes(cmd, registration.outputModes)
 			if registration.traits&commandMutating != 0 {
 				cmd.Annotations[accessAnnotation] = "mutating"
@@ -742,6 +559,11 @@ func finalizeCommandTree(root *cobra.Command) error {
 			}
 		} else if registration.profile != mutationNone || len(registration.guard.requirements) != 0 {
 			return fmt.Errorf("read-only command %q has mutation metadata", cmd.CommandPath())
+		}
+		if registration.traits&commandLeaf != 0 {
+			if _, ok := capabilitydef.EffectProfileByID(registration.effectProfile); !ok {
+				return fmt.Errorf("executable command %q has no valid effect profile", cmd.CommandPath())
+			}
 		}
 		for _, child := range cmd.Commands() {
 			if err := validate(child); err != nil {
@@ -1202,7 +1024,7 @@ func resolveReadOnlyPolicy(cmd *cobra.Command, flagEnabled bool) (bool, error) {
 	// already guaranteed not to self-update. Keep them usable for diagnosis
 	// when config.json itself is malformed; every mutator and online read still
 	// decodes the policy strictly below.
-	if cmd.Annotations[accessAnnotation] == "read-only" && skipSelfUpdate(cmd) {
+	if cmd.Annotations[accessAnnotation] == "read-only" && skipSelfUpdate(cmd) && !policyInspectionCommand(cmd) {
 		return false, nil
 	}
 	cfg, err := config.LoadForEdit()
@@ -1210,6 +1032,15 @@ func resolveReadOnlyPolicy(cmd *cobra.Command, flagEnabled bool) (bool, error) {
 		return false, err
 	}
 	return cfg.ReadOnly, nil
+}
+
+func policyInspectionCommand(cmd *cobra.Command) bool {
+	for current := cmd; current != nil; current = current.Parent() {
+		if current.Name() == "policy" {
+			return true
+		}
+	}
+	return false
 }
 
 func enforceAccessPolicy(cmd *cobra.Command, enabled bool) error {

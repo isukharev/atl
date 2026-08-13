@@ -64,6 +64,7 @@ func TestDecodeCapabilityCatalogFailsClosed(t *testing.T) {
 
 	missingBoolean := deleteCapabilityItemMember(t, validJSON, 0, "cli_only")
 	mutations["missing false boolean"] = missingBoolean
+	mutations["missing effect profile"] = deleteCapabilityItemMember(t, validJSON, 0, "effect_profile")
 
 	reorderedModes := cloneCapabilityCatalog(valid)
 	reorderedModes.Capabilities[0].OutputModes = []string{"text", "json"}
@@ -98,15 +99,16 @@ func TestVerifyPinnedCapabilityCatalogChecksEveryWireField(t *testing.T) {
 			c.Capabilities[0].Command += " changed"
 			c.Capabilities[0].CLICommand += " changed"
 		},
-		"mcp tool":     func(c *CapabilityCatalog) { c.Capabilities[0].MCPTool += "_changed" },
-		"mcp scope":    func(c *CapabilityCatalog) { c.Capabilities[0].MCPScope += "." },
-		"cli only":     func(c *CapabilityCatalog) { c.Capabilities[2].CLIOnly = false },
-		"access":       func(c *CapabilityCatalog) { c.Capabilities[2].Access = "mutating" },
-		"output modes": func(c *CapabilityCatalog) { c.Capabilities[0].OutputModes = []string{"json"} },
-		"evidence":     func(c *CapabilityCatalog) { c.Capabilities[0].Evidence += ".changed" },
-		"completeness": func(c *CapabilityCatalog) { c.Capabilities[0].Completeness += ".changed" },
-		"skill":        func(c *CapabilityCatalog) { c.Capabilities[0].Skill += ".changed" },
-		"reference":    func(c *CapabilityCatalog) { c.Capabilities[0].Reference += ".changed" },
+		"mcp tool":       func(c *CapabilityCatalog) { c.Capabilities[0].MCPTool += "_changed" },
+		"mcp scope":      func(c *CapabilityCatalog) { c.Capabilities[0].MCPScope += "." },
+		"cli only":       func(c *CapabilityCatalog) { c.Capabilities[2].CLIOnly = false },
+		"access":         func(c *CapabilityCatalog) { c.Capabilities[2].Access = "mutating" },
+		"effect profile": func(c *CapabilityCatalog) { c.Capabilities[0].EffectProfile += "-changed" },
+		"output modes":   func(c *CapabilityCatalog) { c.Capabilities[0].OutputModes = []string{"json"} },
+		"evidence":       func(c *CapabilityCatalog) { c.Capabilities[0].Evidence += ".changed" },
+		"completeness":   func(c *CapabilityCatalog) { c.Capabilities[0].Completeness += ".changed" },
+		"skill":          func(c *CapabilityCatalog) { c.Capabilities[0].Skill += ".changed" },
+		"reference":      func(c *CapabilityCatalog) { c.Capabilities[0].Reference += ".changed" },
 	}
 	for name, mutate := range mutations {
 		t.Run(name, func(t *testing.T) {

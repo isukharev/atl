@@ -10,6 +10,13 @@ A content-minimized capability envelope has this stable outer shape:
 {"schema_version":1,"selection":{"count":0},"capabilities":[]}
 ```
 
+<!-- reference-navigation:start -->
+## Navigate this reference
+
+- [Capability catalog](#capability-catalog)
+- [MCP tool results](#mcp-tool-results)
+<!-- reference-navigation:end -->
+
 ## Capability catalog
 
 `atl capabilities` is an offline, deterministic routing contract. JSON is
@@ -17,7 +24,9 @@ A content-minimized capability envelope has this stable outer shape:
 Each capability contains stable `id`, exact `task_class`, `service`, ordered
 `role`/`priority`, `summary`, command path without the `atl` prefix, derived
 `access`, derived `output_modes`, `evidence`, `completeness`, and a one-hop
-`skill`/`reference` route. `-o text` is a Markdown table and `-o id` emits only
+`skill`/`reference` route. Additive `effect_profile` comes from the command
+registry owner used by execution, rather than from a second capability
+taxonomy. `-o text` is a Markdown table and `-o id` emits only
 capability ids. The command reads neither config nor credentials and performs
 no self-update or backend request. `routing.reference_load` tells an agent to
 invoke the named skill first and resolve the reference relative to it; a
@@ -26,7 +35,39 @@ The additive schema-v1 transport fields preserve `command` as an alias of
 `cli_command`, set `cli_only` as the inverse of a present `mcp_tool`, and
 require a non-empty `mcp_scope` for every mapping. A mapping means the typed
 read is sufficient only within that stated bounded projection; it is not full
-CLI equivalence. Text and id output remain unchanged.
+CLI equivalence. Text output has an additive `Effect profile` column; id output
+remains one unchanged capability id per line.
+
+`atl capabilities --effects` exposes that complete static command catalog
+offline. JSON is
+`{schema_version:1,enforcement:"informational",selection:{command?,count},profiles:[...],commands:[...]}`.
+An exact `--command "jira issue search"` selection requires `--effects` and
+cannot be combined with curated capability filters. Each command row has
+`command`, `effect_profile`, derived `access`/`output_modes`, optional
+`mutation_profile`, and any `capability_ids` that route to it. Every executable
+leaf has exactly one row and new unclassified leaves fail command-tree
+validation.
+
+Each profile contains `remote_effect`, `local_effect`, `credential_access`,
+`network_bound`, `process_effect`, `replay_class`, and `output_kind`, plus
+additive `local_artifact`, `configuration`, and `self_update`. The closed
+values are a static upper bound across successful invocations; runtime flags
+and inputs may narrow them. The closed
+network vocabulary is `none|fixed|caller|required_internal_cap|unknown`;
+`fixed` is a static request plan, `caller` is an actual caller-supplied physical
+request budget, and `required_internal_cap` is a mandatory implementation cap
+on a data-dependent loop. `unknown` does not imply caller control. Process
+launch is `none|launch`, and
+stdout/protocol kind is `data|generator|prose|protocol`. Profiles are
+informational and neither authorize commands nor replace read-only and
+guarded-write enforcement. A remote/local `write` is the dominant possible
+effect and includes any preparatory reads. `atl mcp serve` is classified as
+hard read-only, with remote/local reads and protocol output.
+
+`credential_access:none` means credential bytes are never handled,
+`possible` means only some successful branches handle them, and `required`
+means every successful invocation necessarily reads or processes credential
+material. Opening an absent credential store by itself is not `required`.
 For `jira/structure-planning`, the ordered catalog exposes hierarchy rows,
 explicit Structure values with `completeness:"per-row"`, and transient issue
 export as separate capabilities.

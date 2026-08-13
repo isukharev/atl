@@ -24,12 +24,14 @@ func TestDecodeJiraWorkflowWiresAcceptReleasedShapes(t *testing.T) {
 	}
 
 	capabilities, err := DecodeJiraPortfolioCapabilityCatalog(bytes.NewReader(validJiraPortfolioCapabilityWire(t)))
-	if err != nil || capabilities.Selection.Count != jiraPortfolioCapabilityCount || capabilities.Capabilities[0].ID != "jira.board.list" {
+	if err != nil || capabilities.Selection.Count != jiraPortfolioCapabilityCount || capabilities.Capabilities[0].ID != "jira.board.list" ||
+		capabilities.Capabilities[0].EffectProfile != "remote-read" {
 		t.Fatalf("portfolio capabilities=%+v err=%v", capabilities, err)
 	}
 
 	boards, err := DecodeJiraPortfolioBoardList(bytes.NewReader(validJiraPortfolioBoardListWire(t)))
-	if err != nil || len(boards.Boards) != 1 || boards.Boards[0].ProjectKey != "SYN" {
+	if err != nil || len(boards.Boards) != 1 || boards.Boards[0].ProjectKey != "SYN" ||
+		boards.Count != 1 || !boards.Complete || boards.Truncated {
 		t.Fatalf("board list=%+v err=%v", boards, err)
 	}
 
@@ -218,6 +220,35 @@ func TestDecodeJiraWorkflowWiresRejectNestedMemberAndSelectionDrift(t *testing.T
 		t.Fatal("unknown nested capability member was accepted")
 	}
 
+	missingEffectProfile := mutateJiraWorkflowWire(t, validJiraPortfolioCapabilityWire(t), func(root map[string]any) {
+		delete(root["capabilities"].([]any)[0].(map[string]any), "effect_profile")
+	})
+	if _, err := DecodeJiraPortfolioCapabilityCatalog(bytes.NewReader(missingEffectProfile)); err == nil {
+		t.Fatal("capability without required effect_profile was accepted")
+	}
+
+	for name, mutate := range map[string]func(map[string]any){
+		"missing count":     func(root map[string]any) { delete(root, "count") },
+		"missing complete":  func(root map[string]any) { delete(root, "complete") },
+		"missing truncated": func(root map[string]any) { delete(root, "truncated") },
+		"null count":        func(root map[string]any) { root["count"] = nil },
+		"null complete":     func(root map[string]any) { root["complete"] = nil },
+		"null truncated":    func(root map[string]any) { root["truncated"] = nil },
+		"count mismatch":    func(root map[string]any) { root["count"] = float64(2) },
+		"complete cursor contradiction": func(root map[string]any) {
+			root["complete"] = false
+			root["truncated"] = true
+		},
+		"truncated contradiction": func(root map[string]any) { root["truncated"] = true },
+	} {
+		t.Run("board accounting "+name, func(t *testing.T) {
+			data := mutateJiraWorkflowWire(t, validJiraPortfolioBoardListWire(t), mutate)
+			if _, err := DecodeJiraPortfolioBoardList(bytes.NewReader(data)); err == nil {
+				t.Fatal("invalid board completeness accounting was accepted")
+			}
+		})
+	}
+
 	folders := mutateJiraWorkflowWire(t, validJiraPortfolioFoldersWire(t), func(root map[string]any) {
 		root["folders"].([]any)[0].(map[string]any)["stats"].(map[string]any)["backend"] = true
 	})
@@ -283,6 +314,9 @@ func validJiraPortfolioBoardListWire(t *testing.T) []byte {
 	return mustJiraWorkflowJSON(t, map[string]any{
 		"boards":      []any{map[string]any{"id": 17, "name": "Synthetic board", "type": "scrum", "project_key": "SYN"}},
 		"next_cursor": "",
+		"count":       1,
+		"complete":    true,
+		"truncated":   false,
 	})
 }
 

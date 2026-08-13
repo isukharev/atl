@@ -14,6 +14,7 @@ import (
 type RepositoryCommand struct {
 	Path            string
 	Access          string
+	EffectProfile   string
 	MutationProfile string
 	RequiredFlags   []string
 	OutputModes     []string
@@ -55,6 +56,7 @@ func RepositoryCommandInventory() ([]RepositoryCommand, error) {
 		commands = append(commands, RepositoryCommand{
 			Path:            path,
 			Access:          access,
+			EffectProfile:   registration.effectProfile,
 			MutationProfile: string(registration.profile),
 			RequiredFlags:   mutationGuardRequirementNames(registration.guard.requirements),
 			OutputModes:     commandOutputModeNames(registration.outputModes),

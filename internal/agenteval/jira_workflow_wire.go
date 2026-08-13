@@ -68,6 +68,9 @@ type JiraEpicLink struct {
 type JiraPortfolioBoardList struct {
 	Boards     []JiraPortfolioBoard `json:"boards"`
 	NextCursor string               `json:"next_cursor"`
+	Count      int                  `json:"count"`
+	Complete   bool                 `json:"complete"`
+	Truncated  bool                 `json:"truncated"`
 }
 
 type JiraPortfolioBoard struct {
@@ -321,7 +324,7 @@ func validateJiraPortfolioBoardListMembers(data []byte) error {
 	if err != nil {
 		return err
 	}
-	if err := jiraWorkflowMembers(root, "board list", []string{"boards", "next_cursor"}, nil); err != nil {
+	if err := jiraWorkflowMembers(root, "board list", []string{"boards", "next_cursor", "count", "complete", "truncated"}, nil); err != nil {
 		return err
 	}
 	return jiraWorkflowArray(root["boards"], "board list.boards", func(item map[string]json.RawMessage, owner string) error {
@@ -586,8 +589,14 @@ func (list JiraPortfolioBoardList) validate() error {
 	if list.Boards == nil || len(list.Boards) > jiraWorkflowMaximumItems {
 		return fmt.Errorf("boards must contain at most %d entries", jiraWorkflowMaximumItems)
 	}
+	if list.Count != len(list.Boards) {
+		return fmt.Errorf("count must equal the number of boards")
+	}
 	if !jiraWorkflowNormalizedOrEmpty(list.NextCursor) {
 		return fmt.Errorf("next_cursor is not whitespace-normalized")
+	}
+	if list.Complete != (list.NextCursor == "") || list.Truncated != !list.Complete {
+		return fmt.Errorf("complete, truncated, and next_cursor contradict")
 	}
 	seen := make(map[int]struct{}, len(list.Boards))
 	for index, board := range list.Boards {

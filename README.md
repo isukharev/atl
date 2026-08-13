@@ -56,18 +56,17 @@ Linux and macOS release binaries are available for amd64 and arm64.
 curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | sh
 ```
 
-The installer verifies SHA-256. Releases also publish checksums, signatures,
-and SLSA provenance. Alternatives:
+The installer verifies SHA-256; releases also publish checksums, signatures,
+and SLSA provenance:
 
 ```sh
 brew install isukharev/tap/atl
 ```
 
-Direct downloads are on [GitHub Releases](https://github.com/isukharev/atl/releases).
-Source contributors use `make install` to stamp the repository version and
-build identity.
-Windows and Atlassian Cloud are not currently supported; review the
-[compatibility matrix](docs/compatibility.md) before deployment.
+Use [GitHub Releases](https://github.com/isukharev/atl/releases) for direct
+downloads and `make install` for a source build with repository identity.
+Windows and Atlassian Cloud are unsupported; review the
+[compatibility matrix](docs/compatibility.md).
 
 ## Five-minute first read
 
@@ -78,22 +77,25 @@ Confluence flags and service name for Confluence.
 atl config set --jira-url https://jira.example.com
 atl auth login --service jira
 atl auth status
-atl doctor --remote
+atl doctor --service jira --remote
 
 export ATL_READ_ONLY=1
 atl jira issue search --jql 'order by updated DESC' --limit 5
 ```
 
-`auth login` reads the bearer PAT from a no-echo prompt, stdin, or a file—never
-from argv. `doctor` is offline unless `--remote` is explicit. Remote mode makes
-bounded product/version probes without reading page or issue bodies. JSON is
-the default output; logs and errors stay on stderr.
+`auth login` reads the PAT from a no-echo prompt, stdin, or file—not argv.
+`doctor --service jira|confluence` scopes health and stays offline without
+`--remote`, which makes bounded body-free product/version probes. `safety`
+reports configured/effective read-only state and source
+`flag|environment|configuration|none`. JSON defaults to stdout; diagnostics use
+stderr.
 
 For Confluence:
 
 ```sh
 atl config set --confluence-url https://confluence.example.com
 atl auth login --service confluence
+atl doctor --service confluence --remote
 export ATL_READ_ONLY=1
 atl conf search --cql 'type = page' --limit 5
 ```
@@ -105,15 +107,14 @@ an unqualified full page.
 
 ### 1. Read narrowly
 
-Start with CQL/JQL discovery, then read only the selected object or fields.
-Use `atl jira issue graph KEY --depth 0` for structured links, hierarchy,
-documentation, attachments, or Development identities; add `--projection
-compact` for qualified URL/SCM JSON. When the starting point is one GitLab
-project or Confluence page instead, use the CLI-only `atl jira issue reference
-search` with an explicit JQL scope, source set, mode, and limits; only a complete
-exhaustive result can prove absence. Use `atl conf comment list --id ID` before
-expanding one exact thread. These surfaces qualify incomplete evidence; graph
-text exposes safe URL-node identities in its `URL` column.
+Start with CQL/JQL discovery, then read only selected objects or fields. Use
+`atl jira issue graph KEY --depth 0` for links, hierarchy, documentation,
+attachments, or Development identities; add `--projection compact` for
+qualified URL/SCM JSON. From one GitLab project or Confluence page, use CLI-only
+`atl jira issue reference search` with explicit JQL scope, sources, mode, and
+limits; only a complete exhaustive result proves absence. Run `atl conf comment
+list --id ID` before expanding one thread. These surfaces qualify incomplete
+evidence; graph text exposes safe URL-node identities in its `URL` column.
 
 Typed MCP offers smaller, read-only projections for agents. The CLI remains the
 route for native bodies, durable mirrors, large bounded traversals, exports,
@@ -180,6 +181,10 @@ configuration or backend access.
 
 Claude Code and Codex plugins include typed read-only MCP.
 
+Inspect offline upper bounds with `atl capabilities --effects`
+or `--effects --command "jira issue search"`; they are informational, not
+authorization or enforcement.
+
 Claude Code:
 
 ```text
@@ -195,9 +200,9 @@ codex plugin marketplace add isukharev/atl
 codex plugin add atl@atl
 ```
 
-Restart after installing. The [agent setup guide](docs/agent-setup.md) covers
-routing, safety, mirrors, skew, and the pre-config plugin/binary gate;
-standalone `atl mcp serve` remains supported.
+Restart after installing. See the [agent setup guide](docs/agent-setup.md) for
+routing, safety, mirrors, skew, and the plugin/binary gate. Standalone `atl mcp
+serve` remains supported.
 
 [`agent-eval`](docs/reference/agent-eval/README.md) is pre-release.
 

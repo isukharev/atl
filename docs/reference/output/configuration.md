@@ -88,13 +88,33 @@ advertise an output mode that the root preflight would refuse.
 ## Setup doctor
 
 `atl doctor` returns a schema-v1, content-free aggregate with
-`{schema_version,mode,complete,healthy,status,cli,runtime,config,credentials,
+`{schema_version,mode,service,complete,healthy,status,cli,runtime,config,credentials,
 safety,content_policy,services,mirror,plugin,problems}`. `content_policy`
 reports only `active`, `enforcement`, and the closed `advisory_because` symbols;
 it never exposes policy bytes, rules, paths, URLs, or digests. Closed status/reason/remediation
 values are safe for automation; configured URLs/hostnames, local paths,
 environment-variable names, credentials, identities, object ids, mirrored
 content, and raw parser/backend errors are never fields or interpolated text.
+
+`service` is `all|jira|confluence`. The default `all` preserves the complete
+two-service diagnostic. A single-service selection keeps both service slots in
+the stable output shape but marks the sibling service/mirror `not_selected`;
+only selected service-specific URL, CA-bundle, mirror, compatibility, and
+remote findings contribute to health. The sibling transport CA-bundle status
+is `not_selected`, while `configured` and `source` remain safe facts from the
+common configuration projection; its configured path is not opened. The privacy-safe top-level configuration
+and credential inventory remains complete, and common file/store safety
+findings are never scoped away.
+
+`safety` is
+`{read_only,configured_read_only,effective_read_only,read_only_source,status}`.
+The legacy `read_only` remains the effective process guard. The explicit source
+is exactly `flag|environment|configuration|none`, in that precedence order.
+
+`atl policy show` uses the same explicit fields inside `read_only`. Its legacy
+`read_only.active` remains effective and legacy `read_only.source` remains the
+active source, or `null` when inactive; `read_only_source` uses `none` for that
+inactive case.
 
 Offline mode performs no network request and skips self-update. Explicit
 `--remote` adds no more than one single-attempt metadata GET for Jira. For
@@ -191,7 +211,7 @@ services available the command makes exactly three sequential GETs and no
 search/content request. The command is read-only-policy compatible and has JSON
 and text projections.
 
-`atl config show` emits `{ "read_only", "confluence_url"?, "jira_url"?, "update_base_url"?, "render", "jira_list_views", "jira_list_views_error"?, "render_provenance"?, "local_config_path"?, "mirror" }`. `render` is the **effective** merged render configuration (always present; `display_time_zone` defaults to deterministic `UTC`, and both `jira` and `confluence` sections carry at least `profile`, defaulting to `default`). `render_provenance` maps each dotted render key whose value is *not* the built-in default to its source (`global` or `local`) and is `omitempty` — an all-default mirror emits none, keeping the shape backward-compatible. `local_config_path` appears only when a per-mirror `.atl/config.json` is in scope from the current directory. Warnings about forbidden/unknown keys in a local file go to **stderr** as `warning:` lines; stdout stays clean. `config set` accepts `safety.read_only`, Jira list views, or a positional dotted render key (`render.display_time_zone`, `render.{jira,confluence}.{profile,include,exclude}`, plus `render.jira.custom_fields`, `render.jira.field_views`, and `render.jira.epic_field`) alongside the existing URL flags; `field_views` is a JSON descriptor array. The display zone changes only human Markdown date/datetime projections; exact JSON/native timestamps and JQL/CQL semantics are unchanged. `--local` writes the per-mirror file (render keys only — a URL flag with `--local` is a usage error, exit 2).
+`atl config show` emits `{ "read_only", "configured_read_only", "effective_read_only", "read_only_source", "confluence_url"?, "jira_url"?, "update_base_url"?, "render", "jira_list_views", "jira_list_views_error"?, "render_provenance"?, "local_config_path"?, "mirror" }`. Legacy `read_only` and explicit `configured_read_only` are the persisted configured value. `effective_read_only` is the monotonic OR of CLI flag, environment, and configuration; `read_only_source` is the highest-precedence active `flag|environment|configuration|none`. `render` is the **effective** merged render configuration (always present; `display_time_zone` defaults to deterministic `UTC`, and both `jira` and `confluence` sections carry at least `profile`, defaulting to `default`). `render_provenance` maps each dotted render key whose value is *not* the built-in default to its source (`global` or `local`) and is `omitempty` — an all-default mirror emits none, keeping the shape backward-compatible. `local_config_path` appears only when a per-mirror `.atl/config.json` is in scope from the current directory. Warnings about forbidden/unknown keys in a local file go to **stderr** as `warning:` lines; stdout stays clean. `config set` accepts `safety.read_only`, Jira list views, or a positional dotted render key (`render.display_time_zone`, `render.{jira,confluence}.{profile,include,exclude}`, plus `render.jira.custom_fields`, `render.jira.field_views`, and `render.jira.epic_field`) alongside the existing URL flags; `field_views` is a JSON descriptor array. The display zone changes only human Markdown date/datetime projections; exact JSON/native timestamps and JQL/CQL semantics are unchanged. `--local` writes the per-mirror file (render keys only — a URL flag with `--local` is a usage error, exit 2).
 
 Runtime commands validate all `jira_list_views` before network access and map
 an invalid catalog to config exit 7. Recovery is deliberately narrower:

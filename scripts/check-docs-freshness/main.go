@@ -113,16 +113,6 @@ type privateMarker struct {
 	State     string `json:"state"`
 }
 
-type report struct {
-	Commands         int
-	Flags            int
-	Routes           int
-	MutationProfiles int
-	ImpactRules      int
-	SelectedChecks   []string
-	PrivateMarkers   int
-}
-
 type changedPathSet struct {
 	Paths      []string
 	Historical map[string]bool
@@ -144,8 +134,8 @@ func main() {
 	if len(result.SelectedChecks) != 0 {
 		checks = strings.Join(result.SelectedChecks, ",")
 	}
-	fmt.Printf("documentation freshness: commands=%d flags=%d routes=%d mutation_profiles=%d impact_rules=%d selected_checks=%s private_markers=%d\n",
-		result.Commands, result.Flags, result.Routes, result.MutationProfiles, result.ImpactRules, checks, result.PrivateMarkers)
+	fmt.Printf("documentation freshness: commands=%d flags=%d routes=%d task_classes=%d mutation_profiles=%d impact_rules=%d selected_checks=%s private_markers=%d\n",
+		result.Commands, result.Flags, result.Routes, result.TaskClasses, result.MutationProfiles, result.ImpactRules, checks, result.PrivateMarkers)
 }
 
 func validateRepository(root, base, head, markerPath string) (report, error) {
@@ -162,6 +152,10 @@ func validateRepository(root, base, head, markerPath string) (report, error) {
 		return report{}, err
 	}
 	documents, err := loadDocuments(filepath.Join(root, filepath.FromSlash(docsCatalogPath)))
+	if err != nil {
+		return report{}, err
+	}
+	taskClasses, err := validatePublishedTaskClasses(root)
 	if err != nil {
 		return report{}, err
 	}
@@ -188,22 +182,18 @@ func validateRepository(root, base, head, markerPath string) (report, error) {
 		return report{}, err
 	}
 	result := report{
-		Commands: len(commands), Flags: len(flags), Routes: len(commandContract.Routes),
-		MutationProfiles: len(commandContract.MutationProfiles), ImpactRules: len(impactContract.Rules),
+		Commands:         len(commands),
+		Flags:            len(flags),
+		Routes:           len(commandContract.Routes),
+		TaskClasses:      taskClasses,
+		MutationProfiles: len(commandContract.MutationProfiles),
+		ImpactRules:      len(impactContract.Rules),
 	}
-	if strings.TrimSpace(base) != "" {
-		changed, err := changedFiles(root, base, head)
-		if err != nil {
-			return result, err
-		}
-		baseline, err := loadImpactManifestAtRevision(root, strings.TrimSpace(base))
-		if err != nil {
-			return result, err
-		}
-		result.SelectedChecks, err = classifyImpact(impactContract, baseline, changed)
-		if err != nil {
-			return result, err
-		}
+	result.SelectedChecks, err = selectedImpactChecks(
+		root, base, head, impactContract,
+	)
+	if err != nil {
+		return result, err
 	}
 	if strings.TrimSpace(markerPath) != "" {
 		added, diffErr := addedDiffContent(root, base, head)

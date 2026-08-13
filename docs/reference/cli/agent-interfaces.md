@@ -43,11 +43,37 @@ atl capabilities --id confluence.page.section
 Supported task classes are `confluence/comments`, `confluence/edit`,
 `confluence/evidence`, `confluence/mirror`, `confluence/table-analytics`,
 `jira/batch-analysis`, `jira/board-portfolio`, `jira/edit`, `jira/evidence`,
-`jira/graph-evidence`, `jira/mirror`, `jira/portfolio`, `jira/setup`,
+`jira/graph-evidence`, `jira/inverse-reference`, `jira/mirror`, `jira/portfolio`, `jira/setup`,
 `jira/structure-planning`, and `knowledge/search`. Exact `--service` and `--access
 read-only|mutating` filters can narrow the result. An unknown task or capability
 id exits 4; an invalid service/access value exits 2. No fuzzy classification is
 performed.
+
+The following named machine-readable list is the published task-class
+contract. The documentation freshness guard compares this exact block with
+`capability.TaskClasses()`; unrelated skill workflow classes are not part of
+the comparison.
+
+```json capability-task-classes
+[
+  "confluence/comments",
+  "confluence/edit",
+  "confluence/evidence",
+  "confluence/mirror",
+  "confluence/table-analytics",
+  "jira/batch-analysis",
+  "jira/board-portfolio",
+  "jira/edit",
+  "jira/evidence",
+  "jira/graph-evidence",
+  "jira/inverse-reference",
+  "jira/mirror",
+  "jira/portfolio",
+  "jira/setup",
+  "jira/structure-planning",
+  "knowledge/search"
+]
+```
 
 For `jira/evidence`, the ordered route starts with `jira issue search` for
 broad candidate discovery before exact per-issue field qualification and
@@ -97,6 +123,7 @@ JSON uses schema version 1:
     "mcp_scope": "Bounded digest with explicit include sources; no Confluence expansion.",
     "cli_only": false,
     "access": "read-only",
+    "effect_profile": "remote-read-capped",
     "output_modes": ["json", "text"],
     "evidence": "qualified",
     "completeness": "per-source",
@@ -106,8 +133,8 @@ JSON uses schema version 1:
 }
 ```
 
-The transport fields are additive within schema version 1. `command` remains a
-compatibility alias for `cli_command`. `mcp_tool` names a reviewed bounded
+The transport and `effect_profile` fields are additive within schema version
+1. `command` remains a compatibility alias for `cli_command`. `mcp_tool` names a reviewed bounded
 typed route only inside `mcp_scope`; it does not promise full CLI output or
 workflow equivalence. CLI-only entries omit `mcp_tool` and `mcp_scope` and
 set `cli_only:true`.
@@ -116,9 +143,72 @@ set `cli_only:true`.
 `mutating` commands are refused by `ATL_READ_ONLY=1`; `read-only` means no
 remote mutation (some reads such as `pull` intentionally write local mirror
 artifacts). `output_modes` is derived from the same command-tree preflight used
-at execution. CI verifies that every catalog command exists and these facts do
+at execution. `effect_profile` is derived from that command's canonical static
+effect owner rather than from the curated task route. CI verifies that every
+catalog command exists and these facts do
 not drift. The catalog describes safe routing only; it never grants approval to
 execute a mutating entry.
+
+### Static command effects
+
+Inspect the complete executable-command effect catalog offline, or select one
+exact leaf:
+
+```bash
+atl capabilities --effects
+atl capabilities --effects --command "jira issue search"
+atl capabilities --effects -o id
+```
+
+`--command` requires `--effects`. Effect inspection cannot be combined with
+the curated `--task`, `--service`, `--access`, or `--id` filters. Like ordinary
+capability inspection, it loads no configuration or credential and performs no
+network request or self-update.
+
+The schema-v1 effect result is
+`{schema_version,enforcement,selection,profiles,commands}`. `enforcement` is
+always `informational`. Every one of the 170 executable leaves has exactly one
+`effect_profile` in the canonical command registry, and a newly constructed
+leaf fails startup validation until classified. Each command row includes its
+path, access class, output modes, optional mutation profile, and any curated
+capability ids that reference that same command owner.
+
+Each profile is a static upper bound across successful invocations of that
+leaf; flags and inputs may narrow the effects of one invocation but cannot
+widen the published profile.
+
+Profiles use closed dimensions:
+
+- `remote_effect`: `none|read|write`;
+- `local_effect`: `none|read|write|download`;
+- `credential_access`: `none|possible|required`;
+- `network_bound`: `none|fixed|caller|required_internal_cap|unknown`;
+- `process_effect`: `none|launch`;
+- `replay_class`: `replay_safe|non_replay_safe|mixed`;
+- `output_kind`: `data|generator|prose|protocol`;
+- additive `local_artifact`: `none|possible|required`, `configuration`:
+  `none|read|write`, and `self_update`: `disabled|possible`.
+
+`unknown` is deliberate: it does not imply that caller input controls the
+number of backend requests. `none` makes no backend request, `fixed` has a
+statically fixed request plan, `required_internal_cap` bounds a data-dependent
+request loop with a mandatory implementation-owned ceiling, and `caller` means
+the caller supplies the physical-request budget, not merely a target. In the
+remote/local dimensions, `write` is the dominant possible effect and subsumes
+any preparatory reads. `output_kind` describes
+stdout (or the stdio protocol), while downloads and durable files remain local
+effects and `local_artifact` facts. Base remote/local effects exclude the
+best-effort startup updater; when `self_update` is `possible`, that updater can
+add its separately documented check, download, and local replacement before
+the command runs. These facts never authorize execution and do not replace the
+existing read-only or guarded-write enforcement paths.
+
+Credential access describes material, not merely opening a credential-store
+file: `none` never handles credential bytes, `possible` handles them only on
+some successful branches, and `required` means every successful invocation
+necessarily reads or processes credential material. Thus credential status and
+idempotent logout are `possible`, while a successful authenticated backend read
+is `required`.
 
 ## `atl mcp serve`
 

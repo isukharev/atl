@@ -35,6 +35,9 @@ func TestCapabilityCatalogDefinitionsAreValidAndUnique(t *testing.T) {
 		if item.Access != "read-only" && item.Access != "mutating" {
 			t.Fatalf("%s access=%q", item.ID, item.Access)
 		}
+		if _, ok := capabilitydef.EffectProfileByID(item.EffectProfile); !ok {
+			t.Fatalf("%s effect_profile=%q", item.ID, item.EffectProfile)
+		}
 		if len(item.OutputModes) == 0 || item.OutputModes[0] != "json" {
 			t.Fatalf("%s output modes=%v", item.ID, item.OutputModes)
 		}
@@ -108,6 +111,10 @@ func TestCapabilityCatalogPreservesLegacyProjectionAndAddsTransportRouting(t *te
 		}
 		if item.CLIOnly != (item.MCPTool == "") {
 			t.Errorf("%s cli_only=%v mcp_tool=%q", item.ID, item.CLIOnly, item.MCPTool)
+		}
+		effects, effectErr := buildCommandEffectCatalog(commandEffectSelection{Command: item.CLICommand})
+		if effectErr != nil || len(effects.Commands) != 1 || effects.Commands[0].EffectProfile != item.EffectProfile {
+			t.Errorf("%s effect_profile=%q command catalog=%+v err=%v", item.ID, item.EffectProfile, effects, effectErr)
 		}
 		if item.MCPTool == "" {
 			cliOnly++

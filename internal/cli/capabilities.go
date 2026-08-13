@@ -14,23 +14,24 @@ import (
 const capabilityCatalogSchemaVersion = 1
 
 type capability struct {
-	ID           string   `json:"id"`
-	TaskClass    string   `json:"task_class"`
-	Service      string   `json:"service"`
-	Role         string   `json:"role"`
-	Priority     int      `json:"priority"`
-	Summary      string   `json:"summary"`
-	Command      string   `json:"command"`
-	CLICommand   string   `json:"cli_command"`
-	MCPTool      string   `json:"mcp_tool,omitempty"`
-	MCPScope     string   `json:"mcp_scope,omitempty"`
-	CLIOnly      bool     `json:"cli_only"`
-	Access       string   `json:"access"`
-	OutputModes  []string `json:"output_modes"`
-	Evidence     string   `json:"evidence"`
-	Completeness string   `json:"completeness"`
-	Skill        string   `json:"skill"`
-	Reference    string   `json:"reference"`
+	ID            string   `json:"id"`
+	TaskClass     string   `json:"task_class"`
+	Service       string   `json:"service"`
+	Role          string   `json:"role"`
+	Priority      int      `json:"priority"`
+	Summary       string   `json:"summary"`
+	Command       string   `json:"command"`
+	CLICommand    string   `json:"cli_command"`
+	MCPTool       string   `json:"mcp_tool,omitempty"`
+	MCPScope      string   `json:"mcp_scope,omitempty"`
+	CLIOnly       bool     `json:"cli_only"`
+	Access        string   `json:"access"`
+	EffectProfile string   `json:"effect_profile"`
+	OutputModes   []string `json:"output_modes"`
+	Evidence      string   `json:"evidence"`
+	Completeness  string   `json:"completeness"`
+	Skill         string   `json:"skill"`
+	Reference     string   `json:"reference"`
 }
 
 type capabilitySelection struct {
@@ -55,7 +56,8 @@ type capabilityRouting struct {
 }
 
 func newCapabilitiesCmd() *cobra.Command {
-	var task, service, access, id string
+	var task, service, access, id, command string
+	var effects bool
 	taskClasses := capabilitydef.TaskClasses()
 	c := &cobra.Command{
 		Use:   "capabilities",
@@ -63,6 +65,25 @@ func newCapabilitiesCmd() *cobra.Command {
 		Long: "Query exact task-to-command routes without loading config, credentials, or network state.\n" +
 			"The catalog is deterministic and derives access/output facts from the registered CLI tree.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if effects {
+				if task != "" || service != "" || access != "" || id != "" {
+					return usageErr("--effects cannot be combined with capability filters")
+				}
+				catalog, err := buildCommandEffectCatalog(commandEffectSelection{Command: strings.TrimSpace(command)})
+				if err != nil {
+					return err
+				}
+				return emitID(cmd, catalog, func() string { return commandEffectCatalogText(catalog) }, func() []string {
+					paths := make([]string, len(catalog.Commands))
+					for i := range catalog.Commands {
+						paths[i] = catalog.Commands[i].Command
+					}
+					return paths
+				})
+			}
+			if command != "" {
+				return usageErr("--command requires --effects")
+			}
 			catalog, err := buildCapabilityCatalog(cmd.Root(), capabilitySelection{
 				Task: strings.TrimSpace(task), Service: strings.TrimSpace(service),
 				Access: strings.TrimSpace(access), ID: strings.TrimSpace(id),
@@ -83,6 +104,8 @@ func newCapabilitiesCmd() *cobra.Command {
 	c.Flags().StringVar(&service, "service", "", "exact service: jira|confluence")
 	c.Flags().StringVar(&access, "access", "", "exact access class: read-only|mutating")
 	c.Flags().StringVar(&id, "id", "", "exact capability id")
+	c.Flags().BoolVar(&effects, "effects", false, "inspect static effect profiles for every executable command")
+	c.Flags().StringVar(&command, "command", "", "exact executable command path (requires --effects)")
 	_ = c.RegisterFlagCompletionFunc("task", fixedComp(taskClasses...))
 	_ = c.RegisterFlagCompletionFunc("service", fixedComp("jira", "confluence"))
 	_ = c.RegisterFlagCompletionFunc("access", fixedComp("read-only", "mutating"))
@@ -120,6 +143,10 @@ func buildCapabilityCatalog(root *cobra.Command, selection capabilitySelection) 
 		if selection.Access != "" && commandAccess != selection.Access {
 			continue
 		}
+		effectProfile := command.Annotations[effectProfileAnnotation]
+		if _, ok := capabilitydef.EffectProfileByID(effectProfile); !ok {
+			return capabilityCatalog{}, fmt.Errorf("%w: capability %q command %q has invalid effect metadata", domain.ErrCheckFailed, definition.ID, definition.CLICommand)
+		}
 		modes := []string{"json"}
 		if command.Annotations[textOutputAnnotation] == "supported" {
 			modes = append(modes, "text")
@@ -132,7 +159,7 @@ func buildCapabilityCatalog(root *cobra.Command, selection capabilitySelection) 
 			Role: definition.Role, Priority: definition.Priority, Summary: definition.Summary,
 			Command: definition.CLICommand, CLICommand: definition.CLICommand,
 			MCPTool: definition.MCPTool, MCPScope: definition.MCPScope, CLIOnly: definition.MCPTool == "",
-			Access: commandAccess, OutputModes: modes,
+			Access: commandAccess, EffectProfile: effectProfile, OutputModes: modes,
 			Evidence: definition.Evidence, Completeness: definition.Completeness,
 			Skill: definition.Skill, Reference: definition.Reference,
 		})
@@ -163,11 +190,11 @@ func buildCapabilityCatalog(root *cobra.Command, selection capabilitySelection) 
 
 func capabilityCatalogMarkdown(catalog capabilityCatalog) string {
 	var b strings.Builder
-	b.WriteString("| Capability | Role | Access | Command | Evidence | Reference |\n")
-	b.WriteString("| --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("| Capability | Role | Access | Effect profile | Command | Evidence | Reference |\n")
+	b.WriteString("| --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, item := range catalog.Capabilities {
-		fmt.Fprintf(&b, "| `%s` | %s | %s | `atl %s` | %s/%s | `%s/%s` |\n",
-			item.ID, item.Role, item.Access, item.Command, item.Evidence, item.Completeness, item.Skill, item.Reference)
+		fmt.Fprintf(&b, "| `%s` | %s | %s | `%s` | `atl %s` | %s/%s | `%s/%s` |\n",
+			item.ID, item.Role, item.Access, item.EffectProfile, item.Command, item.Evidence, item.Completeness, item.Skill, item.Reference)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

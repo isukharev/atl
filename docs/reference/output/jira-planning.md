@@ -37,6 +37,29 @@ without adding an unrequested value to `projection.fields`. The backlog issue
 endpoint is Scrum-only; `board backlog` refuses a Kanban board after reading its
 configuration and before calling the incompatible endpoint.
 
+`atl jira board list` and `atl jira sprint list` preserve their legacy item
+arrays and cursor while making one-page completeness explicit:
+
+```json
+{
+  "boards": [{"id": 5, "name": "Quarter plan", "type": "kanban"}],
+  "next_cursor": "1",
+  "count": 1,
+  "complete": false,
+  "truncated": true
+}
+```
+
+Sprint discovery uses `sprints` instead of `boards`. `count` is the number of
+items in this response, not a backend total. `complete` is true exactly when
+the checked adapter reconciles present, non-null, nonnegative `startAt` and
+`total` plus non-null `isLast` and `values` coordinates into an empty
+`next_cursor`; ambiguous or
+conflicting pagination fails. `truncated` is the inverse. No request count is emitted,
+because replay-safe transport retries are not represented by this result.
+Text output starts with `count`, `complete`, and `truncated`; id output remains
+one board or sprint id per line.
+
 `atl jira board view <ID>` returns a normalized multi-page snapshot:
 
 ```json

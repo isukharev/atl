@@ -48,6 +48,14 @@ when more rows exist.
 `board list`, `board issues`, `board backlog`, `sprint list`, and `sprint
 issues` accept `--cursor` as the Agile API `startAt` cursor. Omit it for the
 first page, then pass the exact returned `next_cursor` to read the next page.
+For the two discovery lists, the legacy `boards`/`sprints` and `next_cursor`
+fields remain unchanged; additive `count`, `complete`, and `truncated` describe
+that returned page. The adapter requires consistent `startAt`, `total`,
+`isLast`, and non-null `values` coordinates before an empty cursor can qualify
+the page as terminal; malformed or ambiguous pages fail instead of claiming
+completeness. `complete` is true exactly when that qualified `next_cursor` is empty.
+Text output begins with the same count/completeness facts, while `-o id` remains
+one id per line.
 
 The normalized view maps each issue's `status_id` to the first configured board
 column and preserves unknown statuses as `column:"Unmapped"` with

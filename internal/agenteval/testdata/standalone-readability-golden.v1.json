@@ -72,7 +72,7 @@
       "kind": "capability-catalog",
       "version": 1,
       "source_path": "testdata/capability-catalog.v1.json",
-      "source_sha256": "296d53310a613873318315680f3d873899cc934b80f5142a5f8c038949b55f71",
+      "source_sha256": "c6f279eae2ec0b6243423facea125c373e8224f50763c92a0dd9eba096a1afd7",
       "expected_projection": {
         "schema_version": 1,
         "capability_count": 58,

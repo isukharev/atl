@@ -16,11 +16,12 @@ import (
 
 func TestJiraPaginationOwnerInventoryIsClosed(t *testing.T) {
 	want := map[string][]string{
-		"agile.go:Boards":                                 {"agileNext", "requestStartAt"},
+		"agile.go:Boards":                                 {"qualifiedAgileValuesPage", "requestStartAt"},
 		"agile.go:SprintIssues":                           {"agileNext", "requestStartAt"},
-		"agile.go:Sprints":                                {"agileNext", "requestStartAt"},
+		"agile.go:Sprints":                                {"qualifiedAgileValuesPage", "requestStartAt"},
 		"agile.go:agileNext":                              {"advance", "matches", "requested", "requested", "requested", "requested"},
 		"agile.go:boardIssuePage":                         {"agileNext", "requestStartAt"},
+		"agile.go:qualifiedAgileValuesPage":               {"advance", "matches", "requested", "requested", "requested"},
 		"create_metadata.go:readCreateFields":             {"advance", "matches", "requestStartAt", "requested", "requested"},
 		"create_metadata.go:readCreateIssueTypes":         {"advance", "matches", "requestStartAt", "requested", "requested"},
 		"evidence.go:ListJiraCommentsQualified":           {"advance", "matches", "requestStartAt", "requested"},
@@ -63,7 +64,7 @@ func TestJiraPaginationOwnerInventoryIsClosed(t *testing.T) {
 				}
 				switch called := call.Fun.(type) {
 				case *ast.Ident:
-					if called.Name == "agileNext" {
+					if called.Name == "agileNext" || called.Name == "qualifiedAgileValuesPage" {
 						got[key] = append(got[key], called.Name)
 					}
 				case *ast.SelectorExpr:

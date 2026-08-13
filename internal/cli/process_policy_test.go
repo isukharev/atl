@@ -84,7 +84,7 @@ func TestCommandTreesKeepInvocationRuntimeIndependent(t *testing.T) {
 		}
 	}
 
-	if got := textOut.String(); !strings.Contains(got, "safety: read_only=true status=available") ||
+	if got := textOut.String(); !strings.Contains(got, "safety: read_only=true configured=false effective=true source=flag status=available") ||
 		!strings.Contains(got, "content_policy: active=true") || strings.HasPrefix(strings.TrimSpace(got), "{") {
 		t.Fatalf("text/read-only/policy runtime crossed command trees: stdout=%q stderr=%q", got, textErr.String())
 	}
@@ -154,7 +154,8 @@ func TestPolicyShowIntersectsConfigurationReadOnly(t *testing.T) {
 	if code != exitOK || json.Unmarshal([]byte(out), &shown) != nil {
 		t.Fatalf("policy show exit=%d output=%s", code, out)
 	}
-	if !shown.ReadOnly.Active || shown.ReadOnly.Source != "configuration" || len(shown.Grants["jira"]["update"]) != 0 {
+	if !shown.ReadOnly.Active || shown.ReadOnly.Source != "configuration" || !shown.ReadOnly.ConfiguredReadOnly ||
+		!shown.ReadOnly.EffectiveReadOnly || shown.ReadOnly.ReadOnlySource != "configuration" || len(shown.Grants["jira"]["update"]) != 0 {
 		t.Fatalf("policy show did not intersect configured read-only mode: %+v", shown)
 	}
 }

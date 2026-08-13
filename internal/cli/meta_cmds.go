@@ -129,8 +129,12 @@ func newConfigCmd() *cobra.Command {
 			// shared/hostile local file go to stderr and never influence output.
 			local, localPath := loadLocalFromCwd(cmd.ErrOrStderr())
 			render, prov := config.EffectiveRender(cfg, local)
+			readOnly := app.ProjectReadOnly(cfg.ReadOnly, invocationRuntimeFor(cmd).readOnly, envReadOnly())
 			out := configShowResult{
 				ReadOnly:           cfg.ReadOnly,
+				ConfiguredReadOnly: readOnly.ConfiguredReadOnly,
+				EffectiveReadOnly:  readOnly.EffectiveReadOnly,
+				ReadOnlySource:     readOnly.ReadOnlySource,
 				ConfluenceURL:      cfg.ConfluenceURL,
 				JiraURL:            cfg.JiraURL,
 				UpdateBaseURL:      cfg.UpdateBaseURL,
@@ -387,8 +391,9 @@ func nonDefaultProvenance(prov config.Provenance) map[string]string {
 
 func configShowText(out configShowResult) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "read_only: %t\nconfluence_url: %s\njira_url: %s\nupdate_base_url: %s\n",
-		out.ReadOnly, out.ConfluenceURL, out.JiraURL, out.UpdateBaseURL)
+	fmt.Fprintf(&b, "read_only: %t\nconfigured_read_only: %t\neffective_read_only: %t\nread_only_source: %s\nconfluence_url: %s\njira_url: %s\nupdate_base_url: %s\n",
+		out.ReadOnly, out.ConfiguredReadOnly, out.EffectiveReadOnly, out.ReadOnlySource,
+		out.ConfluenceURL, out.JiraURL, out.UpdateBaseURL)
 	fmt.Fprintf(&b, "render_display_time_zone: %s\nrender_jira_profile: %s\nrender_confluence_profile: %s\n",
 		out.Render.DisplayTimeZone, out.Render.Jira.Profile, out.Render.Confluence.Profile)
 	fmt.Fprintf(&b, "jira_ca_bundle: configured=%t source=%s\nconfluence_ca_bundle: configured=%t source=%s\n",
@@ -423,6 +428,9 @@ func configShowText(out configShowResult) string {
 
 type configShowResult struct {
 	ReadOnly           bool                           `json:"read_only"`
+	ConfiguredReadOnly bool                           `json:"configured_read_only"`
+	EffectiveReadOnly  bool                           `json:"effective_read_only"`
+	ReadOnlySource     string                         `json:"read_only_source"`
 	ConfluenceURL      string                         `json:"confluence_url,omitempty"`
 	JiraURL            string                         `json:"jira_url,omitempty"`
 	UpdateBaseURL      string                         `json:"update_base_url,omitempty"`

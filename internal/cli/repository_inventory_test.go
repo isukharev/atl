@@ -17,6 +17,9 @@ func TestRepositoryCommandInventory(t *testing.T) {
 		if command.Path == "" || index > 0 && commands[index-1].Path >= command.Path {
 			t.Fatalf("inventory is empty, duplicated, or unsorted at %+v", command)
 		}
+		if command.EffectProfile == "" {
+			t.Fatalf("command %q has no effect profile", command.Path)
+		}
 		registration, ok := commandRegistry.nodes[command.Path]
 		if !ok || registration.traits&commandLeaf == 0 {
 			t.Fatalf("inventory contains non-leaf %q", command.Path)

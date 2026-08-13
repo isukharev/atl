@@ -327,10 +327,15 @@ func VerifyJira(ctx context.Context, rawURL, token, version string, cfg *config.
 	return app.VerifyJira(ctx, client)
 }
 
-// DoctorDependencies projects concrete configuration, credentials, and TLS
-// health into app-owned values. The reader closure captures the qualified
-// config so app never receives a config-shaped construction seam.
-func DoctorDependencies(options ...Option) app.DoctorDependencies {
+// DoctorDependencies projects concrete configuration, credentials, and the
+// selected services' TLS health into app-owned values. The reader closure
+// captures the qualified config so app never receives a config-shaped
+// construction seam.
+func DoctorDependencies(service string, options ...Option) app.DoctorDependencies {
+	return doctorDependencies(service, httpx.ValidateCABundle, options...)
+}
+
+func doctorDependencies(service string, validateCABundle func(string) error, options ...Option) app.DoctorDependencies {
 	resolved := resolveOptions(options)
 	cfgInspection := config.Inspect()
 	credentialInspection := auth.Inspect()
@@ -349,10 +354,7 @@ func DoctorDependencies(options ...Option) app.DoctorDependencies {
 			JiraURL:             cfg.JiraURL, JiraURLSource: cfgInspection.JiraURLSource,
 			JiraURLStatus: doctorURLStatus(cfg.JiraURL),
 			ReadOnly:      cfg.ReadOnly,
-			Transport: app.DoctorTransport{
-				Confluence: doctorCABundle(cfg.CABundle(config.TransportServiceConfluence), transport.Confluence),
-				Jira:       doctorCABundle(cfg.CABundle(config.TransportServiceJira), transport.Jira),
-			},
+			Transport:     doctorTransportProjection(service, cfg, transport, validateCABundle),
 		},
 		Credentials: app.DoctorCredentialInspection{
 			Store: app.DoctorCredentialStore{
@@ -384,35 +386,9 @@ func DoctorDependencies(options ...Option) app.DoctorDependencies {
 	}
 }
 
-func doctorURLStatus(rawURL string) string {
-	if rawURL == "" {
-		return "not_configured"
-	}
-	if err := config.CheckSecureURL(rawURL); err != nil {
-		return "invalid"
-	}
-	return "valid"
-}
-
-func doctorCABundle(path string, summary config.BackendTransportSummary) app.DoctorCABundle {
-	out := app.DoctorCABundle{
-		Configured: summary.CABundleConfigured, Source: summary.CABundleSource, Status: "not_configured",
-	}
-	if !out.Configured {
-		return out
-	}
-	if err := httpx.ValidateCABundle(path); err != nil {
-		out.Status = "invalid"
-		out.Reason = "ca_bundle_invalid"
-		return out
-	}
-	out.Status = "available"
-	return out
-}
-
 // RunDoctor supplies production remote composition without changing the app's
 // content-free diagnostic and classification logic.
 func RunDoctor(ctx context.Context, opts app.DoctorOptions, options ...Option) (*app.DoctorResult, error) {
-	opts.Dependencies = DoctorDependencies(options...)
+	opts.Dependencies = DoctorDependencies(opts.Service, options...)
 	return app.RunDoctor(ctx, opts)
 }

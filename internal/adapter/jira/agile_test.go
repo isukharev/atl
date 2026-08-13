@@ -269,6 +269,51 @@ func TestAgilePaginationRejectsNoncontiguousStalledAndOverflowPages(t *testing.T
 	}
 }
 
+func TestBoardAndSprintListsRequireQualifiedPaginationCoordinates(t *testing.T) {
+	tests := []struct {
+		name, body, reason string
+		sprints            bool
+	}{
+		{name: "board missing startAt", body: `{"total":0,"isLast":true,"values":[]}`, reason: "omitted or nullified startAt"},
+		{name: "sprint null startAt", body: `{"startAt":null,"total":0,"isLast":true,"values":[]}`, reason: "omitted or nullified startAt", sprints: true},
+		{name: "board missing total", body: `{"startAt":0,"isLast":true,"values":[]}`, reason: "omitted or nullified total"},
+		{name: "sprint null total", body: `{"startAt":0,"total":null,"isLast":true,"values":[]}`, reason: "omitted or nullified total", sprints: true},
+		{name: "board missing isLast", body: `{"startAt":0,"total":0,"values":[]}`, reason: "omitted or nullified isLast"},
+		{name: "sprint null isLast", body: `{"startAt":0,"total":0,"isLast":null,"values":[]}`, reason: "omitted or nullified isLast", sprints: true},
+		{name: "board missing values", body: `{"startAt":0,"total":0,"isLast":true}`, reason: "omitted or nullified values"},
+		{name: "sprint null values", body: `{"startAt":0,"total":0,"isLast":true,"values":null}`, reason: "omitted or nullified values", sprints: true},
+		{name: "board negative startAt", body: `{"startAt":-1,"total":0,"isLast":true,"values":[]}`, reason: "invalid pagination"},
+		{name: "sprint negative total", body: `{"startAt":0,"total":-1,"isLast":true,"values":[]}`, reason: "invalid pagination", sprints: true},
+		{name: "board terminal total conflicts", body: `{"startAt":0,"total":0,"isLast":false,"values":[]}`, reason: "conflicting total and isLast"},
+		{name: "sprint premature terminal", body: `{"startAt":0,"total":2,"isLast":true,"values":[{"id":1}]}`, reason: "conflicting total and isLast", sprints: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			j, _ := agileServer(t, map[string]string{"GET /rest/agile/1.0/": test.body})
+			var err error
+			if test.sprints {
+				_, _, err = j.Sprints(context.Background(), 5, "", 50, "")
+			} else {
+				_, _, err = j.Boards(context.Background(), "", 50, "")
+			}
+			if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), test.reason) {
+				t.Fatalf("error=%v, want ErrCheckFailed containing %q", err, test.reason)
+			}
+		})
+	}
+}
+
+func TestBoardAndSprintListsQualifyEmptyTerminalPages(t *testing.T) {
+	const body = `{"startAt":0,"total":0,"isLast":true,"values":[]}`
+	j, _ := agileServer(t, map[string]string{"GET /rest/agile/1.0/": body})
+	boards, boardNext, boardErr := j.Boards(context.Background(), "", 50, "")
+	sprints, sprintNext, sprintErr := j.Sprints(context.Background(), 5, "", 50, "")
+	if boardErr != nil || sprintErr != nil || boards == nil || sprints == nil ||
+		len(boards) != 0 || len(sprints) != 0 || boardNext != "" || sprintNext != "" {
+		t.Fatalf("boards=%v/%q/%v sprints=%v/%q/%v", boards, boardNext, boardErr, sprints, sprintNext, sprintErr)
+	}
+}
+
 func TestMoveIssuesToSprintWiresPost(t *testing.T) {
 	j, reqs := agileServer(t, map[string]string{"POST /rest/agile/1.0/sprint/7/issue": ``})
 
