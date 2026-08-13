@@ -31,9 +31,24 @@ func standaloneCompletionNodes() []standaloneCompletionNode {
 func standaloneChildNames(descriptor standaloneCommandDescriptor) []string {
 	children := make([]string, 0, len(descriptor.Children))
 	for _, child := range descriptor.Children {
+		if !standaloneDescriptorCompletable(child) {
+			continue
+		}
 		children = append(children, child.Name)
 	}
 	return children
+}
+
+func standaloneDescriptorCompletable(descriptor standaloneCommandDescriptor) bool {
+	if descriptor.Available {
+		return true
+	}
+	for _, child := range descriptor.Children {
+		if standaloneDescriptorCompletable(child) {
+			return true
+		}
+	}
+	return false
 }
 
 func writeStandaloneCompletion(writer io.Writer, shell string) bool {

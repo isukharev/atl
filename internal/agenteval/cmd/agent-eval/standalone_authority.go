@@ -69,6 +69,9 @@ func standaloneAuthorityProfileFor(operation, mode string) (standaloneAuthorityP
 }
 
 func standaloneCommandRegistryState(command string) (available, processAPI bool, found bool) {
+	if command == "" {
+		return false, false, false
+	}
 	for _, profile := range standaloneAuthorityProfiles() {
 		if profile.Command != command {
 			continue
