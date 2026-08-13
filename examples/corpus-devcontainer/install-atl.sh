@@ -82,6 +82,7 @@ env -i \
 	--signer-workflow "isukharev/atl/.github/workflows/release.yml" \
 	--source-ref "refs/tags/${version}" \
 	>/dev/null || fail "release provenance verification failed"
+chmod 0700 "$scratch/atl" || fail "could not make the verified binary executable"
 reported_version=$(env -i HOME="$scratch" PATH="$PATH" ATL_NO_UPDATE=1 \
 	"$scratch/atl" version 2>/dev/null) || fail "verified binary did not report its version"
 printf '%s\n' "$reported_version" |

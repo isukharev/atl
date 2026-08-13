@@ -173,6 +173,7 @@ case "$url" in
 		;;
 	https://github.com/isukharev/atl/releases/download/*)
 		cp "$ATL_FAKE_RELEASE_BINARY" "$output"
+		chmod 0600 "$output"
 		;;
 	*) exit 23 ;;
 esac
@@ -182,6 +183,7 @@ const fakeGHScript = `#!/bin/sh
 set -eu
 fake_root=${0%/*}
 printf '%s\n' "$*" >>"$fake_root/gh.log"
+[ "$1" = attestation ] && [ "$2" = verify ] && [ ! -x "$3" ] || exit 8
 [ -z "${GH_TOKEN:-}${GITHUB_TOKEN:-}${GH_ENTERPRISE_TOKEN:-}${GH_HOST:-}" ] || exit 8
 [ -n "${HOME:-}" ] && [ -n "${GH_CONFIG_DIR:-}" ] || exit 8
 case "$GH_CONFIG_DIR" in *poisoned*) exit 8 ;; esac
