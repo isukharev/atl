@@ -2,8 +2,12 @@ package agenteval
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/isukharev/atl/internal/agenteval/analysis"
+	"github.com/isukharev/atl/internal/agenteval/experiment"
 )
 
 func TestProjectJUnitMapsClosedResultAndDecisionStates(t *testing.T) {
@@ -74,7 +78,7 @@ func TestProjectJUnitRejectsUnknownAndIncompleteStates(t *testing.T) {
 	}{
 		{name: "unknown result status", reject: true, input: JUnitProjectionInput{Results: []JUnitResultInput{{Identity: "result/a", SchemaVersion: ResultSchemaVersion, Status: "unknown"}}}},
 		{name: "missing evidence cannot pass", input: JUnitProjectionInput{Results: []JUnitResultInput{{Identity: "result/a", SchemaVersion: ResultSchemaVersion, Status: "pass"}}}},
-		{name: "unknown evidence", input: JUnitProjectionInput{Results: []JUnitResultInput{{Identity: "result/a", SchemaVersion: ResultSchemaVersion, Status: "pass", EvidenceCovered: true, EvidenceState: "unknown"}}}},
+		{name: "unknown evidence", reject: true, input: JUnitProjectionInput{Results: []JUnitResultInput{{Identity: "result/a", SchemaVersion: ResultSchemaVersion, Status: "pass", EvidenceCovered: true, EvidenceState: "unknown"}}}},
 		{name: "incomplete pair cannot pass", input: JUnitProjectionInput{Decisions: []JUnitPairedDecisionInput{{Identity: "decision/a", InferenceStatus: "inferential", CompletePairs: 2, ExcludedPairs: 1}}}},
 		{name: "unknown violation", reject: true, input: JUnitProjectionInput{Results: []JUnitResultInput{{Identity: "result/a", SchemaVersion: ResultSchemaVersion, Status: "fail", Violations: []JUnitViolationInput{{Code: "provider_message", Subject: "answer"}}}}}},
 		{name: "unsafe identity", reject: true, input: JUnitProjectionInput{Results: []JUnitResultInput{{Identity: "result/<script>", SchemaVersion: ResultSchemaVersion, Status: "pass"}}}},
@@ -83,7 +87,7 @@ func TestProjectJUnitRejectsUnknownAndIncompleteStates(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			report, err := ProjectJUnit(test.input)
 			if test.reject {
-				if err == nil {
+				if err == nil || !errors.Is(err, ErrInvalidJUnitInput) {
 					t.Fatal("unsafe or unknown input was accepted")
 				}
 				return
@@ -92,6 +96,62 @@ func TestProjectJUnitRejectsUnknownAndIncompleteStates(t *testing.T) {
 				t.Fatalf("uncertain input was not mapped to one error: report=%+v err=%v", report, err)
 			}
 		})
+	}
+}
+
+func TestProjectJUnitMapsRunCheckFailureToTaskRegression(t *testing.T) {
+	report, err := ProjectJUnit(JUnitProjectionInput{Results: []JUnitResultInput{{
+		Identity: "result/run-check", SchemaVersion: ResultSchemaVersion, Status: "fail",
+		Violations: []JUnitViolationInput{{Code: "run_check_failed", Subject: "answer"}},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Failures != 1 || report.Errors != 0 || report.Skipped != 0 || report.Suites[0].Testcases[0].Failure == nil {
+		t.Fatalf("run_check_failed was not a task regression: %+v", report)
+	}
+}
+
+func TestProjectJUnitAcceptsCanonicalBoundedIdentities(t *testing.T) {
+	identity := "1" + strings.Repeat("a", 127) + "/" + strings.Repeat("b", 128)
+	report, err := ProjectJUnit(JUnitProjectionInput{Results: []JUnitResultInput{{
+		Identity: identity, SchemaVersion: ResultSchemaVersion, Status: "fail",
+		Violations: []JUnitViolationInput{{Code: "required_check_failed", Subject: "answer"}},
+	}}})
+	if err != nil || report.Tests != 1 {
+		t.Fatalf("canonical identity was rejected: report=%+v err=%v", report, err)
+	}
+}
+
+func TestProjectJUnitAnalysisRequiresManifestBoundValidation(t *testing.T) {
+	if _, err := ProjectJUnitResults(nil, []AnalysisReport{{}}); err == nil || !errors.Is(err, ErrInvalidJUnitInput) {
+		t.Fatalf("unchecked analysis report was accepted: %v", err)
+	}
+	if _, err := ProjectJUnitAnalysis(AnalysisReport{}, ExperimentManifest{}); err == nil || !errors.Is(err, ErrInvalidJUnitInput) {
+		t.Fatalf("unbound analysis report was accepted: %v", err)
+	}
+	if _, err := ProjectJUnitResultsWithManifests(nil, []AnalysisReport{{}}, []ExperimentManifest{{}}); err == nil || !errors.Is(err, ErrInvalidJUnitInput) {
+		t.Fatalf("forged analysis report was accepted: %v", err)
+	}
+}
+
+func TestJUnitPairCoverageMixedReasonsCannotBecomeUnsupported(t *testing.T) {
+	report := AnalysisReport{Coverage: analysis.Coverage{Pairs: []analysis.PairCoverage{{
+		PairID: "pair-a", BlockID: "block-a", StratumID: "stratum-a", ComparisonID: "comparison-a",
+		Status: analysis.PairExcluded, Reasons: []experiment.ExclusionReason{
+			experiment.ExclusionDrift, experiment.ExclusionUnsupportedCapability,
+		},
+	}}}}
+	complete, excluded, unsupported, err := junitPairCoverageFor(report, "comparison-a", "stratum-a")
+	if err != nil || complete != 0 || excluded != 1 || unsupported != 0 {
+		t.Fatalf("mixed exclusion was treated as unsupported: complete=%d excluded=%d unsupported=%d err=%v", complete, excluded, unsupported, err)
+	}
+	decision := JUnitProjectionInput{Decisions: []JUnitPairedDecisionInput{{
+		Identity: "decision/mixed", InferenceStatus: "insufficient", ExcludedPairs: excluded, UnsupportedPairs: unsupported,
+	}}}
+	projected, err := ProjectJUnit(decision)
+	if err != nil || projected.Errors != 1 || projected.Skipped != 0 {
+		t.Fatalf("mixed exclusion did not fail closed: report=%+v err=%v", projected, err)
 	}
 }
 

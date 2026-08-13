@@ -6,6 +6,7 @@ package agenteval
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -142,7 +143,7 @@ type junitEntry struct {
 func ProjectJUnit(input JUnitProjectionInput) (JUnitReport, error) {
 	total := len(input.Results) + len(input.Decisions)
 	if total == 0 || total > JUnitMaxTestCases {
-		return JUnitReport{}, fmt.Errorf("junit projection input exceeds bounds")
+		return JUnitReport{}, fmt.Errorf("%w: input bounds", ErrInvalidJUnitInput)
 	}
 	entries := make([]junitEntry, 0, total)
 	for index, result := range input.Results {
@@ -191,7 +192,7 @@ func ProjectJUnit(input JUnitProjectionInput) (JUnitReport, error) {
 			counts[3]++
 			testcase.Skipped = diagnostic
 		default:
-			return JUnitReport{}, fmt.Errorf("invalid projection state")
+			return JUnitReport{}, fmt.Errorf("%w: projection state", ErrInvalidJUnitInput)
 		}
 		testcases = append(testcases, testcase)
 	}
@@ -210,7 +211,7 @@ func ProjectJUnit(input JUnitProjectionInput) (JUnitReport, error) {
 		Suites: []JUnitSuite{suite},
 	}
 	if err := report.Validate(); err != nil {
-		return JUnitReport{}, err
+		return JUnitReport{}, fmt.Errorf("%w: projection invariant", ErrInvalidJUnitInput)
 	}
 	return report, nil
 }
@@ -263,6 +264,14 @@ func DecodeJUnit(reader io.Reader) (JUnitReport, error) {
 }
 
 var junitXMLHeader = []byte("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+
+// boundedJUnitIdentity keeps source identities out of ordering state and
+// bounds the amount of identity material retained in memory. The source is
+// validated before this helper is called; the digest is never emitted.
+func boundedJUnitIdentity(prefix byte, value string) string {
+	digest := sha256.Sum256([]byte(value))
+	return fmt.Sprintf("%c-%x", prefix, digest[:])
+}
 
 func (report JUnitReport) Validate() error {
 	if (report.XMLName.Local != "" && report.XMLName.Local != "testsuites") || report.Name != "agent-eval" || len(report.Suites) != 1 || report.Tests <= 0 || report.Tests > JUnitMaxTestCases ||
@@ -340,18 +349,25 @@ func equalJUnitProperties(left, right []JUnitProperty) bool {
 func classifyJUnitResult(result JUnitResultInput) (JUnitState, string, error) {
 	if !validJUnitInputIdentity(result.Identity) || !validJUnitResultSchema(result.SchemaVersion) ||
 		(result.Status != "pass" && result.Status != "fail" && result.Status != "ineligible") {
-		return "", "", errors.New("invalid canonical result projection")
+		return "", "", ErrInvalidJUnitInput
+	}
+	if result.EvidenceCovered {
+		if !validJUnitEvidenceState(result.EvidenceState) {
+			return "", "", ErrInvalidJUnitInput
+		}
+	} else if result.EvidenceState != "" {
+		return "", "", ErrInvalidJUnitInput
 	}
 	eligibility := result.Eligibility
 	if eligibility == "" {
 		eligibility = EligibilitySupported
 	}
 	if eligibility != EligibilitySupported && eligibility != EligibilityUnsupportedCapability && eligibility != EligibilityInvalidatedDrift {
-		return "", "", errors.New("invalid canonical result eligibility")
+		return "", "", ErrInvalidJUnitInput
 	}
 	if eligibility == EligibilityUnsupportedCapability {
 		if result.Status != "ineligible" {
-			return "", "", errors.New("unsupported result status is inconsistent")
+			return "", "", ErrInvalidJUnitInput
 		}
 		return JUnitSkipped, "unsupported capability", nil
 	}
@@ -369,7 +385,7 @@ func classifyJUnitResult(result JUnitResultInput) (JUnitState, string, error) {
 	}
 	if result.Status == "pass" {
 		if len(result.Violations) != 0 {
-			return "", "", errors.New("passing result contains violations")
+			return "", "", ErrInvalidJUnitInput
 		}
 		return JUnitSuccess, "", nil
 	}
@@ -378,7 +394,7 @@ func classifyJUnitResult(result JUnitResultInput) (JUnitState, string, error) {
 	}
 	for _, violation := range result.Violations {
 		if !validJUnitViolation(violation) {
-			return "", "", errors.New("invalid canonical result violation")
+			return "", "", ErrInvalidJUnitInput
 		}
 		if junitInfrastructureViolation(violation.Code) {
 			return JUnitError, "infrastructure or evidence unavailable", nil
@@ -391,7 +407,7 @@ func classifyJUnitDecision(decision JUnitPairedDecisionInput) (JUnitState, strin
 	if !validJUnitInputIdentity(decision.Identity) ||
 		(decision.InferenceStatus != "insufficient" && decision.InferenceStatus != "descriptive" && decision.InferenceStatus != "inferential") ||
 		decision.UnsupportedPairs > decision.ExcludedPairs || decision.CompletePairs > JUnitMaxTestCases || decision.ExcludedPairs > JUnitMaxTestCases {
-		return "", "", errors.New("invalid canonical paired decision")
+		return "", "", ErrInvalidJUnitInput
 	}
 	if decision.CompletePairs == 0 && decision.ExcludedPairs > 0 && decision.UnsupportedPairs == decision.ExcludedPairs {
 		return JUnitSkipped, "paired capability unsupported", nil
@@ -426,9 +442,13 @@ func validJUnitEvidenceState(state string) bool {
 	}
 }
 
+// junitInfrastructureViolation follows the canonical public violation
+// taxonomy. run_check_failed is a task/check regression in the Result wire
+// contract; guard or evidence loss is represented by metric/evidence state,
+// so it remains a failure here rather than being guessed from the subject.
 func junitInfrastructureViolation(code string) bool {
 	switch code {
-	case "metric_not_observed", "run_check_failed":
+	case "metric_not_observed":
 		return true
 	default:
 		return false
@@ -474,11 +494,15 @@ func validJUnitResultSchema(version int) bool {
 }
 
 func validJUnitInputIdentity(value string) bool {
-	if len(value) == 0 || len(value) > 256 || strings.TrimSpace(value) != value || strings.ContainsAny(value, "\x00\r\n<>\"'") {
+	// Canonical Result identifiers are two independent 128-byte identifiers
+	// joined by '/', so a derived identity can be 257 bytes. It is never
+	// emitted, but retaining this closed vocabulary avoids rejecting valid
+	// canonical identities merely because the projection is bounded.
+	if len(value) == 0 || len(value) > 257 || strings.TrimSpace(value) != value || strings.ContainsAny(value, "\x00\r\n<>\"'") {
 		return false
 	}
 	for index, char := range value {
-		if index == 0 && (char < 'a' || char > 'z') {
+		if index == 0 && (char < 'a' || char > 'z') && (char < '0' || char > '9') {
 			return false
 		}
 		if (char < 'a' || char > 'z') && (char < '0' || char > '9') && char != '.' && char != '_' && char != '/' && char != '-' {
