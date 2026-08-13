@@ -243,7 +243,10 @@ Pre-release error objects contain `schema`, `schema_version`,
 the error class. `agent-eval capabilities` reports exactly the machine-owned
 operation/mode rows above, including status, authority dimensions, ProcessAPI
 admission, and separate Agent Skills format variants; help/completion/process
-are meta surfaces rather than invented product operations.
+are meta surfaces rather than invented product operations. Ordinary help lists
+only supported mode values as executable choices and labels a shaped but
+unavailable mode under `Reserved modes (unavailable)`; capabilities remains
+the complete machine-readable supported/reserved inventory.
 
 | Code | `exit_class` | Meaning |
 |---:|---|---|
@@ -272,10 +275,11 @@ a wrapper must not manufacture standalone conformance by parsing those strings.
 most 1 MiB and emits exactly one result or error envelope of at most 1 MiB.
 Unknown or duplicate members, explicit `null` arguments, invalid UTF-8,
 trailing values, nested collection/depth overflow, future schema or contract
-versions, and a second request fail closed. The only admitted operations are
-`version`, `capabilities`, `validate`, `compare`, and `inspect`; deterministic
-grade, Agent Skills import/export, meta commands, reserved operations, and all
-hidden maintainer routes are structurally refused.
+versions, and a second request fail closed. The exact admitted operations are
+`version`, `capabilities`, `validate`, `compare`, `inspect`, `schema inspect`,
+`migrate preview`, and `migrate apply`; deterministic grade, Agent Skills
+import/export, meta commands, reserved operations, and all hidden maintainer
+routes are structurally refused.
 
 ```json named-agent-eval-process-request
 {"schema":"agent-eval/process-request","schema_version":1,"contract_version":"0.1.0-pre-release","command":"version","mode":"execute","deadline_milliseconds":1000,"configuration":{"source":"none","environment":"none"},"arguments":[]}
@@ -290,8 +294,11 @@ independently bound delivery of stdin. On expiry the coordinator cancels the
 in-process operation. Cooperative completion within 100 ms yields
 `interrupted,retry_safe:true`; otherwise it returns absorbing
 `outcome_unknown,retry_safe:false` while the uncooperative executor is not
-assumed stopped. No admitted ProcessAPI row has local-write, process, provider,
-backend, network, credential, or private-workspace authority.
+assumed stopped. `migrate preview` has the documented local-read and
+private-workspace ceiling; `migrate apply` additionally has local-write and
+requires the exact reviewed preview digest plus `MIGRATE` confirmation. Every
+other admitted ProcessAPI row is read-only or authority-free. No admitted row
+has process, provider, backend, network, or credential authority.
 
 ## Compatibility policy
 
