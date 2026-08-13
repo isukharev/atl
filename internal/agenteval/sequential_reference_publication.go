@@ -18,11 +18,14 @@ import (
 	"github.com/isukharev/atl/internal/agenteval/experiment"
 	"github.com/isukharev/atl/internal/agenteval/grading"
 	"github.com/isukharev/atl/internal/agenteval/lifecycle"
+	"github.com/isukharev/atl/internal/agenteval/scheduler"
 )
 
 const (
 	sequentialReferenceMarkerName           = ".sequential-reference-incomplete"
 	sequentialReferenceManifestName         = "manifest.json"
+	sequentialReferenceSchedulerPlanName    = "scheduler-plan.json"
+	sequentialReferenceSchedulerReportName  = "scheduler-report.json"
 	sequentialReferenceLedgerDirectory      = "attempt-ledger"
 	sequentialReferenceTrialsDirectory      = "trials"
 	sequentialReferenceObservationName      = "agent-observation.json"
@@ -42,6 +45,7 @@ type sequentialReferencePublication struct {
 	createdInfo fs.FileInfo
 	parent      *os.Root
 	root        *os.Root
+	activeLock  *hardenedFileLock
 	testHook    func(string) error
 }
 
@@ -52,6 +56,42 @@ type sequentialReferencePublication struct {
 func RunSequentialReferenceToNewDestination(ctx context.Context, destination string, manifest ExperimentManifest,
 	bundle SequentialReferenceBundle,
 ) (SequentialReferenceResult, error) {
+	return runScheduledReferenceToNewDestination(ctx, destination, manifest, bundle, SequentialReferenceRunOptions{Workers: 1}, true)
+}
+
+// RunScheduledReferenceToNewDestination preserves the exact new-publication
+// contract while executing independent manifest blocks through the admitted
+// local scheduler.
+func RunScheduledReferenceToNewDestination(ctx context.Context, destination string, manifest ExperimentManifest,
+	bundle SequentialReferenceBundle, options SequentialReferenceRunOptions,
+) (SequentialReferenceResult, error) {
+	return runScheduledReferenceToNewDestination(ctx, destination, manifest, bundle, options, false)
+}
+
+// ResumeSequentialReferenceAtDestination resumes only the planned complement
+// of an incomplete one-worker publication. Every durable non-planned attempt is
+// absorbing; a nonterminal crash tail is first closed as unknown and is never
+// executed again.
+func ResumeSequentialReferenceAtDestination(ctx context.Context, destination string, manifest ExperimentManifest,
+	bundle SequentialReferenceBundle,
+) (SequentialReferenceResult, error) {
+	return resumeScheduledReferenceAtDestination(ctx, destination, manifest, bundle, SequentialReferenceRunOptions{Workers: 1})
+}
+
+// ResumeScheduledReferenceAtDestination applies the same no-replay recovery
+// rule while preserving the exact scheduler plan selected for the publication.
+func ResumeScheduledReferenceAtDestination(ctx context.Context, destination string, manifest ExperimentManifest,
+	bundle SequentialReferenceBundle, options SequentialReferenceRunOptions,
+) (SequentialReferenceResult, error) {
+	return resumeScheduledReferenceAtDestination(ctx, destination, manifest, bundle, options)
+}
+
+func runScheduledReferenceToNewDestination(ctx context.Context, destination string, manifest ExperimentManifest,
+	bundle SequentialReferenceBundle, options SequentialReferenceRunOptions, commitCurrentOnCancellation bool,
+) (SequentialReferenceResult, error) {
+	if err := validateSequentialReferenceRunOptions(options); err != nil {
+		return SequentialReferenceResult{}, err
+	}
 	prepared, err := prepareSequentialReference(ctx, manifest, bundle)
 	if err != nil {
 		return SequentialReferenceResult{}, err
@@ -64,7 +104,7 @@ func RunSequentialReferenceToNewDestination(ctx context.Context, destination str
 	if err != nil {
 		return SequentialReferenceResult{}, sequentialReferenceError("manifest_encode", err)
 	}
-	publication, err := createSequentialReferencePublication(destination, prepared.manifest, manifestData)
+	publication, err := createSequentialReferencePublication(destination, prepared.manifest, manifestData, options.Workers)
 	if err != nil {
 		return SequentialReferenceResult{}, err
 	}
@@ -73,7 +113,8 @@ func RunSequentialReferenceToNewDestination(ctx context.Context, destination str
 	if err != nil || !publication.stable() {
 		return SequentialReferenceResult{}, unknownSequentialReference("attempt_store_create", err)
 	}
-	result, runErr := prepared.run(ctx, store, publication.writeTrial)
+	result, runErr := prepared.runScheduled(ctx, store, options, nil, nil, commitCurrentOnCancellation,
+		publication.writeSchedulerPlan, publication.stageTrial, publication.writeTrial)
 	if runErr != nil {
 		return result, unknownSequentialReference("run", runErr)
 	}
@@ -83,118 +124,162 @@ func RunSequentialReferenceToNewDestination(ctx context.Context, destination str
 	return result, nil
 }
 
-// InspectSequentialReferencePublication strictly decodes one complete output
-// tree and independently replays every transitive artifact binding. A marker,
-// missing member, unknown file, alias, or noncanonical artifact is rejected.
-func InspectSequentialReferencePublication(destination string) (SequentialReferenceResult, error) {
-	_, result, err := inspectSequentialReferencePublication(destination)
-	return result, err
-}
-
-func inspectSequentialReferencePublication(destination string) (experiment.Manifest, SequentialReferenceResult, error) {
-	return inspectSequentialReferencePublicationContext(context.Background(), destination)
-}
-
-func inspectSequentialReferencePublicationContext(ctx context.Context, destination string) (experiment.Manifest, SequentialReferenceResult, error) {
-	return inspectSequentialReferencePublicationWithAdmissionContext(ctx, destination, nil)
-}
-
-func inspectSequentialReferencePublicationWithAdmissionContext(ctx context.Context, destination string,
-	admitManifest func(experiment.Manifest) error,
-) (experiment.Manifest, SequentialReferenceResult, error) {
-	if err := sequentialReferenceInspectionContextError(ctx); err != nil {
-		return experiment.Manifest{}, SequentialReferenceResult{}, err
+func resumeScheduledReferenceAtDestination(ctx context.Context, destination string, manifest ExperimentManifest,
+	bundle SequentialReferenceBundle, options SequentialReferenceRunOptions,
+) (SequentialReferenceResult, error) {
+	if err := validateSequentialReferenceRunOptions(options); err != nil {
+		return SequentialReferenceResult{}, err
+	}
+	prepared, err := prepareSequentialReference(ctx, manifest, bundle)
+	if err != nil {
+		return SequentialReferenceResult{}, err
+	}
+	defer prepared.destroy()
+	if runtime.GOOS == "windows" {
+		return SequentialReferenceResult{}, unsupportedSequentialReference("attempt_ledger", ErrAttemptLedgerUnsupported)
 	}
 	publication, err := openSequentialReferencePublication(destination)
 	if err != nil {
-		return experiment.Manifest{}, SequentialReferenceResult{}, err
+		return SequentialReferenceResult{}, err
 	}
 	defer publication.close()
-	if err := sequentialReferenceInspectionContextError(ctx); err != nil {
-		return experiment.Manifest{}, SequentialReferenceResult{}, err
+	if err := publication.acquireActiveLock(); err != nil {
+		if errors.Is(err, ErrAttemptLedgerBusy) {
+			return SequentialReferenceResult{}, unknownSequentialReference("resume_active", err)
+		}
+		return SequentialReferenceResult{}, sequentialReferenceError("resume_marker", err)
 	}
-	if _, err := publication.root.Lstat(sequentialReferenceMarkerName); err == nil || !errors.Is(err, fs.ErrNotExist) {
-		return experiment.Manifest{}, SequentialReferenceResult{}, sequentialReferenceError("publication_incomplete", err)
+	marker, err := readSequentialReferenceFileContext(ctx, publication.root, sequentialReferenceMarkerName, 128)
+	if err != nil || !bytes.Equal(marker, sequentialReferenceMarker(prepared.manifest.ManifestSHA256, options.Workers)) {
+		return SequentialReferenceResult{}, sequentialReferenceError("resume_marker", err)
 	}
 	manifestData, err := readSequentialReferenceFileContext(ctx, publication.root, sequentialReferenceManifestName, experiment.MaxManifestBytes)
 	if err != nil {
-		return experiment.Manifest{}, SequentialReferenceResult{}, sequentialReferenceError("manifest_read", err)
+		return SequentialReferenceResult{}, sequentialReferenceError("resume_manifest", err)
+	}
+	storedManifest, err := experiment.DecodeManifest(bytes.NewReader(manifestData))
+	if err != nil || !reflect.DeepEqual(storedManifest, prepared.manifest) {
+		return SequentialReferenceResult{}, sequentialReferenceError("resume_manifest_binding", err)
+	}
+	publication.manifest = prepared.manifest
+	assignments := sequentialReferenceAssignments(prepared.manifest)
+	if err := publication.validateResumeShapeContext(ctx, len(assignments)); err != nil {
+		return SequentialReferenceResult{}, err
 	}
 	if err := sequentialReferenceInspectionContextError(ctx); err != nil {
-		return experiment.Manifest{}, SequentialReferenceResult{}, err
+		return SequentialReferenceResult{}, err
 	}
-	manifest, err := experiment.DecodeManifest(bytes.NewReader(manifestData))
+	store, err := CreateSequentialReferenceAttemptStore(filepath.Join(destination, sequentialReferenceLedgerDirectory), prepared.manifest)
+	if err != nil || !publication.stable() {
+		return SequentialReferenceResult{}, unknownSequentialReference("resume_attempt_store", err)
+	}
+	roster, err := prepared.prepareScheduledRosterWithSink(store, options, publication.writeSchedulerPlan)
 	if err != nil {
-		return experiment.Manifest{}, SequentialReferenceResult{}, sequentialReferenceError("manifest_decode", err)
+		return SequentialReferenceResult{}, unknownSequentialReference("resume_roster", err)
 	}
-	if err := sequentialReferenceInspectionContextError(ctx); err != nil {
-		return experiment.Manifest{}, SequentialReferenceResult{}, err
+	inspections, err := store.InspectAllContext(ctx)
+	if err != nil || len(inspections) != len(roster.plans) {
+		return SequentialReferenceResult{}, unknownSequentialReference("resume_inspection", err)
 	}
-	if err := validateSequentialReferenceManifestProfile(manifest); err != nil {
-		return experiment.Manifest{}, SequentialReferenceResult{}, err
+	reportInfo, reportStatErr := publication.root.Lstat(sequentialReferenceSchedulerReportName)
+	reportExists := reportStatErr == nil
+	if reportStatErr != nil && !errors.Is(reportStatErr, fs.ErrNotExist) {
+		return SequentialReferenceResult{}, sequentialReferenceError("resume_scheduler_report", reportStatErr)
 	}
-	if admitManifest != nil {
-		if err := admitManifest(manifest); err != nil {
-			return experiment.Manifest{}, SequentialReferenceResult{}, err
+	if reportExists {
+		if !reportInfo.Mode().IsRegular() || reportInfo.Mode()&fs.ModeSymlink != 0 || reportInfo.Mode().Perm() != 0o600 {
+			return SequentialReferenceResult{}, sequentialReferenceError("resume_scheduler_report", nil)
 		}
-	}
-	recordValidator, err := experiment.NewTrialRecordValidator(manifest)
-	if err != nil {
-		return experiment.Manifest{}, SequentialReferenceResult{}, sequentialReferenceError("trial_validator", err)
-	}
-	assignments := sequentialReferenceAssignments(manifest)
-	baseBindings, err := ExperimentAttemptBindings(manifest)
-	if err != nil || len(baseBindings) != len(assignments) {
-		return experiment.Manifest{}, SequentialReferenceResult{}, sequentialReferenceError("attempt_bindings", err)
-	}
-	if err := sequentialReferenceInspectionContextError(ctx); err != nil {
-		return experiment.Manifest{}, SequentialReferenceResult{}, err
-	}
-	store, err := OpenAttemptLedgerStoreStrictContext(ctx, filepath.Join(destination, sequentialReferenceLedgerDirectory))
-	if err != nil {
-		return experiment.Manifest{}, SequentialReferenceResult{}, sequentialReferenceError("attempt_store_open", err)
-	}
-	if err := sequentialReferenceInspectionContextError(ctx); err != nil {
-		return experiment.Manifest{}, SequentialReferenceResult{}, err
-	}
-	inspections, err := store.InspectAllStrictContext(ctx, len(assignments))
-	if contextErr := sequentialReferenceInspectionContextError(ctx); contextErr != nil {
-		return experiment.Manifest{}, SequentialReferenceResult{}, contextErr
-	}
-	if err != nil || len(inspections) != len(assignments) {
-		return experiment.Manifest{}, SequentialReferenceResult{}, sequentialReferenceError("attempt_roster", err)
-	}
-	result := SequentialReferenceResult{ManifestSHA256: manifest.ManifestSHA256, Trials: make([]SequentialReferenceTrialArtifacts, len(assignments))}
-	for index, assignment := range assignments {
-		if err := sequentialReferenceInspectionContextError(ctx); err != nil {
-			return experiment.Manifest{}, SequentialReferenceResult{}, err
-		}
-		artifacts, readErr := publication.readTrialContext(ctx, manifest, recordValidator, assignment, baseBindings[index], inspections[index])
+		data, readErr := readSequentialReferenceFileContext(ctx, publication.root, sequentialReferenceSchedulerReportName, scheduler.MaxReportBytes)
 		if readErr != nil {
-			return experiment.Manifest{}, SequentialReferenceResult{}, readErr
+			return SequentialReferenceResult{}, sequentialReferenceError("resume_scheduler_report", readErr)
 		}
-		result.Trials[index] = artifacts
+		if _, decodeErr := scheduler.DecodeReport(bytes.NewReader(data), roster.schedule); decodeErr != nil {
+			return SequentialReferenceResult{}, sequentialReferenceError("resume_scheduler_report", decodeErr)
+		}
+		for _, inspection := range inspections {
+			if !inspection.Complete || !inspection.Projection.Terminal {
+				return SequentialReferenceResult{}, sequentialReferenceError("resume_report_before_terminal", nil)
+			}
+		}
 	}
-	if err := publication.validateShapeContext(ctx, len(assignments), false); err != nil {
-		return experiment.Manifest{}, SequentialReferenceResult{}, err
+	if !sequentialReferenceStartedAttemptsAreSchedulePrefix(roster, inspections) {
+		return SequentialReferenceResult{}, unknownSequentialReference("resume_attempt_order", ErrAttemptLedgerConflict)
 	}
-	if err := sequentialReferenceInspectionContextError(ctx); err != nil {
-		return experiment.Manifest{}, SequentialReferenceResult{}, err
+	validator, err := experiment.NewTrialRecordValidator(prepared.manifest)
+	if err != nil {
+		return SequentialReferenceResult{}, sequentialReferenceError("resume_trial_validator", err)
 	}
-	if !publication.stable() {
-		return experiment.Manifest{}, SequentialReferenceResult{}, sequentialReferenceError("publication_changed", nil)
+	if len(roster.baseBindings) != len(roster.assignments) {
+		return SequentialReferenceResult{}, sequentialReferenceError("resume_attempt_bindings", nil)
 	}
-	return manifest, result, nil
+	existing := make([]SequentialReferenceTrialArtifacts, len(roster.plans))
+	terminalByOrdinal := make(map[uint32]scheduler.TerminalTask, len(roster.plans))
+	for index := range inspections {
+		if err := sequentialReferenceInspectionContextError(ctx); err != nil {
+			return SequentialReferenceResult{}, unknownSequentialReference("resume_interrupted", err)
+		}
+		inspection := inspections[index]
+		if !inspection.Complete || inspection.Plan.PlanSHA256 != roster.plans[index].PlanSHA256 {
+			return SequentialReferenceResult{}, unknownSequentialReference("resume_attempt", ErrAttemptLedgerIncomplete)
+		}
+		if inspection.Projection.State == lifecycle.StatePlanned {
+			if exists, existsErr := publication.trialStageExists(inspection.Plan.Ordinal); existsErr != nil || exists {
+				return SequentialReferenceResult{}, unknownSequentialReference("resume_planned_stage", existsErr)
+			}
+			continue
+		}
+		if !inspection.Projection.Terminal {
+			session := &DurableAttemptSession{store: store, plan: inspection.Plan}
+			if err := session.Unknown(lifecycle.ErrorInternal, inspection.Projection.Usage); err != nil {
+				return SequentialReferenceResult{}, unknownSequentialReference("resume_absorb", err)
+			}
+			inspection, err = store.Inspect(inspection.Plan.AttemptID)
+			if err != nil || !inspection.Complete || !inspection.Projection.Terminal || inspection.Projection.State != lifecycle.StateUnknown {
+				return SequentialReferenceResult{}, unknownSequentialReference("resume_absorb_readback", err)
+			}
+			inspections[index] = inspection
+		}
+		artifacts, recoverErr := publication.recoverTerminalTrialContext(ctx, prepared, validator,
+			roster.assignments[index], roster.baseBindings[index], inspection)
+		if recoverErr != nil {
+			return SequentialReferenceResult{}, unknownSequentialReference("resume_trial", recoverErr)
+		}
+		if err := publication.writeTrial(index, artifacts); err != nil {
+			return SequentialReferenceResult{}, unknownSequentialReference("resume_trial_write", err)
+		}
+		existing[index] = artifacts
+		terminalByOrdinal[inspection.Plan.Ordinal] = scheduler.TerminalTask{
+			TaskSHA256: inspection.Plan.PlanSHA256, Outcome: sequentialReferenceSchedulerOutcome(artifacts),
+		}
+	}
+	terminal := make([]scheduler.TerminalTask, 0, len(terminalByOrdinal))
+	for _, task := range roster.schedule.Tasks {
+		if item, ok := terminalByOrdinal[task.Ordinal]; ok {
+			terminal = append(terminal, item)
+		}
+	}
+	result, runErr := prepared.runPreparedSchedule(ctx, store, roster, terminal, existing, false,
+		publication.stageTrial, publication.writeTrial)
+	if runErr != nil {
+		return result, unknownSequentialReference("resume_run", runErr)
+	}
+	if err := publication.finish(prepared.manifest, store, result); err != nil {
+		return result, unknownSequentialReference("resume_finish", err)
+	}
+	return result, nil
 }
 
-func sequentialReferenceInspectionContextError(ctx context.Context) error {
-	if ctx == nil {
-		return context.Canceled
-	}
-	return ctx.Err()
-}
+// InspectSequentialReferencePublication strictly decodes one complete output
+// tree and independently replays every transitive artifact binding. A marker,
+// missing member, unknown file, alias, or noncanonical artifact is rejected.
 
-func createSequentialReferencePublication(destination string, manifest experiment.Manifest, manifestData []byte) (*sequentialReferencePublication, error) {
+func createSequentialReferencePublication(destination string, manifest experiment.Manifest, manifestData []byte,
+	workers uint32,
+) (*sequentialReferencePublication, error) {
+	if workers == 0 || workers > scheduler.MaxWorkers {
+		return nil, sequentialReferenceError("scheduler_options", nil)
+	}
 	publication, err := prepareSequentialReferencePublicationPath(destination, true)
 	if err != nil {
 		return nil, err
@@ -206,8 +291,12 @@ func createSequentialReferencePublication(destination string, manifest experimen
 		}
 	}()
 	publication.manifest = manifest
-	if err := writeSequentialReferenceFile(publication.root, sequentialReferenceMarkerName, []byte(manifest.ManifestSHA256+"\n")); err != nil {
+	if err := writeSequentialReferenceFile(publication.root, sequentialReferenceMarkerName,
+		sequentialReferenceMarker(manifest.ManifestSHA256, workers)); err != nil {
 		return nil, unknownSequentialReference("publication_marker", err)
+	}
+	if err := publication.acquireActiveLock(); err != nil {
+		return nil, unknownSequentialReference("publication_lock", err)
 	}
 	if err := writeSequentialReferenceFile(publication.root, sequentialReferenceManifestName, manifestData); err != nil {
 		return nil, unknownSequentialReference("manifest_write", err)
@@ -293,6 +382,10 @@ func (publication *sequentialReferencePublication) close() {
 	if publication == nil {
 		return
 	}
+	if publication.activeLock != nil {
+		_ = publication.activeLock.Unlock()
+		publication.activeLock = nil
+	}
 	if publication.root != nil {
 		_ = publication.root.Close()
 		publication.root = nil
@@ -322,6 +415,17 @@ func sequentialReferenceRootStable(path string, initial fs.FileInfo, root *os.Ro
 }
 
 func (publication *sequentialReferencePublication) writeTrial(index int, artifacts SequentialReferenceTrialArtifacts) error {
+	if artifacts.TrialRecord.RecordSHA256 == "" {
+		return sequentialReferenceError("trial_incomplete", nil)
+	}
+	return publication.writeTrialStage(index, artifacts)
+}
+
+func (publication *sequentialReferencePublication) stageTrial(index int, artifacts SequentialReferenceTrialArtifacts) error {
+	return publication.writeTrialStage(index, artifacts)
+}
+
+func (publication *sequentialReferencePublication) writeTrialStage(index int, artifacts SequentialReferenceTrialArtifacts) error {
 	if index < 0 || index >= lifecycle.MaxAttempts || !publication.stable() {
 		return sequentialReferenceError("trial_order", nil)
 	}
@@ -330,17 +434,46 @@ func (publication *sequentialReferencePublication) writeTrial(index int, artifac
 		return sequentialReferenceError("trial_order", nil)
 	}
 	directory := filepath.Join(sequentialReferenceTrialsDirectory, attemptLedgerOrdinalName(artifacts.AttemptPlan.Ordinal))
-	if err := publication.root.Mkdir(directory, 0o700); err != nil {
-		return err
+	info, err := publication.root.Lstat(directory)
+	if errors.Is(err, fs.ErrNotExist) {
+		if err := publication.root.Mkdir(directory, 0o700); err != nil {
+			return err
+		}
+		info, err = publication.root.Lstat(directory)
 	}
-	files, err := encodeSequentialReferenceTrial(publication.manifest, artifacts)
+	if err != nil || !info.IsDir() || info.Mode()&fs.ModeSymlink != 0 || info.Mode().Perm() != 0o700 {
+		return sequentialReferenceError("trial_directory", err)
+	}
+	files, err := encodeSequentialReferenceTrialStage(publication.manifest, artifacts)
 	if err != nil {
 		return err
 	}
 	for _, file := range files {
-		if err := writeSequentialReferenceFile(publication.root, filepath.Join(directory, file.name), file.data); err != nil {
+		name := filepath.Join(directory, file.name)
+		existingInfo, existingErr := publication.root.Lstat(name)
+		if existingErr == nil {
+			existing, readErr := readSequentialReferenceFile(publication.root, name, int64(len(file.data)))
+			if readErr != nil || !existingInfo.Mode().IsRegular() || existingInfo.Mode().Perm() != 0o600 ||
+				existingInfo.Mode()&fs.ModeSymlink != 0 || !bytes.Equal(existing, file.data) {
+				return sequentialReferenceError("trial_stage_drift", readErr)
+			}
+			continue
+		}
+		if !errors.Is(existingErr, fs.ErrNotExist) {
+			return existingErr
+		}
+		if err := writeSequentialReferenceFile(publication.root, name, file.data); err != nil {
 			return err
 		}
+	}
+	existing, err := readSequentialReferenceDirectoryContext(context.Background(), publication.root, directory, 7)
+	want := make([]string, len(files))
+	for index := range files {
+		want[index] = files[index].name
+	}
+	sort.Strings(want)
+	if err != nil || !reflect.DeepEqual(existing, want) {
+		return sequentialReferenceError("trial_stage_shape", err)
 	}
 	if err := syncSequentialReferenceDirectory(publication.root, directory); err != nil {
 		return err
@@ -348,15 +481,41 @@ func (publication *sequentialReferencePublication) writeTrial(index int, artifac
 	return syncSequentialReferenceDirectory(publication.root, sequentialReferenceTrialsDirectory)
 }
 
+func (publication *sequentialReferencePublication) trialStageExists(ordinal uint32) (bool, error) {
+	if ordinal == 0 || ordinal > lifecycle.MaxAttempts {
+		return false, sequentialReferenceError("trial_order", nil)
+	}
+	directory := filepath.Join(sequentialReferenceTrialsDirectory, attemptLedgerOrdinalName(ordinal))
+	info, err := publication.root.Lstat(directory)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil || !info.IsDir() || info.Mode()&fs.ModeSymlink != 0 || info.Mode().Perm() != 0o700 {
+		return false, sequentialReferenceError("trial_directory", err)
+	}
+	return true, nil
+}
+
+func (publication *sequentialReferencePublication) writeSchedulerPlan(plan scheduler.Plan) error {
+	if !publication.stable() {
+		return sequentialReferenceError("scheduler_publication", nil)
+	}
+	data, err := scheduler.EncodePlan(plan)
+	if err != nil {
+		return sequentialReferenceError("scheduler_plan_encode", err)
+	}
+	if err := writeOrValidateSequentialReferenceFile(publication.root, sequentialReferenceSchedulerPlanName, data); err != nil {
+		return err
+	}
+	return syncSequentialReferenceDirectory(publication.root, ".")
+}
+
 type sequentialReferenceFile struct {
 	name string
 	data []byte
 }
 
-func encodeSequentialReferenceTrial(manifest experiment.Manifest, artifacts SequentialReferenceTrialArtifacts) ([]sequentialReferenceFile, error) {
-	if artifacts.TrialRecord.RecordSHA256 == "" {
-		return nil, sequentialReferenceError("trial_incomplete", nil)
-	}
+func encodeSequentialReferenceTrialStage(manifest experiment.Manifest, artifacts SequentialReferenceTrialArtifacts) ([]sequentialReferenceFile, error) {
 	executionPlan, err := executionbackend.EncodePlan(artifacts.ExecutionPlan)
 	if err != nil {
 		return nil, err
@@ -365,14 +524,16 @@ func encodeSequentialReferenceTrial(manifest experiment.Manifest, artifacts Sequ
 	if err != nil {
 		return nil, err
 	}
-	trialRecord, err := experiment.EncodeTrialRecord(manifest, artifacts.TrialRecord)
-	if err != nil {
-		return nil, sequentialReferenceError("trial_record_encode", err)
-	}
 	files := []sequentialReferenceFile{
 		{name: sequentialReferenceExecutionPlanName, data: executionPlan},
 		{name: sequentialReferenceGradingPlanName, data: gradingPlan},
-		{name: sequentialReferenceTrialRecordName, data: trialRecord},
+	}
+	if artifacts.TrialRecord.RecordSHA256 != "" {
+		trialRecord, encodeErr := experiment.EncodeTrialRecord(manifest, artifacts.TrialRecord)
+		if encodeErr != nil {
+			return nil, sequentialReferenceError("trial_record_encode", encodeErr)
+		}
+		files = append(files, sequentialReferenceFile{name: sequentialReferenceTrialRecordName, data: trialRecord})
 	}
 	if artifacts.Observation != nil {
 		adapter, contractErr := agentadapter.ReferenceContract()
@@ -408,14 +569,9 @@ func (publication *sequentialReferencePublication) finish(manifest experiment.Ma
 		len(result.Trials) == 0 || !publication.stable() {
 		return sequentialReferenceError("publication_binding", nil)
 	}
-	marker, err := readSequentialReferenceFile(publication.root, sequentialReferenceMarkerName, 128)
-	if err != nil || !bytes.Equal(marker, []byte(manifest.ManifestSHA256+"\n")) {
-		return sequentialReferenceError("publication_marker", err)
-	}
-	inspections, err := store.InspectAll()
 	assignments := sequentialReferenceAssignments(manifest)
-	if err != nil || len(inspections) != len(result.Trials) || len(assignments) != len(result.Trials) {
-		return sequentialReferenceError("publication_roster", err)
+	if len(assignments) != len(result.Trials) {
+		return sequentialReferenceError("publication_roster", nil)
 	}
 	recordValidator, err := experiment.NewTrialRecordValidator(manifest)
 	if err != nil {
@@ -425,14 +581,27 @@ func (publication *sequentialReferencePublication) finish(manifest experiment.Ma
 	if err != nil || len(baseBindings) != len(assignments) {
 		return sequentialReferenceError("publication_attempt_bindings", err)
 	}
-	for index := range result.Trials {
-		read, readErr := publication.readTrial(manifest, recordValidator, assignments[index], baseBindings[index], inspections[index])
-		if readErr != nil || !reflect.DeepEqual(read, result.Trials[index]) {
-			return sequentialReferenceError("publication_readback", errors.Join(readErr, errSequentialReferenceArtifactDrift(read, result.Trials[index])))
-		}
+	scheduleData, err := readSequentialReferenceFile(publication.root, sequentialReferenceSchedulerPlanName, scheduler.MaxPlanBytes)
+	if err != nil {
+		return sequentialReferenceError("scheduler_plan_read", err)
 	}
-	if err := publication.validateShape(len(result.Trials), true); err != nil || !publication.stable() {
-		return sequentialReferenceError("publication_shape", err)
+	schedule, err := scheduler.DecodePlan(bytes.NewReader(scheduleData))
+	if err != nil || scheduler.ValidateReport(schedule, result.Scheduler) != nil {
+		return sequentialReferenceError("scheduler_binding", err)
+	}
+	reportData, err := scheduler.EncodeReport(schedule, result.Scheduler)
+	if err != nil {
+		return sequentialReferenceError("scheduler_report_encode", err)
+	}
+	if err := writeOrValidateSequentialReferenceFile(publication.root, sequentialReferenceSchedulerReportName, reportData); err != nil {
+		return sequentialReferenceError("scheduler_report_write", err)
+	}
+	if err := syncSequentialReferenceDirectory(publication.root, "."); err != nil {
+		return sequentialReferenceError("scheduler_report_sync", err)
+	}
+	if err := publication.validateCompletedReadback(manifest, store, result, schedule,
+		recordValidator, assignments, baseBindings, false); err != nil {
+		return err
 	}
 	if err := syncSequentialReferenceDirectory(publication.root, "."); err != nil {
 		return sequentialReferenceError("publication_sync", err)
@@ -451,6 +620,12 @@ func (publication *sequentialReferencePublication) finish(manifest experiment.Ma
 			return sequentialReferenceError("publication_complete", err)
 		}
 	}
+	// Repeat strict content readback after the final fault boundary: residue or
+	// replaced bytes retain the marker instead of certifying a rejected tree.
+	if err := publication.validateCompletedReadback(manifest, store, result, schedule,
+		recordValidator, assignments, baseBindings, true); err != nil {
+		return err
+	}
 	// Removing the already-durable incomplete marker is the final
 	// process-visible commit. There are deliberately no fallible operations
 	// after it: a crash may conservatively retain the marker, but an error can
@@ -467,246 +642,6 @@ func (publication *sequentialReferencePublication) syncParent() error {
 		return err
 	}
 	return errors.Join(parentDirectory.Sync(), parentDirectory.Close())
-}
-
-func errSequentialReferenceArtifactDrift(left, right SequentialReferenceTrialArtifacts) error {
-	if reflect.DeepEqual(left, right) {
-		return nil
-	}
-	return errors.New("artifact drift")
-}
-
-func validateSequentialReferenceManifestProfile(manifest experiment.Manifest) error {
-	if err := experiment.ValidateManifest(manifest); err != nil || manifest.Design.Case.SourceKind != experiment.SourceAgentSkills ||
-		manifest.Design.CompatibilityProfile != experiment.CompatibilityNone || !manifest.PositionBalanceComplete {
-		return sequentialReferenceError("manifest_profile", err)
-	}
-	want, err := SequentialReferenceExperimentCapabilityContract()
-	if err != nil || !reflect.DeepEqual(manifest.CapabilityContract, want) ||
-		!sequentialReferenceAnalysisSupported(manifest.AnalysisPlan) || !sequentialReferenceTreatmentsSupported(manifest.Design.Treatments) {
-		return unsupportedSequentialReference("manifest_profile", err)
-	}
-	return nil
-}
-
-func (publication *sequentialReferencePublication) readTrial(manifest experiment.Manifest, validator *experiment.TrialRecordValidator,
-	assignment sequentialReferenceAssignment, baseBinding lifecycle.Binding,
-	inspection AttemptLedgerInspection,
-) (SequentialReferenceTrialArtifacts, error) {
-	return publication.readTrialContext(context.Background(), manifest, validator, assignment, baseBinding, inspection)
-}
-
-func (publication *sequentialReferencePublication) readTrialContext(ctx context.Context, manifest experiment.Manifest,
-	validator *experiment.TrialRecordValidator, assignment sequentialReferenceAssignment, baseBinding lifecycle.Binding,
-	inspection AttemptLedgerInspection,
-) (SequentialReferenceTrialArtifacts, error) {
-	if err := sequentialReferenceInspectionContextError(ctx); err != nil {
-		return SequentialReferenceTrialArtifacts{}, err
-	}
-	if !inspection.Complete || !inspection.Projection.Terminal || len(inspection.Events) == 0 ||
-		inspection.Plan.Ordinal == 0 || inspection.Plan.Ordinal > lifecycle.MaxAttempts {
-		return SequentialReferenceTrialArtifacts{}, sequentialReferenceError("attempt_incomplete", nil)
-	}
-	directory := filepath.Join(sequentialReferenceTrialsDirectory, attemptLedgerOrdinalName(inspection.Plan.Ordinal))
-	wantFiles := []string{
-		sequentialReferenceObservationName,
-		sequentialReferenceExecutionPlanName,
-		sequentialReferenceExecutionReceiptName,
-		sequentialReferenceGradeReceiptName,
-		sequentialReferenceGradingPlanName,
-		sequentialReferenceTrialRecordName,
-	}
-	files, err := readSequentialReferenceDirectoryContext(ctx, publication.root, directory, len(wantFiles)+1)
-	if err != nil || !reflect.DeepEqual(files, wantFiles) {
-		return SequentialReferenceTrialArtifacts{}, sequentialReferenceError("trial_files", err)
-	}
-	adapter, err := agentadapter.ReferenceContract()
-	if err != nil {
-		return SequentialReferenceTrialArtifacts{}, err
-	}
-	observationData, err := readSequentialReferenceFileContext(ctx, publication.root, filepath.Join(directory, sequentialReferenceObservationName), agentadapter.MaxObservationBytes)
-	if err != nil {
-		return SequentialReferenceTrialArtifacts{}, err
-	}
-	observation, err := agentadapter.DecodeObservation(bytes.NewReader(observationData), adapter)
-	if err != nil {
-		return SequentialReferenceTrialArtifacts{}, sequentialReferenceError("observation_decode", err)
-	}
-	if err := sequentialReferenceInspectionContextError(ctx); err != nil {
-		return SequentialReferenceTrialArtifacts{}, err
-	}
-	executionPlanData, err := readSequentialReferenceFileContext(ctx, publication.root, filepath.Join(directory, sequentialReferenceExecutionPlanName), executionbackend.MaxPlanBytes)
-	if err != nil {
-		return SequentialReferenceTrialArtifacts{}, err
-	}
-	executionPlan, err := executionbackend.DecodePlan(bytes.NewReader(executionPlanData))
-	if err != nil {
-		return SequentialReferenceTrialArtifacts{}, sequentialReferenceError("execution_plan_decode", err)
-	}
-	if err := sequentialReferenceInspectionContextError(ctx); err != nil {
-		return SequentialReferenceTrialArtifacts{}, err
-	}
-	executionReceiptData, err := readSequentialReferenceFileContext(ctx, publication.root, filepath.Join(directory, sequentialReferenceExecutionReceiptName), executionbackend.MaxReceiptBytes)
-	if err != nil {
-		return SequentialReferenceTrialArtifacts{}, err
-	}
-	executionReceipt, err := executionbackend.DecodeReceipt(bytes.NewReader(executionReceiptData), executionPlan)
-	if err != nil {
-		return SequentialReferenceTrialArtifacts{}, sequentialReferenceError("execution_receipt_decode", err)
-	}
-	if err := sequentialReferenceInspectionContextError(ctx); err != nil {
-		return SequentialReferenceTrialArtifacts{}, err
-	}
-	gradingPlanData, err := readSequentialReferenceFileContext(ctx, publication.root, filepath.Join(directory, sequentialReferenceGradingPlanName), grading.MaxPlanBytes)
-	if err != nil {
-		return SequentialReferenceTrialArtifacts{}, err
-	}
-	gradingPlan, err := grading.DecodePlan(bytes.NewReader(gradingPlanData))
-	if err != nil {
-		return SequentialReferenceTrialArtifacts{}, sequentialReferenceError("grading_plan_decode", err)
-	}
-	if err := sequentialReferenceInspectionContextError(ctx); err != nil {
-		return SequentialReferenceTrialArtifacts{}, err
-	}
-	gradeReceiptData, err := readSequentialReferenceFileContext(ctx, publication.root, filepath.Join(directory, sequentialReferenceGradeReceiptName), grading.MaxReceiptBytes)
-	if err != nil {
-		return SequentialReferenceTrialArtifacts{}, err
-	}
-	gradeReceipt, err := grading.DecodeReceipt(bytes.NewReader(gradeReceiptData), gradingPlan)
-	if err != nil {
-		return SequentialReferenceTrialArtifacts{}, sequentialReferenceError("grade_receipt_decode", err)
-	}
-	if err := sequentialReferenceInspectionContextError(ctx); err != nil {
-		return SequentialReferenceTrialArtifacts{}, err
-	}
-	trialRecordData, err := readSequentialReferenceFileContext(ctx, publication.root, filepath.Join(directory, sequentialReferenceTrialRecordName), experiment.MaxTrialBytes)
-	if err != nil {
-		return SequentialReferenceTrialArtifacts{}, err
-	}
-	trialRecord, err := validator.Decode(bytes.NewReader(trialRecordData))
-	if err != nil {
-		return SequentialReferenceTrialArtifacts{}, sequentialReferenceError("trial_record_decode", err)
-	}
-	artifacts := SequentialReferenceTrialArtifacts{
-		AttemptPlan: inspection.Plan, Observation: &observation, ExecutionPlan: executionPlan,
-		ExecutionReceipt: &executionReceipt, GradingPlan: gradingPlan, GradeReceipt: &gradeReceipt,
-		LifecycleEvent: inspection.Events[len(inspection.Events)-1], TrialRecord: trialRecord,
-	}
-	if err := validateSequentialReferenceArtifactChain(ctx, manifest, assignment, baseBinding, inspection, artifacts, executionReceiptData); err != nil {
-		return SequentialReferenceTrialArtifacts{}, err
-	}
-	if err := sequentialReferenceInspectionContextError(ctx); err != nil {
-		return SequentialReferenceTrialArtifacts{}, err
-	}
-	return artifacts, nil
-}
-
-func validateSequentialReferenceArtifactChain(ctx context.Context, manifest experiment.Manifest, assignment sequentialReferenceAssignment, baseBinding lifecycle.Binding,
-	inspection AttemptLedgerInspection, artifacts SequentialReferenceTrialArtifacts, executionReceiptData []byte,
-) error {
-	if artifacts.Observation == nil || artifacts.ExecutionReceipt == nil || artifacts.GradeReceipt == nil ||
-		assignment.TrialID != artifacts.TrialRecord.TrialID || assignment.BlockID != artifacts.TrialRecord.BlockID ||
-		assignment.TreatmentID != artifacts.TrialRecord.TreatmentID || artifacts.AttemptPlan.AttemptID != artifacts.Observation.AttemptID ||
-		artifacts.AttemptPlan.PlanSHA256 != artifacts.TrialRecord.AttemptPlanSHA256 ||
-		artifacts.LifecycleEvent.EventSHA256 != artifacts.TrialRecord.LifecycleEventSHA256 ||
-		!reflect.DeepEqual(artifacts.LifecycleEvent, inspection.Events[len(inspection.Events)-1]) {
-		return sequentialReferenceError("artifact_chain", nil)
-	}
-	treatment, ok := sequentialReferenceTreatmentByID(manifest, assignment.TreatmentID)
-	if !ok {
-		return sequentialReferenceError("artifact_treatment", nil)
-	}
-	backend, err := executionbackend.ReferenceContract()
-	if err != nil {
-		return err
-	}
-	admittedExecution, err := executionbackend.Admit(backend, artifacts.ExecutionPlan)
-	if err != nil || admittedExecution.SHA256() != treatment.ExecutionBindingSHA256 ||
-		!sequentialReferenceExecutionPlanSupported(manifest, treatment, artifacts.ExecutionPlan) {
-		return sequentialReferenceError("execution_binding", err)
-	}
-	wantGrading, err := NewSequentialReferenceGradingPlan(artifacts.GradingPlan.InputProjectionSHA256)
-	if err != nil || !reflect.DeepEqual(wantGrading, artifacts.GradingPlan) {
-		return sequentialReferenceError("grading_profile", err)
-	}
-	gradingSHA, err := grading.PlanSHA256(artifacts.GradingPlan)
-	if err != nil || gradingSHA != manifest.Design.Case.GradingPlanSHA256 {
-		return sequentialReferenceError("grading_binding", err)
-	}
-	wantBinding, err := BindExecutionBackendTrial(baseBinding, artifacts.ExecutionPlan)
-	if err == nil {
-		wantBinding, err = BindGradingPlan(wantBinding, artifacts.GradingPlan)
-	}
-	if err != nil || !reflect.DeepEqual(wantBinding, artifacts.AttemptPlan.Binding) {
-		return sequentialReferenceError("attempt_binding", err)
-	}
-	adapter, err := agentadapter.ReferenceContract()
-	if err != nil {
-		return err
-	}
-	wantObservation, err := agentadapter.NewReferenceObservation(adapter, artifacts.AttemptPlan.AttemptID, treatment.ExpectedActivation)
-	if err != nil || !reflect.DeepEqual(wantObservation, *artifacts.Observation) {
-		return sequentialReferenceError("observation_projection", err)
-	}
-	observationSHA, err := agentadapter.ObservationSHA256(adapter, *artifacts.Observation)
-	if err != nil || observationSHA != artifacts.TrialRecord.AgentObservationSHA256 {
-		return sequentialReferenceError("observation_binding", err)
-	}
-	grader, err := grading.BuiltinContract()
-	if err != nil {
-		return err
-	}
-	admittedGrading, err := grading.Admit(grader, artifacts.GradingPlan)
-	if err != nil {
-		return sequentialReferenceError("grading_admission", err)
-	}
-	preparedEvidence, err := grading.PrepareEvidence(ctx, admittedGrading, grading.EvidenceSet{
-		InputProjectionSHA256: artifacts.GradingPlan.InputProjectionSHA256,
-		Files: []grading.FileEvidence{{
-			ID: "execution-receipt", Visibility: grading.VisibilityPublic, Present: true, Mode: 0o600, Data: executionReceiptData,
-		}},
-		Commands: []grading.CommandEvidence{}, Trees: []grading.TreeEvidence{}, Sequences: []grading.SequenceEvidence{}, Counters: []grading.CounterEvidence{},
-	})
-	if err != nil {
-		return sequentialReferenceError("grading_evidence", err)
-	}
-	defer preparedEvidence.Destroy()
-	wantGrade, err := grading.EvaluateDeterministic(ctx, admittedGrading, preparedEvidence)
-	if err != nil || !reflect.DeepEqual(wantGrade, *artifacts.GradeReceipt) {
-		return sequentialReferenceError("grade_receipt_projection", err)
-	}
-	gradeSHA, err := grading.ReceiptSHA256(artifacts.GradingPlan, *artifacts.GradeReceipt)
-	if err != nil || gradeSHA != artifacts.TrialRecord.GradeReceiptSHA256 || gradeSHA != artifacts.LifecycleEvent.Evidence.ReceiptSHA256 {
-		return sequentialReferenceError("grade_receipt_binding", err)
-	}
-	passed := artifacts.ExecutionReceipt.Verdict == executionbackend.VerdictSucceeded && sequentialReferenceGradePassed(*artifacts.GradeReceipt)
-	wantState, wantLifecycle := experiment.LifecycleFailed, lifecycle.StateFailed
-	if passed {
-		wantState, wantLifecycle = experiment.LifecycleSucceeded, lifecycle.StateSucceeded
-	}
-	wantStages, wantMetrics, err := sequentialReferenceObservedProjections(manifest, *artifacts.Observation, passed)
-	if err != nil {
-		return err
-	}
-	if artifacts.TrialRecord.LifecycleState != wantState || artifacts.LifecycleEvent.To != wantLifecycle ||
-		artifacts.TrialRecord.Eligibility != experiment.EligibilitySupported || artifacts.TrialRecord.Exclusion != experiment.ExclusionNone ||
-		!reflect.DeepEqual(artifacts.TrialRecord.Stages, wantStages) || !reflect.DeepEqual(artifacts.TrialRecord.Metrics, wantMetrics) ||
-		!sequentialReferenceObservedOutcome(artifacts.TrialRecord, passed) {
-		return sequentialReferenceError("trial_projection", nil)
-	}
-	return nil
-}
-
-func sequentialReferenceObservedOutcome(record experiment.TrialRecord, passed bool) bool {
-	if len(record.Metrics) != 1 || record.Metrics[0].Metric != experiment.MetricOutcome ||
-		record.Metrics[0].Presence != experiment.PresenceObserved || record.Metrics[0].Value == nil {
-		return false
-	}
-	want := uint64(0)
-	if passed {
-		want = 1
-	}
-	return *record.Metrics[0].Value == want
 }
 
 func writeSequentialReferenceFile(root *os.Root, name string, data []byte) error {
@@ -730,6 +665,21 @@ func writeSequentialReferenceFile(root *os.Root, name string, data []byte) error
 	return file.Close()
 }
 
+func writeOrValidateSequentialReferenceFile(root *os.Root, name string, data []byte) error {
+	info, err := root.Lstat(name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return writeSequentialReferenceFile(root, name, data)
+	}
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 || info.Mode().Perm() != 0o600 {
+		return sequentialReferenceError("artifact_shape", err)
+	}
+	existing, err := readSequentialReferenceFile(root, name, int64(len(data)))
+	if err != nil || !bytes.Equal(existing, data) {
+		return sequentialReferenceError("artifact_drift", err)
+	}
+	return nil
+}
+
 func readSequentialReferenceFile(root *os.Root, name string, maximum int64) ([]byte, error) {
 	return readSequentialReferenceFileContext(context.Background(), root, name, maximum)
 }
@@ -738,13 +688,19 @@ func readSequentialReferenceFileContext(ctx context.Context, root *os.Root, name
 	if err := sequentialReferenceInspectionContextError(ctx); err != nil {
 		return nil, err
 	}
+	ambientBefore, err := root.Lstat(name)
+	if err != nil || !ambientBefore.Mode().IsRegular() || ambientBefore.Mode()&fs.ModeSymlink != 0 ||
+		ambientBefore.Mode().Perm() != 0o600 || ambientBefore.Size() < 0 || ambientBefore.Size() > maximum {
+		return nil, sequentialReferenceError("artifact_shape", err)
+	}
 	file, err := root.Open(name)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() < 0 || info.Size() > maximum {
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || info.Size() < 0 || info.Size() > maximum ||
+		!os.SameFile(ambientBefore, info) {
 		return nil, sequentialReferenceError("artifact_shape", err)
 	}
 	data := []byte{}
@@ -770,6 +726,13 @@ func readSequentialReferenceFileContext(ctx context.Context, root *os.Root, name
 	if int64(len(data)) != info.Size() {
 		return nil, sequentialReferenceError("artifact_read", nil)
 	}
+	openedAfter, openedErr := file.Stat()
+	ambientAfter, ambientErr := root.Lstat(name)
+	if openedErr != nil || ambientErr != nil || !ambientAfter.Mode().IsRegular() || ambientAfter.Mode()&fs.ModeSymlink != 0 ||
+		ambientAfter.Mode().Perm() != 0o600 || ambientAfter.Size() != int64(len(data)) ||
+		!os.SameFile(info, openedAfter) || !os.SameFile(info, ambientAfter) {
+		return nil, sequentialReferenceError("artifact_changed", errors.Join(openedErr, ambientErr))
+	}
 	if err := sequentialReferenceInspectionContextError(ctx); err != nil {
 		return nil, err
 	}
@@ -791,11 +754,12 @@ func (publication *sequentialReferencePublication) validateShape(trials int, mar
 }
 
 func (publication *sequentialReferencePublication) validateShapeContext(ctx context.Context, trials int, marker bool) error {
-	entries, err := readSequentialReferenceDirectoryContext(ctx, publication.root, ".", 5)
+	entries, err := readSequentialReferenceDirectoryContext(ctx, publication.root, ".", 7)
 	if err != nil {
 		return sequentialReferenceError("publication_shape", err)
 	}
-	wantTop := []string{sequentialReferenceLedgerDirectory, sequentialReferenceManifestName, sequentialReferenceTrialsDirectory}
+	wantTop := []string{sequentialReferenceLedgerDirectory, sequentialReferenceManifestName, sequentialReferenceSchedulerPlanName,
+		sequentialReferenceSchedulerReportName, sequentialReferenceTrialsDirectory}
 	if marker {
 		wantTop = append(wantTop, sequentialReferenceMarkerName)
 		sort.Strings(wantTop)
@@ -810,6 +774,49 @@ func (publication *sequentialReferencePublication) validateShapeContext(ctx cont
 	for index, name := range trialEntries {
 		if name != attemptLedgerOrdinalName(uint32(index+1)) {
 			return sequentialReferenceError("trial_order", nil)
+		}
+	}
+	return nil
+}
+
+func (publication *sequentialReferencePublication) validateResumeShapeContext(ctx context.Context, trials int) error {
+	if trials <= 0 || trials > lifecycle.MaxAttempts {
+		return sequentialReferenceError("resume_roster", nil)
+	}
+	entries, err := readSequentialReferenceDirectoryContext(ctx, publication.root, ".", 8)
+	if err != nil {
+		return sequentialReferenceError("resume_shape", err)
+	}
+	allowed := map[string]bool{
+		sequentialReferenceMarkerName:          true,
+		sequentialReferenceManifestName:        true,
+		sequentialReferenceSchedulerPlanName:   true,
+		sequentialReferenceSchedulerReportName: true,
+		sequentialReferenceLedgerDirectory:     true,
+		sequentialReferenceTrialsDirectory:     true,
+	}
+	present := make(map[string]bool, len(entries))
+	for _, name := range entries {
+		if !allowed[name] {
+			return sequentialReferenceError("resume_members", nil)
+		}
+		present[name] = true
+	}
+	if !present[sequentialReferenceMarkerName] || !present[sequentialReferenceManifestName] ||
+		!present[sequentialReferenceTrialsDirectory] || (present[sequentialReferenceSchedulerReportName] && !present[sequentialReferenceSchedulerPlanName]) {
+		return sequentialReferenceError("resume_members", nil)
+	}
+	trialEntries, err := readSequentialReferenceDirectoryContext(ctx, publication.root, sequentialReferenceTrialsDirectory, trials+1)
+	if err != nil {
+		return sequentialReferenceError("resume_trial_members", err)
+	}
+	valid := make(map[string]bool, trials)
+	for ordinal := 1; ordinal <= trials; ordinal++ {
+		valid[attemptLedgerOrdinalName(uint32(ordinal))] = true // #nosec G115 -- trials is bounded by MaxAttempts.
+	}
+	for _, name := range trialEntries {
+		if !valid[name] {
+			return sequentialReferenceError("resume_trial_order", nil)
 		}
 	}
 	return nil

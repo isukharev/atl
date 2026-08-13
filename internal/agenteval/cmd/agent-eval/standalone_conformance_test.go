@@ -63,7 +63,7 @@ func TestStandalonePublicPreReleaseWholeProcessConformance(t *testing.T) {
 		decodeStandaloneWholeProcessResult(t, version.Result, &result)
 		wantSchemas := map[string]bool{
 			"agent-skills-import-report": false, "agent-skills-export-report": false,
-			"sequential-reference-bundle": false,
+			"scheduler-plan": false, "scheduler-report": false, "sequential-reference-bundle": false,
 		}
 		for _, schema := range result.Schemas {
 			if _, ok := wantSchemas[schema.ID]; ok && schema.Version == 1 {
@@ -106,12 +106,14 @@ func TestStandalonePublicPreReleaseWholeProcessConformance(t *testing.T) {
 		destination := filepath.Join(t.TempDir(), "reference-output")
 		args := []string{
 			"run", "--mode", "reference", "--manifest", manifestPath,
-			"--bundle", bundlePath, "--destination", destination,
+			"--bundle", bundlePath, "--destination", destination, "--sequential",
 		}
 		run := requireStandaloneWholeProcessJSONSuccess(t, args, "", "run")
 		var summary standaloneReferenceRunResult
 		decodeStandaloneWholeProcessResult(t, run.Result, &summary)
-		if summary.ManifestSHA256 == "" || summary.Trials != 18 || summary.Succeeded != 18 || summary.Failed != 0 {
+		if summary.ManifestSHA256 == "" || summary.Trials != 18 || summary.Succeeded != 18 || summary.Failed != 0 ||
+			summary.Workers != 1 || summary.Queued != 18 || summary.Started != 18 || summary.Completed != 18 ||
+			summary.NeverStarted != 0 || summary.Stop != "none" {
 			t.Fatalf("sequential reference summary=%+v", summary)
 		}
 		publication, err := agenteval.InspectSequentialReferencePublication(destination)
@@ -151,6 +153,61 @@ func TestStandalonePublicPreReleaseWholeProcessConformance(t *testing.T) {
 			t.Fatalf("relative destination: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 		}
 		assertStandaloneError(t, stderr, standaloneInputError.id, "reference_run_rejected", true)
+	})
+
+	t.Run("bounded reference scheduling and resume", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("the durable attempt ledger is not yet available on Windows")
+		}
+		manifestPath, bundlePath := standaloneSequentialReferenceFixturePaths(t)
+		destination := filepath.Join(t.TempDir(), "parallel-reference-output")
+		arguments := []string{
+			"run", "--mode", "reference", "--manifest", manifestPath, "--bundle", bundlePath,
+			"--destination", destination, "--workers", "4",
+		}
+		run := requireStandaloneWholeProcessJSONSuccess(t, arguments, "", "run")
+		var summary standaloneReferenceRunResult
+		decodeStandaloneWholeProcessResult(t, run.Result, &summary)
+		if summary.Workers != 4 || summary.Trials != 18 || summary.Queued != 18 || summary.Started != 18 || summary.Completed != 18 ||
+			summary.Succeeded != 18 || summary.Failed != 0 || summary.Canceled != 0 || summary.Unknown != 0 || summary.Stop != "none" {
+			t.Fatalf("parallel summary=%+v", summary)
+		}
+		publication, err := agenteval.InspectSequentialReferencePublication(destination)
+		if err != nil || publication.Scheduler.Started != 18 || publication.Scheduler.Completed != 18 {
+			t.Fatalf("parallel publication=%+v err=%v", publication.Scheduler, err)
+		}
+		if err := os.WriteFile(filepath.Join(destination, ".sequential-reference-incomplete"),
+			[]byte(fmt.Sprintf("manifest_sha256=%s\nworkers=4\n", summary.ManifestSHA256)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		resume := requireStandaloneWholeProcessJSONSuccess(t, []string{
+			"resume", "--mode", "reference", "--manifest", manifestPath, "--bundle", bundlePath,
+			"--destination", destination, "--workers", "4",
+		}, "", "resume")
+		var resumed standaloneReferenceRunResult
+		decodeStandaloneWholeProcessResult(t, resume.Result, &resumed)
+		if !reflect.DeepEqual(resumed, summary) {
+			t.Fatalf("resumed=%+v want=%+v", resumed, summary)
+		}
+		if _, err := os.Lstat(filepath.Join(destination, ".sequential-reference-incomplete")); !os.IsNotExist(err) {
+			t.Fatalf("resume retained marker: %v", err)
+		}
+		for _, invalid := range [][]string{
+			{"run", "--mode", "reference", "--manifest", manifestPath, "--bundle", bundlePath,
+				"--destination", filepath.Join(t.TempDir(), "zero"), "--workers", "0"},
+			{"run", "--mode", "reference", "--manifest", manifestPath, "--bundle", bundlePath,
+				"--destination", filepath.Join(t.TempDir(), "conflict"), "--workers", "2", "--sequential"},
+		} {
+			code, stdout, stderr := runStandaloneCoordinatorProcess(t, invalid)
+			if code != standaloneUsageError.code || stdout != "" {
+				t.Fatalf("invalid scheduler options code=%d stdout=%q stderr=%q", code, stdout, stderr)
+			}
+			assertStandaloneError(t, stderr, standaloneUsageError.id, "invalid_reference_scheduler_options", false)
+		}
+		assertStandaloneContentMinimized(t, string(run.Result), manifestPath, bundlePath, destination,
+			"synthetic public case", "Synthetic public skill")
+		assertStandaloneContentMinimized(t, string(resume.Result), manifestPath, bundlePath, destination,
+			"synthetic public case", "Synthetic public skill")
 	})
 
 	t.Run("Guide and Anthropic imports", func(t *testing.T) {

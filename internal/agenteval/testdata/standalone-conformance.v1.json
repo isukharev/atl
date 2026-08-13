@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_version": "0.1.0-pre-release",
-  "golden_bundle": {"path":"testdata/standalone-readability-golden.v1.json","sha256":"bf60c4470da121107eb500746c423092ea7349b8ea2fc3b20be90b5acdea684a"},
+  "golden_bundle": {"path":"testdata/standalone-readability-golden.v1.json","sha256":"7780cbd008c0c41b066c15e5f00ceba284b8436a6ba687f535c02d66f67b9bcd"},
   "readability": [
     {"namespace":"atl-profile","kind":"activation-reference","versions":[1,2]},
     {"namespace":"atl-profile","kind":"activation-report","versions":[1,2]},
@@ -39,6 +39,8 @@
     {"namespace":"standalone","kind":"migration-preview","versions":[1]},
     {"namespace":"standalone","kind":"migration-result","versions":[1]},
     {"namespace":"standalone","kind":"project-config","versions":[1]},
+    {"namespace":"standalone","kind":"scheduler-plan","versions":[1]},
+    {"namespace":"standalone","kind":"scheduler-report","versions":[1]},
     {"namespace":"standalone","kind":"schema-registry","versions":[1]},
     {"namespace":"standalone","kind":"sequential-reference-bundle","versions":[1]},
     {"namespace":"standalone","kind":"trial-plan","versions":[1]},
@@ -83,6 +85,8 @@
     {"namespace":"standalone","kind":"migration-result","version":2},
     {"namespace":"standalone","kind":"product-contract","version":2},
     {"namespace":"standalone","kind":"project-config","version":2},
+    {"namespace":"standalone","kind":"scheduler-plan","version":2},
+    {"namespace":"standalone","kind":"scheduler-report","version":2},
     {"namespace":"standalone","kind":"schema-registry","version":2},
     {"namespace":"standalone","kind":"sequential-reference-bundle","version":2},
     {"namespace":"standalone","kind":"trial-plan","version":2},

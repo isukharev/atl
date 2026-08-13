@@ -92,7 +92,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   content-minimized report retains exact closed stage and binary-metric
   projections only for clean singleton trials, making shared-endpoint coverage
   and labeled summary feasibility reproducible without retaining source bodies
-  or absolute count metrics.
+  or absolute count metrics. Reference execution now also has content-addressed
+  bounded local scheduling across independent blocks, an exact one-worker
+  compatibility mode, resource/cohort/cost admission, content-minimized
+  scheduler plan/report artifacts, and marker-bound crash-safe resume that runs
+  only planned members and never replays terminal or unknown attempts.
 - Added qualified, resumable Jira complete-project pulls with an explicit issue
   cap, two stable numeric-ID passes bound to one exact backend total, crash-safe
   publication, and hash-bound key relocation that preserves uninventoried

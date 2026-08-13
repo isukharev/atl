@@ -1,0 +1,1 @@
+{"schema":"agent-eval/scheduler-report","schema_version":1,"contract_version":"0.1.0-pre-release","plan_sha256":"30e3f18af8e7850cf41bb79ea5799499571b334bb8ee6330600120de932e1504","queued":1,"started":1,"completed":1,"succeeded":1,"failed":0,"canceled":0,"unknown":0,"never_started":0,"stop":"none","report_sha256":"8269aaa557499043df060d72ccce23a7cf6e115d950cb3b63b57ca3a6e799379"}

@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 
 	"github.com/isukharev/atl/internal/agenteval/agentadapter"
 	"github.com/isukharev/atl/internal/agenteval/executionbackend"
 	"github.com/isukharev/atl/internal/agenteval/experiment"
 	"github.com/isukharev/atl/internal/agenteval/grading"
 	"github.com/isukharev/atl/internal/agenteval/lifecycle"
+	"github.com/isukharev/atl/internal/agenteval/scheduler"
 )
 
 var (
@@ -58,6 +60,13 @@ type SequentialReferenceTrialArtifacts struct {
 type SequentialReferenceResult struct {
 	ManifestSHA256 string                              `json:"manifest_sha256"`
 	Trials         []SequentialReferenceTrialArtifacts `json:"trials"`
+	Scheduler      SchedulerReport                     `json:"scheduler"`
+}
+
+// SequentialReferenceRunOptions selects only local scheduling capacity. Every
+// other authority and resource reservation comes from the immutable plans.
+type SequentialReferenceRunOptions struct {
+	Workers uint32
 }
 
 type sequentialReferenceTreatment struct {
@@ -95,7 +104,20 @@ func RunSequentialReference(ctx context.Context, store *AttemptLedgerStore, mani
 		return SequentialReferenceResult{}, err
 	}
 	defer prepared.destroy()
-	return prepared.run(ctx, store, nil)
+	return prepared.runScheduled(ctx, store, SequentialReferenceRunOptions{Workers: 1}, nil, nil, true, nil, nil, nil)
+}
+
+// RunScheduledReference executes the same immutable reference roster with a
+// bounded local scheduler. Workers never change manifest or result order.
+func RunScheduledReference(ctx context.Context, store *AttemptLedgerStore, manifest ExperimentManifest, bundle SequentialReferenceBundle,
+	options SequentialReferenceRunOptions,
+) (SequentialReferenceResult, error) {
+	prepared, err := prepareSequentialReference(ctx, manifest, bundle)
+	if err != nil {
+		return SequentialReferenceResult{}, err
+	}
+	defer prepared.destroy()
+	return prepared.runScheduled(ctx, store, options, nil, nil, false, nil, nil, nil)
 }
 
 func prepareSequentialReference(ctx context.Context, manifest experiment.Manifest, bundle SequentialReferenceBundle) (*sequentialReferencePrepared, error) {
@@ -206,52 +228,172 @@ func prepareSequentialReference(ctx context.Context, manifest experiment.Manifes
 func (prepared *sequentialReferencePrepared) run(ctx context.Context, store *AttemptLedgerStore,
 	sink func(int, SequentialReferenceTrialArtifacts) error,
 ) (SequentialReferenceResult, error) {
+	return prepared.runScheduled(ctx, store, SequentialReferenceRunOptions{Workers: 1}, nil, nil, true, nil, nil, sink)
+}
+
+type sequentialReferenceScheduledRoster struct {
+	assignments  []sequentialReferenceAssignment
+	baseBindings []lifecycle.Binding
+	plans        []lifecycle.Plan
+	schedule     scheduler.Plan
+}
+
+func (prepared *sequentialReferencePrepared) runScheduled(ctx context.Context, store *AttemptLedgerStore,
+	options SequentialReferenceRunOptions, terminal []scheduler.TerminalTask,
+	existing []SequentialReferenceTrialArtifacts,
+	commitCurrentOnCancellation bool,
+	scheduleSink func(scheduler.Plan) error,
+	stageSink func(int, SequentialReferenceTrialArtifacts) error,
+	sink func(int, SequentialReferenceTrialArtifacts) error,
+) (SequentialReferenceResult, error) {
+	roster, err := prepared.prepareScheduledRosterWithSink(store, options, scheduleSink)
+	if err != nil {
+		return SequentialReferenceResult{}, err
+	}
+	return prepared.runPreparedSchedule(ctx, store, roster, terminal, existing, commitCurrentOnCancellation, stageSink, sink)
+}
+
+func (prepared *sequentialReferencePrepared) prepareScheduledRoster(store *AttemptLedgerStore,
+	options SequentialReferenceRunOptions,
+) (sequentialReferenceScheduledRoster, error) {
+	return prepared.prepareScheduledRosterWithSink(store, options, nil)
+}
+
+func (prepared *sequentialReferencePrepared) prepareScheduledRosterWithSink(store *AttemptLedgerStore,
+	options SequentialReferenceRunOptions, scheduleSink func(scheduler.Plan) error,
+) (sequentialReferenceScheduledRoster, error) {
 	if store == nil {
-		return SequentialReferenceResult{}, sequentialReferenceError("attempt_store", nil)
+		return sequentialReferenceScheduledRoster{}, sequentialReferenceError("attempt_store", nil)
 	}
 	bindings, err := ExperimentAttemptBindings(prepared.manifest)
 	if err != nil {
-		return SequentialReferenceResult{}, sequentialReferenceError("attempt_bindings", err)
+		return sequentialReferenceScheduledRoster{}, sequentialReferenceError("attempt_bindings", err)
 	}
+	baseBindings := append([]lifecycle.Binding(nil), bindings...)
 	assignments := sequentialReferenceAssignments(prepared.manifest)
 	if len(bindings) != len(assignments) {
-		return SequentialReferenceResult{}, sequentialReferenceError("assignment_count", nil)
+		return sequentialReferenceScheduledRoster{}, sequentialReferenceError("assignment_count", nil)
 	}
 	for index, assignment := range assignments {
 		treatment := prepared.treatments[assignment.TreatmentID]
 		if treatment == nil {
-			return SequentialReferenceResult{}, sequentialReferenceError("assignment_treatment", nil)
+			return sequentialReferenceScheduledRoster{}, sequentialReferenceError("assignment_treatment", nil)
 		}
 		bindings[index], err = BindExecutionBackendTrial(bindings[index], treatment.plan)
 		if err == nil {
 			bindings[index], err = BindGradingPlan(bindings[index], prepared.gradingPlan)
 		}
 		if err != nil {
-			return SequentialReferenceResult{}, sequentialReferenceError("attempt_binding", err)
+			return sequentialReferenceScheduledRoster{}, sequentialReferenceError("attempt_binding", err)
 		}
 	}
-	plans, err := store.EnsureRoster(bindings)
+	plans := make([]lifecycle.Plan, len(bindings))
+	for index, binding := range bindings {
+		plans[index], err = lifecycle.NewPlan(store.Header(), uint32(index+1), binding) // #nosec G115 -- bindings are bounded by lifecycle.MaxAttempts.
+		if err != nil {
+			return sequentialReferenceScheduledRoster{}, sequentialReferenceError("attempt_plan", err)
+		}
+	}
+	schedule, err := prepared.schedulerPlan(options, plans, assignments)
 	if err != nil {
-		return SequentialReferenceResult{}, sequentialReferenceError("attempt_roster", err)
+		return sequentialReferenceScheduledRoster{}, err
 	}
-	result := SequentialReferenceResult{ManifestSHA256: prepared.manifest.ManifestSHA256, Trials: make([]SequentialReferenceTrialArtifacts, 0, len(plans))}
-	for index, plan := range plans {
-		session, sessionErr := NewDurableAttemptSession(store, plan)
-		if sessionErr != nil {
-			return result, sequentialReferenceError("attempt_session", sessionErr)
+	// Persist the width-dependent scheduler plan before materializing its
+	// planned ledger roster. A crash can therefore leave neither member, or a
+	// plan whose exact roster may be completed, but never an unbound roster
+	// that a later resume can reinterpret at a different width.
+	if scheduleSink != nil {
+		if err := scheduleSink(schedule); err != nil {
+			return sequentialReferenceScheduledRoster{}, sequentialReferenceError("scheduler_sink", err)
 		}
-		artifacts, runErr := prepared.runTrial(ctx, session, assignments[index])
-		if artifacts.TrialRecord.RecordSHA256 != "" {
-			result.Trials = append(result.Trials, artifacts)
-			if sink != nil {
-				if sinkErr := sink(index, artifacts); sinkErr != nil {
-					return result, sequentialReferenceError("artifact_sink", sinkErr)
+	}
+	written, err := store.EnsureRoster(bindings)
+	if err != nil {
+		return sequentialReferenceScheduledRoster{}, sequentialReferenceError("attempt_roster", err)
+	}
+	if !reflect.DeepEqual(written, plans) {
+		return sequentialReferenceScheduledRoster{}, sequentialReferenceError("attempt_roster_readback", nil)
+	}
+	return sequentialReferenceScheduledRoster{assignments: assignments, baseBindings: baseBindings, plans: plans, schedule: schedule}, nil
+}
+
+func (prepared *sequentialReferencePrepared) runPreparedSchedule(ctx context.Context, store *AttemptLedgerStore,
+	roster sequentialReferenceScheduledRoster, terminal []scheduler.TerminalTask,
+	existing []SequentialReferenceTrialArtifacts, commitCurrentOnCancellation bool,
+	stageSink func(int, SequentialReferenceTrialArtifacts) error,
+	sink func(int, SequentialReferenceTrialArtifacts) error,
+) (SequentialReferenceResult, error) {
+	if len(roster.assignments) == 0 || len(roster.assignments) != len(roster.plans) || scheduler.ValidatePlan(roster.schedule) != nil ||
+		(len(existing) != 0 && len(existing) != len(roster.plans)) {
+		return SequentialReferenceResult{}, sequentialReferenceError("scheduler_roster", nil)
+	}
+	terminalByTask := make(map[string]scheduler.Outcome, len(terminal))
+	for _, item := range terminal {
+		terminalByTask[item.TaskSHA256] = item.Outcome
+	}
+	for index, artifacts := range existing {
+		_, terminalTask := terminalByTask[roster.plans[index].PlanSHA256]
+		if (artifacts.TrialRecord.RecordSHA256 != "") != terminalTask {
+			return SequentialReferenceResult{}, sequentialReferenceError("scheduler_snapshot", nil)
+		}
+	}
+	result := SequentialReferenceResult{ManifestSHA256: prepared.manifest.ManifestSHA256,
+		Trials: make([]SequentialReferenceTrialArtifacts, 0, len(roster.plans))}
+	slots := make([]SequentialReferenceTrialArtifacts, len(roster.plans))
+	copy(slots, existing)
+	var sinkMutex sync.Mutex
+	dispatchContext := ctx
+	if commitCurrentOnCancellation && roster.schedule.Limits.Workers == 1 && len(terminal) == 0 {
+		dispatchContext = context.WithoutCancel(ctx)
+	}
+	report, runErr := scheduler.RunRemaining(dispatchContext, roster.schedule, terminal, func(_ context.Context, task scheduler.Task) (scheduler.RunFunc, error) {
+		index := int(task.Ordinal - 1)
+		if index < 0 || index >= len(roster.plans) || roster.plans[index].PlanSHA256 != task.TaskSHA256 ||
+			slots[index].TrialRecord.RecordSHA256 != "" {
+			return nil, sequentialReferenceError("scheduler_task", nil)
+		}
+		session, sessionErr := NewDurableAttemptSession(store, roster.plans[index])
+		if sessionErr != nil {
+			return nil, sequentialReferenceError("attempt_session", sessionErr)
+		}
+		if sessionErr = beginRunAttempt(session); sessionErr != nil {
+			return nil, sequentialReferenceError("attempt_commit", sessionErr)
+		}
+		return func(runContext context.Context) (scheduler.Outcome, error) {
+			executionContext := runContext
+			if commitCurrentOnCancellation && roster.schedule.Limits.Workers == 1 {
+				executionContext = ctx
+			}
+			stage := func(artifacts SequentialReferenceTrialArtifacts) error {
+				if stageSink == nil {
+					return nil
+				}
+				sinkMutex.Lock()
+				stageErr := stageSink(index, artifacts)
+				sinkMutex.Unlock()
+				return stageErr
+			}
+			artifacts, trialErr := prepared.runStartedTrial(executionContext, session, roster.assignments[index], stage)
+			slots[index] = artifacts
+			if artifacts.TrialRecord.RecordSHA256 != "" && sink != nil {
+				sinkMutex.Lock()
+				sinkErr := sink(index, artifacts)
+				sinkMutex.Unlock()
+				if sinkErr != nil {
+					trialErr = errors.Join(trialErr, sequentialReferenceError("artifact_sink", sinkErr))
 				}
 			}
+			return sequentialReferenceSchedulerOutcome(artifacts), trialErr
+		}, nil
+	})
+	result.Scheduler = report
+	for _, artifacts := range slots {
+		if artifacts.TrialRecord.RecordSHA256 != "" {
+			result.Trials = append(result.Trials, artifacts)
 		}
-		if runErr != nil {
-			return result, runErr
-		}
+	}
+	if runErr != nil {
+		return result, sequentialReferenceError("scheduler", runErr)
 	}
 	return result, nil
 }
@@ -260,14 +402,17 @@ type sequentialReferenceAssignment struct {
 	TrialID     string
 	BlockID     string
 	TreatmentID string
+	Round       uint32
 }
 
-func (prepared *sequentialReferencePrepared) runTrial(ctx context.Context, session *DurableAttemptSession, assignment sequentialReferenceAssignment) (SequentialReferenceTrialArtifacts, error) {
+func (prepared *sequentialReferencePrepared) runStartedTrial(ctx context.Context, session *DurableAttemptSession,
+	assignment sequentialReferenceAssignment, stage func(SequentialReferenceTrialArtifacts) error,
+) (SequentialReferenceTrialArtifacts, error) {
 	treatment := prepared.treatments[assignment.TreatmentID]
 	artifacts := SequentialReferenceTrialArtifacts{AttemptPlan: session.Plan(), ExecutionPlan: treatment.plan, GradingPlan: prepared.gradingPlan}
 	usage := sequentialReferenceLifecycleUsage()
-	if err := beginRunAttempt(session); err != nil {
-		return artifacts, sequentialReferenceError("attempt_commit", err)
+	if err := stage(artifacts); err != nil {
+		return prepared.failPostExecution(session, assignment, artifacts, "", sequentialReferenceError("artifact_stage", err))
 	}
 	backendResult, runErr := executionbackend.RunReference(ctx, treatment.admitted, treatment.inputs)
 	clearResult := func() {
@@ -284,20 +429,24 @@ func (prepared *sequentialReferencePrepared) runTrial(ctx context.Context, sessi
 		}
 	}
 	if runErr != nil {
+		stageErr := stage(artifacts)
 		state, exclusion, lifecycleErr := terminalizeSequentialReferenceInterruption(ctx, session, runErr, usage)
 		if lifecycleErr != nil {
-			return artifacts, sequentialReferenceError("attempt_terminal", errors.Join(runErr, lifecycleErr))
+			return artifacts, sequentialReferenceError("attempt_terminal", errors.Join(runErr, stageErr, lifecycleErr))
 		}
 		sealed, recordErr := prepared.sealIncompleteTrial(session, assignment, state, exclusion, "")
 		if recordErr != nil {
 			return artifacts, sequentialReferenceError("trial_record", errors.Join(runErr, recordErr))
 		}
 		artifacts.TrialRecord, artifacts.LifecycleEvent = sealed.record, sealed.event
-		return artifacts, sequentialReferenceError("execution", runErr)
+		return artifacts, sequentialReferenceError("execution", errors.Join(runErr, stageErr))
 	}
 	executionReceiptData, err := executionbackend.EncodeReceipt(treatment.plan, backendResult.Receipt)
 	if err != nil {
 		return prepared.failPostExecution(session, assignment, artifacts, "", sequentialReferenceError("execution_receipt", err))
+	}
+	if err := stage(artifacts); err != nil {
+		return prepared.failPostExecution(session, assignment, artifacts, "", sequentialReferenceError("artifact_stage", err))
 	}
 	manifestTreatment, ok := sequentialReferenceTreatmentByID(prepared.manifest, assignment.TreatmentID)
 	if !ok {
@@ -312,6 +461,9 @@ func (prepared *sequentialReferencePrepared) runTrial(ctx context.Context, sessi
 		return prepared.failPostExecution(session, assignment, artifacts, "", sequentialReferenceError("observation_identity", err))
 	}
 	artifacts.Observation = &observation
+	if err := stage(artifacts); err != nil {
+		return prepared.failPostExecution(session, assignment, artifacts, observationSHA, sequentialReferenceError("artifact_stage", err))
+	}
 	evidence, err := grading.PrepareEvidence(ctx, prepared.admittedGrading, grading.EvidenceSet{
 		InputProjectionSHA256: prepared.gradingPlan.InputProjectionSHA256,
 		Files: []grading.FileEvidence{{
@@ -332,6 +484,9 @@ func (prepared *sequentialReferencePrepared) runTrial(ctx context.Context, sessi
 		return prepared.failPostExecution(session, assignment, artifacts, observationSHA, sequentialReferenceError("grading_receipt", err))
 	}
 	artifacts.GradeReceipt = &gradeReceipt
+	if err := stage(artifacts); err != nil {
+		return prepared.failPostExecution(session, assignment, artifacts, observationSHA, sequentialReferenceError("artifact_stage", err))
+	}
 	passed := backendResult.Receipt.Verdict == executionbackend.VerdictSucceeded && sequentialReferenceGradePassed(gradeReceipt)
 	if passed {
 		err = session.Succeed(gradeSHA, usage)
@@ -375,6 +530,12 @@ func (prepared *sequentialReferencePrepared) sealSupportedTrial(session *Durable
 	if err != nil {
 		return sealedSequentialReferenceTrial{}, err
 	}
+	return prepared.sealSupportedTrialFromEvent(session.Plan(), assignment, event, observationSHA, gradeSHA, passed, observation)
+}
+
+func (prepared *sequentialReferencePrepared) sealSupportedTrialFromEvent(plan lifecycle.Plan, assignment sequentialReferenceAssignment,
+	event lifecycle.Event, observationSHA, gradeSHA string, passed bool, observation agentadapter.Observation,
+) (sealedSequentialReferenceTrial, error) {
 	state := experiment.LifecycleFailed
 	if passed {
 		state = experiment.LifecycleSucceeded
@@ -385,7 +546,7 @@ func (prepared *sequentialReferencePrepared) sealSupportedTrial(session *Durable
 	}
 	record, err := experiment.SealTrialRecord(prepared.manifest, experiment.TrialRecord{
 		TrialID: assignment.TrialID, BlockID: assignment.BlockID, TreatmentID: assignment.TreatmentID,
-		AttemptPlanSHA256: session.Plan().PlanSHA256, LifecycleState: state, Eligibility: experiment.EligibilitySupported,
+		AttemptPlanSHA256: plan.PlanSHA256, LifecycleState: state, Eligibility: experiment.EligibilitySupported,
 		Exclusion: experiment.ExclusionNone, AgentObservationSHA256: observationSHA, GradeReceiptSHA256: gradeSHA,
 		LifecycleEventSHA256: event.EventSHA256, Stages: stages, Metrics: metrics,
 	})
@@ -434,6 +595,12 @@ func (prepared *sequentialReferencePrepared) sealIncompleteTrial(session *Durabl
 	if err != nil {
 		return sealedSequentialReferenceTrial{}, err
 	}
+	return prepared.sealIncompleteTrialFromEvent(session.Plan(), assignment, event, state, exclusion, observationSHA)
+}
+
+func (prepared *sequentialReferencePrepared) sealIncompleteTrialFromEvent(plan lifecycle.Plan, assignment sequentialReferenceAssignment,
+	event lifecycle.Event, state experiment.LifecycleState, exclusion experiment.ExclusionReason, observationSHA string,
+) (sealedSequentialReferenceTrial, error) {
 	stages := make([]experiment.StageObservation, len(prepared.manifest.AnalysisPlan.Stages))
 	for index, declaration := range prepared.manifest.AnalysisPlan.Stages {
 		stages[index] = experiment.StageObservation{Stage: declaration.Stage, Presence: experiment.PresenceUnknown}
@@ -444,7 +611,7 @@ func (prepared *sequentialReferencePrepared) sealIncompleteTrial(session *Durabl
 	}
 	record, err := experiment.SealTrialRecord(prepared.manifest, experiment.TrialRecord{
 		TrialID: assignment.TrialID, BlockID: assignment.BlockID, TreatmentID: assignment.TreatmentID,
-		AttemptPlanSHA256: session.Plan().PlanSHA256, LifecycleState: state, Eligibility: experiment.EligibilityIneligible,
+		AttemptPlanSHA256: plan.PlanSHA256, LifecycleState: state, Eligibility: experiment.EligibilityIneligible,
 		Exclusion: exclusion, AgentObservationSHA256: observationSHA, LifecycleEventSHA256: event.EventSHA256,
 		Stages: stages, Metrics: metrics,
 	})
@@ -475,8 +642,9 @@ func terminalizeSequentialReferenceInterruption(ctx context.Context, session *Du
 func sequentialReferenceAssignments(manifest experiment.Manifest) []sequentialReferenceAssignment {
 	result := make([]sequentialReferenceAssignment, 0, len(manifest.Blocks)*len(manifest.Treatments))
 	for _, block := range manifest.Blocks {
-		for _, assignment := range block.Assignments {
-			result = append(result, sequentialReferenceAssignment{TrialID: assignment.TrialID, BlockID: block.ID, TreatmentID: assignment.TreatmentID})
+		for position, assignment := range block.Assignments {
+			result = append(result, sequentialReferenceAssignment{TrialID: assignment.TrialID, BlockID: block.ID,
+				TreatmentID: assignment.TreatmentID, Round: uint32(position + 1)}) // #nosec G115 -- treatment count is bounded.
 		}
 	}
 	return result

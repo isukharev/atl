@@ -529,20 +529,11 @@ func TestAttemptLedgerConcurrentWritersPreserveOrderAndIntegrity(t *testing.T) {
 		wait.Add(1)
 		go func(plan lifecycle.Plan) {
 			defer wait.Done()
-			for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
-				_, err := store.Append(plan.AttemptID, lifecycle.StateCommitted,
-					[]lifecycle.Proof{lifecycle.ProofDurableCommit}, attemptEvidence(lifecycle.ErrorNone))
-				if errors.Is(err, ErrAttemptLedgerBusy) {
-					time.Sleep(time.Millisecond)
-					continue
-				}
-				if err != nil {
-					errorsSeen <- err
-					return
-				}
-				return
+			_, err := store.Append(plan.AttemptID, lifecycle.StateCommitted,
+				[]lifecycle.Proof{lifecycle.ProofDurableCommit}, attemptEvidence(lifecycle.ErrorNone))
+			if err != nil {
+				errorsSeen <- err
 			}
-			errorsSeen <- errors.New("allocation deadline")
 		}(plan)
 	}
 	wait.Wait()

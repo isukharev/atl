@@ -34,6 +34,7 @@ type AttemptLedgerStore struct {
 	root     string
 	header   lifecycle.LedgerHeader
 	testHook func(string) error
+	local    attemptLedgerLocalLock
 }
 
 type AttemptLedgerInspection struct {
@@ -458,28 +459,6 @@ func (store *AttemptLedgerStore) InspectAllContext(ctx context.Context) ([]Attem
 		return nil, err
 	}
 	return store.readAllLockedContext(ctx)
-}
-
-func (store *AttemptLedgerStore) lock() (*hardenedFileLock, error) {
-	lock, acquired, err := hardenedTryLockFileWithin(store.root, filepath.Join(store.root, attemptLedgerLockName), 0o600)
-	if err != nil {
-		return nil, attemptLedgerError("lock", err)
-	}
-	if !acquired {
-		return nil, ErrAttemptLedgerBusy
-	}
-	return lock, nil
-}
-
-func (store *AttemptLedgerStore) readOnlyLock() (*hardenedFileLock, error) {
-	lock, acquired, err := hardenedTryReadOnlyLockFileWithin(store.root, filepath.Join(store.root, attemptLedgerLockName))
-	if err != nil {
-		return nil, attemptLedgerError("read_lock", err)
-	}
-	if !acquired {
-		return nil, ErrAttemptLedgerBusy
-	}
-	return lock, nil
 }
 
 // InspectAllStrictContext is the read-only completed-publication contour. In
