@@ -33,7 +33,7 @@ func TestCapabilitiesResourceIsFixedStaticAndDependencyFree(t *testing.T) {
 			closeSessions()
 			t.Fatal(err)
 		}
-		if len(listed.Resources) != 1 {
+		if len(listed.Resources) != 2 {
 			closeSessions()
 			t.Fatalf("profile %q resources=%+v", profile, listed.Resources)
 		}
@@ -52,6 +52,9 @@ func TestCapabilitiesResourceIsFixedStaticAndDependencyFree(t *testing.T) {
 			t.Fatalf("profile %q contents=%+v", profile, result.Contents)
 		}
 		assertCapabilitiesResourceJSON(t, result.Contents[0].Text)
+		if listed.Resources[1].URI != RuntimeResourceURI {
+			t.Fatalf("profile %q second resource=%+v", profile, listed.Resources[1])
+		}
 	}
 	if dependencyCalls.Load() != 0 {
 		t.Fatalf("capability resource read %d dependencies", dependencyCalls.Load())

@@ -80,6 +80,15 @@ func New(version string, deps Dependencies) *mcp.Server {
 // explicit switch is the capability boundary: callers cannot turn an arbitrary
 // list of names into registered tools.
 func NewForService(version string, deps Dependencies, profile ServiceProfile) *mcp.Server {
+	return NewForServiceWithRuntime(version, deps, profile, defaultRuntimeSnapshot())
+}
+
+// NewForServiceWithRuntime constructs a closed service profile with the
+// invocation's already-captured runtime safety projection.
+func NewForServiceWithRuntime(version string, deps Dependencies, profile ServiceProfile, runtime RuntimeSnapshot) *mcp.Server {
+	if !runtime.valid() {
+		panic("invalid MCP runtime snapshot")
+	}
 	if strings.TrimSpace(version) == "" {
 		version = "dev"
 	}
@@ -88,7 +97,9 @@ func NewForService(version string, deps Dependencies, profile ServiceProfile) *m
 		Capabilities: &mcp.ServerCapabilities{},
 	})
 	server.AddReceivingMiddleware(normalizeSDKSchemaValidationErrors)
+	server.AddReceivingMiddleware(privateRuntimeResourceCache)
 	registerCapabilitiesResource(server)
+	registerRuntimeResource(server, profile, runtime)
 	switch profile {
 	case ServiceDefault:
 		registerJiraTools(server, deps)
@@ -116,10 +127,19 @@ func Serve(ctx context.Context, version string) error {
 
 // ServeService runs one validated closed service profile over JSONL stdio.
 func ServeService(ctx context.Context, version string, profile ServiceProfile) error {
+	return ServeServiceWithRuntime(ctx, version, profile, defaultRuntimeSnapshot())
+}
+
+// ServeServiceWithRuntime runs a validated profile with its required startup
+// snapshot. The CLI captures that snapshot before opening stdio.
+func ServeServiceWithRuntime(ctx context.Context, version string, profile ServiceProfile, runtime RuntimeSnapshot) error {
 	if !profile.valid() {
 		return fmt.Errorf("%w: invalid MCP service %q (want jira|confluence|offline)", domain.ErrUsage, profile)
 	}
-	return NewForService(version, ProductionDependencies(version), profile).Run(ctx, &mcp.StdioTransport{})
+	if !runtime.valid() {
+		return fmt.Errorf("invalid MCP runtime snapshot")
+	}
+	return NewForServiceWithRuntime(version, ProductionDependencies(version), profile, runtime).Run(ctx, &mcp.StdioTransport{})
 }
 
 func jiraReader(deps Dependencies) (JiraReader, error) {
