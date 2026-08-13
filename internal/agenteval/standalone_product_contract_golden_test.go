@@ -12,7 +12,9 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/isukharev/atl/internal/agenteval/analysis"
 	"github.com/isukharev/atl/internal/agenteval/executionbackend"
+	"github.com/isukharev/atl/internal/agenteval/experiment"
 	"github.com/isukharev/atl/internal/agenteval/extension"
 	"github.com/isukharev/atl/internal/agenteval/grading"
 	"github.com/isukharev/atl/internal/agenteval/lifecycle"
@@ -66,7 +68,7 @@ func loadStandaloneReadabilityGoldenFixture(t *testing.T, bundle standaloneGolde
 			t.Fatalf("readability golden entry %q has an unexpected source digest", key)
 		}
 		hasReaderSupport := entry.ReaderSupportPath != "" || entry.ReaderSupportSHA256 != ""
-		if entry.Kind == "activation-reference" || entry.Kind == "agent-observation" || entry.Kind == "grade-receipt" ||
+		if entry.Kind == "activation-reference" || entry.Kind == "agent-observation" || entry.Kind == "analysis-report" || entry.Kind == "grade-receipt" ||
 			entry.Kind == "grading-plan" || entry.Kind == "trial-plan" || entry.Kind == "trial-receipt" || entry.Kind == "trial-record" {
 			if !hasReaderSupport || !standaloneGoldenReaderSupportAllowed(entry) || !standaloneValidSHA256(entry.ReaderSupportSHA256) {
 				t.Fatalf("readability golden entry %q has invalid reader support", key)
@@ -101,9 +103,11 @@ func standaloneValidateExperimentGoldenBindings(t *testing.T, fixture standalone
 	capabilityEntry, capabilityOK := standaloneReadabilityGoldenEntryFor(fixture, standaloneVersionedContractKey("standalone", "experiment-capability-contract", 1))
 	designEntry, designOK := standaloneReadabilityGoldenEntryFor(fixture, standaloneVersionedContractKey("standalone", "experiment-design", 1))
 	analysisEntry, analysisOK := standaloneReadabilityGoldenEntryFor(fixture, standaloneVersionedContractKey("standalone", "analysis-plan", 1))
+	reportEntry, reportOK := standaloneReadabilityGoldenEntryFor(fixture, standaloneVersionedContractKey("standalone", "analysis-report", 1))
 	manifestEntry, manifestOK := standaloneReadabilityGoldenEntryFor(fixture, standaloneVersionedContractKey("standalone", "experiment-manifest", 1))
 	recordEntry, recordOK := standaloneReadabilityGoldenEntryFor(fixture, standaloneVersionedContractKey("standalone", "trial-record", 1))
-	if !capabilityOK || !designOK || !analysisOK || !manifestOK || !recordOK ||
+	if !capabilityOK || !designOK || !analysisOK || !reportOK || !manifestOK || !recordOK ||
+		reportEntry.ReaderSupportPath != manifestEntry.SourcePath || reportEntry.ReaderSupportSHA256 != manifestEntry.SourceSHA256 ||
 		recordEntry.ReaderSupportPath != manifestEntry.SourcePath || recordEntry.ReaderSupportSHA256 != manifestEntry.SourceSHA256 {
 		t.Fatal("standalone experiment readability sources are not transitively bound")
 	}
@@ -115,7 +119,7 @@ func standaloneValidateExperimentGoldenBindings(t *testing.T, fixture standalone
 	if err != nil {
 		t.Fatal(err)
 	}
-	analysis, err := DecodeExperimentAnalysisPlan(bytes.NewReader(standaloneGoldenDocument(t, analysisEntry)))
+	analysisPlan, err := DecodeExperimentAnalysisPlan(bytes.NewReader(standaloneGoldenDocument(t, analysisEntry)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,12 +134,85 @@ func standaloneValidateExperimentGoldenBindings(t *testing.T, fixture standalone
 		!bytes.Equal(encodedCapability, standaloneGoldenDocument(t, capabilityEntry)) ||
 		!bytes.Equal(encodedDesign, standaloneGoldenDocument(t, designEntry)) ||
 		!bytes.Equal(encodedAnalysis, standaloneGoldenDocument(t, analysisEntry)) ||
-		design.CapabilityContractSHA256 != capability.CapabilityContractSHA256 || design.AnalysisPlanSHA256 != analysis.AnalysisPlanSHA256 {
+		design.CapabilityContractSHA256 != capability.CapabilityContractSHA256 || design.AnalysisPlanSHA256 != analysisPlan.AnalysisPlanSHA256 {
 		t.Fatal("standalone experiment manifest does not bind its exact source contracts")
 	}
-	if _, err := DecodeExperimentTrialRecord(bytes.NewReader(standaloneGoldenDocument(t, recordEntry)), manifest); err != nil {
+	record, err := DecodeExperimentTrialRecord(bytes.NewReader(standaloneGoldenDocument(t, recordEntry)), manifest)
+	if err != nil {
 		t.Fatalf("decode bound trial record: %v", err)
 	}
+	report, err := analysis.Analyze(manifest, standaloneAnalysisGoldenRecords(t, manifest, record))
+	if err != nil {
+		t.Fatalf("analyze bound trial record: %v", err)
+	}
+	encodedReport, err := analysis.EncodeReport(report, manifest)
+	if err != nil || !bytes.Equal(encodedReport, standaloneGoldenDocument(t, reportEntry)) {
+		t.Fatal("standalone analysis report is not generated from its bound manifest and trial record")
+	}
+}
+
+func standaloneAnalysisGoldenRecords(t *testing.T, manifest ExperimentManifest, exemplar ExperimentTrialRecord) []ExperimentTrialRecord {
+	t.Helper()
+	roles := make(map[string]experiment.TreatmentRole, len(manifest.Treatments))
+	for _, treatment := range manifest.Treatments {
+		roles[treatment.ID] = treatment.Role
+	}
+	records := make([]ExperimentTrialRecord, 0, len(manifest.Blocks)*len(manifest.Treatments))
+	foundExemplar := false
+	for _, block := range manifest.Blocks {
+		for _, assignment := range block.Assignments {
+			if assignment.TrialID == exemplar.TrialID {
+				records = append(records, exemplar)
+				foundExemplar = true
+				continue
+			}
+			outcome := uint64(0)
+			if block.Ordinal == 2 {
+				outcome = 1
+			}
+			stages := make([]experiment.StageObservation, 0, len(manifest.AnalysisPlan.Stages))
+			for _, declaration := range manifest.AnalysisPlan.Stages {
+				value := false
+				if declaration.Stage == experiment.StageVerifierOutcome {
+					value = outcome == 1
+				}
+				stages = append(stages, experiment.StageObservation{Stage: declaration.Stage, Presence: experiment.PresenceObserved, Value: &value})
+			}
+			duration := uint64(10)
+			if roles[assignment.TreatmentID] == experiment.RoleCandidate {
+				duration = 20
+			}
+			metrics := make([]experiment.MetricObservation, 0, len(manifest.AnalysisPlan.Metrics))
+			for _, declaration := range manifest.AnalysisPlan.Metrics {
+				value := outcome
+				if declaration.ID == experiment.MetricDurationMillis {
+					value = duration
+				}
+				metrics = append(metrics, experiment.MetricObservation{Metric: declaration.ID, Presence: experiment.PresenceObserved, Value: &value})
+			}
+			state := experiment.LifecycleFailed
+			if outcome == 1 {
+				state = experiment.LifecycleSucceeded
+			}
+			record, err := experiment.SealTrialRecord(manifest, experiment.TrialRecord{
+				TrialID: assignment.TrialID, BlockID: block.ID, TreatmentID: assignment.TreatmentID,
+				AttemptPlanSHA256: rootExperimentDigest("analysis-attempt-" + assignment.TrialID), LifecycleState: state,
+				Eligibility: experiment.EligibilitySupported, Exclusion: experiment.ExclusionNone,
+				AgentObservationSHA256: rootExperimentDigest("analysis-observation-" + assignment.TrialID),
+				GradeReceiptSHA256:     rootExperimentDigest("analysis-grade-" + assignment.TrialID),
+				LifecycleEventSHA256:   rootExperimentDigest("analysis-lifecycle-" + assignment.TrialID),
+				Stages:                 stages, Metrics: metrics,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			records = append(records, record)
+		}
+	}
+	if !foundExemplar || len(records) != len(manifest.Blocks)*len(manifest.Treatments) {
+		t.Fatalf("analysis golden roster exemplar=%t records=%d", foundExemplar, len(records))
+	}
+	return records
 }
 
 func standaloneValidateGradingGoldenBindings(t *testing.T, fixture standaloneReadabilityGoldenFixture) {
@@ -292,6 +369,14 @@ func standaloneValidateReadabilityGolden(t *testing.T, entry standaloneReadabili
 
 func standaloneDecodeFutureReadabilityGolden(t *testing.T, entry standaloneReadabilityGoldenEntry, version int) error {
 	t.Helper()
+	if entry.Namespace == "standalone" && entry.Kind == "analysis-report" {
+		data, err := standaloneFutureAnalysisReportGolden(t, entry, version)
+		if err != nil {
+			return err
+		}
+		_, err = standaloneDecodeReadabilityProjection(t, entry, data)
+		return err
+	}
 	if entry.Namespace == "standalone" && standaloneExperimentGoldenKind(entry.Kind) {
 		data, err := standaloneFutureExperimentGolden(t, entry, version)
 		if err != nil {
@@ -319,6 +404,49 @@ func standaloneDecodeFutureReadabilityGolden(t *testing.T, entry standaloneReada
 	}
 	_, err = standaloneDecodeReadabilityProjection(t, entry, data)
 	return err
+}
+
+func standaloneFutureAnalysisReportGolden(t *testing.T, entry standaloneReadabilityGoldenEntry, version int) ([]byte, error) {
+	t.Helper()
+	manifest, err := standaloneAnalysisGoldenManifest(t, entry)
+	if err != nil {
+		return nil, err
+	}
+	report, err := DecodeAnalysisReport(bytes.NewReader(standaloneGoldenDocument(t, entry)), manifest)
+	if err != nil {
+		return nil, err
+	}
+	report.SchemaVersion = version
+	report.ReportSHA256 = ""
+	data, err := json.Marshal(report)
+	if err != nil {
+		return nil, err
+	}
+	report.ReportSHA256 = standaloneAnalysisIdentity("report", data)
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		return nil, err
+	}
+	return append(encoded, '\n'), nil
+}
+
+func standaloneAnalysisGoldenManifest(t *testing.T, entry standaloneReadabilityGoldenEntry) (ExperimentManifest, error) {
+	t.Helper()
+	if entry.ReaderSupportPath == "" || entry.ReaderSupportSHA256 == "" {
+		return ExperimentManifest{}, fmt.Errorf("analysis report has no manifest reader support")
+	}
+	return DecodeExperimentManifest(bytes.NewReader(standaloneReadGoldenSource(t, entry.ReaderSupportPath, entry.ReaderSupportSHA256)))
+}
+
+func standaloneAnalysisIdentity(domain string, projection []byte) string {
+	hash := sha256.New()
+	for _, part := range [][]byte{[]byte("agent-eval/analysis/v1"), []byte(domain), projection} {
+		var length [8]byte
+		binary.BigEndian.PutUint64(length[:], uint64(len(part)))
+		_, _ = hash.Write(length[:])
+		_, _ = hash.Write(part)
+	}
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 func standaloneExperimentGoldenKind(kind string) bool {
@@ -451,7 +579,7 @@ func standaloneGoldenSourceAllowed(entry standaloneReadabilityGoldenEntry) bool 
 		return entry.Namespace == "atl-profile" && entry.SourcePath == fmt.Sprintf("testdata/standalone-readability/%s-v%d.json", entry.Kind, entry.Version)
 	case "capability-catalog":
 		return entry.Namespace == "atl-profile" && entry.Version == CapabilityCatalogSchemaVersion && entry.SourcePath == "testdata/capability-catalog.v1.json"
-	case "adapter-manifest", "adapter-message", "agent-adapter-contract", "agent-observation", "analysis-plan", "attempt-event", "attempt-ledger", "attempt-plan", "execution-backend-contract", "experiment-capability-contract", "experiment-design", "experiment-manifest", "extension-conformance-bundle", "extension-conformance-report", "grade-receipt", "grader-contract", "grading-plan", "migration-preview", "migration-result", "project-config", "sequential-reference-bundle", "trial-plan", "trial-receipt", "trial-record":
+	case "adapter-manifest", "adapter-message", "agent-adapter-contract", "agent-observation", "analysis-plan", "analysis-report", "attempt-event", "attempt-ledger", "attempt-plan", "execution-backend-contract", "experiment-capability-contract", "experiment-design", "experiment-manifest", "extension-conformance-bundle", "extension-conformance-report", "grade-receipt", "grader-contract", "grading-plan", "migration-preview", "migration-result", "project-config", "sequential-reference-bundle", "trial-plan", "trial-receipt", "trial-record":
 		return entry.Namespace == "standalone" && entry.Version == 1 &&
 			entry.SourcePath == fmt.Sprintf("testdata/standalone-readability/%s-v1.json", entry.Kind)
 	case "schema-registry":
@@ -470,6 +598,9 @@ func standaloneGoldenReaderSupportAllowed(entry standaloneReadabilityGoldenEntry
 		return entry.ReaderSupportPath == "testdata/standalone-readability/trial-plan-v1.json"
 	}
 	if entry.Namespace == "standalone" && entry.Kind == "trial-record" && entry.Version == 1 {
+		return entry.ReaderSupportPath == "testdata/standalone-readability/experiment-manifest-v1.json"
+	}
+	if entry.Namespace == "standalone" && entry.Kind == "analysis-report" && entry.Version == 1 {
 		return entry.ReaderSupportPath == "testdata/standalone-readability/experiment-manifest-v1.json"
 	}
 	if entry.Namespace == "standalone" && entry.Kind == "grading-plan" && entry.Version == 1 {
@@ -841,6 +972,60 @@ func standaloneDecodeExtensionReadabilityProjection(t *testing.T, entry standalo
 			"stage_count": len(plan.Stages), "metric_count": len(plan.Metrics), "comparison_count": len(plan.Comparisons),
 			"primary_stage": primaryStage, "primary_metric": primary,
 			"digest_bound": plan.AnalysisPlanSHA256 != "",
+		}, nil
+	case "analysis-report":
+		manifest, err := standaloneAnalysisGoldenManifest(t, entry)
+		if err != nil {
+			return nil, err
+		}
+		report, err := DecodeAnalysisReport(bytes.NewReader(data), manifest)
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := EncodeAnalysisReport(report, manifest)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("analysis report golden is not canonical")
+		}
+		activationObserved := uint32(0)
+		retainedBinaryPairs, retainedContinuousDeltas, inferentialResults := 0, 0, 0
+		trialStageProjections, trialMetricProjections := 0, 0
+		for _, member := range report.Coverage.Members {
+			trialStageProjections += len(member.Stages)
+			trialMetricProjections += len(member.Metrics)
+		}
+		for _, summary := range report.Activation {
+			activationObserved += summary.Observed
+		}
+		for _, comparison := range report.Comparisons {
+			for _, result := range comparison.Binary {
+				retainedBinaryPairs += len(result.Pairs)
+				if result.Status == analysis.InferenceInferential {
+					inferentialResults++
+				}
+			}
+			for _, result := range comparison.Continuous {
+				retainedContinuousDeltas += len(result.Deltas)
+				if result.Status == analysis.InferenceInferential {
+					inferentialResults++
+				}
+			}
+		}
+		return map[string]any{
+			"schema": report.Schema, "schema_version": report.SchemaVersion, "contract_version": report.ContractVersion,
+			"confidence_basis_points": report.ConfidenceBasisPoints, "minimum_inference_blocks": report.MinimumInferenceBlocks,
+			"bootstrap_samples": report.BootstrapSamples, "multiplicity": report.Multiplicity,
+			"expected_records": report.Coverage.ExpectedRecords, "received_records": report.Coverage.ReceivedRecords,
+			"unique_records": report.Coverage.UniqueRecords, "missing_records": report.Coverage.MissingRecords,
+			"duplicate_records": report.Coverage.DuplicateRecords, "complete_pairs": report.Coverage.CompletePairs,
+			"excluded_pairs": report.Coverage.ExcludedPairs, "member_count": len(report.Coverage.Members), "pair_count": len(report.Coverage.Pairs),
+			"reason_count": len(report.Coverage.Reasons), "comparison_count": len(report.Comparisons),
+			"trial_stage_projection_count": trialStageProjections, "trial_metric_projection_count": trialMetricProjections,
+			"retained_binary_pair_count": retainedBinaryPairs, "retained_continuous_delta_count": retainedContinuousDeltas,
+			"inferential_result_count": inferentialResults,
+			"activation_strata_count":  len(report.Activation), "activation_observed": activationObserved, "funnel_count": len(report.Funnels),
+			"pass_at_k_count": len(report.PassAtK), "manifest_bound": report.ManifestSHA256 != "",
+			"analysis_plan_bound": report.AnalysisPlanSHA256 != "", "input_set_bound": report.InputSetSHA256 != "",
+			"report_digest_bound": report.ReportSHA256 != "",
 		}, nil
 	case "attempt-event":
 		event, err := lifecycle.DecodeEvent(data)

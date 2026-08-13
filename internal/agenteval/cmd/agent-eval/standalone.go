@@ -137,6 +137,7 @@ func standaloneCommandTree() standaloneCommandDescriptor {
 	gradeModes := standaloneOperationModes("grade", true)
 	reservedGradeModes := standaloneOperationModes("grade", false)
 	runModes := standaloneOperationModes("run", true)
+	compareKinds := []string{"experiment", "results", "root"}
 	importFormats := standaloneOperationFormats("import", "agent-skills")
 	exportFormats := standaloneOperationFormats("export", "agent-skills")
 	common := []standaloneOptionDescriptor{
@@ -216,7 +217,7 @@ func standaloneCommandTree() standaloneCommandDescriptor {
 			{Name: "resume", Summary: "resume only an attempt whose durable evidence permits it", Usage: "agent-eval resume [options]", Options: common},
 			{Name: "reconcile", Summary: "append evidence without replaying an ambiguous identity", Usage: "agent-eval reconcile [options]", Options: common},
 			{Name: "grade", Summary: "grade an observation with a deterministic evaluator", Usage: "agent-eval grade --mode deterministic --scenario FILE --observation FILE [options]", ReservedModes: reservedGradeModes, Examples: []string{"agent-eval grade --mode deterministic --scenario scenario.json --observation observation.json"}, Options: append([]standaloneOptionDescriptor{{Name: "--mode", Value: strings.Join(gradeModes, "|"), Description: "supported grading authority"}, {Name: "--scenario", Value: "FILE", Description: "scenario contract"}, {Name: "--observation", Value: "FILE", Description: "observation contract"}}, common...)},
-			{Name: "compare", Summary: "compare or aggregate content-minimized result artifacts", Usage: "agent-eval compare --kind results|root [options]", Options: append([]standaloneOptionDescriptor{{Name: "--kind", Value: "results|root", Description: "supported comparison contract"}, {Name: "--input", Value: "FILE", Description: "result input; repeat for additional inputs"}, {Name: "--root", Value: "DIR", Description: "marked synthetic result root"}}, common...)},
+			{Name: "compare", Summary: "compare results or analyze one complete reference experiment publication", Usage: "agent-eval compare --kind experiment|results|root [options]", Modes: compareKinds, ModeFlag: "--kind", Examples: []string{"agent-eval compare --kind experiment --root /absolute/completed-reference-publication"}, Options: append([]standaloneOptionDescriptor{{Name: "--kind", Value: strings.Join(compareKinds, "|"), Description: "supported comparison contract"}, {Name: "--input", Value: "FILE", Description: "result input; repeat for additional inputs"}, {Name: "--root", Value: "DIR", Description: "bounded result or completed reference experiment root"}}, common...)},
 			{Name: "report", Summary: "render a read-only standalone report", Usage: "agent-eval report --format FORMAT [options]", Options: common},
 			{Name: "inspect", Summary: "inspect configuration provenance or a benchmark corpus", Usage: "agent-eval inspect --kind configuration|corpus [options]", Examples: []string{"agent-eval inspect --kind configuration --project . --explain"}, Options: append([]standaloneOptionDescriptor{{Name: "--kind", Value: "configuration|corpus|artifact", Description: "inspection target"}, {Name: "--root", Value: "DIR", Description: "corpus root"}}, common...)},
 			{Name: "schema", Summary: "inspect standalone artifact schema support", Usage: "agent-eval schema <command>", Children: []standaloneCommandDescriptor{
@@ -555,11 +556,6 @@ type standaloneBuildIdentity struct {
 	Date    string `json:"date"`
 }
 
-type standaloneSupportedVersion struct {
-	ID      string `json:"id"`
-	Version int    `json:"version"`
-}
-
 type standaloneVersionResult struct {
 	Build           standaloneBuildIdentity      `json:"build"`
 	ContractVersion string                       `json:"contract_version"`
@@ -578,6 +574,7 @@ func standaloneExecuteVersion(args []string) (standaloneOutcome, *standaloneFail
 		Schemas: []standaloneSupportedVersion{
 			{ID: "agent-skills-export-report", Version: agenteval.AgentSkillsExportReportVersion},
 			{ID: "agent-skills-import-report", Version: agenteval.AgentSkillsImportReportVersion},
+			{ID: "analysis-report", Version: agenteval.AnalysisReportSchemaVersion},
 			{ID: "command-error", Version: 1},
 			{ID: "command-result", Version: 1},
 			{ID: "migration-preview", Version: agenteval.StandaloneMigrationArtifactVersion},

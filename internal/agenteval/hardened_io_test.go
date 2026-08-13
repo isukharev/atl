@@ -1,6 +1,7 @@
 package agenteval
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -57,6 +58,11 @@ func TestHardenedReadFileWithinLimitBoundsAndLinks(t *testing.T) {
 	}
 	if _, err := hardenedReadFileWithinLimit(root, filepath.Join(root, "..", "outside"), -1); err == nil || err.Error() != "invalid read limit -1" {
 		t.Fatalf("negative-limit error order changed: %v", err)
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := hardenedReadFileWithinLimitContext(canceled, root, target, 5); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled bounded read error = %v", err)
 	}
 	if _, err := hardenedReadFileWithinLimit(root, root, 16); err == nil {
 		t.Fatal("root itself was accepted as a contained file target")
@@ -191,6 +197,13 @@ func TestHardenedMkdirStatAndReadDirPolicies(t *testing.T) {
 	}
 	if !slices.Equal(names, []string{"a.json", "m.json", "nested", "z.json"}) {
 		t.Fatalf("directory entries = %q, want sorted names", names)
+	}
+	bounded, err := hardenedReadDirWithinLimitContext(context.Background(), root, listing, 4)
+	if err != nil || len(bounded) != 4 {
+		t.Fatalf("bounded directory entries=%d err=%v", len(bounded), err)
+	}
+	if _, err := hardenedReadDirWithinLimitContext(context.Background(), root, listing, 3); err == nil || err.Error() != "directory exceeds 3-entry read limit" {
+		t.Fatalf("directory overflow error = %v", err)
 	}
 	if _, err := hardenedReadDirWithin(root, root); err != nil {
 		t.Fatalf("root read-dir: %v", err)

@@ -8,9 +8,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"sort"
 	"testing"
@@ -22,6 +26,42 @@ import (
 	"github.com/isukharev/atl/internal/agenteval/grading"
 	"github.com/isukharev/atl/internal/agenteval/lifecycle"
 )
+
+func TestSequentialReferenceInspectionDerivesAttemptBindingsOutsidePerTrialValidation(t *testing.T) {
+	parsed, err := parser.ParseFile(token.NewFileSet(), "sequential_reference_publication.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed := map[string]bool{
+		"finish": true,
+		"inspectSequentialReferencePublicationWithAdmissionContext": true,
+	}
+	calls := 0
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Body == nil {
+			continue
+		}
+		ast.Inspect(function.Body, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			identifier, ok := call.Fun.(*ast.Ident)
+			if !ok || identifier.Name != "ExperimentAttemptBindings" {
+				return true
+			}
+			calls++
+			if !allowed[function.Name.Name] {
+				t.Fatalf("attempt roster is rederived inside %s", function.Name.Name)
+			}
+			return true
+		})
+	}
+	if calls != len(allowed) {
+		t.Fatalf("attempt-binding derivations=%d, want exactly one admission and one publication readback", calls)
+	}
+}
 
 func TestSequentialReferenceRunsCanonicalAgentSkillsRosterAndBindsEveryArtifact(t *testing.T) {
 	manifest, bundle := sequentialReferenceFixture(t)
@@ -300,6 +340,90 @@ func TestSequentialReferencePublicationIsExactNewCanonicalAndStrictlyReadable(t 
 	}
 	if _, err := os.Lstat(canceledDestination); !os.IsNotExist(err) {
 		t.Fatalf("canceled preflight acquired destination authority: %v", err)
+	}
+}
+
+func TestSequentialReferenceCompletedPublicationInspectionIsReadOnlyAndPhysicallyExact(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the durable attempt ledger is not yet available on Windows")
+	}
+	manifest, bundle := sequentialReferenceFixture(t)
+	destination := filepath.Join(t.TempDir(), "strict-publication")
+	want, err := RunSequentialReferenceToNewDestination(context.Background(), destination, manifest, bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledgerRoot := filepath.Join(destination, sequentialReferenceLedgerDirectory)
+	attemptsRoot := filepath.Join(ledgerRoot, attemptLedgerAttempts)
+	attemptRoot := filepath.Join(attemptsRoot, attemptLedgerOrdinalName(1))
+	eventsRoot := filepath.Join(attemptRoot, attemptLedgerEvents)
+	lockPath := filepath.Join(ledgerRoot, attemptLedgerLockName)
+
+	if err := os.Remove(lockPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InspectSequentialReferencePublication(destination); err == nil {
+		t.Fatal("publication without its read-only lock was accepted")
+	}
+	if _, err := os.Lstat(lockPath); !os.IsNotExist(err) {
+		t.Fatalf("inspection created a missing lock: %v", err)
+	}
+	if err := os.WriteFile(lockPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, parent := range []string{ledgerRoot, attemptsRoot, attemptRoot, eventsRoot} {
+		extra := filepath.Join(parent, ".tmp-0123456789abcdef")
+		if err := os.WriteFile(extra, []byte("ignored recovery residue\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := InspectSequentialReferencePublication(destination); err == nil {
+			t.Fatalf("publication accepted temporary residue beneath %s", filepath.Base(parent))
+		}
+		if err := os.Remove(extra); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	extraAttempt := filepath.Join(attemptsRoot, attemptLedgerOrdinalName(uint32(len(sequentialReferenceAssignments(manifest))+1)))
+	if err := os.Mkdir(extraAttempt, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(extraAttempt, attemptLedgerEvents), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InspectSequentialReferencePublication(destination); err == nil {
+		t.Fatal("publication accepted an uncommitted crash-tail ordinal")
+	}
+	if err := os.Remove(filepath.Join(extraAttempt, attemptLedgerEvents)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(extraAttempt); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Chmod(attemptRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InspectSequentialReferencePublication(destination); err == nil {
+		t.Fatal("publication accepted a non-private attempt directory")
+	}
+	if err := os.Chmod(attemptRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(lockPath, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	got, err := InspectSequentialReferencePublication(destination)
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("read-only inspection equal=%t err=%v", reflect.DeepEqual(got, want), err)
+	}
+	info, err := os.Stat(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o400 {
+		t.Fatalf("inspection mutated the read-only lock mode=%v", info.Mode().Perm())
 	}
 }
 

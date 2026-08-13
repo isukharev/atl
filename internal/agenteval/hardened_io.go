@@ -2,6 +2,7 @@ package agenteval
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -72,8 +73,21 @@ func hardenedMkdirAllWithin(root, target string, perm os.FileMode) error {
 // allocation. It uses a held os.Root and reads one byte past max so callers can
 // distinguish an exact-limit file from overflow.
 func hardenedReadFileWithinLimit(root, target string, max int64) ([]byte, error) {
+	return hardenedReadFileWithinLimitContext(context.Background(), root, target, max)
+}
+
+// hardenedReadFileWithinLimitContext is the cancellation-aware form used by
+// bounded public readers. Regular-file reads are split into small chunks so a
+// revoked caller does not have to wait for the whole admitted body.
+func hardenedReadFileWithinLimitContext(ctx context.Context, root, target string, max int64) ([]byte, error) {
 	if max < 0 {
 		return nil, fmt.Errorf("invalid read limit %d", max)
+	}
+	if ctx == nil {
+		return nil, context.Canceled
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	rel, err := hardenedRelativeToRoot(root, target)
 	if err != nil {
@@ -89,14 +103,40 @@ func hardenedReadFileWithinLimit(root, target string, max int64) ([]byte, error)
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	b, err := io.ReadAll(io.LimitReader(f, max+1))
-	if err != nil {
-		return nil, err
+	const chunkBytes = 64 << 10
+	capacity := int64(chunkBytes)
+	if max < capacity {
+		capacity = max
 	}
-	if int64(len(b)) > max {
-		return nil, fmt.Errorf("file exceeds %d-byte read limit", max)
+	data := make([]byte, 0, int(capacity))
+	buffer := make([]byte, chunkBytes)
+	remaining := max
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		readBytes := int64(len(buffer))
+		if remaining < readBytes {
+			readBytes = remaining + 1
+		}
+		read, readErr := f.Read(buffer[:int(readBytes)])
+		if read > 0 {
+			if int64(read) > remaining {
+				return nil, fmt.Errorf("file exceeds %d-byte read limit", max)
+			}
+			data = append(data, buffer[:read]...)
+			remaining -= int64(read)
+		}
+		if readErr == io.EOF {
+			return data, nil
+		}
+		if readErr != nil {
+			return nil, readErr
+		}
+		if read == 0 {
+			return nil, io.ErrNoProgress
+		}
 	}
-	return b, nil
 }
 
 // hardenedStatWithin returns metadata for a mirror-owned path without
@@ -146,6 +186,57 @@ func hardenedReadDirWithin(root, target string) ([]os.DirEntry, error) {
 	defer func() { _ = f.Close() }()
 	entries, err := f.ReadDir(-1)
 	if err != nil {
+		return nil, err
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+	return entries, nil
+}
+
+// hardenedReadDirWithinLimitContext lists at most max contained entries. The
+// one-entry lookahead makes a directory flood fail before it is retained in
+// memory, while preserving the same held-root and no-symlink guarantees as the
+// unbounded private-maintainer helper above.
+func hardenedReadDirWithinLimitContext(ctx context.Context, root, target string, max int) ([]os.DirEntry, error) {
+	if max < 0 {
+		return nil, fmt.Errorf("invalid directory read limit %d", max)
+	}
+	if ctx == nil {
+		return nil, context.Canceled
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	rootAbs, rootErr := filepath.Abs(root)
+	targetAbs, targetErr := filepath.Abs(target)
+	rel := "."
+	var err error
+	if rootErr != nil || targetErr != nil || rootAbs != targetAbs {
+		rel, err = hardenedRelativeToRoot(root, target)
+		if err != nil {
+			return nil, err
+		}
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = r.Close() }()
+	if err := hardenedRejectSymlinkComponents(r, rel); err != nil {
+		return nil, err
+	}
+	f, err := r.Open(rel)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	entries, err := f.ReadDir(max + 1)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	if len(entries) > max {
+		return nil, fmt.Errorf("directory exceeds %d-entry read limit", max)
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
@@ -257,6 +348,39 @@ func hardenedTryLockFileWithin(root, target string, perm os.FileMode) (lock *har
 	f, err := r.OpenFile(rel, os.O_RDWR|os.O_CREATE, perm)
 	if err != nil {
 		return nil, false, err
+	}
+	unlock, acquired, err := hardenedTryAdvisoryLock(f)
+	if err != nil || !acquired {
+		_ = f.Close()
+		return nil, acquired, err
+	}
+	return &hardenedFileLock{file: f, unlock: unlock}, true, nil
+}
+
+// hardenedTryReadOnlyLockFileWithin acquires an existing advisory lock without
+// creating or opening the lock file for write. It is used by inspection-only
+// consumers whose declared authority must remain local-read.
+func hardenedTryReadOnlyLockFileWithin(root, target string) (lock *hardenedFileLock, acquired bool, err error) {
+	rel, err := hardenedRelativeToRoot(root, target)
+	if err != nil {
+		return nil, false, err
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = r.Close() }()
+	if err := hardenedRejectSymlinkComponents(r, rel); err != nil {
+		return nil, false, err
+	}
+	f, err := r.OpenFile(rel, os.O_RDONLY, 0)
+	if err != nil {
+		return nil, false, err
+	}
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() || !privateWorkspaceFileMode(info.Mode()) {
+		_ = f.Close()
+		return nil, false, errors.Join(errHardenedUnsafePrivatePath, err)
 	}
 	unlock, acquired, err := hardenedTryAdvisoryLock(f)
 	if err != nil || !acquired {

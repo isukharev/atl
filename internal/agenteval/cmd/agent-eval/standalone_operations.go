@@ -156,13 +156,14 @@ func standaloneExecuteCompare(ctx context.Context, args []string) (standaloneOut
 	if failure != nil {
 		return standaloneOutcome{}, failure
 	}
-	if len(parsed.positionals) != 0 || !standaloneOneOf(parsed.one("kind"), "results", "root") {
+	if len(parsed.positionals) != 0 || !standaloneOneOf(parsed.one("kind"), "results", "root", "experiment") {
 		return standaloneOutcome{}, standaloneFail(standaloneUsageError, "invalid_compare_options")
 	}
 	if parsed.one("kind") == "results" && (len(parsed.many("input")) == 0 || parsed.one("root") != "") {
 		return standaloneOutcome{}, standaloneFail(standaloneUsageError, "invalid_compare_options")
 	}
-	if parsed.one("kind") == "root" && (parsed.one("root") == "" || len(parsed.many("input")) != 0) {
+	if (parsed.one("kind") == "root" || parsed.one("kind") == "experiment") &&
+		(parsed.one("root") == "" || len(parsed.many("input")) != 0) {
 		return standaloneOutcome{}, standaloneFail(standaloneUsageError, "invalid_compare_options")
 	}
 	resolved, failure := resolveStandaloneConfig(parsed)
@@ -174,7 +175,21 @@ func standaloneExecuteCompare(ctx context.Context, args []string) (standaloneOut
 	}
 	var result any
 	var evidence standaloneResolutionEvidence
-	if parsed.one("kind") == "root" {
+	if parsed.one("kind") == "experiment" {
+		report, err := agenteval.AnalyzeSequentialReferencePublicationContext(ctx, parsed.one("root"))
+		if err != nil {
+			return standaloneOutcome{}, standaloneAnalysisFailure(err)
+		}
+		identity, identityFailure := standaloneResolutionIdentity("analysis-report", report)
+		if identityFailure != nil {
+			return standaloneOutcome{}, identityFailure
+		}
+		result = report
+		evidence = standaloneNewResolutionEvidence(
+			"compare", "default", "experiment", int(report.Coverage.ReceivedRecords),
+			[]string{identity}, nil,
+		)
+	} else if parsed.one("kind") == "root" {
 		aggregate, err := agenteval.AggregateSyntheticOutputRoot(parsed.one("root"))
 		if err != nil {
 			return standaloneOutcome{}, standaloneFail(standaloneInputError, "invalid_result_root")
@@ -227,6 +242,24 @@ func standaloneExecuteCompare(ctx context.Context, args []string) (standaloneOut
 		return standalonePreviewOutcome("compare", "default", parsed, resolved, evidence, true)
 	}
 	return standaloneOutcome{command: "compare", status: "completed", result: result, outputMode: parsed.outputModeValue(), text: "comparison completed\n"}, nil
+}
+
+func standaloneAnalysisFailure(err error) *standaloneFailure {
+	if code, ok := agenteval.AnalysisErrorCodeOf(err); ok {
+		switch code {
+		case agenteval.AnalysisErrorInterrupted:
+			failure := standaloneFail(standaloneInterruptedError, "analysis_interrupted")
+			failure.retrySafe = true
+			return failure
+		case agenteval.AnalysisErrorLimitExceeded:
+			return standaloneFail(standaloneInputError, "analysis_limit_exceeded")
+		case agenteval.AnalysisErrorInvalidInput:
+			return standaloneFail(standaloneInputError, "invalid_experiment_publication")
+		case agenteval.AnalysisErrorInvalidReport:
+			return standaloneFail(standaloneInternalError, "analysis_internal")
+		}
+	}
+	return standaloneFail(standaloneInputError, "invalid_experiment_publication")
 }
 
 func standaloneExecuteInspect(ctx context.Context, args []string) (standaloneOutcome, *standaloneFailure) {

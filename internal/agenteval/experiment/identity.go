@@ -174,10 +174,45 @@ func SealTrialRecord(manifest Manifest, input TrialRecord) (TrialRecord, error) 
 }
 
 func ValidateTrialRecord(manifest Manifest, record TrialRecord) error {
-	if err := ValidateManifest(manifest); err != nil {
-		return contractError(ErrorInvalidTrial, err)
+	validator, err := NewTrialRecordValidator(manifest)
+	if err != nil {
+		return err
 	}
-	if err := validateTrialRecordShape(manifest, record, true); err != nil {
+	return validator.Validate(record)
+}
+
+// TrialRecordValidator authenticates one immutable manifest once and then
+// validates any number of bound records without repeatedly deriving its pair
+// registry. The manifest and assignment index are private clones, so caller
+// mutation after admission cannot change subsequent decisions.
+type TrialRecordValidator struct {
+	manifest    Manifest
+	assignments map[string]manifestAssignmentValue
+}
+
+func NewTrialRecordValidator(manifest Manifest) (*TrialRecordValidator, error) {
+	if err := ValidateManifest(manifest); err != nil {
+		return nil, contractError(ErrorInvalidTrial, err)
+	}
+	admitted := cloneManifest(manifest)
+	assignments := make(map[string]manifestAssignmentValue, len(admitted.Blocks)*len(admitted.Treatments))
+	for _, block := range admitted.Blocks {
+		for _, assignment := range block.Assignments {
+			assignments[assignment.TrialID] = manifestAssignmentValue{BlockID: block.ID, TreatmentID: assignment.TreatmentID}
+		}
+	}
+	return &TrialRecordValidator{manifest: admitted, assignments: assignments}, nil
+}
+
+func (validator *TrialRecordValidator) Validate(record TrialRecord) error {
+	if validator == nil {
+		return contractError(ErrorInvalidTrial, errInvalidValue)
+	}
+	assignment, ok := validator.assignments[record.TrialID]
+	if !ok {
+		return contractError(ErrorInvalidTrial, errInvalidValue)
+	}
+	if err := validateTrialRecordShapeForAssignment(validator.manifest, record, true, assignment); err != nil {
 		return err
 	}
 	digest, err := digestTrialRecord(record)

@@ -66,6 +66,8 @@ func standaloneSchemaOwner(namespace, kind string) string {
 		return "atl-profile"
 	}
 	switch kind {
+	case "analysis-report":
+		return "analysis"
 	case "agent-adapter-contract", "agent-observation":
 		return "agentadapter"
 	case "execution-backend-contract", "trial-plan", "trial-receipt":

@@ -420,6 +420,12 @@ fresh physical attempt IDs, while manifest, treatment, trial, outcome, and
 artifact semantics remain deterministic. Cancellation and timeout are terminal
 only under the lifecycle evidence actually recorded. The success envelope
 exposes only the manifest digest and trial/success/failure counts.
+Completed-publication inspection is a read-only contour: it requires the
+existing private ledger lock, opens it without create/write access, bounds the
+attempt directory read by the exact manifest roster, and rejects every extra
+ordinal, crash tail, temporary member, unexpected file, or non-private attempt
+directory. Recovery inspection may tolerate such residue; completed analysis
+never does.
 
 This profile is provider-free, not a general sandbox claim. The implementation
 uses the existing Unix durable ledger and therefore refuses before destination
@@ -428,6 +434,102 @@ Held-root identity checks and exclusive writes protect the publication from
 path drift detectable by the process, but they do not prove isolation from a
 hostile same-UID process. A digest binds the declared bytes; it is not
 anonymization or permission to publish a private bundle.
+
+### Paired analysis of a completed reference publication
+
+The provider-neutral `analysis` leaf reads no path and owns no execution. The
+root facade first applies the complete sequential-publication inspector above,
+then passes the canonical manifest and its exact trial-record multiset to the
+analyzer. The command therefore refuses an incomplete marker, missing or extra
+artifact, digest drift, duplicate JSON member, unknown generation, or broken
+transitive binding before computing a statistic:
+
+```shell named-agent-eval-sequential-reference-analysis
+agent-eval compare --kind experiment \
+  --root /absolute/completed-reference-publication
+```
+
+Binary paired dimensions retain every complete pair's opaque ID and two
+Boolean observations (so equal pairs still distinguish both-false from
+both-true), then report the four-cell table, risk difference, a
+deterministic preregistered percentile bootstrap interval, and the exact
+two-sided binomial form of [McNemar's paired
+test](https://doi.org/10.1007/BF02295996). Continuous count metrics retain every
+complete pair's opaque pair ID and exact signed delta, then report the exact
+mean and median, the paired-sign effect
+`(candidate_higher-reference_higher)/complete_pairs`, the same deterministic
+interval policy, and an exact two-sided sign test. Confirmatory families use
+the preregistered step-down [Holm
+adjustment](https://doi.org/10.2307/4615733); exploratory comparisons retain raw
+probabilities and are labeled unadjusted. A confirmatory family retains every
+preregistered comparison/stratum/dimension slot: unavailable or descriptive
+slots act as probability one, so missingness cannot shrink the Holm family.
+Direction-adjusted effects and
+regression flags preserve the manifest's declared higher/lower-is-better
+semantics, while Pareto status keeps outcome, cost, token, and duration axes
+separate instead of collapsing them into a hidden score. Every comparison,
+activation summary, funnel, and repeated-attempt projection is emitted per
+declared randomization stratum; v1 never pools distinct stratum bindings.
+Because experiment-manifest v1 historically admits inference and repeated-attempt
+thresholds against its aggregate block count, the analysis consumer performs a
+narrower pre-read check: every preregistered `k`, and every non-compatibility
+minimum-inference threshold, must fit each stratum's per-treatment fixed roster.
+An aggregate-only fit is rejected as unsupported input rather than pooled or
+rendered as a silently empty estimate.
+The bootstrap draws paired deltas with replacement from a SHA-256 counter keyed
+by the preregistered seed, comparison, stratum, and dimension. After sorting
+the exact rational replicate means, it selects indices
+`floor(samples*(10000-confidence_basis_points)/20000)` and
+`samples-1-index`; no platform float or post-hoc random source enters the
+interval.
+
+The standalone artifact may be as large as 16 MiB. The one-request ProcessAPI
+retains its separate 1 MiB response ceiling and fails closed if the same valid
+comparison cannot fit that transport envelope; callers needing the full
+bounded artifact use the direct command surface.
+V1 also caps the supplied trial-record multiset at 8,192 members, emitted
+dimension rows at 16,384, opaque paired-observation/delta rows at 65,536, repeated-attempt
+rows at 4,096, and primitive bootstrap selections at 16,777,216; limit
+exhaustion rejects the comparison instead of truncating or sampling it. No
+single paired-observation or delta list may exceed the manifest's 4,096-block
+ceiling, and the JSON reader enforces these structural counts before typed
+slice allocation. Clean-singleton coverage retains at most the manifest's
+eight closed stage and 64 metric projections per trial, with an aggregate
+294,912-projection ceiling enforced before typed allocation.
+
+Missing, duplicate, excluded, and complete pairs remain explicit. With zero
+complete pairs a result is `insufficient`; below the preregistered minimum it
+is `descriptive`; only the admitted minimum enables `inferential`. Repeated
+attempt projections use the declared fixed roster and the exact combinatorial
+estimators used for pass@k in the [Codex evaluation
+methodology](https://arxiv.org/abs/2107.03374); `pass_power_k` is separately
+defined as the probability that all `k` draws pass. A `none` repeated-attempt
+policy emits no pass rows; `all` requires a declared outcome metric and an
+exactly complete per-stratum roster. Activation
+precision/recall, false activation among expected-inactive observations
+(`FP/(FP+TN)`), unnecessary load among all observed loads (`FP/(TP+FP)`), and
+per-treatment funnel conversion remain separate observations. The report contains only declared
+identities, Boolean pair observations, counts, reduced rational values, and digests: no prompt, evidence,
+artifact body, path, provider, credential, holdout selection, tuning,
+promotion, or automatic decision authority.
+Its coverage projection retains the exact sorted manifest trial roster with
+each member's record multiplicity and single record-level exclusion. Only a
+clean singleton additionally retains the closed presence class and Boolean
+value for every declared funnel stage, plus the closed presence class and
+Boolean value (for binary metrics only) in manifest metric order. Missing,
+duplicate, and record-excluded members retain empty observation projections;
+absolute count-metric values remain omitted. This is content minimization, not
+anonymization. It lets the reader reconstruct selected-dimension pair reasons
+and exactly recompute labeled activation, funnel-transition, and fixed-roster
+pass summaries without retaining prompts, paths, bodies, or absolute count
+observations. The reader requires the exact bound experiment manifest,
+deterministically replays every retained-delta bootstrap interval, proves one
+feasible bounded continuous-observation graph, and rechecks pair, comparison,
+dimension, stratum, treatment, funnel, activation, fixed-roster, and
+preregistered `k` membership; the report digest alone is not publisher
+authentication. Cancellation is checked before and after bounded publication
+and ledger reads, between artifact decoding boundaries, throughout chunked
+publication-body reads, statistical loops, and bootstrap draws.
 
 ## Capability negotiation
 
@@ -526,6 +628,7 @@ The internal `ATL_EVAL_*` registry, wrapper basenames, broker records, launch ar
 | `agent-eval/experiment-capability-contract` | Complete agent, model, environment, adapter, execution-backend, grader, harness, budget, authority, treatment, channel, funnel-observation, and metric capability claims |
 | `agent-eval/experiment-design` | Immutable case, explicit treatments and separately authored controls, strata, balanced order seed, stopping rule, and capability/analysis bindings |
 | `agent-eval/analysis-plan` | Preregistered comparison roles, funnel-stage and metric identities/families, repeated-attempt policy, exclusions, confidence/bootstrap parameters, and multiplicity identity; not an analysis result |
+| `agent-eval/analysis-report` | Content-minimized paired coverage, exact effects/tests, multiplicity decisions, activation/funnel summaries, repeated-attempt projections, and manifest/input/report bindings; never executable |
 | `agent-eval/experiment-manifest` | Canonical treatment, balanced block/order, pair, trial-roster, capability, design, and analysis-plan handoff |
 | `agent-eval/trial-record` | Content-minimized lifecycle, eligibility, exclusion, separately qualified funnel-stage observations, metric observations, and source receipt identities for one manifest member |
 | `agent-eval/adapter-manifest` | Closed component identity, one declared role and its operations, capabilities, protocol versions, configuration keys, and executable binding |
@@ -546,7 +649,7 @@ The internal `ATL_EVAL_*` registry, wrapper basenames, broker records, launch ar
 | `agent-eval/sequential-reference-bundle` | Exact manifest binding, deterministic grading plan, three admitted reference execution plans, and bounded content-addressed input snapshots for `run/reference` |
 
 The compatibility ledger records project config, the schema registry, the five
-experiment artifacts, the two
+experiment artifacts, the content-minimized analysis report, the two
 migration artifacts, the three durable attempt families
 (`agent-eval/attempt-ledger`, `agent-eval/attempt-plan`, and
 `agent-eval/attempt-event`), each of the four extension families, the semantic
@@ -555,7 +658,7 @@ plan, trial receipt, grader contract, grading plan, grade receipt, and the
 sequential-reference bundle at generation 1. Project config, registry, experiment capability/design/analysis
 and manifest, attempt records, adapter manifest, message, bundle, adapter contract, execution-backend
 contract, trial-plan, and grade-receipt generations are readable, emitted, and executable;
-experiment trial records, migration artifacts, extension reports, normalized agent observations, and
+experiment trial records, analysis reports, migration artifacts, extension reports, normalized agent observations, and
 trial receipts are readable and emitted but never executable. Grader contracts,
 grading plans, and grade receipts are readable, emitted, and executable. A
 grade receipt may enter grading only with its exact admitted plan and attempt
@@ -573,7 +676,9 @@ records are `content_minimized` and capped at 1 MiB. The sequential-reference
 bundle is `public_or_private`, capped at 64 MiB, preserved, and readable,
 emitted, and executable only by the exact reference composition. Executable experiment
 rows may enter only the compiler and planned-roster composition path described
-above; they do not authorize process launch. Execution-backend contracts and receipts are `content_minimized` and capped at
+above; they do not authorize process launch. Analysis reports are
+`content_minimized`, capped at 16 MiB, preserved under `compare_only`, readable
+and emitted at v1, and never executable. Execution-backend contracts and receipts are `content_minimized` and capped at
 64 KiB; trial plans are `content_minimized` and capped at 256 KiB. Grader
 contracts are `content_minimized` and capped at 64 KiB; grading plans are
 `public_or_private` and capped at 1 MiB; grade receipts are
