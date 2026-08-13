@@ -764,12 +764,15 @@ func validateHTMLDerivedRate(value *HTMLFraction, numerator, denominator uint32)
 	if value == nil {
 		return fmt.Errorf("%w: derived rate", ErrInvalidHTMLProjection)
 	}
+	if err := validateHTMLRate(value); err != nil {
+		return err
+	}
 	want := new(big.Rat).SetFrac(new(big.Int).SetUint64(uint64(numerator)), new(big.Int).SetUint64(uint64(denominator)))
 	got := new(big.Rat).SetFrac(big.NewInt(value.Numerator), new(big.Int).SetUint64(value.Denominator))
 	if got.Cmp(want) != 0 {
 		return fmt.Errorf("%w: derived rate", ErrInvalidHTMLProjection)
 	}
-	return validateHTMLRate(value)
+	return nil
 }
 
 func htmlIntersectionLowerBound(left, right, universe uint32) uint32 {
