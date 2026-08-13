@@ -148,7 +148,7 @@ func TestStandaloneProcessAPIAuthorityRatchet(t *testing.T) {
 
 	rootChildren := standaloneCompletionNodes()[0].children
 	wantRootChildren := []string{
-		"capabilities", "version", "import", "export", "validate", "run", "grade", "compare", "inspect",
+		"capabilities", "version", "import", "export", "validate", "run", "resume", "grade", "compare", "inspect",
 		"schema", "migrate", "completion", "process", "help",
 	}
 	if strings.Join(rootChildren, "\x00") != strings.Join(wantRootChildren, "\x00") {

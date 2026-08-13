@@ -175,24 +175,6 @@ const (
         run: make build`
 	coreGateStepContract = `      - name: Core race and coverage gate
         run: make check-core-race-coverage`
-	extensionProtocolRuntimeStepContract = `      - name: Extension protocol runtime
-        run: |
-          env -u GOROOT GOTOOLCHAIN=auto GOWORK=off go -C internal/agenteval test ./extension \
-            -run '^(TestExtensionManifestV1IsClosed|TestExtensionProtocolV1StateMachineIsClosed)$' -count=1
-          env -u GOROOT GOTOOLCHAIN=auto GOWORK=off go -C internal/agenteval test . \
-            -run '^(TestExtensionHostAdmissionMaterializesNativeExecutableWithClosedEnvironment|TestExtensionHostAdmissionRejectsUnsafeExecutable|TestExtensionProcessHostBoundsAndCleanup|TestDarwinZombieOnlyProcessGroupSignal|TestVerifyExtensionProtocolReportIsContentMinimized|TestPrivateExtensionRuntimeRootUsesTrustedSystemTemporaryDirectory|TestPrivateExtensionRuntimePathsAreOwnerOnly|TestPrivateExtensionRuntimeRejectsSymlinks|TestExtensionPlatformEnvironmentIsEmptyOnUnix)$' -count=1`
-	extensionProtocolWindowsRuntimeStepContract = `      - name: Extension protocol runtime
-        shell: pwsh
-        run: |
-          Remove-Item Env:GOROOT -ErrorAction SilentlyContinue
-          $env:GOTOOLCHAIN = "auto"
-          $env:GOWORK = "off"
-          go -C internal/agenteval test ./extension ` + "`" + `
-            -run '^(TestExtensionManifestV1IsClosed|TestExtensionProtocolV1StateMachineIsClosed)$' -count=1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          go -C internal/agenteval test . ` + "`" + `
-            -run '^(TestAttemptLedgerWindowsFailsClosedBeforeExtensionProcessEntry|TestExtensionHostAdmissionMaterializesNativeExecutableWithClosedEnvironment|TestExtensionHostAdmissionRejectsUnsafeExecutable|TestExtensionProcessHostBoundsAndCleanup|TestVerifyExtensionProtocolReportIsContentMinimized|TestPrivateExtensionWindowsRuntimeACLsAreProtected|TestPrivateExtensionWindowsRootGuardBlocksDeleteUntilClose|TestPrivateExtensionWindowsRuntimeRootAcceptsTrailingBaseSeparator|TestPrivateExtensionWindowsExecutableGuardBlocksReplacementAndLaunchesAdmittedBytes|TestPrivateExtensionWindowsRejectsPermissiveOrInheritedACL|TestPrivateExtensionWindowsRejectsReparseDirectory|TestExtensionPlatformEnvironmentIgnoresAmbientWindowsDirectory)$' -count=1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`
 	ciProvenanceStepContract = `      - name: Verify stamped build provenance
         run: |
           ATL_NO_UPDATE=1 ./atl version > "$RUNNER_TEMP/atl-version.json"
@@ -549,11 +531,15 @@ func validateBootstrap(root string) error {
 	}
 	if err := requireWorkflowStepPrefix(testJob, "ci test",
 		checkoutStepContract, setupGoStepContract, buildStepContract,
-		ciProvenanceStepContract, vetStepContract, extensionProtocolRuntimeStepContract, coreGateStepContract,
+		ciProvenanceStepContract, vetStepContract, extensionProtocolRuntimeStepContract, schedulerRuntimeStepContract,
+		coreGateStepContract,
 	); err != nil {
 		return err
 	}
 	if err := requireWorkflowStep(testJob, "Extension protocol runtime", extensionProtocolRuntimeStepContract); err != nil {
+		return fmt.Errorf("ci: %w", err)
+	}
+	if err := requireWorkflowStep(testJob, "Scheduler runtime", schedulerRuntimeStepContract); err != nil {
 		return fmt.Errorf("ci: %w", err)
 	}
 	if err := requireWorkflowStep(testJob, "Core race and coverage gate", coreGateStepContract); err != nil {
@@ -603,10 +589,14 @@ func validateBootstrap(root string) error {
 	}
 	if err := requireWorkflowStepPrefix(extensionWindowsJob, "ci agent-eval-extension-windows",
 		checkoutStepContract, setupGoStepContract, extensionProtocolWindowsRuntimeStepContract,
+		schedulerWindowsRuntimeStepContract,
 	); err != nil {
 		return err
 	}
 	if err := requireWorkflowStep(extensionWindowsJob, "Extension protocol runtime", extensionProtocolWindowsRuntimeStepContract); err != nil {
+		return fmt.Errorf("ci: %w", err)
+	}
+	if err := requireWorkflowStep(extensionWindowsJob, "Scheduler runtime", schedulerWindowsRuntimeStepContract); err != nil {
 		return fmt.Errorf("ci: %w", err)
 	}
 	lintJob, err := workflowJob(ci, "lint")

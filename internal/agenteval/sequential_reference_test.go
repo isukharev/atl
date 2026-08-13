@@ -28,35 +28,37 @@ import (
 )
 
 func TestSequentialReferenceInspectionDerivesAttemptBindingsOutsidePerTrialValidation(t *testing.T) {
-	parsed, err := parser.ParseFile(token.NewFileSet(), "sequential_reference_publication.go", nil, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
 	allowed := map[string]bool{
 		"finish": true,
 		"inspectSequentialReferencePublicationWithAdmissionContext": true,
 	}
 	calls := 0
-	for _, declaration := range parsed.Decls {
-		function, ok := declaration.(*ast.FuncDecl)
-		if !ok || function.Body == nil {
-			continue
+	for _, name := range []string{"sequential_reference_publication.go", "sequential_reference_inspection.go"} {
+		parsed, err := parser.ParseFile(token.NewFileSet(), name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
 		}
-		ast.Inspect(function.Body, func(node ast.Node) bool {
-			call, ok := node.(*ast.CallExpr)
-			if !ok {
+		for _, declaration := range parsed.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Body == nil {
+				continue
+			}
+			ast.Inspect(function.Body, func(node ast.Node) bool {
+				call, ok := node.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				identifier, ok := call.Fun.(*ast.Ident)
+				if !ok || identifier.Name != "ExperimentAttemptBindings" {
+					return true
+				}
+				calls++
+				if !allowed[function.Name.Name] {
+					t.Fatalf("attempt roster is rederived inside %s", function.Name.Name)
+				}
 				return true
-			}
-			identifier, ok := call.Fun.(*ast.Ident)
-			if !ok || identifier.Name != "ExperimentAttemptBindings" {
-				return true
-			}
-			calls++
-			if !allowed[function.Name.Name] {
-				t.Fatalf("attempt roster is rederived inside %s", function.Name.Name)
-			}
-			return true
-		})
+			})
+		}
 	}
 	if calls != len(allowed) {
 		t.Fatalf("attempt-binding derivations=%d, want exactly one admission and one publication readback", calls)
@@ -162,6 +164,27 @@ func TestSequentialReferenceRunsCanonicalAgentSkillsRosterAndBindsEveryArtifact(
 		if bytes.Contains(encoded, []byte(raw)) {
 			t.Fatalf("content or authority escaped result: %q", raw)
 		}
+	}
+}
+
+func TestScheduledReferenceParallelBlocksMatchTheSequentialOracleExactly(t *testing.T) {
+	manifest, bundle := sequentialReferenceFixture(t)
+	random := bytes.Repeat([]byte{0x52}, 32)
+	sequentialStore := newSequentialReferenceStoreWithRandomForTest(t, random)
+	parallelStore := newSequentialReferenceStoreWithRandomForTest(t, random)
+	sequential, err := RunSequentialReference(context.Background(), sequentialStore, manifest, bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parallel, err := RunScheduledReference(context.Background(), parallelStore, manifest, bundle,
+		SequentialReferenceRunOptions{Workers: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(parallel.Trials, sequential.Trials) || parallel.ManifestSHA256 != sequential.ManifestSHA256 ||
+		parallel.Scheduler.Started != uint32(len(parallel.Trials)) || parallel.Scheduler.Completed != uint32(len(parallel.Trials)) ||
+		parallel.Scheduler.NeverStarted != 0 {
+		t.Fatalf("parallel result drifted:\nsequential=%+v\nparallel=%+v", sequential, parallel)
 	}
 }
 
@@ -300,7 +323,7 @@ func TestSequentialReferencePublicationIsExactNewCanonicalAndStrictlyReadable(t 
 		t.Fatal(err)
 	}
 	commitDestination := filepath.Join(parent, "commit-interrupted")
-	publication, err := createSequentialReferencePublication(commitDestination, manifest, manifestData)
+	publication, err := createSequentialReferencePublication(commitDestination, manifest, manifestData, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +332,8 @@ func TestSequentialReferencePublicationIsExactNewCanonicalAndStrictlyReadable(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	commitResult, err := prepared.run(context.Background(), store, publication.writeTrial)
+	commitResult, err := prepared.runScheduled(context.Background(), store, SequentialReferenceRunOptions{Workers: 1}, nil, nil, true,
+		publication.writeSchedulerPlan, publication.stageTrial, publication.writeTrial)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,8 +352,68 @@ func TestSequentialReferencePublicationIsExactNewCanonicalAndStrictlyReadable(t 
 	if _, err := InspectSequentialReferencePublication(commitDestination); err == nil {
 		t.Fatal("completion-interrupted publication was accepted")
 	}
+	publication.close()
+	resumed, err := ResumeSequentialReferenceAtDestination(context.Background(), commitDestination, manifest, bundle)
+	if err != nil || !reflect.DeepEqual(resumed, commitResult) {
+		t.Fatalf("resume completion equal=%t err=%v", reflect.DeepEqual(resumed, commitResult), err)
+	}
+	inspectedCommit, err := InspectSequentialReferencePublication(commitDestination)
+	if err != nil || !reflect.DeepEqual(inspectedCommit, commitResult) {
+		t.Fatalf("inspect resumed completion equal=%t err=%v", reflect.DeepEqual(inspectedCommit, commitResult), err)
+	}
 	if _, err := RunSequentialReferenceToNewDestination(context.Background(), commitDestination, manifest, bundle); err == nil {
-		t.Fatal("completion-interrupted publication was replayed")
+		t.Fatal("resumed publication was replayed as new")
+	}
+
+	for _, test := range []struct {
+		name   string
+		mutate func(string) error
+	}{
+		{name: "artifact_replaced_after_readback", mutate: func(destination string) error {
+			return os.WriteFile(filepath.Join(destination, sequentialReferenceSchedulerReportName), []byte("{}"), 0o600)
+		}},
+		{name: "ledger_recovery_residue_after_readback", mutate: func(destination string) error {
+			return os.WriteFile(filepath.Join(destination, sequentialReferenceLedgerDirectory, ".tmp-0123456789abcdef"),
+				[]byte("crash residue\n"), 0o600)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			destination := filepath.Join(parent, test.name)
+			candidate, createErr := createSequentialReferencePublication(destination, manifest, manifestData, 1)
+			if createErr != nil {
+				t.Fatal(createErr)
+			}
+			defer candidate.close()
+			candidateStore, createErr := CreateSequentialReferenceAttemptStore(
+				filepath.Join(destination, sequentialReferenceLedgerDirectory), manifest)
+			if createErr != nil {
+				t.Fatal(createErr)
+			}
+			candidateResult, runErr := prepared.runScheduled(context.Background(), candidateStore,
+				SequentialReferenceRunOptions{Workers: 1}, nil, nil, true,
+				candidate.writeSchedulerPlan, candidate.stageTrial, candidate.writeTrial)
+			if runErr != nil {
+				t.Fatal(runErr)
+			}
+			var mutationErr error
+			candidate.testHook = func(stage string) error {
+				if stage == "during_final_readback" {
+					mutationErr = test.mutate(destination)
+				}
+				return mutationErr
+			}
+			if finishErr := candidate.finish(manifest, candidateStore, candidateResult); mutationErr != nil {
+				t.Fatalf("inject final-boundary mutation: %v", mutationErr)
+			} else if finishErr == nil {
+				t.Fatal("final-boundary mutation was certified")
+			}
+			if _, markerErr := os.Lstat(filepath.Join(destination, sequentialReferenceMarkerName)); markerErr != nil {
+				t.Fatalf("final-boundary refusal lost marker: %v", markerErr)
+			}
+			if _, inspectErr := InspectSequentialReferencePublication(destination); inspectErr == nil {
+				t.Fatal("mutated incomplete publication was accepted")
+			}
+		})
 	}
 
 	canceledContext, cancel := context.WithCancel(context.Background())
@@ -565,7 +649,7 @@ func TestSequentialReferenceCommittedInterruptionsAreTerminalIncompleteAndNeverR
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			destination := filepath.Join(t.TempDir(), "interrupted")
-			publication, createErr := createSequentialReferencePublication(destination, manifest, manifestData)
+			publication, createErr := createSequentialReferencePublication(destination, manifest, manifestData, 1)
 			if createErr != nil {
 				t.Fatal(createErr)
 			}
@@ -580,7 +664,7 @@ func TestSequentialReferenceCommittedInterruptionsAreTerminalIncompleteAndNeverR
 				t.Fatalf("partial=%+v err=%v", partial, runErr)
 			}
 			marker, readErr := os.ReadFile(filepath.Join(destination, sequentialReferenceMarkerName))
-			if readErr != nil || string(marker) != manifest.ManifestSHA256+"\n" {
+			if readErr != nil || !bytes.Equal(marker, sequentialReferenceMarker(manifest.ManifestSHA256, 1)) {
 				t.Fatalf("incomplete marker=%q err=%v", marker, readErr)
 			}
 			inspections, inspectErr := store.InspectAll()
@@ -647,6 +731,289 @@ func TestSequentialReferencePublishedCancellationIsOutcomeUnknownAndNeverReplaye
 	}
 	if _, err := RunSequentialReferenceToNewDestination(context.Background(), destination, manifest, bundle); err == nil {
 		t.Fatal("unknown publication was replayed")
+	}
+}
+
+func TestScheduledReferenceResumePreservesTerminalAttemptAndRunsOnlyPlannedComplement(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the durable attempt ledger is not yet available on Windows")
+	}
+	manifest, bundle := sequentialReferenceFixture(t)
+	destination := filepath.Join(t.TempDir(), "resume-terminal")
+	prepared, err := prepareSequentialReference(context.Background(), manifest, bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestData, err := experiment.EncodeManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publication, err := createSequentialReferencePublication(destination, manifest, manifestData, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := CreateSequentialReferenceAttemptStore(filepath.Join(destination, sequentialReferenceLedgerDirectory), manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roster, err := prepared.prepareScheduledRoster(store, SequentialReferenceRunOptions{Workers: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := publication.writeSchedulerPlan(roster.schedule); err != nil {
+		t.Fatal(err)
+	}
+	session, err := NewDurableAttemptSession(store, roster.plans[0])
+	if err != nil || beginRunAttempt(session) != nil {
+		t.Fatalf("begin first attempt: %v", err)
+	}
+	wantFirst, err := prepared.runStartedTrial(context.Background(), session, roster.assignments[0],
+		func(artifacts SequentialReferenceTrialArtifacts) error { return publication.stageTrial(0, artifacts) })
+	if err != nil || wantFirst.TrialRecord.RecordSHA256 == "" {
+		t.Fatalf("complete first attempt without final record: %+v err=%v", wantFirst, err)
+	}
+	before, err := store.Inspect(roster.plans[0].AttemptID)
+	if err != nil || !before.Projection.Terminal {
+		t.Fatalf("first attempt not terminal: %+v err=%v", before, err)
+	}
+	publication.close()
+	prepared.destroy()
+
+	got, err := ResumeScheduledReferenceAtDestination(context.Background(), destination, manifest, bundle,
+		SequentialReferenceRunOptions{Workers: 2})
+	if err != nil || len(got.Trials) != len(roster.plans) || !reflect.DeepEqual(got.Trials[0], wantFirst) ||
+		got.Scheduler.Started != uint32(len(roster.plans)) || got.Scheduler.Completed != uint32(len(roster.plans)) {
+		t.Fatalf("resume trials=%d first_equal=%t scheduler=%+v err=%v", len(got.Trials),
+			len(got.Trials) != 0 && reflect.DeepEqual(got.Trials[0], wantFirst), got.Scheduler, err)
+	}
+	inspected, err := InspectSequentialReferencePublication(destination)
+	if err != nil || !reflect.DeepEqual(inspected, got) {
+		t.Fatalf("inspect resumed equal=%t err=%v", reflect.DeepEqual(inspected, got), err)
+	}
+	reopened, err := OpenAttemptLedgerStore(filepath.Join(destination, sequentialReferenceLedgerDirectory))
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := reopened.Inspect(roster.plans[0].AttemptID)
+	if err != nil || !reflect.DeepEqual(after.Events, before.Events) {
+		t.Fatalf("terminal attempt was replayed before=%d after=%d err=%v", len(before.Events), len(after.Events), err)
+	}
+	if _, err := ResumeScheduledReferenceAtDestination(context.Background(), destination, manifest, bundle,
+		SequentialReferenceRunOptions{Workers: 2}); err == nil || errors.Is(err, ErrSequentialReferenceOutcomeUnknown) {
+		t.Fatalf("completed publication resume was not a retry-safe refusal: %v", err)
+	}
+
+	widthDestination := filepath.Join(t.TempDir(), "resume-width-bound-before-plan")
+	widthPrepared, err := prepareSequentialReference(context.Background(), manifest, bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestData, err = experiment.EncodeManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	widthPublication, err := createSequentialReferencePublication(widthDestination, manifest, manifestData, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	widthStore, err := CreateSequentialReferenceAttemptStore(
+		filepath.Join(widthDestination, sequentialReferenceLedgerDirectory), manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	widthRoster, err := widthPrepared.prepareScheduledRoster(widthStore, SequentialReferenceRunOptions{Workers: 2})
+	if err != nil || len(widthRoster.plans) == 0 {
+		t.Fatalf("prepare crash-window roster=%d err=%v", len(widthRoster.plans), err)
+	}
+	if _, err := os.Lstat(filepath.Join(widthDestination, sequentialReferenceSchedulerPlanName)); !os.IsNotExist(err) {
+		t.Fatalf("crash-window fixture unexpectedly persisted scheduler plan: %v", err)
+	}
+	if _, err := ResumeScheduledReferenceAtDestination(context.Background(), widthDestination, manifest, bundle,
+		SequentialReferenceRunOptions{Workers: 2}); err == nil ||
+		!errors.Is(err, ErrSequentialReferenceOutcomeUnknown) || !errors.Is(err, ErrAttemptLedgerBusy) {
+		t.Fatalf("concurrent resume entered an active publication: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(widthDestination, sequentialReferenceSchedulerPlanName)); !os.IsNotExist(err) {
+		t.Fatalf("concurrent resume mutated the active publication: %v", err)
+	}
+	for _, plan := range widthRoster.plans {
+		inspection, inspectErr := widthStore.Inspect(plan.AttemptID)
+		if inspectErr != nil || inspection.Projection.State != lifecycle.StatePlanned {
+			t.Fatalf("concurrent resume changed attempt %s state=%s err=%v",
+				plan.AttemptID, inspection.Projection.State, inspectErr)
+		}
+	}
+	widthPublication.close()
+	widthPrepared.destroy()
+	if _, err := ResumeScheduledReferenceAtDestination(context.Background(), widthDestination, manifest, bundle,
+		SequentialReferenceRunOptions{Workers: 1}); err == nil {
+		t.Fatal("resume changed the width bound before scheduler-plan persistence")
+	}
+	if _, err := os.Lstat(filepath.Join(widthDestination, sequentialReferenceSchedulerPlanName)); !os.IsNotExist(err) {
+		t.Fatalf("wrong-width resume mutated the incomplete publication: %v", err)
+	}
+	widthResult, err := ResumeScheduledReferenceAtDestination(context.Background(), widthDestination, manifest, bundle,
+		SequentialReferenceRunOptions{Workers: 2})
+	if err != nil || widthResult.Scheduler.Started != uint32(len(widthRoster.plans)) {
+		t.Fatalf("correct-width resume started=%d want=%d err=%v", widthResult.Scheduler.Started, len(widthRoster.plans), err)
+	}
+}
+
+func TestScheduledReferenceResumeAbsorbsCommittedCrashTailAsUnknownWithoutReplay(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the durable attempt ledger is not yet available on Windows")
+	}
+	manifest, bundle := sequentialReferenceFixture(t)
+	destination := filepath.Join(t.TempDir(), "resume-crash-tail")
+	prepared, err := prepareSequentialReference(context.Background(), manifest, bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestData, err := experiment.EncodeManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publication, err := createSequentialReferencePublication(destination, manifest, manifestData, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := CreateSequentialReferenceAttemptStore(filepath.Join(destination, sequentialReferenceLedgerDirectory), manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roster, err := prepared.prepareScheduledRoster(store, SequentialReferenceRunOptions{Workers: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := publication.writeSchedulerPlan(roster.schedule); err != nil {
+		t.Fatal(err)
+	}
+	session, err := NewDurableAttemptSession(store, roster.plans[0])
+	if err != nil || beginRunAttempt(session) != nil {
+		t.Fatalf("begin crash tail: %v", err)
+	}
+	base := SequentialReferenceTrialArtifacts{AttemptPlan: roster.plans[0],
+		ExecutionPlan: prepared.treatments[roster.assignments[0].TreatmentID].plan, GradingPlan: prepared.gradingPlan}
+	if err := publication.stageTrial(0, base); err != nil {
+		t.Fatal(err)
+	}
+	publication.close()
+	prepared.destroy()
+
+	got, err := ResumeScheduledReferenceAtDestination(context.Background(), destination, manifest, bundle,
+		SequentialReferenceRunOptions{Workers: 2})
+	if err != nil || len(got.Trials) != len(roster.plans) || got.Trials[0].TrialRecord.LifecycleState != experiment.LifecycleUnknown ||
+		got.Trials[0].TrialRecord.Exclusion != experiment.ExclusionLifecycleUnknown || got.Trials[0].Observation != nil ||
+		got.Trials[0].ExecutionReceipt != nil || got.Trials[0].GradeReceipt != nil || got.Scheduler.Unknown != 1 {
+		t.Fatalf("resume unknown=%+v scheduler=%+v err=%v", got.Trials[0], got.Scheduler, err)
+	}
+	inspected, err := InspectSequentialReferencePublication(destination)
+	if err != nil || !reflect.DeepEqual(inspected, got) {
+		t.Fatalf("inspect unknown equal=%t err=%v", reflect.DeepEqual(inspected, got), err)
+	}
+	reopened, err := OpenAttemptLedgerStore(filepath.Join(destination, sequentialReferenceLedgerDirectory))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := reopened.Inspect(roster.plans[0].AttemptID)
+	if err != nil || first.Projection.State != lifecycle.StateUnknown || len(first.Events) != 3 {
+		t.Fatalf("absorbed tail=%+v events=%d err=%v", first.Projection, len(first.Events), err)
+	}
+}
+
+func TestScheduledReferenceResumeRejectsArtifactsForNeverStartedAttempt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the durable attempt ledger is not yet available on Windows")
+	}
+	manifest, bundle := sequentialReferenceFixture(t)
+	destination := filepath.Join(t.TempDir(), "resume-planned-drift")
+	prepared, err := prepareSequentialReference(context.Background(), manifest, bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer prepared.destroy()
+	manifestData, err := experiment.EncodeManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publication, err := createSequentialReferencePublication(destination, manifest, manifestData, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer publication.close()
+	store, err := CreateSequentialReferenceAttemptStore(filepath.Join(destination, sequentialReferenceLedgerDirectory), manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roster, err := prepared.prepareScheduledRoster(store, SequentialReferenceRunOptions{Workers: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := publication.writeSchedulerPlan(roster.schedule); err != nil {
+		t.Fatal(err)
+	}
+	forged := SequentialReferenceTrialArtifacts{AttemptPlan: roster.plans[0],
+		ExecutionPlan: prepared.treatments[roster.assignments[0].TreatmentID].plan, GradingPlan: prepared.gradingPlan}
+	if err := publication.stageTrial(0, forged); err != nil {
+		t.Fatal(err)
+	}
+	publication.close()
+	if _, err := ResumeScheduledReferenceAtDestination(context.Background(), destination, manifest, bundle,
+		SequentialReferenceRunOptions{Workers: 2}); err == nil || !errors.Is(err, ErrSequentialReferenceOutcomeUnknown) {
+		t.Fatalf("planned artifact drift error=%v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(destination, sequentialReferenceMarkerName)); err != nil {
+		t.Fatalf("failed resume lost marker: %v", err)
+	}
+}
+
+func TestScheduledReferenceResumeRejectsStartedAttemptAfterPlannedScheduleMember(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the durable attempt ledger is not yet available on Windows")
+	}
+	manifest, bundle := sequentialReferenceFixture(t)
+	destination := filepath.Join(t.TempDir(), "resume-order-drift")
+	prepared, err := prepareSequentialReference(context.Background(), manifest, bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer prepared.destroy()
+	manifestData, err := experiment.EncodeManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publication, err := createSequentialReferencePublication(destination, manifest, manifestData, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer publication.close()
+	store, err := CreateSequentialReferenceAttemptStore(filepath.Join(destination, sequentialReferenceLedgerDirectory), manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roster, err := prepared.prepareScheduledRoster(store, SequentialReferenceRunOptions{Workers: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := publication.writeSchedulerPlan(roster.schedule); err != nil {
+		t.Fatal(err)
+	}
+	if len(roster.schedule.Tasks) < 2 {
+		t.Fatal("fixture has no later schedule member")
+	}
+	later := roster.schedule.Tasks[1]
+	session, err := NewDurableAttemptSession(store, roster.plans[later.Ordinal-1])
+	if err != nil || beginRunAttempt(session) != nil {
+		t.Fatalf("begin out-of-order attempt: %v", err)
+	}
+	publication.close()
+	if _, err := ResumeScheduledReferenceAtDestination(context.Background(), destination, manifest, bundle,
+		SequentialReferenceRunOptions{Workers: 2}); err == nil || !errors.Is(err, ErrSequentialReferenceOutcomeUnknown) {
+		t.Fatalf("out-of-order durable attempt accepted: %v", err)
+	}
+	first, err := store.Inspect(roster.plans[roster.schedule.Tasks[0].Ordinal-1].AttemptID)
+	if err != nil || first.Projection.State != lifecycle.StatePlanned {
+		t.Fatalf("resume mutated the earlier planned attempt: %+v err=%v", first.Projection, err)
 	}
 }
 
@@ -939,6 +1306,19 @@ func newSequentialReferenceStoreForTest(t *testing.T, manifest experiment.Manife
 		t.Fatal(err)
 	}
 	store, err := CreateSequentialReferenceAttemptStore(filepath.Join(parent, "ledger"), manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
+
+func newSequentialReferenceStoreWithRandomForTest(t *testing.T, random []byte) *AttemptLedgerStore {
+	t.Helper()
+	parent := t.TempDir()
+	if err := os.Chmod(parent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := CreateAttemptLedgerStore(filepath.Join(parent, "ledger"), bytes.NewReader(append([]byte{}, random...)))
 	if err != nil {
 		t.Fatal(err)
 	}

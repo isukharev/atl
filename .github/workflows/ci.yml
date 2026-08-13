@@ -47,6 +47,12 @@ jobs:
             -run '^(TestExtensionManifestV1IsClosed|TestExtensionProtocolV1StateMachineIsClosed)$' -count=1
           env -u GOROOT GOTOOLCHAIN=auto GOWORK=off go -C internal/agenteval test . \
             -run '^(TestExtensionHostAdmissionMaterializesNativeExecutableWithClosedEnvironment|TestExtensionHostAdmissionRejectsUnsafeExecutable|TestExtensionProcessHostBoundsAndCleanup|TestDarwinZombieOnlyProcessGroupSignal|TestVerifyExtensionProtocolReportIsContentMinimized|TestPrivateExtensionRuntimeRootUsesTrustedSystemTemporaryDirectory|TestPrivateExtensionRuntimePathsAreOwnerOnly|TestPrivateExtensionRuntimeRejectsSymlinks|TestExtensionPlatformEnvironmentIsEmptyOnUnix)$' -count=1
+      - name: Scheduler runtime
+        run: |
+          env -u GOROOT GOTOOLCHAIN=auto GOWORK=off go -C internal/agenteval test ./scheduler \
+            -run '^(TestSchedulerCodecIsClosedCanonicalBoundedAndContentAddressed|TestSchedulerDispatchIsRoundOrderedBoundedAndCompletionOrderIndependent|TestSchedulerCohortAndResourceLimitsBoundEachBatch|TestSchedulerCostExhaustionStopsBeforeTheNextReservation|TestSchedulerFailFastCancelsTheCurrentBatchAndNeverStartsLaterRounds|TestSchedulerCanceledContextStartsNothing|TestSchedulerResumeCountsTerminalTasksAndDispatchesOnlyPlannedComplement|TestSchedulerPlanRejectsRosterOrderCohortAndResourceDrift)$' -count=1
+          env -u GOROOT GOTOOLCHAIN=auto GOWORK=off go -C internal/agenteval test . \
+            -run '^(TestScheduledReferenceParallelBlocksMatchTheSequentialOracleExactly|TestScheduledReferenceResumePreservesTerminalAttemptAndRunsOnlyPlannedComplement|TestScheduledReferenceResumeAbsorbsCommittedCrashTailAsUnknownWithoutReplay|TestScheduledReferenceResumeRejectsArtifactsForNeverStartedAttempt|TestScheduledReferenceResumeRejectsStartedAttemptAfterPlannedScheduleMember)$' -count=1
       # -race needs cgo (ThreadSanitizer is a C runtime); the runners ship a C
       # toolchain and CGO defaults on. -covermode=atomic is mandatory with -race —
       # non-atomic coverage counters would themselves be a data race. -count=1
@@ -178,6 +184,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go -C internal/agenteval test . `
             -run '^(TestAttemptLedgerWindowsFailsClosedBeforeExtensionProcessEntry|TestExtensionHostAdmissionMaterializesNativeExecutableWithClosedEnvironment|TestExtensionHostAdmissionRejectsUnsafeExecutable|TestExtensionProcessHostBoundsAndCleanup|TestVerifyExtensionProtocolReportIsContentMinimized|TestPrivateExtensionWindowsRuntimeACLsAreProtected|TestPrivateExtensionWindowsRootGuardBlocksDeleteUntilClose|TestPrivateExtensionWindowsRuntimeRootAcceptsTrailingBaseSeparator|TestPrivateExtensionWindowsExecutableGuardBlocksReplacementAndLaunchesAdmittedBytes|TestPrivateExtensionWindowsRejectsPermissiveOrInheritedACL|TestPrivateExtensionWindowsRejectsReparseDirectory|TestExtensionPlatformEnvironmentIgnoresAmbientWindowsDirectory)$' -count=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Scheduler runtime
+        shell: pwsh
+        run: |
+          Remove-Item Env:GOROOT -ErrorAction SilentlyContinue
+          $env:GOTOOLCHAIN = "auto"
+          $env:GOWORK = "off"
+          go -C internal/agenteval test ./scheduler `
+            -run '^(TestSchedulerCodecIsClosedCanonicalBoundedAndContentAddressed|TestSchedulerDispatchIsRoundOrderedBoundedAndCompletionOrderIndependent|TestSchedulerCohortAndResourceLimitsBoundEachBatch|TestSchedulerCostExhaustionStopsBeforeTheNextReservation|TestSchedulerFailFastCancelsTheCurrentBatchAndNeverStartsLaterRounds|TestSchedulerCanceledContextStartsNothing|TestSchedulerResumeCountsTerminalTasksAndDispatchesOnlyPlannedComplement|TestSchedulerPlanRejectsRosterOrderCohortAndResourceDrift)$' -count=1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   lint:

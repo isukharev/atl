@@ -6,6 +6,8 @@ import (
 	"errors"
 	"io"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/isukharev/atl/internal/agenteval"
 )
@@ -15,9 +17,41 @@ type standaloneReferenceRunResult struct {
 	Trials         int    `json:"trials"`
 	Succeeded      int    `json:"succeeded"`
 	Failed         int    `json:"failed"`
+	Canceled       int    `json:"canceled"`
+	Unknown        int    `json:"unknown"`
+	Workers        uint32 `json:"workers"`
+	Queued         uint32 `json:"queued"`
+	Started        uint32 `json:"started"`
+	Completed      uint32 `json:"completed"`
+	NeverStarted   uint32 `json:"never_started"`
+	Stop           string `json:"stop"`
+}
+
+func standaloneReferenceOptions(modes []string, newDestination bool) []standaloneOptionDescriptor {
+	destination := "one exact existing incomplete destination"
+	if newDestination {
+		destination = "one exact clean and previously nonexistent destination"
+	}
+	return []standaloneOptionDescriptor{
+		{Name: "--mode", Value: strings.Join(modes, "|"), Description: "supported execution profile"},
+		{Name: "--manifest", Value: "FILE", Description: "compiled immutable experiment manifest"},
+		{Name: "--bundle", Value: "FILE", Description: "bounded reference inputs"},
+		{Name: "--destination", Value: "ABSOLUTE_DIR", Description: destination},
+		{Name: "--workers", Value: "N", Description: "bounded local workers (1-256)"},
+		{Name: "--sequential", Description: "force the exact one-worker compatibility schedule"},
+		{Name: "--output", Value: "json|text", Description: "select JSON (default) or explicit human output"},
+	}
 }
 
 func standaloneExecuteReferenceRun(ctx context.Context, args []string) (standaloneOutcome, *standaloneFailure) {
+	return standaloneExecuteReference(ctx, args, false)
+}
+
+func standaloneExecuteReferenceResume(ctx context.Context, args []string) (standaloneOutcome, *standaloneFailure) {
+	return standaloneExecuteReference(ctx, args, true)
+}
+
+func standaloneExecuteReference(ctx context.Context, args []string, resume bool) (standaloneOutcome, *standaloneFailure) {
 	mode, failure := standalonePeekFlag(args, "mode")
 	if failure != nil {
 		return standaloneOutcome{}, failure
@@ -27,7 +61,7 @@ func standaloneExecuteReferenceRun(ctx context.Context, args []string) (standalo
 	}
 	parsed, failure := parseStandaloneFlags(args, map[string]standaloneFlagSpec{
 		"mode": {takesValue: true}, "manifest": {takesValue: true}, "bundle": {takesValue: true},
-		"destination": {takesValue: true}, "output": {takesValue: true},
+		"destination": {takesValue: true}, "workers": {takesValue: true}, "sequential": {}, "output": {takesValue: true},
 	})
 	if failure != nil {
 		return standaloneOutcome{}, failure
@@ -40,6 +74,10 @@ func standaloneExecuteReferenceRun(ctx context.Context, args []string) (standalo
 		return standaloneOutcome{}, failure
 	}
 	if failure := standaloneContextFailure(ctx); failure != nil {
+		return standaloneOutcome{}, failure
+	}
+	workers, explicitWorkers, failure := standaloneReferenceWorkers(parsed)
+	if failure != nil {
 		return standaloneOutcome{}, failure
 	}
 	manifestData, failure := standaloneReadStableReferenceArtifact(parsed.one("manifest"), agenteval.ExperimentManifestMaxBytes)
@@ -61,22 +99,60 @@ func standaloneExecuteReferenceRun(ctx context.Context, args []string) (standalo
 	if failure := standaloneContextFailure(ctx); failure != nil {
 		return standaloneOutcome{}, failure
 	}
-	result, err := agenteval.RunSequentialReferenceToNewDestination(ctx, parsed.one("destination"), manifest, bundle)
+	var result agenteval.SequentialReferenceResult
+	if resume {
+		if explicitWorkers {
+			result, err = agenteval.ResumeScheduledReferenceAtDestination(ctx, parsed.one("destination"), manifest, bundle,
+				agenteval.SequentialReferenceRunOptions{Workers: workers})
+		} else {
+			result, err = agenteval.ResumeSequentialReferenceAtDestination(ctx, parsed.one("destination"), manifest, bundle)
+		}
+	} else if explicitWorkers {
+		result, err = agenteval.RunScheduledReferenceToNewDestination(ctx, parsed.one("destination"), manifest, bundle,
+			agenteval.SequentialReferenceRunOptions{Workers: workers})
+	} else {
+		result, err = agenteval.RunSequentialReferenceToNewDestination(ctx, parsed.one("destination"), manifest, bundle)
+	}
 	if err != nil {
 		return standaloneOutcome{}, standaloneReferenceRunFailure(ctx, err)
 	}
-	summary := standaloneReferenceRunResult{ManifestSHA256: result.ManifestSHA256, Trials: len(result.Trials)}
+	summary := standaloneReferenceRunResult{ManifestSHA256: result.ManifestSHA256, Trials: len(result.Trials), Workers: workers,
+		Queued: result.Scheduler.Queued, Started: result.Scheduler.Started, Completed: result.Scheduler.Completed,
+		NeverStarted: result.Scheduler.NeverStarted, Stop: string(result.Scheduler.Stop)}
 	for _, trial := range result.Trials {
 		switch string(trial.TrialRecord.LifecycleState) {
 		case "succeeded":
 			summary.Succeeded++
 		case "failed":
 			summary.Failed++
+		case "canceled", "timed_out":
+			summary.Canceled++
+		case "unknown":
+			summary.Unknown++
 		default:
 			return standaloneOutcome{}, standaloneFail(standaloneInternalError, "reference_result_invalid")
 		}
 	}
-	return standaloneOutcome{command: "run", status: "completed", result: summary, outputMode: output, text: "sequential reference run completed\n"}, nil
+	command, text := "run", "reference run completed\n"
+	if resume {
+		command, text = "resume", "reference resume completed\n"
+	}
+	return standaloneOutcome{command: command, status: "completed", result: summary, outputMode: output, text: text}, nil
+}
+
+func standaloneReferenceWorkers(parsed standaloneParsedFlags) (uint32, bool, *standaloneFailure) {
+	value := parsed.one("workers")
+	if parsed.boolean("sequential") && value != "" {
+		return 0, false, standaloneFail(standaloneUsageError, "invalid_reference_scheduler_options")
+	}
+	if value == "" {
+		return 1, false, nil
+	}
+	parsedWorkers, err := strconv.ParseUint(value, 10, 32)
+	if err != nil || parsedWorkers == 0 || parsedWorkers > uint64(agenteval.SchedulerMaximumWorkers) {
+		return 0, false, standaloneFail(standaloneUsageError, "invalid_reference_scheduler_options")
+	}
+	return uint32(parsedWorkers), true, nil
 }
 
 func standaloneReferenceInputFailure(kind string) *standaloneFailure {

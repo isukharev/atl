@@ -69,7 +69,7 @@ func loadStandaloneReadabilityGoldenFixture(t *testing.T, bundle standaloneGolde
 		}
 		hasReaderSupport := entry.ReaderSupportPath != "" || entry.ReaderSupportSHA256 != ""
 		if entry.Kind == "activation-reference" || entry.Kind == "agent-observation" || entry.Kind == "analysis-report" || entry.Kind == "grade-receipt" ||
-			entry.Kind == "grading-plan" || entry.Kind == "trial-plan" || entry.Kind == "trial-receipt" || entry.Kind == "trial-record" {
+			entry.Kind == "grading-plan" || entry.Kind == "scheduler-report" || entry.Kind == "trial-plan" || entry.Kind == "trial-receipt" || entry.Kind == "trial-record" {
 			if !hasReaderSupport || !standaloneGoldenReaderSupportAllowed(entry) || !standaloneValidSHA256(entry.ReaderSupportSHA256) {
 				t.Fatalf("readability golden entry %q has invalid reader support", key)
 			}
@@ -95,7 +95,25 @@ func loadStandaloneReadabilityGoldenFixture(t *testing.T, bundle standaloneGolde
 	standaloneValidateExecutionBackendGoldenBindings(t, fixture)
 	standaloneValidateGradingGoldenBindings(t, fixture)
 	standaloneValidateExperimentGoldenBindings(t, fixture)
+	standaloneValidateSchedulerGoldenBindings(t, fixture)
 	return fixture
+}
+
+func standaloneValidateSchedulerGoldenBindings(t *testing.T, fixture standaloneReadabilityGoldenFixture) {
+	t.Helper()
+	planEntry, planOK := standaloneReadabilityGoldenEntryFor(fixture, standaloneVersionedContractKey("standalone", "scheduler-plan", 1))
+	reportEntry, reportOK := standaloneReadabilityGoldenEntryFor(fixture, standaloneVersionedContractKey("standalone", "scheduler-report", 1))
+	if !planOK || !reportOK || reportEntry.ReaderSupportPath != planEntry.SourcePath ||
+		reportEntry.ReaderSupportSHA256 != planEntry.SourceSHA256 {
+		t.Fatal("standalone scheduler readability sources are not transitively bound")
+	}
+	plan, err := DecodeSchedulerPlan(bytes.NewReader(standaloneGoldenDocument(t, planEntry)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeSchedulerReport(bytes.NewReader(standaloneGoldenDocument(t, reportEntry)), plan); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func standaloneValidateExperimentGoldenBindings(t *testing.T, fixture standaloneReadabilityGoldenFixture) {
@@ -579,7 +597,7 @@ func standaloneGoldenSourceAllowed(entry standaloneReadabilityGoldenEntry) bool 
 		return entry.Namespace == "atl-profile" && entry.SourcePath == fmt.Sprintf("testdata/standalone-readability/%s-v%d.json", entry.Kind, entry.Version)
 	case "capability-catalog":
 		return entry.Namespace == "atl-profile" && entry.Version == CapabilityCatalogSchemaVersion && entry.SourcePath == "testdata/capability-catalog.v1.json"
-	case "adapter-manifest", "adapter-message", "agent-adapter-contract", "agent-observation", "analysis-plan", "analysis-report", "attempt-event", "attempt-ledger", "attempt-plan", "execution-backend-contract", "experiment-capability-contract", "experiment-design", "experiment-manifest", "extension-conformance-bundle", "extension-conformance-report", "grade-receipt", "grader-contract", "grading-plan", "migration-preview", "migration-result", "project-config", "sequential-reference-bundle", "trial-plan", "trial-receipt", "trial-record":
+	case "adapter-manifest", "adapter-message", "agent-adapter-contract", "agent-observation", "analysis-plan", "analysis-report", "attempt-event", "attempt-ledger", "attempt-plan", "execution-backend-contract", "experiment-capability-contract", "experiment-design", "experiment-manifest", "extension-conformance-bundle", "extension-conformance-report", "grade-receipt", "grader-contract", "grading-plan", "migration-preview", "migration-result", "project-config", "scheduler-plan", "scheduler-report", "sequential-reference-bundle", "trial-plan", "trial-receipt", "trial-record":
 		return entry.Namespace == "standalone" && entry.Version == 1 &&
 			entry.SourcePath == fmt.Sprintf("testdata/standalone-readability/%s-v1.json", entry.Kind)
 	case "schema-registry":
@@ -608,6 +626,9 @@ func standaloneGoldenReaderSupportAllowed(entry standaloneReadabilityGoldenEntry
 	}
 	if entry.Namespace == "standalone" && entry.Kind == "grade-receipt" && entry.Version == 1 {
 		return entry.ReaderSupportPath == "testdata/standalone-readability/grading-plan-v1.json"
+	}
+	if entry.Namespace == "standalone" && entry.Kind == "scheduler-report" && entry.Version == 1 {
+		return entry.ReaderSupportPath == "testdata/standalone-readability/scheduler-plan-v1.json"
 	}
 	if entry.Namespace == "standalone" && entry.Kind == "agent-observation" && entry.Version == 1 {
 		return entry.ReaderSupportPath == "testdata/standalone-readability/agent-adapter-contract-v1.json"
@@ -1353,6 +1374,42 @@ func standaloneDecodeExtensionReadabilityProjection(t *testing.T, entry standalo
 			"first_schema":         registry.Entries[0].Namespace + "/" + registry.Entries[0].Kind,
 			"last_schema":          registry.Entries[len(registry.Entries)-1].Namespace + "/" + registry.Entries[len(registry.Entries)-1].Kind,
 			"migration_edge_count": edgeCount,
+		}, nil
+	case "scheduler-plan":
+		plan, err := DecodeSchedulerPlan(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := EncodeSchedulerPlan(plan)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("scheduler plan golden is not canonical")
+		}
+		return map[string]any{
+			"schema": plan.Schema, "schema_version": plan.SchemaVersion, "contract_version": plan.ContractVersion,
+			"worker_limit": plan.Limits.Workers, "cohort_limit_count": len(plan.Limits.Cohorts),
+			"task_count": len(plan.Tasks), "first_ordinal": plan.Tasks[0].Ordinal, "first_round": plan.Tasks[0].Round,
+			"total_cost_microusd": plan.Limits.TotalCostMicroUSD, "plan_digest_bound": plan.PlanSHA256 != "",
+		}, nil
+	case "scheduler-report":
+		planData := standaloneReadGoldenSource(t, entry.ReaderSupportPath, entry.ReaderSupportSHA256)
+		plan, err := DecodeSchedulerPlan(bytes.NewReader(planData))
+		if err != nil {
+			return nil, err
+		}
+		report, err := DecodeSchedulerReport(bytes.NewReader(data), plan)
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := EncodeSchedulerReport(plan, report)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("scheduler report golden is not canonical")
+		}
+		return map[string]any{
+			"schema": report.Schema, "schema_version": report.SchemaVersion, "contract_version": report.ContractVersion,
+			"plan_bound": report.PlanSHA256 == plan.PlanSHA256, "queued": report.Queued,
+			"started": report.Started, "completed": report.Completed, "succeeded": report.Succeeded,
+			"failed": report.Failed, "canceled": report.Canceled, "unknown": report.Unknown,
+			"never_started": report.NeverStarted, "stop": report.Stop, "report_digest_bound": report.ReportSHA256 != "",
 		}, nil
 	case "sequential-reference-bundle":
 		bundle, err := DecodeSequentialReferenceBundle(bytes.NewReader(data))

@@ -32,12 +32,14 @@ may describe only the marked rows as **pre-release source implementations**;
 they must not call them stable, supported, or distributed.
 
 The source tree also contains a neutral experiment compiler and its versioned
-artifact readers. The coordinator exposes exactly one composed execution row,
-`run/reference`: it consumes an already compiled canonical manifest plus one
-closed sequential-reference bundle and writes one new local publication. It
-does not expose a general experiment planner, configurable runner, resume path,
-or one-request process route. Other experiment source availability does not
-make an operation implemented or grant runner authority.
+artifact readers. The coordinator exposes exactly two composed execution rows.
+`run/reference` consumes an already compiled canonical manifest plus one closed
+sequential-reference bundle and writes one new local publication;
+`resume/reference` reopens only that exact marker-bearing incomplete
+publication and dispatches its ledger-proved planned complement. It does not
+expose a general experiment planner, configurable runner, generic resume, or
+one-request process route. Other experiment source availability does not make
+an operation implemented or grant runner authority.
 
 The repository implementation now contains an internal, in-memory neutral core
 and one explicitly composed ATL profile. The root evaluator package remains the
@@ -86,6 +88,7 @@ operation must be structurally unable to acquire it.
 | `reconcile` | `evidence-only` | `reserved` | `local_write` | Y | Y | N | N | N | N | N | Y |
 | `report` | `default` | `reserved` | `local_read` | Y | N | N | N | N | N | N | N |
 | `resume` | `default` | `reserved` | `agent_execution` | Y | Y | Y | Y | Y | Y | Y | Y |
+| `resume` | `reference` | `pre_release` | `local_write` | Y | Y | N | N | N | N | N | N |
 | `run` | `default` | `reserved` | `agent_execution` | Y | Y | Y | Y | Y | Y | Y | N |
 | `run` | `reference` | `pre_release` | `local_write` | Y | Y | N | N | N | N | N | N |
 | `schema inspect` | `default` | `pre_release` | `local_read` | Y | N | N | N | N | N | N | N |
@@ -107,12 +110,12 @@ credential-, and private-workspace-free. Deterministic grading has the same
 no-contact verifier ceiling even though the current in-process implementation
 does not spawn. Judge grading is a distinct, explicit mode: it may receive
 provider, network, and credential authority, but never product-backend or
-private-workspace authority. The exact `run/reference` profile has only local
-read/write authority: it cannot spawn a process, contact a provider or product
-backend, use a network, discover credentials, or open a private workspace.
-Generic `run` and `resume` remain reserved, receive only the individually
-admitted execution dimensions if later implemented, and remain subject to the
-no-replay lifecycle below.
+private-workspace authority. The exact `run/reference` and `resume/reference`
+profiles have only local read/write authority: they cannot spawn a process,
+contact a provider or product backend, use a network, discover credentials, or
+open a private workspace. Generic `run` and `resume` remain reserved, receive
+only the individually admitted execution dimensions if later implemented, and
+remain subject to the no-replay lifecycle below.
 
 Commands are non-interactive: no prompts, pagers, browsers, confirmation reads from stdin, or default provider selection. A local mutation requiring confirmation must receive all confirmation material in the original invocation and fail before writing when it is absent.
 
@@ -394,7 +397,7 @@ projected from an owner-private activation study remains owner-private. A digest
 is a comparison identity, not anonymization or permission to publish source
 material.
 
-### Sequential provider-free reference run
+### Bounded provider-free reference run and crash-safe resume
 
 The source coordinator accepts only the exact compiled reference profile: one
 reference treatment, one current-skill candidate, and one separately authored
@@ -406,32 +409,79 @@ also bound to its exact source mount and declared case, skill, or separately
 authored control digest; recompiling a manifest cannot substitute fixture bytes
 for the candidate or control while retaining a conforming reference run. The
 in-memory reference adapter, hermetic reference backend, append-only lifecycle,
-and deterministic grader then execute at most one attempt at a time in manifest
-order. The only admitted backend program is the bounded `reference_copy` form.
+deterministic grader, and neutral scheduler then execute only the admitted fixed
+roster. With no scheduling flag, or with `--sequential`, each attempt forms its
+own round and preserves the exact historical one-worker manifest order.
+`--workers N` admits 1–256 local workers and may run only equal treatment
+positions from independent manifest blocks concurrently; a later position
+never begins until every started member of the current position is terminal.
+The only admitted backend program is the bounded `reference_copy` form.
 
 ```shell named-agent-eval-sequential-reference-run
 agent-eval run --mode reference \
   --manifest /absolute/experiment-manifest.json \
   --bundle /absolute/sequential-reference-bundle.json \
-  --destination /absolute/new-reference-output
+  --destination /absolute/new-reference-output \
+  --workers 4
 ```
 
-The destination must be absolute, clean, and absent. It receives the exact
-manifest, one durable attempt ledger, and a manifest-ordered directory of
-canonical observation, execution-plan/receipt, grading-plan/receipt, lifecycle,
-and trial-record artifacts. Raw copied artifact bytes never enter the result or
-publication. A completion marker is removed only after exact reread and
-transitive binding validation, and its removal is the final fallible
-process-visible commit operation. Once that marker has been durably
-established, every returned run or finish failure is
-`outcome_unknown,retry_safe:false` and retains it plus any ledger state already
-created; a process or power interruption may conservatively retain the marker
-after all result bytes were written. The same destination is never replayed.
+Resume uses the same manifest, bundle, and exact scheduler width selected for
+the incomplete publication:
+
+```shell named-agent-eval-reference-resume
+agent-eval resume --mode reference \
+  --manifest /absolute/experiment-manifest.json \
+  --bundle /absolute/sequential-reference-bundle.json \
+  --destination /absolute/incomplete-reference-output \
+  --workers 4
+```
+
+For a new run, the destination must be absolute, clean, and absent. Resume
+requires that same path to exist as the exact private incomplete publication.
+The incomplete marker binds the exact manifest and selected worker width before
+the ledger roster is materialized. The active new run or resume holds an
+exclusive advisory lock on that exact marker for its full publication
+ownership interval; a concurrent resume refuses before reading or changing the
+ledger. The publication contains that manifest, one
+durable attempt ledger, the content-minimized scheduler plan and report, and a
+manifest-ordered directory of canonical observation,
+execution-plan/receipt, grading-plan/receipt, lifecycle, and trial-record
+artifacts. The scheduler plan binds immutable attempt-plan identities,
+ordinals, rounds, aggregate CPU/memory/storage/process reservations, cumulative
+cost, and sorted opaque execution/model/provider cohort limits before
+dispatch. The report retains only queue, start, completion, terminal-outcome,
+never-started, and stop counters; worker identity and completion order never
+enter a result identity.
+
+Raw copied artifact bytes never enter the result or publication. A completion
+marker is removed only after two exact, transitive, strict-tree readbacks; the
+second brackets its complete physical scan with matching bounded content and
+identity inventories, follows the final fault boundary, and rejects
+recovery-only ledger residue or changed artifact bytes. Marker removal is the final fallible
+process-visible commit operation. Once
+that marker has been durably established, every returned run or finish failure
+is `outcome_unknown,retry_safe:false` and retains it plus any ledger state
+already created; a process or power interruption may conservatively retain the
+marker after all result bytes were written. A new run never reopens the same
+destination.
+
+`resume/reference` requires that marker, the exact manifest and bundle, the
+exact scheduler plan implied by the selected worker width, the complete planned
+ledger roster, and every present staged or terminal artifact. It dispatches
+only attempts still durably `planned`. A committed nonterminal crash tail is
+first closed as absorbing `unknown`; terminal and unknown identities are
+preserved and never executed again. Missing, extra, forged, ambiguous, or
+never-started artifacts fail closed. An existing scheduler report is accepted
+only when every roster member is already terminal, so it can finish publication
+but cannot authorize further work. Resume removes the marker only after the
+same final exact reread.
+
 Each new destination receives a fresh random ledger identity and therefore
 fresh physical attempt IDs, while manifest, treatment, trial, outcome, and
 artifact semantics remain deterministic. Cancellation and timeout are terminal
 only under the lifecycle evidence actually recorded. The success envelope
-exposes only the manifest digest and trial/success/failure counts.
+exposes only the manifest digest; trial and terminal-outcome counts; admitted
+worker width; and queued, started, completed, never-started, and stop counters.
 Completed-publication inspection is a read-only contour: it requires the
 existing private ledger lock, opens it without create/write access, bounds the
 attempt directory read by the exact manifest roster, and rejects every extra
@@ -657,6 +707,8 @@ The internal `ATL_EVAL_*` registry, wrapper basenames, broker records, launch ar
 | `agent-eval/grade-receipt` | Content-minimized per-check coverage, evidence citations, reviewer provenance, usage, and disagreements |
 | `agent-eval/migration-preview` | Content-minimized reviewed binding of source, candidate, registry, migration implementation, graph, and counts |
 | `agent-eval/migration-result` | Content-minimized idempotent receipt for one applied reviewed migration |
+| `agent-eval/scheduler-plan` | Content-minimized immutable task, ordinal, round, worker, resource, cumulative-cost, and opaque cohort admission |
+| `agent-eval/scheduler-report` | Content-minimized queue, dispatch, terminal-outcome, never-started, and stop counters bound to one scheduler plan |
 | `agent-eval/schema-registry` | Public closed inventory of artifact ownership, generations, policies, bounds, resources, and reviewed migration edges |
 | `agent-eval/sequential-reference-bundle` | Exact manifest binding, deterministic grading plan, three admitted reference execution plans, and bounded content-addressed input snapshots for `run/reference` |
 
@@ -666,12 +718,15 @@ migration artifacts, the three durable attempt families
 (`agent-eval/attempt-ledger`, `agent-eval/attempt-plan`, and
 `agent-eval/attempt-event`), each of the four extension families, the semantic
 adapter contract, normalized observation, execution-backend contract, trial
-plan, trial receipt, grader contract, grading plan, grade receipt, and the
-sequential-reference bundle at generation 1. Project config, registry, experiment capability/design/analysis
+plan, trial receipt, grader contract, grading plan, grade receipt, scheduler
+plan/report, and the sequential-reference bundle at generation 1. Project
+config, registry, experiment capability/design/analysis
 and manifest, attempt records, adapter manifest, message, bundle, adapter contract, execution-backend
 contract, trial-plan, and grade-receipt generations are readable, emitted, and executable;
 experiment trial records, analysis reports, migration artifacts, extension reports, normalized agent observations, and
-trial receipts are readable and emitted but never executable. Grader contracts,
+trial receipts and scheduler reports are readable and emitted but never
+executable. Scheduler plans are readable, emitted, and executable only by the
+bounded local dispatcher. Grader contracts,
 grading plans, and grade receipts are readable, emitted, and executable. A
 grade receipt may enter grading only with its exact admitted plan and attempt
 identity; it cannot launch a process, select a provider, or acquire authority
@@ -694,7 +749,10 @@ and emitted at v1, and never executable. Execution-backend contracts and receipt
 64 KiB; trial plans are `content_minimized` and capped at 256 KiB. Grader
 contracts are `content_minimized` and capped at 64 KiB; grading plans are
 `public_or_private` and capped at 1 MiB; grade receipts are
-`content_minimized` and capped at 4 MiB. Messages are
+`content_minimized` and capped at 4 MiB. Scheduler plans are
+`content_minimized`, capped at 4 MiB, preserved, and executable; scheduler
+reports are `content_minimized`, capped at 64 KiB, preserved, and never
+executable. Messages are
 `public_or_private` and capped at 1 MiB, extension conformance bundles are
 public and capped at 1 MiB, and reports are `content_minimized` and capped at
 1 MiB. Migration

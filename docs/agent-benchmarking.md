@@ -313,12 +313,14 @@ lifecycle or make the evaluator part of the signed `atl` distribution. The
 authority, loss reporting, and pre-release status.
 
 The evaluator also has a neutral causal-experiment compiler. The source-built
-coordinator now composes exactly one execution surface from it:
+coordinator now composes exactly one provider-free execution profile from it.
 `run --mode reference` accepts an already compiled manifest plus a closed
-sequential-reference bundle and writes one new local publication. It does not
-plan a new experiment, select an agent or backend, resume an attempt, or admit
-the one-request Process API. The compiler consumes either one bounded Agent
-Skills case projection or one native case identity plus an explicit complete
+sequential-reference bundle and writes one new local publication;
+`resume --mode reference` validates and completes only the planned complement
+of that exact marker-bearing publication. Neither operation plans a new
+experiment, selects an agent or backend, admits generic resume, or enters the
+one-request Process API. The compiler consumes either one bounded Agent Skills
+case projection or one native case identity plus an explicit complete
 capability contract. It emits strict schema-v1 capability, design,
 analysis-plan, manifest, and trial-record bytes.
 The manifest binds none/current/previous/forced/autonomous/retrieved/distractor
@@ -340,23 +342,38 @@ answer from the skill under test. Near-miss, irrelevant, unsupported-domain,
 stale-version, and adversarial controls therefore require separately authored
 bytes and distinct digests.
 
-The root facade pre-admits the complete fixed reference profile, allocates its
-manifest roster as planned lifecycle members, and runs at most one in-memory
-reference attempt at a time in manifest order. The reference, candidate, and
-control roles are cross-bound to their fixture, skill, and separately authored
-control bytes before the destination is created; only bounded
-`reference_copy` plans are admitted. It retains canonical
-observation, execution, grading, lifecycle, and trial-record artifacts under a
-new-destination completion marker. Completed inspection uses an existing
-read-only ledger lock and requires the exact physical roster with no temporary
-member or crash-tail ordinal; generic recovery tolerance is not accepted by
-analysis. Any returned post-creation ambiguity retains
-that marker and is no-replay `outcome_unknown`. Removing the marker is the final
-fallible process-visible commit step, so a crash may conservatively leave an
-otherwise complete destination marked incomplete. Every new destination gets
-a fresh ledger identity and fresh physical attempt IDs; deterministic logical
-manifest, treatment, trial, and outcome projections do not authorize physical
-attempt-ID reuse. Once any
+The root facade pre-admits the complete fixed reference profile and allocates
+its manifest roster as planned lifecycle members. The default and explicit
+`--sequential` forms remain the exact one-worker manifest-order oracle;
+`--workers N` may run only equal treatment positions from independent blocks,
+under one closed scheduler plan with worker, CPU, memory, storage, process,
+cumulative-cost, and opaque cohort ceilings reserved before dispatch. The
+reference, candidate, and control roles are cross-bound to their fixture,
+skill, and separately authored control bytes before the destination is created;
+only bounded `reference_copy` plans are admitted. The publication retains
+canonical scheduler plan/report, observation, execution, grading, lifecycle,
+and trial-record artifacts under a new-destination completion marker that
+binds the manifest and worker width before the ledger roster is materialized.
+
+Resume reopens only that exact private marker-bearing tree, validates its
+manifest, bundle, scheduler plan, complete ledger roster, and all present
+staged or terminal artifacts, then dispatches only durably planned identities.
+A new run or resume holds an exclusive advisory lock on the exact incomplete
+marker for the whole publication ownership interval, so a concurrent resume
+refuses before it can inspect or mutate the ledger.
+A committed nonterminal crash tail is first closed as absorbing `unknown`;
+terminal and unknown identities are never replayed. Completed inspection uses
+an existing read-only ledger lock and requires the exact physical roster with
+no temporary member or crash-tail ordinal; generic recovery tolerance is not
+accepted by analysis. Any returned post-creation ambiguity retains that marker
+and is no-replay `outcome_unknown`. Removing the marker is the final fallible
+process-visible commit step after a second strict-tree and transitive artifact
+readback bracketed by equal bounded content-and-identity inventories, so a
+crash may conservatively leave an otherwise complete
+destination marked incomplete. Every new destination gets a fresh
+ledger identity and fresh physical attempt IDs; deterministic logical manifest,
+treatment, trial, and outcome projections do not authorize physical attempt-ID
+reuse. Once any
 member commits, changing repetition policy, order, exclusions, stopping, or
 other manifest-bound material conflicts rather than extending the experiment.
 Historical private four-cell activation studies project only treatment classes

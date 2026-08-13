@@ -1991,15 +1991,59 @@
     },
     {
       "namespace": "standalone",
+      "kind": "scheduler-plan",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/scheduler-plan-v1.json",
+      "source_sha256": "12f9d471391ee0f0895370984f97cdf017a96c3414dcee1e50909491eec41f26",
+      "expected_projection": {
+        "schema": "agent-eval/scheduler-plan",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "worker_limit": 1,
+        "cohort_limit_count": 1,
+        "task_count": 1,
+        "first_ordinal": 1,
+        "first_round": 1,
+        "total_cost_microusd": 25,
+        "plan_digest_bound": true
+      }
+    },
+    {
+      "namespace": "standalone",
+      "kind": "scheduler-report",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/scheduler-report-v1.json",
+      "source_sha256": "c88cb96f812283b827ae1efe25009ecf7c84833b28d1f57a8c3287ffa5350a62",
+      "reader_support_path": "testdata/standalone-readability/scheduler-plan-v1.json",
+      "reader_support_sha256": "12f9d471391ee0f0895370984f97cdf017a96c3414dcee1e50909491eec41f26",
+      "expected_projection": {
+        "schema": "agent-eval/scheduler-report",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "plan_bound": true,
+        "queued": 1,
+        "started": 1,
+        "completed": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "canceled": 0,
+        "unknown": 0,
+        "never_started": 0,
+        "stop": "none",
+        "report_digest_bound": true
+      }
+    },
+    {
+      "namespace": "standalone",
       "kind": "schema-registry",
       "version": 1,
       "source_path": "schemaregistry/registry.v1.json",
-      "source_sha256": "ee41fffe060b878f168d52d5edac0987f922dfc8a6d58eff428538b20473b175",
+      "source_sha256": "e3407896cbb24c7a0d998be65f0c657065513e5b22ac6f98af46eb773389b058",
       "expected_projection": {
         "schema": "agent-eval/schema-registry",
         "schema_version": 1,
         "contract_version": "0.1.0-pre-release",
-        "entry_count": 43,
+        "entry_count": 45,
         "first_schema": "atl-profile/activation-reference",
         "last_schema": "standalone/trial-record",
         "migration_edge_count": 1

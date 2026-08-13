@@ -167,9 +167,14 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 		{name: "ci evaluator internal tree coverage", path: ".github/workflows/ci.yml", old: ".claude-plugin .mcp.json cmd internal scripts", replacement: ".claude-plugin .mcp.json cmd scripts", want: "exact required workflow block"},
 		{name: "ci evaluator allowed failure", path: ".github/workflows/ci.yml", old: "        run: make agent-eval-full", replacement: "        run: make agent-eval-full\n        continue-on-error: true", want: "exact required workflow block"},
 		{name: "ci extension runtime selector", path: ".github/workflows/ci.yml", old: "TestExtensionProtocolV1StateMachineIsClosed", replacement: "TestExtensionProtocolV1StateMachine", want: "exact required workflow block"},
+		{name: "ci scheduler runtime selector", path: ".github/workflows/ci.yml", old: "TestSchedulerDispatchIsRoundOrderedBoundedAndCompletionOrderIndependent", replacement: "TestSchedulerDispatchIsRoundOrderedBoundedAndCompletionOrder", want: "exact required workflow block"},
 		{name: "ci Darwin zombie group selector", path: ".github/workflows/ci.yml", old: "|TestDarwinZombieOnlyProcessGroupSignal", replacement: "", want: "exact required workflow block"},
 		{name: "ci Windows extension runner", path: ".github/workflows/ci.yml", old: "  agent-eval-extension-windows:\n    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'\n    runs-on: windows-latest", replacement: "  agent-eval-extension-windows:\n    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'\n    runs-on: ubuntu-latest", want: "ci agent-eval-extension-windows job must retain runs-on: windows-latest"},
 		{name: "ci Windows extension allowed failure", path: ".github/workflows/ci.yml", old: "        shell: pwsh\n        run: |", replacement: "        shell: pwsh\n        continue-on-error: true\n        run: |", want: "exact required workflow block"},
+		{name: "ci Windows scheduler runtime selector", path: ".github/workflows/ci.yml", old: schedulerWindowsRuntimeStepContract,
+			replacement: strings.Replace(schedulerWindowsRuntimeStepContract,
+				"TestSchedulerResumeCountsTerminalTasksAndDispatchesOnlyPlannedComplement",
+				"TestSchedulerResumeCountsTerminalTasks", 1), want: "exact required workflow block"},
 		{name: "release evaluator full", path: ".github/workflows/release.yml", old: "run: make agent-eval-full", replacement: "run: make agent-eval-compat", want: "exact required workflow block"},
 		{name: "CodeQL evaluator build", path: ".github/workflows/codeql.yml", old: "run: make agent-eval-build", replacement: "run: echo skipped", want: "exact workflow block"},
 		{name: "nested Dependabot module", path: ".github/dependabot.yml", old: "directory: \"/internal/agenteval\"", replacement: "directory: \"/internal/evaluator\"", want: "exactly one reviewed gomod entry"},
@@ -616,7 +621,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-` + checkoutStepContract + "\n" + setupGoStepContract + "\n" + buildStepContract + "\n" + ciProvenanceStepContract + "\n" + vetStepContract + "\n" + extensionProtocolRuntimeStepContract + "\n" + coreGateStepContract + "\n" + windowsCompileStepContract + `
+` + checkoutStepContract + "\n" + setupGoStepContract + "\n" + buildStepContract + "\n" + ciProvenanceStepContract + "\n" + vetStepContract + "\n" + extensionProtocolRuntimeStepContract + "\n" + schedulerRuntimeStepContract + "\n" + coreGateStepContract + "\n" + windowsCompileStepContract + `
   corpus-devcontainer:
     runs-on: ubuntu-latest
     steps:
@@ -630,7 +635,7 @@ jobs:
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     steps:
-` + checkoutStepContract + "\n" + setupGoStepContract + "\n" + extensionProtocolWindowsRuntimeStepContract + `
+` + checkoutStepContract + "\n" + setupGoStepContract + "\n" + extensionProtocolWindowsRuntimeStepContract + "\n" + schedulerWindowsRuntimeStepContract + `
   lint:
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest

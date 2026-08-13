@@ -76,6 +76,8 @@ func standaloneSchemaOwner(namespace, kind string) string {
 		return "experiment"
 	case "grade-receipt", "grader-contract", "grading-plan":
 		return "grading"
+	case "scheduler-plan", "scheduler-report":
+		return "scheduler"
 	case "adapter-manifest", "adapter-message", "extension-conformance-bundle", "extension-conformance-report":
 		return "extension"
 	case "attempt-event", "attempt-ledger", "attempt-plan":

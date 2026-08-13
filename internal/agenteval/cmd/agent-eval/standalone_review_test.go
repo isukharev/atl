@@ -33,6 +33,7 @@ func TestStandaloneFrozenAuthorityProfiles(t *testing.T) {
 		"reconcile/evidence-only":     "local_write/11000001",
 		"report/default":              "local_read/10000000",
 		"resume/default":              "agent_execution/11111111",
+		"resume/reference":            "local_write/11000000",
 		"run/default":                 "agent_execution/11111110",
 		"run/reference":               "local_write/11000000",
 		"schema inspect/default":      "local_read/10000000",
