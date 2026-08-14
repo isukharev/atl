@@ -13,6 +13,21 @@ const (
 	compatibilitySchemaV1   = 1
 )
 
+var canonicalMetricVectorValidity = map[string]bool{
+	"legacy-not-applicable-zero": false,
+	"legacy-unknown-zero":        true,
+	"legacy-unsupported-zero":    true,
+	"missing-optional-entry":     true,
+	"missing-required-entry":     false,
+	"not-applicable-absent":      true,
+	"not-applicable-zero":        false,
+	"observed-zero":              true,
+	"uncovered-nonzero":          false,
+	"unknown-absent":             true,
+	"unknown-covered":            false,
+	"unsupported-absent":         true,
+}
+
 type compatibilityGoldenBundle struct {
 	Path   string `json:"path"`
 	SHA256 string `json:"sha256"`
@@ -199,36 +214,175 @@ func validateCompatibilityNestedShape(root map[string]json.RawMessage) error {
 	if err != nil {
 		return fmt.Errorf("compatibility readability: %w", err)
 	}
+	previous := ""
 	for _, raw := range readability {
-		if _, err := nestedJSONObject(raw,
+		members, err := nestedJSONObject(raw,
 			map[string]bool{"namespace": true, "kind": true, "versions": true},
-			map[string]bool{"namespace": true, "kind": true, "versions": true}); err != nil {
+			map[string]bool{"namespace": true, "kind": true, "versions": true})
+		if err != nil {
 			return fmt.Errorf("compatibility readability entry: %w", err)
 		}
+		namespace, ok := rawString(members["namespace"])
+		if !ok || !safeName(namespace) {
+			return errors.New("compatibility readability namespace is invalid")
+		}
+		kind, ok := rawString(members["kind"])
+		if !ok || !safeName(kind) {
+			return errors.New("compatibility readability kind is invalid")
+		}
+		key := namespace + "\x00" + kind
+		if key <= previous {
+			return errors.New("compatibility readability entries are not sorted and unique")
+		}
+		previous = key
 	}
 	forward, err := rawJSONArray(root["forward_rejection"])
 	if err != nil {
 		return fmt.Errorf("compatibility forward rejection: %w", err)
 	}
+	previous = ""
 	for _, raw := range forward {
-		if _, err := nestedJSONObject(raw,
+		members, err := nestedJSONObject(raw,
 			map[string]bool{"namespace": true, "kind": true, "version": true},
-			map[string]bool{"namespace": true, "kind": true, "version": true}); err != nil {
+			map[string]bool{"namespace": true, "kind": true, "version": true})
+		if err != nil {
 			return fmt.Errorf("compatibility forward rejection entry: %w", err)
 		}
+		namespace, ok := rawString(members["namespace"])
+		if !ok || !safeName(namespace) {
+			return errors.New("compatibility forward rejection namespace is invalid")
+		}
+		kind, ok := rawString(members["kind"])
+		if !ok || !safeName(kind) {
+			return errors.New("compatibility forward rejection kind is invalid")
+		}
+		key := namespace + "\x00" + kind
+		if key <= previous {
+			return errors.New("compatibility forward rejection entries are not sorted and unique")
+		}
+		previous = key
 	}
 	metrics, err := rawJSONArray(root["metric_vectors"])
 	if err != nil {
 		return fmt.Errorf("compatibility metric vectors: %w", err)
 	}
+	previous = ""
+	seenMetricIDs := make(map[string]bool, len(metrics))
 	for _, raw := range metrics {
-		if _, err := nestedJSONObject(raw,
+		members, err := nestedJSONObject(raw,
 			map[string]bool{"id": true, "representation": true, "present": true, "required": true, "valid": true},
-			map[string]bool{"id": true, "representation": true, "present": true, "required": true, "state": true, "coverage": true, "value": true, "valid": true}); err != nil {
+			map[string]bool{"id": true, "representation": true, "present": true, "required": true, "state": true, "coverage": true, "value": true, "valid": true})
+		if err != nil {
 			return fmt.Errorf("compatibility metric vector: %w", err)
+		}
+		if err := validateCompatibilityMetricVector(members); err != nil {
+			return fmt.Errorf("compatibility metric vector: %w", err)
+		}
+		id, _ := rawString(members["id"])
+		if id <= previous || seenMetricIDs[id] {
+			return errors.New("compatibility metric vectors are not sorted and unique")
+		}
+		previous, seenMetricIDs[id] = id, true
+	}
+	if len(seenMetricIDs) != len(canonicalMetricVectorValidity) {
+		return errors.New("compatibility metric vector inventory is not canonical")
+	}
+	for id := range canonicalMetricVectorValidity {
+		if !seenMetricIDs[id] {
+			return fmt.Errorf("compatibility metric vector %q is missing", id)
 		}
 	}
 	return nil
+}
+
+func rawString(raw json.RawMessage) (string, bool) {
+	if len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return "", false
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", false
+	}
+	return value, true
+}
+
+func rawBool(raw json.RawMessage) (bool, bool) {
+	if len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return false, false
+	}
+	var value bool
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return false, false
+	}
+	return value, true
+}
+
+func rawInt64(raw json.RawMessage) (int64, bool) {
+	if len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return 0, false
+	}
+	var value int64
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return 0, false
+	}
+	return value, true
+}
+
+func validateCompatibilityMetricVector(members map[string]json.RawMessage) error {
+	id, idOK := rawString(members["id"])
+	representation, representationOK := rawString(members["representation"])
+	present, presentOK := rawBool(members["present"])
+	required, requiredOK := rawBool(members["required"])
+	valid, validOK := rawBool(members["valid"])
+	if !idOK || !safeName(id) || !representationOK || representation != "atl-profile-legacy" && representation != "standalone" ||
+		!presentOK || !requiredOK || !validOK {
+		return errors.New("metric identity or required scalar is invalid")
+	}
+	state, statePresent := members["state"]
+	stateValue, stateOK := rawString(state)
+	coverage, coveragePresent := members["coverage"]
+	coverageValue, coverageOK := rawBool(coverage)
+	value, valuePresent := members["value"]
+	valueNumber, valueOK := rawInt64(value)
+	if !present {
+		if statePresent && stateOK || coveragePresent && !rawNull(coverage) || valuePresent && !rawNull(value) {
+			return errors.New("missing metric has observed fields")
+		}
+		if valid != !required || valid != canonicalMetricVectorValidity[id] {
+			return errors.New("missing metric validity is inconsistent")
+		}
+		return nil
+	}
+	if !stateOK || !statePresent || stateValue != "observed" && stateValue != "unknown" && stateValue != "unsupported" && stateValue != "not_applicable" {
+		return errors.New("observed metric state is invalid")
+	}
+	wantValid := false
+	if representation == "standalone" {
+		switch stateValue {
+		case "observed":
+			wantValid = coverageOK && coverageValue && valueOK && valueNumber >= 0
+		default:
+			wantValid = !coveragePresent && !valuePresent
+		}
+	} else {
+		wantValid = coverageOK && valueOK && valueNumber >= 0
+		switch stateValue {
+		case "observed":
+			wantValid = wantValid && coverageValue
+		case "unknown", "unsupported":
+			wantValid = wantValid && !coverageValue && valueNumber == 0
+		default:
+			wantValid = false
+		}
+	}
+	if valid != wantValid || valid != canonicalMetricVectorValidity[id] {
+		return errors.New("metric validity is inconsistent")
+	}
+	return nil
+}
+
+func rawNull(raw json.RawMessage) bool {
+	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
 }
 
 func validateCompatibilityBundle(data []byte, contractVersion string) error {

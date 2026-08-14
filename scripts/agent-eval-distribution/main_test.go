@@ -322,9 +322,9 @@ func TestDistributionRejectsCompatibilityAndTargetDrift(t *testing.T) {
 	}
 	validText := string(valid)
 	for name, mutated := range map[string]string{
-		"duplicate top-level member":     strings.Replace(validText, `"schema_version":1,`, `"schema_version":1,"schema_version":1,`, 1),
+		"duplicate top-level member":     strings.Replace(validText, `"schema_version":1`, `"schema_version":1,"schema_version":1`, 1),
 		"duplicate nested member":        strings.Replace(validText, `"path":"testdata/golden.json","sha256"`, `"path":"testdata/golden.json","path":"testdata/golden.json","sha256"`, 1),
-		"missing required metric member": strings.Replace(validText, `"present":false,"required":false`, `"present":false`, 1),
+		"missing required metric member": strings.Replace(validText, `"present":false,"representation":"standalone","required":false`, `"present":false,"representation":"standalone"`, 1),
 	} {
 		if mutated == validText {
 			t.Fatalf("test mutation %q did not change the compatibility bundle", name)
@@ -534,7 +534,54 @@ func testBinaryData(version, commit, marker string) []byte {
 }
 
 func testCompatibilityBundle() []byte {
-	return []byte(`{"schema_version":1,"contract_version":"0.1.0-pre-release","golden_bundle":{"path":"testdata/golden.json","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"readability":[{"namespace":"standalone","kind":"project-config","versions":[1]}],"forward_rejection":[{"namespace":"standalone","kind":"project-config","version":2}],"metric_vectors":[{"id":"metric","representation":"standalone","present":false,"required":false,"valid":true}]}` + "\n")
+	observed := "observed"
+	unknown := "unknown"
+	unsupported := "unsupported"
+	notApplicable := "not_applicable"
+	zero := json.RawMessage("0")
+	metric := func(id, representation string, present, required bool, state *string, coverage *bool, value json.RawMessage, valid bool) map[string]any {
+		result := map[string]any{"id": id, "representation": representation, "present": present, "required": required, "valid": valid}
+		if state != nil {
+			result["state"] = *state
+		}
+		if coverage != nil {
+			result["coverage"] = *coverage
+		}
+		if value != nil {
+			result["value"] = value
+		}
+		return result
+	}
+	trueValue := true
+	falseValue := false
+	return mustCanonicalJSON(map[string]any{
+		"schema_version": 1, "contract_version": distributionContractVersion,
+		"golden_bundle":     map[string]any{"path": "testdata/golden.json", "sha256": strings.Repeat("a", 64)},
+		"readability":       []any{map[string]any{"namespace": "standalone", "kind": "project-config", "versions": []int{1}}},
+		"forward_rejection": []any{map[string]any{"namespace": "standalone", "kind": "project-config", "version": 2}},
+		"metric_vectors": []any{
+			metric("legacy-not-applicable-zero", "atl-profile-legacy", true, true, &notApplicable, &falseValue, zero, false),
+			metric("legacy-unknown-zero", "atl-profile-legacy", true, true, &unknown, &falseValue, zero, true),
+			metric("legacy-unsupported-zero", "atl-profile-legacy", true, true, &unsupported, &falseValue, zero, true),
+			metric("missing-optional-entry", "standalone", false, false, nil, nil, nil, true),
+			metric("missing-required-entry", "standalone", false, true, nil, nil, nil, false),
+			metric("not-applicable-absent", "standalone", true, true, &notApplicable, nil, nil, true),
+			metric("not-applicable-zero", "standalone", true, true, &notApplicable, &falseValue, zero, false),
+			metric("observed-zero", "standalone", true, true, &observed, &trueValue, zero, true),
+			metric("uncovered-nonzero", "atl-profile-legacy", true, true, &unknown, &falseValue, json.RawMessage("1"), false),
+			metric("unknown-absent", "standalone", true, true, &unknown, nil, nil, true),
+			metric("unknown-covered", "standalone", true, true, &unknown, &trueValue, zero, false),
+			metric("unsupported-absent", "standalone", true, true, &unsupported, nil, nil, true),
+		},
+	})
+}
+
+func mustCanonicalJSON(value any) []byte {
+	data, err := canonicalJSON(value)
+	if err != nil {
+		panic(err)
+	}
+	return data
 }
 
 func testCommitCharacter(label string) string {
