@@ -181,6 +181,22 @@ func TestDecodeRejectsCollectionExpansionBeforeTypedDecode(t *testing.T) {
 			}
 		})
 	}
+	for _, test := range []struct {
+		name       string
+		key        string
+		occurrence int
+		alias      string
+	}{
+		{name: "primary identity", key: "primary_identity", occurrence: 1, alias: "Primary_Identity"},
+		{name: "holdout identity", key: "holdout_identity", occurrence: 1, alias: "Holdout_Identity"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			alias := replaceMemberKey(encoded, test.key, test.occurrence, test.alias)
+			if err := validateJSONShape(alias); err == nil {
+				t.Fatalf("case-folded %s alias reached typed decoding", test.name)
+			}
+		})
+	}
 }
 
 func TestIdentityRequiresCompleteStableDigests(t *testing.T) {
@@ -436,6 +452,28 @@ func replaceArrayKey(encoded []byte, key string, occurrence int, replacement str
 	result := make([]byte, 0, len(encoded)+len(replacement)-len(key))
 	result = append(result, encoded[:index]...)
 	result = append(result, []byte(`"`+replacement+`":[`)...)
+	result = append(result, encoded[index+len(marker):]...)
+	return result
+}
+
+func replaceMemberKey(encoded []byte, key string, occurrence int, replacement string) []byte {
+	marker := []byte(`"` + key + `":`)
+	index := -1
+	searchFrom := 0
+	for current := 0; current < occurrence; current++ {
+		found := bytes.Index(encoded[searchFrom:], marker)
+		if found < 0 {
+			return encoded
+		}
+		index = searchFrom + found
+		searchFrom = index + len(marker)
+	}
+	if index < 0 {
+		return encoded
+	}
+	result := make([]byte, 0, len(encoded)+len(replacement)-len(key))
+	result = append(result, encoded[:index]...)
+	result = append(result, []byte(`"`+replacement+`":`)...)
 	result = append(result, encoded[index+len(marker):]...)
 	return result
 }
