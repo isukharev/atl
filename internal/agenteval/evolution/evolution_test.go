@@ -105,9 +105,15 @@ func TestEvolutionProposalContractIsClosedCanonicalBoundedAndReviewOnly(t *testi
 	if err := plan.WriteNew(destination); err != nil {
 		t.Fatal(err)
 	}
+	assertEvolutionProposalKnownAnswer(t)
+	assertEvolutionPublicSurface(t)
 }
 
 func TestEvolutionProposalKnownAnswer(t *testing.T) {
+	assertEvolutionProposalKnownAnswer(t)
+}
+
+func assertEvolutionProposalKnownAnswer(t *testing.T) {
 	classes := []FailureClass{FailureSafety, FailureCoverage, FailureRuntime, FailureQuality, FailureResource, FailureLifecycle, FailureVerifier}
 	failures := make([]FailureSummary, 0, len(classes))
 	for index, class := range classes {
@@ -138,6 +144,10 @@ func TestEvolutionProposalKnownAnswer(t *testing.T) {
 }
 
 func TestEvolutionPublicSurfaceIsReviewOnlyAndStdlibBound(t *testing.T) {
+	assertEvolutionPublicSurface(t)
+}
+
+func assertEvolutionPublicSurface(t *testing.T) {
 	_, sourceFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller failed")
