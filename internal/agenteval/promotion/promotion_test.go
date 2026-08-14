@@ -136,6 +136,18 @@ func TestPromotionRejectsAliasesAndUnreviewedComponents(t *testing.T) {
 	} else if code, ok := CodeOf(err); !ok || code != ErrorInvalidReview {
 		t.Fatalf("review error code=%q ok=%v", code, ok)
 	}
+	receipt, err := Evaluate(testInput(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt.Reasons = nil
+	receipt.ReceiptSHA256, err = digestJSON(receiptWithoutDigest(receipt))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EncodeDecision(receipt); err == nil {
+		t.Fatal("nil reasons alias was accepted")
+	}
 }
 
 func TestRollbackIsExactAndCanonical(t *testing.T) {

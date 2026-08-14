@@ -39,6 +39,7 @@ const (
 	ErrorLimitExceeded       ErrorCode = "promotion_limit_exceeded"
 	ErrorConflict            ErrorCode = "promotion_conflict"
 	ErrorUnsupportedPlatform ErrorCode = "promotion_unsupported_platform"
+	ErrorOutcomeUnknown      ErrorCode = "promotion_outcome_unknown"
 )
 
 type Error struct{ code ErrorCode }

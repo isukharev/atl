@@ -238,7 +238,7 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 		})
 	}
 
-	wantRoles := []string{"agent-adapter", "atl-profile", "execution-backend", "grader", "reporter", "standalone-core"}
+	wantRoles := []string{"agent-adapter", "atl-profile", "execution-backend", "grader", "promotion", "reporter", "standalone-core"}
 	gotRoles := make([]string, 0, len(contract.Roles))
 	for _, role := range contract.Roles {
 		gotRoles = append(gotRoles, role.ID)

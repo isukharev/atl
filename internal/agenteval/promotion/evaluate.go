@@ -159,7 +159,7 @@ func ValidateDecision(receipt DecisionReceipt) error {
 		(receipt.Decision != DecisionPromote && receipt.Decision != DecisionRefuse) || validateIdentity(receipt.Reference) != nil ||
 		validateIdentity(receipt.Candidate) != nil || identityEqual(receipt.Reference, receipt.Candidate) ||
 		validateReviews(receipt.Reviews, receipt.Reference, receipt.Candidate) != nil || validateAxes(receipt.Axes) != nil ||
-		validateReasons(receipt.Reasons) != nil || !validDigest(receipt.ReceiptSHA256) {
+		receipt.Reasons == nil || validateReasons(receipt.Reasons) != nil || !validDigest(receipt.ReceiptSHA256) {
 		return fail(ErrorInvalidReceipt)
 	}
 	expectedReasons := decisionReasons(ComparisonInput{Reference: receipt.Reference, Candidate: receipt.Candidate, Reviews: receipt.Reviews, Axes: receipt.Axes, Interrupted: receipt.Interrupted})

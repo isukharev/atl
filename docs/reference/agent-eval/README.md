@@ -376,7 +376,7 @@ has process, provider, backend, network, or credential authority.
 
 The compatibility registry records `minimum_deprecation_days: 180` and `minimum_deprecation_releases: 2`. The release count means two later stable minor releases in the same major after notice; patch releases and pre-release builds do not count. Both minima must elapse, and removal still requires the next major. A security issue may disable execution sooner, but safe inspection, reporting, or migration remains when it does not recreate the vulnerability, and historical meaning is never silently reinterpreted.
 
-Readers in a supported major line must read every stable artifact that line emitted. A later reader either preserves meaning directly or offers an explicit previewable migration. Future schemas are preserved and refused, never treated as empty, downgraded, or partially decoded as current.
+Readers in a supported major line must read every stable public artifact that line emitted. Internal owner-only store metadata uses its own versioned, bounded codecs and is not a standalone interchange artifact; it is never accepted by public artifact readers. A later reader either preserves meaning directly or offers an explicit previewable migration. Future schemas are preserved and refused, never treated as empty, downgraded, or partially decoded as current.
 
 Compatibility is the tuple `(standalone-core, contract, atl-profile, agent-adapter, execution-backend, grader, reporter, artifact schemas, process protocols)`. `compatible:true` requires every required tuple member and capability to be known and supported; omission is not compatibility.
 
@@ -714,7 +714,7 @@ Existing evaluator artifacts retain their bytes and meaning under logical identi
 Here, “readable” means accepted by the exact generation reader, “emitted” means the maintained evaluator can write that generation, and “executable” means the generation may enter its existing execution path. An empty column is a deliberate refusal, not missing registry data. In particular, a write-only aggregate can be compared only under its named projection contract; it cannot be reintroduced as source evidence or treated as a readable canonical artifact.
 
 The embedded closed schema registry is the sole machine authority for every
-artifact family, owner, generation set, byte bound, privacy class,
+public artifact family, owner, generation set, byte bound, privacy class,
 disposition, schema resource, and migration policy. The standalone product
 contract is an exact projection of that registry, not a second inventory. A
 content-addressed inspection reports the family entry and its migration graph;
@@ -723,7 +723,12 @@ changes the registry digest and fails the compatibility oracle. Registry
 membership does not make a readable artifact executable, comparable,
 promotable, or public.
 
-The internal `ATL_EVAL_*` registry, wrapper basenames, broker records, launch arguments, and package-local Go types remain internal even when tests serialize them.
+The promotion store's `agent-eval/promotion-store-pointer@1` and
+`agent-eval/promotion-store-transition@1` records are versioned owner-only
+metadata, not standalone interchange artifacts; they are decoded only by the
+store, bounded, and rejected by public artifact readers. The internal
+`ATL_EVAL_*` registry, wrapper basenames, broker records, launch arguments, and
+package-local Go types remain internal even when tests serialize them.
 
 ## Standalone artifacts and migration
 

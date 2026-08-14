@@ -145,7 +145,8 @@ func cloneAxes(input []AxisResult) []AxisResult {
 }
 
 func cloneReasons(input []Reason) []Reason {
-	result := append([]Reason(nil), input...)
+	result := make([]Reason, len(input))
+	copy(result, input)
 	sortReasons(result)
 	return result
 }

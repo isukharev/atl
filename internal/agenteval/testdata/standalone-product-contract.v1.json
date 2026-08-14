@@ -56,6 +56,7 @@
     {"id":"atl-profile","owns":["ATL compatibility artifacts","selected-binary qualification","Jira and Confluence evidence"],"does_not_own":["generic core vocabulary","standalone release policy"]},
     {"id":"execution-backend","owns":["workspace isolation","process cleanup","resource and network enforcement"],"does_not_own":["attempt replay","scoring authority","promotion"]},
     {"id":"grader","owns":["deterministic checks","isolated verification","bounded qualitative evidence"],"does_not_own":["execution admission","artifact retention","promotion"]},
+    {"id":"promotion","owns":["provider-free identity comparison","refusal reasons","exact guarded promotion","history-bound rollback"],"does_not_own":["source evidence","provider/backend access","arbitrary identity selection","release signing","support policy"]},
     {"id":"reporter","owns":["read-only projections","format conformance","privacy-tier enforcement"],"does_not_own":["canonical results","threshold policy","raw evidence authority"]},
     {"id":"standalone-core","owns":["public contracts","experiment plans","attempt lifecycle","admission policy","canonical results and aggregates"],"does_not_own":["ATL product behavior","agent-client semantics","backend enforcement claims"]}
   ],

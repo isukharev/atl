@@ -24,6 +24,8 @@ func standalonePromotionFailure(err error) *standaloneFailure {
 			return standaloneFail(standaloneInputError, "promotion_limit_exceeded")
 		case "promotion_unsupported_platform":
 			return standaloneFail(standaloneCompatibilityError, "promotion_unsupported_platform")
+		case "promotion_outcome_unknown":
+			return standaloneFail(standaloneOutcomeUnknownError, "promotion_outcome_unknown")
 		case "invalid_promotion_identity", "invalid_promotion_review", "invalid_promotion_axis", "invalid_promotion_receipt", "invalid_rollback_receipt":
 			return standaloneFail(standaloneInputError, "invalid_promotion_input")
 		}

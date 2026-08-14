@@ -16,6 +16,8 @@ const (
 	promotionRollbackDirectory   = "rollbacks"
 	promotionTransitionDirectory = "transitions"
 	promotionCurrentName         = "current.json"
+	PointerSchema                = "agent-eval/promotion-store-pointer"
+	TransitionSchema             = "agent-eval/promotion-store-transition"
 	maxStoreFileBytes            = MaxReceiptBytes
 )
 
@@ -38,6 +40,9 @@ type referencePointer struct {
 }
 
 type transitionRecord struct {
+	Schema                   string   `json:"schema"`
+	SchemaVersion            int      `json:"schema_version"`
+	ContractVersion          string   `json:"contract_version"`
 	Kind                     string   `json:"kind"`
 	RequestSHA256            string   `json:"request_sha256"`
 	ReceiptSHA256            string   `json:"receipt_sha256"`
@@ -56,8 +61,11 @@ func NewStore(root string) (Store, error) {
 		return Store{}, fail(ErrorInvalidIdentity)
 	}
 	info, err := os.Lstat(abs)
-	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || validateStoreRootPlatform(abs, info) != nil {
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return Store{}, fail(ErrorInvalidIdentity)
+	}
+	if err := validateStoreRootPlatform(abs, info); err != nil {
+		return Store{}, err
 	}
 	resolved, err := filepath.EvalSymlinks(abs)
 	if err != nil || resolved != abs {
@@ -65,6 +73,11 @@ func NewStore(root string) (Store, error) {
 	}
 	held, err := os.OpenRoot(abs)
 	if err != nil {
+		return Store{}, fail(ErrorInvalidIdentity)
+	}
+	heldInfo, err := held.Stat(".")
+	if err != nil || !os.SameFile(info, heldInfo) || !heldInfo.IsDir() || heldInfo.Mode()&os.ModeSymlink != 0 || validateStoreDirectoryPlatform(heldInfo) != nil {
+		_ = held.Close()
 		return Store{}, fail(ErrorInvalidIdentity)
 	}
 	return Store{rootPath: abs, root: held}, nil
@@ -78,12 +91,20 @@ func (s Store) openRoot() (*os.Root, error) {
 }
 
 func (s Store) ensureDirectory(root *os.Root, name string) error {
-	if err := root.Mkdir(name, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
-		return err
+	created := false
+	if err := root.Mkdir(name, 0o700); err != nil {
+		if !errors.Is(err, os.ErrExist) {
+			return err
+		}
+	} else {
+		created = true
 	}
 	info, err := root.Lstat(name)
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || validateStoreDirectoryPlatform(info) != nil {
 		return fail(ErrorConflict)
+	}
+	if created {
+		return syncDirectory(root, ".")
 	}
 	return nil
 }
@@ -103,7 +124,7 @@ func writeExclusive(root *os.Root, name string, data []byte, idempotent bool) er
 		if info.Mode().Perm() != 0o600 {
 			return fail(ErrorConflict)
 		}
-		return nil
+		return syncDirectory(root, filepath.Dir(name))
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -186,7 +207,7 @@ func randomTransitionSuffix() string {
 }
 
 func encodePointer(pointer referencePointer) ([]byte, error) {
-	if pointer.Schema != Schema || pointer.SchemaVersion != SchemaVersion || pointer.ContractVersion != ContractVersion || validateIdentity(pointer.Identity) != nil || !validDigest(pointer.TransitionSHA256) || !validDigest(pointer.PointerSHA256) {
+	if pointer.Schema != PointerSchema || pointer.SchemaVersion != SchemaVersion || pointer.ContractVersion != ContractVersion || validateIdentity(pointer.Identity) != nil || !validDigest(pointer.TransitionSHA256) || !validDigest(pointer.PointerSHA256) {
 		return nil, fail(ErrorInvalidReceipt)
 	}
 	copyPointer := pointer
@@ -258,7 +279,7 @@ func (s Store) Close() error {
 }
 
 func writePointer(root *os.Root, identity Identity, transitionSHA256 string) error {
-	pointer := referencePointer{Schema: Schema, SchemaVersion: SchemaVersion, ContractVersion: ContractVersion, Identity: identity, TransitionSHA256: transitionSHA256}
+	pointer := referencePointer{Schema: PointerSchema, SchemaVersion: SchemaVersion, ContractVersion: ContractVersion, Identity: identity, TransitionSHA256: transitionSHA256}
 	digest, err := digestJSON(pointer)
 	if err != nil {
 		return err
@@ -297,7 +318,10 @@ func writePointer(root *os.Root, identity Identity, transitionSHA256 string) err
 		_ = root.Remove(tempName)
 		return err
 	}
-	return syncDirectory(root, ".")
+	if err := syncDirectory(root, "."); err != nil {
+		return fail(ErrorOutcomeUnknown)
+	}
+	return nil
 }
 
 func transitionWithoutDigest(record transitionRecord) transitionRecord {
@@ -307,7 +331,8 @@ func transitionWithoutDigest(record transitionRecord) transitionRecord {
 
 func validateTransition(record transitionRecord) error {
 	fromEmpty := record.Kind == "promotion" && identityZero(record.From) && record.PreviousTransitionSHA256 == ""
-	if (record.Kind != "promotion" && record.Kind != "rollback") || (!fromEmpty && validateIdentity(record.From) != nil) ||
+	if record.Schema != TransitionSchema || record.SchemaVersion != SchemaVersion || record.ContractVersion != ContractVersion ||
+		(record.Kind != "promotion" && record.Kind != "rollback") || (!fromEmpty && validateIdentity(record.From) != nil) ||
 		validateIdentity(record.To) != nil || (!fromEmpty && identityEqual(record.From, record.To)) ||
 		!validDigest(record.RequestSHA256) || !validDigest(record.ReceiptSHA256) || !validDigest(record.TransitionSHA256) {
 		return fail(ErrorInvalidReceipt)
@@ -469,7 +494,7 @@ func (s Store) ApplyPromotion(receipt DecisionReceipt, expectedCurrent *Identity
 		from = current.Identity
 		previous = current.TransitionSHA256
 	}
-	record := transitionRecord{Kind: "promotion", RequestSHA256: receipt.ReceiptSHA256, ReceiptSHA256: receipt.ReceiptSHA256,
+	record := transitionRecord{Schema: TransitionSchema, SchemaVersion: SchemaVersion, ContractVersion: ContractVersion, Kind: "promotion", RequestSHA256: receipt.ReceiptSHA256, ReceiptSHA256: receipt.ReceiptSHA256,
 		PreviousTransitionSHA256: previous, From: from, To: receipt.Candidate}
 	digest, err := digestJSON(transitionWithoutDigest(record))
 	if err != nil {
@@ -542,7 +567,7 @@ func (s Store) ApplyRollback(receipt RollbackReceipt) (RollbackReceipt, error) {
 	if err := s.recordRollback(root, applied); err != nil {
 		return RollbackReceipt{}, err
 	}
-	record := transitionRecord{Kind: "rollback", RequestSHA256: receipt.ReceiptSHA256, ReceiptSHA256: applied.ReceiptSHA256,
+	record := transitionRecord{Schema: TransitionSchema, SchemaVersion: SchemaVersion, ContractVersion: ContractVersion, Kind: "rollback", RequestSHA256: receipt.ReceiptSHA256, ReceiptSHA256: applied.ReceiptSHA256,
 		PreviousTransitionSHA256: current.TransitionSHA256, From: receipt.Current, To: receipt.Restore}
 	digest, err = digestJSON(transitionWithoutDigest(record))
 	if err != nil {
