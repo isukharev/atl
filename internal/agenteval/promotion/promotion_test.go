@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -365,6 +366,87 @@ func TestStoreTransitionCapacityIsAdmittedBeforeWriting(t *testing.T) {
 	} else if code, ok := CodeOf(err); !ok || code != ErrorLimitExceeded {
 		t.Fatalf("over-capacity scan code=%q ok=%v err=%v", code, ok, err)
 	}
+}
+
+func TestStoreAPICapacityRefusesBeforeReceiptOrPointer(t *testing.T) {
+	newStore := func(t *testing.T) (string, Store) {
+		t.Helper()
+		root := t.TempDir()
+		if err := os.Chmod(root, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		store, err := NewStore(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = store.Close() })
+		return root, store
+	}
+	fillTransitions := func(t *testing.T, root string, count int) {
+		t.Helper()
+		transitionRoot := filepath.Join(root, promotionTransitionDirectory)
+		if err := os.MkdirAll(transitionRoot, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		for index := 0; index < count; index++ {
+			name := filepath.Join(transitionRoot, "reserved-"+testDigest("api-capacity-"+strconv.Itoa(index))+".json")
+			if err := os.WriteFile(name, []byte("{}\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	t.Run("promotion", func(t *testing.T) {
+		root, store := newStore(t)
+		fillTransitions(t, root, maxTransitionEntries)
+		receipt, err := Evaluate(testInput(false))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.ApplyPromotion(receipt, nil); err == nil {
+			t.Fatal("promotion succeeded at transition capacity")
+		} else if code, ok := CodeOf(err); !ok || code != ErrorLimitExceeded {
+			t.Fatalf("promotion capacity code=%q ok=%v err=%v", code, ok, err)
+		}
+		if _, present, err := store.Current(); err != nil || present {
+			t.Fatalf("capacity refusal changed current pointer: present=%v err=%v", present, err)
+		}
+		if _, err := os.Stat(filepath.Join(root, promotionDecisionDirectory)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("capacity refusal wrote decision directory: err=%v", err)
+		}
+	})
+
+	t.Run("rollback", func(t *testing.T) {
+		root, store := newStore(t)
+		promotion, err := Evaluate(testInput(false))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.ApplyPromotion(promotion, nil); err != nil {
+			t.Fatal(err)
+		}
+		before, present, err := store.Current()
+		if err != nil || !present {
+			t.Fatalf("Current before rollback: current=%+v present=%v err=%v", before, present, err)
+		}
+		fillTransitions(t, root, maxTransitionEntries-1)
+		rollback, err := PlanRollback(RollbackRequest{Current: promotion.Candidate, Restore: promotion.Reference, AuthorizationSHA256: testDigest("api-capacity-rollback")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.ApplyRollback(rollback); err == nil {
+			t.Fatal("rollback succeeded at transition capacity")
+		} else if code, ok := CodeOf(err); !ok || code != ErrorLimitExceeded {
+			t.Fatalf("rollback capacity code=%q ok=%v err=%v", code, ok, err)
+		}
+		after, present, err := store.Current()
+		if err != nil || !present || after != before {
+			t.Fatalf("capacity refusal changed current pointer: before=%+v after=%+v present=%v err=%v", before, after, present, err)
+		}
+		if _, err := os.Stat(filepath.Join(root, promotionRollbackDirectory)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("capacity refusal wrote rollback receipt directory: err=%v", err)
+		}
+	})
 }
 
 func TestStoreRollbackRequiresRecordedPromotionAndRejectsCycleReplay(t *testing.T) {
