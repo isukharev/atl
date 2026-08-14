@@ -240,15 +240,18 @@ grading contract and evaluator `grading`, neutral bounded dispatch leaf
 `interchange/agentskills`, owner-private bounded ATIF leaf
 `interchange/atif`, immutable dataset-lineage leaf `lineage`, schema metadata
 leaf `schemaregistry`, provider-free telemetry projection leaf `telemetry`,
-provider-free promotion leaf `promotion`, and `cmd/agent-eval`. Their
+provider-free promotion leaf `promotion`, review-only evolution-proposal leaf
+`evolution`, and `cmd/agent-eval`. Their
 machine-enforced direction keeps `core`, `extension`, `agentadapter`,
-`executionbackend`, `experiment`, `lifecycle`, `promotion`, and `scheduler` as
-leaves, keeps `lineage`, `interchange/atif`, `schemaregistry`, and `telemetry`
+`executionbackend`, `experiment`, `evolution`, `lifecycle`, `promotion`, and
+`scheduler` as leaves, keeps `evolution`, `lineage`, `interchange/atif`,
+`schemaregistry`, and `telemetry`
 dependency-free, permits `analysis` to import only
 `experiment`, permits `grading` to import only `core` and `executionbackend`,
 permits `profile/atl` to import `core` and `grading`, permits
 `interchange/agentskills` to import only `core`, permits the root facade to
-compose those owners including `analysis`, `promotion`, and `scheduler`, and permits the
+compose those owners including `analysis`, `evolution`, `promotion`, and
+`scheduler`, and permits the
 command to import only the exact root facade. The ledger records every
 module-self file, lane, target, and alias, rejects dot or blank self imports,
 and retains zero product-private imports. `TestNeutralCoreVocabularyContract`

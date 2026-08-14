@@ -78,6 +78,17 @@ attribute vocabulary with canonical bounded JSON and a caller-owned
 discovery, network, credential, filesystem, provider, or public-report
 authority, and never stores raw prompts, responses, paths, or diagnostics.
 
+The source tree also contains an internal `evolution` leaf for review-only,
+content-minimized candidate proposals. It accepts only closed failure classes,
+counts, and opaque evidence identities; it never reads or emits prompts,
+expected answers, raw verifier material, source files, holdouts, credentials,
+providers, or backend state. Skill changes and evaluation changes are separate
+projections. Self-feedback proposals are explicitly exploratory and
+non-reusable. The leaf has no apply, promotion, CLI, provider, network, or
+private-workspace authority: publication writes one bounded canonical proposal
+only to an explicitly absent destination and leaves application to a separate
+reviewed action.
+
 ## Stability vocabulary
 
 | Status | Meaning |
