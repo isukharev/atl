@@ -64,6 +64,16 @@ func TestHoldoutClaimsAndIdentityDriftFailClosed(t *testing.T) {
 	}
 }
 
+func TestHoldoutMustUseADistinctDatasetIdentity(t *testing.T) {
+	input := validLineageInput()
+	input.Roles[1].ContentSHA256 = input.Roles[0].ContentSHA256
+	input.Holdouts[0].ReviewedMaterialAxes = []DifferenceAxis{AxisModel}
+	input.Holdouts[0].HoldoutIdentity.ModelSHA256 = digest("different-model")
+	if _, err := Seal(input); lineageCode(err) != ErrorInvalidHoldout {
+		t.Fatalf("same-dataset holdout error=%v", err)
+	}
+}
+
 func TestLegacyIDDerivedRoleIsExplicitReadOnlyAndContentAddressed(t *testing.T) {
 	input := validLineageInput()
 	input.Roles[1].Role = RoleLegacyIDDerived
@@ -135,6 +145,29 @@ func TestStrictDecoderRejectsAliasesFutureFieldsAndNonCanonicalBytes(t *testing.
 	}
 }
 
+func TestDecodeRejectsCollectionExpansionBeforeTypedDecode(t *testing.T) {
+	encoded := mustEncode(t, mustSeal(t, validLineageInput()))
+	tests := []struct {
+		name  string
+		key   string
+		limit int
+	}{
+		{name: "roles", key: "roles", limit: MaxRoles},
+		{name: "holdouts", key: "holdouts", limit: MaxHoldouts},
+		{name: "dependencies", key: "dependency_sha256", limit: MaxDependencies},
+		{name: "differences", key: "differences", limit: len(closedAxes)},
+		{name: "reviewed axes", key: "reviewed_material_axes", limit: MaxMaterialAxes},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			data := exceedArrayBound(encoded, test.key, test.limit)
+			if _, err := Decode(bytes.NewReader(data)); lineageCode(err) != ErrorInvalidLineage {
+				t.Fatalf("oversized %s error=%v", test.name, err)
+			}
+		})
+	}
+}
+
 func TestIdentityRequiresCompleteStableDigests(t *testing.T) {
 	missing := validLineageInput()
 	missing.PrimaryIdentity.EvalSHA256 = ""
@@ -175,7 +208,13 @@ func TestSealRejectsOversizedAndMalformedCollectionsWithoutPanic(t *testing.T) {
 }
 
 func TestRoleAndAxisVocabulariesAreClosed(t *testing.T) {
-	if len(Roles()) != 9 || len(DifferenceAxes()) != 11 {
+	if !reflect.DeepEqual(Roles(), []DatasetRole{
+		RoleAuthoring, RoleTrain, RoleValidation, RoleGeneralization, RoleTrigger,
+		RoleSecurity, RoleEvolutionCompatibility, RoleFinalPromotion, RoleLegacyIDDerived,
+	}) || !reflect.DeepEqual(DifferenceAxes(), []DifferenceAxis{
+		AxisDataset, AxisContract, AxisSkill, AxisEvaluation, AxisGrader, AxisAgent,
+		AxisModel, AxisHarness, AxisEnvironment, AxisToolAPI, AxisDependency,
+	}) {
 		t.Fatal("closed vocabulary changed unexpectedly")
 	}
 	input := validLineageInput()
@@ -187,6 +226,27 @@ func TestRoleAndAxisVocabulariesAreClosed(t *testing.T) {
 	input.Holdouts[0].ReviewedMaterialAxes = []DifferenceAxis{DifferenceAxis("prompt")}
 	if _, err := Seal(input); err == nil {
 		t.Fatal("unknown difference axis was accepted")
+	}
+}
+
+func TestCanonicalV1KnownAnswerVector(t *testing.T) {
+	sealed, err := Seal(knownVectorInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sealed.LineageSHA256 != "bc70638815e90df9be8e10ffd83f9581d66e35fa6290a2c68e1059bb3637a800" {
+		t.Fatalf("lineage digest=%s", sealed.LineageSHA256)
+	}
+	encoded, err := Encode(sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := SHA256Hex(encoded); got != "2207aaf9c3d0fab2727b1c5bbd6e475fd2937f82207bfdcf639efe6930971485" {
+		t.Fatalf("canonical wire digest=%s", got)
+	}
+	decoded, err := Decode(bytes.NewReader(encoded))
+	if err != nil || !reflect.DeepEqual(decoded, sealed) {
+		t.Fatalf("known vector did not round-trip: %v", err)
 	}
 }
 
@@ -238,6 +298,41 @@ func validIdentity(seed string) RuntimeIdentity {
 	}
 }
 
+func knownVectorInput() Lineage {
+	return Lineage{
+		Roles: []RoleDescriptor{
+			{Role: RoleValidation, ContentSHA256: "1ef8f27e50b01f3ef4844d172b6db57024565edae5f9a94d5e22da4845a01ae9", Coverage: Coverage{Total: 3, Covered: 3}},
+			{Role: RoleGeneralization, ContentSHA256: "81e0aea5f4ddd15b09e85266b820302b721b695b521ae9a46ce364e6c2351fd1", Coverage: Coverage{Total: 1, Covered: 1}},
+		},
+		PrimaryRole:           RoleValidation,
+		PrimaryContractSHA256: "8565caeff2db7a7bc72fd845216f5c0963f081219a90fff23782e287abe9a304",
+		PrimaryIdentity:       knownVectorIdentity(),
+		Holdouts: []HoldoutBinding{{
+			HoldoutRole:           RoleGeneralization,
+			HoldoutContractSHA256: "8565caeff2db7a7bc72fd845216f5c0963f081219a90fff23782e287abe9a304",
+			HoldoutIdentity:       knownVectorIdentity(),
+			ReviewedMaterialAxes:  []DifferenceAxis{AxisDataset},
+		}},
+	}
+}
+
+func knownVectorIdentity() RuntimeIdentity {
+	return RuntimeIdentity{
+		SkillSHA256:       "9b645a81d403c24318cdedeb4089606d26b476265557d53f0494b1e2eef9fc9d",
+		EvalSHA256:        "ebfec4f2c7fe55f1645c51270977079860493858d1c0ebe4b6ef357b2079d0a0",
+		GraderSHA256:      "0f99332201edd3021d54c017945e9a0f56703e3dbad2b8f52618e796039fa27a",
+		AgentSHA256:       "3717a1d609d196a0d52d730011de630ba030dcb8d6f62672d97f9ef3043e7fac",
+		ModelSHA256:       "0f4733bd9e3b2d4b61e009fc766af966588268d4b9c7415ec0d8358153b6776c",
+		HarnessSHA256:     "2919e9563e5ee0b37e76c5cb1c6d3bfaedfba98b3f7cb60e1045fca43d06332c",
+		EnvironmentSHA256: "711b48f53834df02d489a53a96d494b9b79fd66d2ee38a7a601544e8dc1d57df",
+		ToolAPISHA256:     "b5ce0dfcf7c061a56c6c274d01f039270379245404378101adfe478e2d28128f",
+		DependencySHA256: []string{
+			"4a1b95325c8a5ae31ae4343b6efa5e6224a22745bb34e173f6f703c6e63f2bdf",
+			"4c0cb4b8c7d27999cc6e2183bec475d304c85a7cc9ddb5619ff50a313c72f951",
+		},
+	}
+}
+
 func digest(value string) string { return SHA256Hex([]byte(value)) }
 
 func mustSeal(t testing.TB, input Lineage) Lineage {
@@ -280,4 +375,18 @@ func lineageCode(err error) ErrorCode {
 	}
 	code, _ := CodeOf(err)
 	return code
+}
+
+func exceedArrayBound(encoded []byte, key string, limit int) []byte {
+	marker := []byte(`"` + key + `":[`)
+	index := bytes.Index(encoded, marker)
+	if index < 0 {
+		return encoded
+	}
+	insert := strings.TrimSuffix(strings.Repeat("{},", limit+1), ",") + ","
+	result := make([]byte, 0, len(encoded)+len(insert))
+	result = append(result, encoded[:index+len(marker)]...)
+	result = append(result, insert...)
+	result = append(result, encoded[index+len(marker):]...)
+	return result
 }

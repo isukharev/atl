@@ -294,6 +294,13 @@ func validateHoldoutShape(lineage Lineage, holdout HoldoutBinding, primary RoleD
 			return fail(ErrorInvalidHoldout)
 		}
 	}
+	// A holdout must represent a distinct dataset role. Runtime-only or
+	// contract-only changes cannot turn the primary fixture into a holdout;
+	// the dataset axis is therefore always reviewed and must differ.
+	dataset := holdout.Differences[axisOrdinal(AxisDataset)]
+	if !material[AxisDataset] || dataset.PrimarySHA256 == dataset.HoldoutSHA256 {
+		return fail(ErrorInvalidHoldout)
+	}
 	bindingDigest, err := holdoutDigest(holdout)
 	if err != nil || !validDigest(holdout.BindingSHA256) || bindingDigest != holdout.BindingSHA256 {
 		return fail(ErrorInvalidHoldout)

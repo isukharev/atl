@@ -70,7 +70,7 @@ func decodeClosed(data []byte, destination any) error {
 func validateJSONShape(data []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
-	if err := validateJSONValue(decoder, 0); err != nil {
+	if err := validateJSONValue(decoder, 0, ""); err != nil {
 		return err
 	}
 	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
@@ -79,7 +79,7 @@ func validateJSONShape(data []byte) error {
 	return nil
 }
 
-func validateJSONValue(decoder *json.Decoder, depth int) error {
+func validateJSONValue(decoder *json.Decoder, depth int, path string) error {
 	if depth > MaxJSONDepth {
 		return errors.New("json_depth")
 	}
@@ -104,7 +104,11 @@ func validateJSONValue(decoder *json.Decoder, depth int) error {
 				return errors.New("duplicate_json_member")
 			}
 			seen[name] = true
-			if err := validateJSONValue(decoder, depth+1); err != nil {
+			childPath := name
+			if path != "" {
+				childPath = path + "." + name
+			}
+			if err := validateJSONValue(decoder, depth+1, childPath); err != nil {
 				return err
 			}
 		}
@@ -113,8 +117,15 @@ func validateJSONValue(decoder *json.Decoder, depth int) error {
 			return errors.New("json_object")
 		}
 	case '[':
+		limit := jsonArrayLimit(path)
+		count := 0
 		for decoder.More() {
-			if err := validateJSONValue(decoder, depth+1); err != nil {
+			count++
+			if limit > 0 && count > limit {
+				return errors.New("json_array_limit")
+			}
+			childPath := path + ".*"
+			if err := validateJSONValue(decoder, depth+1, childPath); err != nil {
 				return err
 			}
 		}
@@ -126,4 +137,21 @@ func validateJSONValue(decoder *json.Decoder, depth int) error {
 		return errors.New("json_delimiter")
 	}
 	return nil
+}
+
+func jsonArrayLimit(path string) int {
+	switch path {
+	case "roles":
+		return MaxRoles
+	case "holdouts":
+		return MaxHoldouts
+	case "primary_identity.dependency_sha256", "holdouts.*.holdout_identity.dependency_sha256":
+		return MaxDependencies
+	case "holdouts.*.differences":
+		return len(closedAxes)
+	case "holdouts.*.reviewed_material_axes":
+		return MaxMaterialAxes
+	default:
+		return 0
+	}
 }
