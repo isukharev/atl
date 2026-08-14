@@ -96,6 +96,9 @@ func TestDistributionBuildVerifySignInstallUninstall(t *testing.T) {
 }
 
 func TestDistributionDeferredCommitRejectsSourceDrift(t *testing.T) {
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		t.Skip("distribution candidate contour is Linux/amd64")
+	}
 	root := t.TempDir()
 	source := filepath.Join(root, "source")
 	if err := os.MkdirAll(filepath.Join(source, "testdata"), 0o700); err != nil {
