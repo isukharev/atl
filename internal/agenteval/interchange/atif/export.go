@@ -32,10 +32,19 @@ const (
 // directory and final-inode races deterministic without widening the API.
 var exportHook func(exportHookPoint)
 
+var exportTemporaryRemove func(*os.Root, string) error
+
 func invokeExportHook(point exportHookPoint) {
 	if exportHook != nil {
 		exportHook(point)
 	}
+}
+
+func removeTemporary(root *os.Root, name string) error {
+	if exportTemporaryRemove != nil {
+		return exportTemporaryRemove(root, name)
+	}
+	return root.Remove(name)
 }
 
 // ExportOwnerPrivate writes exactly one new canonical ATIF file beneath an
@@ -100,7 +109,7 @@ func ExportOwnerPrivate(request ExportRequest) error {
 			_ = file.Close()
 		}
 		if temporaryPresent {
-			_ = root.Remove(temporary)
+			_ = removeTemporary(root, temporary)
 		}
 	}()
 	if err := file.Chmod(0o600); err != nil {
@@ -139,7 +148,10 @@ func ExportOwnerPrivate(request ExportRequest) error {
 		}
 		return fail(ErrorExportFailed)
 	}
-	if err := root.Remove(temporary); err != nil {
+	if err := removeTemporary(root, temporary); err != nil {
+		if info, statErr := root.Lstat(relative); statErr == nil && os.SameFile(createdInfo, info) {
+			_ = root.Remove(relative)
+		}
 		return fail(ErrorExportFailed)
 	}
 	temporaryPresent = false

@@ -341,6 +341,44 @@ func TestExportRejectsFinalInodeReplacement(t *testing.T) {
 	requireCode(t, ExportOwnerPrivate(request), ErrorExportFailed)
 }
 
+func TestExportRollsBackWhenTemporaryCleanupFails(t *testing.T) {
+	base := t.TempDir()
+	repository := filepath.Join(base, "repository")
+	root := filepath.Join(base, "private")
+	if err := os.Mkdir(repository, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projection := mustProject(t, validEventSet())
+	request := ExportRequest{OwnerPrivateRoot: root, RepositoryRoot: repository, RelativePath: "trajectory.json", Projection: projection}
+	previousRemove := exportTemporaryRemove
+	defer func() { exportTemporaryRemove = previousRemove }()
+	var calls int
+	exportTemporaryRemove = func(ownerRoot *os.Root, name string) error {
+		calls++
+		if calls == 1 {
+			return errors.New("injected temporary cleanup failure")
+		}
+		return ownerRoot.Remove(name)
+	}
+	requireCode(t, ExportOwnerPrivate(request), ErrorExportFailed)
+	if calls < 2 {
+		t.Fatalf("temporary cleanup calls = %d, want retry after publish failure", calls)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "trajectory.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("cleanup failure left final output, err=%v", err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("cleanup failure leaked owner-private temporary entries: %v", entries)
+	}
+}
+
 func FuzzDecodeRejectsUntrustedBytes(f *testing.F) {
 	projection, err := Project(validEventSet())
 	if err != nil {
