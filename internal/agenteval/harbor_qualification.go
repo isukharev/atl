@@ -26,6 +26,7 @@ const (
 	harborVersion               = "0.20.0"
 	harborSourceCommit          = "459ff6ec99417589b7f679d14ddf3b3f0ae4f1dc"
 	harborSourceArchive         = "harbor-v0.20.0.tar.gz"
+	harborSourceArchiveRoute    = "github_api_tarball:harbor-framework/harbor@v0.20.0"
 	harborSourceArchiveSHA256   = "6a3dc4e87706e56bff3ee373f2a210ce4e7859a329ebf21759411158d1a91aa1"
 	harborProjectManifest       = "pyproject.toml"
 	harborProjectManifestSHA256 = "be8cbfa23e4ae1c1780d751fcdeae8c778298caff5e5fe63e8fdd3e2e65b20c0"
@@ -54,6 +55,7 @@ type HarborQualificationIdentity struct {
 	Version               string `json:"version"`
 	SourceCommit          string `json:"source_commit"`
 	SourceArchive         string `json:"source_archive"`
+	SourceArchiveRoute    string `json:"source_archive_route"`
 	SourceArchiveSHA256   string `json:"source_archive_sha256"`
 	ProjectManifest       string `json:"project_manifest"`
 	ProjectManifestSHA256 string `json:"project_manifest_sha256"`
@@ -147,6 +149,7 @@ func harborPinnedIdentity() HarborQualificationIdentity {
 		Version:               harborVersion,
 		SourceCommit:          harborSourceCommit,
 		SourceArchive:         harborSourceArchive,
+		SourceArchiveRoute:    harborSourceArchiveRoute,
 		SourceArchiveSHA256:   harborSourceArchiveSHA256,
 		ProjectManifest:       harborProjectManifest,
 		ProjectManifestSHA256: harborProjectManifestSHA256,

@@ -24,7 +24,7 @@ func TestPinnedHarborQualificationIsClosedAndProviderFree(t *testing.T) {
 		t.Fatal(err)
 	}
 	if qualification.Identity.Package != harborPackage || qualification.Identity.Version != harborVersion ||
-		qualification.Identity.SourceCommit != harborSourceCommit || qualification.Identity.SourceArchiveSHA256 != harborSourceArchiveSHA256 ||
+		qualification.Identity.SourceCommit != harborSourceCommit || qualification.Identity.SourceArchiveRoute != harborSourceArchiveRoute || qualification.Identity.SourceArchiveSHA256 != harborSourceArchiveSHA256 ||
 		qualification.Identity.ProjectManifestSHA256 != harborProjectManifestSHA256 || qualification.Identity.LockfileSHA256 != harborLockfileSHA256 ||
 		qualification.Identity.ExecutableInput != "none_selected" || qualification.Identity.ContainerImage != "none_selected" {
 		t.Fatalf("unexpected Harbor identity: %+v", qualification.Identity)
@@ -48,6 +48,51 @@ func TestPinnedHarborQualificationIsClosedAndProviderFree(t *testing.T) {
 	}
 	if digest, err := HarborQualificationSHA256(decoded); err != nil || digest != qualification.ContractSHA256 {
 		t.Fatalf("qualification digest changed: digest=%q err=%v", digest, err)
+	}
+}
+
+func TestPinnedHarborQualificationMatchesIndependentClosedContract(t *testing.T) {
+	qualification, err := PinnedHarborQualification()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantIdentity := HarborQualificationIdentity{
+		Package:               "harbor",
+		Version:               "0.20.0",
+		SourceCommit:          "459ff6ec99417589b7f679d14ddf3b3f0ae4f1dc",
+		SourceArchive:         "harbor-v0.20.0.tar.gz",
+		SourceArchiveRoute:    "github_api_tarball:harbor-framework/harbor@v0.20.0",
+		SourceArchiveSHA256:   "6a3dc4e87706e56bff3ee373f2a210ce4e7859a329ebf21759411158d1a91aa1",
+		ProjectManifest:       "pyproject.toml",
+		ProjectManifestSHA256: "be8cbfa23e4ae1c1780d751fcdeae8c778298caff5e5fe63e8fdd3e2e65b20c0",
+		Lockfile:              "uv.lock",
+		LockfileSHA256:        "3a2a76d7d000544dfebc91f566187750eee5a452e27899b27e4905cfa6691388",
+		RuntimeFloor:          "python>=3.12",
+		License:               "Apache-2.0",
+		ExecutableInput:       "none_selected",
+		ContainerImage:        "none_selected",
+	}
+	wantPolicy := HarborOneAttemptPolicy{
+		FrameworkRetries: 0,
+		TrialRetries:     0,
+		AgentRetries:     0,
+		VerifierRetries:  0,
+		Cache:            false,
+		Telemetry:        false,
+		Upload:           false,
+		Network:          "deny",
+		Credentials:      "none",
+		PermissionPolicy: "evaluator_owned",
+		Sandbox:          "required",
+		RawArtifacts:     "owner_private",
+		ScoringAuthority: "evaluator_owned",
+		Registry:         "deny",
+		ResourcePolicy:   "evaluator_owned",
+		ExecutablePolicy: "none_selected",
+		ContainerPolicy:  "none_selected",
+	}
+	if qualification.Identity != wantIdentity || qualification.Policy != wantPolicy {
+		t.Fatalf("pinned Harbor contract drifted: identity=%+v policy=%+v", qualification.Identity, qualification.Policy)
 	}
 }
 
@@ -82,6 +127,7 @@ func TestHarborQualificationRejectsIdentityPolicyAndDigestDrift(t *testing.T) {
 		"lock digest":       func(value *HarborQualification) { value.Identity.LockfileSHA256 = strings.Repeat("c", 64) },
 		"executable input":  func(value *HarborQualification) { value.Identity.ExecutableInput = "harbor" },
 		"container input":   func(value *HarborQualification) { value.Identity.ContainerImage = "harbor:0.20.0" },
+		"archive route":     func(value *HarborQualification) { value.Identity.SourceArchiveRoute = "release_asset" },
 		"framework retry":   func(value *HarborQualification) { value.Policy.FrameworkRetries = 1 },
 		"trial retry":       func(value *HarborQualification) { value.Policy.TrialRetries = 1 },
 		"agent retry":       func(value *HarborQualification) { value.Policy.AgentRetries = 1 },
@@ -94,6 +140,11 @@ func TestHarborQualificationRejectsIdentityPolicyAndDigestDrift(t *testing.T) {
 		"permission bypass": func(value *HarborQualification) { value.Policy.PermissionPolicy = "bypass" },
 		"sandbox":           func(value *HarborQualification) { value.Policy.Sandbox = "optional" },
 		"scoring":           func(value *HarborQualification) { value.Policy.ScoringAuthority = "harbor" },
+		"raw artifacts":     func(value *HarborQualification) { value.Policy.RawArtifacts = "public" },
+		"registry":          func(value *HarborQualification) { value.Policy.Registry = "allow" },
+		"resource policy":   func(value *HarborQualification) { value.Policy.ResourcePolicy = "harbor" },
+		"executable policy": func(value *HarborQualification) { value.Policy.ExecutablePolicy = "allow" },
+		"container policy":  func(value *HarborQualification) { value.Policy.ContainerPolicy = "allow" },
 		"digest":            func(value *HarborQualification) { value.ContractSHA256 = strings.Repeat("d", 64) },
 	}
 	for name, mutate := range mutations {
@@ -102,6 +153,44 @@ func TestHarborQualificationRejectsIdentityPolicyAndDigestDrift(t *testing.T) {
 			mutate(&candidate)
 			if err := candidate.Validate(); !errors.Is(err, ErrHarborQualification) {
 				t.Fatalf("unsafe qualification was accepted: %v", err)
+			}
+		})
+	}
+}
+
+func TestHarborQualificationRejectsRecomputedUnsafeDrift(t *testing.T) {
+	qualification, err := PinnedHarborQualification()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutations := map[string]func(*HarborQualification){
+		"runtime":     func(value *HarborQualification) { value.Identity.RuntimeFloor = "python>=3.8" },
+		"license":     func(value *HarborQualification) { value.Identity.License = "proprietary" },
+		"archive":     func(value *HarborQualification) { value.Identity.SourceArchive = "other.tar.gz" },
+		"manifest":    func(value *HarborQualification) { value.Identity.ProjectManifest = "other.toml" },
+		"lockfile":    func(value *HarborQualification) { value.Identity.Lockfile = "other.lock" },
+		"permission":  func(value *HarborQualification) { value.Policy.PermissionPolicy = "bypass" },
+		"sandbox":     func(value *HarborQualification) { value.Policy.Sandbox = "optional" },
+		"raw":         func(value *HarborQualification) { value.Policy.RawArtifacts = "public" },
+		"registry":    func(value *HarborQualification) { value.Policy.Registry = "allow" },
+		"resource":    func(value *HarborQualification) { value.Policy.ResourcePolicy = "harbor" },
+		"executable":  func(value *HarborQualification) { value.Policy.ExecutablePolicy = "allow" },
+		"container":   func(value *HarborQualification) { value.Policy.ContainerPolicy = "allow" },
+		"network":     func(value *HarborQualification) { value.Policy.Network = "public" },
+		"credentials": func(value *HarborQualification) { value.Policy.Credentials = "ambient" },
+	}
+	for name, mutate := range mutations {
+		t.Run(name, func(t *testing.T) {
+			candidate := qualification
+			mutate(&candidate)
+			candidate.ContractSHA256 = ""
+			digest, digestErr := contentMinimizedAttemptDigest("harbor-qualification", candidate)
+			if digestErr != nil {
+				t.Fatal(digestErr)
+			}
+			candidate.ContractSHA256 = digest
+			if err := candidate.Validate(); !errors.Is(err, ErrHarborQualification) {
+				t.Fatalf("recomputed unsafe qualification was accepted: %v", err)
 			}
 		})
 	}
@@ -292,6 +381,87 @@ func TestRunHarborSyntheticFailureMapsBusyToConflict(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), ledgerRoot) || strings.Contains(err.Error(), ErrAttemptLedgerBusy.Error()) {
 		t.Fatalf("busy cause escaped coded error: %v", err)
+	}
+}
+
+func TestRunHarborSyntheticFailureDoesNotMisclassifyUnsafeRoots(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the append-only test ledger is unavailable on Windows")
+	}
+	qualification, err := PinnedHarborQualification()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp := t.TempDir()
+	publicParent := filepath.Join(tmp, "public-parent")
+	if err := os.Mkdir(publicParent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(publicParent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	unsafeRoot := filepath.Join(tmp, "unsafe-root")
+	if err := os.Mkdir(unsafeRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(unsafeRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, root := range map[string]string{
+		"relative root": filepath.Join("relative", "harbor-ledger"),
+		"unsafe parent": filepath.Join(publicParent, "harbor-ledger"),
+		"unsafe root":   unsafeRoot,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, _, err := RunHarborSyntheticFailure(qualification, root)
+			if !errors.Is(err, ErrHarborQualification) {
+				t.Fatalf("unsafe root was not classified: %v", err)
+			}
+			if !errors.Is(err, ErrAttemptLedger) {
+				t.Fatalf("unsafe root did not retain the ledger sentinel: %v", err)
+			}
+			if errors.Is(err, ErrAttemptLedgerConflict) {
+				t.Fatalf("unsafe root was misclassified as conflict: %v", err)
+			}
+			if strings.Contains(err.Error(), root) || strings.Contains(err.Error(), filepath.Base(root)) {
+				t.Fatalf("unsafe root leaked path detail: %v", err)
+			}
+		})
+	}
+}
+
+func TestHarborSyntheticAttemptRejectsEveryKnownCoverageGap(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the append-only test ledger is unavailable on Windows")
+	}
+	qualification, err := PinnedHarborQualification()
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt, _, err := harborSyntheticFixture(t, qualification)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := HarborSyntheticCoverage{Cost: "unknown", Tokens: "unknown", Trace: "unknown", Artifacts: "unknown", Verifier: "unknown", Lifecycle: "unknown"}
+	if attempt.Coverage != want {
+		t.Fatalf("coverage baseline is not independently unknown: got=%+v want=%+v", attempt.Coverage, want)
+	}
+	mutations := map[string]func(*HarborSyntheticCoverage){
+		"cost":      func(value *HarborSyntheticCoverage) { value.Cost = "zero" },
+		"tokens":    func(value *HarborSyntheticCoverage) { value.Tokens = "zero" },
+		"trace":     func(value *HarborSyntheticCoverage) { value.Trace = "complete" },
+		"artifacts": func(value *HarborSyntheticCoverage) { value.Artifacts = "complete" },
+		"verifier":  func(value *HarborSyntheticCoverage) { value.Verifier = "complete" },
+		"lifecycle": func(value *HarborSyntheticCoverage) { value.Lifecycle = "complete" },
+	}
+	for name, mutate := range mutations {
+		t.Run(name, func(t *testing.T) {
+			candidate := attempt
+			mutate(&candidate.Coverage)
+			if err := candidate.Validate(qualification); !errors.Is(err, ErrHarborQualification) {
+				t.Fatalf("coverage gap %q was accepted: %v", name, err)
+			}
+		})
 	}
 }
 
