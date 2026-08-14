@@ -118,7 +118,7 @@ func main() {
 	version := flag.String("version", "", "pre-release version (currently 0.1.0-pre-release)")
 	contractVersion := flag.String("contract-version", "0.1.0-pre-release", "standalone contract version")
 	sourceCommit := flag.String("source-commit", "", "exact 40-character source commit")
-	deferMarker := flag.Bool("defer-marker", os.Getenv("AGENT_EVAL_DISTRIBUTION_DEFER_MARKER") == "1", "leave the build incomplete until a separate commit step")
+	deferMarker := flag.Bool("defer-marker", false, "leave the build incomplete until a separate commit step")
 	platform := flag.String("platform", runtime.GOOS, "target platform")
 	architecture := flag.String("architecture", runtime.GOARCH, "target architecture")
 	publicKey := flag.String("public-key", "", "base64 public signing key file for verify/install/rollback/uninstall")

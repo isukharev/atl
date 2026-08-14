@@ -40,7 +40,6 @@ GO_ENV   := env -u GOROOT GOTOOLCHAIN=auto GOWORK=off
 GO_LOCAL_ENV := env -u GOROOT GOTOOLCHAIN=local GOWORK=off
 AGENT_EVAL_DIR := internal/agenteval
 AGENT_EVAL_MAKE := $(MAKE) -C $(AGENT_EVAL_DIR) REPOSITORY_ROOT="$(CURDIR)" ATL_BINARY="$(CURDIR)/atl"
-export AGENT_EVAL_DISTRIBUTION_DEFER_MARKER := 1
 
 # Platforms published to GitHub Releases. Keep in sync with the release workflow.
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
@@ -256,6 +255,7 @@ agent-eval-distribution: agent-eval-distribution-clean
 			go -C internal/agenteval build -trimpath -buildvcs=false -ldflags "-s -w -buildid= -X main.standaloneBuildVersion=$$version -X main.standaloneBuildCommit=$$source_commit -X main.standaloneBuildDate=$$build_date" -o "$$binary" ./cmd/agent-eval; \
 		$(GO_ENV) go run ./scripts/agent-eval-distribution \
 			--mode build --binary "$$binary" \
+			--defer-marker \
 			--compatibility internal/agenteval/testdata/standalone-conformance.v1.json \
 			--source-root . \
 			--source-files internal/agenteval \

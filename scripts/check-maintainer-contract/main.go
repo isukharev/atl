@@ -50,7 +50,6 @@ const windowsCompileMakeContract = `.PHONY: check-windows-compile
 check-windows-compile:
 	$(GO_ENV) GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...
 `
-
 const coreCoverageMakeContract = `.PHONY: check-core-race-coverage
 check-core-race-coverage:
 	@root_core_packages="$$( $(GO_ENV) go run ./scripts/list-go-packages --class root-core)" && \
@@ -207,6 +206,7 @@ agent-eval-distribution: agent-eval-distribution-clean
 			go -C internal/agenteval build -trimpath -buildvcs=false -ldflags "-s -w -buildid= -X main.standaloneBuildVersion=$$version -X main.standaloneBuildCommit=$$source_commit -X main.standaloneBuildDate=$$build_date" -o "$$binary" ./cmd/agent-eval; \
 		$(GO_ENV) go run ./scripts/agent-eval-distribution \
 			--mode build --binary "$$binary" \
+			--defer-marker \
 			--compatibility internal/agenteval/testdata/standalone-conformance.v1.json \
 			--source-root . \
 			--source-files internal/agenteval \
@@ -536,7 +536,7 @@ func validateBootstrap(root string) error {
 			return errors.New(required.diagnostic)
 		}
 	}
-	if !bytes.Contains(makefile, []byte("DEFER_MARKER")) || !bytes.Contains(makefile, []byte("mode commit")) {
+	if !bytes.Contains(makefile, []byte("--mode build --binary \"$$binary\" \\\n\t\t\t--defer-marker")) || !bytes.Contains(makefile, []byte("--mode commit --output")) {
 		return errors.New("distribution gate must defer and commit its marker")
 	}
 	for _, target := range []string{

@@ -196,7 +196,7 @@ func TestDistributionMakeRunsCleanBeforeFullGate(t *testing.T) {
 		"git status --porcelain=v1 --untracked-files=all",
 		"AGENT_EVAL_DISTRIBUTION_STATE",
 		"agent-eval distribution source commit changed during build",
-		"AGENT_EVAL_DISTRIBUTION_DEFER_MARKER := 1",
+		"--defer-marker",
 		"--mode commit",
 	} {
 		if !strings.Contains(text, want) {
