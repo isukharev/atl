@@ -84,17 +84,30 @@ func TestInspectQualificationRejectsIdentityPolicyAndWireDrift(t *testing.T) {
 	}
 
 	tests := map[string]func(*InspectQualification){
-		"package":        func(value *InspectQualification) { value.Identity.Package = "inspect-ai-mutated" },
-		"source":         func(value *InspectQualification) { value.Identity.SourceCommit = strings.Repeat("b", 40) },
-		"wheel":          func(value *InspectQualification) { value.Identity.WheelSHA256 = strings.Repeat("d", 64) },
-		"source archive": func(value *InspectQualification) { value.Identity.SourceArchiveFilename = "mutated.tar.gz" },
-		"license":        func(value *InspectQualification) { value.Identity.License = "unknown" },
-		"runtime":        func(value *InspectQualification) { value.Identity.RuntimeFloor = "python>=3.11" },
-		"retry":          func(value *InspectQualification) { value.Policy.ModelRetries = 1 },
-		"task retry":     func(value *InspectQualification) { value.Policy.TaskRetries = 1 },
-		"cache":          func(value *InspectQualification) { value.Policy.Cache = true },
-		"network":        func(value *InspectQualification) { value.Policy.Network = "ambient" },
-		"digest":         func(value *InspectQualification) { value.ContractSHA256 = strings.Repeat("c", 64) },
+		"package":           func(value *InspectQualification) { value.Identity.Package = "inspect-ai-mutated" },
+		"version":           func(value *InspectQualification) { value.Identity.Version = "0.3.253" },
+		"source":            func(value *InspectQualification) { value.Identity.SourceCommit = strings.Repeat("b", 40) },
+		"wheel filename":    func(value *InspectQualification) { value.Identity.WheelFilename = "mutated.whl" },
+		"wheel digest":      func(value *InspectQualification) { value.Identity.WheelSHA256 = strings.Repeat("d", 64) },
+		"source archive":    func(value *InspectQualification) { value.Identity.SourceArchiveFilename = "mutated.tar.gz" },
+		"archive digest":    func(value *InspectQualification) { value.Identity.SourceArchiveSHA256 = strings.Repeat("e", 64) },
+		"license":           func(value *InspectQualification) { value.Identity.License = "unknown" },
+		"runtime":           func(value *InspectQualification) { value.Identity.RuntimeFloor = "python>=3.11" },
+		"framework retry":   func(value *InspectQualification) { value.Policy.FrameworkRetries = 1 },
+		"eval-set retry":    func(value *InspectQualification) { value.Policy.EvalSetRetries = 1 },
+		"task retry":        func(value *InspectQualification) { value.Policy.TaskRetries = 1 },
+		"model retry":       func(value *InspectQualification) { value.Policy.ModelRetries = 1 },
+		"cache":             func(value *InspectQualification) { value.Policy.Cache = true },
+		"telemetry":         func(value *InspectQualification) { value.Policy.Telemetry = true },
+		"upload":            func(value *InspectQualification) { value.Policy.Upload = true },
+		"network":           func(value *InspectQualification) { value.Policy.Network = "ambient" },
+		"credentials":       func(value *InspectQualification) { value.Policy.Credentials = "ambient" },
+		"permission policy": func(value *InspectQualification) { value.Policy.PermissionPolicy = "upstream" },
+		"sandbox":           func(value *InspectQualification) { value.Policy.Sandbox = "optional" },
+		"raw artifacts":     func(value *InspectQualification) { value.Policy.RawArtifacts = "public" },
+		"projection":        func(value *InspectQualification) { value.Policy.Projection = "upstream" },
+		"scoring authority": func(value *InspectQualification) { value.Policy.ScoringAuthority = "upstream" },
+		"digest":            func(value *InspectQualification) { value.ContractSHA256 = strings.Repeat("c", 64) },
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -115,10 +128,14 @@ func TestInspectQualificationRejectsIdentityPolicyAndWireDrift(t *testing.T) {
 	}
 
 	mutations := map[string][]byte{
-		"unknown":    bytes.Replace(valid, []byte(`{"schema":`), []byte(`{"unknown":true,"schema":`), 1),
-		"duplicate":  bytes.Replace(valid, []byte(`"schema_version":1`), []byte(`"schema_version":1,"schema_version":1`), 1),
-		"trailing":   append(append([]byte(nil), valid...), []byte("{}\n")...),
-		"no newline": valid[:len(valid)-1],
+		"unknown":         bytes.Replace(valid, []byte(`{"schema":`), []byte(`{"unknown":true,"schema":`), 1),
+		"duplicate":       bytes.Replace(valid, []byte(`"schema_version":1`), []byte(`"schema_version":1,"schema_version":1`), 1),
+		"capitalized key": bytes.Replace(valid, []byte(`"schema":`), []byte(`"Schema":`), 1),
+		"noncanonical":    append([]byte{' '}, valid...),
+		"carriage return": bytes.Replace(valid, []byte{','}, []byte{',', '\r'}, 1),
+		"oversize":        append(bytes.Repeat([]byte{' '}, InspectQualificationMaxBytes), '\n'),
+		"trailing":        append(append([]byte(nil), valid...), []byte("{}\n")...),
+		"no newline":      valid[:len(valid)-1],
 	}
 	for name, mutation := range mutations {
 		t.Run(name, func(t *testing.T) {
