@@ -146,23 +146,38 @@ func TestStrictDecoderRejectsAliasesFutureFieldsAndNonCanonicalBytes(t *testing.
 }
 
 func TestDecodeRejectsCollectionExpansionBeforeTypedDecode(t *testing.T) {
-	encoded := mustEncode(t, mustSeal(t, validLineageInput()))
+	encoded := bytes.TrimSuffix(mustEncode(t, mustSeal(t, validLineageInput())), []byte{'\n'})
 	tests := []struct {
-		name  string
-		key   string
-		limit int
+		name       string
+		key        string
+		occurrence int
+		limit      int
+		existing   int
+		alias      string
 	}{
-		{name: "roles", key: "roles", limit: MaxRoles},
-		{name: "holdouts", key: "holdouts", limit: MaxHoldouts},
-		{name: "dependencies", key: "dependency_sha256", limit: MaxDependencies},
-		{name: "differences", key: "differences", limit: len(closedAxes)},
-		{name: "reviewed axes", key: "reviewed_material_axes", limit: MaxMaterialAxes},
+		{name: "roles", key: "roles", occurrence: 1, limit: MaxRoles, existing: 2, alias: "Roles"},
+		{name: "holdouts", key: "holdouts", occurrence: 1, limit: MaxHoldouts, existing: 1, alias: "Holdouts"},
+		{name: "primary dependencies", key: "dependency_sha256", occurrence: 1, limit: MaxDependencies, existing: 2, alias: "Dependency_sha256"},
+		{name: "holdout dependencies", key: "dependency_sha256", occurrence: 2, limit: MaxDependencies, existing: 2, alias: "Dependency_SHA256"},
+		{name: "differences", key: "differences", occurrence: 1, limit: len(closedAxes), existing: len(closedAxes), alias: "Differences"},
+		{name: "reviewed axes", key: "reviewed_material_axes", occurrence: 1, limit: MaxMaterialAxes, existing: 1, alias: "Reviewed_Material_Axes"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			data := exceedArrayBound(encoded, test.key, test.limit)
-			if _, err := Decode(bytes.NewReader(data)); lineageCode(err) != ErrorInvalidLineage {
-				t.Fatalf("oversized %s error=%v", test.name, err)
+			atLimit := insertArrayItems(encoded, test.key, test.occurrence, test.limit-test.existing)
+			if err := validateJSONShape(atLimit); err != nil {
+				t.Fatalf("exact %s bound rejected: %v", test.name, err)
+			}
+			overLimit := insertArrayItems(encoded, test.key, test.occurrence, test.limit-test.existing+1)
+			if err := validateJSONShape(overLimit); err == nil {
+				t.Fatalf("over-limit %s array reached typed decoding", test.name)
+			}
+			if _, err := Decode(bytes.NewReader(append(append([]byte{}, overLimit...), '\n'))); lineageCode(err) != ErrorInvalidLineage {
+				t.Fatalf("oversized %s decode error=%v", test.name, err)
+			}
+			alias := replaceArrayKey(encoded, test.key, test.occurrence, test.alias)
+			if err := validateJSONShape(alias); err == nil {
+				t.Fatalf("case-folded %s alias reached typed decoding", test.name)
 			}
 		})
 	}
@@ -209,11 +224,11 @@ func TestSealRejectsOversizedAndMalformedCollectionsWithoutPanic(t *testing.T) {
 
 func TestRoleAndAxisVocabulariesAreClosed(t *testing.T) {
 	if !reflect.DeepEqual(Roles(), []DatasetRole{
-		RoleAuthoring, RoleTrain, RoleValidation, RoleGeneralization, RoleTrigger,
-		RoleSecurity, RoleEvolutionCompatibility, RoleFinalPromotion, RoleLegacyIDDerived,
+		"authoring", "train", "validation", "generalization", "trigger",
+		"security", "evolution_compatibility", "final_promotion", "legacy_id_derived",
 	}) || !reflect.DeepEqual(DifferenceAxes(), []DifferenceAxis{
-		AxisDataset, AxisContract, AxisSkill, AxisEvaluation, AxisGrader, AxisAgent,
-		AxisModel, AxisHarness, AxisEnvironment, AxisToolAPI, AxisDependency,
+		"dataset", "contract", "skill", "evaluation", "grader", "agent", "model",
+		"harness", "environment", "tool_api", "dependency",
 	}) {
 		t.Fatal("closed vocabulary changed unexpectedly")
 	}
@@ -377,16 +392,50 @@ func lineageCode(err error) ErrorCode {
 	return code
 }
 
-func exceedArrayBound(encoded []byte, key string, limit int) []byte {
+func insertArrayItems(encoded []byte, key string, occurrence, count int) []byte {
+	if count <= 0 {
+		return encoded
+	}
 	marker := []byte(`"` + key + `":[`)
-	index := bytes.Index(encoded, marker)
+	index := -1
+	searchFrom := 0
+	for current := 0; current < occurrence; current++ {
+		found := bytes.Index(encoded[searchFrom:], marker)
+		if found < 0 {
+			return encoded
+		}
+		index = searchFrom + found
+		searchFrom = index + len(marker)
+	}
 	if index < 0 {
 		return encoded
 	}
-	insert := strings.TrimSuffix(strings.Repeat("{},", limit+1), ",") + ","
+	insert := strings.TrimSuffix(strings.Repeat("null,", count), ",") + ","
 	result := make([]byte, 0, len(encoded)+len(insert))
 	result = append(result, encoded[:index+len(marker)]...)
 	result = append(result, insert...)
+	result = append(result, encoded[index+len(marker):]...)
+	return result
+}
+
+func replaceArrayKey(encoded []byte, key string, occurrence int, replacement string) []byte {
+	marker := []byte(`"` + key + `":[`)
+	index := -1
+	searchFrom := 0
+	for current := 0; current < occurrence; current++ {
+		found := bytes.Index(encoded[searchFrom:], marker)
+		if found < 0 {
+			return encoded
+		}
+		index = searchFrom + found
+		searchFrom = index + len(marker)
+	}
+	if index < 0 {
+		return encoded
+	}
+	result := make([]byte, 0, len(encoded)+len(replacement)-len(key))
+	result = append(result, encoded[:index]...)
+	result = append(result, []byte(`"`+replacement+`":[`)...)
 	result = append(result, encoded[index+len(marker):]...)
 	return result
 }
