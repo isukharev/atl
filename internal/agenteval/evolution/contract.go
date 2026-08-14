@@ -30,6 +30,7 @@ const (
 	ErrorInvalidProposal ErrorCode = "invalid_evolution_proposal"
 	ErrorLimitExceeded   ErrorCode = "evolution_proposal_limit_exceeded"
 	ErrorConflict        ErrorCode = "evolution_proposal_conflict"
+	ErrorOutcomeUnknown  ErrorCode = "evolution_proposal_outcome_unknown"
 )
 
 type Error struct{ code ErrorCode }

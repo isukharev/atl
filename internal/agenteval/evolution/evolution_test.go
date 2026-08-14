@@ -161,7 +161,7 @@ func assertEvolutionPublicSurface(t *testing.T) {
 		"Schema": true, "SchemaVersion": true, "ContractVersion": true, "MaxProposalBytes": true,
 		"MaxFailures": true, "MaxEvidenceRefs": true, "MaxJSONDepth": true, "SHA256HexLength": true,
 		"ErrInvalid": true, "Error": true, "ErrorCode": true, "ErrorInvalidInput": true, "ErrorInvalidProposal": true,
-		"ErrorLimitExceeded": true, "ErrorConflict": true, "CodeOf": true,
+		"ErrorLimitExceeded": true, "ErrorConflict": true, "ErrorOutcomeUnknown": true, "CodeOf": true,
 		"FailureClass": true, "FailureSafety": true, "FailureCoverage": true, "FailureRuntime": true,
 		"FailureQuality": true, "FailureResource": true, "FailureLifecycle": true, "FailureVerifier": true,
 		"SkillAction": true, "SkillReinforceSafety": true, "SkillClarifyCoverage": true,
@@ -321,5 +321,21 @@ func TestPublicationWritesOnlyNewDestinationAndKeepsMarkerOnFailure(t *testing.T
 	}
 	if _, err := ReadPublished(partial); err == nil {
 		t.Fatal("incomplete destination was accepted")
+	}
+}
+
+func TestPublicationFailureAfterMarkerRemovalIsOutcomeUnknownWhenRestoreFails(t *testing.T) {
+	rootPath := t.TempDir()
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := root.Close(); err != nil {
+		t.Fatal(err)
+	}
+	err = publicationFailureAfterMarkerRemoval(root, errors.New("final readback failed"))
+	code, ok := CodeOf(err)
+	if !ok || code != ErrorOutcomeUnknown {
+		t.Fatalf("unrecoverable marker restoration was not classified as unknown: code=%q err=%v", code, err)
 	}
 }

@@ -82,16 +82,13 @@ func (plan PublicationPlan) WriteNew(destination string) error {
 		return publicationError(err)
 	}
 	if err := validateProposalRoot(root, plan.data, false); err != nil {
-		_ = restoreProposalMarkerDurable(root)
-		return publicationError(err)
+		return publicationFailureAfterMarkerRemoval(root, err)
 	}
 	if err := syncRootDirectory(root); err != nil {
-		_ = restoreProposalMarkerDurable(root)
-		return publicationError(err)
+		return publicationFailureAfterMarkerRemoval(root, err)
 	}
 	if !stableDestination(destination, root, destinationInfo) {
-		_ = restoreProposalMarkerDurable(root)
-		return fail(ErrorConflict)
+		return publicationFailureAfterMarkerRemoval(root, fail(ErrorConflict))
 	}
 	return nil
 }
@@ -104,6 +101,13 @@ func publicationError(err error) error {
 		return err
 	}
 	return fail(ErrorConflict)
+}
+
+func publicationFailureAfterMarkerRemoval(root *os.Root, err error) error {
+	if restoreErr := restoreProposalMarkerDurable(root); restoreErr != nil {
+		return fail(ErrorOutcomeUnknown)
+	}
+	return publicationError(err)
 }
 
 func writeNewRegular(root *os.Root, name string, data []byte) error {
