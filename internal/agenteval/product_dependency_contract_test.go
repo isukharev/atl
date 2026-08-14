@@ -27,6 +27,7 @@ const (
 	evaluatorGradingImportPath          = evaluatorModuleImportPath + "/grading"
 	evaluatorLifecycleImportPath        = evaluatorModuleImportPath + "/lifecycle"
 	evaluatorLineageImportPath          = evaluatorModuleImportPath + "/lineage"
+	evaluatorPromotionImportPath        = evaluatorModuleImportPath + "/promotion"
 	evaluatorSchedulerImportPath        = evaluatorModuleImportPath + "/scheduler"
 	evaluatorAgentSkillsImportPath      = evaluatorModuleImportPath + "/interchange/agentskills"
 	evaluatorATIFImportPath             = evaluatorModuleImportPath + "/interchange/atif"
@@ -48,6 +49,7 @@ const (
 	evaluatorGradingPackage          evaluatorPackage = "grading"
 	evaluatorLifecyclePackage        evaluatorPackage = "lifecycle"
 	evaluatorLineagePackage          evaluatorPackage = "lineage"
+	evaluatorPromotionPackage        evaluatorPackage = "promotion"
 	evaluatorSchedulerPackage        evaluatorPackage = "scheduler"
 	evaluatorAgentSkillsPackage      evaluatorPackage = "interchange/agentskills"
 	evaluatorATIFPackage             evaluatorPackage = "interchange/atif"
@@ -68,6 +70,7 @@ var evaluatorPackages = []evaluatorPackage{
 	evaluatorGradingPackage,
 	evaluatorLifecyclePackage,
 	evaluatorLineagePackage,
+	evaluatorPromotionPackage,
 	evaluatorSchedulerPackage,
 	evaluatorAgentSkillsPackage,
 	evaluatorATIFPackage,
@@ -176,6 +179,7 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 			{File: "synthetic_atl_process_lifecycle.go", Path: evaluatorLifecycleImportPath},
 			{File: "atl_core_profile.go", Path: evaluatorATLImportPath, Alias: "profileatl"},
 			{File: "atl_grading_compat.go", Path: evaluatorATLImportPath, Alias: "profileatl"},
+			{File: "promotion_api.go", Path: evaluatorPromotionImportPath},
 			{File: "scheduler_contract.go", Path: evaluatorSchedulerImportPath},
 			{File: "sequential_reference.go", Path: evaluatorSchedulerImportPath},
 			{File: "sequential_reference_completion.go", Path: evaluatorSchedulerImportPath},
@@ -232,6 +236,8 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 			{File: "standalone_product_contract_test.go", Path: evaluatorLifecycleImportPath},
 			{File: "atl_core_profile_test.go", Path: evaluatorATLImportPath, Alias: "profileatl"},
 			{File: "atl_grading_adapter_test.go", Path: evaluatorATLImportPath, Alias: "profileatl"},
+			{File: "standalone_product_contract_golden_test.go", Path: evaluatorPromotionImportPath},
+			{File: "standalone_product_contract_test.go", Path: evaluatorPromotionImportPath},
 		},
 		{Package: evaluatorAnalysisPackage}: {
 			{File: "analysis/analyze.go", Path: evaluatorExperimentImportPath},
@@ -274,6 +280,8 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 		{Package: evaluatorLifecyclePackage, Tests: true}: {},
 		{Package: evaluatorLineagePackage}:                {},
 		{Package: evaluatorLineagePackage, Tests: true}:   {},
+		{Package: evaluatorPromotionPackage}:              {},
+		{Package: evaluatorPromotionPackage, Tests: true}: {},
 		{Package: evaluatorSchedulerPackage}:              {},
 		{Package: evaluatorSchedulerPackage, Tests: true}: {},
 		{Package: evaluatorAgentSkillsPackage}: {
@@ -309,8 +317,10 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 			{File: "cmd/agent-eval/proxy.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/standalone.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/standalone_agentskills.go", Path: evaluatorModuleImportPath},
+			{File: "cmd/agent-eval/standalone_authority.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/standalone_config.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/standalone_operations.go", Path: evaluatorModuleImportPath},
+			{File: "cmd/agent-eval/standalone_promotion.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/standalone_reference.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/standalone_schema.go", Path: evaluatorModuleImportPath},
 		},
@@ -320,6 +330,7 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 			{File: "cmd/agent-eval/proxy_cli_error_contract_test.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/standalone_conformance_test.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/standalone_followup_test.go", Path: evaluatorModuleImportPath},
+			{File: "cmd/agent-eval/standalone_promotion_test.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/standalone_review_test.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/standalone_schema_test.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/standalone_test.go", Path: evaluatorModuleImportPath},
@@ -737,6 +748,8 @@ func evaluatorPackageForDirectory(directory string) (evaluatorPackage, bool) {
 		return evaluatorLifecyclePackage, true
 	case string(evaluatorLineagePackage):
 		return evaluatorLineagePackage, true
+	case string(evaluatorPromotionPackage):
+		return evaluatorPromotionPackage, true
 	case string(evaluatorSchedulerPackage):
 		return evaluatorSchedulerPackage, true
 	case string(evaluatorAgentSkillsPackage):
@@ -778,6 +791,8 @@ func evaluatorPackageForImport(path string) (evaluatorPackage, bool) {
 		return evaluatorLifecyclePackage, true
 	case evaluatorLineageImportPath:
 		return evaluatorLineagePackage, true
+	case evaluatorPromotionImportPath:
+		return evaluatorPromotionPackage, true
 	case evaluatorSchedulerImportPath:
 		return evaluatorSchedulerPackage, true
 	case evaluatorAgentSkillsImportPath:
@@ -806,6 +821,7 @@ func validateEvaluatorPackageName(owner evaluatorPackage, tests bool, file, got 
 		evaluatorGradingPackage:          "grading",
 		evaluatorLifecyclePackage:        "lifecycle",
 		evaluatorLineagePackage:          "lineage",
+		evaluatorPromotionPackage:        "promotion",
 		evaluatorSchedulerPackage:        "scheduler",
 		evaluatorAgentSkillsPackage:      "agentskills",
 		evaluatorATIFPackage:             "atif",
@@ -859,7 +875,7 @@ func parsedEvaluatorImports(owner evaluatorPackage, tests bool, file string, par
 func evaluatorPackageEdgeAllowed(owner, target evaluatorPackage) bool {
 	switch owner {
 	case evaluatorRootPackage:
-		return target == evaluatorAnalysisPackage || target == evaluatorAgentAdapterPackage || target == evaluatorCorePackage || target == evaluatorExecutionBackendPackage || target == evaluatorExperimentPackage || target == evaluatorExtensionPackage || target == evaluatorGradingPackage || target == evaluatorLifecyclePackage || target == evaluatorLineagePackage || target == evaluatorSchedulerPackage || target == evaluatorAgentSkillsPackage || target == evaluatorATLPackage || target == evaluatorSchemaPackage
+		return target == evaluatorAnalysisPackage || target == evaluatorAgentAdapterPackage || target == evaluatorCorePackage || target == evaluatorExecutionBackendPackage || target == evaluatorExperimentPackage || target == evaluatorExtensionPackage || target == evaluatorGradingPackage || target == evaluatorLifecyclePackage || target == evaluatorLineagePackage || target == evaluatorPromotionPackage || target == evaluatorSchedulerPackage || target == evaluatorAgentSkillsPackage || target == evaluatorATLPackage || target == evaluatorSchemaPackage
 	case evaluatorAnalysisPackage:
 		return target == evaluatorExperimentPackage
 	case evaluatorAgentAdapterPackage:
@@ -877,6 +893,8 @@ func evaluatorPackageEdgeAllowed(owner, target evaluatorPackage) bool {
 	case evaluatorLifecyclePackage:
 		return false
 	case evaluatorLineagePackage:
+		return false
+	case evaluatorPromotionPackage:
 		return false
 	case evaluatorSchedulerPackage:
 		return false
@@ -920,6 +938,7 @@ func writeEvaluatorDependencyFixture(t *testing.T) string {
 		"grading/grading.go":                     "package grading\n\nimport (\n\t\"" + evaluatorCoreImportPath + "\"\n\t\"" + evaluatorExecutionBackendImportPath + "\"\n)\n",
 		"lifecycle/lifecycle.go":                 "package lifecycle\n",
 		"lineage/lineage.go":                     "package lineage\n",
+		"promotion/promotion.go":                 "package promotion\n",
 		"scheduler/contract.go":                  "package scheduler\n",
 		"interchange/agentskills/agentskills.go": "package agentskills\n\nimport \"" + evaluatorCoreImportPath + "\"\n",
 		"interchange/atif/atif.go":               "package atif\n",

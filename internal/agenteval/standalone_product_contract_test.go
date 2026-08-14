@@ -19,6 +19,7 @@ import (
 	"github.com/isukharev/atl/internal/agenteval/experiment"
 	"github.com/isukharev/atl/internal/agenteval/grading"
 	"github.com/isukharev/atl/internal/agenteval/lifecycle"
+	"github.com/isukharev/atl/internal/agenteval/promotion"
 )
 
 const (
@@ -237,7 +238,7 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 		})
 	}
 
-	wantRoles := []string{"agent-adapter", "atl-profile", "execution-backend", "grader", "reporter", "standalone-core"}
+	wantRoles := []string{"agent-adapter", "atl-profile", "execution-backend", "grader", "promotion", "reporter", "standalone-core"}
 	gotRoles := make([]string, 0, len(contract.Roles))
 	for _, role := range contract.Roles {
 		gotRoles = append(gotRoles, role.ID)
@@ -285,6 +286,9 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 		standaloneContractKey("standalone", "migration-preview"):              {current: StandaloneMigrationArtifactVersion, readable: []int{StandaloneMigrationArtifactVersion}, emitted: []int{StandaloneMigrationArtifactVersion}},
 		standaloneContractKey("standalone", "migration-result"):               {current: StandaloneMigrationArtifactVersion, readable: []int{StandaloneMigrationArtifactVersion}, emitted: []int{StandaloneMigrationArtifactVersion}},
 		standaloneContractKey("standalone", "project-config"):                 {current: StandaloneProjectConfigVersion, readable: []int{StandaloneProjectConfigVersion}, emitted: []int{StandaloneProjectConfigVersion}, executable: []int{StandaloneProjectConfigVersion}},
+		standaloneContractKey("standalone", "promotion-comparison"):           {current: promotion.SchemaVersion, readable: []int{promotion.SchemaVersion}, emitted: []int{promotion.SchemaVersion}, executable: []int{promotion.SchemaVersion}},
+		standaloneContractKey("standalone", "promotion-decision"):             {current: promotion.SchemaVersion, readable: []int{promotion.SchemaVersion}, emitted: []int{promotion.SchemaVersion}},
+		standaloneContractKey("standalone", "promotion-rollback"):             {current: promotion.SchemaVersion, readable: []int{promotion.SchemaVersion}, emitted: []int{promotion.SchemaVersion}, executable: []int{promotion.SchemaVersion}},
 		standaloneContractKey("standalone", "schema-registry"):                {current: StandaloneSchemaRegistryVersion, readable: []int{StandaloneSchemaRegistryVersion}, emitted: []int{StandaloneSchemaRegistryVersion}, executable: []int{StandaloneSchemaRegistryVersion}},
 		standaloneContractKey("standalone", "scheduler-plan"):                 {current: SchedulerSchemaVersion, readable: []int{SchedulerSchemaVersion}, emitted: []int{SchedulerSchemaVersion}, executable: []int{SchedulerSchemaVersion}},
 		standaloneContractKey("standalone", "scheduler-report"):               {current: SchedulerSchemaVersion, readable: []int{SchedulerSchemaVersion}, emitted: []int{SchedulerSchemaVersion}},
@@ -332,6 +336,9 @@ func TestStandaloneProductContractV1IsClosedAndSelfConsistent(t *testing.T) {
 		standaloneContractKey("standalone", "migration-preview"):              {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: StandaloneMigrationArtifactMaxBytes},
 		standaloneContractKey("standalone", "migration-result"):               {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: StandaloneMigrationArtifactMaxBytes},
 		standaloneContractKey("standalone", "project-config"):                 {disposition: "preserve", privacy: "public_or_private", migration: "explicit", maxBytes: StandaloneProjectConfigMaxBytes},
+		standaloneContractKey("standalone", "promotion-comparison"):           {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: promotion.MaxReceiptBytes},
+		standaloneContractKey("standalone", "promotion-decision"):             {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: promotion.MaxReceiptBytes},
+		standaloneContractKey("standalone", "promotion-rollback"):             {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: promotion.MaxReceiptBytes},
 		standaloneContractKey("standalone", "schema-registry"):                {disposition: "preserve", privacy: "public", migration: "explicit", maxBytes: StandaloneSchemaRegistryMaxBytes},
 		standaloneContractKey("standalone", "scheduler-plan"):                 {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: SchedulerPlanMaxBytes},
 		standaloneContractKey("standalone", "scheduler-report"):               {disposition: "preserve", privacy: "content_minimized", migration: "explicit", maxBytes: SchedulerReportMaxBytes},
@@ -648,10 +655,12 @@ func TestStandaloneContractAuthorityMatrix(t *testing.T) {
 		standaloneOperationKey("migrate apply", "default"):       {current: "implemented_pre_release", standalone: "pre_release", authority: "local_write", localRead: true, localWrite: true, privateWorkspaceAccess: true},
 		standaloneOperationKey("migrate preview", "default"):     {current: "implemented_pre_release", standalone: "pre_release", authority: "local_read", localRead: true, privateWorkspaceAccess: true},
 		standaloneOperationKey("plan", "default"):                {current: "private_maintainer_only", standalone: "reserved", authority: "local_write", localRead: true, localWrite: true, privateWorkspaceAccess: true},
+		standaloneOperationKey("promote", "default"):             {current: "implemented_pre_release", standalone: "pre_release", authority: "local_write", localRead: true, localWrite: true},
 		standaloneOperationKey("reconcile", "evidence-only"):     {current: "maintainer_compat", standalone: "reserved", authority: "local_write", localRead: true, localWrite: true, privateWorkspaceAccess: true},
 		standaloneOperationKey("report", "default"):              {current: "maintainer_compat", standalone: "reserved", authority: "local_read", localRead: true},
 		standaloneOperationKey("resume", "default"):              {current: "private_maintainer_only", standalone: "reserved", authority: "agent_execution", localRead: true, localWrite: true, processSpawn: true, providerContact: true, backendContact: true, network: true, credentialAccess: true, privateWorkspaceAccess: true},
 		standaloneOperationKey("resume", "reference"):            {current: "implemented_pre_release", standalone: "pre_release", authority: "local_write", localRead: true, localWrite: true},
+		standaloneOperationKey("rollback", "default"):            {current: "implemented_pre_release", standalone: "pre_release", authority: "local_write", localRead: true, localWrite: true},
 		standaloneOperationKey("run", "default"):                 {current: "maintainer_compat", standalone: "reserved", authority: "agent_execution", localRead: true, localWrite: true, processSpawn: true, providerContact: true, backendContact: true, network: true, credentialAccess: true},
 		standaloneOperationKey("run", "reference"):               {current: "implemented_pre_release", standalone: "pre_release", authority: "local_write", localRead: true, localWrite: true},
 		standaloneOperationKey("schema inspect", "default"):      {current: "implemented_pre_release", standalone: "pre_release", authority: "local_read", localRead: true},

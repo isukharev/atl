@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"sort"
+
+	"github.com/isukharev/atl/internal/agenteval"
 )
 
 type standaloneAuthorityDimensions struct {
@@ -49,10 +51,12 @@ func standaloneAuthorityProfiles() []standaloneAuthorityProfile {
 		{Operation: "migrate apply", Mode: "default", Command: "migrate apply", Authority: "local_write", Supported: true, ProcessAPI: true, standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true, PrivateWorkspaceAccess: true}},
 		{Operation: "migrate preview", Mode: "default", Command: "migrate preview", Authority: "local_read", Supported: true, ProcessAPI: true, standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, PrivateWorkspaceAccess: true}},
 		{Operation: "plan", Mode: "default", Command: "plan", Authority: "local_write", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true, PrivateWorkspaceAccess: true}},
+		{Operation: "promote", Mode: "default", Command: "promote", Authority: "local_write", Supported: agenteval.PromotionStoreSupported, standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true}},
 		{Operation: "reconcile", Mode: "evidence-only", Command: "reconcile", Authority: "local_write", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true, PrivateWorkspaceAccess: true}},
 		{Operation: "report", Mode: "default", Command: "report", Authority: "local_read", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true}},
 		{Operation: "resume", Mode: "default", Command: "resume", Authority: "agent_execution", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true, ProcessSpawn: true, ProviderContact: true, BackendContact: true, Network: true, CredentialAccess: true, PrivateWorkspaceAccess: true}},
 		{Operation: "resume", Mode: "reference", Command: "resume", Authority: "local_write", Supported: true, standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true}},
+		{Operation: "rollback", Mode: "default", Command: "rollback", Authority: "local_write", Supported: agenteval.PromotionStoreSupported, standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true}},
 		{Operation: "run", Mode: "default", Command: "run", Authority: "agent_execution", standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true, ProcessSpawn: true, ProviderContact: true, BackendContact: true, Network: true, CredentialAccess: true}},
 		{Operation: "run", Mode: "reference", Command: "run", Authority: "local_write", Supported: true, standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true, LocalWrite: true}},
 		{Operation: "schema inspect", Mode: "default", Command: "schema inspect", Authority: "local_read", Supported: true, ProcessAPI: true, standaloneAuthorityDimensions: standaloneAuthorityDimensions{LocalRead: true}},

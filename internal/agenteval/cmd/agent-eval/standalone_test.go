@@ -81,7 +81,7 @@ func TestStandaloneVersionAndCapabilitiesAreStableAndConfigurationFree(t *testin
 		t.Fatal(err)
 	}
 	if version.Schema != standaloneResultSchema || version.SchemaVersion != 1 || version.ContractVersion != standaloneContractVersion ||
-		version.Command != "version" || version.Status != "completed" || len(version.Result.Schemas) != 13 || len(version.Result.Protocols) != 2 {
+		version.Command != "version" || version.Status != "completed" || len(version.Result.Schemas) != 16 || len(version.Result.Protocols) != 2 {
 		t.Fatalf("version envelope=%+v", version)
 	}
 

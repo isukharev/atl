@@ -113,10 +113,12 @@ operation must be structurally unable to acquire it.
 | `migrate apply` | `default` | `pre_release` | `local_write` | Y | Y | N | N | N | N | N | Y |
 | `migrate preview` | `default` | `pre_release` | `local_read` | Y | N | N | N | N | N | N | Y |
 | `plan` | `default` | `reserved` | `local_write` | Y | Y | N | N | N | N | N | Y |
+| `promote` | `default` | `pre_release` | `local_write` | Y | Y | N | N | N | N | N | N |
 | `reconcile` | `evidence-only` | `reserved` | `local_write` | Y | Y | N | N | N | N | N | Y |
 | `report` | `default` | `reserved` | `local_read` | Y | N | N | N | N | N | N | N |
 | `resume` | `default` | `reserved` | `agent_execution` | Y | Y | Y | Y | Y | Y | Y | Y |
 | `resume` | `reference` | `pre_release` | `local_write` | Y | Y | N | N | N | N | N | N |
+| `rollback` | `default` | `pre_release` | `local_write` | Y | Y | N | N | N | N | N | N |
 | `run` | `default` | `reserved` | `agent_execution` | Y | Y | Y | Y | Y | Y | Y | N |
 | `run` | `reference` | `pre_release` | `local_write` | Y | Y | N | N | N | N | N | N |
 | `schema inspect` | `default` | `pre_release` | `local_read` | Y | N | N | N | N | N | N | N |
@@ -144,6 +146,25 @@ contact a provider or product backend, use a network, discover credentials, or
 open a private workspace. Generic `run` and `resume` remain reserved, receive
 only the individually admitted execution dimensions if later implemented, and
 remain subject to the no-replay lifecycle below.
+
+Promotion is a provider-free, identity-only decision over one explicit
+comparison artifact. It requires all four component reviews, binds reference
+and candidate by six exact lowercase SHA-256 identities, and refuses when any
+declared axis is blocking, unknown, or interrupted; it never computes a
+weighted score or reads source evidence. A mutating invocation must supply the
+SHA-256 of the exact comparison bytes that were reviewed, together with the
+literal `PROMOTE` confirmation. A confirmed promotion writes only a
+content-minimized receipt and an owner-only current pointer beneath the exact
+absolute mode-0700 store. Rollback is a two-phase contract: planning emits an
+unapplied request receipt (`restored:false`), while the store returns and
+records a separate applied receipt only after proving that the requested
+restore is the immediately preceding recorded promotion. The mutating
+invocation supplies the exact rollback-request digest and literal `ROLLBACK`
+confirmation; prior rollback receipts cannot be replayed after a later
+transition. The persistent store is currently supported only on platforms with
+the implemented owner-only directory and directory-entry durability boundary;
+unsupported platforms fail closed before mutation. These source operations
+are pre-release and do not constitute signed release or support authority.
 
 Commands are non-interactive: no prompts, pagers, browsers, confirmation reads from stdin, or default provider selection. A local mutation requiring confirmation must receive all confirmation material in the original invocation and fail before writing when it is absent.
 
@@ -355,7 +376,7 @@ has process, provider, backend, network, or credential authority.
 
 The compatibility registry records `minimum_deprecation_days: 180` and `minimum_deprecation_releases: 2`. The release count means two later stable minor releases in the same major after notice; patch releases and pre-release builds do not count. Both minima must elapse, and removal still requires the next major. A security issue may disable execution sooner, but safe inspection, reporting, or migration remains when it does not recreate the vulnerability, and historical meaning is never silently reinterpreted.
 
-Readers in a supported major line must read every stable artifact that line emitted. A later reader either preserves meaning directly or offers an explicit previewable migration. Future schemas are preserved and refused, never treated as empty, downgraded, or partially decoded as current.
+Readers in a supported major line must read every stable public artifact that line emitted. Internal owner-only store metadata uses its own versioned, bounded codecs and is not a standalone interchange artifact; it is never accepted by public artifact readers. A later reader either preserves meaning directly or offers an explicit previewable migration. Future schemas are preserved and refused, never treated as empty, downgraded, or partially decoded as current.
 
 Compatibility is the tuple `(standalone-core, contract, atl-profile, agent-adapter, execution-backend, grader, reporter, artifact schemas, process protocols)`. `compatible:true` requires every required tuple member and capability to be known and supported; omission is not compatibility.
 
@@ -368,6 +389,7 @@ Compatibility is the tuple `(standalone-core, contract, atl-profile, agent-adapt
 | `agent-adapter` | Explicit launch, bounded structured exchange, agent identity, activation evidence, and usage receipts | Admission, backend authority, scoring, retries, promotion, or privacy classification |
 | `execution-backend` | Filesystem, process, network, deadline, cleanup, and resource enforcement with a receipt | Agent selection, grader truth, retry policy, or authority beyond the admitted plan |
 | `grader` | Deterministic checks or an explicitly isolated judge with coverage and provenance | Runner control, hidden retries, source mutation, missing-as-zero coercion, or promotion authority |
+| `promotion` | Provider-free identity comparison, refusal reasons, exact guarded promotion, and history-bound rollback | Source evidence, provider/backend access, arbitrary identity selection, release signing, or support policy |
 | `reporter` | Content-minimized projections of validated artifacts | Execution, migration, evidence synthesis, or wider visibility |
 
 External substrates are adapters. They do not become admission, privacy, scoring, promotion, or lifecycle authority merely because they execute a task or render a report.
@@ -692,7 +714,7 @@ Existing evaluator artifacts retain their bytes and meaning under logical identi
 Here, “readable” means accepted by the exact generation reader, “emitted” means the maintained evaluator can write that generation, and “executable” means the generation may enter its existing execution path. An empty column is a deliberate refusal, not missing registry data. In particular, a write-only aggregate can be compared only under its named projection contract; it cannot be reintroduced as source evidence or treated as a readable canonical artifact.
 
 The embedded closed schema registry is the sole machine authority for every
-artifact family, owner, generation set, byte bound, privacy class,
+public artifact family, owner, generation set, byte bound, privacy class,
 disposition, schema resource, and migration policy. The standalone product
 contract is an exact projection of that registry, not a second inventory. A
 content-addressed inspection reports the family entry and its migration graph;
@@ -701,7 +723,16 @@ changes the registry digest and fails the compatibility oracle. Registry
 membership does not make a readable artifact executable, comparable,
 promotable, or public.
 
-The internal `ATL_EVAL_*` registry, wrapper basenames, broker records, launch arguments, and package-local Go types remain internal even when tests serialize them.
+The promotion store's `agent-eval/promotion-store-pointer@1` and
+`agent-eval/promotion-store-transition@1` records are versioned owner-only
+metadata, not standalone interchange artifacts; they are decoded only by the
+store, bounded, and rejected by public artifact readers. A store admits at
+most 4096 transition records and fails closed before writing or scanning a
+larger history; the pointer and history-chain fields contain the exact
+content digest of the referenced transition, while request digests remain
+request/filename keys. The internal
+`ATL_EVAL_*` registry, wrapper basenames, broker records, launch arguments, and
+package-local Go types remain internal even when tests serialize them.
 
 ## Standalone artifacts and migration
 
@@ -735,6 +766,9 @@ The internal `ATL_EVAL_*` registry, wrapper basenames, broker records, launch ar
 | `agent-eval/grade-receipt` | Content-minimized per-check coverage, evidence citations, reviewer provenance, usage, and disagreements |
 | `agent-eval/migration-preview` | Content-minimized reviewed binding of source, candidate, registry, migration implementation, graph, and counts |
 | `agent-eval/migration-result` | Content-minimized idempotent receipt for one applied reviewed migration |
+| `agent-eval/promotion-comparison` | Exact reviewed identity/axis input for one guarded promotion decision; no source evidence |
+| `agent-eval/promotion-decision` | Content-minimized promotion/refusal receipt, including interruption and canonical reasons |
+| `agent-eval/promotion-rollback` | Exact rollback request or applied rollback receipt; application is store-bound and non-replayable |
 | `agent-eval/scheduler-plan` | Content-minimized immutable task, ordinal, round, worker, resource, cumulative-cost, and opaque cohort admission |
 | `agent-eval/scheduler-report` | Content-minimized queue, dispatch, terminal-outcome, never-started, and stop counters bound to one scheduler plan |
 | `agent-eval/schema-registry` | Public closed inventory of artifact ownership, generations, policies, bounds, resources, and reviewed migration edges |
@@ -747,7 +781,8 @@ migration artifacts, the three durable attempt families
 `agent-eval/attempt-event`), each of the four extension families, the semantic
 adapter contract, normalized observation, execution-backend contract, trial
 plan, trial receipt, grader contract, grading plan, grade receipt, scheduler
-plan/report, and the sequential-reference bundle at generation 1. Project
+plan/report, the sequential-reference bundle, and the three promotion families
+at generation 1. Project
 config, registry, experiment capability/design/analysis
 and manifest, attempt records, adapter manifest, message, bundle, adapter contract, execution-backend
 contract, trial-plan, and grade-receipt generations are readable, emitted, and executable;
@@ -758,7 +793,9 @@ bounded local dispatcher. Grader contracts,
 grading plans, and grade receipts are readable, emitted, and executable. A
 grade receipt may enter grading only with its exact admitted plan and attempt
 identity; it cannot launch a process, select a provider, or acquire authority
-by itself. Project config is
+by itself. Promotion comparisons and rollback requests are executable only by
+their exact guarded store operations; promotion decisions are readable and
+emitted but never executable on their own. Project config is
 `public_or_private` and capped at 64 KiB. Manifests are public and capped at
 64 KiB. Attempt headers are capped at 16 KiB and attempt plans and events at
 64 KiB per record; all three are `preserve`, `content_minimized`, and use

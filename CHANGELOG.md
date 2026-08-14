@@ -101,6 +101,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compatibility mode, resource/cohort/cost admission, content-minimized
   scheduler plan/report artifacts, and marker-bound crash-safe resume that runs
   only planned members and never replays terminal or unknown attempts.
+- Added provider-free pre-release `agent-eval promote` and `rollback` surfaces:
+  immutable six-digest component identities, independently reviewed
+  safety/coverage/runtime/quality/negative-lift/resource axes, refusal on any
+  blocking or unknown condition, content-minimized decision/rollback receipts,
+  owner-only exact-reference storage, serialized no-alias updates, and exact
+  confirmation/current-identity guards.
 - Added qualified, resumable Jira complete-project pulls with an explicit issue
   cap, two stable numeric-ID passes bound to one exact backend total, crash-safe
   publication, and hash-bound key relocation that preserves uninventoried

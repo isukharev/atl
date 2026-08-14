@@ -18,6 +18,7 @@ import (
 	"github.com/isukharev/atl/internal/agenteval/extension"
 	"github.com/isukharev/atl/internal/agenteval/grading"
 	"github.com/isukharev/atl/internal/agenteval/lifecycle"
+	"github.com/isukharev/atl/internal/agenteval/promotion"
 )
 
 type standaloneReadabilityGoldenFixture struct {
@@ -597,7 +598,7 @@ func standaloneGoldenSourceAllowed(entry standaloneReadabilityGoldenEntry) bool 
 		return entry.Namespace == "atl-profile" && entry.SourcePath == fmt.Sprintf("testdata/standalone-readability/%s-v%d.json", entry.Kind, entry.Version)
 	case "capability-catalog":
 		return entry.Namespace == "atl-profile" && entry.Version == CapabilityCatalogSchemaVersion && entry.SourcePath == "testdata/capability-catalog.v1.json"
-	case "adapter-manifest", "adapter-message", "agent-adapter-contract", "agent-observation", "analysis-plan", "analysis-report", "attempt-event", "attempt-ledger", "attempt-plan", "execution-backend-contract", "experiment-capability-contract", "experiment-design", "experiment-manifest", "extension-conformance-bundle", "extension-conformance-report", "grade-receipt", "grader-contract", "grading-plan", "migration-preview", "migration-result", "project-config", "scheduler-plan", "scheduler-report", "sequential-reference-bundle", "trial-plan", "trial-receipt", "trial-record":
+	case "adapter-manifest", "adapter-message", "agent-adapter-contract", "agent-observation", "analysis-plan", "analysis-report", "attempt-event", "attempt-ledger", "attempt-plan", "execution-backend-contract", "experiment-capability-contract", "experiment-design", "experiment-manifest", "extension-conformance-bundle", "extension-conformance-report", "grade-receipt", "grader-contract", "grading-plan", "migration-preview", "migration-result", "project-config", "promotion-comparison", "promotion-decision", "promotion-rollback", "scheduler-plan", "scheduler-report", "sequential-reference-bundle", "trial-plan", "trial-receipt", "trial-record":
 		return entry.Namespace == "standalone" && entry.Version == 1 &&
 			entry.SourcePath == fmt.Sprintf("testdata/standalone-readability/%s-v1.json", entry.Kind)
 	case "schema-registry":
@@ -1354,6 +1355,49 @@ func standaloneDecodeExtensionReadabilityProjection(t *testing.T, entry standalo
 			"schema": config.Schema, "schema_version": config.SchemaVersion,
 			"contract_version": config.ContractVersion, "profile_configured": config.Profile != nil,
 			"model_configured": config.Model != nil, "repetitions": repetitions,
+		}, nil
+	case "promotion-comparison":
+		comparison, err := promotion.DecodeComparison(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := promotion.EncodeComparison(comparison)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("promotion comparison golden is not canonical")
+		}
+		return map[string]any{
+			"schema": comparison.Schema, "schema_version": comparison.SchemaVersion,
+			"contract_version": comparison.ContractVersion, "review_count": len(comparison.Reviews),
+			"axis_count": len(comparison.Axes), "interrupted": comparison.Interrupted,
+		}, nil
+	case "promotion-decision":
+		decision, err := promotion.DecodeDecision(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := promotion.EncodeDecision(decision)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("promotion decision golden is not canonical")
+		}
+		return map[string]any{
+			"schema": decision.Schema, "schema_version": decision.SchemaVersion,
+			"contract_version": decision.ContractVersion, "decision": decision.Decision,
+			"review_count": len(decision.Reviews), "axis_count": len(decision.Axes),
+			"reason_count": len(decision.Reasons),
+		}, nil
+	case "promotion-rollback":
+		rollback, err := promotion.DecodeRollback(bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := promotion.EncodeRollback(rollback)
+		if err != nil || !bytes.Equal(canonical, data) {
+			return nil, fmt.Errorf("promotion rollback golden is not canonical")
+		}
+		return map[string]any{
+			"schema": rollback.Schema, "schema_version": rollback.SchemaVersion,
+			"contract_version": rollback.ContractVersion, "decision": rollback.Decision,
+			"restored": rollback.Restored,
 		}, nil
 	case "schema-registry":
 		registry, err := DecodeStandaloneSchemaRegistry(bytes.NewReader(data))

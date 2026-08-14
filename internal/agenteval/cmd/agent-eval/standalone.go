@@ -191,6 +191,22 @@ func standaloneCommandTree() standaloneCommandDescriptor {
 		standaloneOptionDescriptor{Name: "--expected-preview-sha256", Value: "SHA256", Description: "bind the exact reviewed preview"},
 		standaloneOptionDescriptor{Name: "--confirm", Value: "MIGRATE", Description: "authorize the reviewed local mutation"},
 	)
+	promotionOptions := []standaloneOptionDescriptor{
+		{Name: "--comparison", Value: "FILE", Description: "read one bounded immutable candidate comparison"},
+		{Name: "--store", Value: "DIR", Description: "write the exact owner-only promotion reference store"},
+		{Name: "--expected-comparison-sha256", Value: "SHA256", Description: "bind the exact reviewed comparison bytes"},
+		{Name: "--confirm", Value: "PROMOTE", Description: "authorize the reviewed promotion mutation"},
+		{Name: "--dry-run", Description: "evaluate and validate without writing the store"},
+		{Name: "--explain", Description: "emit identity-only decision provenance"},
+		{Name: "--output", Value: "json|text", Description: "select JSON (default) or explicit human output"},
+	}
+	rollbackOptions := []standaloneOptionDescriptor{
+		{Name: "--receipt", Value: "FILE", Description: "read one exact rollback receipt"},
+		{Name: "--store", Value: "DIR", Description: "write the exact owner-only promotion reference store"},
+		{Name: "--expected-rollback-sha256", Value: "SHA256", Description: "bind the exact reviewed rollback request"},
+		{Name: "--confirm", Value: "ROLLBACK", Description: "authorize the exact rollback mutation"},
+		{Name: "--output", Value: "json|text", Description: "select JSON (default) or explicit human output"},
+	}
 	root := standaloneCommandDescriptor{
 		Name:    "agent-eval",
 		Summary: "validate, execute, and compare bounded agent evaluations",
@@ -213,8 +229,10 @@ func standaloneCommandTree() standaloneCommandDescriptor {
 			}},
 			{Name: "validate", Summary: "validate project, scenario, or run-spec inputs without network access", Usage: "agent-eval validate --kind scenario|run-spec --input FILE [--input FILE ...] [options]", Examples: []string{"agent-eval validate --kind scenario --input scenario.json"}, Options: append([]standaloneOptionDescriptor{{Name: "--kind", Value: "scenario|run-spec", Description: "input contract"}, {Name: "--input", Value: "FILE", Description: "bounded input; repeat for additional inputs"}}, common...)},
 			{Name: "plan", Summary: "create an immutable execution plan", Usage: "agent-eval plan [options]", Options: common},
+			{Name: "promote", Summary: "apply a guarded immutable candidate decision", Usage: "agent-eval promote --comparison FILE --store DIR --expected-comparison-sha256 SHA256 --confirm PROMOTE [options]", Examples: []string{"agent-eval promote --comparison comparison.json --store /absolute/reference-store --expected-comparison-sha256 SHA256 --confirm PROMOTE"}, Options: promotionOptions},
 			{Name: "run", Summary: "execute one admitted bounded reference profile", Usage: "agent-eval run --mode reference --manifest FILE --bundle FILE --destination ABSOLUTE_DIR [--workers N|--sequential] [--output json|text]", Modes: runModes, ModeFlag: "--mode", Examples: []string{"agent-eval run --mode reference --manifest manifest.json --bundle reference-bundle.json --destination /absolute/new-output --workers 4"}, Options: standaloneReferenceOptions(runModes, true)},
 			{Name: "resume", Summary: "resume the never-started complement of an incomplete reference publication", Usage: "agent-eval resume --mode reference --manifest FILE --bundle FILE --destination ABSOLUTE_DIR [--workers N|--sequential] [--output json|text]", Modes: standaloneOperationModes("resume", true), ModeFlag: "--mode", Examples: []string{"agent-eval resume --mode reference --manifest manifest.json --bundle reference-bundle.json --destination /absolute/incomplete-output --workers 4"}, Options: standaloneReferenceOptions(standaloneOperationModes("resume", true), false)},
+			{Name: "rollback", Summary: "restore one exact immutable prior identity", Usage: "agent-eval rollback --receipt FILE --store DIR --expected-rollback-sha256 SHA256 --confirm ROLLBACK [options]", Examples: []string{"agent-eval rollback --receipt rollback.json --store /absolute/reference-store --expected-rollback-sha256 SHA256 --confirm ROLLBACK"}, Options: rollbackOptions},
 			{Name: "reconcile", Summary: "append evidence without replaying an ambiguous identity", Usage: "agent-eval reconcile [options]", Options: common},
 			{Name: "grade", Summary: "grade an observation with a deterministic evaluator", Usage: "agent-eval grade --mode deterministic --scenario FILE --observation FILE [options]", ReservedModes: reservedGradeModes, Examples: []string{"agent-eval grade --mode deterministic --scenario scenario.json --observation observation.json"}, Options: append([]standaloneOptionDescriptor{{Name: "--mode", Value: strings.Join(gradeModes, "|"), Description: "supported grading authority"}, {Name: "--scenario", Value: "FILE", Description: "scenario contract"}, {Name: "--observation", Value: "FILE", Description: "observation contract"}}, common...)},
 			{Name: "compare", Summary: "compare results or analyze one complete reference experiment publication", Usage: "agent-eval compare --kind experiment|results|root [options]", Modes: compareKinds, ModeFlag: "--kind", Examples: []string{"agent-eval compare --kind experiment --root /absolute/completed-reference-publication"}, Options: append([]standaloneOptionDescriptor{{Name: "--kind", Value: strings.Join(compareKinds, "|"), Description: "supported comparison contract"}, {Name: "--input", Value: "FILE", Description: "result input; repeat for additional inputs"}, {Name: "--root", Value: "DIR", Description: "bounded result or completed reference experiment root"}}, common...)},
@@ -538,6 +556,10 @@ func executeStandaloneContext(ctx context.Context, args []string) (standaloneOut
 		return standaloneExecuteMigrationPreview(ctx, commandArgs)
 	case "migrate apply":
 		return standaloneExecuteMigrationApply(ctx, commandArgs)
+	case "promote":
+		return standaloneExecutePromotion(ctx, commandArgs)
+	case "rollback":
+		return standaloneExecuteRollback(ctx, commandArgs)
 	default:
 		return standaloneOutcome{}, standaloneFail(standaloneCompatibilityError, "operation_unavailable")
 	}
@@ -583,6 +605,9 @@ func standaloneExecuteVersion(args []string) (standaloneOutcome, *standaloneFail
 			{ID: "migration-result", Version: agenteval.StandaloneMigrationArtifactVersion},
 			{ID: "process-request", Version: 1},
 			{ID: "project-config", Version: 1},
+			{ID: "promotion-comparison", Version: agenteval.PromotionSchemaVersion},
+			{ID: "promotion-decision", Version: agenteval.PromotionSchemaVersion},
+			{ID: "promotion-rollback", Version: agenteval.PromotionSchemaVersion},
 			{ID: "scheduler-plan", Version: agenteval.SchedulerSchemaVersion},
 			{ID: "scheduler-report", Version: agenteval.SchedulerSchemaVersion},
 			{ID: "schema-registry", Version: agenteval.StandaloneSchemaRegistryVersion},

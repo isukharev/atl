@@ -1991,6 +1991,51 @@
     },
     {
       "namespace": "standalone",
+      "kind": "promotion-comparison",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/promotion-comparison-v1.json",
+      "source_sha256": "0e2042d8ebca47454a14474bac18257cddfdf5a06f0dd90da697cf47d5a8cbe5",
+      "expected_projection": {
+        "schema": "agent-eval/promotion-comparison",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "review_count": 4,
+        "axis_count": 6,
+        "interrupted": false
+      }
+    },
+    {
+      "namespace": "standalone",
+      "kind": "promotion-decision",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/promotion-decision-v1.json",
+      "source_sha256": "998391de156a33ac984fef13c737a6eae9146989bdb1bc72cfef1aabb9ed31b7",
+      "expected_projection": {
+        "schema": "agent-eval/promotion-decision",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "decision": "promote",
+        "review_count": 4,
+        "axis_count": 6,
+        "reason_count": 0
+      }
+    },
+    {
+      "namespace": "standalone",
+      "kind": "promotion-rollback",
+      "version": 1,
+      "source_path": "testdata/standalone-readability/promotion-rollback-v1.json",
+      "source_sha256": "716d9f825c410bddae00dfefe9cc0d30b14f7a15ea32b127b31aa50406f40497",
+      "expected_projection": {
+        "schema": "agent-eval/promotion-rollback",
+        "schema_version": 1,
+        "contract_version": "0.1.0-pre-release",
+        "decision": "rollback",
+        "restored": false
+      }
+    },
+    {
+      "namespace": "standalone",
       "kind": "scheduler-plan",
       "version": 1,
       "source_path": "testdata/standalone-readability/scheduler-plan-v1.json",
@@ -2038,12 +2083,12 @@
       "kind": "schema-registry",
       "version": 1,
       "source_path": "schemaregistry/registry.v1.json",
-      "source_sha256": "e3407896cbb24c7a0d998be65f0c657065513e5b22ac6f98af46eb773389b058",
+      "source_sha256": "48fee863ef375bc416ed5a919354015044fbe744f925ab35c596ebed80708772",
       "expected_projection": {
         "schema": "agent-eval/schema-registry",
         "schema_version": 1,
         "contract_version": "0.1.0-pre-release",
-        "entry_count": 45,
+        "entry_count": 48,
         "first_schema": "atl-profile/activation-reference",
         "last_schema": "standalone/trial-record",
         "migration_edge_count": 1
