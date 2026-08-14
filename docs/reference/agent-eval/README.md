@@ -71,6 +71,13 @@ cannot be proven. It has no CLI/default/public-report, provider, network,
 credential, or execution authority; raw trajectory content remains owner
 private.
 
+The internal `telemetry` leaf is a provider-free, content-minimized
+projection for optional local diagnostics. It uses a closed span, metric, and
+attribute vocabulary with canonical bounded JSON and a caller-owned
+`io.Writer` spool; the default is off. It has no SDK/exporter, endpoint
+discovery, network, credential, filesystem, provider, or public-report
+authority, and never stores raw prompts, responses, paths, or diagnostics.
+
 ## Stability vocabulary
 
 | Status | Meaning |
