@@ -1,0 +1,5 @@
+environment: reference-v1
+network: denied
+credentials: none
+filesystem: synthetic-readonly-inputs
+verifier: separate-copy

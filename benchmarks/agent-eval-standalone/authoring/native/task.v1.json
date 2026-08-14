@@ -1,0 +1,9 @@
+{
+  "schema": "agent-eval/native-task",
+  "schema_version": 1,
+  "task_id": "synthetic/addition",
+  "fixture": "fixtures/environments/reference-v1.txt",
+  "skill": "fixtures/skills/skill-addition",
+  "verifier": "fixtures/hidden-verifiers/answer-v1.txt",
+  "authority": {"network": "deny", "credentials": "none", "cost": "declared"}
+}

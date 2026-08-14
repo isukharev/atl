@@ -1,0 +1,86 @@
+{
+  "schema": "agent-eval/neutral-results",
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "positive-skill-lift",
+      "family": "skill_lift",
+      "outcome": "succeeded",
+      "check": "observed_pass",
+      "resource": "observed",
+      "evidence": "observed"
+    },
+    {
+      "id": "no-lift",
+      "family": "skill_lift",
+      "outcome": "failed",
+      "check": "observed_fail",
+      "resource": "observed",
+      "evidence": "observed"
+    },
+    {
+      "id": "negative-stale-guidance",
+      "family": "negative_guidance",
+      "outcome": "unknown",
+      "check": "unknown",
+      "resource": "unsupported",
+      "evidence": "unknown"
+    },
+    {
+      "id": "autonomous-activation",
+      "family": "activation",
+      "outcome": "succeeded",
+      "check": "observed_pass",
+      "resource": "observed",
+      "evidence": "observed"
+    },
+    {
+      "id": "near-miss-negative",
+      "family": "negative_guidance",
+      "outcome": "failed",
+      "check": "observed_fail",
+      "resource": "observed",
+      "evidence": "observed"
+    },
+    {
+      "id": "distractor-selection",
+      "family": "selection",
+      "outcome": "succeeded",
+      "check": "observed_pass",
+      "resource": "observed",
+      "evidence": "observed"
+    },
+    {
+      "id": "stateful-multi-step",
+      "family": "stateful",
+      "outcome": "succeeded",
+      "check": "observed_pass",
+      "resource": "observed",
+      "evidence": "observed"
+    },
+    {
+      "id": "verifier-isolation",
+      "family": "verifier",
+      "outcome": "succeeded",
+      "check": "observed_pass",
+      "resource": "not_applicable",
+      "evidence": "observed"
+    },
+    {
+      "id": "resource-tax",
+      "family": "resource",
+      "outcome": "failed",
+      "check": "observed_fail",
+      "resource": "observed",
+      "evidence": "unsupported"
+    },
+    {
+      "id": "lifecycle-security",
+      "family": "lifecycle",
+      "outcome": "unknown",
+      "check": "unsupported",
+      "resource": "unknown",
+      "evidence": "not_applicable"
+    }
+  ]
+}

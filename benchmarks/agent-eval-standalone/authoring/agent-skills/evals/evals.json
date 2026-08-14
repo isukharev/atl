@@ -1,0 +1,8 @@
+{
+  "schema": "agent-skills/evals",
+  "schema_version": 1,
+  "evals": [
+    {"id": "synthetic-addition", "skill": "../../../fixtures/skills/skill-addition", "fixture": "../../../fixtures/environments/reference-v1.txt", "verifier": "../../../fixtures/hidden-verifiers/answer-v1.txt"},
+    {"id": "synthetic-stale-guidance", "skill": "../../../fixtures/skills/skill-stale", "expected": "negative-control"}
+  ]
+}

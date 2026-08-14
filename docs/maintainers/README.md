@@ -9,6 +9,7 @@ agents do not have to reconstruct it from old issues, transcripts, or CI logs.
 |---|---|
 | Start or implement a repository change | [Development and verification](development.md) |
 | Keep a long agent session resumable and bounded | [Efficient agent work](agent-efficiency.md) |
+| Exercise the public neutral evaluator corpus | [Neutral agent-eval conformance corpus](agent-eval-neutral-conformance.md) |
 | Carry an issue and PR through review, CI, and merge | [Landing a change](landing-a-change.md) |
 | Resume after compaction, interruption, or a new session | [Session recovery](session-recovery.md) |
 | Exercise a configured backend safely | [Live validation](live-validation.md) |
@@ -26,6 +27,7 @@ Other canonical maintainer references:
 - [Production hotspot and timing ratchets](../maintainability-ratchets.v1.json)
 - [Agent evaluator substrate decision](agent-evaluator-substrates.md)
 - [Standalone agent-eval support policy](agent-eval-support.md)
+- [Neutral agent-eval conformance corpus](agent-eval-neutral-conformance.md)
 - [Private evaluator lifecycle](../agent-benchmark-private-workspace.md)
 - [Private benchmark onboarding](private-benchmark-onboarding.md)
 
@@ -68,6 +70,7 @@ Update one owner instead of copying procedure back into root instructions:
 | Context-loss reconstruction and checkpoints | `session-recovery.md` |
 | Live read/write/cleanup boundaries | `live-validation.md` |
 | Fresh-clone private dataset design and offline case authoring | `private-benchmark-onboarding.md` |
+| Public neutral evaluator corpus and conformance lane | `docs/maintainers/agent-eval-neutral-conformance.md` |
 | CLI flags and behavior | `docs/reference/cli/` |
 | JSON, exits, completeness, and recovery | `docs/reference/output/` |
 | CLI-leaf and mutation-safety documentation routes | `docs/command-coverage.v1.json` |

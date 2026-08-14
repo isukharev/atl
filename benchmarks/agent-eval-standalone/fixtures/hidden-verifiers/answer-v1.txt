@@ -1,0 +1,3 @@
+expected-answer: 42
+visibility: hidden
+comparison: exact
