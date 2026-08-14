@@ -36,6 +36,7 @@ const (
 )
 
 var exactGoVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
+var legacyEvaluatorScriptPath = regexp.MustCompile(`(?:^|[[:space:]"'])\./scripts/agent-eval(?:[/[:space:]"']|$)`)
 
 const rootGoEnvironmentMakeContract = `GO_ENV   := env -u GOROOT GOTOOLCHAIN=auto GOWORK=off
 GO_LOCAL_ENV := env -u GOROOT GOTOOLCHAIN=local GOWORK=off
@@ -490,7 +491,7 @@ func validateBootstrap(root string) error {
 		}
 	}
 	if bytes.Count(makefile, []byte(agentEvalFacadeMakeContract)) != 1 ||
-		bytes.Contains(makefile, []byte("scripts/agent-eval")) ||
+		legacyEvaluatorScriptPath.Match(makefile) ||
 		bytes.Contains(makefile, []byte("go test ./internal/agenteval")) {
 		return errors.New("makefile must keep evaluator gates behind the reviewed nested-module facades")
 	}
@@ -698,7 +699,7 @@ ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
 	if err := validateMakeExecutionControls(makefile); err != nil {
 		return fmt.Errorf("evaluator Makefile: %w", err)
 	}
-	if bytes.Contains(makefile, []byte("scripts/agent-eval")) {
+	if legacyEvaluatorScriptPath.Match(makefile) {
 		return errors.New("evaluator Makefile must not retain the legacy scripts/agent-eval path")
 	}
 

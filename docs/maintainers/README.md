@@ -28,6 +28,7 @@ Other canonical maintainer references:
 - [Agent evaluator substrate decision](agent-evaluator-substrates.md)
 - [Standalone agent-eval support policy](agent-eval-support.md)
 - [Neutral agent-eval conformance corpus](agent-eval-neutral-conformance.md)
+- [Standalone agent-eval distribution dry run](agent-eval-distribution.md)
 - [Private evaluator lifecycle](../agent-benchmark-private-workspace.md)
 - [Private benchmark onboarding](private-benchmark-onboarding.md)
 

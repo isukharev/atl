@@ -214,6 +214,27 @@ agent-eval-product-boundary: check-package-boundary
 agent-eval-full: check-agent-eval-support check-skill-routing check-module-boundary
 	$(AGENT_EVAL_MAKE) full
 
+.PHONY: agent-eval-distribution
+agent-eval-distribution: agent-eval-full
+	@test -n "$(AGENT_EVAL_DISTRIBUTION_OUTPUT)" || (echo 'set AGENT_EVAL_DISTRIBUTION_OUTPUT to one absent absolute directory' >&2; exit 2)
+	@set -eu; \
+		mkdir -p "$(CURDIR)/tmp"; \
+		binary="$$(mktemp "$(CURDIR)/tmp/agent-eval-distribution.XXXXXX")"; \
+		trap 'rm -f "$$binary"' EXIT; \
+		$(GO_ENV) CGO_ENABLED=0 GOOS="$${AGENT_EVAL_PLATFORM:-linux}" GOARCH="$${AGENT_EVAL_ARCHITECTURE:-amd64}" \
+			go -C internal/agenteval build -trimpath -buildvcs=false -ldflags '-s -w -buildid=' -o "$$binary"; \
+		$(GO_ENV) go run ./scripts/agent-eval-distribution \
+			--mode build --binary "$$binary" \
+			--compatibility internal/agenteval/testdata/standalone-conformance.v1.json \
+			--source-root . \
+			--source-files internal/agenteval/cmd/agent-eval,internal/agenteval/testdata/standalone-conformance.v1.json \
+			--schema-registry internal/agenteval/schemaregistry/registry.v1.json \
+			--protocol internal/agenteval/cmd/agent-eval/standalone_process.go \
+			--source-commit "$$(git rev-parse HEAD)" \
+			--version "$${AGENT_EVAL_DISTRIBUTION_VERSION:-0.1.0-pre-release}" \
+			--platform "$${AGENT_EVAL_PLATFORM:-linux}" --architecture "$${AGENT_EVAL_ARCHITECTURE:-amd64}" \
+			--output "$(AGENT_EVAL_DISTRIBUTION_OUTPUT)"
+
 .PHONY: tidy
 tidy:
 	$(GO_ENV) go mod tidy
