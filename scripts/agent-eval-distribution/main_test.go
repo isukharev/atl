@@ -119,6 +119,21 @@ func TestDistributionBuildCommandTargetsExecutableCLI(t *testing.T) {
 	}
 }
 
+func TestDistributionDefaultSourceSelectionIncludesCompatibilityInputs(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(file), "main.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defaultSelection := "internal/agenteval/cmd/agent-eval,internal/agenteval/go.mod,internal/agenteval/schemaregistry/registry.v1.json,internal/agenteval/testdata/standalone-conformance.v1.json,internal/agenteval/testdata/standalone-readability-golden.v1.json"
+	if !strings.Contains(string(data), `flag.String("source-files", "`+defaultSelection+`"`) {
+		t.Fatal("default source selection does not cover the evaluator module, registry, conformance, and golden inputs")
+	}
+}
+
 func TestDistributionRejectsCanonicalAndPathDrift(t *testing.T) {
 	manifest := distributionManifest{
 		Schema: distributionSchema, SchemaVersion: distributionSchemaV1, ContractVersion: "0.1.0-pre-release",

@@ -110,7 +110,7 @@ func main() {
 	binary := flag.String("binary", "", "agent-eval binary for build")
 	compatibility := flag.String("compatibility", "", "provider-free compatibility bundle for build")
 	sourceRoot := flag.String("source-root", ".", "source root for the selected tree hash")
-	sourceFiles := flag.String("source-files", "internal/agenteval/cmd/agent-eval,internal/agenteval/schemaregistry/registry.v1.json,internal/agenteval/testdata/standalone-conformance.v1.json,internal/agenteval/testdata/standalone-readability-golden.v1.json", "comma-separated source paths")
+	sourceFiles := flag.String("source-files", "internal/agenteval/cmd/agent-eval,internal/agenteval/go.mod,internal/agenteval/schemaregistry/registry.v1.json,internal/agenteval/testdata/standalone-conformance.v1.json,internal/agenteval/testdata/standalone-readability-golden.v1.json", "comma-separated source paths")
 	schemaRegistry := flag.String("schema-registry", "internal/agenteval/schemaregistry/registry.v1.json", "schema registry path")
 	protocol := flag.String("protocol", "internal/agenteval/cmd/agent-eval/standalone_process.go", "process protocol source path")
 	output := flag.String("output", "", "absolute distribution directory (required for build)")
