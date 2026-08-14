@@ -34,7 +34,7 @@ func TestSupportPolicyBaselineAndClosedMutations(t *testing.T) {
 		mutate func([]byte) []byte
 	}{
 		{"omitted-required-member", func(value []byte) []byte {
-			return bytes.Replace(value, []byte("    \"named_consumer\": false\n"), nil, 1)
+			return bytes.Replace(value, []byte(",\n    \"named_consumer\": false\n"), []byte("\n"), 1)
 		}},
 		{"duplicate-member", func(value []byte) []byte {
 			return bytes.Replace(value, []byte("    \"automatic_updates\": false\n"), []byte("    \"automatic_updates\": false,\n    \"automatic_updates\": false\n"), 1)
