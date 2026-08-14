@@ -9,8 +9,8 @@ the [task-first documentation index](docs/README.md).
 [`AGENTS.md`](AGENTS.md) is the binding cross-agent repository contract for
 safety, ownership, architecture invariants, issue-first work, verification, and
 handoff. Provider-specific instruction files, including
-[`CLAUDE.md`](CLAUDE.md), may add execution guidance but do not replace or
-weaken that contract.
+[`CLAUDE.md`](CLAUDE.md) and [`CURSOR.md`](CURSOR.md), may add execution
+guidance but do not replace or weaken that contract.
 
 ## Canonical owners
 

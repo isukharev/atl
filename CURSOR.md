@@ -1,9 +1,9 @@
-# Claude Code guidance
+# Cursor guidance
 
 Read [`AGENTS.md`](AGENTS.md) completely before repository work. It is the
 binding cross-agent contract for architecture, authority, privacy, write safety,
-issue-first work, verification, review, and handoff. This file is only a Claude
-Code compatibility route and does not duplicate or override those rules.
+issue-first work, verification, review, and handoff. This file is only a Cursor
+compatibility route and does not duplicate or override those rules.
 
 ## Repository workflow
 
@@ -20,9 +20,9 @@ The exact current command and output contracts live under
 `docs/reference/cli/` and `docs/reference/output/`. Inspect `atl --help` or the
 relevant parent help instead of copying the command tree into this file.
 
-## Delegated Claude sessions
+## Delegated Cursor sessions
 
-A Claude session is a delegated worker only when the caller's brief explicitly
+A Cursor session is a delegated worker only when the caller's brief explicitly
 says so. Then:
 
 - stay inside the objective, files, authority, and non-goals in the brief;
@@ -46,7 +46,7 @@ alternative source of truth.
 
 For a fresh-clone request to create an owner-local Jira or Confluence
 evaluation dataset, follow the private benchmark onboarding runbook above.
-Begin in `--permission-mode plan`, require an exact additional private root,
-isolate ambient MCP and integration tools, and stop before backend access,
+Begin in a read-only plan, require an exact additional private root, isolate
+ambient MCP and integration tools, and stop before backend access,
 private-data disclosure, or benchmark execution unless the current request
 grants that exact authority.

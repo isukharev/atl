@@ -41,6 +41,7 @@
     {"path":"CHANGELOG.md","checks":["context7-docs","docs-catalog"]},
     {"path":"CLAUDE.md","checks":["docs-catalog","maintainer-contract","repository-skills"]},
     {"path":"CONTRIBUTING.md","checks":["context7-docs","docs-catalog"]},
+    {"path":"CURSOR.md","checks":["docs-catalog","maintainer-contract","repository-skills"]},
     {"path":"LICENSE","checks":["docs-catalog"]},
     {"path":"Makefile","checks":["agent-eval-full","agent-eval-support","docs-freshness","maintainability","maintainer-contract","test"]},
     {"path":"NOTICE","checks":["docs-catalog"]},

@@ -87,6 +87,13 @@ func TestRepositoryGuidanceRejectsRegressions(t *testing.T) {
 			wantError: "collides with shipped client tree",
 		},
 		{
+			name: "cursor overlay drops AGENTS deferral",
+			mutate: func(t *testing.T, root string) {
+				replaceFile(t, filepath.Join(root, "CURSOR.md"), "(AGENTS.md)", "(README.md)")
+			},
+			wantError: "CURSOR.md does not defer to AGENTS.md",
+		},
+		{
 			name: "instruction budget",
 			mutate: func(t *testing.T, root string) {
 				path := filepath.Join(root, "AGENTS.md")
@@ -189,7 +196,7 @@ func copyFixture(t *testing.T) string {
 	source := repositoryRoot(t)
 	target := t.TempDir()
 	for _, relative := range []string{
-		"AGENTS.md", "CLAUDE.md", "Makefile", ".github/workflows/ci.yml", ".github/workflows/release.yml",
+		"AGENTS.md", "CLAUDE.md", "CURSOR.md", "Makefile", ".github/workflows/ci.yml", ".github/workflows/release.yml",
 		"docs/README.md", "docs/catalog.v1.json", "docs/plugins.md",
 		"docs/maintainers", ".agents/skills",
 	} {

@@ -417,10 +417,6 @@ func validateInstructions(root string, value catalog) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	claude, err := readRegular(filepath.Join(root, "CLAUDE.md"))
-	if err != nil {
-		return 0, err
-	}
 	maintainerIndex, err := readRegular(filepath.Join(root, "docs", "maintainers", "README.md"))
 	if err != nil {
 		return 0, err
@@ -433,9 +429,39 @@ func validateInstructions(root string, value catalog) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if len(agents) > maxAgentsBytes || len(claude) > maxClaudeBytes {
-		return 0, fmt.Errorf("instruction budget exceeded: AGENTS.md=%d/%d CLAUDE.md=%d/%d",
-			len(agents), maxAgentsBytes, len(claude), maxClaudeBytes)
+	overlays := []struct {
+		name string
+		path string
+	}{
+		{name: "CLAUDE.md", path: filepath.Join(root, "CLAUDE.md")},
+		{name: "CURSOR.md", path: filepath.Join(root, "CURSOR.md")},
+	}
+	overlaySizes := make([]string, 0, len(overlays))
+	overlayBytes := 0
+	for _, overlay := range overlays {
+		body, err := readRegular(overlay.path)
+		if err != nil {
+			return 0, err
+		}
+		if len(body) > maxClaudeBytes {
+			return 0, fmt.Errorf("instruction budget exceeded: %s=%d/%d",
+				overlay.name, len(body), maxClaudeBytes)
+		}
+		overlayBytes += len(body)
+		overlaySizes = append(overlaySizes, fmt.Sprintf("%s=%d/%d",
+			overlay.name, len(body), maxClaudeBytes))
+		if !bytes.Contains(body, []byte("(AGENTS.md)")) {
+			return 0, fmt.Errorf("%s does not defer to AGENTS.md", overlay.name)
+		}
+		for _, spec := range value.Skills {
+			if !bytes.Contains(body, []byte(spec.Runbook)) {
+				return 0, fmt.Errorf("%s does not route to %s", overlay.name, spec.Runbook)
+			}
+		}
+	}
+	if len(agents) > maxAgentsBytes {
+		return 0, fmt.Errorf("instruction budget exceeded: AGENTS.md=%d/%d %s",
+			len(agents), maxAgentsBytes, strings.Join(overlaySizes, " "))
 	}
 	for _, required := range []string{
 		"docs/maintainers/README.md", ".agents/skills/", "internal/domain", "skills-src/",
@@ -445,13 +471,7 @@ func validateInstructions(root string, value catalog) (int, error) {
 			return 0, fmt.Errorf("AGENTS.md is missing canonical route or invariant %q", required)
 		}
 	}
-	if !bytes.Contains(claude, []byte("(AGENTS.md)")) {
-		return 0, errors.New("CLAUDE.md does not defer to AGENTS.md")
-	}
 	for _, spec := range value.Skills {
-		if !bytes.Contains(claude, []byte(spec.Runbook)) {
-			return 0, fmt.Errorf("CLAUDE.md does not route to %s", spec.Runbook)
-		}
 		if !bytes.Contains(maintainerIndex, []byte(filepath.Base(spec.Runbook))) {
 			return 0, fmt.Errorf("maintainer index does not route to %s", spec.Runbook)
 		}
@@ -499,7 +519,7 @@ func validateInstructions(root string, value catalog) (int, error) {
 			return 0, fmt.Errorf("%s must contain one exact repository-skill check block", workflow)
 		}
 	}
-	return len(agents) + len(claude), nil
+	return len(agents) + overlayBytes, nil
 }
 
 func requireDirectory(path string) error {

@@ -5,6 +5,7 @@
     {"path":"CHANGELOG.md","lane":"reference","topic":"release-history","landing_page":"docs/README.md","language":"en"},
     {"path":"CLAUDE.md","lane":"maintainers","topic":"claude-execution-overlay","landing_page":"docs/README.md","language":"en"},
     {"path":"CONTRIBUTING.md","lane":"maintainers","topic":"contributor-workflow","landing_page":"docs/README.md","language":"en"},
+    {"path":"CURSOR.md","lane":"maintainers","topic":"cursor-execution-overlay","landing_page":"docs/README.md","language":"en"},
     {"path":"README.md","lane":"start","topic":"project-overview","landing_page":"","language":"en"},
     {"path":"README.ru.md","lane":"start","topic":"project-overview-ru","landing_page":"README.md","language":"ru","translation_of":"README.md"},
     {"path":"ROADMAP.md","lane":"concepts","topic":"product-roadmap","landing_page":"docs/README.md","language":"en"},

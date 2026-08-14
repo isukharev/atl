@@ -29,10 +29,10 @@ Other canonical maintainer references:
 - [Private evaluator lifecycle](../agent-benchmark-private-workspace.md)
 - [Private benchmark onboarding](private-benchmark-onboarding.md)
 
-Repository-scoped Codex skills under `.agents/skills/` are concise routers to
-these runbooks. They are development aids, not shipped ATL client skills. Edit
-client skills only in `skills-src/` and regenerate their output trees with
-`make gen-plugins`.
+Repository-scoped skills under `.agents/skills/` are concise routers to these
+runbooks for Codex, Claude, and Cursor. They are development aids, not shipped
+ATL client skills. Edit client skills only in `skills-src/` and regenerate
+their output trees with `make gen-plugins`.
 
 ## Add or change a repository skill
 
@@ -43,9 +43,9 @@ client skills only in `skills-src/` and regenerate their output trees with
    copying it.
 3. Add the skill, its required activation terms, and at least two positive and
    two negative activation examples to `.agents/skills/catalog.v1.json`.
-4. Route `CLAUDE.md` to every cataloged runbook so provider agents share the
-   canonical procedure. Never copy the skill into `skills-src/`, `skills/`, or
-   `plugins/atl/skills/`.
+4. Route `CLAUDE.md` and `CURSOR.md` to every cataloged runbook so provider
+   agents share the canonical procedure. Never copy the skill into
+   `skills-src/`, `skills/`, or `plugins/atl/skills/`.
 5. Run `make check-repository-skills` and `make check-docs-catalog`. If Make or
    workflow wiring changed, also run `make check-maintainer-contract`.
 
@@ -61,7 +61,7 @@ Update one owner instead of copying procedure back into root instructions:
 | Knowledge | Owner |
 |---|---|
 | Binding product, authority, architecture, safety, privacy, and handoff invariants | `AGENTS.md` |
-| Provider compatibility | provider file such as `CLAUDE.md`, as a route to shared owners |
+| Provider compatibility | provider file such as `CLAUDE.md` or `CURSOR.md`, as a route to shared owners |
 | Preflight, code ownership, and test selection | `development.md` |
 | Long-command execution, output budgets, and transient session state | `agent-efficiency.md` |
 | Issue, review, CI, merge, and cleanup sequence | `landing-a-change.md` |
