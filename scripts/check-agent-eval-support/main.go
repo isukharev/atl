@@ -162,8 +162,8 @@ func validate(value policy) error {
 	}{
 		{"standalone_cli", "pre_release", "none", "none", "none", "", ""},
 		{"compatibility_bundle", "pre_release", "", "", "", "content_addressed", ""},
-		{"container", "not_declared", "", "", "", "", "1389"},
-		{"github_action", "not_declared", "", "", "", "", "1389"},
+		{"container", "pre_release", "none", "none", "none", "content_addressed", "1389"},
+		{"github_action", "pre_release", "none", "none", "none", "content_addressed", "1389"},
 	}
 	if len(value.Components) != len(wantComponents) {
 		return errors.New("support component contour is incomplete")
@@ -313,7 +313,7 @@ func validatePolicyJSONShape(data []byte) error {
 			case "compatibility_bundle":
 				required = append(required, "identity")
 			case "container", "github_action":
-				required = append(required, "route")
+				required = append(required, "provider_access", "backend_access", "network", "identity", "route")
 			default:
 				return fmt.Errorf("components[%d].id %q is not closed", index, id)
 			}

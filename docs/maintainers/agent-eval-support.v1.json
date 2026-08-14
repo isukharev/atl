@@ -54,12 +54,20 @@
     },
     {
       "id": "container",
-      "state": "not_declared",
+      "state": "pre_release",
+      "provider_access": "none",
+      "backend_access": "none",
+      "network": "none",
+      "identity": "content_addressed",
       "route": "1389"
     },
     {
       "id": "github_action",
-      "state": "not_declared",
+      "state": "pre_release",
+      "provider_access": "none",
+      "backend_access": "none",
+      "network": "none",
+      "identity": "content_addressed",
       "route": "1389"
     }
   ],
