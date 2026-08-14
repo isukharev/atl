@@ -102,7 +102,7 @@ type evaluatorDependencyLedger map[evaluatorDependencyLane][]evaluatorDependency
 // core + executionbackend + experiment + extension + grading + interchange/agentskills + lifecycle + scheduler + profile/atl +
 // lineage + schemaregistry, and cmd/agent-eval -> exact root
 // DAG. The lineage, ATIF, telemetry, and schema registry packages are
-// dependency-free leaves.
+// dependency-free leaves, including the review-only evolution package.
 func TestEvaluatorProductDependencyLedger(t *testing.T) {
 	want := evaluatorDependencyLedger{
 		{Package: evaluatorRootPackage}: {

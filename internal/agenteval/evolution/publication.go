@@ -53,7 +53,7 @@ func (plan PublicationPlan) WriteNew(destination string) error {
 		return fail(ErrorConflict)
 	}
 	if err := syncParentDirectory(destination); err != nil {
-		return err
+		return fail(ErrorConflict)
 	}
 	root, destinationInfo, err := openStableDestination(destination)
 	if err != nil {
