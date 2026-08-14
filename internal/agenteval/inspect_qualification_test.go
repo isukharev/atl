@@ -397,7 +397,7 @@ func TestRunInspectSyntheticFailureMapsBusyToConflict(t *testing.T) {
 	}
 }
 
-func TestRunInspectSyntheticFailureDoesNotClassifyUnsafeRootAsConflict(t *testing.T) {
+func TestRunInspectSyntheticFailureDoesNotClassifyInvalidRootsAsConflict(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the append-only test ledger is unavailable on Windows")
 	}
@@ -405,19 +405,50 @@ func TestRunInspectSyntheticFailureDoesNotClassifyUnsafeRootAsConflict(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	ledgerRoot := filepath.Join(t.TempDir(), "ledger")
-	if err := os.Mkdir(ledgerRoot, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(ledgerRoot, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	_, _, err = RunInspectSyntheticFailure(qualification, ledgerRoot)
-	if !errors.Is(err, ErrInspectQualification) || !errors.Is(err, ErrAttemptLedger) || errors.Is(err, ErrAttemptLedgerConflict) {
-		t.Fatalf("unsafe ledger root received the wrong classification: %v", err)
-	}
-	if strings.Contains(err.Error(), ledgerRoot) {
-		t.Fatalf("unsafe ledger root escaped coded error: %v", err)
+	for name, prepare := range map[string]func(*testing.T) string{
+		"relative root": func(t *testing.T) string {
+			t.Chdir(t.TempDir())
+			const root = "input-marker-relative-root"
+			if err := os.Mkdir(root, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			return root
+		},
+		"unsafe parent": func(t *testing.T) string {
+			parent := filepath.Join(t.TempDir(), "unsafe")
+			if err := os.Mkdir(parent, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(parent, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			ledgerRoot := filepath.Join(parent, "ledger")
+			if err := os.Mkdir(ledgerRoot, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			return ledgerRoot
+		},
+		"unsafe root": func(t *testing.T) string {
+			ledgerRoot := filepath.Join(t.TempDir(), "ledger")
+			if err := os.Mkdir(ledgerRoot, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(ledgerRoot, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			return ledgerRoot
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ledgerRoot := prepare(t)
+			_, _, err := RunInspectSyntheticFailure(qualification, ledgerRoot)
+			if !errors.Is(err, ErrInspectQualification) || !errors.Is(err, ErrAttemptLedger) || errors.Is(err, ErrAttemptLedgerConflict) {
+				t.Fatalf("invalid ledger root received the wrong classification: %v", err)
+			}
+			if strings.Contains(err.Error(), ledgerRoot) {
+				t.Fatalf("invalid ledger root escaped coded error: %v", err)
+			}
+		})
 	}
 }
 
