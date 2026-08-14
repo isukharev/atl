@@ -17,6 +17,7 @@ func TestStableReadProductionInventory(t *testing.T) {
 	const capabilityReferenceChecker = "scripts/check-skill-routing/capability_references.go"
 	const structuralAdmission = "internal/agenteval/interchange/agentskills/admission.go"
 	const structuralAdmissionCapture = "internal/agenteval/interchange/agentskills/admission_capture.go"
+	const atifExport = "internal/agenteval/interchange/atif/export.go"
 	want := map[string]int{
 		"internal/agenteval/aggregate_root.go":                      3,
 		"internal/agenteval/cmd/agent-eval/standalone_config.go":    1,
@@ -28,6 +29,7 @@ func TestStableReadProductionInventory(t *testing.T) {
 		structuralAdmissionCapture:                                  1,
 		"internal/agenteval/interchange/agentskills/publication.go": 4,
 		"internal/agenteval/interchange/agentskills/stable_tree.go": 1,
+		atifExport:                                                   5,
 		"internal/agenteval/live_gateway.go":                        1,
 		"internal/agenteval/private_coverage_scorecard.go":          3,
 		"internal/agenteval/private_finding_acceptance.go":          7,

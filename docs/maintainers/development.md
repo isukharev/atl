@@ -237,12 +237,13 @@ reference leaf `executionbackend`, neutral causal-design leaf `experiment`,
 neutral analysis leaf `analysis`, neutral append-only `lifecycle`, neutral
 grading contract and evaluator `grading`, neutral bounded dispatch leaf
 `scheduler`, format-specific
-`interchange/agentskills`, immutable dataset-lineage leaf `lineage`, schema
-metadata leaf `schemaregistry`, and
+`interchange/agentskills`, owner-private bounded ATIF leaf
+`interchange/atif`, immutable dataset-lineage leaf `lineage`, schema metadata
+leaf `schemaregistry`, and
 `cmd/agent-eval`. Their machine-enforced direction keeps `core`, `extension`,
 `agentadapter`, `executionbackend`, `experiment`, `lifecycle`, and `scheduler`
 as leaves,
-keeps `lineage` and `schemaregistry` dependency-free, permits `analysis` to import only
+keeps `lineage`, `interchange/atif`, and `schemaregistry` dependency-free, permits `analysis` to import only
 `experiment`, permits `grading` to import only `core` and `executionbackend`,
 permits `profile/atl` to import `core` and `grading`, permits
 `interchange/agentskills` to import only `core`, permits the root facade to

@@ -61,6 +61,16 @@ must carry a distinct dataset digest from the primary and review the closed
 reclassify the primary fixture as a holdout. Aggregate digests still do not
 prove disjointness of individual members inside a dataset.
 
+The source tree also contains an internal `interchange/atif` leaf for an
+explicit owner-private ATIF v1.7 subset. It binds normalized source and
+projection with closed coverage and privacy metadata, rejects incomplete or
+unsupported fields, and writes only beneath an existing 0700 destination
+outside the repository. Export uses canonical bounded bytes, 0600 exclusive
+creation, sync, and explicit post-commit outcomes when cleanup or stability
+cannot be proven. It has no CLI/default/public-report, provider, network,
+credential, or execution authority; raw trajectory content remains owner
+private.
+
 ## Stability vocabulary
 
 | Status | Meaning |
