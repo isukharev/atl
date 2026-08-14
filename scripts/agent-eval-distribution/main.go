@@ -476,7 +476,7 @@ func loadVerifiedDistribution(options verifyOptions) (verifiedDistribution, erro
 		return verified, err
 	}
 	checksum, err := readRootFile(root, manifestChecksumName, 256)
-	if err != nil || strings.TrimSpace(string(checksum)) != sha256Bytes(data) {
+	if err != nil || !canonicalChecksumMatches(checksum, sha256Bytes(data)) {
 		return verified, errors.New("manifest checksum mismatch")
 	}
 	if err := validateManifest(manifest); err != nil {
@@ -911,7 +911,7 @@ func uninstallDistribution(prefix, confirmation, publicKey string) error {
 
 func validateInstalledDistribution(root, share *os.Root, manifest distributionManifest, manifestData []byte, allowRollbackMarker bool, publicKey string) error {
 	checksum, err := readRootFile(share, installedChecksumName, 256)
-	if err != nil || strings.TrimSpace(string(checksum)) != sha256Bytes(manifestData) {
+	if err != nil || !canonicalChecksumMatches(checksum, sha256Bytes(manifestData)) {
 		return errors.New("installed manifest checksum mismatch")
 	}
 	entryByName := make(map[string]fileEntry, len(manifest.Files))
@@ -1326,6 +1326,10 @@ func canonicalJSON(value any) ([]byte, error) {
 func sha256Bytes(data []byte) string {
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])
+}
+
+func canonicalChecksumMatches(data []byte, expected string) bool {
+	return bytes.Equal(data, []byte(expected+"\n"))
 }
 
 func validDigest(value string) bool {

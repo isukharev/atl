@@ -119,6 +119,37 @@ func TestDistributionBuildCommandTargetsExecutableCLI(t *testing.T) {
 	}
 }
 
+func TestDistributionMakeRunsCleanBeforeFullGate(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	data, err := os.ReadFile(filepath.Join(root, "Makefile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "agent-eval-distribution-full: agent-eval-distribution-clean") {
+		t.Fatal("distribution full gate is not ordered after the clean gate")
+	}
+	for _, want := range []string{
+		"before=\"$$(git rev-parse HEAD)\"",
+		"$(MAKE) agent-eval-full",
+		"test \"$$before\" = \"$$after\"",
+		"git diff --name-only",
+		"git diff --cached --name-only",
+		"git status --porcelain=v1 --untracked-files=all",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("distribution full gate omitted source stability check %q", want)
+		}
+	}
+	if strings.Contains(text, "agent-eval-distribution: agent-eval-distribution-clean agent-eval-full") {
+		t.Fatal("distribution clean and full gates are unordered peer prerequisites")
+	}
+}
+
 func TestDistributionDefaultSourceSelectionIncludesCompatibilityInputs(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
@@ -410,12 +441,40 @@ func TestDistributionBuildIsReproducibleAndUninstallRefusesDrift(t *testing.T) {
 			t.Fatalf("reproducible artifact %q differs", entry.Name())
 		}
 	}
+	manifestChecksumPath := filepath.Join(distributionA, manifestChecksumName)
+	manifestChecksum, err := os.ReadFile(manifestChecksumPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestChecksumPath, append([]byte(" "), manifestChecksum...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyDistribution(verifyOptions{Distribution: distributionA, AllowUnsigned: true}); err == nil {
+		t.Fatal("verify accepted a non-canonical manifest checksum")
+	}
+	if err := os.WriteFile(manifestChecksumPath, manifestChecksum, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	publicPath, privatePath := generateTestKeyPair(t, root)
 	if err := signDistribution(distributionA, privatePath); err != nil {
 		t.Fatal(err)
 	}
 	prefix := filepath.Join(root, "install")
 	if err := installDistribution(verifyOptions{Distribution: distributionA, PublicKey: publicPath}, prefix); err != nil {
+		t.Fatal(err)
+	}
+	installedChecksumPath := filepath.Join(prefix, "share", installedSupportDir, installedChecksumName)
+	installedChecksum, err := os.ReadFile(installedChecksumPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(installedChecksumPath, append([]byte(" "), installedChecksum...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := uninstallDistribution(prefix, installerConfirmation, publicPath); err == nil {
+		t.Fatal("uninstall accepted a non-canonical installed manifest checksum")
+	}
+	if err := os.WriteFile(installedChecksumPath, installedChecksum, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(prefix, "bin", binaryName), []byte("tampered\n"), 0o755); err != nil {

@@ -173,8 +173,19 @@ agent-eval-distribution-clean:
 	@set -eu; \
 		test -z "$$(git status --porcelain=v1 --ignored=matching --untracked-files=all)" || (echo 'agent-eval distribution requires a clean checkout with no ignored source residue' >&2; exit 2)
 
+.PHONY: agent-eval-distribution-full
+agent-eval-distribution-full: agent-eval-distribution-clean
+	@set -eu; \
+		before="$$(git rev-parse HEAD)"; \
+		$(MAKE) agent-eval-full; \
+		after="$$(git rev-parse HEAD)"; \
+		test "$$before" = "$$after" || (echo 'agent-eval distribution source commit changed during the full gate' >&2; exit 2); \
+		test -z "$$(git diff --name-only)" || (echo 'agent-eval distribution source changed during the full gate' >&2; exit 2); \
+		test -z "$$(git diff --cached --name-only)" || (echo 'agent-eval distribution index changed during the full gate' >&2; exit 2); \
+		test -z "$$(git status --porcelain=v1 --untracked-files=all)" || (echo 'agent-eval distribution gained untracked source during the full gate' >&2; exit 2)
+
 .PHONY: agent-eval-distribution
-agent-eval-distribution: agent-eval-distribution-clean agent-eval-full
+agent-eval-distribution: agent-eval-distribution-full
 	@test -n "$(AGENT_EVAL_DISTRIBUTION_OUTPUT)" || (echo 'set AGENT_EVAL_DISTRIBUTION_OUTPUT to one absent absolute directory' >&2; exit 2)
 	@set -eu; \
 		mkdir -p "$(CURDIR)/tmp"; \
