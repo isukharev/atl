@@ -52,9 +52,12 @@ func removeTemporary(root *os.Root, name string) error {
 // outside the repository; the new file is exclusive, 0600, synced, and never
 // uploaded or linked into a public report. A successful Link is the commit
 // point. If the private staging link cannot be removed after a bounded retry,
-// the final file remains authoritative and ErrorExportCommitted is returned;
-// the hidden staging link is retained as owner-private recovery state and the
-// caller must not retry publication into the same destination.
+// the final file remains authoritative and ErrorExportCleanupPending is
+// returned; the hidden staging link is retained as owner-private recovery
+// state and the caller must not retry publication into the same destination.
+// Any later validation failure is a post-commit outcome: ErrorExportCommitted
+// is used only when the exact final inode is still proven, otherwise
+// ErrorExportOutcomeUnknown tells the caller to inspect before retrying.
 func ExportOwnerPrivate(request ExportRequest) error {
 	if err := Validate(request.Projection); err != nil {
 		return err
@@ -153,12 +156,19 @@ func ExportOwnerPrivate(request ExportRequest) error {
 		return fail(ErrorExportFailed)
 	}
 	cleanupPending := false
+	cleanupUncertain := false
 	if err := removeTemporary(root, temporary); err != nil {
 		if retryErr := removeTemporary(root, temporary); retryErr != nil {
 			// Distinguish an actually retained staging inode from an
 			// ambiguous unlink outcome before reporting recovery state.
-			if info, statErr := root.Lstat(temporary); statErr == nil && os.SameFile(createdInfo, info) {
-				cleanupPending = true
+			if info, statErr := root.Lstat(temporary); statErr == nil {
+				if os.SameFile(createdInfo, info) {
+					cleanupPending = true
+				} else {
+					cleanupUncertain = true
+				}
+			} else if !errors.Is(statErr, fs.ErrNotExist) {
+				cleanupUncertain = true
 			}
 			temporaryPresent = false
 		}
@@ -176,7 +186,10 @@ func ExportOwnerPrivate(request ExportRequest) error {
 		return publishedExportOutcome(root, relative, createdInfo)
 	}
 	if cleanupPending {
-		return fail(ErrorExportCommitted)
+		return fail(ErrorExportCleanupPending)
+	}
+	if cleanupUncertain {
+		return fail(ErrorExportOutcomeUnknown)
 	}
 	return nil
 }
@@ -186,7 +199,7 @@ func publishedExportOutcome(root *os.Root, relative string, createdInfo fs.FileI
 	if err == nil && info.Mode().IsRegular() && info.Mode()&fs.ModeSymlink == 0 && info.Mode().Perm() == 0o600 && os.SameFile(createdInfo, info) {
 		return fail(ErrorExportCommitted)
 	}
-	return fail(ErrorExportFailed)
+	return fail(ErrorExportOutcomeUnknown)
 }
 
 func temporaryRelativePath(relative string) (string, error) {

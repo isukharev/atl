@@ -338,7 +338,7 @@ func TestExportRejectsFinalInodeReplacement(t *testing.T) {
 			t.Fatalf("replace final rename: %v", err)
 		}
 	}
-	requireCode(t, ExportOwnerPrivate(request), ErrorExportFailed)
+	requireCode(t, ExportOwnerPrivate(request), ErrorExportOutcomeUnknown)
 }
 
 func TestExportReportsCommittedAfterRepositoryDrift(t *testing.T) {
@@ -432,7 +432,7 @@ func TestExportReportsCommittedWhenTemporaryCleanupPersists(t *testing.T) {
 		calls++
 		return errors.New("persistent temporary cleanup failure")
 	}
-	requireCode(t, ExportOwnerPrivate(request), ErrorExportCommitted)
+	requireCode(t, ExportOwnerPrivate(request), ErrorExportCleanupPending)
 	if calls != 2 {
 		t.Fatalf("temporary cleanup calls = %d, want bounded retry", calls)
 	}

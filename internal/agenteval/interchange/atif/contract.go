@@ -29,17 +29,19 @@ var ErrInvalid = errors.New("atif_projection_invalid")
 type ErrorCode string
 
 const (
-	ErrorInvalidEventSet    ErrorCode = "invalid_atif_event_set"
-	ErrorInvalidEvent       ErrorCode = "invalid_atif_event"
-	ErrorInvalidToolCall    ErrorCode = "invalid_atif_tool_call"
-	ErrorInvalidObservation ErrorCode = "invalid_atif_observation"
-	ErrorInvalidProjection  ErrorCode = "invalid_atif_projection"
-	ErrorInvalidBinding     ErrorCode = "invalid_atif_binding"
-	ErrorInvalidWire        ErrorCode = "invalid_atif_wire"
-	ErrorInvalidDestination ErrorCode = "invalid_atif_destination"
-	ErrorExportFailed       ErrorCode = "atif_export_failed"
-	ErrorExportCommitted    ErrorCode = "atif_export_committed_cleanup_pending"
-	ErrorLimitExceeded      ErrorCode = "atif_limit_exceeded"
+	ErrorInvalidEventSet      ErrorCode = "invalid_atif_event_set"
+	ErrorInvalidEvent         ErrorCode = "invalid_atif_event"
+	ErrorInvalidToolCall      ErrorCode = "invalid_atif_tool_call"
+	ErrorInvalidObservation   ErrorCode = "invalid_atif_observation"
+	ErrorInvalidProjection    ErrorCode = "invalid_atif_projection"
+	ErrorInvalidBinding       ErrorCode = "invalid_atif_binding"
+	ErrorInvalidWire          ErrorCode = "invalid_atif_wire"
+	ErrorInvalidDestination   ErrorCode = "invalid_atif_destination"
+	ErrorExportFailed         ErrorCode = "atif_export_failed"
+	ErrorExportCommitted      ErrorCode = "atif_export_committed"
+	ErrorExportCleanupPending ErrorCode = "atif_export_cleanup_pending"
+	ErrorExportOutcomeUnknown ErrorCode = "atif_export_outcome_unknown"
+	ErrorLimitExceeded        ErrorCode = "atif_limit_exceeded"
 )
 
 // Error is deliberately independent of source paths, provider values, and
