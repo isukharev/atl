@@ -53,7 +53,7 @@ func (plan PublicationPlan) WriteNew(destination string) error {
 		return fail(ErrorConflict)
 	}
 	if err := syncParentDirectory(destination); err != nil {
-		return fail(ErrorConflict)
+		return publicationError(err)
 	}
 	root, destinationInfo, err := openStableDestination(destination)
 	if err != nil {
@@ -64,36 +64,46 @@ func (plan PublicationPlan) WriteNew(destination string) error {
 		return fail(ErrorConflict)
 	}
 	if err := writeNewRegular(root, proposalMarkerName, []byte("incomplete\n")); err != nil {
-		return err
+		return publicationError(err)
 	}
 	if err := syncRootDirectory(root); err != nil {
-		return err
+		return publicationError(err)
 	}
 	if err := writeNewRegular(root, proposalFileName, plan.data); err != nil {
-		return err
+		return publicationError(err)
 	}
 	if err := validateProposalRoot(root, plan.data, true); err != nil {
-		return fail(ErrorConflict)
+		return publicationError(err)
 	}
 	if err := syncRootDirectory(root); err != nil {
-		return err
+		return publicationError(err)
 	}
 	if err := root.Remove(proposalMarkerName); err != nil {
-		return err
+		return publicationError(err)
 	}
 	if err := validateProposalRoot(root, plan.data, false); err != nil {
 		_ = restoreProposalMarker(root)
-		return fail(ErrorConflict)
+		return publicationError(err)
 	}
 	if err := syncRootDirectory(root); err != nil {
 		_ = restoreProposalMarker(root)
-		return err
+		return publicationError(err)
 	}
 	if !stableDestination(destination, root, destinationInfo) {
 		_ = restoreProposalMarker(root)
 		return fail(ErrorConflict)
 	}
 	return nil
+}
+
+func publicationError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if _, ok := CodeOf(err); ok {
+		return err
+	}
+	return fail(ErrorConflict)
 }
 
 func writeNewRegular(root *os.Root, name string, data []byte) error {
