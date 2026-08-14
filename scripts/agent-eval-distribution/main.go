@@ -275,6 +275,9 @@ func buildDistribution(options buildOptions) error {
 	if err := writeRootFile(root, manifestChecksumName, []byte(manifestSHA+"\n"), 0o644); err != nil {
 		return fmt.Errorf("manifest checksum: %w", err)
 	}
+	if err := syncDirectory(root); err != nil {
+		return fmt.Errorf("build directory sync: %w", err)
+	}
 	if err := root.Remove(distributionBuildMark); err != nil {
 		return fmt.Errorf("build marker removal: %w", err)
 	}
@@ -561,6 +564,9 @@ func installDistribution(options verifyOptions, prefix string) error {
 	if err := syncChildDirectory(root, "share"); err != nil {
 		return err
 	}
+	if err := syncDirectory(root); err != nil {
+		return err
+	}
 	if err := root.Remove(distributionInstallMark); err != nil {
 		return err
 	}
@@ -712,6 +718,9 @@ func rollbackDistribution(options verifyOptions, prefix string) error {
 		return err
 	}
 	if err := syncChildDirectory(root, "share"); err != nil {
+		return err
+	}
+	if err := syncDirectory(root); err != nil {
 		return err
 	}
 	if err := root.Remove(rollbackInstallMark); err != nil {
