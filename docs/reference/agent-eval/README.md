@@ -50,6 +50,13 @@ tags, schema versions, and digests are not rewritten. This is implementation
 evidence for the component split below, not a public Go API or standalone
 conformance claim.
 
+The source tree also contains an internal `lineage` leaf for immutable,
+content-addressed dataset-role and holdout relationships. It records only
+bounded counts, closed role/axis labels, and opaque identities; raw cases,
+prompts, expected outputs, verifier material, paths, providers, credentials,
+and network configuration are outside its contract. The leaf is provider-free
+and has no standalone CLI route or public compatibility promise.
+
 ## Stability vocabulary
 
 | Status | Meaning |
