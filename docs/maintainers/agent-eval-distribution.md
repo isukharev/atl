@@ -37,7 +37,7 @@ env -u GOROOT GOTOOLCHAIN=auto GOWORK=off \
 ```
 
 The release-candidate contract currently admits only version
-`0.1.0-pre-release`, Linux or Darwin, and amd64 or arm64. Builds are host-only:
+`0.1.0-pre-release` on Linux/amd64. Builds are host-only:
 the requested platform and architecture must equal the build host, so a
 foreign target is refused rather than stamped with a false identity. The
 output must be a different, absent path outside the selected source tree. The

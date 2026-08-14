@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added the pre-release standalone `agent-eval` support policy with an explicit
   candidate platform, compatibility/deprecation contour, security route, and
+  stable-release prerequisites. It does not declare a supported external
+  consumer or authorize release publication.
 - Added an offline release-candidate distribution dry run for the standalone
   evaluator: bounded manifest/checksum/SBOM/provenance generation, detached
   signing and verification, marker-protected install, verified rollback, and

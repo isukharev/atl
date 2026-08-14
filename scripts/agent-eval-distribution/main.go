@@ -184,12 +184,32 @@ func buildDistribution(options buildOptions) error {
 	if pathsOverlap(options.SourceRoot, options.Output) {
 		return errors.New("distribution output must not overlap the selected source tree")
 	}
-	compatibilityData, err := readFileBounded(options.Compatibility, maxArtifactBytes)
+	sourceTree, sourceSnapshot, err := hashSelectedTree(options.SourceRoot, options.SourceFiles)
+	if err != nil {
+		return fmt.Errorf("source tree: %w", err)
+	}
+	compatibilityData, err := selectedSourceData(options.SourceRoot, options.SourceFiles, sourceSnapshot, options.Compatibility)
 	if err != nil {
 		return fmt.Errorf("compatibility bundle: %w", err)
 	}
 	if err := validateCompatibilityBundle(compatibilityData, options.ContractVersion); err != nil {
 		return fmt.Errorf("compatibility bundle: %w", err)
+	}
+	schemaData, err := selectedSourceData(options.SourceRoot, options.SourceFiles, sourceSnapshot, options.SchemaRegistry)
+	if err != nil {
+		return fmt.Errorf("schema registry: %w", err)
+	}
+	protocolData, err := selectedSourceData(options.SourceRoot, options.SourceFiles, sourceSnapshot, options.Protocol)
+	if err != nil {
+		return fmt.Errorf("process protocol: %w", err)
+	}
+	schemaSHA, protocolSHA := sha256Bytes(schemaData), sha256Bytes(protocolData)
+	binaryData, err := readFileBounded(options.Binary, maxArtifactBytes)
+	if err != nil {
+		return fmt.Errorf("binary: %w", err)
+	}
+	if err := validateBinarySnapshot(binaryData, options.Version, options.SourceCommit, options.ContractVersion, options.Platform, options.Architecture); err != nil {
+		return fmt.Errorf("binary identity: %w", err)
 	}
 	root, err := createAbsentDirectory(options.Output)
 	if err != nil {
@@ -202,36 +222,8 @@ func buildDistribution(options buildOptions) error {
 	if err := syncDirectory(root); err != nil {
 		return fmt.Errorf("build marker sync: %w", err)
 	}
-	sourceTree, err := hashSelectedTree(options.SourceRoot, options.SourceFiles)
-	if err != nil {
-		return fmt.Errorf("source tree: %w", err)
-	}
-	for label, path := range map[string]string{
-		"compatibility bundle": options.Compatibility,
-		"schema registry":      options.SchemaRegistry,
-		"process protocol":     options.Protocol,
-	} {
-		if err := requireSelectedSourceFile(options.SourceRoot, options.SourceFiles, path); err != nil {
-			return fmt.Errorf("%s: %w", label, err)
-		}
-	}
-	schemaSHA, _, err := hashRegularFile(options.SchemaRegistry, maxArtifactBytes)
-	if err != nil {
-		return fmt.Errorf("schema registry: %w", err)
-	}
-	protocolSHA, _, err := hashRegularFile(options.Protocol, maxArtifactBytes)
-	if err != nil {
-		return fmt.Errorf("process protocol: %w", err)
-	}
-	binaryData, err := readFileBounded(options.Binary, maxArtifactBytes)
-	if err != nil {
-		return fmt.Errorf("binary: %w", err)
-	}
 	if err := writeRootFile(root, binaryName, binaryData, 0o755); err != nil {
 		return fmt.Errorf("binary: %w", err)
-	}
-	if err := validateBinaryIdentity(filepath.Join(options.Output, binaryName), options.Version, options.SourceCommit, options.ContractVersion, options.Platform, options.Architecture); err != nil {
-		return fmt.Errorf("copied binary identity: %w", err)
 	}
 	if err := writeRootFile(root, compatibilityName, compatibilityData, 0o644); err != nil {
 		return fmt.Errorf("compatibility bundle: %w", err)
@@ -1202,14 +1194,6 @@ func readRootDescriptor(root *os.Root, name string, expected fs.FileInfo, limit 
 	return data, nil
 }
 
-func hashRegularFile(name string, limit int64) (string, int64, error) {
-	data, err := readFileBounded(name, limit)
-	if err != nil {
-		return "", 0, err
-	}
-	return sha256Bytes(data), int64(len(data)), nil
-}
-
 func hashRootFile(root *os.Root, name string, limit int64) (string, int64, error) {
 	data, err := readRootFile(root, name, limit)
 	if err != nil {
@@ -1340,9 +1324,9 @@ func validDigest(value string) bool {
 
 func validDistributionContractVersion(value string) bool { return value == distributionContractVersion }
 
-func validDistributionPlatform(value string) bool { return value == "linux" || value == "darwin" }
+func validDistributionPlatform(value string) bool { return value == "linux" }
 
-func validDistributionArchitecture(value string) bool { return value == "amd64" || value == "arm64" }
+func validDistributionArchitecture(value string) bool { return value == "amd64" }
 
 func validCommit(value string) bool {
 	return len(value) == 40 && validHex(value)
@@ -1361,20 +1345,7 @@ func validHex(value string) bool {
 }
 
 func validVersion(value string) bool {
-	if value == "" || len(value) > 128 || strings.ContainsAny(value, "/\\ \t\r\n") {
-		return false
-	}
-	for _, character := range value {
-		switch {
-		case character >= '0' && character <= '9':
-		case character >= 'a' && character <= 'z':
-		case character >= 'A' && character <= 'Z':
-		case strings.ContainsRune(".-+", character):
-		default:
-			return false
-		}
-	}
-	return value[0] != '.' && value[0] != '-' && value[0] != '+' && value[len(value)-1] != '.' && value[len(value)-1] != '-' && value[len(value)-1] != '+'
+	return value == distributionContractVersion
 }
 
 func safeName(name string) bool {

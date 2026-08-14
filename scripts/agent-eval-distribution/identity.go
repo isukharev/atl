@@ -118,3 +118,42 @@ func validateBinaryForSigning(binary, platform, architecture string) error {
 	}
 	return nil
 }
+
+func validateBinarySnapshot(data []byte, version, commit, contractVersion, platform, architecture string) error {
+	temporary, err := os.CreateTemp("", "agent-eval-distribution-binary-")
+	if err != nil {
+		return err
+	}
+	name := temporary.Name()
+	defer func() { _ = os.Remove(name) }()
+	if err := temporary.Chmod(0o700); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	written, writeErr := temporary.Write(data)
+	if writeErr != nil || written != len(data) {
+		_ = temporary.Close()
+		if writeErr != nil {
+			return writeErr
+		}
+		return io.ErrShortWrite
+	}
+	if err := temporary.Sync(); err != nil && runtime.GOOS != "windows" {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := validateBinaryIdentity(name, version, commit, contractVersion, platform, architecture); err != nil {
+		return err
+	}
+	observed, err := readFileBounded(name, maxArtifactBytes)
+	if err != nil {
+		return errors.New("binary changed during version probe")
+	}
+	if !bytes.Equal(observed, data) {
+		return errors.New("binary changed during version probe")
+	}
+	return nil
+}

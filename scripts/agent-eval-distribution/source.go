@@ -13,43 +13,44 @@ import (
 	"strings"
 )
 
-func hashSelectedTree(root string, paths []string) (string, error) {
+func hashSelectedTree(root string, paths []string) (string, map[string][]byte, error) {
 	rootInfo, err := os.Lstat(root)
 	if err != nil || !rootInfo.IsDir() || rootInfo.Mode()&fs.ModeSymlink != 0 {
-		return "", errors.New("source root must be a plain directory")
+		return "", nil, errors.New("source root must be a plain directory")
 	}
 	files := map[string]fileEntry{}
+	snapshot := map[string][]byte{}
 	var total int64
 	visitedEntries := 0
 	for _, selected := range paths {
 		if selected == "" || filepath.IsAbs(selected) || filepath.Clean(selected) != selected || strings.HasPrefix(selected, ".."+string(filepath.Separator)) || selected == ".." {
-			return "", errors.New("source selection must be relative and contained")
+			return "", nil, errors.New("source selection must be relative and contained")
 		}
 		if sensitiveSourcePath(selected) {
-			return "", errors.New("source selection contains a sensitive path")
+			return "", nil, errors.New("source selection contains a sensitive path")
 		}
 		absolute := filepath.Join(root, selected)
 		if err := rejectSymlinkComponents(root, selected); err != nil {
-			return "", err
+			return "", nil, err
 		}
 		info, err := os.Lstat(absolute)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		if info.Mode()&fs.ModeSymlink != 0 {
-			return "", errors.New("source selection contains a symlink")
+			return "", nil, errors.New("source selection contains a symlink")
 		}
 		if info.IsDir() {
-			err = walkSourceDirectory(root, absolute, files, &total, &visitedEntries)
+			err = walkSourceDirectory(root, absolute, files, snapshot, &total, &visitedEntries)
 		} else {
-			err = addTreeFile(files, filepath.ToSlash(selected), absolute, &total)
+			err = addTreeFile(files, snapshot, filepath.ToSlash(selected), absolute, &total)
 		}
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 	}
 	if len(files) == 0 || len(files) > maxSourceFiles || total > maxSourceTreeBytes {
-		return "", errors.New("source tree exceeds bounded selection")
+		return "", nil, errors.New("source tree exceeds bounded selection")
 	}
 	entries := make([]fileEntry, 0, len(files))
 	for _, entry := range files {
@@ -60,7 +61,7 @@ func hashSelectedTree(root string, paths []string) (string, error) {
 	for _, entry := range entries {
 		fmt.Fprintf(hash, "%s\x00%d\x00%s\x00", entry.Name, entry.SizeBytes, entry.SHA256)
 	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
+	return hex.EncodeToString(hash.Sum(nil)), snapshot, nil
 }
 
 func rejectSymlinkComponents(root, relative string) error {
@@ -111,7 +112,30 @@ func requireSelectedSourceFile(root string, selections []string, target string) 
 	return errors.New("input is not covered by source selection")
 }
 
-func walkSourceDirectory(sourceRoot, directoryPath string, files map[string]fileEntry, total *int64, visitedEntries *int) error {
+func selectedSourceData(root string, selections []string, snapshot map[string][]byte, target string) ([]byte, error) {
+	if err := requireSelectedSourceFile(root, selections, target); err != nil {
+		return nil, err
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	targetAbs, err := filepath.Abs(target)
+	if err != nil {
+		return nil, err
+	}
+	relative, err := filepath.Rel(filepath.Clean(rootAbs), filepath.Clean(targetAbs))
+	if err != nil {
+		return nil, err
+	}
+	data, ok := snapshot[filepath.ToSlash(relative)]
+	if !ok {
+		return nil, errors.New("input snapshot is missing selected file")
+	}
+	return data, nil
+}
+
+func walkSourceDirectory(sourceRoot, directoryPath string, files map[string]fileEntry, snapshot map[string][]byte, total *int64, visitedEntries *int) error {
 	directory, err := os.Open(directoryPath)
 	if err != nil {
 		return err
@@ -134,7 +158,7 @@ func walkSourceDirectory(sourceRoot, directoryPath string, files map[string]file
 		}
 		path := filepath.Join(directoryPath, entry.Name())
 		if entry.IsDir() {
-			if err := walkSourceDirectory(sourceRoot, path, files, total, visitedEntries); err != nil {
+			if err := walkSourceDirectory(sourceRoot, path, files, snapshot, total, visitedEntries); err != nil {
 				return err
 			}
 			continue
@@ -143,14 +167,14 @@ func walkSourceDirectory(sourceRoot, directoryPath string, files map[string]file
 		if err != nil {
 			return err
 		}
-		if err := addTreeFile(files, filepath.ToSlash(relative), path, total); err != nil {
+		if err := addTreeFile(files, snapshot, filepath.ToSlash(relative), path, total); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func addTreeFile(files map[string]fileEntry, relative, absolute string, total *int64) error {
+func addTreeFile(files map[string]fileEntry, snapshot map[string][]byte, relative, absolute string, total *int64) error {
 	if !safeName(relative) || sensitiveSourcePath(relative) {
 		return errors.New("source tree path is not canonical")
 	}
@@ -170,12 +194,13 @@ func addTreeFile(files map[string]fileEntry, relative, absolute string, total *i
 	if info.Size() < 0 || info.Size() > maxArtifactBytes || *total > maxSourceTreeBytes-info.Size() {
 		return errors.New("source tree exceeds bounded byte selection")
 	}
-	sha, size, err := hashRegularFile(absolute, maxArtifactBytes)
+	data, err := readFileBounded(absolute, maxArtifactBytes)
 	if err != nil {
 		return err
 	}
-	files[relative] = fileEntry{Name: relative, SizeBytes: size, SHA256: sha}
-	*total += size
+	files[relative] = fileEntry{Name: relative, SizeBytes: int64(len(data)), SHA256: sha256Bytes(data)}
+	snapshot[relative] = data
+	*total += int64(len(data))
 	return nil
 }
 

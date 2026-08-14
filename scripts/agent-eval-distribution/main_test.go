@@ -13,8 +13,8 @@ import (
 )
 
 func TestDistributionBuildVerifySignInstallUninstall(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("directory Sync is intentionally best effort on Windows")
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		t.Skip("distribution candidate contour is Linux/amd64")
 	}
 	root := t.TempDir()
 	source := filepath.Join(root, "source")
@@ -259,6 +259,62 @@ func TestDistributionBuildBindsBinaryAndSourceBoundary(t *testing.T) {
 	}
 }
 
+func TestDistributionBindsTheBinarySnapshotAcrossTheProbe(t *testing.T) {
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		t.Skip("distribution candidate contour is Linux/amd64")
+	}
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	if err := os.Mkdir(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	compatibility := filepath.Join(source, "compat.json")
+	if err := os.WriteFile(compatibility, testCompatibilityBundle(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commit := strings.Repeat("a", 40)
+	binary := filepath.Join(root, "agent-eval")
+	mutating := append(testBinaryData(distributionContractVersion, commit, "mutating"),
+		[]byte("printf '#tampered\\n' >> \"$0\"\n")...)
+	if err := os.WriteFile(binary, mutating, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(root, "distribution")
+	err := buildDistribution(buildOptions{
+		Binary: binary, Compatibility: compatibility, SourceRoot: source,
+		SourceFiles: []string{"compat.json"}, SchemaRegistry: compatibility, Protocol: compatibility,
+		Output: output, Version: distributionContractVersion, ContractVersion: distributionContractVersion,
+		SourceCommit: commit, Platform: "linux", Architecture: "amd64",
+	})
+	if err == nil || !strings.Contains(err.Error(), "changed during version probe") {
+		t.Fatalf("self-mutating binary was not rejected: %v", err)
+	}
+	if _, statErr := os.Stat(output); !os.IsNotExist(statErr) {
+		t.Fatalf("output was created after binary identity refusal: %v", statErr)
+	}
+}
+
+func TestSelectedSourceDataUsesTheBoundSnapshot(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "compat.json"), []byte("old\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, snapshot, err := hashSelectedTree(root, []string{"compat.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "compat.json"), []byte("new\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data, err := selectedSourceData(root, []string{"compat.json"}, snapshot, filepath.Join(root, "compat.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "old\n" {
+		t.Fatalf("selected source data was reread after binding: %q", data)
+	}
+}
+
 func TestDistributionRejectsCompatibilityAndTargetDrift(t *testing.T) {
 	valid := testCompatibilityBundle()
 	if err := validateCompatibilityBundle(valid, distributionContractVersion); err != nil {
@@ -281,8 +337,8 @@ func TestDistributionRejectsCompatibilityAndTargetDrift(t *testing.T) {
 }
 
 func TestDistributionBuildIsReproducibleAndUninstallRefusesDrift(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("directory Sync is intentionally best effort on Windows")
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		t.Skip("distribution candidate contour is Linux/amd64")
 	}
 	root := t.TempDir()
 	distributionA := buildTestDistributionNamed(t, root, "repro", "repro-a", []byte("same-binary\n"))
@@ -377,8 +433,8 @@ func TestDistributionActionBindsAllExpectedIdentityInputs(t *testing.T) {
 }
 
 func TestDistributionRollbackRestoresVerifiedCandidate(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("directory Sync is intentionally best effort on Windows")
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		t.Skip("distribution candidate contour is Linux/amd64")
 	}
 	root := t.TempDir()
 	oldDistribution := buildTestDistribution(t, root, "a-old", []byte("old-binary\n"))
@@ -426,7 +482,7 @@ func buildTestDistributionNamed(t *testing.T, root, label, outputLabel string, b
 	}
 	binary := filepath.Join(root, "agent-eval-"+outputLabel)
 	compatibility := filepath.Join(source, "compat.json")
-	version := "0.1.0-" + label
+	version := distributionContractVersion
 	commit := strings.Repeat(testCommitCharacter(label), 40)
 	if err := os.WriteFile(binary, testBinaryData(version, commit, string(binaryData)), 0o700); err != nil {
 		t.Fatal(err)
