@@ -475,6 +475,9 @@ func (s Store) ApplyPromotion(receipt DecisionReceipt, expectedCurrent *Identity
 		}
 		return fail(ErrorConflict)
 	}
+	if err := checkTransitionCapacity(root); err != nil {
+		return err
+	}
 	if err := s.recordDecision(root, receipt); err != nil {
 		return err
 	}
@@ -561,6 +564,9 @@ func (s Store) ApplyRollback(receipt RollbackReceipt) (RollbackReceipt, error) {
 	}
 	if !found || prior.From != receipt.Restore || prior.To != receipt.Current || prior.TransitionSHA256 != current.TransitionSHA256 {
 		return RollbackReceipt{}, fail(ErrorConflict)
+	}
+	if err := checkTransitionCapacity(root); err != nil {
+		return RollbackReceipt{}, err
 	}
 	applied := receipt
 	applied.Restored = true
