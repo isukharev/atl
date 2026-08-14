@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -177,11 +179,65 @@ func TestStorePromotionIsExplicitIdempotentAndRollbackExact(t *testing.T) {
 }
 
 func TestStoreRejectsUnsafeRoot(t *testing.T) {
+	if _, err := NewStore("relative-store"); err == nil {
+		t.Fatal("relative store root was accepted")
+	}
 	unsafe := t.TempDir()
 	if err := os.Chmod(unsafe, 0o755); err != nil {
 		t.Fatalf("Chmod(): %v", err)
 	}
 	if _, err := NewStore(unsafe); err == nil {
 		t.Fatal("world-readable store root was accepted")
+	}
+	symlinkParent := t.TempDir()
+	symlinkTarget := t.TempDir()
+	link := filepath.Join(symlinkParent, "store")
+	if err := os.Symlink(symlinkTarget, link); err != nil {
+		t.Fatalf("Symlink(): %v", err)
+	}
+	if _, err := NewStore(link); err == nil {
+		t.Fatal("symlink store root was accepted")
+	}
+}
+
+func TestStoreSerializesConcurrentPromotionAndRejectsReplay(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := Evaluate(testInput(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := make(chan error, 2)
+	var group sync.WaitGroup
+	for range 2 {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			results <- store.ApplyPromotion(receipt, nil)
+		}()
+	}
+	group.Wait()
+	close(results)
+	successes := 0
+	conflicts := 0
+	for err := range results {
+		if err == nil {
+			successes++
+			continue
+		}
+		if code, ok := CodeOf(err); ok && code == ErrorConflict {
+			conflicts++
+			continue
+		}
+		t.Fatalf("concurrent promotion error=%v", err)
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("concurrent promotion outcomes successes=%d conflicts=%d", successes, conflicts)
 	}
 }

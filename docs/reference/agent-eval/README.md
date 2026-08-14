@@ -147,6 +147,17 @@ open a private workspace. Generic `run` and `resume` remain reserved, receive
 only the individually admitted execution dimensions if later implemented, and
 remain subject to the no-replay lifecycle below.
 
+Promotion is a provider-free, identity-only decision over one explicit
+comparison artifact. It requires all four component reviews, binds reference
+and candidate by six exact SHA-256 identities, and refuses when any declared
+axis is blocking, unknown, or interrupted; it never computes a weighted score
+or reads source evidence. A confirmed promotion writes only a content-
+minimized receipt and an owner-only current pointer beneath the exact absolute
+mode-0700 store. Rollback requires a separately encoded receipt, the exact
+current identity, and `ROLLBACK` confirmation; it never resolves aliases such
+as `latest` or searches for an earlier state. These source operations are
+pre-release and do not constitute signed release or support authority.
+
 Commands are non-interactive: no prompts, pagers, browsers, confirmation reads from stdin, or default provider selection. A local mutation requiring confirmation must receive all confirmation material in the original invocation and fail before writing when it is absent.
 
 Every row whose contact or access dimension is `N` must be structurally unable to construct or discover that authority. In particular, `import`, `validate`, `plan`, `reconcile`, migration, `compare`, `report`, `capabilities`, deterministic grading, and provider-free `compat verify` cannot construct a provider, configured product backend, or network client. Dry-run is not a substitute for this boundary.

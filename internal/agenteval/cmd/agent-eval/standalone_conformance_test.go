@@ -63,6 +63,7 @@ func TestStandalonePublicPreReleaseWholeProcessConformance(t *testing.T) {
 		decodeStandaloneWholeProcessResult(t, version.Result, &result)
 		wantSchemas := map[string]bool{
 			"agent-skills-import-report": false, "agent-skills-export-report": false,
+			"promotion-comparison": false, "promotion-decision": false, "promotion-rollback": false,
 			"scheduler-plan": false, "scheduler-report": false, "sequential-reference-bundle": false,
 		}
 		for _, schema := range result.Schemas {

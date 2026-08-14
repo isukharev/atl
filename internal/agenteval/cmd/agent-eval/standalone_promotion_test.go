@@ -30,11 +30,11 @@ func standalonePromotionTestComparison(blocking bool) agenteval.PromotionCompari
 	}
 	axes := make([]agenteval.PromotionAxisResult, 0, 6)
 	for _, axis := range []agenteval.PromotionAxis{agenteval.PromotionAxisSafety, agenteval.PromotionAxisCoverage, agenteval.PromotionAxisRuntime, agenteval.PromotionAxisQuality, agenteval.PromotionAxisNegativeLift, agenteval.PromotionAxisResource} {
-		state := agenteval.PromotionAxisState(agenteval.PromotionAxisPass)
+		state := agenteval.PromotionAxisPass
 		blockingValue := false
 		reason := agenteval.PromotionReason("")
 		if blocking && axis == agenteval.PromotionAxisSafety {
-			state, blockingValue, reason = agenteval.PromotionAxisState(agenteval.PromotionAxisFail), true, agenteval.PromotionReasonSafetyRegression
+			state, blockingValue, reason = agenteval.PromotionAxisFail, true, agenteval.PromotionReasonSafetyRegression
 		}
 		axes = append(axes, agenteval.PromotionAxisResult{Axis: axis, State: state, Blocking: blockingValue, Reason: reason})
 	}

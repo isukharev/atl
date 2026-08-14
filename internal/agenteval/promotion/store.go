@@ -30,11 +30,14 @@ type referencePointer struct {
 }
 
 func NewStore(root string) (Store, error) {
-	abs, err := filepath.Abs(root)
-	if err != nil || filepath.Clean(root) != root {
+	if !filepath.IsAbs(root) || filepath.Clean(root) != root {
 		return Store{}, fail(ErrorInvalidIdentity)
 	}
-	info, err := os.Stat(abs)
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return Store{}, fail(ErrorInvalidIdentity)
+	}
+	info, err := os.Lstat(abs)
 	if err != nil || !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
 		return Store{}, fail(ErrorInvalidIdentity)
 	}
@@ -219,6 +222,11 @@ func (s Store) RecordDecision(receipt DecisionReceipt) error {
 		return err
 	}
 	defer func() { _ = root.Close() }()
+	lock, err := acquireStoreLock(root)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Close() }()
 	return s.recordDecision(root, receipt)
 }
 
@@ -234,6 +242,11 @@ func (s Store) ApplyPromotion(receipt DecisionReceipt, expectedCurrent *Identity
 		return err
 	}
 	defer func() { _ = root.Close() }()
+	lock, err := acquireStoreLock(root)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Close() }()
 	current, present, err := s.readCurrent(root)
 	if err != nil {
 		return err
@@ -262,6 +275,11 @@ func (s Store) ApplyRollback(receipt RollbackReceipt) error {
 		return err
 	}
 	defer func() { _ = root.Close() }()
+	lock, err := acquireStoreLock(root)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Close() }()
 	current, present, err := s.readCurrent(root)
 	if err != nil || !present || current.Identity != receipt.Current {
 		return fail(ErrorConflict)

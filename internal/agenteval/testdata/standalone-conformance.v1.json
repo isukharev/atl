@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_version": "0.1.0-pre-release",
-  "golden_bundle": {"path":"testdata/standalone-readability-golden.v1.json","sha256":"7780cbd008c0c41b066c15e5f00ceba284b8436a6ba687f535c02d66f67b9bcd"},
+  "golden_bundle": {"path":"testdata/standalone-readability-golden.v1.json","sha256":"01ad86ff7884b5567f1a250c679b03c57b908d9a4caf2d3ee418c12845c08349"},
   "readability": [
     {"namespace":"atl-profile","kind":"activation-reference","versions":[1,2]},
     {"namespace":"atl-profile","kind":"activation-report","versions":[1,2]},
@@ -39,6 +39,9 @@
     {"namespace":"standalone","kind":"migration-preview","versions":[1]},
     {"namespace":"standalone","kind":"migration-result","versions":[1]},
     {"namespace":"standalone","kind":"project-config","versions":[1]},
+    {"namespace":"standalone","kind":"promotion-comparison","versions":[1]},
+    {"namespace":"standalone","kind":"promotion-decision","versions":[1]},
+    {"namespace":"standalone","kind":"promotion-rollback","versions":[1]},
     {"namespace":"standalone","kind":"scheduler-plan","versions":[1]},
     {"namespace":"standalone","kind":"scheduler-report","versions":[1]},
     {"namespace":"standalone","kind":"schema-registry","versions":[1]},
@@ -85,6 +88,9 @@
     {"namespace":"standalone","kind":"migration-result","version":2},
     {"namespace":"standalone","kind":"product-contract","version":2},
     {"namespace":"standalone","kind":"project-config","version":2},
+    {"namespace":"standalone","kind":"promotion-comparison","version":2},
+    {"namespace":"standalone","kind":"promotion-decision","version":2},
+    {"namespace":"standalone","kind":"promotion-rollback","version":2},
     {"namespace":"standalone","kind":"scheduler-plan","version":2},
     {"namespace":"standalone","kind":"scheduler-report","version":2},
     {"namespace":"standalone","kind":"schema-registry","version":2},
