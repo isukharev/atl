@@ -118,7 +118,8 @@ func main() {
 		}
 	}
 	projectionMarker := "<!-- agent-eval-support-policy-sha256: " + projection + " -->"
-	if bytes.Count(docs, []byte(projectionMarker)) != 1 {
+	const projectionMarkerPrefix = "<!-- agent-eval-support-policy-sha256: "
+	if bytes.Count(docs, []byte(projectionMarkerPrefix)) != 1 || bytes.Count(docs, []byte(projectionMarker)) != 1 {
 		fail(errors.New("support policy documentation does not contain the unique machine-policy projection"))
 	}
 	fmt.Println("agent-eval support policy: pre-release contour is closed and machine-bound")
@@ -225,19 +226,36 @@ func validatePolicyJSONShape(data []byte) error {
 	if err := requireJSONMembers(root, "policy", []string{"schema", "schema_version", "status", "support_owner", "external_consumer", "cadence", "platforms", "excluded_platforms", "components", "compatibility", "deprecation", "security", "release"}); err != nil {
 		return err
 	}
+	if err := requireJSONKinds(root, "policy", map[string]string{
+		"schema": "string", "schema_version": "number", "status": "string",
+	}); err != nil {
+		return err
+	}
 	if value, err := jsonObject(root["support_owner"]); err != nil {
 		return fmt.Errorf("support_owner: %w", err)
 	} else if err := requireJSONMembers(value, "support_owner", []string{"kind", "repository", "security_route"}); err != nil {
+		return err
+	} else if err := requireJSONKinds(value, "support_owner", map[string]string{
+		"kind": "string", "repository": "string", "security_route": "string",
+	}); err != nil {
 		return err
 	}
 	if value, err := jsonObject(root["external_consumer"]); err != nil {
 		return fmt.Errorf("external_consumer: %w", err)
 	} else if err := requireJSONMembers(value, "external_consumer", []string{"kind", "evidence", "named_consumer"}); err != nil {
 		return err
+	} else if err := requireJSONKinds(value, "external_consumer", map[string]string{
+		"kind": "string", "evidence": "string", "named_consumer": "bool",
+	}); err != nil {
+		return err
 	}
 	if value, err := jsonObject(root["cadence"]); err != nil {
 		return fmt.Errorf("cadence: %w", err)
 	} else if err := requireJSONMembers(value, "cadence", []string{"stable", "pre_release"}); err != nil {
+		return err
+	} else if err := requireJSONKinds(value, "cadence", map[string]string{
+		"stable": "string", "pre_release": "string",
+	}); err != nil {
 		return err
 	}
 	if values, err := jsonArray(root["platforms"]); err != nil {
@@ -251,6 +269,11 @@ func validatePolicyJSONShape(data []byte) error {
 			if err := requireJSONMembers(value, fmt.Sprintf("platforms[%d]", index), []string{"os", "architecture", "state", "surface"}); err != nil {
 				return err
 			}
+			if err := requireJSONKinds(value, fmt.Sprintf("platforms[%d]", index), map[string]string{
+				"os": "string", "architecture": "string", "state": "string", "surface": "string",
+			}); err != nil {
+				return err
+			}
 		}
 	}
 	if values, err := jsonArray(root["excluded_platforms"]); err != nil {
@@ -262,6 +285,11 @@ func validatePolicyJSONShape(data []byte) error {
 				return fmt.Errorf("excluded_platforms[%d]: %w", index, err)
 			}
 			if err := requireJSONMembersOptional(value, fmt.Sprintf("excluded_platforms[%d]", index), []string{"os", "reason"}, []string{"architecture"}); err != nil {
+				return err
+			}
+			if err := requireJSONKinds(value, fmt.Sprintf("excluded_platforms[%d]", index), map[string]string{
+				"os": "string", "architecture": "string", "reason": "string",
+			}); err != nil {
 				return err
 			}
 		}
@@ -292,29 +320,57 @@ func validatePolicyJSONShape(data []byte) error {
 			if err := requireJSONMembers(value, fmt.Sprintf("components[%d]", index), required); err != nil {
 				return err
 			}
+			if err := requireJSONKinds(value, fmt.Sprintf("components[%d]", index), map[string]string{
+				"id": "string", "state": "string", "provider_access": "string", "backend_access": "string",
+				"network": "string", "identity": "string", "route": "string",
+			}); err != nil {
+				return err
+			}
 		}
 	}
 	if value, err := jsonObject(root["compatibility"]); err != nil {
 		return fmt.Errorf("compatibility: %w", err)
 	} else if err := requireJSONMembers(value, "compatibility", []string{"schema_policy", "future_generation", "contract_window", "rollback"}); err != nil {
 		return err
+	} else if err := requireJSONKinds(value, "compatibility", map[string]string{
+		"schema_policy": "string", "future_generation": "string", "contract_window": "string", "rollback": "string",
+	}); err != nil {
+		return err
 	}
 	if value, err := jsonObject(root["deprecation"]); err != nil {
 		return fmt.Errorf("deprecation: %w", err)
 	} else if err := requireJSONMembers(value, "deprecation", []string{"notice_days", "notice_releases", "removal_requires_major", "clock_starts"}); err != nil {
+		return err
+	} else if err := requireJSONKinds(value, "deprecation", map[string]string{
+		"notice_days": "number", "notice_releases": "number", "removal_requires_major": "bool", "clock_starts": "string",
+	}); err != nil {
 		return err
 	}
 	if value, err := jsonObject(root["security"]); err != nil {
 		return fmt.Errorf("security: %w", err)
 	} else if err := requireJSONMembers(value, "security", []string{"response_route", "target", "automatic_updates"}); err != nil {
 		return err
+	} else if err := requireJSONKinds(value, "security", map[string]string{
+		"response_route": "string", "target": "string", "automatic_updates": "bool",
+	}); err != nil {
+		return err
 	}
 	if value, err := jsonObject(root["release"]); err != nil {
 		return fmt.Errorf("release: %w", err)
 	} else if err := requireJSONMembers(value, "release", []string{"publication_authority", "stable_prerequisites", "repository_extraction"}); err != nil {
 		return err
-	} else if _, err := jsonArray(value["stable_prerequisites"]); err != nil {
+	} else if err := requireJSONKinds(value, "release", map[string]string{
+		"publication_authority": "string", "stable_prerequisites": "array", "repository_extraction": "string",
+	}); err != nil {
+		return err
+	} else if prerequisites, err := jsonArray(value["stable_prerequisites"]); err != nil {
 		return fmt.Errorf("release.stable_prerequisites: %w", err)
+	} else {
+		for index, prerequisite := range prerequisites {
+			if err := requireJSONKind(prerequisite, "string"); err != nil {
+				return fmt.Errorf("release.stable_prerequisites[%d]: %w", index, err)
+			}
+		}
 	}
 	return nil
 }
@@ -405,6 +461,51 @@ func requireJSONMembersOptional(value map[string]json.RawMessage, owner string, 
 		if !allowed[name] {
 			return fmt.Errorf("%s contains unknown member %q", owner, name)
 		}
+	}
+	return nil
+}
+
+func requireJSONKinds(value map[string]json.RawMessage, owner string, kinds map[string]string) error {
+	for name, kind := range kinds {
+		raw, ok := value[name]
+		if !ok {
+			continue
+		}
+		if err := requireJSONKind(raw, kind); err != nil {
+			return fmt.Errorf("%s.%s: %w", owner, name, err)
+		}
+	}
+	return nil
+}
+
+func requireJSONKind(raw json.RawMessage, want string) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return fmt.Errorf("expected %s", want)
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("expected one %s value", want)
+	}
+	valid := false
+	switch want {
+	case "string":
+		_, valid = value.(string)
+	case "number":
+		_, valid = value.(json.Number)
+	case "bool":
+		_, valid = value.(bool)
+	case "array":
+		_, valid = value.([]any)
+	case "object":
+		_, valid = value.(map[string]any)
+	default:
+		return fmt.Errorf("unknown JSON kind %q", want)
+	}
+	if !valid {
+		return fmt.Errorf("expected %s", want)
 	}
 	return nil
 }

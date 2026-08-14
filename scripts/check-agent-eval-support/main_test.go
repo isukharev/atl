@@ -39,6 +39,12 @@ func TestSupportPolicyBaselineAndClosedMutations(t *testing.T) {
 		{"duplicate-member", func(value []byte) []byte {
 			return bytes.Replace(value, []byte("    \"automatic_updates\": false\n"), []byte("    \"automatic_updates\": false,\n    \"automatic_updates\": false\n"), 1)
 		}},
+		{"null-required-bool", func(value []byte) []byte {
+			return bytes.Replace(value, []byte("    \"named_consumer\": false\n"), []byte("    \"named_consumer\": null\n"), 1)
+		}},
+		{"null-optional-string", func(value []byte) []byte {
+			return bytes.Replace(value, []byte("      \"architecture\": \"arm64\",\n"), []byte("      \"architecture\": null,\n"), 1)
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			mutated := test.mutate(data)
