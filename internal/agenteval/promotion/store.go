@@ -91,22 +91,16 @@ func (s Store) openRoot() (*os.Root, error) {
 }
 
 func (s Store) ensureDirectory(root *os.Root, name string) error {
-	created := false
 	if err := root.Mkdir(name, 0o700); err != nil {
 		if !errors.Is(err, os.ErrExist) {
 			return err
 		}
-	} else {
-		created = true
 	}
 	info, err := root.Lstat(name)
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || validateStoreDirectoryPlatform(info) != nil {
 		return fail(ErrorConflict)
 	}
-	if created {
-		return syncDirectory(root, ".")
-	}
-	return nil
+	return syncDirectory(root, ".")
 }
 
 func writeExclusive(root *os.Root, name string, data []byte, idempotent bool) error {
@@ -481,6 +475,9 @@ func (s Store) ApplyPromotion(receipt DecisionReceipt, expectedCurrent *Identity
 		}
 		if (!present && existing.From == receipt.Reference && existing.PreviousTransitionSHA256 == "") ||
 			(present && current.Identity == existing.From && current.TransitionSHA256 == existing.PreviousTransitionSHA256) {
+			if err := syncDirectory(root, promotionTransitionDirectory); err != nil {
+				return err
+			}
 			return writePointer(root, existing.To, existing.RequestSHA256)
 		}
 		return fail(ErrorConflict)
@@ -538,6 +535,9 @@ func (s Store) ApplyRollback(receipt RollbackReceipt) (RollbackReceipt, error) {
 		}
 		if current.Identity != existing.From || current.TransitionSHA256 != existing.PreviousTransitionSHA256 {
 			return RollbackReceipt{}, fail(ErrorConflict)
+		}
+		if err := syncDirectory(root, promotionTransitionDirectory); err != nil {
+			return RollbackReceipt{}, err
 		}
 		applied, err := s.readRollbackReceipt(root, existing.ReceiptSHA256)
 		if err != nil {
