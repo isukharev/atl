@@ -106,7 +106,7 @@ type verifiedDistribution struct {
 }
 
 func main() {
-	mode := flag.String("mode", "", "build, verify, sign, install, or uninstall")
+	mode := flag.String("mode", "", "build, verify, sign, install, rollback, or uninstall")
 	binary := flag.String("binary", "", "agent-eval binary for build")
 	compatibility := flag.String("compatibility", "", "provider-free compatibility bundle for build")
 	sourceRoot := flag.String("source-root", ".", "source root for the selected tree hash")
@@ -114,14 +114,14 @@ func main() {
 	schemaRegistry := flag.String("schema-registry", "internal/agenteval/schemaregistry/registry.v1.json", "schema registry path")
 	protocol := flag.String("protocol", "internal/agenteval/cmd/agent-eval/standalone_process.go", "process protocol source path")
 	output := flag.String("output", "dist/agent-eval", "distribution directory")
-	version := flag.String("version", "", "pre-release or release version")
+	version := flag.String("version", "", "pre-release version (currently 0.1.0-pre-release)")
 	contractVersion := flag.String("contract-version", "0.1.0-pre-release", "standalone contract version")
 	sourceCommit := flag.String("source-commit", "", "exact 40-character source commit")
 	platform := flag.String("platform", runtime.GOOS, "target platform")
 	architecture := flag.String("architecture", runtime.GOARCH, "target architecture")
 	publicKey := flag.String("public-key", "", "base64 public signing key file for verify")
 	privateKey := flag.String("private-key", "", "base64 private signing key file for sign")
-	distribution := flag.String("distribution", "", "distribution directory for verify/sign/install")
+	distribution := flag.String("distribution", "", "distribution directory for verify/sign/install/rollback")
 	prefix := flag.String("prefix", "", "absolute install prefix")
 	confirm := flag.String("confirm", "", "required uninstall confirmation")
 	flag.Parse()
@@ -375,6 +375,16 @@ func renderProvenance(options buildOptions, sourceTree, binarySHA, compatibility
 }
 
 func renderSBOM(options buildOptions, sourceTree string, files []fileEntry) []byte {
+	binarySHA := ""
+	for _, file := range files {
+		if file.Name == binaryName {
+			binarySHA = file.SHA256
+			break
+		}
+	}
+	if binarySHA == "" {
+		binarySHA = sha256Bytes(nil)
+	}
 	packages := make([]map[string]any, 0, len(files)+1)
 	packages = append(packages, map[string]any{
 		"SPDXID": "SPDXRef-agent-eval-source", "name": "agent-eval-source", "versionInfo": options.Version,
@@ -392,7 +402,7 @@ func renderSBOM(options buildOptions, sourceTree string, files []fileEntry) []by
 	}
 	data, _ := canonicalJSON(map[string]any{
 		"SPDXID": "SPDXRef-DOCUMENT", "spdxVersion": "SPDX-2.3", "name": "agent-eval-distribution",
-		"documentNamespace": "https://github.com/isukharev/atl/agent-eval/" + options.SourceCommit + "/" + options.Version + "/" + options.Platform + "/" + options.Architecture,
+		"documentNamespace": "https://github.com/isukharev/atl/agent-eval/" + options.SourceCommit + "/" + options.Version + "/" + options.Platform + "/" + options.Architecture + "/" + sourceTree + "/" + binarySHA,
 		"dataLicense":       "CC0-1.0", "creationInfo": map[string]any{
 			"created": "1970-01-01T00:00:00Z", "creators": []string{"Tool: scripts/agent-eval-distribution"},
 		}, "packages": packages,

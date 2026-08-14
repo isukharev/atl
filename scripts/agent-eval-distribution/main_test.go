@@ -320,6 +320,19 @@ func TestDistributionRejectsCompatibilityAndTargetDrift(t *testing.T) {
 	if err := validateCompatibilityBundle(valid, distributionContractVersion); err != nil {
 		t.Fatal(err)
 	}
+	validText := string(valid)
+	for name, mutated := range map[string]string{
+		"duplicate top-level member":     strings.Replace(validText, `"schema_version":1,`, `"schema_version":1,"schema_version":1,`, 1),
+		"duplicate nested member":        strings.Replace(validText, `"path":"testdata/golden.json","sha256"`, `"path":"testdata/golden.json","path":"testdata/golden.json","sha256"`, 1),
+		"missing required metric member": strings.Replace(validText, `"present":false,"required":false`, `"present":false`, 1),
+	} {
+		if mutated == validText {
+			t.Fatalf("test mutation %q did not change the compatibility bundle", name)
+		}
+		if err := validateCompatibilityBundle([]byte(mutated), distributionContractVersion); err == nil {
+			t.Fatalf("compatibility bundle with %s was accepted", name)
+		}
+	}
 	for _, mutated := range [][]byte{
 		[]byte(`{"schema_version":1,"contract_version":"0.1.0-pre-release","golden_bundle":{"path":"x","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"readability":[],"forward_rejection":[],"metric_vectors":[],"future":1}`),
 		[]byte(`{"schema_version":1,"contract_version":"future","golden_bundle":{"path":"x","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"readability":[],"forward_rejection":[],"metric_vectors":[]}`),
@@ -386,8 +399,9 @@ func TestDistributionBuildIsReproducibleAndUninstallRefusesDrift(t *testing.T) {
 func TestDistributionSBOMUsesRequiredSPDXFields(t *testing.T) {
 	data := renderSBOM(buildOptions{Version: "0.1.0-pre-release", SourceCommit: strings.Repeat("a", 40)}, strings.Repeat("b", 64), []fileEntry{{Name: binaryName, SizeBytes: 1, SHA256: strings.Repeat("c", 64)}})
 	var document struct {
-		DataLicense  string `json:"dataLicense"`
-		CreationInfo struct {
+		DocumentNamespace string `json:"documentNamespace"`
+		DataLicense       string `json:"dataLicense"`
+		CreationInfo      struct {
 			Created  string   `json:"created"`
 			Creators []string `json:"creators"`
 		} `json:"creationInfo"`
@@ -398,6 +412,19 @@ func TestDistributionSBOMUsesRequiredSPDXFields(t *testing.T) {
 	}
 	if document.DataLicense != "CC0-1.0" || document.CreationInfo.Created == "" || len(document.CreationInfo.Creators) != 1 || len(document.Packages) != 2 {
 		t.Fatalf("SBOM omitted required SPDX document fields: %+v", document)
+	}
+	if !strings.Contains(document.DocumentNamespace, strings.Repeat("b", 64)) || !strings.Contains(document.DocumentNamespace, strings.Repeat("c", 64)) {
+		t.Fatalf("SBOM namespace is not bound to source and binary identity: %q", document.DocumentNamespace)
+	}
+	other := renderSBOM(buildOptions{Version: "0.1.0-pre-release", SourceCommit: strings.Repeat("a", 40)}, strings.Repeat("d", 64), []fileEntry{{Name: binaryName, SizeBytes: 1, SHA256: strings.Repeat("c", 64)}})
+	var otherDocument struct {
+		DocumentNamespace string `json:"documentNamespace"`
+	}
+	if err := json.Unmarshal(other, &otherDocument); err != nil {
+		t.Fatal(err)
+	}
+	if document.DocumentNamespace == otherDocument.DocumentNamespace {
+		t.Fatal("SBOM namespace collided for distinct source identities")
 	}
 	for _, packageValue := range document.Packages {
 		for _, name := range []string{"SPDXID", "name", "downloadLocation", "licenseConcluded", "licenseDeclared", "copyrightText", "filesAnalyzed", "checksums"} {

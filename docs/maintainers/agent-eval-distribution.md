@@ -51,9 +51,11 @@ is a bounded local build probe, not provider or backend execution.
 The builder writes a bounded manifest, checksum, SPDX SBOM, provenance record,
 compatibility bundle, static scratch container descriptor, and composite Action
 descriptor. The generated Action is deliberately a pre-verified runner: it
-does not replace detached-signature verification or release approval. A
-`.incomplete` marker remains if the build is interrupted; a
-marker-bearing directory is never accepted as a distribution.
+does not replace detached-signature verification or release approval. Once the
+`.incomplete` marker has been written and durably synced, an interrupted build
+leaves that marker and is never accepted as a distribution. A crash before the
+marker write can leave an empty rejected destination; operators must remove or
+reconcile that path before retrying.
 
 Two builds with the same inputs must have byte-identical members. The manifest
 binds the binary, schema registry, process protocol, compatibility bundle,
