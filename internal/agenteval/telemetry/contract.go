@@ -262,8 +262,8 @@ type Projection struct {
 }
 
 // Config controls the explicit collector boundary. A zero Config is disabled
-// and has no side effects. Non-zero limits are optional lower bounds within
-// the package-wide maxima.
+// and has no side effects. Non-zero limits are upper bounds for this collector
+// within the package-wide maxima.
 type Config struct {
 	Enabled    bool
 	MaxSpans   int

@@ -4,8 +4,16 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -164,6 +172,44 @@ func TestDecodeIsStrictAndRoundTripsCanonicalBytes(t *testing.T) {
 	}
 }
 
+func TestDecodeRejectsHistoricalAndFutureHeadersWithValidDigests(t *testing.T) {
+	base := mustSeal(t, validProjectionInput())
+	cases := []struct {
+		name string
+		edit func(*Projection)
+	}{
+		{name: "historical schema version", edit: func(projection *Projection) { projection.SchemaVersion = 0 }},
+		{name: "future schema version", edit: func(projection *Projection) { projection.SchemaVersion = SchemaVersion + 1 }},
+		{name: "historical contract version", edit: func(projection *Projection) { projection.ContractVersion = "0.0.1" }},
+		{name: "future contract version", edit: func(projection *Projection) { projection.ContractVersion = "0.2.0" }},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			projection := cloneProjection(base)
+			test.edit(&projection)
+			data, err := marshalTestProjection(projection)
+			if err != nil {
+				t.Fatal(err)
+			}
+			requireCode(t, decodeBytes(data), ErrorInvalidProjection)
+		})
+	}
+}
+
+func marshalTestProjection(projection Projection) ([]byte, error) {
+	projection.ProjectionSHA256 = ""
+	digest, err := projectionDigest(projection)
+	if err != nil {
+		return nil, err
+	}
+	projection.ProjectionSHA256 = digest
+	data, err := json.Marshal(projection)
+	if err != nil {
+		return nil, err
+	}
+	return append(data, '\n'), nil
+}
+
 func decodeBytes(data []byte) error {
 	_, err := Decode(bytes.NewReader(data))
 	return err
@@ -273,6 +319,50 @@ func projectionError(collector *Collector) error {
 }
 
 func TestCollectorConflictAndOverflowAreOrderIndependent(t *testing.T) {
+	t.Run("successful spans and metrics", func(t *testing.T) {
+		forward, err := NewCollector(Config{Enabled: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		reverse, err := NewCollector(Config{Enabled: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		spans := []Span{validPlanSpan(), validOutcomeSpan()}
+		metrics := []Metric{validPlanMetric(1), validOutcomeMetric(1)}
+		for _, span := range spans {
+			if err := forward.AddSpan(span); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for index := len(spans) - 1; index >= 0; index-- {
+			if err := reverse.AddSpan(spans[index]); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, metric := range metrics {
+			if err := forward.AddMetric(metric); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for index := len(metrics) - 1; index >= 0; index-- {
+			if err := reverse.AddMetric(metrics[index]); err != nil {
+				t.Fatal(err)
+			}
+		}
+		forwardProjection, err := forward.Projection()
+		if err != nil {
+			t.Fatal(err)
+		}
+		reverseProjection, err := reverse.Projection()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(mustEncode(t, forwardProjection), mustEncode(t, reverseProjection)) {
+			t.Fatal("successful collector output depends on arrival order")
+		}
+	})
+
 	t.Run("span conflict", func(t *testing.T) {
 		first := validPlanSpan()
 		second := first
@@ -382,6 +472,32 @@ type errorWriter struct{}
 
 func (errorWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
 
+type shortWriter struct{ bytes.Buffer }
+
+func (writer *shortWriter) Write(data []byte) (int, error) {
+	if len(data) == 0 {
+		return 0, nil
+	}
+	return writer.Buffer.Write(data[:1])
+}
+
+type invalidCountWriter struct{ count int }
+
+func (writer invalidCountWriter) Write([]byte) (int, error) { return writer.count, nil }
+
+type partialErrorWriter struct{}
+
+func (partialErrorWriter) Write(data []byte) (int, error) {
+	if len(data) == 0 {
+		return 0, io.ErrClosedPipe
+	}
+	return 1, io.ErrClosedPipe
+}
+
+type errorReader struct{}
+
+func (errorReader) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }
+
 func TestWriteLocalSpoolRequiresExplicitWriter(t *testing.T) {
 	sealed := mustSeal(t, validProjectionInput())
 	want := mustEncode(t, sealed)
@@ -395,6 +511,25 @@ func TestWriteLocalSpoolRequiresExplicitWriter(t *testing.T) {
 	requireCode(t, WriteLocalSpool(nil, sealed), ErrorInvalidSpool)
 	requireCode(t, WriteLocalSpool(zeroWriter{}, sealed), ErrorInvalidSpool)
 	requireCode(t, WriteLocalSpool(errorWriter{}, sealed), ErrorInvalidSpool)
+	requireCode(t, WriteLocalSpool(invalidCountWriter{count: -1}, sealed), ErrorInvalidSpool)
+	requireCode(t, WriteLocalSpool(invalidCountWriter{count: len(want) + 1}, sealed), ErrorInvalidSpool)
+	requireCode(t, WriteLocalSpool(partialErrorWriter{}, sealed), ErrorInvalidSpool)
+	var short shortWriter
+	if err := WriteLocalSpool(&short, sealed); err != nil {
+		t.Fatalf("short writer error = %v", err)
+	}
+	if !bytes.Equal(short.Bytes(), want) {
+		t.Fatal("short writer changed canonical spool bytes")
+	}
+}
+
+func TestDecodeBoundsReaderAndPayload(t *testing.T) {
+	sealed := mustSeal(t, validProjectionInput())
+	encoded := mustEncode(t, sealed)
+	_, err := Decode(errorReader{})
+	requireCode(t, err, ErrorInvalidProjection)
+	_, err = Decode(bytes.NewReader(append(encoded, bytes.Repeat([]byte{'x'}, MaxProjectionBytes)...)))
+	requireCode(t, err, ErrorInvalidProjection)
 }
 
 func TestValidateRejectsTampering(t *testing.T) {
@@ -403,6 +538,15 @@ func TestValidateRejectsTampering(t *testing.T) {
 	requireCode(t, Validate(sealed), ErrorInvalidSpan)
 	_, err := Encode(sealed)
 	requireCode(t, err, ErrorInvalidSpan)
+}
+
+func TestValidateRejectsShapePreservingDigestTampering(t *testing.T) {
+	sealed := mustSeal(t, validProjectionInput())
+	tampered := cloneProjection(sealed)
+	tampered.Metrics[0].Value++
+	requireCode(t, Validate(tampered), ErrorInvalidProjection)
+	_, err := Encode(tampered)
+	requireCode(t, err, ErrorInvalidProjection)
 }
 
 func TestSpanStatusAttributeMustMatchSpanStatus(t *testing.T) {
@@ -444,5 +588,41 @@ func TestCanonicalOutputHasNoUnboundedWhitespace(t *testing.T) {
 	encoded := mustEncode(t, mustSeal(t, validProjectionInput()))
 	if !strings.HasSuffix(string(encoded), "\n") || strings.Contains(string(encoded[:len(encoded)-1]), "\n") {
 		t.Fatalf("canonical output has invalid line framing: %q", encoded)
+	}
+}
+
+func TestProductionImportsRemainClosedAndEffectFree(t *testing.T) {
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	allowed := map[string]bool{
+		"bytes": true, "crypto/sha256": true, "encoding/hex": true,
+		"encoding/json": true, "errors": true, "io": true, "sort": true,
+		"sync": true, "unicode/utf8": true,
+	}
+	entries, err := os.ReadDir(filepath.Dir(sourceFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".go" || strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		path := filepath.Join(filepath.Dir(sourceFile), entry.Name())
+		var parsed *ast.File
+		parsed, err = parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, imported := range parsed.Imports {
+			path, err := strconv.Unquote(imported.Path.Value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !allowed[path] {
+				t.Errorf("production file %s imports unreviewed %q", entry.Name(), path)
+			}
+		}
 	}
 }
