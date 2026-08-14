@@ -155,29 +155,38 @@ func ExportOwnerPrivate(request ExportRequest) error {
 	cleanupPending := false
 	if err := removeTemporary(root, temporary); err != nil {
 		if retryErr := removeTemporary(root, temporary); retryErr != nil {
-			// The Link has committed the final inode. The bounded cleanup
-			// attempt is exhausted; retain the staging link explicitly as
-			// owner-private recovery state rather than retrying it in defer.
+			// Distinguish an actually retained staging inode from an
+			// ambiguous unlink outcome before reporting recovery state.
+			if info, statErr := root.Lstat(temporary); statErr == nil && os.SameFile(createdInfo, info) {
+				cleanupPending = true
+			}
 			temporaryPresent = false
-			cleanupPending = true
 		}
 	}
 	temporaryPresent = false
 	invokeExportHook(exportAfterPublish)
 	if err := ensurePrivateParents(root, relative); err != nil {
-		return fail(ErrorExportFailed)
+		return publishedExportOutcome(root, relative, createdInfo)
 	}
 	info, statErr := root.Lstat(relative)
 	if statErr != nil || !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 || info.Mode().Perm() != 0o600 || !os.SameFile(createdInfo, info) {
-		return fail(ErrorExportFailed)
+		return publishedExportOutcome(root, relative, createdInfo)
 	}
 	if !stableDirectory(rootPath, rootInfo, root, true) || !stableDirectory(repositoryPath, repositoryInfo, repository, false) || !disjointPhysicalDirectories(rootPath, repositoryPath) {
-		return fail(ErrorExportFailed)
+		return publishedExportOutcome(root, relative, createdInfo)
 	}
 	if cleanupPending {
 		return fail(ErrorExportCommitted)
 	}
 	return nil
+}
+
+func publishedExportOutcome(root *os.Root, relative string, createdInfo fs.FileInfo) error {
+	info, err := root.Lstat(relative)
+	if err == nil && info.Mode().IsRegular() && info.Mode()&fs.ModeSymlink == 0 && info.Mode().Perm() == 0o600 && os.SameFile(createdInfo, info) {
+		return fail(ErrorExportCommitted)
+	}
+	return fail(ErrorExportFailed)
 }
 
 func temporaryRelativePath(relative string) (string, error) {

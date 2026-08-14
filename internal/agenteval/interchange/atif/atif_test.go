@@ -341,6 +341,38 @@ func TestExportRejectsFinalInodeReplacement(t *testing.T) {
 	requireCode(t, ExportOwnerPrivate(request), ErrorExportFailed)
 }
 
+func TestExportReportsCommittedAfterRepositoryDrift(t *testing.T) {
+	base := t.TempDir()
+	repository := filepath.Join(base, "repository")
+	root := filepath.Join(base, "private")
+	if err := os.Mkdir(repository, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projection := mustProject(t, validEventSet())
+	request := ExportRequest{OwnerPrivateRoot: root, RepositoryRoot: repository, RelativePath: "trajectory.json", Projection: projection}
+	previousHook := exportHook
+	defer func() { exportHook = previousHook }()
+	exportHook = func(point exportHookPoint) {
+		if point != exportAfterPublish {
+			return
+		}
+		replaced := repository + ".replaced"
+		if err := os.Rename(repository, replaced); err != nil {
+			t.Fatalf("rename repository: %v", err)
+		}
+		if err := os.Mkdir(repository, 0o755); err != nil {
+			t.Fatalf("replace repository: %v", err)
+		}
+	}
+	requireCode(t, ExportOwnerPrivate(request), ErrorExportCommitted)
+	if _, err := os.Stat(filepath.Join(root, "trajectory.json")); err != nil {
+		t.Fatalf("committed final output missing after repository drift: %v", err)
+	}
+}
+
 func TestExportRetriesTransientTemporaryCleanupFailure(t *testing.T) {
 	base := t.TempDir()
 	repository := filepath.Join(base, "repository")
@@ -418,6 +450,66 @@ func TestExportReportsCommittedWhenTemporaryCleanupPersists(t *testing.T) {
 	}
 	if len(entries) != 2 {
 		t.Fatalf("persistent cleanup state entries = %d, want final plus one private recovery link", len(entries))
+	}
+	finalInfo, err := os.Stat(finalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recoveryInfo os.FileInfo
+	for _, entry := range entries {
+		if entry.Name() == "trajectory.json" {
+			continue
+		}
+		if !strings.HasPrefix(entry.Name(), ".trajectory.json.atif-") {
+			t.Fatalf("unexpected persistent cleanup entry %q", entry.Name())
+		}
+		recoveryInfo, err = os.Stat(filepath.Join(root, entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if recoveryInfo == nil || recoveryInfo.Mode().Perm() != 0o600 || !os.SameFile(finalInfo, recoveryInfo) {
+		t.Fatalf("persistent recovery link identity/mode = %v, want same 0600 inode", recoveryInfo)
+	}
+}
+
+func TestExportTreatsUnlinkAfterRemovalAsCommittedSuccess(t *testing.T) {
+	base := t.TempDir()
+	repository := filepath.Join(base, "repository")
+	root := filepath.Join(base, "private")
+	if err := os.Mkdir(repository, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projection := mustProject(t, validEventSet())
+	request := ExportRequest{OwnerPrivateRoot: root, RepositoryRoot: repository, RelativePath: "trajectory.json", Projection: projection}
+	previousRemove := exportTemporaryRemove
+	defer func() { exportTemporaryRemove = previousRemove }()
+	var calls int
+	exportTemporaryRemove = func(ownerRoot *os.Root, name string) error {
+		calls++
+		if calls == 1 {
+			if err := ownerRoot.Remove(name); err != nil {
+				t.Fatalf("remove staging link: %v", err)
+			}
+			return errors.New("unlink completed but reported failure")
+		}
+		return ownerRoot.Remove(name)
+	}
+	if err := ExportOwnerPrivate(request); err != nil {
+		t.Fatalf("ExportOwnerPrivate() error after reported unlink failure = %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("temporary cleanup calls = %d, want bounded retry", calls)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "trajectory.json" {
+		t.Fatalf("reported unlink failure left recovery residue: %v", entries)
 	}
 }
 
