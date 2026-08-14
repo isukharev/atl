@@ -106,6 +106,11 @@ check-docs-freshness:
 	$(GO_ENV) go run ./scripts/check-docs-freshness -root .
 `
 
+const supportPolicyMakeContract = `.PHONY: check-agent-eval-support
+check-agent-eval-support:
+	$(GO_ENV) go run ./scripts/check-agent-eval-support
+`
+
 const repositorySkillsMakeContract = `.PHONY: check-repository-skills
 check-repository-skills:
 	$(GO_ENV) go run ./scripts/check-repository-skills -root .
@@ -147,7 +152,7 @@ agent-eval-windows:
 	$(AGENT_EVAL_MAKE) windows
 
 .PHONY: agent-eval-compat
-agent-eval-compat: check-skill-routing
+agent-eval-compat: check-agent-eval-support check-skill-routing
 	$(AGENT_EVAL_MAKE) compat
 
 .PHONY: agent-eval-contract
@@ -158,7 +163,7 @@ agent-eval-contract: check-skill-routing
 agent-eval-product-boundary: check-package-boundary
 
 .PHONY: agent-eval-full
-agent-eval-full: check-skill-routing check-module-boundary
+agent-eval-full: check-agent-eval-support check-skill-routing check-module-boundary
 	$(AGENT_EVAL_MAKE) full
 `
 
@@ -185,6 +190,8 @@ const (
         run: make check-windows-compile`
 	maintainerStepContract = `      - name: Maintainer toolchain contract
         run: make check-maintainer-contract`
+	supportPolicyStepContract = `      - name: Agent-eval support policy
+        run: make check-agent-eval-support`
 	packageBoundaryStepContract = `      - name: Two-module package boundary
         run: make check-package-boundary`
 	maintainabilityStepContract = `      - name: Maintainability ratchets
@@ -462,6 +469,7 @@ func validateBootstrap(root string) error {
 		{"check-plugins", pluginsMakeContract, "makefile must retain the exact generated-plugin gate"},
 		{"check-docs-catalog", docsCatalogMakeContract, "makefile must retain the exact documentation-catalog gate"},
 		{"check-docs-freshness", docsFreshnessMakeContract, "makefile must retain the exact documentation-freshness gate"},
+		{"check-agent-eval-support", supportPolicyMakeContract, "makefile must retain the exact agent-eval support-policy gate"},
 		{"check-repository-skills", repositorySkillsMakeContract, "makefile must retain the exact repository-skills gate"},
 		{"check-reference-split", referenceSplitMakeContract, "makefile must retain the exact reference-split compatibility gate"},
 		{"check-context7-docs", context7MakeContract, "makefile must retain the exact indexed-documentation gate"},
@@ -611,7 +619,7 @@ func validateBootstrap(root string) error {
 		return err
 	}
 	if err := requireWorkflowStepPrefix(lintJob, "ci lint",
-		lintCheckoutStepContract, setupGoStepContract, maintainerStepContract,
+		lintCheckoutStepContract, setupGoStepContract, maintainerStepContract, supportPolicyStepContract,
 		packageBoundaryStepContract, maintainabilityStepContract, pluginsStepContract, docsCatalogStepContract, docsFreshnessStepContract, repositorySkillsStepContract, referenceSplitStepContract, context7StepContract,
 		onboardingStepContract, lintStepContract,
 	); err != nil {
@@ -621,6 +629,7 @@ func validateBootstrap(root string) error {
 		name, contract string
 	}{
 		{"Maintainer toolchain contract", maintainerStepContract},
+		{"Agent-eval support policy", supportPolicyStepContract},
 		{"Two-module package boundary", packageBoundaryStepContract},
 		{"Maintainability ratchets", maintainabilityStepContract},
 		{"Generated plugin trees are current", pluginsStepContract},
@@ -1062,7 +1071,7 @@ func validateDeliveryContracts(root string) error {
 		return err
 	}
 	if err := requireWorkflowStepPrefix(qualityJob, "release quality",
-		checkoutStepContract, setupGoStepContract, maintainerStepContract,
+		checkoutStepContract, setupGoStepContract, maintainerStepContract, supportPolicyStepContract,
 		packageBoundaryStepContract, maintainabilityStepContract, pluginsStepContract, docsCatalogStepContract, releaseDocsFreshnessStepContract, repositorySkillsStepContract, referenceSplitStepContract, context7StepContract,
 		onboardingStepContract, vetStepContract, lintStepContract, govulncheckStepContract,
 	); err != nil {
@@ -1072,6 +1081,7 @@ func validateDeliveryContracts(root string) error {
 		name, contract string
 	}{
 		{"Maintainer toolchain contract", maintainerStepContract},
+		{"Agent-eval support policy", supportPolicyStepContract},
 		{"Two-module package boundary", packageBoundaryStepContract},
 		{"Maintainability ratchets", maintainabilityStepContract},
 		{"Generated plugin trees are current", pluginsStepContract},

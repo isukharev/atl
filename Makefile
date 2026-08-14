@@ -200,7 +200,7 @@ agent-eval-windows:
 	$(AGENT_EVAL_MAKE) windows
 
 .PHONY: agent-eval-compat
-agent-eval-compat: check-skill-routing
+agent-eval-compat: check-agent-eval-support check-skill-routing
 	$(AGENT_EVAL_MAKE) compat
 
 .PHONY: agent-eval-contract
@@ -211,7 +211,7 @@ agent-eval-contract: check-skill-routing
 agent-eval-product-boundary: check-package-boundary
 
 .PHONY: agent-eval-full
-agent-eval-full: check-skill-routing check-module-boundary
+agent-eval-full: check-agent-eval-support check-skill-routing check-module-boundary
 	$(AGENT_EVAL_MAKE) full
 
 .PHONY: tidy

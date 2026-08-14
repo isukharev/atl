@@ -120,7 +120,7 @@
     {"owner":"mirror","path":"internal/mirror/","max_lines":9262,"rationale":"Keep total mirror production visible after cache-aware artifact ownership composes with versioned publication-bound Confluence include evidence and strict legacy/current resume migration."},
     {"owner":"tooling","path":"scripts/check-docs-freshness/","max_lines":1095,"rationale":"Keep documentation freshness, impact selection, stable task-class validation, and reporting tooling at its exact integrated production baseline."},
     {"owner":"tooling","path":"scripts/check-maintainability/","max_lines":674,"rationale":"Keep maintainability checker production growth visible after registering the compose owner."},
-    {"owner":"tooling","path":"scripts/check-maintainer-contract/","max_lines":1871,"rationale":"Keep maintainer-contract, recursive evaluator gates, bounded hosted evaluator execution, and exact Linux, macOS, and Windows extension/scheduler runtime workflow tooling at the measured production baseline after extracting evaluator workflow contracts from the main checker."},
+    {"owner":"tooling","path":"scripts/check-maintainer-contract/","max_lines":1881,"rationale":"Keep maintainer-contract, recursive evaluator gates, bounded hosted evaluator execution, support-policy workflow wiring, and exact Linux, macOS, and Windows extension/scheduler runtime workflow tooling at the measured production baseline after extracting evaluator workflow contracts from the main checker."},
     {"owner":"tooling","path":"scripts/gen-plugins/","max_lines":1009,"rationale":"Keep generated client-plugin check and publication tooling at its measured production baseline."}
   ],
   "change_surface": {

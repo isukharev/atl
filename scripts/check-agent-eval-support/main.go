@@ -96,8 +96,20 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
-	if !bytes.Contains(docs, []byte("agent-eval-support.v1.json")) || !bytes.Contains(docs, []byte("pre_release")) {
-		fail(errors.New("support policy documentation is not bound to the machine policy"))
+	for _, marker := range []string{
+		"agent-eval-support.v1.json",
+		"The standalone evaluator is `pre_release`",
+		"Linux/amd64",
+		"Windows persistence",
+		"Future schema generations refuse",
+		"Rollback is a release prerequisite",
+		"There are no automatic updates",
+		"180 days and two later stable minor releases",
+		"separately approved release",
+	} {
+		if !bytes.Contains(docs, []byte(marker)) {
+			fail(fmt.Errorf("support policy documentation is missing required marker %q", marker))
+		}
 	}
 	fmt.Println("agent-eval support policy: pre-release contour is closed and machine-bound")
 }
@@ -112,22 +124,78 @@ func validate(value policy) error {
 	if value.ExternalConsumer.Kind != "out_of_tree_provider_free_conformance_runner" || value.ExternalConsumer.Evidence != "required_before_first_signed_release" || value.ExternalConsumer.NamedConsumer {
 		return errors.New("support policy must keep external-consumer evidence pending")
 	}
+	if value.Cadence.Stable != "not_declared" || value.Cadence.PreRelease != "reviewed_source_only" {
+		return errors.New("support cadence is invalid")
+	}
 	if len(value.Platforms) != 1 || value.Platforms[0].OS != "linux" || value.Platforms[0].Architecture != "amd64" || value.Platforms[0].State != "candidate" || value.Platforms[0].Surface != "provider_free_process" {
 		return errors.New("candidate platform contour is invalid")
 	}
-	if len(value.ExcludedPlatforms) != 3 {
+	wantExcluded := []struct {
+		os, architecture, reason string
+	}{
+		{"windows", "", "owner_only_directory_persistence_not_proven"},
+		{"darwin", "", "signed_distribution_matrix_not_proven"},
+		{"linux", "arm64", "signed_distribution_matrix_not_proven"},
+	}
+	if len(value.ExcludedPlatforms) != len(wantExcluded) {
 		return errors.New("excluded platform contour is incomplete")
 	}
-	if value.Compatibility.FutureGeneration != "refuse" || value.Compatibility.ContractWindow != "pre_release_no_stable_clock" || value.Compatibility.Rollback != "required_before_stable_release" {
+	for i, got := range value.ExcludedPlatforms {
+		want := wantExcluded[i]
+		if got.OS != want.os || got.Architecture != want.architecture || got.Reason != want.reason {
+			return errors.New("excluded platform contour is invalid")
+		}
+	}
+	wantComponents := []struct {
+		id, state, providerAccess, backendAccess, network, identity, route string
+	}{
+		{"standalone_cli", "pre_release", "none", "none", "none", "", ""},
+		{"compatibility_bundle", "pre_release", "", "", "", "content_addressed", ""},
+		{"container", "not_declared", "", "", "", "", "1389"},
+		{"github_action", "not_declared", "", "", "", "", "1389"},
+	}
+	if len(value.Components) != len(wantComponents) {
+		return errors.New("support component contour is incomplete")
+	}
+	for i, got := range value.Components {
+		want := wantComponents[i]
+		if got.ID != want.id || got.State != want.state || got.ProviderAccess != want.providerAccess || got.BackendAccess != want.backendAccess || got.Network != want.network || got.Identity != want.identity || got.Route != want.route {
+			return errors.New("support component contour is invalid")
+		}
+	}
+	if value.Compatibility.SchemaPolicy != "current_and_prior_supported_generation_only" || value.Compatibility.FutureGeneration != "refuse" || value.Compatibility.ContractWindow != "pre_release_no_stable_clock" || value.Compatibility.Rollback != "required_before_stable_release" {
 		return errors.New("compatibility policy is invalid")
+	}
+	if value.Security.ResponseRoute != "SECURITY.md" || value.Security.Target != "best_effort_until_stable_policy_is_approved" || value.Security.AutoUpdates {
+		return errors.New("security policy is invalid")
 	}
 	if value.Deprecation.NoticeDays != 180 || value.Deprecation.NoticeReleases != 2 || !value.Deprecation.RemovalMajor || value.Deprecation.ClockStarts != "first_conforming_signed_standalone_release" {
 		return errors.New("deprecation policy is invalid")
 	}
-	if value.Release.PublicationAuthority != "separate_explicit_approval" || value.Release.RepositoryExtraction != "not_authorized" || len(value.Release.StablePrerequisites) < 5 {
+	wantPrerequisites := []string{
+		"named_external_consumer_evidence",
+		"complete_supported_platform_matrix",
+		"signed_reproducible_artifacts",
+		"full_evaluator_gate",
+		"provider_free_conformance",
+		"security_and_privacy_review",
+	}
+	if value.Release.PublicationAuthority != "separate_explicit_approval" || value.Release.RepositoryExtraction != "not_authorized" || !equalStrings(value.Release.StablePrerequisites, wantPrerequisites) {
 		return errors.New("release prerequisites are incomplete")
 	}
 	return nil
+}
+
+func equalStrings(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func fail(err error) {

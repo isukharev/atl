@@ -10,8 +10,7 @@ canonical, and this page explains the deliberately conservative status.
 The standalone evaluator is `pre_release`: source-implemented compatibility
 surfaces and provider-free fixtures exist, but there is no signed distribution,
 stable compatibility clock, or supported external consumer. Internal tests and
-source presence do not create support. The first stable claim requires the
-listed prerequisites in the policy file and a separately approved release.
+source presence do not create support. The first stable claim requires the listed prerequisites in the policy file and a separately approved release.
 
 The support owner is the ATL repository maintainer through the repository
 [security route](../../SECURITY.md). Before stable support, an out-of-tree
@@ -29,15 +28,12 @@ contour; they are separately scoped to issue #1389.
 
 The compatibility bundle is content-addressed and must be verified against the
 selected binary, schema registry, process protocol, and exact source identity.
-Future schema generations refuse rather than downgrade. Rollback is a release
-prerequisite, not an automatic updater or an implicit source rewrite.
+Future schema generations refuse rather than downgrade. Rollback is a release prerequisite, not an automatic updater or an implicit source rewrite.
 
 ## Security and lifecycle
 
 Security reports use `SECURITY.md`. Until stable policy approval, response
-timing is best-effort and no service-level promise is made. There are no
-automatic updates, provider credentials, backend access, or network access in
-the candidate process boundary.
+timing is best-effort and no service-level promise is made. There are no automatic updates, provider credentials, backend access, or network access in the candidate process boundary.
 
 The deprecation shape is 180 days and two later stable minor releases after
 notice, with removal requiring a later major release. That clock starts only

@@ -510,6 +510,7 @@ readonly GRAPHIFY_WHEEL_URL="https://files.pythonhosted.org/packages/c3/fe/eb0af
 			"check-maintainer-contract:\n\t$(GO_LOCAL_ENV) go run ./scripts/check-maintainer-contract\n" +
 			windowsCompileMakeContract + coreCoverageMakeContract + moduleBoundaryMakeContract + packageBoundaryMakeContract +
 			maintainabilityMakeContract + pluginsMakeContract + docsCatalogMakeContract + docsFreshnessMakeContract +
+			supportPolicyMakeContract +
 			repositorySkillsMakeContract + referenceSplitMakeContract + context7MakeContract + onboardingMakeContract +
 			agentEvalFacadeMakeContract,
 		"internal/agenteval/Makefile": `GO_ENV := env -u GOROOT GOTOOLCHAIN=auto GOWORK=off
@@ -640,7 +641,7 @@ jobs:
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-` + lintCheckoutStepContract + "\n" + setupGoStepContract + "\n" + maintainerStepContract + "\n" + packageBoundaryStepContract + "\n" + maintainabilityStepContract + "\n" + pluginsStepContract + "\n" + docsCatalogStepContract + "\n" + docsFreshnessStepContract + "\n" + repositorySkillsStepContract + "\n" + referenceSplitStepContract + "\n" + context7StepContract + "\n" + onboardingStepContract + "\n" + lintStepContract + `
+` + lintCheckoutStepContract + "\n" + setupGoStepContract + "\n" + maintainerStepContract + "\n" + supportPolicyStepContract + "\n" + packageBoundaryStepContract + "\n" + maintainabilityStepContract + "\n" + pluginsStepContract + "\n" + docsCatalogStepContract + "\n" + docsFreshnessStepContract + "\n" + repositorySkillsStepContract + "\n" + referenceSplitStepContract + "\n" + context7StepContract + "\n" + onboardingStepContract + "\n" + lintStepContract + `
   govulncheck:
     runs-on: ubuntu-latest
     steps:
@@ -669,7 +670,7 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     steps:
-` + checkoutStepContract + "\n" + setupGoStepContract + "\n" + maintainerStepContract + "\n" + packageBoundaryStepContract + "\n" + maintainabilityStepContract + "\n" + pluginsStepContract + "\n" + docsCatalogStepContract + "\n" + releaseDocsFreshnessStepContract + "\n" + repositorySkillsStepContract + "\n" + referenceSplitStepContract + "\n" + context7StepContract + "\n" + onboardingStepContract + "\n" + vetStepContract + "\n" + lintStepContract + "\n" + govulncheckStepContract + `
+` + checkoutStepContract + "\n" + setupGoStepContract + "\n" + maintainerStepContract + "\n" + supportPolicyStepContract + "\n" + packageBoundaryStepContract + "\n" + maintainabilityStepContract + "\n" + pluginsStepContract + "\n" + docsCatalogStepContract + "\n" + releaseDocsFreshnessStepContract + "\n" + repositorySkillsStepContract + "\n" + referenceSplitStepContract + "\n" + context7StepContract + "\n" + onboardingStepContract + "\n" + vetStepContract + "\n" + lintStepContract + "\n" + govulncheckStepContract + `
   agent-eval:
     runs-on: ubuntu-latest
     steps:
