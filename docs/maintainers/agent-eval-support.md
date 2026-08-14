@@ -4,6 +4,7 @@ This page is the maintainer-owned support contour for the standalone
 `agent-eval` proposal. Its machine-readable source is
 [`agent-eval-support.v1.json`](agent-eval-support.v1.json); the JSON is
 canonical, and this page explains the deliberately conservative status.
+<!-- agent-eval-support-policy-sha256: d8f35e7e208b4f1ab42a13db80ea4bc3657a6212088608b4e1740a210353d939 -->
 
 ## Current status
 

@@ -5,6 +5,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -79,6 +81,9 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
+	if err := validatePolicyJSONShape(data); err != nil {
+		fail(fmt.Errorf("support policy JSON shape is invalid: %w", err))
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	var value policy
@@ -96,6 +101,7 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
+	projection := policyProjection(value)
 	for _, marker := range []string{
 		"agent-eval-support.v1.json",
 		"The standalone evaluator is `pre_release`",
@@ -110,6 +116,10 @@ func main() {
 		if !bytes.Contains(docs, []byte(marker)) {
 			fail(fmt.Errorf("support policy documentation is missing required marker %q", marker))
 		}
+	}
+	projectionMarker := "<!-- agent-eval-support-policy-sha256: " + projection + " -->"
+	if bytes.Count(docs, []byte(projectionMarker)) != 1 {
+		fail(errors.New("support policy documentation does not contain the unique machine-policy projection"))
 	}
 	fmt.Println("agent-eval support policy: pre-release contour is closed and machine-bound")
 }
@@ -196,6 +206,218 @@ func equalStrings(got, want []string) bool {
 		}
 	}
 	return true
+}
+
+func policyProjection(value policy) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return "invalid"
+	}
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:])
+}
+
+func validatePolicyJSONShape(data []byte) error {
+	root, err := jsonObject(data)
+	if err != nil {
+		return err
+	}
+	if err := requireJSONMembers(root, "policy", []string{"schema", "schema_version", "status", "support_owner", "external_consumer", "cadence", "platforms", "excluded_platforms", "components", "compatibility", "deprecation", "security", "release"}); err != nil {
+		return err
+	}
+	if value, err := jsonObject(root["support_owner"]); err != nil {
+		return fmt.Errorf("support_owner: %w", err)
+	} else if err := requireJSONMembers(value, "support_owner", []string{"kind", "repository", "security_route"}); err != nil {
+		return err
+	}
+	if value, err := jsonObject(root["external_consumer"]); err != nil {
+		return fmt.Errorf("external_consumer: %w", err)
+	} else if err := requireJSONMembers(value, "external_consumer", []string{"kind", "evidence", "named_consumer"}); err != nil {
+		return err
+	}
+	if value, err := jsonObject(root["cadence"]); err != nil {
+		return fmt.Errorf("cadence: %w", err)
+	} else if err := requireJSONMembers(value, "cadence", []string{"stable", "pre_release"}); err != nil {
+		return err
+	}
+	if values, err := jsonArray(root["platforms"]); err != nil {
+		return fmt.Errorf("platforms: %w", err)
+	} else {
+		for index, raw := range values {
+			value, err := jsonObject(raw)
+			if err != nil {
+				return fmt.Errorf("platforms[%d]: %w", index, err)
+			}
+			if err := requireJSONMembers(value, fmt.Sprintf("platforms[%d]", index), []string{"os", "architecture", "state", "surface"}); err != nil {
+				return err
+			}
+		}
+	}
+	if values, err := jsonArray(root["excluded_platforms"]); err != nil {
+		return fmt.Errorf("excluded_platforms: %w", err)
+	} else {
+		for index, raw := range values {
+			value, err := jsonObject(raw)
+			if err != nil {
+				return fmt.Errorf("excluded_platforms[%d]: %w", index, err)
+			}
+			if err := requireJSONMembersOptional(value, fmt.Sprintf("excluded_platforms[%d]", index), []string{"os", "reason"}, []string{"architecture"}); err != nil {
+				return err
+			}
+		}
+	}
+	if values, err := jsonArray(root["components"]); err != nil {
+		return fmt.Errorf("components: %w", err)
+	} else {
+		for index, raw := range values {
+			value, err := jsonObject(raw)
+			if err != nil {
+				return fmt.Errorf("components[%d]: %w", index, err)
+			}
+			id, err := jsonString(value["id"])
+			if err != nil {
+				return fmt.Errorf("components[%d].id: %w", index, err)
+			}
+			required := []string{"id", "state"}
+			switch id {
+			case "standalone_cli":
+				required = append(required, "provider_access", "backend_access", "network")
+			case "compatibility_bundle":
+				required = append(required, "identity")
+			case "container", "github_action":
+				required = append(required, "route")
+			default:
+				return fmt.Errorf("components[%d].id %q is not closed", index, id)
+			}
+			if err := requireJSONMembers(value, fmt.Sprintf("components[%d]", index), required); err != nil {
+				return err
+			}
+		}
+	}
+	if value, err := jsonObject(root["compatibility"]); err != nil {
+		return fmt.Errorf("compatibility: %w", err)
+	} else if err := requireJSONMembers(value, "compatibility", []string{"schema_policy", "future_generation", "contract_window", "rollback"}); err != nil {
+		return err
+	}
+	if value, err := jsonObject(root["deprecation"]); err != nil {
+		return fmt.Errorf("deprecation: %w", err)
+	} else if err := requireJSONMembers(value, "deprecation", []string{"notice_days", "notice_releases", "removal_requires_major", "clock_starts"}); err != nil {
+		return err
+	}
+	if value, err := jsonObject(root["security"]); err != nil {
+		return fmt.Errorf("security: %w", err)
+	} else if err := requireJSONMembers(value, "security", []string{"response_route", "target", "automatic_updates"}); err != nil {
+		return err
+	}
+	if value, err := jsonObject(root["release"]); err != nil {
+		return fmt.Errorf("release: %w", err)
+	} else if err := requireJSONMembers(value, "release", []string{"publication_authority", "stable_prerequisites", "repository_extraction"}); err != nil {
+		return err
+	} else if _, err := jsonArray(value["stable_prerequisites"]); err != nil {
+		return fmt.Errorf("release.stable_prerequisites: %w", err)
+	}
+	return nil
+}
+
+func jsonObject(data []byte) (map[string]json.RawMessage, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	token, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+	delimiter, ok := token.(json.Delim)
+	if !ok || delimiter != '{' {
+		return nil, errors.New("expected JSON object")
+	}
+	result := make(map[string]json.RawMessage)
+	for decoder.More() {
+		token, err := decoder.Token()
+		if err != nil {
+			return nil, err
+		}
+		name, ok := token.(string)
+		if !ok {
+			return nil, errors.New("object member name is not a string")
+		}
+		if _, exists := result[name]; exists {
+			return nil, fmt.Errorf("duplicate member %q", name)
+		}
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return nil, err
+		}
+		result[name] = value
+	}
+	if _, err := decoder.Token(); err != nil {
+		return nil, err
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return nil, errors.New("trailing JSON value")
+	}
+	return result, nil
+}
+
+func jsonArray(data []byte) ([]json.RawMessage, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	token, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+	delimiter, ok := token.(json.Delim)
+	if !ok || delimiter != '[' {
+		return nil, errors.New("expected JSON array")
+	}
+	values := make([]json.RawMessage, 0)
+	for decoder.More() {
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+	}
+	if _, err := decoder.Token(); err != nil {
+		return nil, err
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return nil, errors.New("trailing JSON value")
+	}
+	return values, nil
+}
+
+func requireJSONMembers(value map[string]json.RawMessage, owner string, required []string) error {
+	return requireJSONMembersOptional(value, owner, required, nil)
+}
+
+func requireJSONMembersOptional(value map[string]json.RawMessage, owner string, required, optional []string) error {
+	allowed := make(map[string]bool, len(required)+len(optional))
+	for _, name := range required {
+		allowed[name] = true
+		if _, ok := value[name]; !ok {
+			return fmt.Errorf("%s is missing required member %q", owner, name)
+		}
+	}
+	for _, name := range optional {
+		allowed[name] = true
+	}
+	for name := range value {
+		if !allowed[name] {
+			return fmt.Errorf("%s contains unknown member %q", owner, name)
+		}
+	}
+	return nil
+}
+
+func jsonString(raw json.RawMessage) (string, error) {
+	var value string
+	if len(raw) == 0 {
+		return "", errors.New("missing string")
+	}
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", errors.New("expected string")
+	}
+	return value, nil
 }
 
 func fail(err error) {

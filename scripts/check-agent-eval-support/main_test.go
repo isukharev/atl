@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -22,8 +23,29 @@ func TestSupportPolicyBaselineAndClosedMutations(t *testing.T) {
 	if err := json.Unmarshal(data, &baseline); err != nil {
 		t.Fatal(err)
 	}
+	if err := validatePolicyJSONShape(data); err != nil {
+		t.Fatalf("checked-in support policy JSON shape rejected: %v", err)
+	}
 	if err := validate(baseline); err != nil {
 		t.Fatalf("checked-in support policy rejected: %v", err)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func([]byte) []byte
+	}{
+		{"omitted-required-member", func(value []byte) []byte {
+			return bytes.Replace(value, []byte("    \"named_consumer\": false\n"), nil, 1)
+		}},
+		{"duplicate-member", func(value []byte) []byte {
+			return bytes.Replace(value, []byte("    \"automatic_updates\": false\n"), []byte("    \"automatic_updates\": false,\n    \"automatic_updates\": false\n"), 1)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mutated := test.mutate(data)
+			if err := validatePolicyJSONShape(mutated); err == nil {
+				t.Fatalf("JSON shape accepted %s", test.name)
+			}
+		})
 	}
 
 	tests := []struct {
