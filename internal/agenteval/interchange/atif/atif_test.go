@@ -126,6 +126,18 @@ func TestProjectRejectsIncompleteEventsAndReferences(t *testing.T) {
 	}
 }
 
+func TestProjectRejectsCrossStepToolResultReferences(t *testing.T) {
+	input := EventSet{
+		Producer:       Producer{Name: "synthetic-agent", Version: "1.0.0"},
+		DeclaredEvents: 2,
+		Events: []Event{
+			{StepID: 1, Role: RoleAgent, State: StateStarted, Message: "call", ToolCalls: []ToolCall{{ToolCallID: "call-1", FunctionName: "fixture.read", Arguments: json.RawMessage(`{}`)}}},
+			{StepID: 2, Role: RoleAgent, State: StateCompleted, Message: "result", Results: []ObservationResult{{SourceCallID: "call-1", Content: "output"}}},
+		},
+	}
+	requireCode(t, projectError(input), ErrorInvalidObservation)
+}
+
 func TestClosedWireRejectsUnknownDuplicateFutureAndHistoricalShapes(t *testing.T) {
 	encoded := mustEncode(t, mustProject(t, validEventSet()))
 	cases := map[string][]byte{
@@ -149,6 +161,9 @@ func decodeBytes(data []byte) error {
 
 func TestProjectionTamperAndBoundsFailClosed(t *testing.T) {
 	projection := mustProject(t, validEventSet())
+	missingWrapperDigest := projection
+	missingWrapperDigest.SourceSHA256 = ""
+	requireCode(t, Validate(missingWrapperDigest), ErrorInvalidBinding)
 	projection.Document.Extra.ProjectionSHA256 = strings.Repeat("b", 64)
 	requireCode(t, Validate(projection), ErrorInvalidProjection)
 
@@ -177,9 +192,7 @@ func TestProjectionTamperAndBoundsFailClosed(t *testing.T) {
 	for index := range largeDocument.Events {
 		largeDocument.Events[index] = Event{StepID: uint32(index + 1), Role: RoleUser, State: StateStarted, Message: strings.Repeat("x", MaxTextBytes)}
 	}
-	largeProjection := mustProject(t, largeDocument)
-	_, err := Encode(largeProjection)
-	requireCode(t, err, ErrorLimitExceeded)
+	requireCode(t, projectError(largeDocument), ErrorLimitExceeded)
 }
 
 func projectError(input EventSet) error {
@@ -252,6 +265,68 @@ func TestExportOwnerPrivateGuardsDestinationAndMode(t *testing.T) {
 	}
 	request.RelativePath = "link/escape.json"
 	requireCode(t, ExportOwnerPrivate(request), ErrorInvalidDestination)
+}
+
+func TestExportRejectsRepositoryReplacementBeforePublish(t *testing.T) {
+	base := t.TempDir()
+	repository := filepath.Join(base, "repository")
+	root := filepath.Join(base, "private")
+	if err := os.Mkdir(repository, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projection := mustProject(t, validEventSet())
+	request := ExportRequest{OwnerPrivateRoot: root, RepositoryRoot: repository, RelativePath: "trajectory.json", Projection: projection}
+	previousHook := exportHook
+	defer func() { exportHook = previousHook }()
+	exportHook = func(point exportHookPoint) {
+		if point != exportBeforePublish {
+			return
+		}
+		replaced := repository + ".replaced"
+		if err := os.Rename(repository, replaced); err != nil {
+			t.Fatalf("rename repository: %v", err)
+		}
+		if err := os.Mkdir(repository, 0o755); err != nil {
+			t.Fatalf("replace repository: %v", err)
+		}
+	}
+	requireCode(t, ExportOwnerPrivate(request), ErrorExportFailed)
+	if _, err := os.Lstat(filepath.Join(root, "trajectory.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("repository replacement left final output, err=%v", err)
+	}
+}
+
+func TestExportRejectsFinalInodeReplacement(t *testing.T) {
+	base := t.TempDir()
+	repository := filepath.Join(base, "repository")
+	root := filepath.Join(base, "private")
+	if err := os.Mkdir(repository, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projection := mustProject(t, validEventSet())
+	request := ExportRequest{OwnerPrivateRoot: root, RepositoryRoot: repository, RelativePath: "trajectory.json", Projection: projection}
+	previousHook := exportHook
+	defer func() { exportHook = previousHook }()
+	exportHook = func(point exportHookPoint) {
+		if point != exportAfterPublish {
+			return
+		}
+		path := filepath.Join(root, "trajectory.json")
+		replacement := filepath.Join(base, "replacement")
+		if err := os.WriteFile(replacement, []byte("replacement"), 0o600); err != nil {
+			t.Fatalf("replace final write: %v", err)
+		}
+		if err := os.Rename(replacement, path); err != nil {
+			t.Fatalf("replace final rename: %v", err)
+		}
+	}
+	requireCode(t, ExportOwnerPrivate(request), ErrorExportFailed)
 }
 
 func FuzzDecodeRejectsUntrustedBytes(f *testing.F) {

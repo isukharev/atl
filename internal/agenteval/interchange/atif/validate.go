@@ -19,6 +19,9 @@ func Seal(input EventSet) (Projection, error) {
 	if !validOptionalText(input.ModelName, MaxIdentifier) {
 		return Projection{}, fail(ErrorInvalidEventSet)
 	}
+	if err := preflightEvents(input.Events, input.DeclaredEvents); err != nil {
+		return Projection{}, err
+	}
 	events := cloneEvents(input.Events)
 	if err := validateEvents(events, input.DeclaredEvents); err != nil {
 		return Projection{}, err
@@ -80,10 +83,10 @@ func Validate(projection Projection) error {
 	if err := validateDocument(projection.Document); err != nil {
 		return err
 	}
-	if projection.SourceSHA256 != "" && projection.SourceSHA256 != projection.Document.Extra.SourceSHA256 {
+	if projection.SourceSHA256 != projection.Document.Extra.SourceSHA256 {
 		return fail(ErrorInvalidBinding)
 	}
-	if projection.ProjectionSHA256 != "" && projection.ProjectionSHA256 != projection.Document.Extra.ProjectionSHA256 {
+	if projection.ProjectionSHA256 != projection.Document.Extra.ProjectionSHA256 {
 		return fail(ErrorInvalidProjection)
 	}
 	sourceSHA256, err := sourceDigestFromDocument(projection.Document)
@@ -108,8 +111,6 @@ func validateEvents(events []Event, declared uint32) error {
 	if len(events) == 0 || len(events) > MaxSteps || declared != uint32(len(events)) {
 		return fail(ErrorInvalidEventSet)
 	}
-	seenCalls := make(map[string]struct{}, len(events))
-	resolvedCalls := make(map[string]struct{}, len(events))
 	toolCalls := 0
 	results := 0
 	for index, event := range events {
@@ -133,6 +134,8 @@ func validateEvents(events []Event, declared uint32) error {
 			return fail(ErrorLimitExceeded)
 		}
 		toolCalls += len(event.ToolCalls)
+		seenCalls := make(map[string]struct{}, len(event.ToolCalls))
+		resolvedCalls := make(map[string]struct{}, len(event.Results))
 		for _, call := range event.ToolCalls {
 			if !validToolCall(call) {
 				return fail(ErrorInvalidToolCall)
@@ -161,9 +164,9 @@ func validateEvents(events []Event, declared uint32) error {
 			}
 			resolvedCalls[result.SourceCallID] = struct{}{}
 		}
-	}
-	if len(resolvedCalls) != len(seenCalls) {
-		return fail(ErrorInvalidObservation)
+		if len(resolvedCalls) != len(seenCalls) {
+			return fail(ErrorInvalidObservation)
+		}
 	}
 	return nil
 }
@@ -185,6 +188,9 @@ func validateDocument(document Document) error {
 		document.Extra.Coverage.ProjectedSteps != uint32(len(document.Steps)) || !document.Extra.Coverage.Complete {
 		return fail(ErrorInvalidBinding)
 	}
+	if err := preflightSteps(document.Steps, document.Extra.Coverage.DeclaredEvents); err != nil {
+		return err
+	}
 	events := make([]Event, len(document.Steps))
 	for index, step := range document.Steps {
 		if step.Observation != nil && len(step.Observation.Results) == 0 {
@@ -204,6 +210,87 @@ func validateDocument(document Document) error {
 		return err
 	}
 	return nil
+}
+
+// preflightEvents and preflightSteps inspect caller-owned slices without
+// cloning or decoding their nested payloads. This keeps hostile in-memory
+// inputs bounded before the owned snapshot and digest allocations below.
+func preflightEvents(events []Event, declared uint32) error {
+	if len(events) == 0 || len(events) > MaxSteps || declared != uint32(len(events)) {
+		return fail(ErrorInvalidEventSet)
+	}
+	var bytes uint64
+	toolCalls, results := 0, 0
+	for _, event := range events {
+		if err := preflightEvent(event, &toolCalls, &results, &bytes); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func preflightSteps(steps []Step, declared uint32) error {
+	if len(steps) == 0 || len(steps) > MaxSteps || declared != uint32(len(steps)) {
+		return fail(ErrorInvalidProjection)
+	}
+	var bytes uint64
+	toolCalls, results := 0, 0
+	for _, step := range steps {
+		var stepResults []ObservationResult
+		if step.Observation != nil {
+			stepResults = step.Observation.Results
+		}
+		event := Event{
+			Timestamp: step.Timestamp, Message: step.Message,
+			ToolCalls: step.ToolCalls, Results: stepResults,
+		}
+		if err := preflightEvent(event, &toolCalls, &results, &bytes); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func preflightEvent(event Event, toolCalls, results *int, bytes *uint64) error {
+	if len(event.Message) > MaxTextBytes || len(event.Timestamp) > MaxIdentifier {
+		return fail(ErrorInvalidEvent)
+	}
+	if len(event.ToolCalls) > MaxToolCalls-*toolCalls {
+		return fail(ErrorLimitExceeded)
+	}
+	if len(event.Results) > MaxResults-*results {
+		return fail(ErrorLimitExceeded)
+	}
+	*toolCalls += len(event.ToolCalls)
+	*results += len(event.Results)
+	if !addPreflightBytes(bytes, len(event.Message)) || !addPreflightBytes(bytes, len(event.Timestamp)) {
+		return fail(ErrorLimitExceeded)
+	}
+	for _, call := range event.ToolCalls {
+		if len(call.ToolCallID) > MaxIdentifier || len(call.FunctionName) > MaxIdentifier || len(call.Arguments) > MaxArgumentBytes {
+			return fail(ErrorInvalidToolCall)
+		}
+		if !addPreflightBytes(bytes, len(call.ToolCallID)) || !addPreflightBytes(bytes, len(call.FunctionName)) || !addPreflightBytes(bytes, len(call.Arguments)) {
+			return fail(ErrorLimitExceeded)
+		}
+	}
+	for _, result := range event.Results {
+		if len(result.SourceCallID) > MaxIdentifier || len(result.Content) > MaxTextBytes {
+			return fail(ErrorInvalidObservation)
+		}
+		if !addPreflightBytes(bytes, len(result.SourceCallID)) || !addPreflightBytes(bytes, len(result.Content)) {
+			return fail(ErrorLimitExceeded)
+		}
+	}
+	return nil
+}
+
+func addPreflightBytes(total *uint64, amount int) bool {
+	if amount < 0 || *total > MaxDocumentBytes-uint64(amount) {
+		return false
+	}
+	*total += uint64(amount)
+	return true
 }
 
 func validToolCall(call ToolCall) bool {

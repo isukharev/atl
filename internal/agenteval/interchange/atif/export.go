@@ -1,6 +1,8 @@
 package atif
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"io/fs"
 	"os"
@@ -17,6 +19,23 @@ type ExportRequest struct {
 	RepositoryRoot   string
 	RelativePath     string
 	Projection       Projection
+}
+
+type exportHookPoint uint8
+
+const (
+	exportBeforePublish exportHookPoint = iota + 1
+	exportAfterPublish
+)
+
+// exportHook is nil in production. Tests use the private hook to make
+// directory and final-inode races deterministic without widening the API.
+var exportHook func(exportHookPoint)
+
+func invokeExportHook(point exportHookPoint) {
+	if exportHook != nil {
+		exportHook(point)
+	}
 }
 
 // ExportOwnerPrivate writes exactly one new canonical ATIF file beneath an
@@ -52,7 +71,12 @@ func ExportOwnerPrivate(request ExportRequest) error {
 		return fail(ErrorInvalidDestination)
 	}
 	defer func() { _ = root.Close() }()
-	if !stableOwnerRoot(rootPath, rootInfo, root) {
+	repository, err := os.OpenRoot(repositoryPath)
+	if err != nil {
+		return fail(ErrorInvalidDestination)
+	}
+	defer func() { _ = repository.Close() }()
+	if !stableDirectory(rootPath, rootInfo, root, true) || !stableDirectory(repositoryPath, repositoryInfo, repository, false) || !disjointPhysicalDirectories(rootPath, repositoryPath) {
 		return fail(ErrorInvalidDestination)
 	}
 	if err := ensurePrivateParents(root, relative); err != nil {
@@ -61,7 +85,11 @@ func ExportOwnerPrivate(request ExportRequest) error {
 	if _, err := root.Lstat(relative); err == nil || !errors.Is(err, fs.ErrNotExist) {
 		return fail(ErrorInvalidDestination)
 	}
-	file, err := root.OpenFile(relative, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	temporary, err := temporaryRelativePath(relative)
+	if err != nil {
+		return fail(ErrorExportFailed)
+	}
+	file, err := root.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fail(ErrorInvalidDestination)
 	}
@@ -74,7 +102,8 @@ func ExportOwnerPrivate(request ExportRequest) error {
 	if err := file.Chmod(0o600); err != nil {
 		return fail(ErrorExportFailed)
 	}
-	if info, statErr := file.Stat(); statErr != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+	createdInfo, statErr := file.Stat()
+	if statErr != nil || !createdInfo.Mode().IsRegular() || createdInfo.Mode().Perm() != 0o600 {
 		return fail(ErrorExportFailed)
 	}
 	written := 0
@@ -85,23 +114,56 @@ func ExportOwnerPrivate(request ExportRequest) error {
 		}
 		written += count
 	}
+	createdInfo, statErr = file.Stat()
+	if statErr != nil || !createdInfo.Mode().IsRegular() || createdInfo.Mode().Perm() != 0o600 || createdInfo.Size() != int64(len(data)) {
+		return fail(ErrorExportFailed)
+	}
 	if err := file.Sync(); err != nil {
+		return fail(ErrorExportFailed)
+	}
+	invokeExportHook(exportBeforePublish)
+	if !stableDirectory(rootPath, rootInfo, root, true) || !stableDirectory(repositoryPath, repositoryInfo, repository, false) || !disjointPhysicalDirectories(rootPath, repositoryPath) {
+		return fail(ErrorExportFailed)
+	}
+	if err := root.Link(temporary, relative); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return fail(ErrorInvalidDestination)
+		}
+		return fail(ErrorExportFailed)
+	}
+	if err := root.Remove(temporary); err != nil {
 		return fail(ErrorExportFailed)
 	}
 	if err := file.Close(); err != nil {
 		return fail(ErrorExportFailed)
 	}
 	closeFile = false
+	invokeExportHook(exportAfterPublish)
 	if err := ensurePrivateParents(root, relative); err != nil {
 		return fail(ErrorExportFailed)
 	}
-	if info, statErr := root.Lstat(relative); statErr != nil || !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 || info.Mode().Perm() != 0o600 {
+	info, statErr := root.Lstat(relative)
+	if statErr != nil || !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 || info.Mode().Perm() != 0o600 || !os.SameFile(createdInfo, info) {
 		return fail(ErrorExportFailed)
 	}
-	if !stableOwnerRoot(rootPath, rootInfo, root) {
+	if !stableDirectory(rootPath, rootInfo, root, true) || !stableDirectory(repositoryPath, repositoryInfo, repository, false) || !disjointPhysicalDirectories(rootPath, repositoryPath) {
 		return fail(ErrorExportFailed)
 	}
 	return nil
+}
+
+func temporaryRelativePath(relative string) (string, error) {
+	var suffix [8]byte
+	if _, err := rand.Read(suffix[:]); err != nil {
+		return "", err
+	}
+	base := path.Base(filepath.ToSlash(relative))
+	name := "." + base + ".atif-" + hex.EncodeToString(suffix[:])
+	directory := path.Dir(filepath.ToSlash(relative))
+	if directory == "." {
+		return filepath.FromSlash(name), nil
+	}
+	return filepath.FromSlash(path.Join(directory, name)), nil
 }
 
 func validateExportPaths(request ExportRequest) (string, string, string, error) {
@@ -148,11 +210,11 @@ func ensurePrivateParents(root *os.Root, relative string) error {
 	return nil
 }
 
-func stableOwnerRoot(path string, initial fs.FileInfo, root *os.Root) bool {
+func stableDirectory(path string, initial fs.FileInfo, root *os.Root, requirePrivateMode bool) bool {
 	ambient, ambientErr := os.Lstat(path)
 	opened, openedErr := root.Stat(".")
 	return ambientErr == nil && openedErr == nil && ambient.IsDir() && opened.IsDir() &&
-		ambient.Mode()&fs.ModeSymlink == 0 && ambient.Mode().Perm() == 0o700 && os.SameFile(initial, ambient) && os.SameFile(initial, opened)
+		ambient.Mode()&fs.ModeSymlink == 0 && (!requirePrivateMode || ambient.Mode().Perm() == 0o700) && os.SameFile(initial, ambient) && os.SameFile(initial, opened)
 }
 
 func disjointPhysicalDirectories(left, right string) bool {
