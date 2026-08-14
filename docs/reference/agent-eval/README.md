@@ -726,7 +726,11 @@ promotable, or public.
 The promotion store's `agent-eval/promotion-store-pointer@1` and
 `agent-eval/promotion-store-transition@1` records are versioned owner-only
 metadata, not standalone interchange artifacts; they are decoded only by the
-store, bounded, and rejected by public artifact readers. The internal
+store, bounded, and rejected by public artifact readers. A store admits at
+most 4096 transition records and fails closed before writing or scanning a
+larger history; the pointer and history-chain fields contain the exact
+content digest of the referenced transition, while request digests remain
+request/filename keys. The internal
 `ATL_EVAL_*` registry, wrapper basenames, broker records, launch arguments, and
 package-local Go types remain internal even when tests serialize them.
 

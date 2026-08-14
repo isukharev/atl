@@ -2,6 +2,8 @@ package promotion
 
 import (
 	"errors"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,20 +42,12 @@ func (s Store) readTransitionByDigest(root *os.Root, kind, transitionSHA256 stri
 	if !validDigest(transitionSHA256) {
 		return transitionRecord{}, false, fail(ErrorInvalidReceipt)
 	}
-	directory, err := root.Open(promotionTransitionDirectory)
+	entries, err := readTransitionEntries(root)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return transitionRecord{}, false, nil
 		}
 		return transitionRecord{}, false, err
-	}
-	defer func() { _ = directory.Close() }()
-	entries, err := directory.ReadDir(maxTransitionEntries + 1)
-	if err != nil {
-		return transitionRecord{}, false, err
-	}
-	if len(entries) > maxTransitionEntries {
-		return transitionRecord{}, false, fail(ErrorLimitExceeded)
 	}
 	var matched transitionRecord
 	found := false
@@ -78,4 +72,34 @@ func (s Store) readTransitionByDigest(root *os.Root, kind, transitionSHA256 stri
 		}
 	}
 	return matched, found, nil
+}
+
+func readTransitionEntries(root *os.Root) ([]fs.DirEntry, error) {
+	directory, err := root.Open(promotionTransitionDirectory)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = directory.Close() }()
+	entries, err := directory.ReadDir(maxTransitionEntries + 1)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	if len(entries) > maxTransitionEntries {
+		return nil, fail(ErrorLimitExceeded)
+	}
+	return entries, nil
+}
+
+func checkTransitionCapacity(root *os.Root) error {
+	entries, err := readTransitionEntries(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if len(entries) >= maxTransitionEntries {
+		return fail(ErrorLimitExceeded)
+	}
+	return nil
 }

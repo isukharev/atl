@@ -332,6 +332,41 @@ func TestStoreRollbackPreservesReadErrors(t *testing.T) {
 	}
 }
 
+func TestStoreTransitionCapacityIsAdmittedBeforeWriting(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	transitionRoot := filepath.Join(root, promotionTransitionDirectory)
+	if err := os.Mkdir(transitionRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < maxTransitionEntries; index++ {
+		name := filepath.Join(transitionRoot, "reserved-"+testDigest(string(rune(index+1)))+".json")
+		if err := os.WriteFile(name, []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.recordTransition(store.root, transitionRecord{}); err == nil {
+		t.Fatal("transition beyond bounded history was accepted")
+	} else if code, ok := CodeOf(err); !ok || code != ErrorLimitExceeded {
+		t.Fatalf("transition capacity code=%q ok=%v err=%v", code, ok, err)
+	}
+	if err := os.WriteFile(filepath.Join(transitionRoot, "overflow.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.readTransitionByDigest(store.root, "promotion", testDigest("missing-transition")); err == nil {
+		t.Fatal("over-capacity transition history was scanned")
+	} else if code, ok := CodeOf(err); !ok || code != ErrorLimitExceeded {
+		t.Fatalf("over-capacity scan code=%q ok=%v err=%v", code, ok, err)
+	}
+}
+
 func TestStoreRollbackRequiresRecordedPromotionAndRejectsCycleReplay(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Chmod(root, 0o700); err != nil {
