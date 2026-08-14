@@ -72,6 +72,7 @@ type HarborQualificationIdentity struct {
 // retry/cache/telemetry/upload and authority choice without granting Harbor
 // execution authority.
 type HarborOneAttemptPolicy struct {
+	NAttempts        uint32 `json:"n_attempts"`
 	FrameworkRetries uint32 `json:"framework_retries"`
 	TrialRetries     uint32 `json:"trial_retries"`
 	AgentRetries     uint32 `json:"agent_retries"`
@@ -164,6 +165,7 @@ func harborPinnedIdentity() HarborQualificationIdentity {
 
 func harborPinnedPolicy() HarborOneAttemptPolicy {
 	return HarborOneAttemptPolicy{
+		NAttempts:        1,
 		Network:          "deny",
 		Credentials:      "none",
 		PermissionPolicy: "evaluator_owned",
@@ -256,7 +258,7 @@ func NewHarborSyntheticFailure(qualification HarborQualification, inspection Att
 		AttemptID:           inspection.Plan.AttemptID,
 		Outcome:             harborQualificationProbeOutcome,
 		FailureCode:         harborQualificationProbeFailure,
-		AttemptsStarted:     1,
+		AttemptsStarted:     qualification.Policy.NAttempts,
 		RetryAttempts:       0,
 		FailureRetained:     true,
 		Replayable:          false,
@@ -375,7 +377,7 @@ func (value HarborSyntheticAttempt) Validate(qualification HarborQualification) 
 		value.SchemaVersion != harborQualificationProbeVersion || value.QualificationSHA256 != qualification.ContractSHA256 ||
 		!validSHA256(value.PlanSHA256) || !validSHA256(value.TerminalEventSHA256) || !validSHA256(value.ProjectionSHA256) ||
 		value.Probe != harborQualificationProbeKind || !validSHA256(value.AttemptID) || value.Outcome != harborQualificationProbeOutcome ||
-		value.FailureCode != harborQualificationProbeFailure || value.AttemptsStarted != 1 || value.RetryAttempts != 0 ||
+		value.FailureCode != harborQualificationProbeFailure || value.AttemptsStarted != qualification.Policy.NAttempts || value.RetryAttempts != 0 ||
 		!value.FailureRetained || value.Replayable || value.RuntimeSafetyProven || value.Coverage != harborSyntheticUnknownCoverage() ||
 		value.Adoption != HarborQualificationDeferred {
 		return harborQualificationError("probe", nil)

@@ -29,7 +29,7 @@ func TestPinnedHarborQualificationIsClosedAndProviderFree(t *testing.T) {
 		qualification.Identity.ExecutableInput != "none_selected" || qualification.Identity.ContainerImage != "none_selected" {
 		t.Fatalf("unexpected Harbor identity: %+v", qualification.Identity)
 	}
-	if qualification.Policy != harborPinnedPolicy() || qualification.Policy.FrameworkRetries != 0 || qualification.Policy.TrialRetries != 0 ||
+	if qualification.Policy != harborPinnedPolicy() || qualification.Policy.NAttempts != 1 || qualification.Policy.FrameworkRetries != 0 || qualification.Policy.TrialRetries != 0 ||
 		qualification.Policy.AgentRetries != 0 || qualification.Policy.VerifierRetries != 0 || qualification.Policy.Cache || qualification.Policy.Telemetry ||
 		qualification.Policy.Upload || qualification.Policy.Network != "deny" || qualification.Policy.Credentials != "none" ||
 		qualification.Policy.PermissionPolicy != "evaluator_owned" || qualification.Policy.ScoringAuthority != "evaluator_owned" {
@@ -73,6 +73,7 @@ func TestPinnedHarborQualificationMatchesIndependentClosedContract(t *testing.T)
 		ContainerImage:        "none_selected",
 	}
 	wantPolicy := HarborOneAttemptPolicy{
+		NAttempts:        1,
 		FrameworkRetries: 0,
 		TrialRetries:     0,
 		AgentRetries:     0,
@@ -121,6 +122,7 @@ func TestHarborQualificationRejectsIdentityPolicyAndDigestDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	mutations := map[string]func(*HarborQualification){
+		"attempt count":     func(value *HarborQualification) { value.Policy.NAttempts = 2 },
 		"source commit":     func(value *HarborQualification) { value.Identity.SourceCommit = strings.Repeat("a", 40) },
 		"archive digest":    func(value *HarborQualification) { value.Identity.SourceArchiveSHA256 = strings.Repeat("a", 64) },
 		"manifest digest":   func(value *HarborQualification) { value.Identity.ProjectManifestSHA256 = strings.Repeat("b", 64) },
