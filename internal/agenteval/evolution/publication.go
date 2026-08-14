@@ -29,9 +29,13 @@ func PlanPublication(proposal Proposal) (PublicationPlan, error) {
 	return PublicationPlan{proposal: cloneProposal(proposal), data: append([]byte(nil), data...)}, nil
 }
 
-// WriteNew creates exactly one absent absolute destination. Any interruption
-// leaves the marker so a future reader cannot mistake a partial publication
-// for a completed proposal. The package intentionally does not promise
+// WriteNew creates exactly one absent absolute destination. It creates and
+// durably records the incomplete marker before writing the proposal payload;
+// once that marker exists, a partial publication cannot be mistaken for a
+// completed proposal. The small pre-marker window (destination creation
+// itself cannot be atomic with marker creation) is fail-closed: an empty or
+// markerless destination is never accepted by ReadPublished and must be
+// reconciled before retry. The package intentionally does not promise
 // power-loss atomicity beyond the file and directory syncs available here.
 func (plan PublicationPlan) WriteNew(destination string) error {
 	if err := Validate(plan.proposal); err != nil || len(plan.data) == 0 {

@@ -316,6 +316,13 @@ func TestPublicationWritesOnlyNewDestinationAndKeepsMarkerOnFailure(t *testing.T
 	if err := os.Mkdir(partial, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	empty := filepath.Join(parent, "empty")
+	if err := os.Mkdir(empty, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadPublished(empty); err == nil {
+		t.Fatal("markerless destination was accepted")
+	}
 	if err := os.WriteFile(filepath.Join(partial, proposalMarkerName), []byte("incomplete\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

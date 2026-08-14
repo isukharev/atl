@@ -250,7 +250,7 @@ dependency-free, permits `analysis` to import only
 `experiment`, permits `grading` to import only `core` and `executionbackend`,
 permits `profile/atl` to import `core` and `grading`, permits
 `interchange/agentskills` to import only `core`, permits the root facade to
-compose those owners including `analysis`, `evolution`, `promotion`, and
+compose those owners including `analysis`, `promotion`, and
 `scheduler`, and permits the
 command to import only the exact root facade. The ledger records every
 module-self file, lane, target, and alias, rejects dot or blank self imports,
