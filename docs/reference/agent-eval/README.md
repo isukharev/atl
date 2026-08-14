@@ -113,10 +113,12 @@ operation must be structurally unable to acquire it.
 | `migrate apply` | `default` | `pre_release` | `local_write` | Y | Y | N | N | N | N | N | Y |
 | `migrate preview` | `default` | `pre_release` | `local_read` | Y | N | N | N | N | N | N | Y |
 | `plan` | `default` | `reserved` | `local_write` | Y | Y | N | N | N | N | N | Y |
+| `promote` | `default` | `pre_release` | `local_write` | Y | Y | N | N | N | N | N | N |
 | `reconcile` | `evidence-only` | `reserved` | `local_write` | Y | Y | N | N | N | N | N | Y |
 | `report` | `default` | `reserved` | `local_read` | Y | N | N | N | N | N | N | N |
 | `resume` | `default` | `reserved` | `agent_execution` | Y | Y | Y | Y | Y | Y | Y | Y |
 | `resume` | `reference` | `pre_release` | `local_write` | Y | Y | N | N | N | N | N | N |
+| `rollback` | `default` | `pre_release` | `local_write` | Y | Y | N | N | N | N | N | N |
 | `run` | `default` | `reserved` | `agent_execution` | Y | Y | Y | Y | Y | Y | Y | N |
 | `run` | `reference` | `pre_release` | `local_write` | Y | Y | N | N | N | N | N | N |
 | `schema inspect` | `default` | `pre_release` | `local_read` | Y | N | N | N | N | N | N | N |
