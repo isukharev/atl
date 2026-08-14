@@ -55,7 +55,11 @@ content-addressed dataset-role and holdout relationships. It records only
 bounded counts, closed role/axis labels, and opaque identities; raw cases,
 prompts, expected outputs, verifier material, paths, providers, credentials,
 and network configuration are outside its contract. The leaf is provider-free
-and has no standalone CLI route or public compatibility promise.
+and has no standalone CLI route or public compatibility promise. Every holdout
+must carry a distinct dataset digest from the primary and review the closed
+`dataset` axis; changing only a model, contract, or runtime identity cannot
+reclassify the primary fixture as a holdout. Aggregate digests still do not
+prove disjointness of individual members inside a dataset.
 
 ## Stability vocabulary
 

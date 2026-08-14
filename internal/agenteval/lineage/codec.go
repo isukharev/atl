@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -70,7 +71,7 @@ func decodeClosed(data []byte, destination any) error {
 func validateJSONShape(data []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
-	if err := validateJSONValue(decoder, 0); err != nil {
+	if err := validateJSONValue(decoder, 0, ""); err != nil {
 		return err
 	}
 	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
@@ -79,7 +80,7 @@ func validateJSONShape(data []byte) error {
 	return nil
 }
 
-func validateJSONValue(decoder *json.Decoder, depth int) error {
+func validateJSONValue(decoder *json.Decoder, depth int, path string) error {
 	if depth > MaxJSONDepth {
 		return errors.New("json_depth")
 	}
@@ -103,8 +104,15 @@ func validateJSONValue(decoder *json.Decoder, depth int) error {
 			if !ok || seen[name] {
 				return errors.New("duplicate_json_member")
 			}
+			if jsonMemberUsesCaseAlias(path, name) {
+				return errors.New("json_member_case_alias")
+			}
 			seen[name] = true
-			if err := validateJSONValue(decoder, depth+1); err != nil {
+			childPath := name
+			if path != "" {
+				childPath = path + "." + name
+			}
+			if err := validateJSONValue(decoder, depth+1, childPath); err != nil {
 				return err
 			}
 		}
@@ -113,8 +121,15 @@ func validateJSONValue(decoder *json.Decoder, depth int) error {
 			return errors.New("json_object")
 		}
 	case '[':
+		limit := jsonArrayLimit(path)
+		count := 0
 		for decoder.More() {
-			if err := validateJSONValue(decoder, depth+1); err != nil {
+			count++
+			if limit > 0 && count > limit {
+				return errors.New("json_array_limit")
+			}
+			childPath := path + ".*"
+			if err := validateJSONValue(decoder, depth+1, childPath); err != nil {
 				return err
 			}
 		}
@@ -126,4 +141,57 @@ func validateJSONValue(decoder *json.Decoder, depth int) error {
 		return errors.New("json_delimiter")
 	}
 	return nil
+}
+
+func jsonArrayLimit(path string) int {
+	switch path {
+	case "roles":
+		return MaxRoles
+	case "holdouts":
+		return MaxHoldouts
+	case "primary_identity.dependency_sha256", "holdouts.*.holdout_identity.dependency_sha256":
+		return MaxDependencies
+	case "holdouts.*.differences":
+		return len(closedAxes)
+	case "holdouts.*.reviewed_material_axes":
+		return MaxMaterialAxes
+	default:
+		return 0
+	}
+}
+
+// jsonMemberUsesCaseAlias rejects the case-insensitive member matching that
+// encoding/json applies to struct fields. A differently-cased known member
+// must not reach typed decoding: it could otherwise bypass a path-specific
+// array limit before DisallowUnknownFields recognizes the alias.
+func jsonMemberUsesCaseAlias(path, name string) bool {
+	for _, canonical := range canonicalJSONMembers(path) {
+		if name != canonical && strings.EqualFold(name, canonical) {
+			return true
+		}
+	}
+	return false
+}
+
+func canonicalJSONMembers(path string) []string {
+	switch path {
+	case "":
+		return []string{"schema", "schema_version", "contract_version", "roles", "primary_role", "primary_role_sha256", "primary_contract_sha256", "primary_identity", "holdouts", "lineage_sha256"}
+	case "roles.*":
+		return []string{"role", "content_sha256", "coverage", "legacy_id_sha256", "legacy_read_only", "role_sha256"}
+	case "roles.*.coverage":
+		return []string{"total", "covered"}
+	case "primary_identity", "holdouts.*.holdout_identity":
+		return identityJSONMembers()
+	case "holdouts.*":
+		return []string{"holdout_role", "holdout_role_sha256", "holdout_contract_sha256", "holdout_identity", "differences", "reviewed_material_axes", "binding_sha256"}
+	case "holdouts.*.differences.*":
+		return []string{"axis", "primary_sha256", "holdout_sha256", "difference_sha256"}
+	default:
+		return nil
+	}
+}
+
+func identityJSONMembers() []string {
+	return []string{"skill_sha256", "eval_sha256", "grader_sha256", "agent_sha256", "model_sha256", "harness_sha256", "environment_sha256", "tool_api_sha256", "dependency_sha256", "identity_sha256"}
 }
