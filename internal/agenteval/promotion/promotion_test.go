@@ -230,6 +230,108 @@ func TestStorePromotionIsExplicitIdempotentAndRollbackExact(t *testing.T) {
 	}
 }
 
+func TestStorePointerBindsContentTransitionDigests(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	promotionReceipt, err := Evaluate(testInput(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ApplyPromotion(promotionReceipt, nil); err != nil {
+		t.Fatal(err)
+	}
+	pointerBytes, err := os.ReadFile(filepath.Join(root, promotionCurrentName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pointer, err := decodePointer(pointerBytes)
+	if err != nil {
+		t.Fatalf("decode promotion pointer: %v", err)
+	}
+	transitionBytes, err := os.ReadFile(filepath.Join(root, promotionTransitionDirectory, "promotion-"+promotionReceipt.ReceiptSHA256+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	transition, err := decodeTransition(transitionBytes)
+	if err != nil {
+		t.Fatalf("decode promotion transition: %v", err)
+	}
+	if pointer.TransitionSHA256 != transition.TransitionSHA256 {
+		t.Fatalf("pointer did not bind transition content: pointer=%s transition=%s", pointer.TransitionSHA256, transition.TransitionSHA256)
+	}
+	if pointer.TransitionSHA256 == transition.RequestSHA256 || transition.PreviousTransitionSHA256 != "" {
+		t.Fatalf("pointer/history used request identity or unexpected previous digest: pointer=%+v transition=%+v", pointer, transition)
+	}
+
+	rollback, err := PlanRollback(RollbackRequest{Current: promotionReceipt.Candidate, Restore: promotionReceipt.Reference, AuthorizationSHA256: testDigest("metadata-rollback")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ApplyRollback(rollback); err != nil {
+		t.Fatal(err)
+	}
+	rollbackPointerBytes, err := os.ReadFile(filepath.Join(root, promotionCurrentName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rollbackPointer, err := decodePointer(rollbackPointerBytes)
+	if err != nil {
+		t.Fatalf("decode rollback pointer: %v", err)
+	}
+	rollbackTransitionBytes, err := os.ReadFile(filepath.Join(root, promotionTransitionDirectory, "rollback-"+rollback.ReceiptSHA256+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rollbackTransition, err := decodeTransition(rollbackTransitionBytes)
+	if err != nil {
+		t.Fatalf("decode rollback transition: %v", err)
+	}
+	if rollbackPointer.TransitionSHA256 != rollbackTransition.TransitionSHA256 {
+		t.Fatalf("rollback pointer did not bind transition content: pointer=%s transition=%s", rollbackPointer.TransitionSHA256, rollbackTransition.TransitionSHA256)
+	}
+	if rollbackTransition.PreviousTransitionSHA256 != transition.TransitionSHA256 {
+		t.Fatalf("rollback history did not bind prior transition: previous=%s promotion=%s", rollbackTransition.PreviousTransitionSHA256, transition.TransitionSHA256)
+	}
+}
+
+func TestStoreRollbackPreservesReadErrors(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	promotionReceipt, err := Evaluate(testInput(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ApplyPromotion(promotionReceipt, nil); err != nil {
+		t.Fatal(err)
+	}
+	rollback, err := PlanRollback(RollbackRequest{Current: promotionReceipt.Candidate, Restore: promotionReceipt.Reference, AuthorizationSHA256: testDigest("read-error")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, promotionCurrentName), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ApplyRollback(rollback); err == nil {
+		t.Fatal("malformed pointer was accepted")
+	} else if code, ok := CodeOf(err); !ok || code != ErrorInvalidReceipt {
+		t.Fatalf("malformed pointer code=%q ok=%v err=%v", code, ok, err)
+	}
+}
+
 func TestStoreRollbackRequiresRecordedPromotionAndRejectsCycleReplay(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Chmod(root, 0o700); err != nil {

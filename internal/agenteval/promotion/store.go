@@ -372,25 +372,6 @@ func decodeTransition(data []byte) (transitionRecord, error) {
 	return record, nil
 }
 
-func transitionName(kind, requestSHA256 string) string {
-	return filepath.Join(promotionTransitionDirectory, kind+"-"+requestSHA256+".json")
-}
-
-func (s Store) readTransition(root *os.Root, kind, requestSHA256 string) (transitionRecord, bool, error) {
-	data, err := readRegularBounded(root, transitionName(kind, requestSHA256))
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return transitionRecord{}, false, nil
-		}
-		return transitionRecord{}, false, err
-	}
-	record, err := decodeTransition(data)
-	if err != nil || record.Kind != kind || record.RequestSHA256 != requestSHA256 {
-		return transitionRecord{}, false, fail(ErrorConflict)
-	}
-	return record, true, nil
-}
-
 func (s Store) recordTransition(root *os.Root, record transitionRecord) error {
 	if err := s.ensureDirectory(root, promotionTransitionDirectory); err != nil {
 		return err
@@ -444,7 +425,10 @@ func (s Store) RecordDecision(receipt DecisionReceipt) error {
 // caller supplies the exact current identity (or no pointer exists). A
 // refusal can be recorded with RecordDecision but can never mutate state.
 func (s Store) ApplyPromotion(receipt DecisionReceipt, expectedCurrent *Identity) error {
-	if err := ValidateDecision(receipt); err != nil || receipt.Decision != DecisionPromote {
+	if err := ValidateDecision(receipt); err != nil {
+		return err
+	}
+	if receipt.Decision != DecisionPromote {
 		return fail(ErrorPromotionRefused)
 	}
 	root, err := s.openRoot()
@@ -476,7 +460,7 @@ func (s Store) ApplyPromotion(receipt DecisionReceipt, expectedCurrent *Identity
 	if existing, found, err := s.readTransition(root, "promotion", receipt.ReceiptSHA256); err != nil {
 		return err
 	} else if found {
-		if present && current.TransitionSHA256 == existing.RequestSHA256 && current.Identity == existing.To {
+		if present && current.TransitionSHA256 == existing.TransitionSHA256 && current.Identity == existing.To {
 			return fail(ErrorConflict)
 		}
 		if (!present && existing.From == receipt.Reference && existing.PreviousTransitionSHA256 == "") ||
@@ -484,7 +468,7 @@ func (s Store) ApplyPromotion(receipt DecisionReceipt, expectedCurrent *Identity
 			if err := syncDirectory(root, promotionTransitionDirectory); err != nil {
 				return err
 			}
-			return writePointer(root, existing.To, existing.RequestSHA256)
+			return writePointer(root, existing.To, existing.TransitionSHA256)
 		}
 		return fail(ErrorConflict)
 	}
@@ -507,7 +491,7 @@ func (s Store) ApplyPromotion(receipt DecisionReceipt, expectedCurrent *Identity
 	if err := s.recordTransition(root, record); err != nil {
 		return err
 	}
-	return writePointer(root, receipt.Candidate, record.RequestSHA256)
+	return writePointer(root, receipt.Candidate, record.TransitionSHA256)
 }
 
 // ApplyRollback validates a planned request, proves that the exact restore
@@ -530,7 +514,10 @@ func (s Store) ApplyRollback(receipt RollbackReceipt) (RollbackReceipt, error) {
 	}
 	defer func() { _ = lock.Close() }()
 	current, present, err := s.readCurrent(root)
-	if err != nil || !present {
+	if err != nil {
+		return RollbackReceipt{}, err
+	}
+	if !present {
 		return RollbackReceipt{}, fail(ErrorConflict)
 	}
 	// See ApplyPromotion: a visible pointer can survive a failed root fsync;
@@ -544,7 +531,7 @@ func (s Store) ApplyRollback(receipt RollbackReceipt) (RollbackReceipt, error) {
 	if existing, found, err := s.readTransition(root, "rollback", receipt.ReceiptSHA256); err != nil {
 		return RollbackReceipt{}, err
 	} else if found {
-		if current.Identity == existing.To && current.TransitionSHA256 == existing.RequestSHA256 {
+		if current.Identity == existing.To && current.TransitionSHA256 == existing.TransitionSHA256 {
 			return RollbackReceipt{}, fail(ErrorConflict)
 		}
 		if current.Identity != existing.From || current.TransitionSHA256 != existing.PreviousTransitionSHA256 {
@@ -560,13 +547,16 @@ func (s Store) ApplyRollback(receipt RollbackReceipt) (RollbackReceipt, error) {
 		if !applied.Restored || applied.RequestSHA256 != receipt.ReceiptSHA256 || applied.Current != receipt.Current || applied.Restore != receipt.Restore {
 			return RollbackReceipt{}, fail(ErrorConflict)
 		}
-		if err := writePointer(root, existing.To, existing.RequestSHA256); err != nil {
+		if err := writePointer(root, existing.To, existing.TransitionSHA256); err != nil {
 			return RollbackReceipt{}, err
 		}
 		return applied, nil
 	}
-	prior, found, err := s.readTransition(root, "promotion", current.TransitionSHA256)
-	if err != nil || !found || prior.RequestSHA256 != current.TransitionSHA256 || prior.From != receipt.Restore || prior.To != receipt.Current {
+	prior, found, err := s.readTransitionByDigest(root, "promotion", current.TransitionSHA256)
+	if err != nil {
+		return RollbackReceipt{}, err
+	}
+	if !found || prior.From != receipt.Restore || prior.To != receipt.Current || prior.TransitionSHA256 != current.TransitionSHA256 {
 		return RollbackReceipt{}, fail(ErrorConflict)
 	}
 	applied := receipt
@@ -591,7 +581,7 @@ func (s Store) ApplyRollback(receipt RollbackReceipt) (RollbackReceipt, error) {
 	if err := s.recordTransition(root, record); err != nil {
 		return RollbackReceipt{}, err
 	}
-	if err := writePointer(root, receipt.Restore, record.RequestSHA256); err != nil {
+	if err := writePointer(root, receipt.Restore, record.TransitionSHA256); err != nil {
 		return RollbackReceipt{}, err
 	}
 	return applied, nil

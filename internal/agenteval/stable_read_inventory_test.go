@@ -29,7 +29,7 @@ func TestStableReadProductionInventory(t *testing.T) {
 		structuralAdmissionCapture:                                  1,
 		"internal/agenteval/interchange/agentskills/publication.go": 4,
 		"internal/agenteval/interchange/agentskills/stable_tree.go": 1,
-		"internal/agenteval/promotion/store.go":                     1,
+		"internal/agenteval/promotion/store.go":                     2,
 		"internal/agenteval/live_gateway.go":                        1,
 		"internal/agenteval/private_coverage_scorecard.go":          3,
 		"internal/agenteval/private_finding_acceptance.go":          7,
