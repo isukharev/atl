@@ -43,6 +43,7 @@ type neutralManifest struct {
 
 type neutralExpectedCase struct {
 	ID       string `json:"id"`
+	Family   string `json:"family"`
 	Outcome  string `json:"outcome"`
 	Check    string `json:"check"`
 	Resource string `json:"resource"`
@@ -143,8 +144,15 @@ func TestNeutralConformanceCorpusIsDeterministicAndContentAddressed(t *testing.T
 	if statistics.Schema != "agent-eval/neutral-statistics" || statistics.SchemaVersion != 1 || statistics.ContractVersion != neutralContractVersion || statistics.CaseCount != len(manifest.Cases) {
 		t.Fatalf("unexpected neutral statistics fixture: %+v", statistics)
 	}
-	if !reflect.DeepEqual(statistics.Outcomes, map[string]int{"failed": 3, "succeeded": 5, "unknown": 2}) || !reflect.DeepEqual(statistics.Families, map[string]int{"activation": 1, "lifecycle": 1, "negative_guidance": 2, "resource": 1, "selection": 1, "skill_lift": 2, "stateful": 1, "verifier": 1}) {
-		t.Fatalf("unexpected neutral statistics counts: %+v", statistics)
+	assertNeutralAuthoringFixtures(t, root)
+	wantOutcomes := make(map[string]int)
+	wantFamilies := make(map[string]int)
+	for _, testCase := range manifest.Cases {
+		wantOutcomes[testCase.Expected]++
+		wantFamilies[testCase.Family]++
+	}
+	if !reflect.DeepEqual(statistics.Outcomes, wantOutcomes) || !reflect.DeepEqual(statistics.Families, wantFamilies) {
+		t.Fatalf("neutral statistics do not match manifest: statistics=%+v outcomes=%v families=%v", statistics, wantOutcomes, wantFamilies)
 	}
 	registry, err := core.NewRegistry(neutralProfile{})
 	if err != nil {
@@ -156,11 +164,14 @@ func TestNeutralConformanceCorpusIsDeterministicAndContentAddressed(t *testing.T
 	}
 	actual := neutralExpectedResults{Schema: expected.Schema, SchemaVersion: expected.SchemaVersion, Cases: make([]neutralExpectedCase, 0, len(manifest.Cases))}
 	for _, testCase := range manifest.Cases {
+		if len(actual.Cases) >= len(expected.Cases) || expected.Cases[len(actual.Cases)].ID != testCase.ID || expected.Cases[len(actual.Cases)].Family != testCase.Family || expected.Cases[len(actual.Cases)].Outcome != testCase.Expected {
+			t.Fatalf("manifest case %q does not match expected result fixture", testCase.ID)
+		}
 		attempts := uint32(1)
 		if testCase.ID == "stateful-multi-step" {
 			attempts = 2
 		}
-		plan := neutralCorePlan(testCase.ID, attempts)
+		plan := neutralCorePlan(testCase.ID, testCase.Family, attempts)
 		first, err := engine.Run(context.Background(), plan)
 		if err != nil {
 			t.Fatalf("case %s first run: %v", testCase.ID, err)
@@ -174,12 +185,17 @@ func TestNeutralConformanceCorpusIsDeterministicAndContentAddressed(t *testing.T
 		if !bytes.Equal(firstData, secondData) {
 			t.Fatalf("case %s result is not deterministic", testCase.ID)
 		}
-		if len(first.Attempts) == 0 {
-			t.Fatalf("case %s has no attempts", testCase.ID)
+		if len(first.Attempts) != int(attempts) || len(second.Attempts) != int(attempts) {
+			t.Fatalf("case %s has %d/%d attempts, want %d", testCase.ID, len(first.Attempts), len(second.Attempts), attempts)
+		}
+		for _, attempt := range first.Attempts {
+			if neutralOutcomeName(attempt.Outcome) != testCase.Expected {
+				t.Fatalf("case %s outcome=%s, want manifest expectation %s", testCase.ID, neutralOutcomeName(attempt.Outcome), testCase.Expected)
+			}
 		}
 		attempt := first.Attempts[0]
 		actual.Cases = append(actual.Cases, neutralExpectedCase{
-			ID: testCase.ID, Outcome: neutralOutcomeName(attempt.Outcome),
+			ID: testCase.ID, Family: testCase.Family, Outcome: neutralOutcomeName(attempt.Outcome),
 			Check:    neutralCheckName(attempt.Observation.Checks[0]),
 			Resource: neutralPresenceName(attempt.Observation.Resources[0].Presence),
 			Evidence: neutralPresenceName(attempt.Observation.Evidence[0].Presence),
@@ -305,14 +321,10 @@ func TestNeutralConformanceAdapterBackendGraderAndExtensionLanes(t *testing.T) {
 		t.Fatal("grader receipt leaked evidence bytes")
 	}
 
-	manifest := neutralExtensionManifest()
-	manifestData, err := extension.EncodeManifest(manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	decodedManifest, err := extension.DecodeManifest(manifestData)
-	if err != nil || !reflect.DeepEqual(decodedManifest, manifest) {
-		t.Fatalf("extension manifest round trip: %+v err=%v", decodedManifest, err)
+	manifestData := readNeutralFile(t, filepath.Join(neutralCorpusRoot(t), "extensions", "reference-extension", "manifest.json"))
+	manifest, err := extension.DecodeManifest(manifestData)
+	if err != nil || !reflect.DeepEqual(manifest, neutralExtensionManifest()) {
+		t.Fatalf("checked-in extension manifest drifted: %+v err=%v", manifest, err)
 	}
 	initialize, err := extension.NewInitialize(manifest, strings.Repeat("b", 64), strings.Repeat("c", 64))
 	if err != nil {
@@ -371,6 +383,9 @@ func TestNeutralConformanceReporterAndPrivacyLanes(t *testing.T) {
 	if len(htmlData) == 0 || bytes.Contains(bytes.ToLower(htmlData), []byte("http://")) || bytes.Contains(bytes.ToLower(htmlData), []byte("https://")) {
 		t.Fatal("static HTML reporter emitted active external content")
 	}
+	if got := neutralSHA256(htmlData); got != strings.TrimSpace(string(readNeutralFile(t, filepath.Join(root, "reports", "neutral-generated.sha256")))) {
+		t.Fatalf("generated HTML projection digest=%s does not match the checked-in report contract", got)
+	}
 	staticReport := readNeutralFile(t, filepath.Join(root, "reports", "neutral-report.html"))
 	for _, marker := range []string{"<script", "<img", "http://", "https://", "/tmp", "/home/"} {
 		if bytes.Contains(bytes.ToLower(staticReport), []byte(marker)) {
@@ -409,15 +424,88 @@ func TestNeutralConformanceReporterAndPrivacyLanes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invalid := neutralCorePlan("positive-skill-lift", 1)
+	invalid := neutralCorePlan("positive-skill-lift", "skill_lift", 1)
 	invalid.Task.RequiredCapabilities = []core.CapabilityID{"missing/authority"}
 	if _, err := engine.Run(context.Background(), invalid); err == nil || !neutralErrorCodeIs(err, core.ErrorCapabilityUndeclared) || strings.Contains(err.Error(), "missing/authority") {
 		t.Fatalf("invalid neutral admission was not content-minimized: %v", err)
 	}
 }
 
-func neutralCorePlan(id string, attempts uint32) core.Plan {
-	return core.Plan{ID: core.PlanID("neutral/" + id), Profile: "neutral/reference", Task: core.Task{ID: core.TaskID(id), RequiredCapabilities: []core.CapabilityID{"reference/execute"}, Checks: []core.Check{{ID: "decision", Weight: 1}}, Resources: []core.ResourceID{"cost"}, Evidence: []core.EvidenceID{"proof"}}, Fixture: core.Fixture{ID: core.FixtureID("fixture/" + id)}, Treatment: core.Treatment{ID: core.TreatmentID("treatment/" + id), Skills: []core.Skill{{ID: "synthetic/skill"}}}, Attempts: attempts}
+func neutralCorePlan(id, family string, attempts uint32) core.Plan {
+	return core.Plan{ID: core.PlanID("neutral/" + family + "/" + id), Profile: "neutral/reference", Task: core.Task{ID: core.TaskID(id), RequiredCapabilities: []core.CapabilityID{"reference/execute"}, Checks: []core.Check{{ID: "decision", Weight: 1}}, Resources: []core.ResourceID{"cost"}, Evidence: []core.EvidenceID{"proof"}}, Fixture: core.Fixture{ID: core.FixtureID("fixture/" + family + "/" + id)}, Treatment: core.Treatment{ID: core.TreatmentID("treatment/" + family + "/" + id), Skills: []core.Skill{{ID: "synthetic/skill"}}}, Attempts: attempts}
+}
+
+func assertNeutralAuthoringFixtures(t *testing.T, root string) {
+	t.Helper()
+	type nativeTask struct {
+		Schema    string `json:"schema"`
+		Version   int    `json:"schema_version"`
+		TaskID    string `json:"task_id"`
+		Fixture   string `json:"fixture"`
+		Skill     string `json:"skill"`
+		Verifier  string `json:"verifier"`
+		Authority struct {
+			Network     string `json:"network"`
+			Credentials string `json:"credentials"`
+			Cost        string `json:"cost"`
+		} `json:"authority"`
+	}
+	var task nativeTask
+	if err := json.Unmarshal(readNeutralFile(t, filepath.Join(root, "authoring", "native", "task.v1.json")), &task); err != nil {
+		t.Fatal(err)
+	}
+	if task.Schema != "agent-eval/native-task" || task.Version != 1 || task.TaskID != "synthetic/addition" || task.Fixture != "fixtures/environments/reference-v1.txt" || task.Skill != "fixtures/skills/skill-addition" || task.Verifier != "fixtures/hidden-verifiers/answer-v1.txt" || task.Authority.Network != "deny" || task.Authority.Credentials != "none" || task.Authority.Cost != "declared" {
+		t.Fatalf("native authoring task drifted: %+v", task)
+	}
+	if got := string(readNeutralFile(t, filepath.Join(root, filepath.FromSlash(task.Fixture)))); got != "environment: reference-v1\nnetwork: denied\ncredentials: none\nfilesystem: synthetic-readonly-inputs\nverifier: separate-copy\n" {
+		t.Fatalf("native fixture content drifted: %q", got)
+	}
+	if got := string(readNeutralFile(t, filepath.Join(root, filepath.FromSlash(task.Skill), "SKILL.md"))); !strings.Contains(got, "synthetic-addition") || !strings.Contains(got, "Read the fixture values") {
+		t.Fatalf("native skill fixture is not the checked-in addition contract: %q", got)
+	}
+	if got := string(readNeutralFile(t, filepath.Join(root, filepath.FromSlash(task.Verifier)))); got != "expected-answer: 42\nvisibility: hidden\ncomparison: exact\n" {
+		t.Fatalf("hidden verifier fixture drifted: %q", got)
+	}
+
+	type skillEval struct {
+		ID       string `json:"id"`
+		Skill    string `json:"skill"`
+		Fixture  string `json:"fixture"`
+		Verifier string `json:"verifier"`
+		Expected string `json:"expected"`
+	}
+	var authoring struct {
+		Schema  string      `json:"schema"`
+		Version int         `json:"schema_version"`
+		Evals   []skillEval `json:"evals"`
+	}
+	if err := json.Unmarshal(readNeutralFile(t, filepath.Join(root, "authoring", "agent-skills", "evals", "evals.json")), &authoring); err != nil {
+		t.Fatal(err)
+	}
+	if authoring.Schema != "agent-skills/evals" || authoring.Version != 1 || len(authoring.Evals) != 2 {
+		t.Fatalf("agent-skills authoring fixture drifted: %+v", authoring)
+	}
+	evalsRoot := filepath.Join(root, "authoring", "agent-skills", "evals")
+	for _, item := range authoring.Evals {
+		if filepath.IsAbs(item.Skill) || filepath.IsAbs(item.Fixture) || filepath.IsAbs(item.Verifier) {
+			t.Fatalf("authoring fixture used an absolute path: %+v", item)
+		}
+		for _, relative := range []string{item.Skill, item.Fixture, item.Verifier} {
+			if relative == "" {
+				continue
+			}
+			resolved := filepath.Clean(filepath.Join(evalsRoot, filepath.FromSlash(relative)))
+			if !strings.HasPrefix(resolved, filepath.Clean(root)+string(os.PathSeparator)) {
+				t.Fatalf("authoring fixture escaped corpus root: %q", relative)
+			}
+			if _, err := os.Stat(resolved); err != nil {
+				t.Fatalf("authoring fixture %q is not readable: %v", relative, err)
+			}
+		}
+	}
+	if authoring.Evals[0].ID != "synthetic-addition" || authoring.Evals[0].Expected != "" || authoring.Evals[1].ID != "synthetic-stale-guidance" || authoring.Evals[1].Expected != "negative-control" {
+		t.Fatalf("agent-skills eval identities drifted: %+v", authoring.Evals)
+	}
 }
 
 func neutralOutcomeName(value core.Outcome) string {
@@ -568,9 +656,34 @@ func neutralCorpusDigest(t *testing.T, root string) string {
 
 func assertNeutralPrivacy(t *testing.T, root string, result []byte) {
 	t.Helper()
-	for _, marker := range []string{"/tmp/", "/home/", "/workspaces/", "jira", "confluence", "api_key", "password", "private-key"} {
+	markers := []string{"/tmp/", "/home/", "/workspaces/", "api_key", "password", "private-key", "bearer ", "authorization:", "file://", "ssh://"}
+	for _, marker := range markers {
 		if bytes.Contains(bytes.ToLower(result), []byte(marker)) {
 			t.Fatalf("neutral result contains privacy marker %q", marker)
+		}
+	}
+	for _, directory := range []string{"fixtures", "authoring", "extensions", "reports", "statistics"} {
+		base := filepath.Join(root, directory)
+		if err := filepath.WalkDir(base, func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			lower := bytes.ToLower(data)
+			for _, marker := range markers {
+				if bytes.Contains(lower, []byte(marker)) {
+					return fmt.Errorf("neutral corpus file %s contains privacy marker %q", path, marker)
+				}
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
 		}
 	}
 	staticReport := readNeutralFile(t, filepath.Join(root, "reports", "neutral-report.html"))

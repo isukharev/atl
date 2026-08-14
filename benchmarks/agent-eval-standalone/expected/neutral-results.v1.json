@@ -4,6 +4,7 @@
   "cases": [
     {
       "id": "positive-skill-lift",
+      "family": "skill_lift",
       "outcome": "succeeded",
       "check": "observed_pass",
       "resource": "observed",
@@ -11,6 +12,7 @@
     },
     {
       "id": "no-lift",
+      "family": "skill_lift",
       "outcome": "failed",
       "check": "observed_fail",
       "resource": "observed",
@@ -18,6 +20,7 @@
     },
     {
       "id": "negative-stale-guidance",
+      "family": "negative_guidance",
       "outcome": "unknown",
       "check": "unknown",
       "resource": "unsupported",
@@ -25,6 +28,7 @@
     },
     {
       "id": "autonomous-activation",
+      "family": "activation",
       "outcome": "succeeded",
       "check": "observed_pass",
       "resource": "observed",
@@ -32,6 +36,7 @@
     },
     {
       "id": "near-miss-negative",
+      "family": "negative_guidance",
       "outcome": "failed",
       "check": "observed_fail",
       "resource": "observed",
@@ -39,6 +44,7 @@
     },
     {
       "id": "distractor-selection",
+      "family": "selection",
       "outcome": "succeeded",
       "check": "observed_pass",
       "resource": "observed",
@@ -46,6 +52,7 @@
     },
     {
       "id": "stateful-multi-step",
+      "family": "stateful",
       "outcome": "succeeded",
       "check": "observed_pass",
       "resource": "observed",
@@ -53,6 +60,7 @@
     },
     {
       "id": "verifier-isolation",
+      "family": "verifier",
       "outcome": "succeeded",
       "check": "observed_pass",
       "resource": "not_applicable",
@@ -60,6 +68,7 @@
     },
     {
       "id": "resource-tax",
+      "family": "resource",
       "outcome": "failed",
       "check": "observed_fail",
       "resource": "observed",
@@ -67,6 +76,7 @@
     },
     {
       "id": "lifecycle-security",
+      "family": "lifecycle",
       "outcome": "unknown",
       "check": "unsupported",
       "resource": "unknown",
