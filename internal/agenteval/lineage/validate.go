@@ -411,14 +411,6 @@ func findRole(roles []RoleDescriptor, wanted DatasetRole) (*RoleDescriptor, bool
 	return nil, false
 }
 
-func roleMap(roles []RoleDescriptor) map[DatasetRole]RoleDescriptor {
-	result := make(map[DatasetRole]RoleDescriptor, len(roles))
-	for _, role := range roles {
-		result[role.Role] = role
-	}
-	return result
-}
-
 func roleOrdinal(role DatasetRole) int {
 	for index, value := range closedRoles {
 		if value == role {
