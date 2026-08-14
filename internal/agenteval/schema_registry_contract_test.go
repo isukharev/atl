@@ -82,6 +82,8 @@ func standaloneSchemaOwner(namespace, kind string) string {
 		return "extension"
 	case "attempt-event", "attempt-ledger", "attempt-plan":
 		return "lifecycle"
+	case "promotion-comparison", "promotion-decision", "promotion-rollback":
+		return "promotion"
 	default:
 		return "standalone"
 	}

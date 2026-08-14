@@ -2025,13 +2025,13 @@
       "kind": "promotion-rollback",
       "version": 1,
       "source_path": "testdata/standalone-readability/promotion-rollback-v1.json",
-      "source_sha256": "47045a4dfc8d66322c2a037e051e0d5aa4b6f7d3657f21742de6ce17e4734997",
+      "source_sha256": "716d9f825c410bddae00dfefe9cc0d30b14f7a15ea32b127b31aa50406f40497",
       "expected_projection": {
         "schema": "agent-eval/promotion-rollback",
         "schema_version": 1,
         "contract_version": "0.1.0-pre-release",
         "decision": "rollback",
-        "restored": true
+        "restored": false
       }
     },
     {
@@ -2083,7 +2083,7 @@
       "kind": "schema-registry",
       "version": 1,
       "source_path": "schemaregistry/registry.v1.json",
-      "source_sha256": "004d389ba747bb2a95c0f53ea6be0342d3241db9ae4d195eba96d518ecacbe9b",
+      "source_sha256": "48fee863ef375bc416ed5a919354015044fbe744f925ab35c596ebed80708772",
       "expected_projection": {
         "schema": "agent-eval/schema-registry",
         "schema_version": 1,

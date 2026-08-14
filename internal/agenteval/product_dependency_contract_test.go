@@ -317,6 +317,7 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 			{File: "cmd/agent-eval/proxy.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/standalone.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/standalone_agentskills.go", Path: evaluatorModuleImportPath},
+			{File: "cmd/agent-eval/standalone_authority.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/standalone_config.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/standalone_operations.go", Path: evaluatorModuleImportPath},
 			{File: "cmd/agent-eval/standalone_promotion.go", Path: evaluatorModuleImportPath},
