@@ -38,6 +38,7 @@ const (
 	ErrorInvalidWire        ErrorCode = "invalid_atif_wire"
 	ErrorInvalidDestination ErrorCode = "invalid_atif_destination"
 	ErrorExportFailed       ErrorCode = "atif_export_failed"
+	ErrorExportCommitted    ErrorCode = "atif_export_committed_cleanup_pending"
 	ErrorLimitExceeded      ErrorCode = "atif_limit_exceeded"
 )
 

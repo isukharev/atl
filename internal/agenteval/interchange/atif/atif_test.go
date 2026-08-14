@@ -341,7 +341,7 @@ func TestExportRejectsFinalInodeReplacement(t *testing.T) {
 	requireCode(t, ExportOwnerPrivate(request), ErrorExportFailed)
 }
 
-func TestExportRollsBackWhenTemporaryCleanupFails(t *testing.T) {
+func TestExportRetriesTransientTemporaryCleanupFailure(t *testing.T) {
 	base := t.TempDir()
 	repository := filepath.Join(base, "repository")
 	root := filepath.Join(base, "private")
@@ -363,19 +363,61 @@ func TestExportRollsBackWhenTemporaryCleanupFails(t *testing.T) {
 		}
 		return ownerRoot.Remove(name)
 	}
-	requireCode(t, ExportOwnerPrivate(request), ErrorExportFailed)
+	if err := ExportOwnerPrivate(request); err != nil {
+		t.Fatalf("ExportOwnerPrivate() error after cleanup retry = %v", err)
+	}
 	if calls < 2 {
 		t.Fatalf("temporary cleanup calls = %d, want retry after publish failure", calls)
 	}
-	if _, err := os.Lstat(filepath.Join(root, "trajectory.json")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("cleanup failure left final output, err=%v", err)
+	if _, err := os.Lstat(filepath.Join(root, "trajectory.json")); err != nil {
+		t.Fatalf("transient cleanup failure lost final output, err=%v", err)
 	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 0 {
-		t.Fatalf("cleanup failure leaked owner-private temporary entries: %v", entries)
+	if len(entries) != 1 || entries[0].Name() != "trajectory.json" {
+		t.Fatalf("transient cleanup state entries = %v, want final only", entries)
+	}
+}
+
+func TestExportReportsCommittedWhenTemporaryCleanupPersists(t *testing.T) {
+	base := t.TempDir()
+	repository := filepath.Join(base, "repository")
+	root := filepath.Join(base, "private")
+	if err := os.Mkdir(repository, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projection := mustProject(t, validEventSet())
+	request := ExportRequest{OwnerPrivateRoot: root, RepositoryRoot: repository, RelativePath: "trajectory.json", Projection: projection}
+	previousRemove := exportTemporaryRemove
+	defer func() { exportTemporaryRemove = previousRemove }()
+	var calls int
+	exportTemporaryRemove = func(*os.Root, string) error {
+		calls++
+		return errors.New("persistent temporary cleanup failure")
+	}
+	requireCode(t, ExportOwnerPrivate(request), ErrorExportCommitted)
+	if calls != 2 {
+		t.Fatalf("temporary cleanup calls = %d, want bounded retry", calls)
+	}
+	finalPath := filepath.Join(root, "trajectory.json")
+	data, err := os.ReadFile(finalPath)
+	if err != nil {
+		t.Fatalf("committed final output missing: %v", err)
+	}
+	if !bytes.Equal(data, mustEncode(t, projection)) {
+		t.Fatal("committed final output differs from canonical projection")
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("persistent cleanup state entries = %d, want final plus one private recovery link", len(entries))
 	}
 }
 

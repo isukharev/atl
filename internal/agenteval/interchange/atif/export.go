@@ -47,10 +47,14 @@ func removeTemporary(root *os.Root, name string) error {
 	return root.Remove(name)
 }
 
-// ExportOwnerPrivate writes exactly one new canonical ATIF file beneath an
-// existing owner-private root. The root must be an existing non-symlink 0700
-// directory outside the repository; the new file is exclusive, 0600, synced,
-// and never uploaded or linked into a public report.
+// ExportOwnerPrivate writes one new canonical ATIF file beneath an existing
+// owner-private root. The root must be an existing non-symlink 0700 directory
+// outside the repository; the new file is exclusive, 0600, synced, and never
+// uploaded or linked into a public report. A successful Link is the commit
+// point. If the private staging link cannot be removed after a bounded retry,
+// the final file remains authoritative and ErrorExportCommitted is returned;
+// the hidden staging link is retained as owner-private recovery state and the
+// caller must not retry publication into the same destination.
 func ExportOwnerPrivate(request ExportRequest) error {
 	if err := Validate(request.Projection); err != nil {
 		return err
@@ -148,11 +152,15 @@ func ExportOwnerPrivate(request ExportRequest) error {
 		}
 		return fail(ErrorExportFailed)
 	}
+	cleanupPending := false
 	if err := removeTemporary(root, temporary); err != nil {
-		if info, statErr := root.Lstat(relative); statErr == nil && os.SameFile(createdInfo, info) {
-			_ = root.Remove(relative)
+		if retryErr := removeTemporary(root, temporary); retryErr != nil {
+			// The Link has committed the final inode. The bounded cleanup
+			// attempt is exhausted; retain the staging link explicitly as
+			// owner-private recovery state rather than retrying it in defer.
+			temporaryPresent = false
+			cleanupPending = true
 		}
-		return fail(ErrorExportFailed)
 	}
 	temporaryPresent = false
 	invokeExportHook(exportAfterPublish)
@@ -165,6 +173,9 @@ func ExportOwnerPrivate(request ExportRequest) error {
 	}
 	if !stableDirectory(rootPath, rootInfo, root, true) || !stableDirectory(repositoryPath, repositoryInfo, repository, false) || !disjointPhysicalDirectories(rootPath, repositoryPath) {
 		return fail(ErrorExportFailed)
+	}
+	if cleanupPending {
+		return fail(ErrorExportCommitted)
 	}
 	return nil
 }
