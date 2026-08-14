@@ -56,6 +56,21 @@ func TestRepositoryMaintainerContract(t *testing.T) {
 	}
 }
 
+func TestLegacyEvaluatorScriptPathRejectsShellPunctuation(t *testing.T) {
+	for _, value := range []string{
+		"./scripts/agent-eval;",
+		"./scripts/agent-eval && echo bad",
+		"prefix ./scripts/agent-eval|next",
+	} {
+		if !legacyEvaluatorScriptPath.MatchString(value) {
+			t.Fatalf("legacy evaluator path %q was not detected", value)
+		}
+	}
+	if legacyEvaluatorScriptPath.MatchString("./scripts/agent-eval-distribution") {
+		t.Fatal("distribution path was mistaken for the legacy evaluator path")
+	}
+}
+
 func TestValidMaintainerContract(t *testing.T) {
 	root := writeFixture(t)
 	var output bytes.Buffer

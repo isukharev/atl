@@ -37,11 +37,14 @@ env -u GOROOT GOTOOLCHAIN=auto GOWORK=off \
 ```
 
 The release-candidate contract currently admits only version
-`0.1.0-pre-release`, Linux or Darwin, and amd64 or arm64. The output must be a
-different, absent path outside the selected source tree. The builder probes the
-candidate with `version --output json` before and after copying it; the reported
-version and source commit must match the manifest. This is a bounded local
-identity probe, not provider or backend execution.
+`0.1.0-pre-release`, Linux or Darwin, and amd64 or arm64. Builds are host-only:
+the requested platform and architecture must equal the build host, so a
+foreign target is refused rather than stamped with a false identity. The
+output must be a different, absent path outside the selected source tree. The
+builder probes the candidate with `version --output json` before and after
+copying it; the reported version, contract version, and source commit must
+match the manifest. This is a bounded local build probe, not provider or
+backend execution.
 
 The builder writes a bounded manifest, checksum, SPDX SBOM, provenance record,
 compatibility bundle, static scratch container descriptor, and composite Action
@@ -54,8 +57,9 @@ Two builds with the same inputs must have byte-identical members. The manifest
 binds the binary, schema registry, process protocol, compatibility bundle,
 source tree, platform, architecture, and version. The builder reads only
 regular files under explicit paths and rejects symlinks, sensitive names such
-as `.git`, `.env`, private-key extensions, and source/output overlap. It has no
-provider, backend, network, or credential authority.
+as `.git`, `.env`, private-key extensions, ignored source residue, and
+source/output overlap. It has no provider, backend, network, or credential
+authority.
 
 ## Verify and sign
 
@@ -80,12 +84,14 @@ future/invalid metadata, size or digest drift, missing required artifacts,
 unsigned distributions, and signature mismatch. It rereads the exact bytes
 that installation will use, so a source mutation between verification and
 copying cannot silently become an installed artifact. Signing performs the same
-manifest/member and binary-identity validation before creating the detached
-signature; signing never blesses an arbitrary executable or metadata tuple.
+manifest/member and static host-target validation before creating the detached
+signature; it never executes or blesses an arbitrary unsigned executable or
+metadata tuple, and strictly reconciles the compatibility bundle digest.
 
 ## Install, rollback, uninstall
 
-Installation accepts only one exact absent absolute prefix and writes an
+Installation accepts only one exact absent absolute prefix on the matching
+host platform and writes an
 owner-bounded `.incomplete` marker before creating files. On success the marker
 is removed only after file and directory sync/readback. A failed installation
 must be recovered explicitly; it is never silently treated as complete.
@@ -121,8 +127,8 @@ env -u GOROOT GOTOOLCHAIN=auto GOWORK=off \
 
 Uninstall refuses malformed, incomplete, tampered, or extra-member installs
 before deleting any file. The exact confirmation token is required. Directory
-durability on Windows remains explicitly best-effort until the support policy
-admits a Windows persistence implementation.
+Windows persistence is explicitly unsupported in this release candidate; the
+operation refuses before creating a prefix.
 
 ## Release boundary
 

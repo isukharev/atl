@@ -14,12 +14,19 @@ import (
 )
 
 func hashSelectedTree(root string, paths []string) (string, error) {
+	rootInfo, err := os.Lstat(root)
+	if err != nil || !rootInfo.IsDir() || rootInfo.Mode()&fs.ModeSymlink != 0 {
+		return "", errors.New("source root must be a plain directory")
+	}
 	files := map[string]fileEntry{}
 	var total int64
 	visitedEntries := 0
 	for _, selected := range paths {
 		if selected == "" || filepath.IsAbs(selected) || filepath.Clean(selected) != selected || strings.HasPrefix(selected, ".."+string(filepath.Separator)) || selected == ".." {
 			return "", errors.New("source selection must be relative and contained")
+		}
+		if sensitiveSourcePath(selected) {
+			return "", errors.New("source selection contains a sensitive path")
 		}
 		absolute := filepath.Join(root, selected)
 		info, err := os.Lstat(absolute)
@@ -93,7 +100,7 @@ func walkSourceDirectory(sourceRoot, directoryPath string, files map[string]file
 }
 
 func addTreeFile(files map[string]fileEntry, relative, absolute string, total *int64) error {
-	if !safeName(relative) || sensitiveSourceName(filepath.Base(relative)) {
+	if !safeName(relative) || sensitiveSourcePath(relative) {
 		return errors.New("source tree path is not canonical")
 	}
 	if _, exists := files[relative]; exists {
@@ -123,5 +130,15 @@ func addTreeFile(files map[string]fileEntry, relative, absolute string, total *i
 
 func sensitiveSourceName(name string) bool {
 	lower := strings.ToLower(name)
-	return lower == ".git" || lower == ".ephemeral" || lower == ".env" || strings.HasPrefix(lower, ".env.") || strings.HasSuffix(lower, ".env") || strings.HasSuffix(lower, ".pem") || strings.HasSuffix(lower, ".key")
+	return lower == ".git" || lower == ".hg" || lower == ".svn" || lower == ".ephemeral" || lower == ".env" || lower == ".coverage" || lower == ".pytest_cache" || lower == ".ds_store" || lower == "coverage.out" || strings.HasPrefix(lower, ".env.") || strings.HasSuffix(lower, ".env") || strings.HasSuffix(lower, ".pem") || strings.HasSuffix(lower, ".key") || strings.HasSuffix(lower, ".p12") || strings.HasSuffix(lower, ".pfx")
+}
+
+func sensitiveSourcePath(name string) bool {
+	for _, component := range strings.FieldsFunc(filepath.ToSlash(name), func(r rune) bool { return r == '/' }) {
+		lower := strings.ToLower(component)
+		if sensitiveSourceName(component) || lower == "vendor" || lower == "node_modules" || lower == ".cache" || lower == ".idea" || lower == ".vscode" || lower == "tmp" {
+			return true
+		}
+	}
+	return false
 }

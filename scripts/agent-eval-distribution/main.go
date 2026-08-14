@@ -1,6 +1,7 @@
 // Command agent-eval-distribution builds and verifies an offline standalone
-// agent-eval distribution. It deliberately has no provider, backend, network,
-// credential, or repository-import authority.
+// agent-eval distribution. Build, verify, install, and uninstall have no
+// provider, backend, network, or repository-import authority; sign reads only
+// the explicitly supplied private signing key.
 package main
 
 import (
@@ -183,7 +184,14 @@ func buildDistribution(options buildOptions) error {
 	if pathsOverlap(options.SourceRoot, options.Output) {
 		return errors.New("distribution output must not overlap the selected source tree")
 	}
-	if err := validateBinaryIdentity(options.Binary, options.Version, options.SourceCommit); err != nil {
+	compatibilityData, err := readFileBounded(options.Compatibility, maxArtifactBytes)
+	if err != nil {
+		return fmt.Errorf("compatibility bundle: %w", err)
+	}
+	if err := validateCompatibilityBundle(compatibilityData, options.ContractVersion); err != nil {
+		return fmt.Errorf("compatibility bundle: %w", err)
+	}
+	if err := validateBinaryIdentity(options.Binary, options.Version, options.SourceCommit, options.ContractVersion, options.Platform, options.Architecture); err != nil {
 		return fmt.Errorf("binary identity: %w", err)
 	}
 	root, err := createAbsentDirectory(options.Output)
@@ -193,6 +201,9 @@ func buildDistribution(options buildOptions) error {
 	defer func() { _ = root.Close() }()
 	if err := writeRootFile(root, distributionBuildMark, []byte("incomplete\n"), 0o600); err != nil {
 		return fmt.Errorf("build marker: %w", err)
+	}
+	if err := syncDirectory(root); err != nil {
+		return fmt.Errorf("build marker sync: %w", err)
 	}
 	sourceTree, err := hashSelectedTree(options.SourceRoot, options.SourceFiles)
 	if err != nil {
@@ -209,7 +220,7 @@ func buildDistribution(options buildOptions) error {
 	if err := copyIntoRoot(root, binaryName, options.Binary, 0o755); err != nil {
 		return fmt.Errorf("binary: %w", err)
 	}
-	if err := validateBinaryIdentity(filepath.Join(options.Output, binaryName), options.Version, options.SourceCommit); err != nil {
+	if err := validateBinaryIdentity(filepath.Join(options.Output, binaryName), options.Version, options.SourceCommit, options.ContractVersion, options.Platform, options.Architecture); err != nil {
 		return fmt.Errorf("copied binary identity: %w", err)
 	}
 	if err := copyIntoRoot(root, compatibilityName, options.Compatibility, 0o644); err != nil {
@@ -291,10 +302,10 @@ func buildDistribution(options buildOptions) error {
 	if err := syncDirectory(root); err != nil {
 		return fmt.Errorf("build directory sync: %w", err)
 	}
-	if err := root.Remove(distributionBuildMark); err != nil {
-		return fmt.Errorf("build marker removal: %w", err)
+	if err := removeMarkerDurably(root, distributionBuildMark, []byte("incomplete\n")); err != nil {
+		return fmt.Errorf("build marker commit: %w", err)
 	}
-	return syncDirectory(root)
+	return nil
 }
 
 func renderAction(version, commit, binarySHA string) string {
@@ -335,7 +346,7 @@ runs:
         test "$EXPECTED_BINARY_SHA256" = %q
         test "$(sha256sum "$tmp" | awk '{print $1}')" = "$EXPECTED_BINARY_SHA256"
         "$tmp" version --output json >"$tmp_json"
-        python3 "$tmp_json" "$EXPECTED_VERSION" "$EXPECTED_COMMIT" <<'PY'
+		python3 - "$tmp_json" "$EXPECTED_VERSION" "$EXPECTED_COMMIT" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding='utf-8') as stream:
     payload = json.load(stream)
@@ -394,7 +405,7 @@ func signDistribution(directory, privateKeyPath string) error {
 	if err != nil {
 		return err
 	}
-	if err := validateBinaryIdentity(filepath.Join(directory, binaryName), verified.Manifest.Version, verified.Manifest.SourceCommit); err != nil {
+	if err := validateBinaryForSigning(filepath.Join(directory, binaryName), verified.Manifest.Platform, verified.Manifest.Architecture); err != nil {
 		return fmt.Errorf("binary identity: %w", err)
 	}
 	data := verified.ManifestData
@@ -469,6 +480,10 @@ func loadVerifiedDistribution(options verifyOptions) (verifiedDistribution, erro
 		}
 		files[entry.Name] = artifact
 	}
+	compatibilityEntry := findManifestEntry(manifest.Files, compatibilityName)
+	if compatibilityEntry.SHA256 != manifest.CompatibilityBundleSHA256 || validateCompatibilityBundle(files[compatibilityName], manifest.ContractVersion) != nil {
+		return verified, errors.New("compatibility bundle does not match the manifest contract")
+	}
 	entries, err := readDirectoryBounded(root, maxDistributionFiles)
 	if err != nil {
 		return verified, err
@@ -493,6 +508,15 @@ func loadVerifiedDistribution(options verifyOptions) (verifiedDistribution, erro
 	verified.Files = files
 	verified.Signature = signature
 	return verified, nil
+}
+
+func findManifestEntry(entries []fileEntry, name string) fileEntry {
+	for _, entry := range entries {
+		if entry.Name == name {
+			return entry
+		}
+	}
+	return fileEntry{}
 }
 
 func validateManifest(manifest distributionManifest) error {
@@ -526,6 +550,9 @@ func validateManifest(manifest distributionManifest) error {
 func installDistribution(options verifyOptions, prefix string) error {
 	verified, err := loadVerifiedDistribution(options)
 	if err != nil {
+		return err
+	}
+	if err := validateHostManifest(verified.Manifest); err != nil {
 		return err
 	}
 	if !filepath.IsAbs(prefix) || filepath.Clean(prefix) != prefix {
@@ -588,13 +615,7 @@ func installDistribution(options verifyOptions, prefix string) error {
 	if err := syncDirectory(root); err != nil {
 		return err
 	}
-	if err := root.Remove(distributionInstallMark); err != nil {
-		return err
-	}
-	if err := syncDirectory(root); err != nil {
-		return err
-	}
-	return syncParentDirectory(prefix)
+	return commitMarker(root, prefix, distributionInstallMark, []byte("incomplete\n"))
 }
 
 func syncChildDirectory(root *os.Root, name string) error {
@@ -668,6 +689,9 @@ func removeInstalledSnapshot(root, share *os.Root, manifest *distributionManifes
 func rollbackDistribution(options verifyOptions, prefix string) error {
 	verified, err := loadVerifiedDistribution(options)
 	if err != nil {
+		return err
+	}
+	if err := validateHostManifest(verified.Manifest); err != nil {
 		return err
 	}
 	if !filepath.IsAbs(prefix) || filepath.Clean(prefix) != prefix {
@@ -744,13 +768,42 @@ func rollbackDistribution(options verifyOptions, prefix string) error {
 	if err := syncDirectory(root); err != nil {
 		return err
 	}
-	if err := root.Remove(rollbackInstallMark); err != nil {
+	return commitMarker(root, prefix, rollbackInstallMark, marker)
+}
+
+func validateHostManifest(manifest distributionManifest) error {
+	if manifest.Platform != runtime.GOOS || manifest.Architecture != runtime.GOARCH {
+		return errors.New("distribution target does not match the operation host")
+	}
+	return nil
+}
+
+func removeMarkerDurably(root *os.Root, marker string, data []byte) error {
+	if err := root.Remove(marker); err != nil {
 		return err
 	}
 	if err := syncDirectory(root); err != nil {
+		restoreErr := writeRootFile(root, marker, data, 0o600)
+		if restoreErr == nil {
+			restoreErr = syncDirectory(root)
+		}
+		return errors.Join(err, restoreErr)
+	}
+	return nil
+}
+
+func commitMarker(root *os.Root, parent, marker string, data []byte) error {
+	if err := removeMarkerDurably(root, marker, data); err != nil {
 		return err
 	}
-	return syncParentDirectory(prefix)
+	if err := syncParentDirectory(parent); err != nil {
+		restoreErr := writeRootFile(root, marker, data, 0o600)
+		if restoreErr == nil {
+			restoreErr = syncDirectory(root)
+		}
+		return errors.Join(err, restoreErr)
+	}
+	return nil
 }
 
 func uninstallDistribution(prefix, confirmation, publicKey string) error {
@@ -796,6 +849,9 @@ func uninstallDistribution(prefix, confirmation, publicKey string) error {
 	manifest, err := decodeManifest(manifestData)
 	if err != nil || !manifest.SignatureRequired {
 		return errors.New("installed manifest is invalid")
+	}
+	if err := validateHostManifest(manifest); err != nil {
+		return err
 	}
 	if err := validateInstalledDistribution(root, share, manifest, manifestData, false, publicKey); err != nil {
 		return err

@@ -218,14 +218,16 @@ agent-eval-full: check-agent-eval-support check-skill-routing check-module-bound
 agent-eval-distribution: agent-eval-full
 	@test -n "$(AGENT_EVAL_DISTRIBUTION_OUTPUT)" || (echo 'set AGENT_EVAL_DISTRIBUTION_OUTPUT to one absent absolute directory' >&2; exit 2)
 	@set -eu; \
-		test -z "$$(git status --porcelain=v1 --untracked-files=all)" || (echo 'agent-eval distribution requires a clean checkout' >&2; exit 2); \
+		test -z "$$(git status --porcelain=v1 --ignored=matching --untracked-files=all)" || (echo 'agent-eval distribution requires a clean checkout with no ignored source residue' >&2; exit 2); \
 		mkdir -p "$(CURDIR)/tmp"; \
 		binary="$$(mktemp "$(CURDIR)/tmp/agent-eval-distribution.XXXXXX")"; \
 		trap 'rm -f "$$binary"' EXIT; \
 		version="$${AGENT_EVAL_DISTRIBUTION_VERSION:-0.1.0-pre-release}"; \
+		target_platform="$${AGENT_EVAL_PLATFORM:-$$(go env GOOS)}"; \
+		target_architecture="$${AGENT_EVAL_ARCHITECTURE:-$$(go env GOARCH)}"; \
 		source_commit="$$(git rev-parse HEAD)"; \
 		build_date="$$(git show -s --format=%cI "$$source_commit")"; \
-		$(GO_ENV) CGO_ENABLED=0 GOOS="$${AGENT_EVAL_PLATFORM:-linux}" GOARCH="$${AGENT_EVAL_ARCHITECTURE:-amd64}" \
+		$(GO_ENV) CGO_ENABLED=0 GOOS="$$target_platform" GOARCH="$$target_architecture" \
 			go -C internal/agenteval build -trimpath -buildvcs=false -ldflags "-s -w -buildid= -X main.standaloneBuildVersion=$$version -X main.standaloneBuildCommit=$$source_commit -X main.standaloneBuildDate=$$build_date" -o "$$binary" ./cmd/agent-eval; \
 		$(GO_ENV) go run ./scripts/agent-eval-distribution \
 			--mode build --binary "$$binary" \
@@ -236,7 +238,7 @@ agent-eval-distribution: agent-eval-full
 			--protocol internal/agenteval/cmd/agent-eval/standalone_process.go \
 			--source-commit "$$source_commit" \
 			--version "$$version" \
-			--platform "$${AGENT_EVAL_PLATFORM:-linux}" --architecture "$${AGENT_EVAL_ARCHITECTURE:-amd64}" \
+			--platform "$$target_platform" --architecture "$$target_architecture" \
 			--output "$(AGENT_EVAL_DISTRIBUTION_OUTPUT)"
 
 .PHONY: tidy

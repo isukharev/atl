@@ -31,7 +31,7 @@ func TestDistributionBuildVerifySignInstallUninstall(t *testing.T) {
 	if err := os.WriteFile(binary, testBinaryData("0.1.0-pre-release", strings.Repeat("a", 40), "initial"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(compatibility, []byte("{\"schema\":\"compat\"}\n"), 0o600); err != nil {
+	if err := os.WriteFile(compatibility, testCompatibilityBundle(), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	distribution := filepath.Join(root, "dist")
@@ -172,7 +172,7 @@ func TestDistributionBuildBindsBinaryAndSourceBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	compatibility := filepath.Join(root, "compat.json")
-	if err := os.WriteFile(compatibility, []byte("{}\n"), 0o600); err != nil {
+	if err := os.WriteFile(compatibility, testCompatibilityBundle(), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	commit := strings.Repeat("a", 40)
@@ -204,6 +204,59 @@ func TestDistributionBuildBindsBinaryAndSourceBoundary(t *testing.T) {
 	options.SourceFiles = []string{"."}
 	if err := buildDistribution(options); err == nil {
 		t.Fatal("sensitive source member was accepted")
+	}
+	if err := os.Mkdir(filepath.Join(source, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, ".git", "config"), []byte("private\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	options.SourceFiles = []string{".git/config"}
+	options.Output = filepath.Join(root, "dist-git")
+	if err := buildDistribution(options); err == nil {
+		t.Fatal("direct sensitive source member was accepted")
+	}
+	if runtime.GOOS != "windows" {
+		linkedSource := filepath.Join(root, "source-link")
+		if err := os.Symlink(source, linkedSource); err != nil {
+			t.Fatal(err)
+		}
+		options.SourceRoot = linkedSource
+		options.SourceFiles = []string{"one.txt"}
+		options.Output = filepath.Join(root, "dist-linked-source")
+		if err := buildDistribution(options); err == nil {
+			t.Fatal("symlinked source root was accepted")
+		}
+		outputParent := filepath.Join(root, "output-link")
+		if err := os.Symlink(source, outputParent); err != nil {
+			t.Fatal(err)
+		}
+		options.SourceRoot = source
+		options.Output = filepath.Join(outputParent, "nested")
+		if err := buildDistribution(options); err == nil {
+			t.Fatal("physical source/output overlap was accepted")
+		}
+	}
+}
+
+func TestDistributionRejectsCompatibilityAndTargetDrift(t *testing.T) {
+	valid := testCompatibilityBundle()
+	if err := validateCompatibilityBundle(valid, distributionContractVersion); err != nil {
+		t.Fatal(err)
+	}
+	for _, mutated := range [][]byte{
+		[]byte(`{"schema_version":1,"contract_version":"0.1.0-pre-release","golden_bundle":{"path":"x","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"readability":[],"forward_rejection":[],"metric_vectors":[],"future":1}`),
+		[]byte(`{"schema_version":1,"contract_version":"future","golden_bundle":{"path":"x","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"readability":[],"forward_rejection":[],"metric_vectors":[]}`),
+	} {
+		if err := validateCompatibilityBundle(mutated, distributionContractVersion); err == nil {
+			t.Fatal("invalid compatibility bundle was accepted")
+		}
+	}
+	manifest := distributionManifest{Platform: "darwin", Architecture: "arm64"}
+	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
+		if err := validateHostManifest(manifest); err == nil {
+			t.Fatal("foreign distribution target was accepted for host operation")
+		}
 	}
 }
 
@@ -289,6 +342,7 @@ func TestDistributionActionBindsAllExpectedIdentityInputs(t *testing.T) {
 		"sha256sum \"$tmp\"",
 		"mktemp",
 		"tmp_json=",
+		"python3 - \"$tmp_json\"",
 	} {
 		if !strings.Contains(action, want) {
 			t.Fatalf("action omitted identity binding %q:\n%s", want, action)
@@ -351,7 +405,7 @@ func buildTestDistributionNamed(t *testing.T, root, label, outputLabel string, b
 	if err := os.WriteFile(binary, testBinaryData(version, commit, string(binaryData)), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(compatibility, []byte("{\"schema\":\"compat\"}\n"), 0o600); err != nil {
+	if err := os.WriteFile(compatibility, testCompatibilityBundle(), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	distribution := filepath.Join(root, "dist-"+outputLabel)
@@ -367,7 +421,11 @@ func buildTestDistributionNamed(t *testing.T, root, label, outputLabel string, b
 }
 
 func testBinaryData(version, commit, marker string) []byte {
-	return []byte("#!/bin/sh\n# " + marker + "\nprintf '%s\\n' '{\"result\":{\"build\":{\"version\":\"" + version + "\",\"commit\":\"" + commit + "\"}}}'\n")
+	return []byte("#!/bin/sh\n# " + marker + "\nprintf '%s\\n' '{\"result\":{\"build\":{\"version\":\"" + version + "\",\"commit\":\"" + commit + "\"},\"contract_version\":\"0.1.0-pre-release\"}}'\n")
+}
+
+func testCompatibilityBundle() []byte {
+	return []byte(`{"schema_version":1,"contract_version":"0.1.0-pre-release","golden_bundle":{"path":"testdata/golden.json","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"readability":[{"namespace":"standalone","kind":"project-config","versions":[1]}],"forward_rejection":[{"namespace":"standalone","kind":"project-config","version":2}],"metric_vectors":[{"id":"metric","representation":"standalone","present":false,"required":false,"valid":true}]}` + "\n")
 }
 
 func testCommitCharacter(label string) string {
