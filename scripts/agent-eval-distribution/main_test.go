@@ -42,7 +42,17 @@ func TestDistributionBuildVerifySignInstallUninstall(t *testing.T) {
 		Binary: binary, Compatibility: compatibility, SourceRoot: source,
 		SourceFiles: []string{"one.txt", "compat.json", testGoldenBundlePath}, SchemaRegistry: registry, Protocol: protocol,
 		Output: distribution, Version: "0.1.0-pre-release", ContractVersion: "0.1.0-pre-release",
-		SourceCommit: strings.Repeat("a", 40), Platform: "linux", Architecture: "amd64",
+		SourceCommit: strings.Repeat("a", 40), Platform: "linux", Architecture: "amd64", DeferMarker: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyDistribution(verifyOptions{Distribution: distribution, AllowUnsigned: true}); err == nil {
+		t.Fatal("deferred build was accepted before its marker commit")
+	}
+	if err := commitBuildDistribution(commitOptions{
+		Output: distribution, Compatibility: compatibility, SourceRoot: source,
+		SourceFiles: []string{"one.txt", "compat.json", testGoldenBundlePath}, SchemaRegistry: registry, Protocol: protocol,
+		SourceCommit: strings.Repeat("a", 40), ContractVersion: "0.1.0-pre-release",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -82,6 +92,50 @@ func TestDistributionBuildVerifySignInstallUninstall(t *testing.T) {
 	}
 	if _, err := os.Stat(prefix); !os.IsNotExist(err) {
 		t.Fatalf("install prefix remained after uninstall: %v", err)
+	}
+}
+
+func TestDistributionDeferredCommitRejectsSourceDrift(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	if err := os.MkdirAll(filepath.Join(source, "testdata"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "one.txt"), []byte("one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeTestGoldenBundle(t, source)
+	compatibility := filepath.Join(source, "compat.json")
+	if err := os.WriteFile(compatibility, testCompatibilityBundle(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(root, "agent-eval")
+	commit := strings.Repeat("a", 40)
+	if err := os.WriteFile(binary, testBinaryData(distributionContractVersion, commit, "deferred"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	distribution := filepath.Join(root, "dist")
+	options := buildOptions{
+		Binary: binary, Compatibility: compatibility, SourceRoot: source,
+		SourceFiles: []string{"one.txt", "compat.json", testGoldenBundlePath}, SchemaRegistry: filepath.Join(source, "one.txt"), Protocol: filepath.Join(source, "one.txt"),
+		Output: distribution, Version: distributionContractVersion, ContractVersion: distributionContractVersion,
+		SourceCommit: commit, Platform: "linux", Architecture: "amd64", DeferMarker: true,
+	}
+	if err := buildDistribution(options); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "one.txt"), []byte("changed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := commitBuildDistribution(commitOptions{
+		Output: distribution, Compatibility: compatibility, SourceRoot: source,
+		SourceFiles: options.SourceFiles, SchemaRegistry: options.SchemaRegistry, Protocol: options.Protocol,
+		SourceCommit: commit, ContractVersion: distributionContractVersion,
+	}); err == nil {
+		t.Fatal("source drift was accepted by the deferred commit")
+	}
+	if _, err := os.Stat(filepath.Join(distribution, distributionBuildMark)); err != nil {
+		t.Fatalf("deferred output lost its recovery marker: %v", err)
 	}
 }
 
@@ -142,6 +196,8 @@ func TestDistributionMakeRunsCleanBeforeFullGate(t *testing.T) {
 		"git status --porcelain=v1 --untracked-files=all",
 		"AGENT_EVAL_DISTRIBUTION_STATE",
 		"agent-eval distribution source commit changed during build",
+		"AGENT_EVAL_DISTRIBUTION_DEFER_MARKER := 1",
+		"--mode commit",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("distribution full gate omitted source stability check %q", want)

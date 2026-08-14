@@ -40,6 +40,7 @@ GO_ENV   := env -u GOROOT GOTOOLCHAIN=auto GOWORK=off
 GO_LOCAL_ENV := env -u GOROOT GOTOOLCHAIN=local GOWORK=off
 AGENT_EVAL_DIR := internal/agenteval
 AGENT_EVAL_MAKE := $(MAKE) -C $(AGENT_EVAL_DIR) REPOSITORY_ROOT="$(CURDIR)" ATL_BINARY="$(CURDIR)/atl"
+export AGENT_EVAL_DISTRIBUTION_DEFER_MARKER := 1
 
 # Platforms published to GitHub Releases. Keep in sync with the release workflow.
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
@@ -268,6 +269,17 @@ agent-eval-distribution: agent-eval-distribution-clean
 		test -z "$$(git diff --name-only)" || (echo 'agent-eval distribution source changed during build' >&2; exit 2); \
 		test -z "$$(git diff --cached --name-only)" || (echo 'agent-eval distribution index changed during build' >&2; exit 2); \
 		test -z "$$(git status --porcelain=v1 --untracked-files=all)" || (echo 'agent-eval distribution gained untracked source during build' >&2; exit 2)
+	@set -eu; \
+		source_commit="$$(git rev-parse HEAD)"; \
+		$(GO_ENV) go run ./scripts/agent-eval-distribution \
+			--mode commit --output "$(AGENT_EVAL_DISTRIBUTION_OUTPUT)" \
+			--compatibility internal/agenteval/testdata/standalone-conformance.v1.json \
+			--source-root . \
+			--source-files internal/agenteval \
+			--schema-registry internal/agenteval/schemaregistry/registry.v1.json \
+			--protocol internal/agenteval/cmd/agent-eval/standalone_process.go \
+			--source-commit "$$source_commit" \
+			--contract-version 0.1.0-pre-release
 
 .PHONY: tidy
 tidy:

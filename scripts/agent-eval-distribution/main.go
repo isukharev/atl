@@ -90,6 +90,7 @@ type buildOptions struct {
 	SourceCommit    string
 	Platform        string
 	Architecture    string
+	DeferMarker     bool
 }
 
 type verifyOptions struct {
@@ -106,7 +107,7 @@ type verifiedDistribution struct {
 }
 
 func main() {
-	mode := flag.String("mode", "", "build, verify, sign, install, rollback, or uninstall")
+	mode := flag.String("mode", "", "build, commit, verify, sign, install, rollback, or uninstall")
 	binary := flag.String("binary", "", "agent-eval binary for build")
 	compatibility := flag.String("compatibility", "", "provider-free compatibility bundle for build")
 	sourceRoot := flag.String("source-root", ".", "source root for the selected tree hash")
@@ -117,6 +118,7 @@ func main() {
 	version := flag.String("version", "", "pre-release version (currently 0.1.0-pre-release)")
 	contractVersion := flag.String("contract-version", "0.1.0-pre-release", "standalone contract version")
 	sourceCommit := flag.String("source-commit", "", "exact 40-character source commit")
+	deferMarker := flag.Bool("defer-marker", os.Getenv("AGENT_EVAL_DISTRIBUTION_DEFER_MARKER") == "1", "leave the build incomplete until a separate commit step")
 	platform := flag.String("platform", runtime.GOOS, "target platform")
 	architecture := flag.String("architecture", runtime.GOARCH, "target architecture")
 	publicKey := flag.String("public-key", "", "base64 public signing key file for verify/install/rollback/uninstall")
@@ -126,29 +128,18 @@ func main() {
 	confirm := flag.String("confirm", "", "required uninstall confirmation")
 	flag.Parse()
 
-	var err error
-	switch *mode {
-	case "build":
-		err = buildDistribution(buildOptions{
-			Binary: *binary, Compatibility: *compatibility, SourceRoot: *sourceRoot,
-			SourceFiles: splitPaths(*sourceFiles), SchemaRegistry: *schemaRegistry,
-			Protocol: *protocol, Output: *output, Version: *version,
-			ContractVersion: *contractVersion, SourceCommit: *sourceCommit,
-			Platform: *platform, Architecture: *architecture,
-		})
-	case "verify":
-		err = verifyDistribution(verifyOptions{Distribution: distributionOrOutput(*distribution, *output), PublicKey: *publicKey, AllowUnsigned: false})
-	case "sign":
-		err = signDistribution(distributionOrOutput(*distribution, *output), *privateKey)
-	case "install":
-		err = installDistribution(verifyOptions{Distribution: distributionOrOutput(*distribution, *output), PublicKey: *publicKey, AllowUnsigned: false}, *prefix)
-	case "rollback":
-		err = rollbackDistribution(verifyOptions{Distribution: distributionOrOutput(*distribution, *output), PublicKey: *publicKey, AllowUnsigned: false}, *prefix)
-	case "uninstall":
-		err = uninstallDistribution(*prefix, *confirm, *publicKey)
-	default:
-		err = errors.New("agent-eval-distribution: --mode must be build, verify, sign, install, rollback, or uninstall")
-	}
+	err := runDistributionMode(*mode, buildOptions{
+		Binary: *binary, Compatibility: *compatibility, SourceRoot: *sourceRoot,
+		SourceFiles: splitPaths(*sourceFiles), SchemaRegistry: *schemaRegistry,
+		Protocol: *protocol, Output: *output, Version: *version,
+		ContractVersion: *contractVersion, SourceCommit: *sourceCommit,
+		Platform: *platform, Architecture: *architecture, DeferMarker: *deferMarker,
+	}, commitOptions{
+		Output: distributionOrOutput(*distribution, *output), Compatibility: *compatibility,
+		SourceRoot: *sourceRoot, SourceFiles: splitPaths(*sourceFiles),
+		SchemaRegistry: *schemaRegistry, Protocol: *protocol,
+		SourceCommit: *sourceCommit, ContractVersion: *contractVersion,
+	}, verifyOptions{Distribution: distributionOrOutput(*distribution, *output), PublicKey: *publicKey}, *privateKey, *prefix, *confirm)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -307,6 +298,9 @@ func buildDistribution(options buildOptions) error {
 	}
 	if err := syncDirectory(root); err != nil {
 		return fmt.Errorf("build directory sync: %w", err)
+	}
+	if options.DeferMarker {
+		return nil
 	}
 	if err := removeMarkerDurably(root, distributionBuildMark, []byte("incomplete\n")); err != nil {
 		return fmt.Errorf("build marker commit: %w", err)

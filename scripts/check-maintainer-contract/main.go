@@ -43,11 +43,9 @@ GO_LOCAL_ENV := env -u GOROOT GOTOOLCHAIN=local GOWORK=off
 AGENT_EVAL_DIR := internal/agenteval
 AGENT_EVAL_MAKE := $(MAKE) -C $(AGENT_EVAL_DIR) REPOSITORY_ROOT="$(CURDIR)" ATL_BINARY="$(CURDIR)/atl"
 `
-
 const devcontainerSystemPackagesContract = `sudo apt-get -o Acquire::Retries=3 -o APT::Update::Error-Mode=any update -qq
 sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends gnupg python3 ripgrep
 `
-
 const windowsCompileMakeContract = `.PHONY: check-windows-compile
 check-windows-compile:
 	$(GO_ENV) GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...
@@ -537,6 +535,9 @@ func validateBootstrap(root string) error {
 			bytes.Count(makefile, []byte(required.contract)) != 1 {
 			return errors.New(required.diagnostic)
 		}
+	}
+	if !bytes.Contains(makefile, []byte("DEFER_MARKER")) || !bytes.Contains(makefile, []byte("mode commit")) {
+		return errors.New("distribution gate must defer and commit its marker")
 	}
 	for _, target := range []string{
 		"agent-eval-build", "agent-eval-unit", "agent-eval-race", "agent-eval-lint",
