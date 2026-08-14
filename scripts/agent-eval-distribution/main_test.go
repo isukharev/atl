@@ -94,7 +94,19 @@ func TestDistributionBuildCommandTargetsExecutableCLI(t *testing.T) {
 	}
 	for name, contents := range map[string][]byte{"Makefile": makefile, "runbook": runbook} {
 		text := string(contents)
-		if !strings.Contains(text, "go -C internal/agenteval build") || !strings.Contains(text, "./cmd/agent-eval") {
+		buildIndex := strings.Index(text, "go -C internal/agenteval build")
+		if buildIndex < 0 {
+			t.Errorf("%s must contain the evaluator build command", name)
+			continue
+		}
+		command := text[buildIndex:]
+		cliIndex := strings.Index(command, "./cmd/agent-eval")
+		if cliIndex < 0 {
+			t.Errorf("%s must build ./cmd/agent-eval, not the nested module archive", name)
+			continue
+		}
+		outputIndex := strings.Index(command[:cliIndex], "-o ")
+		if outputIndex < 0 {
 			t.Errorf("%s must build ./cmd/agent-eval, not the nested module archive", name)
 		}
 	}

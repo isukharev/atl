@@ -222,7 +222,7 @@ agent-eval-distribution: agent-eval-full
 		binary="$$(mktemp "$(CURDIR)/tmp/agent-eval-distribution.XXXXXX")"; \
 		trap 'rm -f "$$binary"' EXIT; \
 		$(GO_ENV) CGO_ENABLED=0 GOOS="$${AGENT_EVAL_PLATFORM:-linux}" GOARCH="$${AGENT_EVAL_ARCHITECTURE:-amd64}" \
-			go -C internal/agenteval build -trimpath -buildvcs=false -ldflags '-s -w -buildid=' ./cmd/agent-eval -o "$$binary"; \
+			go -C internal/agenteval build -trimpath -buildvcs=false -ldflags '-s -w -buildid=' -o "$$binary" ./cmd/agent-eval; \
 		$(GO_ENV) go run ./scripts/agent-eval-distribution \
 			--mode build --binary "$$binary" \
 			--compatibility internal/agenteval/testdata/standalone-conformance.v1.json \
