@@ -66,7 +66,7 @@ func TestStableReadProductionInventory(t *testing.T) {
 		"scripts/gen-plugins/main.go":                               17,
 	}
 	want[atifExport] = 5
-	want[distributionBuilder] = 2
+	want[distributionBuilder] = 6
 
 	got := map[string]int{}
 	files := token.NewFileSet()
