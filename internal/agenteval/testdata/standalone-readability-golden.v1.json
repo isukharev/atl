@@ -2009,7 +2009,7 @@
       "kind": "promotion-decision",
       "version": 1,
       "source_path": "testdata/standalone-readability/promotion-decision-v1.json",
-      "source_sha256": "642205d9f8babdd30aa577d4a511f43327afeea324cdd96ac4b151c076b9687c",
+      "source_sha256": "998391de156a33ac984fef13c737a6eae9146989bdb1bc72cfef1aabb9ed31b7",
       "expected_projection": {
         "schema": "agent-eval/promotion-decision",
         "schema_version": 1,

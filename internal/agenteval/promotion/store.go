@@ -461,6 +461,12 @@ func (s Store) ApplyPromotion(receipt DecisionReceipt, expectedCurrent *Identity
 		return err
 	}
 	if present {
+		// A prior pointer rename may have completed before its root fsync
+		// failed. Repair that directory entry before treating the visible
+		// pointer as an ordinary conflict.
+		if err := syncDirectory(root, "."); err != nil {
+			return fail(ErrorOutcomeUnknown)
+		}
 		if expectedCurrent == nil || current.Identity != *expectedCurrent || current.Identity != receipt.Reference {
 			return fail(ErrorConflict)
 		}
@@ -526,6 +532,11 @@ func (s Store) ApplyRollback(receipt RollbackReceipt) (RollbackReceipt, error) {
 	current, present, err := s.readCurrent(root)
 	if err != nil || !present || current.Identity != receipt.Current {
 		return RollbackReceipt{}, fail(ErrorConflict)
+	}
+	// See ApplyPromotion: a visible pointer can survive a failed root fsync;
+	// repair its directory durability before applying the rollback guard.
+	if err := syncDirectory(root, "."); err != nil {
+		return RollbackReceipt{}, fail(ErrorOutcomeUnknown)
 	}
 	if existing, found, err := s.readTransition(root, "rollback", receipt.ReceiptSHA256); err != nil {
 		return RollbackReceipt{}, err
