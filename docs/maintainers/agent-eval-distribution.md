@@ -14,7 +14,7 @@ tree digest is recorded in `manifest.json`:
 
 ```sh
 env -u GOROOT GOTOOLCHAIN=auto GOWORK=off \
-  go -C internal/agenteval build -trimpath -buildvcs=false \
+  go -C internal/agenteval build -trimpath -buildvcs=false ./cmd/agent-eval \
   -ldflags '-s -w -buildid=' -o /tmp/agent-eval
 
 env -u GOROOT GOTOOLCHAIN=auto GOWORK=off \

@@ -78,6 +78,28 @@ func TestDistributionBuildVerifySignInstallUninstall(t *testing.T) {
 	}
 }
 
+func TestDistributionBuildCommandTargetsExecutableCLI(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	makefile, err := os.ReadFile(filepath.Join(root, "Makefile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runbook, err := os.ReadFile(filepath.Join(root, "docs", "maintainers", "agent-eval-distribution.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, contents := range map[string][]byte{"Makefile": makefile, "runbook": runbook} {
+		text := string(contents)
+		if !strings.Contains(text, "go -C internal/agenteval build") || !strings.Contains(text, "./cmd/agent-eval") {
+			t.Errorf("%s must build ./cmd/agent-eval, not the nested module archive", name)
+		}
+	}
+}
+
 func TestDistributionRejectsCanonicalAndPathDrift(t *testing.T) {
 	manifest := distributionManifest{
 		Schema: distributionSchema, SchemaVersion: distributionSchemaV1, ContractVersion: "0.1.0-pre-release",
