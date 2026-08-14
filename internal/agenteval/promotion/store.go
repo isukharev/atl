@@ -530,13 +530,16 @@ func (s Store) ApplyRollback(receipt RollbackReceipt) (RollbackReceipt, error) {
 	}
 	defer func() { _ = lock.Close() }()
 	current, present, err := s.readCurrent(root)
-	if err != nil || !present || current.Identity != receipt.Current {
+	if err != nil || !present {
 		return RollbackReceipt{}, fail(ErrorConflict)
 	}
 	// See ApplyPromotion: a visible pointer can survive a failed root fsync;
 	// repair its directory durability before applying the rollback guard.
 	if err := syncDirectory(root, "."); err != nil {
 		return RollbackReceipt{}, fail(ErrorOutcomeUnknown)
+	}
+	if current.Identity != receipt.Current {
+		return RollbackReceipt{}, fail(ErrorConflict)
 	}
 	if existing, found, err := s.readTransition(root, "rollback", receipt.ReceiptSHA256); err != nil {
 		return RollbackReceipt{}, err
