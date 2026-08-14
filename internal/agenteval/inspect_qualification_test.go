@@ -367,7 +367,7 @@ func FuzzDecodeInspectQualification(f *testing.F) {
 	}
 	f.Add(seed)
 	f.Add([]byte(`{"schema":"agent-eval/inspect-ai-qualification","schema_version":1}`))
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(_ *testing.T, data []byte) {
 		_, _ = DecodeInspectQualification(bytes.NewReader(data))
 	})
 }
@@ -387,7 +387,7 @@ func FuzzDecodeInspectSyntheticAttempt(f *testing.F) {
 	}
 	f.Add(seed)
 	f.Add([]byte(`{"schema":"agent-eval/inspect-ai-qualification-probe","schema_version":1}`))
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(_ *testing.T, data []byte) {
 		_, _ = DecodeInspectSyntheticAttempt(bytes.NewReader(data), qualification, inspection)
 	})
 }
