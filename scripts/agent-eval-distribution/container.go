@@ -3,6 +3,7 @@ package main
 import (
 	"archive/tar"
 	"bytes"
+	"debug/elf"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +25,9 @@ type containerImage struct {
 type containerImageExpectation struct {
 	ManifestDigest   string
 	BinarySHA        string
+	CompatibilitySHA string
+	DependencySHA    string
+	SourceTreeSHA    string
 	ContainerfileSHA string
 	SourceCommit     string
 	Version          string
@@ -84,6 +88,7 @@ type containerConfig struct {
 type containerRuntimeConfig struct {
 	Entrypoint []string          `json:"Entrypoint"`
 	Labels     map[string]string `json:"Labels"`
+	User       string            `json:"User"`
 }
 
 type containerRootFS struct {
@@ -95,12 +100,12 @@ type containerOCILayout struct {
 	ImageLayoutVersion string `json:"imageLayoutVersion"`
 }
 
-func buildContainerImage(binary []byte, sourceCommit, version, platform, architecture, binarySHA, containerfileSHA string) (containerImage, error) {
+func buildContainerImage(binary []byte, sourceCommit, version, platform, architecture, binarySHA, compatibilitySHA, dependencySHA, sourceTreeSHA, containerfileSHA string) (containerImage, error) {
 	if len(binary) == 0 || len(binary) > containerMaxEntryBytes {
 		return containerImage{}, errors.New("container binary exceeds size bound")
 	}
 	if err := validateContainerBinding(containerImageExpectation{
-		BinarySHA: binarySHA, ContainerfileSHA: containerfileSHA,
+		BinarySHA: binarySHA, CompatibilitySHA: compatibilitySHA, DependencySHA: dependencySHA, SourceTreeSHA: sourceTreeSHA, ContainerfileSHA: containerfileSHA,
 		SourceCommit: sourceCommit, Version: version, Platform: platform, Architecture: architecture,
 	}); err != nil {
 		return containerImage{}, err
@@ -108,19 +113,23 @@ func buildContainerImage(binary []byte, sourceCommit, version, platform, archite
 	if sha256Bytes(binary) != binarySHA {
 		return containerImage{}, errors.New("container binary digest does not match binary bytes")
 	}
+	if err := validateStaticContainerBinary(binary, platform, architecture); err != nil {
+		return containerImage{}, err
+	}
 
 	layer, err := buildContainerLayer(binary)
 	if err != nil {
 		return containerImage{}, fmt.Errorf("container layer: %w", err)
 	}
 	layerDigest := sha256Bytes(layer)
-	labels := containerBindingLabels(sourceCommit, version, platform, architecture, binarySHA, containerfileSHA)
+	labels := containerBindingLabels(sourceCommit, version, platform, architecture, binarySHA, compatibilitySHA, dependencySHA, sourceTreeSHA, containerfileSHA)
 	configData, err := canonicalJSON(containerConfig{
 		Architecture: architecture,
 		OS:           platform,
 		Config: containerRuntimeConfig{
 			Entrypoint: []string{"/agent-eval"},
 			Labels:     labels,
+			User:       "65532:65532",
 		},
 		RootFS: containerRootFS{Type: "layers", DiffIDs: []string{"sha256:" + layerDigest}},
 	})
@@ -163,6 +172,43 @@ func buildContainerImage(binary []byte, sourceCommit, version, platform, archite
 		return containerImage{}, err
 	}
 	return containerImage{Archive: archive, ManifestDigest: manifestDigest}, nil
+}
+
+func validateStaticContainerBinary(binary []byte, platform, architecture string) error {
+	if platform != "linux" || architecture != "amd64" {
+		return errors.New("container image target is not the supported Linux/amd64 static contour")
+	}
+	file, err := elf.NewFile(bytes.NewReader(binary))
+	if err != nil {
+		return errors.New("container binary is not an ELF executable")
+	}
+	defer func() { _ = file.Close() }()
+	if file.Class != elf.ELFCLASS64 || file.Machine != elf.EM_X86_64 || (file.Type != elf.ET_EXEC && file.Type != elf.ET_DYN) || file.Entry == 0 {
+		return errors.New("container binary is not a canonical Linux/amd64 ELF executable")
+	}
+	if file.Section(".interp") != nil || file.Section(".dynamic") != nil {
+		return errors.New("container binary has a dynamic loader or dependency section")
+	}
+	loadable, executableEntry := false, false
+	for _, program := range file.Progs {
+		if program.Type == elf.PT_INTERP || program.Type == elf.PT_DYNAMIC {
+			return errors.New("container binary has a dynamic loader or dependency segment")
+		}
+		if program.Type != elf.PT_LOAD {
+			continue
+		}
+		if program.Memsz == 0 || program.Filesz > program.Memsz {
+			return errors.New("container binary has an invalid load segment")
+		}
+		loadable = true
+		if program.Flags&elf.PF_X != 0 && file.Entry >= program.Vaddr && file.Entry-program.Vaddr < program.Memsz {
+			executableEntry = true
+		}
+	}
+	if !loadable || !executableEntry {
+		return errors.New("container binary has no executable load segment for its entry point")
+	}
+	return nil
 }
 
 func validateContainerImageArchive(data []byte, want containerImageExpectation) error {
@@ -212,7 +258,7 @@ func validateContainerImageArchive(data []byte, want containerImageExpectation) 
 	if err := decodeContainerJSON(manifestData, &manifest); err != nil || manifest.SchemaVersion != 2 || len(manifest.Layers) != 1 {
 		return errors.New("container manifest is invalid")
 	}
-	wantLabels := containerBindingLabels(want.SourceCommit, want.Version, want.Platform, want.Architecture, want.BinarySHA, want.ContainerfileSHA)
+	wantLabels := containerBindingLabels(want.SourceCommit, want.Version, want.Platform, want.Architecture, want.BinarySHA, want.CompatibilitySHA, want.DependencySHA, want.SourceTreeSHA, want.ContainerfileSHA)
 	if !sameStringMap(manifest.Annotations, wantLabels) {
 		return errors.New("container manifest identity or runtime policy drift")
 	}
@@ -225,7 +271,7 @@ func validateContainerImageArchive(data []byte, want containerImageExpectation) 
 		return errors.New("container config blob drift")
 	}
 	var config containerConfig
-	if err := decodeContainerJSON(configData, &config); err != nil || config.OS != want.Platform || config.Architecture != want.Architecture || len(config.Config.Entrypoint) != 1 || config.Config.Entrypoint[0] != "/agent-eval" || !sameStringMap(config.Config.Labels, wantLabels) || config.RootFS.Type != "layers" || len(config.RootFS.DiffIDs) != 1 {
+	if err := decodeContainerJSON(configData, &config); err != nil || config.OS != want.Platform || config.Architecture != want.Architecture || config.Config.User != "65532:65532" || len(config.Config.Entrypoint) != 1 || config.Config.Entrypoint[0] != "/agent-eval" || !sameStringMap(config.Config.Labels, wantLabels) || config.RootFS.Type != "layers" || len(config.RootFS.DiffIDs) != 1 {
 		return errors.New("container config identity or runtime policy drift")
 	}
 	layer := manifest.Layers[0]
@@ -267,6 +313,15 @@ func validateContainerBinding(want containerImageExpectation) error {
 	if !validDigest(want.BinarySHA) || !validDigest(want.ContainerfileSHA) {
 		return errors.New("container artifact digest is not canonical")
 	}
+	if !validDigest(want.CompatibilitySHA) {
+		return errors.New("container compatibility digest is not canonical")
+	}
+	if !validDigest(want.SourceTreeSHA) {
+		return errors.New("container source tree digest is not canonical")
+	}
+	if !validDigest(want.DependencySHA) {
+		return errors.New("container dependency digest is not canonical")
+	}
 	return nil
 }
 
@@ -286,11 +341,13 @@ func validContainerDigest(value string) bool {
 	return strings.HasPrefix(value, "sha256:") && validDigest(strings.TrimPrefix(value, "sha256:"))
 }
 
-func containerBindingLabels(sourceCommit, version, platform, architecture, binarySHA, containerfileSHA string) map[string]string {
+func containerBindingLabels(sourceCommit, version, platform, architecture, binarySHA, compatibilitySHA, dependencySHA, sourceTreeSHA, containerfileSHA string) map[string]string {
 	return map[string]string{
 		"io.atl.agent-eval/architecture":         architecture,
 		"io.atl.agent-eval/binary-sha256":        binarySHA,
+		"io.atl.agent-eval/compatibility-sha256": compatibilitySHA,
 		"io.atl.agent-eval/containerfile-sha256": containerfileSHA,
+		"io.atl.agent-eval/dependency-sha256":    dependencySHA,
 		"io.atl.agent-eval/credentials":          "none",
 		"io.atl.agent-eval/network":              "none",
 		"io.atl.agent-eval/platform":             platform,
@@ -298,6 +355,7 @@ func containerBindingLabels(sourceCommit, version, platform, architecture, binar
 		"io.atl.agent-eval/schema":               containerSchema,
 		"io.atl.agent-eval/schema-version":       containerSchemaVersion,
 		"io.atl.agent-eval/source-commit":        sourceCommit,
+		"io.atl.agent-eval/source-tree-sha256":   sourceTreeSHA,
 		"io.atl.agent-eval/updates":              "none",
 		"io.atl.agent-eval/version":              version,
 	}
@@ -367,7 +425,7 @@ func validateContainerLayer(data []byte, wantBinarySHA string) error {
 			return errors.New("container layer tar is invalid")
 		}
 		count++
-		if count > 1 || !safeContainerTarName(header.Name) || header.Name != "agent-eval" || header.Typeflag != tar.TypeReg || header.Mode != 0o755 || header.Size < 0 || header.Size > containerMaxEntryBytes || header.ModTime.Unix() != 0 || header.Uname != "" || header.Gname != "" || header.Linkname != "" || len(header.PAXRecords) != 0 || len(header.Xattrs) != 0 {
+		if count > 1 || !safeContainerTarName(header.Name) || header.Name != "agent-eval" || header.Typeflag != tar.TypeReg || header.Mode != 0o755 || header.Size < 0 || header.Size > containerMaxEntryBytes || header.ModTime.Unix() != 0 || header.Uname != "" || header.Gname != "" || header.Linkname != "" || len(header.PAXRecords) != 0 {
 			return errors.New("container layer contains an unsafe or non-canonical entry")
 		}
 		payload, err = io.ReadAll(io.LimitReader(reader, containerMaxEntryBytes+1))
@@ -435,7 +493,7 @@ func readContainerArchive(data []byte) (map[string][]byte, error) {
 		if err != nil {
 			return nil, errors.New("container archive tar is invalid")
 		}
-		if len(entries) >= containerMaxEntries || !safeContainerTarName(header.Name) || header.Typeflag != tar.TypeReg || header.Size < 0 || header.Size > containerMaxEntryBytes || header.Mode != 0o644 || header.ModTime.Unix() != 0 || header.Uname != "" || header.Gname != "" || header.Linkname != "" || len(header.PAXRecords) != 0 || len(header.Xattrs) != 0 {
+		if len(entries) >= containerMaxEntries || !safeContainerTarName(header.Name) || header.Typeflag != tar.TypeReg || header.Size < 0 || header.Size > containerMaxEntryBytes || header.Mode != 0o644 || header.ModTime.Unix() != 0 || header.Uname != "" || header.Gname != "" || header.Linkname != "" || len(header.PAXRecords) != 0 {
 			return nil, errors.New("container archive contains an unsafe, special, or oversized entry")
 		}
 		if _, exists := entries[header.Name]; exists {

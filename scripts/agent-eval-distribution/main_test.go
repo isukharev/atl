@@ -6,8 +6,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -27,6 +30,7 @@ func TestDistributionBuildVerifySignInstallUninstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeTestGoldenBundle(t, source)
+	writeTestModuleFiles(t, source)
 	binary := filepath.Join(root, "agent-eval")
 	compatibility := filepath.Join(source, "compat.json")
 	registry := filepath.Join(source, "one.txt")
@@ -40,7 +44,7 @@ func TestDistributionBuildVerifySignInstallUninstall(t *testing.T) {
 	distribution := filepath.Join(root, "dist")
 	if err := buildDistribution(buildOptions{
 		Binary: binary, Compatibility: compatibility, SourceRoot: source,
-		SourceFiles: []string{"one.txt", "compat.json", testGoldenBundlePath}, SchemaRegistry: registry, Protocol: protocol,
+		SourceFiles: testSourceFiles(), SchemaRegistry: registry, Protocol: protocol,
 		Output: distribution, Version: "0.1.0-pre-release", ContractVersion: "0.1.0-pre-release",
 		SourceCommit: strings.Repeat("a", 40), Platform: "linux", Architecture: "amd64", DeferMarker: true,
 	}); err != nil {
@@ -51,13 +55,31 @@ func TestDistributionBuildVerifySignInstallUninstall(t *testing.T) {
 	}
 	if err := commitBuildDistribution(commitOptions{
 		Output: distribution, Compatibility: compatibility, SourceRoot: source,
-		SourceFiles: []string{"one.txt", "compat.json", testGoldenBundlePath}, SchemaRegistry: registry, Protocol: protocol,
+		SourceFiles: testSourceFiles(), SchemaRegistry: registry, Protocol: protocol,
 		SourceCommit: strings.Repeat("a", 40), ContractVersion: "0.1.0-pre-release",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := verifyDistribution(verifyOptions{Distribution: distribution, AllowUnsigned: true}); err != nil {
 		t.Fatal(err)
+	}
+	manifestData, err := os.ReadFile(filepath.Join(distribution, manifestName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := decodeManifest(manifestData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.SchemaVersion != distributionSchemaV2 || manifest.ContainerImageDigest == "" || manifest.ContainerArchiveSHA256 == "" || manifest.ActionSHA256 == "" || manifest.NetworkPolicy != "none" || manifest.CredentialPolicy != "none" || manifest.UpdatePolicy != "none" || manifest.SandboxPolicy != "caller_enforced" {
+		t.Fatalf("built distribution omitted the v2 container/Action contract: %+v", manifest)
+	}
+	archive, err := os.ReadFile(filepath.Join(distribution, containerArchiveName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sha256Bytes(archive) != manifest.ContainerArchiveSHA256 {
+		t.Fatal("container archive digest is not bound in the manifest")
 	}
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -108,6 +130,7 @@ func TestDistributionDeferredCommitRejectsSourceDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeTestGoldenBundle(t, source)
+	writeTestModuleFiles(t, source)
 	compatibility := filepath.Join(source, "compat.json")
 	if err := os.WriteFile(compatibility, testCompatibilityBundle(), 0o600); err != nil {
 		t.Fatal(err)
@@ -120,7 +143,7 @@ func TestDistributionDeferredCommitRejectsSourceDrift(t *testing.T) {
 	distribution := filepath.Join(root, "dist")
 	options := buildOptions{
 		Binary: binary, Compatibility: compatibility, SourceRoot: source,
-		SourceFiles: []string{"one.txt", "compat.json", testGoldenBundlePath}, SchemaRegistry: filepath.Join(source, "one.txt"), Protocol: filepath.Join(source, "one.txt"),
+		SourceFiles: testSourceFiles(), SchemaRegistry: filepath.Join(source, "one.txt"), Protocol: filepath.Join(source, "one.txt"),
 		Output: distribution, Version: distributionContractVersion, ContractVersion: distributionContractVersion,
 		SourceCommit: commit, Platform: "linux", Architecture: "amd64", DeferMarker: true,
 	}
@@ -227,7 +250,7 @@ func TestDistributionDefaultSourceSelectionIncludesCompatibilityInputs(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	defaultSelection := "internal/agenteval/cmd/agent-eval,internal/agenteval/go.mod,internal/agenteval/schemaregistry/registry.v1.json,internal/agenteval/testdata/standalone-conformance.v1.json,internal/agenteval/testdata/standalone-readability-golden.v1.json"
+	defaultSelection := "internal/agenteval/cmd/agent-eval,internal/agenteval/go.mod,internal/agenteval/go.sum,internal/agenteval/schemaregistry/registry.v1.json,internal/agenteval/testdata/standalone-conformance.v1.json,internal/agenteval/testdata/standalone-readability-golden.v1.json"
 	if !strings.Contains(string(data), `flag.String("source-files", "`+defaultSelection+`"`) {
 		t.Fatal("default source selection does not cover the evaluator module, registry, conformance, and golden inputs")
 	}
@@ -279,6 +302,114 @@ func TestDistributionRejectsCanonicalAndPathDrift(t *testing.T) {
 	}
 }
 
+func TestDistributionManifestV2IsExplicitAndLegacyV1RemainsReadable(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	baseFiles := []fileEntry{
+		{Name: actionName, SizeBytes: 1, SHA256: digest},
+		{Name: binaryName, SizeBytes: 1, SHA256: digest},
+		{Name: compatibilityName, SizeBytes: 1, SHA256: digest},
+		{Name: containerfileName, SizeBytes: 1, SHA256: digest},
+		{Name: provenanceName, SizeBytes: 1, SHA256: digest},
+		{Name: sbomName, SizeBytes: 1, SHA256: digest},
+	}
+	sort.Slice(baseFiles, func(i, j int) bool { return baseFiles[i].Name < baseFiles[j].Name })
+	legacy := distributionManifest{
+		Schema: distributionSchema, SchemaVersion: distributionSchemaV1, ContractVersion: distributionContractVersion,
+		Version: distributionContractVersion, Platform: "linux", Architecture: "amd64", SourceCommit: strings.Repeat("b", 40),
+		SourceTreeSHA256: digest, SchemaRegistrySHA256: digest, ProtocolSHA256: digest, CompatibilityBundleSHA256: digest,
+		SignatureRequired: true, ContainerBase: "scratch", ContainerEntrypoint: "/agent-eval", ActionVersion: distributionContractVersion,
+		Files: baseFiles,
+	}
+	if err := validateManifest(legacy); err != nil {
+		t.Fatalf("legacy v1 manifest became unreadable: %v", err)
+	}
+	v2 := legacy
+	v2.SchemaVersion = distributionSchemaV2
+	v2.ContainerImageDigest = "sha256:" + digest
+	v2.ContainerArchiveSHA256 = digest
+	v2.ActionSHA256 = digest
+	v2.DependencySHA256 = digest
+	v2.NetworkPolicy, v2.CredentialPolicy, v2.UpdatePolicy, v2.SandboxPolicy = "none", "none", "none", "caller_enforced"
+	v2.Files = append(append([]fileEntry(nil), baseFiles...), fileEntry{Name: containerArchiveName, SizeBytes: 1, SHA256: digest})
+	sort.Slice(v2.Files, func(i, j int) bool { return v2.Files[i].Name < v2.Files[j].Name })
+	if err := validateManifest(v2); err != nil {
+		t.Fatalf("valid v2 manifest rejected: %v", err)
+	}
+	legacyWithV2 := legacy
+	legacyWithV2.ContainerImageDigest = v2.ContainerImageDigest
+	legacyWithV2.ContainerArchiveSHA256 = v2.ContainerArchiveSHA256
+	legacyWithV2.ActionSHA256 = v2.ActionSHA256
+	legacyWithV2.NetworkPolicy, legacyWithV2.CredentialPolicy, legacyWithV2.UpdatePolicy, legacyWithV2.SandboxPolicy = v2.NetworkPolicy, v2.CredentialPolicy, v2.UpdatePolicy, v2.SandboxPolicy
+	if err := validateManifest(legacyWithV2); err == nil {
+		t.Fatal("legacy v1 manifest silently accepted v2 container fields")
+	}
+	for _, future := range []int{0, 3, 99} {
+		candidate := v2
+		candidate.SchemaVersion = future
+		if err := validateManifest(candidate); err == nil {
+			t.Fatalf("unsupported distribution schema version %d was accepted", future)
+		}
+	}
+}
+
+func TestDistributionLegacyV1CanStillLoadAndInstall(t *testing.T) {
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		t.Skip("distribution candidate contour is Linux/amd64")
+	}
+	root := t.TempDir()
+	distribution := buildTestDistribution(t, root, "legacy", []byte("legacy-binary\n"))
+	manifestPath := filepath.Join(distribution, manifestName)
+	manifestData, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := decodeManifest(manifestData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.SchemaVersion = distributionSchemaV1
+	manifest.DependencySHA256 = ""
+	manifest.ContainerImageDigest = ""
+	manifest.ContainerArchiveSHA256 = ""
+	manifest.ActionSHA256 = ""
+	manifest.NetworkPolicy, manifest.CredentialPolicy, manifest.UpdatePolicy, manifest.SandboxPolicy = "", "", "", ""
+	filtered := make([]fileEntry, 0, len(manifest.Files))
+	for _, entry := range manifest.Files {
+		if entry.Name != containerArchiveName {
+			filtered = append(filtered, entry)
+		}
+	}
+	manifest.Files = filtered
+	sort.Slice(manifest.Files, func(i, j int) bool { return manifest.Files[i].Name < manifest.Files[j].Name })
+	manifestData, err = canonicalJSON(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(distribution, containerArchiveName)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, manifestData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(distribution, manifestChecksumName), []byte(sha256Bytes(manifestData)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyDistribution(verifyOptions{Distribution: distribution, AllowUnsigned: true}); err != nil {
+		t.Fatalf("legacy v1 distribution no longer loads: %v", err)
+	}
+	publicKey, privateKey := generateTestKeyPair(t, root)
+	if err := signDistribution(distribution, privateKey); err != nil {
+		t.Fatal(err)
+	}
+	prefix := filepath.Join(root, "legacy-install")
+	if err := installDistribution(verifyOptions{Distribution: distribution, PublicKey: publicKey}, prefix); err != nil {
+		t.Fatalf("legacy v1 distribution no longer installs: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(prefix, "bin", binaryName)); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDistributionBuildBindsBinaryAndSourceBoundary(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "source")
@@ -289,6 +420,7 @@ func TestDistributionBuildBindsBinaryAndSourceBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeTestGoldenBundle(t, source)
+	writeTestModuleFiles(t, source)
 	compatibility := filepath.Join(source, "compat.json")
 	if err := os.WriteFile(compatibility, testCompatibilityBundle(), 0o600); err != nil {
 		t.Fatal(err)
@@ -296,7 +428,7 @@ func TestDistributionBuildBindsBinaryAndSourceBoundary(t *testing.T) {
 	commit := strings.Repeat("a", 40)
 	options := buildOptions{
 		Binary: "/bin/true", Compatibility: compatibility, SourceRoot: source,
-		SourceFiles: []string{"one.txt", "compat.json", testGoldenBundlePath}, SchemaRegistry: filepath.Join(source, "one.txt"),
+		SourceFiles: testSourceFiles(), SchemaRegistry: filepath.Join(source, "one.txt"),
 		Protocol: filepath.Join(source, "one.txt"), Output: filepath.Join(root, "dist"),
 		Version: "0.1.0-pre-release", ContractVersion: "0.1.0-pre-release",
 		SourceCommit: commit, Platform: "linux", Architecture: "amd64",
@@ -377,7 +509,7 @@ func TestDistributionBuildBindsBinaryAndSourceBoundary(t *testing.T) {
 	}
 }
 
-func TestDistributionBindsTheBinarySnapshotAcrossTheProbe(t *testing.T) {
+func TestDistributionRejectsNonStaticBinaryBeforeContainerBuild(t *testing.T) {
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
 		t.Skip("distribution candidate contour is Linux/amd64")
 	}
@@ -387,29 +519,45 @@ func TestDistributionBindsTheBinarySnapshotAcrossTheProbe(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeTestGoldenBundle(t, source)
+	writeTestModuleFiles(t, source)
 	compatibility := filepath.Join(source, "compat.json")
 	if err := os.WriteFile(compatibility, testCompatibilityBundle(), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	commit := strings.Repeat("a", 40)
 	binary := filepath.Join(root, "agent-eval")
-	mutating := append(testBinaryData(distributionContractVersion, commit, "mutating"),
-		[]byte("printf '#tampered\\n' >> \"$0\"\n")...)
+	mutating := []byte("#!/bin/sh\nprintf '%s\\n' '{\"result\":{\"build\":{\"version\":\"" + distributionContractVersion + "\",\"commit\":\"" + commit + "\"},\"contract_version\":\"0.1.0-pre-release\"}}'\n")
 	if err := os.WriteFile(binary, mutating, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	output := filepath.Join(root, "distribution")
 	err := buildDistribution(buildOptions{
 		Binary: binary, Compatibility: compatibility, SourceRoot: source,
-		SourceFiles: []string{"compat.json", testGoldenBundlePath}, SchemaRegistry: compatibility, Protocol: compatibility,
+		SourceFiles: testDependencySourceFiles(), SchemaRegistry: compatibility, Protocol: compatibility,
 		Output: output, Version: distributionContractVersion, ContractVersion: distributionContractVersion,
 		SourceCommit: commit, Platform: "linux", Architecture: "amd64",
 	})
-	if err == nil || !strings.Contains(err.Error(), "changed during version probe") {
-		t.Fatalf("self-mutating binary was not rejected: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "not an ELF") {
+		t.Fatalf("non-static binary was not rejected before the container image was built: %v", err)
 	}
 	if _, statErr := os.Stat(output); !os.IsNotExist(statErr) {
 		t.Fatalf("output was created after binary identity refusal: %v", statErr)
+	}
+}
+
+func TestBinarySnapshotRejectsProbeMutation(t *testing.T) {
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		t.Skip("distribution candidate contour is Linux/amd64")
+	}
+	root := t.TempDir()
+	binary := filepath.Join(root, "mutating-agent-eval")
+	commit := strings.Repeat("a", 40)
+	data := append(testBinaryShellScript(distributionContractVersion, commit), []byte("printf '#tampered\\n' >> \"$0\"\n")...)
+	if err := os.WriteFile(binary, data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateBinarySnapshot(data, distributionContractVersion, commit, distributionContractVersion, "linux", "amd64"); err == nil || !strings.Contains(err.Error(), "changed during version probe") {
+		t.Fatalf("self-mutating binary was not rejected by the snapshot probe: %v", err)
 	}
 }
 
@@ -554,7 +702,8 @@ func TestDistributionBuildIsReproducibleAndUninstallRefusesDrift(t *testing.T) {
 }
 
 func TestDistributionSBOMUsesRequiredSPDXFields(t *testing.T) {
-	data := renderSBOM(buildOptions{Version: "0.1.0-pre-release", SourceCommit: strings.Repeat("a", 40)}, strings.Repeat("b", 64), []fileEntry{{Name: binaryName, SizeBytes: 1, SHA256: strings.Repeat("c", 64)}})
+	dependency := strings.Repeat("d", 64)
+	data := renderSBOM(buildOptions{Version: "0.1.0-pre-release", SourceCommit: strings.Repeat("a", 40)}, strings.Repeat("b", 64), []fileEntry{{Name: binaryName, SizeBytes: 1, SHA256: strings.Repeat("c", 64)}}, dependency)
 	var document struct {
 		DocumentNamespace string `json:"documentNamespace"`
 		DataLicense       string `json:"dataLicense"`
@@ -567,8 +716,22 @@ func TestDistributionSBOMUsesRequiredSPDXFields(t *testing.T) {
 	if err := json.Unmarshal(data, &document); err != nil {
 		t.Fatal(err)
 	}
+	var topLevel map[string]json.RawMessage
+	if err := json.Unmarshal(data, &topLevel); err != nil {
+		t.Fatal(err)
+	}
+	for key := range topLevel {
+		switch key {
+		case "SPDXID", "spdxVersion", "name", "documentNamespace", "dataLicense", "creationInfo", "packages":
+		default:
+			t.Fatalf("SBOM added a non-SPDX top-level field %q", key)
+		}
+	}
 	if document.DataLicense != "CC0-1.0" || document.CreationInfo.Created == "" || len(document.CreationInfo.Creators) != 1 || len(document.Packages) != 2 {
 		t.Fatalf("SBOM omitted required SPDX document fields: %+v", document)
+	}
+	if !strings.Contains(document.DocumentNamespace, dependency) {
+		t.Fatalf("SBOM namespace omitted dependency identity: %q", document.DocumentNamespace)
 	}
 	if !strings.Contains(document.DocumentNamespace, strings.Repeat("b", 64)) || !strings.Contains(document.DocumentNamespace, strings.Repeat("c", 64)) {
 		t.Fatalf("SBOM namespace is not bound to source and binary identity: %q", document.DocumentNamespace)
@@ -593,7 +756,7 @@ func TestDistributionSBOMUsesRequiredSPDXFields(t *testing.T) {
 }
 
 func TestDistributionActionBindsAllExpectedIdentityInputs(t *testing.T) {
-	action := renderAction("0.1.0-pre-release", strings.Repeat("a", 40), strings.Repeat("b", 64))
+	action := renderAction("0.1.0-pre-release", strings.Repeat("a", 40), strings.Repeat("f", 64), strings.Repeat("g", 64), strings.Repeat("h", 64), strings.Repeat("b", 64), strings.Repeat("c", 64), "sha256:"+strings.Repeat("d", 64), strings.Repeat("e", 64))
 	if strings.Contains(action, "\t") {
 		t.Fatalf("action contains tab indentation:\n%s", action)
 	}
@@ -601,10 +764,16 @@ func TestDistributionActionBindsAllExpectedIdentityInputs(t *testing.T) {
 		t.Fatalf("action heredoc is not validly indented:\n%s", action)
 	}
 	for _, want := range []string{
-		"expected-version:", "expected-commit:", "expected-binary-sha256:",
+		"expected-version:", "expected-commit:", "expected-source-tree-sha256:", "expected-dependency-sha256:", "expected-compatibility-bundle-sha256:", "expected-binary-sha256:", "expected-manifest-sha256:", "expected-action-sha256:",
 		"test \"$EXPECTED_VERSION\" = \"0.1.0-pre-release\"",
 		"test \"$EXPECTED_COMMIT\" = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
 		"test \"$EXPECTED_BINARY_SHA256\" = \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"",
+		"test \"$EXPECTED_SOURCE_TREE_SHA256\" = \"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\"",
+		"test \"$EXPECTED_COMPATIBILITY_SHA256\" = \"hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh\"",
+		"test \"$EXPECTED_DEPENDENCY_SHA256\" = \"gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg\"",
+		"EXPECTED_CONTAINER_IMAGE_DIGEST: \"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"",
+		"test \"$EXPECTED_CONTAINER_ARCHIVE_SHA256\" = \"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\"",
+		"outputs:", "manifest-sha256:", "container-image-digest:", "container-archive-sha256:", "GITHUB_OUTPUT",
 		"sha256sum \"$tmp\"",
 		"mktemp",
 		"tmp_json=",
@@ -614,6 +783,143 @@ func TestDistributionActionBindsAllExpectedIdentityInputs(t *testing.T) {
 			t.Fatalf("action omitted identity binding %q:\n%s", want, action)
 		}
 	}
+}
+
+func TestDistributionActionHasNoMutableOrProviderAuthority(t *testing.T) {
+	action := strings.ToLower(renderAction(distributionContractVersion, strings.Repeat("a", 40), strings.Repeat("b", 64), strings.Repeat("c", 64), strings.Repeat("d", 64), strings.Repeat("e", 64), strings.Repeat("f", 64), "sha256:"+strings.Repeat("g", 64), strings.Repeat("a", 64)))
+	for _, forbidden := range []string{"latest", "docker pull", "podman pull", "curl ", "wget ", "ghcr.io", "registry", "git clone", "npm install"} {
+		if strings.Contains(action, forbidden) {
+			t.Fatalf("generated Action contains mutable/provider authority %q", forbidden)
+		}
+	}
+	for _, required := range []string{"env -i", "expected-manifest-sha256", "expected-action-sha256", "container.oci.tar", "network_policy", "credential_policy", "update_policy", "sandbox_policy", "github_output"} {
+		if !strings.Contains(action, required) {
+			t.Fatalf("generated Action omitted explicit contract marker %q", required)
+		}
+	}
+}
+
+func TestDistributionActionExecutesAndBindsItsDescriptor(t *testing.T) {
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		t.Skip("distribution candidate contour is Linux/amd64")
+	}
+	root := t.TempDir()
+	distribution := buildTestDistribution(t, root, "action", []byte("action-binary\n"))
+	manifestData, err := os.ReadFile(filepath.Join(distribution, manifestName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := decodeManifest(manifestData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actionData, err := os.ReadFile(filepath.Join(distribution, actionName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := actionRunScript(string(actionData))
+	if script == "" {
+		t.Fatal("generated Action did not expose a run script")
+	}
+	output := filepath.Join(root, "github-output")
+	env := actionTestEnvironment(root, distribution, manifest, output)
+	run := func(actionPath string, values []string) ([]byte, error) {
+		command := exec.Command("bash", "-euo", "pipefail", "-c", script)
+		command.Dir = distribution
+		command.Env = appendActionEnvironment(env, append(values, "GITHUB_ACTION_PATH="+actionPath)...)
+		return command.CombinedOutput()
+	}
+	if outputData, err := run(distribution, nil); err != nil {
+		t.Fatalf("generated Action failed: %v\n%s", err, outputData)
+	}
+	outputData, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, marker := range []string{"version=" + manifest.Version, "commit=" + manifest.SourceCommit, "manifest_sha256=", "action_sha256=", "container_image_digest=", "container_archive_sha256="} {
+		if !strings.Contains(string(outputData), marker) {
+			t.Fatalf("Action output omitted %q: %s", marker, outputData)
+		}
+	}
+	mutatedActionRoot := filepath.Join(root, "mutated-action")
+	if err := os.Mkdir(mutatedActionRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mutatedActionRoot, actionName), append(append([]byte(nil), actionData...), '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if outputData, err := run(mutatedActionRoot, nil); err == nil {
+		t.Fatalf("Action accepted a mutated executing descriptor: %s", outputData)
+	}
+}
+
+func actionRunScript(action string) string {
+	const marker = "      run: |\n"
+	start := strings.Index(action, marker)
+	if start < 0 {
+		return ""
+	}
+	body := action[start+len(marker):]
+	var script strings.Builder
+	for _, line := range strings.Split(body, "\n") {
+		if line == "" {
+			script.WriteByte('\n')
+			continue
+		}
+		if !strings.HasPrefix(line, "        ") {
+			break
+		}
+		script.WriteString(strings.TrimPrefix(line, "        "))
+		script.WriteByte('\n')
+	}
+	return script.String()
+}
+
+func actionTestEnvironment(root, distribution string, manifest distributionManifest, output string) []string {
+	entry := func(name string) string { return findManifestEntry(manifest.Files, name).SHA256 }
+	return []string{
+		"PATH=/usr/bin:/bin",
+		"HOME=/nonexistent",
+		"DISTRIBUTION=" + distribution,
+		"RUNNER_TEMP=" + root,
+		"EXPECTED_VERSION=" + manifest.Version,
+		"EXPECTED_COMMIT=" + manifest.SourceCommit,
+		"EXPECTED_SOURCE_TREE_SHA256=" + manifest.SourceTreeSHA256,
+		"EXPECTED_DEPENDENCY_SHA256=" + manifest.DependencySHA256,
+		"EXPECTED_COMPATIBILITY_SHA256=" + manifest.CompatibilityBundleSHA256,
+		"EXPECTED_BINARY_SHA256=" + entry(binaryName),
+		"EXPECTED_MANIFEST_SHA256=" + sha256Bytes(mustReadTestFile(filepath.Join(distribution, manifestName))),
+		"EXPECTED_ACTION_SHA256=" + manifest.ActionSHA256,
+		"EXPECTED_CONTAINERFILE_SHA256=" + entry(containerfileName),
+		"EXPECTED_CONTAINER_IMAGE_DIGEST=" + manifest.ContainerImageDigest,
+		"EXPECTED_CONTAINER_ARCHIVE_SHA256=" + manifest.ContainerArchiveSHA256,
+		"GITHUB_OUTPUT=" + output,
+	}
+}
+
+func appendActionEnvironment(base []string, overrides ...string) []string {
+	names := make(map[string]bool, len(overrides))
+	for _, value := range overrides {
+		if index := strings.IndexByte(value, '='); index > 0 {
+			names[value[:index]] = true
+		}
+	}
+	env := make([]string, 0, len(base)+len(overrides))
+	for _, value := range base {
+		if index := strings.IndexByte(value, '='); index > 0 && names[value[:index]] {
+			continue
+		}
+		env = append(env, value)
+	}
+	return append(env, overrides...)
+}
+
+func mustReadTestFile(path string) []byte {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		panic(err)
+	}
+	return data
 }
 
 func TestDistributionRollbackRestoresVerifiedCandidate(t *testing.T) {
@@ -665,6 +971,7 @@ func buildTestDistributionNamed(t *testing.T, root, label, outputLabel string, b
 		t.Fatal(err)
 	}
 	writeTestGoldenBundle(t, source)
+	writeTestModuleFiles(t, source)
 	binary := filepath.Join(root, "agent-eval-"+outputLabel)
 	compatibility := filepath.Join(source, "compat.json")
 	version := distributionContractVersion
@@ -678,7 +985,7 @@ func buildTestDistributionNamed(t *testing.T, root, label, outputLabel string, b
 	distribution := filepath.Join(root, "dist-"+outputLabel)
 	if err := buildDistribution(buildOptions{
 		Binary: binary, Compatibility: compatibility, SourceRoot: source,
-		SourceFiles: []string{"one.txt", "compat.json", testGoldenBundlePath}, SchemaRegistry: filepath.Join(source, "one.txt"), Protocol: filepath.Join(source, "one.txt"),
+		SourceFiles: testSourceFiles(), SchemaRegistry: filepath.Join(source, "one.txt"), Protocol: filepath.Join(source, "one.txt"),
 		Output: distribution, Version: version, ContractVersion: "0.1.0-pre-release",
 		SourceCommit: commit, Platform: "linux", Architecture: "amd64",
 	}); err != nil {
@@ -688,7 +995,29 @@ func buildTestDistributionNamed(t *testing.T, root, label, outputLabel string, b
 }
 
 func testBinaryData(version, commit, marker string) []byte {
-	return []byte("#!/bin/sh\n# " + marker + "\nprintf '%s\\n' '{\"result\":{\"build\":{\"version\":\"" + version + "\",\"commit\":\"" + commit + "\"},\"contract_version\":\"0.1.0-pre-release\"}}'\n")
+	return testStaticEvaluatorBinary(`{"result":{"build":{"version":` + strconv.Quote(version) + `,"commit":` + strconv.Quote(commit) + `},"contract_version":"0.1.0-pre-release","marker":` + strconv.Quote(marker) + `}}` + "\n")
+}
+
+func testBinaryShellScript(version, commit string) []byte {
+	return []byte("#!/bin/sh\nprintf '%s\\n' '{\"result\":{\"build\":{\"version\":\"" + version + "\",\"commit\":\"" + commit + "\"},\"contract_version\":\"" + distributionContractVersion + "\"}}'\n")
+}
+
+func writeTestModuleFiles(t *testing.T, source string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(source, "go.mod"), []byte("module example.test/agent-eval\n\ngo 1.26.6\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "go.sum"), []byte("example.test/dependency v1.0.0 h1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func testSourceFiles() []string {
+	return []string{"one.txt", "compat.json", "go.mod", "go.sum", testGoldenBundlePath}
+}
+
+func testDependencySourceFiles() []string {
+	return []string{"compat.json", "go.mod", "go.sum", testGoldenBundlePath}
 }
 
 func testCompatibilityBundle() []byte {

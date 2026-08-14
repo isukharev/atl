@@ -1,10 +1,10 @@
 # Standalone agent-eval distribution dry run
 
 This runbook describes the release-candidate boundary implemented for issue
-#1388. It creates artifacts locally from an exact reviewed commit; it does not
-publish a tag, release, container, Action, or repository extraction. The
-support contour is defined separately in issue #1387, and containers/Actions
-are separately scoped to #1389.
+#1388 and the digest-pinned container/Action contract in #1389. It creates
+artifacts locally from an exact reviewed commit; it does not publish a tag,
+release, registry image, Action, or repository extraction. The support contour
+is defined separately in issue #1387.
 
 ## Build
 
@@ -52,9 +52,20 @@ local build probe, not a provider or backend run; the supplied candidate is
 still current-user code and may exercise ambient authority.
 
 The builder writes a bounded manifest, checksum, SPDX SBOM, provenance record,
-compatibility bundle, static scratch container descriptor, and composite Action
-descriptor. The generated Action is deliberately a pre-verified runner: it
-does not replace detached-signature verification or release approval. Once the
+compatibility bundle, static scratch `container.oci.tar` OCI image layout,
+Containerfile, and composite Action descriptor. The selected module `go.mod`
+and `go.sum` (including their exact bytes) produce a separate dependency
+identity digest; it is bound independently from the source-tree and
+compatibility digests in the manifest, OCI labels, provenance, SBOM, and
+Action checks. Manifest schema version 2
+binds the OCI image manifest digest, archive digest, Action digest, binary,
+compatibility bundle, Containerfile, source identity, and explicit runtime
+policies (`network: none`, `credentials: none`, `updates: none`, and
+`sandbox: caller_enforced`). The generated Action is deliberately a
+pre-verified runner: it checks every listed identity, checks the descriptor at
+`GITHUB_ACTION_PATH/action.yml` before executing, reports version/commit and
+the content digests as outputs, and does not replace detached-signature
+verification or release approval. Once the
 `.incomplete` marker has been written and durably synced, an interrupted build
 leaves that marker and is never accepted as a distribution. A crash before the
 marker write can leave an empty rejected destination; operators must remove or
@@ -62,7 +73,8 @@ reconcile that path before retrying.
 
 Two builds with the same inputs must have byte-identical members. The manifest
 binds the binary, schema registry, process protocol, compatibility bundle,
-source tree, platform, architecture, and version. The builder reads only
+dependency closure, source tree, platform, architecture, and version. The
+builder reads only
 regular files under explicit paths and rejects symlinks, sensitive names such
 as `.git`, `.env`, private-key extensions, ignored source residue, and
 source/output overlap. The version probe is a bounded local process execution,
@@ -71,8 +83,17 @@ two-second cancellation deadline and bounded cleanup, using a scrubbed
 environment and private working directory, but it does not prove that
 descendants, syscalls, or network access are contained.
 Run builds for untrusted bytes in a separate isolated host/container. The
-manifest records probe network/credential status as `probe-unverified`; verify,
-sign, install, and uninstall never execute the candidate.
+image is a Linux/amd64 scratch image containing one regular executable,
+statically linked ELF payload; the builder rejects scripts, dynamic loaders,
+and dynamic dependency segments before creating the output directory. The
+runtime policy in the image and Action is explicit, but `sandbox:
+caller_enforced` means the caller must supply the container runtime boundary
+(for example, no network, no credential mounts, read-only rootfs, and a
+non-root identity); the archive itself cannot prove a daemon or kernel policy.
+These runtime policies do not describe the bounded build-time version probe:
+that probe remains current-user code with ambient authority and is
+probe-unverified for network and credential effects.
+Verify, sign, install, and uninstall never execute the candidate.
 
 ## Verify and sign
 
@@ -93,8 +114,9 @@ env -u GOROOT GOTOOLCHAIN=auto GOWORK=off \
 ```
 
 Verification rejects unknown/special members, symlinks, non-canonical JSON,
-future/invalid metadata, size or digest drift, missing required artifacts,
-unsigned distributions, and signature mismatch. It rereads the exact bytes
+non-canonical OCI layers/layouts, future/invalid metadata, size or digest
+drift, missing required artifacts, unsigned distributions, and signature
+mismatch. It rereads the exact bytes
 that installation will use, so a source mutation between verification and
 copying cannot silently become an installed artifact. Signing performs the same
 manifest/member and static host-target validation before creating the detached

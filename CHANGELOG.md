@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   evaluator: bounded manifest/checksum/SBOM/provenance generation, detached
   signing and verification, marker-protected install, verified rollback, and
   explicit uninstall. It publishes nothing and does not claim stable support.
+- Extended the distribution dry run with a versioned deterministic OCI image
+  layout archive and content-addressed composite Action contract. The manifest
+  binds image, archive, Action, binary, compatibility, module-dependency, and
+  source identities;
+  the Action reports verified outputs and declares provider-free runtime policy.
+  Container and Action publication remain separately authorized.
 - Added caller-bounded `conf attachment search` and typed
   `confluence_attachment_search` for completeness-qualified, metadata-only
   Server/Data Center attachment discovery without a known page, with

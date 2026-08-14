@@ -27,6 +27,7 @@ import (
 const (
 	distributionSchema          = "agent-eval/distribution-manifest"
 	distributionSchemaV1        = 1
+	distributionSchemaV2        = 2
 	maxManifestBytes            = 1 << 20
 	maxArtifactBytes            = 64 << 20
 	maxSourceFiles              = 4096
@@ -37,6 +38,7 @@ const (
 	binaryName                  = "agent-eval"
 	compatibilityName           = "compatibility-bundle.json"
 	containerfileName           = "Containerfile"
+	containerArchiveName        = "container.oci.tar"
 	actionName                  = "action.yml"
 	sbomName                    = "sbom.spdx.json"
 	provenanceName              = "provenance.json"
@@ -70,10 +72,18 @@ type distributionManifest struct {
 	SchemaRegistrySHA256      string      `json:"schema_registry_sha256"`
 	ProtocolSHA256            string      `json:"protocol_sha256"`
 	CompatibilityBundleSHA256 string      `json:"compatibility_bundle_sha256"`
+	DependencySHA256          string      `json:"dependency_sha256,omitempty"`
 	SignatureRequired         bool        `json:"signature_required"`
 	ContainerBase             string      `json:"container_base"`
 	ContainerEntrypoint       string      `json:"container_entrypoint"`
 	ActionVersion             string      `json:"action_version"`
+	ContainerImageDigest      string      `json:"container_image_digest,omitempty"`
+	ContainerArchiveSHA256    string      `json:"container_archive_sha256,omitempty"`
+	ActionSHA256              string      `json:"action_sha256,omitempty"`
+	NetworkPolicy             string      `json:"network_policy,omitempty"`
+	CredentialPolicy          string      `json:"credential_policy,omitempty"`
+	UpdatePolicy              string      `json:"update_policy,omitempty"`
+	SandboxPolicy             string      `json:"sandbox_policy,omitempty"`
 	Files                     []fileEntry `json:"files"`
 }
 
@@ -111,7 +121,7 @@ func main() {
 	binary := flag.String("binary", "", "agent-eval binary for build")
 	compatibility := flag.String("compatibility", "", "provider-free compatibility bundle for build")
 	sourceRoot := flag.String("source-root", ".", "source root for the selected tree hash")
-	sourceFiles := flag.String("source-files", "internal/agenteval/cmd/agent-eval,internal/agenteval/go.mod,internal/agenteval/schemaregistry/registry.v1.json,internal/agenteval/testdata/standalone-conformance.v1.json,internal/agenteval/testdata/standalone-readability-golden.v1.json", "comma-separated source paths")
+	sourceFiles := flag.String("source-files", "internal/agenteval/cmd/agent-eval,internal/agenteval/go.mod,internal/agenteval/go.sum,internal/agenteval/schemaregistry/registry.v1.json,internal/agenteval/testdata/standalone-conformance.v1.json,internal/agenteval/testdata/standalone-readability-golden.v1.json", "comma-separated source paths")
 	schemaRegistry := flag.String("schema-registry", "internal/agenteval/schemaregistry/registry.v1.json", "schema registry path")
 	protocol := flag.String("protocol", "internal/agenteval/cmd/agent-eval/standalone_process.go", "process protocol source path")
 	output := flag.String("output", "", "absolute distribution directory (required for build)")
@@ -190,6 +200,10 @@ func buildDistribution(options buildOptions) error {
 	if err := validateCompatibilityBundleInSnapshot(compatibilityData, options.ContractVersion, options.SourceRoot, options.Compatibility, sourceSnapshot); err != nil {
 		return fmt.Errorf("compatibility source binding: %w", err)
 	}
+	dependencySHA, err := dependencyIdentity(sourceSnapshot)
+	if err != nil {
+		return fmt.Errorf("dependency identity: %w", err)
+	}
 	schemaData, err := selectedSourceData(options.SourceRoot, options.SourceFiles, sourceSnapshot, options.SchemaRegistry)
 	if err != nil {
 		return fmt.Errorf("schema registry: %w", err)
@@ -205,6 +219,9 @@ func buildDistribution(options buildOptions) error {
 	}
 	if err := validateBinarySnapshot(binaryData, options.Version, options.SourceCommit, options.ContractVersion, options.Platform, options.Architecture); err != nil {
 		return fmt.Errorf("binary identity: %w", err)
+	}
+	if err := validateStaticContainerBinary(binaryData, options.Platform, options.Architecture); err != nil {
+		return fmt.Errorf("container binary: %w", err)
 	}
 	root, err := createAbsentDirectory(options.Output)
 	if err != nil {
@@ -239,7 +256,19 @@ func buildDistribution(options buildOptions) error {
 	if err != nil {
 		return err
 	}
-	action := []byte(renderAction(options.Version, options.SourceCommit, binarySHA))
+	containerImage, err := buildContainerImage(binaryData, options.SourceCommit, options.Version, options.Platform, options.Architecture, binarySHA, compatSHA, dependencySHA, sourceTree, containerSHA)
+	if err != nil {
+		return fmt.Errorf("container image: %w", err)
+	}
+	if err := writeRootFile(root, containerArchiveName, containerImage.Archive, 0o644); err != nil {
+		return fmt.Errorf("container image archive: %w", err)
+	}
+	containerArchiveSHA, containerArchiveSize, err := hashRootFile(root, containerArchiveName, maxArtifactBytes)
+	if err != nil {
+		return err
+	}
+	containerImageDigest := "sha256:" + containerImage.ManifestDigest
+	action := []byte(renderAction(options.Version, options.SourceCommit, sourceTree, dependencySHA, compatSHA, binarySHA, containerSHA, containerImageDigest, containerArchiveSHA))
 	if err := writeRootFile(root, actionName, action, 0o644); err != nil {
 		return fmt.Errorf("action descriptor: %w", err)
 	}
@@ -247,16 +276,17 @@ func buildDistribution(options buildOptions) error {
 	if err != nil {
 		return err
 	}
-	provenance := renderProvenance(options, sourceTree, binarySHA, compatSHA)
+	provenance := renderProvenance(options, sourceTree, dependencySHA, binarySHA, compatSHA, containerSHA, containerImageDigest, containerArchiveSHA, actionSHA)
 	if err := writeRootFile(root, provenanceName, provenance, 0o644); err != nil {
 		return fmt.Errorf("provenance: %w", err)
 	}
 	sbom := renderSBOM(options, sourceTree, []fileEntry{
 		{Name: binaryName, SizeBytes: binarySize, SHA256: binarySHA},
 		{Name: compatibilityName, SizeBytes: compatSize, SHA256: compatSHA},
+		{Name: containerArchiveName, SizeBytes: containerArchiveSize, SHA256: containerArchiveSHA},
 		{Name: containerfileName, SizeBytes: containerSize, SHA256: containerSHA},
 		{Name: actionName, SizeBytes: actionSize, SHA256: actionSHA},
-	})
+	}, dependencySHA)
 	if err := writeRootFile(root, sbomName, sbom, 0o644); err != nil {
 		return fmt.Errorf("SBOM: %w", err)
 	}
@@ -269,16 +299,20 @@ func buildDistribution(options buildOptions) error {
 		return err
 	}
 	manifest := distributionManifest{
-		Schema: distributionSchema, SchemaVersion: distributionSchemaV1, ContractVersion: options.ContractVersion,
+		Schema: distributionSchema, SchemaVersion: distributionSchemaV2, ContractVersion: options.ContractVersion,
 		Version: options.Version, Platform: options.Platform, Architecture: options.Architecture,
 		SourceCommit: options.SourceCommit, SourceTreeSHA256: sourceTree,
 		SchemaRegistrySHA256: schemaSHA, ProtocolSHA256: protocolSHA,
-		CompatibilityBundleSHA256: compatSHA, SignatureRequired: true,
+		CompatibilityBundleSHA256: compatSHA, DependencySHA256: dependencySHA, SignatureRequired: true,
 		ContainerBase: "scratch", ContainerEntrypoint: "/agent-eval", ActionVersion: options.Version,
+		ContainerImageDigest: containerImageDigest, ContainerArchiveSHA256: containerArchiveSHA,
+		ActionSHA256: actionSHA, NetworkPolicy: "none", CredentialPolicy: "none",
+		UpdatePolicy: "none", SandboxPolicy: "caller_enforced",
 		Files: []fileEntry{
 			{Name: actionName, SizeBytes: actionSize, SHA256: actionSHA},
 			{Name: binaryName, SizeBytes: binarySize, SHA256: binarySHA},
 			{Name: compatibilityName, SizeBytes: compatSize, SHA256: compatSHA},
+			{Name: containerArchiveName, SizeBytes: containerArchiveSize, SHA256: containerArchiveSHA},
 			{Name: containerfileName, SizeBytes: containerSize, SHA256: containerSHA},
 			{Name: provenanceName, SizeBytes: provenanceSize, SHA256: provenanceSHA},
 			{Name: sbomName, SizeBytes: sbomSize, SHA256: sbomSHA},
@@ -308,9 +342,28 @@ func buildDistribution(options buildOptions) error {
 	return nil
 }
 
-func renderAction(version, commit, binarySHA string) string {
+func renderAction(version, commit, sourceTreeSHA, dependencySHA, compatibilitySHA, binarySHA, containerfileSHA, containerImageDigest, containerArchiveSHA string) string {
 	template := `name: agent-eval
 description: Run a pre-verified provider-free agent-eval distribution
+outputs:
+  version:
+    description: Effective evaluator version reported by the verified binary
+    value: ${{ steps.verify.outputs.version }}
+  commit:
+    description: Effective source commit reported by the verified binary
+    value: ${{ steps.verify.outputs.commit }}
+  manifest-sha256:
+    description: Verified distribution manifest digest
+    value: ${{ steps.verify.outputs.manifest_sha256 }}
+  action-sha256:
+    description: Verified Action descriptor digest
+    value: ${{ steps.verify.outputs.action_sha256 }}
+  container-image-digest:
+    description: Verified OCI image manifest digest
+    value: ${{ steps.verify.outputs.container_image_digest }}
+  container-archive-sha256:
+    description: Verified OCI image layout archive digest
+    value: ${{ steps.verify.outputs.container_archive_sha256 }}
 inputs:
   distribution:
     description: Absolute or workspace path to the already verified distribution
@@ -321,21 +374,52 @@ inputs:
   expected-commit:
     description: Expected source commit from the verified manifest
     required: true
+  expected-source-tree-sha256:
+    description: Expected selected source tree digest from the verified manifest
+    required: true
+  expected-dependency-sha256:
+    description: Expected evaluator module dependency identity digest
+    required: true
+  expected-compatibility-bundle-sha256:
+    description: Expected provider-free dependency bundle digest
+    required: true
   expected-binary-sha256:
     description: Expected binary digest from the verified manifest
+    required: true
+  expected-manifest-sha256:
+    description: Expected manifest digest from the verified distribution
+    required: true
+  expected-action-sha256:
+    description: Expected Action descriptor digest from the verified manifest
     required: true
 runs:
   using: composite
   steps:
-    - shell: bash
+    - id: verify
+      shell: bash
       env:
         DISTRIBUTION: ${{ inputs.distribution }}
         EXPECTED_VERSION: ${{ inputs.expected-version }}
         EXPECTED_COMMIT: ${{ inputs.expected-commit }}
+        EXPECTED_SOURCE_TREE_SHA256: ${{ inputs.expected-source-tree-sha256 }}
+        EXPECTED_DEPENDENCY_SHA256: ${{ inputs.expected-dependency-sha256 }}
+        EXPECTED_COMPATIBILITY_SHA256: ${{ inputs.expected-compatibility-bundle-sha256 }}
         EXPECTED_BINARY_SHA256: ${{ inputs.expected-binary-sha256 }}
+        EXPECTED_MANIFEST_SHA256: ${{ inputs.expected-manifest-sha256 }}
+        EXPECTED_ACTION_SHA256: ${{ inputs.expected-action-sha256 }}
+        EXPECTED_CONTAINERFILE_SHA256: %q
+        EXPECTED_CONTAINER_IMAGE_DIGEST: %q
+        EXPECTED_CONTAINER_ARCHIVE_SHA256: %q
       run: |
+        set -euo pipefail
         test "$EXPECTED_VERSION" = %q
         test "$EXPECTED_COMMIT" = %q
+        test "$EXPECTED_SOURCE_TREE_SHA256" = %q
+        test "$EXPECTED_DEPENDENCY_SHA256" = %q
+        test "$EXPECTED_COMPATIBILITY_SHA256" = %q
+        test "$EXPECTED_CONTAINERFILE_SHA256" = %q
+        test "$EXPECTED_CONTAINER_IMAGE_DIGEST" = %q
+        test "$EXPECTED_CONTAINER_ARCHIVE_SHA256" = %q
         test -x "$DISTRIBUTION/agent-eval"
         tmp="$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/agent-eval.XXXXXX")"
         tmp_json="$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/agent-eval-json.XXXXXX")"
@@ -345,33 +429,65 @@ runs:
         chmod 700 "$tmp"
         test "$EXPECTED_BINARY_SHA256" = %q
         test "$(sha256sum "$tmp" | awk '{print $1}')" = "$EXPECTED_BINARY_SHA256"
-        "$tmp" version --output json >"$tmp_json"
-        python3 - "$tmp_json" "$EXPECTED_VERSION" "$EXPECTED_COMMIT" <<'PY'
+        test "$(sha256sum "$DISTRIBUTION/compatibility-bundle.json" | awk '{print $1}')" = "$EXPECTED_COMPATIBILITY_SHA256"
+        test -f "$DISTRIBUTION/Containerfile"
+        test "$(sha256sum "$DISTRIBUTION/Containerfile" | awk '{print $1}')" = "$EXPECTED_CONTAINERFILE_SHA256"
+        test -f "$DISTRIBUTION/container.oci.tar"
+        test "$(sha256sum "$DISTRIBUTION/container.oci.tar" | awk '{print $1}')" = "$EXPECTED_CONTAINER_ARCHIVE_SHA256"
+        test "$(sha256sum "$DISTRIBUTION/action.yml" | awk '{print $1}')" = "$EXPECTED_ACTION_SHA256"
+        test -n "${GITHUB_ACTION_PATH:-}"
+        test -f "$GITHUB_ACTION_PATH/action.yml"
+        test "$(sha256sum "$GITHUB_ACTION_PATH/action.yml" | awk '{print $1}')" = "$EXPECTED_ACTION_SHA256"
+        test "$(sha256sum "$DISTRIBUTION/manifest.json" | awk '{print $1}')" = "$EXPECTED_MANIFEST_SHA256"
+        env -i PATH=/usr/bin:/bin HOME=/nonexistent TMPDIR="$(dirname "$tmp")" \
+          "$tmp" version --output json >"$tmp_json"
+        python3 - "$tmp_json" "$DISTRIBUTION/manifest.json" "$EXPECTED_VERSION" "$EXPECTED_COMMIT" "$EXPECTED_BINARY_SHA256" "$EXPECTED_SOURCE_TREE_SHA256" "$EXPECTED_DEPENDENCY_SHA256" "$EXPECTED_COMPATIBILITY_SHA256" "$EXPECTED_CONTAINERFILE_SHA256" "$EXPECTED_CONTAINER_IMAGE_DIGEST" "$EXPECTED_CONTAINER_ARCHIVE_SHA256" "$EXPECTED_ACTION_SHA256" <<'PY'
         import json, sys
         with open(sys.argv[1], encoding='utf-8') as stream:
             payload = json.load(stream)
         result = payload.get('result', payload)
         build = result.get('build', {})
-        if build.get('version') != sys.argv[2] or build.get('commit') != sys.argv[3]:
+        with open(sys.argv[2], encoding='utf-8') as stream:
+            manifest = json.load(stream)
+        if build.get('version') != sys.argv[3] or build.get('commit') != sys.argv[4]:
             raise SystemExit('agent-eval build identity mismatch')
+        if manifest.get('version') != sys.argv[3] or manifest.get('source_commit') != sys.argv[4] or manifest.get('source_tree_sha256') != sys.argv[6] or manifest.get('dependency_sha256') != sys.argv[7] or manifest.get('compatibility_bundle_sha256') != sys.argv[8] or manifest.get('container_image_digest') != sys.argv[10] or manifest.get('container_archive_sha256') != sys.argv[11] or manifest.get('action_sha256') != sys.argv[12]:
+            raise SystemExit('agent-eval distribution identity mismatch')
+        if manifest.get('network_policy') != 'none' or manifest.get('credential_policy') != 'none' or manifest.get('update_policy') != 'none' or manifest.get('sandbox_policy') != 'caller_enforced':
+            raise SystemExit('agent-eval runtime policy is not explicit')
+        files = {entry.get('name'): entry.get('sha256') for entry in manifest.get('files', [])}
+        if files.get('agent-eval') != sys.argv[5] or files.get('compatibility-bundle.json') != sys.argv[8] or files.get('Containerfile') != sys.argv[9] or files.get('container.oci.tar') != sys.argv[11] or files.get('action.yml') != sys.argv[12]:
+            raise SystemExit('agent-eval binary identity mismatch')
         PY
+        {
+          echo "version=$EXPECTED_VERSION"
+          echo "commit=$EXPECTED_COMMIT"
+          echo "manifest_sha256=$EXPECTED_MANIFEST_SHA256"
+          echo "action_sha256=$EXPECTED_ACTION_SHA256"
+          echo "container_image_digest=$EXPECTED_CONTAINER_IMAGE_DIGEST"
+          echo "container_archive_sha256=$EXPECTED_CONTAINER_ARCHIVE_SHA256"
+        } >>"${GITHUB_OUTPUT:?GITHUB_OUTPUT is required}"
 `
-	return fmt.Sprintf(template, version, commit, binarySHA)
+	return fmt.Sprintf(template, containerfileSHA, containerImageDigest, containerArchiveSHA, version, commit, sourceTreeSHA, dependencySHA, compatibilitySHA, containerfileSHA, containerImageDigest, containerArchiveSHA, binarySHA)
 }
 
-func renderProvenance(options buildOptions, sourceTree, binarySHA, compatibilitySHA string) []byte {
+func renderProvenance(options buildOptions, sourceTree, dependencySHA, binarySHA, compatibilitySHA, containerfileSHA, containerImageDigest, containerArchiveSHA, actionSHA string) []byte {
 	value := map[string]any{
 		"schema": distributionSchema + "/provenance", "schema_version": 1,
 		"source_commit": options.SourceCommit, "source_tree_sha256": sourceTree,
 		"version": options.Version, "platform": options.Platform, "architecture": options.Architecture,
-		"binary_sha256": binarySHA, "compatibility_bundle_sha256": compatibilitySHA,
-		"builder": "scripts/agent-eval-distribution", "network": "probe-unverified", "credentials": "probe-unverified",
+		"binary_sha256": binarySHA, "dependency_sha256": dependencySHA, "compatibility_bundle_sha256": compatibilitySHA,
+		"containerfile_sha256":   containerfileSHA,
+		"container_image_digest": containerImageDigest, "container_archive_sha256": containerArchiveSHA,
+		"action_sha256": actionSHA, "network_policy": "none", "credential_policy": "none",
+		"update_policy": "none", "sandbox_policy": "caller_enforced",
+		"builder": "scripts/agent-eval-distribution", "network": "none", "credentials": "none",
 	}
 	data, _ := canonicalJSON(value)
 	return data
 }
 
-func renderSBOM(options buildOptions, sourceTree string, files []fileEntry) []byte {
+func renderSBOM(options buildOptions, sourceTree string, files []fileEntry, dependencySHA ...string) []byte {
 	binarySHA := ""
 	for _, file := range files {
 		if file.Name == binaryName {
@@ -397,13 +513,18 @@ func renderSBOM(options buildOptions, sourceTree string, files []fileEntry) []by
 			"checksums": []map[string]string{{"algorithm": "SHA256", "checksumValue": file.SHA256}},
 		})
 	}
-	data, _ := canonicalJSON(map[string]any{
+	namespace := "https://github.com/isukharev/atl/agent-eval/" + options.SourceCommit + "/" + options.Version + "/" + options.Platform + "/" + options.Architecture + "/" + sourceTree + "/" + binarySHA
+	if len(dependencySHA) > 0 && dependencySHA[0] != "" {
+		namespace += "/" + dependencySHA[0]
+	}
+	value := map[string]any{
 		"SPDXID": "SPDXRef-DOCUMENT", "spdxVersion": "SPDX-2.3", "name": "agent-eval-distribution",
-		"documentNamespace": "https://github.com/isukharev/atl/agent-eval/" + options.SourceCommit + "/" + options.Version + "/" + options.Platform + "/" + options.Architecture + "/" + sourceTree + "/" + binarySHA,
+		"documentNamespace": namespace,
 		"dataLicense":       "CC0-1.0", "creationInfo": map[string]any{
 			"created": "1970-01-01T00:00:00Z", "creators": []string{"Tool: scripts/agent-eval-distribution"},
 		}, "packages": packages,
-	})
+	}
+	data, _ := canonicalJSON(value)
 	return data
 }
 
@@ -494,6 +615,30 @@ func loadVerifiedDistribution(options verifyOptions) (verifiedDistribution, erro
 	if compatibilityEntry.SHA256 != manifest.CompatibilityBundleSHA256 || validateCompatibilityBundle(files[compatibilityName], manifest.ContractVersion) != nil {
 		return verified, errors.New("compatibility bundle does not match the manifest contract")
 	}
+	if manifest.SchemaVersion == distributionSchemaV2 {
+		containerEntry := findManifestEntry(manifest.Files, containerArchiveName)
+		containerfileEntry := findManifestEntry(manifest.Files, containerfileName)
+		binaryEntry := findManifestEntry(manifest.Files, binaryName)
+		actionEntry := findManifestEntry(manifest.Files, actionName)
+		if containerEntry.SHA256 != manifest.ContainerArchiveSHA256 || actionEntry.SHA256 != manifest.ActionSHA256 ||
+			containerfileEntry.SHA256 == "" || binaryEntry.SHA256 == "" {
+			return verified, errors.New("container identity does not match the manifest contract")
+		}
+		if err := validateContainerImageArchive(files[containerArchiveName], containerImageExpectation{
+			ManifestDigest:   strings.TrimPrefix(manifest.ContainerImageDigest, "sha256:"),
+			BinarySHA:        binaryEntry.SHA256,
+			CompatibilitySHA: manifest.CompatibilityBundleSHA256,
+			DependencySHA:    manifest.DependencySHA256,
+			SourceTreeSHA:    manifest.SourceTreeSHA256,
+			ContainerfileSHA: containerfileEntry.SHA256,
+			SourceCommit:     manifest.SourceCommit,
+			Version:          manifest.Version,
+			Platform:         manifest.Platform,
+			Architecture:     manifest.Architecture,
+		}); err != nil {
+			return verified, fmt.Errorf("container image is invalid: %w", err)
+		}
+	}
 	entries, err := readDirectoryBounded(root, maxDistributionFiles)
 	if err != nil {
 		return verified, err
@@ -530,13 +675,23 @@ func findManifestEntry(entries []fileEntry, name string) fileEntry {
 }
 
 func validateManifest(manifest distributionManifest) error {
-	if manifest.Schema != distributionSchema || manifest.SchemaVersion != distributionSchemaV1 || !validDistributionContractVersion(manifest.ContractVersion) || !validVersion(manifest.Version) || !validDistributionPlatform(manifest.Platform) || !validDistributionArchitecture(manifest.Architecture) || !validCommit(manifest.SourceCommit) || !validDigest(manifest.SourceTreeSHA256) || !validDigest(manifest.SchemaRegistrySHA256) || !validDigest(manifest.ProtocolSHA256) || !validDigest(manifest.CompatibilityBundleSHA256) || !manifest.SignatureRequired || manifest.ContainerBase != "scratch" || manifest.ContainerEntrypoint != "/agent-eval" || manifest.ActionVersion != manifest.Version || len(manifest.Files) == 0 || len(manifest.Files) > maxDistributionFiles {
+	if manifest.Schema != distributionSchema || (manifest.SchemaVersion != distributionSchemaV1 && manifest.SchemaVersion != distributionSchemaV2) || !validDistributionContractVersion(manifest.ContractVersion) || !validVersion(manifest.Version) || !validDistributionPlatform(manifest.Platform) || !validDistributionArchitecture(manifest.Architecture) || !validCommit(manifest.SourceCommit) || !validDigest(manifest.SourceTreeSHA256) || !validDigest(manifest.SchemaRegistrySHA256) || !validDigest(manifest.ProtocolSHA256) || !validDigest(manifest.CompatibilityBundleSHA256) || !manifest.SignatureRequired || manifest.ContainerBase != "scratch" || manifest.ContainerEntrypoint != "/agent-eval" || manifest.ActionVersion != manifest.Version || len(manifest.Files) == 0 || len(manifest.Files) > maxDistributionFiles {
 		return errors.New("distribution manifest metadata is invalid")
+	}
+	containerContractPresent := manifest.ContainerImageDigest != "" || manifest.ContainerArchiveSHA256 != "" || manifest.ActionSHA256 != "" || manifest.DependencySHA256 != "" || manifest.NetworkPolicy != "" || manifest.CredentialPolicy != "" || manifest.UpdatePolicy != "" || manifest.SandboxPolicy != ""
+	if manifest.SchemaVersion == distributionSchemaV1 && containerContractPresent {
+		return errors.New("legacy distribution manifest cannot contain v2 container fields")
+	}
+	if manifest.SchemaVersion == distributionSchemaV2 && (!containerContractPresent || !validContainerDigest(manifest.ContainerImageDigest) || !validDigest(manifest.ContainerArchiveSHA256) || !validDigest(manifest.ActionSHA256) || !validDigest(manifest.DependencySHA256) || manifest.NetworkPolicy != "none" || manifest.CredentialPolicy != "none" || manifest.UpdatePolicy != "none" || manifest.SandboxPolicy != "caller_enforced") {
+		return errors.New("container and Action runtime policy is invalid")
 	}
 	seen := make(map[string]bool, len(manifest.Files))
 	requiredNames := map[string]bool{
 		binaryName: true, compatibilityName: true, containerfileName: true,
 		actionName: true, sbomName: true, provenanceName: true,
+	}
+	if manifest.SchemaVersion == distributionSchemaV2 {
+		requiredNames[containerArchiveName] = true
 	}
 	previousName := ""
 	for _, entry := range manifest.Files {
@@ -553,6 +708,9 @@ func validateManifest(manifest distributionManifest) error {
 		if !seen[required] {
 			return fmt.Errorf("distribution manifest omits %s", required)
 		}
+	}
+	if manifest.SchemaVersion == distributionSchemaV2 && !seen[containerArchiveName] {
+		return fmt.Errorf("distribution manifest omits %s", containerArchiveName)
 	}
 	return nil
 }
@@ -638,7 +796,7 @@ func syncChildDirectory(root *os.Root, name string) error {
 }
 
 func writeVerifiedSnapshot(root, share *os.Root, verified verifiedDistribution) error {
-	for _, name := range []string{binaryName, compatibilityName, containerfileName, actionName, sbomName, provenanceName, manifestName, manifestChecksumName, "manifest.json.sig"} {
+	for _, name := range append(manifestArtifactNames(verified.Manifest), manifestName, manifestChecksumName, "manifest.json.sig") {
 		data, exists := verified.Files[name]
 		if name == manifestName {
 			data = verified.ManifestData
@@ -671,11 +829,19 @@ func writeVerifiedSnapshot(root, share *os.Root, verified verifiedDistribution) 
 	return nil
 }
 
+func manifestArtifactNames(manifest distributionManifest) []string {
+	names := make([]string, 0, len(manifest.Files))
+	for _, entry := range manifest.Files {
+		names = append(names, entry.Name)
+	}
+	return names
+}
+
 func removeInstalledSnapshot(root, share *os.Root, manifest *distributionManifest) error {
 	if err := removeRegular(root, filepath.Join("bin", binaryName)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	names := []string{installedCompatibility, containerfileName, actionName, sbomName, provenanceName, installedManifestName, installedChecksumName, installedSignatureName}
+	names := []string{installedCompatibility, containerfileName, containerArchiveName, actionName, sbomName, provenanceName, installedManifestName, installedChecksumName, installedSignatureName}
 	if manifest != nil {
 		for _, entry := range manifest.Files {
 			if entry.Name != binaryName && entry.Name != manifestName {
@@ -869,7 +1035,15 @@ func uninstallDistribution(prefix, confirmation, publicKey string) error {
 	if err := removeRegular(root, filepath.Join("bin", binaryName)); err != nil {
 		return err
 	}
-	for _, name := range []string{installedCompatibility, containerfileName, actionName, sbomName, provenanceName, installedManifestName, installedChecksumName, installedSignatureName} {
+	for _, entry := range manifest.Files {
+		if entry.Name == binaryName {
+			continue
+		}
+		if err := removeRegular(share, entry.Name); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	for _, name := range []string{installedManifestName, installedChecksumName, installedSignatureName} {
 		if err := removeRegular(share, name); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
