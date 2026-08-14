@@ -4,7 +4,7 @@ The public neutral corpus at
 [`benchmarks/agent-eval-standalone/README.md`](../../benchmarks/agent-eval-standalone/README.md)
 is a provider-free contract fixture for the reusable evaluator layers. It is
 separate from the ATL Jira/Confluence benchmark and from generated client
-skills. The fixture covers ten synthetic families: skill lift, no lift, stale
+skills. The fixture covers ten synthetic cases across eight families: skill lift, no lift, stale
 guidance, autonomous activation, near-miss negatives, distractors, stateful
 steps, verifier isolation, resource tax, and lifecycle security.
 

@@ -188,9 +188,15 @@ func TestNeutralConformanceCorpusIsDeterministicAndContentAddressed(t *testing.T
 		if len(first.Attempts) != int(attempts) || len(second.Attempts) != int(attempts) {
 			t.Fatalf("case %s has %d/%d attempts, want %d", testCase.ID, len(first.Attempts), len(second.Attempts), attempts)
 		}
-		for _, attempt := range first.Attempts {
+		for ordinal, attempt := range first.Attempts {
+			if attempt.Identity.Plan != plan.ID || attempt.Identity.Task != plan.Task.ID || attempt.Identity.Treatment != plan.Treatment.ID || attempt.Identity.Ordinal != uint32(ordinal+1) {
+				t.Fatalf("case %s attempt %d identity=%+v does not match the admitted plan", testCase.ID, ordinal, attempt.Identity)
+			}
 			if neutralOutcomeName(attempt.Outcome) != testCase.Expected {
 				t.Fatalf("case %s outcome=%s, want manifest expectation %s", testCase.ID, neutralOutcomeName(attempt.Outcome), testCase.Expected)
+			}
+			if ordinal > 0 && !reflect.DeepEqual(attempt.Assessment, first.Attempts[0].Assessment) {
+				t.Fatalf("case %s attempt %d assessment drifted from the frozen first-attempt projection", testCase.ID, ordinal)
 			}
 		}
 		attempt := first.Attempts[0]
@@ -485,6 +491,13 @@ func assertNeutralAuthoringFixtures(t *testing.T, root string) {
 	if authoring.Schema != "agent-skills/evals" || authoring.Version != 1 || len(authoring.Evals) != 2 {
 		t.Fatalf("agent-skills authoring fixture drifted: %+v", authoring)
 	}
+	wantEvals := []skillEval{
+		{ID: "synthetic-addition", Skill: "../../../fixtures/skills/skill-addition", Fixture: "../../../fixtures/environments/reference-v1.txt", Verifier: "../../../fixtures/hidden-verifiers/answer-v1.txt"},
+		{ID: "synthetic-stale-guidance", Skill: "../../../fixtures/skills/skill-stale", Expected: "negative-control"},
+	}
+	if !reflect.DeepEqual(authoring.Evals, wantEvals) {
+		t.Fatalf("agent-skills eval paths or roles drifted: got=%+v want=%+v", authoring.Evals, wantEvals)
+	}
 	evalsRoot := filepath.Join(root, "authoring", "agent-skills", "evals")
 	for _, item := range authoring.Evals {
 		if filepath.IsAbs(item.Skill) || filepath.IsAbs(item.Fixture) || filepath.IsAbs(item.Verifier) {
@@ -502,9 +515,6 @@ func assertNeutralAuthoringFixtures(t *testing.T, root string) {
 				t.Fatalf("authoring fixture %q is not readable: %v", relative, err)
 			}
 		}
-	}
-	if authoring.Evals[0].ID != "synthetic-addition" || authoring.Evals[0].Expected != "" || authoring.Evals[1].ID != "synthetic-stale-guidance" || authoring.Evals[1].Expected != "negative-control" {
-		t.Fatalf("agent-skills eval identities drifted: %+v", authoring.Evals)
 	}
 }
 
