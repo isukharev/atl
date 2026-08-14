@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"unicode/utf8"
 
@@ -186,7 +185,7 @@ func (value InspectQualification) Validate() error {
 			WheelFilename: inspectAIWheelFilename, WheelSHA256: inspectAIWheelSHA256,
 			SourceArchiveFilename: inspectAISourceArchiveFilename, SourceArchiveSHA256: inspectAISourceArchiveSHA256,
 			RuntimeFloor: inspectAIRuntimeFloor, License: inspectAILicense,
-	}) || value.Policy != (InspectOneAttemptPolicy{
+		}) || value.Policy != (InspectOneAttemptPolicy{
 		FrameworkRetries: 0, EvalSetRetries: 0, TaskRetries: 0, ModelRetries: 0,
 		Network: "deny", Credentials: "none", PermissionPolicy: "evaluator_owned",
 		Sandbox: "required", RawArtifacts: "owner_private", Projection: "content_minimized",
@@ -468,9 +467,11 @@ func decodeInspectQualificationJSON(reader io.Reader, target any, validate func(
 	return nil
 }
 
-func inspectQualificationError(code string, _ error) error {
+func inspectQualificationError(code string, cause error) error {
 	// Never render parser, filesystem, or caller-controlled field text. The
 	// stable sentinel and closed reason are sufficient for callers and keep the
-	// public qualification boundary content-minimized.
-	return fmt.Errorf("%w: %s", ErrInspectQualification, code)
+	// public qualification boundary content-minimized. Retaining the cause in
+	// the coded error's unwrap tree preserves errors.Is/errors.As without
+	// exposing cause text through Error().
+	return codedError(ErrInspectQualification, code, cause)
 }

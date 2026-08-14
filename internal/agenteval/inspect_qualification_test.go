@@ -138,7 +138,7 @@ func TestInspectQualificationErrorsRedactInputNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	marker := "private-marker-qualification"
+	marker := "synthetic-marker-qualification"
 	mutated := bytes.Replace(valid, []byte(`{"schema":`), []byte(`{"`+marker+`":true,"schema":`), 1)
 	decodeErr := func() error {
 		_, err := DecodeInspectQualification(bytes.NewReader(mutated))
@@ -212,7 +212,7 @@ func TestInspectSyntheticFailureEncodingRequiresExactLedgerBinding(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	marker := "private-marker-probe"
+	marker := "synthetic-marker-probe"
 	mutated := bytes.Replace(encoded, []byte(`{"schema":`), []byte(`{"`+marker+`":true,"schema":`), 1)
 	if _, err := DecodeInspectSyntheticAttempt(bytes.NewReader(mutated), qualification, inspection); err == nil || !errors.Is(err, ErrInspectQualification) || strings.Contains(err.Error(), marker) {
 		t.Fatalf("synthetic decoder accepted or leaked unknown input: %v", err)
@@ -278,7 +278,7 @@ func TestRunInspectSyntheticFailureRejectsSecondInvocation(t *testing.T) {
 	if _, _, err := RunInspectSyntheticFailure(qualification, ledgerRoot); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := RunInspectSyntheticFailure(qualification, ledgerRoot); !errors.Is(err, ErrInspectQualification) {
+	if _, _, err := RunInspectSyntheticFailure(qualification, ledgerRoot); !errors.Is(err, ErrInspectQualification) || !errors.Is(err, ErrAttemptLedgerConflict) {
 		t.Fatalf("second synthetic invocation was not refused: %v", err)
 	}
 	store, err := OpenAttemptLedgerStore(ledgerRoot)

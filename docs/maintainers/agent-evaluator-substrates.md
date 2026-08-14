@@ -233,6 +233,14 @@ hosted viewer was used for this comparison.
 
 The snapshots are comparison pins, not new production dependencies.
 
+The Inspect pin also binds the two artifacts published by the official
+[PyPI release](https://pypi.org/project/inspect-ai/0.3.252/#files): wheel
+`inspect_ai-0.3.252-py3-none-any.whl` at SHA-256
+`3be38f02d303b433e80e003c5181e609ad56594f45169b3709523781cdcd2ebc` and
+source archive `inspect_ai-0.3.252.tar.gz` at SHA-256
+`9e5abaaf7930a57c2d0d593a2123c60cd7300eeec7602a3a00bcfaa9e5efd820`.
+The provider-free qualification does not download or install either artifact.
+
 ## Comparison
 
 | Dimension | Evaluator-owned | Harbor | Inspect AI / Inspect SWE | Promptfoo | ATL-owned hybrid |
@@ -315,6 +323,15 @@ calls redaction best-effort. Telemetry and sharing need their own explicit
 disable controls.
 
 ## Credential-free synthetic observations
+
+The repository's [provider-free Inspect qualification descriptor](../../internal/agenteval/inspect_qualification.go)
+binds the reviewed source, package artifacts, runtime floor, license, and the
+evaluator-owned deny/retry policy. Its synthetic probe enters only the
+append-only evaluator ledger and injects one pre-spawn failure: one terminal
+failed attempt is retained, replay is refused, runtime evidence remains
+unknown, and adoption remains `deferred`. It does not import or execute Inspect,
+an agent, Python, a provider, or a backend, and it makes no runtime-isolation
+claim.
 
 The comparison host had Node 24.18 but no Docker, `uv`, Python package installer,
 or working Python virtual-environment bootstrap. Harbor therefore stopped at its
