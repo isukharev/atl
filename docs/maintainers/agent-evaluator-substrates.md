@@ -279,6 +279,17 @@ retry removes the previous trial directory before rebuilding it. Artifact
 collection is explicitly best-effort. These are reasonable benchmark-runner
 choices, but not ATL's immutable evidence contract.
 
+The repository's provider-free Harbor qualification descriptor binds the
+reviewed v0.20.0 source commit, the canonical GitHub API tarball route and
+hash, `pyproject.toml` and `uv.lock` hashes, Python floor, and license. Its
+deny-by-default policy records zero retries, no cache/telemetry/upload,
+network and credentials denied, evaluator-owned permissions/scoring/resources,
+and no executable or container input selected. The synthetic probe records
+one injected pre-spawn failure through the append-only ledger, retains no
+runtime-safety evidence, and leaves adoption `deferred`. It does not import or
+execute Harbor or Python, resolve dependencies, contact a registry/provider, or
+claim compatibility, sandbox isolation, or adoption.
+
 ### Inspect AI and Inspect SWE
 
 Inspect provides the broadest useful orchestration surface: external
