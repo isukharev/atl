@@ -269,7 +269,15 @@ func RunInspectSyntheticFailure(qualification InspectQualification, ledgerRoot s
 	// so equal qualification inputs produce equal content-minimized identities.
 	store, err := CreateAttemptLedgerStore(ledgerRoot, bytes.NewReader(make([]byte, 32)))
 	if err != nil {
-		return InspectSyntheticAttempt{}, AttemptLedgerInspection{}, inspectQualificationError("ledger", err)
+		cause := err
+		// A concurrent creator can hold the ledger lock while its header is
+		// being initialized. Treat that bounded single-use contention as a
+		// conflict too: the probe must fail closed rather than expose a
+		// scheduler-dependent busy classification.
+		if errors.Is(err, ErrAttemptLedgerBusy) {
+			cause = errors.Join(ErrAttemptLedgerConflict, err)
+		}
+		return InspectSyntheticAttempt{}, AttemptLedgerInspection{}, inspectQualificationError("ledger", cause)
 	}
 	binding, err := inspectSyntheticFailureBinding(qualification)
 	if err != nil {
