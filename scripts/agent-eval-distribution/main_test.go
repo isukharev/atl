@@ -154,7 +154,7 @@ func TestDistributionMakeRunsCleanBeforeFullGate(t *testing.T) {
 		t.Fatal("distribution build must own the full-gate boundary and start from the clean gate")
 	}
 	outputIndex := strings.Index(text, "--output \"$(AGENT_EVAL_DISTRIBUTION_OUTPUT)\"")
-	if outputIndex < 0 || strings.Index(text[outputIndex:], "source commit changed during build") < 0 {
+	if outputIndex < 0 || !strings.Contains(text[outputIndex:], "source commit changed during build") {
 		t.Fatal("distribution build must reconcile source identity after publishing")
 	}
 }
