@@ -29,7 +29,6 @@ func TestStableReadProductionInventory(t *testing.T) {
 		structuralAdmissionCapture:                                  1,
 		"internal/agenteval/interchange/agentskills/publication.go": 4,
 		"internal/agenteval/interchange/agentskills/stable_tree.go": 1,
-		atifExport:                                                   5,
 		"internal/agenteval/live_gateway.go":                        1,
 		"internal/agenteval/private_coverage_scorecard.go":          3,
 		"internal/agenteval/private_finding_acceptance.go":          7,
@@ -63,6 +62,7 @@ func TestStableReadProductionInventory(t *testing.T) {
 		capabilityReferenceChecker:                                  1,
 		"scripts/gen-plugins/main.go":                               17,
 	}
+	want[atifExport] = 5
 
 	got := map[string]int{}
 	files := token.NewFileSet()

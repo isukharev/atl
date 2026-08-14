@@ -10,7 +10,7 @@ import (
 // Seal validates a complete normalized event set and creates a content-bound
 // owner-private ATIF projection. It never reads a provider or filesystem.
 func Seal(input EventSet) (Projection, error) {
-	if len(input.Events) == 0 || len(input.Events) > MaxSteps || input.DeclaredEvents != uint32(len(input.Events)) {
+	if len(input.Events) == 0 || len(input.Events) > MaxSteps || !matchesCount(input.DeclaredEvents, len(input.Events)) {
 		return Projection{}, fail(ErrorInvalidEventSet)
 	}
 	if err := validateProducer(input.Producer); err != nil {
@@ -45,7 +45,7 @@ func Seal(input EventSet) (Projection, error) {
 			Schema: BindingSchema, Version: BindingVersion,
 			SourceSHA256: sourceSHA256, Producer: input.Producer,
 			Privacy:  PrivacyOwnerPrivate,
-			Coverage: Coverage{DeclaredEvents: input.DeclaredEvents, ProjectedSteps: uint32(len(events)), Complete: true},
+			Coverage: Coverage{DeclaredEvents: input.DeclaredEvents, ProjectedSteps: input.DeclaredEvents, Complete: true},
 		},
 	}
 	for index, event := range events {
@@ -108,7 +108,7 @@ func validateProducer(producer Producer) error {
 }
 
 func validateEvents(events []Event, declared uint32) error {
-	if len(events) == 0 || len(events) > MaxSteps || declared != uint32(len(events)) {
+	if len(events) == 0 || len(events) > MaxSteps || !matchesCount(declared, len(events)) {
 		return fail(ErrorInvalidEventSet)
 	}
 	toolCalls := 0
@@ -184,8 +184,8 @@ func validateDocument(document Document) error {
 	}
 	if document.Extra.Schema != BindingSchema || document.Extra.Version != BindingVersion ||
 		document.Extra.Privacy != PrivacyOwnerPrivate || !validDigest(document.Extra.SourceSHA256) ||
-		!validDigest(document.Extra.ProjectionSHA256) || document.Extra.Coverage.DeclaredEvents != uint32(len(document.Steps)) ||
-		document.Extra.Coverage.ProjectedSteps != uint32(len(document.Steps)) || !document.Extra.Coverage.Complete {
+		!validDigest(document.Extra.ProjectionSHA256) || !matchesCount(document.Extra.Coverage.DeclaredEvents, len(document.Steps)) ||
+		document.Extra.Coverage.ProjectedSteps != document.Extra.Coverage.DeclaredEvents || !document.Extra.Coverage.Complete {
 		return fail(ErrorInvalidBinding)
 	}
 	if err := preflightSteps(document.Steps, document.Extra.Coverage.DeclaredEvents); err != nil {
@@ -209,10 +209,7 @@ func validateDocument(document Document) error {
 	if err := validateEvents(events, document.Extra.Coverage.DeclaredEvents); err != nil {
 		return err
 	}
-	if err := validateCanonicalDocumentSize(document); err != nil {
-		return err
-	}
-	return nil
+	return validateCanonicalDocumentSize(document)
 }
 
 func validateCanonicalDocumentSize(document Document) error {
@@ -226,11 +223,15 @@ func validateCanonicalDocumentSize(document Document) error {
 	return nil
 }
 
+func matchesCount(declared uint32, actual int) bool {
+	return actual >= 0 && uint64(declared) == uint64(actual)
+}
+
 // preflightEvents and preflightSteps inspect caller-owned slices without
 // cloning or decoding their nested payloads. This keeps hostile in-memory
 // inputs bounded before the owned snapshot and digest allocations below.
 func preflightEvents(events []Event, declared uint32) error {
-	if len(events) == 0 || len(events) > MaxSteps || declared != uint32(len(events)) {
+	if len(events) == 0 || len(events) > MaxSteps || !matchesCount(declared, len(events)) {
 		return fail(ErrorInvalidEventSet)
 	}
 	var bytes uint64
@@ -244,7 +245,7 @@ func preflightEvents(events []Event, declared uint32) error {
 }
 
 func preflightSteps(steps []Step, declared uint32) error {
-	if len(steps) == 0 || len(steps) > MaxSteps || declared != uint32(len(steps)) {
+	if len(steps) == 0 || len(steps) > MaxSteps || !matchesCount(declared, len(steps)) {
 		return fail(ErrorInvalidProjection)
 	}
 	var bytes uint64
