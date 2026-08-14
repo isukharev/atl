@@ -208,6 +208,8 @@ jobs:
           check-latest: true
       - name: Maintainer toolchain contract
         run: make check-maintainer-contract
+      - name: Agent-eval support policy
+        run: make check-agent-eval-support
       - name: Two-module package boundary
         run: make check-package-boundary
       - name: Maintainability ratchets

@@ -1,0 +1,95 @@
+{
+  "schema": "agent-eval/support-policy",
+  "schema_version": 1,
+  "status": "pre_release",
+  "support_owner": {
+    "kind": "repository_maintainer",
+    "repository": "github.com/isukharev/atl",
+    "security_route": "SECURITY.md"
+  },
+  "external_consumer": {
+    "kind": "out_of_tree_provider_free_conformance_runner",
+    "evidence": "required_before_first_signed_release",
+    "named_consumer": false
+  },
+  "cadence": {
+    "stable": "not_declared",
+    "pre_release": "reviewed_source_only"
+  },
+  "platforms": [
+    {
+      "os": "linux",
+      "architecture": "amd64",
+      "state": "candidate",
+      "surface": "provider_free_process"
+    }
+  ],
+  "excluded_platforms": [
+    {
+      "os": "windows",
+      "reason": "owner_only_directory_persistence_not_proven"
+    },
+    {
+      "os": "darwin",
+      "reason": "signed_distribution_matrix_not_proven"
+    },
+    {
+      "os": "linux",
+      "architecture": "arm64",
+      "reason": "signed_distribution_matrix_not_proven"
+    }
+  ],
+  "components": [
+    {
+      "id": "standalone_cli",
+      "state": "pre_release",
+      "provider_access": "none",
+      "backend_access": "none",
+      "network": "none"
+    },
+    {
+      "id": "compatibility_bundle",
+      "state": "pre_release",
+      "identity": "content_addressed"
+    },
+    {
+      "id": "container",
+      "state": "not_declared",
+      "route": "1389"
+    },
+    {
+      "id": "github_action",
+      "state": "not_declared",
+      "route": "1389"
+    }
+  ],
+  "compatibility": {
+    "schema_policy": "current_and_prior_supported_generation_only",
+    "future_generation": "refuse",
+    "contract_window": "pre_release_no_stable_clock",
+    "rollback": "required_before_stable_release"
+  },
+  "security": {
+    "response_route": "SECURITY.md",
+    "target": "best_effort_until_stable_policy_is_approved",
+    "automatic_updates": false
+  },
+  "deprecation": {
+    "notice_days": 180,
+    "notice_releases": 2,
+    "removal_requires_major": true,
+    "clock_starts": "first_conforming_signed_standalone_release"
+  },
+  "release": {
+    "publication_authority": "separate_explicit_approval",
+    "stable_prerequisites": [
+      "named_external_consumer_evidence",
+      "complete_supported_platform_matrix",
+      "signed_reproducible_artifacts",
+      "full_evaluator_gate",
+      "provider_free_conformance",
+      "security_and_privacy_review"
+    ],
+    "repository_extraction": "not_authorized"
+  }
+}
