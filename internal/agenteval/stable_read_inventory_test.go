@@ -18,6 +18,7 @@ func TestStableReadProductionInventory(t *testing.T) {
 	const structuralAdmission = "internal/agenteval/interchange/agentskills/admission.go"
 	const structuralAdmissionCapture = "internal/agenteval/interchange/agentskills/admission_capture.go"
 	const atifExport = "internal/agenteval/interchange/atif/export.go"
+	const distributionBuilder = "scripts/agent-eval-distribution/main.go"
 	want := map[string]int{
 		"internal/agenteval/aggregate_root.go":                      3,
 		"internal/agenteval/cmd/agent-eval/standalone_config.go":    1,
@@ -65,6 +66,7 @@ func TestStableReadProductionInventory(t *testing.T) {
 		"scripts/gen-plugins/main.go":                               17,
 	}
 	want[atifExport] = 5
+	want[distributionBuilder] = 2
 
 	got := map[string]int{}
 	files := token.NewFileSet()
