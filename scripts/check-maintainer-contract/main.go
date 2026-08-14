@@ -36,22 +36,20 @@ const (
 )
 
 var exactGoVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
+var legacyEvaluatorScriptPath = regexp.MustCompile(`(?:^|[^[:alnum:]_.-])\./scripts/agent-eval(?:[^[:alnum:]_.-]|$)`)
 
 const rootGoEnvironmentMakeContract = `GO_ENV   := env -u GOROOT GOTOOLCHAIN=auto GOWORK=off
 GO_LOCAL_ENV := env -u GOROOT GOTOOLCHAIN=local GOWORK=off
 AGENT_EVAL_DIR := internal/agenteval
 AGENT_EVAL_MAKE := $(MAKE) -C $(AGENT_EVAL_DIR) REPOSITORY_ROOT="$(CURDIR)" ATL_BINARY="$(CURDIR)/atl"
 `
-
 const devcontainerSystemPackagesContract = `sudo apt-get -o Acquire::Retries=3 -o APT::Update::Error-Mode=any update -qq
 sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends gnupg python3 ripgrep
 `
-
 const windowsCompileMakeContract = `.PHONY: check-windows-compile
 check-windows-compile:
 	$(GO_ENV) GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...
 `
-
 const coreCoverageMakeContract = `.PHONY: check-core-race-coverage
 check-core-race-coverage:
 	@root_core_packages="$$( $(GO_ENV) go run ./scripts/list-go-packages --class root-core)" && \
@@ -165,6 +163,74 @@ agent-eval-product-boundary: check-package-boundary
 .PHONY: agent-eval-full
 agent-eval-full: check-agent-eval-support check-skill-routing check-module-boundary
 	$(AGENT_EVAL_MAKE) full
+`
+
+const agentEvalDistributionMakeContract = `.PHONY: agent-eval-distribution-clean
+agent-eval-distribution-clean:
+	@set -eu; \
+		test -z "$$(git status --porcelain=v1 --ignored=matching --untracked-files=all)" || (echo 'agent-eval distribution requires a clean checkout with no ignored source residue' >&2; exit 2)
+
+.PHONY: agent-eval-distribution-full
+agent-eval-distribution-full: agent-eval-distribution-clean
+	@set -eu; \
+		test -z "$$(git status --porcelain=v1 --ignored=matching --untracked-files=all)" || (echo 'agent-eval distribution source changed before the full gate' >&2; exit 2); \
+		before="$$(git rev-parse HEAD)"; \
+		$(MAKE) agent-eval-full; \
+		after="$$(git rev-parse HEAD)"; \
+		test "$$before" = "$$after" || (echo 'agent-eval distribution source commit changed during the full gate' >&2; exit 2); \
+		test -z "$$(git diff --name-only)" || (echo 'agent-eval distribution source changed during the full gate' >&2; exit 2); \
+		test -z "$$(git diff --cached --name-only)" || (echo 'agent-eval distribution index changed during the full gate' >&2; exit 2); \
+		test -z "$$(git status --porcelain=v1 --untracked-files=all)" || (echo 'agent-eval distribution gained untracked source during the full gate' >&2; exit 2); \
+		if test -n "$(AGENT_EVAL_DISTRIBUTION_STATE)"; then printf '%s\n' "$$before" >"$(AGENT_EVAL_DISTRIBUTION_STATE)"; fi
+
+.PHONY: agent-eval-distribution
+agent-eval-distribution: agent-eval-distribution-clean
+	@test -n "$(AGENT_EVAL_DISTRIBUTION_OUTPUT)" || (echo 'set AGENT_EVAL_DISTRIBUTION_OUTPUT to one absent absolute directory' >&2; exit 2)
+	@set -eu; \
+		state="$$(mktemp /tmp/agent-eval-distribution-state.XXXXXX)"; \
+		trap 'rm -f "$$state" "$${binary:-}"; rmdir "$(CURDIR)/tmp" 2>/dev/null || true' EXIT; \
+		$(MAKE) agent-eval-distribution-full AGENT_EVAL_DISTRIBUTION_STATE="$$state"; \
+		test -s "$$state" || (echo 'agent-eval distribution full gate did not publish source identity' >&2; exit 2); \
+		source_commit="$$(cat "$$state")"; \
+		test "$$(git rev-parse HEAD)" = "$$source_commit" || (echo 'agent-eval distribution source commit changed after the full gate' >&2; exit 2); \
+		test -z "$$(git diff --name-only)" || (echo 'agent-eval distribution source changed after the full gate' >&2; exit 2); \
+		test -z "$$(git diff --cached --name-only)" || (echo 'agent-eval distribution index changed after the full gate' >&2; exit 2); \
+		test -z "$$(git status --porcelain=v1 --untracked-files=all)" || (echo 'agent-eval distribution gained untracked source after the full gate' >&2; exit 2); \
+		mkdir -p "$(CURDIR)/tmp"; \
+		binary="$$(mktemp "$(CURDIR)/tmp/agent-eval-distribution.XXXXXX")"; \
+		version="$${AGENT_EVAL_DISTRIBUTION_VERSION:-0.1.0-pre-release}"; \
+		target_platform="$${AGENT_EVAL_PLATFORM:-$$(go env GOOS)}"; \
+		target_architecture="$${AGENT_EVAL_ARCHITECTURE:-$$(go env GOARCH)}"; \
+		build_date="$$(git show -s --format=%cI "$$source_commit")"; \
+		$(GO_ENV) CGO_ENABLED=0 GOOS="$$target_platform" GOARCH="$$target_architecture" \
+			go -C internal/agenteval build -trimpath -buildvcs=false -ldflags "-s -w -buildid= -X main.standaloneBuildVersion=$$version -X main.standaloneBuildCommit=$$source_commit -X main.standaloneBuildDate=$$build_date" -o "$$binary" ./cmd/agent-eval; \
+		$(GO_ENV) go run ./scripts/agent-eval-distribution \
+			--mode build --binary "$$binary" \
+			--defer-marker \
+			--compatibility internal/agenteval/testdata/standalone-conformance.v1.json \
+			--source-root . \
+			--source-files internal/agenteval \
+			--schema-registry internal/agenteval/schemaregistry/registry.v1.json \
+			--protocol internal/agenteval/cmd/agent-eval/standalone_process.go \
+			--source-commit "$$source_commit" \
+			--version "$$version" \
+			--platform "$$target_platform" --architecture "$$target_architecture" \
+			--output "$(AGENT_EVAL_DISTRIBUTION_OUTPUT)"; \
+		test "$$(git rev-parse HEAD)" = "$$source_commit" || (echo 'agent-eval distribution source commit changed during build' >&2; exit 2); \
+		test -z "$$(git diff --name-only)" || (echo 'agent-eval distribution source changed during build' >&2; exit 2); \
+		test -z "$$(git diff --cached --name-only)" || (echo 'agent-eval distribution index changed during build' >&2; exit 2); \
+		test -z "$$(git status --porcelain=v1 --untracked-files=all)" || (echo 'agent-eval distribution gained untracked source during build' >&2; exit 2)
+	@set -eu; \
+		source_commit="$$(git rev-parse HEAD)"; \
+		$(GO_ENV) go run ./scripts/agent-eval-distribution \
+			--mode commit --output "$(AGENT_EVAL_DISTRIBUTION_OUTPUT)" \
+			--compatibility internal/agenteval/testdata/standalone-conformance.v1.json \
+			--source-root . \
+			--source-files internal/agenteval \
+			--schema-registry internal/agenteval/schemaregistry/registry.v1.json \
+			--protocol internal/agenteval/cmd/agent-eval/standalone_process.go \
+			--source-commit "$$source_commit" \
+			--contract-version 0.1.0-pre-release
 `
 
 const (
@@ -474,6 +540,7 @@ func validateBootstrap(root string) error {
 		{"check-reference-split", referenceSplitMakeContract, "makefile must retain the exact reference-split compatibility gate"},
 		{"check-context7-docs", context7MakeContract, "makefile must retain the exact indexed-documentation gate"},
 		{"check-onboarding-docs", onboardingMakeContract, "makefile onboarding binary assertion must set ATL_NO_UPDATE=1"},
+		{"agent-eval-distribution", agentEvalDistributionMakeContract, "makefile must retain the exact standalone distribution gate"},
 	} {
 		if countMakeTargetDeclarations(makefile, required.target) != 1 ||
 			bytes.Count(makefile, []byte(required.contract)) != 1 {
@@ -490,7 +557,7 @@ func validateBootstrap(root string) error {
 		}
 	}
 	if bytes.Count(makefile, []byte(agentEvalFacadeMakeContract)) != 1 ||
-		bytes.Contains(makefile, []byte("scripts/agent-eval")) ||
+		legacyEvaluatorScriptPath.Match(makefile) ||
 		bytes.Contains(makefile, []byte("go test ./internal/agenteval")) {
 		return errors.New("makefile must keep evaluator gates behind the reviewed nested-module facades")
 	}
@@ -698,7 +765,7 @@ ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
 	if err := validateMakeExecutionControls(makefile); err != nil {
 		return fmt.Errorf("evaluator Makefile: %w", err)
 	}
-	if bytes.Contains(makefile, []byte("scripts/agent-eval")) {
+	if legacyEvaluatorScriptPath.Match(makefile) {
 		return errors.New("evaluator Makefile must not retain the legacy scripts/agent-eval path")
 	}
 

@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   candidate platform, compatibility/deprecation contour, security route, and
   stable-release prerequisites. It does not declare a supported external
   consumer or authorize release publication.
+- Added an offline release-candidate distribution dry run for the standalone
+  evaluator: bounded manifest/checksum/SBOM/provenance generation, detached
+  signing and verification, marker-protected install, verified rollback, and
+  explicit uninstall. It publishes nothing and does not claim stable support.
 - Added caller-bounded `conf attachment search` and typed
   `confluence_attachment_search` for completeness-qualified, metadata-only
   Server/Data Center attachment discovery without a known page, with

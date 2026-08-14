@@ -133,7 +133,7 @@ var reviewedOwners = []owner{
 	{ID: "httpx", PathPrefixes: []string{"internal/httpx/"}},
 	{ID: "mcp", PathPrefixes: []string{"internal/mcpserver/"}},
 	{ID: "mirror", PathPrefixes: []string{"internal/mirror/"}},
-	{ID: "tooling", PathPrefixes: []string{"scripts/check-docs-freshness/", "scripts/check-maintainability/", "scripts/check-maintainer-contract/", "scripts/gen-plugins/"}},
+	{ID: "tooling", PathPrefixes: []string{"scripts/agent-eval-distribution/", "scripts/check-docs-freshness/", "scripts/check-maintainability/", "scripts/check-maintainer-contract/", "scripts/gen-plugins/"}},
 }
 
 func main() {

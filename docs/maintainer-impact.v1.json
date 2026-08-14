@@ -85,6 +85,7 @@
     {"prefix":"internal/contentpolicy/","checks":["lint","maintainability","package-boundary","test","vet"]},
     {"prefix":"plugins/","checks":["plugins"]},
     {"prefix":"scripts/","checks":["lint","maintainability","test","vet"]},
+    {"prefix":"scripts/agent-eval-distribution/","checks":["agent-eval-full","agent-eval-product-boundary","docs-freshness","lint","maintainability","maintainer-contract","test","vet"]},
     {"prefix":"scripts/check-agent-eval-support/","checks":["agent-eval-support"]},
     {"prefix":"scripts/check-corpus-devcontainer/","checks":["corpus-devcontainer"]},
     {"prefix":"scripts/check-docs-catalog/","checks":["docs-catalog"]},

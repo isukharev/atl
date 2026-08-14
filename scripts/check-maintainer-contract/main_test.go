@@ -56,6 +56,21 @@ func TestRepositoryMaintainerContract(t *testing.T) {
 	}
 }
 
+func TestLegacyEvaluatorScriptPathRejectsShellPunctuation(t *testing.T) {
+	for _, value := range []string{
+		"./scripts/agent-eval;",
+		"./scripts/agent-eval && echo bad",
+		"prefix ./scripts/agent-eval|next",
+	} {
+		if !legacyEvaluatorScriptPath.MatchString(value) {
+			t.Fatalf("legacy evaluator path %q was not detected", value)
+		}
+	}
+	if legacyEvaluatorScriptPath.MatchString("./scripts/agent-eval-distribution") {
+		t.Fatal("distribution path was mistaken for the legacy evaluator path")
+	}
+}
+
 func TestValidMaintainerContract(t *testing.T) {
 	root := writeFixture(t)
 	var output bytes.Buffer
@@ -512,7 +527,7 @@ readonly GRAPHIFY_WHEEL_URL="https://files.pythonhosted.org/packages/c3/fe/eb0af
 			maintainabilityMakeContract + pluginsMakeContract + docsCatalogMakeContract + docsFreshnessMakeContract +
 			supportPolicyMakeContract +
 			repositorySkillsMakeContract + referenceSplitMakeContract + context7MakeContract + onboardingMakeContract +
-			agentEvalFacadeMakeContract,
+			agentEvalFacadeMakeContract + agentEvalDistributionMakeContract,
 		"internal/agenteval/Makefile": `GO_ENV := env -u GOROOT GOTOOLCHAIN=auto GOWORK=off
 REPOSITORY_ROOT ?= $(abspath ../..)
 ATL_BINARY ?= $(REPOSITORY_ROOT)/atl

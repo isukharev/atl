@@ -35,15 +35,15 @@ func TestRunReportsPhysicalFileAndFunctionSpans(t *testing.T) {
 	if got.Status != "ok" || got.Timing.Mode != "observe" || got.Timing.Observations != 2 {
 		t.Fatalf("unexpected report: %+v", got)
 	}
-	if len(got.Hotspots) != 22 || len(got.PackageTotals) != 14 {
-		t.Fatalf("hotspots=%d package_totals=%d want 22 and 14", len(got.Hotspots), len(got.PackageTotals))
+	if len(got.Hotspots) != 24 || len(got.PackageTotals) != 15 {
+		t.Fatalf("hotspots=%d package_totals=%d want 24 and 15", len(got.Hotspots), len(got.PackageTotals))
 	}
 	appFile := got.Hotspots[hotspotIndex(t, readFixtureManifest(t, root), "app", "")]
 	appFunction := got.Hotspots[hotspotIndex(t, readFixtureManifest(t, root), "app", "appHotspot")]
 	if appFile.Lines != reviewedLargeFileThreshold || appFunction.Lines != 1 {
 		t.Fatalf("app measurements=%+v %+v want file=%d function=1", appFile, appFunction, reviewedLargeFileThreshold)
 	}
-	if got.ChangeSurface.ProductionFiles != 14 || len(got.ChangeSurface.LargeFiles) != 1 || got.ChangeSurface.LargeFiles[0].Path != "internal/app/a.go" {
+	if got.ChangeSurface.ProductionFiles != 15 || len(got.ChangeSurface.LargeFiles) != 1 || got.ChangeSurface.LargeFiles[0].Path != "internal/app/a.go" {
 		t.Fatalf("unexpected change-surface report: %+v", got.ChangeSurface)
 	}
 }
@@ -338,6 +338,7 @@ func writeMaintainabilityFixture(t *testing.T) string {
 		"internal/httpx/h.go":                    "package httpx\n\nfunc httpxHotspot() {}\n",
 		"internal/mcpserver/m.go":                "package mcpserver\n\nfunc mcpHotspot() {}\n",
 		"internal/mirror/r.go":                   "package mirror\n\nfunc mirrorHotspot() {}\n",
+		"scripts/agent-eval-distribution/m.go":   "package main\n\nfunc distributionHotspot() {}\n",
 		"scripts/check-maintainability/m.go":     "package main\n\nfunc toolingHotspot() {}\n",
 		"scripts/check-maintainer-contract/m.go": "package main\n",
 		"scripts/check-docs-freshness/m.go":      "package main\n",
@@ -371,6 +372,8 @@ func writeMaintainabilityFixture(t *testing.T) string {
 			{Owner: "mcp", Path: "internal/mcpserver/m.go", Function: "mcpHotspot", MaxLines: 5, Rationale: "fixture function"},
 			{Owner: "mirror", Path: "internal/mirror/r.go", MaxLines: 10, Rationale: "fixture file"},
 			{Owner: "mirror", Path: "internal/mirror/r.go", Function: "mirrorHotspot", MaxLines: 5, Rationale: "fixture function"},
+			{Owner: "tooling", Path: "scripts/agent-eval-distribution/m.go", MaxLines: 10, Rationale: "fixture file"},
+			{Owner: "tooling", Path: "scripts/agent-eval-distribution/m.go", Function: "distributionHotspot", MaxLines: 5, Rationale: "fixture function"},
 			{Owner: "tooling", Path: "scripts/check-maintainability/m.go", MaxLines: 10, Rationale: "fixture file"},
 			{Owner: "tooling", Path: "scripts/check-maintainability/m.go", Function: "toolingHotspot", MaxLines: 5, Rationale: "fixture function"},
 		},
@@ -385,6 +388,7 @@ func writeMaintainabilityFixture(t *testing.T) string {
 			{Owner: "httpx", Path: "internal/httpx/", MaxLines: 10, Rationale: "fixture package"},
 			{Owner: "mcp", Path: "internal/mcpserver/", MaxLines: 10, Rationale: "fixture package"},
 			{Owner: "mirror", Path: "internal/mirror/", MaxLines: 10, Rationale: "fixture package"},
+			{Owner: "tooling", Path: "scripts/agent-eval-distribution/", MaxLines: 10, Rationale: "fixture package"},
 			{Owner: "tooling", Path: "scripts/check-docs-freshness/", MaxLines: 10, Rationale: "fixture package"},
 			{Owner: "tooling", Path: "scripts/check-maintainability/", MaxLines: 10, Rationale: "fixture package"},
 			{Owner: "tooling", Path: "scripts/check-maintainer-contract/", MaxLines: 10, Rationale: "fixture package"},
