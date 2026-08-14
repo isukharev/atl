@@ -28,7 +28,7 @@ func TestDistributionBuildVerifySignInstallUninstall(t *testing.T) {
 	compatibility := filepath.Join(root, "compat.json")
 	registry := filepath.Join(source, "one.txt")
 	protocol := filepath.Join(source, "one.txt")
-	if err := os.WriteFile(binary, []byte("binary\n"), 0o700); err != nil {
+	if err := os.WriteFile(binary, testBinaryData("0.1.0-pre-release", strings.Repeat("a", 40), "initial"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(compatibility, []byte("{\"schema\":\"compat\"}\n"), 0o600); err != nil {
@@ -141,6 +141,70 @@ func TestDistributionRejectsCanonicalAndPathDrift(t *testing.T) {
 	if err := validateManifest(manifest); err == nil {
 		t.Fatal("unsupported manifest member was accepted")
 	}
+	manifest.Files = []fileEntry{
+		{Name: containerfileName, SizeBytes: 1, SHA256: strings.Repeat("f", 64)},
+		{Name: actionName, SizeBytes: 1, SHA256: strings.Repeat("f", 64)},
+		{Name: binaryName, SizeBytes: 1, SHA256: strings.Repeat("f", 64)},
+		{Name: compatibilityName, SizeBytes: 1, SHA256: strings.Repeat("f", 64)},
+		{Name: provenanceName, SizeBytes: 1, SHA256: strings.Repeat("f", 64)},
+		{Name: sbomName, SizeBytes: 1, SHA256: strings.Repeat("f", 64)},
+	}
+	for name, mutate := range map[string]func(*distributionManifest){
+		"contract":     func(value *distributionManifest) { value.ContractVersion = "9.9.9" },
+		"platform":     func(value *distributionManifest) { value.Platform = "solaris" },
+		"architecture": func(value *distributionManifest) { value.Architecture = "mips64" },
+	} {
+		candidate := manifest
+		mutate(&candidate)
+		if err := validateManifest(candidate); err == nil {
+			t.Fatalf("unsupported %s metadata was accepted", name)
+		}
+	}
+}
+
+func TestDistributionBuildBindsBinaryAndSourceBoundary(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	if err := os.Mkdir(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "one.txt"), []byte("one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	compatibility := filepath.Join(root, "compat.json")
+	if err := os.WriteFile(compatibility, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commit := strings.Repeat("a", 40)
+	options := buildOptions{
+		Binary: "/bin/true", Compatibility: compatibility, SourceRoot: source,
+		SourceFiles: []string{"one.txt"}, SchemaRegistry: filepath.Join(source, "one.txt"),
+		Protocol: filepath.Join(source, "one.txt"), Output: filepath.Join(root, "dist"),
+		Version: "0.1.0-pre-release", ContractVersion: "0.1.0-pre-release",
+		SourceCommit: commit, Platform: "linux", Architecture: "amd64",
+	}
+	if err := buildDistribution(options); err == nil {
+		t.Fatal("unrelated executable was accepted as the evaluator binary")
+	}
+
+	validBinary := filepath.Join(root, "agent-eval")
+	if err := os.WriteFile(validBinary, testBinaryData(options.Version, commit, "valid"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	options.Binary = validBinary
+	options.Output = filepath.Join(source, "nested-output")
+	if err := buildDistribution(options); err == nil {
+		t.Fatal("distribution output overlapping source tree was accepted")
+	}
+
+	if err := os.WriteFile(filepath.Join(source, ".env"), []byte("secret=refuse\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	options.Output = filepath.Join(root, "dist-sensitive")
+	options.SourceFiles = []string{"."}
+	if err := buildDistribution(options); err == nil {
+		t.Fatal("sensitive source member was accepted")
+	}
 }
 
 func TestDistributionBuildIsReproducibleAndUninstallRefusesDrift(t *testing.T) {
@@ -223,6 +287,8 @@ func TestDistributionActionBindsAllExpectedIdentityInputs(t *testing.T) {
 		"test \"$EXPECTED_COMMIT\" = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
 		"test \"$EXPECTED_BINARY_SHA256\" = \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"",
 		"sha256sum \"$tmp\"",
+		"mktemp",
+		"tmp_json=",
 	} {
 		if !strings.Contains(action, want) {
 			t.Fatalf("action omitted identity binding %q:\n%s", want, action)
@@ -254,7 +320,7 @@ func TestDistributionRollbackRestoresVerifiedCandidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) != "old-binary\n" {
+	if !strings.Contains(string(data), "old-binary") {
 		t.Fatalf("rollback installed unexpected binary: %q", data)
 	}
 	if _, err := os.Stat(filepath.Join(prefix, rollbackInstallMark)); !os.IsNotExist(err) {
@@ -280,7 +346,9 @@ func buildTestDistributionNamed(t *testing.T, root, label, outputLabel string, b
 	}
 	binary := filepath.Join(root, "agent-eval-"+outputLabel)
 	compatibility := filepath.Join(root, "compat-"+outputLabel+".json")
-	if err := os.WriteFile(binary, binaryData, 0o700); err != nil {
+	version := "0.1.0-" + label
+	commit := strings.Repeat(testCommitCharacter(label), 40)
+	if err := os.WriteFile(binary, testBinaryData(version, commit, string(binaryData)), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(compatibility, []byte("{\"schema\":\"compat\"}\n"), 0o600); err != nil {
@@ -290,12 +358,16 @@ func buildTestDistributionNamed(t *testing.T, root, label, outputLabel string, b
 	if err := buildDistribution(buildOptions{
 		Binary: binary, Compatibility: compatibility, SourceRoot: source,
 		SourceFiles: []string{"one.txt"}, SchemaRegistry: filepath.Join(source, "one.txt"), Protocol: filepath.Join(source, "one.txt"),
-		Output: distribution, Version: "0.1.0-" + label, ContractVersion: "0.1.0-pre-release",
-		SourceCommit: strings.Repeat(testCommitCharacter(label), 40), Platform: "linux", Architecture: "amd64",
+		Output: distribution, Version: version, ContractVersion: "0.1.0-pre-release",
+		SourceCommit: commit, Platform: "linux", Architecture: "amd64",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	return distribution
+}
+
+func testBinaryData(version, commit, marker string) []byte {
+	return []byte("#!/bin/sh\n# " + marker + "\nprintf '%s\\n' '{\"result\":{\"build\":{\"version\":\"" + version + "\",\"commit\":\"" + commit + "\"}}}'\n")
 }
 
 func testCommitCharacter(label string) string {

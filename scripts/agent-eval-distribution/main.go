@@ -23,30 +23,31 @@ import (
 )
 
 const (
-	distributionSchema      = "agent-eval/distribution-manifest"
-	distributionSchemaV1    = 1
-	maxManifestBytes        = 1 << 20
-	maxArtifactBytes        = 64 << 20
-	maxSourceFiles          = 4096
-	maxSourceTreeBytes      = 64 << 20
-	maxDistributionFiles    = 32
-	manifestName            = "manifest.json"
-	manifestChecksumName    = "manifest.json.sha256"
-	binaryName              = "agent-eval"
-	compatibilityName       = "compatibility-bundle.json"
-	containerfileName       = "Containerfile"
-	actionName              = "action.yml"
-	sbomName                = "sbom.spdx.json"
-	provenanceName          = "provenance.json"
-	distributionInstallMark = ".incomplete"
-	distributionBuildMark   = ".incomplete"
-	rollbackInstallMark     = ".rollback-incomplete"
-	installedManifestName   = "manifest.json"
-	installedChecksumName   = "manifest.json.sha256"
-	installedSignatureName  = "manifest.json.sig"
-	installedCompatibility  = "compatibility-bundle.json"
-	installedSupportDir     = "agent-eval"
-	installerConfirmation   = "UNINSTALL AGENT-EVAL"
+	distributionSchema          = "agent-eval/distribution-manifest"
+	distributionSchemaV1        = 1
+	maxManifestBytes            = 1 << 20
+	maxArtifactBytes            = 64 << 20
+	maxSourceFiles              = 4096
+	maxSourceTreeBytes          = 64 << 20
+	maxDistributionFiles        = 32
+	manifestName                = "manifest.json"
+	manifestChecksumName        = "manifest.json.sha256"
+	binaryName                  = "agent-eval"
+	compatibilityName           = "compatibility-bundle.json"
+	containerfileName           = "Containerfile"
+	actionName                  = "action.yml"
+	sbomName                    = "sbom.spdx.json"
+	provenanceName              = "provenance.json"
+	distributionInstallMark     = ".incomplete"
+	distributionBuildMark       = ".incomplete"
+	rollbackInstallMark         = ".rollback-incomplete"
+	installedManifestName       = "manifest.json"
+	installedChecksumName       = "manifest.json.sha256"
+	installedSignatureName      = "manifest.json.sig"
+	installedCompatibility      = "compatibility-bundle.json"
+	installedSupportDir         = "agent-eval"
+	installerConfirmation       = "UNINSTALL AGENT-EVAL"
+	distributionContractVersion = "0.1.0-pre-release"
 )
 
 type fileEntry struct {
@@ -170,11 +171,20 @@ func distributionOrOutput(distribution, output string) string {
 }
 
 func buildDistribution(options buildOptions) error {
-	if options.Binary == "" || options.Compatibility == "" || options.Output == "" || options.Version == "" || options.SourceCommit == "" || options.SchemaRegistry == "" || options.Protocol == "" || len(options.SourceFiles) == 0 {
+	if options.Binary == "" || options.Compatibility == "" || options.SourceRoot == "" || options.Output == "" || options.Version == "" || options.SourceCommit == "" || options.SchemaRegistry == "" || options.Protocol == "" || len(options.SourceFiles) == 0 {
 		return errors.New("build requires binary, compatibility, output, version, source-commit, schema-registry, protocol, and source-files")
 	}
-	if !validVersion(options.Version) || !validCommit(options.SourceCommit) || options.ContractVersion == "" || options.Platform == "" || options.Architecture == "" {
+	if !filepath.IsAbs(options.Output) || filepath.Clean(options.Output) != options.Output {
+		return errors.New("distribution output must be an absolute clean path")
+	}
+	if !validVersion(options.Version) || !validCommit(options.SourceCommit) || !validDistributionContractVersion(options.ContractVersion) || !validDistributionPlatform(options.Platform) || !validDistributionArchitecture(options.Architecture) {
 		return errors.New("build metadata is not canonical")
+	}
+	if pathsOverlap(options.SourceRoot, options.Output) {
+		return errors.New("distribution output must not overlap the selected source tree")
+	}
+	if err := validateBinaryIdentity(options.Binary, options.Version, options.SourceCommit); err != nil {
+		return fmt.Errorf("binary identity: %w", err)
 	}
 	root, err := createAbsentDirectory(options.Output)
 	if err != nil {
@@ -198,6 +208,9 @@ func buildDistribution(options buildOptions) error {
 	}
 	if err := copyIntoRoot(root, binaryName, options.Binary, 0o755); err != nil {
 		return fmt.Errorf("binary: %w", err)
+	}
+	if err := validateBinaryIdentity(filepath.Join(options.Output, binaryName), options.Version, options.SourceCommit); err != nil {
+		return fmt.Errorf("copied binary identity: %w", err)
 	}
 	if err := copyIntoRoot(root, compatibilityName, options.Compatibility, 0o644); err != nil {
 		return fmt.Errorf("compatibility bundle: %w", err)
@@ -313,15 +326,16 @@ runs:
         test "$EXPECTED_VERSION" = %q
         test "$EXPECTED_COMMIT" = %q
         test -x "$DISTRIBUTION/agent-eval"
-        tmp="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/agent-eval.$$"
-        trap 'rm -f "$tmp" "$tmp.json"' EXIT
+        tmp="$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/agent-eval.XXXXXX")"
+        tmp_json="$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/agent-eval-json.XXXXXX")"
+        trap 'rm -f "$tmp" "$tmp_json"' EXIT
         umask 077
         cp -- "$DISTRIBUTION/agent-eval" "$tmp"
         chmod 700 "$tmp"
         test "$EXPECTED_BINARY_SHA256" = %q
         test "$(sha256sum "$tmp" | awk '{print $1}')" = "$EXPECTED_BINARY_SHA256"
-        "$tmp" version --output json >"$tmp.json"
-        python3 - "$tmp.json" "$EXPECTED_VERSION" "$EXPECTED_COMMIT" <<'PY'
+        "$tmp" version --output json >"$tmp_json"
+        python3 "$tmp_json" "$EXPECTED_VERSION" "$EXPECTED_COMMIT" <<'PY'
 import json, sys
 with open(sys.argv[1], encoding='utf-8') as stream:
     payload = json.load(stream)
@@ -364,7 +378,7 @@ func renderSBOM(options buildOptions, sourceTree string, files []fileEntry) []by
 	}
 	data, _ := canonicalJSON(map[string]any{
 		"SPDXID": "SPDXRef-DOCUMENT", "spdxVersion": "SPDX-2.3", "name": "agent-eval-distribution",
-		"documentNamespace": "https://github.com/isukharev/atl/agent-eval/" + options.SourceCommit,
+		"documentNamespace": "https://github.com/isukharev/atl/agent-eval/" + options.SourceCommit + "/" + options.Version + "/" + options.Platform + "/" + options.Architecture,
 		"dataLicense":       "CC0-1.0", "creationInfo": map[string]any{
 			"created": "1970-01-01T00:00:00Z", "creators": []string{"Tool: scripts/agent-eval-distribution"},
 		}, "packages": packages,
@@ -376,10 +390,14 @@ func signDistribution(directory, privateKeyPath string) error {
 	if privateKeyPath == "" {
 		return errors.New("sign requires --private-key")
 	}
-	data, err := readFileBounded(filepath.Join(directory, manifestName), maxManifestBytes)
+	verified, err := loadVerifiedDistribution(verifyOptions{Distribution: directory, AllowUnsigned: true})
 	if err != nil {
 		return err
 	}
+	if err := validateBinaryIdentity(filepath.Join(directory, binaryName), verified.Manifest.Version, verified.Manifest.SourceCommit); err != nil {
+		return fmt.Errorf("binary identity: %w", err)
+	}
+	data := verified.ManifestData
 	keyData, err := readFileBounded(privateKeyPath, 4096)
 	if err != nil {
 		return err
@@ -389,7 +407,10 @@ func signDistribution(directory, privateKeyPath string) error {
 		return errors.New("private signing key is not a base64 ed25519 key")
 	}
 	signature := ed25519.Sign(ed25519.PrivateKey(key), data)
-	return writeExclusive(filepath.Join(directory, "manifest.json.sig"), signature, 0o644)
+	if err := writeExclusive(filepath.Join(directory, "manifest.json.sig"), signature, 0o644); err != nil {
+		return err
+	}
+	return syncParentDirectory(filepath.Join(directory, "manifest.json.sig"))
 }
 
 func verifyDistribution(options verifyOptions) error {
@@ -475,7 +496,7 @@ func loadVerifiedDistribution(options verifyOptions) (verifiedDistribution, erro
 }
 
 func validateManifest(manifest distributionManifest) error {
-	if manifest.Schema != distributionSchema || manifest.SchemaVersion != distributionSchemaV1 || manifest.ContractVersion == "" || !validVersion(manifest.Version) || manifest.Platform == "" || manifest.Architecture == "" || !validCommit(manifest.SourceCommit) || !validDigest(manifest.SourceTreeSHA256) || !validDigest(manifest.SchemaRegistrySHA256) || !validDigest(manifest.ProtocolSHA256) || !validDigest(manifest.CompatibilityBundleSHA256) || !manifest.SignatureRequired || manifest.ContainerBase != "scratch" || manifest.ContainerEntrypoint != "/agent-eval" || manifest.ActionVersion != manifest.Version || len(manifest.Files) == 0 || len(manifest.Files) > maxDistributionFiles {
+	if manifest.Schema != distributionSchema || manifest.SchemaVersion != distributionSchemaV1 || !validDistributionContractVersion(manifest.ContractVersion) || !validVersion(manifest.Version) || !validDistributionPlatform(manifest.Platform) || !validDistributionArchitecture(manifest.Architecture) || !validCommit(manifest.SourceCommit) || !validDigest(manifest.SourceTreeSHA256) || !validDigest(manifest.SchemaRegistrySHA256) || !validDigest(manifest.ProtocolSHA256) || !validDigest(manifest.CompatibilityBundleSHA256) || !manifest.SignatureRequired || manifest.ContainerBase != "scratch" || manifest.ContainerEntrypoint != "/agent-eval" || manifest.ActionVersion != manifest.Version || len(manifest.Files) == 0 || len(manifest.Files) > maxDistributionFiles {
 		return errors.New("distribution manifest metadata is invalid")
 	}
 	seen := make(map[string]bool, len(manifest.Files))
@@ -676,7 +697,7 @@ func rollbackDistribution(options verifyOptions, prefix string) error {
 			return readErr
 		}
 		current, decodeErr := decodeManifest(currentData)
-		if decodeErr != nil || current.SourceCommit == verified.Manifest.SourceCommit {
+		if decodeErr != nil || bytes.Equal(currentData, verified.ManifestData) {
 			return errors.New("rollback requires a different valid installed candidate")
 		}
 		if err := validateInstalledDistribution(root, share, current, currentData, false, options.PublicKey); err != nil {
@@ -937,7 +958,15 @@ func createAbsentDirectory(name string) (*os.Root, error) {
 	if err := os.Mkdir(name, 0o700); err != nil {
 		return nil, err
 	}
-	return openDirectory(name)
+	root, err := openDirectory(name)
+	if err != nil {
+		return nil, err
+	}
+	if err := syncParentDirectory(name); err != nil {
+		_ = root.Close()
+		return nil, err
+	}
+	return root, nil
 }
 
 func openDirectory(name string) (*os.Root, error) {
@@ -1035,9 +1064,30 @@ func readFileBounded(name string, limit int64) ([]byte, error) {
 	if !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 {
 		return nil, errors.New("distribution input is not a regular file")
 	}
+	data, err := readFileDescriptor(name, info, limit)
+	if err != nil {
+		return nil, err
+	}
+	finalInfo, err := os.Lstat(name)
+	if err != nil || !os.SameFile(info, finalInfo) {
+		return nil, errors.New("distribution input changed while read")
+	}
+	second, err := readFileDescriptor(name, info, limit)
+	if err != nil || !bytes.Equal(data, second) {
+		return nil, errors.New("distribution input changed while read")
+	}
+	return data, nil
+}
+
+func readFileDescriptor(name string, expected fs.FileInfo, limit int64) ([]byte, error) {
 	file, err := os.Open(name)
 	if err != nil {
 		return nil, err
+	}
+	opened, statErr := file.Stat()
+	if statErr != nil || !opened.Mode().IsRegular() || !os.SameFile(expected, opened) {
+		_ = file.Close()
+		return nil, errors.New("distribution input changed while opened")
 	}
 	data, readErr := io.ReadAll(io.LimitReader(file, limit+1))
 	closeErr := file.Close()
@@ -1058,9 +1108,30 @@ func readRootFile(root *os.Root, name string, limit int64) ([]byte, error) {
 	if !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 {
 		return nil, errors.New("distribution member is not a regular file")
 	}
+	data, err := readRootDescriptor(root, name, info, limit)
+	if err != nil {
+		return nil, err
+	}
+	finalInfo, err := root.Lstat(name)
+	if err != nil || !os.SameFile(info, finalInfo) {
+		return nil, errors.New("distribution member changed while read")
+	}
+	second, err := readRootDescriptor(root, name, info, limit)
+	if err != nil || !bytes.Equal(data, second) {
+		return nil, errors.New("distribution member changed while read")
+	}
+	return data, nil
+}
+
+func readRootDescriptor(root *os.Root, name string, expected fs.FileInfo, limit int64) ([]byte, error) {
 	file, err := root.Open(name)
 	if err != nil {
 		return nil, err
+	}
+	opened, statErr := file.Stat()
+	if statErr != nil || !opened.Mode().IsRegular() || !os.SameFile(expected, opened) {
+		_ = file.Close()
+		return nil, errors.New("distribution member changed while opened")
 	}
 	data, readErr := io.ReadAll(io.LimitReader(file, limit+1))
 	closeErr := file.Close()
@@ -1087,94 +1158,6 @@ func hashRootFile(root *os.Root, name string, limit int64) (string, int64, error
 		return "", 0, err
 	}
 	return sha256Bytes(data), int64(len(data)), nil
-}
-
-func hashSelectedTree(root string, paths []string) (string, error) {
-	files := map[string]fileEntry{}
-	var total int64
-	visitedEntries := 0
-	for _, selected := range paths {
-		if selected == "" || filepath.IsAbs(selected) || filepath.Clean(selected) != selected || strings.HasPrefix(selected, ".."+string(filepath.Separator)) || selected == ".." {
-			return "", errors.New("source selection must be relative and contained")
-		}
-		absolute := filepath.Join(root, selected)
-		info, err := os.Lstat(absolute)
-		if err != nil {
-			return "", err
-		}
-		if info.Mode()&fs.ModeSymlink != 0 {
-			return "", errors.New("source selection contains a symlink")
-		}
-		if info.IsDir() {
-			err = filepath.WalkDir(absolute, func(path string, entry fs.DirEntry, walkErr error) error {
-				if walkErr != nil {
-					return walkErr
-				}
-				visitedEntries++
-				if visitedEntries > maxSourceFiles*2 {
-					return errors.New("source tree exceeds bounded entry selection")
-				}
-				if entry.Type()&fs.ModeSymlink != 0 {
-					return errors.New("source tree contains a symlink")
-				}
-				if entry.IsDir() {
-					return nil
-				}
-				rel, err := filepath.Rel(root, path)
-				if err != nil {
-					return err
-				}
-				return addTreeFile(files, filepath.ToSlash(rel), path, &total)
-			})
-		} else {
-			err = addTreeFile(files, filepath.ToSlash(selected), absolute, &total)
-		}
-		if err != nil {
-			return "", err
-		}
-	}
-	if len(files) == 0 || len(files) > maxSourceFiles || total > maxSourceTreeBytes {
-		return "", errors.New("source tree exceeds bounded selection")
-	}
-	entries := make([]fileEntry, 0, len(files))
-	for _, entry := range files {
-		entries = append(entries, entry)
-	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
-	hash := sha256.New()
-	for _, entry := range entries {
-		fmt.Fprintf(hash, "%s\x00%d\x00%s\x00", entry.Name, entry.SizeBytes, entry.SHA256)
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
-}
-
-func addTreeFile(files map[string]fileEntry, relative, absolute string, total *int64) error {
-	if !safeName(relative) {
-		return errors.New("source tree path is not canonical")
-	}
-	if _, exists := files[relative]; exists {
-		return nil
-	}
-	if len(files) >= maxSourceFiles {
-		return errors.New("source tree exceeds bounded file selection")
-	}
-	info, err := os.Lstat(absolute)
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 {
-		return errors.New("source tree member is not a regular file")
-	}
-	if info.Size() < 0 || info.Size() > maxArtifactBytes || *total > maxSourceTreeBytes-info.Size() {
-		return errors.New("source tree exceeds bounded byte selection")
-	}
-	sha, size, err := hashRegularFile(absolute, maxArtifactBytes)
-	if err != nil {
-		return err
-	}
-	files[relative] = fileEntry{Name: relative, SizeBytes: size, SHA256: sha}
-	*total += size
-	return nil
 }
 
 func readDirectoryBounded(root *os.Root, limit int) ([]fs.DirEntry, error) {
@@ -1296,6 +1279,12 @@ func validDigest(value string) bool {
 	_, err := hex.DecodeString(value)
 	return err == nil
 }
+
+func validDistributionContractVersion(value string) bool { return value == distributionContractVersion }
+
+func validDistributionPlatform(value string) bool { return value == "linux" || value == "darwin" }
+
+func validDistributionArchitecture(value string) bool { return value == "amd64" || value == "arm64" }
 
 func validCommit(value string) bool {
 	return len(value) == 40 && validHex(value)

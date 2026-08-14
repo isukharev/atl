@@ -36,6 +36,13 @@ env -u GOROOT GOTOOLCHAIN=auto GOWORK=off \
   --output /absolute/new/distribution
 ```
 
+The release-candidate contract currently admits only version
+`0.1.0-pre-release`, Linux or Darwin, and amd64 or arm64. The output must be a
+different, absent path outside the selected source tree. The builder probes the
+candidate with `version --output json` before and after copying it; the reported
+version and source commit must match the manifest. This is a bounded local
+identity probe, not provider or backend execution.
+
 The builder writes a bounded manifest, checksum, SPDX SBOM, provenance record,
 compatibility bundle, static scratch container descriptor, and composite Action
 descriptor. The generated Action is deliberately a pre-verified runner: it
@@ -46,8 +53,9 @@ marker-bearing directory is never accepted as a distribution.
 Two builds with the same inputs must have byte-identical members. The manifest
 binds the binary, schema registry, process protocol, compatibility bundle,
 source tree, platform, architecture, and version. The builder reads only
-regular files under explicit paths and has no provider, backend, network, or
-credential authority.
+regular files under explicit paths and rejects symlinks, sensitive names such
+as `.git`, `.env`, private-key extensions, and source/output overlap. It has no
+provider, backend, network, or credential authority.
 
 ## Verify and sign
 
@@ -71,7 +79,9 @@ Verification rejects unknown/special members, symlinks, non-canonical JSON,
 future/invalid metadata, size or digest drift, missing required artifacts,
 unsigned distributions, and signature mismatch. It rereads the exact bytes
 that installation will use, so a source mutation between verification and
-copying cannot silently become an installed artifact.
+copying cannot silently become an installed artifact. Signing performs the same
+manifest/member and binary-identity validation before creating the detached
+signature; signing never blesses an arbitrary executable or metadata tuple.
 
 ## Install, rollback, uninstall
 

@@ -512,7 +512,7 @@ readonly GRAPHIFY_WHEEL_URL="https://files.pythonhosted.org/packages/c3/fe/eb0af
 			maintainabilityMakeContract + pluginsMakeContract + docsCatalogMakeContract + docsFreshnessMakeContract +
 			supportPolicyMakeContract +
 			repositorySkillsMakeContract + referenceSplitMakeContract + context7MakeContract + onboardingMakeContract +
-			agentEvalFacadeMakeContract,
+			agentEvalFacadeMakeContract + agentEvalDistributionMakeContract,
 		"internal/agenteval/Makefile": `GO_ENV := env -u GOROOT GOTOOLCHAIN=auto GOWORK=off
 REPOSITORY_ROOT ?= $(abspath ../..)
 ATL_BINARY ?= $(REPOSITORY_ROOT)/atl

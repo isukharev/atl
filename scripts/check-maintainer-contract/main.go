@@ -168,6 +168,32 @@ agent-eval-full: check-agent-eval-support check-skill-routing check-module-bound
 	$(AGENT_EVAL_MAKE) full
 `
 
+const agentEvalDistributionMakeContract = `.PHONY: agent-eval-distribution
+agent-eval-distribution: agent-eval-full
+	@test -n "$(AGENT_EVAL_DISTRIBUTION_OUTPUT)" || (echo 'set AGENT_EVAL_DISTRIBUTION_OUTPUT to one absent absolute directory' >&2; exit 2)
+	@set -eu; \
+		test -z "$$(git status --porcelain=v1 --untracked-files=all)" || (echo 'agent-eval distribution requires a clean checkout' >&2; exit 2); \
+		mkdir -p "$(CURDIR)/tmp"; \
+		binary="$$(mktemp "$(CURDIR)/tmp/agent-eval-distribution.XXXXXX")"; \
+		trap 'rm -f "$$binary"' EXIT; \
+		version="$${AGENT_EVAL_DISTRIBUTION_VERSION:-0.1.0-pre-release}"; \
+		source_commit="$$(git rev-parse HEAD)"; \
+		build_date="$$(git show -s --format=%cI "$$source_commit")"; \
+		$(GO_ENV) CGO_ENABLED=0 GOOS="$${AGENT_EVAL_PLATFORM:-linux}" GOARCH="$${AGENT_EVAL_ARCHITECTURE:-amd64}" \
+			go -C internal/agenteval build -trimpath -buildvcs=false -ldflags "-s -w -buildid= -X main.standaloneBuildVersion=$$version -X main.standaloneBuildCommit=$$source_commit -X main.standaloneBuildDate=$$build_date" -o "$$binary" ./cmd/agent-eval; \
+		$(GO_ENV) go run ./scripts/agent-eval-distribution \
+			--mode build --binary "$$binary" \
+			--compatibility internal/agenteval/testdata/standalone-conformance.v1.json \
+			--source-root . \
+			--source-files internal/agenteval \
+			--schema-registry internal/agenteval/schemaregistry/registry.v1.json \
+			--protocol internal/agenteval/cmd/agent-eval/standalone_process.go \
+			--source-commit "$$source_commit" \
+			--version "$$version" \
+			--platform "$${AGENT_EVAL_PLATFORM:-linux}" --architecture "$${AGENT_EVAL_ARCHITECTURE:-amd64}" \
+			--output "$(AGENT_EVAL_DISTRIBUTION_OUTPUT)"
+`
+
 const (
 	checkoutStepContract     = `      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1`
 	lintCheckoutStepContract = `      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -475,6 +501,7 @@ func validateBootstrap(root string) error {
 		{"check-reference-split", referenceSplitMakeContract, "makefile must retain the exact reference-split compatibility gate"},
 		{"check-context7-docs", context7MakeContract, "makefile must retain the exact indexed-documentation gate"},
 		{"check-onboarding-docs", onboardingMakeContract, "makefile onboarding binary assertion must set ATL_NO_UPDATE=1"},
+		{"agent-eval-distribution", agentEvalDistributionMakeContract, "makefile must retain the exact standalone distribution gate"},
 	} {
 		if countMakeTargetDeclarations(makefile, required.target) != 1 ||
 			bytes.Count(makefile, []byte(required.contract)) != 1 {

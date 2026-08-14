@@ -1,0 +1,127 @@
+package main
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+)
+
+func hashSelectedTree(root string, paths []string) (string, error) {
+	files := map[string]fileEntry{}
+	var total int64
+	visitedEntries := 0
+	for _, selected := range paths {
+		if selected == "" || filepath.IsAbs(selected) || filepath.Clean(selected) != selected || strings.HasPrefix(selected, ".."+string(filepath.Separator)) || selected == ".." {
+			return "", errors.New("source selection must be relative and contained")
+		}
+		absolute := filepath.Join(root, selected)
+		info, err := os.Lstat(absolute)
+		if err != nil {
+			return "", err
+		}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			return "", errors.New("source selection contains a symlink")
+		}
+		if info.IsDir() {
+			err = walkSourceDirectory(root, absolute, files, &total, &visitedEntries)
+		} else {
+			err = addTreeFile(files, filepath.ToSlash(selected), absolute, &total)
+		}
+		if err != nil {
+			return "", err
+		}
+	}
+	if len(files) == 0 || len(files) > maxSourceFiles || total > maxSourceTreeBytes {
+		return "", errors.New("source tree exceeds bounded selection")
+	}
+	entries := make([]fileEntry, 0, len(files))
+	for _, entry := range files {
+		entries = append(entries, entry)
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
+	hash := sha256.New()
+	for _, entry := range entries {
+		fmt.Fprintf(hash, "%s\x00%d\x00%s\x00", entry.Name, entry.SizeBytes, entry.SHA256)
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func walkSourceDirectory(sourceRoot, directoryPath string, files map[string]fileEntry, total *int64, visitedEntries *int) error {
+	directory, err := os.Open(directoryPath)
+	if err != nil {
+		return err
+	}
+	entries, readErr := directory.ReadDir(maxSourceFiles*2 + 1)
+	closeErr := directory.Close()
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		return readErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	if len(entries) > maxSourceFiles*2 {
+		return errors.New("source tree exceeds bounded entry selection")
+	}
+	for _, entry := range entries {
+		*visitedEntries = *visitedEntries + 1
+		if *visitedEntries > maxSourceFiles*2 || entry.Type()&fs.ModeSymlink != 0 || sensitiveSourceName(entry.Name()) {
+			return errors.New("source tree contains an unsafe or oversized entry")
+		}
+		path := filepath.Join(directoryPath, entry.Name())
+		if entry.IsDir() {
+			if err := walkSourceDirectory(sourceRoot, path, files, total, visitedEntries); err != nil {
+				return err
+			}
+			continue
+		}
+		relative, err := filepath.Rel(sourceRoot, path)
+		if err != nil {
+			return err
+		}
+		if err := addTreeFile(files, filepath.ToSlash(relative), path, total); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func addTreeFile(files map[string]fileEntry, relative, absolute string, total *int64) error {
+	if !safeName(relative) || sensitiveSourceName(filepath.Base(relative)) {
+		return errors.New("source tree path is not canonical")
+	}
+	if _, exists := files[relative]; exists {
+		return nil
+	}
+	if len(files) >= maxSourceFiles {
+		return errors.New("source tree exceeds bounded file selection")
+	}
+	info, err := os.Lstat(absolute)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 {
+		return errors.New("source tree member is not a regular file")
+	}
+	if info.Size() < 0 || info.Size() > maxArtifactBytes || *total > maxSourceTreeBytes-info.Size() {
+		return errors.New("source tree exceeds bounded byte selection")
+	}
+	sha, size, err := hashRegularFile(absolute, maxArtifactBytes)
+	if err != nil {
+		return err
+	}
+	files[relative] = fileEntry{Name: relative, SizeBytes: size, SHA256: sha}
+	*total += size
+	return nil
+}
+
+func sensitiveSourceName(name string) bool {
+	lower := strings.ToLower(name)
+	return lower == ".git" || lower == ".ephemeral" || lower == ".env" || strings.HasPrefix(lower, ".env.") || strings.HasSuffix(lower, ".env") || strings.HasSuffix(lower, ".pem") || strings.HasSuffix(lower, ".key")
+}
