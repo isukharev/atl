@@ -59,6 +59,11 @@ func TestPinnedInspectQualificationIsClosedAndOneAttempt(t *testing.T) {
 	if err := attempt.Validate(qualification); err != nil {
 		t.Fatal(err)
 	}
+	if attempt.Coverage != (InspectSyntheticCoverage{
+		Usage: "unknown", Trace: "unknown", Artifacts: "unknown", Scoring: "unknown",
+	}) {
+		t.Fatalf("synthetic probe invented coverage: %+v", attempt.Coverage)
+	}
 	if attempt.AttemptsStarted != 1 || attempt.RetryAttempts != 0 || !attempt.FailureRetained || attempt.Replayable ||
 		attempt.RuntimeSafetyProven || attempt.Adoption != InspectQualificationDeferred {
 		t.Fatalf("synthetic probe weakened one-attempt boundary: %+v", attempt)
@@ -176,13 +181,16 @@ func TestInspectSyntheticFailureRejectsReplayOrUnknownClaims(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, mutate := range map[string]func(*InspectSyntheticAttempt){
-		"second attempt": func(value *InspectSyntheticAttempt) { value.AttemptsStarted = 2 },
-		"retry":          func(value *InspectSyntheticAttempt) { value.RetryAttempts = 1 },
-		"not retained":   func(value *InspectSyntheticAttempt) { value.FailureRetained = false },
-		"replayable":     func(value *InspectSyntheticAttempt) { value.Replayable = true },
-		"safety proven":  func(value *InspectSyntheticAttempt) { value.RuntimeSafetyProven = true },
-		"usage observed": func(value *InspectSyntheticAttempt) { value.Coverage.Usage = "observed" },
-		"adopted":        func(value *InspectSyntheticAttempt) { value.Adoption = "adopted" },
+		"second attempt":     func(value *InspectSyntheticAttempt) { value.AttemptsStarted = 2 },
+		"retry":              func(value *InspectSyntheticAttempt) { value.RetryAttempts = 1 },
+		"not retained":       func(value *InspectSyntheticAttempt) { value.FailureRetained = false },
+		"replayable":         func(value *InspectSyntheticAttempt) { value.Replayable = true },
+		"safety proven":      func(value *InspectSyntheticAttempt) { value.RuntimeSafetyProven = true },
+		"usage observed":     func(value *InspectSyntheticAttempt) { value.Coverage.Usage = "observed" },
+		"trace observed":     func(value *InspectSyntheticAttempt) { value.Coverage.Trace = "observed" },
+		"artifacts observed": func(value *InspectSyntheticAttempt) { value.Coverage.Artifacts = "observed" },
+		"scoring observed":   func(value *InspectSyntheticAttempt) { value.Coverage.Scoring = "observed" },
+		"adopted":            func(value *InspectSyntheticAttempt) { value.Adoption = "adopted" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := attempt
@@ -339,7 +347,7 @@ func TestRunInspectSyntheticFailureConcurrentLedgerIsSingleUse(t *testing.T) {
 	for runErr := range results {
 		if runErr == nil {
 			successes++
-		} else if !errors.Is(runErr, ErrInspectQualification) {
+		} else if !errors.Is(runErr, ErrInspectQualification) || !errors.Is(runErr, ErrAttemptLedgerConflict) {
 			t.Fatalf("concurrent loser returned an unclassified error: %v", runErr)
 		}
 	}
@@ -353,6 +361,63 @@ func TestRunInspectSyntheticFailureConcurrentLedgerIsSingleUse(t *testing.T) {
 	inspections, err := store.InspectAll()
 	if err != nil || len(inspections) != 1 || !inspections[0].Projection.Terminal {
 		t.Fatalf("concurrent runs changed ledger shape: inspections=%+v err=%v", inspections, err)
+	}
+}
+
+func TestRunInspectSyntheticFailureMapsBusyToConflict(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the append-only test ledger is unavailable on Windows")
+	}
+	qualification, err := PinnedInspectQualification()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledgerRoot := filepath.Join(t.TempDir(), "ledger")
+	if err := os.Chmod(filepath.Dir(ledgerRoot), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := RunInspectSyntheticFailure(qualification, ledgerRoot); err != nil {
+		t.Fatal(err)
+	}
+	store, err := OpenAttemptLedgerStore(ledgerRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, err := store.lock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = held.Unlock() }()
+	_, _, err = RunInspectSyntheticFailure(qualification, ledgerRoot)
+	if !errors.Is(err, ErrInspectQualification) || !errors.Is(err, ErrAttemptLedgerConflict) || !errors.Is(err, ErrAttemptLedgerBusy) {
+		t.Fatalf("held ledger lock was not classified as a conflict: %v", err)
+	}
+	if strings.Contains(err.Error(), ledgerRoot) || strings.Contains(err.Error(), ErrAttemptLedgerBusy.Error()) {
+		t.Fatalf("busy cause escaped coded error: %v", err)
+	}
+}
+
+func TestRunInspectSyntheticFailureDoesNotClassifyUnsafeRootAsConflict(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the append-only test ledger is unavailable on Windows")
+	}
+	qualification, err := PinnedInspectQualification()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledgerRoot := filepath.Join(t.TempDir(), "ledger")
+	if err := os.Mkdir(ledgerRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(ledgerRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = RunInspectSyntheticFailure(qualification, ledgerRoot)
+	if !errors.Is(err, ErrInspectQualification) || !errors.Is(err, ErrAttemptLedger) || errors.Is(err, ErrAttemptLedgerConflict) {
+		t.Fatalf("unsafe ledger root received the wrong classification: %v", err)
+	}
+	if strings.Contains(err.Error(), ledgerRoot) {
+		t.Fatalf("unsafe ledger root escaped coded error: %v", err)
 	}
 }
 

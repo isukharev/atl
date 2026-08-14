@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"unicode/utf8"
 
 	"github.com/isukharev/atl/internal/agenteval/lifecycle"
@@ -270,11 +271,20 @@ func RunInspectSyntheticFailure(qualification InspectQualification, ledgerRoot s
 	store, err := CreateAttemptLedgerStore(ledgerRoot, bytes.NewReader(make([]byte, 32)))
 	if err != nil {
 		cause := err
-		// A concurrent creator can hold the ledger lock while its header is
-		// being initialized. Treat that bounded single-use contention as a
-		// conflict too: the probe must fail closed rather than expose a
-		// scheduler-dependent busy classification.
-		if errors.Is(err, ErrAttemptLedgerBusy) {
+		// A concurrent creator can either hold the ledger lock or finish the
+		// exclusive header write before this creator acquires it. Treat both
+		// bounded single-use races as conflicts: the probe must fail closed
+		// rather than expose a scheduler-dependent classification.
+		ledgerConflict := errors.Is(err, ErrAttemptLedgerBusy) || errors.Is(err, fs.ErrExist)
+		if !ledgerConflict && errors.Is(err, ErrAttemptLedger) &&
+			requirePrivateDirectory("inspect qualification ledger", ledgerRoot) == nil {
+			ledgerConflict = attemptLedgerOnlyUncommittedCreateState(ledgerRoot)
+			if !ledgerConflict {
+				_, openErr := OpenAttemptLedgerStore(ledgerRoot)
+				ledgerConflict = openErr == nil
+			}
+		}
+		if ledgerConflict {
 			cause = errors.Join(ErrAttemptLedgerConflict, err)
 		}
 		return InspectSyntheticAttempt{}, AttemptLedgerInspection{}, inspectQualificationError("ledger", cause)
