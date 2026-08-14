@@ -52,6 +52,9 @@ func (plan PublicationPlan) WriteNew(destination string) error {
 	if err := os.Mkdir(destination, 0o700); err != nil {
 		return fail(ErrorConflict)
 	}
+	if err := syncParentDirectory(destination); err != nil {
+		return err
+	}
 	root, destinationInfo, err := openStableDestination(destination)
 	if err != nil {
 		return fail(ErrorConflict)
@@ -61,6 +64,9 @@ func (plan PublicationPlan) WriteNew(destination string) error {
 		return fail(ErrorConflict)
 	}
 	if err := writeNewRegular(root, proposalMarkerName, []byte("incomplete\n")); err != nil {
+		return err
+	}
+	if err := syncRootDirectory(root); err != nil {
 		return err
 	}
 	if err := writeNewRegular(root, proposalFileName, plan.data); err != nil {
@@ -119,6 +125,19 @@ func syncRootDirectory(root *os.Root) error {
 	}
 	syncErr := file.Sync()
 	closeErr := file.Close()
+	return errors.Join(syncErr, closeErr)
+}
+
+func syncParentDirectory(path string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	parent, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	syncErr := parent.Sync()
+	closeErr := parent.Close()
 	return errors.Join(syncErr, closeErr)
 }
 
