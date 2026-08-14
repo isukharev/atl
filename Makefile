@@ -222,25 +222,34 @@ agent-eval-distribution-clean:
 .PHONY: agent-eval-distribution-full
 agent-eval-distribution-full: agent-eval-distribution-clean
 	@set -eu; \
+		test -z "$$(git status --porcelain=v1 --ignored=matching --untracked-files=all)" || (echo 'agent-eval distribution source changed before the full gate' >&2; exit 2); \
 		before="$$(git rev-parse HEAD)"; \
 		$(MAKE) agent-eval-full; \
 		after="$$(git rev-parse HEAD)"; \
 		test "$$before" = "$$after" || (echo 'agent-eval distribution source commit changed during the full gate' >&2; exit 2); \
 		test -z "$$(git diff --name-only)" || (echo 'agent-eval distribution source changed during the full gate' >&2; exit 2); \
 		test -z "$$(git diff --cached --name-only)" || (echo 'agent-eval distribution index changed during the full gate' >&2; exit 2); \
-		test -z "$$(git status --porcelain=v1 --untracked-files=all)" || (echo 'agent-eval distribution gained untracked source during the full gate' >&2; exit 2)
+		test -z "$$(git status --porcelain=v1 --untracked-files=all)" || (echo 'agent-eval distribution gained untracked source during the full gate' >&2; exit 2); \
+		if test -n "$(AGENT_EVAL_DISTRIBUTION_STATE)"; then printf '%s\n' "$$before" >"$(AGENT_EVAL_DISTRIBUTION_STATE)"; fi
 
 .PHONY: agent-eval-distribution
-agent-eval-distribution: agent-eval-distribution-full
+agent-eval-distribution: agent-eval-distribution-clean
 	@test -n "$(AGENT_EVAL_DISTRIBUTION_OUTPUT)" || (echo 'set AGENT_EVAL_DISTRIBUTION_OUTPUT to one absent absolute directory' >&2; exit 2)
 	@set -eu; \
+		state="$$(mktemp /tmp/agent-eval-distribution-state.XXXXXX)"; \
+		trap 'rm -f "$$state" "$${binary:-}"; rmdir "$(CURDIR)/tmp" 2>/dev/null || true' EXIT; \
+		$(MAKE) agent-eval-distribution-full AGENT_EVAL_DISTRIBUTION_STATE="$$state"; \
+		test -s "$$state" || (echo 'agent-eval distribution full gate did not publish source identity' >&2; exit 2); \
+		source_commit="$$(cat "$$state")"; \
+		test "$$(git rev-parse HEAD)" = "$$source_commit" || (echo 'agent-eval distribution source commit changed after the full gate' >&2; exit 2); \
+		test -z "$$(git diff --name-only)" || (echo 'agent-eval distribution source changed after the full gate' >&2; exit 2); \
+		test -z "$$(git diff --cached --name-only)" || (echo 'agent-eval distribution index changed after the full gate' >&2; exit 2); \
+		test -z "$$(git status --porcelain=v1 --untracked-files=all)" || (echo 'agent-eval distribution gained untracked source after the full gate' >&2; exit 2); \
 		mkdir -p "$(CURDIR)/tmp"; \
 		binary="$$(mktemp "$(CURDIR)/tmp/agent-eval-distribution.XXXXXX")"; \
-		trap 'rm -f "$$binary"' EXIT; \
 		version="$${AGENT_EVAL_DISTRIBUTION_VERSION:-0.1.0-pre-release}"; \
 		target_platform="$${AGENT_EVAL_PLATFORM:-$$(go env GOOS)}"; \
 		target_architecture="$${AGENT_EVAL_ARCHITECTURE:-$$(go env GOARCH)}"; \
-		source_commit="$$(git rev-parse HEAD)"; \
 		build_date="$$(git show -s --format=%cI "$$source_commit")"; \
 		$(GO_ENV) CGO_ENABLED=0 GOOS="$$target_platform" GOARCH="$$target_architecture" \
 			go -C internal/agenteval build -trimpath -buildvcs=false -ldflags "-s -w -buildid= -X main.standaloneBuildVersion=$$version -X main.standaloneBuildCommit=$$source_commit -X main.standaloneBuildDate=$$build_date" -o "$$binary" ./cmd/agent-eval; \
@@ -254,7 +263,11 @@ agent-eval-distribution: agent-eval-distribution-full
 			--source-commit "$$source_commit" \
 			--version "$$version" \
 			--platform "$$target_platform" --architecture "$$target_architecture" \
-			--output "$(AGENT_EVAL_DISTRIBUTION_OUTPUT)"
+			--output "$(AGENT_EVAL_DISTRIBUTION_OUTPUT)"; \
+		test "$$(git rev-parse HEAD)" = "$$source_commit" || (echo 'agent-eval distribution source commit changed during build' >&2; exit 2); \
+		test -z "$$(git diff --name-only)" || (echo 'agent-eval distribution source changed during build' >&2; exit 2); \
+		test -z "$$(git diff --cached --name-only)" || (echo 'agent-eval distribution index changed during build' >&2; exit 2); \
+		test -z "$$(git status --porcelain=v1 --untracked-files=all)" || (echo 'agent-eval distribution gained untracked source during build' >&2; exit 2)
 
 .PHONY: tidy
 tidy:

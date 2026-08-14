@@ -140,6 +140,8 @@ func TestDistributionMakeRunsCleanBeforeFullGate(t *testing.T) {
 		"git diff --name-only",
 		"git diff --cached --name-only",
 		"git status --porcelain=v1 --untracked-files=all",
+		"AGENT_EVAL_DISTRIBUTION_STATE",
+		"agent-eval distribution source commit changed during build",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("distribution full gate omitted source stability check %q", want)
@@ -147,6 +149,13 @@ func TestDistributionMakeRunsCleanBeforeFullGate(t *testing.T) {
 	}
 	if strings.Contains(text, "agent-eval-distribution: agent-eval-distribution-clean agent-eval-full") {
 		t.Fatal("distribution clean and full gates are unordered peer prerequisites")
+	}
+	if !strings.Contains(text, "agent-eval-distribution: agent-eval-distribution-clean") {
+		t.Fatal("distribution build must own the full-gate boundary and start from the clean gate")
+	}
+	outputIndex := strings.Index(text, "--output \"$(AGENT_EVAL_DISTRIBUTION_OUTPUT)\"")
+	if outputIndex < 0 || strings.Index(text[outputIndex:], "source commit changed during build") < 0 {
+		t.Fatal("distribution build must reconcile source identity after publishing")
 	}
 }
 
