@@ -137,6 +137,10 @@ update-reference-navigation:
 check-docs-catalog:
 	$(GO_ENV) go run ./scripts/check-docs-catalog -root .
 
+.PHONY: check-agent-eval-support
+check-agent-eval-support:
+	$(GO_ENV) go run ./scripts/check-agent-eval-support
+
 .PHONY: check-docs-freshness
 check-docs-freshness:
 	$(GO_ENV) go run ./scripts/check-docs-freshness -root .

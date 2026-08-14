@@ -25,6 +25,7 @@ Other canonical maintainer references:
 - [Change-impact verification map](../maintainer-impact.v1.json)
 - [Production hotspot and timing ratchets](../maintainability-ratchets.v1.json)
 - [Agent evaluator substrate decision](agent-evaluator-substrates.md)
+- [Standalone agent-eval support policy](agent-eval-support.md)
 - [Private evaluator lifecycle](../agent-benchmark-private-workspace.md)
 - [Private benchmark onboarding](private-benchmark-onboarding.md)
 
