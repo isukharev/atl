@@ -1,9 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 
 	"github.com/isukharev/atl/internal/agenteval"
 )
@@ -17,6 +22,8 @@ func standalonePromotionFailure(err error) *standaloneFailure {
 			return standaloneFail(standaloneExitClass{code: 9, id: "check_failed", message: "promotion checks failed", recovery: "review_failed_check"}, "promotion_refused")
 		case "promotion_limit_exceeded":
 			return standaloneFail(standaloneInputError, "promotion_limit_exceeded")
+		case "promotion_unsupported_platform":
+			return standaloneFail(standaloneCompatibilityError, "promotion_unsupported_platform")
 		case "invalid_promotion_identity", "invalid_promotion_review", "invalid_promotion_axis", "invalid_promotion_receipt", "invalid_rollback_receipt":
 			return standaloneFail(standaloneInputError, "invalid_promotion_input")
 		}
@@ -26,7 +33,7 @@ func standalonePromotionFailure(err error) *standaloneFailure {
 
 func standaloneExecutePromotion(ctx context.Context, args []string) (standaloneOutcome, *standaloneFailure) {
 	parsed, failure := parseStandaloneFlags(args, standaloneCommandFlagSpecs(map[string]standaloneFlagSpec{
-		"comparison": {takesValue: true}, "store": {takesValue: true}, "confirm": {takesValue: true},
+		"comparison": {takesValue: true}, "store": {takesValue: true}, "confirm": {takesValue: true}, "expected-comparison-sha256": {takesValue: true},
 		"dry-run": {}, "explain": {},
 	}))
 	if failure != nil {
@@ -42,9 +49,10 @@ func standaloneExecutePromotion(ctx context.Context, args []string) (standaloneO
 	if err != nil {
 		return standaloneOutcome{}, standaloneFail(standaloneInputError, "invalid_promotion_input")
 	}
-	comparison, decodeErr := agenteval.DecodePromotionComparison(comparisonFile)
+	data, readErr := io.ReadAll(io.LimitReader(comparisonFile, agenteval.PromotionMaxReceiptBytes+1))
 	closeErr := comparisonFile.Close()
-	if decodeErr != nil || closeErr != nil {
+	comparison, decodeErr := agenteval.DecodePromotionComparison(bytes.NewReader(data))
+	if readErr != nil || len(data) == 0 || len(data) > agenteval.PromotionMaxReceiptBytes || decodeErr != nil || closeErr != nil {
 		if decodeErr != nil {
 			return standaloneOutcome{}, standalonePromotionFailure(decodeErr)
 		}
@@ -61,13 +69,14 @@ func standaloneExecutePromotion(ctx context.Context, args []string) (standaloneO
 		}
 		return standaloneOutcome{command: "promote", status: status, result: receipt, outputMode: parsed.outputModeValue(), text: fmt.Sprintf("promotion %s\n", receipt.Decision)}, nil
 	}
-	if parsed.one("confirm") != "PROMOTE" {
+	if parsed.one("confirm") != "PROMOTE" || !standaloneExpectedDigestMatches(parsed.one("expected-comparison-sha256"), data) {
 		return standaloneOutcome{}, standaloneFail(standalonePolicyDeniedError, "promotion_confirmation")
 	}
 	store, err := agenteval.NewPromotionStore(parsed.one("store"))
 	if err != nil {
 		return standaloneOutcome{}, standalonePromotionFailure(err)
 	}
+	defer func() { _ = store.Close() }()
 	if receipt.Decision == agenteval.PromotionDecisionRefuse {
 		if err := store.RecordDecision(receipt); err != nil {
 			return standaloneOutcome{}, standalonePromotionFailure(err)
@@ -90,13 +99,16 @@ func standaloneExecutePromotion(ctx context.Context, args []string) (standaloneO
 
 func standaloneExecuteRollback(ctx context.Context, args []string) (standaloneOutcome, *standaloneFailure) {
 	parsed, failure := parseStandaloneFlags(args, standaloneCommandFlagSpecs(map[string]standaloneFlagSpec{
-		"receipt": {takesValue: true}, "store": {takesValue: true}, "confirm": {takesValue: true},
+		"receipt": {takesValue: true}, "store": {takesValue: true}, "confirm": {takesValue: true}, "expected-rollback-sha256": {takesValue: true},
 	}))
 	if failure != nil {
 		return standaloneOutcome{}, failure
 	}
-	if len(parsed.positionals) != 0 || parsed.one("receipt") == "" || parsed.one("store") == "" || parsed.one("confirm") != "ROLLBACK" {
+	if len(parsed.positionals) != 0 || parsed.one("receipt") == "" || parsed.one("store") == "" {
 		return standaloneOutcome{}, standaloneFail(standaloneUsageError, "invalid_rollback_options")
+	}
+	if parsed.one("confirm") != "ROLLBACK" {
+		return standaloneOutcome{}, standaloneFail(standalonePolicyDeniedError, "rollback_confirmation")
 	}
 	if failure := standaloneContextFailure(ctx); failure != nil {
 		return standaloneOutcome{}, failure
@@ -105,20 +117,37 @@ func standaloneExecuteRollback(ctx context.Context, args []string) (standaloneOu
 	if err != nil {
 		return standaloneOutcome{}, standaloneFail(standaloneInputError, "invalid_rollback_input")
 	}
-	receipt, decodeErr := agenteval.DecodePromotionRollback(receiptFile)
+	data, readErr := io.ReadAll(io.LimitReader(receiptFile, agenteval.PromotionMaxReceiptBytes+1))
 	closeErr := receiptFile.Close()
-	if decodeErr != nil || closeErr != nil {
+	receipt, decodeErr := agenteval.DecodePromotionRollback(bytes.NewReader(data))
+	if readErr != nil || len(data) == 0 || len(data) > agenteval.PromotionMaxReceiptBytes || decodeErr != nil || closeErr != nil {
 		if decodeErr != nil {
 			return standaloneOutcome{}, standalonePromotionFailure(decodeErr)
 		}
 		return standaloneOutcome{}, standaloneFail(standaloneInputError, "invalid_rollback_input")
 	}
+	if !standaloneExpectedDigestMatches(parsed.one("expected-rollback-sha256"), data) {
+		return standaloneOutcome{}, standaloneFail(standalonePolicyDeniedError, "rollback_confirmation")
+	}
 	store, err := agenteval.NewPromotionStore(parsed.one("store"))
 	if err != nil {
 		return standaloneOutcome{}, standalonePromotionFailure(err)
 	}
-	if err := store.ApplyRollback(receipt); err != nil {
+	defer func() { _ = store.Close() }()
+	applied, err := store.ApplyRollback(receipt)
+	if err != nil {
 		return standaloneOutcome{}, standalonePromotionFailure(err)
 	}
-	return standaloneOutcome{command: "rollback", status: "completed", result: receipt, outputMode: parsed.outputModeValue(), text: "rollback applied\n"}, nil
+	return standaloneOutcome{command: "rollback", status: "completed", result: applied, outputMode: parsed.outputModeValue(), text: "rollback applied\n"}, nil
+}
+
+func standaloneExpectedDigestMatches(expected string, data []byte) bool {
+	if len(expected) != sha256.Size*2 || expected != strings.ToLower(expected) {
+		return false
+	}
+	if _, err := hex.DecodeString(expected); err != nil {
+		return false
+	}
+	digest := sha256.Sum256(data)
+	return expected == hex.EncodeToString(digest[:])
 }

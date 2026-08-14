@@ -15,6 +15,8 @@ const (
 	PromotionRollbackSchema   = promotion.RollbackSchema
 	PromotionSchemaVersion    = promotion.SchemaVersion
 	PromotionContractVersion  = promotion.ContractVersion
+	PromotionMaxReceiptBytes  = promotion.MaxReceiptBytes
+	PromotionStoreSupported   = promotion.StoreSupported
 )
 
 type PromotionIdentity = promotion.Identity

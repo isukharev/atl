@@ -72,6 +72,7 @@ func Evaluate(input ComparisonInput) (DecisionReceipt, error) {
 		Schema: Schema, SchemaVersion: SchemaVersion, ContractVersion: ContractVersion,
 		Decision: decision, Reference: input.Reference, Candidate: input.Candidate,
 		Reviews: cloneReviews(input.Reviews), Axes: cloneAxes(input.Axes), Reasons: reasons,
+		Interrupted: input.Interrupted,
 	}
 	digest, err := digestJSON(receiptWithoutDigest(receipt))
 	if err != nil {
@@ -161,7 +162,7 @@ func ValidateDecision(receipt DecisionReceipt) error {
 		validateReasons(receipt.Reasons) != nil || !validDigest(receipt.ReceiptSHA256) {
 		return fail(ErrorInvalidReceipt)
 	}
-	expectedReasons := decisionReasons(ComparisonInput{Reference: receipt.Reference, Candidate: receipt.Candidate, Reviews: receipt.Reviews, Axes: receipt.Axes})
+	expectedReasons := decisionReasons(ComparisonInput{Reference: receipt.Reference, Candidate: receipt.Candidate, Reviews: receipt.Reviews, Axes: receipt.Axes, Interrupted: receipt.Interrupted})
 	if len(expectedReasons) != len(receipt.Reasons) {
 		return fail(ErrorInvalidReceipt)
 	}
@@ -192,7 +193,7 @@ func PlanRollback(request RollbackRequest) (RollbackReceipt, error) {
 		return RollbackReceipt{}, fail(ErrorInvalidRollback)
 	}
 	receipt := RollbackReceipt{Schema: RollbackSchema, SchemaVersion: SchemaVersion, ContractVersion: ContractVersion,
-		Decision: DecisionRollback, Current: request.Current, Restore: request.Restore, Restored: true,
+		Decision: DecisionRollback, Current: request.Current, Restore: request.Restore, Restored: false,
 		AuthorizationSHA256: request.AuthorizationSHA256}
 	digest, err := digestJSON(rollbackWithoutDigest(receipt))
 	if err != nil {
@@ -204,9 +205,10 @@ func PlanRollback(request RollbackRequest) (RollbackReceipt, error) {
 
 func ValidateRollback(receipt RollbackReceipt) error {
 	if receipt.Schema != RollbackSchema || receipt.SchemaVersion != SchemaVersion || receipt.ContractVersion != ContractVersion ||
-		receipt.Decision != DecisionRollback || !receipt.Restored || validateIdentity(receipt.Current) != nil ||
+		receipt.Decision != DecisionRollback || validateIdentity(receipt.Current) != nil ||
 		validateIdentity(receipt.Restore) != nil || identityEqual(receipt.Current, receipt.Restore) ||
-		!validDigest(receipt.AuthorizationSHA256) || !validDigest(receipt.ReceiptSHA256) {
+		!validDigest(receipt.AuthorizationSHA256) || !validDigest(receipt.ReceiptSHA256) ||
+		(receipt.Restored && !validDigest(receipt.RequestSHA256)) || (!receipt.Restored && receipt.RequestSHA256 != "") {
 		return fail(ErrorInvalidRollback)
 	}
 	digest, err := digestJSON(rollbackWithoutDigest(receipt))

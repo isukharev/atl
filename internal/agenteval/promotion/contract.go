@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"sort"
+	"strings"
 )
 
 const (
@@ -29,14 +30,15 @@ var ErrInvalid = errors.New("promotion_invalid")
 type ErrorCode string
 
 const (
-	ErrorInvalidIdentity  ErrorCode = "invalid_promotion_identity"
-	ErrorInvalidReview    ErrorCode = "invalid_promotion_review"
-	ErrorInvalidAxis      ErrorCode = "invalid_promotion_axis"
-	ErrorPromotionRefused ErrorCode = "promotion_refused"
-	ErrorInvalidReceipt   ErrorCode = "invalid_promotion_receipt"
-	ErrorInvalidRollback  ErrorCode = "invalid_rollback_receipt"
-	ErrorLimitExceeded    ErrorCode = "promotion_limit_exceeded"
-	ErrorConflict         ErrorCode = "promotion_conflict"
+	ErrorInvalidIdentity     ErrorCode = "invalid_promotion_identity"
+	ErrorInvalidReview       ErrorCode = "invalid_promotion_review"
+	ErrorInvalidAxis         ErrorCode = "invalid_promotion_axis"
+	ErrorPromotionRefused    ErrorCode = "promotion_refused"
+	ErrorInvalidReceipt      ErrorCode = "invalid_promotion_receipt"
+	ErrorInvalidRollback     ErrorCode = "invalid_rollback_receipt"
+	ErrorLimitExceeded       ErrorCode = "promotion_limit_exceeded"
+	ErrorConflict            ErrorCode = "promotion_conflict"
+	ErrorUnsupportedPlatform ErrorCode = "promotion_unsupported_platform"
 )
 
 type Error struct{ code ErrorCode }
@@ -177,6 +179,7 @@ type DecisionReceipt struct {
 	Reviews         []ComponentReview `json:"reviews"`
 	Axes            []AxisResult      `json:"axes"`
 	Reasons         []Reason          `json:"reasons"`
+	Interrupted     bool              `json:"interrupted,omitempty"`
 	ReceiptSHA256   string            `json:"receipt_sha256"`
 }
 
@@ -196,12 +199,16 @@ type RollbackReceipt struct {
 	Current             Identity `json:"current"`
 	Restore             Identity `json:"restore"`
 	Restored            bool     `json:"restored"`
+	RequestSHA256       string   `json:"request_sha256,omitempty"`
 	AuthorizationSHA256 string   `json:"authorization_sha256"`
 	ReceiptSHA256       string   `json:"receipt_sha256"`
 }
 
 func validDigest(value string) bool {
 	if len(value) != SHA256HexLength {
+		return false
+	}
+	if value != strings.ToLower(value) {
 		return false
 	}
 	decoded, err := hex.DecodeString(value)

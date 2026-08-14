@@ -15,7 +15,10 @@ func validateReviews(reviews []ComponentReview, reference, candidate Identity) e
 		return fail(ErrorInvalidReview)
 	}
 	seen := make(map[Component]bool, len(reviews))
-	for _, review := range reviews {
+	for index, review := range reviews {
+		if index > 0 && componentOrdinal(reviews[index-1].Component) >= componentOrdinal(review.Component) {
+			return fail(ErrorInvalidReview)
+		}
 		if seen[review.Component] || validateReview(review, reference, candidate) != nil {
 			return fail(ErrorInvalidReview)
 		}
@@ -61,6 +64,9 @@ func validateAxis(value AxisResult) error {
 	if value.State != AxisPass && value.Reason != expectedAxisReason(value.Axis) {
 		return fail(ErrorInvalidAxis)
 	}
+	if value.State == AxisPass && value.Reason != "" {
+		return fail(ErrorInvalidAxis)
+	}
 	if value.EvidenceSHA256 != "" && !validDigest(value.EvidenceSHA256) {
 		return fail(ErrorInvalidAxis)
 	}
@@ -72,7 +78,10 @@ func validateAxes(values []AxisResult) error {
 		return fail(ErrorInvalidAxis)
 	}
 	seen := make(map[Axis]bool, len(values))
-	for _, value := range values {
+	for index, value := range values {
+		if index > 0 && axisOrdinal(values[index-1].Axis) >= axisOrdinal(value.Axis) {
+			return fail(ErrorInvalidAxis)
+		}
 		if seen[value.Axis] || validateAxis(value) != nil {
 			return fail(ErrorInvalidAxis)
 		}
@@ -91,7 +100,10 @@ func validateReasons(reasons []Reason) error {
 		return fail(ErrorLimitExceeded)
 	}
 	seen := make(map[Reason]bool, len(reasons))
-	for _, reason := range reasons {
+	for index, reason := range reasons {
+		if index > 0 && reasonOrdinal(reasons[index-1]) >= reasonOrdinal(reason) {
+			return fail(ErrorInvalidReceipt)
+		}
 		if reasonOrdinal(reason) < 0 || seen[reason] {
 			return fail(ErrorInvalidReceipt)
 		}

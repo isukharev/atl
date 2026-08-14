@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -82,6 +83,44 @@ func TestEvaluateRefusesEveryBlockingAxisWithoutWeightedAggregate(t *testing.T) 
 	}
 }
 
+func TestInterruptedDecisionIsPersistableAndSelfVerifying(t *testing.T) {
+	input := testInput(false)
+	input.Interrupted = true
+	receipt, err := Evaluate(input)
+	if err != nil {
+		t.Fatalf("Evaluate(): %v", err)
+	}
+	if receipt.Decision != DecisionRefuse || !receipt.Interrupted || len(receipt.Reasons) != 1 || receipt.Reasons[0] != ReasonInterrupted {
+		t.Fatalf("unexpected interrupted receipt: %+v", receipt)
+	}
+	data, err := EncodeDecision(receipt)
+	if err != nil {
+		t.Fatalf("EncodeDecision(): %v", err)
+	}
+	decoded, err := DecodeDecision(bytes.NewReader(data))
+	if err != nil || !decoded.Interrupted || decoded.ReceiptSHA256 != receipt.ReceiptSHA256 {
+		t.Fatalf("DecodeDecision(): receipt=%+v err=%v", decoded, err)
+	}
+}
+
+func TestPromotionRejectsNonCanonicalIdentityAndDecisionOrdering(t *testing.T) {
+	input := testInput(false)
+	input.Reference.LineageSHA256 = strings.ToUpper(input.Reference.LineageSHA256)
+	if _, err := Evaluate(input); err == nil {
+		t.Fatal("uppercase identity digest was accepted")
+	}
+	input = testInput(false)
+	input.Axes[0], input.Axes[1] = input.Axes[1], input.Axes[0]
+	if _, err := Evaluate(input); err == nil {
+		t.Fatal("non-canonical axis order was accepted")
+	}
+	input = testInput(false)
+	input.Axes[0].Reason = ReasonSafetyRegression
+	if _, err := Evaluate(input); err == nil {
+		t.Fatal("reason on a passing axis was accepted")
+	}
+}
+
 func TestPromotionRejectsAliasesAndUnreviewedComponents(t *testing.T) {
 	input := testInput(false)
 	input.Reference.LineageSHA256 = "latest"
@@ -105,7 +144,7 @@ func TestRollbackIsExactAndCanonical(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PlanRollback(): %v", err)
 	}
-	if !receipt.Restored || receipt.Decision != DecisionRollback {
+	if receipt.Restored || receipt.RequestSHA256 != "" || receipt.Decision != DecisionRollback {
 		t.Fatalf("unexpected rollback: %+v", receipt)
 	}
 	data, err := EncodeRollback(receipt)
@@ -129,8 +168,9 @@ func TestDecodeRejectsUnknownAndNonCanonicalMembers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EncodeDecision(): %v", err)
 	}
-	mutated := bytes.TrimSuffix(data, []byte{'\n'})
-	mutated = append(mutated[:len(mutated)-1], []byte(`,"future":1}`)...)
+	mutated := append([]byte(nil), data...)
+	mutated = append(mutated[:len(mutated)-2], []byte(`,"future":1}`)...)
+	mutated = append(mutated, '\n')
 	if _, err := DecodeDecision(bytes.NewReader(mutated)); err == nil {
 		t.Fatal("future member was accepted")
 	}
@@ -166,15 +206,97 @@ func TestStorePromotionIsExplicitIdempotentAndRollbackExact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PlanRollback(): %v", err)
 	}
-	if err := store.ApplyRollback(rollback); err != nil {
+	if _, err := store.ApplyRollback(rollback); err != nil {
 		t.Fatalf("ApplyRollback(): %v", err)
 	}
 	current, present, err = store.Current()
 	if err != nil || !present || current != promotionReceipt.Reference {
 		t.Fatalf("Current after rollback: current=%+v present=%v err=%v", current, present, err)
 	}
-	if err := store.ApplyRollback(rollback); err == nil {
+	if _, err := store.ApplyRollback(rollback); err == nil {
 		t.Fatal("rollback replay was accepted")
+	}
+}
+
+func TestStoreRollbackRequiresRecordedPromotionAndRejectsCycleReplay(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	first, err := Evaluate(testInput(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ApplyPromotion(first, nil); err != nil {
+		t.Fatal(err)
+	}
+	invalid, err := PlanRollback(RollbackRequest{Current: first.Candidate, Restore: testIdentity("unrelated"), AuthorizationSHA256: testDigest("invalid-restore")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ApplyRollback(invalid); err == nil {
+		t.Fatal("rollback to an unrecorded identity was accepted")
+	}
+	rollback, err := PlanRollback(RollbackRequest{Current: first.Candidate, Restore: first.Reference, AuthorizationSHA256: testDigest("rollback-cycle")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ApplyRollback(rollback); err != nil {
+		t.Fatal(err)
+	}
+	secondInput := testInput(false)
+	secondInput.Reviews[0].ReviewSHA256 = testDigest("second-promotion-review")
+	second, err := Evaluate(secondInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, present, err := store.Current()
+	if err != nil || !present {
+		t.Fatalf("Current(): current=%+v present=%v err=%v", current, present, err)
+	}
+	if err := store.ApplyPromotion(second, &current); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ApplyRollback(rollback); err == nil {
+		t.Fatal("rollback receipt replay after a later promotion was accepted")
+	}
+}
+
+func TestStoreHeldRootSurvivesRenameWithoutFollowingReplacement(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "store")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	moved := filepath.Join(parent, "moved-store")
+	if err := os.Rename(root, moved); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := Evaluate(testInput(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ApplyPromotion(receipt, nil); err != nil {
+		t.Fatalf("ApplyPromotion after rename: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(moved, promotionCurrentName)); err != nil {
+		t.Fatalf("held root did not receive pointer: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, promotionCurrentName)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("replacement root was mutated: err=%v", err)
 	}
 }
 

@@ -2,6 +2,8 @@ package promotion
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,23 +12,39 @@ import (
 )
 
 const (
-	promotionDecisionDirectory = "decisions"
-	promotionRollbackDirectory = "rollbacks"
-	promotionCurrentName       = "current.json"
+	promotionDecisionDirectory   = "decisions"
+	promotionRollbackDirectory   = "rollbacks"
+	promotionTransitionDirectory = "transitions"
+	promotionCurrentName         = "current.json"
+	maxStoreFileBytes            = MaxReceiptBytes
 )
 
 // Store is an explicit owner-only local reference root. It contains only
 // content-minimized receipts and the current immutable identity pointer.
 // Provider, backend, credential, and private evidence discovery are outside
 // this API.
-type Store struct{ root string }
+type Store struct {
+	rootPath string
+	root     *os.Root
+}
 
 type referencePointer struct {
-	Schema          string   `json:"schema"`
-	SchemaVersion   int      `json:"schema_version"`
-	ContractVersion string   `json:"contract_version"`
-	Identity        Identity `json:"identity"`
-	PointerSHA256   string   `json:"pointer_sha256"`
+	Schema           string   `json:"schema"`
+	SchemaVersion    int      `json:"schema_version"`
+	ContractVersion  string   `json:"contract_version"`
+	Identity         Identity `json:"identity"`
+	TransitionSHA256 string   `json:"transition_sha256"`
+	PointerSHA256    string   `json:"pointer_sha256"`
+}
+
+type transitionRecord struct {
+	Kind                     string   `json:"kind"`
+	RequestSHA256            string   `json:"request_sha256"`
+	ReceiptSHA256            string   `json:"receipt_sha256"`
+	PreviousTransitionSHA256 string   `json:"previous_transition_sha256,omitempty"`
+	From                     Identity `json:"from"`
+	To                       Identity `json:"to"`
+	TransitionSHA256         string   `json:"transition_sha256"`
 }
 
 func NewStore(root string) (Store, error) {
@@ -38,42 +56,69 @@ func NewStore(root string) (Store, error) {
 		return Store{}, fail(ErrorInvalidIdentity)
 	}
 	info, err := os.Lstat(abs)
-	if err != nil || !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || validateStoreRootPlatform(abs, info) != nil {
 		return Store{}, fail(ErrorInvalidIdentity)
 	}
-	return Store{root: abs}, nil
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil || resolved != abs {
+		return Store{}, fail(ErrorInvalidIdentity)
+	}
+	held, err := os.OpenRoot(abs)
+	if err != nil {
+		return Store{}, fail(ErrorInvalidIdentity)
+	}
+	return Store{rootPath: abs, root: held}, nil
 }
 
 func (s Store) openRoot() (*os.Root, error) {
-	if s.root == "" {
+	if s.root == nil || s.rootPath == "" {
 		return nil, fail(ErrorInvalidIdentity)
 	}
-	return os.OpenRoot(s.root)
+	return s.root, nil
 }
 
 func (s Store) ensureDirectory(root *os.Root, name string) error {
 	if err := root.Mkdir(name, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
 		return err
 	}
-	info, err := root.Stat(name)
-	if err != nil || !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
+	info, err := root.Lstat(name)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || validateStoreDirectoryPlatform(info) != nil {
 		return fail(ErrorConflict)
 	}
 	return nil
 }
 
-func writeExclusive(root *os.Root, name string, data []byte) error {
-	f, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		if !errors.Is(err, os.ErrExist) {
-			return err
+func writeExclusive(root *os.Root, name string, data []byte, idempotent bool) error {
+	if len(data) > maxStoreFileBytes {
+		return fail(ErrorLimitExceeded)
+	}
+	if info, err := root.Lstat(name); err == nil {
+		if !idempotent {
+			return fail(ErrorConflict)
 		}
-		existing, readErr := root.ReadFile(name)
+		existing, readErr := readRegularBounded(root, name)
 		if readErr != nil || !bytes.Equal(existing, data) {
 			return fail(ErrorConflict)
 		}
+		if info.Mode().Perm() != 0o600 {
+			return fail(ErrorConflict)
+		}
 		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
+	tempName := "." + filepath.Base(name) + ".tmp." + randomTransitionSuffix()
+	_ = root.Remove(tempName)
+	f, err := root.OpenFile(tempName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = root.Remove(tempName)
+		}
+	}()
 	if _, err := f.Write(data); err != nil {
 		_ = f.Close()
 		return err
@@ -82,11 +127,66 @@ func writeExclusive(root *os.Root, name string, data []byte) error {
 		_ = f.Close()
 		return err
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := root.Link(tempName, name); err != nil {
+		return err
+	}
+	if err := root.Remove(tempName); err != nil {
+		return err
+	}
+	cleanup = false
+	return syncDirectory(root, filepath.Dir(name))
+}
+
+func readRegularBounded(root *os.Root, name string) ([]byte, error) {
+	info, err := root.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || validateStoreRegularFilePlatform(info) != nil || info.Size() < 0 || info.Size() > maxStoreFileBytes {
+		return nil, fail(ErrorConflict)
+	}
+	f, err := root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	opened, err := f.Stat()
+	if err != nil || !opened.Mode().IsRegular() || opened.Mode().Perm() != 0o600 || !os.SameFile(info, opened) {
+		return nil, fail(ErrorConflict)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxStoreFileBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxStoreFileBytes {
+		return nil, fail(ErrorLimitExceeded)
+	}
+	return data, nil
+}
+
+func syncDirectory(root *os.Root, name string) error {
+	f, err := root.Open(name)
+	if err != nil {
+		return err
+	}
+	err = f.Sync()
+	closeErr := f.Close()
+	return errors.Join(err, closeErr)
+}
+
+func randomTransitionSuffix() string {
+	var raw [8]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "fallback"
+	}
+	return hex.EncodeToString(raw[:])
 }
 
 func encodePointer(pointer referencePointer) ([]byte, error) {
-	if pointer.Schema != Schema || pointer.SchemaVersion != SchemaVersion || pointer.ContractVersion != ContractVersion || validateIdentity(pointer.Identity) != nil || !validDigest(pointer.PointerSHA256) {
+	if pointer.Schema != Schema || pointer.SchemaVersion != SchemaVersion || pointer.ContractVersion != ContractVersion || validateIdentity(pointer.Identity) != nil || !validDigest(pointer.TransitionSHA256) || !validDigest(pointer.PointerSHA256) {
 		return nil, fail(ErrorInvalidReceipt)
 	}
 	copyPointer := pointer
@@ -121,7 +221,7 @@ func decodePointer(data []byte) (referencePointer, error) {
 }
 
 func (s Store) readCurrent(root *os.Root) (referencePointer, bool, error) {
-	data, err := root.ReadFile(promotionCurrentName)
+	data, err := readRegularBounded(root, promotionCurrentName)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return referencePointer{}, false, nil
@@ -140,7 +240,6 @@ func (s Store) Current() (Identity, bool, error) {
 	if err != nil {
 		return Identity{}, false, err
 	}
-	defer func() { _ = root.Close() }()
 	pointer, present, err := s.readCurrent(root)
 	if err != nil || !present {
 		return Identity{}, present, err
@@ -148,8 +247,18 @@ func (s Store) Current() (Identity, bool, error) {
 	return pointer.Identity, true, nil
 }
 
-func writePointer(root *os.Root, identity Identity) error {
-	pointer := referencePointer{Schema: Schema, SchemaVersion: SchemaVersion, ContractVersion: ContractVersion, Identity: identity}
+// Close releases the held store root. Callers should close a store after the
+// complete operation; methods intentionally retain the same root descriptor
+// for admission-to-mutation identity binding.
+func (s Store) Close() error {
+	if s.root == nil {
+		return nil
+	}
+	return s.root.Close()
+}
+
+func writePointer(root *os.Root, identity Identity, transitionSHA256 string) error {
+	pointer := referencePointer{Schema: Schema, SchemaVersion: SchemaVersion, ContractVersion: ContractVersion, Identity: identity, TransitionSHA256: transitionSHA256}
 	digest, err := digestJSON(pointer)
 	if err != nil {
 		return err
@@ -159,7 +268,7 @@ func writePointer(root *os.Root, identity Identity) error {
 	if err != nil {
 		return err
 	}
-	tempName := "." + promotionCurrentName + "." + digest + ".tmp"
+	tempName := "." + promotionCurrentName + "." + digest + ".tmp." + randomTransitionSuffix()
 	f, err := root.OpenFile(tempName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
@@ -188,7 +297,90 @@ func writePointer(root *os.Root, identity Identity) error {
 		_ = root.Remove(tempName)
 		return err
 	}
+	return syncDirectory(root, ".")
+}
+
+func transitionWithoutDigest(record transitionRecord) transitionRecord {
+	record.TransitionSHA256 = ""
+	return record
+}
+
+func validateTransition(record transitionRecord) error {
+	fromEmpty := record.Kind == "promotion" && identityZero(record.From) && record.PreviousTransitionSHA256 == ""
+	if (record.Kind != "promotion" && record.Kind != "rollback") || (!fromEmpty && validateIdentity(record.From) != nil) ||
+		validateIdentity(record.To) != nil || (!fromEmpty && identityEqual(record.From, record.To)) ||
+		!validDigest(record.RequestSHA256) || !validDigest(record.ReceiptSHA256) || !validDigest(record.TransitionSHA256) {
+		return fail(ErrorInvalidReceipt)
+	}
+	if record.PreviousTransitionSHA256 != "" && !validDigest(record.PreviousTransitionSHA256) {
+		return fail(ErrorInvalidReceipt)
+	}
+	digest, err := digestJSON(transitionWithoutDigest(record))
+	if err != nil || digest != record.TransitionSHA256 {
+		return fail(ErrorInvalidReceipt)
+	}
 	return nil
+}
+
+func identityZero(identity Identity) bool { return identity == (Identity{}) }
+
+func encodeTransition(record transitionRecord) ([]byte, error) {
+	if err := validateTransition(record); err != nil {
+		return nil, err
+	}
+	data, err := json.Marshal(record)
+	if err != nil || len(data) > maxStoreFileBytes {
+		return nil, fail(ErrorLimitExceeded)
+	}
+	return append(data, '\n'), nil
+}
+
+func decodeTransition(data []byte) (transitionRecord, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var record transitionRecord
+	if err := decoder.Decode(&record); err != nil {
+		return transitionRecord{}, fail(ErrorInvalidReceipt)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return transitionRecord{}, fail(ErrorInvalidReceipt)
+	}
+	canonical, err := encodeTransition(record)
+	if err != nil || !bytes.Equal(canonical, data) {
+		return transitionRecord{}, fail(ErrorInvalidReceipt)
+	}
+	return record, nil
+}
+
+func transitionName(kind, requestSHA256 string) string {
+	return filepath.Join(promotionTransitionDirectory, kind+"-"+requestSHA256+".json")
+}
+
+func (s Store) readTransition(root *os.Root, kind, requestSHA256 string) (transitionRecord, bool, error) {
+	data, err := readRegularBounded(root, transitionName(kind, requestSHA256))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return transitionRecord{}, false, nil
+		}
+		return transitionRecord{}, false, err
+	}
+	record, err := decodeTransition(data)
+	if err != nil || record.Kind != kind || record.RequestSHA256 != requestSHA256 {
+		return transitionRecord{}, false, fail(ErrorConflict)
+	}
+	return record, true, nil
+}
+
+func (s Store) recordTransition(root *os.Root, record transitionRecord) error {
+	if err := s.ensureDirectory(root, promotionTransitionDirectory); err != nil {
+		return err
+	}
+	data, err := encodeTransition(record)
+	if err != nil {
+		return err
+	}
+	return writeExclusive(root, transitionName(record.Kind, record.RequestSHA256), data, false)
 }
 
 func (s Store) recordDecision(root *os.Root, receipt DecisionReceipt) error {
@@ -199,7 +391,7 @@ func (s Store) recordDecision(root *os.Root, receipt DecisionReceipt) error {
 	if err := s.ensureDirectory(root, promotionDecisionDirectory); err != nil {
 		return err
 	}
-	return writeExclusive(root, filepath.Join(promotionDecisionDirectory, receipt.ReceiptSHA256+".json"), data)
+	return writeExclusive(root, filepath.Join(promotionDecisionDirectory, receipt.ReceiptSHA256+".json"), data, true)
 }
 
 func (s Store) recordRollback(root *os.Root, receipt RollbackReceipt) error {
@@ -210,7 +402,7 @@ func (s Store) recordRollback(root *os.Root, receipt RollbackReceipt) error {
 	if err := s.ensureDirectory(root, promotionRollbackDirectory); err != nil {
 		return err
 	}
-	return writeExclusive(root, filepath.Join(promotionRollbackDirectory, receipt.ReceiptSHA256+".json"), data)
+	return writeExclusive(root, filepath.Join(promotionRollbackDirectory, receipt.ReceiptSHA256+".json"), data, true)
 }
 
 // RecordDecision preserves a promote or refuse receipt without changing the
@@ -221,7 +413,6 @@ func (s Store) RecordDecision(receipt DecisionReceipt) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = root.Close() }()
 	lock, err := acquireStoreLock(root)
 	if err != nil {
 		return err
@@ -241,7 +432,6 @@ func (s Store) ApplyPromotion(receipt DecisionReceipt, expectedCurrent *Identity
 	if err != nil {
 		return err
 	}
-	defer func() { _ = root.Close() }()
 	lock, err := acquireStoreLock(root)
 	if err != nil {
 		return err
@@ -258,34 +448,128 @@ func (s Store) ApplyPromotion(receipt DecisionReceipt, expectedCurrent *Identity
 	} else if expectedCurrent != nil {
 		return fail(ErrorConflict)
 	}
+	if existing, found, err := s.readTransition(root, "promotion", receipt.ReceiptSHA256); err != nil {
+		return err
+	} else if found {
+		if present && current.TransitionSHA256 == existing.RequestSHA256 && current.Identity == existing.To {
+			return fail(ErrorConflict)
+		}
+		if (!present && existing.From == receipt.Reference && existing.PreviousTransitionSHA256 == "") ||
+			(present && current.Identity == existing.From && current.TransitionSHA256 == existing.PreviousTransitionSHA256) {
+			if err := writePointer(root, existing.To, existing.RequestSHA256); err != nil {
+				return err
+			}
+			return nil
+		}
+		return fail(ErrorConflict)
+	}
 	if err := s.recordDecision(root, receipt); err != nil {
 		return err
 	}
-	return writePointer(root, receipt.Candidate)
+	from := receipt.Reference
+	previous := ""
+	if present {
+		from = current.Identity
+		previous = current.TransitionSHA256
+	}
+	record := transitionRecord{Kind: "promotion", RequestSHA256: receipt.ReceiptSHA256, ReceiptSHA256: receipt.ReceiptSHA256,
+		PreviousTransitionSHA256: previous, From: from, To: receipt.Candidate}
+	digest, err := digestJSON(transitionWithoutDigest(record))
+	if err != nil {
+		return fail(ErrorInvalidReceipt)
+	}
+	record.TransitionSHA256 = digest
+	if err := s.recordTransition(root, record); err != nil {
+		return err
+	}
+	return writePointer(root, receipt.Candidate, record.RequestSHA256)
 }
 
-// ApplyRollback records and applies an exact rollback only if the current
-// pointer still names receipt.Current. It never searches for a prior alias.
-func (s Store) ApplyRollback(receipt RollbackReceipt) error {
+// ApplyRollback validates a planned request, proves that the exact restore
+// identity was the immediately preceding promotion, and returns a separate
+// applied receipt. The request cannot be replayed after a later transition.
+func (s Store) ApplyRollback(receipt RollbackReceipt) (RollbackReceipt, error) {
+	if receipt.Restored || receipt.RequestSHA256 != "" {
+		return RollbackReceipt{}, fail(ErrorInvalidRollback)
+	}
 	if err := ValidateRollback(receipt); err != nil {
-		return err
+		return RollbackReceipt{}, err
 	}
 	root, err := s.openRoot()
 	if err != nil {
-		return err
+		return RollbackReceipt{}, err
 	}
-	defer func() { _ = root.Close() }()
 	lock, err := acquireStoreLock(root)
 	if err != nil {
-		return err
+		return RollbackReceipt{}, err
 	}
 	defer func() { _ = lock.Close() }()
 	current, present, err := s.readCurrent(root)
 	if err != nil || !present || current.Identity != receipt.Current {
-		return fail(ErrorConflict)
+		return RollbackReceipt{}, fail(ErrorConflict)
 	}
-	if err := s.recordRollback(root, receipt); err != nil {
-		return err
+	if existing, found, err := s.readTransition(root, "rollback", receipt.ReceiptSHA256); err != nil {
+		return RollbackReceipt{}, err
+	} else if found {
+		if current.Identity == existing.To && current.TransitionSHA256 == existing.RequestSHA256 {
+			return RollbackReceipt{}, fail(ErrorConflict)
+		}
+		if current.Identity != existing.From || current.TransitionSHA256 != existing.PreviousTransitionSHA256 {
+			return RollbackReceipt{}, fail(ErrorConflict)
+		}
+		applied, err := s.readRollbackReceipt(root, existing.ReceiptSHA256)
+		if err != nil {
+			return RollbackReceipt{}, err
+		}
+		if !applied.Restored || applied.RequestSHA256 != receipt.ReceiptSHA256 || applied.Current != receipt.Current || applied.Restore != receipt.Restore {
+			return RollbackReceipt{}, fail(ErrorConflict)
+		}
+		if err := writePointer(root, existing.To, existing.RequestSHA256); err != nil {
+			return RollbackReceipt{}, err
+		}
+		return applied, nil
 	}
-	return writePointer(root, receipt.Restore)
+	prior, found, err := s.readTransition(root, "promotion", current.TransitionSHA256)
+	if err != nil || !found || prior.RequestSHA256 != current.TransitionSHA256 || prior.From != receipt.Restore || prior.To != receipt.Current {
+		return RollbackReceipt{}, fail(ErrorConflict)
+	}
+	applied := receipt
+	applied.Restored = true
+	applied.RequestSHA256 = receipt.ReceiptSHA256
+	applied.ReceiptSHA256 = ""
+	digest, err := digestJSON(rollbackWithoutDigest(applied))
+	if err != nil {
+		return RollbackReceipt{}, fail(ErrorInvalidRollback)
+	}
+	applied.ReceiptSHA256 = digest
+	if err := s.recordRollback(root, applied); err != nil {
+		return RollbackReceipt{}, err
+	}
+	record := transitionRecord{Kind: "rollback", RequestSHA256: receipt.ReceiptSHA256, ReceiptSHA256: applied.ReceiptSHA256,
+		PreviousTransitionSHA256: current.TransitionSHA256, From: receipt.Current, To: receipt.Restore}
+	digest, err = digestJSON(transitionWithoutDigest(record))
+	if err != nil {
+		return RollbackReceipt{}, fail(ErrorInvalidRollback)
+	}
+	record.TransitionSHA256 = digest
+	if err := s.recordTransition(root, record); err != nil {
+		return RollbackReceipt{}, err
+	}
+	if err := writePointer(root, receipt.Restore, record.RequestSHA256); err != nil {
+		return RollbackReceipt{}, err
+	}
+	return applied, nil
+}
+
+func (s Store) readRollbackReceipt(root *os.Root, receiptSHA256 string) (RollbackReceipt, error) {
+	data, err := readRegularBounded(root, filepath.Join(promotionRollbackDirectory, receiptSHA256+".json"))
+	if err != nil {
+		return RollbackReceipt{}, err
+	}
+	decoder := bytes.NewReader(data)
+	var receipt RollbackReceipt
+	if receipt, err = DecodeRollback(decoder); err != nil {
+		return RollbackReceipt{}, err
+	}
+	return receipt, nil
 }

@@ -16,6 +16,11 @@ func standalonePromotionTestDigest(seed string) string {
 	return hex.EncodeToString(digest[:])
 }
 
+func standalonePromotionTestBytesDigest(data []byte) string {
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:])
+}
+
 func standalonePromotionTestIdentity(seed string) agenteval.PromotionIdentity {
 	return agenteval.PromotionIdentity{LineageSHA256: standalonePromotionTestDigest(seed + ":lineage"), SkillSHA256: standalonePromotionTestDigest(seed + ":skill"), EvaluationSHA256: standalonePromotionTestDigest(seed + ":evaluation"), GraderSHA256: standalonePromotionTestDigest(seed + ":grader"), HoldoutSHA256: standalonePromotionTestDigest(seed + ":holdout"), RuntimeSHA256: standalonePromotionTestDigest(seed + ":runtime")}
 }
@@ -55,7 +60,8 @@ func TestStandalonePromotionAndExactRollbackWholeProcess(t *testing.T) {
 	if err := os.WriteFile(comparisonPath, comparisonData, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := runStandaloneForTest(t, []string{"promote", "--comparison", comparisonPath, "--store", storeRoot, "--confirm", "PROMOTE"}, "")
+	comparisonSHA := standalonePromotionTestBytesDigest(comparisonData)
+	code, stdout, stderr := runStandaloneForTest(t, []string{"promote", "--comparison", comparisonPath, "--store", storeRoot, "--expected-comparison-sha256", comparisonSHA, "--confirm", "PROMOTE"}, "")
 	if code != 0 || stderr != "" || !strings.Contains(stdout, `"decision":"promote"`) {
 		t.Fatalf("promotion: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -63,11 +69,12 @@ func TestStandalonePromotionAndExactRollbackWholeProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer store.Close()
 	current, present, err := store.Current()
 	if err != nil || !present || current != standalonePromotionTestComparison(false).Candidate {
 		t.Fatalf("current after promotion: %+v present=%v err=%v", current, present, err)
 	}
-	code, stdout, stderr = runStandaloneForTest(t, []string{"promote", "--comparison", comparisonPath, "--store", storeRoot, "--confirm", "PROMOTE"}, "")
+	code, stdout, stderr = runStandaloneForTest(t, []string{"promote", "--comparison", comparisonPath, "--store", storeRoot, "--expected-comparison-sha256", comparisonSHA, "--confirm", "PROMOTE"}, "")
 	if code != standalonePolicyDeniedError.code || stdout != "" {
 		t.Fatalf("replayed promotion: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -84,7 +91,8 @@ func TestStandalonePromotionAndExactRollbackWholeProcess(t *testing.T) {
 	if err := os.WriteFile(rollbackPath, rollbackData, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr = runStandaloneForTest(t, []string{"rollback", "--receipt", rollbackPath, "--store", storeRoot, "--confirm", "ROLLBACK"}, "")
+	rollbackSHA := standalonePromotionTestBytesDigest(rollbackData)
+	code, stdout, stderr = runStandaloneForTest(t, []string{"rollback", "--receipt", rollbackPath, "--store", storeRoot, "--expected-rollback-sha256", rollbackSHA, "--confirm", "ROLLBACK"}, "")
 	if code != 0 || stderr != "" || !strings.Contains(stdout, `"decision":"rollback"`) {
 		t.Fatalf("rollback: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -108,7 +116,8 @@ func TestStandalonePromotionRefusesAndPersistsCandidateDecision(t *testing.T) {
 	if err := os.WriteFile(comparisonPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	code, stdout, stderr := runStandaloneForTest(t, []string{"promote", "--comparison", comparisonPath, "--store", storeRoot, "--confirm", "PROMOTE"}, "")
+	comparisonSHA := standalonePromotionTestBytesDigest(data)
+	code, stdout, stderr := runStandaloneForTest(t, []string{"promote", "--comparison", comparisonPath, "--store", storeRoot, "--expected-comparison-sha256", comparisonSHA, "--confirm", "PROMOTE"}, "")
 	if code != 9 || stdout != "" {
 		t.Fatalf("refusal: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
@@ -118,5 +127,31 @@ func TestStandalonePromotionRefusesAndPersistsCandidateDecision(t *testing.T) {
 	entries, err := os.ReadDir(filepath.Join(storeRoot, "decisions"))
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("refusal receipt was not retained: entries=%v err=%v", entries, err)
+	}
+}
+
+func TestStandalonePromotionBindsConfirmationToExactBytes(t *testing.T) {
+	root := t.TempDir()
+	storeRoot := filepath.Join(root, "store")
+	if err := os.Mkdir(storeRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data, err := agenteval.EncodePromotionComparison(standalonePromotionTestComparison(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "comparison.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	digest := standalonePromotionTestBytesDigest(data)
+	for _, args := range [][]string{
+		{"promote", "--comparison", path, "--store", storeRoot, "--confirm", "PROMOTE"},
+		{"promote", "--comparison", path, "--store", storeRoot, "--expected-comparison-sha256", strings.ToUpper(digest), "--confirm", "PROMOTE"},
+	} {
+		code, stdout, stderr := runStandaloneForTest(t, args, "")
+		if code != standalonePolicyDeniedError.code || stdout != "" || !strings.Contains(stderr, "promotion_confirmation") {
+			t.Fatalf("confirmation bypass: args=%v code=%d stdout=%q stderr=%q", args, code, stdout, stderr)
+		}
 	}
 }

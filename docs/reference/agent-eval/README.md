@@ -149,14 +149,22 @@ remain subject to the no-replay lifecycle below.
 
 Promotion is a provider-free, identity-only decision over one explicit
 comparison artifact. It requires all four component reviews, binds reference
-and candidate by six exact SHA-256 identities, and refuses when any declared
-axis is blocking, unknown, or interrupted; it never computes a weighted score
-or reads source evidence. A confirmed promotion writes only a content-
-minimized receipt and an owner-only current pointer beneath the exact absolute
-mode-0700 store. Rollback requires a separately encoded receipt, the exact
-current identity, and `ROLLBACK` confirmation; it never resolves aliases such
-as `latest` or searches for an earlier state. These source operations are
-pre-release and do not constitute signed release or support authority.
+and candidate by six exact lowercase SHA-256 identities, and refuses when any
+declared axis is blocking, unknown, or interrupted; it never computes a
+weighted score or reads source evidence. A mutating invocation must supply the
+SHA-256 of the exact comparison bytes that were reviewed, together with the
+literal `PROMOTE` confirmation. A confirmed promotion writes only a
+content-minimized receipt and an owner-only current pointer beneath the exact
+absolute mode-0700 store. Rollback is a two-phase contract: planning emits an
+unapplied request receipt (`restored:false`), while the store returns and
+records a separate applied receipt only after proving that the requested
+restore is the immediately preceding recorded promotion. The mutating
+invocation supplies the exact rollback-request digest and literal `ROLLBACK`
+confirmation; prior rollback receipts cannot be replayed after a later
+transition. The persistent store is currently supported only on platforms with
+the implemented owner-only directory and directory-entry durability boundary;
+unsupported platforms fail closed before mutation. These source operations
+are pre-release and do not constitute signed release or support authority.
 
 Commands are non-interactive: no prompts, pagers, browsers, confirmation reads from stdin, or default provider selection. A local mutation requiring confirmation must receive all confirmation material in the original invocation and fail before writing when it is absent.
 
@@ -381,6 +389,7 @@ Compatibility is the tuple `(standalone-core, contract, atl-profile, agent-adapt
 | `agent-adapter` | Explicit launch, bounded structured exchange, agent identity, activation evidence, and usage receipts | Admission, backend authority, scoring, retries, promotion, or privacy classification |
 | `execution-backend` | Filesystem, process, network, deadline, cleanup, and resource enforcement with a receipt | Agent selection, grader truth, retry policy, or authority beyond the admitted plan |
 | `grader` | Deterministic checks or an explicitly isolated judge with coverage and provenance | Runner control, hidden retries, source mutation, missing-as-zero coercion, or promotion authority |
+| `promotion` | Provider-free identity comparison, refusal reasons, exact guarded promotion, and history-bound rollback | Source evidence, provider/backend access, arbitrary identity selection, release signing, or support policy |
 | `reporter` | Content-minimized projections of validated artifacts | Execution, migration, evidence synthesis, or wider visibility |
 
 External substrates are adapters. They do not become admission, privacy, scoring, promotion, or lifecycle authority merely because they execute a task or render a report.
@@ -748,6 +757,9 @@ The internal `ATL_EVAL_*` registry, wrapper basenames, broker records, launch ar
 | `agent-eval/grade-receipt` | Content-minimized per-check coverage, evidence citations, reviewer provenance, usage, and disagreements |
 | `agent-eval/migration-preview` | Content-minimized reviewed binding of source, candidate, registry, migration implementation, graph, and counts |
 | `agent-eval/migration-result` | Content-minimized idempotent receipt for one applied reviewed migration |
+| `agent-eval/promotion-comparison` | Exact reviewed identity/axis input for one guarded promotion decision; no source evidence |
+| `agent-eval/promotion-decision` | Content-minimized promotion/refusal receipt, including interruption and canonical reasons |
+| `agent-eval/promotion-rollback` | Exact rollback request or applied rollback receipt; application is store-bound and non-replayable |
 | `agent-eval/scheduler-plan` | Content-minimized immutable task, ordinal, round, worker, resource, cumulative-cost, and opaque cohort admission |
 | `agent-eval/scheduler-report` | Content-minimized queue, dispatch, terminal-outcome, never-started, and stop counters bound to one scheduler plan |
 | `agent-eval/schema-registry` | Public closed inventory of artifact ownership, generations, policies, bounds, resources, and reviewed migration edges |
@@ -760,7 +772,8 @@ migration artifacts, the three durable attempt families
 `agent-eval/attempt-event`), each of the four extension families, the semantic
 adapter contract, normalized observation, execution-backend contract, trial
 plan, trial receipt, grader contract, grading plan, grade receipt, scheduler
-plan/report, and the sequential-reference bundle at generation 1. Project
+plan/report, the sequential-reference bundle, and the three promotion families
+at generation 1. Project
 config, registry, experiment capability/design/analysis
 and manifest, attempt records, adapter manifest, message, bundle, adapter contract, execution-backend
 contract, trial-plan, and grade-receipt generations are readable, emitted, and executable;
@@ -771,7 +784,9 @@ bounded local dispatcher. Grader contracts,
 grading plans, and grade receipts are readable, emitted, and executable. A
 grade receipt may enter grading only with its exact admitted plan and attempt
 identity; it cannot launch a process, select a provider, or acquire authority
-by itself. Project config is
+by itself. Promotion comparisons and rollback requests are executable only by
+their exact guarded store operations; promotion decisions are readable and
+emitted but never executable on their own. Project config is
 `public_or_private` and capped at 64 KiB. Manifests are public and capped at
 64 KiB. Attempt headers are capped at 16 KiB and attempt plans and events at
 64 KiB per record; all three are `preserve`, `content_minimized`, and use

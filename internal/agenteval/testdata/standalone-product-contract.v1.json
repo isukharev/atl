@@ -114,7 +114,7 @@
     {"namespace":"standalone","kind":"migration-preview","current":1,"readable":[1],"emitted":[1],"executable":[],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":65536},
     {"namespace":"standalone","kind":"migration-result","current":1,"readable":[1],"emitted":[1],"executable":[],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":65536},
     {"namespace":"standalone","kind":"project-config","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"public_or_private","migration":"explicit","max_bytes":65536},
-    {"namespace":"standalone","kind":"promotion-comparison","current":1,"readable":[1],"emitted":[1],"executable":[],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":1048576},
+    {"namespace":"standalone","kind":"promotion-comparison","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":1048576},
     {"namespace":"standalone","kind":"promotion-decision","current":1,"readable":[1],"emitted":[1],"executable":[],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":1048576},
     {"namespace":"standalone","kind":"promotion-rollback","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":1048576},
     {"namespace":"standalone","kind":"scheduler-plan","current":1,"readable":[1],"emitted":[1],"executable":[1],"disposition":"preserve","privacy":"content_minimized","migration":"explicit","max_bytes":4194304},

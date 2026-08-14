@@ -14,7 +14,7 @@ type storeLock struct {
 
 func acquireStoreLock(root *os.Root) (*storeLock, error) {
 	if info, err := root.Lstat(promotionLockName); err == nil {
-		if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+		if !info.Mode().IsRegular() || validateStoreRegularFilePlatform(info) != nil {
 			return nil, fail(ErrorConflict)
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -25,7 +25,7 @@ func acquireStoreLock(root *os.Root) (*storeLock, error) {
 		return nil, err
 	}
 	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+	if err != nil || !info.Mode().IsRegular() || validateStoreRegularFilePlatform(info) != nil {
 		_ = file.Close()
 		return nil, fail(ErrorConflict)
 	}
