@@ -28,6 +28,7 @@ const (
 	evaluatorLifecycleImportPath        = evaluatorModuleImportPath + "/lifecycle"
 	evaluatorLineageImportPath          = evaluatorModuleImportPath + "/lineage"
 	evaluatorPromotionImportPath        = evaluatorModuleImportPath + "/promotion"
+	evaluatorEvolutionImportPath        = evaluatorModuleImportPath + "/evolution"
 	evaluatorSchedulerImportPath        = evaluatorModuleImportPath + "/scheduler"
 	evaluatorAgentSkillsImportPath      = evaluatorModuleImportPath + "/interchange/agentskills"
 	evaluatorATIFImportPath             = evaluatorModuleImportPath + "/interchange/atif"
@@ -50,6 +51,7 @@ const (
 	evaluatorLifecyclePackage        evaluatorPackage = "lifecycle"
 	evaluatorLineagePackage          evaluatorPackage = "lineage"
 	evaluatorPromotionPackage        evaluatorPackage = "promotion"
+	evaluatorEvolutionPackage        evaluatorPackage = "evolution"
 	evaluatorSchedulerPackage        evaluatorPackage = "scheduler"
 	evaluatorAgentSkillsPackage      evaluatorPackage = "interchange/agentskills"
 	evaluatorATIFPackage             evaluatorPackage = "interchange/atif"
@@ -71,6 +73,7 @@ var evaluatorPackages = []evaluatorPackage{
 	evaluatorLifecyclePackage,
 	evaluatorLineagePackage,
 	evaluatorPromotionPackage,
+	evaluatorEvolutionPackage,
 	evaluatorSchedulerPackage,
 	evaluatorAgentSkillsPackage,
 	evaluatorATIFPackage,
@@ -102,7 +105,7 @@ type evaluatorDependencyLedger map[evaluatorDependencyLane][]evaluatorDependency
 // core + executionbackend + experiment + extension + grading + interchange/agentskills + lifecycle + scheduler + profile/atl +
 // lineage + schemaregistry, and cmd/agent-eval -> exact root
 // DAG. The lineage, ATIF, telemetry, and schema registry packages are
-// dependency-free leaves.
+// dependency-free leaves, including the review-only evolution package.
 func TestEvaluatorProductDependencyLedger(t *testing.T) {
 	want := evaluatorDependencyLedger{
 		{Package: evaluatorRootPackage}: {
@@ -287,6 +290,8 @@ func TestEvaluatorProductDependencyLedger(t *testing.T) {
 		{Package: evaluatorLineagePackage, Tests: true}:   {},
 		{Package: evaluatorPromotionPackage}:              {},
 		{Package: evaluatorPromotionPackage, Tests: true}: {},
+		{Package: evaluatorEvolutionPackage}:              {},
+		{Package: evaluatorEvolutionPackage, Tests: true}: {},
 		{Package: evaluatorSchedulerPackage}:              {},
 		{Package: evaluatorSchedulerPackage, Tests: true}: {},
 		{Package: evaluatorAgentSkillsPackage}: {
@@ -755,6 +760,8 @@ func evaluatorPackageForDirectory(directory string) (evaluatorPackage, bool) {
 		return evaluatorLineagePackage, true
 	case string(evaluatorPromotionPackage):
 		return evaluatorPromotionPackage, true
+	case string(evaluatorEvolutionPackage):
+		return evaluatorEvolutionPackage, true
 	case string(evaluatorSchedulerPackage):
 		return evaluatorSchedulerPackage, true
 	case string(evaluatorAgentSkillsPackage):
@@ -798,6 +805,8 @@ func evaluatorPackageForImport(path string) (evaluatorPackage, bool) {
 		return evaluatorLineagePackage, true
 	case evaluatorPromotionImportPath:
 		return evaluatorPromotionPackage, true
+	case evaluatorEvolutionImportPath:
+		return evaluatorEvolutionPackage, true
 	case evaluatorSchedulerImportPath:
 		return evaluatorSchedulerPackage, true
 	case evaluatorAgentSkillsImportPath:
@@ -827,6 +836,7 @@ func validateEvaluatorPackageName(owner evaluatorPackage, tests bool, file, got 
 		evaluatorLifecyclePackage:        "lifecycle",
 		evaluatorLineagePackage:          "lineage",
 		evaluatorPromotionPackage:        "promotion",
+		evaluatorEvolutionPackage:        "evolution",
 		evaluatorSchedulerPackage:        "scheduler",
 		evaluatorAgentSkillsPackage:      "agentskills",
 		evaluatorATIFPackage:             "atif",
@@ -901,6 +911,8 @@ func evaluatorPackageEdgeAllowed(owner, target evaluatorPackage) bool {
 		return false
 	case evaluatorPromotionPackage:
 		return false
+	case evaluatorEvolutionPackage:
+		return false
 	case evaluatorSchedulerPackage:
 		return false
 	case evaluatorAgentSkillsPackage:
@@ -944,6 +956,7 @@ func writeEvaluatorDependencyFixture(t *testing.T) string {
 		"lifecycle/lifecycle.go":                 "package lifecycle\n",
 		"lineage/lineage.go":                     "package lineage\n",
 		"promotion/promotion.go":                 "package promotion\n",
+		"evolution/evolution.go":                 "package evolution\n",
 		"scheduler/contract.go":                  "package scheduler\n",
 		"interchange/agentskills/agentskills.go": "package agentskills\n\nimport \"" + evaluatorCoreImportPath + "\"\n",
 		"interchange/atif/atif.go":               "package atif\n",

@@ -21,6 +21,7 @@ func TestStableReadProductionInventory(t *testing.T) {
 	want := map[string]int{
 		"internal/agenteval/aggregate_root.go":                      3,
 		"internal/agenteval/cmd/agent-eval/standalone_config.go":    1,
+		"internal/agenteval/evolution/publication.go":               4,
 		"internal/agenteval/external_mcp_profile.go":                1,
 		"internal/agenteval/extension_host.go":                      2,
 		"internal/agenteval/extension_host_acl_unix.go":             8,
