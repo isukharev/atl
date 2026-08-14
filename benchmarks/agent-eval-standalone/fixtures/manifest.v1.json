@@ -1,0 +1,17 @@
+{
+  "schema": "agent-eval/neutral-conformance",
+  "schema_version": 1,
+  "contract_version": "0.1.0-pre-release",
+  "cases": [
+    {"id": "positive-skill-lift", "family": "skill_lift", "expected": "succeeded"},
+    {"id": "no-lift", "family": "skill_lift", "expected": "failed"},
+    {"id": "negative-stale-guidance", "family": "negative_guidance", "expected": "unknown"},
+    {"id": "autonomous-activation", "family": "activation", "expected": "succeeded"},
+    {"id": "near-miss-negative", "family": "negative_guidance", "expected": "failed"},
+    {"id": "distractor-selection", "family": "selection", "expected": "succeeded"},
+    {"id": "stateful-multi-step", "family": "stateful", "expected": "succeeded"},
+    {"id": "verifier-isolation", "family": "verifier", "expected": "succeeded"},
+    {"id": "resource-tax", "family": "resource", "expected": "failed"},
+    {"id": "lifecycle-security", "family": "lifecycle", "expected": "unknown"}
+  ]
+}

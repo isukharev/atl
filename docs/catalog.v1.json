@@ -10,6 +10,7 @@
     {"path":"ROADMAP.md","lane":"concepts","topic":"product-roadmap","landing_page":"docs/README.md","language":"en"},
     {"path":"SECURITY.md","lane":"operations","topic":"security-policy","landing_page":"docs/README.md","language":"en"},
     {"path":"STANDARDS.md","lane":"maintainers","topic":"maintainer-standards-map","landing_page":"docs/README.md","language":"en"},
+    {"path":"benchmarks/agent-eval-standalone/README.md","lane":"maintainers","topic":"neutral-agent-evaluation-fixture","landing_page":"docs/maintainers/agent-eval-neutral-conformance.md","language":"en"},
     {"path":"benchmarks/agent-eval/README.md","lane":"maintainers","topic":"public-evaluation-inventory","landing_page":"docs/README.md","language":"en"},
     {"path":"docs/OUTPUT_CONTRACT.md","lane":"reference","topic":"output-contract-compatibility-index","landing_page":"docs/reference/output/README.md","language":"en"},
     {"path":"docs/README.md","lane":"start","topic":"documentation-index","landing_page":"README.md","language":"en","required_anchors":["first-use","common-workflows","canonical-references","contributors-and-maintainers"]},
@@ -36,6 +37,7 @@
     {"path":"docs/jira-guarded-writeback.md","lane":"concepts","topic":"jira-guarded-writeback","landing_page":"docs/README.md","language":"en","required_anchors":["guarded-jira-writeback-design"]},
     {"path":"docs/maintainers/README.md","lane":"maintainers","topic":"maintainer-workflows","landing_page":"docs/README.md","language":"en"},
     {"path":"docs/maintainers/agent-efficiency.md","lane":"maintainers","topic":"maintainer-agent-efficiency","landing_page":"docs/maintainers/README.md","language":"en"},
+    {"path":"docs/maintainers/agent-eval-neutral-conformance.md","lane":"maintainers","topic":"neutral-agent-evaluation-conformance","landing_page":"docs/maintainers/README.md","language":"en"},
     {"path":"docs/maintainers/agent-eval-support.md","lane":"maintainers","topic":"agent-eval-support-policy","landing_page":"docs/maintainers/README.md","language":"en"},
     {"path":"docs/maintainers/agent-evaluator-substrates.md","lane":"maintainers","topic":"agent-evaluator-substrate-decision","landing_page":"docs/maintainers/README.md","language":"en"},
     {"path":"docs/maintainers/development.md","lane":"maintainers","topic":"maintainer-development-verification","landing_page":"docs/maintainers/README.md","language":"en"},
@@ -82,6 +84,7 @@
   "exclusions": [
     {"path":".github/PULL_REQUEST_TEMPLATE.md","reason":"template"},
     {"prefix":".agents/skills/","reason":"repository-maintainer-skill"},
+    {"prefix":"benchmarks/agent-eval-standalone/","except":["benchmarks/agent-eval-standalone/README.md"],"reason":"benchmark-material"},
     {"prefix":"benchmarks/agent-eval/","except":["benchmarks/agent-eval/README.md"],"reason":"benchmark-material"},
     {"prefix":"internal/agenteval/interchange/agentskills/testdata/","reason":"testdata"},
     {"prefix":"internal/cli/testdata/","reason":"testdata"},

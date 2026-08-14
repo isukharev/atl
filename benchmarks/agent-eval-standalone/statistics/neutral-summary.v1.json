@@ -1,0 +1,21 @@
+{
+  "schema": "agent-eval/neutral-statistics",
+  "schema_version": 1,
+  "contract_version": "0.1.0-pre-release",
+  "case_count": 10,
+  "outcomes": {
+    "failed": 3,
+    "succeeded": 5,
+    "unknown": 2
+  },
+  "families": {
+    "activation": 1,
+    "lifecycle": 1,
+    "negative_guidance": 2,
+    "resource": 1,
+    "selection": 1,
+    "skill_lift": 2,
+    "stateful": 1,
+    "verifier": 1
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "schema": "agent-eval/neutral-results",
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "positive-skill-lift",
+      "outcome": "succeeded",
+      "check": "observed_pass",
+      "resource": "observed",
+      "evidence": "observed"
+    },
+    {
+      "id": "no-lift",
+      "outcome": "failed",
+      "check": "observed_fail",
+      "resource": "observed",
+      "evidence": "observed"
+    },
+    {
+      "id": "negative-stale-guidance",
+      "outcome": "unknown",
+      "check": "unknown",
+      "resource": "unsupported",
+      "evidence": "unknown"
+    },
+    {
+      "id": "autonomous-activation",
+      "outcome": "succeeded",
+      "check": "observed_pass",
+      "resource": "observed",
+      "evidence": "observed"
+    },
+    {
+      "id": "near-miss-negative",
+      "outcome": "failed",
+      "check": "observed_fail",
+      "resource": "observed",
+      "evidence": "observed"
+    },
+    {
+      "id": "distractor-selection",
+      "outcome": "succeeded",
+      "check": "observed_pass",
+      "resource": "observed",
+      "evidence": "observed"
+    },
+    {
+      "id": "stateful-multi-step",
+      "outcome": "succeeded",
+      "check": "observed_pass",
+      "resource": "observed",
+      "evidence": "observed"
+    },
+    {
+      "id": "verifier-isolation",
+      "outcome": "succeeded",
+      "check": "observed_pass",
+      "resource": "not_applicable",
+      "evidence": "observed"
+    },
+    {
+      "id": "resource-tax",
+      "outcome": "failed",
+      "check": "observed_fail",
+      "resource": "observed",
+      "evidence": "unsupported"
+    },
+    {
+      "id": "lifecycle-security",
+      "outcome": "unknown",
+      "check": "unsupported",
+      "resource": "unknown",
+      "evidence": "not_applicable"
+    }
+  ]
+}
