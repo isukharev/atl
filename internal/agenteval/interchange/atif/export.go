@@ -94,9 +94,13 @@ func ExportOwnerPrivate(request ExportRequest) error {
 		return fail(ErrorInvalidDestination)
 	}
 	closeFile := true
+	temporaryPresent := true
 	defer func() {
 		if closeFile {
 			_ = file.Close()
+		}
+		if temporaryPresent {
+			_ = root.Remove(temporary)
 		}
 	}()
 	if err := file.Chmod(0o600); err != nil {
@@ -121,6 +125,10 @@ func ExportOwnerPrivate(request ExportRequest) error {
 	if err := file.Sync(); err != nil {
 		return fail(ErrorExportFailed)
 	}
+	if err := file.Close(); err != nil {
+		return fail(ErrorExportFailed)
+	}
+	closeFile = false
 	invokeExportHook(exportBeforePublish)
 	if !stableDirectory(rootPath, rootInfo, root, true) || !stableDirectory(repositoryPath, repositoryInfo, repository, false) || !disjointPhysicalDirectories(rootPath, repositoryPath) {
 		return fail(ErrorExportFailed)
@@ -134,10 +142,7 @@ func ExportOwnerPrivate(request ExportRequest) error {
 	if err := root.Remove(temporary); err != nil {
 		return fail(ErrorExportFailed)
 	}
-	if err := file.Close(); err != nil {
-		return fail(ErrorExportFailed)
-	}
-	closeFile = false
+	temporaryPresent = false
 	invokeExportHook(exportAfterPublish)
 	if err := ensurePrivateParents(root, relative); err != nil {
 		return fail(ErrorExportFailed)

@@ -209,6 +209,20 @@ func validateDocument(document Document) error {
 	if err := validateEvents(events, document.Extra.Coverage.DeclaredEvents); err != nil {
 		return err
 	}
+	if err := validateCanonicalDocumentSize(document); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateCanonicalDocumentSize(document Document) error {
+	data, err := json.Marshal(document)
+	if err != nil {
+		return fail(ErrorInvalidProjection)
+	}
+	if len(data)+1 > MaxDocumentBytes {
+		return fail(ErrorLimitExceeded)
+	}
 	return nil
 }
 

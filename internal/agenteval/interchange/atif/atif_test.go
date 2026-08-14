@@ -193,6 +193,11 @@ func TestProjectionTamperAndBoundsFailClosed(t *testing.T) {
 		largeDocument.Events[index] = Event{StepID: uint32(index + 1), Role: RoleUser, State: StateStarted, Message: strings.Repeat("x", MaxTextBytes)}
 	}
 	requireCode(t, projectError(largeDocument), ErrorLimitExceeded)
+	wireOversized := EventSet{Producer: largeDocument.Producer, DeclaredEvents: 16, Events: make([]Event, 16)}
+	for index := range wireOversized.Events {
+		wireOversized.Events[index] = Event{StepID: uint32(index + 1), Role: RoleUser, State: StateStarted, Message: strings.Repeat("x", MaxTextBytes)}
+	}
+	requireCode(t, projectError(wireOversized), ErrorLimitExceeded)
 }
 
 func projectError(input EventSet) error {
@@ -296,6 +301,13 @@ func TestExportRejectsRepositoryReplacementBeforePublish(t *testing.T) {
 	requireCode(t, ExportOwnerPrivate(request), ErrorExportFailed)
 	if _, err := os.Lstat(filepath.Join(root, "trajectory.json")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("repository replacement left final output, err=%v", err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("repository replacement leaked owner-private temporary entries: %v", entries)
 	}
 }
 
