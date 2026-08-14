@@ -376,6 +376,9 @@ func (s Store) recordTransition(root *os.Root, record transitionRecord) error {
 	if err := s.ensureDirectory(root, promotionTransitionDirectory); err != nil {
 		return err
 	}
+	if err := checkTransitionCapacity(root); err != nil {
+		return err
+	}
 	data, err := encodeTransition(record)
 	if err != nil {
 		return err
