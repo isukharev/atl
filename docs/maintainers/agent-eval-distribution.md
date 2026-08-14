@@ -9,13 +9,18 @@ are separately scoped to #1389.
 ## Build
 
 Build the nested evaluator from a clean checkout and pass an absolute,
-previously absent output directory. The source selection is explicit and its
-tree digest is recorded in `manifest.json`:
+previously absent output directory. The complete nested evaluator source tree
+(the CLI's local dependency closure) is selected and its digest is recorded in
+`manifest.json`:
 
 ```sh
+source_commit="$(git rev-parse HEAD)"
+build_date="$(git show -s --format=%cI "$source_commit")"
+version="0.1.0-pre-release"
 env -u GOROOT GOTOOLCHAIN=auto GOWORK=off \
-  go -C internal/agenteval build -trimpath -buildvcs=false \
-  -ldflags '-s -w -buildid=' -o /tmp/agent-eval ./cmd/agent-eval
+  CGO_ENABLED=0 go -C internal/agenteval build -trimpath -buildvcs=false \
+  -ldflags "-s -w -buildid= -X main.standaloneBuildVersion=$version -X main.standaloneBuildCommit=$source_commit -X main.standaloneBuildDate=$build_date" \
+  -o /tmp/agent-eval ./cmd/agent-eval
 
 env -u GOROOT GOTOOLCHAIN=auto GOWORK=off \
   go run ./scripts/agent-eval-distribution \
@@ -23,17 +28,19 @@ env -u GOROOT GOTOOLCHAIN=auto GOWORK=off \
   --binary /tmp/agent-eval \
   --compatibility internal/agenteval/testdata/standalone-conformance.v1.json \
   --source-root . \
-  --source-files internal/agenteval/cmd/agent-eval,internal/agenteval/testdata/standalone-conformance.v1.json \
+  --source-files internal/agenteval \
   --schema-registry internal/agenteval/schemaregistry/registry.v1.json \
   --protocol internal/agenteval/cmd/agent-eval/standalone_process.go \
-  --source-commit "$(git rev-parse HEAD)" \
-  --version 0.1.0-pre-release \
+  --source-commit "$source_commit" \
+  --version "$version" \
   --output /absolute/new/distribution
 ```
 
 The builder writes a bounded manifest, checksum, SPDX SBOM, provenance record,
 compatibility bundle, static scratch container descriptor, and composite Action
-descriptor. A `.incomplete` marker remains if the build is interrupted; a
+descriptor. The generated Action is deliberately a pre-verified runner: it
+does not replace detached-signature verification or release approval. A
+`.incomplete` marker remains if the build is interrupted; a
 marker-bearing directory is never accepted as a distribution.
 
 Two builds with the same inputs must have byte-identical members. The manifest
@@ -98,6 +105,7 @@ env -u GOROOT GOTOOLCHAIN=auto GOWORK=off \
 env -u GOROOT GOTOOLCHAIN=auto GOWORK=off \
   go run ./scripts/agent-eval-distribution \
   --mode uninstall --prefix /absolute/installed/prefix \
+  --public-key /owner-private/release-ed25519.pub \
   --confirm 'UNINSTALL AGENT-EVAL'
 ```
 

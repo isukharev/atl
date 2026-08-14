@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -70,11 +71,14 @@ func TestDistributionBuildVerifySignInstallUninstall(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(prefix, "bin", binaryName)); err != nil {
 		t.Fatal(err)
 	}
-	if err := uninstallDistribution(prefix, installerConfirmation); err != nil {
+	if err := uninstallDistribution(prefix, installerConfirmation, publicPath); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(prefix, "bin", binaryName)); !os.IsNotExist(err) {
 		t.Fatalf("binary remained after uninstall: %v", err)
+	}
+	if _, err := os.Stat(prefix); !os.IsNotExist(err) {
+		t.Fatalf("install prefix remained after uninstall: %v", err)
 	}
 }
 
@@ -127,6 +131,16 @@ func TestDistributionRejectsCanonicalAndPathDrift(t *testing.T) {
 	if err := validateManifest(manifest); err == nil {
 		t.Fatal("required artifact omission was accepted")
 	}
+	manifest.Files = []fileEntry{{Name: actionName, SizeBytes: 1, SHA256: strings.Repeat("f", 64)},
+		{Name: binaryName, SizeBytes: 1, SHA256: strings.Repeat("f", 64)},
+		{Name: compatibilityName, SizeBytes: 1, SHA256: strings.Repeat("f", 64)},
+		{Name: containerfileName, SizeBytes: 1, SHA256: strings.Repeat("f", 64)},
+		{Name: "extra.txt", SizeBytes: 1, SHA256: strings.Repeat("f", 64)},
+		{Name: provenanceName, SizeBytes: 1, SHA256: strings.Repeat("f", 64)},
+		{Name: sbomName, SizeBytes: 1, SHA256: strings.Repeat("f", 64)}}
+	if err := validateManifest(manifest); err == nil {
+		t.Fatal("unsupported manifest member was accepted")
+	}
 }
 
 func TestDistributionBuildIsReproducibleAndUninstallRefusesDrift(t *testing.T) {
@@ -171,8 +185,48 @@ func TestDistributionBuildIsReproducibleAndUninstallRefusesDrift(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(prefix, "bin", binaryName), []byte("tampered\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := uninstallDistribution(prefix, installerConfirmation); err == nil {
+	if err := uninstallDistribution(prefix, installerConfirmation, publicPath); err == nil {
 		t.Fatal("uninstall accepted a tampered installation")
+	}
+}
+
+func TestDistributionSBOMUsesRequiredSPDXFields(t *testing.T) {
+	data := renderSBOM(buildOptions{Version: "0.1.0-pre-release", SourceCommit: strings.Repeat("a", 40)}, strings.Repeat("b", 64), []fileEntry{{Name: binaryName, SizeBytes: 1, SHA256: strings.Repeat("c", 64)}})
+	var document struct {
+		DataLicense  string `json:"dataLicense"`
+		CreationInfo struct {
+			Created  string   `json:"created"`
+			Creators []string `json:"creators"`
+		} `json:"creationInfo"`
+		Packages []map[string]any `json:"packages"`
+	}
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	if document.DataLicense != "CC0-1.0" || document.CreationInfo.Created == "" || len(document.CreationInfo.Creators) != 1 || len(document.Packages) != 2 {
+		t.Fatalf("SBOM omitted required SPDX document fields: %+v", document)
+	}
+	for _, packageValue := range document.Packages {
+		for _, name := range []string{"SPDXID", "name", "downloadLocation", "licenseConcluded", "licenseDeclared", "copyrightText", "filesAnalyzed", "checksums"} {
+			if _, ok := packageValue[name]; !ok {
+				t.Fatalf("SBOM package omitted required field %q: %+v", name, packageValue)
+			}
+		}
+	}
+}
+
+func TestDistributionActionBindsAllExpectedIdentityInputs(t *testing.T) {
+	action := renderAction("0.1.0-pre-release", strings.Repeat("a", 40), strings.Repeat("b", 64))
+	for _, want := range []string{
+		"expected-version:", "expected-commit:", "expected-binary-sha256:",
+		"test \"$EXPECTED_VERSION\" = \"0.1.0-pre-release\"",
+		"test \"$EXPECTED_COMMIT\" = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+		"test \"$EXPECTED_BINARY_SHA256\" = \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"",
+		"sha256sum \"$tmp\"",
+	} {
+		if !strings.Contains(action, want) {
+			t.Fatalf("action omitted identity binding %q:\n%s", want, action)
+		}
 	}
 }
 
@@ -206,7 +260,7 @@ func TestDistributionRollbackRestoresVerifiedCandidate(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(prefix, rollbackInstallMark)); !os.IsNotExist(err) {
 		t.Fatalf("rollback marker remained: %v", err)
 	}
-	if err := uninstallDistribution(prefix, installerConfirmation); err != nil {
+	if err := uninstallDistribution(prefix, installerConfirmation, publicPath); err != nil {
 		t.Fatal(err)
 	}
 }

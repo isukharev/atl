@@ -142,7 +142,7 @@ func main() {
 	case "rollback":
 		err = rollbackDistribution(verifyOptions{Distribution: distributionOrOutput(*distribution, *output), PublicKey: *publicKey, AllowUnsigned: false}, *prefix)
 	case "uninstall":
-		err = uninstallDistribution(*prefix, *confirm)
+		err = uninstallDistribution(*prefix, *confirm, *publicKey)
 	default:
 		err = errors.New("agent-eval-distribution: --mode must be build, verify, sign, install, rollback, or uninstall")
 	}
@@ -206,10 +206,6 @@ func buildDistribution(options buildOptions) error {
 	if err := writeRootFile(root, containerfileName, containerfile, 0o644); err != nil {
 		return fmt.Errorf("container descriptor: %w", err)
 	}
-	action := []byte(renderAction(options.Version))
-	if err := writeRootFile(root, actionName, action, 0o644); err != nil {
-		return fmt.Errorf("action descriptor: %w", err)
-	}
 	binarySHA, binarySize, err := hashRootFile(root, binaryName, maxArtifactBytes)
 	if err != nil {
 		return err
@@ -221,6 +217,10 @@ func buildDistribution(options buildOptions) error {
 	containerSHA, containerSize, err := hashRootFile(root, containerfileName, maxArtifactBytes)
 	if err != nil {
 		return err
+	}
+	action := []byte(renderAction(options.Version, options.SourceCommit, binarySHA))
+	if err := writeRootFile(root, actionName, action, 0o644); err != nil {
+		return fmt.Errorf("action descriptor: %w", err)
 	}
 	actionSHA, actionSize, err := hashRootFile(root, actionName, maxArtifactBytes)
 	if err != nil {
@@ -281,8 +281,54 @@ func buildDistribution(options buildOptions) error {
 	return syncDirectory(root)
 }
 
-func renderAction(version string) string {
-	return fmt.Sprintf("name: agent-eval\ndescription: Verify and run a pinned provider-free agent-eval distribution\ninputs:\n  distribution:\n    description: Absolute or workspace path to the verified distribution\n    required: true\n  expected-version:\n    description: Expected immutable distribution version\n    required: true\nruns:\n  using: composite\n  steps:\n    - shell: bash\n      env:\n        DISTRIBUTION: ${{ inputs.distribution }}\n        EXPECTED_VERSION: ${{ inputs.expected-version }}\n      run: |\n        test \"$EXPECTED_VERSION\" = %q\n        test -x \"$DISTRIBUTION/agent-eval\"\n        \"$DISTRIBUTION/agent-eval\" version --output json >/dev/null\n", version)
+func renderAction(version, commit, binarySHA string) string {
+	template := `name: agent-eval
+description: Run a pre-verified provider-free agent-eval distribution
+inputs:
+  distribution:
+    description: Absolute or workspace path to the already verified distribution
+    required: true
+  expected-version:
+    description: Expected immutable distribution version
+    required: true
+  expected-commit:
+    description: Expected source commit from the verified manifest
+    required: true
+  expected-binary-sha256:
+    description: Expected binary digest from the verified manifest
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        DISTRIBUTION: ${{ inputs.distribution }}
+        EXPECTED_VERSION: ${{ inputs.expected-version }}
+        EXPECTED_COMMIT: ${{ inputs.expected-commit }}
+        EXPECTED_BINARY_SHA256: ${{ inputs.expected-binary-sha256 }}
+      run: |
+        test "$EXPECTED_VERSION" = %q
+        test "$EXPECTED_COMMIT" = %q
+        test -x "$DISTRIBUTION/agent-eval"
+        tmp="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/agent-eval.$$"
+        trap 'rm -f "$tmp" "$tmp.json"' EXIT
+        umask 077
+        cp -- "$DISTRIBUTION/agent-eval" "$tmp"
+        chmod 700 "$tmp"
+        test "$EXPECTED_BINARY_SHA256" = %q
+        test "$(sha256sum "$tmp" | awk '{print $1}')" = "$EXPECTED_BINARY_SHA256"
+        "$tmp" version --output json >"$tmp.json"
+        python3 - "$tmp.json" "$EXPECTED_VERSION" "$EXPECTED_COMMIT" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding='utf-8') as stream:
+    payload = json.load(stream)
+result = payload.get('result', payload)
+build = result.get('build', {})
+if build.get('version') != sys.argv[2] or build.get('commit') != sys.argv[3]:
+    raise SystemExit('agent-eval build identity mismatch')
+PY
+`
+	return fmt.Sprintf(template, version, commit, binarySHA)
 }
 
 func renderProvenance(options buildOptions, sourceTree, binarySHA, compatibilitySHA string) []byte {
@@ -299,14 +345,26 @@ func renderProvenance(options buildOptions, sourceTree, binarySHA, compatibility
 
 func renderSBOM(options buildOptions, sourceTree string, files []fileEntry) []byte {
 	packages := make([]map[string]any, 0, len(files)+1)
-	packages = append(packages, map[string]any{"SPDXID": "SPDXRef-agent-eval-source", "name": "agent-eval-source", "versionInfo": options.Version, "downloadLocation": "NOASSERTION", "checksums": []map[string]string{{"algorithm": "SHA256", "checksumValue": sourceTree}}})
+	packages = append(packages, map[string]any{
+		"SPDXID": "SPDXRef-agent-eval-source", "name": "agent-eval-source", "versionInfo": options.Version,
+		"downloadLocation": "NOASSERTION", "filesAnalyzed": false,
+		"licenseConcluded": "NOASSERTION", "licenseDeclared": "NOASSERTION", "copyrightText": "NOASSERTION",
+		"checksums": []map[string]string{{"algorithm": "SHA256", "checksumValue": sourceTree}},
+	})
 	for index, file := range files {
-		packages = append(packages, map[string]any{"SPDXID": fmt.Sprintf("SPDXRef-file-%d", index+1), "name": file.Name, "versionInfo": options.Version, "downloadLocation": "NOASSERTION", "checksums": []map[string]string{{"algorithm": "SHA256", "checksumValue": file.SHA256}}})
+		packages = append(packages, map[string]any{
+			"SPDXID": fmt.Sprintf("SPDXRef-file-%d", index+1), "name": file.Name, "versionInfo": options.Version,
+			"downloadLocation": "NOASSERTION", "filesAnalyzed": false,
+			"licenseConcluded": "NOASSERTION", "licenseDeclared": "NOASSERTION", "copyrightText": "NOASSERTION",
+			"checksums": []map[string]string{{"algorithm": "SHA256", "checksumValue": file.SHA256}},
+		})
 	}
 	data, _ := canonicalJSON(map[string]any{
 		"SPDXID": "SPDXRef-DOCUMENT", "spdxVersion": "SPDX-2.3", "name": "agent-eval-distribution",
 		"documentNamespace": "https://github.com/isukharev/atl/agent-eval/" + options.SourceCommit,
-		"creationInfo":      map[string]any{"createdBy": []string{"Tool: scripts/agent-eval-distribution"}}, "packages": packages,
+		"dataLicense":       "CC0-1.0", "creationInfo": map[string]any{
+			"created": "1970-01-01T00:00:00Z", "creators": []string{"Tool: scripts/agent-eval-distribution"},
+		}, "packages": packages,
 	})
 	return data
 }
@@ -334,6 +392,21 @@ func signDistribution(directory, privateKeyPath string) error {
 func verifyDistribution(options verifyOptions) error {
 	_, err := loadVerifiedDistribution(options)
 	return err
+}
+
+func verifyManifestSignature(manifestData, signature []byte, publicKeyPath string) error {
+	if publicKeyPath == "" {
+		return errors.New("manifest signature exists but --public-key was not supplied")
+	}
+	keyData, err := readFileBounded(publicKeyPath, 4096)
+	if err != nil {
+		return err
+	}
+	key, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(keyData)))
+	if err != nil || len(key) != ed25519.PublicKeySize || len(signature) != ed25519.SignatureSize || !ed25519.Verify(ed25519.PublicKey(key), manifestData, signature) {
+		return errors.New("manifest signature verification failed")
+	}
+	return nil
 }
 
 func loadVerifiedDistribution(options verifyOptions) (verifiedDistribution, error) {
@@ -383,16 +456,8 @@ func loadVerifiedDistribution(options verifyOptions) (verifiedDistribution, erro
 	}
 	signature, sigErr := readRootFile(root, "manifest.json.sig", ed25519.SignatureSize+1)
 	if sigErr == nil {
-		if options.PublicKey == "" {
-			return verified, errors.New("manifest signature exists but --public-key was not supplied")
-		}
-		keyData, err := readFileBounded(options.PublicKey, 4096)
-		if err != nil {
+		if err := verifyManifestSignature(data, signature, options.PublicKey); err != nil {
 			return verified, err
-		}
-		key, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(keyData)))
-		if err != nil || len(key) != ed25519.PublicKeySize || len(signature) != ed25519.SignatureSize || !ed25519.Verify(ed25519.PublicKey(key), data, signature) {
-			return verified, errors.New("manifest signature verification failed")
 		}
 	} else if !errors.Is(sigErr, os.ErrNotExist) {
 		return verified, sigErr
@@ -411,10 +476,17 @@ func validateManifest(manifest distributionManifest) error {
 		return errors.New("distribution manifest metadata is invalid")
 	}
 	seen := make(map[string]bool, len(manifest.Files))
+	requiredNames := map[string]bool{
+		binaryName: true, compatibilityName: true, containerfileName: true,
+		actionName: true, sbomName: true, provenanceName: true,
+	}
 	previousName := ""
 	for _, entry := range manifest.Files {
 		if !safeName(entry.Name) || seen[entry.Name] || entry.Name <= previousName || entry.Name == manifestName || entry.Name == manifestChecksumName || entry.Name == "manifest.json.sig" || entry.Name == distributionBuildMark || !validDigest(entry.SHA256) || entry.SizeBytes <= 0 || entry.SizeBytes > maxArtifactBytes {
 			return errors.New("distribution manifest file entry is invalid")
+		}
+		if !requiredNames[entry.Name] {
+			return fmt.Errorf("distribution manifest contains unsupported file %q", entry.Name)
 		}
 		seen[entry.Name] = true
 		previousName = entry.Name
@@ -448,6 +520,15 @@ func installDistribution(options verifyOptions, prefix string) error {
 		return err
 	}
 	defer func() { _ = root.Close() }()
+	if err := writeRootFile(root, distributionInstallMark, []byte("incomplete\n"), 0o600); err != nil {
+		return err
+	}
+	if err := syncDirectory(root); err != nil {
+		return err
+	}
+	if err := syncParentDirectory(prefix); err != nil {
+		return err
+	}
 	if err := root.Mkdir("bin", 0o755); err != nil {
 		return err
 	}
@@ -462,13 +543,22 @@ func installDistribution(options verifyOptions, prefix string) error {
 		return err
 	}
 	defer func() { _ = share.Close() }()
-	if err := writeRootFile(root, distributionInstallMark, []byte("incomplete\n"), 0o600); err != nil {
-		return err
-	}
 	if err := writeVerifiedSnapshot(root, share, verified); err != nil {
 		return err
 	}
+	if err := validateInstalledDistribution(root, share, verified.Manifest, verified.ManifestData, true, options.PublicKey); err != nil {
+		return fmt.Errorf("installation result is not exact: %w", err)
+	}
 	if err := syncDirectory(share); err != nil {
+		return err
+	}
+	if err := syncChildDirectory(root, filepath.Join("share", installedSupportDir)); err != nil {
+		return err
+	}
+	if err := syncChildDirectory(root, "bin"); err != nil {
+		return err
+	}
+	if err := syncChildDirectory(root, "share"); err != nil {
 		return err
 	}
 	if err := root.Remove(distributionInstallMark); err != nil {
@@ -478,6 +568,15 @@ func installDistribution(options verifyOptions, prefix string) error {
 		return err
 	}
 	return syncParentDirectory(prefix)
+}
+
+func syncChildDirectory(root *os.Root, name string) error {
+	child, err := root.OpenRoot(name)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = child.Close() }()
+	return syncDirectory(child)
 }
 
 func writeVerifiedSnapshot(root, share *os.Root, verified verifiedDistribution) error {
@@ -574,10 +673,16 @@ func rollbackDistribution(options verifyOptions, prefix string) error {
 		if decodeErr != nil || current.SourceCommit == verified.Manifest.SourceCommit {
 			return errors.New("rollback requires a different valid installed candidate")
 		}
-		if err := validateInstalledDistribution(root, share, current, currentData, false); err != nil {
+		if err := validateInstalledDistribution(root, share, current, currentData, false, options.PublicKey); err != nil {
 			return fmt.Errorf("current installation is not exact: %w", err)
 		}
 		if err := writeRootFile(root, rollbackInstallMark, marker, 0o600); err != nil {
+			return err
+		}
+		if err := syncDirectory(root); err != nil {
+			return err
+		}
+		if err := syncParentDirectory(prefix); err != nil {
 			return err
 		}
 	}
@@ -594,10 +699,19 @@ func rollbackDistribution(options verifyOptions, prefix string) error {
 	if err := writeVerifiedSnapshot(root, share, verified); err != nil {
 		return err
 	}
-	if err := validateInstalledDistribution(root, share, verified.Manifest, verified.ManifestData, true); err != nil {
+	if err := validateInstalledDistribution(root, share, verified.Manifest, verified.ManifestData, true, options.PublicKey); err != nil {
 		return fmt.Errorf("rollback result is not exact: %w", err)
 	}
 	if err := syncDirectory(share); err != nil {
+		return err
+	}
+	if err := syncChildDirectory(root, filepath.Join("share", installedSupportDir)); err != nil {
+		return err
+	}
+	if err := syncChildDirectory(root, "bin"); err != nil {
+		return err
+	}
+	if err := syncChildDirectory(root, "share"); err != nil {
 		return err
 	}
 	if err := root.Remove(rollbackInstallMark); err != nil {
@@ -609,7 +723,7 @@ func rollbackDistribution(options verifyOptions, prefix string) error {
 	return syncParentDirectory(prefix)
 }
 
-func uninstallDistribution(prefix, confirmation string) error {
+func uninstallDistribution(prefix, confirmation, publicKey string) error {
 	if confirmation != installerConfirmation {
 		return errors.New("uninstall requires the exact confirmation token")
 	}
@@ -620,12 +734,22 @@ func uninstallDistribution(prefix, confirmation string) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = root.Close() }()
+	rootClosed := false
+	defer func() {
+		if !rootClosed {
+			_ = root.Close()
+		}
+	}()
 	share, err := root.OpenRoot(filepath.Join("share", installedSupportDir))
 	if err != nil {
 		return err
 	}
-	defer func() { _ = share.Close() }()
+	shareClosed := false
+	defer func() {
+		if !shareClosed {
+			_ = share.Close()
+		}
+	}()
 	if _, err := root.Lstat(distributionInstallMark); err == nil {
 		return errors.New("incomplete installation must be recovered manually")
 	}
@@ -643,7 +767,7 @@ func uninstallDistribution(prefix, confirmation string) error {
 	if err != nil || !manifest.SignatureRequired {
 		return errors.New("installed manifest is invalid")
 	}
-	if err := validateInstalledDistribution(root, share, manifest, manifestData, false); err != nil {
+	if err := validateInstalledDistribution(root, share, manifest, manifestData, false, publicKey); err != nil {
 		return err
 	}
 	if err := removeRegular(root, filepath.Join("bin", binaryName)); err != nil {
@@ -654,6 +778,10 @@ func uninstallDistribution(prefix, confirmation string) error {
 			return err
 		}
 	}
+	if err := share.Close(); err != nil {
+		return err
+	}
+	shareClosed = true
 	if err := root.Remove(filepath.Join("share", installedSupportDir)); err != nil {
 		return err
 	}
@@ -663,10 +791,23 @@ func uninstallDistribution(prefix, confirmation string) error {
 	if err := syncDirectory(root); err != nil {
 		return err
 	}
+	if err := root.Remove("bin"); err != nil {
+		return err
+	}
+	if err := syncDirectory(root); err != nil {
+		return err
+	}
+	if err := root.Close(); err != nil {
+		return err
+	}
+	rootClosed = true
+	if err := os.Remove(prefix); err != nil {
+		return err
+	}
 	return syncParentDirectory(prefix)
 }
 
-func validateInstalledDistribution(root, share *os.Root, manifest distributionManifest, manifestData []byte, allowRollbackMarker bool) error {
+func validateInstalledDistribution(root, share *os.Root, manifest distributionManifest, manifestData []byte, allowRollbackMarker bool, publicKey string) error {
 	checksum, err := readRootFile(share, installedChecksumName, 256)
 	if err != nil || strings.TrimSpace(string(checksum)) != sha256Bytes(manifestData) {
 		return errors.New("installed manifest checksum mismatch")
@@ -690,8 +831,12 @@ func validateInstalledDistribution(root, share *os.Root, manifest distributionMa
 			return fmt.Errorf("installed artifact %s checksum or size mismatch", entry.Name)
 		}
 	}
-	if _, err := readRootFile(share, installedSignatureName, ed25519.SignatureSize+1); err != nil {
+	signature, err := readRootFile(share, installedSignatureName, ed25519.SignatureSize+1)
+	if err != nil {
 		return errors.New("installed signature is missing or invalid")
+	}
+	if err := verifyManifestSignature(manifestData, signature, publicKey); err != nil {
+		return fmt.Errorf("installed signature is invalid: %w", err)
 	}
 	rootEntries, err := readDirectoryNames(root, 8)
 	if err != nil {
@@ -700,7 +845,7 @@ func validateInstalledDistribution(root, share *os.Root, manifest distributionMa
 	if allowRollbackMarker {
 		filtered := rootEntries[:0]
 		for _, entry := range rootEntries {
-			if entry.Name() != rollbackInstallMark {
+			if entry.Name() != rollbackInstallMark && entry.Name() != distributionInstallMark {
 				filtered = append(filtered, entry)
 			}
 		}
@@ -938,6 +1083,7 @@ func hashRootFile(root *os.Root, name string, limit int64) (string, int64, error
 func hashSelectedTree(root string, paths []string) (string, error) {
 	files := map[string]fileEntry{}
 	var total int64
+	visitedEntries := 0
 	for _, selected := range paths {
 		if selected == "" || filepath.IsAbs(selected) || filepath.Clean(selected) != selected || strings.HasPrefix(selected, ".."+string(filepath.Separator)) || selected == ".." {
 			return "", errors.New("source selection must be relative and contained")
@@ -954,6 +1100,10 @@ func hashSelectedTree(root string, paths []string) (string, error) {
 			err = filepath.WalkDir(absolute, func(path string, entry fs.DirEntry, walkErr error) error {
 				if walkErr != nil {
 					return walkErr
+				}
+				visitedEntries++
+				if visitedEntries > maxSourceFiles*2 {
+					return errors.New("source tree exceeds bounded entry selection")
 				}
 				if entry.Type()&fs.ModeSymlink != 0 {
 					return errors.New("source tree contains a symlink")
@@ -993,14 +1143,28 @@ func addTreeFile(files map[string]fileEntry, relative, absolute string, total *i
 	if !safeName(relative) {
 		return errors.New("source tree path is not canonical")
 	}
+	if _, exists := files[relative]; exists {
+		return nil
+	}
+	if len(files) >= maxSourceFiles {
+		return errors.New("source tree exceeds bounded file selection")
+	}
+	info, err := os.Lstat(absolute)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 {
+		return errors.New("source tree member is not a regular file")
+	}
+	if info.Size() < 0 || info.Size() > maxArtifactBytes || *total > maxSourceTreeBytes-info.Size() {
+		return errors.New("source tree exceeds bounded byte selection")
+	}
 	sha, size, err := hashRegularFile(absolute, maxArtifactBytes)
 	if err != nil {
 		return err
 	}
-	if _, exists := files[relative]; !exists {
-		files[relative] = fileEntry{Name: relative, SizeBytes: size, SHA256: sha}
-		*total += size
-	}
+	files[relative] = fileEntry{Name: relative, SizeBytes: size, SHA256: sha}
+	*total += size
 	return nil
 }
 
