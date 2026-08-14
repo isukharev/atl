@@ -456,10 +456,7 @@ func (s Store) ApplyPromotion(receipt DecisionReceipt, expectedCurrent *Identity
 		}
 		if (!present && existing.From == receipt.Reference && existing.PreviousTransitionSHA256 == "") ||
 			(present && current.Identity == existing.From && current.TransitionSHA256 == existing.PreviousTransitionSHA256) {
-			if err := writePointer(root, existing.To, existing.RequestSHA256); err != nil {
-				return err
-			}
-			return nil
+			return writePointer(root, existing.To, existing.RequestSHA256)
 		}
 		return fail(ErrorConflict)
 	}

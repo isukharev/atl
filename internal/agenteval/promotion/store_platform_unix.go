@@ -18,7 +18,7 @@ func validateStoreDirectoryPlatform(info os.FileInfo) error {
 		return fail(ErrorInvalidIdentity)
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || uint64(stat.Uid) != uint64(os.Getuid()) {
+	if !ok || uint64(stat.Uid) != uint64(os.Getuid()) { // #nosec G115 -- the platform UID is compared after a regular-file owner check.
 		return fail(ErrorInvalidIdentity)
 	}
 	return nil
@@ -29,7 +29,7 @@ func validateStoreRegularFilePlatform(info os.FileInfo) error {
 		return fail(ErrorInvalidIdentity)
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || uint64(stat.Uid) != uint64(os.Getuid()) {
+	if !ok || uint64(stat.Uid) != uint64(os.Getuid()) { // #nosec G115 -- the platform UID is compared after a regular-file owner check.
 		return fail(ErrorInvalidIdentity)
 	}
 	return nil
