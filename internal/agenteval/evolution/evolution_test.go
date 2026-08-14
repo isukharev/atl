@@ -5,6 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -101,6 +104,107 @@ func TestEvolutionProposalContractIsClosedCanonicalBoundedAndReviewOnly(t *testi
 	}
 	if err := plan.WriteNew(destination); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestEvolutionProposalKnownAnswer(t *testing.T) {
+	classes := []FailureClass{FailureSafety, FailureCoverage, FailureRuntime, FailureQuality, FailureResource, FailureLifecycle, FailureVerifier}
+	failures := make([]FailureSummary, 0, len(classes))
+	for index, class := range classes {
+		failures = append(failures, FailureSummary{Class: class, Count: uint32(index + 1), EvidenceSHA256: []string{digest("known-" + string(class))}})
+	}
+	proposal, err := Generate(Request{LineageSHA256: digest("known-lineage"), SkillSHA256: digest("known-skill"), EvaluationSHA256: digest("known-evaluation"), Failures: failures})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := Encode(proposal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wireHash := sha256.Sum256(data)
+	if got := hex.EncodeToString(wireHash[:]); got != "f92b331066f6193e301a891c2ef701d6afe175704668cbb36c31d60f1981fc87" {
+		t.Fatalf("known-answer wire hash drifted: %s", got)
+	}
+	if proposal.ProposalSHA256 != "62dee7da19b50e891b41ca353968c81148ab385696c5dc3aa572b2b759475b6d" {
+		t.Fatalf("known-answer proposal digest drifted: %s", proposal.ProposalSHA256)
+	}
+	wantSkillActions := []string{"reinforce_safety_boundary", "clarify_coverage_boundary", "document_runtime_boundary", "clarify_expected_behavior", "state_resource_boundary", "preserve_no_replay_lifecycle", "preserve_independent_verifier"}
+	wantEvaluationActions := []string{"add_safety_assertion", "add_coverage_assertion", "add_runtime_assertion", "add_quality_assertion", "add_resource_assertion", "add_lifecycle_assertion", "add_verifier_assertion"}
+	for index := range classes {
+		if proposal.SkillChanges[index].Action != wantSkillActions[index] || proposal.EvaluationChanges[index].Action != wantEvaluationActions[index] {
+			t.Fatalf("known-answer action drift at %d: skill=%q evaluation=%q", index, proposal.SkillChanges[index].Action, proposal.EvaluationChanges[index].Action)
+		}
+	}
+}
+
+func TestEvolutionPublicSurfaceIsReviewOnlyAndStdlibBound(t *testing.T) {
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	allowedImports := map[string]bool{
+		"bytes": true, "crypto/sha256": true, "encoding/hex": true, "encoding/json": true,
+		"errors": true, "io": true, "os": true, "path/filepath": true, "runtime": true,
+		"sort": true, "strings": true, "unicode/utf8": true,
+	}
+	allowedExports := map[string]bool{
+		"Schema": true, "SchemaVersion": true, "ContractVersion": true, "MaxProposalBytes": true,
+		"MaxFailures": true, "MaxEvidenceRefs": true, "MaxJSONDepth": true, "SHA256HexLength": true,
+		"ErrInvalid": true, "Error": true, "ErrorCode": true, "ErrorInvalidInput": true, "ErrorInvalidProposal": true,
+		"ErrorLimitExceeded": true, "ErrorConflict": true, "CodeOf": true,
+		"FailureClass": true, "FailureSafety": true, "FailureCoverage": true, "FailureRuntime": true,
+		"FailureQuality": true, "FailureResource": true, "FailureLifecycle": true, "FailureVerifier": true,
+		"SkillAction": true, "SkillReinforceSafety": true, "SkillClarifyCoverage": true,
+		"SkillDocumentRuntime": true, "SkillClarifyQuality": true, "SkillStateResource": true,
+		"SkillPreserveLifecycle": true, "SkillPreserveVerifier": true, "EvaluationAction": true,
+		"EvaluationSafety": true, "EvaluationCoverage": true, "EvaluationRuntime": true,
+		"EvaluationQuality": true, "EvaluationResource": true, "EvaluationLifecycle": true,
+		"EvaluationVerifier": true, "FailureSummary": true, "Request": true, "ProposalChange": true,
+		"Proposal": true, "Encode": true, "Decode": true, "PlanPublication": true,
+		"PublicationPlan": true, "WriteNew": true, "ReadPublished": true, "Generate": true,
+		"Validate": true, "Unwrap": true, "Code": true,
+	}
+	files, err := filepath.Glob(filepath.Join(filepath.Dir(sourceFile), "*.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range files {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		parsed, err := parser.ParseFile(token.NewFileSet(), file, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, imported := range parsed.Imports {
+			path := strings.Trim(imported.Path.Value, `"`)
+			if !allowedImports[path] {
+				t.Fatalf("evolution production import %q is outside the review-only stdlib allowlist", path)
+			}
+		}
+		for _, declaration := range parsed.Decls {
+			switch declaration := declaration.(type) {
+			case *ast.FuncDecl:
+				if ast.IsExported(declaration.Name.Name) && !allowedExports[declaration.Name.Name] {
+					t.Fatalf("unexpected exported evolution function/method %q", declaration.Name.Name)
+				}
+			case *ast.GenDecl:
+				for _, specification := range declaration.Specs {
+					switch specification := specification.(type) {
+					case *ast.TypeSpec:
+						if ast.IsExported(specification.Name.Name) && !allowedExports[specification.Name.Name] {
+							t.Fatalf("unexpected exported evolution type %q", specification.Name.Name)
+						}
+					case *ast.ValueSpec:
+						for _, name := range specification.Names {
+							if ast.IsExported(name.Name) && !allowedExports[name.Name] {
+								t.Fatalf("unexpected exported evolution value %q", name.Name)
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 }
 

@@ -82,15 +82,15 @@ func (plan PublicationPlan) WriteNew(destination string) error {
 		return publicationError(err)
 	}
 	if err := validateProposalRoot(root, plan.data, false); err != nil {
-		_ = restoreProposalMarker(root)
+		_ = restoreProposalMarkerDurable(root)
 		return publicationError(err)
 	}
 	if err := syncRootDirectory(root); err != nil {
-		_ = restoreProposalMarker(root)
+		_ = restoreProposalMarkerDurable(root)
 		return publicationError(err)
 	}
 	if !stableDestination(destination, root, destinationInfo) {
-		_ = restoreProposalMarker(root)
+		_ = restoreProposalMarkerDurable(root)
 		return fail(ErrorConflict)
 	}
 	return nil
@@ -184,6 +184,13 @@ func restoreProposalMarker(root *os.Root) error {
 		return nil
 	}
 	return writeNewRegular(root, proposalMarkerName, []byte("incomplete\n"))
+}
+
+func restoreProposalMarkerDurable(root *os.Root) error {
+	if err := restoreProposalMarker(root); err != nil {
+		return err
+	}
+	return syncRootDirectory(root)
 }
 
 func validateProposalRoot(root *os.Root, expected []byte, incomplete bool) error {
