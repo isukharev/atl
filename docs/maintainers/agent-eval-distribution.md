@@ -60,8 +60,13 @@ binds the binary, schema registry, process protocol, compatibility bundle,
 source tree, platform, architecture, and version. The builder reads only
 regular files under explicit paths and rejects symlinks, sensitive names such
 as `.git`, `.env`, private-key extensions, ignored source residue, and
-source/output overlap. It has no provider, backend, network, or credential
-authority.
+source/output overlap. The version probe is a bounded local process execution,
+not a sandbox: it runs the supplied candidate as the current user for at most
+two seconds with a scrubbed environment and private working directory, but it
+does not prove that descendants, syscalls, or network access are contained.
+Run builds for untrusted bytes in a separate isolated host/container. The
+manifest records probe network/credential status as `probe-unverified`; verify,
+sign, install, and uninstall never execute the candidate.
 
 ## Verify and sign
 

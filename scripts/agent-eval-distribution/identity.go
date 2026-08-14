@@ -80,9 +80,12 @@ func validateBinaryIdentity(binary, version, commit, contractVersion, platform, 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, binary, "version", "--output", "json")
-	command.Dir = os.TempDir()
+	command.Dir = filepath.Dir(binary)
 	command.WaitDelay = 250 * time.Millisecond
-	command.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=/nonexistent", "GIT_TERMINAL_PROMPT=0"}
+	command.Env = []string{
+		"PATH=/usr/bin:/bin", "HOME=/nonexistent", "TMPDIR=" + filepath.Dir(binary),
+		"GIT_TERMINAL_PROMPT=0", "NO_PROXY=*",
+	}
 	var output boundedOutput
 	output.limit = 64 << 10
 	command.Stdout = &output
@@ -120,12 +123,19 @@ func validateBinaryForSigning(binary, platform, architecture string) error {
 }
 
 func validateBinarySnapshot(data []byte, version, commit, contractVersion, platform, architecture string) error {
-	temporary, err := os.CreateTemp("", "agent-eval-distribution-binary-")
+	probeDirectory, err := os.MkdirTemp("", "agent-eval-distribution-probe-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(probeDirectory) }()
+	if err := os.Chmod(probeDirectory, 0o700); err != nil {
+		return err
+	}
+	temporary, err := os.CreateTemp(probeDirectory, "binary-")
 	if err != nil {
 		return err
 	}
 	name := temporary.Name()
-	defer func() { _ = os.Remove(name) }()
 	if err := temporary.Chmod(0o700); err != nil {
 		_ = temporary.Close()
 		return err

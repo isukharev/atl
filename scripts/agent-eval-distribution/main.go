@@ -1,6 +1,7 @@
 // Command agent-eval-distribution builds and verifies an offline standalone
-// agent-eval distribution. Build, verify, install, and uninstall have no
-// provider, backend, network, or repository-import authority; sign reads only
+// agent-eval distribution. Verify, install, and uninstall do not execute the
+// candidate; build performs a bounded local version probe of the supplied
+// candidate and therefore is not a process or network sandbox. Sign reads only
 // the explicitly supplied private signing key.
 package main
 
@@ -367,7 +368,7 @@ func renderProvenance(options buildOptions, sourceTree, binarySHA, compatibility
 		"source_commit": options.SourceCommit, "source_tree_sha256": sourceTree,
 		"version": options.Version, "platform": options.Platform, "architecture": options.Architecture,
 		"binary_sha256": binarySHA, "compatibility_bundle_sha256": compatibilitySHA,
-		"builder": "scripts/agent-eval-distribution", "network": "none", "credentials": "none",
+		"builder": "scripts/agent-eval-distribution", "network": "probe-unverified", "credentials": "probe-unverified",
 	}
 	data, _ := canonicalJSON(value)
 	return data
