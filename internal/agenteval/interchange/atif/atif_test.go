@@ -373,6 +373,49 @@ func TestExportReportsCommittedAfterRepositoryDrift(t *testing.T) {
 	}
 }
 
+func TestExportPreservesCleanupPendingAfterPostPublishDrift(t *testing.T) {
+	base := t.TempDir()
+	repository := filepath.Join(base, "repository")
+	root := filepath.Join(base, "private")
+	if err := os.Mkdir(repository, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projection := mustProject(t, validEventSet())
+	request := ExportRequest{OwnerPrivateRoot: root, RepositoryRoot: repository, RelativePath: "trajectory.json", Projection: projection}
+	previousHook := exportHook
+	previousRemove := exportTemporaryRemove
+	defer func() {
+		exportHook = previousHook
+		exportTemporaryRemove = previousRemove
+	}()
+	exportTemporaryRemove = func(*os.Root, string) error {
+		return errors.New("persistent temporary cleanup failure")
+	}
+	exportHook = func(point exportHookPoint) {
+		if point != exportAfterPublish {
+			return
+		}
+		replaced := repository + ".replaced"
+		if err := os.Rename(repository, replaced); err != nil {
+			t.Fatalf("rename repository: %v", err)
+		}
+		if err := os.Mkdir(repository, 0o755); err != nil {
+			t.Fatalf("replace repository: %v", err)
+		}
+	}
+	requireCode(t, ExportOwnerPrivate(request), ErrorExportCleanupPending)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("combined committed cleanup state entries = %d, want final plus recovery link", len(entries))
+	}
+}
+
 func TestExportRetriesTransientTemporaryCleanupFailure(t *testing.T) {
 	base := t.TempDir()
 	repository := filepath.Join(base, "repository")

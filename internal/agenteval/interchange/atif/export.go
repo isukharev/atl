@@ -176,14 +176,14 @@ func ExportOwnerPrivate(request ExportRequest) error {
 	temporaryPresent = false
 	invokeExportHook(exportAfterPublish)
 	if err := ensurePrivateParents(root, relative); err != nil {
-		return publishedExportOutcome(root, relative, createdInfo)
+		return publishedExportOutcome(root, relative, createdInfo, cleanupPending, cleanupUncertain)
 	}
 	info, statErr := root.Lstat(relative)
 	if statErr != nil || !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 || info.Mode().Perm() != 0o600 || !os.SameFile(createdInfo, info) {
-		return publishedExportOutcome(root, relative, createdInfo)
+		return publishedExportOutcome(root, relative, createdInfo, cleanupPending, cleanupUncertain)
 	}
 	if !stableDirectory(rootPath, rootInfo, root, true) || !stableDirectory(repositoryPath, repositoryInfo, repository, false) || !disjointPhysicalDirectories(rootPath, repositoryPath) {
-		return publishedExportOutcome(root, relative, createdInfo)
+		return publishedExportOutcome(root, relative, createdInfo, cleanupPending, cleanupUncertain)
 	}
 	if cleanupPending {
 		return fail(ErrorExportCleanupPending)
@@ -194,12 +194,18 @@ func ExportOwnerPrivate(request ExportRequest) error {
 	return nil
 }
 
-func publishedExportOutcome(root *os.Root, relative string, createdInfo fs.FileInfo) error {
+func publishedExportOutcome(root *os.Root, relative string, createdInfo fs.FileInfo, cleanupPending, cleanupUncertain bool) error {
 	info, err := root.Lstat(relative)
-	if err == nil && info.Mode().IsRegular() && info.Mode()&fs.ModeSymlink == 0 && info.Mode().Perm() == 0o600 && os.SameFile(createdInfo, info) {
-		return fail(ErrorExportCommitted)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&fs.ModeSymlink != 0 || info.Mode().Perm() != 0o600 || !os.SameFile(createdInfo, info) {
+		return fail(ErrorExportOutcomeUnknown)
 	}
-	return fail(ErrorExportOutcomeUnknown)
+	if cleanupUncertain {
+		return fail(ErrorExportOutcomeUnknown)
+	}
+	if cleanupPending {
+		return fail(ErrorExportCleanupPending)
+	}
+	return fail(ErrorExportCommitted)
 }
 
 func temporaryRelativePath(relative string) (string, error) {
