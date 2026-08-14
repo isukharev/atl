@@ -12,6 +12,8 @@ import (
 	"testing"
 )
 
+const testGoldenBundlePath = "testdata/standalone-readability-golden.v1.json"
+
 func TestDistributionBuildVerifySignInstallUninstall(t *testing.T) {
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
 		t.Skip("distribution candidate contour is Linux/amd64")
@@ -24,6 +26,7 @@ func TestDistributionBuildVerifySignInstallUninstall(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(source, "one.txt"), []byte("one\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	writeTestGoldenBundle(t, source)
 	binary := filepath.Join(root, "agent-eval")
 	compatibility := filepath.Join(source, "compat.json")
 	registry := filepath.Join(source, "one.txt")
@@ -37,7 +40,7 @@ func TestDistributionBuildVerifySignInstallUninstall(t *testing.T) {
 	distribution := filepath.Join(root, "dist")
 	if err := buildDistribution(buildOptions{
 		Binary: binary, Compatibility: compatibility, SourceRoot: source,
-		SourceFiles: []string{"one.txt", "compat.json"}, SchemaRegistry: registry, Protocol: protocol,
+		SourceFiles: []string{"one.txt", "compat.json", testGoldenBundlePath}, SchemaRegistry: registry, Protocol: protocol,
 		Output: distribution, Version: "0.1.0-pre-release", ContractVersion: "0.1.0-pre-release",
 		SourceCommit: strings.Repeat("a", 40), Platform: "linux", Architecture: "amd64",
 	}); err != nil {
@@ -171,6 +174,7 @@ func TestDistributionBuildBindsBinaryAndSourceBoundary(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(source, "one.txt"), []byte("one\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	writeTestGoldenBundle(t, source)
 	compatibility := filepath.Join(source, "compat.json")
 	if err := os.WriteFile(compatibility, testCompatibilityBundle(), 0o600); err != nil {
 		t.Fatal(err)
@@ -178,7 +182,7 @@ func TestDistributionBuildBindsBinaryAndSourceBoundary(t *testing.T) {
 	commit := strings.Repeat("a", 40)
 	options := buildOptions{
 		Binary: "/bin/true", Compatibility: compatibility, SourceRoot: source,
-		SourceFiles: []string{"one.txt", "compat.json"}, SchemaRegistry: filepath.Join(source, "one.txt"),
+		SourceFiles: []string{"one.txt", "compat.json", testGoldenBundlePath}, SchemaRegistry: filepath.Join(source, "one.txt"),
 		Protocol: filepath.Join(source, "one.txt"), Output: filepath.Join(root, "dist"),
 		Version: "0.1.0-pre-release", ContractVersion: "0.1.0-pre-release",
 		SourceCommit: commit, Platform: "linux", Architecture: "amd64",
@@ -268,6 +272,7 @@ func TestDistributionBindsTheBinarySnapshotAcrossTheProbe(t *testing.T) {
 	if err := os.Mkdir(source, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	writeTestGoldenBundle(t, source)
 	compatibility := filepath.Join(source, "compat.json")
 	if err := os.WriteFile(compatibility, testCompatibilityBundle(), 0o600); err != nil {
 		t.Fatal(err)
@@ -282,7 +287,7 @@ func TestDistributionBindsTheBinarySnapshotAcrossTheProbe(t *testing.T) {
 	output := filepath.Join(root, "distribution")
 	err := buildDistribution(buildOptions{
 		Binary: binary, Compatibility: compatibility, SourceRoot: source,
-		SourceFiles: []string{"compat.json"}, SchemaRegistry: compatibility, Protocol: compatibility,
+		SourceFiles: []string{"compat.json", testGoldenBundlePath}, SchemaRegistry: compatibility, Protocol: compatibility,
 		Output: output, Version: distributionContractVersion, ContractVersion: distributionContractVersion,
 		SourceCommit: commit, Platform: "linux", Architecture: "amd64",
 	})
@@ -320,10 +325,20 @@ func TestDistributionRejectsCompatibilityAndTargetDrift(t *testing.T) {
 	if err := validateCompatibilityBundle(valid, distributionContractVersion); err != nil {
 		t.Fatal(err)
 	}
+	root := t.TempDir()
+	compatibility := filepath.Join(root, "compat.json")
+	if err := os.WriteFile(compatibility, valid, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, snapshot, err := hashSelectedTree(root, []string{"compat.json"}); err != nil {
+		t.Fatal(err)
+	} else if err := validateCompatibilityBundleInSnapshot(valid, distributionContractVersion, root, compatibility, snapshot); err == nil {
+		t.Fatal("compatibility bundle without its referenced golden was accepted")
+	}
 	validText := string(valid)
 	for name, mutated := range map[string]string{
 		"duplicate top-level member":     strings.Replace(validText, `"schema_version":1`, `"schema_version":1,"schema_version":1`, 1),
-		"duplicate nested member":        strings.Replace(validText, `"path":"testdata/golden.json","sha256"`, `"path":"testdata/golden.json","path":"testdata/golden.json","sha256"`, 1),
+		"duplicate nested member":        strings.Replace(validText, `"path":"`+testGoldenBundlePath+`","sha256"`, `"path":"`+testGoldenBundlePath+`","path":"`+testGoldenBundlePath+`","sha256"`, 1),
 		"missing required metric member": strings.Replace(validText, `"present":false,"representation":"standalone","required":false`, `"present":false,"representation":"standalone"`, 1),
 	} {
 		if mutated == validText {
@@ -507,6 +522,7 @@ func buildTestDistributionNamed(t *testing.T, root, label, outputLabel string, b
 	if err := os.WriteFile(filepath.Join(source, "one.txt"), []byte("one\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	writeTestGoldenBundle(t, source)
 	binary := filepath.Join(root, "agent-eval-"+outputLabel)
 	compatibility := filepath.Join(source, "compat.json")
 	version := distributionContractVersion
@@ -520,7 +536,7 @@ func buildTestDistributionNamed(t *testing.T, root, label, outputLabel string, b
 	distribution := filepath.Join(root, "dist-"+outputLabel)
 	if err := buildDistribution(buildOptions{
 		Binary: binary, Compatibility: compatibility, SourceRoot: source,
-		SourceFiles: []string{"one.txt", "compat.json"}, SchemaRegistry: filepath.Join(source, "one.txt"), Protocol: filepath.Join(source, "one.txt"),
+		SourceFiles: []string{"one.txt", "compat.json", testGoldenBundlePath}, SchemaRegistry: filepath.Join(source, "one.txt"), Protocol: filepath.Join(source, "one.txt"),
 		Output: distribution, Version: version, ContractVersion: "0.1.0-pre-release",
 		SourceCommit: commit, Platform: "linux", Architecture: "amd64",
 	}); err != nil {
@@ -556,7 +572,7 @@ func testCompatibilityBundle() []byte {
 	falseValue := false
 	return mustCanonicalJSON(map[string]any{
 		"schema_version": 1, "contract_version": distributionContractVersion,
-		"golden_bundle":     map[string]any{"path": "testdata/golden.json", "sha256": strings.Repeat("a", 64)},
+		"golden_bundle":     map[string]any{"path": testGoldenBundlePath, "sha256": sha256Bytes(testGoldenBundleData())},
 		"readability":       []any{map[string]any{"namespace": "standalone", "kind": "project-config", "versions": []int{1}}},
 		"forward_rejection": []any{map[string]any{"namespace": "standalone", "kind": "project-config", "version": 2}},
 		"metric_vectors": []any{
@@ -574,6 +590,21 @@ func testCompatibilityBundle() []byte {
 			metric("unsupported-absent", "standalone", true, true, &unsupported, nil, nil, true),
 		},
 	})
+}
+
+func testGoldenBundleData() []byte {
+	return []byte("{\"schema_version\":1,\"entries\":[{\"namespace\":\"standalone\",\"kind\":\"project-config\",\"version\":1,\"document\":{},\"expected_projection\":{}}]}\n")
+}
+
+func writeTestGoldenBundle(t *testing.T, source string) {
+	t.Helper()
+	path := filepath.Join(source, filepath.FromSlash(testGoldenBundlePath))
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, testGoldenBundleData(), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func mustCanonicalJSON(value any) []byte {

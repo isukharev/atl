@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 )
 
 const (
 	maxCompatibilityEntries = 1024
 	compatibilitySchemaV1   = 1
+	canonicalGoldenPath     = "testdata/standalone-readability-golden.v1.json"
 )
 
 var canonicalMetricVectorValidity = map[string]bool{
@@ -390,8 +392,12 @@ func validateCompatibilityBundle(data []byte, contractVersion string) error {
 	if err != nil {
 		return err
 	}
+	return validateCompatibilityBundleValue(bundle, contractVersion)
+}
+
+func validateCompatibilityBundleValue(bundle compatibilityBundle, contractVersion string) error {
 	if bundle.SchemaVersion != compatibilitySchemaV1 || bundle.ContractVersion != contractVersion ||
-		!safeName(bundle.GoldenBundle.Path) || !validDigest(bundle.GoldenBundle.SHA256) ||
+		bundle.GoldenBundle.Path != canonicalGoldenPath || !validDigest(bundle.GoldenBundle.SHA256) ||
 		len(bundle.Readability) == 0 || len(bundle.Readability) > maxCompatibilityEntries ||
 		len(bundle.Forward) == 0 || len(bundle.Forward) > maxCompatibilityEntries ||
 		len(bundle.MetricVectors) == 0 || len(bundle.MetricVectors) > maxCompatibilityEntries {
@@ -424,6 +430,51 @@ func validateCompatibilityBundle(data []byte, contractVersion string) error {
 		if vector.State != nil && !safeName(*vector.State) {
 			return errors.New("compatibility metric state is invalid")
 		}
+	}
+	return nil
+}
+
+// validateCompatibilityBundleInSnapshot binds the compatibility claim to the
+// exact source snapshot used for the distribution. The canonical fixture names
+// its golden bundle relative to the evaluator module, not the repository root;
+// locate that module through the already captured go.mod entry and never reread
+// ambient bytes after the source hash is admitted.
+func validateCompatibilityBundleInSnapshot(data []byte, contractVersion, sourceRoot, compatibilityPath string, snapshot map[string][]byte) error {
+	bundle, err := decodeCompatibilityBundle(data)
+	if err != nil {
+		return err
+	}
+	if err := validateCompatibilityBundleValue(bundle, contractVersion); err != nil {
+		return err
+	}
+	compatibilityRelative, err := relativeSourcePath(sourceRoot, compatibilityPath)
+	if err != nil {
+		return fmt.Errorf("compatibility source path: %w", err)
+	}
+	moduleRoot := filepath.ToSlash(filepath.Dir(compatibilityRelative))
+	for {
+		moduleKey := filepath.ToSlash(filepath.Join(moduleRoot, "go.mod"))
+		if _, ok := snapshot[moduleKey]; ok {
+			break
+		}
+		if moduleRoot == "." || moduleRoot == "" {
+			moduleRoot = "."
+			break
+		}
+		parent := filepath.ToSlash(filepath.Dir(filepath.FromSlash(moduleRoot)))
+		if parent == moduleRoot {
+			moduleRoot = "."
+			break
+		}
+		moduleRoot = parent
+	}
+	goldenKey := filepath.ToSlash(filepath.Join(moduleRoot, filepath.FromSlash(bundle.GoldenBundle.Path)))
+	goldenData, ok := snapshot[goldenKey]
+	if !ok {
+		return errors.New("compatibility golden bundle is not covered by the source snapshot")
+	}
+	if actual := sha256Bytes(goldenData); actual != bundle.GoldenBundle.SHA256 {
+		return errors.New("compatibility golden bundle digest does not match the source snapshot")
 	}
 	return nil
 }

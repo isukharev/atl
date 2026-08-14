@@ -87,14 +87,11 @@ func requireSelectedSourceFile(root string, selections []string, target string) 
 	if err != nil {
 		return err
 	}
-	targetAbs, err := filepath.Abs(target)
+	relativeSlash, err := relativeSourcePath(root, target)
 	if err != nil {
-		return err
-	}
-	relative, err := filepath.Rel(filepath.Clean(rootAbs), filepath.Clean(targetAbs))
-	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
 		return errors.New("input must be inside the selected source root")
 	}
+	relative := filepath.FromSlash(relativeSlash)
 	if err := rejectSymlinkComponents(filepath.Clean(rootAbs), relative); err != nil {
 		return err
 	}
@@ -110,6 +107,22 @@ func requireSelectedSourceFile(root string, selections []string, target string) 
 		}
 	}
 	return errors.New("input is not covered by source selection")
+}
+
+func relativeSourcePath(root, target string) (string, error) {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	targetAbs, err := filepath.Abs(target)
+	if err != nil {
+		return "", err
+	}
+	relative, err := filepath.Rel(filepath.Clean(rootAbs), filepath.Clean(targetAbs))
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return "", errors.New("path is outside the selected source root")
+	}
+	return filepath.ToSlash(relative), nil
 }
 
 func selectedSourceData(root string, selections []string, snapshot map[string][]byte, target string) ([]byte, error) {

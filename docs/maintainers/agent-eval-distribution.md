@@ -45,8 +45,11 @@ builder reads the bounded candidate bytes once, copies that exact snapshot, and
 probes the copied bytes with `version --output json`; the reported version,
 contract version, and source commit must match the manifest. The compatibility
 bundle, schema registry, and process protocol must also be regular files inside
-the selected source tree, so their bytes are covered by the source digest. This
-is a bounded local build probe, not provider or backend execution.
+the selected source tree, so their bytes are covered by the source digest. The
+compatibility bundle's canonical readability golden path and digest are checked
+against that same captured source snapshot. This is an intentional bounded
+local build probe, not a provider or backend run; the supplied candidate is
+still current-user code and may exercise ambient authority.
 
 The builder writes a bounded manifest, checksum, SPDX SBOM, provenance record,
 compatibility bundle, static scratch container descriptor, and composite Action
@@ -63,9 +66,10 @@ source tree, platform, architecture, and version. The builder reads only
 regular files under explicit paths and rejects symlinks, sensitive names such
 as `.git`, `.env`, private-key extensions, ignored source residue, and
 source/output overlap. The version probe is a bounded local process execution,
-not a sandbox: it runs the supplied candidate as the current user for at most
-two seconds with a scrubbed environment and private working directory, but it
-does not prove that descendants, syscalls, or network access are contained.
+not a sandbox: it runs the supplied candidate as the current user with a
+two-second cancellation deadline and bounded cleanup, using a scrubbed
+environment and private working directory, but it does not prove that
+descendants, syscalls, or network access are contained.
 Run builds for untrusted bytes in a separate isolated host/container. The
 manifest records probe network/credential status as `probe-unverified`; verify,
 sign, install, and uninstall never execute the candidate.
@@ -145,5 +149,7 @@ operation refuses before creating a prefix.
 The release candidate is not a supported release. A protected approval is
 required after `make agent-eval-full`, reproducible two-build comparison,
 offline conformance, installer/rollback evidence, supply-chain/privacy review,
-and hosted CI. No command in this slice contacts a provider or backend or
-publishes release material.
+and hosted CI. Verify, sign, install, rollback, and uninstall do not contact a
+provider or backend; build executes the explicitly supplied candidate and is
+therefore provider/backend-free only by reviewed input choice, not by sandbox
+proof. This tooling does not publish release material.

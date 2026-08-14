@@ -110,16 +110,16 @@ func main() {
 	binary := flag.String("binary", "", "agent-eval binary for build")
 	compatibility := flag.String("compatibility", "", "provider-free compatibility bundle for build")
 	sourceRoot := flag.String("source-root", ".", "source root for the selected tree hash")
-	sourceFiles := flag.String("source-files", "internal/agenteval/cmd/agent-eval,internal/agenteval/testdata/standalone-conformance.v1.json", "comma-separated source paths")
+	sourceFiles := flag.String("source-files", "internal/agenteval/cmd/agent-eval,internal/agenteval/schemaregistry/registry.v1.json,internal/agenteval/testdata/standalone-conformance.v1.json,internal/agenteval/testdata/standalone-readability-golden.v1.json", "comma-separated source paths")
 	schemaRegistry := flag.String("schema-registry", "internal/agenteval/schemaregistry/registry.v1.json", "schema registry path")
 	protocol := flag.String("protocol", "internal/agenteval/cmd/agent-eval/standalone_process.go", "process protocol source path")
-	output := flag.String("output", "dist/agent-eval", "distribution directory")
+	output := flag.String("output", "", "absolute distribution directory (required for build)")
 	version := flag.String("version", "", "pre-release version (currently 0.1.0-pre-release)")
 	contractVersion := flag.String("contract-version", "0.1.0-pre-release", "standalone contract version")
 	sourceCommit := flag.String("source-commit", "", "exact 40-character source commit")
 	platform := flag.String("platform", runtime.GOOS, "target platform")
 	architecture := flag.String("architecture", runtime.GOARCH, "target architecture")
-	publicKey := flag.String("public-key", "", "base64 public signing key file for verify")
+	publicKey := flag.String("public-key", "", "base64 public signing key file for verify/install/rollback/uninstall")
 	privateKey := flag.String("private-key", "", "base64 private signing key file for sign")
 	distribution := flag.String("distribution", "", "distribution directory for verify/sign/install/rollback")
 	prefix := flag.String("prefix", "", "absolute install prefix")
@@ -195,6 +195,9 @@ func buildDistribution(options buildOptions) error {
 	}
 	if err := validateCompatibilityBundle(compatibilityData, options.ContractVersion); err != nil {
 		return fmt.Errorf("compatibility bundle: %w", err)
+	}
+	if err := validateCompatibilityBundleInSnapshot(compatibilityData, options.ContractVersion, options.SourceRoot, options.Compatibility, sourceSnapshot); err != nil {
+		return fmt.Errorf("compatibility source binding: %w", err)
 	}
 	schemaData, err := selectedSourceData(options.SourceRoot, options.SourceFiles, sourceSnapshot, options.SchemaRegistry)
 	if err != nil {
