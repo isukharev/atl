@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"path/filepath"
 	"unicode/utf8"
 
 	"github.com/isukharev/atl/internal/agenteval/lifecycle"
@@ -275,16 +276,7 @@ func RunInspectSyntheticFailure(qualification InspectQualification, ledgerRoot s
 		// exclusive header write before this creator acquires it. Treat both
 		// bounded single-use races as conflicts: the probe must fail closed
 		// rather than expose a scheduler-dependent classification.
-		ledgerConflict := errors.Is(err, ErrAttemptLedgerBusy) || errors.Is(err, fs.ErrExist)
-		if !ledgerConflict && errors.Is(err, ErrAttemptLedger) &&
-			requirePrivateDirectory("inspect qualification ledger", ledgerRoot) == nil {
-			ledgerConflict = attemptLedgerOnlyUncommittedCreateState(ledgerRoot)
-			if !ledgerConflict {
-				_, openErr := OpenAttemptLedgerStore(ledgerRoot)
-				ledgerConflict = openErr == nil
-			}
-		}
-		if ledgerConflict {
+		if inspectQualificationLedgerConflict(err, ledgerRoot) {
 			cause = errors.Join(ErrAttemptLedgerConflict, err)
 		}
 		return InspectSyntheticAttempt{}, AttemptLedgerInspection{}, inspectQualificationError("ledger", cause)
@@ -318,6 +310,21 @@ func RunInspectSyntheticFailure(qualification InspectQualification, ledgerRoot s
 		return InspectSyntheticAttempt{}, AttemptLedgerInspection{}, err
 	}
 	return attempt, inspection, nil
+}
+
+func inspectQualificationLedgerConflict(err error, ledgerRoot string) bool {
+	if errors.Is(err, ErrAttemptLedgerConflict) || errors.Is(err, ErrAttemptLedgerBusy) {
+		return true
+	}
+	var classified interface{ Code() string }
+	if !errors.As(err, &classified) || (classified.Code() != "root" &&
+		(classified.Code() != "header_write" || !errors.Is(err, fs.ErrExist))) {
+		return false
+	}
+	absRoot, absErr := filepath.Abs(ledgerRoot)
+	return absErr == nil && absRoot == filepath.Clean(ledgerRoot) &&
+		requirePrivateDirectory("inspect qualification ledger parent", filepath.Dir(absRoot)) == nil &&
+		requirePrivateDirectory("inspect qualification ledger", absRoot) == nil
 }
 
 // allocateInspectSyntheticAttempt reserves the only synthetic attempt while
