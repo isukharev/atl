@@ -191,9 +191,6 @@ func buildDistribution(options buildOptions) error {
 	if err := validateCompatibilityBundle(compatibilityData, options.ContractVersion); err != nil {
 		return fmt.Errorf("compatibility bundle: %w", err)
 	}
-	if err := validateBinaryIdentity(options.Binary, options.Version, options.SourceCommit, options.ContractVersion, options.Platform, options.Architecture); err != nil {
-		return fmt.Errorf("binary identity: %w", err)
-	}
 	root, err := createAbsentDirectory(options.Output)
 	if err != nil {
 		return err
@@ -209,6 +206,15 @@ func buildDistribution(options buildOptions) error {
 	if err != nil {
 		return fmt.Errorf("source tree: %w", err)
 	}
+	for label, path := range map[string]string{
+		"compatibility bundle": options.Compatibility,
+		"schema registry":      options.SchemaRegistry,
+		"process protocol":     options.Protocol,
+	} {
+		if err := requireSelectedSourceFile(options.SourceRoot, options.SourceFiles, path); err != nil {
+			return fmt.Errorf("%s: %w", label, err)
+		}
+	}
 	schemaSHA, _, err := hashRegularFile(options.SchemaRegistry, maxArtifactBytes)
 	if err != nil {
 		return fmt.Errorf("schema registry: %w", err)
@@ -217,13 +223,17 @@ func buildDistribution(options buildOptions) error {
 	if err != nil {
 		return fmt.Errorf("process protocol: %w", err)
 	}
-	if err := copyIntoRoot(root, binaryName, options.Binary, 0o755); err != nil {
+	binaryData, err := readFileBounded(options.Binary, maxArtifactBytes)
+	if err != nil {
+		return fmt.Errorf("binary: %w", err)
+	}
+	if err := writeRootFile(root, binaryName, binaryData, 0o755); err != nil {
 		return fmt.Errorf("binary: %w", err)
 	}
 	if err := validateBinaryIdentity(filepath.Join(options.Output, binaryName), options.Version, options.SourceCommit, options.ContractVersion, options.Platform, options.Architecture); err != nil {
 		return fmt.Errorf("copied binary identity: %w", err)
 	}
-	if err := copyIntoRoot(root, compatibilityName, options.Compatibility, 0o644); err != nil {
+	if err := writeRootFile(root, compatibilityName, compatibilityData, 0o644); err != nil {
 		return fmt.Errorf("compatibility bundle: %w", err)
 	}
 	containerfile := []byte("FROM scratch\nCOPY agent-eval /agent-eval\nENTRYPOINT [\"/agent-eval\"]\n")
@@ -346,15 +356,15 @@ runs:
         test "$EXPECTED_BINARY_SHA256" = %q
         test "$(sha256sum "$tmp" | awk '{print $1}')" = "$EXPECTED_BINARY_SHA256"
         "$tmp" version --output json >"$tmp_json"
-		python3 - "$tmp_json" "$EXPECTED_VERSION" "$EXPECTED_COMMIT" <<'PY'
-import json, sys
-with open(sys.argv[1], encoding='utf-8') as stream:
-    payload = json.load(stream)
-result = payload.get('result', payload)
-build = result.get('build', {})
-if build.get('version') != sys.argv[2] or build.get('commit') != sys.argv[3]:
-    raise SystemExit('agent-eval build identity mismatch')
-PY
+        python3 - "$tmp_json" "$EXPECTED_VERSION" "$EXPECTED_COMMIT" <<'PY'
+        import json, sys
+        with open(sys.argv[1], encoding='utf-8') as stream:
+            payload = json.load(stream)
+        result = payload.get('result', payload)
+        build = result.get('build', {})
+        if build.get('version') != sys.argv[2] or build.get('commit') != sys.argv[3]:
+            raise SystemExit('agent-eval build identity mismatch')
+        PY
 `
 	return fmt.Sprintf(template, version, commit, binarySHA)
 }
@@ -1047,14 +1057,6 @@ func openDirectory(name string) (*os.Root, error) {
 		return nil, errors.New("directory changed while opened")
 	}
 	return root, nil
-}
-
-func copyIntoRoot(root *os.Root, name, source string, mode fs.FileMode) error {
-	data, err := readFileBounded(source, maxArtifactBytes)
-	if err != nil {
-		return err
-	}
-	return writeRootFile(root, name, data, mode)
 }
 
 func writeRootFile(root *os.Root, name string, data []byte, mode fs.FileMode) error {

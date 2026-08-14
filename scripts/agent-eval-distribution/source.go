@@ -29,6 +29,9 @@ func hashSelectedTree(root string, paths []string) (string, error) {
 			return "", errors.New("source selection contains a sensitive path")
 		}
 		absolute := filepath.Join(root, selected)
+		if err := rejectSymlinkComponents(root, selected); err != nil {
+			return "", err
+		}
 		info, err := os.Lstat(absolute)
 		if err != nil {
 			return "", err
@@ -58,6 +61,54 @@ func hashSelectedTree(root string, paths []string) (string, error) {
 		fmt.Fprintf(hash, "%s\x00%d\x00%s\x00", entry.Name, entry.SizeBytes, entry.SHA256)
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func rejectSymlinkComponents(root, relative string) error {
+	current := root
+	for _, component := range strings.Split(filepath.Clean(relative), string(filepath.Separator)) {
+		if component == "" || component == "." {
+			continue
+		}
+		current = filepath.Join(current, component)
+		info, err := os.Lstat(current)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			return errors.New("source selection contains a symlink component")
+		}
+	}
+	return nil
+}
+
+func requireSelectedSourceFile(root string, selections []string, target string) error {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	targetAbs, err := filepath.Abs(target)
+	if err != nil {
+		return err
+	}
+	relative, err := filepath.Rel(filepath.Clean(rootAbs), filepath.Clean(targetAbs))
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return errors.New("input must be inside the selected source root")
+	}
+	if err := rejectSymlinkComponents(filepath.Clean(rootAbs), relative); err != nil {
+		return err
+	}
+	for _, selected := range selections {
+		selected = filepath.Clean(selected)
+		selectedAbs := filepath.Join(filepath.Clean(rootAbs), selected)
+		selectedRelative, relErr := filepath.Rel(filepath.Clean(rootAbs), selectedAbs)
+		if relErr != nil {
+			continue
+		}
+		if relative == selectedRelative || strings.HasPrefix(relative, selectedRelative+string(filepath.Separator)) {
+			return nil
+		}
+	}
+	return errors.New("input is not covered by source selection")
 }
 
 func walkSourceDirectory(sourceRoot, directoryPath string, files map[string]fileEntry, total *int64, visitedEntries *int) error {

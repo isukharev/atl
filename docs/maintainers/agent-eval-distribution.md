@@ -41,10 +41,12 @@ The release-candidate contract currently admits only version
 the requested platform and architecture must equal the build host, so a
 foreign target is refused rather than stamped with a false identity. The
 output must be a different, absent path outside the selected source tree. The
-builder probes the candidate with `version --output json` before and after
-copying it; the reported version, contract version, and source commit must
-match the manifest. This is a bounded local build probe, not provider or
-backend execution.
+builder reads the bounded candidate bytes once, copies that exact snapshot, and
+probes the copied bytes with `version --output json`; the reported version,
+contract version, and source commit must match the manifest. The compatibility
+bundle, schema registry, and process protocol must also be regular files inside
+the selected source tree, so their bytes are covered by the source digest. This
+is a bounded local build probe, not provider or backend execution.
 
 The builder writes a bounded manifest, checksum, SPDX SBOM, provenance record,
 compatibility bundle, static scratch container descriptor, and composite Action
@@ -85,8 +87,9 @@ unsigned distributions, and signature mismatch. It rereads the exact bytes
 that installation will use, so a source mutation between verification and
 copying cannot silently become an installed artifact. Signing performs the same
 manifest/member and static host-target validation before creating the detached
-signature; it never executes or blesses an arbitrary unsigned executable or
-metadata tuple, and strictly reconciles the compatibility bundle digest.
+signature; it never executes the candidate. The private-key invocation is an
+explicit operator signing authority, not an independent provenance attestation,
+and the compatibility bundle digest is reconciled strictly.
 
 ## Install, rollback, uninstall
 

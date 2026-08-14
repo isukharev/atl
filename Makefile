@@ -214,11 +214,15 @@ agent-eval-product-boundary: check-package-boundary
 agent-eval-full: check-agent-eval-support check-skill-routing check-module-boundary
 	$(AGENT_EVAL_MAKE) full
 
+.PHONY: agent-eval-distribution-clean
+agent-eval-distribution-clean:
+	@set -eu; \
+		test -z "$$(git status --porcelain=v1 --ignored=matching --untracked-files=all)" || (echo 'agent-eval distribution requires a clean checkout with no ignored source residue' >&2; exit 2)
+
 .PHONY: agent-eval-distribution
-agent-eval-distribution: agent-eval-full
+agent-eval-distribution: agent-eval-distribution-clean agent-eval-full
 	@test -n "$(AGENT_EVAL_DISTRIBUTION_OUTPUT)" || (echo 'set AGENT_EVAL_DISTRIBUTION_OUTPUT to one absent absolute directory' >&2; exit 2)
 	@set -eu; \
-		test -z "$$(git status --porcelain=v1 --ignored=matching --untracked-files=all)" || (echo 'agent-eval distribution requires a clean checkout with no ignored source residue' >&2; exit 2); \
 		mkdir -p "$(CURDIR)/tmp"; \
 		binary="$$(mktemp "$(CURDIR)/tmp/agent-eval-distribution.XXXXXX")"; \
 		trap 'rm -f "$$binary"' EXIT; \

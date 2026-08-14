@@ -25,7 +25,7 @@ func TestDistributionBuildVerifySignInstallUninstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	binary := filepath.Join(root, "agent-eval")
-	compatibility := filepath.Join(root, "compat.json")
+	compatibility := filepath.Join(source, "compat.json")
 	registry := filepath.Join(source, "one.txt")
 	protocol := filepath.Join(source, "one.txt")
 	if err := os.WriteFile(binary, testBinaryData("0.1.0-pre-release", strings.Repeat("a", 40), "initial"), 0o700); err != nil {
@@ -37,7 +37,7 @@ func TestDistributionBuildVerifySignInstallUninstall(t *testing.T) {
 	distribution := filepath.Join(root, "dist")
 	if err := buildDistribution(buildOptions{
 		Binary: binary, Compatibility: compatibility, SourceRoot: source,
-		SourceFiles: []string{"one.txt"}, SchemaRegistry: registry, Protocol: protocol,
+		SourceFiles: []string{"one.txt", "compat.json"}, SchemaRegistry: registry, Protocol: protocol,
 		Output: distribution, Version: "0.1.0-pre-release", ContractVersion: "0.1.0-pre-release",
 		SourceCommit: strings.Repeat("a", 40), Platform: "linux", Architecture: "amd64",
 	}); err != nil {
@@ -171,14 +171,14 @@ func TestDistributionBuildBindsBinaryAndSourceBoundary(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(source, "one.txt"), []byte("one\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	compatibility := filepath.Join(root, "compat.json")
+	compatibility := filepath.Join(source, "compat.json")
 	if err := os.WriteFile(compatibility, testCompatibilityBundle(), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	commit := strings.Repeat("a", 40)
 	options := buildOptions{
 		Binary: "/bin/true", Compatibility: compatibility, SourceRoot: source,
-		SourceFiles: []string{"one.txt"}, SchemaRegistry: filepath.Join(source, "one.txt"),
+		SourceFiles: []string{"one.txt", "compat.json"}, SchemaRegistry: filepath.Join(source, "one.txt"),
 		Protocol: filepath.Join(source, "one.txt"), Output: filepath.Join(root, "dist"),
 		Version: "0.1.0-pre-release", ContractVersion: "0.1.0-pre-release",
 		SourceCommit: commit, Platform: "linux", Architecture: "amd64",
@@ -192,6 +192,16 @@ func TestDistributionBuildBindsBinaryAndSourceBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	options.Binary = validBinary
+	externalCompatibility := filepath.Join(root, "external-compat.json")
+	if err := os.WriteFile(externalCompatibility, testCompatibilityBundle(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	options.Compatibility = externalCompatibility
+	options.Output = filepath.Join(root, "dist-external-compat")
+	if err := buildDistribution(options); err == nil {
+		t.Fatal("compatibility input outside the selected source tree was accepted")
+	}
+	options.Compatibility = filepath.Join(source, "compat.json")
 	options.Output = filepath.Join(source, "nested-output")
 	if err := buildDistribution(options); err == nil {
 		t.Fatal("distribution output overlapping source tree was accepted")
@@ -226,6 +236,16 @@ func TestDistributionBuildBindsBinaryAndSourceBoundary(t *testing.T) {
 		options.Output = filepath.Join(root, "dist-linked-source")
 		if err := buildDistribution(options); err == nil {
 			t.Fatal("symlinked source root was accepted")
+		}
+		intermediate := filepath.Join(root, "intermediate-link")
+		if err := os.Symlink(source, intermediate); err != nil {
+			t.Fatal(err)
+		}
+		options.SourceRoot = root
+		options.SourceFiles = []string{"intermediate-link/one.txt"}
+		options.Output = filepath.Join(root, "dist-intermediate-link")
+		if err := buildDistribution(options); err == nil {
+			t.Fatal("source selection through an intermediate symlink was accepted")
 		}
 		outputParent := filepath.Join(root, "output-link")
 		if err := os.Symlink(source, outputParent); err != nil {
@@ -334,6 +354,12 @@ func TestDistributionSBOMUsesRequiredSPDXFields(t *testing.T) {
 
 func TestDistributionActionBindsAllExpectedIdentityInputs(t *testing.T) {
 	action := renderAction("0.1.0-pre-release", strings.Repeat("a", 40), strings.Repeat("b", 64))
+	if strings.Contains(action, "\t") {
+		t.Fatalf("action contains tab indentation:\n%s", action)
+	}
+	if !strings.Contains(action, "\n        python3 - \"$tmp_json\"") || !strings.Contains(action, "\n        PY\n") {
+		t.Fatalf("action heredoc is not validly indented:\n%s", action)
+	}
 	for _, want := range []string{
 		"expected-version:", "expected-commit:", "expected-binary-sha256:",
 		"test \"$EXPECTED_VERSION\" = \"0.1.0-pre-release\"",
@@ -399,7 +425,7 @@ func buildTestDistributionNamed(t *testing.T, root, label, outputLabel string, b
 		t.Fatal(err)
 	}
 	binary := filepath.Join(root, "agent-eval-"+outputLabel)
-	compatibility := filepath.Join(root, "compat-"+outputLabel+".json")
+	compatibility := filepath.Join(source, "compat.json")
 	version := "0.1.0-" + label
 	commit := strings.Repeat(testCommitCharacter(label), 40)
 	if err := os.WriteFile(binary, testBinaryData(version, commit, string(binaryData)), 0o700); err != nil {
@@ -411,7 +437,7 @@ func buildTestDistributionNamed(t *testing.T, root, label, outputLabel string, b
 	distribution := filepath.Join(root, "dist-"+outputLabel)
 	if err := buildDistribution(buildOptions{
 		Binary: binary, Compatibility: compatibility, SourceRoot: source,
-		SourceFiles: []string{"one.txt"}, SchemaRegistry: filepath.Join(source, "one.txt"), Protocol: filepath.Join(source, "one.txt"),
+		SourceFiles: []string{"one.txt", "compat.json"}, SchemaRegistry: filepath.Join(source, "one.txt"), Protocol: filepath.Join(source, "one.txt"),
 		Output: distribution, Version: version, ContractVersion: "0.1.0-pre-release",
 		SourceCommit: commit, Platform: "linux", Architecture: "amd64",
 	}); err != nil {
