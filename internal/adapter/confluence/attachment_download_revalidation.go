@@ -61,10 +61,17 @@ func (cf *Confluence) RevalidateAttachmentDownload(ctx context.Context, pageID, 
 	if err := cf.c.GetJSON(ctx, path, &listing); err != nil {
 		return domain.ConfluenceAttachmentDownloadEvidence{}, err
 	}
-	if listing.Results == nil || listing.TotalCount == nil || listing.Start == nil || listing.Limit == nil || listing.Size == nil || listing.Links == nil ||
-		*listing.TotalCount < 0 || *listing.Start != 0 || *listing.Limit != confluenceAttachmentDownloadMatchLimit ||
+	// Some compatible endpoints omit totalCount for a terminal child listing.
+	// A bounded start=0 page remains sufficient when it is self-consistent,
+	// terminal, and has exactly one result below. A present totalCount is still
+	// exact evidence and must agree with that terminal page. Do not require the
+	// response to echo our requested limit: servers may clamp or normalize it,
+	// but it must still bound the returned collection.
+	if listing.Results == nil || listing.Start == nil || listing.Limit == nil || listing.Size == nil || listing.Links == nil ||
+		*listing.Start != 0 || *listing.Limit <= 0 ||
 		*listing.Size != len(*listing.Results) || *listing.Size < 0 || *listing.Size > *listing.Limit ||
-		*listing.TotalCount != *listing.Size || listing.Links.Next != "" {
+		listing.Links.Next != "" ||
+		(listing.TotalCount != nil && (*listing.TotalCount < 0 || *listing.TotalCount != *listing.Size)) {
 		return domain.ConfluenceAttachmentDownloadEvidence{}, fmt.Errorf("%w: attachment filename inventory is incomplete or inconsistent", domain.ErrCheckFailed)
 	}
 	if len(*listing.Results) == 0 {
