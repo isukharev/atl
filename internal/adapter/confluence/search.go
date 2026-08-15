@@ -407,7 +407,7 @@ func (cf *Confluence) TreeQualified(ctx context.Context, request domain.Confluen
 
 func qualifiedConfluenceTreeContent(ct content, expectedSpace string) bool {
 	if !domain.ValidConfluenceReadID(ct.ID) || ct.Type != "page" || strings.TrimSpace(ct.Title) == "" ||
-		ct.Space.Key != expectedSpace || ct.Version.Number <= 0 || ct.Ancestors == nil {
+		strings.TrimSpace(ct.Space.Key) == "" || ct.Space.Key != expectedSpace || ct.Version.Number <= 0 || ct.Ancestors == nil {
 		return false
 	}
 	ancestors := make(map[string]struct{}, len(*ct.Ancestors))
