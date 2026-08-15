@@ -168,6 +168,13 @@ fetched. Even with `--verbose`, request URLs and response paths are rendered as
 | `--max-total-attachment-bytes` | required generation-wide body bound, at least the per-body bound and at most `268435456` |
 | `--allow-partial-evidence` | permit requested incomplete/forbidden evidence with explicit `partial` readiness; strict failure is the default |
 
+Confluence pages are committed as individual atomic mirror transactions. In
+addition to the generation-wide bound, one selected Confluence page retains at
+most `67108864` attachment-body bytes, so native state, metadata, sidecars, and
+the body prefix always fit one publication. A strict capture refuses an
+over-bound page before opening a body; `--allow-partial-evidence` retains the
+deterministic bounded prefix and records `body_incomplete`.
+
 Pagination or parent drift, size/hash mismatch, interrupted download, and a
 requested body outside a count/byte bound prevent publication by default. With
 `--allow-partial-evidence`, only closed reasons and states are sealed and the

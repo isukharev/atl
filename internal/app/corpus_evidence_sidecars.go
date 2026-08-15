@@ -49,6 +49,9 @@ func finalizeCorpusAttachmentCapture(
 	if err != nil {
 		return nil, err
 	}
+	if err := mirror.ValidateAttachmentSidecarPublicationData(encoded, 0); err != nil {
+		return nil, err
+	}
 	sidecarPath, err := mirror.NewPublicArtifactPath(stem + ".attachments.json")
 	if err != nil {
 		return nil, err

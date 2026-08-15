@@ -902,6 +902,26 @@ func TestReadFileWithinLimit(t *testing.T) {
 	}
 }
 
+func TestReadDirWithinLimitBoundsBeforeMaterializingTheDirectory(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "evidence")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"b.body", "a.body"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entries, err := ReadDirWithinLimit(root, dir, 2)
+	if err != nil || len(entries) != 2 || entries[0].Name() != "a.body" || entries[1].Name() != "b.body" {
+		t.Fatalf("entries=%v error=%v", entries, err)
+	}
+	if _, err := ReadDirWithinLimit(root, dir, 1); err == nil || !strings.Contains(err.Error(), "directory exceeds") {
+		t.Fatalf("over-limit error=%v", err)
+	}
+}
+
 func TestReadFileWithinLimitSharedParityContract(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("testdata", "io-parity.v1.json"))
 	if err != nil {

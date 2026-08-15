@@ -30,9 +30,13 @@ type corpusEvidenceBinding struct {
 	MaxAttachmentsPerItem     int      `json:"max_attachments_per_item,omitempty"`
 	AttachmentBodies          bool     `json:"attachment_bodies"`
 	AttachmentMediaTypes      []string `json:"attachment_media_types"`
-	MaxAttachmentBytes        int64    `json:"max_attachment_bytes,omitempty"`
-	MaxTotalAttachmentBytes   int64    `json:"max_total_attachment_bytes,omitempty"`
-	AllowPartialEvidence      bool     `json:"allow_partial_evidence"`
+	// MaxAttachmentBodiesPerItem is an optional internal publication bound.
+	// Corpus builds leave it at zero; public complete pulls set it so one page
+	// cannot consume the complete-pull publisher's finite artifact budget.
+	MaxAttachmentBodiesPerItem int   `json:"max_attachment_bodies_per_item,omitempty"`
+	MaxAttachmentBytes         int64 `json:"max_attachment_bytes,omitempty"`
+	MaxTotalAttachmentBytes    int64 `json:"max_total_attachment_bytes,omitempty"`
+	AllowPartialEvidence       bool  `json:"allow_partial_evidence"`
 }
 
 type corpusAttachmentCaptureBudget struct {
@@ -73,6 +77,19 @@ func (budget *corpusAttachmentCaptureBudget) usage() int64 {
 	budget.mu.Lock()
 	defer budget.mu.Unlock()
 	return budget.reserved
+}
+
+// remaining reports the atomically observed portion of the aggregate body
+// budget that a new page may reserve. Capture plans against this value before
+// it opens a body: strict complete pulls must not transfer a prefix which the
+// restored aggregate cannot retain.
+func (budget *corpusAttachmentCaptureBudget) remaining() int64 {
+	if budget == nil {
+		return 0
+	}
+	budget.mu.Lock()
+	defer budget.mu.Unlock()
+	return budget.maximum - budget.reserved
 }
 
 type corpusPullEvidenceOptions struct {

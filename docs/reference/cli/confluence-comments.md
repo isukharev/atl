@@ -65,6 +65,15 @@ inconsistent. Only a matched observed selection is labelled current; other
 anchor states may show the original selection only as reported. The separate
 `.comments.md` remains a best-effort flat compatibility projection.
 
+For an exhaustive historical mirror, `conf pull --complete --comments` keeps
+the strict default: incomplete comment or thread enumeration prevents that page
+from advancing the durable selector checkpoint. The existing anchor-only
+qualification remains a recorded partial detail, not proof that comments are
+complete. `--allow-partial-artifacts` is an explicit complete-pull-only policy
+that retains an incomplete comments sidecar and continues the main page
+snapshot; its include stays `partial,complete:false` and must not be used as
+absence evidence.
+
 ## `atl conf comment preview|add`
 
 Safely create one root footer comment from exact native CSF. `preview` is a

@@ -219,6 +219,13 @@ write command after explicit approval.
   reply has no separate anchor and is qualified by explicit ancestry.
   Unattached entries are not proven replies;
   inspect closed diagnostics in the JSON sidecar when needed.
+  For a large historical clone that needs attachments, use complete pull only
+  with `--attachments` and explicit per-page inventory caps. Body capture also
+  requires exact MIME and byte policies (at most 64 MiB clone-wide and 512
+  eligible bodies per page in the public complete-pull surface). Incomplete requested optional evidence
+  stops the page by default; `--allow-partial-artifacts` is an explicit,
+  hash-bound exception that records a partial sidecar and never proves complete
+  coverage.
   For a transient MCP read, start with body-free `confluence_comment_list` and
   expand only one exact id through `confluence_comment_thread`. Use positive
   canonical page/comment ids, copy a previously observed page version into

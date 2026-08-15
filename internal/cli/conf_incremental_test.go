@@ -148,6 +148,17 @@ func TestConfPullIncrementalFlagsFailBeforeConfig(t *testing.T) {
 		{"conf", "pull", "--complete", "--cql", "type=page", "--page-prefetch", "9"},
 		{"conf", "pull", "--complete", "--cql", "type=page", "--requests-per-second", "-1"},
 		{"conf", "pull", "--complete", "--cql", "type=page", "--requests-per-second", "1001"},
+		{"conf", "pull", "--id", "100", "--attachments"},
+		{"conf", "pull", "--complete", "--space", "ENG", "--attachments"},
+		{"conf", "pull", "--attachment-bodies"},
+		{"conf", "pull", "--attachment-media-type", "text/plain"},
+		{"conf", "pull", "--complete", "--space", "ENG", "--attachments", "--max-attachment-pages-per-page", "1", "--max-attachments-per-page", "1", "--attachment-bodies"},
+		{"conf", "pull", "--complete", "--space", "ENG", "--attachments", "--max-attachment-pages-per-page", "1", "--max-attachments-per-page", "1", "--attachment-media-type", "text/plain"},
+		{"conf", "pull", "--complete", "--space", "ENG", "--attachments", "--max-attachment-pages-per-page", "101", "--max-attachments-per-page", "1"},
+		{"conf", "pull", "--complete", "--space", "ENG", "--attachments", "--max-attachment-pages-per-page", "1", "--max-attachments-per-page", "10001"},
+		{"conf", "pull", "--complete", "--space", "ENG", "--attachments", "--max-attachment-pages-per-page", "1", "--max-attachments-per-page", "1", "--attachment-bodies", "--attachment-media-type", "Text/Plain", "--max-attachment-bytes", "1", "--max-total-attachment-bytes", "1"},
+		{"conf", "pull", "--complete", "--space", "ENG", "--attachments", "--max-attachment-pages-per-page", "1", "--max-attachments-per-page", "1", "--attachment-bodies", "--attachment-media-type", "text/plain", "--max-attachment-bytes", "2", "--max-total-attachment-bytes", "1"},
+		{"conf", "pull", "--complete", "--space", "ENG", "--allow-partial-artifacts"},
 	} {
 		if _, code := runCLI(t, nil, args...); code != exitUsage {
 			t.Fatalf("args=%v exit=%d", args, code)

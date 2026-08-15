@@ -9,7 +9,7 @@ import (
 
 func (m *Mirror) verifyCommittedPublication(checkpoint CompletePullCheckpoint, intent completePullPublicationIntent) error {
 	for _, artifact := range intent.Artifacts {
-		current, err := publicationCurrent(m.Root, artifact.Path)
+		current, err := publicationCurrentForIntentPostcondition(m.Root, artifact)
 		if err != nil || !publicationMatchesPost(current, artifact) {
 			return fmt.Errorf("%w: committed complete-pull artifact %s does not match its exact postcondition", domain.ErrCheckFailed, artifact.Path)
 		}
@@ -29,7 +29,7 @@ func (m *Mirror) verifyCommittedPublication(checkpoint CompletePullCheckpoint, i
 			}
 		}
 		for _, artifact := range intent.Relocation.Artifacts {
-			current, err := publicationCurrent(m.Root, artifact.Path)
+			current, err := publicationCurrentForIntentPostcondition(m.Root, artifact)
 			if err != nil || !publicationMatchesPost(current, artifact) {
 				return fmt.Errorf("%w: committed complete-pull relocation artifact %s does not match its exact postcondition", domain.ErrCheckFailed, artifact.Path)
 			}
@@ -46,6 +46,11 @@ func (m *Mirror) verifyCommittedPublication(checkpoint CompletePullCheckpoint, i
 		position := intent.Index - journal.StartIndex
 		if position < 0 || position >= len(journal.Entries) || !reflect.DeepEqual(journal.Entries[position], intent.Entry) {
 			return fmt.Errorf("%w: committed complete-pull publication differs from accepted journal evidence", domain.ErrCheckFailed)
+		}
+		if intent.Service == CompletePullServiceConfluence {
+			if _, verifyErr := m.verifyConfluenceCompletePullAttachmentArtifacts(intent.Entry, true); verifyErr != nil {
+				return fmt.Errorf("%w: committed complete-pull attachment artifacts do not match their accepted evidence", domain.ErrCheckFailed)
+			}
 		}
 	} else {
 		state, ok, err := m.SyncStateOf(intent.Entry.State.ID)

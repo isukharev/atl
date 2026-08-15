@@ -47,6 +47,15 @@ type confServer struct {
 	// commentsByLocation optionally serves one qualified response per fixed
 	// footer/inline/resolved selector used by the schema-v2 reader.
 	commentsByLocation map[string]string
+	// attachments, attachmentRevalidation, and attachmentBodies optionally serve
+	// the bounded complete-pull attachment inventory, its immediate exact-selector
+	// revalidation, and its content-addressed body reads.
+	attachments            string
+	attachmentRevalidation string
+	attachmentBodies       map[string]string
+	// completeSearch is an optional qualified content-search response for the
+	// two-pass complete-pull selector.
+	completeSearch string
 
 	// captured requests, in arrival order.
 	reqs []capturedReq
@@ -78,6 +87,11 @@ func (cs *confServer) handle(w http.ResponseWriter, r *http.Request) {
 	cs.mu.Lock()
 	cs.reqs = append(cs.reqs, capturedReq{method: r.Method, path: r.URL.Path, query: r.URL.RawQuery, body: string(body)})
 	switch {
+	case r.Method == http.MethodGet && r.URL.Path == "/rest/api/content/search" && cs.completeSearch != "":
+		body := cs.completeSearch
+		cs.mu.Unlock()
+		writeJSON(w, http.StatusOK, body)
+		return
 	case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/child/comment"):
 		// Comment listing (pull --comments / comment list). Checked before the
 		// generic content GET below, which would otherwise serve the page body.
@@ -90,6 +104,26 @@ func (cs *confServer) handle(w http.ResponseWriter, r *http.Request) {
 			body = `{"results":[],"start":0,"limit":100,"size":0,"_links":{}}`
 		}
 		writeJSON(w, http.StatusOK, body)
+		return
+	case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/child/attachment"):
+		body := cs.attachments
+		if r.URL.Query().Get("limit") == "2" && cs.attachmentRevalidation != "" {
+			body = cs.attachmentRevalidation
+		}
+		cs.mu.Unlock()
+		if body == "" {
+			body = `{"results":[],"start":0,"limit":200,"size":0,"_links":{}}`
+		}
+		writeJSON(w, http.StatusOK, body)
+		return
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/download/attachments/"):
+		body := ""
+		if cs.attachmentBodies != nil {
+			body = cs.attachmentBodies[r.URL.Path]
+		}
+		cs.mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(body))
 		return
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/rest/api/content/"):
 		resp := cannedResp{status: http.StatusOK, body: cs.page}

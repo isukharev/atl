@@ -134,8 +134,9 @@ atl conf status --into "$ATL_WORKSPACE_ROOT"
 atl conf diff "$ATL_WORKSPACE_ROOT" -o text
 ```
 
-For large space bootstrap, run `conf pull --complete --space KEY`; it qualifies
-IDs twice before body reads.
+`conf pull --complete --space KEY` qualifies a large-space bootstrap twice;
+[Confluence mirrors](docs/reference/cli/confluence-mirrors.md) describes bounded
+attachments.
 
 `.csf` is the native body; `.md` is its derived staging view. After editing
 Markdown:

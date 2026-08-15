@@ -217,6 +217,21 @@ func TestCompletePullQualifiesCanonicalSelectionBeforeBodies(t *testing.T) {
 	}
 }
 
+func TestCompletePullDryRunRejectsNonCanonicalCheckpointIdentityBeforeBodies(t *testing.T) {
+	root := t.TempDir()
+	selection := domain.PageSearchPage{Results: []domain.PageRef{{ID: "opaque-page", Space: "DOC"}}, Complete: true}
+	store := &completePullStore{
+		pullStore:      &pullStore{pages: map[string]*domain.Resource{"opaque-page": completeTestPage("opaque-page")}},
+		searchSequence: []domain.PageSearchPage{selection, selection},
+	}
+	result, err := (&ConfluenceService{baseURL: confluenceTestBackendURL, store: store}).Pull(
+		t.Context(), PullOpts{Space: "DOC", Into: root, Complete: true, DryRun: true},
+	)
+	if !errors.Is(err, domain.ErrCheckFailed) || result != nil || len(store.getIDs) != 0 {
+		t.Fatalf("result=%#v error=%v body_ids=%v", result, err, store.getIDs)
+	}
+}
+
 func TestCompletePullSpaceSelectorRejectsSearchOverReturnBeforeBodies(t *testing.T) {
 	root := t.TempDir()
 	selection := domain.PageSearchPage{
@@ -531,6 +546,12 @@ func TestCompletePullOptionDriftFailsClosedAndExplicitRestartReplacesSnapshot(t 
 	if _, err := svc.Pull(context.Background(), PullOpts{CQL: base.CQL, Into: root, Complete: true, Comments: true}); !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "options changed") {
 		t.Fatalf("option drift error=%v", err)
 	}
+	if _, err := svc.Pull(context.Background(), PullOpts{
+		CQL: base.CQL, Into: root, Complete: true, Attachments: true,
+		MaxAttachmentPagesPerItem: 1, MaxAttachmentsPerItem: 1,
+	}); !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "options changed") {
+		t.Fatalf("attachment option drift error=%v", err)
+	}
 	if len(store.getIDs) != 0 {
 		t.Fatalf("option drift fetched bodies: %v", store.getIDs)
 	}
@@ -664,12 +685,12 @@ func TestCollectCompletePullIDsHasNoOrdinaryCapButHonorsExplicitCap(t *testing.T
 		}
 		refs := make([]domain.PageRef, 0, count)
 		for i := 0; i < count; i++ {
-			refs = append(refs, domain.PageRef{ID: idFor(page+1, i)})
+			refs = append(refs, domain.PageRef{ID: strconv.Itoa(page*100 + i + 1)})
 		}
 		next := ""
 		complete := true
 		if page < 10 {
-			next = idFor(page+1, 0)
+			next = strconv.Itoa((page+1)*100 + 1)
 			complete = false
 		}
 		pages = append(pages, domain.PageSearchPage{Results: refs, Next: next, Complete: complete})
@@ -780,14 +801,55 @@ func TestCompletePullBindingCoversPullAffectingOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// This is the exact historical binding shape before optional artifacts.
+	// A default false field must not strand an attachment-free checkpoint that
+	// was created by that version.
+	legacy := struct {
+		Assets            bool             `json:"assets"`
+		Comments          bool             `json:"comments"`
+		Render            mirror.ViewState `json:"render"`
+		ExpandJiraMacros  bool             `json:"expand_jira_macros"`
+		JiraView          string           `json:"jira_view,omitempty"`
+		JiraMacroColumns  []string         `json:"jira_macro_columns,omitempty"`
+		Evidence          any              `json:"evidence,omitempty"`
+		RawUserReferences bool             `json:"raw_user_references,omitempty"`
+	}{Render: viewStateOf(rs)}
+	legacyHash, legacyErr := confluenceCompleteHashJSON(legacy)
+	if legacyErr != nil || base != legacyHash {
+		t.Fatalf("default hash=%q legacy=%q error=%v", base, legacyHash, legacyErr)
+	}
 	for name, candidate := range map[string]PullOpts{
-		"assets":   {Assets: true},
-		"comments": {Comments: true},
+		"assets":            {Assets: true},
+		"comments":          {Comments: true},
+		"partial artifacts": {Comments: true, AllowPartialArtifacts: true},
 	} {
 		got, err := completePullOptionsHash(nil, candidate, rs)
 		if err != nil || got == base {
 			t.Fatalf("%s hash=%q base=%q err=%v", name, got, base, err)
 		}
+	}
+	attachment := PullOpts{
+		Complete: true, Attachments: true,
+		MaxAttachmentPagesPerItem: 1, MaxAttachmentsPerItem: 1,
+	}
+	if err := prepareConfluencePullOptionalArtifacts(&attachment); err != nil {
+		t.Fatal(err)
+	}
+	attachmentHash, err := completePullOptionsHash(nil, attachment, rs)
+	if err != nil || attachmentHash == base {
+		t.Fatalf("attachment hash=%q base=%q err=%v", attachmentHash, base, err)
+	}
+	attachmentBodies := attachment
+	attachmentBodies.evidence = nil
+	attachmentBodies.AttachmentBodies = true
+	attachmentBodies.AttachmentMediaTypes = []string{"text/plain"}
+	attachmentBodies.MaxAttachmentBytes = 1
+	attachmentBodies.MaxTotalAttachmentBytes = 2
+	if err := prepareConfluencePullOptionalArtifacts(&attachmentBodies); err != nil {
+		t.Fatal(err)
+	}
+	if got, hashErr := completePullOptionsHash(nil, attachmentBodies, rs); hashErr != nil || got == attachmentHash {
+		t.Fatalf("attachment body hash=%q attachment=%q err=%v", got, attachmentHash, hashErr)
 	}
 	changedRender := rs
 	changedRender.DisplayTimeZone = "Europe/Berlin"

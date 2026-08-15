@@ -502,6 +502,48 @@ func ReadDirWithin(root, target string) ([]os.DirEntry, error) {
 	return entries, nil
 }
 
+// ReadDirWithinLimit lists at most max contained directory entries without
+// following a descendant symlink at any component. It reads one additional
+// entry before returning so callers can fail closed before materializing an
+// unbounded server- or user-controlled directory.
+func ReadDirWithinLimit(root, target string, max int) ([]os.DirEntry, error) {
+	if max < 0 {
+		return nil, fmt.Errorf("invalid directory-entry limit %d", max)
+	}
+	rootAbs, rootErr := filepath.Abs(root)
+	targetAbs, targetErr := filepath.Abs(target)
+	rel := "."
+	var err error
+	if rootErr != nil || targetErr != nil || rootAbs != targetAbs {
+		rel, err = relativeToRoot(root, target)
+		if err != nil {
+			return nil, err
+		}
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = r.Close() }()
+	if err := rejectSymlinkComponents(r, rel); err != nil {
+		return nil, err
+	}
+	f, err := r.Open(rel)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	entries, err := f.ReadDir(max + 1)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	if len(entries) > max {
+		return nil, fmt.Errorf("directory exceeds %d-entry read limit", max)
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+	return entries, nil
+}
+
 // RemoveWithin removes target through the same root-contained resolver used by
 // writes. It never follows an escaping descendant symlink.
 func RemoveWithin(root, target string) error {

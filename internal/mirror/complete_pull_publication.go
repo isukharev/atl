@@ -14,13 +14,15 @@ import (
 )
 
 const (
-	completePullPublicationSchema           = 2 // legacy Confluence schema; bytes are immutable
-	completePullJiraPublicationSchema       = 3 // legacy Jira schema without stable sidecar identity/relocation
-	completePullJiraPublicationSchema4      = 4
-	completePullConfluencePublicationSchema = 5
-	maxCompletePullPublicationArtifacts     = 2048
-	maxCompletePullPublicationBytes         = 256 << 20
-	maxCompletePullPublicationIntent        = 16 << 20
+	completePullPublicationSchema            = 2 // legacy Confluence schema; bytes are immutable
+	completePullJiraPublicationSchema        = 3 // legacy Jira schema without stable sidecar identity/relocation
+	completePullJiraPublicationSchema4       = 4
+	completePullConfluencePublicationSchema  = 5 // legacy current schema without attachment evidence
+	completePullConfluencePublicationSchema6 = 6 // attachment evidence without bounded retirement preimages
+	completePullConfluencePublicationSchema7 = 7 // current include evidence with bounded durable preimages
+	maxCompletePullPublicationArtifacts      = 2048
+	maxCompletePullPublicationBytes          = 256 << 20
+	maxCompletePullPublicationIntent         = 16 << 20
 )
 
 type completePullPublicationPreState struct {
@@ -33,6 +35,7 @@ type completePullPublicationArtifact struct {
 	Path       string                          `json:"path"`
 	Role       CompletePullArtifactRole        `json:"role,omitempty"`
 	Pre        completePullPublicationPreState `json:"pre"`
+	PreSize    *int64                          `json:"pre_size,omitempty"`
 	Remove     bool                            `json:"remove,omitempty"`
 	BestEffort bool                            `json:"best_effort,omitempty"`
 	Payload    string                          `json:"payload,omitempty"`
@@ -144,6 +147,9 @@ func validatePublicationArtifact(service CompletePullService, entry CompletePull
 	} else if artifact.Pre.SHA256 != "" || artifact.Pre.Mode != 0 {
 		return fmt.Errorf("absent publication pre-image has a hash")
 	}
+	if artifact.PreSize != nil && (!artifact.Pre.Present || *artifact.PreSize < 0 || *artifact.PreSize > maxCompletePullPublicationBytes) {
+		return fmt.Errorf("invalid bounded publication pre-image")
+	}
 	if artifact.Remove {
 		if artifact.BestEffort || artifact.Payload != "" || artifact.SHA256 != "" || artifact.Size != 0 || artifact.Mode != 0 || artifact.Temp != "" {
 			return fmt.Errorf("invalid publication removal")
@@ -169,8 +175,8 @@ func validatePublicationArtifact(service CompletePullService, entry CompletePull
 		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || info.Size() != artifact.Size {
 			return fmt.Errorf("publication payload is missing or has unsafe metadata")
 		}
-		payload, err := safepath.ReadFileWithin(filepath.Dir(stageDir), payloadPath)
-		if err != nil || Hash(payload) != artifact.SHA256 {
+		payload, err := safepath.ReadFileWithinLimit(filepath.Dir(stageDir), payloadPath, artifact.Size)
+		if err != nil || int64(len(payload)) != artifact.Size || Hash(payload) != artifact.SHA256 {
 			return fmt.Errorf("publication payload is missing or changed")
 		}
 	}
@@ -254,7 +260,7 @@ func (m *Mirror) readPublicationIntent(selectorSHA256 string, checkpoint Complet
 		return completePullPublicationIntent{}, dir, false, err
 	}
 	if !found {
-		entries, readErr := safepath.ReadDirWithin(m.Root, dir)
+		entries, readErr := safepath.ReadDirWithinLimit(m.Root, dir, maxCompletePullPublicationArtifacts+1)
 		if readErr != nil {
 			return completePullPublicationIntent{}, dir, false, readErr
 		}
@@ -289,19 +295,72 @@ func (m *Mirror) readPublicationIntent(selectorSHA256 string, checkpoint Complet
 }
 
 func publicationCurrent(root, rel string) (completePullPublicationPreState, error) {
+	current, _, err := publicationCurrentWithinLimit(root, rel, maxCompletePullPublicationBytes)
+	return current, err
+}
+
+// publicationCurrentWithinLimit reads an existing publication path through a
+// held contained root, using the caller's immutable size bound. Recovery uses
+// this for journaled artifacts: a file that grew after an interrupted publish
+// is rejected after at most its recorded size plus one byte, rather than being
+// materialized before its postcondition can fail.
+func publicationCurrentWithinLimit(root, rel string, maximum int64) (completePullPublicationPreState, int64, error) {
+	if maximum < 0 || maximum > maxCompletePullPublicationBytes {
+		return completePullPublicationPreState{}, 0, fmt.Errorf("inspect publication destination %s: invalid bounded size", rel)
+	}
 	target := filepath.Join(root, filepath.FromSlash(rel))
 	info, err := safepath.StatWithin(root, target)
 	if os.IsNotExist(err) {
-		return completePullPublicationPreState{}, nil
+		return completePullPublicationPreState{}, 0, nil
 	}
-	if err != nil || !info.Mode().IsRegular() {
-		return completePullPublicationPreState{}, fmt.Errorf("inspect publication destination %s: %v", rel, err)
+	if err != nil || !info.Mode().IsRegular() || info.Size() < 0 || info.Size() > maximum {
+		return completePullPublicationPreState{}, 0, fmt.Errorf("inspect publication destination %s: exceeds bounded preimage", rel)
 	}
-	b, err := safepath.ReadFileWithin(root, target)
+	b, err := safepath.ReadFileWithinLimit(root, target, info.Size())
 	if err != nil {
-		return completePullPublicationPreState{}, err
+		return completePullPublicationPreState{}, 0, err
 	}
-	return completePullPublicationPreState{Present: true, SHA256: Hash(b), Mode: uint32(info.Mode().Perm())}, nil
+	after, afterErr := safepath.StatWithin(root, target)
+	if afterErr != nil || !after.Mode().IsRegular() || after.Mode().Perm() != info.Mode().Perm() || after.Size() != info.Size() || int64(len(b)) != after.Size() {
+		return completePullPublicationPreState{}, 0, fmt.Errorf("inspect publication destination %s: changed during bounded read", rel)
+	}
+	return completePullPublicationPreState{Present: true, SHA256: Hash(b), Mode: uint32(after.Mode().Perm())}, after.Size(), nil
+}
+
+// publicationCurrentForIntentTransition reads an artifact while recovery may
+// still observe either its immutable preimage or its immutable postimage. A
+// current schema-7 intent persists both relevant sizes; older intents retain
+// the transaction-wide bound for compatibility. The maximum is only used for
+// this short pre/post discrimination, not as permission to publish a larger
+// payload.
+func publicationCurrentForIntentTransition(root string, artifact completePullPublicationArtifact) (completePullPublicationPreState, error) {
+	maximum := artifact.Size
+	if artifact.Pre.Present {
+		preMaximum := int64(maxCompletePullPublicationBytes)
+		if artifact.PreSize != nil {
+			preMaximum = *artifact.PreSize
+		}
+		if preMaximum > maximum {
+			maximum = preMaximum
+		}
+	}
+	if artifact.Remove && artifact.Pre.Present && artifact.PreSize != nil {
+		maximum = *artifact.PreSize
+	}
+	current, _, err := publicationCurrentWithinLimit(root, artifact.Path, maximum)
+	return current, err
+}
+
+// publicationCurrentForIntentPostcondition inspects a completed intent
+// artifact through its immutable postcondition size. A removal has no payload,
+// so even an unexpected replacement is rejected without materializing data.
+func publicationCurrentForIntentPostcondition(root string, artifact completePullPublicationArtifact) (completePullPublicationPreState, error) {
+	maximum := artifact.Size
+	if artifact.Remove {
+		maximum = 0
+	}
+	current, _, err := publicationCurrentWithinLimit(root, artifact.Path, maximum)
+	return current, err
 }
 
 func publicationMatchesPre(current, pre completePullPublicationPreState) bool {
@@ -313,6 +372,16 @@ func publicationMatchesPost(current completePullPublicationPreState, artifact co
 		return !current.Present
 	}
 	return current.Present && current.SHA256 == artifact.SHA256 && current.Mode == artifact.Mode
+}
+
+func completePullBoundRemoval(path ArtifactPath, pre completePullPublicationPreState) CompletePullArtifact {
+	snapshot := pre
+	return CompletePullArtifact{Path: path, Remove: true, expectedPre: &snapshot}
+}
+
+func completePullBoundRemovalWithSize(path ArtifactPath, pre completePullPublicationPreState, size int64) CompletePullArtifact {
+	snapshot, boundedSize := pre, size
+	return CompletePullArtifact{Path: path, Remove: true, expectedPre: &snapshot, expectedPreSize: &boundedSize}
 }
 
 func (m *Mirror) savePublicationIntent(dir string, intent completePullPublicationIntent, ops completePullPublicationOps) error {
@@ -330,16 +399,31 @@ func (m *Mirror) savePublicationIntent(dir string, intent completePullPublicatio
 	return ops.sync(m.Root, dir)
 }
 
-func (m *Mirror) stagePublicationArtifact(service CompletePullService, dir string, input CompletePullArtifact, sequence int, token string, ops completePullPublicationOps) (completePullPublicationArtifact, error) {
+func (m *Mirror) stagePublicationArtifact(service CompletePullService, dir string, input CompletePullArtifact, sequence int, token string, persistPreSize bool, ops completePullPublicationOps) (completePullPublicationArtifact, error) {
 	rel, err := input.Path.relativeAny()
 	if err != nil {
 		return completePullPublicationArtifact{}, fmt.Errorf("%w: invalid complete-pull destination: %v", domain.ErrCheckFailed, err)
 	}
-	pre, err := publicationCurrent(m.Root, rel)
+	var (
+		pre     completePullPublicationPreState
+		preSize int64
+	)
+	if input.Remove && input.expectedPreSize != nil {
+		pre, preSize, err = publicationCurrentWithinLimit(m.Root, rel, *input.expectedPreSize)
+	} else {
+		pre, preSize, err = publicationCurrentWithinLimit(m.Root, rel, maxCompletePullPublicationBytes)
+	}
 	if err != nil {
 		return completePullPublicationArtifact{}, fmt.Errorf("%w: %v", domain.ErrCheckFailed, err)
 	}
 	out := completePullPublicationArtifact{Path: rel, Pre: pre, Remove: input.Remove, BestEffort: input.BestEffort}
+	if pre.Present && persistPreSize {
+		if input.expectedPreSize != nil && preSize != *input.expectedPreSize {
+			return completePullPublicationArtifact{}, fmt.Errorf("%w: complete-pull removal source changed after qualification: %s", domain.ErrCheckFailed, rel)
+		}
+		boundedSize := preSize
+		out.PreSize = &boundedSize
+	}
 	if service == CompletePullServiceJira {
 		out.Role = input.Role
 	}
@@ -347,7 +431,20 @@ func (m *Mirror) stagePublicationArtifact(service CompletePullService, dir strin
 		if input.BestEffort || len(input.Data) != 0 || input.Mode != 0 {
 			return completePullPublicationArtifact{}, fmt.Errorf("%w: invalid complete-pull removal for %s", domain.ErrCheckFailed, rel)
 		}
+		if input.expectedPreSize != nil && (*input.expectedPreSize < 0 || *input.expectedPreSize > maxCompletePullPublicationBytes) {
+			return completePullPublicationArtifact{}, fmt.Errorf("%w: invalid complete-pull removal size for %s", domain.ErrCheckFailed, rel)
+		}
+		if input.expectedPre != nil {
+			expected := *input.expectedPre
+			if !expected.Present || !validSHA256(expected.SHA256) || expected.Mode == 0 ||
+				!pre.Present || pre.SHA256 != expected.SHA256 || pre.Mode != expected.Mode {
+				return completePullPublicationArtifact{}, fmt.Errorf("%w: complete-pull removal source changed after qualification: %s", domain.ErrCheckFailed, rel)
+			}
+		}
 		return out, nil
+	}
+	if input.expectedPre != nil {
+		return completePullPublicationArtifact{}, fmt.Errorf("%w: complete-pull write cannot bind a removal preimage: %s", domain.ErrCheckFailed, rel)
 	}
 	if input.Mode != input.Mode.Perm() || input.Mode.Perm() == 0 {
 		return completePullPublicationArtifact{}, fmt.Errorf("%w: invalid complete-pull mode for %s", domain.ErrCheckFailed, rel)
@@ -398,18 +495,19 @@ func relocationPublicationArtifacts(m *Mirror, plan *PageRelocation) ([]Complete
 			if currentErr != nil || !current.Present || current.SHA256 != expected {
 				return nil, fmt.Errorf("%w: relocation source %s changed after qualification; preserving it", domain.ErrCheckFailed, rel.String())
 			}
-			out = append(out, CompletePullArtifact{Path: rel, Remove: true})
+			out = append(out, completePullBoundRemoval(rel, current))
 		}
 		for _, owned := range plan.owned {
 			rel, err := PublicArtifactPathWithin(m.Root, owned.path)
 			if err != nil {
 				return nil, err
 			}
-			current, currentErr := publicationCurrent(m.Root, rel.String())
-			if currentErr != nil || !current.Present || current.SHA256 != owned.hash {
+			current, data, found, currentErr := m.readQualifiedConfluenceAttachmentPrivate(rel.String(), confluenceAttachmentArtifactLimit(rel.String()))
+			if currentErr != nil || !found || current.SHA256 != owned.hash || int64(len(data)) != owned.size ||
+				owned.mode != 0 && current.Mode != uint32(owned.mode.Perm()) {
 				return nil, fmt.Errorf("%w: relocation source %s changed after qualification; preserving it", domain.ErrCheckFailed, rel.String())
 			}
-			out = append(out, CompletePullArtifact{Path: rel, Remove: true})
+			out = append(out, completePullBoundRemovalWithSize(rel, current, int64(len(data))))
 		}
 	}
 	return out, nil
@@ -419,6 +517,64 @@ func relocationPublicationArtifacts(m *Mirror, plan *PageRelocation) ([]Complete
 // and its selector-bound intent before any canonical destination is mutated.
 func (m *Mirror) PrepareCompletePullPublication(checkpoint CompletePullCheckpoint, index int, entry CompletePullJournalEntry, eligible bool, artifacts []CompletePullArtifact, relocation *PageRelocation) error {
 	return m.prepareCompletePullPublicationWith(checkpoint, index, entry, eligible, artifacts, relocation, defaultCompletePullPublicationOps())
+}
+
+// CompletePullPublicationArtifactSlots returns the remaining artifact slots
+// after callers have reserved their known replacement and retirement entries.
+// It is deliberately checked before optional binary reads: complete-pull
+// publication has one finite transaction, so a later staging failure must not
+// be the first indication that a requested body cannot be retained.
+func (m *Mirror) CompletePullPublicationArtifactSlots(replacementArtifacts, retirementArtifacts int) (int, error) {
+	if m == nil || replacementArtifacts < 0 || retirementArtifacts < 0 ||
+		replacementArtifacts > maxCompletePullPublicationArtifacts ||
+		retirementArtifacts > maxCompletePullPublicationArtifacts-replacementArtifacts {
+		return 0, fmt.Errorf("%w: complete-pull publication exceeds its artifact bound", domain.ErrCheckFailed)
+	}
+	return maxCompletePullPublicationArtifacts - replacementArtifacts - retirementArtifacts, nil
+}
+
+// CompletePullPublicationPayloadBytes returns the payload bytes still
+// available after exact known replacement bytes and a caller-provided bounded
+// reservation. Optional artifact planners use it before reading a binary body;
+// a later staging failure must not be the first indication that the atomic
+// page transaction cannot retain that body.
+func (m *Mirror) CompletePullPublicationPayloadBytes(replacementBytes, reserveBytes int64) (int64, error) {
+	if m == nil || replacementBytes < 0 || reserveBytes < 0 ||
+		replacementBytes > maxCompletePullPublicationBytes ||
+		reserveBytes > maxCompletePullPublicationBytes-replacementBytes {
+		return 0, fmt.Errorf("%w: complete-pull publication exceeds its staged-byte bound", domain.ErrCheckFailed)
+	}
+	return maxCompletePullPublicationBytes - replacementBytes - reserveBytes, nil
+}
+
+// PageRelocationPublicationArtifactFootprint revalidates a Confluence
+// relocation plan and reports its exact atomic-publication artifact and
+// payload-byte footprint, including the nonempty ownership tombstone and any
+// qualified attachment retirements. Optional-body planners reserve the bytes
+// before their first GET, so a later publication failure cannot reveal an
+// unaccounted relocation payload.
+func (m *Mirror) PageRelocationPublicationArtifactFootprint(plan *PageRelocation) (int, int64, error) {
+	artifacts, err := relocationPublicationArtifacts(m, plan)
+	if err != nil {
+		return 0, 0, err
+	}
+	var bytes int64
+	for _, artifact := range artifacts {
+		next := int64(len(artifact.Data))
+		if next < 0 || bytes+next < bytes || bytes+next > maxCompletePullPublicationBytes {
+			return 0, 0, fmt.Errorf("%w: complete-pull relocation exceeds its staged-byte bound", domain.ErrCheckFailed)
+		}
+		bytes += next
+	}
+	return len(artifacts), bytes, nil
+}
+
+// PageRelocationPublicationArtifactCount retains the count-only projection for
+// callers that do not schedule optional payloads. New body-capacity callers
+// must use PageRelocationPublicationArtifactFootprint.
+func (m *Mirror) PageRelocationPublicationArtifactCount(plan *PageRelocation) (int, error) {
+	count, _, err := m.PageRelocationPublicationArtifactFootprint(plan)
+	return count, err
 }
 
 func (m *Mirror) prepareCompletePullPublicationWith(checkpoint CompletePullCheckpoint, index int, entry CompletePullJournalEntry, eligible bool, artifacts []CompletePullArtifact, relocation *PageRelocation, ops completePullPublicationOps) error {
@@ -539,7 +695,7 @@ func (m *Mirror) prepareCompletePullPublicationWithJira(checkpoint CompletePullC
 	sequence := 0
 	var total int64
 	for _, artifact := range artifacts {
-		prepared, prepErr := m.stagePublicationArtifact(checkpoint.Service, dir, artifact, sequence, intent.WriteToken, ops)
+		prepared, prepErr := m.stagePublicationArtifact(checkpoint.Service, dir, artifact, sequence, intent.WriteToken, intent.SchemaVersion == completePullConfluencePublicationSchema7, ops)
 		if prepErr != nil {
 			return prepErr
 		}
@@ -552,7 +708,7 @@ func (m *Mirror) prepareCompletePullPublicationWithJira(checkpoint CompletePullC
 	if len(retirement) > 0 {
 		intent.Relocation = &completePullPublicationRelocation{Artifacts: make([]completePullPublicationArtifact, 0, len(retirement))}
 		for _, artifact := range retirement {
-			prepared, prepErr := m.stagePublicationArtifact(checkpoint.Service, dir, artifact, sequence, intent.WriteToken, ops)
+			prepared, prepErr := m.stagePublicationArtifact(checkpoint.Service, dir, artifact, sequence, intent.WriteToken, intent.SchemaVersion == completePullConfluencePublicationSchema7, ops)
 			if prepErr != nil {
 				return prepErr
 			}
@@ -585,7 +741,7 @@ func (m *Mirror) prepareCompletePullPublicationWithJira(checkpoint CompletePullC
 }
 
 func (m *Mirror) publishArtifact(dir string, artifact completePullPublicationArtifact, ops completePullPublicationOps) error {
-	current, err := publicationCurrent(m.Root, artifact.Path)
+	current, err := publicationCurrentForIntentTransition(m.Root, artifact)
 	if err != nil {
 		return fmt.Errorf("%w: inspect complete-pull destination %s: %v", domain.ErrCheckFailed, artifact.Path, err)
 	}
@@ -613,7 +769,7 @@ func (m *Mirror) publishArtifact(dir string, artifact completePullPublicationArt
 			}
 		}
 	} else {
-		payload, err := safepath.ReadFileWithin(m.Root, filepath.Join(dir, artifact.Payload))
+		payload, err := safepath.ReadFileWithinLimit(m.Root, filepath.Join(dir, artifact.Payload), artifact.Size)
 		if err != nil || int64(len(payload)) != artifact.Size || Hash(payload) != artifact.SHA256 {
 			return fmt.Errorf("%w: complete-pull staged payload %s is missing or changed", domain.ErrCheckFailed, artifact.Payload)
 		}
@@ -632,7 +788,7 @@ func (m *Mirror) publishArtifact(dir string, artifact completePullPublicationArt
 	if err := syncPublicationPath(m.Root, target, ops); err != nil {
 		return err
 	}
-	current, err = publicationCurrent(m.Root, artifact.Path)
+	current, err = publicationCurrentForIntentPostcondition(m.Root, artifact)
 	if err != nil || !publicationMatchesPost(current, artifact) {
 		return fmt.Errorf("%w: complete-pull destination %s did not reach its exact postcondition", domain.ErrCheckFailed, artifact.Path)
 	}
@@ -675,7 +831,7 @@ func (m *Mirror) cleanupCompletePullPublication(dir string, intent completePullP
 			}
 		}
 	}
-	entries, err := safepath.ReadDirWithin(m.Root, dir)
+	entries, err := safepath.ReadDirWithinLimit(m.Root, dir, maxCompletePullPublicationArtifacts+1)
 	if err != nil {
 		return err
 	}

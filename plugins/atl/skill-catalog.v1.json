@@ -89,7 +89,7 @@
     },
     {
       "path": "confluence/SKILL.md",
-      "sha256": "7e904afb7b7a8e70620e2b3f401ce5436985ee09639c38f580cc3687afbe4649"
+      "sha256": "64c32aaee6731596c00a202974910299a2b8aad4675a60968d7b9eccd3ad69bf"
     },
     {
       "path": "confluence/agents/openai.yaml",
@@ -97,7 +97,7 @@
     },
     {
       "path": "confluence/reference/commands.md",
-      "sha256": "af5371dab67eaa13a8692e67b48a88339dc6bd8fb41a7a6661c298a9df11d403"
+      "sha256": "11c0b972d16fd77bbc0eba31ba70bdcc451a063d66be318c81582e9edce727be"
     },
     {
       "path": "confluence/reference/csf-authoring.md",
@@ -125,7 +125,7 @@
     },
     {
       "path": "confluence/reference/sync.md",
-      "sha256": "5e92ed11001afe632a1f5083ace1fe27544717d5c6d870dd1aa9323cff9485b8"
+      "sha256": "49c34966646b078a00c37484e568e314cb49ddb5d1e62a296068a0435baf79d3"
     },
     {
       "path": "confluence/reference/tables-attachments.md",

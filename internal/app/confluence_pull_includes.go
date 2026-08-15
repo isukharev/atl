@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	ConfluencePullIncludeAssets   = "assets"
-	ConfluencePullIncludeComments = "comments"
+	ConfluencePullIncludeAssets      = "assets"
+	ConfluencePullIncludeComments    = "comments"
+	ConfluencePullIncludeAttachments = "attachments"
 
 	ConfluencePullIncludeDeferred     = "deferred"
 	ConfluencePullIncludeQualified    = "qualified"
@@ -21,6 +22,7 @@ const (
 	ConfluencePullIncludeReasonNotAttempted         = "not_attempted"
 	ConfluencePullIncludeReasonResolutionIncomplete = "resolution_incomplete"
 	ConfluencePullIncludeReasonInventoryIncomplete  = "inventory_incomplete"
+	ConfluencePullIncludeReasonBodyIncomplete       = "body_incomplete"
 	ConfluencePullIncludeReasonReadFailed           = "read_failed"
 	ConfluencePullIncludeReasonStagingFailed        = "staging_failed"
 )
@@ -33,6 +35,7 @@ func ValidConfluencePullIncludeReason(reason string) bool {
 		ConfluencePullIncludeReasonNotAttempted,
 		ConfluencePullIncludeReasonResolutionIncomplete,
 		ConfluencePullIncludeReasonInventoryIncomplete,
+		ConfluencePullIncludeReasonBodyIncomplete,
 		ConfluencePullIncludeReasonReadFailed,
 		ConfluencePullIncludeReasonStagingFailed:
 		return true
@@ -41,9 +44,9 @@ func ValidConfluencePullIncludeReason(reason string) bool {
 }
 
 // ConfluencePullInclude qualifies one optional pull dimension. The ordered
-// top-level includes array is additive: assets always precede comments, and an
-// omitted flag is distinguishable from requested work that preview deferred or
-// an actual pull only partially completed.
+// top-level includes array is additive: assets precede comments, which precede
+// attachments. An omitted flag is distinguishable from requested work that
+// preview deferred or an actual pull only partially completed.
 type ConfluencePullInclude struct {
 	Dimension     string `json:"dimension"`
 	Requested     bool   `json:"requested"`
@@ -73,7 +76,9 @@ func (r *PullResult) restoreConfluencePullIncludes(checkpoint mirror.CompletePul
 	}
 	progress.evidenceIncomplete = !checkpoint.Includes.EvidenceComplete && checkpoint.NextIndex > 0
 	for dimension, aggregate := range map[string]mirror.CompletePullIncludeAggregate{
-		ConfluencePullIncludeAssets: checkpoint.Includes.Assets, ConfluencePullIncludeComments: checkpoint.Includes.Comments,
+		ConfluencePullIncludeAssets:      checkpoint.Includes.Assets,
+		ConfluencePullIncludeComments:    checkpoint.Includes.Comments,
+		ConfluencePullIncludeAttachments: checkpoint.Includes.Attachments,
 	} {
 		if !progress.requested[dimension] {
 			if aggregate != (mirror.CompletePullIncludeAggregate{}) {
@@ -96,13 +101,27 @@ func confluencePullIncludeEvidence(dimension, qualification, reason string) doma
 	return domain.ConfluencePullIncludeEvidence{Dimension: dimension, Qualification: qualification, Reason: reason}
 }
 
+func confluencePullAttachmentIncludeEvidence(qualification, reason string, bodyBytes int64) domain.ConfluencePullIncludeEvidence {
+	return domain.ConfluencePullIncludeEvidence{
+		Dimension: ConfluencePullIncludeAttachments, Qualification: qualification, Reason: reason, BodyBytes: bodyBytes,
+	}
+}
+
 func newConfluencePullIncludes(opts PullOpts, expected int) ([]ConfluencePullInclude, *confluencePullIncludeProgress) {
 	requested := map[string]bool{
-		ConfluencePullIncludeAssets:   opts.Assets,
-		ConfluencePullIncludeComments: opts.Comments,
+		ConfluencePullIncludeAssets:      opts.Assets,
+		ConfluencePullIncludeComments:    opts.Comments,
+		ConfluencePullIncludeAttachments: confluencePullAttachmentsRequested(opts),
 	}
-	includes := make([]ConfluencePullInclude, 0, len(requested))
-	for _, dimension := range []string{ConfluencePullIncludeAssets, ConfluencePullIncludeComments} {
+	dimensions := []string{ConfluencePullIncludeAssets, ConfluencePullIncludeComments}
+	// Unlike the original two dimensions, attachment capture is a newly added
+	// opt-in surface. Omit its unrequested record so established pull output
+	// remains byte-compatible for callers that did not ask for it.
+	if requested[ConfluencePullIncludeAttachments] {
+		dimensions = append(dimensions, ConfluencePullIncludeAttachments)
+	}
+	includes := make([]ConfluencePullInclude, 0, len(dimensions))
+	for _, dimension := range dimensions {
 		qualification := ConfluencePullIncludeNotRequested
 		reason := ""
 		if requested[dimension] {
@@ -180,7 +199,7 @@ func (r *PullResult) demotePublishedConfluencePullIncludes(values []domain.Confl
 }
 
 func validConfluencePullIncludeRecord(dimension, qualification, reason string) bool {
-	if dimension != ConfluencePullIncludeAssets && dimension != ConfluencePullIncludeComments {
+	if dimension != ConfluencePullIncludeAssets && dimension != ConfluencePullIncludeComments && dimension != ConfluencePullIncludeAttachments {
 		return false
 	}
 	switch qualification {
@@ -188,7 +207,8 @@ func validConfluencePullIncludeRecord(dimension, qualification, reason string) b
 		return reason == ""
 	case ConfluencePullIncludePartial:
 		return reason == ConfluencePullIncludeReasonResolutionIncomplete ||
-			reason == ConfluencePullIncludeReasonInventoryIncomplete
+			reason == ConfluencePullIncludeReasonInventoryIncomplete ||
+			dimension == ConfluencePullIncludeAttachments && reason == ConfluencePullIncludeReasonBodyIncomplete
 	case ConfluencePullIncludeFailed:
 		return reason == ConfluencePullIncludeReasonReadFailed ||
 			reason == ConfluencePullIncludeReasonStagingFailed

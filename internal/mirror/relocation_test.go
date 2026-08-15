@@ -2,6 +2,7 @@ package mirror
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -282,20 +283,55 @@ func TestPageRelocationRetiresOnlyQualifiedCanonicalAttachmentBodies(t *testing.
 	if err := os.WriteFile(filepath.Join(m.Root, filepath.FromSlash(bodyRel)), body, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(oldDir, oldSlug+".attachments.json"), sidecar, 0o600); err != nil {
+	sidecarPath := filepath.Join(oldDir, oldSlug+".attachments.json")
+	bodyPath := filepath.Join(m.Root, filepath.FromSlash(bodyRel))
+	if err := os.WriteFile(sidecarPath, sidecar, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	updated := relocationPage("New attachment page")
 	updated.Version = 2
 	newDir, newSlug, _ := m.ClaimPageDir(updated.SpaceKey, nil, updated.Title, updated.ID)
 	newRel, _ := filepath.Rel(m.Root, filepath.Join(newDir, newSlug+".csf"))
+	if err := os.Chmod(sidecarPath, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldRel, err := filepath.Rel(m.Root, filepath.Join(oldDir, oldSlug+".csf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, boundErr := m.ConfluenceAttachmentBodyRetirementBound(old.ID, oldRel); !errors.Is(boundErr, domain.ErrCheckFailed) {
+		t.Fatalf("mode-relaxed same-path attachment bound error=%v", boundErr)
+	}
+	if plan, planErr := m.PlanPageRelocation(old.ID, newRel, oldMD); plan != nil || !errors.Is(planErr, domain.ErrCheckFailed) {
+		t.Fatalf("mode-relaxed sidecar plan=%#v error=%v", plan, planErr)
+	}
+	if err := os.Chmod(sidecarPath, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	plan, err := m.PlanPageRelocation(old.ID, newRel, oldMD)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(bodyPath, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if publication, publicationErr := relocationPublicationArtifacts(m, plan); publication != nil || !errors.Is(publicationErr, domain.ErrCheckFailed) {
+		t.Fatalf("mode-relaxed body publication=%#v error=%v", publication, publicationErr)
+	}
+	if err := os.Chmod(bodyPath, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	publication, err := relocationPublicationArtifacts(m, plan)
 	if err != nil || len(publication) != 6 {
 		t.Fatalf("publication=%#v error=%v", publication, err)
+	}
+	footprintCount, footprintBytes, footprintErr := m.PageRelocationPublicationArtifactFootprint(plan)
+	var publicationBytes int64
+	for _, artifact := range publication {
+		publicationBytes += int64(len(artifact.Data))
+	}
+	if footprintErr != nil || footprintCount != len(publication) || footprintBytes != publicationBytes || footprintBytes == 0 {
+		t.Fatalf("footprint count=%d bytes=%d publication_bytes=%d error=%v", footprintCount, footprintBytes, publicationBytes, footprintErr)
 	}
 	if err := m.Write(newDir, newSlug, updated, nil); err != nil {
 		t.Fatal(err)
@@ -334,6 +370,104 @@ func TestPageRelocationRefusesUninventoriedCanonicalAttachmentBody(t *testing.T)
 	}
 	if got, err := os.ReadFile(filepath.Join(attachmentDir, "local.body")); err != nil || string(got) != "preserve" {
 		t.Fatalf("unowned body=%q error=%v", got, err)
+	}
+}
+
+func TestPageRelocationBoundsUnownedAttachmentDirectoryBeforePlanning(t *testing.T) {
+	m := New(t.TempDir())
+	page := relocationPage("Bounded attachment directory")
+	dir, slug, err := m.ClaimPageDir(page.SpaceKey, nil, page.Title, page.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Write(dir, slug, page, nil); err != nil {
+		t.Fatal(err)
+	}
+	oldMD, err := os.ReadFile(filepath.Join(dir, slug+".md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachmentDir := filepath.Join(dir, slug+".attachments")
+	if err := os.MkdirAll(attachmentDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index <= maxCompletePullPublicationArtifacts; index++ {
+		path := filepath.Join(attachmentDir, fmt.Sprintf("%04d.body", index))
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	updated := relocationPage("Bounded attachment directory moved")
+	updated.Version = 2
+	newDir, newSlug, err := m.ClaimPageDir(updated.SpaceKey, nil, updated.Title, updated.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newRel, err := filepath.Rel(m.Root, filepath.Join(newDir, newSlug+".csf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan, planErr := m.PlanPageRelocation(page.ID, newRel, oldMD); plan != nil || !errors.Is(planErr, domain.ErrCheckFailed) {
+		t.Fatalf("oversized attachment directory plan=%#v error=%v", plan, planErr)
+	}
+}
+
+func TestPageRelocationRefusesAttachmentResidueWithoutPrimaryProof(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		write func(t *testing.T, root, dir, slug string) string
+	}{
+		{
+			name: "sidecar",
+			write: func(t *testing.T, _ string, dir, slug string) string {
+				t.Helper()
+				path := filepath.Join(dir, slug+".attachments.json")
+				if err := os.WriteFile(path, []byte("unproved sidecar"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				return path
+			},
+		},
+		{
+			name: "body",
+			write: func(t *testing.T, _ string, dir, slug string) string {
+				t.Helper()
+				path := filepath.Join(dir, slug+".attachments", "7.body")
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("unproved body"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				return path
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := New(t.TempDir())
+			old := relocationPage("Old missing primary")
+			dir, slug, _ := m.ClaimPageDir(old.SpaceKey, nil, old.Title, old.ID)
+			if err := m.Write(dir, slug, old, nil); err != nil {
+				t.Fatal(err)
+			}
+			residue := tt.write(t, m.Root, dir, slug)
+			for _, suffix := range []string{".csf", ".md", ".meta.json"} {
+				if err := os.Remove(filepath.Join(dir, slug+suffix)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			newDir, newSlug := m.PageDir(old.SpaceKey, nil, "New missing primary")
+			newRel, err := filepath.Rel(m.Root, filepath.Join(newDir, newSlug+".csf"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan, planErr := m.PlanPageRelocation(old.ID, newRel, nil); plan != nil || !errors.Is(planErr, domain.ErrCheckFailed) {
+				t.Fatalf("plan=%#v error=%v", plan, planErr)
+			}
+			if got, err := os.ReadFile(residue); err != nil || len(got) == 0 {
+				t.Fatalf("residue after refusal=%q error=%v", got, err)
+			}
+		})
 	}
 }
 

@@ -69,6 +69,11 @@ atl conf pull --space <KEY> --page-prefetch 2 --requests-per-second 10 --into <r
 # complete historical bootstrap beyond ordinary caps; repeat exactly to resume
 atl conf pull --complete --cql '<stable CQL without ORDER BY>' --into <root>
 
+# optional complete-pull attachment inventory; both inventory bounds are required
+atl conf pull --complete --cql '<stable CQL without ORDER BY>' --into <root> \
+  --attachments --max-attachment-pages-per-page <pages> \
+  --max-attachments-per-page <items>
+
 # recurring large mirror: first run needs one absolute RFC3339 minute
 atl conf pull --incremental --cql '<stable CQL without ORDER BY>' \
   --since '<RFC3339 minute with explicit offset>' --into <root>
@@ -107,7 +112,7 @@ more than the remaining scanned-row allowance.
 Complete pull performs two exhaustive, completeness-qualified metadata passes
 and requires the same canonical unique-id set before body reads. It stores a
 mode-0600 exact-id checkpoint under `.atl/complete-pulls/`, binds
-assets/comments/render/Jira-view options, and resumes the durable remaining
+assets/comments/attachment policy/render/Jira-view options, and resumes the durable remaining
 prefix on the exact same command. Page downloads are serial. Each page's exact
 artifact set is publication-intent staged, and accepted pages are journaled
 before batched sidecar/progress commits. Recovery recognizes only exact,
@@ -139,14 +144,23 @@ timestamp alone, are recorded. Absence never proves deletion.
     <page-slug>.meta.json     auto-managed metadata/fragments
     <page-slug>.comments.json optional qualified schema-v2 readonly sidecar
     <page-slug>.comments.md   optional derived comment view
+    <page-slug>.attachments.json optional qualified schema-v1 attachment inventory
+    <page-slug>.attachments/  optional contained hash-bound allowlisted attachment bodies
     <page-slug>.jira-macros.json optional readonly Jira IssueList snapshots
     <page-slug>.assets/       optional diagram/image renders
 <root>/.atl/                  baseline/view state; never edit or commit
 ```
 
 Sibling slug collisions use an id-suffixed directory; nothing is overwritten.
-Comment sidecars do not affect dirty/drift/push. A pull without `--comments`
-leaves existing sidecars untouched.
+Comment and attachment sidecars do not affect dirty/drift/push. A pull without
+`--comments` leaves existing comment sidecars untouched. For attachment
+evidence, a complete pull without `--attachments` atomically retires a prior
+ownership-proven capture if the replacement native/metadata identity would make
+it stale; a non-complete refresh, including a page relocation, stops before any
+write in that situation and must be rerun with `--complete`. In complete mode, incomplete requested
+comments/threads or attachments stop before the page by default;
+`--allow-partial-artifacts` is the only policy that retains explicitly partial
+optional evidence, and it never marks that evidence complete.
 
 ## Render configuration
 

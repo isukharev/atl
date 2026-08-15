@@ -220,6 +220,7 @@ func TestAttachmentInventoryRejectsInvalidSnapshots(t *testing.T) {
 		"duplicate id":           {Complete: true, Attachments: []domain.Attachment{{ID: "att1"}, {ID: "att1"}}},
 		"negative size":          {Complete: true, Attachments: []domain.Attachment{{ID: "att1", FileSize: -1}}},
 		"negative version":       {Complete: true, Attachments: []domain.Attachment{{ID: "att1", Version: -1}}},
+		"zero version":           {Complete: true, Attachments: []domain.Attachment{{ID: "att1", Version: 0}}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			store := &qualifiedAttachmentStore{

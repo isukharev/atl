@@ -365,7 +365,13 @@ func (m *Mirror) jiraRelocationArtifacts(plan *JiraIssueRelocation) ([]CompleteP
 		if err != nil || Hash(b) != planned.hash {
 			return nil, fmt.Errorf("%w: Jira relocation source changed after qualification", domain.ErrCheckFailed)
 		}
-		out = append(out, planned.artifact)
+		current, currentErr := publicationCurrent(m.Root, planned.artifact.Path.String())
+		if currentErr != nil || !current.Present || current.SHA256 != planned.hash {
+			return nil, fmt.Errorf("%w: Jira relocation source changed after qualification", domain.ErrCheckFailed)
+		}
+		removal := completePullBoundRemoval(planned.artifact.Path, current)
+		removal.Role = planned.artifact.Role
+		out = append(out, removal)
 	}
 	return out, nil
 }

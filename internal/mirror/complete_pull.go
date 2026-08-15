@@ -16,20 +16,22 @@ import (
 )
 
 const (
-	completePullCheckpointSchema         = 1
-	completePullProgressSchema           = 1 // legacy Confluence schema; bytes are immutable
-	completePullJiraProgressSchema       = 2
-	completePullConfluenceProgressSchema = 3
-	maxCompletePullCheckpointBytes       = 64 << 20
-	maxCompletePullProgressBytes         = 4 << 10
-	maxCompletePullCheckpointIDs         = 1_000_000
-	maxCompletePullIDBytes               = 256
-	completePullJournalSchema            = 2 // legacy Confluence schema; bytes are immutable
-	completePullJiraJournalSchema        = 3 // legacy Jira schema without stable sidecar identity/relocation
-	completePullJiraJournalSchema4       = 4
-	completePullConfluenceJournalSchema  = 5
-	maxCompletePullJournalEntries        = 25
-	maxCompletePullJournalBytes          = 256 << 10
+	completePullCheckpointSchema          = 1
+	completePullProgressSchema            = 1 // legacy Confluence schema; bytes are immutable
+	completePullJiraProgressSchema        = 2
+	completePullConfluenceProgressSchema  = 3 // legacy current schema without attachment evidence
+	completePullConfluenceProgressSchema4 = 4
+	maxCompletePullCheckpointBytes        = 64 << 20
+	maxCompletePullProgressBytes          = 4 << 10
+	maxCompletePullCheckpointIDs          = 1_000_000
+	maxCompletePullIDBytes                = 256
+	completePullJournalSchema             = 2 // legacy Confluence schema; bytes are immutable
+	completePullJiraJournalSchema         = 3 // legacy Jira schema without stable sidecar identity/relocation
+	completePullJiraJournalSchema4        = 4
+	completePullConfluenceJournalSchema   = 5 // legacy current schema without attachment evidence
+	completePullConfluenceJournalSchema6  = 6
+	maxCompletePullJournalEntries         = 25
+	maxCompletePullJournalBytes           = 256 << 10
 )
 
 // CompletePullCheckpoint is a private, backend-neutral snapshot of one exact
@@ -55,6 +57,24 @@ type completePullProgress struct {
 	SelectionSHA256 string                       `json:"selection_sha256"`
 	NextIndex       int                          `json:"next_index"`
 	Includes        *CompletePullIncludeProgress `json:"includes,omitempty"`
+}
+
+// completePullProgressConfluenceV3 is retained solely to re-emit the exact
+// pre-attachment wire shape for a prefix that has no attachment evidence. A
+// plain CompletePullIncludeProgress would add the new field to v3 JSON even
+// when its aggregate is zero, which older readers correctly reject.
+type completePullProgressConfluenceV3 struct {
+	SchemaVersion   int                 `json:"schema_version"`
+	Service         CompletePullService `json:"service"`
+	SelectorSHA256  string              `json:"selector_sha256"`
+	OptionsSHA256   string              `json:"options_sha256"`
+	SelectionSHA256 string              `json:"selection_sha256"`
+	NextIndex       int                 `json:"next_index"`
+	Includes        *struct {
+		EvidenceComplete bool                         `json:"evidence_complete"`
+		Assets           CompletePullIncludeAggregate `json:"assets"`
+		Comments         CompletePullIncludeAggregate `json:"comments"`
+	} `json:"includes,omitempty"`
 }
 
 // CompletePullJournalEntry is the content-minimized durable commit evidence
@@ -191,7 +211,32 @@ func decodeCompletePullJSON(path string, b []byte, destination any) error {
 	return nil
 }
 
+func encodeCompletePullProgress(value completePullProgress) ([]byte, error) {
+	if value.SchemaVersion == completePullConfluenceProgressSchema && value.Service == CompletePullServiceConfluence {
+		legacy := completePullProgressConfluenceV3{
+			SchemaVersion: value.SchemaVersion, Service: value.Service, SelectorSHA256: value.SelectorSHA256,
+			OptionsSHA256: value.OptionsSHA256, SelectionSHA256: value.SelectionSHA256, NextIndex: value.NextIndex,
+		}
+		if value.Includes != nil {
+			legacy.Includes = &struct {
+				EvidenceComplete bool                         `json:"evidence_complete"`
+				Assets           CompletePullIncludeAggregate `json:"assets"`
+				Comments         CompletePullIncludeAggregate `json:"comments"`
+			}{
+				EvidenceComplete: value.Includes.EvidenceComplete,
+				Assets:           value.Includes.Assets,
+				Comments:         value.Includes.Comments,
+			}
+		}
+		return json.MarshalIndent(legacy, "", "  ")
+	}
+	return json.MarshalIndent(value, "", "  ")
+}
+
 func readCompletePullFile(root, path string, maxBytes int) ([]byte, bool, error) {
+	if maxBytes < 0 {
+		return nil, false, fmt.Errorf("%w: complete-pull state %s has an invalid read bound", domain.ErrCheckFailed, path)
+	}
 	info, err := safepath.StatWithin(root, path)
 	if os.IsNotExist(err) {
 		return nil, false, nil
@@ -199,14 +244,15 @@ func readCompletePullFile(root, path string, maxBytes int) ([]byte, bool, error)
 	if err != nil {
 		return nil, false, err
 	}
-	if info.Size() > int64(maxBytes) {
+	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || info.Size() < 0 || info.Size() > int64(maxBytes) {
 		return nil, false, fmt.Errorf("%w: complete-pull state %s exceeds %d bytes", domain.ErrCheckFailed, path, maxBytes)
 	}
-	b, err := safepath.ReadFileWithin(root, path)
+	b, err := safepath.ReadFileWithinLimit(root, path, int64(maxBytes))
 	if err != nil {
-		return nil, false, err
+		return nil, false, fmt.Errorf("%w: read bounded complete-pull state %s: %v", domain.ErrCheckFailed, path, err)
 	}
-	if len(b) > maxBytes {
+	after, afterErr := safepath.StatWithin(root, path)
+	if afterErr != nil || !after.Mode().IsRegular() || after.Mode().Perm() != 0o600 || after.Size() != info.Size() || int64(len(b)) != after.Size() {
 		return nil, false, fmt.Errorf("%w: complete-pull state %s changed beyond %d bytes while being read", domain.ErrCheckFailed, path, maxBytes)
 	}
 	return b, true, nil
@@ -343,6 +389,9 @@ func (m *Mirror) verifyCompletePullJournalArtifacts(journal completePullJournal)
 			base, present, err := m.ReadBaseBody(state.ID)
 			if err != nil || !present || Hash(base) != state.Hash {
 				return fmt.Errorf("%w: complete-pull journal baseline for %q is missing or changed", domain.ErrCheckFailed, state.ID)
+			}
+			if _, err := m.verifyConfluenceCompletePullAttachmentArtifacts(entry, true); err != nil {
+				return fmt.Errorf("%w: complete-pull journal attachment artifacts for %q are missing or changed", domain.ErrCheckFailed, state.ID)
 			}
 		case CompletePullServiceJira:
 			snapshotPath := strings.TrimSuffix(nativePath, ".wiki") + ".json"
@@ -501,7 +550,11 @@ func (m *Mirror) CompletePullCheckpoint(selectorSHA256 string) (CompletePullChec
 		return value, true, nil
 	}
 	legacyConfluence := value.Service == CompletePullServiceConfluence && progress.SchemaVersion == completePullProgressSchema && progress.Service == ""
-	currentProgress := progress.SchemaVersion == completePullProgressSchemaFor(value.Service) && validCompletePullProgressService(value.Service, progress.Service)
+	currentConfluenceProgress := value.Service == CompletePullServiceConfluence &&
+		(progress.SchemaVersion == completePullConfluenceProgressSchema || progress.SchemaVersion == completePullConfluenceProgressSchema4) &&
+		validCompletePullProgressService(value.Service, progress.Service)
+	currentProgress := currentConfluenceProgress ||
+		value.Service == CompletePullServiceJira && progress.SchemaVersion == completePullProgressSchemaFor(value.Service) && validCompletePullProgressService(value.Service, progress.Service)
 	if !legacyConfluence && !currentProgress {
 		return CompletePullCheckpoint{}, false, fmt.Errorf("%w: unsupported complete-pull progress schema %d in %s", domain.ErrCheckFailed, progress.SchemaVersion, progressPath)
 	}
@@ -525,7 +578,7 @@ func (m *Mirror) CompletePullCheckpoint(selectorSHA256 string) (CompletePullChec
 			return CompletePullCheckpoint{}, false, fmt.Errorf("%w: current Confluence complete-pull progress omits include evidence in %s", domain.ErrCheckFailed, progressPath)
 		} else {
 			value.Includes = *progress.Includes
-			if err := validateCompletePullIncludeProgress(value.Includes, value.NextIndex); err != nil {
+			if err := validateCompletePullIncludeProgressSchema(progress.SchemaVersion, value.Includes, value.NextIndex); err != nil {
 				return CompletePullCheckpoint{}, false, fmt.Errorf("%w in %s", err, progressPath)
 			}
 			if value.NextIndex == 0 && value.Includes == (CompletePullIncludeProgress{}) {
@@ -625,7 +678,7 @@ func (m *Mirror) SaveCompletePullCheckpoint(value CompletePullCheckpoint) error 
 		}
 	}
 	progress := completePullProgress{
-		SchemaVersion: completePullProgressSchemaFor(value.Service), SelectorSHA256: value.SelectorSHA256,
+		SchemaVersion: completePullProgressSchemaForCheckpoint(value.Service, value.Includes), SelectorSHA256: value.SelectorSHA256,
 		OptionsSHA256: value.OptionsSHA256, SelectionSHA256: value.SelectionSHA256, NextIndex: value.NextIndex,
 	}
 	if value.Service == CompletePullServiceJira {
@@ -634,7 +687,7 @@ func (m *Mirror) SaveCompletePullCheckpoint(value CompletePullCheckpoint) error 
 		progress.Service = value.Service
 		progress.Includes = &value.Includes
 	}
-	b, err := json.MarshalIndent(progress, "", "  ")
+	b, err := encodeCompletePullProgress(progress)
 	if err != nil {
 		return err
 	}

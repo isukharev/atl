@@ -40,8 +40,13 @@ type CompletePullResult struct {
 }
 
 type completePullBinding struct {
-	Assets            bool                   `json:"assets"`
-	Comments          bool                   `json:"comments"`
+	Assets   bool `json:"assets"`
+	Comments bool `json:"comments"`
+	// Omit the false value so attachment-free legacy complete-pull checkpoints
+	// retain their exact pre-optional-artifacts binding hash. The true value is
+	// policy-significant and remains bound for resumes that explicitly permit
+	// partial optional evidence.
+	PartialArtifacts  bool                   `json:"partial_artifacts,omitempty"`
 	Render            mirror.ViewState       `json:"render"`
 	ExpandJiraMacros  bool                   `json:"expand_jira_macros"`
 	JiraView          string                 `json:"jira_view,omitempty"`
@@ -68,7 +73,8 @@ func confluenceCompleteHashJSON(value any) (string, error) {
 
 func completePullOptionsHash(cfg *config.Config, o PullOpts, rs RenderSettings) (string, error) {
 	binding := completePullBinding{
-		Assets: o.Assets, Comments: o.Comments, Render: viewStateOf(rs), ExpandJiraMacros: rs.ExpandJiraMacros,
+		Assets: o.Assets, Comments: o.Comments, PartialArtifacts: o.AllowPartialArtifacts,
+		Render: viewStateOf(rs), ExpandJiraMacros: rs.ExpandJiraMacros,
 		RawUserReferences: o.deterministicRawUsers,
 	}
 	if o.evidence != nil {
@@ -142,7 +148,7 @@ func (s *ConfluenceService) prepareCompletePull(ctx context.Context, m *mirror.M
 	}
 	if found && !o.RestartComplete {
 		if checkpoint.OptionsSHA256 != optionsSHA256 {
-			return nil, fmt.Errorf("%w: complete-pull options changed since the checkpoint; rerun with the original assets/comments/render/Jira-view settings or pass --restart-complete after preserving local edits", domain.ErrCheckFailed)
+			return nil, fmt.Errorf("%w: complete-pull options changed since the checkpoint; rerun with the original assets/comments/attachment/render/Jira-view settings or pass --restart-complete after preserving local edits", domain.ErrCheckFailed)
 		}
 		return newCompleteSelection(checkpoint, "resumed", 0), nil
 	}
@@ -223,8 +229,8 @@ func collectCompletePullIDsForSearch(ctx context.Context, searcher completePullS
 			if expectedSpace != "" && hit.Space != expectedSpace {
 				return nil, fmt.Errorf("%w: complete-pull search result is outside the selected space", domain.ErrCheckFailed)
 			}
-			if strings.TrimSpace(hit.ID) == "" {
-				return nil, fmt.Errorf("%w: complete-pull search result omitted page id", domain.ErrCheckFailed)
+			if !domain.ValidConfluenceContentID(hit.ID) {
+				return nil, fmt.Errorf("%w: complete-pull search result has a non-canonical page id", domain.ErrCheckFailed)
 			}
 			if len(hit.ID) > confluenceCompletePullMaxIDBytes {
 				return nil, fmt.Errorf("%w: complete-pull page id exceeds %d bytes", domain.ErrCheckFailed, confluenceCompletePullMaxIDBytes)

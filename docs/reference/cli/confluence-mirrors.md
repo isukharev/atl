@@ -144,8 +144,9 @@ proves an omitted page absent; a `warning:` line also goes to stderr.
 ## `atl conf pull`
 
 Mirror pages to disk. Downloads `.csf` (native storage format), `.md`
-(versioned staging view), `.meta.json`, and optionally renders draw.io / image assets and
-mirrors page comments.
+(versioned staging view), `.meta.json`, and optionally renders draw.io / image
+assets, mirrors page comments, or—in complete mode only—captures a separately
+qualified attachment inventory.
 
 ```bash
 # single page
@@ -169,6 +170,19 @@ atl conf pull --complete --cql 'space=DOCS and type=page' \
 # also bring page comments into the mirror
 atl conf pull --id 12345678 --comments
 
+# complete clone with a bounded attachment inventory for each selected page
+atl conf pull --complete --space DOCS --into my-mirror \
+  --attachments --max-attachment-pages-per-page 16 \
+  --max-attachments-per-page 1000
+
+# fetch selected attachment bodies only under an exact MIME allowlist and
+# per-body plus aggregate byte caps
+atl conf pull --complete --space DOCS --into my-mirror \
+  --attachments --max-attachment-pages-per-page 16 \
+  --max-attachments-per-page 1000 --attachment-bodies \
+  --attachment-media-type application/pdf --max-attachment-bytes 8388608 \
+  --max-total-attachment-bytes 67108864
+
 # complete changed-page delta; bootstrap with one reviewed absolute instant
 atl conf pull --incremental --cql 'space=DOCS and type=page' \
   --since '2026-07-01T00:00:00+02:00' --into my-mirror
@@ -190,6 +204,14 @@ Flags:
 | `--depth` | depth limit when using `--space` (0 = unlimited) |
 | `--assets` | download draw.io PNG renders and inline images |
 | `--comments` | mirror schema-v2 comment evidence to `<slug>.comments.json`, render its qualified read-only tree in the main `.md`, and refresh the flat `.comments.md` compatibility view |
+| `--attachments` | complete-pull only: capture a qualified attachment inventory into `<slug>.attachments.json`; requires both positive inventory caps below |
+| `--max-attachment-pages-per-page` | required with `--attachments`: maximum attachment-list pages read for each selected page |
+| `--max-attachments-per-page` | required with `--attachments`: maximum attachment records retained for each selected page |
+| `--attachment-bodies` | with `--attachments`, stream only MIME-allowlisted attachment bodies into the contained, hash-bound `<slug>.attachments/` tree |
+| `--attachment-media-type` | exact allowed attachment MIME type; repeatable and required with `--attachment-bodies` |
+| `--max-attachment-bytes` | required with `--attachment-bodies`: maximum captured size of one body |
+| `--max-total-attachment-bytes` | required with `--attachment-bodies`: maximum body bytes across the complete pull, including its durable resumed prefix |
+| `--allow-partial-artifacts` | complete-pull only, with `--comments` or `--attachments`: persist explicitly qualified partial optional-artifact evidence without claiming it complete |
 | `--dry-run` | perform selection and local qualification without writing mirror files, state, watermarks, checkpoints, or stashes |
 | `--overwrite-local` | explicitly replace a qualified locally edited native `.csf`; never bypasses derived-view or baseline-integrity failures |
 | `--stash-local` | before replacement, preserve a qualified locally edited `.csf` in the immutable content-addressed `.atl/stash/` store; mutually exclusive with `--overwrite-local` |
@@ -209,23 +231,41 @@ Flags:
 
 At most one of `--id`, `--cql`, `--space` may be given.
 
-Every JSON pull result carries an ordered `includes` array with exactly the
-`assets` and `comments` dimensions. Each row exposes `requested`,
+Attachment inventory caps must be positive and are limited to 100 list pages
+and 10,000 retained records per selected page. Body capture additionally
+requires an exact MIME allowlist: one body is capped at 64 MiB, the aggregate
+at 64 MiB, and the aggregate cap must be at least the per-body cap. A complete
+page publication captures at most 512 eligible bodies. Before opening a body,
+atl derives the exact core page, staged-asset, Jira-macro, and relocation
+tombstone bytes; reserves the preflighted attachment-sidecar upper bound; and qualifies
+ownership-proven retirement entries. It then reserves both transaction slots
+and remaining transaction bytes. A strict pull rejects an over-count or
+over-byte page before opening any body; with `--allow-partial-artifacts`, the
+canonical ID order selects the retained prefix and records `count_limit` or
+`aggregate_limit` for the rest. These are local safety bounds, not estimates
+of backend capacity.
+
+Every JSON pull result carries an ordered `includes` array with the stable
+`assets`, `comments` dimensions; a requested attachment policy appends the
+`attachments` dimension. Each row exposes `requested`,
 `qualification`, proof-only `complete`, and an optional closed `reason`. An
 omitted flag is `qualification:not_requested`. Requested preview work is
 `deferred` with `reason:preview_deferred`; preview performs no comment-list or
-asset-download GET for those dimensions. Actual work is `qualified` with
+asset-download, attachment-inventory, or attachment-body GET for those
+dimensions. Actual work is `qualified` with
 `complete:true` only when that dimension completed for every selected page.
 Incomplete coverage is `partial`, `complete:false`, with
 `resolution_incomplete`, `inventory_incomplete`, or `not_attempted`; a read or
 safe-staging error is `failed`, `complete:false`, with `read_failed` or
-`staging_failed`. A failed include result is emitted before the original
+`staging_failed`. Attachment body-budget or body-selection incompleteness uses
+the attachment-only `body_incomplete` reason. A failed include result is emitted before the original
 non-zero error. Text output renders the same rows as stable `include:` lines.
 This qualification is additive: a clean actual pull still omits
 `local_safety`.
 
 Actual include evidence is recorded only after the corresponding native page,
-derived view, comment sidecars, and staged assets are durably published. A
+derived view, comment/attachment sidecars, selected attachment bodies, and
+staged assets are durably published. A
 shared staging/flush/publication failure demotes every requested dimension
 staged for that page to `failed/staging_failed`; already published dimensions
 remain evidence. Complete-pull progress persists only content-free aggregate
@@ -233,6 +273,24 @@ include counts/reasons beside the immutable selection and restores them on
 resume. Legacy progress without this evidence is accepted for compatibility
 but the unknown durable prefix remains `partial/not_attempted`; it is never
 upgraded to `complete:true` by the resumed suffix.
+
+Before each attachment body request, atl revalidates the exact page,
+filename/version selector and attachment metadata against the inventory ID. An
+ambiguous or changed selector never attributes a body to a different attachment
+ID: the default strict pull stops before acceptance, while
+`--allow-partial-artifacts` records failed partial evidence. The metadata check and
+filename-based binary route are separate backend requests, so this is a
+fail-closed selector check rather than a claim of an atomic page/attachment
+transaction. On a requested attachment recapture, the same atomic publication
+retires only prior `.attachments/*.body` files whose sidecar, parent hashes,
+file mode, and content hash prove ownership and which the replacement sidecar
+no longer retains. A complete pull without `--attachments` atomically retires
+the entire ownership-proven prior attachment capture when its replacement
+native/metadata identity would otherwise make it stale. A non-complete or
+incremental refresh that would invalidate such a capture, including a refresh
+whose canonical page path moved, stops before any local write; rerun it with
+`--complete` to perform the safe retirement. Unowned or changed attachment
+residue is preserved and fails closed.
 
 Pull is non-destructive by default. Before each page-body GET, atl reconciles
 the tracked path, sidecar hash, pristine base, native `.csf`, metadata, and
@@ -276,9 +334,11 @@ tokens, and progress — never credentials, backend URLs, titles, or page bodies
 The transient publication directory holds one page's exact private payloads
 until its canonical artifact set is durable. Progress updates do not rewrite
 the large manifest. Repeating the same command resumes the remaining prefix
-without repeating accepted body GETs. Assets,
-comments, effective render settings, and the resolved Jira-macro list view are
-hash-bound; option drift fails closed. `--restart-complete` replaces an old
+without repeating accepted body GETs. Assets, comments, attachment
+inventory/body policy, explicit partial-artifact policy, effective render
+settings, and the resolved Jira-macro list view are hash-bound; option drift
+fails closed. Attachment-body aggregate accounting is also private durable
+progress, so its cap continues across resume. `--restart-complete` replaces an old
 snapshot only after a fresh two-pass selection and local overwrite preflight
 succeed, so a failed restart leaves the previous resume point intact.
 
@@ -296,8 +356,15 @@ fails; only the canonical sequential consumer claims paths, resolves/writes
 assets and sidecars, performs relocation, or advances a checkpoint. This mode
 intentionally costs two metadata search passes plus one body GET per selected
 page; it runs only when explicitly requested and performs no background or
-calibration queries. Requested comment truncation does not advance past that
-page. Completion removes the checkpoint; neither a snapshot nor its absence is
+calibration queries. Requested comment/thread incompleteness, and requested
+attachment inventory or body incompleteness, do not advance past that page by
+default. The historical anchor-only comment qualification remains a durable
+partial detail and does not by itself block the selector.
+`--allow-partial-artifacts` is the explicit complete-pull-only exception for
+incomplete comment/thread or attachment evidence: it saves the qualified
+sidecar and reports `partial,complete:false`, never a complete
+optional-artifact claim. Completion removes the checkpoint; neither a snapshot
+nor its absence is
 evidence of remote deletion.
 
 Incremental mode is deliberately inclusive at its lower minute. The first
@@ -400,6 +467,8 @@ mirror/
         child-page.meta.json     ← id, version, hierarchy, labels, updated, optional restricted, content_hash, fragments, comment state
         child-page.comments.json ← only with --comments: qualified schema-v2 envelope (legacy arrays remain readable)
         child-page.comments.md   ← only with --comments: best-effort flat compatibility view
+        child-page.attachments.json ← only with --attachments: qualified schema-v1 inventory and body qualification
+        child-page.attachments/  ← only with --attachment-bodies: contained hash-bound body files
         child-page.assets/
           diagram.png
   .atl/
