@@ -18,6 +18,8 @@ func incrementalConfServer(t *testing.T) (*httptest.Server, *[]string) {
 		switch r.URL.Path {
 		case "/rest/api/search":
 			fmt.Fprint(w, `{"results":[{"content":{"id":"100","type":"page","title":"Alpha","space":{"key":"ENG"},"version":{"number":3,"when":"2026-07-13T12:34:56Z"}}}],"size":1,"totalCount":1,"_links":{}}`)
+		case "/rest/api/content/search":
+			fmt.Fprint(w, `{"results":[{"id":"100","type":"page","title":"Alpha","space":{"key":"ENG"},"version":{"number":3,"when":"2026-07-13T12:34:56Z"},"ancestors":[],"_links":{"webui":"/spaces/ENG/pages/100"}}],"start":0,"limit":1,"size":1,"totalSize":1,"_links":{}}`)
 		case "/rest/api/content/100":
 			fmt.Fprint(w, `{"id":"100","type":"page","title":"Alpha","space":{"key":"ENG"},"version":{"number":3,"when":"2026-07-13T12:34:56Z"},"body":{"storage":{"value":"<p>alpha</p>"}}}`)
 		default:
@@ -74,7 +76,7 @@ func TestConfPullCompleteGoldenAndReadOnly(t *testing.T) {
 		if !strings.HasPrefix(request, http.MethodGet+" ") {
 			t.Fatalf("complete pull made non-GET request: %s", request)
 		}
-		if strings.Contains(request, "/rest/api/search?") {
+		if strings.Contains(request, "/rest/api/content/search?") {
 			searches++
 		}
 	}

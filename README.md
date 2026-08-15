@@ -134,6 +134,11 @@ atl conf status --into "$ATL_WORKSPACE_ROOT"
 atl conf diff "$ATL_WORKSPACE_ROOT" -o text
 ```
 
+For a large historical space bootstrap, use `conf pull --complete --space KEY`.
+Complete mode obtains a qualified identity-ordered metadata set twice, refuses
+selection drift or duplicate identities before body reads, and resumes the
+durable page prefix after interruption.
+
 The `.csf` file contains the exact native Confluence body; its `.md` sibling is
 a derived reading and staging view. After editing Markdown:
 

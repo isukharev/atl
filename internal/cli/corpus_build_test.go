@@ -36,6 +36,8 @@ func newCorpusBuildCLIServer(t *testing.T) *corpusBuildCLIServer {
 			fmt.Fprint(writer, `{"userKey":"private-confluence-principal","displayName":"Private Person"}`)
 		case "/rest/api/search":
 			fmt.Fprint(writer, `{"results":[{"content":{"id":"200","type":"page","title":"Private page title","space":{"key":"ENG"},"version":{"number":3,"when":"2026-08-12T12:34:56Z"}}}],"size":1,"totalCount":1,"_links":{}}`)
+		case "/rest/api/content/search":
+			fmt.Fprint(writer, `{"results":[{"id":"200","type":"page","title":"Private page title","space":{"key":"ENG"},"version":{"number":3,"when":"2026-08-12T12:34:56Z"},"ancestors":[],"_links":{"webui":"/spaces/ENG/pages/200"}}],"start":0,"limit":1,"size":1,"totalSize":1,"_links":{}}`)
 		case "/rest/api/content/200":
 			fmt.Fprint(writer, `{"id":"200","type":"page","title":"Private page title","space":{"key":"ENG"},"version":{"number":3,"when":"2026-08-12T12:34:56Z"},"body":{"storage":{"value":"<p>private confluence body</p>"}}}`)
 		case "/rest/api/2/myself":

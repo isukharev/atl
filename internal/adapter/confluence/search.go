@@ -139,6 +139,97 @@ func (cf *Confluence) SearchComplete(ctx context.Context, query string, limit in
 	return page, nil
 }
 
+// SearchCompleteContent qualifies the Server/Data Center content-search
+// endpoint for exhaustive pulls. It is deliberately separate from
+// SearchComplete: the global CQL search endpoint is the compatibility path for
+// ordinary search and may carry excerpts, while content search exposes the
+// offset/total/next evidence required to prove a large space snapshot.
+//
+// The continuation URL is treated only as a signal. The next offset is derived
+// from the validated response size, so an untrusted backend cannot redirect a
+// subsequent request to another origin or query.
+func (cf *Confluence) SearchCompleteContent(ctx context.Context, query string, limit int, cursor string) (domain.PageSearchPage, error) {
+	start, err := parseCursor(cursor)
+	if err != nil {
+		return domain.PageSearchPage{}, err
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 25
+	}
+	q := url.Values{}
+	q.Set("cql", query)
+	q.Set("expand", "ancestors,version,space")
+	q.Set("limit", strconv.Itoa(limit))
+	q.Set("start", strconv.Itoa(start))
+	var resp struct {
+		Results    *[]content                       `json:"results"`
+		Start      *int                             `json:"start"`
+		Limit      *int                             `json:"limit"`
+		Size       *int                             `json:"size"`
+		TotalCount confluenceContentSearchWireTotal `json:"totalCount"`
+		TotalSize  confluenceContentSearchWireTotal `json:"totalSize"`
+		Links      *struct {
+			Next string `json:"next"`
+		} `json:"_links"`
+	}
+	if err := cf.c.GetJSON(ctx, "/rest/api/content/search?"+q.Encode(), &resp); err != nil {
+		return domain.PageSearchPage{}, err
+	}
+	page := domain.PageSearchPage{Results: []domain.PageRef{}}
+	if resp.Results == nil || resp.Start == nil || resp.Limit == nil || resp.Size == nil || resp.Links == nil {
+		page.PartialReason = "backend content search omitted qualified pagination evidence"
+		return page, nil
+	}
+	results := *resp.Results
+	if *resp.Start < 0 || *resp.Start != start || *resp.Limit <= 0 || *resp.Limit > limit ||
+		*resp.Size < 0 || *resp.Size != len(results) || len(results) > *resp.Limit ||
+		(resp.Links.Next != "" && (len(results) == 0 || !safePaginationSignal(resp.Links.Next))) {
+		page.PartialReason = "backend content search returned unqualified pagination evidence"
+		return page, nil
+	}
+	total, totalOK := qualifiedConfluenceContentSearchTotal(resp.TotalCount, resp.TotalSize)
+	if !totalOK {
+		page.PartialReason = "backend content search omitted a qualified exact total"
+		return page, nil
+	}
+	pageCursor := confluencePageCursor{start: start}
+	end, bounded := pageCursor.checkedEnd(len(results))
+	if !bounded || end > total ||
+		(resp.Links.Next == "" && end != total) ||
+		(resp.Links.Next != "" && end >= total) {
+		page.PartialReason = "backend content search returned contradictory pagination totals"
+		page.ExactTotal = &total
+		return page, nil
+	}
+	page.ExactTotal = &total
+	page.Results = make([]domain.PageRef, 0, len(results))
+	for index := range results {
+		row := &results[index]
+		if !qualifiedConfluenceTreeContent(*row, row.Space.Key) {
+			page.PartialReason = "backend content search returned an invalid page identity"
+			page.Results = nil
+			return page, nil
+		}
+		ref := domain.PageRef{ID: row.ID, Title: row.Title, Space: row.Space.Key, Version: row.Version.Number, Updated: row.Version.When}
+		if row.Ancestors != nil && len(*row.Ancestors) > 0 {
+			ref.Parent = (*row.Ancestors)[len(*row.Ancestors)-1].ID
+		}
+		if row.Links != nil {
+			ref.URL = confluenceWebURL(cf.base, row.Links.WebUI)
+		}
+		page.Results = append(page.Results, ref)
+	}
+	switch pageCursor.advance(len(results), resp.Links.Next) {
+	case confluencePageExhausted:
+		page.Complete = true
+	case confluencePageStalled:
+		page.PartialReason = "backend content search returned an empty page with a next link"
+	default:
+		page.Next = strconv.Itoa(pageCursor.startAt())
+	}
+	return page, nil
+}
+
 func qualifiedSearchTotal(totalCount, totalSize *int) (int, bool, string) {
 	if (totalCount != nil && *totalCount < 0) || (totalSize != nil && *totalSize < 0) {
 		return 0, false, "backend reported a negative total match count"

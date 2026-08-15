@@ -56,7 +56,7 @@ func TestConfCompletePullRejectsAmbiguousTerminalBeforeBodiesOrCheckpoint(t *tes
 	if code != exitCheckFailed || stdout != "" || stderr != "" {
 		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	if len(*requests) != 1 || !strings.HasPrefix((*requests)[0], http.MethodGet+" /rest/api/search?") {
+	if len(*requests) != 1 || !strings.HasPrefix((*requests)[0], http.MethodGet+" /rest/api/content/search?") {
 		t.Fatalf("complete pull requests=%v, want one search and no body read", *requests)
 	}
 	checkpointRoot := filepath.Join(root, ".atl", "complete-pulls")
@@ -91,15 +91,42 @@ func ambiguousSearchServer(t *testing.T, rows int) (*httptest.Server, *[]string)
 	requests := []string{}
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		requests = append(requests, request.Method+" "+request.URL.RequestURI())
-		if request.URL.Path != "/rest/api/search" {
+		if request.URL.Path == "/rest/api/search" {
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = writer.Write(body)
+			return
+		}
+		if request.URL.Path != "/rest/api/content/search" {
 			http.NotFound(writer, request)
 			return
 		}
 		if request.URL.Query().Get("limit") != fmt.Sprint(rows) || request.URL.Query().Get("start") != "0" {
 			t.Fatalf("unexpected search pagination: %s", request.URL.RawQuery)
 		}
+		if request.URL.Query().Get("expand") != "ancestors,version,space" {
+			t.Fatalf("unexpected content expansion: %s", request.URL.RawQuery)
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal(body, &decoded); err != nil {
+			t.Fatal(err)
+		}
+		results := decoded["results"].([]any)
+		contentResults := make([]map[string]any, 0, len(results))
+		for _, raw := range results {
+			row := raw.(map[string]any)["content"].(map[string]any)
+			row["ancestors"] = []any{}
+			row["_links"] = map[string]any{"webui": "/spaces/DOC/pages/" + row["id"].(string)}
+			contentResults = append(contentResults, row)
+		}
+		contentBody, err := json.Marshal(map[string]any{
+			"results": contentResults, "start": 0, "limit": rows, "size": rows,
+			"_links": map[string]any{},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
 		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write(body)
+		_, _ = writer.Write(contentBody)
 	}))
 	return server, &requests
 }

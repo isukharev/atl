@@ -257,12 +257,15 @@ install or report a scheduler.
 Complete mode is the explicit historical bootstrap for a selector larger than
 the ordinary CQL/space caps. It exhausts qualified search pagination twice,
 requires the same unique page-id set in both passes, canonicalizes that set
-locally, and only then starts page-body GETs. Missing/duplicate identities,
+locally, and only then starts page-body GETs. On the qualified Confluence
+content-search endpoint, atl appends `ORDER BY id ASC` so offset boundaries do
+not depend on the backend's moving default order. Missing/duplicate identities,
 repeated cursors, contradictory totals, a full no-next page without trusted
 terminal evidence, unreachable advertised results, selection drift, or an
 explicit cap fail with exit `8` before any body request or new checkpoint.
-User CQL containing `ORDER BY` is rejected; atl does not depend on an
-undocumented id-order guarantee from the backend.
+User CQL containing `ORDER BY` is rejected; the explicit identity order is an
+implementation detail of complete qualification, and the two-pass set check
+still fails closed when the backend cannot provide a stable result.
 
 The exact identity snapshot and its durable prefix live in private,
 schema-versioned state under `.atl/complete-pulls/`: an immutable mode-0600

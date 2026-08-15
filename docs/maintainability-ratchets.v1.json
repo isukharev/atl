@@ -112,9 +112,9 @@
     {"owner":"tooling","path":"scripts/gen-plugins/main.go","function":"runMode","max_lines":252,"no_headroom":true,"rationale":"Keep generator mode dispatch, rendering, and publication orchestration at its exact measured span."}
   ],
   "package_totals": [
-    {"owner":"adapter-confluence","path":"internal/adapter/confluence/","max_lines":4710,"rationale":"Keep total Confluence adapter production visible after strict corpus metadata reads compose with caller-bounded hierarchy, attachment discovery, dual-total pagination evidence, and version-specific download revalidation."},
+    {"owner":"adapter-confluence","path":"internal/adapter/confluence/","max_lines":4802,"rationale":"Keep total Confluence adapter production visible after qualified identity-ordered content pagination composes with strict corpus metadata reads, caller-bounded hierarchy, attachment discovery, dual-total pagination evidence, and version-specific download revalidation."},
     {"owner":"adapter-jira","path":"internal/adapter/jira/","max_lines":4107,"rationale":"Keep total Jira adapter production at the exact integrated baseline after board and sprint lists gained strict qualified pagination coordinates alongside bounded qualified comment and attachment reads."},
-    {"owner":"app","path":"internal/app/","max_lines":45277,"rationale":"Keep total app production visible after principal-scoped cache orchestration composes with bounded Confluence hierarchy, attachment discovery/download qualification, and publication-bound durable pull-include evidence."},
+    {"owner":"app","path":"internal/app/","max_lines":45300,"rationale":"Keep total app production visible after complete-pull orchestration selects the qualified content-pagination capability while retaining two-pass identity and durable include evidence."},
     {"owner":"cli","path":"internal/cli/","max_lines":12312,"rationale":"Keep total CLI production visible after cache lifecycle and bounded Confluence read surfaces compose with invocation-local MCP startup compatibility and read-only projection."},
     {"owner":"compose","path":"internal/compose/","max_lines":761,"rationale":"Keep complete concrete composition visible after selected-service doctor transport and sole-Confluence cache builds add exact generator identity, qualified configured trust admission, and a strict metadata reader."},
     {"owner":"contentpolicy","path":"internal/contentpolicy/","max_lines":1281,"rationale":"Keep policy parsing, resolved and deny-only evaluation, source-denial envelopes, freeze, static scope requirements, and hierarchy hazards at the reviewed public-surface total."},
@@ -132,7 +132,7 @@
     "path_prefixes": ["internal/", "scripts/"],
     "large_file_threshold": 750,
     "exclusions": [
-      {"path":"internal/domain/ports.go","max_lines":845,"rationale":"The domain port registry remains intentionally declaration-dense after bounded corpus metadata, hierarchy, attachment discovery, and version-specific download evidence ports; package-boundary checks separately enforce dependency direction."},
+      {"path":"internal/domain/ports.go","max_lines":856,"rationale":"The domain port registry remains intentionally declaration-dense after adding the optional qualified content-pagination capability alongside bounded corpus metadata, hierarchy, attachment discovery, and version-specific download evidence ports; package-boundary checks separately enforce dependency direction."},
       {"path":"internal/mdmerge/merge.go","max_lines":762,"rationale":"The Markdown merge owner is a focused deterministic subsystem; retain its measured ceiling without adding it as a cross-package owner."}
     ]
   },
