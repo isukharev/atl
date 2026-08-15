@@ -94,6 +94,32 @@ func TestSearchCompleteContentRejectsInvalidPageIdentity(t *testing.T) {
 	}
 }
 
+func TestSearchCompleteContentRejectsMissingSpaceIdentity(t *testing.T) {
+	for name, mutate := range map[string]func(map[string]any){
+		"omitted": func(row map[string]any) { delete(row, "space") },
+		"blank":   func(row map[string]any) { row["space"] = map[string]any{"key": " \t"} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			row := contentSearchRow("1", "One", "DOC")
+			mutate(row)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write(contentSearchPage(t, 0, []map[string]any{row}, 1, ""))
+			}))
+			defer server.Close()
+
+			adapter := &Confluence{c: newTestClient(server.URL), base: server.URL}
+			page, err := adapter.SearchCompleteContent(context.Background(), `type = page`, 100, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if page.Complete || !strings.Contains(page.PartialReason, "invalid page identity") {
+				t.Fatalf("page=%+v", page)
+			}
+		})
+	}
+}
+
 func contentSearchRow(id, title, space string) map[string]any {
 	return contentSearchRowWithType(id, title, space, "page")
 }

@@ -69,6 +69,36 @@ func TestConfCompletePullRejectsAmbiguousTerminalBeforeBodiesOrCheckpoint(t *tes
 	}
 }
 
+func TestConfCompletePullRejectsMissingContentSpaceBeforeBodiesOrCheckpoint(t *testing.T) {
+	requests := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests = append(requests, request.Method+" "+request.URL.RequestURI())
+		if request.URL.Path != "/rest/api/content/search" {
+			http.NotFound(writer, request)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(writer, `{"results":[{"id":"synthetic-001","type":"page","title":"Synthetic page","version":{"number":1},"ancestors":[],"_links":{"webui":"/pages/synthetic-001"}}],"start":0,"limit":1,"size":1,"totalCount":1,"_links":{}}`)
+	}))
+	t.Cleanup(server.Close)
+	root := t.TempDir()
+	stdout, stderr, code := runCLIFull(t, confEnv(server), "--read-only", "conf", "pull", "--complete", "--cql", "type=page", "--into", root)
+	if code != exitCheckFailed || stdout != "" || stderr != "" {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if len(requests) != 1 || !strings.HasPrefix(requests[0], http.MethodGet+" /rest/api/content/search?") {
+		t.Fatalf("complete pull requests=%v, want one search and no body read", requests)
+	}
+	checkpointRoot := filepath.Join(root, ".atl", "complete-pulls")
+	entries, err := os.ReadDir(checkpointRoot)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("failed selection created checkpoint state: %v", entries)
+	}
+}
+
 func ambiguousSearchServer(t *testing.T, rows int) (*httptest.Server, *[]string) {
 	t.Helper()
 	results := make([]map[string]any, rows)
