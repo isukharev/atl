@@ -30,6 +30,17 @@ type qualifiedCompletePullStore struct {
 	inventory *domain.ConfluenceCommentInventory
 }
 
+type contentCompletePullStore struct {
+	*completePullStore
+	contentCalls int
+	contentPage  domain.PageSearchPage
+}
+
+func (s *contentCompletePullStore) SearchCompleteContent(context.Context, string, int, string) (domain.PageSearchPage, error) {
+	s.contentCalls++
+	return s.contentPage, nil
+}
+
 func mustPublicArtifactPath(t *testing.T, value string) mirror.ArtifactPath {
 	t.Helper()
 	qualified, err := mirror.NewPublicArtifactPath(value)
@@ -79,6 +90,40 @@ func (s *completePullStore) GetPage(ctx context.Context, id string, opts domain.
 	}
 	s.getIDs = append(s.getIDs, id)
 	return s.pullStore.GetPage(ctx, id, opts)
+}
+
+func TestCompletePullPrefersContentSearchCapability(t *testing.T) {
+	store := &contentCompletePullStore{
+		completePullStore: &completePullStore{},
+		contentPage:       domain.PageSearchPage{Results: []domain.PageRef{{ID: "content"}}, Complete: true},
+	}
+	search, err := completePullSearch(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := search(context.Background(), "space = DOC", 100, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.contentCalls != 1 || len(page.Results) != 1 || page.Results[0].ID != "content" || len(store.queries) != 0 {
+		t.Fatalf("contentCalls=%d page=%+v legacyQueries=%v", store.contentCalls, page, store.queries)
+	}
+}
+
+func TestCompletePullSelectorUsesStableIdentityOrder(t *testing.T) {
+	selector, query, err := completePullSelector(PullOpts{Space: "DOC", Complete: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selector != `space = "DOC" and type = page` {
+		t.Fatalf("selector=%q", selector)
+	}
+	if query != selector+confluenceCompletePullStableOrder {
+		t.Fatalf("query=%q want suffix %q", query, confluenceCompletePullStableOrder)
+	}
+	if _, _, err := completePullSelector(PullOpts{CQL: `space = "DOC" order by lastmodified`, Complete: true}); !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("ordered complete CQL error=%v", err)
+	}
 }
 
 func seedCompletePullJournal(t *testing.T, root string, opts PullOpts, ids []string, accepted string) {
@@ -164,7 +209,7 @@ func TestCompletePullQualifiesCanonicalSelectionBeforeBodies(t *testing.T) {
 	if !reflect.DeepEqual(store.getIDs, []string{"10", "20"}) || len(store.queries) != 2 || store.bodyBeforeSelectionComplete {
 		t.Fatalf("queries=%v getIDs=%v", store.queries, store.getIDs)
 	}
-	if !strings.Contains(store.queries[0], "type = page") {
+	if !strings.Contains(store.queries[0], "type = page") || !strings.Contains(store.queries[0], confluenceCompletePullStableOrder) {
 		t.Fatalf("complete query=%q", store.queries[0])
 	}
 	if _, ok, err := mirror.New(root).CompletePullCheckpoint(result.Complete.SelectorSHA256); err != nil || ok {

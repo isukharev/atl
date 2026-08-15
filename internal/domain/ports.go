@@ -105,6 +105,17 @@ type CompletePageSearcher interface {
 	SearchComplete(ctx context.Context, query string, limit int, cursor string) (PageSearchPage, error)
 }
 
+// CompleteContentPageSearcher is an optional endpoint-specific capability for
+// exhaustive pulls. Confluence Server/Data Center content search carries
+// qualified offset pagination for space-sized result sets that the global CQL
+// search endpoint may not expose. Ordinary search callers must not switch
+// endpoints implicitly, so complete-pull orchestration opts into this
+// capability only when it is available and retains CompletePageSearcher as a
+// fail-closed fallback.
+type CompleteContentPageSearcher interface {
+	SearchCompleteContent(ctx context.Context, query string, limit int, cursor string) (PageSearchPage, error)
+}
+
 // QualifiedConfluencePageMetadataBatchReader is the optional capability used
 // by read-only mirror inspection to replace per-page metadata probes with
 // bounded, completeness-qualified batches. PlanPageMetadataBatches is pure and

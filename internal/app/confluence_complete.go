@@ -16,10 +16,11 @@ import (
 )
 
 const (
-	confluenceCompletePullService    = mirror.CompletePullServiceConfluence
-	confluenceCompletePullBatch      = 25
-	confluenceCompletePullMaxIDs     = 1_000_000
-	confluenceCompletePullMaxIDBytes = 256
+	confluenceCompletePullService     = mirror.CompletePullServiceConfluence
+	confluenceCompletePullBatch       = 25
+	confluenceCompletePullMaxIDs      = 1_000_000
+	confluenceCompletePullMaxIDBytes  = 256
+	confluenceCompletePullStableOrder = " order by id asc"
 )
 
 // CompletePullResult qualifies the exact selector snapshot consumed by one
@@ -100,6 +101,12 @@ func completePullSelector(o PullOpts) (selector, query string, err error) {
 	} else {
 		query = selector
 	}
+	// Offset pagination over Confluence's content-search endpoint is otherwise
+	// vulnerable to movement in the backend's default (usually last-modified)
+	// ordering. A deterministic immutable identity order keeps page boundaries
+	// stable between the two qualification passes; the existing duplicate and
+	// set-equality checks still fail closed if the backend cannot honor it.
+	query += confluenceCompletePullStableOrder
 	return selector, query, nil
 }
 
@@ -140,16 +147,16 @@ func (s *ConfluenceService) prepareCompletePull(ctx context.Context, m *mirror.M
 		return newCompleteSelection(checkpoint, "resumed", 0), nil
 	}
 
-	searcher, ok := s.store.(domain.CompletePageSearcher)
-	if !ok {
-		return nil, fmt.Errorf("%w: backend cannot qualify search completeness for complete pull", domain.ErrCheckFailed)
-	}
-	expectedSpace := completePullExpectedSpace(o)
-	first, err := collectCompletePullIDsForSpace(ctx, searcher, query, o.MaxPages, expectedSpace)
+	search, err := completePullSearch(s.store)
 	if err != nil {
 		return nil, err
 	}
-	second, err := collectCompletePullIDsForSpace(ctx, searcher, query, o.MaxPages, expectedSpace)
+	expectedSpace := completePullExpectedSpace(o)
+	first, err := collectCompletePullIDsForSearch(ctx, search, query, o.MaxPages, expectedSpace)
+	if err != nil {
+		return nil, err
+	}
+	second, err := collectCompletePullIDsForSearch(ctx, search, query, o.MaxPages, expectedSpace)
 	if err != nil {
 		return nil, err
 	}
@@ -182,11 +189,23 @@ func newCompleteSelection(checkpoint mirror.CompletePullCheckpoint, source strin
 	return &confluenceCompleteSelection{checkpoint: checkpoint, nextIndex: checkpoint.NextIndex, savedIndex: checkpoint.NextIndex, result: result}
 }
 
-func collectCompletePullIDs(ctx context.Context, searcher domain.CompletePageSearcher, query string, maxPages int) ([]string, error) {
-	return collectCompletePullIDsForSpace(ctx, searcher, query, maxPages, "")
+type completePullSearchFunc func(context.Context, string, int, string) (domain.PageSearchPage, error)
+
+func completePullSearch(store domain.DocStore) (completePullSearchFunc, error) {
+	if searcher, ok := store.(domain.CompleteContentPageSearcher); ok {
+		return searcher.SearchCompleteContent, nil
+	}
+	if searcher, ok := store.(domain.CompletePageSearcher); ok {
+		return searcher.SearchComplete, nil
+	}
+	return nil, fmt.Errorf("%w: backend cannot qualify search completeness for complete pull", domain.ErrCheckFailed)
 }
 
-func collectCompletePullIDsForSpace(ctx context.Context, searcher domain.CompletePageSearcher, query string, maxPages int, expectedSpace string) ([]string, error) {
+func collectCompletePullIDs(ctx context.Context, searcher domain.CompletePageSearcher, query string, maxPages int) ([]string, error) {
+	return collectCompletePullIDsForSearch(ctx, searcher.SearchComplete, query, maxPages, "")
+}
+
+func collectCompletePullIDsForSearch(ctx context.Context, searcher completePullSearchFunc, query string, maxPages int, expectedSpace string) ([]string, error) {
 	cursor := ""
 	seenCursors := map[string]bool{}
 	seenIDs := map[string]bool{}
@@ -196,7 +215,7 @@ func collectCompletePullIDsForSpace(ctx context.Context, searcher domain.Complet
 			return nil, fmt.Errorf("%w: complete-pull search repeated cursor %q", domain.ErrCheckFailed, cursor)
 		}
 		seenCursors[cursor] = true
-		page, err := searcher.SearchComplete(ctx, query, 100, cursor)
+		page, err := searcher(ctx, query, 100, cursor)
 		if err != nil {
 			return nil, err
 		}

@@ -586,15 +586,15 @@ func (s *ConfluenceService) prepareCompletePullDryRun(ctx context.Context, m *mi
 		selection.result.CheckpointActive = true
 		return selection, nil
 	}
-	searcher, ok := s.store.(domain.CompletePageSearcher)
-	if !ok {
-		return nil, fmt.Errorf("%w: backend cannot qualify search completeness for complete pull", domain.ErrCheckFailed)
-	}
-	first, err := collectCompletePullIDsForSpace(ctx, searcher, query, o.MaxPages, completePullExpectedSpace(o))
+	search, err := completePullSearch(s.store)
 	if err != nil {
 		return nil, err
 	}
-	second, err := collectCompletePullIDsForSpace(ctx, searcher, query, o.MaxPages, completePullExpectedSpace(o))
+	first, err := collectCompletePullIDsForSearch(ctx, search, query, o.MaxPages, completePullExpectedSpace(o))
+	if err != nil {
+		return nil, err
+	}
+	second, err := collectCompletePullIDsForSearch(ctx, search, query, o.MaxPages, completePullExpectedSpace(o))
 	if err != nil {
 		return nil, err
 	}

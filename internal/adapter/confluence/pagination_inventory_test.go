@@ -27,6 +27,7 @@ func TestConfluencePaginationOwnerInventoryIsClosed(t *testing.T) {
 		"labels.go:ListContentLabels":                                      {"advance", "requestStart", "startAt"},
 		"pagination.go:advance":                                            {"checkedEnd"},
 		"search.go:SearchComplete":                                         {"advance", "checkedEnd", "requestStart", "startAt"},
+		"search.go:SearchCompleteContent":                                  {"advance", "checkedEnd", "requestStart", "startAt"},
 		"search.go:TreeQualified":                                          {"advance", "checkedEnd", "requestStart", "startAt", "startAt"},
 	}
 	tracked := map[string]bool{"advance": true, "checkedEnd": true, "startAt": true}
@@ -158,6 +159,7 @@ mirror_metadata.go:PlanPageMetadataBatches:for:1
 mirror_metadata.go:PlanPageMetadataBatches:for:2
 mirror_metadata.go:ReadPageMetadataBatch:range:1
 search.go:SearchComplete:range:1
+search.go:SearchCompleteContent:range:1
 search.go:TreeQualified:for:1
 search.go:TreeQualified:range:1
 search.go:TreeQualified:range:2

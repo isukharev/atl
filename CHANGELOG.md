@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added qualified identity-ordered content pagination for complete Confluence
+  pulls, preserving two-pass selection and fail-closed duplicate/drift checks
+  for large-space bootstrap and resume.
 - Added the pre-release standalone `agent-eval` support policy with an explicit
   candidate platform, compatibility/deprecation contour, security route, and
   stable-release prerequisites. It does not declare a supported external
