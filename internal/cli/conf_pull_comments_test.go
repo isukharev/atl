@@ -297,7 +297,11 @@ func TestConfPullCompleteAttachmentsCapturesBoundedArtifact(t *testing.T) {
 	cs.page = strings.Replace(pageJSON("100", "Alpha", 3, sampleCSF), `"ENG"`, `"DOC"`, 1)
 	cs.completeSearch = `{"results":[{"id":"100","type":"page","title":"Alpha","space":{"key":"DOC"},"version":{"number":3},"ancestors":[],"_links":{"webui":"/spaces/DOC/pages/100"}}],"start":0,"limit":100,"size":1,"totalCount":1,"_links":{}}`
 	cs.attachments = `{"results":[{"id":"21","title":"manual.txt","metadata":{"mediaType":"text/plain"},"extensions":{"fileSize":3},"version":{"number":1},"history":{"createdDate":"2026-01-01T00:00:00Z","createdBy":{"userKey":"u1"}},"_links":{"download":"/download/attachments/100/manual.txt"}}],"start":0,"limit":200,"size":1,"_links":{}}`
-	cs.attachmentRevalidation = `{"results":[{"id":"21","type":"attachment","title":"manual.txt","container":{"id":"100","type":"page"},"extensions":{"fileSize":3},"version":{"number":1}}],"start":0,"limit":2,"size":1,"totalCount":1,"_links":{}}`
+	// Confluence-compatible child attachment listings can be terminal and
+	// uniquely matched without echoing totalCount. The adapter must preserve
+	// the exact selector gate without treating that optional aggregate as a
+	// prerequisite for the binary GET.
+	cs.attachmentRevalidation = `{"results":[{"id":"21","type":"attachment","title":"manual.txt","container":{"id":"100","type":"page"},"extensions":{"fileSize":3},"version":{"number":1}}],"start":0,"limit":200,"size":1,"_links":{}}`
 	cs.attachmentBodies = map[string]string{"/download/attachments/100/manual.txt": "abc"}
 
 	into := t.TempDir()

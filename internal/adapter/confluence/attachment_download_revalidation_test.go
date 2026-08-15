@@ -37,6 +37,10 @@ func attachmentDownloadListingJSON(total int, rows ...string) string {
 		`,"start":0,"limit":2,"size":` + strconv.Itoa(len(rows)) + `,"_links":{}}`
 }
 
+func attachmentDownloadTerminalListingWithoutTotalJSON(rows ...string) string {
+	return `{"results":[` + strings.Join(rows, ",") + `],"start":0,"limit":200,"size":` + strconv.Itoa(len(rows)) + `,"_links":{}}`
+}
+
 func TestRevalidateAttachmentDownloadResolvesCurrentAndHistoricalVersions(t *testing.T) {
 	for _, tc := range []struct {
 		name             string
@@ -163,6 +167,26 @@ func TestRevalidateAttachmentDownloadAcceptsOpaqueReadIDs(t *testing.T) {
 	}
 }
 
+func TestRevalidateAttachmentDownloadAcceptsTerminalUniqueResultWithoutTotalCount(t *testing.T) {
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("filename") != "diagram.png" || r.URL.Query().Get("limit") != "2" || r.URL.Query().Get("start") != "0" {
+			t.Fatalf("listing request=%q", r.URL.RequestURI())
+		}
+		_, _ = w.Write([]byte(attachmentDownloadTerminalListingWithoutTotalJSON(
+			attachmentDownloadMetadataJSON("21", "10", "diagram.png", 3),
+		)))
+	}))
+	t.Cleanup(srv.Close)
+	evidence, err := (&Confluence{c: newTestClient(srv.URL), base: srv.URL}).RevalidateAttachmentDownload(
+		attachmentDownloadRevalidationContext(t, 1, 1<<20), "10", "diagram.png", 0)
+	if err != nil || evidence.AttachmentID != "21" || evidence.PageID != "10" || evidence.Filename != "diagram.png" || evidence.Version != 3 || evidence.FileSize != 23 || requests.Load() != 1 {
+		t.Fatalf("evidence=%+v requests=%d err=%v", evidence, requests.Load(), err)
+	}
+}
+
 func TestRevalidateAttachmentDownloadRejectsAbsentDuplicateAndVersionMismatch(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -172,8 +196,14 @@ func TestRevalidateAttachmentDownloadRejectsAbsentDuplicateAndVersionMismatch(t 
 		want       error
 	}{
 		{name: "absent", listing: attachmentDownloadListingJSON(0), want: domain.ErrNotFound},
-		{name: "missing total evidence", listing: `{"results":[],"start":0,"limit":2,"size":0,"_links":{}}`, want: domain.ErrCheckFailed},
+		{name: "terminal empty result without total", listing: attachmentDownloadTerminalListingWithoutTotalJSON(), want: domain.ErrNotFound},
 		{name: "unreachable filtered result", listing: `{"results":[],"totalCount":1,"start":0,"limit":2,"size":0,"_links":{}}`, want: domain.ErrCheckFailed},
+		{name: "terminal duplicate without total", listing: attachmentDownloadTerminalListingWithoutTotalJSON(
+			attachmentDownloadMetadataJSON("21", "10", "diagram.png", 3),
+			attachmentDownloadMetadataJSON("22", "10", "diagram.png", 1),
+		), want: domain.ErrCheckFailed},
+		{name: "size mismatch without total", listing: `{"results":[` + attachmentDownloadMetadataJSON("21", "10", "diagram.png", 3) + `],"start":0,"limit":200,"size":2,"_links":{}}`, want: domain.ErrCheckFailed},
+		{name: "next page without total", listing: `{"results":[` + attachmentDownloadMetadataJSON("21", "10", "diagram.png", 3) + `],"start":0,"limit":2,"size":1,"_links":{"next":"more"}}`, want: domain.ErrCheckFailed},
 		{name: "backend filter returned nonmatching title", listing: attachmentDownloadListingJSON(1,
 			attachmentDownloadMetadataJSON("21", "10", "other.png", 3)), want: domain.ErrCheckFailed},
 		{name: "attachment equals container", listing: attachmentDownloadListingJSON(1,
