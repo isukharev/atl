@@ -287,3 +287,66 @@ func TestConfPull_CommentsHitsCommentEndpoint(t *testing.T) {
 		t.Errorf("expected exactly 3 qualified comment fetches, got %d", n)
 	}
 }
+
+// Attachment capture is deliberately separate from rendered image assets: a
+// complete pull takes one bounded inventory read, revalidates its exact
+// filename selector immediately before the body GET, optionally streams only
+// an allowlisted body, and reports only a qualified count in its public result.
+func TestConfPullCompleteAttachmentsCapturesBoundedArtifact(t *testing.T) {
+	cs := newConfServer(t)
+	cs.page = strings.Replace(pageJSON("100", "Alpha", 3, sampleCSF), `"ENG"`, `"DOC"`, 1)
+	cs.completeSearch = `{"results":[{"id":"100","type":"page","title":"Alpha","space":{"key":"DOC"},"version":{"number":3},"ancestors":[],"_links":{"webui":"/spaces/DOC/pages/100"}}],"start":0,"limit":100,"size":1,"totalCount":1,"_links":{}}`
+	cs.attachments = `{"results":[{"id":"21","title":"manual.txt","metadata":{"mediaType":"text/plain"},"extensions":{"fileSize":3},"version":{"number":1},"history":{"createdDate":"2026-01-01T00:00:00Z","createdBy":{"userKey":"u1"}},"_links":{"download":"/download/attachments/100/manual.txt"}}],"start":0,"limit":200,"size":1,"_links":{}}`
+	cs.attachmentRevalidation = `{"results":[{"id":"21","type":"attachment","title":"manual.txt","container":{"id":"100","type":"page"},"extensions":{"fileSize":3},"version":{"number":1}}],"start":0,"limit":2,"size":1,"totalCount":1,"_links":{}}`
+	cs.attachmentBodies = map[string]string{"/download/attachments/100/manual.txt": "abc"}
+
+	into := t.TempDir()
+	out, code := runCLI(t, confEnv(cs.srv), "conf", "pull", "--complete", "--space", "DOC", "--into", into,
+		"--attachments", "--max-attachment-pages-per-page", "1", "--max-attachments-per-page", "1",
+		"--attachment-bodies", "--attachment-media-type", "text/plain", "--max-attachment-bytes", "16", "--max-total-attachment-bytes", "32")
+	if code != exitOK {
+		t.Fatalf("complete attachment pull: exit %d, want 0 (stdout=%q)", code, out)
+	}
+	if strings.Contains(out, "manual.txt") || strings.Contains(out, "download/attachments") {
+		t.Fatalf("attachment provenance leaked into pull result: %q", out)
+	}
+	var result app.PullResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("decode pull result: %v", err)
+	}
+	if len(result.Pages) != 1 || result.Pages[0].Attachments == nil || *result.Pages[0].Attachments != 1 {
+		t.Fatalf("pages=%+v", result.Pages)
+	}
+	if len(result.Includes) != 3 || result.Includes[2].Dimension != app.ConfluencePullIncludeAttachments ||
+		result.Includes[2].Qualification != app.ConfluencePullIncludeQualified || result.Includes[2].Complete == nil || !*result.Includes[2].Complete {
+		t.Fatalf("includes=%+v", result.Includes)
+	}
+	stem := strings.TrimSuffix(filepath.Join(into, filepath.FromSlash(result.Pages[0].Path)), ".csf")
+	if _, err := os.Stat(stem + ".attachments.json"); err != nil {
+		t.Fatalf("attachment sidecar: %v", err)
+	}
+	if data, err := os.ReadFile(stem + ".attachments/21.body"); err != nil || string(data) != "abc" {
+		t.Fatalf("attachment body=%q error=%v", data, err)
+	}
+	searches, inventories, revalidations, bodies := 0, 0, 0, 0
+	for _, request := range cs.requests() {
+		if request.method != http.MethodGet {
+			t.Fatalf("attachment pull made non-GET request: %+v", request)
+		}
+		switch {
+		case request.path == "/rest/api/content/search":
+			searches++
+		case strings.HasSuffix(request.path, "/child/attachment"):
+			if request.query == "expand=container%2Cextensions%2Cversion&filename=manual.txt&limit=2&start=0" {
+				revalidations++
+			} else {
+				inventories++
+			}
+		case strings.HasPrefix(request.path, "/download/attachments/"):
+			bodies++
+		}
+	}
+	if searches != 2 || inventories != 1 || revalidations != 1 || bodies != 1 {
+		t.Fatalf("requests: searches=%d inventories=%d revalidations=%d bodies=%d all=%+v", searches, inventories, revalidations, bodies, cs.requests())
+	}
+}

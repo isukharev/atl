@@ -7,7 +7,9 @@ incremental refresh, render migration, or bounded request scheduling. Keep
 ## Select and establish the mirror
 
 Use one stable id/CQL/space selector and one absolute root. Add assets/comments
-only when the task needs them. Ordinary selectors have documented caps; never
+only when the task needs them. Attachment inventory is a separate complete-pull
+policy and needs explicit per-page pagination and item caps; attachment bodies
+also need an exact MIME allowlist and byte caps. Ordinary selectors have documented caps; never
 treat `truncated:true` as complete absence evidence.
 
 ```bash
@@ -16,7 +18,8 @@ atl conf pull --id <id> --assets --into <absolute-root>
 # add --comments only when comment context is required
 ```
 
-Every pull result has stable `assets` and `comments` include rows. Read
+Every pull result has stable `assets` and `comments` include rows; requested
+complete-pull attachments append an `attachments` row. Read
 `requested` and `qualification` first; `complete` is proof-only and is omitted
 until work has actually proved complete or incomplete. Omitted flags are
 `not_requested`. Requested dry-run work is `deferred` with
@@ -79,6 +82,11 @@ export ATL_READ_ONLY=1
 atl conf pull --complete --cql '<stable CQL without ORDER BY>' --into <absolute-root>
 # interrupted run: repeat the exact command
 atl conf pull --complete --cql '<same stable CQL>' --into <absolute-root>
+
+# attachment inventory is explicit and bounded for every selected page
+atl conf pull --complete --cql '<same stable CQL>' --into <absolute-root> \
+  --attachments --max-attachment-pages-per-page <pages> \
+  --max-attachments-per-page <items>
 ```
 
 Complete mode performs two exhaustive metadata passes and requires the same
@@ -97,6 +105,31 @@ After reviewing backend capacity, the same `--page-prefetch 2..8` and optionally
 values. The shared scheduler covers Confluence and optional Jira-macro reads,
 redirects, retries, streams, and `Retry-After`; never add shell parallelism.
 Mirror mutation and checkpoints remain serial/canonical.
+
+The default stops before an accepted page when requested comment/thread or
+attachment inventory/body evidence is incomplete. The legacy anchor-only comment
+detail remains recorded but does not itself block progress. Use
+`--allow-partial-artifacts` only when an explicitly partial sidecar is useful:
+it is hash-bound, records `partial,complete:false`, and never proves absent
+comments or attachments.
+The attachment-body aggregate cap is restored from the accepted private prefix
+before a resume reads another page; it is one clone-wide cap, not a new allowance
+per invocation. Public complete pulls cap that aggregate at 64 MiB and retain
+at most 512 eligible bodies per page. Before opening a body, atl reserves the
+exact core, staged-asset, Jira-macro, and relocation tombstone bytes; the preflighted attachment-sidecar
+upper bound; and ownership-proven retirements in that atomic page transaction.
+Strict mode stops before opening any body for an over-count or over-byte page;
+partial mode records the deterministic retained prefix and `count_limit` or
+`aggregate_limit`.
+Each binary selector is immediately revalidated against the inventory ID, but
+the metadata and binary requests are not an atomic backend snapshot. A changed
+or ambiguous selector stops the strict page; only the explicit partial policy
+may retain a failed sidecar record.
+A complete pull without `--attachments` atomically retires an earlier
+ownership-proven attachment capture when its replacement page would make that
+evidence stale. A normal or incremental refresh, including a page relocation,
+stops before writing in that case; rerun it with `--complete` rather than
+creating a new page identity beside old body evidence.
 
 ## Incremental refresh
 

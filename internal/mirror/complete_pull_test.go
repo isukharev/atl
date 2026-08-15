@@ -25,10 +25,48 @@ func appendCompletePullJournalForTest(m *Mirror, checkpoint CompletePullCheckpoi
 	if err != nil {
 		return err
 	}
-	if err := m.PrepareCompletePullPublication(checkpoint, index, entry, true, []CompletePullArtifact{
+	artifacts := []CompletePullArtifact{
 		{Path: mustArtifactPath(entry.State.Path), Data: body, Mode: 0o644},
 		{Path: mustArtifactPath(confluenceCompletePullBasePath(entry)), Data: body, Mode: 0o600},
-	}, nil); err != nil {
+	}
+	if _, requested, err := confluenceCompletePullAttachmentEvidence(entry); err != nil {
+		return err
+	} else if requested {
+		stem, stemErr := confluenceCompletePullAttachmentStem(entry)
+		if stemErr != nil {
+			return stemErr
+		}
+		metadata, metadataErr := safepath.ReadFileWithin(m.Root, filepath.Join(m.Root, filepath.FromSlash(stem+".meta.json")))
+		if metadataErr != nil {
+			return metadataErr
+		}
+		binding := BackendBinding{Service: CorpusSnapshotConfluence, OriginSHA256: "sha256:" + Hash([]byte("complete-pull attachment fixture origin"))}
+		// The lightweight fixture does not run through the application binding
+		// path, so establish its deterministic test binding before supplying a
+		// sidecar that correctly refers to it.
+		if _, bindErr := m.BindBackend(binding); bindErr != nil {
+			return bindErr
+		}
+		sidecar, encodeErr := EncodeAttachmentSidecarV1(AttachmentSidecarV1{
+			SchemaVersion: AttachmentSidecarSchemaV1, Service: CorpusSnapshotConfluence,
+			OriginSHA256: binding.OriginSHA256, ParentID: entry.State.ID, ParentVersion: entry.State.Version,
+			NativeSHA256: entry.State.Hash, MetadataSHA256: Hash(metadata), InventoryComplete: true,
+			BodiesState: AttachmentBodiesPartial, Complete: false,
+			PartialReasons: []AttachmentPartialReason{AttachmentReasonBodyCountLimit},
+			Attachments: []AttachmentSidecarRecord{{
+				ID: "7", Version: 1, Filename: "fixture.bin", DeclaredSize: 1,
+				Body: AttachmentSidecarBody{State: AttachmentBodyExcluded, Reason: AttachmentBodyReasonCountLimit},
+			}}, Count: 1,
+		})
+		if encodeErr != nil {
+			return encodeErr
+		}
+		artifacts = append(artifacts,
+			CompletePullArtifact{Path: mustArtifactPath(stem + ".meta.json"), Data: metadata, Mode: 0o644},
+			CompletePullArtifact{Path: mustArtifactPath(stem + ".attachments.json"), Data: sidecar, Mode: 0o600},
+		)
+	}
+	if err := m.PrepareCompletePullPublication(checkpoint, index, entry, true, artifacts, nil); err != nil {
 		return err
 	}
 	return m.RecoverCompletePullPublication(checkpoint.SelectorSHA256, checkpoint, true)
@@ -396,6 +434,44 @@ func TestCompletePullJournalIsPrivateBoundedAndConsecutive(t *testing.T) {
 	large.View.FieldViews = []FieldViewState{{ID: strings.Repeat("x", maxCompletePullJournalBytes)}}
 	if err := appendCompletePullJournalForTest(m2, checkpoint2, 0, large); !errors.Is(err, domain.ErrCheckFailed) {
 		t.Fatalf("byte bound error=%v", err)
+	}
+}
+
+func TestReadCompletePullFileRejectsUnsafeOrOversizedStateBeforeDecode(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "state.json")
+	if err := os.WriteFile(path, []byte("exact"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, found, err := readCompletePullFile(root, path, len("exact")); err != nil || !found || string(got) != "exact" {
+		t.Fatalf("exact bounded read got=%q found=%t err=%v", got, found, err)
+	}
+	if err := os.WriteFile(path, []byte("overflow"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := readCompletePullFile(root, path, len("exact")); found || !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("oversized state found=%t err=%v", found, err)
+	}
+	if _, found, err := readCompletePullFile(root, path, -1); found || !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("negative bound found=%t err=%v", found, err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := readCompletePullFile(root, path, len("overflow")); found || !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("non-private state found=%t err=%v", found, err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := readCompletePullFile(root, path, 16); found || !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("non-regular state found=%t err=%v", found, err)
 	}
 }
 

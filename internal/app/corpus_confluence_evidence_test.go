@@ -18,18 +18,45 @@ import (
 
 type confluenceCorpusEvidenceStore struct {
 	*completePullStore
-	inventory      domain.AttachmentInventory
-	inventoryErr   error
-	bodyErr        error
-	comments       domain.ConfluenceCommentInventory
-	commentErr     error
-	body           string
-	identity       domain.ConfluenceUserIdentity
-	metaVersion    int
-	driftAfterRead bool
-	inventoryReads int
-	bodyReads      int
-	commentReads   int
+	inventory       domain.AttachmentInventory
+	inventoryErr    error
+	bodyErr         error
+	revalidateErr   error
+	comments        domain.ConfluenceCommentInventory
+	commentErr      error
+	body            string
+	identity        domain.ConfluenceUserIdentity
+	metaVersion     int
+	driftAfterRead  bool
+	inventoryReads  int
+	revalidateReads int
+	bodyReads       int
+	commentReads    int
+}
+
+// duplicateConfluenceAttachmentSelectorStore models the filename/version
+// ambiguity that the Confluence binary route cannot express directly. Its
+// selector revalidation deliberately resolves both inventory rows to the
+// first attachment; the capture path must refuse to publish that second body
+// under a different inventory ID.
+type duplicateConfluenceAttachmentSelectorStore struct {
+	*confluenceCorpusEvidenceStore
+}
+
+func (store *duplicateConfluenceAttachmentSelectorStore) RevalidateAttachmentDownload(
+	ctx context.Context,
+	pageID, filename string,
+	version int,
+) (domain.ConfluenceAttachmentDownloadEvidence, error) {
+	store.revalidateReads++
+	if domain.ReadBudgetFromContext(ctx) == nil || !domain.SingleAttempt(ctx) || pageID != "10" || filename != "a.bin" || version != 2 {
+		return domain.ConfluenceAttachmentDownloadEvidence{}, errors.New("unexpected attachment download revalidation")
+	}
+	attachment := store.inventory.Attachments[0]
+	return domain.ConfluenceAttachmentDownloadEvidence{
+		AttachmentID: attachment.ID, PageID: pageID, Filename: filename,
+		Version: attachment.Version, FileSize: attachment.FileSize,
+	}, nil
 }
 
 func (store *confluenceCorpusEvidenceStore) CurrentConfluenceUser(context.Context) (domain.ConfluenceUserIdentity, error) {
@@ -38,7 +65,8 @@ func (store *confluenceCorpusEvidenceStore) CurrentConfluenceUser(context.Contex
 
 func (store *confluenceCorpusEvidenceStore) ListConfluenceComments(_ context.Context, id string, options domain.ConfluenceCommentReadOptions) (domain.ConfluenceCommentInventory, error) {
 	store.commentReads++
-	if id != "10" || options.MaxPages != 2 || options.MaxItems != 10 || options.ParentVersion != 3 {
+	validLimits := options.MaxPages == 2 && options.MaxItems == 10 || options.MaxPages == 0 && options.MaxItems == 0
+	if id != "10" || options.ParentVersion != 3 || !validLimits {
 		return domain.ConfluenceCommentInventory{}, errors.New("unexpected comment qualification")
 	}
 	return store.comments, store.commentErr
@@ -58,6 +86,24 @@ func (store *confluenceCorpusEvidenceStore) ListAttachmentsQualifiedBounded(_ co
 		return domain.AttachmentInventory{}, errors.New("unexpected attachment qualification")
 	}
 	return store.inventory, store.inventoryErr
+}
+
+func (store *confluenceCorpusEvidenceStore) RevalidateAttachmentDownload(ctx context.Context, pageID, filename string, version int) (domain.ConfluenceAttachmentDownloadEvidence, error) {
+	store.revalidateReads++
+	if domain.ReadBudgetFromContext(ctx) == nil || !domain.SingleAttempt(ctx) || pageID != "10" || filename != "a.bin" || version != 2 {
+		return domain.ConfluenceAttachmentDownloadEvidence{}, errors.New("unexpected attachment download revalidation")
+	}
+	if store.revalidateErr != nil {
+		return domain.ConfluenceAttachmentDownloadEvidence{}, store.revalidateErr
+	}
+	if len(store.inventory.Attachments) == 0 {
+		return domain.ConfluenceAttachmentDownloadEvidence{}, domain.ErrNotFound
+	}
+	attachment := store.inventory.Attachments[0]
+	return domain.ConfluenceAttachmentDownloadEvidence{
+		AttachmentID: attachment.ID, PageID: pageID, Filename: filename,
+		Version: attachment.Version, FileSize: attachment.FileSize,
+	}, nil
 }
 
 func (store *confluenceCorpusEvidenceStore) DownloadAttachment(_ context.Context, pageID, filename string, version int) (io.ReadCloser, error) {
@@ -114,8 +160,8 @@ func TestConfluenceCompletePullPublishesQualifiedAttachmentEvidence(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Complete == nil || !result.Complete.Complete || store.inventoryReads != 1 || store.bodyReads != 1 {
-		t.Fatalf("result=%+v reads=%d/%d", result.Complete, store.inventoryReads, store.bodyReads)
+	if result.Complete == nil || !result.Complete.Complete || store.inventoryReads != 1 || store.revalidateReads != 1 || store.bodyReads != 1 {
+		t.Fatalf("result=%+v reads=%d/%d/%d", result.Complete, store.inventoryReads, store.revalidateReads, store.bodyReads)
 	}
 	if len(result.Pages) != 1 {
 		t.Fatalf("pages=%+v", result.Pages)
@@ -136,6 +182,203 @@ func TestConfluenceCompletePullPublishesQualifiedAttachmentEvidence(t *testing.T
 	}
 }
 
+func TestConfluenceCompletePullRetiresStaleCapturedAttachmentBodies(t *testing.T) {
+	root := t.TempDir()
+	store := newConfluenceCorpusEvidenceStore()
+	svc := &ConfluenceService{store: store, baseURL: confluenceTestBackendURL}
+	first, err := svc.Pull(t.Context(), PullOpts{
+		Complete: true, Space: "DOC", MaxPages: 1, Into: root,
+		evidence: confluenceCorpusEvidenceOptions(false),
+	})
+	if err != nil || len(first.Pages) != 1 {
+		t.Fatalf("first=%+v error=%v", first, err)
+	}
+	stem := strings.TrimSuffix(filepath.Join(root, filepath.FromSlash(first.Pages[0].Path)), ".csf")
+	firstSidecar, decodeErr := func() (mirror.AttachmentSidecarV1, error) {
+		data, readErr := os.ReadFile(stem + ".attachments.json")
+		if readErr != nil {
+			return mirror.AttachmentSidecarV1{}, readErr
+		}
+		return mirror.DecodeAttachmentSidecarV1(data)
+	}()
+	if decodeErr != nil || len(firstSidecar.Attachments) != 1 || firstSidecar.Attachments[0].Body.State != mirror.AttachmentBodyCaptured {
+		t.Fatalf("first sidecar=%+v error=%v", firstSidecar, decodeErr)
+	}
+	oldBody := filepath.Join(root, filepath.FromSlash(firstSidecar.Attachments[0].Body.Path))
+	if _, statErr := os.Stat(oldBody); statErr != nil {
+		t.Fatal(statErr)
+	}
+
+	// A later recrawl sees the same attachment inventory but no longer accepts
+	// its MIME type. The new sidecar is qualified evidence of that exclusion;
+	// the older captured body must not survive beside it.
+	store.completePullStore.pullStore.pages["10"].Version = 4
+	store.completePullStore.pullStore.pages["10"].Body = []byte("<p>updated</p>")
+	store.metaVersion = 4
+	store.inventory.Attachments[0].MediaType = "application/x-not-captured"
+	store.searchSequence = []domain.PageSearchPage{completeSearchPage("10"), completeSearchPage("10")}
+	second, err := svc.Pull(t.Context(), PullOpts{
+		Complete: true, Space: "DOC", MaxPages: 1, Into: root,
+		evidence: confluenceCorpusEvidenceOptions(false),
+	})
+	if err != nil || second == nil || second.Complete == nil || !second.Complete.Complete {
+		t.Fatalf("second=%+v error=%v", second, err)
+	}
+	if _, statErr := os.Stat(oldBody); !os.IsNotExist(statErr) {
+		t.Fatalf("stale attachment body stat=%v", statErr)
+	}
+	data, readErr := os.ReadFile(stem + ".attachments.json")
+	secondSidecar, decodeErr := mirror.DecodeAttachmentSidecarV1(data)
+	if readErr != nil || decodeErr != nil || secondSidecar.ParentVersion != 4 || len(secondSidecar.Attachments) != 1 ||
+		secondSidecar.Attachments[0].Body != (mirror.AttachmentSidecarBody{State: mirror.AttachmentBodyExcluded, Reason: mirror.AttachmentBodyReasonMediaExcluded}) ||
+		store.bodyReads != 1 {
+		t.Fatalf("sidecar=%+v read=%v decode=%v body_reads=%d", secondSidecar, readErr, decodeErr, store.bodyReads)
+	}
+}
+
+func TestConfluenceNonCompletePullRefusesToInvalidatePriorAttachmentCapture(t *testing.T) {
+	root := t.TempDir()
+	store := newConfluenceCorpusEvidenceStore()
+	svc := &ConfluenceService{store: store, baseURL: confluenceTestBackendURL}
+	first, err := svc.Pull(t.Context(), PullOpts{
+		Complete: true, Space: "DOC", MaxPages: 1, Into: root,
+		evidence: confluenceCorpusEvidenceOptions(false),
+	})
+	if err != nil || len(first.Pages) != 1 {
+		t.Fatalf("first=%+v error=%v", first, err)
+	}
+	stem := strings.TrimSuffix(filepath.Join(root, filepath.FromSlash(first.Pages[0].Path)), ".csf")
+	sidecarPath := stem + ".attachments.json"
+	sidecarBytes, readErr := os.ReadFile(sidecarPath)
+	sidecar, decodeErr := mirror.DecodeAttachmentSidecarV1(sidecarBytes)
+	if readErr != nil || decodeErr != nil || len(sidecar.Attachments) != 1 || sidecar.Attachments[0].Body.State != mirror.AttachmentBodyCaptured {
+		t.Fatalf("sidecar=%+v read=%v decode=%v", sidecar, readErr, decodeErr)
+	}
+	bodyPath := filepath.Join(root, filepath.FromSlash(sidecar.Attachments[0].Body.Path))
+	oldNative, nativeErr := os.ReadFile(stem + ".csf")
+	if nativeErr != nil {
+		t.Fatal(nativeErr)
+	}
+
+	// A normal incremental-style refresh has no atomic artifact journal. It
+	// must not make this now-stale capture impossible to retire on a later
+	// complete pull.
+	store.completePullStore.pullStore.pages["10"].Version = 4
+	store.completePullStore.pullStore.pages["10"].Body = []byte("<p>updated</p>")
+	if result, pullErr := svc.Pull(t.Context(), PullOpts{ID: "10", Into: root}); !errors.Is(pullErr, domain.ErrCheckFailed) || result == nil || len(result.Pages) != 0 {
+		t.Fatalf("ordinary result=%+v error=%v", result, pullErr)
+	}
+	if got, statErr := os.ReadFile(stem + ".csf"); statErr != nil || string(got) != string(oldNative) {
+		t.Fatalf("native after refused ordinary refresh=%q error=%v", got, statErr)
+	}
+	if got, statErr := os.ReadFile(bodyPath); statErr != nil || string(got) != "abc" {
+		t.Fatalf("body after refused ordinary refresh=%q error=%v", got, statErr)
+	}
+	if got, statErr := os.ReadFile(sidecarPath); statErr != nil || string(got) != string(sidecarBytes) {
+		t.Fatalf("sidecar after refused ordinary refresh=%q error=%v", got, statErr)
+	}
+
+	// An attachment-free complete pull owns the required atomic retirement.
+	store.metaVersion = 4
+	store.searchSequence = []domain.PageSearchPage{completeSearchPage("10"), completeSearchPage("10")}
+	second, secondErr := svc.Pull(t.Context(), PullOpts{Complete: true, Space: "DOC", MaxPages: 1, Into: root})
+	if secondErr != nil || second == nil || second.Complete == nil || !second.Complete.Complete {
+		t.Fatalf("second=%+v error=%v", second, secondErr)
+	}
+	if _, statErr := os.Stat(bodyPath); !os.IsNotExist(statErr) {
+		t.Fatalf("stale body stat=%v", statErr)
+	}
+	if _, statErr := os.Stat(sidecarPath); !os.IsNotExist(statErr) {
+		t.Fatalf("stale sidecar stat=%v", statErr)
+	}
+	if got, statErr := os.ReadFile(stem + ".csf"); statErr != nil || string(got) != "<p>updated</p>" {
+		t.Fatalf("native after complete retirement=%q error=%v", got, statErr)
+	}
+}
+
+func TestConfluenceNonCompletePullRefusesAttachmentCaptureRelocationBeforeWrite(t *testing.T) {
+	root := t.TempDir()
+	store := newConfluenceCorpusEvidenceStore()
+	svc := &ConfluenceService{store: store, baseURL: confluenceTestBackendURL}
+	first, err := svc.Pull(t.Context(), PullOpts{
+		Complete: true, Space: "DOC", MaxPages: 1, Into: root,
+		evidence: confluenceCorpusEvidenceOptions(false),
+	})
+	if err != nil || len(first.Pages) != 1 {
+		t.Fatalf("first=%+v error=%v", first, err)
+	}
+	m := mirror.New(root)
+	before, found, stateErr := m.SyncStateOf("10")
+	if stateErr != nil || !found {
+		t.Fatalf("initial state=%+v found=%t error=%v", before, found, stateErr)
+	}
+	stem := strings.TrimSuffix(filepath.Join(root, filepath.FromSlash(before.Path)), ".csf")
+	sidecarPath := stem + ".attachments.json"
+	sidecarBytes, sidecarErr := os.ReadFile(sidecarPath)
+	sidecar, decodeErr := mirror.DecodeAttachmentSidecarV1(sidecarBytes)
+	if sidecarErr != nil || decodeErr != nil || len(sidecar.Attachments) != 1 || sidecar.Attachments[0].Body.State != mirror.AttachmentBodyCaptured {
+		t.Fatalf("sidecar=%+v read=%v decode=%v", sidecar, sidecarErr, decodeErr)
+	}
+	bodyPath := filepath.Join(root, filepath.FromSlash(sidecar.Attachments[0].Body.Path))
+
+	// A title move changes the canonical page path. The ordinary pull has no
+	// journal that could bind both the new state and old capture retirement, so
+	// it must stop before either path can be written.
+	page := store.pages["10"]
+	page.Title = "Moved attachment page"
+	page.Version = 4
+	page.Body = []byte("<p>moved</p>")
+	result, pullErr := svc.Pull(t.Context(), PullOpts{ID: "10", Into: root})
+	if !errors.Is(pullErr, domain.ErrCheckFailed) || result == nil || len(result.Pages) != 0 {
+		t.Fatalf("ordinary result=%+v error=%v", result, pullErr)
+	}
+	after, found, stateErr := m.SyncStateOf("10")
+	if stateErr != nil || !found || after != before {
+		t.Fatalf("state after refused relocation=%+v found=%t error=%v want=%+v", after, found, stateErr, before)
+	}
+	if got, readErr := os.ReadFile(stem + ".csf"); readErr != nil || string(got) != "<p>10</p>" {
+		t.Fatalf("native after refused relocation=%q error=%v", got, readErr)
+	}
+	if got, readErr := os.ReadFile(sidecarPath); readErr != nil || string(got) != string(sidecarBytes) {
+		t.Fatalf("sidecar after refused relocation=%q error=%v", got, readErr)
+	}
+	if got, readErr := os.ReadFile(bodyPath); readErr != nil || string(got) != "abc" {
+		t.Fatalf("body after refused relocation=%q error=%v", got, readErr)
+	}
+}
+
+func TestConfluenceCompletePullRefusesFilenameSelectorIdentityMismatch(t *testing.T) {
+	root := t.TempDir()
+	base := newConfluenceCorpusEvidenceStore()
+	base.inventory.Attachments = []domain.Attachment{
+		{ID: "7", Title: "a.bin", MediaType: "application/octet-stream", FileSize: 3, Version: 2, Created: "2026-01-01", AuthorKey: "stable"},
+		{ID: "8", Title: "a.bin", MediaType: "application/octet-stream", FileSize: 3, Version: 2, Created: "2026-01-01", AuthorKey: "stable"},
+	}
+	store := &duplicateConfluenceAttachmentSelectorStore{confluenceCorpusEvidenceStore: base}
+	result, err := (&ConfluenceService{store: store, baseURL: confluenceTestBackendURL}).Pull(t.Context(), PullOpts{
+		Complete: true, Space: "DOC", MaxPages: 1, Into: root,
+		evidence: confluenceCorpusEvidenceOptions(true),
+	})
+	if err != nil || result == nil || result.Complete == nil || !result.Complete.Complete || store.revalidateReads != 2 || store.bodyReads != 1 {
+		t.Fatalf("result=%+v error=%v revalidations=%d body_reads=%d", result, err, store.revalidateReads, store.bodyReads)
+	}
+	attachments := confluencePullInclude(t, result, ConfluencePullIncludeAttachments)
+	if attachments.Qualification != ConfluencePullIncludePartial || attachments.Reason != ConfluencePullIncludeReasonBodyIncomplete {
+		t.Fatalf("attachments=%+v", attachments)
+	}
+	stem := strings.TrimSuffix(filepath.Join(root, filepath.FromSlash(result.Pages[0].Path)), ".csf")
+	data, readErr := os.ReadFile(stem + ".attachments.json")
+	sidecar, decodeErr := mirror.DecodeAttachmentSidecarV1(data)
+	if readErr != nil || decodeErr != nil || len(sidecar.Attachments) != 2 ||
+		sidecar.Attachments[0].ID != "7" || sidecar.Attachments[0].Body.State != mirror.AttachmentBodyCaptured ||
+		sidecar.Attachments[1].ID != "8" || sidecar.Attachments[1].Body != (mirror.AttachmentSidecarBody{State: mirror.AttachmentBodyFailed, Reason: mirror.AttachmentBodyReasonFailed}) {
+		t.Fatalf("sidecar=%+v read=%v decode=%v", sidecar, readErr, decodeErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, filepath.FromSlash(stem+".attachments/8.body"))); !os.IsNotExist(statErr) {
+		t.Fatalf("misbound attachment body stat=%v", statErr)
+	}
+}
+
 func TestConfluenceCompletePullPublishesCombinedCommentsAndAttachments(t *testing.T) {
 	root := t.TempDir()
 	store := newConfluenceCorpusEvidenceStore()
@@ -147,8 +390,8 @@ func TestConfluenceCompletePullPublishesCombinedCommentsAndAttachments(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Complete == nil || !result.Complete.Complete || store.commentReads != 1 || store.inventoryReads != 1 || store.bodyReads != 1 {
-		t.Fatalf("result=%+v reads=%d/%d/%d", result.Complete, store.commentReads, store.inventoryReads, store.bodyReads)
+	if result.Complete == nil || !result.Complete.Complete || store.commentReads != 1 || store.inventoryReads != 1 || store.revalidateReads != 1 || store.bodyReads != 1 {
+		t.Fatalf("result=%+v reads=%d/%d/%d/%d", result.Complete, store.commentReads, store.inventoryReads, store.revalidateReads, store.bodyReads)
 	}
 	comments := confluencePullInclude(t, result, ConfluencePullIncludeComments)
 	if comments.Qualification != ConfluencePullIncludeQualified || comments.Complete == nil || !*comments.Complete {

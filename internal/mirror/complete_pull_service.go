@@ -40,14 +40,14 @@ func completePullJournalSchemaFor(service CompletePullService) int {
 	if service == CompletePullServiceJira {
 		return completePullJiraJournalSchema4
 	}
-	return completePullConfluenceJournalSchema
+	return completePullConfluenceJournalSchema6
 }
 
 func completePullPublicationSchemaFor(service CompletePullService) int {
 	if service == CompletePullServiceJira {
 		return completePullJiraPublicationSchema4
 	}
-	return completePullConfluencePublicationSchema
+	return completePullConfluencePublicationSchema7
 }
 
 func completePullJournalSchemaForEntry(service CompletePullService, entry CompletePullJournalEntry) int {
@@ -56,6 +56,12 @@ func completePullJournalSchemaForEntry(service CompletePullService, entry Comple
 	}
 	if service == CompletePullServiceConfluence && entry.Includes == nil {
 		return completePullJournalSchema
+	}
+	if service == CompletePullServiceConfluence && completePullEntryHasAttachmentEvidence(entry) {
+		return completePullConfluenceJournalSchema6
+	}
+	if service == CompletePullServiceConfluence {
+		return completePullConfluenceJournalSchema
 	}
 	return completePullJournalSchemaFor(service)
 }
@@ -67,21 +73,39 @@ func completePullPublicationSchemaForEntry(service CompletePullService, entry Co
 	if service == CompletePullServiceConfluence && entry.Includes == nil {
 		return completePullPublicationSchema
 	}
+	if service == CompletePullServiceConfluence {
+		return completePullConfluencePublicationSchema7
+	}
 	return completePullPublicationSchemaFor(service)
+}
+
+func completePullEntryHasAttachmentEvidence(entry CompletePullJournalEntry) bool {
+	if entry.Includes == nil {
+		return false
+	}
+	for _, value := range *entry.Includes {
+		if value.Dimension == domain.ConfluencePullIncludeAttachments {
+			return true
+		}
+	}
+	return false
 }
 
 func validCompletePullJournalSchema(service CompletePullService, schema int) bool {
 	if service == CompletePullServiceJira {
 		return schema == completePullJiraJournalSchema || schema == completePullJiraJournalSchema4
 	}
-	return service == CompletePullServiceConfluence && (schema == completePullJournalSchema || schema == completePullConfluenceJournalSchema)
+	return service == CompletePullServiceConfluence && (schema == completePullJournalSchema ||
+		schema == completePullConfluenceJournalSchema || schema == completePullConfluenceJournalSchema6)
 }
 
 func validCompletePullPublicationSchema(service CompletePullService, schema int) bool {
 	if service == CompletePullServiceJira {
 		return schema == completePullJiraPublicationSchema || schema == completePullJiraPublicationSchema4
 	}
-	return service == CompletePullServiceConfluence && (schema == completePullPublicationSchema || schema == completePullConfluencePublicationSchema)
+	return service == CompletePullServiceConfluence && (schema == completePullPublicationSchema ||
+		schema == completePullConfluencePublicationSchema || schema == completePullConfluencePublicationSchema6 ||
+		schema == completePullConfluencePublicationSchema7)
 }
 
 func validateCompletePullConfluenceEntrySchema(schema int, entry CompletePullJournalEntry) error {
@@ -91,6 +115,24 @@ func validateCompletePullConfluenceEntrySchema(schema int, entry CompletePullJou
 			return fmt.Errorf("%w: legacy Confluence complete-pull schema contains future include evidence", domain.ErrCheckFailed)
 		}
 	case completePullConfluenceJournalSchema:
+		if entry.Includes == nil {
+			return fmt.Errorf("%w: current Confluence complete-pull schema omits include evidence", domain.ErrCheckFailed)
+		}
+		for _, value := range *entry.Includes {
+			if !domain.ValidLegacyConfluencePullIncludeEvidence(value) {
+				return fmt.Errorf("%w: legacy Confluence complete-pull schema contains unsupported include evidence", domain.ErrCheckFailed)
+			}
+		}
+		return validateCompletePullIncludeEvidence(*entry.Includes)
+	case completePullConfluenceJournalSchema6:
+		if entry.Includes == nil {
+			return fmt.Errorf("%w: current Confluence complete-pull schema omits include evidence", domain.ErrCheckFailed)
+		}
+		if !completePullEntryHasAttachmentEvidence(entry) {
+			return fmt.Errorf("%w: attachment-aware Confluence complete-pull schema omits attachment evidence", domain.ErrCheckFailed)
+		}
+		return validateCompletePullIncludeEvidence(*entry.Includes)
+	case completePullConfluencePublicationSchema7:
 		if entry.Includes == nil {
 			return fmt.Errorf("%w: current Confluence complete-pull schema omits include evidence", domain.ErrCheckFailed)
 		}
@@ -122,6 +164,13 @@ func completePullProgressSchemaFor(service CompletePullService) int {
 	return completePullConfluenceProgressSchema
 }
 
+func completePullProgressSchemaForCheckpoint(service CompletePullService, includes CompletePullIncludeProgress) int {
+	if service == CompletePullServiceConfluence && includes.Attachments != (CompletePullIncludeAggregate{}) {
+		return completePullConfluenceProgressSchema4
+	}
+	return completePullProgressSchemaFor(service)
+}
+
 func validCompletePullProgressService(checkpoint, progress CompletePullService) bool {
 	return checkpoint == CompletePullServiceConfluence && progress == CompletePullServiceConfluence ||
 		checkpoint == CompletePullServiceJira && progress == CompletePullServiceJira
@@ -129,7 +178,7 @@ func validCompletePullProgressService(checkpoint, progress CompletePullService) 
 
 func staleCompletePullProgressService(checkpoint CompletePullService, progress completePullProgress) bool {
 	return checkpoint == CompletePullServiceJira && progress.SchemaVersion == completePullProgressSchema && progress.Service == "" ||
-		checkpoint == CompletePullServiceJira && progress.SchemaVersion == completePullConfluenceProgressSchema && progress.Service == CompletePullServiceConfluence ||
+		checkpoint == CompletePullServiceJira && (progress.SchemaVersion == completePullConfluenceProgressSchema || progress.SchemaVersion == completePullConfluenceProgressSchema4) && progress.Service == CompletePullServiceConfluence ||
 		checkpoint == CompletePullServiceConfluence && progress.SchemaVersion == completePullJiraProgressSchema && progress.Service == CompletePullServiceJira
 }
 
@@ -331,6 +380,12 @@ func validateCompletePullPublication(intent completePullPublicationIntent, check
 	tempNameBytes := len(completePullJournalTemp(intent.WriteToken)) + len(completePullSidecarTemp(intent.WriteToken)) + len(completePullProgressTemp(intent.WriteToken))
 	writeIndex := 0
 	validate := func(artifact completePullPublicationArtifact) error {
+		if artifact.PreSize != nil && intent.SchemaVersion != completePullConfluencePublicationSchema7 {
+			return fmt.Errorf("bounded publication pre-image requires current Confluence schema")
+		}
+		if intent.SchemaVersion == completePullConfluencePublicationSchema7 && artifact.Pre.Present && artifact.PreSize == nil {
+			return fmt.Errorf("current publication artifact omits its bounded pre-image")
+		}
 		if err := validatePublicationArtifact(intent.Service, intent.Entry, artifact, stageDir, true, intent.WriteToken, writeIndex); err != nil {
 			return err
 		}

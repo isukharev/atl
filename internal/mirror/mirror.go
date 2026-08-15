@@ -289,6 +289,13 @@ type CompletePullArtifact struct {
 	Mode       os.FileMode
 	Remove     bool
 	BestEffort bool
+	// expectedPre is intentionally private: only mirror-owned retirement
+	// planners may bind a deletion to the exact preimage they qualified. The
+	// publisher rechecks it immediately before writing its durable intent, so a
+	// late replacement cannot be removed merely because it appeared at the
+	// same path after qualification.
+	expectedPre     *completePullPublicationPreState
+	expectedPreSize *int64
 }
 
 // PrepareCompletePullView builds every page/base artifact without touching the

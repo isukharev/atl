@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -30,7 +31,7 @@ func corpusAttachmentTestOptions(partial bool) *corpusPullEvidenceOptions {
 
 func corpusAttachmentTestInventory(size int64) domain.AttachmentInventory {
 	return domain.AttachmentInventory{Complete: true, Attachments: []domain.Attachment{{
-		ID: "7", Title: "fixture.bin", MediaType: "application/octet-stream", FileSize: size,
+		ID: "7", Title: "fixture.bin", MediaType: "application/octet-stream", FileSize: size, Version: 1,
 	}}}
 }
 
@@ -107,6 +108,157 @@ func TestCaptureCorpusAttachmentsStrictPolicyRejectsLimit(t *testing.T) {
 	}
 }
 
+func TestCaptureCorpusAttachmentsPreflightsPerParentPublicationCount(t *testing.T) {
+	inventory := domain.AttachmentInventory{Complete: true, Attachments: []domain.Attachment{
+		{ID: "7", Title: "first.bin", MediaType: "application/octet-stream", FileSize: 3},
+		{ID: "8", Title: "second.bin", MediaType: "application/octet-stream", FileSize: 3},
+	}}
+
+	t.Run("strict does not open a prefix", func(t *testing.T) {
+		options := corpusAttachmentTestOptions(false)
+		options.binding.MaxAttachmentBodiesPerItem = 1
+		opened := 0
+		_, err := captureCorpusAttachments(t.Context(), t.TempDir(), mirror.CorpusSnapshotJira, "9", "PROJ/PROJ-1", inventory, options,
+			func(context.Context, domain.Attachment) (io.ReadCloser, error) {
+				opened++
+				return io.NopCloser(strings.NewReader("abc")), nil
+			})
+		if !errors.Is(err, domain.ErrCheckFailed) || opened != 0 {
+			t.Fatalf("error=%v opened=%d", err, opened)
+		}
+	})
+
+	t.Run("partial records the deterministic bounded subset", func(t *testing.T) {
+		options := corpusAttachmentTestOptions(true)
+		options.binding.MaxAttachmentBodiesPerItem = 1
+		opened := 0
+		capture, err := captureCorpusAttachments(t.Context(), t.TempDir(), mirror.CorpusSnapshotJira, "9", "PROJ/PROJ-1", inventory, options,
+			func(_ context.Context, attachment domain.Attachment) (io.ReadCloser, error) {
+				opened++
+				if attachment.ID != "7" {
+					t.Fatalf("opened out-of-plan attachment %q", attachment.ID)
+				}
+				return io.NopCloser(strings.NewReader("abc")), nil
+			})
+		if err != nil || opened != 1 || capture.bodiesState != mirror.AttachmentBodiesPartial || len(capture.records) != 2 ||
+			capture.records[0].Body.State != mirror.AttachmentBodyCaptured ||
+			capture.records[1].Body != (mirror.AttachmentSidecarBody{State: mirror.AttachmentBodyExcluded, Reason: mirror.AttachmentBodyReasonCountLimit}) {
+			t.Fatalf("capture=%+v error=%v opened=%d", capture, err, opened)
+		}
+	})
+
+	t.Run("zero transaction slots never open a body", func(t *testing.T) {
+		inventory := corpusAttachmentTestInventory(3)
+		for _, partial := range []bool{false, true} {
+			t.Run(map[bool]string{false: "strict", true: "partial"}[partial], func(t *testing.T) {
+				options := corpusAttachmentTestOptions(partial)
+				opened := 0
+				capture, err := captureCorpusAttachmentsWithBodyLimit(t.Context(), t.TempDir(), mirror.CorpusSnapshotJira, "9", "PROJ/PROJ-1", inventory, options, 0, true, 0, false,
+					func(context.Context, domain.Attachment) (io.ReadCloser, error) {
+						opened++
+						return io.NopCloser(strings.NewReader("abc")), nil
+					})
+				if !partial {
+					if !errors.Is(err, domain.ErrCheckFailed) || opened != 0 {
+						t.Fatalf("error=%v opened=%d", err, opened)
+					}
+					return
+				}
+				if err != nil || opened != 0 || capture.bodiesState != mirror.AttachmentBodiesPartial || len(capture.records) != 1 ||
+					capture.records[0].Body != (mirror.AttachmentSidecarBody{State: mirror.AttachmentBodyExcluded, Reason: mirror.AttachmentBodyReasonCountLimit}) {
+					t.Fatalf("capture=%+v error=%v opened=%d", capture, err, opened)
+				}
+			})
+		}
+	})
+
+	t.Run("per-parent byte envelope never opens an unstaged strict prefix", func(t *testing.T) {
+		inventory := domain.AttachmentInventory{Complete: true, Attachments: []domain.Attachment{
+			{ID: "7", Version: 1, Title: "first.bin", MediaType: "application/octet-stream", FileSize: 3},
+			{ID: "8", Version: 1, Title: "second.bin", MediaType: "application/octet-stream", FileSize: 3},
+		}}
+		for _, partial := range []bool{false, true} {
+			t.Run(map[bool]string{false: "strict", true: "partial"}[partial], func(t *testing.T) {
+				options := corpusAttachmentTestOptions(partial)
+				opened := 0
+				capture, err := captureCorpusAttachmentsWithBodyLimit(
+					t.Context(), t.TempDir(), mirror.CorpusSnapshotConfluence, "9", "items/one", inventory,
+					options, 2, true, 3, true,
+					func(context.Context, domain.Attachment) (io.ReadCloser, error) {
+						opened++
+						return io.NopCloser(strings.NewReader("abc")), nil
+					},
+				)
+				if !partial {
+					if !errors.Is(err, domain.ErrCheckFailed) || opened != 0 {
+						t.Fatalf("error=%v opened=%d", err, opened)
+					}
+					return
+				}
+				if err != nil || opened != 1 || capture.bodiesState != mirror.AttachmentBodiesPartial || len(capture.records) != 2 ||
+					capture.records[0].Body.State != mirror.AttachmentBodyCaptured ||
+					capture.records[1].Body != (mirror.AttachmentSidecarBody{State: mirror.AttachmentBodyExcluded, Reason: mirror.AttachmentBodyReasonAggregateLimit}) {
+					t.Fatalf("capture=%+v error=%v opened=%d", capture, err, opened)
+				}
+			})
+		}
+	})
+
+	t.Run("restored aggregate envelope never opens an unstaged strict prefix", func(t *testing.T) {
+		inventory := domain.AttachmentInventory{Complete: true, Attachments: []domain.Attachment{
+			{ID: "7", Version: 1, Title: "first.bin", MediaType: "application/octet-stream", FileSize: 3},
+			{ID: "8", Version: 1, Title: "second.bin", MediaType: "application/octet-stream", FileSize: 3},
+		}}
+		for _, partial := range []bool{false, true} {
+			t.Run(map[bool]string{false: "strict", true: "partial"}[partial], func(t *testing.T) {
+				options := corpusAttachmentTestOptions(partial)
+				// This models a resumed complete pull whose accepted durable prefix
+				// already consumed 60 of its 64-byte aggregate policy.
+				options.binding.MaxTotalAttachmentBytes = 64
+				options.budget.maximum = 64
+				options.budget.reserved = 60
+				opened := 0
+				capture, err := captureCorpusAttachmentsWithBodyLimit(
+					t.Context(), t.TempDir(), mirror.CorpusSnapshotConfluence, "9", "items/one", inventory,
+					options, 2, true, 64, true,
+					func(context.Context, domain.Attachment) (io.ReadCloser, error) {
+						opened++
+						return io.NopCloser(strings.NewReader("abc")), nil
+					},
+				)
+				if !partial {
+					if !errors.Is(err, domain.ErrCheckFailed) || opened != 0 || options.budget.usage() != 60 {
+						t.Fatalf("error=%v opened=%d usage=%d", err, opened, options.budget.usage())
+					}
+					return
+				}
+				if err != nil || opened != 1 || options.budget.usage() != 63 || capture.bodiesState != mirror.AttachmentBodiesPartial || len(capture.records) != 2 ||
+					capture.records[0].Body.State != mirror.AttachmentBodyCaptured ||
+					capture.records[1].Body != (mirror.AttachmentSidecarBody{State: mirror.AttachmentBodyExcluded, Reason: mirror.AttachmentBodyReasonAggregateLimit}) {
+					t.Fatalf("capture=%+v error=%v opened=%d usage=%d", capture, err, opened, options.budget.usage())
+				}
+			})
+		}
+	})
+
+	t.Run("item policy never opens an earlier strict sibling", func(t *testing.T) {
+		inventory := domain.AttachmentInventory{Complete: true, Attachments: []domain.Attachment{
+			{ID: "7", Version: 1, Title: "first.bin", MediaType: "application/octet-stream", FileSize: 3},
+			{ID: "8", Version: 1, Title: "oversized.bin", MediaType: "application/octet-stream", FileSize: 9},
+		}}
+		options := corpusAttachmentTestOptions(false)
+		opened := 0
+		_, err := captureCorpusAttachments(t.Context(), t.TempDir(), mirror.CorpusSnapshotConfluence, "9", "items/one", inventory, options,
+			func(context.Context, domain.Attachment) (io.ReadCloser, error) {
+				opened++
+				return io.NopCloser(strings.NewReader("abc")), nil
+			})
+		if !errors.Is(err, domain.ErrCheckFailed) || opened != 0 || options.budget.usage() != 0 {
+			t.Fatalf("error=%v opened=%d usage=%d", err, opened, options.budget.usage())
+		}
+	})
+}
+
 func TestCaptureCorpusAttachmentsRecordsStreamFailuresOnlyInPartialMode(t *testing.T) {
 	for name, test := range map[string]struct {
 		reader     io.ReadCloser
@@ -166,6 +318,11 @@ func TestCaptureCorpusAttachmentsQualifiesEveryInventoryOutcome(t *testing.T) {
 			options := corpusAttachmentTestOptions(true)
 			options.binding.AttachmentBodies = false
 			inventory := corpusAttachmentTestInventory(3)
+			if test.service == mirror.CorpusSnapshotConfluence {
+				// Confluence sidecars bind every listed row to a positive
+				// download-selector version, even for inventory-only evidence.
+				inventory.Attachments[0].Version = 1
+			}
 			inventory.Complete = false
 			inventory.PartialReason = test.reason
 			capture, err := captureCorpusAttachments(t.Context(), t.TempDir(), test.service, "9", "items/one", inventory, options,
@@ -246,6 +403,84 @@ func TestCaptureCorpusAttachmentsRejectsUnavailableInputsAndUnsafeIdentity(t *te
 			return io.NopCloser(strings.NewReader("abc")), nil
 		}); err == nil {
 		t.Fatal("unsafe attachment identity was accepted")
+	}
+}
+
+func TestCaptureCorpusAttachmentsRejectsUnrepresentableConfluenceInventoryBeforeOpening(t *testing.T) {
+	for name, mutate := range map[string]func(*domain.AttachmentInventory){
+		"unversioned legacy row": func(inventory *domain.AttachmentInventory) {
+			inventory.Complete = false
+			inventory.PartialReason = domain.AttachmentPartialLegacyUnqualified
+			inventory.Attachments[0].Version = 0
+		},
+		"opaque attachment id": func(inventory *domain.AttachmentInventory) {
+			inventory.Attachments[0].ID = "att_opaque-1"
+		},
+		"uint64 overflow attachment id": func(inventory *domain.AttachmentInventory) {
+			inventory.Attachments[0].ID = strings.Repeat("9", 64)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			inventory := corpusAttachmentTestInventory(3)
+			mutate(&inventory)
+			opened := 0
+			_, err := captureCorpusAttachments(t.Context(), t.TempDir(), mirror.CorpusSnapshotConfluence, "9", "items/one", inventory,
+				corpusAttachmentTestOptions(true), func(context.Context, domain.Attachment) (io.ReadCloser, error) {
+					opened++
+					return io.NopCloser(strings.NewReader("abc")), nil
+				})
+			if !errors.Is(err, domain.ErrCheckFailed) || opened != 0 {
+				t.Fatalf("error=%v opened=%d", err, opened)
+			}
+		})
+	}
+}
+
+func TestCaptureCorpusAttachmentsRejectsConfluenceSidecarMetadataBeforeOpening(t *testing.T) {
+	for name, mutate := range map[string]func(*domain.Attachment){
+		"whitespace filename": func(attachment *domain.Attachment) { attachment.Title = " \t" },
+		"overlong binary selector filename": func(attachment *domain.Attachment) {
+			attachment.Title = strings.Repeat("x", 256)
+		},
+		"invalid UTF-8 author":       func(attachment *domain.Attachment) { attachment.Author = string([]byte{0xff}) },
+		"overlong created timestamp": func(attachment *domain.Attachment) { attachment.Created = strings.Repeat("x", (64<<10)+1) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			inventory := corpusAttachmentTestInventory(3)
+			inventory.Attachments[0].Version = 1
+			mutate(&inventory.Attachments[0])
+			opened := 0
+			_, err := captureCorpusAttachments(t.Context(), t.TempDir(), mirror.CorpusSnapshotConfluence, "9", "items/one", inventory,
+				corpusAttachmentTestOptions(true), func(context.Context, domain.Attachment) (io.ReadCloser, error) {
+					opened++
+					return io.NopCloser(strings.NewReader("abc")), nil
+				})
+			if !errors.Is(err, domain.ErrCheckFailed) || opened != 0 {
+				t.Fatalf("error=%v opened=%d", err, opened)
+			}
+		})
+	}
+}
+
+func TestCaptureCorpusAttachmentsRejectsOversizedConfluenceSidecarBeforeOpening(t *testing.T) {
+	const count = 257 // 257 × 64 KiB valid fields exceed the 16 MiB sidecar cap.
+	inventory := domain.AttachmentInventory{Complete: true, Attachments: make([]domain.Attachment, 0, count)}
+	for index := 0; index < count; index++ {
+		inventory.Attachments = append(inventory.Attachments, domain.Attachment{
+			ID: fmt.Sprintf("%d", index+1), Version: 1, Title: "fixture.bin", FileSize: 0,
+			Created: strings.Repeat("x", 64<<10),
+		})
+	}
+	options := corpusAttachmentTestOptions(true)
+	options.binding.AttachmentBodies = false
+	opened := 0
+	_, err := captureCorpusAttachments(t.Context(), t.TempDir(), mirror.CorpusSnapshotConfluence, "9", "items/one", inventory, options,
+		func(context.Context, domain.Attachment) (io.ReadCloser, error) {
+			opened++
+			return io.NopCloser(strings.NewReader("")), nil
+		})
+	if !errors.Is(err, domain.ErrCheckFailed) || opened != 0 {
+		t.Fatalf("error=%v opened=%d", err, opened)
 	}
 }
 

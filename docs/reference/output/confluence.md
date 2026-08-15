@@ -620,8 +620,11 @@ raw cause remains non-unwrappable and no category includes cause text.
 objects. Each carries `id`, `title`, `path`, `version`, `assets`, and — only when
 `--comments` was passed — a `comments` count (omitted otherwise, so the shape is
 unchanged without the flag; an explicit `"comments": 0` means the fetch ran and
-found none, distinguishable from "not fetched"). The top-level `includes`
-array is always present in stable `assets`, `comments` order:
+found none, distinguishable from "not fetched"). A complete pull with requested
+`--attachments` likewise adds an `attachments` count: on a partial inventory it
+is only the retained observed prefix, not a total. The top-level `includes`
+array is always present in stable `assets`, `comments` order; requested
+attachments append a third row:
 
 ```json
 {
@@ -639,9 +642,10 @@ array is always present in stable `assets`, `comments` order:
 `qualification` is from the closed set `not_requested`, `deferred`,
 `qualified`, `partial`, or `failed`. `complete` is omitted until actual work
 proves coverage or proves it incomplete. Preview leaves requested
-assets/comments `deferred`, omits `complete`, sets
-`reason:preview_deferred`, and makes no comment-list or asset-download GET.
-Actual pulls aggregate each dimension across all selected pages:
+assets/comments/attachments `deferred`, omits `complete`, sets
+`reason:preview_deferred`, and makes no comment-list, asset-download,
+attachment-inventory, or attachment-body GET.
+Actual pulls aggregate each requested dimension across all selected pages:
 `qualified,complete:true` proves coverage; `partial,complete:false` uses
 `resolution_incomplete`, `inventory_incomplete`, or `not_attempted`; and
 `failed,complete:false` uses `read_failed` or `staging_failed`. No backend text
@@ -651,13 +655,54 @@ output carries the same fields on stable `include:` lines. A clean actual result
 continues to omit `local_safety`; this array does not manufacture a safety
 refusal.
 
+`attachments` exists only for an explicitly bounded complete-pull attachment
+policy. Its inventory is recorded in the versioned `<slug>.attachments.json`
+sidecar and binds the parent id/version plus native and metadata hashes. With
+`--attachment-bodies`, only exact allowlisted media types can be streamed into
+the contained, hash-bound `<slug>.attachments/` tree; result JSON exposes neither filenames
+nor body paths. Inventory/body incompleteness is `partial,complete:false`; body
+selection or budget incompleteness uses the attachment-only
+`reason:"body_incomplete"`. The default complete-pull policy stops before that
+page's durable acceptance for incomplete comment/thread or attachment evidence.
+The CLI rejects inventory caps above 100 list pages or 10,000 records per page,
+and body caps above 64 MiB per body or 64 MiB in aggregate; the aggregate cap
+must be at least the per-body cap. Each atomic page publication captures at
+most 512 eligible bodies. Before any body GET, atl reserves the exact core
+page, staged-asset, Jira-macro, and relocation tombstone bytes; the preflighted attachment-sidecar
+upper bound; and ownership-proven retirement entries in that page's
+transaction. Strict mode refuses an over-count or over-byte page before any
+body GET; partial mode records the canonical retained prefix and
+`count_limit` or `aggregate_limit` exclusions. Before each body GET, the filename/version selector
+is revalidated against the exact inventory ID; an ambiguous or changed selector
+stops the default strict page and becomes qualified partial failure only with
+`--allow-partial-artifacts`, never a body claimed for another ID.
+`--allow-partial-artifacts` is the only opt-in that retains such sidecars and
+allows the page snapshot to complete; it never upgrades the include or sidecar
+to `complete:true`. The pre-existing anchor-only comment qualification remains a
+partial detail rather than an implicit completeness claim.
+
+For attachment bodies, the private accepted-prefix aggregate is restored before
+the remaining pages are read. Thus `max_total_attachment_bytes` is a cap for one
+complete clone, including a resumed prefix, rather than a fresh allowance on
+every invocation.
+
+On a requested attachment recapture, replacement sidecar/body publication also
+retires only ownership-proven prior body files that it no longer retains. A
+complete pull without `--attachments` retires an ownership-proven prior capture
+when the replacement page would invalidate it. A non-complete refresh,
+including one that relocates the page, instead fails before any write and
+directs the caller to `--complete`; it never leaves a new page identity beside
+stale capture evidence.
+
 Evidence becomes `qualified` or `partial` only after the page and every staged
 artifact for that dimension are durably published. A comment-sidecar, asset,
-page, or shared batch publication failure demotes the dimensions staged for the
+attachment-sidecar/body, page, or shared batch publication failure demotes the dimensions staged for the
 affected page to `failed/staging_failed` before the non-zero result is emitted.
 Complete-pull progress and journals persist a versioned content-free aggregate
-for the durable prefix. Current state restores it across resume; legacy state
-with an accepted prefix but no include evidence is explicitly
+for the durable prefix. Attachment-free current state keeps the existing
+progress/journal encoding; attachment evidence uses its next version. Current
+state restores it across resume; legacy state with an accepted prefix but no
+include evidence is explicitly
 `partial/not_attempted`, never fabricated as complete.
 
 Both pull families add `local_safety` only for `--dry-run`, an explicit native

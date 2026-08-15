@@ -34,6 +34,11 @@ type PageRelocation struct {
 type pageRelocationArtifact struct {
 	path string
 	hash string
+	size int64
+	// mode is zero for the established public primary artifacts. Qualified
+	// attachment capture artifacts are private evidence and must stay regular
+	// 0600 files from planning through their final removal.
+	mode os.FileMode
 }
 
 type relocationTombstone struct {
@@ -106,12 +111,17 @@ func (m *Mirror) PlanPageRelocation(id, newRel string, pristineMD []byte) (*Page
 	if missing == len(oldPrimary) {
 		// The user may deliberately clean an obsolete page directory after a
 		// remote title/move. With no primary bytes left to preserve or prove,
-		// allow the pull to establish the replacement path and repair state.json.
+		// allow the pull to establish the replacement path and repair state.json
+		// only if no attachment evidence remains. A sidecar or body would no
+		// longer have the old native/metadata proof needed for safe retirement.
 		// A removed directory has no retained bytes to reserve; an existing one
 		// still needs the same ownership tombstone as a normal relocation.
-		if _, dirErr := safepath.ReadDirWithin(m.Root, filepath.Dir(oldCSF)); os.IsNotExist(dirErr) {
+		if err := m.rejectUnprovedConfluenceAttachmentResidue(strings.TrimSuffix(oldCSF, ".csf")); err != nil {
+			return nil, err
+		}
+		if info, dirErr := safepath.StatWithin(m.Root, filepath.Dir(oldCSF)); os.IsNotExist(dirErr) {
 			return nil, nil
-		} else if dirErr != nil {
+		} else if dirErr != nil || !info.IsDir() {
 			return nil, fmt.Errorf("%w: inspect abandoned relocation directory %s: %v", domain.ErrCheckFailed, filepath.Dir(oldCSF), dirErr)
 		}
 		return &PageRelocation{
@@ -159,11 +169,31 @@ func (m *Mirror) PlanPageRelocation(id, newRel string, pristineMD []byte) (*Page
 	return plan, nil
 }
 
+func (m *Mirror) rejectUnprovedConfluenceAttachmentResidue(oldBase string) error {
+	sidecarPath := oldBase + ".attachments.json"
+	if _, err := safepath.StatWithin(m.Root, sidecarPath); err == nil {
+		return fmt.Errorf("%w: old Confluence attachment sidecar lacks primary ownership evidence; preserve and reconcile it before relocation", domain.ErrCheckFailed)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("%w: inspect old Confluence attachment sidecar before relocation", domain.ErrCheckFailed)
+	}
+	entries, err := safepath.ReadDirWithinLimit(m.Root, oldBase+".attachments", maxCompletePullPublicationArtifacts)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil || len(entries) != 0 {
+		return fmt.Errorf("%w: old Confluence attachment bodies lack primary ownership evidence; preserve and reconcile them before relocation", domain.ErrCheckFailed)
+	}
+	return nil
+}
+
 func (m *Mirror) planConfluenceAttachmentRelocation(plan *PageRelocation, oldBase string, state SyncState, metadata []byte) error {
 	sidecarPath := oldBase + ".attachments.json"
-	sidecarBytes, sidecarErr := safepath.ReadFileWithin(m.Root, sidecarPath)
+	sidecarCurrent, sidecarBytes, sidecarFound, sidecarErr := m.readQualifiedConfluenceAttachmentSidecar(sidecarPath)
+	if sidecarErr != nil {
+		return fmt.Errorf("%w: inspect Confluence relocation attachment evidence", domain.ErrCheckFailed)
+	}
 	expectedBodies := map[string]string{}
-	if sidecarErr == nil {
+	if sidecarFound {
 		attachments, decodeErr := DecodeAttachmentSidecarV1(sidecarBytes)
 		binding, found, bindingErr := m.BackendBinding(CorpusSnapshotConfluence)
 		if bindingErr != nil {
@@ -174,12 +204,13 @@ func (m *Mirror) planConfluenceAttachmentRelocation(plan *PageRelocation, oldBas
 			attachments.NativeSHA256 != state.Hash || attachments.MetadataSHA256 != Hash(metadata) {
 			return fmt.Errorf("%w: Confluence relocation attachment evidence does not prove ownership by the old page", domain.ErrCheckFailed)
 		}
-		plan.owned = append(plan.owned, pageRelocationArtifact{path: sidecarPath, hash: Hash(sidecarBytes)})
+		plan.owned = append(plan.owned, pageRelocationArtifact{path: sidecarPath, hash: sidecarCurrent.SHA256, size: int64(len(sidecarBytes)), mode: 0o600})
 		rootRelative, err := filepath.Rel(m.Root, oldBase)
 		if err != nil {
 			return fmt.Errorf("%w: qualify Confluence relocation attachment root", domain.ErrCheckFailed)
 		}
 		bodyPrefix := filepath.ToSlash(rootRelative) + ".attachments/"
+		var attachmentBytes int64
 		for _, attachment := range attachments.Attachments {
 			if attachment.Body.State != AttachmentBodyCaptured {
 				continue
@@ -189,24 +220,27 @@ func (m *Mirror) planConfluenceAttachmentRelocation(plan *PageRelocation, oldBas
 				return fmt.Errorf("%w: Confluence relocation attachment body is outside the old page", domain.ErrCheckFailed)
 			}
 			absolute := filepath.Join(m.Root, filepath.FromSlash(bodyPath))
-			body, readErr := safepath.ReadFileWithin(m.Root, absolute)
+			if attachment.Body.Size < 0 || attachment.Body.Size > maxCompletePullPublicationBytes-attachmentBytes {
+				return fmt.Errorf("%w: Confluence relocation attachment bodies exceed the publication bound", domain.ErrCheckFailed)
+			}
+			body, readErr := m.readQualifiedConfluenceAttachmentBody(bodyPath, attachment.Body.Size)
 			if readErr != nil || int64(len(body)) != attachment.Body.Size || Hash(body) != attachment.Body.SHA256 {
 				return fmt.Errorf("%w: Confluence relocation attachment body is missing or changed", domain.ErrCheckFailed)
 			}
-			plan.owned = append(plan.owned, pageRelocationArtifact{path: absolute, hash: attachment.Body.SHA256})
+			attachmentBytes += attachment.Body.Size
+			plan.owned = append(plan.owned, pageRelocationArtifact{path: absolute, hash: attachment.Body.SHA256, size: attachment.Body.Size, mode: 0o600})
 			expectedBodies[filepath.Base(absolute)] = attachment.Body.SHA256
 		}
-	} else if !os.IsNotExist(sidecarErr) {
-		return fmt.Errorf("%w: inspect Confluence relocation attachment evidence", domain.ErrCheckFailed)
 	}
 	plan.attachmentDir = oldBase + ".attachments"
-	entries, readDirErr := safepath.ReadDirWithin(m.Root, plan.attachmentDir)
+	entries, readDirErr := safepath.ReadDirWithinLimit(m.Root, plan.attachmentDir, maxCompletePullPublicationArtifacts)
 	if readDirErr == nil {
 		if len(entries) != len(expectedBodies) {
 			return fmt.Errorf("%w: Confluence relocation attachment directory differs from its ownership inventory", domain.ErrCheckFailed)
 		}
 		for _, entry := range entries {
-			if entry.IsDir() {
+			info, infoErr := entry.Info()
+			if infoErr != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
 				return fmt.Errorf("%w: Confluence relocation attachment directory contains an unowned entry", domain.ErrCheckFailed)
 			}
 			if _, present := expectedBodies[entry.Name()]; !present {
@@ -219,6 +253,47 @@ func (m *Mirror) planConfluenceAttachmentRelocation(plan *PageRelocation, oldBas
 		return fmt.Errorf("%w: Confluence relocation attachment directory is missing", domain.ErrCheckFailed)
 	}
 	return nil
+}
+
+// PageRelocationHasConfluenceAttachmentCapture reports whether plan includes
+// an ownership-proven private Confluence attachment sidecar. A non-complete
+// pull cannot retire that set atomically with its replacement state, so the app
+// uses this fact to stop before it changes the canonical path.
+func (m *Mirror) PageRelocationHasConfluenceAttachmentCapture(plan *PageRelocation) bool {
+	if m == nil || plan == nil {
+		return false
+	}
+	for _, owned := range plan.owned {
+		if owned.mode == 0o600 && strings.HasSuffix(filepath.ToSlash(owned.path), ".attachments.json") {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Mirror) pageRelocationArtifactMatches(artifact pageRelocationArtifact) bool {
+	var (
+		got []byte
+		err error
+	)
+	if artifact.mode != 0 {
+		maximum := confluenceAttachmentArtifactLimit(artifact.path)
+		current, data, found, currentErr := m.readQualifiedConfluenceAttachmentPrivate(artifact.path, maximum)
+		if currentErr != nil || !found || current.Mode != uint32(artifact.mode.Perm()) || int64(len(data)) != artifact.size {
+			return false
+		}
+		got = data
+	} else {
+		got, err = safepath.ReadFileWithin(m.Root, artifact.path)
+	}
+	if err != nil || Hash(got) != artifact.hash {
+		return false
+	}
+	if artifact.mode == 0 {
+		return true
+	}
+	info, infoErr := safepath.StatWithin(m.Root, artifact.path)
+	return infoErr == nil && info.Mode().IsRegular() && info.Mode().Perm() == artifact.mode
 }
 
 // RetirePageRelocation revalidates the reviewed source hashes, then removes
@@ -248,12 +323,10 @@ func (m *Mirror) RetirePageRelocation(plan *PageRelocation) error {
 	if err != nil || json.Unmarshal(newMetaBytes, &newMeta) != nil || newMeta.ID != plan.id || newMeta.Version != newState.Version || newMeta.Hash != newState.Hash {
 		return fmt.Errorf("%w: relocation replacement metadata %s does not prove the canonical page state; preserving old artifacts", domain.ErrCheckFailed, newMetaPath)
 	}
-	artifacts := []struct{ path, hash string }{
-		{plan.oldCSF, plan.csfHash}, {plan.oldMD, plan.mdHash}, {plan.oldMeta, plan.metaHash},
+	artifacts := []pageRelocationArtifact{
+		{path: plan.oldCSF, hash: plan.csfHash}, {path: plan.oldMD, hash: plan.mdHash}, {path: plan.oldMeta, hash: plan.metaHash},
 	}
-	for _, owned := range plan.owned {
-		artifacts = append(artifacts, struct{ path, hash string }{owned.path, owned.hash})
-	}
+	artifacts = append(artifacts, plan.owned...)
 	// Preserve directory ownership before removing the primary meta. Otherwise
 	// a later page with the same slug could inherit this page's retained
 	// comments/assets/unrelated files. The marker is intentionally local-only.
@@ -272,8 +345,7 @@ func (m *Mirror) RetirePageRelocation(plan *PageRelocation) error {
 	// present at retirement time preserves all three reconciliation inputs.
 	if plan.sourcePresent {
 		for _, artifact := range artifacts {
-			got, err := safepath.ReadFileWithin(m.Root, artifact.path)
-			if err != nil || Hash(got) != artifact.hash {
+			if !m.pageRelocationArtifactMatches(artifact) {
 				return fmt.Errorf("%w: relocation source changed before retirement: %s; preserve and reconcile the old artifact manually", domain.ErrCheckFailed, artifact.path)
 			}
 		}
@@ -284,8 +356,7 @@ func (m *Mirror) RetirePageRelocation(plan *PageRelocation) error {
 			// Re-read immediately before each removal. The mirror lock serializes
 			// atl operations, while this narrow check also refuses a late external
 			// edit.
-			got, err := safepath.ReadFileWithin(m.Root, artifact.path)
-			if err != nil || Hash(got) != artifact.hash {
+			if !m.pageRelocationArtifactMatches(artifact) {
 				return fmt.Errorf("%w: relocation source changed before retirement: %s; preserve and reconcile the old artifact manually", domain.ErrCheckFailed, artifact.path)
 			}
 			if err := safepath.RemoveWithin(m.Root, artifact.path); err != nil && !os.IsNotExist(err) {

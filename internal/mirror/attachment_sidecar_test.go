@@ -2,6 +2,7 @@ package mirror
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -192,6 +193,32 @@ func TestAttachmentSidecarV1RejectsBindingAndBodyDrift(t *testing.T) {
 			mutate(&value)
 			if _, err := EncodeAttachmentSidecarV1(value); !errors.Is(err, domain.ErrCheckFailed) {
 				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+}
+
+func TestAttachmentSidecarV1DecoderRejectsCollectionExpansion(t *testing.T) {
+	for name, mutate := range map[string]func(*AttachmentSidecarV1){
+		"attachments": func(value *AttachmentSidecarV1) {
+			value.Count = maxAttachmentSidecarRecords + 1
+			value.Attachments = make([]AttachmentSidecarRecord, maxAttachmentSidecarRecords+1)
+		},
+		"partial reasons": func(value *AttachmentSidecarV1) {
+			value.Count = 0
+			value.Attachments = []AttachmentSidecarRecord{}
+			value.PartialReasons = make([]AttachmentPartialReason, maxAttachmentSidecarRecords+17)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			value := jiraAttachmentSidecarFixture()
+			mutate(&value)
+			data, err := json.Marshal(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := DecodeAttachmentSidecarV1(data); !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("decoder expansion error=%v", err)
 			}
 		})
 	}

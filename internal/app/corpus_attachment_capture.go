@@ -16,7 +16,12 @@ import (
 	"github.com/isukharev/atl/internal/safepath"
 )
 
-var errCorpusAttachmentSizeMismatch = errors.New("attachment size mismatch")
+var (
+	errCorpusAttachmentSizeMismatch       = errors.New("attachment size mismatch")
+	errCorpusAttachmentEvidenceIncomplete = errors.New("attachment evidence is incomplete")
+)
+
+const confluenceAttachmentSidecarPreflightReserve = 4 << 10
 
 type corpusAttachmentPayload struct {
 	path mirror.ArtifactPath
@@ -27,6 +32,7 @@ type corpusAttachmentCapture struct {
 	inventoryComplete bool
 	inventoryReason   string
 	bodiesState       mirror.AttachmentBodiesState
+	bodyBytes         int64
 	records           []mirror.AttachmentSidecarRecord
 	partialReasons    []mirror.AttachmentPartialReason
 	payloads          []corpusAttachmentPayload
@@ -44,11 +50,49 @@ func captureCorpusAttachments(
 	options *corpusPullEvidenceOptions,
 	open corpusAttachmentOpen,
 ) (corpusAttachmentCapture, error) {
+	limit := 0
+	if options != nil {
+		limit = options.binding.MaxAttachmentBodiesPerItem
+	}
+	return captureCorpusAttachmentsWithBodyLimit(ctx, root, service, parentID, stem, inventory, options, limit, limit > 0, 0, false, open)
+}
+
+// captureCorpusAttachmentsWithBodyLimit applies a per-parent limit already
+// reserved by the complete-pull transaction planner. Other corpus callers use
+// captureCorpusAttachments and retain the policy-bound limit above.
+func captureCorpusAttachmentsWithBodyLimit(
+	ctx context.Context,
+	root string,
+	service string,
+	parentID string,
+	stem string,
+	inventory domain.AttachmentInventory,
+	options *corpusPullEvidenceOptions,
+	bodyLimit int,
+	enforceBodyLimit bool,
+	bodyByteLimit int64,
+	enforceBodyByteLimit bool,
+	open corpusAttachmentOpen,
+) (corpusAttachmentCapture, error) {
 	if options == nil || !options.binding.Attachments || ctx == nil || options.binding.AttachmentBodies && options.budget == nil {
 		return corpusAttachmentCapture{}, fmt.Errorf("%w: attachment capture policy is unavailable", domain.ErrCheckFailed)
 	}
 	if inventory.Attachments == nil {
 		return corpusAttachmentCapture{}, fmt.Errorf("%w: attachment inventory collection is unavailable", domain.ErrCheckFailed)
+	}
+	// Confluence attachment capture has a narrower durable identity grammar than
+	// the adapter's read-only endpoint grammar. Validate the exact sidecar/body
+	// intersection, all sidecar metadata, and its conservative publication size
+	// before planning or opening a binary body. A late failure here would make a
+	// strict pull consume remote evidence that cannot join its atomic page
+	// transaction.
+	if service == mirror.CorpusSnapshotConfluence {
+		if err := validateConfluenceAttachmentCapturePreflight(parentID, stem, inventory, options); err != nil {
+			return corpusAttachmentCapture{}, err
+		}
+	}
+	if bodyLimit < 0 || bodyByteLimit < 0 {
+		return corpusAttachmentCapture{}, fmt.Errorf("%w: attachment body count policy is invalid", domain.ErrCheckFailed)
 	}
 	attachments := append([]domain.Attachment{}, inventory.Attachments...)
 	sort.Slice(attachments, func(i, j int) bool { return jiraNumericIdentityLess(attachments[i].ID, attachments[j].ID) })
@@ -67,11 +111,70 @@ func captureCorpusAttachments(
 		}
 		capture.partialReasons = append(capture.partialReasons, reason)
 		if !options.binding.AllowPartialEvidence {
-			return corpusAttachmentCapture{}, fmt.Errorf("%w: requested attachment inventory is incomplete", domain.ErrCheckFailed)
+			return corpusAttachmentCapture{}, fmt.Errorf("%w: requested attachment inventory is incomplete: %w", domain.ErrCheckFailed, errCorpusAttachmentEvidenceIncomplete)
 		}
 	}
 	if options.binding.AttachmentBodies {
 		capture.bodiesState = mirror.AttachmentBodiesComplete
+		// The complete-pull page envelope is necessary but not sufficient on a
+		// resumed run: previously committed attachment prefixes already consume
+		// the aggregate policy. Fold the exact remaining aggregate into this
+		// pre-download plan so strict mode cannot fetch a prefix and discover
+		// the exhausted budget only at the next body.
+		remaining := options.budget.remaining()
+		if !enforceBodyByteLimit || remaining < bodyByteLimit {
+			bodyByteLimit = remaining
+			enforceBodyByteLimit = true
+		}
+	}
+	// An oversized allowlisted body is a policy-known partial outcome, not a
+	// transport outcome. Refuse it before any earlier sorted sibling can be
+	// opened in strict mode.
+	if options.binding.AttachmentBodies && !options.binding.AllowPartialEvidence {
+		for _, attachment := range attachments {
+			if corpusAttachmentMediaAllowed(options.binding.AttachmentMediaTypes, attachment.MediaType) && attachment.FileSize > options.binding.MaxAttachmentBytes {
+				return corpusAttachmentCapture{}, fmt.Errorf("%w: requested attachment body exceeds the item policy: %w", domain.ErrCheckFailed, errCorpusAttachmentEvidenceIncomplete)
+			}
+		}
+	}
+	// Decide the per-parent publication subset before opening any binary body.
+	// A strict pull therefore never transfers a prefix that cannot fit its
+	// atomic complete-pull publication. Partial mode records the deterministic
+	// first eligible subset and proves why the remainder was not read.
+	allowedBodies, countLimited, byteLimited, planErr := planCorpusAttachmentBodiesWithLimit(
+		attachments, options, bodyLimit, enforceBodyLimit, bodyByteLimit, enforceBodyByteLimit,
+	)
+	if planErr != nil {
+		return corpusAttachmentCapture{}, planErr
+	}
+	// Reserve the whole deterministic plan before opening its first body. The
+	// budget can be shared by a resumed corpus run, so a second caller cannot
+	// turn an otherwise preflighted strict page into an unstaged prefix between
+	// planning and its binary reads. Failed partial bodies release their own
+	// share below; an aborted strict capture releases the remaining reservation.
+	var reserved int64
+	if options.binding.AttachmentBodies {
+		for _, attachment := range attachments {
+			if allowedBodies[attachment.ID] {
+				reserved += attachment.FileSize
+			}
+		}
+		if !options.budget.reserve(reserved) {
+			return corpusAttachmentCapture{}, fmt.Errorf("%w: attachment body aggregate reservation changed before capture", domain.ErrCheckFailed)
+		}
+	}
+	releaseReserved := func(size int64) {
+		if size <= 0 {
+			return
+		}
+		options.budget.release(size)
+		reserved -= size
+	}
+	releaseCaptureReservation := func() {
+		if reserved > 0 {
+			options.budget.release(reserved)
+			reserved = 0
+		}
 	}
 	for _, attachment := range attachments {
 		record := corpusAttachmentRecord(service, attachment)
@@ -93,7 +196,15 @@ func captureCorpusAttachments(
 			capture.records = append(capture.records, record)
 			continue
 		}
-		if !options.budget.reserve(attachment.FileSize) {
+		if countLimited[attachment.ID] {
+			record.Body = mirror.AttachmentSidecarBody{State: mirror.AttachmentBodyExcluded, Reason: mirror.AttachmentBodyReasonCountLimit}
+			if err := capture.notePartial(options, mirror.AttachmentReasonBodyCountLimit); err != nil {
+				return corpusAttachmentCapture{}, err
+			}
+			capture.records = append(capture.records, record)
+			continue
+		}
+		if byteLimited[attachment.ID] {
 			record.Body = mirror.AttachmentSidecarBody{State: mirror.AttachmentBodyExcluded, Reason: mirror.AttachmentBodyReasonAggregateLimit}
 			if err := capture.notePartial(options, mirror.AttachmentReasonBodyAggregateLimit); err != nil {
 				return corpusAttachmentCapture{}, err
@@ -101,14 +212,18 @@ func captureCorpusAttachments(
 			capture.records = append(capture.records, record)
 			continue
 		}
+		if !allowedBodies[attachment.ID] {
+			releaseCaptureReservation()
+			return corpusAttachmentCapture{}, fmt.Errorf("%w: attachment body plan is incomplete", domain.ErrCheckFailed)
+		}
 		bodyPath, err := mirror.NewPublicArtifactPath(stem + ".attachments/" + attachment.ID + ".body")
 		if err != nil {
-			options.budget.release(attachment.FileSize)
+			releaseCaptureReservation()
 			return corpusAttachmentCapture{}, err
 		}
 		reader, err := open(ctx, attachment)
 		if err != nil {
-			options.budget.release(attachment.FileSize)
+			releaseReserved(attachment.FileSize)
 			reason := mirror.AttachmentBodyReasonFailed
 			state := mirror.AttachmentBodyFailed
 			partial := mirror.AttachmentReasonBodyFailed
@@ -119,6 +234,7 @@ func captureCorpusAttachments(
 			}
 			record.Body = mirror.AttachmentSidecarBody{State: state, Reason: reason}
 			if partialErr := capture.notePartial(options, partial); partialErr != nil {
+				releaseCaptureReservation()
 				return corpusAttachmentCapture{}, errors.Join(partialErr, err)
 			}
 			capture.records = append(capture.records, record)
@@ -127,7 +243,7 @@ func captureCorpusAttachments(
 		data, digest, readErr := streamCorpusAttachment(ctx, root, parentID, attachment.ID, attachment.FileSize, reader)
 		closeErr := reader.Close()
 		if readErr != nil || closeErr != nil {
-			options.budget.release(attachment.FileSize)
+			releaseReserved(attachment.FileSize)
 			bodyReason := mirror.AttachmentBodyReasonFailed
 			partial := mirror.AttachmentReasonBodyFailed
 			if errors.Is(readErr, errCorpusAttachmentSizeMismatch) {
@@ -136,6 +252,7 @@ func captureCorpusAttachments(
 			}
 			record.Body = mirror.AttachmentSidecarBody{State: mirror.AttachmentBodyFailed, Reason: bodyReason}
 			if partialErr := capture.notePartial(options, partial); partialErr != nil {
+				releaseCaptureReservation()
 				return corpusAttachmentCapture{}, errors.Join(partialErr, readErr, closeErr)
 			}
 			capture.records = append(capture.records, record)
@@ -145,6 +262,7 @@ func captureCorpusAttachments(
 			State: mirror.AttachmentBodyCaptured, Path: bodyPath.String(), Size: int64(len(data)), SHA256: digest,
 		}
 		capture.records = append(capture.records, record)
+		capture.bodyBytes += int64(len(data))
 		capture.payloads = append(capture.payloads, corpusAttachmentPayload{path: bodyPath, data: data})
 	}
 	if options.binding.AttachmentBodies && capture.bodiesState == mirror.AttachmentBodiesComplete && !inventory.Complete {
@@ -156,9 +274,144 @@ func captureCorpusAttachments(
 	return capture, nil
 }
 
+// validateConfluenceAttachmentCapturePreflight validates the subset of an
+// adapter inventory that can be made into a durable Confluence sidecar and (if
+// requested) passed to the streamed body path. The adapter deliberately admits
+// opaque IDs for read-only routes, while the existing sidecar and staging path
+// require canonical uint64 identities. Keeping that boundary here prevents an
+// otherwise valid backend read from being misrepresented or fetched and then
+// discarded.
+func validateConfluenceAttachmentCapturePreflight(
+	parentID, stem string,
+	inventory domain.AttachmentInventory,
+	options *corpusPullEvidenceOptions,
+) error {
+	_, err := confluenceAttachmentCapturePublicationReservation(parentID, stem, inventory, options)
+	return err
+}
+
+// confluenceAttachmentCapturePublicationReservation validates every durable
+// sidecar/body field before a binary request and returns the exact provisional
+// sidecar bytes plus the bounded status suffix that a final capture may add.
+// The page transaction planner reserves this amount alongside its known core,
+// macro, and asset bytes before it opens attachment bodies.
+func confluenceAttachmentCapturePublicationReservation(
+	parentID, stem string,
+	inventory domain.AttachmentInventory,
+	options *corpusPullEvidenceOptions,
+) (int64, error) {
+	if options == nil || !options.binding.Attachments || !canonicalPositiveNumericString(parentID) {
+		return 0, fmt.Errorf("%w: Confluence attachment capture identity is invalid", domain.ErrCheckFailed)
+	}
+	capture := corpusAttachmentCapture{
+		inventoryComplete: inventory.Complete,
+		inventoryReason:   inventory.PartialReason,
+		bodiesState:       mirror.AttachmentBodiesNotRequested,
+		records:           make([]mirror.AttachmentSidecarRecord, 0, len(inventory.Attachments)),
+		partialReasons:    []mirror.AttachmentPartialReason{},
+	}
+	if !inventory.Complete {
+		reason := corpusAttachmentInventoryPartialReason(mirror.CorpusSnapshotConfluence, inventory.PartialReason)
+		if reason == "" {
+			return 0, fmt.Errorf("%w: Confluence attachment inventory reason is invalid", domain.ErrCheckFailed)
+		}
+		capture.partialReasons = append(capture.partialReasons, reason)
+	}
+	if options.binding.AttachmentBodies {
+		capture.bodiesState = mirror.AttachmentBodiesComplete
+		if !inventory.Complete {
+			capture.bodiesState = mirror.AttachmentBodiesPartial
+		}
+	}
+	for _, attachment := range inventory.Attachments {
+		if attachment.Version <= 0 || !canonicalPositiveNumericString(attachment.ID) || attachment.ID == parentID {
+			return 0, fmt.Errorf("%w: Confluence attachment capture requires a canonical positive attachment selector", domain.ErrCheckFailed)
+		}
+		// Attachment binaries are addressed by a title/version selector rather
+		// than their opaque inventory id. Sidecar grammar intentionally permits
+		// a broader human filename field, but a body-enabled capture must prove
+		// that this exact title can reach the bounded backend selector before it
+		// plans a body or creates partial evidence.
+		if options.binding.AttachmentBodies && !ValidConfluenceAttachmentDownloadFilename(attachment.Title) {
+			return 0, fmt.Errorf("%w: Confluence attachment capture filename selector is invalid", domain.ErrCheckFailed)
+		}
+		record := corpusAttachmentRecord(mirror.CorpusSnapshotConfluence, attachment)
+		if options.binding.AttachmentBodies {
+			bodyPath, err := mirror.NewPublicArtifactPath(stem + ".attachments/" + attachment.ID + ".body")
+			if err != nil {
+				return 0, fmt.Errorf("%w: Confluence attachment body destination is invalid", domain.ErrCheckFailed)
+			}
+			record.Body = mirror.AttachmentSidecarBody{
+				State: mirror.AttachmentBodyCaptured, Path: bodyPath.String(), Size: attachment.FileSize, SHA256: mirror.Hash(nil),
+			}
+		} else {
+			record.Body = mirror.AttachmentSidecarBody{State: mirror.AttachmentBodyNotRequested}
+		}
+		capture.records = append(capture.records, record)
+	}
+	// A canonical placeholder binding validates the complete sidecar grammar
+	// without depending on a mutable backend binding. The real origin/native/
+	// metadata hashes are still taken from the revalidated page at publication.
+	provisional := mirror.AttachmentSidecarV1{
+		SchemaVersion: mirror.AttachmentSidecarSchemaV1,
+		Service:       mirror.CorpusSnapshotConfluence, OriginSHA256: "sha256:" + mirror.Hash(nil),
+		ParentID: parentID, ParentVersion: 1,
+		NativeSHA256: mirror.Hash(nil), MetadataSHA256: mirror.Hash(nil),
+		InventoryComplete: capture.inventoryComplete, InventoryPartialReason: capture.inventoryReason,
+		BodiesState: capture.bodiesState, Complete: capture.inventoryComplete && capture.bodiesState != mirror.AttachmentBodiesPartial,
+		Count: len(capture.records), PartialReasons: capture.partialReasons, Attachments: capture.records,
+	}
+	encoded, err := mirror.EncodeAttachmentSidecarV1(provisional)
+	if err != nil {
+		return 0, fmt.Errorf("%w: Confluence attachment capture sidecar is invalid", domain.ErrCheckFailed)
+	}
+	if err := mirror.ValidateAttachmentSidecarPublicationData(encoded, confluenceAttachmentSidecarPreflightReserve); err != nil {
+		return 0, fmt.Errorf("%w: Confluence attachment capture sidecar exceeds its pre-download publication bound", domain.ErrCheckFailed)
+	}
+	return int64(len(encoded)) + confluenceAttachmentSidecarPreflightReserve, nil
+}
+
+func planCorpusAttachmentBodiesWithLimit(
+	attachments []domain.Attachment,
+	options *corpusPullEvidenceOptions,
+	limit int,
+	enforceLimit bool,
+	byteLimit int64,
+	enforceByteLimit bool,
+) (map[string]bool, map[string]bool, map[string]bool, error) {
+	allowed := make(map[string]bool, len(attachments))
+	limited := make(map[string]bool)
+	byteLimited := make(map[string]bool)
+	if options == nil || !options.binding.AttachmentBodies || limit < 0 || byteLimit < 0 {
+		return allowed, limited, byteLimited, nil
+	}
+	eligible := 0
+	var plannedBytes int64
+	for _, attachment := range attachments {
+		if !corpusAttachmentMediaAllowed(options.binding.AttachmentMediaTypes, attachment.MediaType) || attachment.FileSize > options.binding.MaxAttachmentBytes {
+			continue
+		}
+		eligible++
+		if !enforceLimit || eligible <= limit {
+			if !enforceByteLimit || attachment.FileSize <= byteLimit-plannedBytes {
+				allowed[attachment.ID] = true
+				plannedBytes += attachment.FileSize
+				continue
+			}
+			byteLimited[attachment.ID] = true
+			continue
+		}
+		limited[attachment.ID] = true
+	}
+	if (len(limited) != 0 || len(byteLimited) != 0) && !options.binding.AllowPartialEvidence {
+		return nil, nil, nil, fmt.Errorf("%w: requested attachment bodies exceed the per-parent publication bound: %w", domain.ErrCheckFailed, errCorpusAttachmentEvidenceIncomplete)
+	}
+	return allowed, limited, byteLimited, nil
+}
+
 func (capture *corpusAttachmentCapture) notePartial(options *corpusPullEvidenceOptions, reason mirror.AttachmentPartialReason) error {
 	if !options.binding.AllowPartialEvidence {
-		return fmt.Errorf("%w: requested attachment body evidence is incomplete", domain.ErrCheckFailed)
+		return fmt.Errorf("%w: requested attachment body evidence is incomplete: %w", domain.ErrCheckFailed, errCorpusAttachmentEvidenceIncomplete)
 	}
 	capture.bodiesState = mirror.AttachmentBodiesPartial
 	for _, existing := range capture.partialReasons {

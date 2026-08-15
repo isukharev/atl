@@ -14,6 +14,10 @@ type CompletePullIncludeAggregate struct {
 	Published int    `json:"published"`
 	Partial   int    `json:"partial"`
 	Reason    string `json:"reason,omitempty"`
+	// BodyBytes is private aggregate accounting for durably published
+	// attachment-body payloads. It is schema-v4-only and never appears in the
+	// public pull result.
+	BodyBytes int64 `json:"body_bytes,omitempty"`
 }
 
 // CompletePullIncludeProgress is stored only in the mutable Confluence
@@ -23,13 +27,38 @@ type CompletePullIncludeProgress struct {
 	EvidenceComplete bool                         `json:"evidence_complete"`
 	Assets           CompletePullIncludeAggregate `json:"assets"`
 	Comments         CompletePullIncludeAggregate `json:"comments"`
+	Attachments      CompletePullIncludeAggregate `json:"attachments,omitempty"`
 }
 
 func validateCompletePullIncludeProgress(value CompletePullIncludeProgress, nextIndex int) error {
+	schema := completePullConfluenceProgressSchema
+	if value.Attachments != (CompletePullIncludeAggregate{}) {
+		schema = completePullConfluenceProgressSchema4
+	}
+	return validateCompletePullIncludeProgressSchema(schema, value, nextIndex)
+}
+
+// validateCompletePullIncludeProgressSchema keeps the attachment aggregate
+// behind the schema that introduced it. Schema v3 is retained for recovery of
+// old checkpoints, not as an extensible envelope for new evidence.
+func validateCompletePullIncludeProgressSchema(schema int, value CompletePullIncludeProgress, nextIndex int) error {
+	if schema != completePullConfluenceProgressSchema && schema != completePullConfluenceProgressSchema4 {
+		return fmt.Errorf("%w: unsupported Confluence complete-pull include schema", domain.ErrCheckFailed)
+	}
+	if schema == completePullConfluenceProgressSchema && value.Attachments != (CompletePullIncludeAggregate{}) {
+		return fmt.Errorf("%w: legacy Confluence complete-pull progress contains attachment evidence", domain.ErrCheckFailed)
+	}
+	if schema == completePullConfluenceProgressSchema4 && value.Attachments == (CompletePullIncludeAggregate{}) {
+		return fmt.Errorf("%w: attachment-aware Confluence complete-pull progress omits attachment evidence", domain.ErrCheckFailed)
+	}
 	for dimension, aggregate := range map[string]CompletePullIncludeAggregate{
-		domain.ConfluencePullIncludeAssets: value.Assets, domain.ConfluencePullIncludeComments: value.Comments,
+		domain.ConfluencePullIncludeAssets:      value.Assets,
+		domain.ConfluencePullIncludeComments:    value.Comments,
+		domain.ConfluencePullIncludeAttachments: value.Attachments,
 	} {
-		if aggregate.Published < 0 || aggregate.Partial < 0 || aggregate.Partial > aggregate.Published || aggregate.Published > nextIndex {
+		if aggregate.Published < 0 || aggregate.Partial < 0 || aggregate.Partial > aggregate.Published || aggregate.Published > nextIndex ||
+			aggregate.BodyBytes < 0 || dimension != domain.ConfluencePullIncludeAttachments && aggregate.BodyBytes != 0 ||
+			aggregate.BodyBytes > 0 && aggregate.Published == 0 {
 			return fmt.Errorf("%w: complete-pull %s include progress is outside its durable prefix", domain.ErrCheckFailed, dimension)
 		}
 		if value.EvidenceComplete && aggregate.Published != 0 && aggregate.Published != nextIndex {
@@ -64,13 +93,15 @@ func validateCompletePullIncludeAdvance(previous CompletePullIncludeProgress, pr
 		return fmt.Errorf("%w: complete-pull include evidence cannot change without advancing its durable prefix", domain.ErrCheckFailed)
 	}
 	for dimension, pair := range map[string][2]CompletePullIncludeAggregate{
-		domain.ConfluencePullIncludeAssets:   {previous.Assets, next.Assets},
-		domain.ConfluencePullIncludeComments: {previous.Comments, next.Comments},
+		domain.ConfluencePullIncludeAssets:      {previous.Assets, next.Assets},
+		domain.ConfluencePullIncludeComments:    {previous.Comments, next.Comments},
+		domain.ConfluencePullIncludeAttachments: {previous.Attachments, next.Attachments},
 	} {
 		before, after := pair[0], pair[1]
 		publishedDelta := after.Published - before.Published
 		partialDelta := after.Partial - before.Partial
-		if publishedDelta < 0 || partialDelta < 0 {
+		bodyBytesDelta := after.BodyBytes - before.BodyBytes
+		if publishedDelta < 0 || partialDelta < 0 || bodyBytesDelta < 0 {
 			return fmt.Errorf("%w: complete-pull %s include evidence cannot be erased", domain.ErrCheckFailed, dimension)
 		}
 		if publishedDelta > delta || partialDelta > publishedDelta {
@@ -78,6 +109,12 @@ func validateCompletePullIncludeAdvance(previous CompletePullIncludeProgress, pr
 		}
 		if partialDelta == 0 && after.Reason != before.Reason {
 			return fmt.Errorf("%w: complete-pull %s include reason changed without new partial evidence", domain.ErrCheckFailed, dimension)
+		}
+		if dimension != domain.ConfluencePullIncludeAttachments && bodyBytesDelta != 0 {
+			return fmt.Errorf("%w: complete-pull %s include body accounting is invalid", domain.ErrCheckFailed, dimension)
+		}
+		if dimension == domain.ConfluencePullIncludeAttachments && bodyBytesDelta != 0 && publishedDelta == 0 {
+			return fmt.Errorf("%w: complete-pull attachment body accounting cannot change without a newly durable page", domain.ErrCheckFailed)
 		}
 	}
 	return nil
@@ -103,10 +140,19 @@ func applyCompletePullIncludeEvidence(progress *CompletePullIncludeProgress, val
 	}
 	for _, value := range values {
 		aggregate := &progress.Assets
-		if value.Dimension == domain.ConfluencePullIncludeComments {
+		switch value.Dimension {
+		case domain.ConfluencePullIncludeComments:
 			aggregate = &progress.Comments
+		case domain.ConfluencePullIncludeAttachments:
+			aggregate = &progress.Attachments
 		}
 		aggregate.Published++
+		if value.BodyBytes > 0 {
+			if aggregate.BodyBytes > (1<<63-1)-value.BodyBytes {
+				return fmt.Errorf("%w: complete-pull attachment body accounting overflows", domain.ErrCheckFailed)
+			}
+			aggregate.BodyBytes += value.BodyBytes
+		}
 		if value.Qualification == domain.ConfluencePullIncludePartial {
 			aggregate.Partial++
 			aggregate.Reason = value.Reason

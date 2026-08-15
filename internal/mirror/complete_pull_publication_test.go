@@ -124,6 +124,31 @@ func TestCompletePullPublicationRecoversEveryArtifactAndAcceptanceBoundary(t *te
 	}
 }
 
+func TestCompletePullPublicationArtifactSlotsReserveReplacementAndRetirement(t *testing.T) {
+	m := New(t.TempDir())
+	// This mirrors the public per-page envelope: 1,024 resolved assets, 512
+	// new bodies, and 512 qualified old-body retirements leave 506 slots after
+	// the six fixed replacement artifacts (native/view/meta/base/macro/sidecar).
+	slots, err := m.CompletePullPublicationArtifactSlots(1_030, 512)
+	if err != nil || slots != 506 {
+		t.Fatalf("slots=%d error=%v", slots, err)
+	}
+	if _, err := m.CompletePullPublicationArtifactSlots(maxCompletePullPublicationArtifacts, 1); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("over-bound error=%v", err)
+	}
+}
+
+func TestCompletePullPublicationPayloadBytesReserveKnownArtifacts(t *testing.T) {
+	m := New(t.TempDir())
+	remaining, err := m.CompletePullPublicationPayloadBytes((128<<20)+1, (64<<20)+4096)
+	if err != nil || remaining != (64<<20)-4097 {
+		t.Fatalf("remaining=%d error=%v", remaining, err)
+	}
+	if _, err := m.CompletePullPublicationPayloadBytes(256<<20, 1); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("over-bound error=%v", err)
+	}
+}
+
 func TestCompletePullPublicationBestEffortViewHasExactAbsentPostcondition(t *testing.T) {
 	m, checkpoint, entry, artifacts := completePullPublicationFixture(t)
 	if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, artifacts, nil); err != nil {
@@ -148,6 +173,147 @@ func TestCompletePullPublicationBestEffortViewHasExactAbsentPostcondition(t *tes
 	if err != nil || !found || len(journal.Entries) != 1 {
 		t.Fatalf("journal=%+v found=%t err=%v", journal, found, err)
 	}
+}
+
+func TestCompletePullPublicationBoundRemovalRechecksQualifiedPreimageAtStaging(t *testing.T) {
+	m, _, _, _ := completePullPublicationFixture(t)
+	path := "DOC/page/page.attachments/7.body"
+	target := filepath.Join(m.Root, filepath.FromSlash(path))
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("owned"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	removal, err := m.ownedConfluenceAttachmentRemoval(path, Hash([]byte("owned")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The planner's hash check is deliberately not enough: a same-path
+	// replacement after planning must remain untouched when publication staging
+	// records its durable preimage.
+	if err := os.WriteFile(target, []byte("replacement"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stage, err := m.completePullPublicationDir(strings.Repeat("d", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(stage, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, stageErr := m.stagePublicationArtifact(CompletePullServiceConfluence, stage, removal, 0, "0123456789abcdef", true, defaultCompletePullPublicationOps()); !errors.Is(stageErr, domain.ErrCheckFailed) {
+		t.Fatalf("staging error=%v", stageErr)
+	}
+	if got, readErr := os.ReadFile(target); readErr != nil || string(got) != "replacement" {
+		t.Fatalf("replacement=%q error=%v", got, readErr)
+	}
+}
+
+func TestCurrentConfluencePublicationBindsPreimageSizeAndAllowsShrinkingReplacement(t *testing.T) {
+	m, checkpoint, entry, artifacts := completePullPublicationFixture(t)
+	entry.Includes = &[]domain.ConfluencePullIncludeEvidence{}
+	target := filepath.Join(m.Root, "DOC", "page", "page.csf")
+	old := []byte("older native body that is intentionally much longer than the replacement")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, old, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, artifacts, nil); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := m.completePullPublicationDir(checkpoint.SelectorSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := os.ReadFile(filepath.Join(dir, "intent.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var intent completePullPublicationIntent
+	if err := decodeCompletePullJSON("intent.json", encoded, &intent); err != nil {
+		t.Fatal(err)
+	}
+	if intent.SchemaVersion != completePullConfluencePublicationSchema7 || len(intent.Artifacts) == 0 ||
+		intent.Artifacts[0].PreSize == nil || *intent.Artifacts[0].PreSize != int64(len(old)) {
+		t.Fatalf("intent=%+v", intent)
+	}
+	if err := m.RecoverCompletePullPublication(checkpoint.SelectorSHA256, checkpoint, true); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(target)
+	if err != nil || !bytes.Equal(got, artifacts[0].Data) {
+		t.Fatalf("shrinking replacement=%q error=%v", got, err)
+	}
+}
+
+func TestPublicationIntentTransitionAndPostconditionUseRecordedSizes(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "artifact"), []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	preSize := int64(3)
+	artifact := completePullPublicationArtifact{
+		Path:    "artifact",
+		Pre:     completePullPublicationPreState{Present: true, SHA256: Hash([]byte("old")), Mode: 0o600},
+		PreSize: &preSize, Payload: "payload-0000", SHA256: Hash([]byte("new")), Size: 3, Mode: 0o600,
+	}
+	if current, err := publicationCurrentForIntentTransition(root, artifact); err != nil || !publicationMatchesPre(current, artifact.Pre) {
+		t.Fatalf("precondition current=%+v error=%v", current, err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "artifact"), []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if current, err := publicationCurrentForIntentTransition(root, artifact); err != nil || !publicationMatchesPost(current, artifact) {
+		t.Fatalf("transition post current=%+v error=%v", current, err)
+	}
+	if current, err := publicationCurrentForIntentPostcondition(root, artifact); err != nil || !publicationMatchesPost(current, artifact) {
+		t.Fatalf("postcondition current=%+v error=%v", current, err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "artifact"), []byte("grown"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := publicationCurrentForIntentPostcondition(root, artifact); err == nil {
+		t.Fatal("grown postcondition was accepted")
+	}
+	if _, err := publicationCurrentForIntentTransition(root, artifact); err == nil {
+		t.Fatal("grown transition was accepted")
+	}
+}
+
+func TestLegacyCurrentConfluencePublicationRecoversWithoutPreimageSizes(t *testing.T) {
+	m, checkpoint, entry, artifacts := completePullPublicationFixture(t)
+	entry.Includes = &[]domain.ConfluencePullIncludeEvidence{}
+	if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, artifacts, nil); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := m.completePullPublicationDir(checkpoint.SelectorSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "intent.json")
+	encoded, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var intent completePullPublicationIntent
+	if err := decodeCompletePullJSON(path, encoded, &intent); err != nil {
+		t.Fatal(err)
+	}
+	intent.SchemaVersion = completePullConfluencePublicationSchema
+	for i := range intent.Artifacts {
+		intent.Artifacts[i].PreSize = nil
+	}
+	rewritten, err := json.MarshalIndent(intent, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := safepath.WriteFileWithin(m.Root, path, append(rewritten, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	assertPublicationRecovered(t, m, checkpoint, entry, artifacts)
 }
 
 func TestCompletePullPublicationStagedPayloadCrashCleansPrivateResidueWithoutCanonicalWrites(t *testing.T) {

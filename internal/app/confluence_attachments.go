@@ -147,8 +147,12 @@ func validateConfluenceAttachmentInventory(inventory domain.AttachmentInventory)
 			return fmt.Errorf("%w: Confluence attachment inventory contains a duplicate attachment id", domain.ErrCheckFailed)
 		}
 		seen[attachment.ID] = struct{}{}
-		if attachment.FileSize < 0 || attachment.Version < 0 {
-			return fmt.Errorf("%w: Confluence attachment inventory contains a negative size or version", domain.ErrCheckFailed)
+		// Older listing-only ports can truthfully expose an attachment identity
+		// without download-selector metadata. Keep that inventory compatibility:
+		// the body-capture path independently requires a positive version before
+		// it issues either a selector revalidation or a binary request.
+		if attachment.FileSize < 0 || attachment.Version < 0 || inventory.Complete && attachment.Version == 0 {
+			return fmt.Errorf("%w: Confluence attachment inventory contains a negative size or invalid version", domain.ErrCheckFailed)
 		}
 	}
 	return nil

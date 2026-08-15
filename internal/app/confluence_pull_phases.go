@@ -188,6 +188,8 @@ func (r *confluencePullRun) fetchPage(id string, prefetch *orderedPagePrefetch) 
 
 func (r *confluencePullRun) preparePage(fetched *confluencePullFetchedPage) (*confluencePullPreparedPage, error) {
 	page := fetched.page
+	allowPartialArtifacts := confluencePullAllowsPartialArtifacts(r.opts)
+	attachmentsRequested := confluencePullAttachmentsRequested(r.opts)
 	refs := []domain.Ref{}
 	assetStage := &stagedConfluenceAssetSink{slug: fetched.slug}
 	includeEvidence := []domain.ConfluencePullIncludeEvidence{}
@@ -249,8 +251,7 @@ func (r *confluencePullRun) preparePage(fetched *confluencePullFetchedPage) (*co
 		}
 		commentInventory, err = r.service.commentInventoryForPage(r.ctx, page, commentOptions)
 		if err != nil {
-			if r.opts.evidence != nil && r.opts.evidence.binding.Comments && r.opts.evidence.binding.AllowPartialEvidence &&
-				errors.Is(err, domain.ErrForbidden) {
+			if allowPartialArtifacts && errors.Is(err, domain.ErrForbidden) {
 				commentInventory = forbiddenConfluenceCommentInventory(page, commentOptions)
 			} else {
 				return nil, r.failConfluencePullIncludeRead(
@@ -280,9 +281,14 @@ func (r *confluencePullRun) preparePage(fetched *confluencePullFetchedPage) (*co
 		if commentsTruncated {
 			r.result.CommentsTruncated = true
 		}
-		if r.opts.evidence != nil && r.opts.evidence.binding.Comments && !r.opts.evidence.binding.AllowPartialEvidence && !commentInventory.Complete {
+		// Historical strict complete pulls already accept anchor-only uncertainty:
+		// the immutable native page and complete comment/thread inventory remain
+		// useful, while the comment sidecar records its incomplete anchors. Keep
+		// that compatibility boundary. The explicit partial-artifact policy expands
+		// completion only to incomplete comment or thread inventory.
+		if r.complete != nil && !allowPartialArtifacts && (!commentInventory.CommentsComplete || !commentInventory.ThreadsComplete) {
 			// Inventory succeeded, so preserve its qualified partial result even
-			// though strict evidence policy stops before local publication. Other
+			// though strict complete-pull policy stops before local publication. Other
 			// dimensions remain deferred: inventory or staging alone is not durable
 			// publication evidence.
 			if err := r.result.recordConfluencePullInclude(ConfluencePullIncludeComments, commentQualification, commentReason); err != nil {
@@ -293,43 +299,136 @@ func (r *confluencePullRun) preparePage(fetched *confluencePullFetchedPage) (*co
 	}
 
 	var attachmentCapture *corpusAttachmentCapture
-	if r.opts.evidence != nil && r.opts.evidence.binding.Attachments {
+	var attachmentInventory domain.AttachmentInventory
+	if attachmentsRequested {
+		if r.opts.evidence == nil || !r.opts.evidence.binding.Attachments {
+			return nil, fmt.Errorf("%w: attachment capture policy is unavailable", domain.ErrCheckFailed)
+		}
 		attachmentOptions := ConfluenceAttachmentInventoryOpts{
 			ExpectedPageVersion: page.Version,
 			MaxPages:            r.opts.evidence.binding.MaxAttachmentPagesPerItem,
 			MaxItems:            r.opts.evidence.binding.MaxAttachmentsPerItem,
 		}
-		attachmentInventory, err := r.service.attachmentInventoryForParent(r.ctx, page.ID, page.Version, attachmentOptions)
-		var inventory domain.AttachmentInventory
+		inventoryResult, err := r.service.attachmentInventoryForParent(r.ctx, page.ID, page.Version, attachmentOptions)
 		if err != nil {
-			if r.opts.evidence.binding.AllowPartialEvidence && errors.Is(err, domain.ErrForbidden) {
-				inventory = domain.AttachmentInventory{Attachments: []domain.Attachment{}, PartialReason: mirror.AttachmentInventoryForbidden}
+			if allowPartialArtifacts && errors.Is(err, domain.ErrForbidden) {
+				attachmentInventory = domain.AttachmentInventory{Attachments: []domain.Attachment{}, PartialReason: mirror.AttachmentInventoryForbidden}
 			} else {
-				return nil, r.failStagedConfluencePullIncludes(
+				return nil, r.failConfluencePullIncludeRead(
+					ConfluencePullIncludeAttachments,
 					stagedConfluencePullIncludeEvidence(assetStage, includeEvidence),
 					fmt.Errorf("pull attachment inventory %s: %w", fetched.id, err),
 				)
 			}
 		} else {
-			inventory = domain.AttachmentInventory{
-				Attachments: attachmentInventory.Attachments, Complete: attachmentInventory.Complete,
-				PartialReason: attachmentInventory.PartialReason,
+			attachmentInventory = domain.AttachmentInventory{
+				Attachments: inventoryResult.Attachments, Complete: inventoryResult.Complete,
+				PartialReason: inventoryResult.PartialReason,
 			}
 		}
+	}
+
+	commentView := confluenceCommentsView{flat: comments, qualified: commentSidecar}
+	mdOpts := confMDViewOptsForCommentsView(r.settings, page, commentView)
+	var jiraMacros *confluenceJiraMacroSidecar
+	if pageNode != nil && r.settings.ExpandJiraMacros {
+		var macroWarnings []string
+		hasJiraMacros := len(mirror.JiraMacroDescriptors(pageNode)) > 0
+		jiraReady, err := r.service.prepareConfluenceJiraMacroPopulation(r.result.Root, hasJiraMacros, r.opts.DryRun)
+		if err != nil {
+			return nil, r.failStagedConfluencePullIncludes(stagedConfluencePullIncludeEvidence(assetStage, includeEvidence), err)
+		}
+		if hasJiraMacros && !jiraReady {
+			macroWarnings = append(macroWarnings, "render: Jira query macro(s) kept as placeholders because qualified Jira read access is unavailable")
+		} else {
+			jiraMacros, macroWarnings = r.service.resolveConfluenceJiraMacros(r.ctx, page.ID, pageNode, r.opts.JiraView)
+		}
+		r.result.Warnings = append(r.result.Warnings, macroWarnings...)
+		mdOpts.JiraMacros = confluenceJiraMacroViews(jiraMacros)
+	} else if pageNode != nil && len(mirror.JiraMacroDescriptors(pageNode)) > 0 && !r.macroOptOutWarned {
+		r.result.Warnings = append(r.result.Warnings, "render: Jira query macro expansion is disabled; placeholders retained and no Jira request was made")
+		r.macroOptOutWarned = true
+	}
+	if attachmentsRequested {
 		stem := strings.TrimSuffix(fetched.rel, ".csf")
-		captured, err := captureCorpusAttachments(r.ctx, r.result.Root, mirror.CorpusSnapshotConfluence, page.ID, stem, inventory, r.opts.evidence,
+		coreCount, coreBytes, countErr := r.completeConfluenceAttachmentCoreArtifactCount(fetched, refs, commentSidecar, comments, commentsTruncated, mdOpts)
+		if countErr != nil {
+			return nil, r.failConfluencePullIncludeRead(
+				ConfluencePullIncludeAttachments,
+				stagedConfluencePullIncludeEvidence(assetStage, includeEvidence),
+				fmt.Errorf("prepare attachment publication bound %s: %w", fetched.id, countErr),
+			)
+		}
+		sidecarBytes, sidecarErr := confluenceAttachmentCapturePublicationReservation(page.ID, stem, attachmentInventory, r.opts.evidence)
+		if sidecarErr != nil {
+			return nil, r.failConfluencePullIncludeRead(
+				ConfluencePullIncludeAttachments,
+				stagedConfluencePullIncludeEvidence(assetStage, includeEvidence),
+				fmt.Errorf("prepare attachment publication bound %s: %w", fetched.id, sidecarErr),
+			)
+		}
+		macroBytes, macroErr := confluenceJiraMacroPublicationBytes(jiraMacros)
+		if macroErr != nil {
+			return nil, r.failConfluencePullIncludeRead(
+				ConfluencePullIncludeAttachments,
+				stagedConfluencePullIncludeEvidence(assetStage, includeEvidence),
+				fmt.Errorf("prepare attachment publication bound %s: %w", fetched.id, macroErr),
+			)
+		}
+		bodyLimit, enforceBodyLimit, bodyByteLimit, enforceBodyByteLimit, limitErr := r.completeAttachmentBodyPublicationLimit(
+			fetched, assetStage, coreCount, coreBytes, macroBytes, sidecarBytes,
+		)
+		if limitErr != nil {
+			return nil, r.failConfluencePullIncludeRead(
+				ConfluencePullIncludeAttachments,
+				stagedConfluencePullIncludeEvidence(assetStage, includeEvidence),
+				fmt.Errorf("prepare attachment publication bound %s: %w", fetched.id, limitErr),
+			)
+		}
+		captured, err := captureCorpusAttachmentsWithBodyLimit(
+			r.ctx, r.result.Root, mirror.CorpusSnapshotConfluence, page.ID, stem, attachmentInventory,
+			r.opts.evidence, bodyLimit, enforceBodyLimit, bodyByteLimit, enforceBodyByteLimit,
 			func(ctx context.Context, attachment domain.Attachment) (io.ReadCloser, error) {
-				return r.service.store.DownloadAttachment(ctx, page.ID, attachment.Title, attachment.Version)
+				return r.service.openRevalidatedConfluenceCorpusAttachment(ctx, page.ID, attachment, r.opts.evidence)
 			})
 		if err != nil {
-			return nil, r.failStagedConfluencePullIncludes(
+			if !allowPartialArtifacts && errors.Is(err, errCorpusAttachmentEvidenceIncomplete) {
+				reason := ConfluencePullIncludeReasonBodyIncomplete
+				if !attachmentInventory.Complete {
+					reason = ConfluencePullIncludeReasonInventoryIncomplete
+				}
+				if recordErr := r.result.recordConfluencePullInclude(ConfluencePullIncludeAttachments, ConfluencePullIncludePartial, reason); recordErr != nil {
+					return nil, errors.Join(err, recordErr)
+				}
+				// Comments and resolved assets were staged only in memory. Once a
+				// strict attachment request prevents the atomic page transaction,
+				// those siblings must not remain reported as merely deferred.
+				return nil, r.failStagedConfluencePullIncludes(
+					stagedConfluencePullIncludeEvidence(assetStage, includeEvidence),
+					fmt.Errorf("%w: requested Confluence attachment evidence is incomplete", domain.ErrCheckFailed),
+				)
+			}
+			return nil, r.failConfluencePullIncludeRead(
+				ConfluencePullIncludeAttachments,
 				stagedConfluencePullIncludeEvidence(assetStage, includeEvidence),
 				fmt.Errorf("pull attachment bodies %s: %w", fetched.id, err),
 			)
 		}
 		attachmentCapture = &captured
+		attachmentQualification := ConfluencePullIncludeQualified
+		attachmentReason := ""
+		if !captured.inventoryComplete {
+			attachmentQualification = ConfluencePullIncludePartial
+			attachmentReason = ConfluencePullIncludeReasonInventoryIncomplete
+		} else if captured.bodiesState == mirror.AttachmentBodiesPartial {
+			attachmentQualification = ConfluencePullIncludePartial
+			attachmentReason = ConfluencePullIncludeReasonBodyIncomplete
+		}
+		includeEvidence = append(includeEvidence, confluencePullAttachmentIncludeEvidence(
+			attachmentQualification, attachmentReason, captured.bodyBytes,
+		))
 	}
-	if r.opts.evidence != nil && (r.opts.evidence.binding.Comments || r.opts.evidence.binding.Attachments) {
+	if r.opts.evidence != nil && (r.opts.evidence.binding.Comments || attachmentsRequested) {
 		current, err := r.service.store.GetMeta(r.ctx, page.ID)
 		if err != nil {
 			cause := fmt.Errorf("revalidate evidence parent %s: %w", fetched.id, err)
@@ -355,34 +454,10 @@ func (r *confluencePullRun) preparePage(fetched *confluencePullFetchedPage) (*co
 		}
 	}
 
-	commentView := confluenceCommentsView{flat: comments, qualified: commentSidecar}
-	mdOpts := confMDViewOptsForCommentsView(r.settings, page, commentView)
-	var jiraMacros *confluenceJiraMacroSidecar
-	if pageNode != nil && r.settings.ExpandJiraMacros {
-		var macroWarnings []string
-		hasJiraMacros := len(mirror.JiraMacroDescriptors(pageNode)) > 0
-		jiraReady, err := r.service.prepareConfluenceJiraMacroPopulation(r.result.Root, hasJiraMacros, r.opts.DryRun)
-		if err != nil {
-			return nil, r.failStagedConfluencePullIncludes(stagedConfluencePullIncludeEvidence(assetStage, includeEvidence), err)
-		}
-		if hasJiraMacros && !jiraReady {
-			macroWarnings = append(macroWarnings, "render: Jira query macro(s) kept as placeholders because qualified Jira read access is unavailable")
-		} else {
-			jiraMacros, macroWarnings = r.service.resolveConfluenceJiraMacros(r.ctx, page.ID, pageNode, r.opts.JiraView)
-		}
-		r.result.Warnings = append(r.result.Warnings, macroWarnings...)
-		mdOpts.JiraMacros = confluenceJiraMacroViews(jiraMacros)
-	} else if pageNode != nil && len(mirror.JiraMacroDescriptors(pageNode)) > 0 && !r.macroOptOutWarned {
-		r.result.Warnings = append(r.result.Warnings, "render: Jira query macro expansion is disabled; placeholders retained and no Jira request was made")
-		r.macroOptOutWarned = true
-	}
-
-	commentEligible := !r.opts.Comments || (commentInventory.CommentsComplete && commentInventory.ThreadsComplete)
-	if r.opts.evidence != nil && r.opts.evidence.binding.Comments {
-		commentEligible = r.opts.evidence.binding.AllowPartialEvidence || commentInventory.Complete
-	}
+	commentEligible := !r.opts.Comments || allowPartialArtifacts ||
+		(commentInventory.CommentsComplete && commentInventory.ThreadsComplete)
 	attachmentEligible := attachmentCapture == nil ||
-		(r.opts.evidence != nil && (r.opts.evidence.binding.AllowPartialEvidence ||
+		(r.opts.evidence != nil && (allowPartialArtifacts ||
 			attachmentCapture.inventoryComplete && attachmentCapture.bodiesState != mirror.AttachmentBodiesPartial))
 	return &confluencePullPreparedPage{
 		confluencePullFetchedPage: fetched,
@@ -393,6 +468,115 @@ func (r *confluencePullRun) preparePage(fetched *confluencePullFetchedPage) (*co
 		completeEligible: commentEligible && attachmentEligible,
 		includeEvidence:  includeEvidence,
 	}, nil
+}
+
+// completeAttachmentBodyPublicationLimit reserves every known non-body
+// artifact and the preflighted attachment sidecar before it opens an optional
+// attachment body. The subsequent capture uses deterministic artifact and byte
+// limits, so strict mode refuses pre-download and partial mode records only
+// the retained inventory prefix.
+func (r *confluencePullRun) completeConfluenceAttachmentCoreArtifactCount(fetched *confluencePullFetchedPage, refs []domain.Ref, sidecar *mirror.ConfluenceCommentsSidecarV2, comments []domain.Comment, truncated bool, mdOpts mirror.MDViewOpts) (int, int64, error) {
+	if r == nil || fetched == nil {
+		return 0, 0, fmt.Errorf("%w: complete attachment publication identity is unavailable", domain.ErrCheckFailed)
+	}
+	var artifacts []mirror.CompletePullArtifact
+	var err error
+	if r.opts.Comments {
+		if sidecar == nil {
+			return 0, 0, fmt.Errorf("%w: complete attachment comment sidecar is unavailable", domain.ErrCheckFailed)
+		}
+		_, artifacts, err = r.mirror.PrepareCompletePullConfluenceComments(fetched.dir, fetched.slug, fetched.page, refs, *sidecar, comments, truncated, mdOpts)
+	} else {
+		_, artifacts, err = r.mirror.PrepareCompletePullView(fetched.dir, fetched.slug, fetched.page, refs, mdOpts)
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	bytes, err := completePullArtifactInputBytes(artifacts)
+	if err != nil {
+		return 0, 0, err
+	}
+	return len(artifacts), bytes, nil
+}
+
+func completePullArtifactInputBytes(artifacts []mirror.CompletePullArtifact) (int64, error) {
+	var total int64
+	for _, artifact := range artifacts {
+		next := int64(len(artifact.Data))
+		if next < 0 || total+next < total {
+			return 0, fmt.Errorf("%w: complete attachment publication bytes overflow", domain.ErrCheckFailed)
+		}
+		total += next
+	}
+	return total, nil
+}
+
+func confluenceJiraMacroPublicationBytes(sidecar *confluenceJiraMacroSidecar) (int64, error) {
+	if sidecar == nil {
+		return 0, nil
+	}
+	data, err := encodeConfluenceJiraMacroSidecar(sidecar)
+	if err != nil {
+		return 0, err
+	}
+	return int64(len(data)), nil
+}
+
+func (r *confluencePullRun) completeAttachmentBodyPublicationLimit(fetched *confluencePullFetchedPage, assets *stagedConfluenceAssetSink, coreArtifacts int, coreBytes, macroBytes, attachmentSidecarBytes int64) (int, bool, int64, bool, error) {
+	if r == nil || r.complete == nil || fetched == nil || assets == nil || r.opts.evidence == nil {
+		return 0, false, 0, false, fmt.Errorf("%w: complete attachment publication policy is unavailable", domain.ErrCheckFailed)
+	}
+	if !r.opts.evidence.binding.AttachmentBodies {
+		return 0, false, 0, false, nil
+	}
+	if coreArtifacts < 0 || coreBytes < 0 || macroBytes < 0 || attachmentSidecarBytes < 0 || assets.bytes < 0 {
+		return 0, false, 0, false, fmt.Errorf("%w: complete attachment publication core artifact bound is invalid", domain.ErrCheckFailed)
+	}
+	// Derive the core count from the exact artifacts prepared above. The macro
+	// sidecar/removal, attachment sidecar, and resolved assets are the only
+	// remaining replacement entries at this point.
+	replacement := coreArtifacts + 1 + 1 + len(assets.assets)
+	retirement := 0
+	retirementBytes := int64(0)
+	var err error
+	if fetched.relocation != nil {
+		retirement, retirementBytes, err = r.mirror.PageRelocationPublicationArtifactFootprint(fetched.relocation)
+	} else {
+		retirement, err = r.mirror.ConfluenceAttachmentBodyRetirementBound(fetched.id, fetched.rel)
+	}
+	if err != nil {
+		return 0, false, 0, false, err
+	}
+	slots, err := r.mirror.CompletePullPublicationArtifactSlots(replacement, retirement)
+	if err != nil {
+		return 0, false, 0, false, err
+	}
+	if configured := r.opts.evidence.binding.MaxAttachmentBodiesPerItem; configured > 0 && slots > configured {
+		slots = configured
+	}
+	knownBytes, err := completePullPublicationKnownBytes(coreBytes, assets.bytes, macroBytes, retirementBytes)
+	if err != nil {
+		return 0, false, 0, false, err
+	}
+	bodyBytes, err := r.mirror.CompletePullPublicationPayloadBytes(knownBytes, attachmentSidecarBytes)
+	if err != nil {
+		return 0, false, 0, false, err
+	}
+	if bodyBytes > confluenceCompletePullMaxAttachmentBodyBytes {
+		bodyBytes = confluenceCompletePullMaxAttachmentBodyBytes
+	}
+	return slots, true, bodyBytes, true, nil
+}
+
+func completePullPublicationKnownBytes(values ...int64) (int64, error) {
+	var total int64
+	for _, value := range values {
+		if value < 0 || total+value < total {
+			return 0, fmt.Errorf("%w: complete attachment publication bytes overflow", domain.ErrCheckFailed)
+		}
+		total += value
+	}
+	return total, nil
 }
 
 func (r *confluencePullRun) revalidatePage(prepared *confluencePullPreparedPage) (*confluencePullRevalidatedPage, error) {
@@ -413,15 +597,49 @@ func (r *confluencePullRun) revalidatePage(prepared *confluencePullPreparedPage)
 	return &confluencePullRevalidatedPage{confluencePullPreparedPage: prepared, current: current}, nil
 }
 
+// prepareCompleteConfluencePageArtifacts produces the exact native and
+// metadata bytes that both the atomic complete publisher and a non-complete
+// attachment-retirement preflight need. It does not touch the mirror.
+func (r *confluencePullRun) prepareCompleteConfluencePageArtifacts(revalidated *confluencePullRevalidatedPage) (mirror.SyncState, []mirror.CompletePullArtifact, error) {
+	if r.opts.Comments {
+		return r.mirror.PrepareCompletePullConfluenceComments(
+			revalidated.dir, revalidated.slug, revalidated.page, revalidated.refs,
+			*revalidated.commentSidecar, revalidated.comments, revalidated.commentsTruncated, revalidated.mdOpts,
+		)
+	}
+	return r.mirror.PrepareCompletePullView(revalidated.dir, revalidated.slug, revalidated.page, revalidated.refs, revalidated.mdOpts)
+}
+
 func (r *confluencePullRun) stagePage(revalidated *confluencePullRevalidatedPage) (*confluencePullStagedPage, error) {
 	if r.complete == nil {
-		if err := revalidated.assetStage.publish(r.mirror, revalidated.dir, revalidated.slug); err != nil {
-			return nil, fmt.Errorf("write staged assets %s: %w", revalidated.id, err)
-		}
 		if _, err := revalidateConfluencePullLocal(r.mirror, revalidated.local); err != nil {
 			action := PullLocalAction{ID: revalidated.id, Path: filepath.ToSlash(revalidated.rel), Status: pullLocalBlocked, Reason: "local_artifacts_changed"}
 			appendPullLocalBlocked(&r.result.LocalSafety, r.opts.DryRun, action)
 			return nil, errors.Join(pullLocalSafetyError("confluence", r.result.LocalSafety), err)
+		}
+		if revalidated.attachmentCapture != nil {
+			return nil, fmt.Errorf("%w: attachment capture requires --complete so its evidence can be published atomically", domain.ErrCheckFailed)
+		}
+		if r.mirror.PageRelocationHasConfluenceAttachmentCapture(revalidated.relocation) {
+			return nil, fmt.Errorf("%w: page %s has a prior attachment capture at its old canonical path; rerun with --complete to relocate it atomically", domain.ErrCheckFailed, revalidated.id)
+		}
+		next, nextArtifacts, nextErr := r.prepareCompleteConfluencePageArtifacts(revalidated)
+		if nextErr != nil {
+			return nil, fmt.Errorf("prepare attachment-retirement preflight %s: %w", revalidated.id, nextErr)
+		}
+		nextMetadata, metadataErr := completePullArtifactData(nextArtifacts, strings.TrimSuffix(next.Path, ".csf")+".meta.json")
+		if metadataErr != nil {
+			return nil, fmt.Errorf("prepare attachment-retirement metadata %s: %w", revalidated.id, metadataErr)
+		}
+		retirements, retirementErr := r.mirror.PlanConfluenceAttachmentCaptureRetirements(revalidated.id, next, nextMetadata)
+		if retirementErr != nil {
+			return nil, fmt.Errorf("prepare attachment-retirement preflight %s: %w", revalidated.id, retirementErr)
+		}
+		if len(retirements) != 0 {
+			return nil, fmt.Errorf("%w: page %s has a prior attachment capture that this non-complete pull would invalidate; rerun with --complete to retire it atomically", domain.ErrCheckFailed, revalidated.id)
+		}
+		if err := revalidated.assetStage.publish(r.mirror, revalidated.dir, revalidated.slug); err != nil {
+			return nil, fmt.Errorf("write staged assets %s: %w", revalidated.id, err)
 		}
 	}
 
@@ -447,23 +665,16 @@ func (r *confluencePullRun) stagePage(revalidated *confluencePullRevalidatedPage
 		return staged, nil
 	}
 
-	var state mirror.SyncState
-	var artifacts []mirror.CompletePullArtifact
-	var err error
-	if r.opts.Comments {
-		state, artifacts, err = r.mirror.PrepareCompletePullConfluenceComments(revalidated.dir, revalidated.slug, revalidated.page, revalidated.refs, *revalidated.commentSidecar, revalidated.comments, revalidated.commentsTruncated, revalidated.mdOpts)
-	} else {
-		state, artifacts, err = r.mirror.PrepareCompletePullView(revalidated.dir, revalidated.slug, revalidated.page, revalidated.refs, revalidated.mdOpts)
-	}
+	state, artifacts, err := r.prepareCompleteConfluencePageArtifacts(revalidated)
 	if err != nil {
 		return nil, fmt.Errorf("prepare complete-pull page %s: %w", revalidated.id, err)
 	}
+	stem := strings.TrimSuffix(state.Path, ".csf")
+	metadata, metadataErr := completePullArtifactData(artifacts, stem+".meta.json")
+	if metadataErr != nil {
+		return nil, fmt.Errorf("prepare attachment metadata %s: %w", revalidated.id, metadataErr)
+	}
 	if revalidated.attachmentCapture != nil {
-		stem := strings.TrimSuffix(state.Path, ".csf")
-		metadata, metadataErr := completePullArtifactData(artifacts, stem+".meta.json")
-		if metadataErr != nil {
-			return nil, fmt.Errorf("prepare attachment metadata %s: %w", revalidated.id, metadataErr)
-		}
 		attachmentArtifacts, attachmentErr := finalizeCorpusAttachmentCapture(
 			r.mirror, mirror.CorpusSnapshotConfluence, stem, revalidated.page.ID, revalidated.page.Version, "",
 			state.Hash, mirror.Hash(metadata), *revalidated.attachmentCapture,
@@ -471,7 +682,20 @@ func (r *confluencePullRun) stagePage(revalidated *confluencePullRevalidatedPage
 		if attachmentErr != nil {
 			return nil, fmt.Errorf("prepare attachment evidence %s: %w", revalidated.id, attachmentErr)
 		}
+		retirements, retirementErr := r.mirror.PlanConfluenceAttachmentBodyRetirements(
+			revalidated.id, state, metadata, attachmentArtifacts,
+		)
+		if retirementErr != nil {
+			return nil, fmt.Errorf("prepare attachment body retirement %s: %w", revalidated.id, retirementErr)
+		}
 		artifacts = append(artifacts, attachmentArtifacts...)
+		artifacts = append(artifacts, retirements...)
+	} else {
+		retirements, retirementErr := r.mirror.PlanConfluenceAttachmentCaptureRetirements(revalidated.id, state, metadata)
+		if retirementErr != nil {
+			return nil, fmt.Errorf("prepare attachment capture retirement %s: %w", revalidated.id, retirementErr)
+		}
+		artifacts = append(artifacts, retirements...)
 	}
 	for _, asset := range revalidated.assetStage.assets {
 		assetPath := filepath.Join(revalidated.dir, revalidated.slug+".assets", asset.name)
@@ -561,6 +785,10 @@ func (r *confluencePullRun) publishPage(staged *confluencePullStagedPage) error 
 		n := staged.commentInventory.Count
 		page.Comments = &n
 	}
+	if staged.attachmentCapture != nil {
+		n := len(staged.attachmentCapture.records)
+		page.Attachments = &n
+	}
 	r.result.Pages = append(r.result.Pages, page)
 	if local := r.qualification.local.byID[staged.id]; local != nil && local.migrates {
 		if r.incremental != nil {
@@ -572,7 +800,12 @@ func (r *confluencePullRun) publishPage(staged *confluencePullStagedPage) error 
 	}
 	if r.complete != nil {
 		if !staged.completeEligible {
-			return fmt.Errorf("%w: complete-pull comments for page %s were not fully qualified; checkpoint remains before this page", domain.ErrCheckFailed, staged.id)
+			dimension := "comments"
+			if staged.attachmentCapture != nil &&
+				(!staged.attachmentCapture.inventoryComplete || staged.attachmentCapture.bodiesState == mirror.AttachmentBodiesPartial) {
+				dimension = "attachments"
+			}
+			return fmt.Errorf("%w: complete-pull %s for page %s were not fully qualified; checkpoint remains before this page", domain.ErrCheckFailed, dimension, staged.id)
 		}
 		if err := r.complete.advance(staged.includeEvidence); err != nil {
 			return err

@@ -14,6 +14,12 @@ import (
 const (
 	AttachmentSidecarSchemaV1      = 1
 	maxAttachmentSidecarFieldBytes = 64 << 10
+	maxAttachmentSidecarRecords    = 10_000
+	// MaxAttachmentSidecarPublicationBytes bounds one encoded attachment
+	// sidecar that can join a complete-pull transaction. App-level planners
+	// reserve an exact preflighted portion of this finite publisher budget
+	// before opening optional attachment bodies.
+	MaxAttachmentSidecarPublicationBytes = 16 << 20
 
 	AttachmentInventoryForbidden   = "forbidden"
 	AttachmentInventoryUnsupported = "unsupported"
@@ -114,6 +120,9 @@ type AttachmentSidecarV1 struct {
 }
 
 func EncodeAttachmentSidecarV1(value AttachmentSidecarV1) ([]byte, error) {
+	if !attachmentSidecarMarshalBounded(value) {
+		return nil, attachmentSidecarError("encoded sidecar exceeds its publication bound")
+	}
 	canonical, err := canonicalAttachmentSidecar(value)
 	if err != nil {
 		return nil, err
@@ -122,7 +131,73 @@ func EncodeAttachmentSidecarV1(value AttachmentSidecarV1) ([]byte, error) {
 	if err != nil {
 		return nil, attachmentSidecarError("encode failed")
 	}
-	return append(data, '\n'), nil
+	data = append(data, '\n')
+	if err := ValidateAttachmentSidecarPublicationData(data, 0); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// ValidateAttachmentSidecarPublicationData bounds the canonical sidecar bytes
+// that can join one complete-pull publication. reserve lets callers reject an
+// otherwise valid provisional sidecar before a later partial-status suffix can
+// make the final sidecar unpublishable.
+func ValidateAttachmentSidecarPublicationData(data []byte, reserve int) error {
+	if reserve < 0 || reserve > MaxAttachmentSidecarPublicationBytes || len(data) > MaxAttachmentSidecarPublicationBytes-reserve {
+		return attachmentSidecarError("encoded sidecar exceeds its publication bound")
+	}
+	return nil
+}
+
+// attachmentSidecarMarshalBounded rejects a source value before json.Marshal
+// can allocate an unbounded escaped representation. JSON may encode one input
+// byte as up to six bytes, so this is deliberately a conservative upper bound;
+// exact canonical bytes are checked again after encoding.
+func attachmentSidecarMarshalBounded(value AttachmentSidecarV1) bool {
+	if len(value.Attachments) > maxAttachmentSidecarRecords || len(value.PartialReasons) > len(value.Attachments)+16 {
+		return false
+	}
+	total := 2048 // fixed object keys, punctuation, indentation, and numerics.
+	addString := func(text string) bool {
+		if len(text) > (MaxAttachmentSidecarPublicationBytes-total-2)/6 {
+			return false
+		}
+		total += 2 + 6*len(text)
+		return true
+	}
+	for _, text := range []string{
+		value.Service, value.OriginSHA256, value.ParentID, value.ParentRevision,
+		value.NativeSHA256, value.MetadataSHA256, value.InventoryPartialReason,
+		string(value.BodiesState),
+	} {
+		if !addString(text) {
+			return false
+		}
+	}
+	for _, reason := range value.PartialReasons {
+		if !addString(string(reason)) {
+			return false
+		}
+	}
+	for _, attachment := range value.Attachments {
+		// Reserve substantially more than the fixed per-record JSON spelling so
+		// the escaped-string bound remains simple and fail-closed.
+		if total > MaxAttachmentSidecarPublicationBytes-1024 {
+			return false
+		}
+		total += 1024
+		for _, text := range []string{
+			attachment.ID, attachment.Filename, attachment.MediaType, attachment.CreatedAt,
+			attachment.Author.ID, attachment.Author.Name, attachment.Author.DisplayName,
+			string(attachment.Body.State), string(attachment.Body.Reason), attachment.Body.Path,
+			attachment.Body.SHA256,
+		} {
+			if !addString(text) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func DecodeAttachmentSidecarV1(data []byte) (AttachmentSidecarV1, error) {
@@ -141,6 +216,13 @@ func canonicalAttachmentSidecar(value AttachmentSidecarV1) (AttachmentSidecarV1,
 	if !validCorpusSnapshotOrigin(value.OriginSHA256) || !validCorpusProviderID(value.ParentID) || !validCorpusSnapshotDigest(value.NativeSHA256) ||
 		!validCorpusSnapshotDigest(value.MetadataSHA256) {
 		return AttachmentSidecarV1{}, attachmentSidecarError("invalid parent binding")
+	}
+	// Keep decoder admission aligned with the writer before copying, mapping, or
+	// sorting either collection. Complete-pull recovery reads sidecars from the
+	// local private tree, but their durable policy is still limited to one
+	// bounded inventory rather than a larger hand-authored legacy payload.
+	if len(value.Attachments) > maxAttachmentSidecarRecords || len(value.PartialReasons) > maxAttachmentSidecarRecords+16 {
+		return AttachmentSidecarV1{}, attachmentSidecarError("attachment collection exceeds the supported bound")
 	}
 	if value.Count != len(value.Attachments) || value.PartialReasons == nil || value.Attachments == nil {
 		return AttachmentSidecarV1{}, attachmentSidecarError("invalid collection")
