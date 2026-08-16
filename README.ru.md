@@ -153,6 +153,8 @@ atl conf diff "$ATL_WORKSPACE_ROOT" -o text
 может хранить строгие ограниченные receipts комментариев и вложений, включая
 body по allowlist. Точные флаги описаны в
 [Jira mirrors](docs/reference/cli/jira-mirrors.md#atl-jira-pull).
+Для большого attachment inventory используйте
+[`jira attachment-bodies`](docs/reference/cli/jira-mirrors.md#atl-jira-attachment-bodies).
 
 Файл `.csf` содержит точный native body Confluence. Соседний `.md` — производное
 представление для чтения и поддерживаемых staging-правок. После изменения

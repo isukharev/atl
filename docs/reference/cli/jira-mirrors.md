@@ -8,6 +8,7 @@ Pull, inspect, reconcile, apply Markdown staging, and guarded native wiki push.
 ## Navigate this reference
 
 - [`atl jira pull`](#atl-jira-pull)
+- [`atl jira attachment-bodies`](#atl-jira-attachment-bodies)
 - [`atl jira status`](#atl-jira-status)
 - [`atl jira snapshot`](#atl-jira-snapshot)
 - [`atl jira reconcile preview` / `atl jira reconcile stage`](#atl-jira-reconcile-preview--atl-jira-reconcile-stage)
@@ -215,6 +216,50 @@ loaded, while all newly written paths use canonical `/` separators.
   }
 }
 ```
+
+## `atl jira attachment-bodies`
+
+Continue an already completed `jira pull --complete --attachments` mirror when
+its qualified attachment inventory is larger than the one-page body envelope.
+This command has no Jira write path: it re-reads one parent and one exact
+attachment selector around each single-attempt binary GET, then commits one
+private body and its successor sidecar through a local recoverable
+transaction.
+
+```bash
+export ATL_READ_ONLY=1
+atl jira attachment-bodies \
+  --into /absolute/path/to/jira-mirror \
+  --attachment-media-type application/pdf \
+  --attachment-media-type application/zip \
+  --max-attachment-bytes 134217728 \
+  --max-transactions 4096
+```
+
+The exact MIME allowlist, `--max-attachment-bytes`, and
+`--max-transactions` are required. The allowlist must cover every attachment
+row in every selected qualified inventory. The per-body limit is at most
+128 MiB. The invocation limit is from 1 through 4,096; each transaction
+captures at most one body. A run that reaches that limit returns a normal
+content-free result with `complete:false`; rerun the identical policy to
+continue its deterministic numeric issue-ID and attachment-ID order.
+
+Before the first body request and before reporting completion, the command
+checks the existing native wiki, private base, raw snapshot, backend binding,
+qualified sidecar, attachment directory, and every already captured body hash.
+It refuses a nonempty primary complete-pull control state, local drift,
+uncovered MIME/size policy, stale body, incomplete inventory, or a changed
+parent/selector before it can attribute a new body. Once its body and successor
+sidecar are durably staged, an interruption resumes that local transition
+without repeating the accepted binary GET. All new sidecars and bodies remain
+mode-`0600`; the staging intent is private and removed only after its
+postcondition is durable.
+
+This continuation intentionally does not turn a many-body issue into a new
+single complete-pull publication. A later `jira pull --complete` may refuse if
+the accumulated private receipt cannot fit its own atomic page-replacement
+bound; preserve the mirror and use an explicitly reviewed refresh strategy
+rather than deleting, truncating, or silently retiring captured evidence.
 
 ## `atl jira status`
 

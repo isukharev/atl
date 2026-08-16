@@ -90,6 +90,10 @@ This compatibility index preserves historical heading links. Canonical prose liv
 
 [Read the canonical section](reference/output/jira.md#jira-mirrors-and-derived-views).
 
+### `jira attachment-bodies`
+
+[Read the canonical section](reference/output/jira.md#jira-attachment-bodies).
+
 ### Confluence mirrors and page operations
 
 [Read the canonical section](reference/output/confluence.md#confluence-mirrors-and-page-operations).

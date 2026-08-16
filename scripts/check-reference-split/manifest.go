@@ -15,8 +15,8 @@ import (
 
 const (
 	manifestSchemaVersion             = 1
-	permanentHistoricalRouteCount     = 150
-	permanentHistoricalRouteInventory = "9a215abf1814b3752506bd020038bdf93198fa890310fb53445f7a0f34e44f3c"
+	permanentHistoricalRouteCount     = 152
+	permanentHistoricalRouteInventory = "f1a150946ef86b40d1617ec5cd9155a5b9f72608baa19031a8d315d51f7ca42b"
 )
 
 type historicalInventory struct {

@@ -250,7 +250,24 @@ func (s *JiraService) openRevalidatedJiraCorpusAttachment(
 	options *corpusPullEvidenceOptions,
 ) (io.ReadCloser, error) {
 	if s == nil || options == nil || !options.binding.AttachmentBodies ||
-		!canonicalPositiveNumericString(issueID) || !canonicalPositiveNumericString(attachment.ID) || attachment.FileSize < 0 {
+		options.binding.MaxAttachmentBytes <= 0 {
+		return nil, fmt.Errorf("%w: Jira attachment capture selector is invalid", domain.ErrCheckFailed)
+	}
+	return s.openRevalidatedJiraAttachmentWithLimit(ctx, issueID, attachment, options.binding.MaxAttachmentBytes)
+}
+
+// openRevalidatedJiraAttachmentWithLimit is the shared exact-selector read
+// boundary for qualified complete pulls and the separate resumable attachment
+// materializer. Both paths retain the same one-request metadata and binary
+// limits; only their independently reviewed local publication envelopes differ.
+func (s *JiraService) openRevalidatedJiraAttachmentWithLimit(
+	ctx context.Context,
+	issueID string,
+	attachment domain.Attachment,
+	maximum int64,
+) (io.ReadCloser, error) {
+	if s == nil || maximum <= 0 || !canonicalPositiveNumericString(issueID) || !canonicalPositiveNumericString(attachment.ID) ||
+		attachment.FileSize < 0 || attachment.FileSize > maximum {
 		return nil, fmt.Errorf("%w: Jira attachment capture selector is invalid", domain.ErrCheckFailed)
 	}
 	revalidator, ok := s.tr.(domain.QualifiedJiraAttachmentDownloadRevalidator)
@@ -276,7 +293,7 @@ func (s *JiraService) openRevalidatedJiraCorpusAttachment(
 		strings.TrimSpace(current.DownPath) == "" {
 		return nil, fmt.Errorf("%w: Jira attachment selector revalidation does not match the qualified inventory", domain.ErrCheckFailed)
 	}
-	binaryBudget, err := domain.NewReadBudget(jiraAttachmentCaptureBinaryAttempts, options.binding.MaxAttachmentBytes)
+	binaryBudget, err := domain.NewReadBudget(jiraAttachmentCaptureBinaryAttempts, maximum)
 	if err != nil {
 		return nil, fmt.Errorf("%w: Jira attachment capture binary budget is invalid", domain.ErrCheckFailed)
 	}

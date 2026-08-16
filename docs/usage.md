@@ -406,6 +406,10 @@ This compatibility index preserves historical heading links. Canonical prose liv
 
 [Read the canonical section](reference/cli/jira-mirrors.md#atl-jira-pull).
 
+### `atl jira attachment-bodies`
+
+[Read the canonical section](reference/cli/jira-mirrors.md#atl-jira-attachment-bodies).
+
 ### `atl jira status`
 
 [Read the canonical section](reference/cli/jira-mirrors.md#atl-jira-status).
