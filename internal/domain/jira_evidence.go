@@ -3,14 +3,27 @@ package domain
 import (
 	"context"
 	"fmt"
+	"strings"
+	"unicode/utf8"
 )
 
 const (
 	JiraCommentReadMaxPages = 100
 	JiraCommentReadMaxItems = 10_000
+	// Jira evidence sidecars use the same durable field envelope in the adapter
+	// and complete-pull owners. Keeping it in domain lets an adapter refuse an
+	// unrepresentable remote record before an app has retained a bounded page.
+	JiraEvidenceIDMaxBytes              = 64
+	JiraCommentEvidenceMetadataMaxBytes = 64 << 10
+	JiraCommentEvidenceBodyMaxBytes     = 64 << 20
+	// JiraCommentReadMaxBytes bounds the conservative encoded size of one
+	// qualified issue comment inventory. It keeps a direct adapter read finite;
+	// complete-pull callers commonly pass a smaller exact transaction budget.
+	JiraCommentReadMaxBytes = int64(256 << 20)
 
 	JiraCommentPartialPageLimit         = "page_limit"
 	JiraCommentPartialItemLimit         = "item_limit"
+	JiraCommentPartialByteLimit         = "byte_limit"
 	JiraCommentPartialPaginationStalled = "pagination_stalled"
 
 	JiraAttachmentPartialFieldUnavailable = "field_unavailable"
@@ -19,12 +32,14 @@ const (
 )
 
 // JiraCommentReadOptions makes the qualified comment read finite at both the
-// response-page and logical-item dimensions. Callers must opt into explicit
-// positive bounds; the legacy Tracker surface supplies the compatibility
-// maxima above.
+// response-page, logical-item, and conservative serialized-byte dimensions.
+// Callers must opt into explicit page/item bounds. MaxBytes zero selects the
+// compatibility maximum above; complete-pull callers pass their exact
+// remaining transaction capacity.
 type JiraCommentReadOptions struct {
 	MaxPages int
 	MaxItems int
+	MaxBytes int64
 }
 
 // JiraCommentInventory distinguishes a proven-empty comment set from a
@@ -65,9 +80,70 @@ type QualifiedJiraAttachmentReader interface {
 	ListJiraAttachmentsQualified(context.Context, string, JiraAttachmentReadOptions) (JiraAttachmentInventory, error)
 }
 
+// JiraAttachmentDownloadEvidence is one immediately revalidated attachment
+// selector. The download reference is opaque adapter metadata: callers bind
+// it to the inventory record before passing it back to Tracker.StreamAttachment.
+type JiraAttachmentDownloadEvidence struct {
+	ParentID   string
+	Attachment Attachment
+}
+
+// QualifiedJiraAttachmentDownloadRevalidator narrows the interval between a
+// qualified attachment inventory and its binary GET. Jira's content URL is an
+// attachment-field attribute, so a body capture must re-read that exact parent
+// field and prove the stable attachment identity still has the same durable
+// metadata before it attributes bytes to the inventory record.
+type QualifiedJiraAttachmentDownloadRevalidator interface {
+	RevalidateJiraAttachmentDownload(context.Context, string, string) (JiraAttachmentDownloadEvidence, error)
+}
+
+// ValidJiraEvidenceParentRevision admits the exact immutable issue revision
+// grammar used by both Jira comments and attachment sidecars.
+func ValidJiraEvidenceParentRevision(value string) bool {
+	return strings.TrimSpace(value) == value && ValidJiraCommentEvidenceMetadata(value, false)
+}
+
+// ValidJiraCommentEvidenceMetadata admits one optional sidecar metadata field.
+func ValidJiraCommentEvidenceMetadata(value string, optional bool) bool {
+	if value == "" {
+		return optional
+	}
+	return strings.TrimSpace(value) != "" && len(value) <= JiraCommentEvidenceMetadataMaxBytes && utf8.ValidString(value)
+}
+
+// ValidJiraCommentEvidenceRecord admits the intersection of the qualified
+// Jira comments reader and the durable comments-sidecar grammar.
+func ValidJiraCommentEvidenceRecord(value Comment) bool {
+	return validJiraEvidenceID(value.ID, false) &&
+		ValidJiraCommentEvidenceMetadata(value.Author, true) &&
+		ValidJiraCommentEvidenceMetadata(value.AuthorName, true) &&
+		ValidJiraCommentEvidenceMetadata(value.AuthorKey, true) &&
+		ValidJiraCommentEvidenceMetadata(value.Created, true) &&
+		ValidJiraCommentEvidenceMetadata(value.Updated, true) &&
+		validJiraEvidenceID(value.ParentID, true) &&
+		len(value.Body) <= JiraCommentEvidenceBodyMaxBytes && utf8.ValidString(value.Body)
+}
+
+func validJiraEvidenceID(value string, optional bool) bool {
+	if value == "" {
+		return optional
+	}
+	if len(value) > JiraEvidenceIDMaxBytes || value[0] == '0' {
+		return false
+	}
+	for index := range value {
+		if value[index] < '0' || value[index] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 func ValidJiraCommentPartialReason(reason string) bool {
 	switch reason {
 	case JiraCommentPartialPageLimit, JiraCommentPartialItemLimit, JiraCommentPartialPaginationStalled:
+		return true
+	case JiraCommentPartialByteLimit:
 		return true
 	}
 	return false
@@ -80,12 +156,18 @@ func ValidateJiraCommentReadOptions(options JiraCommentReadOptions) error {
 	if options.MaxItems <= 0 || options.MaxItems > JiraCommentReadMaxItems {
 		return fmt.Errorf("%w: Jira comment item bound is invalid", ErrUsage)
 	}
+	if options.MaxBytes < 0 || options.MaxBytes > JiraCommentReadMaxBytes {
+		return fmt.Errorf("%w: Jira comment byte bound is invalid", ErrUsage)
+	}
 	return nil
 }
 
 func ValidateJiraCommentInventory(inventory JiraCommentInventory) error {
 	if inventory.Comments == nil {
 		return fmt.Errorf("%w: Jira comment inventory has an unavailable collection", ErrCheckFailed)
+	}
+	if len(inventory.Comments) > JiraCommentReadMaxItems {
+		return fmt.Errorf("%w: Jira comment inventory exceeds the supported item bound", ErrCheckFailed)
 	}
 	if inventory.PageCount <= 0 || inventory.Total < 0 {
 		return fmt.Errorf("%w: Jira comment inventory has invalid counters", ErrCheckFailed)
@@ -116,6 +198,9 @@ func ValidateJiraCommentInventory(inventory JiraCommentInventory) error {
 func ValidateJiraAttachmentInventory(inventory JiraAttachmentInventory) error {
 	if inventory.Attachments == nil {
 		return fmt.Errorf("%w: Jira attachment inventory has an unavailable collection", ErrCheckFailed)
+	}
+	if len(inventory.Attachments) > JiraAttachmentReadMaxItems {
+		return fmt.Errorf("%w: Jira attachment inventory exceeds the supported item bound", ErrCheckFailed)
 	}
 	if inventory.Complete {
 		if inventory.PartialReason != "" {

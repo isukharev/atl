@@ -113,8 +113,8 @@ func assertJiraRelocationRecovered(t *testing.T, m *Mirror, checkpoint CompleteP
 		t.Fatal(err)
 	}
 	journal, found, err := m.loadCompletePullJournal(checkpoint.SelectorSHA256)
-	if err != nil || !found || journal.SchemaVersion != completePullJiraJournalSchema4 || len(journal.Entries) != 1 || journal.Entries[0].Previous == nil {
-		t.Fatalf("schema-4 Jira relocation journal=%+v found=%t err=%v", journal, found, err)
+	if err != nil || !found || journal.SchemaVersion != completePullJiraJournalSchema6 || len(journal.Entries) != 1 || journal.Entries[0].Previous == nil || journal.Entries[0].JiraOptionalEvidence == nil {
+		t.Fatalf("schema-6 Jira relocation journal=%+v found=%t err=%v", journal, found, err)
 	}
 	checkpoint, err = m.RecoverCompletePullJournal(checkpoint.SelectorSHA256, checkpoint, true)
 	if err != nil {

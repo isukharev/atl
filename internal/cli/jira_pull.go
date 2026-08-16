@@ -15,7 +15,10 @@ func jiraPullCmd() *cobra.Command {
 	var jql, project, into string
 	var fields string
 	var limit, maxIssues int
-	var assets, complete, restartComplete, dryRun, overwriteLocal, stashLocal bool
+	var assets, comments, attachments, attachmentBodies, complete, restartComplete, dryRun, overwriteLocal, stashLocal bool
+	var attachmentMediaTypes []string
+	var maxCommentPages, maxComments, maxAttachments int
+	var maxAttachmentBytes, maxTotalAttachmentBytes int64
 	var rf renderFlags
 	cmd := &cobra.Command{
 		Use:   "pull",
@@ -45,6 +48,14 @@ func jiraPullCmd() *cobra.Command {
 					return err
 				}
 			}
+			if err := app.ValidateJiraPullOptionalArtifacts(app.JiraPullOpts{
+				Complete: complete,
+				Comments: comments, MaxCommentPagesPerItem: maxCommentPages, MaxCommentsPerItem: maxComments,
+				Attachments: attachments, AttachmentBodies: attachmentBodies, AttachmentMediaTypes: attachmentMediaTypes,
+				MaxAttachmentsPerItem: maxAttachments, MaxAttachmentBytes: maxAttachmentBytes, MaxTotalAttachmentBytes: maxTotalAttachmentBytes,
+			}); err != nil {
+				return err
+			}
 			override, err := rf.override()
 			if err != nil {
 				return err
@@ -60,6 +71,9 @@ func jiraPullCmd() *cobra.Command {
 			res, err := svc.Pull(cmd.Context(), app.JiraPullOpts{
 				JQL: jql, Project: project, Into: into, Limit: effectiveLimit,
 				MaxIssues: maxIssues, Fields: splitFields(fields), Assets: assets, Complete: complete, RestartComplete: restartComplete,
+				Comments: comments, MaxCommentPagesPerItem: maxCommentPages, MaxCommentsPerItem: maxComments,
+				Attachments: attachments, AttachmentBodies: attachmentBodies, AttachmentMediaTypes: attachmentMediaTypes,
+				MaxAttachmentsPerItem: maxAttachments, MaxAttachmentBytes: maxAttachmentBytes, MaxTotalAttachmentBytes: maxTotalAttachmentBytes,
 				DryRun: dryRun, OverwriteLocal: overwriteLocal, StashLocal: stashLocal, Render: override,
 			})
 			reportablePartial := res != nil && res.Complete != nil && res.Complete.PartialReason != ""
@@ -108,6 +122,15 @@ func jiraPullCmd() *cobra.Command {
 	cmd.Flags().IntVar(&maxIssues, "max-issues", 0, "required positive selection cap for --complete")
 	cmd.Flags().StringVar(&fields, "fields", "", "extra comma-separated field list to include in JSON snapshots")
 	cmd.Flags().BoolVar(&assets, "assets", false, "also mirror each issue's image attachments into a per-issue <KEY>.assets/ dir and link them from the .md")
+	cmd.Flags().BoolVar(&comments, "comments", false, "capture bounded, qualified Jira comment sidecars for each complete-pull issue")
+	cmd.Flags().IntVar(&maxCommentPages, "max-comment-pages-per-issue", 0, "required bounded comment-page cap for each complete-pull issue")
+	cmd.Flags().IntVar(&maxComments, "max-comments-per-issue", 0, "required bounded comment count cap for each complete-pull issue")
+	cmd.Flags().BoolVar(&attachments, "attachments", false, "capture a bounded, qualified attachment inventory for each complete-pull issue")
+	cmd.Flags().BoolVar(&attachmentBodies, "attachment-bodies", false, "capture allowlisted attachment bodies into contained private .attachments/ files (requires --attachments)")
+	cmd.Flags().StringArrayVar(&attachmentMediaTypes, "attachment-media-type", nil, "exact allowed attachment MIME type (repeatable; requires --attachment-bodies)")
+	cmd.Flags().IntVar(&maxAttachments, "max-attachments-per-issue", 0, "required bounded attachment-inventory cap for each complete-pull issue")
+	cmd.Flags().Int64Var(&maxAttachmentBytes, "max-attachment-bytes", 0, "maximum captured size of one attachment body (requires --attachment-bodies)")
+	cmd.Flags().Int64Var(&maxTotalAttachmentBytes, "max-total-attachment-bytes", 0, "maximum captured attachment-body bytes across the complete pull (requires --attachment-bodies)")
 	cmd.Flags().BoolVar(&complete, "complete", false, "exhaust and resume one exact two-pass project snapshot")
 	cmd.Flags().BoolVar(&restartComplete, "restart-complete", false, "replace an unfinished complete-project snapshot after fresh selection")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "qualify the pull without writing mirror files or state")

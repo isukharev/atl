@@ -33,7 +33,7 @@ func TestListJiraCommentsQualifiedPaginatesAndMapsStableEvidence(t *testing.T) {
 	}
 	if !inventory.Complete || inventory.Total != 2 || !inventory.TotalKnown || inventory.PageCount != 2 ||
 		len(inventory.Comments) != 2 || inventory.Comments[0].AuthorKey != "stable" ||
-		inventory.Comments[0].Updated != "2026-01-02" || inventory.Comments[0].ParentID != "0" {
+		inventory.Comments[0].Updated != "2026-01-02" || inventory.Comments[0].ParentID != "" {
 		t.Fatalf("inventory=%+v", inventory)
 	}
 	if !reflect.DeepEqual(starts, []string{"0", "1"}) {
@@ -67,6 +67,25 @@ func TestListJiraCommentsQualifiedReportsClosedBounds(t *testing.T) {
 	}
 }
 
+func TestListJiraCommentsQualifiedReportsConservativeByteLimit(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		requests++
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"startAt":0,"total":2,"comments":[{"id":"1","body":"one"},{"id":"2","body":"two"}]}`))
+	}))
+	t.Cleanup(server.Close)
+
+	inventory, err := newTestJira(server).ListJiraCommentsQualified(t.Context(), "10001", domain.JiraCommentReadOptions{
+		MaxPages: 2, MaxItems: 2, MaxBytes: 300,
+	})
+	if err != nil || inventory.Complete || inventory.PartialReason != domain.JiraCommentPartialByteLimit ||
+		inventory.Total != 2 || !inventory.TotalKnown || inventory.PageCount != 1 || len(inventory.Comments) != 1 ||
+		inventory.Comments[0].ID != "1" || requests != 1 {
+		t.Fatalf("inventory=%+v requests=%d error=%v", inventory, requests, err)
+	}
+}
+
 func TestListJiraCommentsQualifiedRejectsMalformedIdentity(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
@@ -74,6 +93,18 @@ func TestListJiraCommentsQualifiedRejectsMalformedIdentity(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	inventory, err := newTestJira(server).ListJiraCommentsQualified(t.Context(), "10001", domain.JiraCommentReadOptions{MaxPages: 1, MaxItems: 2})
+	if !errors.Is(err, domain.ErrCheckFailed) || inventory.Comments != nil {
+		t.Fatalf("inventory=%+v error=%v", inventory, err)
+	}
+}
+
+func TestListJiraCommentsQualifiedRejectsSidecarUnrepresentableRecord(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"startAt":0,"total":1,"comments":[{"id":"opaque-comment","body":"one"}]}`))
+	}))
+	t.Cleanup(server.Close)
+	inventory, err := newTestJira(server).ListJiraCommentsQualified(t.Context(), "10001", domain.JiraCommentReadOptions{MaxPages: 1, MaxItems: 1})
 	if !errors.Is(err, domain.ErrCheckFailed) || inventory.Comments != nil {
 		t.Fatalf("inventory=%+v error=%v", inventory, err)
 	}
@@ -140,5 +171,40 @@ func TestListJiraAttachmentsQualifiedReportsItemLimit(t *testing.T) {
 	inventory, err := newTestJira(server).ListJiraAttachmentsQualified(t.Context(), "10001", domain.JiraAttachmentReadOptions{MaxItems: 1})
 	if err != nil || inventory.Complete || inventory.PartialReason != domain.JiraAttachmentPartialItemLimit || len(inventory.Attachments) != 1 {
 		t.Fatalf("inventory=%+v error=%v", inventory, err)
+	}
+}
+
+func TestRevalidateJiraAttachmentDownloadBindsOneCurrentRecord(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/rest/api/2/issue/10001" || request.URL.Query().Get("fields") != "attachment" {
+			t.Fatalf("request=%s?%s", request.URL.Path, request.URL.RawQuery)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"id":"10001","fields":{"attachment":[{"id":"7","filename":"a.bin","mimeType":"application/octet-stream","size":3,"created":"2026-01-01","content":"/secure/attachment/7/a.bin","author":{"name":"user","key":"stable","displayName":"Fixture"}}]}}`))
+	}))
+	t.Cleanup(server.Close)
+
+	evidence, err := newTestJira(server).RevalidateJiraAttachmentDownload(t.Context(), "10001", "7")
+	if err != nil || evidence.ParentID != "10001" || evidence.Attachment.ID != "7" || evidence.Attachment.DownPath != "/secure/attachment/7/a.bin" {
+		t.Fatalf("evidence=%+v error=%v", evidence, err)
+	}
+}
+
+func TestRevalidateJiraAttachmentDownloadRejectsUnavailableOrMissingSelector(t *testing.T) {
+	for name, response := range map[string]string{
+		"unavailable": `{"id":"10001","fields":{"attachment":null}}`,
+		"missing":     `{"id":"10001","fields":{"attachment":[]}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				_, _ = writer.Write([]byte(response))
+			}))
+			t.Cleanup(server.Close)
+			_, err := newTestJira(server).RevalidateJiraAttachmentDownload(t.Context(), "10001", "7")
+			if !errors.Is(err, domain.ErrCheckFailed) && !errors.Is(err, domain.ErrNotFound) {
+				t.Fatalf("error=%v", err)
+			}
+		})
 	}
 }

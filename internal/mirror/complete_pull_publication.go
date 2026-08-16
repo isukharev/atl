@@ -17,6 +17,8 @@ const (
 	completePullPublicationSchema            = 2 // legacy Confluence schema; bytes are immutable
 	completePullJiraPublicationSchema        = 3 // legacy Jira schema without stable sidecar identity/relocation
 	completePullJiraPublicationSchema4       = 4
+	completePullJiraPublicationSchema5       = 5 // bounded durable pre-images for qualified auxiliary retirement
+	completePullJiraPublicationSchema6       = 6 // exact Jira optional-evidence receipts
 	completePullConfluencePublicationSchema  = 5 // legacy current schema without attachment evidence
 	completePullConfluencePublicationSchema6 = 6 // attachment evidence without bounded retirement preimages
 	completePullConfluencePublicationSchema7 = 7 // current include evidence with bounded durable preimages
@@ -665,6 +667,16 @@ func (m *Mirror) prepareCompletePullPublicationWithJira(checkpoint CompletePullC
 		if err := validateJiraCompletePullPayloads(entry, artifacts); err != nil {
 			return fmt.Errorf("%w: %v", domain.ErrCheckFailed, err)
 		}
+		if entry.State.Identity != "" || entry.Previous != nil {
+			evidence, evidenceErr := completePullJiraOptionalEvidenceFromArtifacts(entry, artifacts)
+			if evidenceErr != nil {
+				return fmt.Errorf("%w: %v", domain.ErrCheckFailed, evidenceErr)
+			}
+			if entry.JiraOptionalEvidence != nil && *entry.JiraOptionalEvidence != evidence {
+				return fmt.Errorf("%w: Jira complete-pull optional evidence does not match staged artifacts", domain.ErrCheckFailed)
+			}
+			entry.JiraOptionalEvidence = &evidence
+		}
 	}
 	dir, err := m.completePullPublicationDir(checkpoint.SelectorSHA256)
 	if err != nil {
@@ -695,7 +707,9 @@ func (m *Mirror) prepareCompletePullPublicationWithJira(checkpoint CompletePullC
 	sequence := 0
 	var total int64
 	for _, artifact := range artifacts {
-		prepared, prepErr := m.stagePublicationArtifact(checkpoint.Service, dir, artifact, sequence, intent.WriteToken, intent.SchemaVersion == completePullConfluencePublicationSchema7, ops)
+		persistPreSize := intent.SchemaVersion == completePullConfluencePublicationSchema7 ||
+			(checkpoint.Service == CompletePullServiceJira && (intent.SchemaVersion == completePullJiraPublicationSchema5 || intent.SchemaVersion == completePullJiraPublicationSchema6))
+		prepared, prepErr := m.stagePublicationArtifact(checkpoint.Service, dir, artifact, sequence, intent.WriteToken, persistPreSize, ops)
 		if prepErr != nil {
 			return prepErr
 		}
@@ -708,7 +722,9 @@ func (m *Mirror) prepareCompletePullPublicationWithJira(checkpoint CompletePullC
 	if len(retirement) > 0 {
 		intent.Relocation = &completePullPublicationRelocation{Artifacts: make([]completePullPublicationArtifact, 0, len(retirement))}
 		for _, artifact := range retirement {
-			prepared, prepErr := m.stagePublicationArtifact(checkpoint.Service, dir, artifact, sequence, intent.WriteToken, intent.SchemaVersion == completePullConfluencePublicationSchema7, ops)
+			persistPreSize := intent.SchemaVersion == completePullConfluencePublicationSchema7 ||
+				(checkpoint.Service == CompletePullServiceJira && (intent.SchemaVersion == completePullJiraPublicationSchema5 || intent.SchemaVersion == completePullJiraPublicationSchema6))
+			prepared, prepErr := m.stagePublicationArtifact(checkpoint.Service, dir, artifact, sequence, intent.WriteToken, persistPreSize, ops)
 			if prepErr != nil {
 				return prepErr
 			}

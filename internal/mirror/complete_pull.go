@@ -28,6 +28,8 @@ const (
 	completePullJournalSchema             = 2 // legacy Confluence schema; bytes are immutable
 	completePullJiraJournalSchema         = 3 // legacy Jira schema without stable sidecar identity/relocation
 	completePullJiraJournalSchema4        = 4
+	completePullJiraJournalSchema5        = 5 // bounded durable pre-images for qualified auxiliary retirement
+	completePullJiraJournalSchema6        = 6 // exact Jira optional-evidence receipts
 	completePullConfluenceJournalSchema   = 5 // legacy current schema without attachment evidence
 	completePullConfluenceJournalSchema6  = 6
 	maxCompletePullJournalEntries         = 25
@@ -87,6 +89,10 @@ type CompletePullJournalEntry struct {
 	View     ViewState                               `json:"view"`
 	Previous *CompletePullPreviousState              `json:"previous,omitempty"`
 	Includes *[]domain.ConfluencePullIncludeEvidence `json:"includes,omitempty"`
+	// JiraOptionalEvidence binds exact optional Jira receipt post-images. A
+	// non-nil empty value explicitly asserts absence; nil remains legacy-wire
+	// compatibility for entries created before this receipt was introduced.
+	JiraOptionalEvidence *CompletePullJiraOptionalEvidence `json:"jira_optional_evidence,omitempty"`
 }
 
 type completePullJournal struct {
@@ -175,10 +181,12 @@ func validateCompletePullJournal(journal completePullJournal, checkpoint Complet
 		if err := validateCompletePullJournalEntry(checkpoint.Service, entry); err != nil {
 			return err
 		}
-		if err := validateCompletePullJiraEntrySchema(journal.SchemaVersion, entry); err != nil {
-			return err
-		}
-		if journal.Service == CompletePullServiceConfluence {
+		switch journal.Service {
+		case CompletePullServiceJira:
+			if err := validateCompletePullJiraEntrySchema(journal.SchemaVersion, entry); err != nil {
+				return err
+			}
+		case CompletePullServiceConfluence:
 			if err := validateCompletePullConfluenceEntrySchema(journal.SchemaVersion, entry); err != nil {
 				return err
 			}
@@ -335,7 +343,7 @@ func (m *Mirror) appendCompletePullJournalOwned(checkpoint CompletePullCheckpoin
 			return fmt.Errorf("%w: complete-pull journal must begin at durable checkpoint progress", domain.ErrCheckFailed)
 		}
 		journal = completePullJournal{
-			SchemaVersion: completePullJournalSchemaForEntry(checkpoint.Service, entry), Service: checkpoint.Service,
+			SchemaVersion: completePullJournalSchemaForPublication(checkpoint.Service, intent.SchemaVersion, entry), Service: checkpoint.Service,
 			SelectorSHA256: checkpoint.SelectorSHA256, OptionsSHA256: checkpoint.OptionsSHA256,
 			SelectionSHA256: checkpoint.SelectionSHA256, StartIndex: index,
 			Entries: []CompletePullJournalEntry{}, WriteToken: ownerToken,
@@ -374,19 +382,19 @@ func (m *Mirror) verifyCompletePullJournalArtifacts(journal completePullJournal)
 	for _, entry := range journal.Entries {
 		state := entry.State
 		nativePath := filepath.Join(m.Root, filepath.FromSlash(state.Path))
-		body, err := safepath.ReadFileWithin(m.Root, nativePath)
+		body, err := safepath.ReadFileWithinLimit(m.Root, nativePath, maxCompletePullPublicationBytes)
 		if err != nil || Hash(body) != state.Hash {
 			return fmt.Errorf("%w: complete-pull journal native artifact for %q is missing or changed", domain.ErrCheckFailed, state.ID)
 		}
 		switch journal.Service {
 		case CompletePullServiceConfluence:
 			metaPath := strings.TrimSuffix(nativePath, ".csf") + ".meta.json"
-			metaBytes, err := safepath.ReadFileWithin(m.Root, metaPath)
+			metaBytes, err := safepath.ReadFileWithinLimit(m.Root, metaPath, maxCompletePullPublicationBytes)
 			var meta Meta
 			if err != nil || json.Unmarshal(metaBytes, &meta) != nil || meta.ID != state.ID || meta.Version != state.Version || meta.Hash != state.Hash {
 				return fmt.Errorf("%w: complete-pull journal metadata for %q does not prove the landed state", domain.ErrCheckFailed, state.ID)
 			}
-			base, present, err := m.ReadBaseBody(state.ID)
+			base, present, err := m.ReadBaseBodyWithinLimit(state.ID, maxCompletePullPublicationBytes)
 			if err != nil || !present || Hash(base) != state.Hash {
 				return fmt.Errorf("%w: complete-pull journal baseline for %q is missing or changed", domain.ErrCheckFailed, state.ID)
 			}
@@ -395,7 +403,7 @@ func (m *Mirror) verifyCompletePullJournalArtifacts(journal completePullJournal)
 			}
 		case CompletePullServiceJira:
 			snapshotPath := strings.TrimSuffix(nativePath, ".wiki") + ".json"
-			snapshotBytes, err := safepath.ReadFileWithin(m.Root, snapshotPath)
+			snapshotBytes, err := safepath.ReadFileWithinLimit(m.Root, snapshotPath, maxJiraCompletePullSnapshotBytes)
 			var snapshot struct {
 				Key    string          `json:"key"`
 				ID     string          `json:"id"`
@@ -405,9 +413,12 @@ func (m *Mirror) verifyCompletePullJournalArtifacts(journal completePullJournal)
 			if err != nil || json.Unmarshal(snapshotBytes, &snapshot) != nil || snapshot.Key != state.ID || snapshot.ID != entry.Identity || json.Unmarshal(snapshot.Fields, &fields) != nil || fields == nil {
 				return fmt.Errorf("%w: complete-pull Jira snapshot for %q does not prove the landed identity", domain.ErrCheckFailed, state.ID)
 			}
-			base, present, err := m.ReadBaseBodyExt(state.ID, ".wiki")
+			base, present, err := m.ReadBaseBodyExtWithinLimit(state.ID, ".wiki", maxCompletePullPublicationBytes)
 			if err != nil || !present || Hash(base) != state.Hash {
 				return fmt.Errorf("%w: complete-pull Jira baseline for %q is missing or changed", domain.ErrCheckFailed, state.ID)
+			}
+			if err := m.verifyJiraCompletePullOptionalArtifacts(entry); err != nil {
+				return fmt.Errorf("%w: complete-pull Jira optional artifacts for %q are missing or changed", domain.ErrCheckFailed, state.ID)
 			}
 		default:
 			return fmt.Errorf("%w: complete-pull journal service is invalid", domain.ErrCheckFailed)
@@ -514,6 +525,9 @@ func (m *Mirror) RetireCompletePullJournal(checkpoint CompletePullCheckpoint) er
 	}
 	if journal.StartIndex+len(journal.Entries) != checkpoint.NextIndex {
 		return fmt.Errorf("%w: complete-pull journal is not covered by durable progress", domain.ErrCheckFailed)
+	}
+	if err := m.verifyCompletePullJournalArtifacts(journal); err != nil {
+		return err
 	}
 	return m.removeCompletePullJournal(checkpoint.SelectorSHA256)
 }

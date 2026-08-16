@@ -101,10 +101,24 @@ envelope and retain the private checkpoint. The hashes and all counts are conten
 checkpoint and bounded journal contain numeric issue identities and exact local
 publication state, never credentials, backend URLs, titles, descriptions, or
 raw fields. Stable numeric identity may move to a new key/path only through the
-qualified schema-4 relocation transaction. A non-empty legacy asset directory
+qualified current schema-6 relocation transaction. A non-empty legacy asset directory
 without an ownership inventory blocks relocation and is preserved. Completion proves the selected
 project membership, not absence/deletion and not the separate local-integrity
 contract reported by `jira snapshot`.
+
+`--complete --comments` and `--complete --attachments` do not add private
+content to stdout: the `JiraPullResult` and `complete_pull` JSON shapes above
+remain unchanged. They add only bounded mode-`0600` mirror artifacts beside an
+accepted issue: `<KEY>.comments.json`, `<KEY>.attachments.json`, and, when
+`--attachment-bodies` is selected, `<KEY>.attachments/<attachment-id>.body`.
+The sidecars bind backend population, immutable issue ID, parent `updated`
+revision, native hash, and raw-snapshot hash; a captured body also has exact
+path, byte count, and digest evidence. Resume rechecks those receipts before
+restoring aggregate body capacity. If the next complete invocation does not
+select one of these optional kinds, its owned receipt is retired in the same
+publication transaction. Ordinary pull refuses a primary refresh that would
+leave a qualified receipt stale. See the exact flags, strict failure semantics,
+and byte/item caps in [Jira mirrors](../cli/jira-mirrors.md#atl-jira-pull).
 
 When the opt-in `epic_children` render section is enabled, epic issue objects
 gain an `epic_children` count (omitted at zero) and the mirror gains

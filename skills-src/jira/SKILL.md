@@ -377,9 +377,14 @@ shell/workspace configuration implicitly.
   `--limit 0` does not prove exhaustion. Re-run the exact command to resume an
   active checkpoint, or use `--restart-complete` only after preserving local
   edits and intentionally requesting two fresh selection passes. Complete mode
-  currently excludes `--assets` and `epic_children`; never infer deletion from
-  a missing selected identity. Keep the mirror outside the source checkout and
-  never commit `.atl` or corporate mirror content.
+  supports strict bounded `--comments` and `--attachments` receipts; body
+  capture additionally requires an exact MIME allowlist and explicit per-item
+  and aggregate byte bounds. These private sidecars/bodies are atomically
+  replaced or retired by complete mode; an ordinary pull refuses a refresh that
+  would invalidate them. Complete mode still excludes `--assets` and
+  `epic_children`; never infer deletion from a missing selected identity. Keep
+  the mirror outside the source checkout and never commit `.atl` or corporate
+  mirror content.
 - Keep one mirror root and one body surface for the complete cycle. Never mix
   unapplied `.md` edits with direct `.wiki` edits. `.json`, generated metadata,
   comments/links/attachments, sidecars, and `.atl` state are readonly.

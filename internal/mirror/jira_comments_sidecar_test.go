@@ -3,6 +3,7 @@ package mirror
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -117,5 +118,18 @@ func TestJiraCommentsSidecarV1RejectsBindingAndInventoryDrift(t *testing.T) {
 				t.Fatalf("error=%v", err)
 			}
 		})
+	}
+}
+
+func TestJiraCommentsSidecarV1RejectsCollectionExpansionBeforeCopy(t *testing.T) {
+	value := jiraCommentsSidecarFixture()
+	value.Comments = make([]JiraCommentsSidecarComment, domain.JiraCommentReadMaxItems+1)
+	value.Count = len(value.Comments)
+	value.Total = len(value.Comments)
+	for index := range value.Comments {
+		value.Comments[index] = JiraCommentsSidecarComment{ID: fmt.Sprintf("%d", index+1), Body: "x"}
+	}
+	if _, err := canonicalJiraCommentsSidecar(value); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("error=%v", err)
 	}
 }

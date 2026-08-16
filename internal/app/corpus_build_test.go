@@ -62,6 +62,26 @@ func (tracker *corpusBuildJiraTracker) ListJiraAttachmentsQualified(ctx context.
 	return inventory, nil
 }
 
+func (tracker *corpusBuildJiraTracker) RevalidateJiraAttachmentDownload(ctx context.Context, issueID, attachmentID string) (domain.JiraAttachmentDownloadEvidence, error) {
+	if tracker.budgeted {
+		if err := consumeCorpusBuildRead(ctx, 19); err != nil {
+			return domain.JiraAttachmentDownloadEvidence{}, err
+		}
+	}
+	inventory := tracker.attachments
+	inventory.Attachments = append([]domain.Attachment{}, inventory.Attachments...)
+	if issueID == "10" && len(inventory.Attachments) != 0 {
+		inventory.Attachments[0].ID = "8"
+		inventory.Attachments[0].DownPath = "/secure/attachment/8/a.bin"
+	}
+	for _, attachment := range inventory.Attachments {
+		if attachment.ID == attachmentID {
+			return domain.JiraAttachmentDownloadEvidence{ParentID: issueID, Attachment: attachment}, nil
+		}
+	}
+	return domain.JiraAttachmentDownloadEvidence{}, domain.ErrNotFound
+}
+
 func (tracker *corpusBuildJiraTracker) StreamAttachment(ctx context.Context, path string) (io.ReadCloser, error) {
 	if path != "/secure/attachment/7/a.bin" && path != "/secure/attachment/8/a.bin" {
 		return nil, errors.New("unexpected configured fixture attachment reference")

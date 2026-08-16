@@ -34,6 +34,30 @@ func finalizeCorpusAttachmentCapture(
 	if err != nil {
 		return nil, err
 	}
+	return finalizeCorpusAttachmentCaptureForOrigin(
+		origin, service, stem, parentID, parentVersion, parentRevision,
+		nativeSHA256, metadataSHA256, capture,
+	)
+}
+
+// finalizeCorpusAttachmentCaptureForOrigin is the pure publication half of an
+// attachment capture. Complete dry-runs intentionally do not write a mirror
+// binding, but must encode the same sidecar bytes as a committing pull; their
+// configured backend origin is qualified before this function is called.
+func finalizeCorpusAttachmentCaptureForOrigin(
+	origin string,
+	service string,
+	stem string,
+	parentID string,
+	parentVersion int,
+	parentRevision string,
+	nativeSHA256 string,
+	metadataSHA256 string,
+	capture corpusAttachmentCapture,
+) ([]mirror.CompletePullArtifact, error) {
+	if strings.TrimSpace(origin) == "" {
+		return nil, fmt.Errorf("%w: attachment capture origin is invalid", domain.ErrCheckFailed)
+	}
 	complete := capture.inventoryComplete && capture.bodiesState != mirror.AttachmentBodiesPartial
 	sidecar := mirror.AttachmentSidecarV1{
 		SchemaVersion: mirror.AttachmentSidecarSchemaV1,
