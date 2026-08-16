@@ -8,6 +8,7 @@ Jira mirrors, issue evidence and mutations, exports, graphs, references, and rep
 ## Navigate this reference
 
 - [Jira mirrors and derived views](#jira-mirrors-and-derived-views)
+- [`jira attachment-bodies`](#jira-attachment-bodies)
 - [Jira mirror status, apply, and push](#jira-mirror-status-apply-and-push)
 - [Jira exports](#jira-exports)
 - [Exports, tables, and reports](#exports-tables-and-reports)
@@ -166,6 +167,33 @@ and the resolved epic field, in the
 sidecar `views` map only, so a later `apply` can reproduce it), so `status` is
 unchanged before and after. Render-resolution warnings go to **stderr**, never
 stdout.
+
+## `jira attachment-bodies`
+
+`atl jira attachment-bodies` emits one content-free local continuation result:
+
+```json
+{
+  "schema_version": 1,
+  "into": "mirror-jira",
+  "inventories": 12,
+  "pending": 31,
+  "captured": 8,
+  "remaining": 23,
+  "complete": false
+}
+```
+
+`inventories` is the number of qualified existing Jira attachment sidecars;
+`pending` is their deterministic work queue before this invocation; `captured`
+is the number of one-body local transactions committed now; and `remaining`
+is recomputed from fully revalidated private evidence before the result is
+emitted. No issue key, attachment id, filename, path, MIME type, byte count,
+digest, native body, or backend address is included. `complete:true` means no
+sidecar row remains pending under the supplied strict policy. An invocation
+stopped by its caller-selected transaction cap is a normal `complete:false`
+result; safety, local-integrity, selector, or backend-read failures use the
+normal error envelope instead.
 
 ## Jira mirror status, apply, and push
 

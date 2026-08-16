@@ -385,6 +385,15 @@ shell/workspace configuration implicitly.
   `epic_children`; never infer deletion from a missing selected identity. Keep
   the mirror outside the source checkout and never commit `.atl` or corporate
   mirror content.
+- If that completed mirror has a qualified attachment inventory but its bodies
+  exceed the primary page transaction envelope, use the separate
+  `jira attachment-bodies` continuation. Require a repeatable exact MIME
+  allowlist plus explicit `--max-attachment-bytes` and `--max-transactions`;
+  it captures one selector-revalidated private body per local transaction and
+  may be resumed with the identical policy. It has no Jira write path. Do not
+  delete or weaken a stale sidecar/body to make a later complete pull fit; a
+  primary refresh that cannot atomically replace accumulated evidence must
+  fail closed for reviewed reconciliation.
 - Keep one mirror root and one body surface for the complete cycle. Never mix
   unapplied `.md` edits with direct `.wiki` edits. `.json`, generated metadata,
   comments/links/attachments, sidecars, and `.atl` state are readonly.

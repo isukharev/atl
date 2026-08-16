@@ -255,6 +255,7 @@ R diagnostic json,text doctor
 R diagnostic json,text environment inspect
 R prose json,text help
 M local-write-updatable local-direct none none - json,text jira apply
+R remote-pull json,text jira attachment-bodies
 R remote-read json,text,id jira board backlog
 R remote-read json,text,id jira board config
 R remote-read-local json,text jira board export

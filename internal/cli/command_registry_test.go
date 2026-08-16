@@ -72,6 +72,7 @@ doctor
 environment inspect
 help
 jira apply
+jira attachment-bodies
 jira board backlog
 jira board config
 jira board export
@@ -282,8 +283,8 @@ func TestCommandRegistryPreservesReviewedOutputModes(t *testing.T) {
 	}
 	walk(root)
 
-	if leafCount != 174 || textCount != 149 || idCount != 35 {
-		t.Fatalf("leaves/text/id=%d/%d/%d want=174/149/35", leafCount, textCount, idCount)
+	if leafCount != 175 || textCount != 150 || idCount != 35 {
+		t.Fatalf("leaves/text/id=%d/%d/%d want=175/150/35", leafCount, textCount, idCount)
 	}
 	for path := range reviewedTextOutputCommandPaths {
 		if !seen[path] {

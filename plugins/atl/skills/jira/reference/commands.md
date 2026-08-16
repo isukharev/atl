@@ -123,6 +123,7 @@ not display/short URLs, and no page body or backlink query is made.
 | `jira issue attachment upload <KEY>` | Upload an attachment | `--file PATH` |
 | `jira issue images <KEY>` | Download image attachments | `--into DIR` |
 | `jira pull` | Export `.wiki` + `.md` + `.json` per issue | `--jql`, `--into`, aggregate `--limit` (0 all, negative invalid), `--fields`, `--assets`, `--render-profile`, `--render-include`, `--render-exclude` |
+| `jira attachment-bodies` | Resume one-body private materialization from completed qualified attachment inventories | `--into`, repeat exact `--attachment-media-type`, explicit `--max-attachment-bytes` (<=128 MiB), explicit `--max-transactions` (1..4096) |
 | `jira render [DIR\|FILE]` | Regenerate `.md` views offline | `--render-profile`, `--render-include`, `--render-exclude`, `--into` |
 | `jira apply <FILE.md>` | Merge/stage supported generated edits | `--dry-run`, `--allow-loss`, `--rebase-pending`, `--into`, `--render-profile`, `--render-include`, `--render-exclude` |
 | `jira snapshot [DIR]` | Exact content-free mirror health cardinalities | `[DIR]` or `--into`, `--remote` |

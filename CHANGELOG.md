@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with immediate attachment-selector revalidation, MIME-allowlisted bounded
   body capture, resumable aggregate accounting, hash-bound private sidecars,
   and atomic retirement of superseded evidence.
+- Added `atl jira attachment-bodies`, a separately bounded resumable
+  continuation for qualified complete Jira attachment inventories. It captures
+  one revalidated private body per local transaction, preserves strict MIME and
+  size policy, and keeps local recovery separate from the primary page
+  publication envelope.
 - Added the pre-release standalone `agent-eval` support policy with an explicit
   candidate platform, compatibility/deprecation contour, security route, and
   stable-release prerequisites. It does not declare a supported external

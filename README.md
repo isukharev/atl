@@ -137,8 +137,9 @@ atl conf diff "$ATL_WORKSPACE_ROOT" -o text
 `conf pull --complete --space KEY` uses a two-pass bootstrap; [Confluence
 mirrors](docs/reference/cli/confluence-mirrors.md) covers attachments.
 
-Complete Jira mirrors and qualified optional evidence: [Jira
-mirrors](docs/reference/cli/jira-mirrors.md#atl-jira-pull).
+Complete Jira mirrors: [Jira
+mirrors](docs/reference/cli/jira-mirrors.md#atl-jira-pull). Attachments:
+[`jira attachment-bodies`](docs/reference/cli/jira-mirrors.md#atl-jira-attachment-bodies).
 
 `.csf` is the native body; `.md` is its derived staging view. After editing
 Markdown:
